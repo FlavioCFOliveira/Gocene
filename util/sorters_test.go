@@ -2,618 +2,175 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Source: lucene/core/src/test/org/apache/lucene/util/TestIntroSorter.java
-// Source: lucene/core/src/test/org/apache/lucene/util/TestTimSorter.java
-// Purpose: Tests for IntroSorter and TimSorter implementations. Shared sort
-// fixtures (entry, strategies, runSorterTest, assertSorted) live in
-// base_sort_test_case_test.go.
-
 package util
 
 import (
-	"math/rand"
+	"reflect"
 	"testing"
-	"time"
 )
 
-// entryIntroSorter adapts a slice of entries for use with IntroSorter.
-type entryIntroSorter struct {
-	arr   []entry
-	pivot entry
+type testSortable struct {
+	data    []int
+	indices []int
+	pivot   int
 }
 
-func newEntryIntroSorter(arr []entry) *entryIntroSorter {
-	return &entryIntroSorter{arr: arr}
-}
-
-func (s *entryIntroSorter) Compare(i, j int) int {
-	return compareEntry(s.arr[i], s.arr[j])
-}
-
-func (s *entryIntroSorter) Swap(i, j int) {
-	s.arr[i], s.arr[j] = s.arr[j], s.arr[i]
-}
-
-func (s *entryIntroSorter) SetPivot(i int) {
-	s.pivot = s.arr[i]
-}
-
-func (s *entryIntroSorter) ComparePivot(j int) int {
-	return compareEntry(s.pivot, s.arr[j])
-}
-
-func (s *entryIntroSorter) Sort(from, to int) {
-	NewIntroSorter(s).Sort(from, to)
-}
-
-// entryTimSorter adapts a slice of entries for use with TimSorter.
-type entryTimSorter struct {
-	arr []entry
-	tmp []entry
-}
-
-func newEntryTimSorter(arr []entry, maxTempSlots int) *entryTimSorter {
-	tmp := make([]entry, maxTempSlots)
-	return &entryTimSorter{arr: arr, tmp: tmp}
-}
-
-func (s *entryTimSorter) Compare(i, j int) int {
-	return compareEntry(s.arr[i], s.arr[j])
-}
-
-func (s *entryTimSorter) Swap(i, j int) {
-	s.arr[i], s.arr[j] = s.arr[j], s.arr[i]
-}
-
-func (s *entryTimSorter) Copy(src, dest int) {
-	s.arr[dest] = s.arr[src]
-}
-
-func (s *entryTimSorter) Save(i, length int) {
-	for j := 0; j < length && j < len(s.tmp); j++ {
-		s.tmp[j] = s.arr[i+j]
+func (s *testSortable) Compare(i, j int) int {
+	a, b := s.data[s.indices[i]], s.data[s.indices[j]]
+	if a < b {
+		return -1
 	}
-}
-
-func (s *entryTimSorter) Restore(i, j int) {
-	if i < len(s.tmp) {
-		s.arr[j] = s.tmp[i]
-	}
-}
-
-func (s *entryTimSorter) CompareSaved(i, j int) int {
-	if i < len(s.tmp) {
-		return compareEntry(s.tmp[i], s.arr[j])
+	if a > b {
+		return 1
 	}
 	return 0
 }
 
-func (s *entryTimSorter) Sort(from, to int) {}
+func (s *testSortable) Swap(i, j int) {
+	s.indices[i], s.indices[j] = s.indices[j], s.indices[i]
+}
 
-// ==================== IntroSorter Tests ====================
+func (s *testSortable) SetPivot(i int) {
+	s.pivot = s.data[s.indices[i]]
+}
 
-// TestIntroSorter_Empty tests sorting an empty array.
-func TestIntroSorter_Empty(t *testing.T) {
-	arr := []entry{}
-	sorter := newEntryIntroSorter(arr)
-	NewIntroSorter(sorter).Sort(0, 0)
-	if len(arr) != 0 {
-		t.Error("Empty array should remain empty")
+func (s *testSortable) ComparePivot(j int) int {
+	b := s.data[s.indices[j]]
+	if s.pivot < b {
+		return -1
 	}
+	if s.pivot > b {
+		return 1
+	}
+	return 0
 }
 
-// TestIntroSorter_One tests sorting a single element.
-func TestIntroSorter_One(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	runSorterTest(t, r, strategyRandom, 1, func(arr []entry) SorterInterface {
-		return newEntryIntroSorter(arr)
-	})
-}
+func TestIntroSort(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    []int
+		expected []int
+	}{
+		{"empty", []int{}, []int{}},
+		{"single", []int{1}, []int{1}},
+		{"sorted", []int{1, 2, 3, 4, 5}, []int{1, 2, 3, 4, 5}},
+		{"reverse", []int{5, 4, 3, 2, 1}, []int{1, 2, 3, 4, 5}},
+		{"random", []int{3, 1, 4, 1, 5, 9, 2, 6, 5}, []int{1, 1, 2, 3, 4, 5, 5, 6, 9}},
+		{"duplicates", []int{2, 2, 2, 2}, []int{2, 2, 2, 2}},
+	}
 
-// TestIntroSorter_Two tests sorting two elements.
-func TestIntroSorter_Two(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	runSorterTest(t, r, strategyRandomLowCardinality, 2, func(arr []entry) SorterInterface {
-		return newEntryIntroSorter(arr)
-	})
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			indices := make([]int, len(tt.input))
+			for i := range indices {
+				indices[i] = i
+			}
+			s := &testSortable{data: tt.input, indices: indices}
+			NewIntroSorter(s).Sort(0, len(indices))
 
-// TestIntroSorter_Random tests sorting random data.
-func TestIntroSorter_Random(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		runSorterTest(t, r, strategyRandom, length, func(arr []entry) SorterInterface {
-			return newEntryIntroSorter(arr)
+			result := make([]int, len(tt.input))
+			for i, idx := range indices {
+				result[i] = tt.input[idx]
+			}
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("IntroSort() = %v, want %v", result, tt.expected)
+			}
 		})
 	}
 }
 
-// TestIntroSorter_RandomLowCardinality tests sorting with low cardinality values.
-func TestIntroSorter_RandomLowCardinality(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		runSorterTest(t, r, strategyRandomLowCardinality, length, func(arr []entry) SorterInterface {
-			return newEntryIntroSorter(arr)
+type testRadixSortable struct {
+	data    [][]byte
+	indices []int
+	pivot   []byte
+}
+
+func (s *testRadixSortable) Compare(i, j int) int {
+	a, b := s.data[s.indices[i]], s.data[s.indices[j]]
+	res := bytesCompare(a, b)
+	return res
+}
+
+func (s *testRadixSortable) Swap(i, j int) {
+	s.indices[i], s.indices[j] = s.indices[j], s.indices[i]
+}
+
+func (s *testRadixSortable) ByteAt(i, k int) int {
+	ref := s.data[s.indices[i]]
+	if k >= len(ref) {
+		return -1
+	}
+	return int(ref[k])
+}
+
+func (s *testRadixSortable) SetPivot(i int) {
+	s.pivot = s.data[s.indices[i]]
+}
+
+func (s *testRadixSortable) ComparePivot(j int) int {
+	b := s.data[s.indices[j]]
+	return bytesCompare(s.pivot, b)
+}
+
+func TestMSBRadixSort(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    [][]byte
+		expected [][]byte
+	}{
+		{"empty", [][]byte{}, [][]byte{}},
+		{"single", [][]byte{[]byte("a")}, [][]byte{[]byte("a")}},
+		{"sorted", [][]byte{[]byte("a"), []byte("b"), []byte("c")}, [][]byte{[]byte("a"), []byte("b"), []byte("c")}},
+		{"reverse", [][]byte{[]byte("c"), []byte("b"), []byte("a")}, [][]byte{[]byte("a"), []byte("b"), []byte("c")}},
+		{"random", [][]byte{[]byte("banana"), []byte("apple"), []byte("cherry"), []byte("date")}, [][]byte{[]byte("apple"), []byte("banana"), []byte("cherry"), []byte("date")}},
+		{"prefixes", [][]byte{[]byte("apple"), []byte("app"), []byte("apply")}, [][]byte{[]byte("app"), []byte("apple"), []byte("apply")}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			indices := make([]int, len(tt.input))
+			for i := range indices {
+				indices[i] = i
+			}
+			s := &testRadixSortable{data: tt.input, indices: indices}
+
+			maxLength := 0
+			for _, ref := range tt.input {
+				if len(ref) > maxLength {
+					maxLength = len(ref)
+				}
+			}
+
+			NewMSBRadixSorter(maxLength).Sort(s, 0, len(indices))
+
+			result := make([][]byte, len(tt.input))
+			for i, idx := range indices {
+				result[i] = tt.input[idx]
+			}
+			if !reflect.DeepEqual(result, tt.expected) {
+				t.Errorf("MSBRadixSort() = %v, want %v", result, tt.expected)
+			}
 		})
 	}
 }
 
-// TestIntroSorter_RandomMediumCardinality tests sorting with medium cardinality values.
-func TestIntroSorter_RandomMediumCardinality(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		if length < 2 {
-			length = 2
+func TestStringSort(t *testing.T) {
+	data := []BytesRef{
+		{Bytes: []byte("banana"), Offset: 0, Length: 6},
+		{Bytes: []byte("apple"), Offset: 0, Length: 5},
+		{Bytes: []byte("cherry"), Offset: 0, Length: 6},
+		{Bytes: []byte("date"), Offset: 0, Length: 4},
+	}
+
+	input := make([]BytesRef, len(data))
+	copy(input, data)
+
+	SortBytesRefs(input, NaturalComparator)
+
+	expected := []string{"apple", "banana", "cherry", "date"}
+	for i, ref := range input {
+		if string(ref.ValidBytes()) != expected[i] {
+			t.Errorf("SortBytesRefs() at %d = %s, want %s", i, string(ref.ValidBytes()), expected[i])
 		}
-		runSorterTest(t, r, strategyRandomMediumCardinality, length, func(arr []entry) SorterInterface {
-			return newEntryIntroSorter(arr)
-		})
-	}
-}
-
-// TestIntroSorter_Ascending tests sorting already ascending data.
-func TestIntroSorter_Ascending(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		runSorterTest(t, r, strategyAscending, length, func(arr []entry) SorterInterface {
-			return newEntryIntroSorter(arr)
-		})
-	}
-}
-
-// TestIntroSorter_AscendingSequences tests sorting data with ascending sequences.
-func TestIntroSorter_AscendingSequences(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		runSorterTest(t, r, strategyAscendingSequences, length, func(arr []entry) SorterInterface {
-			return newEntryIntroSorter(arr)
-		})
-	}
-}
-
-// TestIntroSorter_Descending tests sorting descending data.
-func TestIntroSorter_Descending(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		runSorterTest(t, r, strategyDescending, length, func(arr []entry) SorterInterface {
-			return newEntryIntroSorter(arr)
-		})
-	}
-}
-
-// TestIntroSorter_StrictlyDescending tests sorting strictly descending data.
-func TestIntroSorter_StrictlyDescending(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		runSorterTest(t, r, strategyStrictlyDescending, length, func(arr []entry) SorterInterface {
-			return newEntryIntroSorter(arr)
-		})
-	}
-}
-
-// TestIntroSorter_MostlyAscending tests sorting mostly ascending data.
-func TestIntroSorter_MostlyAscending(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		runSorterTest(t, r, strategyMostlyAscending, length, func(arr []entry) SorterInterface {
-			return newEntryIntroSorter(arr)
-		})
-	}
-}
-
-// TestIntroSorter_Stability verifies that IntroSorter is NOT stable.
-func TestIntroSorter_Stability(t *testing.T) {
-	// Create data with duplicate values
-	arr := []entry{
-		{value: 3, ord: 0},
-		{value: 1, ord: 1},
-		{value: 3, ord: 2},
-		{value: 1, ord: 3},
-		{value: 2, ord: 4},
-	}
-
-	sorter := newEntryIntroSorter(arr)
-	NewIntroSorter(sorter).Sort(0, len(arr))
-
-	// Verify sorted by value
-	for i := 1; i < len(arr); i++ {
-		if arr[i].value < arr[i-1].value {
-			t.Error("IntroSorter did not sort correctly")
-		}
-	}
-
-	// Note: We don't check stability since IntroSorter is explicitly NOT stable
-}
-
-// TestIntroSorter_WorstCase tests worst-case scenarios for IntroSorter.
-func TestIntroSorter_WorstCase(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	// Test with various sizes that might trigger worst-case behavior
-	sizes := []int{16, 17, 32, 33, 64, 65, 100, 127, 128, 129, 255, 256, 257, 1000, 10000}
-
-	for _, size := range sizes {
-		// Test with strictly descending (worst case for quicksort)
-		arr := generateEntries(r, strategyStrictlyDescending, size)
-		original := make([]entry, len(arr))
-		copy(original, arr)
-
-		sorter := newEntryIntroSorter(arr)
-		NewIntroSorter(sorter).Sort(0, len(arr))
-
-		assertSorted(t, original, arr, false)
-	}
-}
-
-// ==================== TimSorter Tests ====================
-
-// TestTimSorter_Empty tests sorting an empty array.
-func TestTimSorter_Empty(t *testing.T) {
-	arr := []entry{}
-	sorter := newEntryTimSorter(arr, 0)
-	NewTimSorter(sorter, 0).Sort(0, 0)
-	if len(arr) != 0 {
-		t.Error("Empty array should remain empty")
-	}
-}
-
-// TestTimSorter_One tests sorting a single element.
-func TestTimSorter_One(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	arr := generateEntries(r, strategyRandom, 1)
-	sorter := newEntryTimSorter(arr, 1)
-	NewTimSorter(sorter, 1).Sort(0, 1)
-	if len(arr) != 1 {
-		t.Error("Single element array should have one element")
-	}
-}
-
-// TestTimSorter_Two tests sorting two elements.
-func TestTimSorter_Two(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	arr := generateEntries(r, strategyRandomLowCardinality, 2)
-	original := make([]entry, len(arr))
-	copy(original, arr)
-
-	sorter := newEntryTimSorter(arr, 2)
-	NewTimSorter(sorter, 2).Sort(0, 2)
-
-	assertSorted(t, original, arr, true)
-}
-
-// TestTimSorter_Random tests sorting random data.
-func TestTimSorter_Random(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		if length == 0 {
-			length = 1
-		}
-		maxTempSlots := r.Intn(length + 1)
-		arr := generateEntries(r, strategyRandom, length)
-		original := make([]entry, len(arr))
-		copy(original, arr)
-
-		sorter := newEntryTimSorter(arr, maxTempSlots)
-		NewTimSorter(sorter, maxTempSlots).Sort(0, len(arr))
-
-		assertSorted(t, original, arr, true)
-	}
-}
-
-// TestTimSorter_RandomLowCardinality tests sorting with low cardinality values.
-func TestTimSorter_RandomLowCardinality(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		if length == 0 {
-			length = 1
-		}
-		maxTempSlots := r.Intn(length + 1)
-		arr := generateEntries(r, strategyRandomLowCardinality, length)
-		original := make([]entry, len(arr))
-		copy(original, arr)
-
-		sorter := newEntryTimSorter(arr, maxTempSlots)
-		NewTimSorter(sorter, maxTempSlots).Sort(0, len(arr))
-
-		assertSorted(t, original, arr, true)
-	}
-}
-
-// TestTimSorter_Ascending tests sorting already ascending data.
-func TestTimSorter_Ascending(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		if length == 0 {
-			length = 1
-		}
-		maxTempSlots := r.Intn(length + 1)
-		arr := generateEntries(r, strategyAscending, length)
-		original := make([]entry, len(arr))
-		copy(original, arr)
-
-		sorter := newEntryTimSorter(arr, maxTempSlots)
-		NewTimSorter(sorter, maxTempSlots).Sort(0, len(arr))
-
-		assertSorted(t, original, arr, true)
-	}
-}
-
-// TestTimSorter_AscendingSequences tests sorting data with ascending sequences.
-func TestTimSorter_AscendingSequences(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		if length == 0 {
-			length = 1
-		}
-		maxTempSlots := r.Intn(length + 1)
-		arr := generateEntries(r, strategyAscendingSequences, length)
-		original := make([]entry, len(arr))
-		copy(original, arr)
-
-		sorter := newEntryTimSorter(arr, maxTempSlots)
-		NewTimSorter(sorter, maxTempSlots).Sort(0, len(arr))
-
-		assertSorted(t, original, arr, true)
-	}
-}
-
-// TestTimSorter_Descending tests sorting descending data.
-func TestTimSorter_Descending(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		if length == 0 {
-			length = 1
-		}
-		maxTempSlots := r.Intn(length + 1)
-		arr := generateEntries(r, strategyDescending, length)
-		original := make([]entry, len(arr))
-		copy(original, arr)
-
-		sorter := newEntryTimSorter(arr, maxTempSlots)
-		NewTimSorter(sorter, maxTempSlots).Sort(0, len(arr))
-
-		assertSorted(t, original, arr, true)
-	}
-}
-
-// TestTimSorter_StrictlyDescending tests sorting strictly descending data.
-func TestTimSorter_StrictlyDescending(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := 0; i < 100; i++ {
-		length := r.Intn(20000)
-		if length == 0 {
-			length = 1
-		}
-		maxTempSlots := r.Intn(length + 1)
-		arr := generateEntries(r, strategyStrictlyDescending, length)
-		original := make([]entry, len(arr))
-		copy(original, arr)
-
-		sorter := newEntryTimSorter(arr, maxTempSlots)
-		NewTimSorter(sorter, maxTempSlots).Sort(0, len(arr))
-
-		assertSorted(t, original, arr, true)
-	}
-}
-
-// TestTimSorter_Stability verifies that TimSorter IS stable.
-func TestTimSorter_Stability(t *testing.T) {
-	// Create data with duplicate values
-	arr := []entry{
-		{value: 3, ord: 0},
-		{value: 1, ord: 1},
-		{value: 3, ord: 2},
-		{value: 1, ord: 3},
-		{value: 2, ord: 4},
-	}
-
-	sorter := newEntryTimSorter(arr, len(arr))
-	NewTimSorter(sorter, len(arr)).Sort(0, len(arr))
-
-	// Verify sorted by value
-	for i := 1; i < len(arr); i++ {
-		if arr[i].value < arr[i-1].value {
-			t.Error("TimSorter did not sort correctly")
-		}
-	}
-
-	// For stable sort, items with equal values should maintain relative order
-	// After sorting by value: indices should be 1, 3, 4, 0, 2 (for values 1, 1, 2, 3, 3)
-	expectedIndices := []int{1, 3, 4, 0, 2}
-	for i, exp := range expectedIndices {
-		if arr[i].ord != exp {
-			t.Errorf("TimSort stability: expected index %d at position %d, got %d", exp, i, arr[i].ord)
-		}
-	}
-}
-
-// TestTimSorter_StabilityLarge tests stability with larger datasets.
-func TestTimSorter_StabilityLarge(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	// Create data with limited value range to ensure duplicates
-	length := 10000
-	arr := make([]entry, length)
-	for i := 0; i < length; i++ {
-		arr[i] = entry{value: r.Intn(100), ord: i}
-	}
-	original := make([]entry, len(arr))
-	copy(original, arr)
-
-	maxTempSlots := length / 64
-	sorter := newEntryTimSorter(arr, maxTempSlots)
-	NewTimSorter(sorter, maxTempSlots).Sort(0, len(arr))
-
-	assertSorted(t, original, arr, true)
-}
-
-// TestTimSorter_VariousTempSlots tests TimSort with various temp slot configurations.
-func TestTimSorter_VariousTempSlots(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	length := 1000
-	arr := generateEntries(r, strategyRandom, length)
-
-	// Test with different maxTempSlots values
-	tempSlots := []int{0, 1, 10, 100, length / 2, length}
-
-	for _, slots := range tempSlots {
-		testArr := make([]entry, len(arr))
-		copy(testArr, arr)
-		original := make([]entry, len(arr))
-		copy(original, arr)
-
-		sorter := newEntryTimSorter(testArr, slots)
-		NewTimSorter(sorter, slots).Sort(0, len(testArr))
-
-		assertSorted(t, original, testArr, true)
-	}
-}
-
-// TestTimSorter_WorstCase tests worst-case scenarios for TimSorter.
-func TestTimSorter_WorstCase(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	// Test with various sizes
-	sizes := []int{32, 33, 64, 65, 100, 127, 128, 129, 255, 256, 257, 1000, 10000}
-
-	for _, size := range sizes {
-		// Test with strictly descending
-		arr := generateEntries(r, strategyStrictlyDescending, size)
-		original := make([]entry, len(arr))
-		copy(original, arr)
-
-		sorter := newEntryTimSorter(arr, size/64)
-		NewTimSorter(sorter, size/64).Sort(0, len(arr))
-
-		assertSorted(t, original, arr, true)
-	}
-}
-
-// TestTimSorter_MinRunBoundary tests around min run boundaries.
-func TestTimSorter_MinRunBoundary(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	// Test around the MinRun boundary (32)
-	sizes := []int{30, 31, 32, 33, 34, 60, 61, 62, 63, 64, 65}
-
-	for _, size := range sizes {
-		arr := generateEntries(r, strategyRandom, size)
-		original := make([]entry, len(arr))
-		copy(original, arr)
-
-		sorter := newEntryTimSorter(arr, size/64)
-		NewTimSorter(sorter, size/64).Sort(0, len(arr))
-
-		assertSorted(t, original, arr, true)
-	}
-}
-
-// ==================== Direct Sorter Tests ====================
-
-// TestIntroSorter_Direct tests the IntroSorter directly with edge cases.
-func TestIntroSorter_Direct(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	// Test with sub-range sorting
-	arr := make([]entry, 100)
-	for i := range arr {
-		arr[i] = entry{value: r.Intn(1000), ord: i}
-	}
-
-	// Sort only middle 50 elements
-	sorter := newEntryIntroSorter(arr)
-	NewIntroSorter(sorter).Sort(25, 75)
-
-	// Verify the middle section is sorted
-	for i := 26; i < 75; i++ {
-		if arr[i].value < arr[i-1].value {
-			t.Errorf("Sub-range sort failed at index %d", i)
-		}
-	}
-}
-
-// TestTimSorter_Direct tests the TimSorter directly with edge cases.
-func TestTimSorter_Direct(t *testing.T) {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-
-	// Test with sub-range sorting
-	arr := make([]entry, 100)
-	for i := range arr {
-		arr[i] = entry{value: r.Intn(1000), ord: i}
-	}
-	original := make([]entry, len(arr))
-	copy(original, arr)
-
-	// Sort only middle 50 elements
-	sorter := newEntryTimSorter(arr, 50)
-	NewTimSorter(sorter, 50).Sort(25, 75)
-
-	// Verify the middle section is sorted
-	for i := 26; i < 75; i++ {
-		if arr[i].value < arr[i-1].value {
-			t.Errorf("Sub-range sort failed at index %d", i)
-		}
-	}
-
-	// Verify elements outside the range are unchanged
-	for i := 0; i < 25; i++ {
-		if arr[i].value != original[i].value || arr[i].ord != original[i].ord {
-			t.Errorf("Element at index %d was modified", i)
-		}
-	}
-	for i := 75; i < 100; i++ {
-		if arr[i].value != original[i].value || arr[i].ord != original[i].ord {
-			t.Errorf("Element at index %d was modified", i)
-		}
-	}
-}
-
-// TestSorter_CheckRange tests range validation.
-func TestSorter_CheckRange(t *testing.T) {
-	arr := []entry{{value: 1, ord: 0}, {value: 2, ord: 1}}
-	sorter := newEntryIntroSorter(arr)
-	introSorter := NewIntroSorter(sorter)
-
-	// This should panic
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("Expected panic for invalid range")
-		}
-	}()
-
-	introSorter.Sort(1, 0) // to < from should panic
-}
-
-// TestSorter_SingleElement tests sorting a single element range.
-func TestSorter_SingleElement(t *testing.T) {
-	arr := []entry{{value: 42, ord: 0}}
-
-	// IntroSorter
-	sorter1 := newEntryIntroSorter(arr)
-	NewIntroSorter(sorter1).Sort(0, 1)
-	if arr[0].value != 42 {
-		t.Error("Single element was modified by IntroSorter")
-	}
-
-	// TimSorter
-	arr2 := []entry{{value: 42, ord: 0}}
-	sorter2 := newEntryTimSorter(arr2, 1)
-	NewTimSorter(sorter2, 1).Sort(0, 1)
-	if arr2[0].value != 42 {
-		t.Error("Single element was modified by TimSorter")
 	}
 }
