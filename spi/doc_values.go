@@ -199,4 +199,13 @@ type DocValuesSkipper interface {
 	// GetDocID returns the current document ID, or -1 before SkipTo
 	// has been called, or NO_MORE_DOCS once the skipper is exhausted.
 	GetDocID() int
+
+	// MinValue returns the global minimum value for the field in the segment.
+	MinValue() int64
+
+	// MaxValue returns the global maximum value for the field in the segment.
+	MaxValue() int64
+
+	// DocCount returns the total number of documents that have a value for the field in the segment.
+	DocCount() int
 }

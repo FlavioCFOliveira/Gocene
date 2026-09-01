@@ -13,60 +13,14 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/queries/function/docvalues"
 )
 
-// ScaleFloatFunction scales source values to be between min and max.
+// ScaleFloatFunction scales values to be between min and max.
 //
 // Go port of org.apache.lucene.queries.function.valuesource.ScaleFloatFunction.
 type ScaleFloatFunction struct {
 	function.BaseValueSource
-	Source   function.ValueSource
-	Min, Max float32
-}
-
-// NewScaleFloatFunction creates a ScaleFloatFunction.
-func NewScaleFloatFunction(source function.ValueSource, min, max float32) *ScaleFloatFunction {
-	return &ScaleFloatFunction{Source: source, Min: min, Max: max}
-}
-
-// Description returns "scale(source,min,max)".
-func (s *ScaleFloatFunction) Description() string {
-	return fmt.Sprintf("scale(%s,%v,%v)", s.Source.Description(), s.Min, s.Max)
-}
-
-// CreateWeight delegates to the source.
-func (s *ScaleFloatFunction) CreateWeight(ctx function.Context, searcher any) error {
-	return s.Source.CreateWeight(ctx, searcher)
-}
-
-// GetValues returns FunctionValues that scale values to [min, max].
-func (s *ScaleFloatFunction) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	scaleInfo := s.computeScaleInfo(ctx, readerContext)
-	scale := float32(0)
-	if scaleInfo.maxVal-scaleInfo.minVal != 0 {
-		scale = (s.Max - s.Min) / (scaleInfo.maxVal - scaleInfo.minVal)
-	}
-	minSource := scaleInfo.minVal
-	maxSource := scaleInfo.maxVal
-
-	vals, err := s.Source.GetValues(ctx, readerContext)
-	if err != nil {
-		return nil, err
-	}
-	v := &scaleFloatValues{
-		FloatDocValues: *docvalues.NewFloatDocValues(s, func(doc int) (float32, error) {
-			fv, err := vals.FloatVal(doc)
-			if err != nil {
-				return 0, err
-			}
-			return (fv-minSource)*scale + s.Min, nil
-		}),
-		vals:      vals,
-		vs:        s,
-		minSource: minSource,
-		maxSource: maxSource,
-		scale:     scale,
-	}
-	v.SetSelf(v)
-	return v, nil
+	source function.ValueSource
+	min    float32
+	max    float32
 }
 
 type scaleInfo struct {
@@ -74,95 +28,137 @@ type scaleInfo struct {
 	maxVal float32
 }
 
-func (s *ScaleFloatFunction) computeScaleInfo(ctx function.Context, readerContext *index.LeafReaderContext) scaleInfo {
-	// Check context cache first.
-	if si, ok := ctx.Get(s); ok {
-		if info, ok := si.(scaleInfo); ok {
-			return info
-		}
+// NewScaleFloatFunction creates a ScaleFloatFunction.
+func NewScaleFloatFunction(source function.ValueSource, min, max float32) *ScaleFloatFunction {
+	return &ScaleFloatFunction{
+		source: source,
+		min:    min,
+		max:    max,
+	}
+}
+
+func (s *ScaleFloatFunction) Description() string {
+	return fmt.Sprintf("scale(%s,%f,%f)", s.source.Description(), s.min, s.max)
+}
+
+func (s *ScaleFloatFunction) CreateWeight(ctx function.Context, searcher any) error {
+	return s.source.CreateWeight(ctx, searcher)
+}
+
+func (s *ScaleFloatFunction) createScaleInfo(ctx function.Context, readerContext *index.LeafReaderContext) *scaleInfo {
+	topLevel := index.ReaderUtilGetTopLevelContext(readerContext)
+	leaves, err := topLevel.Leaves()
+	if err != nil {
+		// This should not happen if readerContext is valid
+		return &scaleInfo{minVal: 0, maxVal: 0}
 	}
 
-	// Compute by scanning. For simplicity, scan the current leaf.
-	// Lucene does a full scan across all leaves.
 	minVal := float32(math.Inf(1))
 	maxVal := float32(math.Inf(-1))
-	vals, err := s.Source.GetValues(ctx, readerContext)
-	if err != nil {
-		ctx.Put(s, scaleInfo{minVal: 0, maxVal: 0})
-		return scaleInfo{minVal: 0, maxVal: 0}
-	}
-	maxDoc := readerContext.LeafReader()
-	var docCount int
-	if leaf, ok := maxDoc.(maxDocReader); ok {
-		docCount = leaf.MaxDoc()
-	}
-	for doc := 0; doc < docCount; doc++ {
-		exists, err := vals.Exists(doc)
-		if err != nil || !exists {
-			continue
-		}
-		fv, err := vals.FloatVal(doc)
+
+	for _, leaf := range leaves {
+		maxDoc := leaf.Reader().MaxDoc()
+		vals, err := s.source.GetValues(ctx, leaf)
 		if err != nil {
 			continue
 		}
-		bits := math.Float32bits(fv)
-		if bits&0x7f800000 == 0x7f800000 {
-			// +Inf, -Inf or NaN - skip
-			continue
-		}
-		if fv < minVal {
-			minVal = fv
-		}
-		if fv > maxVal {
-			maxVal = fv
+		for i := 0; i < maxDoc; i++ {
+			exists, err := vals.Exists(i)
+			if err != nil || !exists {
+				continue
+			}
+			val, err := vals.FloatVal(i)
+			if err != nil {
+				continue
+			}
+			if math.IsInf(float64(val), 0) || math.IsNaN(float64(val)) {
+				continue
+			}
+			if val < minVal {
+				minVal = val
+			}
+			if val > maxVal {
+				maxVal = val
+			}
 		}
 	}
+
 	if minVal == float32(math.Inf(1)) {
 		minVal = 0
 		maxVal = 0
 	}
-	info := scaleInfo{minVal: minVal, maxVal: maxVal}
-	ctx.Put(s, info)
+
+	info := &scaleInfo{
+		minVal: minVal,
+		maxVal: maxVal,
+	}
+	ctx[s] = info
 	return info
 }
 
-// maxDocReader provides MaxDoc.
-type maxDocReader interface {
-	MaxDoc() int
+func (s *ScaleFloatFunction) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
+	info, ok := ctx[s].(*scaleInfo)
+	if !ok {
+		info = s.createScaleInfo(ctx, readerContext)
+	}
+
+	scale := float32(0)
+	if info.maxVal-info.minVal != 0 {
+		scale = (s.max - s.min) / (info.maxVal - info.minVal)
+	}
+	minSource := info.minVal
+
+	vals, err := s.source.GetValues(ctx, readerContext)
+	if err != nil {
+		return nil, err
+	}
+
+	v := &scaleFloatFunctionValues{
+		FloatDocValues: *docvalues.NewFloatDocValues(s, func(doc int) (float32, error) {
+			fv, err := vals.FloatVal(doc)
+			if err != nil {
+				return 0, err
+			}
+			return (fv-minSource)*scale + s.min, nil
+		}),
+		vals:      vals,
+		scale:     scale,
+		minSource: minSource,
+		maxSource: info.maxVal,
+		self:      s,
+	}
+	v.SetSelf(v)
+	return v, nil
 }
 
-// Equals reports value equality.
 func (s *ScaleFloatFunction) Equals(other function.ValueSource) bool {
 	o, ok := other.(*ScaleFloatFunction)
 	if !ok || o == nil {
 		return false
 	}
-	return s.Min == o.Min && s.Max == o.Max && s.Source.Equals(o.Source)
+	return s.min == o.min && s.max == o.max && s.source.Equals(o.source)
 }
 
-// HashCode returns a stable hash.
 func (s *ScaleFloatFunction) HashCode() int32 {
-	h := hashFloat32(s.Min)
-	h = h*29 + hashFloat32(s.Max)
-	h = h*29 + s.Source.HashCode()
-	return h
+	return hashFloat32(s.min) + hashFloat32(s.max) + s.source.HashCode()
 }
 
-type scaleFloatValues struct {
+type scaleFloatFunctionValues struct {
 	docvalues.FloatDocValues
-	vals                  function.FunctionValues
-	vs                    *ScaleFloatFunction
-	minSource, maxSource  float32
-	scale                 float32
+	vals      function.FunctionValues
+	scale     float32
+	minSource float32
+	maxSource float32
+	self      *ScaleFloatFunction
 }
 
-func (v *scaleFloatValues) ToString(doc int) (string, error) {
-	vs, err := v.vals.ToString(doc)
+func (v *scaleFloatFunctionValues) ToString(doc int) (string, error) {
+	fv, err := v.vals.ToString(doc)
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("scale(%s,toMin=%v,toMax=%v,fromMin=%v,fromMax=%v)",
-		vs, v.vs.Min, v.vs.Max, v.minSource, v.maxSource), nil
+	return fmt.Sprintf("scale(%s,toMin=%f,toMax=%f,fromMin=%f,fromMax=%f)",
+		fv, v.self.min, v.self.max, v.minSource, v.maxSource), nil
 }
 
 var _ function.ValueSource = (*ScaleFloatFunction)(nil)

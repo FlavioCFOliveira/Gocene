@@ -8,147 +8,131 @@ import (
 	"fmt"
 )
 
-// IndexReaderContext provides context information about an IndexReader.
-// This is the Go port of Lucene's org.apache.lucene.index.IndexReaderContext.
-//
-// IndexReaderContext is the base interface for reader context objects,
-// which provide information about where a reader fits in the index hierarchy.
-// There are two implementations:
-//   - LeafReaderContext for atomic (leaf) readers
-//   - CompositeReaderContext for composite readers (e.g., DirectoryReader)
+// IndexReaderContext represents a hierarchical relationship between IndexReader instances.
+// Mirrors org.apache.lucene.index.IndexReaderContext from Apache Lucene 10.5.0.
 type IndexReaderContext interface {
-	// Reader returns the IndexReaderInterface this context refers to.
-	Reader() IndexReaderInterface
+	// Parent is the reader context for this reader's immediate parent, or nil if none.
+	Parent() *CompositeReaderContext
 
-	// Parent returns the parent context (nil for top-level context).
-	Parent() IndexReaderContext
-
-	// IsTopLevel returns true if this is a top-level context.
+	// IsTopLevel is true if this context struct represents the top level reader within the hierarchical context.
 	IsTopLevel() bool
 
-	// DocBase returns the base document ID for this context.
-	// For top-level contexts, this is always 0.
-	// For child contexts, this is the sum of MaxDoc() of all preceding siblings.
-	DocBase() int
+	// DocBaseInParent is the doc base for this reader in the parent, 0 if parent is null.
+	DocBaseInParent() int
 
-	// IsLeaf returns true if this is a LeafReaderContext.
-	IsLeaf() bool
+	// OrdInParent is the ord for this reader in the parent, 0 if parent is null.
+	OrdInParent() int
+
+	// ID returns an object that uniquely identifies this context without referencing segments.
+	ID() interface{}
+
+	// Reader returns the IndexReader this context represents.
+	Reader() IndexReader
+
+	// Leaves returns the context's leaves if this context is a top-level context.
+	// Returns an error if this is not a top-level context.
+	Leaves() ([]*LeafReaderContext, error)
+
+	// Children returns the context's children if this context is a composite context, otherwise nil.
+	Children() []*IndexReaderContext
 }
 
-// LeafReaderContext provides context information for a LeafReader.
-// This is the Go port of Lucene's org.apache.lucene.index.LeafReaderContext.
-//
-// LeafReaderContext represents a single atomic reader in the index hierarchy.
-// It provides information about the reader's position in the composite structure
-// and its document ID range.
+// baseReaderContext provides common fields for IndexReaderContext implementations.
+type baseReaderContext struct {
+	parent          *CompositeReaderContext
+	isTopLevel      bool
+	docBaseInParent int
+	ordInParent     int
+	identity        interface{}
+}
+
+func newBaseReaderContext(parent *CompositeReaderContext, ordInParent, docBaseInParent int) baseReaderContext {
+	return baseReaderContext{
+		parent:          parent,
+		docBaseInParent: docBaseInParent,
+		ordInParent:     ordInParent,
+		isTopLevel:      parent == nil,
+		identity:        struct{}{}, // Simplified identity
+	}
+}
+
+func (b *baseReaderContext) Parent() *CompositeReaderContext { return b.parent }
+func (b *baseReaderContext) IsTopLevel() bool                { return b.isTopLevel }
+func (b *baseReaderContext) DocBaseInParent() int           { return b.docBaseInParent }
+func (b *baseReaderContext) OrdInParent() int               { return b.ordInParent }
+func (b *baseReaderContext) ID() interface{}                { return b.identity }
+
+// LeafReaderContext is an IndexReaderContext for LeafReader instances.
+// Mirrors org.apache.lucene.index.LeafReaderContext from Apache Lucene 10.5.0.
 type LeafReaderContext struct {
-	// reader is the underlying LeafReader (can be *LeafReader or *SegmentReader)
-	reader IndexReaderInterface
-
-	// parent is the parent context
-	parent IndexReaderContext
-
-	// docBase is the base document ID for this leaf
-	docBase int
-
-	// ord is the ordinal of this leaf in the parent
-	ord int
+	baseReaderContext
+	// Ord is the reader's ord in the top-level's leaves array.
+	Ord int
+	// DocBase is the reader's absolute doc base.
+	DocBase int
+	reader  LeafReader
+	leaves  []*LeafReaderContext
 }
 
-// NewLeafReaderContext creates a new LeafReaderContext.
-func NewLeafReaderContext(reader IndexReaderInterface, parent IndexReaderContext, ord int, docBase int) *LeafReaderContext {
-	return &LeafReaderContext{
-		reader:  reader,
-		parent:  parent,
-		ord:     ord,
-		docBase: docBase,
+func NewLeafReaderContext(parent *CompositeReaderContext, reader LeafReader, ord, docBase, leafOrd, leafDocBase int) *LeafReaderContext {
+	base := newBaseReaderContext(parent, ord, docBase)
+	lrc := &LeafReaderContext{
+		baseReaderContext: base,
+		Ord:              leafOrd,
+		DocBase:           leafDocBase,
+		reader:            reader,
 	}
-}
-
-// Reader returns the LeafReader for this context.
-func (ctx *LeafReaderContext) Reader() IndexReaderInterface {
-	return ctx.reader
-}
-
-// Parent returns the parent context.
-func (ctx *LeafReaderContext) Parent() IndexReaderContext {
-	return ctx.parent
-}
-
-// IsTopLevel returns true if this is a top-level context.
-func (ctx *LeafReaderContext) IsTopLevel() bool {
-	return ctx.parent == nil
-}
-
-// DocBase returns the base document ID for this context.
-func (ctx *LeafReaderContext) DocBase() int {
-	return ctx.docBase
-}
-
-// IsLeaf returns true (always true for LeafReaderContext).
-func (ctx *LeafReaderContext) IsLeaf() bool {
-	return true
-}
-
-// Ord returns the ordinal of this leaf in the parent.
-func (ctx *LeafReaderContext) Ord() int {
-	return ctx.ord
-}
-
-// LeafReader returns the underlying LeafReader.
-// This returns the reader as LeafReaderInterface.
-func (ctx *LeafReaderContext) LeafReader() LeafReaderInterface {
-	if leafReader, ok := ctx.reader.(LeafReaderInterface); ok {
-		return leafReader
+	if lrc.isTopLevel {
+		lrc.leaves = []*LeafReaderContext{lrc}
 	}
-	// Try to get from SegmentReader
-	if segReader, ok := ctx.reader.(*SegmentReader); ok {
-		return segReader
+	return lrc
+}
+
+func (l *LeafReaderContext) Reader() IndexReader { return l.reader }
+
+func (l *LeafReaderContext) Leaves() ([]*LeafReaderContext, error) {
+	if !l.isTopLevel {
+		return nil, fmt.Errorf("this is not a top-level context")
 	}
+	return l.leaves, nil
+}
+
+func (l *LeafReaderContext) Children() []*IndexReaderContext {
 	return nil
 }
 
-// GetLeafReaderContexts returns all leaf reader contexts from an IndexReaderContext.
-func GetLeafReaderContexts(ctx IndexReaderContext) []*LeafReaderContext {
-	if leafCtx, ok := ctx.(*LeafReaderContext); ok {
-		return []*LeafReaderContext{leafCtx}
-	}
-	if compCtx, ok := ctx.(interface {
-		Leaves() ([]*LeafReaderContext, error)
-	}); ok {
-		leaves, err := compCtx.Leaves()
-		if err != nil {
-			return nil
-		}
-		return leaves
-	}
-	return nil
+func (l *LeafReaderContext) String() string {
+	return fmt.Sprintf("LeafReaderContext(%v docBase=%d ord=%d)", l.reader, l.DocBase, l.Ord)
 }
 
-// GetReaderContext gets the context for a reader.
-func GetReaderContext(reader IndexReaderInterface) (IndexReaderContext, error) {
-	// Check for CompositeReader with GetContext method
-	if withContext, ok := reader.(interface {
-		GetContext() (IndexReaderContext, error)
-	}); ok {
-		return withContext.GetContext()
-	}
+// CompositeReaderContext is an IndexReaderContext for CompositeReader instances.
+// Mirrors org.apache.lucene.index.CompositeReaderContext from Apache Lucene 10.5.0.
+type CompositeReaderContext struct {
+	baseReaderContext
+	children []*IndexReaderContext
+	leaves   []*LeafReaderContext
+	reader   CompositeReader
+}
 
-	// Build context for LeafReader
-	if leafReader, ok := reader.(*LeafReader); ok {
-		return NewLeafReaderContext(leafReader, nil, 0, 0), nil
+func NewCompositeReaderContext(parent *CompositeReaderContext, reader CompositeReader, ordInParent, docBaseInParent int, children []*IndexReaderContext, leaves []*LeafReaderContext) *CompositeReaderContext {
+	base := newBaseReaderContext(parent, ordInParent, docBaseInParent)
+	return &CompositeReaderContext{
+		baseReaderContext: base,
+		children:         children,
+		leaves:           leaves,
+		reader:           reader,
 	}
+}
 
-	// Build context for SegmentReader
-	if segReader, ok := reader.(*SegmentReader); ok {
-		return NewLeafReaderContext(segReader.LeafReader, nil, 0, 0), nil
+func (c *CompositeReaderContext) Reader() IndexReader { return c.reader }
+
+func (c *CompositeReaderContext) Leaves() ([]*LeafReaderContext, error) {
+	if !c.isTopLevel {
+		return nil, fmt.Errorf("this is not a top-level context")
 	}
+	return c.leaves, nil
+}
 
-	// Build context for DirectoryReader
-	if dirReader, ok := reader.(*DirectoryReader); ok {
-		builder := NewCompositeReaderContextBuilder(dirReader)
-		return builder.Build()
-	}
-
-	return nil, fmt.Errorf("unsupported reader type: %T", reader)
+func (c *CompositeReaderContext) Children() []*IndexReaderContext {
+	return c.children
 }

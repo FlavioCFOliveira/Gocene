@@ -1,47 +1,45 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package search
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
-// TermQuery matches documents containing a specific term.
+// TermQuery matches documents containing a term.
 type TermQuery struct {
-	*BaseQuery
-	term *index.Term
+	term              *index.Term
+	perReaderTermState *index.TermStates
 }
 
-// NewTermQuery creates a new TermQuery.
-func NewTermQuery(term *index.Term) *TermQuery {
+func NewTermQuery(t *index.Term) *TermQuery {
 	return &TermQuery{
-		BaseQuery: &BaseQuery{},
-		term:      term,
+		term: t,
 	}
 }
 
-// Term returns the term being searched.
-func (q *TermQuery) Term() *index.Term {
+func NewTermQueryWithStates(t *index.Term, states *index.TermStates) *TermQuery {
+	return &TermQuery{
+		term:              t,
+		perReaderTermState: states,
+	}
+}
+
+func (q *TermQuery) GetTerm() *index.Term {
 	return q.term
 }
 
-// DeleteTerm implements index.TermDeleteQuery. A TermQuery on a single term
-// is semantically equivalent to deleting by that term, so IndexWriter routes
-// DeleteDocumentsQuery(TermQuery) through the term-delete path to give it the
-// same buffered-document generation semantics.
-func (q *TermQuery) DeleteTerm() *index.Term {
-	return q.term
+func (q *TermQuery) Rewrite(reader index.IndexReader) (Query, error) {
+	return q, nil
 }
 
 func (q *TermQuery) Clone() Query {
-	return NewTermQuery(q.term.Clone())
+	return q
 }
 
 func (q *TermQuery) Equals(other Query) bool {
-	if o, ok := other.(*TermQuery); ok {
-		return q.term.Equals(o.term)
+	if otherQuery, ok := other.(*TermQuery); ok {
+		return q.term.Equals(otherQuery.term)
 	}
 	return false
 }
@@ -50,16 +48,25 @@ func (q *TermQuery) HashCode() int {
 	return q.term.HashCode()
 }
 
-// Rewrite rewrites the query to a simpler form.
-func (q *TermQuery) Rewrite(reader IndexReader) (Query, error) {
-	return q, nil
+func (q *TermQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	context := searcher.GetReader().GetTopReaderContext()
+	var termState *index.TermStates
+	if q.perReaderTermState == nil || !q.perReaderTermState.WasBuiltFor(context) {
+		var err error
+		termState, err = index.BuildTermStates(searcher.GetReader(), q.term, scoreMode.NeedsScores())
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		termState = q.perReaderTermState
+	}
+
+	return NewTermWeight(searcher, q.term, scoreMode, boost, termState), nil
 }
 
-// CreateWeight creates a Weight for this query.
-func (q *TermQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewTermWeight(q, q.term, searcher, needsScores), nil
-}
-
-func (q *TermQuery) String() string {
-	return q.term.String()
+func (q *TermQuery) ToString(field string) string {
+	if q.term.Field() != field {
+		return fmt.Sprintf("%s:%s", q.term.Field(), q.term.Text())
+	}
+	return q.term.Text()
 }

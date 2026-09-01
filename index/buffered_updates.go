@@ -2,266 +2,406 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// BufferedUpdates
-// Source: lucene/core/src/java/org/apache/lucene/index/BufferedUpdates.java
-// Purpose: Holds buffered deletes and updates, keyed by docID, term, or query,
-// for a single segment. Used by DocumentsWriter to accumulate pending deletes
-// against the to-be-flushed segment; once the deletes and updates are pushed
-// on flush they are converted to a FrozenBufferedUpdates instance and pushed
-// to the BufferedUpdatesStream.
-
 package index
 
 import (
+	"fmt"
 	"sort"
+	"sync/atomic"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// BytesPerDelQuery is the estimated bytes used per buffered delete query.
-//
-// Rough logic mirrors Lucene's BufferedUpdates.BYTES_PER_DEL_QUERY:
-// HashMap entry overhead (5 references), 2 object headers, 2 int fields,
-// plus a constant 24 bytes accounting for the typical Query object footprint.
-const BytesPerDelQuery = 5*8 + 2*16 + 2*4 + 24
-
-// MaxInt is the largest docID upper bound. It mirrors Lucene's
-// BufferedUpdates.MAX_INT (Integer.valueOf(Integer.MAX_VALUE)) and is used
-// by DeleteSlice.Apply when no per-document docID limit applies.
-const MaxInt = int(^uint(0) >> 1)
-
-// BufferedUpdates holds buffered deletes and updates for a single segment.
-//
-// This is the Go port of Lucene's org.apache.lucene.index.BufferedUpdates.
+// BufferedUpdates holds buffered deletes and updates, by docID, term or query for a single segment.
+// This is used to hold buffered pending deletes and updates against the to-be-flushed segment.
+// Once the deletes and updates are pushed (on flush in DocumentsWriter), they are converted to a
+// FrozenBufferedUpdates instance and pushed to the BufferedUpdatesStream.
 type BufferedUpdates struct {
-	segmentName     string
-	deleteTerms     *DeletedTerms
-	deleteQueries   map[Query]int
-	bytesUsed       int64
-	numFieldUpdates int
+	// numFieldUpdates is the number of field updates
+	numFieldUpdates atomic.Int32
+
+	// deleteTerms holds deleted terms
+	deleteTerms *deletedTerms
+
+	// deleteQueries holds deleted queries. Using a slice of pairs to avoid issues with
+	// interface comparability as map keys.
+	deleteQueries []queryDelete
+
+	// fieldUpdates holds updates for each field
+	fieldUpdates map[string]*FieldUpdatesBuffer
+
+	// gen is the generation of the segment
+	gen int64
+
+	// segmentName is the name of the segment
+	segmentName string
+
+	// bytesUsed tracks the total bytes used for deletes
+	bytesUsed atomic.Int64
+
+	// fieldUpdatesBytesUsed tracks the total bytes used for field updates
+	fieldUpdatesBytesUsed atomic.Int64
 }
 
-// NewBufferedUpdates creates a new BufferedUpdates instance bound to the
-// given segment name.
+type queryDelete struct {
+	query    Query
+	docUpTo int
+}
+
+const bytesPerDelQuery = 64 // Rough estimate mirroring Lucene's BYTES_PER_DEL_QUERY
+
 func NewBufferedUpdates(segmentName string) *BufferedUpdates {
 	return &BufferedUpdates{
 		segmentName:   segmentName,
-		deleteTerms:   NewDeletedTerms(),
-		deleteQueries: make(map[Query]int),
+		deleteTerms:    newDeletedTerms(),
+		deleteQueries:  make([]queryDelete, 0),
+		fieldUpdates:    make(map[string]*FieldUpdatesBuffer),
 	}
 }
 
-// SegmentName returns the segment name this BufferedUpdates is bound to.
-func (bu *BufferedUpdates) SegmentName() string {
-	return bu.segmentName
-}
-
-// IsBufferedUpdates satisfies the spi.BufferedUpdatesRef marker
-// interface so that *BufferedUpdates can be carried in
-// spi.SegmentWriteState.SegUpdates without forcing spi/ to depend on
-// index/. The method is a no-op sentinel; callers that need the
-// structured data type-assert back to *BufferedUpdates.
-func (bu *BufferedUpdates) IsBufferedUpdates() {}
-
-// RamBytesUsed returns the estimated RAM usage of this BufferedUpdates,
-// including its DeletedTerms.
-func (bu *BufferedUpdates) RamBytesUsed() int64 {
-	return bu.bytesUsed + bu.deleteTerms.RamBytesUsed()
-}
-
-// Any reports whether any deletes or field updates have been buffered.
-func (bu *BufferedUpdates) Any() bool {
-	return bu.deleteTerms.Size() > 0 || len(bu.deleteQueries) > 0 || bu.numFieldUpdates > 0
-}
-
-// AddQuery records a query-based delete against the given upper-bound docID.
-// Bytes accounting is incremented only the first time the query is seen.
-func (bu *BufferedUpdates) AddQuery(query Query, docIDUpto int) {
-	if _, exists := bu.deleteQueries[query]; !exists {
-		bu.bytesUsed += BytesPerDelQuery
+func (b *BufferedUpdates) String() string {
+	s := fmt.Sprintf("gen=%d", b.gen)
+	if !b.deleteTerms.isEmpty() {
+		s += fmt.Sprintf(" %d unique deleted terms ", b.deleteTerms.size())
 	}
-	bu.deleteQueries[query] = docIDUpto
+	if len(b.deleteQueries) != 0 {
+		s += fmt.Sprintf(" %d deleted queries", len(b.deleteQueries))
+	}
+	if b.numFieldUpdates.Load() != 0 {
+		s += fmt.Sprintf(" %d field updates", b.numFieldUpdates.Load())
+	}
+	if b.bytesUsed.Load() != 0 {
+		s += fmt.Sprintf(" bytesUsed=%d", b.bytesUsed.Load())
+	}
+	return s
 }
 
-// AddTerm records a term-based delete against the given upper-bound docID.
-//
-// If the term has already been recorded with a higher docID upper bound the
-// new value is dropped, matching Lucene's monotonic-replace guard that
-// prevents lower-docID inserts from racing past higher-docID ones.
-func (bu *BufferedUpdates) AddTerm(term *Term, docIDUpto int) {
-	current := bu.deleteTerms.Get(term)
-	if current != -1 && docIDUpto < current {
-		// Only record the new number if it's greater than the current one.
-		// This matches Lucene's guard against multi-threaded out-of-order
-		// replacement of the same document.
+func (b *BufferedUpdates) AddQuery(query Query, docIDUpTo int) {
+	// Check if query already exists
+	for i, qd := range b.deleteQueries {
+		if qd.query.Equals(query) {
+			b.deleteQueries[i].docUpTo = docIDUpTo
+			return
+		}
+	}
+	// New query
+	b.deleteQueries = append(b.deleteQueries, queryDelete{query: query, docUpTo: docIDUpTo})
+	b.bytesUsed.Add(bytesPerDelQuery)
+}
+
+func (b *BufferedUpdates) AddTerm(term Term, docIDUpTo int) {
+	current := b.deleteTerms.get(term)
+	if current != -1 && docIDUpTo < current {
 		return
 	}
-	bu.deleteTerms.Put(term, docIDUpto)
+	b.deleteTerms.put(term, docIDUpTo)
 }
 
-// NumDeleteTerms returns the count of unique buffered term deletes.
-//
-// It mirrors the read of BufferedUpdates.deleteTerms.size() performed by
-// DocumentsWriterDeleteQueue.numGlobalTermDeletes and getBufferedUpdatesTermsSize.
-func (bu *BufferedUpdates) NumDeleteTerms() int {
-	return bu.deleteTerms.Size()
+func (b *BufferedUpdates) AddNumericUpdate(update *NumericDocValuesUpdate, docIDUpTo int) {
+	buffer, ok := b.fieldUpdates[update.Field()]
+	if !ok {
+		buffer = NewFieldUpdatesBuffer(b, update, docIDUpTo)
+		b.fieldUpdates[update.Field()] = buffer
+	}
+	if update.HasValue() {
+		buffer.addUpdate(update.Term(), update.value, docIDUpTo)
+	} else {
+		buffer.addNoValue(update.Term(), docIDUpTo)
+	}
+	b.numFieldUpdates.Add(1)
 }
 
-// AddNumericUpdate records a numeric doc-values update against the given
-// docID upper bound. Gocene's BufferedUpdates does not yet buffer the full
-// per-field update payload (deferred with the doc-values update writer); the
-// port tracks the field-update count so Any reports the change, matching the
-// observable contract used by DocumentsWriterDeleteQueue.
-func (bu *BufferedUpdates) AddNumericUpdate(update *NumericDocValuesUpdate, docIDUpto int) {
-	bu.numFieldUpdates++
+func (b *BufferedUpdates) AddBinaryUpdate(update *BinaryDocValuesUpdate, docIDUpTo int) {
+	buffer, ok := b.fieldUpdates[update.Field()]
+	if !ok {
+		buffer = NewFieldUpdatesBuffer(b, update, docIDUpTo)
+		b.fieldUpdates[update.Field()] = buffer
+	}
+	if update.HasValue() {
+		buffer.addUpdate(update.Term(), update.value, docIDUpTo)
+	} else {
+		buffer.addNoValue(update.Term(), docIDUpTo)
+	}
+	b.numFieldUpdates.Add(1)
 }
 
-// AddBinaryUpdate records a binary doc-values update against the given docID
-// upper bound. See AddNumericUpdate for the buffering caveat.
-func (bu *BufferedUpdates) AddBinaryUpdate(update *BinaryDocValuesUpdate, docIDUpto int) {
-	bu.numFieldUpdates++
+func (b *BufferedUpdates) ClearDeleteTerms() {
+	b.deleteTerms.clear()
 }
 
-// ClearDeleteTerms clears all term deletes and reclaims their RAM accounting.
-// Buffered queries and field updates are left untouched.
-func (bu *BufferedUpdates) ClearDeleteTerms() {
-	bu.bytesUsed -= bu.deleteTerms.RamBytesUsed()
-	bu.deleteTerms.Clear()
+func (b *BufferedUpdates) Clear() {
+	b.deleteTerms.clear()
+	b.deleteQueries = b.deleteQueries[:0]
+	b.numFieldUpdates.Store(0)
+	b.fieldUpdates = make(map[string]*FieldUpdatesBuffer)
+	b.bytesUsed.Store(0)
+	b.fieldUpdatesBytesUsed.Store(0)
 }
 
-// Clear discards every buffered delete and field update and resets accounting.
-func (bu *BufferedUpdates) Clear() {
-	bu.deleteTerms.Clear()
-	bu.deleteQueries = make(map[Query]int)
-	bu.numFieldUpdates = 0
-	bu.bytesUsed = 0
+func (b *BufferedUpdates) Any() bool {
+	return !b.deleteTerms.isEmpty() || len(b.deleteQueries) > 0 || b.numFieldUpdates.Load() > 0
 }
 
-// DeletedTerms holds the deleted-term -> docID-upper-bound mapping for a
-// single segment, partitioned by field name. This is the Go port of
-// Lucene's BufferedUpdates.DeletedTerms inner class.
-type DeletedTerms struct {
-	terms     map[string]map[string]int // field -> term bytes -> docID
-	bytesUsed int64
+func (b *BufferedUpdates) RamBytesUsed() int64 {
+	return b.bytesUsed.Load() + b.fieldUpdatesBytesUsed.Load() + b.deleteTerms.ramBytesUsed()
 }
 
-// NewDeletedTerms creates an empty DeletedTerms.
-func NewDeletedTerms() *DeletedTerms {
-	return &DeletedTerms{
-		terms: make(map[string]map[string]int),
+type deletedTerms struct {
+	bytesUsed atomic.Int64
+	pool      *util.ByteBlockPool
+	deleteTerms map[string]*bytesRefIntMap
+	termsSize   int
+}
+
+func newDeletedTerms() *deletedTerms {
+	return &deletedTerms{
+		pool:        util.NewByteBlockPool(util.NewDirectTrackingAllocator(&atomic.Int64{})), // Use a dummy counter or the one from BufferedUpdates
+		deleteTerms: make(map[string]*bytesRefIntMap),
 	}
 }
 
-// Get returns the most recent docID upper bound recorded for the given term,
-// or -1 if the term is not present.
-func (dt *DeletedTerms) Get(term *Term) int {
-	fieldMap, exists := dt.terms[term.Field]
-	if !exists {
+func (dt *deletedTerms) get(term Term) int {
+	hash, ok := dt.deleteTerms[term.Field()]
+	if !ok {
 		return -1
 	}
-	docID, exists := fieldMap[string(term.Bytes.ValidBytes())]
-	if !exists {
+	return hash.get(term.Bytes())
+}
+
+func (dt *deletedTerms) put(term Term, value int) {
+	hash, ok := dt.deleteTerms[term.Field()]
+	if !ok {
+		hash = newBytesRefIntMap(dt.pool, &dt.bytesUsed)
+		dt.deleteTerms[term.Field()] = hash
+	}
+	if hash.put(term.Bytes(), value) {
+		dt.termsSize++
+	}
+}
+
+func (dt *deletedTerms) clear() {
+	if dt.pool != nil {
+		dt.pool.Reset(false, false)
+	}
+	dt.bytesUsed.Store(0)
+	dt.deleteTerms = make(map[string]*bytesRefIntMap)
+	dt.termsSize = 0
+}
+
+func (dt *deletedTerms) size() int {
+	return dt.termsSize
+}
+
+func (dt *deletedTerms) isEmpty() bool {
+	return dt.termsSize == 0
+}
+
+func (dt *deletedTerms) ramBytesUsed() int64 {
+	return dt.bytesUsed.Load()
+}
+
+type bytesRefIntMap struct {
+	pool       *util.ByteBlockPool
+	bytesRefHash *util.BytesRefHash
+	values     []int
+	counter    *atomic.Int64
+}
+
+func newBytesRefIntMap(pool *util.ByteBlockPool, counter *atomic.Int64) *bytesRefIntMap {
+	hash := util.NewBytesRefHashWithPool(pool)
+	return &bytesRefIntMap{
+		pool:         pool,
+		bytesRefHash: hash,
+		values:       make([]int, 0, util.DefaultCapacity),
+		counter:      counter,
+	}
+}
+
+func (m *bytesRefIntMap) put(key []byte, value int) bool {
+	ref := &util.BytesRef{Bytes: key}
+	e := m.bytesRefHash.Add(ref)
+	if e < 0 {
+		idx := -e - 1
+		m.values[idx] = value
+		return false
+	}
+	m.values = append(m.values, value)
+	return true
+}
+
+func (m *bytesRefIntMap) get(key []byte) int {
+	ref := &util.BytesRef{Bytes: key}
+	e := m.bytesRefHash.Find(ref)
+	if e == -1 {
 		return -1
 	}
-	return docID
+	return m.values[e]
 }
 
-// Put records the given docID upper bound for the term, replacing any
-// previously stored value. RAM accounting is updated for each newly
-// observed field and term.
-func (dt *DeletedTerms) Put(term *Term, docID int) {
-	fieldMap, exists := dt.terms[term.Field]
-	if !exists {
-		fieldMap = make(map[string]int)
-		dt.terms[term.Field] = fieldMap
-		dt.bytesUsed += int64(len(term.Field)) + 16 // String overhead estimate
+// FieldUpdatesBuffer buffers numeric and binary field updates.
+type FieldUpdatesBuffer struct {
+	bytesUsed    *atomic.Int64
+	numUpdates   int
+	termValues   *util.BytesRefArray
+	termSortState *util.BytesRefArraySortState
+	byteValues   *util.BytesRefArray
+	docsUpTo     []int
+	numericValues []longs // custom type or slice
+	hasValues    *util.FixedBitSet
+	maxNumeric   int64
+	minNumeric   int64
+	fields       []string
+	isNumeric    bool
+	finished     bool
+	parent       *BufferedUpdates
+}
+
+type longs []int64
+
+func NewFieldUpdatesBuffer(parent *BufferedUpdates, initialValue DocValuesUpdate, docUpTo int) *FieldUpdatesBuffer {
+	isNumeric := initialValue.Type() == DocValuesTypeNumeric
+
+	buf := &FieldUpdatesBuffer{
+		parent:    parent,
+		bytesUsed: &parent.fieldUpdatesBytesUsed,
+		numUpdates: 1,
+		termValues: util.NewBytesRefArray(0),
+		fields:     []string{initialValue.Field()},
+		docsUpTo:    []int{docUpTo},
+		isNumeric:   isNumeric,
 	}
-	termBytes := string(term.Bytes.ValidBytes())
-	if _, exists := fieldMap[termBytes]; !exists {
-		dt.bytesUsed += int64(len(termBytes)) + 4 + 16 // bytes + int + map overhead
-	}
-	fieldMap[termBytes] = docID
-}
 
-// Size returns the total number of unique deleted terms across all fields.
-func (dt *DeletedTerms) Size() int {
-	count := 0
-	for _, fieldMap := range dt.terms {
-		count += len(fieldMap)
-	}
-	return count
-}
-
-// IsEmpty reports whether no deleted terms are currently held.
-func (dt *DeletedTerms) IsEmpty() bool {
-	return dt.Size() == 0
-}
-
-// Clear discards all deleted terms and resets RAM accounting to zero.
-func (dt *DeletedTerms) Clear() {
-	dt.terms = make(map[string]map[string]int)
-	dt.bytesUsed = 0
-}
-
-// RamBytesUsed returns the estimated RAM usage of this DeletedTerms.
-func (dt *DeletedTerms) RamBytesUsed() int64 {
-	return dt.bytesUsed
-}
-
-// ForEachOrdered returns every stored entry sorted by field name and then by
-// term bytes, matching the iteration contract of Lucene's forEachOrdered.
-func (dt *DeletedTerms) ForEachOrdered() []TermEntry {
-	fields := make([]string, 0, len(dt.terms))
-	for field := range dt.terms {
-		fields = append(fields, field)
-	}
-	sort.Strings(fields)
-
-	var entries []TermEntry
-	for _, field := range fields {
-		fieldMap := dt.terms[field]
-		termBytes := make([]string, 0, len(fieldMap))
-		for tb := range fieldMap {
-			termBytes = append(termBytes, tb)
+	// Initial value
+	if term, ok := initialValue.(*NumericDocValuesUpdate); ok {
+		buf.termValues.AppendBytes(term.Term().Bytes())
+		if term.HasValue() {
+			buf.numericValues = []int64{term.value}
+			buf.maxNumeric, buf.minNumeric = term.value, term.value
+		} else {
+			buf.numericValues = []int64{0}
 		}
-		sort.Strings(termBytes)
-
-		for _, tb := range termBytes {
-			entries = append(entries, TermEntry{
-				Field: field,
-				Bytes: []byte(tb),
-				Value: fieldMap[tb],
-			})
+		if !term.HasValue() {
+			buf.hasValues, _ = util.NewFixedBitSet(1)
+		}
+	} else if term, ok := initialValue.(*BinaryDocValuesUpdate); ok {
+		buf.termValues.AppendBytes(term.Term().Bytes())
+		buf.byteValues = util.NewBytesRefArray(0)
+		if term.HasValue() {
+			buf.byteValues.AppendBytes(term.value)
 		}
 	}
-	return entries
+
+	return buf
 }
 
-// GetPool returns the backing byte pool. The current Gocene port stores term
-// bytes inside the field-keyed map and does not allocate an internal pool, so
-// this method returns nil. It is kept for parity with Lucene's
-// DeletedTerms.getPool, which is documented as visible-for-testing.
-func (dt *DeletedTerms) GetPool() *ByteBlockPool {
-	return nil
-}
-
-// ByteBlockPool is a minimal placeholder mirroring Lucene's
-// util.ByteBlockPool surface area used by DeletedTerms.GetPool. The full
-// util.ByteBlockPool is not exposed here to avoid forcing callers of
-// BufferedUpdates into the util package's pool lifecycle.
-type ByteBlockPool struct {
-	buffer []byte
-}
-
-// Buffer returns the underlying byte buffer, or nil when the pool is unset.
-func (bp *ByteBlockPool) Buffer() []byte {
-	if bp == nil {
-		return nil
+func (b *FieldUpdatesBuffer) addUpdate(term Term, value interface{}, docUpTo int) {
+	ord := b.append(term)
+	b.add(term.Field(), docUpTo, ord, true)
+	if b.isNumeric {
+		val := value.(int64)
+		if b.numericValues == nil {
+			b.numericValues = make([]int64, 0)
+		}
+		b.numericValues = append(b.numericValues, val)
+		if val > b.maxNumeric { b.maxNumeric = val }
+		if val < b.minNumeric { b.minNumeric = val }
+	} else {
+		val := value.([]byte)
+		b.byteValues.AppendBytes(val)
 	}
-	return bp.buffer
 }
 
-// TermEntry is an ordered entry yielded by DeletedTerms.ForEachOrdered.
-type TermEntry struct {
-	Field string
-	Bytes []byte
-	Value int
+func (b *FieldUpdatesBuffer) addNoValue(term Term, docUpTo int) {
+	ord := b.append(term)
+	b.add(term.Field(), docUpTo, ord, false)
+}
+
+func (b *FieldUpdatesBuffer) append(term Term) int {
+	b.termValues.AppendBytes(term.Bytes())
+	return b.numUpdates
+}
+
+func (b *FieldUpdatesBuffer) add(field string, docUpTo, ord int, hasValue bool) {
+	// simplified: assume fields[0] is the only field for now as per Lucene's common case
+	if b.fields[0] != field {
+		// handle multiple fields if necessary
+	}
+
+	if len(b.docsUpTo) <= ord {
+		b.docsUpTo = append(b.docsUpTo, docUpTo)
+	} else {
+		b.docsUpTo[ord] = docUpTo
+	}
+
+	if !hasValue || b.hasValues != nil {
+		if b.hasValues == nil {
+			b.hasValues, _ = util.NewFixedBitSet(ord + 1)
+		}
+		if hasValue {
+			b.hasValues.Set(ord)
+		}
+	}
+}
+
+func (b *FieldUpdatesBuffer) Finish() {
+	b.finished = true
+	if b.hasSingleValue() && b.hasValues == nil && len(b.fields) == 1 {
+		b.termSortState = b.termValues.SortByBytes()
+	}
+}
+
+func (b *FieldUpdatesBuffer) hasSingleValue() bool {
+	return b.isNumeric && len(b.numericValues) == 1
+}
+
+func (b *FieldUpdatesBuffer) Iterator() *BufferedUpdateIterator {
+	return &BufferedUpdateIterator{
+		buffer: b,
+	}
+}
+
+type BufferedUpdate struct {
+	DocUpTo      int
+	NumericValue int64
+	BinaryValue  []byte
+	HasValue     bool
+	TermField    string
+	TermValue    []byte
+}
+
+type BufferedUpdateIterator struct {
+	buffer *FieldUpdatesBuffer
+	index  int
+}
+
+func (it *BufferedUpdateIterator) Next() (*BufferedUpdate, bool) {
+	if it.index >= it.buffer.numUpdates {
+		return nil, false
+	}
+
+	idx := it.index
+	it.index++
+
+	update := &BufferedUpdate{
+		TermValue: it.buffer.termValues.GetBytes(idx),
+		TermField: it.buffer.fields[0],
+		DocUpTo:   it.buffer.docsUpTo[idx],
+	}
+
+	// check hasValue
+	hasVal := true
+	if it.buffer.hasValues != nil {
+		hasVal = it.buffer.hasValues.Get(idx)
+	}
+	update.HasValue = hasVal
+
+	if hasVal {
+		if it.buffer.isNumeric {
+			update.NumericValue = it.buffer.numericValues[idx]
+		} else {
+			update.BinaryValue = it.buffer.byteValues.GetBytes(idx)
+		}
+	}
+
+	return update, true
 }

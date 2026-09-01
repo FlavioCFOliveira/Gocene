@@ -1,0 +1,200 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+package facet
+
+import (
+	"fmt"
+	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+)
+
+// IntValueFacetCounts is a Facets implementation that computes counts for all unique int values.
+//
+// This is the Go port of Lucene's org.apache.lucene.facet.IntValueFacetCounts.
+type IntValueFacetCounts struct {
+	counts      []int
+	hashCounts  map[int32]int
+	initialized bool
+	field       string
+	totCount    int
+}
+
+// NewIntValueFacetCounts creates a new IntValueFacetCounts.
+func NewIntValueFacetCounts(field string, hits *FacetsCollector) error {
+	f := &IntValueFacetCounts{
+		field: field,
+	}
+	if err := f.count(nil, hits.GetMatchingDocs()); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (f *IntValueFacetCounts) initializeCounters() {
+	if f.initialized {
+		return
+	}
+	f.counts = make([]int, 1024)
+	f.hashCounts = make(map[int32]int)
+	f.initialized = true
+}
+
+func (f *IntValueFacetCounts) increment(value int32) {
+	if value >= 0 && value < int32(len(f.counts)) {
+		f.counts[value]++
+	} else {
+		f.hashCounts[value]++
+	}
+}
+
+func (f *IntValueFacetCounts) count(valueSource search.IntValueSource, matchingDocs []*MatchingDocs) error {
+	for _, hits := range matchingDocs {
+		if hits.TotalHits == 0 {
+			continue
+		}
+		f.initializeCounters()
+
+		if valueSource != nil {
+			values, err := valueSource.GetValues(hits.Context)
+			if err != nil {
+				return err
+			}
+			for doc, val := range values {
+				if hits.Bits.Get(doc) {
+					f.increment(val)
+					f.totCount++
+				}
+			}
+		} else {
+			dv, err := index.GetNumericDocValues(hits.Context, f.field)
+			if err != nil {
+				return err
+			}
+			if dv == nil {
+				continue
+			}
+
+			for doc := dv.NextDoc(); doc != search.NoMoreDocs; doc = dv.NextDoc() {
+				if hits.Bits.Get(doc) {
+					val, err := dv.IntValue()
+					if err != nil {
+						return err
+					}
+					f.increment(val)
+					f.totCount++
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (f *IntValueFacetCounts) GetAllChildren(dim string, path ...string) (*FacetResult, error) {
+	if dim != f.field {
+		return nil, fmt.Errorf("invalid dim %q; should be %q", dim, f.field)
+	}
+	if len(path) != 0 {
+		return nil, fmt.Errorf("path.length should be 0")
+	}
+
+	if !f.initialized {
+		return NewFacetResult(f.field, []string{}, f.totCount, []*LabelAndValue{}, 0), nil
+	}
+
+	var labelValues []*LabelAndValue
+	for i, count := range f.counts {
+		if count != 0 {
+			labelValues = append(labelValues, NewLabelAndValue(fmt.Sprintf("%d", i), int32(i)))
+			labelValues[len(labelValues)-1].Count = count
+		}
+	}
+	for val, count := range f.hashCounts {
+		if count != 0 {
+			labelValues = append(labelValues, NewLabelAndValue(fmt.Sprintf("%d", val), val))
+			labelValues[len(labelValues)-1].Count = count
+		}
+	}
+
+	return NewFacetResult(f.field, []string{}, f.totCount, labelValues, len(labelValues)), nil
+}
+
+func (f *IntValueFacetCounts) GetTopChildren(topN int, dim string, path ...string) (*FacetResult, error) {
+	if err := ValidateTopN(topN); err != nil {
+		return nil, err
+	}
+	if dim != f.field {
+		return nil, fmt.Errorf("invalid dim %q; should be %q", dim, f.field)
+	}
+	if len(path) != 0 {
+		return nil, fmt.Errorf("path.length should be 0")
+	}
+
+	if !f.initialized {
+		return NewFacetResult(f.field, []string{}, f.totCount, []*LabelAndValue{}, 0), nil
+	}
+
+	type entry struct {
+		value int32
+		count int
+	}
+	var entries []entry
+	for i, count := range f.counts {
+		if count != 0 {
+			entries = append(entries, entry{int32(i), count})
+		}
+	}
+	for val, count := range f.hashCounts {
+		if count != 0 {
+			entries = append(entries, entry{val, count})
+		}
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].count != entries[j].count {
+			return entries[i].count > entries[j].count
+		}
+		return entries[i].value < entries[j].value
+	})
+
+	limit := topN
+	if len(entries) < topN {
+		limit = len(entries)
+	}
+
+	var results []*LabelAndValue
+	for i := 0; i < limit; i++ {
+		e := entries[i]
+		results = append(results, NewLabelAndValue(fmt.Sprintf("%d", e.value), e.value))
+		results[len(results)-1].Count = e.count
+	}
+
+	return NewFacetResult(f.field, []string{}, f.totCount, results, len(entries)), nil
+}
+
+func (f *IntValueFacetCounts) GetSpecificValue(dim string, path ...string) (interface{}, error) {
+	panic("unsupported")
+}
+
+func (f *IntValueFacetCounts) GetAllDims(topN int) ([]*FacetResult, error) {
+	res, err := f.GetTopChildren(topN, f.field)
+	if err != nil {
+		return nil, err
+	}
+	return []*FacetResult{res}, nil
+}
+
+func (f *IntValueFacetCounts) GetTopDims(topNDims, topNChildren int) ([]*FacetResult, error) {
+	res, err := f.GetAllDims(topNChildren)
+	if err != nil {
+		return nil, err
+	}
+	limit := topNDims
+	if len(res) < topNDims {
+		limit = len(res)
+	}
+	return res[:limit], nil
+}

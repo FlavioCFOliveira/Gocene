@@ -137,6 +137,18 @@ func (s *lucene90DocValuesSkipper) GetDocID() int {
 	return s.docID
 }
 
+func (s *lucene90DocValuesSkipper) MinValue() int64 {
+	return s.entry.minValue
+}
+
+func (s *lucene90DocValuesSkipper) MaxValue() int64 {
+	return s.entry.maxValue
+}
+
+func (s *lucene90DocValuesSkipper) DocCount() int {
+	return s.entry.docCount
+}
+
 // ---------------------------------------------------------------------------
 // lucene90DVProducer
 // ---------------------------------------------------------------------------

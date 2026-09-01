@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -23,7 +23,7 @@ type DocumentsWriter struct {
 	directory store.Directory
 
 	// analyzer is the analyzer for text processing
-	analyzer analysis.Analyzer
+	analyzer api.Analyzer
 
 	// codec is the codec for encoding/decoding index data
 	codec Codec
@@ -129,7 +129,7 @@ func (dw *DocumentsWriter) ShouldFlush() bool {
 //
 // Note: this method does NOT trigger an auto-flush; the IndexWriter is
 // responsible for all flush coordination (see AddDocument doc comment).
-func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer analysis.Analyzer, term *Term) error {
+func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer api.Analyzer, term *Term) error {
 	dw.mu.Lock()
 	defer dw.mu.Unlock()
 
@@ -167,7 +167,7 @@ func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer analysis.Analyz
 // segment files directly to disk without registering them in the SegmentInfos,
 // causing "file already exists" errors when Commit later tried to create
 // segments under the same names.
-func (dw *DocumentsWriter) AddDocument(doc Document, analyzer analysis.Analyzer) error {
+func (dw *DocumentsWriter) AddDocument(doc Document, analyzer api.Analyzer) error {
 	dw.mu.Lock()
 	defer dw.mu.Unlock()
 
@@ -195,7 +195,7 @@ func (dw *DocumentsWriter) AddDocument(doc Document, analyzer analysis.Analyzer)
 }
 
 // UpdateDocuments updates multiple documents.
-func (dw *DocumentsWriter) UpdateDocuments(docs []Document, analyzer analysis.Analyzer, term *Term) error {
+func (dw *DocumentsWriter) UpdateDocuments(docs []Document, analyzer api.Analyzer, term *Term) error {
 	for _, doc := range docs {
 		if err := dw.UpdateDocument(doc, analyzer, term); err != nil {
 			return err

@@ -1,136 +1,78 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package search
 
 import (
-	"strconv"
-
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
-// LeafCollector collects matching documents in a segment.
-//
-// This is the Go port of Lucene's org.apache.lucene.search.LeafCollector.
-type LeafCollector interface {
-	// SetScorer sets the scorer for this collector.
-	SetScorer(scorer Scorer) error
-
-	// Collect collects the given document.
-	Collect(doc int) error
-}
-
-// Collector collects matching documents during search.
-//
-// This is the Go port of Lucene's org.apache.lucene.search.Collector.
-//
-// Collector is the base class for all collectors. Collectors receive
-// matching documents and typically store them in some data structure.
-// Common collectors include TopDocsCollector (for top-N results) and
-// TotalHitCountCollector (for counting total hits).
+// Collector is used to gather raw results from a search.
 type Collector interface {
-	// GetLeafCollector returns a LeafCollector for the given leaf reader
-	// context. The context carries the segment's docBase, ordinal and reader,
-	// so collectors that need to rebase document ids or bind to the segment's
-	// DocValues can do so without the searcher poking at the returned leaf
-	// collector afterwards.
-	//
-	// This mirrors org.apache.lucene.search.Collector#getLeafCollector, which
-	// takes a LeafReaderContext. A collector may return a
-	// CollectionTerminatedException (as an error) to signal that it does not
-	// need the given segment; MultiCollector and the search loop detect this
-	// with IsCollectionTerminated.
+	// GetLeafCollector creates a new LeafCollector to collect the given context.
 	GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error)
 
-	// ScoreMode returns the ScoreMode indicating how scores are needed.
+	// ScoreMode indicates what features are required from the scorer.
 	ScoreMode() ScoreMode
+
+	// SetWeight sets the Weight that will be used to produce scorers.
+	SetWeight(weight Weight)
 }
 
-// ScoreMode indicates how scores are needed by the collector.
-type ScoreMode int
+// LeafCollector collects documents from a single segment.
+type LeafCollector interface {
+	// SetScorer is called before successive calls to Collect.
+	SetScorer(scorer Scorable) error
 
-const (
-	// COMPLETE - scores are needed and must be complete.
-	COMPLETE ScoreMode = iota
-	// COMPLETE_NO_SCORES - scores are not needed.
-	COMPLETE_NO_SCORES
-	// TOP_SCORES - only top scores are needed.
-	TOP_SCORES
-	// TOP_DOCS - only top docs are needed (no scores).
-	TOP_DOCS
-)
+	// Collect is called once for every document matching a query.
+	Collect(doc int) error
 
-// needsScores reports whether this score mode requires document scores.
-//
-// This mirrors org.apache.lucene.search.ScoreMode#needsScores: COMPLETE and
-// TOP_SCORES need scores, while COMPLETE_NO_SCORES and TOP_DOCS do not.
-func (m ScoreMode) needsScores() bool {
-	return m == COMPLETE || m == TOP_SCORES
+	// CollectRange collects a range of doc IDs.
+	CollectRange(min, max int) error
+
+	// CollectStream bulk-collects doc IDs from a DocIdStream.
+	CollectStream(stream DocIdStream) error
+
+	// CompetitiveIterator optionally returns an iterator over competitive documents.
+	CompetitiveIterator() (DocIdSetIterator, error)
+
+	// Finish is called once the leaf has finished collecting.
+	Finish() error
 }
 
-// String returns the canonical name of the score mode, matching the constant
-// names used by org.apache.lucene.search.ScoreMode so test diagnostics read the
-// same as the Lucene source.
-func (m ScoreMode) String() string {
-	switch m {
-	case COMPLETE:
-		return "COMPLETE"
-	case COMPLETE_NO_SCORES:
-		return "COMPLETE_NO_SCORES"
-	case TOP_SCORES:
-		return "TOP_SCORES"
-	case TOP_DOCS:
-		return "TOP_DOCS"
-	default:
-		return "ScoreMode(" + strconv.Itoa(int(m)) + ")"
+// SimpleCollector is a base Collector implementation that is used to collect all contexts.
+type SimpleCollector interface {
+	Collector
+	LeafCollector
+
+	// DoSetNextReader is called before collecting context.
+	DoSetNextReader(context *index.LeafReaderContext) error
+}
+
+// BaseSimpleCollector provides a default implementation of SimpleCollector.
+type BaseSimpleCollector struct {
+	// Put fields if needed
+}
+
+func (s *BaseSimpleCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
+	if err := s.DoSetNextReader(context); err != nil {
+		return nil, err
 	}
+	return s
 }
 
-// isExhaustive reports whether this score mode requires processing all matching
-// documents (true) rather than allowing dynamic pruning down to the top hits
-// (false).
-//
-// This mirrors org.apache.lucene.search.ScoreMode#isExhaustive: COMPLETE and
-// COMPLETE_NO_SCORES are exhaustive, while TOP_SCORES and TOP_DOCS are not
-// (they may skip non-competitive hits). It is consulted by ConstantScoreQuery
-// when choosing the ScoreMode to forward to its wrapped query.
-func (m ScoreMode) isExhaustive() bool {
-	return m == COMPLETE || m == COMPLETE_NO_SCORES
-}
-
-// SimpleCollector provides a base implementation for collectors.
-type SimpleCollector struct {
-	scoreMode ScoreMode
-}
-
-// NewSimpleCollector creates a new SimpleCollector.
-func NewSimpleCollector(scoreMode ScoreMode) *SimpleCollector {
-	return &SimpleCollector{scoreMode: scoreMode}
-}
-
-// ScoreMode returns the score mode.
-func (c *SimpleCollector) ScoreMode() ScoreMode {
-	return c.scoreMode
-}
-
-// BaseLeafCollector provides a base implementation for LeafCollector.
-type BaseLeafCollector struct {
-	scorer Scorer
-}
-
-// NewBaseLeafCollector creates a new BaseLeafCollector.
-func NewBaseLeafCollector() *BaseLeafCollector {
-	return &BaseLeafCollector{}
-}
-
-// SetScorer sets the scorer.
-func (c *BaseLeafCollector) SetScorer(scorer Scorer) error {
-	c.scorer = scorer
+func (s *BaseSimpleCollector) DoSetNextReader(context *index.LeafReaderContext) error {
 	return nil
 }
 
-// Collect collects a document.
-func (c *BaseLeafCollector) Collect(doc int) error {
+func (s *BaseSimpleCollector) SetScorer(scorer Scorable) error {
 	return nil
+}
+
+// Note: Collect(doc int) must be implemented by the actual collector.
+
+// CollectorManager is a manager of collectors.
+type CollectorManager[C Collector, T any] interface {
+	// NewCollector returns a new Collector.
+	NewCollector() (C, error)
+
+	// Reduce reduces the results of individual collectors into a meaningful result.
+	Reduce(collectors []C) (T, error)
 }

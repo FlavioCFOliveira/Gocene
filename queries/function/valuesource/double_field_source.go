@@ -6,96 +6,80 @@ package valuesource
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
-	"github.com/FlavioCFOliveira/Gocene/queries/function/docvalues"
-	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
 // DoubleFieldSource obtains double field values from NumericDocValues and
-// makes them available as other numeric types, casting as needed.
-//
-// Go port of org.apache.lucene.queries.function.valuesource.DoubleFieldSource.
+// makes those values available as other numeric types, casting as needed.
 type DoubleFieldSource struct {
-	function.BaseValueSource
-	field string
+	FieldCacheSource
 }
 
-// NewDoubleFieldSource creates a DoubleFieldSource for the given field.
 func NewDoubleFieldSource(field string) *DoubleFieldSource {
-	return &DoubleFieldSource{field: field}
+	return &DoubleFieldSource{
+		FieldCacheSource: FieldCacheSource{Field: field},
+	}
 }
 
-// Description returns "double(<field>)".
-func (s *DoubleFieldSource) Description() string { return fmt.Sprintf("double(%s)", s.field) }
-
-// GetField returns the field name.
-func (s *DoubleFieldSource) GetField() string { return s.field }
-
-// GetSortField returns a SortField suitable for sorting by this source's values.
-func (s *DoubleFieldSource) GetSortField(reverse bool) *search.SortField {
-	return search.NewSortField(s.field, search.SortFieldTypeDouble)
+func (f *DoubleFieldSource) Description() string {
+	return fmt.Sprintf("double(%s)", f.Field)
 }
 
-// GetValues returns FunctionValues backed by NumericDocValues for this field.
-func (s *DoubleFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	arr, err := getNumericDocValues(s.field, readerContext)
+func (f *DoubleFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
+	ndv, err := readerContext.Reader().GetNumericDocValues(f.Field)
 	if err != nil {
 		return nil, err
 	}
-	if arr == nil {
-		return &doubleFieldMissingValues{description: s.Description()}, nil
+
+	fv := &doubleDocValues{
+		source: f,
+		ndv:    ndv,
 	}
+	fv.SetSelf(fv)
+	return fv, nil
+}
 
-	v := &doubleFieldFunctionValues{
-		DoubleDocValues: *docvalues.NewDoubleDocValues(s, func(doc int) (float64, error) {
-			if docFieldExists(arr, doc) {
-				raw, err := arr.LongValue()
-				if err != nil {
-					return 0, err
-				}
-				return doubleBitsToDouble(raw), nil
-			}
-			return 0, nil
-		}),
-		arr: arr,
+type doubleDocValues struct {
+	function.BaseFunctionValues
+	source   *DoubleFieldSource
+	ndv      index.NumericDocValues
+	lastDocID int
+}
+
+func (f *doubleDocValues) DoubleVal(doc int) (float64, error) {
+	exists, err := f.Exists(doc)
+	if err != nil {
+		return 0, err
 	}
-	v.SetSelf(v)
-	return v, nil
-}
-
-// Equals reports value equality.
-func (s *DoubleFieldSource) Equals(other function.ValueSource) bool {
-	o, ok := other.(*DoubleFieldSource)
-	if !ok || o == nil {
-		return false
+	if exists {
+		val, err := f.ndv.LongValue()
+		if err != nil {
+			return 0, err
+		}
+		return math.Float64frombits(uint64(val)), nil
 	}
-	return s.field == o.field
+	return 0, nil
 }
 
-// HashCode returns a stable hash.
-func (s *DoubleFieldSource) HashCode() int32 {
-	return hashFloat64(0) + hashString(s.field)
+func (f *doubleDocValues) Exists(doc int) (bool, error) {
+	if doc < f.lastDocID {
+		return false, fmt.Errorf("docs were sent out-of-order: lastDocID=%d vs docID=%d", f.lastDocID, doc)
+	}
+	f.lastDocID = doc
+	curDocID := f.ndv.DocID()
+	if doc > curDocID {
+		next, err := f.ndv.Advance(doc)
+		if err != nil {
+			return false, err
+		}
+		curDocID = next
+	}
+	return doc == curDocID, nil
 }
 
-type doubleFieldFunctionValues struct {
-	docvalues.DoubleDocValues
-	arr index.NumericDocValues
+func (f *doubleDocValues) ToString(doc int) (string, error) {
+	return fmt.Sprintf("double(%s)=%g", f.source.Field, f.DoubleVal(doc)), nil
 }
-
-func (v *doubleFieldFunctionValues) Exists(doc int) (bool, error) {
-	return docFieldExists(v.arr, doc), nil
-}
-
-type doubleFieldMissingValues struct {
-	missingValuesBase
-	description string
-}
-
-func (v *doubleFieldMissingValues) ToString(doc int) (string, error) { return v.description + "=0.0", nil }
-func (v *doubleFieldMissingValues) GetScorer(readerContext *index.LeafReaderContext) function.ValueSourceScorer {
-	return newAllValueSourceScorer(readerContext, v)
-}
-
-var _ function.ValueSource = (*DoubleFieldSource)(nil)

@@ -4,41 +4,78 @@
 
 package search
 
-// PhraseMatcher abstracts the per-document matching loop used by both exact
-// and sloppy phrase scorers.
-//
-// Mirrors org.apache.lucene.search.PhraseMatcher. The usage pattern is:
-//
-//  1. caller advances the approximation iterator to a candidate doc
-//  2. caller invokes Reset
-//  3. caller invokes NextMatch in a loop until it returns false
+import (
+	"io"
+)
+
+// PhraseMatcher is the base for exact and sloppy phrase matching.
 type PhraseMatcher interface {
-	// Approximation returns the iterator that lists every doc containing at
-	// least one of the phrase's terms.
+	// Approximation returns a DocIdSetIterator that only matches documents containing all terms.
 	Approximation() DocIdSetIterator
-	// ImpactsApproximation returns the impacts-aware variant of the
-	// approximation iterator, or nil if no impacts are available.
-	ImpactsApproximation() DocIdSetIterator
-	// MaxFreq returns an upper bound on the number of matches in the current
-	// document.
-	MaxFreq() (int, error)
-	// Reset prepares the matcher for iteration over the current document.
-	Reset() error
-	// NextMatch advances to the next match in the current document and
-	// returns whether one was found.
+	// ImpactsApproximation returns an ImpactsDISI view of the approximation.
+	ImpactsApproximation() ImpactsDISI
+	// MaxFreq returns an upper bound on the number of possible matches on the current document.
+	MaxFreq() (float32, error)
+	// ResetPositions loads positions for matching after the approximation has been advanced.
+	ResetPositions() error
+	// NextMatch finds the next match on the current document, returning false if there are none.
 	NextMatch() (bool, error)
+	// SloppyWeight returns the slop-adjusted weight of the current match.
+	SloppyWeight() float32
 	// StartPosition returns the start position of the current match.
 	StartPosition() int
 	// EndPosition returns the end position of the current match.
 	EndPosition() int
-	// StartOffset returns the start character offset of the current match.
+	// StartOffset returns the start offset of the current match.
 	StartOffset() (int, error)
-	// EndOffset returns the end character offset of the current match.
+	// EndOffset returns the end offset of the current match.
 	EndOffset() (int, error)
-	// SloppyWeight returns the per-match scoring weight under the current
-	// slop configuration (exact matchers may return 1.0).
-	SloppyWeight() float32
-	// MatchCost returns an estimate of the cost of producing all matches in a
-	// document.
-	MatchCost() float32
+	// GetMatchCost returns an estimate of the average cost of finding all matches on a document.
+	GetMatchCost() float32
+}
+
+// PhrasePositions wraps a postings enum and tracks the current position and offset.
+type PhrasePositions struct {
+	postings index.PostingsEnum
+	offset   int
+	position int
+	ord      int
+	terms    []byte // For simplicity, we can use the term bytes or a Term object
+	rptGroup int
+	rptInd   int
+	freq     float32
+}
+
+func NewPhrasePositions(postings index.PostingsEnum, offset int, ord int, terms []byte) *PhrasePositions {
+	return &PhrasePositions{
+		postings: postings,
+		offset:   offset,
+		position: 0,
+		ord:      ord,
+		terms:    terms,
+		rptGroup: -1,
+		rptInd:   -1,
+	}
+}
+
+func (pp *PhrasePositions) firstPosition() (bool, error) {
+	pos, err := pp.postings.NextPosition()
+	if err != nil || pos == index.NO_MORE_POSITIONS {
+		return false, err
+	}
+	pp.position = pos
+	return true, nil
+}
+
+func (pp *PhrasePositions) nextPosition() (bool, error) {
+	pos, err := pp.postings.NextPosition()
+	if err != nil || pos == index.NO_MORE_POSITIONS {
+		return false, err
+	}
+	pp.position = pos
+	return true, nil
+}
+
+func (pp *PhrasePositions) tpPos() int {
+	return pp.position + pp.offset
 }

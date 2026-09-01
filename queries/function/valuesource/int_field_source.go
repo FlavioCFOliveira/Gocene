@@ -6,96 +6,88 @@ package valuesource
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
-	"github.com/FlavioCFOliveira/Gocene/queries/function/docvalues"
-	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// IntFieldSource obtains int field values from NumericDocValues and makes
-// them available as other numeric types, casting as needed.
-//
-// Go port of org.apache.lucene.queries.function.valuesource.IntFieldSource.
+// IntFieldSource obtains int field values from NumericDocValues and
+// makes those values available as other numeric types, casting as needed.
 type IntFieldSource struct {
-	function.BaseValueSource
-	field string
+	FieldCacheSource
 }
 
-// NewIntFieldSource creates an IntFieldSource for the given field.
 func NewIntFieldSource(field string) *IntFieldSource {
-	return &IntFieldSource{field: field}
+	return &IntFieldSource{
+		FieldCacheSource: FieldCacheSource{Field: field},
+	}
 }
 
-// Description returns "int(<field>)".
-func (s *IntFieldSource) Description() string { return fmt.Sprintf("int(%s)", s.field) }
-
-// GetField returns the field name.
-func (s *IntFieldSource) GetField() string { return s.field }
-
-// GetSortField returns a SortField suitable for sorting by this source's values.
-func (s *IntFieldSource) GetSortField(reverse bool) *search.SortField {
-	return search.NewSortField(s.field, search.SortFieldTypeInt)
+func (f *IntFieldSource) Description() string {
+	return fmt.Sprintf("int(%s)", f.Field)
 }
 
-// GetValues returns FunctionValues backed by NumericDocValues for this field.
-func (s *IntFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	arr, err := getNumericDocValues(s.field, readerContext)
+func (f *IntFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
+	ndv, err := readerContext.Reader().GetNumericDocValues(f.Field)
 	if err != nil {
 		return nil, err
 	}
-	if arr == nil {
-		return &intFieldMissingValues{description: s.Description()}, nil
+
+	fv := &intDocValues{
+		source: f,
+		ndv:    ndv,
 	}
+	fv.SetSelf(fv)
+	return fv, nil
+}
 
-	v := &intFieldFunctionValues{
-		IntDocValues: *docvalues.NewIntDocValues(s, func(doc int) (int32, error) {
-			if docFieldExists(arr, doc) {
-				raw, err := arr.LongValue()
-				if err != nil {
-					return 0, err
-				}
-				return int32(raw), nil
-			}
-			return 0, nil
-		}),
-		arr: arr,
+type intDocValues struct {
+	function.BaseFunctionValues
+	source   *IntFieldSource
+	ndv      index.NumericDocValues
+	lastDocID int
+}
+
+func (f *intDocValues) IntVal(doc int) (int32, error) {
+	exists, err := f.Exists(doc)
+	if err != nil {
+		return 0, err
 	}
-	v.SetSelf(v)
-	return v, nil
-}
-
-// Equals reports value equality.
-func (s *IntFieldSource) Equals(other function.ValueSource) bool {
-	o, ok := other.(*IntFieldSource)
-	if !ok || o == nil {
-		return false
+	if exists {
+		val, err := f.ndv.LongValue()
+		if err != nil {
+			return 0, err
+		}
+		return int32(val), nil
 	}
-	return s.field == o.field
+	return 0, nil
 }
 
-// HashCode returns a stable hash.
-func (s *IntFieldSource) HashCode() int32 {
-	return hashString("int") + hashString(s.field)
+func (f *intDocValues) StrVal(doc int) (string, error) {
+	val, err := f.IntVal(doc)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%d", val), nil
 }
 
-type intFieldFunctionValues struct {
-	docvalues.IntDocValues
-	arr index.NumericDocValues
+func (f *intDocValues) Exists(doc int) (bool, error) {
+	if doc < f.lastDocID {
+		return false, fmt.Errorf("docs were sent out-of-order: lastDocID=%d vs docID=%d", f.lastDocID, doc)
+	}
+	f.lastDocID = doc
+	curDocID := f.ndv.DocID()
+	if doc > curDocID {
+		next, err := f.ndv.Advance(doc)
+		if err != nil {
+			return false, err
+		}
+		curDocID = next
+	}
+	return doc == curDocID, nil
 }
 
-func (v *intFieldFunctionValues) Exists(doc int) (bool, error) {
-	return docFieldExists(v.arr, doc), nil
+func (f *intDocValues) ToString(doc int) (string, error) {
+	return fmt.Sprintf("int(%s)=%d", f.source.Field, f.IntVal(doc)), nil
 }
-
-type intFieldMissingValues struct {
-	missingValuesBase
-	description string
-}
-
-func (v *intFieldMissingValues) ToString(doc int) (string, error) { return v.description + "=0", nil }
-func (v *intFieldMissingValues) GetScorer(readerContext *index.LeafReaderContext) function.ValueSourceScorer {
-	return newAllValueSourceScorer(readerContext, v)
-}
-
-var _ function.ValueSource = (*IntFieldSource)(nil)

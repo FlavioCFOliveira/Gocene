@@ -10,176 +10,141 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
 	"github.com/FlavioCFOliveira/Gocene/queries/function/docvalues"
-	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// SortedSetFieldSource retrieves FunctionValues for multi-valued string
-// fields using SortedSetDocValues, selecting a representative value via
-// the configured selector.
-//
-// Go port of org.apache.lucene.queries.function.valuesource.SortedSetFieldSource.
-type SortedSetFieldSource struct {
-	function.BaseValueSource
-	field    string
-	selector search.SortedSetSelectorType
-}
+// SortedSetSelectorType mirrors org.apache.lucene.search.SortedSetSelector.Type.
+type SortedSetSelectorType int
 
-// NewSortedSetFieldSource creates a SortedSetFieldSource with MIN selector.
-func NewSortedSetFieldSource(field string) *SortedSetFieldSource {
-	return &SortedSetFieldSource{field: field, selector: search.SortedSetSelectorMin}
-}
+const (
+	SortedSetSelectorMin SortedSetSelectorType = iota
+	SortedSetSelectorMax
+)
 
-// NewSortedSetFieldSourceWithSelector creates a SortedSetFieldSource with
-// the given selector.
-func NewSortedSetFieldSourceWithSelector(field string, selector search.SortedSetSelectorType) *SortedSetFieldSource {
-	return &SortedSetFieldSource{field: field, selector: selector}
-}
-
-// Description returns "sortedset(<field>,selector=<selector>)".
-func (s *SortedSetFieldSource) Description() string {
-	return fmt.Sprintf("sortedset(%s,selector=%s)", s.field, s.selector)
-}
-
-// GetField returns the field name.
-func (s *SortedSetFieldSource) GetField() string { return s.field }
-
-// wrapSortedSetDocValues wraps a SortedSetDocValues into a single-valued
-// SortedDocValues using the given selector.
-func wrapSortedSetDocValues(ssdv index.SortedSetDocValues, selector search.SortedSetSelectorType) index.SortedDocValues {
-	return &sortedSetWrapper{ssdv: ssdv, selector: selector}
-}
-
-type sortedSetWrapper struct {
-	ssdv     index.SortedSetDocValues
-	selector search.SortedSetSelectorType
-	ord      int
-}
-
-func (w *sortedSetWrapper) DocID() int { return w.ssdv.DocID() }
-func (w *sortedSetWrapper) NextDoc() (int, error) {
-	doc, err := w.ssdv.NextDoc()
-	if err != nil || doc == index.NO_MORE_DOCS {
-		return doc, err
-	}
-	w.pickOrd()
-	return doc, nil
-}
-func (w *sortedSetWrapper) Advance(target int) (int, error) {
-	doc, err := w.ssdv.Advance(target)
-	if err != nil || doc == index.NO_MORE_DOCS {
-		return doc, err
-	}
-	w.pickOrd()
-	return doc, nil
-}
-func (w *sortedSetWrapper) AdvanceExact(target int) (bool, error) {
-	ok, err := w.ssdv.AdvanceExact(target)
-	if err != nil || !ok {
-		w.ord = -1
-		return false, err
-	}
-	w.pickOrd()
-	return true, nil
-}
-func (w *sortedSetWrapper) LongValue() (int64, error) { return int64(w.ord), nil }
-func (w *sortedSetWrapper) Cost() int64               { return w.ssdv.Cost() }
-func (w *sortedSetWrapper) OrdValue() (int, error)    { return w.ord, nil }
-func (w *sortedSetWrapper) LookupOrd(ord int) ([]byte, error) { return w.ssdv.LookupOrd(ord) }
-func (w *sortedSetWrapper) GetValueCount() int                 { return w.ssdv.GetValueCount() }
-
-func (w *sortedSetWrapper) pickOrd() {
-	first, err := w.ssdv.NextOrd()
-	if err != nil || first == -1 {
-		w.ord = -1
-		return
-	}
-	switch w.selector {
-	case search.SortedSetSelectorMin:
-		w.ord = first
-	case search.SortedSetSelectorMax:
-		cur := first
-		for {
-			next, err := w.ssdv.NextOrd()
-			if err != nil || next == -1 {
-				break
-			}
-			cur = next
-		}
-		w.ord = cur
-	case search.SortedSetSelectorMiddleMin:
-		count := 1
-		for {
-			next, err := w.ssdv.NextOrd()
-			if err != nil || next == -1 {
-				break
-			}
-			count++
-		}
-		// MiddleMin: (count-1)/2
-		// For this we'd need to re-iterate - simplified:
-		w.ord = first
-	case search.SortedSetSelectorMiddleMax:
-		w.ord = first
+func (t SortedSetSelectorType) String() string {
+	switch t {
+	case SortedSetSelectorMin:
+		return "MIN"
+	case SortedSetSelectorMax:
+		return "MAX"
 	default:
-		w.ord = first
+		return "UNKNOWN"
 	}
 }
 
-// GetValues returns FunctionValues backed by SortedSetDocValues.
-func (s *SortedSetFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	ssdv, err := getSortedSetDocValues(s.field, readerContext)
+// SortedSetFieldSource retrieves [function.FunctionValues] instances for
+// multi-valued string based fields.
+type SortedSetFieldSource struct {
+	FieldCacheSource
+	Selector SortedSetSelectorType
+}
+
+func NewSortedSetFieldSource(field string) *SortedSetFieldSource {
+	return NewSortedSetFieldSourceWithSelector(field, SortedSetSelectorMin)
+}
+
+func NewSortedSetFieldSourceWithSelector(field string, selector SortedSetSelectorType) *SortedSetFieldSource {
+	return &SortedSetFieldSource{
+		FieldCacheSource: FieldCacheSource{Field: field},
+		Selector:         selector,
+	}
+}
+
+func (f *SortedSetFieldSource) Description() string {
+	return fmt.Sprintf("sortedset(%s,selector=%s)", f.Field, f.Selector)
+}
+
+func (f *SortedSetFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
+	// In Lucene, SortedSetSelector.wrap(sortedSet, selector) is used.
+	// In Gocene, we rely on DocTermsIndexDocValues to surface SortedDocValues.
+	// However, SortedSetDocValues can contain multiple values per doc.
+	// Lucene's SortedSetSelector.wrap returns a SortedDocValues view that
+	// selects a single representative value.
+
+	// Since Gocene's SortedSetDocValues doesn't have a built-in "Selector" wrapper yet,
+	// and SortedSetFieldSource expects a single value, we must implement the selection.
+
+	sdv, err := readerContext.Reader().GetSortedSetDocValues(f.Field)
 	if err != nil {
 		return nil, err
 	}
-	if ssdv == nil {
-		return &sortedSetMissingValues{description: s.Description()}, nil
+
+	// Wrap the SortedSetDocValues in a view that selects MIN or MAX.
+	view := wrapSortedSet(sdv, f.Selector)
+
+	dv := docvalues.NewDocTermsIndexDocValuesFromDV(f, view)
+	dv.SetSelf(dv)
+
+	return &sortedSetFallback{
+		DocTermsIndexDocValues: dv,
+	}, nil
+}
+
+type sortedSetFallback struct {
+	*docvalues.DocTermsIndexDocValues
+}
+
+func (f *sortedSetFallback) ObjectVal(doc int) (any, error) {
+	return f.StrVal(doc)
+}
+
+// wrapSortedSet provides a SortedDocValues view of a SortedSetDocValues
+// based on the selected representative value (MIN or MAX).
+func wrapSortedSet(sdv index.SortedSetDocValues, selector SortedSetSelectorType) index.SortedDocValues {
+	return &sortedSetView{
+		sdv:      sdv,
+		selector: selector,
 	}
+}
 
-	view := wrapSortedSetDocValues(ssdv, s.selector)
-	dtv := &sortedSetTermValues{
-		DocTermsIndexDocValues: *docvalues.NewDocTermsIndexDocValuesFromDV(s, view),
-		vs:                    s,
+type sortedSetView struct {
+	sdv      index.SortedSetDocValues
+	selector SortedSetSelectorType
+}
+
+func (v *sortedSetView) DocID() int {
+	return v.sdv.DocID()
+}
+
+func (v *sortedSetView) NextDoc() (int, error) {
+	return v.sdv.NextDoc()
+}
+
+func (v *sortedSetView) Advance(target int) (int, error) {
+	return v.sdv.Advance(target)
+}
+
+func (v *sortedSetView) AdvanceExact(target int) (bool, error) {
+	return v.sdv.AdvanceExact(target)
+}
+
+func (v *sortedSetView) OrdValue() (int, error) {
+	// Select the representative ordinal
+	if v.selector == SortedSetSelectorMin {
+		// The first ordinal for the document is the MIN.
+		// SortedSetDocValues.NextOrd() returns the first one for the current doc
+		// if we just advanced to it.
+		return v.sdv.NextOrd()
+	} else {
+		// MAX: we must iterate through all ordinals for this doc.
+		var lastOrd int = -1
+		for {
+			ord, err := v.sdv.NextOrd()
+			if err != nil {
+				return -1, err
+			}
+			if ord == -1 {
+				break
+			}
+			lastOrd = ord
+		}
+		return lastOrd, nil
 	}
-	dtv.SetSelf(dtv)
-	return dtv, nil
 }
 
-// Equals reports value equality.
-func (s *SortedSetFieldSource) Equals(other function.ValueSource) bool {
-	o, ok := other.(*SortedSetFieldSource)
-	if !ok || o == nil {
-		return false
-	}
-	return s.field == o.field && s.selector == o.selector
+func (v *sortedSetView) LookupOrd(ord int) ([]byte, error) {
+	return v.sdv.LookupOrd(ord)
 }
 
-// HashCode returns a stable hash.
-func (s *SortedSetFieldSource) HashCode() int32 {
-	return hashString("sortedset") + hashString(s.field) + int32(s.selector)
+func (v *sortedSetView) GetValueCount() int {
+	return v.sdv.GetValueCount()
 }
-
-type sortedSetTermValues struct {
-	docvalues.DocTermsIndexDocValues
-	vs *SortedSetFieldSource
-}
-
-func (v *sortedSetTermValues) ObjectVal(doc int) (any, error) { return v.StrVal(doc) }
-func (v *sortedSetTermValues) ToString(doc int) (string, error) {
-	s, err := v.StrVal(doc)
-	if err != nil {
-		return "", err
-	}
-	return v.vs.Description() + "=" + s, nil
-}
-
-type sortedSetMissingValues struct {
-	missingValuesBase
-	description string
-}
-
-func (v *sortedSetMissingValues) ToString(doc int) (string, error) { return v.description + "=null", nil }
-func (v *sortedSetMissingValues) GetScorer(readerContext *index.LeafReaderContext) function.ValueSourceScorer {
-	return newAllValueSourceScorer(readerContext, v)
-}
-
-var _ function.ValueSource = (*SortedSetFieldSource)(nil)

@@ -1,93 +1,77 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package search
 
-// Scorer iterates over documents and scores them.
+import (
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// Scorer exposes an iterator over documents matching a query in increasing order of doc id.
 type Scorer interface {
-	DocIdSetIterator
-	// Score returns the score of the current document.
-	Score() float32
-	// GetMaxScore returns the maximum score for documents up to the given doc.
-	GetMaxScore(upTo int) float32
-	// AdvanceShallow advances to the block of documents that contains target
-	// in order to get scoring information about this block. The returned value
-	// is an inclusive upper bound of the doc IDs that share the same scoring
-	// information (the same block-max upper bound) as target; subsequent
-	// GetMaxScore(upTo) calls with upTo in [target, returned] are honoured
-	// without re-advancing.
-	//
-	// This mirrors org.apache.lucene.search.Scorer#advanceShallow(int). The
-	// default implementation (see BaseScorer.AdvanceShallow) returns
-	// NO_MORE_DOCS, matching Lucene's Scorer.advanceShallow default, which
-	// signals that the scorer treats the whole remaining postings list as a
-	// single block (no impact-based skipping).
+	Scorable
+	// DocID returns the doc ID that is currently being scored.
+	DocID() int
+
+	// Iterator returns a DocIdSetIterator over matching documents.
+	Iterator() DocIdSetIterator
+
+	// TwoPhaseIterator returns a TwoPhaseIterator view of this Scorer.
+	TwoPhaseIterator() TwoPhaseIterator
+
+	// AdvanceShallow advances to the block of documents that contains target.
 	AdvanceShallow(target int) (int, error)
+
+	// GetMaxScore returns the maximum score that documents between the last advanceShallow and upTo included.
+	GetMaxScore(upTo int) (float32, error)
+
+	// NextDocsAndScores returns a new batch of doc IDs and scores.
+	NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error
 }
 
-// ScoreErrorReporter is the optional Scorer extension for scorers that can
-// detect an error condition while computing a score. Gocene's Scorer.Score
-// returns only a float32 (no error), unlike Lucene where Scorer.score() throws
-// IOException/IllegalStateException; this interface lets such scorers surface a
-// deferred error that the search loop consults after the score is consumed.
-//
-// It is used to faithfully reproduce the block-join "Child query must not match
-// same docs with parent filter" IllegalStateException that Lucene raises from
-// ToParentBlockJoinQuery.BlockJoinScorer.scoreChildDocs.
-type ScoreErrorReporter interface {
-	// ScoreError returns a non-nil error if the most recent Score call detected
-	// an invariant violation, or nil otherwise.
-	ScoreError() error
+// TwoPhaseIterator is returned by Scorer.TwoPhaseIterator() to expose an approximation of a DocIdSetIterator.
+type TwoPhaseIterator interface {
+	// Approximation returns a DocIdSetIterator view of the provided TwoPhaseIterator.
+	Approximation() DocIdSetIterator
+
+	// Matches returns whether the current doc ID that Approximation() is on matches.
+	Matches() (bool, error)
+
+	// MatchCost returns an estimate of the expected cost to determine that a single document matches.
+	MatchCost() float32
+
+	// DocIDRunEnd returns the end of the run of consecutive doc IDs that match this TwoPhaseIterator.
+	DocIDRunEnd() (int, error)
+
+	// IntoBitSet loads the doc IDs that both belong to the Approximation() and Matches() match.
+	IntoBitSet(upTo int, bitSet util.BitSet, offset int) error
 }
 
-// MinCompetitiveScorer is the optional Scorer extension that lets a collector
-// (or a parent scorer) hint at the minimum score a hit must reach to be
-// competitive, enabling non-competitive documents to be skipped. It mirrors
-// org.apache.lucene.search.Scorer#setMinCompetitiveScore.
-//
-// It is modelled as an optional interface rather than a method on Scorer so
-// that the many existing Scorer implementations keep compiling unchanged: only
-// scorers that participate in TOP_SCORES early termination implement it, and
-// callers type-assert before forwarding the hint.
-type MinCompetitiveScorer interface {
-	// SetMinCompetitiveScore informs the scorer that hits scoring below
-	// minScore are not competitive and may be skipped. Implementations that
-	// cannot skip should leave it a no-op.
-	SetMinCompetitiveScore(minScore float32) error
+// DocAndFloatFeatureBuffer is a wrapper around parallel arrays storing doc IDs and their corresponding features.
+type DocAndFloatFeatureBuffer struct {
+	Docs     []int
+	Features []float32
+	Size     int
 }
 
-// BaseScorer provides common functionality for scorers.
-type BaseScorer struct {
-	weight Weight
+func NewDocAndFloatFeatureBuffer() *DocAndFloatFeatureBuffer {
+	return &DocAndFloatFeatureBuffer{}
 }
 
-// NewBaseScorer creates a new BaseScorer.
-func NewBaseScorer(weight Weight) *BaseScorer {
-	return &BaseScorer{weight: weight}
+func (b *DocAndFloatFeatureBuffer) GrowNoCopy(minSize int) {
+	if len(b.Docs) < minSize {
+		newDocs := make([]int, minSize)
+		copy(newDocs, b.Docs)
+		b.Docs = newDocs
+		b.Features = make([]float32, len(b.Docs))
+	}
 }
 
-// GetWeight returns the weight.
-func (s *BaseScorer) GetWeight() Weight {
-	return s.weight
-}
-
-// Score returns a default score.
-func (s *BaseScorer) Score() float32 {
-	return 1.0
-}
-
-// GetMaxScore returns the maximum score for documents up to the given doc.
-func (s *BaseScorer) GetMaxScore(upTo int) float32 {
-	return 1.0
-}
-
-// AdvanceShallow returns NO_MORE_DOCS, mirroring the default implementation of
-// org.apache.lucene.search.Scorer#advanceShallow, which returns
-// DocIdSetIterator.NO_MORE_DOCS. A scorer that does not expose per-block impact
-// information treats the entire remaining postings list as one block: callers
-// learn that GetMaxScore is only meaningful for upTo == NO_MORE_DOCS (a global
-// upper bound). Scorers backed by impacts (e.g. TermScorer) override this.
-func (s *BaseScorer) AdvanceShallow(target int) (int, error) {
-	return NO_MORE_DOCS, nil
+func (b *DocAndFloatFeatureBuffer) Apply(liveDocs util.Bits) {
+	newSize := 0
+	for i := 0; i < b.Size; i++ {
+		if liveDocs.Get(b.Docs[i]) {
+			b.Docs[newSize] = b.Docs[i]
+			b.Features[newSize] = b.Features[i]
+			newSize++
+		}
+	}
+	b.Size = newSize
 }

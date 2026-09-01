@@ -19,15 +19,17 @@ type ComparisonBoolFunction struct {
 	LHS      function.ValueSource
 	RHS      function.ValueSource
 	compName string
+	Compare   func(doc int, lhs, rhs function.FunctionValues) (bool, error)
 }
 
 // NewComparisonBoolFunction creates a ComparisonBoolFunction.
-func NewComparisonBoolFunction(lhs, rhs function.ValueSource, compName string) *ComparisonBoolFunction {
+func NewComparisonBoolFunction(lhs, rhs function.ValueSource, compName string, compare func(doc int, lhs, rhs function.FunctionValues) (bool, error)) *ComparisonBoolFunction {
 	return &ComparisonBoolFunction{
 		BoolFunction: &BoolFunction{},
 		LHS:          lhs,
 		RHS:          rhs,
 		compName:     compName,
+		Compare:      compare,
 	}
 }
 
@@ -67,11 +69,6 @@ func (s *ComparisonBoolFunction) GetValues(ctx function.Context, readerContext *
 	}
 	v.SetSelf(v)
 	return v, nil
-}
-
-// Compare performs the comparison. Concrete types implement this.
-func (s *ComparisonBoolFunction) Compare(doc int, lhs, rhs function.FunctionValues) (bool, error) {
-	return false, nil
 }
 
 // Equals reports value equality.

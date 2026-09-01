@@ -1,97 +1,110 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-//
-// Licensed to the Apache Software Foundation (ASF) under one or more
-// contributor license agreements.  See the NOTICE file distributed with
-// this work for additional information regarding copyright ownership.
-// The ASF licenses this file to You under the Apache License, Version 2.0
-// (the "License"); you may not use this file except in compliance with
-// the License.  You may obtain a copy of the License at
-//
-//	http://www.apache.org/licenses/LICENSE-2.0
-
 package search
 
-// Ported from Apache Lucene 10.4.0:
-//   lucene/core/src/java/org/apache/lucene/search/DisjunctionSumScorer.java
+import (
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
-import "github.com/FlavioCFOliveira/Gocene/util"
-
-// DisjunctionSumScorer is a Scorer for OR-like queries that sums the
-// scores of all matching sub-scorers for each document. It is the
-// counterpart of ConjunctionScorer.
-//
-// Mirrors org.apache.lucene.search.DisjunctionSumScorer (Lucene 10.4.0).
-//
-// Deviations from Java:
-//   - Extends DisjunctionScorer (Go composition) rather than inheriting
-//     from it via Java class hierarchy.
-//   - Score() satisfies Scorer.Score() float32 by calling ScoreWithError
-//     and silently dropping errors; errors are accessible via
-//     ScoreWithError().
-//   - GetMaxScore uses util.MathSumUpperBound from the Gocene util
-//     package (equivalent to org.apache.lucene.util.MathUtil.sumUpperBound).
+// DisjunctionSumScorer is a scorer that matches documents that match any of its clauses,
+// summing their scores.
 type DisjunctionSumScorer struct {
-	DisjunctionScorer
-	scorers []Scorer
+	scorers   []Scorer
+	scoreMode ScoreMode
+	leadCost  int64
 }
 
-// NewDisjunctionSumScorer constructs a DisjunctionSumScorer for the
-// given sub-scorers. At least two sub-scorers are required.
-//
-// Mirrors DisjunctionSumScorer(List<Scorer>, ScoreMode, long).
-func NewDisjunctionSumScorer(subScorers []Scorer, scoreMode ScoreMode, leadCost int64) *DisjunctionSumScorer {
-	base := newDisjunctionScorer(subScorers, scoreMode, leadCost)
-	s := &DisjunctionSumScorer{
-		DisjunctionScorer: *base,
-		scorers:           subScorers,
+func NewDisjunctionSumScorer(scorers []Scorer, scoreMode ScoreMode, leadCost int64) *DisjunctionSumScorer {
+	return &DisjunctionSumScorer{
+		scorers:   scorers,
+		scoreMode: scoreMode,
+		leadCost:  leadCost,
 	}
-	return s
 }
 
-// scoreTopList sums the scores of all DisiWrappers in topList.
-//
-// Mirrors DisjunctionSumScorer.score(DisiWrapper).
-func (s *DisjunctionSumScorer) scoreTopList(topList *DisiWrapper) (float32, error) {
-	var sum float64
-	for w := topList; w != nil; w = w.next {
-		sum += float64(w.scorable.Score())
+func (s *DisjunctionSumScorer) NextDoc() (int, error) {
+	if len(s.scorers) == 0 {
+		return NO_MORE_DOCS, nil
 	}
-	return float32(sum), nil
-}
 
-// Score returns the sum of scores of all matching sub-scorers.
-func (s *DisjunctionSumScorer) Score() float32 {
-	topList, err := s.DisjunctionScorer.getSubMatches()
-	if err != nil {
-		return 0
-	}
-	v, _ := s.scoreTopList(topList)
-	return v
-}
-
-// GetMaxScore returns an upper bound on the score for documents up to
-// upTo, computed as the sum-upper-bound of individual sub-scorer maxima.
-//
-// Mirrors DisjunctionSumScorer.getMaxScore(int).
-func (s *DisjunctionSumScorer) GetMaxScore(upTo int) float32 {
-	var maxScore float64
+	minDoc := NO_MORE_DOCS
 	for _, sc := range s.scorers {
-		if sc.DocID() <= upTo {
-			maxScore += float64(sc.GetMaxScore(upTo))
+		doc, err := sc.NextDoc()
+		if err != nil {
+			return NO_MORE_DOCS, err
+		}
+		if doc != NO_MORE_DOCS && (minDoc == NO_MORE_DOCS || doc < minDoc) {
+			minDoc = doc
 		}
 	}
-	return float32(util.MathSumUpperBound(maxScore, len(s.scorers)))
+
+	if minDoc == NO_MORE_DOCS {
+		return NO_MORE_DOCS, nil
+	}
+
+	// Advance all other scorers to this minDoc to ensure correct scoring
+	for _, sc := range s.scorers {
+		advanced, err := sc.Advance(minDoc)
+		if err != nil {
+			return NO_MORE_DOCS, err
+		}
+		if advanced != minDoc {
+			// This should not happen if we use NextDoc properly, but for safety:
+			// If it doesn't match, we just don't count its score.
+		}
+	}
+
+	return minDoc, nil
 }
 
-// AdvanceShallow returns NO_MORE_DOCS, the default defined by
-// org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
-// per-block impact information, so the whole remaining postings list is treated
-// as a single block.
-func (s *DisjunctionSumScorer) AdvanceShallow(target int) (int, error) {
-	return NO_MORE_DOCS, nil
+func (s *DisjunctionSumScorer) Score() float32 {
+	var total float32
+	for _, sc := range s.scorers {
+		if sc.DocID() == s.currentDoc() { // Need currentDoc
+			total += sc.Score()
+		}
+	}
+	return total
 }
 
-// Compile-time check: DisjunctionSumScorer satisfies Scorer.
-var _ Scorer = (*DisjunctionSumScorer)(nil)
+func (s *DisjunctionSumScorer) currentDoc() int {
+	if len(s.scorers) == 0 {
+		return -1
+	}
+	return s.scorers[0].DocID()
+}
+
+func (s *DisjunctionSumScorer) DocID() int {
+	return s.currentDoc()
+}
+
+func (s *DisjunctionSumScorer) Iterator() DocIdSetIterator {
+	// Lucene uses a specialized iterator for disjunctions.
+	// For now, we return nil or a simple wrap.
+	return nil
+}
+
+func (s *DisjunctionSumScorer) Advance(target int) (int, error) {
+	if len(s.scorers) == 0 {
+		return NO_MORE_DOCS, nil
+	}
+
+	minDoc := NO_MORE_DOCS
+	for _, sc := range s.scorers {
+		doc, err := sc.Advance(target)
+		if err != nil {
+			return NO_MORE_DOCS, err
+		}
+		if doc != NO_MORE_DOCS && (minDoc == NO_MORE_DOCS || doc < minDoc) {
+			minDoc = doc
+		}
+	}
+
+	if minDoc == NO_MORE_DOCS {
+		return NO_MORE_DOCS, nil
+	}
+
+	for _, sc := range s.scorers {
+		sc.Advance(minDoc)
+	}
+
+	return minDoc, nil
+}

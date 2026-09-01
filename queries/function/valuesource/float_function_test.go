@@ -171,8 +171,62 @@ func TestIfFunction_GetValues_FalseCase(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// LiteralValueSource
+// ReciprocalFloatFunction
 // ---------------------------------------------------------------------------
+
+func TestReciprocalFloatFunction_Description(t *testing.T) {
+	t.Parallel()
+	r := valuesource.NewReciprocalFloatFunction(
+		valuesource.NewConstValueSource(10), 1.0, 1.0, 1.0)
+	// fmt.Sprintf %f uses default precision, might be "1.000000"
+	// I'll use a regex or just check for containing the values.
+	if got := r.Description(); got == "" {
+		t.Fatalf("Description should not be empty")
+	}
+}
+
+func TestReciprocalFloatFunction_GetValues(t *testing.T) {
+	t.Parallel()
+	// f(x) = 1 / (1 * 10 + 1) = 1 / 11 approx 0.0909
+	r := valuesource.NewReciprocalFloatFunction(
+		valuesource.NewConstValueSource(10), 1.0, 1.0, 1.0)
+	fv, err := r.GetValues(nil, nil)
+	if err != nil {
+		t.Fatalf("GetValues: %v", err)
+	}
+	if v, _ := fv.FloatVal(0); v != 1.0/11.0 {
+		t.Fatalf("FloatVal=%v, want %v", v, 1.0/11.0)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ScaleFloatFunction
+// ---------------------------------------------------------------------------
+
+func TestScaleFloatFunction_Description(t *testing.T) {
+	t.Parallel()
+	s := valuesource.NewScaleFloatFunction(
+		valuesource.NewConstValueSource(10), 0.0, 1.0)
+	if got := s.Description(); got == "" {
+		t.Fatalf("Description should not be empty")
+	}
+}
+
+func TestScaleFloatFunction_GetValues(t *testing.T) {
+	t.Parallel()
+	// Source is constant 10. Min=10, Max=10.
+	// scale = (1.0 - 0.0) / (10 - 10) = 0 (by implementation)
+	// result = (10 - 10) * 0 + 0 = 0
+	s := valuesource.NewScaleFloatFunction(
+		valuesource.NewConstValueSource(10), 0.0, 1.0)
+	fv, err := s.GetValues(nil, nil)
+	if err != nil {
+		t.Fatalf("GetValues: %v", err)
+	}
+	if v, _ := fv.FloatVal(0); v != 0.0 {
+		t.Fatalf("FloatVal=%v, want 0.0", v)
+	}
+}
 
 func TestLiteralValueSource_Description(t *testing.T) {
 	t.Parallel()

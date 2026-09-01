@@ -6,160 +6,188 @@ package valuesource
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
-	"github.com/FlavioCFOliveira/Gocene/queries/function/docvalues"
 )
 
-// EnumFieldSource obtains int field values from NumericDocValues. strVal
-// is the mapped enum string (displayed) value.
-//
-// Go port of org.apache.lucene.queries.function.valuesource.EnumFieldSource.
+// EnumFieldSource obtains int field values from NumericDocValues and
+// makes those values available as other numeric types, casting as needed.
+// strVal of the value is not the int value, but its string (displayed) value.
 type EnumFieldSource struct {
-	function.BaseValueSource
-	field              string
-	enumIntToStringMap map[int32]string
-	enumStringToIntMap map[string]int32
+	FieldCacheSource
+	EnumIntToStringMap map[int]string
+	EnumStringToIntMap map[string]int
 }
 
-// NewEnumFieldSource creates an EnumFieldSource with field name and mapping.
+var defaultEnumValue = -1
+
 func NewEnumFieldSource(
 	field string,
-	enumIntToStringMap map[int32]string,
-	enumStringToIntMap map[string]int32,
+	enumIntToStringMap map[int]string,
+	enumStringToIntMap map[string]int,
 ) *EnumFieldSource {
 	return &EnumFieldSource{
-		field:              field,
-		enumIntToStringMap: enumIntToStringMap,
-		enumStringToIntMap: enumStringToIntMap,
+		FieldCacheSource:   FieldCacheSource{Field: field},
+		EnumIntToStringMap: enumIntToStringMap,
+		EnumStringToIntMap: enumStringToIntMap,
 	}
 }
 
-// Description returns "enum(<field>)".
-func (s *EnumFieldSource) Description() string { return fmt.Sprintf("enum(%s)", s.field) }
-
-// GetField returns the field name.
-func (s *EnumFieldSource) GetField() string { return s.field }
-
-func (s *EnumFieldSource) intValueToStringValue(intVal int32) string {
-	if enumString, ok := s.enumIntToStringMap[intVal]; ok {
-		return enumString
-	}
-	return "-1"
+func (f *EnumFieldSource) Description() string {
+	return fmt.Sprintf("enum(%s)", f.Field)
 }
 
-func (s *EnumFieldSource) stringValueToIntValue(stringVal string) int32 {
-	if stringVal == "" {
-		return 0
-	}
-	if enumInt, ok := s.enumStringToIntMap[stringVal]; ok {
-		return enumInt
-	}
-	intValue, err := strconv.ParseInt(stringVal, 10, 32)
-	if err != nil {
-		return -1
-	}
-	iv := int32(intValue)
-	if _, ok := s.enumIntToStringMap[iv]; ok {
-		return iv
-	}
-	return -1
-}
-
-// GetValues returns FunctionValues backed by NumericDocValues with enum mapping.
-func (s *EnumFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	arr, err := getNumericDocValues(s.field, readerContext)
+func (f *EnumFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
+	ndv, err := readerContext.Reader().GetNumericDocValues(f.Field)
 	if err != nil {
 		return nil, err
 	}
-	if arr == nil {
-		return &enumFieldMissingValues{description: s.Description()}, nil
-	}
 
-	v := &enumFieldFunctionValues{
-		IntDocValues: *docvalues.NewIntDocValues(s, func(doc int) (int32, error) {
-			if docFieldExists(arr, doc) {
-				raw, err := arr.LongValue()
-				if err != nil {
-					return 0, err
-				}
-				return int32(raw), nil
-			}
-			return 0, nil
-		}),
-		arr: arr,
-		vs:  s,
+	fv := &enumDocValues{
+		source: f,
+		ndv:    ndv,
 	}
-	v.SetSelf(v)
-	return v, nil
+	fv.SetSelf(fv)
+	return fv, nil
 }
 
-// Equals reports value equality including map contents.
-func (s *EnumFieldSource) Equals(other function.ValueSource) bool {
-	o, ok := other.(*EnumFieldSource)
-	if !ok || o == nil {
-		return false
+type enumDocValues struct {
+	function.BaseFunctionValues
+	source    *EnumFieldSource
+	ndv       index.NumericDocValues
+	lastDocID int
+}
+
+func (f *enumDocValues) IntVal(doc int) (int32, error) {
+	exists, err := f.Exists(doc)
+	if err != nil {
+		return 0, err
 	}
-	if s.field != o.field {
-		return false
+	if exists {
+		val, err := f.ndv.LongValue()
+		if err != nil {
+			return 0, err
+		}
+		return int32(val), nil
 	}
-	if len(s.enumIntToStringMap) != len(o.enumIntToStringMap) {
-		return false
+	return 0, nil
+}
+
+func (f *enumDocValues) StrVal(doc int) (string, error) {
+	val, err := f.IntVal(doc)
+	if err != nil {
+		return "", err
 	}
-	for k, v := range s.enumIntToStringMap {
-		if ov, ok := o.enumIntToStringMap[k]; !ok || ov != v {
-			return false
+	intVal := int(val)
+	if enumStr, ok := f.source.EnumIntToStringMap[intVal]; ok {
+		return enumStr, nil
+	}
+	return fmt.Sprintf("%d", defaultEnumValue), nil
+}
+
+func (f *enumDocValues) Exists(doc int) (bool, error) {
+	if doc < f.lastDocID {
+		return false, fmt.Errorf("docs were sent out-of-order: lastDocID=%d vs docID=%d", f.lastDocID, doc)
+	}
+	f.lastDocID = doc
+	curDocID := f.ndv.DocID()
+	if doc > curDocID {
+		next, err := f.ndv.Advance(doc)
+		if err != nil {
+			return false, err
+		}
+		curDocID = next
+	}
+	return doc == curDocID, nil
+}
+
+func (f *enumDocValues) ToString(doc int) (string, error) {
+	s, err := f.StrVal(doc)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("enum(%s)=%s", f.source.Field, s), nil
+}
+
+func (f *enumDocValues) GetRangeScorer(
+	readerContext *index.LeafReaderContext,
+	lowerVal, upperVal string,
+	includeLower, includeUpper bool,
+) (function.ValueSourceScorer, error) {
+	lower := f.stringValueToIntValue(lowerVal)
+	upper := f.stringValueToIntValue(upperVal)
+
+	if lower == nil {
+		lower = -2147483648 // Integer.MIN_VALUE
+	} else {
+		if !includeLower && lower < 2147483647 {
+			lower++
 		}
 	}
-	return true
-}
 
-// HashCode returns a stable hash incorporating maps.
-func (s *EnumFieldSource) HashCode() int32 {
-	h := hashString(s.field)
-	for k, v := range s.enumIntToStringMap {
-		h ^= k
-		h += hashString(v)
+	if upper == nil {
+		upper = 2147483647 // Integer.MAX_VALUE
+	} else {
+		if !includeUpper && upper > -2147483648 {
+			upper--
+		}
 	}
-	return h
+
+	ll, uu := lower, upper
+
+	return &enumRangeScorer{
+		readerContext: readerContext,
+		source:        f,
+		lower:         ll,
+		upper:         uu,
+	}, nil
 }
 
-type enumFieldFunctionValues struct {
-	docvalues.IntDocValues
-	arr index.NumericDocValues
-	vs  *EnumFieldSource
+func (f *enumDocValues) stringValueToIntValue(stringVal string) *int {
+	if stringVal == "" {
+		return nil
+	}
+	enumInt, ok := f.source.EnumStringToIntMap[stringVal]
+	if ok {
+		return &enumInt
+	}
+	intValue := tryParseInt(stringVal)
+	if intValue == nil {
+		intValue = &defaultEnumValue
+	}
+	enumString := f.source.EnumIntToStringMap[*intValue]
+	if enumString != "" {
+		return intValue
+	}
+	res := defaultEnumValue
+	return &res
 }
 
-func (v *enumFieldFunctionValues) Exists(doc int) (bool, error) {
-	return docFieldExists(v.arr, doc), nil
+func tryParseInt(valueStr string) *int {
+	var v int
+	if _, err := fmt.Sscanf(valueStr, "%d", &v); err != nil {
+		return nil
+	}
+	return &v
 }
 
-func (v *enumFieldFunctionValues) StrVal(doc int) (string, error) {
-	intValue, err := v.IntFunc(doc)
+type enumRangeScorer struct {
+	function.ValueSourceScorer
+	readerContext *index.LeafReaderContext
+	source        *enumDocValues
+	lower         int
+	upper         int
+}
+
+func (s *enumRangeScorer) Matches(doc int) bool {
+	exists, err := s.source.Exists(doc)
+	if err != nil || !exists {
+		return false
+	}
+	val, err := s.source.IntVal(doc)
 	if err != nil {
-		return "", err
+		return false
 	}
-	return v.vs.intValueToStringValue(intValue), nil
+	return int(val) >= s.lower && int(val) <= s.upper
 }
-
-func (v *enumFieldFunctionValues) ToString(doc int) (string, error) {
-	s, err := v.StrVal(doc)
-	if err != nil {
-		return "", err
-	}
-	return v.vs.Description() + "=" + s, nil
-}
-
-type enumFieldMissingValues struct {
-	missingValuesBase
-	description string
-}
-
-func (v *enumFieldMissingValues) ToString(doc int) (string, error) { return v.description + "=", nil }
-func (v *enumFieldMissingValues) GetScorer(readerContext *index.LeafReaderContext) function.ValueSourceScorer {
-	return newAllValueSourceScorer(readerContext, v)
-}
-
-var _ function.ValueSource = (*EnumFieldSource)(nil)

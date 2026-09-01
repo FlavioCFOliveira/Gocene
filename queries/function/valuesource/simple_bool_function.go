@@ -18,14 +18,16 @@ type SimpleBoolFunction struct {
 	*BoolFunction
 	Source function.ValueSource
 	name   string
+	Func   func(doc int, vals function.FunctionValues) (bool, error)
 }
 
 // NewSimpleBoolFunction creates a SimpleBoolFunction.
-func NewSimpleBoolFunction(source function.ValueSource, name string) *SimpleBoolFunction {
+func NewSimpleBoolFunction(source function.ValueSource, name string, fn func(doc int, vals function.FunctionValues) (bool, error)) *SimpleBoolFunction {
 	return &SimpleBoolFunction{
 		BoolFunction: &BoolFunction{},
 		Source:       source,
 		name:         name,
+		Func:         fn,
 	}
 }
 
@@ -59,10 +61,6 @@ func (s *SimpleBoolFunction) GetValues(ctx function.Context, readerContext *inde
 	return v, nil
 }
 
-// Func applies the boolean function. Concrete types implement this.
-func (s *SimpleBoolFunction) Func(doc int, vals function.FunctionValues) (bool, error) {
-	return false, nil
-}
 
 // Equals reports value equality.
 func (s *SimpleBoolFunction) Equals(other function.ValueSource) bool {
