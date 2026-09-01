@@ -275,44 +275,67 @@ func (s *IndexSearcher) SearchWithSortAfter(after *FieldDoc, query Query, n int,
 	return tfDocs, nil
 }
 
-// SearchWithCollector is the lower-level search API using a CollectorManager.
-func (s *IndexSearcher) SearchWithCollector(query Query, manager CollectorManager) (any, error) {
-	firstCollector := manager.NewCollector()
+// Search searches the index using the given collector.
+func (s *IndexSearcher) Search(query Query, collector Collector) error {
+	rewritten, err := s.Rewrite(query)
+	if err != nil {
+		return err
+	}
+
+	weight, err := s.CreateWeight(rewritten, collector.ScoreMode(), 1.0)
+	if err != nil {
+		return err
+	}
+
+	collector.SetWeight(weight)
+	for _, ctx := range s.leafContexts {
+		if err := s.searchLeaf(ctx, 0, ctx.Reader().MaxDoc(), weight, collector); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SearchWithCollector is a convenience wrapper around Search.
+func (s *IndexSearcher) SearchWithCollector(query Query, collector Collector) error {
+	return s.Search(query, collector)
+}
+
+// SearchWithCollectorManager searches the index using a CollectorManager to parallelize execution.
+// It mirrors org.apache.lucene.search.IndexSearcher.search(Query, CollectorManager).
+func SearchWithCollectorManager[C Collector, T any](s *IndexSearcher, query Query, manager CollectorManager[C, T]) (T, error) {
+	var zero T
+	firstCollector, err := manager.NewCollector()
+	if err != nil {
+		return zero, err
+	}
+
 	rewritten, err := s.Rewrite(query, firstCollector.ScoreMode().NeedsScores())
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 
 	weight, err := s.CreateWeight(rewritten, firstCollector.ScoreMode(), 1.0)
 	if err != nil {
-		return nil, err
+		return zero, err
 	}
 
-	return s.searchWeight(weight, manager, firstCollector), nil
-}
-
-func (s *IndexSearcher) searchQuery(query Query, manager CollectorManager) (any, error) {
-	res, err := s.SearchWithCollector(query, manager)
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
-}
-
-func (s *IndexSearcher) searchWeight(weight Weight, manager CollectorManager, firstCollector Collector) any {
 	slices := s.GetSlices()
 	if len(slices) == 0 {
-		return manager.Reduce([]Collector{firstCollector})
+		return manager.Reduce([]C{firstCollector})
 	}
 
-	collectors := make([]Collector, len(slices))
+	collectors := make([]C, len(slices))
 	collectors[0] = firstCollector
 	scoreMode := firstCollector.ScoreMode()
 
 	for i := 1; i < len(slices); i++ {
-		c := manager.NewCollector()
+		c, err := manager.NewCollector()
+		if err != nil {
+			return zero, err
+		}
 		if c.ScoreMode() != scoreMode {
-			panic("CollectorManager does not always produce collectors with the same score mode")
+			return zero, fmt.Errorf("CollectorManager does not always produce collectors with the same score mode")
 		}
 		collectors[i] = c
 	}
@@ -328,7 +351,13 @@ func (s *IndexSearcher) searchWeight(weight Weight, manager CollectorManager, fi
 	}
 
 	results := s.taskExecutor.InvokeAll(tasks)
-	return manager.Reduce(results)
+	// results is []Collector, we need to convert it to []C.
+	typedResults := make([]C, len(results))
+	for i, r := range results {
+		typedResults[i] = r.(C)
+	}
+
+	return manager.Reduce(typedResults)
 }
 
 func (s *IndexSearcher) searchPartitions(partitions []LeafReaderContextPartition, weight Weight, collector Collector) {
