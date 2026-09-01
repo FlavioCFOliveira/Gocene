@@ -10,36 +10,21 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// SimpleText on-disk constants.
 const (
-	// SimpleTextNewline is the line terminator used in all SimpleText files.
-	SimpleTextNewline byte = 10
-	// SimpleTextEscape is the escape prefix for embedded newline or escape
-	// bytes within a field value.
-	SimpleTextEscape byte = 92
+	newline = 10
+	escape  = 92
 )
 
-// SimpleTextChecksumPrefix is the byte prefix of the trailing checksum line.
-var SimpleTextChecksumPrefix = []byte("checksum ")
+var checksumPrefix = []byte("checksum ")
 
-// SimpleTextUtil exposes the canonical plain-text I/O helpers shared by all
-// SimpleText codec components. The inline helpers (stWrite, stReadLine, etc.)
-// scattered across the simpletext package delegate to these functions.
-//
-// Port of org.apache.lucene.codecs.simpletext.SimpleTextUtil (Lucene 10.4.0).
-type SimpleTextUtil struct{}
-
-// Write encodes b into out with escape processing: each NEWLINE (10) and
-// ESCAPE (92) byte in b is preceded by an ESCAPE byte.
-//
-// Port of SimpleTextUtil.write(DataOutput, BytesRef).
-func (SimpleTextUtil) Write(out store.DataOutput, b []byte) error {
+// Write writes a string to the output, escaping newlines and backslashes.
+func Write(out store.IndexOutput, s string) error {
+	b := []byte(s)
 	for _, bx := range b {
-		if bx == SimpleTextNewline || bx == SimpleTextEscape {
-			if err := out.WriteByte(SimpleTextEscape); err != nil {
+		if bx == newline || bx == escape {
+			if err := out.WriteByte(escape); err != nil {
 				return err
 			}
 		}
@@ -50,129 +35,92 @@ func (SimpleTextUtil) Write(out store.DataOutput, b []byte) error {
 	return nil
 }
 
-// WriteString converts s to UTF-8 bytes, stores them in scratch, then
-// delegates to Write.
-//
-// Port of SimpleTextUtil.write(DataOutput, String, BytesRefBuilder).
-func (SimpleTextUtil) WriteString(out store.DataOutput, s string, scratch *util.BytesRefBuilder) error {
-	scratch.CopyChars(s)
-	return SimpleTextUtil{}.Write(out, scratch.Bytes()[:scratch.Length()])
+// WriteNewline writes a newline character to the output.
+func WriteNewline(out store.IndexOutput) error {
+	return out.WriteByte(newline)
 }
 
-// WriteNewline writes a single NEWLINE (10) byte.
-//
-// Port of SimpleTextUtil.writeNewline(DataOutput).
-func (SimpleTextUtil) WriteNewline(out store.DataOutput) error {
-	return out.WriteByte(SimpleTextNewline)
-}
-
-// ReadLine reads one newline-terminated, escape-processed line from in into
-// scratch. The NEWLINE terminator is consumed but not stored in scratch.
-//
-// Port of SimpleTextUtil.readLine(DataInput, BytesRefBuilder).
-func (SimpleTextUtil) ReadLine(in store.DataInput, scratch *util.BytesRefBuilder) error {
-	upto := 0
+// ReadLine reads a line from the input, handling escapes.
+func ReadLine(in store.IndexInput) ([]byte, error) {
+	var res []byte
 	for {
 		b, err := in.ReadByte()
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if b == SimpleTextEscape {
-			esc, err2 := in.ReadByte()
-			if err2 != nil {
-				return err2
+		if b == escape {
+			next, err := in.ReadByte()
+			if err != nil {
+				return nil, err
 			}
-			scratch.Grow(upto + 1)
-			scratch.SetByteAt(upto, esc)
-			upto++
-		} else if b == SimpleTextNewline {
+			res = append(res, next)
+		} else if b == newline {
 			break
 		} else {
-			scratch.Grow(upto + 1)
-			scratch.SetByteAt(upto, b)
-			upto++
+			res = append(res, b)
 		}
 	}
-	scratch.SetLength(upto)
+	return res, nil
+}
+
+// WriteChecksum writes the checksum of the output to the end of the file.
+func WriteChecksum(out store.IndexOutput) error {
+	checksum := fmt.Sprintf("%020d", out.GetChecksum())
+	if err := out.WriteBytes(checksumPrefix); err != nil {
+		return err
+	}
+	if err := out.WriteBytes([]byte(checksum)); err != nil {
+		return err
+	}
+	return WriteNewline(out)
+}
+
+// CheckFooter verifies the checksum at the end of the file.
+func CheckFooter(in store.ChecksumIndexInput) error {
+	line, err := ReadLine(in)
+	if err != nil {
+		return err
+	}
+
+	if len(line) < len(checksumPrefix) {
+		return fmt.Errorf("SimpleText failure: expected checksum line")
+	}
+
+	if string(line[:len(checksumPrefix)]) != string(checksumPrefix) {
+		return fmt.Errorf("SimpleText failure: expected checksum line")
+	}
+
+	actualChecksum := string(line[len(checksumPrefix):])
+	expectedChecksum := fmt.Sprintf("%020d", in.GetChecksum())
+
+	if actualChecksum != expectedChecksum {
+		return fmt.Errorf("SimpleText checksum failure: %s != %s", actualChecksum, expectedChecksum)
+	}
+
+	if in.Length() != in.GetFilePointer() {
+		return fmt.Errorf("Unexpected stuff at the end of file")
+	}
+
 	return nil
 }
 
-// WriteChecksum writes the trailing "checksum NNNNNNNNNNNNNNNNNNNN\n" line.
-// The checksum value is zero-padded to 20 decimal digits so that different
-// checksum values always occupy the same number of bytes on disk.
-//
-// Port of SimpleTextUtil.writeChecksum(IndexOutput, BytesRefBuilder).
-func (SimpleTextUtil) WriteChecksum(out *store.ChecksumIndexOutput, scratch *util.BytesRefBuilder) error {
-	cs := fmt.Sprintf("%020d", out.GetChecksum())
-	u := SimpleTextUtil{}
-	if err := u.Write(out, SimpleTextChecksumPrefix); err != nil {
-		return err
-	}
-	if err := u.WriteString(out, cs, scratch); err != nil {
-		return err
-	}
-	return u.WriteNewline(out)
-}
-
-// CheckFooter validates the trailing checksum line of a SimpleText file.
-// It reads one line from input, verifies the "checksum " prefix, compares
-// the encoded value against the running CRC32, and checks that the file
-// pointer is at EOF.
-//
-// Port of SimpleTextUtil.checkFooter(ChecksumIndexInput).
-func (SimpleTextUtil) CheckFooter(input *store.ChecksumIndexInput) error {
-	scratch := util.NewBytesRefBuilder()
-	u := SimpleTextUtil{}
-	if err := u.ReadLine(input, scratch); err != nil {
-		return fmt.Errorf("SimpleTextUtil.CheckFooter: readLine: %w", err)
-	}
-	line := scratch.Bytes()[:scratch.Length()]
-	if len(line) < len(SimpleTextChecksumPrefix) {
-		return fmt.Errorf("SimpleTextUtil.CheckFooter: expected checksum line, got: %s", line)
-	}
-	for i, c := range SimpleTextChecksumPrefix {
-		if line[i] != c {
-			return fmt.Errorf("SimpleTextUtil.CheckFooter: expected checksum line, got: %s", line)
-		}
-	}
-	expectedCS := fmt.Sprintf("%020d", input.GetChecksum())
-	actualCS := string(line[len(SimpleTextChecksumPrefix):])
-	if expectedCS != actualCS {
-		return fmt.Errorf("SimpleTextUtil.CheckFooter: checksum mismatch: expected %s, got %s",
-			expectedCS, actualCS)
-	}
-	length := input.Length()
-	if length != input.GetFilePointer() {
-		return fmt.Errorf(
-			"SimpleTextUtil.CheckFooter: unexpected trailing data at position %d of %d",
-			input.GetFilePointer(), length)
-	}
-	return nil
-}
-
-// FromBytesRefString parses the hex-encoded BytesRef string produced by
-// Java's BytesRef.toString() (e.g. "[0 1f a3]") and returns the decoded
-// bytes. Returns an error if the format is invalid.
-//
-// Port of SimpleTextUtil.fromBytesRefString(String).
-func (SimpleTextUtil) FromBytesRefString(s string) ([]byte, error) {
-	if len(s) < 2 {
-		return nil, fmt.Errorf("SimpleTextUtil.FromBytesRefString: too short: %q", s)
-	}
-	if s[0] != '[' || s[len(s)-1] != ']' {
-		return nil, fmt.Errorf("SimpleTextUtil.FromBytesRefString: not a BytesRef string: %q", s)
+// FromBytesRefString converts a string representation of a BytesRef back to bytes.
+func FromBytesRefString(s string) []byte {
+	if len(s) < 2 || s[0] != '[' || s[len(s)-1] != ']' {
+		panic("string was not created from BytesRef.toString()")
 	}
 	if len(s) == 2 {
-		return []byte{}, nil
+		return []byte{}
 	}
-	parts := strings.Split(s[1:len(s)-1], " ")
-	b := make([]byte, len(parts))
+	content := s[1 : len(s)-1]
+	parts := strings.Fields(content)
+	res := make([]byte, len(parts))
 	for i, p := range parts {
-		v, err := strconv.ParseUint(p, 16, 8)
+		val, err := strconv.ParseUint(p, 16, 8)
 		if err != nil {
-			return nil, fmt.Errorf("SimpleTextUtil.FromBytesRefString: parse %q: %w", p, err)
+			panic(fmt.Sprintf("invalid hex byte in BytesRef string: %s", p))
 		}
-		b[i] = byte(v)
+		res[i] = byte(val)
 	}
-	return b, nil
+	return res
 }

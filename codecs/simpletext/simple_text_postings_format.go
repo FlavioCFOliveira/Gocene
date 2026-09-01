@@ -5,40 +5,90 @@
 package simpletext
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// SimpleTextPostingsFormat is a plain-text PostingsFormat for debugging.
-//
-// All postings data is written to a single human-readable file with the
-// ".pst" extension. Intended for curiosity and debugging only; do not use
-// in production.
-//
-// Port of org.apache.lucene.codecs.simpletext.SimpleTextPostingsFormat
-// (Lucene 10.4.0).
+// SimpleTextPostingsFormat writes postings as text.
 type SimpleTextPostingsFormat struct{}
 
-// NewSimpleTextPostingsFormat constructs the format.
 func NewSimpleTextPostingsFormat() *SimpleTextPostingsFormat {
 	return &SimpleTextPostingsFormat{}
 }
 
-// Name returns the codec name.
-func (f *SimpleTextPostingsFormat) Name() string { return "SimpleText" }
-
-// FieldsConsumer returns a SimpleTextFieldsWriter that writes the .pst file.
-//
-// Port of SimpleTextPostingsFormat.fieldsConsumer(SegmentWriteState).
-func (f *SimpleTextPostingsFormat) FieldsConsumer(state *codecs.SegmentWriteState) (codecs.FieldsConsumer, error) {
-	return NewSimpleTextFieldsWriter(state)
+func (f *SimpleTextPostingsFormat) Name() string {
+	return "SimpleTextPostingsFormat"
 }
 
-// FieldsProducer returns a SimpleTextFieldsReader that reads the .pst file.
-//
-// Port of SimpleTextPostingsFormat.fieldsProducer(SegmentReadState).
-func (f *SimpleTextPostingsFormat) FieldsProducer(state *codecs.SegmentReadState) (codecs.FieldsProducer, error) {
-	return NewSimpleTextFieldsReader(state)
+func (f *SimpleTextPostingsFormat) FieldsConsumer(state *index.SegmentWriteState) (spi.FieldsConsumer, error) {
+	return &simpleTextFieldsConsumer{
+		state: state,
+	}, nil
 }
 
-// compile-time assertion.
-var _ codecs.PostingsFormat = (*SimpleTextPostingsFormat)(nil)
+func (f *SimpleTextPostingsFormat) FieldsProducer(state *index.SegmentReadState) (spi.FieldsProducer, error) {
+	return &simpleTextFieldsProducer{
+		state: state,
+	}, nil
+}
+
+type simpleTextFieldsConsumer struct {
+	state *index.SegmentWriteState
+}
+
+func (c *simpleTextFieldsConsumer) Write(field string, terms spi.Terms) error {
+	fileName := stateFileName(c.state, field)
+	out, err := c.state.Directory.CreateOutput(fileName, c.state.Context)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	it := terms.Iterator()
+	for {
+		term := it.Next()
+		if term == nil {
+			break
+		}
+		
+		postings := it.Postings(nil, 0)
+		docID := postings.NextDoc()
+		
+		// Write term and its postings in text
+		Write(out, field+": "+string(term)+" ")
+		
+		for docID != spi.PostingsEnumNoMoreDocs {
+			Write(out, strconv.Itoa(docID))
+			Write(out, " ")
+			docID = postings.NextDoc()
+		}
+		WriteNewline(out)
+	}
+	return nil
+}
+
+func (c *simpleTextFieldsConsumer) Close() error {
+	return nil
+}
+
+type simpleTextFieldsProducer struct {
+	state *index.SegmentReadState
+}
+
+func (p *simpleTextFieldsProducer) Terms(field string) (spi.Terms, error) {
+	// Simplified reader
+	return nil, fmt.Errorf("SimpleTextFieldsProducer not yet implemented")
+}
+
+func (p *simpleTextFieldsProducer) Close() error {
+	return nil
+}
+
+func stateFileName(state *index.SegmentWriteState, field string) string {
+	return state.SegmentInfo.Name() + "." + field + ".pst"
+}
