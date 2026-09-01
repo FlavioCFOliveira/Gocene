@@ -1,6 +1,10 @@
 package document
 
-import "github.com/FlavioCFOliveira/Gocene/search"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/search"
+)
 
 // CompletionScorer ranks completion hits by weight. Mirrors
 // org.apache.lucene.search.suggest.document.CompletionScorer.
@@ -19,6 +23,26 @@ func NewCompletionScorer(defaultBoost float32) *CompletionScorer {
 // Score combines weight and boost.
 func (s *CompletionScorer) Score(weight int64, boost float32) float32 {
 	return float32(weight) * boost * s.DefaultBoost
+}
+
+// CompletionQuery is the base completion query. Mirrors
+// org.apache.lucene.search.suggest.document.CompletionQuery.
+type CompletionQuery struct {
+	Term    string
+	Filter  search.Query
+	DefaultBoost float32
+}
+
+func NewCompletionQuery(term string, filter search.Query) *CompletionQuery {
+	return &CompletionQuery{
+		Term:         term,
+		Filter:       filter,
+		DefaultBoost: 1.0,
+	}
+}
+
+func (q *CompletionQuery) String() string {
+	return fmt.Sprintf("CompletionQuery(term=%s, filter=%v)", q.Term, q.Filter)
 }
 
 // CompletionWeight is the per-query weight produced by the completion
@@ -41,13 +65,35 @@ func NewCompletionWeight(q search.Query, boost float32) *CompletionWeight {
 // contexts. Mirrors
 // org.apache.lucene.search.suggest.document.ContextQuery.
 type ContextQuery struct {
-	Inner    search.Query
-	Contexts []string
+	Inner    *CompletionQuery
+	Contexts map[string]ContextMetaData
+	MatchAll bool
+}
+
+type ContextMetaData struct {
+	Boost  float32
+	Exact  bool
 }
 
 // NewContextQuery builds the query.
-func NewContextQuery(inner search.Query, contexts ...string) *ContextQuery {
-	return &ContextQuery{Inner: inner, Contexts: append([]string(nil), contexts...)}
+func NewContextQuery(inner *CompletionQuery, contexts ...string) *ContextQuery {
+	ctxMap := make(map[string]ContextMetaData)
+	for _, c := range contexts {
+		ctxMap[c] = ContextMetaData{Boost: 1.0, Exact: true}
+	}
+	return &ContextQuery{
+		Inner:    inner,
+		Contexts: ctxMap,
+		MatchAll: false,
+	}
+}
+
+func (q *ContextQuery) AddContext(context string, boost float32, exact bool) {
+	q.Contexts[context] = ContextMetaData{Boost: boost, Exact: exact}
+}
+
+func (q *ContextQuery) AddAllContexts() {
+	q.MatchAll = true
 }
 
 // PrefixCompletionQuery is the prefix-based completion query. Mirrors
