@@ -1,29 +1,40 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package search
 
-// VectorScorer scores documents against a query vector for exact vector
-// search.
-//
-// Mirrors org.apache.lucene.search.VectorScorer.
+import (
+	"io"
+)
+
+// VectorScorer computes the similarity score between a given query vector and different document vectors.
 type VectorScorer interface {
-	// Score returns the similarity score for the current document.
+	// Score computes the score for the current document ID.
 	Score() (float32, error)
-	// Iterator returns a DocIdSetIterator over the scored documents.
+
+	// Iterator returns a DocIdSetIterator over the documents.
 	Iterator() DocIdSetIterator
-	// Bulk returns an optional bulk-scoring helper, or nil if not supported.
-	Bulk() VectorScorerBulk
 }
 
-// VectorScorerBulk lets callers score a batch of documents efficiently.
-type VectorScorerBulk interface {
-	// Score writes per-doc similarity scores for at most upTo documents into
-	// buf, returning the number of documents actually scored.
-	Score(buf []float32, upTo int) (int, error)
+// Bulk is a bulk scorer interface to score multiple vectors at once.
+type Bulk interface {
+	// NextDocsAndScores score docs ids iterating to upTo documents, store the results in the provided buffer.
+	NextDocsAndScores(upTo int, liveDocs interface{ Get(int) bool }, buffer *DocAndFloatFeatureBuffer) (float32, error)
 }
 
-// VectorScorerDefaultBatchSize is the canonical bulk batch size used by
-// Lucene's reference implementation.
-const VectorScorerDefaultBatchSize = 64
+// DocAndFloatFeatureBuffer stores the results of bulk scoring.
+type DocAndFloatFeatureBuffer struct {
+	Docs     []int
+	Features []float32
+	Size     int
+}
+
+func (b *DocAndFloatFeatureBuffer) GrowNoCopy(minSize int) {
+	if len(b.Docs) < minSize {
+		newDocs := make([]int, minSize)
+		copy(newDocs, b.Docs)
+		b.Docs = newDocs
+	}
+	if len(b.Features) < minSize {
+		newFeatures := make([]float32, minSize)
+		copy(newFeatures, b.Features)
+		b.Features = newFeatures
+	}
+}
