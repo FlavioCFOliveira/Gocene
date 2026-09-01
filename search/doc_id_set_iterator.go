@@ -5,6 +5,30 @@ import "math"
 // NO_MORE_DOCS is the sentinel value indicating no more docs in the iterator.
 const NO_MORE_DOCS = math.MaxInt32
 
+// Empty returns an empty DocIdSetIterator.
+func Empty() DocIdSetIterator {
+	return NewRangeDocIdSetIterator(0, 0)
+}
+
+// All returns a DocIdSetIterator that matches all documents up to maxDoc - 1.
+func All(maxDoc int) DocIdSetIterator {
+	if maxDoc < 0 {
+		panic("maxDoc must be >= 0")
+	}
+	return NewRangeDocIdSetIterator(0, maxDoc)
+}
+
+// Range returns a DocIdSetIterator that matches a range of documents from minDoc (inclusive) to maxDoc (exclusive).
+func Range(minDoc, maxDoc int) DocIdSetIterator {
+	if minDoc >= maxDoc {
+		panic("minDoc must be < maxDoc")
+	}
+	if minDoc < 0 {
+		panic("minDoc must be >= 0")
+	}
+	return NewRangeDocIdSetIterator(minDoc, maxDoc)
+}
+
 // DocIdSetIterator defines methods to iterate over a set of non-decreasing doc ids.
 type DocIdSetIterator interface {
 	// DocID returns the current doc ID.
@@ -26,6 +50,19 @@ type DocIdSetIterator interface {
 	DocIDRunEnd() (int, error)
 }
 
+// SlowAdvance is a linear implementation of Advance relying on NextDoc.
+func SlowAdvance(it DocIdSetIterator, target int) (int, error) {
+	doc := it.DocID()
+	for doc < target {
+		var err error
+		doc, err = it.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+	}
+	return doc, nil
+}
+
 // BitSet is a simple interface for bitset operations.
 type BitSet interface {
 	Set(doc, upTo int)
@@ -41,7 +78,7 @@ func NewRangeDocIdSetIterator(minDoc, maxDoc int) *RangeDocIdSetIterator {
 	return &RangeDocIdSetIterator{
 		minDoc: minDoc,
 		maxDoc: maxDoc,
-		doc:    minDoc,
+		doc:    -1,
 	}
 }
 
@@ -50,7 +87,7 @@ func (r *RangeDocIdSetIterator) DocID() int {
 }
 
 func (r *RangeDocIdSetIterator) NextDoc() (int, error) {
-	return r.Advance(r.doc + 1), nil
+	return r.Advance(r.doc + 1)
 }
 
 func (r *RangeDocIdSetIterator) Advance(target int) (int, error) {
