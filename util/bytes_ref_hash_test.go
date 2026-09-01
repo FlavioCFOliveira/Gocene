@@ -454,7 +454,7 @@ func TestBytesRefHash_ConcurrentAccess(t *testing.T) {
 		numStrings := 797
 		strings := make([]string, 0, numStrings)
 		for i := 0; i < numStrings; i++ {
-			str := randomRealisticUnicodeString(rand.New(rand.NewSource(time.Now().UnixNano())), 1000)
+			str := testRandomRealisticUnicodeString(rand.New(rand.NewSource(time.Now().UnixNano())), 1000)
 			_, err := hash.Add(testNewBytesRef(str))
 			if err != nil {
 				t.Fatalf("Add failed: %v", err)
