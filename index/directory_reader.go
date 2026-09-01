@@ -1268,10 +1268,23 @@ func compositeTermsForField(readers []*SegmentReader, field string) (Terms, erro
 
 // GetLiveDocs returns a bitset of live documents.
 // Returns nil if there are no deletions.
-func (r *DirectoryReader) GetLiveDocs() []bool {
-	// For now, return nil (all documents are live)
-	// A full implementation would track deleted documents
-	return nil
+func (r *DirectoryReader) GetLiveDocs() util.Bits {
+	if !r.HasDeletions() {
+		return nil
+	}
+
+	subs := make([]util.Bits, 0, len(r.readers))
+	starts := make([]int, 0, len(r.readers)+1)
+	docBase := 0
+
+	for _, reader := range r.readers {
+		subs = append(subs, reader.GetLiveDocs())
+		starts = append(starts, docBase)
+		docBase += reader.MaxDoc()
+	}
+	starts = append(starts, docBase)
+
+	return NewMultiBits(subs, starts)
 }
 
 // GetSequentialSubReaders returns the sequential sub-readers.

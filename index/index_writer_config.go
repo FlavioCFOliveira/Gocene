@@ -8,258 +8,165 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/search/similarities"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// OpenMode specifies how to open/create an index.
 type OpenMode int
 
 const (
-	// CREATE creates a new index, removing any existing index.
-	CREATE OpenMode = iota
-	// APPEND opens an existing index.
-	APPEND
-	// CREATE_OR_APPEND creates a new index or opens an existing one.
-	CREATE_OR_APPEND
+	Create OpenMode = iota
+	Append
+	CreateOrAppend
 )
 
-// Default configuration constants for IndexWriterConfig.
-// These match Apache Lucene's default values for byte-level compatibility.
-const (
-	// DISABLE_AUTO_FLUSH is a special value indicating auto-flush is disabled.
-	DISABLE_AUTO_FLUSH = -1
-
-	// DefaultRAMBufferSizeMB is the default RAM buffer size in MB (16.0 MB).
-	DefaultRAMBufferSizeMB = 16.0
-
-	// DefaultMaxBufferedDocs is the default number of buffered documents (-1 = disabled).
-	DefaultMaxBufferedDocs = -1
-
-	// DefaultMaxBufferedDeleteTerms is the default number of buffered delete terms (-1 = disabled).
-	DefaultMaxBufferedDeleteTerms = -1
-
-	// DefaultReaderPooling indicates whether reader pooling is enabled by default.
-	DefaultReaderPooling = true
-
-	// DefaultUseCompoundFile indicates whether compound files are used by default.
-	DefaultUseCompoundFile = true
-
-	// DefaultFlushOnUpdate indicates whether IndexWriter should check the
-	// pending-flush state on every update operation. The default is true,
-	// matching the Lucene 10.4.0
-	// LiveIndexWriterConfig.checkPendingFlushOnUpdate default ("protected
-	// volatile boolean checkPendingFlushOnUpdate = true;").
-	DefaultFlushOnUpdate = true
-)
-
-// IndexWriterConfig holds configuration for IndexWriter.
+// IndexWriterConfig holds all the configuration that is used to create an IndexWriter.
+//
+// This is the Go port of Lucene's org.apache.lucene.index.IndexWriterConfig.
 type IndexWriterConfig struct {
-	openMode                    OpenMode
-	analyzer                    analysis.Analyzer
-	ramBufferSizeMB             float64
-	maxBufferedDocs             int
-	maxBufferedDeleteTerms      int
-	mergePolicy                 MergePolicy
-	mergeScheduler              MergeScheduler
-	indexDeletionPolicy         IndexDeletionPolicy
-	softDeletesField            string
-	parentField                 string
-	useCompoundFile             bool
-	codec                       Codec
-	maxDocs                     int
-	indexSort                   *Sort
-	flushOnUpdate               bool
-	indexCommit                 *IndexCommit
-	infoStream                  util.InfoStream
-	mergedSegmentWarmer         MergedSegmentWarmer
-	maxFullFlushMergeWaitMillis int64
+	*LiveIndexWriterConfig
+	writer any // IndexWriter
 }
 
-// NewIndexWriterConfig creates a new IndexWriterConfig with default settings.
-//
-// The default Codec is resolved via GetDefaultCodec. Package codecs
-// installs the real Lucene 10.4 codec via its init() (see
-// codecs/register.go). When the codecs package is not linked the codec
-// field is left nil and the writer will surface ErrNoCodec on the first
-// flush; callers can also install a codec explicitly via SetCodec.
-func NewIndexWriterConfig(analyzer analysis.Analyzer) *IndexWriterConfig {
+const (
+	DisableAutoFlush = -1
+	DefaultMaxBufferedDeleteTerms = DisableAutoFlush
+	DefaultMaxBufferedDocs        = DisableAutoFlush
+	DefaultRAMBufferSizeMB        = 16.0
+	DefaultReaderPooling          = true
+	DefaultRAMPerThreadHardLimitMB = 1945
+	DefaultUseCompoundFileSystem  = true
+	DefaultCommitOnClose          = true
+	DefaultMaxFullFlushMergeWaitMillis = 500
+)
+
+func NewIndexWriterConfig() *IndexWriterConfig {
+	return NewIndexWriterConfigWithAnalyzer(analysis.NewStandardAnalyzer())
+}
+
+func NewIndexWriterConfigWithAnalyzer(analyzer analysis.Analyzer) *IndexWriterConfig {
 	return &IndexWriterConfig{
-		openMode:               CREATE_OR_APPEND,
-		analyzer:               analyzer,
-		ramBufferSizeMB:        16.0,
-		maxBufferedDocs:        1000,
-		maxBufferedDeleteTerms: -1,                            // Disabled by default
-		mergePolicy:            nil,                           // Will be set by IndexWriter
-		mergeScheduler:         NewConcurrentMergeScheduler(), // Default matches Lucene LiveIndexWriterConfig
-		indexDeletionPolicy:    nil,                           // Will be set by IndexWriter
-		useCompoundFile:        DefaultUseCompoundFile,
-		codec:                  GetDefaultCodec(),
-		maxDocs:                0, // 0 means unlimited
-		flushOnUpdate:          DefaultFlushOnUpdate,
+		LiveIndexWriterConfig: NewLiveIndexWriterConfig(analyzer),
 	}
 }
 
-// GetMergePolicy returns the merge policy.
-func (c *IndexWriterConfig) GetMergePolicy() MergePolicy {
-	return c.mergePolicy
+func (c *IndexWriterConfig) SetOpenMode(openMode OpenMode) *IndexWriterConfig {
+	c.openMode = openMode
+	return c
 }
 
-// SetMergePolicy sets the merge policy.
-func (c *IndexWriterConfig) SetMergePolicy(policy MergePolicy) {
-	c.mergePolicy = policy
+func (c *IndexWriterConfig) SetIndexCreatedVersionMajor(version int) *IndexWriterConfig {
+	// simplified validation
+	c.createdVersionMajor = version
+	return c
 }
 
-// GetMergeScheduler returns the merge scheduler.
-func (c *IndexWriterConfig) GetMergeScheduler() MergeScheduler {
-	return c.mergeScheduler
+func (c *IndexWriterConfig) SetIndexDeletionPolicy(delPolicy IndexDeletionPolicy) *IndexWriterConfig {
+	if delPolicy == nil {
+		panic("indexDeletionPolicy must not be null")
+	}
+	c.delPolicy = delPolicy
+	return c
 }
 
-// SetMergeScheduler sets the merge scheduler.
-func (c *IndexWriterConfig) SetMergeScheduler(scheduler MergeScheduler) {
-	c.mergeScheduler = scheduler
-}
-
-// GetIndexDeletionPolicy returns the index deletion policy.
-func (c *IndexWriterConfig) GetIndexDeletionPolicy() IndexDeletionPolicy {
-	return c.indexDeletionPolicy
-}
-
-// SetIndexDeletionPolicy sets the index deletion policy.
-func (c *IndexWriterConfig) SetIndexDeletionPolicy(policy IndexDeletionPolicy) {
-	c.indexDeletionPolicy = policy
-}
-
-func (c *IndexWriterConfig) OpenMode() OpenMode                { return c.openMode }
-func (c *IndexWriterConfig) SetOpenMode(mode OpenMode)         { c.openMode = mode }
-func (c *IndexWriterConfig) Analyzer() analysis.Analyzer       { return c.analyzer }
-func (c *IndexWriterConfig) SetAnalyzer(a analysis.Analyzer)   { c.analyzer = a }
-func (c *IndexWriterConfig) RAMBufferSizeMB() float64          { return c.ramBufferSizeMB }
-func (c *IndexWriterConfig) SetRAMBufferSizeMB(size float64)   { c.ramBufferSizeMB = size }
-func (c *IndexWriterConfig) MaxBufferedDocs() int              { return c.maxBufferedDocs }
-func (c *IndexWriterConfig) SetMaxBufferedDocs(max int)        { c.maxBufferedDocs = max }
-func (c *IndexWriterConfig) MaxBufferedDeleteTerms() int       { return c.maxBufferedDeleteTerms }
-func (c *IndexWriterConfig) SetMaxBufferedDeleteTerms(max int) { c.maxBufferedDeleteTerms = max }
-
-// SoftDeletesField returns the soft deletes field name.
-func (c *IndexWriterConfig) SoftDeletesField() string { return c.softDeletesField }
-
-// SetSoftDeletesField sets the soft deletes field name.
-func (c *IndexWriterConfig) SetSoftDeletesField(field string) { c.softDeletesField = field }
-
-// ParentField returns the parent field name.
-func (c *IndexWriterConfig) ParentField() string { return c.parentField }
-
-// SetParentField sets the parent field name.
-func (c *IndexWriterConfig) SetParentField(field string) { c.parentField = field }
-
-// UseCompoundFile returns whether to use compound files.
-func (c *IndexWriterConfig) UseCompoundFile() bool { return c.useCompoundFile }
-
-// SetUseCompoundFile sets whether to use compound files.
-func (c *IndexWriterConfig) SetUseCompoundFile(use bool) { c.useCompoundFile = use }
-
-// Codec returns the codec.
-func (c *IndexWriterConfig) Codec() Codec { return c.codec }
-
-// SetCodec sets the codec.
-func (c *IndexWriterConfig) SetCodec(codec Codec) { c.codec = codec }
-
-// MaxDocs returns the maximum number of documents.
-func (c *IndexWriterConfig) MaxDocs() int { return c.maxDocs }
-
-// SetMaxDocs sets the maximum number of documents.
-func (c *IndexWriterConfig) SetMaxDocs(max int) { c.maxDocs = max }
-
-// IndexSort returns the index sort.
-func (c *IndexWriterConfig) IndexSort() *Sort { return c.indexSort }
-
-// SetIndexSort sets the index sort.
-func (c *IndexWriterConfig) SetIndexSort(sort *Sort) { c.indexSort = sort }
-
-// FlushOnUpdate reports whether IndexWriter should check the pending-flush
-// state on every update operation. It mirrors Lucene 10.4.0's
-// LiveIndexWriterConfig.isCheckPendingFlushOnUpdate.
-//
-// The default is DefaultFlushOnUpdate (true).
-// IndexCommit returns the commit point the writer should open against,
-// or nil for the default (latest commit). Mirrors
-// IndexWriterConfig.getIndexCommit.
-func (c *IndexWriterConfig) IndexCommit() *IndexCommit { return c.indexCommit }
-
-// SetIndexCommit pins the commit point the writer opens against, the Go
-// analogue of IndexWriterConfig.setIndexCommit. When set, the writer
-// resumes from the documents present in that commit rather than the
-// latest one. It is incompatible with OpenMode.CREATE and with an index
-// that has no commit; NewIndexWriter rejects those combinations. Returns
-// the config for chaining, matching the Lucene fluent setters.
 func (c *IndexWriterConfig) SetIndexCommit(commit *IndexCommit) *IndexWriterConfig {
-	c.indexCommit = commit
+	c.commit = commit
 	return c
 }
 
-func (c *IndexWriterConfig) FlushOnUpdate() bool { return c.flushOnUpdate }
-
-// SetFlushOnUpdate sets whether IndexWriter should check the
-// pending-flush state on every update operation. It returns the receiver
-// to support fluent configuration, matching Lucene's
-// LiveIndexWriterConfig.setCheckPendingFlushUpdate(boolean) chaining
-// semantics.
-func (c *IndexWriterConfig) SetFlushOnUpdate(flush bool) *IndexWriterConfig {
-	c.flushOnUpdate = flush
-	return c
-}
-
-// GetInfoStream returns the InfoStream for diagnostic logging.
-func (c *IndexWriterConfig) GetInfoStream() util.InfoStream {
-	if c.infoStream == nil {
-		return util.NoOpInfoStream
+func (c *IndexWriterConfig) SetSimilarity(similarity spi.Similarity) *IndexWriterConfig {
+	if similarity == nil {
+		panic("similarity must not be null")
 	}
-	return c.infoStream
+	c.similarity = similarity
+	return c
 }
 
-// SetInfoStream sets the InfoStream for diagnostic logging.
-func (c *IndexWriterConfig) SetInfoStream(infoStream util.InfoStream) {
+func (c *IndexWriterConfig) SetMergeScheduler(mergeScheduler MergeScheduler) *IndexWriterConfig {
+	if mergeScheduler == nil {
+		panic("mergeScheduler must not be null")
+	}
+	c.mergeScheduler = mergeScheduler
+	return c
+}
+
+func (c *IndexWriterConfig) SetCodec(codec spi.Codec) *IndexWriterConfig {
+	if codec == nil {
+		panic("codec must not be null")
+	}
+	c.codec = codec
+	return c
+}
+
+func (c *IndexWriterConfig) SetReaderPooling(readerPooling bool) *IndexWriterConfig {
+	c.readerPooling = readerPooling
+	return c
+}
+
+func (c *IndexWriterConfig) SetFlushPolicy(flushPolicy FlushPolicy) *IndexWriterConfig {
+	if flushPolicy == nil {
+		panic("flushPolicy must not be null")
+	}
+	c.flushPolicy = flushPolicy
+	return c
+}
+
+func (c *IndexWriterConfig) SetRAMPerThreadHardLimitMB(limit int) *IndexWriterConfig {
+	if limit <= 0 || limit >= 2048 {
+		panic("PerThreadHardLimit must be between 0 and 2048MB")
+	}
+	c.perThreadHardLimitMB = limit
+	return c
+}
+
+func (c *IndexWriterConfig) SetInfoStream(infoStream util.InfoStream) *IndexWriterConfig {
+	if infoStream == nil {
+		panic("Cannot set InfoStream to null")
+	}
 	c.infoStream = infoStream
-}
-
-// GetMergedSegmentWarmer returns the merged-segment warmer, or nil if none is set.
-func (c *IndexWriterConfig) GetMergedSegmentWarmer() MergedSegmentWarmer {
-	return c.mergedSegmentWarmer
-}
-
-// SetMergedSegmentWarmer sets the merged-segment warmer. Passing nil disables
-// warming. Returns the receiver for fluent configuration, matching Lucene's
-// IndexWriterConfig.setMergedSegmentWarmer chaining semantics.
-func (c *IndexWriterConfig) SetMergedSegmentWarmer(warmer MergedSegmentWarmer) *IndexWriterConfig {
-	c.mergedSegmentWarmer = warmer
 	return c
 }
 
-// MaxFullFlushMergeWaitMillis returns the maximum time (in milliseconds) that a
-// full flush will wait for merges to complete. A negative value means do not
-// wait. Mirrors IndexWriterConfig.getMaxFullFlushMergeWaitMillis.
-func (c *IndexWriterConfig) MaxFullFlushMergeWaitMillis() int64 {
-	return c.maxFullFlushMergeWaitMillis
-}
-
-// SetMaxFullFlushMergeWaitMillis sets the maximum time (in milliseconds) that
-// a full flush will wait for merges. Returns the receiver for fluent
-// configuration, matching IndexWriterConfig.setMaxFullFlushMergeWaitMillis.
-func (c *IndexWriterConfig) SetMaxFullFlushMergeWaitMillis(ms int64) *IndexWriterConfig {
-	c.maxFullFlushMergeWaitMillis = ms
+func (c *IndexWriterConfig) SetCommitOnClose(commitOnClose bool) *IndexWriterConfig {
+	c.commitOnClose = commitOnClose
 	return c
 }
 
-// String returns a string representation of the IndexWriterConfig.
-// This includes all configuration settings for debugging purposes.
-func (c *IndexWriterConfig) String() string {
-	return fmt.Sprintf("IndexWriterConfig{openMode=%v, ramBufferSizeMB=%f, maxBufferedDocs=%d, maxBufferedDeleteTerms=%d, mergePolicy=%v, mergeScheduler=%v, indexDeletionPolicy=%v}",
-		c.openMode,
-		c.ramBufferSizeMB,
-		c.maxBufferedDocs,
-		c.maxBufferedDeleteTerms,
-		c.mergePolicy,
-		c.mergeScheduler,
-		c.indexDeletionPolicy,
-	)
+func (c *IndexWriterConfig) SetMaxFullFlushMergeWaitMillis(wait int64) *IndexWriterConfig {
+	c.maxFullFlushMergeWaitMillis = wait
+	return c
+}
+
+func (c *IndexWriterConfig) SetIndexSort(sort any) *IndexWriterConfig {
+	c.indexSort = sort
+	return c
+}
+
+func (c *IndexWriterConfig) SetLeafSorter(sorter any) *IndexWriterConfig {
+	c.leafSorter = sorter
+	return c
+}
+
+func (c *IndexWriterConfig) SetSoftDeletesField(field string) *IndexWriterConfig {
+	c.softDeletesField = field
+	return c
+}
+
+func (c *IndexWriterConfig) SetIndexWriterEventListener(listener IndexWriterEventListener) *IndexWriterConfig {
+	c.eventListener = listener
+	return c
+}
+
+func (c *IndexWriterConfig) SetParentField(field string) *IndexWriterConfig {
+	c.parentField = field
+	return c
+}
+
+func (c *IndexWriterConfig) setIndexWriter(writer any) *IndexWriterConfig {
+	if c.writer != nil {
+		panic("do not share IndexWriterConfig instances across IndexWriters")
+	}
+	c.writer = writer
+	return c
 }

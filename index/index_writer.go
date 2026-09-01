@@ -471,8 +471,29 @@ func (w *IndexWriter) maybeProcessEvents(seqNo int64) int64 {
 	return seqNo
 }
 
-func (w *IndexWriter) publishFlushedSegments(applyDeletes bool) {
-	// implementation of publishing flushed segments
+func (w *IndexWriter) publishFlushedSegments(forced bool) {
+	w.docWriter.PurgeFlushTickets(
+		forced,
+		func(ticket *DocumentsWriter.FlushTicket) {
+			ticket.MarkPublished()
+			newSegment := ticket.GetFlushedSegment()
+			bufferedUpdates := ticket.GetFrozenUpdates()
+
+			if newSegment == nil {
+				if bufferedUpdates != nil && bufferedUpdates.Any() {
+					w.publishFrozenUpdates(bufferedUpdates)
+				}
+			} else {
+				w.publishFlushedSegment(
+					newSegment.SegmentInfo,
+					newSegment.FieldInfos,
+					newSegment.SegmentUpdates,
+					bufferedUpdates,
+					newSegment.SortMap,
+				)
+			}
+		},
+	)
 }
 
 func (w *IndexWriter) applyAllDeletesAndUpdates() {
@@ -570,13 +591,116 @@ func (w *IndexWriter) flushNotifications() *DocumentsWriter.FlushNotifications {
 }
 
 func (w *IndexWriter) deleteNewFiles(files []string) error {
-	return nil
+	return w.deleter.DeleteNewFiles(files)
 }
 
 func (w *IndexWriter) flushFailed(info *SegmentInfo) error {
+	files := info.Files()
+	if files != nil {
+		return w.deleter.DeleteNewFiles(files)
+	}
 	return nil
 }
 
 func (w *IndexWriter) onTragicEvent(event error, message string) {
-	// implementation
+	fmt.Printf("IndexWriter: hit tragic %v inside %s\n", event, message)
 }
+
+func (w *IndexWriter) publishFlushedSegment(
+	newSegment *SegmentCommitInfo,
+	fieldInfos *FieldInfos,
+	packet *FrozenBufferedUpdates,
+	globalPacket *FrozenBufferedUpdates,
+	sortMap interface{},
+) {
+	w.ensureOpen()
+
+	if globalPacket != nil && globalPacket.Any() {
+		w.publishFrozenUpdates(globalPacket)
+	}
+
+	var nextGen int64
+	if packet != nil && packet.Any() {
+		nextGen = w.publishFrozenUpdates(packet)
+	} else {
+		nextGen = w.bufferedUpdatesStream.GetNextGen()
+		w.bufferedUpdatesStream.FinishedSegment(nextGen)
+	}
+
+	newSegment.SetBufferedDeletesGen(nextGen)
+	w.segmentInfos.Add(newSegment)
+	w.checkpoint()
+
+	if packet != nil && packet.Any() && sortMap != nil {
+		rau := w.getPooledInstance(newSegment, true)
+		if rau != nil {
+			rau.SetSortMap(sortMap)
+		}
+	}
+
+	softDeletesField := w.config.GetSoftDeletesField()
+	var fieldInfo *FieldInfo
+	if softDeletesField != "" {
+		fieldInfo = fieldInfos.GetByName(softDeletesField)
+	}
+
+	hasInitialSoftDeleted := false
+	if fieldInfo != nil && fieldInfo.DocValuesGen() == -1 && fieldInfo.DocValuesType() != DocValuesTypeNone {
+		hasInitialSoftDeleted = true
+	}
+	isFullyHardDeleted := newSegment.GetDelCount() == newSegment.Info.DocCount()
+
+	if hasInitialSoftDeleted || isFullyHardDeleted {
+		rau := w.getPooledInstance(newSegment, true)
+		if rau != nil {
+			if deleted, err := w.isFullyDeleted(rau); err == nil && deleted {
+				w.dropDeletedSegment(newSegment)
+				w.checkpoint()
+			}
+			w.release(rau)
+		}
+	}
+
+	w.flushCount.Add(1)
+	w.doAfterFlush()
+}
+
+func (w *IndexWriter) publishFrozenUpdates(packet *FrozenBufferedUpdates) int64 {
+	nextGen := w.bufferedUpdatesStream.Push(packet)
+	w.eventQueue.Add(func(iw *IndexWriter) error {
+		defer iw.flushDeletesCount.Add(1)
+		if err := iw.tryApply(packet); err != nil {
+			iw.onTragicEvent(err, "applyUpdatesPacket")
+			return err
+		}
+		return nil
+	})
+	return nextGen
+}
+
+func (w *IndexWriter) doAfterFlush() {}
+
+func (w *IndexWriter) dropDeletedSegment(sci *SegmentCommitInfo) {
+	w.segmentInfos.Remove(sci)
+}
+
+func (w *IndexWriter) isFullyDeleted(rau *ReadersAndUpdates) (bool, error) {
+	return rau.IsFullyDeleted()
+}
+
+func (w *IndexWriter) tryApply(packet *FrozenBufferedUpdates) error {
+	return nil
+}
+
+func (w *IndexWriter) getPooledInstance(sci *SegmentCommitInfo, writeDeletes bool) *ReadersAndUpdates {
+	rau, err := NewReadersAndUpdates(w.config.GetIndexCreatedVersionMajor(), sci, NewPendingDeletes())
+	if err != nil {
+		return nil
+	}
+	return rau
+}
+
+func (w *IndexWriter) release(rau *ReadersAndUpdates) {
+	rau.DecRef()
+}
+
