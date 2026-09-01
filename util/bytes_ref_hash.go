@@ -45,6 +45,12 @@ type BytesRefHash struct {
 	bytesUsed       *Counter
 }
 
+// RamBytesUsed returns the total amount of RAM, in bytes, consumed by
+// this object and any sub-objects it owns.
+func (h *BytesRefHash) RamBytesUsed() int64 {
+	return h.bytesUsed.Get()
+}
+
 // DefaultCapacity is the default initial capacity for BytesRefHash.
 const DefaultCapacity = 16
 
@@ -153,32 +159,16 @@ func (h *BytesRefHash) Compact() []int {
 // this BytesRefHash instance.
 func (h *BytesRefHash) Sort() []int {
 	compact := h.Compact()
-	// For simplicity, we use IntroSort on the compacted ids
-	// The Java version uses a more complex StringSorter with MSBStringRadixSorter
-	// but for Go port, we'll use a simpler approach
 
-	// Create a slice of indices to sort
-	type entry struct {
-		id    int
-		bytes []byte
-	}
-	entries := make([]entry, h.count)
-	scratch := &BytesRef{}
-	for i := 0; i < h.count; i++ {
-		h.Get(compact[i], scratch)
-		entries[i] = entry{id: compact[i], bytes: scratch.Clone().ValidBytes()}
-	}
+	// Use temporary buffers to avoid allocations during comparison
+	refI := NewBytesRefEmpty()
+	refJ := NewBytesRefEmpty()
 
-	// Sort entries by bytes. SliceStable preserves the insertion order for
-	// equal keys so the flush output is deterministic across runs.
-	sort.SliceStable(entries, func(i, j int) bool {
-		return bytes.Compare(entries[i].bytes, entries[j].bytes) < 0
+	sort.SliceStable(compact[:h.count], func(i, j int) bool {
+		h.Get(compact[i], refI)
+		h.Get(compact[j], refJ)
+		return bytes.Compare(refI.ValidBytes(), refJ.ValidBytes()) < 0
 	})
-
-	// Update compact with sorted ids
-	for i := 0; i < h.count; i++ {
-		compact[i] = entries[i].id
-	}
 
 	// Fill remaining slots with -1
 	for i := h.count; i < len(compact); i++ {
