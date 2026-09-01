@@ -137,6 +137,14 @@ func (c *AllGroupHeadsCollector[T]) GetGroupHeads() []GroupHead[T] {
 	return res
 }
 
+func (c *AllGroupHeadsCollector[T]) GetGroupHeadsDocs() []int {
+	res := make([]int, 0, len(c.heads))
+	for _, h := range c.heads {
+		res = append(res, h.GetDoc())
+	}
+	return res
+}
+
 func (c *AllGroupHeadsCollector[T]) newGroupHead(doc int, value T) GroupHead[T] {
 	if c.sort.IsRelevance() {
 		return &scoringGroupHead[T]{
