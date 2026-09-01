@@ -348,7 +348,17 @@ func TestSafeAcosClamp(t *testing.T) {
 
 func TestGeoWorldIsWithin(t *testing.T) {
 	pm := geom.SPHERE
-	w := &geom.GeoWorld{GeoBaseBBox: geom.GeoBaseBBox{GeoBaseAreaShape: geom.GeoBaseAreaShape{GeoBaseMembershipShape: geom.GeoBaseMembershipShape{GeoBaseShape: geom.GeoBaseShape{BasePlanetObject: geom.BasePlanetObject{planetModel: pm}}}}}}
+	w := &geom.GeoWorld{
+		GeoBaseBBox: geom.GeoBaseBBox{
+			GeoBaseAreaShape: geom.GeoBaseAreaShape{
+				GeoBaseMembershipShape: geom.GeoBaseMembershipShape{
+					GeoBaseShape: geom.GeoBaseShape{
+						BasePlanetObject: geom.NewBasePlanetObject(pm),
+					},
+				},
+			},
+		},
+	}
 	if !w.IsWithin(0.5, 0.5, 0.5) {
 		t.Fatal("GeoWorld.IsWithin must always return true")
 	}
