@@ -1,0 +1,319 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+package index
+
+import (
+	"errors"
+	"fmt"
+	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// DocValuesFieldUpdates holds updates of a single DocValues field,
+// for a set of documents within one segment.
+type DocValuesFieldUpdates interface {
+	Add(doc int, value interface{}) error
+	Reset(doc int) error
+	Iterator() DocValuesFieldUpdatesIterator
+	Finish()
+	Any() bool
+	RamBytesUsed() int64
+	Field() string
+	Type() DocValuesType
+	DelGen() int64
+}
+
+type docValuesFieldUpdatesBase struct {
+	field    string
+	dvType   DocValuesType
+	delGen   int64
+	maxDoc   int
+	size     int
+	finished bool
+	mu       sync.Mutex
+}
+
+func (b *docValuesFieldUpdatesBase) Field() string    { return b.field }
+func (b *docValuesFieldUpdatesBase) Type() DocValuesType { return b.dvType }
+func (b *docValuesFieldUpdatesBase) DelGen() int64    { return b.delGen }
+func (b *docValuesFieldUpdatesBase) Any() bool        { return b.size > 0 }
+func (b *docValuesFieldUpdatesBase) Finish() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.finished = true
+}
+
+// DocValuesFieldUpdatesIterator is an iterator over updated documents and their values.
+type DocValuesFieldUpdatesIterator interface {
+	NextDoc() int
+	DocID() int
+	LongValue() int64
+	BinaryValue() []byte
+	HasValue() bool
+	DelGen() int64
+}
+
+// NumericDocValuesFieldUpdates holds updates for a numeric DocValues field.
+type NumericDocValuesFieldUpdates struct {
+	docValuesFieldUpdatesBase
+	values    []int64
+	minValue  int64
+	maxValue  int64
+	hasValues *util.FixedBitSet
+}
+
+func NewNumericDocValuesFieldUpdates(delGen int64, field string, maxDoc int) *NumericDocValuesFieldUpdates {
+	return &NumericDocValuesFieldUpdates{
+		docValuesFieldUpdatesBase: docValuesFieldUpdatesBase{
+			field:  field,
+			dvType: DocValuesTypeNumeric,
+			delGen: delGen,
+			maxDoc: maxDoc,
+		},
+	}
+}
+
+func (u *NumericDocValuesFieldUpdates) Add(doc int, value interface{}) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.finished {
+		return errors.New("DocValuesFieldUpdates: already finished")
+	}
+	val := value.(int64)
+	u.values = append(u.values, val)
+	if val < u.minValue {
+		u.minValue = val
+	}
+	if val > u.maxValue {
+		u.maxValue = val
+	}
+	u.size++
+	return nil
+}
+
+func (u *NumericDocValuesFieldUpdates) Reset(doc int) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.finished {
+		return errors.New("DocValuesFieldUpdates: already finished")
+	}
+	u.values = append(u.values, 0)
+	if u.hasValues == nil {
+		u.hasValues, _ = util.NewFixedBitSet(1)
+	}
+	u.size++
+	return nil
+}
+
+func (u *NumericDocValuesFieldUpdates) Iterator() DocValuesFieldUpdatesIterator {
+	return &numericIterator{
+		u:     u,
+		index: 0,
+	}
+}
+
+type numericIterator struct {
+	u     *NumericDocValuesFieldUpdates
+	index int
+}
+
+func (it *numericIterator) NextDoc() int {
+	if it.index >= it.u.size {
+		return util.NoMoreDocs
+	}
+	doc := it.index // simplified: assumes docs are added in order
+	it.index++
+	return doc
+}
+
+func (it *numericIterator) DocID() int {
+	return it.index - 1
+}
+
+func (it *numericIterator) LongValue() int64 {
+	return it.u.values[it.index-1]
+}
+
+func (it *numericIterator) BinaryValue() []byte {
+	panic("unsupported")
+}
+
+func (it *numericIterator) HasValue() bool {
+	if it.u.hasValues == nil {
+		return true
+	}
+	return it.u.hasValues.Get(it.index - 1)
+}
+
+func (it *numericIterator) DelGen() int64 {
+	return it.u.delGen
+}
+
+func (u *NumericDocValuesFieldUpdates) RamBytesUsed() int64 {
+	return int64(len(u.values)*8) + 64
+}
+
+// BinaryDocValuesFieldUpdates holds updates for a binary DocValues field.
+type BinaryDocValuesFieldUpdates struct {
+	docValuesFieldUpdatesBase
+	values []byte
+	offsets []int
+	lengths []int
+}
+
+func NewBinaryDocValuesFieldUpdates(delGen int64, field string, maxDoc int) *BinaryDocValuesFieldUpdates {
+	return &BinaryDocValuesFieldUpdates{
+		docValuesFieldUpdatesBase: docValuesFieldUpdatesBase{
+			field:  field,
+			dvType: DocValuesTypeBinary,
+			delGen: delGen,
+			maxDoc: maxDoc,
+		},
+	}
+}
+
+func (u *BinaryDocValuesFieldUpdates) Add(doc int, value interface{}) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.finished {
+		return errors.New("DocValuesFieldUpdates: already finished")
+	}
+	val := value.([]byte)
+	u.offsets = append(u.offsets, len(u.values))
+	u.lengths = append(u.lengths, len(val))
+	u.values = append(u.values, val...)
+	u.size++
+	return nil
+}
+
+func (u *BinaryDocValuesFieldUpdates) Reset(doc int) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.finished {
+		return errors.New("DocValuesFieldUpdates: already finished")
+	}
+	u.offsets = append(u.offsets, 0)
+	u.lengths = append(u.lengths, 0)
+	u.size++
+	return nil
+}
+
+func (u *BinaryDocValuesFieldUpdates) Iterator() DocValuesFieldUpdatesIterator {
+	return &binaryIterator{
+		u:     u,
+		index: 0,
+	}
+}
+
+type binaryIterator struct {
+	u     *BinaryDocValuesFieldUpdates
+	index int
+}
+
+func (it *binaryIterator) NextDoc() int {
+	if it.index >= it.u.size {
+		return util.NoMoreDocs
+	}
+	doc := it.index
+	it.index++
+	return doc
+}
+
+func (it *binaryIterator) DocID() int {
+	return it.index - 1
+}
+
+func (it *binaryIterator) LongValue() int64 {
+	panic("unsupported")
+}
+
+func (it *binaryIterator) BinaryValue() []byte {
+	off := it.u.offsets[it.index-1]
+	len := it.u.lengths[it.index-1]
+	return it.u.values[off : off+len]
+}
+
+func (it *binaryIterator) HasValue() bool {
+	return it.u.lengths[it.index-1] > 0
+}
+
+func (it *binaryIterator) DelGen() int64 {
+	return it.u.delGen
+}
+
+func (u *BinaryDocValuesFieldUpdates) RamBytesUsed() int64 {
+	return int64(len(u.values)) + int64(len(u.offsets)*4) + int64(len(u.lengths)*4) + 64
+}
+
+// MergedDocValues merges an on-disk DocValues instance with an update iterator.
+type MergedDocValues struct {
+	onDiskDocValues  DocValuesIterator
+	updateIterator   DocValuesFieldUpdatesIterator
+	docIDOut         int
+	docIDOnDisk     int
+	updateDocID      int
+	currentValuesSupplier DocValuesIterator
+}
+
+func NewMergedDocValues(onDisk DocValuesIterator, update DocValuesFieldUpdatesIterator) *MergedDocValues {
+	return &MergedDocValues{
+		onDiskDocValues: onDisk,
+		updateIterator:  update,
+		docIDOut:       -1,
+		docIDOnDisk:    -1,
+		updateDocID:     -1,
+	}
+}
+
+func (m *MergedDocValues) DocID() int {
+	return m.docIDOut
+}
+
+func (m *MergedDocValues) NextDoc() int {
+	hasValue := false
+	for {
+		if m.docIDOnDisk == m.docIDOut {
+			if m.onDiskDocValues == nil {
+				m.docIDOnDisk = util.NoMoreDocs
+			} else {
+				m.docIDOnDisk = m.onDiskDocValues.NextDoc()
+			}
+		}
+		if m.updateDocID == m.docIDOut {
+			m.updateDocID = m.updateIterator.NextDoc()
+		}
+		if m.docIDOnDisk < m.updateDocID {
+			m.docIDOut = m.docIDOnDisk
+			m.currentValuesSupplier = m.onDiskDocValues
+			hasValue = true
+		} else {
+			m.docIDOut = m.updateDocID
+			if m.docIDOut != util.NoMoreDocs {
+				m.currentValuesSupplier = m.updateIterator
+				hasValue = m.updateIterator.HasValue()
+			} else {
+				hasValue = true
+			}
+		}
+		if hasValue {
+			break
+		}
+	}
+	return m.docIDOut
+}
+
+func (m *MergedDocValues) LongValue() int64 {
+	return m.currentValuesSupplier.LongValue()
+}
+
+func (m *MergedDocValues) BinaryValue() []byte {
+	return m.currentValuesSupplier.BinaryValue()
+}
+
+func (m *MergedDocValues) HasValue() bool {
+	return m.currentValuesSupplier.HasValue()
+}
