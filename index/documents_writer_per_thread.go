@@ -1326,7 +1326,9 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 			return nil, 0, err
 		}
 		if acc != nil {
-			acc.addToken(tok.term, termFreq, tok.posIncr)
+			if err := acc.addToken(tok.term, termFreq, tok.posIncr); err != nil {
+				return nil, 0, err
+			}
 		}
 	}
 

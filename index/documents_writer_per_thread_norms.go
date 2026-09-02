@@ -6,29 +6,19 @@ package index
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// This file wires the NORMS write path for the live DocumentsWriterPerThread
-// flush pipeline. It mirrors three Lucene collaborators that work together in
-// org.apache.lucene.index.IndexingChain (Lucene 10.4.0):
-//
-//   - FieldInvertState — the per-(field, document) inversion counters
-//     (length / numOverlap / uniqueTermCount) accumulated during invert().
-//     Gocene tracks them in normsAccumulator, fed token-by-token from
-//     indexFieldWithValue.
-//   - PerField.finish — computes Similarity.computeNorm(FieldInvertState) once
-//     per document and buffers it via NormValuesWriter.addValue(docID, norm).
-//     Gocene does this in finalizeNorms, buffering into NormsBuffer.
-//   - writeNorms — opens codec.normsFormat().normsConsumer(state) and replays
-//     every field's buffered norms through NormsConsumer.addNormsField. Gocene
-//     does this in flushNorms.
-//
-// The norm VALUE is computed exactly as Lucene's default similarity
-// (BM25Similarity, discountOverlaps=true): SmallFloat.intToByte4(numTerms),
-// where numTerms is the unique-term count for DOCS-only fields and otherwise
-// the field length minus the overlap count. See computeNorm below.
+// FieldInvertState captures the inversion counters for a field in a document.
+// This is the Go port of Lucene's org.apache.lucene.index.FieldInvertState.
+type FieldInvertState struct {
+	Length           int
+	NumOverlap       int
+	UniqueTermCount  int
+	MaxTermFrequency int
+}
 
 // NormsBuffer holds the per-document norm value for a single field, in
 // document order. It is the live-path counterpart of Lucene's NormValuesWriter
@@ -51,6 +41,7 @@ type normsAccumulator struct {
 	indexOptions IndexOptions
 	length       int
 	numOverlap   int
+	maxTermFreq  int
 	uniqueTerms  map[string]struct{}
 }
 
@@ -68,16 +59,33 @@ func newNormsAccumulator(indexOptions IndexOptions) *normsAccumulator {
 // default of 1, matching addTermWithFreq); posIncr is its position increment.
 // Mirrors IndexingChain.invert: invertState.length += termFreq, and
 // invertState.numOverlap++ when posIncr == 0.
-func (a *normsAccumulator) addToken(term string, termFreq, posIncr int) {
+func (a *normsAccumulator) addToken(term string, termFreq, posIncr int) error {
 	tf := termFreq
 	if tf <= 0 {
 		tf = 1
 	}
+	if a.length > math.MaxInt32-tf {
+		return fmt.Errorf("term frequency overflow")
+	}
 	a.length += tf
+	if tf > a.maxTermFreq {
+		a.maxTermFreq = tf
+	}
 	if posIncr == 0 {
 		a.numOverlap++
 	}
 	a.uniqueTerms[term] = struct{}{}
+	return nil
+}
+
+// ToFieldInvertState returns a snapshot of the current inversion counters.
+func (a *normsAccumulator) ToFieldInvertState() FieldInvertState {
+	return FieldInvertState{
+		Length:           a.length,
+		NumOverlap:       a.numOverlap,
+		UniqueTermCount:  len(a.uniqueTerms),
+		MaxTermFrequency: a.maxTermFreq,
+	}
 }
 
 // computeNorm returns the per-document norm value for the accumulated field
