@@ -701,7 +701,7 @@ func (r *ReadersAndUpdates) GetLiveDocs() (util.Bits, error) {
 // documents.
 func (r *ReadersAndUpdates) GetHardLiveDocs() (util.Bits, error) {
 	r.mu.Lock()
-	defer r.// la
+	defer r.mu.Unlock()
 	return r.pendingDeletes.GetHardLiveDocs(), nil
 }
 

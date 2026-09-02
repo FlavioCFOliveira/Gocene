@@ -33,7 +33,7 @@ func (b *BaseNumericDocValues) LongValues(size int, docs []int32, values []int64
 
 // LongValuesOffset is an offset-aware variant of LongValues.
 func (b *BaseNumericDocValues) LongValuesOffset(size int, docs []int32, docsOffset int, values []int64, valuesOffset int, defaultValue int64) error {
-	for di := docsOffset, vi := valuesOffset, end := docsOffset + size; di < end; di++, vi++ {
+	for di, vi := docsOffset, valuesOffset; di < docsOffset+size; di, vi = di+1, vi+1 {
 		if ok, err := b.Impl.AdvanceExact(int(docs[di])); ok && err == nil {
 			val, err := b.Impl.LongValue()
 			if err != nil {

@@ -908,6 +908,8 @@ func (w *IndexWriter) publishFlushedSegment(
 				w.checkpoint()
 			}
 			w.release(rau)
+		}
+	}
 
 	w.flushCount.Add(1)
 	w.doAfterFlush()
@@ -1047,6 +1049,7 @@ func (w *IndexWriter) mergeInternal(merge *OneMerge) error {
 			rau.Release(sr)
 		}
 		w.release(rau)
+	}
 	// ----------------
 
 	if !w.commitMerge(merge, nil) {

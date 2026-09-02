@@ -247,4 +247,3 @@ func (m *bytesRefIntMap) get(key []byte) int {
 }
 
 // FieldUpdatesBuffer buffers numeric and binary field updates.
-``
