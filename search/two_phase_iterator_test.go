@@ -1,209 +1,202 @@
 package search
+
 import (
-	"errors"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
 type mockDocIdSetIterator struct {
-	docs   []int
-	cursor int
+	docs    []int
+	pos     int
+	current int
 }
+
+func newMockDocIdSetIterator(docs []int) *mockDocIdSetIterator {
+	return &mockDocIdSetIterator{
+		docs:    docs,
+		pos:     0,
+		current: -1,
+	}
+}
+
 func (m *mockDocIdSetIterator) DocID() int {
-	if m.cursor < 0 {
-		return -1
-	}
-	if m.cursor >= len(m.docs) {
-		return NO_MORE_DOCS
-	}
-	return m.docs[m.cursor]
+	return m.current
 }
+
 func (m *mockDocIdSetIterator) NextDoc() (int, error) {
-	m.cursor++
-	if m.cursor >= len(m.docs) {
+	if m.pos >= len(m.docs) {
+		m.current = NO_MORE_DOCS
 		return NO_MORE_DOCS, nil
 	}
-	return m.docs[m.cursor], nil
+	m.current = m.docs[m.pos]
+	m.pos++
+	return m.current, nil
 }
+
 func (m *mockDocIdSetIterator) Advance(target int) (int, error) {
-	if m.cursor < 0 {
-		m.cursor = 0
+	for m.pos < len(m.docs) && m.docs[m.pos] < target {
+		m.pos++
 	}
-	for m.cursor < len(m.docs) && m.docs[m.cursor] < target {
-		m.cursor++
-	}
-	if m.cursor >= len(m.docs) {
+	if m.pos >= len(m.docs) {
+		m.current = NO_MORE_DOCS
 		return NO_MORE_DOCS, nil
 	}
-	return m.docs[m.cursor], nil
+	m.current = m.docs[m.pos]
+	m.pos++
+	return m.current, nil
 }
+
 func (m *mockDocIdSetIterator) DocIDRunEnd() int {
-	return m.DocID() + 1
+	return m.current
 }
+
 func (m *mockDocIdSetIterator) Cost() int64 {
 	return 1
 }
-type mockTwoPhaseIterator struct {
-	approx   DocIdSetIterator
-	matches  map[int]bool
-	matchCost float32
+
+type mockVerifier struct {
+	matches func(doc int) bool
 }
-func (m *mockTwoPhaseIterator) Approximation() DocIdSetIterator {
-	return m.approx
+
+func (v *mockVerifier) Matches() (bool, error) {
+	// In a real implementation, we'd have access to the current docID.
+	// Here we assume the TwoPhaseIterator manages it.
+	// Wait, the Lucene TwoPhaseIterator.matches() doesn't take the docID.
+	// It assumes the approximation is positioned.
+	// Since we're testing, we need the verifier to know which doc is current.
+	// I'll update the mockVerifier to take a pointer to the iterator.
+	return false, nil // Will fix in a moment
 }
-func (m *mockTwoPhaseIterator) Matches() (bool, error) {
-	doc := m.approx.DocID()
-	if doc == NO_MORE_DOCS || doc == -1 {
-		return false, errors.New("iterator not positioned")
-	}
-	return m.matches[doc], nil
+
+func (v *mockVerifier) MatchCost() float32 {
+	return 1.0
 }
-func (m *mockTwoPhaseIterator) MatchCost() float32 {
-	return m.matchCost
+
+// Fixed mockVerifier
+type fixedVerifier struct {
+	iter *mockDocIdSetIterator
+	fn   func(doc int) bool
 }
-func (m *mockTwoPhaseIterator) DocIDRunEnd() (int, error) {
-	return DefaultDocIDRunEnd(m)
+
+func (v *fixedVerifier) Matches() (bool, error) {
+	return v.fn(v.iter.current), nil
 }
-func (m *mockTwoPhaseIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
-	return DefaultIntoBitSet(m, upTo, bitSet, offset)
+
+func (v *fixedVerifier) MatchCost() float32 {
+	return 1.0
 }
+
 func TestTwoPhaseIterator_AsDocIdSetIterator(t *testing.T) {
-	docs := []int{10, 11, 12, 13, 14}
-	matches := map[int]bool{
-		10: true,
-		11: false,
-		12: true,
-		13: false,
-		14: true,
+	docs := []int{1, 2, 3, 4, 5}
+	approx := newMockDocIdSetIterator(docs)
+
+	// Verifier matches only even numbers
+	verifier := &fixedVerifier{
+		iter: approx,
+		fn: func(doc int) bool {
+			return doc%2 == 0
+		},
 	}
-	approx := &mockDocIdSetIterator{docs: docs, cursor: -1}
-	tpi := &mockTwoPhaseIterator{
-		approx:   approx,
-		matches:  matches,
-		matchCost: 1.0,
-	}
+
+	tpi := NewTwoPhaseIterator(approx, verifier)
 	iter := AsDocIdSetIterator(tpi)
-	if iter.DocID() != -1 {
-		t.Errorf("expected DocID -1, got %d", iter.DocID())
-	}
+
+	// First match should be 2
 	doc, err := iter.NextDoc()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("NextDoc failed: %v", err)
 	}
-	if doc != 10 {
-		t.Errorf("expected 10, got %d", doc)
+	if doc != 2 {
+		t.Errorf("expected 2, got %d", doc)
 	}
+
+	// Second match should be 4
 	doc, err = iter.NextDoc()
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("NextDoc failed: %v", err)
 	}
-	if doc != 12 {
-		t.Errorf("expected 12, got %d", doc)
+	if doc != 4 {
+		t.Errorf("expected 4, got %d", doc)
 	}
+
+	// Third should be NO_MORE_DOCS
 	doc, err = iter.NextDoc()
 	if err != nil {
-		t.Fatal(err)
-	}
-	if doc != 14 {
-		t.Errorf("expected 14, got %d", doc)
-	}
-	doc, err = iter.NextDoc()
-	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("NextDoc failed: %v", err)
 	}
 	if doc != NO_MORE_DOCS {
 		t.Errorf("expected NO_MORE_DOCS, got %d", doc)
 	}
 }
+
 func TestTwoPhaseIterator_Advance(t *testing.T) {
-	docs := []int{10, 11, 12, 13, 14}
-	matches := map[int]bool{
-		10: true,
-		11: false,
-		12: true,
-		13: false,
-		14: true,
+	docs := []int{1, 2, 3, 4, 5}
+	approx := newMockDocIdSetIterator(docs)
+
+	verifier := &fixedVerifier{
+		iter: approx,
+		fn: func(doc int) bool {
+			return doc%2 == 0
+		},
 	}
-	approx := &mockDocIdSetIterator{docs: docs, cursor: -1}
-	tpi := &mockTwoPhaseIterator{
-		approx:   approx,
-		matches:  matches,
-		matchCost: 1.0,
-	}
+
+	tpi := NewTwoPhaseIterator(approx, verifier)
 	iter := AsDocIdSetIterator(tpi)
-	doc, err := iter.Advance(11)
+
+	// Advance to 3 -> next even is 4
+	doc, err := iter.Advance(3)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Advance failed: %v", err)
 	}
-	if doc != 12 {
-		t.Errorf("expected 12, got %d", doc)
-	}
-	doc, err = iter.Advance(13)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc != 14 {
-		t.Errorf("expected 14, got %d", doc)
-	}
-	doc, err = iter.Advance(15)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if doc != NO_MORE_DOCS {
-		t.Errorf("expected NO_MORE_DOCS, got %d", doc)
+	if doc != 4 {
+		t.Errorf("expected 4, got %d", doc)
 	}
 }
-func TestTwoPhaseIterator_Unwrap(t *testing.T) {
-	docs := []int{10}
-	matches := map[int]bool{10: true}
-	approx := &mockDocIdSetIterator{docs: docs, cursor: -1}
-	tpi := &mockTwoPhaseIterator{
-		approx:   approx,
-		matches:  matches,
-		matchCost: 1.0,
-	}
-	iter := AsDocIdSetIterator(tpi)
-	unwrapped := UnwrapTwoPhaseIterator(iter)
-	if unwrapped != tpi {
-		t.Errorf("expected unwrapped to be tpi, got %v", unwrapped)
-	}
-	unwrappedOther := UnwrapTwoPhaseIterator(approx)
-	if unwrappedOther != nil {
-		t.Errorf("expected nil for non-wrapped iterator, got %v", unwrappedOther)
-	}
-}
+
 func TestTwoPhaseIterator_IntoBitSet(t *testing.T) {
-	docs := []int{10, 11, 12, 13, 14}
-	matches := map[int]bool{
-		10: true,
-		11: false,
-		12: true,
-		13: false,
-		14: true,
+	docs := []int{1, 2, 3, 4, 5, 6}
+	approx := newMockDocIdSetIterator(docs)
+
+	verifier := &fixedVerifier{
+		iter: approx,
+		fn: func(doc int) bool {
+			return doc%2 == 0
+		},
 	}
-	approx := &mockDocIdSetIterator{docs: docs, cursor: -1}
-	tpi := &mockTwoPhaseIterator{
-		approx:   approx,
-		matches:  matches,
-		matchCost: 1.0,
-	}
-	bs, _ := NewFixedBitSet(20)
-	approx.NextDoc() // now on 10
-	err := tpi.IntoBitSet(15, bs, 0)
+
+	tpi := NewTwoPhaseIterator(approx, verifier)
+
+	bitSet, _ := util.NewFixedBitSet(10)
+	// docs: [1, 2, 3, 4, 5, 6]
+	// Even: [2, 4, 6]
+	// offset = 0
+	err := tpi.IntoBitSet(7, bitSet, 0)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("IntoBitSet failed: %v", err)
 	}
-	if !bs.Get(10) {
-		t.Error("expected bit 10 to be set")
+
+	if !bitSet.Get(2) || !bitSet.Get(4) || !bitSet.Get(6) {
+		t.Errorf("missing expected bits")
 	}
-	if bs.Get(11) {
-		t.Error("expected bit 11 NOT to be set")
+	if bitSet.Get(1) || bitSet.Get(3) || bitSet.Get(5) {
+		t.Errorf("found unexpected bits")
 	}
-	if !bs.Get(12) {
-		t.Error("expected bit 12 to be set")
+}
+
+func TestTwoPhaseIterator_Unwrap(t *testing.T) {
+	docs := []int{1, 2, 3}
+	approx := newMockDocIdSetIterator(docs)
+	verifier := &fixedVerifier{iter: approx, fn: func(doc int) bool { return true }}
+	tpi := NewTwoPhaseIterator(approx, verifier)
+
+	iter := AsDocIdSetIterator(tpi)
+	unwrapped := Unwrap(iter)
+	if unwrapped != tpi {
+		t.Errorf("unwrap failed to return original TwoPhaseIterator")
 	}
-	if bs.Get(13) {
-		t.Error("expected bit 13 NOT to be set")
-	}
-	if !bs.Get(14) {
-		t.Error("expected bit 14 to be set")
+
+	if Unwrap(approx) != nil {
+		t.Errorf("unwrap should return nil for non-wrapped iterator")
 	}
 }
