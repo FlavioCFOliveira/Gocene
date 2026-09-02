@@ -16,7 +16,7 @@ type FacetUtils struct{}
 
 // LiveDocsDISI wraps the given DocIdSetIterator and liveDocs into another DocIdSetIterator
 // that returns non-deleted documents during iteration.
-func LiveDocsDISI(it search.DocIdSetIterator, liveDocs util.Bits) search.DocIdSetIterator {
+func LiveDocsDISI(it util.DocIdSetIterator, liveDocs util.Bits) util.DocIdSetIterator {
 	return &liveDocsDISI{
 		it:       it,
 		liveDocs: liveDocs,
@@ -24,7 +24,7 @@ func LiveDocsDISI(it search.DocIdSetIterator, liveDocs util.Bits) search.DocIdSe
 }
 
 type liveDocsDISI struct {
-	it       search.DocIdSetIterator
+	it       util.DocIdSetIterator
 	liveDocs util.Bits
 }
 
@@ -48,7 +48,7 @@ func (l *liveDocsDISI) Advance(target int) int {
 	return l.doNext(l.it.Advance(target))
 }
 
-func (l *liveDocsDISI) NextDocWithFilter(filter search.DocIdSetIterator) int {
+func (l *liveDocsDISI) NextDocWithFilter(filter util.DocIdSetIterator) int {
 	// Lucene's FilterDocIdSetIterator doesn't override this in a way that's needed here,
 	// but we should maintain the interface.
 	return l.it.NextDocWithFilter(filter)

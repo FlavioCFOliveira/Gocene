@@ -163,7 +163,7 @@ func (t *termIntervalIterator) reset() error {
 	return nil
 }
 
-var _ search.DocIdSetIterator = (*termIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*termIntervalIterator)(nil)
 
 // Matches returns an IntervalMatchesIterator for the given field, context and doc.
 func (s *TermIntervalsSource) Matches(field string, ctx *index.LeafReaderContext, doc int) (IntervalMatchesIterator, error) {

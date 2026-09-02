@@ -56,7 +56,7 @@ type OffHeapByteVectorValues struct {
 
 // offHeap94ByteVariant captures layout-specific behaviour.
 type offHeap94ByteVariant interface {
-	iterator(parent *OffHeapByteVectorValues) index.DocIndexIterator
+	iterator(parent *OffHeapByteVectorValues) util.DocIndexIterator
 	ordToDoc(parent *OffHeapByteVectorValues, ord int) int
 	getAcceptOrds(parent *OffHeapByteVectorValues, acceptDocs util.Bits) util.Bits
 	copy(parent *OffHeapByteVectorValues) (*OffHeapByteVectorValues, error)
@@ -110,7 +110,7 @@ func (v *OffHeapByteVectorValues) VectorValue(targetOrd int) ([]byte, error) {
 }
 
 // Iterator returns a DocIndexIterator over this vector set.
-func (v *OffHeapByteVectorValues) Iterator() index.DocIndexIterator {
+func (v *OffHeapByteVectorValues) Iterator() util.DocIndexIterator {
 	return v.variant.iterator(v)
 }
 
@@ -173,7 +173,7 @@ func LoadByte(
 
 type denseOffHeap94ByteVariant struct{}
 
-func (denseOffHeap94ByteVariant) iterator(parent *OffHeapByteVectorValues) index.DocIndexIterator {
+func (denseOffHeap94ByteVariant) iterator(parent *OffHeapByteVectorValues) util.DocIndexIterator {
 	return newDenseDocIter94(parent.size)
 }
 
@@ -253,7 +253,7 @@ func newSparseOffHeap94Byte(
 	), nil
 }
 
-func (s *sparseOffHeap94ByteVariant) iterator(_ *OffHeapByteVectorValues) index.DocIndexIterator {
+func (s *sparseOffHeap94ByteVariant) iterator(_ *OffHeapByteVectorValues) util.DocIndexIterator {
 	return &indexedDISIIter94{disi: s.disi}
 }
 
@@ -312,7 +312,7 @@ func newEmptyOffHeap94Byte(dimension int) *OffHeapByteVectorValues {
 	)
 }
 
-func (emptyOffHeap94ByteVariant) iterator(_ *OffHeapByteVectorValues) index.DocIndexIterator {
+func (emptyOffHeap94ByteVariant) iterator(_ *OffHeapByteVectorValues) util.DocIndexIterator {
 	return newDenseDocIter94(0)
 }
 
@@ -361,7 +361,7 @@ type codec94ByteVectorScorerView interface {
 
 // byte94ScorerView is the VectorScorerView for byte vector values.
 type byte94ScorerView struct {
-	it     index.DocIndexIterator
+	it     util.DocIndexIterator
 	bvv    *OffHeapByteVectorValues
 	target []byte
 }

@@ -1,11 +1,7 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package index
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DocValuesSkipper is an interface for skipping through DocValues.
@@ -19,12 +15,12 @@ type DocValuesSkipper interface {
 	NumLevels() int
 
 	// MinDocID returns the minimum doc ID of the interval on the given level, inclusive.
-	// This returns -1 if Advance has not been called yet and search.NO_MORE_DOCS if the iterator is exhausted.
+	// This returns -1 if Advance has not been called yet and util.NO_MORE_DOCS if the iterator is exhausted.
 	// This method is non-increasing when level increases: MinDocID(level+1) <= MinDocID(level).
 	MinDocID(level int) int
 
 	// MaxDocID returns the maximum doc ID of the interval on the given level, inclusive.
-	// This returns -1 if Advance has not been called yet and search.NO_MORE_DOCS if the iterator is exhausted.
+	// This returns -1 if Advance has not been called yet and util.NO_MORE_DOCS if the iterator is exhausted.
 	// This method is non-decreasing when level decreases: MaxDocID(level+1) >= MaxDocID(level).
 	MaxDocID(level int) int
 
@@ -69,7 +65,7 @@ func AdvanceRange(s DocValuesSkipper, minValue, maxValue int64) error {
 	}
 
 	// check if the current interval intersects the provided range
-	for s.MinDocID(0) != search.NO_MORE_DOCS && (s.MinValue(0) > maxValue || s.MaxValue(0) < minValue) {
+	for s.MinDocID(0) != util.NO_MORE_DOCS && (s.MinValue(0) > maxValue || s.MaxValue(0) < minValue) {
 		maxDocID := s.MaxDocID(0)
 		nextLevel := 1
 		// check if the next levels intersect to skip as many docs as possible

@@ -87,7 +87,7 @@ func (q *DiversifyingChildrenByteKnnVectorQuery) ApproximateSearch(
 // Mirrors DiversifyingChildrenByteKnnVectorQuery.exactSearch.
 func (q *DiversifyingChildrenByteKnnVectorQuery) ExactSearch(
 	ctx *index.LeafReaderContext,
-	acceptIterator search.DocIdSetIterator,
+	acceptIterator util.DocIdSetIterator,
 	timeout index.QueryTimeout,
 ) (*search.TopDocs, error) {
 	values, err := leafByteVectorValues(ctx, q.Field)

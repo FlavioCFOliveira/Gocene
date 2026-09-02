@@ -3,7 +3,6 @@ package quantization
 import (
 	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -31,12 +30,12 @@ type QuantizationResult struct {
 
 // OptimizedScalarQuantizer is a scalar quantizer that optimizes the quantization intervals for a given vector.
 type OptimizedScalarQuantizer struct {
-	similarityFunction index.VectorSimilarityFunction
+	similarityFunction util.VectorSimilarityFunction
 	lambda             float32
 	iters              int
 }
 
-func NewOptimizedScalarQuantizer(similarityFunction index.VectorSimilarityFunction, lambda float32, iters int) *OptimizedScalarQuantizer {
+func NewOptimizedScalarQuantizer(similarityFunction util.VectorSimilarityFunction, lambda float32, iters int) *OptimizedScalarQuantizer {
 	return &OptimizedScalarQuantizer{
 		similarityFunction: similarityFunction,
 		lambda:             lambda,
@@ -44,13 +43,13 @@ func NewOptimizedScalarQuantizer(similarityFunction index.VectorSimilarityFuncti
 	}
 }
 
-func NewDefaultOptimizedScalarQuantizer(similarityFunction index.VectorSimilarityFunction) *OptimizedScalarQuantizer {
+func NewDefaultOptimizedScalarQuantizer(similarityFunction util.VectorSimilarityFunction) *OptimizedScalarQuantizer {
 	return NewOptimizedScalarQuantizer(similarityFunction, defaultLambda, defaultIters)
 }
 
 func (osq *OptimizedScalarQuantizer) MultiScalarQuantize(vector []float32, destinations [][]byte, bits []byte, centroid []float32) []QuantizationResult {
 	// Cosine check (using VectorUtil.IsUnitVector)
-	if osq.similarityFunction == index.Cosine {
+	if osq.similarityFunction == util.Cosine {
 		if !util.IsUnitVector(vector) || !util.IsUnitVector(centroid) {
 			panic("vectors must be unit vectors for cosine similarity")
 		}
@@ -62,7 +61,7 @@ func (osq *OptimizedScalarQuantizer) MultiScalarQuantize(vector []float32, desti
 	min, max := float32(math.MaxFloat32), float32(-math.MaxFloat32)
 
 	for i := 0; i < len(vector); i++ {
-		if osq.similarityFunction != index.Euclidean {
+		if osq.similarityFunction != util.Euclidean {
 			centroidDot += vector[i] * centroid[i]
 		}
 		vector[i] = vector[i] - centroid[i]
@@ -103,7 +102,7 @@ func (osq *OptimizedScalarQuantizer) MultiScalarQuantize(vector []float32, desti
 		}
 
 		var addCorr float32
-		if osq.similarityFunction == index.Euclidean {
+		if osq.similarityFunction == util.Euclidean {
 			addCorr = norm2
 		} else {
 			addCorr = centroidDot
@@ -120,7 +119,7 @@ func (osq *OptimizedScalarQuantizer) MultiScalarQuantize(vector []float32, desti
 }
 
 func (osq *OptimizedScalarQuantizer) ScalarQuantize(vector []float32, destination []byte, bits byte, centroid []float32) QuantizationResult {
-	if osq.similarityFunction == index.Cosine {
+	if osq.similarityFunction == util.Cosine {
 		if !util.IsUnitVector(vector) || !util.IsUnitVector(centroid) {
 			panic("vectors must be unit vectors for cosine similarity")
 		}
@@ -133,7 +132,7 @@ func (osq *OptimizedScalarQuantizer) ScalarQuantize(vector []float32, destinatio
 	min, max := float32(math.MaxFloat32), float32(-math.MaxFloat32)
 
 	for i := 0; i < len(vector); i++ {
-		if osq.similarityFunction != index.Euclidean {
+		if osq.similarityFunction != util.Euclidean {
 			centroidDot += vector[i] * centroid[i]
 		}
 		vector[i] = vector[i] - centroid[i]
@@ -169,7 +168,7 @@ func (osq *OptimizedScalarQuantizer) ScalarQuantize(vector []float32, destinatio
 	}
 
 	var addCorr float32
-	if osq.similarityFunction == index.Euclidean {
+	if osq.similarityFunction == util.Euclidean {
 		addCorr = norm2
 	} else {
 		addCorr = centroidDot

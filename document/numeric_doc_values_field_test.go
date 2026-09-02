@@ -7,7 +7,7 @@ package document
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 func TestNewNumericDocValuesField(t *testing.T) {
@@ -41,7 +41,7 @@ func TestNumericDocValuesFieldType(t *testing.T) {
 		t.Error("Expected field to not be stored")
 	}
 
-	if ft.DocValuesType != index.DocValuesTypeNumeric {
+	if ft.DocValuesType != schema.DocValuesTypeNumeric {
 		t.Errorf("Expected DocValuesTypeNumeric, got: %v", ft.DocValuesType)
 	}
 }

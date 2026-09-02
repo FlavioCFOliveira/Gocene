@@ -114,5 +114,5 @@ func (r *RelativeIterator) AdvanceBToStart() error {
 	return nil
 }
 
-// Ensure RelativeIterator satisfies search.DocIdSetIterator at compile time.
-var _ search.DocIdSetIterator = (*RelativeIterator)(nil)
+// Ensure RelativeIterator satisfies util.DocIdSetIterator at compile time.
+var _ util.DocIdSetIterator = (*RelativeIterator)(nil)

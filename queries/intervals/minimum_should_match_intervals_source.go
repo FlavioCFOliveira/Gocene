@@ -166,7 +166,7 @@ func (s *MinimumShouldMatchIntervalsSource) String() string {
 //
 // Mirrors MinimumShouldMatchIntervalsSource.MinimumShouldMatchIntervalIterator.
 type minimumShouldMatchIntervalIterator struct {
-	approximation  search.DocIdSetIterator
+	approximation  util.DocIdSetIterator
 	disiQueue      *DisiPriorityQueue
 	proximityQueue []IntervalIterator // min-heap by start
 	backgroundQueue []IntervalIterator // min-heap by end
@@ -410,7 +410,7 @@ func (it *minimumShouldMatchIntervalIterator) NextInterval() (int, error) {
 	}
 }
 
-var _ search.DocIdSetIterator = (*minimumShouldMatchIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*minimumShouldMatchIntervalIterator)(nil)
 
 // ── minimumMatchesIterator ─────────────────────────────────────────────────
 

@@ -174,7 +174,7 @@ func leafContextFor(reader search.IndexReader) *index.LeafReaderContext {
 // returns the parents BitSet as a util.BitSet plus the children as a
 // DocIdSetIterator, or (nil, nil) when there are no children to aggregate
 // (matching Lucene's `if (children == null) return DocValues.empty...`).
-func resolveBlockBitSets(reader search.IndexReader, parentFilter, childFilter BitSetProducer) (util.BitSet, search.DocIdSetIterator, error) {
+func resolveBlockBitSets(reader search.IndexReader, parentFilter, childFilter BitSetProducer) (util.BitSet, util.DocIdSetIterator, error) {
 	ctx := leafContextFor(reader)
 	if ctx == nil {
 		return nil, nil, nil
@@ -388,5 +388,5 @@ func (it *fixedBitSetDISI) DocIDRunEnd() int { return it.docID + 1 }
 var (
 	_ search.NumericDocValuesSource = (*blockJoinNumericDVSource)(nil)
 	_ search.SortedDocValuesSource  = (*blockJoinSortedDVSource)(nil)
-	_ search.DocIdSetIterator       = (*fixedBitSetDISI)(nil)
+	_ util.DocIdSetIterator       = (*fixedBitSetDISI)(nil)
 )

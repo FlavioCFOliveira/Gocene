@@ -111,7 +111,7 @@ func (q *DiversifyingChildrenFloatKnnVectorQuery) ApproximateSearch(
 // DiversifyingChildrenVectorScorer.
 func (q *DiversifyingChildrenFloatKnnVectorQuery) ExactSearch(
 	ctx *index.LeafReaderContext,
-	acceptIterator search.DocIdSetIterator,
+	acceptIterator util.DocIdSetIterator,
 	timeout index.QueryTimeout,
 ) (*search.TopDocs, error) {
 	values, err := leafFloatVectorValues(ctx, q.Field)

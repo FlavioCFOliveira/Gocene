@@ -39,7 +39,7 @@ type StableMSBRadixSorter struct {
 	*MSBRadixSorter
 
 	stableImpl        StableMSBRadixSorterImpl
-	fixedStartOffsets [msbHistogramSize]int32
+	fixedStartOffsets [HistogramSize]int32
 }
 
 // NewStableMSBRadixSorter returns a stable MSB radix sorter that

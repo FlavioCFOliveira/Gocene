@@ -139,7 +139,7 @@ type randomApproximationScorer struct {
 	search.Scorer
 	approx   *randomApproximation
 	twoPhase *search.TwoPhaseIterator
-	disi     search.DocIdSetIterator
+	disi     util.DocIdSetIterator
 	lastDoc  int
 }
 
@@ -182,7 +182,7 @@ func (s *randomApproximationScorer) AdvanceShallow(target int) (int, error) {
 // RandomApproximation.
 type randomApproximation struct {
 	rng  *rand.Rand
-	disi search.DocIdSetIterator
+	disi util.DocIdSetIterator
 	doc  int
 }
 

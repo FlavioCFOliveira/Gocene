@@ -121,4 +121,4 @@ func (e *ExtendedIntervalIterator) NextInterval() (int, error) {
 	return e.Start(), nil
 }
 
-var _ search.DocIdSetIterator = (*ExtendedIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*ExtendedIntervalIterator)(nil)

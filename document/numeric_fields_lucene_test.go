@@ -7,7 +7,7 @@ package document
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -20,7 +20,7 @@ func TestIntFieldLucene_Type(t *testing.T) {
 	if ft.PointDimensionCount() != 1 || ft.PointNumBytes() != 4 {
 		t.Fatalf("dimensions = (%d, %d)", ft.PointDimensionCount(), ft.PointNumBytes())
 	}
-	if ft.GetDocValuesType() != index.DocValuesTypeSortedNumeric {
+	if ft.GetDocValuesType() != schema.DocValuesTypeSortedNumeric {
 		t.Fatalf("docValuesType = %v", ft.GetDocValuesType())
 	}
 	// Sortable-bytes round-trip

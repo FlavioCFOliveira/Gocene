@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 func newStoredType() *FieldType {
@@ -46,7 +46,7 @@ func TestField_SetStringValue_PanicsOnWrongType(t *testing.T) {
 func TestField_SetBytesValue_OnIndexedPanics(t *testing.T) {
 	ft := NewFieldType()
 	ft.SetIndexed(true)
-	ft.SetIndexOptions(index.IndexOptionsDocs)
+	ft.SetIndexOptions(schema.IndexOptionsDocs)
 	f, err := NewField("data", []byte{1, 2}, ft)
 	if err != nil {
 		t.Fatal(err)

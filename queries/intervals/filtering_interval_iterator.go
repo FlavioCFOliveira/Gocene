@@ -22,14 +22,14 @@ type FilteringIntervalIterator struct {
 	A              IntervalIterator
 	B              IntervalIterator
 	Bpos           bool
-	approximation  search.DocIdSetIterator
+	approximation  util.DocIdSetIterator
 	cost           float32
 	nextIntervalFn func() (int, error)
 }
 
 // NewFilteringIntervalIterator constructs a FilteringIntervalIterator.
 func NewFilteringIntervalIterator(a, b IntervalIterator, nextFn func() (int, error)) (*FilteringIntervalIterator, error) {
-	approx := search.IntersectIterators([]search.DocIdSetIterator{a, b})
+	approx := search.IntersectIterators([]util.DocIdSetIterator{a, b})
 	return &FilteringIntervalIterator{
 		A:              a,
 		B:              b,
@@ -115,4 +115,4 @@ func (f *FilteringIntervalIterator) reset() error {
 	return nil
 }
 
-var _ search.DocIdSetIterator = (*FilteringIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*FilteringIntervalIterator)(nil)

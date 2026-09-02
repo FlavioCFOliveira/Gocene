@@ -20,7 +20,7 @@ func (emptyDISI) Advance(_ int) (int, error) { return search.NO_MORE_DOCS, nil }
 func (emptyDISI) Cost() int64                { return 0 }
 func (emptyDISI) DocIDRunEnd() int           { return search.NO_MORE_DOCS }
 
-var _ search.DocIdSetIterator = emptyDISI{}
+var _ util.DocIdSetIterator = emptyDISI{}
 
 func TestBaseGlobalOrdinalScorer_Score(t *testing.T) {
 	s := newBaseGlobalOrdinalScorer(nil, emptyDISI{}, 2.0, nil)
@@ -75,7 +75,7 @@ func TestBaseGlobalOrdinalScorer_Cost(t *testing.T) {
 
 func TestBaseGlobalOrdinalScorer_TwoPhaseIterator(t *testing.T) {
 	called := false
-	createFn := func(approx search.DocIdSetIterator) *search.TwoPhaseIterator {
+	createFn := func(approx util.DocIdSetIterator) *search.TwoPhaseIterator {
 		called = true
 		return search.NewTwoPhaseIterator(approx, func() (bool, error) { return false, nil })
 	}

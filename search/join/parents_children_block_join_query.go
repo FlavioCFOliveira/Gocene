@@ -185,7 +185,7 @@ func (s *parentsChildrenBlockJoinScorer) DocID() int {
 	return s.childDoc
 }
 
-func (s *parentsChildrenBlockJoinScorer) Iterator() search.DocIdSetIterator {
+func (s *parentsChildrenBlockJoinScorer) Iterator() util.DocIdSetIterator {
 	return &parentsChildrenIterator{scorer: s}
 }
 

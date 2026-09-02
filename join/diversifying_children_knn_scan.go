@@ -33,7 +33,7 @@ type childScorer func(docID int) (score float32, hasVector bool, err error)
 // Mirrors DiversifyingChildrenFloatKnnVectorQuery.exactSearch together with the
 // inner DiversifyingChildrenVectorScorer (nextParent / bestChild / score).
 func diversifyingExactSearch(
-	acceptIterator search.DocIdSetIterator,
+	acceptIterator util.DocIdSetIterator,
 	parentBitSet *FixedBitSet,
 	k int,
 	timeout index.QueryTimeout,
@@ -95,7 +95,7 @@ func diversifyingExactSearch(
 //
 // Mirrors DiversifyingChildrenFloatKnnVectorQuery.DiversifyingChildrenVectorScorer.
 type diversifyingChildrenVectorScorer struct {
-	acceptIterator search.DocIdSetIterator
+	acceptIterator util.DocIdSetIterator
 	parentBitSet   *FixedBitSet
 	score          childScorer
 

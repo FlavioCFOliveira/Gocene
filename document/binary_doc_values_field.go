@@ -33,7 +33,7 @@ func init() {
 	BinaryDocValuesFieldType = NewFieldType().
 		SetIndexed(false).
 		SetStored(false).
-		SetDocValuesType(index.DocValuesTypeBinary)
+		SetDocValuesType(schema.DocValuesTypeBinary)
 	BinaryDocValuesFieldType.Freeze()
 	BinaryDocValuesFieldTYPE = BinaryDocValuesFieldType
 }

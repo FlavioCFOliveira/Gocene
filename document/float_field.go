@@ -7,7 +7,7 @@ package document
 import (
 	"strconv"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // FloatField is a field for indexing float32 values.
@@ -20,7 +20,7 @@ func NewFloatField(name string, value float32, store bool) (*FloatField, error) 
 	ft := NewFieldType()
 	ft.SetStored(store)
 	ft.SetIndexed(true)
-	ft.SetIndexOptions(index.IndexOptionsDocs)
+	ft.SetIndexOptions(schema.IndexOptionsDocs)
 	ft.Freeze()
 
 	field, err := NewField(name, strconv.FormatFloat(float64(value), 'f', -1, 32), ft)

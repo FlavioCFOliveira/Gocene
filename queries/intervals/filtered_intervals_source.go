@@ -110,7 +110,7 @@ func (f *filteringIntervalIterator) NextInterval() (int, error) {
 	}
 }
 
-var _ search.DocIdSetIterator = (*filteringIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*filteringIntervalIterator)(nil)
 
 // Matches creates an IntervalMatchesIterator filtered by the accept predicate.
 func (s *FilteredIntervalsSource) Matches(field string, ctx *index.LeafReaderContext, doc int) (IntervalMatchesIterator, error) {

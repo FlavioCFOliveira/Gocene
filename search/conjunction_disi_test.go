@@ -51,7 +51,7 @@ func cdjIntersect(sets []*util.FixedBitSet) *util.FixedBitSet {
 	return out
 }
 
-// cdjBitSetDISI wraps a FixedBitSet as a search.DocIdSetIterator.
+// cdjBitSetDISI wraps a FixedBitSet as a util.DocIdSetIterator.
 // The underlying util.BitSetIterator is surfaced via the adapter so
 // that IntersectIterators can apply the bitSetConjunctionDISI optimisation.
 type cdjBitSetDISI struct {
@@ -73,7 +73,7 @@ func (d *cdjBitSetDISI) Advance(target int) (int, error) {
 }
 
 // cdjAnonDISI wraps a DISI preventing type-switch optimisations.
-type cdjAnonDISI struct{ inner search.DocIdSetIterator }
+type cdjAnonDISI struct{ inner util.DocIdSetIterator }
 
 func (d *cdjAnonDISI) DocID() int       { return d.inner.DocID() }
 func (d *cdjAnonDISI) Cost() int64      { return d.inner.Cost() }
@@ -91,7 +91,7 @@ func (d *cdjAnonDISI) Advance(target int) (int, error) {
 // detect and use the two-phase view.
 type cdjTwoPhaseScorer struct {
 	tpi  *search.TwoPhaseIterator
-	disi search.DocIdSetIterator // two-phase DISI wrapper
+	disi util.DocIdSetIterator // two-phase DISI wrapper
 }
 
 func newCdjTwoPhaseScorer(tpi *search.TwoPhaseIterator) *cdjTwoPhaseScorer {
@@ -121,7 +121,7 @@ func (s *cdjTwoPhaseScorer) Advance(target int) (int, error) {
 }
 
 // cdjPlainScorer wraps any DISI as a Scorer with no two-phase view.
-type cdjPlainScorer struct{ inner search.DocIdSetIterator }
+type cdjPlainScorer struct{ inner util.DocIdSetIterator }
 
 func (s *cdjPlainScorer) DocID() int                   { return s.inner.DocID() }
 func (s *cdjPlainScorer) Cost() int64                  { return s.inner.Cost() }
@@ -138,14 +138,14 @@ func (s *cdjPlainScorer) Advance(target int) (int, error) {
 	return s.inner.Advance(target)
 }
 
-func cdjMakeTwoPhaseScorer(approx search.DocIdSetIterator, confirmed *util.FixedBitSet) *cdjTwoPhaseScorer {
+func cdjMakeTwoPhaseScorer(approx util.DocIdSetIterator, confirmed *util.FixedBitSet) *cdjTwoPhaseScorer {
 	tpi := search.NewTwoPhaseIteratorWithMatchCost(approx, func() (bool, error) {
 		return confirmed.Get(approx.DocID()), nil
 	}, 5)
 	return newCdjTwoPhaseScorer(tpi)
 }
 
-func cdjCollect(t *testing.T, maxDoc int, disi search.DocIdSetIterator) *util.FixedBitSet {
+func cdjCollect(t *testing.T, maxDoc int, disi util.DocIdSetIterator) *util.FixedBitSet {
 	t.Helper()
 	bs, err := util.NewFixedBitSet(maxDoc)
 	if err != nil {
@@ -319,7 +319,7 @@ func TestConjunctionDISI_IllegalAdvancementOfSubIterators(t *testing.T) {
 	}
 	it1 := &cdjAnonDISI{newCdjBitSetDISI(bs)}
 	it2 := &cdjAnonDISI{newCdjBitSetDISI(bs)}
-	conjunction := search.IntersectIterators([]search.DocIdSetIterator{it1, it2})
+	conjunction := search.IntersectIterators([]util.DocIdSetIterator{it1, it2})
 
 	// Illegally advance one sub-iterator outside the conjunction.
 	_, _ = it1.inner.NextDoc()
@@ -350,7 +350,7 @@ func TestConjunctionDISI_IllegalAdvancementOfSubIterators(t *testing.T) {
 func TestConjunctionDISI_BitSetConjunctionDISIDocIDOnExhaust(t *testing.T) {
 	rng := rand.New(rand.NewPCG(13, 0))
 	numBitSetIterators := rng.IntN(4) + 2
-	iterators := make([]search.DocIdSetIterator, numBitSetIterators+1)
+	iterators := make([]util.DocIdSetIterator, numBitSetIterators+1)
 
 	maxBitSetLength := 1000
 	// Lead: single doc beyond any bitset range.
@@ -400,5 +400,5 @@ func TestIntersectIterators_PanicsOnFewInputs(t *testing.T) {
 		}
 	}()
 	bs, _ := util.NewFixedBitSet(10)
-	search.IntersectIterators([]search.DocIdSetIterator{newCdjBitSetDISI(bs)})
+	search.IntersectIterators([]util.DocIdSetIterator{newCdjBitSetDISI(bs)})
 }

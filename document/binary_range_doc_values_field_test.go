@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 func TestNewBinaryRangeDocValuesField(t *testing.T) {
@@ -69,8 +69,8 @@ func TestBinaryRangeDocValuesFieldType(t *testing.T) {
 	if ft.Stored {
 		t.Error("range field must not be stored")
 	}
-	if ft.DocValuesType != index.DocValuesTypeBinary {
-		t.Errorf("DocValuesType = %v, want %v", ft.DocValuesType, index.DocValuesTypeBinary)
+	if ft.DocValuesType != schema.DocValuesTypeBinary {
+		t.Errorf("DocValuesType = %v, want %v", ft.DocValuesType, schema.DocValuesTypeBinary)
 	}
 }
 

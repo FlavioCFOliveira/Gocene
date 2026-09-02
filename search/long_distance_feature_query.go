@@ -843,7 +843,7 @@ const (
 // Adapters
 
 // newLongDocValuesIteratorAdapter wraps a longDocValues so that it
-// satisfies the search.DocIdSetIterator contract used by the initial
+// satisfies the util.DocIdSetIterator contract used by the initial
 // scorer iterator. The adapter just forwards: longDocValues already
 // exposes NextDoc/Advance/DocID/Cost.
 func newLongDocValuesIteratorAdapter(dv longDocValues) DocIdSetIterator {
@@ -865,7 +865,7 @@ func (a *longDocValuesIteratorAdapter) DocIDRunEnd() int { return a.dv.DocID() +
 var _ DocIdSetIterator = (*longDocValuesIteratorAdapter)(nil)
 
 // newUtilDocIdSetIteratorAdapter bridges a util.DocIdSetIterator to the
-// search.DocIdSetIterator contract. Both iterators are structurally
+// util.DocIdSetIterator contract. Both iterators are structurally
 // identical (NextDoc/Advance/DocID/Cost/DocIDRunEnd); only the package
 // differs, so the adapter is a thin forwarder.
 func newUtilDocIdSetIteratorAdapter(inner util.DocIdSetIterator) DocIdSetIterator {

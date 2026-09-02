@@ -623,7 +623,7 @@ func (o *offsetIntervalIterator) End() int {
 	return e + 1
 }
 
-var _ search.DocIdSetIterator = (*offsetIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*offsetIntervalIterator)(nil)
 
 // ── ExtendedIntervalsSource ────────────────────────────────────────────────
 
@@ -808,7 +808,7 @@ func (d *duplicateIntervalIterator) NextInterval() (int, error) {
 	return d.start, nil
 }
 
-var _ search.DocIdSetIterator = (*duplicateIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*duplicateIntervalIterator)(nil)
 
 // ── DisjunctionIntervalsSource ─────────────────────────────────────────────
 
@@ -1044,7 +1044,7 @@ func (d *disjunctionIntervalIterator) NextInterval() (int, error) {
 	return d.start, nil
 }
 
-var _ search.DocIdSetIterator = (*disjunctionIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*disjunctionIntervalIterator)(nil)
 
 // mergedMatchesIterator chains multiple IntervalMatchesIterators.
 type mergedMatchesIterator struct {

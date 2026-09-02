@@ -60,11 +60,11 @@ func (it *mockDocIdSetIterator) Cost() int64 {
 }
 
 type mockTwoPhaseIterator struct {
-	approx   search.DocIdSetIterator
+	approx   util.DocIdSetIterator
 	matches map[int]bool
 }
 
-func newMockTwoPhaseIterator(approx search.DocIdSetIterator, matches []int) *mockTwoPhaseIterator {
+func newMockTwoPhaseIterator(approx util.DocIdSetIterator, matches []int) *mockTwoPhaseIterator {
 	m := make(map[int]bool)
 	for _, doc := range matches {
 		m[doc] = true
@@ -72,7 +72,7 @@ func newMockTwoPhaseIterator(approx search.DocIdSetIterator, matches []int) *moc
 	return &mockTwoPhaseIterator{approx: approx, matches: m}
 }
 
-func (tpi *mockTwoPhaseIterator) Approximation() search.DocIdSetIterator { return tpi.approx }
+func (tpi *mockTwoPhaseIterator) Approximation() util.DocIdSetIterator { return tpi.approx }
 
 func (tpi *mockTwoPhaseIterator) Matches() (bool, error) {
 	doc := tpi.approx.DocID()
@@ -92,7 +92,7 @@ func (tpi *mockTwoPhaseIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, 
 type mockLeafCollector struct {
 	collected []int
 	scorer    search.Scorable
-	compIter  search.DocIdSetIterator
+	compIter  util.DocIdSetIterator
 }
 
 func (c *mockLeafCollector) GetLeafCollector(context interface{}) (search.LeafCollector, error) {
@@ -128,7 +128,7 @@ func (c *mockLeafCollector) CollectStream(stream search.DocIdStream) error {
 	return nil
 }
 
-func (c *mockLeafCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+func (c *mockLeafCollector) CompetitiveIterator() (util.DocIdSetIterator, error) {
 	return c.compIter, nil
 }
 

@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // KnnFloatVectorField is a dense float32 KNN vector field for similarity

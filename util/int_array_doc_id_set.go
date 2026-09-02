@@ -47,6 +47,11 @@ func (i *IntArrayDocIdSet) Length() int {
 	return i.length
 }
 
+// RamBytesUsed returns the RAM usage of this set in bytes.
+func (i *IntArrayDocIdSet) RamBytesUsed() int64 {
+	return int64(len(i.docs)) * 8
+}
+
 // Docs returns the underlying docs array (for testing).
 func (i *IntArrayDocIdSet) Docs() []int {
 	return i.docs

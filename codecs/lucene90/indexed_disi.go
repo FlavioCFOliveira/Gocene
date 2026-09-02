@@ -59,7 +59,7 @@ import (
 // Deviations from the Java reference (documented):
 //
 //   - The `intoBitSet` family is not ported. Gocene's
-//     search.DocIdSetIterator interface does not yet expose IntoBitSet, and
+//     util.DocIdSetIterator interface does not yet expose IntoBitSet, and
 //     the production consumers we have (sparse doc-values readers) drive
 //     IndexedDISI via NextDoc / Advance / Index. IntoBitSet returns
 //     ErrIntoBitSetNotSupported when invoked.
@@ -190,14 +190,14 @@ const (
 // reader can be constructed identically).
 //
 // Mirrors IndexedDISI.writeBitSet(DocIdSetIterator, IndexOutput).
-func WriteBitSet(it search.DocIdSetIterator, out store.IndexOutput) (int16, error) {
+func WriteBitSet(it util.DocIdSetIterator, out store.IndexOutput) (int16, error) {
 	return WriteBitSetWithRank(it, out, DefaultDenseRankPower)
 }
 
 // WriteBitSetWithRank is the explicit-rank variant of WriteBitSet. Valid
 // denseRankPower values are 7..15 (every 128..32768 docIDs) or -1 to
 // disable DENSE ranks entirely.
-func WriteBitSetWithRank(it search.DocIdSetIterator, out store.IndexOutput, denseRankPower byte) (int16, error) {
+func WriteBitSetWithRank(it util.DocIdSetIterator, out store.IndexOutput, denseRankPower byte) (int16, error) {
 	if denseRankPower != 0xFF /* int8 -1 */ {
 		if denseRankPower < 7 || denseRankPower > 15 {
 			return 0, fmt.Errorf("lucene90: invalid denseRankPower=%d (want 7..15 or -1)", int8(denseRankPower))

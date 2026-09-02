@@ -5,7 +5,7 @@
 package document
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // This file augments the pre-existing DocValues field types with Lucene
@@ -47,7 +47,7 @@ func init() {
 	NumericDocValuesFieldINDEXEDTYPE = NewFieldType().
 		SetIndexed(false).
 		SetStored(false).
-		SetDocValuesType(index.DocValuesTypeNumeric).
+		SetDocValuesType(schema.DocValuesTypeNumeric).
 		SetDocValuesSkipIndexType(index.DocValuesSkipIndexTypeRange)
 	NumericDocValuesFieldINDEXEDTYPE.Freeze()
 
@@ -57,7 +57,7 @@ func init() {
 	SortedNumericDocValuesFieldINDEXEDTYPE = NewFieldType().
 		SetIndexed(false).
 		SetStored(false).
-		SetDocValuesType(index.DocValuesTypeSortedNumeric).
+		SetDocValuesType(schema.DocValuesTypeSortedNumeric).
 		SetDocValuesSkipIndexType(index.DocValuesSkipIndexTypeRange)
 	SortedNumericDocValuesFieldINDEXEDTYPE.Freeze()
 

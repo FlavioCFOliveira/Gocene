@@ -7,7 +7,7 @@ package document
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // KnnByteVectorField is a dense int8 (byte) KNN vector field for

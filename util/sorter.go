@@ -32,6 +32,26 @@ type RadixSortable interface {
 	ByteAt(i, k int) int
 }
 
+// MSBRadixSorterImpl is a wrapper for RadixSortable, used in stable sorters.
+type MSBRadixSorterImpl interface {
+	RadixSortable
+}
+
+// StringSorterImpl defines the interface for a data structure that can be
+// sorted using a string-aware sorter (radix or merge sort).
+type StringSorterImpl interface {
+	// Get resolves the value at slot i into a BytesRef.
+	Get(builder *BytesRefBuilder, out *BytesRef, i int)
+	// Swap values at slots i and j.
+	Swap(i, j int)
+	// Save writes the value at slot i into the j-th position in the
+	// caller's scratch storage.
+	Save(i, j int)
+	// Restore copies the scratch values back into slots [i, j) of the
+	// caller's primary storage.
+	Restore(i, j int)
+}
+
 const (
 	// BinarySortThreshold is the size threshold below which binary sort is used.
 	BinarySortThreshold = 20

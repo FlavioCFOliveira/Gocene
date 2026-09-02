@@ -347,7 +347,16 @@ func (uh *UnifiedHighlighter) highlightFieldsAsObjects(fieldsIn []string, query 
 				adjDocId := docId - leafCtx.DocBase
 
 				docInIndex := docInIndexes[docIdx]
-				resultByDocIn[docInIndex] = fh.HighlightFieldForDoc(leafReader, adjDocId, string(content))
+									var docContext any
+					switch fh.GetOffsetSource() {
+					case OffsetSourcePostings:
+						docContext = uh.buildPostingsDocContext(leafReader, adjDocId, fields[fieldIdx], queryTerms)
+					case OffsetSourcePostingsWithTermVectors:
+						docContext = uh.buildPostingsDocContext(leafReader, adjDocId, fields[fieldIdx], queryTerms)
+					default:
+						docContext = nil
+					}
+					resultByDocIn[docInIndex] = fh.HighlightFieldForDoc(docContext, string(content))
 			}
 		}
 		batchDocIdx += len(fieldValsByDoc)
@@ -358,6 +367,39 @@ func (uh *UnifiedHighlighter) highlightFieldsAsObjects(fieldsIn []string, query 
 		resultMap[fields[f]] = highlightDocsInByField[f]
 	}
 	return resultMap, nil
+}
+
+func (uh *UnifiedHighlighter) buildPostingsDocContext(leafReader index.LeafReader, docId int, field string, terms map[*util.BytesRef]struct{}) *PostingsDocContext {
+	ctx := &PostingsDocContext{
+		TermFreqsInDoc: make(map[string]int),
+	}
+	for term := range terms {
+		pe, err := leafReader.GetPostings(field, term)
+		if err != nil || pe == nil {
+			continue
+		}
+		defer pe.Close()
+		if !pe.Advance(docId) {
+			continue
+		}
+
+		freq := pe.Freq()
+		ctx.TermFreqsInDoc[term.String()] = freq
+
+		startOffsets := pe.StartOffsets()
+		endOffsets := pe.EndOffsets()
+		if len(startOffsets) == 0 || len(endOffsets) == 0 {
+			continue
+		}
+
+		entry := PostingsEntry{
+			Term:         term.String(),
+			StartOffsets: startOffsets,
+			EndOffsets:   endOffsets,
+		}
+		ctx.Entries = append(ctx.Entries, entry)
+	}
+	return ctx
 }
 
 func (uh *UnifiedHighlighter) calculateOptimalCacheCharsThreshold(numTermVectors, numPostings int) int {

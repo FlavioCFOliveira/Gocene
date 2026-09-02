@@ -46,7 +46,7 @@ const (
 )
 
 // dvDocIDIterator is the minimal interface writeDVBitSet needs from its input.
-// It mirrors the relevant subset of search.DocIdSetIterator.
+// It mirrors the relevant subset of util.DocIdSetIterator.
 type dvDocIDIterator interface {
 	DocID() int
 	NextDoc() (int, error)

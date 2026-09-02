@@ -7,7 +7,7 @@ package document
 import (
 	"strconv"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // IntField is a field for indexing int values.
@@ -20,7 +20,7 @@ func NewIntField(name string, value int, store bool) (*IntField, error) {
 	ft := NewFieldType()
 	ft.SetStored(store)
 	ft.SetIndexed(true)
-	ft.SetIndexOptions(index.IndexOptionsDocs)
+	ft.SetIndexOptions(schema.IndexOptionsDocs)
 	ft.Freeze()
 
 	field, err := NewField(name, strconv.Itoa(value), ft)

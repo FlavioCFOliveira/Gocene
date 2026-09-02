@@ -1,7 +1,7 @@
 package index
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // NumericDocValues represents a per-document numeric value.
@@ -17,7 +17,7 @@ type NumericDocValues interface {
 	LongValuesOffset(size int, docs []int32, docsOffset int, values []int64, valuesOffset int, defaultValue int64) error
 	// RangeIntoBitSet fills a BitSet with the doc IDs in [fromDoc, toDoc)
 	// whose values are in [minValue, maxValue].
-	RangeIntoBitSet(fromDoc, toDoc int, minValue, maxValue int64, bitSet search.BitSet, offset int) error
+	RangeIntoBitSet(fromDoc, toDoc int, minValue, maxValue int64, bitSet util.BitSet, offset int) error
 }
 
 // BaseNumericDocValues provides default implementations for NumericDocValues.
@@ -51,7 +51,7 @@ func (b *BaseNumericDocValues) LongValuesOffset(size int, docs []int32, docsOffs
 
 // RangeIntoBitSet fills a BitSet with the doc IDs in [fromDoc, toDoc)
 // whose values are in [minValue, maxValue].
-func (b *BaseNumericDocValues) RangeIntoBitSet(fromDoc, toDoc int, minValue, maxValue int64, bitSet search.BitSet, offset int) error {
+func (b *BaseNumericDocValues) RangeIntoBitSet(fromDoc, toDoc int, minValue, maxValue int64, bitSet util.BitSet, offset int) error {
 	for d := fromDoc; d < toDoc; d++ {
 		if ok, err := b.Impl.AdvanceExact(d); ok && err == nil {
 			v, err := b.Impl.LongValue()

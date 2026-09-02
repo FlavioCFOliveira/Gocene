@@ -35,18 +35,16 @@ package util
 //
 // This is the Go port of org.apache.lucene.util.InPlaceMergeSorter.
 type InPlaceMergeSorter struct {
-	Sorter
-	impl SorterInterface
+	impl Sortable
 }
 
 // NewInPlaceMergeSorter constructs a sorter that operates on impl.
-func NewInPlaceMergeSorter(impl SorterInterface) *InPlaceMergeSorter {
+func NewInPlaceMergeSorter(impl Sortable) *InPlaceMergeSorter {
 	return &InPlaceMergeSorter{impl: impl}
 }
 
 // Sort sorts the range [from, to) in place. The sort is stable.
 func (s *InPlaceMergeSorter) Sort(from, to int) {
-	s.CheckRange(from, to)
 	s.mergeSort(from, to)
 }
 
@@ -54,11 +52,11 @@ func (s *InPlaceMergeSorter) Sort(from, to int) {
 // then merges the two halves in place.
 func (s *InPlaceMergeSorter) mergeSort(from, to int) {
 	if to-from < InsertionSortThreshold {
-		s.BinarySort(from, to, s.impl)
+		BinarySort(s.impl, from, to)
 		return
 	}
 	mid := (from + to) >> 1
 	s.mergeSort(from, mid)
 	s.mergeSort(mid, to)
-	s.MergeInPlace(from, mid, to, s.impl)
+	MergeInPlace(s.impl, from, mid, to)
 }

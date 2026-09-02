@@ -20,7 +20,7 @@ import (
 // Concrete subtypes must provide createTwoPhaseIterator.
 type BaseGlobalOrdinalScorer struct {
 	values        index.SortedDocValues
-	approximation search.DocIdSetIterator
+	approximation util.DocIdSetIterator
 	boost         float32
 
 	// score is set by the concrete subtype during two-phase matching.
@@ -31,15 +31,15 @@ type BaseGlobalOrdinalScorer struct {
 	twoPhase *search.TwoPhaseIterator
 
 	// createTwoPhase is the factory injected by the concrete subtype.
-	createTwoPhase func(approx search.DocIdSetIterator) *search.TwoPhaseIterator
+	createTwoPhase func(approx util.DocIdSetIterator) *search.TwoPhaseIterator
 }
 
 // newBaseGlobalOrdinalScorer initialises the base scorer.
 func newBaseGlobalOrdinalScorer(
 	values index.SortedDocValues,
-	approximation search.DocIdSetIterator,
+	approximation util.DocIdSetIterator,
 	boost float32,
-	createTwoPhase func(approx search.DocIdSetIterator) *search.TwoPhaseIterator,
+	createTwoPhase func(approx util.DocIdSetIterator) *search.TwoPhaseIterator,
 ) *BaseGlobalOrdinalScorer {
 	return &BaseGlobalOrdinalScorer{
 		values:         values,
@@ -62,7 +62,7 @@ func (s *BaseGlobalOrdinalScorer) AdvanceShallow(target int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
 
-// DocID implements search.DocIdSetIterator via the approximation.
+// DocID implements util.DocIdSetIterator via the approximation.
 func (s *BaseGlobalOrdinalScorer) DocID() int {
 	if s.approximation == nil {
 		return search.NO_MORE_DOCS
@@ -79,7 +79,7 @@ func (s *BaseGlobalOrdinalScorer) TwoPhaseIterator() *search.TwoPhaseIterator {
 	return s.twoPhase
 }
 
-// NextDoc implements search.DocIdSetIterator.
+// NextDoc implements util.DocIdSetIterator.
 // Advances through the two-phase wrapper to the next matching document.
 func (s *BaseGlobalOrdinalScorer) NextDoc() (int, error) {
 	tpi := s.TwoPhaseIterator()
@@ -92,7 +92,7 @@ func (s *BaseGlobalOrdinalScorer) NextDoc() (int, error) {
 	return nextDocTwoPhase(tpi)
 }
 
-// Advance implements search.DocIdSetIterator.
+// Advance implements util.DocIdSetIterator.
 func (s *BaseGlobalOrdinalScorer) Advance(target int) (int, error) {
 	tpi := s.TwoPhaseIterator()
 	if tpi == nil {
@@ -104,7 +104,7 @@ func (s *BaseGlobalOrdinalScorer) Advance(target int) (int, error) {
 	return advanceTwoPhase(tpi, target)
 }
 
-// Cost implements search.DocIdSetIterator.
+// Cost implements util.DocIdSetIterator.
 func (s *BaseGlobalOrdinalScorer) Cost() int64 {
 	if s.approximation == nil {
 		return 0
@@ -112,7 +112,7 @@ func (s *BaseGlobalOrdinalScorer) Cost() int64 {
 	return s.approximation.Cost()
 }
 
-// DocIDRunEnd implements search.DocIdSetIterator.
+// DocIDRunEnd implements util.DocIdSetIterator.
 func (s *BaseGlobalOrdinalScorer) DocIDRunEnd() int {
 	return s.DocID() + 1
 }

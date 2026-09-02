@@ -64,7 +64,7 @@ import (
 //     top-level codecs package, so the concrete type cannot be referenced
 //     here without closing a cycle. The sparse layout accepts the DISI
 //     behind [IndexedDISIView].
-//   - VectorScorerView / VectorScorerViewBulk / search.DocIdSetIterator
+//   - VectorScorerView / VectorScorerViewBulk / util.DocIdSetIterator
 //     also close a cycle via search -> ... -> codecs. The Scorer accessor
 //     therefore returns [VectorScorerView], a structural mirror of
 //     VectorScorerView; callers in search-side code can adapt one to
@@ -159,7 +159,7 @@ type VectorScorerBulkView interface {
 	Score(buf []float32, upTo int) (int, error)
 }
 
-// DocIDSetIteratorView mirrors search.DocIdSetIterator at the codecs
+// DocIDSetIteratorView mirrors util.DocIdSetIterator at the codecs
 // boundary. See [VectorScorerView] for the rationale behind the mirror.
 type DocIDSetIteratorView interface {
 	// DocID returns the current document ID.
@@ -216,7 +216,7 @@ type OffHeapScalarQuantizedFloatVectorValues struct {
 // types when no per-variant fields are needed.
 type offHeapScalarQuantizedFloatVariant interface {
 	// iterator returns a DocIndexIterator over the values owned by parent.
-	iterator(parent *OffHeapScalarQuantizedFloatVectorValues) index.DocIndexIterator
+	iterator(parent *OffHeapScalarQuantizedFloatVectorValues) util.DocIndexIterator
 
 	// ordToDoc maps a vector ordinal to its docID.
 	ordToDoc(parent *OffHeapScalarQuantizedFloatVectorValues, ord int) int
@@ -429,7 +429,7 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) GetAcceptOrds(acceptDocs util.
 }
 
 // Iterator returns a DocIndexIterator over the available ordinals.
-func (v *OffHeapScalarQuantizedFloatVectorValues) Iterator() index.DocIndexIterator {
+func (v *OffHeapScalarQuantizedFloatVectorValues) Iterator() util.DocIndexIterator {
 	return v.variant.iterator(v)
 }
 
@@ -503,7 +503,7 @@ func newDenseOffHeapScalarQuantizedFloatVectorValues(
 	)
 }
 
-func (denseOffHeapScalarQuantizedFloatVariant) iterator(parent *OffHeapScalarQuantizedFloatVectorValues) index.DocIndexIterator {
+func (denseOffHeapScalarQuantizedFloatVariant) iterator(parent *OffHeapScalarQuantizedFloatVectorValues) util.DocIndexIterator {
 	return newDenseDocIndexIterator(parent.size)
 }
 
@@ -579,7 +579,7 @@ func newSparseOffHeapScalarQuantizedFloatVectorValues(
 	), nil
 }
 
-func (s *sparseOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuantizedFloatVectorValues) index.DocIndexIterator {
+func (s *sparseOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuantizedFloatVectorValues) util.DocIndexIterator {
 	return &indexedDISIDocIndexIterator{disi: s.disi}
 }
 
@@ -647,7 +647,7 @@ func newEmptyOffHeapScalarQuantizedFloatVectorValues(
 	)
 }
 
-func (emptyOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuantizedFloatVectorValues) index.DocIndexIterator {
+func (emptyOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuantizedFloatVectorValues) util.DocIndexIterator {
 	return newDenseDocIndexIterator(0)
 }
 
@@ -694,7 +694,7 @@ func (s *sparseAcceptOrds) Length() int { return s.size }
 // header note about VectorScorer.Bulk port).
 type quantizedFloatVectorScorer struct {
 	scorer FlatRandomVectorScorer
-	it     index.DocIndexIterator
+	it     util.DocIndexIterator
 }
 
 // Score scores the current ordinal.
@@ -712,9 +712,9 @@ func (q *quantizedFloatVectorScorer) Iterator() DocIDSetIteratorView {
 func (q *quantizedFloatVectorScorer) Bulk() VectorScorerBulkView { return nil }
 
 // docIndexIteratorAsDocIDSet narrows a DocIndexIterator to the
-// search.DocIdSetIterator surface required by VectorScorerView.
+// util.DocIdSetIterator surface required by VectorScorerView.
 type docIndexIteratorAsDocIDSet struct {
-	it index.DocIndexIterator
+	it util.DocIndexIterator
 }
 
 func (d *docIndexIteratorAsDocIDSet) DocID() int                      { return d.it.DocID() }

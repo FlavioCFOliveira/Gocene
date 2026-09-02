@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ByteVectorValues provides access to per-document floating point vector values indexed as byte vectors.
@@ -18,11 +18,11 @@ type ByteVectorValues interface {
 	CopyByteVectorValues() (ByteVectorValues, error)
 
 	// Scorer returns a VectorScorer for the given query vector.
-	Scorer(query []byte) (search.VectorScorer, error)
+	Scorer(query []byte) (util.VectorScorer, error)
 }
 
 // Rescorer rescores using the given query vector and the current ByteVectorValues.
-func Rescorer(bvv ByteVectorValues, target []byte) (search.VectorScorer, error) {
+func Rescorer(bvv ByteVectorValues, target []byte) (util.VectorScorer, error) {
 	return bvv.Scorer(target)
 }
 

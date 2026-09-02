@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 

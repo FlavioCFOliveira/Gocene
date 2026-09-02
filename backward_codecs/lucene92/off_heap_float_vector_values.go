@@ -62,7 +62,7 @@ type OffHeapFloatVectorValues struct {
 
 // offHeap92Variant captures layout-specific behaviour.
 type offHeap92Variant interface {
-	iterator(parent *OffHeapFloatVectorValues) index.DocIndexIterator
+	iterator(parent *OffHeapFloatVectorValues) util.DocIndexIterator
 	ordToDoc(parent *OffHeapFloatVectorValues, ord int) int
 	getAcceptOrds(parent *OffHeapFloatVectorValues, acceptDocs util.Bits) util.Bits
 	copy(parent *OffHeapFloatVectorValues) (*OffHeapFloatVectorValues, error)
@@ -122,7 +122,7 @@ func (v *OffHeapFloatVectorValues) VectorValue(targetOrd int) ([]float32, error)
 }
 
 // Iterator returns a DocIndexIterator over this vector set.
-func (v *OffHeapFloatVectorValues) Iterator() index.DocIndexIterator {
+func (v *OffHeapFloatVectorValues) Iterator() util.DocIndexIterator {
 	return v.variant.iterator(v)
 }
 
@@ -185,7 +185,7 @@ func LoadFloat(
 
 type denseOffHeap92Variant struct{}
 
-func (denseOffHeap92Variant) iterator(parent *OffHeapFloatVectorValues) index.DocIndexIterator {
+func (denseOffHeap92Variant) iterator(parent *OffHeapFloatVectorValues) util.DocIndexIterator {
 	return newDenseDocIter92(parent.size)
 }
 
@@ -266,7 +266,7 @@ func newSparseOffHeap92(
 	), nil
 }
 
-func (s *sparseOffHeap92Variant) iterator(_ *OffHeapFloatVectorValues) index.DocIndexIterator {
+func (s *sparseOffHeap92Variant) iterator(_ *OffHeapFloatVectorValues) util.DocIndexIterator {
 	return &indexedDISIIter92{disi: s.disi}
 }
 
@@ -333,7 +333,7 @@ func newEmptyOffHeap92(dimension int) *OffHeapFloatVectorValues {
 	)
 }
 
-func (emptyOffHeap92Variant) iterator(_ *OffHeapFloatVectorValues) index.DocIndexIterator {
+func (emptyOffHeap92Variant) iterator(_ *OffHeapFloatVectorValues) util.DocIndexIterator {
 	return newDenseDocIter92(0)
 }
 
@@ -454,7 +454,7 @@ type codecDocIDSetIteratorView interface {
 }
 
 type floatScorerView92 struct {
-	it     index.DocIndexIterator
+	it     util.DocIndexIterator
 	fvv    *OffHeapFloatVectorValues
 	target []float32
 }
@@ -474,8 +474,8 @@ func (s *floatScorerView92) Iterator() codecDocIDSetIteratorView {
 
 func (s *floatScorerView92) Bulk() codecVectorScorerBulkView { return nil }
 
-// docIndexIterToView92 adapts index.DocIndexIterator to codecDocIDSetIteratorView.
-type docIndexIterToView92 struct{ it index.DocIndexIterator }
+// docIndexIterToView92 adapts util.DocIndexIterator to codecDocIDSetIteratorView.
+type docIndexIterToView92 struct{ it util.DocIndexIterator }
 
 func (d *docIndexIterToView92) DocID() int                 { return d.it.DocID() }
 func (d *docIndexIterToView92) NextDoc() (int, error)      { return d.it.NextDoc() }

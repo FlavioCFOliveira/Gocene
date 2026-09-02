@@ -124,7 +124,7 @@ func (w *toChildBlockJoinWeight) Explain(context *index.LeafReaderContext, doc i
 type toChildBlockJoinScorer struct {
 	search.Scorer
 	parentScorer search.Scorer
-	parentIt     search.DocIdSetIterator
+	parentIt     util.DocIdSetIterator
 	parentBits   util.BitSet
 	doScores     bool
 	parentScore  float32
@@ -147,7 +147,7 @@ func (s *toChildBlockJoinScorer) GetChildren() ([]search.ChildScorable, error) {
 	return []search.ChildScorable{{Child: s.parentScorer, Relationship: "BLOCK_JOIN"}}, nil
 }
 
-func (s *toChildBlockJoinScorer) Iterator() search.DocIdSetIterator {
+func (s *toChildBlockJoinScorer) Iterator() util.DocIdSetIterator {
 	return &toChildBlockJoinIterator{scorer: s}
 }
 

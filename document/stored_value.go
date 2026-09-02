@@ -7,7 +7,7 @@ package document
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // StoredValueType discriminates the variant carried by a StoredValue.

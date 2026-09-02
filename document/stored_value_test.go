@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 

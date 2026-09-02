@@ -7,7 +7,7 @@ package document
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 func TestNewDocument(t *testing.T) {
@@ -203,7 +203,7 @@ func TestFieldType_Setters(t *testing.T) {
 	ft.SetIndexed(true).
 		SetStored(true).
 		SetTokenized(true).
-		SetIndexOptions(index.IndexOptionsDocsAndFreqs)
+		SetIndexOptions(schema.IndexOptionsDocsAndFreqs)
 
 	if !ft.Indexed {
 		t.Error("Expected Indexed to be true")
@@ -214,7 +214,7 @@ func TestFieldType_Setters(t *testing.T) {
 	if !ft.Tokenized {
 		t.Error("Expected Tokenized to be true")
 	}
-	if ft.IndexOptions != index.IndexOptionsDocsAndFreqs {
+	if ft.IndexOptions != schema.IndexOptionsDocsAndFreqs {
 		t.Error("Expected IndexOptions to be set")
 	}
 }
@@ -241,7 +241,7 @@ func TestFieldType_Validate(t *testing.T) {
 	// Valid configuration
 	ft := NewFieldType()
 	ft.SetIndexed(true).
-		SetIndexOptions(index.IndexOptionsDocs)
+		SetIndexOptions(schema.IndexOptionsDocs)
 	if err := ft.Validate(); err != nil {
 		t.Errorf("Expected valid FieldType: %v", err)
 	}

@@ -5,8 +5,8 @@ import "math"
 // VectorUtil provides utilities for computations with numeric arrays.
 type VectorUtil struct{}
 
-// DotProduct returns the vector dot product of the two vectors.
-func DotProduct(a, b []float32) float32 {
+// ComputeDotProduct returns the vector dot product of the two vectors.
+func ComputeDotProduct(a, b []float32) float32 {
 	if len(a) != len(b) {
 		panic("vector dimensions differ")
 	}
@@ -20,7 +20,7 @@ func DotProduct(a, b []float32) float32 {
 // IsUnitVector returns true if the vector is unit length (within epsilon).
 func IsUnitVector(v []float32) bool {
 	const epsilon = 1e-4
-	dot := DotProduct(v, v)
+	dot := ComputeDotProduct(v, v)
 	return math.Abs(float64(dot)-1.0) <= epsilon
 }
 
@@ -38,7 +38,7 @@ func L2NormalizeThrow(v []float32, throwOnZero bool) []float32 {
 	if len(v) == 0 {
 		return v
 	}
-	dot := DotProduct(v, v)
+	dot := ComputeDotProduct(v, v)
 	if dot == 0 {
 		if throwOnZero {
 			panic("cannot l2normalize a zero-length vector")

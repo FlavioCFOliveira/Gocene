@@ -29,7 +29,7 @@ type coveringScorer struct {
 	subScorers *search.DisiPriorityQueue
 	cost       int64
 
-	approximation search.DocIdSetIterator
+	approximation util.DocIdSetIterator
 	twoPhase      *search.TwoPhaseIterator
 }
 
@@ -271,4 +271,4 @@ func (a *coveringApproximation) Cost() int64 { return int64(a.s.maxDoc) }
 
 func (a *coveringApproximation) DocIDRunEnd() int { return a.s.doc + 1 }
 
-var _ search.DocIdSetIterator = (*coveringApproximation)(nil)
+var _ util.DocIdSetIterator = (*coveringApproximation)(nil)

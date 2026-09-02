@@ -3,7 +3,7 @@ package index
 import (
 	"io"
 
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
@@ -21,7 +21,7 @@ type BinarizedByteVectorValues interface {
 	GetCentroid() ([]float32, error)
 
 	// Scorer returns a VectorScorer for the given query vector.
-	ScorerBinarized(query []float32) (search.VectorScorer, error)
+	ScorerBinarized(query []float32) (util.VectorScorer, error)
 }
 
 // DiscretizedDimensions returns the discretized dimensions for the given dimension and bucket.

@@ -141,7 +141,7 @@ func (s *parentChildrenScorer) DocID() int {
 	return s.childrenScorer.DocID()
 }
 
-func (s *parentChildrenScorer) Iterator() search.DocIdSetIterator {
+func (s *parentChildrenScorer) Iterator() util.DocIdSetIterator {
 	return &parentChildrenIterator{scorer: s}
 }
 

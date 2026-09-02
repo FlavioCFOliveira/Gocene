@@ -19,7 +19,7 @@ const NoMoreIntervals = int(^uint(0) >> 1) // math.MaxInt == Integer.MAX_VALUE
 //
 // Mirrors org.apache.lucene.queries.intervals.IntervalIterator (abstract class).
 type IntervalIterator interface {
-	search.DocIdSetIterator
+	util.DocIdSetIterator
 
 	// Start returns the start of the current interval, or -1 before NextInterval
 	// is called, or NoMoreIntervals when exhausted.

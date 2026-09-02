@@ -105,7 +105,7 @@ func (p *memPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }
 
 func (p *memPostingsEnum) Cost() int64 { return int64(len(p.docIDs)) }
 
-// DocIDRunEnd satisfies search.DocIdSetIterator — memPostingsEnum is only used
+// DocIDRunEnd satisfies util.DocIdSetIterator — memPostingsEnum is only used
 // inside TermSpans which wraps it; not called directly in these tests.
 func (p *memPostingsEnum) DocIDRunEnd() int { return p.curDoc + 1 }
 

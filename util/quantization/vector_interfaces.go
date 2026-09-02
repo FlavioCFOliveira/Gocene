@@ -72,7 +72,7 @@ type KnnVectorValues interface {
 // (Lucene 10.4.0).
 //
 // This is the minimal surface required by quantization consumers.
-// The index.DocIndexIterator exposes additional methods (DocID,
+// The util.DocIndexIterator exposes additional methods (DocID,
 // Advance, Cost) for use by codec-level iterators; quantization
 // callers only need NextDoc and Index.
 type DocIndexIterator interface {
@@ -110,28 +110,12 @@ type ByteVectorValues interface {
 }
 
 // VectorScorer mirrors org.apache.lucene.search.VectorScorer
-// (Lucene 10.4.0). The search.VectorScorer interface in the search
-// package is equivalent; this local definition exists to avoid a
-// circular import between util/quantization and search.
-//
-// Only the two abstract members (`score` and `iterator`) are exposed,
-// which is the minimal surface needed by QuantizedByteVectorValues.Scorer.
-type VectorScorer interface {
-	// Score computes and returns the score for the current document
-	// position of the iterator.
-	Score() (float32, error)
+// (Lucene 10.4.0).
+type VectorScorer = util.VectorScorer
 
-	// Iterator returns the doc iterator paired with this scorer.
-	Iterator() DocIdSetIterator
-}
-
-// DocIdSetIterator is an opaque handle for a search.DocIdSetIterator
-// carried through the quantization layer. The surface is intentionally
-// empty: at the quantization layer DocIdSetIterator is only carried as
-// a handle returned by VectorScorer.Iterator and passed back to callers.
-// The full contract lives in search.DocIdSetIterator; this empty
-// interface avoids a circular import between util/quantization and search.
-type DocIdSetIterator interface{}
+// DocIdSetIterator is an opaque handle for a util.DocIdSetIterator
+// carried through the quantization layer.
+type DocIdSetIterator = util.DocIdSetIterator
 
 // HasIndexSlice mirrors org.apache.lucene.codecs.lucene95.HasIndexSlice
 // (Lucene 10.4.0). Implementors expose the [store.IndexInput] backing

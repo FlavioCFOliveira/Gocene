@@ -7,7 +7,7 @@ package document
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // KeywordField is an indexed and doc-values-stored single-token field
@@ -50,8 +50,8 @@ func init() {
 		SetIndexed(true).
 		SetTokenized(false).
 		SetOmitNorms(true).
-		SetIndexOptions(index.IndexOptionsDocs).
-		SetDocValuesType(index.DocValuesTypeSortedSet)
+		SetIndexOptions(schema.IndexOptionsDocs).
+		SetDocValuesType(schema.DocValuesTypeSortedSet)
 	KeywordFieldType.Freeze()
 
 	KeywordFieldTypeStored = NewFieldType().
@@ -59,8 +59,8 @@ func init() {
 		SetStored(true).
 		SetTokenized(false).
 		SetOmitNorms(true).
-		SetIndexOptions(index.IndexOptionsDocs).
-		SetDocValuesType(index.DocValuesTypeSortedSet)
+		SetIndexOptions(schema.IndexOptionsDocs).
+		SetDocValuesType(schema.DocValuesTypeSortedSet)
 	KeywordFieldTypeStored.Freeze()
 
 	KeywordFieldFIELDTYPE = KeywordFieldType

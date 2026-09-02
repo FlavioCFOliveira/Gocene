@@ -1632,7 +1632,7 @@ core	prod	core/src/java/org/apache/lucene/document/FloatPoint.java	org.apache.lu
 core	prod	core/src/java/org/apache/lucene/document/Field.java	org.apache.lucene.document	Field	org.apache.lucene.index.Field	631
 core	prod	core/src/java/org/apache/lucene/search/SimpleFieldComparator.java	org.apache.lucene.search	SimpleFieldComparator	org.apache.lucene.search.SimpleFieldComparator	41
 core	prod	core/src/java/org/apache/lucene/search/DisjunctionMaxBulkScorer.java	org.apache.lucene.search	DisjunctionMaxBulkScorer	org.apache.lucene.search.DisjunctionMaxBulkScorer	128
-core	prod	core/src/java/org/apache/lucene/search/DocIdSetIterator.java	org.apache.lucene.search	DocIdSetIterator	org.apache.lucene.search.DocIdSetIterator	231
+core	prod	core/src/java/org/apache/lucene/search/DocIdSetIterator.java	org.apache.lucene.search	DocIdSetIterator	org.apache.lucene.util.DocIdSetIterator	231
 core	prod	core/src/java/org/apache/lucene/search/TwoPhaseIterator.java	org.apache.lucene.search	TwoPhaseIterator	org.apache.lucene.search.TwoPhaseIterator	124
 core	prod	core/src/java/org/apache/lucene/search/FilterScorer.java	org.apache.lucene.search	FilterScorer	org.apache.lucene.search.FilterScorer	71
 core	prod	core/src/java/org/apache/lucene/search/FieldDoc.java	org.apache.lucene.search	FieldDoc	org.apache.lucene.search.FieldDoc	75

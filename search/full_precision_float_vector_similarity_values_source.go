@@ -123,7 +123,7 @@ type floatVectorSimilarityValues struct {
 	iterator DocIdSetIterator
 
 	vectorValues     index.FloatVectorValues
-	docIndexIterator index.DocIndexIterator
+	docIndexIterator util.DocIndexIterator
 	simFunc          index.VectorSimilarityFunction
 	queryVector      []float32
 }

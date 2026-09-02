@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // TestDocument_BinaryField tests binary field storage and retrieval.
@@ -54,7 +54,7 @@ func TestDocument_BinaryField(t *testing.T) {
 	if !binaryFld.FieldType().Stored {
 		t.Error("Expected binary field to be stored")
 	}
-	if binaryFld.FieldType().IndexOptions != index.IndexOptionsNone {
+	if binaryFld.FieldType().IndexOptions != schema.IndexOptionsNone {
 		t.Errorf("Expected IndexOptionsNone, got %v", binaryFld.FieldType().IndexOptions)
 	}
 
@@ -560,7 +560,7 @@ func makeDocumentWithFields() *Document {
 	stored.Freeze()
 
 	indexedNotTokenized := NewFieldType()
-	indexedNotTokenized.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
+	indexedNotTokenized.SetIndexOptions(schema.IndexOptionsDocsAndFreqsAndPositions)
 	indexedNotTokenized.SetTokenized(false)
 	indexedNotTokenized.Freeze()
 

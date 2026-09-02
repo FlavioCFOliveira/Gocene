@@ -16,7 +16,7 @@ import (
 // Mirrors org.apache.lucene.queries.spans.SpanDisiWrapper (Lucene 10.4.0).
 type SpanDisiWrapper struct {
 	// Iterator is the underlying DocIdSetIterator.
-	Iterator search.DocIdSetIterator
+	Iterator util.DocIdSetIterator
 	// Cost is the estimated iteration cost.
 	Cost int64
 	// MatchCost is the match cost for two-phase iterators, 0 otherwise.
@@ -28,7 +28,7 @@ type SpanDisiWrapper struct {
 
 	// Approximation is an approximation of the iterator, or the iterator itself
 	// if it does not support two-phase iteration.
-	Approximation search.DocIdSetIterator
+	Approximation util.DocIdSetIterator
 	// TwoPhaseView is the TwoPhaseIterator view, or nil if not supported.
 	TwoPhaseView *search.TwoPhaseIterator
 

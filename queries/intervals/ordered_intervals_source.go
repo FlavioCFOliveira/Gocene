@@ -233,4 +233,4 @@ func (o *orderedIntervalIterator) doReset() error {
 	return err
 }
 
-var _ search.DocIdSetIterator = (*orderedIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*orderedIntervalIterator)(nil)

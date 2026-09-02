@@ -393,7 +393,7 @@ func (v *mergePointVisitor) Grow(_ int) {}
 // pointInSetIncludingScoreScorer returns matched docs in docID order with
 // their collected scores.
 type pointInSetIncludingScoreScorer struct {
-	disi   search.DocIdSetIterator
+	disi   util.DocIdSetIterator
 	scores []float32
 }
 

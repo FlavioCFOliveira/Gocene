@@ -18,11 +18,11 @@ import (
 
 // rangeIter is a thin wrapper around RangeDocIdSetIterator positioned via
 // Advance so tests can pre-position it before handing it to Update.
-func rangeIter(min, max int) search.DocIdSetIterator {
+func rangeIter(min, max int) util.DocIdSetIterator {
 	return search.NewRangeDocIdSetIterator(min, max)
 }
 
-func advancedRange(min, max, target int, t *testing.T) search.DocIdSetIterator {
+func advancedRange(min, max, target int, t *testing.T) util.DocIdSetIterator {
 	t.Helper()
 	it := rangeIter(min, max)
 	if _, err := it.Advance(target); err != nil {
@@ -197,7 +197,7 @@ func TestUpdateableDocIdSetIterator_NilPanics(t *testing.T) {
 
 // TestUpdateableDocIdSetIterator_ImplementsDocIdSetIterator checks interface satisfaction.
 func TestUpdateableDocIdSetIterator_ImplementsDocIdSetIterator(t *testing.T) {
-	var _ search.DocIdSetIterator = comparators.NewUpdateableDocIdSetIterator()
+	var _ util.DocIdSetIterator = comparators.NewUpdateableDocIdSetIterator()
 }
 
 // TestUpdateableDocIdSetIterator_CostDelegation verifies Cost returns the

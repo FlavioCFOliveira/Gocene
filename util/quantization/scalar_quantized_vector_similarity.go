@@ -16,7 +16,6 @@ package quantization
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -78,16 +77,16 @@ func int4DotProductForward(a, b []byte) int32 {
 // [index.VectorSimilarityFunction] constants; the Java original
 // exhaustively switches over the enum and would surface a
 // MatchException at runtime for an out-of-range value.
-func FromVectorSimilarity(sim index.VectorSimilarityFunction, constMultiplier float32, bits byte) (ScalarQuantizedVectorSimilarity, error) {
+func FromVectorSimilarity(sim util.VectorSimilarityFunction, constMultiplier float32, bits byte) (ScalarQuantizedVectorSimilarity, error) {
 	switch sim {
-	case index.VectorSimilarityFunctionEuclidean:
+	case util.Euclidean:
 		return &Euclidean{constMultiplier: constMultiplier}, nil
-	case index.VectorSimilarityFunctionCosine, index.VectorSimilarityFunctionDotProduct:
+	case util.Cosine, util.DotProduct:
 		return &DotProduct{
 			constMultiplier: constMultiplier,
 			comparator:      dotProductComparator(bits),
 		}, nil
-	case index.VectorSimilarityFunctionMaximumInnerProduct:
+	case util.MaximumInnerProduct:
 		return &MaximumInnerProduct{
 			constMultiplier: constMultiplier,
 			comparator:      dotProductComparator(bits),

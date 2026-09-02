@@ -314,4 +314,4 @@ func (it *sliceDocIdSetIterator) Cost() int64 { return int64(len(it.docs)) }
 func (it *sliceDocIdSetIterator) DocIDRunEnd() int { return it.DocID() + 1 }
 
 // Compile-time check.
-var _ search.DocIdSetIterator = (*sliceDocIdSetIterator)(nil)
+var _ util.DocIdSetIterator = (*sliceDocIdSetIterator)(nil)

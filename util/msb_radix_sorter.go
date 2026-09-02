@@ -16,6 +16,9 @@ type MSBRadixSorter struct {
 	histograms [][]int
 	endOffsets []int
 	commonPrefix []int
+
+	reorderFn func(rs RadixSortable, from, to int, startOffsets, endOffsets []int, k int)
+	fallbackSorterFn func(rs RadixSortable, from, to, k int)
 }
 
 const (
@@ -29,12 +32,15 @@ const (
 
 // NewMSBRadixSorter creates a new MSBRadixSorter.
 func NewMSBRadixSorter(maxLength int) *MSBRadixSorter {
-	return &MSBRadixSorter{
+	s := &MSBRadixSorter{
 		maxLength:    maxLength,
 		histograms:   make([][]int, LevelThreshold),
 		endOffsets:   make([]int, HistogramSize),
 		commonPrefix: make([]int, 24),
 	}
+	s.reorderFn = s.defaultReorder
+	s.fallbackSorterFn = s.defaultFallback
+	return s
 }
 
 // Sort sorts the range [from, to).
@@ -47,12 +53,7 @@ func (s *MSBRadixSorter) Sort(rs RadixSortable, from, to int) {
 
 func (s *MSBRadixSorter) sort(rs RadixSortable, from, to, k, l int) {
 	if s.shouldFallback(from, to, l) {
-		fallback := &radixFallbackSorter{
-			s:         rs,
-			k:         k,
-			maxLength: s.maxLength,
-		}
-		NewIntroSorter(fallback).Sort(from, to)
+		s.fallbackSorterFn(rs, from, to, k)
 		return
 	}
 
@@ -152,6 +153,10 @@ func sumHistogram(histogram, endOffsets []int) {
 }
 
 func (s *MSBRadixSorter) reorder(rs RadixSortable, from, to int, startOffsets, endOffsets []int, k int) {
+	s.reorderFn(rs, from, to, startOffsets, endOffsets, k)
+}
+
+func (s *MSBRadixSorter) defaultReorder(rs RadixSortable, from, to int, startOffsets, endOffsets []int, k int) {
 	for i := 0; i < HistogramSize; i++ {
 		limit := endOffsets[i]
 		for h1 := startOffsets[i]; h1 < limit; h1 = startOffsets[i] {
@@ -203,4 +208,13 @@ func (r *radixFallbackSorter) ComparePivot(j int) int {
 		return p.ComparePivot(j)
 	}
 	panic("RadixSortable must implement Pivotable for fallback IntroSort")
+}
+
+func (s *MSBRadixSorter) defaultFallback(rs RadixSortable, from, to, k int) {
+	fallback := &radixFallbackSorter{
+		s:         rs,
+		k:         k,
+		maxLength: s.maxLength,
+	}
+	NewIntroSorter(fallback).Sort(from, to)
 }

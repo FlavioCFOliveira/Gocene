@@ -303,7 +303,7 @@ func (s *vectorScorerWrapper) Score() (float32, error) {
 	return s.scorer.Score(s.iterator.Index())
 }
 
-func (s *vectorScorerWrapper) Iterator() search.DocIdSetIterator {
+func (s *vectorScorerWrapper) Iterator() util.DocIdSetIterator {
 	return s.iterator
 }
 

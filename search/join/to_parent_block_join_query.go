@@ -186,12 +186,12 @@ func (w *blockJoinWeight) Matches(context *index.LeafReaderContext, doc int) (se
 }
 
 type parentApproximation struct {
-	childApproximation search.DocIdSetIterator
+	childApproximation util.DocIdSetIterator
 	parentBits          util.BitSet
 	doc                 int
 }
 
-func newParentApproximation(childApproximation search.DocIdSetIterator, parentBits util.BitSet) *parentApproximation {
+func newParentApproximation(childApproximation util.DocIdSetIterator, parentBits util.BitSet) *parentApproximation {
 	return &parentApproximation{
 		childApproximation: childApproximation,
 		parentBits:          parentBits,
@@ -235,7 +235,7 @@ func (pa *parentApproximation) Cost() int64 {
 type parentTwoPhase struct {
 	search.TwoPhaseIterator
 	parentApproximation *parentApproximation
-	childApproximation  search.DocIdSetIterator
+	childApproximation  util.DocIdSetIterator
 	childTwoPhase       search.TwoPhaseIterator
 }
 
@@ -337,7 +337,7 @@ type blockJoinScorer struct {
 	childScorer      search.Scorer
 	parentBits       util.BitSet
 	scoreMode        ScoreMode
-	childApproximation search.DocIdSetIterator
+	childApproximation util.DocIdSetIterator
 	childTwoPhase     search.TwoPhaseIterator
 	parentApproximation *parentApproximation
 	parentTwoPhase     *parentTwoPhase
@@ -347,7 +347,7 @@ type blockJoinScorer struct {
 func newBlockJoinScorer(childScorer search.Scorer, parentBits util.BitSet, scoreMode ScoreMode) *blockJoinScorer {
 	parentScore := &joinScore{scoreMode: scoreMode}
 	childTwoPhase := childScorer.TwoPhaseIterator()
-	var childApproximation search.DocIdSetIterator
+	var childApproximation util.DocIdSetIterator
 	var parentApproximation *parentApproximation
 	var parentTwoPhase *parentTwoPhase
 
@@ -377,7 +377,7 @@ func (s *blockJoinScorer) DocID() int {
 	return s.parentApproximation.DocID()
 }
 
-func (s *blockJoinScorer) Iterator() search.DocIdSetIterator {
+func (s *blockJoinScorer) Iterator() util.DocIdSetIterator {
 	if s.parentTwoPhase == nil {
 		return s.parentApproximation
 	}

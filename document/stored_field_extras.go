@@ -7,7 +7,7 @@ package document
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // This file extends StoredField (defined in stored_field.go) with the

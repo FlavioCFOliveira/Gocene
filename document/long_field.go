@@ -7,7 +7,7 @@ package document
 import (
 	"strconv"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // LongField is a field for indexing int64 values.
@@ -20,7 +20,7 @@ func NewLongField(name string, value int64, store bool) (*LongField, error) {
 	ft := NewFieldType()
 	ft.SetStored(store)
 	ft.SetIndexed(true)
-	ft.SetIndexOptions(index.IndexOptionsDocs)
+	ft.SetIndexOptions(schema.IndexOptionsDocs)
 	ft.Freeze()
 
 	field, err := NewField(name, strconv.FormatInt(value, 10), ft)

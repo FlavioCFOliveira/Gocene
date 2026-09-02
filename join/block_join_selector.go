@@ -72,7 +72,7 @@ func (b *blockJoinBits) Length() int {
 // WrapSortedSet wraps the provided SortedSetDocValues in order to only select one value per parent
 // among its children using the configured selection type. When a parent has
 // children with missing values, we sort missing values according to sortMissingLast.
-func WrapSortedSet(sortedSet index.SortedSetDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator, sortMissingLast bool) index.SortedDocValues {
+func WrapSortedSet(sortedSet index.SortedSetDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children util.DocIdSetIterator, sortMissingLast bool) index.SortedDocValues {
 	var values index.SortedDocValues
 	switch selection {
 	case BlockJoinSelectorMin:
@@ -88,7 +88,7 @@ func WrapSortedSet(sortedSet index.SortedSetDocValues, selection BlockJoinSelect
 // WrapSortedDocValues wraps the provided SortedDocValues in order to only select one value per parent among
 // its children using the configured selection type. When a parent has children
 // with missing values, we sort missing values according to sortMissingLast.
-func WrapSortedDocValues(values index.SortedDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator, sortMissingLast bool) index.SortedDocValues {
+func WrapSortedDocValues(values index.SortedDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children util.DocIdSetIterator, sortMissingLast bool) index.SortedDocValues {
 	if values.DocID() != -1 {
 		panic("values iterator was already consumed")
 	}
@@ -98,7 +98,7 @@ func WrapSortedDocValues(values index.SortedDocValues, selection BlockJoinSelect
 // WrapSortedNumeric wraps the provided SortedNumericDocValues in order to only select one value per parent
 // among its children using the configured selection type. When a parent has children with missing values,
 // childMissingValue participates in the min/max selection.
-func WrapSortedNumeric(sortedNumerics index.SortedNumericDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator, childMissingValue *int64) index.NumericDocValues {
+func WrapSortedNumeric(sortedNumerics index.SortedNumericDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children util.DocIdSetIterator, childMissingValue *int64) index.NumericDocValues {
 	var values index.NumericDocValues
 	switch selection {
 	case BlockJoinSelectorMin:
@@ -113,7 +113,7 @@ func WrapSortedNumeric(sortedNumerics index.SortedNumericDocValues, selection Bl
 
 // WrapNumericDocValues wraps the provided NumericDocValues, iterating over only child documents, in order to
 // only select one value per parent among its children using the configured selection type.
-func WrapNumericDocValues(values index.NumericDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator) index.NumericDocValues {
+func WrapNumericDocValues(values index.NumericDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children util.DocIdSetIterator) index.NumericDocValues {
 	if values.DocID() != -1 {
 		panic("values iterator was already consumed")
 	}
@@ -123,7 +123,7 @@ func WrapNumericDocValues(values index.NumericDocValues, selection BlockJoinSele
 // WrapNumericDocValuesWithMissing wraps the provided NumericDocValues, iterating over only child documents, in order to
 // only select one value per parent among its children using the configured selection type. When a parent has children with missing values,
 // missingValue participates in the min/max selection.
-func WrapNumericDocValuesWithMissing(values index.NumericDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator, missingValue *int64) index.NumericDocValues {
+func WrapNumericDocValuesWithMissing(values index.NumericDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children util.DocIdSetIterator, missingValue *int64) index.NumericDocValues {
 	if values.DocID() != -1 {
 		panic("values iterator was already consumed")
 	}

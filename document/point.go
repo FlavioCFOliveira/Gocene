@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // Point is the base type for point fields.
@@ -276,8 +276,8 @@ func PointFieldType() *FieldType {
 	ft.Stored = false
 	ft.Tokenized = false
 	ft.OmitNorms = true
-	ft.IndexOptions = index.IndexOptionsDocs
-	ft.DocValuesType = index.DocValuesTypeNone
+	ft.IndexOptions = schema.IndexOptionsDocs
+	ft.DocValuesType = schema.DocValuesTypeNone
 	ft.DimensionCount = 1
 	ft.DimensionNumBytes = 4
 	return ft

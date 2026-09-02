@@ -40,7 +40,7 @@ import (
 //   - Java's docIDRunEnd() override delegates to in.docIDRunEnd() when in is
 //     synced to the current doc; Go replicates this via DocIDRunEnd().
 type UpdateableDocIdSetIterator struct {
-	in  search.DocIdSetIterator
+	in  util.DocIdSetIterator
 	doc int
 }
 
@@ -58,7 +58,7 @@ func NewUpdateableDocIdSetIterator() *UpdateableDocIdSetIterator {
 // NextDoc call will synchronise it.
 //
 // Mirrors UpdateableDocIdSetIterator.update(DocIdSetIterator).
-func (it *UpdateableDocIdSetIterator) Update(iterator search.DocIdSetIterator) {
+func (it *UpdateableDocIdSetIterator) Update(iterator util.DocIdSetIterator) {
 	if iterator == nil {
 		panic("UpdateableDocIdSetIterator.Update: iterator must not be nil")
 	}
@@ -158,4 +158,4 @@ func (it *UpdateableDocIdSetIterator) IntoBitSet(upTo int, bits *util.FixedBitSe
 	return nil
 }
 
-var _ search.DocIdSetIterator = (*UpdateableDocIdSetIterator)(nil)
+var _ util.DocIdSetIterator = (*UpdateableDocIdSetIterator)(nil)

@@ -872,7 +872,7 @@ func (s *latLonPointDistanceScorer) GetMaxScore(_ int) float32 { return s.score 
 var _ Scorer = (*latLonPointDistanceScorer)(nil)
 
 // newLatLonDistanceUtilDISIAdapter bridges a util.DocIdSetIterator
-// to the search.DocIdSetIterator contract. Both iterators are
+// to the util.DocIdSetIterator contract. Both iterators are
 // structurally identical (DocID/NextDoc/Advance/Cost/DocIDRunEnd);
 // only the package differs, so the adapter is a thin forwarder.
 // Mirrors the same adapter pattern in xy_point_in_geometry_query.go

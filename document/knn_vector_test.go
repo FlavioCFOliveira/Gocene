@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 func TestKnnFloatVectorField_Basic(t *testing.T) {

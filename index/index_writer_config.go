@@ -9,7 +9,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/search/similarities"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 

@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // LazyDocument defers actually loading a field's value until you ask for it.

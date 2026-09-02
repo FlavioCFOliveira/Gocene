@@ -9,7 +9,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // IndexSorter sorts documents during flush and merge operations.
@@ -143,7 +143,7 @@ func buildFieldComparator(reader *LeafReader, sf *SortField, numDocs int) (docCo
 	}
 
 	// If this is a BinarySortField, use the specialized binary comparator.
-	if bsf, ok := any(sf).(*search.BinarySortField); ok {
+	if bsf, ok := any(sf).(*schema.BinarySortField); ok {
 		return buildBinaryComparator(reader, bsf, numDocs, reverseMul)
 	}
 
@@ -164,7 +164,7 @@ func buildFieldComparator(reader *LeafReader, sf *SortField, numDocs int) (docCo
 	}
 }
 
-func buildBinaryComparator(reader *LeafReader, bsf *search.BinarySortField, numDocs, reverseMul int) (docCompareFn, error) {
+func buildBinaryComparator(reader *LeafReader, bsf *schema.BinarySortField, numDocs, reverseMul int) (docCompareFn, error) {
 	values := make([][]byte, numDocs)
 	dvs, err := reader.GetBinaryDocValues(bsf.Field)
 	if err != nil {
@@ -201,7 +201,7 @@ func buildBinaryComparator(reader *LeafReader, bsf *search.BinarySortField, numD
 			if va != nil {
 				c = 1
 			}
-			if bsf.MissingValue == search.STRING_LAST {
+			if bsf.MissingValue == schema.STRING_LAST {
 				c = -c
 			}
 			return c * reverseMul

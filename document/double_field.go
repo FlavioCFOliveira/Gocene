@@ -7,7 +7,7 @@ package document
 import (
 	"strconv"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // DoubleField is a field for indexing float64 values.
@@ -20,7 +20,7 @@ func NewDoubleField(name string, value float64, store bool) (*DoubleField, error
 	ft := NewFieldType()
 	ft.SetStored(store)
 	ft.SetIndexed(true)
-	ft.SetIndexOptions(index.IndexOptionsDocs)
+	ft.SetIndexOptions(schema.IndexOptionsDocs)
 	ft.Freeze()
 
 	field, err := NewField(name, strconv.FormatFloat(value, 'f', -1, 64), ft)

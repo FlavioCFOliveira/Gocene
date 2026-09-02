@@ -10,7 +10,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 

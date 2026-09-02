@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // TestFieldType mirrors selected scenarios from Lucene's TestFieldType.java
@@ -26,7 +26,7 @@ func TestFieldType_Defaults(t *testing.T) {
 	if ft.IsTokenized() {
 		t.Fatalf("Gocene default Tokenized should be false (back-compat divergence)")
 	}
-	if got, want := ft.GetIndexOptions(), index.IndexOptionsNone; got != want {
+	if got, want := ft.GetIndexOptions(), schema.IndexOptionsNone; got != want {
 		t.Fatalf("default IndexOptions = %v, want %v", got, want)
 	}
 	if got, want := ft.GetVectorEncoding(), index.VectorEncodingFloat32; got != want {
@@ -50,7 +50,7 @@ func TestFieldType_LuceneDefaults(t *testing.T) {
 func TestFieldType_CopyConstructor(t *testing.T) {
 	src := NewFieldType()
 	src.SetStored(true)
-	src.SetIndexOptions(index.IndexOptionsDocs)
+	src.SetIndexOptions(schema.IndexOptionsDocs)
 	src.SetDimensions(2, 4)
 	src.SetVectorAttributes(8, index.VectorEncodingByte, index.VectorSimilarityFunctionCosine)
 	src.PutAttribute("k", "v")
@@ -137,7 +137,7 @@ func TestFieldType_String(t *testing.T) {
 	ft := NewFieldType()
 	ft.SetStored(true)
 	ft.SetIndexed(true)
-	ft.SetIndexOptions(index.IndexOptionsDocsAndFreqs)
+	ft.SetIndexOptions(schema.IndexOptionsDocsAndFreqs)
 	ft.SetTokenized(true)
 	ft.SetStoreTermVectors(true)
 	ft.SetStoreTermVectorOffsets(true)
