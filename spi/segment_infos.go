@@ -1759,5 +1759,6 @@ func readSegmentInfosLegacy(rawIn store.IndexInput, directory store.Directory, m
 			}
 			sci.SetDeletedOrdinals(ords)
 		}
+	}
 	return si, nil
 }

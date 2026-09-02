@@ -19,8 +19,6 @@ package quantization
 
 import (
 	"errors"
-
-	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // ErrUnsupportedOperation is the sentinel error returned by the

@@ -91,6 +91,16 @@ func SquareDistanceBytes(v1, v2 []byte) float32 {
 	return res
 }
 
+// Uint8SquareDistance calculates the squared Euclidean distance between two unsigned-byte vectors.
+func Uint8SquareDistance(v1, v2 []byte) float32 {
+	var res float32
+	for i := 0; i < len(v1); i++ {
+		diff := float32(v1[i]) - float32(v2[i])
+		res += diff * diff
+	}
+	return res
+}
+
 // NormalizeDistanceToUnitInterval maps [0, inf) to (0, 1].
 func NormalizeDistanceToUnitInterval(dist float32) float32 {
 	return 1 / (1 + dist)

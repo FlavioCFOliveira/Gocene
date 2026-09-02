@@ -89,7 +89,8 @@ func (osq *OptimizedScalarQuantizer) MultiScalarQuantize(vector []float32, desti
 
 		osq.optimizeIntervals(intervalScratch, vector, norm2, points)
 
-		nSteps := float32((1 << b) - 1)
+		nStepsInt := (1 << b) - 1
+		nSteps := float32(nStepsInt)
 		a, bBound := intervalScratch[0], intervalScratch[1]
 		step := (bBound - a) / nSteps
 
@@ -102,7 +103,7 @@ func (osq *OptimizedScalarQuantizer) MultiScalarQuantize(vector []float32, desti
 		}
 
 		var addCorr float32
-		if osq.similarityFunction == util.Euclidean {
+		if osq.similarityFunction == util.EuclideanSim {
 			addCorr = norm2
 		} else {
 			addCorr = centroidDot
@@ -155,7 +156,8 @@ func (osq *OptimizedScalarQuantizer) ScalarQuantize(vector []float32, destinatio
 
 	osq.optimizeIntervals(intervalScratch, vector, norm2, points)
 
-	nSteps := float32((1 << bits) - 1)
+	nStepsInt := (1 << bits) - 1
+	nSteps := float32(nStepsInt)
 	a, bBound := intervalScratch[0], intervalScratch[1]
 	step := (bBound - a) / nSteps
 
@@ -168,7 +170,7 @@ func (osq *OptimizedScalarQuantizer) ScalarQuantize(vector []float32, destinatio
 	}
 
 	var addCorr float32
-	if osq.similarityFunction == util.Euclidean {
+	if osq.similarityFunction == util.EuclideanSim {
 		addCorr = norm2
 	} else {
 		addCorr = centroidDot

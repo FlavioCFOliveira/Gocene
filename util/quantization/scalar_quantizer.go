@@ -132,11 +132,11 @@ func (q *ScalarQuantizer) Quantize(src []float32, dest []byte, similarityFunctio
 	if len(src) != len(dest) {
 		panic(fmt.Sprintf("quantization: src/dest length mismatch: %d!=%d", len(src), len(dest)))
 	}
-	if similarityFunction == util.Cosine && !util.IsUnitVector(src) {
+	if similarityFunction == util.CosineSim && !util.IsUnitVector(src) {
 		panic("quantization: Quantize with COSINE requires a unit-length source vector")
 	}
 	correction := minMaxScalarQuantize(src, dest, q.scale, q.alpha, q.minQuantile, q.maxQuantile)
-	if similarityFunction == util.Euclidean {
+	if similarityFunction == util.EuclideanSim {
 		return 0
 	}
 	return correction
@@ -151,7 +151,7 @@ func (q *ScalarQuantizer) RecalculateCorrectiveOffset(
 	oldQuantizer *ScalarQuantizer,
 	similarityFunction util.VectorSimilarityFunction,
 ) float32 {
-	if similarityFunction == util.Euclidean {
+	if similarityFunction == util.EuclideanSim {
 		return 0
 	}
 	return recalculateOffset(
@@ -364,7 +364,7 @@ func FromVectorsAutoInterval(
 	totalVectorCount int,
 	bits byte,
 ) (*ScalarQuantizer, error) {
-	if function == util.Cosine {
+	if function == util.CosineSim {
 		return nil, fmt.Errorf("quantization: FromVectorsAutoInterval does not support COSINE; normalise to DOT_PRODUCT upstream")
 	}
 	if totalVectorCount == 0 {
@@ -941,22 +941,19 @@ func (c *scoreErrorCorrelator) scoreErrorCorrelation(lowerQuantile, upperQuantil
 
 // computeSimilarity is the local counterpart of codecs.ComputeSimilarity
 // used during the auto-interval grid search. Pulling the codecs helper
-// in would introduce an import cycle, so we duplicate the four-case
-// dispatch here. The numeric output matches codecs.ComputeSimilarity
-// for the same inputs.
+// in would introduce an import cycle, so we dispatch through the interface
+// here. The numeric output matches codecs.ComputeSimilarity for the same inputs.
 func computeSimilarity(simFunc util.VectorSimilarityFunction, v1, v2 []float32) float32 {
-	switch simFunc {
-	case util.Euclidean:
+	if simFunc == util.EuclideanSim {
 		return util.NormalizeDistanceToUnitInterval(util.SquareDistance(v1, v2))
-	case util.VectorSimilarityFunctionDotProduct:
-		return util.NormalizeToUnitInterval(util.DotProduct(v1, v2))
-	case util.Cosine:
+	} else if simFunc == util.DotProductSim {
+		return util.NormalizeToUnitInterval(util.ComputeDotProduct(v1, v2))
+	} else if simFunc == util.CosineSim {
 		return util.NormalizeToUnitInterval(util.Cosine(v1, v2))
-	case util.MaximumInnerProduct:
-		return util.ScaleMaxInnerProductScore(util.DotProduct(v1, v2))
-	default:
-		return 0
+	} else if simFunc == util.MaximumInnerProductSim {
+		return util.ScaleMaxInnerProductScore(util.ComputeDotProduct(v1, v2))
 	}
+	return 0
 }
 
 // isNaNOrInfFloat32 reports whether v is NaN or +/-Inf, with the
