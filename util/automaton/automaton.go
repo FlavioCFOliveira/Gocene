@@ -219,3 +219,17 @@ func NewLevenshteinAutomaton(term string, maxEdits int) *Automaton {
 	auto.AddString(term)
 	return auto
 }
+
+// GetSortedTransitions returns the transitions indexed by source state.
+// This returns a slice where index i contains all transitions from state i.
+func (a *Automaton) GetSortedTransitions() [][]Transition {
+	result := make([][]Transition, a.nextState)
+	for state := 0; state < a.nextState; state++ {
+		if trans, ok := a.transitions[state]; ok {
+			result[state] = trans
+		} else {
+			result[state] = []Transition{}
+		}
+	}
+	return result
+}

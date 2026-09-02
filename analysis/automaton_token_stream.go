@@ -70,7 +70,16 @@ func (t *topoTokenStream) Next() (Token, bool) {
 	return token, true
 }
 
+func (t *topoTokenStream) IncrementToken() (bool, error) {
+	_, ok := t.Next()
+	return ok, nil
+}
+
 func (t *topoTokenStream) Close() error {
+	return nil
+}
+
+func (t *topoTokenStream) End() error {
 	return nil
 }
 
