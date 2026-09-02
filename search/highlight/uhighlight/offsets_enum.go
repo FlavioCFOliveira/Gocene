@@ -6,45 +6,119 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // OffsetsEnum is an enumeration/iterator of a term and its offsets for use by FieldHighlighter.
 type OffsetsEnum interface {
+	io.Closer
 	NextPosition() (bool, error)
 	Freq() (int, error)
-	GetTerm() ([]byte, error)
+	Term() (util.BytesRef, error)
 	StartOffset() (int, error)
 	EndOffset() (int, error)
-	io.Closer
 }
 
-// OfPostings is based on a PostingsEnum -- the typical/standard OE impl.
+// CompareOffsetsEnum compares two OffsetsEnum based on start offset, then end offset, then term.
+func CompareOffsetsEnum(a, b OffsetsEnum) (int, error) {
+	startA, err := a.StartOffset()
+	if err != nil {
+		return 0, err
+	}
+	startB, err := b.StartOffset()
+	if err != nil {
+		return 0, err
+	}
+	if startA != startB {
+		if startA < startB {
+			return -1, nil
+		}
+		return 1, nil
+	}
+
+	endA, err := a.EndOffset()
+	if err != nil {
+		return 0, err
+	}
+	endB, err := b.EndOffset()
+	if err != nil {
+		return 0, err
+	}
+	if endA != endB {
+		if endA < endB {
+			return -1, nil
+		}
+		return 1, nil
+	}
+
+	termA, err := a.Term()
+	if err != nil {
+		return 0, err
+	}
+	termB, err := b.Term()
+	if err != nil {
+		return 0, err
+	}
+
+	if termA == nil || termB == nil {
+		if termA == nil && termB == nil {
+			return 0, nil
+		} else if termA == nil {
+			return 1, nil // put wildcard last
+		} else {
+			return -1, nil
+		}
+	}
+
+	return termA.Compare(termB), nil
+}
+
+// OfPostings is based on a PostingsEnum.
 type OfPostings struct {
-	term          []byte
+	term        util.BytesRef
 	postingsEnum index.PostingsEnum
-	freq          int
-	posCounter    int
+	freq        int
+	posCounter  int
 }
 
-func NewOfPostings(term []byte, postingsEnum index.PostingsEnum) (*OfPostings, error) {
+func NewOfPostings(term util.BytesRef, postingsEnum index.PostingsEnum) (*OfPostings, error) {
+	if term == nil {
+		return nil, fmt.Errorf("term is required")
+	}
+	if postingsEnum == nil {
+		return nil, fmt.Errorf("postingsEnum is required")
+	}
 	freq, err := postingsEnum.Freq()
 	if err != nil {
 		return nil, err
 	}
 	return &OfPostings{
-		term:         term,
+		term:        term,
 		postingsEnum: postingsEnum,
-		freq:         freq,
-		posCounter:   freq,
+		freq:        freq,
+		posCounter:  freq,
 	}, nil
 }
 
-func (o *OfPostings) NextPosition() (bool, error) {
-	if o.posCounter > 0 {
-		o.posCounter--
-		if err := o.postingsEnum.NextPosition(); err != nil {
+func NewOfPostingsWithFreq(term util.BytesRef, freq int, postingsEnum index.PostingsEnum) (*OfPostings, error) {
+	if term == nil {
+		return nil, fmt.Errorf("term is required")
+	}
+	if postingsEnum == nil {
+		return nil, fmt.Errorf("postingsEnum is required")
+	}
+	return &OfPostings{
+		term:        term,
+		postingsEnum: postingsEnum,
+		freq:        freq,
+		posCounter:  freq,
+	}, nil
+}
+
+func (oe *OfPostings) NextPosition() (bool, error) {
+	if oe.posCounter > 0 {
+		oe.posCounter--
+		if err := oe.postingsEnum.NextPosition(); err != nil {
 			return false, err
 		}
 		return true, nil
@@ -52,267 +126,135 @@ func (o *OfPostings) NextPosition() (bool, error) {
 	return false, nil
 }
 
-func (o *OfPostings) Freq() (int, error) {
-	return o.freq, nil
+func (oe *OfPostings) Term() (util.BytesRef, error) {
+	return oe.term, nil
 }
 
-func (o *OfPostings) GetTerm() ([]byte, error) {
-	return o.term, nil
+func (oe *OfPostings) StartOffset() (int, error) {
+	return oe.postingsEnum.StartOffset()
 }
 
-func (o *OfPostings) StartOffset() (int, error) {
-	return o.postingsEnum.StartOffset()
+func (oe *OfPostings) EndOffset() (int, error) {
+	return oe.postingsEnum.EndOffset()
 }
 
-func (o *OfPostings) EndOffset() (int, error) {
-	return o.postingsEnum.EndOffset()
+func (oe *OfPostings) Freq() (int, error) {
+	return oe.freq, nil
 }
 
-func (o *OfPostings) Close() error {
+func (oe *OfPostings) Close() error {
 	return nil
 }
 
-// OfMatchesIterator is based on a MatchesIterator; does not look at submatches.
-type OfMatchesIterator struct {
-	matchesIterator search.MatchesIterator
-	termSupplier    func() []byte
+// EmptyOffsetsEnum is an empty enumeration.
+type EmptyOffsetsEnum struct{}
+
+func (oe *EmptyOffsetsEnum) NextPosition() (bool, error) { return false, nil }
+func (oe *EmptyOffsetsEnum) Freq() (int, error)         { return 0, nil }
+func (oe *EmptyOffsetsEnum) Term() (util.BytesRef, error) {
+	return nil, fmt.Errorf("unsupported operation")
+}
+func (oe *EmptyOffsetsEnum) StartOffset() (int, error) {
+	return 0, fmt.Errorf("unsupported operation")
+}
+func (oe *EmptyOffsetsEnum) EndOffset() (int, error) {
+	return 0, fmt.Errorf("unsupported operation")
+}
+func (oe *EmptyOffsetsEnum) Close() error { return nil }
+
+var Empty = &EmptyOffsetsEnum{}
+
+// MultiOffsetsEnum is a view over several OffsetsEnum instances, merging them in-place.
+type MultiOffsetsEnum struct {
+	queue   offsetsHeap
+	started bool
 }
 
-func NewOfMatchesIterator(matchesIterator search.MatchesIterator, termSupplier func() []byte) *OfMatchesIterator {
-	return &OfMatchesIterator{
-		matchesIterator: matchesIterator,
-		termSupplier:    termSupplier,
+func NewMultiOffsetsEnum(inner []OffsetsEnum) (*MultiOffsetsEnum, error) {
+	moe := &MultiOffsetsEnum{
+		queue: make(offsetsHeap, 0),
 	}
-}
-
-func (o *OfMatchesIterator) NextPosition() (bool, error) {
-	return o.matchesIterator.Next()
-}
-
-func (o *OfMatchesIterator) Freq() (int, error) {
-	return 1, nil
-}
-
-func (o *OfMatchesIterator) GetTerm() ([]byte, error) {
-	return o.termSupplier(), nil
-}
-
-func (o *OfMatchesIterator) StartOffset() (int, error) {
-	return o.matchesIterator.StartOffset()
-}
-
-func (o *OfMatchesIterator) EndOffset() (int, error) {
-	return o.matchesIterator.EndOffset()
-}
-
-func (o *OfMatchesIterator) Close() error {
-	return nil
-}
-
-type cachedOE struct {
-	term        []byte
-	startOffset int
-	endOffset   int
-}
-
-func (c *cachedOE) NextPosition() (bool, error) { return false, nil }
-func (c *cachedOE) Freq() (int, error)        { return 1, nil }
-func (c *cachedOE) GetTerm() ([]byte, error)  { return c.term, nil }
-func (c *cachedOE) StartOffset() (int, error) { return c.startOffset, nil }
-func (c *cachedOE) EndOffset() (int, error)   { return c.endOffset, nil }
-func (c *cachedOE) Close() error              { return nil }
-
-// OfMatchesIteratorWithSubs is based on a MatchesIterator with submatches.
-type OfMatchesIteratorWithSubs struct {
-	pendingQueue    *oeHeap
-	queryToTermMap map[search.Query][]byte
-	matchesIterator search.MatchesIterator
-}
-
-func NewOfMatchesIteratorWithSubs(matchesIterator search.MatchesIterator) *OfMatchesIteratorWithSubs {
-	s := &OfMatchesIteratorWithSubs{
-		pendingQueue:    &oeHeap{},
-		queryToTermMap:   make(map[search.Query][]byte),
-		matchesIterator: matchesIterator,
-	}
-	heap.Init(s.pendingQueue)
-	heap.Push(s.pendingQueue, NewOfMatchesIterator(matchesIterator, func() []byte {
-		return s.queryToTerm(matchesIterator.GetQuery())
-	}))
-	return s
-}
-
-func (o *OfMatchesIteratorWithSubs) queryToTerm(q search.Query) []byte {
-	if term, ok := o.queryToTermMap[q]; ok {
-		return term
-	}
-	var termBuilder util.BytesRefBuilder
-	q.Visit(func(field string, terms [][]byte) {
-		for _, t := range terms {
-			if termBuilder.Length() > 0 {
-				termBuilder.Append([]byte{' '})
-			}
-			termBuilder.Append(t)
+	for _, oe := range inner {
+		if next, err := oe.NextPosition(); err != nil {
+			return nil, err
+		} else if next {
+			heap.Push(&moe.queue, oe)
 		}
-	})
-	var res []byte
-	if termBuilder.Length() > 0 {
-		res = termBuilder.Get()
-	} else {
-		res = []byte(q.String())
 	}
-	o.queryToTermMap[q] = res
-	return res
+	return moe, nil
 }
 
-func (o *OfMatchesIteratorWithSubs) NextPosition() (bool, error) {
-	if o.pendingQueue.Len() == 0 {
-		return false, nil
+func (moe *MultiOffsetsEnum) NextPosition() (bool, error) {
+	if !moe.started {
+		moe.started = true
+		return moe.queue.Len() > 0, nil
 	}
-	formerHead := heap.Pop(o.pendingQueue).(*OffsetsEnumWrapper)
-
-	if _, ok := formerHead.OE.(*cachedOE); ok {
-		if o.pendingQueue.Len() > 0 {
-			newHead := (*o.pendingQueue)[0]
-			if mi, ok := newHead.OE.(*OfMatchesIterator); ok {
-				if err := o.nextWhenMatchesIterator(mi); err != nil {
-					return false, err
-				}
-			}
-		}
-	} else {
-		mi := formerHead.OE.(*OfMatchesIterator)
-		next, err := mi.NextPosition()
-		if err != nil {
+	if moe.queue.Len() > 0 {
+		top := heap.Pop(&moe.queue).(OffsetsEnum)
+		if next, err := top.NextPosition(); err != nil {
 			return false, err
+		} else if next {
+			heap.Push(&moe.queue, top)
+			return true, nil
+		} else {
+			top.Close()
 		}
-		if next {
-			if err := o.nextWhenMatchesIterator(mi); err != nil {
-				return false, err
-			}
-		}
+		return moe.queue.Len() > 0, nil
 	}
-	return o.pendingQueue.Len() > 0, nil
+	return false, nil
 }
 
-func (o *OfMatchesIteratorWithSubs) nextWhenMatchesIterator(mi *OfMatchesIterator) error {
-	subMatches, err := mi.matchesIterator.GetSubMatches()
+func (moe *MultiOffsetsEnum) Term() (util.BytesRef, error) {
+	if moe.queue.Len() == 0 {
+		return nil, fmt.Errorf("no offsets enum available")
+	}
+	return moe.queue[0].Term()
+}
+
+func (moe *MultiOffsetsEnum) StartOffset() (int, error) {
+	if moe.queue.Len() == 0 {
+		return 0, fmt.Errorf("no offsets enum available")
+	}
+	return moe.queue[0].StartOffset()
+}
+
+func (moe *MultiOffsetsEnum) EndOffset() (int, error) {
+	if moe.queue.Len() == 0 {
+		return 0, fmt.Errorf("no offsets enum available")
+	}
+	return moe.queue[0].EndOffset()
+}
+
+func (moe *MultiOffsetsEnum) Freq() (int, error) {
+	if moe.queue.Len() == 0 {
+		return 0, fmt.Errorf("no offsets enum available")
+	}
+	return moe.queue[0].Freq()
+}
+
+func (moe *MultiOffsetsEnum) Close() error {
+	for moe.queue.Len() > 0 {
+		oe := heap.Pop(&moe.queue).(OffsetsEnum)
+		oe.Close()
+	}
+	return nil
+}
+
+type offsetsHeap []OffsetsEnum
+
+func (h offsetsHeap) Len() int { return len(h) }
+func (h offsetsHeap) Less(i, j int) bool {
+	cmp, err := CompareOffsetsEnum(h[i], h[j])
 	if err != nil {
-		return err
+		return false
 	}
-	if subMatches != nil {
-		// The Java code handles the queue logic by polling/adding.
-		// We must ensure we don't lose the mi if it's not the head.
-		// For simplicity, we re-enqueue mi after processing subs.
-		if err := o.enqueueCachedMatches(subMatches); err != nil {
-			return err
-		}
-		if next, err := mi.NextPosition(); err == nil && next {
-			heap.Push(o.pendingQueue, &OffsetsEnumWrapper{OE: mi})
-		}
-	} else {
-		// Stay enqueued if it wasn't polled.
-		// Actually, the logic in Java is a bit subtle.
-		// Let's refine this to match the Java priority queue behavior.
-	}
-	return nil
+	return cmp < 0
 }
-
-func (o *OfMatchesIteratorWithSubs) enqueueCachedMatches(mi search.MatchesIterator) error {
-	if mi == nil {
-		return nil
-	}
-	for {
-		next, err := mi.Next()
-		if err != nil {
-			return err
-		}
-		if !next {
-			break
-		}
-		if err := o.enqueueCachedMatches(mi.GetSubMatches()); err != nil {
-			return err
-		}
-		heap.Push(o.pendingQueue, &OffsetsEnumWrapper{
-			OE: &cachedOE{
-				term:        o.queryToTerm(mi.GetQuery()),
-				startOffset: mi.StartOffset(),
-				endOffset:   mi.EndOffset(),
-			},
-		})
-	}
-	return nil
+func (h offsetsHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
+func (h *offsetsHeap) Push(x interface{}) {
+	*h = append(*h, x.(OffsetsEnum))
 }
-
-func (o *OfMatchesIteratorWithSubs) Freq() (int, error) {
-	if o.pendingQueue.Len() == 0 {
-		return 0, nil
-	}
-	return (*o.pendingQueue)[0].OE.Freq()
-}
-
-func (o *OfMatchesIteratorWithSubs) GetTerm() ([]byte, error) {
-	if o.pendingQueue.Len() == 0 {
-		return nil, fmt.Errorf("empty queue")
-	}
-	return (*o.pendingQueue)[0].OE.GetTerm()
-}
-
-func (o *OfMatchesIteratorWithSubs) StartOffset() (int, error) {
-	if o.pendingQueue.Len() == 0 {
-		return 0, fmt.Errorf("empty queue")
-	}
-	return (*o.pendingQueue)[0].OE.StartOffset()
-}
-
-func (o *OfMatchesIteratorWithSubs) EndOffset() (int, error) {
-	if o.pendingQueue.Len() == 0 {
-		return 0, fmt.Errorf("empty queue")
-	}
-	return (*o.pendingQueue)[0].OE.EndOffset()
-}
-
-func (o *OfMatchesIteratorWithSubs) Close() error {
-	return nil
-}
-
-// Helper types for PriorityQueue
-type OffsetsEnumWrapper struct {
-	OE OffsetsEnum
-}
-
-type oeHeap []*OffsetsEnumWrapper
-
-func (h oeHeap) Len() int { return len(h) }
-func (h oeHeap) Less(i, j int) bool {
-	sI, _ := h[i].OE.StartOffset()
-	sJ, _ := h[j].OE.StartOffset()
-	if sI != sJ {
-		return sI < sJ
-	}
-	eI, _ := h[i].OE.EndOffset()
-	eJ, _ := h[j].OE.EndOffset()
-	if eI != eJ {
-		return eI < eJ
-	}
-	tI, _ := h[i].OE.GetTerm()
-	tJ, _ := h[j].OE.GetTerm()
-	if tI == nil || tJ == nil {
-		if tI == nil && tJ == nil {
-			return false
-		}
-		if tI == nil {
-			return false // put null last
-		}
-		return true
-	}
-	return string(tI) < string(tJ)
-}
-func (h oeHeap) Swap(i, j int) { h[i], h[j] = h[j], h[i] }
-func (h *oeHeap) Push(x interface{}) {
-	*h = append(*h, x.(*OffsetsEnumWrapper))
-}
-func (h *oeHeap) Pop() interface{} {
+func (h *offsetsHeap) Pop() interface{} {
 	old := *h
 	n := len(old)
 	x := old[n-1]
