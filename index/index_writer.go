@@ -611,6 +611,30 @@ func (w *IndexWriter) rollbackInternalNoCommit() error {
 	// 9. Adjust pending num docs
 	w.adjustPendingNumDocs(-(totalMaxDoc - rollbackMaxDoc))
 
+	// 10. Cleanup unreferenced files
+	if err := w.deleter.Checkpoint(w.segmentInfos, false); err != nil {
+		return fmt.Errorf("failed to checkpoint deleter during rollback: %w", err)
+	}
+	if err := w.deleter.Refresh(); err != nil {
+		return fmt.Errorf("failed to refresh deleter during rollback: %w", err)
+	}
+	if err := w.deleter.Close(); err != nil {
+		return fmt.Errorf("failed to close deleter during rollback: %w", err)
+	}
+
+	// 11. Close reader pool
+	if w.readerPool != nil {
+		w.readerPool.Close()
+	}
+
+	// 12. Finalize writer state
+	w.closed.Store(true)
+
+	// 13. Release write lock
+	if w.writeLock != nil {
+		w.dirOrig.CloseLock(w.writeLock)
+	}
+
 	return nil
 }
 
