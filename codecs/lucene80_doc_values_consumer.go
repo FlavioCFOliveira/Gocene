@@ -16,11 +16,11 @@ import (
 )
 
 type lucene80DocValuesConsumer struct {
-	mode        Mode
-	data        IndexOutput
-	meta       IndexOutput
-	maxDoc      int
-	state       SegmentWriteState
+	mode         Mode
+	data         IndexOutput
+	meta         IndexOutput
+	maxDoc       int
+	state        SegmentWriteState
 	termsDictBuf []byte
 }
 
@@ -179,7 +179,7 @@ func (c *lucene80DocValuesConsumer) writeNumericValues(field FieldInfo, values N
 	var gcd int64 = 0
 	var uniqueValues map[int64]struct{}
 
-	for doc := values.NextDoc(); doc != DocIdSetIterator.NoMoreDocs; doc = values.NextDoc() {
+	for doc := values.NextDoc(); doc != dvNoMoreDocs; doc = values.NextDoc() {
 		for i := 0; i < values.DocValueCount(); i++ {
 			v := values.NextValue()
 
@@ -249,7 +249,7 @@ func (c *lucene80DocValuesConsumer) writeNumericValues(field FieldInfo, values N
 	} else {
 		if uniqueValues != nil && len(uniqueValues) > 1 &&
 			packed.UnsignedBitsRequired(uint64(len(uniqueValues)-1)) <
-			packed.UnsignedBitsRequired(uint64((max-min)/gcd)) {
+				packed.UnsignedBitsRequired(uint64((max-min)/gcd)) {
 
 			numBitsPerValue = packed.UnsignedBitsRequired(uint64(len(uniqueValues) - 1))
 
@@ -278,7 +278,7 @@ func (c *lucene80DocValuesConsumer) writeNumericValues(field FieldInfo, values N
 				numBitsPerValue = 0xFF
 				c.meta.WriteInt(-2 - NumericBlockShift)
 			} else {
-				numBitsPerValue = packed.UnsignedBitsRequired(uint64((max-min)/gcd))
+				numBitsPerValue = packed.UnsignedBitsRequired(uint64((max - min) / gcd))
 				if gcd == 1 && min > 0 &&
 					packed.UnsignedBitsRequired(uint64(max)) == packed.UnsignedBitsRequired(uint64(max-min)) {
 					min = 0
@@ -316,7 +316,7 @@ func (c *lucene80DocValuesConsumer) writeNumericValuesSingleBlock(
 	encode map[int64]int) error {
 
 	writer := packed.NewDirectWriter(c.data, numValues, numBitsPerValue)
-	for doc := values.NextDoc(); doc != DocIdSetIterator.NoMoreDocs; doc = values.NextDoc() {
+	for doc := values.NextDoc(); doc != dvNoMoreDocs; doc = values.NextDoc() {
 		for i := 0; i < values.DocValueCount(); i++ {
 			v := values.NextValue()
 			if encode == nil {
@@ -334,9 +334,10 @@ func (c *lucene80DocValuesConsumer) writeNumericValuesMultipleBlocks(values Nume
 	buffer := make([]int64, NumericBlockSize)
 	upTo := 0
 
-	for doc := values.NextDoc(); doc != DocIdSetIterator.NoMoreDocs; doc = values.NextDoc() {
+	for doc := values.NextDoc(); doc != dvNoMoreDocs; doc = values.NextDoc() {
 		for i := 0; i < values.DocValueCount(); i++ {
-			buffer[upTo++] = values.NextValue()
+			buffer[upTo] = values.NextValue()
+			upTo++
 			if upTo == NumericBlockSize {
 				offsets = append(offsets, c.data.getFilePointer())
 				c.writeNumericBlock(buffer, NumericBlockSize, gcd)
@@ -392,17 +393,17 @@ func (c *lucene80DocValuesConsumer) writeNumericBlock(values []int64, length int
 }
 
 type compressedBinaryBlockWriter struct {
-	consumer *lucene80DocValuesConsumer
-	ht       *packed.FastCompressionHashTable
-	uncompressedBlockLength int
+	consumer                   *lucene80DocValuesConsumer
+	ht                         *packed.FastCompressionHashTable
+	uncompressedBlockLength    int
 	maxUncompressedBlockLength int
-	numDocsInCurrentBlock int
-	docLengths []int
-	block []byte
-	totalChunks int
-	maxPointer int64
-	blockAddressesStart int64
-	tempBinaryOffsets IndexOutput
+	numDocsInCurrentBlock      int
+	docLengths                 []int
+	block                      []byte
+	totalChunks                int
+	maxPointer                 int64
+	blockAddressesStart        int64
+	tempBinaryOffsets          IndexOutput
 }
 
 func (c *lucene80DocValuesConsumer) newCompressedBinaryBlockWriter() (*compressedBinaryBlockWriter, error) {
@@ -433,11 +434,11 @@ func (c *lucene80DocValuesConsumer) newCompressedBinaryBlockWriter() (*compresse
 	success = true
 
 	return &compressedBinaryBlockWriter{
-		consumer: c,
-		ht: packed.NewFastCompressionHashTable(),
-		docLengths: make([]int, BinaryDocsPerCompressedBlock),
+		consumer:            c,
+		ht:                  packed.NewFastCompressionHashTable(),
+		docLengths:          make([]int, BinaryDocsPerCompressedBlock),
 		blockAddressesStart: blockAddressesStart,
-		tempBinaryOffsets: tempBinaryOffsets,
+		tempBinaryOffsets:   tempBinaryOffsets,
 	}, nil
 }
 
@@ -597,7 +598,7 @@ func (c *lucene80DocValuesConsumer) doAddUncompressedBinaryField(field FieldInfo
 	minLength := math.MaxInt32
 	maxLength := 0
 
-	for doc := values.NextDoc(); doc != DocIdSetIterator.NoMoreDocs; doc = values.NextDoc() {
+	for doc := values.NextDoc(); doc != dvNoMoreDocs; doc = values.NextDoc() {
 		numDocsWithField++
 		v := values.BinaryValue()
 		length := v.length
@@ -645,7 +646,7 @@ func (c *lucene80DocValuesConsumer) doAddUncompressedBinaryField(field FieldInfo
 		writer.Add(addr)
 
 		values = valuesProducer.GetBinary(field)
-		for doc := values.NextDoc(); doc != DocIdSetIterator.NoMoreDocs; doc = values.NextDoc() {
+		for doc := values.NextDoc(); doc != dvNoMoreDocs; doc = values.NextDoc() {
 			addr += int64(values.BinaryValue().length)
 			writer.Add(addr)
 		}
@@ -673,7 +674,7 @@ func (c *lucene80DocValuesConsumer) doAddCompressedBinaryField(field FieldInfo, 
 	minLength := math.MaxInt32
 	maxLength := 0
 
-	for doc := values.NextDoc(); doc != DocIdSetIterator.NoMoreDocs; doc = values.NextDoc() {
+	for doc := values.NextDoc(); doc != dvNoMoreDocs; doc = values.NextDoc() {
 		numDocsWithField++
 		v := values.BinaryValue()
 		if err := blockWriter.addDoc(doc, v); err != nil {
@@ -734,7 +735,7 @@ func (c *lucene80DocValuesConsumer) AddSortedField(field FieldInfo, valuesProduc
 func (c *lucene80DocValuesConsumer) doAddSortedField(field FieldInfo, valuesProducer DocValuesProducer) error {
 	values := valuesProducer.GetSorted(field)
 	numDocsWithField := 0
-	for doc := values.NextDoc(); doc != DocIdSetIterator.NoMoreDocs; doc = values.NextDoc() {
+	for doc := values.NextDoc(); doc != dvNoMoreDocs; doc = values.NextDoc() {
 		numDocsWithField++
 	}
 
@@ -771,7 +772,7 @@ func (c *lucene80DocValuesConsumer) doAddSortedField(field FieldInfo, valuesProd
 
 		writer := packed.NewDirectWriter(c.data, int64(numDocsWithField), numberOfBitsPerOrd)
 		values = valuesProducer.GetSorted(field)
-		for doc := values.NextDoc(); doc != DocIdSetIterator.NoMoreDocs; doc = values.NextDoc() {
+		for doc := values.NextDoc(); doc != dvNoMoreDocs; doc = values.NextDoc() {
 			writer.Add(int64(values.OrdValue()))
 		}
 		if err := writer.Finish(); err != nil {
@@ -807,7 +808,7 @@ func (c *lucene80DocValuesConsumer) addTermsDict(values SortedSetDocValues) erro
 	// Use a dummy IndexOutput for the writer to write into addressBuf
 	addressOutput := &bufferIndexOutput{buf: addressBuf}
 
-	numBlocks := (size + int64(blockMask) - 1) >>> uint(shift)
+	numBlocks := int64(uint64(size+int64(blockMask)) >> uint(shift))
 	writer := packed.NewDirectMonotonicWriter(c.meta, addressOutput, numBlocks, DirectMonotonicBlockShift)
 
 	var previous BytesRef
@@ -913,7 +914,7 @@ func (c *lucene80DocValuesConsumer) writeTermsIndex(values SortedSetDocValues) e
 	c.meta.WriteInt(TermsDictReverseIndexShift)
 	start := c.data.getFilePointer()
 
-	numBlocks := 1 + ((size + int64(TermsDictReverseIndexMask)) >>> uint(TermsDictReverseIndexShift))
+	numBlocks := 1 + int64(uint64(size+int64(TermsDictReverseIndexMask))>>uint(TermsDictReverseIndexShift))
 
 	addressBuf := new(bytes.Buffer)
 	addressOutput := &bufferIndexOutput{buf: addressBuf}
@@ -978,7 +979,7 @@ func (c *lucene80DocValuesConsumer) AddSortedNumericField(field FieldInfo, value
 		writer.Add(addr)
 
 		values = valuesProducer.GetSortedNumeric(field)
-		for doc := values.NextDoc(); doc != DocIdSetIterator.NoMoreDocs; doc = values.NextDoc() {
+		for doc := values.NextDoc(); doc != dvNoMoreDocs; doc = values.NextDoc() {
 			addr += int64(values.DocValueCount())
 			writer.Add(addr)
 		}
@@ -998,7 +999,7 @@ func (c *lucene80DocValuesConsumer) AddSortedSetField(field FieldInfo, valuesPro
 	values := valuesProducer.GetSortedSet(field)
 	numDocsWithField := 0
 	var numOrds int64 = 0
-	for doc := values.NextDoc(); doc != DocIdSetIterator.NoMoreDocs; doc = values.NextDoc() {
+	for doc := values.NextDoc(); doc != dvNoMoreDocs; doc = values.NextDoc() {
 		numDocsWithField++
 		numOrds += int64(values.DocValueCount())
 	}
@@ -1038,7 +1039,7 @@ func (c *lucene80DocValuesConsumer) AddSortedSetField(field FieldInfo, valuesPro
 
 	writer := packed.NewDirectWriter(c.data, numOrds, numberOfBitsPerOrd)
 	values = valuesProducer.GetSortedSet(field)
-	for doc := values.NextDoc(); doc != DocIdSetIterator.NoMoreDocs; doc = values.NextDoc() {
+	for doc := values.NextDoc(); doc != dvNoMoreDocs; doc = values.NextDoc() {
 		for i := 0; i < values.DocValueCount(); i++ {
 			writer.Add(int64(values.NextOrd()))
 		}
@@ -1057,7 +1058,7 @@ func (c *lucene80DocValuesConsumer) AddSortedSetField(field FieldInfo, valuesPro
 	var addr int64 = 0
 	addressesWriter.Add(addr)
 	values = valuesProducer.GetSortedSet(field)
-	for doc := values.NextDoc(); doc != DocIdSetIterator.NoMoreDocs; doc = values.NextDoc() {
+	for doc := values.NextDoc(); doc != dvNoMoreDocs; doc = values.NextDoc() {
 		addr += int64(values.DocValueCount())
 		addressesWriter.Add(addr)
 	}
@@ -1168,7 +1169,7 @@ func (b *bufferIndexOutput) WriteBytes(p []byte) error {
 	_, err := b.buf.Write(p)
 	return err
 }
-func (b *bufferIndexOutput) Close() error { return nil }
+func (b *bufferIndexOutput) Close() error          { return nil }
 func (b *bufferIndexOutput) getFilePointer() int64 { return int64(b.buf.Len()) }
 
 // Need to import encoding/binary for bufferIndexOutput

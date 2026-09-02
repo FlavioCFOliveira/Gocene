@@ -10,13 +10,13 @@ import (
 )
 
 type lucene80NormsProducer struct {
-	norms    map[int]*normsEntry
-	maxDoc   int
-	data     IndexInput
-	merging  bool
-	disiInputs    map[int]IndexInput
+	norms          map[int]*normsEntry
+	maxDoc         int
+	data           IndexInput
+	merging        bool
+	disiInputs     map[int]IndexInput
 	disiJumpTables map[int]RandomAccessInput
-	dataInputs    map[int]RandomAccessInput
+	dataInputs     map[int]RandomAccessInput
 }
 
 type normsEntry struct {
@@ -58,10 +58,10 @@ func NewLucene80NormsProducer(
 
 	producer := &lucene80NormsProducer{
 		norms:          make(map[int]*normsEntry),
-		maxDoc:        maxDoc,
-		disiInputs:    make(map[int]IndexInput),
+		maxDoc:         maxDoc,
+		disiInputs:     make(map[int]IndexInput),
 		disiJumpTables: make(map[int]RandomAccessInput),
-		dataInputs:    make(map[int]RandomAccessInput),
+		dataInputs:     make(map[int]RandomAccessInput),
 	}
 
 	if err := producer.readFields(meta, state.fieldInfos); err != nil {
@@ -307,19 +307,21 @@ type denseNormsIterator struct {
 	val    int64
 }
 
-func (d *denseNormsIterator) DocID() int { return d.doc }
+func (d *denseNormsIterator) DocID() int   { return d.doc }
 func (d *denseNormsIterator) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseNormsIterator) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseNormsIterator) AdvanceExact(target int) bool {
 	d.doc = target
 	return true
 }
-func (d *denseNormsIterator) Cost() int64 { return int64(d.maxDoc) }
+func (d *denseNormsIterator) Cost() int64      { return int64(d.maxDoc) }
 func (d *denseNormsIterator) LongValue() int64 { return d.val }
 
 type denseNormsIteratorByte struct {
@@ -328,13 +330,15 @@ type denseNormsIteratorByte struct {
 	slice  RandomAccessInput
 }
 
-func (d *denseNormsIteratorByte) DocID() int { return d.doc }
+func (d *denseNormsIteratorByte) DocID() int   { return d.doc }
 func (d *denseNormsIteratorByte) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseNormsIteratorByte) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseNormsIteratorByte) AdvanceExact(target int) bool {
 	d.doc = target
@@ -351,13 +355,15 @@ type denseNormsIteratorShort struct {
 	slice  RandomAccessInput
 }
 
-func (d *denseNormsIteratorShort) DocID() int { return d.doc }
+func (d *denseNormsIteratorShort) DocID() int   { return d.doc }
 func (d *denseNormsIteratorShort) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseNormsIteratorShort) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseNormsIteratorShort) AdvanceExact(target int) bool {
 	d.doc = target
@@ -374,13 +380,15 @@ type denseNormsIteratorInt struct {
 	slice  RandomAccessInput
 }
 
-func (d *denseNormsIteratorInt) DocID() int { return d.doc }
+func (d *denseNormsIteratorInt) DocID() int   { return d.doc }
 func (d *denseNormsIteratorInt) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseNormsIteratorInt) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseNormsIteratorInt) AdvanceExact(target int) bool {
 	d.doc = target
@@ -397,13 +405,15 @@ type denseNormsIteratorLong struct {
 	slice  RandomAccessInput
 }
 
-func (d *denseNormsIteratorLong) DocID() int { return d.doc }
+func (d *denseNormsIteratorLong) DocID() int   { return d.doc }
 func (d *denseNormsIteratorLong) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseNormsIteratorLong) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseNormsIteratorLong) AdvanceExact(target int) bool {
 	d.doc = target
@@ -419,23 +429,23 @@ type sparseNormsIterator struct {
 	val  int64
 }
 
-func (s *sparseNormsIterator) DocID() int { return s.disi.DocID() }
-func (s *sparseNormsIterator) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseNormsIterator) Advance(target int) int { return s.disi.Advance(target) }
+func (s *sparseNormsIterator) DocID() int                   { return s.disi.DocID() }
+func (s *sparseNormsIterator) NextDoc() int                 { return s.disi.NextDoc() }
+func (s *sparseNormsIterator) Advance(target int) int       { return s.disi.Advance(target) }
 func (s *sparseNormsIterator) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
-func (s *sparseNormsIterator) Cost() int64 { return s.disi.Cost() }
-func (s *sparseNormsIterator) LongValue() int64 { return s.val }
+func (s *sparseNormsIterator) Cost() int64                  { return s.disi.Cost() }
+func (s *sparseNormsIterator) LongValue() int64             { return s.val }
 
 type sparseNormsIteratorByte struct {
 	disi  *IndexedDISI
 	slice RandomAccessInput
 }
 
-func (s *sparseNormsIteratorByte) DocID() int { return s.disi.DocID() }
-func (s *sparseNormsIteratorByte) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseNormsIteratorByte) Advance(target int) int { return s.disi.Advance(target) }
+func (s *sparseNormsIteratorByte) DocID() int                   { return s.disi.DocID() }
+func (s *sparseNormsIteratorByte) NextDoc() int                 { return s.disi.NextDoc() }
+func (s *sparseNormsIteratorByte) Advance(target int) int       { return s.disi.Advance(target) }
 func (s *sparseNormsIteratorByte) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
-func (s *sparseNormsIteratorByte) Cost() int64 { return s.disi.Cost() }
+func (s *sparseNormsIteratorByte) Cost() int64                  { return s.disi.Cost() }
 func (s *sparseNormsIteratorByte) LongValue() int64 {
 	return int64(s.slice.ReadByte(s.disi.Index()))
 }
@@ -445,11 +455,11 @@ type sparseNormsIteratorShort struct {
 	slice RandomAccessInput
 }
 
-func (s *sparseNormsIteratorShort) DocID() int { return s.disi.DocID() }
-func (s *sparseNormsIteratorShort) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseNormsIteratorShort) Advance(target int) int { return s.disi.Advance(target) }
+func (s *sparseNormsIteratorShort) DocID() int                   { return s.disi.DocID() }
+func (s *sparseNormsIteratorShort) NextDoc() int                 { return s.disi.NextDoc() }
+func (s *sparseNormsIteratorShort) Advance(target int) int       { return s.disi.Advance(target) }
 func (s *sparseNormsIteratorShort) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
-func (s *sparseNormsIteratorShort) Cost() int64 { return s.disi.Cost() }
+func (s *sparseNormsIteratorShort) Cost() int64                  { return s.disi.Cost() }
 func (s *sparseNormsIteratorShort) LongValue() int64 {
 	return int64(s.slice.ReadShort(int64(s.disi.Index()) << 1))
 }
@@ -459,11 +469,11 @@ type sparseNormsIteratorInt struct {
 	slice RandomAccessInput
 }
 
-func (s *sparseNormsIteratorInt) DocID() int { return s.disi.DocID() }
-func (s *sparseNormsIteratorInt) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseNormsIteratorInt) Advance(target int) int { return s.disi.Advance(target) }
+func (s *sparseNormsIteratorInt) DocID() int                   { return s.disi.DocID() }
+func (s *sparseNormsIteratorInt) NextDoc() int                 { return s.disi.NextDoc() }
+func (s *sparseNormsIteratorInt) Advance(target int) int       { return s.disi.Advance(target) }
 func (s *sparseNormsIteratorInt) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
-func (s *sparseNormsIteratorInt) Cost() int64 { return s.disi.Cost() }
+func (s *sparseNormsIteratorInt) Cost() int64                  { return s.disi.Cost() }
 func (s *sparseNormsIteratorInt) LongValue() int64 {
 	return int64(s.slice.ReadInt(int64(s.disi.Index()) << 2))
 }
@@ -473,11 +483,11 @@ type sparseNormsIteratorLong struct {
 	slice RandomAccessInput
 }
 
-func (s *sparseNormsIteratorLong) DocID() int { return s.disi.DocID() }
-func (s *sparseNormsIteratorLong) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseNormsIteratorLong) Advance(target int) int { return s.disi.Advance(target) }
+func (s *sparseNormsIteratorLong) DocID() int                   { return s.disi.DocID() }
+func (s *sparseNormsIteratorLong) NextDoc() int                 { return s.disi.NextDoc() }
+func (s *sparseNormsIteratorLong) Advance(target int) int       { return s.disi.Advance(target) }
 func (s *sparseNormsIteratorLong) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
-func (s *sparseNormsIteratorLong) Cost() int64 { return s.disi.Cost() }
+func (s *sparseNormsIteratorLong) Cost() int64                  { return s.disi.Cost() }
 func (s *sparseNormsIteratorLong) LongValue() int64 {
 	return s.slice.ReadLong(int64(s.disi.Index()) << 3)
 }

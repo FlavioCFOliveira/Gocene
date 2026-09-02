@@ -13,14 +13,14 @@ import (
 )
 
 type lucene80DocValuesProducer struct {
-	numerics     map[int]*numericEntry
-	binaries     map[int]*binaryEntry
-	sorted       map[int]*sortedEntry
-	sortedSets   map[int]*sortedSetEntry
+	numerics       map[int]*numericEntry
+	binaries       map[int]*binaryEntry
+	sorted         map[int]*sortedEntry
+	sortedSets     map[int]*sortedSetEntry
 	sortedNumerics map[int]*sortedNumericEntry
-	data         IndexInput
-	maxDoc       int
-	version      int
+	data           IndexInput
+	maxDoc         int
+	version        int
 }
 
 func NewLucene80DocValuesProducer(
@@ -306,7 +306,7 @@ func (p *lucene80DocValuesProducer) readTermDict(meta IndexInput, entry TermsDic
 	}
 
 	blockShift := meta.ReadInt()
-	addressesSize := (entry.termsDictSize + int64(1<<entry.termsDictBlockShift) - 1) >>> uint(entry.termsDictBlockShift)
+	addressesSize := int64(uint64(entry.termsDictSize+int64(1)<<uint(entry.termsDictBlockShift)-1) >> uint(entry.termsDictBlockShift))
 	entry.termsAddressesMeta = packed.NewDirectMonotonicReader(meta, addressesSize, blockShift)
 	entry.maxTermLength = meta.ReadInt()
 
@@ -320,7 +320,7 @@ func (p *lucene80DocValuesProducer) readTermDict(meta IndexInput, entry TermsDic
 	entry.termsAddressesLength = meta.ReadLong()
 	entry.termsDictIndexShift = meta.ReadInt()
 
-	indexSize := (entry.termsDictSize + int64(1<<entry.termsDictIndexShift) - 1) >>> uint(entry.termsDictIndexShift)
+	indexSize := int64(uint64(entry.termsDictSize+int64(1)<<uint(entry.termsDictIndexShift)-1) >> uint(entry.termsDictIndexShift))
 	entry.termsIndexAddressesMeta = packed.NewDirectMonotonicReader(meta, 1+indexSize, blockShift)
 	entry.termsIndexOffset = meta.ReadLong()
 	entry.termsIndexLength = meta.ReadLong()
@@ -450,8 +450,8 @@ func (p *lucene80DocValuesProducer) getNumeric(entry *numericEntry) NumericDocVa
 			if entry.blockShift >= 0 {
 				return &sparseNumericVaryingBPV{
 					disi:  disi,
-					entry:  entry,
-					slice:  slice,
+					entry: entry,
+					slice: slice,
 				}
 			} else {
 				values := packed.NewDirectReader(slice, int(entry.bitsPerValue))
@@ -479,19 +479,21 @@ type denseNumericDocValues struct {
 	entry  *numericEntry
 }
 
-func (d *denseNumericdocValues) DocID() int { return d.doc }
+func (d *denseNumericdocValues) DocID() int   { return d.doc }
 func (d *denseNumericdocValues) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseNumericdocValues) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseNumericdocValues) AdvanceExact(target int) bool {
 	d.doc = target
 	return true
 }
-func (d *denseNumericdocValues) Cost() int64 { return int64(d.maxDoc) }
+func (d *denseNumericdocValues) Cost() int64      { return int64(d.maxDoc) }
 func (d *denseNumericdocValues) LongValue() int64 { return d.entry.minValue }
 
 type denseNumericVaryingBPV struct {
@@ -501,13 +503,15 @@ type denseNumericVaryingBPV struct {
 	doc    int
 }
 
-func (d *denseNumericVaryingBPV) DocID() int { return d.doc }
+func (d *denseNumericVaryingBPV) DocID() int   { return d.doc }
 func (d *denseNumericVaryingBPV) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseNumericVaryingBPV) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseNumericVaryingBPV) AdvanceExact(target int) bool {
 	d.doc = target
@@ -531,13 +535,15 @@ type denseNumericTable struct {
 	doc    int
 }
 
-func (d *denseNumericTable) DocID() int { return d.doc }
+func (d *denseNumericTable) DocID() int   { return d.doc }
 func (d *denseNumericTable) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseNumericTable) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseNumericTable) AdvanceExact(target int) bool {
 	d.doc = target
@@ -556,13 +562,15 @@ type denseNumericDelta struct {
 	doc    int
 }
 
-func (d *denseNumericDelta) DocID() int { return d.doc }
+func (d *denseNumericDelta) DocID() int   { return d.doc }
 func (d *denseNumericDelta) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseNumericDelta) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseNumericDelta) AdvanceExact(target int) bool {
 	d.doc = target
@@ -578,24 +586,24 @@ type sparseNumericDocValues struct {
 	entry *numericEntry
 }
 
-func (s *sparseNumericDocValues) DocID() int { return s.disi.DocID() }
-func (s *sparseNumericDocValues) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseNumericDocValues) Advance(target int) int { return s.disi.Advance(target) }
+func (s *sparseNumericDocValues) DocID() int                   { return s.disi.DocID() }
+func (s *sparseNumericDocValues) NextDoc() int                 { return s.disi.NextDoc() }
+func (s *sparseNumericDocValues) Advance(target int) int       { return s.disi.Advance(target) }
 func (s *sparseNumericDocValues) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
-func (s *sparseNumericDocValues) Cost() int64 { return s.disi.Cost() }
-func (s *sparseNumericDocValues) LongValue() int64 { return s.entry.minValue }
+func (s *sparseNumericDocValues) Cost() int64                  { return s.disi.Cost() }
+func (s *sparseNumericDocValues) LongValue() int64             { return s.entry.minValue }
 
 type sparseNumericVaryingBPV struct {
 	disi  *IndexedDISI
 	entry *numericEntry
-	slice  RandomAccessInput
+	slice RandomAccessInput
 }
 
-func (s *sparseNumericVaryingBPV) DocID() int { return s.disi.DocID() }
-func (s *sparseNumericVaryingBPV) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseNumericVaryingBPV) Advance(int) int { return s.disi.Advance(int) }
+func (s *sparseNumericVaryingBPV) DocID() int            { return s.disi.DocID() }
+func (s *sparseNumericVaryingBPV) NextDoc() int          { return s.disi.NextDoc() }
+func (s *sparseNumericVaryingBPV) Advance(int) int       { return s.disi.Advance(int) }
 func (s *sparseNumericVaryingBPV) AdvanceExact(int) bool { return s.disi.AdvanceExact(int) }
-func (s *sparseNumericVaryingBPV) Cost() int64 { return s.disi.Cost() }
+func (s *sparseNumericVaryingBPV) Cost() int64           { return s.disi.Cost() }
 func (s *sparseNumericVaryingBPV) LongValue() int64 {
 	return 0 // Simplified
 }
@@ -606,11 +614,11 @@ type sparseNumericTable struct {
 	table  []int64
 }
 
-func (s *sparseNumericTable) DocID() int { return s.disi.DocID() }
-func (s *sparseNumericTable) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseNumericTable) Advance(target int) int { return s.disi.Advance(target) }
+func (s *sparseNumericTable) DocID() int                   { return s.disi.DocID() }
+func (s *sparseNumericTable) NextDoc() int                 { return s.disi.NextDoc() }
+func (s *sparseNumericTable) Advance(target int) int       { return s.disi.Advance(target) }
 func (s *sparseNumericTable) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
-func (s *sparseNumericTable) Cost() int64 { return s.disi.Cost() }
+func (s *sparseNumericTable) Cost() int64                  { return s.disi.Cost() }
 func (s *sparseNumericTable) LongValue() int64 {
 	return s.table[s.values.Get(int64(s.disi.Index()))]
 }
@@ -622,11 +630,11 @@ type sparseNumericDelta struct {
 	delta  int64
 }
 
-func (s *sparseNumericDelta) DocID() int { return s.disi.DocID() }
-func (s *sparseNumericDelta) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseNumericDelta) Advance(target int) int { return s.disi.Advance(target) }
+func (s *sparseNumericDelta) DocID() int                   { return s.disi.DocID() }
+func (s *sparseNumericDelta) NextDoc() int                 { return s.disi.NextDoc() }
+func (s *sparseNumericDelta) Advance(target int) int       { return s.disi.Advance(target) }
 func (s *sparseNumericDelta) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
-func (s *sparseNumericDelta) Cost() int64 { return s.disi.Cost() }
+func (s *sparseNumericDelta) Cost() int64                  { return s.disi.Cost() }
 func (s *sparseNumericDelta) LongValue() int64 {
 	return s.mul*s.values.Get(int64(s.disi.Index())) + s.delta
 }
@@ -661,8 +669,8 @@ func (p *lucene80DocValuesProducer) getUncompressedBinary(entry *binaryEntry) Bi
 			addressesData := p.data.RandomAccessSlice(entry.addressesOffset, entry.addressesLength)
 			addresses := packed.NewDirectMonotonicReader(entry.addressesMeta, addressesData)
 			return &denseBinaryVarLen{
-				maxDoc: p.maxDoc,
-				slice:  bytesSlice,
+				maxDoc:    p.maxDoc,
+				slice:     bytesSlice,
 				addresses: addresses,
 				maxLength: entry.maxLength,
 			}
@@ -697,10 +705,10 @@ func (p *lucene80DocValuesProducer) getCompressedBinary(entry *binaryEntry) Bina
 		addressesData := p.data.RandomAccessSlice(entry.addressesOffset, entry.addressesLength)
 		addresses := packed.NewDirectMonotonicReader(entry.addressesMeta, addressesData)
 		return &denseBinaryCompressed{
-			maxDoc: p.maxDoc,
+			maxDoc:    p.maxDoc,
 			addresses: addresses,
-			data: p.data,
-			entry: entry,
+			data:      p.data,
+			entry:     entry,
 		}
 	} else {
 		disi := NewIndexedDISI(p.data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.jumpTableEntryCount, entry.denseRankPower, entry.numDocsWithField)
@@ -722,13 +730,15 @@ type denseBinaryDocValues struct {
 	doc    int
 }
 
-func (d *denseBinaryDocValues) DocID() int { return d.doc }
+func (d *denseBinaryDocValues) DocID() int   { return d.doc }
 func (d *denseBinaryDocValues) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseBinaryDocValues) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseBinaryDocValues) AdvanceExact(target int) bool {
 	d.doc = target
@@ -743,20 +753,22 @@ func (d *denseBinaryDocValues) BinaryValue() BytesRef {
 }
 
 type denseBinaryVarLen struct {
-	maxDoc int
-	slice  IndexInput
+	maxDoc    int
+	slice     IndexInput
 	addresses packed.DirectMonotonicReader
 	maxLength int
-	doc    int
+	doc       int
 }
 
-func (d *denseBinaryVarLen) DocID() int { return d.doc }
+func (d *denseBinaryVarLen) DocID() int   { return d.doc }
 func (d *denseBinaryVarLen) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseBinaryVarLen) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseBinaryVarLen) AdvanceExact(target int) bool {
 	d.doc = target
@@ -779,11 +791,11 @@ type sparseBinaryDocValues struct {
 	length int
 }
 
-func (s *sparseBinaryDocValues) DocID() int { return s.disi.DocID() }
-func (s *sparseBinaryDocValues) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseBinaryDocValues) Advance(target int) int { return s.disi.Advance(target) }
+func (s *sparseBinaryDocValues) DocID() int                   { return s.disi.DocID() }
+func (s *sparseBinaryDocValues) NextDoc() int                 { return s.disi.NextDoc() }
+func (s *sparseBinaryDocValues) Advance(target int) int       { return s.disi.Advance(target) }
 func (s *sparseBinaryDocValues) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
-func (s *sparseBinaryDocValues) Cost() int64 { return s.disi.Cost() }
+func (s *sparseBinaryDocValues) Cost() int64                  { return s.disi.Cost() }
 func (s *sparseBinaryDocValues) BinaryValue() BytesRef {
 	buf := make([]byte, s.length)
 	s.slice.Seek(int64(s.disi.Index()) * int64(s.length))
@@ -798,11 +810,11 @@ type sparseBinaryVarLen struct {
 	maxLength int
 }
 
-func (s *sparseBinaryVarLen) DocID() int { return s.disi.DocID() }
-func (s *sparseBinaryVarLen) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseBinaryVarLen) Advance(target int) int { return s.disi.Advance(target) }
+func (s *sparseBinaryVarLen) DocID() int                   { return s.disi.DocID() }
+func (s *sparseBinaryVarLen) NextDoc() int                 { return s.disi.NextDoc() }
+func (s *sparseBinaryVarLen) Advance(target int) int       { return s.disi.Advance(target) }
 func (s *sparseBinaryVarLen) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
-func (s *sparseBinaryVarLen) Cost() int64 { return s.disi.Cost() }
+func (s *sparseBinaryVarLen) Cost() int64                  { return s.disi.Cost() }
 func (s *sparseBinaryVarLen) BinaryValue() BytesRef {
 	index := s.disi.Index()
 	start := s.addresses.Get(int64(index))
@@ -815,20 +827,22 @@ func (s *sparseBinaryVarLen) BinaryValue() BytesRef {
 }
 
 type denseBinaryCompressed struct {
-	maxDoc int
+	maxDoc    int
 	addresses packed.DirectMonotonicReader
-	data IndexInput
-	entry *binaryEntry
-	doc int
+	data      IndexInput
+	entry     *binaryEntry
+	doc       int
 }
 
-func (d *denseBinaryCompressed) DocID() int { return d.doc }
+func (d *denseBinaryCompressed) DocID() int   { return d.doc }
 func (d *denseBinaryCompressed) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseBinaryCompressed) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseBinaryCompressed) AdvanceExact(target int) bool {
 	d.doc = target
@@ -847,11 +861,11 @@ type sparseBinaryCompressed struct {
 	entry     *binaryEntry
 }
 
-func (s *sparseBinaryCompressed) DocID() int { return s.disi.DocID() }
-func (s *sparseBinaryCompressed) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseBinaryCompressed) Advance(target int) int { return s.disi.Advance(target) }
+func (s *sparseBinaryCompressed) DocID() int                   { return s.disi.DocID() }
+func (s *sparseBinaryCompressed) NextDoc() int                 { return s.disi.NextDoc() }
+func (s *sparseBinaryCompressed) Advance(target int) int       { return s.disi.Advance(target) }
 func (s *sparseBinaryCompressed) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
-func (s *sparseBinaryCompressed) Cost() int64 { return s.disi.Cost() }
+func (s *sparseBinaryCompressed) Cost() int64                  { return s.disi.Cost() }
 func (s *sparseBinaryCompressed) BinaryValue() BytesRef {
 	// Need to implement BinaryDecoder
 	return nil
@@ -888,10 +902,10 @@ func (p *lucene80DocValuesProducer) getSorted(entry *sortedEntry) SortedDocValue
 	} else {
 		disi := NewIndexedDISI(p.data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.jumpTableEntryCount, entry.denseRankPower, entry.numDocsWithField)
 		return &sparseSortedDocValues{
-			disi:   disi,
-			ords:   ords,
-			entry:  entry,
-			data:   p.data,
+			disi:  disi,
+			ords:  ords,
+			entry: entry,
+			data:  p.data,
 		}
 	}
 }
@@ -899,7 +913,7 @@ func (p *lucene80DocValuesProducer) getSorted(entry *sortedEntry) SortedDocValue
 type zeroLongValues struct{}
 
 func (z *zeroLongValues) Get(index int64) int64 { return 0 }
-func (z *zeroLongValues) Length() int64 { return 0 } // Not used
+func (z *zeroLongValues) Length() int64         { return 0 } // Not used
 
 type denseSortedDocValues struct {
 	maxDoc int
@@ -909,13 +923,15 @@ type denseSortedDocValues struct {
 	doc    int
 }
 
-func (d *denseSortedDocValues) DocID() int { return d.doc }
+func (d *denseSortedDocValues) DocID() int   { return d.doc }
 func (d *denseSortedDocValues) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseSortedDocValues) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseSortedDocValues) AdvanceExact(target int) bool {
 	d.doc = target
@@ -927,17 +943,17 @@ func (d *denseSortedDocValues) OrdValue() int {
 }
 
 type sparseSortedDocValues struct {
-	disi   *IndexedDISI
-	ords   packed.DirectReader
-	entry  *sortedEntry
-	data   IndexInput
+	disi  *IndexedDISI
+	ords  packed.DirectReader
+	entry *sortedEntry
+	data  IndexInput
 }
 
-func (s *sparseSortedDocValues) DocID() int { return s.disi.DocID() }
-func (s *sparseSortedDocValues) NextDoc() int { return s.disi.NextDoc() }
-func (s *sparseSortedDocValues) Advance(target int) int { return s.disi.Advance(target) }
+func (s *sparseSortedDocValues) DocID() int                   { return s.disi.DocID() }
+func (s *sparseSortedDocValues) NextDoc() int                 { return s.disi.NextDoc() }
+func (s *sparseSortedDocValues) Advance(target int) int       { return s.disi.Advance(target) }
 func (s *sparseSortedDocValues) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
-func (s *sparseSortedDocValues) Cost() int64 { return s.disi.Cost() }
+func (s *sparseSortedDocValues) Cost() int64                  { return s.disi.Cost() }
 func (s *sparseSortedDocValues) OrdValue() int {
 	return int(s.ords.Get(int64(s.disi.Index())))
 }
@@ -959,11 +975,11 @@ func (p *lucene80DocValuesProducer) GetSortedSet(field FieldInfo) SortedSetDocVa
 
 	if entry.docsWithFieldOffset == -1 {
 		return &denseSortedSetDocValues{
-			maxDoc: p.maxDoc,
-			ords:   ords,
+			maxDoc:    p.maxDoc,
+			ords:      ords,
 			addresses: addresses,
-			entry: entry,
-			data: p.data,
+			entry:     entry,
+			data:      p.data,
 		}
 	} else {
 		disi := NewIndexedDISI(p.data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.jumpTableEntryCount, entry.denseRankPower, entry.numDocsWithField)
@@ -978,29 +994,31 @@ func (p *lucene80DocValuesProducer) GetSortedSet(field FieldInfo) SortedSetDocVa
 }
 
 type denseSortedSetDocValues struct {
-	maxDoc int
-	ords   packed.DirectReader
+	maxDoc    int
+	ords      packed.DirectReader
 	addresses packed.DirectMonotonicReader
-	entry  *sortedSetEntry
-	data   IndexInput
-	doc    int
-	curr   int64
-	count  int
+	entry     *sortedSetEntry
+	data      IndexInput
+	doc       int
+	curr      int64
+	count     int
 }
 
-func (d *denseSortedSetDocValues) DocID() int { return d.doc }
+func (d *denseSortedSetDocValues) DocID() int   { return d.doc }
 func (d *denseSortedSetDocValues) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseSortedSetDocValues) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
 	d.curr = d.addresses.Get(int64(target))
-	d.count = int(d.addresses.Get(int64(target + 1)) - d.curr)
-	return d.doc = target
+	d.count = int(d.addresses.Get(int64(target+1)) - d.curr)
+	d.doc = target
+	return d.doc
 }
 func (d *denseSortedSetDocValues) AdvanceExact(target int) bool {
 	d.curr = d.addresses.Get(int64(target))
-	d.count = int(d.addresses.Get(int64(target + 1)) - d.curr)
+	d.count = int(d.addresses.Get(int64(target+1)) - d.curr)
 	d.doc = target
 	return true
 }
@@ -1012,7 +1030,7 @@ func (d *denseSortedSetDocValues) NextOrd() int64 {
 }
 func (d *denseSortedSetDocValues) DocValueCount() int { return d.count }
 
-type sparseSortedSetDocValues {
+type sparseSortedSetDocValues struct {
 	disi      *IndexedDISI
 	ords      packed.DirectReader
 	addresses packed.DirectMonotonicReader
@@ -1066,41 +1084,43 @@ func (p *lucene80DocValuesProducer) getSortedNumeric(entry *sortedNumericEntry) 
 
 	if entry.docsWithFieldOffset == -1 {
 		return &denseSortedNumericDocValues{
-			maxDoc: p.maxDoc,
+			maxDoc:    p.maxDoc,
 			addresses: addresses,
-			values: values,
-			doc: -1,
+			values:    values,
+			doc:       -1,
 		}
 	} else {
 		disi := NewIndexedDISI(p.data, entry.docsWithFieldOffset, entry.docsWithFieldLength, entry.jumpTableEntryCount, entry.denseRankPower, entry.numDocsWithField)
 		return &sparseSortedNumericDocValues{
-			disi: disi,
+			disi:      disi,
 			addresses: addresses,
-			values: values,
+			values:    values,
 		}
 	}
 }
 
 type denseSortedNumericDocValues struct {
-	maxDoc int
+	maxDoc    int
 	addresses packed.DirectMonotonicReader
-	values LongValues
-	doc int
-	start int64
-	end int64
-	count int
+	values    LongValues
+	doc       int
+	start     int64
+	end       int64
+	count     int
 }
 
-func (d *denseSortedNumericDocValues) DocID() int { return d.doc }
+func (d *denseSortedNumericDocValues) DocID() int   { return d.doc }
 func (d *denseSortedNumericDocValues) NextDoc() int { return d.advance(d.doc + 1) }
 func (d *denseSortedNumericDocValues) Advance(target int) int {
 	if target >= d.maxDoc {
-		return d.doc = DocIdSetIterator.NoMoreDocs
+		d.doc = dvNoMoreDocs
+		return d.doc
 	}
 	d.start = d.addresses.Get(int64(target))
 	d.end = d.addresses.Get(int64(target + 1))
 	d.count = int(d.end - d.start)
-	return d.doc = target
+	d.doc = target
+	return d.doc
 }
 func (d *denseSortedNumericDocValues) AdvanceExact(target int) bool {
 	d.start = d.addresses.Get(int64(target))
@@ -1116,15 +1136,17 @@ func (d *denseSortedNumericDocValues) NextValue() int64 {
 func (d *denseSortedNumericDocValues) DocValueCount() int { return d.count }
 
 type sparseSortedNumericDocValues struct {
-	disi *IndexedDISI
+	disi      *IndexedDISI
 	addresses packed.DirectMonotonicReader
-	values LongValues
+	values    LongValues
 }
 
-func (s *sparseSortedNumericDocValues) DocID() int { return s.disi.DocID() }
-func (s *sparseSortedNumericDocValues) NextDoc() int { return s.disi.NextDoc() }
+func (s *sparseSortedNumericDocValues) DocID() int             { return s.disi.DocID() }
+func (s *sparseSortedNumericDocValues) NextDoc() int           { return s.disi.NextDoc() }
 func (s *sparseSortedNumericDocValues) Advance(target int) int { return s.disi.Advance(target) }
-func (s *sparseSortedNumericDocValues) AdvanceExact(target int) bool { return s.disi.AdvanceExact(target) }
+func (s *sparseSortedNumericDocValues) AdvanceExact(target int) bool {
+	return s.disi.AdvanceExact(target)
+}
 func (s *sparseSortedNumericDocValues) Cost() int64 { return s.disi.Cost() }
 func (s *sparseSortedNumericDocValues) NextValue() int64 {
 	index := s.disi.Index()
@@ -1157,14 +1179,14 @@ func (p *lucene80DocValuesProducer) getNumericValues(entry *numericEntry) LongVa
 			}
 		} else if entry.gcd != 1 {
 			return &numericDeltaValues{
-				values: values,
-				gcd:    entry.gcd,
+				values:   values,
+				gcd:      entry.gcd,
 				minValue: entry.minValue,
 			}
 		} else if entry.minValue != 0 {
 			return &numericDeltaValues{
-				values: values,
-				gcd:    1,
+				values:   values,
+				gcd:      1,
 				minValue: entry.minValue,
 			}
 		} else {
@@ -1193,8 +1215,8 @@ func (v *numericTableValues) Get(index int64) int64 {
 }
 
 type numericDeltaValues struct {
-	values packed.DirectReader
-	gcd    int64
+	values   packed.DirectReader
+	gcd      int64
 	minValue int64
 }
 
@@ -1203,57 +1225,57 @@ func (v *numericDeltaValues) Get(index int64) int64 {
 }
 
 type numericEntry struct {
-	table []int64
-	blockShift int
-	bitsPerValue byte
-	docsWithFieldOffset int64
-	docsWithFieldLength int64
-	jumpTableEntryCount int16
-	denseRankPower byte
-	numValues int64
-	minValue int64
-	gcd int64
-	valuesOffset int64
-	valuesLength int64
+	table                []int64
+	blockShift           int
+	bitsPerValue         byte
+	docsWithFieldOffset  int64
+	docsWithFieldLength  int64
+	jumpTableEntryCount  int16
+	denseRankPower       byte
+	numValues            int64
+	minValue             int64
+	gcd                  int64
+	valuesOffset         int64
+	valuesLength         int64
 	valueJumpTableOffset int64
 }
 
 type binaryEntry struct {
-	compressed bool
-	dataOffset int64
-	dataLength int64
-	docsWithFieldOffset int64
-	docsWithFieldLength int64
-	jumpTableEntryCount int16
-	denseRankPower byte
-	numDocsWithField int
-	minLength int
-	maxLength int
-	addressesOffset int64
-	addressesLength int64
-	addressesMeta packed.DirectMonotonicReader.Meta
-	numCompressedChunks int
-	docsPerChunkShift int
+	compressed               bool
+	dataOffset               int64
+	dataLength               int64
+	docsWithFieldOffset      int64
+	docsWithFieldLength      int64
+	jumpTableEntryCount      int16
+	denseRankPower           byte
+	numDocsWithField         int
+	minLength                int
+	maxLength                int
+	addressesOffset          int64
+	addressesLength          int64
+	addressesMeta            *packed.DirectMonotonicMeta
+	numCompressedChunks      int
+	docsPerChunkShift        int
 	maxUncompressedChunkSize int
 }
 
 type termsDictEntry struct {
-	termsDictSize int64
-	termsDictBlockShift int
-	termsAddressesMeta packed.DirectMonotonicReader.Meta
-	maxTermLength int
-	termsDataOffset int64
-	termsDataLength int64
-	termsAddressesOffset int64
-	termsAddressesLength int64
-	termsDictIndexShift int
-	termsIndexAddressesMeta packed.DirectMonotonicReader.Meta
-	termsIndexOffset int64
-	termsIndexLength int64
+	termsDictSize             int64
+	termsDictBlockShift       int
+	termsAddressesMeta        *packed.DirectMonotonicMeta
+	maxTermLength             int
+	termsDataOffset           int64
+	termsDataLength           int64
+	termsAddressesOffset      int64
+	termsAddressesLength      int64
+	termsDictIndexShift       int
+	termsIndexAddressesMeta   *packed.DirectMonotonicMeta
+	termsIndexOffset          int64
+	termsIndexLength          int64
 	termsIndexAddressesOffset int64
 	termsIndexAddressesLength int64
-	compressed bool
-	maxBlockLength int
+	compressed                bool
+	maxBlockLength            int
 }
 
 type sortedEntry struct {
@@ -1261,34 +1283,34 @@ type sortedEntry struct {
 	docsWithFieldOffset int64
 	docsWithFieldLength int64
 	jumpTableEntryCount int16
-	denseRankPower byte
-	numDocsWithField int
-	bitsPerValue byte
-	ordsOffset int64
-	ordsLength int64
+	denseRankPower      byte
+	numDocsWithField    int
+	bitsPerValue        byte
+	ordsOffset          int64
+	ordsLength          int64
 }
 
 type sortedSetEntry struct {
 	termsDictEntry
-	singleValueEntry *sortedEntry
+	singleValueEntry    *sortedEntry
 	docsWithFieldOffset int64
 	docsWithFieldLength int64
 	jumpTableEntryCount int16
-	denseRankPower byte
-	bitsPerValue byte
-	ordsOffset int64
-	ordsLength int64
-	addressesMeta packed.DirectMonotonicReader.Meta
-	addressesOffset int64
-	addressesLength int64
+	denseRankPower      byte
+	bitsPerValue        byte
+	ordsOffset          int64
+	ordsLength          int64
+	addressesMeta       *packed.DirectMonotonicMeta
+	addressesOffset     int64
+	addressesLength     int64
 }
 
 type sortedNumericEntry struct {
 	numericEntry
 	numDocsWithField int
-	addressesMeta packed.DirectMonotonicReader.Meta
-	addressesOffset int64
-	addressesLength int64
+	addressesMeta    *packed.DirectMonotonicMeta
+	addressesOffset  int64
+	addressesLength  int64
 }
 
 func newBytesRef(b []byte) BytesRef {
