@@ -1762,24 +1762,3 @@ func readSegmentInfosLegacy(rawIn store.IndexInput, directory store.Directory, m
 	}
 	return si, nil
 }
-
-// ReadCommit reads the SegmentInfos from the given directory and file name.
-func ReadCommit(dir store.Directory, fileName string) (*SegmentInfos, error) {
-	// Extract the generation from the fileName (segments_N).
-	if len(fileName) < 9 || fileName[:9] != "segments_" {
-		return nil, fmt.Errorf("invalid segments file name: %s", fileName)
-	}
-	genStr := fileName[9:]
-	gen, err := strconv.ParseInt(genStr, 36, 64)
-	if err != nil {
-		return nil, fmt.Errorf("invalid generation in file name %s: %w", fileName, err)
-	}
-
-	// Open the file
-	rawIn, err := dir.OpenInput(fileName, store.IOContextRead)
-	if err != nil {
-		return nil, err
-	}
-	// ReadSegmentInfosFromHandle closes rawIn itself.
-	return ReadSegmentInfosFromHandle(rawIn, dir, gen)
-}
