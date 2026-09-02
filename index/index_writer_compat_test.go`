@@ -1,0 +1,131 @@
+package index
+
+import (
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// MockWarmer implements IndexReaderWarmer for testing.
+type MockWarmer struct {
+	warmCount int
+	mu        sync.Mutex
+}
+
+func (m *MockWarmer) Warm(reader *SegmentReader) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.warmCount++
+}
+
+func (m *MockWarmer) GetWarmCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.warmCount
+}
+
+func TestIndexWriter_Rollback(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	conf := NewIndexWriterConfig()
+	iw, err := NewIndexWriter(dir, conf)
+	if err != nil {
+		t.Fatalf("failed to create IndexWriter: %v", err)
+	}
+
+	// 1. Index some docs
+	doc1 := []IndexableField{{Name: "text", Value: "first"}}
+	iw.AddDocument(doc1)
+
+	// Commit to establish a baseline
+	iw.Commit()
+	baselineMaxDoc := iw.GetSegmentCount() // simplified baseline
+
+	// 2. Index more docs
+	doc2 := []IndexableField{{Name: "text", Value: "second"}}
+	iw.AddDocument(doc2)
+
+	// 3. Rollback
+	if err := iw.Rollback(); err != nil {
+		t.Fatalf("rollback failed: %v", err)
+	}
+
+	// 4. Verify state
+	if iw.GetSegmentCount() != baselineMaxDoc {
+		t.Errorf("expected segment count %d, got %d", baselineMaxDoc, iw.GetSegmentCount())
+	}
+}
+
+func TestIndexWriterConfig_SetIndexCommit(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	conf1 := NewIndexWriterConfig()
+	iw1, err := NewIndexWriter(dir, conf1)
+	if err != nil {
+		t.Fatalf("failed to create IndexWriter 1: %v", err)
+	}
+	iw1.AddDocument([]IndexableField{{Name: "text", Value: "v1"}})
+	iw1.Commit()
+	reader, err := iw1.GetReader(true)
+	if err != nil {
+		t.Fatalf("failed to get reader: %v", err)
+	}
+	commit := reader.GetIndexCommit()
+	iw1.Close()
+
+	// Create second writer starting from the commit
+	conf2 := NewIndexWriterConfig()
+	conf2.SetIndexCommit(commit)
+	iw2, err := NewIndexWriter(dir, conf2)
+	if err != nil {
+		t.Fatalf("failed to create IndexWriter 2 from commit: %v", err)
+	}
+	defer iw2.Close()
+
+	if iw2.GetSegmentCount() == 0 {
+		t.Error("expected writer to start with segments from commit, but it's empty")
+	}
+}
+
+func TestIndexWriter_MaxFullFlushMergeWaitMillis(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	conf := NewIndexWriterConfig()
+	conf.SetMaxFullFlushMergeWaitMillis(100)
+	iw, err := NewIndexWriter(dir, conf)
+	if err != nil {
+		t.Fatalf("failed to create IndexWriter: %v", err)
+	}
+	defer iw.Close()
+
+	// Just verify GetReader doesn't panic and respects the timeout
+	start := time.Now()
+	_, err = iw.GetReader(true)
+	if err != nil {
+		t.Fatalf("GetReader failed: %v", err)
+	}
+	duration := time.Since(start)
+
+	if duration > 1*time.Second {
+		t.Errorf("GetReader took too long: %v", duration)
+	}
+}
+
+func TestIndexWriter_MergedSegmentWarmer(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	conf := NewIndexWriterConfig()
+	warmer := &MockWarmer{}
+	conf.SetMergedSegmentWarmer(warmer)
+	iw, err := NewIndexWriter(dir, conf)
+	if err != nil {
+		t.Fatalf("failed to create IndexWriter: %v", err)
+	}
+	defer iw.Close()
+
+	// Index enough docs to trigger a merge (or force one)
+	for i := 0; i < 10; i++ {
+		iw.AddDocument([]IndexableField{{Name: "text", Value: "val"}})
+		iw.FlushNextBuffer()
+	}
+}

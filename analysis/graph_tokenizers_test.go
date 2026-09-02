@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/analysis/testutil"
+	"github.com/FlavioCFOliveira/Gocene/internal/testutil"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )

@@ -26,6 +26,8 @@
 
 package util
 
+import "sync/atomic"
+
 // CounterAPI captures the abstract surface of
 // org.apache.lucene.util.Counter: a 64-bit accumulator with AddAndGet
 // and Get. Both *Counter (atomic) and *SerialCounter (single-thread)
@@ -48,8 +50,27 @@ type SerialCounter struct {
 	value int64
 }
 
+// NewCounter returns a new thread-safe counter.
+func NewCounter() *Counter {
+	return &Counter{}
+}
+
+// Counter is a thread-safe 64-bit accumulator.
+type Counter struct {
+	value atomic.Int64
+}
+
+func (c *Counter) AddAndGet(delta int64) int64 {
+	return c.value.Add(delta)
+}
+
+func (c *Counter) Get() int64 {
+	return c.value.Load()
+}
+
 // NewSerialCounter returns a new, zero-valued, non-thread-safe counter.
 func NewSerialCounter() *SerialCounter {
+
 	return &SerialCounter{}
 }
 
