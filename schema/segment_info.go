@@ -131,6 +131,42 @@ func NewSortedSetSortField(name string, reverse bool) *SortedSetSortField {
 	}
 }
 
+// NewSortField creates a new SortField with the given name and type number.
+func NewSortField(field string, typeNum int) *SortField {
+	return &SortField{
+		Field:   field,
+		Type:    SortFieldType(typeNum),
+		Reverse: false,
+	}
+}
+
+// NewSortFieldFull creates a new SortField with the given name, type number, and descending flag.
+func NewSortFieldFull(field string, typeNum int, descending bool) *SortField {
+	return &SortField{
+		Field:   field,
+		Type:    SortFieldType(typeNum),
+		Reverse: descending,
+	}
+}
+
+// NewSort creates a new Sort from multiple SortField pointers.
+func NewSort(fields ...*SortField) *Sort {
+	sfields := make([]SortField, len(fields))
+	for i, f := range fields {
+		sfields[i] = *f
+	}
+	return &Sort{fields: sfields}
+}
+
+// Fields returns the slice of SortFields in this Sort.
+func (s *Sort) Fields() []*SortField {
+	fields := make([]*SortField, len(s.fields))
+	for i := range s.fields {
+		fields[i] = &s.fields[i]
+	}
+	return fields
+}
+
 // SortRELEVANCE is a special sort that sorts by relevance (score).
 // This cannot be used as an index sort.
 var SortRELEVANCE = &Sort{fields: nil}

@@ -199,8 +199,8 @@ type arrivingTransition struct {
 // string (in UTF-32 code points).
 // Port of AutomatonTestUtil.RandomAcceptedStrings.
 type RandomAcceptedStrings struct {
-	a            *Automaton
-	transitions  [][]*Transition
+	a             *Automaton
+	transitions   [][]*Transition
 	leadsToAccept map[*Transition]bool
 }
 
@@ -228,8 +228,8 @@ func NewRandomAcceptedStrings(a *Automaton) *RandomAcceptedStrings {
 	}
 
 	ras := &RandomAcceptedStrings{
-		a:           a,
-		transitions: sorted,
+		a:             a,
+		transitions:   sorted,
 		leadsToAccept: make(map[*Transition]bool),
 	}
 

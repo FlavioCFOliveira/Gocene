@@ -96,3 +96,13 @@ func (sf *SortField) GetOptimizeSortWithIndexedData() bool {
 	}
 	return sf.optimizeSortWithIndexedData
 }
+
+// Descending returns true if this sort field sorts in descending order.
+func (sf *SortField) Descending() bool {
+	return sf.Reverse
+}
+
+// SetReverse sets whether this sort field sorts in descending order.
+func (sf *SortField) SetReverse(reverse bool) {
+	sf.Reverse = reverse
+}

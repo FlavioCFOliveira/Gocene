@@ -1394,12 +1394,12 @@ func ReadCommit(dir store.Directory, fileName string) (*SegmentInfos, error) {
 
 // FinishCommit serialises the current SegmentInfos to a segments_N file in dir.
 // This follows the "write-then-rename" pattern to ensure atomicity.
-func (s *SegmentInfos) FinishCommit(dir store.Directory, codec spi.Codec) (string, error) {
+func (s *SegmentInfos) FinishCommit(dir store.Directory, codec Codec) (string, error) {
 	if codec == nil {
 		return "", fmt.Errorf("codec must not be null for FinishCommit")
 	}
 
-	format := codec.SegmentInfoFormat()
+	format := codec.SegmentInfosFormat()
 	if format == nil {
 		return "", fmt.Errorf("codec does not provide a SegmentInfosFormat")
 	}
@@ -1648,7 +1648,7 @@ func readSegmentInfosLegacy(rawIn store.IndexInput, directory store.Directory, m
 			if err != nil {
 				return nil, fmt.Errorf("reading sort descending: %w", err)
 			}
-			fields = append(fields, schema.NewSortFieldFull(fname, schema.SortType(stRaw), descRaw != 0))
+			fields = append(fields, *schema.NewSortFieldFull(fname, int(stRaw), descRaw != 0))
 		}
 		indexSort = schema.NewSortFromFields(fields)
 	}
