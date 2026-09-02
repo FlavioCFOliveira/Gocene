@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Package index provides core index functionality for Gocene.
 // This file implements the IndexUpgrader tool for upgrading index segments.
 // Source: org.apache.lucene.index.IndexUpgrader (Apache Lucene 10.x)

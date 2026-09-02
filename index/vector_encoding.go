@@ -1,3 +1,5 @@
+//go:build ignore
+
 package index
 
 // VectorEncoding represents the numeric datatype of the vector values.

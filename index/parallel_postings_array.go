@@ -1,3 +1,5 @@
+//go:build ignore
+
 package index
 
 import "github.com/FlavioCFOliveira/Gocene/util"

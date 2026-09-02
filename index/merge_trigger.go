@@ -1,3 +1,5 @@
+//go:build ignore
+
 package index
 
 // MergeTrigger is passed to MergePolicy.FindMerges to indicate the event that triggered the merge.
