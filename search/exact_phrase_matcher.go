@@ -6,7 +6,7 @@ package search
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 type postingsAndPosition struct {
