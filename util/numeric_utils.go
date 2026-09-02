@@ -9,6 +9,7 @@ import (
 	"errors"
 	"math"
 	"math/big"
+	"strconv"
 )
 
 // NumericUtils provides helper APIs to encode numeric values as sortable bytes and vice-versa.

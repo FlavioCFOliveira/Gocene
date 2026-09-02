@@ -83,6 +83,8 @@ func OpenStandardDirectoryReader(directory store.Directory) (*StandardDirectoryR
 }
 
 // Open opens a StandardDirectoryReader with NRT support.
+// This is called by IndexWriter.GetReader() to create a reader over flushed segments.
+// The readerFactory is used to obtain pooled SegmentReaders with applied deletes.
 func Open(
 	iw *IndexWriter,
 	readerFactory func(*SegmentCommitInfo) (*ReadersAndUpdates, error),
@@ -94,6 +96,7 @@ func Open(
 	for i := 0; i < segmentInfos.Size(); i++ {
 		segmentCommitInfo := segmentInfos.Get(i)
 		var segmentReader *SegmentReader
+		var err error
 		if applyAllDeletes {
 			rau, err := readerFactory(segmentCommitInfo)
 			if err != nil {
@@ -110,7 +113,7 @@ func Open(
 				return nil, fmt.Errorf("failed to get read-only clone for %s: %w", segmentCommitInfo.SegmentInfo().Name(), err)
 			}
 		} else {
-			segmentReader, err := openSegmentReader(iw.dir, segmentCommitInfo)
+			segmentReader, err = openSegmentReader(iw.dir, segmentCommitInfo)
 			if err != nil {
 				for _, opened := range readers {
 					opened.Close()
@@ -122,23 +125,6 @@ func Open(
 	}
 
 	return NewStandardDirectoryReader(iw.dir, readers, segmentInfos, segmentInfos, true)
-}
-	readers := make([]*SegmentReader, 0, segmentInfos.Size())
-	for i := 0; i < segmentInfos.Size(); i++ {
-		segmentCommitInfo := segmentInfos.Get(i)
-		segmentReader, err := openSegmentReader(directory, segmentCommitInfo)
-		if err != nil {
-			// Close anything already opened before returning so file handles
-			// and refcounts on SegmentCoreReaders are not leaked.
-			for _, opened := range readers {
-				opened.Close() //nolint:errcheck // best-effort cleanup in error path
-			}
-			return nil, fmt.Errorf("opening segment reader for %s: %w", segmentCommitInfo.SegmentInfo().Name(), err)
-		}
-		readers = append(readers, segmentReader)
-	}
-
-	return NewStandardDirectoryReader(directory, readers, segmentInfos, segmentInfos, true)
 }
 
 // OpenIfChanged reopens the index if there have been changes.

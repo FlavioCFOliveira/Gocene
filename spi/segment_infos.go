@@ -256,6 +256,15 @@ func (si *SegmentInfos) SetVersion(version int64) {
 	si.version = version
 }
 
+// UpdateFromFlush increments the SegmentInfos version after new segments have been flushed.
+// This makes the newly flushed segments immediately visible in NRT readers.
+// Ref: Lucene StandardDirectoryReader:183.
+func (si *SegmentInfos) UpdateFromFlush() {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	si.version++
+}
+
 // LuceneVersion returns the Lucene version.
 func (si *SegmentInfos) LuceneVersion() string {
 	si.mu.RLock()

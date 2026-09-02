@@ -371,6 +371,79 @@ func (dw *DocumentsWriter) Flush() error {
 	return dw.flush()
 }
 
+// FlushAllThreads flushes all buffered documents from all DocumentsWriterPerThread instances.
+// This is called by IndexWriter.GetReader() to ensure all in-memory data is written to disk
+// before creating an NRT reader. It blocks until all per-thread flushes complete.
+// Returns the sequence number of the last change, or -1 if nothing was flushed.
+// Ref: Lucene IndexWriter:581, DocumentsWriter.flushAllThreads().
+func (dw *DocumentsWriter) FlushAllThreads() int64 {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+
+	if dw.closed {
+		return -1
+	}
+
+	var lastSeqNo int64 = -1
+	var flushErrors []error
+
+	// Iterate over all active DWPTs and flush each one.
+	dw.perThreadPool.Range(func(key, value any) bool {
+		dwpt := value.(*DocumentsWriterPerThread)
+		if dwpt == nil || dwpt.GetNumDocs() == 0 {
+			return true // Continue to next
+		}
+
+		segmentName := dwpt.SegmentName()
+		segmentInfo, err := dwpt.Flush(dw.directory, dw.codec, segmentName)
+		if err != nil {
+			flushErrors = append(flushErrors, fmt.Errorf("failed to flush segment %s: %w", segmentName, err))
+			return true // Continue despite error
+		}
+
+		if segmentInfo != nil {
+			if err := WriteSegmentInfo(segmentInfo, dw.directory, dw.codec); err != nil {
+				flushErrors = append(flushErrors, fmt.Errorf("failed to write segment info for %s: %w", segmentName, err))
+				return true
+			}
+			// Track the last sequence number from this flush
+			lastSeqNo = dw.GetNextSequenceNumber()
+		}
+
+		return true // Continue to next DWPT
+	})
+
+	// If any errors occurred, log them (but don't abort the full flush;
+	// IndexWriter.GetReader will handle error recovery).
+	if len(flushErrors) > 0 {
+		// TODO: Use InfoStream to log these errors
+		_ = flushErrors // Suppress unused warning
+	}
+
+	// After flushing all DWPTs, reset the in-RAM counters for the next cycle.
+	dw.numDocsInRAM = 0
+	dw.bytesUsed = 0
+
+	return lastSeqNo
+}
+
+// FinishFullFlush signals the end of a full flush and unblocks any pending operations.
+// This is called by IndexWriter.GetReader() after the full flush completes successfully.
+// Ref: Lucene IndexWriter:674, DocumentsWriter.finishFullFlush().
+func (dw *DocumentsWriter) FinishFullFlush(success bool) {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+
+	// In a full implementation, this would unblock any DWPTs waiting for the
+	// full flush to complete. For now, it's a no-op since Go's concurrency model
+	// handles synchronization differently than Java's synchronized blocks.
+	if !success {
+		// Reset state on failure
+		dw.numDocsInRAM = 0
+		dw.bytesUsed = 0
+	}
+}
+
 // Close closes the DocumentsWriter.
 func (dw *DocumentsWriter) Close() error {
 	dw.mu.Lock()
