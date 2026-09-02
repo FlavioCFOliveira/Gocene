@@ -57,7 +57,6 @@ func NewTimSorter(impl TimSorterInterface, maxTempSlots int) *TimSorter {
 
 // Sort sorts the range [from, to).
 func (ts *TimSorter) Sort(from, to int) {
-	ts.CheckRange(from, to)
 	if to-from <= 1 {
 		return
 	}
@@ -154,7 +153,7 @@ func (ts *TimSorter) nextRun() int {
 	if runHi > ts.to {
 		runHi = ts.to
 	}
-	ts.BinarySortWithStart(runBase, runHi, o, ts.impl)
+	BinarySortWithStart(ts.impl, runBase, runHi, o)
 	return runHi - runBase
 }
 
@@ -211,8 +210,8 @@ func (ts *TimSorter) merge(lo, mid, hi int) {
 	if ts.impl.Compare(mid-1, mid) <= 0 {
 		return
 	}
-	lo = ts.Upper2(lo, mid, mid, ts.impl)
-	hi = ts.Lower2(mid, hi, mid-1, ts.impl)
+	lo = Upper2(ts.impl, lo, mid, mid)
+	hi = Lower2(ts.impl, mid, hi, mid-1)
 
 	if hi-mid <= mid-lo && hi-mid <= ts.maxTempSlots {
 		ts.mergeHi(lo, mid, hi)

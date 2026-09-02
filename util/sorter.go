@@ -191,6 +191,11 @@ func BinarySort(s Sortable, from, to int) {
 	binarySort(s, from, to, from+1)
 }
 
+// BinarySortWithStart sorts the range [from, to) using binary sort, starting from index i.
+func BinarySortWithStart(s Sortable, from, to, i int) {
+	binarySort(s, from, to, i)
+}
+
 func binarySort(s Sortable, from, to, i int) {
 	for ; i < to; i++ {
 		pivot := i

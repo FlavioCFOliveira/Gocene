@@ -356,7 +356,11 @@ func (uh *UnifiedHighlighter) highlightFieldsAsObjects(fieldsIn []string, query 
 					default:
 						docContext = nil
 					}
-					resultByDocIn[docInIndex] = fh.HighlightFieldForDoc(docContext, string(content))
+					snippet, err := fh.HighlightFieldForDoc(docContext, string(content))
+					if err != nil {
+						return nil, err
+					}
+					resultByDocIn[docInIndex] = snippet
 			}
 		}
 		batchDocIdx += len(fieldValsByDoc)

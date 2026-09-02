@@ -21,7 +21,7 @@ func (s euclideanSimilarity) CompareBytes(v1, v2 []byte) float32 {
 type dotProductSimilarity struct{}
 
 func (s dotProductSimilarity) CompareFloat(v1, v2 []float32) float32 {
-	return NormalizeToUnitInterval(DotProduct(v1, v2))
+	return NormalizeToUnitInterval(ComputeDotProduct(v1, v2))
 }
 
 func (s dotProductSimilarity) CompareBytes(v1, v2 []byte) float32 {
@@ -41,7 +41,7 @@ func (s cosineSimilarity) CompareBytes(v1, v2 []byte) float32 {
 type maximumInnerProductSimilarity struct{}
 
 func (s maximumInnerProductSimilarity) CompareFloat(v1, v2 []float32) float32 {
-	return ScaleMaxInnerProductScore(DotProduct(v1, v2))
+	return ScaleMaxInnerProductScore(ComputeDotProduct(v1, v2))
 }
 
 func (s maximumInnerProductSimilarity) CompareBytes(v1, v2 []byte) float32 {
@@ -49,8 +49,8 @@ func (s maximumInnerProductSimilarity) CompareBytes(v1, v2 []byte) float32 {
 }
 
 var (
-	Euclidean           VectorSimilarityFunction = euclideanSimilarity{}
-	DotProduct           VectorSimilarityFunction = dotProductSimilarity{}
-	Cosine              VectorSimilarityFunction = cosineSimilarity{}
-	MaximumInnerProduct VectorSimilarityFunction = maximumInnerProductSimilarity{}
+	EuclideanSim           VectorSimilarityFunction = euclideanSimilarity{}
+	DotProductSim           VectorSimilarityFunction = dotProductSimilarity{}
+	CosineSim              VectorSimilarityFunction = cosineSimilarity{}
+	MaximumInnerProductSim VectorSimilarityFunction = maximumInnerProductSimilarity{}
 )
