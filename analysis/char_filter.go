@@ -91,8 +91,8 @@ func RegisterCharFilterFactory(name string, creator func(map[string]string) Char
 	charFilterRegistry[name] = creator
 }
 
-// ForName looks up a char filter factory by name from the registry.
-func ForName(name string, args map[string]string) (CharFilterFactory, error) {
+// CharFilterForName looks up a char filter factory by name from the registry.
+func CharFilterForName(name string, args map[string]string) (CharFilterFactory, error) {
 	charFilterMu.RLock()
 	creator, ok := charFilterRegistry[name]
 	charFilterMu.RUnlock()

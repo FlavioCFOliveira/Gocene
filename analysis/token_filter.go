@@ -102,8 +102,8 @@ func RegisterTokenFilterFactory(name string, creator func(map[string]string) Tok
 	tokenFilterRegistry[name] = creator
 }
 
-// ForName looks up a token filter factory by name from the registry.
-func ForName(name string, args map[string]string) (TokenFilterFactory, error) {
+// TokenFilterForName looks up a token filter factory by name from the registry.
+func TokenFilterForName(name string, args map[string]string) (TokenFilterFactory, error) {
 	tokenFilterMu.RLock()
 	creator, ok := tokenFilterRegistry[name]
 	tokenFilterMu.RUnlock()

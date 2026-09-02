@@ -8,13 +8,9 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
-
-// TokenStream is a type alias for api.TokenStream.
-type TokenStream = api.TokenStream
 
 // BaseTokenStream provides a base implementation for TokenStream.
 //

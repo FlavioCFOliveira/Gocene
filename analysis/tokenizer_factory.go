@@ -91,9 +91,9 @@ func RegisterTokenizerFactory(name string, creator func(map[string]string) Token
 	tokenizerRegistry[name] = creator
 }
 
-// ForName looks up a tokenizer by name from the registry.
+// TokenizerForName looks up a tokenizer by name from the registry.
 // This is the Go port of TokenizerFactory.forName.
-func ForName(name string, args map[string]string) (TokenizerFactory, error) {
+func TokenizerForName(name string, args map[string]string) (TokenizerFactory, error) {
 	registryMu.RLock()
 	creator, ok := tokenizerRegistry[name]
 	registryMu.RUnlock()
