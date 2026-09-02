@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -13,6 +11,7 @@ import (
 	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -22,8 +21,8 @@ import (
 type IndexWriter struct {
 	config *IndexWriterConfig
 
-	dirOrig util.Directory // original user directory
-	dir     util.Directory // wrapped with additional checks
+	dirOrig store.Directory // original user directory
+	dir     store.Directory // wrapped with additional checks
 
 	// increments every time a change is completed
 	changeCount atomic.Int64
@@ -55,7 +54,7 @@ type IndexWriter struct {
 	segmentsToMerge map[*SegmentCommitInfo]bool
 	mergeMaxNumSegments int
 
-	writeLock util.Lock
+	writeLock store.Lock
 
 	closed  atomic.Bool
 	closing atomic.Bool
@@ -171,7 +170,7 @@ func (s *addIndexesMergeSource) GetWriter() *IndexWriter {
 }
 
 // NewIndexWriter constructs a new IndexWriter per the settings given in conf.
-func NewIndexWriter(d util.Directory, conf *IndexWriterConfig) (*IndexWriter, error) {
+func NewIndexWriter(d store.Directory, conf *IndexWriterConfig) (*IndexWriter, error) {
 	if conf == nil {
 		panic("config must not be null")
 	}
@@ -562,7 +561,7 @@ func (w *IndexWriter) GetAnalyzer() analysis.Analyzer {
 	return w.config.analyzer
 }
 
-func (w *IndexWriter) GetDirectory() util.Directory {
+func (w *IndexWriter) GetDirectory() store.Directory {
 	return w.dirOrig
 }
 
@@ -959,14 +958,14 @@ func (w *IndexWriter) ForceMergeDeletes() error {
 
 // ForceMergeDeletesWithObserver executes a merge to expunge all deletes from the index.
 // Returns a MergeObserver to monitor progress.
-func (w *IndexWriter) ForceMergeDeletesWithObserver(doWait bool) (*MergePolicy.MergeObserver, error) {
+func (w *IndexWriter) ForceMergeDeletesWithObserver(doWait bool) (*MergeObserver, error) {
 	w.ensureOpen()
 	w.commitLock.Lock()
 	defer w.commitLock.Unlock()
 
 	spec := w.config.GetMergePolicy().FindForcedDeletesMerges(w.segmentInfos, w.mergeSource)
 	if spec == nil {
-		return index.NewMergeObserver(nil), nil
+		return NewMergeObserver(nil), nil
 	}
 
 	// register merges with the scheduler
@@ -974,7 +973,7 @@ func (w *IndexWriter) ForceMergeDeletesWithObserver(doWait bool) (*MergePolicy.M
 		return nil, err
 	}
 
-	return index.NewMergeObserver(spec), nil
+	return NewMergeObserver(spec), nil
 }
 
 func (w *IndexWriter) handleMergeException(err error, merge *OneMerge) {
@@ -999,7 +998,7 @@ func (w *IndexWriter) mergeInternal(merge *OneMerge) error {
 	}
 
 	//- SegmentMerger
-	merger := index.NewSegmentMerger(
+	merger := NewSegmentMerger(
 		readers,
 		merge.Info.Info,
 		w.liveConfig.GetInfoStream(),

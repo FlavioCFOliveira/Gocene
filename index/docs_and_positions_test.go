@@ -41,7 +41,7 @@ import (
 // getDocsAndPositions mirrors the Java helper of the same name: it resolves the
 // PostingsEnum for term bytes in fieldName, or returns nil when the term is
 // absent.
-func getDocsAndPositions(t *testing.T, air index.LeafReaderInterface, fieldName, term string) index.PostingsEnum {
+func getDocsAndPositions(t *testing.T, air index.LeafReader, fieldName, term string) index.PostingsEnum {
 	t.Helper()
 	terms, err := air.Terms(fieldName)
 	if err != nil {
@@ -70,7 +70,7 @@ func getDocsAndPositions(t *testing.T, air index.LeafReaderInterface, fieldName,
 
 // docsAndPositionsLeaves writes docs, commits, reopens the directory and
 // returns the single leaf reader produced by forceMerge(1).
-func docsAndPositionsLeaves(t *testing.T, fieldName string, docs []string) (index.LeafReaderInterface, func()) {
+func docsAndPositionsLeaves(t *testing.T, fieldName string, docs []string) (index.LeafReader, func()) {
 	t.Helper()
 	dir, err := store.NewSimpleFSDirectory(t.TempDir())
 	if err != nil {

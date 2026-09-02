@@ -1,28 +1,18 @@
-//go:build ignore
-
 package index
 
-import (
-	"fmt"
-)
-
-// PointValues provides access to indexed numeric values (KD-tree).
-type PointValues interface {
-	GetMinPackedValue() ([]byte, error)
-	GetMaxPackedValue() ([]byte, error)
-	GetNumDimensions() (int, error)
-	GetNumIndexDimensions() (int, error)
-	GetBytesPerDimension() (int, error)
-	Size() (int64, error)
-	GetDocCount() (int, error)
-}
+// PointValues static helpers mirror the org.apache.lucene.index.PointValues
+// static utility methods (getMinPackedValue/getMaxPackedValue/getDocCount over
+// an IndexReader). The PointValues interface itself is declared once, in
+// doc_values_interfaces.go, matching the shape actually implemented by the
+// BKD-backed codec readers (see codecs/lucene90's `pointValues` and its
+// `var _ index.PointValues = (*pointValues)(nil)` assertion).
 
 // PointValuesGetMinPackedValue returns the minimum packed values across all leaves of the given IndexReader.
 func PointValuesGetMinPackedValue(reader IndexReader, field string) []byte {
 	var minValue []byte
 	for _, ctx := range reader.Leaves() {
-		values := ctx.Reader().GetPointValues(field)
-		if values == nil {
+		values, err := ctx.Reader().GetPointValues(field)
+		if err != nil || values == nil {
 			continue
 		}
 		leafMinValue, err := values.GetMinPackedValue()
@@ -32,8 +22,8 @@ func PointValuesGetMinPackedValue(reader IndexReader, field string) []byte {
 		if minValue == nil {
 			minValue = append([]byte(nil), leafMinValue...)
 		} else {
-			numDims, _ := values.GetNumIndexDimensions()
-			bytesPerDim, _ := values.GetBytesPerDimension()
+			numDims := values.GetNumDimensions()
+			bytesPerDim := values.GetBytesPerDimension()
 			for i := 0; i < numDims; i++ {
 				offset := i * bytesPerDim
 				if compareUnsigned(leafMinValue[offset:], minValue[offset:], bytesPerDim) < 0 {
@@ -49,8 +39,8 @@ func PointValuesGetMinPackedValue(reader IndexReader, field string) []byte {
 func PointValuesGetMaxPackedValue(reader IndexReader, field string) []byte {
 	var maxValue []byte
 	for _, ctx := range reader.Leaves() {
-		values := ctx.Reader().GetPointValues(field)
-		if values == nil {
+		values, err := ctx.Reader().GetPointValues(field)
+		if err != nil || values == nil {
 			continue
 		}
 		leafMaxValue, err := values.GetMaxPackedValue()
@@ -60,8 +50,8 @@ func PointValuesGetMaxPackedValue(reader IndexReader, field string) []byte {
 		if maxValue == nil {
 			maxValue = append([]byte(nil), leafMaxValue...)
 		} else {
-			numDims, _ := values.GetNumIndexDimensions()
-			bytesPerDim, _ := values.GetBytesPerDimension()
+			numDims := values.GetNumDimensions()
+			bytesPerDim := values.GetBytesPerDimension()
 			for i := 0; i < numDims; i++ {
 				offset := i * bytesPerDim
 				if compareUnsigned(leafMaxValue[offset:], maxValue[offset:], bytesPerDim) > 0 {
@@ -77,10 +67,9 @@ func PointValuesGetMaxPackedValue(reader IndexReader, field string) []byte {
 func PointValuesGetDocCount(reader IndexReader, field string) int {
 	count := 0
 	for _, ctx := range reader.Leaves() {
-		values := ctx.Reader().GetPointValues(field)
-		if values != nil {
-			c, _ := values.GetDocCount()
-			count += c
+		values, err := ctx.Reader().GetPointValues(field)
+		if err == nil && values != nil {
+			count += values.GetDocCount()
 		}
 	}
 	return count

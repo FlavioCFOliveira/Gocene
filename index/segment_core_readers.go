@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -11,6 +9,7 @@ import (
 	"sync/atomic"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -32,9 +31,9 @@ type SegmentCoreReaders struct {
 	coreFieldInfos      *FieldInfos
 }
 
-func NewSegmentCoreReaders(dir util.Directory, si *SegmentCommitInfo, context util.IOContext) (*SegmentCoreReaders, error) {
+func NewSegmentCoreReaders(dir store.Directory, si *SegmentCommitInfo, context store.IOContext) (*SegmentCoreReaders, error) {
 	codec := si.Info.GetCodec()
-	var cfsDir util.Directory
+	var cfsDir store.Directory
 	var cfsReader spi.CompoundDirectory
 
 	if si.Info.GetUseCompoundFile() {
@@ -48,7 +47,7 @@ func NewSegmentCoreReaders(dir util.Directory, si *SegmentCommitInfo, context ut
 		cfsDir = dir
 	}
 
-	segment := si.Info.Name
+	segment := si.Info.Name()
 	coreFieldInfos, err := codec.FieldInfosFormat().Read(cfsDir, si.Info, "", context)
 	if err != nil {
 		return nil, err

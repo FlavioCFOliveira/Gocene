@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -127,7 +125,7 @@ func (b *CompositeReaderContextBuilder) Build() (IndexReaderContext, error) {
 // build recursively builds the context hierarchy.
 func (b *CompositeReaderContextBuilder) build(parent IndexReaderContext, reader IndexReaderInterface, ord int, docBase int) (IndexReaderContext, error) {
 	// If the reader is a leaf reader
-	if _, ok := reader.(LeafReaderInterface); ok {
+	if _, ok := reader.(LeafReader); ok {
 		// Create a LeafReaderContext
 		leafCtx := NewLeafReaderContext(reader, parent, ord, docBase)
 		leafCtx.ord = len(b.leaves)

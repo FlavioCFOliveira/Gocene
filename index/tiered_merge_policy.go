@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -152,7 +150,7 @@ func (p *TieredMergePolicy) getSortedBySegmentSize(infos *SegmentInfos, mergeCon
 			sizeInBytes: sci.SegmentInfo().SizeInBytes(),
 			delCount:    mergeContext.NumDeletesToMerge(sci, 0),
 			maxDoc:      sci.SegmentInfo().MaxDoc(),
-			name:        sci.SegmentInfo().Name,
+			name:        sci.SegmentInfo().Name(),
 		})
 	}
 

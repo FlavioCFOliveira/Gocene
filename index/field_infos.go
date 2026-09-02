@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -26,6 +24,14 @@ type FieldInfosBuilder = schema.FieldInfosBuilder
 
 // EmptyFieldInfos re-exports schema.EmptyFieldInfos.
 var EmptyFieldInfos = schema.EmptyFieldInfos
+
+// FieldNumbers is an alias of schema.FieldNumbers.
+type FieldNumbers = schema.FieldNumbers
+
+// NewFieldNumbers re-exports schema.NewFieldNumbers.
+func NewFieldNumbers(softDeletesFieldName, parentFieldName string) *FieldNumbers {
+	return schema.NewFieldNumbers(softDeletesFieldName, parentFieldName)
+}
 
 // NewFieldInfos re-exports schema.NewFieldInfos.
 func NewFieldInfos() *FieldInfos {

@@ -1,10 +1,14 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
 package index
+
+import "github.com/FlavioCFOliveira/Gocene/util"
+
+// InfoStream is an alias of util.InfoStream, re-exported for callers that
+// historically reached for the unqualified index.InfoStream name.
+type InfoStream = util.InfoStream
 
 // MergeContext provides context for merge selection.
 // This is the Go port of Lucene's org.apache.lucene.index.MergePolicy.MergeContext.

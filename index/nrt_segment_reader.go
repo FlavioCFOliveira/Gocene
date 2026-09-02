@@ -1,5 +1,3 @@
-//go:build ignore
-
 package index
 
 import (
@@ -18,7 +16,7 @@ type NRTSegmentReader struct {
 	liveDocs *LiveDocs
 
 	// pendingDeletes tracks documents that are pending deletion
-	pendingDeletes *PendingDeletes
+	pendingDeletes *nrtPendingDeleteSet
 
 	// mu protects liveDocs and pendingDeletes
 	mu sync.RWMutex
@@ -43,8 +41,9 @@ type LiveDocs struct {
 	totalDocs int
 }
 
-// PendingDeletes tracks documents pending deletion.
-type PendingDeletes struct {
+// nrtPendingDeleteSet tracks documents pending deletion for an NRTSegmentReader's
+// lightweight liveDocs bitset (distinct from the codec-level index.PendingDeletes).
+type nrtPendingDeleteSet struct {
 	// docIDs is the set of document IDs pending deletion
 	docIDs map[int]bool
 	// mu protects docIDs
@@ -64,7 +63,7 @@ func NewNRTSegmentReader(segmentReader *SegmentReader, writer *IndexWriter) (*NR
 		version:        1,
 		writer:         writer,
 		liveDocs:       newLiveDocs(totalDocs),
-		pendingDeletes: newPendingDeletes(),
+		pendingDeletes: newNRTPendingDeleteSet(),
 	}
 
 	return nrtr, nil
@@ -94,9 +93,9 @@ func newLiveDocs(totalDocs int) *LiveDocs {
 	}
 }
 
-// newPendingDeletes creates a new PendingDeletes.
-func newPendingDeletes() *PendingDeletes {
-	return &PendingDeletes{
+// newNRTPendingDeleteSet creates a new nrtPendingDeleteSet.
+func newNRTPendingDeleteSet() *nrtPendingDeleteSet {
+	return &nrtPendingDeleteSet{
 		docIDs: make(map[int]bool),
 	}
 }
@@ -246,7 +245,7 @@ func (r *NRTSegmentReader) Clone() (*NRTSegmentReader, error) {
 	return &NRTSegmentReader{
 		SegmentReader:  r.SegmentReader,
 		liveDocs:       r.liveDocs,
-		pendingDeletes: newPendingDeletes(), // Fresh pending deletes
+		pendingDeletes: newNRTPendingDeleteSet(), // Fresh pending deletes
 		isNRT:          r.isNRT,
 		version:        r.version,
 		writer:         r.writer,

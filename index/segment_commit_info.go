@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -58,6 +56,13 @@ func NewSegmentCommitInfo(info *SegmentInfo, delCount, softDelCount int, delGen,
 		fieldInfosFiles:        make(map[string]struct{}),
 		sizeInBytes:            -1,
 	}
+}
+
+// SegmentInfo returns the wrapped SegmentInfo. Convenience accessor for the
+// public Info field, matching the method-call spelling most of this package
+// uses.
+func (s *SegmentCommitInfo) SegmentInfo() *SegmentInfo {
+	return s.Info
 }
 
 func mapDelGen(gen int64) int64 {

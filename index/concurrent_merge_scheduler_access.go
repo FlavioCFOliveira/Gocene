@@ -1,5 +1,3 @@
-//go:build ignore
-
 package index
 
 // ConcurrentMergeSchedulerAccess is the test-only accessor surface for

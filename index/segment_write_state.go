@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -8,68 +6,52 @@ package index
 
 import (
 	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// SegmentWriteState is a holder class for common parameters used during write.
-// Mirrors org.apache.lucene.index.SegmentWriteState from Apache Lucene 10.5.0.
-type SegmentWriteState struct {
-	// InfoStream used for debugging messages.
-	InfoStream *util.InfoStream
-	// Directory where this segment will be written to.
-	Directory store.Directory
-	// SegmentInfo describing this segment.
-	SegmentInfo *SegmentInfo
-	// FieldInfos describing all fields in this segment.
-	FieldInfos *FieldInfos
-	// DelCountOnFlush is the number of deleted documents set while flushing the segment.
-	DelCountOnFlush int
-	// SoftDelCountOnFlush is the number of only soft deleted documents set while flushing the segment.
-	SoftDelCountOnFlush int
-	// SegUpdates contains deletes and updates to apply while flushing the segment.
-	SegUpdates *BufferedUpdates
-	// LiveDocs records live documents; this is only set if there is one or more deleted documents.
-	LiveDocs *util.FixedBitSet
-	// SegmentSuffix is a unique suffix for any postings files written for this segment.
-	SegmentSuffix string
-	// Context for all writes.
-	Context store.IOContext
-}
+// SegmentWriteState is declared as an SPI alias in codec_interface.go
+// (type SegmentWriteState = spi.SegmentWriteState). These constructors
+// bridge from the index package's own *SegmentInfo and *BufferedUpdates to
+// the codec-facing shape.
 
 // NewSegmentWriteState constructs a SegmentWriteState.
-func NewSegmentWriteState(infoStream *util.InfoStream, dir store.Directory, info *SegmentInfo, fieldInfos *FieldInfos, segUpdates *BufferedUpdates, context store.IOContext) *SegmentWriteState {
-	return NewSegmentWriteStateWithSuffix(infoStream, dir, info, fieldInfos, segUpdates, context, "")
+func NewSegmentWriteState(dir store.Directory, info *SegmentInfo, fieldInfos *FieldInfos, segUpdates *BufferedUpdates, context store.IOContext) *SegmentWriteState {
+	return NewSegmentWriteStateWithSuffix(nil, dir, info, fieldInfos, segUpdates, context, "")
 }
 
 // NewSegmentWriteStateWithSuffix constructs a SegmentWriteState with a segment suffix.
-func NewSegmentWriteStateWithSuffix(infoStream *util.InfoStream, dir store.Directory, info *SegmentInfo, fieldInfos *FieldInfos, segUpdates *BufferedUpdates, context store.IOContext, segmentSuffix string) *SegmentWriteState {
+// infoStream is accepted for call-site source compatibility but is not yet
+// carried by spi.SegmentWriteState (rmp #4669 follow-up).
+func NewSegmentWriteStateWithSuffix(_ *util.InfoStream, dir store.Directory, info *SegmentInfo, fieldInfos *FieldInfos, segUpdates *BufferedUpdates, _ store.IOContext, segmentSuffix string) *SegmentWriteState {
 	if err := validateSegmentSuffix(segmentSuffix); err != nil {
 		panic(err) // Lucene uses assertions; we panic here for similar behavior on invalid suffix
 	}
+	var ref spi.BufferedUpdatesRef
+	if segUpdates != nil {
+		ref = segUpdates
+	}
 	return &SegmentWriteState{
-		InfoStream:    infoStream,
-		SegUpdates:     segUpdates,
 		Directory:     dir,
-		SegmentInfo:   info,
+		SegmentInfo:   info.ToSchema(),
 		FieldInfos:    fieldInfos,
 		SegmentSuffix: segmentSuffix,
-		Context:       context,
+		SegUpdates:    ref,
 	}
 }
 
 // NewSegmentWriteStateFromOther creates a shallow copy of SegmentWriteState with a new segment suffix.
 func NewSegmentWriteStateFromOther(state *SegmentWriteState, segmentSuffix string) *SegmentWriteState {
 	return &SegmentWriteState{
-		InfoStream:    state.InfoStream,
-		Directory:     state.Directory,
-		SegmentInfo:   state.SegmentInfo,
-		FieldInfos:    state.FieldInfos,
-		Context:       state.Context,
-		SegmentSuffix: segmentSuffix,
-		SegUpdates:    state.SegUpdates,
+		Directory:       state.Directory,
+		SegmentInfo:     state.SegmentInfo,
+		FieldInfos:      state.FieldInfos,
+		SegmentSuffix:   segmentSuffix,
+		SegUpdates:      state.SegUpdates,
 		DelCountOnFlush: state.DelCountOnFlush,
-		LiveDocs:      state.LiveDocs,
+		LiveDocs:        state.LiveDocs,
 	}
 }
 

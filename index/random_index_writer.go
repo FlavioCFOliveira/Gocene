@@ -242,7 +242,7 @@ func (riw *RandomIndexWriter) SetDoRandomForceMergeAssert(v bool) {
 }
 
 // GetReader returns a reader.
-func (riw *RandomIndexWriter) GetReader() (DirectoryReader, error) {
+func (riw *RandomIndexWriter) GetReader() (*DirectoryReader, error) {
 	riw.mu.Lock()
 	defer riw.mu.Unlock()
 
@@ -258,9 +258,8 @@ func (riw *RandomIndexWriter) GetReader() (DirectoryReader, error) {
 		if riw.r.Intn(5) == 1 {
 			_ = riw.W.Commit()
 		}
-		// Return NRT reader
-		// This is a simplified version; real implementation would use IndexWriter.GetReader()
-		reader, err := OpenDirectoryReaderFromWriter(riw.W, true, false)
+		// Return an NRT reader reflecting the writer's buffered state.
+		reader, err := OpenDirectoryReaderFromWriterWithOptions(riw.W, true, false)
 		return reader, err
 	} else {
 		// Open new reader from directory
@@ -350,14 +349,8 @@ func maybeChangeConfig(r *rand.Rand, config *LiveIndexWriterConfig) {
 	// For now, do nothing
 }
 
-// OpenDirectoryReaderFromWriter opens a reader from an IndexWriter.
-// This is a placeholder that should be implemented based on Gocene's actual API.
-func OpenDirectoryReaderFromWriter(w *IndexWriter, applyDeletions, writeAllDeletes bool) (DirectoryReader, error) {
-	return nil, fmt.Errorf("OpenDirectoryReaderFromWriter not yet implemented")
-}
-
-// DirectoryReaderOpen opens a directory reader.
-// This is a placeholder that should be implemented based on Gocene's actual API.
-func DirectoryReaderOpen(dir store.Directory) (DirectoryReader, error) {
-	return nil, fmt.Errorf("DirectoryReaderOpen not yet implemented")
+// DirectoryReaderOpen opens a directory reader over dir's current commit,
+// mirroring Lucene's DirectoryReader.open(Directory).
+func DirectoryReaderOpen(dir store.Directory) (*DirectoryReader, error) {
+	return OpenDirectoryReader(dir)
 }

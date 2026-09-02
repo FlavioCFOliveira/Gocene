@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Package index provides core index functionality for Gocene.
 // This file implements the IndexSplitter tool for splitting/copying/deleting segments.
 // Source: org.apache.lucene.index.IndexSplitter (Apache Lucene 10.x)

@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -41,7 +39,7 @@ func (r *FilterDirectoryReader) Close() error {
 // LeafReader is a wrapper for a LeafReader.
 type FilterLeafReader struct {
 	*LeafReader
-	in LeafReaderInterface
+	in LeafReader
 
 	// cacheHelper, when non-nil, overrides the cache helper exposed by this
 	// wrapper. A custom key lets callers prove that listeners registered on
@@ -50,7 +48,7 @@ type FilterLeafReader struct {
 }
 
 // NewFilterLeafReader creates a new FilterLeafReader wrapping the given reader.
-func NewFilterLeafReader(in LeafReaderInterface) *FilterLeafReader {
+func NewFilterLeafReader(in LeafReader) *FilterLeafReader {
 	var si *SegmentInfo
 	if withSeg, ok := in.(interface{ GetSegmentInfo() *SegmentInfo }); ok {
 		si = withSeg.GetSegmentInfo()
@@ -65,7 +63,7 @@ func NewFilterLeafReader(in LeafReaderInterface) *FilterLeafReader {
 // fresh cache helper/key instead of delegating to the wrapped reader. This is
 // the Go equivalent of a Lucene FilterLeafReader subclass that overrides
 // getCoreCacheHelper() to return its own key.
-func NewFilterLeafReaderWithCacheKey(in LeafReaderInterface) *FilterLeafReader {
+func NewFilterLeafReaderWithCacheKey(in LeafReader) *FilterLeafReader {
 	var si *SegmentInfo
 	if withSeg, ok := in.(interface{ GetSegmentInfo() *SegmentInfo }); ok {
 		si = withSeg.GetSegmentInfo()
@@ -128,7 +126,7 @@ func (r *FilterLeafReader) Close() error {
 }
 
 // GetDelegate returns the wrapped LeafReader.
-func (r *FilterLeafReader) GetDelegate() LeafReaderInterface {
+func (r *FilterLeafReader) GetDelegate() LeafReader {
 	return r.in
 }
 

@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -83,7 +81,7 @@ func (c *IndexWriterConfig) SetIndexCommit(commit *IndexCommit) *IndexWriterConf
 	return c
 }
 
-func (c *IndexWriterConfig) SetSimilarity(similarity spi.Similarity) *IndexWriterConfig {
+func (c *IndexWriterConfig) SetSimilarity(similarity Similarity) *IndexWriterConfig {
 	if similarity == nil {
 		panic("similarity must not be null")
 	}

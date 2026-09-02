@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -8,11 +6,11 @@ package index
 
 import (
 	"fmt"
-	"strings"
 	"sync"
 
+	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 const (
@@ -25,10 +23,10 @@ const (
 // This is the Go port of Lucene's org.apache.lucene.index.SegmentInfo.
 type SegmentInfo struct {
 	// name is the unique segment name in the directory.
-	Name string
+	name string
 
 	// dir is where this segment resides.
-	Dir util.Directory
+	Dir store.Directory
 
 	maxDoc int
 
@@ -59,12 +57,12 @@ type SegmentInfo struct {
 	mu sync.RWMutex
 }
 
-func NewSegmentInfo(dir util.Directory, version string, minVersion string, name string, maxDoc int, isCompoundFile bool, hasBlocks bool, codec spi.Codec, diagnostics map[string]string, id []byte, attributes map[string]string, indexSort any) *SegmentInfo {
+func NewSegmentInfo(dir store.Directory, version string, minVersion string, name string, maxDoc int, isCompoundFile bool, hasBlocks bool, codec spi.Codec, diagnostics map[string]string, id []byte, attributes map[string]string, indexSort any) *SegmentInfo {
 	return &SegmentInfo{
 		Dir:               dir,
 		version:           version,
 		minVersion:        minVersion,
-		Name:              name,
+		name:              name,
 		maxDoc:            maxDoc,
 		isCompoundFile:    isCompoundFile,
 		hasBlocks:         hasBlocks,
@@ -109,6 +107,19 @@ func (s *SegmentInfo) MaxDoc() int {
 		panic("maxDoc isn't set yet")
 	}
 	return s.maxDoc
+}
+
+// DocCount is an alias for MaxDoc, matching the accessor name several
+// callers in this package historically used.
+func (s *SegmentInfo) DocCount() int {
+	return s.MaxDoc()
+}
+
+// Name returns the segment's unique name. Mirrors
+// org.apache.lucene.index.SegmentInfo.name (exposed via getName() in
+// older Lucene releases).
+func (s *SegmentInfo) Name() string {
+	return s.name
 }
 
 func (s *SegmentInfo) SetMaxDoc(maxDoc int) {
@@ -173,5 +184,42 @@ func (s *SegmentInfo) GetId() []byte {
 }
 
 func (s *SegmentInfo) String() string {
-	return fmt.Sprintf("%s(%s):%c%d", s.Name, s.version, byte('c'), s.maxDoc)
+	return fmt.Sprintf("%s(%s):%c%d", s.name, s.version, byte('c'), s.maxDoc)
+}
+
+// ToSchema converts this SegmentInfo to the schema.SegmentInfo shape the
+// codec SPI (spi.SegmentReadState / spi.SegmentWriteState) expects. The
+// index and schema packages carry independent SegmentInfo representations
+// (index.SegmentInfo is the mutable, actively-written segment-metadata
+// type used across the write/merge path; schema.SegmentInfo is the leaf,
+// codec-facing type re-exported by index/field_info.go-style aliases for
+// the other SPI structs). This bridges the two at the codec call boundary.
+func (s *SegmentInfo) ToSchema() *schema.SegmentInfo {
+	si := schema.NewSegmentInfo(s.Name(), s.maxDoc, s.Dir)
+	si.SetVersion(s.version)
+	if s.minVersion != "" {
+		si.SetMinVersion(s.minVersion)
+	}
+	si.SetHasBlocks(s.hasBlocks)
+	si.SetCompoundFile(s.isCompoundFile)
+	if s.codec != nil {
+		si.SetCodec(s.codec.Name())
+	}
+	if s.diagnostics != nil {
+		si.SetDiagnostics(s.diagnostics)
+	}
+	if s.attributes != nil {
+		si.SetAttributes(s.attributes)
+	}
+	if len(s.id) > 0 {
+		_ = si.SetID(s.id)
+	}
+	if len(s.setFiles) > 0 {
+		files := make([]string, 0, len(s.setFiles))
+		for f := range s.setFiles {
+			files = append(files, f)
+		}
+		si.SetFiles(files)
+	}
+	return si
 }

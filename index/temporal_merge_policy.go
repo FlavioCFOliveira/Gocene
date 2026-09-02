@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -13,6 +11,7 @@ import (
 	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -371,8 +370,8 @@ func (p *TemporalMergePolicy) extractSegmentDateRanges(segments *SegmentInfos) m
 
 func (p *TemporalMergePolicy) extractDateRangeFromSegment(sci *SegmentCommitInfo) (*segmentDateRange, error) {
 	si := sci.Info
-	var compoundDir util.Directory
-	var readerDir util.Directory
+	var compoundDir store.Directory
+	var readerDir store.Directory
 
 	if si.GetUseCompoundFile() {
 		var err error
