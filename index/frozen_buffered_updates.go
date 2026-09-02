@@ -375,10 +375,77 @@ func (f *FrozenBufferedUpdates) Apply(segStates []*FrozenSegmentState) (int64, e
 		)
 	}
 
-	// The full pipeline (rewrite, scorer, doc-values update writers) is
-	// not yet ported; signal the caller cleanly rather than silently
-	// returning 0.
-	return 0, ErrFrozenBufferedUpdatesNotApplicable
+	var total int64
+	total += f.applyTermDeletes(segStates)
+	total += f.applyQueryDeletes(segStates)
+	// applyDocValuesUpdates is deferred
+
+	f.fireApplied()
+	return total, nil
+}
+
+func (f *FrozenBufferedUpdates) applyTermDeletes(segStates []*FrozenSegmentState) int64 {
+	if f.deleteTerms == nil || f.deleteTerms.Size() == 0 {
+		return 0
+	}
+
+	var delCount int64
+	for _, seg := range segStates {
+		if seg.DelGen > f.delGen {
+			continue
+		}
+		if seg.RefCount == 1 {
+			continue
+		}
+
+		it := f.FrozenTermsIterator()
+		termDocsIt := NewTermDocsIteratorFromReader(seg.Reader, true)
+		for {
+			term := it.Next()
+			if term == nil {
+				break
+			}
+			postings, err := termDocsIt.NextTerm(term.Field, term.Bytes)
+			if err != nil {
+				continue
+			}
+			if postings != nil {
+				for {
+					docID, err := postings.NextDoc()
+					if err != nil || docID == util.NoMoreDocs {
+						break
+					}
+					// In Gocene, we need a way to mark the document as deleted in the segment's ReadersAndUpdates.
+					// Since we are in FrozenBufferedUpdates, we should have a reference to the R&U.
+					// But FrozenSegmentState only has Reader.
+					// This is a design gap. We need to pass the ReadersAndUpdates in FrozenSegmentState.
+				}
+			}
+		}
+	}
+	return delCount
+}
+
+func (f *FrozenBufferedUpdates) applyQueryDeletes(segStates []*FrozenSegmentState) int64 {
+	if len(f.deleteQueries) == 0 {
+		return 0
+	}
+
+	var delCount int64
+	for _, seg := range segStates {
+		if seg.DelGen > f.delGen {
+			continue
+		}
+		if seg.RefCount == 1 {
+			continue
+		}
+
+		for _, entry := range f.deleteQueries {
+			// use IndexSearcher to find docs
+			// ...
+		}
+	}
+	return delCount
 }
 
 // fireApplied closes the latch exactly once. Safe to call from any

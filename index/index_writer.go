@@ -905,8 +905,6 @@ func (w *IndexWriter) publishFlushedSegment(
 				w.checkpoint()
 			}
 			w.release(rau)
-		}
-	}
 
 	w.flushCount.Add(1)
 	w.doAfterFlush()
@@ -1046,7 +1044,6 @@ func (w *IndexWriter) mergeInternal(merge *OneMerge) error {
 			rau.Release(sr)
 		}
 		w.release(rau)
-	}
 	// ----------------
 
 	if !w.commitMerge(merge, nil) {
@@ -1068,18 +1065,18 @@ func (w *IndexWriter) tryApply(packet *FrozenBufferedUpdates) error {
 	return nil
 }
 
-func (w *IndexWriter) getPooledInstance(sci *SegmentCommitInfo, writeDeletes bool) *ReadersAndUpdates {
-	rau, err := NewReadersAndUpdates(w.config.GetIndexCreatedVersionMajor(), sci, NewPendingDeletes())
-	if err != nil {
-		return nil
+		func (w *IndexWriter) getPooledInstance(sci *SegmentCommitInfo, create bool) *ReadersAndUpdates {
+		return w.readerPool.Get(sci, create, func(info *SegmentCommitInfo) *ReadersAndUpdates {
+			rau, err := NewReadersAndUpdates(w.config.GetIndexCreatedVersionMajor(), info, NewPendingDeletes(info, nil, info.HasDeletions() == false))
+			if err != nil {
+				panic(err)
+			}
+			return rau
+		})
 	}
-	return rau
-}
-
-func (w *IndexWriter) release(rau *ReadersAndUpdates) {
-	rau.DecRef()
-}
-
+	func (w *IndexWriter) release(rau *ReadersAndUpdates) {
+		w.readerPool.Release(rau, true)
+	}
 func (w *IndexWriter) commitMerge(merge *OneMerge, docMaps []DocMap) bool {
 	if merge.IsAborted() {
 		return false
