@@ -7,7 +7,6 @@ GeoBBoxFactory
 Lucene87StoredFieldsFormat
 IfFunction
 Lucene92HnswVectorsReader
-ConstantScoreBulkScorer
 Monitor
 LongColumn
 Lucene102BinaryFlatVectorsScorer
