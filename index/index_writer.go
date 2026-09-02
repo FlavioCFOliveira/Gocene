@@ -872,8 +872,29 @@ func (w *IndexWriter) Merge(merge *OneMerge) error {
 	return nil
 }
 
-func (w *IndexWriter) mergeFinish(merge *OneMerge) {
-	// minimal implementation
+func (w *IndexWriter) ForceMergeDeletes() error {
+	_, err := w.ForceMergeDeletesWithObserver(true)
+	return err
+}
+
+// ForceMergeDeletesWithObserver executes a merge to expunge all deletes from the index.
+// Returns a MergeObserver to monitor progress.
+func (w *IndexWriter) ForceMergeDeletesWithObserver(doWait bool) (*MergePolicy.MergeObserver, error) {
+	w.ensureOpen()
+	w.commitLock.Lock()
+	defer w.commitLock.Unlock()
+
+	spec := w.config.GetMergePolicy().FindForcedDeletesMerges(w.segmentInfos, w.mergeSource)
+	if spec == nil {
+		return index.NewMergeObserver(nil), nil
+	}
+
+	// register merges with the scheduler
+	if err := w.mergeScheduler.MergeWithSpec(w.mergeSource, spec, doWait); err != nil {
+		return nil, err
+	}
+
+	return index.NewMergeObserver(spec), nil
 }
 
 func (w *IndexWriter) handleMergeException(err error, merge *OneMerge) {

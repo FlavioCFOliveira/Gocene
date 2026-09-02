@@ -49,6 +49,10 @@ type MergeScheduler interface {
 	// The implementation may execute merges synchronously or asynchronously.
 	Merge(source MergeSource, trigger MergeTrigger) error
 
+	// MergeWithSpec runs the specific merges provided by MergeSpecification.
+	// The doWait parameter determines whether the method blocks until the merges complete.
+	MergeWithSpec(source MergeSource, spec *MergeSpecification, doWait bool) error
+
 	// AbortAll cancels all currently running merges and clears pending merges.
 	AbortAll()
 
@@ -432,6 +436,31 @@ func (s *SerialMergeScheduler) Merge(source MergeSource, trigger MergeTrigger) e
 		source.OnMergeFinished(merge)
 		if err != nil {
 			return err
+		}
+	}
+
+	return nil
+}
+
+// MergeWithSpec runs the specific merges provided by MergeSpecification.
+func (s *SerialMergeScheduler) MergeWithSpec(source MergeSource, spec *MergeSpecification, doWait bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, merge := range spec.Merges {
+		err := source.Merge(merge)
+		if err != nil {
+			merge.Error = err
+		}
+		source.OnMergeFinished(merge)
+		if err != nil {
+			return err
+		}
+	}
+
+	if doWait {
+		if !spec.Await() {
+			return fmt.Errorf("one or more merges failed")
 		}
 	}
 
