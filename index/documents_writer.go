@@ -403,6 +403,11 @@ func (dw *DocumentsWriter) FlushNextBuffer() bool {
 	return true
 }
 
+// anyDeletions reports whether there are any pending deletions in the delete queue.
+func (dw *DocumentsWriter) anyDeletions() bool {
+	return dw.deleteQueue.anyChanges()
+}
+
 // GetNumDocs returns the total number of documents.
 func (dw *DocumentsWriter) GetNumDocs() int {
 	dw.mu.RLock()

@@ -194,6 +194,16 @@ func (rp *ReaderPool) ClearSegment(segmentName string) error {
 	return nil
 }
 
+// anyDeletions reports whether any buffered readers or updates have at least one pending delete.
+//
+// DIVERGENCE: In the Lucene reference, this checks the ReadersAndUpdates pool. The current
+// Gocene ReaderPool is a simple SegmentReader cache and does not yet track pending deletes.
+// This method returns false as a stub until the ReaderPool is upgraded to manage
+// ReadersAndUpdates entries.
+func (rp *ReaderPool) anyDeletions() bool {
+	return false
+}
+
 // Close closes the reader pool and all its readers.
 func (rp *ReaderPool) Close() error {
 	rp.mu.Lock()

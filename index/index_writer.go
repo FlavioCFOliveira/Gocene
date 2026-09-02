@@ -521,6 +521,23 @@ func (w *IndexWriter) IsClosed() bool {
 	return w.closed.Load()
 }
 
+// HasDeletions reports whether there are any deletions in the index, either as
+// part of the on-disk segments or as pending in-memory updates.
+//
+// This is the Go port of Lucene's org.apache.lucene.index.IndexWriter#hasDeletions.
+func (w *IndexWriter) HasDeletions() bool {
+	w.ensureOpen()
+	if w.bufferedUpdatesStream.Any() || w.docWriter.anyDeletions() || w.readerPool.anyDeletions() {
+		return true
+	}
+	for _, info := range w.segmentInfos.Iterator() {
+		if info.HasDeletions() {
+			return true
+		}
+	}
+	return false
+}
+
 func (w *IndexWriter) GetDocWriterThreadPoolSize() int {
 	return len(w.docWriter.GetPerThreadPool())
 }
