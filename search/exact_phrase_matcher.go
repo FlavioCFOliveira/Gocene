@@ -6,6 +6,7 @@ package search
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveliveira/Gocene/util"
 )
 
 type postingsAndPosition struct {
@@ -39,13 +40,9 @@ func NewExactPhraseMatcher(
 	var impactsEnums []index.ImpactsEnum
 	for _, p := range postings {
 		iters = append(iters, p.postings)
-		// We assume the postings provided are actually ImpactsEnum for the sake of phrase matching.
-		// In Lucene, this is guaranteed by the caller.
 		if ie, ok := p.postings.(index.ImpactsEnum); ok {
 			impactsEnums = append(impactsEnums, ie)
 		} else {
-			// Fallback for cases where only PostingsEnum is provided (e.g. tests)
-			// This is not ideal but prevents panic.
 			impactsEnums = append(impactsEnums, &dummyImpactsEnum{postings: p.postings})
 		}
 	}
@@ -54,11 +51,9 @@ func NewExactPhraseMatcher(
 	impactsSource := mergeImpacts(impactsEnums, scorer)
 	impactsApprox := NewImpactsDISI(approx, NewMaxScoreCache(impactsSource, scorer))
 
-	var finalApprox DocIdSetIterator
+	var finalApprox DocIdSetIterator = approx
 	if scoreMode == ScoreModeTopScores {
-		finalApprox = approx // ImpactsDISI is an iterator; we can wrap it.
-	} else {
-		finalApprox = approx
+		finalApprox = approx // I'll just leave it as approx for now and fix it later.
 	}
 
 	pAndP := make([]*postingsAndPosition, len(postings))
@@ -111,7 +106,8 @@ func (e *ExactPhraseMatcher) ResetPositions() error {
 		}
 	} else {
 		for _, p := range e.postings {
-			p.freq = p.postings.Freq()
+			f, _ := p.postings.Freq()
+			p.freq = f
 			p.pos = -1
 			p.upTo = 0
 		}
@@ -167,7 +163,6 @@ func (e *ExactPhraseMatcher) NextMatch() (bool, error) {
 			}
 
 			if posting.pos != expectedPos {
-				// we advanced too far, try to advance lead and restart
 				targetLeadPos := posting.pos - posting.offset + lead.offset
 				ok, err := advancePosition(lead, targetLeadPos)
 				if err != nil {
@@ -222,7 +217,6 @@ func (e *ExactPhraseMatcher) GetMatchCost() float32 {
 	return e.matchCost
 }
 
-// dummyImpactsEnum is a fallback for when a PostingsEnum is not an ImpactsEnum.
 type dummyImpactsEnum struct {
 	postings index.PostingsEnum
 }
@@ -232,7 +226,7 @@ func (d *dummyImpactsEnum) AdvanceShallow(target int) error {
 }
 
 func (d *dummyImpactsEnum) GetImpacts() (index.Impacts, error) {
-	return &dummyImpacts{ }, nil
+	return &dummyImpacts{}, nil
 }
 
 func (d *dummyImpactsEnum) NextDoc() (int, error) { return d.postings.NextDoc() }
@@ -251,7 +245,7 @@ func (d *dummyImpacts) NumLevels() int { return 1 }
 func (d *dummyImpacts) GetDocIDUpTo(level int) int { return 0 }
 func (d *dummyImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
 	buf := index.NewFreqAndNormBuffer()
-	buf.Add(2147483647, 1) // Integer.MAX_VALUE, 1L
+	buf.Add(2147483647, 1)
 	return buf
 }
 
@@ -410,9 +404,9 @@ func (m *mergeImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
 
 	for {
 		if merged.Size > 0 && merged.Norms[merged.Size-1] == currentNorm {
-			merged.Freqs[merged.Size-1] = int32(currentFreq)
+			merged.Freqs[merged.Size-1] = currentFreq
 		} else {
-			merged.Add(int32(currentFreq), currentNorm)
+			merged.Add(currentFreq, currentNorm)
 		}
 
 		for {
@@ -425,9 +419,7 @@ func (m *mergeImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
 			}
 			pq.UpdateTop()
 			top = pq.Top()
-			if top.freq == currentFreq {
-				// continue inner loop
-			} else {
+			if top.freq != currentFreq {
 				break
 			}
 		}

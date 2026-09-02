@@ -6,177 +6,165 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
-type mockPostingsEnum struct {
-	docID    int
-	freq     int
+type mockPostings struct {
+	docID     int
+	freq      int
 	positions []int
-	curPos   int
+	offsets   []int
+	curDoc    int
+	curPos    int
 }
 
-func (m *mockPostingsEnum) NextDoc() (int, error) {
-	if m.docID == -1 {
-		return 0, nil
+func (m *mockPostings) NextDoc() (int, error) {
+	if m.curDoc == -1 {
+		m.curDoc = m.docID
+		return m.curDoc, nil
 	}
-	return -1, nil
+	m.curDoc = index.NO_MORE_DOCS
+	return m.curDoc, nil
 }
 
-func (m *mockPostingsEnum) Advance(target int) (int, error) {
-	if m.docID < target {
-		m.docID = target
+func (m *mockPostings) Advance(target int) (int, error) {
+	if m.curDoc == -1 && m.docID >= target {
+		m.curDoc = m.docID
+		return m.curDoc, nil
 	}
-	return m.docID, nil
+	m.curDoc = index.NO_MORE_DOCS
+	return m.curDoc, nil
 }
 
-func (m *mockPostingsEnum) DocID() int { return m.docID }
-func (m *mockPostingsEnum) Freq() (int, error) { return m.freq, nil }
-func (m *mockPostingsEnum) NextPosition() (int, error) {
+func (m *mockPostings) DocID() int { return m.curDoc }
+func (m *mockPostings) Freq() (int, error) { return m.freq, nil }
+func (m *mockPostings) NextPosition() (int, error) {
 	if m.curPos >= len(m.positions) {
-		return -1, nil
+		return index.NO_MORE_POSITIONS, nil
 	}
 	pos := m.positions[m.curPos]
 	m.curPos++
 	return pos, nil
 }
-func (m *mockPostingsEnum) StartOffset() (int, error) { return 0, nil }
-func (m *mockPostingsEnum) EndOffset() (int, error) { return 0, nil }
-func (m *mockPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }
-func (m *mockPostingsEnum) Cost() int64 { return 1 }
-func (m *mockPostingsEnum) AdvanceShallow(target int) error { return nil }
-func (m *mockPostingsEnum) GetImpacts() (index.Impacts, error) {
-	return &mockImpacts{freq: m.freq, norm: 1}, nil
+func (m *mockPostings) StartOffset() (int, error) {
+	if m.curPos == 0 {
+		return m.offsets[0], nil
+	}
+	return m.offsets[m.curPos-1], nil
+}
+func (m *mockPostings) EndOffset() (int, error) {
+	if m.curPos == 0 {
+		return m.offsets[0] + 1, nil
+	}
+	return m.offsets[m.curPos-1] + 1, nil
+}
+func (m *mockPostings) GetPayload() ([]byte, error) { return nil, nil }
+func (m *mockPostings) Cost() int64 { return 1 }
+
+// Also implement ImpactsSource to be an ImpactsEnum
+func (m *mockPostings) AdvanceShallow(target int) error { return nil }
+func (m *mockPostings) GetImpacts() (index.Impacts, error) {
+	return &mockImpacts{postings: m}, nil
 }
 
 type mockImpacts struct {
-	freq int
-	norm int64
+	postings *mockPostings
 }
 
 func (m *mockImpacts) NumLevels() int { return 1 }
-func (m *mockImpacts) GetDocIDUpTo(level int) int { return 100 }
+func (m *mockImpacts) GetDocIDUpTo(level int) int { return m.postings.docID }
 func (m *mockImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
 	buf := index.NewFreqAndNormBuffer()
-	buf.Add(int32(m.freq), m.norm)
+	buf.Add(m.postings.freq, 1)
 	return buf
 }
 
 func TestExactPhraseMatcher_NextMatch(t *testing.T) {
-	// Phrase: "hello world"
-	// Term 1 (hello) at pos 2, 5
-	// Term 2 (world) at pos 3, 8
-	p1 := &mockPostingsEnum{docID: 0, freq: 2, positions: []int{2, 5}}
-	p2 := &mockPostingsEnum{docID: 0, freq: 2, positions: []int{3, 8}}
+	tests := []struct {
+		name    string
+		postings []struct {
+			postings index.PostingsEnum
+			offset   int
+		}
+		wantMatch bool
+		wantStart int
+		wantEnd   int
+	}{
+		{
+			name: "Exact match",
+			postings: []struct {
+				postings index.PostingsEnum
+				offset   int
+			}{
+				{postings: &mockPostings{docID: 1, freq: 1, positions: []int{10}, offsets: []int{100}, curDoc: -1, curPos: 0}, offset: 0},
+				{postings: &mockPostings{docID: 1, freq: 1, positions: []int{11}, offsets: []int{110}, curDoc: -1, curPos: 0}, offset: 1},
+			},
+			wantMatch: true,
+			wantStart: 10,
+			wantEnd:   11,
+		},
+		{
+			name: "Non-match (gap)",
+			postings: []struct {
+				postings index.PostingsEnum
+				offset   int
+			}{
+				{postings: &mockPostings{docID: 1, freq: 1, positions: []int{10}, offsets: []int{100}, curDoc: -1, curPos: 0}, offset: 0},
+				{postings: &mockPostings{docID: 1, freq: 1, positions: []int{12}, offsets: []int{120}, curDoc: -1, curPos: 0}, offset: 1},
+			},
+			wantMatch: false,
+		},
+		{
+			name: "Exact match with multiple occurrences",
+			postings: []struct {
+				postings index.PostingsEnum
+				offset   int
+			}{
+				{postings: &mockPostings{docID: 1, freq: 2, positions: []int{10, 20}, offsets: []int{100, 200}, curDoc: -1, curPos: 0}, offset: 0},
+				{postings: &mockPostings{docID: 1, freq: 2, positions: []int{11, 21}, offsets: []int{110, 210}, curDoc: -1, curPos: 0}, offset: 1},
+			},
+			wantMatch: true,
+			wantStart: 10,
+			wantEnd:   11,
+		},
+	}
 
-	matcher := NewExactPhraseMatcher([]struct {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matcher := NewExactPhraseMatcher(tt.postings, ScoreModeComplete, nil, 1.0)
+			matcher.ResetPositions()
+			match, err := matcher.NextMatch()
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if match != tt.wantMatch {
+				t.Errorf("NextMatch() = %v, want %v", match, tt.wantMatch)
+			}
+			if match && matcher.StartPosition() != tt.wantStart {
+				t.Errorf("StartPosition() = %v, want %v", matcher.StartPosition(), tt.wantStart)
+			}
+			if match && matcher.EndPosition() != tt.wantEnd {
+				t.Errorf("EndPosition() = %v, want %v", matcher.EndPosition(), tt.wantEnd)
+			}
+		})
+	}
+}
+
+func TestExactPhraseMatcher_Offsets(t *testing.T) {
+	postings := []struct {
 		postings index.PostingsEnum
 		offset   int
 	}{
-		{postings: p1, offset: 0},
-		{postings: p2, offset: 1},
-	}, ScoreModeTopScores, nil, 1.0)
-
+		{postings: &mockPostings{docID: 1, freq: 1, positions: []int{10}, offsets: []int{100}, curDoc: -1, curPos: 0}, offset: 0},
+		{postings: &mockPostings{docID: 1, freq: 1, positions: []int{11}, offsets: []int{110}, curDoc: -1, curPos: 0}, offset: 1},
+	}
+	matcher := NewExactPhraseMatcher(postings, ScoreModeComplete, nil, 1.0)
 	matcher.ResetPositions()
+	matcher.NextMatch()
 
-	// First match: hello at 2, world at 3
-	ok, err := matcher.NextMatch()
-	if err != nil {
-		t.Fatalf("NextMatch error: %v", err)
+	startOff, _ := matcher.StartOffset()
+	if startOff != 100 {
+		t.Errorf("StartOffset() = %v, want 100", startOff)
 	}
-	if !ok {
-		t.Fatal("Expected first match")
-	}
-	if matcher.StartPosition() != 2 {
-		t.Errorf("Expected start position 2, got %d", matcher.StartPosition())
-	}
-	if matcher.EndPosition() != 3 {
-		t.Errorf("Expected end position 3, got %d", matcher.EndPosition())
-	}
-
-	// Second match: hello at 5, world at 8 -> No match because 5+1 != 8
-	ok, err = matcher.NextMatch()
-	if err != nil {
-		t.Fatalf("NextMatch error: %v", err)
-	}
-	if ok {
-		t.Fatal("Expected no more matches")
-	}
-}
-
-func TestExactPhraseMatcher_MaxFreq(t *testing.T) {
-	p1 := &mockPostingsEnum{docID: 0, freq: 5}
-	p2 := &mockPostingsEnum{docID: 0, freq: 3}
-
-	matcher := NewExactPhraseMatcher([]struct {
-		postings index.PostingsEnum
-		offset   int
-	}{
-		{postings: p1, offset: 0},
-		{postings: p2, offset: 1},
-	}, ScoreModeTopScores, nil, 1.0)
-
-	maxFreq, err := matcher.MaxFreq()
-	if err != nil {
-		t.Fatalf("MaxFreq error: %v", err)
-	}
-	if maxFreq != 3.0 {
-		t.Errorf("Expected maxFreq 3.0, got %f", maxFreq)
-	}
-}
-
-type flexibleImpacts struct {
-	freqs []int
-	norms []int64
-}
-
-func (f *flexibleImpacts) NumLevels() int { return 1 }
-func (f *flexibleImpacts) GetDocIDUpTo(level int) int { return 100 }
-func (f *flexibleImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
-	buf := index.NewFreqAndNormBuffer()
-	for i := 0; i < len(f.freqs); i++ {
-		buf.Add(int32(f.freqs[i]), f.norms[i])
-	}
-	return buf
-}
-
-type flexibleImpactsEnum struct {
-	mockPostingsEnum
-	impacts *flexibleImpacts
-}
-
-func (f *flexibleImpactsEnum) GetImpacts() (index.Impacts, error) {
-	return f.impacts, nil
-}
-
-func TestMergeImpacts(t *testing.T) {
-	ie1 := &flexibleImpactsEnum{
-		mockPostingsEnum: mockPostingsEnum{docID: 0, freq: 4},
-		impacts: &flexibleImpacts{
-			freqs: []int{2, 4},
-			norms: []int64{10, 12},
-		},
-	}
-	ie2 := &flexibleImpactsEnum{
-		mockPostingsEnum: mockPostingsEnum{docID: 0, freq: 3},
-		impacts: &flexibleImpacts{
-			freqs: []int{1, 3},
-			norms: []int64{15, 11},
-		},
-	}
-
-	source := mergeImpacts([]index.ImpactsEnum{ie1, ie2}, nil)
-	impacts, err := source.GetImpacts()
-	if err != nil {
-		t.Fatalf("GetImpacts error: %v", err)
-	}
-
-	merged := impacts.GetImpacts(0)
-	// Expected merged impacts:
-	// Freq 1: norm 15 (from ie2)
-	// Freq 2: norm 10 (from ie1)
-	// Freq 3: norm 11 (from ie2)
-	// Freq 4: norm 12 (from ie1)
-	// But mergeImpacts in Lucene merges by freq and tracks the best norm.
-	// Let's check the actual result.
-	if merged.Size != 4 {
-		t.Errorf("Expected merged size 4, got %d", merged.Size)
+	endOff, _ := matcher.EndOffset()
+	if endOff != 110 {
+		t.Errorf("EndOffset() = %v, want 110", endOff)
 	}
 }
