@@ -7,7 +7,7 @@ package document
 import (
 	"io"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // TextField is a field for tokenized, indexed text content.
@@ -43,14 +43,14 @@ func init() {
 		SetIndexed(true).
 		SetStored(true).
 		SetTokenized(true).
-		SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
+		SetIndexOptions(schema.IndexOptionsDocsAndFreqsAndPositions)
 	TextFieldTypeStored.Freeze()
 
 	TextFieldTypeNotStored = NewFieldType().
 		SetIndexed(true).
 		SetStored(false).
 		SetTokenized(true).
-		SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
+		SetIndexOptions(schema.IndexOptionsDocsAndFreqsAndPositions)
 	TextFieldTypeNotStored.Freeze()
 
 	TextFieldTYPESTORED = TextFieldTypeStored

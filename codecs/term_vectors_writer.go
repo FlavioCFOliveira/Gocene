@@ -6,376 +6,346 @@ package codecs
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// BaseTermVectorsWriter provides a base implementation of TermVectorsWriter.
-// This can be embedded in custom TermVectorsWriter implementations to get
-// default implementations for common methods.
-type BaseTermVectorsWriter struct {
-	mu           sync.Mutex
-	closed       bool
-	state        *SegmentWriteState
-	currentDoc   int
-	currentField string
-	currentTerm  []byte
-}
+// TermVectorsWriterHelper provides the default implementation for merging and
+// adding doc vectors, mirroring the logic in Apache Lucene's TermVectorsWriter.
+type TermVectorsWriterHelper struct{}
 
-// NewBaseTermVectorsWriter creates a new BaseTermVectorsWriter.
-func NewBaseTermVectorsWriter(state *SegmentWriteState) *BaseTermVectorsWriter {
-	return &BaseTermVectorsWriter{
-		state:      state,
-		currentDoc: -1,
+// AddProx is an expert API that allows the codec to consume positions and offsets
+// directly from the indexer. Mirrors org.apache.lucene.codecs.TermVectorsWriter.addProx.
+func (h *TermVectorsWriterHelper) AddProx(writer spi.TermVectorsWriter, numProx int, positions, offsets store.IndexInput) error {
+	position := 0
+	lastOffset := 0
+	var payload *util.BytesRefBuilder
+
+	for i := 0; i < numProx; i++ {
+		var startOffset, endOffset int
+		var thisPayload []byte
+
+		if positions == nil {
+			position = -1
+			thisPayload = nil
+		} else {
+			code, err := positions.ReadVInt()
+			if err != nil {
+				return err
+			}
+			position += int(code >> 1)
+			if (code & 1) != 0 {
+				payloadLength, err := positions.ReadVInt()
+				if err != nil {
+					return err
+				}
+
+				if payload == nil {
+					payload = util.NewBytesRefBuilder()
+				}
+				payload.GrowNoCopy(int(payloadLength))
+
+				buf := make([]byte, payloadLength)
+				if err := positions.ReadBytes(buf); err != nil {
+					return err
+				}
+				payload.SetLength(int(payloadLength))
+				thisPayload = payload.Get().ValidBytes()
+			} else {
+				thisPayload = nil
+			}
+		}
+
+		if offsets == nil {
+			startOffset = -1
+			endOffset = -1
+		} else {
+			v1, err := offsets.ReadVInt()
+			if err != nil {
+				return err
+			}
+			startOffset = lastOffset + int(v1)
+			v2, err := offsets.ReadVInt()
+			if err != nil {
+				return err
+			}
+			endOffset = startOffset + int(v2)
+			lastOffset = endOffset
+		}
+
+		if err := writer.AddPosition(position, startOffset, endOffset, thisPayload); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
-// GetState returns the segment write state.
-func (w *BaseTermVectorsWriter) GetState() *SegmentWriteState {
-	return w.state
-}
-
-// GetCurrentDoc returns the current document number.
-func (w *BaseTermVectorsWriter) GetCurrentDoc() int {
-	return w.currentDoc
-}
-
-// GetCurrentField returns the current field name.
-func (w *BaseTermVectorsWriter) GetCurrentField() string {
-	return w.currentField
-}
-
-// GetCurrentTerm returns the current term bytes.
-func (w *BaseTermVectorsWriter) GetCurrentTerm() []byte {
-	return w.currentTerm
-}
-
-// IsClosed returns true if this writer has been closed.
-func (w *BaseTermVectorsWriter) IsClosed() bool {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.closed
-}
-
-// StartDocument starts writing term vectors for a document.
-// This implements the TermVectorsWriter interface.
-func (w *BaseTermVectorsWriter) StartDocument(numFields int) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.closed {
-		return fmt.Errorf("TermVectorsWriter is closed")
+// Merge merges in the term vectors from the readers in mergeState.
+// Mirrors org.apache.lucene.codecs.TermVectorsWriter.merge.
+func (h *TermVectorsWriterHelper) Merge(writer spi.TermVectorsWriter, mergeState *index.MergeState) (int, error) {
+	subs := make([]index.DocIDMergerSub, 0, len(mergeState.Readers))
+	for i := 0; i < len(mergeState.Readers); i++ {
+		reader := mergeState.TermVectorsReaders[i]
+		if reader != nil {
+			if err := reader.CheckIntegrity(); err != nil {
+				return 0, err
+			}
+		}
+		subs = append(subs, &termVectorsMergeSub{
+			docMap: mergeState.DocMaps[i],
+			reader: reader,
+			maxDoc: mergeState.MaxDocs[i],
+			docID:  -1,
+		})
 	}
 
-	w.currentDoc++
-	return nil
-}
-
-// StartField starts writing a term vector for a field.
-// This must be implemented by subclasses.
-func (w *BaseTermVectorsWriter) StartField(fieldInfo *index.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.closed {
-		return fmt.Errorf("TermVectorsWriter is closed")
+	docIDMerger, err := index.NewDocIDMerger(subs, 0, mergeState.NeedsIndexSort)
+	if err != nil {
+		return 0, err
 	}
 
-	w.currentField = fieldInfo.Name()
-	return nil
-}
+	docCount := 0
+	for {
+		sub, err := docIDMerger.Next()
+		if err != nil {
+			return 0, err
+		}
+		if sub == nil {
+			break
+		}
 
-// StartTerm starts a new term in the current field.
-// This must be implemented by subclasses.
-func (w *BaseTermVectorsWriter) StartTerm(term []byte) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+		tvSub := sub.(*termVectorsMergeSub)
+		var vectors index.Fields
+		if tvSub.reader == nil {
+			vectors = nil
+		} else {
+			var err error
+			vectors, err = tvSub.reader.Get(tvSub.docID)
+			if err != nil {
+				return 0, err
+			}
+		}
 
-	if w.closed {
-		return fmt.Errorf("TermVectorsWriter is closed")
+		if err := h.addAllDocVectors(writer, vectors, mergeState); err != nil {
+			return 0, err
+		}
+		docCount++
 	}
 
-	w.currentTerm = term
-	return nil
+	if err := writer.Finish(docCount); err != nil {
+		return 0, err
+	}
+
+	return docCount, nil
 }
 
-// AddPosition adds a position for the current term.
-// This must be implemented by subclasses.
-func (w *BaseTermVectorsWriter) AddPosition(position int, startOffset, endOffset int, payload []byte) error {
-	return nil
-}
-
-// FinishTerm finishes the current term.
-// This must be implemented by subclasses.
-func (w *BaseTermVectorsWriter) FinishTerm() error {
-	return nil
-}
-
-// FinishField finishes the current field.
-// This must be implemented by subclasses.
-func (w *BaseTermVectorsWriter) FinishField() error {
-	return nil
-}
-
-// FinishDocument finishes the current document.
-// This must be implemented by subclasses.
-func (w *BaseTermVectorsWriter) FinishDocument() error {
-	return nil
-}
-
-// Close releases resources.
-// This implements the TermVectorsWriter interface.
-func (w *BaseTermVectorsWriter) Close() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.closed {
+func (h *TermVectorsWriterHelper) addAllDocVectors(writer spi.TermVectorsWriter, vectors index.Fields, mergeState *index.MergeState) error {
+	if vectors == nil {
+		if err := writer.StartDocument(0); err != nil {
+			return err
+		}
+		if err := writer.FinishDocument(); err != nil {
+			return err
+		}
 		return nil
 	}
 
-	w.closed = true
-	return nil
-}
-
-// TermVectorsWriterImpl is a concrete implementation of TermVectorsWriter
-// that writes term vectors to memory.
-type TermVectorsWriterImpl struct {
-	*BaseTermVectorsWriter
-	docs          []TermVectorDocumentWriter
-	currentDocW   *TermVectorDocumentWriter
-	currentFieldW *TermVectorFieldWriter
-	currentTermW  *TermVectorTermWriter
-}
-
-// TermVectorDocumentWriter represents a document being written.
-type TermVectorDocumentWriter struct {
-	NumFields int
-	Fields    []TermVectorFieldWriter
-}
-
-// TermVectorFieldWriter represents a field being written.
-type TermVectorFieldWriter struct {
-	Name         string
-	NumTerms     int
-	HasPositions bool
-	HasOffsets   bool
-	HasPayloads  bool
-	Terms        []TermVectorTermWriter
-}
-
-// TermVectorTermWriter represents a term being written.
-type TermVectorTermWriter struct {
-	Term      []byte
-	Positions []TermVectorPositionWriter
-}
-
-// TermVectorPositionWriter represents a position being written.
-type TermVectorPositionWriter struct {
-	Position    int
-	StartOffset int
-	EndOffset   int
-	Payload     []byte
-}
-
-// NewTermVectorsWriterImpl creates a new TermVectorsWriterImpl.
-func NewTermVectorsWriterImpl(state *SegmentWriteState) *TermVectorsWriterImpl {
-	return &TermVectorsWriterImpl{
-		BaseTermVectorsWriter: NewBaseTermVectorsWriter(state),
-		docs:                  make([]TermVectorDocumentWriter, 0),
+	numFields := vectors.Size()
+	if numFields == -1 {
+		numFields = 0
+		it, err := vectors.Iterator()
+		if err != nil {
+			return err
+		}
+		for {
+			name, err := it.Next()
+			if err != nil {
+				return err
+			}
+			if name == "" {
+				break
+			}
+			numFields++
+		}
 	}
-}
 
-// StartDocument starts writing term vectors for a document.
-func (w *TermVectorsWriterImpl) StartDocument(numFields int) error {
-	if err := w.BaseTermVectorsWriter.StartDocument(numFields); err != nil {
+	if err := writer.StartDocument(numFields); err != nil {
 		return err
 	}
 
-	w.currentDocW = &TermVectorDocumentWriter{
-		NumFields: numFields,
-		Fields:    make([]TermVectorFieldWriter, 0),
-	}
-	return nil
-}
+	var lastFieldName string
+	fieldCount := 0
 
-// StartField starts writing a term vector for a field.
-func (w *TermVectorsWriterImpl) StartField(fieldInfo *index.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error {
-	if err := w.BaseTermVectorsWriter.StartField(fieldInfo, numTerms, hasPositions, hasOffsets, hasPayloads); err != nil {
+	it, err := vectors.Iterator()
+	if err != nil {
 		return err
 	}
 
-	w.currentFieldW = &TermVectorFieldWriter{
-		Name:         fieldInfo.Name(),
-		NumTerms:     numTerms,
-		HasPositions: hasPositions,
-		HasOffsets:   hasOffsets,
-		HasPayloads:  hasPayloads,
-		Terms:        make([]TermVectorTermWriter, 0),
-	}
-	return nil
-}
+	for {
+		fieldName, err := it.Next()
+		if err != nil {
+			return err
+		}
+		if fieldName == "" {
+			break
+		}
+		fieldCount++
 
-// StartTerm starts a new term in the current field.
-func (w *TermVectorsWriterImpl) StartTerm(term []byte) error {
-	if err := w.BaseTermVectorsWriter.StartTerm(term); err != nil {
+		fieldInfo := mergeState.MergeFieldInfos.FieldInfo(fieldName)
+
+		if lastFieldName != "" && fieldName <= lastFieldName {
+			return fmt.Errorf("fields must be sorted: lastFieldName=%s fieldName=%s", lastFieldName, fieldName)
+		}
+		lastFieldName = fieldName
+
+		terms, err := vectors.Terms(fieldName)
+		if err != nil {
+			return err
+		}
+		if terms == nil {
+			continue
+		}
+
+		hasPositions := terms.HasPositions()
+		hasOffsets := terms.HasOffsets()
+		hasPayloads := terms.HasPayloads()
+
+		numTerms := int(terms.Size())
+		if numTerms == -1 {
+			numTerms = 0
+			termsEnum, err := terms.Iterator()
+			if err != nil {
+				return err
+			}
+			for {
+				term, err := termsEnum.Next()
+				if err != nil {
+					return err
+				}
+				if term == nil {
+					break
+				}
+				numTerms++
+			}
+		}
+
+		if err := writer.StartField(fieldInfo, numTerms, hasPositions, hasOffsets, hasPayloads); err != nil {
+			return err
+		}
+
+		termsEnum, err := terms.Iterator()
+		if err != nil {
+			return err
+		}
+
+		termCount := 0
+		for {
+			term, err := termsEnum.Next()
+			if err != nil {
+				return err
+			}
+			if term == nil {
+				break
+			}
+			termCount++
+
+			freq := int(termsEnum.TotalTermFreq())
+
+			if err := writer.StartTerm(term.ValidBytes(), freq); err != nil {
+				return err
+			}
+
+			if hasPositions || hasOffsets {
+				docsAndPositionsEnum, err := termsEnum.Postings(nil, index.PostingsFlagOffsets|index.PostingsFlagPayloads)
+				if err != nil {
+					return err
+				}
+
+				docID, err := docsAndPositionsEnum.NextDoc()
+				if err != nil {
+					return err
+				}
+				if docID == index.NO_MORE_DOCS {
+					return fmt.Errorf("expected docID in postings enum")
+				}
+
+				if docsAndPositionsEnum.Freq() != freq {
+					return fmt.Errorf("postings freq %d does not match term freq %d", docsAndPositionsEnum.Freq(), freq)
+				}
+
+				for posUpto := 0; posUpto < freq; posUpto++ {
+					pos, err := docsAndPositionsEnum.NextPosition()
+					if err != nil {
+						return err
+					}
+					startOffset := docsAndPositionsEnum.StartOffset()
+					endOffset := docsAndPositionsEnum.EndOffset()
+					payload := docsAndPositionsEnum.GetPayload()
+
+					if err := writer.AddPosition(pos, startOffset, endOffset, payload); err != nil {
+						return err
+					}
+				}
+			}
+			if err := writer.FinishTerm(); err != nil {
+				return err
+			}
+		}
+
+		if termCount != numTerms {
+			return fmt.Errorf("term count %d does not match expected numTerms %d", termCount, numTerms)
+		}
+		if err := writer.FinishField(); err != nil {
+			return err
+		}
+	}
+
+	if fieldCount != numFields {
+		return fmt.Errorf("field count %d does not match expected numFields %d", fieldCount, numFields)
+	}
+
+	if err := writer.FinishDocument(); err != nil {
 		return err
 	}
 
-	w.currentTermW = &TermVectorTermWriter{
-		Term:      term,
-		Positions: make([]TermVectorPositionWriter, 0),
-	}
 	return nil
 }
 
-// AddPosition adds a position for the current term.
-func (w *TermVectorsWriterImpl) AddPosition(position int, startOffset, endOffset int, payload []byte) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.closed {
-		return fmt.Errorf("TermVectorsWriter is closed")
-	}
-
-	if w.currentTermW == nil {
-		return fmt.Errorf("no term started")
-	}
-
-	pos := TermVectorPositionWriter{
-		Position:    position,
-		StartOffset: startOffset,
-		EndOffset:   endOffset,
-		Payload:     payload,
-	}
-	w.currentTermW.Positions = append(w.currentTermW.Positions, pos)
-	return nil
+type termVectorsMergeSub struct {
+	docMap index.DocMap
+	reader spi.TermVectorsReader
+	maxDoc int
+	docID  int
 }
 
-// FinishTerm finishes the current term.
-func (w *TermVectorsWriterImpl) FinishTerm() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.closed {
-		return fmt.Errorf("TermVectorsWriter is closed")
-	}
-
-	if w.currentTermW == nil {
-		return fmt.Errorf("no term started")
-	}
-
-	if w.currentFieldW == nil {
-		return fmt.Errorf("no field started")
-	}
-
-	w.currentFieldW.Terms = append(w.currentFieldW.Terms, *w.currentTermW)
-	w.currentTermW = nil
-	return nil
+func (s *termVectorsMergeSub) MappedDocID() int {
+	return s.docMap.Get(s.docID)
 }
 
-// FinishField finishes the current field.
-func (w *TermVectorsWriterImpl) FinishField() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.closed {
-		return fmt.Errorf("TermVectorsWriter is closed")
+func (s *termVectorsMergeSub) NextDoc() (int, error) {
+	s.docID++
+	if s.docID >= s.maxDoc {
+		return index.NO_MORE_DOCS, nil
 	}
-
-	if w.currentFieldW == nil {
-		return fmt.Errorf("no field started")
-	}
-
-	if w.currentDocW == nil {
-		return fmt.Errorf("no document started")
-	}
-
-	w.currentDocW.Fields = append(w.currentDocW.Fields, *w.currentFieldW)
-	w.currentFieldW = nil
-	return nil
+	return s.docID, nil
 }
 
-// FinishDocument finishes the current document.
-func (w *TermVectorsWriterImpl) FinishDocument() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	if w.closed {
-		return fmt.Errorf("TermVectorsWriter is closed")
-	}
-
-	if w.currentDocW == nil {
-		return fmt.Errorf("no document started")
-	}
-
-	w.docs = append(w.docs, *w.currentDocW)
-	w.currentDocW = nil
-	return nil
-}
-
-// GetDocuments returns the documents that have been written.
-func (w *TermVectorsWriterImpl) GetDocuments() []TermVectorDocumentWriter {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-
-	return w.docs
-}
-
-// NoOpTermVectorsWriter is a TermVectorsWriter that does nothing.
-// This is useful for testing or when term vectors are not needed.
-type NoOpTermVectorsWriter struct {
-	*BaseTermVectorsWriter
-}
-
-// NewNoOpTermVectorsWriter creates a new NoOpTermVectorsWriter.
-func NewNoOpTermVectorsWriter(state *SegmentWriteState) *NoOpTermVectorsWriter {
-	return &NoOpTermVectorsWriter{
-		BaseTermVectorsWriter: NewBaseTermVectorsWriter(state),
+func (s *termVectorsMergeSub) NextMappedDoc() (int, error) {
+	for {
+		doc, err := s.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+		if doc == index.NO_MORE_DOCS {
+			return index.NO_MORE_DOCS, nil
+		}
+		mapped := s.docMap.Get(doc)
+		if mapped != -1 {
+			s.docID = doc
+			return mapped, nil
+		}
 	}
 }
-
-// StartDocument does nothing.
-func (w *NoOpTermVectorsWriter) StartDocument(numFields int) error {
-	return nil
-}
-
-// StartField does nothing.
-func (w *NoOpTermVectorsWriter) StartField(fieldInfo *index.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error {
-	return nil
-}
-
-// StartTerm does nothing.
-func (w *NoOpTermVectorsWriter) StartTerm(term []byte) error {
-	return nil
-}
-
-// AddPosition does nothing.
-func (w *NoOpTermVectorsWriter) AddPosition(position int, startOffset, endOffset int, payload []byte) error {
-	return nil
-}
-
-// FinishTerm does nothing.
-func (w *NoOpTermVectorsWriter) FinishTerm() error {
-	return nil
-}
-
-// FinishField does nothing.
-func (w *NoOpTermVectorsWriter) FinishField() error {
-	return nil
-}
-
-// FinishDocument does nothing.
-func (w *NoOpTermVectorsWriter) FinishDocument() error {
-	return nil
-}
-
-// Close does nothing.
-func (w *NoOpTermVectorsWriter) Close() error {
-	return nil
-}
-
-// Ensure implementations satisfy the interface
-var _ TermVectorsWriter = (*BaseTermVectorsWriter)(nil)
-var _ TermVectorsWriter = (*TermVectorsWriterImpl)(nil)
-var _ TermVectorsWriter = (*NoOpTermVectorsWriter)(nil)

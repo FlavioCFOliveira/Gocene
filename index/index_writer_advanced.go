@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Package index provides core index functionality for Gocene.
 // This file implements advanced IndexWriter methods.
 // Source: org.apache.lucene.index.IndexWriter (Apache Lucene 10.x)

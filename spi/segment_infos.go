@@ -256,6 +256,15 @@ func (si *SegmentInfos) SetVersion(version int64) {
 	si.version = version
 }
 
+// UpdateFromFlush increments the SegmentInfos version after new segments have been flushed.
+// This makes the newly flushed segments immediately visible in NRT readers.
+// Ref: Lucene StandardDirectoryReader:183.
+func (si *SegmentInfos) UpdateFromFlush() {
+	si.mu.Lock()
+	defer si.mu.Unlock()
+	si.version++
+}
+
 // LuceneVersion returns the Lucene version.
 func (si *SegmentInfos) LuceneVersion() string {
 	si.mu.RLock()
@@ -558,6 +567,22 @@ func (si *SegmentInfos) RollbackSegmentInfos(infos SegmentCommitInfoList) {
 	for i, sci := range infos {
 		si.segments[i] = sci.Clone()
 	}
+}
+
+// RollbackCommit cleans up the pending_segments_N file if a commit was pending.
+// This mirrors Lucene's SegmentInfos.rollbackCommit().
+func (si *SegmentInfos) RollbackCommit(dir store.Directory) error {
+	// In Lucene, this checks the pendingCommit flag.
+	// In Gocene, this is called by IndexWriter on the cloned SegmentInfos that was
+	// being committed, so we proceed with the cleanup.
+
+	pending := "pending_segments_" + strconv.FormatInt(si.generation, 36)
+
+	// Lucene suppresses exceptions during this cleanup to avoid masking the
+	// original exception that triggered the rollback.
+	_ = dir.DeleteFile(pending)
+
+	return nil
 }
 
 // GetMaxSegmentName returns the maximum segment name (highest generation).
@@ -1346,6 +1371,51 @@ func readSegmentInfosLucene104(rawIn store.IndexInput, directory store.Directory
 	return si, nil
 }
 
+// ReadCommit reads the SegmentInfos from the given directory and file name.
+func ReadCommit(dir store.Directory, fileName string) (*SegmentInfos, error) {
+	// Extract the generation from the fileName (segments_N).
+	if len(fileName) < 9 || fileName[:9] != "segments_" {
+		return nil, fmt.Errorf("invalid segments file name: %s", fileName)
+	}
+	genStr := fileName[9:]
+	gen, err := strconv.ParseInt(genStr, 36, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid generation in file name %s: %w", fileName, err)
+	}
+
+	// Open the file
+	rawIn, err := dir.OpenInput(fileName, store.IOContextRead)
+	if err != nil {
+		return nil, err
+	}
+	// ReadSegmentInfosFromHandle closes rawIn itself.
+	return ReadSegmentInfosFromHandle(rawIn, dir, gen)
+}
+
+// FinishCommit serialises the current SegmentInfos to a segments_N file in dir.
+// This follows the "write-then-rename" pattern to ensure atomicity.
+func (s *SegmentInfos) FinishCommit(dir store.Directory, codec Codec) (string, error) {
+	if codec == nil {
+		return "", fmt.Errorf("codec must not be null for FinishCommit")
+	}
+
+	format := codec.SegmentInfosFormat()
+	if format == nil {
+		return "", fmt.Errorf("codec does not provide a SegmentInfosFormat")
+	}
+
+	// 1. Determine the filename (e.g., segments_123)
+	fileName := fmt.Sprintf("segments_%d", s.generation)
+
+	// 2. Write to a temporary file (e.g., segments_123.tmp)
+	// The format.Write implementation is responsible for the atomic write-then-rename.
+	if err := format.Write(dir, s, store.IOContextWrite); err != nil {
+		return "", err
+	}
+
+	return fileName, nil
+}
+
 // readSegmentCommitInfoLucene104 reads a single per-segment entry from a
 // segments_N body in Lucene 10.4.0 format.
 func readSegmentCommitInfoLucene104(in store.IndexInput, directory store.Directory) (*SegmentCommitInfo, error) {
@@ -1578,7 +1648,7 @@ func readSegmentInfosLegacy(rawIn store.IndexInput, directory store.Directory, m
 			if err != nil {
 				return nil, fmt.Errorf("reading sort descending: %w", err)
 			}
-			fields = append(fields, schema.NewSortFieldFull(fname, schema.SortType(stRaw), descRaw != 0))
+			fields = append(fields, *schema.NewSortFieldFull(fname, int(stRaw), descRaw != 0))
 		}
 		indexSort = schema.NewSortFromFields(fields)
 	}
@@ -1689,8 +1759,6 @@ func readSegmentInfosLegacy(rawIn store.IndexInput, directory store.Directory, m
 			}
 			sci.SetDeletedOrdinals(ords)
 		}
-		si.Add(sci)
 	}
-
 	return si, nil
 }

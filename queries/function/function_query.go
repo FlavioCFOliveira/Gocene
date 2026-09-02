@@ -170,7 +170,7 @@ func normaliseScore(v float32) float32 {
 type functionAllScorer struct {
 	weight *functionWeight
 	leaf   *index.LeafReaderContext
-	iter   search.DocIdSetIterator
+	iter   util.DocIdSetIterator
 	vals   FunctionValues
 	boost  float32
 	maxDoc int

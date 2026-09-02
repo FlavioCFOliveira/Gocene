@@ -258,7 +258,7 @@ func (w *termsIncludingScoreWeight) Matches(_ *index.LeafReaderContext, _ int) (
 // from the last matching term is used (overwrites previous).  Mirrors
 // SVInOrderScorer in Lucene 10.4.0.
 type svInOrderScorer struct {
-	matchingDocsIter search.DocIdSetIterator
+	matchingDocsIter util.DocIdSetIterator
 	docScores        []float32
 	cost             int64
 	boost            float32
@@ -361,7 +361,7 @@ var _ search.Scorer = (*svInOrderScorer)(nil)
 // is kept (subsequent scores for the same doc are discarded).  Mirrors
 // MVInOrderScorer / MVInnerScorer in Lucene 10.4.0.
 type mvInOrderScorer struct {
-	matchingDocsIter search.DocIdSetIterator
+	matchingDocsIter util.DocIdSetIterator
 	docScores        []float32
 	cost             int64
 	boost            float32

@@ -89,16 +89,8 @@ func (h *CircularLogBufferHandler) getLogRecordsInternal() []ImmutableLogRecord 
 	return cp
 }
 
-// LogRecordFormatter formats an ImmutableLogRecord to string.
-type LogRecordFormatter struct{}
-
-func (f *LogRecordFormatter) Format(r ImmutableLogRecord) string {
-	ts := r.Instant.Format("15:04:05")
-	msg := r.Message
-	if r.Thrown != nil {
-		msg += "\n" + r.Thrown.Error()
-	}
-	return fmt.Sprintf("%s [%s] %s: %s", ts, r.Level.String(), r.LoggerName, msg)
+func GetCircularBuffer() *CircularLogBufferHandler {
+	return GlobalLoggerFactory.CircularBuffer
 }
 
 // LoggerFactory manages the circular log buffer.
@@ -110,8 +102,4 @@ var GlobalLoggerFactory = &LoggerFactory{}
 
 func (f *LoggerFactory) InitGuiLogging() {
 	f.CircularBuffer = NewCircularLogBufferHandler(1000)
-}
-
-func GetCircularBuffer() *CircularLogBufferHandler {
-	return GlobalLoggerFactory.CircularBuffer
 }

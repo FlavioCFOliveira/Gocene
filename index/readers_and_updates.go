@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -64,9 +66,14 @@ package index
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -140,15 +147,183 @@ type readersAndUpdatesPacket struct {
 	inner dvUpdatePacket
 }
 
-// Sorter.DocMap is not ported yet; SortMap is held as a typed handle so
-// the wiring is in place without committing to a representation.
-type sortDocMap interface {
-	// NewToOld returns the original docID for a new (post-sort) docID.
-	NewToOld(newDocID int) int
-	// OldToNew returns the new (post-sort) docID for an original docID.
-	OldToNew(oldDocID int) int
-	// Size returns the number of documents in the map.
-	Size() int
+// mergedDocValues merges the current on-disk DV with an incoming update DV
+// instance and merges the two instances giving the incoming update precedence
+// in terms of values, in other words the values of the update always win
+// over the on-disk version.
+type mergedDocValues[T any] struct {
+	updateIterator DocValuesFieldUpdatesIterator
+	docIDOut       int
+	docIDOnDisk    int
+	updateDocID    int
+	onDisk         T
+	update         T
+	current        T
+	scratch        *util.FixedBitSet
+}
+
+func newMergedDocValues[T any](onDisk T, update T, updateIterator DocValuesFieldUpdatesIterator) *mergedDocValues[T] {
+	return &mergedDocValues[T]{
+		onDisk:         onDisk,
+		update:         update,
+		updateIterator: updateIterator,
+		docIDOut:       -1,
+		docIDOnDisk:    -1,
+		updateDocID:    -1,
+	}
+}
+
+func (m *mergedDocValues[T]) nextDoc(onDiskNext func() int, updateNext func() int) int {
+	hasValue := false
+	for {
+		if m.docIDOnDisk == m.docIDOut {
+			m.docIDOnDisk = onDiskNext()
+		}
+		if m.updateDocID == m.docIDOut {
+			m.updateDocID = updateNext()
+		}
+		if m.docIDOnDisk < m.updateDocID {
+			m.docIDOut = m.docIDOnDisk
+			m.current = m.onDisk
+			hasValue = true
+		} else {
+			m.docIDOut = m.updateDocID
+			if m.docIDOut != util.NO_MORE_DOCS {
+				m.current = m.update
+				hasValue = m.updateIterator.HasValue()
+			} else {
+				hasValue = true
+			}
+		}
+		if hasValue {
+			break
+		}
+	}
+	return m.docIDOut
+}
+
+func (m *mergedDocValues[T]) intoBitSet(upTo int, bitSet *util.FixedBitSet, offset int, onDiskIntoBitSet func(*util.FixedBitSet, int, int)) {
+	if m.onDisk == nil {
+		for doc := m.update.DocID(); doc < upTo; doc = m.update.NextDoc() {
+			if m.updateIterator.HasValue() {
+				bitSet.Set(doc - offset)
+			} else {
+				bitSet.Clear(doc - offset)
+			}
+		}
+		return
+	}
+
+	if m.scratch == nil {
+		m.scratch = util.NewFixedBitSet(bitSet.Length())
+	} else {
+		m.scratch = util.EnsureCapacityAndClear(m.scratch, bitSet.Length()-1)
+	}
+
+	onDiskIntoBitSet(m.scratch, offset, upTo)
+	m.docIDOnDisk = m.onDisk.DocID()
+
+	for doc := m.update.DocID(); doc < upTo; doc = m.update.NextDoc() {
+		if m.updateIterator.HasValue() {
+			m.scratch.Set(doc - offset)
+		} else {
+			m.scratch.Clear(doc - offset)
+		}
+	}
+
+	util.FixedBitSetOrRange(m.scratch, 0, bitSet, 0, bitSet.Length())
+
+	for {
+		for m.update.DocID() < m.docIDOnDisk && !m.updateIterator.HasValue() {
+			m.update.NextDoc()
+		}
+		if m.docIDOnDisk != util.NO_MORE_DOCS &&
+			m.update.DocID() == m.docIDOnDisk &&
+			!m.updateIterator.HasValue() {
+			m.docIDOnDisk = m.onDisk.NextDoc()
+		} else {
+			break
+		}
+	}
+
+	m.updateDocID = m.update.DocID()
+	if m.docIDOnDisk < m.updateDocID {
+		m.docIDOut = m.docIDOnDisk
+		m.current = m.onDisk
+	} else {
+		m.docIDOut = m.updateDocID
+		m.current = m.update
+	}
+}
+
+type numericMergedDocValues struct {
+	merged *mergedDocValues[NumericDocValues]
+}
+
+func (n *numericMergedDocValues) LongValue() (int64, error) {
+	return n.merged.current.LongValue()
+}
+
+func (n *numericMergedDocValues) Advance(target int) (int, error) {
+	return n.merged.nextDoc(n.merged.onDisk.NextDoc, n.merged.update.NextDoc), nil
+}
+
+func (n *numericMergedDocValues) AdvanceExact(target int) (bool, error) {
+	panic("unsupported")
+}
+
+func (n *numericMergedDocValues) DocID() int {
+	return n.merged.docIDOut
+}
+
+func (n *numericMergedDocValues) NextDoc() (int, error) {
+	return n.merged.nextDoc(n.merged.onDisk.NextDoc, n.merged.update.NextDoc), nil
+}
+
+func (n *numericMergedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	n.merged.intoBitSet(upTo, bitSet, offset, func(s *util.FixedBitSet, off, u int) {
+		n.merged.onDisk.IntoBitSet(u, s, off)
+	})
+	return nil
+}
+
+func (n *numericMergedDocValues) Cost() int64 {
+	return n.merged.onDisk.Cost()
+}
+
+type binaryMergedDocValues struct {
+	merged *mergedDocValues[BinaryDocValues]
+}
+
+func (b *binaryMergedDocValues) BinaryValue() ([]byte, error) {
+	return b.merged.current.BinaryValue()
+}
+
+func (b *binaryMergedDocValues) Advance(target int) (int, error) {
+	return b.merged.nextDoc(b.merged.onDisk.NextDoc, b.merged.update.NextDoc), nil
+}
+
+func (b *binaryMergedDocValues) AdvanceExact(target int) (bool, error) {
+	panic("unsupported")
+}
+
+func (b *binaryMergedDocValues) DocID() int {
+	return b.merged.docIDOut
+}
+
+func (b *binaryMergedDocValues) NextDoc() (int, error) {
+	return b.merged.nextDoc(b.merged.onDisk.NextDoc, b.merged.update.NextDoc), nil
+}
+
+func (b *binaryMergedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	b.merged.intoBitSet(upTo, bitSet, offset, func(s *util.FixedBitSet, off, u int) {
+		b.merged.onDisk.IntoBitSet(u, s, off)
+	})
+	return nil
+}
+
+func (b *binaryMergedDocValues) Cost() int64 {
+	return b.merged.onDisk.Cost()
 }
 
 // ReadersAndUpdates holds an open [SegmentReader] (for searching or
@@ -208,8 +383,8 @@ type ReadersAndUpdates struct {
 	// {@code Sorter.DocMap}.
 	sortMap sortDocMap
 
-	// ramBytesUsed accumulates the RAM footprint of every accepted
-	// pending DV update. Decremented by PruneAppliedDVUpdates.
+	// ramBytesUsed accumulates the RAM footprint of the pending DV
+	// updates held by this entry. Decremented by PruneAppliedDVUpdates.
 	ramBytesUsed atomic.Int64
 
 	// mu guards every non-atomic field above.
@@ -484,11 +659,29 @@ func (r *ReadersAndUpdates) DropReaders() error {
 
 // GetReadOnlyClone is the entry-point that Lucene uses to hand a fresh
 // SegmentReader (with replacement live-docs) to consumers that must see
-// the latest deletes. The alternate constructor it relies on
-// ({@code new SegmentReader(info, reader, liveDocs, hardLiveDocs, numDocs,
-// applyAllDeletes)}) is not ported in Gocene. See file header.
+// the latest deletes.
 func (r *ReadersAndUpdates) GetReadOnlyClone() (*SegmentReader, error) {
-	return nil, ErrReadersAndUpdatesReadOnlyCloneUnsupported
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.reader == nil {
+		r.reader = NewSegmentReader(r.info)
+	}
+
+	liveDocs := r.pendingDeletes.GetLiveDocs()
+	if liveDocs != nil {
+		return NewSegmentReaderClone(
+			r.info,
+			r.reader,
+			liveDocs,
+			r.pendingDeletes.GetHardLiveDocs(),
+			r.pendingDeletes.NumDocs(),
+			true), nil
+	}
+
+	// liveDocs == nil and reader != nil. That can only be if there are no deletes
+	r.reader.IncRef()
+	return r.reader, nil
 }
 
 // NumDeletesToMerge returns the number of deletes that would be applied
@@ -499,16 +692,19 @@ func (r *ReadersAndUpdates) NumDeletesToMerge(_ MergePolicy) (int, error) {
 	return 0, ErrReadersAndUpdatesMergeReaderUnsupported
 }
 
-// GetLiveDocs returns a snapshot of the live docs. The full
-// PendingDeletes.getLiveDocs surface is not yet ported. See file header.
+// GetLiveDocs returns a snapshot of the live docs.
 func (r *ReadersAndUpdates) GetLiveDocs() (util.Bits, error) {
-	return nil, ErrReadersAndUpdatesLiveDocsUnsupported
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pendingDeletes.GetLiveDocs(), nil
 }
 
 // GetHardLiveDocs returns the live-docs bits excluding soft-deleted
-// documents. Not yet ported. See file header.
+// documents.
 func (r *ReadersAndUpdates) GetHardLiveDocs() (util.Bits, error) {
-	return nil, ErrReadersAndUpdatesLiveDocsUnsupported
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pendingDeletes.GetHardLiveDocs(), nil
 }
 
 // DropChanges discards any pending changes against this segment.
@@ -525,38 +721,484 @@ func (r *ReadersAndUpdates) DropChanges() {
 	r.DropMergingUpdates()
 }
 
-// WriteLiveDocs flushes any pending live-docs changes to disk. The
-// underlying PendingDeletes.writeLiveDocs entry point is not yet ported.
-// See file header.
-func (r *ReadersAndUpdates) WriteLiveDocs(_ any) (bool, error) {
-	return false, ErrReadersAndUpdatesLiveDocsUnsupported
+// WriteLiveDocs flushes any pending live-docs changes to disk.
+func (r *ReadersAndUpdates) WriteLiveDocs(dir store.Directory) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pendingDeletes.WriteLiveDocs(dir)
 }
 
-// WriteFieldUpdates flushes pending DV updates to disk, writing one
-// _X_N.dv* file per affected field and one fieldInfos_gen file.
-//
-// DIVERGENCE: the codec-write body (handleDVUpdates / writeFieldInfosGen)
-// depends on TrackingDirectoryWrapper, SegmentWriteState,
-// DocValuesConsumer, PendingDeletes.onNewReader and
-// PendingDeletes.onDocValuesUpdate — none of which are ported yet.
-//
-// The method preserves Lucene's "no-op fast path": if no packet has
-// delGen <= maxDelGen with Any() == true, it returns (false, nil)
-// exactly as the reference does. When there is real work to do it
-// returns [ErrReadersAndUpdatesDVWriteUnsupported].
-//
-// The bookkeeping tail (the prune loop that strips applied updates and
-// decrements RAMBytesUsed) is reachable through
-// [ReadersAndUpdates.PruneAppliedDVUpdates] so callers and tests can
-// drive the lifecycle without the writer path.
-func (r *ReadersAndUpdates) WriteFieldUpdates(_ any, _ *FieldInfos, maxDelGen int64) (bool, error) {
-	r.mu.Lock()
-	any := r.anyDVUpdatesEligibleLocked(maxDelGen)
-	r.mu.Unlock()
+func (r *ReadersAndUpdates) writeFieldInfosGen(
+	fieldInfos *schema.FieldInfos,
+	dir store.Directory,
+	infosFormat spi.FieldInfosFormat,
+) (map[string]int64, error) {
+	nextFieldInfosGen := r.info.NextFieldInfosGen()
+	segmentSuffix := strconv.FormatInt(nextFieldInfosGen, 36)
+
+	estInfosSize := int64(40 + 90*fieldInfos.Size())
+	infosContext := store.NewFlushIOContext(r.info.Info.MaxDoc(), estInfosSize)
+
+	trackingDir := store.NewTrackingDirectoryWrapper(dir)
+	err := infosFormat.Write(trackingDir, r.info.Info, segmentSuffix, fieldInfos, infosContext)
+	if err != nil {
+		return nil, err
+	}
+	r.info.AdvanceFieldInfosGen()
+	return trackingDir.GetCreatedFiles(), nil
+}
+
+func (r *ReadersAndUpdates) handleDVUpdates(
+	infos *schema.FieldInfos,
+	dir store.Directory,
+	dvFormat spi.DocValuesFormat,
+	reader *SegmentReader,
+	fieldFiles map[int]map[string]int64,
+	maxDelGen int64,
+	infoStream *util.InfoStream,
+) error {
+	for field, updates := range r.pendingDVUpdates {
+		if len(updates) == 0 {
+			continue
+		}
+		update := updates[0]
+		dvType := update.inner.Type()
+
+		updatesToApply := make([]*readersAndUpdatesPacket, 0, len(updates))
+		var bytes int64
+		for _, u := range updates {
+			if u.inner.DelGen() <= maxDelGen {
+				bytes += u.inner.RamBytesUsed()
+				updatesToApply = append(updatesToApply, u)
+			}
+		}
+
+		if len(updatesToApply) == 0 {
+			continue
+		}
+
+		if infoStream != nil && infoStream.IsEnabled("BD") {
+			infoStream.Message("BD", fmt.Sprintf(
+				"now write %d pending DV updates for field=%s, seg=%s, bytes=%.3f MB",
+				len(updatesToApply), field, r.info, float64(bytes)/1024/1024))
+		}
+
+		nextDocValuesGen := r.info.NextDocValuesGen()
+		segmentSuffix := strconv.FormatInt(nextDocValuesGen, 36)
+		updatesContext := store.NewFlushIOContext(r.info.Info.MaxDoc(), bytes)
+
+		fieldInfo := infos.FieldInfoByName(field)
+		if fieldInfo == nil {
+			return fmt.Errorf("field info not found for field %s", field)
+		}
+		fieldInfo.SetDocValuesGen(nextDocValuesGen)
+
+		fieldInfos := schema.NewFieldInfos([]*schema.FieldInfo{fieldInfo})
+		trackingDir := store.NewTrackingDirectoryWrapper(dir)
+		state := NewSegmentWriteStateWithSuffix(infoStream, trackingDir, r.info.Info, fieldInfos, nil, updatesContext, segmentSuffix)
+
+		fieldsConsumer, err := dvFormat.FieldsConsumer(state)
+		if err != nil {
+			return err
+		}
+
+		updateSupplier := func(fi *schema.FieldInfo) DocValuesFieldUpdatesIterator {
+			if fi.Name() != fieldInfo.Name() {
+				panic(fmt.Sprintf("expected field info for field: %s but got: %s", fieldInfo.Name(), fi.Name()))
+			}
+			subs := make([]DocValuesFieldUpdatesIterator, len(updatesToApply))
+			for i, u := range updatesToApply {
+				subs[i] = u.inner.(*BaseDocValuesFieldUpdates).Iterator()
+			}
+			return MergedDocValuesFieldUpdatesIterator(subs)
+		}
+
+		if dvType == DocValuesTypeBinary {
+			err = fieldsConsumer.AddBinaryField(fieldInfo, &binaryMergedDocValues{
+				merged: newMergedDocValues(reader.GetBinaryDocValues(field),
+					AsBinaryDocValues(updateSupplier(fieldInfo)),
+					updateSupplier(fieldInfo)),
+			})
+		} else {
+			err = fieldsConsumer.AddNumericField(fieldInfo, &numericMergedDocValues{
+				merged: newMergedDocValues(reader.GetNumericDocValues(field),
+					AsNumericDocValues(updateSupplier(fieldInfo)),
+					updateSupplier(fieldInfo)),
+			})
+		}
+		fieldsConsumer.Close()
+		if err != nil {
+			return err
+		}
+
+		fieldFiles[fieldInfo.Number()] = trackingDir.GetCreatedFiles()
+	}
+	return nil
+}
+
+func (r *ReadersAndUpdates) WriteFieldUpdates(
+	dir store.Directory,
+	fieldNumbers *schema.FieldNumbers,
+	maxDelGen int64,
+	infoStream *util.InfoStream,
+) (bool, error) {
+	startTime := util.Now()
+	newDVFiles := make(map[int]map[string]int64)
+	var fieldInfosFiles map[string]int64
+	var fieldInfos *schema.FieldInfos
+	any := false
+	for _, updates := range r.pendingDVUpdates {
+		for _, update := range updates {
+			if update.inner.DelGen() <= maxDelGen && update.inner.Any() {
+				any = true
+				break
+			}
+		}
+		if any {
+			break
+		}
+	}
+
 	if !any {
 		return false, nil
 	}
-	return false, ErrReadersAndUpdatesDVWriteUnsupported
+
+	trackingDir := store.NewTrackingDirectoryWrapper(dir)
+	success := false
+	defer func() {
+		if !success {
+			r.info.AdvanceNextWriteFieldInfosGen()
+			r.info.AdvanceNextWriteDocValuesGen()
+			for fileName := range trackingDir.GetCreatedFiles() {
+				dir.DeleteFile(fileName)
+			}
+		}
+	}()
+
+	var reader *SegmentReader
+	if r.reader == nil {
+		reader = NewSegmentReader(r.info)
+	} else {
+		reader = r.reader
+	}
+
+	byName := make(map[string]*schema.FieldInfo)
+	maxFieldNumber := -1
+	for _, fi := range reader.GetFieldInfos().Iterator() {
+		byName[fi.Name()] = fi.Clone(fi.Number())
+		if fi.Number() > maxFieldNumber {
+			maxFieldNumber = fi.Number()
+		}
+	}
+
+	for _, updates := range r.pendingDVUpdates {
+		if len(updates) == 0 {
+			continue
+		}
+		update := updates[0]
+		field := update.inner.Field()
+		if fi, ok := byName[field]; ok {
+			// field already exists
+		} else {
+			fi := fieldNumbers.ConstructFieldInfo(field, update.inner.Type(), maxFieldNumber+1)
+			maxFieldNumber++
+			byName[fi.Name()] = fi
+		}
+	}
+	fieldInfos = schema.NewFieldInfos(mapToSlice(byName))
+
+	codec := r.info.Info.GetCodec()
+	err := r.handleDVUpdates(fieldInfos, trackingDir, codec.DocValuesFormat(), reader, newDVFiles, maxDelGen, infoStream)
+	if err != nil {
+		return false, err
+	}
+
+	fieldInfosFiles, err = r.writeFieldInfosGen(fieldInfos, trackingDir, codec.FieldInfosFormat())
+	if err != nil {
+		return false, err
+	}
+
+	success = true
+
+	bytesFreed := r.PruneAppliedDVUpdates(maxDelGen)
+	_ = bytesFreed
+
+	r.info.SetFieldInfosFiles(fieldInfosFiles)
+	for fieldNum, files := range r.info.GetDocValuesUpdatesFiles() {
+		if _, ok := newDVFiles[fieldNum]; !ok {
+			newDVFiles[fieldNum] = files
+		}
+	}
+	r.info.SetDocValuesUpdatesFiles(newDVFiles)
+
+	if r.reader != nil {
+		r.swapNewReaderWithLatestLiveDocs()
+	}
+
+	if infoStream != nil && infoStream.IsEnabled("BD") {
+		infoStream.Message("BD", fmt.Sprintf(
+			"done write field updates for seg=%s; took %.3fs; new files: %v",
+			r.info, util.Since(startTime).Seconds(), newDVFiles))
+	}
+	return true, nil
+}
+
+func mapToSlice(m map[string]*schema.FieldInfo) []*schema.FieldInfo {
+	s := make([]*schema.FieldInfo, 0, len(m))
+	for _, v := range m {
+		s = append(s, v)
+	}
+	return s
+}
+
+// mergedDocValues merges the current on-disk DV with an incoming update DV
+// instance and merges the two instances giving the incoming update precedence
+// in terms of values, in other words the values of the update always win
+// over the on-disk version.
+type mergedDocValues[T any] struct {
+	updateIterator DocValuesFieldUpdatesIterator
+	docIDOut       int
+	docIDOnDisk    int
+	updateDocID    int
+	onDisk         T
+	update         T
+	current        T
+	scratch        *util.FixedBitSet
+}
+
+func newMergedDocValues[T any](onDisk T, update T, updateIterator DocValuesFieldUpdatesIterator) *mergedDocValues[T] {
+	return &mergedDocValues[T]{
+		onDisk:         onDisk,
+		update:         update,
+		updateIterator: updateIterator,
+		docIDOut:       -1,
+		docIDOnDisk:    -1,
+		updateDocID:    -1,
+	}
+}
+
+func (m *mergedDocValues[T]) nextDoc(onDiskNext func() int, updateNext func() int) int {
+	hasValue := false
+	for {
+		if m.docIDOnDisk == m.docIDOut {
+			m.docIDOnDisk = onDiskNext()
+		}
+		if m.updateDocID == m.docIDOut {
+			m.updateDocID = updateNext()
+		}
+		if m.docIDOnDisk < m.updateDocID {
+			m.docIDOut = m.docIDOnDisk
+			m.current = m.onDisk
+			hasValue = true
+		} else {
+			m.docIDOut = m.updateDocID
+			if m.docIDOut != util.NO_MORE_DOCS {
+				m.current = m.update
+				hasValue = m.updateIterator.HasValue()
+			} else {
+				hasValue = true
+			}
+		}
+		if hasValue {
+			break
+		}
+	}
+	return m.docIDOut
+}
+
+func (m *mergedDocValues[T]) intoBitSet(upTo int, bitSet *util.FixedBitSet, offset int, onDiskIntoBitSet func(*util.FixedBitSet, int, int)) {
+	if m.onDisk == nil {
+		for doc := m.update.DocID(); doc < upTo; doc = m.update.NextDoc() {
+			if m.updateIterator.HasValue() {
+				bitSet.Set(doc - offset)
+			} else {
+				bitSet.Clear(doc - offset)
+			}
+		}
+		return
+	}
+
+	if m.scratch == nil {
+		m.scratch = util.NewFixedBitSet(bitSet.Length())
+	} else {
+		m.scratch = util.EnsureCapacityAndClear(m.scratch, bitSet.Length()-1)
+	}
+
+	onDiskIntoBitSet(m.scratch, offset, upTo)
+	m.docIDOnDisk = m.onDisk.DocID()
+
+	for doc := m.update.DocID(); doc < upTo; doc = m.update.NextDoc() {
+		if m.updateIterator.HasValue() {
+			m.scratch.Set(doc - offset)
+		} else {
+			m.scratch.Clear(doc - offset)
+		}
+	}
+
+	util.FixedBitSetOrRange(m.scratch, 0, bitSet, 0, bitSet.Length())
+
+	for {
+		for m.update.DocID() < m.docIDOnDisk && !m.updateIterator.HasValue() {
+			m.update.NextDoc()
+		}
+		if m.docIDOnDisk != util.NO_MORE_DOCS &&
+			m.update.DocID() == m.docIDOnDisk &&
+			!m.updateIterator.HasValue() {
+			m.docIDOnDisk = m.onDisk.NextDoc()
+		} else {
+			break
+		}
+	}
+
+	m.updateDocID = m.update.DocID()
+	if m.docIDOnDisk < m.updateDocID {
+		m.docIDOut = m.docIDOnDisk
+		m.current = m.onDisk
+	} else {
+		m.docIDOut = m.updateDocID
+		m.current = m.update
+	}
+}
+
+type numericMergedDocValues struct {
+	merged *mergedDocValues[NumericDocValues]
+}
+
+func (n *numericMergedDocValues) LongValue() (int64, error) {
+	return n.merged.current.LongValue()
+}
+
+func (n *numericMergedDocValues) Advance(target int) (int, error) {
+	return n.merged.nextDoc(n.merged.onDisk.NextDoc, n.merged.update.NextDoc), nil
+}
+
+func (n *numericMergedDocValues) AdvanceExact(target int) (bool, error) {
+	panic("unsupported")
+}
+
+func (n *numericMergedDocValues) DocID() int {
+	return n.merged.docIDOut
+}
+
+func (n *numericMergedDocValues) NextDoc() (int, error) {
+	return n.merged.nextDoc(n.merged.onDisk.NextDoc, n.merged.update.NextDoc), nil
+}
+
+func (n *numericMergedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	n.merged.intoBitSet(upTo, bitSet, offset, func(s *util.FixedBitSet, off, u int) {
+		n.merged.onDisk.IntoBitSet(u, s, off)
+	})
+	return nil
+}
+
+func (n *numericMergedDocValues) Cost() int64 {
+	return n.merged.onDisk.Cost()
+}
+
+type binaryMergedDocValues struct {
+	merged *mergedDocValues[BinaryDocValues]
+}
+
+func (b *binaryMergedDocValues) BinaryValue() ([]byte, error) {
+	return b.merged.current.BinaryValue()
+}
+
+func (b *binaryMergedDocValues) Advance(target int) (int, error) {
+	return b.merged.nextDoc(b.merged.onDisk.NextDoc, b.merged.update.NextDoc), nil
+}
+
+func (b *binaryMergedDocValues) AdvanceExact(target int) (bool, error) {
+	panic("unsupported")
+}
+
+func (b *binaryMergedDocValues) DocID() int {
+	return b.merged.docIDOut
+}
+
+func (b *binaryMergedDocValues) NextDoc() (int, error) {
+	return b.merged.nextDoc(b.merged.onDisk.NextDoc, b.merged.update.NextDoc), nil
+}
+
+func (b *binaryMergedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	b.merged.intoBitSet(upTo, bitSet, offset, func(s *util.FixedBitSet, off, u int) {
+		b.merged.onDisk.IntoBitSet(u, s, off)
+	})
+	return nil
+}
+
+func (b *binaryMergedDocValues) Cost() int64 {
+	return b.merged.onDisk.Cost()
+}
+
+// GetReadOnlyClone is the entry-point that Lucene uses to hand a fresh
+// SegmentReader (with replacement live-docs) to consumers that must see
+// the latest deletes.
+func (r *ReadersAndUpdates) GetReadOnlyClone() (*SegmentReader, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.reader == nil {
+		r.reader = NewSegmentReader(r.info)
+	}
+
+	liveDocs := r.pendingDeletes.GetLiveDocs()
+	if liveDocs != nil {
+		return NewSegmentReaderClone(
+			r.info,
+			r.reader,
+			liveDocs,
+			r.pendingDeletes.GetHardLiveDocs(),
+			r.pendingDeletes.NumDocs(),
+			true), nil
+	}
+
+	// liveDocs == nil and reader != nil. That can only be if there are no deletes
+	r.reader.IncRef()
+	return r.reader, nil
+}
+
+// NumDeletesToMerge returns the number of deletes that would be applied
+// when this segment is merged with the supplied [MergePolicy]. The
+// underlying PendingDeletes.numDeletesToMerge entry point is not yet
+// ported. See file header.
+func (r *ReadersAndUpdates) NumDeletesToMerge(_ MergePolicy) (int, error) {
+	return 0, ErrReadersAndUpdatesMergeReaderUnsupported
+}
+
+// GetLiveDocs returns a snapshot of the live docs.
+func (r *ReadersAndUpdates) GetLiveDocs() (util.Bits, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pendingDeletes.GetLiveDocs(), nil
+}
+
+// GetHardLiveDocs returns the live-docs bits excluding soft-deleted
+// documents.
+func (r *ReadersAndUpdates) GetHardLiveDocs() (util.Bits, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pendingDeletes.GetHardLiveDocs(), nil
+}
+
+// DropChanges discards any pending changes against this segment.
+// Mirrors {@code ReadersAndUpdates#dropChanges()}.
+//
+// DIVERGENCE: Lucene delegates to PendingDeletes.dropChanges() and then
+// drops merging updates. The Gocene PendingDeletes has no equivalent
+// hook, so the docID set is cleared directly and merging updates are
+// dropped via [ReadersAndUpdates.DropMergingUpdates].
+func (r *ReadersAndUpdates) DropChanges() {
+	r.mu.Lock()
+	r.pendingDeletes.clearLocked()
+	r.mu.Unlock()
+	r.DropMergingUpdates()
+}
+
+// WriteLiveDocs flushes any pending live-docs changes to disk.
+func (r *ReadersAndUpdates) WriteLiveDocs(dir store.Directory) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pendingDeletes.WriteLiveDocs(dir)
 }
 
 // anyDVUpdatesEligibleLocked mirrors the early-exit loop at the head of
@@ -597,7 +1239,6 @@ func (r *ReadersAndUpdates) PruneAppliedDVUpdates(maxDelGen int64) int64 {
 		if upto == 0 {
 			delete(r.pendingDVUpdates, field)
 		} else {
-			// Shrink-and-clear the tail; reuses the underlying array.
 			for i := upto; i < len(updates); i++ {
 				updates[i] = nil
 			}
@@ -607,10 +1248,6 @@ func (r *ReadersAndUpdates) PruneAppliedDVUpdates(maxDelGen int64) int64 {
 	if bytesFreed > 0 {
 		bytes := r.ramBytesUsed.Add(-bytesFreed)
 		if bytes < 0 {
-			// Mirror Lucene's assertion: ramBytesUsed must stay >= 0.
-			// Restore the counter so subsequent calls remain coherent
-			// and report through a panic — this is a hard internal
-			// invariant violation.
 			r.ramBytesUsed.Add(bytesFreed)
 			panic(fmt.Sprintf("readers and updates: ramBytesUsed went negative: %d", bytes))
 		}
@@ -687,16 +1324,23 @@ func (r *ReadersAndUpdates) GetMergingDVUpdates() map[string][]*BaseDocValuesFie
 }
 
 // IsFullyDeleted reports whether every document in this segment is
-// deleted. The underlying PendingDeletes.isFullyDeleted entry point is
-// not yet ported. See file header.
+// deleted.
 func (r *ReadersAndUpdates) IsFullyDeleted() (bool, error) {
-	return false, ErrReadersAndUpdatesLiveDocsUnsupported
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.reader != nil {
+		if nrtr, ok := r.reader.(*NRTSegmentReader); ok {
+			return nrtr.NumDocs() == 0, nil
+		}
+	}
+
+	return len(r.pendingDeletes.docIDs) == r.info.Info.MaxDoc(), nil
 }
 
 // KeepFullyDeletedSegment asks the supplied MergePolicy whether a
 // fully-deleted segment should be retained. The policy hook depends on
-// PendingDeletes.getLatestReader, which is not yet ported. See file
-// header.
+// PendingDeletes.getLatestReader, which is not yet ported. See file header.
 func (r *ReadersAndUpdates) KeepFullyDeletedSegment(_ MergePolicy) (bool, error) {
 	return false, ErrReadersAndUpdatesLiveDocsUnsupported
 }
@@ -718,8 +1362,10 @@ func (r *ReadersAndUpdates) SetSortMap(m sortDocMap) {
 	r.sortMap = m
 }
 
-// String mirrors {@code ReadersAndUpdates#toString()}: "ReadersAndLiveDocs(seg=...
-// pendingDeletes=...)".
+// String renders the pending-deletes set in a stable order for the
+// orchestrator's toString output. Mirrors the human-readable
+// PendingDeletes#toString in Lucene by reporting the count only — the
+// raw docID set is intentionally not exposed in the string form.
 func (r *ReadersAndUpdates) String() string {
 	return fmt.Sprintf("ReadersAndLiveDocs(seg=%s pendingDeletes=%s)", r.info, r.pendingDeletes)
 }
@@ -731,7 +1377,7 @@ func (r *ReadersAndUpdates) String() string {
 // shape to the call sites above, holding [PendingDeletes.mu] for the
 // duration of the call so the rest of the file does not have to think
 // about it.
-
+//
 // delCountLocked returns the number of recorded pending deletes. The
 // caller must hold r.mu (not PendingDeletes.mu); this helper acquires
 // PendingDeletes.mu itself.
@@ -787,7 +1433,7 @@ func (p *PendingDeletes) String() string {
 // promoting RamBytesUsedBase to the polymorphic name. Concrete subtypes
 // shadow this method through their own RamBytesUsed, so the orchestrator
 // always sees the most precise accounting available.
-
+//
 // RamBytesUsed returns the shallow RAM footprint of this packet. Concrete
 // subtypes (BinaryDocValuesFieldUpdates, future numeric variants) override
 // this with auxiliary-array-aware accounting.

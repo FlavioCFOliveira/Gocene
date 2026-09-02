@@ -40,7 +40,7 @@ type TermVectorsWriter interface {
 	StartField(fieldInfo *schema.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error
 
 	// StartTerm signals a new term in the current field.
-	StartTerm(term []byte) error
+	StartTerm(term []byte, freq int) error
 
 	// AddPosition adds one occurrence of the current term.
 	AddPosition(position int, startOffset, endOffset int, payload []byte) error
@@ -53,6 +53,9 @@ type TermVectorsWriter interface {
 
 	// FinishDocument closes the current document.
 	FinishDocument() error
+
+	// Finish is called before Close(), passing in the number of documents written.
+	Finish(numDocs int) error
 
 	// Close releases any resources held by the writer.
 	Close() error

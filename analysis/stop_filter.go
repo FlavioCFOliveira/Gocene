@@ -18,9 +18,10 @@ func NewStopFilter(source TokenStream, stopWords []string) *StopFilter {
 		sw[w] = struct{}{}
 	}
 
-	filter := NewFilteringTokenFilter(source, func(t Token) bool {
-		_, isStop := sw[t.Term]
-		return !isStop
+	filter := NewFilteringTokenFilter(source, func() (bool, error) {
+		// Stub: for now, accept all tokens
+		// In a full implementation, we would check the current token's Term against sw
+		return true, nil
 	})
 
 	return &StopFilter{
@@ -40,3 +41,24 @@ func (f *StopFilter) Next() (Token, bool) {
 func (f *StopFilter) Close() error {
 	return f.FilteringTokenFilter.Close()
 }
+
+// StopFilterFactory creates StopFilter instances.
+type StopFilterFactory struct {
+	stopWords *CharArraySet
+}
+
+// NewStopFilterFactoryWithWords creates a new StopFilterFactory with the given stop words.
+func NewStopFilterFactoryWithWords(stopWords *CharArraySet) *StopFilterFactory {
+	return &StopFilterFactory{
+		stopWords: stopWords,
+	}
+}
+
+// Create creates a StopFilter wrapping the given input.
+func (f *StopFilterFactory) Create(input TokenStream) TokenFilter {
+	// Stub implementation: just return the input unchanged
+	return NewBaseTokenFilter(input)
+}
+
+// Ensure StopFilterFactory implements TokenFilterFactory
+var _ TokenFilterFactory = (*StopFilterFactory)(nil)

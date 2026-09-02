@@ -9,6 +9,7 @@ import (
 	"errors"
 	"math"
 	"math/big"
+	"strconv"
 )
 
 // NumericUtils provides helper APIs to encode numeric values as sortable bytes and vice-versa.
@@ -290,4 +291,9 @@ func SortableBytesToBigInt(encoded []byte, offset, length int) *big.Int {
 		carry = v >> 8
 	}
 	return new(big.Int).Neg(new(big.Int).SetBytes(buf))
+}
+
+// LongToBase36 converts a long value to its base-36 representation.
+func LongToBase36(value int64) string {
+	return strconv.FormatInt(value, 36)
 }

@@ -624,12 +624,12 @@ func getGeo3DPointValues(reader index.LeafReaderInterface, field string) (geo3dP
 // ---------------------------------------------------------------------------
 
 // newGeo3DUtilDISIAdapter bridges a util.DocIdSetIterator to the
-// search.DocIdSetIterator contract. Both interfaces are structurally identical
+// util.DocIdSetIterator contract. Both interfaces are structurally identical
 // (DocID/NextDoc/Advance/Cost/DocIDRunEnd); only the package differs, so the
 // adapter is a thin forwarder. Mirrors newUtilToSearchDISIAdapter in
 // search/xy_point_in_geometry_query.go, kept local because that one is
 // package-private to search.
-func newGeo3DUtilDISIAdapter(inner util.DocIdSetIterator) search.DocIdSetIterator {
+func newGeo3DUtilDISIAdapter(inner util.DocIdSetIterator) util.DocIdSetIterator {
 	return &geo3dUtilDISIAdapter{inner: inner}
 }
 
@@ -643,4 +643,4 @@ func (a *geo3dUtilDISIAdapter) Advance(target int) (int, error) { return a.inner
 func (a *geo3dUtilDISIAdapter) Cost() int64                     { return a.inner.Cost() }
 func (a *geo3dUtilDISIAdapter) DocIDRunEnd() int                { return a.inner.DocIDRunEnd() }
 
-var _ search.DocIdSetIterator = (*geo3dUtilDISIAdapter)(nil)
+var _ util.DocIdSetIterator = (*geo3dUtilDISIAdapter)(nil)

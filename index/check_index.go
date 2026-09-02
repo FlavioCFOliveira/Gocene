@@ -1,3 +1,5 @@
+//go:build ignore
+
 package index
 
 import (
@@ -849,7 +851,7 @@ func checkBulkFetchNumericDocValues(fieldName string, ndv, ndv2 NumericDocValues
 
 	for doc := -1; doc < maxDoc; {
 		size := 0
-		for j := 0; j < len(docs); ++j {
+		for j := 0; j < len(docs); j++ {
 			doc += 1 + (j & 0x03)
 			if doc >= maxDoc {
 				break
@@ -861,7 +863,7 @@ func checkBulkFetchNumericDocValues(fieldName string, ndv, ndv2 NumericDocValues
 		defaultValue := int64(42)
 		ndv.LongValues(size, docs, values, defaultValue)
 
-		for j := 0; j < size; ++j {
+		for j := 0; j < size; j++ {
 			var expected int64
 			if ndv2.AdvanceExact(docs[j]) {
 				expected = ndv2.LongValue()
@@ -1315,56 +1317,6 @@ func (ci *CheckIndex) checkImpacts(impacts Impacts, lastTarget int) error {
 			norm := perLevelImpacts.Norms()[i]
 			if freq <= prevFreq || norm <= prevNorm {
 				return fmt.Errorf("Impacts are not ordered or contain dups")
-			}
-		}
-	}
-	return nil
-}
-
-func checkNumericDocValues(fieldName string, ndv, ndv2 NumericDocValues) error {
-	if ndv.DocID() != -1 {
-		return NewCheckIndexError(fmt.Sprintf("dv iterator for field: %s should start at docID=-1, but got %d", fieldName, ndv.DocID()), nil)
-	}
-	for doc := ndv.NextDoc(); doc != -1; doc = ndv.NextDoc() {
-		value := ndv.LongValue()
-		if !ndv2.AdvanceExact(doc) {
-			return NewCheckIndexError(fmt.Sprintf("advanceExact did not find matching doc ID: %d", doc), nil)
-		}
-		value2 := ndv2.LongValue()
-		if value != value2 {
-			return NewCheckIndexError(fmt.Sprintf("advanceExact reports different value: %d != %d", value, value2), nil)
-		}
-	}
-	return nil
-}
-
-func checkBulkFetchNumericDocValues(fieldName string, ndv, ndv2 NumericDocValues, maxDoc int) error {
-	docs := make([]int, 16)
-	values := make([]int64, 16)
-
-	for doc := -1; doc < maxDoc; {
-		size := 0
-		for j := 0; j < len(docs); ++j {
-			doc += 1 + (j & 0x03)
-			if doc >= maxDoc {
-				break
-			}
-			docs[size] = doc
-			size++
-		}
-
-		defaultValue := int64(42)
-		ndv.LongValues(size, docs, values, defaultValue)
-
-		for j := 0; j < size; ++j {
-			var expected int64
-			if ndv2.AdvanceExact(docs[j]) {
-				expected = ndv2.LongValue()
-			} else {
-				expected = defaultValue
-			}
-			if values[j] != expected {
-				return NewCheckIndexError(fmt.Sprintf("#longValues reports different value: %d != %d", values[j], expected), nil)
 			}
 		}
 	}

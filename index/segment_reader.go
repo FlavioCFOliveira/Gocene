@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -23,14 +25,36 @@ type SegmentReader struct {
 	// directory is the source directory; used to look up in-memory postings
 	// from the package-level registry when coreReaders is nil.
 	directory store.Directory
+	liveDocs          util.Bits
+	hardLiveDocs      util.Bits
+	isNRT             bool
+	numDocs           int
 }
 
 // NewSegmentReader creates a new SegmentReader.
 func NewSegmentReader(segmentCommitInfo *SegmentCommitInfo) *SegmentReader {
-	return &SegmentReader{
+	sr := &SegmentReader{
 		segmentCommitInfo: segmentCommitInfo,
 		fieldInfos:        segmentCommitInfo.GetInMemoryFieldInfos(),
 	}
+	sr.initLiveDocs()
+	return sr
+}
+
+func (r *SegmentReader) initLiveDocs() {
+	if r.segmentCommitInfo == nil {
+		return
+	}
+	if r.segmentCommitInfo.HasDeletions() {
+		// Read live docs from codec
+		liveDocs, err := r.codec.LiveDocsFormat().ReadLiveDocs(r.directory, r.segmentCommitInfo, store.IOContextReadOnce)
+		if err != nil {
+			panic(fmt.Sprintf("failed to read live docs for seg=%s: %v", r.segmentCommitInfo, err))
+		}
+		r.liveDocs = liveDocs
+		r.hardLiveDocs = liveDocs
+	}
+	r.numDocs = r.segmentCommitInfo.SegmentInfo().DocCount() - r.segmentCommitInfo.GetDelCount()
 }
 
 // NewSegmentReaderWithCore creates a new SegmentReader with core readers.
@@ -40,11 +64,36 @@ func NewSegmentReaderWithCore(
 	fieldInfos *FieldInfos,
 	codec Codec,
 ) *SegmentReader {
-	return &SegmentReader{
+	sr := &SegmentReader{
 		segmentCommitInfo: segmentCommitInfo,
 		coreReaders:       coreReaders,
 		fieldInfos:        fieldInfos,
 		codec:             codec,
+	}
+	sr.initLiveDocs()
+	return sr
+}
+
+// NewSegmentReaderClone creates a new SegmentReader sharing core from a previous SegmentReader
+// and using the provided liveDocs, and recording whether those liveDocs were carried in ram (isNRT=true).
+func NewSegmentReaderClone(
+	si *SegmentCommitInfo,
+	sr *SegmentReader,
+	liveDocs util.Bits,
+	hardLiveDocs util.Bits,
+	numDocs int,
+	isNRT bool,
+) *SegmentReader {
+	return &SegmentReader{
+		segmentCommitInfo: si,
+		coreReaders:       sr.coreReaders,
+		fieldInfos:        sr.fieldInfos,
+		codec:             sr.codec,
+		directory:         sr.directory,
+		liveDocs:          liveDocs,
+		hardLiveDocs:      hardLiveDocs,
+		isNRT:             isNRT,
+		numDocs:           numDocs,
 	}
 }
 
@@ -154,28 +203,33 @@ func (r *SegmentReader) GetTermVectors(docID int) (Fields, error) {
 
 // Terms returns the Terms for a field.
 func (r *SegmentReader) Terms(field string) (Terms, error) {
+	var terms Terms
+	var err error
+
 	if r.coreReaders != nil {
 		fields := r.coreReaders.GetFields()
 		if fields == nil {
 			return nil, nil
 		}
-		return fields.Terms(field)
-	}
-
-	if r.segmentCommitInfo != nil {
+		terms, err = fields.Terms(field)
+	} else if r.segmentCommitInfo != nil {
 		if fp := r.segmentCommitInfo.GetInMemoryFields(); fp != nil {
-			return fp.Terms(field)
+			terms, err = fp.Terms(field)
 		}
 	}
 
-	if r.directory != nil && r.segmentCommitInfo != nil {
+	if terms == nil && r.directory != nil && r.segmentCommitInfo != nil {
 		segName := r.segmentCommitInfo.SegmentInfo().Name()
 		if fp := LookupInMemoryFields(r.directory, segName); fp != nil {
-			return fp.Terms(field)
+			terms, err = fp.Terms(field)
 		}
 	}
 
-	return nil, nil
+	if terms == nil {
+		return nil, err
+	}
+
+	return WrapTerms(terms, r.liveDocs), err
 }
 
 // GetFloatVectorValues returns the float vectors for field.
@@ -299,6 +353,16 @@ func (r *SegmentReader) GetMetaData() *IndexReaderMetaData {
 	}
 }
 
+// GetLiveDocs returns a bitset of live (not deleted) docs.
+func (r *SegmentReader) GetLiveDocs() util.Bits {
+	return r.liveDocs
+}
+
+// GetHardLiveDocs returns the live-docs bits excluding documents that are not live due to soft-deletes.
+func (r *SegmentReader) GetHardLiveDocs() util.Bits {
+	return r.hardLiveDocs
+}
+
 // GetContext returns the reader context for this leaf reader.
 func (r *SegmentReader) GetContext() (IndexReaderContext, error) {
 	return NewLeafReaderContext(r, nil, 0, 0), nil
@@ -341,66 +405,23 @@ func (r *SegmentReader) TryIncRef() bool {
 	return true
 }
 
-// GetRefCount returns the current reference count.
 func (r *SegmentReader) GetRefCount() int32 {
-n
-	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
-	func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
-		if r.coreReaders != nil {
-			return r.coreReaders.GetCacheHelper()
-		}
-		return nil
-	}
-
-	// GetReaderCacheHelper returns a CacheHelper for the reader.
-	func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
-		return r.GetCacheHelper()
-	}
 	if r.coreReaders != nil {
-n
-	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
-	func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
-		if r.coreReaders != nil {
-			return r.coreReaders.GetCacheHelper()
-		}
-		return nil
-	}
-
-	// GetReaderCacheHelper returns a CacheHelper for the reader.
-	func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
-		return r.GetCacheHelper()
-	}
 		return r.coreReaders.GetRefCount()
-n
-	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
-	func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
-		if r.coreReaders != nil {
-			return r.coreReaders.GetCacheHelper()
-		}
-		return nil
-	}
-
-	// GetReaderCacheHelper returns a CacheHelper for the reader.
-	func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
-		return r.GetCacheHelper()
-	}
-	}
-n
-	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
-	func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
-		if r.coreReaders != nil {
-			return r.coreReaders.GetCacheHelper()
-		}
-		return nil
-	}
-
-	// GetReaderCacheHelper returns a CacheHelper for the reader.
-	func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
-		return r.GetCacheHelper()
 	}
 	return 1
 }
 
+func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
+	if r.coreReaders != nil {
+		return r.coreReaders.GetCacheHelper()
+	}
+	return nil
+}
+
+func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
+	return r.GetCoreCacheHelper()
+}
 // DocCount returns the number of documents in this segment.
 func (r *SegmentReader) DocCount() int {
 	if r.segmentCommitInfo == nil {

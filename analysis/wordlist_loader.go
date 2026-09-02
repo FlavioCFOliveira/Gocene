@@ -38,7 +38,7 @@ func GetWordSetWithComment(reader io.Reader, comment string) (*CharArraySet, err
 		if line == "" {
 			continue
 		}
-		set.Add([]rune(line))
+		set.Add(line)
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
@@ -60,7 +60,7 @@ func GetSnowballWordSet(reader io.Reader) (*CharArraySet, error) {
 		parts := strings.Fields(line)
 		for _, p := range parts {
 			if p != "" {
-				set.Add([]rune(p))
+				set.Add(p)
 			}
 		}
 	}

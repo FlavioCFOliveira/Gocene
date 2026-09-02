@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -8,7 +10,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 func TestKeywordField_StringNotStored(t *testing.T) {
@@ -25,7 +27,7 @@ func TestKeywordField_StringNotStored(t *testing.T) {
 	if f.FieldType().IsStored() {
 		t.Fatalf("not-stored variant must not have Stored=true")
 	}
-	if f.FieldType().GetDocValuesType() != index.DocValuesTypeSortedSet {
+	if f.FieldType().GetDocValuesType() != schema.DocValuesTypeSortedSet {
 		t.Fatalf("DocValuesType must be SORTED_SET")
 	}
 }

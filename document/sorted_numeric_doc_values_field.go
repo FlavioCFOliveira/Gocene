@@ -5,7 +5,7 @@
 package document
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // SortedNumericDocValuesField is a field that stores multiple numeric values as sorted DocValues.
@@ -28,7 +28,7 @@ func init() {
 	SortedNumericDocValuesFieldType = NewFieldType().
 		SetIndexed(false).
 		SetStored(false).
-		SetDocValuesType(index.DocValuesTypeSortedNumeric)
+		SetDocValuesType(schema.DocValuesTypeSortedNumeric)
 	SortedNumericDocValuesFieldType.Freeze()
 }
 

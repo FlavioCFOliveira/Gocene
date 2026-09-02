@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -9,9 +11,15 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/search/similarities"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// IndexReaderWarmer is an interface for warming up segments after a merge.
+// This is the Go port of Lucene's org.apache.lucene.index.IndexReaderWarmer.
+type IndexReaderWarmer interface {
+	// Warm is called to warm up the given segment reader.
+	Warm(reader *SegmentReader)
+}
 
 type OpenMode int
 
@@ -163,10 +171,11 @@ func (c *IndexWriterConfig) SetParentField(field string) *IndexWriterConfig {
 	return c
 }
 
-func (c *IndexWriterConfig) setIndexWriter(writer any) *IndexWriterConfig {
-	if c.writer != nil {
-		panic("do not share IndexWriterConfig instances across IndexWriters")
-	}
-	c.writer = writer
+func (c *IndexWriterConfig) SetMergedSegmentWarmer(warmer IndexReaderWarmer) *IndexWriterConfig {
+	c.SetMergedSegmentWarmerInternal(warmer)
 	return c
+}
+
+func (c *IndexWriterConfig) SetMergedSegmentWarmerInternal(warmer IndexReaderWarmer) {
+	c.LiveIndexWriterConfig.SetMergedSegmentWarmer(warmer)
 }

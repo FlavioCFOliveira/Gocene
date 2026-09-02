@@ -16,7 +16,7 @@ import (
 // Mirrors org.apache.lucene.queries.intervals.DisiWrapper (Lucene 10.4.0).
 type DisiWrapper struct {
 	// Iterator is the underlying DocIdSetIterator.
-	Iterator search.DocIdSetIterator
+	Iterator util.DocIdSetIterator
 	// Intervals is the original IntervalIterator.
 	Intervals IntervalIterator
 	// Cost is the estimated iteration cost.
@@ -28,7 +28,7 @@ type DisiWrapper struct {
 	// Next links wrappers sharing the same doc.
 	Next *DisiWrapper
 	// Approximation is the approximation iterator.
-	Approximation search.DocIdSetIterator
+	Approximation util.DocIdSetIterator
 }
 
 // NewDisiWrapper constructs a DisiWrapper around the given IntervalIterator.

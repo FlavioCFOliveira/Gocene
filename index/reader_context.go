@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -103,36 +105,4 @@ func (l *LeafReaderContext) Children() []*IndexReaderContext {
 
 func (l *LeafReaderContext) String() string {
 	return fmt.Sprintf("LeafReaderContext(%v docBase=%d ord=%d)", l.reader, l.DocBase, l.Ord)
-}
-
-// CompositeReaderContext is an IndexReaderContext for CompositeReader instances.
-// Mirrors org.apache.lucene.index.CompositeReaderContext from Apache Lucene 10.5.0.
-type CompositeReaderContext struct {
-	baseReaderContext
-	children []*IndexReaderContext
-	leaves   []*LeafReaderContext
-	reader   CompositeReader
-}
-
-func NewCompositeReaderContext(parent *CompositeReaderContext, reader CompositeReader, ordInParent, docBaseInParent int, children []*IndexReaderContext, leaves []*LeafReaderContext) *CompositeReaderContext {
-	base := newBaseReaderContext(parent, ordInParent, docBaseInParent)
-	return &CompositeReaderContext{
-		baseReaderContext: base,
-		children:         children,
-		leaves:           leaves,
-		reader:           reader,
-	}
-}
-
-func (c *CompositeReaderContext) Reader() IndexReader { return c.reader }
-
-func (c *CompositeReaderContext) Leaves() ([]*LeafReaderContext, error) {
-	if !c.isTopLevel {
-		return nil, fmt.Errorf("this is not a top-level context")
-	}
-	return c.leaves, nil
-}
-
-func (c *CompositeReaderContext) Children() []*IndexReaderContext {
-	return c.children
 }

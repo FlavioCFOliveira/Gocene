@@ -1,365 +1,135 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package search
 
-// TwoPhaseIterator provides a two-phase matching approach for queries.
-// This is the Go port of Lucene's org.apache.lucene.search.TwoPhaseIterator.
-//
-// Two-phase matching allows queries to:
-// 1. Use a fast approximation to identify candidate documents
-// 2. Use a slower confirmation phase to verify actual matches
-//
-// This is particularly useful for complex queries like phrase queries where
-// the approximation can quickly find documents containing all terms, and the
-// confirmation phase verifies the exact phrase positions.
+import (
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// TwoPhaseVerifier defines the verification phase of a two-phase iterator.
+type TwoPhaseVerifier interface {
+	// Matches returns whether the current doc ID of the approximation matches.
+	Matches() (bool, error)
+	// MatchCost returns an estimate of the expected cost to determine if a single document matches.
+	MatchCost() float32
+}
+
+// TwoPhaseIterator exposes an approximation of a DocIdSetIterator.
+// When the Approximation()'s NextDoc() or Advance() return, Matches() needs to be checked
+// in order to know whether the returned doc ID actually matches.
 type TwoPhaseIterator struct {
-	// approximation is the fast iterator that produces candidate documents
 	approximation DocIdSetIterator
-
-	// matchesFunc returns true if the current document is an actual match
-	matchesFunc func() (bool, error)
-
-	// matchCost is an estimate of the cost of the Matches() call. A
-	// value of 0 means "not set" and defaults to 8 (matching Java's
-	// MATCH_COST constant for the common case).
-	matchCost float32
+	verifier      TwoPhaseVerifier
 }
 
-// defaultMatchCost is the default cost estimate for Matches(), matching
-// Java's TwoPhaseIterator default.
-const defaultMatchCost = float32(8)
-
-// NewTwoPhaseIterator creates a new TwoPhaseIterator with the default
-// matchCost.
-//
-// Parameters:
-//   - approximation: A DocIdSetIterator that provides candidate documents
-//   - matchesFunc: A function that returns true if the current document matches
-//
-// The matchesFunc will only be called when the approximation iterator is
-// positioned on a document (i.e., DocID() != -1 and != NO_MORE_DOCS).
-func NewTwoPhaseIterator(approximation DocIdSetIterator, matchesFunc func() (bool, error)) *TwoPhaseIterator {
+// NewTwoPhaseIterator creates a new TwoPhaseIterator with the given approximation and verifier.
+func NewTwoPhaseIterator(approx DocIdSetIterator, verifier TwoPhaseVerifier) *TwoPhaseIterator {
 	return &TwoPhaseIterator{
-		approximation: approximation,
-		matchesFunc:   matchesFunc,
-		matchCost:     defaultMatchCost,
+		approximation: approx,
+		verifier:      verifier,
 	}
 }
 
-// NewTwoPhaseIteratorWithMatchCost creates a new TwoPhaseIterator with
-// an explicit matchCost. Use this when you have a better cost estimate
-// than the default.
-func NewTwoPhaseIteratorWithMatchCost(approximation DocIdSetIterator, matchesFunc func() (bool, error), matchCost float32) *TwoPhaseIterator {
-	return &TwoPhaseIterator{
-		approximation: approximation,
-		matchesFunc:   matchesFunc,
-		matchCost:     matchCost,
-	}
+// Approximation returns a DocIdSetIterator that is a superset of the matching documents.
+func (t *TwoPhaseIterator) Approximation() DocIdSetIterator {
+	return t.approximation
 }
 
-// MatchCost returns an estimate of the per-document cost of calling
-// Matches(). Lower is cheaper. Mirrors TwoPhaseIterator.matchCost().
-func (tpi *TwoPhaseIterator) MatchCost() float32 { return tpi.matchCost }
-
-// Approximation returns the approximation iterator.
-// This iterator produces candidate documents that may or may not match.
-func (tpi *TwoPhaseIterator) Approximation() DocIdSetIterator {
-	return tpi.approximation
+// Matches returns whether the current doc ID that Approximation() is on matches.
+// This method should only be called when the iterator is positioned and at most once.
+func (t *TwoPhaseIterator) Matches() (bool, error) {
+	return t.verifier.Matches()
 }
 
-// Matches returns true if the current document is an actual match.
-// This performs the second phase of two-phase matching.
-// Should only be called when the approximation is positioned on a document.
-func (tpi *TwoPhaseIterator) Matches() (bool, error) {
-	return tpi.matchesFunc()
+// MatchCost returns an estimate of the expected cost to determine that a single document matches.
+func (t *TwoPhaseIterator) MatchCost() float32 {
+	return t.verifier.MatchCost()
 }
 
-// DocID returns the current document ID from the approximation.
-func (tpi *TwoPhaseIterator) DocID() int {
-	return tpi.approximation.DocID()
+// DocIDRunEnd returns the end of the run of consecutive doc IDs that match this TwoPhaseIterator
+// and that contains the current doc ID of the approximation.
+func (t *TwoPhaseIterator) DocIDRunEnd() int {
+	return t.approximation.DocID()
 }
 
-// TwoPhaseIteratorAsDocIdSetIterator wraps a TwoPhaseIterator as a DocIdSetIterator.
-// This allows two-phase matching to be used transparently where a regular
-// DocIdSetIterator is expected.
-type TwoPhaseIteratorAsDocIdSetIterator struct {
-	twoPhase *TwoPhaseIterator
-}
-
-// NewTwoPhaseIteratorAsDocIdSetIterator creates a new DocIdSetIterator
-// that wraps a TwoPhaseIterator.
-func NewTwoPhaseIteratorAsDocIdSetIterator(twoPhase *TwoPhaseIterator) DocIdSetIterator {
-	return &TwoPhaseIteratorAsDocIdSetIterator{
-		twoPhase: twoPhase,
-	}
-}
-
-// DocID returns the current document ID.
-func (it *TwoPhaseIteratorAsDocIdSetIterator) DocID() int {
-	return it.twoPhase.DocID()
-}
-
-// NextDoc advances to the next matching document.
-// This iterates through the approximation and checks Matches() for each candidate.
-func (it *TwoPhaseIteratorAsDocIdSetIterator) NextDoc() (int, error) {
-	for {
-		doc, err := it.twoPhase.approximation.NextDoc()
-		if err != nil {
-			return NO_MORE_DOCS, err
-		}
-		if doc == NO_MORE_DOCS {
-			return NO_MORE_DOCS, nil
-		}
-		matches, err := it.twoPhase.Matches()
-		if err != nil {
-			return NO_MORE_DOCS, err
-		}
-		if matches {
-			return doc, nil
-		}
-	}
-}
-
-// Advance advances to the first document at or beyond the target that matches.
-func (it *TwoPhaseIteratorAsDocIdSetIterator) Advance(target int) (int, error) {
-	doc, err := it.twoPhase.approximation.Advance(target)
-	if err != nil {
-		return NO_MORE_DOCS, err
-	}
-	if doc == NO_MORE_DOCS {
-		return NO_MORE_DOCS, nil
-	}
-
-	for {
-		matches, err := it.twoPhase.Matches()
-		if err != nil {
-			return NO_MORE_DOCS, err
-		}
-		if matches {
-			return doc, nil
-		}
-		doc, err = it.twoPhase.approximation.NextDoc()
-		if err != nil {
-			return NO_MORE_DOCS, err
-		}
-		if doc == NO_MORE_DOCS {
-			return NO_MORE_DOCS, nil
-		}
-	}
-}
-
-// Cost returns an estimate of the cost.
-// The cost is based on the approximation's cost.
-func (it *TwoPhaseIteratorAsDocIdSetIterator) Cost() int64 {
-	return it.twoPhase.approximation.Cost()
-}
-
-// DocIDRunEnd returns the end of the current run.
-// Since matches are sparse, we return the current doc + 1.
-func (it *TwoPhaseIteratorAsDocIdSetIterator) DocIDRunEnd() int {
-	return it.twoPhase.approximation.DocID() + 1
-}
-
-// IntoBitSet loads matching documents into a FixedBitSet.
-//
-// Mirrors TwoPhaseIterator.intoBitSet(int, FixedBitSet, int) in Lucene.
-func (tpi *TwoPhaseIterator) IntoBitSet(upTo int, bitSet util.BitSet, offset int) error {
-	doc := tpi.approximation.DocID()
-	for doc < upTo {
-		matches, err := tpi.Matches()
+// IntoBitSet loads the doc IDs that both belong to the Approximation() and Matches() match,
+// and are in [approximation().DocID(), upTo), into bitSet.
+func (t *TwoPhaseIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	approx := t.approximation
+	for doc := approx.DocID(); doc < upTo; {
+		match, err := t.Matches()
 		if err != nil {
 			return err
 		}
-		if matches {
+		if match {
 			bitSet.Set(doc - offset)
 		}
-		var errNext error
-		doc, errNext = tpi.approximation.NextDoc()
-		if errNext != nil {
-			return errNext
+		doc, err = approx.NextDoc()
+		if err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-
-// AsDocIdSetIterator returns this TwoPhaseIterator as a DocIdSetIterator.
-// This is a convenience method that wraps the two-phase iterator.
-func (tpi *TwoPhaseIterator) AsDocIdSetIterator() DocIdSetIterator {
-	return NewTwoPhaseIteratorAsDocIdSetIterator(tpi)
+// AsDocIdSetIterator returns a DocIdSetIterator view of the provided TwoPhaseIterator.
+func AsDocIdSetIterator(t *TwoPhaseIterator) DocIdSetIterator {
+	return &twoPhaseIteratorAsDocIdSetIterator{t: t}
 }
 
-// TwoPhaseIteratorScorer wraps a TwoPhaseIterator as a Scorer.
-// This allows two-phase matching to be used in scoring contexts.
-type TwoPhaseIteratorScorer struct {
-	*BaseScorer
-	twoPhase *TwoPhaseIterator
-	doc      int
-}
-
-// NewTwoPhaseIteratorScorer creates a new Scorer that wraps a TwoPhaseIterator.
-func NewTwoPhaseIteratorScorer(twoPhase *TwoPhaseIterator, weight Weight) *TwoPhaseIteratorScorer {
-	return &TwoPhaseIteratorScorer{
-		BaseScorer: NewBaseScorer(weight),
-		twoPhase:   twoPhase,
-		doc:        -1,
+// Unwrap returns the wrapped TwoPhaseIterator if the given iterator was created with AsDocIdSetIterator.
+func Unwrap(iter DocIdSetIterator) *TwoPhaseIterator {
+	if t, ok := iter.(*twoPhaseIteratorAsDocIdSetIterator); ok {
+		return t.t
 	}
+	return nil
 }
 
-// DocID returns the current document ID.
-func (s *TwoPhaseIteratorScorer) DocID() int {
-	return s.twoPhase.DocID()
+type twoPhaseIteratorAsDocIdSetIterator struct {
+	t *TwoPhaseIterator
 }
 
-// NextDoc advances to the next matching document.
-func (s *TwoPhaseIteratorScorer) NextDoc() (int, error) {
-	for {
-		doc, err := s.twoPhase.approximation.NextDoc()
-		if err != nil {
-			return NO_MORE_DOCS, err
-		}
-		if doc == NO_MORE_DOCS {
-			s.doc = NO_MORE_DOCS
-			return NO_MORE_DOCS, nil
-		}
-		matches, err := s.twoPhase.Matches()
-		if err != nil {
-			return NO_MORE_DOCS, err
-		}
-		if matches {
-			s.doc = doc
-			return doc, nil
-		}
-	}
+func (i *twoPhaseIteratorAsDocIdSetIterator) DocID() int {
+	return i.t.approximation.DocID()
 }
 
-// Advance advances to the target document.
-func (s *TwoPhaseIteratorScorer) Advance(target int) (int, error) {
-	doc, err := s.twoPhase.approximation.Advance(target)
+func (i *twoPhaseIteratorAsDocIdSetIterator) NextDoc() (int, error) {
+	doc, err := i.t.approximation.NextDoc()
 	if err != nil {
-		return NO_MORE_DOCS, err
+		return 0, err
 	}
-	if doc == NO_MORE_DOCS {
-		s.doc = NO_MORE_DOCS
-		return NO_MORE_DOCS, nil
-	}
+	return i.doNext(doc)
+}
 
+func (i *twoPhaseIteratorAsDocIdSetIterator) Advance(target int) (int, error) {
+	doc, err := i.t.approximation.Advance(target)
+	if err != nil {
+		return 0, err
+	}
+	return i.doNext(doc)
+}
+
+func (i *twoPhaseIteratorAsDocIdSetIterator) DocIDRunEnd() int {
+	return i.t.approximation.DocIDRunEnd()
+}
+
+func (i *twoPhaseIteratorAsDocIdSetIterator) Cost() int64 {
+	return int64(i.t.approximation.Cost())
+}
+
+func (i *twoPhaseIteratorAsDocIdSetIterator) doNext(doc int) (int, error) {
 	for {
-		matches, err := s.twoPhase.Matches()
-		if err != nil {
-			return NO_MORE_DOCS, err
-		}
-		if matches {
-			s.doc = doc
-			return doc, nil
-		}
-		doc, err = s.twoPhase.approximation.NextDoc()
-		if err != nil {
-			return NO_MORE_DOCS, err
-		}
 		if doc == NO_MORE_DOCS {
-			s.doc = NO_MORE_DOCS
 			return NO_MORE_DOCS, nil
 		}
-	}
-}
-
-// Cost returns the estimated cost.
-func (s *TwoPhaseIteratorScorer) Cost() int64 {
-	return s.twoPhase.approximation.Cost()
-}
-
-// DocIDRunEnd returns the end of the current run.
-func (s *TwoPhaseIteratorScorer) DocIDRunEnd() int {
-	return s.twoPhase.approximation.DocIDRunEnd()
-}
-
-// Score returns the score for the current document.
-// For simplicity, returns 1.0 for matches.
-func (s *TwoPhaseIteratorScorer) Score() float32 {
-	return 1.0
-}
-
-// GetMaxScore returns the maximum score for documents up to the given doc.
-func (s *TwoPhaseIteratorScorer) GetMaxScore(upTo int) float32 {
-	return 1.0
-}
-
-// Matches returns true if the current document matches.
-func (s *TwoPhaseIteratorScorer) Matches() (bool, error) {
-	return s.twoPhase.Matches()
-}
-
-// Ensure TwoPhaseIteratorScorer implements Scorer
-var _ Scorer = (*TwoPhaseIteratorScorer)(nil)
-
-// ConjunctionTwoPhaseIterator provides a two-phase iterator for conjunctions (AND queries).
-// It combines multiple two-phase iterators and only matches when all match.
-type ConjunctionTwoPhaseIterator struct {
-	approximation DocIdSetIterator
-	matches       []func() (bool, error)
-}
-
-// NewConjunctionTwoPhaseIterator creates a two-phase iterator for conjunctions.
-// The approximation should be the conjunction of all sub-iterators' approximations.
-// The matches slice contains the match functions for each sub-iterator.
-func NewConjunctionTwoPhaseIterator(approximation DocIdSetIterator, matches []func() (bool, error)) *TwoPhaseIterator {
-	return NewTwoPhaseIterator(approximation, func() (bool, error) {
-		for _, match := range matches {
-			m, err := match()
-			if err != nil {
-				return false, err
-			}
-			if !m {
-				return false, nil
-			}
+		match, err := i.t.Matches()
+		if err != nil {
+			return 0, err
 		}
-		return true, nil
-	})
-}
-
-// DisjunctionTwoPhaseIterator provides a two-phase iterator for disjunctions (OR queries).
-// It combines multiple two-phase iterators and matches when any match.
-type DisjunctionTwoPhaseIterator struct {
-	approximation DocIdSetIterator
-	matches       []func() (bool, error)
-}
-
-// NewDisjunctionTwoPhaseIterator creates a two-phase iterator for disjunctions.
-// The approximation should be the disjunction of all sub-iterators' approximations.
-// The matches slice contains the match functions for each sub-iterator.
-func NewDisjunctionTwoPhaseIterator(approximation DocIdSetIterator, matches []func() (bool, error)) *TwoPhaseIterator {
-	return NewTwoPhaseIterator(approximation, func() (bool, error) {
-		for _, match := range matches {
-			m, err := match()
-			if err != nil {
-				return false, err
-			}
-			if m {
-				return true, nil
-			}
+		if match {
+			return doc, nil
 		}
-		return false, nil
-	})
-}
-
-// HasTwoPhaseIterator checks if a DocIdSetIterator supports two-phase iteration.
-// Returns the TwoPhaseIterator if available, or nil if not.
-func HasTwoPhaseIterator(iterator DocIdSetIterator) *TwoPhaseIterator {
-	// Check if the iterator is a TwoPhaseIterator wrapper
-	if tpi, ok := iterator.(*TwoPhaseIteratorAsDocIdSetIterator); ok {
-		return tpi.twoPhase
+		doc, err = i.t.approximation.NextDoc()
+		if err != nil {
+			return 0, err
+		}
 	}
-	// Check if the iterator is a TwoPhaseIteratorScorer
-	if tps, ok := iterator.(*TwoPhaseIteratorScorer); ok {
-		return tps.twoPhase
-	}
-	return nil
-}
-
-// AsTwoPhaseIterator returns a TwoPhaseIterator view of the given iterator, or nil if not available.
-func AsTwoPhaseIterator(iterator DocIdSetIterator) *TwoPhaseIterator {
-	return HasTwoPhaseIterator(iterator)
 }

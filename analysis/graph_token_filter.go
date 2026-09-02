@@ -4,6 +4,8 @@
 
 package analysis
 
+import "fmt"
+
 // GraphTokenFilter is an abstract token filter that exposes its input stream as a graph.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.GraphTokenFilter.
@@ -105,7 +107,7 @@ func (f *GraphTokenFilter) GetTrailingPositions() int {
 }
 
 func (f *GraphTokenFilter) Reset() error {
-	if err := f.source.Reset(); err != nil {
+	if err := ResetTokenStream(f.source); err != nil {
 		return err
 	}
 	f.tokenPool = nil
@@ -152,7 +154,7 @@ func (f *GraphTokenFilter) nextTokenInStream(token Token) (Token, bool) {
 	if f.trailingPositions != -1 {
 		return Token{}, false
 	}
-	t, ok := f.source.Next()
+	t, ok := NextFromTokenStream(f.source)
 	if !ok {
 		f.trailingPositions = t.PositionInc
 		f.finalOffsets = t.EndOffset

@@ -28,17 +28,16 @@ const (
 
 // Oversize returns an array size >= minTargetSize, generally over-allocating
 // exponentially to achieve amortized linear-time cost as the array grows.
-//
-// This was originally borrowed from Python 2.4.2 listobject.c sources,
-// but has now been substantially changed based on discussions from java-dev.
-//
-// minTargetSize: Minimum required value to be returned.
-// bytesPerElement: Bytes used by each element of the array.
 func Oversize(minTargetSize, bytesPerElement int) int {
+	return oversize(minTargetSize, bytesPerElement)
+}
+
+func oversize(minTargetSize, bytesPerElement int) int {
 	if minTargetSize < 0 {
 		// catch usage that accidentally overflows int
 		panic("invalid array size")
 	}
+
 
 	if minTargetSize == 0 {
 		// wait until at least one element is requested

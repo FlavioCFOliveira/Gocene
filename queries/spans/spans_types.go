@@ -22,7 +22,7 @@ const NoMorePositions = int(^uint(0) >> 1) // math.MaxInt32 == Integer.MAX_VALUE
 //
 // Mirrors org.apache.lucene.queries.spans.Spans (abstract class).
 type Spans interface {
-	search.DocIdSetIterator
+	util.DocIdSetIterator
 
 	// NextStartPosition returns the next start position for the current doc.
 	// After the last start/end position at the current doc this returns NoMorePositions.

@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -7,7 +9,7 @@ package index
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -36,20 +38,20 @@ func (p *BinarySortFieldProvider) ReadSortField(in store.DataInput) (SortFieldVa
 	var missingValue interface{}
 	switch missingInt {
 	case 1:
-		missingValue = search.STRING_FIRST
+		missingValue = schema.STRING_FIRST
 	case 2:
-		missingValue = search.STRING_LAST
+		missingValue = schema.STRING_LAST
 	default:
 		missingValue = nil
 	}
 
-	return search.NewBinarySortFieldWithMissing(field, reverse, missingValue), nil
+	return schema.NewBinarySortFieldWithMissing(field, reverse, missingValue), nil
 }
 
 func (p *BinarySortFieldProvider) WriteSortField(sf SortFieldValue, out store.DataOutput) error {
-	bsf, ok := sf.(*search.BinarySortField)
+	bsf, ok := sf.(*schema.BinarySortField)
 	if !ok {
-		return fmt.Errorf("sort field is not a *search.BinarySortField")
+		return fmt.Errorf("sort field is not a *schema.BinarySortField")
 	}
 
 	if err := out.WriteString(bsf.GetField()); err != nil {
@@ -66,9 +68,9 @@ func (p *BinarySortFieldProvider) WriteSortField(sf SortFieldValue, out store.Da
 
 	var missingInt int
 	switch bsf.MissingValue {
-	case search.STRING_FIRST:
+	case schema.STRING_FIRST:
 		missingInt = 1
-	case search.STRING_LAST:
+	case schema.STRING_LAST:
 		missingInt = 2
 	default:
 		missingInt = 0

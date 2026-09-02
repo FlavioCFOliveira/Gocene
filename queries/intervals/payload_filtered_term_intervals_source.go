@@ -146,7 +146,7 @@ func (t *payloadFilteredIntervalIterator) reset() error {
 	return nil
 }
 
-var _ search.DocIdSetIterator = (*payloadFilteredIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*payloadFilteredIntervalIterator)(nil)
 
 // Matches creates an IntervalMatchesIterator filtered by the payload predicate.
 func (s *PayloadFilteredTermIntervalsSource) Matches(field string, ctx *index.LeafReaderContext, doc int) (IntervalMatchesIterator, error) {

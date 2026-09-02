@@ -20,6 +20,12 @@ type SimpleTerm interface {
 
 	// IsQuoted reports whether the term was quoted in the source query.
 	IsQuoted() bool
+
+	// Visit enumerates matching terms in the index and adds them to the visitor.
+	Visit(visitor *MatchingTermVisitor, reader search.IndexReader, field string) error
+
+	// WrapWithBoost wraps the query with the term's boost.
+	WrapWithBoost(q search.Query) search.Query
 }
 
 // SrndTermQuery is the surround node for an exact term. Mirrors
@@ -48,6 +54,27 @@ func (q *SrndTermQuery) MakeLuceneQueryField(field string, factory *BasicQueryFa
 		return nil, err
 	}
 	return q.WrapWithBoost(query), nil
+}
+
+func (q *SrndTermQuery) Visit(visitor *MatchingTermVisitor, reader search.IndexReader, field string) error {
+	terms, err := reader.Terms(field)
+	if err != nil {
+		return err
+	}
+	iter, err := terms.GetIteratorWithSeek(index.NewTerm(field, q.termText))
+	if err != nil {
+		return err
+	}
+	if iter != nil {
+		term, err := iter.Next()
+		if err != nil {
+			return err
+		}
+		if term != nil && term.Text() == q.termText {
+			visitor.AddTerm(*term)
+		}
+	}
+	return nil
 }
 
 func (q *SrndTermQuery) String() string {
@@ -115,13 +142,32 @@ func (q *SrndPrefixQuery) String() string {
 	return sb.String()
 }
 
-// AddSpanQueries enumerates the matching terms via the BasicQueryFactory and
-// records each as a span-term clause. The current Go port does not perform a
-// reader-side enumeration; the prefix itself is queued so callers that resolve
-// against an IndexReader can expand it. Callers may also choose to inject the
-// expanded terms directly.
-func (q *SrndPrefixQuery) AddSpanQueries(factory *SpanNearClauseFactory) error {
-	return factory.AddTermWeighted(q.prefix, q.GetWeight())
+func (q *SrndPrefixQuery) Visit(visitor *MatchingTermVisitor, reader search.IndexReader, field string) error {
+	terms, err := reader.Terms(field)
+	if err != nil {
+		return err
+	}
+	iter, err := terms.GetIteratorWithSeek(index.NewTerm(field, q.prefix))
+	if err != nil {
+		return err
+	}
+	if iter == nil {
+		return nil
+	}
+	for {
+		term, err := iter.Next()
+		if err != nil {
+			return err
+		}
+		if term == nil {
+			break
+		}
+		if !term.StartsWith(q.prefix) {
+			break
+		}
+		visitor.AddTerm(*term)
+	}
+	return nil
 }
 
 var _ SimpleTerm = (*SrndPrefixQuery)(nil)
@@ -173,7 +219,65 @@ func (q *SrndTruncQuery) AddSpanQueries(factory *SpanNearClauseFactory) error {
 	return factory.AddTermWeighted(q.truncated, q.GetWeight())
 }
 
+func (q *SrndTruncQuery) Visit(visitor *MatchingTermVisitor, reader search.IndexReader, field string) error {
+	terms, err := reader.Terms(field)
+	if err != nil {
+		return err
+	}
+	iter, err := terms.GetIterator()
+	if err != nil {
+		return err
+	}
+	if iter == nil {
+		return nil
+	}
+	for {
+		term, err := iter.Next()
+		if err != nil {
+			return err
+		}
+		if term == nil {
+			break
+		}
+		if matchesWildcard(term.Text(), q.truncated, q.truncator, q.anyChar) {
+			visitor.AddTerm(*term)
+		}
+	}
+	return nil
+}
+
 var _ SimpleTerm = (*SrndTruncQuery)(nil)
+
+func matchesWildcard(text string, pattern string, truncator, anyChar rune) bool {
+	t := []rune(text)
+	p := []rune(pattern)
+
+	n, m := len(t), len(p)
+	dp := make([][]bool, n+1)
+	for i := range dp {
+		dp[i] = make([]bool, m+1)
+	}
+
+	dp[0][0] = true
+	for j := 1; j <= m; j++ {
+		if p[j-1] == truncator {
+			dp[0][j] = dp[0][j-1]
+		}
+	}
+
+	for i := 1; i <= n; i++ {
+		for j := 1; j <= m; j++ {
+			if p[j-1] == truncator {
+				dp[i][j] = dp[i-1][j] || dp[i][j-1]
+			} else if p[j-1] == anyChar {
+				dp[i][j] = dp[i-1][j-1]
+			} else {
+				dp[i][j] = dp[i-1][j-1] && t[i-1] == p[j-1]
+			}
+		}
+	}
+	return dp[n][m]
+}
 
 func convertWildcardPattern(s string, truncator, anyChar rune) string {
 	if truncator == '*' && anyChar == '?' {

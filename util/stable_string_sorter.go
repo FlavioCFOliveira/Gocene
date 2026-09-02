@@ -96,7 +96,8 @@ func NewStableStringSorterFn(impl StableStringSorterImpl, cmp func(o1, o2 *Bytes
 // fallback is used directly.
 func (s *StableStringSorter) Sort(from, to int) {
 	if s.cmp != nil {
-		NewStableMSBRadixSorter(&stableStringRadixAdapter{owner: s}, s.cmp.ComparedBytesCount()).Sort(from, to)
+		adapter := &stableStringRadixAdapter{owner: s}
+		NewStableMSBRadixSorter(adapter, s.cmp.ComparedBytesCount()).Sort(adapter, from, to)
 		return
 	}
 	(&stableStringMergeSorter{owner: s}).Sort(from, to)
@@ -114,6 +115,12 @@ type stableStringRadixAdapter struct {
 func (a *stableStringRadixAdapter) ByteAt(i, k int) int {
 	a.owner.impl.Get(a.owner.scratch1, &a.owner.scratchBytes1, i)
 	return a.owner.cmp.ByteAt(&a.owner.scratchBytes1, k)
+}
+
+func (a *stableStringRadixAdapter) Compare(i, j int) int {
+	a.owner.impl.Get(a.owner.scratch1, &a.owner.scratchBytes1, i)
+	a.owner.impl.Get(a.owner.scratch2, &a.owner.scratchBytes2, j)
+	return a.owner.cmp.Compare(&a.owner.scratchBytes1, &a.owner.scratchBytes2)
 }
 
 func (a *stableStringRadixAdapter) Swap(i, j int)    { a.owner.impl.Swap(i, j) }

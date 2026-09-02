@@ -70,7 +70,7 @@ func (v *ByteKnnVectorFieldSource) Description() string {
 type byteKnnVectorFieldFunction struct {
 	*VectorFieldFunction
 	vectorValues index.ByteVectorValues
-	iterator     search.DocIdSetIterator
+	iterator     util.DocIdSetIterator
 }
 
 func (v *byteKnnVectorFieldFunction) ByteVectorVal(doc int) ([]byte, error) {
@@ -84,7 +84,7 @@ func (v *byteKnnVectorFieldFunction) ByteVectorVal(doc int) ([]byte, error) {
 	return nil, nil
 }
 
-func (v *byteKnnVectorFieldFunction) getVectorIterator() search.DocIdSetIterator {
+func (v *byteKnnVectorFieldFunction) getVectorIterator() util.DocIdSetIterator {
 	return v.iterator
 }
 
@@ -96,7 +96,7 @@ func (v *byteKnnVectorFieldFunctionEmpty) ByteVectorVal(_ int) ([]byte, error) {
 	return nil, nil
 }
 
-func (v *byteKnnVectorFieldFunctionEmpty) getVectorIterator() search.DocIdSetIterator {
+func (v *byteKnnVectorFieldFunctionEmpty) getVectorIterator() util.DocIdSetIterator {
 	return search.NewEmptyDocIdSetIterator()
 }
 
@@ -158,7 +158,7 @@ func (v *FloatKnnVectorFieldSource) Description() string {
 type floatKnnVectorFieldFunction struct {
 	*VectorFieldFunction
 	vectorValues index.FloatVectorValues
-	iterator     search.DocIdSetIterator
+	iterator     util.DocIdSetIterator
 }
 
 func (v *floatKnnVectorFieldFunction) FloatVectorVal(doc int) ([]float32, error) {
@@ -172,7 +172,7 @@ func (v *floatKnnVectorFieldFunction) FloatVectorVal(doc int) ([]float32, error)
 	return nil, nil
 }
 
-func (v *floatKnnVectorFieldFunction) getVectorIterator() search.DocIdSetIterator {
+func (v *floatKnnVectorFieldFunction) getVectorIterator() util.DocIdSetIterator {
 	return v.iterator
 }
 
@@ -184,6 +184,6 @@ func (v *floatKnnVectorFieldFunctionEmpty) FloatVectorVal(_ int) ([]float32, err
 	return nil, nil
 }
 
-func (v *floatKnnVectorFieldFunctionEmpty) getVectorIterator() search.DocIdSetIterator {
+func (v *floatKnnVectorFieldFunctionEmpty) getVectorIterator() util.DocIdSetIterator {
 	return search.NewEmptyDocIdSetIterator()
 }

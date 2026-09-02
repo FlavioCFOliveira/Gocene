@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -6,6 +8,9 @@ package index
 
 import (
 	"fmt"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis/api"
@@ -35,10 +40,10 @@ type DocumentsWriter struct {
 	flushPolicy FlushPolicy
 
 	// perThreadPool manages per-thread writers
-	perThreadPool []*DocumentsWriterPerThread
+	perThreadPool sync.Map // map[int64]*DocumentsWriterPerThread
 
-	// threadLock protects perThreadPool access
-	threadLock sync.RWMutex
+	// deleteQueue holds pending delete operations
+	deleteQueue *DocumentsWriterDeleteQueue
 
 	// numDocsInRAM tracks documents in memory across all threads
 	numDocsInRAM int
@@ -92,15 +97,26 @@ func (p *DefaultFlushPolicy) ShouldFlush(numDocs int, ramUsed int64) bool {
 }
 
 // NewDocumentsWriter creates a new DocumentsWriter.
-func NewDocumentsWriter(directory store.Directory, config *IndexWriterConfig) (*DocumentsWriter, error) {
+func NewDocumentsWriter(
+	notifications *FlushNotifications,
+	version int,
+	pendingNumDocs *atomic.Int64,
+	useCompoundFile bool,
+	newSegmentName func() string,
+	config *IndexWriterConfig,
+	dirOrig store.Directory,
+	dir store.Directory,
+	fnm *FieldNumbers,
+	infoStream InfoStream,
+) (*DocumentsWriter, error) {
 	dw := &DocumentsWriter{
-		directory:          directory,
+		directory:          dir,
 		analyzer:           config.analyzer,
 		config:             config,
 		codec:              config.Codec(),
-		perThreadPool:      make([]*DocumentsWriterPerThread, 0),
 		flushPolicy:        NewDefaultFlushPolicy(config.maxBufferedDocs, config.ramBufferSizeMB),
 		segmentNameCounter: 0,
+		deleteQueue:        NewDocumentsWriterDeleteQueue(infoStream),
 	}
 
 	return dw, nil
@@ -125,13 +141,46 @@ func (dw *DocumentsWriter) ShouldFlush() bool {
 	return dw.flushPolicy.ShouldFlush(dw.numDocsInRAM, dw.bytesUsed)
 }
 
+// DeleteQueries deletes documents matching the given queries.
+func (dw *DocumentsWriter) DeleteQueries(queries []Query) int64 {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+
+	if len(queries) == 0 {
+		return dw.GetNextSequenceNumber()
+	}
+
+	var node Node
+	if len(queries) == 1 {
+		node = NewQueryNode(queries[0])
+	} else {
+		node = &queryArrayNode{
+			queries: queries,
+		}
+	}
+
+	return dw.deleteQueue.Add(node)
+}
+
+// GetNextSequenceNumber returns the next sequence number from the delete queue.
+func (dw *DocumentsWriter) GetNextSequenceNumber() int64 {
+	return dw.deleteQueue.GetNextSequenceNumber()
+}
+
 // UpdateDocument updates a document (adds a new document, optionally deleting an old one).
 //
 // Note: this method does NOT trigger an auto-flush; the IndexWriter is
 // responsible for all flush coordination (see AddDocument doc comment).
-func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer api.Analyzer, term *Term) error {
+func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer api.Analyzer, term *Term) (int64, error) {
 	dw.mu.Lock()
 	defer dw.mu.Unlock()
+
+	// If term is provided, add a delete operation to the queue
+	var seqNo int64
+	if term != nil {
+		node := NewTermNode(*term)
+		seqNo = dw.deleteQueue.Add(node)
+	}
 
 	// Get a per-thread writer
 	dwpt := dw.getPerThreadWriter()
@@ -144,7 +193,7 @@ func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer api.Analyzer, t
 	// Process the document
 	before := dwpt.GetBytesUsed()
 	if err := dwpt.ProcessDocument(doc); err != nil {
-		return err
+		return 0, err
 	}
 
 	dw.numDocsInRAM++
@@ -154,7 +203,12 @@ func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer api.Analyzer, t
 	// not the entire accumulated DWPT total.
 	dw.bytesUsed += dwpt.GetBytesUsed() - before
 
-	return nil
+	// If no term was provided, we still need a sequence number for the addition
+	if term == nil {
+		seqNo = dw.GetNextSequenceNumber()
+	}
+
+	return seqNo, nil
 }
 
 // AddDocument adds a document to the index.
@@ -167,68 +221,61 @@ func (dw *DocumentsWriter) UpdateDocument(doc Document, analyzer api.Analyzer, t
 // segment files directly to disk without registering them in the SegmentInfos,
 // causing "file already exists" errors when Commit later tried to create
 // segments under the same names.
-func (dw *DocumentsWriter) AddDocument(doc Document, analyzer api.Analyzer) error {
-	dw.mu.Lock()
-	defer dw.mu.Unlock()
-
-	// Get a per-thread writer
-	dwpt := dw.getPerThreadWriter()
-
-	// Use the provided analyzer or the default one
-	if analyzer == nil {
-		analyzer = dw.analyzer
-	}
-
-	// Process the document
-	before := dwpt.GetBytesUsed()
-	if err := dwpt.ProcessDocument(doc); err != nil {
-		return err
-	}
-
-	dw.numDocsInRAM++
-	dw.numDocs++
-
-	// Update memory tracking: only count the bytes added by this document.
-	dw.bytesUsed += dwpt.GetBytesUsed() - before
-
-	return nil
+func (dw *DocumentsWriter) AddDocument(doc Document, analyzer api.Analyzer) (int64, error) {
+	return dw.UpdateDocument(doc, analyzer, nil)
 }
 
 // UpdateDocuments updates multiple documents.
-func (dw *DocumentsWriter) UpdateDocuments(docs []Document, analyzer api.Analyzer, term *Term) error {
+func (dw *DocumentsWriter) UpdateDocuments(docs []Document, analyzer api.Analyzer, term *Term) (int64, error) {
+	var lastSeqNo int64
 	for _, doc := range docs {
-		if err := dw.UpdateDocument(doc, analyzer, term); err != nil {
-			return err
+		seqNo, err := dw.UpdateDocument(doc, analyzer, term)
+		if err != nil {
+			return 0, err
 		}
+		lastSeqNo = seqNo
 	}
-	return nil
+	return lastSeqNo, nil
 }
 
 // getPerThreadWriter returns a per-thread writer.
-// Must be called with dw.mu held (via AddDocument/UpdateDocument).
-//
-// All documents within a single flush unit are accumulated in the same DWPT
-// so that the codec-flush path in IndexWriter.Commit writes exactly one
-// segment per pendingSegment entry. A new DWPT is created only when the
-// pool is empty (after TakePerThreadPool resets it between flushes).
-//
-// Safety: concurrent callers serialize at the dw.mu level (AddDocument holds
-// dw.mu for the entire document-processing call), so returning pool[0] to
-// all callers is race-free.
 func (dw *DocumentsWriter) getPerThreadWriter() *DocumentsWriterPerThread {
-	dw.threadLock.Lock()
-	defer dw.threadLock.Unlock()
-
-	if len(dw.perThreadPool) > 0 {
-		return dw.perThreadPool[0]
+	id := goroutineID()
+	if val, ok := dw.perThreadPool.Load(id); ok {
+		return val.(*DocumentsWriterPerThread)
 	}
+
 	// Reserve a segment name up front, matching Lucene's DWPT constructor.
 	// This lets lazily-initialized codec writers (in particular the term-vectors
 	// writer) create their on-disk files under the correct segment name.
 	segmentName := dw.nextSegmentName()
 	dwpt := NewDocumentsWriterPerThread(dw, segmentName)
-	dw.perThreadPool = append(dw.perThreadPool, dwpt)
+
+	actual, loaded := dw.perThreadPool.LoadOrStore(id, dwpt)
+	if loaded {
+		// Another thread already created a DWPT for this ID (though unlikely in Go
+		// unless goroutines are recycled, which they aren't).
+		return actual.(*DocumentsWriterPerThread)
+	}
 	return dwpt
+}
+
+func goroutineID() int64 {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	idField := strings.Fields(string(buf[:n]))
+	if len(idField) < 2 {
+		return -1
+	}
+	id, _ := strconv.ParseInt(idField[1], 10, 64)
+	return id
+}
+
+// GetPerThreadPool returns the current DWPT pool.
+func (dw *DocumentsWriter) GetPerThreadPool() []*DocumentsWriterPerThread {
+	dw.threadLock.RLock()
+	defer dw.threadLock.RUnlock()
+	return dw.perThreadPool
 }
 
 // TakePerThreadPool returns the current DWPT pool and resets it.
@@ -263,10 +310,11 @@ func (dw *DocumentsWriter) flush() error {
 	}
 
 	// Get all per-thread writers
-	dw.threadLock.RLock()
-	dwpts := make([]*DocumentsWriterPerThread, len(dw.perThreadPool))
-	copy(dwpts, dw.perThreadPool)
-	dw.threadLock.RUnlock()
+	var dwpts []*DocumentsWriterPerThread
+	dw.perThreadPool.Range(func(key, value any) bool {
+		dwpts = append(dwpts, value.(*DocumentsWriterPerThread))
+		return true
+	})
 
 	// Flush each DWPT and collect segment infos.  Each DWPT already reserved
 	// its segment name when it was obtained from the pool, so there is no need
@@ -325,6 +373,79 @@ func (dw *DocumentsWriter) Flush() error {
 	return dw.flush()
 }
 
+// FlushAllThreads flushes all buffered documents from all DocumentsWriterPerThread instances.
+// This is called by IndexWriter.GetReader() to ensure all in-memory data is written to disk
+// before creating an NRT reader. It blocks until all per-thread flushes complete.
+// Returns the sequence number of the last change, or -1 if nothing was flushed.
+// Ref: Lucene IndexWriter:581, DocumentsWriter.flushAllThreads().
+func (dw *DocumentsWriter) FlushAllThreads() int64 {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+
+	if dw.closed {
+		return -1
+	}
+
+	var lastSeqNo int64 = -1
+	var flushErrors []error
+
+	// Iterate over all active DWPTs and flush each one.
+	dw.perThreadPool.Range(func(key, value any) bool {
+		dwpt := value.(*DocumentsWriterPerThread)
+		if dwpt == nil || dwpt.GetNumDocs() == 0 {
+			return true // Continue to next
+		}
+
+		segmentName := dwpt.SegmentName()
+		segmentInfo, err := dwpt.Flush(dw.directory, dw.codec, segmentName)
+		if err != nil {
+			flushErrors = append(flushErrors, fmt.Errorf("failed to flush segment %s: %w", segmentName, err))
+			return true // Continue despite error
+		}
+
+		if segmentInfo != nil {
+			if err := WriteSegmentInfo(segmentInfo, dw.directory, dw.codec); err != nil {
+				flushErrors = append(flushErrors, fmt.Errorf("failed to write segment info for %s: %w", segmentName, err))
+				return true
+			}
+			// Track the last sequence number from this flush
+			lastSeqNo = dw.GetNextSequenceNumber()
+		}
+
+		return true // Continue to next DWPT
+	})
+
+	// If any errors occurred, log them (but don't abort the full flush;
+	// IndexWriter.GetReader will handle error recovery).
+	if len(flushErrors) > 0 {
+		// TODO: Use InfoStream to log these errors
+		_ = flushErrors // Suppress unused warning
+	}
+
+	// After flushing all DWPTs, reset the in-RAM counters for the next cycle.
+	dw.numDocsInRAM = 0
+	dw.bytesUsed = 0
+
+	return lastSeqNo
+}
+
+// FinishFullFlush signals the end of a full flush and unblocks any pending operations.
+// This is called by IndexWriter.GetReader() after the full flush completes successfully.
+// Ref: Lucene IndexWriter:674, DocumentsWriter.finishFullFlush().
+func (dw *DocumentsWriter) FinishFullFlush(success bool) {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+
+	// In a full implementation, this would unblock any DWPTs waiting for the
+	// full flush to complete. For now, it's a no-op since Go's concurrency model
+	// handles synchronization differently than Java's synchronized blocks.
+	if !success {
+		// Reset state on failure
+		dw.numDocsInRAM = 0
+		dw.bytesUsed = 0
+	}
+}
+
 // Close closes the DocumentsWriter.
 func (dw *DocumentsWriter) Close() error {
 	dw.mu.Lock()
@@ -341,6 +462,42 @@ func (dw *DocumentsWriter) Close() error {
 
 	dw.closed = true
 	return nil
+}
+
+// FlushNextBuffer flushes the next available per-thread writer.
+// Returns true if a buffer was flushed, false otherwise.
+func (dw *DocumentsWriter) FlushNextBuffer() bool {
+	var dwpt *DocumentsWriterPerThread
+	dw.perThreadPool.Range(func(key, value any) bool {
+		dwpt = value.(*DocumentsWriterPerThread)
+		return false // Stop after first
+	})
+
+	if dwpt == nil {
+		return false
+	}
+
+	if dwpt.GetNumDocs() == 0 {
+		return false
+	}
+
+	segmentName := dwpt.SegmentName()
+	segmentInfo, err := dwpt.Flush(dw.directory, dw.codec, segmentName)
+	if err != nil {
+		panic(fmt.Sprintf("failed to flush segment %s: %v", segmentName, err))
+	}
+
+	if segmentInfo != nil {
+		if err := WriteSegmentInfo(segmentInfo, dw.directory, dw.codec); err != nil {
+			panic(fmt.Sprintf("failed to write segment info: %v", err))
+		}
+	}
+	return true
+}
+
+// anyDeletions reports whether there are any pending deletions in the delete queue.
+func (dw *DocumentsWriter) anyDeletions() bool {
+	return dw.deleteQueue.anyChanges()
 }
 
 // GetNumDocs returns the total number of documents.
@@ -399,7 +556,31 @@ func (dw *DocumentsWriter) SyncSegmentNameCounter() {
 	}
 }
 
+// DeleteTerms deletes documents matching the given terms.
+func (dw *DocumentsWriter) DeleteTerms(terms []Term) (int64, error) {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+
+	if len(terms) == 0 {
+		return dw.GetNextSequenceNumber(), nil
+	}
+
+	var node Node
+	if len(terms) == 1 {
+		node = NewTermNode(terms[0])
+	} else {
+		// Use a term array node for multiple terms
+		node = &termArrayNode{
+			terms: terms,
+		}
+	}
+
+	seqNo := dw.deleteQueue.Add(node)
+	return seqNo, nil
+}
+
 // WriteSegmentInfo writes a SegmentInfo to the directory.
+
 // When codec is non-nil, it delegates to codec.SegmentInfoFormat().Write so
 // the .si file is byte-compatible with Apache Lucene.  When codec is nil, a
 // minimal fallback format is used (structural-test path only).

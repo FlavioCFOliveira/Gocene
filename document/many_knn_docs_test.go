@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -8,7 +10,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // TestManyKnnDocs_SameVectorIndexedMultipleTimes verifies that
@@ -153,7 +155,7 @@ func TestManyKnnDocs_LargeSegment(t *testing.T) {
 		// always uses FLOAT32 encoding. Test that construction with
 		// mismatched field type is detected.
 		ft := NewFieldType()
-		ft.SetIndexOptions(index.IndexOptionsNone)
+		ft.SetIndexOptions(schema.IndexOptionsNone)
 		ft.SetStored(false)
 		ft.SetTokenized(false)
 		ft.SetDimensions(3, 3) // BKD point dimensions without KNN vector

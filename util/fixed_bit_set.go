@@ -86,6 +86,23 @@ func (fs *FixedBitSet) Clear(index int) {
 	fs.bits[wordIdx] &= ^(1 << bitIdx)
 }
 
+// GetAndClear atomically gets the bit at the given index and clears it.
+// Returns true if the bit was set (1), false if it was clear (0).
+// This is the critical operation for marking documents as deleted in live docs tracking.
+//
+// Port of Lucene's org.apache.lucene.util.FixedBitSet.getAndClear.
+func (fs *FixedBitSet) GetAndClear(index int) bool {
+	if index < 0 || index >= fs.size {
+		panic(fmt.Sprintf("index out of bounds: %d (size: %d)", index, fs.size))
+	}
+	wordIdx := wordIndex(index)
+	bitIdx := bitIndex(index)
+	mask := uint64(1) << bitIdx
+	old := (fs.bits[wordIdx] & mask) != 0
+	fs.bits[wordIdx] &= ^mask
+	return old
+}
+
 // ClearAll clears all bits in the bitset.
 func (fs *FixedBitSet) ClearAll() {
 	for i := range fs.bits {
@@ -364,6 +381,23 @@ func (fs *FixedBitSet) Clone() *FixedBitSet {
 		bits: newBits,
 		size: fs.size,
 	}
+}
+
+// FixedBitSetCopy creates a copy of a Bits interface as a FixedBitSet.
+// Used during copy-on-write for pending deletes.
+func FixedBitSetCopy(bits Bits) *FixedBitSet {
+	size := bits.Length()
+	result, err := NewFixedBitSet(size)
+	if err != nil {
+		panic(err)
+	}
+	// Copy each bit from the source
+	for i := 0; i < size; i++ {
+		if bits.Get(i) {
+			result.Set(i)
+		}
+	}
+	return result
 }
 
 // Equals returns true if this bitset equals another.

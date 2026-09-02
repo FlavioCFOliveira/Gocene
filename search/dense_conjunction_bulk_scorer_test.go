@@ -20,13 +20,13 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// bitSetDISI builds a search.DocIdSetIterator from a *util.FixedBitSet.
-func bitSetDISI(bs *util.FixedBitSet) search.DocIdSetIterator {
+// bitSetDISI builds a util.DocIdSetIterator from a *util.FixedBitSet.
+func bitSetDISI(bs *util.FixedBitSet) util.DocIdSetIterator {
 	return util.NewBitSetIterator(bs, int64(bs.Cardinality()))
 }
 
 // newDenseConjScorer is a convenience wrapper for tests.
-func newDenseConjScorer(t *testing.T, iters []search.DocIdSetIterator, maxDoc int) *search.DenseConjunctionBulkScorer {
+func newDenseConjScorer(t *testing.T, iters []util.DocIdSetIterator, maxDoc int) *search.DenseConjunctionBulkScorer {
 	t.Helper()
 	bs, err := search.NewDenseConjunctionBulkScorer(iters, nil, maxDoc, 0)
 	if err != nil {
@@ -90,7 +90,7 @@ func TestDenseConjunctionBulkScorer_EmptyIterators(t *testing.T) {
 func TestDenseConjunctionBulkScorer_ImplementsBulkScorer(t *testing.T) {
 	maxDoc := 10
 	bs, _ := util.NewFixedBitSet(maxDoc)
-	var _ search.BulkScorer = newDenseConjScorer(t, []search.DocIdSetIterator{bitSetDISI(bs)}, maxDoc)
+	var _ search.BulkScorer = newDenseConjScorer(t, []util.DocIdSetIterator{bitSetDISI(bs)}, maxDoc)
 }
 
 // TestDenseConjunctionBulkScorer_SameMatches mirrors testSameMatches.
@@ -101,7 +101,7 @@ func TestDenseConjunctionBulkScorer_SameMatches(t *testing.T) {
 	clause2 := bitsFromFunc(maxDoc, func(i int) bool { return i%2 == 0 })
 	clause3 := bitsFromFunc(maxDoc, func(i int) bool { return i%2 == 0 })
 
-	scorer := newDenseConjScorer(t, []search.DocIdSetIterator{
+	scorer := newDenseConjScorer(t, []util.DocIdSetIterator{
 		bitSetDISI(clause1), bitSetDISI(clause2), bitSetDISI(clause3),
 	}, maxDoc)
 	docs := collectDense(t, scorer, maxDoc)
@@ -124,7 +124,7 @@ func TestDenseConjunctionBulkScorer_EmptyIntersection(t *testing.T) {
 	clause1 := bitsFromFunc(maxDoc, func(i int) bool { return i%2 == 0 })
 	clause2 := bitsFromFunc(maxDoc, func(i int) bool { return i%2 != 0 })
 
-	scorer := newDenseConjScorer(t, []search.DocIdSetIterator{
+	scorer := newDenseConjScorer(t, []util.DocIdSetIterator{
 		bitSetDISI(clause1), bitSetDISI(clause2),
 	}, maxDoc)
 	docs := collectDense(t, scorer, maxDoc)
@@ -144,7 +144,7 @@ func TestDenseConjunctionBulkScorer_Clustered(t *testing.T) {
 	clause2 := bitsRange(maxDoc, 0, 8000)
 	clause3 := bitsRange(maxDoc, 2000, 10000)
 
-	scorer := newDenseConjScorer(t, []search.DocIdSetIterator{
+	scorer := newDenseConjScorer(t, []util.DocIdSetIterator{
 		bitSetDISI(clause1), bitSetDISI(clause2), bitSetDISI(clause3),
 	}, maxDoc)
 	docs := collectDense(t, scorer, maxDoc)
@@ -167,7 +167,7 @@ func TestDenseConjunctionBulkScorer_SparseAfter2ndClause(t *testing.T) {
 	clause2 := bitsFromFunc(maxDoc, func(i int) bool { return i%17 == 0 })
 	clause3 := bitsFromFunc(maxDoc, func(i int) bool { return i%19 == 0 })
 
-	scorer := newDenseConjScorer(t, []search.DocIdSetIterator{
+	scorer := newDenseConjScorer(t, []util.DocIdSetIterator{
 		bitSetDISI(clause1), bitSetDISI(clause2), bitSetDISI(clause3),
 	}, maxDoc)
 	docs := collectDense(t, scorer, maxDoc)
@@ -195,7 +195,7 @@ func TestDenseConjunctionBulkScorer_MatchAllNoLiveDocs(t *testing.T) {
 	allBits, _ := util.NewFixedBitSet(maxDoc)
 	allBits.SetRange(0, maxDoc)
 
-	scorer := newDenseConjScorer(t, []search.DocIdSetIterator{bitSetDISI(allBits)}, maxDoc)
+	scorer := newDenseConjScorer(t, []util.DocIdSetIterator{bitSetDISI(allBits)}, maxDoc)
 	docs := collectDense(t, scorer, maxDoc)
 
 	if len(docs) != maxDoc {
@@ -213,7 +213,7 @@ func TestDenseConjunctionBulkScorer_ApplyAcceptDocs(t *testing.T) {
 	evenBits := bitsFromFunc(maxDoc, func(i int) bool { return i%2 == 0 })
 
 	scorer, err := search.NewDenseConjunctionBulkScorer(
-		[]search.DocIdSetIterator{bitSetDISI(allBits), bitSetDISI(allBits)},
+		[]util.DocIdSetIterator{bitSetDISI(allBits), bitSetDISI(allBits)},
 		nil, maxDoc, 0,
 	)
 	if err != nil {
@@ -242,7 +242,7 @@ func TestDenseConjunctionBulkScorer_Cost(t *testing.T) {
 	c1 := bitsFromFunc(maxDoc, func(i int) bool { return i%2 == 0 })
 	c2 := bitsFromFunc(maxDoc, func(i int) bool { return i%3 == 0 })
 
-	scorer := newDenseConjScorer(t, []search.DocIdSetIterator{bitSetDISI(c1), bitSetDISI(c2)}, maxDoc)
+	scorer := newDenseConjScorer(t, []util.DocIdSetIterator{bitSetDISI(c1), bitSetDISI(c2)}, maxDoc)
 	// Cost must equal min of the two cardinalities.
 	cost := scorer.Cost()
 	minCard := int64(c1.Cardinality())
@@ -307,7 +307,7 @@ func TestDenseConjunctionBulkScorer_StopOnMinCompetitiveScore(t *testing.T) {
 	c1 := bitsFromFunc(maxDoc, func(i int) bool { return i%2 == 0 })
 	c2 := bitsFromFunc(maxDoc, func(i int) bool { return i%5 == 0 })
 
-	scorer := newDenseConjScorer(t, []search.DocIdSetIterator{bitSetDISI(c1), bitSetDISI(c2)}, maxDoc)
+	scorer := newDenseConjScorer(t, []util.DocIdSetIterator{bitSetDISI(c1), bitSetDISI(c2)}, maxDoc)
 
 	stopDoc := 200
 	var stopScorer search.Scorer

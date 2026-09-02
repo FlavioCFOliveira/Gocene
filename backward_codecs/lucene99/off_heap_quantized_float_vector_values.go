@@ -79,7 +79,7 @@ type OffHeapQuantizedFloatVectorValues struct {
 
 // offHeap99Variant captures layout-specific behaviour.
 type offHeap99Variant interface {
-	iterator(parent *OffHeapQuantizedFloatVectorValues) index.DocIndexIterator
+	iterator(parent *OffHeapQuantizedFloatVectorValues) util.DocIndexIterator
 	ordToDoc(parent *OffHeapQuantizedFloatVectorValues, ord int) int
 	getAcceptOrds(parent *OffHeapQuantizedFloatVectorValues, acceptDocs util.Bits) util.Bits
 	copy(parent *OffHeapQuantizedFloatVectorValues) (*OffHeapQuantizedFloatVectorValues, error)
@@ -165,7 +165,7 @@ func (v *OffHeapQuantizedFloatVectorValues) VectorValue(targetOrd int) ([]float3
 }
 
 // Iterator returns a DocIndexIterator over this vector set.
-func (v *OffHeapQuantizedFloatVectorValues) Iterator() index.DocIndexIterator {
+func (v *OffHeapQuantizedFloatVectorValues) Iterator() util.DocIndexIterator {
 	return v.variant.iterator(v)
 }
 
@@ -234,7 +234,7 @@ func LoadQuantizedFloat(
 
 type denseOffHeap99Variant struct{}
 
-func (denseOffHeap99Variant) iterator(parent *OffHeapQuantizedFloatVectorValues) index.DocIndexIterator {
+func (denseOffHeap99Variant) iterator(parent *OffHeapQuantizedFloatVectorValues) util.DocIndexIterator {
 	return newDenseDocIter99(parent.size)
 }
 
@@ -309,7 +309,7 @@ func newSparseOffHeap99(
 	), nil
 }
 
-func (s *sparseOffHeap99Variant) iterator(_ *OffHeapQuantizedFloatVectorValues) index.DocIndexIterator {
+func (s *sparseOffHeap99Variant) iterator(_ *OffHeapQuantizedFloatVectorValues) util.DocIndexIterator {
 	return &indexedDISIIter99{disi: s.disi}
 }
 
@@ -371,7 +371,7 @@ func newEmptyOffHeap99(
 	)
 }
 
-func (emptyOffHeap99Variant) iterator(parent *OffHeapQuantizedFloatVectorValues) index.DocIndexIterator {
+func (emptyOffHeap99Variant) iterator(parent *OffHeapQuantizedFloatVectorValues) util.DocIndexIterator {
 	return newDenseDocIter99(0)
 }
 
@@ -495,7 +495,7 @@ type FlatRandomVectorScorer99 interface {
 }
 
 type quantizedFloatScorerView99 struct {
-	it     index.DocIndexIterator
+	it     util.DocIndexIterator
 	scorer FlatRandomVectorScorer99
 }
 
@@ -509,8 +509,8 @@ func (s *quantizedFloatScorerView99) Iterator() codecs.DocIDSetIteratorView {
 
 func (s *quantizedFloatScorerView99) Bulk() codecs.VectorScorerBulkView { return nil }
 
-// docIndexIterToView99 adapts index.DocIndexIterator to codecs.DocIDSetIteratorView.
-type docIndexIterToView99 struct{ it index.DocIndexIterator }
+// docIndexIterToView99 adapts util.DocIndexIterator to codecs.DocIDSetIteratorView.
+type docIndexIterToView99 struct{ it util.DocIndexIterator }
 
 func (d *docIndexIterToView99) DocID() int                 { return d.it.DocID() }
 func (d *docIndexIterToView99) NextDoc() (int, error)      { return d.it.NextDoc() }

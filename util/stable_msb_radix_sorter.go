@@ -39,14 +39,14 @@ type StableMSBRadixSorter struct {
 	*MSBRadixSorter
 
 	stableImpl        StableMSBRadixSorterImpl
-	fixedStartOffsets [msbHistogramSize]int32
+	fixedStartOffsets [HistogramSize]int32
 }
 
 // NewStableMSBRadixSorter returns a stable MSB radix sorter that
 // preserves the input order of equal keys. impl must implement the
 // extended StableMSBRadixSorterImpl with Save/Restore hooks.
 func NewStableMSBRadixSorter(impl StableMSBRadixSorterImpl, maxLength int) *StableMSBRadixSorter {
-	base := NewMSBRadixSorter(impl, maxLength)
+	base := NewMSBRadixSorter(maxLength)
 	s := &StableMSBRadixSorter{
 		MSBRadixSorter: base,
 		stableImpl:     impl,
@@ -61,15 +61,18 @@ func NewStableMSBRadixSorter(impl StableMSBRadixSorterImpl, maxLength int) *Stab
 // entries. The algorithm copies values to scratch storage via Save
 // and then restores them in-place via Restore, mirroring the Java
 // StableMSBRadixSorter.reorder().
-func (s *StableMSBRadixSorter) stableReorder(from, to int, startOffsets, endOffsets []int32, k int) {
-	copy(s.fixedStartOffsets[:], startOffsets)
-	for i := 0; i < msbHistogramSize; i++ {
+func (s *StableMSBRadixSorter) stableReorder(rs RadixSortable, from, to int, startOffsets, endOffsets []int, k int) {
+	// Convert startOffsets to int32 for the internal fixedStartOffsets buffer
+	for i, v := range startOffsets {
+		s.fixedStartOffsets[i] = int32(v)
+	}
+	for i := 0; i < HistogramSize; i++ {
 		limit := endOffsets[i]
-		for h1 := s.fixedStartOffsets[i]; h1 < limit; h1++ {
-			b := s.MSBRadixSorter.getBucket(from+int(h1), k)
+		for h1 := int(s.fixedStartOffsets[i]); h1 < limit; h1++ {
+			b := s.MSBRadixSorter.getBucket(rs, from+h1, k)
 			h2 := startOffsets[b]
 			startOffsets[b]++
-			s.stableImpl.Save(from+int(h1), from+int(h2))
+			s.stableImpl.Save(from+h1, from+h2)
 		}
 	}
 	s.stableImpl.Restore(from, to)
@@ -79,7 +82,7 @@ func (s *StableMSBRadixSorter) stableReorder(from, to int, startOffsets, endOffs
 // assuming the first k bytes of every entry are equal. The result is
 // stable for equal keys; the merge step relies on Save/Restore for
 // the temporary buffer.
-func (s *StableMSBRadixSorter) stableFallback(from, to, k int) {
+func (s *StableMSBRadixSorter) stableFallback(rs RadixSortable, from, to, k int) {
 	(&stableMergeSorter{owner: s, k: k}).Sort(from, to)
 }
 

@@ -6,9 +6,6 @@ package util
 
 import "fmt"
 
-// NO_MORE_DOCS indicates the end of the document iterator.
-const NO_MORE_DOCS = 2147483647
-
 // DocIdSet is the interface for a set of document IDs.
 // This is a local copy to avoid import cycles with the search package.
 type DocIdSet interface {
@@ -17,30 +14,6 @@ type DocIdSet interface {
 
 	// RamBytesUsed returns the RAM usage of this set in bytes.
 	RamBytesUsed() int64
-}
-
-// DocIdSetIterator iterates over document IDs.
-// This is a local copy to avoid import cycles with the search package.
-type DocIdSetIterator interface {
-	// DocID returns the current document ID.
-	// Returns -1 if not positioned, NO_MORE_DOCS if past last document.
-	DocID() int
-
-	// NextDoc advances to the next document.
-	// Returns the document ID or NO_MORE_DOCS if no more documents.
-	NextDoc() (int, error)
-
-	// Advance advances to the document at or beyond the target.
-	// Returns the document ID or NO_MORE_DOCS if no more documents.
-	Advance(target int) (int, error)
-
-	// Cost returns the estimated cost of iterating through all documents.
-	Cost() int64
-
-	// DocIDRunEnd returns the end of the run of consecutive doc IDs that match
-	// this iterator and that contains the current docID.
-	// Returns one plus the last doc ID of the run.
-	DocIDRunEnd() int
 }
 
 // IntoBitSetter is implemented by DocIdSetIterator implementations that can

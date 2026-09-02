@@ -182,21 +182,21 @@ func (f *StringValueFacetCounts) countAll() error {
 
 func (f *StringValueFacetCounts) countOneSegment(multiValues index.SortedSetDocValues, segmentOrd int, hits *MatchingDocs, liveDocs util.Bits) error {
 	singleValues := index.UnwrapSingleton(multiValues)
-	var valuesIt search.DocIdSetIterator
+	var valuesIt util.DocIdSetIterator
 	if singleValues != nil {
 		valuesIt = singleValues
 	} else {
 		valuesIt = multiValues
 	}
 
-	var it search.DocIdSetIterator
+	var it util.DocIdSetIterator
 	if hits == nil {
 		if liveDocs == nil {
 			return fmt.Errorf("liveDocs must be provided when hits is nil")
 		}
 		it = facet.LiveDocsDISI(valuesIt, liveDocs)
 	} else {
-		it = search.IntersectIterators([]search.DocIdSetIterator{hits.Bits.Iterator(), valuesIt})
+		it = search.IntersectIterators([]util.DocIdSetIterator{hits.Bits.Iterator(), valuesIt})
 	}
 
 	if f.ordinalMap == nil {

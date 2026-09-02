@@ -1,36 +1,30 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
-
 package document
-
 import (
 	"strconv"
-
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
-
 // IntField is a field for indexing int values.
 type IntField struct {
 	*Field
 }
-
 // NewIntField creates a new IntField.
 func NewIntField(name string, value int, store bool) (*IntField, error) {
 	ft := NewFieldType()
 	ft.SetStored(store)
 	ft.SetIndexed(true)
-	ft.SetIndexOptions(index.IndexOptionsDocs)
+	ft.SetIndexOptions(schema.IndexOptionsDocs)
 	ft.Freeze()
-
 	field, err := NewField(name, strconv.Itoa(value), ft)
 	if err != nil {
 		return nil, err
 	}
-
 	return &IntField{Field: field}, nil
 }
-
 // encodeInt32Legacy encodes an int to a 4-byte representation for legacy IntField.
 func encodeInt32Legacy(v int) []byte {
 	buf := make([]byte, 4)
@@ -43,7 +37,6 @@ func encodeInt32Legacy(v int) []byte {
 	buf[3] = byte(x)
 	return buf
 }
-
 // decodeInt32Legacy decodes a 4-byte representation back to int for legacy IntField.
 func decodeInt32Legacy(buf []byte) int {
 	if len(buf) < 4 {
@@ -53,23 +46,19 @@ func decodeInt32Legacy(buf []byte) int {
 	x ^= 0x80000000 // Flip sign bit back
 	return int(int32(x))
 }
-
 // IntPoint is an indexed int32 point field for range queries using the Point API.
 type IntPoint struct {
 	Point
 }
-
 // NewIntPoint creates a new IntPoint with a single value.
 func NewIntPoint(name string, value int32) *IntPoint {
 	return NewIntPoints(name, value)
 }
-
 // NewIntPoints creates a new IntPoint with multiple values.
 func NewIntPoints(name string, values ...int32) *IntPoint {
 	if len(values) == 0 {
 		return nil
 	}
-
 	// Encode with Lucene's sign-flipped sortable-bytes encoding
 	// (NumericUtils.intToSortableBytes), the on-disk BKD point format Apache
 	// Lucene 10.4.0 produces and consumes. Plain big-endian would mis-order
@@ -77,11 +66,9 @@ func NewIntPoints(name string, values ...int32) *IntPoint {
 	encoded := PackIntsLucene(values...)
 	ft := PointFieldType()
 	ft.DimensionNumBytes = 4
-
 	point, _ := NewPoint(name, ft, encoded, len(values), 4)
 	return &IntPoint{Point: *point}
 }
-
 // IntValue returns the first int value.
 func (ip *IntPoint) IntValue() int32 {
 	values := ip.IntValues()
@@ -90,7 +77,6 @@ func (ip *IntPoint) IntValue() int32 {
 	}
 	return 0
 }
-
 // IntValues returns all int values, decoding the Lucene sortable-bytes
 // encoding used by NewIntPoints.
 func (ip *IntPoint) IntValues() []int32 {

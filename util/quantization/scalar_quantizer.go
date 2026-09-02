@@ -19,7 +19,6 @@ import (
 	"math/rand"
 	"sort"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -129,15 +128,15 @@ func NewScalarQuantizer(minQuantile, maxQuantile float32, bits byte) (*ScalarQua
 // VectorUtil.isUnitVector(src) assertion; the check is enforced in
 // builds where util.IsUnitVector returns false to keep production code
 // safe even when assertions are disabled.
-func (q *ScalarQuantizer) Quantize(src []float32, dest []byte, similarityFunction index.VectorSimilarityFunction) float32 {
+func (q *ScalarQuantizer) Quantize(src []float32, dest []byte, similarityFunction util.VectorSimilarityFunction) float32 {
 	if len(src) != len(dest) {
 		panic(fmt.Sprintf("quantization: src/dest length mismatch: %d!=%d", len(src), len(dest)))
 	}
-	if similarityFunction == index.VectorSimilarityFunctionCosine && !util.IsUnitVector(src) {
+	if similarityFunction == util.CosineSim && !util.IsUnitVector(src) {
 		panic("quantization: Quantize with COSINE requires a unit-length source vector")
 	}
 	correction := minMaxScalarQuantize(src, dest, q.scale, q.alpha, q.minQuantile, q.maxQuantile)
-	if similarityFunction == index.VectorSimilarityFunctionEuclidean {
+	if similarityFunction == util.EuclideanSim {
 		return 0
 	}
 	return correction
@@ -150,9 +149,9 @@ func (q *ScalarQuantizer) Quantize(src []float32, dest []byte, similarityFunctio
 func (q *ScalarQuantizer) RecalculateCorrectiveOffset(
 	quantizedVector []byte,
 	oldQuantizer *ScalarQuantizer,
-	similarityFunction index.VectorSimilarityFunction,
+	similarityFunction util.VectorSimilarityFunction,
 ) float32 {
-	if similarityFunction == index.VectorSimilarityFunctionEuclidean {
+	if similarityFunction == util.EuclideanSim {
 		return 0
 	}
 	return recalculateOffset(
@@ -361,11 +360,11 @@ func fromVectorsWithSampleSize(
 // ScalarQuantizer.fromVectorsAutoInterval.
 func FromVectorsAutoInterval(
 	floatVectorValues FloatVectorValues,
-	function index.VectorSimilarityFunction,
+	function util.VectorSimilarityFunction,
 	totalVectorCount int,
 	bits byte,
 ) (*ScalarQuantizer, error) {
-	if function == index.VectorSimilarityFunctionCosine {
+	if function == util.CosineSim {
 		return nil, fmt.Errorf("quantization: FromVectorsAutoInterval does not support COSINE; normalise to DOT_PRODUCT upstream")
 	}
 	if totalVectorCount == 0 {
@@ -709,7 +708,7 @@ func recalculateOffset(quantized []byte, oldAlpha, oldMinQ, scale, alpha, minQ, 
 // slice with manual minimum tracking because k is fixed at 10. The
 // algorithmic invariant (every pair scored exactly once, score-doc.doc
 // records the *other* ordinal) is preserved.
-func findNearestNeighbours(vectors [][]float32, function index.VectorSimilarityFunction) []scoreDocsAndScoreVariance {
+func findNearestNeighbours(vectors [][]float32, function util.VectorSimilarityFunction) []scoreDocsAndScoreVariance {
 	type heap struct {
 		// docs is the bounded top-K bucket, kept compact: index 0..n-1
 		// hold valid (doc, score) pairs.
@@ -786,7 +785,7 @@ func candidateGridSearch(
 	neighbours []scoreDocsAndScoreVariance,
 	vectors [][]float32,
 	lowerCandidates, upperCandidates []float32,
-	function index.VectorSimilarityFunction,
+	function util.VectorSimilarityFunction,
 	bits byte,
 ) (float32, float32) {
 	maxCorr := math.Inf(-1)
@@ -885,7 +884,7 @@ func (m *onlineMeanAndVar) varF32() float32 {
 // variance of the quantised-vs-float score gap relates to the variance
 // of the floating-point scores.
 type scoreErrorCorrelator struct {
-	function   index.VectorSimilarityFunction
+	function   util.VectorSimilarityFunction
 	neighbours []scoreDocsAndScoreVariance
 	vectors    [][]float32
 	query      []byte
@@ -896,7 +895,7 @@ type scoreErrorCorrelator struct {
 }
 
 func newScoreErrorCorrelator(
-	function index.VectorSimilarityFunction,
+	function util.VectorSimilarityFunction,
 	neighbours []scoreDocsAndScoreVariance,
 	vectors [][]float32,
 	bits byte,
@@ -942,22 +941,19 @@ func (c *scoreErrorCorrelator) scoreErrorCorrelation(lowerQuantile, upperQuantil
 
 // computeSimilarity is the local counterpart of codecs.ComputeSimilarity
 // used during the auto-interval grid search. Pulling the codecs helper
-// in would introduce an import cycle, so we duplicate the four-case
-// dispatch here. The numeric output matches codecs.ComputeSimilarity
-// for the same inputs.
-func computeSimilarity(simFunc index.VectorSimilarityFunction, v1, v2 []float32) float32 {
-	switch simFunc {
-	case index.VectorSimilarityFunctionEuclidean:
+// in would introduce an import cycle, so we dispatch through the interface
+// here. The numeric output matches codecs.ComputeSimilarity for the same inputs.
+func computeSimilarity(simFunc util.VectorSimilarityFunction, v1, v2 []float32) float32 {
+	if simFunc == util.EuclideanSim {
 		return util.NormalizeDistanceToUnitInterval(util.SquareDistance(v1, v2))
-	case index.VectorSimilarityFunctionDotProduct:
-		return util.NormalizeToUnitInterval(util.DotProduct(v1, v2))
-	case index.VectorSimilarityFunctionCosine:
+	} else if simFunc == util.DotProductSim {
+		return util.NormalizeToUnitInterval(util.ComputeDotProduct(v1, v2))
+	} else if simFunc == util.CosineSim {
 		return util.NormalizeToUnitInterval(util.Cosine(v1, v2))
-	case index.VectorSimilarityFunctionMaximumInnerProduct:
-		return util.ScaleMaxInnerProductScore(util.DotProduct(v1, v2))
-	default:
-		return 0
+	} else if simFunc == util.MaximumInnerProductSim {
+		return util.ScaleMaxInnerProductScore(util.ComputeDotProduct(v1, v2))
 	}
+	return 0
 }
 
 // isNaNOrInfFloat32 reports whether v is NaN or +/-Inf, with the

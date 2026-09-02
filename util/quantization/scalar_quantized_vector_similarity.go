@@ -16,7 +16,6 @@ package quantization
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -60,7 +59,7 @@ type ByteVectorComparator func(v1, v2 []byte) int32
 // helper is added to util/vector_util.go. The dispatch shape in
 // [FromVectorSimilarity] must remain intact so the swap is mechanical.
 func int4DotProductForward(a, b []byte) int32 {
-	return util.Uint8DotProduct(a, b)
+	return int32(util.Uint8DotProduct(a, b))
 }
 
 // FromVectorSimilarity is the Go counterpart of the static factory
@@ -78,16 +77,16 @@ func int4DotProductForward(a, b []byte) int32 {
 // [index.VectorSimilarityFunction] constants; the Java original
 // exhaustively switches over the enum and would surface a
 // MatchException at runtime for an out-of-range value.
-func FromVectorSimilarity(sim index.VectorSimilarityFunction, constMultiplier float32, bits byte) (ScalarQuantizedVectorSimilarity, error) {
+func FromVectorSimilarity(sim util.VectorSimilarityFunction, constMultiplier float32, bits byte) (ScalarQuantizedVectorSimilarity, error) {
 	switch sim {
-	case index.VectorSimilarityFunctionEuclidean:
+	case util.EuclideanSim:
 		return &Euclidean{constMultiplier: constMultiplier}, nil
-	case index.VectorSimilarityFunctionCosine, index.VectorSimilarityFunctionDotProduct:
+	case util.CosineSim, util.DotProductSim:
 		return &DotProduct{
 			constMultiplier: constMultiplier,
 			comparator:      dotProductComparator(bits),
 		}, nil
-	case index.VectorSimilarityFunctionMaximumInnerProduct:
+	case util.MaximumInnerProductSim:
 		return &MaximumInnerProduct{
 			constMultiplier: constMultiplier,
 			comparator:      dotProductComparator(bits),
@@ -106,7 +105,10 @@ func dotProductComparator(bits byte) ByteVectorComparator {
 	if bits <= 4 {
 		return int4DotProductForward
 	}
-	return util.Uint8DotProduct
+	// Wrap util.Uint8DotProduct (which returns float32) to return int32
+	return func(a, b []byte) int32 {
+		return int32(util.Uint8DotProduct(a, b))
+	}
 }
 
 // Euclidean is the Go counterpart of

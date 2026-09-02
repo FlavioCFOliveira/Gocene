@@ -26,7 +26,7 @@ type ConjunctionSpans struct {
 	// SubSpans holds the sub-span iterators in query order.
 	SubSpans []Spans
 	// Conjunction is used to advance to the next doc that has all clauses.
-	Conjunction search.DocIdSetIterator
+	Conjunction util.DocIdSetIterator
 	// AtFirstInCurrentDoc is true when no position has been enumerated yet in
 	// the current document (ensures start/end return -1 before the first call
 	// to NextStartPosition).
@@ -53,7 +53,7 @@ func NewConjunctionSpans(subSpans []Spans, matchFn func() (bool, error)) (*Conju
 	}
 
 	// Build the conjunction DISI using the search-package helpers.
-	allIters := make([]search.DocIdSetIterator, 0, len(subSpans))
+	allIters := make([]util.DocIdSetIterator, 0, len(subSpans))
 	twoPhaseIters := make([]*search.TwoPhaseIterator, 0)
 	var totalMatchCost float32
 	for _, s := range subSpans {

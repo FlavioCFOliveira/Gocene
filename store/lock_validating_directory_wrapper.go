@@ -44,6 +44,18 @@ func (d *LockValidatingDirectoryWrapper) CreateOutput(name string, ctx IOContext
 	return d.FilterDirectory.CreateOutput(name, ctx)
 }
 
+// Rename validates the write lock then forwards to the wrapped directory.
+func (d *LockValidatingDirectoryWrapper) Rename(from, to string) error {
+	if err := d.writeLock.EnsureValid(); err != nil {
+		return err
+	}
+	return d.FilterDirectory.Rename(from, to)
+}
+
 // Compile-time assertion that LockValidatingDirectoryWrapper satisfies
 // Directory.
+func (d *LockValidatingDirectoryWrapper) GetDirectory() Directory {
+	return d
+}
+
 var _ Directory = (*LockValidatingDirectoryWrapper)(nil)

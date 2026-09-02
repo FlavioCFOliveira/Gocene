@@ -179,6 +179,14 @@ func NewFieldInfo(name string, number int, opts FieldInfoOptions) *FieldInfo {
 	return fi
 }
 
+// SetDocValuesGen sets the doc values generation count.
+//
+// Like PutCodecAttribute, this method bypasses the frozen contract.
+func (fi *FieldInfo) SetDocValuesGen(gen int64) {
+		fi.mu.Lock()
+		fi.docValuesGen = gen
+		fi.mu.Unlock()
+	}
 // Name returns the field name.
 func (fi *FieldInfo) Name() string {
 	return fi.name

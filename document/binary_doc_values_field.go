@@ -5,7 +5,7 @@
 package document
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // BinaryDocValuesField is a field that stores a binary value as DocValues.
@@ -33,7 +33,7 @@ func init() {
 	BinaryDocValuesFieldType = NewFieldType().
 		SetIndexed(false).
 		SetStored(false).
-		SetDocValuesType(index.DocValuesTypeBinary)
+		SetDocValuesType(schema.DocValuesTypeBinary)
 	BinaryDocValuesFieldType.Freeze()
 	BinaryDocValuesFieldTYPE = BinaryDocValuesFieldType
 }

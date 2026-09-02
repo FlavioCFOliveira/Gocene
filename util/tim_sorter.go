@@ -16,7 +16,6 @@ package util
 //
 // This is a port of Apache Lucene's TimSorter class.
 type TimSorter struct {
-	Sorter
 	impl         TimSorterInterface
 	maxTempSlots int
 	minRun       int
@@ -25,9 +24,9 @@ type TimSorter struct {
 	runEnds      []int
 }
 
-// TimSorterInterface extends SorterInterface with methods specific to TimSorter.
+// TimSorterInterface extends Sortable with methods specific to TimSorter.
 type TimSorterInterface interface {
-	SorterInterface
+	Sortable
 	// Copy copies data from slot src to slot dest.
 	Copy(src, dest int)
 	// Save saves all elements between slots i and i+len into temporary storage.
@@ -58,7 +57,6 @@ func NewTimSorter(impl TimSorterInterface, maxTempSlots int) *TimSorter {
 
 // Sort sorts the range [from, to).
 func (ts *TimSorter) Sort(from, to int) {
-	ts.CheckRange(from, to)
 	if to-from <= 1 {
 		return
 	}
@@ -139,7 +137,7 @@ func (ts *TimSorter) nextRun() int {
 		for o < ts.to && ts.impl.Compare(o-1, o) > 0 {
 			o++
 		}
-		ts.Sorter.Reverse(runBase, o, ts.impl)
+		Reverse(ts.impl, runBase, o)
 	} else {
 		// run must be non-descending
 		for o < ts.to && ts.impl.Compare(o-1, o) <= 0 {
@@ -155,7 +153,7 @@ func (ts *TimSorter) nextRun() int {
 	if runHi > ts.to {
 		runHi = ts.to
 	}
-	ts.BinarySortWithStart(runBase, runHi, o, ts.impl)
+	BinarySortWithStart(ts.impl, runBase, runHi, o)
 	return runHi - runBase
 }
 
@@ -212,15 +210,15 @@ func (ts *TimSorter) merge(lo, mid, hi int) {
 	if ts.impl.Compare(mid-1, mid) <= 0 {
 		return
 	}
-	lo = ts.Upper2(lo, mid, mid, ts.impl)
-	hi = ts.Lower2(mid, hi, mid-1, ts.impl)
+	lo = Upper2(ts.impl, lo, mid, mid)
+	hi = Lower2(ts.impl, mid, hi, mid-1)
 
 	if hi-mid <= mid-lo && hi-mid <= ts.maxTempSlots {
 		ts.mergeHi(lo, mid, hi)
 	} else if mid-lo <= ts.maxTempSlots {
 		ts.mergeLo(lo, mid, hi)
 	} else {
-		ts.Sorter.MergeInPlace(lo, mid, hi, ts.impl)
+		MergeInPlace(ts.impl, lo, mid, hi)
 	}
 }
 

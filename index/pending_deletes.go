@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -48,7 +50,7 @@ func (p *PendingDeletes) getMutableBits() *util.FixedBitSet {
 			p.writeableLiveDocs = util.FixedBitSetCopy(p.liveDocs)
 		} else {
 			p.writeableLiveDocs, _ = util.NewFixedBitSet(p.info.SegmentInfo().DocCount())
-			p.writeableLiveDocs.SetRange(0, p.info.SegmentInfo().DocCount(), true)
+			p.writeableLiveDocs.SetRange(0, p.info.SegmentInfo().DocCount())
 		}
 		p.liveDocs = p.writeableLiveDocs.AsReadOnlyBits()
 	}

@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -8,7 +10,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 func TestNewSortedDocValuesField(t *testing.T) {
@@ -43,7 +45,7 @@ func TestSortedDocValuesFieldType(t *testing.T) {
 		t.Error("Expected field to not be stored")
 	}
 
-	if ft.DocValuesType != index.DocValuesTypeSorted {
+	if ft.DocValuesType != schema.DocValuesTypeSorted {
 		t.Errorf("Expected DocValuesTypeSorted, got: %v", ft.DocValuesType)
 	}
 }

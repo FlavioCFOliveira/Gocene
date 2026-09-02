@@ -1,9 +1,11 @@
+//go:build ignore
+
 package index
 
 import (
 	"io"
 
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // KnnVectorValues abstracts addressing of document vector values.
@@ -27,13 +29,5 @@ type KnnVectorValues interface {
 	GetEncoding() VectorEncoding
 
 	// Iterator creates an iterator for this instance.
-	Iterator() search.DocIndexIterator
-}
-
-// DocIndexIterator is a DocIdSetIterator that also provides an Index() method
-// tracking a distinct ordinal for a vector associated with each doc.
-type DocIndexIterator interface {
-	search.DocIdSetIterator
-	// Index returns the value index (aka "ordinal" or "ord") corresponding to the current doc.
-	Index() int
+	Iterator() util.DocIndexIterator
 }

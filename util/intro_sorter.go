@@ -19,29 +19,16 @@ import "math"
 //
 // This is a port of Apache Lucene's IntroSorter class.
 type IntroSorter struct {
-	Sorter
-	impl SorterInterface
-}
-
-// IntroSorterInterface extends SorterInterface with methods specific to IntroSorter.
-type IntroSorterInterface interface {
-	SorterInterface
-	// SetPivot saves the value at slot i as the pivot.
-	SetPivot(i int)
-	// ComparePivot compares the saved pivot with slot j.
-	ComparePivot(j int) int
+	impl Sortable
 }
 
 // NewIntroSorter creates a new IntroSorter with the given implementation.
-// If impl also satisfies IntroSorterInterface, pivot operations are delegated
-// to it so that SetPivot copies the value rather than the index.
-func NewIntroSorter(impl SorterInterface) *IntroSorter {
+func NewIntroSorter(impl Sortable) *IntroSorter {
 	return &IntroSorter{impl: impl}
 }
 
 // Sort sorts the range [from, to).
 func (is *IntroSorter) Sort(from, to int) {
-	is.CheckRange(from, to)
 	if to-from <= 1 {
 		return
 	}
@@ -49,28 +36,23 @@ func (is *IntroSorter) Sort(from, to int) {
 	is.sort(from, to, maxDepth)
 }
 
-// sort is the internal recursive sort method.
 func (is *IntroSorter) sort(from, to, maxDepth int) {
-	// Sort small ranges with insertion sort.
 	size := to - from
 	for size > InsertionSortThreshold {
 		if maxDepth <= 0 {
-			// Max recursion depth exceeded: fallback to heap sort.
-			is.HeapSort(from, to, is.impl)
+			HeapSort(is.impl, from, to)
 			return
 		}
 		maxDepth--
 
-		// Pivot selection based on medians.
 		last := to - 1
 		mid := (from + last) >> 1
 		var pivot int
+
 		if size <= SingleMedianThreshold {
-			// Select the pivot with a single median around the middle element.
 			range_ := size >> 2
 			pivot = is.median(mid-range_, mid, mid+range_)
 		} else {
-			// Select the pivot with the Tukey's ninther median of medians.
 			range_ := size >> 3
 			doubleRange := range_ << 1
 			medianFirst := is.median(from, from+range_, from+doubleRange)
@@ -79,8 +61,14 @@ func (is *IntroSorter) sort(from, to, maxDepth int) {
 			pivot = is.median(medianFirst, medianMiddle, medianLast)
 		}
 
+		// Pivot handling
+		if p, ok := is.impl.(Pivotable); ok {
+			p.SetPivot(pivot)
+		} else {
+			panic("Sortable must implement Pivotable to be used with IntroSorter")
+		}
+
 		// Bentley-McIlroy 3-way partitioning.
-		is.SetPivot(pivot)
 		is.impl.Swap(from, pivot)
 		i := from
 		j := to
@@ -94,7 +82,7 @@ func (is *IntroSorter) sort(from, to, maxDepth int) {
 				if i >= to {
 					break
 				}
-				leftCmp = is.ComparePivot(i)
+				leftCmp = is.comparePivot(i)
 				if leftCmp <= 0 {
 					break
 				}
@@ -104,7 +92,7 @@ func (is *IntroSorter) sort(from, to, maxDepth int) {
 				if j < from {
 					break
 				}
-				rightCmp = is.ComparePivot(j)
+				rightCmp = is.comparePivot(j)
 				if rightCmp >= 0 {
 					break
 				}
@@ -137,7 +125,6 @@ func (is *IntroSorter) sort(from, to, maxDepth int) {
 			i++
 		}
 
-		// Recursion on the smallest partition. Replace the tail recursion by a loop.
 		if j-from < last-i {
 			is.sort(from, j+1, maxDepth)
 			from = i
@@ -148,10 +135,9 @@ func (is *IntroSorter) sort(from, to, maxDepth int) {
 		size = to - from
 	}
 
-	is.InsertionSort(from, to, is.impl)
+	InsertionSort(is.impl, from, to)
 }
 
-// median returns the index of the median element among three elements at provided indices.
 func (is *IntroSorter) median(i, j, k int) int {
 	if is.impl.Compare(i, j) < 0 {
 		if is.impl.Compare(j, k) <= 0 {
@@ -171,35 +157,11 @@ func (is *IntroSorter) median(i, j, k int) int {
 	return k
 }
 
-// SetPivot saves the value at slot i as the pivot.
-// If the underlying impl supports IntroSorterInterface, the value is copied
-// so that subsequent swaps do not corrupt the pivot.
-func (is *IntroSorter) SetPivot(i int) {
-	if iface, ok := is.impl.(IntroSorterInterface); ok {
-		iface.SetPivot(i)
-	} else {
-		is.Sorter.SetPivot(i, is.impl)
+func (is *IntroSorter) comparePivot(j int) int {
+	if p, ok := is.impl.(Pivotable); ok {
+		return p.ComparePivot(j)
 	}
+	panic("Sortable must implement Pivotable to be used with IntroSorter")
 }
 
-// ComparePivot compares the saved pivot with slot j.
-func (is *IntroSorter) ComparePivot(j int) int {
-	if iface, ok := is.impl.(IntroSorterInterface); ok {
-		return iface.ComparePivot(j)
-	}
-	return is.Sorter.ComparePivot(j, is.impl)
-}
-
-// Compare compares elements at slots i and j.
-func (is *IntroSorter) Compare(i, j int) int {
-	is.SetPivot(i)
-	return is.ComparePivot(j)
-}
-
-// Swap swaps elements at slots i and j.
-func (is *IntroSorter) Swap(i, j int) {
-	is.impl.Swap(i, j)
-}
-
-// SingleMedianThreshold is the size below which a single median is used for pivot selection.
 const SingleMedianThreshold = 40

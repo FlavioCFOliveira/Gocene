@@ -8,13 +8,9 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
-
-// TokenStream is a type alias for api.TokenStream.
-type TokenStream = api.TokenStream
 
 // BaseTokenStream provides a base implementation for TokenStream.
 //
@@ -81,6 +77,23 @@ func (ts *BaseTokenStream) ClearAttributes() {
 // Subclasses must override this method.
 func (ts *BaseTokenStream) IncrementToken() (bool, error) {
 	return false, nil
+}
+
+// Reset resets the token stream to the beginning.
+// Subclasses may override this method for cleanup.
+func (ts *BaseTokenStream) Reset() error {
+	return nil
+}
+
+// Next is a convenience method that calls IncrementToken and returns the current token.
+// Returns the token and true if a token is available, or an empty Token and false at end of stream.
+func (ts *BaseTokenStream) Next() (Token, bool) {
+	ok, err := ts.IncrementToken()
+	if err != nil || !ok {
+		return Token{}, false
+	}
+	// Placeholder: in a full implementation, extract the token from attributes
+	return Token{}, ok
 }
 
 // End performs end-of-stream operations.

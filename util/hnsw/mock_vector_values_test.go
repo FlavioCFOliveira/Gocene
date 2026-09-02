@@ -41,7 +41,7 @@ package hnsw
 //   - (m *mockVectorValues) Copy() *mockVectorValues
 //   - (m *mockVectorValues) VectorValue(ord int) []float32  (with random
 //     scratch-buffer aliasing for alias-bug detection)
-//   - (m *mockVectorValues) Iterator() index.DocIndexIterator  (dense)
+//   - (m *mockVectorValues) Iterator() util.DocIndexIterator  (dense)
 //
 // Tracking:
 //   - GOC-4303 (this stub)

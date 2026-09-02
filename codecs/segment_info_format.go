@@ -241,62 +241,73 @@ func (f *Lucene104SegmentInfosFormat) readSegmentCommitInfo(in store.IndexInput,
 func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *spi.SegmentInfos, ctx store.IOContext) error {
 	generation := infos.NextGeneration()
 	fileName := spi.GetSegmentFileName(generation)
+	tempFileName := "pending_" + fileName
 
-	out, err := dir.CreateOutput(fileName, ctx)
-	if err != nil {
-		return err
-	}
-	checksumOut := store.NewChecksumIndexOutput(out)
-	defer checksumOut.Close()
-
-	// Random ID for segments_N header
-	id := make([]byte, 16)
-	// In a real implementation, we should probably use a proper random source
-
-	err = WriteIndexHeader(checksumOut, sisCodecName, sisVersion, id, strconv.FormatInt(generation, 36))
-	if err != nil {
-		return err
-	}
-
-	// Write Lucene version
-	var major, minor, bugfix int32
-	fmt.Sscanf(infos.LuceneVersion(), "%d.%d.%d", &major, &minor, &bugfix)
-	store.WriteVInt(checksumOut, major)
-	store.WriteVInt(checksumOut, minor)
-	store.WriteVInt(checksumOut, bugfix)
-
-	// Write created major
-	store.WriteVInt(checksumOut, infos.IndexCreatedVersionMajor())
-
-	// Write version
-	store.WriteInt64(checksumOut, infos.Version())
-
-	// Write counter
-	store.WriteVLong(checksumOut, infos.Counter())
-
-	// Write segment count
-	segments := infos.List()
-	store.WriteInt32(checksumOut, int32(len(segments)))
-
-	// Write min segment version if any
-	if len(segments) > 0 {
-		// Just write current version as min version for now
-		store.WriteVInt(checksumOut, major)
-		store.WriteVInt(checksumOut, minor)
-		store.WriteVInt(checksumOut, bugfix)
-	}
-
-	for _, sci := range segments {
-		err = f.writeSegmentCommitInfo(checksumOut, sci)
+	err := func() error {
+		out, err := dir.CreateOutput(tempFileName, ctx)
 		if err != nil {
 			return err
 		}
+		checksumOut := store.NewChecksumIndexOutput(out)
+		defer checksumOut.Close()
+
+		// Random ID for segments_N header
+		id := make([]byte, 16)
+		// In a real implementation, we should probably use a proper random source
+
+		if err := WriteIndexHeader(checksumOut, sisCodecName, sisVersion, id, strconv.FormatInt(generation, 36)); err != nil {
+			return err
+		}
+
+		// Write Lucene version
+		var major, minor, bugfix int32
+		fmt.Sscanf(infos.LuceneVersion(), "%d.%d.%d", &major, &minor, &bugfix)
+		store.WriteVInt(checksumOut, major)
+		store.WriteVInt(checksumOut, minor)
+		store.WriteVInt(checksumOut, bugfix)
+
+		// Write created major
+		store.WriteVInt(checksumOut, infos.IndexCreatedVersionMajor())
+
+		// Write version
+		store.WriteInt64(checksumOut, infos.Version())
+
+		// Write counter
+		store.WriteVLong(checksumOut, infos.Counter())
+
+		// Write segment count
+		segments := infos.List()
+		store.WriteInt32(checksumOut, int32(len(segments)))
+
+		// Write min segment version if any
+		if len(segments) > 0 {
+			// Just write current version as min version for now
+			store.WriteVInt(checksumOut, major)
+			store.WriteVInt(checksumOut, minor)
+			store.WriteVInt(checksumOut, bugfix)
+		}
+
+		for _, sci := range segments {
+			if err := f.writeSegmentCommitInfo(checksumOut, sci); err != nil {
+				return err
+			}
+		}
+
+		store.WriteMapOfStrings(checksumOut, infos.GetUserData())
+
+		if err := WriteFooter(checksumOut); err != nil {
+			return err
+		}
+		return nil
+	}()
+
+	if err != nil {
+		_ = dir.DeleteFile(tempFileName)
+		return err
 	}
 
-	store.WriteMapOfStrings(checksumOut, infos.GetUserData())
-
-	err = WriteFooter(checksumOut)
-	if err != nil {
+	if err := dir.Rename(tempFileName, fileName); err != nil {
+		_ = dir.DeleteFile(tempFileName)
 		return err
 	}
 

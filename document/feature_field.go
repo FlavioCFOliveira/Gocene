@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -8,7 +10,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // FeatureField stores a single (featureName, featureValue) entry in a
@@ -44,7 +46,7 @@ func init() {
 	FeatureFieldType.SetIndexed(true)
 	FeatureFieldType.SetTokenized(false)
 	FeatureFieldType.SetOmitNorms(true)
-	FeatureFieldType.SetIndexOptions(index.IndexOptionsDocsAndFreqs)
+	FeatureFieldType.SetIndexOptions(schema.IndexOptionsDocsAndFreqs)
 	FeatureFieldType.Freeze()
 	FeatureFieldTYPE = FeatureFieldType
 }

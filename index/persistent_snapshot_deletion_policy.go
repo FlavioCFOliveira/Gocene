@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Package index provides core index functionality for Gocene.
 // This file implements the PersistentSnapshotDeletionPolicy for persistent snapshots.
 // Source: org.apache.lucene.index.PersistentSnapshotDeletionPolicy (Apache Lucene 10.x)

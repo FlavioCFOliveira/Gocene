@@ -86,14 +86,6 @@ type GeoArea interface {
 	GetRelationship(shape GeoShape) int
 }
 
-// GeoMembershipShape combines GeoShape and Membership.
-//
-// Port of org.apache.lucene.spatial3d.geom.GeoMembershipShape.
-type GeoMembershipShape interface {
-	GeoShape
-	Membership
-}
-
 // GeoAreaShape combines GeoArea and GeoShape.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoAreaShape.
@@ -172,7 +164,7 @@ type GeoDistanceShape interface {
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoOutsideDistance.
 type GeoOutsideDistance interface {
-	GeoMembershipShape
+	Membership
 	// ComputeOutsideDistance returns the distance to the nearest edge.
 	ComputeOutsideDistance(distanceStyle DistanceStyle, x, y, z float64) float64
 }

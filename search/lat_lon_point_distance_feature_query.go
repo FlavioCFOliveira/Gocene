@@ -898,7 +898,7 @@ func latLonPointDistanceFeatureMinCost(a, b int64) int64 {
 // Adapters
 
 // newLatLonPointDocValuesIteratorAdapter wraps a latLonPointDocValues
-// so that it satisfies the search.DocIdSetIterator contract used by
+// so that it satisfies the util.DocIdSetIterator contract used by
 // the initial scorer iterator.
 func newLatLonPointDocValuesIteratorAdapter(dv latLonPointDocValues) DocIdSetIterator {
 	return &latLonPointDocValuesIteratorAdapter{dv: dv}
@@ -919,7 +919,7 @@ func (a *latLonPointDocValuesIteratorAdapter) DocIDRunEnd() int { return a.dv.Do
 var _ DocIdSetIterator = (*latLonPointDocValuesIteratorAdapter)(nil)
 
 // newLatLonPointDocIdSetIteratorAdapter bridges a util.DocIdSetIterator
-// to the search.DocIdSetIterator contract.
+// to the util.DocIdSetIterator contract.
 func newLatLonPointDocIdSetIteratorAdapter(inner util.DocIdSetIterator) DocIdSetIterator {
 	return &latLonPointDocIdSetIteratorAdapter{inner: inner}
 }

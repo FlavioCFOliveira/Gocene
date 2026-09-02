@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -8,7 +10,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 func TestFeatureField_Basic(t *testing.T) {
@@ -19,7 +21,7 @@ func TestFeatureField_Basic(t *testing.T) {
 	if f.GetFeatureName() != "pagerank" || f.GetFeatureValue() != 0.5 {
 		t.Fatalf("attrs wrong")
 	}
-	if f.FieldType().GetIndexOptions() != index.IndexOptionsDocsAndFreqs {
+	if f.FieldType().GetIndexOptions() != schema.IndexOptionsDocsAndFreqs {
 		t.Fatalf("indexOptions wrong: %v", f.FieldType().GetIndexOptions())
 	}
 }

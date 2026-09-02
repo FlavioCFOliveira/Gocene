@@ -16,7 +16,7 @@ type accumulator interface {
 
 type toParentDocValues struct {
 	parents                *util.FixedBitSet
-	childWithValues        search.DocIdSetIterator
+	childWithValues        util.DocIdSetIterator
 	collector              accumulator
 	docID                  int
 	hasChildWithMissingValue bool
@@ -296,7 +296,7 @@ func (n *numDV) Cost() int64 {
 	return n.values.Cost()
 }
 
-func wrapSorted(values index.SortedDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator, sortMissingLast bool) index.SortedDocValues {
+func wrapSorted(values index.SortedDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children util.DocIdSetIterator, sortMissingLast bool) index.SortedDocValues {
 	missingOrd := -1
 	if sortMissingLast {
 		missingOrd = 2147483647
@@ -314,7 +314,7 @@ func wrapSorted(values index.SortedDocValues, selection BlockJoinSelectorType, p
 	return s
 }
 
-func wrapNumeric(values index.NumericDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children search.DocIdSetIterator, missingValue *int64) index.NumericDocValues {
+func wrapNumeric(values index.NumericDocValues, selection BlockJoinSelectorType, parents *util.FixedBitSet, children util.DocIdSetIterator, missingValue *int64) index.NumericDocValues {
 	n := &numDV{
 		values:       values,
 		selection:    selection,
@@ -329,10 +329,10 @@ func wrapNumeric(values index.NumericDocValues, selection BlockJoinSelectorType,
 }
 
 type intersectTwoIterators struct {
-	it1, it2 search.DocIdSetIterator
+	it1, it2 util.DocIdSetIterator
 }
 
-func intersectTwoIterators(it1, it2 search.DocIdSetIterator) search.DocIdSetIterator {
+func intersectTwoIterators(it1, it2 util.DocIdSetIterator) util.DocIdSetIterator {
 	return &intersectTwoIterators{it1: it1, it2: it2}
 }
 

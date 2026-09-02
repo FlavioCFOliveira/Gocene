@@ -67,7 +67,7 @@ func (it *oneTimeIntervalIterator) NextInterval() (int, error) {
 	panic("nextInterval called with docID == NO_MORE_DOCS")
 }
 
-var _ search.DocIdSetIterator = (*oneTimeIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*oneTimeIntervalIterator)(nil)
 
 func (s *oneTimeIntervalSource) Matches(_ string, _ *index.LeafReaderContext, _ int) (IntervalMatchesIterator, error) {
 	return &oneTimeMatchesIterator{next: true}, nil

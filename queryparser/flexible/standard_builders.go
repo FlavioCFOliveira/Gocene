@@ -287,8 +287,8 @@ func (b *MinShouldMatchNodeBuilder) Build(node QueryNode) (search.Query, error) 
 	}
 
 	children := msmNode.GetChildren()
-	if len(children) == 0 {
-		return search.NewMatchNoDocsQuery(), nil
+	if len(children) != 1 {
+		return nil, fmt.Errorf("unexpected number of node children: %d", len(children))
 	}
 
 	childQuery, err := b.treeBuilder.Build(children[0])
@@ -296,12 +296,19 @@ func (b *MinShouldMatchNodeBuilder) Build(node QueryNode) (search.Query, error) 
 		return nil, err
 	}
 
-	if bq, ok := childQuery.(*search.BooleanQuery); ok {
-		bq.SetMinimumNumberShouldMatch(msmNode.GetMinimumShouldMatch())
-		return bq, nil
+	bq, ok := childQuery.(*search.BooleanQuery)
+	if !ok {
+		return nil, fmt.Errorf("expected BooleanQuery as child of MinShouldMatchNode, got %T", childQuery)
 	}
 
-	return childQuery, nil
+	// To maintain fidelity with Lucene's BooleanQuery.Builder, we create a new BooleanQuery
+	// with the same clauses but a different minimum number of should-match.
+	builder := search.NewBooleanQueryBuilder()
+	builder.SetMinimumNumberShouldMatch(msmNode.GetMinimumShouldMatch())
+	for _, clause := range bq.Clauses() {
+		builder.AddClause(clause)
+	}
+	return builder.Build(), nil
 }
 
 // IntervalQueryNodeBuilder converts an IntervalQueryNode into a real IntervalQuery

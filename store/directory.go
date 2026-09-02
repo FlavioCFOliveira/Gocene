@@ -56,6 +56,10 @@ type Directory interface {
 	// Returns ErrFileIsOpen if the file is currently open for reading/writing.
 	DeleteFile(name string) error
 
+	// Rename renames a file from from to to.
+	// Returns ErrFileNotFound if the from file does not exist.
+	Rename(from, to string) error
+
 	// ObtainLock attempts to obtain a lock for the specified name.
 	// Returns the Lock instance if successful, or an error if the lock
 	// could not be obtained.
@@ -170,6 +174,11 @@ func (d *BaseDirectory) CreateOutput(name string, ctx IOContext) (IndexOutput, e
 // DeleteFile returns error - must be implemented by subclasses.
 func (d *BaseDirectory) DeleteFile(name string) error {
 	return errors.New("DeleteFile not implemented")
+}
+
+// Rename renames a file from from to to.
+func (d *BaseDirectory) Rename(from, to string) error {
+	return errors.New("Rename not implemented in BaseDirectory")
 }
 
 // ObtainLock obtains a lock using the configured LockFactory.

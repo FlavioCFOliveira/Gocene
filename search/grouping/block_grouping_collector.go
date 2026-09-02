@@ -65,7 +65,7 @@ type BlockGroupingCollector struct {
 	totalGroupCount   int
 	docBase           int
 	groupEndDocID     int
-	lastDocPerGroupBits search.DocIdSetIterator
+	lastDocPerGroupBits util.DocIdSetIterator
 	scorer            search.Scorable
 	groupQueue        *groupQueue
 	groupCompetes     bool

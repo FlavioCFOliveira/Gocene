@@ -49,6 +49,17 @@ func (r *RoaringDocIdSet) String() string {
 	return fmt.Sprintf("RoaringDocIdSet(cardinality=%d)", r.cardinality)
 }
 
+// RamBytesUsed returns the RAM usage of this set in bytes.
+func (r *RoaringDocIdSet) RamBytesUsed() int64 {
+	var total int64
+	for _, set := range r.docIdSets {
+		if set != nil {
+			total += set.RamBytesUsed()
+		}
+	}
+	return total
+}
+
 // Iterator returns a DocIdSetIterator over the set, or nil when the
 // set is empty (matching the Java semantics where the iterator is
 // nullable for empty sets).
@@ -194,6 +205,11 @@ type shortArrayDocIdSet struct {
 
 func newShortArrayDocIdSet(docIDs []uint16) *shortArrayDocIdSet {
 	return &shortArrayDocIdSet{docIDs: docIDs}
+}
+
+// RamBytesUsed returns the RAM usage of this set in bytes.
+func (s *shortArrayDocIdSet) RamBytesUsed() int64 {
+	return int64(len(s.docIDs)) * 2
 }
 
 // Iterator returns a DocIdSetIterator over docIDs.

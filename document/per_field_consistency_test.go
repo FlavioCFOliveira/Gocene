@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -8,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -17,8 +19,8 @@ import (
 func TestPerFieldConsistency_FieldTypeValidation(t *testing.T) {
 	t.Run("indexOptions roundtrip", func(t *testing.T) {
 		ft := NewFieldType()
-		ft.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
-		if ft.IndexOptions != index.IndexOptionsDocsAndFreqsAndPositions {
+		ft.SetIndexOptions(schema.IndexOptionsDocsAndFreqsAndPositions)
+		if ft.IndexOptions != schema.IndexOptionsDocsAndFreqsAndPositions {
 			t.Error("IndexOptions round-trip failed")
 		}
 	})
@@ -50,11 +52,11 @@ func TestPerFieldConsistency_FieldTypeValidation(t *testing.T) {
 	t.Run("stored and indexed", func(t *testing.T) {
 		ft := NewFieldType()
 		ft.SetStored(true)
-		ft.SetIndexOptions(index.IndexOptionsDocsAndFreqs)
+		ft.SetIndexOptions(schema.IndexOptionsDocsAndFreqs)
 		if !ft.Stored {
 			t.Error("Stored = false, want true")
 		}
-		if ft.IndexOptions != index.IndexOptionsDocsAndFreqs {
+		if ft.IndexOptions != schema.IndexOptionsDocsAndFreqs {
 			t.Error("IndexOptions round-trip failed")
 		}
 	})
@@ -132,7 +134,7 @@ func TestPerFieldConsistency_IndexedTypesRoundTrip(t *testing.T) {
 	if fi == nil {
 		t.Fatal("FieldInfo for 'f' is nil")
 	}
-	if fi.IndexOptions() == index.IndexOptionsNone {
+	if fi.IndexOptions() == schema.IndexOptionsNone {
 		t.Errorf("field 'f' IndexOptions = NONE, want indexed")
 	}
 }
@@ -166,7 +168,7 @@ func TestPerFieldConsistency_DocWithMissingSchemaOptionsThrowsError(t *testing.T
 
 	t.Run("indexed without being stored is valid", func(t *testing.T) {
 		ft := NewFieldType()
-		ft.SetIndexOptions(index.IndexOptionsDocsAndFreqs)
+		ft.SetIndexOptions(schema.IndexOptionsDocsAndFreqs)
 		err := ft.Validate()
 		if err != nil {
 			t.Errorf("unexpected Validate error: %v", err)

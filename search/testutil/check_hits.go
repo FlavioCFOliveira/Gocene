@@ -681,7 +681,7 @@ func checkMaxScoresLeafAdvancing(t TB, rng *rand.Rand, w1, w2 search.Weight, ctx
 // approximationOf returns the iterator a scorer's matches should be driven
 // through: the TwoPhaseIterator's approximation when one is present, otherwise
 // the scorer itself (a Gocene Scorer is a DocIdSetIterator).
-func approximationOf(s search.Scorer, tp *search.TwoPhaseIterator) search.DocIdSetIterator {
+func approximationOf(s search.Scorer, tp *search.TwoPhaseIterator) util.DocIdSetIterator {
 	if tp != nil {
 		return tp.Approximation()
 	}

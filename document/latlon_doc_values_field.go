@@ -6,7 +6,7 @@ package document
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/geo"
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // LatLonDocValuesField stores a geographic point as numeric doc-values.
@@ -29,7 +29,7 @@ var (
 
 func init() {
 	LatLonDocValuesFieldType = NewFieldType()
-	LatLonDocValuesFieldType.SetDocValuesType(index.DocValuesTypeSortedNumeric)
+	LatLonDocValuesFieldType.SetDocValuesType(schema.DocValuesTypeSortedNumeric)
 	LatLonDocValuesFieldType.Freeze()
 	LatLonDocValuesFieldTYPE = LatLonDocValuesFieldType
 }

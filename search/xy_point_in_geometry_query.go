@@ -733,7 +733,7 @@ func (s *xyPointInGeometryScorer) GetMaxScore(_ int) float32 { return s.score }
 var _ Scorer = (*xyPointInGeometryScorer)(nil)
 
 // newUtilToSearchDISIAdapter bridges a util.DocIdSetIterator to the
-// search.DocIdSetIterator contract. Both iterators are structurally
+// util.DocIdSetIterator contract. Both iterators are structurally
 // identical (DocID/NextDoc/Advance/Cost/DocIDRunEnd); only the package
 // differs, so the adapter is a thin forwarder. Mirrors the same
 // adapter pattern in long_distance_feature_query.go but kept local so

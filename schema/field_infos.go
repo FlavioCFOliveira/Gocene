@@ -35,10 +35,11 @@ type FieldInfos struct {
 }
 
 // EmptyFieldInfos is an instance without any fields.
-var EmptyFieldInfos = NewFieldInfos([]*FieldInfo{})
+var EmptyFieldInfos = NewFieldInfos()
 
 // NewFieldInfos constructs a new FieldInfos from a slice of FieldInfo objects.
-func NewFieldInfos(infos []*FieldInfo) *FieldInfos {
+// If no arguments are provided, returns an empty FieldInfos.
+func NewFieldInfos(infos ...*FieldInfo) *FieldInfos {
 	var hasTermVectors, hasPostings, hasProx, hasPayloads, hasOffsets, hasFreq, hasNorms, hasDocValues, hasPointValues, hasVectorValues bool
 	var softDeletesField, parentField string
 
@@ -167,6 +168,56 @@ func (fi *FieldInfos) FieldInfoByNumber(number int) *FieldInfo {
 		return nil
 	}
 	return fi.byNumber[number]
+}
+
+// Add adds a FieldInfo to this FieldInfos and updates the aggregate flags.
+// Returns the added FieldInfo (for compatibility with builder pattern).
+func (fi *FieldInfos) Add(info *FieldInfo) *FieldInfo {
+	// Update aggregate flags
+	fi.hasTermVectors = fi.hasTermVectors || info.StoreTermVectors()
+	fi.hasPostings = fi.hasPostings || info.IndexOptions().IsIndexed()
+	fi.hasProx = fi.hasProx || info.IndexOptions().HasPositions()
+	fi.hasFreq = fi.hasFreq || (info.IndexOptions() != IndexOptionsNone && info.IndexOptions() != IndexOptionsDocs)
+	fi.hasOffsets = fi.hasOffsets || info.IndexOptions().HasOffsets()
+	fi.hasNorms = fi.hasNorms || info.HasNorms()
+	fi.hasDocValues = fi.hasDocValues || info.DocValuesType() != DocValuesTypeNone
+	fi.hasPayloads = fi.hasPayloads || info.HasPayloads()
+	fi.hasPointValues = fi.hasPointValues || info.PointDimensionCount() != 0
+	fi.hasVectorValues = fi.hasVectorValues || info.VectorDimension() != 0
+
+	if info.IsSoftDeletesField() {
+		if fi.softDeletesField != "" && fi.softDeletesField != info.Name() {
+			panic(fmt.Sprintf("multiple soft-deletes fields [%s, %s]", info.Name(), fi.softDeletesField))
+		}
+		fi.softDeletesField = info.Name()
+	}
+	if info.IsParentField() {
+		if fi.parentField != "" && fi.parentField != info.Name() {
+			panic(fmt.Sprintf("multiple parent fields [%s, %s]", info.Name(), fi.parentField))
+		}
+		fi.parentField = info.Name()
+	}
+
+	// Add to byName
+	fi.byName[info.Name()] = info
+
+	// Update byNumber and values
+	fieldNumber := info.Number()
+	if fieldNumber >= len(fi.byNumber) {
+		// Grow byNumber array
+		newByNumber := make([]*FieldInfo, fieldNumber+1)
+		copy(newByNumber, fi.byNumber)
+		fi.byNumber = newByNumber
+	}
+	fi.byNumber[fieldNumber] = info
+
+	// Re-sort values
+	fi.values = append(fi.values, info)
+	sort.Slice(fi.values, func(i, j int) bool {
+		return fi.values[i].Number() < fi.values[j].Number()
+	})
+
+	return info
 }
 
 type FieldInfosIterator interface {
@@ -318,22 +369,21 @@ func (fn *FieldNumbers) AddOrGet(fi *FieldInfo) int {
 	}
 
 	var fieldNumber int
-	if fi.Number() != -1 {
-		if _, ok := fn.numberToName[fi.Number()]; !ok {
-			fieldNumber = fi.Number()
-		} else {
-			goto allocate
-		}
-	} else {
-	allocate:
-		for {
-			fn.lowestUnassignedFieldNumber++
-			if _, ok := fn.numberToName[fn.lowestUnassignedFieldNumber]; !ok {
-				fieldNumber = fn.lowestUnassignedFieldNumber
-				break
+		if fi.Number() != -1 {
+			if _, ok := fn.numberToName[fi.Number()]; !ok {
+				fieldNumber = fi.Number()
 			}
 		}
-	}
+		if fieldNumber == -1 {
+			for {
+				fn.lowestUnassignedFieldNumber++
+				if _, ok := fn.numberToName[fn.lowestUnassignedFieldNumber]; !ok {
+					fieldNumber = fn.lowestUnassignedFieldNumber
+					break
+				}
+			}
+		}
+
 
 	fn.numberToName[fieldNumber] = name
 	fn.fieldProps[name] = &fieldProps{
@@ -502,7 +552,7 @@ func (b *FieldInfosBuilder) Build() *FieldInfos {
 	for _, fi := range b.byName {
 		infos = append(infos, fi)
 	}
-	return NewFieldInfos(infos)
+	return NewFieldInfos(infos...)
 }
 
 func (b *FieldInfosBuilder) FieldInfos() *FieldInfos {
@@ -511,5 +561,5 @@ func (b *FieldInfosBuilder) FieldInfos() *FieldInfos {
 	for _, fi := range b.byName {
 		infos = append(infos, fi)
 	}
-	return NewFieldInfos(infos)
+	return NewFieldInfos(infos...)
 }

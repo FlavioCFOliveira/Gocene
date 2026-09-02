@@ -306,4 +306,4 @@ func (u *unorderedIntervalIterator) doReset() error {
 	return nil
 }
 
-var _ search.DocIdSetIterator = (*unorderedIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*unorderedIntervalIterator)(nil)

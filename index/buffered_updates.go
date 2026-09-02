@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -100,13 +102,17 @@ func (b *BufferedUpdates) AddTerm(term Term, docIDUpTo int) {
 func (b *BufferedUpdates) AddNumericUpdate(update *NumericDocValuesUpdate, docIDUpTo int) {
 	buffer, ok := b.fieldUpdates[update.Field()]
 	if !ok {
-		buffer = NewFieldUpdatesBuffer(b, update, docIDUpTo)
+		var err error
+		buffer, err = NewFieldUpdatesBufferNumeric(b.bytesUsed, update.Term(), docIDUpTo, update.value, update.HasValue())
+		if err != nil {
+			panic(err)
+		}
 		b.fieldUpdates[update.Field()] = buffer
 	}
 	if update.HasValue() {
-		buffer.addUpdate(update.Term(), update.value, docIDUpTo)
+		buffer.AddUpdate(update.Term(), update.value, docIDUpTo)
 	} else {
-		buffer.addNoValue(update.Term(), docIDUpTo)
+		buffer.AddNoValue(update.Term(), docIDUpTo)
 	}
 	b.numFieldUpdates.Add(1)
 }
@@ -114,13 +120,17 @@ func (b *BufferedUpdates) AddNumericUpdate(update *NumericDocValuesUpdate, docID
 func (b *BufferedUpdates) AddBinaryUpdate(update *BinaryDocValuesUpdate, docIDUpTo int) {
 	buffer, ok := b.fieldUpdates[update.Field()]
 	if !ok {
-		buffer = NewFieldUpdatesBuffer(b, update, docIDUpTo)
+		var err error
+		buffer, err = NewFieldUpdatesBufferBinary(b.bytesUsed, update.Term(), docIDUpTo, update.value, update.HasValue())
+		if err != nil {
+			panic(err)
+		}
 		b.fieldUpdates[update.Field()] = buffer
 	}
 	if update.HasValue() {
-		buffer.addUpdate(update.Term(), update.value, docIDUpTo)
+		buffer.AddBinaryUpdate(update.Term(), update.value, docIDUpTo)
 	} else {
-		buffer.addNoValue(update.Term(), docIDUpTo)
+		buffer.AddNoValue(update.Term(), docIDUpTo)
 	}
 	b.numFieldUpdates.Add(1)
 }
@@ -239,169 +249,3 @@ func (m *bytesRefIntMap) get(key []byte) int {
 }
 
 // FieldUpdatesBuffer buffers numeric and binary field updates.
-type FieldUpdatesBuffer struct {
-	bytesUsed    *atomic.Int64
-	numUpdates   int
-	termValues   *util.BytesRefArray
-	termSortState *util.BytesRefArraySortState
-	byteValues   *util.BytesRefArray
-	docsUpTo     []int
-	numericValues []longs // custom type or slice
-	hasValues    *util.FixedBitSet
-	maxNumeric   int64
-	minNumeric   int64
-	fields       []string
-	isNumeric    bool
-	finished     bool
-	parent       *BufferedUpdates
-}
-
-type longs []int64
-
-func NewFieldUpdatesBuffer(parent *BufferedUpdates, initialValue DocValuesUpdate, docUpTo int) *FieldUpdatesBuffer {
-	isNumeric := initialValue.Type() == DocValuesTypeNumeric
-
-	buf := &FieldUpdatesBuffer{
-		parent:    parent,
-		bytesUsed: &parent.fieldUpdatesBytesUsed,
-		numUpdates: 1,
-		termValues: util.NewBytesRefArray(0),
-		fields:     []string{initialValue.Field()},
-		docsUpTo:    []int{docUpTo},
-		isNumeric:   isNumeric,
-	}
-
-	// Initial value
-	if term, ok := initialValue.(*NumericDocValuesUpdate); ok {
-		buf.termValues.AppendBytes(term.Term().Bytes())
-		if term.HasValue() {
-			buf.numericValues = []int64{term.value}
-			buf.maxNumeric, buf.minNumeric = term.value, term.value
-		} else {
-			buf.numericValues = []int64{0}
-		}
-		if !term.HasValue() {
-			buf.hasValues, _ = util.NewFixedBitSet(1)
-		}
-	} else if term, ok := initialValue.(*BinaryDocValuesUpdate); ok {
-		buf.termValues.AppendBytes(term.Term().Bytes())
-		buf.byteValues = util.NewBytesRefArray(0)
-		if term.HasValue() {
-			buf.byteValues.AppendBytes(term.value)
-		}
-	}
-
-	return buf
-}
-
-func (b *FieldUpdatesBuffer) addUpdate(term Term, value interface{}, docUpTo int) {
-	ord := b.append(term)
-	b.add(term.Field(), docUpTo, ord, true)
-	if b.isNumeric {
-		val := value.(int64)
-		if b.numericValues == nil {
-			b.numericValues = make([]int64, 0)
-		}
-		b.numericValues = append(b.numericValues, val)
-		if val > b.maxNumeric { b.maxNumeric = val }
-		if val < b.minNumeric { b.minNumeric = val }
-	} else {
-		val := value.([]byte)
-		b.byteValues.AppendBytes(val)
-	}
-}
-
-func (b *FieldUpdatesBuffer) addNoValue(term Term, docUpTo int) {
-	ord := b.append(term)
-	b.add(term.Field(), docUpTo, ord, false)
-}
-
-func (b *FieldUpdatesBuffer) append(term Term) int {
-	b.termValues.AppendBytes(term.Bytes())
-	return b.numUpdates
-}
-
-func (b *FieldUpdatesBuffer) add(field string, docUpTo, ord int, hasValue bool) {
-	// simplified: assume fields[0] is the only field for now as per Lucene's common case
-	if b.fields[0] != field {
-		// handle multiple fields if necessary
-	}
-
-	if len(b.docsUpTo) <= ord {
-		b.docsUpTo = append(b.docsUpTo, docUpTo)
-	} else {
-		b.docsUpTo[ord] = docUpTo
-	}
-
-	if !hasValue || b.hasValues != nil {
-		if b.hasValues == nil {
-			b.hasValues, _ = util.NewFixedBitSet(ord + 1)
-		}
-		if hasValue {
-			b.hasValues.Set(ord)
-		}
-	}
-}
-
-func (b *FieldUpdatesBuffer) Finish() {
-	b.finished = true
-	if b.hasSingleValue() && b.hasValues == nil && len(b.fields) == 1 {
-		b.termSortState = b.termValues.SortByBytes()
-	}
-}
-
-func (b *FieldUpdatesBuffer) hasSingleValue() bool {
-	return b.isNumeric && len(b.numericValues) == 1
-}
-
-func (b *FieldUpdatesBuffer) Iterator() *BufferedUpdateIterator {
-	return &BufferedUpdateIterator{
-		buffer: b,
-	}
-}
-
-type BufferedUpdate struct {
-	DocUpTo      int
-	NumericValue int64
-	BinaryValue  []byte
-	HasValue     bool
-	TermField    string
-	TermValue    []byte
-}
-
-type BufferedUpdateIterator struct {
-	buffer *FieldUpdatesBuffer
-	index  int
-}
-
-func (it *BufferedUpdateIterator) Next() (*BufferedUpdate, bool) {
-	if it.index >= it.buffer.numUpdates {
-		return nil, false
-	}
-
-	idx := it.index
-	it.index++
-
-	update := &BufferedUpdate{
-		TermValue: it.buffer.termValues.GetBytes(idx),
-		TermField: it.buffer.fields[0],
-		DocUpTo:   it.buffer.docsUpTo[idx],
-	}
-
-	// check hasValue
-	hasVal := true
-	if it.buffer.hasValues != nil {
-		hasVal = it.buffer.hasValues.Get(idx)
-	}
-	update.HasValue = hasVal
-
-	if hasVal {
-		if it.buffer.isNumeric {
-			update.NumericValue = it.buffer.numericValues[idx]
-		} else {
-			update.BinaryValue = it.buffer.byteValues.GetBytes(idx)
-		}
-	}
-
-	return update, true
-}

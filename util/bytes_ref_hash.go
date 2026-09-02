@@ -5,9 +5,7 @@
 package util
 
 import (
-	"bytes"
 	"fmt"
-	"sort"
 	"time"
 )
 
@@ -18,12 +16,11 @@ import (
 // to be increased for each added BytesRef.
 //
 // Note: The maximum capacity BytesRef instance passed to Add must not be
-// longer than ByteBlockPool.BYTE_BLOCK_SIZE-2. The internal storage is limited
-// to 2GB total byte storage.
+// longer than ByteBlockPool.BYTE_BLOCK_SIZE-2. The internal storage is limited to 2GB
+// total byte storage.
 //
 // This is the Go port of Lucene's org.apache.lucene.util.BytesRefHash.
 type BytesRefHash struct {
-	// Package private fields needed by comparator
 	pool       *BytesRefBlockPool
 	bytesStart []int
 
@@ -43,6 +40,12 @@ type BytesRefHash struct {
 
 	bytesStartArray BytesStartArray
 	bytesUsed       *Counter
+}
+
+// RamBytesUsed returns the total amount of RAM, in bytes, consumed by
+// this object and any sub-objects it owns.
+func (h *BytesRefHash) RamBytesUsed() int64 {
+	return h.bytesUsed.Get()
 }
 
 // DefaultCapacity is the default initial capacity for BytesRefHash.
@@ -93,7 +96,6 @@ func NewBytesRefHashWithCapacity(pool *ByteBlockPool, capacity int, bytesStartAr
 		lastCount:       -1,
 	}
 
-	// Initialize ids with -1 (empty slots)
 	for i := range hash.ids {
 		hash.ids[i] = -1
 	}
@@ -115,7 +117,6 @@ func (h *BytesRefHash) Size() int {
 }
 
 // Get populates and returns a BytesRef with the bytes for the given bytesID.
-// Note: the given bytesID must be a positive integer less than the current size (Size()).
 func (h *BytesRefHash) Get(bytesID int, ref *BytesRef) *BytesRef {
 	if h.bytesStart == nil {
 		panic("bytesStart is nil - not initialized")
@@ -129,14 +130,11 @@ func (h *BytesRefHash) Get(bytesID int, ref *BytesRef) *BytesRef {
 
 // Compact returns the ids array in arbitrary order. Valid ids start at offset of 0
 // and end at a limit of Size() - 1.
-// Note: This is a destructive operation. Clear() must be called in order to reuse
-// this BytesRefHash instance.
 func (h *BytesRefHash) Compact() []int {
 	if h.bytesStart == nil {
 		panic("bytesStart is nil - not initialized")
 	}
 
-	// id is the sequence number when bytes added to the pool
 	for i := 0; i < h.count; i++ {
 		h.ids[i] = i
 	}
@@ -149,46 +147,84 @@ func (h *BytesRefHash) Compact() []int {
 }
 
 // Sort returns the values array sorted by the referenced byte values.
-// Note: This is a destructive operation. Clear() must be called in order to reuse
-// this BytesRefHash instance.
 func (h *BytesRefHash) Sort() []int {
 	compact := h.Compact()
-	// For simplicity, we use IntroSort on the compacted ids
-	// The Java version uses a more complex StringSorter with MSBStringRadixSorter
-	// but for Go port, we'll use a simpler approach
-
-	// Create a slice of indices to sort
-	type entry struct {
-		id    int
-		bytes []byte
-	}
-	entries := make([]entry, h.count)
-	scratch := &BytesRef{}
-	for i := 0; i < h.count; i++ {
-		h.Get(compact[i], scratch)
-		entries[i] = entry{id: compact[i], bytes: scratch.Clone().ValidBytes()}
+	count := h.count
+	if count == 0 {
+		return compact
 	}
 
-	// Sort entries by bytes. SliceStable preserves the insertion order for
-	// equal keys so the flush output is deterministic across runs.
-	sort.SliceStable(entries, func(i, j int) bool {
-		return bytes.Compare(entries[i].bytes, entries[j].bytes) < 0
-	})
-
-	// Update compact with sorted ids
-	for i := 0; i < h.count; i++ {
-		compact[i] = entries[i].id
+	// We use a specialized Sortable that implements the bucket cache optimization.
+	ss := &bytesRefHashSortable{
+		hash:     h,
+		indices:  compact,
+		count:    count,
+		scratch1: NewBytesRefEmpty(),
+		scratch2: NewBytesRefEmpty(),
+		pivot:    NewBytesRefEmpty(),
 	}
 
-	// Fill remaining slots with -1
-	for i := h.count; i < len(compact); i++ {
+	maxLength := 0
+	for i := 0; i < count; i++ {
+		ref := NewBytesRefEmpty()
+		h.Get(compact[i], ref)
+		if ref.Length > maxLength {
+			maxLength = ref.Length
+		}
+	}
+
+	NewMSBRadixSorter(maxLength).Sort(ss, 0, count)
+
+	for i := count; i < len(compact); i++ {
 		compact[i] = -1
 	}
 
 	return compact
 }
 
-// bytes.Compare is not in the standard library for Go < 1.21, so we implement it
+type bytesRefHashSortable struct {
+	hash     *BytesRefHash
+	indices  []int
+	count    int
+	scratch1 *BytesRef
+	scratch2 *BytesRef
+	pivot    *BytesRef
+}
+
+func (s *bytesRefHashSortable) Compare(i, j int) int {
+	s.get(s.scratch1, i)
+	s.get(s.scratch2, j)
+	return bytesCompare(s.scratch1.ValidBytes(), s.scratch2.ValidBytes())
+}
+
+func (s *bytesRefHashSortable) Swap(i, j int) {
+	s.indices[i], s.indices[j] = s.indices[j], s.indices[i]
+}
+
+func (s *bytesRefHashSortable) ByteAt(i, k int) int {
+	s.get(s.scratch1, i)
+	if k >= s.scratch1.Length {
+		return -1
+	}
+	return int(s.scratch1.Bytes[s.scratch1.Offset+k])
+}
+
+func (s *bytesRefHashSortable) SetPivot(i int) {
+	s.get(s.pivot, i)
+}
+
+func (s *bytesRefHashSortable) ComparePivot(j int) int {
+	s.get(s.scratch1, j)
+	return bytesCompare(s.pivot.ValidBytes(), s.scratch1.ValidBytes())
+}
+
+func (s *bytesRefHashSortable) get(dest *BytesRef, i int) {
+	if dest == nil {
+		dest = NewBytesRefEmpty()
+	}
+	s.hash.Get(s.indices[i], dest)
+}
+
 func bytesCompare(a, b []byte) int {
 	minLen := len(a)
 	if len(b) < minLen {
@@ -212,13 +248,12 @@ func bytesCompare(a, b []byte) int {
 }
 
 func (h *BytesRefHash) shrink(targetSize int) bool {
-	// Cannot use ArrayUtil.shrink because we require power of 2
 	newSize := h.hashSize
 	for newSize >= 8 && newSize/4 > targetSize {
 		newSize /= 2
 	}
 	if newSize != h.hashSize {
-		h.bytesUsed.AddAndGet(int64(-4 * (h.hashSize - newSize))) // Integer.BYTES = 4
+		h.bytesUsed.AddAndGet(int64(-4 * (h.hashSize - newSize)))
 		h.hashSize = newSize
 		h.ids = make([]int, newSize)
 		for i := range h.ids {
@@ -232,8 +267,6 @@ func (h *BytesRefHash) shrink(targetSize int) bool {
 	return false
 }
 
-// Clear clears the BytesRefHash. If resetPool is true, the pool is also reset.
-// After Clear, the hash is immediately usable without calling Reinit.
 func (h *BytesRefHash) Clear(resetPool bool) {
 	h.lastCount = h.count
 	h.count = 0
@@ -241,10 +274,8 @@ func (h *BytesRefHash) Clear(resetPool bool) {
 		h.pool.Reset()
 	}
 	h.bytesStartArray.Clear()
-	// Re-initialize bytesStart so the hash is immediately usable after clear.
 	h.bytesStart = h.bytesStartArray.Init()
 	if h.lastCount != -1 && h.shrink(h.lastCount) {
-		// shrink clears the hash entries
 		return
 	}
 	for i := range h.ids {
@@ -252,28 +283,21 @@ func (h *BytesRefHash) Clear(resetPool bool) {
 	}
 }
 
-// ClearWithPoolReset clears the BytesRefHash and resets the pool.
 func (h *BytesRefHash) ClearWithPoolReset() {
 	h.Clear(true)
 }
 
-// Close closes the BytesRefHash and releases all internally used memory.
 func (h *BytesRefHash) Close() {
 	h.Clear(true)
 	h.ids = nil
-	h.bytesUsed.AddAndGet(int64(-4 * h.hashSize)) // Integer.BYTES = 4
+	h.bytesUsed.AddAndGet(int64(-4 * h.hashSize))
 }
 
-// Add adds a new BytesRef.
-// Returns the id the given bytes are hashed if there was no mapping for the given bytes,
-// otherwise (-(id)-1). This guarantees that the return value will always be >= 0
-// if the given bytes haven't been hashed before.
 func (h *BytesRefHash) Add(bytes *BytesRef) (int, error) {
 	if h.bytesStart == nil {
 		panic("bytesStart is nil - not initialized")
 	}
 
-	// Check max length
 	if bytes.Length > ByteBlockSize-2 {
 		return 0, NewMaxBytesLengthExceededException(
 			fmt.Sprintf("bytes can be at most %d in length; got %d", ByteBlockSize-2, bytes.Length))
@@ -284,7 +308,6 @@ func (h *BytesRefHash) Add(bytes *BytesRef) (int, error) {
 	e := h.ids[hashPos]
 
 	if e == -1 {
-		// new entry
 		if h.count >= len(h.bytesStart) {
 			h.bytesStart = h.bytesStartArray.Grow()
 		}
@@ -306,7 +329,6 @@ func (h *BytesRefHash) Add(bytes *BytesRef) (int, error) {
 	return -(e + 1), nil
 }
 
-// Find returns the id of the given BytesRef, or -1 if there is no mapping for the given bytes.
 func (h *BytesRefHash) Find(bytes *BytesRef) int {
 	hashcode := doHash(bytes.Bytes, bytes.Offset, bytes.Length)
 	id := h.ids[h.findHash(bytes, hashcode)]
@@ -326,7 +348,6 @@ func (h *BytesRefHash) findHash(bytes *BytesRef, hashcode int) int {
 	e := h.ids[hashPos]
 	highBits := hashcode & h.highMask
 
-	// Conflict; use linear probe to find an open slot (see LUCENE-5604)
 	for e != -1 && ((e&h.highMask) != highBits || !h.pool.Equals(h.bytesStart[e&h.hashMask], bytes)) {
 		code++
 		hashPos = code & h.hashMask
@@ -336,8 +357,6 @@ func (h *BytesRefHash) findHash(bytes *BytesRef, hashcode int) int {
 	return hashPos
 }
 
-// AddByPoolOffset adds an arbitrary int offset instead of a BytesRef term.
-// This is used in the indexer to hold the hash for term vectors.
 func (h *BytesRefHash) AddByPoolOffset(offset int) int {
 	if h.bytesStart == nil {
 		panic("bytesStart is nil - not initialized")
@@ -347,15 +366,12 @@ func (h *BytesRefHash) AddByPoolOffset(offset int) int {
 	hashPos := offset & h.hashMask
 	e := h.ids[hashPos]
 
-	// Conflict; use linear probe to find an open slot (see LUCENE-5604)
 	for e != -1 && h.bytesStart[e&h.hashMask] != offset {
 		code++
 		hashPos = code & h.hashMask
 		e = h.ids[hashPos]
 	}
-
 	if e == -1 {
-		// new entry
 		if h.count >= len(h.bytesStart) {
 			h.bytesStart = h.bytesStartArray.Grow()
 		}
@@ -372,11 +388,10 @@ func (h *BytesRefHash) AddByPoolOffset(offset int) int {
 	return -(e + 1)
 }
 
-// rehash is called when hash is too small (> 50% occupied) or too large (< 20% occupied).
 func (h *BytesRefHash) rehash(newSize int, hashOnData bool) {
 	newMask := newSize - 1
 	newHighMask := ^newMask
-	h.bytesUsed.AddAndGet(int64(4 * newSize)) // Integer.BYTES = 4
+	h.bytesUsed.AddAndGet(int64(4 * newSize))
 	newHash := make([]int, newSize)
 	for i := range newHash {
 		newHash[i] = -1
@@ -396,8 +411,6 @@ func (h *BytesRefHash) rehash(newSize int, hashOnData bool) {
 			}
 
 			hashPos := code & newMask
-
-			// Conflict; use linear probe to find an open slot (see LUCENE-5604)
 			for newHash[hashPos] != -1 {
 				code++
 				hashPos = code & newMask
@@ -409,50 +422,30 @@ func (h *BytesRefHash) rehash(newSize int, hashOnData bool) {
 
 	h.hashMask = newMask
 	h.highMask = newHighMask
-	h.bytesUsed.AddAndGet(int64(-4 * len(h.ids))) // Integer.BYTES = 4
+	h.bytesUsed.AddAndGet(int64(-4 * len(h.ids)))
 	h.ids = newHash
 	h.hashSize = newSize
 	h.hashHalfSize = newSize / 2
 }
 
-// doHash computes the hash code for the given bytes.
 func doHash(bytes []byte, offset, length int) int {
 	return MurmurHash3_x86_32(bytes, offset, length, GoodFastHashSeed)
 }
 
-// GoodFastHashSeed is the per-process randomized salt used by
-// MurmurHash3-based hashing. Initialised once at package init() from
-// time.Now().UnixNano() so each process has a distinct distribution,
-// matching Lucene's System.currentTimeMillis()-seeded behaviour.
-//
-// The value is intentionally a var (not a const) to allow per-process
-// variability; tests that need determinism can override it via
-// SetGoodFastHashSeed.
 var GoodFastHashSeed = int(uint32(initGoodFastHashSeed()))
 
-// initGoodFastHashSeed returns the initial seed. Pulled into its own
-// function so the var initializer reads naturally and so tests can
-// recompute the seed deterministically.
 func initGoodFastHashSeed() int64 {
-	// time.Now().UnixNano() always advances, so two processes started
-	// in close succession will still see distinct seeds.
 	return time.Now().UnixNano()
 }
 
-// SetGoodFastHashSeed overrides the per-process seed. Intended for
-// tests that need a stable hash distribution; production callers
-// should not invoke this.
 func SetGoodFastHashSeed(seed int) {
 	GoodFastHashSeed = seed
 }
 
-// IsPowerOfTwo returns true if n is a power of two.
 func IsPowerOfTwo(n int) bool {
 	return n > 0 && (n&(n-1)) == 0
 }
 
-// Reinit reinitializes the BytesRefHash after a previous Clear() call.
-// If Clear() has not been called previously this method has no effect.
 func (h *BytesRefHash) Reinit() {
 	if h.bytesStart == nil {
 		h.bytesStart = h.bytesStartArray.Init()
@@ -463,11 +456,10 @@ func (h *BytesRefHash) Reinit() {
 		for i := range h.ids {
 			h.ids[i] = -1
 		}
-		h.bytesUsed.AddAndGet(int64(4 * h.hashSize)) // Integer.BYTES = 4
+		h.bytesUsed.AddAndGet(int64(4 * h.hashSize))
 	}
 }
 
-// ByteStart returns the bytesStart offset into the internally used ByteBlockPool for the given bytesID.
 func (h *BytesRefHash) ByteStart(bytesID int) int {
 	if h.bytesStart == nil {
 		panic("bytesStart is nil - not initialized")
@@ -480,13 +472,9 @@ func (h *BytesRefHash) ByteStart(bytesID int) int {
 
 // BytesStartArray manages allocation of the per-term addresses.
 type BytesStartArray interface {
-	// Init initializes the BytesStartArray. This call will allocate memory.
 	Init() []int
-	// Grow grows the BytesStartArray.
 	Grow() []int
-	// Clear clears the BytesStartArray and returns the cleared instance.
 	Clear() []int
-	// BytesUsed returns a Counter reference holding the number of bytes used by this BytesStartArray.
 	BytesUsed() *Counter
 }
 
@@ -498,12 +486,10 @@ type DirectBytesStartArray struct {
 	bytesUsed  *Counter
 }
 
-// NewDirectBytesStartArray creates a new DirectBytesStartArray with the given initial size.
 func NewDirectBytesStartArray(initSize int) *DirectBytesStartArray {
 	return NewDirectBytesStartArrayWithCounter(initSize, NewCounter())
 }
 
-// NewDirectBytesStartArrayWithCounter creates a new DirectBytesStartArray with the given initial size and counter.
 func NewDirectBytesStartArrayWithCounter(initSize int, counter *Counter) *DirectBytesStartArray {
 	return &DirectBytesStartArray{
 		initSize:  initSize,
@@ -511,31 +497,27 @@ func NewDirectBytesStartArrayWithCounter(initSize int, counter *Counter) *Direct
 	}
 }
 
-// Init initializes the BytesStartArray.
 func (a *DirectBytesStartArray) Init() []int {
-	a.bytesStart = make([]int, oversize(a.initSize, 4)) // Integer.BYTES = 4
+	a.bytesStart = make([]int, Oversize(a.initSize, 4))
 	return a.bytesStart
 }
 
-// Grow grows the BytesStartArray.
 func (a *DirectBytesStartArray) Grow() []int {
 	if a.bytesStart == nil {
 		panic("bytesStart is nil")
 	}
-	newSize := oversize(len(a.bytesStart)+1, 4)
+	newSize := Oversize(len(a.bytesStart)+1, 4)
 	newBytesStart := make([]int, newSize)
 	copy(newBytesStart, a.bytesStart)
 	a.bytesStart = newBytesStart
 	return a.bytesStart
 }
 
-// Clear clears the BytesStartArray.
 func (a *DirectBytesStartArray) Clear() []int {
 	a.bytesStart = nil
 	return nil
 }
 
-// BytesUsed returns the Counter tracking bytes used.
 func (a *DirectBytesStartArray) BytesUsed() *Counter {
 	return a.bytesUsed
 }
@@ -545,37 +527,30 @@ type BytesRefBlockPool struct {
 	pool *ByteBlockPool
 }
 
-// NewBytesRefBlockPool creates a new BytesRefBlockPool wrapping the given ByteBlockPool.
 func NewBytesRefBlockPool(pool *ByteBlockPool) *BytesRefBlockPool {
 	return &BytesRefBlockPool{pool: pool}
 }
 
-// AddBytesRef adds a BytesRef to the pool and returns the offset.
 func (p *BytesRefBlockPool) AddBytesRef(bytes *BytesRef) (int, error) {
 	if bytes.Length+2 > ByteBlockSize {
 		return 0, NewMaxBytesLengthExceededException(
 			fmt.Sprintf("bytes can be at most %d in length; got %d", ByteBlockSize-2, bytes.Length))
 	}
 
-	// Get current position before adding
 	pos := int(p.pool.GetPosition())
 
-	// Write length as vInt (variable-length int) - simplified to 2 bytes for short lengths
 	if bytes.Length < 128 {
 		p.pool.Append([]byte{byte(bytes.Length)})
 	} else {
 		p.pool.Append([]byte{byte(bytes.Length>>8 | 0x80), byte(bytes.Length & 0xFF)})
 	}
 
-	// Write the bytes
 	p.pool.AppendBytesRef(bytes)
 
 	return pos, nil
 }
 
-// FillBytesRef fills the given BytesRef with bytes at the given offset.
 func (p *BytesRefBlockPool) FillBytesRef(ref *BytesRef, offset int) {
-	// Read length
 	firstByte := p.pool.ReadByteAt(int64(offset))
 	length := 0
 	if firstByte&0x80 == 0 {
@@ -583,33 +558,27 @@ func (p *BytesRefBlockPool) FillBytesRef(ref *BytesRef, offset int) {
 		offset++
 	} else {
 		secondByte := p.pool.ReadByteAt(int64(offset + 1))
-		// Cast to int before shifting to avoid byte-width overflow.
 		length = (int(firstByte&0x7F) << 8) | int(secondByte)
 		offset += 2
 	}
 
 	ref.Length = length
 
-	// Check if slice fits in a single block
 	bufferIndex := offset >> ByteBlockShift
 	pos := offset & ByteBlockMask
 	buffer := p.pool.GetBuffer(bufferIndex)
 
 	if pos+length <= ByteBlockSize {
-		// Common case: slice lives in a single block
 		ref.Bytes = buffer
 		ref.Offset = pos
 	} else {
-		// Uncommon case: slice spans multiple blocks, need to copy
 		ref.Bytes = make([]byte, length)
 		ref.Offset = 0
 		p.pool.ReadBytes(int64(offset), ref.Bytes, 0, length)
 	}
 }
 
-// Equals checks if the bytes at the given offset equal the given BytesRef.
 func (p *BytesRefBlockPool) Equals(offset int, bytes *BytesRef) bool {
-	// Read length
 	firstByte := p.pool.ReadByteAt(int64(offset))
 	length := 0
 	if firstByte&0x80 == 0 {
@@ -617,7 +586,6 @@ func (p *BytesRefBlockPool) Equals(offset int, bytes *BytesRef) bool {
 		offset++
 	} else {
 		secondByte := p.pool.ReadByteAt(int64(offset + 1))
-		// Cast to int before shifting to avoid byte-width overflow.
 		length = (int(firstByte&0x7F) << 8) | int(secondByte)
 		offset += 2
 	}
@@ -626,25 +594,20 @@ func (p *BytesRefBlockPool) Equals(offset int, bytes *BytesRef) bool {
 		return false
 	}
 
-	// Compare bytes
 	bufferIndex := offset >> ByteBlockShift
 	pos := offset & ByteBlockMask
 	buffer := p.pool.GetBuffer(bufferIndex)
 
 	if pos+length <= ByteBlockSize {
-		// Common case: slice lives in a single block
 		return bytesEqual(buffer[pos:pos+length], bytes.Bytes[bytes.Offset:bytes.Offset+bytes.Length])
 	}
 
-	// Uncommon case: slice spans multiple blocks
 	scratch := make([]byte, length)
 	p.pool.ReadBytes(int64(offset), scratch, 0, length)
 	return bytesEqual(scratch, bytes.Bytes[bytes.Offset:bytes.Offset+bytes.Length])
 }
 
-// Hash returns the hash code for the bytes at the given offset.
 func (p *BytesRefBlockPool) Hash(offset int) int {
-	// Read length
 	firstByte := p.pool.ReadByteAt(int64(offset))
 	length := 0
 	if firstByte&0x80 == 0 {
@@ -652,28 +615,23 @@ func (p *BytesRefBlockPool) Hash(offset int) int {
 		offset++
 	} else {
 		secondByte := p.pool.ReadByteAt(int64(offset + 1))
-		// Cast to int before shifting to avoid byte-width overflow.
 		length = (int(firstByte&0x7F) << 8) | int(secondByte)
 		offset += 2
 	}
 
-	// Read bytes and compute hash
 	bufferIndex := offset >> ByteBlockShift
 	pos := offset & ByteBlockMask
 	buffer := p.pool.GetBuffer(bufferIndex)
 
 	if pos+length <= ByteBlockSize {
-		// Common case: slice lives in a single block
 		return doHash(buffer[pos:], 0, length)
 	}
 
-	// Uncommon case: slice spans multiple blocks
 	scratch := make([]byte, length)
 	p.pool.ReadBytes(int64(offset), scratch, 0, length)
 	return doHash(scratch, 0, length)
 }
 
-// Reset resets the pool.
 func (p *BytesRefBlockPool) Reset() {
 	p.pool.Reset(false, false)
 }

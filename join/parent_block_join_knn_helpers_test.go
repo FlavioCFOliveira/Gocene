@@ -152,7 +152,7 @@ func pbjAddFamily(t *testing.T, w *index.IndexWriter, parentID string, size, dim
 // pbjAllDocsIterator returns a DocIdSetIterator over all docs in ctx, used to
 // drive ExactSearch directly in the timeout test. The query parameter is
 // accepted for symmetry with the search path but unused.
-func pbjAllDocsIterator(_ *search.IndexSearcher, ctx *index.LeafReaderContext, _ search.Query) (search.DocIdSetIterator, error) {
+func pbjAllDocsIterator(_ *search.IndexSearcher, ctx *index.LeafReaderContext, _ search.Query) (util.DocIdSetIterator, error) {
 	maxDoc := ctx.LeafReader().MaxDoc()
 	accept := search.AcceptDocsFromLiveDocs(nil, maxDoc)
 	return accept.Iterator()

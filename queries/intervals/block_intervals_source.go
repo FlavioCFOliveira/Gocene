@@ -202,4 +202,4 @@ func (b *blockIntervalIterator) NextInterval() (int, error) {
 	return b.start, nil
 }
 
-var _ search.DocIdSetIterator = (*blockIntervalIterator)(nil)
+var _ util.DocIdSetIterator = (*blockIntervalIterator)(nil)

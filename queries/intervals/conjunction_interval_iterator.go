@@ -19,7 +19,7 @@ import (
 // Deviations from Java:
 //   - reset is a function field instead of an abstract method.
 type ConjunctionIntervalIterator struct {
-	Approximation search.DocIdSetIterator
+	Approximation util.DocIdSetIterator
 	SubIterators  []IntervalIterator
 	cost          float32
 	resetFn       func() error
@@ -48,8 +48,8 @@ func NewConjunctionIntervalIterator(subIterators []IntervalIterator, resetFn fun
 	}
 }
 
-func asDISI(iters []IntervalIterator) []search.DocIdSetIterator {
-	out := make([]search.DocIdSetIterator, len(iters))
+func asDISI(iters []IntervalIterator) []util.DocIdSetIterator {
+	out := make([]util.DocIdSetIterator, len(iters))
 	for i, it := range iters {
 		out[i] = it
 	}

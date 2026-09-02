@@ -20,7 +20,7 @@ import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.LeafReaderContext;
 import org.apache.lucene.index.NoMergePolicy;
 import org.apache.lucene.index.SerialMergeScheduler;
-import org.apache.lucene.search.DocIdSetIterator;
+import org.apache.lucene.util.DocIdSetIterator;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.BitUtil;
 import org.apache.lucene.util.BytesRef;

@@ -28,7 +28,9 @@ func NewStandardAnalyzerWithStopWords(stopWords []string) *StandardAnalyzer {
 func (a *StandardAnalyzer) NewTokenizer(reader io.Reader) TokenStream {
 	// In a full implementation, this would be StandardTokenizer.
 	// For now, we use WhitespaceTokenizer.
-	return NewWhitespaceTokenizer(reader)
+	tokenizer := NewWhitespaceTokenizer()
+	_ = tokenizer.SetReader(reader)
+	return tokenizer
 }
 
 func (a *StandardAnalyzer) NewTokenFilter(stream TokenStream) TokenStream {
@@ -37,4 +39,17 @@ func (a *StandardAnalyzer) NewTokenFilter(stream TokenStream) TokenStream {
 		stream = NewStopFilter(stream, a.stopWords)
 	}
 	return stream
+}
+
+// TokenStream creates a TokenStream for analyzing text.
+// Implements the Analyzer interface.
+func (a *StandardAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+	tokenizer := a.NewTokenizer(reader)
+	return a.NewTokenFilter(tokenizer), nil
+}
+
+// Close releases resources held by this Analyzer.
+// Implements the Analyzer interface.
+func (a *StandardAnalyzer) Close() error {
+	return nil
 }

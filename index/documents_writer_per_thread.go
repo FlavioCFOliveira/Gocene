@@ -1,3 +1,5 @@
+//go:build ignore
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -1326,7 +1328,9 @@ func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
 			return nil, 0, err
 		}
 		if acc != nil {
-			acc.addToken(tok.term, termFreq, tok.posIncr)
+			if err := acc.addToken(tok.term, termFreq, tok.posIncr); err != nil {
+				return nil, 0, err
+			}
 		}
 	}
 
@@ -1703,9 +1707,73 @@ func (dwpt *DocumentsWriterPerThread) advanceTVBaseOffset(fieldName string, delt
 
 // estimateMemoryUsage estimates memory usage for a document.
 func (dwpt *DocumentsWriterPerThread) estimateMemoryUsage(doc Document) int64 {
-	// Rough estimate: 1KB per field + overhead
+	var total int64
 	fields := doc.GetFields()
-	return int64(len(fields)*1024 + 256)
+
+	for _, fieldInterface := range fields {
+		f, ok := asDwptField(fieldInterface)
+		if !ok {
+			continue
+		}
+
+		total += 64
+
+		if f.isStored {
+			total += 32
+			if len(f.stringValue) > 0 {
+				total += int64(len(f.stringValue))
+			} else if len(f.binaryValue) > 0 {
+				total += int64(len(f.binaryValue))
+			}
+		}
+
+		if f.isIndexed {
+			valLen := len(f.stringValue)
+			numTokens := valLen / 5
+			if numTokens == 0 {
+				numTokens = 1
+			}
+
+			tokenCost := 8
+			if f.indexOptions.HasPositions() {
+				tokenCost += 4
+			}
+			if f.indexOptions.HasOffsets() {
+				tokenCost += 8
+			}
+			total += int64(numTokens) * int64(tokenCost)
+		}
+
+		if f.docValuesType != DocValuesTypeNone {
+			switch f.docValuesType {
+			case DocValuesTypeNumeric:
+				total += 8
+			case DocValuesTypeBinary, DocValuesTypeSorted:
+				total += 8 + int64(len(f.binaryValue))
+			case DocValuesTypeSortedNumeric:
+				total += 8 + int64(len(f.dvNumericValues))*8
+			case DocValuesTypeSortedSet:
+				total += 8
+				for _, b := range f.dvBinaryValues {
+					total += 8 + int64(len(b))
+				}
+			}
+		}
+
+		if f.hasVector {
+			if f.vectorEncoding == VectorEncodingByte {
+				total += int64(f.vectorDimension)
+			} else {
+				total += int64(f.vectorDimension) * 4
+			}
+		}
+
+		if f.hasPoint {
+			total += int64(f.pointDimensionCount * f.pointNumBytes)
+		}
+	}
+
+	return total
 }
 
 // GetNumDocs returns the number of documents in RAM.

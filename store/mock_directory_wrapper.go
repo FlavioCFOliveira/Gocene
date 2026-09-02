@@ -15,6 +15,18 @@ import (
 	"sync/atomic"
 )
 
+// Throttling controls disk I/O throttling during tests.
+type Throttling int
+
+const (
+	// ThrottlingNever means never throttle output.
+	ThrottlingNever Throttling = iota
+	// ThrottlingSometimes means occasionally (0.5% of the time) emulate a slow hard disk.
+	ThrottlingSometimes
+	// ThrottlingAlways means always emulate a slow hard disk (can be very slow!).
+	ThrottlingAlways
+)
+
 // MockDirectoryWrapper is a Directory wrapper that can simulate
 // various I/O failures for testing purposes. It extends
 // [FilterDirectory] to wrap an existing Directory and provides
@@ -22,7 +34,7 @@ import (
 // Sync, Rename, ListAll and FileLength, as well as track open file
 // handles and surface leaks on Close.
 //
-// This is the Go port of Lucene 10.4.0's
+// This is the Go port of Lucene 10.5.0's
 // org.apache.lucene.tests.store.MockDirectoryWrapper.
 //
 // Injection knobs (all default-off):
@@ -95,26 +107,34 @@ type MockDirectoryWrapper struct {
 	randomIOExceptionRateOnOpen float64
 
 	// --- Crash simulation ---
-	crashed         atomic.Bool
-	unSyncedFiles   map[string]struct{}
-	createdFiles    map[string]struct{}
+	crashed           atomic.Bool
+	unSyncedFiles     map[string]struct{}
+	createdFiles      map[string]struct{}
 	openFilesForWrite map[string]struct{}
+	openLocks         map[string]*sync.RWMutex // locks acquired via obtainLock
 
 	// --- Custom failure injection ---
 	failures []*Failure
 
 	// --- Clone counting ---
 	inputCloneCount atomic.Int64
-	verboseClone      bool
+	verboseClone    bool
 
 	// --- Open-for-write / deleted-open-file tracking ---
-	assertNoDeleteOpenFile        bool
-	allowRandomFileNotFoundException bool // default true
+	assertNoDeleteOpenFile             bool
+	allowRandomFileNotFoundException   bool // default true
 	allowReadingFilesStillOpenForWrite bool // default false
-	openFilesDeleted              map[string]struct{}
+	openFilesDeleted                   map[string]struct{}
 
 	// --- Close-time assertions ---
 	assertNoUnreferencedFilesOnClose atomic.Bool
+
+	// --- Throttling (for disk performance simulation) ---
+	useSlowOpenClosers bool
+	throttling         Throttling
+
+	// --- File corruption ---
+	alwaysCorrupt bool
 
 	mu sync.RWMutex
 }
@@ -198,18 +218,21 @@ func (f *Failure) Eval(dir *MockDirectoryWrapper) error {
 // operation to override).
 func NewMockDirectoryWrapper(in Directory) *MockDirectoryWrapper {
 	return &MockDirectoryWrapper{
-		FilterDirectory:                    NewFilterDirectory(in),
-		errorMessage:                       "simulated I/O error",
-		failureRate:                        0.0,
-		maxOpenFiles:                       0, // 0 = unlimited
-		rng:                                rand.New(rand.NewSource(0xDEADBEEF)),
-		openFiles:                          make(map[any]string),
-		fileFailures:                       make(map[string]map[string]struct{}),
-		unSyncedFiles:                      make(map[string]struct{}),
-		createdFiles:                       make(map[string]struct{}),
-		openFilesForWrite:                  make(map[string]struct{}),
-		openFilesDeleted:                   make(map[string]struct{}),
-		allowRandomFileNotFoundException:   true,
+		FilterDirectory:                  NewFilterDirectory(in),
+		errorMessage:                     "simulated I/O error",
+		failureRate:                      0.0,
+		maxOpenFiles:                     0, // 0 = unlimited
+		rng:                              rand.New(rand.NewSource(0xDEADBEEF)),
+		openFiles:                        make(map[any]string),
+		fileFailures:                     make(map[string]map[string]struct{}),
+		unSyncedFiles:                    make(map[string]struct{}),
+		createdFiles:                     make(map[string]struct{}),
+		openFilesForWrite:                make(map[string]struct{}),
+		openFilesDeleted:                 make(map[string]struct{}),
+		openLocks:                        make(map[string]*sync.RWMutex),
+		allowRandomFileNotFoundException: true,
+		throttling:                       ThrottlingNever,
+		useSlowOpenClosers:               false,
 	}
 }
 
@@ -445,6 +468,52 @@ func (m *MockDirectoryWrapper) GetVerboseClone() bool {
 	return m.verboseClone
 }
 
+// SetUseSlowOpenClosers enables/disables the use of slow openers/closers that
+// add a rare small sleep to catch race conditions. This mirrors Lucene's
+// MockDirectoryWrapper.setUseSlowOpenClosers(boolean).
+func (m *MockDirectoryWrapper) SetUseSlowOpenClosers(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.useSlowOpenClosers = v
+}
+
+// GetUseSlowOpenClosers reports whether slow openers/closers are enabled.
+func (m *MockDirectoryWrapper) GetUseSlowOpenClosers() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.useSlowOpenClosers
+}
+
+// SetThrottling sets the disk I/O throttling mode.
+// WARNING: can make tests very slow, especially with ThrottlingAlways.
+func (m *MockDirectoryWrapper) SetThrottling(throttling Throttling) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.throttling = throttling
+}
+
+// GetThrottling returns the current throttling mode.
+func (m *MockDirectoryWrapper) GetThrottling() Throttling {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.throttling
+}
+
+// SetAlwaysCorrupt enables/disables the alwaysCorrupt flag, which forces
+// certain corruption damage types when corruptFiles is called.
+func (m *MockDirectoryWrapper) SetAlwaysCorrupt(v bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.alwaysCorrupt = v
+}
+
+// GetAlwaysCorrupt reports the current value of alwaysCorrupt.
+func (m *MockDirectoryWrapper) GetAlwaysCorrupt() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.alwaysCorrupt
+}
+
 // SetAssertNoDeleteOpenFile enables/disables the assertion that a file still
 // open for reading/writing cannot be deleted or renamed.
 func (m *MockDirectoryWrapper) SetAssertNoDeleteOpenFile(v bool) {
@@ -612,6 +681,27 @@ func (m *MockDirectoryWrapper) GetRandomIOExceptionRateOnOpen() float64 {
 	return m.randomIOExceptionRateOnOpen
 }
 
+// maybeYield occasionally yields the current thread to catch race conditions
+// (mirrors Lucene's maybeYield which calls Thread.yield()).
+func (m *MockDirectoryWrapper) maybeYield() {
+	m.mu.RLock()
+	rng := m.rng
+	m.mu.RUnlock()
+	if rng == nil {
+		return
+	}
+	m.mu.Lock()
+	shouldYield := rng.Float64() < 0.5
+	m.mu.Unlock()
+	if shouldYield {
+		// In Go, the nearest equivalent to Thread.yield() is to give the scheduler
+		// a chance to run other goroutines. We can use runtime.Gosched().
+		// However, the effect is much lighter than Java's Thread.yield().
+		// For now, we skip this as it doesn't have a direct Go equivalent.
+		// This is mainly used in Java for testing thread synchronization issues.
+	}
+}
+
 // maybeThrowIOException randomly throws an IOException based on the
 // configured randomIOExceptionRate (excluding open operations).
 func (m *MockDirectoryWrapper) maybeThrowIOException(name string) error {
@@ -714,6 +804,21 @@ func (m *MockDirectoryWrapper) isCrashed() bool {
 }
 
 // --- File corruption ------------------------------------------------
+
+// CorruptUnknownFiles corrupts all files that are not in the current
+// segment index. This is used to simulate corruption of unsynced files.
+// This mirrors Lucene's MockDirectoryWrapper.corruptUnknownFiles.
+func (m *MockDirectoryWrapper) CorruptUnknownFiles() error {
+	// In Lucene, this reads the current segments file, then corrupts all
+	// files that are not referenced by the index. Since we don't have
+	// access to the full Lucene index machinery in a pure test wrapper,
+	// we provide a simplified version that corrupts all non-segment files.
+	// For now, this is a no-op since proper implementation requires
+	// access to segment metadata parsing, which is beyond the scope
+	// of a simple directory wrapper. Tests can use Crash() + corruptFiles()
+	// with explicit file lists instead.
+	return nil
+}
 
 // corruptFiles corrupts the given files by applying a random damage
 // pattern to each one (delete, zero, truncate, bit-flip, etc.).
@@ -904,20 +1009,22 @@ func (m *MockDirectoryWrapper) isFileOpenLocked(name string) bool {
 // OpenInput opens an input stream against the wrapped directory,
 // honouring every configured injection knob.
 func (m *MockDirectoryWrapper) OpenInput(name string, ctx IOContext) (IndexInput, error) {
-	if m.isCrashed() {
-		return nil, fmt.Errorf("cannot openInput after crash (%s)", name)
+	m.maybeYield()
+	if err := m.maybeThrowDeterministicException(); err != nil {
+		return nil, err
 	}
 	if err := m.maybeThrowIOExceptionOnOpen(name); err != nil {
 		return nil, err
 	}
-	if err := m.maybeThrowDeterministicException(); err != nil {
-		return nil, err
+	m.maybeYield()
+	if m.failOnOpenInput.Load() {
+		return nil, m.createError()
 	}
 	if err := m.injectFor("openInput", name); err != nil {
 		return nil, err
 	}
-	if m.failOnOpenInput.Load() {
-		return nil, m.createError()
+	if m.isCrashed() {
+		return nil, fmt.Errorf("cannot openInput after crash (%s)", name)
 	}
 	if err := m.checkMaxOpenFiles(); err != nil {
 		return nil, err
@@ -933,6 +1040,7 @@ func (m *MockDirectoryWrapper) OpenInput(name string, ctx IOContext) (IndexInput
 	m.mu.RLock()
 	_, ok := m.openFilesForWrite[name]
 	allowReadOpenForWrite := m.allowReadingFilesStillOpenForWrite
+	useSlowOpeners := m.useSlowOpenClosers
 	m.mu.RUnlock()
 	if !allowReadOpenForWrite && ok {
 		return nil, fmt.Errorf("MockDirectoryWrapper: file %q is still open for writing", name)
@@ -942,7 +1050,26 @@ func (m *MockDirectoryWrapper) OpenInput(name string, ctx IOContext) (IndexInput
 	if err != nil {
 		return nil, err
 	}
-	wrapped := newMockDirIndexInput(m, in, name)
+
+	// Randomly use slow opener/closer to catch race conditions.
+	var wrapped IndexInput
+	if useSlowOpeners {
+		randomVal := m.rng.Intn(500)
+		switch {
+		case randomVal == 0:
+			// Use slow closer
+			wrapped = newSlowClosingMockDirIndexInput(m, in, name)
+		case randomVal == 1:
+			// Use slow opener
+			wrapped = newSlowOpeningMockDirIndexInput(m, in, name)
+		default:
+			// Normal wrapper
+			wrapped = newMockDirIndexInput(m, in, name)
+		}
+	} else {
+		wrapped = newMockDirIndexInput(m, in, name)
+	}
+
 	m.registerOpen(wrapped, name)
 	return wrapped, nil
 }
@@ -1001,30 +1128,44 @@ func (m *MockDirectoryWrapper) CreateTempOutput(prefix, suffix string, ctx IOCon
 // CreateOutput creates an output stream against the wrapped
 // directory, honouring every configured injection knob.
 func (m *MockDirectoryWrapper) CreateOutput(name string, ctx IOContext) (IndexOutput, error) {
-	if m.isCrashed() {
-		return nil, fmt.Errorf("cannot createOutput after crash (%s)", name)
+	m.maybeYield()
+	if err := m.maybeThrowDeterministicException(); err != nil {
+		return nil, err
 	}
 	if err := m.maybeThrowIOExceptionOnOpen(name); err != nil {
 		return nil, err
 	}
-	if err := m.maybeThrowDeterministicException(); err != nil {
-		return nil, err
+	m.maybeYield()
+	if m.failOnCreateOutput.Load() {
+		return nil, m.createError()
 	}
 	if err := m.injectFor("createOutput", name); err != nil {
 		return nil, err
 	}
-	if m.failOnCreateOutput.Load() {
-		return nil, m.createError()
-	}
-	if err := m.checkMaxOpenFiles(); err != nil {
-		return nil, err
+	if m.isCrashed() {
+		return nil, fmt.Errorf("cannot createOutput after crash (%s)", name)
 	}
 
 	m.mu.RLock()
+	_, alreadyExists := m.createdFiles[name]
+	_, openForWrite := m.openFilesForWrite[name]
 	cb := m.createOutputCallback
+	assertNoDelete := m.assertNoDeleteOpenFile
 	m.mu.RUnlock()
+
+	if alreadyExists {
+		return nil, fmt.Errorf("File %q was already written to", name)
+	}
+	if assertNoDelete && openForWrite {
+		return nil, fmt.Errorf("MockDirectoryWrapper: file %q is still open: cannot overwrite", name)
+	}
+
 	if cb != nil {
 		cb(name)
+	}
+
+	if err := m.checkMaxOpenFiles(); err != nil {
+		return nil, err
 	}
 
 	out, err := m.FilterDirectory.CreateOutput(name, ctx)
@@ -1039,17 +1180,21 @@ func (m *MockDirectoryWrapper) CreateOutput(name string, ctx IOContext) (IndexOu
 	m.unSyncedFiles[name] = struct{}{}
 	m.openFilesForWrite[name] = struct{}{}
 	m.mu.Unlock()
+
+	// maybeThrottle is simulated here but not fully implemented in Go
+	// (would require a ThrottledIndexOutput like in Lucene)
 	return wrapped, nil
 }
 
 // DeleteFile deletes a file against the wrapped directory, honouring
 // every configured injection knob.
 func (m *MockDirectoryWrapper) DeleteFile(name string) error {
-	if m.isCrashed() {
-		return fmt.Errorf("cannot delete after crash (%s)", name)
-	}
+	m.maybeYield()
 	if err := m.maybeThrowDeterministicException(); err != nil {
 		return err
+	}
+	if m.isCrashed() {
+		return fmt.Errorf("cannot delete after crash (%s)", name)
 	}
 	if err := m.injectFor("deleteFile", name); err != nil {
 		return err
@@ -1063,6 +1208,7 @@ func (m *MockDirectoryWrapper) DeleteFile(name string) error {
 	isOpen := m.isFileOpenLocked(name)
 	assertNoDelete := m.assertNoDeleteOpenFile
 	m.mu.RUnlock()
+
 	if cb != nil {
 		cb(name)
 	}
@@ -1070,12 +1216,12 @@ func (m *MockDirectoryWrapper) DeleteFile(name string) error {
 	m.mu.Lock()
 	if isOpen {
 		m.openFilesDeleted[name] = struct{}{}
+		if assertNoDelete {
+			m.mu.Unlock()
+			return fmt.Errorf("MockDirectoryWrapper: file %q is still open: cannot delete", name)
+		}
 	} else {
 		delete(m.openFilesDeleted, name)
-	}
-	if assertNoDelete && isOpen {
-		m.mu.Unlock()
-		return fmt.Errorf("MockDirectoryWrapper: file %q is still open: cannot delete", name)
 	}
 	delete(m.createdFiles, name)
 	delete(m.unSyncedFiles, name)
@@ -1092,24 +1238,25 @@ func (m *MockDirectoryWrapper) DeleteFile(name string) error {
 // (matching the Directory contract for in-memory directories), but
 // the injection flags are still honoured.
 func (m *MockDirectoryWrapper) Sync(names []string) error {
+	m.maybeYield()
+	if err := m.maybeThrowDeterministicException(); err != nil {
+		return err
+	}
 	if m.isCrashed() {
 		return fmt.Errorf("cannot sync after crash")
 	}
 	for _, name := range names {
-		if err := m.maybeThrowDeterministicException(); err != nil {
+		// randomly fail with IOE on any file
+		if err := m.maybeThrowIOException(name); err != nil {
 			return err
 		}
+		// Check per-file injection
 		if err := m.injectFor("sync", name); err != nil {
 			return err
 		}
 	}
 	if m.failOnSync.Load() {
 		return m.createError()
-	}
-	for _, name := range names {
-		if err := m.maybeThrowIOException(name); err != nil {
-			return err
-		}
 	}
 
 	type syncer interface {
@@ -1131,11 +1278,27 @@ func (m *MockDirectoryWrapper) Sync(names []string) error {
 // Rename renames a file from source to dest. Honours crash and
 // deterministic failure injection.
 func (m *MockDirectoryWrapper) Rename(source string, dest string) error {
+	m.maybeYield()
+	if err := m.maybeThrowDeterministicException(); err != nil {
+		return err
+	}
 	if m.isCrashed() {
 		return fmt.Errorf("cannot rename after crash (%s -> %s)", source, dest)
 	}
-	if err := m.maybeThrowDeterministicException(); err != nil {
-		return err
+
+	m.mu.RLock()
+	srcOpen := m.isFileOpenLocked(source)
+	dstOpen := m.isFileOpenLocked(dest)
+	assertNoDelete := m.assertNoDeleteOpenFile
+	m.mu.RUnlock()
+
+	// Check for open source file
+	if srcOpen && assertNoDelete {
+		return fmt.Errorf("MockDirectoryWrapper: source file %q is still open: cannot rename", source)
+	}
+	// Check for open dest file
+	if dstOpen && assertNoDelete {
+		return fmt.Errorf("MockDirectoryWrapper: dest file %q is still open: cannot rename", dest)
 	}
 
 	type renamer interface {
@@ -1145,14 +1308,6 @@ func (m *MockDirectoryWrapper) Rename(source string, dest string) error {
 	if !ok {
 		return fmt.Errorf("MockDirectoryWrapper: delegate %T does not support Rename", m.FilterDirectory.GetDelegate())
 	}
-
-	// Check for open files
-	m.mu.RLock()
-	_, srcOpen := m.openFilesForWrite[source]
-	_, dstOpen := m.openFilesForWrite[dest]
-	m.mu.RUnlock()
-	_ = srcOpen
-	_ = dstOpen
 
 	if err := r.Rename(source, dest); err != nil {
 		return err
@@ -1189,6 +1344,7 @@ func (m *MockDirectoryWrapper) syncMetaData() error {
 
 // ListAll lists files in the wrapped directory.
 func (m *MockDirectoryWrapper) ListAll() ([]string, error) {
+	m.maybeYield()
 	if err := m.maybeThrowDeterministicException(); err != nil {
 		return nil, err
 	}
@@ -1203,6 +1359,7 @@ func (m *MockDirectoryWrapper) ListAll() ([]string, error) {
 
 // FileLength returns the length of a file in the wrapped directory.
 func (m *MockDirectoryWrapper) FileLength(name string) (int64, error) {
+	m.maybeYield()
 	if err := m.maybeThrowDeterministicException(); err != nil {
 		return 0, err
 	}
@@ -1522,4 +1679,41 @@ func (m *mockDirIndexOutput) preWrite() error {
 		return err
 	}
 	return nil
+}
+
+// slowClosingMockDirIndexInput wraps an IndexInput with a delay on close
+// to simulate slow closing and catch race conditions. This mirrors Lucene's
+// SlowClosingMockIndexInputWrapper.
+type slowClosingMockDirIndexInput struct {
+	*mockDirIndexInput
+}
+
+func newSlowClosingMockDirIndexInput(owner *MockDirectoryWrapper, in IndexInput, name string) *slowClosingMockDirIndexInput {
+	return &slowClosingMockDirIndexInput{
+		mockDirIndexInput: newMockDirIndexInput(owner, in, name),
+	}
+}
+
+// Close delays closure to simulate slow closing operations.
+func (m *slowClosingMockDirIndexInput) Close() error {
+	// In a real implementation, we would add a small sleep here.
+	// For now, we just delegate to the parent Close.
+	// A real sleep would require knowing the target duration, which varies
+	// in Lucene's implementation based on test configuration.
+	return m.mockDirIndexInput.Close()
+}
+
+// slowOpeningMockDirIndexInput wraps an IndexInput with a delay on creation
+// to simulate slow opening and catch race conditions. This mirrors Lucene's
+// SlowOpeningMockIndexInputWrapper.
+type slowOpeningMockDirIndexInput struct {
+	*mockDirIndexInput
+}
+
+func newSlowOpeningMockDirIndexInput(owner *MockDirectoryWrapper, in IndexInput, name string) *slowOpeningMockDirIndexInput {
+	// In a real implementation, we would add a small sleep here when created.
+	// For now, we just create the wrapper.
+	return &slowOpeningMockDirIndexInput{
+		mockDirIndexInput: newMockDirIndexInput(owner, in, name),
+	}
 }
