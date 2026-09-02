@@ -69,6 +69,25 @@ Tests must never use `t.Skip()`; a gap in coverage must fail, not be silenced.
 
 Whenever you encounter pre-existing bugs during a task, fix them immediately and then continue with the original task.
 
+### 2.1 No Error Suppression (NON-NEGOTIABLE)
+
+**Errors must never be suppressed, hidden, silenced, or worked around. They must be fixed.**
+
+If the code does not compile, or a test fails, the correct and only acceptable response is to fix the underlying cause. An error is information about a real defect; making the error disappear without removing its cause converts a visible problem into an invisible one and is strictly forbidden.
+
+Prohibited — this list is illustrative, not exhaustive:
+
+- `//go:build ignore` (or any build tag, build constraint, or file rename) used to exclude a file from compilation so the package "builds";
+- deleting, emptying, or stubbing out a declaration purely to resolve a redeclaration or an undefined symbol, instead of reconciling the duplicates against the Lucene reference;
+- `t.Skip()`, commented-out tests, or assertions weakened so a test passes;
+- blank identifier assignments (`_ = err`), empty `catch`-style branches, or discarded errors that hide a real failure;
+- linter or vet directives (`//nolint`, `//lint:ignore`, `//go:generate`-style tricks) applied to silence a genuine diagnostic;
+- any comment, tag, or flag whose purpose is to stop a tool from reporting a defect.
+
+A broken build is an accurate report that the code is broken. Leave it reporting that until the defect is genuinely repaired. If a fix cannot be completed within the current cycle, the work stays on its own branch with the failure visible — it is never merged behind a suppression.
+
+Where suppressions already exist in the tree, they are technical debt to be removed: the file must be re-enabled and the real errors resolved.
+
 ## 3. Production Orientation
 
 Every action you take — whether development, fixes, evaluations, analysis, audits, or any other work — must be treated with production-grade standards.
