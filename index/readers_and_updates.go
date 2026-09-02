@@ -708,10 +708,18 @@ func (r *ReadersAndUpdates) GetMergingDVUpdates() map[string][]*BaseDocValuesFie
 }
 
 // IsFullyDeleted reports whether every document in this segment is
-// deleted. The underlying PendingDeletes.isFullyDeleted entry point is
-// not yet ported. See file header.
+// deleted.
 func (r *ReadersAndUpdates) IsFullyDeleted() (bool, error) {
-	return false, ErrReadersAndUpdatesLiveDocsUnsupported
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.reader != nil {
+		if nrtr, ok := r.reader.(*NRTSegmentReader); ok {
+			return nrtr.NumDocs() == 0, nil
+		}
+	}
+
+	return len(r.pendingDeletes.docIDs) == r.info.Info.MaxDoc(), nil
 }
 
 // KeepFullyDeletedSegment asks the supplied MergePolicy whether a

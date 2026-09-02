@@ -358,6 +358,50 @@ func (w *IndexWriter) DeleteAll() (int64, error) {
 	return w.maybeProcessEvents(seqNo), nil
 }
 
+// TryDeleteDocument attempts to delete a document by its global docID.
+// This is the Go port of Lucene's org.apache.lucene.index.IndexWriter#tryDeleteDocument.
+func (w *IndexWriter) TryDeleteDocument(docID int) (bool, error) {
+	w.ensureOpen()
+
+	sci, localDocID, err := w.tryModifyDocument(docID)
+	if err != nil {
+		return false, err
+	}
+
+	rau := w.getPooledInstance(sci, true)
+	if rau == nil {
+		return false, fmt.Errorf("failed to get pooled instance for segment %s", sci)
+	}
+	defer w.release(rau)
+
+	deleted, err := rau.Delete(localDocID)
+	if err != nil {
+		return false, err
+	}
+
+	if deleted {
+		fullyDeleted, err := rau.IsFullyDeleted()
+		if err == nil && fullyDeleted {
+			w.dropDeletedSegment(sci)
+			w.checkpoint()
+		}
+	}
+
+	return deleted, nil
+}
+
+func (w *IndexWriter) tryModifyDocument(docID int) (*SegmentCommitInfo, int, error) {
+	base := 0
+	for _, sci := range w.segmentInfos.Iterator() {
+		maxDoc := sci.Info.MaxDoc()
+		if docID < base+maxDoc {
+			return sci, docID - base, nil
+		}
+		base += maxDoc
+	}
+	return nil, 0, fmt.Errorf("docID %d out of range [0, %d)", docID, w.segmentInfos.TotalMaxDoc())
+}
+
 // DeleteDocumentsQuery deletes documents matching the given queries.
 func (w *IndexWriter) DeleteDocumentsQuery(queries []Query) (int64, error) {
 	w.ensureOpen()
