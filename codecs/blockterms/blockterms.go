@@ -27,34 +27,24 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
+// Format constants, ported from
+// org.apache.lucene.codecs.blockterms.BlockTermsWriter (Apache Lucene 10.5.0).
 const (
-	TermsExtension = "tis"
+	// TermsExtension mirrors BlockTermsWriter.TERMS_EXTENSION.
+	TermsExtension = "tib"
 
-	CodecName      = "BlockTreeTermsDict"
-	VersionStart   = int32(0)
-	VersionCurrent = int32(0)
+	// CodecName mirrors BlockTermsWriter.CODEC_NAME.
+	CodecName = "BlockTermsWriter"
+	// VersionStart mirrors BlockTermsWriter.VERSION_START.
+	VersionStart = int32(4)
+	// VersionCurrent mirrors BlockTermsWriter.VERSION_CURRENT.
+	VersionCurrent = int32(4)
 )
-
-// TermsIndexEnum mirrors org.apache.lucene.codecs.blockterms.TermsIndexReaderBase.TermsIndexEnum.
-type TermsIndexEnum interface {
-	Next() int
-	Term() *util.BytesRef
-	Seek(target *util.BytesRef) int64
-	SeekOrd(ord int64) int64
-	Ord() int64
-}
-
-// TermsIndexReader mirrors org.apache.lucene.codecs.blockterms.TermsIndexReaderBase.
-type TermsIndexReader interface {
-	GetFieldEnum(fieldInfo *index.FieldInfo) TermsIndexEnum
-	SupportsOrd() bool
-	GetDivisor() int
-}
 
 // BlockTermsReader handles a terms dict, but decouples all details of doc/freqs/positions reading to an instance of
 // PostingsReaderBase. This class is reusable for codecs that use a different format for
@@ -198,13 +188,14 @@ func seekDir(input store.IndexInput) error {
 	if input.Length() < int64(footerLen+8) {
 		return errors.New("file too short to contain directory offset")
 	}
-	input.Seek(input.Length() - int64(footerLen) - 8)
+	if err := input.SetPosition(input.Length() - int64(footerLen) - 8); err != nil {
+		return err
+	}
 	dirOffset, err := input.ReadLong()
 	if err != nil {
 		return err
 	}
-	input.Seek(dirOffset)
-	return nil
+	return input.SetPosition(dirOffset)
 }
 
 func (r *BlockTermsReader) Close() error {
@@ -295,8 +286,8 @@ type segmentTermsEnum struct {
 	seekPending        bool
 	termSuffixes       []byte
 	termSuffixesReader *store.ByteArrayDataInput
-	termBlockPrefix     int
-	blockTermCount      int
+	termBlockPrefix    int
+	blockTermCount     int
 	docFreqBytes       []byte
 	freqReader         *store.ByteArrayDataInput
 	metaDataUpto       int
@@ -520,7 +511,11 @@ func (e *segmentTermsEnum) SeekCeil(target *index.Term) (*index.Term, error) {
 			return e.Term(), nil
 		} else if cmp < 0 {
 			if !e.didIndexNext {
-				if e.indexEnum.Next() == -1 {
+				fp, err := e.indexEnum.Next()
+				if err != nil {
+					return nil, err
+				}
+				if fp == -1 {
 					e.nextIndexTerm = nil
 				} else {
 					e.nextIndexTerm = e.indexEnum.Term()
@@ -534,7 +529,11 @@ func (e *segmentTermsEnum) SeekCeil(target *index.Term) (*index.Term, error) {
 	}
 
 	if doSeek {
-		e.in.SetPosition(e.indexEnum.Seek(targetRef))
+		fp, err := e.indexEnum.Seek(targetRef)
+		if err != nil {
+			return nil, err
+		}
+		e.in.SetPosition(fp)
 		ok, err := e.nextBlock()
 		if err != nil {
 			return nil, err
@@ -594,7 +593,11 @@ func (e *segmentTermsEnum) SeekExactOrd(ord int64) error {
 	if e.indexEnum == nil {
 		return errors.New("terms index was not loaded")
 	}
-	e.in.SetPosition(e.indexEnum.SeekOrd(ord))
+	fp, err := e.indexEnum.SeekOrd(ord)
+	if err != nil {
+		return err
+	}
+	e.in.SetPosition(fp)
 	ok, err := e.nextBlock()
 	if err != nil {
 		return err
