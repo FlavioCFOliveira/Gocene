@@ -9,5 +9,9 @@ package analysis
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.util.CharArraySet.
 func GetWordSetFromStrings(words []string, ignoreCase bool) *CharArraySet {
-	return NewCharArraySet(ignoreCase)
+	set := NewCharArraySet(len(words), ignoreCase)
+	for _, word := range words {
+		set.Add(word)
+	}
+	return set
 }

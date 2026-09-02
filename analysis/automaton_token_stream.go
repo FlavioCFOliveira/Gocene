@@ -5,7 +5,6 @@
 package analysis
 
 import (
-	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 

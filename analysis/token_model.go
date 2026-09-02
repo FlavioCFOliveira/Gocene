@@ -8,9 +8,10 @@ package analysis
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.Token.
 type Token struct {
-	Term        string
-	StartOffset int
-	EndOffset   int
-	Position    int
-	PositionInc int
+	Term           string
+	StartOffset    int
+	EndOffset      int
+	Position       int
+	PositionInc    int
+	PositionLength int
 }

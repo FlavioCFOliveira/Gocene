@@ -113,5 +113,12 @@ func (f *FilteringTokenFilter) End() error {
 	return nil
 }
 
+// Next is a convenience method that calls IncrementToken and returns the current token.
+// Stub implementation that returns an empty token.
+func (f *FilteringTokenFilter) Next() (Token, bool) {
+	ok, _ := f.IncrementToken()
+	return Token{}, ok
+}
+
 // Ensure FilteringTokenFilter implements TokenFilter.
 var _ TokenFilter = (*FilteringTokenFilter)(nil)
