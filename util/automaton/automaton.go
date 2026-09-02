@@ -20,9 +20,11 @@ type Automaton struct {
 
 // Transition represents a transition from one state to another.
 type Transition struct {
-	Dest   int
-	Min    int
-	Max    int
+	Dest           int
+	Min            int
+	Max            int
+	Source         int
+	transitionUpto int
 }
 
 // NewTransition creates a new empty transition.
@@ -138,6 +140,28 @@ func (a *Automaton) IsAccept(state int) bool {
 	return a.acceptStates[state]
 }
 
+// IsDeterministic returns whether the automaton is deterministic.
+func (a *Automaton) IsDeterministic() bool {
+	return a.deterministic
+}
+
+// GetStartPoints returns the start points for the automaton (stub).
+func (a *Automaton) GetStartPoints() []int {
+	// Stub: returns empty slice for now
+	return []int{}
+}
+
+// AcceptCardinality returns the number of accept states (stub).
+func (a *Automaton) AcceptCardinality() int {
+	return len(a.acceptStates)
+}
+
+// Next returns the next state after consuming a character (stub).
+func (a *Automaton) Next(t *Transition, c int) int {
+	// Stub: minimal implementation
+	return -1
+}
+
 // GetNumTransitions returns the number of transitions for a state.
 func (a *Automaton) GetNumTransitions(state int) int {
 	if trans, ok := a.transitions[state]; ok {
@@ -146,12 +170,11 @@ func (a *Automaton) GetNumTransitions(state int) int {
 	return 0
 }
 
-// GetTransition returns the transition at a given index from a state (stub).
-func (a *Automaton) GetTransition(state, index int) *Transition {
+// GetTransition fills t with the transition at a given index from a state.
+func (a *Automaton) GetTransition(state, index int, t *Transition) {
 	if trans, ok := a.transitions[state]; ok && index < len(trans) {
-		return &trans[index]
+		*t = trans[index]
 	}
-	return nil
 }
 
 // Step follows a transition on a given character (stub).
