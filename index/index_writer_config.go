@@ -13,6 +13,13 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
+// IndexReaderWarmer is an interface for warming up segments after a merge.
+// This is the Go port of Lucene's org.apache.lucene.index.IndexReaderWarmer.
+type IndexReaderWarmer interface {
+	// Warm is called to warm up the given segment reader.
+	Warm(reader *SegmentReader)
+}
+
 type OpenMode int
 
 const (

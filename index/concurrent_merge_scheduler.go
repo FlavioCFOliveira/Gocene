@@ -651,6 +651,19 @@ func (s *ConcurrentMergeScheduler) GetMergeErrors() []error {
 	}
 }
 
+// AbortAll cancels all currently running merges and clears the pending merge queue.
+func (s *ConcurrentMergeScheduler) AbortAll() {
+	s.mergeMu.Lock()
+	defer s.mergeMu.Unlock()
+	for _, thread := range s.mergeThreads {
+		thread.Abort()
+	}
+	s.pendingMerges = s.pendingMerges[:0]
+	if s.threadDoneCond != nil {
+		s.threadDoneCond.Broadcast()
+	}
+}
+
 // String returns a string representation of the ConcurrentMergeScheduler.
 func (s *ConcurrentMergeScheduler) String() string {
 	return fmt.Sprintf("ConcurrentMergeScheduler(maxThreadCount=%d, maxMergeCount=%d, activeThreads=%d, running=%d, pending=%d)",
