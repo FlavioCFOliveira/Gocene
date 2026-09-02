@@ -5,14 +5,13 @@
 // Source: lucene/core/src/java/org/apache/lucene/codecs/lucene94/Lucene94FieldInfosFormat.java
 // GOC-3329: replace the stub Lucene94FieldInfosFormat with a full read/write port.
 
-package lucene94
+package codecs
 
 import (
 	"errors"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -64,7 +63,7 @@ func (f *Lucene94FieldInfosFormat) Name() string {
 
 // Read decodes the field infos for the given segment.
 func (f *Lucene94FieldInfosFormat) Read(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string, context store.IOContext) (*index.FieldInfos, error) {
-	fileName := spi.GetSegmentComponentName(segmentInfo.Name(), segmentSuffix, lucene94FIExtension)
+	fileName := GetSegmentFileName(segmentInfo.Name(), segmentSuffix, lucene94FIExtension)
 
 	in, err := dir.OpenInput(fileName, context)
 	if err != nil {
@@ -86,7 +85,7 @@ func (f *Lucene94FieldInfosFormat) Read(dir store.Directory, segmentInfo *index.
 }
 
 func (f *Lucene94FieldInfosFormat) readFrom(in *store.ChecksumIndexInput, segmentInfo *index.SegmentInfo, segmentSuffix string) (*index.FieldInfos, error) {
-	format, err := spi.CheckIndexHeader(in, lucene94FICodecName, lucene94FIFormatStart, lucene94FIFormatCurrent, segmentInfo.GetID(), segmentSuffix)
+	format, err := CheckIndexHeader(in, lucene94FICodecName, lucene94FIFormatStart, lucene94FIFormatCurrent, segmentInfo.GetID(), segmentSuffix)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +243,7 @@ func (f *Lucene94FieldInfosFormat) readFrom(in *store.ChecksumIndexInput, segmen
 		builder.Add(fi)
 	}
 
-	if _, err := spi.CheckFooter(in); err != nil {
+	if _, err := CheckFooter(in); err != nil {
 		return nil, err
 	}
 	return builder.Build(), nil
@@ -252,7 +251,7 @@ func (f *Lucene94FieldInfosFormat) readFrom(in *store.ChecksumIndexInput, segmen
 
 // Write encodes the field infos for the given segment.
 func (f *Lucene94FieldInfosFormat) Write(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string, infos *index.FieldInfos, context store.IOContext) error {
-	fileName := spi.GetSegmentComponentName(segmentInfo.Name(), segmentSuffix, lucene94FIExtension)
+	fileName := GetSegmentFileName(segmentInfo.Name(), segmentSuffix, lucene94FIExtension)
 
 	out, err := dir.CreateOutput(fileName, context)
 	if err != nil {
@@ -276,7 +275,7 @@ func (f *Lucene94FieldInfosFormat) Write(dir store.Directory, segmentInfo *index
 }
 
 func (f *Lucene94FieldInfosFormat) writeTo(out *store.ChecksumIndexOutput, segmentInfo *index.SegmentInfo, segmentSuffix string, infos *index.FieldInfos) error {
-	if err := spi.WriteIndexHeader(out, lucene94FICodecName, lucene94FIFormatCurrent, segmentInfo.GetID(), segmentSuffix); err != nil {
+	if err := WriteIndexHeader(out, lucene94FICodecName, lucene94FIFormatCurrent, segmentInfo.GetID(), segmentSuffix); err != nil {
 		return err
 	}
 	if err := store.WriteVInt(out, int32(infos.Size())); err != nil {
@@ -392,7 +391,7 @@ func (f *Lucene94FieldInfosFormat) writeTo(out *store.ChecksumIndexOutput, segme
 			return err
 		}
 	}
-	return spi.WriteFooter(out)
+	return WriteFooter(out)
 }
 
 // --- enum encoders / decoders ---------------------------------------------
@@ -530,6 +529,7 @@ func decodeVectorSimilarityFunction(b byte) (index.VectorSimilarityFunction, err
 	return lucene94SimilarityFunctions[b], nil
 }
 
+// errLucene94FormatBug is kept private to surface misuse panics consistently.
 var errLucene94FormatBug = errors.New("lucene94 field infos format: internal invariant violated")
 
 var _ = errLucene94FormatBug // reserved for future invariant checks

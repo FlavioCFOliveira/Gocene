@@ -9,7 +9,7 @@
 //
 // GC-213: Test Lucene94FieldInfosFormat
 
-package lucene94_test
+package codecs_test
 
 import (
 	"errors"
@@ -19,8 +19,7 @@ import (
 	"sync"
 	"testing"
 
-	bclucene90 "github.com/FlavioCFOliveira/Gocene/backward_codecs/lucene90"
-	"github.com/FlavioCFOliveira/Gocene/codecs/lucene94"
+	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -92,7 +91,7 @@ func TestLucene94FieldInfosFormat_OneField(t *testing.T) {
 	builder.Add(fi)
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Write
@@ -178,7 +177,7 @@ func TestLucene94FieldInfosFormat_ImmutableAttributes(t *testing.T) {
 	builder.Add(fi)
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Write
@@ -374,7 +373,7 @@ func TestLucene94FieldInfosFormat_ExceptionOnCreateOutput(t *testing.T) {
 	builder.Add(fi)
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Enable failure
@@ -429,7 +428,7 @@ func TestLucene94FieldInfosFormat_ExceptionOnCloseOutput(t *testing.T) {
 	builder.Add(fi)
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Enable failure on close
@@ -484,7 +483,7 @@ func TestLucene94FieldInfosFormat_ExceptionOnOpenInput(t *testing.T) {
 	builder.Add(fi)
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// First write successfully (without failure)
@@ -545,7 +544,7 @@ func TestLucene94FieldInfosFormat_ExceptionOnCloseInput(t *testing.T) {
 	builder.Add(fi)
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// First write successfully (without failure)
@@ -643,7 +642,7 @@ func TestLucene94FieldInfosFormat_Random(t *testing.T) {
 
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Write
@@ -868,7 +867,7 @@ func TestLucene94FieldInfosFormat_DocValuesSkipIndex(t *testing.T) {
 
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Write
@@ -958,7 +957,7 @@ func TestLucene94FieldInfosFormat_VectorFields(t *testing.T) {
 
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Write
@@ -1054,7 +1053,7 @@ func TestLucene94FieldInfosFormat_PointFields(t *testing.T) {
 
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Write
@@ -1140,7 +1139,7 @@ func TestLucene94FieldInfosFormat_SoftDeletesAndParentFields(t *testing.T) {
 
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Write
@@ -1205,7 +1204,7 @@ func TestLucene94FieldInfosFormat_Empty(t *testing.T) {
 	builder := index.NewFieldInfosBuilder()
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Write
@@ -1252,7 +1251,7 @@ func TestLucene94FieldInfosFormat_LargeFieldNumbers(t *testing.T) {
 
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Write
@@ -1314,7 +1313,7 @@ func TestLucene94FieldInfosFormat_UnicodeFieldNames(t *testing.T) {
 
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Write
@@ -1372,7 +1371,7 @@ func TestLucene94FieldInfosFormat_DocValuesGen(t *testing.T) {
 
 	infos := builder.Build()
 
-	format := lucene94.NewLucene94FieldInfosFormat()
+	format := codecs.NewLucene94FieldInfosFormat()
 	context := store.IOContextWrite
 
 	// Write

@@ -5,7 +5,6 @@
 package codecs
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/codecs/lucene94"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
@@ -16,13 +15,13 @@ type FieldInfosFormat = spi.FieldInfosFormat
 // codec; the wire format itself is unchanged from Lucene 9.4 so we embed
 // Lucene94FieldInfosFormat and only override the codec name.
 type Lucene104FieldInfosFormat struct {
-	*lucene94.Lucene94FieldInfosFormat
+	*Lucene94FieldInfosFormat
 }
 
 // NewLucene104FieldInfosFormat returns a fresh Lucene104FieldInfosFormat.
 func NewLucene104FieldInfosFormat() *Lucene104FieldInfosFormat {
 	return &Lucene104FieldInfosFormat{
-		Lucene94FieldInfosFormat: lucene94.NewLucene94FieldInfosFormat(),
+		Lucene94FieldInfosFormat: NewLucene94FieldInfosFormat(),
 	}
 }
 
