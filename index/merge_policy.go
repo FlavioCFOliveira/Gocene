@@ -142,6 +142,12 @@ func (m *OneMerge) String() string {
 	return res
 }
 
+// Complete signals that the merge has finished.
+func (m *OneMerge) Complete(success bool) {
+	m.completed.Store(true)
+	m.MergeCompleted <- success
+}
+
 // MergeSpecification describes the set of merges that should be done.
 type MergeSpecification struct {
 	Merges []*OneMerge
@@ -149,6 +155,33 @@ type MergeSpecification struct {
 
 func (ms *MergeSpecification) Add(merge *OneMerge) {
 	ms.Merges = append(ms.Merges, merge)
+}
+
+// Await waits for all merges in this specification to complete.
+// Returns true if all merges completed successfully or no merges were needed, false on error.
+func (ms *MergeSpecification) Await() bool {
+	for _, m := range ms.Merges {
+		if !<-m.MergeCompleted {
+			return false
+		}
+	}
+	return true
+}
+
+// AwaitWithTimeout waits for all merges in this specification to complete, with timeout.
+// Returns true if all merges completed within timeout or no merges were needed, false on timeout or error.
+func (ms *MergeSpecification) AwaitWithTimeout(timeout time.Duration) bool {
+	done := make(chan bool, 1)
+	go func() {
+		done <- ms.Await()
+	}()
+
+	select {
+	case res := <-done:
+		return res
+	case <-time.After(timeout):
+		return false
+	}
 }
 
 func (ms *MergeSpecification) String() string {
@@ -250,6 +283,7 @@ type MergeObserver struct {
 	spec *MergeSpecification
 }
 
+// NewMergeObserver creates a new MergeObserver for the given specification.
 func NewMergeObserver(spec *MergeSpecification) *MergeObserver {
 	return &MergeObserver{spec: spec}
 }
@@ -263,6 +297,7 @@ func (o *MergeObserver) NumMerges() int {
 }
 
 // NumCompletedMerges returns the number of completed merges in this specification.
+// Useful for tracking merge progress: NumCompletedMerges() / NumMerges().
 func (o *MergeObserver) NumCompletedMerges() int {
 	if o.spec == nil {
 		return 0
@@ -282,38 +317,25 @@ func (o *MergeObserver) Await() bool {
 	if o.spec == nil {
 		return true
 	}
-	for _, m := range o.spec.Merges {
-		if !<-m.MergeCompleted {
-			return false
-		}
-	}
-	return true
+	return o.spec.Await()
 }
 
 // AwaitWithTimeout waits for all merges in this specification to complete, with timeout.
+// Returns true if all merges completed within timeout or no merges were needed, false on timeout or error.
 func (o *MergeObserver) AwaitWithTimeout(timeout time.Duration) bool {
 	if o.spec == nil {
 		return true
 	}
-
-	done := make(chan bool, 1)
-	go func() {
-		done <- o.Await()
-	}()
-
-	select {
-	case res := <-done:
-		return res
-	case <-time.After(timeout):
-		return false
-	}
+	return o.spec.AwaitWithTimeout(timeout)
 }
 
 // AwaitAsync returns a channel that closes when all merges finish.
 func (o *MergeObserver) AwaitAsync() <-chan struct{} {
 	res := make(chan struct{})
 	go func() {
-		o.Await()
+		if o.spec != nil {
+			o.Await()
+		}
 		close(res)
 	}()
 	return res

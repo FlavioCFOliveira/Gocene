@@ -23,16 +23,16 @@ func TestMergeObserver_Basic(t *testing.T) {
 	}
 
 	// Complete first merge
-	m1.completed.Store(true)
-	m1.MergeCompleted <- true
+	m1.Complete(true)
+	
 
 	if observer.NumCompletedMerges() != 1 {
 		t.Errorf("expected 1 completed merge, got %d", observer.NumCompletedMerges())
 	}
 
 	// Complete second merge
-	m2.completed.Store(true)
-	m2.MergeCompleted <- true
+	m2.Complete(true)
+	
 
 	if observer.NumCompletedMerges() != 2 {
 		t.Errorf("expected 2 completed merges, got %d", observer.NumCompletedMerges())
@@ -47,8 +47,7 @@ func TestMergeObserver_Await(t *testing.T) {
 
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		m1.completed.Store(true)
-		m1.MergeCompleted <- true
+		m1.Complete(true)
 	}()
 
 	if !observer.Await() {
@@ -64,8 +63,7 @@ func TestMergeObserver_AwaitFailure(t *testing.T) {
 
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		m1.completed.Store(true)
-		m1.MergeCompleted <- false
+		m1.Complete(false)
 	}()
 
 	if observer.Await() {
@@ -87,8 +85,7 @@ func TestMergeObserver_AwaitWithTimeout(t *testing.T) {
 	// Test success within timeout
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		m1.completed.Store(true)
-		m1.MergeCompleted <- true
+		m1.Complete(true)
 	}()
 
 	if !observer.AwaitWithTimeout(50 * time.Millisecond) {
@@ -106,8 +103,7 @@ func TestMergeObserver_AwaitAsync(t *testing.T) {
 
 	go func() {
 		time.Sleep(10 * time.Millisecond)
-		m1.completed.Store(true)
-		m1.MergeCompleted <- true
+		m1.Complete(true)
 	}()
 
 	select {
