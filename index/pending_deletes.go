@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -37,7 +35,7 @@ func NewPendingDeletes(info *SegmentCommitInfo, liveDocs util.Bits, liveDocsInit
 // NewPendingDeletesFromReader constructs a PendingDeletes from a SegmentReader.
 func NewPendingDeletesFromReader(reader *SegmentReader, info *SegmentCommitInfo) *PendingDeletes {
 	pd := NewPendingDeletes(info, reader.GetLiveDocs(), true)
-	pd.pendingDeleteCount = reader.NumDeletedDocs() - info.GetDelCount()
+	pd.pendingDeleteCount = reader.NumDeletedDocs() - info.DelCount()
 	return pd
 }
 
@@ -128,7 +126,7 @@ func (p *PendingDeletes) WriteLiveDocs(dir store.Directory) (bool, error) {
 		}
 	}()
 
-	codec := p.info.SegmentInfo().GetCodec()
+	codec := LookupCodecByName(p.info.SegmentInfo().Codec())
 	err := codec.LiveDocsFormat().WriteLiveDocs(liveDocs, dir, p.info, p.pendingDeleteCount, store.IOContextDefault)
 	if err != nil {
 		return false, err
@@ -136,7 +134,7 @@ func (p *PendingDeletes) WriteLiveDocs(dir store.Directory) (bool, error) {
 	success = true
 
 	p.info.AdvanceDelGen()
-	p.info.SetDelCount(p.info.GetDelCount() + p.pendingDeleteCount)
+	p.info.SetDelCount(p.info.DelCount() + p.pendingDeleteCount)
 	p.DropChanges()
 	return true, nil
 }
@@ -154,7 +152,7 @@ func (p *PendingDeletes) NeedsRefresh(reader CodecReader) bool {
 }
 
 func (p *PendingDeletes) GetDelCount() int {
-	return p.info.GetDelCount() + p.info.GetSoftDelCount() + p.pendingDeleteCount
+	return p.info.DelCount() + p.info.SoftDelCount() + p.pendingDeleteCount
 }
 
 func (p *PendingDeletes) NumDocs() int {

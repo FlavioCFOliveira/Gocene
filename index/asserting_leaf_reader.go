@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -17,7 +15,7 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.tests.index.AssertingLeafReader.
 type AssertingLeafReader struct {
-	*LeafReader
+	LeafReader
 }
 
 // NewAssertingLeafReader creates a new AssertingLeafReader wrapping the given reader.

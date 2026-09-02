@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -41,7 +39,7 @@ func dvExhausted(docID int) bool {
 // space via an OrdinalMap.
 
 // multiDocValuesLeaf is the read surface MultiDocValues needs from each leaf.
-// Both *SegmentReader and *LeafReader satisfy it structurally, so a leaf's
+// Both *SegmentReader and LeafReader satisfy it structurally, so a leaf's
 // reader (typed as IndexReaderInterface) can be narrowed to it.
 type multiDocValuesLeaf interface {
 	GetFieldInfos() *FieldInfos
@@ -67,7 +65,7 @@ func leafDocValuesReader(ctx *LeafReaderContext) (multiDocValuesLeaf, error) {
 func buildDocStarts(leaves []*LeafReaderContext, maxDoc int) []int {
 	starts := make([]int, len(leaves)+1)
 	for i, leaf := range leaves {
-		starts[i] = leaf.DocBase()
+		starts[i] = leaf.DocBase
 	}
 	starts[len(leaves)] = maxDoc
 	return starts
@@ -97,7 +95,7 @@ func MultiDocValuesGetNormValues(r IndexReaderInterface, field string) (NumericD
 		if err != nil {
 			return nil, err
 		}
-		info := lr.GetFieldInfos().GetByName(field)
+		info := lr.GetFieldInfos().FieldInfoByName(field)
 		if info != nil && info.HasNorms() {
 			normFound = true
 			break
@@ -342,7 +340,7 @@ func anyLeafHasDVType(leaves []*LeafReaderContext, field string, dvType DocValue
 		if err != nil {
 			return false, err
 		}
-		info := lr.GetFieldInfos().GetByName(field)
+		info := lr.GetFieldInfos().FieldInfoByName(field)
 		if info != nil && info.DocValuesType() == dvType {
 			return true, nil
 		}

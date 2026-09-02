@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -58,7 +56,7 @@ type ComparableProvider func(docID int) (int64, error)
 // inject deterministic per-reader providers without standing up the
 // per-type IndexSorter (Numeric / Sorted / ...) ports. When nil,
 // GetComparableProviders falls back to the degenerate identity.
-var testComparableProvidersHook func(s *IndexSorter, readers []*CodecReader) []ComparableProvider
+var testComparableProvidersHook func(s *IndexSorter, readers []CodecReader) []ComparableProvider
 
 // GetComparableProviders returns one ComparableProvider per reader for the
 // SortField this sorter carries, reading the field's DocValues from each
@@ -68,7 +66,7 @@ var testComparableProvidersHook func(s *IndexSorter, readers []*CodecReader) []C
 //
 // A test seam (testComparableProvidersHook) lets unit tests inject
 // deterministic providers without standing up real DocValues readers.
-func (s *IndexSorter) GetComparableProviders(readers []*CodecReader) []ComparableProvider {
+func (s *IndexSorter) GetComparableProviders(readers []CodecReader) []ComparableProvider {
 	if testComparableProvidersHook != nil {
 		return testComparableProvidersHook(s, readers)
 	}
@@ -122,7 +120,7 @@ func sortFieldIndexSorter(sf *SortField) *IndexSorter {
 // no parent-field bookkeeping". Mirrors
 // org.apache.lucene.index.LeafReader.getMetaData restricted to the
 // LeafMetaData payload used by MultiSorter.
-func (r *CodecReader) GetLeafMetaData() *LeafMetaData {
+func (r CodecReader) GetLeafMetaData() *LeafMetaData {
 	return nil
 }
 
@@ -133,7 +131,7 @@ func (r *CodecReader) GetLeafMetaData() *LeafMetaData {
 // not needed (segments are already in index sort order).
 //
 // Mirrors org.apache.lucene.index.MultiSorter#sort.
-func multiSorterSort(sort *Sort, readers []*CodecReader) ([]DocMap, error) {
+func multiSorterSort(sort *Sort, readers []CodecReader) ([]DocMap, error) {
 	// TODO: optimize if only 1 reader is incoming, though that's a rare case
 	if sort == nil {
 		return nil, fmt.Errorf("MultiSorter: sort is nil")

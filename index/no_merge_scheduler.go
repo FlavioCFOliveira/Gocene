@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -8,13 +6,15 @@ package index
 
 // NoMergeScheduler is a singleton MergeScheduler that performs no merges.
 // Mirrors org.apache.lucene.index.NoMergeScheduler from Apache Lucene 10.4.0.
-type NoMergeScheduler struct{}
+type NoMergeScheduler struct {
+	*BaseMergeScheduler
+}
 
 // NoMergeSchedulerInstance is the canonical singleton instance.
 var NoMergeSchedulerInstance MergeScheduler = newNoMergeSchedulerSingleton()
 
 func newNoMergeSchedulerSingleton() MergeScheduler {
-	return &NoMergeScheduler{}
+	return &NoMergeScheduler{BaseMergeScheduler: NewBaseMergeScheduler()}
 }
 
 // Merge is a no-op.

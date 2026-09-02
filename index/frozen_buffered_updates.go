@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -336,7 +334,7 @@ func (f *FrozenBufferedUpdates) String() string {
 // lands. The fields are the subset consumed by the apply pipeline.
 type FrozenSegmentState struct {
 	// Reader is the per-segment LeafReader the iterator scans.
-	Reader *LeafReader
+	Reader LeafReader
 	// RAU is the ReadersAndUpdates instance for this segment, used
 	// to record NRT deletes during the apply pipeline.
 	RAU *ReadersAndUpdates
@@ -499,8 +497,8 @@ type TermDocsProvider interface {
 	Terms(field string) (Terms, error)
 }
 
-// leafReaderTermsProvider adapts a *LeafReader to TermDocsProvider.
-type leafReaderTermsProvider struct{ reader *LeafReader }
+// leafReaderTermsProvider adapts a LeafReader to TermDocsProvider.
+type leafReaderTermsProvider struct{ reader LeafReader }
 
 func (p leafReaderTermsProvider) Terms(field string) (Terms, error) {
 	if p.reader == nil {
@@ -541,7 +539,7 @@ type TermDocsIterator struct {
 // NewTermDocsIteratorFromReader builds an iterator backed by a
 // [LeafReader]. The sortedTerms flag must be true when the caller will
 // invoke NextTerm with terms in unsigned-lexicographic order.
-func NewTermDocsIteratorFromReader(reader *LeafReader, sortedTerms bool) *TermDocsIterator {
+func NewTermDocsIteratorFromReader(reader LeafReader, sortedTerms bool) *TermDocsIterator {
 	return &TermDocsIterator{
 		provider:    leafReaderTermsProvider{reader: reader},
 		sortedTerms: sortedTerms,

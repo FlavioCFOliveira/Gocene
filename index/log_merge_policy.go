@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -495,28 +493,6 @@ func (p *LogMergePolicy) FindForcedDeletesMerges(
 }
 
 // UseCompoundFile returns true if the merged segment should use compound file.
-func (p *LogMergePolicy) UseCompoundFile(infos *SegmentInfos, mergedSegmentInfo *SegmentInfo) bool {
-	if p.noCFSRatio >= 1.0 {
-		return false
-	}
-	if p.noCFSRatio <= 0.0 {
-		return true
-	}
-
-	var totalSize int64
-	for sci := range infos.Iterator() {
-		totalSize += sci.SegmentInfo().SizeInBytes()
-	}
-
-	if totalSize == 0 {
-		return true
-	}
-
-	mergedSize := mergedSegmentInfo.SizeInBytes()
-	ratio := float64(mergedSize) / float64(totalSize)
-
-	return ratio < p.noCFSRatio
-}
 
 // NumDeletesToMerge returns the number of deletes for a segment.
 func (p *LogMergePolicy) NumDeletesToMerge(info *SegmentCommitInfo, delCount int) int {

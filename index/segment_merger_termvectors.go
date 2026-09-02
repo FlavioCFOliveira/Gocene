@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -115,7 +113,7 @@ func (sm *SegmentMerger) writeDocTermVectors(writer TermVectorsWriter, fields Fi
 		if terms == nil {
 			// Field listed but no terms: emit an empty field so the
 			// StartDocument count stays consistent.
-			if err := writer.StartField(sm.MergeState.MergeFieldInfos.GetByName(name), 0, false, false, false); err != nil {
+			if err := writer.StartField(sm.MergeState.MergeFieldInfos.FieldInfoByName(name), 0, false, false, false); err != nil {
 				return err
 			}
 			if err := writer.FinishField(); err != nil {
@@ -140,7 +138,7 @@ func (sm *SegmentMerger) writeDocTermVectors(writer TermVectorsWriter, fields Fi
 		hasPos = hasPos && gotPositions
 		hasOff = hasOff && gotOffsets
 
-		fieldInfo := sm.MergeState.MergeFieldInfos.GetByName(name)
+		fieldInfo := sm.MergeState.MergeFieldInfos.FieldInfoByName(name)
 		if err := writer.StartField(fieldInfo, len(collected), hasPos, hasOff, hasPay); err != nil {
 			return fmt.Errorf("index: merge term vectors: start field %q: %w", name, err)
 		}

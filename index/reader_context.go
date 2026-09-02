@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -36,7 +34,7 @@ type IndexReaderContext interface {
 	Leaves() ([]*LeafReaderContext, error)
 
 	// Children returns the context's children if this context is a composite context, otherwise nil.
-	Children() []*IndexReaderContext
+	Children() []IndexReaderContext
 }
 
 // baseReaderContext provides common fields for IndexReaderContext implementations.
@@ -99,7 +97,7 @@ func (l *LeafReaderContext) Leaves() ([]*LeafReaderContext, error) {
 	return l.leaves, nil
 }
 
-func (l *LeafReaderContext) Children() []*IndexReaderContext {
+func (l *LeafReaderContext) Children() []IndexReaderContext {
 	return nil
 }
 

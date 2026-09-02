@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -377,7 +375,7 @@ func (w *FreqProxTermsWriterPerField) newTerm(termID, docID int) error {
 	postings.LastDocIDs[termID] = docID
 	if !w.hasFreq {
 		postings.LastDocCodes[termID] = docID
-		if w.fieldState.MaxTermFrequency() < 1 {
+		if w.fieldState.MaxTermFrequency < 1 {
 			w.fieldState.SetMaxTermFrequency(1)
 		}
 	} else {
@@ -390,11 +388,11 @@ func (w *FreqProxTermsWriterPerField) newTerm(termID, docID int) error {
 				w.writeOffsets(termID, w.fieldState.Offset())
 			}
 		}
-		if freq > w.fieldState.MaxTermFrequency() {
+		if freq > w.fieldState.MaxTermFrequency {
 			w.fieldState.SetMaxTermFrequency(freq)
 		}
 	}
-	w.fieldState.SetUniqueTermCount(w.fieldState.UniqueTermCount() + 1)
+	w.fieldState.SetUniqueTermCount(w.fieldState.UniqueTermCount + 1)
 	return nil
 }
 
@@ -415,7 +413,7 @@ func (w *FreqProxTermsWriterPerField) addTerm(termID, docID int) error {
 			w.WriteStreamVInt(0, int32(postings.LastDocCodes[termID]))
 			postings.LastDocCodes[termID] = docID - postings.LastDocIDs[termID]
 			postings.LastDocIDs[termID] = docID
-			w.fieldState.SetUniqueTermCount(w.fieldState.UniqueTermCount() + 1)
+			w.fieldState.SetUniqueTermCount(w.fieldState.UniqueTermCount + 1)
 		}
 		return nil
 	}
@@ -428,7 +426,7 @@ func (w *FreqProxTermsWriterPerField) addTerm(termID, docID int) error {
 		}
 		freq := w.getTermFreq()
 		postings.TermFreqs[termID] = freq
-		if freq > w.fieldState.MaxTermFrequency() {
+		if freq > w.fieldState.MaxTermFrequency {
 			w.fieldState.SetMaxTermFrequency(freq)
 		}
 		postings.LastDocCodes[termID] = (docID - postings.LastDocIDs[termID]) << 1
@@ -440,7 +438,7 @@ func (w *FreqProxTermsWriterPerField) addTerm(termID, docID int) error {
 				w.writeOffsets(termID, w.fieldState.Offset())
 			}
 		}
-		w.fieldState.SetUniqueTermCount(w.fieldState.UniqueTermCount() + 1)
+		w.fieldState.SetUniqueTermCount(w.fieldState.UniqueTermCount + 1)
 		return nil
 	}
 	freq := w.getTermFreq()
@@ -449,7 +447,7 @@ func (w *FreqProxTermsWriterPerField) addTerm(termID, docID int) error {
 		return fmt.Errorf("field %q: %w", w.GetFieldName(), err)
 	}
 	postings.TermFreqs[termID] = sum
-	if sum > w.fieldState.MaxTermFrequency() {
+	if sum > w.fieldState.MaxTermFrequency {
 		w.fieldState.SetMaxTermFrequency(sum)
 	}
 	if w.hasProx {

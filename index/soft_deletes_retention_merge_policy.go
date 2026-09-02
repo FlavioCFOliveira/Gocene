@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -61,8 +59,8 @@ func (p *SoftDeletesRetentionMergePolicy) FindForcedDeletesMerges(infos *Segment
 }
 
 // UseCompoundFile returns true if segments should use compound files.
-func (p *SoftDeletesRetentionMergePolicy) UseCompoundFile(infos *SegmentInfos, mergedSegmentInfo *SegmentInfo) bool {
-	return p.inner.UseCompoundFile(infos, mergedSegmentInfo)
+func (p *SoftDeletesRetentionMergePolicy) UseCompoundFile(infos *SegmentInfos, mergedInfo *SegmentCommitInfo, mergeContext MergeContext) (bool, error) {
+	return p.inner.UseCompoundFile(infos, mergedInfo, mergeContext)
 }
 
 // GetMaxMergeDocs returns the maximum number of documents that can be merged.

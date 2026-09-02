@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -85,7 +83,7 @@ func (v *TermVectorValidator) Validate() []error {
 // validateTermVectorField validates term vectors for a single field.
 func (v *TermVectorValidator) validateTermVectorField(docID int, field string, terms Terms) error {
 	// Get field info
-	fieldInfo := v.fieldInfos.GetByName(field)
+	fieldInfo := v.fieldInfos.FieldInfoByName(field)
 	if fieldInfo == nil {
 		return fmt.Errorf("doc %d: field %s not found in field infos", docID, field)
 	}

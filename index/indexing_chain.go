@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -857,7 +855,7 @@ func (pf *indexingPerField) setInvertState(c *IndexingChain) error {
 func (pf *indexingPerField) finish(docID int) error {
 	if !pf.fieldInfo.OmitNorms() {
 		var normValue int64
-		if pf.invertState.Length() == 0 {
+		if pf.invertState.Length == 0 {
 			// Field present in the doc but with no indexed tokens: norm is 0.
 			normValue = 0
 		} else {
@@ -933,9 +931,9 @@ func (pf *indexingPerField) invertTerm(docID int, field IndexingChainField, firs
 			field.Name())
 	}
 	pf.invertState.SetPosition(pf.invertState.Position() + 1)
-	pf.invertState.SetLength(pf.invertState.Length() + 1)
+	pf.invertState.SetLength(pf.invertState.Length + 1)
 	pf.termsHashPerField.Start(field, first)
-	newLen, err := addExact(pf.invertState.Length(), 1)
+	newLen, err := addExact(pf.invertState.Length, 1)
 	if err != nil {
 		return fmt.Errorf("indexing chain: too many tokens for field %q: %w", field.Name(), err)
 	}

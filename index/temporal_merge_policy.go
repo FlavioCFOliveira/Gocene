@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -13,6 +11,7 @@ import (
 	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -370,19 +369,19 @@ func (p *TemporalMergePolicy) extractSegmentDateRanges(segments *SegmentInfos) m
 }
 
 func (p *TemporalMergePolicy) extractDateRangeFromSegment(sci *SegmentCommitInfo) (*segmentDateRange, error) {
-	si := sci.Info
-	var compoundDir util.Directory
-	var readerDir util.Directory
+	si := sci.SegmentInfo()
+	var compoundDir store.Directory
+	var readerDir store.Directory
 
-	if si.GetUseCompoundFile() {
+	if si.IsCompoundFile() {
 		var err error
-		compoundDir, err = si.GetCodec().CompoundFormat().GetCompoundReader(si.Dir, si)
+		compoundDir, err = LookupCodecByName(si.Codec()).CompoundFormat().GetCompoundReader(si.Directory(), si)
 		if err != nil {
 			return nil, err
 		}
 		readerDir = compoundDir
 	} else {
-		readerDir = si.Dir
+		readerDir = si.Directory()
 	}
 
 	defer func() {
@@ -391,7 +390,7 @@ func (p *TemporalMergePolicy) extractDateRangeFromSegment(sci *SegmentCommitInfo
 		}
 	}()
 
-	fieldInfos := si.GetCodec().FieldInfosFormat().Read(readerDir, si, "", spi.IOContextReadOnce)
+	fieldInfos := LookupCodecByName(si.Codec()).FieldInfosFormat().Read(readerDir, si, "", spi.IOContextReadOnce)
 	fieldInfo := fieldInfos.FieldInfo(p.temporalField)
 	if fieldInfo == nil {
 		return nil, nil
@@ -401,7 +400,7 @@ func (p *TemporalMergePolicy) extractDateRangeFromSegment(sci *SegmentCommitInfo
 		return nil, nil
 	}
 
-	pointsFormat := si.GetCodec().PointsFormat()
+	pointsFormat := LookupCodecByName(si.Codec()).PointsFormat()
 	pointsReader, err := pointsFormat.FieldsReader(readerDir, si, fieldInfos)
 	if err != nil {
 		return nil, err
@@ -545,7 +544,7 @@ func (p *TemporalMergePolicy) planWindowMerges(windowStart int64, segmentsInWind
 
 		for end < len(ordered) && end-cursor < p.maxThreshold {
 			candidate := ordered[end]
-			docCount := int64(candidate.Info.MaxDoc())
+			docCount := int64(candidate.SegmentInfo().DocCount())
 			totalDocs += docCount
 			if docCount > largestDocs {
 				largestDocs = docCount

@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -17,7 +15,7 @@ import (
 // Mirrors org.apache.lucene.index.SortingCodecReader from Apache Lucene 10.5.0.
 type SortingCodecReader struct {
 	*FilterCodecReader
-	docMap   *SorterDocMap
+	docMap   SorterDocMap
 	metaData *LeafMetaData
 
 	// cache for last used DV or Norms instance
@@ -27,7 +25,7 @@ type SortingCodecReader struct {
 	cacheIsNorms  bool
 }
 
-func NewSortingCodecReader(in CodecReader, docMap *SorterDocMap, metaData *LeafMetaData) *SortingCodecReader {
+func NewSortingCodecReader(in CodecReader, docMap SorterDocMap, metaData *LeafMetaData) *SortingCodecReader {
 	return &SortingCodecReader{
 		FilterCodecReader: NewFilterCodecReader(in),
 		docMap:            docMap,
@@ -43,7 +41,7 @@ func Wrap(reader CodecReader, sort Sort) (CodecReader, error) {
 }
 
 // WrapWithDocMap is the expert version of Wrap that operates directly on a SorterDocMap.
-func WrapWithDocMap(reader CodecReader, docMap *SorterDocMap, sort Sort) CodecReader {
+func WrapWithDocMap(reader CodecReader, docMap SorterDocMap, sort Sort) CodecReader {
 	metaData := reader.GetMetaData()
 	newMetaData := NewLeafMetaData(
 		metaData.CreatedVersionMajor(),
@@ -90,7 +88,7 @@ func (s *SortingCodecReader) GetPostingsReader() FieldsProducer {
 
 type sortingFieldsProducer struct {
 	delegate   FieldsProducer
-	docMap     *SorterDocMap
+	docMap     SorterDocMap
 	fieldInfos *FieldInfos
 }
 
@@ -111,7 +109,7 @@ func (p *sortingFieldsProducer) Terms(field string) (Terms, error) {
 	if terms == nil {
 		return nil, nil
 	}
-	return NewSortingTerms(terms, p.fieldInfos.FieldInfo(field).GetIndexOptions(), p.docMap), nil
+	return NewSortingTerms(terms, p.fieldInfos.FieldInfoByName(field).GetIndexOptions(), p.docMap), nil
 }
 
 func (p *sortingFieldsProducer) Size() int {
@@ -131,7 +129,7 @@ func (s *SortingCodecReader) GetFieldsReader() StoredFieldsReader {
 
 type sortingStoredFieldsReader struct {
 	delegate StoredFieldsReader
-	docMap   *SorterDocMap
+	docMap   SorterDocMap
 }
 
 func (r *sortingStoredFieldsReader) Prefetch(docID int) error {
@@ -178,7 +176,7 @@ func (s *SortingCodecReader) GetPointsReader() PointsReader {
 
 type sortingPointsReader struct {
 	delegate PointsReader
-	docMap   *SorterDocMap
+	docMap   SorterDocMap
 }
 
 func (r *sortingPointsReader) CheckIntegrity() error {
@@ -210,7 +208,7 @@ func (s *SortingCodecReader) GetVectorReader() KnnVectorsReader {
 
 type sortingKnnVectorsReader struct {
 	delegate KnnVectorsReader
-	docMap   *SorterDocMap
+	docMap   SorterDocMap
 }
 
 func (r *sortingKnnVectorsReader) CheckIntegrity() error {
@@ -348,7 +346,7 @@ func (s *SortingCodecReader) GetTermVectorsReader() TermVectorsReader {
 
 type sortingTermVectorsReader struct {
 	delegate TermVectorsReader
-	docMap   *SorterDocMap
+	docMap   SorterDocMap
 }
 
 func (r *sortingTermVectorsReader) Prefetch(doc int) error {

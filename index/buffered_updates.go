@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -171,20 +169,20 @@ func newDeletedTerms() *deletedTerms {
 }
 
 func (dt *deletedTerms) get(term Term) int {
-	hash, ok := dt.deleteTerms[term.Field()]
+	hash, ok := dt.deleteTerms[term.Field]
 	if !ok {
 		return -1
 	}
-	return hash.get(term.Bytes())
+	return hash.get(term.Bytes)
 }
 
 func (dt *deletedTerms) put(term Term, value int) {
-	hash, ok := dt.deleteTerms[term.Field()]
+	hash, ok := dt.deleteTerms[term.Field]
 	if !ok {
 		hash = newBytesRefIntMap(dt.pool, &dt.bytesUsed)
-		dt.deleteTerms[term.Field()] = hash
+		dt.deleteTerms[term.Field] = hash
 	}
-	if hash.put(term.Bytes(), value) {
+	if hash.put(term.Bytes, value) {
 		dt.termsSize++
 	}
 }

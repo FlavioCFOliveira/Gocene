@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -120,12 +118,12 @@ func (r *ExitableDirectoryReader) Leaves() ([]*LeafReaderContext, error) {
 	// Wrap each leaf context with exitable wrapper
 	exitableLeaves := make([]*LeafReaderContext, len(leaves))
 	for i, leaf := range leaves {
-		exitableLeaf := NewExitableLeafReader(leaf.LeafReader().(*LeafReader), r.config)
+		exitableLeaf := NewExitableLeafReader(leaf.LeafReader().(LeafReader), r.config)
 		exitableLeaves[i] = NewLeafReaderContext(
 			exitableLeaf,
 			leaf.Parent(),
-			leaf.Ord(),
-			leaf.DocBase(),
+			leaf.Ord,
+			leaf.DocBase,
 		)
 	}
 
@@ -200,13 +198,13 @@ func IsQueryCancelled(err error) bool {
 // ExitableLeafReader is a LeafReader that wraps another LeafReader
 // and checks for query timeout during document iteration.
 type ExitableLeafReader struct {
-	*LeafReader
-	in     *LeafReader
+	LeafReader
+	in     LeafReader
 	config ExitableReaderConfig
 }
 
 // NewExitableLeafReader creates a new ExitableLeafReader wrapping the given reader.
-func NewExitableLeafReader(in *LeafReader, config ExitableReaderConfig) *ExitableLeafReader {
+func NewExitableLeafReader(in LeafReader, config ExitableReaderConfig) *ExitableLeafReader {
 	return &ExitableLeafReader{
 		LeafReader: in,
 		in:         in,
@@ -215,7 +213,7 @@ func NewExitableLeafReader(in *LeafReader, config ExitableReaderConfig) *Exitabl
 }
 
 // GetDelegate returns the wrapped LeafReader.
-func (r *ExitableLeafReader) GetDelegate() *LeafReader {
+func (r *ExitableLeafReader) GetDelegate() LeafReader {
 	return r.in
 }
 

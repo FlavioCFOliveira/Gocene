@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -48,7 +46,7 @@ type MergeState struct {
 	// Readers are the per-sub-reader CodecReaders being merged, in the same
 	// order as FieldInfos/MaxDocs/LiveDocs. The payload merge steps read their
 	// stored fields / postings / doc values from these (rmp #14/#114).
-	Readers []*CodecReader
+	Readers []CodecReader
 }
 
 // DocMap maps old doc IDs to new doc IDs during a merge. Mirrors

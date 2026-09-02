@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -98,9 +96,10 @@ func (p *NoMergePolicy) FindForcedDeletesMerges(
 }
 
 // UseCompoundFile returns whether to use compound files.
-func (p *NoMergePolicy) UseCompoundFile(infos *SegmentInfos, mergedSegmentInfo *SegmentInfo) bool {
-	// Use the default behavior
-	return false
+func (p *NoMergePolicy) UseCompoundFile(infos *SegmentInfos, newSegment *SegmentCommitInfo, mergeContext MergeContext) (bool, error) {
+	// Mirrors NoMergePolicy.useCompoundFile: keep whatever the segment
+	// already decided, rather than imposing a policy of our own.
+	return newSegment.SegmentInfo().IsCompoundFile(), nil
 }
 
 // NumDeletesToMerge returns the number of deletes for a segment.

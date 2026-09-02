@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -54,7 +52,7 @@ func (r *SegmentReader) initLiveDocs() {
 		r.liveDocs = liveDocs
 		r.hardLiveDocs = liveDocs
 	}
-	r.numDocs = r.segmentCommitInfo.SegmentInfo().DocCount() - r.segmentCommitInfo.GetDelCount()
+	r.numDocs = r.segmentCommitInfo.SegmentInfo().DocCount() - r.segmentCommitInfo.DelCount()
 }
 
 // NewSegmentReaderWithCore creates a new SegmentReader with core readers.
@@ -353,9 +351,34 @@ func (r *SegmentReader) GetMetaData() *IndexReaderMetaData {
 	}
 }
 
-// GetLiveDocs returns a bitset of live (not deleted) docs.
+// GetLiveDocs returns a Bits marking the live (non-deleted) documents of this
+// segment, or nil when no document is deleted. Mirrors
+// SegmentReader.getLiveDocs.
+//
+// PORT NOTE: Gocene's in-memory delete path records deletions on the
+// SegmentCommitInfo as deleted ordinals before they are written to a live-docs
+// file. When any are present they take precedence, and a dense bitset is built
+// from them; otherwise the codec-loaded liveDocs field Java returns directly is
+// used.
 func (r *SegmentReader) GetLiveDocs() util.Bits {
-	return r.liveDocs
+	if r.segmentCommitInfo == nil {
+		return r.liveDocs
+	}
+	ords := r.segmentCommitInfo.GetDeletedOrdinals()
+	if len(ords) == 0 {
+		return r.liveDocs
+	}
+	maxDoc := r.MaxDoc()
+	live := make([]bool, maxDoc)
+	for i := range live {
+		live[i] = true
+	}
+	for _, ord := range ords {
+		if ord >= 0 && ord < maxDoc {
+			live[ord] = false
+		}
+	}
+	return boolBits(live)
 }
 
 // GetHardLiveDocs returns the live-docs bits excluding documents that are not live due to soft-deletes.
@@ -504,7 +527,7 @@ func (r *SegmentReader) dvFieldInfo(field string) *FieldInfo {
 	if fis == nil {
 		return nil
 	}
-	fi := fis.GetByName(field)
+	fi := fis.FieldInfoByName(field)
 	if fi == nil || !fi.DocValuesType().HasDocValues() {
 		return nil
 	}
@@ -539,7 +562,7 @@ func (r *SegmentReader) normsFieldInfo(field string) *FieldInfo {
 	if fis == nil {
 		return nil
 	}
-	fi := fis.GetByName(field)
+	fi := fis.FieldInfoByName(field)
 	if fi == nil || !fi.HasNorms() {
 		return nil
 	}
@@ -555,4 +578,51 @@ func knnTopDocsToIndex(td *utilhnsw.TopDocs) TopDocs {
 		scoreDocs[i] = ScoreDoc{Doc: sd.Doc, Score: sd.Score}
 	}
 	return TopDocs{TotalHits: len(scoreDocs), ScoreDocs: scoreDocs}
+}
+
+// SearchNearestVectorsByte is the byte-vector analogue of
+// SearchNearestVectors.
+//
+// PORT NOTE: Java overloads LeafReader.searchNearestVectors on the target
+// type (float[] against byte[]); Go has no overloading, so the byte flavour
+// carries the encoding in its name.
+func (r *SegmentReader) SearchNearestVectorsByte(field string, target []byte, k int, acceptDocs util.Bits) (TopDocs, error) {
+	d := r.vectorsDelegate()
+	if d == nil {
+		return TopDocs{}, nil
+	}
+	td, err := d.SearchNearestByte(field, target, k, acceptDocs)
+	if err != nil {
+		return TopDocs{}, err
+	}
+	return knnTopDocsToIndex(td), nil
+}
+
+// SearchNearestVectorsCollector runs collector-driven nearest-neighbour
+// float-vector search for target in field, driving the caller-supplied
+// collector through the codec's HNSW traversal instead of an internally
+// created top-k collector. The collector observes leaf-local document ids and
+// is responsible for any further result shaping, such as parent-block
+// diversification.
+//
+// It is a no-op — leaving the collector empty and returning nil — when the
+// segment has no vectors reader. Mirrors
+// LeafReader.searchNearestVectors(field, target, KnnCollector, acceptDocs),
+// which delegates straight to the codec's KnnVectorsReader.
+func (r *SegmentReader) SearchNearestVectorsCollector(field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error {
+	d := r.vectorsDelegate()
+	if d == nil {
+		return nil
+	}
+	return d.SearchNearestFloatCollector(field, target, collector, acceptDocs)
+}
+
+// SearchNearestVectorsByteCollector is the byte-vector analogue of
+// SearchNearestVectorsCollector.
+func (r *SegmentReader) SearchNearestVectorsByteCollector(field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error {
+	d := r.vectorsDelegate()
+	if d == nil {
+		return nil
+	}
+	return d.SearchNearestByteCollector(field, target, collector, acceptDocs)
 }

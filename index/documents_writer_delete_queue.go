@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -82,7 +80,7 @@ func (n *termArrayNode) String() string { return "dels=..." }
 
 type docValuesUpdatesNode struct {
 	baseNode
-	updates []*DocValuesUpdate
+	updates []DocValuesUpdate
 }
 
 func (n *docValuesUpdatesNode) Apply(bufferedDeletes *BufferedUpdates, docIDUpTo int) {
@@ -123,7 +121,7 @@ func NewQueryNode(query Query) Node {
 }
 
 // NewDocValuesUpdatesNode creates a new node for doc values updates.
-func NewDocValuesUpdatesNode(updates []*DocValuesUpdate) Node {
+func NewDocValuesUpdatesNode(updates []DocValuesUpdate) Node {
 	return &docValuesUpdatesNode{updates: updates}
 }
 

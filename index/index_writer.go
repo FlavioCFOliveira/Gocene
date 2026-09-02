@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -8,11 +6,13 @@ package index
 
 import (
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -22,8 +22,8 @@ import (
 type IndexWriter struct {
 	config *IndexWriterConfig
 
-	dirOrig util.Directory // original user directory
-	dir     util.Directory // wrapped with additional checks
+	dirOrig store.Directory // original user directory
+	dir     store.Directory // wrapped with additional checks
 
 	// increments every time a change is completed
 	changeCount atomic.Int64
@@ -171,7 +171,7 @@ func (s *addIndexesMergeSource) GetWriter() *IndexWriter {
 }
 
 // NewIndexWriter constructs a new IndexWriter per the settings given in conf.
-func NewIndexWriter(d util.Directory, conf *IndexWriterConfig) (*IndexWriter, error) {
+func NewIndexWriter(d store.Directory, conf *IndexWriterConfig) (*IndexWriter, error) {
 	if conf == nil {
 		panic("config must not be null")
 	}
@@ -318,7 +318,7 @@ func (w *IndexWriter) newSegmentName() string {
 	defer w.segmentInfos.mu.Unlock()
 	w.changeCount.Add(1)
 	w.segmentInfos.Changed()
-	return "_" + util.LongToString(w.segmentInfos.Counter(), 36)
+	return "_" + strconv.FormatInt(w.segmentInfos.Counter(), 36)
 }
 
 func (w *IndexWriter) changed() {
@@ -518,25 +518,6 @@ func (w *IndexWriter) finishCommit() error {
 	return nil
 }
 
-func (w *IndexWriter) GetReader(applyAllDeletes bool) (*DirectoryReader, error) {
-	w.ensureOpen()
-	w.fullFlushLock.Lock()
-	defer w.fullFlushLock.Unlock()
-
-	w.docWriter.FlushAllThreads()
-	w.publishFlushedSegments(true)
-	w.applyAllDeletesAndUpdates()
-	w.writeReaderPool(true)
-
-	w.finishGetReaderMerge()
-
-	reader, err := StandardDirectoryReader.Open(w, w.readerPool.GetReaderFactory, w.segmentInfos, applyAllDeletes, true)
-	if err != nil {
-		return nil, err
-	}
-	return reader, nil
-}
-
 func (w *IndexWriter) finishGetReaderMerge() {
 	waitMillis := w.liveConfig.GetMaxFullFlushMergeWaitMillis()
 	if waitMillis <= 0 {
@@ -562,7 +543,7 @@ func (w *IndexWriter) GetAnalyzer() analysis.Analyzer {
 	return w.config.analyzer
 }
 
-func (w *IndexWriter) GetDirectory() util.Directory {
+func (w *IndexWriter) GetDirectory() store.Directory {
 	return w.dirOrig
 }
 
@@ -789,17 +770,17 @@ func (w *IndexWriter) getFieldNumberMap() *FieldNumbers {
 }
 
 func readFieldInfos(si *SegmentCommitInfo) *FieldInfos {
-	codec := si.Info.GetCodec()
+	codec := LookupCodecByName(si.SegmentInfo().Codec())
 	reader := codec.FieldInfosFormat()
 	if si.HasFieldUpdates() {
-		suffix := util.LongToString(si.GetFieldInfosGen(), 36)
-		return reader.Read(si.Info.Dir, si.Info, suffix, util.ReadOnce)
-	} else if si.Info.GetUseCompoundFile() {
-		cfs := codec.CompoundFormat().GetCompoundReader(si.Info.Dir, si.Info)
+		suffix := strconv.FormatInt(si.FieldInfosGen(), 36)
+		return reader.Read(si.SegmentInfo().Directory(), si.SegmentInfo(), suffix, store.IOContextReadOnce)
+	} else if si.SegmentInfo().IsCompoundFile() {
+		cfs := codec.CompoundFormat().GetCompoundReader(si.SegmentInfo().Directory(), si.SegmentInfo())
 		defer cfs.Close()
-		return reader.Read(cfs, si.Info, "", util.ReadOnce)
+		return reader.Read(cfs, si.SegmentInfo(), "", store.IOContextReadOnce)
 	}
-	return reader.Read(si.Info.Dir, si.Info, "", util.ReadOnce)
+	return reader.Read(si.SegmentInfo().Directory(), si.SegmentInfo(), "", store.IOContextReadOnce)
 }
 
 type mapEntry[K, V any] struct {
@@ -893,14 +874,14 @@ func (w *IndexWriter) publishFlushedSegment(
 	softDeletesField := w.config.GetSoftDeletesField()
 	var fieldInfo *FieldInfo
 	if softDeletesField != "" {
-		fieldInfo = fieldInfos.GetByName(softDeletesField)
+		fieldInfo = fieldInfos.FieldInfoByName(softDeletesField)
 	}
 
 	hasInitialSoftDeleted := false
 	if fieldInfo != nil && fieldInfo.DocValuesGen() == -1 && fieldInfo.DocValuesType() != DocValuesTypeNone {
 		hasInitialSoftDeleted = true
 	}
-	isFullyHardDeleted := newSegment.GetDelCount() == newSegment.Info.DocCount()
+	isFullyHardDeleted := newSegment.DelCount() == newSegment.SegmentInfo().DocCount()
 
 	if hasInitialSoftDeleted || isFullyHardDeleted {
 		rau := w.getPooledInstance(newSegment, true)
@@ -1005,7 +986,7 @@ func (w *IndexWriter) mergeInternal(merge *OneMerge) error {
 	//- SegmentMerger
 	merger := index.NewSegmentMerger(
 		readers,
-		merge.Info.Info,
+		merge.Info.SegmentInfo(),
 		w.liveConfig.GetInfoStream(),
 		dirWrapper,
 		w.globalFieldNumberMap,
@@ -1034,14 +1015,14 @@ func (w *IndexWriter) mergeInternal(merge *OneMerge) error {
 	}
 
 	merge.SetMergeInfo(spi.NewSegmentCommitInfo(
-		merge.Info.Info, 0, 0, -1, -1, -1, util.RandomID(),
+		merge.Info.SegmentInfo(), 0, 0, -1, -1, -1, util.RandomID(),
 	))
-	merge.GetMergeInfo().Info.SetFiles(dirWrapper.GetCreatedFiles())
+	merge.GetMergeInfo().SegmentInfo().SetFiles(dirWrapper.GetCreatedFiles())
 	dirWrapper.ClearCreatedFiles()
 
 	// Write SegmentInfo
-	codec := w.liveConfig.GetCodec()
-	if err := codec.FieldInfosFormat().Write(w.dir, merge.Info.Info, "", util.ReadOnce); err != nil {
+	codec := LookupCodecByName(w.liveConfig.Codec())
+	if err := codec.FieldInfosFormat().Write(w.dir, merge.Info.SegmentInfo(), "", store.IOContextReadOnce); err != nil {
 		return err
 	}
 
@@ -1142,7 +1123,7 @@ func (w *IndexWriter) commitMerge(merge *OneMerge, docMaps []DocMap) bool {
 	w.segmentInfos.ApplyMergeChanges(merge, false)
 
 	// Adjust pendingNumDocs
-	delDocCount := merge.TotalMaxDoc - merge.Info.Info.MaxDoc()
+	delDocCount := merge.TotalMaxDoc - merge.Info.SegmentInfo().DocCount()
 	w.adjustPendingNumDocs(-delDocCount)
 
 	return true
@@ -1237,19 +1218,5 @@ func (w *IndexWriter) GetReader(applyAllDeletes, writeAllDeletes bool) (*Standar
 	w.docWriter.FinishFullFlush(true)
 
 	return reader, nil
-}
-
-func (w *IndexWriter) commitMerge(merge *OneMerge, docMaps []DocMap) bool {
-	if merge.IsAborted() {
-		return false
-	}
-
-	w.segmentInfos.ApplyMergeChanges(merge, false)
-
-	// Adjust pendingNumDocs
-	delDocCount := merge.TotalMaxDoc - merge.Info.Info.MaxDoc()
-	w.adjustPendingNumDocs(-delDocCount)
-
-	return true
 }
 

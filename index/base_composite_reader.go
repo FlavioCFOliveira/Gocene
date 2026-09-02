@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -145,7 +143,7 @@ func (r *BaseCompositeReader) GetContext() (IndexReaderContext, error) {
 	// Create leaf contexts
 	r.leafContexts = make([]*LeafReaderContext, len(r.subReaders))
 	for i, subReader := range r.subReaders {
-		leafReader, ok := subReader.(*LeafReader)
+		leafReader, ok := subReader.(LeafReader)
 		if !ok {
 			return nil, fmt.Errorf("sub-reader %d is not a LeafReader", i)
 		}

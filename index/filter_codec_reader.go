@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -15,7 +13,7 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.index.FilterCodecReader.
 type FilterCodecReader struct {
-	in *CodecReader
+	in CodecReader
 
 	// Overrides for WrapLiveDocs
 	liveDocsOverride util.Bits
@@ -23,7 +21,7 @@ type FilterCodecReader struct {
 }
 
 // NewFilterCodecReader creates a new FilterCodecReader wrapping the given reader.
-func NewFilterCodecReader(in *CodecReader) *FilterCodecReader {
+func NewFilterCodecReader(in CodecReader) *FilterCodecReader {
 	return &FilterCodecReader{
 		in: in,
 	}
@@ -47,7 +45,7 @@ func (r *FilterCodecReader) GetDelegate() LeafReaderInterface {
 }
 
 // WrapLiveDocs returns a filtered codec reader with the given live docs and numDocs.
-func WrapLiveDocs(reader *CodecReader, liveDocs util.Bits, numDocs int) *FilterCodecReader {
+func WrapLiveDocs(reader CodecReader, liveDocs util.Bits, numDocs int) *FilterCodecReader {
 	return &FilterCodecReader{
 		in:               reader,
 		liveDocsOverride: liveDocs,

@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -66,7 +64,7 @@ type SegmentMerger struct {
 // It returns an error if context is not a MERGE context, mirroring the
 // IllegalArgumentException thrown by Lucene's constructor.
 func NewSegmentMerger(
-	readers []*CodecReader,
+	readers []CodecReader,
 	segmentInfo *SegmentInfo,
 	codec Codec,
 	infoStream util.InfoStream,
@@ -221,7 +219,7 @@ func (sm *SegmentMerger) mergeFieldInfos() error {
 		iter := readerFieldInfos.Iterator()
 		for iter.HasNext() {
 			fi := iter.Next()
-			if builder.GetByName(fi.Name()) != nil {
+			if builder.FieldInfoByName(fi.Name()) != nil {
 				continue
 			}
 			// The merged segment is brand-new data, so doc-values generations and
@@ -234,7 +232,7 @@ func (sm *SegmentMerger) mergeFieldInfos() error {
 			// index, so two source segments may have assigned the same number to
 			// different field names. Remap on collision so the merged FieldInfos
 			// remains valid; consumers resolve values by field name, not number.
-			if builder.GetByNumber(mergedFI.Number()) != nil {
+			if builder.FieldInfoByNumber(mergedFI.Number()) != nil {
 				mergedFI = schema.NewFieldInfo(mergedFI.Name(), builder.GetNextFieldNumber(), mergeFieldInfoOptions(mergedFI))
 			}
 			if err := builder.Add(mergedFI); err != nil {

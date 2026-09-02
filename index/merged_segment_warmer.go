@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -12,7 +10,7 @@ package index
 // org.apache.lucene.index.IndexWriter.IndexReaderWarmer (merged-segment warmer).
 //
 // The Warm parameter is a leaf-reader surface that is satisfied by both
-// *LeafReader and *SegmentReader so that unit tests can exercise a warmer
+// LeafReader and *SegmentReader so that unit tests can exercise a warmer
 // against a minimal stub, while production merges pass the real SegmentReader.
 type MergedSegmentWarmer interface {
 	// Warm warms the provided leaf reader. Errors are treated as non-fatal by
@@ -21,7 +19,7 @@ type MergedSegmentWarmer interface {
 }
 
 // SegmentWarmerLeafReader is the minimal leaf-reader surface needed by
-// MergedSegmentWarmer. It is implemented by *LeafReader and *SegmentReader.
+// MergedSegmentWarmer. It is implemented by LeafReader and *SegmentReader.
 // This interface is kept narrow to avoid coupling warmers to the full
 // index.LeafReaderInterface.
 type SegmentWarmerLeafReader interface {

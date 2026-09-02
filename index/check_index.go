@@ -1,5 +1,3 @@
-//go:build ignore
-
 package index
 
 import (
@@ -527,7 +525,7 @@ func (ci *CheckIndex) testSegmentWithWriter(w io.Writer, sis *SegmentInfos, info
 		MaxDoc: info.MaxDoc(),
 	}
 
-	version := info.Version()
+	version := info.SegmentInfo().Version()
 	if info.MaxDoc() <= 0 {
 		segInfoStat.Error = NewCheckIndexError(fmt.Sprintf(" illegal number of documents: maxDoc=%d", info.MaxDoc()), nil)
 		return segInfoStat
@@ -550,17 +548,17 @@ func (ci *CheckIndex) testSegmentWithWriter(w io.Writer, sis *SegmentInfos, info
 
 	writeMsg(fmt.Sprintf("    version=%s", version))
 	writeMsg(fmt.Sprintf("    id=%x", info.Id()))
-	codec := info.Codec()
+	codec := info.SegmentInfo().Codec()
 	writeMsg(fmt.Sprintf("    codec=%s", codec))
 	segInfoStat.Codec = codec
-	writeMsg(fmt.Sprintf("    compound=%v", info.UseCompoundFile()))
-	segInfoStat.Compound = info.UseCompoundFile()
-	writeMsg(fmt.Sprintf("    numFiles=%d", len(info.Files())))
-	segInfoStat.NumFiles = len(info.Files())
+	writeMsg(fmt.Sprintf("    compound=%v", info.SegmentInfo().IsCompoundFile()))
+	segInfoStat.Compound = info.SegmentInfo().IsCompoundFile()
+	writeMsg(fmt.Sprintf("    numFiles=%d", len(info.GetFiles())))
+	segInfoStat.NumFiles = len(info.GetFiles())
 	segInfoStat.SizeMB = float64(info.SizeInBytes()) / (1024.0 * 1024.0)
 
 	writeMsg(fmt.Sprintf("    size (MB)=%.2f", segInfoStat.SizeMB))
-	diagnostics := info.Diagnostics()
+	diagnostics := info.SegmentInfo().GetDiagnostics()
 	segInfoStat.Diagnostics = diagnostics
 	if len(diagnostics) > 0 {
 		writeMsg(fmt.Sprintf("    diagnostics = %v", diagnostics))
@@ -656,7 +654,7 @@ func (ci *CheckIndex) testSegmentWithWriter(w io.Writer, sis *SegmentInfos, info
 		segInfoStat.PointsStatus = ci.testPoints(reader, w)
 		segInfoStat.VectorValuesStatus = ci.testVectors(reader, w)
 
-		indexSort := info.IndexSort()
+		indexSort := info.SegmentInfo().IndexSort()
 		if indexSort != nil {
 			segInfoStat.IndexSortStatus = ci.testSort(reader, indexSort, w)
 		}
@@ -1299,11 +1297,11 @@ func (ci *CheckIndex) checkImpacts(impacts Impacts, lastTarget int) error {
 
 	for level := 0; level < numLevels; level++ {
 		perLevelImpacts := impacts.GetImpacts(level)
-		if perLevelImpacts.Size() <= 0 {
+		if perLevelImpacts.Size <= 0 {
 			return fmt.Errorf("Got empty list of impacts on level %d", level)
 		}
-		firstFreq := perLevelImpacts.Freqs()[0]
-		firstNorm := perLevelImpacts.Norms()[0]
+		firstFreq := perLevelImpacts.Freqs[0]
+		firstNorm := perLevelImpacts.Norms[0]
 		if firstFreq < 1 {
 			return fmt.Errorf("First impact had a freq <= 0: %d", firstFreq)
 		}
@@ -1312,9 +1310,9 @@ func (ci *CheckIndex) checkImpacts(impacts Impacts, lastTarget int) error {
 		}
 		prevFreq := firstFreq
 		prevNorm := firstNorm
-		for i := 1; i < perLevelImpacts.Size(); i++ {
-			freq := perLevelImpacts.Freqs()[i]
-			norm := perLevelImpacts.Norms()[i]
+		for i := 1; i < perLevelImpacts.Size; i++ {
+			freq := perLevelImpacts.Freqs[i]
+			norm := perLevelImpacts.Norms[i]
 			if freq <= prevFreq || norm <= prevNorm {
 				return fmt.Errorf("Impacts are not ordered or contain dups")
 			}

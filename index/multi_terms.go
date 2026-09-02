@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -10,16 +8,6 @@ import (
 	"errors"
 	"fmt"
 )
-
-// ReaderSlice records the (start, length, readerIndex) coordinates of a slice
-// of a parent IndexReader's doc-ID space. Mirrors
-// org.apache.lucene.index.ReaderSlice (Apache Lucene 10.4.0). Lucene places
-// this type in the same package; Gocene keeps it next to its sole user.
-type ReaderSlice struct {
-	Start       int
-	Length      int
-	ReaderIndex int
-}
 
 // MultiTerms aggregates Terms from several sub-segments into one virtual
 // Terms instance. Mirrors org.apache.lucene.index.MultiTerms (Apache Lucene

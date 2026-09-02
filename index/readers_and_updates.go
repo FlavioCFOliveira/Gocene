@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -737,10 +735,10 @@ func (r *ReadersAndUpdates) writeFieldInfosGen(
 	segmentSuffix := strconv.FormatInt(nextFieldInfosGen, 36)
 
 	estInfosSize := int64(40 + 90*fieldInfos.Size())
-	infosContext := store.NewFlushIOContext(r.info.Info.MaxDoc(), estInfosSize)
+	infosContext := store.NewFlushIOContext(r.info.SegmentInfo().DocCount(), estInfosSize)
 
 	trackingDir := store.NewTrackingDirectoryWrapper(dir)
-	err := infosFormat.Write(trackingDir, r.info.Info, segmentSuffix, fieldInfos, infosContext)
+	err := infosFormat.Write(trackingDir, r.info.SegmentInfo(), segmentSuffix, fieldInfos, infosContext)
 	if err != nil {
 		return nil, err
 	}
@@ -755,7 +753,7 @@ func (r *ReadersAndUpdates) handleDVUpdates(
 	reader *SegmentReader,
 	fieldFiles map[int]map[string]int64,
 	maxDelGen int64,
-	infoStream *util.InfoStream,
+	infoStream util.InfoStream,
 ) error {
 	for field, updates := range r.pendingDVUpdates {
 		if len(updates) == 0 {
@@ -785,7 +783,7 @@ func (r *ReadersAndUpdates) handleDVUpdates(
 
 		nextDocValuesGen := r.info.NextDocValuesGen()
 		segmentSuffix := strconv.FormatInt(nextDocValuesGen, 36)
-		updatesContext := store.NewFlushIOContext(r.info.Info.MaxDoc(), bytes)
+		updatesContext := store.NewFlushIOContext(r.info.SegmentInfo().DocCount(), bytes)
 
 		fieldInfo := infos.FieldInfoByName(field)
 		if fieldInfo == nil {
@@ -795,7 +793,7 @@ func (r *ReadersAndUpdates) handleDVUpdates(
 
 		fieldInfos := schema.NewFieldInfos([]*schema.FieldInfo{fieldInfo})
 		trackingDir := store.NewTrackingDirectoryWrapper(dir)
-		state := NewSegmentWriteStateWithSuffix(infoStream, trackingDir, r.info.Info, fieldInfos, nil, updatesContext, segmentSuffix)
+		state := NewSegmentWriteStateWithSuffix(infoStream, trackingDir, r.info.SegmentInfo(), fieldInfos, nil, updatesContext, segmentSuffix)
 
 		fieldsConsumer, err := dvFormat.FieldsConsumer(state)
 		if err != nil {
@@ -840,7 +838,7 @@ func (r *ReadersAndUpdates) WriteFieldUpdates(
 	dir store.Directory,
 	fieldNumbers *schema.FieldNumbers,
 	maxDelGen int64,
-	infoStream *util.InfoStream,
+	infoStream util.InfoStream,
 ) (bool, error) {
 	startTime := util.Now()
 	newDVFiles := make(map[int]map[string]int64)
@@ -907,7 +905,7 @@ func (r *ReadersAndUpdates) WriteFieldUpdates(
 	}
 	fieldInfos = schema.NewFieldInfos(mapToSlice(byName))
 
-	codec := r.info.Info.GetCodec()
+	codec := LookupCodecByName(r.info.SegmentInfo().Codec())
 	err := r.handleDVUpdates(fieldInfos, trackingDir, codec.DocValuesFormat(), reader, newDVFiles, maxDelGen, infoStream)
 	if err != nil {
 		return false, err
@@ -924,7 +922,7 @@ func (r *ReadersAndUpdates) WriteFieldUpdates(
 	_ = bytesFreed
 
 	r.info.SetFieldInfosFiles(fieldInfosFiles)
-	for fieldNum, files := range r.info.GetDocValuesUpdatesFiles() {
+	for fieldNum, files := range r.info.DocValuesUpdatesFiles() {
 		if _, ok := newDVFiles[fieldNum]; !ok {
 			newDVFiles[fieldNum] = files
 		}
@@ -949,256 +947,6 @@ func mapToSlice(m map[string]*schema.FieldInfo) []*schema.FieldInfo {
 		s = append(s, v)
 	}
 	return s
-}
-
-// mergedDocValues merges the current on-disk DV with an incoming update DV
-// instance and merges the two instances giving the incoming update precedence
-// in terms of values, in other words the values of the update always win
-// over the on-disk version.
-type mergedDocValues[T any] struct {
-	updateIterator DocValuesFieldUpdatesIterator
-	docIDOut       int
-	docIDOnDisk    int
-	updateDocID    int
-	onDisk         T
-	update         T
-	current        T
-	scratch        *util.FixedBitSet
-}
-
-func newMergedDocValues[T any](onDisk T, update T, updateIterator DocValuesFieldUpdatesIterator) *mergedDocValues[T] {
-	return &mergedDocValues[T]{
-		onDisk:         onDisk,
-		update:         update,
-		updateIterator: updateIterator,
-		docIDOut:       -1,
-		docIDOnDisk:    -1,
-		updateDocID:    -1,
-	}
-}
-
-func (m *mergedDocValues[T]) nextDoc(onDiskNext func() int, updateNext func() int) int {
-	hasValue := false
-	for {
-		if m.docIDOnDisk == m.docIDOut {
-			m.docIDOnDisk = onDiskNext()
-		}
-		if m.updateDocID == m.docIDOut {
-			m.updateDocID = updateNext()
-		}
-		if m.docIDOnDisk < m.updateDocID {
-			m.docIDOut = m.docIDOnDisk
-			m.current = m.onDisk
-			hasValue = true
-		} else {
-			m.docIDOut = m.updateDocID
-			if m.docIDOut != util.NO_MORE_DOCS {
-				m.current = m.update
-				hasValue = m.updateIterator.HasValue()
-			} else {
-				hasValue = true
-			}
-		}
-		if hasValue {
-			break
-		}
-	}
-	return m.docIDOut
-}
-
-func (m *mergedDocValues[T]) intoBitSet(upTo int, bitSet *util.FixedBitSet, offset int, onDiskIntoBitSet func(*util.FixedBitSet, int, int)) {
-	if m.onDisk == nil {
-		for doc := m.update.DocID(); doc < upTo; doc = m.update.NextDoc() {
-			if m.updateIterator.HasValue() {
-				bitSet.Set(doc - offset)
-			} else {
-				bitSet.Clear(doc - offset)
-			}
-		}
-		return
-	}
-
-	if m.scratch == nil {
-		m.scratch = util.NewFixedBitSet(bitSet.Length())
-	} else {
-		m.scratch = util.EnsureCapacityAndClear(m.scratch, bitSet.Length()-1)
-	}
-
-	onDiskIntoBitSet(m.scratch, offset, upTo)
-	m.docIDOnDisk = m.onDisk.DocID()
-
-	for doc := m.update.DocID(); doc < upTo; doc = m.update.NextDoc() {
-		if m.updateIterator.HasValue() {
-			m.scratch.Set(doc - offset)
-		} else {
-			m.scratch.Clear(doc - offset)
-		}
-	}
-
-	util.FixedBitSetOrRange(m.scratch, 0, bitSet, 0, bitSet.Length())
-
-	for {
-		for m.update.DocID() < m.docIDOnDisk && !m.updateIterator.HasValue() {
-			m.update.NextDoc()
-		}
-		if m.docIDOnDisk != util.NO_MORE_DOCS &&
-			m.update.DocID() == m.docIDOnDisk &&
-			!m.updateIterator.HasValue() {
-			m.docIDOnDisk = m.onDisk.NextDoc()
-		} else {
-			break
-		}
-	}
-
-	m.updateDocID = m.update.DocID()
-	if m.docIDOnDisk < m.updateDocID {
-		m.docIDOut = m.docIDOnDisk
-		m.current = m.onDisk
-	} else {
-		m.docIDOut = m.updateDocID
-		m.current = m.update
-	}
-}
-
-type numericMergedDocValues struct {
-	merged *mergedDocValues[NumericDocValues]
-}
-
-func (n *numericMergedDocValues) LongValue() (int64, error) {
-	return n.merged.current.LongValue()
-}
-
-func (n *numericMergedDocValues) Advance(target int) (int, error) {
-	return n.merged.nextDoc(n.merged.onDisk.NextDoc, n.merged.update.NextDoc), nil
-}
-
-func (n *numericMergedDocValues) AdvanceExact(target int) (bool, error) {
-	panic("unsupported")
-}
-
-func (n *numericMergedDocValues) DocID() int {
-	return n.merged.docIDOut
-}
-
-func (n *numericMergedDocValues) NextDoc() (int, error) {
-	return n.merged.nextDoc(n.merged.onDisk.NextDoc, n.merged.update.NextDoc), nil
-}
-
-func (n *numericMergedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
-	n.merged.intoBitSet(upTo, bitSet, offset, func(s *util.FixedBitSet, off, u int) {
-		n.merged.onDisk.IntoBitSet(u, s, off)
-	})
-	return nil
-}
-
-func (n *numericMergedDocValues) Cost() int64 {
-	return n.merged.onDisk.Cost()
-}
-
-type binaryMergedDocValues struct {
-	merged *mergedDocValues[BinaryDocValues]
-}
-
-func (b *binaryMergedDocValues) BinaryValue() ([]byte, error) {
-	return b.merged.current.BinaryValue()
-}
-
-func (b *binaryMergedDocValues) Advance(target int) (int, error) {
-	return b.merged.nextDoc(b.merged.onDisk.NextDoc, b.merged.update.NextDoc), nil
-}
-
-func (b *binaryMergedDocValues) AdvanceExact(target int) (bool, error) {
-	panic("unsupported")
-}
-
-func (b *binaryMergedDocValues) DocID() int {
-	return b.merged.docIDOut
-}
-
-func (b *binaryMergedDocValues) NextDoc() (int, error) {
-	return b.merged.nextDoc(b.merged.onDisk.NextDoc, b.merged.update.NextDoc), nil
-}
-
-func (b *binaryMergedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
-	b.merged.intoBitSet(upTo, bitSet, offset, func(s *util.FixedBitSet, off, u int) {
-		b.merged.onDisk.IntoBitSet(u, s, off)
-	})
-	return nil
-}
-
-func (b *binaryMergedDocValues) Cost() int64 {
-	return b.merged.onDisk.Cost()
-}
-
-// GetReadOnlyClone is the entry-point that Lucene uses to hand a fresh
-// SegmentReader (with replacement live-docs) to consumers that must see
-// the latest deletes.
-func (r *ReadersAndUpdates) GetReadOnlyClone() (*SegmentReader, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.reader == nil {
-		r.reader = NewSegmentReader(r.info)
-	}
-
-	liveDocs := r.pendingDeletes.GetLiveDocs()
-	if liveDocs != nil {
-		return NewSegmentReaderClone(
-			r.info,
-			r.reader,
-			liveDocs,
-			r.pendingDeletes.GetHardLiveDocs(),
-			r.pendingDeletes.NumDocs(),
-			true), nil
-	}
-
-	// liveDocs == nil and reader != nil. That can only be if there are no deletes
-	r.reader.IncRef()
-	return r.reader, nil
-}
-
-// NumDeletesToMerge returns the number of deletes that would be applied
-// when this segment is merged with the supplied [MergePolicy]. The
-// underlying PendingDeletes.numDeletesToMerge entry point is not yet
-// ported. See file header.
-func (r *ReadersAndUpdates) NumDeletesToMerge(_ MergePolicy) (int, error) {
-	return 0, ErrReadersAndUpdatesMergeReaderUnsupported
-}
-
-// GetLiveDocs returns a snapshot of the live docs.
-func (r *ReadersAndUpdates) GetLiveDocs() (util.Bits, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.pendingDeletes.GetLiveDocs(), nil
-}
-
-// GetHardLiveDocs returns the live-docs bits excluding soft-deleted
-// documents.
-func (r *ReadersAndUpdates) GetHardLiveDocs() (util.Bits, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.pendingDeletes.GetHardLiveDocs(), nil
-}
-
-// DropChanges discards any pending changes against this segment.
-// Mirrors {@code ReadersAndUpdates#dropChanges()}.
-//
-// DIVERGENCE: Lucene delegates to PendingDeletes.dropChanges() and then
-// drops merging updates. The Gocene PendingDeletes has no equivalent
-// hook, so the docID set is cleared directly and merging updates are
-// dropped via [ReadersAndUpdates.DropMergingUpdates].
-func (r *ReadersAndUpdates) DropChanges() {
-	r.mu.Lock()
-	r.pendingDeletes.clearLocked()
-	r.mu.Unlock()
-	r.DropMergingUpdates()
-}
-
-// WriteLiveDocs flushes any pending live-docs changes to disk.
-func (r *ReadersAndUpdates) WriteLiveDocs(dir store.Directory) (bool, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.pendingDeletes.WriteLiveDocs(dir)
 }
 
 // anyDVUpdatesEligibleLocked mirrors the early-exit loop at the head of
@@ -1335,7 +1083,7 @@ func (r *ReadersAndUpdates) IsFullyDeleted() (bool, error) {
 		}
 	}
 
-	return len(r.pendingDeletes.docIDs) == r.info.Info.MaxDoc(), nil
+	return r.pendingDeletes.NumPendingDeletes() == r.info.SegmentInfo().DocCount(), nil
 }
 
 // KeepFullyDeletedSegment asks the supplied MergePolicy whether a
@@ -1372,55 +1120,28 @@ func (r *ReadersAndUpdates) String() string {
 
 // ----- PendingDeletes adapters --------------------------------------------
 //
-// The minimum PendingDeletes shape (a docID set + mutex) does not expose
-// the helpers the orchestrator needs. The wrappers below adapt that
-// shape to the call sites above, holding [PendingDeletes.mu] for the
-// duration of the call so the rest of the file does not have to think
-// about it.
-//
-// delCountLocked returns the number of recorded pending deletes. The
-// caller must hold r.mu (not PendingDeletes.mu); this helper acquires
-// PendingDeletes.mu itself.
+// These three helpers name, for the orchestrator above, the PendingDeletes
+// operations Lucene's ReadersAndUpdates calls directly on the field:
+// numPendingDeletes(), delete(int) and dropChanges(). Each is a thin forward
+// to the corresponding method on the ported PendingDeletes, which does its own
+// locking.
+
+// delCountLocked returns the number of recorded pending deletes. Mirrors
+// PendingDeletes.numPendingDeletes().
 func (p *PendingDeletes) delCountLocked() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return len(p.docIDs)
+	return p.NumPendingDeletes()
 }
 
-// recordDeleteLocked records a delete and returns true iff the docID
-// was not previously present. Same locking discipline as
-// [PendingDeletes.delCountLocked].
+// recordDeleteLocked records a delete, reporting whether the document was not
+// already deleted. Mirrors PendingDeletes.delete(int).
 func (p *PendingDeletes) recordDeleteLocked(docID int) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.docIDs[docID] {
-		return false
-	}
-	p.docIDs[docID] = true
-	return true
+	return p.Delete(docID)
 }
 
-// clearLocked discards every recorded pending delete. Same locking
-// discipline as [PendingDeletes.delCountLocked].
+// clearLocked discards every recorded pending delete. Mirrors
+// PendingDeletes.dropChanges().
 func (p *PendingDeletes) clearLocked() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	for k := range p.docIDs {
-		delete(p.docIDs, k)
-	}
-}
-
-// String renders the pending-deletes set in a stable order for the
-// orchestrator's toString output. Mirrors the human-readable
-// PendingDeletes#toString in Lucene by reporting the count only — the
-// raw docID set is intentionally not exposed in the string form.
-func (p *PendingDeletes) String() string {
-	if p == nil {
-		return "<nil>"
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return fmt.Sprintf("PendingDeletes(delCount=%d)", len(p.docIDs))
+	p.DropChanges()
 }
 
 // ----- dvUpdatePacket adapter on BaseDocValuesFieldUpdates ----------------

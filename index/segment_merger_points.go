@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -67,7 +65,7 @@ type intersectablePointValues interface {
 }
 
 // segPointValues returns the source reader's PointValues for field, or nil.
-func segPointValues(reader *CodecReader, field string) PointValues {
+func segPointValues(reader CodecReader, field string) PointValues {
 	pr := reader.GetPointsReader()
 	if pr == nil {
 		return nil

@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -28,9 +26,9 @@ import (
 // A non-empty SortField.Selector marks a multi-valued field
 // (SortedNumericSortField / SortedSetSortField); the selector ("min" / "max")
 // chooses which of a document's values participates in the order.
-func buildComparableProviders(sf SortField, readers []*CodecReader) ([]ComparableProvider, error) {
-	multiValued := sf.Selector() != ""
-	switch sf.SortType() {
+func buildComparableProviders(sf SortField, readers []CodecReader) ([]ComparableProvider, error) {
+	multiValued := sf.Selector != ""
+	switch sf.Type {
 	case SortTypeInt, SortTypeLong, SortTypeFloat, SortTypeDouble:
 		if multiValued {
 			return buildSortedNumericProviders(sf, readers)
@@ -42,7 +40,7 @@ func buildComparableProviders(sf SortField, readers []*CodecReader) ([]Comparabl
 		}
 		return buildSortedProviders(sf, readers)
 	default:
-		return nil, fmt.Errorf("index: index sort: unsupported sort type %v for field %q", sf.SortType(), sf.Field())
+		return nil, fmt.Errorf("index: index sort: unsupported sort type %v for field %q", sf.Type, sf.Field)
 	}
 }
 
@@ -67,8 +65,8 @@ func encodeNumericComparable(st SortType, raw int64) int64 {
 // so a caller that sets it to the type minimum/maximum gets missing-first /
 // missing-last placement; an unset missing value defaults to zero.
 func numericMissingComparable(sf SortField) int64 {
-	mv := sf.MissingValue()
-	switch sf.SortType() {
+	mv := sf.MissingValue
+	switch sf.Type {
 	case SortTypeFloat:
 		var f float32
 		switch v := mv.(type) {
@@ -105,7 +103,7 @@ func numericMissingComparable(sf SortField) int64 {
 // every present value (STRING_LAST). Present comparables are non-negative
 // global ordinals, so the int64 extremes are always outside their range.
 func stringMissingComparable(sf SortField) int64 {
-	if stringMissingFirst(sf.MissingValue()) {
+	if stringMissingFirst(sf.MissingValue) {
 		return math.MinInt64
 	}
 	return math.MaxInt64
@@ -128,7 +126,7 @@ func stringMissingFirst(mv interface{}) bool {
 	return false
 }
 
-func buildNumericProviders(sf SortField, readers []*CodecReader) ([]ComparableProvider, error) {
+func buildNumericProviders(sf SortField, readers []CodecReader) ([]ComparableProvider, error) {
 	missing := numericMissingComparable(sf)
 	providers := make([]ComparableProvider, len(readers))
 	for idx, reader := range readers {
@@ -147,7 +145,7 @@ func buildNumericProviders(sf SortField, readers []*CodecReader) ([]ComparablePr
 	return providers, nil
 }
 
-func materializeNumeric(sf SortField, reader *CodecReader, missing int64) ([]int64, error) {
+func materializeNumeric(sf SortField, reader CodecReader, missing int64) ([]int64, error) {
 	maxDoc := 0
 	if reader != nil {
 		maxDoc = reader.MaxDoc()
@@ -160,7 +158,7 @@ func materializeNumeric(sf SortField, reader *CodecReader, missing int64) ([]int
 		return vals, nil
 	}
 	prod := dvProducerOf(reader)
-	fi := subFieldInfo(reader, sf.Field())
+	fi := subFieldInfo(reader, sf.Field)
 	if prod == nil || fi == nil {
 		return vals, nil
 	}
@@ -183,14 +181,14 @@ func materializeNumeric(sf SortField, reader *CodecReader, missing int64) ([]int
 		if err != nil {
 			return nil, err
 		}
-		vals[d] = encodeNumericComparable(sf.SortType(), raw)
+		vals[d] = encodeNumericComparable(sf.Type, raw)
 	}
 	return vals, nil
 }
 
-func buildSortedNumericProviders(sf SortField, readers []*CodecReader) ([]ComparableProvider, error) {
+func buildSortedNumericProviders(sf SortField, readers []CodecReader) ([]ComparableProvider, error) {
 	missing := numericMissingComparable(sf)
-	useMax := sf.Selector() == "max"
+	useMax := sf.Selector == "max"
 	providers := make([]ComparableProvider, len(readers))
 	for idx, reader := range readers {
 		vals, err := materializeSortedNumeric(sf, reader, missing, useMax)
@@ -208,7 +206,7 @@ func buildSortedNumericProviders(sf SortField, readers []*CodecReader) ([]Compar
 	return providers, nil
 }
 
-func materializeSortedNumeric(sf SortField, reader *CodecReader, missing int64, useMax bool) ([]int64, error) {
+func materializeSortedNumeric(sf SortField, reader CodecReader, missing int64, useMax bool) ([]int64, error) {
 	maxDoc := 0
 	if reader != nil {
 		maxDoc = reader.MaxDoc()
@@ -221,7 +219,7 @@ func materializeSortedNumeric(sf SortField, reader *CodecReader, missing int64, 
 		return vals, nil
 	}
 	prod := dvProducerOf(reader)
-	fi := subFieldInfo(reader, sf.Field())
+	fi := subFieldInfo(reader, sf.Field)
 	if prod == nil || fi == nil {
 		return vals, nil
 	}
@@ -266,7 +264,7 @@ func materializeSortedNumeric(sf SortField, reader *CodecReader, missing int64, 
 	return vals, nil
 }
 
-func buildSortedProviders(sf SortField, readers []*CodecReader) ([]ComparableProvider, error) {
+func buildSortedProviders(sf SortField, readers []CodecReader) ([]ComparableProvider, error) {
 	missing := stringMissingComparable(sf)
 
 	// Build a global OrdinalMap across the readers that carry the field, then
@@ -281,7 +279,7 @@ func buildSortedProviders(sf SortField, readers []*CodecReader) ([]ComparablePro
 			continue
 		}
 		prod := dvProducerOf(reader)
-		fi := subFieldInfo(reader, sf.Field())
+		fi := subFieldInfo(reader, sf.Field)
 		if prod == nil || fi == nil {
 			continue
 		}
@@ -305,7 +303,7 @@ func buildSortedProviders(sf SortField, readers []*CodecReader) ([]ComparablePro
 	}
 	om, err := BuildOrdinalMapFromSortedValues(NewCacheKey(), omSubs, 0)
 	if err != nil {
-		return nil, fmt.Errorf("index: index sort: sorted %q ordinal map: %w", sf.Field(), err)
+		return nil, fmt.Errorf("index: index sort: sorted %q ordinal map: %w", sf.Field, err)
 	}
 
 	for i, reader := range readers {
@@ -319,7 +317,7 @@ func buildSortedProviders(sf SortField, readers []*CodecReader) ([]ComparablePro
 		}
 		if p := subPos[i]; p >= 0 {
 			prod := dvProducerOf(reader)
-			fi := subFieldInfo(reader, sf.Field())
+			fi := subFieldInfo(reader, sf.Field)
 			sdv, err := prod.GetSorted(fi) // fresh iterator (OM build consumed the first)
 			if err != nil {
 				return nil, err
@@ -351,9 +349,9 @@ func buildSortedProviders(sf SortField, readers []*CodecReader) ([]ComparablePro
 	return providers, nil
 }
 
-func buildSortedSetProviders(sf SortField, readers []*CodecReader) ([]ComparableProvider, error) {
+func buildSortedSetProviders(sf SortField, readers []CodecReader) ([]ComparableProvider, error) {
 	missing := stringMissingComparable(sf)
-	useMax := sf.Selector() == "max"
+	useMax := sf.Selector == "max"
 
 	var omSubs []SortedSetDocValues
 	subPos := make([]int, len(readers))
@@ -365,7 +363,7 @@ func buildSortedSetProviders(sf SortField, readers []*CodecReader) ([]Comparable
 			continue
 		}
 		prod := dvProducerOf(reader)
-		fi := subFieldInfo(reader, sf.Field())
+		fi := subFieldInfo(reader, sf.Field)
 		if prod == nil || fi == nil {
 			continue
 		}
@@ -389,7 +387,7 @@ func buildSortedSetProviders(sf SortField, readers []*CodecReader) ([]Comparable
 	}
 	om, err := BuildOrdinalMapFromSortedSetValues(NewCacheKey(), omSubs, 0)
 	if err != nil {
-		return nil, fmt.Errorf("index: index sort: sorted-set %q ordinal map: %w", sf.Field(), err)
+		return nil, fmt.Errorf("index: index sort: sorted-set %q ordinal map: %w", sf.Field, err)
 	}
 
 	for i, reader := range readers {
@@ -403,7 +401,7 @@ func buildSortedSetProviders(sf SortField, readers []*CodecReader) ([]Comparable
 		}
 		if p := subPos[i]; p >= 0 {
 			prod := dvProducerOf(reader)
-			fi := subFieldInfo(reader, sf.Field())
+			fi := subFieldInfo(reader, sf.Field)
 			ssdv, err := prod.GetSortedSet(fi) // fresh iterator
 			if err != nil {
 				return nil, err

@@ -1,5 +1,3 @@
-//go:build ignore
-
 package index
 
 import (
@@ -18,7 +16,7 @@ type NRTSegmentReader struct {
 	liveDocs *LiveDocs
 
 	// pendingDeletes tracks documents that are pending deletion
-	pendingDeletes *PendingDeletes
+	pendingDeletes *nrtPendingDeletes
 
 	// mu protects liveDocs and pendingDeletes
 	mu sync.RWMutex
@@ -43,8 +41,14 @@ type LiveDocs struct {
 	totalDocs int
 }
 
-// PendingDeletes tracks documents pending deletion.
-type PendingDeletes struct {
+// nrtPendingDeletes tracks the document IDs an NRTSegmentReader has been asked
+// to delete but has not yet folded into its live-docs bitset.
+//
+// PORT NOTE: this is Gocene-local NRT bookkeeping, not a port of
+// org.apache.lucene.index.PendingDeletes — that class is ported faithfully in
+// pending_deletes.go. The name carries the nrt prefix so the two do not
+// collide.
+type nrtPendingDeletes struct {
 	// docIDs is the set of document IDs pending deletion
 	docIDs map[int]bool
 	// mu protects docIDs
@@ -94,9 +98,9 @@ func newLiveDocs(totalDocs int) *LiveDocs {
 	}
 }
 
-// newPendingDeletes creates a new PendingDeletes.
-func newPendingDeletes() *PendingDeletes {
-	return &PendingDeletes{
+// newPendingDeletes creates an empty nrtPendingDeletes.
+func newPendingDeletes() *nrtPendingDeletes {
+	return &nrtPendingDeletes{
 		docIDs: make(map[int]bool),
 	}
 }
@@ -340,4 +344,16 @@ func (r *NRTSegmentReader) isLiveUnlocked(docID int) bool {
 // This is an alias for NumDocs().
 func (r *NRTSegmentReader) GetLiveDocCount() int {
 	return r.NumDocs()
+}
+
+// String renders the pending-deletes set by count. The raw docID set is
+// deliberately not exposed, matching the shape of
+// org.apache.lucene.index.PendingDeletes#toString.
+func (p *nrtPendingDeletes) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return fmt.Sprintf("PendingDeletes(delCount=%d)", len(p.docIDs))
 }

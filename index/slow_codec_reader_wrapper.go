@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -22,25 +20,25 @@ import (
 // Lucene's SlowCodecReaderWrapper.wrap() is a static factory that returns a
 // CodecReader (the abstract base type). Go does not have abstract classes, and
 // Gocene's CodecReader is a concrete struct backed by SegmentCoreReaders.
-// Wrapping an arbitrary LeafReader therefore cannot produce a *CodecReader
+// Wrapping an arbitrary LeafReader therefore cannot produce a CodecReader
 // directly. WrapLeafReader returns a *SlowLeafCodecReader, which exposes the
 // same per-field accessor surface (GetTermVectorsReader, GetStoredFieldsReader,
 // GetPostingsReader, GetDocValuesReader, GetNormsReader, GetPointsReader,
 // GetFieldInfos, GetLiveDocs) via adapters that delegate to the LeafReader API.
 //
-// Callers that require a *CodecReader (e.g. SlowCompositeCodecReaderWrapper)
-// should use WrapSlowCompositeCodecReader instead, which accepts *CodecReader
+// Callers that require a CodecReader (e.g. SlowCompositeCodecReaderWrapper)
+// should use WrapSlowCompositeCodecReader instead, which accepts CodecReader
 // inputs directly.
 type SlowCodecReaderWrapper struct{}
 
 // WrapLeafReader adapts reader to the codec reader surface. If reader is
-// already a *CodecReader it is returned as-is (zero overhead). Otherwise a
+// already a CodecReader it is returned as-is (zero overhead). Otherwise a
 // SlowLeafCodecReader adapter is returned.
 //
 // Mirrors SlowCodecReaderWrapper.wrap(LeafReader) in Lucene 10.4.0, with the
 // return type changed from CodecReader to *SlowLeafCodecReader to remain
 // idiomatic in Go (CodecReader is a concrete struct, not an interface).
-func WrapLeafReader(reader *LeafReader) (*SlowLeafCodecReader, error) {
+func WrapLeafReader(reader LeafReader) (*SlowLeafCodecReader, error) {
 	if reader == nil {
 		return nil, errors.New("SlowCodecReaderWrapper: reader must not be nil")
 	}
@@ -50,7 +48,7 @@ func WrapLeafReader(reader *LeafReader) (*SlowLeafCodecReader, error) {
 	return &SlowLeafCodecReader{delegate: reader}, nil
 }
 
-// SlowLeafCodecReader wraps a *LeafReader and exposes the per-field codec
+// SlowLeafCodecReader wraps a LeafReader and exposes the per-field codec
 // reader surface by delegating through the LeafReader's public API. It is
 // intentionally slow: every Get call fans out to the leaf, which may be an
 // in-memory reader without pre-paged data. Use FilterCodecReader or a real
@@ -59,11 +57,11 @@ func WrapLeafReader(reader *LeafReader) (*SlowLeafCodecReader, error) {
 // This type mirrors the anonymous CodecReader subclass constructed inside
 // SlowCodecReaderWrapper.wrap() in Apache Lucene 10.4.0.
 type SlowLeafCodecReader struct {
-	delegate *LeafReader
+	delegate LeafReader
 }
 
 // GetDelegate returns the underlying LeafReader.
-func (s *SlowLeafCodecReader) GetDelegate() *LeafReader { return s.delegate }
+func (s *SlowLeafCodecReader) GetDelegate() LeafReader { return s.delegate }
 
 // GetFieldInfos returns the FieldInfos from the delegate.
 func (s *SlowLeafCodecReader) GetFieldInfos() *FieldInfos {
@@ -157,7 +155,7 @@ func (s *SlowLeafCodecReader) GetPointsReader() interface{} {
 // TermVectors surface. Mirrors readerToTermVectorsReader() in Lucene.
 type slowTermVectorsReader struct {
 	tv       TermVectors
-	delegate *LeafReader
+	delegate LeafReader
 }
 
 func (r *slowTermVectorsReader) Get(docID int) (Fields, error) {
@@ -174,7 +172,7 @@ func (r *slowTermVectorsReader) Close() error { return nil }
 // StoredFields surface. Mirrors readerToStoredFieldsReader() in Lucene.
 type slowStoredFieldsReader struct {
 	sf       StoredFields
-	delegate *LeafReader
+	delegate LeafReader
 }
 
 func (r *slowStoredFieldsReader) VisitDocument(docID int, visitor StoredFieldVisitor) error {
@@ -186,7 +184,7 @@ func (r *slowStoredFieldsReader) Close() error { return nil }
 // slowFieldsProducer delegates FieldsProducer to the LeafReader's Terms
 // accessors. Mirrors readerToFieldsProducer() in Lucene.
 type slowFieldsProducer struct {
-	delegate *LeafReader
+	delegate LeafReader
 	fields   []string
 }
 
@@ -199,7 +197,7 @@ func (p *slowFieldsProducer) Close() error { return nil }
 // slowDocValuesProducer delegates DocValuesProducer to the LeafReader's
 // GetXxxDocValues accessors. Mirrors readerToDocValuesProducer() in Lucene.
 type slowDocValuesProducer struct {
-	delegate *LeafReader
+	delegate LeafReader
 }
 
 func (p *slowDocValuesProducer) GetNumeric(field *FieldInfo) (NumericDocValues, error) {
@@ -234,7 +232,7 @@ func (p *slowDocValuesProducer) Close() error { return nil }
 // Returned as interface{} from SlowLeafCodecReader.GetNormsReader to avoid
 // importing codecs.NormsProducer.
 type slowNormsProducer struct {
-	delegate *LeafReader
+	delegate LeafReader
 }
 
 // GetNorms returns the NumericDocValues for the given FieldInfo's norms.
@@ -253,7 +251,7 @@ func (p *slowNormsProducer) Close() error { return nil }
 // GetPointValues. Returned as interface{} from SlowLeafCodecReader.GetPointsReader
 // to avoid importing codecs.PointsReader.
 type slowPointsReader struct {
-	delegate *LeafReader
+	delegate LeafReader
 }
 
 // GetValues returns the PointValues for the given field.

@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -55,7 +53,7 @@ import (
 // missing infrastructure (KnnVectorsReader.search, AcceptDocs, PointTree,
 // MultiBits factory, FieldInfos.Builder, KnnVectorValues random access) lands.
 type SlowCompositeCodecReaderWrapper struct {
-	codecReaders []*CodecReader
+	codecReaders []CodecReader
 	docStarts    []int
 	fieldInfos   *FieldInfos
 	liveDocs     util.Bits
@@ -76,7 +74,7 @@ var ErrSlowCompositeNotPorted = errors.New("SlowCompositeCodecReaderWrapper: sur
 //   - len(readers) == 0 yields an error (Lucene throws IllegalArgumentException).
 //   - len(readers) == 1 returns the single reader unchanged.
 //   - otherwise a fresh wrapper is constructed.
-func WrapSlowCompositeCodecReader(readers []*CodecReader) (*SlowCompositeCodecReaderWrapper, *CodecReader, error) {
+func WrapSlowCompositeCodecReader(readers []CodecReader) (*SlowCompositeCodecReaderWrapper, CodecReader, error) {
 	switch len(readers) {
 	case 0:
 		return nil, nil, errors.New("SlowCompositeCodecReaderWrapper: must take at least one reader, got 0")
@@ -90,9 +88,9 @@ func WrapSlowCompositeCodecReader(readers []*CodecReader) (*SlowCompositeCodecRe
 	return w, nil, nil
 }
 
-func newSlowCompositeCodecReaderWrapper(codecReaders []*CodecReader) (*SlowCompositeCodecReaderWrapper, error) {
+func newSlowCompositeCodecReaderWrapper(codecReaders []CodecReader) (*SlowCompositeCodecReaderWrapper, error) {
 	w := &SlowCompositeCodecReaderWrapper{
-		codecReaders: append([]*CodecReader(nil), codecReaders...),
+		codecReaders: append([]CodecReader(nil), codecReaders...),
 		docStarts:    make([]int, len(codecReaders)+1),
 		numDocs:      -1,
 	}
@@ -133,7 +131,7 @@ func newSlowCompositeCodecReaderWrapper(codecReaders []*CodecReader) (*SlowCompo
 // FieldInfos. It stands in for org.apache.lucene.index.FieldInfos.getMergedFieldInfos
 // until FieldInfos.Builder is ported. Conflict reconciliation (e.g. mismatched
 // doc-values type for the same field across leaves) is deferred.
-func mergeFieldInfosByName(readers []*CodecReader) *FieldInfos {
+func mergeFieldInfosByName(readers []CodecReader) *FieldInfos {
 	merged := NewFieldInfos()
 	for _, r := range readers {
 		fi := r.GetFieldInfos()
@@ -149,10 +147,10 @@ func mergeFieldInfosByName(readers []*CodecReader) *FieldInfos {
 			continue
 		}
 		for _, name := range fi.Names() {
-			if merged.GetByName(name) != nil {
+			if merged.FieldInfoByName(name) != nil {
 				continue
 			}
-			if leaf := fi.GetByName(name); leaf != nil {
+			if leaf := fi.FieldInfoByName(name); leaf != nil {
 				// Add ignores errors only when the collection is frozen; ours is not.
 				_ = merged.Add(leaf)
 			}
@@ -252,7 +250,7 @@ func (w *SlowCompositeCodecReaderWrapper) remap(info *FieldInfo) *FieldInfo {
 	if info == nil {
 		return nil
 	}
-	if merged := w.fieldInfos.GetByName(info.Name()); merged != nil {
+	if merged := w.fieldInfos.FieldInfoByName(info.Name()); merged != nil {
 		return merged
 	}
 	return info
@@ -340,7 +338,7 @@ func (v *remappingStoredFieldVisitor) DoubleField(field string, value float64) {
 // composite FieldInfos is the authoritative naming context for downstream
 // merge consumers.
 func (v *remappingStoredFieldVisitor) remapName(field string) string {
-	if fi := v.parent.fieldInfos.GetByName(field); fi != nil {
+	if fi := v.parent.fieldInfos.FieldInfoByName(field); fi != nil {
 		return fi.Name()
 	}
 	return field

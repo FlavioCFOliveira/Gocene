@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -394,7 +392,7 @@ func writeTermVectorsDoc(writer TermVectorsWriter, vectors Fields, fieldInfos *F
 
 		var fieldInfo *FieldInfo
 		if fieldInfos != nil {
-			fieldInfo = fieldInfos.GetByName(fieldName)
+			fieldInfo = fieldInfos.FieldInfoByName(fieldName)
 		}
 
 		terms, err := vectors.Terms(fieldName)

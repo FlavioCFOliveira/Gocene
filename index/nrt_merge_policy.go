@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -549,9 +547,10 @@ func (p *NRTMergePolicy) FindForcedDeletesMerges(infos *SegmentInfos, mergeConte
 }
 
 // UseCompoundFile returns true if the merged segment should use compound file format.
-func (p *NRTMergePolicy) UseCompoundFile(infos *SegmentInfos, mergedSegmentInfo *SegmentInfo) bool {
-	// Always use CFS for NRT to reduce file handles
-	return true
+func (p *NRTMergePolicy) UseCompoundFile(infos *SegmentInfos, mergedInfo *SegmentCommitInfo, mergeContext MergeContext) (bool, error) {
+	// Always use the compound file format for NRT, to keep the open file
+	// handle count down as segments are reopened.
+	return true, nil
 }
 
 // String returns a string representation of the NRTMergePolicy.

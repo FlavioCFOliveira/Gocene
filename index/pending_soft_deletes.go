@@ -1,5 +1,3 @@
-//go:build ignore
-
 package index
 
 import (
@@ -124,7 +122,7 @@ func (p *pendingDeletesBase) numPendingDeletes() int {
 }
 
 // onNewReader is called once a new reader is opened for this segment.
-func (p *pendingDeletesBase) onNewReader(reader *CodecReader, info *SegmentCommitInfo) error {
+func (p *pendingDeletesBase) onNewReader(reader CodecReader, info *SegmentCommitInfo) error {
 	if !p.liveDocsInitialized {
 		if reader.HasDeletions() {
 			p.liveDocs = reader.GetLiveDocs()
@@ -248,7 +246,7 @@ func (psd *PendingSoftDeletes) Delete(docID int) (bool, error) {
 // OnNewReader is called once a new reader is opened for this segment.
 // Soft deletes are re-applied only when an unseen doc-values generation
 // is observed.
-func (psd *PendingSoftDeletes) OnNewReader(reader *CodecReader, info *SegmentCommitInfo) error {
+func (psd *PendingSoftDeletes) OnNewReader(reader CodecReader, info *SegmentCommitInfo) error {
 	if err := psd.pendingDeletesBase.onNewReader(reader, info); err != nil {
 		return err
 	}

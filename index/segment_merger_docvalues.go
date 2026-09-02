@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -78,7 +76,7 @@ func (sm *SegmentMerger) mergeDocValues() error {
 }
 
 // dvProducerOf returns the segment reader's DocValuesProducer, or nil.
-func dvProducerOf(reader *CodecReader) spi.DocValuesProducer {
+func dvProducerOf(reader CodecReader) spi.DocValuesProducer {
 	p := reader.GetDocValuesReader()
 	if p == nil {
 		return nil
@@ -91,12 +89,12 @@ func dvProducerOf(reader *CodecReader) spi.DocValuesProducer {
 }
 
 // subFieldInfo returns the source reader's FieldInfo for field, or nil.
-func subFieldInfo(reader *CodecReader, field string) *FieldInfo {
+func subFieldInfo(reader CodecReader, field string) *FieldInfo {
 	fis := reader.GetFieldInfos()
 	if fis == nil {
 		return nil
 	}
-	return fis.GetByName(field)
+	return fis.FieldInfoByName(field)
 }
 
 // dvExhaustedDoc reports whether a doc-values iterator docID marks the end. The

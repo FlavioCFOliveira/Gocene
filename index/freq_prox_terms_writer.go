@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -472,7 +470,7 @@ func (f *sortingFilterFields) Terms(field string) (Terms, error) {
 	if err != nil || terms == nil {
 		return terms, err
 	}
-	fi := f.fieldInfos.GetByName(field)
+	fi := f.fieldInfos.FieldInfoByName(field)
 	if fi == nil {
 		return terms, nil
 	}

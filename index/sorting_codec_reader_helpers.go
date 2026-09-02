@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -15,10 +13,10 @@ import (
 // SortingBits wraps a bitset and a doc map to provide a sorted view of live docs.
 type SortingBits struct {
 	in     util.Bits
-	docMap *SorterDocMap
+	docMap SorterDocMap
 }
 
-func NewSortingBits(in util.Bits, docMap *SorterDocMap) util.Bits {
+func NewSortingBits(in util.Bits, docMap SorterDocMap) util.Bits {
 	return &SortingBits{in: in, docMap: docMap}
 }
 
@@ -33,10 +31,10 @@ func (b *SortingBits) Length() int {
 // SortingPointValues wraps PointValues to provide a sorted view.
 type SortingPointValues struct {
 	in     PointValues
-	docMap *SorterDocMap
+	docMap SorterDocMap
 }
 
-func NewSortingPointValues(in PointValues, docMap *SorterDocMap) PointValues {
+func NewSortingPointValues(in PointValues, docMap SorterDocMap) PointValues {
 	return &SortingPointValues{in: in, docMap: docMap}
 }
 
@@ -71,11 +69,11 @@ func (p *SortingPointValues) GetDocCount() int {
 // SortingPointTree wraps a PointTree to provide a sorted view of visited docs.
 type SortingPointTree struct {
 	indexTree PointTree
-	docMap    *SorterDocMap
+	docMap    SorterDocMap
 	visitor   *sortingIntersectVisitor
 }
 
-func NewSortingPointTree(indexTree PointTree, docMap *SorterDocMap) PointTree {
+func NewSortingPointTree(indexTree PointTree, docMap SorterDocMap) PointTree {
 	return &SortingPointTree{
 		indexTree: indexTree,
 		docMap:    docMap,
@@ -122,7 +120,7 @@ func (t *SortingPointTree) VisitDocValues(visitor PointTreeIntersectVisitor) err
 }
 
 type sortingIntersectVisitor struct {
-	docMap   *SorterDocMap
+	docMap   SorterDocMap
 	visitor PointTreeIntersectVisitor
 }
 
@@ -149,7 +147,7 @@ type SortingIteratorSupplier struct {
 	size      int
 }
 
-func NewSortingIteratorSupplier(values KnnVectorValues, docMap *SorterDocMap) (*SortingIteratorSupplier, error) {
+func NewSortingIteratorSupplier(values KnnVectorValues, docMap SorterDocMap) (*SortingIteratorSupplier, error) {
 	docToOrd := make([]int, docMap.Size())
 	docBits, err := util.NewFixedBitSet(docMap.Size())
 	if err != nil {
@@ -235,7 +233,7 @@ type SortingFloatVectorValues struct {
 	iteratorSupplier *SortingIteratorSupplier
 }
 
-func NewSortingFloatVectorValues(delegate FloatVectorValues, sortMap *SorterDocMap) (*SortingFloatVectorValues, error) {
+func NewSortingFloatVectorValues(delegate FloatVectorValues, sortMap SorterDocMap) (*SortingFloatVectorValues, error) {
 	supplier, err := NewSortingIteratorSupplier(delegate, sortMap)
 	if err != nil {
 		return nil, err
@@ -268,7 +266,7 @@ type SortingByteVectorValues struct {
 	iteratorSupplier *SortingIteratorSupplier
 }
 
-func NewSortingByteVectorValues(delegate ByteVectorValues, sortMap *SorterDocMap) (*SortingByteVectorValues, error) {
+func NewSortingByteVectorValues(delegate ByteVectorValues, sortMap SorterDocMap) (*SortingByteVectorValues, error) {
 	supplier, err := NewSortingIteratorSupplier(delegate, sortMap)
 	if err != nil {
 		return nil, err

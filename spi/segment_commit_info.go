@@ -75,6 +75,31 @@ type SegmentCommitInfo struct {
 	// bitset without codec infrastructure.  Persisted in the segments file.
 	deletedOrdinals []int
 
+	// nextWriteDelGen is the generation number that will be used for the next
+	// live-docs file this segment writes. Mirrors
+	// SegmentCommitInfo.nextWriteDelGen.
+	nextWriteDelGen int64
+
+	// nextWriteFieldInfosGen is the generation number that will be used for
+	// the next field-infos file this segment writes. Mirrors
+	// SegmentCommitInfo.nextWriteFieldInfosGen.
+	nextWriteFieldInfosGen int64
+
+	// nextWriteDocValuesGen is the generation number that will be used for the
+	// next doc-values file this segment writes. Mirrors
+	// SegmentCommitInfo.nextWriteDocValuesGen.
+	nextWriteDocValuesGen int64
+
+	// bufferedDeletesGen is the sequence number of the buffered-deletes packet
+	// that has been applied to this segment, or -1 when none has. Mirrors
+	// SegmentCommitInfo.bufferedDeletesGen.
+	bufferedDeletesGen int64
+
+	// sizeInBytes caches the total size of this commit's files, or -1 when it
+	// has not been computed yet. Mirrors the volatile
+	// SegmentCommitInfo.sizeInBytes.
+	sizeInBytes int64
+
 	// mu protects mutable fields
 	mu sync.RWMutex
 }
@@ -96,6 +121,14 @@ func NewSegmentCommitInfo(segmentInfo *schema.SegmentInfo, delCount int, delGen 
 		attributes:            make(map[string]string),
 		fieldInfosFiles:       make(map[string]struct{}),
 		docValuesUpdatesFiles: make(map[int]map[string]struct{}),
+
+		// Mirrors the Java constructor: the next generation to write is one
+		// past the current one, or 1 when the current one does not exist.
+		nextWriteDelGen:        nextGen(delGen),
+		nextWriteFieldInfosGen: nextGen(-1),
+		nextWriteDocValuesGen:  nextGen(-1),
+		bufferedDeletesGen:     -1,
+		sizeInBytes:            -1,
 	}
 }
 

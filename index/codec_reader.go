@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -94,7 +92,7 @@ func (b *baseCodecReader) TermVectors() (TermVectors, error) {
 }
 
 func (b *baseCodecReader) Terms(field string) (Terms, error) {
-	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
 	if fi == nil || fi.IndexOptions == IndexOptionsNone {
 		// Field does not exist or does not index postings
 		return nil, nil
@@ -143,7 +141,7 @@ func (b *baseCodecReader) GetSortedSetDocValues(field string) (SortedSetDocValue
 }
 
 func (b *baseCodecReader) GetDocValuesSkipper(field string) (DocValuesSkipper, error) {
-	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
 	if fi == nil || fi.DocValuesSkipIndexType == DocValuesSkipIndexTypeNone {
 		return nil, nil
 	}
@@ -151,7 +149,7 @@ func (b *baseCodecReader) GetDocValuesSkipper(field string) (DocValuesSkipper, e
 }
 
 func (b *baseCodecReader) GetNormValues(field string) (NumericDocValues, error) {
-	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
 	if fi == nil || !fi.HasNorms() {
 		// Field does not exist or does not index norms
 		return nil, nil
@@ -160,7 +158,7 @@ func (b *baseCodecReader) GetNormValues(field string) (NumericDocValues, error) 
 }
 
 func (b *baseCodecReader) GetPointValues(field string) (PointValues, error) {
-	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
 	if fi == nil || fi.PointDimensionCount == 0 {
 		// Field does not exist or does not index points
 		return nil, nil
@@ -169,7 +167,7 @@ func (b *baseCodecReader) GetPointValues(field string) (PointValues, error) {
 }
 
 func (b *baseCodecReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
-	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
 	if fi == nil || fi.VectorDimension == 0 || fi.VectorEncoding != VectorEncodingFloat32 {
 		// Field does not exist or does not index vectors
 		return nil, nil
@@ -178,7 +176,7 @@ func (b *baseCodecReader) GetFloatVectorValues(field string) (FloatVectorValues,
 }
 
 func (b *baseCodecReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
-	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
 	if fi == nil || fi.VectorDimension == 0 || fi.VectorEncoding != VectorEncodingByte {
 		// Field does not exist or does not index vectors
 		return nil, nil
@@ -187,7 +185,7 @@ func (b *baseCodecReader) GetByteVectorValues(field string) (ByteVectorValues, e
 }
 
 func (b *baseCodecReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error) {
-	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
 	if fi == nil || fi.VectorDimension == 0 || fi.VectorEncoding != VectorEncodingFloat32 {
 		// Field does not exist or does not index vectors
 		return TopDocs{}, nil
@@ -196,7 +194,7 @@ func (b *baseCodecReader) SearchNearestVectors(field string, target []float32, k
 }
 
 func (b *baseCodecReader) SearchNearestVectorsByte(field string, target []byte, k int, acceptDocs util.Bits) (TopDocs, error) {
-	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
 	if fi == nil || fi.VectorDimension == 0 || fi.VectorEncoding != VectorEncodingByte {
 		// Field does not exist or does not index vectors
 		return TopDocs{}, nil
@@ -244,7 +242,7 @@ func (b *baseCodecReader) CheckIntegrity() error {
 }
 
 func (b *baseCodecReader) getDVField(field string, dvType DocValuesType) *FieldInfo {
-	fi := b.impl.GetFieldInfos().FieldInfo(field)
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
 	if fi == nil {
 		return nil
 	}

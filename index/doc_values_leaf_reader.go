@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -22,16 +20,16 @@ import (
 //
 // In Lucene every method below throws UnsupportedOperationException; the doc
 // values accessors (GetNumericDocValues, GetBinaryDocValues, ...) stay
-// abstract for concrete subclasses to implement. Gocene embeds *LeafReader,
+// abstract for concrete subclasses to implement. Gocene embeds LeafReader,
 // so the doc values accessors inherit the base no-op behaviour and concrete
 // subclasses override them; the methods shadowed here panic with
 // errDocValuesLeafReaderUnsupported, preserving Lucene's unconditional throw.
 //
 // Naming divergence: Lucene overrides getCoreCacheHelper and
-// getReaderCacheHelper. Gocene's *LeafReader does not expose those; it exposes
+// getReaderCacheHelper. Gocene's LeafReader does not expose those; it exposes
 // GetCoreCacheKey, which is the method shadowed here instead.
 type DocValuesLeafReader struct {
-	*LeafReader
+	LeafReader
 }
 
 // errDocValuesLeafReaderUnsupported is the sentinel used by every shadowed

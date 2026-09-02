@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -136,7 +134,7 @@ func (w *IndexWriter) applyDocValuesUpdatesForSegmentLocked(
 	fieldUpdates := make(map[string]map[int]docValuesFieldUpdate)
 	hasMatch := false
 	for _, u := range updates {
-		fi := sr.GetFieldInfos().GetByName(u.field)
+		fi := sr.GetFieldInfos().FieldInfoByName(u.field)
 		if fi == nil {
 			// The field did not exist in this segment; look up the global
 			// FieldInfo so the field can be added on update.
@@ -268,7 +266,7 @@ func (w *IndexWriter) writeMergedDocValues(
 	for fieldName := range fieldUpdates {
 		fieldGens[fieldName] = nextDVGen
 		nextDVGen++
-		if currentInfos.GetByName(fieldName) == nil {
+		if currentInfos.FieldInfoByName(fieldName) == nil {
 			global := w.fieldInfoLocked(fieldName)
 			if global == nil {
 				return fmt.Errorf("field %q missing from segment %q and unknown globally", fieldName, segInfo.Name())
@@ -299,13 +297,13 @@ func (w *IndexWriter) writeMergedDocValues(
 
 	// Write one .dvd/.dvm pair per updated field, each with its own generation.
 	for fieldName, updates := range fieldUpdates {
-		newFI := newInfos.GetByName(fieldName)
+		newFI := newInfos.FieldInfoByName(fieldName)
 		if newFI == nil {
 			return fmt.Errorf("field %q missing from cloned FieldInfos", fieldName)
 		}
 		// Read existing values through the *old* FieldInfo so the overlay
 		// producer resolves the prior generation correctly.
-		oldFI := currentInfos.GetByName(fieldName)
+		oldFI := currentInfos.FieldInfoByName(fieldName)
 		gen := fieldGens[fieldName]
 		suffix := strconv.FormatInt(gen, 36)
 
@@ -397,7 +395,7 @@ func (w *IndexWriter) writeMergedDocValues(
 	// Map each new file to the field whose generation appears in its name.
 	for fieldName, gen := range fieldGens {
 		genStr := "_" + strconv.FormatInt(gen, 36) + "_"
-		fi := newInfos.GetByName(fieldName)
+		fi := newInfos.FieldInfoByName(fieldName)
 		if fi == nil {
 			continue
 		}
@@ -507,7 +505,7 @@ func cloneFieldInfosUpdatingDVGen(
 			opts.DocValuesGen = gen
 		}
 		fieldNumber := fi.Number()
-		if out.GetByNumber(fieldNumber) != nil {
+		if out.FieldInfoByNumber(fieldNumber) != nil {
 			// Gocene assigns field numbers per-segment, so a field imported from
 			// another segment can collide with an existing number in this
 			// segment. Reassign to the next available local number so the added
@@ -796,7 +794,7 @@ func (w *IndexWriter) TryUpdateDocValue(reader IndexReaderInterface, docID int, 
 		return -1, fmt.Errorf("docID %d out of range [0,%d)", docID, sr.MaxDoc())
 	}
 
-	fi := sr.GetFieldInfos().GetByName(field)
+	fi := sr.GetFieldInfos().FieldInfoByName(field)
 	if fi == nil || !fi.DocValuesType().HasDocValues() {
 		return -1, fmt.Errorf("field %q has no doc values", field)
 	}

@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -63,7 +61,7 @@ func (sm *SegmentMerger) mergeNorms() error {
 }
 
 // normsProducerOf returns the segment reader's NormsProducer, or nil.
-func normsProducerOf(reader *CodecReader) spi.NormsProducer {
+func normsProducerOf(reader CodecReader) spi.NormsProducer {
 	p := reader.GetNormsReader()
 	if p == nil {
 		return nil

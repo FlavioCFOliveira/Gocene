@@ -1,5 +1,3 @@
-//go:build ignore
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -40,7 +38,7 @@ func (r *FilterDirectoryReader) Close() error {
 
 // LeafReader is a wrapper for a LeafReader.
 type FilterLeafReader struct {
-	*LeafReader
+	LeafReader
 	in LeafReaderInterface
 
 	// cacheHelper, when non-nil, overrides the cache helper exposed by this
