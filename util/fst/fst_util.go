@@ -18,10 +18,16 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
-// FSTPath holds a (automaton-state, fst-arc, output, input) quadruple
+// FSTUtilPath holds a (automaton-state, fst-arc, output, input) quadruple
 // accumulated while intersecting an Automaton with an FST. It is the Go
 // counterpart of org.apache.lucene.search.suggest.analyzing.FSTUtil.Path<T>.
-type FSTPath[T any] struct {
+//
+// Java disambiguates this type from org.apache.lucene.util.fst.Util.FSTPath<T>
+// by package (search.suggest.analyzing vs util.fst). Both land in Go package
+// fst, which has a single namespace, so the suggest-side type carries its
+// owning class in the name and FSTPath stays with Util.FSTPath, the type that
+// is actually named FSTPath in this package upstream.
+type FSTUtilPath[T any] struct {
 	// State is the automaton node where this path ends.
 	State int
 	// FSTNode is the last FST arc of the path.
@@ -38,9 +44,9 @@ type FSTPath[T any] struct {
 // org.apache.lucene.search.suggest.analyzing.FSTUtil.intersectPrefixPaths.
 //
 // The automaton must be deterministic (a.IsDeterministic() == true).
-func IntersectPrefixPaths[T any](a *automaton.Automaton, fst *FST[T]) ([]*FSTPath[T], error) {
-	var queue []*FSTPath[T]
-	var endNodes []*FSTPath[T]
+func IntersectPrefixPaths[T any](a *automaton.Automaton, fst *FST[T]) ([]*FSTUtilPath[T], error) {
+	var queue []*FSTUtilPath[T]
+	var endNodes []*FSTUtilPath[T]
 
 	if a.NumStates() == 0 {
 		return endNodes, nil
@@ -49,7 +55,7 @@ func IntersectPrefixPaths[T any](a *automaton.Automaton, fst *FST[T]) ([]*FSTPat
 	firstArc := new(Arc[T])
 	fst.GetFirstArc(firstArc)
 
-	queue = append(queue, &FSTPath[T]{
+	queue = append(queue, &FSTUtilPath[T]{
 		State:   0,
 		FSTNode: firstArc,
 		Output:  fst.Outputs().GetNoOutput(),
@@ -88,7 +94,7 @@ func IntersectPrefixPaths[T any](a *automaton.Automaton, fst *FST[T]) ([]*FSTPat
 					newInput.Append(t.Min)
 					copied := new(Arc[T])
 					copied.CopyFrom(nextArc)
-					queue = append(queue, &FSTPath[T]{
+					queue = append(queue, &FSTUtilPath[T]{
 						State:   t.Dest,
 						FSTNode: copied,
 						Output:  fst.Outputs().Add(path.Output, nextArc.Output()),
@@ -107,7 +113,7 @@ func IntersectPrefixPaths[T any](a *automaton.Automaton, fst *FST[T]) ([]*FSTPat
 					newInput.Append(nextArc.Label())
 					copied := new(Arc[T])
 					copied.CopyFrom(nextArc)
-					queue = append(queue, &FSTPath[T]{
+					queue = append(queue, &FSTUtilPath[T]{
 						State:   t.Dest,
 						FSTNode: copied,
 						Output:  fst.Outputs().Add(path.Output, nextArc.Output()),
