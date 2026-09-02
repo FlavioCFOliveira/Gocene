@@ -335,6 +335,9 @@ func (f *FrozenBufferedUpdates) String() string {
 type FrozenSegmentState struct {
 	// Reader is the per-segment LeafReader the iterator scans.
 	Reader *LeafReader
+	// RAU is the ReadersAndUpdates instance for this segment, used
+	// to record NRT deletes during the apply pipeline.
+	RAU *ReadersAndUpdates
 	// DelGen is the segment's current deletion generation; updates
 	// older than DelGen are skipped, matching the Lucene contract.
 	DelGen int64
@@ -415,10 +418,9 @@ func (f *FrozenBufferedUpdates) applyTermDeletes(segStates []*FrozenSegmentState
 					if err != nil || docID == util.NoMoreDocs {
 						break
 					}
-					// In Gocene, we need a way to mark the document as deleted in the segment's ReadersAndUpdates.
-					// Since we are in FrozenBufferedUpdates, we should have a reference to the R&U.
-					// But FrozenSegmentState only has Reader.
-					// This is a design gap. We need to pass the ReadersAndUpdates in FrozenSegmentState.
+					// Mark the document as deleted in the segment's RAU.
+					seg.RAU.Delete(docID)
+					delCount++
 				}
 			}
 		}

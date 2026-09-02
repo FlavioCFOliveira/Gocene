@@ -201,28 +201,33 @@ func (r *SegmentReader) GetTermVectors(docID int) (Fields, error) {
 
 // Terms returns the Terms for a field.
 func (r *SegmentReader) Terms(field string) (Terms, error) {
+	var terms Terms
+	var err error
+
 	if r.coreReaders != nil {
 		fields := r.coreReaders.GetFields()
 		if fields == nil {
 			return nil, nil
 		}
-		return fields.Terms(field)
-	}
-
-	if r.segmentCommitInfo != nil {
+		terms, err = fields.Terms(field)
+	} else if r.segmentCommitInfo != nil {
 		if fp := r.segmentCommitInfo.GetInMemoryFields(); fp != nil {
-			return fp.Terms(field)
+			terms, err = fp.Terms(field)
 		}
 	}
 
-	if r.directory != nil && r.segmentCommitInfo != nil {
+	if terms == nil && r.directory != nil && r.segmentCommitInfo != nil {
 		segName := r.segmentCommitInfo.SegmentInfo().Name()
 		if fp := LookupInMemoryFields(r.directory, segName); fp != nil {
-			return fp.Terms(field)
+			terms, err = fp.Terms(field)
 		}
 	}
 
-	return nil, nil
+	if terms == nil {
+		return nil, err
+	}
+
+	return WrapTerms(terms, r.liveDocs), err
 }
 
 // GetFloatVectorValues returns the float vectors for field.
@@ -398,66 +403,23 @@ func (r *SegmentReader) TryIncRef() bool {
 	return true
 }
 
-// GetRefCount returns the current reference count.
 func (r *SegmentReader) GetRefCount() int32 {
-n
-	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
-	func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
-		if r.coreReaders != nil {
-			return r.coreReaders.GetCacheHelper()
-		}
-		return nil
-	}
-
-	// GetReaderCacheHelper returns a CacheHelper for the reader.
-	func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
-		return r.GetCacheHelper()
-	}
 	if r.coreReaders != nil {
-n
-	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
-	func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
-		if r.coreReaders != nil {
-			return r.coreReaders.GetCacheHelper()
-		}
-		return nil
-	}
-
-	// GetReaderCacheHelper returns a CacheHelper for the reader.
-	func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
-		return r.GetCacheHelper()
-	}
 		return r.coreReaders.GetRefCount()
-n
-	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
-	func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
-		if r.coreReaders != nil {
-			return r.coreReaders.GetCacheHelper()
-		}
-		return nil
-	}
-
-	// GetReaderCacheHelper returns a CacheHelper for the reader.
-	func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
-		return r.GetCacheHelper()
-	}
-	}
-n
-	// GetCoreCacheHelper returns a CacheHelper for the core data of this leaf.
-	func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
-		if r.coreReaders != nil {
-			return r.coreReaders.GetCacheHelper()
-		}
-		return nil
-	}
-
-	// GetReaderCacheHelper returns a CacheHelper for the reader.
-	func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
-		return r.GetCacheHelper()
 	}
 	return 1
 }
 
+func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
+	if r.coreReaders != nil {
+		return r.coreReaders.GetCacheHelper()
+	}
+	return nil
+}
+
+func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
+	return r.GetCoreCacheHelper()
+}
 // DocCount returns the number of documents in this segment.
 func (r *SegmentReader) DocCount() int {
 	if r.segmentCommitInfo == nil {

@@ -1062,10 +1062,55 @@ func (w *IndexWriter) isFullyDeleted(rau *ReadersAndUpdates) (bool, error) {
 }
 
 func (w *IndexWriter) tryApply(packet *FrozenBufferedUpdates) error {
-	return nil
+	packet.Lock()
+	defer packet.Unlock()
+
+	states := make([]*FrozenSegmentState, 0, len(w.segmentInfos.Iterator()))
+	// We need to keep track of the RAUs we acquired so we can release them
+	// after Apply is finished.
+	// Note: the SegmentReader inside states also holds a ref to the RAU.
+	// ReaderPool.Get() increments the RAU ref count.
+	// We must release them to avoid leaks.
+	//
+	// In Lucene, the ReaderPool handles this.
+	// Here, we manually track and release.
+	//
+	// Wait: if we release them immediately, we might break the Reader used by Apply.
+	// Actually, we should hold them until Apply returns.
+	var raus []*ReadersAndUpdates
+
+	for _, sci := range w.segmentInfos.Iterator() {
+		rau := w.getPooledInstance(sci, true)
+		if rau == nil {
+			continue
+		}
+		raus = append(raus, rau)
+
+		sr, err := rau.GetReader()
+		if err != nil {
+			w.release(rau)
+			continue
+		}
+
+		states = append(states, &FrozenSegmentState{
+			Reader:    sr,
+			RAU:       rau,
+			DelGen:    sci.GetBufferedDeletesGen(),
+			RefCount:  int(rau.RefCount()),
+		})
+	}
+
+	defer func() {
+		for _, rau := range raus {
+			w.release(rau)
+		}
+	}()
+
+	_, err := packet.Apply(states)
+	return err
 }
 
-		func (w *IndexWriter) getPooledInstance(sci *SegmentCommitInfo, create bool) *ReadersAndUpdates {
+	func (w *IndexWriter) getPooledInstance(sci *SegmentCommitInfo, create bool) *ReadersAndUpdates {
 		return w.readerPool.Get(sci, create, func(info *SegmentCommitInfo) *ReadersAndUpdates {
 			rau, err := NewReadersAndUpdates(w.config.GetIndexCreatedVersionMajor(), info, NewPendingDeletes(info, nil, info.HasDeletions() == false))
 			if err != nil {
