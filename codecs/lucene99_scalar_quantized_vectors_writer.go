@@ -197,7 +197,7 @@ func (w *Lucene99ScalarQuantizedVectorsWriter) AddField(fieldInfo *index.FieldIn
 
 	if fieldInfo.VectorEncoding() != index.VectorEncodingFloat32 {
 		// BYTE fields are not scalar quantized; delegate to the flat writer.
-		return &flatDelegateFieldWriter{delegate: delegate}, nil
+		return &FlatDelegateFieldWriter{Delegate: delegate}, nil
 	}
 
 	if w.bits <= 4 && fieldInfo.VectorDimension()%2 != 0 {
@@ -330,7 +330,7 @@ func (w *Lucene99ScalarQuantizedVectorsWriter) writeVectors(
 		correction := quantizer.Quantize(vec, quantizedScratch, field.fieldInfo.VectorSimilarityFunction())
 
 		if compressedScratch != nil {
-			if err := packNibbles(quantizedScratch, compressedScratch); err != nil {
+			if err := PackNibbles(quantizedScratch, compressedScratch); err != nil {
 				return fmt.Errorf("lucene99 sq: pack nibbles: %w", err)
 			}
 			if err := w.quantizedVectorData.WriteBytes(compressedScratch); err != nil {

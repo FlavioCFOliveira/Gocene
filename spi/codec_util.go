@@ -11,6 +11,20 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
+// GetSegmentComponentName returns the file name for a segment component.
+func GetSegmentComponentName(segmentName string, segmentSuffix string, ext string) string {
+	if segmentSuffix == "" {
+		if ext != "" {
+			return segmentName + "." + ext
+		}
+		return segmentName
+	}
+	if ext != "" {
+		return segmentName + "_" + segmentSuffix + "." + ext
+	}
+	return segmentName + "_" + segmentSuffix
+}
+
 // CodecMagic is the magic number written at the start of every Lucene index file.
 // Mirrors org.apache.lucene.codecs.CodecUtil.MAGIC = 0x3FD76C17.
 const CodecMagic int32 = 0x3FD76C17

@@ -7,6 +7,8 @@ package document
 import (
 	"fmt"
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // This file extends Field (defined in field.go) with the Lucene 10.4.0
@@ -105,8 +107,8 @@ func (f *Field) SetDoubleValue(value float64) {
 // which always returns InvertableType.TOKEN_STREAM (subclasses may override).
 //
 // Mirrors Lucene 10.4.0 default behaviour.
-func (f *Field) InvertableType() InvertableType {
-	return InvertableTypeTokenStream
+func (f *Field) InvertableType() index.InvertableType {
+	return index.InvertableTypeTokenStream
 }
 
 // GetCharSequenceValue returns the field's string value (CharSequence in

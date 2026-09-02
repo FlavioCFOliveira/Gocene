@@ -219,6 +219,18 @@ func (w *Lucene99FlatVectorsWriter) AddField(fieldInfo *index.FieldInfo) (*lucen
 	return fw, nil
 }
 
+// AddValue records a vector for docID. Mirrors the Java FieldWriter.addValue.
+func (fw *lucene99FlatFieldWriter) AddValue(docID int, vectorValue any) error {
+	switch v := vectorValue.(type) {
+	case []float32:
+		return fw.addValueFloat32(docID, v)
+	case []byte:
+		return fw.addValueByte(docID, v)
+	default:
+		return fmt.Errorf("lucene99 flat: field %q expects []float32 or []byte, got %T", fw.fieldInfo.Name(), vectorValue)
+	}
+}
+
 // addValueFloat32 records a float32 vector for docID. Mirrors the
 // FLOAT32 branch of FieldWriter.addValue.
 func (fw *lucene99FlatFieldWriter) addValueFloat32(docID int, vector []float32) error {
@@ -291,7 +303,7 @@ func (fw *lucene99FlatFieldWriter) numDocs() int {
 
 // ramBytesUsed estimates the in-memory footprint of the accumulated
 // vectors for the field.
-func (fw *lucene99FlatFieldWriter) ramBytesUsed() int64 {
+func (fw *lucene99FlatFieldWriter) RamBytesUsed() int64 {
 	const docIDBytes = 8
 	switch fw.encoding {
 	case index.VectorEncodingFloat32:
@@ -609,7 +621,7 @@ func (w *Lucene99FlatVectorsWriter) Finish() error {
 func (w *Lucene99FlatVectorsWriter) RamBytesUsed() int64 {
 	var total int64
 	for _, fw := range w.fields {
-		total += fw.ramBytesUsed()
+		total += fw.RamBytesUsed()
 	}
 	return total
 }
