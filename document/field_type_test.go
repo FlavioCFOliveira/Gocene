@@ -29,13 +29,13 @@ func TestFieldType_Defaults(t *testing.T) {
 	if got, want := ft.GetIndexOptions(), schema.IndexOptionsNone; got != want {
 		t.Fatalf("default IndexOptions = %v, want %v", got, want)
 	}
-	if got, want := ft.GetVectorEncoding(), index.VectorEncodingFloat32; got != want {
+	if got, want := ft.GetVectorEncoding(), schema.VectorEncodingFloat32; got != want {
 		t.Fatalf("default VectorEncoding = %v, want %v", got, want)
 	}
-	if got, want := ft.GetVectorSimilarityFunction(), index.VectorSimilarityFunctionEuclidean; got != want {
+	if got, want := ft.GetVectorSimilarityFunction(), schema.VectorSimilarityFunctionEuclidean; got != want {
 		t.Fatalf("default VectorSimilarityFunction = %v, want %v", got, want)
 	}
-	if ft.DocValuesSkipIndexType() != index.DocValuesSkipIndexTypeNone {
+	if ft.DocValuesSkipIndexType() != DocValuesSkipIndexTypeNone {
 		t.Fatalf("default DocValuesSkipIndex should be None")
 	}
 }
@@ -52,7 +52,7 @@ func TestFieldType_CopyConstructor(t *testing.T) {
 	src.SetStored(true)
 	src.SetIndexOptions(schema.IndexOptionsDocs)
 	src.SetDimensions(2, 4)
-	src.SetVectorAttributes(8, index.VectorEncodingByte, index.VectorSimilarityFunctionCosine)
+	src.SetVectorAttributes(8, schema.VectorEncodingByte, schema.VectorSimilarityFunctionCosine)
 	src.PutAttribute("k", "v")
 	src.Freeze()
 
@@ -121,7 +121,7 @@ func TestFieldType_SetDimensionsValidation(t *testing.T) {
 
 func TestFieldType_SetVectorAttributes(t *testing.T) {
 	ft := NewFieldType()
-	ft.SetVectorAttributes(128, index.VectorEncodingFloat32, index.VectorSimilarityFunctionDotProduct)
+	ft.SetVectorAttributes(128, schema.VectorEncodingFloat32, schema.VectorSimilarityFunctionDotProduct)
 	if ft.GetVectorDimension() != 128 {
 		t.Fatalf("vector dim = %d", ft.GetVectorDimension())
 	}
@@ -130,7 +130,7 @@ func TestFieldType_SetVectorAttributes(t *testing.T) {
 			t.Fatalf("expected panic for non-positive vector dim")
 		}
 	}()
-	ft.SetVectorAttributes(0, index.VectorEncodingFloat32, index.VectorSimilarityFunctionDotProduct)
+	ft.SetVectorAttributes(0, schema.VectorEncodingFloat32, schema.VectorSimilarityFunctionDotProduct)
 }
 
 func TestFieldType_String(t *testing.T) {

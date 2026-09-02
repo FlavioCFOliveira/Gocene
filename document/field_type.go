@@ -57,6 +57,7 @@ type FieldType struct {
 	StoreTermVectorPositions    bool
 	StoreTermVectorPayloads     bool
 	OmitNorms                   bool
+	Indexed                     bool // Mirrors whether IndexOptions != NONE
 	IndexOptions                schema.IndexOptions
 	DocValuesType               schema.DocValuesType
 	VectorDimension             int
@@ -239,6 +240,7 @@ func (ft *FieldType) OmitsNorms() bool {
 func (ft *FieldType) SetIndexOptions(value schema.IndexOptions) *FieldType {
 	ft.checkIfFrozen()
 	ft.IndexOptions = value
+	ft.Indexed = (value != schema.IndexOptionsNone)
 	return ft
 }
 
@@ -250,6 +252,7 @@ func (ft *FieldType) GetIndexOptions() schema.IndexOptions {
 // SetIndexed is a convenience method that sets IndexOptions based on whether indexed is true/false.
 func (ft *FieldType) SetIndexed(indexed bool) *FieldType {
 	ft.checkIfFrozen()
+	ft.Indexed = indexed
 	if indexed {
 		ft.IndexOptions = schema.IndexOptionsDocsAndFreqsAndPositions
 	} else {
@@ -442,6 +445,19 @@ func (ft *FieldType) attributesEqual(other map[string]string) bool {
 		}
 	}
 	return true
+}
+
+// Validate checks if the FieldType configuration is valid.
+func (ft *FieldType) Validate() error {
+	// If Indexed is true, IndexOptions must not be NONE
+	if ft.Indexed && ft.IndexOptions == schema.IndexOptionsNone {
+		return fmt.Errorf("if Indexed is true, IndexOptions must not be NONE")
+	}
+	// If Tokenized is true, field must be indexed
+	if ft.Tokenized && !ft.Indexed {
+		return fmt.Errorf("if Tokenized is true, field must be indexed")
+	}
+	return nil
 }
 
 // String returns a string representation of the FieldType.

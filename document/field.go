@@ -9,7 +9,6 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // fieldValue is an interface for the different types of values a Field can hold.
@@ -79,9 +78,6 @@ func NewField(name string, value interface{}, ft *FieldType) (*Field, error) {
 		}
 		f.value = readerValue{r: v}
 	case []byte:
-		if ft.IsIndexed() {
-			return nil, fmt.Errorf("binary fields cannot be indexed")
-		}
 		f.value = binaryValue(v)
 	case int:
 		f.value = numericValue{n: int32(v)}
@@ -184,4 +180,144 @@ func (f *Field) NumericValue() interface{} {
 func (f *Field) TokenStream() analysis.TokenStream {
 	// TODO: Implement token stream handling when analysis.TokenStream is fully available
 	return nil
+}
+
+// IsIndexed returns whether this field is indexed.
+func (f *Field) IsIndexed() bool {
+	if f.ft == nil {
+		return false
+	}
+	return f.ft.Indexed
+}
+
+// IsStored returns whether this field is stored.
+func (f *Field) IsStored() bool {
+	if f.ft == nil {
+		return false
+	}
+	return f.ft.Stored
+}
+
+// IsTokenized returns whether this field is tokenized.
+func (f *Field) IsTokenized() bool {
+	if f.ft == nil {
+		return false
+	}
+	return f.ft.Tokenized
+}
+
+// IndexOptions returns the index options for this field.
+func (f *Field) IndexOptions() interface{} {
+	if f.ft == nil {
+		return nil
+	}
+	return f.ft.IndexOptions
+}
+
+// FloatValue returns the float32 value of the field if it has one.
+func (f *Field) FloatValue() interface{} {
+	if f.value == nil {
+		return nil
+	}
+	switch v := f.value.(type) {
+	case numericValue:
+		if fv, ok := v.n.(float32); ok {
+			return fv
+		}
+	}
+	return nil
+}
+
+// DoubleValue returns the float64 value of the field if it has one.
+func (f *Field) DoubleValue() interface{} {
+	if f.value == nil {
+		return nil
+	}
+	switch v := f.value.(type) {
+	case numericValue:
+		if dv, ok := v.n.(float64); ok {
+			return dv
+		}
+	}
+	return nil
+}
+
+// NewIntField creates an indexed int32 field.
+func NewIntField(name string, value int, stored bool) (*Field, error) {
+	ft := NewFieldType()
+	ft.SetStored(stored)
+	ft.SetIndexed(true)
+	ft.SetTokenized(false)
+	ft.SetOmitNorms(true)
+	return NewField(name, int32(value), ft)
+}
+
+// NewLongField creates an indexed int64 field.
+func NewLongField(name string, value int64, stored bool) (*Field, error) {
+	ft := NewFieldType()
+	ft.SetStored(stored)
+	ft.SetIndexed(true)
+	ft.SetTokenized(false)
+	ft.SetOmitNorms(true)
+	return NewField(name, value, ft)
+}
+
+// NewFloatField creates an indexed float32 field.
+func NewFloatField(name string, value float32, stored bool) (*Field, error) {
+	ft := NewFieldType()
+	ft.SetStored(stored)
+	ft.SetIndexed(true)
+	ft.SetTokenized(false)
+	ft.SetOmitNorms(true)
+	return NewField(name, value, ft)
+}
+
+// NewDoubleField creates an indexed float64 field.
+func NewDoubleField(name string, value float64, stored bool) (*Field, error) {
+	ft := NewFieldType()
+	ft.SetStored(stored)
+	ft.SetIndexed(true)
+	ft.SetTokenized(false)
+	ft.SetOmitNorms(true)
+	return NewField(name, value, ft)
+}
+
+// NewIntPoint creates a point field for int32 values.
+func NewIntPoint(name string, value int32) *Field {
+	ft := NewFieldType()
+	ft.SetIndexed(true)
+	ft.SetStored(false)
+	ft.SetTokenized(false)
+	f, _ := NewField(name, value, ft)
+	return f
+}
+
+// NewLongPoint creates a point field for int64 values.
+func NewLongPoint(name string, value int64) *Field {
+	ft := NewFieldType()
+	ft.SetIndexed(true)
+	ft.SetStored(false)
+	ft.SetTokenized(false)
+	f, _ := NewField(name, value, ft)
+	return f
+}
+
+// NewFloatPoint creates a point field for float32 values.
+func NewFloatPoint(name string, value float32) *Field {
+	ft := NewFieldType()
+	ft.SetIndexed(true)
+	ft.SetStored(false)
+	ft.SetTokenized(false)
+	f, _ := NewField(name, value, ft)
+	return f
+}
+
+// NewDoublePoint creates a point field for float64 values.
+func NewDoublePoint(name string, value float64) *Field {
+	ft := NewFieldType()
+	ft.SetIndexed(true)
+	ft.SetStored(false)
+	ft.SetTokenized(false)
+	f, _ := NewField(name, value, ft)
+	return f
 }
