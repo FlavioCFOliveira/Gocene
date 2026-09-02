@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"runtime"
 	"sync"
-	"sync/atomic"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
@@ -18,6 +17,44 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// TestPoint is a simple interface that is executed for each "TP" InfoStream component message.
+type TestPoint interface {
+	Apply(message string)
+}
+
+// testPointInfoStream implements util.InfoStream and delegates to a TestPoint for "TP" messages.
+type testPointInfoStream struct {
+	delegate util.InfoStream
+	testPoint TestPoint
+}
+
+func newTestPointInfoStream(delegate util.InfoStream, tp TestPoint) util.InfoStream {
+	if delegate == nil {
+		delegate = &util.NullInfoStream{}
+	}
+	return &testPointInfoStream{
+		delegate:  delegate,
+		testPoint: tp,
+	}
+}
+
+func (s *testPointInfoStream) Close() error {
+	return s.delegate.Close()
+}
+
+func (s *testPointInfoStream) Message(component, message string) {
+	if component == "TP" {
+		s.testPoint.Apply(message)
+	}
+	if s.delegate.IsEnabled(component) {
+		s.delegate.Message(component, message)
+	}
+}
+
+func (s *testPointInfoStream) IsEnabled(component string) bool {
+	return component == "TP" || s.delegate.IsEnabled(component)
+}
 
 // RandomIndexWriter is a test utility that wraps an [index.IndexWriter] and
 // randomly interleaves Commit, ForceMerge, and Flush operations with
@@ -30,30 +67,40 @@ type RandomIndexWriter struct {
 	docCount int
 	flushAt  int
 
-	flushAtFactor float64
-	getReaderCalled bool
-	analyzer        analysis.Analyzer
+	flushAtFactor   float64
+	getReaderCalled  bool
+	analyzer         analysis.Analyzer
 	softDeletesRatio float64
-	config          *index.LiveIndexWriterConfig
+	config           *index.LiveIndexWriterConfig
 
-	doRandomForceMerge bool
+	doRandomForceMerge       bool
 	doRandomForceMergeAssert bool
 }
 
 // MockIndexWriter returns an IndexWriter that randomly yields to mix up thread scheduling.
 func MockIndexWriter(dir store.Directory, conf *index.IndexWriterConfig, r *rand.Rand) (*index.IndexWriter, error) {
-	// In Java, this injects a TestPoint that calls Thread.yield().
-	// In Gocene, we can implement this by adding a hook to IndexWriter or simply
-	// calling runtime.Gosched() in the wrapper's methods.
-	// For now, we return a standard IndexWriter.
+	localRng := rand.New(rand.NewSource(r.Int63()))
+	tp := &mockTestPoint{rng: localRng}
+	conf.SetInfoStream(newTestPointInfoStream(conf.GetInfoStream(), tp))
 	return index.NewIndexWriter(dir, conf)
+}
+
+type mockTestPoint struct {
+	rng *rand.Rand
+}
+
+func (m *mockTestPoint) Apply(message string) {
+	if m.rng.Intn(4) == 2 {
+		runtime.Gosched()
+	}
 }
 
 // New creates a RandomIndexWriter with a random config and a MockAnalyzer.
 func New(r *rand.Rand, dir store.Directory) (*RandomIndexWriter, error) {
-	conf := index.NewIndexWriterConfig(NewMockAnalyzer(r))
+	conf := index.NewIndexWriterConfig(NewMockAnalyzerRandom(r, true, 0, nil, false))
 	return NewWithConfig(r, dir, conf, true, r.Intn(2) == 0)
 }
+
 
 // NewWithAnalyzer creates a RandomIndexWriter with the provided analyzer.
 func NewWithAnalyzer(r *rand.Rand, dir store.Directory, a analysis.Analyzer) (*RandomIndexWriter, error) {
@@ -83,18 +130,16 @@ func NewWithConfigExtended(r *rand.Rand, dir store.Directory, c *index.IndexWrit
 		return nil, err
 	}
 
-	config := w.GetConfig() // Assuming this exists or can be added
+	config := w.GetConfig()
 	flushAt := nextInt(rng, 10, 1000)
 
 	var analyzer analysis.Analyzer
 	if closeAnalyzer {
-		analyzer = w.GetAnalyzer() // Assuming this exists
+		analyzer = w.GetAnalyzer()
 	}
 
 	doRandomForceMerge := false
 	if c.GetMergePolicy() != nil {
-		// Check if it's NoMergePolicy
-		// In Go we can use a type switch or a method
 		if _, ok := c.GetMergePolicy().(*index.NoMergePolicy); !ok {
 			doRandomForceMerge = rng.Intn(2) == 0
 		}
@@ -105,9 +150,9 @@ func NewWithConfigExtended(r *rand.Rand, dir store.Directory, c *index.IndexWrit
 		rng:              rng,
 		config:           config,
 		flushAt:          flushAt,
-		flushAtFactor:     1.0,
-		softDeletesRatio:  softDeletesRatio,
-		analyzer:          analyzer,
+		flushAtFactor:    1.0,
+		softDeletesRatio: softDeletesRatio,
+		analyzer:         analyzer,
 		doRandomForceMerge: doRandomForceMerge,
 	}, nil
 }
@@ -120,9 +165,7 @@ func nextInt(r *rand.Rand, min, max int) int {
 }
 
 func (r *RandomIndexWriter) maybeChangeLiveIndexWriterConfig() {
-	// Logic from LuceneTestCase.maybeChangeLiveIndexWriterConfig
-	if r.rng.Float64() < 0.05 { // rarely()
-		// Randomly change flush parameters
+	if r.rng.Float64() < 0.05 {
 		if r.rng.Intn(2) == 0 {
 			r.config.SetRAMBufferSizeMB(float64(nextInt(r.rng, 1, 10)))
 			r.config.SetMaxBufferedDocs(index.DisableAutoFlush)
@@ -137,13 +180,7 @@ func (r *RandomIndexWriter) maybeChangeLiveIndexWriterConfig() {
 	}
 
 	if r.rng.Float64() < 0.05 {
-		// Change warmer parameters
-		if r.rng.Intn(2) == 0 {
-			r.config.SetMergedSegmentWarmer(nil)
-		} else {
-			// SimpleMergedSegmentWarmer implementation would be needed here
-			// r.config.SetMergedSegmentWarmer(index.NewSimpleMergedSegmentWarmer(r.config.GetInfoStream()))
-		}
+		r.config.SetMergedSegmentWarmer(nil)
 	}
 
 	if r.rng.Float64() < 0.05 {
@@ -162,15 +199,6 @@ func (r *RandomIndexWriter) maybeChangeLiveIndexWriterConfig() {
 			}
 			cms.SetMaxMergesAndThreads(maxMergeCount, maxThreadCount)
 		}
-	}
-
-	if r.rng.Float64() < 0.05 {
-		mp := r.config.GetMergePolicy()
-		if mp == nil {
-			return
-		}
-		// Randomly configure merge policy
-		// This would require a helper to modify MergePolicy fields
 	}
 }
 
@@ -321,15 +349,10 @@ func (r *RandomIndexWriter) CommitExtended(flushConcurrently bool) (int64, error
 	r.maybeChangeLiveIndexWriterConfig()
 	if flushConcurrently {
 		var wg sync.WaitGroup
-		var errMu sync.Mutex
-		var primaryErr error
-
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			r.flushAllBuffersSequentially()
-			// Note: In Go we don't have a direct equivalent to Java's Throwable list for suppressed exceptions
-			// without more complex plumbing. We'll just capture the error if any.
 		}()
 
 		seqNo, err := r.w.Commit()
@@ -364,7 +387,7 @@ func (r *RandomIndexWriter) GetReaderExtended(applyDeletions bool, writeAllDelet
 		if r.rng.Intn(5) == 1 {
 			r.w.Commit()
 		}
-		return r.w.GetReader(applyDeletions) // Gocene IndexWriter.GetReader handles NRT
+		return r.w.GetReader(applyDeletions)
 	} else {
 		r.w.Commit()
 		if r.rng.Intn(2) == 0 {
@@ -398,7 +421,6 @@ func (r *RandomIndexWriter) doRandomForceMerge() {
 			limit := nextInt(r.rng, 1, segCount)
 			r.w.ForceMerge(limit)
 			if limit == 1 {
-				// Assert segment count <= limit
 				if r.doRandomForceMergeAssert && r.w.GetSegmentCount() > limit {
 					panic(fmt.Sprintf("ForceMerge limit=%d actual=%d", limit, r.w.GetSegmentCount()))
 				}
@@ -413,7 +435,6 @@ func (r *RandomIndexWriter) Close() error {
 	success := false
 	defer func() {
 		if !success {
-			// Attempt to close writer and analyzer
 			r.w.Close()
 			if r.analyzer != nil {
 				r.analyzer.Close()
@@ -443,3 +464,4 @@ func (r *RandomIndexWriter) ForceMerge(maxSegmentCount int) error {
 func (r *RandomIndexWriter) Flush() error {
 	return r.w.Flush()
 }
+

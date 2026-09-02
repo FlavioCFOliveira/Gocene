@@ -977,6 +977,10 @@ func (w *IndexWriter) ForceMergeDeletesWithObserver(doWait bool) (*MergePolicy.M
 	return index.NewMergeObserver(spec), nil
 }
 
+func (w *IndexWriter) mergeFinish(merge *OneMerge) {
+	// minimal implementation
+}
+
 func (w *IndexWriter) handleMergeException(err error, merge *OneMerge) {
 	merge.SetException(err)
 	w.mergeExceptions = append(w.mergeExceptions, err)
@@ -1233,5 +1237,19 @@ func (w *IndexWriter) GetReader(applyAllDeletes, writeAllDeletes bool) (*Standar
 	w.docWriter.FinishFullFlush(true)
 
 	return reader, nil
+}
+
+func (w *IndexWriter) commitMerge(merge *OneMerge, docMaps []DocMap) bool {
+	if merge.IsAborted() {
+		return false
+	}
+
+	w.segmentInfos.ApplyMergeChanges(merge, false)
+
+	// Adjust pendingNumDocs
+	delDocCount := merge.TotalMaxDoc - merge.Info.Info.MaxDoc()
+	w.adjustPendingNumDocs(-delDocCount)
+
+	return true
 }
 
