@@ -88,108 +88,12 @@ type Sort struct {
 	fields []SortField
 }
 
-// SortField represents a single sort field.
-type SortField struct {
-	// field name to sort by
-	field string
-	// descending is true for descending order
-	descending bool
-	// sortType is the type of sorting
-	sortType SortType
-	// missingValue is the value to use for missing documents
-	missingValue interface{}
-	// selector is used for multi-valued fields (min, max, etc.)
-	selector string
-}
-
-// SortType represents how a field should be sorted.
-type SortType int
-
-const (
-	// SortTypeString sorts strings
-	SortTypeString SortType = iota
-	// SortTypeLong sorts as long integers
-	SortTypeLong
-	// SortTypeInt sorts as integers
-	SortTypeInt
-	// SortTypeFloat sorts as floats
-	SortTypeFloat
-	// SortTypeDouble sorts as doubles
-	SortTypeDouble
-)
-
-// NewSort creates a new Sort with the given fields.
-func NewSort(fields ...SortField) *Sort {
-	return &Sort{fields: fields}
-}
-
-// Fields returns the SortField slice underlying this Sort.
-// The returned slice aliases the internal storage and must not be
-// mutated by callers; it is exposed read-only so that packages outside
-// schema/ can iterate sort specifications.
-func (s *Sort) Fields() []SortField {
-	if s == nil {
-		return nil
-	}
-	return s.fields
-}
-
-// NewSortField creates a new SortField.
-func NewSortField(name string, sortType SortType) SortField {
-	return SortField{field: name, sortType: sortType}
-}
-
-// NewSortFieldFull creates a SortField with all parameters specified.
-// Callers in other packages use this to reconstruct a SortField from a
-// serialized representation (see SegmentInfos user-data decoding).
-func NewSortFieldFull(name string, sortType SortType, descending bool) SortField {
-	return SortField{field: name, sortType: sortType, descending: descending}
-}
 
 // NewSortFromFields wraps an existing []SortField slice in a *Sort. The
 // slice is taken by reference; callers must not retain or mutate it
 // after the call.
 func NewSortFromFields(fields []SortField) *Sort {
 	return &Sort{fields: fields}
-}
-
-// SetReverse sets whether this sort field is in reverse order.
-func (sf *SortField) SetReverse(reverse bool) {
-	sf.descending = reverse
-}
-
-// SetMissingValue sets the value to use for missing documents.
-// For numeric fields, this should be an int64.
-// For string fields, this should be a []byte.
-func (sf *SortField) SetMissingValue(value interface{}) {
-	sf.missingValue = value
-}
-
-// Field returns the field name this SortField sorts on.
-func (sf *SortField) Field() string {
-	return sf.field
-}
-
-// Descending reports whether the sort is descending.
-func (sf *SortField) Descending() bool {
-	return sf.descending
-}
-
-// SortType returns the type-discriminator (string/long/int/float/double).
-func (sf *SortField) SortType() SortType {
-	return sf.sortType
-}
-
-// MissingValue returns the value substituted for missing documents
-// (nil if the caller never configured one).
-func (sf *SortField) MissingValue() interface{} {
-	return sf.missingValue
-}
-
-// Selector returns the multi-value selector ("min", "max", ...) when
-// the SortField wraps a multi-valued doc-values field.
-func (sf *SortField) Selector() string {
-	return sf.selector
 }
 
 // SortedNumericSortField represents a sort field for multi-valued numeric fields.
@@ -199,13 +103,13 @@ type SortedNumericSortField struct {
 }
 
 // NewSortedNumericSortField creates a new SortedNumericSortField.
-func NewSortedNumericSortField(name string, sortType SortType) *SortedNumericSortField {
+func NewSortedNumericSortField(name string, sortType SortFieldType) *SortedNumericSortField {
 	return &SortedNumericSortField{
 		SortField: SortField{
-			field:      name,
-			sortType:   sortType,
-			descending: false,
-			selector:   "min",
+			Field:    name,
+			Type:     sortType,
+			Reverse:  false,
+			Selector: "min",
 		},
 	}
 }
@@ -219,10 +123,10 @@ type SortedSetSortField struct {
 func NewSortedSetSortField(name string, reverse bool) *SortedSetSortField {
 	return &SortedSetSortField{
 		SortField: SortField{
-			field:      name,
-			sortType:   SortTypeString,
-			descending: reverse,
-			selector:   "min",
+			Field:    name,
+			Type:     SortFieldTypeString,
+			Reverse:  reverse,
+			Selector: "min",
 		},
 	}
 }
@@ -573,8 +477,8 @@ func (si *SegmentInfo) GetIndexSortDescription() string {
 		if i > 0 {
 			desc += ", "
 		}
-		desc += f.field
-		if f.descending {
+		desc += f.Field
+		if f.Reverse {
 			desc += " DESC"
 		} else {
 			desc += " ASC"

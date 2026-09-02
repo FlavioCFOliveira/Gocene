@@ -6,6 +6,9 @@ package index
 
 import (
 	"fmt"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis/api"
@@ -35,10 +38,7 @@ type DocumentsWriter struct {
 	flushPolicy FlushPolicy
 
 	// perThreadPool manages per-thread writers
-	perThreadPool []*DocumentsWriterPerThread
-
-	// threadLock protects perThreadPool access
-	threadLock sync.RWMutex
+	perThreadPool sync.Map // map[int64]*DocumentsWriterPerThread
 
 	// deleteQueue holds pending delete operations
 	deleteQueue *DocumentsWriterDeleteQueue
@@ -112,7 +112,6 @@ func NewDocumentsWriter(
 		analyzer:           config.analyzer,
 		config:             config,
 		codec:              config.Codec(),
-		perThreadPool:      make([]*DocumentsWriterPerThread, 0),
 		flushPolicy:        NewDefaultFlushPolicy(config.maxBufferedDocs, config.ramBufferSizeMB),
 		segmentNameCounter: 0,
 		deleteQueue:        NewDocumentsWriterDeleteQueue(infoStream),
@@ -239,19 +238,35 @@ func (dw *DocumentsWriter) UpdateDocuments(docs []Document, analyzer api.Analyze
 
 // getPerThreadWriter returns a per-thread writer.
 func (dw *DocumentsWriter) getPerThreadWriter() *DocumentsWriterPerThread {
-	dw.threadLock.Lock()
-	defer dw.threadLock.Unlock()
-
-	if len(dw.perThreadPool) > 0 {
-		return dw.perThreadPool[0]
+	id := goroutineID()
+	if val, ok := dw.perThreadPool.Load(id); ok {
+		return val.(*DocumentsWriterPerThread)
 	}
+
 	// Reserve a segment name up front, matching Lucene's DWPT constructor.
 	// This lets lazily-initialized codec writers (in particular the term-vectors
 	// writer) create their on-disk files under the correct segment name.
 	segmentName := dw.nextSegmentName()
 	dwpt := NewDocumentsWriterPerThread(dw, segmentName)
-	dw.perThreadPool = append(dw.perThreadPool, dwpt)
+
+	actual, loaded := dw.perThreadPool.LoadOrStore(id, dwpt)
+	if loaded {
+		// Another thread already created a DWPT for this ID (though unlikely in Go
+		// unless goroutines are recycled, which they aren't).
+		return actual.(*DocumentsWriterPerThread)
+	}
 	return dwpt
+}
+
+func goroutineID() int64 {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	idField := strings.Fields(string(buf[:n]))
+	if len(idField) < 2 {
+		return -1
+	}
+	id, _ := strconv.ParseInt(idField[1], 10, 64)
+	return id
 }
 
 // GetPerThreadPool returns the current DWPT pool.
@@ -293,10 +308,11 @@ func (dw *DocumentsWriter) flush() error {
 	}
 
 	// Get all per-thread writers
-	dw.threadLock.RLock()
-	dwpts := make([]*DocumentsWriterPerThread, len(dw.perThreadPool))
-	copy(dwpts, dw.perThreadPool)
-	dw.threadLock.RUnlock()
+	var dwpts []*DocumentsWriterPerThread
+	dw.perThreadPool.Range(func(key, value any) bool {
+		dwpts = append(dwpts, value.(*DocumentsWriterPerThread))
+		return true
+	})
 
 	// Flush each DWPT and collect segment infos.  Each DWPT already reserved
 	// its segment name when it was obtained from the pool, so there is no need
@@ -376,14 +392,15 @@ func (dw *DocumentsWriter) Close() error {
 // FlushNextBuffer flushes the next available per-thread writer.
 // Returns true if a buffer was flushed, false otherwise.
 func (dw *DocumentsWriter) FlushNextBuffer() bool {
-	dw.threadLock.Lock()
-	if len(dw.perThreadPool) == 0 {
-		dw.threadLock.Unlock()
+	var dwpt *DocumentsWriterPerThread
+	dw.perThreadPool.Range(func(key, value any) bool {
+		dwpt = value.(*DocumentsWriterPerThread)
+		return false // Stop after first
+	})
+
+	if dwpt == nil {
 		return false
 	}
-	dwpt := dw.perThreadPool[0]
-	dw.perThreadPool = dw.perThreadPool[1:]
-	dw.threadLock.Unlock()
 
 	if dwpt.GetNumDocs() == 0 {
 		return false

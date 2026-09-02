@@ -85,6 +85,11 @@ func (d *FilterDirectory) DeleteFile(name string) error {
 	return d.in.DeleteFile(name)
 }
 
+// Rename delegates to the wrapped directory.
+func (d *FilterDirectory) Rename(from, to string) error {
+	return d.in.Rename(from, to)
+}
+
 // ObtainLock delegates to the wrapped directory.
 func (d *FilterDirectory) ObtainLock(name string) (Lock, error) {
 	return d.in.ObtainLock(name)

@@ -1,7 +1,5 @@
 package schema
 
-import "fmt"
-
 // SortFieldType represents the type of a sort field.
 type SortFieldType int
 
@@ -76,6 +74,9 @@ type SortField struct {
 
 	// optimizeSet records whether optimizeSortWithIndexedData was explicitly set.
 	optimizeSet bool
+
+	// Selector is used for multi-valued fields (min, max, etc.).
+	Selector string
 
 	// comparatorSource holds the custom FieldComparatorSource for a
 	// SortFieldTypeCustom sort.

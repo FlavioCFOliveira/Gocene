@@ -374,6 +374,41 @@ func (s *ConcurrentMergeScheduler) Merge(source MergeSource, trigger MergeTrigge
 	return nil
 }
 
+// MergeWithSpec runs the specific merges provided by MergeSpecification.
+func (s *ConcurrentMergeScheduler) MergeWithSpec(source MergeSource, spec *MergeSpecification, doWait bool) error {
+	if s.IsClosed() {
+		return NewAlreadyClosedException("merge scheduler is closed", nil)
+	}
+
+	s.mergeMu.Lock()
+	// Add all merges from the specification to the pending queue
+	s.pendingMerges = append(s.pendingMerges, spec.Merges...)
+	s.mergeMu.Unlock()
+
+	// Trigger a merge run to start processing the newly added merges
+	// Since Merge() is the main entry point that spawns threads, we can just call it
+	// with a dummy source that returns nil.
+	dummySource := &dummyMergeSource{}
+	if err := s.Merge(dummySource, MergeTriggerForced); err != nil {
+		return err
+	}
+
+	if doWait {
+		if !spec.Await() {
+			return fmt.Errorf("one or more merges failed")
+		}
+	}
+
+	return nil
+}
+
+type dummyMergeSource struct{}
+
+func (d *dummyMergeSource) GetNextMerge() *OneMerge { return nil }
+func (d *dummyMergeSource) OnMergeFinished(*OneMerge) {}
+func (d *dummyMergeSource) HasPendingMerges() bool   { return false }
+func (d *dummyMergeSource) Merge(merge *OneMerge) error { return fmt.Errorf("not implemented") }
+
 // maybeStall stalls the calling goroutine if there are too many pending merges.
 func (s *ConcurrentMergeScheduler) maybeStall(source MergeSource, maxMergeCount int) error {
 	s.mergeMu.Lock()

@@ -6,24 +6,10 @@ type Automaton struct {
 	// In a real implementation, this would have states and transitions.
 }
 
-func MakeAnyString() *Automaton {
-	return &Automaton{}
-}
-
-func MakeAnyChar() *Automaton {
-	return &Automaton{}
-}
-
-func MakeChar(c int) *Automaton {
-	return &Automaton{}
-}
-
-func Concatenate(automata []*Automaton) *Automaton {
-	return &Automaton{}
-}
-
-func Determinize(a *Automaton, workLimit int) *Automaton {
-	return &Automaton{}
+type Transition struct {
+	Dest int
+	Min  int
+	Max  int
 }
 
 func (a *Automaton) String() string {

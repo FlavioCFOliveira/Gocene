@@ -338,64 +338,69 @@ func TestIndexWriterDeleteDocuments(t *testing.T) {
 	})
 }
 
-// TestIndexWriterWorkflow tests complete workflows
-func TestIndexWriterWorkflow(t *testing.T) {
-	t.Run("add commit close workflow", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
+// TestIndexWriterCoordination verifies the core coordination logic: NRT visibility, durability, and rollback.
+func TestIndexWriterCoordination(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	defer dir.Close()
 
-		config := index.NewIndexWriterConfig(createTestAnalyzer())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("NewIndexWriter() error = %v", err)
-		}
+	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	writer, _ := index.NewIndexWriter(dir, config)
 
-		// Add documents
-		for i := 0; i < 3; i++ {
-			doc := &testDocument{fields: []interface{}{}}
-			if _, err := writer.AddDocument(doc); err != nil {
-				t.Errorf("AddDocument() error = %v", err)
-			}
-		}
+	// 1. Test NRT Visibility
+	doc1 := &testDocument{fields: []interface{}{}}
+	writer.AddDocument(doc1)
 
-		// Commit
-		if err := writer.Commit(); err != nil {
-			t.Errorf("Commit() error = %v", err)
-		}
+	readerNRT, err := writer.GetReader(true)
+	if err != nil {
+		t.Fatalf("GetReader() error = %v", err)
+	}
+	if readerNRT.NumDocs() != 1 {
+		t.Errorf("NRT reader should see 1 doc, got %d", readerNRT.NumDocs())
+	}
+	readerNRT.Close()
 
-		// Close
-		if err := writer.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
+	// 2. Test Durability
+	if err := writer.Commit(); err != nil {
+		t.Fatalf("Commit() error = %v", err)
+	}
 
-		if !writer.IsClosed() {
-			t.Error("writer should be closed")
-		}
-	})
+	readerDurable, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader() error = %v", err)
+	}
+	if readerDurable.NumDocs() != 1 {
+		t.Errorf("Durable reader should see 1 doc, got %d", readerDurable.NumDocs())
+	}
+	readerDurable.Close()
 
-	t.Run("update and delete workflow", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
+	// 3. Test Rollback
+	doc2 := &testDocument{fields: []interface{}{}}
+	writer.AddDocument(doc2)
 
-		config := index.NewIndexWriterConfig(createTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-		defer writer.Close()
+	// Verify doc2 is visible NRT
+	readerNRT2, _ := writer.GetReader(true)
+	if readerNRT2.NumDocs() != 2 {
+		t.Errorf("NRT reader should see 2 docs, got %d", readerNRT2.NumDocs())
+	}
+	readerNRT2.Close()
 
-		// Add document
-		doc := &testDocument{fields: []interface{}{}}
-		writer.AddDocument(doc)
+	if err := writer.Rollback(); err != nil {
+		t.Fatalf("Rollback() error = %v", err)
+	}
 
-		// Update document
-		term := index.NewTerm("id", "1")
-		writer.UpdateDocument(term, doc)
+	// Verify index reverted to doc1 only
+	readerAfterRollback, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("OpenDirectoryReader() error = %v", err)
+	}
+	if readerAfterRollback.NumDocs() != 1 {
+		t.Errorf("Reader after rollback should see 1 doc, got %d", readerAfterRollback.NumDocs())
+	}
+	readerAfterRollback.Close()
 
-		// Delete document
-		writer.DeleteDocuments(term)
-
-		// Commit
-		writer.Commit()
-	})
+	writer.Close()
 }
+
 
 // testDocument is a minimal document implementation for testing
 type testDocument struct {

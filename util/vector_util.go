@@ -17,6 +17,22 @@ func ComputeDotProduct(a, b []float32) float32 {
 	return sum
 }
 
+func DotProduct(a, b []float32) float32 {
+	return ComputeDotProduct(a, b)
+}
+
+func Euclidean(a, b []float32) float32 {
+	return SquareDistance(a, b)
+}
+
+func Uint8DotProduct(a, b []byte) float32 {
+	return DotProductBytes(a, b)
+}
+
+func MaximumInnerProduct(a, b []float32) float32 {
+	return ComputeDotProduct(a, b)
+}
+
 // IsUnitVector returns true if the vector is unit length (within epsilon).
 func IsUnitVector(v []float32) bool {
 	const epsilon = 1e-4

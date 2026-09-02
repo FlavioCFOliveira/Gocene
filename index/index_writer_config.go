@@ -169,10 +169,11 @@ func (c *IndexWriterConfig) SetParentField(field string) *IndexWriterConfig {
 	return c
 }
 
-func (c *IndexWriterConfig) setIndexWriter(writer any) *IndexWriterConfig {
-	if c.writer != nil {
-		panic("do not share IndexWriterConfig instances across IndexWriters")
-	}
-	c.writer = writer
+func (c *IndexWriterConfig) SetMergedSegmentWarmer(warmer IndexReaderWarmer) *IndexWriterConfig {
+	c.SetMergedSegmentWarmerInternal(warmer)
 	return c
+}
+
+func (c *IndexWriterConfig) SetMergedSegmentWarmerInternal(warmer IndexReaderWarmer) {
+	c.LiveIndexWriterConfig.SetMergedSegmentWarmer(warmer)
 }

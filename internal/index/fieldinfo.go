@@ -7,8 +7,8 @@ import (
 
 // FieldInfo describes document fields and whether or not they are indexed.
 type FieldInfo struct {
-	Name                    string
-	Number                  int
+	name                    string
+	number                  int
 	docValuesType           DocValuesType
 	docValuesSkipIndex      DocValuesSkipIndexType
 	storeTermVector         bool
@@ -48,8 +48,8 @@ func NewFieldInfo(
 	isParentField bool,
 ) (*FieldInfo, error) {
 	fi := &FieldInfo{
-		Name:                    name,
-		Number:                  number,
+		name:                    name,
+		number:                  number,
 		docValuesType:           docValues,
 		docValuesSkipIndex:      docValuesSkipIndex,
 		IndexOptions:            indexOptions,
@@ -85,43 +85,43 @@ func (fi *FieldInfo) CheckConsistency() error {
 		}
 	} else {
 		if !fi.IndexOptions.Subsumes(IndexOptionsDocsAndFreqsAndPositions) && fi.storePayloads {
-			return fmt.Errorf("indexed field '%s' cannot have payloads without positions", fi.Name)
+			return fmt.Errorf("indexed field '%s' cannot have payloads without positions", fi.name)
 		}
 	}
 
 	if !fi.docValuesSkipIndex.IsCompatibleWith(fi.docValuesType) {
 		return fmt.Errorf("field '%s' cannot have docValuesSkipIndexType=%v with doc values type %v",
-			fi.Name, fi.docValuesSkipIndex, fi.docValuesType)
+			fi.name, fi.docValuesSkipIndex, fi.docValuesType)
 	}
 
 	if fi.dvGen != -1 && fi.docValuesType == DocValuesTypeNone {
-		return fmt.Errorf("field '%s' cannot have a docvalues update generation without having docvalues", fi.Name)
+		return fmt.Errorf("field '%s' cannot have a docvalues update generation without having docvalues", fi.name)
 	}
 
 	if fi.pointDimensionCount < 0 || fi.pointIndexDimensionCount < 0 || fi.pointNumBytes < 0 {
-		return fmt.Errorf("point dimensions/bytes must be >= 0 for field '%s'", fi.Name)
+		return fmt.Errorf("point dimensions/bytes must be >= 0 for field '%s'", fi.name)
 	}
 
 	if fi.pointDimensionCount != 0 && fi.pointNumBytes == 0 {
 		return fmt.Errorf("pointNumBytes must be > 0 when pointDimensionCount=%d (field: '%s')",
-			fi.pointDimensionCount, fi.Name)
+			fi.pointDimensionCount, fi.name)
 	}
 
 	if fi.pointIndexDimensionCount != 0 && fi.pointDimensionCount == 0 {
-		return fmt.Errorf("pointIndexDimensionCount must be 0 when pointDimensionCount=0 for field '%s'", fi.Name)
+		return fmt.Errorf("pointIndexDimensionCount must be 0 when pointDimensionCount=0 for field '%s'", fi.name)
 	}
 
 	if fi.pointNumBytes != 0 && fi.pointDimensionCount == 0 {
 		return fmt.Errorf("pointDimensionCount must be > 0 when pointNumBytes=%d (field: '%s')",
-			fi.pointNumBytes, fi.Name)
+			fi.pointNumBytes, fi.name)
 	}
 
 	if fi.vectorDimension < 0 {
-		return fmt.Errorf("vectorDimension must be >= 0 for field '%s'", fi.Name)
+		return fmt.Errorf("vectorDimension must be >= 0 for field '%s'", fi.name)
 	}
 
 	if fi.softDeletesField && fi.isParentField {
-		return fmt.Errorf("field '%s' cannot be used as soft-deletes field and parent document field", fi.Name)
+		return fmt.Errorf("field '%s' cannot be used as soft-deletes field and parent document field", fi.name)
 	}
 
 	return nil
@@ -129,13 +129,13 @@ func (fi *FieldInfo) CheckConsistency() error {
 
 func (fi *FieldInfo) SetPointDimensions(dimensionCount, indexDimensionCount, numBytes int) error {
 	if dimensionCount <= 0 {
-		return fmt.Errorf("point dimension count must be > 0 for field '%s'", fi.Name)
+		return fmt.Errorf("point dimension count must be > 0 for field '%s'", fi.name)
 	}
 	if indexDimensionCount > dimensionCount {
-		return fmt.Errorf("point index dimension count must be <= point dimension count for field '%s'", fi.Name)
+		return fmt.Errorf("point index dimension count must be <= point dimension count for field '%s'", fi.name)
 	}
 	if numBytes <= 0 {
-		return fmt.Errorf("point numBytes must be > 0 for field '%s'", fi.Name)
+		return fmt.Errorf("point numBytes must be > 0 for field '%s'", fi.name)
 	}
 
 	fi.pointDimensionCount = dimensionCount
@@ -146,11 +146,11 @@ func (fi *FieldInfo) SetPointDimensions(dimensionCount, indexDimensionCount, num
 }
 
 func (fi *FieldInfo) Name() string {
-	return fi.Name
+	return fi.name
 }
 
 func (fi *FieldInfo) Number() int {
-	return fi.Number
+	return fi.number
 }
 
 func (fi *FieldInfo) DocValuesType() DocValuesType {

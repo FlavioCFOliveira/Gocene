@@ -318,22 +318,21 @@ func (fn *FieldNumbers) AddOrGet(fi *FieldInfo) int {
 	}
 
 	var fieldNumber int
-	if fi.Number() != -1 {
-		if _, ok := fn.numberToName[fi.Number()]; !ok {
-			fieldNumber = fi.Number()
-		} else {
-			goto allocate
-		}
-	} else {
-	allocate:
-		for {
-			fn.lowestUnassignedFieldNumber++
-			if _, ok := fn.numberToName[fn.lowestUnassignedFieldNumber]; !ok {
-				fieldNumber = fn.lowestUnassignedFieldNumber
-				break
+		if fi.Number() != -1 {
+			if _, ok := fn.numberToName[fi.Number()]; !ok {
+				fieldNumber = fi.Number()
 			}
 		}
-	}
+		if fieldNumber == -1 {
+			for {
+				fn.lowestUnassignedFieldNumber++
+				if _, ok := fn.numberToName[fn.lowestUnassignedFieldNumber]; !ok {
+					fieldNumber = fn.lowestUnassignedFieldNumber
+					break
+				}
+			}
+		}
+
 
 	fn.numberToName[fieldNumber] = name
 	fn.fieldProps[name] = &fieldProps{

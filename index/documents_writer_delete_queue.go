@@ -209,6 +209,16 @@ func NewDocumentsWriterDeleteQueueWithParams(infoStream InfoStream, generation i
 	return dq
 }
 
+func (dq *DocumentsWriterDeleteQueue) AddDeleteQueries(queries []Query) int64 {
+	if len(queries) == 0 {
+		return dq.GetNextSequenceNumber()
+	}
+	node := &queryArrayNode{
+		queries: queries,
+	}
+	return dq.Add(node)
+}
+
 func (dq *DocumentsWriterDeleteQueue) GetNextSequenceNumber() int64 {
 	seqNo := dq.nextSeqNo.Add(1) - 1
 	if seqNo > dq.maxSeqNo.Load() {

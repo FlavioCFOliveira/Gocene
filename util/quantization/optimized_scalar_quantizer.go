@@ -49,7 +49,7 @@ func NewDefaultOptimizedScalarQuantizer(similarityFunction util.VectorSimilarity
 
 func (osq *OptimizedScalarQuantizer) MultiScalarQuantize(vector []float32, destinations [][]byte, bits []byte, centroid []float32) []QuantizationResult {
 	// Cosine check (using VectorUtil.IsUnitVector)
-	if osq.similarityFunction == util.Cosine {
+	if osq.similarityFunction == util.CosineSim {
 		if !util.IsUnitVector(vector) || !util.IsUnitVector(centroid) {
 			panic("vectors must be unit vectors for cosine similarity")
 		}
@@ -61,7 +61,7 @@ func (osq *OptimizedScalarQuantizer) MultiScalarQuantize(vector []float32, desti
 	min, max := float32(math.MaxFloat32), float32(-math.MaxFloat32)
 
 	for i := 0; i < len(vector); i++ {
-		if osq.similarityFunction != util.Euclidean {
+		if osq.similarityFunction != util.EuclideanSim {
 			centroidDot += vector[i] * centroid[i]
 		}
 		vector[i] = vector[i] - centroid[i]
@@ -119,7 +119,7 @@ func (osq *OptimizedScalarQuantizer) MultiScalarQuantize(vector []float32, desti
 }
 
 func (osq *OptimizedScalarQuantizer) ScalarQuantize(vector []float32, destination []byte, bits byte, centroid []float32) QuantizationResult {
-	if osq.similarityFunction == util.Cosine {
+	if osq.similarityFunction == util.CosineSim {
 		if !util.IsUnitVector(vector) || !util.IsUnitVector(centroid) {
 			panic("vectors must be unit vectors for cosine similarity")
 		}
@@ -132,7 +132,7 @@ func (osq *OptimizedScalarQuantizer) ScalarQuantize(vector []float32, destinatio
 	min, max := float32(math.MaxFloat32), float32(-math.MaxFloat32)
 
 	for i := 0; i < len(vector); i++ {
-		if osq.similarityFunction != util.Euclidean {
+		if osq.similarityFunction != util.EuclideanSim {
 			centroidDot += vector[i] * centroid[i]
 		}
 		vector[i] = vector[i] - centroid[i]
@@ -301,7 +301,8 @@ func TransposeDibit(vector []byte, packed []byte) {
 	limit := len(vector) - 7
 	i := 0
 	index := 0
-	for ; i < limit; i += 8, index++ {
+	for ; i < limit; i += 8 {
+		index++
 		lowerByte := (vector[i] & 1) << 7 |
 			(vector[i+1] & 1) << 6 |
 			(vector[i+2] & 1) << 5 |
@@ -325,7 +326,7 @@ func TransposeDibit(vector []byte, packed []byte) {
 		return
 	}
 	var lowerByte, upperByte int
-	for j := 7; i < len(vector); j--, i++ {
+	for j := 7; i < len(vector); j-- {
 		lowerByte |= int(vector[i]&1) << j
 		upperByte |= int((vector[i]>>1)&1) << j
 	}
@@ -338,7 +339,8 @@ func UntransposeDibit(packed []byte, vector []byte) {
 	limit := len(vector) - 7
 	i := 0
 	index := 0
-	for ; i < limit; i += 8, index++ {
+	for ; i < limit; i += 8 {
+		index++
 		lowerByte := packed[index]
 		upperByte := packed[index+stripeSize]
 		vector[i] = byte(((lowerByte >> 7) & 1) | ((upperByte >> 7) & 1) << 1)
@@ -353,7 +355,7 @@ func UntransposeDibit(packed []byte, vector []byte) {
 	if i < len(vector) {
 		lowerByte := packed[index]
 		upperByte := packed[index+stripeSize]
-		for j := 7; i < len(vector); j--, i++ {
+		for j := 7; i < len(vector); j-- {
 			vector[i] = byte(((lowerByte >> j) & 1) | ((upperByte >> j) & 1) << 1)
 		}
 	}

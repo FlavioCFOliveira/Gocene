@@ -498,7 +498,7 @@ func (w *IndexWriter) finishCommit() error {
 		return nil
 	}
 
-	committedSegmentsFileName, err := w.pendingCommit.FinishCommit(w.dir)
+	committedSegmentsFileName, err := w.pendingCommit.FinishCommit(w.dir, w.config.Codec())
 	if err != nil {
 		return err
 	}
@@ -755,7 +755,21 @@ func (w *IndexWriter) checkpointNoSIS() {
 }
 
 func (w *IndexWriter) maybeMerge(policy MergePolicy, trigger MergeTrigger, maxSegments int) {
-	w.mergeScheduler.Merge(w.mergeSource, trigger)
+	if policy == nil {
+		return
+	}
+
+	// Consult the merge policy to find potential merges for the given trigger.
+	spec, err := policy.FindMerges(trigger, w.segmentInfos, w.mergeSource)
+	if err != nil {
+		// Log merge policy error and continue
+		return
+	}
+
+	if spec != nil {
+		// Submit the found merges to the scheduler.
+		w.mergeScheduler.MergeWithSpec(w.mergeSource, spec, false)
+	}
 }
 
 func (w *IndexWriter) getFieldNumberMap() *FieldNumbers {
