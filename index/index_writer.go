@@ -346,6 +346,35 @@ func (w *IndexWriter) DeleteDocuments(terms []Term) (int64, error) {
 	return w.maybeProcessEvents(seqNo), nil
 }
 
+// DeleteAll deletes all documents from the index.
+func (w *IndexWriter) DeleteAll() (int64, error) {
+	w.ensureOpen()
+
+	// Directly call docWriter to avoid loop with DeleteDocumentsByQuery
+	seqNo, err := w.docWriter.DeleteQueries([]Query{&MatchAllDocsQuery{}})
+	if err != nil {
+		return 0, err
+	}
+	return w.maybeProcessEvents(seqNo), nil
+}
+
+// DeleteDocumentsQuery deletes documents matching the given queries.
+func (w *IndexWriter) DeleteDocumentsQuery(queries []Query) (int64, error) {
+	w.ensureOpen()
+
+	for _, q := range queries {
+		if _, ok := q.(*MatchAllDocsQuery); ok {
+			return w.DeleteAll()
+		}
+	}
+
+	seqNo, err := w.docWriter.DeleteQueries(queries)
+	if err != nil {
+		return 0, err
+	}
+	return w.maybeProcessEvents(seqNo), nil
+}
+
 func (w *IndexWriter) PrepareCommit() (int64, error) {
 	w.ensureOpen()
 	w.commitLock.Lock()

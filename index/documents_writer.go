@@ -140,6 +140,27 @@ func (dw *DocumentsWriter) ShouldFlush() bool {
 	return dw.flushPolicy.ShouldFlush(dw.numDocsInRAM, dw.bytesUsed)
 }
 
+// DeleteQueries deletes documents matching the given queries.
+func (dw *DocumentsWriter) DeleteQueries(queries []Query) int64 {
+	dw.mu.Lock()
+	defer dw.mu.Unlock()
+
+	if len(queries) == 0 {
+		return dw.GetNextSequenceNumber()
+	}
+
+	var node Node
+	if len(queries) == 1 {
+		node = NewQueryNode(queries[0])
+	} else {
+		node = &queryArrayNode{
+			queries: queries,
+		}
+	}
+
+	return dw.deleteQueue.Add(node)
+}
+
 // GetNextSequenceNumber returns the next sequence number from the delete queue.
 func (dw *DocumentsWriter) GetNextSequenceNumber() int64 {
 	return dw.deleteQueue.GetNextSequenceNumber()
