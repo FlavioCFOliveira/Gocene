@@ -49,8 +49,13 @@ type MergeScheduler interface {
 	// The implementation may execute merges synchronously or asynchronously.
 	Merge(source MergeSource, trigger MergeTrigger) error
 
+	// AbortAll cancels all currently running merges and clears pending merges.
+	AbortAll()
+
 	// Close closes the scheduler, waiting for any running merges to complete.
 	Close() error
+	// ... (rest of the interface)
+
 
 	// GetRunningMergeCount returns the number of currently running merges.
 	GetRunningMergeCount() int
@@ -534,6 +539,11 @@ func (t *MergeThread) SetRunning(running bool) {
 // Cancel cancels the merge thread.
 func (t *MergeThread) Cancel() {
 	t.cancel()
+}
+
+// Abort cancels the merge thread. Alias for Cancel.
+func (t *MergeThread) Abort() {
+	t.Cancel()
 }
 
 // Done returns a channel that is closed when the merge completes.

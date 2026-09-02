@@ -21,7 +21,7 @@ type LiveIndexWriterConfig struct {
 
 	maxBufferedDocs int
 	ramBufferSizeMB float64
-	mergedSegmentWarmer any // IndexReaderWarmer
+	mergedSegmentWarmer IndexReaderWarmer
 
 	delPolicy IndexDeletionPolicy
 	commit    *IndexCommit
@@ -126,14 +126,14 @@ func (c *LiveIndexWriterConfig) SetMergePolicy(mergePolicy MergePolicy) *LiveInd
 	return c
 }
 
-func (c *LiveIndexWriterConfig) SetMergedSegmentWarmer(warmer any) *LiveIndexWriterConfig {
+func (c *LiveIndexWriterConfig) SetMergedSegmentWarmer(warmer IndexReaderWarmer) *LiveIndexWriterConfig {
 	c.mu.Lock()
 	c.mergedSegmentWarmer = warmer
 	c.mu.Unlock()
 	return c
 }
 
-func (c *LiveIndexWriterConfig) GetMergedSegmentWarmer() any {
+func (c *LiveIndexWriterConfig) GetMergedSegmentWarmer() IndexReaderWarmer {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.mergedSegmentWarmer

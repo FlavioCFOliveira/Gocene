@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -150,6 +151,10 @@ type indexWriterMergeSource struct {
 
 func (s *indexWriterMergeSource) GetWriter() *IndexWriter {
 	return s.writer
+}
+
+func (s *indexWriterMergeSource) Merge(merge *OneMerge) error {
+	return s.writer.Merge(merge)
 }
 
 type addIndexesMergeSource struct {
@@ -445,11 +450,30 @@ func (w *IndexWriter) GetReader(applyAllDeletes bool) (*DirectoryReader, error) 
 	w.applyAllDeletesAndUpdates()
 	w.writeReaderPool(true)
 
+	w.finishGetReaderMerge()
+
 	reader, err := StandardDirectoryReader.Open(w, w.readerPool.GetReaderFactory, w.segmentInfos, applyAllDeletes, true)
 	if err != nil {
 		return nil, err
 	}
 	return reader, nil
+}
+
+func (w *IndexWriter) finishGetReaderMerge() {
+	waitMillis := w.liveConfig.GetMaxFullFlushMergeWaitMillis()
+	if waitMillis <= 0 {
+		return
+	}
+
+	w.mergeScheduler.Merge(w.mergeSource, MergeTriggerGetReader)
+
+	start := time.Now()
+	for w.mergeScheduler.GetRunningMergeCount() > 0 {
+		if time.Since(start).Milliseconds() >= waitMillis {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (w *IndexWriter) GetConfig() *IndexWriterConfig {
@@ -478,6 +502,10 @@ func (w *IndexWriter) GetSegmentCount() int {
 	return len(w.segmentInfos.Iterator())
 }
 
+func (w *IndexWriter) adjustPendingNumDocs(delta int) {
+	w.pendingNumDocs.Add(int64(delta))
+}
+
 func (w *IndexWriter) FlushNextBuffer() bool {
 	return w.docWriter.FlushNextBuffer()
 }
@@ -494,6 +522,66 @@ func (w *IndexWriter) Close() error {
 	}
 
 	w.closed.Store(true)
+	return nil
+}
+
+// Rollback reverts the index to the last committed state.
+func (w *IndexWriter) Rollback() error {
+	w.ensureOpen()
+	w.commitLock.Lock()
+	defer w.commitLock.Unlock()
+	return w.rollbackInternal()
+}
+
+func (w *IndexWriter) rollbackInternal() error {
+	return w.rollbackInternalNoCommit()
+}
+
+func (w *IndexWriter) rollbackInternalNoCommit() error {
+	w.fullFlushLock.Lock()
+	defer w.fullFlushLock.Unlock()
+
+	// 1. Abort all merges
+	w.mergeScheduler.AbortAll()
+
+	// 2. Close merge scheduler
+	if err := w.mergeScheduler.Close(); err != nil {
+		return fmt.Errorf("failed to close merge scheduler during rollback: %w", err)
+	}
+
+	// 3. Close doc writer
+	if err := w.docWriter.Close(); err != nil {
+		return fmt.Errorf("failed to close doc writer during rollback: %w", err)
+	}
+
+	// 4. Abort doc writer
+	w.docWriter.Abort()
+
+	// 5. Wait for flushes and publish segments
+	w.docWriter.FlushControl().WaitForFlush()
+	w.publishFlushedSegments(true)
+
+	// 6. Close event queue
+	if err := w.eventQueue.Close(); err != nil {
+		return fmt.Errorf("failed to close event queue during rollback: %w", err)
+	}
+
+	// 7. Roll back pending commit
+	if w.pendingCommit != nil {
+		if err := w.pendingCommit.RollbackCommit(w.dir); err != nil {
+			return fmt.Errorf("failed to rollback pending commit: %w", err)
+		}
+		w.pendingCommit = nil
+	}
+
+	// 8. Roll back segment infos
+	totalMaxDoc := w.segmentInfos.TotalMaxDoc()
+	w.segmentInfos.RollbackSegmentInfos(w.rollbackSegments)
+	rollbackMaxDoc := w.segmentInfos.TotalMaxDoc()
+
+	// 9. Adjust pending num docs
+	w.adjustPendingNumDocs(-(totalMaxDoc - rollbackMaxDoc))
+
 	return nil
 }
 
@@ -711,6 +799,114 @@ func (w *IndexWriter) publishFrozenUpdates(packet *FrozenBufferedUpdates) int64 
 
 func (w *IndexWriter) doAfterFlush() {}
 
+// Merge executes a single merge operation.
+func (w *IndexWriter) Merge(merge *OneMerge) error {
+	w.ensureOpen()
+	success := false
+	defer func() {
+		w.commitLock.Lock()
+		merge.Close(success, false, func(mr *OneMerge) {})
+		w.mergeFinish(merge)
+		w.commitLock.Unlock()
+	}()
+
+	err := w.mergeInternal(merge)
+	if err != nil {
+		w.handleMergeException(err, merge)
+		return err
+	}
+	success = true
+	return nil
+}
+
+func (w *IndexWriter) mergeFinish(merge *OneMerge) {
+	// minimal implementation
+}
+
+func (w *IndexWriter) handleMergeException(err error, merge *OneMerge) {
+	merge.SetException(err)
+	w.mergeExceptions = append(w.mergeExceptions, err)
+}
+
+func (w *IndexWriter) mergeInternal(merge *OneMerge) error {
+	merge.InitMerge()
+	merge.CheckAborted()
+
+	mergeDir := w.mergeScheduler.WrapForMerge(merge, w.dir)
+	context := store.IOContextMerge(merge.GetStoreMergeInfo())
+	dirWrapper := store.NewTrackingDirectoryWrapper(mergeDir)
+
+	//- Setup Readers
+	readers := make([]spi.CodecReader, 0)
+	for _, mr := range merge.GetMergeReader() {
+		reader := mr.Reader
+		wrappedReader := merge.WrapForMerge(reader)
+		readers = append(readers, wrappedReader)
+	}
+
+	//- SegmentMerger
+	merger := index.NewSegmentMerger(
+		readers,
+		merge.Info.Info,
+		w.liveConfig.GetInfoStream(),
+		dirWrapper,
+		w.globalFieldNumberMap,
+		context,
+		w.mergeScheduler.GetIntraMergeExecutor(merge),
+		merge,
+	)
+
+	if !merger.ShouldMerge() {
+		return nil
+	}
+
+	merge.CheckAborted()
+	w.commitLock.Lock()
+	w.runningMerges[merger] = struct{}{}
+	w.commitLock.Unlock()
+	merge.MergeStartNS = time.Now().UnixNano()
+
+	err := merger.Merge()
+	w.commitLock.Lock()
+	delete(w.runningMerges, merger)
+	w.commitLock.Unlock()
+
+	if err != nil {
+		return err
+	}
+
+	merge.SetMergeInfo(spi.NewSegmentCommitInfo(
+		merge.Info.Info, 0, 0, -1, -1, -1, util.RandomID(),
+	))
+	merge.GetMergeInfo().Info.SetFiles(dirWrapper.GetCreatedFiles())
+	dirWrapper.ClearCreatedFiles()
+
+	// Write SegmentInfo
+	codec := w.liveConfig.GetCodec()
+	if err := codec.FieldInfosFormat().Write(w.dir, merge.Info.Info, "", util.ReadOnce); err != nil {
+		return err
+	}
+
+	// --- WARMING ---
+	warmer := w.liveConfig.GetMergedSegmentWarmer()
+	if w.liveConfig.GetReaderPooling() && warmer != nil {
+		rau := w.getPooledInstance(merge.Info, true)
+		sr, err := rau.GetReader()
+		if err == nil {
+			warmer.Warm(sr)
+			rau.Release(sr)
+		}
+		w.release(rau)
+	}
+	// ----------------
+
+	if !w.commitMerge(merge, nil) {
+		return fmt.Errorf("merge aborted")
+	}
+
+	return nil
+}
+
 func (w *IndexWriter) dropDeletedSegment(sci *SegmentCommitInfo) {
 	w.segmentInfos.Remove(sci)
 }
@@ -733,5 +929,19 @@ func (w *IndexWriter) getPooledInstance(sci *SegmentCommitInfo, writeDeletes boo
 
 func (w *IndexWriter) release(rau *ReadersAndUpdates) {
 	rau.DecRef()
+}
+
+func (w *IndexWriter) commitMerge(merge *OneMerge, docMaps []DocMap) bool {
+	if merge.IsAborted() {
+		return false
+	}
+
+	w.segmentInfos.ApplyMergeChanges(merge, false)
+
+	// Adjust pendingNumDocs
+	delDocCount := merge.TotalMaxDoc - merge.Info.Info.MaxDoc()
+	w.adjustPendingNumDocs(-delDocCount)
+
+	return true
 }
 

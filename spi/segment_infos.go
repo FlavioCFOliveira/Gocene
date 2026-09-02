@@ -560,6 +560,22 @@ func (si *SegmentInfos) RollbackSegmentInfos(infos SegmentCommitInfoList) {
 	}
 }
 
+// RollbackCommit cleans up the pending_segments_N file if a commit was pending.
+// This mirrors Lucene's SegmentInfos.rollbackCommit().
+func (si *SegmentInfos) RollbackCommit(dir store.Directory) error {
+	// In Lucene, this checks the pendingCommit flag.
+	// In Gocene, this is called by IndexWriter on the cloned SegmentInfos that was
+	// being committed, so we proceed with the cleanup.
+
+	pending := "pending_segments_" + strconv.FormatInt(si.generation, 36)
+
+	// Lucene suppresses exceptions during this cleanup to avoid masking the
+	// original exception that triggered the rollback.
+	_ = dir.DeleteFile(pending)
+
+	return nil
+}
+
 // GetMaxSegmentName returns the maximum segment name (highest generation).
 // Returns empty string if there are no segments.
 func (si *SegmentInfos) GetMaxSegmentName() string {
@@ -1346,6 +1362,27 @@ func readSegmentInfosLucene104(rawIn store.IndexInput, directory store.Directory
 	return si, nil
 }
 
+// ReadCommit reads the SegmentInfos from the given directory and file name.
+func ReadCommit(dir store.Directory, fileName string) (*SegmentInfos, error) {
+	// Extract the generation from the fileName (segments_N).
+	if len(fileName) < 9 || fileName[:9] != "segments_" {
+		return nil, fmt.Errorf("invalid segments file name: %s", fileName)
+	}
+	genStr := fileName[9:]
+	gen, err := strconv.ParseInt(genStr, 36, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid generation in file name %s: %w", fileName, err)
+	}
+
+	// Open the file
+	rawIn, err := dir.OpenInput(fileName, store.IOContextRead)
+	if err != nil {
+		return nil, err
+	}
+	// ReadSegmentInfosFromHandle closes rawIn itself.
+	return ReadSegmentInfosFromHandle(rawIn, dir, gen)
+}
+
 // readSegmentCommitInfoLucene104 reads a single per-segment entry from a
 // segments_N body in Lucene 10.4.0 format.
 func readSegmentCommitInfoLucene104(in store.IndexInput, directory store.Directory) (*SegmentCommitInfo, error) {
@@ -1693,4 +1730,25 @@ func readSegmentInfosLegacy(rawIn store.IndexInput, directory store.Directory, m
 	}
 
 	return si, nil
+}
+
+// ReadCommit reads the SegmentInfos from the given directory and file name.
+func ReadCommit(dir store.Directory, fileName string) (*SegmentInfos, error) {
+	// Extract the generation from the fileName (segments_N).
+	if len(fileName) < 9 || fileName[:9] != "segments_" {
+		return nil, fmt.Errorf("invalid segments file name: %s", fileName)
+	}
+	genStr := fileName[9:]
+	gen, err := strconv.ParseInt(genStr, 36, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid generation in file name %s: %w", fileName, err)
+	}
+
+	// Open the file
+	rawIn, err := dir.OpenInput(fileName, store.IOContextRead)
+	if err != nil {
+		return nil, err
+	}
+	// ReadSegmentInfosFromHandle closes rawIn itself.
+	return ReadSegmentInfosFromHandle(rawIn, dir, gen)
 }
