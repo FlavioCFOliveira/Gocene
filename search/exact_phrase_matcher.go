@@ -53,7 +53,7 @@ func NewExactPhraseMatcher(
 
 	var finalApprox DocIdSetIterator = approx
 	if scoreMode == ScoreModeTopScores {
-		finalApprox = approx // I'll just leave it as approx for now and fix it later.
+		finalApprox = impactsApprox
 	}
 
 	pAndP := make([]*postingsAndPosition, len(postings))
