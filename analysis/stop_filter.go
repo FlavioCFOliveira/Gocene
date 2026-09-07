@@ -30,6 +30,11 @@ func NewStopFilter(source TokenStream, stopWords []string) *StopFilter {
 	}
 }
 
+// NewStopFilterWithWords is an alias for NewStopFilter.
+func NewStopFilterWithWords(source TokenStream, stopWords []string) *StopFilter {
+	return NewStopFilter(source, stopWords)
+}
+
 func (f *StopFilter) Reset() error {
 	return f.FilteringTokenFilter.Reset()
 }
@@ -44,6 +49,7 @@ func (f *StopFilter) Close() error {
 
 // StopFilterFactory creates StopFilter instances.
 type StopFilterFactory struct {
+	BaseTokenFilterFactory
 	stopWords *CharArraySet
 }
 
