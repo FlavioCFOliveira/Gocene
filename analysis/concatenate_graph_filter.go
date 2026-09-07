@@ -49,15 +49,15 @@ func NewConcatenateGraphFilter(inputTokenStream TokenStream, tokenSeparator rune
 func NewConcatenateGraphFilterDefault(inputTokenStream TokenStream) *ConcatenateGraphFilter {
 	return NewConcatenateGraphFilter(
 		inputTokenStream,
-		DEFAULT_TOKEN_SEPARATOR,
-		DEFAULT_PRESERVE_POSITION_INCREMENTS,
-		DEFAULT_MAX_GRAPH_EXPANSIONS,
+		DefaultTokenSeparator,
+		DefaultPreservePositionIncrements,
+		DefaultMaxGraphExpansions,
 	)
 }
 
 // NewConcatenateGraphFilterPreserve creates a ConcatenateGraphFilter with specified flags.
 func NewConcatenateGraphFilterPreserve(inputTokenStream TokenStream, preserveSep, preservePositionIncrements bool, maxGraphExpansions int) *ConcatenateGraphFilter {
-	sep := DEFAULT_TOKEN_SEPARATOR
+	sep := DefaultTokenSeparator
 	if !preserveSep {
 		sep = 0
 	}
@@ -68,7 +68,7 @@ func (f *ConcatenateGraphFilter) Reset() error {
 	if err := f.BaseTokenStream.Reset(); err != nil {
 		return err
 	}
-	f.charTermAttr = f.GetAttribute(CharTermAttributeType).(*CharTermAttribute)
+	f.charTermAttr = f.GetAttribute(CharTermAttributeType).(CharTermAttribute)
 	f.wasReset = true
 	f.finiteStrings = nil
 	return nil
@@ -84,10 +84,13 @@ func (f *ConcatenateGraphFilter) IncrementToken() (bool, error) {
 			return false, err
 		}
 		f.finiteStrings = automaton.NewLimitedFiniteStringsIterator(auto, f.maxGraphExpansions)
-		f.endOffset = f.inputTokenStream.GetAttribute(OffsetAttributeType).(*OffsetAttribute).EndOffset()
+		f.endOffset = f.inputTokenStream.GetAttributeSource().GetAttribute(OffsetAttributeType).(*OffsetAttribute).EndOffset()
 	}
 
-	stringRef := f.finiteStrings.Next()
+	stringRef, err := f.finiteStrings.Next()
+	if err != nil {
+		return false, err
+	}
 	if stringRef == nil {
 		return false, nil
 	}
@@ -95,10 +98,10 @@ func (f *ConcatenateGraphFilter) IncrementToken() (bool, error) {
 	f.ClearAttributes()
 
 	if f.finiteStrings.Size() > 1 {
-		f.GetAttribute(PositionIncrementAttributeType).(*PositionIncrementAttribute).SetPositionIncrement(0)
+		f.GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute).SetPositionIncrement(0)
 	}
 
-	f.GetAttribute(OffsetAttributeType).(*OffsetAttribute).SetOffset(0, f.endOffset)
+	f.GetAttribute(OffsetAttributeType).(OffsetAttribute).SetOffset(0, f.endOffset)
 
 	// Convert internal IntsRef to UTF-8 bytes then to UTF-16 for CharTermAttribute
 	bytes := util.ToBytesRef(stringRef)
@@ -120,7 +123,7 @@ func (f *ConcatenateGraphFilter) End() error {
 		}
 	}
 	if f.endOffset != -1 {
-		f.GetAttribute(OffsetAttributeType).(*OffsetAttribute).SetOffset(0, f.endOffset)
+		f.GetAttribute(OffsetAttributeType).(OffsetAttribute).SetOffset(0, f.endOffset)
 	}
 	return nil
 }
