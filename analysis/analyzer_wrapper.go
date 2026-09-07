@@ -44,7 +44,7 @@ type AnalyzerWrapper struct {
 // Analyzer returned by getWrappedAnalyzer for every field.
 // The hooks WrapTokenStream and WrapReader default to identity transforms;
 // callers may set them on the returned struct to customise the behaviour.
-func NewAnalyzerWrapper(getWrappedAnalyzer func(fieldName string) Analyzer) *AnalyzerWrapper {
+func NewAnalyzerWrapper(getWrappedAnalyzer func(fieldName string) api.Analyzer) *AnalyzerWrapper {
 	return &AnalyzerWrapper{
 		GetWrappedAnalyzer: getWrappedAnalyzer,
 		WrapTokenStream:    defaultWrapTokenStream,

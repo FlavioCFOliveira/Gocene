@@ -109,7 +109,9 @@ func (f *GreekStemFilter) IncrementToken() (bool, error) {
 }
 
 // GreekStemFilterFactory creates GreekStemFilter instances.
-type GreekStemFilterFactory struct{}
+type GreekStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewGreekStemFilterFactory creates a new GreekStemFilterFactory.
 func NewGreekStemFilterFactory() *GreekStemFilterFactory {

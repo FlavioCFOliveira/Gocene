@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // GalicianStopWords contains common Galician stop words.
@@ -51,13 +52,23 @@ func NewGalicianAnalyzer() *GalicianAnalyzer {
 // NewGalicianAnalyzerWithWords creates a GalicianAnalyzer with custom stop words.
 func NewGalicianAnalyzerWithWords(stopWords *CharArraySet) *GalicianAnalyzer {
 	a := &GalicianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewGalicianStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewGalicianStemFilter(tok)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 	return a
 }
 
@@ -76,7 +87,6 @@ func (a *GalicianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*GalicianAnalyzer)(nil)
 var _ api.Analyzer = (*GalicianAnalyzer)(nil)
 
 // GalicianStemFilter implements light stemming for Galician.
@@ -151,7 +161,9 @@ func galicianLightStem(term string) string {
 }
 
 // GalicianStemFilterFactory creates GalicianStemFilter instances.
-type GalicianStemFilterFactory struct{}
+type GalicianStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewGalicianStemFilterFactory creates a new GalicianStemFilterFactory.
 func NewGalicianStemFilterFactory() *GalicianStemFilterFactory {

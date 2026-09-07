@@ -5,6 +5,7 @@
 package analysis
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"io"
 )
 
@@ -70,13 +71,23 @@ func NewCzechAnalyzer() *CzechAnalyzer {
 // NewCzechAnalyzerWithWords creates a CzechAnalyzer with custom stop words.
 func NewCzechAnalyzerWithWords(stopWords *CharArraySet) *CzechAnalyzer {
 	a := &CzechAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewCzechStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewCzechStemFilter(tok)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 	return a
 }
 
@@ -95,7 +106,6 @@ func (a *CzechAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*CzechAnalyzer)(nil)
 var _ api.Analyzer = (*CzechAnalyzer)(nil)
 
 // CzechStemFilter implements light stemming for Czech via the full CzechStemmer
@@ -136,7 +146,9 @@ func (f *CzechStemFilter) IncrementToken() (bool, error) {
 }
 
 // CzechStemFilterFactory creates CzechStemFilter instances.
-type CzechStemFilterFactory struct{}
+type CzechStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewCzechStemFilterFactory creates a new CzechStemFilterFactory.
 func NewCzechStemFilterFactory() *CzechStemFilterFactory {

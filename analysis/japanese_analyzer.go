@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // JapaneseStopWords contains common Japanese stop words.
@@ -47,15 +48,25 @@ func NewJapaneseAnalyzer() *JapaneseAnalyzer {
 // NewJapaneseAnalyzerWithWords creates a JapaneseAnalyzer with custom stop words.
 func NewJapaneseAnalyzerWithWords(stopWords *CharArraySet) *JapaneseAnalyzer {
 	a := &JapaneseAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
 	// Note: For proper Japanese, a specialized tokenizer should be used
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -76,7 +87,6 @@ func (a *JapaneseAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure JapaneseAnalyzer implements Analyzer
-var _ Analyzer = (*JapaneseAnalyzer)(nil)
 var _ api.Analyzer = (*JapaneseAnalyzer)(nil)
 
 // JapaneseAnalyzerFactory creates JapaneseAnalyzer instances.

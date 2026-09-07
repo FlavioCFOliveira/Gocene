@@ -56,22 +56,21 @@ func NewWhitespaceTokenizer() *WhitespaceTokenizer {
 	t.offsetAttr = NewOffsetAttribute()
 	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
+	t.AddAttribute(CharTermAttributeType)
+	t.AddAttribute(OffsetAttributeType)
+	t.AddAttribute(tokenattributes.PositionIncrementAttributeType)
 
 	return t
 }
 
 // SetReader sets the input source for this Tokenizer.
-func (t *WhitespaceTokenizer) SetReader(input io.Reader) error {
+func (t *WhitespaceTokenizer) SetReader(input io.Reader) {
 	t.BaseTokenizer.SetReader(input)
 	t.scanner = bufio.NewScanner(input)
 	t.scanner.Split(bufio.ScanRunes)
 	t.currentOffset = 0
 	t.currentToken = nil
 	t.tokenStartOffset = 0
-	return nil
 }
 
 // IncrementToken advances to the next token.

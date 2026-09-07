@@ -70,6 +70,7 @@ var _ TokenFilter = (*TruncateTokenFilter)(nil)
 
 // TruncateTokenFilterFactory creates TruncateTokenFilter instances.
 type TruncateTokenFilterFactory struct {
+	BaseTokenFilterFactory
 	maxLength int
 }
 

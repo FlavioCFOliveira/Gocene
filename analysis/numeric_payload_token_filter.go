@@ -68,6 +68,7 @@ var _ TokenFilter = (*NumericPayloadTokenFilter)(nil)
 // NumericPayloadTokenFilterFactory creates NumericPayloadTokenFilter
 // instances with the configured payload value and type match string.
 type NumericPayloadTokenFilterFactory struct {
+	BaseTokenFilterFactory
 	payload   float32
 	typeMatch string
 }

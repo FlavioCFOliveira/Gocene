@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // KoreanStopWords contains common Korean stop words.
@@ -54,15 +55,24 @@ func NewKoreanAnalyzer() *KoreanAnalyzer {
 // NewKoreanAnalyzerWithWords creates a KoreanAnalyzer with custom stop words.
 func NewKoreanAnalyzerWithWords(stopWords *CharArraySet) *KoreanAnalyzer {
 	a := &KoreanAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	// Note: For proper Korean, a specialized tokenizer should be used
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -83,7 +93,6 @@ func (a *KoreanAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure KoreanAnalyzer implements Analyzer
-var _ Analyzer = (*KoreanAnalyzer)(nil)
 var _ api.Analyzer = (*KoreanAnalyzer)(nil)
 
 // KoreanAnalyzerFactory creates KoreanAnalyzer instances.

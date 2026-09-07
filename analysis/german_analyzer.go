@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // GermanStopWords contains common German stop words.
@@ -60,15 +61,25 @@ func NewGermanAnalyzer() *GermanAnalyzer {
 // NewGermanAnalyzerWithWords creates a GermanAnalyzer with custom stop words.
 func NewGermanAnalyzerWithWords(stopWords *CharArraySet) *GermanAnalyzer {
 	a := &GermanAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewGermanLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewGermanLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -88,8 +99,7 @@ func (a *GermanAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-// Ensure GermanAnalyzer implements Analyzer
-var _ Analyzer = (*GermanAnalyzer)(nil)
+// Ensure GermanAnalyzer implements api.Analyzer
 var _ api.Analyzer = (*GermanAnalyzer)(nil)
 
 // GermanLightStemFilter implements light stemming for German.
@@ -166,7 +176,9 @@ func germanLightStem(term string) string {
 }
 
 // GermanLightStemFilterFactory creates GermanLightStemFilter instances.
-type GermanLightStemFilterFactory struct{}
+type GermanLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewGermanLightStemFilterFactory creates a new GermanLightStemFilterFactory.
 func NewGermanLightStemFilterFactory() *GermanLightStemFilterFactory {

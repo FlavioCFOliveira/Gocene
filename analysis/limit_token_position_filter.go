@@ -85,6 +85,7 @@ var _ TokenFilter = (*LimitTokenPositionFilter)(nil)
 
 // LimitTokenPositionFilterFactory creates LimitTokenPositionFilter instances.
 type LimitTokenPositionFilterFactory struct {
+	BaseTokenFilterFactory
 	maxTokenPosition int
 }
 

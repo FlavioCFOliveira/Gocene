@@ -7,6 +7,7 @@ package analysis
 	
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"unicode"
@@ -656,6 +657,7 @@ var _ TokenFilter = (*WordDelimiterGraphFilter)(nil)
 
 // WordDelimiterGraphFilterFactory creates WordDelimiterGraphFilter instances.
 type WordDelimiterGraphFilterFactory struct {
+	BaseTokenFilterFactory
 	splitOnCaseChange     bool
 	splitOnNumerics       bool
 	stemEnglishPossessive bool
@@ -744,7 +746,7 @@ func (f *WordDelimiterGraphFilterFactory) Create(input TokenStream) TokenFilter 
 }
 
 // Ensure WordDelimiterGraphFilterFactory implements TokenFilterFactory
-var _ TokenFilterFactory = (*WordDelimiterGraphFilterFactory)(nil)
+var _ api.TokenFilterFactory = (*WordDelimiterGraphFilterFactory)(nil)
 
 // toLower converts a string to lowercase using Unicode case folding.
 func toLower(s string) string {

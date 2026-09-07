@@ -5,6 +5,7 @@
 package analysis
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"io"
 )
 
@@ -53,12 +54,22 @@ func NewCroatianAnalyzer() *CroatianAnalyzer {
 // NewCroatianAnalyzerWithWords creates a CroatianAnalyzer with custom stop words.
 func NewCroatianAnalyzerWithWords(stopWords *CharArraySet) *CroatianAnalyzer {
 	a := &CroatianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 	return a
 }
 
@@ -77,5 +88,4 @@ func (a *CroatianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*CroatianAnalyzer)(nil)
 var _ api.Analyzer = (*CroatianAnalyzer)(nil)

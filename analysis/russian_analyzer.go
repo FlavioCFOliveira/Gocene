@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // RussianStopWords contains common Russian stop words.
@@ -48,15 +49,25 @@ func NewRussianAnalyzer() *RussianAnalyzer {
 // NewRussianAnalyzerWithWords creates a RussianAnalyzer with custom stop words.
 func NewRussianAnalyzerWithWords(stopWords *CharArraySet) *RussianAnalyzer {
 	a := &RussianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewRussianLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewRussianLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -77,7 +88,6 @@ func (a *RussianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure RussianAnalyzer implements Analyzer
-var _ Analyzer = (*RussianAnalyzer)(nil)
 var _ api.Analyzer = (*RussianAnalyzer)(nil)
 
 // RussianLightStemFilter implements light stemming for Russian.
@@ -155,7 +165,9 @@ func russianLightStem(term string) string {
 }
 
 // RussianLightStemFilterFactory creates RussianLightStemFilter instances.
-type RussianLightStemFilterFactory struct{}
+type RussianLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewRussianLightStemFilterFactory creates a new RussianLightStemFilterFactory.
 func NewRussianLightStemFilterFactory() *RussianLightStemFilterFactory {

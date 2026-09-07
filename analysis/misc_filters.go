@@ -251,8 +251,7 @@ func NewKeywordMarkerFilter(input TokenStream, isKeyword func() bool) *KeywordMa
 		// registered the existing impl is returned; otherwise a new one is
 		// added. This is required because no upstream Tokenizer adds it by
 		// default.
-		kw := NewKeywordAttribute()
-		f.BaseTokenFilter.AddAttribute(kw)
+				f.BaseTokenFilter.AddAttribute(KeywordAttributeType)
 		if a := src.GetAttribute(KeywordAttributeType); a != nil {
 			f.keywordAttr = a.(KeywordAttribute)
 		}
@@ -310,6 +309,7 @@ var _ TokenFilter = (*SetKeywordMarkerFilter)(nil)
 // bound to a fixed CharArraySet. This is a concrete factory usable by
 // analyzer pipelines that conditionally add keyword-marker protection.
 type SetKeywordMarkerFilterFactory struct {
+	BaseTokenFilterFactory
 	keywordSet *CharArraySet
 }
 

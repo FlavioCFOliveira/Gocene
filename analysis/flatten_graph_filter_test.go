@@ -46,10 +46,10 @@ func newMockGraphTokenStream(tokens []mockToken) *mockGraphTokenStream {
 	stream.posLenAttr = NewPositionLengthAttribute()
 	stream.offsetAttr = NewOffsetAttribute()
 
-	stream.AddAttribute(stream.termAttr)
-	stream.AddAttribute(stream.posIncrAttr)
-	stream.AddAttribute(stream.posLenAttr)
-	stream.AddAttribute(stream.offsetAttr)
+	stream.AddAttribute(CharTermAttributeType)
+	stream.AddAttribute(tokenattributes.PositionIncrementAttributeType)
+	stream.AddAttribute(PositionLengthAttributeType)
+	stream.AddAttribute(OffsetAttributeType)
 
 	return stream
 }

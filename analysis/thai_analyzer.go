@@ -7,6 +7,7 @@ package analysis
 import (
 	"io"
 	"unicode"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // ThaiStopWords contains common Thai stop words.
@@ -54,12 +55,22 @@ func NewThaiAnalyzer() *ThaiAnalyzer {
 // NewThaiAnalyzerWithWords creates a ThaiAnalyzer with custom stop words.
 func NewThaiAnalyzerWithWords(stopWords *CharArraySet) *ThaiAnalyzer {
 	a := &ThaiAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 	return a
 }
 
@@ -139,5 +150,4 @@ func TokenizeThaiText(text string) []string {
 	return tokens
 }
 
-var _ Analyzer = (*ThaiAnalyzer)(nil)
 var _ api.Analyzer = (*ThaiAnalyzer)(nil)

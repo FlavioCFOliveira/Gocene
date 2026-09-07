@@ -87,9 +87,9 @@ func NewEdgeNGramTokenizerWithFactory(factory util.AttributeFactory, minGram, ma
 	t.offsetAttr = NewOffsetAttribute()
 	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
+	t.AddAttribute(CharTermAttributeType)
+	t.AddAttribute(OffsetAttributeType)
+	t.AddAttribute(tokenattributes.PositionIncrementAttributeType)
 
 	return t, nil
 }
@@ -100,32 +100,8 @@ func NewEdgeNGramTokenizer(minGram, maxGram int) (*EdgeNGramTokenizer, error) {
 }
 
 // SetReader sets the input source for this Tokenizer.
-func (t *EdgeNGramTokenizer) SetReader(input io.Reader) error {
+func (t *EdgeNGramTokenizer) SetReader(input io.Reader) {
 	t.BaseTokenizer.SetReader(input)
-
-	// Read entire input into buffer
-	buf := make([]byte, 0, 1024)
-	temp := make([]byte, 1024)
-
-	for {
-		n, err := input.Read(temp)
-		if n > 0 {
-			buf = append(buf, temp[:n]...)
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-	}
-
-	// Convert to runes for proper Unicode handling
-	t.inputBuffer = []rune(string(buf))
-	t.inputLength = len(t.inputBuffer)
-	t.currentGramSize = t.minGram
-
-	return nil
 }
 
 // IncrementToken advances to the next token.
@@ -198,7 +174,34 @@ func (t *EdgeNGramTokenizer) runeOffsetToByteOffset(runeOffset int) int {
 // Reset resets the tokenizer to a clean state.
 func (t *EdgeNGramTokenizer) Reset() error {
 	t.BaseTokenizer.Reset()
+
+	// Read entire input into buffer
+	input := t.input
+	if input == nil {
+		return nil
+	}
+
+	buf := make([]byte, 0, 1024)
+	temp := make([]byte, 1024)
+
+	for {
+		n, err := input.Read(temp)
+		if n > 0 {
+			buf = append(buf, temp[:n]...)
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+
+	// Convert to runes for proper Unicode handling
+	t.inputBuffer = []rune(string(buf))
+	t.inputLength = len(t.inputBuffer)
 	t.currentGramSize = t.minGram
+
 	return nil
 }
 

@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // PersianStopWords contains common Persian (Farsi) stop words.
@@ -96,13 +97,23 @@ func NewPersianAnalyzer() *PersianAnalyzer {
 // NewPersianAnalyzerWithWords creates a PersianAnalyzer with custom stop words.
 func NewPersianAnalyzerWithWords(stopWords *CharArraySet) *PersianAnalyzer {
 	a := &PersianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewPersianNormalizationFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewPersianNormalizationFilter(tok)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 	return a
 }
 
@@ -121,7 +132,7 @@ func (a *PersianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*PersianAnalyzer)(nil)
+var _ api.Analyzer = (*PersianAnalyzer)(nil)
 var _ api.Analyzer = (*PersianAnalyzer)(nil)
 
 // PersianNormalizer normalizes Persian text.
@@ -210,7 +221,9 @@ func (f *PersianNormalizationFilter) IncrementToken() (bool, error) {
 }
 
 // PersianNormalizationFilterFactory creates PersianNormalizationFilter instances.
-type PersianNormalizationFilterFactory struct{}
+type PersianNormalizationFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewPersianNormalizationFilterFactory creates a new PersianNormalizationFilterFactory.
 func NewPersianNormalizationFilterFactory() *PersianNormalizationFilterFactory {

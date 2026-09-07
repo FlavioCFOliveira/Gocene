@@ -20,7 +20,6 @@
 package analysis
 
 import (
-	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -39,7 +38,10 @@ var DefaultTokenAttributeFactory = util.NewStaticImplementationAttributeFactory(
 
 // TokenStream enumerates the sequence of tokens, either from Fields of a
 // Document or from query text.
-//
+
+const POS_SEP = -1
+const HOLE = -2
+
 // This is a port of org.apache.lucene.analysis.TokenStream.
 //
 // A TokenStream extends AttributeSource, which provides access to all of the
@@ -95,4 +97,8 @@ func (b *BaseTokenStream) Reset() error {
 // Close releases resources associated with this stream.
 func (b *BaseTokenStream) Close() error {
 	return nil
+}
+
+func (b *BaseTokenStream) IncrementToken() (bool, error) {
+	return false, nil
 }

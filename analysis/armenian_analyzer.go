@@ -54,15 +54,25 @@ func NewArmenianAnalyzer() *ArmenianAnalyzer {
 // NewArmenianAnalyzerWithWords creates an ArmenianAnalyzer with custom stop words.
 func NewArmenianAnalyzerWithWords(stopWords *CharArraySet) *ArmenianAnalyzer {
 	a := &ArmenianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
 	// Tokenizer -> LowerCase -> StopWords
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }

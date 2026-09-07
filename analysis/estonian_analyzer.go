@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // EstonianStopWords contains common Estonian stop words.
@@ -37,12 +38,22 @@ func NewEstonianAnalyzer() *EstonianAnalyzer {
 // NewEstonianAnalyzerWithWords creates an EstonianAnalyzer with custom stop words.
 func NewEstonianAnalyzerWithWords(stopWords *CharArraySet) *EstonianAnalyzer {
 	a := &EstonianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 	return a
 }
 
@@ -61,5 +72,4 @@ func (a *EstonianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*EstonianAnalyzer)(nil)
 var _ api.Analyzer = (*EstonianAnalyzer)(nil)

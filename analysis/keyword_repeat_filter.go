@@ -99,7 +99,9 @@ func (f *KeywordRepeatFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*KeywordRepeatFilter)(nil)
 
 // KeywordRepeatFilterFactory creates KeywordRepeatFilter instances.
-type KeywordRepeatFilterFactory struct{}
+type KeywordRepeatFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewKeywordRepeatFilterFactory creates a new KeywordRepeatFilterFactory.
 func NewKeywordRepeatFilterFactory() *KeywordRepeatFilterFactory {

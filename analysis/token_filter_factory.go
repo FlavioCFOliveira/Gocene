@@ -7,20 +7,14 @@ package analysis
 import (
 	"fmt"
 	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // TokenFilterFactory is the interface for factories that create TokenFilter instances.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.TokenFilterFactory.
-type TokenFilterFactory interface {
-	// Create creates a TokenFilter wrapping the given input.
-	Create(input TokenStream) TokenFilter
-
-	// Normalize normalizes the specified input TokenStream.
-	// While the default implementation returns input unchanged, filters
-	// that should be applied at normalization time can delegate to Create.
-	Normalize(input TokenStream) TokenStream
-}
+type TokenFilterFactory = api.TokenFilterFactory
 
 // BaseTokenFilterFactory provides a base implementation for TokenFilterFactory.
 //
@@ -67,3 +61,6 @@ func AvailableTokenFilters() []string {
 	}
 	return names
 }
+
+// AnalyzerFactory is a type alias for api.AnalyzerFactory.
+type AnalyzerFactory = api.AnalyzerFactory

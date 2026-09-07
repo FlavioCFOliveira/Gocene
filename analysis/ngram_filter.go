@@ -250,6 +250,7 @@ var _ TokenFilter = (*NGramFilter)(nil)
 
 // NGramFilterFactory creates NGramFilter instances.
 type NGramFilterFactory struct {
+	BaseTokenFilterFactory
 	minGram int
 	maxGram int
 }

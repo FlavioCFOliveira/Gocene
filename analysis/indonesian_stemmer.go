@@ -319,6 +319,7 @@ var _ TokenFilter = (*IndonesianStemFilter)(nil)
 
 // IndonesianStemFilterFactory creates IndonesianStemFilter instances.
 type IndonesianStemFilterFactory struct {
+	BaseTokenFilterFactory
 	stemDerivational bool
 }
 

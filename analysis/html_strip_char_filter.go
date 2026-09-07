@@ -149,7 +149,7 @@ type HTMLStripCharFilterFactory struct {
 // NewHTMLStripCharFilterFactory creates a new HTMLStripCharFilterFactory.
 func NewHTMLStripCharFilterFactory() *HTMLStripCharFilterFactory {
 	return &HTMLStripCharFilterFactory{
-		BaseCharFilterFactory: NewBaseCharFilterFactory("htmlStrip"),
+		BaseCharFilterFactory: NewBaseCharFilterFactory(map[string]string{}),
 	}
 }
 

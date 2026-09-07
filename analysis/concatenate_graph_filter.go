@@ -7,7 +7,10 @@ package analysis
 import (
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
+	"github.com/FlavioCFOliveira/Gocene/util/fst"
 )
 
 // ConcatenateGraphFilter concatenates/joins every incoming token with a separator into one output token for every path
@@ -23,6 +26,7 @@ type ConcatenateGraphFilter struct {
 
 	finiteStrings *automaton.LimitedFiniteStringsIterator
 	charTermAttr  CharTermAttribute
+	bytesRefBuilder *util.BytesRefBuilder
 	wasReset      bool
 	endOffset     int
 }
@@ -41,6 +45,7 @@ func NewConcatenateGraphFilter(inputTokenStream TokenStream, tokenSeparator rune
 		tokenSeparator:             tokenSeparator,
 		preservePositionIncrements: preservePositionIncrements,
 		maxGraphExpansions:         maxGraphExpansions,
+		bytesRefBuilder:            util.NewBytesRefBuilder(),
 		endOffset:                 -1,
 	}
 }
@@ -84,7 +89,7 @@ func (f *ConcatenateGraphFilter) IncrementToken() (bool, error) {
 			return false, err
 		}
 		f.finiteStrings = automaton.NewLimitedFiniteStringsIterator(auto, f.maxGraphExpansions)
-		f.endOffset = f.inputTokenStream.GetAttributeSource().GetAttribute(OffsetAttributeType).(*OffsetAttribute).EndOffset()
+		f.endOffset = f.inputTokenStream.GetAttributeSource().GetAttribute(OffsetAttributeType).(OffsetAttribute).EndOffset()
 	}
 
 	stringRef, err := f.finiteStrings.Next()
@@ -104,10 +109,10 @@ func (f *ConcatenateGraphFilter) IncrementToken() (bool, error) {
 	f.GetAttribute(OffsetAttributeType).(OffsetAttribute).SetOffset(0, f.endOffset)
 
 	// Convert internal IntsRef to UTF-8 bytes then to UTF-16 for CharTermAttribute
-	bytes := util.ToBytesRef(stringRef)
+			bytesRef := fst.ToBytesRef(stringRef, f.bytesRefBuilder)
 	if f.charTermAttr != nil {
 		f.charTermAttr.SetEmpty()
-		f.charTermAttr.AppendString(string(bytes))
+		f.charTermAttr.AppendString(string(bytesRef.Bytes[:bytesRef.Length]))
 	}
 
 	return true, nil
@@ -186,7 +191,7 @@ func (f *ConcatenateGraphFilter) replaceSep(a *automaton.Automaton, tokenSeparat
 			a.GetNextTransition(t)
 			if t.Min == POS_SEP {
 				if tokenSeparator != 0 {
-					result.AddTransition(state, t.Dest, int(tokenSeparator))
+					result.AddTransition(state, t.Dest, int(tokenSeparator), int(tokenSeparator))
 				} else {
 					result.AddEpsilon(state, t.Dest)
 				}

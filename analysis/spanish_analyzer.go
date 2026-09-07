@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // SpanishStopWords contains common Spanish stop words.
@@ -71,15 +72,25 @@ func NewSpanishAnalyzer() *SpanishAnalyzer {
 // NewSpanishAnalyzerWithWords creates a SpanishAnalyzer with custom stop words.
 func NewSpanishAnalyzerWithWords(stopWords *CharArraySet) *SpanishAnalyzer {
 	a := &SpanishAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewSpanishLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewSpanishLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -100,7 +111,6 @@ func (a *SpanishAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure SpanishAnalyzer implements Analyzer
-var _ Analyzer = (*SpanishAnalyzer)(nil)
 var _ api.Analyzer = (*SpanishAnalyzer)(nil)
 
 // SpanishLightStemFilter implements light stemming for Spanish.
@@ -179,7 +189,9 @@ func spanishLightStem(term string) string {
 }
 
 // SpanishLightStemFilterFactory creates SpanishLightStemFilter instances.
-type SpanishLightStemFilterFactory struct{}
+type SpanishLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewSpanishLightStemFilterFactory creates a new SpanishLightStemFilterFactory.
 func NewSpanishLightStemFilterFactory() *SpanishLightStemFilterFactory {

@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // EnglishAnalyzer is an analyzer for English language text.
@@ -45,16 +46,28 @@ func NewEnglishAnalyzer() *EnglishAnalyzer {
 // NewEnglishAnalyzerWithWords creates an EnglishAnalyzer with custom stop words.
 func NewEnglishAnalyzerWithWords(stopWords *CharArraySet) *EnglishAnalyzer {
 	a := &EnglishAnalyzer{
-		BaseAnalyzer:   NewAnalyzer(),
+		BaseAnalyzer:   NewAnalyzer(GlobalReuseStrategy),
 		stopWords:      stopWords,
 		enableStemming: true,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewPorterStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		if a.enableStemming {
+			tok = NewPorterStemFilter(tok)
+		}
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -84,8 +97,7 @@ func (a *EnglishAnalyzer) SetStemmingEnabled(enabled bool) {
 	a.enableStemming = enabled
 }
 
-// Ensure EnglishAnalyzer implements Analyzer
-var _ Analyzer = (*EnglishAnalyzer)(nil)
+// Ensure EnglishAnalyzer implements api.Analyzer
 var _ api.Analyzer = (*EnglishAnalyzer)(nil)
 
 // EnglishAnalyzerFactory creates EnglishAnalyzer instances.
@@ -116,7 +128,9 @@ func (f *EnglishAnalyzerFactory) Create() api.Analyzer {
 var _ AnalyzerFactory = (*EnglishAnalyzerFactory)(nil)
 
 // PorterStemFilterFactory creates PorterStemFilter instances.
-type PorterStemFilterFactory struct{}
+type PorterStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewPorterStemFilterFactory creates a new PorterStemFilterFactory.
 func NewPorterStemFilterFactory() *PorterStemFilterFactory {

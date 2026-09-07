@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // GreekStopWords contains common Greek stop words.
@@ -44,15 +45,25 @@ func NewGreekAnalyzer() *GreekAnalyzer {
 // NewGreekAnalyzerWithWords creates a GreekAnalyzer with custom stop words.
 func NewGreekAnalyzerWithWords(stopWords *CharArraySet) *GreekAnalyzer {
 	a := &GreekAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewGreekLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewGreekLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -72,8 +83,7 @@ func (a *GreekAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-// Ensure GreekAnalyzer implements Analyzer
-var _ Analyzer = (*GreekAnalyzer)(nil)
+// Ensure GreekAnalyzer implements api.Analyzer
 var _ api.Analyzer = (*GreekAnalyzer)(nil)
 
 // GreekLightStemFilter implements light stemming for Greek.
@@ -142,7 +152,9 @@ func greekLightStem(term string) string {
 }
 
 // GreekLightStemFilterFactory creates GreekLightStemFilter instances.
-type GreekLightStemFilterFactory struct{}
+type GreekLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewGreekLightStemFilterFactory creates a new GreekLightStemFilterFactory.
 func NewGreekLightStemFilterFactory() *GreekLightStemFilterFactory {

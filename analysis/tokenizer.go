@@ -6,7 +6,6 @@ package analysis
 
 import (
 	"errors"
-	"fmt"
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/util"

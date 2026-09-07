@@ -337,6 +337,7 @@ var _ TokenFilter = (*EdgeNGramFilter)(nil)
 
 // EdgeNGramFilterFactory creates EdgeNGramFilter instances.
 type EdgeNGramFilterFactory struct {
+	BaseTokenFilterFactory
 	minGram          int
 	maxGram          int
 	preserveOriginal bool

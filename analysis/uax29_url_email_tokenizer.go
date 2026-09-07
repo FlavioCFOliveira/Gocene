@@ -108,9 +108,9 @@ func NewUAX29URLEmailTokenizerWithMaxTokenLength(factory util.AttributeFactory, 
 	t.offsetAttr = NewOffsetAttribute()
 	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
+	t.AddAttribute(CharTermAttributeType)
+	t.AddAttribute(OffsetAttributeType)
+	t.AddAttribute(tokenattributes.PositionIncrementAttributeType)
 
 	return t
 }
@@ -121,7 +121,7 @@ func NewUAX29URLEmailTokenizer() *UAX29URLEmailTokenizer {
 }
 
 // SetReader sets the input source for this Tokenizer.
-func (t *UAX29URLEmailTokenizer) SetReader(input io.Reader) error {
+func (t *UAX29URLEmailTokenizer) SetReader(input io.Reader) {
 	t.BaseTokenizer.SetReader(input)
 	t.scanner = bufio.NewScanner(input)
 	t.scanner.Split(bufio.ScanRunes)
@@ -138,8 +138,6 @@ func (t *UAX29URLEmailTokenizer) SetReader(input io.Reader) error {
 			t.inputBuffer = append(t.inputBuffer, r[0])
 		}
 	}
-
-	return t.scanner.Err()
 }
 
 // IncrementToken advances to the next token.

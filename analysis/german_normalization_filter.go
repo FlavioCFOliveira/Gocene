@@ -111,7 +111,9 @@ func (f *GermanNormalizationFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*GermanNormalizationFilter)(nil)
 
 // GermanNormalizationFilterFactory creates instances.
-type GermanNormalizationFilterFactory struct{}
+type GermanNormalizationFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewGermanNormalizationFilterFactory returns a fresh factory.
 func NewGermanNormalizationFilterFactory() *GermanNormalizationFilterFactory {

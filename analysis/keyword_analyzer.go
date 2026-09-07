@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // KeywordAnalyzer is an analyzer that uses KeywordTokenizer.
@@ -29,9 +30,18 @@ type KeywordAnalyzer struct {
 // NewKeywordAnalyzer creates a new KeywordAnalyzer.
 func NewKeywordAnalyzer() *KeywordAnalyzer {
 	a := &KeywordAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 	}
-	a.TokenizerFactory = NewKeywordTokenizerFactory()
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewKeywordTokenizer()
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: src,
+		}
+	}
 	return a
 }
 
@@ -46,5 +56,4 @@ func (a *KeywordAnalyzer) Close() error {
 }
 
 // Ensure KeywordAnalyzer implements Analyzer
-var _ Analyzer = (*KeywordAnalyzer)(nil)
 var _ api.Analyzer = (*KeywordAnalyzer)(nil)

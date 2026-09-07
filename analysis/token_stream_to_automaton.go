@@ -5,6 +5,7 @@
 package analysis
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
@@ -49,10 +50,10 @@ func (ts *TokenStreamToAutomaton) ToAutomaton(in TokenStream) (*automaton.Automa
 	builder := automaton.NewBuilder()
 	builder.CreateState()
 
-	termBytesAtt := in.GetAttribute(TermToBytesRefAttributeType).(*TermToBytesRefAttribute)
-	posIncAtt := in.GetAttribute(PositionIncrementAttributeType).(*PositionIncrementAttribute)
-	posLengthAtt := in.GetAttribute(PositionLengthAttributeType).(*PositionLengthAttribute)
-	offsetAtt := in.GetAttribute(OffsetAttributeType).(*OffsetAttribute)
+	termBytesAtt := in.GetAttributeSource().GetAttribute(TermToBytesRefAttributeType).(TermToBytesRefAttribute)
+	posIncAtt := in.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
+	posLengthAtt := in.GetAttributeSource().GetAttribute(PositionLengthAttributeType).(PositionLengthAttribute)
+	offsetAtt := in.GetAttributeSource().GetAttribute(OffsetAttributeType).(OffsetAttribute)
 
 	if err := in.Reset(); err != nil {
 		return nil, err
@@ -94,7 +95,7 @@ func (ts *TokenStreamToAutomaton) ToAutomaton(in TokenStream) (*automaton.Automa
 				}
 			} else {
 				posData.leaving = builder.CreateState()
-				builder.AddTransition(posData.arriving, posData.leaving, POS_SEP)
+				builder.AddTransitionSingle(posData.arriving, posData.leaving, POS_SEP)
 				if posInc > 1 {
 					ts.addHoles(builder, posList, pos)
 				}
@@ -117,7 +118,7 @@ func (ts *TokenStreamToAutomaton) ToAutomaton(in TokenStream) (*automaton.Automa
 			endPosData.arriving = builder.CreateState()
 		}
 
-		termUTF8 := termBytesAtt.GetBytesRef()
+		termUTF8 := termBytesAtt.GetBytesRef().ValidBytes()
 		termLen := len(termUTF8)
 		var termUnicode []int
 		if ts.unicodeArcs {
@@ -143,7 +144,7 @@ func (ts *TokenStreamToAutomaton) ToAutomaton(in TokenStream) (*automaton.Automa
 			} else {
 				c = int(termUTF8[i] & 0xff)
 			}
-			builder.AddTransition(state, nextState, c)
+			builder.AddTransitionSingle(state, nextState, c)
 			state = nextState
 		}
 		if offsetAtt.EndOffset() > maxOffset {
@@ -168,14 +169,14 @@ func (ts *TokenStreamToAutomaton) ToAutomaton(in TokenStream) (*automaton.Automa
 		lastState := endState
 		for endPosInc > 0 {
 			state1 := builder.CreateState()
-			builder.AddTransition(lastState, state1, HOLE)
+			builder.AddTransitionSingle(lastState, state1, HOLE)
 			endPosInc--
 			if endPosInc == 0 {
 				builder.SetAccept(state1, true)
 				break
 			}
 			state2 := builder.CreateState()
-			builder.AddTransition(state1, state2, POS_SEP)
+			builder.AddTransitionSingle(state1, state2, POS_SEP)
 			lastState = state2
 		}
 	} else {
@@ -187,7 +188,7 @@ func (ts *TokenStreamToAutomaton) ToAutomaton(in TokenStream) (*automaton.Automa
 		posData := posList[pos]
 		if posData.arriving != -1 {
 			if endState != -1 {
-				builder.AddTransition(posData.arriving, endState, POS_SEP)
+				builder.AddTransitionSingle(posData.arriving, endState, POS_SEP)
 			} else {
 				builder.SetAccept(posData.arriving, true)
 			}
@@ -210,7 +211,7 @@ func (ts *TokenStreamToAutomaton) addHoles(builder *automaton.Builder, positions
 	for posData.arriving == -1 || prevPosData.leaving == -1 {
 		if posData.arriving == -1 {
 			posData.arriving = builder.CreateState()
-			builder.AddTransition(posData.arriving, posData.leaving, POS_SEP)
+			builder.AddTransitionSingle(posData.arriving, posData.leaving, POS_SEP)
 		}
 		if prevPosData.leaving == -1 {
 			if pos == 1 {
@@ -219,10 +220,10 @@ func (ts *TokenStreamToAutomaton) addHoles(builder *automaton.Builder, positions
 				prevPosData.leaving = builder.CreateState()
 			}
 			if prevPosData.arriving != -1 {
-				builder.AddTransition(prevPosData.arriving, prevPosData.leaving, POS_SEP)
+				builder.AddTransitionSingle(prevPosData.arriving, prevPosData.leaving, POS_SEP)
 			}
 		}
-		builder.AddTransition(prevPosData.leaving, posData.arriving, HOLE)
+		builder.AddTransitionSingle(prevPosData.leaving, posData.arriving, HOLE)
 		pos--
 		if pos <= 0 {
 			break

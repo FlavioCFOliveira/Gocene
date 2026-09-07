@@ -75,6 +75,7 @@ var _ TokenFilter = (*KeepWordFilter)(nil)
 
 // KeepWordFilterFactory creates KeepWordFilter instances.
 type KeepWordFilterFactory struct {
+	BaseTokenFilterFactory
 	keepWords map[string]bool
 }
 

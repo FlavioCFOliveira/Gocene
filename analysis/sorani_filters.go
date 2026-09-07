@@ -56,7 +56,9 @@ var _ TokenFilter = (*SoraniNormalizationFilter)(nil)
 
 // SoraniNormalizationFilterFactory creates
 // SoraniNormalizationFilter instances.
-type SoraniNormalizationFilterFactory struct{}
+type SoraniNormalizationFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewSoraniNormalizationFilterFactory returns a fresh factory.
 func NewSoraniNormalizationFilterFactory() *SoraniNormalizationFilterFactory {
@@ -133,7 +135,9 @@ func (f *SoraniStemFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*SoraniStemFilter)(nil)
 
 // SoraniStemFilterFactory creates SoraniStemFilter instances.
-type SoraniStemFilterFactory struct{}
+type SoraniStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewSoraniStemFilterFactory returns a fresh factory.
 func NewSoraniStemFilterFactory() *SoraniStemFilterFactory {

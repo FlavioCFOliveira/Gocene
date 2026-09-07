@@ -23,14 +23,15 @@ func NewStandardAnalyzerWithStopWords(stopWords []string) *Analyzer {
 		src := NewStandardTokenizer()
 		// StandardAnalyzer.DEFAULT_MAX_TOKEN_LENGTH is used by default.
 
-		tok := NewLowerCaseFilter(src)
+		var tok TokenStream = NewLowerCaseFilter(src)
 		if stopWords != nil {
 			tok = NewStopFilter(tok, stopWords)
 		}
 
 		return &TokenStreamComponents{
 			source: func(r io.Reader) error {
-				return src.SetReader(r)
+				src.SetReader(r)
+return nil
 			},
 			sink: tok,
 		}

@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // FinnishStopWords contains common Finnish stop words.
@@ -126,15 +127,25 @@ func NewFinnishAnalyzer() *FinnishAnalyzer {
 // NewFinnishAnalyzerWithWords creates a FinnishAnalyzer with custom stop words.
 func NewFinnishAnalyzerWithWords(stopWords *CharArraySet) *FinnishAnalyzer {
 	a := &FinnishAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewFinnishLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewFinnishLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -154,8 +165,7 @@ func (a *FinnishAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-// Ensure FinnishAnalyzer implements Analyzer
-var _ Analyzer = (*FinnishAnalyzer)(nil)
+// Ensure FinnishAnalyzer implements api.Analyzer
 var _ api.Analyzer = (*FinnishAnalyzer)(nil)
 
 // FinnishLightStemFilter implements light stemming for Finnish.
@@ -227,7 +237,9 @@ func finnishLightStem(term string) string {
 }
 
 // FinnishLightStemFilterFactory creates FinnishLightStemFilter instances.
-type FinnishLightStemFilterFactory struct{}
+type FinnishLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewFinnishLightStemFilterFactory creates a new FinnishLightStemFilterFactory.
 func NewFinnishLightStemFilterFactory() *FinnishLightStemFilterFactory {

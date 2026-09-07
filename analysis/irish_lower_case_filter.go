@@ -87,7 +87,9 @@ var _ TokenFilter = (*IrishLowerCaseFilter)(nil)
 
 // IrishLowerCaseFilterFactory creates IrishLowerCaseFilter
 // instances.
-type IrishLowerCaseFilterFactory struct{}
+type IrishLowerCaseFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewIrishLowerCaseFilterFactory returns a fresh factory.
 func NewIrishLowerCaseFilterFactory() *IrishLowerCaseFilterFactory {

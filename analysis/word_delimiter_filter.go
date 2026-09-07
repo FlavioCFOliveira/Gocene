@@ -307,6 +307,7 @@ var _ TokenFilter = (*WordDelimiterFilter)(nil)
 
 // WordDelimiterFilterFactory creates WordDelimiterFilter instances.
 type WordDelimiterFilterFactory struct {
+	BaseTokenFilterFactory
 	splitOnCaseChange     bool
 	splitOnNumerics       bool
 	stemEnglishPossessive bool

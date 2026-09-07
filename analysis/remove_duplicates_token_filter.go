@@ -148,7 +148,9 @@ func (f *RemoveDuplicatesTokenFilter) End() error {
 var _ TokenFilter = (*RemoveDuplicatesTokenFilter)(nil)
 
 // RemoveDuplicatesTokenFilterFactory creates RemoveDuplicatesTokenFilter instances.
-type RemoveDuplicatesTokenFilterFactory struct{}
+type RemoveDuplicatesTokenFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewRemoveDuplicatesTokenFilterFactory creates a new RemoveDuplicatesTokenFilterFactory.
 func NewRemoveDuplicatesTokenFilterFactory() *RemoveDuplicatesTokenFilterFactory {

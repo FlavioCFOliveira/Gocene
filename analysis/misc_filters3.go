@@ -7,6 +7,8 @@ package analysis
 import (
 	"regexp"
 	"time"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // PerFieldAnalyzerWrapper selects a different Analyzer for each
@@ -19,23 +21,23 @@ import (
 type PerFieldAnalyzerWrapper struct {
 	*AnalyzerWrapper
 
-	defaultAnalyzer Analyzer
-	fieldAnalyzers  map[string]Analyzer
+	defaultAnalyzer api.Analyzer
+	fieldAnalyzers  map[string]api.Analyzer
 }
 
 // NewPerFieldAnalyzerWrapper returns a wrapper that delegates to
 // defaultAnalyzer when no per-field analyzer is configured for a
 // field.
-func NewPerFieldAnalyzerWrapper(defaultAnalyzer Analyzer) *PerFieldAnalyzerWrapper {
+func NewPerFieldAnalyzerWrapper(defaultAnalyzer api.Analyzer) *PerFieldAnalyzerWrapper {
 	return NewPerFieldAnalyzerWrapperWithMap(defaultAnalyzer, nil)
 }
 
 // NewPerFieldAnalyzerWrapperWithMap returns a wrapper configured
 // with the given per-field analyzer overrides; pass nil for an
 // empty map.
-func NewPerFieldAnalyzerWrapperWithMap(defaultAnalyzer Analyzer, fieldAnalyzers map[string]Analyzer) *PerFieldAnalyzerWrapper {
+func NewPerFieldAnalyzerWrapperWithMap(defaultAnalyzer api.Analyzer, fieldAnalyzers map[string]api.Analyzer) *PerFieldAnalyzerWrapper {
 	if fieldAnalyzers == nil {
-		fieldAnalyzers = map[string]Analyzer{}
+		fieldAnalyzers = map[string]api.Analyzer{}
 	}
 	w := &PerFieldAnalyzerWrapper{
 		defaultAnalyzer: defaultAnalyzer,
@@ -45,7 +47,7 @@ func NewPerFieldAnalyzerWrapperWithMap(defaultAnalyzer Analyzer, fieldAnalyzers 
 	return w
 }
 
-func (w *PerFieldAnalyzerWrapper) getWrappedAnalyzer(fieldName string) Analyzer {
+func (w *PerFieldAnalyzerWrapper) getWrappedAnalyzer(fieldName string) api.Analyzer {
 	if a, ok := w.fieldAnalyzers[fieldName]; ok && a != nil {
 		return a
 	}
@@ -53,13 +55,13 @@ func (w *PerFieldAnalyzerWrapper) getWrappedAnalyzer(fieldName string) Analyzer 
 }
 
 // DefaultAnalyzer returns the fallback analyzer.
-func (w *PerFieldAnalyzerWrapper) DefaultAnalyzer() Analyzer {
+func (w *PerFieldAnalyzerWrapper) DefaultAnalyzer() api.Analyzer {
 	return w.defaultAnalyzer
 }
 
 // FieldAnalyzers returns the configured per-field map (read-only
 // reference; callers must not mutate it).
-func (w *PerFieldAnalyzerWrapper) FieldAnalyzers() map[string]Analyzer {
+func (w *PerFieldAnalyzerWrapper) FieldAnalyzers() map[string]api.Analyzer {
 	return w.fieldAnalyzers
 }
 
@@ -75,14 +77,14 @@ func (w *PerFieldAnalyzerWrapper) FieldAnalyzers() map[string]Analyzer {
 type LimitTokenCountAnalyzer struct {
 	*AnalyzerWrapper
 
-	delegate         Analyzer
+	delegate api.Analyzer
 	maxTokenCount    int
 	consumeAllTokens bool
 }
 
 // NewLimitTokenCountAnalyzer wraps delegate, capping each field's
 // token stream at maxTokenCount tokens.
-func NewLimitTokenCountAnalyzer(delegate Analyzer, maxTokenCount int) *LimitTokenCountAnalyzer {
+func NewLimitTokenCountAnalyzer(delegate api.Analyzer, maxTokenCount int) *LimitTokenCountAnalyzer {
 	return NewLimitTokenCountAnalyzerWithConsume(delegate, maxTokenCount, false)
 }
 
@@ -90,13 +92,13 @@ func NewLimitTokenCountAnalyzer(delegate Analyzer, maxTokenCount int) *LimitToke
 // NewLimitTokenCountAnalyzer but with an explicit flag controlling
 // whether the underlying stream is fully consumed after the limit
 // is reached.
-func NewLimitTokenCountAnalyzerWithConsume(delegate Analyzer, maxTokenCount int, consumeAllTokens bool) *LimitTokenCountAnalyzer {
+func NewLimitTokenCountAnalyzerWithConsume(delegate api.Analyzer, maxTokenCount int, consumeAllTokens bool) *LimitTokenCountAnalyzer {
 	a := &LimitTokenCountAnalyzer{
 		delegate:         delegate,
 		maxTokenCount:    maxTokenCount,
 		consumeAllTokens: consumeAllTokens,
 	}
-	a.AnalyzerWrapper = NewAnalyzerWrapper(func(fieldName string) Analyzer { return delegate })
+	a.AnalyzerWrapper = NewAnalyzerWrapper(func(fieldName string) api.Analyzer { return delegate })
 	a.AnalyzerWrapper.WrapTokenStream = func(_ string, in TokenStream) TokenStream {
 		return NewLimitTokenCountFilter(in, maxTokenCount)
 	}

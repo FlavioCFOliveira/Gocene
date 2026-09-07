@@ -5,9 +5,8 @@
 package analysis
 
 import (
-	"fmt"
-	"sync"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -22,16 +21,7 @@ import (
 // - Removing tokens (e.g., StopFilter)
 // - Adding/modifying attributes (e.g., SynonymFilter)
 // - Combining/splitting tokens
-type TokenFilter interface {
-	TokenStream
-
-	// GetInput returns the wrapped input TokenStream.
-	GetInput() TokenStream
-
-	// Unwrap returns the wrapped input TokenStream.
-	// This is the Go port of Lucene's Unwrappable.unwrap().
-	Unwrap() TokenStream
-}
+type TokenFilter = api.TokenFilter
 
 // BaseTokenFilter provides a base implementation for TokenFilter.
 //
@@ -103,7 +93,9 @@ func (f *BaseTokenFilter) Reset() error {
 }
 
 // LowerCaseFilterFactory creates LowerCaseFilter instances.
-type LowerCaseFilterFactory struct{}
+type LowerCaseFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewLowerCaseFilterFactory creates a new LowerCaseFilterFactory.
 func NewLowerCaseFilterFactory() *LowerCaseFilterFactory {

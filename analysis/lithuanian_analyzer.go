@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // LithuanianStopWords contains common Lithuanian stop words.
@@ -64,12 +65,22 @@ func NewLithuanianAnalyzer() *LithuanianAnalyzer {
 // NewLithuanianAnalyzerWithWords creates a LithuanianAnalyzer with custom stop words.
 func NewLithuanianAnalyzerWithWords(stopWords *CharArraySet) *LithuanianAnalyzer {
 	a := &LithuanianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 	return a
 }
 
@@ -88,5 +99,4 @@ func (a *LithuanianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*LithuanianAnalyzer)(nil)
 var _ api.Analyzer = (*LithuanianAnalyzer)(nil)

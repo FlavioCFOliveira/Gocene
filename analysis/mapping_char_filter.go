@@ -126,7 +126,7 @@ type MappingCharFilterFactory struct {
 // NewMappingCharFilterFactory creates a new MappingCharFilterFactory.
 func NewMappingCharFilterFactory(charMap *NormalizeCharMap) *MappingCharFilterFactory {
 	return &MappingCharFilterFactory{
-		BaseCharFilterFactory: NewBaseCharFilterFactory("mapping"),
+		BaseCharFilterFactory: NewBaseCharFilterFactory(map[string]string{}),
 		charMap:               charMap,
 	}
 }

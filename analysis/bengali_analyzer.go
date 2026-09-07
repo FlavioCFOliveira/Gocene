@@ -58,14 +58,24 @@ func NewBengaliAnalyzer() *BengaliAnalyzer {
 // NewBengaliAnalyzerWithWords creates a BengaliAnalyzer with custom stop words.
 func NewBengaliAnalyzerWithWords(stopWords *CharArraySet) *BengaliAnalyzer {
 	a := &BengaliAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -85,6 +95,5 @@ func (a *BengaliAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-// Ensure BengaliAnalyzer implements Analyzer
-var _ Analyzer = (*BengaliAnalyzer)(nil)
+// Ensure BengaliAnalyzer implements api.Analyzer
 var _ api.Analyzer = (*BengaliAnalyzer)(nil)

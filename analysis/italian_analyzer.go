@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // ItalianStopWords contains common Italian stop words.
@@ -62,15 +63,25 @@ func NewItalianAnalyzer() *ItalianAnalyzer {
 // NewItalianAnalyzerWithWords creates an ItalianAnalyzer with custom stop words.
 func NewItalianAnalyzerWithWords(stopWords *CharArraySet) *ItalianAnalyzer {
 	a := &ItalianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewItalianLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewItalianLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -91,7 +102,7 @@ func (a *ItalianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure ItalianAnalyzer implements Analyzer
-var _ Analyzer = (*ItalianAnalyzer)(nil)
+var _ api.Analyzer = (*ItalianAnalyzer)(nil)
 var _ api.Analyzer = (*ItalianAnalyzer)(nil)
 
 // ItalianLightStemmer implements a light stemming algorithm for Italian.
@@ -201,7 +212,9 @@ func italianLightStem(term string) string {
 }
 
 // ItalianLightStemFilterFactory creates ItalianLightStemFilter instances.
-type ItalianLightStemFilterFactory struct{}
+type ItalianLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewItalianLightStemFilterFactory creates a new ItalianLightStemFilterFactory.
 func NewItalianLightStemFilterFactory() *ItalianLightStemFilterFactory {

@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // NorwegianStopWords contains common Norwegian stop words.
@@ -53,15 +54,25 @@ func NewNorwegianAnalyzer() *NorwegianAnalyzer {
 // NewNorwegianAnalyzerWithWords creates a NorwegianAnalyzer with custom stop words.
 func NewNorwegianAnalyzerWithWords(stopWords *CharArraySet) *NorwegianAnalyzer {
 	a := &NorwegianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewNorwegianLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewNorwegianLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -82,7 +93,6 @@ func (a *NorwegianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure NorwegianAnalyzer implements Analyzer
-var _ Analyzer = (*NorwegianAnalyzer)(nil)
 var _ api.Analyzer = (*NorwegianAnalyzer)(nil)
 
 // NorwegianLightStemFilter implements light stemming for Norwegian
@@ -135,7 +145,9 @@ func (f *NorwegianLightStemFilter) IncrementToken() (bool, error) {
 }
 
 // NorwegianLightStemFilterFactory creates NorwegianLightStemFilter instances.
-type NorwegianLightStemFilterFactory struct{}
+type NorwegianLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewNorwegianLightStemFilterFactory creates a new NorwegianLightStemFilterFactory.
 func NewNorwegianLightStemFilterFactory() *NorwegianLightStemFilterFactory {

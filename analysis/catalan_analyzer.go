@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // CatalanStopWords contains common Catalan stop words.
@@ -60,17 +62,27 @@ func NewCatalanAnalyzer() *CatalanAnalyzer {
 // NewCatalanAnalyzerWithWords creates a CatalanAnalyzer with custom stop words.
 func NewCatalanAnalyzerWithWords(stopWords *CharArraySet) *CatalanAnalyzer {
 	a := &CatalanAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 	return a
 }
 
 // TokenStream creates a TokenStream for analyzing text.
-func (a *CatalanAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (a *CatalanAnalyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	return a.BaseAnalyzer.TokenStream(fieldName, reader)
 }
 
@@ -84,5 +96,4 @@ func (a *CatalanAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*CatalanAnalyzer)(nil)
 var _ api.Analyzer = (*CatalanAnalyzer)(nil)

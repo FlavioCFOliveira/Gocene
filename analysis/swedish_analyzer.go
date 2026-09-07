@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // SwedishStopWords contains common Swedish stop words.
@@ -81,15 +82,25 @@ func NewSwedishAnalyzer() *SwedishAnalyzer {
 // NewSwedishAnalyzerWithWords creates a SwedishAnalyzer with custom stop words.
 func NewSwedishAnalyzerWithWords(stopWords *CharArraySet) *SwedishAnalyzer {
 	a := &SwedishAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewSwedishLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewSwedishLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -110,7 +121,6 @@ func (a *SwedishAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure SwedishAnalyzer implements Analyzer
-var _ Analyzer = (*SwedishAnalyzer)(nil)
 var _ api.Analyzer = (*SwedishAnalyzer)(nil)
 
 // SwedishLightStemFilter implements light stemming for Swedish via the full
@@ -151,7 +161,9 @@ func (f *SwedishLightStemFilter) IncrementToken() (bool, error) {
 }
 
 // SwedishLightStemFilterFactory creates SwedishLightStemFilter instances.
-type SwedishLightStemFilterFactory struct{}
+type SwedishLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewSwedishLightStemFilterFactory creates a new SwedishLightStemFilterFactory.
 func NewSwedishLightStemFilterFactory() *SwedishLightStemFilterFactory {

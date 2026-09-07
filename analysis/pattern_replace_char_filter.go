@@ -83,7 +83,7 @@ type PatternReplaceCharFilterFactory struct {
 // NewPatternReplaceCharFilterFactory creates a new PatternReplaceCharFilterFactory.
 func NewPatternReplaceCharFilterFactory(pattern *regexp.Regexp, replacement string) *PatternReplaceCharFilterFactory {
 	return &PatternReplaceCharFilterFactory{
-		BaseCharFilterFactory: NewBaseCharFilterFactory("patternReplace"),
+		BaseCharFilterFactory: NewBaseCharFilterFactory(map[string]string{}),
 		pattern:               pattern,
 		replacement:           replacement,
 	}

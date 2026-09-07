@@ -83,18 +83,17 @@ func newKeywordTokenizer(factory util.AttributeFactory) *KeywordTokenizer {
 	t.offsetAttr = NewOffsetAttribute()
 	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
+	t.AddAttribute(CharTermAttributeType)
+	t.AddAttribute(OffsetAttributeType)
+	t.AddAttribute(tokenattributes.PositionIncrementAttributeType)
 
 	return t
 }
 
 // SetReader sets the input source for this Tokenizer.
-func (t *KeywordTokenizer) SetReader(input io.Reader) error {
+func (t *KeywordTokenizer) SetReader(input io.Reader) {
 	t.BaseTokenizer.SetReader(input)
 	t.done = false
-	return nil
 }
 
 // IncrementToken advances to the next token.

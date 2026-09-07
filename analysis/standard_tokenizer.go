@@ -80,10 +80,10 @@ func NewStandardTokenizerWithFactory(factory util.AttributeFactory) *StandardTok
 	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 	t.typeAttr = NewTypeAttribute()
 
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
-	t.AddAttribute(t.typeAttr)
+	t.AddAttribute(CharTermAttributeType)
+	t.AddAttribute(OffsetAttributeType)
+	t.AddAttribute(tokenattributes.PositionIncrementAttributeType)
+	t.AddAttribute(TypeAttributeType)
 
 	return t
 }
@@ -117,14 +117,11 @@ func (t *StandardTokenizer) SetMaxTokenLength(length int) error {
 
 // SetReader attaches the input source and resets the underlying
 // scanner. It satisfies the [Tokenizer] contract.
-func (t *StandardTokenizer) SetReader(input io.Reader) error {
-	if err := t.BaseTokenizer.SetReader(input); err != nil {
-		return err
-	}
+func (t *StandardTokenizer) SetReader(input io.Reader) {
+	t.BaseTokenizer.SetReader(input)
 	if err := t.scanner.yyreset(input); err != nil {
-		return err
+		return
 	}
-	return nil
 }
 
 // IncrementToken advances to the next token. Returns (false, nil) at
@@ -178,7 +175,7 @@ func (t *StandardTokenizer) Reset() error {
 	if err := t.BaseTokenizer.Reset(); err != nil {
 		return err
 	}
-	if err := t.scanner.yyreset(t.GetReader()); err != nil {
+	if err := t.scanner.yyreset(t.input); err != nil {
 		return err
 	}
 	t.skippedPositions = 0

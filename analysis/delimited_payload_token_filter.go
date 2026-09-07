@@ -110,6 +110,7 @@ var _ TokenFilter = (*DelimitedPayloadTokenFilter)(nil)
 // encoders by class name from an SPI registry; Gocene has no analyser
 // SPI yet, so the encoder is injected directly.
 type DelimitedPayloadTokenFilterFactory struct {
+	BaseTokenFilterFactory
 	delimiter byte
 	encoder   PayloadEncoder
 }

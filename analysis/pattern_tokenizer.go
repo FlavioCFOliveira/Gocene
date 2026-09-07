@@ -96,10 +96,10 @@ func NewPatternTokenizerWithGroup(factory util.AttributeFactory, pattern *regexp
 	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 	t.typeAttr = NewTypeAttribute()
 
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
-	t.AddAttribute(t.typeAttr)
+	t.AddAttribute(CharTermAttributeType)
+	t.AddAttribute(OffsetAttributeType)
+	t.AddAttribute(tokenattributes.PositionIncrementAttributeType)
+	t.AddAttribute(TypeAttributeType)
 
 	return t
 }
@@ -110,14 +110,14 @@ func NewPatternTokenizer(pattern *regexp.Regexp) *PatternTokenizer {
 }
 
 // SetReader sets the input source for this Tokenizer.
-func (t *PatternTokenizer) SetReader(input io.Reader) error {
+func (t *PatternTokenizer) SetReader(input io.Reader) {
 	t.BaseTokenizer.SetReader(input)
 
 	// Read entire input into memory, bounded by MaxTokenizerInputSize.
 	// PatternTokenizer needs the full input to perform regex operations.
 	buf, err := readAllLimited(input)
 	if err != nil {
-		return err
+		return
 	}
 
 	t.inputStr = string(buf)
@@ -132,8 +132,6 @@ func (t *PatternTokenizer) SetReader(input io.Reader) error {
 		// Find all matches for split mode (these are the delimiters)
 		t.matches = t.pattern.FindAllStringIndex(t.inputStr, -1)
 	}
-
-	return nil
 }
 
 // IncrementToken advances to the next token.

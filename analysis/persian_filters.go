@@ -132,7 +132,9 @@ func (f *PersianStemFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*PersianStemFilter)(nil)
 
 // PersianStemFilterFactory creates PersianStemFilter instances.
-type PersianStemFilterFactory struct{}
+type PersianStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewPersianStemFilterFactory returns a fresh factory.
 func NewPersianStemFilterFactory() *PersianStemFilterFactory {

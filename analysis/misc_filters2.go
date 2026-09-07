@@ -125,7 +125,9 @@ func (f *HyphenatedWordsFilter) Reset() error {
 var _ TokenFilter = (*HyphenatedWordsFilter)(nil)
 
 // HyphenatedWordsFilterFactory creates instances.
-type HyphenatedWordsFilterFactory struct{}
+type HyphenatedWordsFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewHyphenatedWordsFilterFactory returns a fresh factory.
 func NewHyphenatedWordsFilterFactory() *HyphenatedWordsFilterFactory {
@@ -305,7 +307,9 @@ func joinWords(original string, words []string) string {
 var _ TokenFilter = (*CapitalizationFilter)(nil)
 
 // CapitalizationFilterFactory creates instances.
-type CapitalizationFilterFactory struct{}
+type CapitalizationFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewCapitalizationFilterFactory returns a fresh factory using the
 // Lucene defaults.
@@ -446,6 +450,7 @@ var _ TokenFilter = (*FingerprintFilter)(nil)
 
 // FingerprintFilterFactory creates instances.
 type FingerprintFilterFactory struct {
+	BaseTokenFilterFactory
 	maxOutputTokenSize int
 	separator          byte
 }
@@ -519,6 +524,7 @@ var _ TokenFilter = (*DropIfFlaggedFilter)(nil)
 
 // DropIfFlaggedFilterFactory creates instances.
 type DropIfFlaggedFilterFactory struct {
+	BaseTokenFilterFactory
 	dropFlags int
 }
 
@@ -611,6 +617,7 @@ var _ TokenFilter = (*DelimitedTermFrequencyTokenFilter)(nil)
 
 // DelimitedTermFrequencyTokenFilterFactory creates instances.
 type DelimitedTermFrequencyTokenFilterFactory struct {
+	BaseTokenFilterFactory
 	delimiter byte
 }
 
@@ -635,6 +642,7 @@ func (f *DelimitedTermFrequencyTokenFilterFactory) Create(input TokenStream) Tok
 // ASCIIFoldingFilterFactory creates ASCIIFoldingFilter instances
 // configured with preserveOriginal off by default.
 type ASCIIFoldingFilterFactory struct {
+	BaseTokenFilterFactory
 	preserveOriginal bool
 }
 

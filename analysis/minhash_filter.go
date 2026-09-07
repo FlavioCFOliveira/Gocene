@@ -173,6 +173,7 @@ var _ TokenFilter = (*MinHashFilter)(nil)
 
 // MinHashFilterFactory creates MinHashFilter instances.
 type MinHashFilterFactory struct {
+	BaseTokenFilterFactory
 	hashCount   int
 	bucketCount int
 }

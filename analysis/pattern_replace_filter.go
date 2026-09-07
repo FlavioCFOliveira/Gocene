@@ -153,6 +153,7 @@ var _ TokenFilter = (*PatternReplaceFilter)(nil)
 
 // PatternReplaceFilterFactory creates PatternReplaceFilter instances.
 type PatternReplaceFilterFactory struct {
+	BaseTokenFilterFactory
 	pattern     *regexp.Regexp
 	replacement string
 	replaceAll  bool

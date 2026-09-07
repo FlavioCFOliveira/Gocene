@@ -7,6 +7,7 @@ package analysis
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"errors"
+	"reflect"
 
 	
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
@@ -126,10 +127,10 @@ func newAutomatonTokenStream(edges [][]autEdgeToken) *automatonTokenStream {
 		edgesByPos:      edges,
 	}
 	// Register the attributes the Java reference adds eagerly.
-	ts.AddAttribute(NewCharTermAttribute())
-	ts.AddAttribute(NewOffsetAttribute())
-	ts.AddAttribute(tokenattributes.NewPositionIncrementAttribute())
-	ts.AddAttribute(NewPositionLengthAttribute())
+	ts.AddAttribute(reflect.TypeOf((*CharTermAttribute)(nil)).Elem())
+	ts.AddAttribute(reflect.TypeOf((*OffsetAttribute)(nil)).Elem())
+	ts.AddAttribute(reflect.TypeOf((*tokenattributes.PositionIncrementAttribute)(nil)).Elem())
+	ts.AddAttribute(reflect.TypeOf((*PositionLengthAttribute)(nil)).Elem())
 
 	src := ts.GetAttributeSource()
 	if a := src.GetAttribute(CharTermAttributeType); a != nil {

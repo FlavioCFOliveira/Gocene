@@ -104,7 +104,9 @@ func (f *DutchStemFilter) IncrementToken() (bool, error) {
 }
 
 // DutchStemFilterFactory creates DutchStemFilter instances.
-type DutchStemFilterFactory struct{}
+type DutchStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewDutchStemFilterFactory creates a new DutchStemFilterFactory.
 func NewDutchStemFilterFactory() *DutchStemFilterFactory {

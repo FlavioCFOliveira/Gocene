@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // FrenchStopWords contains common French stop words.
@@ -57,15 +58,25 @@ func NewFrenchAnalyzer() *FrenchAnalyzer {
 // NewFrenchAnalyzerWithWords creates a FrenchAnalyzer with custom stop words.
 func NewFrenchAnalyzerWithWords(stopWords *CharArraySet) *FrenchAnalyzer {
 	a := &FrenchAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewFrenchLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewFrenchLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -85,8 +96,7 @@ func (a *FrenchAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-// Ensure FrenchAnalyzer implements Analyzer
-var _ Analyzer = (*FrenchAnalyzer)(nil)
+// Ensure FrenchAnalyzer implements api.Analyzer
 var _ api.Analyzer = (*FrenchAnalyzer)(nil)
 
 // FrenchLightStemFilter implements light stemming for French via the UniNE algorithm.
@@ -125,7 +135,9 @@ func (f *FrenchLightStemFilter) IncrementToken() (bool, error) {
 }
 
 // FrenchLightStemFilterFactory creates FrenchLightStemFilter instances.
-type FrenchLightStemFilterFactory struct{}
+type FrenchLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewFrenchLightStemFilterFactory creates a new FrenchLightStemFilterFactory.
 func NewFrenchLightStemFilterFactory() *FrenchLightStemFilterFactory {

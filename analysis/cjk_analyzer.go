@@ -7,10 +7,13 @@ package analysis
 	
 
 import (
+	"io"
+	"reflect"
+	"unicode"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	"io"
-	"unicode"
 )
 
 // CJKStopWords contains common CJK (Chinese, Japanese, Korean) stop words.
@@ -49,14 +52,24 @@ func NewCJKAnalyzer() *CJKAnalyzer {
 // NewCJKAnalyzerWithWords creates a CJKAnalyzer with custom stop words.
 func NewCJKAnalyzerWithWords(stopWords *CharArraySet) *CJKAnalyzer {
 	a := &CJKAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewCJKTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewCJKTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
@@ -77,7 +90,6 @@ func (a *CJKAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure CJKAnalyzer implements Analyzer
-var _ Analyzer = (*CJKAnalyzer)(nil)
 var _ api.Analyzer = (*CJKAnalyzer)(nil)
 
 // CJKTokenizer tokenizes CJK text into bigrams.
@@ -104,9 +116,9 @@ func NewCJKTokenizerWithFactory(factory util.AttributeFactory) *CJKTokenizer {
 	}
 
 	// Add attributes
-	t.AddAttribute(NewCharTermAttribute())
-	t.AddAttribute(NewOffsetAttribute())
-	t.AddAttribute(tokenattributes.NewPositionIncrementAttribute())
+	t.AddAttribute(reflect.TypeOf((*CharTermAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*OffsetAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*tokenattributes.PositionIncrementAttribute)(nil)).Elem())
 
 	return t
 }
@@ -117,22 +129,18 @@ func NewCJKTokenizer() *CJKTokenizer {
 }
 
 // SetReader sets the input reader.
-func (t *CJKTokenizer) SetReader(reader io.Reader) error {
-	if err := t.BaseTokenizer.SetReader(reader); err != nil {
-		return err
-	}
+func (t *CJKTokenizer) SetReader(reader io.Reader) {
+	t.BaseTokenizer.SetReader(reader)
 
 	// Read all input, bounded by MaxTokenizerInputSize.
 	data, err := readAllLimited(reader)
 	if err != nil {
-		return err
+		panic(err) // In Lucene, this is typically handled by the analyzer or wrapping stream
 	}
 
 	t.input = []rune(string(data))
 	t.position = 0
 	t.length = len(t.input)
-
-	return nil
 }
 
 // IncrementToken processes the next token.

@@ -95,7 +95,9 @@ func greekLowerCase(r rune) rune {
 var _ TokenFilter = (*GreekLowerCaseFilter)(nil)
 
 // GreekLowerCaseFilterFactory creates GreekLowerCaseFilter instances.
-type GreekLowerCaseFilterFactory struct{}
+type GreekLowerCaseFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewGreekLowerCaseFilterFactory returns a fresh factory.
 func NewGreekLowerCaseFilterFactory() *GreekLowerCaseFilterFactory {

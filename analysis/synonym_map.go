@@ -20,6 +20,7 @@ package analysis
 	
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"bytes"
 	"errors"
@@ -448,11 +449,11 @@ func StringToWords(s string) []byte {
 // This is a port of Lucene's SynonymMap.Parser.
 type Parser struct {
 	*Builder
-	analyzer Analyzer
+	analyzer api.Analyzer
 }
 
 // NewParser creates a new Parser with the given analyzer.
-func NewParser(analyzer Analyzer) *Parser {
+func NewParser(analyzer api.Analyzer) *Parser {
 	return &Parser{
 		Builder:  NewSynonymMapBuilder(),
 		analyzer: analyzer,
@@ -460,7 +461,7 @@ func NewParser(analyzer Analyzer) *Parser {
 }
 
 // NewParserWithDedup creates a new Parser with deduplication control.
-func NewParserWithDedup(analyzer Analyzer, dedup bool) *Parser {
+func NewParserWithDedup(analyzer api.Analyzer, dedup bool) *Parser {
 	return &Parser{
 		Builder:  NewSynonymMapBuilderWithDedup(dedup),
 		analyzer: analyzer,

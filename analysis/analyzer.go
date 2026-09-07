@@ -211,7 +211,7 @@ func (a *Analyzer) NormalizeText(fieldName string, text string) (*util.BytesRef,
 		return nil, fmt.Errorf("the normalization token stream is expected to produce exactly 1 token, but got 0 for analyzer and input %q", text)
 	}
 
-	termAtt := normTs.GetAttribute(TermToBytesRefAttributeType).(*TermToBytesRefAttribute)
+	termAtt := normTs.GetAttributeSource().GetAttribute(TermToBytesRefAttributeType).(TermToBytesRefAttribute)
 	term := util.DeepCopyOfBytesRef(termAtt.GetBytesRef())
 
 	if ok, err := normTs.IncrementToken(); err != nil || ok {
@@ -245,8 +245,8 @@ type stringTokenStream struct {
 	value  string
 	length int
 	used   bool
-	termAtt *CharTermAttribute
-	offAtt  *OffsetAttribute
+	termAtt CharTermAttribute
+	offAtt  OffsetAttribute
 }
 
 func NewStringTokenStream(factory util.AttributeFactory, value string, length int) api.TokenStream {
@@ -256,8 +256,8 @@ func NewStringTokenStream(factory util.AttributeFactory, value string, length in
 		length:          length,
 		used:            true,
 	}
-	ts.termAtt = ts.GetAttribute(CharTermAttributeType).(*CharTermAttribute)
-	ts.offAtt = ts.GetAttribute(OffsetAttributeType).(*OffsetAttribute)
+	ts.termAtt = ts.GetAttribute(CharTermAttributeType).(CharTermAttribute)
+	ts.offAtt = ts.GetAttribute(OffsetAttributeType).(OffsetAttribute)
 	return ts
 }
 
@@ -271,7 +271,7 @@ func (ts *stringTokenStream) IncrementToken() (bool, error) {
 		return false, nil
 	}
 	ts.ClearAttributes()
-	ts.termAtt.Append(ts.value)
+	ts.termAtt.AppendString(ts.value)
 	ts.offAtt.SetOffset(0, ts.length)
 	ts.used = true
 	return true, nil

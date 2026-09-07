@@ -58,17 +58,27 @@ func NewArabicAnalyzer() *ArabicAnalyzer {
 // NewArabicAnalyzerWithWords creates an ArabicAnalyzer with custom stop words.
 func NewArabicAnalyzerWithWords(stopWords *CharArraySet) *ArabicAnalyzer {
 	a := &ArabicAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
 	// Tokenizer -> LowerCase -> ArabicNormalization -> StopWords -> ArabicStemming
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewArabicNormalizationFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewArabicStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewArabicNormalizationFilter(tok)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewArabicStemFilter(tok)
+
+		return &TokenStreamComponents{
+			source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			sink: tok,
+		}
+	}
 
 	return a
 }
