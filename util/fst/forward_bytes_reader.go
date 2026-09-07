@@ -18,6 +18,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ForwardBytesReader is the Go port of the package-private
@@ -50,12 +53,12 @@ func (r *ForwardBytesReader) ReadByte() (byte, error) {
 }
 
 // ReadBytes implements store.DataInput.
-func (r *ForwardBytesReader) ReadBytes(b []byte) error {
-	if r.pos+len(b) > len(r.bytes) {
+func (r *ForwardBytesReader) ReadBytes(b []byte, offset, length int) error {
+	if r.pos+length > len(r.bytes) {
 		return io.EOF
 	}
-	copy(b, r.bytes[r.pos:r.pos+len(b)])
-	r.pos += len(b)
+	copy(b[offset:], r.bytes[r.pos:r.pos+length])
+	r.pos += length
 	return nil
 }
 
@@ -65,7 +68,7 @@ func (r *ForwardBytesReader) ReadBytesN(n int) ([]byte, error) {
 		return nil, errors.New("ForwardBytesReader.ReadBytesN: negative n")
 	}
 	out := make([]byte, n)
-	if err := r.ReadBytes(out); err != nil {
+	if err := r.ReadBytes(out, 0, n); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -104,6 +107,72 @@ func (r *ForwardBytesReader) ReadLong() (int64, error) {
 
 // ReadString is unsupported on this reader; the FST byte stream never
 // contains a string.
+func (r *ForwardBytesReader) ReadInts(dst []int32, offset, length int) error {
+	if offset+length > len(dst) {
+		return fmt.Errorf("index out of bounds")
+	}
+	for i := 0; i < length; i++ {
+		v, err := r.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+func (r *ForwardBytesReader) ReadLongs(dst []int64, offset, length int) error {
+	if offset+length > len(dst) {
+		return fmt.Errorf("index out of bounds")
+	}
+	for i := 0; i < length; i++ {
+		v, err := r.ReadLong()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+func (r *ForwardBytesReader) ReadFloats(dst []float32, offset, length int) error {
+	if offset+length > len(dst) {
+		return fmt.Errorf("index out of bounds")
+	}
+	for i := 0; i < length; i++ {
+		v, err := r.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = math.Float32frombits(uint32(v))
+	}
+	return nil
+}
+
+func (r *ForwardBytesReader) ReadMapOfStrings() (map[string]string, error) {
+	return nil, errors.New("ForwardBytesReader: ReadMapOfStrings not supported")
+}
+
+func (r *ForwardBytesReader) ReadSetOfStrings() ([]string, error) {
+	return nil, errors.New("ForwardBytesReader: ReadSetOfStrings not supported")
+}
+
+func (r *ForwardBytesReader) ReadZInt() (int32, error) {
+	v, err := r.ReadVInt()
+	if err != nil {
+		return 0, err
+	}
+	return int32(util.ZigZagDecodeInt(int(v))), nil
+}
+
+func (r *ForwardBytesReader) ReadZLong() (int64, error) {
+	v, err := r.ReadVLong()
+	if err != nil {
+		return 0, err
+	}
+	return util.ZigZagDecodeInt64(v), nil
+}
+
 func (r *ForwardBytesReader) ReadString() (string, error) {
 	return "", errors.New("ForwardBytesReader: ReadString not supported")
 }

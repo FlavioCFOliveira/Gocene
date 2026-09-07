@@ -38,5 +38,5 @@ func (s *SerialMergeScheduler) Merge(mergeSource MergeSource, trigger MergeTrigg
 }
 
 func (s *SerialMergeScheduler) Close() error {
-	return s.BaseMergeScheduler.Close()
+	return nil
 }

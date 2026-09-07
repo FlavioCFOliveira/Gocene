@@ -5,10 +5,10 @@
 package bkd
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/geo"
 	"sort"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -82,7 +82,7 @@ func TestBKD_OneDimEqual(t *testing.T) {
 	}
 	f := buildReader(t, cfg, points, numDocs)
 
-	vis := &readerCaptureVisitor{relation: codecs.RelationCellInsideQuery}
+	vis := &readerCaptureVisitor{relation: geo.RelationCellInsideQuery}
 	if err := f.r.Intersect(vis); err != nil {
 		t.Fatalf("Intersect: %v", err)
 	}
@@ -198,18 +198,18 @@ func (v *sortableIntRangeVisitor) VisitByPackedValue(docID int, packedValue []by
 	return nil
 }
 
-func (v *sortableIntRangeVisitor) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
+func (v *sortableIntRangeVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
 	if compareUnsigned(maxPackedValue, v.queryMin) < 0 {
-		return codecs.RelationCellOutsideQuery
+		return geo.RelationCellOutsideQuery
 	}
 	if compareUnsigned(minPackedValue, v.queryMax) > 0 {
-		return codecs.RelationCellOutsideQuery
+		return geo.RelationCellOutsideQuery
 	}
 	if compareUnsigned(minPackedValue, v.queryMin) >= 0 &&
 		compareUnsigned(maxPackedValue, v.queryMax) <= 0 {
-		return codecs.RelationCellInsideQuery
+		return geo.RelationCellInsideQuery
 	}
-	return codecs.RelationCellCrossesQuery
+	return geo.RelationCellCrossesQuery
 }
 
 func (v *sortableIntRangeVisitor) Grow(count int) {}

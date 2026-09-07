@@ -32,7 +32,7 @@ type FacetsCollector struct {
 	keepScores bool
 
 	// scores holds scores per document if keepScores is true
-	scores map[int]float32
+	scores []float32
 
 	// leafCollectors tracks per-segment leaf collectors so that Finish()
 	// can finalize them after the search completes.
@@ -42,8 +42,8 @@ type FacetsCollector struct {
 // NewFacetsCollector creates a new FacetsCollector.
 func NewFacetsCollector() *FacetsCollector {
 	return &FacetsCollector{
-		matchingDocs:  make([]*MatchingDocs, 0),
-		scores:        make(map[int]float32),
+		matchingDocs:    make([]*MatchingDocs, 0),
+		scores:          nil,
 		leafCollectors: make([]*facetsLeafCollector, 0),
 	}
 }
@@ -52,6 +52,7 @@ func NewFacetsCollector() *FacetsCollector {
 func NewFacetsCollectorWithScores() *FacetsCollector {
 	fc := NewFacetsCollector()
 	fc.keepScores = true
+	fc.scores = make([]float32, 0)
 	return fc
 }
 
@@ -69,13 +70,10 @@ func (fc *FacetsCollector) GetTotalHits() int {
 // GetScore returns the score for a document if scores are being kept.
 // Returns 0 if scores are not being kept or document not found.
 func (fc *FacetsCollector) GetScore(doc int) float32 {
-	if !fc.keepScores {
+	if !fc.keepScores || doc < 0 || doc >= len(fc.scores) {
 		return 0
 	}
-	if score, ok := fc.scores[doc]; ok {
-		return score
-	}
-	return 0
+	return fc.scores[doc]
 }
 
 // GetLeafCollector returns a LeafCollector for the given context.
@@ -132,7 +130,7 @@ type facetsLeafCollector struct {
 	parent  *FacetsCollector
 	context *index.LeafReaderContext
 	docs    []int
-	scores  map[int]float32
+	scores  []float32
 	scorer  search.Scorer
 }
 
@@ -150,6 +148,10 @@ func (flc *facetsLeafCollector) Collect(doc int) error {
 	// Store score if keeping scores
 	if flc.parent.keepScores && flc.scorer != nil {
 		score := flc.scorer.Score()
+		// Ensure scores slice is large enough for this docID
+		for len(flc.scores) <= doc {
+			flc.scores = append(flc.scores, 0)
+		}
 		flc.scores[doc] = score
 	}
 
@@ -162,12 +164,24 @@ func (flc *facetsLeafCollector) Finish() error {
 		// Create a FixedBitSet for the matching documents
 		maxDoc := flc.context.Reader().MaxDoc()
 		bits := NewDocIdSetBits(maxDoc, flc.docs)
-		md := NewMatchingDocs(flc.context, bits, len(flc.docs))
+
+		var scores []float32
+		if flc.parent.keepScores {
+			scores = flc.scores
+		}
+
+		md := NewMatchingDocs(flc.context, bits, len(flc.docs), scores)
 		flc.parent.matchingDocs = append(flc.parent.matchingDocs, md)
 
 		// Copy scores to parent if keeping scores
-		if flc.parent.keepScores {
-			for doc, score := range flc.scores {
+		if flc.parent.keepScores && scores != nil {
+			for doc, score := range scores {
+				if doc >= len(flc.parent.scores) {
+					// Grow parent scores slice
+					newScores := make([]float32, doc+1)
+					copy(newScores, flc.parent.scores)
+					flc.parent.scores = newScores
+				}
 				flc.parent.scores[doc] = score
 			}
 		}
@@ -304,52 +318,3 @@ func (mlc *multiLeafCollector) Collect(doc int) error {
 	return nil
 }
 
-// FacetsCollectorManager manages FacetsCollector instances for search.
-// This provides a convenient way to perform searches with facet collection.
-type FacetsCollectorManager struct {
-	// keepScores indicates whether to keep scores
-	keepScores bool
-}
-
-// NewFacetsCollectorManager creates a new FacetsCollectorManager.
-func NewFacetsCollectorManager() *FacetsCollectorManager {
-	return &FacetsCollectorManager{
-		keepScores: false,
-	}
-}
-
-// NewFacetsCollectorManagerWithScores creates a manager that keeps scores.
-func NewFacetsCollectorManagerWithScores() *FacetsCollectorManager {
-	return &FacetsCollectorManager{
-		keepScores: true,
-	}
-}
-
-// NewCollector creates a new FacetsCollector.
-func (fcm *FacetsCollectorManager) NewCollector() *FacetsCollector {
-	if fcm.keepScores {
-		return NewFacetsCollectorWithScores()
-	}
-	return NewFacetsCollector()
-}
-
-// Search performs a search with facet collection and returns the FacetsCollector.
-func (fcm *FacetsCollectorManager) Search(searcher *search.IndexSearcher, query search.Query) (*FacetsCollector, error) {
-	fc := fcm.NewCollector()
-	err := searcher.SearchWithCollector(query, fc)
-	if err != nil {
-		return nil, fmt.Errorf("search with facets failed: %w", err)
-	}
-	return fc, nil
-}
-
-// SearchWithCollector performs a search with both a result collector and facet collection.
-func (fcm *FacetsCollectorManager) SearchWithCollector(searcher *search.IndexSearcher, query search.Query, collector search.Collector) (*FacetsCollector, error) {
-	fc := fcm.NewCollector()
-	multiCollector := NewMultiCollector(collector, fc)
-	err := searcher.SearchWithCollector(query, multiCollector)
-	if err != nil {
-		return nil, fmt.Errorf("search with facets and collector failed: %w", err)
-	}
-	return fc, nil
-}

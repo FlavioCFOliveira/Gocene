@@ -280,7 +280,7 @@ func TestIndexWriterCompoundFiles(t *testing.T) {
 		}
 		var cfsCount int
 		for _, f := range files {
-			if index.GetExtension(f) == "cfs" {
+			if store.GetExtension(f) == "cfs" {
 				cfsCount++
 			}
 		}

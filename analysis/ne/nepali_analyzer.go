@@ -113,4 +113,4 @@ func (a *NepaliAnalyzer) TokenStream(fieldName string, reader io.Reader) (analys
 
 // Ensure NepaliAnalyzer implements Analyzer.
 var _ analysis.Analyzer = (*NepaliAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*NepaliAnalyzer)(nil)
+var _ analysis.api.Analyzer = (*NepaliAnalyzer)(nil)

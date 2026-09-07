@@ -60,7 +60,7 @@ type SimpleTextDocValuesWriter struct {
 //
 // Port of SimpleTextDocValuesWriter(SegmentWriteState, String).
 func NewSimpleTextDocValuesWriter(state *codecs.SegmentWriteState, ext string) (*SimpleTextDocValuesWriter, error) {
-	fileName := index.SegmentFileName(
+	fileName := store.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		ext,

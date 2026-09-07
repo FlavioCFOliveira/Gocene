@@ -51,6 +51,10 @@ const (
 	// NO_MORE_POSITIONS is returned by PostingsEnum when there are no more positions.
 	NO_MORE_POSITIONS = -1
 
+	// PostingsFlagNone requests only doc IDs in postings.
+	// Mirrors org.apache.lucene.index.PostingsEnum.NONE (value 0).
+	PostingsFlagNone = 0
+
 	// PostingsFlagFreqs requests term frequencies in postings.
 	// Mirrors org.apache.lucene.index.PostingsEnum.FREQS (value 8).
 	PostingsFlagFreqs = 1 << 3

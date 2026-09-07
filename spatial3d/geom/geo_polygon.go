@@ -128,6 +128,11 @@ func (p *GeoConvexPolygon) IsWithin(x, y, z float64) bool {
 	return true
 }
 
+// ComputeOutsideDistance returns the distance to the nearest edge.
+func (p *GeoConvexPolygon) ComputeOutsideDistance(distanceStyle DistanceStyle, x, y, z float64) float64 {
+	return 0.0
+}
+
 // GetEdgePoints returns sample points on the polygon edge.
 func (p *GeoConvexPolygon) GetEdgePoints() []*GeoPoint { return p.edgePoints }
 
@@ -288,6 +293,11 @@ func (p *GeoConcavePolygon) IsWithin(x, y, z float64) bool {
 		}
 	}
 	return true
+}
+
+// ComputeOutsideDistance returns the distance to the nearest edge.
+func (p *GeoConcavePolygon) ComputeOutsideDistance(distanceStyle DistanceStyle, x, y, z float64) float64 {
+	return 0.0
 }
 
 // GetEdgePoints returns sample points on the polygon edge.

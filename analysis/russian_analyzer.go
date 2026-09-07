@@ -78,7 +78,7 @@ func (a *RussianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure RussianAnalyzer implements Analyzer
 var _ Analyzer = (*RussianAnalyzer)(nil)
-var _ AnalyzerInterface = (*RussianAnalyzer)(nil)
+var _ api.Analyzer = (*RussianAnalyzer)(nil)
 
 // RussianLightStemFilter implements light stemming for Russian.
 type RussianLightStemFilter struct {

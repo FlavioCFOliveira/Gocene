@@ -156,9 +156,9 @@ func NewLucene99FlatVectorsWriter(state *SegmentWriteState) (*Lucene99FlatVector
 		return nil, errors.New("lucene99 flat: nil Directory")
 	}
 
-	metaName := index.SegmentFileName(
+	metaName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, lucene99FlatMetaExtension)
-	dataName := index.SegmentFileName(
+	dataName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, lucene99FlatDataExtension)
 
 	rawMeta, err := state.Directory.CreateOutput(metaName, store.IOContextWrite)

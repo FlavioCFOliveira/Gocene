@@ -105,7 +105,7 @@ func NewLucene92HnswVectorsReader(state *index.SegmentReadState) (*Lucene92HnswV
 
 // readMetadata reads the .vem file and populates r.fields.
 func (r *Lucene92HnswVectorsReader) readMetadata(state *index.SegmentReadState) (int32, error) {
-	metaName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene92MetaExtension)
+	metaName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene92MetaExtension)
 
 	meta, err := bcstore.OpenChecksumInput(state.Directory, metaName,
 		store.IOContext{Context: store.ContextReadOnce})
@@ -138,7 +138,7 @@ func (r *Lucene92HnswVectorsReader) readMetadata(state *index.SegmentReadState) 
 
 // checkLucene92Footer validates the codec footer of an
 // EndiannessReverserChecksumIndexInput (which is not a *store.ChecksumIndexInput,
-// so it cannot be passed to codecs.CheckFooter directly).
+// so it cannot be passed to store.CheckFooter directly).
 func checkLucene92Footer(in *bcstore.EndiannessReverserChecksumIndexInput) error {
 	remaining := in.Length() - in.GetFilePointer()
 	const footerLen = 16
@@ -368,7 +368,7 @@ func openLucene92DataInput(
 	versionMeta int32,
 	ext, codecName string,
 ) (store.IndexInput, error) {
-	name := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, ext)
+	name := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, ext)
 	in, err := state.Directory.OpenInput(name, store.IOContextRead)
 	if err != nil {
 		return nil, fmt.Errorf("lucene92 vectors: open %q: %w", name, err)

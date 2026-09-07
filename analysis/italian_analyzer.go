@@ -92,7 +92,7 @@ func (a *ItalianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure ItalianAnalyzer implements Analyzer
 var _ Analyzer = (*ItalianAnalyzer)(nil)
-var _ AnalyzerInterface = (*ItalianAnalyzer)(nil)
+var _ api.Analyzer = (*ItalianAnalyzer)(nil)
 
 // ItalianLightStemmer implements a light stemming algorithm for Italian.
 //

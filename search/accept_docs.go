@@ -40,7 +40,7 @@ func (b *bitsAcceptDocs) Iterator() (DocIdSetIterator, error) {
 	if bs, ok := b.bits.(*util.FixedBitSet); ok {
 		return NewBitSetIterator(bs, b.maxDoc), nil
 	}
-	return getFilteredDocIdSetIterator(NewRangeDocIdSetIterator(0, b.maxDoc), b.bits), nil
+	return getFilteredDocIdSetIterator(Range(0, b.maxDoc), b.bits), nil
 }
 
 func (b *bitsAcceptDocs) Cost() (int, error) {
@@ -77,7 +77,10 @@ func (d *docIdSetIteratorAcceptDocs) createBitSet() error {
 	// Heuristic for BitSet creation
 	threshold := d.maxDoc >> 7
 	if it.Cost() >= int64(threshold) {
-		bitSet := util.NewFixedBitSet(d.maxDoc)
+		bitSet, err := util.NewFixedBitSet(d.maxDoc)
+		if err != nil {
+			return err
+		}
 		bitSet.Or(it)
 		if d.liveDocs != nil {
 			util.ApplyMask(d.liveDocs, bitSet, 0)
@@ -86,7 +89,10 @@ func (d *docIdSetIteratorAcceptDocs) createBitSet() error {
 	} else {
 		// Create a sparse bitset (implementation assumed in util.BitSet)
 		// For now, we'll implement a basic version or use FixedBitSet
-		bitSet := util.NewFixedBitSet(d.maxDoc)
+		bitSet, err := util.NewFixedBitSet(d.maxDoc)
+		if err != nil {
+			return err
+		}
 		// ... logic to populate sparse bitset ...
 		d.acceptBitSet = bitSet
 	}

@@ -87,4 +87,4 @@ func (a *BulgarianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*BulgarianAnalyzer)(nil)
-var _ AnalyzerInterface = (*BulgarianAnalyzer)(nil)
+var _ api.Analyzer = (*BulgarianAnalyzer)(nil)

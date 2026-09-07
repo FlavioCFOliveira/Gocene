@@ -49,10 +49,13 @@ type StandardTokenizer struct {
 	scanner *standardTokenizerImpl
 
 	// maxTokenLength caps the length, in runes, of any emitted
-	// token. Tokens longer than this are chunked at the boundary;
-	// the scanner is rewound to the chunk's end so the remainder
-	// is re-tokenised on the next call.
+	// token. Tokens larger than this are skipped and contribute
+	// to the position increment of the next token.
 	maxTokenLength int
+
+	// skippedPositions tracks the number of tokens skipped due to
+	// exceeding maxTokenLength.
+	skippedPositions int
 
 	// Bound attributes. Captured once at construction so the hot
 	// path does not pay the AttributeSource lookup cost on every
@@ -133,31 +136,26 @@ func (t *StandardTokenizer) SetReader(input io.Reader) error {
 func (t *StandardTokenizer) IncrementToken() (bool, error) {
 	t.ClearAttributes()
 
-	tokenType := t.scanner.getNextToken()
-	if tokenType == yyeof {
-		return false, nil
-	}
+	for {
+		tokenType := t.scanner.getNextToken()
+		if tokenType == yyeof {
+			return false, nil
+		}
 
-	length := t.scanner.yylength()
-	if length > t.maxTokenLength {
-		// Cut the match to the maxTokenLength boundary and rewind
-		// the scanner so the remainder is re-tokenised on the next
-		// call. The retained chunk inherits the type of the
-		// original match.
-		t.scanner.markedPos = t.scanner.startRead + t.maxTokenLength
-		t.scanner.pos = t.scanner.markedPos
-		length = t.maxTokenLength
-	}
+		length := t.scanner.yylength()
+		if length > t.maxTokenLength {
+			t.skippedPositions++
+			continue
+		}
 
-	t.posIncrAttr.SetPositionIncrement(1)
-	t.scanner.getText(t.termAttr)
-	start := t.scanner.yychar()
-	// Offsets are reported in runes for consistency with Gocene's
-	// UTF-8 attribute storage; the underlying scanner counts code
-	// points.
-	t.offsetAttr.SetOffset(start, start+length)
-	t.typeAttr.SetType(StandardTokenTypes[tokenType])
-	return true, nil
+		t.posIncrAttr.SetPositionIncrement(t.skippedPositions + 1)
+		t.skippedPositions = 0
+		t.scanner.getText(t.termAttr)
+		start := t.scanner.yychar()
+		t.offsetAttr.SetOffset(start, start+length)
+		t.typeAttr.SetType(StandardTokenTypes[tokenType])
+		return true, nil
+	}
 }
 
 // End performs end-of-stream operations. It sets the final offset
@@ -169,6 +167,8 @@ func (t *StandardTokenizer) End() error {
 	}
 	finalOffset := t.scanner.yychar() + t.scanner.yylength()
 	t.offsetAttr.SetOffset(finalOffset, finalOffset)
+	// adjust any skipped tokens
+	t.posIncrAttr.SetPositionIncrement(t.posIncrAttr.GetPositionIncrement() + t.skippedPositions)
 	return nil
 }
 
@@ -181,6 +181,7 @@ func (t *StandardTokenizer) Reset() error {
 	if err := t.scanner.yyreset(t.GetReader()); err != nil {
 		return err
 	}
+	t.skippedPositions = 0
 	return nil
 }
 

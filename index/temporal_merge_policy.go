@@ -390,7 +390,7 @@ func (p *TemporalMergePolicy) extractDateRangeFromSegment(sci *SegmentCommitInfo
 		}
 	}()
 
-	fieldInfos := LookupCodecByName(si.Codec()).FieldInfosFormat().Read(readerDir, si, "", spi.IOContextReadOnce)
+	fieldInfos := LookupCodecByName(si.Codec()).FieldInfosFormat().Read(readerDir, si, "", store.IOContextReadOnce)
 	fieldInfo := fieldInfos.FieldInfo(p.temporalField)
 	if fieldInfo == nil {
 		return nil, nil
@@ -419,8 +419,8 @@ func (p *TemporalMergePolicy) extractDateRangeFromSegment(sci *SegmentCommitInfo
 	}
 
 	// LongPoint.decodeDimension logic
-	minDate := spi.DecodeDimension(minPacked, 0)
-	maxDate := spi.DecodeDimension(maxPacked, 0)
+	minDate := decodeDimension(minPacked, pointValues.GetBytesPerDimension())
+	maxDate := decodeDimension(maxPacked, pointValues.GetBytesPerDimension())
 
 	divisor := p.getTemporalFieldDivisor(maxDate)
 	var minDateMillis, maxDateMillis int64

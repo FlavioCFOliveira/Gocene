@@ -373,7 +373,7 @@ func readBytesRef(in store.IndexInput) (*util.BytesRef, error) {
 
 // seekDir positions input at the directory-entries offset stored near end of file.
 func seekDir(in store.IndexInput) error {
-	footerLen := int64(codecs.FooterLength())
+	footerLen := int64(store.FooterLength())
 	if err := in.SetPosition(in.Length() - footerLen - 8); err != nil {
 		return fmt.Errorf("blocktree reader: seekDir seek1: %w", err)
 	}
@@ -452,14 +452,14 @@ func (r *Lucene40BlockTreeTermsReader) String() string {
 
 // checksumLike is the minimal surface of EndiannessReverserChecksumIndexInput
 // needed for footer validation.  We cannot pass the concrete type to
-// codecs.CheckFooter because that function requires *store.ChecksumIndexInput.
+// store.CheckFooter because that function requires *store.ChecksumIndexInput.
 type checksumLike interface {
 	store.IndexInput
 	GetChecksum() uint32
 }
 
 // checkFooter validates the codec footer and checksum for a checksumLike
-// input.  Mirrors the logic of codecs.CheckFooter.
+// input.  Mirrors the logic of store.CheckFooter.
 func checkFooter(in checksumLike) error {
 	remaining := in.Length() - in.GetFilePointer()
 	const footerLen = 16 // 4 magic + 4 algID + 8 checksum

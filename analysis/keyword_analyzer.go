@@ -47,4 +47,4 @@ func (a *KeywordAnalyzer) Close() error {
 
 // Ensure KeywordAnalyzer implements Analyzer
 var _ Analyzer = (*KeywordAnalyzer)(nil)
-var _ AnalyzerInterface = (*KeywordAnalyzer)(nil)
+var _ api.Analyzer = (*KeywordAnalyzer)(nil)

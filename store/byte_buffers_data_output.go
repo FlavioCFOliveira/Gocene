@@ -155,18 +155,19 @@ func (o *ByteBuffersDataOutput) WriteByte(b byte) error {
 	return nil
 }
 
-// WriteBytes writes all bytes from b.
-func (o *ByteBuffersDataOutput) WriteBytes(b []byte) error {
-	for len(b) > 0 {
+// WriteBytes writes all bytes from b, starting at the given offset.
+func (o *ByteBuffersDataOutput) WriteBytes(b []byte, offset, length int) error {
+	bSlice := b[offset : offset+length]
+	for len(bSlice) > 0 {
 		if o.currentBlock == nil || len(o.currentBlock) >= o.blockSize() {
 			o.appendBlock()
 		}
 		space := o.blockSize() - len(o.currentBlock)
-		if space > len(b) {
-			space = len(b)
+		if space > len(bSlice) {
+			space = len(bSlice)
 		}
-		o.currentBlock = append(o.currentBlock, b[:space]...)
-		b = b[space:]
+		o.currentBlock = append(o.currentBlock, bSlice[:space]...)
+		bSlice = bSlice[space:]
 	}
 	return nil
 }
@@ -215,7 +216,7 @@ func (o *ByteBuffersDataOutput) WriteBytesN(b []byte, length int) error {
 	if length > len(b) {
 		return fmt.Errorf("length %d exceeds buffer size %d", length, len(b))
 	}
-	return o.WriteBytes(b[:length])
+	return o.WriteBytes(b[:length], 0, length)
 }
 
 // WriteVInt writes a variable-length integer.
@@ -263,7 +264,7 @@ func (o *ByteBuffersDataOutput) WriteString(s string) error {
 	// Safe because WriteBytes only reads the data
 	if len(s) > 0 {
 		data := unsafe.Slice(unsafe.StringData(s), len(s))
-		return o.WriteBytes(data)
+		return o.WriteBytes(data, 0, len(data))
 	}
 	return nil
 }
@@ -285,13 +286,13 @@ func (o *ByteBuffersDataOutput) CopyBytes(input DataInput, numBytes int64) error
 		}
 
 		// Read the data
-		if err := input.ReadBytes(buf[:toRead]); err != nil {
+		if err := input.ReadBytes(buf, 0, int(toRead)); err != nil {
 			copyBuffersPool.Put(buf)
 			return err
 		}
 
 		// Write the data
-		if err := o.WriteBytes(buf[:toRead]); err != nil {
+		if err := o.WriteBytes(buf, 0, int(toRead)); err != nil {
 			copyBuffersPool.Put(buf)
 			return err
 		}
@@ -308,12 +309,12 @@ func (o *ByteBuffersDataOutput) CopyBytes(input DataInput, numBytes int64) error
 // CopyTo copies the current content to another DataOutput.
 func (o *ByteBuffersDataOutput) CopyTo(output DataOutput) error {
 	for _, block := range o.blocks {
-		if err := output.WriteBytes(block); err != nil {
+		if err := output.WriteBytes(block, 0, len(block)); err != nil {
 			return err
 		}
 	}
 	if o.currentBlock != nil {
-		if err := output.WriteBytes(o.currentBlock); err != nil {
+		if err := output.WriteBytes(o.currentBlock, 0, len(o.currentBlock)); err != nil {
 			return err
 		}
 	}
@@ -507,13 +508,13 @@ func (o *ByteBuffersDataOutput) rewriteToBlockSize(targetBlockBits int) {
 	)
 
 	for _, block := range o.blocks {
-		cloned.WriteBytes(block)
+		cloned.WriteBytes(block, 0, len(block))
 		if o.recycler != nil {
 			o.recycler(block)
 		}
 	}
 	if o.currentBlock != nil {
-		cloned.WriteBytes(o.currentBlock)
+		cloned.WriteBytes(o.currentBlock, 0, len(o.currentBlock))
 	}
 
 	o.blocks = cloned.blocks

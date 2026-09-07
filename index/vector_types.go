@@ -23,10 +23,23 @@ const (
 	VectorEncodingFloat32 = schema.VectorEncodingFloat32
 )
 
-// ByteSize returns the number of bytes required to encode a scalar in this format.
-// A vector will nominally require dimension * byteSize bytes of storage.
-func (ve VectorEncoding) ByteSize() int {
-	return int(ve)
+// VectorEncodingByteSize returns the number of bytes required to encode a
+// scalar in the given format. A vector will nominally require
+// dimension * byteSize bytes of storage.
+//
+// PORT NOTE: Java exposes this as the final field VectorEncoding.byteSize
+// (BYTE = 1, FLOAT32 = 4). VectorEncoding is a Go alias of
+// schema.VectorEncoding, and Go forbids declaring methods on a non-local
+// type, so the accessor is a package-level function here.
+func VectorEncodingByteSize(ve VectorEncoding) int {
+	switch ve {
+	case VectorEncodingByte:
+		return 1
+	case VectorEncodingFloat32:
+		return 4
+	default:
+		return 0
+	}
 }
 
 const (

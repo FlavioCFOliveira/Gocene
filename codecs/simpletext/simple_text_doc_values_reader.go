@@ -60,7 +60,7 @@ type SimpleTextDocValuesReader struct {
 //
 // Port of SimpleTextDocValuesReader(SegmentReadState, String).
 func NewSimpleTextDocValuesReader(state *codecs.SegmentReadState, ext string) (*SimpleTextDocValuesReader, error) {
-	fileName := index.SegmentFileName(
+	fileName := store.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		ext,

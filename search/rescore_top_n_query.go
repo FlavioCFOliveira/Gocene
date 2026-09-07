@@ -4,86 +4,180 @@
 
 package search
 
-import "fmt"
+import (
+	"fmt"
 
-// RescoreTopNQuery wraps a Query so the top N hits are rescored using a
-// Rescorer before being returned. CreateWeight defers to the inner Query;
-// rescoring happens in IndexSearcher.search after the initial hits are
-// gathered.
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
+
+// RescoreTopNQuery re-scores another Query with a DoubleValuesSource function and cut-off the
+// results at top N. Unlike Rescorer which does rescoring at post-collection phase, this
+// Query does the rescoring at rewrite() phase. The reason it operates in rewrite phase is to be
+// compatible with KNN vector query, where the results are collected upfront, but it can work with
+// any type of Query. Unlike FunctionScoreQuery, this Query will work even with the
+// no-scoring ScoreMode.
 //
 // Mirrors org.apache.lucene.search.RescoreTopNQuery.
 type RescoreTopNQuery struct {
 	BaseQuery
-	inner    Query
-	rescorer Rescorer
-	topN     int
+	n            int
+	query        Query
+	valuesSource DoubleValuesSource
 }
 
-// NewRescoreTopNQuery constructs a RescoreTopNQuery. topN must be > 0 and
-// inner and rescorer must be non-nil.
-func NewRescoreTopNQuery(inner Query, rescorer Rescorer, topN int) *RescoreTopNQuery {
-	if inner == nil {
-		panic("RescoreTopNQuery: inner query is required")
+// NewRescoreTopNQuery constructs a RescoreTopNQuery. n must be >= 1.
+func NewRescoreTopNQuery(query Query, valuesSource DoubleValuesSource, n int) *RescoreTopNQuery {
+	if n < 1 {
+		panic("RescoreTopNQuery: n must be >= 1")
 	}
-	if rescorer == nil {
-		panic("RescoreTopNQuery: rescorer is required")
+	return &RescoreTopNQuery{
+		n:            n,
+		query:        query,
+		valuesSource: valuesSource,
 	}
-	if topN <= 0 {
-		panic("RescoreTopNQuery: topN must be > 0")
-	}
-	return &RescoreTopNQuery{inner: inner, rescorer: rescorer, topN: topN}
 }
 
-// Inner returns the wrapped query.
-func (q *RescoreTopNQuery) Inner() Query { return q.inner }
+// Rewrite implements the rewrite method.
+func (q *RescoreTopNQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	rewrittenValueSource := q.valuesSource.Rewrite(searcher)
+	reader := searcher.IndexReader()
+	rewritten, err := searcher.Rewrite(q.query)
+	if err != nil {
+		return nil, err
+	}
+	weight, err := searcher.CreateWeight(rewritten, ScoreModeCompleteNoScores, 1.0)
+	if err != nil {
+		return nil, err
+	}
 
-// Rescorer returns the rescorer used after initial scoring.
-func (q *RescoreTopNQuery) Rescorer() Rescorer { return q.rescorer }
+	queue := NewHitQueue(q.n, false)
+	originalCount := 0
+	for _, leaf := range reader.Leaves() {
+		scorer, err := weight.Scorer(leaf)
+		if err != nil || scorer == nil {
+			continue
+		}
 
-// TopN returns the rescore window size.
-func (q *RescoreTopNQuery) TopN() int { return q.topN }
+		rescores, err := rewrittenValueSource.GetValues(leaf, q.getDoubleValues(scorer))
+		if err != nil {
+			return nil, err
+		}
 
-// String returns a debug representation.
-func (q *RescoreTopNQuery) String() string {
-	return fmt.Sprintf("RescoreTopNQuery(inner=%v, topN=%d)", sprintQuery(q.inner), q.topN)
+		iterator := scorer.Iterator()
+		for {
+			docID, err := iterator.NextDoc()
+			if err != nil || docID == NO_MORE_DOCS {
+				break
+			}
+
+			var val float64
+			if rescores != nil {
+				present, err := rescores.AdvanceExact(docID)
+				if err == nil && present {
+					v, err := rescores.DoubleValue()
+					if err == nil {
+						val = v
+					}
+				}
+			}
+
+			queue.InsertWithOverflow(NewScoreDoc(leaf.DocBase()+docID, float32(val)))
+			originalCount++
+		}
+	}
+
+	scoreDocs := make([]*ScoreDoc, 0, queue.Size())
+	for queue.Size() > 0 {
+		scoreDocs = append(scoreDocs, queue.Pop())
+	}
+
+	// HitQueue.Pop() returns the smallest element.
+	// For TopDocs, we want them sorted by score descending.
+	for i, j := 0, len(scoreDocs)-1; i < j; i, j = i+1, j-1 {
+		scoreDocs[i], scoreDocs[j] = scoreDocs[j], scoreDocs[i]
+	}
+
+	docIDs := make([]int, len(scoreDocs))
+	scores := make([]float32, len(scoreDocs))
+	for i, sd := range scoreDocs {
+		docIDs[i] = sd.Doc
+		scores[i] = sd.Score
+	}
+
+	leafBases := make([]int, len(reader.Leaves()))
+	for i, leaf := range reader.Leaves() {
+		leafBases[i] = leaf.DocBase()
+	}
+	starts := findSegmentStarts(leafBases, docIDs)
+
+	return NewDocAndScoreQueryWithSegmentStarts(docIDs, scores, starts), nil
 }
 
-// Equals checks structural equality (ignoring the rescorer's internal state).
-func (q *RescoreTopNQuery) Equals(other Query) bool {
-	o, ok := other.(*RescoreTopNQuery)
-	if !ok {
-		return false
+func (q *RescoreTopNQuery) getDoubleValues(innerScorer Scorer) DoubleValues {
+	if !q.valuesSource.NeedsScores() {
+		return nil
 	}
-	return q.topN == o.topN && q.inner.Equals(o.inner)
+	return &scorerDoubleValues{scorer: innerScorer}
+}
+
+type scorerDoubleValues struct {
+	scorer Scorer
+}
+
+func (v *scorerDoubleValues) DoubleValue() (float64, error) {
+	return float64(v.scorer.Score()), nil
+}
+
+func (v *scorerDoubleValues) AdvanceExact(doc int) (bool, error) {
+	return v.scorer.DocID() == doc, nil
 }
 
 // HashCode returns a stable hash.
 func (q *RescoreTopNQuery) HashCode() int {
-	h := 17
-	h = 31*h + q.inner.HashCode()
-	h = 31*h + q.topN
-	return h
+	result := 17
+	result = 31*result + q.query.HashCode()
+	result = 31*result + q.n
+	return result
 }
 
-// Clone returns an independent copy that shares the same rescorer.
-func (q *RescoreTopNQuery) Clone() Query {
-	return &RescoreTopNQuery{inner: q.inner.Clone(), rescorer: q.rescorer, topN: q.topN}
+// Equals checks structural equality.
+func (q *RescoreTopNQuery) Equals(other Query) bool {
+	if other == nil {
+		return false
+	}
+	o, ok := other.(*RescoreTopNQuery)
+	if !ok {
+		return false
+	}
+	return q.n == o.n && q.query.Equals(o.query) && q.valuesSource == o.valuesSource
 }
 
-// Rewrite rewrites the inner query.
-func (q *RescoreTopNQuery) Rewrite(reader IndexReader) (Query, error) {
-	rw, err := q.inner.Rewrite(reader)
+// String returns a debug representation.
+func (q *RescoreTopNQuery) String() string {
+	return fmt.Sprintf("RescoreTopNQuery:%s:%v[%d]",
+		q.query.String(),
+		q.valuesSource,
+		q.n)
+}
+
+// Visit implements the visitor pattern.
+func (q *RescoreTopNQuery) Visit(visitor QueryVisitor) {
+	q.query.Visit(visitor)
+}
+
+// CreateFullPrecisionRescorerQuery creates a new RescoreTopNQuery which uses full-precision vectors for
+// rescoring.
+func CreateFullPrecisionRescorerQuery(in Query, targetVector []float32, field string, n int) Query {
+	valSource := NewFullPrecisionFloatVectorSimilarityValuesSourceDefault(targetVector, field)
+	return NewRescoreTopNQuery(in, valSource, n)
+}
+
+// CreateLateInteractionQuery creates a RescoreTopNQuery that computes top N results using multi-vector similarity
+// comparisons against a late interaction field.
+func CreateLateInteractionQuery(in Query, n int, fieldName string, queryVector [][]float32, vectorSimilarityFunction index.VectorSimilarityFunction) Query {
+	valSource, err := NewLateInteractionFloatValuesSource(fieldName, queryVector, vectorSimilarityFunction, nil)
 	if err != nil {
-		return nil, err
+		panic(err)
 	}
-	if rw == q.inner {
-		return q, nil
-	}
-	return &RescoreTopNQuery{inner: rw, rescorer: q.rescorer, topN: q.topN}, nil
-}
-
-// CreateWeight delegates to the inner query; rescoring is applied by the
-// caller (IndexSearcher) after top-N hits have been collected.
-func (q *RescoreTopNQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return q.inner.CreateWeight(searcher, needsScores, boost)
+	return NewRescoreTopNQuery(in, valSource.(DoubleValuesSource), n)
 }

@@ -78,7 +78,7 @@ func (a *CJKAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure CJKAnalyzer implements Analyzer
 var _ Analyzer = (*CJKAnalyzer)(nil)
-var _ AnalyzerInterface = (*CJKAnalyzer)(nil)
+var _ api.Analyzer = (*CJKAnalyzer)(nil)
 
 // CJKTokenizer tokenizes CJK text into bigrams.
 //
@@ -281,7 +281,7 @@ func NewCJKAnalyzerFactoryWithWords(stopWords *CharArraySet) *CJKAnalyzerFactory
 }
 
 // Create creates a new CJKAnalyzer.
-func (f *CJKAnalyzerFactory) Create() AnalyzerInterface {
+func (f *CJKAnalyzerFactory) Create() api.Analyzer {
 	return NewCJKAnalyzerWithWords(f.stopWords)
 }
 

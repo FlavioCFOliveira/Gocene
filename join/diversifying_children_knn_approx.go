@@ -11,6 +11,7 @@ package join
 //      with a DiversifyingNearestChildrenKnnCollector)
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"

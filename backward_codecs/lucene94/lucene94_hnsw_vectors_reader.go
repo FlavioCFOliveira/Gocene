@@ -114,7 +114,7 @@ func NewLucene94HnswVectorsReader(state *index.SegmentReadState) (*Lucene94HnswV
 
 // readMetadata reads the .vem file and populates r.fields.
 func (r *Lucene94HnswVectorsReader) readMetadata(state *index.SegmentReadState) (int32, error) {
-	metaName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene94MetaExtension)
+	metaName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene94MetaExtension)
 
 	// Lucene94HnswVectorsReader reads the .vem metadata via a plain
 	// ChecksumIndexInput (Directory.openChecksumInput in Lucene): payload
@@ -401,7 +401,7 @@ func openLucene94DataInput(
 	versionMeta int32,
 	ext, codecName string,
 ) (store.IndexInput, error) {
-	name := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, ext)
+	name := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, ext)
 	in, err := state.Directory.OpenInput(name, store.IOContextRead)
 	if err != nil {
 		return nil, fmt.Errorf("lucene94 vectors: open %q: %w", name, err)

@@ -96,4 +96,4 @@ func (a *SoraniAnalyzer) GetStemExclusionSet() *analysis.CharArraySet {
 
 // Ensure SoraniAnalyzer implements Analyzer.
 var _ analysis.Analyzer = (*SoraniAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*SoraniAnalyzer)(nil)
+var _ analysis.api.Analyzer = (*SoraniAnalyzer)(nil)

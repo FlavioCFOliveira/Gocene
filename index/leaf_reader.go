@@ -13,6 +13,10 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.index.LeafReader.
 type LeafReader interface {
+	// LeafReader is-a IndexReader: Lucene declares `public abstract class LeafReader
+	// extends IndexReader`, so every leaf reader also honours the IndexReader contract.
+	IndexReaderInterface
+
 	// DocID returns the first document ID in this segment.
 	DocID() int
 

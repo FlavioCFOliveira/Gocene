@@ -62,7 +62,7 @@ type Lucene50CompoundReader struct {
 }
 
 // checksumLike50 is the minimal interface needed to validate the codec footer
-// of an EndiannessReverserChecksumIndexInput. codecs.CheckFooter requires
+// of an EndiannessReverserChecksumIndexInput. store.CheckFooter requires
 // *store.ChecksumIndexInput, which is incompatible with the BE-swapping
 // wrapper, so we duplicate the validation locally (same pattern as
 // backward_codecs/lucene40/blocktree).
@@ -72,7 +72,7 @@ type checksumLike50 interface {
 }
 
 // checkFooter50 validates the codec footer and checksum for a checksumLike50
-// input. Mirrors the logic of codecs.CheckFooter.
+// input. Mirrors the logic of store.CheckFooter.
 func checkFooter50(in checksumLike50) error {
 	remaining := in.Length() - in.GetFilePointer()
 	const footerLen = 16 // 4 magic + 4 algID + 8 checksum
@@ -129,7 +129,7 @@ func NewLucene50CompoundReader(dir store.Directory, si *index.SegmentInfo) (*Luc
 	for _, e := range entries {
 		expectedLength += e.length
 	}
-	expectedLength += int64(codecs.FooterLength())
+	expectedLength += int64(store.FooterLength())
 
 	handle, err := bcstore.OpenInput(dir, dataFileName, store.IOContext{Context: store.ContextRead})
 	if err != nil {
@@ -267,7 +267,7 @@ func (r *Lucene50CompoundReader) OpenInput(name string, _ store.IOContext) (stor
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	id := index.StripSegmentName(name)
+	id := store.StripSegmentName(name)
 	e, ok := r.entries[id]
 	if !ok {
 		dataFileName := codecs.GetSegmentFileName(r.segmentName, "", compoundDataExtension)
@@ -309,7 +309,7 @@ func (r *Lucene50CompoundReader) FileLength(name string) (int64, error) {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	id := index.StripSegmentName(name)
+	id := store.StripSegmentName(name)
 	e, ok := r.entries[id]
 	if !ok {
 		return 0, fmt.Errorf("lucene50 compound: %q not found", name)
@@ -348,7 +348,7 @@ func (r *Lucene50CompoundReader) FileExists(name string) bool {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	_, ok := r.entries[index.StripSegmentName(name)]
+	_, ok := r.entries[store.StripSegmentName(name)]
 	return ok
 }
 

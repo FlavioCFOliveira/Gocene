@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// stubIndexableFieldType implements the full IndexableFieldType surface so we
+// stubIndexableFieldType implements the full schema.IndexableFieldType surface so we
 // can verify the interface signatures compile and are satisfiable.
 type stubIndexableFieldType struct{}
 
@@ -34,7 +34,7 @@ func (stubIndexableFieldType) VectorSimilarityFunction() VectorSimilarityFunctio
 func (stubIndexableFieldType) GetAttributes() map[string]string { return nil }
 
 func TestIndexableFieldType_InterfaceContract(t *testing.T) {
-	var ft IndexableFieldType = stubIndexableFieldType{}
+	var ft schema.IndexableFieldType = stubIndexableFieldType{}
 	if !ft.Stored() || ft.Tokenized() {
 		t.Errorf("Stored/Tokenized accessor mismatch")
 	}
@@ -50,7 +50,7 @@ func TestIndexableFieldType_InterfaceContract(t *testing.T) {
 		"VectorDimension", "VectorEncoding", "VectorSimilarityFunction",
 		"GetAttributes",
 	}
-	ifaceType := reflect.TypeOf((*IndexableFieldType)(nil)).Elem()
+	ifaceType := reflect.TypeOf((*schema.IndexableFieldType)(nil)).Elem()
 	got := make([]string, 0, ifaceType.NumMethod())
 	for i := 0; i < ifaceType.NumMethod(); i++ {
 		got = append(got, ifaceType.Method(i).Name)

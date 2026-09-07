@@ -27,3 +27,4 @@ type DocIdSetIterator interface {
 	// Cost returns the estimated cost of this iterator.
 	Cost() int64
 }
+

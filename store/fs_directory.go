@@ -525,13 +525,15 @@ func (d *SimpleFSDirectory) OpenInput(name string, ctx IOContext) (IndexInput, e
 
 	d.AddOpenFile(name)
 
-	return &SimpleFSIndexInput{
+	in := &SimpleFSIndexInput{
 		file:           file,
 		path:           path,
 		name:           name,
 		directory:      d,
 		BaseIndexInput: NewBaseIndexInput(fmt.Sprintf("SimpleFSIndexInput(path=\"%s\")", path), info.Size()),
-	}, nil
+	}
+	in.Core = in
+	return in, nil
 }
 
 // CreateOutput returns an IndexOutput for writing a new file.
@@ -575,6 +577,7 @@ func (d *SimpleFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutpu
 // and only the root input closes the shared file descriptor.
 type SimpleFSIndexInput struct {
 	*BaseIndexInput
+	BaseDataInput
 	file        *os.File
 	path        string
 	name        string
@@ -617,23 +620,23 @@ func (in *SimpleFSIndexInput) ReadByte() (byte, error) {
 // ReadBytes reads len(b) bytes into b.
 // Returns io.ErrUnexpectedEOF when the request would exceed the slice boundary,
 // matching Lucene's FSIndexInput.readInternal bounds enforcement.
-func (in *SimpleFSIndexInput) ReadBytes(b []byte) error {
+func (in *SimpleFSIndexInput) ReadBytes(b []byte, offset, length int) error {
 	if err := in.ensureFileOpen(); err != nil {
 		return err
 	}
 	if !in.directory.IsOpen() {
 		return ErrIllegalState
 	}
-	if int64(len(b)) > in.Length()-in.GetFilePointer() {
+	if int64(length) > in.Length()-in.GetFilePointer() {
 		return io.ErrUnexpectedEOF
 	}
 
 	pos := in.sliceOffset + in.GetFilePointer()
-	n, err := in.file.ReadAt(b, pos)
+	n, err := in.file.ReadAt(b[offset:offset+length], pos)
 	if err != nil && err != io.EOF {
 		return err
 	}
-	if n != len(b) {
+	if n != length {
 		return io.ErrUnexpectedEOF
 	}
 
@@ -644,7 +647,7 @@ func (in *SimpleFSIndexInput) ReadBytes(b []byte) error {
 // ReadBytesN reads exactly n bytes and returns them.
 func (in *SimpleFSIndexInput) ReadBytesN(n int) ([]byte, error) {
 	b := make([]byte, n)
-	if err := in.ReadBytes(b); err != nil {
+	if err := in.ReadBytes(b, 0, n); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -749,6 +752,10 @@ func (in *SimpleFSIndexInput) ensureFileOpen() error {
 	return nil
 }
 
+func (in *SimpleFSIndexInput) SkipBytes(n int64) error {
+	return in.BaseIndexInput.SkipBytes(n)
+}
+
 // Close closes this IndexInput.
 // Clones do not own the shared *os.File and therefore do not close it. Only
 // the root input created by SimpleFSDirectory.OpenInput closes the descriptor.
@@ -763,6 +770,7 @@ func (in *SimpleFSIndexInput) Close() error {
 // SimpleFSIndexOutput is an IndexOutput implementation for SimpleFSDirectory.
 type SimpleFSIndexOutput struct {
 	*BaseIndexOutput
+	BaseDataOutput
 	file      *os.File
 	path      string
 	name      string
@@ -784,16 +792,17 @@ func (out *SimpleFSIndexOutput) WriteByte(b byte) error {
 }
 
 // WriteBytes writes all bytes from b.
-func (out *SimpleFSIndexOutput) WriteBytes(b []byte) error {
+func (out *SimpleFSIndexOutput) WriteBytes(b []byte, offset, length int) error {
 	if !out.directory.IsOpen() {
 		return ErrIllegalState
 	}
 
-	if _, err := out.file.Write(b); err != nil {
+	n, err := out.file.Write(b[offset : offset+length])
+	if err != nil {
 		return err
 	}
 
-	out.IncrementFilePointer(int64(len(b)))
+	out.IncrementFilePointer(int64(n))
 	return nil
 }
 
@@ -802,21 +811,21 @@ func (out *SimpleFSIndexOutput) WriteBytesN(b []byte, n int) error {
 	if n > len(b) {
 		return fmt.Errorf("n exceeds buffer length")
 	}
-	return out.WriteBytes(b[:n])
+	return out.WriteBytes(b, 0, n)
 }
 
 // WriteShort writes a 16-bit value as little-endian to match Lucene 10.x
 // DataOutput.writeShort (low byte first). See rmp #4786.
 func (out *SimpleFSIndexOutput) WriteShort(i int16) error {
 	b := []byte{byte(i), byte(i >> 8)}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // WriteInt writes a 32-bit value as little-endian to match Lucene 10.x
 // DataOutput.writeInt (low byte first). See rmp #4786.
 func (out *SimpleFSIndexOutput) WriteInt(i int32) error {
 	b := []byte{byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24)}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // WriteLong writes a 64-bit value as little-endian to match Lucene 10.x
@@ -826,7 +835,7 @@ func (out *SimpleFSIndexOutput) WriteLong(i int64) error {
 		byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24),
 		byte(i >> 32), byte(i >> 40), byte(i >> 48), byte(i >> 56),
 	}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // WriteString writes a string.

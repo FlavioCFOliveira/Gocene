@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // BengaliStopWords contains common Bengali stop words.
@@ -69,7 +71,7 @@ func NewBengaliAnalyzerWithWords(stopWords *CharArraySet) *BengaliAnalyzer {
 }
 
 // TokenStream creates a TokenStream for analyzing text.
-func (a *BengaliAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (a *BengaliAnalyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	return a.BaseAnalyzer.TokenStream(fieldName, reader)
 }
 
@@ -85,4 +87,4 @@ func (a *BengaliAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure BengaliAnalyzer implements Analyzer
 var _ Analyzer = (*BengaliAnalyzer)(nil)
-var _ AnalyzerInterface = (*BengaliAnalyzer)(nil)
+var _ api.Analyzer = (*BengaliAnalyzer)(nil)

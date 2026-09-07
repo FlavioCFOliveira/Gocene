@@ -8,6 +8,7 @@ package join
 //   lucene/join/src/java/org/apache/lucene/search/join/DiversifyingChildrenByteKnnVectorQuery.java
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
 	"strings"
 

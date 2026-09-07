@@ -11,7 +11,6 @@ import (
 	"io"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -161,7 +160,7 @@ func parseMetaHeader(t *testing.T, meta []byte, codecName string, version int32)
 	}
 	defer in.Close()
 
-	if _, err := codecs.CheckHeader(in, codecName, version, version); err != nil {
+	if _, err := store.CheckHeader(in, codecName, version, version); err != nil {
 		t.Fatalf("CheckHeader: %v", err)
 	}
 

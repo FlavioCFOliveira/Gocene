@@ -77,7 +77,7 @@ type SimpleTextFieldsReader struct {
 //
 // Port of SimpleTextFieldsReader(SegmentReadState).
 func NewSimpleTextFieldsReader(state *codecs.SegmentReadState) (*SimpleTextFieldsReader, error) {
-	fileName := index.SegmentFileName(
+	fileName := store.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		postingsExtension,

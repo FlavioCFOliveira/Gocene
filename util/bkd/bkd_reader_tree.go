@@ -5,9 +5,9 @@
 package bkd
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/geo"
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -637,11 +637,11 @@ func (t *bkdPointTree) visitDocValuesNoCardinality(visitor IntersectVisitor, cou
 			return err
 		}
 		r := visitor.Compare(t.scratchMinIndexPackedValue[:pibl], t.scratchMaxIndexPackedValue[:pibl])
-		if r == codecs.RelationCellOutsideQuery {
+		if r == geo.RelationCellOutsideQuery {
 			return nil
 		}
 		visitor.Grow(count)
-		if r == codecs.RelationCellInsideQuery {
+		if r == geo.RelationCellInsideQuery {
 			return t.visitAllInLeafAsIDs(visitor, count)
 		}
 	} else {
@@ -681,11 +681,11 @@ func (t *bkdPointTree) visitDocValuesWithCardinality(visitor IntersectVisitor, c
 			return err
 		}
 		r := visitor.Compare(t.scratchMinIndexPackedValue[:pibl], t.scratchMaxIndexPackedValue[:pibl])
-		if r == codecs.RelationCellOutsideQuery {
+		if r == geo.RelationCellOutsideQuery {
 			return nil
 		}
 		visitor.Grow(count)
-		if r == codecs.RelationCellInsideQuery {
+		if r == geo.RelationCellInsideQuery {
 			return t.visitAllInLeafAsIDs(visitor, count)
 		}
 	} else {

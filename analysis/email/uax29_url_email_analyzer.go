@@ -67,7 +67,7 @@ func (a *UAX29URLEmailAnalyzer) TokenStream(fieldName string, reader io.Reader) 
 
 // Ensure UAX29URLEmailAnalyzer implements Analyzer.
 var _ analysis.Analyzer = (*UAX29URLEmailAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*UAX29URLEmailAnalyzer)(nil)
+var _ analysis.api.Analyzer = (*UAX29URLEmailAnalyzer)(nil)
 
 // uax29URLEmailTokenizerFactory creates UAX29URLEmailTokenizer instances with
 // the analyzer's current maxTokenLength.

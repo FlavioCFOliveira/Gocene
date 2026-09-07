@@ -181,8 +181,8 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 	}
 	w.spareBitSet = spareBitSet
 
-	metaFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104MetaExtension)
-	docFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104DocExtension)
+	metaFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104MetaExtension)
+	docFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104DocExtension)
 
 	var posOut, payOut store.IndexOutput
 	success := false
@@ -218,7 +218,7 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 
 	if state.FieldInfos.HasProx() {
 		w.posDeltaBuffer = make([]int32, lucene104BlockSize)
-		posFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104PosExtension)
+		posFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104PosExtension)
 		rawPosOut, posErr := state.Directory.CreateOutput(posFileName, store.IOContext{Context: store.ContextWrite})
 		if posErr != nil {
 			return nil, fmt.Errorf("lucene104 postings writer: create %s: %w", posFileName, posErr)
@@ -239,7 +239,7 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 		}
 
 		if state.FieldInfos.HasPayloads() || state.FieldInfos.HasOffsets() {
-			payFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104PayExtension)
+			payFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104PayExtension)
 			rawPayOut, payErr := state.Directory.CreateOutput(payFileName, store.IOContext{Context: store.ContextWrite})
 			if payErr != nil {
 				return nil, fmt.Errorf("lucene104 postings writer: create %s: %w", payFileName, payErr)

@@ -198,7 +198,7 @@ func NewLucene80DocValuesProducer(
 	}
 
 	// --- meta file -------------------------------------------------------
-	metaName := index.SegmentFileName(
+	metaName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, metaExtension)
 	metaIn, err := bcstore.OpenChecksumInput(state.Directory, metaName, gstore.IOContextRead)
 	if err != nil {
@@ -233,7 +233,7 @@ func NewLucene80DocValuesProducer(
 	}
 
 	// --- data file -------------------------------------------------------
-	dataName := index.SegmentFileName(
+	dataName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, dataExtension)
 	dataIn, err := bcstore.OpenInput(state.Directory, dataName, gstore.IOContextRead)
 	if err != nil {
@@ -887,7 +887,7 @@ func (p *Lucene80DocValuesProducer) Close() error {
 // checkLucene80DVFooter validates the codec footer written by
 // EndiannessReverserChecksumIndexInput for a big-endian legacy format.
 //
-// codecs.CheckFooter requires *store.ChecksumIndexInput; we use the same
+// store.CheckFooter requires *store.ChecksumIndexInput; we use the same
 // logic but accept *bcstore.EndiannessReverserChecksumIndexInput directly,
 // following the pattern established in backward_codecs/lucene94.
 func checkLucene80DVFooter(in *bcstore.EndiannessReverserChecksumIndexInput) error {

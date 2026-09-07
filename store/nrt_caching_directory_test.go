@@ -76,7 +76,7 @@ func TestNRTCachingDirectory_NRTAndCommit(t *testing.T) {
 	}
 
 	readData := make([]byte, 1024)
-	err = in.ReadBytes(readData)
+	err = in.ReadBytes(readData, 0, len(readData))
 	if err != nil {
 		t.Fatalf("Failed to read: %v", err)
 	}

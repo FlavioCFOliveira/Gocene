@@ -111,7 +111,33 @@ func NewSegmentMerger(
 	// leaf's SegmentInfo.minVersion; Gocene's SegmentInfo does not yet expose
 	// a per-leaf minVersion, so the merged segment conservatively adopts the
 	// latest known version. Refined when SegmentInfo.minVersion lands.
-	_ = util.Latest
+			// Compute the minimum index version across all leaves.
+		minVersion := util.Latest
+		for _, reader := range readers {
+			si := reader.GetSegmentInfo()
+			if si == nil {
+				minVersion = nil
+				break
+			}
+			v, ok := si.MinVersion()
+			if !ok {
+				minVersion = nil
+				break
+			}
+			leafMinVersion, err := util.Parse(v)
+			if err != nil {
+				minVersion = nil
+				break
+			}
+			if minVersion == nil || minVersion.OnOrAfter(leafMinVersion) {
+				minVersion = leafMinVersion
+			}
+		}
+		if minVersion != nil {
+			segmentInfo.SetMinVersion(minVersion.String())
+		} else {
+			segmentInfo.SetMinVersion("")
+		}
 
 	if sm.infoStream.IsEnabled("SM") && segmentInfo.IndexSort() != nil {
 		sm.infoStream.Message("SM", "index sort during merge: "+segmentInfo.GetIndexSortDescription())

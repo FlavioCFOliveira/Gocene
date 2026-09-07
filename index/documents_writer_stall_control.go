@@ -2,102 +2,106 @@ package index
 
 import (
 	"sync"
-	"time"
 	"sync/atomic"
+	"time"
 )
 
-// documentsWriterStallControl coordinates indexing threads with flushing.
-// When flushing significantly lags indexing, incoming indexers are blocked.
+// DocumentsWriterStallControl controls the health status of a DocumentsWriter session.
+// This class is used to block incoming indexing threads if flushing is significantly
+// slower than indexing to ensure the DocumentsWriter's healthiness. If flushing is
+// significantly slower than indexing, the net memory used within an IndexWriter
+// session can increase very quickly and easily exceed the JVM's available memory.
 //
-// Port of org.apache.lucene.index.DocumentsWriterStallControl.
-type documentsWriterStallControl struct {
-	mu      sync.Mutex
-	cond    *sync.Cond
-	stalled atomic.Bool
-
-	// assert-only fields
-	numWaiting int
-	wasStalledFlag bool
+// To prevent OOM Errors and ensure IndexWriter's stability, this class blocks
+// incoming threads from indexing once the stall conditions are met.
+type DocumentsWriterStallControl struct {
+	mu         sync.Mutex
+	stalled    atomic.Bool
+	wasStalled bool
+	numWaiting atomic.Int32
+	notifier   chan struct{}
 }
 
-// newDocumentsWriterStallControl constructs a fresh stall controller.
-func newDocumentsWriterStallControl() *documentsWriterStallControl {
-	s := &documentsWriterStallControl{}
-	s.cond = sync.NewCond(&s.mu)
-	return s
+// NewDocumentsWriterStallControl creates a new DocumentsWriterStallControl.
+func NewDocumentsWriterStallControl() *DocumentsWriterStallControl {
+	return &DocumentsWriterStallControl{
+		notifier: make(chan struct{}),
+	}
 }
 
-// UpdateStalled toggles the stalled state. When transitioning to unstalled,
-// all blocked waiters are released.
-func (s *documentsWriterStallControl) UpdateStalled(stalled bool) {
+// UpdateStalled updates the stalled flag status.
+// This method will set the stalled flag to true iff the number of flushing
+// DocumentsWriterPerThread is greater than the number of active
+// DocumentsWriterPerThread. Otherwise, it will reset the control to healthy
+// and release all threads waiting on WaitIfStalled.
+func (s *DocumentsWriterStallControl) UpdateStalled(stalled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.stalled.Load() == stalled {
-		return
+
+	if s.stalled.Load() != stalled {
+		s.stalled.Store(stalled)
+		if stalled {
+			s.wasStalled = true
+		} else {
+			// Signal all waiting threads by closing the current notifier channel.
+			close(s.notifier)
+			// Create a new notifier channel for the next stalled period.
+			s.notifier = make(chan struct{})
+		}
 	}
-	s.stalled.Store(stalled)
-	if stalled {
-		s.wasStalledFlag = true
-	}
-	s.cond.Broadcast()
 }
 
-// WaitIfStalled blocks until the controller becomes unstalled or up to 1s.
-func (s *documentsWriterStallControl) WaitIfStalled() {
-	if !s.stalled.Load() {
-		return
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if !s.stalled.Load() {
-		return
-	}
-	s.numWaiting++
-	// Mirror Lucene: bounded wait with a 1s safety to recover from any
-	// missed broadcast. We use a timer that broadcasts the cond on expiry.
-	done := make(chan struct{})
-	t := time.AfterFunc(time.Second, func() {
+// WaitIfStalled blocks if documents writing is currently in a stalled state.
+func (s *DocumentsWriterStallControl) WaitIfStalled() {
+	if s.stalled.Load() {
 		s.mu.Lock()
-		s.cond.Broadcast()
+		if s.stalled.Load() {
+			// Capture the current notifier channel while holding the lock to ensure
+			// we wait on the channel that will be closed when the current stall ends.
+			notifier := s.notifier
+			s.mu.Unlock()
+
+			s.numWaiting.Add(1)
+			// Defensive: wait for up to 1 second here, and let the caller re-stall
+			// if it's still needed. This mirrors the Java wait(1000) behavior.
+			select {
+			case <-notifier:
+			case <-time.After(1 * time.Second):
+			}
+			s.numWaiting.Add(-1)
+			return
+		}
 		s.mu.Unlock()
-		close(done)
-	})
-	s.cond.Wait()
-	t.Stop()
-	select {
-	case <-done:
-	default:
 	}
-	s.numWaiting--
 }
 
-// AnyStalledThreads reports whether the controller is currently stalled.
-func (s *documentsWriterStallControl) AnyStalledThreads() bool {
+// AnyStalledThreads returns true if the writer is currently stalled.
+func (s *DocumentsWriterStallControl) AnyStalledThreads() bool {
 	return s.stalled.Load()
 }
 
-// HasBlocked reports whether any thread is currently blocked. Test-only.
-func (s *documentsWriterStallControl) HasBlocked() bool {
+// HasBlocked returns true if there are currently threads waiting.
+func (s *DocumentsWriterStallControl) HasBlocked() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.numWaiting > 0
+	return s.numWaiting.Load() > 0
 }
 
-// GetNumWaiting returns the number of currently blocked threads. Test-only.
-func (s *documentsWriterStallControl) GetNumWaiting() int {
+// GetNumWaiting returns the current number of waiting threads.
+func (s *DocumentsWriterStallControl) GetNumWaiting() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.numWaiting
+	return int(s.numWaiting.Load())
 }
 
-// IsHealthy reports the inverse of AnyStalledThreads. Test-only.
-func (s *documentsWriterStallControl) IsHealthy() bool {
+// IsHealthy returns true if the writer is not stalled.
+func (s *DocumentsWriterStallControl) IsHealthy() bool {
 	return !s.stalled.Load()
 }
 
-// WasStalled reports whether the controller has ever been stalled. Test-only.
-func (s *documentsWriterStallControl) WasStalled() bool {
+// WasStalled returns true if the writer has been stalled at least once.
+func (s *DocumentsWriterStallControl) WasStalled() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.wasStalledFlag
+	return s.wasStalled
 }

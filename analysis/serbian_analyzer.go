@@ -99,4 +99,4 @@ func (a *SerbianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*SerbianAnalyzer)(nil)
-var _ AnalyzerInterface = (*SerbianAnalyzer)(nil)
+var _ api.Analyzer = (*SerbianAnalyzer)(nil)

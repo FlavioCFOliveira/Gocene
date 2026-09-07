@@ -206,7 +206,9 @@ func (f *ArabicStemFilter) IncrementToken() (bool, error) {
 }
 
 // ArabicStemFilterFactory creates ArabicStemFilter instances.
-type ArabicStemFilterFactory struct{}
+type ArabicStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewArabicStemFilterFactory creates a new ArabicStemFilterFactory.
 func NewArabicStemFilterFactory() *ArabicStemFilterFactory {

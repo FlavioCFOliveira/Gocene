@@ -1,32 +1,53 @@
 package document
 
-// NRTSuggester is the near-real-time suggester that holds an in-memory
-// completion index over a SearchManager-style snapshot. Mirrors
+// NRTSuggester executes Top N search on a weighted FST. Mirrors
 // org.apache.lucene.search.suggest.document.NRTSuggester.
 type NRTSuggester struct {
-	entries []NRTEntry
-}
-
-// NRTEntry is a single (key, weight, payload, contexts) tuple cached by the
-// NRT suggester.
-type NRTEntry struct {
-	Key      string
-	Weight   int64
-	Payload  []byte
-	Contexts [][]byte
+	fst                      *utilfst.FST[*utilfst.Pair[int64, *util.BytesRef]]
+	maxAnalyzedPathsPerOutput int
+	payloadSep               int
 }
 
 // NewNRTSuggester builds an empty NRTSuggester.
 func NewNRTSuggester() *NRTSuggester { return &NRTSuggester{} }
 
-// Add records an entry.
-func (s *NRTSuggester) Add(entry NRTEntry) { s.entries = append(s.entries, entry) }
+// Load loads an NRTSuggester from an IndexInput.
+// Mirrors NRTSuggester.load(IndexInput).
+func Load(input store.IndexInput) (*NRTSuggester, error) {
+	outputs := utilfst.NewPairOutputs[int64, *util.BytesRef](
+		utilfst.PositiveIntOutputsSingleton(),
+		utilfst.ByteSequenceOutputsSingleton(),
+	)
+	metadata, err := utilfst.ReadMetadata(input, outputs)
+	if err != nil {
+		return nil, fmt.Errorf("nrtsuggester: read metadata: %w", err)
+	}
+	store := utilfst.NewOffHeapFSTStore(input, input.GetFilePointer(), metadata)
+	fst, err := utilfst.FromFSTReader(metadata, store)
+	if err != nil {
+		return nil, fmt.Errorf("nrtsuggester: from fst reader: %w", err)
+	}
+	if err := input.SkipBytes(store.Size()); err != nil {
+		return nil, err
+	}
 
-// All returns a copy of the recorded entries.
-func (s *NRTSuggester) All() []NRTEntry {
-	out := make([]NRTEntry, len(s.entries))
-	copy(out, s.entries)
-	return out
+	maxAnalyzedPathsPerOutput, err := store.ReadVInt(input)
+	if err != nil {
+		return nil, fmt.Errorf("nrtsuggester: read max analyzed paths: %w", err)
+	}
+	if _, err := store.ReadVInt(input); err != nil {
+		return nil, fmt.Errorf("nrtsuggester: read end byte: %w", err)
+	}
+	payloadSep, err := store.ReadVInt(input)
+	if err != nil {
+		return nil, fmt.Errorf("nrtsuggester: read payload sep: %w", err)
+	}
+
+	return &NRTSuggester{
+		fst:                      fst,
+		maxAnalyzedPathsPerOutput: int(maxAnalyzedPathsPerOutput),
+		payloadSep:               int(payloadSep),
+	}, nil
 }
 
 // SuggestIndexSearcher is the search-side facade exposed to callers. Mirrors

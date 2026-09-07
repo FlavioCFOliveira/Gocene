@@ -47,6 +47,14 @@ type MergeState struct {
 	// order as FieldInfos/MaxDocs/LiveDocs. The payload merge steps read their
 	// stored fields / postings / doc values from these (rmp #14/#114).
 	Readers []CodecReader
+
+	// NormsProducers is the per-sub-reader norms producer.
+	NormsProducers []spi.NormsProducer
+}
+
+// CheckAborted returns an error if the merge operation has been aborted.
+func (m *MergeState) CheckAborted() error {
+	return nil
 }
 
 // DocMap maps old doc IDs to new doc IDs during a merge. Mirrors

@@ -232,7 +232,7 @@ func (r *Lucene90CompoundReader) FileExists(name string) bool {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	_, ok := r.entries[index.StripSegmentName(name)]
+	_, ok := r.entries[store.StripSegmentName(name)]
 	return ok
 }
 
@@ -245,7 +245,7 @@ func (r *Lucene90CompoundReader) FileLength(name string) (int64, error) {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	id := index.StripSegmentName(name)
+	id := store.StripSegmentName(name)
 	e, ok := r.entries[id]
 	if !ok {
 		return 0, fmt.Errorf("lucene90 compound: %q not found", name)
@@ -265,7 +265,7 @@ func (r *Lucene90CompoundReader) OpenInput(name string, _ store.IOContext) (stor
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	id := index.StripSegmentName(name)
+	id := store.StripSegmentName(name)
 	e, ok := r.entries[id]
 	if !ok {
 		dataFileName := GetSegmentFileName(r.segmentName, "", Lucene90CompoundDataExtension)

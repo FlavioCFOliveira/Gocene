@@ -6,7 +6,7 @@ package store
 
 import (
 	"bytes"
-	"encoding/binary"
+	"fmt"
 	"io"
 )
 
@@ -16,11 +16,8 @@ import (
 // This is the Go port of Lucene's org.apache.lucene.store.OutputStreamIndexOutput.
 type OutputStreamIndexOutput struct {
 	*BaseIndexOutput
-
-	// writer is the underlying writer
+	*BaseDataOutput
 	writer io.Writer
-
-	// buffer is a reusable buffer for writing primitives
 	buffer []byte
 }
 
@@ -32,11 +29,13 @@ type OutputStreamIndexOutput struct {
 //   - writer: the underlying writer to write to
 //   - bufferSize: the buffer size (currently unused but kept for API compatibility)
 func NewOutputStreamIndexOutput(resourceDescription, name string, writer io.Writer, bufferSize int) *OutputStreamIndexOutput {
-	return &OutputStreamIndexOutput{
+	out := &OutputStreamIndexOutput{
 		BaseIndexOutput: NewBaseIndexOutput(name),
 		writer:          writer,
 		buffer:          make([]byte, 8), // enough for int64
 	}
+	out.BaseDataOutput = NewBaseDataOutput(out)
+	return out
 }
 
 // WriteByte writes a single byte.
@@ -50,8 +49,12 @@ func (out *OutputStreamIndexOutput) WriteByte(b byte) error {
 }
 
 // WriteBytes writes all bytes from b.
-func (out *OutputStreamIndexOutput) WriteBytes(b []byte) error {
-	return out.WriteBytesN(b, len(b))
+func (out *OutputStreamIndexOutput) WriteBytes(b []byte, offset, length int) error {
+	if _, err := out.writer.Write(b[offset : offset+length]); err != nil {
+		return err
+	}
+	out.IncrementFilePointer(int64(length))
+	return nil
 }
 
 // WriteBytesN writes exactly n bytes from b.
@@ -66,42 +69,14 @@ func (out *OutputStreamIndexOutput) WriteBytesN(b []byte, n int) error {
 	return nil
 }
 
-// WriteShort writes a 16-bit signed integer in little-endian format.
-// This matches Lucene's OutputStreamIndexOutput behavior.
-func (out *OutputStreamIndexOutput) WriteShort(v int16) error {
-	binary.LittleEndian.PutUint16(out.buffer, uint16(v))
-	if _, err := out.writer.Write(out.buffer[:2]); err != nil {
-		return err
-	}
-	out.IncrementFilePointer(2)
-	return nil
-}
-
-// WriteInt writes a 32-bit signed integer in little-endian format.
-// This matches Lucene's OutputStreamIndexOutput behavior.
-func (out *OutputStreamIndexOutput) WriteInt(v int32) error {
-	binary.LittleEndian.PutUint32(out.buffer, uint32(v))
-	if _, err := out.writer.Write(out.buffer[:4]); err != nil {
-		return err
-	}
-	out.IncrementFilePointer(4)
-	return nil
-}
-
-// WriteLong writes a 64-bit signed integer in little-endian format.
-// This matches Lucene's OutputStreamIndexOutput behavior.
-func (out *OutputStreamIndexOutput) WriteLong(v int64) error {
-	binary.LittleEndian.PutUint64(out.buffer, uint64(v))
-	if _, err := out.writer.Write(out.buffer[:8]); err != nil {
-		return err
-	}
-	out.IncrementFilePointer(8)
-	return nil
-}
-
 // WriteString writes a string.
 func (out *OutputStreamIndexOutput) WriteString(s string) error {
 	return WriteString(out, s)
+}
+
+// SetPosition sets the current position. Not supported for output streams.
+func (out *OutputStreamIndexOutput) SetPosition(pos int64) error {
+	return fmt.Errorf("SetPosition not supported for OutputStreamIndexOutput")
 }
 
 // Length returns the current file pointer as the length.

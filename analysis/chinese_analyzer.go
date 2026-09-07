@@ -75,7 +75,7 @@ func (a *ChineseAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure ChineseAnalyzer implements Analyzer
 var _ Analyzer = (*ChineseAnalyzer)(nil)
-var _ AnalyzerInterface = (*ChineseAnalyzer)(nil)
+var _ api.Analyzer = (*ChineseAnalyzer)(nil)
 
 // ChineseAnalyzerFactory creates ChineseAnalyzer instances.
 type ChineseAnalyzerFactory struct {
@@ -97,7 +97,7 @@ func NewChineseAnalyzerFactoryWithWords(stopWords *CharArraySet) *ChineseAnalyze
 }
 
 // Create creates a new ChineseAnalyzer.
-func (f *ChineseAnalyzerFactory) Create() AnalyzerInterface {
+func (f *ChineseAnalyzerFactory) Create() api.Analyzer {
 	return NewChineseAnalyzerWithWords(f.stopWords)
 }
 

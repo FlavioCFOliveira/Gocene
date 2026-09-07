@@ -41,8 +41,12 @@ func numIndexDimensions(values PointValues) int {
 // the static PointValues.getMinPackedValue(IndexReader, String).
 func PointValuesGetMinPackedValue(reader IndexReader, field string) []byte {
 	var minValue []byte
-	for _, ctx := range reader.Leaves() {
-		values, err := ctx.Reader().GetPointValues(field)
+	leaves, err := reader.Leaves()
+	if err != nil {
+		return nil
+	}
+	for _, ctx := range leaves {
+		values, err := ctx.LeafReader().GetPointValues(field)
 		if err != nil || values == nil {
 			continue
 		}
@@ -71,8 +75,12 @@ func PointValuesGetMinPackedValue(reader IndexReader, field string) []byte {
 // the static PointValues.getMaxPackedValue(IndexReader, String).
 func PointValuesGetMaxPackedValue(reader IndexReader, field string) []byte {
 	var maxValue []byte
-	for _, ctx := range reader.Leaves() {
-		values, err := ctx.Reader().GetPointValues(field)
+	leaves, err := reader.Leaves()
+	if err != nil {
+		return nil
+	}
+	for _, ctx := range leaves {
+		values, err := ctx.LeafReader().GetPointValues(field)
 		if err != nil || values == nil {
 			continue
 		}
@@ -101,8 +109,12 @@ func PointValuesGetMaxPackedValue(reader IndexReader, field string) []byte {
 // PointValues.getDocCount(IndexReader, String).
 func PointValuesGetDocCount(reader IndexReader, field string) int {
 	count := 0
-	for _, ctx := range reader.Leaves() {
-		values, err := ctx.Reader().GetPointValues(field)
+	leaves, err := reader.Leaves()
+	if err != nil {
+		return 0
+	}
+	for _, ctx := range leaves {
+		values, err := ctx.LeafReader().GetPointValues(field)
 		if err != nil || values == nil {
 			continue
 		}

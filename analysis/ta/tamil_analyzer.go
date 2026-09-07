@@ -111,4 +111,4 @@ func (a *TamilAnalyzer) GetStopWords() *analysis.CharArraySet {
 
 // Ensure TamilAnalyzer implements analysis.Analyzer.
 var _ analysis.Analyzer = (*TamilAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*TamilAnalyzer)(nil)
+var _ analysis.api.Analyzer = (*TamilAnalyzer)(nil)

@@ -184,7 +184,7 @@ func NewBlockTermsReader(indexReader TermsIndexReader, postingsReader codecs.Pos
 }
 
 func seekDir(input store.IndexInput) error {
-	footerLen := codecs.FooterLength()
+	footerLen := store.FooterLength()
 	if input.Length() < int64(footerLen+8) {
 		return errors.New("file too short to contain directory offset")
 	}

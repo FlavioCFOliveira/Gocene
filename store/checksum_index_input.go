@@ -47,6 +47,7 @@ func (c ChecksumType) String() string {
 // This is the Go port of Lucene's org.apache.lucene.store.ChecksumIndexInput.
 type ChecksumIndexInput struct {
 	*BaseIndexInput
+	BaseDataInput
 	input    IndexInput
 	digest   hash.Hash32
 	checksum ChecksumType
@@ -72,12 +73,14 @@ func NewChecksumIndexInputWithType(input IndexInput, checksumType ChecksumType) 
 		digest = crc32.NewIEEE()
 	}
 
-	return &ChecksumIndexInput{
+	in := &ChecksumIndexInput{
 		BaseIndexInput: NewBaseIndexInput("ChecksumIndexInput", input.Length()),
 		input:          input,
 		digest:         digest,
 		checksum:       checksumType,
 	}
+	in.Core = in
+	return in
 }
 
 // ReadByte reads a single byte and updates the checksum.
@@ -97,25 +100,37 @@ func (in *ChecksumIndexInput) ReadByte() (byte, error) {
 }
 
 // ReadBytes reads len(b) bytes and updates the checksum.
-func (in *ChecksumIndexInput) ReadBytes(b []byte) error {
-	err := in.input.ReadBytes(b)
+func (in *ChecksumIndexInput) ReadBytes(b []byte, offset, length int) error {
+	err := in.input.ReadBytes(b, offset, length)
 	if err != nil {
 		return err
 	}
 
 	// Update checksum
-	in.digest.Write(b)
+	in.digest.Write(b[offset : offset+length])
 
 	// Update file pointer
-	in.SetFilePointer(in.GetFilePointer() + int64(len(b)))
+	in.SetFilePointer(in.GetFilePointer() + int64(length))
 
 	return nil
+}
+
+func (in *ChecksumIndexInput) ReadInts(dst []int32, offset, length int) error {
+	return in.input.ReadInts(dst, offset, length)
+}
+
+func (in *ChecksumIndexInput) ReadLongs(dst []int64, offset, length int) error {
+	return in.input.ReadLongs(dst, offset, length)
+}
+
+func (in *ChecksumIndexInput) ReadFloats(dst []float32, offset, length int) error {
+	return in.input.ReadFloats(dst, offset, length)
 }
 
 // ReadBytesN reads exactly n bytes and returns them, updating the checksum.
 func (in *ChecksumIndexInput) ReadBytesN(n int) ([]byte, error) {
 	b := make([]byte, n)
-	if err := in.ReadBytes(b); err != nil {
+	if err := in.ReadBytes(b, 0, len(b)); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -153,7 +168,7 @@ func (in *ChecksumIndexInput) ReadLong() (int64, error) {
 
 // ReadString reads a string.
 func (in *ChecksumIndexInput) ReadString() (string, error) {
-	return ReadString(in)
+	return in.input.ReadString()
 }
 
 // SetPosition changes the current position in the file.
@@ -194,7 +209,7 @@ func (in *ChecksumIndexInput) SkipBytes(n int64) error {
 		if toRead > int64(len(buffer)) {
 			toRead = int64(len(buffer))
 		}
-		if err := in.ReadBytes(buffer[:toRead]); err != nil {
+		if err := in.ReadBytes(buffer, 0, int(toRead)); err != nil {
 			return err
 		}
 		n -= toRead
@@ -352,15 +367,15 @@ func (out *ChecksumIndexOutput) WriteByte(b byte) error {
 }
 
 // WriteBytes writes all bytes from b and updates the checksum.
-func (out *ChecksumIndexOutput) WriteBytes(b []byte) error {
-	if err := out.output.WriteBytes(b); err != nil {
+func (out *ChecksumIndexOutput) WriteBytes(b []byte, offset, length int) error {
+	if err := out.output.WriteBytes(b, offset, length); err != nil {
 		return err
 	}
 
 	// Update checksum
-	out.digest.Write(b)
+	out.digest.Write(b[offset : offset+length])
 
-	out.IncrementFilePointer(int64(len(b)))
+	out.IncrementFilePointer(int64(length))
 	return nil
 }
 
@@ -369,21 +384,21 @@ func (out *ChecksumIndexOutput) WriteBytesN(b []byte, n int) error {
 	if n > len(b) {
 		return ErrInvalidBuffer
 	}
-	return out.WriteBytes(b[:n])
+	return out.WriteBytes(b, 0, n)
 }
 
 // WriteShort writes a 16-bit value as little-endian to match Lucene 10.x
 // DataOutput.writeShort (low byte first). See rmp #4786.
 func (out *ChecksumIndexOutput) WriteShort(i int16) error {
 	b := []byte{byte(i), byte(i >> 8)}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // WriteInt writes a 32-bit value as little-endian to match Lucene 10.x
 // DataOutput.writeInt (low byte first). See rmp #4786.
 func (out *ChecksumIndexOutput) WriteInt(i int32) error {
 	b := []byte{byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24)}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // WriteLong writes a 64-bit value as little-endian to match Lucene 10.x
@@ -393,12 +408,17 @@ func (out *ChecksumIndexOutput) WriteLong(i int64) error {
 		byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24),
 		byte(i >> 32), byte(i >> 40), byte(i >> 48), byte(i >> 56),
 	}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // WriteString writes a string.
 func (out *ChecksumIndexOutput) WriteString(s string) error {
-	return WriteString(out, s)
+	return out.output.WriteString(s)
+}
+
+// CopyBytes copies bytes from the input to this output.
+func (out *ChecksumIndexOutput) CopyBytes(input DataInput, numBytes int64) error {
+	return out.output.CopyBytes(input, numBytes)
 }
 
 // Length returns the current length of the file.

@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/internal/codecs"
-	"github.com/FlavioCFOliveira/Gocene/internal/index"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 

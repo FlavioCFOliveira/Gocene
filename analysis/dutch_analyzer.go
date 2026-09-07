@@ -74,7 +74,7 @@ func (a *DutchAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure DutchAnalyzer implements Analyzer
 var _ Analyzer = (*DutchAnalyzer)(nil)
-var _ AnalyzerInterface = (*DutchAnalyzer)(nil)
+var _ api.Analyzer = (*DutchAnalyzer)(nil)
 
 // DutchLightStemFilter implements light stemming for Dutch.
 type DutchLightStemFilter struct {

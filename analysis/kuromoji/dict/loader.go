@@ -129,11 +129,11 @@ func loadConnectionCosts(data []byte) (*ConnectionCosts, error) {
 	if _, err := checkHeader(r, ConnCostsHeader, Version, Version); err != nil {
 		return nil, err
 	}
-	forwardSize, err := store.ReadVInt(r)
+	forwardSize, err := r.ReadVInt()
 	if err != nil {
 		return nil, fmt.Errorf("kuromoji/dict: ConnectionCosts: forwardSize: %w", err)
 	}
-	backwardSize, err := store.ReadVInt(r)
+	backwardSize, err := r.ReadVInt()
 	if err != nil {
 		return nil, fmt.Errorf("kuromoji/dict: ConnectionCosts: backwardSize: %w", err)
 	}
@@ -141,7 +141,7 @@ func loadConnectionCosts(data []byte) (*ConnectionCosts, error) {
 	matrix := make([]int16, size)
 	var accum int32
 	for i := 0; i < size; i++ {
-		raw, err := store.ReadVInt(r)
+		raw, err := r.ReadVInt()
 		if err != nil {
 			return nil, fmt.Errorf("kuromoji/dict: ConnectionCosts: matrix[%d]: %w", i, err)
 		}
@@ -187,7 +187,7 @@ func loadCharacterDefinition(data []byte) (*CharacterDefinition, error) {
 		return nil, err
 	}
 	var categoryMap [0x10000]byte
-	if err := r.ReadBytes(categoryMap[:]); err != nil {
+	if err := r.ReadBytes(categoryMap[:], 0, len(categoryMap)); err != nil {
 		return nil, fmt.Errorf("kuromoji/dict: CharacterDefinition: category map: %w", err)
 	}
 	invokeMap := make([]bool, CharClassCount)
@@ -267,7 +267,7 @@ func loadBinaryDict(targetMapData []byte, targetMapCodec string,
 		return nil, fmt.Errorf("kuromoji/dict: BinaryDict(%s): bufSize: %w", dictCodec, err)
 	}
 	buf := make([]byte, int(bufSize))
-	if err := dr.ReadBytes(buf); err != nil {
+	if err := dr.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, fmt.Errorf("kuromoji/dict: BinaryDict(%s): buffer: %w", dictCodec, err)
 	}
 
@@ -290,7 +290,7 @@ func loadJaPosDicts(data []byte) (posDict, inflTypeDict, inflFormDict []string, 
 		return
 	}
 	var posSize int32
-	posSize, err = store.ReadVInt(r)
+	posSize, err = r.ReadVInt()
 	if err != nil {
 		err = fmt.Errorf("kuromoji/dict: posDict: posSize: %w", err)
 		return

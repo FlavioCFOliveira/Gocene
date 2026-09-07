@@ -240,9 +240,9 @@ func NewLucene99HnswVectorsWriter(
 		return nil, fmt.Errorf("hnsw99: beamWidth must be positive; got %d", beamWidth)
 	}
 
-	metaName := index.SegmentFileName(
+	metaName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, lucene99HnswMetaExtension)
-	indexName := index.SegmentFileName(
+	indexName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, lucene99HnswIndexExtension)
 
 	rawMeta, err := state.Directory.CreateOutput(metaName, store.IOContextWrite)

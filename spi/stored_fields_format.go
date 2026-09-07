@@ -36,6 +36,10 @@ type StoredFieldsReader interface {
 	// document at docID.
 	VisitDocument(docID int, visitor StoredFieldVisitor) error
 
+	// CheckIntegrity walks the stored-field data and validates the checksum
+	// framing.
+	CheckIntegrity() error
+
 	// Close releases any resources held by the reader.
 	Close() error
 }

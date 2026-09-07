@@ -46,6 +46,7 @@ func NewPostingsEnumBase(initialDocID int) PostingsEnumBase {
 const (
 	NO_MORE_DOCS          = schema.NO_MORE_DOCS
 	NO_MORE_POSITIONS     = schema.NO_MORE_POSITIONS
+	PostingsFlagNone      = schema.PostingsFlagNone
 	PostingsFlagFreqs     = schema.PostingsFlagFreqs
 	PostingsFlagPositions = schema.PostingsFlagPositions
 	PostingsFlagOffsets   = schema.PostingsFlagOffsets

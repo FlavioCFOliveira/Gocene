@@ -52,6 +52,10 @@ type FieldsProducer interface {
 	// when the field has no postings in this segment.
 	Terms(field string) (schema.Terms, error)
 
+	// CheckIntegrity walks the per-field postings data and validates the
+	// checksum framing.
+	CheckIntegrity() error
+
 	// Close releases any resources held by the producer.
 	Close() error
 }

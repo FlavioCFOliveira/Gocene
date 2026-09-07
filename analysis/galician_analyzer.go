@@ -77,7 +77,7 @@ func (a *GalicianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*GalicianAnalyzer)(nil)
-var _ AnalyzerInterface = (*GalicianAnalyzer)(nil)
+var _ api.Analyzer = (*GalicianAnalyzer)(nil)
 
 // GalicianStemFilter implements light stemming for Galician.
 type GalicianStemFilter struct {

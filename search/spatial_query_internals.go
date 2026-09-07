@@ -140,7 +140,7 @@ func (b *BaseSpatialVisitor) GetLeafPredicate(queryRelation document.QueryRelati
 // document → search cycle via codecs → document → search).
 //
 // The three values are deliberately stable across
-// codecs.Relation, geo.Relation and this one — adapters between the
+// geo.Relation, geo.Relation and this one — adapters between the
 // three are pure switches with no semantic difference.
 type spatialRelation int
 
@@ -404,7 +404,7 @@ const maxIntForSpatialSize = int(^uint(0) >> 1)
 // BKD reader's intersect path).
 //
 // Compare must translate between the two enum orderings: the BKD reader
-// uses the codecs.Relation order (0=outside, 1=inside, 2=crosses) while
+// uses the geo.Relation order (0=outside, 1=inside, 2=crosses) while
 // search.spatialRelation uses (0=inside, 1=outside, 2=crosses), so the
 // conversion is an explicit switch rather than a raw cast.
 type spatialVisitorBridge struct {
@@ -420,11 +420,11 @@ func (b *spatialVisitorBridge) VisitByPackedValue(docID int, packedValue []byte)
 func (b *spatialVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) int {
 	switch b.v.Compare(minPackedValue, maxPackedValue) {
 	case spatialCellOutsideQuery:
-		return 0 // codecs.RelationCellOutsideQuery
+		return 0 // geo.RelationCellOutsideQuery
 	case spatialCellInsideQuery:
-		return 1 // codecs.RelationCellInsideQuery
+		return 1 // geo.RelationCellInsideQuery
 	default:
-		return 2 // codecs.RelationCellCrossesQuery
+		return 2 // geo.RelationCellCrossesQuery
 	}
 }
 

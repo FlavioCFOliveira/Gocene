@@ -214,7 +214,7 @@ func (m *FSTMetadata[T]) Save(metaOut store.DataOutput) error {
 		// reverse the byte order so that, when the FST is read back,
 		// the reverse reader produces the exact same bytes in writer
 		// order. Mirrors the in-place reversal in Lucene's save.
-		buf := store.NewByteArrayDataOutput(16)
+		buf := NewGrowableByteArrayDataOutput()
 		if err := m.outputs.WriteFinalOutput(m.emptyOutput, buf); err != nil {
 			return err
 		}
@@ -224,7 +224,7 @@ func (m *FSTMetadata[T]) Save(metaOut store.DataOutput) error {
 		for i := 0; i < emptyLen; i++ {
 			reversed[i] = emptyBytes[emptyLen-1-i]
 		}
-		if err := store.WriteVInt(metaOut, int32(emptyLen)); err != nil {
+		if err := metaOut.WriteVInt(int32(emptyLen)); err != nil {
 			return err
 		}
 		if emptyLen > 0 {
@@ -251,10 +251,10 @@ func (m *FSTMetadata[T]) Save(metaOut store.DataOutput) error {
 	if err := metaOut.WriteByte(t); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(metaOut, m.startNode); err != nil {
+	if err := metaOut.WriteVLong(m.startNode); err != nil {
 		return err
 	}
-	return store.WriteVLong(metaOut, m.numBytes)
+	return metaOut.WriteVLong(m.numBytes)
 }
 
 // ReadMetadata parses an FST metadata block from metaIn. The supplied
@@ -286,7 +286,7 @@ func ReadMetadata[T any](metaIn store.DataInput, outputs Outputs[T]) (*FSTMetada
 		emptyLen := int(emptyLen32)
 		emptyBytes := make([]byte, emptyLen)
 		if emptyLen > 0 {
-			if err := metaIn.ReadBytes(emptyBytes); err != nil {
+			if err := metaIn.ReadBytes(emptyBytes, 0, emptyLen); err != nil {
 				return nil, err
 			}
 		}

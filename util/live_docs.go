@@ -1,6 +1,21 @@
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
+//
+// Licensed to the Apache Software Foundation (ASF) under one or more
+// contributor license agreements.  See the NOTICE file distributed with
+// this work for additional information regarding copyright ownership.
+// The ASF licenses this file to You under the Apache License, Version 2.0
+// (the "License"); you may not use this file except in compliance with
+// the License.  You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
 package util
 
@@ -164,136 +179,6 @@ func (s *SparseLiveDocs) RamBytesUsed() int64 {
 	return s.deletedBits.RamBytesUsed()
 }
 
-// DenseLiveDocs tracks live documents using a FixedBitSet.
-// The bit set stores which documents are live (bit set = live).
-type DenseLiveDocs struct {
-	liveBits     *FixedBitSet
-	maxDoc       int
-	deletedCount int
-}
-
-// DenseLiveDocsBuilder builds a DenseLiveDocs instance. Mirrors
-// org.apache.lucene.util.DenseLiveDocs.Builder. The builder is
-// mutable until Build is called; once built, the resulting
-// *DenseLiveDocs is immutable.
-type DenseLiveDocsBuilder struct {
-	liveBits           *FixedBitSet
-	maxDoc             int
-	deletedCount       int
-	deletedCountIsUser bool
-}
-
-// NewDenseLiveDocsBuilder creates a new builder for DenseLiveDocs.
-func NewDenseLiveDocsBuilder(liveBits *FixedBitSet, maxDoc int) *DenseLiveDocsBuilder {
-	return &DenseLiveDocsBuilder{
-		liveBits: liveBits,
-		maxDoc:   maxDoc,
-	}
-}
-
-// WithDeletedCount sets the pre-computed deleted-document count,
-// avoiding an O(n) cardinality scan at Build time. Mirrors
-// {@code DenseLiveDocs.Builder.withDeletedCount}. Returns the builder
-// so calls can be chained.
-//
-// Passing a deletedCount that disagrees with the actual cardinality
-// of liveBits is a programming error; Build will return an error in
-// that case to surface the inconsistency early.
-func (b *DenseLiveDocsBuilder) WithDeletedCount(deletedCount int) *DenseLiveDocsBuilder {
-	b.deletedCount = deletedCount
-	b.deletedCountIsUser = true
-	return b
-}
-
-// Build returns the immutable *DenseLiveDocs. When the builder has a
-// user-supplied deletedCount, the value is validated against maxDoc
-// and (if liveBits is non-nil) against maxDoc - liveBits.Cardinality().
-//
-// The variant that does not return an error stays available as
-// MustBuild for backwards compatibility.
-func (b *DenseLiveDocsBuilder) Build() *DenseLiveDocs {
-	d, _ := b.BuildE()
-	return d
-}
-
-// MustBuild is an alias of Build that panics if validation fails.
-// Kept narrow and explicit so callers opt in to the panic semantics.
-func (b *DenseLiveDocsBuilder) MustBuild() *DenseLiveDocs {
-	d, err := b.BuildE()
-	if err != nil {
-		panic(err)
-	}
-	return d
-}
-
-// BuildE is the error-returning sibling of Build. It validates a
-// user-supplied deletedCount against the maxDoc range and against
-// the liveBits cardinality when available.
-func (b *DenseLiveDocsBuilder) BuildE() (*DenseLiveDocs, error) {
-	var deletedCount int
-	switch {
-	case b.deletedCountIsUser:
-		deletedCount = b.deletedCount
-		if deletedCount < 0 || deletedCount > b.maxDoc {
-			return nil, fmt.Errorf("deletedCount=%d is outside valid range [0, %d]", deletedCount, b.maxDoc)
-		}
-		if b.liveBits != nil {
-			if actual := b.maxDoc - b.liveBits.Cardinality(); actual != deletedCount {
-				return nil, fmt.Errorf("deletedCount=%d does not match maxDoc - liveBits.Cardinality()=%d", deletedCount, actual)
-			}
-		}
-	case b.liveBits != nil:
-		deletedCount = b.maxDoc - b.liveBits.Cardinality()
-	}
-	return &DenseLiveDocs{
-		liveBits:     b.liveBits,
-		maxDoc:       b.maxDoc,
-		deletedCount: deletedCount,
-	}, nil
-}
-
-// Get returns true if the document is live.
-func (d *DenseLiveDocs) Get(doc int) bool {
-	if d.liveBits == nil {
-		return true
-	}
-	return d.liveBits.Get(doc)
-}
-
-// Length returns the total number of documents.
-func (d *DenseLiveDocs) Length() int {
-	return d.maxDoc
-}
-
-// DeletedCount returns the number of deleted documents.
-func (d *DenseLiveDocs) DeletedCount() int {
-	return d.deletedCount
-}
-
-// LiveCount returns the number of live documents.
-func (d *DenseLiveDocs) LiveCount() int {
-	return d.maxDoc - d.deletedCount
-}
-
-// LiveDocsIterator returns an iterator over live documents.
-func (d *DenseLiveDocs) LiveDocsIterator() DocIdSetIterator {
-	return newDenseLiveDocsIterator(d, false)
-}
-
-// DeletedDocsIterator returns an iterator over deleted documents.
-func (d *DenseLiveDocs) DeletedDocsIterator() DocIdSetIterator {
-	return newDenseLiveDocsIterator(d, true)
-}
-
-// RamBytesUsed returns the RAM usage in bytes.
-func (d *DenseLiveDocs) RamBytesUsed() int64 {
-	if d.liveBits == nil {
-		return 24 // approximate base object size
-	}
-	// FixedBitSet uses 8 bytes per 64 bits
-	return int64(24 + len(d.liveBits.bits)*8)
-}
-
 // sparseLiveDocsIterator iterates over documents in a SparseLiveDocs.
 type sparseLiveDocsIterator struct {
 	liveDocs    *SparseLiveDocs
@@ -379,98 +264,6 @@ func (it *sparseLiveDocsIterator) Cost() int64 {
 
 // DocIDRunEnd returns the end of the current run of consecutive doc IDs.
 func (it *sparseLiveDocsIterator) DocIDRunEnd() int {
-	if it.currentDoc < 0 || it.currentDoc >= it.liveDocs.maxDoc {
-		return it.currentDoc + 1
-	}
-	// For simplicity, assume runs of a single doc ID
-	return it.currentDoc + 1
-}
-
-// denseLiveDocsIterator iterates over documents in a DenseLiveDocs.
-type denseLiveDocsIterator struct {
-	liveDocs    *DenseLiveDocs
-	deletedMode bool
-	currentDoc  int
-}
-
-// newDenseLiveDocsIterator creates a new iterator.
-func newDenseLiveDocsIterator(liveDocs *DenseLiveDocs, deletedMode bool) *denseLiveDocsIterator {
-	return &denseLiveDocsIterator{
-		liveDocs:    liveDocs,
-		deletedMode: deletedMode,
-		currentDoc:  -1,
-	}
-}
-
-// DocID returns the current document ID.
-func (it *denseLiveDocsIterator) DocID() int {
-	return it.currentDoc
-}
-
-// NextDoc advances to the next document.
-func (it *denseLiveDocsIterator) NextDoc() (int, error) {
-	if it.deletedMode {
-		// Iterate over deleted docs (bits not set in liveBits)
-		for {
-			it.currentDoc++
-			if it.currentDoc >= it.liveDocs.maxDoc {
-				it.currentDoc = NO_MORE_DOCS
-				return NO_MORE_DOCS, nil
-			}
-			if !it.liveDocs.liveBits.Get(it.currentDoc) {
-				return it.currentDoc, nil
-			}
-		}
-	}
-	// Iterate over live docs (bits set in liveBits)
-	if it.liveDocs.liveBits == nil {
-		it.currentDoc = NO_MORE_DOCS
-		return NO_MORE_DOCS, nil
-	}
-	next := it.liveDocs.liveBits.NextSetBit(it.currentDoc + 1)
-	if next < 0 || next >= it.liveDocs.maxDoc {
-		it.currentDoc = NO_MORE_DOCS
-		return NO_MORE_DOCS, nil
-	}
-	it.currentDoc = next
-	return next, nil
-}
-
-// Advance advances to the target document.
-func (it *denseLiveDocsIterator) Advance(target int) (int, error) {
-	if target >= it.liveDocs.maxDoc {
-		it.currentDoc = NO_MORE_DOCS
-		return NO_MORE_DOCS, nil
-	}
-	if it.deletedMode {
-		// For deleted mode, find next deleted doc at or after target
-		it.currentDoc = target - 1
-		return it.NextDoc()
-	}
-	// For live mode, find next live doc at or after target
-	if it.liveDocs.liveBits == nil {
-		it.currentDoc = NO_MORE_DOCS
-		return NO_MORE_DOCS, nil
-	}
-	next := it.liveDocs.liveBits.NextSetBit(target)
-	if next < 0 || next >= it.liveDocs.maxDoc {
-		it.currentDoc = NO_MORE_DOCS
-		return NO_MORE_DOCS, nil
-	}
-	it.currentDoc = next
-	return next, nil
-}
-
-// Cost returns the estimated cost.
-func (it *denseLiveDocsIterator) Cost() int64 {
-	if it.deletedMode {
-		return int64(it.liveDocs.DeletedCount())
-	}
-	return int64(it.liveDocs.LiveCount())
-}
-
-// DocIDRunEnd returns the end of the current run of consecutive doc IDs.
-func (it *denseLiveDocsIterator) DocIDRunEnd() int {
 	if it.currentDoc < 0 || it.currentDoc >= it.liveDocs.maxDoc {
 		return it.currentDoc + 1
 	}
@@ -579,11 +372,8 @@ var _ DocIdSetIterator = (*emptyDocIdSetIterator)(nil)
 
 // Ensure implementations satisfy the interface
 var _ LiveDocs = (*SparseLiveDocs)(nil)
-var _ LiveDocs = (*DenseLiveDocs)(nil)
 var _ DocIdSetIterator = (*sparseLiveDocsIterator)(nil)
-var _ DocIdSetIterator = (*denseLiveDocsIterator)(nil)
 
 // SparseLiveDocs and DenseLiveDocs are Bits-typed views: callers that
 // only need {Get, Length} can pass them where any [Bits] is accepted.
 var _ Bits = (*SparseLiveDocs)(nil)
-var _ Bits = (*DenseLiveDocs)(nil)

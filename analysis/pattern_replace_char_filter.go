@@ -15,7 +15,7 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.charfilter.PatternReplaceCharFilter.
 type PatternReplaceCharFilter struct {
-	*CharFilter
+	CharFilter
 	pattern     *regexp.Regexp
 	replacement string
 	buffer      []byte

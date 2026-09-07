@@ -113,8 +113,8 @@ func NewVariableGapTermsIndexReader(state *spi.SegmentReadState) (*VariableGapTe
 	// prior exception so that a checksum failure is reported as its
 	// suppressed cause. Gocene's CheckFooter takes no prior error, so the
 	// prior error is kept and returned in preference to a footer error.
-	_, metaFooterErr := codecs.CheckFooter(metaIn)
-	_, indexFooterErr := codecs.CheckFooter(indexIn)
+	_, metaFooterErr := store.CheckFooter(metaIn)
+	_, indexFooterErr := store.CheckFooter(indexIn)
 
 	if priorErr != nil {
 		return nil, priorErr

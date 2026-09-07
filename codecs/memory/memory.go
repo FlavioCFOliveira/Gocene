@@ -130,7 +130,7 @@ func NewFSTTermsReader(state *index.SegmentReadState, postingsReader spi.Posting
 
 func seekDir(in store.IndexInput) error {
 	length := in.Length()
-	in.Seek(length - codecs.FooterLength() - 8)
+	in.Seek(length - store.FooterLength() - 8)
 	offset, err := in.ReadLong()
 	if err != nil {
 		return err

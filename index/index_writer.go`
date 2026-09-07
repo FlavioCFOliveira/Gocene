@@ -1,0 +1,610 @@
+package index
+
+import (
+	"fmt"
+	"io"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"github.com/FlavioCFOliveira/Gocene/index/column"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// TwoPhaseCommit represents a commit process that can be prepared and then either committed or rolled back.
+type TwoPhaseCommit interface {
+	PrepareCommit() (int64, error)
+	Commit() (int64, error)
+	Rollback() error
+}
+
+// lockValidatingDirectoryWrapper mirrors Lucene's LockValidatingDirectoryWrapper.
+type lockValidatingDirectoryWrapper struct {
+	dir  util.Directory
+	lock util.Lock
+}
+
+func (w *lockValidatingDirectoryWrapper) OpenInput(name string, context store.IOContext) (store.Input, error) {
+	if w.lock == nil {
+		return nil, fmt.Errorf("lock is null")
+	}
+	return w.dir.OpenInput(name, context)
+}
+
+func (w *lockValidatingDirectoryWrapper) OpenOutput(name string, context store.IOContext) (store.Output, error) {
+	if w.lock == nil {
+		return nil, fmt.Errorf("lock is null")
+	}
+	return w.dir.OpenOutput(name, context)
+}
+
+func (w *lockValidatingDirectoryWrapper) ListAll() ([]string, error) {
+	if w.lock == nil {
+		return nil, fmt.Errorf("lock is null")
+	}
+	return w.dir.ListAll()
+}
+
+func (w *lockValidatingDirectoryWrapper) Delete(name string) error {
+	if w.lock == nil {
+		return fmt.Errorf("lock is null")
+	}
+	return w.dir.Delete(name)
+}
+
+func (w *lockValidatingDirectoryWrapper) CreateDir(name string) error {
+	if w.lock == nil {
+		return fmt.Errorf("lock is null")
+	}
+	return w.dir.CreateDir(name)
+}
+
+func (w *lockValidatingDirectoryWrapper) Sync() error {
+	if w.lock == nil {
+		return fmt.Errorf("lock is null")
+	}
+	return w.dir.Sync()
+}
+
+func (w *lockValidatingDirectoryWrapper) Close() error {
+	if w.lock == nil {
+		return fmt.Errorf("lock is null")
+	}
+	return w.dir.Close()
+}
+
+// IndexWriter creates and maintains an index.
+type IndexWriter struct {
+	mu sync.Mutex
+
+	// Tragic exception
+	tragedy atomic.Value // stores error or nil
+
+	directoryOrig util.Directory
+	directory     util.Directory
+
+	changeCount           atomic.Int64
+	lastCommitChangeCount int64
+
+	rollbackSegments []SegmentCommitInfo
+
+	pendingCommit            *SegmentInfos
+	pendingSeqNo             int64
+	pendingCommitChangeCount int64
+	filesToCommit            []string
+
+	segmentInfos         *SegmentInfos
+	globalFieldNumberMap *FieldNumbers
+
+	docWriter     *DocumentsWriter
+	eventQueue    *eventQueue
+	mergeSource   *indexWriterMergeSource
+	addIndexesMergeSource *addIndexesMergeSource
+	writeDocValuesLock sync.Mutex
+
+	deleter *IndexFileDeleter
+
+	segmentsToMerge      map[SegmentCommitInfo]bool
+	mergeMaxNumSegments  int
+	writeLock            util.Lock
+	closed               atomic.Bool
+	closing               atomic.Bool
+	maybeMerge           atomic.Bool
+	commitUserData       []MapEntry
+	mergingSegments      map[SegmentCommitInfo]bool
+	mergeScheduler       MergeScheduler
+	runningAddIndexesMerges map[SegmentMerger]bool
+	pendingMerges        []MergePolicyOneMerge
+	runningMerges        map[MergePolicyOneMerge]bool
+	mergeExceptions      []MergePolicyOneMerge
+	merges                *merges
+	mergeGen              int64
+	didMessageState       bool
+	flushCount            atomic.Int32
+	flushDeletesCount     atomic.Int32
+	readerPool            *ReaderPool
+	bufferedUpdatesStream *BufferedUpdatesStream
+	eventListener         IndexWriterEventListener
+	mergeFinishedGen      atomic.Int64
+	config                *LiveIndexWriterConfig
+	startCommitTime       int64
+	pendingNumDocs        atomic.Int64
+	softDeletesEnabled    bool
+	flushNotifications    flushNotifications
+	fullFlushLock         sync.Mutex
+	commitLock            sync.Mutex
+}
+
+const (
+	MaxDocs               = 2147483647 - 128
+	MaxPosition           = 2147483647 - 128
+	WriteLockName         = "write.lock"
+	Source                = "source"
+	SourceMerge           = "merge"
+	SourceFlush           = "flush"
+	SourceAddIndexesReaders = "addIndexes(CodecReader...)"
+	MaxTermLength         = util.ByteBlockSize - 2
+	MaxStoredStringLength  = (2147483647 / util.MaxUtf8BytesPerChar)
+)
+
+var actualMaxDocs = MaxDocs
+
+func SetMaxDocs(maxDocs int) {
+	if maxDocs > MaxDocs {
+		panic(fmt.Sprintf("maxDocs must be <= IndexWriter.MAX_DOCS=%d; got: %d", MaxDocs, maxDocs))
+	}
+	actualMaxDocs = maxDocs
+}
+
+func GetActualMaxDocs() int {
+	return actualMaxDocs
+}
+
+type MapEntry struct {
+	Key   string
+	Value string
+}
+
+type eventQueue struct {
+	closed bool
+	permits chan struct{}
+	queue   []Event
+	writer  *IndexWriter
+	mu      sync.Mutex
+}
+
+func newEventQueue(writer *IndexWriter) *eventQueue {
+	return &eventQueue{
+		permits: make(chan struct{}, 1<<30),
+		writer:  writer,
+	}
+}
+
+func (eq *eventQueue) add(event Event) bool {
+	eq.mu.Lock()
+	defer eq.mu.Unlock()
+	if eq.closed {
+		return false
+	}
+	eq.queue = append(eq.queue, event)
+	return true
+}
+
+func (eq *eventQueue) processEvents() error {
+	eq.mu.Lock()
+	defer eq.mu.Unlock()
+	for len(eq.queue) > 0 {
+		event := eq.queue[0]
+		eq.queue = eq.queue[1:]
+		if err := event.process(eq.writer); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (eq *eventQueue) close() error {
+	eq.mu.Lock()
+	defer eq.mu.Unlock()
+	if eq.closed {
+		return nil
+	}
+	eq.closed = true
+	if eq.writer.getTragicException() != nil {
+		eq.queue = nil
+	} else {
+		_ = eq.processEvents()
+	}
+	return nil
+}
+
+type Event interface {
+	process(writer *IndexWriter) error
+}
+
+type indexWriterMergeSource struct {
+	writer *IndexWriter
+}
+
+func (s *indexWriterMergeSource) getNextMerge() MergePolicyOneMerge {
+	s.writer.mu.Lock()
+	defer s.writer.mu.Unlock()
+	if s.writer.tragedy.Load() != nil {
+		panic(fmt.Sprintf("this writer hit an unrecoverable error; cannot merge: %v", s.writer.tragedy.Load()))
+	}
+	if len(s.writer.pendingMerges) == 0 {
+		return nil
+	}
+	merge := s.writer.pendingMerges[0]
+	s.writer.pendingMerges = s.writer.pendingMerges[1:]
+	s.writer.runningMerges[merge] = true
+	return merge
+}
+
+func (s *indexWriterMergeSource) onMergeFinished(merge MergePolicyOneMerge) {
+	s.writer.mu.Lock()
+	defer s.writer.mu.Unlock()
+	delete(s.writer.runningMerges, merge)
+}
+
+type addIndexesMergeSource struct {
+	writer *IndexWriter
+	pendingAddIndexesMerges []MergePolicyOneMerge
+	mu sync.Mutex
+}
+
+func newAddIndexesMergeSource(writer *IndexWriter) *addIndexesMergeSource {
+	return &addIndexesMergeSource{writer: writer}
+}
+
+func (s *addIndexesMergeSource) registerMerge(merge MergePolicyOneMerge) {
+	s.writer.addEstimatedBytesToMerge(merge)
+	s.writer.mu.Lock()
+	defer s.writer.mu.Unlock()
+	s.pendingAddIndexesMerges = append(s.pendingAddIndexesMerges, merge)
+}
+
+func (s *addIndexesMergeSource) getNextMerge() MergePolicyOneMerge {
+	s.writer.mu.Lock()
+	defer s.writer.mu.Unlock()
+	if len(s.pendingAddIndexesMerges) == 0 {
+		return nil
+	}
+	merge := s.pendingAddIndexesMerges[0]
+	s.pendingAddIndexesMerges = s.pendingAddIndexesMerges[1:]
+	s.writer.runningMerges[merge] = true
+	return merge
+}
+
+func (s *addIndexesMergeSource) onMergeFinished(merge MergePolicyOneMerge) {
+	s.writer.mu.Lock()
+	defer s.writer.mu.Unlock()
+	delete(s.writer.runningMerges, merge)
+}
+
+func (s *addIndexesMergeSource) hasPendingMerges() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.pendingAddIndexesMerges) > 0
+}
+
+func (s *addIndexesMergeSource) abortPendingMerges() error {
+	s.writer.mu.Lock()
+	defer s.writer.mu.Unlock()
+	for _, merge := range s.pendingAddIndexesMerges {
+		merge.setAborted()
+		merge.close(false, false, func(mr MergeReader) {})
+		s.writer.onMergeFinished(merge)
+	}
+	s.pendingAddIndexesMerges = nil
+	return nil
+}
+
+func (s *addIndexesMergeSource) merge(merge MergePolicyOneMerge) error {
+	success := false
+	defer func() {
+		s.writer.mu.Lock()
+		merge.close(success, false, func(mr MergeReader) {})
+		s.writer.onMergeFinished(merge)
+		s.writer.mu.Unlock()
+	}()
+
+	err := s.writer.addIndexesReaderMerge(merge)
+	if err != nil {
+		s.writer.handleMergeException(err, merge)
+		return err
+	}
+	success = true
+	return nil
+}
+
+type merges struct {
+	enabled bool
+}
+
+func (m *merges) enable() { m.enabled = true }
+func (m *merges) disable() { m.enabled = false }
+func (m *merges) areEnabled() bool { return m.enabled }
+
+type flushNotifications struct{}
+
+func (f *flushNotifications) deleteUnusedFiles(files []string) {
+	// To be implemented based on eventQueue
+}
+
+func (f *flushNotifications) flushFailed(info SegmentInfo) {
+	// To be implemented
+}
+
+func (f *flushNotifications) afterSegmentsFlushed() error {
+	return nil
+}
+
+func (f *flushNotifications) onTragicEvent(event error, message string) {
+	// To be implemented
+}
+
+func (f *flushNotifications) onDeletesApplied() {
+	// To be implemented
+}
+
+func (f *flushNotifications) onTicketBacklog() {
+	// To be implemented
+}
+
+func NewIndexWriter(d util.Directory, conf *IndexWriterConfig) (*IndexWriter, error) {
+	conf.setIndexWriter(nil) // Simplified; Java setIndexWriter(this)
+
+	writeLock, err := d.ObtainLock(WriteLockName)
+	if err != nil {
+		return nil, err
+	}
+
+	iw := &IndexWriter{
+		directoryOrig:  d,
+		config:         conf.LiveIndexWriterConfig,
+		mergeScheduler: conf.GetMergeScheduler(),
+	}
+
+	infoStream := iw.config.GetInfoStream()
+	iw.softDeletesEnabled = iw.config.GetSoftDeletesField() != ""
+	iw.eventListener = iw.config.GetIndexWriterEventListener()
+	iw.writeLock = writeLock
+
+	success := false
+	defer func() {
+		if !success {
+			if infoStream.IsEnabled("IW") {
+				infoStream.Message("IW", "init: hit exception on init; releasing write lock")
+			}
+			_ = writeLock.Close()
+		}
+	}()
+
+	iw.directory = &lockValidatingDirectoryWrapper{dir: d, lock: writeLock}
+	iw.mergeScheduler.Initialize(infoStream, d)
+
+	mode := conf.GetOpenMode()
+	indexExists := false
+	if sis, err := ReadSegmentInfos(iw.directory); err == nil {
+		indexExists = true
+		_ = sis
+	}
+
+	var create bool
+	switch mode {
+	case Create:
+		create = true
+	case Append:
+		indexExists = true
+		create = false
+	case CreateOrAppend:
+		create = !indexExists
+	}
+
+	var reader *DirectoryReader
+	commit := conf.GetIndexCommit()
+
+	if create {
+		if commit != nil {
+			if mode == Create {
+				return nil, fmt.Errorf("cannot use IndexWriterConfig.setIndexCommit() with OpenMode.CREATE")
+			}
+			return nil, fmt.Errorf("cannot use IndexWriterConfig.setIndexCommit() when index has no commit")
+		}
+
+		sis := NewSegmentInfos(iw.config.GetIndexCreatedVersionMajor())
+		if indexExists {
+			previous, err := ReadSegmentInfos(iw.directory)
+			if err == nil {
+				sis.UpdateGenerationVersionAndCounter(previous)
+			}
+		}
+		iw.segmentInfos = sis
+		iw.rollbackSegments = iw.segmentInfos.CreateBackupSegmentInfos()
+		iw.changed()
+	} else if reader != nil {
+		// Init from existing reader...
+		// (Not implemented yet, but planned)
+	} else {
+		// Init from latest commit or explicit commit
+		files, err := iw.directory.ListAll()
+		if err != nil {
+			return nil, err
+		}
+		lastSegmentsFile := getLastCommitSegmentsFileName(files)
+		if lastSegmentsFile == nil {
+			return nil, fmt.Errorf("no segments* file found in %v", iw.directory)
+		}
+
+		iw.segmentInfos, err = ReadCommit(iw.directoryOrig, lastSegmentsFile)
+		if err != nil {
+			return nil, err
+		}
+
+		if commit != nil {
+			if commit.GetDirectory() != iw.directoryOrig {
+				return nil, fmt.Errorf("IndexCommit's directory doesn't match my directory")
+			}
+			oldInfos, err := ReadCommit(iw.directoryOrig, commit.GetSegmentsFileName())
+			if err != nil {
+				return nil, err
+			}
+			iw.segmentInfos.Replace(oldInfos)
+			iw.changed()
+		}
+		iw.rollbackSegments = iw.segmentInfos.CreateBackupSegmentInfos()
+	}
+
+	if infoStream.IsEnabled("IW") {
+		infoStream.Message("IW", fmt.Sprintf("init %s", iw.segmentInfos.StringVerbose()))
+	}
+
+	iw.commitUserData = make([]MapEntry, 0)
+	for k, v := range iw.segmentInfos.GetUserData() {
+		iw.commitUserData = append(iw.commitUserData, MapEntry{Key: k, Value: v})
+	}
+
+	iw.pendingNumDocs.Store(int64(iw.segmentInfos.TotalMaxDoc()))
+
+	var errMap error
+	iw.globalFieldNumberMap, errMap = iw.getFieldNumberMap()
+	if errMap != nil {
+		return nil, errMap
+	}
+
+	if err := iw.validateIndexSort(); err != nil {
+		return nil, err
+	}
+
+	iw.config.GetFlushPolicy().Init(iw.config)
+	iw.bufferedUpdatesStream = NewBufferedUpdatesStream(infoStream)
+	iw.docWriter = NewDocumentsWriter(
+		iw.flushNotifications,
+		iw.segmentInfos.GetIndexCreatedVersionMajor(),
+		&iw.pendingNumDocs,
+		false, // enableTestPoints
+		iw.newSegmentName,
+		iw.config,
+		iw.directoryOrig,
+		iw.directory,
+		iw.globalFieldNumberMap,
+	)
+
+	iw.readerPool = NewReaderPool(
+		iw.directory,
+		iw.directoryOrig,
+		iw.segmentInfos,
+		iw.globalFieldNumberMap,
+		iw.bufferedUpdatesStream.GetCompletedDelGen,
+		infoStream,
+		iw.config.GetSoftDeletesField(),
+		reader,
+	)
+	if conf.GetReaderPooling() {
+		iw.readerPool.EnableReaderPooling()
+	}
+
+	iw.mu.Lock()
+	iw.deleter = NewIndexFileDeleter(
+		files,
+		iw.directoryOrig,
+		iw.directory,
+		conf.GetIndexDeletionPolicy(),
+		iw.segmentInfos,
+		infoStream,
+		iw,
+		indexExists,
+		reader != nil,
+	)
+	iw.mu.Unlock()
+
+	if iw.deleter.StartingCommitDeleted {
+		iw.changed()
+	}
+
+	if reader != nil {
+		iw.segmentInfos.Changed()
+		iw.changed()
+	}
+
+	success = true
+	return iw, nil
+}
+
+func (iw *IndexWriter) getFieldNumberMap() (*FieldNumbers, error) {
+	fmap := NewFieldNumbers(iw.config.GetSoftDeletesField(), iw.config.GetParentField())
+	for i := 0; i < iw.segmentInfos.Size(); i++ {
+		info := iw.segmentInfos.Get(i)
+		fis, err := readFieldInfos(info)
+		if err != nil {
+			return nil, err
+		}
+		for _, fi := range fis {
+			fmap.AddOrGet(fi)
+		}
+	}
+	return fmap, nil
+}
+
+func (iw *IndexWriter) validateIndexSort() error {
+	indexSort := iw.config.GetIndexSort()
+	if indexSort == nil {
+		return nil
+	}
+	for i := 0; i < iw.segmentInfos.Size(); i++ {
+		info := iw.segmentInfos.Get(i)
+		segmentIndexSort := info.SegmentInfo().GetIndexSort()
+		if segmentIndexSort == nil || !isCongruentSort(indexSort, segmentIndexSort) {
+			return fmt.Errorf("cannot change previous indexSort=%v to new indexSort=%v", segmentIndexSort, indexSort)
+		}
+	}
+	return nil
+}
+
+func isCongruentSort(indexSort, otherSort any) bool {
+	// Simplified; would need real Sort types
+	return true
+}
+
+func readFieldInfos(si SegmentCommitInfo) (*FieldInfos, error) {
+	codec := si.SegmentInfo().GetCodec()
+	format := codec.FieldInfosFormat()
+	if si.HasFieldUpdates() {
+		suffix := fmt.Sprintf("%x", si.FieldInfosGen()) // Simplified base36
+		return format.Read(si.SegmentInfo().Dir(), si.SegmentInfo(), suffix, store.IOContextReadOnce)
+	} else if si.SegmentInfo().GetUseCompoundFile() {
+		cfs, err := codec.CompoundFormat().GetCompoundReader(si.SegmentInfo().Dir(), si.SegmentInfo())
+		if err != nil {
+			return nil, err
+		}
+		defer cfs.Close()
+		return format.Read(cfs, si.SegmentInfo(), "", store.IOContextReadOnce)
+	} else {
+		return format.Read(si.SegmentInfo().Dir(), si.SegmentInfo(), "", store.IOContextReadOnce)
+	}
+}
+
+func getLastCommitSegmentsFileName(files []string) *string {
+	// Simplified; should find latest segments_N
+	for _, f := range files {
+		if strings.HasPrefix(f, "segments_") {
+			return &f
+		}
+	}
+	return nil
+}
+
+func (iw *IndexWriter) changed() {
+	iw.changeCount.Add(1)
+	iw.segmentInfos.Changed()
+}
+
+func (iw *IndexWriter) newSegmentName() string {
+	iw.mu.Lock()
+	defer iw.mu.Unlock()
+	iw.changeCount.Add(1)
+	iw.segmentInfos.Changed()
+	return "_" + fmt.Sprintf("%x", iw.segmentInfos.Counter())
+}

@@ -62,4 +62,4 @@ func (a *EstonianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*EstonianAnalyzer)(nil)
-var _ AnalyzerInterface = (*EstonianAnalyzer)(nil)
+var _ api.Analyzer = (*EstonianAnalyzer)(nil)

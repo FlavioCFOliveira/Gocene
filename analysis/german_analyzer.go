@@ -90,7 +90,7 @@ func (a *GermanAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure GermanAnalyzer implements Analyzer
 var _ Analyzer = (*GermanAnalyzer)(nil)
-var _ AnalyzerInterface = (*GermanAnalyzer)(nil)
+var _ api.Analyzer = (*GermanAnalyzer)(nil)
 
 // GermanLightStemFilter implements light stemming for German.
 type GermanLightStemFilter struct {

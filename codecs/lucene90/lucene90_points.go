@@ -22,6 +22,7 @@
 package lucene90
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/geo"
 	"errors"
 	"fmt"
 
@@ -146,7 +147,7 @@ func (r *pointsReader) loadMeta(metaIn *store.ChecksumIndexInput, codec string) 
 	if _, err := metaIn.ReadLong(); err != nil { // dataLength
 		return fmt.Errorf("lucene90 points: read data length: %w", err)
 	}
-	if _, err := codecs.CheckFooter(metaIn); err != nil {
+	if _, err := store.CheckFooter(metaIn); err != nil {
 		return fmt.Errorf("lucene90 points: meta footer: %w", err)
 	}
 	return nil
@@ -245,7 +246,7 @@ func newPointValues(reader *bkd.BKDReader) *pointValues {
 
 // Intersect walks the BKD tree, driving visitor for every matching cell and
 // point. It bridges the index.PointTreeIntersectVisitor (Compare returns an
-// int) to the util/bkd.IntersectVisitor (Compare returns a codecs.Relation).
+// int) to the util/bkd.IntersectVisitor (Compare returns a geo.Relation).
 func (pv *pointValues) Intersect(visitor index.PointTreeIntersectVisitor) error {
 	return pv.reader.Intersect(&bkdVisitorBridge{v: visitor})
 }
@@ -309,7 +310,7 @@ var _ index.PointValues = (*pointValues)(nil)
 
 // bkdVisitorBridge adapts an index.PointTreeIntersectVisitor (Compare returns
 // an int in {0,1,2}) to a util/bkd.IntersectVisitor (Compare returns a
-// codecs.Relation). The int convention matches the Relation enum order, so the
+// geo.Relation). The int convention matches the Relation enum order, so the
 // conversion is a direct cast.
 type bkdVisitorBridge struct {
 	v index.PointTreeIntersectVisitor
@@ -321,8 +322,8 @@ func (b *bkdVisitorBridge) VisitByPackedValue(docID int, packedValue []byte) err
 	return b.v.VisitByPackedValue(docID, packedValue)
 }
 
-func (b *bkdVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
-	return codecs.Relation(b.v.Compare(minPackedValue, maxPackedValue))
+func (b *bkdVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+	return geo.Relation(b.v.Compare(minPackedValue, maxPackedValue))
 }
 
 func (b *bkdVisitorBridge) Grow(count int) { b.v.Grow(count) }

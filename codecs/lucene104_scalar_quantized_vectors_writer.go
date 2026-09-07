@@ -109,9 +109,9 @@ func NewLucene104ScalarQuantizedVectorsWriter(state *SegmentWriteState, encoding
 		return nil, errors.New("lucene104 sq: nil Directory")
 	}
 
-	metaName := index.SegmentFileName(
+	metaName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, Lucene104ScalarQuantizedVectorsFormat_VECTOR_META_EXTENSION)
-	dataName := index.SegmentFileName(
+	dataName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, Lucene104ScalarQuantizedVectorsFormat_VECTOR_DATA_EXTENSION)
 
 	rawMeta, err := state.Directory.CreateOutput(metaName, store.IOContextWrite)

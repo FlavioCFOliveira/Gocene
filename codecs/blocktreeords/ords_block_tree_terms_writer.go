@@ -555,7 +555,7 @@ func (w *ordsBlockTreeTermsWriter) Close() error {
 		setErr(err)
 		return firstErr
 	}
-	if err := codecs.WriteFooter(w.out); err != nil {
+	if err := store.WriteFooter(w.out); err != nil {
 		setErr(err)
 		return firstErr
 	}
@@ -563,7 +563,7 @@ func (w *ordsBlockTreeTermsWriter) Close() error {
 		setErr(err)
 		return firstErr
 	}
-	if err := codecs.WriteFooter(w.indexOut); err != nil {
+	if err := store.WriteFooter(w.indexOut); err != nil {
 		setErr(err)
 		return firstErr
 	}

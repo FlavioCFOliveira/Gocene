@@ -31,7 +31,7 @@ const initialOffsetMapCapacity = 64
 // struct rather than an interface hierarchy; BaseCharFilter therefore embeds
 // *analysis.CharFilter and overrides CorrectOffset and CorrectOffsetChained.
 type BaseCharFilter struct {
-	*analysis.CharFilter
+	analysis.CharFilter
 
 	offsets []int // output-stream offsets at which corrections apply
 	diffs   []int // cumulative diff at each recorded offset

@@ -131,7 +131,7 @@ func (f *Field) Name() string {
 }
 
 // FieldType returns the FieldType for this field.
-func (f *Field) FieldType() IndexableFieldType {
+func (f *Field) FieldType() schema.IndexableFieldType {
 	return f.ft.AsIndexFieldTypeInterface()
 }
 

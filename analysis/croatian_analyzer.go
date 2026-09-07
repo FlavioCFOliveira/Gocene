@@ -78,4 +78,4 @@ func (a *CroatianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*CroatianAnalyzer)(nil)
-var _ AnalyzerInterface = (*CroatianAnalyzer)(nil)
+var _ api.Analyzer = (*CroatianAnalyzer)(nil)

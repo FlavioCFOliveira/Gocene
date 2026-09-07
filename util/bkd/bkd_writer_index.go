@@ -7,7 +7,6 @@ package bkd
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -107,7 +106,7 @@ func (w *BKDWriter) writeIndexFinal(
 	packedIndex []byte,
 	dataStartFP int64,
 ) error {
-	if err := codecs.WriteHeader(metaOut, BKDCodecName, int32(w.version)); err != nil {
+	if err := store.WriteHeader(metaOut, BKDCodecName, int32(w.version)); err != nil {
 		return err
 	}
 	if err := store.WriteVInt(metaOut, int32(w.config.NumDims())); err != nil {

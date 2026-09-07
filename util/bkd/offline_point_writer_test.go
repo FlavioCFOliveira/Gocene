@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -70,7 +69,7 @@ func TestOfflinePointWriter_AppendByteSequenceMatchesWireFormat(t *testing.T) {
 	}
 	defer in.Close()
 
-	wantLen := int64(cfg.BytesPerDoc() + codecs.FooterLength())
+	wantLen := int64(cfg.BytesPerDoc() + store.FooterLength())
 	if in.Length() != wantLen {
 		t.Fatalf("file length: got %d want %d", in.Length(), wantLen)
 	}

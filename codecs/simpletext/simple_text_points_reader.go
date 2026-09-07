@@ -10,7 +10,6 @@ import (
 	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -35,7 +34,7 @@ func NewSimpleTextPointsReader(state *codecs.SegmentReadState) (*SimpleTextPoint
 	// -----------------------------------------------------------------------
 	// 1. Read the index file (.dii) to build field → data-file-offset map.
 	// -----------------------------------------------------------------------
-	indexFileName := index.SegmentFileName(
+	indexFileName := store.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		PointIndexExtension,
@@ -94,7 +93,7 @@ func NewSimpleTextPointsReader(state *codecs.SegmentReadState) (*SimpleTextPoint
 	// -----------------------------------------------------------------------
 	// 2. Open the data file (.dim) and build a BKD reader per field.
 	// -----------------------------------------------------------------------
-	dataFileName := index.SegmentFileName(
+	dataFileName := store.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		PointExtension,

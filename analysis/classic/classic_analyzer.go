@@ -65,4 +65,4 @@ func (a *ClassicAnalyzer) TokenStream(fieldName string, reader io.Reader) (analy
 
 // Ensure ClassicAnalyzer implements Analyzer.
 var _ analysis.Analyzer = (*ClassicAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*ClassicAnalyzer)(nil)
+var _ analysis.api.Analyzer = (*ClassicAnalyzer)(nil)

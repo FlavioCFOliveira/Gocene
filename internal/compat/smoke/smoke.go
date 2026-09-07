@@ -89,7 +89,7 @@ func Write(targetDir string, seed int64) error {
 			return fmt.Errorf("smoke: write payload[%d]: %w", i, err)
 		}
 	}
-	if err := codecs.WriteFooter(out); err != nil {
+	if err := store.WriteFooter(out); err != nil {
 		out.Close()
 		return fmt.Errorf("smoke: write footer: %w", err)
 	}
@@ -136,7 +136,7 @@ func Read(sourceDir string, seed int64) ([]int64, error) {
 		}
 		values[i] = v
 	}
-	if _, err := codecs.CheckFooter(in); err != nil {
+	if _, err := store.CheckFooter(in); err != nil {
 		return nil, fmt.Errorf("smoke: check footer: %w", err)
 	}
 	return values, nil

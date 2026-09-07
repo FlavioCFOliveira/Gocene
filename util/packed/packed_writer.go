@@ -111,7 +111,7 @@ func (w *packedWriter) Finish() error {
 func (w *packedWriter) flush() error {
 	w.encoder.EncodeLongsToBytes(w.nextValues, 0, w.nextBlocks, 0, w.iterations)
 	blockCount := int(w.format.ByteCount(VersionCurrent, w.off, w.bitsPerValue))
-	if err := w.out.WriteBytes(w.nextBlocks[:blockCount]); err != nil {
+	if err := w.out.WriteBytes(w.nextBlocks, 0, blockCount); err != nil {
 		return err
 	}
 	for i := range w.nextValues {

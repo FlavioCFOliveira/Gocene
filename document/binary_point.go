@@ -4,108 +4,99 @@
 
 package document
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+)
 
-// BinaryPoint is an indexed binary point field for range queries.
-// This is the Go port of Lucene 10.4.0's
-// org.apache.lucene.document.BinaryPoint, which underpins multi-dimensional
-// binary point data in BKD trees.
+// BinaryPoint is an indexed binary field for fast range filters. If you also need to store the value, you should
+// add a separate StoredField instance.
 //
-// Divergences from Java:
-//   - Lucene's variadic byte[]... constructor maps to NewBinaryPointMulti
-//     (which already existed). The single-value NewBinaryPoint(name, []byte)
-//     was pre-shipped in Gocene and now sets pointDimensionCount/numBytes
-//     correctly from the provided value length.
-//   - Static query factory methods (newExactQuery, newRangeQuery,
-//     newSetQuery in Java) live in package search to avoid the
-//     document/ -> search/ cycle Gocene's package layout would otherwise
-//     close (search/ already imports document/ for FieldType). Callers
-//     write search.NewBinaryPointExactQuery / NewBinaryPointRangeQuery /
-//     NewBinaryPointMultiDimRangeQuery / NewBinaryPointSetQuery instead
-//     of the Java BinaryPoint.* static methods. See
-//     search/binary_point_queries.go for the rationale and the wire-format
-//     contract — the helpers are thin wrappers over the existing
-//     PointRangeQuery and PointInSetQuery types and do not introduce any
-//     new on-disk layout.
+// Finding all documents within an N-dimensional shape or range at search time is efficient.
+// Multiple values for the same field in one document is allowed.
+//
+// This is the Go port of Lucene's org.apache.lucene.document.BinaryPoint.
 type BinaryPoint struct {
 	*Field
 }
 
-// NewBinaryPoint creates a new BinaryPoint with a single 1-dimensional
-// binary value. The dimension count and per-dimension byte width are
-// derived from the value itself (dimensionCount=1, numBytes=len(value)).
-func NewBinaryPoint(name string, value []byte) (*BinaryPoint, error) {
-	if len(value) == 0 {
-		return nil, fmt.Errorf("BinaryPoint value cannot be empty")
+func getType(point [][]byte) *FieldType {
+	if point == nil {
+		panic("point must not be null")
 	}
-	ft := NewFieldType()
-	ft.SetIndexed(true)
-	ft.SetDimensions(1, len(value))
-	ft.Freeze()
-
-	field, err := NewField(name, string(value), ft)
-	if err != nil {
-		return nil, err
+	if len(point) == 0 {
+		panic("point must not be 0 dimensions")
 	}
-	return &BinaryPoint{Field: field}, nil
-}
-
-// NewBinaryPointMulti creates a new BinaryPoint with multiple dimensions.
-// The values are concatenated into a single packed byte array.
-// All dimensions must have the same byte length, matching Lucene's
-// IllegalArgumentException behaviour.
-func NewBinaryPointMulti(name string, values [][]byte) *Field {
-	if len(values) == 0 {
-		panic("BinaryPoint requires at least one dimension value")
-	}
-	dimNumBytes := len(values[0])
-	for i, v := range values {
-		if len(v) != dimNumBytes {
-			panic(fmt.Sprintf("dimension %d has length %d, expected %d (all dimensions must share the same length)", i, len(v), dimNumBytes))
+	bytesPerDim := -1
+	for i := 0; i < len(point); i++ {
+		oneDim := point[i]
+		if oneDim == nil {
+			panic("point must not have null values")
+		}
+		if len(oneDim) == 0 {
+			panic("point must not have 0-length values")
+		}
+		if bytesPerDim == -1 {
+			bytesPerDim = len(oneDim)
+		} else if bytesPerDim != len(oneDim) {
+			panic(fmt.Sprintf("all dimensions must have same bytes length; got %d and %d", bytesPerDim, len(oneDim)))
 		}
 	}
+	return getTypeFixed(len(point), bytesPerDim)
+}
 
-	totalLen := dimNumBytes * len(values)
-	packed := make([]byte, 0, totalLen)
-	for _, v := range values {
-		packed = append(packed, v...)
-	}
-
+func getTypeFixed(numDims, bytesPerDim int) *FieldType {
 	ft := NewFieldType()
-	ft.SetIndexed(true)
-	ft.SetDimensions(len(values), dimNumBytes)
+	ft.SetDimensions(numDims, bytesPerDim)
 	ft.Freeze()
-
-	field, err := NewField(name, string(packed), ft)
-	if err != nil {
-		panic(err)
-	}
-	return field
+	return ft
 }
 
-// NewBinaryPointPacked is the expert API mirroring Lucene's
-// BinaryPoint(String, byte[] packedPoint, IndexableFieldType type).
-// It validates that packedPoint length equals
-// pointDimensionCount * pointNumBytes.
-func NewBinaryPointPacked(name string, packedPoint []byte, ft *FieldType) (*BinaryPoint, error) {
-	if ft == nil {
-		return nil, fmt.Errorf("FieldType cannot be nil")
+func pack(point ...[]byte) []byte {
+	if point == nil {
+		panic("point must not be null")
 	}
-	expect := ft.PointDimensionCount() * ft.PointNumBytes()
-	if expect == 0 {
-		return nil, fmt.Errorf("FieldType does not declare any point dimensions")
+	if len(point) == 0 {
+		panic("point must not be 0 dimensions")
 	}
-	if len(packedPoint) != expect {
-		return nil, fmt.Errorf("packedPoint length %d != pointDimensionCount * pointNumBytes (%d)", len(packedPoint), expect)
+	if len(point) == 1 {
+		return point[0]
 	}
-	field, err := NewField(name, string(packedPoint), ft)
-	if err != nil {
-		return nil, err
+	bytesPerDim := -1
+	for _, dim := range point {
+		if dim == nil {
+			panic("point must not have null values")
+		}
+		if bytesPerDim == -1 {
+			if len(dim) == 0 {
+				panic("point must not have 0-length values")
+			}
+			bytesPerDim = len(dim)
+		} else if len(dim) != bytesPerDim {
+			panic(fmt.Sprintf("all dimensions must have same bytes length; got %d and %d", bytesPerDim, len(dim)))
+		}
 	}
-	return &BinaryPoint{Field: field}, nil
+	packed := make([]byte, bytesPerDim*len(point))
+	for i := 0; i < len(point); i++ {
+		copy(packed[i*bytesPerDim:], point[i])
+	}
+	return packed
 }
 
-// Value returns the binary value of this point.
-func (bp *BinaryPoint) Value() []byte {
-	return bp.Field.BinaryValue()
+// NewBinaryPoint creates a new BinaryPoint, indexing the provided N-dimensional binary point.
+func NewBinaryPoint(name string, point ...[]byte) *BinaryPoint {
+	packed := pack(point...)
+	ft := getType(point)
+	f, _ := NewField(name, packed, ft)
+	return &BinaryPoint{Field: f}
+}
+
+// NewBinaryPointExpert creates a new BinaryPoint using a packed point and a field type.
+func NewBinaryPointExpert(name string, packedPoint []byte, ft *FieldType) *BinaryPoint {
+	if len(packedPoint) != ft.PointDimensionCount()*ft.PointNumBytes() {
+		panic(fmt.Sprintf("packedPoint is length=%d but type.pointDimensionCount()=%d and type.pointNumBytes()=%d",
+			len(packedPoint), ft.PointDimensionCount(), ft.PointNumBytes()))
+	}
+	f, _ := NewField(name, packedPoint, ft)
+	return &BinaryPoint{Field: f}
 }

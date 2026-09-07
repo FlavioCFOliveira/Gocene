@@ -5,6 +5,7 @@
 package simpletext
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/geo"
 	"bytes"
 	"fmt"
 	"sort"
@@ -76,8 +77,8 @@ func (v *collectingVisitor) VisitByPackedValue(docID int, packedValue []byte) er
 	return nil
 }
 
-func (v *collectingVisitor) Compare(_, _ []byte) codecs.Relation {
-	return codecs.RelationCellCrossesQuery
+func (v *collectingVisitor) Compare(_, _ []byte) geo.Relation {
+	return geo.RelationCellCrossesQuery
 }
 
 func (v *collectingVisitor) Grow(_ int) {}

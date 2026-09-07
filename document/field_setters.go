@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // This file extends Field (defined in field.go) with the Lucene 10.4.0
@@ -107,8 +107,8 @@ func (f *Field) SetDoubleValue(value float64) {
 // which always returns InvertableType.TOKEN_STREAM (subclasses may override).
 //
 // Mirrors Lucene 10.4.0 default behaviour.
-func (f *Field) InvertableType() index.InvertableType {
-	return index.InvertableTypeTokenStream
+func (f *Field) InvertableType() spi.InvertableType {
+	return spi.InvertableTypeTokenStream
 }
 
 // GetCharSequenceValue returns the field's string value (CharSequence in

@@ -46,7 +46,7 @@ func NewOnHeapFSTStoreFromDataInput(maxBlockBits int, in store.DataInput, numByt
 	}
 	buf := make([]byte, numBytes)
 	if numBytes > 0 {
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 			if errors.Is(err, io.EOF) {
 				return nil, fmt.Errorf("OnHeapFSTStore: only read partial bytes, expected %d", numBytes)
 			}

@@ -113,7 +113,7 @@ func (r *BlockPackedReaderIterator) refill() error {
 		blockValueCount = remaining
 	}
 	blockBytes := FormatPacked.ByteCount(r.packedIntsVersion, int(blockValueCount), bitsPerValue)
-	if err := r.in.ReadBytes(r.blocks[:blockBytes]); err != nil {
+	if err := r.in.ReadBytes(r.blocks, 0, blockBytes); err != nil {
 		return err
 	}
 	dec.DecodeBytes(r.blocks, 0, r.values, 0, iterations)
@@ -207,5 +207,5 @@ func (r *BlockPackedReaderIterator) skipBytes(n int64) error {
 	} else {
 		r.blocks = r.blocks[:n]
 	}
-	return r.in.ReadBytes(r.blocks)
+	return r.in.ReadBytes(r.blocks, 0, len(r.blocks))
 }

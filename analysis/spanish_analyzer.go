@@ -101,7 +101,7 @@ func (a *SpanishAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure SpanishAnalyzer implements Analyzer
 var _ Analyzer = (*SpanishAnalyzer)(nil)
-var _ AnalyzerInterface = (*SpanishAnalyzer)(nil)
+var _ api.Analyzer = (*SpanishAnalyzer)(nil)
 
 // SpanishLightStemFilter implements light stemming for Spanish.
 type SpanishLightStemFilter struct {

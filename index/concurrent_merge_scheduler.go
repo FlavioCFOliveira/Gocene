@@ -7,7 +7,6 @@ package index
 import (
 	"context"
 	"fmt"
-	"math"
 	"runtime"
 	"sync"
 	"time"
@@ -317,6 +316,12 @@ func (s *ConcurrentMergeScheduler) getEffectiveMaxMergeCount() int {
 // Merge runs the merges from the source using background goroutines.
 // This implements the MergeScheduler interface.
 func (s *ConcurrentMergeScheduler) Merge(source MergeSource, trigger MergeTrigger) error {
+	return s.MergeInternal(source, trigger, false)
+}
+
+// MergeInternal is a helper that allows Merge to be called with a flag indicating
+// if the caller is a merge thread, avoiding deadlock in maybeStall.
+func (s *ConcurrentMergeScheduler) MergeInternal(source MergeSource, trigger MergeTrigger, isMergeThread bool) error {
 	if s.IsClosed() {
 		return NewAlreadyClosedException("merge scheduler is closed", nil)
 	}
@@ -330,7 +335,7 @@ func (s *ConcurrentMergeScheduler) Merge(source MergeSource, trigger MergeTrigge
 	// lost when source.GetNextMerge runs dry.
 	for {
 		// Maybe stall if too many pending merges
-		if err := s.maybeStall(source, maxMergeCount); err != nil {
+		if err := s.maybeStall(source, maxMergeCount, isMergeThread); err != nil {
 			return err
 		}
 
@@ -390,7 +395,7 @@ func (s *ConcurrentMergeScheduler) MergeWithSpec(source MergeSource, spec *Merge
 	// Since Merge() is the main entry point that spawns threads, we can just call it
 	// with a dummy source that returns nil.
 	dummySource := &dummyMergeSource{}
-	if err := s.Merge(dummySource, MergeTriggerForced); err != nil {
+	if err := s.Merge(dummySource, MergeTriggerExplicit); err != nil {
 		return err
 	}
 
@@ -411,27 +416,23 @@ func (d *dummyMergeSource) HasPendingMerges() bool      { return false }
 func (d *dummyMergeSource) Merge(merge *OneMerge) error { return fmt.Errorf("not implemented") }
 
 // maybeStall stalls the calling goroutine if there are too many pending merges.
-func (s *ConcurrentMergeScheduler) maybeStall(source MergeSource, maxMergeCount int) error {
-	s.mergeMu.Lock()
-	pendingCount := len(s.mergeThreads) + len(s.pendingMerges)
-	s.mergeMu.Unlock()
+// This implements the deadlock prevention logic from Lucene's maybeStall() (lines 616-651),
+// ensuring that merge threads are never stalled.
+func (s *ConcurrentMergeScheduler) maybeStall(source MergeSource, maxMergeCount int, isMergeThread bool) error {
+	if isMergeThread {
+		return nil
+	}
 
-	// If we're over the limit, wait
-	for pendingCount >= maxMergeCount {
-		if s.IsClosed() {
-			return NewAlreadyClosedException("merge scheduler is closed", nil)
+	for {
+		s.mergeMu.Lock()
+		activeThreads := len(s.mergeThreads)
+		s.mergeMu.Unlock()
+
+		if activeThreads < maxMergeCount || !source.HasPendingMerges() {
+			break
 		}
 
-		// Pause the calling thread; subclasses may override doStall to apply
-		// custom back-pressure (Lucene's testing hook).
 		s.doStall()
-
-		// Wait for a merge to complete before re-checking the limit.
-		s.waitForMergeThread()
-
-		s.mergeMu.Lock()
-		pendingCount = len(s.mergeThreads) + len(s.pendingMerges)
-		s.mergeMu.Unlock()
 	}
 
 	return nil
@@ -461,7 +462,10 @@ func (s *ConcurrentMergeScheduler) spawnMergeThread(source MergeSource, merge *O
 	s.mu.Unlock()
 
 	thread := NewMergeThread(threadName, merge)
+	thread.RateLimiter = NewMergeRateLimiter(merge.Progress)
 	thread.SetRunning(true)
+
+	s.updateIOThrottle(merge, thread.RateLimiter)
 
 	s.mergeMu.Lock()
 	s.mergeThreads = append(s.mergeThreads, thread)
@@ -482,8 +486,10 @@ func (s *ConcurrentMergeScheduler) spawnMergeThread(source MergeSource, merge *O
 			merge.Error = err
 		}
 
-		// Remove from active threads
-		s.removeMergeThread(thread)
+		// In Java, runOnMergeFinished is called after doMerge.
+		// It handles removing the thread, calling merge() again for new merges,
+		// and notifying waiters.
+		s.runOnMergeFinished(source, merge, thread)
 
 		// Always notify the merge source so bookkeeping (and observer
 		// notification) happens regardless of success or failure.
@@ -559,6 +565,7 @@ func (s *ConcurrentMergeScheduler) executeMerge(source MergeSource, merge *OneMe
 		return NewMergeException("merge failed", err, merge)
 	}
 
+	s.mergeSuccess(source, merge)
 	return nil
 }
 
@@ -567,6 +574,22 @@ func (s *ConcurrentMergeScheduler) executeMerge(source MergeSource, merge *OneMe
 // matching Lucene's protected ConcurrentMergeScheduler.doMerge() hook.
 func (s *ConcurrentMergeScheduler) doMerge(source MergeSource, merge *OneMerge) error {
 	return source.Merge(merge)
+}
+
+// mergeSuccess is called when a merge successfully completes.
+// Subclasses may override this hook to perform additional bookkeeping.
+func (s *ConcurrentMergeScheduler) mergeSuccess(source MergeSource, merge *OneMerge) {
+	// Default: no-op
+}
+
+// runOnMergeFinished is called when a merge thread finishes.
+// Mirrors Lucene's ConcurrentMergeScheduler.runOnMergeFinished().
+func (s *ConcurrentMergeScheduler) runOnMergeFinished(source MergeSource, merge *OneMerge, thread *MergeThread) {
+	// Let CMS run new merges if necessary:
+	s.MergeInternal(source, MergeTriggerMergeFinished, true)
+
+	// Remove the thread from the active list.
+	s.removeMergeThread(thread)
 }
 
 // Close waits for all running merges to complete and shuts down the scheduler.
@@ -795,13 +818,98 @@ func (s *ConcurrentMergeScheduler) updateMergeThreads() {
 	_ = bigMergeCount // Suppress unused variable warning; kept for Lucene fidelity
 }
 
-// handleMergeException is called when an exception is hit in a background merge thread.
-// This method wraps the exception in a MergeException.
-// Based on Lucene's ConcurrentMergeScheduler.handleMergeException() (lines 769-771).
-func (s *ConcurrentMergeScheduler) handleMergeException(exc error) error {
-	// Wrap the exception as a MergeException (similar to Java's MergePolicy.MergeException).
-	// Lucene throws the exception; in Go we return it for the caller to handle.
-	return NewMergeException("merge failed", exc, nil)
+// isBacklog returns true if there are other similarly sized merges running
+// that have been active for more than 3 seconds, suggesting a backlog.
+// Based on Lucene's ConcurrentMergeScheduler.isBacklog() (lines 805-823).
+func (s *ConcurrentMergeScheduler) isBacklog(now int64, merge *OneMerge) bool {
+	s.mergeMu.Lock()
+	defer s.mergeMu.Unlock()
+	return s.isBacklogLocked(now, merge)
+}
+
+func (s *ConcurrentMergeScheduler) isBacklogLocked(now int64, merge *OneMerge) bool {
+	mergeMB := float64(merge.EstimatedMergeBytes.Load()) / 1024.0 / 1024.0
+	for _, t := range s.mergeThreads {
+		startNS := t.Merge.MergeStartNS
+		if t.IsRunning() &&
+			t.Merge != merge &&
+			startNS != -1 &&
+			float64(t.Merge.EstimatedMergeBytes.Load()) > MinBigMergeMB*1024*1024 &&
+			float64(now-startNS)/1e9 > 3.0 {
+
+			otherMB := float64(t.Merge.EstimatedMergeBytes.Load()) / 1024.0 / 1024.0
+			ratio := otherMB / mergeMB
+			if ratio > 0.3 && ratio < 3.0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// updateIOThrottle tunes the IO throttle rate when a new merge starts.
+// Based on Lucene's ConcurrentMergeScheduler.updateIOThrottle() (lines 825-930).
+func (s *ConcurrentMergeScheduler) updateIOThrottle(newMerge *OneMerge, rateLimiter store.RateLimiter) error {
+	s.mu.Lock()
+	doAuto := s.doAutoIOThrottle
+	maxThreadCount := s.maxThreadCount
+	s.mu.Unlock()
+
+	if !doAuto {
+		return nil
+	}
+
+	mergeMB := float64(newMerge.EstimatedMergeBytes.Load()) / 1024.0 / 1024.0
+	if mergeMB < MinBigMergeMB {
+		return nil
+	}
+
+	now := time.Now().UnixNano()
+	newBacklog := s.isBacklog(now, newMerge)
+	curBacklog := false
+
+	if !newBacklog {
+		s.mergeMu.Lock()
+		if len(s.mergeThreads) > maxThreadCount {
+			curBacklog = true
+		} else {
+			for _, t := range s.mergeThreads {
+				if s.isBacklogLocked(now, t.Merge) {
+					curBacklog = true
+					break
+				}
+			}
+		}
+		s.mergeMu.Unlock()
+	}
+
+	s.mu.Lock()
+	if newBacklog {
+		s.targetMBPerSec *= 1.20
+		if s.targetMBPerSec > MaxMergeMBPerSec {
+			s.targetMBPerSec = MaxMergeMBPerSec
+		}
+	} else if !curBacklog {
+		s.targetMBPerSec /= 1.10
+		if s.targetMBPerSec < MinMergeMBPerSec {
+			s.targetMBPerSec = MinMergeMBPerSec
+		}
+	}
+
+	target := s.targetMBPerSec
+	force := s.forceMergeMBPerSec
+	s.mu.Unlock()
+
+	var rate float64
+	if newMerge.MaxNumSegments != -1 {
+		rate = force
+	} else {
+		rate = target
+	}
+	rateLimiter.SetMBPerSec(rate)
+	s.targetMBPerSecChanged()
+
+	return nil
 }
 
 // max returns the maximum of two integers.

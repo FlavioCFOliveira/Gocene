@@ -5,7 +5,6 @@
 package replicator
 
 import (
-	"fmt"
 )
 
 // Node represents a node in the replication cluster.

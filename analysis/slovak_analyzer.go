@@ -99,4 +99,4 @@ func (a *SlovakAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*SlovakAnalyzer)(nil)
-var _ AnalyzerInterface = (*SlovakAnalyzer)(nil)
+var _ api.Analyzer = (*SlovakAnalyzer)(nil)

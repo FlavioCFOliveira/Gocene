@@ -84,7 +84,7 @@ func (a *KoreanAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure KoreanAnalyzer implements Analyzer
 var _ Analyzer = (*KoreanAnalyzer)(nil)
-var _ AnalyzerInterface = (*KoreanAnalyzer)(nil)
+var _ api.Analyzer = (*KoreanAnalyzer)(nil)
 
 // KoreanAnalyzerFactory creates KoreanAnalyzer instances.
 type KoreanAnalyzerFactory struct {
@@ -106,7 +106,7 @@ func NewKoreanAnalyzerFactoryWithWords(stopWords *CharArraySet) *KoreanAnalyzerF
 }
 
 // Create creates a new KoreanAnalyzer.
-func (f *KoreanAnalyzerFactory) Create() AnalyzerInterface {
+func (f *KoreanAnalyzerFactory) Create() api.Analyzer {
 	return NewKoreanAnalyzerWithWords(f.stopWords)
 }
 

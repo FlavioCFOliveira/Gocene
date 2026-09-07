@@ -91,7 +91,7 @@ func (a *TurkishAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*TurkishAnalyzer)(nil)
-var _ AnalyzerInterface = (*TurkishAnalyzer)(nil)
+var _ api.Analyzer = (*TurkishAnalyzer)(nil)
 
 // TurkishLowerCaseFilter implements Turkish-specific lowercasing.
 //

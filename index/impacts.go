@@ -80,27 +80,4 @@ type Impacts interface {
 	GetImpacts(level int) *FreqAndNormBuffer
 }
 
-// ImpactsSource produces Impacts and supports shallow-advance to allow callers
-// to retrieve more precise impact information for upcoming docs. Mirrors
-// org.apache.lucene.index.ImpactsSource from Apache Lucene 10.4.0.
-type ImpactsSource interface {
-	// AdvanceShallow shallow-advances to target. Cheaper than calling Advance
-	// on the underlying iterator and lets subsequent GetImpacts calls ignore
-	// doc IDs less than target.
-	AdvanceShallow(target int) error
 
-	// GetImpacts returns Impacts for upcoming doc IDs greater than or equal
-	// to the maximum of the current docID and the last AdvanceShallow target.
-	GetImpacts() (Impacts, error)
-}
-
-// ImpactsEnum is the PostingsEnum extension that also exposes ImpactsSource.
-// Mirrors org.apache.lucene.index.ImpactsEnum from Apache Lucene 10.4.0.
-//
-// Lucene defines an abstract class; Gocene uses an interface to align with
-// how PostingsEnum and ImpactsSource are modelled. Implementations must
-// satisfy both PostingsEnum and ImpactsSource.
-type ImpactsEnum interface {
-	PostingsEnum
-	ImpactsSource
-}

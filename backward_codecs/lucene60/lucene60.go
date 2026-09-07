@@ -101,7 +101,7 @@ func (f *Lucene60FieldInfosFormat) Write(
 
 	// Stack: rawOutput → checksumOutput → reverserOutput
 	// The reverserOutput.GetChecksum() delegates to checksumOutput so that
-	// codecs.WriteFooter can record the running CRC32.
+	// store.WriteFooter can record the running CRC32.
 	rawOut, err := dir.CreateOutput(fileName, context)
 	if err != nil {
 		return err
@@ -317,10 +317,10 @@ func writeFieldInfosTo(out store.IndexOutput, segmentInfo *index.SegmentInfo, se
 			}
 		}
 	}
-	return codecs.WriteFooter(out)
+	return store.WriteFooter(out)
 }
 
-// checkFooterWithChecksum is a variant of codecs.CheckFooter that works with
+// checkFooterWithChecksum is a variant of store.CheckFooter that works with
 // our checksumIndexInputLike interface instead of the concrete
 // *store.ChecksumIndexInput type.
 func checkFooterWithChecksum(in checksumIndexInputLike) error {

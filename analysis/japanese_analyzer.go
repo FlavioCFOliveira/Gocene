@@ -77,7 +77,7 @@ func (a *JapaneseAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure JapaneseAnalyzer implements Analyzer
 var _ Analyzer = (*JapaneseAnalyzer)(nil)
-var _ AnalyzerInterface = (*JapaneseAnalyzer)(nil)
+var _ api.Analyzer = (*JapaneseAnalyzer)(nil)
 
 // JapaneseAnalyzerFactory creates JapaneseAnalyzer instances.
 type JapaneseAnalyzerFactory struct {
@@ -99,7 +99,7 @@ func NewJapaneseAnalyzerFactoryWithWords(stopWords *CharArraySet) *JapaneseAnaly
 }
 
 // Create creates a new JapaneseAnalyzer.
-func (f *JapaneseAnalyzerFactory) Create() AnalyzerInterface {
+func (f *JapaneseAnalyzerFactory) Create() api.Analyzer {
 	return NewJapaneseAnalyzerWithWords(f.stopWords)
 }
 

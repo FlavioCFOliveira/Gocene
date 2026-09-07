@@ -5,6 +5,7 @@
 package index
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/geo"
 	"errors"
 	"fmt"
 
@@ -50,8 +51,8 @@ import (
 //     ([ErrPointValuesUnsupported]) or a zero value.
 type PointValuesWriter struct {
 	fieldInfo         *FieldInfo
-	bytes             *util.PagedBytes
-	bytesOut          *util.PagedBytesDataOutput
+	bytes             *store.PagedBytes
+	bytesOut          *store.PagedBytesDataOutput
 	iwBytesUsed       util.CounterAPI
 	docIDs            []int
 	numPoints         int
@@ -66,17 +67,17 @@ type PointValuesWriter struct {
 // PointValues implementation.
 var ErrPointValuesUnsupported = errors.New("point values: operation not supported on in-RAM buffer")
 
-// BufferedPointRelation mirrors codecs.Relation by integer value so the
+// BufferedPointRelation mirrors geo.Relation by integer value so the
 // in-RAM visitor callback contract can be expressed without importing
-// the codecs package. Values match codecs.RelationCell* one-for-one.
+// the codecs package. Values match geo.RelationCell* one-for-one.
 type BufferedPointRelation int
 
 const (
-	// BufferedPointCellOutsideQuery matches codecs.RelationCellOutsideQuery.
+	// BufferedPointCellOutsideQuery matches geo.RelationCellOutsideQuery.
 	BufferedPointCellOutsideQuery BufferedPointRelation = iota
-	// BufferedPointCellInsideQuery matches codecs.RelationCellInsideQuery.
+	// BufferedPointCellInsideQuery matches geo.RelationCellInsideQuery.
 	BufferedPointCellInsideQuery
-	// BufferedPointCellCrossesQuery matches codecs.RelationCellCrossesQuery.
+	// BufferedPointCellCrossesQuery matches geo.RelationCellCrossesQuery.
 	BufferedPointCellCrossesQuery
 )
 
@@ -94,6 +95,7 @@ type BufferedPointVisitor interface {
 // codecs.MutablePointTree. Implementations may alias their underlying
 // storage when filling BytesRef receivers.
 type PointTreeBuffer interface {
+	Size() int64
 	Swap(i, j int)
 	GetValue(i int, dst *util.BytesRef)
 	GetByteAt(i, k int) byte
@@ -361,6 +363,11 @@ func NewMutableSortingPointValues(in PointTreeBuffer, docMap SorterDocMap) *Muta
 	return &MutableSortingPointValues{in: in, docMap: docMap}
 }
 
+// Size delegates to the wrapped tree.
+func (m *MutableSortingPointValues) Size() int64 {
+	return m.in.Size()
+}
+
 // GetValue delegates straight to the wrapped tree.
 func (m *MutableSortingPointValues) GetValue(i int, dst *util.BytesRef) {
 	m.in.GetValue(i, dst)
@@ -427,13 +434,14 @@ func (r *bufferedPointsReader) Close() error {
 // spill path), matching Apache Lucene 10.4.0's buffered-points behaviour.
 type MutablePointTreeSource interface {
 	// MutablePointTree returns the in-memory tree and its point count.
-	MutablePointTree() (PointTreeBuffer, int)
+	MutablePointTree() (PointTreeBuffer, int64)
 }
 
 // MutablePointTree exposes the in-memory buffered points as a [PointTreeBuffer]
 // so that codecs can drive BKDWriter.WriteField directly in RAM.
-func (r *bufferedPointsReader) MutablePointTree() (PointTreeBuffer, int) {
-	return r.values.Tree(), sizeOfTree(r.values.Tree())
+func (r *bufferedPointsReader) MutablePointTree() (PointTreeBuffer, int64) {
+	tree := r.values.Tree()
+	return tree, tree.Size()
 }
 
 // bufferedPointValues is the codec-facing [BufferedPointValues] view of
@@ -463,8 +471,8 @@ func (p *bufferedPointValues) Intersect(visitor BufferedPointVisitor) error {
 	}
 	scratch := util.NewBytesRefEmpty()
 	packed := make([]byte, p.packedBytesLength)
-	size := sizeOfTree(p.tree)
-	for i := 0; i < size; i++ {
+	size := p.tree.Size()
+	for i := 0; i < int(size); i++ {
 		p.tree.GetValue(i, scratch)
 		if scratch.Length != p.packedBytesLength {
 			return fmt.Errorf("buffered point values: scratch length %d != packed %d", scratch.Length, p.packedBytesLength)
@@ -481,21 +489,7 @@ func (p *bufferedPointValues) Intersect(visitor BufferedPointVisitor) error {
 // trivial in RAM. Mirrors the "unsupported on the anonymous accessor,
 // but trivially derivable from the tree" behaviour of the reference.
 func (p *bufferedPointValues) EstimatePointCount(_ BufferedPointVisitor) int64 {
-	return int64(sizeOfTree(p.tree))
-}
-
-// sizeOfTree extracts the buffered point count from either the
-// bufferedMutablePointTree or its sorted wrapper without leaking those
-// concrete types into the BufferedPointValues interface.
-func sizeOfTree(t PointTreeBuffer) int {
-	switch v := t.(type) {
-	case *bufferedMutablePointTree:
-		return v.numPoints
-	case *MutableSortingPointValues:
-		return sizeOfTree(v.in)
-	default:
-		return 0
-	}
+	return p.tree.Size()
 }
 
 // GetMinPackedValue mirrors the unsupported accessor on Lucene's

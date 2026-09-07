@@ -6,6 +6,8 @@ package index
 
 import (
 	"fmt"
+	"strings"
+	"sync"
 )
 
 // CompositeReader is an abstract base class for IndexReaders that are composed of
@@ -17,21 +19,28 @@ import (
 type CompositeReader struct {
 	*IndexReader
 
-	// subReaders holds the sub-readers
+	// subReaders holds the sub-readers.
+	// In Lucene 10.5.0, this is managed by subclasses via getSequentialSubReaders().
+	// In Gocene, we keep it here for compatibility with DirectoryReader and BaseCompositeReader.
 	subReaders []IndexReaderInterface
 
-	// starts contains the starting doc ID for each sub-reader
+	// starts contains the starting doc ID for each sub-reader.
 	starts []int
 
-	// totalMaxDoc is the total maxDoc across all sub-readers
+	// totalMaxDoc is the total maxDoc across all sub-readers.
 	totalMaxDoc int
 
-	// totalNumDocs is the total numDocs across all sub-readers
+	// totalNumDocs is the total numDocs across all sub-readers.
 	totalNumDocs int
+
+	// readerContext is the reader context for this composite reader.
+	readerContext *CompositeReaderContext
+
+	// mu protects context initialization.
+	mu sync.RWMutex
 }
 
 // NewCompositeReader creates a new CompositeReader.
-// This should be called by subclasses.
 func NewCompositeReader() *CompositeReader {
 	return &CompositeReader{
 		IndexReader: NewIndexReader(),
@@ -51,7 +60,6 @@ func NewCompositeReaderWithSubReaders(subReaders []IndexReaderInterface) (*Compo
 		starts:      make([]int, len(subReaders)+1),
 	}
 
-	// Copy sub-readers and calculate starts
 	maxDoc := 0
 	numDocs := 0
 	for i, subReader := range subReaders {
@@ -73,8 +81,63 @@ func NewCompositeReaderWithSubReaders(subReaders []IndexReaderInterface) (*Compo
 }
 
 // GetSequentialSubReaders returns the sub-readers in sequential order.
+// This is the Go port of Lucene's getSequentialSubReaders().
 func (r *CompositeReader) GetSequentialSubReaders() []IndexReaderInterface {
 	return r.subReaders
+}
+
+// GetContext returns the reader context.
+// This is a faithful port of Lucene's final getContext() method.
+func (r *CompositeReader) GetContext() (IndexReaderContext, error) {
+	if err := r.EnsureOpen(); err != nil {
+		return nil, err
+	}
+
+	r.mu.RLock()
+	if r.readerContext != nil {
+		ctx := r.readerContext
+		r.mu.RUnlock()
+		return ctx, nil
+	}
+	r.mu.RUnlock()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.readerContext == nil {
+		// In Java: readerContext = CompositeReaderContext.create(this);
+		// In Gocene, this is implemented via the CompositeReaderContextBuilder.
+		builder := NewCompositeReaderContextBuilder(r)
+		ctx, err := builder.Build()
+		if err != nil {
+			return nil, err
+		}
+		r.readerContext = ctx
+	}
+	return r.readerContext, nil
+}
+
+// String returns a string representation of the reader.
+// This is a faithful port of Lucene's toString() method.
+func (r *CompositeReader) String() string {
+	var sb strings.Builder
+
+	// In Go, since CompositeReader is embedded, we use "CompositeReader" as the base name.
+	// In Java, getClass().getSimpleName() would return the name of the concrete subclass.
+	sb.WriteString("CompositeReader")
+	sb.WriteByte('(')
+
+	subReaders := r.GetSequentialSubReaders()
+	if len(subReaders) > 0 {
+		for i, sr := range subReaders {
+			if i > 0 {
+				sb.WriteByte(' ')
+			}
+			sb.WriteString(fmt.Sprintf("%v", sr))
+		}
+	}
+	sb.WriteByte(')')
+	return sb.String()
 }
 
 // ReaderIndex returns the index of the sub-reader that contains the given doc ID.
@@ -130,29 +193,9 @@ func (r *CompositeReader) HasDeletions() bool {
 	return false
 }
 
-// GetContext returns the reader context.
-func (r *CompositeReader) GetContext() (IndexReaderContext, error) {
-	if err := r.EnsureOpen(); err != nil {
-		return nil, err
-	}
-	// This should be overridden by subclasses to return the proper context
-	return nil, fmt.Errorf("GetContext must be implemented by subclass")
-}
-
-// Leaves returns all leaf reader contexts.
-func (r *CompositeReader) Leaves() ([]*LeafReaderContext, error) {
-	if err := r.EnsureOpen(); err != nil {
-		return nil, err
-	}
-	// This should be overridden by subclasses
-	return nil, fmt.Errorf("Leaves must be implemented by subclass")
-}
-
 // CompositeReaderInterface defines the interface for composite readers.
 type CompositeReaderInterface interface {
 	IndexReaderInterface
-
-	// GetSequentialSubReaders returns the sub-readers in sequential order.
 	GetSequentialSubReaders() []IndexReaderInterface
 }
 

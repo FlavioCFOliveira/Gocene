@@ -13,7 +13,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// DoubleRange is the Lucene 10.4.0-compatible indexed Double Range field.
+// DoubleRange is the Lucene 10.5.0-compatible indexed Double Range field.
 //
 // It indexes dimensional ranges defined as min/max pairs, supporting up to
 // 4 dimensions (indexed as 8 numeric values). With 1 dimension representing
@@ -33,10 +33,6 @@ import (
 //	minD0 ... minD{N-1} | maxD0 ... maxD{N-1}
 //
 // matching the JVM-produced byte stream exactly.
-//
-// Static query factories (NewIntersectsQuery / NewContainsQuery /
-// NewWithinQuery / NewCrossesQuery) are deferred — they depend on
-// search.RangeFieldQuery. See backlog #2695.
 type DoubleRange struct {
 	*Field
 	numDims int
@@ -176,7 +172,7 @@ func decodeDoubleRangeMax(b []byte, dim int) float64 {
 }
 
 // formatDoubleRangeDim renders one dimension as "[min : max]" using the
-// Java Double.toString-equivalent formatting (shortest round-trip).
+// Java Double.toString-equivalent formatting.
 func formatDoubleRangeDim(b []byte, dim int) string {
 	return "[" + formatDoubleRangeValue(decodeDoubleRangeMin(b, dim)) +
 		" : " + formatDoubleRangeValue(decodeDoubleRangeMax(b, dim)) + "]"
@@ -184,10 +180,7 @@ func formatDoubleRangeDim(b []byte, dim int) string {
 
 // formatDoubleRangeValue mirrors java.lang.Double.toString for finite values:
 // shortest decimal that round-trips. Go's strconv.FormatFloat(v, 'g', -1, 64)
-// produces the same output for the values exercised by Lucene's tests
-// (e.g. 0.1, 0.2, ..., 3.1, 3.2 → "0.1", "0.2", ..., "3.1", "3.2"). Special
-// values (Infinity, -Infinity) are emitted as "Infinity"/"-Infinity" to match
-// Java's representation; NaN is included for completeness (rejected at encode).
+// produces the same output for the values exercised by Lucene's tests.
 func formatDoubleRangeValue(v float64) string {
 	switch {
 	case math.IsInf(v, +1):
@@ -199,4 +192,62 @@ func formatDoubleRangeValue(v float64) string {
 	default:
 		return strconv.FormatFloat(v, 'g', -1, 64)
 	}
+}
+
+// DoubleRangeFieldQuery provides a specific string representation for
+// DoubleRange-based RangeFieldQueries.
+type DoubleRangeFieldQuery struct {
+	*RangeFieldQuery
+}
+
+// String returns a human-readable representation matching Lucene's
+// RangeFieldQuery.toString shape for DoubleRange fields.
+func (q *DoubleRangeFieldQuery) String() string {
+	b := q.Ranges()
+	numDims := q.NumDims()
+	var sb strings.Builder
+	sb.WriteString("RangeFieldQuery <")
+	sb.WriteString(q.Field())
+	sb.WriteByte(':')
+	for d := 0; d < numDims; d++ {
+		sb.WriteByte(' ')
+		sb.WriteString(formatDoubleRangeDim(b, d))
+	}
+	sb.WriteByte('>')
+	return sb.String()
+}
+
+// NewIntersectsQuery creates a query for matching indexed ranges that intersect the defined range.
+func NewIntersectsQuery(field string, min, max []float64) (*DoubleRangeFieldQuery, error) {
+	return newRelationQuery(field, min, max, RangeFieldQueryTypeIntersects)
+}
+
+// NewContainsQuery creates a query for matching indexed ranges that contain the defined range.
+func NewContainsQuery(field string, min, max []float64) (*DoubleRangeFieldQuery, error) {
+	return newRelationQuery(field, min, max, RangeFieldQueryTypeContains)
+}
+
+// NewWithinQuery creates a query for matching indexed ranges that are within the defined range.
+func NewWithinQuery(field string, min, max []float64) (*DoubleRangeFieldQuery, error) {
+	return newRelationQuery(field, min, max, RangeFieldQueryTypeWithin)
+}
+
+// NewCrossesQuery creates a query for matching indexed ranges that cross the defined range.
+func NewCrossesQuery(field string, min, max []float64) (*DoubleRangeFieldQuery, error) {
+	return newRelationQuery(field, min, max, RangeFieldQueryTypeCrosses)
+}
+
+func newRelationQuery(field string, min, max []float64, qType RangeFieldQueryType) (*DoubleRangeFieldQuery, error) {
+	if err := checkDoubleRangeArgs(min, max); err != nil {
+		return nil, err
+	}
+	encoded, err := EncodeDoubleRange(min, max)
+	if err != nil {
+		return nil, err
+	}
+	rfq, err := NewRangeFieldQuery(field, encoded, len(min), qType)
+	if err != nil {
+		return nil, err
+	}
+	return &DoubleRangeFieldQuery{RangeFieldQuery: rfq}, nil
 }

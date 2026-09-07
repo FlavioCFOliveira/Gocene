@@ -89,4 +89,4 @@ func (a *LithuanianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*LithuanianAnalyzer)(nil)
-var _ AnalyzerInterface = (*LithuanianAnalyzer)(nil)
+var _ api.Analyzer = (*LithuanianAnalyzer)(nil)

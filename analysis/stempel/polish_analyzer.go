@@ -120,7 +120,7 @@ func (a *PolishAnalyzer) TokenStream(fieldName string, reader io.Reader) (analys
 
 // Ensure PolishAnalyzer implements Analyzer.
 var _ analysis.Analyzer = (*PolishAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*PolishAnalyzer)(nil)
+var _ analysis.api.Analyzer = (*PolishAnalyzer)(nil)
 
 // stempelFilterFactory is an internal TokenFilterFactory that creates a
 // StempelFilter with a fixed pre-loaded trie.

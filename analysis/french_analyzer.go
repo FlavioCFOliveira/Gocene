@@ -87,7 +87,7 @@ func (a *FrenchAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure FrenchAnalyzer implements Analyzer
 var _ Analyzer = (*FrenchAnalyzer)(nil)
-var _ AnalyzerInterface = (*FrenchAnalyzer)(nil)
+var _ api.Analyzer = (*FrenchAnalyzer)(nil)
 
 // FrenchLightStemFilter implements light stemming for French via the UniNE algorithm.
 //

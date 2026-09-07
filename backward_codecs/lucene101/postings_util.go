@@ -38,7 +38,7 @@ func ReadVIntBlock(
 		return fmt.Errorf("lucene101 postings: freqBuffer too short: len=%d num=%d", len(freqBuffer), num)
 	}
 
-	if err := util.ReadGroupVInts(docIn, docBuffer, num); err != nil {
+	if err := store.ReadGroupVInts(docIn, docBuffer, num); err != nil {
 		return err
 	}
 

@@ -11,6 +11,9 @@ type MatchAllDocsQuery struct {
 	*BaseQuery
 }
 
+// Instance is a singleton instance of MatchAllDocsQuery.
+var Instance = NewMatchAllDocsQuery()
+
 // NewMatchAllDocsQuery creates a new MatchAllDocsQuery.
 func NewMatchAllDocsQuery() *MatchAllDocsQuery {
 	return &MatchAllDocsQuery{
@@ -44,6 +47,16 @@ func (q *MatchAllDocsQuery) CreateWeight(searcher *IndexSearcher, needsScores bo
 	return NewMatchAllDocsWeight(q, boost), nil
 }
 
+// ToString returns the string representation of the query.
+func (q *MatchAllDocsQuery) ToString(field string) string {
+	return "*:*"
+}
+
+// Visit visits the query with the given visitor.
+func (q *MatchAllDocsQuery) Visit(visitor QueryVisitor) {
+	visitor.VisitLeaf(q)
+}
+
 // MatchAllDocsWeight is the Weight implementation for MatchAllDocsQuery.
 type MatchAllDocsWeight struct {
 	*BaseWeight
@@ -56,6 +69,11 @@ func NewMatchAllDocsWeight(query Query, boost float32) *MatchAllDocsWeight {
 		BaseWeight: NewBaseWeight(query),
 		boost:      boost,
 	}
+}
+
+// String returns the string representation of the weight.
+func (w *MatchAllDocsWeight) String() string {
+	return "weight(MatchAllDocsQuery)"
 }
 
 // Scorer creates a scorer for this weight.

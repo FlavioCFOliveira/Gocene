@@ -719,7 +719,7 @@ func (c *FSTCompiler[T]) writeNodeForDirectAddressingOrContinuous(
 	if !continuous {
 		c.writePresenceBits(nodeIn)
 	}
-	if err := c.scratchBytes.WriteBytesN(c.fixedLengthArcsBuffer.getBytes()[bufferOffset:bufferOffset+totalArcBytes], totalArcBytes); err != nil {
+	if err := c.scratchBytes.WriteBytes(c.fixedLengthArcsBuffer.getBytes(), bufferOffset, totalArcBytes); err != nil {
 		panic(fmt.Sprintf("fst: writing fixed-length arcs into scratch: %v", err))
 	}
 }

@@ -8,21 +8,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// completionsTermsReaderEntry holds per-field FST offsets and weight range.
-// Mirrors CompletionsTermsReader (the lightweight descriptor that is read from
-// the .cmp index; the FST itself is loaded lazily).
-type completionsTermsReaderEntry struct {
-	offset    int64
-	minWeight int64
-	maxWeight int64
-	fieldType byte
-}
-
-// RAMBytesUsed returns an estimate of RAM used by this entry.
-func (e *completionsTermsReaderEntry) RAMBytesUsed() int64 {
-	return 32 // fixed-size struct, no heap children
-}
-
 // CompletionFieldsProducer reads the completion index (.cmp) and dictionary
 // (.lkp) files written by CompletionFieldsConsumer. The FST for each field is
 // loaded lazily on first call to Terms(field).
@@ -30,7 +15,7 @@ func (e *completionsTermsReaderEntry) RAMBytesUsed() int64 {
 // Mirrors org.apache.lucene.search.suggest.document.CompletionFieldsProducer.
 type CompletionFieldsProducer struct {
 	delegateFieldsProducer codecs.FieldsProducer
-	readers                map[string]*completionsTermsReaderEntry
+	readers                map[string]*CompletionsTermsReader
 	dictIn                 store.IndexInput
 }
 
@@ -42,7 +27,7 @@ func NewCompletionFieldsProducer(
 	codecName string,
 	state *codecs.SegmentReadState,
 ) (*CompletionFieldsProducer, error) {
-	indexFile := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, completionIndexExtension)
+	indexFile := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, completionIndexExtension)
 
 	var delegateProducer codecs.FieldsProducer
 	var dictIn store.IndexInput
@@ -59,7 +44,7 @@ func NewCompletionFieldsProducer(
 	}()
 
 	// open dict file (.lkp)
-	dictFile := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, completionDictExtension)
+	dictFile := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, completionDictExtension)
 	var err error
 	dictIn, err = state.Directory.OpenInput(dictFile, store.IOContext{})
 	if err != nil {
@@ -108,7 +93,7 @@ func NewCompletionFieldsProducer(
 	if err != nil {
 		return nil, fmt.Errorf("completion fields producer: read num fields: %w", err)
 	}
-	readers := make(map[string]*completionsTermsReaderEntry, numFields)
+	readers := make(map[string]*CompletionsTermsReader, numFields)
 	for i := int32(0); i < numFields; i++ {
 		fieldNumber, err := store.ReadVInt(index_)
 		if err != nil {
@@ -134,15 +119,10 @@ func NewCompletionFieldsProducer(
 		if fi == nil {
 			return nil, fmt.Errorf("completion fields producer: unknown field number %d", fieldNumber)
 		}
-		readers[fi.Name()] = &completionsTermsReaderEntry{
-			offset:    offset,
-			minWeight: minWeight,
-			maxWeight: maxWeight,
-			fieldType: fType,
-		}
+		readers[fi.Name()] = NewCompletionsTermsReader(dictIn, offset, minWeight, maxWeight, fType)
 	}
 
-	if _, err := codecs.CheckFooter(index_); err != nil {
+	if _, err := store.CheckFooter(index_); err != nil {
 		return nil, fmt.Errorf("completion fields producer: check index footer: %w", err)
 	}
 
@@ -158,7 +138,7 @@ func NewCompletionFieldsProducer(
 // segment merges. Mirrors CompletionFieldsProducer(FieldsProducer, Map).
 func newCompletionFieldsProducerForMerge(
 	delegate codecs.FieldsProducer,
-	readers map[string]*completionsTermsReaderEntry,
+	readers map[string]*CompletionsTermsReader,
 ) *CompletionFieldsProducer {
 	return &CompletionFieldsProducer{
 		delegateFieldsProducer: delegate,
@@ -226,18 +206,18 @@ var _ codecs.FieldsProducer = (*CompletionFieldsProducer)(nil)
 // producer).
 type completionTermsView struct {
 	index.Terms
-	entry *completionsTermsReaderEntry
+	entry *CompletionsTermsReader
 }
 
-func newCompletionTermsView(inner index.Terms, entry *completionsTermsReaderEntry) *completionTermsView {
+func newCompletionTermsView(inner index.Terms, entry *CompletionsTermsReader) *completionTermsView {
 	return &completionTermsView{Terms: inner, entry: entry}
 }
 
 // MinWeight returns the minimum stored weight for this field.
-func (c *completionTermsView) MinWeight() int64 { return c.entry.minWeight }
+func (c *completionTermsView) MinWeight() int64 { return c.entry.MinWeight() }
 
 // MaxWeight returns the maximum stored weight for this field.
-func (c *completionTermsView) MaxWeight() int64 { return c.entry.maxWeight }
+func (c *completionTermsView) MaxWeight() int64 { return c.entry.MaxWeight() }
 
 // FieldType returns the byte type tag for this completion field.
-func (c *completionTermsView) FieldType() byte { return c.entry.fieldType }
+func (c *completionTermsView) FieldType() byte { return c.entry.FieldType() }

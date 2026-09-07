@@ -130,7 +130,7 @@ type PointValues interface {
 // PointValues interfaces without each package owning a distinct,
 // structurally-identical-but-incompatible visitor type. Compare returns an
 // int (0=CELL_OUTSIDE_QUERY, 1=CELL_INSIDE_QUERY, 2=CELL_CROSSES_QUERY),
-// matching the codecs.Relation / index.PointValues.Relation enum order, so the
+// matching the geo.Relation / index.PointValues.Relation enum order, so the
 // search packages do not need to import codecs.
 type PointTreeIntersectVisitor interface {
 	// Visit is called for each docID that matches the query when the

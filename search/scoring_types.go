@@ -8,8 +8,8 @@ import (
 // ScorerSupplier is created by Weight.ScorerSupplier() to expose cost and count
 // information before creating the actual Scorer.
 type ScorerSupplier interface {
-	// Get returns a Scorer for the given weight index.
-	Get(weightIndex int) (Scorer, error)
+	// Get returns a Scorer for the given lead cost.
+	Get(leadCost int) (Scorer, error)
 
 	// GetMatchCost returns an estimate of the expected cost to determine
 	// that a single document matches.

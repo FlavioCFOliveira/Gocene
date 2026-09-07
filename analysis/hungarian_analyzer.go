@@ -94,7 +94,7 @@ func (a *HungarianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*HungarianAnalyzer)(nil)
-var _ AnalyzerInterface = (*HungarianAnalyzer)(nil)
+var _ api.Analyzer = (*HungarianAnalyzer)(nil)
 
 // HungarianLightStemmer implements light stemming for Hungarian language.
 type HungarianLightStemmer struct{}

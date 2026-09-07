@@ -56,44 +56,6 @@ func (f *IntRangeDocValuesField) GetMax(dim int) int32 {
 	return f.max[dim]
 }
 
-// FloatRangeDocValuesField stores an N-dimensional float range.
-type FloatRangeDocValuesField struct {
-	*BinaryDocValuesField
-	min []float32
-	max []float32
-}
-
-// NewFloatRangeDocValuesField creates a new FloatRangeDocValuesField.
-func NewFloatRangeDocValuesField(name string, min, max []float32) (*FloatRangeDocValuesField, error) {
-	if err := checkRangeDocValuesArgs(len(min), len(max)); err != nil {
-		return nil, err
-	}
-	encoded, err := EncodeFloatRangeLucene(min, max)
-	if err != nil {
-		return nil, err
-	}
-	b, err := NewBinaryDocValuesField(name, encoded)
-	if err != nil {
-		return nil, err
-	}
-	dupMin := make([]float32, len(min))
-	dupMax := make([]float32, len(max))
-	copy(dupMin, min)
-	copy(dupMax, max)
-	return &FloatRangeDocValuesField{BinaryDocValuesField: b, min: dupMin, max: dupMax}, nil
-}
-
-// GetMin returns the minimum value for the given dimension.
-func (f *FloatRangeDocValuesField) GetMin(dim int) float32 {
-	mustDim(dim, len(f.min))
-	return f.min[dim]
-}
-
-// GetMax returns the maximum value for the given dimension.
-func (f *FloatRangeDocValuesField) GetMax(dim int) float32 {
-	mustDim(dim, len(f.max))
-	return f.max[dim]
-}
 
 func checkRangeDocValuesArgs(nMin, nMax int) error {
 	if nMin == 0 || nMax == 0 {

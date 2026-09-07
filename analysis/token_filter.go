@@ -27,6 +27,10 @@ type TokenFilter interface {
 
 	// GetInput returns the wrapped input TokenStream.
 	GetInput() TokenStream
+
+	// Unwrap returns the wrapped input TokenStream.
+	// This is the Go port of Lucene's Unwrappable.unwrap().
+	Unwrap() TokenStream
 }
 
 // BaseTokenFilter provides a base implementation for TokenFilter.
@@ -51,9 +55,9 @@ func NewBaseTokenFilter(input TokenStream) *BaseTokenFilter {
 	if hasAttrSrc, ok := input.(interface {
 		GetAttributeSource() *util.AttributeSource
 	}); ok {
-		bf.attributes = hasAttrSrc.GetAttributeSource()
+		bf.AttributeSource = hasAttrSrc.GetAttributeSource()
 	} else {
-		bf.attributes = util.NewAttributeSource()
+		bf.AttributeSource = util.NewAttributeSource()
 	}
 
 	return bf
@@ -61,6 +65,11 @@ func NewBaseTokenFilter(input TokenStream) *BaseTokenFilter {
 
 // GetInput returns the wrapped input TokenStream.
 func (f *BaseTokenFilter) GetInput() TokenStream {
+	return f.input
+}
+
+// Unwrap returns the wrapped input TokenStream.
+func (f *BaseTokenFilter) Unwrap() TokenStream {
 	return f.input
 }
 
@@ -82,35 +91,15 @@ func (f *BaseTokenFilter) Close() error {
 	return nil
 }
 
-// TokenFilterFactory creates TokenFilter instances.
-//
-// This is the Go port of Lucene's TokenFilterFactory interface.
-type TokenFilterFactory interface {
-	// Create creates a TokenFilter wrapping the given input.
-	Create(input TokenStream) TokenFilter
-}
-
-var (
-	tokenFilterRegistry = make(map[string]func(map[string]string) TokenFilterFactory)
-	tokenFilterMu       sync.RWMutex
-)
-
-// RegisterTokenFilterFactory registers a token filter factory creator.
-func RegisterTokenFilterFactory(name string, creator func(map[string]string) TokenFilterFactory) {
-	tokenFilterMu.Lock()
-	defer tokenFilterMu.Unlock()
-	tokenFilterRegistry[name] = creator
-}
-
-// TokenFilterForName looks up a token filter factory by name from the registry.
-func TokenFilterForName(name string, args map[string]string) (TokenFilterFactory, error) {
-	tokenFilterMu.RLock()
-	creator, ok := tokenFilterRegistry[name]
-	tokenFilterMu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("token filter factory not found: %s", name)
+// Reset resets the token stream to the beginning.
+// Delegates to the input TokenStream if it supports Reset.
+func (f *BaseTokenFilter) Reset() error {
+	if f.input != nil {
+		if resetter, ok := f.input.(TokenStreamWithReset); ok {
+			return resetter.Reset()
+		}
 	}
-	return creator(args), nil
+	return nil
 }
 
 // LowerCaseFilterFactory creates LowerCaseFilter instances.

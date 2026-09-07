@@ -16,6 +16,12 @@ type TermStates struct {
 	// owner is the cache key owner.
 	owner *CacheKey
 
+	// docFreq is the artificial document frequency.
+	docFreq int
+
+	// totalTermFreq is the artificial total term frequency.
+	totalTermFreq int64
+
 	// states is indexed by per-leaf ord; nil entries indicate the term is
 	// absent from that leaf.
 	states []TermState
@@ -57,11 +63,22 @@ func (ts *TermStates) DocFreq() int {
 	return sum
 }
 
-// TotalTermFreq returns the aggregate total term frequency across all leaves.
+// GetTotalTermFreq returns the aggregate total term frequency across all leaves.
 func (ts *TermStates) TotalTermFreq() int64 {
 	var sum int64
 	for _, t := range ts.totalTermFreqs {
 		sum += t
 	}
 	return sum
+}
+
+// AccumulateStatistics sets the artificial document and total term frequencies.
+func (ts *TermStates) AccumulateStatistics(df int, ttf int64) {
+	ts.docFreq = df
+	ts.totalTermFreq = ttf
+}
+
+// WasBuiltFor returns true if this TermStates was built for the given context.
+func (ts *TermStates) WasBuiltFor(ctx IndexReaderContext) bool {
+	return ts.owner == ctx.ID()
 }

@@ -62,7 +62,7 @@ func (f *FilterIndexOutput) Length() int64 { return f.out.Length() }
 func (f *FilterIndexOutput) WriteByte(b byte) error { return f.out.WriteByte(b) }
 
 // WriteBytes forwards to the wrapped output.
-func (f *FilterIndexOutput) WriteBytes(b []byte) error { return f.out.WriteBytes(b) }
+func (f *FilterIndexOutput) WriteBytes(b []byte, offset, length int) error { return f.out.WriteBytes(b, offset, length) }
 
 // WriteBytesN forwards to the wrapped output.
 func (f *FilterIndexOutput) WriteBytesN(b []byte, n int) error { return f.out.WriteBytesN(b, n) }
@@ -78,6 +78,30 @@ func (f *FilterIndexOutput) WriteLong(v int64) error { return f.out.WriteLong(v)
 
 // WriteString forwards to the wrapped output.
 func (f *FilterIndexOutput) WriteString(s string) error { return f.out.WriteString(s) }
+
+// CopyBytes forwards to the wrapped output.
+func (f *FilterIndexOutput) CopyBytes(input DataInput, numBytes int64) error { return f.out.CopyBytes(input, numBytes) }
+
+// WriteGroupVInts forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteGroupVInts(values []int32, limit int) error { return f.out.WriteGroupVInts(values, limit) }
+
+// WriteSetOfStrings forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteSetOfStrings(s []string) error { return f.out.WriteSetOfStrings(s) }
+
+// WriteMapOfStrings forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteMapOfStrings(m map[string]string) error { return f.out.WriteMapOfStrings(m) }
+
+// WriteVInt forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteVInt(i int32) error { return f.out.WriteVInt(i) }
+
+// WriteVLong forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteVLong(i int64) error { return f.out.WriteVLong(i) }
+
+// WriteZInt forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteZInt(i int32) error { return f.out.WriteZInt(i) }
+
+// WriteZLong forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteZLong(i int64) error { return f.out.WriteZLong(i) }
 
 // Compile-time assertion that FilterIndexOutput satisfies IndexOutput.
 var _ IndexOutput = (*FilterIndexOutput)(nil)

@@ -36,7 +36,7 @@ func TestByteArrayDataInput(t *testing.T) {
 				in := NewByteArrayDataInput(data)
 
 				buf := make([]byte, 3)
-				if err := in.ReadBytes(buf); err != nil {
+				if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 					t.Fatalf("unexpected error: %v", err)
 				}
 

@@ -108,7 +108,7 @@ func writeStorePrimitivesRateLimited(targetDir string, seed int64, mbPerSec floa
 			return fmt.Errorf("frame[%d]: %w", i, err)
 		}
 	}
-	if err := codecs.WriteFooter(out); err != nil {
+	if err := store.WriteFooter(out); err != nil {
 		out.Close()
 		return fmt.Errorf("footer: %w", err)
 	}

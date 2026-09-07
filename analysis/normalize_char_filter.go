@@ -19,7 +19,7 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.charfilter.NormalizeCharFilter.
 type NormalizeCharFilter struct {
-	*CharFilter
+	CharFilter
 	buffer   []rune
 	position int
 	options  *NormalizationOptions

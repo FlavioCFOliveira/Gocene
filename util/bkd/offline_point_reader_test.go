@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -46,7 +45,7 @@ func writePointsFile(t *testing.T, cfg BKDConfig, dir *store.ByteBuffersDirector
 			t.Fatalf("WriteBytes (docID[%d]): %v", i, err)
 		}
 	}
-	if err := codecs.WriteFooter(out); err != nil {
+	if err := store.WriteFooter(out); err != nil {
 		t.Fatalf("WriteFooter: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -486,7 +485,7 @@ func TestOfflinePointReader_DetectsFooterCorruption(t *testing.T) {
 	if err := out.WriteBytes(corrupted); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
-	if err := codecs.WriteFooter(out); err != nil {
+	if err := store.WriteFooter(out); err != nil {
 		t.Fatalf("WriteFooter: %v", err)
 	}
 	if err := out.Close(); err != nil {

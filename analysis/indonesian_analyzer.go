@@ -190,4 +190,4 @@ func (a *IndonesianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*IndonesianAnalyzer)(nil)
-var _ AnalyzerInterface = (*IndonesianAnalyzer)(nil)
+var _ api.Analyzer = (*IndonesianAnalyzer)(nil)

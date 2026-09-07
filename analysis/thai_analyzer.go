@@ -140,4 +140,4 @@ func TokenizeThaiText(text string) []string {
 }
 
 var _ Analyzer = (*ThaiAnalyzer)(nil)
-var _ AnalyzerInterface = (*ThaiAnalyzer)(nil)
+var _ api.Analyzer = (*ThaiAnalyzer)(nil)

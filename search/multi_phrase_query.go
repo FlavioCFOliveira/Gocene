@@ -11,13 +11,10 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
-// MultiPhraseQuery is a generalized version of PhraseQuery that allows multiple terms
+// MultiPhraseQuery is a generalized version of PhraseQuery, with the possibility of adding more than one term
 // at the same position that are treated as a disjunction (OR).
 //
-// For example, to search for "Microsoft app*" you would add "microsoft" as a single term,
-// then find all terms with "app" prefix and add them as a group.
-//
-// This is the Go port of Lucene's org.apache.lucene.search.MultiPhraseQuery.
+// This is a faithful port of org.apache.lucene.search.MultiPhraseQuery from Apache Lucene 10.5.0.
 type MultiPhraseQuery struct {
 	*BaseQuery
 	field      string
@@ -26,7 +23,7 @@ type MultiPhraseQuery struct {
 	slop       int
 }
 
-// MultiPhraseQueryBuilder builds MultiPhraseQuery instances.
+// MultiPhraseQueryBuilder is a builder for multi-phrase queries.
 type MultiPhraseQueryBuilder struct {
 	field      string
 	termArrays [][]*index.Term
@@ -44,27 +41,30 @@ func NewMultiPhraseQueryBuilder() *MultiPhraseQueryBuilder {
 	}
 }
 
-// NewMultiPhraseQueryBuilderFromQuery creates a builder from an existing MultiPhraseQuery.
-func NewMultiPhraseQueryBuilderFromQuery(query *MultiPhraseQuery) *MultiPhraseQueryBuilder {
+// NewMultiPhraseQueryBuilderFromQuery creates a builder with the same configuration as the provided query.
+func NewMultiPhraseQueryBuilderFromQuery(mq *MultiPhraseQuery) *MultiPhraseQueryBuilder {
+	length := len(mq.termArrays)
 	builder := &MultiPhraseQueryBuilder{
-		field:      query.field,
-		termArrays: make([][]*index.Term, len(query.termArrays)),
-		positions:  make([]int, len(query.positions)),
-		slop:       query.slop,
+		field:      mq.field,
+		termArrays: make([][]*index.Term, 0, length),
+		positions:  make([]int, 0, length),
+		slop:       mq.slop,
 	}
-	for i, terms := range query.termArrays {
-		builder.termArrays[i] = make([]*index.Term, len(terms))
-		for j, term := range terms {
-			builder.termArrays[i][j] = term.Clone()
-		}
+
+	for i := 0; i < length; i++ {
+		builder.termArrays = append(builder.termArrays, mq.termArrays[i])
+		builder.positions = append(builder.positions, mq.positions[i])
 	}
-	copy(builder.positions, query.positions)
+
 	return builder
 }
 
 // SetSlop sets the phrase slop for this query.
-func (b *MultiPhraseQueryBuilder) SetSlop(slop int) *MultiPhraseQueryBuilder {
-	b.slop = slop
+func (b *MultiPhraseQueryBuilder) SetSlop(s int) *MultiPhraseQueryBuilder {
+	if s < 0 {
+		panic("slop value cannot be negative")
+	}
+	b.slop = s
 	return b
 }
 
@@ -73,8 +73,7 @@ func (b *MultiPhraseQueryBuilder) Add(term *index.Term) *MultiPhraseQueryBuilder
 	return b.AddTerms([]*index.Term{term})
 }
 
-// AddTerms adds multiple terms at the next position in the phrase.
-// Any of the terms may match (a disjunction/OR).
+// AddTerms adds multiple terms at the next position in the phrase. Any of the terms may match (a disjunction).
 func (b *MultiPhraseQueryBuilder) AddTerms(terms []*index.Term) *MultiPhraseQueryBuilder {
 	position := 0
 	if len(b.positions) > 0 {
@@ -83,35 +82,28 @@ func (b *MultiPhraseQueryBuilder) AddTerms(terms []*index.Term) *MultiPhraseQuer
 	return b.AddTermsAtPosition(terms, position)
 }
 
-// AddTermsAtPosition adds multiple terms at a specific position in the phrase.
-// This allows specifying custom relative positions.
+// AddTermsAtPosition allows specifying the relative position of terms within the phrase.
 func (b *MultiPhraseQueryBuilder) AddTermsAtPosition(terms []*index.Term, position int) *MultiPhraseQueryBuilder {
-	if len(terms) == 0 {
-		return b
+	if terms == nil {
+		panic("Term array must not be null")
 	}
-
 	if len(b.termArrays) == 0 {
-		b.field = terms[0].Field
+		b.field = terms[0].Field()
 	}
 
-	// Validate all terms are in the same field
 	for _, term := range terms {
-		if term.Field != b.field {
+		if term.Field() != b.field {
 			panic(fmt.Sprintf("All phrase terms must be in the same field (%s): %v", b.field, term))
 		}
 	}
 
-	termsCopy := make([]*index.Term, len(terms))
-	for i, term := range terms {
-		termsCopy[i] = term.Clone()
-	}
-
-	b.termArrays = append(b.termArrays, termsCopy)
+	b.termArrays = append(b.termArrays, terms)
 	b.positions = append(b.positions, position)
+
 	return b
 }
 
-// Build creates a MultiPhraseQuery from this builder.
+// Build returns the fully constructed (and immutable) MultiPhraseQuery.
 func (b *MultiPhraseQueryBuilder) Build() *MultiPhraseQuery {
 	return &MultiPhraseQuery{
 		BaseQuery:  &BaseQuery{},
@@ -122,25 +114,13 @@ func (b *MultiPhraseQueryBuilder) Build() *MultiPhraseQuery {
 	}
 }
 
-// NewMultiPhraseQuery creates a new MultiPhraseQuery with the given field, term arrays, positions, and slop.
+// NewMultiPhraseQuery creates a new MultiPhraseQuery.
 func NewMultiPhraseQuery(field string, termArrays [][]*index.Term, positions []int, slop int) *MultiPhraseQuery {
-	// Copy term arrays
-	termArraysCopy := make([][]*index.Term, len(termArrays))
-	for i, terms := range termArrays {
-		termArraysCopy[i] = make([]*index.Term, len(terms))
-		for j, term := range terms {
-			termArraysCopy[i][j] = term.Clone()
-		}
-	}
-
-	positionsCopy := make([]int, len(positions))
-	copy(positionsCopy, positions)
-
 	return &MultiPhraseQuery{
 		BaseQuery:  &BaseQuery{},
 		field:      field,
-		termArrays: termArraysCopy,
-		positions:  positionsCopy,
+		termArrays: termArrays,
+		positions:  positions,
 		slop:       slop,
 	}
 }
@@ -150,100 +130,22 @@ func (q *MultiPhraseQuery) GetSlop() int {
 	return q.slop
 }
 
-// SetSlop sets the phrase slop.
-func (q *MultiPhraseQuery) SetSlop(slop int) {
-	q.slop = slop
-}
-
-// GetTermArrays returns the arrays of terms in the multi-phrase.
-// Each inner array represents terms at a single position (OR'd together).
+// GetTermArrays returns the arrays of arrays of terms in the multi-phrase.
 func (q *MultiPhraseQuery) GetTermArrays() [][]*index.Term {
-	result := make([][]*index.Term, len(q.termArrays))
-	for i, terms := range q.termArrays {
-		result[i] = make([]*index.Term, len(terms))
-		for j, term := range terms {
-			result[i][j] = term.Clone()
-		}
-	}
-	return result
+	return q.termArrays
 }
 
 // GetPositions returns the relative positions of terms in this phrase.
 func (q *MultiPhraseQuery) GetPositions() []int {
-	result := make([]int, len(q.positions))
-	copy(result, q.positions)
-	return result
-}
-
-// Field returns the field name.
-func (q *MultiPhraseQuery) Field() string {
-	return q.field
-}
-
-// Clone creates a copy of this query.
-func (q *MultiPhraseQuery) Clone() Query {
-	return NewMultiPhraseQuery(q.field, q.termArrays, q.positions, q.slop)
-}
-
-// Equals checks if this query equals another.
-func (q *MultiPhraseQuery) Equals(other Query) bool {
-	if o, ok := other.(*MultiPhraseQuery); ok {
-		if q.field != o.field || q.slop != o.slop {
-			return false
-		}
-		if len(q.termArrays) != len(o.termArrays) || len(q.positions) != len(o.positions) {
-			return false
-		}
-		// Compare positions
-		for i, pos := range q.positions {
-			if pos != o.positions[i] {
-				return false
-			}
-		}
-		// Compare term arrays
-		for i, terms := range q.termArrays {
-			if len(terms) != len(o.termArrays[i]) {
-				return false
-			}
-			for j, term := range terms {
-				if !term.Equals(o.termArrays[i][j]) {
-					return false
-				}
-			}
-		}
-		return true
-	}
-	return false
-}
-
-// HashCode returns a hash code for this query.
-func (q *MultiPhraseQuery) HashCode() int {
-	hash := 0
-	// Hash term arrays
-	for _, terms := range q.termArrays {
-		for _, term := range terms {
-			hash = 31*hash + term.HashCode()
-		}
-	}
-	hash = hash*31 + q.slop
-	// Hash positions
-	for _, pos := range q.positions {
-		hash = 31*hash + pos
-	}
-	return hash
+	return q.positions
 }
 
 // Rewrite rewrites the query to a simpler form.
-func (q *MultiPhraseQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *MultiPhraseQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	if len(q.termArrays) == 0 {
-		return NewMatchNoDocsQuery(), nil
-	}
-	if len(q.termArrays) == 1 {
-		// Optimize one-term case to a BooleanQuery with OR
+		return NewMatchNoDocsQuery("empty MultiPhraseQuery"), nil
+	} else if len(q.termArrays) == 1 { // optimize one-term case
 		terms := q.termArrays[0]
-		if len(terms) == 1 {
-			return NewTermQuery(terms[0]), nil
-		}
 		bq := NewBooleanQuery()
 		for _, term := range terms {
 			bq.Add(NewTermQuery(term), SHOULD)
@@ -253,18 +155,24 @@ func (q *MultiPhraseQuery) Rewrite(reader IndexReader) (Query, error) {
 	return q, nil
 }
 
-// CreateWeight creates a Weight for this query.
-//
-// Single-position MultiPhraseQueries are first rewritten (to a TermQuery or a
-// SHOULD BooleanQuery) by Rewrite; this path handles the genuine multi-position
-// case by delegating to MultiPhraseWeight, which merges each position's term
-// array through a UnionPostingsEnum and reuses PhraseQuery's exact / sloppy
-// phrase scorers.
-func (q *MultiPhraseQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewMultiPhraseWeight(q, searcher, needsScores)
+// Visit walks the query tree.
+func (q *MultiPhraseQuery) Visit(visitor QueryVisitor) {
+	if !visitor.AcceptField(q.field) {
+		return
+	}
+	v := visitor.GetSubVisitor(MUST, q)
+	for _, terms := range q.termArrays {
+		sv := v.GetSubVisitor(SHOULD, q)
+		sv.ConsumeTerms(q, terms...)
+	}
 }
 
-// String returns a string representation of this query.
+// CreateWeight creates a Weight for this query.
+func (q *MultiPhraseQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return NewMultiPhraseWeight(q, searcher, scoreMode, boost)
+}
+
+// String prints a user-readable version of this query.
 func (q *MultiPhraseQuery) String() string {
 	var buffer strings.Builder
 	if q.field != "" {
@@ -275,9 +183,10 @@ func (q *MultiPhraseQuery) String() string {
 	buffer.WriteString("\"")
 	lastPos := -1
 
-	for i, terms := range q.termArrays {
+	for i := 0; i < len(q.termArrays); i++ {
+		terms := q.termArrays[i]
 		position := q.positions[i]
-		if i > 0 {
+		if i != 0 {
 			buffer.WriteString(" ")
 			for j := 1; j < (position - lastPos); j++ {
 				buffer.WriteString("? ")
@@ -285,11 +194,11 @@ func (q *MultiPhraseQuery) String() string {
 		}
 		if len(terms) > 1 {
 			buffer.WriteString("(")
-			for j, term := range terms {
-				if j > 0 {
+			for j := 0; j < len(terms); j++ {
+				buffer.WriteString(terms[j].Text())
+				if j < len(terms)-1 {
 					buffer.WriteString(" ")
 				}
-				buffer.WriteString(term.Text())
 			}
 			buffer.WriteString(")")
 		} else if len(terms) == 1 {
@@ -304,4 +213,56 @@ func (q *MultiPhraseQuery) String() string {
 	}
 
 	return buffer.String()
+}
+
+// Equals returns true if the other query is equal to this.
+func (q *MultiPhraseQuery) Equals(other Query) bool {
+	o, ok := other.(*MultiPhraseQuery)
+	if !ok {
+		return false
+	}
+	if q.slop != o.slop {
+		return false
+	}
+	if len(q.termArrays) != len(o.termArrays) {
+		return false
+	}
+	for i := 0; i < len(q.termArrays); i++ {
+		t1 := q.termArrays[i]
+		t2 := o.termArrays[i]
+		if len(t1) != len(t2) {
+			return false
+		}
+		for j := 0; j < len(t1); j++ {
+			if !t1[j].Equals(t2[j]) {
+				return false
+			}
+		}
+	}
+	if len(q.positions) != len(o.positions) {
+		return false
+	}
+	for i := 0; i < len(q.positions); i++ {
+		if q.positions[i] != o.positions[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// HashCode returns a hash code value for this object.
+func (q *MultiPhraseQuery) HashCode() int {
+	hash := 1
+	for _, termArray := range q.termArrays {
+		arrayHash := 1
+		for _, term := range termArray {
+			arrayHash = 31*arrayHash + term.HashCode()
+		}
+		hash = 31*hash + arrayHash
+	}
+	hash = 31*hash + q.slop
+	for _, pos := range q.positions {
+		hash = 31*hash + pos
+	}
+	return hash
 }

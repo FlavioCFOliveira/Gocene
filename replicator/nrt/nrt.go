@@ -719,7 +719,7 @@ func (n *Node) ReadLocalFileMetaData(fileName string) (*FileMetaData, error) {
 //
 // Returns an error for truncated or corrupt files.
 func readIndexHeaderBytes(in store.IndexInput) ([]byte, error) {
-	footerLen := int64(codecs.FooterLength())
+	footerLen := int64(store.FooterLength())
 	if in.Length() < footerLen {
 		return nil, fmt.Errorf("file too short (%d bytes) to contain a codec header+footer", in.Length())
 	}
@@ -782,7 +782,7 @@ func readIndexHeaderBytes(in store.IndexInput) ([]byte, error) {
 // length−footerLength(), validates the footer magic, then seeks back and
 // reads the raw 16-byte footer.
 func readFooterBytes(in store.IndexInput) ([]byte, error) {
-	footerLen := int64(codecs.FooterLength())
+	footerLen := int64(store.FooterLength())
 	if in.Length() < footerLen {
 		return nil, fmt.Errorf("file too short (%d bytes) to contain a codec footer", in.Length())
 	}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -21,7 +22,7 @@ const TYPE byte = 0
 type SuggestField struct {
 	*document.Field
 
-	surfaceForm BytesRef
+	surfaceForm util.BytesRef
 	weight      int
 }
 
@@ -62,37 +63,29 @@ func NewSuggestField(name, value string, weight int) *SuggestField {
 // TokenStream wraps the base token stream with a CompletionTokenStream and sets the payload.
 func (f *SuggestField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
 	ts := f.wrapTokenStream(f.Field.TokenStream(analyzer, reuse))
-	ts.(*CompletionTokenStream).SetPayload(f.buildSuggestPayload())
+	cts := ts.(*CompletionTokenStream)
+	cts.SetPayload(f.buildSuggestPayload())
 	return ts
 }
 
 func (f *SuggestField) wrapTokenStream(stream analysis.TokenStream) analysis.TokenStream {
-	if cts, ok := stream.(*CompletionTokenStream); ok {
+	if cts, ok := stream.(*analysis.CompletionTokenStream); ok {
 		return cts
 	}
-	return NewCompletionTokenStream(stream)
+	return analysis.NewCompletionTokenStream(stream)
 }
 
 func (f *SuggestField) buildSuggestPayload() []byte {
-	// In Lucene:
-	// output.writeVInt(surfaceForm.length);
-	// output.writeBytes(surfaceForm.bytes, surfaceForm.offset, surfaceForm.length);
-	// output.writeVInt(weight + 1);
-	// output.writeByte(type());
-
-	// We'll use a simple buffer and manual encoding for VInts if not available in a helper.
-	// Actually, let's see if there is a VInt writer in Gocene.
-	// I'll check for a VInt helper.
-	out := store.NewByteBuffersDataOutput()
-	out.WriteVInt(int32(len(f.surfaceForm)))
-	out.WriteBytes(f.surfaceForm)
-	out.WriteVInt(int32(f.weight + 1))
-	out.WriteByte(f.type())
+	out := store.NewByteArrayDataOutput(len(f.surfaceForm.Bytes) + 10)
+	_ = store.WriteVInt(out, int32(len(f.surfaceForm.Bytes)))
+	_ = out.WriteBytes(f.surfaceForm.Bytes)
+	_ = store.WriteVInt(out, int32(f.weight+1))
+	_ = out.WriteByte(f.Type())
 	return out.ToArrayCopy()
 }
 
 func isReserved(r rune) bool {
-	return r == '\x1f' || r == '\x1e' || r == 0 // SEP_LABEL, HOLE, END_BYTE
+	return r == analysis.SEP_LABEL || r == analysis.HOLE || r == 0 // SEP_LABEL, HOLE, END_BYTE
 }
 
 // Type returns the type of the field.

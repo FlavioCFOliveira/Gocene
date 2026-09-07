@@ -5,11 +5,11 @@
 package bkd
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/geo"
 	"math/rand"
 	"strings"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -400,8 +400,8 @@ func (v *tieBreakVisitor) VisitByPackedValue(docID int, packedValue []byte) erro
 	return nil
 }
 
-func (v *tieBreakVisitor) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
-	return codecs.RelationCellCrossesQuery
+func (v *tieBreakVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+	return geo.RelationCellCrossesQuery
 }
 
 func (v *tieBreakVisitor) Grow(count int) {}

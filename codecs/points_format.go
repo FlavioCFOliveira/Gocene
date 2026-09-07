@@ -55,11 +55,6 @@ func (f *BasePointsFormat) FieldsReader(state *SegmentReadState) (PointsReader, 
 // This is the Go port of org.apache.lucene.codecs.PointsWriter.
 type PointsWriter = spi.PointsWriter
 
-// PointsReader is an alias of [spi.PointsReader]. The narrow SPI surface
-// carries only CheckIntegrity / Close; the per-field getValues accessor
-// lives on the concrete codecs-side reader. This is the Go port of
-// org.apache.lucene.codecs.PointsReader.
-type PointsReader = spi.PointsReader
 
 // PointValues provides access to point values for a field.
 // This is the Go port of Lucene's org.apache.lucene.index.PointValues.

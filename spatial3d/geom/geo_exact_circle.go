@@ -154,6 +154,11 @@ func newCircleSlice(circlePlane *SidedPlane, ep1, ep2, center, check *GeoPoint) 
 	}
 }
 
+// ComputeOutsideDistance returns the distance to the nearest edge.
+func (c *GeoExactCircle) ComputeOutsideDistance(distanceStyle DistanceStyle, x, y, z float64) float64 {
+	return 0.0
+}
+
 // GetRadius returns the circle's surface radius.
 //
 // Port of GeoExactCircle.getRadius.

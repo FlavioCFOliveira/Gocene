@@ -9,21 +9,17 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // TopDocs represents hits returned by IndexSearcher.Search.
 // Mirrors org.apache.lucene.search.TopDocs.
-type TopDocs struct {
-	TotalHits *TotalHits
-	ScoreDocs []*ScoreDoc
-}
+type TopDocs = spi.TopDocs
 
 // NewTopDocs creates a new TopDocs.
 func NewTopDocs(totalHits *TotalHits, scoreDocs []*ScoreDoc) *TopDocs {
-	return &TopDocs{
-		TotalHits: totalHits,
-		ScoreDocs: scoreDocs,
-	}
+	return spi.NewTopDocs(totalHits, scoreDocs)
 }
 
 // TieBreaker is a function that compares two ScoreDocs to break ties.

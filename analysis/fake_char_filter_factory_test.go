@@ -44,7 +44,7 @@ func newFakeCharFilterFactory(args map[string]string) (*fakeCharFilterFactory, e
 // Create returns a pass-through CharFilter wrapping input unchanged.
 //
 // Mirrors FakeCharFilterFactory.create(Reader) (Lucene 10.4.0).
-func (f *fakeCharFilterFactory) Create(input io.Reader) *CharFilter {
+func (f *fakeCharFilterFactory) Create(input io.Reader) CharFilter {
 	return NewCharFilter(input)
 }
 

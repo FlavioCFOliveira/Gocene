@@ -39,7 +39,7 @@ func ReadVIntBlock(
 	}
 
 	//lint:ignore SA1019 intentional: backward-compat codec must use the deprecated GroupVInt variant.
-	if err := util.ReadGroupVIntsInt64(docIn, docBuffer, num); err != nil {
+	if err := store.ReadGroupVIntsInt64(docIn, docBuffer, num); err != nil {
 		return err
 	}
 

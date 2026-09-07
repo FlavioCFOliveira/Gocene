@@ -50,7 +50,7 @@ type FilteredTermsEnum struct {
 
 	delegate      TermsEnum
 	acceptor      FilteredTermsEnumAcceptor
-	initialSeek   *Term
+	initialSeek   *util.BytesRef
 	startWithSeek bool
 }
 
@@ -73,7 +73,7 @@ func NewFilteredTermsEnumWithSeek(delegate TermsEnum, acceptor FilteredTermsEnum
 
 // SetInitialSeekTerm sets the initial seek term. Equivalent to Lucene's
 // setInitialSeekTerm.
-func (f *FilteredTermsEnum) SetInitialSeekTerm(term *Term) {
+func (f *FilteredTermsEnum) SetInitialSeekTerm(term *util.BytesRef) {
 	f.initialSeek = term
 }
 

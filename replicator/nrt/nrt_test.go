@@ -509,7 +509,7 @@ func TestReplicaFileDeleter_NoDeleteWhileReferenced(t *testing.T) {
 // writeTestFile writes a minimal but structurally valid Lucene codec file to
 // dir under fileName and returns the CRC32 checksum stored in the footer.
 //
-// Layout (matches codecs.WriteIndexHeader + codecs.WriteFooter):
+// Layout (matches codecs.WriteIndexHeader + store.WriteFooter):
 //
 //	4 bytes   codec magic BE int32
 //	vInt+str  codec name
@@ -537,7 +537,7 @@ func writeTestFile(t *testing.T, dir store.Directory, fileName string) int64 {
 	if err := codecs.WriteIndexHeader(cOut, "TestCodec", 1, id, ""); err != nil {
 		t.Fatalf("WriteIndexHeader: %v", err)
 	}
-	if err := codecs.WriteFooter(cOut); err != nil {
+	if err := store.WriteFooter(cOut); err != nil {
 		t.Fatalf("WriteFooter: %v", err)
 	}
 	if err := cOut.Close(); err != nil {
@@ -590,8 +590,8 @@ func TestNode_ReadLocalFileMetaData_ValidFile(t *testing.T) {
 	if len(md.Header) == 0 {
 		t.Error("Header must not be empty")
 	}
-	if len(md.Footer) != codecs.FooterLength() {
-		t.Errorf("Footer length: want %d got %d", codecs.FooterLength(), len(md.Footer))
+	if len(md.Footer) != store.FooterLength() {
+		t.Errorf("Footer length: want %d got %d", store.FooterLength(), len(md.Footer))
 	}
 }
 

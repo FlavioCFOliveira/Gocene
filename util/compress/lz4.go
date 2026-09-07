@@ -493,7 +493,7 @@ func LZ4Decompress(compressed store.DataInput, decompressedLen int, dest []byte,
 			if dOff+literalLen > len(dest) {
 				return dOff, fmt.Errorf("lz4: literal run overflows dest (off=%d len=%d dest=%d)", dOff, literalLen, len(dest))
 			}
-			if err := compressed.ReadBytes(dest[dOff : dOff+literalLen]); err != nil {
+			if err := compressed.ReadBytes(dest, dOff, literalLen); err != nil {
 				return dOff, err
 			}
 			dOff += literalLen
@@ -588,7 +588,7 @@ func encodeLiterals(b []byte, token, anchor, literalLen int, out store.DataOutpu
 		}
 	}
 	if literalLen > 0 {
-		if err := out.WriteBytes(b[anchor : anchor+literalLen]); err != nil {
+		if err := out.WriteBytes(b, anchor, literalLen); err != nil {
 			return err
 		}
 	}

@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // ArabicStopWords contains common Arabic stop words.
@@ -72,7 +74,7 @@ func NewArabicAnalyzerWithWords(stopWords *CharArraySet) *ArabicAnalyzer {
 }
 
 // TokenStream creates a TokenStream for analyzing text.
-func (a *ArabicAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (a *ArabicAnalyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	return a.BaseAnalyzer.TokenStream(fieldName, reader)
 }
 
@@ -87,5 +89,4 @@ func (a *ArabicAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure ArabicAnalyzer implements Analyzer
-var _ Analyzer = (*ArabicAnalyzer)(nil)
-var _ AnalyzerInterface = (*ArabicAnalyzer)(nil)
+var _ api.Analyzer = (*ArabicAnalyzer)(nil)

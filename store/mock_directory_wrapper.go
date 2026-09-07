@@ -851,7 +851,7 @@ func (m *MockDirectoryWrapper) corruptFiles(files []string) {
 			var upto int64
 			for upto < length {
 				limit := int(math.Min(float64(length-upto), 256))
-				_ = out.WriteBytes(zeroes[:limit])
+				_ = out.WriteBytes(zeroes, 0, limit)
 				upto += int64(limit)
 			}
 			_ = out.Close()
@@ -868,8 +868,8 @@ func (m *MockDirectoryWrapper) corruptFiles(files []string) {
 				continue
 			}
 			// Read first half via ReadBytesN
-			data, err := in.ReadBytesN(int(half))
-			if err != nil {
+			data := make([]byte, int(half))
+			if err := in.ReadBytes(data, 0, int(half)); err != nil {
 				_ = in.Close()
 				continue
 			}
@@ -880,7 +880,7 @@ func (m *MockDirectoryWrapper) corruptFiles(files []string) {
 			if err != nil {
 				continue
 			}
-			_ = out.WriteBytes(data)
+			_ = out.WriteBytes(data, 0, len(data))
 			_ = out.Close()
 
 		case 3:
@@ -897,7 +897,8 @@ func (m *MockDirectoryWrapper) corruptFiles(files []string) {
 			if err != nil {
 				continue
 			}
-			data, err := in.ReadBytesN(int(length))
+			data := make([]byte, int(length))
+			err = in.ReadBytes(data, 0, int(length))
 			if err != nil {
 				_ = in.Close()
 				continue
@@ -912,7 +913,7 @@ func (m *MockDirectoryWrapper) corruptFiles(files []string) {
 			if err != nil {
 				continue
 			}
-			_ = out.WriteBytes(data)
+			_ = out.WriteBytes(data, 0, len(data))
 			_ = out.Close()
 
 		case 5:
@@ -1598,11 +1599,11 @@ func (m *mockDirIndexOutput) WriteByte(b byte) error {
 
 // WriteBytes writes all bytes from b, checking for disk-full and
 // random I/O exceptions first.
-func (m *mockDirIndexOutput) WriteBytes(b []byte) error {
+func (m *mockDirIndexOutput) WriteBytes(b []byte, offset, length int) error {
 	if err := m.preWrite(); err != nil {
 		return err
 	}
-	return m.inner.WriteBytes(b)
+	return m.inner.WriteBytes(b, offset, length)
 }
 
 // WriteBytesN writes exactly len bytes from b, checking for disk-full
@@ -1638,6 +1639,48 @@ func (m *mockDirIndexOutput) WriteLong(i int64) error {
 	return m.inner.WriteLong(i)
 }
 
+func (m *mockDirIndexOutput) WriteZInt(i int32) error {
+	if err := m.preWrite(); err != nil {
+		return err
+	}
+	return m.inner.WriteZInt(i)
+}
+
+func (m *mockDirIndexOutput) WriteZLong(i int64) error {
+	if err := m.preWrite(); err != nil {
+		return err
+	}
+	return m.inner.WriteZLong(i)
+}
+
+func (m *mockDirIndexOutput) CopyBytes(input DataInput, numBytes int64) error {
+	if err := m.preWrite(); err != nil {
+		return err
+	}
+	return m.inner.CopyBytes(input, numBytes)
+}
+
+func (m *mockDirIndexOutput) WriteMapOfStrings(m_map map[string]string) error {
+	if err := m.preWrite(); err != nil {
+		return err
+	}
+	return m.inner.WriteMapOfStrings(m_map)
+}
+
+func (m *mockDirIndexOutput) WriteSetOfStrings(s []string) error {
+	if err := m.preWrite(); err != nil {
+		return err
+	}
+	return m.inner.WriteSetOfStrings(s)
+}
+
+func (m *mockDirIndexOutput) WriteGroupVInts(values []int32, limit int) error {
+	if err := m.preWrite(); err != nil {
+		return err
+	}
+	return m.inner.WriteGroupVInts(values, limit)
+}
+
 // WriteString writes a string, checking for disk-full first.
 func (m *mockDirIndexOutput) WriteString(s string) error {
 	if err := m.preWrite(); err != nil {
@@ -1651,7 +1694,7 @@ func (m *mockDirIndexOutput) WriteVInt(i int32) error {
 	if err := m.preWrite(); err != nil {
 		return err
 	}
-	return WriteVInt(m.inner, i)
+	return m.inner.WriteVInt(i)
 }
 
 // WriteVLong writes a variable-length long, checking for disk-full first.
@@ -1659,7 +1702,7 @@ func (m *mockDirIndexOutput) WriteVLong(i int64) error {
 	if err := m.preWrite(); err != nil {
 		return err
 	}
-	return WriteVLong(m.inner, i)
+	return m.inner.WriteVLong(i)
 }
 
 // preWrite is called before every write operation. It checks for

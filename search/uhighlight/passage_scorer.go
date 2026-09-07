@@ -2,8 +2,6 @@ package uhighlight
 
 import (
 	"math"
-
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // PassageScorer ranks passages found by UnifiedHighlighter.
@@ -37,7 +35,7 @@ func NewPassageScorerWithParams(k1, b, pivot float32) *PassageScorer {
 // Weight computes term importance, given its in-document statistics.
 func (ps *PassageScorer) Weight(contentLength, totalTermFreq int) float32 {
 	numDocs := 1.0 + float64(contentLength)/float64(ps.pivot)
-	return float32((ps.k1 + 1) * math.Log(1.0+(numDocs+0.5)/(float64(totalTermFreq)+0.5)))
+	return float32((float64(ps.k1) + 1.0) * math.Log(1.0+(numDocs+0.5)/(float64(totalTermFreq)+0.5)))
 }
 
 // Tf computes term weight, given the frequency within the passage and the passage's length.
@@ -48,7 +46,7 @@ func (ps *PassageScorer) Tf(freq, passageLen int) float32 {
 
 // Norm normalize a passage according to its position in the document.
 func (ps *PassageScorer) Norm(passageStart int) float32 {
-	return 1 + 1/float32(math.Log(float64(ps.pivot+passageStart)))
+	return 1 + 1/float32(math.Log(float64(ps.pivot)+float64(passageStart)))
 }
 
 // Score computes the score for a passage.
@@ -64,7 +62,7 @@ func (ps *PassageScorer) Score(passage *Passage, contentLength int) float32 {
 	matchTermFreqsInDoc := passage.MatchTermFreqsInDoc()
 
 	for i := 0; i < numMatches; i++ {
-		term := string(matchTerms[i])
+		term := matchTerms[i].String()
 		termFreqsInPassage[term]++
 		termFreqsInDoc[term] = matchTermFreqsInDoc[i]
 	}

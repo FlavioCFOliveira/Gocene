@@ -702,7 +702,7 @@ func (g *offHeapHnswGraph) SeekLevel(level, targetOrd int) error {
 	if g.arcCount > 0 {
 		if g.version >= lucene99HnswVersionGroupVInt {
 			scratch := make([]int32, g.arcCount)
-			if err := util.ReadGroupVInts(g.dataIn, scratch, g.arcCount); err != nil {
+			if err := store.ReadGroupVInts(g.dataIn, scratch, g.arcCount); err != nil {
 				return fmt.Errorf("hnsw99 offHeap: ReadGroupVInts: %w", err)
 			}
 			g.currentNeighbors[0] = int(scratch[0])

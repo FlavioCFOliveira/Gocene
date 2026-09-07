@@ -148,7 +148,7 @@ func NewFixedGapTermsIndexReader(state *spi.SegmentReadState) (*FixedGapTermsInd
 // directory of the .tii file. It is the body of the Java constructor's try
 // block.
 func (r *FixedGapTermsIndexReader) readIndex(
-	in store.IndexInput, termBytes *util.PagedBytes, state *spi.SegmentReadState) error {
+	in store.IndexInput, termBytes *store.PagedBytes, state *spi.SegmentReadState) error {
 
 	if _, err := codecs.CheckIndexHeader(
 		in,
@@ -395,7 +395,7 @@ type fixedGapFieldIndexData struct {
 // long) constructor.
 func (r *FixedGapTermsIndexReader) newFieldIndexData(
 	in store.IndexInput,
-	termBytes *util.PagedBytes,
+	termBytes *store.PagedBytes,
 	indexStart, termsStart, packedIndexStart, packedOffsetsStart, numIndexTerms int64,
 ) (*fixedGapFieldIndexData, error) {
 

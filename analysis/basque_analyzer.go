@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // BasqueStopWords contains common Basque stop words.
@@ -63,7 +65,7 @@ func NewBasqueAnalyzerWithWords(stopWords *CharArraySet) *BasqueAnalyzer {
 }
 
 // TokenStream creates a TokenStream for analyzing text.
-func (a *BasqueAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (a *BasqueAnalyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	return a.BaseAnalyzer.TokenStream(fieldName, reader)
 }
 
@@ -78,5 +80,4 @@ func (a *BasqueAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure BasqueAnalyzer implements Analyzer
-var _ Analyzer = (*BasqueAnalyzer)(nil)
-var _ AnalyzerInterface = (*BasqueAnalyzer)(nil)
+var _ api.Analyzer = (*BasqueAnalyzer)(nil)

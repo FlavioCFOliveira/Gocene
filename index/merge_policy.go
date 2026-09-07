@@ -333,6 +333,14 @@ type OneMerge struct {
 	// exactly once, when the merge finishes, and success records the outcome.
 	completed chan struct{}
 	success   bool
+
+	// OnMergeFinished is an optional hook called when the merge finishes.
+	// It mirrors the custom logic used in point-in-time merges.
+	OnMergeFinished func(m *OneMerge, success bool, segmentDropped bool) error
+
+	// OnMergeComplete is an optional hook called when the merge completes
+	// and the merged segment is available.
+	OnMergeComplete func(m *OneMerge)
 }
 
 // NewOneMerge creates a OneMerge over the given segments. Mirrors
@@ -517,7 +525,12 @@ func (m *OneMerge) Close(success bool, segmentDropped bool, readerConsumer func(
 	m.mergeReaders = nil
 	m.mu.Unlock()
 
-	finishedErr := m.MergeFinished(success, segmentDropped)
+	var finishedErr error
+	if m.OnMergeFinished != nil {
+		finishedErr = m.OnMergeFinished(m, success, segmentDropped)
+	} else {
+		finishedErr = m.MergeFinished(success, segmentDropped)
+	}
 
 	var consumerErr error
 	if readerConsumer != nil {

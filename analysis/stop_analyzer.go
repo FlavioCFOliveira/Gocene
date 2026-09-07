@@ -71,7 +71,7 @@ func (a *StopAnalyzer) GetStopWords() *CharArraySet {
 
 // Ensure StopAnalyzer implements Analyzer
 var _ Analyzer = (*StopAnalyzer)(nil)
-var _ AnalyzerInterface = (*StopAnalyzer)(nil)
+var _ api.Analyzer = (*StopAnalyzer)(nil)
 
 // StopAnalyzerFactory creates StopAnalyzer instances.
 type StopAnalyzerFactory struct {
@@ -93,7 +93,7 @@ func NewStopAnalyzerFactoryWithWords(stopWords *CharArraySet) *StopAnalyzerFacto
 }
 
 // Create creates a new StopAnalyzer.
-func (f *StopAnalyzerFactory) Create() AnalyzerInterface {
+func (f *StopAnalyzerFactory) Create() api.Analyzer {
 	return NewStopAnalyzerWithWords(f.stopWords)
 }
 

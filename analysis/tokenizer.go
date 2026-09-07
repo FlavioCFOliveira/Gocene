@@ -5,103 +5,125 @@
 package analysis
 
 import (
+	"errors"
+	"fmt"
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
+var (
+	errIllegalState = errors.New("TokenStream contract violation: reset()/close() call missing, reset() called multiple times, or subclass does not call super.reset(). Please see Javadocs of TokenStream class for more information about the correct consuming workflow")
+)
+
+// illegalStateReader is used to detect violations of the TokenStream contract.
+type illegalStateReader struct{}
+
+func (r *illegalStateReader) Read(p []byte) (n int, err error) {
+	return 0, errIllegalState
+}
+
+func (r *illegalStateReader) Close() error {
+	return nil
+}
+
+var illegalStateReaderInstance = &illegalStateReader{}
+
 // Tokenizer is a TokenStream whose input is a Reader.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.Tokenizer.
 //
-// Tokenizer is the source of tokens in the analysis pipeline. It reads
-// characters from an input source and produces tokens. Subclasses must
-// implement the IncrementToken method to tokenize the input.
+// Tokenizer is an abstract base for tokenizers. Subclasses must override
+// IncrementToken to produce tokens from the input reader.
 type Tokenizer interface {
 	TokenStream
 
 	// SetReader sets the input source for this Tokenizer.
-	// Must be called before IncrementToken is called.
-	SetReader(input io.Reader) error
-
-	// Reset resets the Tokenizer to a clean state.
-	// Called before each tokenization session.
-	Reset() error
+	SetReader(input io.Reader)
 }
 
-// BaseTokenizer provides a base implementation for Tokenizer.
+// BaseTokenizer provides the common implementation for Tokenizers.
 //
 // Embed this struct in concrete Tokenizer implementations to inherit
-// common functionality.
+// the Lucene Tokenizer behavior.
 type BaseTokenizer struct {
 	BaseTokenStream
 
-	// input is the current input source
+	// input is the text source for this Tokenizer.
 	input io.Reader
 
-	// inputFinished tracks whether the input has been fully consumed
-	inputFinished bool
+	// inputPending is the reader that will be assigned to input during reset().
+	inputPending io.Reader
 }
 
-// NewBaseTokenizer creates a new BaseTokenizer.
+// NewBaseTokenizer creates a new BaseTokenizer with no input, awaiting a call to SetReader.
 func NewBaseTokenizer() *BaseTokenizer {
 	return NewBaseTokenizerWithFactory(util.DefaultAttributeFactoryInstance)
 }
 
-// NewBaseTokenizerWithFactory creates a new BaseTokenizer using the supplied
-// [util.AttributeFactory] for its [util.AttributeSource]. Panics if factory is nil.
+// NewBaseTokenizerWithFactory creates a new BaseTokenizer with no input,
+// awaiting a call to SetReader, using the supplied attribute factory.
 func NewBaseTokenizerWithFactory(factory util.AttributeFactory) *BaseTokenizer {
 	if factory == nil {
 		panic("BaseTokenizer factory must not be nil")
 	}
 	return &BaseTokenizer{
 		BaseTokenStream: *NewBaseTokenStreamWithFactory(factory),
-		input:           nil,
-		inputFinished:   false,
+		input:           illegalStateReaderInstance,
+		inputPending:    illegalStateReaderInstance,
 	}
 }
 
-// SetReader sets the input source for this Tokenizer.
-
-func (t *BaseTokenizer) SetReader(input io.Reader) error {
-	t.input = input
-	t.inputFinished = false
-	return nil
-}
-
-// GetReader returns the current input reader.
-func (t *BaseTokenizer) GetReader() io.Reader {
-	return t.input
-}
-
-// Reset resets the Tokenizer to a clean state.
-func (t *BaseTokenizer) Reset() error {
-	t.inputFinished = false
-	t.ClearAttributes()
-	return nil
-}
-
-// IsInputFinished returns true if the input has been fully consumed.
-func (t *BaseTokenizer) IsInputFinished() bool {
-	return t.inputFinished
-}
-
-// SetInputFinished marks the input as fully consumed.
-func (t *BaseTokenizer) SetInputFinished(finished bool) {
-	t.inputFinished = finished
-}
-
-// End performs end-of-stream operations.
-func (t *BaseTokenizer) End() error {
-	// Default implementation does nothing
-	return nil
-}
-
-// Close releases resources.
+// Close closes the input reader and resets the Tokenizer state.
+//
+// The default implementation closes the input Reader, so concrete implementations
+// overriding this method should call BaseTokenizer.Close().
 func (t *BaseTokenizer) Close() error {
-	t.input = nil
+	var err error
+	if closer, ok := t.input.(io.Closer); ok {
+		err = closer.Close()
+	}
+
+	// Don't hold onto Reader after close, so GC can reclaim
+	t.input = illegalStateReaderInstance
+	t.inputPending = illegalStateReaderInstance
+
+	return err
+}
+
+// CorrectOffset returns the corrected offset. If the input is a CharFilter,
+// it calls CorrectOffset on the filter; otherwise, it returns the current offset.
+func (t *BaseTokenizer) CorrectOffset(currentOff int) int {
+	if cf, ok := t.input.(CharFilter); ok {
+		return cf.CorrectOffset(currentOff)
+	}
+	return currentOff
+}
+
+// SetReader sets a new reader on the Tokenizer.
+//
+// Typically, an analyzer will use this to reuse a previously created tokenizer.
+// Panics if input is nil or if the TokenStream contract is violated (close() call missing).
+func (t *BaseTokenizer) SetReader(input io.Reader) {
+	if input == nil {
+		panic("input must not be null")
+	}
+	if t.input != illegalStateReaderInstance {
+		panic("TokenStream contract violation: close() call missing")
+	}
+	t.inputPending = input
+	t.setReaderTestPoint()
+}
+
+// Reset resets the Tokenizer to a clean state and assigns the pending reader to the active input.
+func (t *BaseTokenizer) Reset() error {
+	if err := t.BaseTokenStream.Reset(); err != nil {
+		return err
+	}
+	t.input = t.inputPending
+	t.inputPending = illegalStateReaderInstance
 	return nil
 }
 
-// Ensure LetterTokenizerFactory implements TokenizerFactory
-var _ TokenizerFactory = (*LetterTokenizerFactory)(nil)
+// setReaderTestPoint is an internal method used for testing.
+func (t *BaseTokenizer) setReaderTestPoint() {}

@@ -73,6 +73,10 @@ type TermVectorsReader interface {
 	// docID, or nil when no term vector exists for that field.
 	GetField(docID int, field string) (schema.Terms, error)
 
+	// CheckIntegrity walks the term-vector data and validates the checksum
+	// framing.
+	CheckIntegrity() error
+
 	// Close releases any resources held by the reader.
 	Close() error
 }

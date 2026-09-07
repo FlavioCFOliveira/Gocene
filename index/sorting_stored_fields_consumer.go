@@ -374,7 +374,7 @@ const (
 func (f *copiedField) Name() string { return f.name }
 
 // FieldType implements IndexableField.
-func (f *copiedField) FieldType() IndexableFieldType { return copiedFieldType{} }
+func (f *copiedField) FieldType() schema.IndexableFieldType { return copiedFieldType{} }
 
 // StringValue implements IndexableField.
 func (f *copiedField) StringValue() string {

@@ -5,6 +5,7 @@
 package simpletext
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/geo"
 	"bytes"
 	"fmt"
 	"math/bits"
@@ -146,9 +147,9 @@ var _ codecs.PointValues = (*SimpleTextBKDReader)(nil)
 func intersectSimpleText(tree bkd.PointTree, visitor codecs.IntersectVisitor) error {
 	rel := visitor.Compare(tree.GetMinPackedValue(), tree.GetMaxPackedValue())
 	switch rel {
-	case codecs.RelationCellOutsideQuery:
+	case geo.RelationCellOutsideQuery:
 		return nil
-	case codecs.RelationCellInsideQuery:
+	case geo.RelationCellInsideQuery:
 		return tree.VisitDocValues(bkdVisitorAdapter{visitor})
 	default: // CROSSES
 		if ok, err := tree.MoveToChild(); err != nil {
@@ -178,9 +179,9 @@ func intersectSimpleText(tree bkd.PointTree, visitor codecs.IntersectVisitor) er
 func estimateSimpleText(tree bkd.PointTree, visitor codecs.IntersectVisitor) int64 {
 	rel := visitor.Compare(tree.GetMinPackedValue(), tree.GetMaxPackedValue())
 	switch rel {
-	case codecs.RelationCellOutsideQuery:
+	case geo.RelationCellOutsideQuery:
 		return 0
-	case codecs.RelationCellInsideQuery:
+	case geo.RelationCellInsideQuery:
 		return tree.Size()
 	default: // CROSSES
 		if ok, err := tree.MoveToChild(); err != nil || !ok {
@@ -203,7 +204,7 @@ func (a bkdVisitorAdapter) Visit(docID int) error { return a.v.Visit(docID) }
 func (a bkdVisitorAdapter) VisitByPackedValue(docID int, pv []byte) error {
 	return a.v.VisitByPackedValue(docID, pv)
 }
-func (a bkdVisitorAdapter) Compare(min, max []byte) codecs.Relation { return a.v.Compare(min, max) }
+func (a bkdVisitorAdapter) Compare(min, max []byte) geo.Relation { return a.v.Compare(min, max) }
 func (a bkdVisitorAdapter) Grow(count int)                          { a.v.Grow(count) }
 
 var _ bkd.IntersectVisitor = bkdVisitorAdapter{}

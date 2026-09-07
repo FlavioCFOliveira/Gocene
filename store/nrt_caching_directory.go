@@ -378,10 +378,10 @@ func (d *NRTCachingDirectory) unCache(fileName string) error {
 			if chunk > remaining {
 				chunk = remaining
 			}
-			if err := in.ReadBytes(buf[:chunk]); err != nil {
+			if err := in.ReadBytes(buf, 0, int(chunk)); err != nil {
 				return fmt.Errorf("unCache read error at offset %d: %w", in.Length()-remaining, err)
 			}
-			if err := out.WriteBytes(buf[:chunk]); err != nil {
+			if err := out.WriteBytes(buf, 0, int(chunk)); err != nil {
 				return err
 			}
 			remaining -= chunk

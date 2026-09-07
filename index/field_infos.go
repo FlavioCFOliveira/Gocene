@@ -31,6 +31,19 @@ func NewFieldInfos() *FieldInfos {
 }
 
 // NewFieldInfosBuilder re-exports schema.NewFieldInfosBuilder.
+//
+// PORT NOTE: Java's FieldInfos.Builder(FieldNumbers) asserts a non-null
+// registry, because Builder#add funnels every field through
+// globalFieldNumbers.addOrGet. Gocene's zero-argument facade therefore hands
+// the builder a private, empty registry rather than nil; callers that need a
+// registry shared across segments must use NewFieldInfosBuilderFor.
 func NewFieldInfosBuilder() *FieldInfosBuilder {
-	return schema.NewFieldInfosBuilder()
+	return schema.NewFieldInfosBuilder(schema.NewFieldNumbers("", ""))
+}
+
+// NewFieldInfosBuilderFor re-exports schema.NewFieldInfosBuilder with an
+// explicit global field-number registry, mirroring Java's
+// FieldInfos.Builder(FieldNumbers globalFieldNumbers).
+func NewFieldInfosBuilderFor(globalFieldNumbers *schema.FieldNumbers) *FieldInfosBuilder {
+	return schema.NewFieldInfosBuilder(globalFieldNumbers)
 }

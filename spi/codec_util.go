@@ -52,14 +52,14 @@ func WriteIndexHeader(out store.IndexOutput, codec string, version int32, id []b
 	if err := store.WriteInt32(out, version); err != nil {
 		return err
 	}
-	if err := out.WriteBytes(id); err != nil {
+	if err := out.WriteBytes(id, 0, len(id)); err != nil {
 		return err
 	}
 	if err := out.WriteByte(byte(len(suffix))); err != nil {
 		return err
 	}
 	if len(suffix) > 0 {
-		if err := out.WriteBytes([]byte(suffix)); err != nil {
+		if err := out.WriteBytes([]byte(suffix), 0, len(suffix)); err != nil {
 			return err
 		}
 	}

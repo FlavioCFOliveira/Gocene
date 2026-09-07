@@ -22,6 +22,7 @@ package search
 import (
 	"fmt"
 	"math"
+	"strings"
 )
 
 // Ported from Apache Lucene 10.5.0:
@@ -187,9 +188,9 @@ func (w *logOddsFusionWeight) ScorerSupplier(ctx LeafReaderContext) (ScorerSuppl
 	}
 
 	return &logOddsFusionSupplier{
-		suppliers:    suppliers,
-		totalClauses: len(w.query.clauses),
-		alpha:        w.query.alpha,
+		suppliers:     suppliers,
+		totalClauses:  len(w.query.clauses),
+		alpha:         w.query.alpha,
 		activeWeights: activeWeights,
 		activeMin:     activeMin,
 		activeMax:     activeMax,
@@ -198,9 +199,9 @@ func (w *logOddsFusionWeight) ScorerSupplier(ctx LeafReaderContext) (ScorerSuppl
 }
 
 type logOddsFusionSupplier struct {
-	suppliers    []ScorerSupplier
-	totalClauses int
-	alpha        float32
+	suppliers     []ScorerSupplier
+	totalClauses  int
+	alpha         float32
 	activeWeights []float32
 	activeMin     []float32
 	activeMax     []float32
@@ -225,7 +226,7 @@ func (s *logOddsFusionSupplier) Get(leadCost int64) (Scorer, error) {
 		s.activeMax,
 		s.scoreMode,
 		leadCost,
-	), nil
+	)
 }
 
 func (s *logOddsFusionSupplier) Cost() int64 {
@@ -372,6 +373,13 @@ func (q *LogOddsFusionQuery) Rewrite(searcher IndexSearcher) (Query, error) {
 	return NewLogOddsFusionQuery(rewrittenClauses, q.alpha, newWeights, newLogitMin, newLogitMax)
 }
 
+func (q *LogOddsFusionQuery) Visit(visitor QueryVisitor) {
+	v := visitor.GetSubVisitor(SHOULD, q)
+	for _, clause := range q.clauses {
+		clause.Visit(v)
+	}
+}
+
 func (q *LogOddsFusionQuery) ToString(field string) string {
 	var parts []string
 	for _, sub := range q.clauses {
@@ -381,20 +389,91 @@ func (q *LogOddsFusionQuery) ToString(field string) string {
 		}
 		parts = append(parts, s)
 	}
-	base := fmt.Sprintf("LogOdds(%s)^%f", joinStrings(parts, " & "), q.alpha)
+	base := fmt.Sprintf("LogOdds(%s)^%f", strings.Join(parts, " & "), q.alpha)
 	if q.signalWeights != nil {
 		return fmt.Sprintf("%s w=%v", base, q.signalWeights)
 	}
 	return base
 }
 
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
+func (q *LogOddsFusionQuery) Equals(other Query) bool {
+	if other == nil {
+		return false
 	}
-	res := strs[0]
-	for _, s := range strs[1:] {
-		res += sep + s
+	o, ok := other.(*LogOddsFusionQuery)
+	if !ok {
+		return false
 	}
-	return res
+	if q.alpha != o.alpha {
+		return false
+	}
+	if len(q.clauses) != len(o.clauses) {
+		return false
+	}
+	for i := range q.clauses {
+		if q.clauses[i] != o.clauses[i] {
+			return false
+		}
+	}
+	if len(q.signalWeights) != len(o.signalWeights) {
+		return false
+	}
+	for i := range q.signalWeights {
+		if q.signalWeights[i] != o.signalWeights[i] {
+			return false
+		}
+	}
+	if len(q.logitMin) != len(o.logitMin) {
+		return false
+	}
+	for i := range q.logitMin {
+		if q.logitMin[i] != o.logitMin[i] {
+			return false
+		}
+	}
+	if len(q.logitMax) != len(o.logitMax) {
+		return false
+	}
+	for i := range q.logitMax {
+		if q.logitMax[i] != o.logitMax[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (q *LogOddsFusionQuery) HashCode() int {
+	h := 17 // classHash approximation
+	h = 31*h + int(math.Float32bits(q.alpha))
+
+	// clauses hash
+	cHash := 0
+	for _, c := range q.clauses {
+		// Simplified clause hash as we don't have a standard HashCode for all Queries.
+		cHash = 31*cHash + 0
+	}
+	h = 31*h + cHash
+
+	// weights hash
+	wHash := 0
+	for _, w := range q.signalWeights {
+		wHash = 31*wHash + int(math.Float32bits(w))
+	}
+	h = 31*h + wHash
+
+	// min hash
+	minHash := 0
+	for _, m := range q.logitMin {
+		minHash = 31*minHash + int(math.Float32bits(m))
+	}
+	h = 31*h + minHash
+
+	// max hash
+	maxHash := 0
+	for _, m := range q.logitMax {
+		maxHash = 31*maxHash + int(math.Float32bits(m))
+	}
+	h = 31*h + maxHash
+
+	return h
 }

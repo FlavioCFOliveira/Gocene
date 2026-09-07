@@ -74,7 +74,7 @@ func (a *GreekAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure GreekAnalyzer implements Analyzer
 var _ Analyzer = (*GreekAnalyzer)(nil)
-var _ AnalyzerInterface = (*GreekAnalyzer)(nil)
+var _ api.Analyzer = (*GreekAnalyzer)(nil)
 
 // GreekLightStemFilter implements light stemming for Greek.
 type GreekLightStemFilter struct {

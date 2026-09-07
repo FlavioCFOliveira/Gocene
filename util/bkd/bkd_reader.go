@@ -14,11 +14,11 @@
 package bkd
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/geo"
 	"bytes"
 	"errors"
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -56,7 +56,7 @@ import (
 //     PointValues.PointTree (clone / size / moveToChild / moveToSibling
 //     / moveToParent / visitDocIDs / visitDocValues / getMin / getMax).
 //
-// The reader uses codecs.Relation for the visitor compare() result.
+// The reader uses geo.Relation for the visitor compare() result.
 
 // IntersectVisitor is the narrow visitor surface used by BKDReader to
 // emit results during point intersection. It mirrors the subset of
@@ -81,7 +81,7 @@ type IntersectVisitor interface {
 
 	// Compare returns the relation between [minPackedValue, maxPackedValue]
 	// and the query cell.
-	Compare(minPackedValue, maxPackedValue []byte) codecs.Relation
+	Compare(minPackedValue, maxPackedValue []byte) geo.Relation
 
 	// Grow is a hint that the visitor will receive at least count more
 	// matches in the current sub-walk. Implementations are free to
@@ -192,7 +192,7 @@ func NewBKDReader(metaIn, indexIn, dataIn store.IndexInput) (*BKDReader, error) 
 		return nil, errors.New("bkd: dataIn cannot be nil")
 	}
 
-	version, err := codecs.CheckHeader(metaIn, BKDCodecName, BKDVersionStart, BKDVersionCurrent)
+	version, err := store.CheckHeader(metaIn, BKDCodecName, BKDVersionStart, BKDVersionCurrent)
 	if err != nil {
 		return nil, fmt.Errorf("bkd: meta codec header: %w", err)
 	}
@@ -422,11 +422,11 @@ func (r *BKDReader) Intersect(visitor IntersectVisitor) error {
 func intersect(tree PointTree, visitor IntersectVisitor) error {
 	rel := visitor.Compare(tree.GetMinPackedValue(), tree.GetMaxPackedValue())
 	switch rel {
-	case codecs.RelationCellOutsideQuery:
+	case geo.RelationCellOutsideQuery:
 		return nil
-	case codecs.RelationCellInsideQuery:
+	case geo.RelationCellInsideQuery:
 		return tree.VisitDocIDs(visitor)
-	case codecs.RelationCellCrossesQuery:
+	case geo.RelationCellCrossesQuery:
 		// If we are on a leaf, scan all docs in this leaf with their
 		// packed values; otherwise recurse left + right.
 		// We do not have direct "isLeaf" on PointTree (Lucene exposes
@@ -478,11 +478,11 @@ func (r *BKDReader) EstimatePointCount(visitor IntersectVisitor) (int64, error) 
 func estimatePointCount(tree PointTree, visitor IntersectVisitor) (int64, error) {
 	rel := visitor.Compare(tree.GetMinPackedValue(), tree.GetMaxPackedValue())
 	switch rel {
-	case codecs.RelationCellOutsideQuery:
+	case geo.RelationCellOutsideQuery:
 		return 0, nil
-	case codecs.RelationCellInsideQuery:
+	case geo.RelationCellInsideQuery:
 		return tree.Size(), nil
-	case codecs.RelationCellCrossesQuery:
+	case geo.RelationCellCrossesQuery:
 		moved, err := tree.MoveToChild()
 		if err != nil {
 			return 0, err

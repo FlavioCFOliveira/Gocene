@@ -11,6 +11,7 @@
 package search_test
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/spi"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"

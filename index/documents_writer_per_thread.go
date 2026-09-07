@@ -6,2671 +6,663 @@ package index
 
 import (
 	"fmt"
-	"io"
-	"sort"
-	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
-	"unicode/utf8"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
+func generateSegmentID() []byte {
+	return util.RandomId()
+}
+
 // DocumentsWriterPerThread handles document processing for a single thread.
-// Each thread gets its own DWPT to avoid contention during indexing.
-//
-// This is the Go port of Lucene's org.apache.lucene.index.DocumentsWriterPerThread.
+
+// This is the Go port of org.apache.lucene.index.DocumentsWriterPerThread.
 type DocumentsWriterPerThread struct {
-	mu sync.RWMutex
+	mu sync.Mutex
 
-	// parent is the DocumentsWriter that owns this DWPT
-	parent *DocumentsWriter
+	abortingException error
 
-	// segmentInfo holds segment information for the segment being built.
-	// It is created with the segment name reserved when the DWPT is obtained
-	// from the DocumentsWriter pool, so that codec writers that are opened
-	// lazily during indexing (e.g. the term-vectors writer) see the real
-	// segment name from the start.  This mirrors Lucene's DWPT constructor,
-	// which receives its segment name up front.
+	// codec is the codec used to write the segment.
+	codec Codec
+	// directory is the directory where the segment is written.
+	directory *store.TrackingDirectoryWrapper
+	// indexingChain handles the actual indexing of documents.
+	indexingChain *IndexingChain
+
+	// Updates for our still-in-RAM (to be flushed next) segment.
+	pendingUpdates *BufferedUpdates
+	// segmentInfo is the current segment we are working on.
 	segmentInfo *SegmentInfo
-
-	// fieldInfosBuilder builds field info as documents are added
-	fieldInfosBuilder *FieldInfosBuilder
-
-	// numDocsInRAM tracks documents in memory for this DWPT
-	numDocsInRAM int
-
-	// invertedIndex holds the in-memory postings data
-	invertedIndex *InvertedIndex
-
-	// storedFields holds stored field data for each document
-	storedFields *StoredFieldsBuffer
-
-	// docValues holds doc values data per field
-	docValues map[string]*DocValuesBuffer
-
-	// norms holds the buffered per-document norm value for every indexed
-	// field with norms enabled (omitNorms=false), in document order.
-	// Populated during ProcessDocument (via accumulateNorm) and replayed
-	// into the codec's NormsConsumer at flush time (flushNorms). Mirrors the
-	// per-field NormValuesWriter buffer that Lucene's IndexingChain
-	// accumulates before writeNorms; the norm value itself is computed
-	// exactly as Similarity.computeNorm(FieldInvertState) from the running
-	// field-inversion counters (see normsAccumulator).
-	norms map[string]*NormsBuffer
-
-	// normsAcc holds the in-progress field-inversion counters for the
-	// document currently being processed, keyed by field name. It is reset
-	// at the start of every document (finalizeNorms flushes the previous
-	// document's counters into norms first). Mirrors the per-field
-	// FieldInvertState that Lucene accumulates during invert().
-	normsAcc map[string]*normsAccumulator
-
-	// termVectors holds term vectors per document (if enabled).
-	// Deprecated: the wired TermVectorsConsumer below is the active path;
-	// this buffer is retained until the legacy flushTermVectors inversion path
-	// is fully removed.
-	termVectors *TermVectorsBuffer
-
-	// termVectorsConsumer materialises term vectors for the segment via the
-	// ported Lucene TermVectorsConsumer/TermVectorsConsumerPerField pipeline.
-	termVectorsConsumer *TermVectorsConsumer
-
-	// tvFieldWriters holds the per-field TermVectorsConsumerPerField instances
-	// for the document currently being processed. It is reset at the start of
-	// every document and is the Gocene equivalent of Lucene's per-field array
-	// in IndexingChain.
-	tvFieldWriters map[string]*TermVectorsConsumerPerField
-
-	// tvFieldContexts holds the mutable token context for each tvFieldWriters
-	// entry. The context is updated before every Add call and is read by the
-	// TermVectorsAttributeProvider closures supplied to the per-field writer.
-	tvFieldContexts map[string]*tvTokenContext
-
-	// vectorValues holds the buffered KNN vector values per field, in
-	// document order. It is populated during ProcessDocument and replayed
-	// into the codec's KnnVectorsWriter at flush time (flushKnnVectors).
-	// Mirrors the per-field KnnFieldVectorsWriter buffer that Lucene's
-	// IndexingChain accumulates before VectorValuesConsumer.flush.
-	vectorValues map[string]*VectorValuesBuffer
-
-	// pointValues holds the buffered multi-dimensional point (BKD) values
-	// per field, in document order. Populated during ProcessDocument and
-	// replayed into the codec's PointsWriter at flush time (flushPoints).
-	// Mirrors the per-field PointValuesWriter buffer that Lucene's
-	// IndexingChain accumulates before PointsWriter.writeField.
-	pointValues map[string]*PointValuesBuffer
-
-	// lastDocID is the last document ID assigned
-	lastDocID int
-
-	// flushPending indicates a flush is pending
+	// aborted is true if we aborted the current segment.
+	aborted bool
+	// flushPending indicates if a flush is pending for this DWPT.
 	flushPending bool
+	flushPendingSet bool
+	// lastCommittedBytesUsed is the RAM usage at the last commit.
+	lastCommittedBytesUsed int64
+	// hasFlushed is true if this DWPT has been flushed at least once.
+	hasFlushed bool
+	hasFlushedSet bool
 
-	// bytesUsed estimates memory usage
-	bytesUsed int64
-
-	// deleteQueue holds pending delete operations
-	pendingDeletes []*Term
+	// fieldInfos builds field info as documents are added.
+	fieldInfos *FieldInfosBuilder
+	// infoStream is the info stream for logging.
+	infoStream util.InfoStream
+	// numDocsInRAM is the number of documents currently in RAM.
+	numDocsInRAM int
+	// deleteQueue handles the pending deletes.
+	deleteQueue *DocumentsWriterDeleteQueue
+	// deleteSlice is our local view of the delete queue.
+	deleteSlice *DeleteSlice
+	// pendingNumDocs tracks the total number of documents pending in the index.
+	pendingNumDocs *atomic.Int64
+	// indexWriterConfig is the configuration for the index writer.
+	indexWriterConfig *LiveIndexWriterConfig
+	// enableTestPoints enables test points for debugging.
+	enableTestPoints bool
+	// deleteDocIDs holds doc IDs that were marked as deleted due to non-aborting exceptions.
+	deleteDocIDs []int
+	// numDeletedDocIds is the number of docs in deleteDocIDs.
+	numDeletedDocIds int
+	// indexMajorVersionCreated is the version of the index being created.
+	indexMajorVersionCreated int
+	// hasParentField is true if a parent field is configured.
+	hasParentField bool
 }
 
-// InvertedIndex holds the in-memory postings data structure.
-// This maps terms to document IDs and positions.
-type InvertedIndex struct {
-	mu sync.RWMutex
-
-	// fields maps field name to per-field postings
-	fields map[string]*FieldPostings
-
-	// numTerms total number of unique terms across all fields
-	numTerms int64
+// FlushedSegment represents a segment that has been flushed to disk.
+type FlushedSegment struct {
+	segmentInfo    *SegmentCommitInfo
+	fieldInfos     *FieldInfos
+	segmentUpdates *FrozenBufferedUpdates
+	liveDocs       *util.FixedBitSet
+	delCount       int
+	sortMap        SorterDocMap
 }
 
-// FieldPostings holds postings for a single field.
-type FieldPostings struct {
-	mu sync.RWMutex
-
-	// terms maps term text to posting list
-	terms map[string]*Posting
-
-	// fieldInfo is the field info for this field
-	fieldInfo *FieldInfo
-}
-
-// Posting holds the posting list for a single term.
-type Posting struct {
-	// docIDs is the list of document IDs containing this term
-	docIDs []int
-
-	// freqs is the frequency of this term in each document
-	freqs []int
-
-	// positions holds positions for each occurrence (if positions are indexed)
-	positions [][]int
-
-	// startOffsets holds start character offsets (if offsets are indexed)
-	startOffsets [][]int
-
-	// endOffsets holds end character offsets (if offsets are indexed)
-	endOffsets [][]int
-
-	// payloads holds per-position payload bytes (if payloads are indexed).
-	// The outer slice is parallel to docIDs; the inner slice holds one payload
-	// per position occurrence. A nil entry means "no payload for this
-	// occurrence"; an empty but non-nil slice means "empty payload".
-	payloads [][][]byte
-}
-
-// StoredFieldsBuffer holds stored field data in memory.
-type StoredFieldsBuffer struct {
-	mu sync.RWMutex
-
-	// documents holds stored field data per document
-	documents []*StoredDocument
-
-	// totalBytes estimates total bytes stored
-	totalBytes int64
-}
-
-// StoredDocument holds stored fields for a single document.
-type StoredDocument struct {
-	// fields holds the stored fields for this document
-	fields []*StoredField
-}
-
-// StoredField represents a single stored field value.
-type StoredField struct {
-	name         string
-	stringValue  string
-	binaryValue  []byte
-	numericValue interface{}
-}
-
-// DocValuesBuffer holds the buffered doc-values for a single field,
-// accumulated in document order during ProcessDocument and replayed into the
-// codec's DocValuesConsumer at flush time (flushDocValues).
-//
-// docIDs[i] is the document that supplied the i-th value. docIDs is strictly
-// increasing because ProcessDocument assigns monotonically increasing docIDs
-// and a doc-values field is recorded at most once per document.
-//
-// Exactly one value-shaped slice is populated per buffer, selected by dvType:
-//   - NUMERIC:        numericValues[i] is the single value for docIDs[i].
-//   - BINARY, SORTED: binaryValues[i] is the single value for docIDs[i].
-//   - SORTED_NUMERIC: numericValuesMulti[i] are the values for docIDs[i].
-//   - SORTED_SET:     binaryValuesMulti[i] are the values for docIDs[i].
-//
-// The legacy values []interface{} slice is retained for backward
-// compatibility with the FlushTicket snapshot surface; the codec flush path
-// (flushDocValues) consumes the typed slices.
-type DocValuesBuffer struct {
-	mu sync.RWMutex
-
-	// values holds doc values per document (legacy/back-compat surface).
-	values []interface{}
-
-	// dvType is the doc values type
-	dvType DocValuesType
-
-	// docIDs holds the document that supplied each value, in document order.
-	docIDs []int
-
-	// numericValues holds the single NUMERIC value per recorded document.
-	numericValues []int64
-
-	// binaryValues holds the single BINARY / SORTED value per recorded document.
-	binaryValues [][]byte
-
-	// numericValuesMulti holds the SORTED_NUMERIC values per recorded document.
-	numericValuesMulti [][]int64
-
-	// binaryValuesMulti holds the SORTED_SET values per recorded document.
-	binaryValuesMulti [][][]byte
-}
-
-// VectorValuesBuffer holds the buffered KNN vector values for a single
-// field, accumulated in document order during indexing and replayed into
-// the codec's KnnVectorsWriter at flush time.
-//
-// Exactly one of floatValues / byteValues is populated per buffer,
-// according to encoding. docIDs[i] is the document that supplied
-// floatValues[i] (or byteValues[i]); docIDs is strictly increasing because
-// ProcessDocument assigns monotonically increasing docIDs and a field is
-// recorded at most once per document.
-type VectorValuesBuffer struct {
-	dimension   int
-	encoding    VectorEncoding
-	similarity  VectorSimilarityFunction
-	docIDs      []int
-	floatValues [][]float32
-	byteValues  [][]byte
-}
-
-// PointValuesBuffer holds the buffered multi-dimensional point (BKD) values
-// for a single field, accumulated in document order during indexing and
-// replayed into the codec's PointsWriter at flush time.
-//
-// docIDs[i] is the document that supplied packedValues[i]. A document may
-// contribute more than one value for a multi-valued point field, so docIDs is
-// non-decreasing (not strictly increasing). dimensionCount /
-// indexDimensionCount / bytesPerDim mirror the field's point attributes and
-// are used to size the BKD config at flush time.
-type PointValuesBuffer struct {
-	dimensionCount      int
-	indexDimensionCount int
-	bytesPerDim         int
-	docIDs              []int
-	packedValues        [][]byte
-}
-
-// TermVectorsBuffer holds term vectors for documents.
-type TermVectorsBuffer struct {
-	mu sync.RWMutex
-
-	// vectors holds term vectors per document
-	// maps docID -> field name -> term vector data
-	vectors []map[string]*FieldTermVector
-}
-
-// FieldTermVector holds term vector data for a field.
-type FieldTermVector struct {
-	// terms is the list of terms in this field
-	terms []string
-
-	// freqs is the frequency of each term
-	freqs []int
-
-	// positions holds positions for each term (if positions are stored)
-	positions [][]int
-
-	// startOffsets holds start offsets for each term (if offsets are stored)
-	startOffsets [][]int
-
-	// endOffsets holds end offsets for each term (if offsets are stored)
-	endOffsets [][]int
-}
-
-// NewDocumentsWriterPerThread creates a new DWPT.
-//
-// segmentName is the segment name reserved for this DWPT.  Passing it at
-// construction lets lazily-initialized codec writers (in particular the
-// term-vectors writer) create files under the correct segment name, matching
-// Lucene's DWPT(segmentName, ...) constructor.
-func NewDocumentsWriterPerThread(parent *DocumentsWriter, segmentName string) *DocumentsWriterPerThread {
-	dwpt := &DocumentsWriterPerThread{
-		parent:            parent,
-		fieldInfosBuilder: NewFieldInfosBuilder(),
-		invertedIndex:     NewInvertedIndex(),
-		storedFields:      NewStoredFieldsBuffer(),
-		docValues:         make(map[string]*DocValuesBuffer),
-		norms:             make(map[string]*NormsBuffer),
-		normsAcc:          make(map[string]*normsAccumulator),
-		termVectors:       NewTermVectorsBuffer(),
-		vectorValues:      make(map[string]*VectorValuesBuffer),
-		pointValues:       make(map[string]*PointValuesBuffer),
-		lastDocID:         -1,
+func newFlushedSegment(
+	infoStream util.InfoStream,
+	segmentInfo *SegmentCommitInfo,
+	fieldInfos *FieldInfos,
+	segmentUpdates *BufferedUpdates,
+	liveDocs *util.FixedBitSet,
+	delCount int,
+	sortMap SorterDocMap,
+) *FlushedSegment {
+	var frozenUpdates *FrozenBufferedUpdates
+	if segmentUpdates != nil && segmentUpdates.Any() {
+		frozenUpdates = NewFrozenBufferedUpdates(infoStream, segmentUpdates, segmentInfo)
 	}
-	if parent != nil {
-		// The segment name is reserved up front so that any codec writer opened
-		// during indexing (e.g. TermVectorsConsumer's lazy writer) sees the real
-		// segment name from the start.
-		dwpt.segmentInfo = NewSegmentInfo(segmentName, 0, parent.directory)
-		dwpt.segmentInfo.SetID(generateSegmentID())
-		dwpt.segmentInfo.SetVersion("10.4.0")
-		dwpt.segmentInfo.SetMinVersion("10.4.0")
-		dwpt.termVectorsConsumer = NewTermVectorsConsumer(parent.directory, dwpt.segmentInfo, parent.codec)
-		dwpt.tvFieldWriters = make(map[string]*TermVectorsConsumerPerField)
-		dwpt.tvFieldContexts = make(map[string]*tvTokenContext)
-	}
-	return dwpt
-}
-
-// NewInvertedIndex creates a new empty inverted index.
-func NewInvertedIndex() *InvertedIndex {
-	return &InvertedIndex{
-		fields: make(map[string]*FieldPostings),
+	return &FlushedSegment{
+		segmentInfo:    segmentInfo,
+		fieldInfos:     fieldInfos,
+		segmentUpdates: frozenUpdates,
+		liveDocs:       liveDocs,
+		delCount:       delCount,
+		sortMap:        sortMap,
 	}
 }
 
-// NewStoredFieldsBuffer creates a new empty stored fields buffer.
-func NewStoredFieldsBuffer() *StoredFieldsBuffer {
-	return &StoredFieldsBuffer{
-		documents: make([]*StoredDocument, 0),
+func (dwpt *DocumentsWriterPerThread) onAbortingException(err error) {
+	if err == nil {
+		panic("aborting exception must not be nil")
 	}
+	if dwpt.abortingException != nil {
+		panic("aborting exception has already been set")
+	}
+	dwpt.abortingException = err
 }
 
-// NewTermVectorsBuffer creates a new empty term vectors buffer.
-func NewTermVectorsBuffer() *TermVectorsBuffer {
-	return &TermVectorsBuffer{
-		vectors: make([]map[string]*FieldTermVector, 0),
-	}
-}
-
-// dwptField is a flat duck-type interface for a field accepted by ProcessDocument.
-// Rather than nesting a FieldType() call (whose return type varies between
-// index.Field and index.IndexableField), all field-type properties are
-// promoted to the top level.  This allows both index.Field (which returns
-// *index.FieldType from FieldType()) and index.IndexableField (which returns
-// index.FieldTypeInterface) to be adapted to a common surface without any
-// circular import.
-//
-// Concrete types do NOT need to implement this interface directly; asDwptField
-// constructs a concrete dwptFieldRecord from the field's accessor methods.
-type dwptField struct {
-	name        string
-	stringValue string
-	binaryValue []byte
-	numericVal  interface{}
-	// field-type properties
-	isIndexed                bool
-	isStored                 bool
-	isTokenized              bool
-	omitNorms                bool
-	indexOptions             IndexOptions
-	docValuesType            DocValuesType
-	storeTermVectors         bool
-	storeTermVectorPositions bool
-	storeTermVectorOffsets   bool
-	storeTermVectorPayloads  bool
-	// customTermFreq, when > 0, overrides the default initial TF of 1.
-	// Used by fields such as FeatureField that encode a value as TF.
-	customTermFreq int
-	// tokenStream, when non-nil, is a pre-built TokenStream supplied by the
-	// field (e.g. CannedTermFreqs). It takes precedence over analyzer-driven
-	// tokenization for indexed tokenized fields.
-	tokenStream analysis.TokenStream
-	// Vector (KNN) attributes. hasVector is true when the field carries a
-	// KNN vector value (vectorDimension > 0). The per-document value is
-	// stored in exactly one of vectorFloatValue / vectorByteValue
-	// according to vectorEncoding, mirroring Lucene's
-	// IndexingChain.indexVectorValue dispatch on VectorEncoding.
-	hasVector        bool
-	vectorDimension  int
-	vectorEncoding   VectorEncoding
-	vectorSimilarity VectorSimilarityFunction
-	vectorFloatValue []float32
-	vectorByteValue  []byte
-	// Point (BKD) attributes. hasPoint is true when the field carries a
-	// multi-dimensional point value (pointDimensionCount > 0). The packed
-	// per-document value (pointDimensionCount * pointNumBytes bytes) is
-	// stored in pointPackedValue. Mirrors Lucene's
-	// IndexingChain.indexPoint dispatch on FieldInfo point dimensions.
-	hasPoint                 bool
-	pointDimensionCount      int
-	pointIndexDimensionCount int
-	pointNumBytes            int
-	pointPackedValue         []byte
-	// DocValues per-document payload. dvNumericValue / dvBinaryValue carry
-	// the single-valued NUMERIC / BINARY / SORTED value; dvNumericValues /
-	// dvBinaryValues carry the multi-valued SORTED_NUMERIC / SORTED_SET
-	// values. These are populated in asDwptField from the concrete field's
-	// accessors (NumericValue/BinaryValue and the GetValues duck-types) so
-	// flushDocValues can replay them into the codec DocValuesConsumer in
-	// document order. Mirrors Lucene's IndexingChain.indexDocValue dispatch
-	// on FieldInfo.getDocValuesType.
-	dvHasNumericValue bool
-	dvNumericValue    int64
-	dvBinaryValue     []byte
-	dvNumericValues   []int64
-	dvBinaryValues    [][]byte
-}
-
-// omitNormsGetter is a narrow interface satisfied by field types that expose
-// OmitNorms (e.g. index.FieldType via its IsOmitNorms() method, and
-// index.Field via OmitNorms()). The FieldTypeInterface used by codec-facing
-// fields does not include OmitNorms, so we use a separate assertion.
-type omitNormsGetter interface {
-	OmitNorms() bool
-}
-
-// indexableFieldPromoter is satisfied by index.Field via its
-// AsIndexableField() method.  Using this intermediate interface lets the index
-// package coerce a index.Field — which cannot directly satisfy
-// index.IndexableField due to the FieldType() return-type mismatch — into a
-// proper IndexableField without importing the document package.
-type indexableFieldPromoter interface {
-	AsIndexableField() IndexableField
-}
-
-// termFrequencyProvider is satisfied by fields (e.g. FeatureField) that need
-// a custom initial term frequency instead of the default of 1.
-type termFrequencyProvider interface {
-	TermFrequency() int
-}
-
-// tokenStreamProvider is satisfied by fields constructed with an
-// analysis.TokenStream value (e.g. CannedTermFreqs).
-type tokenStreamProvider interface {
-	TokenStream() analysis.TokenStream
-}
-
-// indexFieldTypeProvider is satisfied by fields that expose the codec-facing
-// FieldTypeInterface (the legacy index-side IndexableField surface, retained
-// for fields that need to advertise indexed/stored/term-vector flags to the
-// indexing chain). The unified spi.IndexableField is narrower and does not
-// carry FieldType(); this probe restores access without bloating the SPI.
-type indexFieldTypeProvider interface {
-	FieldType() FieldTypeInterface
-}
-
-// vectorFieldTypeProvider is satisfied by a field type that advertises KNN
-// vector attributes. index.FieldType (via its
-// fieldTypeAsIndexInterface bridge) implements it once a field has been
-// configured with SetVectorAttributes; non-vector field types do not.
-//
-// Probing this optional interface — rather than widening
-// FieldTypeInterface — keeps the existing stored-fields-only
-// FieldTypeInterface implementers (simpleFieldType, the spatial shape
-// types, the stored-fields consumers) unchanged, matching the
-// established optional-probe pattern used for OmitNorms and
-// TermFrequency above. It is the index-side projection of
-// IndexableFieldType.VectorDimension/VectorEncoding/VectorSimilarityFunction.
-type vectorFieldTypeProvider interface {
-	VectorDimension() int
-	VectorEncoding() VectorEncoding
-	VectorSimilarityFunction() VectorSimilarityFunction
-}
-
-// floatVectorValueProvider is satisfied by document.KnnFloatVectorField via
-// its VectorValue() []float32 accessor. It lets the indexing chain pull the
-// per-document float vector without importing the document package.
-type floatVectorValueProvider interface {
-	VectorValue() []float32
-}
-
-// byteVectorValueProvider is satisfied by document.KnnByteVectorField via its
-// VectorValue() []byte accessor, the byte analogue of
-// floatVectorValueProvider.
-type byteVectorValueProvider interface {
-	VectorValue() []byte
-}
-
-// pointFieldTypeProvider is satisfied by a field type that advertises
-// multi-dimensional point (BKD) attributes. index.FieldType (via its
-// fieldTypeAsIndexInterface bridge) implements it once a field has been
-// configured with SetDimensions; non-point field types report 0 dimensions.
-//
-// Probing this optional interface — rather than widening FieldTypeInterface —
-// follows the same pattern as vectorFieldTypeProvider. It is the index-side
-// projection of IndexableFieldType.PointDimensionCount/PointIndexDimensionCount
-// /PointNumBytes.
-type pointFieldTypeProvider interface {
-	PointDimensionCount() int
-	PointIndexDimensionCount() int
-	PointNumBytes() int
-}
-
-// pointValueProvider is satisfied by document.Point via its PointValues()
-// []byte accessor. It lets the indexing chain pull the per-document packed
-// point value without importing the document package.
-type pointValueProvider interface {
-	PointValues() []byte
-}
-
-// sortedNumericValuesProvider is satisfied by
-// document.SortedNumericDocValuesField via its GetValues() []int64 accessor.
-// It lets the indexing chain pull the per-document multi-valued numeric
-// doc-values without importing the document package.
-type sortedNumericValuesProvider interface {
-	GetValues() []int64
-}
-
-// sortedSetValuesProvider is satisfied by document.SortedSetDocValuesField via
-// its GetValues() [][]byte accessor, the binary analogue of
-// sortedNumericValuesProvider.
-type sortedSetValuesProvider interface {
-	GetValues() [][]byte
-}
-
-// asDwptField builds a flat dwptField record from fieldInterface using
-// structural type assertions.  It supports two concrete field layouts:
-//
-//  1. index.IndexableField (codec-facing, FieldType() returns FieldTypeInterface).
-//  2. index.Field — coerced via its AsIndexableField() bridge method.
-//
-// Returns (nil, false) when the field does not expose the minimal surface.
-//
-// After the SPI unification (rmp #4693) the IndexableField interface no
-// longer carries FieldType(); fields that need to advertise codec-facing
-// type properties must do so via a separate FieldType() FieldTypeInterface
-// method. The original incoming value is preferred over the (possibly
-// wrapped) IndexableField projection so that index.Field instances —
-// which satisfy spi.IndexableField directly but only expose
-// FieldTypeInterface through their explicit AsIndexableField() bridge —
-// are routed through the bridge.
-func asDwptField(fieldInterface interface{}) (*dwptField, bool) {
-	if fieldInterface == nil {
-		return nil, false
-	}
-
-	// If the value exposes the legacy AsIndexableField() bridge (i.e.
-	// index.Field) always prefer it: that wrapper carries the
-	// FieldType() FieldTypeInterface accessor that the indexing chain
-	// needs to populate dwptField.isStored / .isIndexed / etc. The raw
-	// index.Field type also satisfies spi.IndexableField but does
-	// not expose FieldTypeInterface, which would leave those flags at
-	// their zero value and break the on-disk persistence of stored /
-	// indexed / docvalues fields.
-	var idxF IndexableField
-	if promoter, ok := fieldInterface.(indexableFieldPromoter); ok {
-		idxF = promoter.AsIndexableField()
-	}
-	if idxF == nil {
-		// Fall back to the codec-facing path (concrete IndexableField
-		// implementations that already expose the narrow SPI surface).
-		if v, ok := fieldInterface.(IndexableField); ok {
-			idxF = v
-		}
-	}
-	if idxF == nil {
-		return nil, false
-	}
-
-	f := &dwptField{
-		name:        idxF.Name(),
-		stringValue: idxF.StringValue(),
-		binaryValue: idxF.BinaryValue(),
-		numericVal:  idxF.NumericValue(),
-	}
-	// FieldType() is no longer on the unified spi.IndexableField
-	// surface. Probe the IndexableField value first (it is the
-	// wrapping value when the field came through AsIndexableField),
-	// then the original incoming field.
-	var ft FieldTypeInterface
-	if ftp, ok := any(idxF).(indexFieldTypeProvider); ok {
-		ft = ftp.FieldType()
-	} else if ftp, ok := fieldInterface.(indexFieldTypeProvider); ok {
-		ft = ftp.FieldType()
-	}
-	if ft != nil {
-		f.isIndexed = ft.IsIndexed()
-		f.isStored = ft.IsStored()
-		f.isTokenized = ft.IsTokenized()
-		f.indexOptions = ft.GetIndexOptions()
-		f.docValuesType = ft.GetDocValuesType()
-		f.storeTermVectors = ft.StoreTermVectors()
-		f.storeTermVectorPositions = ft.StoreTermVectorPositions()
-		f.storeTermVectorOffsets = ft.StoreTermVectorOffsets()
-		f.storeTermVectorPayloads = ft.StoreTermVectorPayloads()
-	}
-	// FieldTypeInterface does not expose OmitNorms, so probe the original
-	// field object directly. index.Field satisfies omitNormsGetter.
-	if ong, ok := fieldInterface.(omitNormsGetter); ok {
-		f.omitNorms = ong.OmitNorms()
-	}
-	if tfp, ok := fieldInterface.(termFrequencyProvider); ok {
-		f.customTermFreq = tfp.TermFrequency()
-	}
-	if tsp, ok := fieldInterface.(tokenStreamProvider); ok {
-		f.tokenStream = tsp.TokenStream()
-	}
-
-	// Vector (KNN) attributes. The field type carries the dimension /
-	// encoding / similarity (via the optional vectorFieldTypeProvider
-	// probe); the per-document value lives on the concrete field
-	// (KnnFloatVectorField / KnnByteVectorField). A field is treated as a
-	// vector field only when the declared dimension is positive, matching
-	// Lucene's FieldInfo.hasVectorValues() contract.
-	//
-	// The encoding selects which value accessor to consult:
-	// floatVectorValueProvider for FLOAT32, byteVectorValueProvider for
-	// BYTE. Both accessors are named VectorValue() but differ in return
-	// type, so the encoding (not duck-typing alone) disambiguates which
-	// concrete field type produced the value.
-	if vtp, ok := ft.(vectorFieldTypeProvider); ok && vtp.VectorDimension() > 0 {
-		f.hasVector = true
-		f.vectorDimension = vtp.VectorDimension()
-		f.vectorEncoding = vtp.VectorEncoding()
-		f.vectorSimilarity = vtp.VectorSimilarityFunction()
-		switch f.vectorEncoding {
-		case VectorEncodingByte:
-			if bp, ok := fieldInterface.(byteVectorValueProvider); ok {
-				f.vectorByteValue = bp.VectorValue()
-			}
-		default: // VectorEncodingFloat32
-			if fp, ok := fieldInterface.(floatVectorValueProvider); ok {
-				f.vectorFloatValue = fp.VectorValue()
-			}
-		}
-	}
-
-	// Point (BKD) attributes. The field type carries the dimension count /
-	// index-dimension count / bytes-per-dimension (via the optional
-	// pointFieldTypeProvider probe); the per-document packed value lives on
-	// the concrete field (document.Point, via pointValueProvider). A field is
-	// treated as a point field only when the declared dimension count is
-	// positive, matching Lucene's FieldInfo.getPointDimensionCount() contract.
-	if ptp, ok := ft.(pointFieldTypeProvider); ok && ptp.PointDimensionCount() > 0 {
-		f.hasPoint = true
-		f.pointDimensionCount = ptp.PointDimensionCount()
-		f.pointIndexDimensionCount = ptp.PointIndexDimensionCount()
-		if f.pointIndexDimensionCount <= 0 {
-			f.pointIndexDimensionCount = f.pointDimensionCount
-		}
-		f.pointNumBytes = ptp.PointNumBytes()
-		// The packed value comes from the concrete document.Point via its
-		// PointValues() accessor; fields that encode the packed bytes as the
-		// field's binary value (e.g. index.Field produced by
-		// Geo3DPoint.ToIndexableFields) expose it through BinaryValue()
-		// instead. Prefer the explicit accessor, fall back to the binary
-		// value.
-		if pp, ok := fieldInterface.(pointValueProvider); ok {
-			f.pointPackedValue = pp.PointValues()
-		}
-		if len(f.pointPackedValue) == 0 {
-			f.pointPackedValue = f.binaryValue
-		}
-	}
-
-	// DocValues per-document payload. Captured here (not deferred to a
-	// second IndexableField assertion in ProcessDocument) so the multi-valued
-	// SORTED_NUMERIC / SORTED_SET fields — which expose their values only via
-	// the concrete document field's GetValues() accessor, not the narrow
-	// IndexableField surface — are read off the original incoming value.
-	// Mirrors Lucene's IndexingChain.indexDocValue dispatch on
-	// FieldInfo.getDocValuesType.
-	switch f.docValuesType {
-	case DocValuesTypeNumeric:
-		f.dvNumericValue, f.dvHasNumericValue = coerceDocValuesInt64(f.numericVal)
-	case DocValuesTypeBinary, DocValuesTypeSorted:
-		f.dvBinaryValue = f.binaryValue
-	case DocValuesTypeSortedNumeric:
-		if p, ok := fieldInterface.(sortedNumericValuesProvider); ok {
-			f.dvNumericValues = p.GetValues()
-		} else if v, hasV := coerceDocValuesInt64(f.numericVal); hasV {
-			f.dvNumericValues = []int64{v}
-		}
-	case DocValuesTypeSortedSet:
-		if p, ok := fieldInterface.(sortedSetValuesProvider); ok {
-			f.dvBinaryValues = p.GetValues()
-		} else if len(f.binaryValue) > 0 {
-			f.dvBinaryValues = [][]byte{f.binaryValue}
-		}
-	}
-	return f, true
-}
-
-// coerceDocValuesInt64 normalises the numeric value carried by a doc-values
-// field to int64. NumericDocValuesField stores int64 directly; the
-// float/double DV fields pre-encode their value as int64 bits (see
-// document.FloatDocValuesField / DoubleDocValuesField), so the only coercion
-// needed here is for the narrower integer kinds a caller might supply.
-func coerceDocValuesInt64(v interface{}) (int64, bool) {
-	switch n := v.(type) {
-	case int64:
-		return n, true
-	case int:
-		return int64(n), true
-	case int32:
-		return int64(n), true
-	case int16:
-		return int64(n), true
-	case int8:
-		return int64(n), true
-	case uint32:
-		return int64(n), true
-	case uint64:
-		return int64(n), true
-	default:
-		return 0, false
-	}
-}
-
-// termVectorFlags captures the term-vector-related flags of a field for
-// consistency checks inside a single document.
-type termVectorFlags struct {
-	storeTermVectors         bool
-	storeTermVectorPositions bool
-	storeTermVectorOffsets   bool
-	storeTermVectorPayloads  bool
-}
-
-// validateTermVectorSettings checks two rules before any per-document state is
-// mutated:
-//
-//   1. Term vectors cannot be stored for a field that is not indexed.
-//   2. Every instance of the same field name within one document must agree on
-//      its term-vector flags (storeTermVectors, positions, offsets, payloads).
-//
-// These checks mirror Lucene's IndexingChain / TermVectorsConsumerPerField
-// validation and must run early so that a bad document does not leave the DWPT
-// in a partially-populated state.
-func validateTermVectorSettings(fields []*dwptField) error {
-	first := make(map[string]termVectorFlags)
-	for _, f := range fields {
-		if f.storeTermVectors && !f.isIndexed {
-			return fmt.Errorf(
-				"cannot store term vectors for field %q when it is not indexed",
-				f.name)
-		}
-		flags := termVectorFlags{
-			storeTermVectors:         f.storeTermVectors,
-			storeTermVectorPositions: f.storeTermVectorPositions,
-			storeTermVectorOffsets:   f.storeTermVectorOffsets,
-			storeTermVectorPayloads:  f.storeTermVectorPayloads,
-		}
-		if existing, ok := first[f.name]; ok {
-			if existing != flags {
-				return fmt.Errorf(
-					"all instances of a given field name must have the same term vectors settings (field %q)",
-					f.name)
-			}
-		} else {
-			first[f.name] = flags
-		}
-	}
-	return nil
-}
-
-// ProcessDocument processes a single document.
-// This is the main entry point for indexing a document.
-func (dwpt *DocumentsWriterPerThread) ProcessDocument(doc Document) error {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
-
-	// Get analyzer from parent
-	analyzer := dwpt.parent.analyzer
-
-	// Collect and adapt every field first.  Term-vector settings must be
-	// validated before the DWPT mutates any per-document counters, field infos,
-	// postings, or stored/doc-values buffers.  A document that violates
-	// Lucene's term-vector rules must be rejected cleanly without consuming a
-	// docID or leaving partial state behind.
-	fields := make([]*dwptField, 0, len(doc.GetFields()))
-	ifaces := make([]interface{}, 0, len(doc.GetFields()))
-	for _, fieldInterface := range doc.GetFields() {
-		field, ok := asDwptField(fieldInterface)
-		if !ok {
-			continue
-		}
-		fields = append(fields, field)
-		ifaces = append(ifaces, fieldInterface)
-	}
-	if err := validateTermVectorSettings(fields); err != nil {
-		return err
-	}
-
-	// Assign a document ID only after validation has succeeded.
-	dwpt.lastDocID++
-	docID := dwpt.lastDocID
-	dwpt.numDocsInRAM++
-
-	// Reset the term-vectors pipeline for a new document.
-	if dwpt.termVectorsConsumer != nil {
-		dwpt.termVectorsConsumer.StartDocument()
-	}
-	dwpt.tvFieldWriters = make(map[string]*TermVectorsConsumerPerField)
-	dwpt.tvFieldContexts = make(map[string]*tvTokenContext)
-
-	// Track field processing for this document
-	storedDoc := &StoredDocument{
-		fields: make([]*StoredField, 0),
-	}
-
-	// Process each field
-	for i, field := range fields {
-		fieldInterface := ifaces[i]
-		fieldName := field.name
-
-		// Build FieldInfoOptions from the flat dwptField properties.
-		// IndexOptions: only set for indexed fields; non-indexed fields use None.
-		// OmitNorms: propagate from the field type (e.g. StringField sets true).
-		// Stored: propagate so FieldInfos.IsStored() reflects the real schema.
-		indexOpts := IndexOptionsNone
-		if field.isIndexed {
-			indexOpts = field.indexOptions
-			if indexOpts == IndexOptionsNone {
-				indexOpts = IndexOptionsDocsAndFreqsAndPositions
-			}
-		}
-		opts := FieldInfoOptions{
-			IndexOptions:             indexOpts,
-			StoreTermVectors:         field.storeTermVectors,
-			StoreTermVectorPositions: field.storeTermVectorPositions,
-			StoreTermVectorOffsets:   field.storeTermVectorOffsets,
-			OmitNorms:                field.omitNorms,
-			Stored:                   field.isStored,
-			DocValuesType:            field.docValuesType,
-			DocValuesGen:             -1,
-		}
-		// Mark the configured parent field so the parent bit is serialised into
-		// the .fnm (Lucene94FieldInfosFormat parent bit). This makes the .fnm the
-		// authoritative on-disk home for the block-join parent field name,
-		// replacing the segments_N _gocene_parent userData key (rmp #4789).
-		// Mirrors IndexingChain.processField, which sets IsParentField from
-		// FieldInfos.getParentField() during the live indexing path.
-		if dwpt.parent != nil && dwpt.parent.config != nil &&
-			fieldName == dwpt.parent.config.ParentField() && dwpt.parent.config.ParentField() != "" {
-			opts.IsParentField = true
-		}
-		// Vector (KNN) attributes: record the dimension / encoding /
-		// similarity on the FieldInfo so it is serialised to the .fnm and
-		// FieldInfos.HasVectorValues() reports true on reopen, lighting up
-		// the codec KnnVectorsReader. Without a positive dimension the
-		// codec write/read paths are never engaged. Mirrors how Lucene's
-		// IndexingChain.processField sets the vector attributes on the
-		// per-field FieldInfo via schema.setVectorDimensions.
-		if field.hasVector {
-			opts.VectorDimension = field.vectorDimension
-			opts.VectorEncoding = field.vectorEncoding
-			opts.VectorSimilarityFunction = field.vectorSimilarity
-		}
-		// Point (BKD) attributes: record the dimension count / index-dimension
-		// count / bytes-per-dimension on the FieldInfo so it is serialised to
-		// the .fnm and FieldInfos.HasPointValues() reports true on reopen,
-		// lighting up the codec PointsReader. Without a positive dimension
-		// count the codec point write/read paths are never engaged. Mirrors
-		// how Lucene's IndexingChain.processField sets the point attributes on
-		// the per-field FieldInfo via schema.setPointDimensions.
-		if field.hasPoint {
-			opts.PointDimensionCount = field.pointDimensionCount
-			opts.PointIndexDimensionCount = field.pointIndexDimensionCount
-			opts.PointNumBytes = field.pointNumBytes
-		}
-
-		// Get or create FieldInfo
-		fieldInfo, err := dwpt.getOrAddFieldInfo(fieldName, opts)
-		if err != nil {
-			return err
-		}
-
-		// Process based on field type
-		var tokens []tokenAtPos
-		streamEndOffset := 0
-		if field.isIndexed {
-			// Index the field in the inverted index, capturing the tokens so the
-			// term-vectors pipeline can replay them without tokenizing twice.
-			var err error
-			tokens, streamEndOffset, err = dwpt.indexFieldWithValue(docID, fieldName, field.stringValue, field.isTokenized, field.customTermFreq, fieldInfo, analyzer, field.tokenStream)
-			if err != nil {
-				return err
-			}
-		}
-
-		if field.isStored {
-			// Add to stored fields
-			storedDoc.fields = append(storedDoc.fields, &StoredField{
-				name:         fieldName,
-				stringValue:  field.stringValue,
-				binaryValue:  field.binaryValue,
-				numericValue: field.numericVal,
-			})
-		}
-
-		if field.docValuesType != DocValuesTypeNone {
-			// Buffer the per-document doc-values value(s) for this field.
-			// Replayed into the codec DocValuesConsumer (.dvd/.dvm) at flush
-			// time (flushDocValues). Mirrors IndexingChain.indexDocValue.
-			dwpt.addDocValue(docID, fieldName, field)
-		}
-
-		if field.storeTermVectors {
-			// Build term vectors — requires index.IndexableField; adapt if possible.
-			if idxField, ok2 := fieldInterface.(IndexableField); ok2 {
-				if err := dwpt.buildTermVector(docID, fieldName, idxField, fieldInfo, tokens, streamEndOffset, field.isTokenized, analyzer); err != nil {
-					return err
-				}
-			}
-		}
-
-		if field.hasVector {
-			// Buffer the per-document vector value for this field. Replayed
-			// into the codec KnnVectorsWriter at flush time. Mirrors
-			// IndexingChain.indexVectorValue, which routes the value through
-			// the per-field KnnFieldVectorsWriter in document order.
-			dwpt.addVectorValue(docID, fieldName, field)
-		}
-
-		if field.hasPoint && len(field.pointPackedValue) > 0 {
-			// Buffer the per-document packed point value for this field.
-			// Replayed into the codec PointsWriter (BKD) at flush time.
-			// Mirrors IndexingChain.indexPoint, which feeds the value into the
-			// field's PointValuesWriter in document order.
-			dwpt.addPointValue(docID, fieldName, field)
-		}
-	}
-
-	// Flush the per-field term-vector state into the consumer and then finish
-	// the document in the consumer. Mirrors Lucene's IndexingChain.finish()
-	// which calls termsHashPerField.finish() for every indexed field and then
-	// termVectorsConsumer.finishDocument(docID).
-	if dwpt.termVectorsConsumer != nil {
-		for _, writer := range dwpt.tvFieldWriters {
-			if err := writer.Finish(); err != nil {
-				return fmt.Errorf("finish term-vector field: %w", err)
-			}
-		}
-		if err := dwpt.termVectorsConsumer.FinishDocument(docID); err != nil {
-			return fmt.Errorf("finish term-vector document: %w", err)
-		}
-	}
-
-	// Finalise the norms for every field with norms that appeared in this
-	// document: compute Similarity.computeNorm(FieldInvertState) from the
-	// running inversion counters and buffer one value per (field, doc).
-	// Mirrors the per-field IndexingChain.PerField.finish, which calls
-	// norms.addValue(docID, similarity.computeNorm(invertState)). Must run
-	// after the field loop so multi-valued fields have fully accumulated.
-	if err := dwpt.finalizeNorms(docID); err != nil {
-		return err
-	}
-
-	// Add stored document to buffer
-	dwpt.storedFields.mu.Lock()
-	dwpt.storedFields.documents = append(dwpt.storedFields.documents, storedDoc)
-	dwpt.storedFields.totalBytes += int64(len(storedDoc.fields) * 64) // Estimate
-	dwpt.storedFields.mu.Unlock()
-
-	// Update memory usage estimate
-	dwpt.bytesUsed += dwpt.estimateMemoryUsage(doc)
-
-	return nil
-}
-
-// getIndexOptions extracts IndexOptions from FieldTypeInterface.
-// Kept for callers outside ProcessDocument that still use FieldTypeInterface.
-func getIndexOptions(ft FieldTypeInterface) IndexOptions {
-	if ft == nil {
-		return IndexOptionsDocsAndFreqsAndPositions
-	}
-	return ft.GetIndexOptions()
-}
-
-// getOrAddFieldInfo gets or creates a FieldInfo for a field.
-//
-// When the field already exists (it was seen for an earlier IndexableField in
-// the same or a previous document), the new options are accumulated into the
-// existing FieldInfo via VerifyAndUpdate rather than discarded. This is what
-// lets a single field name carry BOTH an indexed contribution and a DocValues
-// contribution (and point / vector dims): the first occurrence creates the
-// FieldInfo with its own group set and the others NONE / zero, and each later
-// occurrence fills the remaining group instead of being dropped. Mirrors
-// org.apache.lucene.index.IndexingChain.FieldSchema accumulation feeding
-// FieldInfos.Builder.add (rmp #4780).
-func (dwpt *DocumentsWriterPerThread) getOrAddFieldInfo(fieldName string, opts FieldInfoOptions) (*FieldInfo, error) {
-	// Check if field already exists
-	if fi := dwpt.fieldInfosBuilder.FieldInfos().GetByName(fieldName); fi != nil {
-		// A conflicting non-default schema for the same field name (e.g. the
-		// same name used once as a SortedDocValuesField and once as a
-		// NumericDocValuesField) is a caller error; VerifyAndUpdate reports it,
-		// matching Lucene which raises IllegalArgumentException here.
-		if err := fi.VerifyAndUpdate(opts); err != nil {
-			return nil, err
-		}
-		return fi, nil
-	}
-
-	// Create new FieldInfo
-	fi := NewFieldInfo(fieldName, dwpt.fieldInfosBuilder.FieldInfos().Size(), opts)
-	dwpt.fieldInfosBuilder.Add(fi)
-	return fi, nil
-}
-
-// tokenAtPos holds one token extracted from a TokenStream before it is written
-// to the in-memory inverted index.
-type tokenAtPos struct {
-	term        string
-	position    int
-	posIncr     int
-	startOffset int
-	endOffset   int
-	payload     []byte
-	termFreq    int
-}
-
-// tvTokenContext is the mutable state behind a TermVectorsAttributeProvider
-// when DocumentsWriterPerThread replays collected tokens through a
-// TermVectorsConsumerPerField. It is updated before every Add call and is
-// read synchronously by the provider closures.
-type tvTokenContext struct {
-	cur          *tokenAtPos
-	basePosition int
-	baseOffset   int
-}
-
-func (c *tvTokenContext) startOffset() int {
-	if c == nil || c.cur == nil {
-		return 0
-	}
-	// Return the token's stream-relative offset.  The per-field
-	// FieldInvertState.offset is set to the document-level base offset before
-	// each Add call, so TermVectorsConsumerPerField.writeProx computes the
-	// absolute offset as fieldState.offset + startOffset, matching Lucene's
-	// org.apache.lucene.index.TermVectorsConsumerPerField.writeProx.
-	return c.cur.startOffset
-}
-
-func (c *tvTokenContext) endOffset() int {
-	if c == nil || c.cur == nil {
-		return 0
-	}
-	return c.cur.endOffset
-}
-
-func (c *tvTokenContext) termFrequency() int {
-	if c == nil || c.cur == nil {
-		return 1
-	}
-	return c.cur.termFreq
-}
-
-func (c *tvTokenContext) payload() *util.BytesRef {
-	if c == nil || c.cur == nil || len(c.cur.payload) == 0 {
-		return nil
-	}
-	return &util.BytesRef{Bytes: c.cur.payload}
-}
-
-// validateCustomTermFreq enforces Lucene's constraints on fields that use a
-// custom TermFrequencyAttribute: frequencies must be indexed, and neither
-// positions nor term-vector positions/offsets may be stored. Called once the
-// token stream has proven it actually carries non-default frequencies.
-func validateCustomTermFreq(fieldName string, fieldInfo *FieldInfo) error {
-	if !fieldInfo.IndexOptions().HasFreqs() {
-		return fmt.Errorf(`field %q: must index term freq while using custom TermFrequencyAttribute`, fieldName)
-	}
-	// Term-vector positions/offsets are checked before indexed positions so
-	// that tests targeting term-vector storage get the specific error they
-	// assert (Lucene rejects both, but the more specific term-vector message
-	// matches the Java reference).
-	if fieldInfo.StoreTermVectorPositions() {
-		return fmt.Errorf(`field %q: cannot index term vector positions while using custom TermFrequencyAttribute`, fieldName)
-	}
-	if fieldInfo.StoreTermVectorOffsets() {
-		return fmt.Errorf(`field %q: cannot index term vector offsets while using custom TermFrequencyAttribute`, fieldName)
-	}
-	if fieldInfo.IndexOptions().HasPositions() {
-		return fmt.Errorf(`field %q: cannot index positions while using custom TermFrequencyAttribute`, fieldName)
-	}
-	return nil
-}
-
-// collectTokensFromStream consumes a TokenStream and returns the tokens it
-// emits, honouring PositionIncrementAttribute, TermFrequencyAttribute,
-// OffsetAttribute and PayloadAttribute. It mirrors the token-gathering loop
-// inside Lucene's IndexingChain.invert.
-//
-// The returned streamEndOffset is the final offset reported by the stream's
-// End() method (OffsetAttribute.endOffset()).  Lucene's IndexingChain uses
-// that value, plus the analyzer offset gap, to advance the per-field offset
-// base for the next occurrence of the same field in a multi-valued document.
-// When End() is unavailable or fails to expose an OffsetAttribute, the last
-// token's endOffset is used as a fallback.
-func collectTokensFromStream(
-	tokenStream analysis.TokenStream,
-	fieldName string,
-	fieldInfo *FieldInfo,
-) (tokens []tokenAtPos, streamEndOffset int, hasCustomTermFreq bool, err error) {
-	position := -1
-	for {
-		hasNext, err := tokenStream.IncrementToken()
-		if err != nil {
-			return nil, 0, false, err
-		}
-		if !hasNext {
-			break
-		}
-		attrSrc, ok := tokenStream.(interface {
-			GetAttributeSource() *util.AttributeSource
-		})
-		if !ok {
-			continue
-		}
-		src := attrSrc.GetAttributeSource()
-		posIncr := 1
-		if pia := src.GetAttribute(analysis.PositionIncrementAttributeType); pia != nil {
-			if posAttr, ok := pia.(analysis.PositionIncrementAttribute); ok {
-				posIncr = posAttr.GetPositionIncrement()
-			}
-		}
-		position += posIncr
-		if position > MaxPosition {
-			return nil, 0, false, fmt.Errorf("position=%d is too large (> IndexWriter.MAX_POSITION=%d), field=%q", position, MaxPosition, fieldName)
-		}
-		if attr := src.GetAttribute(analysis.CharTermAttributeType); attr != nil {
-			if termAttr, ok := attr.(analysis.CharTermAttribute); ok {
-				startOffset, endOffset := 0, 0
-				if oa := src.GetAttribute(analysis.OffsetAttributeType); oa != nil {
-					if offsetAttr, ok := oa.(analysis.OffsetAttribute); ok {
-						startOffset = offsetAttr.StartOffset()
-						endOffset = offsetAttr.EndOffset()
-					}
-				}
-				termFreq := 1
-				if tfa := src.GetAttribute(analysis.TermFrequencyAttributeType); tfa != nil {
-					if tfAttr, ok := tfa.(analysis.TermFrequencyAttribute); ok {
-						termFreq = tfAttr.GetTermFrequency()
-						if termFreq <= 0 {
-							termFreq = 1
-						}
-						if termFreq != 1 {
-							hasCustomTermFreq = true
-						}
-					}
-				}
-				var payload []byte
-				if pa := src.GetAttribute(analysis.PayloadAttributeType); pa != nil {
-					if payloadAttr, ok := pa.(*analysis.PayloadAttributeImpl); ok {
-						p := payloadAttr.GetPayload()
-						if len(p) > 0 {
-							payload = make([]byte, len(p))
-							copy(payload, p)
-							if fieldInfo.IndexOptions().HasPositions() {
-								fieldInfo.SetStorePayloads()
-							}
-						}
-					}
-				}
-				tokens = append(tokens, tokenAtPos{
-					term:        termAttr.String(),
-					position:    position,
-					posIncr:     posIncr,
-					startOffset: startOffset,
-					endOffset:   endOffset,
-					payload:     payload,
-					termFreq:    termFreq,
-				})
-			}
-		}
-	}
-
-	// Capture the stream's final end offset exactly as Lucene's IndexingChain
-	// does after the increment-token loop (stream.end() then
-	// offsetAtt.endOffset()).
-	streamEndOffset = -1
-	if ender, ok := tokenStream.(interface{ End() error }); ok {
-		if err := ender.End(); err != nil {
-			return nil, 0, false, fmt.Errorf("end token stream for field %q: %w", fieldName, err)
-		}
-		if attrSrc, ok := tokenStream.(interface {
-			GetAttributeSource() *util.AttributeSource
-		}); ok {
-			src := attrSrc.GetAttributeSource()
-			if oa := src.GetAttribute(analysis.OffsetAttributeType); oa != nil {
-				if offsetAttr, ok := oa.(analysis.OffsetAttribute); ok {
-					streamEndOffset = offsetAttr.EndOffset()
-				}
-			}
-		}
-	}
-	if streamEndOffset < 0 {
-		if len(tokens) > 0 {
-			streamEndOffset = tokens[len(tokens)-1].endOffset
-		} else {
-			streamEndOffset = 0
-		}
-	}
-	return tokens, streamEndOffset, hasCustomTermFreq, nil
-}
-
-// indexFieldWithValue indexes a field value in the inverted index.
-// customTermFreq, when > 0, overrides the default initial TF of 1 for the
-// indexed term (used by FeatureField which encodes a value as term frequency).
-// The returned streamEndOffset is the final character offset produced by the
-// token stream; it is required by buildTermVector to advance the per-field
-// offset base across multiple instances of the same field.
-func (dwpt *DocumentsWriterPerThread) indexFieldWithValue(
-	docID int,
-	fieldName string,
-	value string,
-	tokenized bool,
-	customTermFreq int,
-	fieldInfo *FieldInfo,
-	analyzer analysis.Analyzer,
-	tokenStream analysis.TokenStream,
-) ([]tokenAtPos, int, error) {
-	// Get or create field postings
-	dwpt.invertedIndex.mu.Lock()
-	fieldPostings, exists := dwpt.invertedIndex.fields[fieldName]
-	if !exists {
-		fieldPostings = &FieldPostings{
-			terms:     make(map[string]*Posting),
-			fieldInfo: fieldInfo,
-		}
-		dwpt.invertedIndex.fields[fieldName] = fieldPostings
-	}
-	dwpt.invertedIndex.mu.Unlock()
-
-	// Tokenize the field value, capturing each token's absolute position. The
-	// absolute position honours the token stream's PositionIncrementAttribute,
-	// exactly as Lucene's IndexingChain does (invertState.position starts at -1
-	// and advances by the per-token position increment, so the default increment
-	// of 1 yields the consecutive positions 0,1,2,...). Ignoring the increment
-	// would collapse position gaps (e.g. injected by stop filters or stacked
-	// synonyms) and break PhraseQuery / MultiPhraseQuery matching.
-	var tokens []tokenAtPos
-	streamEndOffset := 0
-	if tokenized {
-		if tokenStream != nil {
-			// Caller-supplied TokenStream takes precedence. Do not close it here;
-			// ownership remains with the caller, which typically closes it in a
-			// defer when the test finishes.  We do call End() to capture the final
-			// offset, exactly as Lucene's IndexingChain.invert does after the
-			// token loop; replayable wrappers such as CachingTokenFilter expect
-			// this and tolerate repeated Reset()/End() cycles.
-			if resettable, ok := tokenStream.(interface{ Reset() error }); ok {
-				if err := resettable.Reset(); err != nil {
-					return nil, 0, err
-				}
-			}
-			var err error
-			var hasCustomTermFreq bool
-			tokens, streamEndOffset, hasCustomTermFreq, err = collectTokensFromStream(tokenStream, fieldName, fieldInfo)
-			if err != nil {
-				return nil, 0, err
-			}
-			if hasCustomTermFreq {
-				if err := validateCustomTermFreq(fieldName, fieldInfo); err != nil {
-					return nil, 0, err
-				}
-			}
-		} else if analyzer != nil {
-			ts, err := analyzer.TokenStream(fieldName, strings.NewReader(value))
-			if err != nil {
-				return nil, 0, err
-			}
-			if ts != nil {
-				defer ts.Close()
-				// The analyzer is responsible for resetting its TokenStream after
-				// wiring the reader (Lucene's Analyzer.tokenStream contract). Calling
-				// reset() here can double-reset stateful test tokenizers such as
-				// MockTokenizer, which enforces a strict one-reset-per-session state
-				// machine. Caller-supplied TokenStreams are reset in their branch
-				// above, where ownership is explicit.
-				var hasCustomTermFreq bool
-				tokens, streamEndOffset, hasCustomTermFreq, err = collectTokensFromStream(ts, fieldName, fieldInfo)
-				if err != nil {
-					return nil, 0, err
-				}
-				if hasCustomTermFreq {
-					if err := validateCustomTermFreq(fieldName, fieldInfo); err != nil {
-						return nil, 0, err
-					}
-				}
-			}
-		}
-	} else {
-		// Use the value directly as a single term at position 0 (posIncr 1:
-		// a non-tokenized field contributes one non-overlapping token). Offsets
-		// span the entire value so that fields with offsets enabled still emit
-		// a valid (start,end) pair. termFreq is 1 because there is exactly one
-		// occurrence of the value as a term.
-		runeLen := utf8.RuneCountInString(value)
-		tokens = []tokenAtPos{{term: value, position: 0, posIncr: 1, startOffset: 0, endOffset: runeLen, termFreq: 1}}
-		streamEndOffset = runeLen
-	}
-
-	// Enforce Lucene's MAX_TERM_LENGTH limit before indexing any token.
-	for _, tok := range tokens {
-		if len(tok.term) > MAX_TERM_LENGTH {
-			return nil, 0, fmt.Errorf("field %q: immense term: bytes can be at most %d in length; got %d",
-				fieldName, MAX_TERM_LENGTH, len(tok.term))
-		}
-	}
-
-	// Add each token to the inverted index at its absolute position, while
-	// accumulating the field-inversion counters that drive the per-document
-	// norm. Each token advances the field length by its term frequency and,
-	// when its position increment is zero (a stacked/overlapping token),
-	// the overlap count — exactly as Lucene's IndexingChain.invert updates
-	// FieldInvertState (length += termFreq; numOverlap++ when posIncr == 0).
-	acc := dwpt.normsAccumulatorFor(fieldName, fieldInfo)
-	for _, tok := range tokens {
-		termFreq := tok.termFreq
-		if customTermFreq > 0 {
-			termFreq = customTermFreq
-		}
-		if err := dwpt.addTermWithFreq(docID, fieldName, tok.term, tok.position, tok.startOffset, tok.endOffset, tok.payload, termFreq, fieldPostings, fieldInfo); err != nil {
-			return nil, 0, err
-		}
-		if acc != nil {
-			if err := acc.addToken(tok.term, termFreq, tok.posIncr); err != nil {
-				return nil, 0, err
-			}
-		}
-	}
-
-	return tokens, streamEndOffset, nil
-}
-
-// addTerm adds a term to the inverted index with the default initial TF of 1
-// and no character offsets.
-func (dwpt *DocumentsWriterPerThread) addTerm(docID int, fieldName, term string, position int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) error {
-	return dwpt.addTermWithFreq(docID, fieldName, term, position, 0, 0, nil, 0, fieldPostings, fieldInfo)
-}
-
-// addTermWithFreq adds a term to the inverted index.
-// termFreq is the frequency contributed by this token occurrence. It is used
-// as the initial frequency for a new document entry and is added to the
-// running total when the same document already has the term.
-// startOffset/endOffset are the token's character offsets and are only stored
-// when the field indexes offsets.
-func (dwpt *DocumentsWriterPerThread) addTermWithFreq(docID int, fieldName, term string, position, startOffset, endOffset int, payload []byte, termFreq int, fieldPostings *FieldPostings, fieldInfo *FieldInfo) error {
-	fieldPostings.mu.Lock()
-	defer fieldPostings.mu.Unlock()
-
-	if fieldInfo.IndexOptions().HasOffsets() {
-		if startOffset < 0 || endOffset < 0 {
-			return fmt.Errorf("negative offsets are not allowed: field=%q start=%d end=%d", fieldName, startOffset, endOffset)
-		}
-		if endOffset < startOffset {
-			return fmt.Errorf("startOffset must be <= endOffset: field=%q start=%d end=%d", fieldName, startOffset, endOffset)
-		}
-	}
-
-	posting, exists := fieldPostings.terms[term]
-	if !exists {
-		posting = &Posting{
-			docIDs:       make([]int, 0),
-			freqs:        make([]int, 0),
-			positions:    make([][]int, 0),
-			startOffsets: make([][]int, 0),
-			endOffsets:   make([][]int, 0),
-			payloads:     make([][][]byte, 0),
-		}
-		fieldPostings.terms[term] = posting
-		dwpt.invertedIndex.numTerms++
-	}
-
-	if termFreq <= 0 {
-		termFreq = 1
-	}
-
-	hasPayload := len(payload) > 0
-
-	// Find or add document in posting list
-	if len(posting.docIDs) > 0 && posting.docIDs[len(posting.docIDs)-1] == docID {
-		// Same document, add the token's frequency to the running total.
-		idx := len(posting.docIDs) - 1
-		posting.freqs[idx] += termFreq
-		if fieldInfo.IndexOptions().HasPositions() {
-			posting.positions[idx] = append(posting.positions[idx], position)
-			if fieldInfo.IndexOptions().HasOffsets() {
-				posting.startOffsets[idx] = append(posting.startOffsets[idx], startOffset)
-				posting.endOffsets[idx] = append(posting.endOffsets[idx], endOffset)
-			}
-			if hasPayload {
-				posting.payloads[idx] = append(posting.payloads[idx], payload)
-			}
-		}
-	} else {
-		// New document
-		posting.docIDs = append(posting.docIDs, docID)
-		posting.freqs = append(posting.freqs, termFreq)
-		if fieldInfo.IndexOptions().HasPositions() {
-			posting.positions = append(posting.positions, []int{position})
-			if fieldInfo.IndexOptions().HasOffsets() {
-				posting.startOffsets = append(posting.startOffsets, []int{startOffset})
-				posting.endOffsets = append(posting.endOffsets, []int{endOffset})
-			}
-			if hasPayload {
-				posting.payloads = append(posting.payloads, [][]byte{payload})
-			} else {
-				posting.payloads = append(posting.payloads, [][]byte{})
-			}
-		}
-	}
-	return nil
-}
-
-// addDocValue buffers one document's doc-values value(s) for fieldName,
-// allocating the per-field DocValuesBuffer on first use. The value-shaped
-// slice populated is selected by the field's DocValuesType. Binary values are
-// copied because the caller's slices may be reused after ProcessDocument
-// returns. Must be called with dwpt.mu held (write lock).
-func (dwpt *DocumentsWriterPerThread) addDocValue(docID int, fieldName string, field *dwptField) {
-	buf, exists := dwpt.docValues[fieldName]
-	if !exists {
-		buf = &DocValuesBuffer{
-			values: make([]interface{}, 0),
-			dvType: field.docValuesType,
-		}
-		dwpt.docValues[fieldName] = buf
-	}
-
-	switch field.docValuesType {
-	case DocValuesTypeNumeric:
-		if !field.dvHasNumericValue {
-			return
-		}
-		buf.docIDs = append(buf.docIDs, docID)
-		buf.numericValues = append(buf.numericValues, field.dvNumericValue)
-		buf.values = append(buf.values, field.dvNumericValue)
-	case DocValuesTypeBinary, DocValuesTypeSorted:
-		v := cloneBytes(field.dvBinaryValue)
-		buf.docIDs = append(buf.docIDs, docID)
-		buf.binaryValues = append(buf.binaryValues, v)
-		buf.values = append(buf.values, v)
-	case DocValuesTypeSortedNumeric:
-		if len(field.dvNumericValues) == 0 {
-			return
-		}
-		vals := make([]int64, len(field.dvNumericValues))
-		copy(vals, field.dvNumericValues)
-		// A document may carry the same SORTED_NUMERIC field more than once
-		// (e.g. two SortedNumericDocValuesField("dv", v) instances), in which
-		// case Lucene's SortedNumericDocValuesWriter accumulates every value
-		// under the single doc. Merge into the existing per-doc entry rather
-		// than appending a duplicate docID (which would violate the codec
-		// iterator's strictly-increasing-docID contract and drop values).
-		if n := len(buf.docIDs); n > 0 && buf.docIDs[n-1] == docID {
-			buf.numericValuesMulti[n-1] = append(buf.numericValuesMulti[n-1], vals...)
-			buf.values[n-1] = buf.numericValuesMulti[n-1]
-			return
-		}
-		buf.docIDs = append(buf.docIDs, docID)
-		buf.numericValuesMulti = append(buf.numericValuesMulti, vals)
-		buf.values = append(buf.values, vals)
-	case DocValuesTypeSortedSet:
-		if len(field.dvBinaryValues) == 0 {
-			return
-		}
-		vals := make([][]byte, len(field.dvBinaryValues))
-		for i, b := range field.dvBinaryValues {
-			vals[i] = cloneBytes(b)
-		}
-		// As for SORTED_NUMERIC: accumulate repeated SORTED_SET field instances
-		// for the same document into one entry (SortedSetDocValuesWriter
-		// collects the union of values per doc). Duplicate terms are tolerated
-		// here; the sorted-set writer deduplicates by ordinal downstream.
-		if n := len(buf.docIDs); n > 0 && buf.docIDs[n-1] == docID {
-			buf.binaryValuesMulti[n-1] = append(buf.binaryValuesMulti[n-1], vals...)
-			buf.values[n-1] = buf.binaryValuesMulti[n-1]
-			return
-		}
-		buf.docIDs = append(buf.docIDs, docID)
-		buf.binaryValuesMulti = append(buf.binaryValuesMulti, vals)
-		buf.values = append(buf.values, vals)
-	}
-}
-
-// cloneBytes returns a copy of b, or nil when b is empty. Doc-values binary
-// payloads are copied at buffer time because the caller's slice may be reused.
-func cloneBytes(b []byte) []byte {
-	if len(b) == 0 {
-		return nil
-	}
-	out := make([]byte, len(b))
-	copy(out, b)
-	return out
-}
-
-// addVectorValue buffers one document's KNN vector value for fieldName.
-// Must be called with dwpt.mu held (write lock). The value type is selected
-// by the field's encoding: floatValue for FLOAT32, byteValue for BYTE. A
-// field that declared a positive dimension but supplied no value (a
-// document without this vector field) is simply not buffered for that doc,
-// matching Lucene's sparse-friendly per-field writer which only records
-// docs that call addValue.
-func (dwpt *DocumentsWriterPerThread) addVectorValue(docID int, fieldName string, field *dwptField) {
-	buf, exists := dwpt.vectorValues[fieldName]
-	if !exists {
-		buf = &VectorValuesBuffer{
-			dimension:  field.vectorDimension,
-			encoding:   field.vectorEncoding,
-			similarity: field.vectorSimilarity,
-		}
-		dwpt.vectorValues[fieldName] = buf
-	}
-	switch field.vectorEncoding {
-	case VectorEncodingByte:
-		if field.vectorByteValue == nil {
-			return
-		}
-		buf.docIDs = append(buf.docIDs, docID)
-		buf.byteValues = append(buf.byteValues, field.vectorByteValue)
-	default: // VectorEncodingFloat32
-		if field.vectorFloatValue == nil {
-			return
-		}
-		buf.docIDs = append(buf.docIDs, docID)
-		buf.floatValues = append(buf.floatValues, field.vectorFloatValue)
-	}
-}
-
-// addPointValue buffers a per-document packed point value for a field,
-// allocating the per-field PointValuesBuffer on first use. The packed value is
-// copied because the caller's slice (document.Point's binary value) may be
-// reused after ProcessDocument returns.
-func (dwpt *DocumentsWriterPerThread) addPointValue(docID int, fieldName string, field *dwptField) {
-	buf, exists := dwpt.pointValues[fieldName]
-	if !exists {
-		buf = &PointValuesBuffer{
-			dimensionCount:      field.pointDimensionCount,
-			indexDimensionCount: field.pointIndexDimensionCount,
-			bytesPerDim:         field.pointNumBytes,
-		}
-		dwpt.pointValues[fieldName] = buf
-	}
-	// A single point value occupies dimensionCount * bytesPerDim bytes. A
-	// multi-valued point field (e.g. document.NewIntPoints) packs N such
-	// values back-to-back into one binary value; each is a distinct BKD point
-	// for the same document. Split the binary on the per-point stride so the
-	// codec sees one packedValue (and one BKDWriter.Add) per value, matching
-	// Lucene's IndexableField.tokenStream/PointValuesWriter contract.
-	stride := field.pointDimensionCount * field.pointNumBytes
-	src := field.pointPackedValue
-	if stride <= 0 || len(src)%stride != 0 {
-		// Defensive: treat a non-conforming binary as a single opaque value;
-		// the codec's BKDWriter.Add will surface the length mismatch.
-		packed := make([]byte, len(src))
-		copy(packed, src)
-		buf.docIDs = append(buf.docIDs, docID)
-		buf.packedValues = append(buf.packedValues, packed)
-		return
-	}
-	for off := 0; off < len(src); off += stride {
-		packed := make([]byte, stride)
-		copy(packed, src[off:off+stride])
-		buf.docIDs = append(buf.docIDs, docID)
-		buf.packedValues = append(buf.packedValues, packed)
-	}
-}
-
-// buildTermVector feeds the collected tokens for one occurrence of a field into
-// the document's TermVectorsConsumerPerField. It reuses the per-field writer
-// across multiple instances of the same field name within one document and
-// advances the per-field offset/position bases using the analyzer gaps when
-// the field is tokenized, matching Lucene's multi-valued field handling.
-func (dwpt *DocumentsWriterPerThread) buildTermVector(
-	docID int,
-	fieldName string,
-	field IndexableField,
-	fieldInfo *FieldInfo,
-	tokens []tokenAtPos,
-	streamEndOffset int,
-	tokenized bool,
-	analyzer analysis.Analyzer,
-) error {
-	if dwpt.termVectorsConsumer == nil {
-		return fmt.Errorf("buildTermVector: no TermVectorsConsumer")
-	}
-	if !fieldInfo.StoreTermVectors() {
-		return nil
-	}
-	if fieldInfo.IndexOptions() == IndexOptionsNone {
-		return fmt.Errorf("field %q: cannot store term vectors for a non-indexed field", fieldName)
-	}
-
-	// Reuse the per-field writer for this document, creating it on the first
-	// occurrence of the field name.
-	writer, exists := dwpt.tvFieldWriters[fieldName]
-	ctx := dwpt.tvFieldContexts[fieldName]
-	if !exists {
-		invertState := NewFieldInvertState(10, fieldName, fieldInfo.IndexOptions())
-		ctx = &tvTokenContext{}
-		attrs := TermVectorsAttributeProvider{
-			StartOffset:   func() int { return ctx.startOffset() },
-			EndOffset:     func() int { return ctx.endOffset() },
-			Payload:       func() *util.BytesRef { return ctx.payload() },
-			TermFrequency: func() int { return ctx.termFrequency() },
-		}
-		var err error
-		writer, err = NewTermVectorsConsumerPerField(invertState, dwpt.termVectorsConsumer, fieldInfo, attrs)
-		if err != nil {
-			return fmt.Errorf("buildTermVector field %q: %w", fieldName, err)
-		}
-		dwpt.tvFieldWriters[fieldName] = writer
-		dwpt.tvFieldContexts[fieldName] = ctx
-		dwpt.termVectorsConsumer.SetHasVectors()
-	}
-
-	// Start tells the writer whether this is the first instance of the field
-	// in this document and returns whether term vectors should be collected.
-	doVectors := writer.Start(field, !exists)
-	if !doVectors {
-		return nil
-	}
-
-	// Determine the per-instance end offset used to advance the base offset
-	// for the next field instance. For tokenized fields this is the final
-	// offset reported by the token stream's End() method (captured by
-	// collectTokensFromStream); for non-tokenized fields it is the rune length
-	// of the value. Lucene only applies the analyzer offset/position gaps for
-	// tokenized/analyzed fields.
-	instanceEndOffset := streamEndOffset
-	if !tokenized {
-		instanceEndOffset = utf8.RuneCountInString(field.StringValue())
-	}
-
-	// Read analyzer gaps when available; defaults match Lucene's Analyzer.
-	// Lucene only applies these gaps to tokenized/analyzed fields; non-tokenized
-	// fields advance by their value length with no extra gap.
-	positionIncrementGap := 0
-	offsetGap := 0
-	if tokenized {
-		offsetGap = 1
-		if g, ok := analyzer.(interface{ GetPositionIncrementGap() int }); ok {
-			positionIncrementGap = g.GetPositionIncrementGap()
-		}
-		if g, ok := analyzer.(interface{ GetOffsetGap() int }); ok {
-			offsetGap = g.GetOffsetGap()
-		}
-	}
-
-	// Feed every collected token to the per-field writer.
-	baseOffset := dwpt.tvBaseOffset(fieldName)
-	basePosition := dwpt.tvBasePosition(fieldName)
-	var lastPosition int
-	for i := range tokens {
-		tok := &tokens[i]
-		lastPosition = tok.position
-		ctx.cur = tok
-		writer.fieldState.SetPosition(basePosition + tok.position)
-		writer.fieldState.SetOffset(baseOffset)
-		termBytes := &util.BytesRef{Bytes: []byte(tok.term), Length: len(tok.term)}
-		if err := writer.Add(termBytes, docID); err != nil {
-			return fmt.Errorf("buildTermVector field %q term %q: %w", fieldName, tok.term, err)
-		}
-	}
-
-	// Advance the per-field base position/offset for the next instance.
-	dwpt.advanceTVBasePosition(fieldName, lastPosition+1+positionIncrementGap)
-	dwpt.advanceTVBaseOffset(fieldName, instanceEndOffset+offsetGap)
-
-	return nil
-}
-
-// tvBasePosition returns the current position base for a term-vector field.
-func (dwpt *DocumentsWriterPerThread) tvBasePosition(fieldName string) int {
-	if ctx := dwpt.tvFieldContexts[fieldName]; ctx != nil {
-		return ctx.basePosition
-	}
-	return 0
-}
-
-// advanceTVBasePosition adds delta to the field's position base.
-func (dwpt *DocumentsWriterPerThread) advanceTVBasePosition(fieldName string, delta int) {
-	if ctx := dwpt.tvFieldContexts[fieldName]; ctx != nil {
-		ctx.basePosition += delta
-	}
-}
-
-// tvBaseOffset returns the current offset base for a term-vector field.
-func (dwpt *DocumentsWriterPerThread) tvBaseOffset(fieldName string) int {
-	if ctx := dwpt.tvFieldContexts[fieldName]; ctx != nil {
-		return ctx.baseOffset
-	}
-	return 0
-}
-
-// advanceTVBaseOffset adds delta to the field's offset base.
-func (dwpt *DocumentsWriterPerThread) advanceTVBaseOffset(fieldName string, delta int) {
-	if ctx := dwpt.tvFieldContexts[fieldName]; ctx != nil {
-		ctx.baseOffset += delta
-	}
-}
-
-// estimateMemoryUsage estimates memory usage for a document.
-func (dwpt *DocumentsWriterPerThread) estimateMemoryUsage(doc Document) int64 {
-	var total int64
-	fields := doc.GetFields()
-
-	for _, fieldInterface := range fields {
-		f, ok := asDwptField(fieldInterface)
-		if !ok {
-			continue
-		}
-
-		total += 64
-
-		if f.isStored {
-			total += 32
-			if len(f.stringValue) > 0 {
-				total += int64(len(f.stringValue))
-			} else if len(f.binaryValue) > 0 {
-				total += int64(len(f.binaryValue))
-			}
-		}
-
-		if f.isIndexed {
-			valLen := len(f.stringValue)
-			numTokens := valLen / 5
-			if numTokens == 0 {
-				numTokens = 1
-			}
-
-			tokenCost := 8
-			if f.indexOptions.HasPositions() {
-				tokenCost += 4
-			}
-			if f.indexOptions.HasOffsets() {
-				tokenCost += 8
-			}
-			total += int64(numTokens) * int64(tokenCost)
-		}
-
-		if f.docValuesType != DocValuesTypeNone {
-			switch f.docValuesType {
-			case DocValuesTypeNumeric:
-				total += 8
-			case DocValuesTypeBinary, DocValuesTypeSorted:
-				total += 8 + int64(len(f.binaryValue))
-			case DocValuesTypeSortedNumeric:
-				total += 8 + int64(len(f.dvNumericValues))*8
-			case DocValuesTypeSortedSet:
-				total += 8
-				for _, b := range f.dvBinaryValues {
-					total += 8 + int64(len(b))
-				}
-			}
-		}
-
-		if f.hasVector {
-			if f.vectorEncoding == VectorEncodingByte {
-				total += int64(f.vectorDimension)
-			} else {
-				total += int64(f.vectorDimension) * 4
-			}
-		}
-
-		if f.hasPoint {
-			total += int64(f.pointDimensionCount * f.pointNumBytes)
-		}
-	}
-
-	return total
-}
-
-// GetNumDocs returns the number of documents in RAM.
-func (dwpt *DocumentsWriterPerThread) GetNumDocs() int {
-	dwpt.mu.RLock()
-	defer dwpt.mu.RUnlock()
-	return dwpt.numDocsInRAM
-}
-
-// GetFieldInfos returns the current FieldInfos snapshot for this DWPT.
-// Used by IndexWriter.Commit to pass field metadata to the codec flush methods.
-func (dwpt *DocumentsWriterPerThread) GetFieldInfos() *FieldInfos {
-	dwpt.mu.RLock()
-	defer dwpt.mu.RUnlock()
-	return dwpt.fieldInfosBuilder.Build()
-}
-
-// GetBytesUsed returns the estimated memory usage.
-func (dwpt *DocumentsWriterPerThread) GetBytesUsed() int64 {
-	dwpt.mu.RLock()
-	defer dwpt.mu.RUnlock()
-	return dwpt.bytesUsed
-}
-
-// SegmentName returns the segment name reserved for this DWPT, or the empty
-// string when the DWPT was created without a parent.
-func (dwpt *DocumentsWriterPerThread) SegmentName() string {
-	dwpt.mu.RLock()
-	defer dwpt.mu.RUnlock()
-	if dwpt.segmentInfo == nil {
-		return ""
-	}
-	return dwpt.segmentInfo.Name()
-}
-
-// Reset resets the DWPT for a new segment.
-func (dwpt *DocumentsWriterPerThread) Reset() {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
-
-	dwpt.numDocsInRAM = 0
-	dwpt.lastDocID = -1
-	dwpt.bytesUsed = 0
-	dwpt.flushPending = false
-	dwpt.fieldInfosBuilder = NewFieldInfosBuilder()
-	dwpt.invertedIndex = NewInvertedIndex()
-	dwpt.storedFields = NewStoredFieldsBuffer()
-	dwpt.docValues = make(map[string]*DocValuesBuffer)
-	dwpt.termVectors = NewTermVectorsBuffer()
-	dwpt.vectorValues = make(map[string]*VectorValuesBuffer)
-	dwpt.pointValues = make(map[string]*PointValuesBuffer)
-	dwpt.pendingDeletes = nil
-	dwpt.tvFieldWriters = make(map[string]*TermVectorsConsumerPerField)
-	dwpt.tvFieldContexts = make(map[string]*tvTokenContext)
-	if dwpt.termVectorsConsumer != nil {
-		dwpt.termVectorsConsumer.reset()
-	}
-}
-
-// Abort discards in-memory state and closes any in-flight term-vectors writer,
-// mirroring Lucene's DocumentsWriterPerThread.abort().
+// Abort discards all currently buffered docs and resets state.
 func (dwpt *DocumentsWriterPerThread) Abort() error {
 	dwpt.mu.Lock()
 	defer dwpt.mu.Unlock()
 
-	if dwpt.termVectorsConsumer != nil {
-		dwpt.termVectorsConsumer.Abort()
+	dwpt.aborted = true
+	dwpt.pendingNumDocs.Add(-int64(dwpt.numDocsInRAM))
+
+	if dwpt.infoStream.IsEnabled("DWPT") {
+		dwpt.infoStream.Message("DWPT", "now abort")
 	}
-	dwpt.Reset()
+
+	defer func() {
+		if dwpt.infoStream.IsEnabled("DWPT") {
+			dwpt.infoStream.Message("DWPT", "done abort")
+		}
+	}()
+
+	dwpt.indexingChain.Abort()
+	dwpt.pendingUpdates.Clear()
+
 	return nil
 }
 
-// PrepareFlush prepares this DWPT for flushing.
-// Returns a FlushTicket that can be used to complete the flush.
-func (dwpt *DocumentsWriterPerThread) PrepareFlush() (*FlushTicket, error) {
-	dwpt.mu.RLock()
-	defer dwpt.mu.RUnlock()
-
-	return &FlushTicket{
-		numDocs:       dwpt.numDocsInRAM,
-		fieldInfos:    dwpt.fieldInfosBuilder.Build(),
-		invertedIndex: dwpt.invertedIndex,
-		storedFields:  dwpt.storedFields,
-		docValues:     dwpt.docValues,
-		termVectors:   dwpt.termVectors,
-		bytesUsed:     dwpt.bytesUsed,
-	}, nil
+func (dwpt *DocumentsWriterPerThread) IsAborted() bool {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+	return dwpt.aborted
 }
 
-// FlushTicket holds the data needed to flush a segment.
-type FlushTicket struct {
-	numDocs       int
-	fieldInfos    *FieldInfos
-	invertedIndex *InvertedIndex
-	storedFields  *StoredFieldsBuffer
-	docValues     map[string]*DocValuesBuffer
-	termVectors   *TermVectorsBuffer
-	bytesUsed     int64
+func NewDocumentsWriterPerThread(
+	indexMajorVersionCreated int,
+	segmentName string,
+	directoryOrig store.Directory,
+	directory store.Directory,
+	indexWriterConfig *LiveIndexWriterConfig,
+	deleteQueue *DocumentsWriterDeleteQueue,
+	fieldInfos *FieldInfosBuilder,
+	pendingNumDocs *atomic.Int64,
+	enableTestPoints bool,
+) *DocumentsWriterPerThread {
+	dwpt := &DocumentsWriterPerThread{
+		indexMajorVersionCreated: indexMajorVersionCreated,
+		directory:               store.NewTrackingDirectoryWrapper(directory),
+		fieldInfos:               fieldInfos,
+		indexWriterConfig:        indexWriterConfig,
+		infoStream:               indexWriterConfig.GetInfoStream(),
+		codec:                    indexWriterConfig.GetCodec(),
+		pendingNumDocs:           pendingNumDocs,
+		deleteQueue:              deleteQueue,
+		enableTestPoints:         enableTestPoints,
+	}
+
+	dwpt.pendingUpdates = NewBufferedUpdates(segmentName)
+	dwpt.deleteSlice = deleteQueue.NewSlice()
+
+		dwpt.segmentInfo = NewSegmentInfo(segmentName, -1, directoryOrig)
+		dwpt.segmentInfo.SetVersion(util.Latest.String())
+		dwpt.segmentInfo.SetMinVersion(util.Latest.String())
+		dwpt.segmentInfo.SetCodec(dwpt.codec.Name())
+		dwpt.segmentInfo.SetID(generateSegmentID())
+		dwpt.segmentInfo.SetIndexSort(indexWriterConfig.GetIndexSort())
+	// IndexingChain constructor in Gocene requires handles.
+	// These are injected here to mirror Lucene's constructor logic.
+	chain, err := NewIndexingChain(
+		indexMajorVersionCreated,
+		fieldInfos, // Assuming FieldInfosBuilder implements FieldInfosBuilderHandle
+		indexWriterConfig,
+		dwpt.onAbortingException,
+		nil, // termsHash injected later or by factory
+		nil, // storedFieldsConsumer
+		nil, // vectorValuesConsumer
+		nil, // termVectorsWriter
+	)
+	if err != nil {
+		panic(err)
+	}
+	dwpt.indexingChain = chain
+
+	return dwpt
 }
 
-// Flush flushes the DWPT data to disk.
-// Returns the segment info.
-func (dwpt *DocumentsWriterPerThread) Flush(directory store.Directory, codec Codec, segmentName string) (*SegmentInfo, error) {
+func (dwpt *DocumentsWriterPerThread) TestPoint(message string) {
+	if dwpt.enableTestPoints {
+		if !dwpt.infoStream.IsEnabled("TP") {
+			panic("TP info stream must be enabled to use test points")
+		}
+		dwpt.infoStream.Message("TP", message)
+	}
+}
+
+func (dwpt *DocumentsWriterPerThread) SetTestSegmentIDSeed(seed string) {
+	util.SetRandomIdSeed(seed)
+}
+
+func (dwpt *DocumentsWriterPerThread) reserveOneDoc() {
+	if dwpt.pendingNumDocs.Add(1) > GetActualMaxDocs() {
+		dwpt.pendingNumDocs.Add(-1)
+		panic(fmt.Sprintf("number of documents in the index cannot exceed %d", GetActualMaxDocs()))
+	}
+}
+
+func (dwpt *DocumentsWriterPerThread) reserveDocs(n int) {
+	if n <= 0 {
+		return
+	}
+	maxDocs := int64(GetActualMaxDocs())
+	for {
+		current := dwpt.pendingNumDocs.Load()
+		next := current + int64(n)
+		if next > maxDocs {
+			panic(fmt.Sprintf("number of documents in the index cannot exceed %d", maxDocs))
+		}
+		if dwpt.pendingNumDocs.CompareAndSwap(current, next) {
+			return
+		}
+	}
+}
+
+func (dwpt *DocumentsWriterPerThread) UpdateDocuments(
+	docs [][]IndexableField,
+	deleteNode Node,
+	flushNotifications FlushNotifications,
+	onNewDocOnRAM func(),
+) (int64, error) {
 	dwpt.mu.Lock()
 	defer dwpt.mu.Unlock()
 
-	if dwpt.numDocsInRAM == 0 {
-		return nil, nil // Nothing to flush
+	if dwpt.abortingException != nil {
+		return 0, fmt.Errorf("DWPT has hit aborting exception but is still indexing")
 	}
 
-	// Use the segment info created with the reserved segment name.  It was
-	// initialized when the DWPT was obtained from the pool so that lazy codec
-	// writers (in particular the term-vectors writer) already see the correct
-	// segment name.  If for some reason the DWPT has no segment info (parentless
-	// test path), fall back to synthesising one from the supplied segmentName.
-	var segmentInfo *SegmentInfo
-	if dwpt.segmentInfo != nil {
-		segmentInfo = dwpt.segmentInfo
+	docsInRamBefore := dwpt.numDocsInRAM
+	allDocsIndexed := false
+
+	defer func() {
+		if !allDocsIndexed && !dwpt.aborted {
+			dwpt.deleteLastDocs(dwpt.numDocsInRAM - docsInRamBefore)
+		}
+		dwpt.maybeAbort("updateDocuments", flushNotifications)
+	}()
+
+	for i, doc := range docs {
+		isLastDoc := i == len(docs)-1
+		if !dwpt.hasParentField &&
+			dwpt.segmentInfo.GetIndexSort() != nil &&
+			!isLastDoc &&
+			dwpt.indexMajorVersionCreated >= 10 { // LUCENE_10_0_0
+			panic("a parent field must be set in order to use document blocks with index sorting; see IndexWriterConfig#setParentField")
+		}
+
+		dwpt.reserveOneDoc()
+		dwpt.indexingChain.ProcessDocument(dwpt.numDocsInRAM, doc)
+		dwpt.numDocsInRAM++
+		onNewDocOnRAM()
+	}
+
+	if dwpt.numDocsInRAM-docsInRamBefore > 1 {
+		dwpt.segmentInfo.SetHasBlocks()
+	}
+	allDocsIndexed = true
+
+	return dwpt.finishDocuments(deleteNode, docsInRamBefore)
+}
+
+func (dwpt *DocumentsWriterPerThread) UpdateBatch(
+	columnBatch ColumnBatch,
+	deleteNode Node,
+	flushNotifications FlushNotifications,
+	onNewDocsOnRAM func(int),
+) (int64, error) {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+
+	if dwpt.abortingException != nil {
+		return 0, fmt.Errorf("DWPT has hit aborting exception but is still indexing")
+	}
+
+	docsInRamBefore := dwpt.numDocsInRAM
+	numDocs := columnBatch.NumDocs()
+	allDocsIndexed := false
+
+	dwpt.reserveDocs(numDocs)
+	dwpt.numDocsInRAM += numDocs
+	onNewDocsOnRAM(numDocs)
+
+	defer func() {
+		if !allDocsIndexed && !dwpt.aborted {
+			dwpt.deleteLastDocs(dwpt.numDocsInRAM - docsInRamBefore)
+		}
+		dwpt.maybeAbort("updateBatch", flushNotifications)
+	}()
+
+	dwpt.indexingChain.ProcessBatch(docsInRamBefore, columnBatch)
+	allDocsIndexed = true
+
+	return dwpt.finishDocuments(deleteNode, docsInRamBefore)
+}
+
+func (dwpt *DocumentsWriterPerThread) finishDocuments(deleteNode Node, docIdUpTo int) (int64, error) {
+	var seqNo int64
+	if deleteNode != nil {
+		seqNo = dwpt.deleteQueue.Add(deleteNode)
+		// In Java, this is an assertion: assert deleteSlice.isTail(deleteNode)
+		dwpt.deleteSlice.Apply(dwpt.pendingUpdates, docIdUpTo)
+		return seqNo, nil
+	}
+
+	seqNo = dwpt.deleteQueue.UpdateSlice(dwpt.deleteSlice)
+	if seqNo < 0 {
+		seqNo = -seqNo
+		dwpt.deleteSlice.Apply(dwpt.pendingUpdates, docIdUpTo)
 	} else {
-		segmentInfo = NewSegmentInfo(segmentName, dwpt.numDocsInRAM, directory)
-		segmentInfo.SetID(generateSegmentID())
-		segmentInfo.SetVersion("10.4.0")
-		segmentInfo.SetMinVersion("10.4.0")
-	}
-	segmentInfo.SetDocCount(dwpt.numDocsInRAM)
-
-	// Build field infos
-	fieldInfos := dwpt.fieldInfosBuilder.Build()
-
-	// Create segment write state
-	writeState := &SegmentWriteState{
-		Directory:     directory,
-		SegmentInfo:   segmentInfo,
-		FieldInfos:    fieldInfos,
-		SegmentSuffix: "",
+		dwpt.deleteSlice.Reset()
 	}
 
-	// 1. Write stored fields
-	if err := dwpt.flushStoredFields(codec, writeState); err != nil {
-		return nil, fmt.Errorf("failed to flush stored fields: %w", err)
-	}
-
-	// 2. Write postings (inverted index)
-	if err := dwpt.flushPostings(codec, writeState, fieldInfos); err != nil {
-		return nil, fmt.Errorf("failed to flush postings: %w", err)
-	}
-
-	// 3. Write term vectors
-	if dwpt.termVectorsConsumer != nil {
-		// The consumer already points to segmentInfo, but re-state it in case a
-		// parentless path created a fresh one above.
-		dwpt.termVectorsConsumer.Info = segmentInfo
-		if err := dwpt.flushTermVectors(writeState); err != nil {
-			return nil, fmt.Errorf("failed to flush term vectors: %w", err)
-		}
-	}
-
-	// 4. Write field infos
-	if err := dwpt.flushFieldInfos(codec, writeState); err != nil {
-		return nil, fmt.Errorf("failed to flush field infos: %w", err)
-	}
-
-	// Update segment files list
-	segmentInfo.SetFiles(dwpt.getGeneratedFiles(segmentInfo.Name()))
-
-	return segmentInfo, nil
+	return seqNo, nil
 }
 
-// flushStoredFields writes stored fields to disk.
-func (dwpt *DocumentsWriterPerThread) flushStoredFields(codec Codec, state *SegmentWriteState) error {
-	writer, err := codec.StoredFieldsFormat().FieldsWriter(state.Directory, state.SegmentInfo, store.IOContextWrite)
-	if err != nil {
-		return err
-	}
-	defer writer.Close()
+func (dwpt *DocumentsWriterPerThread) deleteLastDocs(docCount int) {
+	from := dwpt.numDocsInRAM - docCount
+	to := dwpt.numDocsInRAM
 
-	for _, doc := range dwpt.storedFields.documents {
-		if err := writer.StartDocument(); err != nil {
-			return err
-		}
-		for _, field := range doc.fields {
-			// Convert StoredField to IndexableField adapter
-			sf := &storedFieldAdapter{field: field}
-			if err := writer.WriteField(sf); err != nil {
-				return err
-			}
-		}
-		if err := writer.FinishDocument(); err != nil {
-			return err
-		}
+	// grow slice
+	newLen := len(dwpt.deleteDocIDs) + (to - from)
+	if cap(dwpt.deleteDocIDs) < newLen {
+		newSlice := make([]int, newLen)
+		copy(newSlice, dwpt.deleteDocIDs)
+		dwpt.deleteDocIDs = newSlice
+	} else {
+		dwpt.deleteDocIDs = dwpt.deleteDocIDs[:newLen]
 	}
 
-	return nil
+	for docID := from; docID < to; docID++ {
+		dwpt.deleteDocIDs[dwpt.numDeletedDocIds] = docID
+		dwpt.numDeletedDocIds++
+	}
 }
 
-// flushPostings writes the inverted index to disk.
-func (dwpt *DocumentsWriterPerThread) flushPostings(codec Codec, state *SegmentWriteState, fieldInfos *FieldInfos) error {
-	consumer, err := codec.PostingsFormat().FieldsConsumer(state)
-	if err != nil {
-		return err
-	}
-	defer consumer.Close()
-
-	// Write each field's postings in deterministic ascending field-name order.
-	// The underlying map iteration order is randomized in Go, so we materialise
-	// and sort the field names before dispatching to the codec's FieldsConsumer.
-	fieldNames := make([]string, 0, len(dwpt.invertedIndex.fields))
-	for fieldName := range dwpt.invertedIndex.fields {
-		fieldNames = append(fieldNames, fieldName)
-	}
-	sort.Strings(fieldNames)
-
-	for _, fieldName := range fieldNames {
-		fieldPostings := dwpt.invertedIndex.fields[fieldName]
-		// Convert to Terms format
-		terms := &postingTermsAdapter{
-			postings: fieldPostings,
-		}
-		if err := consumer.Write(fieldName, terms); err != nil {
-			return err
-		}
-	}
-
-	return nil
+func (dwpt *DocumentsWriterPerThread) GetNumDocsInRAM() int {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+	return dwpt.numDocsInRAM
 }
 
-// flushFieldInfos writes field infos to disk via the codec's FieldInfosFormat.
-func (dwpt *DocumentsWriterPerThread) flushFieldInfos(codec Codec, state *SegmentWriteState) error {
-	fif := codec.FieldInfosFormat()
-	if fif == nil {
-		return nil
+func (dwpt *DocumentsWriterPerThread) PrepareFlush() (*FrozenBufferedUpdates, error) {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+
+	if dwpt.numDocsInRAM <= 0 {
+		return nil, fmt.Errorf("cannot prepare flush for segment with 0 docs")
 	}
-	return fif.Write(state.Directory, state.SegmentInfo, state.SegmentSuffix, state.FieldInfos, store.IOContextWrite)
+
+	globalUpdates := dwpt.deleteQueue.FreezeGlobalBuffer(dwpt.deleteSlice)
+	if dwpt.deleteSlice != nil {
+		dwpt.deleteSlice.Apply(dwpt.pendingUpdates, dwpt.numDocsInRAM)
+		dwpt.deleteSlice.Reset()
+	}
+	return globalUpdates, nil
 }
 
-// docTermEntry holds one term's contribution to a document's term vector.
-type docTermEntry struct {
-	text      string
-	positions []int
-	startOffs []int
-	endOffs   []int
-}
-
-// flushTermVectors delegates to the wired TermVectorsConsumer. The consumer has
-// already collected per-field state during ProcessDocument and now flushes it
-// through the codec's TermVectorsWriter.
-func (dwpt *DocumentsWriterPerThread) flushTermVectors(state *SegmentWriteState) error {
-	if dwpt.termVectorsConsumer == nil {
-		return nil
-	}
-	return dwpt.termVectorsConsumer.Flush(state, nil)
-}
-
-// flushKnnVectors writes the buffered KNN vector values for every vector
-// field to the codec's KnnVectorsWriter and serialises the per-segment
-// HNSW graph plus the flat vectors (.vec / .vex / .vem files).
-//
-// It mirrors the vectorValuesConsumer.flush step of Lucene's
-// IndexingChain.flush: a per-field KnnFieldVectorsWriter is opened for each
-// vector field, the buffered per-document values are replayed in increasing
-// docID order, and the consumer serialises every field in one shot.
-//
-// The FieldInfo objects are taken from state.FieldInfos — the same
-// instances that flushFieldInfos serialises to the .fnm — so that the
-// PerFieldKnnVectorsWriter's PutCodecAttribute calls (format name + suffix)
-// are recorded on the FieldInfo that reaches disk. This is why
-// flushKnnVectors MUST run before flushFieldInfos.
-//
-// No-op when the codec has no KnnVectorsFormat or no vector fields were
-// buffered.
-func (dwpt *DocumentsWriterPerThread) flushKnnVectors(codec Codec, state *SegmentWriteState) error {
-	if codec == nil || codec.KnnVectorsFormat() == nil {
-		return nil
-	}
-	if len(dwpt.vectorValues) == 0 {
-		return nil
-	}
-
-	// Collect the vector fields from the on-disk FieldInfos, preserving
-	// field-number order so the AddField sequence (and thus the per-format
-	// suffix assignment) is deterministic across runs.
-	type vecField struct {
-		fieldInfo *FieldInfo
-		buf       *VectorValuesBuffer
-	}
-	var vecFields []vecField
-	it := state.FieldInfos.Iterator()
-	for {
-		fi := it.Next()
-		if fi == nil {
-			break
-		}
-		if fi.VectorDimension() <= 0 {
-			continue
-		}
-		buf, ok := dwpt.vectorValues[fi.Name()]
-		if !ok {
-			continue
-		}
-		vecFields = append(vecFields, vecField{fieldInfo: fi, buf: buf})
-	}
-	if len(vecFields) == 0 {
-		return nil
-	}
-
-	consumer := newVectorValuesConsumer(codec, state.Directory, state.SegmentInfo, util.NoOpInfoStream)
-
-	for _, vf := range vecFields {
-		handle, err := consumer.AddField(vf.fieldInfo)
-		if err != nil {
-			consumer.Abort()
-			return fmt.Errorf("knn vectors AddField %q: %w", vf.fieldInfo.Name(), err)
-		}
-		switch vf.buf.encoding {
-		case VectorEncodingByte:
-			for i, docID := range vf.buf.docIDs {
-				if err := handle.AddValue(docID, vf.buf.byteValues[i]); err != nil {
-					consumer.Abort()
-					return fmt.Errorf("knn vectors AddValue (byte) field=%q doc=%d: %w",
-						vf.fieldInfo.Name(), docID, err)
-				}
-			}
-		default: // VectorEncodingFloat32
-			for i, docID := range vf.buf.docIDs {
-				if err := handle.AddValue(docID, vf.buf.floatValues[i]); err != nil {
-					consumer.Abort()
-					return fmt.Errorf("knn vectors AddValue (float) field=%q doc=%d: %w",
-						vf.fieldInfo.Name(), docID, err)
-				}
-			}
-		}
-	}
-
-	if err := consumer.Flush(state, nil); err != nil {
-		return fmt.Errorf("knn vectors flush: %w", err)
-	}
-	return nil
-}
-
-// flushPoints writes the buffered multi-dimensional point (BKD) values for
-// every point field to the codec's PointsWriter, serialising the per-segment
-// .kdd / .kdi / .kdm files.
-//
-// It mirrors the writePoints step of Lucene's IndexingChain.flush: a single
-// PointsWriter is opened for the segment, WriteField is invoked once per point
-// field (pulling the buffered per-document packed values back through an
-// in-memory PointsSource in document order), and Finish stamps the trailing
-// metadata.
-//
-// The FieldInfo objects are taken from state.FieldInfos — the same instances
-// flushFieldInfos serialises to the .fnm — so the FieldInfo point dimensions
-// reach disk and FieldInfos.HasPointValues() reports true on reopen.
-//
-// No-op when the codec has no PointsFormat or no point fields were buffered.
-func (dwpt *DocumentsWriterPerThread) flushPoints(codec Codec, state *SegmentWriteState) error {
-	if codec == nil || codec.PointsFormat() == nil {
-		return nil
-	}
-	if len(dwpt.pointValues) == 0 {
-		return nil
-	}
-
-	// Collect the point fields from the on-disk FieldInfos, preserving
-	// field-number order so the WriteField sequence (and thus the per-field
-	// meta records) is deterministic across runs.
-	type ptField struct {
-		fieldInfo *FieldInfo
-		buf       *PointValuesBuffer
-	}
-	var ptFields []ptField
-	it := state.FieldInfos.Iterator()
-	for {
-		fi := it.Next()
-		if fi == nil {
-			break
-		}
-		if fi.PointDimensionCount() <= 0 {
-			continue
-		}
-		buf, ok := dwpt.pointValues[fi.Name()]
-		if !ok {
-			continue
-		}
-		ptFields = append(ptFields, ptField{fieldInfo: fi, buf: buf})
-	}
-	if len(ptFields) == 0 {
-		return nil
-	}
-
-	writer, err := codec.PointsFormat().FieldsWriter(state)
-	if err != nil {
-		return fmt.Errorf("points FieldsWriter: %w", err)
-	}
-	defer writer.Close()
-
-	for _, pf := range ptFields {
-		src := &dwptPointsSource{field: pf.fieldInfo.Name(), buf: pf.buf}
-		if err := writer.WriteField(pf.fieldInfo, src); err != nil {
-			return fmt.Errorf("points WriteField %q: %w", pf.fieldInfo.Name(), err)
-		}
-	}
-	if err := writer.Finish(); err != nil {
-		return fmt.Errorf("points finish: %w", err)
-	}
-	return nil
-}
-
-// dwptPointsSource adapts a single field's PointValuesBuffer to the in-memory
-// point source the codec PointsWriter pulls values from. It satisfies the
-// narrow codecs.PointsReader surface (CheckIntegrity/Close) that WriteField's
-// reader parameter declares, plus — structurally — the codec's wider
-// PointsSource contract (PointValueCount / VisitPoints). The codec writer
-// type-asserts the reader to that wider surface.
-type dwptPointsSource struct {
-	field string
-	buf   *PointValuesBuffer
-}
-
-// PointValueCount returns the number of buffered point values for field.
-func (s *dwptPointsSource) PointValueCount(field string) int64 {
-	if field != s.field {
+func countSoftDeletes(iter util.DocIdSetIterator, liveDocs *util.FixedBitSet) int {
+	if iter == nil {
 		return 0
 	}
-	return int64(len(s.buf.packedValues))
-}
-
-// VisitPoints replays the buffered (docID, packedValue) pairs in document
-// order, the order the codec writer feeds BKDWriter.Add.
-func (s *dwptPointsSource) VisitPoints(field string, fn func(docID int, packedValue []byte) error) error {
-	if field != s.field {
-		return nil
-	}
-	for i, v := range s.buf.packedValues {
-		if err := fn(s.buf.docIDs[i], v); err != nil {
-			return err
+	count := 0
+	for {
+		docID := iter.NextDoc()
+		if docID == util.NoDoc {
+			break
+		}
+		if docID < liveDocs.Length() && liveDocs.Get(docID) {
+			count++
 		}
 	}
+	return count
+}
+
+func (dwpt *DocumentsWriterPerThread) Flush(flushNotifications FlushNotifications) (*FlushedSegment, error) {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+
+	if !dwpt.flushPending {
+		panic("flush called but flushPending is not set")
+	}
+	if dwpt.numDocsInRAM <= 0 {
+		panic("flush called on segment with 0 docs")
+	}
+	if !dwpt.deleteSlice.IsEmpty() {
+		panic("all deletes must be applied in prepareFlush")
+	}
+
+	dwpt.segmentInfo.SetMaxDoc(dwpt.numDocsInRAM)
+
+	flushState := &SegmentWriteState{
+		Directory:   dwpt.directory,
+		SegmentInfo: dwpt.segmentInfo,
+		FieldInfos:  dwpt.fieldInfos.Build(),
+		IOContext:    store.IOContextFlush(store.NewFlushInfo(dwpt.numDocsInRAM, dwpt.lastCommittedBytesUsed)),
+	}
+
+	if dwpt.aborted {
+		if dwpt.infoStream.IsEnabled("DWPT") {
+			dwpt.infoStream.Message("DWPT", "flush: skip because aborting is set")
+		}
+		return nil, nil
+	}
+
+	startTime := time.Now()
+
+	if dwpt.infoStream.IsEnabled("DWPT") {
+		dwpt.infoStream.Message("DWPT", fmt.Sprintf("flush postings as segment %s numDocs=%d", flushState.SegmentInfo.Name(), dwpt.numDocsInRAM))
+	}
+
+	var packableSortMap SorterDocMap
+	var err error
+
+	defer func() {
+		dwpt.maybeAbort("flush", flushNotifications)
+		dwpt.hasFlushed = true
+		dwpt.hasFlushedSet = true
+	}()
+
+	// Soft deletes calculation
+	var softDelCount int
+	softDeletesField := dwpt.indexWriterConfig.GetSoftDeletesField()
+	if softDeletesField != "" {
+		softDeletedDocs := dwpt.indexingChain.GetHasDocValues(softDeletesField)
+		softDelCount = countSoftDeletes(softDeletedDocs, flushState.LiveDocs)
+	}
+
+	packableSortMap, err = dwpt.indexingChain.Flush(flushState)
+	if err != nil {
+		dwpt.onAbortingException(err)
+		return nil, err
+	}
+
+	// We clear this here because we already resolved them when writing postings.
+	dwpt.pendingUpdates.ClearDeleteTerms()
+	dwpt.segmentInfo.SetFiles(dwpt.directory.GetCreatedFiles())
+
+		segmentInfoPerCommit := NewSegmentCommitInfo(
+			dwpt.segmentInfo,
+			0,
+			-1,
+		)
+		segmentInfoPerCommit.SetSoftDelCount(softDelCount)
+		segmentInfoPerCommit.SetID(generateSegmentID())
+		segmentDeletes = nil
+	} else {
+		segmentDeletes = dwpt.pendingUpdates
+	}
+
+	var fs *FlushedSegment
+	if packableSortMap != nil {
+		// Assume pack() method exists on SorterDocMap to get the final version.
+		// If not, we just use the map.
+		fs = newFlushedSegment(
+			dwpt.infoStream,
+			segmentInfoPerCommit,
+			flushState.FieldInfos,
+			segmentDeletes,
+			flushState.LiveDocs,
+			dwpt.numDeletedDocIds,
+			packableSortMap,
+		)
+	} else {
+		fs = newFlushedSegment(
+			dwpt.infoStream,
+			segmentInfoPerCommit,
+			flushState.FieldInfos,
+			segmentDeletes,
+			flushState.LiveDocs,
+			dwpt.numDeletedDocIds,
+			nil,
+		)
+	}
+
+	err = dwpt.sealFlushedSegment(fs, packableSortMap, flushNotifications)
+	if err != nil {
+		return nil, err
+	}
+
+	if dwpt.infoStream.IsEnabled("DWPT") {
+		dwpt.infoStream.Message("DWPT", fmt.Sprintf("flush time %v", time.Since(startTime)))
+	}
+
+	return fs, nil
+}
+
+func (dwpt *DocumentsWriterPerThread) maybeAbort(location string, flushNotifications FlushNotifications) {
+	if dwpt.abortingException != nil && !dwpt.aborted {
+		defer func() {
+			flushNotifications.OnTragicEvent(dwpt.abortingException, location)
+		}()
+		dwpt.Abort()
+	}
+}
+
+func (dwpt *DocumentsWriterPerThread) sealFlushedSegment(
+	flushedSegment *FlushedSegment,
+	sortMap SorterDocMap,
+	flushNotifications FlushNotifications,
+) error {
+	newSegment := flushedSegment.segmentInfo
+
+	SetDiagnostics(newSegment.Info, 1) // SOURCE_FLUSH
+
+	context := store.IOContextFlush(store.NewFlushInfo(newSegment.Info.DocCount(), newSegment.SizeInBytes()))
+
+	success := false
+	defer func() {
+		if !success && dwpt.infoStream.IsEnabled("DWPT") {
+			dwpt.infoStream.Message("DWPT", fmt.Sprintf("hit exception creating compound file for newly flushed segment %s", newSegment.Info.Name()))
+		}
+	}()
+
+	if dwpt.indexWriterConfig.UseCompoundFile() {
+		originalFiles := newSegment.Info.Files()
+		// Gocene should have this utility.
+		CreateCompoundFile(
+			dwpt.infoStream,
+			dwpt.directory,
+			newSegment.Info,
+			context,
+			flushNotifications.DeleteUnusedFiles,
+		)
+		// Mark original files for deletion.
+		// In Java: filesToDelete.addAll(originalFiles).
+		// We can handle this via the FlushNotifications.
+		newSegment.Info.SetUseCompoundFile(true)
+	}
+
+	dwpt.codec.SegmentInfoFormat().Write(dwpt.directory, newSegment.Info, context)
+
+	if flushedSegment.liveDocs != nil {
+		delCount := flushedSegment.delCount
+		if dwpt.infoStream.IsEnabled("DWPT") {
+			dwpt.infoStream.Message("DWPT", fmt.Sprintf("flush: write %d deletes gen=%d", delCount, newSegment.Info.GetDelGen()))
+		}
+
+		var bits *util.FixedBitSet
+		if sortMap == nil {
+			bits = flushedSegment.liveDocs
+		} else {
+			// sortLiveDocs logic
+			sortedLiveDocs := util.NewFixedBitSet(flushedSegment.liveDocs.Length())
+			sortedLiveDocs.Set(0, flushedSegment.liveDocs.Length())
+			for i := 0; i < flushedSegment.liveDocs.Length(); i++ {
+				if !flushedSegment.liveDocs.Get(i) {
+					sortedLiveDocs.Clear(sortMap.OldToNew(i))
+				}
+			}
+			bits = sortedLiveDocs
+		}
+
+		dwpt.codec.LiveDocsFormat().WriteLiveDocs(bits, dwpt.directory, newSegment.Info, delCount, context)
+		newSegment.SetDelCount(delCount)
+		newSegment.AdvanceDelGen()
+	}
+
+	success = true
 	return nil
 }
 
-// CheckIntegrity is a no-op: the in-memory source has no on-disk checksum.
-func (s *dwptPointsSource) CheckIntegrity() error { return nil }
-
-// Close is a no-op: the in-memory source holds no resources.
-func (s *dwptPointsSource) Close() error { return nil }
-
-// MutablePointTree exposes the buffered points as a [PointTreeBuffer] so
-// codecs can drive BKDWriter.WriteField directly. It returns the tree and the
-// number of buffered points.
-func (s *dwptPointsSource) MutablePointTree() (PointTreeBuffer, int) {
-	return &dwptPointTree{buf: s.buf}, len(s.buf.packedValues)
+func (dwpt *DocumentsWriterPerThread) RamBytesUsed() int64 {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+	return int64(len(dwpt.deleteDocIDs)*4) +
+		dwpt.pendingUpdates.RamBytesUsed() +
+		dwpt.indexingChain.RamBytesUsed()
 }
 
-// dwptPointTree adapts a [PointValuesBuffer] to the [PointTreeBuffer]
-// interface used by BKDWriter.WriteField. The buffer is small (in-RAM) so the
-// simple slice-based implementation is sufficient.
-type dwptPointTree struct {
-	buf           *PointValuesBuffer
-	scratchPacked [][]byte
-	scratchDocIDs []int
+func (dwpt *DocumentsWriterPerThread) IsFlushPending() bool {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+	return dwpt.flushPending
 }
 
-func (t *dwptPointTree) Swap(i, j int) {
-	t.buf.packedValues[i], t.buf.packedValues[j] = t.buf.packedValues[j], t.buf.packedValues[i]
-	t.buf.docIDs[i], t.buf.docIDs[j] = t.buf.docIDs[j], t.buf.docIDs[i]
-}
-
-func (t *dwptPointTree) GetValue(i int, dst *util.BytesRef) {
-	// Always copy into a private slice. Aliasing packedValues[i] would let
-	// callers (and our own reuse of dst.Bytes) overwrite the buffer when
-	// they later write into dst.Bytes, as happens on the BKD hot path
-	// where scratch BytesRefs are reused across GetValue calls.
-	n := len(t.buf.packedValues[i])
-	if len(dst.Bytes) < n {
-		dst.Bytes = make([]byte, n)
+func (dwpt *DocumentsWriterPerThread) SetFlushPending() {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+	if dwpt.flushPendingSet {
+		panic("flushPending can only be set once")
 	}
-	copy(dst.Bytes, t.buf.packedValues[i])
-	dst.Offset = 0
-	dst.Length = n
+	dwpt.flushPending = true
+	dwpt.flushPendingSet = true
 }
 
-func (t *dwptPointTree) GetByteAt(i, k int) byte { return t.buf.packedValues[i][k] }
-
-func (t *dwptPointTree) GetDocID(i int) int { return t.buf.docIDs[i] }
-
-func (t *dwptPointTree) Save(i, j int) {
-	// Implements the MutablePointTree#save contract used by the stable
-	// radix sorter: copy the value at slot i into the j-th position of
-	// scratch storage.
-	if t.scratchPacked == nil {
-		t.scratchPacked = make([][]byte, len(t.buf.packedValues))
-		t.scratchDocIDs = make([]int, len(t.buf.docIDs))
-	}
-	packed := make([]byte, len(t.buf.packedValues[i]))
-	copy(packed, t.buf.packedValues[i])
-	t.scratchPacked[j] = packed
-	t.scratchDocIDs[j] = t.buf.docIDs[i]
+func (dwpt *DocumentsWriterPerThread) GetLastCommittedBytesUsed() int64 {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+	return dwpt.lastCommittedBytesUsed
 }
 
-func (t *dwptPointTree) Restore(i, j int) {
-	// Implements the MutablePointTree#restore contract: copy scratch
-	// positions [i, j) back into the live buffer positions [i, j).
-	if t.scratchPacked == nil {
-		return
-	}
-	copy(t.buf.packedValues[i:j], t.scratchPacked[i:j])
-	copy(t.buf.docIDs[i:j], t.scratchDocIDs[i:j])
+func (dwpt *DocumentsWriterPerThread) GetCommitLastBytesUsedDelta() int64 {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+	return dwpt.RamBytesUsedUnsafe() - dwpt.lastCommittedBytesUsed
 }
 
-// getGeneratedFiles returns the list of files generated during flush.
-func (dwpt *DocumentsWriterPerThread) getGeneratedFiles(segmentName string) []string {
-	// Return the list of segment files
-	// This would include: .fdt, .fdx, .tim, .tip, .doc, .pos, etc.
-	files := []string{
-		segmentName + ".fdt", // Stored fields data
-		segmentName + ".fdx", // Stored fields index
-		segmentName + ".tim", // Term dictionary
-		segmentName + ".tip", // Term index
-		segmentName + ".doc", // Doc values
-		segmentName + ".pos", // Positions
-	}
-	return files
+func (dwpt *DocumentsWriterPerThread) CommitLastBytesUsed(delta int64) {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+	dwpt.lastCommittedBytesUsed += delta
 }
 
-// storedFieldAdapter adapts StoredField to IndexableField interface.
-type storedFieldAdapter struct {
-	field *StoredField
+func (dwpt *DocumentsWriterPerThread) Lock() {
+	dwpt.mu.Lock()
 }
 
-func (s *storedFieldAdapter) Name() string              { return s.field.name }
-func (s *storedFieldAdapter) StringValue() string       { return s.field.stringValue }
-func (s *storedFieldAdapter) BinaryValue() []byte       { return s.field.binaryValue }
-func (s *storedFieldAdapter) NumericValue() interface{} { return s.field.numericValue }
-func (s *storedFieldAdapter) FieldType() FieldTypeInterface {
-	return &simpleFieldType{}
-}
-func (s *storedFieldAdapter) ReaderValue() io.Reader { return nil }
-
-// simpleFieldType provides a simple FieldTypeInterface implementation
-type simpleFieldType struct{}
-
-func (f *simpleFieldType) IsIndexed() bool               { return false }
-func (f *simpleFieldType) IsStored() bool                { return true }
-func (f *simpleFieldType) IsTokenized() bool             { return false }
-func (f *simpleFieldType) GetIndexOptions() IndexOptions { return IndexOptionsNone }
-func (f *simpleFieldType) GetDocValuesType() DocValuesType {
-	return DocValuesTypeNone
-}
-func (f *simpleFieldType) StoreTermVectors() bool          { return false }
-func (f *simpleFieldType) StoreTermVectorPositions() bool  { return false }
-func (f *simpleFieldType) StoreTermVectorOffsets() bool    { return false }
-func (f *simpleFieldType) StoreTermVectorPayloads() bool   { return false }
-
-// postingTermsAdapter adapts FieldPostings to Terms interface.
-type postingTermsAdapter struct {
-	postings *FieldPostings
+func (dwpt *DocumentsWriterPerThread) Unlock() {
+	dwpt.mu.Unlock()
 }
 
-func (p *postingTermsAdapter) GetIterator() (TermsEnum, error) {
-	return &postingTermsEnum{postings: p.postings, terms: getSortedTerms(p.postings)}, nil
+func (dwpt *DocumentsWriterPerThread) TryLock() bool {
+	return dwpt.mu.TryLock()
 }
 
-func (p *postingTermsAdapter) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error) {
-	terms := getSortedTerms(p.postings)
-	// Find position at or after seek term
-	for i, t := range terms {
-		if t >= seekTerm.Text() {
-			return &postingTermsEnum{postings: p.postings, terms: terms, index: i}, nil
-		}
-	}
-	return &postingTermsEnum{postings: p.postings, terms: terms, index: len(terms)}, nil
+func (dwpt *DocumentsWriterPerThread) IsHeldByCurrentThread() bool {
+	// Go's sync.Mutex does not provide a way to check if it is held by the current goroutine.
+	// This is used as an assertion in Lucene.
+	return true
 }
 
-func (p *postingTermsAdapter) Size() int64 {
-	return int64(len(p.postings.terms))
+func (dwpt *DocumentsWriterPerThread) RamBytesUsedUnsafe() int64 {
+	return int64(len(dwpt.deleteDocIDs)*4) +
+		dwpt.pendingUpdates.RamBytesUsed() +
+		dwpt.indexingChain.RamBytesUsed()
 }
 
-func (p *postingTermsAdapter) GetDocCount() (int, error) {
-	maxDoc := 0
-	for _, posting := range p.postings.terms {
-		for _, docID := range posting.docIDs {
-			if docID > maxDoc {
-				maxDoc = docID
-			}
-		}
-	}
-	return maxDoc + 1, nil
+func (dwpt *DocumentsWriterPerThread) HasFlushed() bool {
+	dwpt.mu.Lock()
+	defer dwpt.mu.Unlock()
+	return dwpt.hasFlushed
 }
 
-func (p *postingTermsAdapter) GetSumDocFreq() (int64, error) {
-	var sum int64
-	for _, posting := range p.postings.terms {
-		sum += int64(len(posting.docIDs))
-	}
-	return sum, nil
-}
-
-func (p *postingTermsAdapter) GetSumTotalTermFreq() (int64, error) {
-	var sum int64
-	for _, posting := range p.postings.terms {
-		for _, freq := range posting.freqs {
-			sum += int64(freq)
-		}
-	}
-	return sum, nil
-}
-
-func (p *postingTermsAdapter) HasFreqs() bool   { return true }
-func (p *postingTermsAdapter) HasOffsets() bool {
-	return p.postings.fieldInfo != nil && p.postings.fieldInfo.IndexOptions().HasOffsets()
-}
-func (p *postingTermsAdapter) HasPositions() bool {
-	return p.postings.fieldInfo != nil && p.postings.fieldInfo.IndexOptions().HasPositions()
-}
-func (p *postingTermsAdapter) HasPayloads() bool      { return false }
-func (p *postingTermsAdapter) GetMin() (*Term, error) { return nil, nil }
-func (p *postingTermsAdapter) GetMax() (*Term, error) { return nil, nil }
-
-// GetPostingsReader returns the postings for a term.
-func (p *postingTermsAdapter) GetPostingsReader(termText string, flags int) (PostingsEnum, error) {
-	posting, ok := p.postings.terms[termText]
-	if !ok {
-		return nil, nil
-	}
-	return NewSingleDocPostingsEnum(posting.docIDs[0], posting.freqs[0]), nil
-}
-
-// getSortedTerms returns sorted term strings from postings
-func getSortedTerms(postings *FieldPostings) []string {
-	postings.mu.RLock()
-	defer postings.mu.RUnlock()
-	terms := make([]string, 0, len(postings.terms))
-	for t := range postings.terms {
-		terms = append(terms, t)
-	}
-	// Sort terms
-	for i := 0; i < len(terms)-1; i++ {
-		for j := i + 1; j < len(terms); j++ {
-			if terms[i] > terms[j] {
-				terms[i], terms[j] = terms[j], terms[i]
-			}
-		}
-	}
-	return terms
-}
-
-// postingTermsEnum iterates over terms in postings
-type postingTermsEnum struct {
-	postings *FieldPostings
-	terms    []string
-	index    int
-}
-
-func (e *postingTermsEnum) Next() (*Term, error) {
-	if e.index >= len(e.terms) {
-		return nil, nil
-	}
-	term := NewTerm(e.postings.fieldInfo.Name(), e.terms[e.index])
-	e.index++
-	return term, nil
-}
-
-func (e *postingTermsEnum) DocFreq() (int, error) {
-	if e.index <= 0 || e.index > len(e.terms) {
-		return 0, nil
-	}
-	term := e.terms[e.index-1]
-	posting, ok := e.postings.terms[term]
-	if !ok {
-		return 0, nil
-	}
-	return len(posting.docIDs), nil
-}
-
-func (e *postingTermsEnum) TotalTermFreq() (int64, error) {
-	if e.index <= 0 || e.index > len(e.terms) {
-		return 0, nil
-	}
-	term := e.terms[e.index-1]
-	posting, ok := e.postings.terms[term]
-	if !ok {
-		return 0, nil
-	}
-	var sum int64
-	for _, freq := range posting.freqs {
-		sum += int64(freq)
-	}
-	return sum, nil
-}
-
-// Postings returns a PostingsEnum for the current term. The current term is
-// the one most recently returned by Next(), i.e. e.terms[e.index-1]. Returns
-// nil when called before the first Next() or after exhaustion.
-func (e *postingTermsEnum) Postings(flags int) (PostingsEnum, error) {
-	if e.index <= 0 || e.index > len(e.terms) {
-		return nil, nil
-	}
-	termText := e.terms[e.index-1]
-	e.postings.mu.RLock()
-	posting, ok := e.postings.terms[termText]
-	e.postings.mu.RUnlock()
-	if !ok || len(posting.docIDs) == 0 {
-		return nil, nil
-	}
-	hasOffsets := e.postings.fieldInfo != nil && e.postings.fieldInfo.IndexOptions().HasOffsets()
-	hasPayloads := e.postings.fieldInfo != nil && e.postings.fieldInfo.HasPayloads()
-	return &postingDataEnum{posting: posting, docIdx: -1, posIdx: -1, hasOffsets: hasOffsets, hasPayloads: hasPayloads}, nil
-}
-
-func (e *postingTermsEnum) SeekExact(term *Term) (bool, error) {
-	for i, t := range e.terms {
-		if t == term.Text() {
-			e.index = i + 1
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func (e *postingTermsEnum) SeekCeil(term *Term) (*Term, error) {
-	for i, t := range e.terms {
-		if t >= term.Text() {
-			e.index = i + 1
-			return NewTerm(e.postings.fieldInfo.Name(), t), nil
-		}
-	}
-	e.index = len(e.terms)
-	return nil, nil
-}
-
-func (e *postingTermsEnum) Term() *Term {
-	if e.index <= 0 || e.index > len(e.terms) {
-		return nil
-	}
-	return NewTerm(e.postings.fieldInfo.Name(), e.terms[e.index-1])
-}
-
-func (e *postingTermsEnum) Close() error { return nil }
-
-func (e *postingTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (PostingsEnum, error) {
-	return nil, nil
-}
-
-// postingDataEnum iterates over the doc/freq/position/offset/payload data of
-// a single Posting list. It is returned by postingTermsEnum.Postings and
-// drives the block-tree terms writer via WriteTerm.
-type postingDataEnum struct {
-	posting     *Posting
-	docIdx      int // index into posting.docIDs; -1 = before start
-	posIdx      int // index into posting.positions[docIdx]; -1 = before start
-	startOffset int
-	endOffset   int
-	payload     []byte
-	hasOffsets  bool
-	hasPayloads bool
-}
-
-func (p *postingDataEnum) NextDoc() (int, error) {
-	p.docIdx++
-	if p.docIdx >= len(p.posting.docIDs) {
-		return NO_MORE_DOCS, nil
-	}
-	p.posIdx = -1
-	return p.posting.docIDs[p.docIdx], nil
-}
-
-func (p *postingDataEnum) DocID() int {
-	if p.docIdx < 0 || p.docIdx >= len(p.posting.docIDs) {
-		return NO_MORE_DOCS
-	}
-	return p.posting.docIDs[p.docIdx]
-}
-
-func (p *postingDataEnum) Freq() (int, error) {
-	if p.docIdx < 0 || p.docIdx >= len(p.posting.freqs) {
-		return 0, nil
-	}
-	return p.posting.freqs[p.docIdx], nil
-}
-
-func (p *postingDataEnum) NextPosition() (int, error) {
-	if p.docIdx < 0 || p.docIdx >= len(p.posting.positions) {
-		return NO_MORE_POSITIONS, nil
-	}
-	positions := p.posting.positions[p.docIdx]
-	p.posIdx++
-	if p.posIdx >= len(positions) {
-		return NO_MORE_POSITIONS, nil
-	}
-	if p.hasOffsets {
-		p.startOffset = p.posting.startOffsets[p.docIdx][p.posIdx]
-		p.endOffset = p.posting.endOffsets[p.docIdx][p.posIdx]
-	}
-	if p.hasPayloads {
-		if p.posIdx < len(p.posting.payloads[p.docIdx]) {
-			p.payload = p.posting.payloads[p.docIdx][p.posIdx]
-		} else {
-			p.payload = nil
-		}
-	}
-	return positions[p.posIdx], nil
-}
-
-func (p *postingDataEnum) StartOffset() (int, error) {
-	if !p.hasOffsets {
-		return -1, nil
-	}
-	return p.startOffset, nil
-}
-func (p *postingDataEnum) EndOffset() (int, error) {
-	if !p.hasOffsets {
-		return -1, nil
-	}
-	return p.endOffset, nil
-}
-func (p *postingDataEnum) GetPayload() ([]byte, error) {
-	if !p.hasPayloads {
-		return nil, nil
-	}
-	return p.payload, nil
-}
-
-func (p *postingDataEnum) Advance(target int) (int, error) {
-	for {
-		docID, err := p.NextDoc()
-		if err != nil {
-			return NO_MORE_DOCS, err
-		}
-		if docID >= target {
-			return docID, nil
-		}
-	}
-}
-
-func (p *postingDataEnum) Cost() int64 {
-	return int64(len(p.posting.docIDs))
-}
-
-func (p *postingDataEnum) Attributes() interface{} { return nil }
-func (p *postingDataEnum) SlowAdvance(target int) (int, error) {
-	return p.Advance(target)
-}
-
-// testSegmentIDBytes, when non-nil, makes generateSegmentID return this exact
-// 16-byte id. It is used only by the binary-compatibility fixture tests so that
-// Gocene-written segment files can be compared byte-for-byte against Apache
-// Lucene 10.4.0 fixtures.
-var testSegmentIDBytes []byte
-
-// SetTestSegmentIDBytes enables a fixed 16-byte segment ID for the current
-// process. It is intended ONLY for tests that need byte-exact golden corpus
-// comparisons. Passing nil disables determinism and restores the default
-// timestamp-based generation.
-func SetTestSegmentIDBytes(id []byte) {
-	if len(id) == 0 {
-		testSegmentIDBytes = nil
-		return
-	}
-	if len(id) != 16 {
-		panic(fmt.Sprintf("SetTestSegmentIDBytes: expected 16 bytes, got %d", len(id)))
-	}
-	buf := make([]byte, 16)
-	copy(buf, id)
-	testSegmentIDBytes = buf
-}
-
-// SetTestSegmentIDSeed enables deterministic segment IDs derived from seed for
-// the current process. It is intended ONLY for tests that need byte-exact
-// golden corpus comparisons. Passing a negative seed disables determinism and
-// restores the default timestamp-based generation.
-func SetTestSegmentIDSeed(seed int64) {
-	if seed < 0 {
-		testSegmentIDBytes = nil
-		return
-	}
-	id := make([]byte, 16)
-	for i := 0; i < 8; i++ {
-		id[i] = byte(seed >> ((7 - i) * 8))
-	}
-	for i := 0; i < 8; i++ {
-		id[8+i] = byte(^seed >> ((7 - i) * 8))
-	}
-	SetTestSegmentIDBytes(id)
-}
-
-// generateSegmentID generates a unique segment ID.
-func generateSegmentID() []byte {
-	if testSegmentIDBytes != nil {
-		return testSegmentIDBytes
-	}
-	id := make([]byte, 16)
-	// Use timestamp and random data for ID
-	now := time.Now().UnixNano()
-	for i := 0; i < 8; i++ {
-		id[i] = byte(now >> (i * 8))
-	}
-	// Fill remaining with pseudo-random data
-	for i := 8; i < 16; i++ {
-		id[i] = byte(i*17 + int(now&0xFF))
-	}
-	return id
+// CreateCompoundFile is a stub for the Lucene compound file creation logic.
+// This is a GAP in the current port.
+func CreateCompoundFile(
+	infoStream util.InfoStream,
+	directory store.Directory,
+	info *SegmentInfo,
+	context store.IOContext,
+	deleteUnusedFiles func([]string),
+) error {
+	// In a real implementation, this would bundle multiple segment files into one .cfs file.
+	return nil
 }

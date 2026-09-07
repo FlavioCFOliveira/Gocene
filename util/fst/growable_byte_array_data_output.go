@@ -35,6 +35,7 @@ const growableInitialSize = 1 << 8
 // Outputs implementations (which require VariableLengthOutput) can
 // write into it directly.
 type GrowableByteArrayDataOutput struct {
+	*store.BaseDataOutput
 	bytes     []byte
 	nextWrite int
 }
@@ -42,7 +43,9 @@ type GrowableByteArrayDataOutput struct {
 // NewGrowableByteArrayDataOutput returns a fresh buffer with the
 // Lucene-standard 256-byte initial capacity.
 func NewGrowableByteArrayDataOutput() *GrowableByteArrayDataOutput {
-	return &GrowableByteArrayDataOutput{bytes: make([]byte, growableInitialSize)}
+	g := &GrowableByteArrayDataOutput{bytes: make([]byte, growableInitialSize)}
+	g.BaseDataOutput = store.NewBaseDataOutput(g)
+	return g
 }
 
 // WriteByte implements store.DataOutput.
@@ -54,8 +57,17 @@ func (g *GrowableByteArrayDataOutput) WriteByte(b byte) error {
 }
 
 // WriteBytes implements store.DataOutput.
-func (g *GrowableByteArrayDataOutput) WriteBytes(b []byte) error {
-	return g.WriteBytesN(b, len(b))
+func (g *GrowableByteArrayDataOutput) WriteBytes(b []byte, offset, length int) error {
+	if length <= 0 {
+		return nil
+	}
+	if offset+length > len(b) {
+		return fmt.Errorf("GrowableByteArrayDataOutput.WriteBytes: offset+length %d exceeds len(b) %d", offset+length, len(b))
+	}
+	g.ensureCapacity(length)
+	copy(g.bytes[g.nextWrite:], b[offset:offset+length])
+	g.nextWrite += length
+	return nil
 }
 
 // WriteBytesN implements store.DataOutput.
@@ -70,47 +82,6 @@ func (g *GrowableByteArrayDataOutput) WriteBytesN(b []byte, n int) error {
 	copy(g.bytes[g.nextWrite:], b[:n])
 	g.nextWrite += n
 	return nil
-}
-
-// WriteShort writes a 16-bit value. Matches the little-endian encoding
-// used by store.ByteArrayDataOutput so that callers that round-trip
-// through GrowableByteArrayDataOutput see the same byte layout.
-func (g *GrowableByteArrayDataOutput) WriteShort(v int16) error {
-	if err := g.WriteByte(byte(v)); err != nil {
-		return err
-	}
-	return g.WriteByte(byte(v >> 8))
-}
-
-// WriteInt writes a 32-bit little-endian value, matching the rest of
-// the package.
-func (g *GrowableByteArrayDataOutput) WriteInt(v int32) error {
-	if err := g.WriteByte(byte(v)); err != nil {
-		return err
-	}
-	if err := g.WriteByte(byte(v >> 8)); err != nil {
-		return err
-	}
-	if err := g.WriteByte(byte(v >> 16)); err != nil {
-		return err
-	}
-	return g.WriteByte(byte(v >> 24))
-}
-
-// WriteLong writes a 64-bit little-endian value.
-func (g *GrowableByteArrayDataOutput) WriteLong(v int64) error {
-	for i := 0; i < 8; i++ {
-		if err := g.WriteByte(byte(v >> (8 * i))); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// WriteString implements store.DataOutput by emitting a VInt length
-// followed by the UTF-8 bytes.
-func (g *GrowableByteArrayDataOutput) WriteString(s string) error {
-	return store.WriteString(g, s)
 }
 
 // WriteVInt implements store.VariableLengthOutput.

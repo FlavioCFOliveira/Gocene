@@ -100,4 +100,4 @@ func (a *IrishAnalyzer) GetStemExclusionSet() *analysis.CharArraySet { return a.
 
 // Ensure IrishAnalyzer implements Analyzer.
 var _ analysis.Analyzer = (*IrishAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*IrishAnalyzer)(nil)
+var _ analysis.api.Analyzer = (*IrishAnalyzer)(nil)

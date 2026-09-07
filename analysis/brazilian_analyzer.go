@@ -118,7 +118,7 @@ func (a *BrazilianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure BrazilianAnalyzer implements Analyzer
 var _ Analyzer = (*BrazilianAnalyzer)(nil)
-var _ AnalyzerInterface = (*BrazilianAnalyzer)(nil)
+var _ api.Analyzer = (*BrazilianAnalyzer)(nil)
 
 // BrazilianStemFilter implements light stemming for Brazilian Portuguese.
 type BrazilianStemFilter struct {
@@ -219,7 +219,9 @@ func brazilianLightStem(term string) string {
 }
 
 // BrazilianStemFilterFactory creates BrazilianStemFilter instances.
-type BrazilianStemFilterFactory struct{}
+type BrazilianStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewBrazilianStemFilterFactory creates a new BrazilianStemFilterFactory.
 func NewBrazilianStemFilterFactory() *BrazilianStemFilterFactory {

@@ -1,5 +1,5 @@
 // Code in this file mirrors org.apache.lucene.geo.SimpleGeoJSONPolygonParser
-// from Apache Lucene 10.4.0. The Java reference is a hand-rolled
+// from Apache Lucene 10.5.0. The Java reference is a hand-rolled
 // minimal JSON scanner specialised for extracting (Multi)Polygon
 // geometry; this port reproduces its parsing surface and error
 // messages byte-for-byte where they are observable to callers.

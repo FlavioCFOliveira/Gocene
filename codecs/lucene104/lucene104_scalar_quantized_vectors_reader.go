@@ -104,7 +104,7 @@ func NewLucene104ScalarQuantizedVectorsReader(state *codecs.SegmentReadState, en
 		return nil, err
 	}
 
-	dataName := index.SegmentFileName(
+	dataName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, VectorDataExtension)
 	dataIn, err := state.Directory.OpenInput(dataName, store.IOContextRead)
 	if err != nil {
@@ -133,7 +133,7 @@ func NewLucene104ScalarQuantizedVectorsReader(state *codecs.SegmentReadState, en
 // readMetadata reads and validates the .vemq header, parses every field record
 // until the -1 sentinel, and checks the footer. Returns the meta version.
 func (r *Lucene104ScalarQuantizedVectorsReader) readMetadata(state *codecs.SegmentReadState) (int32, error) {
-	metaName := index.SegmentFileName(
+	metaName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, MetaExtension)
 	metaRaw, err := state.Directory.OpenInput(metaName, store.IOContextRead)
 	if err != nil {
@@ -156,7 +156,7 @@ func (r *Lucene104ScalarQuantizedVectorsReader) readMetadata(state *codecs.Segme
 		readErr = r.readFields(meta)
 	}()
 
-	_, footerErr := codecs.CheckFooter(meta)
+	_, footerErr := store.CheckFooter(meta)
 	_ = metaRaw.Close()
 	if readErr != nil {
 		return 0, fmt.Errorf("lucene104 sq: read meta %q: %w", metaName, readErr)

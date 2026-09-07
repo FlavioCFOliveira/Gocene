@@ -73,4 +73,4 @@ func (a *LatvianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*LatvianAnalyzer)(nil)
-var _ AnalyzerInterface = (*LatvianAnalyzer)(nil)
+var _ api.Analyzer = (*LatvianAnalyzer)(nil)

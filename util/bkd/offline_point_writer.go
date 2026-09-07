@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -207,7 +206,7 @@ func (w *OfflinePointWriter) Close() error {
 		return nil
 	}
 	w.closed = true
-	footerErr := codecs.WriteFooter(w.checksumOut)
+	footerErr := store.WriteFooter(w.checksumOut)
 	closeErr := w.out.Close()
 	if footerErr != nil {
 		return footerErr

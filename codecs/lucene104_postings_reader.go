@@ -1738,7 +1738,7 @@ func readVIntBlock104(
 	indexHasFreq bool,
 	decodeFreq bool,
 ) error {
-	if err := util.ReadGroupVIntsInt64(docIn, docBuffer, num); err != nil {
+	if err := store.ReadGroupVIntsInt64(docIn, docBuffer, num); err != nil {
 		return err
 	}
 	if indexHasFreq && decodeFreq {

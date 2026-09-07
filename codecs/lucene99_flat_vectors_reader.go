@@ -84,7 +84,7 @@ func NewLucene99FlatVectorsReader(state *SegmentReadState) (*Lucene99FlatVectors
 		return nil, err
 	}
 
-	dataName := index.SegmentFileName(
+	dataName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, lucene99FlatDataExtension)
 	dataIn, err := state.Directory.OpenInput(dataName, store.IOContextRead)
 	if err != nil {
@@ -116,7 +116,7 @@ func NewLucene99FlatVectorsReader(state *SegmentReadState) (*Lucene99FlatVectors
 // readMetadata reads the `.vemf` header and per-field entries. It returns
 // the meta version so the caller can cross-check the data file.
 func (r *Lucene99FlatVectorsReader) readMetadata(state *SegmentReadState) (int32, error) {
-	metaName := index.SegmentFileName(
+	metaName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, lucene99FlatMetaExtension)
 	metaRaw, err := state.Directory.OpenInput(metaName, store.IOContextRead)
 	if err != nil {

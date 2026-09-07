@@ -83,7 +83,7 @@ func (a *NorwegianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure NorwegianAnalyzer implements Analyzer
 var _ Analyzer = (*NorwegianAnalyzer)(nil)
-var _ AnalyzerInterface = (*NorwegianAnalyzer)(nil)
+var _ api.Analyzer = (*NorwegianAnalyzer)(nil)
 
 // NorwegianLightStemFilter implements light stemming for Norwegian
 // (Bokmål and/or Nynorsk) via the full NorwegianLightStemmer algorithm.

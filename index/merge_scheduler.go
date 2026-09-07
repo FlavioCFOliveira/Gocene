@@ -380,6 +380,9 @@ type MergeThread struct {
 	running bool
 	err     error
 
+	// RateLimiter limits the IO rate of this specific merge thread.
+	RateLimiter store.RateLimiter
+
 	// done is closed by the owning scheduler once the merge goroutine exits.
 	done chan struct{}
 }

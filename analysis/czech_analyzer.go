@@ -96,7 +96,7 @@ func (a *CzechAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*CzechAnalyzer)(nil)
-var _ AnalyzerInterface = (*CzechAnalyzer)(nil)
+var _ api.Analyzer = (*CzechAnalyzer)(nil)
 
 // CzechStemFilter implements light stemming for Czech via the full CzechStemmer
 // algorithm.

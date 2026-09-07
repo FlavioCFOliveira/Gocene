@@ -81,7 +81,7 @@ func (p *Passage) String() string {
 		if i != 0 {
 			res += ","
 		}
-		res += fmt.Sprintf("%s[%d-%d]", string(p.matchTerms[i]), p.matchStarts[i]-p.startOffset, p.matchEnds[i]-p.startOffset)
+		res += fmt.Sprintf("%s[%d-%d]", p.matchTerms[i].String(), p.matchStarts[i]-p.startOffset, p.matchEnds[i]-p.startOffset)
 	}
 	res += fmt.Sprintf("}score=%f", p.score)
 	return res

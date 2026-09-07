@@ -39,13 +39,13 @@ func NewKnnVectorDict(directory store.Directory, dictName string) (*KnnVectorDic
 	}
 
 	// Lucene: fst = new FST<>(readMetadata(fstIn, PositiveIntOutputs.getSingleton()), fstIn);
-	metadata, err := fst.ReadMetadata(fstIn, fst.PositiveIntOutputs)
+	metadata, err := fst.ReadMetadata[int64](fstIn, fst.PositiveIntOutputs())
 	if err != nil {
 		fstIn.Close()
 		return nil, err
 	}
 
-	f, err := fst.NewFST(metadata, fstIn)
+	f, err := fst.NewFSTFromDataInput(metadata, fstIn)
 	fstIn.Close()
 	if err != nil {
 		return nil, err
@@ -62,7 +62,7 @@ func NewKnnVectorDict(directory store.Directory, dictName string) (*KnnVectorDic
 		return nil, errors.New("knn vector bin file too small")
 	}
 
-	vectors.Seek(size - 4)
+	vectors.SetPosition(size - 4)
 	dimension, err := vectors.ReadInt()
 	if err != nil {
 		vectors.Close()
@@ -103,8 +103,8 @@ func (k *KnnVectorDict) Get(token *util.BytesRef, output []byte) error {
 			output[i] = 0
 		}
 	} else {
-		k.vectors.Seek(ord * int64(k.dimension) * 4)
-		if _, err := k.vectors.ReadBytes(output); err != nil {
+		k.vectors.SetPosition(ord * int64(k.dimension) * 4)
+		if _, err := k.vectors.ReadBytes(output, 0, len(output)); err != nil {
 			return err
 		}
 	}
@@ -123,7 +123,7 @@ func (k *KnnVectorDict) Close() error {
 
 // RamBytesUsed returns the size of the dictionary in bytes.
 func (k *KnnVectorDict) RamBytesUsed() int64 {
-	return k.fst.RamBytesUsed() + k.vectors.Length()
+	return k.fst.RAMBytesUsed() + k.vectors.Length()
 }
 
 // Build converts from a GloVe-formatted dictionary file to a KnnVectorDict file pair.

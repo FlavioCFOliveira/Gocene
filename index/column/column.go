@@ -2,7 +2,7 @@ package column
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // Density describes whether a column has a value for every document in the batch.
@@ -20,7 +20,7 @@ type Column interface {
 	// Name returns the field name.
 	Name() string
 	// FieldType returns the field type describing how this field is indexed.
-	FieldType() index.IndexableFieldType
+	FieldType() schema.IndexableFieldType
 	// Density returns the density of this column (whether every doc has a value).
 	Density() Density
 }

@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // AnalyzerWrapper is an Analyzer that wraps other Analyzers.
@@ -27,11 +29,11 @@ import (
 type AnalyzerWrapper struct {
 	// GetWrappedAnalyzer returns the wrapped Analyzer for the given field
 	// name. Must be non-nil. The returned Analyzer is assumed to be non-nil.
-	GetWrappedAnalyzer func(fieldName string) Analyzer
+	GetWrappedAnalyzer func(fieldName string) api.Analyzer
 
 	// WrapTokenStream wraps or alters the given TokenStream produced by the
 	// wrapped Analyzer. The default implementation returns the stream as-is.
-	WrapTokenStream func(fieldName string, in TokenStream) TokenStream
+	WrapTokenStream func(fieldName string, in api.TokenStream) api.TokenStream
 
 	// WrapReader wraps or alters the given Reader before it is passed to the
 	// wrapped Analyzer. The default implementation returns the reader as-is.
@@ -53,7 +55,7 @@ func NewAnalyzerWrapper(getWrappedAnalyzer func(fieldName string) Analyzer) *Ana
 // TokenStream creates a TokenStream by delegating to the wrapped Analyzer,
 // first wrapping the input reader via WrapReader and then wrapping the
 // resulting TokenStream via WrapTokenStream.
-func (w *AnalyzerWrapper) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (w *AnalyzerWrapper) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	wrapped := w.GetWrappedAnalyzer(fieldName)
 	r := reader
 	if w.WrapReader != nil {
@@ -73,6 +75,11 @@ func (w *AnalyzerWrapper) TokenStream(fieldName string, reader io.Reader) (Token
 // is not closed; ownership of its lifecycle stays with the caller.
 func (w *AnalyzerWrapper) Close() error {
 	return nil
+}
+
+// Normalize delegates to the wrapped Analyzer for the given field.
+func (w *AnalyzerWrapper) Normalize(fieldName string) api.TokenStream {
+	return w.GetWrappedAnalyzer(fieldName).Normalize(fieldName)
 }
 
 // GetPositionIncrementGap returns the position-increment gap of the wrapped
@@ -98,7 +105,7 @@ func (w *AnalyzerWrapper) GetOffsetGap(fieldName string) int {
 }
 
 // defaultWrapTokenStream is the no-op default for WrapTokenStream.
-func defaultWrapTokenStream(_ string, in TokenStream) TokenStream {
+func defaultWrapTokenStream(_ string, in api.TokenStream) api.TokenStream {
 	return in
 }
 
@@ -108,4 +115,4 @@ func defaultWrapReader(_ string, reader io.Reader) io.Reader {
 }
 
 // Ensure AnalyzerWrapper implements Analyzer.
-var _ Analyzer = (*AnalyzerWrapper)(nil)
+var _ api.Analyzer = (*AnalyzerWrapper)(nil)

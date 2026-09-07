@@ -125,9 +125,9 @@ func NewLucene99ScalarQuantizedVectorsWriterWithBits(
 		return nil, errors.New("lucene99 sq: nil Directory")
 	}
 
-	metaName := index.SegmentFileName(
+	metaName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, lucene99SQMetaExtension)
-	dataName := index.SegmentFileName(
+	dataName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, lucene99SQDataExtension)
 
 	rawMeta, err := state.Directory.CreateOutput(metaName, store.IOContextWrite)

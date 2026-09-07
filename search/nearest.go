@@ -17,7 +17,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -162,7 +161,7 @@ func leafPointValues(leaf index.LeafReaderInterface, field string) (index.PointV
 //     descending into it), so no error is silently dropped.
 //
 //   - bkd.PointTree.VisitDocValues takes a bkd.IntersectVisitor (Compare
-//     → codecs.Relation) while document.PointTreeWalker.VisitDocValues
+//     → geo.Relation) while document.PointTreeWalker.VisitDocValues
 //     takes a document.PointTreeNearestVisitor (Compare →
 //     document.PointTreeCellRelation). The adapter bridges the two
 //     visitor surfaces.
@@ -240,14 +239,14 @@ func (a *nearestVisitorToBKD) VisitByPackedValue(docID int, packedValue []byte) 
 	return a.v.VisitWithPackedValue(docID, packedValue)
 }
 
-func (a *nearestVisitorToBKD) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
+func (a *nearestVisitorToBKD) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
 	switch a.v.Compare(minPackedValue, maxPackedValue) {
 	case document.PointTreeCellInsideQuery:
-		return codecs.RelationCellInsideQuery
+		return geo.RelationCellInsideQuery
 	case document.PointTreeCellCrossesQuery:
-		return codecs.RelationCellCrossesQuery
+		return geo.RelationCellCrossesQuery
 	default:
-		return codecs.RelationCellOutsideQuery
+		return geo.RelationCellOutsideQuery
 	}
 }
 

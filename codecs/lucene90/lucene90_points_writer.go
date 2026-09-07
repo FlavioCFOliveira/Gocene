@@ -474,10 +474,10 @@ func (w *pointsWriter) Finish() error {
 	if err := w.metaOut.WriteInt(-1); err != nil {
 		return err
 	}
-	if err := codecs.WriteFooter(w.indexOut); err != nil {
+	if err := store.WriteFooter(w.indexOut); err != nil {
 		return err
 	}
-	if err := codecs.WriteFooter(w.dataOut); err != nil {
+	if err := store.WriteFooter(w.dataOut); err != nil {
 		return err
 	}
 	if err := w.metaOut.WriteLong(w.indexOut.GetFilePointer()); err != nil {
@@ -486,7 +486,7 @@ func (w *pointsWriter) Finish() error {
 	if err := w.metaOut.WriteLong(w.dataOut.GetFilePointer()); err != nil {
 		return err
 	}
-	return codecs.WriteFooter(w.metaOut)
+	return store.WriteFooter(w.metaOut)
 }
 
 // Close releases the three outputs. Idempotent.

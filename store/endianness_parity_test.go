@@ -106,7 +106,7 @@ func assertDirectoryLE(t *testing.T, dir Directory, writeAll func(DataOutput) er
 
 	// Raw bytes must be little-endian.
 	raw := make([]byte, len(want))
-	if err := in.ReadBytes(raw); err != nil {
+	if err := in.ReadBytes(raw, 0, len(raw)); err != nil {
 		t.Fatalf("ReadBytes: %v", err)
 	}
 	assertBytes(t, raw, want)

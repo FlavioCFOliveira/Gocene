@@ -60,4 +60,4 @@ func (a *TeluguAnalyzer) GetStopWords() *analysis.CharArraySet {
 }
 
 var _ analysis.Analyzer = (*TeluguAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*TeluguAnalyzer)(nil)
+var _ analysis.api.Analyzer = (*TeluguAnalyzer)(nil)

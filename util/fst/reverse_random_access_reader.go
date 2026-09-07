@@ -17,8 +17,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ReverseRandomAccessReader reads bytes in reverse order from a
@@ -51,13 +53,13 @@ func (r *ReverseRandomAccessReader) ReadByte() (byte, error) {
 }
 
 // ReadBytes implements DataInput.
-func (r *ReverseRandomAccessReader) ReadBytes(b []byte) error {
-	for i := range b {
+func (r *ReverseRandomAccessReader) ReadBytes(b []byte, offset, length int) error {
+	for i := 0; i < length; i++ {
 		v, err := r.ReadByte()
 		if err != nil {
 			return err
 		}
-		b[i] = v
+		b[offset+i] = v
 	}
 	return nil
 }
@@ -65,7 +67,7 @@ func (r *ReverseRandomAccessReader) ReadBytes(b []byte) error {
 // ReadBytesN implements DataInput.
 func (r *ReverseRandomAccessReader) ReadBytesN(n int) ([]byte, error) {
 	out := make([]byte, n)
-	if err := r.ReadBytes(out); err != nil {
+	if err := r.ReadBytes(out, 0, n); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -119,6 +121,72 @@ func (r *ReverseRandomAccessReader) ReadLong() (int64, error) {
 }
 
 // ReadString is not used by the FST reverse reader.
+func (r *ReverseRandomAccessReader) ReadInts(dst []int32, offset, length int) error {
+	if offset+length > len(dst) {
+		return fmt.Errorf("index out of bounds")
+	}
+	for i := 0; i < length; i++ {
+		v, err := r.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+func (r *ReverseRandomAccessReader) ReadLongs(dst []int64, offset, length int) error {
+	if offset+length > len(dst) {
+		return fmt.Errorf("index out of bounds")
+	}
+	for i := 0; i < length; i++ {
+		v, err := r.ReadLong()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+func (r *ReverseRandomAccessReader) ReadFloats(dst []float32, offset, length int) error {
+	if offset+length > len(dst) {
+		return fmt.Errorf("index out of bounds")
+	}
+	for i := 0; i < length; i++ {
+		v, err := r.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = math.Float32frombits(uint32(v))
+	}
+	return nil
+}
+
+func (r *ReverseRandomAccessReader) ReadMapOfStrings() (map[string]string, error) {
+	return nil, errors.New("ReverseRandomAccessReader: ReadMapOfStrings not supported")
+}
+
+func (r *ReverseRandomAccessReader) ReadSetOfStrings() ([]string, error) {
+	return nil, errors.New("ReverseRandomAccessReader: ReadSetOfStrings not supported")
+}
+
+func (r *ReverseRandomAccessReader) ReadZInt() (int32, error) {
+	v, err := r.ReadVInt()
+	if err != nil {
+		return 0, err
+	}
+	return int32(util.ZigZagDecodeInt(int(v))), nil
+}
+
+func (r *ReverseRandomAccessReader) ReadZLong() (int64, error) {
+	v, err := r.ReadVLong()
+	if err != nil {
+		return 0, err
+	}
+	return util.ZigZagDecodeInt64(v), nil
+}
+
 func (r *ReverseRandomAccessReader) ReadString() (string, error) {
 	return "", errors.New("ReverseRandomAccessReader: ReadString not supported")
 }

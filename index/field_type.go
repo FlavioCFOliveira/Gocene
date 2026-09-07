@@ -146,7 +146,7 @@ func NewLuceneFieldType() *FieldType {
 
 // NewFieldTypeFrom creates a new FieldType copying every property from the
 // provided reference (excluding the frozen flag — the returned FieldType is
-// always mutable). Mirrors Lucene's `FieldType(IndexableFieldType ref)`.
+// always mutable). Mirrors Lucene's `FieldType(schema.IndexableFieldType ref)`.
 func NewFieldTypeFrom(ref *FieldType) *FieldType {
 	if ref == nil {
 		return NewFieldType()
@@ -508,9 +508,23 @@ func (ft *FieldType) String() string {
 	}
 	if ft.DocValuesSkipIndex != DocValuesSkipIndexTypeNone {
 		writeSep(&b)
-		fmt.Fprintf(&b, "docValuesSkipIndexType=%s", ft.DocValuesSkipIndexType().String())
+		fmt.Fprintf(&b, "docValuesSkipIndexType=%s", docValuesSkipIndexTypeName(ft.DocValuesSkipIndexType()))
 	}
 	return b.String()
+}
+
+// docValuesSkipIndexTypeName renders a DocValuesSkipIndexType with the enum
+// constant name Java's implicit Enum#toString produces for
+// org.apache.lucene.index.DocValuesSkipIndexType ("NONE" / "RANGE").
+func docValuesSkipIndexTypeName(t DocValuesSkipIndexType) string {
+	switch t {
+	case DocValuesSkipIndexTypeNone:
+		return "NONE"
+	case DocValuesSkipIndexTypeRange:
+		return "RANGE"
+	default:
+		return "UNKNOWN"
+	}
 }
 
 func writeSep(b *strings.Builder) {
@@ -558,10 +572,10 @@ func (e *FieldTypeValidationError) Error() string {
 }
 
 // fieldTypeAsIndexInterface wraps *FieldType so that it satisfies
-// IndexableFieldType. The wrapper bridges the naming mismatch between
+// schema.IndexableFieldType. The wrapper bridges the naming mismatch between
 // index.FieldType's Get-prefixed term-vector methods
 // (GetStoreTermVectors/…) and the un-prefixed names required by
-// IndexableFieldType (StoreTermVectors/…).
+// schema.IndexableFieldType (StoreTermVectors/…).
 type fieldTypeAsIndexInterface struct{ ft *FieldType }
 
 func (w fieldTypeAsIndexInterface) Stored() bool                                { return w.ft.Stored }
@@ -592,7 +606,7 @@ func (w fieldTypeAsIndexInterface) GetAttributes() map[string]string {
 	return w.ft.GetAttributes()
 }
 
-func (ft *FieldType) AsIndexFieldTypeInterface() IndexableFieldType {
+func (ft *FieldType) AsIndexFieldTypeInterface() schema.IndexableFieldType {
 	return fieldTypeAsIndexInterface{ft: ft}
 }
 
@@ -604,7 +618,7 @@ func (w fieldAsIndexableField) StringValue() string       { return w.f.StringVal
 func (w fieldAsIndexableField) BinaryValue() []byte       { return w.f.BinaryValue() }
 func (w fieldAsIndexableField) ReaderValue() io.Reader    { return w.f.ReaderValue() }
 func (w fieldAsIndexableField) NumericValue() interface{} { return w.f.NumericValue() }
-func (w fieldAsIndexableField) FieldType() IndexableFieldType {
+func (w fieldAsIndexableField) FieldType() schema.IndexableFieldType {
 	return w.f.ft.AsIndexFieldTypeInterface()
 }
 func (w fieldAsIndexableField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
@@ -700,5 +714,5 @@ func (v fieldStoredValue) StringValue() string {
 }
 
 // compile-time checks
-var _ IndexableFieldType = fieldTypeAsIndexInterface{}
+var _ schema.IndexableFieldType = fieldTypeAsIndexInterface{}
 var _ IndexableField = fieldAsIndexableField{}

@@ -5,6 +5,8 @@
 package search
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -18,8 +20,14 @@ type SpanQuery interface {
 	CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (SpanWeight, error)
 }
 
+// TermStateExtractor is an interface for weights that can extract term states.
+type TermStateExtractor interface {
+	ExtractTermStates(terms map[*index.Term]*index.TermStates)
+}
+
 // BaseSpanQuery provides common functionality for span queries.
 type BaseSpanQuery struct {
+	BaseQuery
 	field string
 }
 
@@ -35,7 +43,28 @@ func (q *BaseSpanQuery) GetField() string {
 	return q.field
 }
 
-// getField is an internal helper.
-func (q *BaseSpanQuery) field() string {
-	return q.field
+// ToString returns a user-readable version of this query.
+func (q *BaseSpanQuery) ToString(field string) string {
+	return ""
+}
+
+// String implements the fmt.Stringer interface.
+func (q *BaseSpanQuery) String() string {
+	return q.ToString("")
+}
+
+// GetTermStates builds a map of terms to TermStates, for use in constructing SpanWeights.
+// This is the Go port of Lucene's SpanQuery.getTermStates(SpanWeight... weights).
+func GetTermStates(weights ...TermStateExtractor) map[*index.Term]*index.TermStates {
+	terms := make(map[*index.Term]*index.TermStates)
+	for _, w := range weights {
+		w.ExtractTermStates(terms)
+	}
+	return terms
+}
+
+// GetTermStatesCollection builds a map of terms to TermStates, for use in constructing SpanWeights.
+// This is the Go port of Lucene's SpanQuery.getTermStates(Collection<SpanWeight> weights).
+func GetTermStatesCollection(weights []TermStateExtractor) map[*index.Term]*index.TermStates {
+	return GetTermStates(weights...)
 }

@@ -366,7 +366,7 @@ func IsDocValuesCacheable(ctx *LeafReaderContext, fields ...string) bool {
 		return true
 	}
 	for _, name := range fields {
-		fi := infos.GetByName(name)
+		fi := infos.FieldInfoByName(name)
 		if fi != nil && fi.DocValuesGen() > -1 {
 			return false
 		}

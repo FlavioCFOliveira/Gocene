@@ -107,7 +107,7 @@ func NewLucene912PostingsReader(state *codecs.SegmentReadState) (*Lucene912Posti
 		}
 	}
 
-	if _, err = codecs.CheckFooter(metaIn); err != nil {
+	if _, err = store.CheckFooter(metaIn); err != nil {
 		_ = metaIn.Close()
 		return nil, fmt.Errorf("lucene912 postings reader: check meta footer: %w", err)
 	}

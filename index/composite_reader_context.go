@@ -8,60 +8,62 @@ import (
 	"fmt"
 )
 
-// CompositeReaderContext provides context information for a CompositeReader.
-// This is the Go port of Lucene's org.apache.lucene.index.CompositeReaderContext.
+// CompositeReaderContext is the IndexReaderContext for CompositeReader instances.
+// Mirrors org.apache.lucene.index.CompositeReaderContext from Apache Lucene 10.5.0.
 //
-// CompositeReaderContext represents a composite reader (e.g., DirectoryReader)
-// in the index hierarchy. It has child contexts for each sub-reader.
+// PORT NOTE: Lucene stores the reader as a CompositeReader. Gocene stores it as the wider
+// IndexReaderInterface because Reader() must satisfy IndexReaderContext (Go has no
+// covariant return types); CompositeReader() narrows it back when a caller needs the
+// composite contract.
 type CompositeReaderContext struct {
-	// reader is the underlying composite reader
+	baseReaderContext
+
+	// reader is the underlying composite reader.
 	reader IndexReaderInterface
 
-	// parent is the parent context
-	parent IndexReaderContext
-
-	// children are the child contexts
+	// children are the child contexts.
 	children []IndexReaderContext
 
-	// leaves are all leaf contexts in order
+	// leaves are all leaf contexts in order, nil when this is not a top-level context.
 	leaves []*LeafReaderContext
-
-	// ordInParent is the ordinal of this reader in the parent, 0 if parent is nil
-	ordInParent int
-
-	// docBaseInParent is the doc base for this reader in the parent, 0 if parent is nil
-	docBaseInParent int
 }
 
-// NewCompositeReaderContext creates a new CompositeReaderContext.
-func NewCompositeReaderContext(reader IndexReaderInterface, parent IndexReaderContext, ordInParent int, docBaseInParent int, children []IndexReaderContext) *CompositeReaderContext {
+// newCompositeReaderContext is the private all-argument constructor the Lucene
+// constructors delegate to.
+func newCompositeReaderContext(parent *CompositeReaderContext, reader IndexReaderInterface, ordInParent, docBaseInParent int, children []IndexReaderContext, leaves []*LeafReaderContext) *CompositeReaderContext {
 	return &CompositeReaderContext{
-		reader:          reader,
-		parent:          parent,
-		ordInParent:     ordInParent,
-		docBaseInParent: docBaseInParent,
-		children:        children,
+		baseReaderContext: newBaseReaderContext(parent, ordInParent, docBaseInParent),
+		reader:            reader,
+		children:          children,
+		leaves:            leaves,
 	}
 }
 
-// NewCompositeReaderContextWithChildren creates a new CompositeReaderContext with children.
-func NewCompositeReaderContextWithChildren(reader IndexReaderInterface, parent IndexReaderContext, children []IndexReaderContext, leaves []*LeafReaderContext) *CompositeReaderContext {
-	return &CompositeReaderContext{
-		reader:   reader,
-		parent:   parent,
-		children: children,
-		leaves:   leaves,
-	}
+// NewCompositeReaderContext creates a CompositeReaderContext for intermediate readers that
+// are not top-level readers in the current context. Mirrors
+// CompositeReaderContext(CompositeReaderContext, CompositeReader, int, int, List).
+func NewCompositeReaderContext(reader IndexReaderInterface, parent *CompositeReaderContext, ordInParent int, docBaseInParent int, children []IndexReaderContext) *CompositeReaderContext {
+	return newCompositeReaderContext(parent, reader, ordInParent, docBaseInParent, children, nil)
 }
 
-// NewCompositeReaderContextTopLevel creates a new CompositeReaderContext for top-level readers.
+// NewCompositeReaderContextTopLevel creates a CompositeReaderContext for top-level readers,
+// with parent set to nil. Mirrors CompositeReaderContext(CompositeReader, List, List).
 func NewCompositeReaderContextTopLevel(reader IndexReaderInterface, children []IndexReaderContext, leaves []*LeafReaderContext) *CompositeReaderContext {
-	return &CompositeReaderContext{
-		reader:   reader,
-		parent:   nil,
-		children: children,
-		leaves:   leaves,
+	return newCompositeReaderContext(nil, reader, 0, 0, children, leaves)
+}
+
+// NewCompositeReaderContextWithChildren creates a CompositeReaderContext with an explicit
+// parent, children and leaves.
+//
+// PORT NOTE: Lucene has no such constructor; Gocene needs it because several readers build
+// their context eagerly with both the children and the leaves already known. It delegates
+// to the same private constructor as the Lucene forms, and carries the leaves only when the
+// context is top-level, exactly as Lucene's two public constructors do.
+func NewCompositeReaderContextWithChildren(reader IndexReaderInterface, parent *CompositeReaderContext, children []IndexReaderContext, leaves []*LeafReaderContext) *CompositeReaderContext {
+	if parent != nil {
+		return newCompositeReaderContext(parent, reader, 0, 0, children, nil)
 	}
+	return newCompositeReaderContext(nil, reader, 0, 0, children, leaves)
 }
 
 // Reader returns the composite reader for this context.
@@ -69,24 +71,14 @@ func (ctx *CompositeReaderContext) Reader() IndexReaderInterface {
 	return ctx.reader
 }
 
-// Parent returns the parent context.
-func (ctx *CompositeReaderContext) Parent() IndexReaderContext {
-	return ctx.parent
-}
-
-// IsTopLevel returns true if this is a top-level context.
-func (ctx *CompositeReaderContext) IsTopLevel() bool {
-	return ctx.parent == nil
-}
-
-// DocBase returns 0 for composite contexts.
-func (ctx *CompositeReaderContext) DocBase() int {
-	return 0
-}
-
-// IsLeaf returns false (always false for CompositeReaderContext).
-func (ctx *CompositeReaderContext) IsLeaf() bool {
-	return false
+// CompositeReader returns the reader narrowed to the composite contract, or nil when the
+// underlying reader does not implement it. This is the Go stand-in for Lucene's covariant
+// `public CompositeReader reader()` override.
+func (ctx *CompositeReaderContext) CompositeReader() CompositeReaderInterface {
+	if cr, ok := ctx.reader.(CompositeReaderInterface); ok {
+		return cr
+	}
+	return nil
 }
 
 // Children returns the child contexts.
@@ -103,7 +95,10 @@ func (ctx *CompositeReaderContext) Leaves() ([]*LeafReaderContext, error) {
 	return ctx.leaves, nil
 }
 
+var _ IndexReaderContext = (*CompositeReaderContext)(nil)
+
 // CompositeReaderContextBuilder builds reader contexts from a reader hierarchy.
+// Mirrors the private CompositeReaderContext.Builder class.
 type CompositeReaderContextBuilder struct {
 	reader      IndexReaderInterface
 	leaves      []*LeafReaderContext
@@ -118,54 +113,57 @@ func NewCompositeReaderContextBuilder(reader IndexReaderInterface) *CompositeRea
 }
 
 // Build builds the reader context hierarchy.
-func (b *CompositeReaderContextBuilder) Build() (IndexReaderContext, error) {
-	return b.build(nil, b.reader, 0, 0)
+func (b *CompositeReaderContextBuilder) Build() (*CompositeReaderContext, error) {
+	ctx, err := b.build(nil, b.reader, 0, 0)
+	if err != nil {
+		return nil, err
+	}
+	top, ok := ctx.(*CompositeReaderContext)
+	if !ok {
+		return nil, fmt.Errorf("top-level reader %T is not a composite reader", b.reader)
+	}
+	return top, nil
 }
 
 // build recursively builds the context hierarchy.
-func (b *CompositeReaderContextBuilder) build(parent IndexReaderContext, reader IndexReaderInterface, ord int, docBase int) (IndexReaderContext, error) {
-	// If the reader is a leaf reader
-	if _, ok := reader.(LeafReaderInterface); ok {
-		// Create a LeafReaderContext
-		leafCtx := NewLeafReaderContext(reader, parent, ord, docBase)
-		leafCtx.ord = len(b.leaves)
-		leafCtx.docBase = b.leafDocBase
-
+func (b *CompositeReaderContextBuilder) build(parent *CompositeReaderContext, reader IndexReaderInterface, ord int, docBase int) (IndexReaderContext, error) {
+	if ar, ok := reader.(LeafReader); ok {
+		leafCtx := NewLeafReaderContextFull(parent, ar, ord, docBase, len(b.leaves), b.leafDocBase)
 		b.leaves = append(b.leaves, leafCtx)
 		b.leafDocBase += reader.MaxDoc()
-
 		return leafCtx, nil
 	}
 
-	// If the reader is a composite reader
-	if compReader, ok := reader.(CompositeReaderInterface); ok {
-		sequentialSubReaders := compReader.GetSequentialSubReaders()
-		children := make([]IndexReaderContext, len(sequentialSubReaders))
-
-		var newParent *CompositeReaderContext
-		if parent == nil {
-			// Top-level composite context
-			newParent = NewCompositeReaderContextTopLevel(compReader, children, b.leaves)
-		} else {
-			// Intermediate composite context
-			newParent = NewCompositeReaderContext(compReader, parent, ord, docBase, children)
-		}
-
-		newDocBase := 0
-		for i, r := range sequentialSubReaders {
-			child, err := b.build(newParent, r, i, newDocBase)
-			if err != nil {
-				return nil, err
-			}
-			children[i] = child
-			newDocBase += r.MaxDoc()
-		}
-
-		// Update the children slice in the context
-		newParent.children = children
-
-		return newParent, nil
+	compReader, ok := reader.(CompositeReaderInterface)
+	if !ok {
+		return nil, fmt.Errorf("unsupported reader type: %T", reader)
 	}
 
-	return nil, fmt.Errorf("unsupported reader type: %T", reader)
+	sequentialSubReaders := compReader.GetSequentialSubReaders()
+	children := make([]IndexReaderContext, len(sequentialSubReaders))
+
+	var newParent *CompositeReaderContext
+	if parent == nil {
+		newParent = NewCompositeReaderContextTopLevel(compReader, children, nil)
+	} else {
+		newParent = NewCompositeReaderContext(compReader, parent, ord, docBase, children)
+	}
+
+	newDocBase := 0
+	for i, r := range sequentialSubReaders {
+		child, err := b.build(newParent, r, i, newDocBase)
+		if err != nil {
+			return nil, err
+		}
+		children[i] = child
+		newDocBase += r.MaxDoc()
+	}
+
+	// Lucene hands the still-growing `leaves` list to the top-level context by reference.
+	// Go slices are values, so the fully built slice is assigned once the walk is done.
+	if parent == nil {
+		newParent.leaves = b.leaves
+	}
+
+	return newParent, nil
 }

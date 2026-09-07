@@ -101,4 +101,4 @@ func (a *RomanianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*RomanianAnalyzer)(nil)
-var _ AnalyzerInterface = (*RomanianAnalyzer)(nil)
+var _ api.Analyzer = (*RomanianAnalyzer)(nil)

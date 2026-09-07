@@ -55,7 +55,7 @@ type SimpleTextFieldsWriter struct {
 //
 // Port of SimpleTextFieldsWriter(SegmentWriteState).
 func NewSimpleTextFieldsWriter(state *codecs.SegmentWriteState) (*SimpleTextFieldsWriter, error) {
-	fileName := index.SegmentFileName(
+	fileName := store.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		postingsExtension,

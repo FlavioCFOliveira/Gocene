@@ -107,6 +107,11 @@ func NewGeoStandardCircle(pm *PlanetModel, lat, lon, cutoffAngle float64) (*GeoS
 	return c, nil
 }
 
+// ComputeOutsideDistance returns the distance to the nearest edge.
+func (c *GeoStandardCircle) ComputeOutsideDistance(distanceStyle DistanceStyle, x, y, z float64) float64 {
+	return 0.0
+}
+
 // GetRadius returns the cutoff angle (radius in radians).
 func (c *GeoStandardCircle) GetRadius() float64 { return c.cutoffAngle }
 

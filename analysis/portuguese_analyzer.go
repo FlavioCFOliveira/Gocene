@@ -87,7 +87,7 @@ func (a *PortugueseAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure PortugueseAnalyzer implements Analyzer
 var _ Analyzer = (*PortugueseAnalyzer)(nil)
-var _ AnalyzerInterface = (*PortugueseAnalyzer)(nil)
+var _ api.Analyzer = (*PortugueseAnalyzer)(nil)
 
 // PortugueseLightStemFilter implements light stemming for Portuguese.
 type PortugueseLightStemFilter struct {

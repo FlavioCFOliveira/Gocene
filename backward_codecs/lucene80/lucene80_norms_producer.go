@@ -70,7 +70,7 @@ func NewLucene80NormsProducer(
 	}
 
 	// --- meta file -------------------------------------------------------
-	metaName := index.SegmentFileName(
+	metaName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, metaExtension)
 	metaIn, err := bcstore.OpenChecksumInput(state.Directory, metaName, gstore.IOContextRead)
 	if err != nil {
@@ -101,7 +101,7 @@ func NewLucene80NormsProducer(
 	}
 
 	// --- data file -------------------------------------------------------
-	dataName := index.SegmentFileName(
+	dataName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, dataExtension)
 	dataIn, err := bcstore.OpenInput(state.Directory, dataName, gstore.IOContextRead)
 	if err != nil {

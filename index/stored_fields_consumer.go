@@ -382,7 +382,7 @@ func newStoredValueField(info *FieldInfo, value StoredValue) (*storedValueField,
 func (f *storedValueField) Name() string { return f.name }
 
 // FieldType implements IndexableField.
-func (f *storedValueField) FieldType() IndexableFieldType { return storedValueFieldType{} }
+func (f *storedValueField) FieldType() schema.IndexableFieldType { return storedValueFieldType{} }
 
 // StringValue implements IndexableField. Returns the payload only for the
 // STRING variant; "" otherwise.

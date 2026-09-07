@@ -74,7 +74,7 @@ func (a *HindiAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*HindiAnalyzer)(nil)
-var _ AnalyzerInterface = (*HindiAnalyzer)(nil)
+var _ api.Analyzer = (*HindiAnalyzer)(nil)
 
 // HindiNormalizer normalizes Hindi text.
 //

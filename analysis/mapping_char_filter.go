@@ -65,7 +65,7 @@ func (ncm *NormalizeCharMap) Clear() {
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.charfilter.MappingCharFilter.
 type MappingCharFilter struct {
-	*CharFilter
+	CharFilter
 	charMap  *NormalizeCharMap
 	buffer   []rune
 	position int

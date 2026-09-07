@@ -85,4 +85,4 @@ func (a *CatalanAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*CatalanAnalyzer)(nil)
-var _ AnalyzerInterface = (*CatalanAnalyzer)(nil)
+var _ api.Analyzer = (*CatalanAnalyzer)(nil)

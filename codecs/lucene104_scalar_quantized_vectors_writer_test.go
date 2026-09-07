@@ -456,7 +456,7 @@ func TestLucene104ScalarQuantized_FramingViaReader(t *testing.T) {
 
 	// Verify the .veq file actually carries a CodecUtil header by reading the
 	// magic + codec name directly.
-	dataName := index.SegmentFileName(si.Name(), "", Lucene104ScalarQuantizedVectorsFormat_VECTOR_DATA_EXTENSION)
+	dataName := store.SegmentFileName(si.Name(), "", Lucene104ScalarQuantizedVectorsFormat_VECTOR_DATA_EXTENSION)
 	in, err := dir.OpenInput(dataName, store.IOContextRead)
 	if err != nil {
 		t.Fatalf("OpenInput .veq: %v", err)

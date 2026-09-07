@@ -1,332 +1,227 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package index
 
 import (
-	"errors"
 	"fmt"
-	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// binaryDVWriterMaxLength is the maximum length of a single binary value.
-// Mirrors the Java MAX_LENGTH = ArrayUtil.MAX_ARRAY_LENGTH.
-const binaryDVWriterMaxLength = math.MaxInt32 - 8
+const (
+	// maxBinaryLength is the maximum length for a binary field.
+	maxBinaryLength = util.MaxArrayLength
+	// blockBits is the block size for PagedBytes storage.
+	blockBits = 12
+)
 
-// BinaryDocValuesWriter buffers up one pending byte[] per doc, then flushes
-// when the owning segment flushes.
-//
-// This is the Go port of org.apache.lucene.index.BinaryDocValuesWriter from
-// Apache Lucene 10.4.0.
-//
-// Gocene divergences:
-//
-//   - The Java original extends an abstract DocValuesWriter<BinaryDocValues>;
-//     Gocene has no such base type yet, so this writer exposes its public
-//     surface (AddValue, GetDocValues, Flush) directly. Same pattern as
-//     [NumericDocValuesWriter] / [SortedDocValuesWriter].
-//   - Internal byte store divergence: the Java original buffers values
-//     through a PagedBytes DataOutput plus a parallel PackedLongValues length
-//     stream, and decodes them back through a DataInput in BufferedBinary-
-//     DocValues. Gocene instead backs the buffered values with a single
-//     [util.BytesRefArray] (the same store the Java BinaryDVs sort path
-//     already uses). BytesRefArray is append-only random-access and stores a
-//     full copy of every value, so it subsumes both the byte payload and the
-//     per-doc length: the separate PagedBytes + PackedLongValues.Builder +
-//     length-iterator machinery is gone, and value i for the i-th added doc
-//     is recovered with a direct GetBytes(i). This is purely an in-RAM
-//     buffering choice with no serialized output, so byte-for-byte codec
-//     compatibility is unaffected; it removes the PagedBytes block paging and
-//     the packed length stream in favour of one contiguous, index-addressable
-//     store.
-//   - Java's flush() targets DocValuesConsumer.addBinaryField via an
-//     EmptyDocValuesProducer anonymous subclass. To avoid an import cycle
-//     with the codecs package this writer takes a local BinaryFieldConsumer
-//     callback; the codec wiring layer adapts codecs.DocValuesConsumer to
-//     this signature (same pattern as the sibling DocValuesWriters).
-//   - DocsWithFieldSet does not expose a Java-style iterator; the writer
-//     reuses the dense-or-sparse traversal helper materialised by the
-//     sibling writers (docsWithFieldDocs / trailingZeros64).
-//   - maxDoc is passed to Flush explicitly rather than read from
-//     SegmentWriteState (same convention as the sibling writers).
+// BinaryDocValuesWriter buffers up pending byte[] per doc, then flushes when segment flushes.
 type BinaryDocValuesWriter struct {
-	values        *util.BytesRefArray
+	bytes      *store.PagedBytes
+	bytesOut   *store.PagedBytesDataOutput
+	iwBytesUsed *util.Counter
+
+	lengths      *util.PackedLongValuesBuilder
 	docsWithField *DocsWithFieldSet
-	iwBytesUsed   *util.Counter
-	fieldInfo     *FieldInfo
-	bytesUsed     int64
-	lastDocID     int
+	fieldInfo    schema.FieldInfo
+	bytesUsed    int64
+	lastDocID    int
+	maxLength    int
+	frozen       bool
+
+	finalLengths *util.PackedLongValues
 }
 
-// NewBinaryDocValuesWriter constructs a writer for the given field.
-// bytes-used updates are reported to iwBytesUsed.
-func NewBinaryDocValuesWriter(
-	fieldInfo *FieldInfo,
-	iwBytesUsed *util.Counter,
-) (*BinaryDocValuesWriter, error) {
-	w := &BinaryDocValuesWriter{
-		values:        util.NewBytesRefArray(util.ByteBlockSize),
-		docsWithField: NewDocsWithFieldSet(),
-		iwBytesUsed:   iwBytesUsed,
-		fieldInfo:     fieldInfo,
-		lastDocID:     -1,
+// NewBinaryDocValuesWriter creates a new BinaryDocValuesWriter.
+func NewBinaryDocValuesWriter(fieldInfo schema.FieldInfo, iwBytesUsed *util.Counter) *BinaryDocValuesWriter {
+	bytes := util.NewPagedBytes(blockBits)
+	bytesOut := bytes.GetDataOutput()
+	lengths := util.NewPackedLongValuesDeltaBuilder(util.Compact)
+	docsWithField := NewDocsWithFieldSet()
+
+	// Calculate initial RAM usage.
+	bytesUsed := lengths.RamBytesUsed() + docsWithField.RamBytesUsed()
+	iwBytesUsed.AddAndGet(bytesUsed)
+
+	return &BinaryDocValuesWriter{
+		bytes:        bytes,
+		bytesOut:     bytesOut,
+		iwBytesUsed:  iwBytesUsed,
+		lengths:      lengths,
+		docsWithField: docsWithField,
+		fieldInfo:    fieldInfo,
+		bytesUsed:    bytesUsed,
+		lastDocID:    -1,
+		maxLength:    0,
 	}
-	w.bytesUsed = w.values.BytesUsed()
-	w.iwBytesUsed.AddAndGet(w.bytesUsed)
-	return w, nil
 }
 
-// AddValue appends value for docID. docID must be strictly greater than any
-// previously seen docID; a field accepts at most one value per document.
+// AddValue adds a binary value for the given docID.
 func (w *BinaryDocValuesWriter) AddValue(docID int, value *util.BytesRef) error {
 	if docID <= w.lastDocID {
-		return fmt.Errorf(
-			"DocValuesField %q appears more than once in this document (only one value is allowed per field)",
-			w.fieldInfo.Name(),
-		)
+		return fmt.Errorf("DocValuesField %q appears more than once in this document (only one value is allowed per field)", w.fieldInfo.Name)
 	}
 	if value == nil {
-		return fmt.Errorf("field %q: null value not allowed", w.fieldInfo.Name())
+		return fmt.Errorf("field=%q: null value not allowed", w.fieldInfo.Name)
 	}
-	if value.Length > binaryDVWriterMaxLength {
-		return fmt.Errorf(
-			"DocValuesField %q is too large, must be <= %d",
-			w.fieldInfo.Name(), binaryDVWriterMaxLength,
-		)
+	if value.Length() > maxBinaryLength {
+		return fmt.Errorf("DocValuesField %q is too large, must be <= %d", w.fieldInfo.Name, maxBinaryLength)
 	}
 
-	w.values.Append(value)
-	if err := w.docsWithField.Add(docID); err != nil {
-		return err
+	if value.Length() > w.maxLength {
+		w.maxLength = value.Length()
 	}
+	w.lengths.Add(int64(value.Length()))
+
+	if err := w.bytesOut.WriteBytes(value.Bytes(), value.Offset(), value.Length()); err != nil {
+		return fmt.Errorf("failed to write bytes to PagedBytes: %w", err)
+	}
+	w.docsWithField.Add(docID)
 	w.updateBytesUsed()
+
 	w.lastDocID = docID
 	return nil
 }
 
-// updateBytesUsed reconciles the iwBytesUsed counter with the writer's
-// current memory footprint.
 func (w *BinaryDocValuesWriter) updateBytesUsed() {
-	newBytesUsed := w.values.BytesUsed()
+	newBytesUsed := w.lengths.RamBytesUsed() + w.bytes.RamBytesUsed() + w.docsWithField.RamBytesUsed()
 	w.iwBytesUsed.AddAndGet(newBytesUsed - w.bytesUsed)
 	w.bytesUsed = newBytesUsed
 }
 
-// docsWithFieldDocs returns the docIDs in the order they were added. The
-// existing DocsWithFieldSet exposes no iterator; we synthesise a slice from
-// either its dense prefix or its sparse bitset, mirroring the helper used by
-// the sibling DocValuesWriters.
-func (w *BinaryDocValuesWriter) docsWithFieldDocs() []int {
-	d := w.docsWithField
-	docs := make([]int, 0, d.Cardinality())
-	if d.bits == nil {
-		for i := 0; i < d.Cardinality(); i++ {
-			docs = append(docs, i)
+func (w *BinaryDocValuesWriter) freezeBytes() {
+	if !w.frozen {
+		w.bytes.Freeze(false)
+		w.frozen = true
+	}
+}
+
+// GetDocValues returns the doc values for the current segment.
+func (w *BinaryDocValuesWriter) GetDocValues() BinaryDocValues {
+	if w.finalLengths == nil {
+		w.finalLengths = w.lengths.Build()
+	}
+	w.freezeBytes()
+	return &bufferedBinaryDocValues{
+		finalLengths:   w.finalLengths,
+		maxLength:      w.maxLength,
+		bytesIterator:   w.bytes.GetDataInput(),
+		docsWithField:   w.docsWithField.Iterator(),
+		value:           util.NewBytesRefBuilder(),
+	}
+}
+
+// Flush writes the binary doc values to the consumer.
+func (w *BinaryDocValuesWriter) Flush(state *spi.SegmentWriteState, sortMap spi.SorterDocMap, consumer spi.DocValuesConsumer) error {
+	w.freezeBytes()
+	if w.finalLengths == nil {
+		w.finalLengths = w.lengths.Build()
+	}
+
+	var sorted *binaryDVs
+	if sortMap != nil {
+		sorted = NewBinaryDVs(
+			state.SegmentInfo.MaxDoc(),
+			sortMap,
+			w.GetDocValues(),
+		)
+	}
+
+	err := consumer.AddBinaryField(w.fieldInfo, func(fieldInfoIn schema.FieldInfo) BinaryDocValues {
+		if fieldInfoIn != w.fieldInfo {
+			panic("wrong fieldInfo")
 		}
-		return docs
-	}
-	for w64, word := range d.bits {
-		for word != 0 {
-			bit := word & -word
-			docs = append(docs, w64*64+trailingZeros64(uint64(bit)))
-			word ^= bit
+		if sorted == nil {
+			return w.GetDocValues()
 		}
-	}
-	return docs
-}
-
-// newBufferedView builds a fresh in-RAM BinaryDocValues over the buffered
-// state. Each call obtains an independent cursor so views are not shared.
-func (w *BinaryDocValuesWriter) newBufferedView() *bufferedBinaryDocValues {
-	return newBufferedBinaryDocValues(w.values, w.docsWithFieldDocs())
-}
-
-// GetDocValues materialises an in-memory BinaryDocValues view of the
-// buffered state. Mirrors the Java getDocValues() / DocValuesWriter contract.
-func (w *BinaryDocValuesWriter) GetDocValues() (BinaryDocValues, error) {
-	return w.newBufferedView(), nil
-}
-
-// BinaryFieldConsumer is the callback used by Flush to hand the buffered
-// BinaryDocValues to the underlying codec consumer.
-//
-// Gocene divergence: replaces the Java DocValuesConsumer.addBinaryField +
-// EmptyDocValuesProducer.getBinary anonymous override with a simple
-// function-typed boundary. The wiring layer in the codecs package adapts
-// codecs.DocValuesConsumer to this signature.
-type BinaryFieldConsumer func(field *FieldInfo, values BinaryDocValues) error
-
-// Flush hands the buffered state to consumer. When sortMap is non-nil the
-// values are re-mapped via the segment's IndexSorter docmap.
-//
-// Gocene divergence: maxDoc is passed in explicitly rather than read from
-// SegmentWriteState because Gocene's SegmentWriteState in the index package
-// does not yet carry SegmentInfo.MaxDoc (same convention as the sibling
-// DocValuesWriters).
-func (w *BinaryDocValuesWriter) Flush(
-	maxDoc int,
-	sortMap SorterDocMap,
-	consumer BinaryFieldConsumer,
-) error {
-	if consumer == nil {
-		return errors.New("BinaryDocValuesWriter.Flush: consumer must not be nil")
-	}
-	if sortMap == nil {
-		return consumer(w.fieldInfo, w.newBufferedView())
-	}
-	sorted, err := newBinaryDVs(maxDoc, sortMap, w.newBufferedView())
+		return &sortingBinaryDocValues{
+			dvs:   sorted,
+			spare: util.NewBytesRefBuilder(),
+			docID: -1,
+		}
+	})
 	if err != nil {
 		return err
 	}
-	return consumer(w.fieldInfo, newSortingBinaryDocValues(sorted))
+
+	return nil
 }
 
-// ============================================================================
-// bufferedBinaryDocValues — iterates the values held in RAM.
-// ============================================================================
-
-// bufferedBinaryDocValues walks the docs-with-field slice and resolves each
-// value from the backing BytesRefArray by insertion index. Mirrors the Java
-// BufferedBinaryDocValues inner class.
 type bufferedBinaryDocValues struct {
-	values        *util.BytesRefArray
-	docsWithField []int
-	value         []byte
-	cursor        int
-	docID         int
+	value           *util.BytesRefBuilder
+	lengthsIterator *util.PackedLongValuesIterator
+	docsWithField   util.DocIdSetIterator
+	bytesIterator   *store.PagedBytesDataInput
+	maxLength       int
+	finalLengths    *util.PackedLongValues
 }
 
-// newBufferedBinaryDocValues constructs an in-RAM view over values, iterated
-// in the order recorded by docsWithField.
-func newBufferedBinaryDocValues(
-	values *util.BytesRefArray,
-	docsWithField []int,
-) *bufferedBinaryDocValues {
-	return &bufferedBinaryDocValues{
-		values:        values,
-		docsWithField: docsWithField,
-		cursor:        -1,
-		docID:         -1,
+func (b *bufferedBinaryDocValues) init() {
+	if b.value == nil {
+		b.value = util.NewBytesRefBuilder()
+		b.value.Grow(b.maxLength)
+	}
+	if b.lengthsIterator == nil {
+		b.lengthsIterator = b.finalLengths.Iterator()
 	}
 }
 
-// DocID returns the current docID, or NO_MORE_DOCS when exhausted.
-func (b *bufferedBinaryDocValues) DocID() int { return b.docID }
+func (b *bufferedBinaryDocValues) DocID() int {
+	return b.docsWithField.DocID()
+}
 
-// NextDoc advances to the next doc that has a value and resolves its bytes.
 func (b *bufferedBinaryDocValues) NextDoc() (int, error) {
-	b.cursor++
-	if b.cursor >= len(b.docsWithField) {
-		b.docID = NO_MORE_DOCS
-		return NO_MORE_DOCS, nil
+	b.init()
+	docID, err := b.docsWithField.NextDoc()
+	if err != nil {
+		return docID, err
 	}
-	b.docID = b.docsWithField[b.cursor]
-	b.value = b.values.GetBytes(b.cursor)
-	return b.docID, nil
+	if docID != util.NoMoreDocs {
+		length := int(b.lengthsIterator.Next())
+		b.value.SetLength(length)
+		if err := b.bytesIterator.ReadBytes(b.value.Bytes(), 0, length); err != nil {
+			return docID, err
+		}
+	}
+	return docID, nil
 }
 
-// Advance is unsupported; the Java original throws
-// UnsupportedOperationException.
-func (b *bufferedBinaryDocValues) Advance(int) (int, error) {
-	return 0, errors.New("bufferedBinaryDocValues: Advance is not supported; use NextDoc")
+func (b *bufferedBinaryDocValues) Advance(target int) (int, error) {
+	panic("unsupported")
 }
 
-// AdvanceExact is unsupported on the buffered writer view; the Java
-// reference also forbids random access on these consumer-side iterators.
-// T4709-added shim to satisfy the BinaryDocValues interface; callers
-// must drive iteration via NextDoc.
-func (b *bufferedBinaryDocValues) AdvanceExact(int) (bool, error) {
-	return false, errors.New("bufferedBinaryDocValues: AdvanceExact is not supported; use NextDoc")
+func (b *bufferedBinaryDocValues) AdvanceExact(target int) (bool, error) {
+	panic("unsupported")
 }
 
-// BinaryValue returns the bytes bound to the current cursor position.
-// Mirrors org.apache.lucene.index.BinaryDocValues#binaryValue.
-func (b *bufferedBinaryDocValues) BinaryValue() ([]byte, error) {
-	return b.value, nil
-}
-
-// Cost returns the number of value-bearing documents iterated by this
-// writer-side view.
 func (b *bufferedBinaryDocValues) Cost() int64 {
-	return int64(len(b.docsWithField))
+	return b.docsWithField.Cost()
 }
 
-// ============================================================================
-// binaryDVs — the docmap-remapped value store.
-// ============================================================================
-
-// binaryDVs holds every buffered value re-keyed by new docID. offsets[d] is a
-// one-based index into values for new docID d; 0 means "no value". Mirrors
-// the Java BinaryDVs inner class.
-type binaryDVs struct {
-	offsets []int
-	values  *util.BytesRefArray
+func (b *bufferedBinaryDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return b.docsWithField.IntoBitSet(upTo, bitSet, offset)
 }
 
-// newBinaryDVs walks oldValues in old-doc order, appends every value to a
-// BytesRefArray and records its one-based slot under the new docID produced
-// by sortMap. Mirrors the Java BinaryDVs constructor.
-func newBinaryDVs(maxDoc int, sortMap SorterDocMap, oldValues BinaryDocValues) (*binaryDVs, error) {
-	d := &binaryDVs{
-		offsets: make([]int, maxDoc),
-		values:  util.NewBytesRefArray(util.ByteBlockSize),
-	}
-	offset := 1 // 0 means no values for this document
-	for {
-		docID, err := oldValues.NextDoc()
-		if err != nil {
-			return nil, err
-		}
-		if docID == NO_MORE_DOCS {
-			break
-		}
-		newDocID := sortMap.OldToNew(docID)
-		if newDocID < 0 || newDocID >= maxDoc {
-			return nil, fmt.Errorf(
-				"newBinaryDVs: sortMap.OldToNew(%d)=%d outside [0..%d)", docID, newDocID, maxDoc)
-		}
-		// docID is the current cursor — BinaryValue is equivalent to Get(docID)
-		// without the cursor identity check.
-		v, err := oldValues.BinaryValue()
-		if err != nil {
-			return nil, err
-		}
-		d.values.AppendBytes(v)
-		d.offsets[newDocID] = offset
-		offset++
-	}
-	return d, nil
+func (b *bufferedBinaryDocValues) DocIDRunEnd() (int, error) {
+	return b.docsWithField.DocIDRunEnd()
 }
 
-// ============================================================================
-// sortingBinaryDocValues — sort-aware view used by Flush when sortMap != nil.
-// ============================================================================
+func (b *bufferedBinaryDocValues) BinaryValue() (*util.BytesRef, error) {
+	return b.value.Get(), nil
+}
 
-// sortingBinaryDocValues iterates a binaryDVs store in new-doc order. Mirrors
-// the Java SortingBinaryDocValues inner class: Advance throws, and values are
-// resolved lazily through the BytesRefArray.
 type sortingBinaryDocValues struct {
 	dvs   *binaryDVs
+	spare *util.BytesRefBuilder
 	docID int
 }
 
-func newSortingBinaryDocValues(dvs *binaryDVs) *sortingBinaryDocValues {
-	return &sortingBinaryDocValues{dvs: dvs, docID: -1}
-}
-
-// DocID returns the current docID, or NO_MORE_DOCS when exhausted.
-func (s *sortingBinaryDocValues) DocID() int { return s.docID }
-
-// NextDoc advances to the next doc that has a value.
 func (s *sortingBinaryDocValues) NextDoc() (int, error) {
 	for {
 		s.docID++
 		if s.docID == len(s.dvs.offsets) {
-			s.docID = NO_MORE_DOCS
-			return NO_MORE_DOCS, nil
+			s.docID = util.NoMoreDocs
+			return s.docID, nil
 		}
 		if s.dvs.offsets[s.docID] > 0 {
 			return s.docID, nil
@@ -334,36 +229,61 @@ func (s *sortingBinaryDocValues) NextDoc() (int, error) {
 	}
 }
 
-// Advance is unsupported; the Java original throws
-// UnsupportedOperationException("use nextDoc instead").
-func (s *sortingBinaryDocValues) Advance(int) (int, error) {
-	return 0, errors.New("sortingBinaryDocValues: Advance is not supported; use NextDoc")
+func (s *sortingBinaryDocValues) DocID() int {
+	return s.docID
 }
 
-// AdvanceExact is unsupported on the sort-aware writer view, matching
-// the Java reference. T4709-added shim to satisfy BinaryDocValues.
-func (s *sortingBinaryDocValues) AdvanceExact(int) (bool, error) {
-	return false, errors.New("sortingBinaryDocValues: AdvanceExact is not supported; use NextDoc")
+func (s *sortingBinaryDocValues) Advance(target int) (int, error) {
+	panic("use NextDoc instead")
 }
 
-// BinaryValue returns the bytes bound to the current cursor position.
-// Mirrors org.apache.lucene.index.BinaryDocValues#binaryValue.
-func (s *sortingBinaryDocValues) BinaryValue() ([]byte, error) {
-	if s.docID < 0 || s.docID == NO_MORE_DOCS || s.docID >= len(s.dvs.offsets) {
-		return nil, fmt.Errorf(
-			"sortingBinaryDocValues: BinaryValue requires a positioned cursor; current=%d", s.docID)
-	}
-	return s.dvs.values.GetBytes(s.dvs.offsets[s.docID] - 1), nil
+func (s *sortingBinaryDocValues) AdvanceExact(target int) (bool, error) {
+	panic("use NextDoc instead")
 }
 
-// Cost returns the number of value-bearing documents represented by the
-// sort-aware writer view.
+func (s *sortingBinaryDocValues) BinaryValue() (*util.BytesRef, error) {
+	s.dvs.values.Get(s.spare, s.dvs.offsets[s.docID]-1)
+	return s.spare.Get(), nil
+}
+
 func (s *sortingBinaryDocValues) Cost() int64 {
-	var n int64
-	for _, off := range s.dvs.offsets {
-		if off > 0 {
-			n++
+	return int64(s.dvs.values.Size())
+}
+
+func (s *sortingBinaryDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	panic("unsupported")
+}
+
+func (s *sortingBinaryDocValues) DocIDRunEnd() (int, error) {
+	panic("unsupported")
+}
+
+type binaryDVs struct {
+	offsets []int
+	values  *util.BytesRefArray
+}
+
+func NewBinaryDVs(maxDoc int, sortMap spi.SorterDocMap, oldValues BinaryDocValues) *binaryDVs {
+	offsets := make([]int, maxDoc)
+	values := util.NewBytesRefArray(util.NewCounter())
+	offset := 1 // 0 means no values for this document
+
+	docID, err := oldValues.NextDoc()
+	for err == nil && docID != util.NoMoreDocs {
+		newDocID := sortMap.OldToNew(docID)
+		val, errVal := oldValues.BinaryValue()
+		if errVal != nil {
+			// In-memory buffered values should not fail.
+			panic(errVal)
 		}
+		values.Append(val)
+		offsets[newDocID] = offset
+		offset++
+		docID, err = oldValues.NextDoc()
 	}
-	return n
+
+	return &binaryDVs{
+		offsets: offsets,
+		values:  values,
+	}
 }

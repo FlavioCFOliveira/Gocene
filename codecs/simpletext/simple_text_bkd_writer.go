@@ -5,6 +5,7 @@
 package simpletext
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/geo"
 	"bytes"
 	"fmt"
 	"strconv"
@@ -982,7 +983,7 @@ type oneDimVisitor struct{ ow *oneDimensionWriter }
 
 func (v *oneDimVisitor) Visit(_ int) error                             { return fmt.Errorf("unexpected Visit without packedValue") }
 func (v *oneDimVisitor) VisitByPackedValue(docID int, pv []byte) error { return v.ow.add(pv, docID) }
-func (v *oneDimVisitor) Compare(_, _ []byte) codecs.Relation           { return codecs.RelationCellCrossesQuery }
+func (v *oneDimVisitor) Compare(_, _ []byte) geo.Relation           { return geo.RelationCellCrossesQuery }
 func (v *oneDimVisitor) Grow(_ int)                                    {}
 
 // rotateToTree recursively fills the BKD index array from the sorted leaf

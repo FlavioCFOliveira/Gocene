@@ -111,7 +111,7 @@ func (a *SwedishAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure SwedishAnalyzer implements Analyzer
 var _ Analyzer = (*SwedishAnalyzer)(nil)
-var _ AnalyzerInterface = (*SwedishAnalyzer)(nil)
+var _ api.Analyzer = (*SwedishAnalyzer)(nil)
 
 // SwedishLightStemFilter implements light stemming for Swedish via the full
 // SwedishLightStemmer algorithm.

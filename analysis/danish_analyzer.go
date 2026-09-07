@@ -75,7 +75,7 @@ func (a *DanishAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure DanishAnalyzer implements Analyzer
 var _ Analyzer = (*DanishAnalyzer)(nil)
-var _ AnalyzerInterface = (*DanishAnalyzer)(nil)
+var _ api.Analyzer = (*DanishAnalyzer)(nil)
 
 // DanishLightStemFilter implements light stemming for Danish.
 type DanishLightStemFilter struct {

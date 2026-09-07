@@ -147,7 +147,7 @@ func NewLucene99PostingsWriter(state *SegmentWriteState) (*Lucene99PostingsWrite
 	w.pforUtil = newLucene99PForUtil(forUtil)
 
 	// Compute the doc file name and open it
-	docFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene99DocExtension)
+	docFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene99DocExtension)
 
 	var posOut, payOut store.IndexOutput
 	success := false
@@ -171,7 +171,7 @@ func NewLucene99PostingsWriter(state *SegmentWriteState) (*Lucene99PostingsWrite
 	if state.FieldInfos.HasProx() {
 		w.posDeltaBuffer = make([]int64, lucene99BlockSize)
 
-		posFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene99PosExtension)
+		posFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene99PosExtension)
 		rawPosOut, posErr := state.Directory.CreateOutput(posFileName, store.IOContext{Context: store.ContextWrite})
 		if posErr != nil {
 			return nil, fmt.Errorf("lucene99 postings writer: create %s: %w", posFileName, posErr)
@@ -192,7 +192,7 @@ func NewLucene99PostingsWriter(state *SegmentWriteState) (*Lucene99PostingsWrite
 		}
 
 		if state.FieldInfos.HasPayloads() || state.FieldInfos.HasOffsets() {
-			payFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene99PayExtension)
+			payFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene99PayExtension)
 			rawPayOut, payErr := state.Directory.CreateOutput(payFileName, store.IOContext{Context: store.ContextWrite})
 			if payErr != nil {
 				return nil, fmt.Errorf("lucene99 postings writer: create %s: %w", payFileName, payErr)

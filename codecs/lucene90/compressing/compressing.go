@@ -327,7 +327,7 @@ func (b *fieldsIndexBuilder) finish(numDocs int, maxPointer int64, metaOut store
 	// Open the .fdx data output, wrapped in a checksum tracker so that
 	// WriteFooter can record the CRC32 (mirrors the Java FSDirectory
 	// behaviour that wraps every output stream automatically).
-	fdxName := index.SegmentFileName(b.name, b.suffix, indexExtension)
+	fdxName := store.SegmentFileName(b.name, b.suffix, indexExtension)
 	var fdxOut store.IndexOutput
 	{
 		raw, err := b.dir.CreateOutput(fdxName, b.ctx)
@@ -405,7 +405,7 @@ func (b *fieldsIndexBuilder) finish(numDocs int, maxPointer int64, metaOut store
 	metaOut.WriteLong(maxPointer)
 
 	// Write footer on .fdx.
-	if err := gcodecs.WriteFooter(fdxOut); err != nil {
+	if err := gstore.WriteFooter(fdxOut); err != nil {
 		return fmt.Errorf("lucene90/compressing: write fdx footer: %w", err)
 	}
 	fdxCloseErr = fdxOut.Close()
@@ -466,7 +466,7 @@ func newLucene90CompressingStoredFieldsWriter(
 	// FSDirectory wraps outputs in BufferedIndexOutput/FSIndexOutput which
 	// implement checksumming; Gocene's FS directories do not, so we add
 	// the wrapper here — byte-identical output, just adds CRC bookkeeping).
-	metaName := index.SegmentFileName(segment, suffix, metaExtension)
+	metaName := store.SegmentFileName(segment, suffix, metaExtension)
 	{
 		raw, err := dir.CreateOutput(metaName, ctx)
 		if err != nil {
@@ -496,7 +496,7 @@ func newLucene90CompressingStoredFieldsWriter(
 	}
 
 	// Allocate fields stream (.fdt), also checksum-wrapped.
-	fdtName := index.SegmentFileName(segment, suffix, fieldsExtension)
+	fdtName := store.SegmentFileName(segment, suffix, fieldsExtension)
 	{
 		raw, err := dir.CreateOutput(fdtName, ctx)
 		if err != nil {
@@ -882,12 +882,12 @@ func (w *Lucene90CompressingStoredFieldsWriter) finish(numDocs int) error {
 	if err := store.WriteVLong(w.metaStream, w.numDirtyDocs); err != nil {
 		return err
 	}
-	if err := gcodecs.WriteFooter(w.metaStream); err != nil {
+	if err := gstore.WriteFooter(w.metaStream); err != nil {
 		return err
 	}
 
 	// Write footer to .fdt.
-	return gcodecs.WriteFooter(w.fieldsStream)
+	return gstore.WriteFooter(w.fieldsStream)
 }
 
 // Close finalizes both streams. It calls finish with the segment's doc count.
@@ -957,7 +957,7 @@ func newLucene90CompressingStoredFieldsReader(
 	suffix := ""
 
 	// Open .fdt.
-	fdtName := index.SegmentFileName(segment, suffix, fieldsExtension)
+	fdtName := store.SegmentFileName(segment, suffix, fieldsExtension)
 	fieldsStream, err := dir.OpenInput(fdtName, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("lucene90/compressing: open %s: %w", fdtName, err)
@@ -983,7 +983,7 @@ func newLucene90CompressingStoredFieldsReader(
 	}
 
 	// Open .fdm.
-	fdmName := index.SegmentFileName(segment, suffix, metaExtension)
+	fdmName := store.SegmentFileName(segment, suffix, metaExtension)
 	metaRaw, err := dir.OpenInput(fdmName, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("lucene90/compressing: open %s: %w", fdmName, err)
@@ -1027,7 +1027,7 @@ func newLucene90CompressingStoredFieldsReader(
 		return nil, fmt.Errorf("lucene90/compressing: read numDirtyDocs: %w", err)
 	}
 
-	if _, err := gcodecs.CheckFooter(metaIn); err != nil {
+	if _, err := gstore.CheckFooter(metaIn); err != nil {
 		return nil, fmt.Errorf("lucene90/compressing: check fdm footer: %w", err)
 	}
 	_ = metaIn.Close()
@@ -1295,7 +1295,7 @@ func newLuceneFieldsIndexReader(
 	}
 
 	// Open .fdx.
-	fdxName := index.SegmentFileName(name, suffix, extension)
+	fdxName := store.SegmentFileName(name, suffix, extension)
 	indexInput, err := dir.OpenInput(fdxName, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("lucene90/compressing: open %s: %w", fdxName, err)

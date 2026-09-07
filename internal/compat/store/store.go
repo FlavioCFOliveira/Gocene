@@ -140,7 +140,7 @@ func WriteStorePrimitives(targetDir string, seed int64) error {
 			return fmt.Errorf("store-primitives: write frame[%d]: %w", i, err)
 		}
 	}
-	if err := codecs.WriteFooter(out); err != nil {
+	if err := store.WriteFooter(out); err != nil {
 		out.Close()
 		return fmt.Errorf("store-primitives: write footer: %w", err)
 	}
@@ -179,7 +179,7 @@ func ReadStorePrimitives(sourceDir string, seed int64) error {
 			return fmt.Errorf("store-primitives: read frame[%d]: %w", i, err)
 		}
 	}
-	if _, err := codecs.CheckFooter(in); err != nil {
+	if _, err := store.CheckFooter(in); err != nil {
 		return fmt.Errorf("store-primitives: check footer: %w", err)
 	}
 	return nil

@@ -9,6 +9,7 @@ import (
 	"math"
 	"sort"
 
+	schemapkg "github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -158,17 +159,17 @@ type KnnFieldVectorsWriterHandle interface {
 // org.apache.lucene.index.IndexableField.
 //
 // PORTING NOTE: Gocene's index.IndexableField is intentionally minimal and
-// omits InvertableType(), BinaryValue() and the rich IndexableFieldType. The
+// omits InvertableType(), BinaryValue() and the rich schema.IndexableFieldType. The
 // indexing chain needs all of those, so it depends on this wider interface.
 // It embeds IndexableField so a concrete field still flows into
 // TermsHashPerField.Start, which expects the narrow type.
 type IndexingChainField interface {
 	IndexableField
 
-	// IndexableFieldType returns the rich field-type contract used to drive
+	// schema.IndexableFieldType returns the rich field-type contract used to drive
 	// FieldInfo construction. (Named to avoid colliding with the embedded
 	// IndexableField.FieldType, which returns the minimal FieldTypeInterface.)
-	IndexableFieldType() IndexableFieldType
+	schema.IndexableFieldType() schema.IndexableFieldType
 
 	// BinaryValueBytes returns the binary value of the field, or nil.
 	// (BinaryValue is already provided by the embedded IndexableField as
@@ -462,7 +463,7 @@ func (c *IndexingChain) ProcessDocument(docID int, doc []IndexingChainField) (er
 	// 1st pass: verify the doc schema matches the index schema and build the
 	// per-field schema for every unique field in the document.
 	for _, field := range doc {
-		fieldType := field.IndexableFieldType()
+		fieldType := field.schema.IndexableFieldType()
 		pf := c.getOrAddPerField(field.Name())
 		if pf.fieldGen != fieldGen { // first time we see this field in this document
 			c.fields[fieldCount] = pf
@@ -531,7 +532,11 @@ func (c *IndexingChain) initializeFieldInfo(pf *indexingPerField) error {
 	opts := DefaultFieldInfoOptions()
 	opts.IndexOptions = s.indexOptions
 	opts.DocValuesType = s.docValuesType
-	opts.DocValuesSkipIndexType = s.docValuesSkipIndex
+	// index.DocValuesSkipIndexType and schema.DocValuesSkipIndexType are two
+	// declarations of the same Lucene enum (identical ordinals NONE=0,
+	// RANGE=1, both pinned to org.apache.lucene.index.DocValuesSkipIndexType),
+	// so the ordinal-preserving conversion is exact.
+	opts.DocValuesSkipIndexType = schemapkg.DocValuesSkipIndexType(s.docValuesSkipIndex)
 	opts.DocValuesGen = -1
 	opts.OmitNorms = s.omitNorms
 	opts.StoreTermVectors = s.storeTermVector
@@ -603,7 +608,7 @@ func (c *IndexingChain) initializeFieldInfo(pf *indexingPerField) error {
 // processField indexes one field instance and reports whether it is the first
 // (postings-indexed) instance of a unique field within the current document.
 func (c *IndexingChain) processField(docID int, field IndexingChainField, pf *indexingPerField) (bool, error) {
-	fieldType := field.IndexableFieldType()
+	fieldType := field.schema.IndexableFieldType()
 	indexedField := false
 
 	// Invert indexed fields.
@@ -678,13 +683,14 @@ func (c *IndexingChain) getOrAddPerField(fieldName string) *indexingPerField {
 }
 
 // getPerField returns the PerField for name, or nil if unseen.
-func (c *IndexingChain) getPerField(name string) *indexingPerField {
-	hashPos := stringHashCode(name) & c.hashMask
-	fp := c.fieldHash[hashPos]
-	for fp != nil && fp.fieldName != name {
-		fp = fp.next
+func (c *IndexingChain) GetHasDocValues(fieldName string) util.DocIdSetIterator {
+	pf := c.getPerField(fieldName)
+	if pf == nil || pf.docValuesWriter == nil {
+		return nil
 	}
-	return fp
+	// GAP: The docValuesWriter should provide a DocIdSetIterator of docs that have values.
+	// For now, we return nil or a dummy, as the real implementation is deferred.
+	return nil
 }
 
 // indexDocValue indexes one field's doc value.
@@ -896,7 +902,7 @@ func (pf *indexingPerField) invert(docID int, field IndexingChainField, first bo
 	// This mirrors Lucene where a non-tokenized field whose value is a string
 	// produces a single-token TokenStream internally; Gocene routes it through
 	// the binary path instead.
-	if field.IndexableFieldType().Tokenized() {
+	if field.schema.IndexableFieldType().Tokenized() {
 		return pf.invertTokenStream(docID, field, first)
 	}
 	return pf.invertTerm(docID, field, first)
@@ -921,7 +927,7 @@ func (pf *indexingPerField) invertTerm(docID int, field IndexingChainField, firs
 		return fmt.Errorf("indexing chain: field %s returns BINARY for invertableType and nil for binaryValue, which is illegal",
 			field.Name())
 	}
-	ft := field.IndexableFieldType()
+	ft := field.schema.IndexableFieldType()
 	if ft.Tokenized() ||
 		ft.IndexOptions() > IndexOptionsDocsAndFreqs ||
 		ft.StoreTermVectorPositions() ||
@@ -1106,7 +1112,7 @@ func (s *fieldSchema) assertSameSchema(fi *FieldInfo) error {
 	if fi.DocValuesType() != s.docValuesType {
 		return s.raiseNotSame("doc values type", fi.DocValuesType(), s.docValuesType)
 	}
-	if fi.DocValuesSkipIndexType() != s.docValuesSkipIndex {
+	if fi.DocValuesSkipIndexType() != schemapkg.DocValuesSkipIndexType(s.docValuesSkipIndex) {
 		return s.raiseNotSame("doc values skip index type", fi.DocValuesSkipIndexType(), s.docValuesSkipIndex)
 	}
 	if fi.VectorSimilarityFunction() != s.vectorSimilarityFunction {
@@ -1129,7 +1135,7 @@ func (s *fieldSchema) assertSameSchema(fi *FieldInfo) error {
 
 // updateDocFieldSchema updates a field schema with the options seen in one
 // document's instance of the field.
-func updateDocFieldSchema(fieldName string, schema *fieldSchema, fieldType IndexableFieldType) error {
+func updateDocFieldSchema(fieldName string, schema *fieldSchema, fieldType schema.IndexableFieldType) error {
 	if fieldType.IndexOptions() != IndexOptionsNone {
 		if err := schema.setIndexOptions(
 			fieldType.IndexOptions(), fieldType.OmitNorms(), fieldType.StoreTermVectors()); err != nil {
@@ -1170,7 +1176,7 @@ func updateDocFieldSchema(fieldName string, schema *fieldSchema, fieldType Index
 }
 
 // verifyUnIndexedFieldType rejects term-vector options on an unindexed field.
-func verifyUnIndexedFieldType(name string, ft IndexableFieldType) error {
+func verifyUnIndexedFieldType(name string, ft schema.IndexableFieldType) error {
 	if ft.StoreTermVectors() {
 		return fmt.Errorf("indexing chain: cannot store term vectors for a field that is not indexed (field=%q)", name)
 	}

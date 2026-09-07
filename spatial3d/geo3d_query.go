@@ -5,6 +5,7 @@
 package spatial3d
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/geo"
 	"fmt"
 	"math"
 
@@ -316,10 +317,10 @@ var _ search.ScorerSupplier = (*pointInGeo3DShapeScorerSupplier)(nil)
 // Port of org.apache.lucene.spatial3d.PointInShapeIntersectVisitor.
 // ---------------------------------------------------------------------------
 
-// Cell-relation constants matching the order of codecs.Relation /
+// Cell-relation constants matching the order of geo.Relation /
 // index.PointValues.Relation. They are declared locally so this package does
 // not import codecs (which would draw in the codecs → document → search
-// dependency chain). Adapters between this enum and codecs.Relation are pure
+// dependency chain). Adapters between this enum and geo.Relation are pure
 // switches with no semantic difference.
 const (
 	geo3dCellInsideQuery  = 1 // CELL_INSIDE_QUERY

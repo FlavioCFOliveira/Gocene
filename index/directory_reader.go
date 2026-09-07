@@ -431,21 +431,44 @@ func loadLiveDocsFromDisk(directory store.Directory, sci *SegmentCommitInfo) {
 
 // OpenDirectoryReaderWithInfos opens a DirectoryReader with existing SegmentInfos.
 func OpenDirectoryReaderWithInfos(directory store.Directory, segmentInfos *SegmentInfos) (*DirectoryReader, error) {
-	readers := make([]*SegmentReader, 0, segmentInfos.Size())
-	for i := 0; i < segmentInfos.Size(); i++ {
-		sr, err := openSegmentReader(directory, segmentInfos.Get(i))
+	size := segmentInfos.Size()
+	readers := make([]*SegmentReader, size)
+	errors := make([]error, size)
+	var wg sync.WaitGroup
+
+	for i := 0; i < size; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			sr, err := openSegmentReader(directory, segmentInfos.Get(idx))
+			if err != nil {
+				errors[idx] = err
+				return
+			}
+			readers[idx] = sr
+		}(i)
+	}
+	wg.Wait()
+
+	// Check for errors and close any successfully opened readers on failure.
+	for i, err := range errors {
 		if err != nil {
-			// Close all already-opened readers before returning.
 			for _, opened := range readers {
-				opened.Close() //nolint:errcheck // best-effort cleanup in error path
+				if opened != nil {
+					opened.Close() //nolint:errcheck
+				}
 			}
 			return nil, err
 		}
-		readers = append(readers, sr)
 	}
 
 	compReader, err := newCompositeReaderFromSegments(readers)
 	if err != nil {
+		for _, opened := range readers {
+			if opened != nil {
+				opened.Close() //nolint:errcheck
+			}
+		}
 		return nil, err
 	}
 
@@ -529,16 +552,18 @@ func OpenIfChangedFromWriter(old *DirectoryReader, writer *IndexWriter) (*Direct
 }
 
 // Reopen reopens the index to see if any changes have been made.
-func (r *DirectoryReader) Reopen() (*DirectoryReader, error) {
-	isCurrent, err := r.IsCurrent()
-	if err != nil {
-		return nil, err
+	func (r *DirectoryReader) Reopen() (*DirectoryReader, error) {
+		newReader, err := r.doOpenIfChanged(nil, nil)
+		if err != nil {
+			return nil, err
+		}
+		if newReader == nil {
+			return r, nil
+		}
+		return newReader, nil
 	}
-	if isCurrent {
-		return r, nil
 	}
-	return OpenDirectoryReader(r.directory)
-}
+	}
 
 // IsCurrent returns true if the reader is still up to date with the index.
 func (r *DirectoryReader) IsCurrent() (bool, error) {
@@ -1091,6 +1116,26 @@ func sortCommitsByGeneration(commits IndexCommitList) {
 	}
 }
 
+// IndexExists reports whether an index likely exists at the specified directory.
+// Note that if a corrupt index exists, or if an index in the process of committing
+// is not yet complete, this logic may return true.
+//
+// Mirrors org.apache.lucene.index.DirectoryReader.indexExists.
+func IndexExists(directory store.Directory) (bool, error) {
+	files, err := directory.ListAll()
+	if err != nil {
+		return false, err
+	}
+
+	prefix := "segments_"
+	for _, file := range files {
+		if strings.HasPrefix(file, prefix) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Ensure DirectoryReader implements IndexReaderInterface
 var _ IndexReaderInterface = (*DirectoryReader)(nil)
 
@@ -1130,3 +1175,149 @@ func (b boolBits) Length() int        { return len(b) }
 
 // Ensure SegmentReader implements IndexReaderInterface
 var _ IndexReaderInterface = (*SegmentReader)(nil)
+
+// doOpenIfChanged implements the logic to reopen the index if it has changed.
+func (r *DirectoryReader) doOpenIfChanged(commit *IndexCommit, executor interface{}) (*DirectoryReader, error) {
+	r.EnsureOpen()
+	if r.writer != nil {
+		return r.doOpenFromWriter(commit, executor)
+	}
+	return r.doOpenNoWriter(commit, executor)
+}
+
+func (r *DirectoryReader) doOpenFromWriter(commit *IndexCommit, executor interface{}) (*DirectoryReader, error) {
+	if commit != nil {
+		return r.doOpenFromCommit(commit, executor)
+	}
+	if r.writer.NrtIsCurrent(r.segmentInfos) {
+		return nil, nil
+	}
+	reader, err := OpenDirectoryReaderFromWriter(r.writer)
+	if err != nil {
+		return nil, err
+	}
+	if reader.GetVersion() == r.segmentInfos.Generation() {
+		reader.Close()
+		return nil, nil
+	}
+	return reader, nil
+}
+
+func (r *DirectoryReader) doOpenNoWriter(commit *IndexCommit, executor interface{}) (*DirectoryReader, error) {
+	if commit == nil {
+		if current, err := r.IsCurrent(); err == nil && current {
+			return nil, nil
+		} else if err != nil {
+			return nil, err
+		}
+	} else {
+		if commit.GetDirectory() != r.directory {
+			return nil, fmt.Errorf("the specified commit does not match the specified Directory")
+		}
+		if r.segmentInfos != nil && commit.GetSegmentsFileName() == r.segmentInfos.GetSegmentsFileName() {
+			return nil, nil
+		}
+	}
+	return r.doOpenFromCommit(commit, executor)
+}
+
+func (r *DirectoryReader) doOpenFromCommit(commit *IndexCommit, executor interface{}) (*DirectoryReader, error) {
+	return openDirectoryReaderWithSharing(r.directory, commit.GetSegmentInfos(), r.readers)
+}
+
+func openDirectoryReaderWithSharing(directory store.Directory, segmentInfos *SegmentInfos, oldReaders []*SegmentReader) (*DirectoryReader, error) {
+	readers := make([]*SegmentReader, 0, segmentInfos.Size())
+
+	previousSegmentReaders := make(map[string]int)
+	for i, r := range oldReaders {
+		if r != nil {
+			previousSegmentReaders[r.GetSegmentName()] = i
+		}
+	}
+
+	for i := 0; i < segmentInfos.Size(); i++ {
+		sci := segmentInfos.Get(i)
+		oldReaderIdx, ok := previousSegmentReaders[sci.SegmentInfo().Name()]
+		var oldReader *SegmentReader
+		if ok {
+			oldReader = oldReaders[oldReaderIdx]
+			if oldReader.GetSegmentInfo().GetID() != sci.SegmentInfo().GetID() {
+				return nil, fmt.Errorf("same segment %s has invalid doc count change; likely you are re-opening a reader after illegally removing index files yourself", sci.SegmentInfo().Name())
+			}
+		}
+
+		var newReader *SegmentReader
+		if oldReader == nil || sci.SegmentInfo().IsCompoundFile() != oldReader.GetSegmentInfo().IsCompoundFile() {
+			var err error
+			newReader, err = openSegmentReader(directory, sci)
+			if err != nil {
+				for _, opened := range readers {
+					opened.Close()
+				}
+				return nil, err
+			}
+		} else {
+			if oldReader.isNRT {
+				var liveDocs util.Bits
+				if sci.HasDeletions() {
+					codec := LookupCodecByName(sci.SegmentInfo().Codec())
+					var err error
+					liveDocs, err = codec.LiveDocsFormat().ReadLiveDocs(directory, sci, store.IOContextReadOnce)
+					if err != nil {
+						return nil, err
+					}
+				}
+				var err error
+				newReader, err = NewSegmentReaderFrom(sci, oldReader, liveDocs, liveDocs, sci.SegmentInfo().MaxDoc()-sci.GetDelCount(), false)
+				if err != nil {
+					return nil, err
+				}
+			} else {
+				if oldReader.GetSegmentInfo().GetDelGen() == sci.GetDelGen() &&
+					oldReader.GetSegmentInfo().GetFieldInfosGen() == sci.GetFieldInfosGen() {
+					oldReader.IncRef()
+					newReader = oldReader
+				} else if oldReader.GetSegmentInfo().GetDelGen() == sci.GetDelGen() {
+					var err error
+					newReader, err = NewSegmentReaderFrom(sci, oldReader, oldReader.GetLiveDocs(), oldReader.GetHardLiveDocs(), oldReader.NumDocs(), false)
+					if err != nil {
+						return nil, err
+					}
+				} else {
+					var liveDocs util.Bits
+					if sci.HasDeletions() {
+						codec := LookupCodecByName(sci.SegmentInfo().Codec())
+						var err error
+						liveDocs, err = codec.LiveDocsFormat().ReadLiveDocs(directory, sci, store.IOContextReadOnce)
+						if err != nil {
+							return nil, err
+						}
+					}
+					var err error
+					newReader, err = NewSegmentReaderFrom(sci, oldReader, liveDocs, liveDocs, sci.SegmentInfo().MaxDoc()-sci.GetDelCount(), false)
+					if err != nil {
+						return nil, err
+					}
+				}
+			}
+		}
+		readers = append(readers, newReader)
+	}
+
+	compReader, err := newCompositeReaderFromSegments(readers)
+	if err != nil {
+		for _, opened := range readers {
+			opened.Close()
+		}
+		return nil, err
+	}
+
+	return &DirectoryReader{
+		CompositeReader: compReader,
+		directory:       directory,
+		segmentInfos:    segmentInfos,
+		readers:         readers,
+		nrtGen:          0,
+	}, nil
+}
+}

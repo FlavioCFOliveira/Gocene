@@ -133,9 +133,9 @@ func NewLucene90HnswVectorsWriter(state *codecs.SegmentWriteState, maxConn, beam
 		beamWidth = lucene90HnswDefaultBeamWidth
 	}
 
-	metaName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene90HnswMetaExtension)
-	dataName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene90HnswDataExtension)
-	indexName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene90HnswIndexExtension)
+	metaName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene90HnswMetaExtension)
+	dataName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene90HnswDataExtension)
+	indexName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene90HnswIndexExtension)
 
 	rawMeta, err := state.Directory.CreateOutput(metaName, store.IOContextWrite)
 	if err != nil {
@@ -478,17 +478,17 @@ func (w *Lucene90HnswVectorsWriter) Finish() error {
 		if err := w.meta.WriteInt(-1); err != nil {
 			return fmt.Errorf("lucene90 hnsw: write meta sentinel: %w", err)
 		}
-		if err := codecs.WriteFooter(w.meta); err != nil {
+		if err := store.WriteFooter(w.meta); err != nil {
 			return fmt.Errorf("lucene90 hnsw: write meta footer: %w", err)
 		}
 	}
 	if w.vectorData != nil {
-		if err := codecs.WriteFooter(w.vectorData); err != nil {
+		if err := store.WriteFooter(w.vectorData); err != nil {
 			return fmt.Errorf("lucene90 hnsw: write data footer: %w", err)
 		}
 	}
 	if w.vectorIndex != nil {
-		if err := codecs.WriteFooter(w.vectorIndex); err != nil {
+		if err := store.WriteFooter(w.vectorIndex); err != nil {
 			return fmt.Errorf("lucene90 hnsw: write index footer: %w", err)
 		}
 	}

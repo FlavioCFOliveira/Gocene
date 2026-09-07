@@ -308,7 +308,9 @@ var _ TokenFilter = (*BengaliNormalizationFilter)(nil)
 
 // BengaliNormalizationFilterFactory creates BengaliNormalizationFilter
 // instances.
-type BengaliNormalizationFilterFactory struct{}
+type BengaliNormalizationFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewBengaliNormalizationFilterFactory returns a fresh factory.
 func NewBengaliNormalizationFilterFactory() *BengaliNormalizationFilterFactory {
@@ -384,7 +386,9 @@ func (f *BengaliStemFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*BengaliStemFilter)(nil)
 
 // BengaliStemFilterFactory creates BengaliStemFilter instances.
-type BengaliStemFilterFactory struct{}
+type BengaliStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewBengaliStemFilterFactory returns a fresh factory.
 func NewBengaliStemFilterFactory() *BengaliStemFilterFactory {

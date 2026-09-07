@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -79,8 +80,18 @@ func (f *NativeFSLockFactory) ObtainLock(dir Directory, lockName string) (Lock, 
 	// In-process guard: reject if this process already holds the lock.
 	if _, loaded := lockHeld.LoadOrStore(realPath, struct{}{}); loaded {
 		_ = fh.Close()
-		return nil, fmt.Errorf("lock held by this process: %s", realPath)
+		return nil, NewLockObtainFailedException(fmt.Sprintf("lock held by this process: %s", realPath), nil)
 	}
+
+	// Capture the lock file's creation/modification time as a best-effort check
+	// to detect if the file is replaced by an external force.
+	info, err := os.Stat(realPath)
+	if err != nil {
+		_ = fh.Close()
+		lockHeld.Delete(realPath)
+		return nil, fmt.Errorf("NativeFSLockFactory: stat lock file %q: %w", realPath, err)
+	}
+	creationTime := info.ModTime()
 
 	// Attempt a non-blocking exclusive OFD lock (F_OFD_SETLK).
 	// OFD locks are per open-file-description (fd), not per process, making
@@ -97,15 +108,16 @@ func (f *NativeFSLockFactory) ObtainLock(dir Directory, lockName string) (Lock, 
 		_ = fh.Close()
 		lockHeld.Delete(realPath)
 		if errors.Is(err, unix.EACCES) || errors.Is(err, unix.EAGAIN) {
-			return nil, fmt.Errorf("lock held by another process: %s", realPath)
+			return nil, NewLockObtainFailedException(fmt.Sprintf("lock held by another process: %s", realPath), nil)
 		}
 		return nil, fmt.Errorf("NativeFSLockFactory: fcntl F_OFD_SETLK %q: %w", realPath, err)
 	}
 
 	return &NativeFSLock{
-		name:     lockName,
-		realPath: realPath,
-		fh:       fh,
+		name:         lockName,
+		realPath:     realPath,
+		fh:           fh,
+		creationTime: creationTime,
 	}, nil
 }
 
@@ -134,11 +146,12 @@ func nativeFSPath(dir Directory) string {
 // The advisory lock is held for the lifetime of fh; closing fh releases it
 // atomically in the kernel — even if the process is killed.
 type NativeFSLock struct {
-	name     string
-	realPath string
-	fh       *os.File
-	closed   atomic.Bool
-	mu       sync.Mutex
+	name         string
+	realPath     string
+	fh           *os.File
+	closed       atomic.Bool
+	mu           sync.Mutex
+	creationTime time.Time
 }
 
 // Close releases the advisory lock and removes the path from the in-process
@@ -172,7 +185,7 @@ func (l *NativeFSLock) Close() error {
 }
 
 // EnsureValid returns an error if the lock has been released or if the
-// advisory lock is no longer valid (e.g. the fd was externally invalidated).
+// advisory lock is no longer valid.
 func (l *NativeFSLock) EnsureValid() error {
 	if l.closed.Load() {
 		return fmt.Errorf("lock %s has been released", l.name)
@@ -181,8 +194,19 @@ func (l *NativeFSLock) EnsureValid() error {
 		return fmt.Errorf("lock path unexpectedly cleared: %s", l.realPath)
 	}
 	// Probe the fd with a zero-byte stat; surfaces EBADF if the fd is dead.
-	if _, err := l.fh.Stat(); err != nil {
+	info, err := l.fh.Stat()
+	if err != nil {
 		return fmt.Errorf("lock file descriptor invalid: %w", err)
+	}
+	// Check if the lock file size is 0. Non-zero size suggests the file
+	// was modified by an external force.
+	if info.Size() != 0 {
+		return fmt.Errorf("unexpected lock file size: %d, (lock=%s)", info.Size(), l.name)
+	}
+	// Verify the modification time hasn't changed, which would indicate
+	// the file was replaced or modified.
+	if !info.ModTime().Equal(l.creationTime) {
+		return fmt.Errorf("underlying file changed by an external force at %v, (lock=%s)", info.ModTime(), l.name)
 	}
 	return nil
 }

@@ -122,7 +122,7 @@ func (a *PersianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 var _ Analyzer = (*PersianAnalyzer)(nil)
-var _ AnalyzerInterface = (*PersianAnalyzer)(nil)
+var _ api.Analyzer = (*PersianAnalyzer)(nil)
 
 // PersianNormalizer normalizes Persian text.
 //

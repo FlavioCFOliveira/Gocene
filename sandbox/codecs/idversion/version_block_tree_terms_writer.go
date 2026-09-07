@@ -131,7 +131,7 @@ func NewVersionBlockTreeTermsWriter(
 		return nil, fmt.Errorf("NewVersionBlockTreeTermsWriter: %w", err)
 	}
 
-	termsFileName := index.SegmentFileName(
+	termsFileName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, vbtTermsExtension,
 	)
 	rawOut, err := state.Directory.CreateOutput(termsFileName, store.IOContext{})
@@ -158,7 +158,7 @@ func NewVersionBlockTreeTermsWriter(
 		return nil, fmt.Errorf("NewVersionBlockTreeTermsWriter: write terms header: %w", err)
 	}
 
-	indexFileName := index.SegmentFileName(
+	indexFileName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, vbtTermsIndexExtension,
 	)
 	rawIndexOut, err = state.Directory.CreateOutput(indexFileName, store.IOContext{})
@@ -307,7 +307,7 @@ func (w *VersionBlockTreeTermsWriter) Close() error {
 		setErr(err)
 		return firstErr
 	}
-	if err := codecs.WriteFooter(w.out); err != nil {
+	if err := store.WriteFooter(w.out); err != nil {
 		setErr(err)
 		return firstErr
 	}
@@ -316,7 +316,7 @@ func (w *VersionBlockTreeTermsWriter) Close() error {
 		setErr(err)
 		return firstErr
 	}
-	if err := codecs.WriteFooter(w.indexOut); err != nil {
+	if err := store.WriteFooter(w.indexOut); err != nil {
 		setErr(err)
 		return firstErr
 	}

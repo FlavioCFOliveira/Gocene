@@ -55,7 +55,7 @@ func NewCompletionFieldsConsumer(
 		state:                      state,
 	}
 
-	dictFile := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, completionDictExtension)
+	dictFile := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, completionDictExtension)
 	var success bool
 	defer func() {
 		if !success {
@@ -141,7 +141,7 @@ func (c *CompletionFieldsConsumer) Close() error {
 	}
 	c.closed = true
 
-	indexFile := index.SegmentFileName(c.state.SegmentInfo.Name(), c.state.SegmentSuffix, completionIndexExtension)
+	indexFile := store.SegmentFileName(c.state.SegmentInfo.Name(), c.state.SegmentSuffix, completionIndexExtension)
 	var success bool
 	defer func() {
 		if !success {
@@ -202,10 +202,10 @@ func (c *CompletionFieldsConsumer) Close() error {
 		}
 	}
 
-	if err := codecs.WriteFooter(indexOut); err != nil {
+	if err := store.WriteFooter(indexOut); err != nil {
 		return fmt.Errorf("completion fields consumer: write index footer: %w", err)
 	}
-	if err := codecs.WriteFooter(c.dictOut); err != nil {
+	if err := store.WriteFooter(c.dictOut); err != nil {
 		return fmt.Errorf("completion fields consumer: write dict footer: %w", err)
 	}
 	if err := c.dictOut.Close(); err != nil {

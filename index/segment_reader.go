@@ -6,623 +6,480 @@ package index
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
-// SegmentReader is a LeafReader for a specific segment.
+// SegmentReader is an IndexReader implementation over a single segment.
+//
+// This is the Go port of Lucene's org.apache.lucene.index.SegmentReader from Apache Lucene 10.5.0.
 type SegmentReader struct {
-	segmentCommitInfo *SegmentCommitInfo
-	coreReaders       *SegmentCoreReaders
-	fieldInfos        *FieldInfos
-	codec             Codec
-	// directory is the source directory; used to look up in-memory postings
-	// from the package-level registry when coreReaders is nil.
-	directory store.Directory
-	liveDocs          util.Bits
-	hardLiveDocs      util.Bits
-	isNRT             bool
-	numDocs           int
+	si             *SegmentCommitInfo
+	originalSi     *SegmentCommitInfo
+	metaData       *IndexReaderMetaData
+	liveDocs       util.Bits
+	hardLiveDocs   util.Bits
+	numDocs        int
+	core           *SegmentCoreReaders
+	segDocValues   *SegmentDocValues
+	isNRT          bool
+	docValuesProducer DocValuesProducer
+	fieldInfos     *FieldInfos
 }
 
-// NewSegmentReader creates a new SegmentReader.
-func NewSegmentReader(segmentCommitInfo *SegmentCommitInfo) *SegmentReader {
-	sr := &SegmentReader{
-		segmentCommitInfo: segmentCommitInfo,
-		fieldInfos:        segmentCommitInfo.GetInMemoryFieldInfos(),
+// NewSegmentReader constructs a new SegmentReader with a new core.
+func NewSegmentReader(si *SegmentCommitInfo, createdVersionMajor int, context store.IOContext) (*SegmentReader, error) {
+	siClone := si.Clone()
+	originalSi := si
+
+	metaData := &IndexReaderMetaData{
+		HasDeletions: siClone.HasDeletions(),
+		NumDocs:      siClone.SegmentInfo().MaxDoc() - siClone.GetDelCount(),
+		MaxDoc:       siClone.SegmentInfo().MaxDoc(),
 	}
-	sr.initLiveDocs()
-	return sr
-}
 
-func (r *SegmentReader) initLiveDocs() {
-	if r.segmentCommitInfo == nil {
-		return
-	}
-	if r.segmentCommitInfo.HasDeletions() {
-		// Read live docs from codec
-		liveDocs, err := r.codec.LiveDocsFormat().ReadLiveDocs(r.directory, r.segmentCommitInfo, store.IOContextReadOnce)
-		if err != nil {
-			panic(fmt.Sprintf("failed to read live docs for seg=%s: %v", r.segmentCommitInfo, err))
-		}
-		r.liveDocs = liveDocs
-		r.hardLiveDocs = liveDocs
-	}
-	r.numDocs = r.segmentCommitInfo.SegmentInfo().DocCount() - r.segmentCommitInfo.DelCount()
-}
-
-// NewSegmentReaderWithCore creates a new SegmentReader with core readers.
-func NewSegmentReaderWithCore(
-	segmentCommitInfo *SegmentCommitInfo,
-	coreReaders *SegmentCoreReaders,
-	fieldInfos *FieldInfos,
-	codec Codec,
-) *SegmentReader {
-	sr := &SegmentReader{
-		segmentCommitInfo: segmentCommitInfo,
-		coreReaders:       coreReaders,
-		fieldInfos:        fieldInfos,
-		codec:             codec,
-	}
-	sr.initLiveDocs()
-	return sr
-}
-
-// NewSegmentReaderClone creates a new SegmentReader sharing core from a previous SegmentReader
-// and using the provided liveDocs, and recording whether those liveDocs were carried in ram (isNRT=true).
-func NewSegmentReaderClone(
-	si *SegmentCommitInfo,
-	sr *SegmentReader,
-	liveDocs util.Bits,
-	hardLiveDocs util.Bits,
-	numDocs int,
-	isNRT bool,
-) *SegmentReader {
-	return &SegmentReader{
-		segmentCommitInfo: si,
-		coreReaders:       sr.coreReaders,
-		fieldInfos:        sr.fieldInfos,
-		codec:             sr.codec,
-		directory:         sr.directory,
-		liveDocs:          liveDocs,
-		hardLiveDocs:      hardLiveDocs,
-		isNRT:             isNRT,
-		numDocs:           numDocs,
-	}
-}
-
-// GetSegmentCommitInfo returns the SegmentCommitInfo for this reader.
-func (r *SegmentReader) GetSegmentCommitInfo() *SegmentCommitInfo {
-	return r.segmentCommitInfo
-}
-
-// GetCoreReaders returns the SegmentCoreReaders for this reader.
-func (r *SegmentReader) GetCoreReaders() *SegmentCoreReaders {
-	return r.coreReaders
-}
-
-// GetFieldInfos returns the FieldInfos for this reader.
-func (r *SegmentReader) GetFieldInfos() *FieldInfos {
-	if r.fieldInfos == nil {
-		return NewFieldInfos()
-	}
-	return r.fieldInfos
-}
-
-// NumDocs returns the number of live documents in this segment.
-func (r *SegmentReader) NumDocs() int {
-	if r.segmentCommitInfo == nil {
-		return 0
-	}
-	return r.segmentCommitInfo.NumDocs()
-}
-
-// NumDeletedDocs returns the number of deleted documents (hard + soft) in this
-// segment, taken from the SegmentCommitInfo so it stays consistent with NumDocs.
-func (r *SegmentReader) NumDeletedDocs() int {
-	if r.segmentCommitInfo == nil {
-		return 0
-	}
-	return r.segmentCommitInfo.DelCount() + r.segmentCommitInfo.SoftDelCount()
-}
-
-// HasDeletions reports whether this segment carries any deleted documents.
-func (r *SegmentReader) HasDeletions() bool {
-	return r.NumDeletedDocs() > 0
-}
-
-// MaxDoc returns the maximum document ID (one past the last doc) for this segment.
-func (r *SegmentReader) MaxDoc() int {
-	if r.segmentCommitInfo == nil {
-		return 0
-	}
-	return r.segmentCommitInfo.SegmentInfo().DocCount()
-}
-
-// DocID returns the first document ID in this segment.
-// For a SegmentReader, this is always 0.
-func (r *SegmentReader) DocID() int {
-	return 0
-}
-
-// DocFreq returns the number of documents containing the term.
-func (r *SegmentReader) DocFreq(term Term) (int, error) {
-	terms, err := r.Terms(term.Field)
+	core, err := NewSegmentCoreReaders(siClone.SegmentInfo().Dir(), siClone, context)
 	if err != nil {
-		return 0, err
-	}
-	if terms == nil {
-		return 0, nil
-	}
-	te := terms.Iterator()
-	if te.SeekExact(term.Text()) {
-		return te.DocFreq(), nil
-	}
-	return 0, nil
-}
-
-// TotalTermFreq returns the total number of occurrences of the term.
-func (r *SegmentReader) TotalTermFreq(term Term) (int64, error) {
-	terms, err := r.Terms(term.Field)
-	if err != nil {
-		return 0, err
-	}
-	if terms == nil {
-		return 0, nil
-	}
-	te := terms.Iterator()
-	if te.SeekExact(term.Text()) {
-		return te.TotalTermFreq(), nil
-	}
-	return 0, nil
-}
-
-// GetTermVectors returns the term vectors for a document.
-func (r *SegmentReader) GetTermVectors(docID int) (Fields, error) {
-	if r.coreReaders == nil {
-		return nil, fmt.Errorf("segment reader not initialized: core readers are nil")
-	}
-
-	tvReader := r.coreReaders.GetTermVectorsReader()
-	if tvReader == nil {
-		return nil, nil
-	}
-
-	if docID < 0 || docID >= r.DocCount() {
-		return nil, fmt.Errorf("document ID %d out of range [0, %d)", docID, r.DocCount())
-	}
-
-	return tvReader.Get(docID)
-}
-
-// Terms returns the Terms for a field.
-func (r *SegmentReader) Terms(field string) (Terms, error) {
-	var terms Terms
-	var err error
-
-	if r.coreReaders != nil {
-		fields := r.coreReaders.GetFields()
-		if fields == nil {
-			return nil, nil
-		}
-		terms, err = fields.Terms(field)
-	} else if r.segmentCommitInfo != nil {
-		if fp := r.segmentCommitInfo.GetInMemoryFields(); fp != nil {
-			terms, err = fp.Terms(field)
-		}
-	}
-
-	if terms == nil && r.directory != nil && r.segmentCommitInfo != nil {
-		segName := r.segmentCommitInfo.SegmentInfo().Name()
-		if fp := LookupInMemoryFields(r.directory, segName); fp != nil {
-			terms, err = fp.Terms(field)
-		}
-	}
-
-	if terms == nil {
 		return nil, err
 	}
 
-	return WrapTerms(terms, r.liveDocs), err
-}
-
-// GetFloatVectorValues returns the float vectors for field.
-func (r *SegmentReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
-	d := r.vectorsDelegate()
-	if d == nil {
-		return nil, nil
-	}
-	return d.FloatVectorValues(field)
-}
-
-// GetByteVectorValues returns the byte vectors for field.
-func (r *SegmentReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
-	d := r.vectorsDelegate()
-	if d == nil {
-		return nil, nil
-	}
-	return d.ByteVectorValues(field)
-}
-
-// SearchNearestVectors searches for the k nearest float vectors to target.
-func (r *SegmentReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits, visitedLimit int) (TopDocs, error) {
-	d := r.vectorsDelegate()
-	if d == nil {
-		return TopDocs{}, nil
-	}
-	td, err := d.SearchNearestFloat(field, target, k, acceptDocs)
+	// Inject the DocValues producer factory into SegmentDocValues
+	segDocValues, err := NewSegmentDocValues(func(si *SegmentCommitInfo, dir store.Directory, gen int64, infos *FieldInfos) (DocValuesProducer, error) {
+		codec := LookupCodecByName(si.SegmentInfo().Codec())
+		return codec.DocValuesFormat().FieldsProducer(si, dir, gen, infos)
+	})
 	if err != nil {
-		return TopDocs{}, err
+		core.DecRef()
+		return nil, err
 	}
-	return knnTopDocsToIndex(td), nil
-}
 
-// GetPointValues returns the BKD point values for field.
-func (r *SegmentReader) GetPointValues(field string) (PointValues, error) {
-	d := r.pointsDelegate()
-	if d == nil {
-		return nil, nil
+	var liveDocs util.Bits
+	var hardLiveDocs util.Bits
+	isNRT := false
+
+	codec := LookupCodecByName(siClone.SegmentInfo().Codec())
+	if siClone.HasDeletions() {
+		// NOTE: the bitvector is stored using the regular directory, not cfs
+		ld, err := codec.LiveDocsFormat().ReadLiveDocs(siClone.SegmentInfo().Dir(), siClone, store.IOContextReadOnce)
+		if err != nil {
+			segDocValues.DecRef([]int64{-1})
+			core.DecRef()
+			return nil, err
+		}
+		liveDocs = ld
+		hardLiveDocs = ld
 	}
-	return d.GetValues(field)
-}
 
-// GetNumericDocValues returns the numeric doc values for field.
-func (r *SegmentReader) GetNumericDocValues(field string) (NumericDocValues, error) {
-	d := r.docValuesDelegate()
-	fi := r.dvFieldInfo(field)
-	if d == nil || fi == nil || fi.DocValuesType() != DocValuesTypeNumeric {
-		return nil, nil
+	numDocs := siClone.SegmentInfo().MaxDoc() - siClone.GetDelCount()
+
+	sr := &SegmentReader{
+		si:           siClone,
+		originalSi:   originalSi,
+		metaData:     metaData,
+		liveDocs:     liveDocs,
+		hardLiveDocs: hardLiveDocs,
+		numDocs:      numDocs,
+		core:         core,
+		segDocValues: segDocValues,
+		isNRT:        isNRT,
 	}
-	return d.GetNumeric(fi)
-}
 
-// GetBinaryDocValues returns the binary doc values for field.
-func (r *SegmentReader) GetBinaryDocValues(field string) (BinaryDocValues, error) {
-	d := r.docValuesDelegate()
-	fi := r.dvFieldInfo(field)
-	if d == nil || fi == nil || fi.DocValuesType() != DocValuesTypeBinary {
-		return nil, nil
+	if err := sr.initFieldInfos(); err != nil {
+		sr.doClose()
+		return nil, err
 	}
-	return d.GetBinary(fi)
-}
 
-// GetSortedDocValues returns the sorted doc values for field.
-func (r *SegmentReader) GetSortedDocValues(field string) (SortedDocValues, error) {
-	d := r.docValuesDelegate()
-	fi := r.dvFieldInfo(field)
-	if d == nil || fi == nil || fi.DocValuesType() != DocValuesTypeSorted {
-		return nil, nil
+	if err := sr.initDocValuesProducer(); err != nil {
+		sr.doClose()
+		return nil, err
 	}
-	return d.GetSorted(fi)
+
+	return sr, nil
 }
 
-// GetSortedNumericDocValues returns the sorted-numeric doc values for field.
-func (r *SegmentReader) GetSortedNumericDocValues(field string) (SortedNumericDocValues, error) {
-	d := r.docValuesDelegate()
-	fi := r.dvFieldInfo(field)
-	if d == nil || fi == nil || fi.DocValuesType() != DocValuesTypeSortedNumeric {
-		return nil, nil
+// NewSegmentReaderFrom creates a new SegmentReader sharing core from a previous SegmentReader
+// and using the provided liveDocs, and recording whether those liveDocs were carried in ram (isNRT=true).
+func NewSegmentReaderFrom(si *SegmentCommitInfo, sr *SegmentReader, liveDocs util.Bits, hardLiveDocs util.Bits, numDocs int, isNRT bool) (*SegmentReader, error) {
+	if numDocs > si.SegmentInfo().MaxDoc() {
+		return nil, fmt.Errorf("numDocs=%d but maxDoc=%d", numDocs, si.SegmentInfo().MaxDoc())
 	}
-	return d.GetSortedNumeric(fi)
-}
-
-// GetSortedSetDocValues returns the sorted-set doc values for field.
-func (r *SegmentReader) GetSortedSetDocValues(field string) (SortedSetDocValues, error) {
-	d := r.docValuesDelegate()
-	fi := r.dvFieldInfo(field)
-	if d == nil || fi == nil || fi.DocValuesType() != DocValuesTypeSortedSet {
-		return nil, nil
+	if liveDocs != nil && liveDocs.Length() != si.SegmentInfo().MaxDoc() {
+		return nil, fmt.Errorf("maxDoc=%d but liveDocs.size()=%d", si.SegmentInfo().MaxDoc(), liveDocs.Length())
 	}
-	return d.GetSortedSet(fi)
-}
 
-// GetNormValues returns the per-document norms for field.
-func (r *SegmentReader) GetNormValues(field string) (NumericDocValues, error) {
-	d := r.normsDelegate()
-	fi := r.normsFieldInfo(field)
-	if d == nil || fi == nil {
-		return nil, nil
+	siClone := si.Clone()
+	originalSi := si
+
+	if err := sr.core.IncRef(); err != nil {
+		return nil, err
 	}
-	return d.GetNorms(fi)
+
+	srNew := &SegmentReader{
+		si:           siClone,
+		originalSi:   originalSi,
+		metaData:     sr.metaData,
+		liveDocs:     liveDocs,
+		hardLiveDocs: hardLiveDocs,
+		isNRT:        isNRT,
+		numDocs:      numDocs,
+		core:         sr.core,
+		segDocValues: sr.segDocValues,
+	}
+
+	if err := srNew.initFieldInfos(); err != nil {
+		srNew.doClose()
+		return nil, err
+	}
+
+	if err := srNew.initDocValuesProducer(); err != nil {
+		srNew.doClose()
+		return nil, err
+	}
+
+	return srNew, nil
 }
 
-// GetDocValuesSkipper returns a DocValuesSkipper for efficient skipping.
-func (r *SegmentReader) GetDocValuesSkipper(field string) (DocValuesSkipper, error) {
-	// Base implementation returns nil - should be implemented by concrete readers
-	return nil, nil
-}
+func (sr *SegmentReader) initFieldInfos() error {
+	if !sr.si.HasFieldUpdates() {
+		sr.fieldInfos = sr.core.GetFieldInfos()
+		return nil
+	}
 
-// CheckIntegrity checks that the index is not corrupt.
-func (r *SegmentReader) CheckIntegrity() error {
-	// Implementation deferred
+	codec := LookupCodecByName(sr.si.SegmentInfo().Codec())
+	segmentSuffix := fmt.Sprintf("%d", sr.si.GetFieldInfosGen())
+
+	fi, err := codec.FieldInfosFormat().Read(sr.si.SegmentInfo().Dir(), sr.si.SegmentInfo(), segmentSuffix, store.IOContextReadOnce)
+	if err != nil {
+		return err
+	}
+	sr.fieldInfos = fi
 	return nil
 }
 
-// GetMetaData returns metadata about this leaf.
-func (r *SegmentReader) GetMetaData() *IndexReaderMetaData {
-	return &IndexReaderMetaData{
-		HasDeletions: r.HasDeletions(),
-		NumDocs:      r.NumDocs(),
-		MaxDoc:       r.MaxDoc(),
+func (sr *SegmentReader) initDocValuesProducer() error {
+	if !sr.fieldInfos.HasDocValues() {
+		sr.docValuesProducer = nil
+		return nil
 	}
+
+	var dir store.Directory
+	if sr.core.GetCompoundDirectory() != nil {
+		dir = sr.core.GetCompoundDirectory()
+	} else {
+		dir = sr.si.SegmentInfo().Dir()
+	}
+
+	if sr.si.HasFieldUpdates() {
+		producer, err := NewSegmentDocValuesProducer(sr.si, dir, sr.core.GetFieldInfos(), sr.fieldInfos, sr.segDocValues)
+		if err != nil {
+			return err
+		}
+		sr.docValuesProducer = producer
+	} else {
+		dv, err := sr.segDocValues.GetDocValuesProducer(-1, sr.si, dir, sr.fieldInfos)
+		if err != nil {
+			return err
+		}
+		sr.docValuesProducer = dv
+	}
+	return nil
 }
 
-// GetLiveDocs returns a Bits marking the live (non-deleted) documents of this
-// segment, or nil when no document is deleted. Mirrors
-// SegmentReader.getLiveDocs.
-//
-// PORT NOTE: Gocene's in-memory delete path records deletions on the
-// SegmentCommitInfo as deleted ordinals before they are written to a live-docs
-// file. When any are present they take precedence, and a dense bitset is built
-// from them; otherwise the codec-loaded liveDocs field Java returns directly is
-// used.
-func (r *SegmentReader) GetLiveDocs() util.Bits {
-	if r.segmentCommitInfo == nil {
-		return r.liveDocs
+func (sr *SegmentReader) doClose() error {
+	var err error
+	if decErr := sr.core.DecRef(); decErr != nil {
+		err = decErr
 	}
-	ords := r.segmentCommitInfo.GetDeletedOrdinals()
-	if len(ords) == 0 {
-		return r.liveDocs
-	}
-	maxDoc := r.MaxDoc()
-	live := make([]bool, maxDoc)
-	for i := range live {
-		live[i] = true
-	}
-	for _, ord := range ords {
-		if ord >= 0 && ord < maxDoc {
-			live[ord] = false
+
+	if producer, ok := sr.docValuesProducer.(*SegmentDocValuesProducer); ok {
+		if decErr := sr.segDocValues.DecRef(producer.Generations()); decErr != nil {
+			err = decErr
+		}
+	} else if sr.docValuesProducer != nil {
+		if decErr := sr.segDocValues.DecRef([]int64{-1}); decErr != nil {
+			err = decErr
 		}
 	}
-	return boolBits(live)
+	return err
 }
 
-// GetHardLiveDocs returns the live-docs bits excluding documents that are not live due to soft-deletes.
-func (r *SegmentReader) GetHardLiveDocs() util.Bits {
-	return r.hardLiveDocs
+// --- CodecReader implementation ---
+
+func (sr *SegmentReader) GetFieldsReader() StoredFieldsReader {
+	return sr.core.GetStoredFieldsReader()
 }
 
-// GetContext returns the reader context for this leaf reader.
-func (r *SegmentReader) GetContext() (IndexReaderContext, error) {
-	return NewLeafReaderContext(r, nil, 0, 0), nil
+func (sr *SegmentReader) GetTermVectorsReader() TermVectorsReader {
+	return sr.core.GetTermVectorsReader()
 }
 
-// Close closes the SegmentReader and releases resources.
-func (r *SegmentReader) Close() error {
-	var lastErr error
-	if r.coreReaders != nil {
-		if err := r.coreReaders.DecRef(); err != nil {
-			lastErr = err
-		}
-		r.coreReaders = nil
-	}
-	return lastErr
+func (sr *SegmentReader) GetNormsReader() NormsProducer {
+	return sr.core.GetNormsProducer()
 }
 
-// IncRef increments the reference count.
-func (r *SegmentReader) IncRef() error {
-	// SegmentReader doesn't have its own ref count, it delegates to the core readers
-	if r.coreReaders != nil {
-		return r.coreReaders.IncRef()
-	}
-	return nil
+func (sr *SegmentReader) GetDocValuesReader() DocValuesProducer {
+	return sr.docValuesProducer
 }
 
-// DecRef decrements the reference count.
-func (r *SegmentReader) DecRef() error {
-	if r.coreReaders != nil {
-		return r.coreReaders.DecRef()
-	}
-	return nil
+func (sr *SegmentReader) GetPostingsReader() FieldsProducer {
+	return sr.core.GetFields()
 }
 
-// TryIncRef tries to increment the reference count.
-func (r *SegmentReader) TryIncRef() bool {
-	if r.coreReaders != nil {
-		return r.coreReaders.TryIncRef()
-	}
+func (sr *SegmentReader) GetPointsReader() PointsReader {
+	return sr.core.GetPointsReader()
+}
+
+func (sr *SegmentReader) GetVectorReader() KnnVectorsReader {
+	return sr.core.GetVectorReader()
+}
+
+func (sr *SegmentReader) GetSegmentInfo() *SegmentInfo {
+	return sr.si.SegmentInfo()
+}
+
+// --- LeafReader implementation ---
+
+func (sr *SegmentReader) DocID() int {
+	return 0
+}
+
+func (sr *SegmentReader) MaxDoc() int {
+	return sr.si.SegmentInfo().MaxDoc()
+}
+
+func (sr *SegmentReader) NumDocs() int {
+	return sr.numDocs
+}
+
+func (sr *SegmentReader) GetLiveDocs() util.Bits {
+	return sr.liveDocs
+}
+
+func (sr *SegmentReader) GetMetaData() *IndexReaderMetaData {
+	return sr.metaData
+}
+
+func (sr *SegmentReader) GetFieldInfos() *FieldInfos {
+	return sr.fieldInfos
+}
+
+func (sr *SegmentReader) Close() error {
+	return sr.doClose()
+}
+
+func (sr *SegmentReader) IncRef() error {
+	return sr.core.IncRef()
+}
+
+func (sr *SegmentReader) DecRef() error {
+	return sr.doClose()
+}
+
+func (sr *SegmentReader) TryIncRef() bool {
 	return true
 }
 
-func (r *SegmentReader) GetRefCount() int32 {
-	if r.coreReaders != nil {
-		return r.coreReaders.GetRefCount()
-	}
-	return 1
+func (sr *SegmentReader) GetRefCount() int32 {
+	return sr.core.GetRefCount()
 }
 
-func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
-	if r.coreReaders != nil {
-		return r.coreReaders.GetCacheHelper()
+func (sr *SegmentReader) GetContext() (IndexReaderContext, error) {
+	return nil, fmt.Errorf("GetContext not implemented")
+}
+
+func (sr *SegmentReader) DocFreq(term Term) (int, error) {
+	t, err := sr.Terms(term.Field)
+	if err != nil {
+		return 0, err
+	}
+	if t == nil {
+		return 0, nil
+	}
+	return t.DocFreq(term)
+}
+
+func (sr *SegmentReader) TotalTermFreq(term Term) (int64, error) {
+	t, err := sr.Terms(term.Field)
+	if err != nil {
+		return 0, err
+	}
+	if t == nil {
+		return 0, nil
+	}
+	return t.TotalTermFreq(term)
+}
+
+func (sr *SegmentReader) Terms(field string) (Terms, error) {
+	fi := sr.fieldInfos.FieldInfoByName(field)
+	if fi == nil || fi.IndexOptions() == IndexOptionsNone {
+		return nil, nil
+	}
+	return sr.core.GetFields().Terms(field)
+}
+
+func (sr *SegmentReader) Postings(term Term, flags int) (PostingsEnum, error) {
+	return sr.core.GetFields().Postings(term, flags)
+}
+
+func (sr *SegmentReader) GetNumericDocValues(field string) (NumericDocValues, error) {
+	fi := sr.fieldInfos.FieldInfoByName(field)
+	if fi == nil || fi.DocValuesType() == DocValuesTypeNone {
+		return nil, nil
+	}
+	return sr.docValuesProducer.GetNumeric(fi)
+}
+
+func (sr *SegmentReader) GetBinaryDocValues(field string) (BinaryDocValues, error) {
+	fi := sr.fieldInfos.FieldInfoByName(field)
+	if fi == nil || fi.DocValuesType() == DocValuesTypeNone {
+		return nil, nil
+	}
+	return sr.docValuesProducer.GetBinary(fi)
+}
+
+func (sr *SegmentReader) GetSortedDocValues(field string) (SortedDocValues, error) {
+	fi := sr.fieldInfos.FieldInfoByName(field)
+	if fi == nil || fi.DocValuesType() == DocValuesTypeNone {
+		return nil, nil
+	}
+	return sr.docValuesProducer.GetSorted(fi)
+}
+
+func (sr *SegmentReader) GetSortedNumericDocValues(field string) (SortedNumericDocValues, error) {
+	fi := sr.fieldInfos.FieldInfoByName(field)
+	if fi == nil || fi.DocValuesType() == DocValuesTypeNone {
+		return nil, nil
+	}
+	return sr.docValuesProducer.GetSortedNumeric(fi)
+}
+
+func (sr *SegmentReader) GetSortedSetDocValues(field string) (SortedSetDocValues, error) {
+	fi := sr.fieldInfos.FieldInfoByName(field)
+	if fi == nil || fi.DocValuesType() == DocValuesTypeNone {
+		return nil, nil
+	}
+	return sr.docValuesProducer.GetSortedSet(fi)
+}
+
+func (sr *SegmentReader) GetDocValuesSkipper(field string) (DocValuesSkipper, error) {
+	fi := sr.fieldInfos.FieldInfoByName(field)
+	if fi == nil || fi.DocValuesSkipIndexType() == DocValuesSkipIndexTypeNone {
+		return nil, nil
+	}
+	return sr.docValuesProducer.GetSkipper(fi)
+}
+
+func (sr *SegmentReader) GetNormValues(field string) (NumericDocValues, error) {
+	fi := sr.fieldInfos.FieldInfoByName(field)
+	if fi == nil || !fi.HasNorms() {
+		return nil, nil
+	}
+	return sr.core.GetNormsProducer().GetNorms(fi)
+}
+
+func (sr *SegmentReader) GetPointValues(field string) (PointValues, error) {
+	fi := sr.fieldInfos.FieldInfoByName(field)
+	if fi == nil || fi.PointDimensionCount() == 0 {
+		return nil, nil
+	}
+	// Note: core.GetPointsReader() returns spi.PointsReader,
+	// and we need to assert it to one that provides GetValues.
+	reader := sr.core.GetPointsReader()
+	if vr, ok := reader.(interface{ GetValues(field string) (PointValues, error) }); ok {
+		return vr.GetValues(field)
+	}
+	return nil, fmt.Errorf("points reader %T does not expose GetValues", reader)
+}
+
+func (sr *SegmentReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+	fi := sr.fieldInfos.FieldInfoByName(field)
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != VectorEncodingFloat32 {
+		return nil, nil
+	}
+	reader := sr.core.GetVectorReader()
+	if vr, ok := reader.(interface{ GetFloatVectorValues(field string) (FloatVectorValues, error) }); ok {
+		return vr.GetFloatVectorValues(field)
+	}
+	return nil, fmt.Errorf("vector reader %T does not expose GetFloatVectorValues", reader)
+}
+
+func (sr *SegmentReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+	fi := sr.fieldInfos.FieldInfoByName(field)
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != VectorEncodingByte {
+		return nil, nil
+	}
+	reader := sr.core.GetVectorReader()
+	if vr, ok := reader.(interface{ GetByteVectorValues(field string) (ByteVectorValues, error) }); ok {
+		return vr.GetByteVectorValues(field)
+	}
+	return nil, fmt.Errorf("vector reader %T does not expose GetByteVectorValues", reader)
+}
+
+func (sr *SegmentReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits, visitedLimit int) (TopDocs, error) {
+	fi := sr.fieldInfos.FieldInfoByName(field)
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != VectorEncodingFloat32 {
+		return TopDocs{}, nil
+	}
+	reader := sr.core.GetVectorReader()
+	if vr, ok := reader.(interface{ Search(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error) }); ok {
+		return vr.Search(field, target, k, acceptDocs)
+	}
+	return TopDocs{}, fmt.Errorf("vector reader %T does not expose Search", reader)
+}
+
+func (sr *SegmentReader) CheckIntegrity() error {
+	if sr.core.GetFields() != nil {
+		if err := sr.core.GetFields().CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	if sr.core.GetNormsProducer() != nil {
+		if err := sr.core.GetNormsProducer().CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	if sr.docValuesProducer != nil {
+		if err := sr.docValuesProducer.CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	if sr.core.GetStoredFieldsReader() != nil {
+		if err := sr.core.GetStoredFieldsReader().CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	if sr.core.GetTermVectorsReader() != nil {
+		if err := sr.core.GetTermVectorsReader().CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	if sr.core.GetPointsReader() != nil {
+		if err := sr.core.GetPointsReader().CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	if sr.core.GetVectorReader() != nil {
+		if err := sr.core.GetVectorReader().CheckIntegrity(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
-	return r.GetCoreCacheHelper()
-}
-// DocCount returns the number of documents in this segment.
-func (r *SegmentReader) DocCount() int {
-	if r.segmentCommitInfo == nil {
-		return 0
-	}
-	return r.segmentCommitInfo.SegmentInfo().DocCount()
+func (sr *SegmentReader) GetHardLiveDocs() util.Bits {
+	return sr.hardLiveDocs
 }
 
-// vectorsDelegate narrows the core readers' KNN vectors reader to the per-encoding read surface.
-func (r *SegmentReader) vectorsDelegate() knnVectorsReaderDelegate {
-	if r.coreReaders == nil {
-		return nil
-	}
-	vr := r.coreReaders.GetVectorReader()
-	if vr == nil {
-		return nil
-	}
-	d, ok := vr.(knnVectorsReaderDelegate)
-	if !ok {
-		return nil
-	}
-	return d
+func (sr *SegmentReader) GetSegmentName() string {
+	return sr.si.SegmentInfo().Name
 }
 
-type knnVectorsReaderDelegate interface {
-	FloatVectorValues(field string) (FloatVectorValues, error)
-	ByteVectorValues(field string) (ByteVectorValues, error)
-	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
-	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
-	SearchNearestFloatCollector(field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
-	SearchNearestByteCollector(field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
+func (sr *SegmentReader) Directory() store.Directory {
+	return sr.si.SegmentInfo().Dir()
 }
 
-// pointsDelegate narrows the core readers' points reader to the wide getValues surface.
-func (r *SegmentReader) pointsDelegate() pointsReaderDelegate {
-	if r.coreReaders == nil {
-		return nil
-	}
-	pr := r.coreReaders.GetPointsReader()
-	if pr == nil {
-		return nil
-	}
-	d, ok := pr.(pointsReaderDelegate)
-	if !ok {
-		return nil
-	}
-	return d
-}
-
-type pointsReaderDelegate interface {
-	GetValues(field string) (PointValues, error)
-}
-
-// docValuesProducerDelegate is the read surface exposed by the codec's doc-values producer.
-type docValuesProducerDelegate interface {
-	GetNumeric(field *FieldInfo) (NumericDocValues, error)
-	GetBinary(field *FieldInfo) (BinaryDocValues, error)
-	GetSorted(field *FieldInfo) (SortedDocValues, error)
-	GetSortedNumeric(field *FieldInfo) (SortedNumericDocValues, error)
-	GetSortedSet(field *FieldInfo) (SortedSetDocValues, error)
-}
-
-func (r *SegmentReader) docValuesDelegate() docValuesProducerDelegate {
-	if r.coreReaders == nil {
-		return nil
-	}
-	dv := r.coreReaders.GetDocValuesProducer()
-	if dv == nil {
-		return nil
-	}
-	d, ok := dv.(docValuesProducerDelegate)
-	if !ok {
-		return nil
-	}
-	return d
-}
-
-func (r *SegmentReader) dvFieldInfo(field string) *FieldInfo {
-	fis := r.GetFieldInfos()
-	if fis == nil {
-		return nil
-	}
-	fi := fis.FieldInfoByName(field)
-	if fi == nil || !fi.DocValuesType().HasDocValues() {
-		return nil
-	}
-	return fi
-}
-
-// normsProducerDelegate is the read surface exposed by the codec's norms producer.
-type normsProducerDelegate interface {
-	GetNorms(field *FieldInfo) (NumericDocValues, error)
-}
-
-func (r *SegmentReader) normsDelegate() normsProducerDelegate {
-	if r.coreReaders == nil {
-		return nil
-	}
-	np := r.coreReaders.GetNormsProducer()
-	if np == nil {
-		return nil
-	}
-	d, ok := np.(normsProducerDelegate)
-	if !ok {
-		return nil
-	}
-	return d
-}
-
-func (r *SegmentReader) normsFieldInfo(field string) *FieldInfo {
-	if r.coreReaders == nil {
-		return nil
-	}
-	fis := r.coreReaders.GetFieldInfos()
-	if fis == nil {
-		return nil
-	}
-	fi := fis.FieldInfoByName(field)
-	if fi == nil || !fi.HasNorms() {
-		return nil
-	}
-	return fi
-}
-
-func knnTopDocsToIndex(td *utilhnsw.TopDocs) TopDocs {
-	if td == nil {
-		return TopDocs{}
-	}
-	scoreDocs := make([]ScoreDoc, len(td.ScoreDocs))
-	for i, sd := range td.ScoreDocs {
-		scoreDocs[i] = ScoreDoc{Doc: sd.Doc, Score: sd.Score}
-	}
-	return TopDocs{TotalHits: len(scoreDocs), ScoreDocs: scoreDocs}
-}
-
-// SearchNearestVectorsByte is the byte-vector analogue of
-// SearchNearestVectors.
-//
-// PORT NOTE: Java overloads LeafReader.searchNearestVectors on the target
-// type (float[] against byte[]); Go has no overloading, so the byte flavour
-// carries the encoding in its name.
-func (r *SegmentReader) SearchNearestVectorsByte(field string, target []byte, k int, acceptDocs util.Bits) (TopDocs, error) {
-	d := r.vectorsDelegate()
-	if d == nil {
-		return TopDocs{}, nil
-	}
-	td, err := d.SearchNearestByte(field, target, k, acceptDocs)
-	if err != nil {
-		return TopDocs{}, err
-	}
-	return knnTopDocsToIndex(td), nil
-}
-
-// SearchNearestVectorsCollector runs collector-driven nearest-neighbour
-// float-vector search for target in field, driving the caller-supplied
-// collector through the codec's HNSW traversal instead of an internally
-// created top-k collector. The collector observes leaf-local document ids and
-// is responsible for any further result shaping, such as parent-block
-// diversification.
-//
-// It is a no-op — leaving the collector empty and returning nil — when the
-// segment has no vectors reader. Mirrors
-// LeafReader.searchNearestVectors(field, target, KnnCollector, acceptDocs),
-// which delegates straight to the codec's KnnVectorsReader.
-func (r *SegmentReader) SearchNearestVectorsCollector(field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error {
-	d := r.vectorsDelegate()
-	if d == nil {
-		return nil
-	}
-	return d.SearchNearestFloatCollector(field, target, collector, acceptDocs)
-}
-
-// SearchNearestVectorsByteCollector is the byte-vector analogue of
-// SearchNearestVectorsCollector.
-func (r *SegmentReader) SearchNearestVectorsByteCollector(field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error {
-	d := r.vectorsDelegate()
-	if d == nil {
-		return nil
-	}
-	return d.SearchNearestByteCollector(field, target, collector, acceptDocs)
+func (sr *SegmentReader) GetOriginalSegmentInfo() *SegmentCommitInfo {
+	return sr.originalSi
 }

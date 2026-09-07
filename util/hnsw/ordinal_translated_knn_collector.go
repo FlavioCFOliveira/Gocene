@@ -20,7 +20,7 @@ package hnsw
 // (Lucene 10.4.0).
 //
 // Lucene extends KnnCollector.Decorator (an inner class of the
-// canonical search.KnnCollector). The local KnnCollector stub in
+// canonical spi.KnnCollector). The local KnnCollector stub in
 // knn_collector.go does not expose a Decorator helper, so this
 // implementation delegates by composition: it embeds the wrapped
 // KnnCollector and overrides Collect and TopDocs.

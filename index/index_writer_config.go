@@ -5,8 +5,6 @@
 package index
 
 import (
-	"fmt"
-
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"

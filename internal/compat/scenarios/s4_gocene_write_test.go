@@ -81,7 +81,7 @@ func TestS4_GoceneWriteLeg(t *testing.T) {
 				out.Close()
 				t.Fatalf("write copy state: %v", err)
 			}
-			if err := codecs.WriteFooter(out); err != nil {
+			if err := store.WriteFooter(out); err != nil {
 				out.Close()
 				t.Fatalf("write footer: %v", err)
 			}

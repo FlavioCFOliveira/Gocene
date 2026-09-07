@@ -19,8 +19,6 @@ type BufferedChecksum struct {
 	upto   int
 }
 
-// DefaultBufferSize is the default buffer size: 1024
-const DefaultBufferSize = 1024
 
 // NewBufferedChecksum creates a new BufferedChecksum with DefaultBufferSize
 func NewBufferedChecksum(in hash.Hash32) *BufferedChecksum {

@@ -5,6 +5,7 @@
 package search
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/geo"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -300,7 +301,7 @@ func (v *rangeFieldIntersectVisitor) VisitByPackedValue(docID int, packedValue [
 }
 
 // Compare returns the relation for BKD pruning.  Return values match
-// codecs.Relation: 0=outside, 1=inside, 2=crosses.
+// geo.Relation: 0=outside, 1=inside, 2=crosses.
 func (v *rangeFieldIntersectVisitor) Compare(min, max []byte) int {
 	return int(rfqCompare(v.queryType, v.ranges, min, max, v.numDims, v.bytesPerDim, v.comparator))
 }

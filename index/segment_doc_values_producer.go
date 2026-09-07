@@ -17,7 +17,7 @@ import (
 // can be read as if it carried only one producer.
 //
 // This is the Go port of Lucene's package-private
-// org.apache.lucene.index.SegmentDocValuesProducer from Apache Lucene 10.4.0.
+// org.apache.lucene.index.SegmentDocValuesProducer from Apache Lucene 10.5.0.
 //
 // Divergences from the Java reference:
 //   - The Lucene class extends DocValuesProducer (an abstract class). Gocene

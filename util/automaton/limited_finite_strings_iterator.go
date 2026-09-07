@@ -1,9 +1,6 @@
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
-//
-// Port of org.apache.lucene.util.automaton.LimitedFiniteStringsIterator from
-// Apache Lucene 10.4.0 (Apache License 2.0).
 
 package automaton
 
@@ -13,44 +10,48 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// LimitedFiniteStringsIterator caps the number of strings returned by a
-// FiniteStringsIterator. limit == -1 means unlimited; limit <= 0 (other than
-// -1) is rejected.
+// LimitedFiniteStringsIterator limits the number of iterated accepted strings.
 type LimitedFiniteStringsIterator struct {
-	inner *FiniteStringsIterator
+	*FiniteStringsIterator
 	limit int
 	count int
 }
 
-// NewLimitedFiniteStringsIterator constructs an iterator with the given limit.
-func NewLimitedFiniteStringsIterator(a *Automaton, limit int) (*LimitedFiniteStringsIterator, error) {
+// NewLimitedFiniteStringsIterator constructs a limited iterator over all accepted strings.
+func NewLimitedFiniteStringsIterator(a *Automaton, limit int) *LimitedFiniteStringsIterator {
 	if limit != -1 && limit <= 0 {
-		return nil, fmt.Errorf("automaton: limit must be -1 or > 0; got %d", limit)
+		panic(fmt.Sprintf("limit must be -1 (no limit), or > 0; got: %d", limit))
 	}
-	effective := limit
-	if effective <= 0 {
-		effective = int(^uint(0) >> 1)
+
+	actualLimit := limit
+	if limit < 0 {
+		actualLimit = 2147483647 // Integer.MAX_VALUE
 	}
+
 	return &LimitedFiniteStringsIterator{
-		inner: NewFiniteStringsIterator(a),
-		limit: effective,
-	}, nil
+		FiniteStringsIterator: NewFiniteStringsIterator(a),
+		limit:                 actualLimit,
+		count:                 0,
+	}
 }
 
-// Next returns the next accepted string up to the configured limit.
-func (l *LimitedFiniteStringsIterator) Next() (*util.IntsRef, error) {
-	if l.count >= l.limit {
+// Next returns the next accepted string.
+func (it *LimitedFiniteStringsIterator) Next() (*util.IntsRef, error) {
+	if it.count >= it.limit {
 		return nil, nil
 	}
-	out, err := l.inner.Next()
+
+	res, err := it.FiniteStringsIterator.Next()
 	if err != nil {
 		return nil, err
 	}
-	if out != nil {
-		l.count++
+	if res != nil {
+		it.count++
 	}
-	return out, nil
+	return res, nil
 }
 
-// Size returns the number of strings yielded so far.
-func (l *LimitedFiniteStringsIterator) Size() int { return l.count }
+// Size returns the number of iterated finite strings.
+func (it *LimitedFiniteStringsIterator) Size() int {
+	return it.count
+}

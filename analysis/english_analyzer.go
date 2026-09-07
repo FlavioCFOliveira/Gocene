@@ -86,7 +86,7 @@ func (a *EnglishAnalyzer) SetStemmingEnabled(enabled bool) {
 
 // Ensure EnglishAnalyzer implements Analyzer
 var _ Analyzer = (*EnglishAnalyzer)(nil)
-var _ AnalyzerInterface = (*EnglishAnalyzer)(nil)
+var _ api.Analyzer = (*EnglishAnalyzer)(nil)
 
 // EnglishAnalyzerFactory creates EnglishAnalyzer instances.
 type EnglishAnalyzerFactory struct {
@@ -108,7 +108,7 @@ func NewEnglishAnalyzerFactoryWithWords(stopWords *CharArraySet) *EnglishAnalyze
 }
 
 // Create creates a new EnglishAnalyzer.
-func (f *EnglishAnalyzerFactory) Create() AnalyzerInterface {
+func (f *EnglishAnalyzerFactory) Create() api.Analyzer {
 	return NewEnglishAnalyzerWithWords(f.stopWords)
 }
 

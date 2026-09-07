@@ -5,6 +5,7 @@
 package search
 
 import (
+t"github.com/FlavioCFOliveira/Gocene/geo"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -363,7 +364,7 @@ func (v *pointRangeIntersectVisitor) matchesPoint(packed []byte) bool {
 }
 
 // Compare returns the BKD pruning relation for a cell.
-// Returns 0=outside, 1=inside, 2=crosses (matching codecs.Relation order).
+// Returns 0=outside, 1=inside, 2=crosses (matching geo.Relation order).
 func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) int {
 	q := v.query
 	inside := true

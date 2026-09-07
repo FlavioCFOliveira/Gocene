@@ -109,9 +109,9 @@ func NewLucene104ScalarQuantizedVectorsWriter(state *codecs.SegmentWriteState, e
 		return nil, errors.New("lucene104 sq: nil Directory")
 	}
 
-	metaName := index.SegmentFileName(
+	metaName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, MetaExtension)
-	dataName := index.SegmentFileName(
+	dataName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, VectorDataExtension)
 
 	rawMeta, err := state.Directory.CreateOutput(metaName, store.IOContextWrite)
@@ -528,12 +528,12 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) Finish() error {
 		if err := w.meta.WriteInt(-1); err != nil {
 			return fmt.Errorf("lucene104 sq: write meta sentinel: %w", err)
 		}
-		if err := codecs.WriteFooter(w.meta); err != nil {
+		if err := store.WriteFooter(w.meta); err != nil {
 			return fmt.Errorf("lucene104 sq: write meta footer: %w", err)
 		}
 	}
 	if w.vectorData != nil {
-		if err := codecs.WriteFooter(w.vectorData); err != nil {
+		if err := store.WriteFooter(w.vectorData); err != nil {
 			return fmt.Errorf("lucene104 sq: write data footer: %w", err)
 		}
 	}

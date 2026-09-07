@@ -1,8 +1,6 @@
 package index
 
 import (
-	"io"
-
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -25,6 +23,12 @@ type KnnVectorValues interface {
 
 	// GetEncoding returns the vector encoding of these values.
 	GetEncoding() VectorEncoding
+
+	// GetVectorByteLength returns the vector byte length.
+	GetVectorByteLength() int
+
+	// GetAcceptOrds returns a Bits accepting docs accepted by the argument and having a vector value.
+	GetAcceptOrds(acceptDocs util.Bits) util.Bits
 
 	// Iterator creates an iterator for this instance.
 	Iterator() util.DocIndexIterator

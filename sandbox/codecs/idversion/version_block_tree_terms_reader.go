@@ -11,7 +11,6 @@ import (
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -51,7 +50,7 @@ func NewVersionBlockTreeTermsReader(
 	state *codecs.SegmentReadState,
 ) (*VersionBlockTreeTermsReader, error) {
 
-	termsFile := index.SegmentFileName(
+	termsFile := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, vbtTermsExtension,
 	)
 	termsIn, err := state.Directory.OpenInput(termsFile, store.IOContext{})
@@ -85,7 +84,7 @@ func NewVersionBlockTreeTermsReader(
 		return nil, fmt.Errorf("NewVersionBlockTreeTermsReader: check terms header: %w", err)
 	}
 
-	indexFile := index.SegmentFileName(
+	indexFile := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, vbtTermsIndexExtension,
 	)
 	indexIn, err = state.Directory.OpenInput(indexFile, store.IOContext{})
@@ -319,7 +318,7 @@ func (r *VersionBlockTreeTermsReader) String() string {
 func seekDir(input store.IndexInput) error {
 	// Position just before the trailing dirOffset long (8 bytes) that precedes
 	// the codec footer.
-	dirPtrPos := input.Length() - int64(codecs.FooterLength()) - 8
+	dirPtrPos := input.Length() - int64(store.FooterLength()) - 8
 	if err := input.SetPosition(dirPtrPos); err != nil {
 		return fmt.Errorf("seekDir: seek to dirPtr position %d: %w", dirPtrPos, err)
 	}

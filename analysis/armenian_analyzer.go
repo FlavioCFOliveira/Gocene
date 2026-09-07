@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // ArmenianStopWords contains common Armenian stop words.
@@ -66,7 +68,7 @@ func NewArmenianAnalyzerWithWords(stopWords *CharArraySet) *ArmenianAnalyzer {
 }
 
 // TokenStream creates a TokenStream for analyzing text.
-func (a *ArmenianAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (a *ArmenianAnalyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	return a.BaseAnalyzer.TokenStream(fieldName, reader)
 }
 
@@ -81,5 +83,4 @@ func (a *ArmenianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure ArmenianAnalyzer implements Analyzer
-var _ Analyzer = (*ArmenianAnalyzer)(nil)
-var _ AnalyzerInterface = (*ArmenianAnalyzer)(nil)
+var _ api.Analyzer = (*ArmenianAnalyzer)(nil)

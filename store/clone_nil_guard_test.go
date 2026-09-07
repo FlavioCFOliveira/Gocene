@@ -30,7 +30,7 @@ func TestSimpleFSIndexInput_CloneNilFileGuard(t *testing.T) {
 		t.Errorf("ReadByte error should wrap ErrIllegalState, got: %v", err)
 	}
 
-	err = in.ReadBytes(make([]byte, 10))
+	err = in.ReadBytes(make([]byte, 10), 0, 10)
 	if err == nil {
 		t.Error("ReadBytes on nil-file input should return error")
 	}
@@ -58,7 +58,7 @@ func TestNIOFSIndexInput_CloneNilFileGuard(t *testing.T) {
 		t.Errorf("ReadByte error should wrap ErrIllegalState, got: %v", err)
 	}
 
-	err = in.ReadBytes(make([]byte, 10))
+	err = in.ReadBytes(make([]byte, 10), 0, 10)
 	if err == nil {
 		t.Error("ReadBytes on nil-file input should return error")
 	}
@@ -86,7 +86,7 @@ func TestMMapIndexInput_CloneNilChunksGuard(t *testing.T) {
 		t.Errorf("ReadByte error should wrap ErrIllegalState, got: %v", err)
 	}
 
-	err = in.ReadBytes(make([]byte, 10))
+	err = in.ReadBytes(make([]byte, 10), 0, 10)
 	if err == nil {
 		t.Error("ReadBytes on nil-chunks input should return error")
 	}

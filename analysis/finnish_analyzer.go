@@ -156,7 +156,7 @@ func (a *FinnishAnalyzer) SetStopWords(stopWords *CharArraySet) {
 
 // Ensure FinnishAnalyzer implements Analyzer
 var _ Analyzer = (*FinnishAnalyzer)(nil)
-var _ AnalyzerInterface = (*FinnishAnalyzer)(nil)
+var _ api.Analyzer = (*FinnishAnalyzer)(nil)
 
 // FinnishLightStemFilter implements light stemming for Finnish.
 type FinnishLightStemFilter struct {

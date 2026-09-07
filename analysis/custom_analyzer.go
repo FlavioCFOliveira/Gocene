@@ -128,7 +128,7 @@ func (a *CustomAnalyzer) GetCharFilterFactories() []CharFilterFactory {
 
 // Ensure CustomAnalyzer implements Analyzer
 var _ Analyzer = (*CustomAnalyzer)(nil)
-var _ AnalyzerInterface = (*CustomAnalyzer)(nil)
+var _ api.Analyzer = (*CustomAnalyzer)(nil)
 
 // CustomAnalyzerBuilder builds CustomAnalyzer instances.
 //
@@ -217,7 +217,7 @@ func (f *CustomAnalyzerFactory) GetBuilder() *CustomAnalyzerBuilder {
 }
 
 // Create creates a new CustomAnalyzer.
-func (f *CustomAnalyzerFactory) Create() AnalyzerInterface {
+func (f *CustomAnalyzerFactory) Create() api.Analyzer {
 	analyzer, err := f.builder.Build()
 	if err != nil {
 		// In production, this should be handled better

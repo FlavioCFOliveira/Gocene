@@ -18,8 +18,8 @@ type IndexableField interface {
 	// Name returns the field name.
 	Name() string
 
-	// FieldType returns the IndexableFieldType describing the properties of this field.
-	FieldType() IndexableFieldType
+	// FieldType returns the schema.IndexableFieldType describing the properties of this field.
+	FieldType() schema.IndexableFieldType
 
 	// TokenStream creates the TokenStream used for indexing this field.
 	// If appropriate, implementations should use the given analyzer to create the TokenStreams.

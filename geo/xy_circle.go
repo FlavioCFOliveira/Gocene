@@ -1,5 +1,5 @@
 // Code in this file mirrors org.apache.lucene.geo.XYCircle from
-// Apache Lucene 10.4.0.
+// Apache Lucene 10.5.0.
 
 package geo
 

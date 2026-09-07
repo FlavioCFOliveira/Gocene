@@ -126,7 +126,7 @@ func (w *DirectWriter) flush() error {
 	}
 	directEncode(w.nextValues, w.off, w.nextBlocks, w.bitsPerValue)
 	blockCount := int(FormatPacked.ByteCount(VersionCurrent, w.off, w.bitsPerValue))
-	if err := w.out.WriteBytes(w.nextBlocks[:blockCount]); err != nil {
+	if err := w.out.WriteBytes(w.nextBlocks, 0, blockCount); err != nil {
 		return err
 	}
 	w.off = 0

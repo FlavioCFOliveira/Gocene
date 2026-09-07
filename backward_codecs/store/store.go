@@ -38,12 +38,72 @@ func NewEndiannessReverserDataInput(in gstore.DataInput) *EndiannessReverserData
 	return &EndiannessReverserDataInput{In: in}
 }
 
+func (r *EndiannessReverserDataInput) ReadInts(dst []int32, offset, length int) error {
+	if offset+length > len(dst) {
+		return fmt.Errorf("index out of bounds")
+	}
+	for i := 0; i < length; i++ {
+		v, err := r.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+func (r *EndiannessReverserDataInput) ReadMapOfStrings() (map[string]string, error) {
+	return r.In.ReadMapOfStrings()
+}
+
+func (r *EndiannessReverserDataInput) ReadSetOfStrings() ([]string, error) {
+	return r.In.ReadSetOfStrings()
+}
+
+func (r *EndiannessReverserDataInput) SkipBytes(numBytes int64) error {
+	return r.In.SkipBytes(numBytes)
+}
+
+func (r *EndiannessReverserDataInput) ReadVInt() (int32, error) {
+	return r.In.ReadVInt()
+}
+
+func (r *EndiannessReverserDataInput) ReadZInt() (int32, error) {
+	return r.In.ReadZInt()
+}
+
+func (r *EndiannessReverserDataInput) ReadVLong() (int64, error) {
+	return r.In.ReadVLong()
+}
+
+func (r *EndiannessReverserDataInput) ReadZLong() (int64, error) {
+	return r.In.ReadZLong()
+}
+
+func (r *EndiannessReverserDataInput) ReadLongs(dst []int64, offset, length int) error {
+	if offset+length > len(dst) {
+		return fmt.Errorf("index out of bounds")
+	}
+	for i := 0; i < length; i++ {
+		v, err := r.ReadLong()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
 func (r *EndiannessReverserDataInput) ReadByte() (byte, error) { return r.In.ReadByte() }
 
-func (r *EndiannessReverserDataInput) ReadBytes(b []byte) error { return r.In.ReadBytes(b) }
+func (r *EndiannessReverserDataInput) ReadBytes(b []byte, offset, length int) error { return r.In.ReadBytes(b, offset, length) }
 
 func (r *EndiannessReverserDataInput) ReadBytesN(n int) ([]byte, error) {
-	return r.In.ReadBytesN(n)
+	out := make([]byte, n)
+	if err := r.In.ReadBytes(out, 0, n); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *EndiannessReverserDataInput) ReadShort() (int16, error) {
@@ -59,6 +119,10 @@ func (r *EndiannessReverserDataInput) ReadInt() (int32, error) {
 func (r *EndiannessReverserDataInput) ReadLong() (int64, error) {
 	v, err := r.In.ReadLong()
 	return int64(bits.ReverseBytes64(uint64(v))), err
+}
+
+func (r *EndiannessReverserDataInput) ReadFloats(dst []float32, offset, length int) error {
+	return r.In.ReadFloats(dst, offset, length)
 }
 
 func (r *EndiannessReverserDataInput) ReadString() (string, error) {
@@ -89,10 +153,14 @@ func NewEndiannessReverserDataOutput(out gstore.DataOutput) *EndiannessReverserD
 
 func (w *EndiannessReverserDataOutput) WriteByte(b byte) error { return w.Out.WriteByte(b) }
 
-func (w *EndiannessReverserDataOutput) WriteBytes(b []byte) error { return w.Out.WriteBytes(b) }
+func (w *EndiannessReverserDataOutput) WriteBytes(b []byte, offset, length int) error { return w.Out.WriteBytes(b, offset, length) }
 
 func (w *EndiannessReverserDataOutput) WriteBytesN(b []byte, n int) error {
 	return w.Out.WriteBytesN(b, n)
+}
+
+func (w *EndiannessReverserDataOutput) CopyBytes(input gstore.DataInput, numBytes int64) error {
+	return w.Out.CopyBytes(input, numBytes)
 }
 
 func (w *EndiannessReverserDataOutput) WriteShort(v int16) error {
@@ -105,6 +173,18 @@ func (w *EndiannessReverserDataOutput) WriteInt(v int32) error {
 
 func (w *EndiannessReverserDataOutput) WriteLong(v int64) error {
 	return w.Out.WriteLong(int64(bits.ReverseBytes64(uint64(v))))
+}
+
+func (w *EndiannessReverserDataOutput) WriteGroupVInts(values []int32, limit int) error {
+	return w.Out.WriteGroupVInts(values, limit)
+}
+
+func (w *EndiannessReverserDataOutput) WriteMapOfStrings(m map[string]string) error {
+	return w.Out.WriteMapOfStrings(m)
+}
+
+func (w *EndiannessReverserDataOutput) WriteSetOfStrings(s []string) error {
+	return w.Out.WriteSetOfStrings(s)
 }
 
 func (w *EndiannessReverserDataOutput) WriteString(s string) error { return w.Out.WriteString(s) }
@@ -203,7 +283,7 @@ func (w *EndiannessReverserIndexOutput) WriteLong(v int64) error {
 
 // GetChecksum delegates to the wrapped output if it exposes a checksum, or
 // panics.  This satisfies the codecs.checksumWriter contract so that
-// codecs.WriteFooter can record the running CRC32 into the file.
+// store.WriteFooter can record the running CRC32 into the file.
 func (w *EndiannessReverserIndexOutput) GetChecksum() uint32 {
 	type checksummer interface{ GetChecksum() uint32 }
 	if cw, ok := w.FilterIndexOutput.GetDelegate().(checksummer); ok {
@@ -244,8 +324,8 @@ func (r *EndiannessReverserChecksumIndexInput) ReadByte() (byte, error) {
 	return r.inner.ReadByte()
 }
 
-func (r *EndiannessReverserChecksumIndexInput) ReadBytes(b []byte) error {
-	return r.inner.ReadBytes(b)
+func (r *EndiannessReverserChecksumIndexInput) ReadBytes(b []byte, offset, length int) error {
+	return r.inner.ReadBytes(b, offset, length)
 }
 
 func (r *EndiannessReverserChecksumIndexInput) ReadBytesN(n int) ([]byte, error) {
