@@ -4,6 +4,12 @@
 
 package index
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
+// InfoStream is an alias of util.InfoStream, re-exported for callers that
+// historically reached for the unqualified index.InfoStream name.
+type InfoStream = util.InfoStream
+
 // MergeContext provides context for merge selection.
 // This is the Go port of Lucene's org.apache.lucene.index.MergePolicy.MergeContext.
 //

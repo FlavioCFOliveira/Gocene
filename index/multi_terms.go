@@ -9,6 +9,7 @@ import (
 	"fmt"
 )
 
+// ReaderSlice is declared in reader_slice.go and shared across the package.
 // MultiTerms aggregates Terms from several sub-segments into one virtual
 // Terms instance. Mirrors org.apache.lucene.index.MultiTerms (Apache Lucene
 // 10.4.0).

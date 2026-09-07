@@ -25,6 +25,14 @@ type FieldInfosBuilder = schema.FieldInfosBuilder
 // EmptyFieldInfos re-exports schema.EmptyFieldInfos.
 var EmptyFieldInfos = schema.EmptyFieldInfos
 
+// FieldNumbers is an alias of schema.FieldNumbers.
+type FieldNumbers = schema.FieldNumbers
+
+// NewFieldNumbers re-exports schema.NewFieldNumbers.
+func NewFieldNumbers(softDeletesFieldName, parentFieldName string) *FieldNumbers {
+	return schema.NewFieldNumbers(softDeletesFieldName, parentFieldName)
+}
+
 // NewFieldInfos re-exports schema.NewFieldInfos.
 func NewFieldInfos() *FieldInfos {
 	return schema.NewFieldInfos()

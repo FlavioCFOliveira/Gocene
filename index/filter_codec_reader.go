@@ -28,9 +28,9 @@ func NewFilterCodecReader(in CodecReader) *FilterCodecReader {
 }
 
 // Unwrap returns the wrapped instance by reader as long as this reader is an instance of FilterCodecReader.
-func Unwrap(reader LeafReaderInterface) LeafReaderInterface {
+func Unwrap(reader LeafReader) LeafReader {
 	for {
-		if delegate, ok := reader.(interface{ GetDelegate() LeafReaderInterface }); ok {
+		if delegate, ok := reader.(interface{ GetDelegate() LeafReader }); ok {
 			reader = delegate.GetDelegate()
 		} else {
 			break
@@ -40,7 +40,7 @@ func Unwrap(reader LeafReaderInterface) LeafReaderInterface {
 }
 
 // GetDelegate returns the wrapped CodecReader.
-func (r *FilterCodecReader) GetDelegate() LeafReaderInterface {
+func (r *FilterCodecReader) GetDelegate() LeafReader {
 	return r.in
 }
 

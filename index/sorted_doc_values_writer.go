@@ -1,445 +1,348 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package index
 
 import (
+	"errors"
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
 
-// ordinalsTupleCursor is a local interface mirroring org.apache.lucene.document.column.OrdinalsTupleCursor.
-type ordinalsTupleCursor interface {
-	NextDoc() int
-	OrdValue() int
-}
-
-// ordinalsCursor is a local interface mirroring org.apache.lucene.document.column.OrdinalsCursor.
-type ordinalsCursor interface {
-	Size() int
-	NextOrd() int
-}
-
-// SortedDocValuesWriter buffers up pending byte[] per doc, deref and sorting via int ord, then flushes when segment
-// flushes.
+// SortedDocValuesWriter buffers up to one byte[] value per doc, dereferences
+// them through a BytesRefHash, and on flush sorts the unique values to assign
+// stable ordinals.
 //
-// This is the Go port of org.apache.lucene.index.SortedDocValuesWriter.
+// This is the Go port of org.apache.lucene.index.SortedDocValuesWriter
+// from Apache Lucene 10.4.0.
+//
+// Gocene divergences:
+//
+//   - The Java original extends an abstract DocValuesWriter<SortedDocValues>;
+//     Gocene has no such base type, so the public surface (AddValue,
+//     GetDocValues, Flush) is exposed directly on the writer.
+//   - Java's flush() targets DocValuesConsumer.addSortedField via an
+//     EmptyDocValuesProducer anonymous subclass. To avoid an import cycle
+//     with the codecs package this writer takes a local SortedFieldConsumer
+//     callback; the codec wiring layer adapts codecs.DocValuesConsumer to
+//     this signature (same pattern as [SortedSetDocValuesWriter]).
+//   - DocsWithFieldSet does not expose a Java-style iterator; the writer
+//     reuses the dense-or-sparse traversal helper materialised by the
+//     sibling SortedSetDocValuesWriter (docsWithFieldDocs / trailingZeros64).
 type SortedDocValuesWriter struct {
-	hash           *util.BytesRefHash
-	pending        *packed.PackedLongValuesBuilder
-	docsWithField  *DocsWithFieldSet
-	iwBytesUsed    *util.Counter
-	bytesUsed      int64 // this currently only tracks differences in 'pending'
-	fieldInfo      *FieldInfo
-	lastDocID      int
-	scratch       *SharedIndexingScratch
+	hash          *util.BytesRefHash
+	pending       *packed.PackedLongValuesBuilder
+	docsWithField *DocsWithFieldSet
+	iwBytesUsed   *util.Counter
+	bytesUsed     int64
+	fieldInfo     *FieldInfo
+	lastDocID     int
 
 	finalOrds         *packed.PackedLongValues
 	finalSortedValues []int
 	finalOrdMap       []int
 }
 
-func NewSortedDocValuesWriter(fieldInfo *FieldInfo, iwBytesUsed *util.Counter, pool *util.ByteBlockPool, scratch *SharedIndexingScratch) *SortedDocValuesWriter {
-	hash := util.NewBytesRefHashWithCapacity(
-		pool,
-		util.DefaultCapacity,
-		util.NewDirectBytesStartArray(util.DefaultCapacity),
-	)
-	// Use delta-packed builder with a reasonable overhead ratio (e.g., 0.1 for COMPACT)
-	pending, _ := packed.DeltaPackedBuilder(packed.PackedLongValuesDefaultPageSize, 0.1)
-	docsWithField := NewDocsWithFieldSet()
-
-	s := &SortedDocValuesWriter{
+// NewSortedDocValuesWriter constructs a writer for the given field. The pool
+// parameter feeds the underlying BytesRefHash; bytes-used updates are
+// reported to iwBytesUsed.
+func NewSortedDocValuesWriter(
+	fieldInfo *FieldInfo,
+	iwBytesUsed *util.Counter,
+	pool *util.ByteBlockPool,
+) *SortedDocValuesWriter {
+	w := &SortedDocValuesWriter{
 		fieldInfo:     fieldInfo,
 		iwBytesUsed:   iwBytesUsed,
-		scratch:       scratch,
-		hash:          hash,
-		pending:       pending,
-		docsWithField: docsWithFieldSet,
+		docsWithField: NewDocsWithFieldSet(),
 		lastDocID:     -1,
 	}
-
-	s.bytesUsed = pending.RamBytesUsed()
-	s.iwBytesUsed.AddAndGet(s.bytesUsed)
-	return s
+	w.hash = util.NewBytesRefHashWithCapacity(
+		pool,
+		util.DefaultCapacity,
+		util.NewDirectBytesStartArrayWithCounter(util.DefaultCapacity, iwBytesUsed),
+	)
+	// Mirrors PackedInts.COMPACT (deltaPackedBuilder); the pending stream is
+	// monotonically grown per added doc.
+	builder, err := packed.DeltaPackedBuilder(packed.PackedLongValuesDefaultPageSize, packed.Compact)
+	if err != nil {
+		// Invariant: DefaultPageSize is within bounds, ratio is valid.
+		panic(fmt.Sprintf("invalid DeltaPackedBuilder configuration: %v", err))
+	}
+	w.pending = builder
+	w.bytesUsed = w.pending.Size() * 8
+	w.iwBytesUsed.AddAndGet(w.bytesUsed)
+	return w
 }
 
-func (s *SortedDocValuesWriter) AddValue(docID int, value *util.BytesRef) error {
-	if docID <= s.lastDocID {
-		return fmt.Errorf("DocValuesField %q appears more than once in this document (only one value is allowed per field)", s.fieldInfo.Name)
+// AddValue appends value for docID. docID must be strictly greater than any
+// previously seen docID; only one value per doc is allowed.
+func (w *SortedDocValuesWriter) AddValue(docID int, value *util.BytesRef) error {
+	if docID <= w.lastDocID {
+		return fmt.Errorf(
+			"DocValuesField %q appears more than once in this document (only one value is allowed per field)",
+			w.fieldInfo.Name(),
+		)
 	}
 	if value == nil {
-		return fmt.Errorf("field %q: null value not allowed", s.fieldInfo.Name)
+		return fmt.Errorf("field %q: null value not allowed", w.fieldInfo.Name())
 	}
-	if value.Length > (util.ByteBlockSize - 2) {
-		return fmt.Errorf("DocValuesField %q is too large, must be <= %d", s.fieldInfo.Name, util.ByteBlockSize-2)
-	}
-
-	if err := s.addOneValue(value); err != nil {
-		return err
-	}
-	if err := s.docsWithField.Add(docID); err != nil {
-		return err
-	}
-
-	s.lastDocID = docID
-	return nil
-}
-
-func (s *SortedDocValuesWriter) addOneValue(value *util.BytesRef) error {
-	termID, err := s.hash.Add(value)
-	if err != nil {
-		return err
-	}
-
-	if termID < 0 {
-		termID = -termID - 1
-	} else {
-		// reserve additional space for each unique value:
-		// 1. when indexing, when hash is 50% full, rehash() suddenly needs 2*size ints.
-		// 2. when flushing, we need 1 int per value (slot in the ordMap).
-		s.iwBytesUsed.AddAndGet(2 * 4) // Integer.BYTES = 4
-	}
-
-	if err := s.pending.Add(int64(termID)); err != nil {
-		return err
-	}
-	s.updateBytesUsed()
-	return nil
-}
-
-func (s *SortedDocValuesWriter) AddOrdinalTuples(baseDocID int, dictionary []*util.BytesRef, cursor ordinalsTupleCursor) error {
-	dictSize := len(dictionary)
-	var ordToHash []int
-	if dictSize <= SharedIndexingScratchIntsSize {
-		ordToHash = s.scratch.IntsScratch()[:dictSize]
-	} else {
-		ordToHash = make([]int, dictSize)
-	}
-
-	for i := 0; i < dictSize; i++ {
-		ordToHash[i] = -1
-	}
-
-	for {
-		batchDocID := cursor.NextDoc()
-		if batchDocID == spi.NoMoreDocs {
-			break
-		}
-		docID := baseDocID + batchDocID
-		if docID <= s.lastDocID {
-			return fmt.Errorf("DocValuesField %q appears more than once in this document (only one value is allowed per field)", s.fieldInfo.Name)
-		}
-		ord := cursor.OrdValue()
-		id, err := s.lookupOrTranslate(ord, dictionary, ordToHash)
-		if err != nil {
-			return err
-		}
-		if err := s.pending.Add(int64(id)); err != nil {
-			return err
-		}
-		if err := s.docsWithField.Add(docID); err != nil {
-			return err
-		}
-		s.lastDocID = docID
-	}
-	s.updateBytesUsed()
-	return nil
-}
-
-func (s *SortedDocValuesWriter) AddDenseOrdinalValues(firstDocID int, dictionary []*util.BytesRef, cursor ordinalsCursor) error {
-	n := cursor.Size()
-	if n == 0 {
-		return nil
-	}
-
-	dictSize := len(dictionary)
-	var ordToHash []int
-	if dictSize <= SharedIndexingScratchIntsSize {
-		ordToHash = s.scratch.IntsScratch()[:dictSize]
-	} else {
-		ordToHash = make([]int, dictSize)
-	}
-
-	for i := 0; i < dictSize; i++ {
-		ordToHash[i] = -1
-	}
-
-	processed := 0
-	defer func() {
-		if processed > 0 {
-			for i := firstDocID; i < firstDocID+processed; i++ {
-				_ = s.docsWithField.Add(i)
-			}
-			s.lastDocID = firstDocID + processed - 1
-		}
-		s.updateBytesUsed()
-	}()
-
-	for processed < n {
-		ord := cursor.NextOrd()
-		id, err := s.lookupOrTranslate(ord, dictionary, ordToHash)
-		if err != nil {
-			return err
-		}
-		if err := s.pending.Add(int64(id)); err != nil {
-			return err
-		}
-		processed++
-	}
-	return nil
-}
-
-func (s *SortedDocValuesWriter) lookupOrTranslate(ord int, dictionary []*util.BytesRef, ordToHash []int) (int, error) {
-	if ord < 0 || ord >= len(dictionary) {
-		return 0, fmt.Errorf("DocValuesField %q: ordinal %d is out of range [0, %d)", s.fieldInfo.Name, ord, len(dictionary))
-	}
-	id := ordToHash[ord]
-	if id < 0 {
-		termID, err := s.hash.Add(dictionary[ord])
-		if err != nil {
-			return 0, err
-		}
-		id = termID
-		if id < 0 {
-			id = -id - 1
-		} else {
-			s.iwBytesUsed.AddAndGet(2 * 4)
-		}
-		ordToHash[ord] = id
-	}
-	return id, nil
-}
-
-func (s *SortedDocValuesWriter) updateBytesUsed() {
-	newBytesUsed := s.pending.RamBytesUsed()
-	s.iwBytesUsed.AddAndGet(newBytesUsed - s.bytesUsed)
-	s.bytesUsed = newBytesUsed
-}
-
-func (s *SortedDocValuesWriter) finish() {
-	if s.finalSortedValues == nil {
-		valueCount := s.hash.Size()
-		s.updateBytesUsed()
-		s.finalSortedValues = s.hash.Sort()
-		s.finalOrds = s.pending.Build()
-		s.finalOrdMap = make([]int, valueCount)
-		for ord := 0; ord < valueCount; ord++ {
-			s.finalOrdMap[s.finalSortedValues[ord]] = ord
-		}
-	}
-}
-
-func (s *SortedDocValuesWriter) GetDocValues() spi.SortedDocValues {
-	s.finish()
-	return &bufferedSortedDocValues{
-		hash:            s.hash,
-		finalOrds:       s.finalOrds,
-		sortedValues:    s.finalSortedValues,
-		ordMap:          s.finalOrdMap,
-		docsWithField:    s.docsWithField,
-	}
-}
-
-func (s *SortedDocValuesWriter) Flush(state *spi.SegmentWriteState, sortMap spi.SorterDocMap, consumer spi.DocValuesConsumer) error {
-	s.finish()
-
-	producer := getDocValuesProducer(
-		s.fieldInfo,
-		s.hash,
-		s.finalOrds,
-		s.finalSortedValues,
-		s.finalOrdMap,
-		s.docsWithField,
-		sortMap,
-	)
-	return consumer.AddSortedField(s.fieldInfo, producer)
-}
-
-func getDocValuesProducer(
-	writerFieldInfo *FieldInfo,
-	hash *util.BytesRefHash,
-	ords *packed.PackedLongValues,
-	sortedValues []int,
-	ordMap []int,
-	docsWithField *DocsWithFieldSet,
-	sortMap spi.SorterDocMap,
-) spi.DocValuesProducer {
-	var sorted []int
-	if sortMap != nil {
-		sorted = sortDocValues(
-			sortMap.Size(),
-			sortMap,
-			&bufferedSortedDocValues{
-				hash:          hash,
-				finalOrds:     ords,
-				sortedValues:  sortedValues,
-				ordMap:        ordMap,
-				docsWithField: docsWithField,
-			},
+	if value.Length > util.ByteBlockSize-2 {
+		return fmt.Errorf(
+			"DocValuesField %q is too large, must be <= %d",
+			w.fieldInfo.Name(), util.ByteBlockSize-2,
 		)
 	}
 
-	return &sortedDocValuesProducer{
-		writerFieldInfo: writerFieldInfo,
-		hash:            hash,
-		ords:            ords,
-		sortedValues:    sortedValues,
-		ordMap:          ordMap,
-		docsWithField:   docsWithField,
-		sorted:          sorted,
+	if err := w.addOneValue(value); err != nil {
+		return err
 	}
+	if err := w.docsWithField.Add(docID); err != nil {
+		return err
+	}
+	w.lastDocID = docID
+	return nil
 }
 
-func sortDocValues(maxDoc int, sortMap spi.SorterDocMap, oldValues spi.SortedDocValues) []int {
+// addOneValue inserts value into the hash and records its term id in
+// pending.
+func (w *SortedDocValuesWriter) addOneValue(value *util.BytesRef) error {
+	termID, err := w.hash.Add(value)
+	if err != nil {
+		return err
+	}
+	if termID < 0 {
+		termID = -termID - 1
+	} else {
+		// Reserve additional bookkeeping memory per unique value:
+		//   1. rehash() doubles the table when 50% full.
+		//   2. flush() needs one int per value for the ordMap slot.
+		w.iwBytesUsed.AddAndGet(2 * 4) // Integer.BYTES = 4
+	}
+	if err := w.pending.Add(int64(termID)); err != nil {
+		return err
+	}
+	w.updateBytesUsed()
+	return nil
+}
+
+func (w *SortedDocValuesWriter) updateBytesUsed() {
+	newBytesUsed := w.pending.Size() * 8
+	w.iwBytesUsed.AddAndGet(newBytesUsed - w.bytesUsed)
+	w.bytesUsed = newBytesUsed
+}
+
+// finish freezes the in-memory state for read-back; idempotent.
+func (w *SortedDocValuesWriter) finish() error {
+	if w.finalSortedValues != nil {
+		return nil
+	}
+	valueCount := w.hash.Size()
+	w.updateBytesUsed()
+	w.finalSortedValues = w.hash.Sort()
+	w.finalOrds = w.pending.Build()
+	w.finalOrdMap = make([]int, valueCount)
+	for ord := 0; ord < valueCount; ord++ {
+		w.finalOrdMap[w.finalSortedValues[ord]] = ord
+	}
+	return nil
+}
+
+// GetDocValues materialises an in-memory SortedDocValues view of the
+// buffered state. Mirrors the Java getDocValues() / DocValuesWriter
+// contract.
+func (w *SortedDocValuesWriter) GetDocValues() (SortedDocValues, error) {
+	if err := w.finish(); err != nil {
+		return nil, err
+	}
+	return newBufferedSingleSortedDocValues(
+		w.hash, w.finalOrds, w.finalSortedValues, w.finalOrdMap, w.docsWithFieldDocs(),
+	), nil
+}
+
+// docsWithFieldDocs materialises the docIDs in addition order via the same
+// dense-or-sparse traversal helper used by SortedSetDocValuesWriter.
+func (w *SortedDocValuesWriter) docsWithFieldDocs() []int {
+	d := w.docsWithField
+	docs := make([]int, 0, d.Cardinality())
+	if d.bits == nil {
+		for i := 0; i < d.Cardinality(); i++ {
+			docs = append(docs, i)
+		}
+		return docs
+	}
+	for w64, word := range d.bits {
+		for word != 0 {
+			bit := word & -word
+			docs = append(docs, w64*64+trailingZeros64(uint64(bit)))
+			word ^= bit
+		}
+	}
+	return docs
+}
+
+// SortedFieldConsumer is the callback used by Flush to hand the buffered
+// SortedDocValues to the underlying codec consumer.
+//
+// Gocene divergence: replaces the Java DocValuesConsumer.addSortedField +
+// EmptyDocValuesProducer.getSorted anonymous override with a simple
+// function-typed boundary. The wiring layer in the codecs package adapts
+// codecs.DocValuesConsumer to this signature.
+type SortedFieldConsumer func(field *FieldInfo, values SortedDocValues) error
+
+// Flush hands the buffered state to consumer. When sortMap is non-nil the
+// values are re-mapped via the segment's IndexSorter docmap.
+//
+// Gocene divergence: maxDoc is passed in explicitly rather than read from
+// SegmentWriteState because Gocene's SegmentWriteState in the index package
+// does not yet carry SegmentInfo.MaxDoc (same convention as
+// [SortedSetDocValuesWriter.Flush]).
+func (w *SortedDocValuesWriter) Flush(
+	maxDoc int,
+	sortMap SorterDocMap,
+	consumer SortedFieldConsumer,
+) error {
+	if consumer == nil {
+		return errors.New("SortedDocValuesWriter.Flush: consumer must not be nil")
+	}
+	if err := w.finish(); err != nil {
+		return err
+	}
+	buf := newBufferedSingleSortedDocValues(
+		w.hash, w.finalOrds, w.finalSortedValues, w.finalOrdMap, w.docsWithFieldDocs(),
+	)
+	if sortMap == nil {
+		return consumer(w.fieldInfo, buf)
+	}
+	sorted, err := sortDocValues(maxDoc, sortMap, buf)
+	if err != nil {
+		return err
+	}
+	// Rebuild a fresh buffered view: the Java original constructs a second
+	// BufferedSortedDocValues so that the SortingSortedDocValues delegate
+	// has an untouched iterator state to fall back to for lookupOrd.
+	delegate := newBufferedSingleSortedDocValues(
+		w.hash, w.finalOrds, w.finalSortedValues, w.finalOrdMap, w.docsWithFieldDocs(),
+	)
+	return consumer(w.fieldInfo, newSortingSortedDocValues(delegate, sorted))
+}
+
+// sortDocValues mirrors SortedDocValuesWriter.sortDocValues in the Java
+// source: it walks the unsorted view and builds an ord-per-newDocID slice,
+// filling unset slots with -1.
+func sortDocValues(maxDoc int, sortMap SorterDocMap, oldValues SortedDocValues) ([]int, error) {
 	ords := make([]int, maxDoc)
 	for i := range ords {
 		ords[i] = -1
 	}
 	for {
 		docID, err := oldValues.NextDoc()
-		if err != nil || docID == spi.NoMoreDocs {
+		if err != nil {
+			return nil, err
+		}
+		if docID == NO_MORE_DOCS {
 			break
 		}
+		// docID is the current cursor — OrdValue is equivalent to GetOrd(docID).
+		ord, err := oldValues.OrdValue()
+		if err != nil {
+			return nil, err
+		}
 		newDocID := sortMap.OldToNew(docID)
-		ord, _ := oldValues.OrdValue()
+		if newDocID < 0 || newDocID >= maxDoc {
+			return nil, fmt.Errorf("sortDocValues: sortMap.OldToNew(%d)=%d outside [0..%d)", docID, newDocID, maxDoc)
+		}
 		ords[newDocID] = ord
 	}
-	return ords
+	return ords, nil
 }
 
-type sortedDocValuesProducer struct {
-	writerFieldInfo *FieldInfo
-	hash            *util.BytesRefHash
-	ords            *packed.PackedLongValues
-	sortedValues    []int
-	ordMap          []int
-	docsWithField   *DocsWithFieldSet
-	sorted          []int
-}
+// ============================================================================
+// SortingSortedDocValues — sort-aware view used by Flush when sortMap != nil.
+// ============================================================================
 
-func (p *sortedDocValuesProducer) GetSorted(fieldInfoIn *FieldInfo) (spi.SortedDocValues, error) {
-	if fieldInfoIn != p.writerFieldInfo {
-		return nil, fmt.Errorf("wrong fieldInfo")
-	}
-	buf := &bufferedSortedDocValues{
-		hash:          p.hash,
-		finalOrds:     p.ords,
-		sortedValues:  p.sortedValues,
-		ordMap:        p.ordMap,
-		docsWithField: p.docsWithField,
-	}
-	if p.sorted == nil {
-		return buf, nil
-	}
-	return &sortingSortedDocValues{
-		in:    buf,
-		ords:  p.sorted,
-		docID: -1,
-	}, nil
-}
-
-type bufferedSortedDocValues struct {
-	hash          *util.BytesRefHash
-	scratch       *util.BytesRef
-	sortedValues  []int
-	ordMap        []int
-	ord           int
-	finalOrds     *packed.PackedLongValues
-	docsWithField *DocsWithFieldSet
-}
-
-func (b *bufferedSortedDocValues) DocID() int {
-	// In a real implementation, we'd need a DocIdSetIterator over docsWithField.
-	return -1 // Placeholder
-}
-
-func (b *bufferedSortedDocValues) NextDoc() (int, error) {
-	// In a real implementation, we'd iterate over docsWithField.
-	return spi.NoMoreDocs, nil // Placeholder
-}
-
-func (b *bufferedSortedDocValues) Advance(target int) (int, error) {
-	return spi.NoMoreDocs, nil // Placeholder
-}
-
-func (b *bufferedSortedDocValues) AdvanceExact(target int) (bool, error) {
-	return b.docsWithField.Contains(target), nil
-}
-
-func (b *bufferedSortedDocValues) LongValue() (int64, error) {
-	return int64(b.ord), nil
-}
-
-func (b *bufferedSortedDocValues) Cost() int64 {
-	return 0 // Placeholder
-}
-
-func (b *bufferedSortedDocValues) OrdValue() (int, error) {
-	return b.ord, nil
-}
-
-func (b *bufferedSortedDocValues) LookupOrd(ord int) ([]byte, error) {
-	if b.scratch == nil {
-		b.scratch = util.NewBytesRefEmpty()
-	}
-	b.hash.Get(b.sortedValues[ord], b.scratch)
-	return b.scratch.ValidBytes(), nil
-}
-
-func (b *bufferedSortedDocValues) GetValueCount() int {
-	return b.hash.Size()
-}
-
+// sortingSortedDocValues iterates a sortDocValues result in new-doc order and
+// resolves bytes via the underlying buffered view.
 type sortingSortedDocValues struct {
-	in    spi.SortedDocValues
+	in    SortedDocValues
 	ords  []int
 	docID int
 }
 
-func (s *sortingSortedDocValues) DocID() int {
-	return s.docID
+func newSortingSortedDocValues(in SortedDocValues, ords []int) *sortingSortedDocValues {
+	return &sortingSortedDocValues{in: in, ords: ords, docID: -1}
 }
+
+func (s *sortingSortedDocValues) DocID() int { return s.docID }
 
 func (s *sortingSortedDocValues) NextDoc() (int, error) {
 	for {
 		s.docID++
 		if s.docID == len(s.ords) {
-			s.docID = spi.NoMoreDocs
-			break
+			s.docID = NO_MORE_DOCS
+			return NO_MORE_DOCS, nil
 		}
 		if s.ords[s.docID] != -1 {
-			break
+			return s.docID, nil
 		}
 	}
-	return s.docID, nil
 }
 
+// Advance returns the docID if it has a value, otherwise NO_MORE_DOCS.
+// Mirrors the Java SortingSortedDocValues.advanceExact contract; the Java
+// advance(int) intentionally throws UnsupportedOperationException — Gocene
+// returns an error in that case.
 func (s *sortingSortedDocValues) Advance(target int) (int, error) {
-	return spi.NoMoreDocs, nil
+	return 0, errors.New("sortingSortedDocValues: Advance is not supported; use NextDoc")
 }
 
+// AdvanceExact positions the cursor at target and reports whether the
+// target has an ord. Mirrors the Java
+// SortingSortedDocValues#advanceExact, which the IndexSorter callers
+// rely on. T4709-added.
 func (s *sortingSortedDocValues) AdvanceExact(target int) (bool, error) {
+	if target < 0 || target >= len(s.ords) {
+		return false, fmt.Errorf("sortingSortedDocValues: AdvanceExact(%d) out of bounds", target)
+	}
 	s.docID = target
 	return s.ords[target] != -1, nil
 }
 
-func (s *sortingSortedDocValues) LongValue() (int64, error) {
-	return int64(s.ords[s.docID]), nil
+// BinaryValue returns the term bytes for the current cursor position.
+// Mirrors the Java reference's advanceExact + lookupOrd(ordValue()).
+func (s *sortingSortedDocValues) BinaryValue() ([]byte, error) {
+	if s.docID < 0 || s.docID >= len(s.ords) || s.ords[s.docID] == -1 {
+		return nil, fmt.Errorf("sortingSortedDocValues: BinaryValue at invalid position %d", s.docID)
+	}
+	return s.in.LookupOrd(s.ords[s.docID])
 }
 
+// OrdValue returns the ord bound to the current cursor position.
+// Mirrors org.apache.lucene.index.SortedDocValues#ordValue.
 func (s *sortingSortedDocValues) OrdValue() (int, error) {
+	if s.docID < 0 || s.docID >= len(s.ords) {
+		return -1, fmt.Errorf("sortingSortedDocValues: OrdValue at invalid position %d", s.docID)
+	}
 	return s.ords[s.docID], nil
 }
 
-func (s *sortingSortedDocValues) Cost() int64 {
-	return s.in.Cost()
+// LongValue is unsupported on SortedDocValues — the inherited
+// NumericDocValues surface satisfies the interface but ordinals are
+// surfaced through OrdValue.
+func (s *sortingSortedDocValues) LongValue() (int64, error) {
+	ord, err := s.OrdValue()
+	if err != nil {
+		return 0, err
+	}
+	return int64(ord), nil
 }
 
-func (s *sortingSortedDocValues) LookupOrd(ord int) ([]byte, error) {
-	return s.in.LookupOrd(ord)
-}
+// Cost delegates to the underlying buffered view.
+func (s *sortingSortedDocValues) Cost() int64 { return s.in.Cost() }
 
-func (s *sortingSortedDocValues) GetValueCount() int {
-	return s.in.GetValueCount()
-}
+func (s *sortingSortedDocValues) LookupOrd(ord int) ([]byte, error) { return s.in.LookupOrd(ord) }
+
+func (s *sortingSortedDocValues) GetValueCount() int { return s.in.GetValueCount() }

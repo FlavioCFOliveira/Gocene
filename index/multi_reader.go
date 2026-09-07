@@ -106,7 +106,7 @@ func (r *MultiReader) GetTermVectors(docID int) (Fields, error) {
 	localDocID := docID - r.ReaderBase(readerIndex)
 
 	// Get term vectors from sub-reader
-	if leafReader, ok := r.readers[readerIndex].(LeafReaderInterface); ok {
+	if leafReader, ok := r.readers[readerIndex].(LeafReader); ok {
 		return leafReader.GetTermVectors(localDocID)
 	}
 
@@ -117,7 +117,7 @@ func (r *MultiReader) GetTermVectors(docID int) (Fields, error) {
 // Note: This returns terms from the first sub-reader that has the field.
 func (r *MultiReader) Terms(field string) (Terms, error) {
 	for _, reader := range r.readers {
-		if leafReader, ok := reader.(LeafReaderInterface); ok {
+		if leafReader, ok := reader.(LeafReader); ok {
 			terms, err := leafReader.Terms(field)
 			if err != nil {
 				return nil, err

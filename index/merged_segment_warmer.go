@@ -21,7 +21,7 @@ type MergedSegmentWarmer interface {
 // SegmentWarmerLeafReader is the minimal leaf-reader surface needed by
 // MergedSegmentWarmer. It is implemented by LeafReader and *SegmentReader.
 // This interface is kept narrow to avoid coupling warmers to the full
-// index.LeafReaderInterface.
+// index.LeafReader.
 type SegmentWarmerLeafReader interface {
 	GetFieldInfos() *FieldInfos
 	Terms(field string) (Terms, error)

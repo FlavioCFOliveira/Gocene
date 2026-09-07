@@ -18,23 +18,6 @@ import (
 
 // DirectoryReader is a CompositeReader that reads from a Directory.
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 //
 // This is the Go port of Lucene's org.apache.lucene.index.DirectoryReader.
 //
@@ -390,7 +373,7 @@ func readFieldInfosWithGen(directory store.Directory, codec Codec, segInfo *Segm
 // loadLiveDocsFromDisk reads the segment's .liv file (when the segment has a
 // non-default delGen) and records the deleted ordinals on the SegmentCommitInfo
 // so SegmentReader.GetLiveDocs and SegmentCommitInfo.NumDocs reflect the
-// on-disk deletions. This replaces the legacy _gocene_del_ userData round-trip
+// on-disk deletions. This replaces the legacy _gocene_del userData round-trip
 // (rmp #4785) by making the byte-faithful Lucene90 .liv file authoritative.
 //
 // Best-effort: a missing or unreadable .liv leaves the existing (possibly
@@ -552,18 +535,16 @@ func OpenIfChangedFromWriter(old *DirectoryReader, writer *IndexWriter) (*Direct
 }
 
 // Reopen reopens the index to see if any changes have been made.
-	func (r *DirectoryReader) Reopen() (*DirectoryReader, error) {
-		newReader, err := r.doOpenIfChanged(nil, nil)
-		if err != nil {
-			return nil, err
-		}
-		if newReader == nil {
-			return r, nil
-		}
-		return newReader, nil
+func (r *DirectoryReader) Reopen() (*DirectoryReader, error) {
+	newReader, err := r.doOpenIfChanged(nil, nil)
+	if err != nil {
+		return nil, err
 	}
+	if newReader == nil {
+		return r, nil
 	}
-	}
+	return newReader, nil
+}
 
 // IsCurrent returns true if the reader is still up to date with the index.
 func (r *DirectoryReader) IsCurrent() (bool, error) {
@@ -1300,24 +1281,23 @@ func openDirectoryReaderWithSharing(directory store.Directory, segmentInfos *Seg
 					}
 				}
 			}
+			readers = append(readers, newReader)
 		}
-		readers = append(readers, newReader)
-	}
 
-	compReader, err := newCompositeReaderFromSegments(readers)
-	if err != nil {
-		for _, opened := range readers {
-			opened.Close()
+		compReader, err := newCompositeReaderFromSegments(readers)
+		if err != nil {
+			for _, opened := range readers {
+				opened.Close()
+			}
+			return nil, err
 		}
-		return nil, err
-	}
 
-	return &DirectoryReader{
-		CompositeReader: compReader,
-		directory:       directory,
-		segmentInfos:    segmentInfos,
-		readers:         readers,
-		nrtGen:          0,
-	}, nil
-}
+		return &DirectoryReader{
+			CompositeReader: compReader,
+			directory:       directory,
+			segmentInfos:    segmentInfos,
+			readers:         readers,
+			nrtGen:          0,
+		}, nil
+	}
 }

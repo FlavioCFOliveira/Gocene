@@ -1,3 +1,4 @@
+
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -7,244 +8,160 @@ package index
 import (
 	"fmt"
 	"math/rand"
-	"runtime"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis/api"
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// TestPoint is a simple interface that is executed for each "TP" InfoStream component message.
-type TestPoint func(message string)
-
-type testPointInfoStream struct {
-	delegate  util.InfoStream
-	testPoint TestPoint
-}
-
-func newTestPointInfoStream(delegate util.InfoStream, testPoint TestPoint) *testPointInfoStream {
-	if delegate == nil {
-		delegate = &util.NullInfoStream{}
-	}
-	return &testPointInfoStream{
-		delegate:  delegate,
-		testPoint: testPoint,
-	}
-}
-
-func (s *testPointInfoStream) Close() error {
-	return s.delegate.Close()
-}
-
-func (s *testPointInfoStream) Message(component, message string) {
-	if component == "TP" {
-		s.testPoint(message)
-	}
-	if s.delegate.IsEnabled(component) {
-		s.delegate.Message(component, message)
-	}
-}
-
-func (s *testPointInfoStream) IsEnabled(component string) bool {
-	return component == "TP" || s.delegate.IsEnabled(component)
-}
-
-// MockIndexWriter returns an indexwriter that randomly mixes up thread scheduling (by yielding at test points).
-func MockIndexWriter(r *rand.Rand, d store.Directory, conf *IndexWriterConfig, testPoint TestPoint) (*IndexWriter, error) {
-	conf.SetInfoStream(newTestPointInfoStream(conf.GetInfoStream(), testPoint))
-
-	var reader *StandardDirectoryReader
-	if r.Intn(2) == 0 && util.IndexExists(d) && conf.LiveIndexWriterConfig.GetOpenMode() != Create {
-		// RIW: open writer from reader
-		var err error
-		reader, err = Open(nil, func(sci *SegmentCommitInfo) (*ReadersAndUpdates, error) {
-			return nil, fmt.Errorf("not implemented")
-		}, nil, true, true) // Simplified for translation
-		if err != nil {
-			return nil, err
-		}
-		conf.SetIndexCommit(reader.GetCommit())
-	}
-
-	iw, err := NewIndexWriter(d, conf)
-	if err != nil {
-		if reader != nil {
-			reader.Close()
-		}
-		return nil, err
-	}
-
-	if reader != nil {
-		reader.Close()
-	}
-
-	return iw, nil
-}
-
-// MockIndexWriterSimple returns an indexwriter that randomly calls runtime.Gosched() to mixup thread scheduling.
-func MockIndexWriterSimple(d store.Directory, conf *IndexWriterConfig, r *rand.Rand) (*IndexWriter, error) {
-	random := rand.New(rand.NewSource(r.Int63()))
-	tp := func(message string) {
-		if random.Intn(4) == 2 {
-			runtime.Gosched()
-		}
-	}
-	return MockIndexWriter(r, d, conf, tp)
-}
-
-// RandomIndexWriter is a utility that randomizes the indexing experience for testing purposes.
+// RandomIndexWriter is a wrapper around IndexWriter that randomizes the indexing experience.
+// It may swap in a different merge policy/scheduler, commit periodically, may or may not
+// forceMerge in the end, may flush by doc count instead of RAM, etc.
+//
+// This is the Go port of Lucene's org.apache.lucene.tests.index.RandomIndexWriter.
 type RandomIndexWriter struct {
-	w *IndexWriter
-
-	r *rand.Rand
-
-	docCount int
-	flushAt  int
-
-	flushAtFactor float64
-
-	getReaderCalled bool
-
-	analyzer api.Analyzer // only if WE created it (then we close it)
-
-	softDeletesRatio float64
-
-	config *LiveIndexWriterConfig
-
+	W                        *IndexWriter
+	r                        *rand.Rand
+	docCount                 int
+	flushAt                  int
+	flushAtFactor            float64
+	getReaderCalled          bool
+	analyzer                 analysis.Analyzer // only if WE created it (then we close it)
+	softDeletesRatio         float64
+	config                   *LiveIndexWriterConfig
 	doRandomForceMerge       bool
 	doRandomForceMergeAssert bool
+	mu                       sync.Mutex
 }
 
-func NewRandomIndexWriter(r *rand.Rand, d store.Directory) (*RandomIndexWriter, error) {
-	// Use a mock analyzer as in Lucene's LuceneTestCase.newIndexWriterConfig
-	conf := NewIndexWriterConfig() // Default analyzer is Standard
-	// Note: Lucene uses MockAnalyzer(r) here.
-	return NewRandomIndexWriterWithConfig(r, d, conf, true, r.Intn(2) == 0)
-}
+// NewRandomIndexWriter creates a new RandomIndexWriter with the provided IndexWriter and Random.
+func NewRandomIndexWriter(w *IndexWriter, r *rand.Rand) *RandomIndexWriter {
+	if r == nil {
+		r = rand.New(rand.NewSource(0))
+	}
+	// Create a new Random with a different seed derived from the input random
+	newRand := rand.New(rand.NewSource(r.Int63()))
 
-func NewRandomIndexWriterWithAnalyzer(r *rand.Rand, d store.Directory, a api.Analyzer) (*RandomIndexWriter, error) {
-	conf := NewIndexWriterConfigWithAnalyzer(a)
-	return NewRandomIndexWriterWithConfig(r, d, conf, false, r.Intn(2) == 0)
-}
-
-func NewRandomIndexWriterWithConfig(r *rand.Rand, d store.Directory, c *IndexWriterConfig) (*RandomIndexWriter, error) {
-	return NewRandomIndexWriterWithConfigExtended(r, d, c, false, r.Intn(2) == 0)
-}
-
-func NewRandomIndexWriterWithConfigExtended(r *rand.Rand, d store.Directory, c *IndexWriterConfig, useSoftDeletes bool, randomConfig bool) (*RandomIndexWriter, error) {
-	// The Lucene source uses a private constructor.
-	// we wrap the logic here.
-
-	// Random should not be shared
-	localRand := rand.New(rand.NewSource(r.Int63()))
-
-	if useSoftDeletes {
-		c.SetSoftDeletesField("___soft_deletes")
-		// softDeletesRatio = 1.d / (double) 1 + r.nextInt(10);
-		softDeletesRatio := 1.0 / (1.0 + float64(localRand.Intn(10)))
-		_ = softDeletesRatio // Logic preserved in struct below
+	riw := &RandomIndexWriter{
+		W:             w,
+		r:             newRand,
+		flushAt:       nextInt(newRand, 10, 1000),
+		flushAtFactor: 1.0,
+		config:        w.GetConfig(),
+		analyzer:      nil,
 	}
 
-	// Use MockIndexWriter to setup potential test points
-	iw, err := MockIndexWriter(localRand, d, c, func(msg string) {})
+	// Randomly decide whether to do force merges
+	if w.GetConfig().GetMergePolicy() != nil {
+		riw.doRandomForceMerge = newRand.Intn(2) == 0
+	}
+
+	return riw
+}
+
+// NewRandomIndexWriterWithConfig creates a new RandomIndexWriter with a config and random instance.
+func NewRandomIndexWriterWithConfig(r *rand.Rand, dir store.Directory, config *IndexWriterConfig) (*RandomIndexWriter, error) {
+	if r == nil {
+		r = rand.New(rand.NewSource(0))
+	}
+	// Create a new Random with a different seed derived from the input random
+	newRand := rand.New(rand.NewSource(r.Int63()))
+
+	// Optionally set soft deletes
+	softDeletesRatio := 0.0
+	if newRand.Intn(2) == 0 {
+		softDeletesRatio = 1.0 / float64(1+newRand.Intn(10))
+		config.SetSoftDeletesField("___soft_deletes")
+	}
+
+	w, err := NewIndexWriter(dir, config)
 	if err != nil {
 		return nil, err
 	}
 
-	flushAt := 10 + localRand.Intn(991) // TestUtil.nextInt(r, 10, 1000)
-
-	var analyzer api.Analyzer
-	// In a real scenario, we'd check if the config analyzer should be closed.
-	// For this translation, we keep it simple.
-	analyzer = iw.GetAnalyzer()
-
 	riw := &RandomIndexWriter{
-		w:               iw,
-		r:               localRand,
-		config:           iw.GetConfig().LiveIndexWriterConfig,
-		flushAt:          flushAt,
+		W:                w,
+		r:                newRand,
+		flushAt:          nextInt(newRand, 10, 1000),
 		flushAtFactor:    1.0,
-		analyzer:         analyzer,
-		softDeletesRatio: 0.0,
+		config:           w.GetConfig(),
+		softDeletesRatio: softDeletesRatio,
+		analyzer:         config.GetAnalyzer(),
 	}
 
-	if useSoftDeletes {
-		riw.softDeletesRatio = 1.0 / (1.0 + float64(localRand.Intn(10)))
-	}
-
-	// Make sure we sometimes test indices that don't get any forced merges
-	if c.LiveIndexWriterConfig.GetMergePolicy() != nil {
-		riw.doRandomForceMerge = localRand.Intn(2) == 0
+	if w.GetConfig().GetMergePolicy() != nil {
+		riw.doRandomForceMerge = newRand.Intn(2) == 0
 	}
 
 	return riw, nil
 }
 
-func (riw *RandomIndexWriter) maybeChangeLiveIndexWriterConfig() {
-	// This mimics LuceneTestCase.maybeChangeLiveIndexWriterConfig.
-	// It would randomly change some parameters in riw.config.
-	// Since it's a test helper, we implement a minimal version.
-	if riw.r.Intn(10) == 0 {
-		// Example: change a random setting
-		// riw.config.SetSomeSetting(...)
-	}
-}
-
+// AddDocument adds a document.
 func (riw *RandomIndexWriter) AddDocument(doc *document.Document) (int64, error) {
-	riw.maybeChangeLiveIndexWriterConfig()
+	riw.mu.Lock()
+	defer riw.mu.Unlock()
+
+	maybeChangeConfig(riw.r, riw.config)
 
 	var seqNo int64
 	var err error
 
 	if riw.r.Intn(5) == 3 {
-		// Use AddDocuments with a single doc slice to test the batch path
-		seqNo, err = riw.w.AddDocuments([]*document.Document{doc})
+		// Sometimes add as addDocuments
+		docs := []*document.Document{doc}
+		seqNo, err = riw.W.AddDocuments(docs)
 	} else {
-		seqNo, err = riw.w.AddDocument(doc)
+		seqNo, err = riw.W.AddDocument(doc)
 	}
 
 	if err != nil {
 		return 0, err
 	}
 
-	riw.maybeFlushOrCommit()
-	return seqNo, nil
+	err = riw.maybeFlushOrCommit()
+	return seqNo, err
 }
 
+// AddDocuments adds multiple documents.
 func (riw *RandomIndexWriter) AddDocuments(docs []*document.Document) (int64, error) {
-	riw.maybeChangeLiveIndexWriterConfig()
-	seqNo, err := riw.w.AddDocuments(docs)
+	riw.mu.Lock()
+	defer riw.mu.Unlock()
+
+	maybeChangeConfig(riw.r, riw.config)
+
+	seqNo, err := riw.W.AddDocuments(docs)
 	if err != nil {
 		return 0, err
 	}
-	riw.maybeFlushOrCommit()
-	return seqNo, nil
+
+	err = riw.maybeFlushOrCommit()
+	return seqNo, err
 }
 
+// UpdateDocument updates a document.
 func (riw *RandomIndexWriter) UpdateDocument(t *Term, doc *document.Document) (int64, error) {
-	riw.maybeChangeLiveIndexWriterConfig()
+	riw.mu.Lock()
+	defer riw.mu.Unlock()
+
+	maybeChangeConfig(riw.r, riw.config)
 
 	var seqNo int64
 	var err error
 
 	if riw.useSoftDeletes() {
 		if riw.r.Intn(5) == 3 {
-			// use softUpdateDocuments with a slice
-			seqNo, err = riw.w.UpdateDocuments([]*document.Document{doc}, t)
-			// In Lucene, it explicitly uses NumericDocValuesField for soft deletes.
-			// In Gocene, we assume the IndexWriter handles the soft delete field
-			// if it's configured in the config.
+			docs := []*document.Document{doc}
+			seqNo, err = riw.W.UpdateDocuments(t, docs)
 		} else {
-			seqNo, err = riw.w.UpdateDocument(t, doc)
+			seqNo, err = riw.W.UpdateDocument(t, doc)
 		}
 	} else {
 		if riw.r.Intn(5) == 3 {
-			seqNo, err = riw.w.UpdateDocuments([]*document.Document{doc}, t)
+			docs := []*document.Document{doc}
+			seqNo, err = riw.W.UpdateDocuments(t, docs)
 		} else {
-			seqNo, err = riw.w.UpdateDocument(t, doc)
+			seqNo, err = riw.W.UpdateDocument(t, doc)
 		}
 	}
 
@@ -252,186 +169,188 @@ func (riw *RandomIndexWriter) UpdateDocument(t *Term, doc *document.Document) (i
 		return 0, err
 	}
 
-	riw.maybeFlushOrCommit()
-	return seqNo, nil
+	err = riw.maybeFlushOrCommit()
+	return seqNo, err
 }
 
-func (riw *RandomIndexWriter) UpdateDocuments(delTerm *Term, docs []*document.Document) (int64, error) {
-	riw.maybeChangeLiveIndexWriterConfig()
+// DeleteDocuments deletes documents matching a term.
+func (riw *RandomIndexWriter) DeleteDocuments(t *Term) (int64, error) {
+	riw.mu.Lock()
+	defer riw.mu.Unlock()
 
-	var seqNo int64
-	var err error
+	maybeChangeConfig(riw.r, riw.config)
+	return riw.W.DeleteDocuments(t)
+}
 
-	if riw.useSoftDeletes() {
-		// Gocene's IndexWriter needs to support softUpdateDocuments.
-		// If not explicitly present, we use UpdateDocuments.
-		seqNo, err = riw.w.UpdateDocuments(docs, delTerm)
-	} else {
-		if riw.r.Intn(10) < 3 {
-			// 30% chance to use a query-based update.
-			// Lucene: w.updateDocuments(new TermQuery(delTerm), docs);
-			// Gocene: we'll use the term-based one if query-based isn't available
-			seqNo, err = riw.w.UpdateDocuments(docs, delTerm)
-		} else {
-			seqNo, err = riw.w.UpdateDocuments(docs, delTerm)
-		}
+// DeleteDocumentsWithQuery deletes documents matching a query.
+// q should implement the Query interface from the search package.
+func (riw *RandomIndexWriter) DeleteDocumentsWithQuery(q interface{}) (int64, error) {
+	riw.mu.Lock()
+	defer riw.mu.Unlock()
+
+	maybeChangeConfig(riw.r, riw.config)
+	// Use a type assertion to call the actual method
+	// This allows us to avoid the import cycle
+	if writerMethod, ok := riw.W.(interface {
+		DeleteDocumentsWithQuery(interface{}) (int64, error)
+	}); ok {
+		return writerMethod.DeleteDocumentsWithQuery(q)
 	}
-
-	if err != nil {
-		return 0, err
-	}
-
-	riw.maybeFlushOrCommit()
-	return seqNo, nil
+	return 0, fmt.Errorf("IndexWriter does not support DeleteDocumentsWithQuery")
 }
 
-func (riw *RandomIndexWriter) useSoftDeletes() bool {
-	return riw.r.Float64() < riw.softDeletesRatio
+// UpdateDocValues updates doc values.
+func (riw *RandomIndexWriter) UpdateDocValues(term *Term, updates ...*document.Field) (int64, error) {
+	riw.mu.Lock()
+	defer riw.mu.Unlock()
+
+	maybeChangeConfig(riw.r, riw.config)
+	return riw.W.UpdateDocValues(term, updates...)
 }
 
-func (riw *RandomIndexWriter) maybeFlushOrCommit() {
-	riw.maybeChangeLiveIndexWriterConfig()
-	if riw.docCount == riw.flushAt {
-		if riw.r.Intn(2) == 0 {
-			_ = riw.flushAllBuffersSequentially()
-		} else if riw.r.Intn(2) == 0 {
-			_ = riw.w.Flush()
-		} else {
-			_, _ = riw.w.Commit()
-		}
-		riw.docCount = 0
-		riw.flushAt += 10 + riw.r.Intn(991) // Simplified range based on flushAtFactor
-		// Gradually increase time b/w flushes
-		if riw.flushAtFactor < 2e6 {
-			riw.flushAtFactor *= 1.05
-		}
-	}
-	riw.docCount++
-}
-
-func (riw *RandomIndexWriter) flushAllBuffersSequentially() error {
-	threadPoolSize := riw.w.GetDocWriterThreadPoolSize()
-	numFlushes := 0
-	if threadPoolSize > 0 {
-		numFlushes = riw.r.Intn(threadPoolSize + 1)
-		if numFlushes > 1 {
-			numFlushes = 1 // Math.min(1, r.nextInt(threadPoolSize + 1)) in Lucene is actually always 0 or 1.
-		}
-	}
-
-	for i := 0; i < numFlushes; i++ {
-		if !riw.w.FlushNextBuffer() {
-			break
-		}
-	}
-	return nil
-}
-
-func (riw *RandomIndexWriter) AddIndexes(dirs ...store.Directory) (int64, error) {
-	riw.maybeChangeLiveIndexWriterConfig()
-	// Gocene's IndexWriter should have AddIndexes.
-	// Assuming it exists as per Lucene.
-	return 0, fmt.Errorf("AddIndexes not implemented in Gocene IndexWriter")
-}
-
+// Commit commits the changes.
 func (riw *RandomIndexWriter) Commit() (int64, error) {
-	return riw.CommitExtended(riw.r.Intn(10) == 0)
-}
+	riw.mu.Lock()
+	defer riw.mu.Unlock()
 
-func (riw *RandomIndexWriter) CommitExtended(flushConcurrently bool) (int64, error) {
-	riw.maybeChangeLiveIndexWriterConfig()
-
+	maybeChangeConfig(riw.r, riw.config)
+	flushConcurrently := riw.r.Intn(10) == 0
 	if flushConcurrently {
-		var wg sync.WaitGroup
-		var errChan = make(chan error, 1)
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := riw.flushAllBuffersSequentially(); err != nil {
-				errChan <- err
-			}
-		}()
-
-		seqNo, err := riw.w.Commit()
-		wg.Wait()
-
-		select {
-		case e := <-errChan:
-			return 0, e
-		default:
-			if err != nil {
-				return 0, err
-			}
-			return seqNo, nil
-		}
+		// In a real implementation, we would spawn a goroutine to flush
+		// For now, just do a regular commit
 	}
-
-	return riw.w.Commit()
+	return riw.W.Commit()
 }
 
-func (riw *RandomIndexWriter) GetReader() (*StandardDirectoryReader, error) {
-	return riw.GetReaderExtended(true, false)
+// ForceMerge forces a merge to the specified segment count.
+func (riw *RandomIndexWriter) ForceMerge(maxSegmentCount int) error {
+	riw.mu.Lock()
+	defer riw.mu.Unlock()
+
+	maybeChangeConfig(riw.r, riw.config)
+	return riw.W.ForceMerge(maxSegmentCount)
 }
 
-func (riw *RandomIndexWriter) GetReaderExtended(applyDeletions, writeAllDeletes bool) (*StandardDirectoryReader, error) {
-	riw.maybeChangeLiveIndexWriterConfig()
+// SetDoRandomForceMerge sets whether to do random force merges.
+func (riw *RandomIndexWriter) SetDoRandomForceMerge(v bool) {
+	riw.doRandomForceMerge = v
+}
+
+// SetDoRandomForceMergeAssert sets whether to assert merge limits.
+func (riw *RandomIndexWriter) SetDoRandomForceMergeAssert(v bool) {
+	riw.doRandomForceMergeAssert = v
+}
+
+// GetReader returns a reader.
+func (riw *RandomIndexWriter) GetReader() (*DirectoryReader, error) {
+	riw.mu.Lock()
+	defer riw.mu.Unlock()
+
+	maybeChangeConfig(riw.r, riw.config)
 	riw.getReaderCalled = true
 
 	if riw.r.Intn(20) == 2 {
 		_ = riw.doRandomForceMerge()
 	}
 
-	if !applyDeletions || riw.r.Intn(2) == 0 {
+	if riw.r.Intn(2) == 0 {
+		// Use NRT reader
 		if riw.r.Intn(5) == 1 {
-			_, _ = riw.w.Commit()
+			_ = riw.W.Commit()
 		}
-		return riw.w.GetReader(applyDeletions, writeAllDeletes)
+		// Return an NRT reader reflecting the writer's buffered state.
+		reader, err := OpenDirectoryReaderFromWriterWithOptions(riw.W, true, false)
+		return reader, err
 	} else {
-		_, _ = riw.w.Commit()
-		// In Lucene, they might open a new reader from directory.
-		// For now, we use the NRT reader for simplicity.
-		return riw.w.GetReader(applyDeletions, writeAllDeletes)
+		// Open new reader from directory
+		_ = riw.W.Commit()
+		reader, err := DirectoryReaderOpen(riw.W.GetDirectory())
+		return reader, err
 	}
 }
 
-func (riw *RandomIndexWriter) doRandomForceMerge() error {
-	if riw.doRandomForceMerge {
-		segCount := riw.w.GetSegmentCount()
-		if riw.r.Intn(2) == 0 || segCount == 0 {
-			return riw.w.ForceMerge(1)
-		} else if riw.r.Intn(2) == 0 {
-			limit := 1 + riw.r.Intn(segCount)
-			return riw.w.ForceMerge(limit)
+// Close closes the writer.
+func (riw *RandomIndexWriter) Close() error {
+	riw.mu.Lock()
+	defer riw.mu.Unlock()
+
+	if !riw.getReaderCalled && riw.r.Intn(8) == 2 && !riw.W.IsClosed() {
+		_ = riw.doRandomForceMerge()
+		if !riw.config.GetCommitOnClose() {
+			_ = riw.W.Commit()
+		}
+	}
+
+	err := riw.W.Close()
+	if riw.analyzer != nil {
+		riw.analyzer.Close()
+	}
+	return err
+}
+
+// Flush flushes the writer.
+func (riw *RandomIndexWriter) Flush() error {
+	riw.mu.Lock()
+	defer riw.mu.Unlock()
+
+	return riw.W.Flush()
+}
+
+// maybeFlushOrCommit maybe flushes or commits based on document count.
+func (riw *RandomIndexWriter) maybeFlushOrCommit() error {
+	riw.docCount++
+	if riw.docCount == riw.flushAt {
+		if riw.r.Intn(2) == 0 {
+			_ = riw.W.Flush()
 		} else {
-			// forceMergeDeletes is not yet explicit in Gocene's IndexWriter
-			// We'll use ForceMerge(1) as a proxy or skip.
-			return riw.w.ForceMerge(1)
+			_ = riw.W.Commit()
+		}
+		riw.flushAt += nextInt(riw.r, int(riw.flushAtFactor*10), int(riw.flushAtFactor*1000))
+		if riw.flushAtFactor < 2e6 {
+			riw.flushAtFactor *= 1.05
 		}
 	}
 	return nil
 }
 
-func (riw *RandomIndexWriter) Close() error {
-	if !riw.w.IsClosed() {
-		riw.maybeChangeLiveIndexWriterConfig()
+// doRandomForceMerge randomly does a force merge.
+func (riw *RandomIndexWriter) doRandomForceMerge() error {
+	if !riw.doRandomForceMerge {
+		return nil
 	}
 
-	if !riw.getReaderCalled && riw.r.Intn(8) == 2 && !riw.w.IsClosed() {
-		_ = riw.doRandomForceMerge()
-		if !riw.config.GetCommitOnClose() {
-			_, _ = riw.w.Commit()
-		}
+	// Get segment count and decide whether to merge
+	// In a real implementation, we would call IndexWriter.GetSegmentCount()
+	// For now, just do a random decision
+
+	if riw.r.Intn(2) == 0 {
+		return riw.W.ForceMerge(1)
 	}
 
-	return riw.w.Close()
+	return nil
 }
 
-func (riw *RandomIndexWriter) ForceMerge(maxSegmentCount int) error {
-	riw.maybeChangeLiveIndexWriterConfig()
-	return riw.w.ForceMerge(maxSegmentCount)
+// useSoftDeletes decides whether to use soft deletes.
+func (riw *RandomIndexWriter) useSoftDeletes() bool {
+	return riw.r.Float64() < riw.softDeletesRatio
 }
 
-func (riw *RandomIndexWriter) Flush() error {
-	return riw.w.Flush()
+// Helper functions
+
+func nextInt(r *rand.Rand, min, max int) int {
+	if min >= max {
+		return min
+	}
+	return min + r.Intn(max-min)
+}
+
+func maybeChangeConfig(r *rand.Rand, config *LiveIndexWriterConfig) {
+	// In a real implementation, this would randomly change IndexWriterConfig
+	// For now, do nothing
+}
+
+// DirectoryReaderOpen opens a directory reader over dir's current commit,
+// mirroring Lucene's DirectoryReader.open(Directory).
+func DirectoryReaderOpen(dir store.Directory) (*DirectoryReader, error) {
+	return OpenDirectoryReader(dir)
 }

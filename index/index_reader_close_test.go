@@ -82,9 +82,9 @@ func TestIndexReaderClose_CloseUnderException(t *testing.T) {
 	defer reader.Close()
 
 	leaf := index.GetOnlyLeafReader(reader)
-	leafLR, ok := leaf.(index.LeafReaderInterface)
+	leafLR, ok := leaf.(index.LeafReader)
 	if !ok {
-		t.Fatalf("GetOnlyLeafReader returned %T, want index.LeafReaderInterface", leaf)
+		t.Fatalf("GetOnlyLeafReader returned %T, want index.LeafReader", leaf)
 	}
 
 	wrapper := index.NewFilterLeafReaderWithCacheKey(leafLR)
@@ -230,9 +230,9 @@ func TestIndexReaderClose_CoreListenerOnWrapper(t *testing.T) {
 	defer reader.Close()
 
 	leaf := index.GetOnlyLeafReader(reader)
-	leafLR, ok := leaf.(index.LeafReaderInterface)
+	leafLR, ok := leaf.(index.LeafReader)
 	if !ok {
-		t.Fatalf("GetOnlyLeafReader returned %T, want index.LeafReaderInterface", leaf)
+		t.Fatalf("GetOnlyLeafReader returned %T, want index.LeafReader", leaf)
 	}
 
 	called := 0

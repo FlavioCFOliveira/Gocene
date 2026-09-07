@@ -28,7 +28,7 @@ type LiveIndexWriterConfig struct {
 
 	createdVersionMajor int
 
-	similarity spi.Similarity
+	similarity Similarity
 	mergeScheduler MergeScheduler
 	codec          spi.Codec
 	infoStream     util.InfoStream
@@ -60,7 +60,12 @@ func NewLiveIndexWriterConfig(analyzer analysis.Analyzer) *LiveIndexWriterConfig
 		delPolicy:             &KeepOnlyLastCommitDeletionPolicy{},
 		useCompoundFile:       true,
 		openMode:              CreateOrAppend,
-		similarity:            similarities.DefaultSimilarity,
+		// No default Similarity: the concrete default (BM25Similarity) lives
+		// in the search package, which imports index for FieldInvertState —
+		// index cannot import it back without a cycle. Callers that need
+		// Lucene's default norm encoding call SetSimilarity(search.DefaultSimilarity)
+		// explicitly (mirrored by search.NewIndexSearcher's own default).
+		similarity: nil,
 		mergeScheduler:        &ConcurrentMergeScheduler{},
 		codec:                 spi.DefaultCodec,
 		infoStream:            util.DefaultInfoStream,
@@ -160,7 +165,7 @@ func (c *LiveIndexWriterConfig) GetIndexCommit() *IndexCommit {
 	return c.commit
 }
 
-func (c *LiveIndexWriterConfig) GetSimilarity() spi.Similarity {
+func (c *LiveIndexWriterConfig) GetSimilarity() Similarity {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.similarity

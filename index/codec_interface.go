@@ -47,6 +47,9 @@ type DocValuesFormat = spi.DocValuesFormat
 // canonical KNN vectors format the codec exposes via Codec.KnnVectorsFormat().
 type KnnVectorsFormat = spi.KnnVectorsFormat
 
+// KnnVectorsReader is an alias of spi.KnnVectorsReader.
+type KnnVectorsReader = spi.KnnVectorsReader
+
 // KnnVectorsWriter is an alias of [spi.KnnVectorsWriter].
 type KnnVectorsWriter = spi.KnnVectorsWriter
 

@@ -24,9 +24,12 @@ import (
 type IndexWriter struct {
 	mu sync.Mutex
 
+
 	// Tragic exception
 	tragedy atomic.Value // stores error or nil
 	config  *IndexWriterConfig
+
+
 
 	dirOrig store.Directory // original user directory
 	dir     store.Directory // wrapped with additional checks
@@ -61,7 +64,7 @@ type IndexWriter struct {
 	segmentsToMerge     map[*SegmentCommitInfo]bool
 	mergeMaxNumSegments int
 
-	writeLock util.Lock
+	writeLock store.Lock
 
 	closed  atomic.Bool
 	closing atomic.Bool
@@ -1374,14 +1377,14 @@ func (w *IndexWriter) ForceMergeDeletes() error {
 
 // ForceMergeDeletesWithObserver executes a merge to expunge all deletes from the index.
 // Returns a MergeObserver to monitor progress.
-func (w *IndexWriter) ForceMergeDeletesWithObserver(doWait bool) (*MergePolicy.MergeObserver, error) {
+func (w *IndexWriter) ForceMergeDeletesWithObserver(doWait bool) (*MergeObserver, error) {
 	w.ensureOpen()
 	w.commitLock.Lock()
 	defer w.commitLock.Unlock()
 
 	spec := w.config.GetMergePolicy().FindForcedDeletesMerges(w.segmentInfos, w.mergeSource)
 	if spec == nil {
-		return index.NewMergeObserver(nil), nil
+		return NewMergeObserver(nil), nil
 	}
 
 	// register merges with the scheduler
@@ -1389,7 +1392,7 @@ func (w *IndexWriter) ForceMergeDeletesWithObserver(doWait bool) (*MergePolicy.M
 		return nil, err
 	}
 
-	return index.NewMergeObserver(spec), nil
+	return NewMergeObserver(spec), nil
 }
 
 func (w *IndexWriter) mergeFinish(merge *OneMerge) {
@@ -1418,7 +1421,7 @@ func (w *IndexWriter) mergeInternal(merge *OneMerge) error {
 	}
 
 	//- SegmentMerger
-	merger := index.NewSegmentMerger(
+	merger := NewSegmentMerger(
 		readers,
 		merge.Info.SegmentInfo(),
 		w.liveConfig.GetInfoStream(),

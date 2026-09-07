@@ -32,13 +32,13 @@ type SegmentCoreReaders struct {
 }
 
 func NewSegmentCoreReaders(dir store.Directory, si *SegmentCommitInfo, context store.IOContext) (*SegmentCoreReaders, error) {
-	codec := LookupCodecByName(si.SegmentInfo().Codec())
+	codec := si.Info.GetCodec()
 	var cfsDir store.Directory
 	var cfsReader spi.CompoundDirectory
 
-	if si.SegmentInfo().IsCompoundFile() {
+	if si.Info.GetUseCompoundFile() {
 		var err error
-		cfsReader, cfsDir, err = codec.CompoundFormat().GetCompoundReader(dir, si.SegmentInfo())
+		cfsReader, cfsDir, err = codec.CompoundFormat().GetCompoundReader(dir, si.Info)
 		if err != nil {
 			return nil, err
 		}
@@ -47,13 +47,13 @@ func NewSegmentCoreReaders(dir store.Directory, si *SegmentCommitInfo, context s
 		cfsDir = dir
 	}
 
-	segment := si.SegmentInfo().Name
-	coreFieldInfos, err := codec.FieldInfosFormat().Read(cfsDir, si.SegmentInfo(), "", context)
+	segment := si.Info.Name()
+	coreFieldInfos, err := codec.FieldInfosFormat().Read(cfsDir, si.Info, "", context)
 	if err != nil {
 		return nil, err
 	}
 
-	segmentReadState := NewSegmentReadState(cfsDir, si.SegmentInfo(), coreFieldInfos, context)
+	segmentReadState := NewSegmentReadState(cfsDir, si.Info, coreFieldInfos, context)
 
 	var fields spi.FieldsProducer
 	if coreFieldInfos.HasPostings() {
@@ -71,14 +71,14 @@ func NewSegmentCoreReaders(dir store.Directory, si *SegmentCommitInfo, context s
 		}
 	}
 
-	fieldsReader, err := codec.StoredFieldsFormat().FieldsReader(cfsDir, si.SegmentInfo(), coreFieldInfos, context)
+	fieldsReader, err := codec.StoredFieldsFormat().FieldsReader(cfsDir, si.Info, coreFieldInfos, context)
 	if err != nil {
 		return nil, err
 	}
 
 	var tvReader spi.TermVectorsReader
 	if coreFieldInfos.HasTermVectors() {
-		tvReader, err = codec.TermVectorsFormat().VectorsReader(cfsDir, si.SegmentInfo(), coreFieldInfos, context)
+		tvReader, err = codec.TermVectorsFormat().VectorsReader(cfsDir, si.Info, coreFieldInfos, context)
 		if err != nil {
 			return nil, err
 		}

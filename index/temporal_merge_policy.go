@@ -369,19 +369,19 @@ func (p *TemporalMergePolicy) extractSegmentDateRanges(segments *SegmentInfos) m
 }
 
 func (p *TemporalMergePolicy) extractDateRangeFromSegment(sci *SegmentCommitInfo) (*segmentDateRange, error) {
-	si := sci.SegmentInfo()
+	si := sci.Info
 	var compoundDir store.Directory
 	var readerDir store.Directory
 
-	if si.IsCompoundFile() {
+	if si.GetUseCompoundFile() {
 		var err error
-		compoundDir, err = LookupCodecByName(si.Codec()).CompoundFormat().GetCompoundReader(si.Directory(), si)
+		compoundDir, err = si.GetCodec().CompoundFormat().GetCompoundReader(si.Dir, si)
 		if err != nil {
 			return nil, err
 		}
 		readerDir = compoundDir
 	} else {
-		readerDir = si.Directory()
+		readerDir = si.Dir
 	}
 
 	defer func() {
@@ -390,7 +390,7 @@ func (p *TemporalMergePolicy) extractDateRangeFromSegment(sci *SegmentCommitInfo
 		}
 	}()
 
-	fieldInfos := LookupCodecByName(si.Codec()).FieldInfosFormat().Read(readerDir, si, "", store.IOContextReadOnce)
+	fieldInfos := si.GetCodec().FieldInfosFormat().Read(readerDir, si, "", spi.IOContextReadOnce)
 	fieldInfo := fieldInfos.FieldInfo(p.temporalField)
 	if fieldInfo == nil {
 		return nil, nil
@@ -400,7 +400,7 @@ func (p *TemporalMergePolicy) extractDateRangeFromSegment(sci *SegmentCommitInfo
 		return nil, nil
 	}
 
-	pointsFormat := LookupCodecByName(si.Codec()).PointsFormat()
+	pointsFormat := si.GetCodec().PointsFormat()
 	pointsReader, err := pointsFormat.FieldsReader(readerDir, si, fieldInfos)
 	if err != nil {
 		return nil, err
@@ -419,8 +419,8 @@ func (p *TemporalMergePolicy) extractDateRangeFromSegment(sci *SegmentCommitInfo
 	}
 
 	// LongPoint.decodeDimension logic
-	minDate := decodeDimension(minPacked, pointValues.GetBytesPerDimension())
-	maxDate := decodeDimension(maxPacked, pointValues.GetBytesPerDimension())
+	minDate := spi.DecodeDimension(minPacked, 0)
+	maxDate := spi.DecodeDimension(maxPacked, 0)
 
 	divisor := p.getTemporalFieldDivisor(maxDate)
 	var minDateMillis, maxDateMillis int64
@@ -544,7 +544,7 @@ func (p *TemporalMergePolicy) planWindowMerges(windowStart int64, segmentsInWind
 
 		for end < len(ordered) && end-cursor < p.maxThreshold {
 			candidate := ordered[end]
-			docCount := int64(candidate.SegmentInfo().DocCount())
+			docCount := int64(candidate.Info.MaxDoc())
 			totalDocs += docCount
 			if docCount > largestDocs {
 				largestDocs = docCount

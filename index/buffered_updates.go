@@ -247,3 +247,7 @@ func (m *bytesRefIntMap) get(key []byte) int {
 }
 
 // FieldUpdatesBuffer buffers numeric and binary field updates.
+// IsBufferedUpdates satisfies the spi.BufferedUpdatesRef marker interface,
+// letting a *BufferedUpdates flow through SegmentWriteState.SegUpdates
+// without spi/ importing index/ (see spi.BufferedUpdatesRef).
+func (b *BufferedUpdates) IsBufferedUpdates() {}

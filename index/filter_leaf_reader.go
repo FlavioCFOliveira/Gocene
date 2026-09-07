@@ -1,7 +1,13 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package index
 
 import (
 	"fmt"
+	"io"
+
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -10,6 +16,11 @@ import (
 // This is the Go port of Lucene's org.apache.lucene.index.FilterLeafReader.
 type FilterLeafReader struct {
 	in LeafReader
+
+	// cacheHelper, when non-nil, overrides the cache helper exposed by this
+	// wrapper. A custom key lets callers prove that listeners registered on
+	// the wrapper are isolated from listeners on the wrapped reader.
+	cacheHelper CacheHelper
 }
 
 // NewFilterLeafReader constructs a FilterLeafReader based on the specified base reader.
@@ -20,147 +31,225 @@ func NewFilterLeafReader(in LeafReader) *FilterLeafReader {
 	return &FilterLeafReader{in: in}
 }
 
-// Unwrap returns the wrapped instance by reader as long as this reader is an instance of FilterLeafReader.
-func UnwrapLeafReader(reader LeafReader) LeafReader {
-	for {
-		if flr, ok := reader.(*FilterLeafReader); ok {
-			reader = flr.GetDelegate()
-		} else {
-			break
+// NewFilterLeafReaderWithCacheKey creates a FilterLeafReader that exposes a
+// fresh cache helper/key instead of delegating to the wrapped reader. This is
+// the Go equivalent of a Lucene FilterLeafReader subclass that overrides
+// getCoreCacheHelper() to return its own key.
+func NewFilterLeafReaderWithCacheKey(in LeafReader) *FilterLeafReader {
+	if in == nil {
+		panic("incoming LeafReader must not be null")
+	}
+	return &FilterLeafReader{
+		in:          in,
+		cacheHelper: NewReaderCacheHelper(),
+	}
+}
+
+// GetCacheHelper returns the cache helper for this wrapper. When a custom helper
+// was requested (NewFilterLeafReaderWithCacheKey) it is returned; otherwise the
+// wrapped reader's helper is delegated to.
+func (r *FilterLeafReader) GetCacheHelper() CacheHelper {
+	if r.cacheHelper != nil {
+		return r.cacheHelper
+	}
+	if withHelper, ok := interface{}(r.in).(interface{ GetCacheHelper() CacheHelper }); ok {
+		return withHelper.GetCacheHelper()
+	}
+	return nil
+}
+
+// GetCoreCacheKey delegates to the wrapped reader.
+func (r *FilterLeafReader) GetCoreCacheKey() interface{} {
+	return r.in.GetCoreCacheKey()
+}
+
+// Close closes the wrapper and, when no custom cache helper is in use, also
+// closes the wrapped reader. A FilterLeafReader created with a custom cache
+// key (NewFilterLeafReaderWithCacheKey) owns its own IndexReader lifecycle;
+// closing it must not propagate to the wrapped reader, so listeners registered
+// on the inner reader's cache helper remain isolated.
+func (r *FilterLeafReader) Close() error {
+	// Custom cache key: this wrapper has an independent lifecycle. Notify its
+	// own closed listeners and mark it closed, but do not touch the wrapped
+	// reader.
+	if r.cacheHelper != nil {
+		if h, ok := r.cacheHelper.(*ReaderCacheHelper); ok {
+			h.SetClosed()
+			h.NotifyClosedListeners()
+		}
+		// Note: FilterLeafReader itself doesn't have an IndexReader to close,
+		// but it might be part of one. Since it's a wrapper, we just return nil.
+		return nil
+	}
+
+	// Default case: share the wrapped reader's lifecycle, so close it first.
+	var lastErr error
+	if closer, ok := interface{}(r.in).(io.Closer); ok {
+		if err := closer.Close(); err != nil {
+			lastErr = err
 		}
 	}
-	return reader
+	return lastErr
 }
 
 // GetDelegate returns the wrapped LeafReader.
-func (f *FilterLeafReader) GetDelegate() LeafReader {
-	return f.in
+func (r *FilterLeafReader) GetDelegate() LeafReader {
+	return r.in
 }
 
-// --- Implementation of LeafReader interface by delegation ---
-
-func (f *FilterLeafReader) DocID() int {
-	return f.in.DocID()
+// DocCount returns the total number of documents.
+func (r *FilterLeafReader) DocCount() int {
+	return r.in.DocCount()
 }
 
-func (f *FilterLeafReader) MaxDoc() int {
-	return f.in.MaxDoc()
+// NumDocs returns the number of live documents.
+func (r *FilterLeafReader) NumDocs() int {
+	return r.in.NumDocs()
 }
 
-func (f *FilterLeafReader) NumDocs() int {
-	return f.in.NumDocs()
+// MaxDoc returns the maximum document ID plus one.
+func (r *FilterLeafReader) MaxDoc() int {
+	return r.in.MaxDoc()
 }
 
-func (f *FilterLeafReader) DocFreq(term Term) (int, error) {
-	return f.in.DocFreq(term)
+// HasDeletions returns true if this reader has deleted documents.
+func (r *FilterLeafReader) HasDeletions() bool {
+	return r.in.HasDeletions()
 }
 
-func (f *FilterLeafReader) TotalTermFreq(term Term) (int64, error) {
-	return f.in.TotalTermFreq(term)
+// NumDeletedDocs returns the number of deleted documents.
+func (r *FilterLeafReader) NumDeletedDocs() int {
+	return r.in.NumDeletedDocs()
 }
 
-func (f *FilterLeafReader) Terms(field string) (Terms, error) {
-	return f.in.Terms(field)
+// GetTermVectors returns the term vectors for a document.
+func (r *FilterLeafReader) GetTermVectors(docID int) (Fields, error) {
+	return r.in.GetTermVectors(docID)
 }
 
-func (f *FilterLeafReader) Postings(term Term, flags int) (PostingsEnum, error) {
-	return f.in.Postings(term, flags)
+// Terms returns the Terms for a field.
+func (r *FilterLeafReader) Terms(field string) (Terms, error) {
+	return r.in.Terms(field)
 }
 
-func (f *FilterLeafReader) GetNumericDocValues(field string) (NumericDocValues, error) {
-	return f.in.GetNumericDocValues(field)
+// Postings returns the postings for a term.
+func (r *FilterLeafReader) Postings(term Term) (PostingsEnum, error) {
+	return r.in.Postings(term)
 }
 
-func (f *FilterLeafReader) GetBinaryDocValues(field string) (BinaryDocValues, error) {
-	return f.in.GetBinaryDocValues(field)
+// PostingsWithFreqPositions returns the postings for a term with specific flags.
+func (r *FilterLeafReader) PostingsWithFreqPositions(term Term, flags int) (PostingsEnum, error) {
+	return r.in.PostingsWithFreqPositions(term, flags)
 }
 
-func (f *FilterLeafReader) GetSortedDocValues(field string) (SortedDocValues, error) {
-	return f.in.GetSortedDocValues(field)
+// GetNumericDocValues returns NumericDocValues for the given field.
+func (r *FilterLeafReader) GetNumericDocValues(field string) (NumericDocValues, error) {
+	return r.in.GetNumericDocValues(field)
 }
 
-func (f *FilterLeafReader) GetSortedNumericDocValues(field string) (SortedNumericDocValues, error) {
-	return f.in.GetSortedNumericDocValues(field)
+// GetBinaryDocValues returns BinaryDocValues for the given field.
+func (r *FilterLeafReader) GetBinaryDocValues(field string) (BinaryDocValues, error) {
+	return r.in.GetBinaryDocValues(field)
 }
 
-func (f *FilterLeafReader) GetSortedSetDocValues(field string) (SortedSetDocValues, error) {
-	return f.in.GetSortedSetDocValues(field)
+// GetSortedDocValues returns SortedDocValues for the given field.
+func (r *FilterLeafReader) GetSortedDocValues(field string) (SortedDocValues, error) {
+	return r.in.GetSortedDocValues(field)
 }
 
-func (f *FilterLeafReader) GetDocValuesSkipper(field string) (DocValuesSkipper, error) {
-	return f.in.GetDocValuesSkipper(field)
+// GetSortedNumericDocValues returns SortedNumericDocValues for the given field.
+func (r *FilterLeafReader) GetSortedNumericDocValues(field string) (SortedNumericDocValues, error) {
+	return r.in.GetSortedNumericDocValues(field)
 }
 
-func (f *FilterLeafReader) GetNormValues(field string) (NumericDocValues, error) {
-	return f.in.GetNormValues(field)
+// GetSortedSetDocValues returns SortedSetDocValues for the given field.
+func (r *FilterLeafReader) GetSortedSetDocValues(field string) (SortedSetDocValues, error) {
+	return r.in.GetSortedSetDocValues(field)
 }
 
-func (f *FilterLeafReader) GetMetaData() *IndexReaderMetaData {
-	return f.in.GetMetaData()
+// GetNormValues returns NumericDocValues for norms of the given field.
+func (r *FilterLeafReader) GetNormValues(field string) (NumericDocValues, error) {
+	return r.in.GetNormValues(field)
 }
 
-func (f *FilterLeafReader) CheckIntegrity() error {
-	return f.in.CheckIntegrity()
+// GetPointValues returns PointValues for the given field.
+func (r *FilterLeafReader) GetPointValues(field string) (PointValues, error) {
+	return r.in.GetPointValues(field)
 }
 
-func (f *FilterLeafReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
-	return f.in.GetFloatVectorValues(field)
+// GetFloatVectorValues returns FloatVectorValues for the given field.
+func (r *FilterLeafReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+	return r.in.GetFloatVectorValues(field)
 }
 
-func (f *FilterLeafReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
-	return f.in.GetByteVectorValues(field)
+// GetByteVectorValues returns ByteVectorValues for the given field.
+func (r *FilterLeafReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+	return r.in.GetByteVectorValues(field)
 }
 
-func (f *FilterLeafReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits, visitedLimit int) (TopDocs, error) {
-	return f.in.SearchNearestVectors(field, target, k, acceptDocs, visitedLimit)
+// SearchNearestVectors searches for the k nearest vectors to the target.
+func (r *FilterLeafReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error) {
+	return r.in.SearchNearestVectors(field, target, k, acceptDocs)
 }
 
-func (f *FilterLeafReader) TermVectors() (TermVectors, error) {
-	return f.in.TermVectors()
+// GetDocValuesSkipper returns a DocValuesSkipper for efficient skipping.
+func (r *FilterLeafReader) GetDocValuesSkipper(field string) (DocValuesSkipper, error) {
+	return r.in.GetDocValuesSkipper(field)
 }
 
-func (f *FilterLeafReader) StoredFields() (StoredFields, error) {
-	return f.in.StoredFields()
+// CheckIntegrity checks that the index is not corrupt.
+func (r *FilterLeafReader) CheckIntegrity() error {
+	return r.in.CheckIntegrity()
 }
 
-func (f *FilterLeafReader) GetPointValues(field string) (PointValues, error) {
-	return f.in.GetPointValues(field)
+// GetMetaData returns the IndexReaderMetaData for this reader.
+func (r *FilterLeafReader) GetMetaData() *IndexReaderMetaData {
+	return r.in.GetMetaData()
 }
 
-func (f *FilterLeafReader) GetFieldInfos() *FieldInfos {
-	return f.in.GetFieldInfos()
+// GetSegmentInfo returns the SegmentInfo for this reader.
+func (r *FilterLeafReader) GetSegmentInfo() *SegmentInfo {
+	return r.in.GetSegmentInfo()
 }
 
-func (f *FilterLeafReader) GetLiveDocs() util.Bits {
-	return f.in.GetLiveDocs()
+// IncRef increments the reference count.
+func (r *FilterLeafReader) IncRef() error {
+	return r.in.IncRef()
 }
 
-func (f *FilterLeafReader) Close() error {
-	return f.in.Close()
+// DecRef decrements the reference count.
+func (r *FilterLeafReader) DecRef() error {
+	return r.in.DecRef()
 }
 
-func (f *FilterLeafReader) IncRef() error {
-	return f.in.IncRef()
+// TryIncRef tries to increment the reference count.
+func (r *FilterLeafReader) TryIncRef() bool {
+	return r.in.TryIncRef()
 }
 
-func (f *FilterLeafReader) DecRef() error {
-	return f.in.DecRef()
+// GetRefCount returns the current reference count.
+func (r *FilterLeafReader) GetRefCount() int32 {
+	return r.in.GetRefCount()
 }
 
-func (f *FilterLeafReader) TryIncRef() bool {
-	return f.in.TryIncRef()
+// StoredFields returns a StoredFields instance for accessing stored fields.
+func (r *FilterLeafReader) StoredFields() (StoredFields, error) {
+	return r.in.StoredFields()
 }
 
-func (f *FilterLeafReader) GetRefCount() int32 {
-	return f.in.GetRefCount()
+// TermVectors returns a TermVectors instance for accessing term vectors.
+func (r *FilterLeafReader) TermVectors() (TermVectors, error) {
+	return r.in.TermVectors()
 }
 
-func (f *FilterLeafReader) GetCoreCacheHelper() CacheHelper {
-	return f.in.GetCoreCacheHelper()
+// GetContext returns the reader context for this leaf reader.
+func (r *FilterLeafReader) GetContext() (IndexReaderContext, error) {
+	return r.in.GetContext()
 }
 
-func (f *FilterLeafReader) GetReaderCacheHelper() CacheHelper {
-	return f.in.GetReaderCacheHelper()
+// Leaves returns all leaf reader contexts (just this one for a leaf).
+func (r *FilterLeafReader) Leaves() ([]*LeafReaderContext, error) {
+	return r.in.Leaves()
 }
 
 func (f *FilterLeafReader) String() string {
@@ -182,8 +271,6 @@ func NewFilterFields(in Fields) *FilterFields {
 }
 
 func (f *FilterFields) Iterator() []string {
-	// Lucene returns an Iterator<String>. In Go, we typically return a slice or an iterator object.
-	// Assuming Fields.Iterator() returns []string or similar.
 	return f.in.Iterator()
 }
 
