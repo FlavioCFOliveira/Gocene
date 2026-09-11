@@ -16,7 +16,7 @@ correct statement without exploring the graph first.
 - **Lucene reference:** Apache Lucene 10.5.0 at `/tmp/lucene`, tag
   `releases/lucene/10.5.0`, commit `f6eaee8148b7569e83c433feacc4f624608188fd`
   (2026-06-19).
-- **Live graph, verified 2026-09-11:** **212 694 nodes, 312 615 edges, 29 labels,
+- **Live graph, verified 2026-09-11:** **212 694 nodes, 322 802 edges, 29 labels,
   35 predicates, 59 property keys, 29 constraints, 31 indexes.**
 
 ## Scope
@@ -30,18 +30,21 @@ build tooling and code generators. All 112 068 of its nodes are loaded; 39 of it
 The **Gocene tier** — the organisational structure of the Gocene Go module and its
 symbols — is **defined and materialised**: 12 labels, 11 predicates over 16
 endpoint pairs, loaded from the working tree at commit `dd61538c` (2026-09-10) and
-confirmed by the post-load census (§ 6). `PORTED_TO` is defined in form only and
-will be populated in the next iteration. The Lucene tier is shaped so the Gocene
-tier attaches without reshaping it: every element on both sides carries a stable
-single-STRING identity that `PORTED_TO` can target at any granularity — module,
-package, class, method, field, constant.
+confirmed by the post-load census (§ 6). `PORTED_TO` is **populated**: 10 187 edges
+over 8 endpoint pairs, derived from measured evidence (§ 7, The PORTED_TO
+derivation) and verified by a write-time counter audit and the anchor audit. The
+Lucene tier is shaped so the Gocene tier attaches without reshaping it: every
+element on both sides carries a stable single-STRING identity that `PORTED_TO` can
+target at any granularity — release, module, package, file, class, method, field,
+constant.
 
 The **Population** column in each dictionary is the verified count. For the Gocene
 tier it is the live graph count, confirmed by the post-load census and the
 two-direction identity set diff against the inventory (§ 6, § 7). For the Lucene
 tier it is the reference-tree count, verified label by label and predicate by
 predicate against `/tmp/lucene` (§ 7); the live edge state — 39 of 47 pairs — is
-recorded in § 6.
+recorded in § 6. For `PORTED_TO` it is the live edge count of a pair, equal to the
+derivation's row count for that pair — verified by the per-pair audit (§ 7).
 
 ---
 
@@ -377,8 +380,9 @@ visible-by-query repository defect.
 ## 2. Predicate dictionary
 
 One row per endpoint pair: the same predicate name between different labels is a
-different assertion. **35 distinct predicate names over 63 endpoint pairs in the
-live graph** — Lucene tier: 31 over 47 (39 live, § 6); Gocene tier: 11 over 16
+different assertion. **35 distinct predicate names over 71 defined endpoint pairs;
+63 of them are live in the graph** — Lucene tier: 31 names over 47 pairs (39
+live, § 6); Gocene tier: 11 names over 16 pairs (all live); `PORTED_TO`: 8 pairs
 (all live); 7 names are shared by both tiers.
 
 ### Containment — the organisational hierarchy
@@ -471,8 +475,8 @@ grammars, 1 ANTLR grammar, and the Python and Groovy generators.
 ### Gocene tier
 
 **11 predicates over 16 endpoint pairs.** Populations are live graph counts,
-confirmed by the post-load census and the identity set diff (§ 6); `PORTED_TO` is
-defined in form only (below).
+confirmed by the post-load census and the identity set diff (§ 6). `PORTED_TO`
+populations are the derived live counts, verified per pair (§ 7).
 
 | Predicate | From → To | Asserts | Population |
 |---|---|---|---:|
@@ -505,23 +509,29 @@ belongs to every QN that shares the natural identity — measured 32 325 methods
 with exactly one type owner, 712 with two, 17 with three (33 800 type→method
 edges), and 8 with none (the unresolvable-receiver defects, § 1).
 
-### Port relation — `PORTED_TO` (form only)
+### Port relation — `PORTED_TO`
+
+**8 endpoint pairs, 10 187 edges live.** Populations are the derived live counts, equal to the derivation's per-pair row counts (§ 7, The PORTED_TO derivation).
 
 | Predicate | From → To | Asserts | Population |
-|---|---|---|---|
-| `PORTED_TO` | `LuceneRelease` → `GoceneModule` | the release is ported to the module — the root of the port | form only |
-| `PORTED_TO` | `LucenePackage` → `GocenePackage` | this Lucene package is ported to this Go package | form only |
-| `PORTED_TO` | `LuceneClass` → `GoceneType` | this Lucene class is ported to this Go type | form only |
-| `PORTED_TO` | `LuceneMethod` → `GoceneMethod` | this method or constructor is ported to this method | form only |
-| `PORTED_TO` | `LuceneField` → `GoceneField` | this Lucene field is ported to this Go field | form only |
-| `PORTED_TO` | `LuceneField` (isConstant), `LuceneEnumConstant` → `GoceneConstant` | this Lucene constant is ported to this Go constant | form only |
+|---|---|---|---:|
+| `PORTED_TO` | `LuceneRelease` → `GoceneModule` | the release is ported to the module — the root of the port | 1 |
+| `PORTED_TO` | `LuceneFile` → `GoceneFile` | this Lucene file is ported in this Go file (a Go source comment references the Lucene path) | 562 |
+| `PORTED_TO` | `LucenePackage` → `GocenePackage` | this Lucene package is ported to this Go package | 281 |
+| `PORTED_TO` | `LuceneClass` → `GoceneType` | this Lucene class is ported to this Go type | 1 579 |
+| `PORTED_TO` | `LuceneMethod` → `GoceneMethod` | this method or constructor is ported to this method — Java overloads map many-to-one onto the single Go method | 4 716 |
+| `PORTED_TO` | `LuceneField` → `GoceneField` | this Lucene field is ported to this Go field (non-constant members only) | 2 892 |
+| `PORTED_TO` | `LuceneField` (isConstant) → `GoceneConstant` | this Lucene constant field is ported to this Go constant | 120 |
+| `PORTED_TO` | `LuceneEnumConstant` → `GoceneConstant` | this enum constant is ported to this Go constant | 36 |
 
 `PORTED_TO` is the **sole authority on port status** (CLAUDE.md § 5.1.3): the
 absence of an edge means **"not ported"**, never "unknown" — an unported artefact is
 visible by query alone. Derived attributes (for example `LuceneClass.isPorted`) are
 computed from the edges and never written independently, so the graph can never
-assert a port status that contradicts its own edges. It is defined in form now and
-populated in the next iteration.
+assert a port status that contradicts its own edges.
+
+An edge is written **only on measured, unambiguous evidence** — a file-header path reference, a doc-comment claim naming the Lucene class, or a name transliteration within a ported class pair (§ 7). Where the evidence is ambiguous (two or more Go names matching one Java name), no edge is written: the relation never asserts what the evidence cannot determine. Some Go comments cite Apache Lucene **10.4.0** — the release the code was actually ported from — while the reference tree is 10.5.0; the 29 path references that resolve only against 10.4.0 (for example `ChecksumIndexOutput`, removed in 10.5.0) are documented as dangling and are never written (§ 7).
+
 
 ### Predicates deliberately not defined yet
 
@@ -711,13 +721,16 @@ shapes demand it.
 
 Every node and edge carries `gitCommit` (the full Gocene commit hash when the element
 was last confirmed) and `gitDate` (that commit's ISO date). Verified 2026-09-11:
-**0 of the 212 694 nodes and 0 of the 312 615 edges lack `gitCommit`/`gitDate`**.
+**0 of the 212 694 nodes and 0 of the 322 802 edges lack `gitCommit`/`gitDate`**.
 
 Every element of **both** tiers — Lucene and Gocene, including the 90 511 Lucene
 `DECLARES_METHOD` and `DECLARES_FIELD` edges restored 2026-09-11 by derivation —
 carries the single uniform value `gitCommit` =
 `dd61538c8b7949f00cca0f54aeb63d5093334035`, `gitDate` = `2026-09-08`, the commit at
-which the working tree was measured (2026-09-10). The Lucene side's reference
+which the working tree was measured (2026-09-10); the 10 187 `PORTED_TO` edges are
+the single exception — a second stamp generation written by the derivation on 2026-09-11
+(§ 7) carrying `gitCommit` = `9cbcdc1d31b7fef43ae855f1efe9be1b5b105c2e`, `gitDate` =
+`2026-09-11`, the HEAD at derivation time. The Lucene side's reference
 provenance is carried separately: every Lucene node additionally holds
 `luceneCommit` = `f6eaee8148b7569e83c433feacc4f624608188fd` (0 nulls), so a future
 Lucene bump is detectable by query rather than by memory, and side attribution in a
@@ -733,7 +746,7 @@ query is by label, not by `gitCommit` value.
 | Constraints (§ 3) | 29 (17 Lucene, 12 Gocene) | **29 created and enforced** |
 | Indexes (§ 4) | 31 (29 constraint-backing, 2 declared) | **31 ONLINE** |
 | Gocene tier (§ 1, § 2) | 12 labels, 11 predicates over 16 endpoint pairs | **100 626 nodes, 150 110 edges** — loaded from the inventory at `dd61538c`; post-load census and two-direction identity set diff: 0 divergences |
-| `PORTED_TO` (§ 2) | form only, 6 endpoint pairs | unpopulated — populated in the next iteration |
+| `PORTED_TO` (§ 2) | 8 endpoint pairs | **10 187 edges — materialised 2026-09-11 by measured derivation** (§ 7): write-time counter audit exact, anchor audit 0 violations, per-pair counts equal the derivation, provenance 100 % |
 
 ---
 
@@ -819,3 +832,28 @@ the standing evidence for the `GoceneMissingPackage` node.
 tag resolves to `f6eaee8148b7569e83c433feacc4f624608188fd`, and `9983b7c` is not a
 valid object in that repository (`git cat-file -t 9983b7c` → `fatal: Not a valid
 object name`). The graph uses the measured value; `CLAUDE.md` needs the correction.
+
+### The PORTED_TO derivation
+
+The 10 187 `PORTED_TO` edges were materialised on 2026-09-11 (roadmap task 364) by a derivation script that reads only measured evidence from the two reference trees and the module working tree — no port status was ever assumed, and an artefact with no evidence gets no edge.
+
+**Evidence sources.** (1) **File-header path references** — Go comments carrying a `<module>/src/(java|java21|test)/org/apache/lucene/….java` path into the Lucene reference tree (568 Go files carry such references). (2) **Doc-comment claims** — a Go type's doc comment naming a Lucene FQN *and* making a porting claim on the same line (claim verbs: port/ported/porting, mirror, equivalent, correspond, transl*); an FQN without a claim verb (a bare "see also") never anchors an edge. (3) **Name transliteration within a ported class pair** — for methods, fields and constants, the Go name matched against the Java name by exact match, capitalize-first, and the two measured systematic aliases (`toString` → `String`, `…Att` → `…Attr`).
+
+**The seven levels, with the measured row counts.**
+
+| Level | Pair | Evidence | Edges |
+|---|---|---|---:|
+| 0 — release | `LuceneRelease` → `GoceneModule` | the reference release is 10.5.0; the module is its port | 1 |
+| 1 — file | `LuceneFile` → `GoceneFile` | a Go file's comment references the Lucene path (522 direct + 40 `lucene/`-prefixed) | 562 |
+| 2 — class | `LuceneClass` → `GoceneType` | 148 file-pair name matches + 1 534 FQN doc-comment anchors, claim-verb gated | 1 579 |
+| 3 — method | `LuceneMethod` → `GoceneMethod` | name transliteration within the 1 579 ported class pairs; Java overloads map many-to-one | 4 716 |
+| 4 — field | `LuceneField` → `GoceneField` | name transliteration within the ported class pairs, non-constant members | 2 892 |
+| 5 — constant | `LuceneField` (isConstant), `LuceneEnumConstant` → `GoceneConstant` | 7 measured Go naming conventions for a Java constant of a ported class, uniqueness-guarded (120 field + 36 enum) | 156 |
+| 6 — package | `LucenePackage` → `GocenePackage` | the ported type's Go package, through the top-level class's file → package key | 281 |
+| | | | **10 187** |
+
+**Honesty rules.** Ambiguity is a reason for *no* edge, never a guess: a Java method matched by two or more Go names yields no edge (18 Java methods excluded — `topList` ×5, `readBytes` ×3, `rollup` ×2, `isLeaf` ×2, `findIntersections` ×2, and 8 singles); a Go constant claimed by two or more Java constants yields no edge (29 constants excluded, the most common `BYTES` ×6, `VERSION_CURRENT` ×5, `VERSION_START` ×5, `BLOCK_SIZE` ×4). The 29 file-header path references that resolve only against Apache Lucene **10.4.0** — the release the code was actually ported from — are recorded as dangling in the derivation's stats (for example `ChecksumIndexOutput`, removed in 10.5.0) and never written. The 967 FQNs whose comment line carries no claim verb, and the 103 FQNs whose named class exists in the reference tree but does not match the Go type's name, are counted in the stats and never written.
+
+**Inventory identity note.** 235 Go types that share their name with another type in the same package (build-tag pairs and redeclaration defects) carry the anchored identity `importPath.TypeName#file.go#N`; the derivation strips the `#…` anchor before deriving package or type names from a qn, and the graph's class/member edges remain self-consistent on the anchored qns.
+
+**Verification.** (1) *Write-time counter audit* — every edge statement carries two `MATCH` clauses, so a missing endpoint binds nothing and creates no edge; the sum of `relationshipsCreated` across all statements equals the derivation's row count exactly (10 187). (2) *Anchor audit* — every method, field and constant edge is backed by the `PORTED_TO` edge of its owning class pair through the `DECLARES` chains (4 716/4 716 methods, 2 892/2 892 fields, 120/120 + 36/36 constants, 0 violations). (3) *Per-pair equality* — the live count of each of the 8 pairs equals the derivation's row count for that pair, with zero stray edges (directed total 322 802). (4) *Provenance* — every one of the 10 187 edges carries `gitCommit` `9cbcdc1d31b7fef43ae855f1efe9be1b5b105c2e` and `gitDate` `2026-09-11` (the HEAD at derivation time).
