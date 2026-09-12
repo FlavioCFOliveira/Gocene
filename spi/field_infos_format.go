@@ -4,11 +4,6 @@
 
 package spi
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
-	"github.com/FlavioCFOliveira/Gocene/store"
-)
-
 // FieldInfosFormat encodes and decodes the .fnm field-metadata file of
 // a segment.
 //
@@ -22,9 +17,9 @@ type FieldInfosFormat interface {
 
 	// Read deserialises the .fnm file for segmentInfo, optionally
 	// qualified by segmentSuffix.
-	Read(dir store.Directory, segmentInfo *schema.SegmentInfo, segmentSuffix string, context store.IOContext) (*schema.FieldInfos, error)
+	Read(dir Directory, segmentInfo *SegmentInfo, segmentSuffix string, context IOContext) (*FieldInfos, error)
 
 	// Write serialises the .fnm file for segmentInfo, optionally
 	// qualified by segmentSuffix.
-	Write(dir store.Directory, segmentInfo *schema.SegmentInfo, segmentSuffix string, infos *schema.FieldInfos, context store.IOContext) error
+	Write(dir Directory, segmentInfo *SegmentInfo, segmentSuffix string, infos *FieldInfos, context IOContext) error
 }

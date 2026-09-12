@@ -9,7 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -26,13 +26,13 @@ type BlockReader struct {
 	blockHeaderReader *BlockHeaderSerializer
 	blockLineReader   *BlockLineSerializer
 
-	blockReadBuffer     *store.ByteArrayDataInput
+	blockReadBuffer      *store.ByteArrayDataInput
 	termStatesReadBuffer *store.ByteArrayDataInput
 
 	termStateSerializer *DeltaBaseTermStateSerializer
 
 	dictionaryBrowserSupplier IndexDictionaryBrowserSupplier
-	dictionaryBrowser        IndexDictionary
+	dictionaryBrowser         IndexDictionary
 
 	blockStartFP int64
 	blockHeader  *BlockHeader
@@ -45,8 +45,8 @@ type BlockReader struct {
 	forcedTerm          *util.BytesRef
 
 	scratchBlockBytes *util.BytesRef
-	scratchTermState   *codecs.BlockTermState
-	scratchBlockLine    *BlockLine
+	scratchTermState  *codecs.BlockTermState
+	scratchBlockLine  *BlockLine
 }
 
 // IndexDictionaryBrowserSupplier provides IndexDictionary.Browser instances.
@@ -73,41 +73,41 @@ func NewBlockReader(
 	}, nil
 }
 
-func (r *BlockReader) seekCeil(searchedTerm *util.BytesRef) (schema.SeekStatus, error) {
+func (r *BlockReader) seekCeil(searchedTerm *util.BytesRef) (spi.SeekStatus, error) {
 	if r.isCurrentTerm(searchedTerm) {
-		return schema.SeekStatusFound, nil
+		return spi.SeekStatusFound, nil
 	}
 	r.clearTermState()
 
 	browser, err := r.getOrCreateDictionaryBrowser()
 	if err != nil {
-		return schema.SeekStatusNotFound, err
+		return spi.SeekStatusNotFound, err
 	}
 	blockStartFP, err := browser.Get(searchedTerm)
 	if err != nil {
-		return schema.SeekStatusNotFound, err
+		return spi.SeekStatusNotFound, err
 	}
 	if blockStartFP < r.fieldMetadata.firstBlockStartFP {
 		blockStartFP = r.fieldMetadata.firstBlockStartFP
 	}
 
 	if r.isBeyondLastTerm(searchedTerm, blockStartFP) {
-		return schema.SeekStatusEnd, nil
+		return spi.SeekStatusEnd, nil
 	}
 
 	seekStatus, err := r.seekInBlock(searchedTerm, blockStartFP)
 	if err != nil {
-		return schema.SeekStatusNotFound, err
+		return spi.SeekStatusNotFound, err
 	}
-	if seekStatus != schema.SeekStatusEnd {
+	if seekStatus != spi.SeekStatusEnd {
 		return seekStatus, nil
 	}
 
 	// Go to next block.
 	if r.nextTerm() == nil {
-		return schema.SeekStatusEnd, nil
+		return spi.SeekStatusEnd, nil
 	}
-	return schema.SeekStatusNotFound, nil
+	return spi.SeekStatusNotFound, nil
 }
 
 func (r *BlockReader) seekExact(searchedTerm *util.BytesRef) (bool, error) {
@@ -132,7 +132,7 @@ func (r *BlockReader) seekExact(searchedTerm *util.BytesRef) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return seekStatus == schema.SeekStatusFound, nil
+	return seekStatus == spi.SeekStatusFound, nil
 }
 
 func (r *BlockReader) isCurrentTerm(searchedTerm *util.BytesRef) bool {
@@ -147,26 +147,26 @@ func (r *BlockReader) isBeyondLastTerm(searchedTerm *util.BytesRef, blockStartFP
 		util.BytesRefCompare(searchedTerm, r.fieldMetadata.lastTerm) > 0
 }
 
-func (r *BlockReader) seekInBlock(searchedTerm *util.BytesRef, blockStartFP int64) (schema.SeekStatus, error) {
+func (r *BlockReader) seekInBlock(searchedTerm *util.BytesRef, blockStartFP int64) (spi.SeekStatus, error) {
 	if err := r.initializeHeader(searchedTerm, blockStartFP); err != nil {
-		return schema.SeekStatusNotFound, err
+		return spi.SeekStatusNotFound, err
 	}
 	if r.blockHeader == nil {
-		return schema.SeekStatusEnd, nil
+		return spi.SeekStatusEnd, nil
 	}
 	return r.seekInBlockInternal(searchedTerm)
 }
 
-func (r *BlockReader) seekInBlockInternal(searchedTerm *util.BytesRef) (schema.SeekStatus, error) {
+func (r *BlockReader) seekInBlockInternal(searchedTerm *util.BytesRef) (spi.SeekStatus, error) {
 	if r.compareToMiddleAndJump(searchedTerm) == 0 {
-		return schema.SeekStatusFound, nil
+		return spi.SeekStatusFound, nil
 	}
 
 	comparisonOffset := 0
 	for {
 		line := r.readLineInBlock()
 		if line == nil {
-			return schema.SeekStatusEnd, nil
+			return spi.SeekStatusEnd, nil
 		}
 
 		lineTermBytes := line.term
@@ -193,9 +193,9 @@ func (r *BlockReader) seekInBlockInternal(searchedTerm *util.BytesRef) (schema.S
 		}
 
 		if comparison == 0 {
-			return schema.SeekStatusFound, nil
+			return spi.SeekStatusFound, nil
 		} else if comparison < 0 {
-			return schema.SeekStatusNotFound, nil
+			return spi.SeekStatusNotFound, nil
 		}
 	}
 }
@@ -215,13 +215,15 @@ func (r *BlockReader) compareToMiddleAndJump(searchedTerm *util.BytesRef) int {
 
 func (r *BlockReader) readLineInBlock() *BlockLine {
 	if r.lineIndexInBlock >= int(r.blockHeader.linesCount) {
-		return r.blockLine = nil
+		r.blockLine = nil
+		return r.blockLine
 	}
 
 	isIncrementalEncodingSeed := r.lineIndexInBlock == 0 || r.lineIndexInBlock == int(r.blockHeader.linesCount>>1)
 	r.lineIndexInBlock++
 
-	return r.blockLine = r.blockLineReader.ReadLine(r.blockReadBuffer, isIncrementalEncodingSeed, r.scratchBlockLine)
+	r.blockLine = r.blockLineReader.ReadLine(r.blockReadBuffer, isIncrementalEncodingSeed, r.scratchBlockLine)
+	return r.blockLine
 }
 
 func (r *BlockReader) initializeHeader(searchedTerm *util.BytesRef, targetBlockStartFP int64) error {
@@ -353,44 +355,44 @@ func (r *BlockReader) nextTerm() *util.BytesRef {
 
 // TermsEnum implementation
 
-func (r *BlockReader) Next() (*schema.Term, error) {
+func (r *BlockReader) Next() (*spi.Term, error) {
 	termBytes := r.nextTerm()
 	if termBytes == nil {
 		return nil, nil
 	}
-	return schema.NewTermFromBytesRef(r.fieldMetadata.fieldInfo.Name(), termBytes), nil
+	return spi.NewTermFromBytesRef(r.fieldMetadata.fieldInfo.Name(), termBytes), nil
 }
 
-func (r *BlockReader) SeekCeil(term *schema.Term) (*schema.Term, error) {
+func (r *BlockReader) SeekCeil(term *spi.Term) (*spi.Term, error) {
 	status, err := r.seekCeil(term.BytesValue())
 	if err != nil {
 		return nil, err
 	}
-	if status == schema.SeekStatusEnd {
+	if status == spi.SeekStatusEnd {
 		return nil, nil
 	}
-	if status == schema.SeekStatusNotFound {
+	if status == spi.SeekStatusNotFound {
 		// Go to next term.
 		termBytes := r.nextTerm()
 		if termBytes == nil {
 			return nil, nil
 		}
-		return schema.NewTermFromBytesRef(r.fieldMetadata.fieldInfo.Name(), termBytes), nil
+		return spi.NewTermFromBytesRef(r.fieldMetadata.fieldInfo.Name(), termBytes), nil
 	}
-	return schema.NewTermFromBytesRef(r.fieldMetadata.fieldInfo.Name(), r.term()), nil
+	return spi.NewTermFromBytesRef(r.fieldMetadata.fieldInfo.Name(), r.term()), nil
 }
 
-func (r *BlockReader) SeekExact(term *schema.Term) (bool, error) {
+func (r *BlockReader) SeekExact(term *spi.Term) (bool, error) {
 	found, err := r.seekExact(term.BytesValue())
 	return found, err
 }
 
-func (r *BlockReader) Term() *schema.Term {
+func (r *BlockReader) Term() *spi.Term {
 	termBytes := r.term()
 	if termBytes == nil {
 		return nil
 	}
-	return schema.NewTermFromBytesRef(r.fieldMetadata.fieldInfo.Name(), termBytes)
+	return spi.NewTermFromBytesRef(r.fieldMetadata.fieldInfo.Name(), termBytes)
 }
 
 func (r *BlockReader) DocFreq() (int, error) {
@@ -409,7 +411,7 @@ func (r *BlockReader) TotalTermFreq() (int64, error) {
 	return ts.totalTermFreq, nil
 }
 
-func (r *BlockReader) Postings(flags int) (schema.PostingsEnum, error) {
+func (r *BlockReader) Postings(flags int) (spi.PostingsEnum, error) {
 	ts, err := r.readTermStateIfNotRead()
 	if err != nil {
 		return nil, err
@@ -417,7 +419,7 @@ func (r *BlockReader) Postings(flags int) (schema.PostingsEnum, error) {
 	return r.postingsReader.Postings(r.fieldMetadata.fieldInfo, ts, nil, flags)
 }
 
-func (r *BlockReader) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (schema.PostingsEnum, error) {
+func (r *BlockReader) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (spi.PostingsEnum, error) {
 	// Not implemented in this port yet.
 	return nil, fmt.Errorf("PostingsWithLiveDocs not implemented")
 }

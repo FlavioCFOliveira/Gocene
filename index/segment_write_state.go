@@ -14,8 +14,8 @@ import (
 
 // SegmentWriteState is declared as an SPI alias in codec_interface.go
 // (type SegmentWriteState = spi.SegmentWriteState). These constructors
-// bridge from the index package's own *SegmentInfo and *BufferedUpdates to
-// the codec-facing shape.
+// assemble the codec-facing shape from the index package's *SegmentInfo
+// (an alias of *spi.SegmentInfo) and *BufferedUpdates.
 
 // NewSegmentWriteState constructs a SegmentWriteState.
 func NewSegmentWriteState(dir store.Directory, info *SegmentInfo, fieldInfos *FieldInfos, segUpdates *BufferedUpdates, context store.IOContext) *SegmentWriteState {
@@ -35,7 +35,7 @@ func NewSegmentWriteStateWithSuffix(_ *util.InfoStream, dir store.Directory, inf
 	}
 	return &SegmentWriteState{
 		Directory:     dir,
-		SegmentInfo:   info.ToSchema(),
+		SegmentInfo:   info,
 		FieldInfos:    fieldInfos,
 		SegmentSuffix: segmentSuffix,
 		SegUpdates:    ref,

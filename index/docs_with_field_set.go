@@ -4,7 +4,11 @@
 
 package index
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // DocsWithFieldSet accumulates document IDs that have a value for a given
 // field. Mirrors org.apache.lucene.index.DocsWithFieldSet from Apache
@@ -61,6 +65,15 @@ func (d *DocsWithFieldSet) Add(docID int) error {
 // Cardinality returns the number of doc IDs added.
 func (d *DocsWithFieldSet) Cardinality() int { return d.cardinality }
 
+// RamBytesUsed reports the heap size of the set.
+func (d *DocsWithFieldSet) RamBytesUsed() int64 {
+	var bytes int64
+	if d.bits != nil {
+		bytes += int64(len(d.bits) * 8)
+	}
+	return bytes + 64
+}
+
 // Contains reports whether docID has been added.
 func (d *DocsWithFieldSet) Contains(docID int) bool {
 	if docID < 0 {
@@ -85,4 +98,61 @@ func (d *DocsWithFieldSet) ensureCapacity(docID int) {
 	grown := make([]uint64, need)
 	copy(grown, d.bits)
 	d.bits = grown
+}
+
+// Iterator returns an iterator over the doc IDs in the set.
+func (d *DocsWithFieldSet) Iterator() util.DocIdSetIterator {
+	return &docsWithFieldSetIterator{set: d, currentDocID: -1}
+}
+
+type docsWithFieldSetIterator struct {
+	set          *DocsWithFieldSet
+	currentDocID int
+}
+
+func (it *docsWithFieldSetIterator) DocID() int {
+	return it.currentDocID
+}
+
+func (it *docsWithFieldSetIterator) NextDoc() (int, error) {
+	if it.currentDocID == util.NO_MORE_DOCS {
+		return util.NO_MORE_DOCS, nil
+	}
+
+	docID := it.currentDocID + 1
+	for {
+		if docID >= 2147483647 { // math.MaxInt32
+			it.currentDocID = util.NO_MORE_DOCS
+			return util.NO_MORE_DOCS, nil
+		}
+		if it.set.Contains(docID) {
+			it.currentDocID = docID
+			return docID, nil
+		}
+		docID++
+	}
+}
+
+func (it *docsWithFieldSetIterator) Advance(target int) (int, error) {
+	if target > it.currentDocID {
+		it.currentDocID = target - 1
+	}
+	// NextDoc will then find the first doc >= target
+	return it.NextDoc()
+}
+
+func (it *docsWithFieldSetIterator) DocIDRunEnd() int {
+	if it.currentDocID == -1 || it.currentDocID == util.NO_MORE_DOCS {
+		return -1
+	}
+
+	runEnd := it.currentDocID + 1
+	for it.set.Contains(runEnd) {
+		runEnd++
+	}
+	return runEnd
+}
+
+func (it *docsWithFieldSetIterator) Cost() int64 {
+	return 0
 }

@@ -6,7 +6,7 @@ package codecs
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
@@ -50,7 +50,7 @@ func (b *BaseNormsConsumer) Merge(mergeState *index.MergeState) error {
 
 // MergeNormsField merges the norms from the readers in mergeState.
 // Mirrors org.apache.lucene.codecs.NormsConsumer.mergeNormsField in Apache Lucene 10.5.0.
-func (b *BaseNormsConsumer) MergeNormsField(mergeFieldInfo *schema.FieldInfo, mergeState *index.MergeState) error {
+func (b *BaseNormsConsumer) MergeNormsField(mergeFieldInfo *spi.FieldInfo, mergeState *index.MergeState) error {
 	// The default implementation calls AddNormsField, passing an iterator
 	// that merges and filters deleted documents on the fly.
 	iterator := &mergeNormsIterator{
@@ -63,7 +63,7 @@ func (b *BaseNormsConsumer) MergeNormsField(mergeFieldInfo *schema.FieldInfo, me
 
 // mergeNormsIterator implements spi.NormsIterator by merging multiple NormsProducers.
 type mergeNormsIterator struct {
-	mergeFieldInfo *schema.FieldInfo
+	mergeFieldInfo *spi.FieldInfo
 	mergeState     *index.MergeState
 	merger         index.DocIDMerger
 	current        index.DocIDMergerSub

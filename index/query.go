@@ -4,13 +4,17 @@
 
 package index
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
 
 // Query is the abstract base class for all queries in the index package.
 // This is a minimal interface for index-level query operations.
 type Query interface {
 	// Rewrite rewrites the query to a simpler form.
-	Rewrite(reader *IndexReader) (Query, error)
+	Rewrite(reader *spi.IndexReader) (Query, error)
 	// Clone creates a copy of this query.
 	Clone() Query
 	// Equals checks if this query equals another.
@@ -24,7 +28,7 @@ type Query interface {
 // MatchAllDocsQuery matches all documents in the index.
 type MatchAllDocsQuery struct{}
 
-func (q *MatchAllDocsQuery) Rewrite(reader *IndexReader) (Query, error) {
+func (q *MatchAllDocsQuery) Rewrite(reader *spi.IndexReader) (Query, error) {
 	return q, nil
 }
 

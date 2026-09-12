@@ -36,108 +36,147 @@ import (
 // underlying types catch up, an adapter layer can wire them in without
 // touching this file.
 //
-// The stall controller is small (~115 LOC in Lucene) and only used by
-// DocumentsWriterFlushControl; it is inlined here as the unexported
-// documentsWriterStallControl helper to mirror the upstream cohesion.
+// documentsWriterStallControl controls the health status of a
+// DocumentsWriter session. Port of
+// org.apache.lucene.index.DocumentsWriterStallControl.
+//
+// This class controls DocumentsWriter sessions: it tracks the number of
+// active goroutines waiting on a stalled session, and signals them once the
+// session is no longer stalled. Java uses the intrinsic monitor of the
+// instance (synchronized / wait(100) / notifyAll); Go has no timed
+// sync.Cond wait, so the broadcast is rendered as a generation channel that
+// UpdateStalled closes on every state transition, and the bounded wait as a
+// select over that channel and a 100 ms timer.
+type documentsWriterStallControl struct {
+	mu      sync.Mutex
+	stalled atomic.Bool
+	// numWaiting counts goroutines currently blocked in WaitIfStalled.
+	numWaiting int
+	// wasStalled records whether the session was ever stalled (assert-only
+	// in Lucene, used by the test framework).
+	wasStalled bool
+	// signal is the current wait generation. UpdateStalled closes it to wake
+	// every waiter, mirroring notifyAll(), and installs a fresh channel.
+	signal chan struct{}
+}
+
+func newDocumentsWriterStallControl() *documentsWriterStallControl {
+	return &documentsWriterStallControl{
+		signal: make(chan struct{}),
+	}
+}
+
+// UpdateStalled updates the stalled flag with the given stalled boolean. Any
+// goroutine blocked in WaitIfStalled is woken up when the flag flips, in
+// either direction, matching the unconditional notifyAll() in Lucene.
+func (s *documentsWriterStallControl) UpdateStalled(stalled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.stalled.Load() != stalled {
+		s.stalled.Store(stalled)
+		if stalled {
+			s.wasStalled = true
+		}
+		close(s.signal)
+		s.signal = make(chan struct{})
+	}
+}
+
+// WaitIfStalled blocks if documents writing is currently in a stalled state.
+// It reacts to the first wakeup call and does not loop: the higher level
+// logic in DocumentsWriter re-stalls if needed. The bounded 100 ms wait is
+// defensive, exactly as in Lucene, in case a concurrent wakeup races with
+// stalled still being true.
+func (s *documentsWriterStallControl) WaitIfStalled() {
+	if !s.stalled.Load() {
+		return
+	}
+	s.mu.Lock()
+	if !s.stalled.Load() {
+		// React on the first wakeup call.
+		s.mu.Unlock()
+		return
+	}
+	s.incWaitersLocked()
+	gen := s.signal
+	s.mu.Unlock()
+
+	timer := time.NewTimer(100 * time.Millisecond)
+	select {
+	case <-gen:
+	case <-timer.C:
+	}
+	timer.Stop()
+
+	s.mu.Lock()
+	s.decrWaitersLocked()
+	s.mu.Unlock()
+}
+
+// AnyStalledThreads reports whether the session is currently stalled.
+func (s *documentsWriterStallControl) AnyStalledThreads() bool {
+	return s.stalled.Load()
+}
+
+// HasBlocked reports whether any goroutine is currently blocked waiting for
+// the session to leave the stalled state. Assert-only, as in Lucene.
+func (s *documentsWriterStallControl) HasBlocked() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.numWaiting > 0
+}
+
+// WasStalled reports whether the session was ever stalled. Assert-only, as
+// in Lucene.
+func (s *documentsWriterStallControl) WasStalled() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.wasStalled
+}
+
+func (s *documentsWriterStallControl) incWaitersLocked() {
+	s.numWaiting++
+}
+
+func (s *documentsWriterStallControl) decrWaitersLocked() {
+	s.numWaiting--
+}
 
 // ErrFlushControlClosed mirrors AlreadyClosedException thrown by
 // obtainAndLock when the flush control has been closed.
 var ErrFlushControlClosed = errors.New("flush control is closed")
 
-// flushControlDWPT is the minimal DWPT-shaped contract this file relies on.
-// It mirrors the package-private methods used by Lucene's
-// DocumentsWriterFlushControl.
-type flushControlDWPT interface {
-	// getCommitLastBytesUsedDelta returns the delta between the current
-	// bytesUsed and the last committed value. It does not commit.
-	GetCommitLastBytesUsedDelta() int64
-	// commitLastBytesUsed atomically advances the last-committed cursor.
-	CommitLastBytesUsed(delta int64)
-	// getLastCommittedBytesUsed returns the last committed bytesUsed value.
-	GetLastCommittedBytesUsed() int64
-	// ramBytesUsed returns the current bytesUsed estimate (uncommitted).
-	RAMBytesUsed() int64
-	// getNumDocsInRAM returns the number of documents buffered by this DWPT.
-	GetNumDocsInRAMLocked() int
-	// isFlushPending reports whether the DWPT has already been marked pending.
-	IsFlushPending() bool
-	// setFlushPending marks this DWPT as pending; called under the flush
-	// control monitor.
-	SetFlushPending()
-	// abort discards in-memory state. Used when aborting pending flushes.
-	Abort() error
-	// tryLock attempts to acquire the DWPT lock without blocking.
-	TryLock() bool
-	// lock acquires the DWPT lock, blocking.
-	Lock()
-	// unlock releases the DWPT lock.
-	Unlock()
-	// isHeldByCurrentThread reports whether the current goroutine holds the
-	// DWPT lock. Used only for assertions.
-	IsHeldByCurrentThread() bool
-	// getDeleteQueue returns the delete queue this DWPT is bound to. Used to
-	// detect stale DWPTs during a full flush.
-	GetDeleteQueue() flushControlDeleteQueue
-}
+// The port originally declared minimal local interfaces here because the
+// collaborating types (DocumentsWriterPerThread, DocumentsWriterPerThreadPool,
+// DocumentsWriterDeleteQueue, LiveIndexWriterConfig, FlushPolicy and
+// DocumentsWriter) had not yet been ported in their Lucene-compatible shape.
+// They now all live in this package with the upstream contract, so the
+// aliases below bind the names straight to the concrete types, exactly as
+// Lucene's DocumentsWriterFlushControl references them.
 
-// flushControlPool is the per-thread pool surface used by this file. It
-// matches DocumentsWriterPerThreadPool's package-private API.
-type flushControlPool interface {
-	// Size returns the current number of registered DWPTs.
-	Size() int
-	// IsRegistered reports whether the given DWPT is currently in the pool.
-	IsRegistered(perThread flushControlDWPT) bool
-	// Checkout removes the DWPT from the pool. Returns true on success.
-	Checkout(perThread flushControlDWPT) bool
-	// GetAndLock acquires a DWPT from the pool with its lock already held.
-	GetAndLock() flushControlDWPT
-	// LockNewWriters blocks creation of new DWPTs.
-	LockNewWriters()
-	// UnlockNewWriters lifts the LockNewWriters block.
-	UnlockNewWriters()
-	// Iter visits every registered DWPT. The iteration order is unspecified.
-	Iter(visit func(flushControlDWPT) bool)
-	// FilterAndLock returns every DWPT matching predicate with its lock held.
-	// The caller is responsible for releasing each lock.
-	FilterAndLock(predicate func(flushControlDWPT) bool) []flushControlDWPT
-}
+// flushControlDWPT is the DWPT this control accounts for. Lucene:
+// DocumentsWriterPerThread.
+type flushControlDWPT = *DocumentsWriterPerThread
 
-// flushControlPolicy mirrors the package-private FlushPolicy.onChange hook.
-// It intentionally does NOT collide with the exported index.FlushPolicy
-// interface (which has a different, simpler shape) — this is the upstream
-// contract that DocumentsWriterFlushControl was designed against.
-type flushControlPolicy interface {
-	// OnChange is called whenever the flush control's accounting changes for
-	// a perThread. When perThread is nil, the change was a delete-only event.
-	OnChange(control *DocumentsWriterFlushControl, perThread flushControlDWPT)
-}
+// flushControlPool is the per-thread pool. Lucene:
+// DocumentsWriterPerThreadPool.
+type flushControlPool = *DocumentsWriterPerThreadPool
 
-// flushControlDeleteQueue is the minimal delete-queue surface used by this
-// file: identity comparison and a ram-bytes accessor.
-type flushControlDeleteQueue interface {
-	RAMBytesUsed() int64
-	GetLastSequenceNumber() int64
-	GetMaxSeqNo() int64
-}
+// flushControlPolicy is the flush policy consulted on every accounting
+// change. Lucene: FlushPolicy.
+type flushControlPolicy = FlushPolicy
 
-// flushControlConfig is the LiveIndexWriterConfig surface this file needs.
-type flushControlConfig interface {
-	GetRAMBufferSizeMB() float64
-	GetMaxBufferedDocs() int
-	GetRAMPerThreadHardLimitMB() int
-	GetFlushPolicy() flushControlPolicy
-	GetInfoStream() util.InfoStream
-}
+// flushControlDeleteQueue is the global delete queue. Lucene:
+// DocumentsWriterDeleteQueue.
+type flushControlDeleteQueue = *DocumentsWriterDeleteQueue
 
-// flushControlOwner is the minimal DocumentsWriter surface used by this
-// file: the bound delete queue, a way to swap it during full flushes, and
-// a way to roll back the flushed-doc counter on abort.
-type flushControlOwner interface {
-	GetDeleteQueue() flushControlDeleteQueue
-	ResetDeleteQueue(poolSize int) int64
-	SubtractFlushedNumDocs(numDocs int)
-	GetPerThreadPool() flushControlPool
-}
+// flushControlConfig is the live writer config. Lucene:
+// LiveIndexWriterConfig.
+type flushControlConfig = *LiveIndexWriterConfig
+
+// flushControlOwner is the DocumentsWriter that owns this control. Lucene:
+// DocumentsWriter.
+type flushControlOwner = *DocumentsWriter
 
 // DocumentsWriterFlushControl tracks DWPT memory consumption and decides
 // when a DWPT must flush. See the file-level comment for porting notes.
@@ -350,7 +389,7 @@ func (c *DocumentsWriterFlushControl) DoAfterDocument(perThread flushControlDWPT
 			c.activeBytes += delta
 			_ = c.updatePeaks(delta)
 			c.flushPolicy.OnChange(c, perThread)
-			if !perThread.IsFlushPending() && perThread.RAMBytesUsed() > c.hardMaxBytesPerDWPT {
+			if !perThread.IsFlushPending() && perThread.RamBytesUsed() > c.hardMaxBytesPerDWPT {
 				c.setFlushPendingLocked(perThread)
 			}
 		}
@@ -664,7 +703,7 @@ func (c *DocumentsWriterFlushControl) DoOnDelete() {
 // that would be freed by pushing them.
 func (c *DocumentsWriterFlushControl) GetDeleteBytesUsed() int64 {
 	if dq := c.owner.GetDeleteQueue(); dq != nil {
-		return dq.RAMBytesUsed()
+		return dq.RamBytesUsed()
 	}
 	return 0
 }
@@ -1029,4 +1068,3 @@ func (c *DocumentsWriterFlushControl) GetPeakNetBytes() int64 {
 	defer c.mu.Unlock()
 	return c.peakNetBytes
 }
-

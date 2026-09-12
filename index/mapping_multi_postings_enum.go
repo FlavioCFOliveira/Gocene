@@ -8,12 +8,6 @@ import (
 	"fmt"
 )
 
-// MaxPosition is the largest position that can be stored in a posting list.
-// Mirrors org.apache.lucene.index.IndexWriter.MAX_POSITION from Apache
-// Lucene 10.4.0 (Integer.MAX_VALUE - 128). Defined here because IndexWriter
-// in Gocene does not yet expose this constant.
-const MaxPosition = int(^uint32(0)>>1) - 128
-
 // MappingMultiPostingsEnum exposes the flex API merged from the flex APIs of
 // sub-segments, remapping docIDs (this is used for segment merging). Mirrors
 // org.apache.lucene.index.MappingMultiPostingsEnum from Apache Lucene 10.4.0.
@@ -165,6 +159,11 @@ func (m *MappingMultiPostingsEnum) DocID() int {
 		return -1
 	}
 	return m.current.mappedDocID
+}
+
+// DocIDRunEnd returns the end of the current run of documents.
+func (m *MappingMultiPostingsEnum) DocIDRunEnd() int {
+	return m.DocID()
 }
 
 // Advance is unsupported — mirrors Lucene which throws

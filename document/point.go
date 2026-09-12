@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // Point is the base type for point fields.
@@ -50,8 +50,7 @@ func NewPoint(name string, ft *FieldType, values []byte, numDimensions, bytesPer
 	// correct point dimensions in FieldInfos. This matches how Lucene's
 	// IntPoint/LongPoint/FloatPoint constructors configure their internal
 	// FieldType.
-	ft.DimensionCount = numDimensions
-	ft.DimensionNumBytes = bytesPerDim
+	ft.SetDimensions(numDimensions, bytesPerDim)
 	p.value = binaryValue(values)
 
 	return p, nil
@@ -72,7 +71,7 @@ func (p *Point) PointValues() []byte {
 	if p.value == nil {
 		return nil
 	}
-	return p.value.Binary()
+	return p.BinaryValue()
 }
 
 // PackInt packs a single int value into a byte slice.
@@ -276,10 +275,9 @@ func PointFieldType() *FieldType {
 	ft.Stored = false
 	ft.Tokenized = false
 	ft.OmitNorms = true
-	ft.IndexOptions = schema.IndexOptionsDocs
-	ft.DocValuesType = schema.DocValuesTypeNone
-	ft.DimensionCount = 1
-	ft.DimensionNumBytes = 4
+	ft.IndexOptions = spi.IndexOptionsDocs
+	ft.DocValuesType = spi.DocValuesTypeNone
+	ft.SetDimensions(1, 4)
 	return ft
 }
 

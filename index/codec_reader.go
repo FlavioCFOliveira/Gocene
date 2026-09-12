@@ -7,6 +7,7 @@ package index
 import (
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -52,11 +53,11 @@ type CodecReader interface {
 // pointsReaderWithValues is the wide read surface Lucene's
 // org.apache.lucene.codecs.PointsReader exposes via getValues(String).
 // spi.PointsReader deliberately carries only the integrity/close hooks because
-// PointValues lives in package index and cannot be lifted into the SPI without
+// spi.PointValues lives in package index and cannot be lifted into the SPI without
 // an import cycle (see the note on spi.PointsReader), so the wide surface is
 // recovered here by assertion.
 type pointsReaderWithValues interface {
-	GetValues(field string) (PointValues, error)
+	GetValues(field string) (spi.PointValues, error)
 }
 
 // knnVectorsReaderWithValues is the wide read surface Lucene's
@@ -102,15 +103,22 @@ type storedFieldsWrapper struct {
 	maxDoc int
 }
 
-func (w *storedFieldsWrapper) Prefetch(docID int) error {
-	if docID < 0 || docID >= w.maxDoc {
-		return fmt.Errorf("docID %d out of range [0, %d)", docID, w.maxDoc)
-	}
-	// Lucene's StoredFields.prefetch is a no-op unless the codec reader overrides
-	// it; spi.StoredFieldsReader therefore does not declare it and the override is
-	// recovered by assertion.
-	if pf, ok := w.reader.(interface{ Prefetch(docID int) error }); ok {
-		return pf.Prefetch(docID)
+// Prefetch hints that the stored fields of the given documents will be read
+// soon. Lucene's StoredFields.prefetch takes a single docID and is a no-op
+// unless the codec reader overrides it; spi.StoredFields batches the hint, so
+// the wrapper forwards one call per document to the reader's override.
+func (w *storedFieldsWrapper) Prefetch(docIDs []int) error {
+	pf, ok := w.reader.(interface{ Prefetch(docID int) error })
+	for _, docID := range docIDs {
+		if docID < 0 || docID >= w.maxDoc {
+			return fmt.Errorf("docID %d out of range [0, %d)", docID, w.maxDoc)
+		}
+		if !ok {
+			continue
+		}
+		if err := pf.Prefetch(docID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -138,9 +146,19 @@ type termVectorsWrapper struct {
 	reader TermVectorsReader
 }
 
-func (w *termVectorsWrapper) Prefetch(docID int) error {
-	if pf, ok := w.reader.(interface{ Prefetch(docID int) error }); ok {
-		return pf.Prefetch(docID)
+// Prefetch hints that the term vectors of the given documents will be read
+// soon. Lucene's TermVectors.prefetch takes a single docID and is a no-op
+// unless the codec reader overrides it; spi.TermVectors batches the hint, so
+// the wrapper forwards one call per document to the reader's override.
+func (w *termVectorsWrapper) Prefetch(docIDs []int) error {
+	pf, ok := w.reader.(interface{ Prefetch(docID int) error })
+	if !ok {
+		return nil
+	}
+	for _, docID := range docIDs {
+		if err := pf.Prefetch(docID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -202,9 +220,9 @@ func (b *baseCodecReader) GetSortedSetDocValues(field string) (SortedSetDocValue
 	return b.impl.GetDocValuesReader().GetSortedSet(fi)
 }
 
-func (b *baseCodecReader) GetDocValuesSkipper(field string) (DocValuesSkipper, error) {
+func (b *baseCodecReader) GetDocValuesSkipper(field string) (spi.DocValuesSkipper, error) {
 	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
-	if fi == nil || fi.DocValuesSkipIndexType() == DocValuesSkipIndexTypeNone {
+	if fi == nil || fi.DocValuesSkipIndexType() == spi.DocValuesSkipIndexTypeNone {
 		return nil, nil
 	}
 	return b.impl.GetDocValuesReader().GetSkipper(fi)
@@ -219,7 +237,7 @@ func (b *baseCodecReader) GetNormValues(field string) (NumericDocValues, error) 
 	return b.impl.GetNormsReader().GetNorms(fi)
 }
 
-func (b *baseCodecReader) GetPointValues(field string) (PointValues, error) {
+func (b *baseCodecReader) GetPointValues(field string) (spi.PointValues, error) {
 	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
 	if fi == nil || fi.PointDimensionCount() == 0 {
 		// Field does not exist or does not index points

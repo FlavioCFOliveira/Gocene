@@ -72,11 +72,11 @@ func NewArabicAnalyzerWithWords(stopWords *CharArraySet) *ArabicAnalyzer {
 		tok = NewArabicStemFilter(tok)
 
 		return &TokenStreamComponents{
-			source: func(r io.Reader) error {
+			Source: func(r io.Reader) error {
 				src.SetReader(r)
 				return nil
 			},
-			sink: tok,
+			Sink: tok,
 		}
 	}
 

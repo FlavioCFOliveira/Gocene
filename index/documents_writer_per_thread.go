@@ -6,10 +6,13 @@ package index
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/FlavioCFOliveira/Gocene/index/column"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -35,17 +38,19 @@ type DocumentsWriterPerThread struct {
 
 	// Updates for our still-in-RAM (to be flushed next) segment.
 	pendingUpdates *BufferedUpdates
+	// docValues buffers doc-values for each field.
+	docValues map[string]*DocValuesBuffer
 	// segmentInfo is the current segment we are working on.
 	segmentInfo *SegmentInfo
 	// aborted is true if we aborted the current segment.
 	aborted bool
 	// flushPending indicates if a flush is pending for this DWPT.
-	flushPending bool
+	flushPending    bool
 	flushPendingSet bool
 	// lastCommittedBytesUsed is the RAM usage at the last commit.
 	lastCommittedBytesUsed int64
 	// hasFlushed is true if this DWPT has been flushed at least once.
-	hasFlushed bool
+	hasFlushed    bool
 	hasFlushedSet bool
 
 	// fieldInfos builds field info as documents are added.
@@ -72,16 +77,29 @@ type DocumentsWriterPerThread struct {
 	indexMajorVersionCreated int
 	// hasParentField is true if a parent field is configured.
 	hasParentField bool
+	// filesToDelete collects the files this DWPT wrote that are no longer
+	// referenced (the pre-compound-file originals). Mirrors
+	// DocumentsWriterPerThread.filesToDelete.
+	filesToDelete map[string]struct{}
+	// normsAcc holds the in-progress field-inversion counters for the document
+	// currently being processed, keyed by field name. See
+	// documents_writer_per_thread_norms.go: it is the live-path counterpart of
+	// the per-field FieldInvertState that IndexingChain.PerField carries.
+	normsAcc map[string]*normsAccumulator
+	// norms buffers the per-document norm values of every norms field seen in
+	// this segment, keyed by field name, in document order. Live-path
+	// counterpart of IndexingChain.PerField.norms (NormValuesWriter).
+	norms map[string]*NormsBuffer
 }
 
 // FlushedSegment represents a segment that has been flushed to disk.
 type FlushedSegment struct {
-	segmentInfo    *SegmentCommitInfo
-	fieldInfos     *FieldInfos
-	segmentUpdates *FrozenBufferedUpdates
-	liveDocs       *util.FixedBitSet
-	delCount       int
-	sortMap        SorterDocMap
+	SegmentInfo    *SegmentCommitInfo
+	FieldInfos     *FieldInfos
+	SegmentUpdates *FrozenBufferedUpdates
+	LiveDocs       *util.FixedBitSet
+	DelCount       int
+	SortMap        SorterDocMap
 }
 
 func newFlushedSegment(
@@ -92,19 +110,23 @@ func newFlushedSegment(
 	liveDocs *util.FixedBitSet,
 	delCount int,
 	sortMap SorterDocMap,
-) *FlushedSegment {
+) (*FlushedSegment, error) {
 	var frozenUpdates *FrozenBufferedUpdates
 	if segmentUpdates != nil && segmentUpdates.Any() {
-		frozenUpdates = NewFrozenBufferedUpdates(infoStream, segmentUpdates, segmentInfo)
+		var err error
+		frozenUpdates, err = NewFrozenBufferedUpdates(infoStream, segmentUpdates, segmentInfo)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return &FlushedSegment{
-		segmentInfo:    segmentInfo,
-		fieldInfos:     fieldInfos,
-		segmentUpdates: frozenUpdates,
-		liveDocs:       liveDocs,
-		delCount:       delCount,
-		sortMap:        sortMap,
-	}
+		SegmentInfo:    segmentInfo,
+		FieldInfos:     fieldInfos,
+		SegmentUpdates: frozenUpdates,
+		LiveDocs:       liveDocs,
+		DelCount:       delCount,
+		SortMap:        sortMap,
+	}, nil
 }
 
 func (dwpt *DocumentsWriterPerThread) onAbortingException(err error) {
@@ -160,7 +182,7 @@ func NewDocumentsWriterPerThread(
 ) *DocumentsWriterPerThread {
 	dwpt := &DocumentsWriterPerThread{
 		indexMajorVersionCreated: indexMajorVersionCreated,
-		directory:               store.NewTrackingDirectoryWrapper(directory),
+		directory:                store.NewTrackingDirectoryWrapper(directory),
 		fieldInfos:               fieldInfos,
 		indexWriterConfig:        indexWriterConfig,
 		infoStream:               indexWriterConfig.GetInfoStream(),
@@ -168,17 +190,25 @@ func NewDocumentsWriterPerThread(
 		pendingNumDocs:           pendingNumDocs,
 		deleteQueue:              deleteQueue,
 		enableTestPoints:         enableTestPoints,
+		docValues:                make(map[string]*DocValuesBuffer),
+		filesToDelete:            make(map[string]struct{}),
+		normsAcc:                 make(map[string]*normsAccumulator),
+		norms:                    make(map[string]*NormsBuffer),
 	}
 
 	dwpt.pendingUpdates = NewBufferedUpdates(segmentName)
 	dwpt.deleteSlice = deleteQueue.NewSlice()
 
-		dwpt.segmentInfo = NewSegmentInfo(segmentName, -1, directoryOrig)
-		dwpt.segmentInfo.SetVersion(util.Latest.String())
-		dwpt.segmentInfo.SetMinVersion(util.Latest.String())
-		dwpt.segmentInfo.SetCodec(dwpt.codec.Name())
-		dwpt.segmentInfo.SetID(generateSegmentID())
-		dwpt.segmentInfo.SetIndexSort(indexWriterConfig.GetIndexSort())
+	dwpt.segmentInfo = NewSegmentInfo(segmentName, -1, directoryOrig)
+	dwpt.segmentInfo.SetVersion(util.Latest.String())
+	dwpt.segmentInfo.SetMinVersion(util.Latest.String())
+	dwpt.segmentInfo.SetCodec(dwpt.codec)
+	dwpt.segmentInfo.SetID(generateSegmentID())
+	if indexSort, ok := indexWriterConfig.GetIndexSort().(*spi.Sort); ok {
+		dwpt.segmentInfo.SetIndexSort(indexSort)
+	}
+	dwpt.hasParentField = indexWriterConfig.GetParentField() != ""
+
 	// IndexingChain constructor in Gocene requires handles.
 	// These are injected here to mirror Lucene's constructor logic.
 	chain, err := NewIndexingChain(
@@ -213,7 +243,7 @@ func (dwpt *DocumentsWriterPerThread) SetTestSegmentIDSeed(seed string) {
 }
 
 func (dwpt *DocumentsWriterPerThread) reserveOneDoc() {
-	if dwpt.pendingNumDocs.Add(1) > GetActualMaxDocs() {
+	if dwpt.pendingNumDocs.Add(1) > int64(GetActualMaxDocs()) {
 		dwpt.pendingNumDocs.Add(-1)
 		panic(fmt.Sprintf("number of documents in the index cannot exceed %d", GetActualMaxDocs()))
 	}
@@ -262,7 +292,7 @@ func (dwpt *DocumentsWriterPerThread) UpdateDocuments(
 	for i, doc := range docs {
 		isLastDoc := i == len(docs)-1
 		if !dwpt.hasParentField &&
-			dwpt.segmentInfo.GetIndexSort() != nil &&
+			dwpt.segmentInfo.IndexSort() != nil &&
 			!isLastDoc &&
 			dwpt.indexMajorVersionCreated >= 10 { // LUCENE_10_0_0
 			panic("a parent field must be set in order to use document blocks with index sorting; see IndexWriterConfig#setParentField")
@@ -275,7 +305,7 @@ func (dwpt *DocumentsWriterPerThread) UpdateDocuments(
 	}
 
 	if dwpt.numDocsInRAM-docsInRamBefore > 1 {
-		dwpt.segmentInfo.SetHasBlocks()
+		dwpt.segmentInfo.SetHasBlocks(true)
 	}
 	allDocsIndexed = true
 
@@ -283,7 +313,7 @@ func (dwpt *DocumentsWriterPerThread) UpdateDocuments(
 }
 
 func (dwpt *DocumentsWriterPerThread) UpdateBatch(
-	columnBatch ColumnBatch,
+	columnBatch *column.ColumnBatch,
 	deleteNode Node,
 	flushNotifications FlushNotifications,
 	onNewDocsOnRAM func(int),
@@ -296,7 +326,7 @@ func (dwpt *DocumentsWriterPerThread) UpdateBatch(
 	}
 
 	docsInRamBefore := dwpt.numDocsInRAM
-	numDocs := columnBatch.NumDocs()
+	numDocs := columnBatch.NumDocs
 	allDocsIndexed := false
 
 	dwpt.reserveDocs(numDocs)
@@ -319,18 +349,18 @@ func (dwpt *DocumentsWriterPerThread) UpdateBatch(
 func (dwpt *DocumentsWriterPerThread) finishDocuments(deleteNode Node, docIdUpTo int) (int64, error) {
 	var seqNo int64
 	if deleteNode != nil {
-		seqNo = dwpt.deleteQueue.Add(deleteNode)
+		seqNo = dwpt.deleteQueue.AddWithSlice(deleteNode, dwpt.deleteSlice)
 		// In Java, this is an assertion: assert deleteSlice.isTail(deleteNode)
-		dwpt.deleteSlice.Apply(dwpt.pendingUpdates, docIdUpTo)
+		dwpt.deleteSlice.apply(dwpt.pendingUpdates, docIdUpTo)
 		return seqNo, nil
 	}
 
 	seqNo = dwpt.deleteQueue.UpdateSlice(dwpt.deleteSlice)
 	if seqNo < 0 {
 		seqNo = -seqNo
-		dwpt.deleteSlice.Apply(dwpt.pendingUpdates, docIdUpTo)
+		dwpt.deleteSlice.apply(dwpt.pendingUpdates, docIdUpTo)
 	} else {
-		dwpt.deleteSlice.Reset()
+		dwpt.deleteSlice.reset()
 	}
 
 	return seqNo, nil
@@ -356,10 +386,56 @@ func (dwpt *DocumentsWriterPerThread) deleteLastDocs(docCount int) {
 	}
 }
 
+// GetNumDocsInRAM returns the number of documents buffered by this DWPT.
+// Mirrors DocumentsWriterPerThread.getNumDocsInRAM(), which takes no lock: the
+// caller already owns the DWPT lock whenever the value must be stable.
 func (dwpt *DocumentsWriterPerThread) GetNumDocsInRAM() int {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
 	return dwpt.numDocsInRAM
+}
+
+// GetNumDocsInRAMLocked is GetNumDocsInRAM under the caller-held DWPT lock. It
+// exists because DocumentsWriterFlushControl reads the counter while holding
+// the DWPT lock, where re-entering dwpt.mu would deadlock.
+func (dwpt *DocumentsWriterPerThread) GetNumDocsInRAMLocked() int {
+	return dwpt.numDocsInRAM
+}
+
+// GetSegmentInfo returns the segment currently being written. Mirrors
+// DocumentsWriterPerThread.getSegmentInfo().
+func (dwpt *DocumentsWriterPerThread) GetSegmentInfo() *SegmentInfo {
+	return dwpt.segmentInfo
+}
+
+// GetDeleteQueue returns the delete queue this DWPT is bound to. Mirrors the
+// package-private DocumentsWriterPerThread.deleteQueue field.
+func (dwpt *DocumentsWriterPerThread) GetDeleteQueue() *DocumentsWriterDeleteQueue {
+	return dwpt.deleteQueue
+}
+
+// IsQueueAdvanced reports whether the delete queue this DWPT is bound to has
+// been advanced, i.e. the DWPT is stale with respect to a full flush. Mirrors
+// DocumentsWriterPerThread.isQueueAdvanced().
+func (dwpt *DocumentsWriterPerThread) IsQueueAdvanced() bool {
+	return dwpt.deleteQueue.IsAdvanced()
+}
+
+// PendingFilesToDelete returns the files written by this DWPT that are no
+// longer referenced and may be deleted. Mirrors
+// DocumentsWriterPerThread.pendingFilesToDelete().
+func (dwpt *DocumentsWriterPerThread) PendingFilesToDelete() []string {
+	files := make([]string, 0, len(dwpt.filesToDelete))
+	for name := range dwpt.filesToDelete {
+		files = append(files, name)
+	}
+	sort.Strings(files)
+	return files
+}
+
+// deleteFile records a file for deletion. Mirrors the
+// DocumentsWriterPerThread::deleteFile method reference handed to
+// IndexWriter.createCompoundFile.
+func (dwpt *DocumentsWriterPerThread) deleteFile(file string) {
+	dwpt.filesToDelete[file] = struct{}{}
 }
 
 func (dwpt *DocumentsWriterPerThread) PrepareFlush() (*FrozenBufferedUpdates, error) {
@@ -372,27 +448,30 @@ func (dwpt *DocumentsWriterPerThread) PrepareFlush() (*FrozenBufferedUpdates, er
 
 	globalUpdates := dwpt.deleteQueue.FreezeGlobalBuffer(dwpt.deleteSlice)
 	if dwpt.deleteSlice != nil {
-		dwpt.deleteSlice.Apply(dwpt.pendingUpdates, dwpt.numDocsInRAM)
-		dwpt.deleteSlice.Reset()
+		dwpt.deleteSlice.apply(dwpt.pendingUpdates, dwpt.numDocsInRAM)
+		dwpt.deleteSlice.reset()
 	}
 	return globalUpdates, nil
 }
 
-func countSoftDeletes(iter util.DocIdSetIterator, liveDocs *util.FixedBitSet) int {
+func countSoftDeletes(iter util.DocIdSetIterator, liveDocs *util.FixedBitSet) (int, error) {
 	if iter == nil {
-		return 0
+		return 0, nil
 	}
 	count := 0
 	for {
-		docID := iter.NextDoc()
-		if docID == util.NoDoc {
+		docID, err := iter.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+		if docID == util.NO_MORE_DOCS {
 			break
 		}
-		if docID < liveDocs.Length() && liveDocs.Get(docID) {
+		if liveDocs == nil || (docID < liveDocs.Length() && liveDocs.Get(docID)) {
 			count++
 		}
 	}
-	return count
+	return count, nil
 }
 
 func (dwpt *DocumentsWriterPerThread) Flush(flushNotifications FlushNotifications) (*FlushedSegment, error) {
@@ -415,7 +494,7 @@ func (dwpt *DocumentsWriterPerThread) Flush(flushNotifications FlushNotification
 		Directory:   dwpt.directory,
 		SegmentInfo: dwpt.segmentInfo,
 		FieldInfos:  dwpt.fieldInfos.Build(),
-		IOContext:    store.IOContextFlush(store.NewFlushInfo(dwpt.numDocsInRAM, dwpt.lastCommittedBytesUsed)),
+		Context:     store.IOContextFlush(store.NewFlushInfo(dwpt.numDocsInRAM, dwpt.lastCommittedBytesUsed)),
 	}
 
 	if dwpt.aborted {
@@ -445,7 +524,10 @@ func (dwpt *DocumentsWriterPerThread) Flush(flushNotifications FlushNotification
 	softDeletesField := dwpt.indexWriterConfig.GetSoftDeletesField()
 	if softDeletesField != "" {
 		softDeletedDocs := dwpt.indexingChain.GetHasDocValues(softDeletesField)
-		softDelCount = countSoftDeletes(softDeletedDocs, flushState.LiveDocs)
+		softDelCount, err = countSoftDeletes(softDeletedDocs, flushState.LiveDocs)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	packableSortMap, err = dwpt.indexingChain.Flush(flushState)
@@ -456,43 +538,41 @@ func (dwpt *DocumentsWriterPerThread) Flush(flushNotifications FlushNotification
 
 	// We clear this here because we already resolved them when writing postings.
 	dwpt.pendingUpdates.ClearDeleteTerms()
-	dwpt.segmentInfo.SetFiles(dwpt.directory.GetCreatedFiles())
+	created := dwpt.directory.GetCreatedFiles()
+	createdNames := make([]string, 0, len(created))
+	for name := range created {
+		createdNames = append(createdNames, name)
+	}
+	dwpt.segmentInfo.SetFiles(createdNames)
 
-		segmentInfoPerCommit := NewSegmentCommitInfo(
-			dwpt.segmentInfo,
-			0,
-			-1,
-		)
-		segmentInfoPerCommit.SetSoftDelCount(softDelCount)
-		segmentInfoPerCommit.SetID(generateSegmentID())
+	segmentInfoPerCommit := NewSegmentCommitInfo(
+		dwpt.segmentInfo,
+		0,
+		softDelCount,
+		-1,
+		-1,
+		-1,
+		generateSegmentID(),
+	)
+
+	var segmentDeletes *BufferedUpdates
+	if softDeletesField != "" {
 		segmentDeletes = nil
 	} else {
 		segmentDeletes = dwpt.pendingUpdates
 	}
 
-	var fs *FlushedSegment
-	if packableSortMap != nil {
-		// Assume pack() method exists on SorterDocMap to get the final version.
-		// If not, we just use the map.
-		fs = newFlushedSegment(
-			dwpt.infoStream,
-			segmentInfoPerCommit,
-			flushState.FieldInfos,
-			segmentDeletes,
-			flushState.LiveDocs,
-			dwpt.numDeletedDocIds,
-			packableSortMap,
-		)
-	} else {
-		fs = newFlushedSegment(
-			dwpt.infoStream,
-			segmentInfoPerCommit,
-			flushState.FieldInfos,
-			segmentDeletes,
-			flushState.LiveDocs,
-			dwpt.numDeletedDocIds,
-			nil,
-		)
+	fs, err := newFlushedSegment(
+		dwpt.infoStream,
+		segmentInfoPerCommit,
+		flushState.FieldInfos,
+		segmentDeletes,
+		flushState.LiveDocs,
+		dwpt.numDeletedDocIds,
+		packableSortMap,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	err = dwpt.sealFlushedSegment(fs, packableSortMap, flushNotifications)
@@ -521,65 +601,101 @@ func (dwpt *DocumentsWriterPerThread) sealFlushedSegment(
 	sortMap SorterDocMap,
 	flushNotifications FlushNotifications,
 ) error {
-	newSegment := flushedSegment.segmentInfo
+	newSegment := flushedSegment.SegmentInfo
 
-	SetDiagnostics(newSegment.Info, 1) // SOURCE_FLUSH
+	// Lucene passes IndexWriter.SOURCE_FLUSH ("flush"); Gocene's SetDiagnostics
+	// still takes the legacy integer source code, where 1 is the flush source.
+	SetDiagnostics(newSegment.Info, 1)
 
-	context := store.IOContextFlush(store.NewFlushInfo(newSegment.Info.DocCount(), newSegment.SizeInBytes()))
+	sizeInBytes, err := newSegment.SizeInBytes()
+	if err != nil {
+		return err
+	}
+	context := store.IOContextFlush(store.NewFlushInfo(newSegment.Info.MaxDoc(), sizeInBytes))
 
 	success := false
 	defer func() {
 		if !success && dwpt.infoStream.IsEnabled("DWPT") {
-			dwpt.infoStream.Message("DWPT", fmt.Sprintf("hit exception creating compound file for newly flushed segment %s", newSegment.Info.Name()))
+			dwpt.infoStream.Message("DWPT", fmt.Sprintf(
+				"hit exception creating compound file for newly flushed segment %s", newSegment.Info.Name()))
 		}
 	}()
 
-	if dwpt.indexWriterConfig.UseCompoundFile() {
+	if dwpt.indexWriterConfig.GetUseCompoundFile() {
 		originalFiles := newSegment.Info.Files()
-		// Gocene should have this utility.
-		CreateCompoundFile(
+		if err := CreateCompoundFile(
 			dwpt.infoStream,
-			dwpt.directory,
+			store.NewTrackingDirectoryWrapper(dwpt.directory),
 			newSegment.Info,
 			context,
 			flushNotifications.DeleteUnusedFiles,
-		)
-		// Mark original files for deletion.
-		// In Java: filesToDelete.addAll(originalFiles).
-		// We can handle this via the FlushNotifications.
+		); err != nil {
+			return err
+		}
+		for _, file := range originalFiles {
+			dwpt.deleteFile(file)
+		}
 		newSegment.Info.SetUseCompoundFile(true)
 	}
 
-	dwpt.codec.SegmentInfoFormat().Write(dwpt.directory, newSegment.Info, context)
+	// Have the codec write SegmentInfo. Must be done after creating the CFS so
+	// that 1) the .si is not slurped into the CFS and 2) the .si reflects the
+	// useCompoundFile=true change above.
+	if err := dwpt.codec.SegmentInfoFormat().Write(dwpt.directory, newSegment.Info, context); err != nil {
+		return err
+	}
 
-	if flushedSegment.liveDocs != nil {
-		delCount := flushedSegment.delCount
+	// Deleted docs must be written after the CFS so the .liv file is not
+	// slurped into the CFS.
+	if flushedSegment.LiveDocs != nil {
+		delCount := flushedSegment.DelCount
+		if delCount <= 0 {
+			return fmt.Errorf("sealFlushedSegment: delCount must be positive, got %d", delCount)
+		}
 		if dwpt.infoStream.IsEnabled("DWPT") {
-			dwpt.infoStream.Message("DWPT", fmt.Sprintf("flush: write %d deletes gen=%d", delCount, newSegment.Info.GetDelGen()))
+			dwpt.infoStream.Message("DWPT", fmt.Sprintf(
+				"flush: write %d deletes gen=%d", delCount, flushedSegment.SegmentInfo.DelGen()))
 		}
 
 		var bits *util.FixedBitSet
 		if sortMap == nil {
-			bits = flushedSegment.liveDocs
+			bits = flushedSegment.LiveDocs
 		} else {
-			// sortLiveDocs logic
-			sortedLiveDocs := util.NewFixedBitSet(flushedSegment.liveDocs.Length())
-			sortedLiveDocs.Set(0, flushedSegment.liveDocs.Length())
-			for i := 0; i < flushedSegment.liveDocs.Length(); i++ {
-				if !flushedSegment.liveDocs.Get(i) {
-					sortedLiveDocs.Clear(sortMap.OldToNew(i))
-				}
+			bits, err = sortLiveDocs(flushedSegment.LiveDocs, sortMap)
+			if err != nil {
+				return err
 			}
-			bits = sortedLiveDocs
 		}
-
-		dwpt.codec.LiveDocsFormat().WriteLiveDocs(bits, dwpt.directory, newSegment.Info, delCount, context)
+		codec := newSegment.Info.Codec()
+		if err := codec.LiveDocsFormat().WriteLiveDocs(
+			bits, dwpt.directory, newSegment, delCount, context); err != nil {
+			return err
+		}
 		newSegment.SetDelCount(delCount)
 		newSegment.AdvanceDelGen()
 	}
 
 	success = true
 	return nil
+}
+
+// sortLiveDocs remaps a live-docs bitset through the segment sort map, mirroring
+// DocumentsWriterPerThread.sortLiveDocs(Bits, Sorter.DocMap).
+func sortLiveDocs(liveDocs util.Bits, sortMap SorterDocMap) (*util.FixedBitSet, error) {
+	if liveDocs == nil || sortMap == nil {
+		return nil, fmt.Errorf("sortLiveDocs: liveDocs and sortMap must not be nil")
+	}
+	sortedLiveDocs, err := util.NewFixedBitSet(liveDocs.Length())
+	if err != nil {
+		return nil, err
+	}
+	sortedLiveDocs.SetRange(0, liveDocs.Length())
+	for i := 0; i < liveDocs.Length(); i++ {
+		if !liveDocs.Get(i) {
+			sortedLiveDocs.Clear(sortMap.OldToNew(i))
+		}
+	}
+	return sortedLiveDocs, nil
 }
 
 func (dwpt *DocumentsWriterPerThread) RamBytesUsed() int64 {

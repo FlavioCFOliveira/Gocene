@@ -127,11 +127,11 @@ func (w *OfflinePointWriter) Append(packedValue []byte, docID int) error {
 		return fmt.Errorf("bkd: [packedValue] must have length %d but was %d",
 			w.config.PackedBytesLength(), len(packedValue))
 	}
-	if err := w.checksumOut.WriteBytes(packedValue); err != nil {
+	if err := w.checksumOut.WriteBytes(packedValue, 0, len(packedValue)); err != nil {
 		return err
 	}
 	binary.BigEndian.PutUint32(w.scratchDocID[:], uint32(int32(docID)))
-	if err := w.checksumOut.WriteBytes(w.scratchDocID[:]); err != nil {
+	if err := w.checksumOut.WriteBytes(w.scratchDocID[:], 0, len(w.scratchDocID)); err != nil {
 		return err
 	}
 	w.count++
@@ -155,7 +155,7 @@ func (w *OfflinePointWriter) AppendPointValue(pointValue PointValue) error {
 			w.config.BytesPerDoc(), combo.Length)
 	}
 	if err := w.checksumOut.WriteBytes(
-		combo.Bytes[combo.Offset : combo.Offset+combo.Length],
+		combo.Bytes, combo.Offset, combo.Length,
 	); err != nil {
 		return err
 	}
@@ -206,7 +206,7 @@ func (w *OfflinePointWriter) Close() error {
 		return nil
 	}
 	w.closed = true
-	footerErr := store.WriteFooter(w.checksumOut)
+	footerErr := store.WriteFooter(w.checksumOut.GetWrappedOutput())
 	closeErr := w.out.Close()
 	if footerErr != nil {
 		return footerErr

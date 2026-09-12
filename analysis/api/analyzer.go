@@ -45,3 +45,8 @@ type TokenStream interface {
 	// Close releases resources held by this TokenStream.
 	Close() error
 }
+
+// AnalyzerFactory is the interface for factories that create Analyzer instances.
+type AnalyzerFactory interface {
+	Create() Analyzer
+}

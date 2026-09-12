@@ -4,16 +4,16 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 type AssertingTerms struct {
-	in schema.Terms
+	in spi.Terms
 }
 
-func (t *AssertingTerms) TermsEnum(field string) (schema.TermsEnum, error) {
+func (t *AssertingTerms) TermsEnum(field string) (spi.TermsEnum, error) {
 	te, err := t.in.TermsEnum(field)
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func (t *AssertingTerms) GetDocCount() (int, error) {
 }
 
 type AssertingTermsEnum struct {
-	in schema.TermsEnum
+	in spi.TermsEnum
 }
 
 func (te *AssertingTermsEnum) NextDoc() (int, error) {
@@ -115,7 +115,7 @@ func (f *AssertingFields) Iterator() []string {
 	return f.in.Iterator()
 }
 
-func (f *AssertingFields) Terms(field string) (schema.Terms, error) {
+func (f *AssertingFields) Terms(field string) (spi.Terms, error) {
 	t, err := f.in.Terms(field)
 	if err != nil {
 		return nil, err
@@ -234,6 +234,6 @@ func (b *AssertingBits) Length() int {
 	return b.in.Length()
 }
 
-func NewAssertingTerms(terms schema.Terms) *AssertingTerms {
+func NewAssertingTerms(terms spi.Terms) *AssertingTerms {
 	return &AssertingTerms{in: terms}
 }

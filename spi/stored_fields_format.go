@@ -4,10 +4,6 @@
 
 package spi
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
-	"github.com/FlavioCFOliveira/Gocene/store"
-)
 
 // StoredFieldsFormat encodes and decodes the per-document stored field
 // pair (.fdt / .fdx) for a segment.
@@ -20,11 +16,11 @@ type StoredFieldsFormat interface {
 
 	// FieldsReader opens a reader over the .fdt / .fdx pair. The caller
 	// closes the returned reader when done.
-	FieldsReader(dir store.Directory, segmentInfo *schema.SegmentInfo, fieldInfos *schema.FieldInfos, context store.IOContext) (StoredFieldsReader, error)
+	FieldsReader(dir Directory, segmentInfo *SegmentInfo, fieldInfos *FieldInfos, context IOContext) (StoredFieldsReader, error)
 
 	// FieldsWriter opens a writer that produces the .fdt / .fdx pair.
 	// The caller closes the returned writer when done.
-	FieldsWriter(dir store.Directory, segmentInfo *schema.SegmentInfo, context store.IOContext) (StoredFieldsWriter, error)
+	FieldsWriter(dir Directory, segmentInfo *SegmentInfo, context IOContext) (StoredFieldsWriter, error)
 }
 
 // StoredFieldsReader iterates over the stored fields of one segment

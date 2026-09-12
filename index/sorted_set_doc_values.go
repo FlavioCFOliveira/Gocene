@@ -5,50 +5,19 @@
 package index
 
 import (
+	"bytes"
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
-// SortedSetDocValues is a multi-valued version of SortedDocValues.
-//
-// Per-Document values in a SortedSetDocValues are deduplicated, dereferenced, and sorted into a
-// dictionary of unique values. A pointer to the dictionary value (ordinal) can be retrieved for
-// each document. Ordinals are dense and in increasing sorted order.
-type SortedSetDocValues interface {
-	DocValuesIterator
-
-	// NextOrd returns the next ordinal for the current document.
-	// It is illegal to call this method after AdvanceExact(int) returned false.
-	// It is illegal to call this more than DocValueCount() times for the currently-positioned doc.
-	NextOrd() (int64, error)
-
-	// DocValueCount retrieves the number of unique ords for the current document.
-	// This must always be greater than zero.
-	// It is illegal to call this method after AdvanceExact(int) returned false.
-	DocValueCount() int
-
-	// LookupOrd retrieves the value for the specified ordinal.
-	// The returned BytesRef may be re-used across calls to LookupOrd so make sure
-	// to clone it if you want to keep it around.
-	LookupOrd(ord int64) (*util.BytesRef, error)
-
-	// GetValueCount returns the number of unique values.
-	// This is also equivalent to one plus the maximum ordinal.
-	GetValueCount() int64
-
-	// TermsEnum returns a TermsEnum over the values.
-	// The enum supports TermsEnum.Ord() and TermsEnum.SeekExact(int64).
-	TermsEnum() (TermsEnum, error)
-
-	// Intersect returns a TermsEnum over the values, filtered by a CompiledAutomaton.
-	// The enum supports TermsEnum.Ord().
-	Intersect(automaton *automaton.CompiledAutomaton) (TermsEnum, error)
-}
-
-// LookupTerm checks if key exists, and if so, returns its ordinal, else returns -insertionPoint-1,
+// LookupSetTerm checks if key exists, and if so, returns its ordinal, else returns -insertionPoint-1,
 // like binary search.
-func LookupTerm(ssdv SortedSetDocValues, key *util.BytesRef) (int64, error) {
-	low := int64(0)
+// This is the Go port of SortedSetDocValues.lookupTerm.
+func LookupSetTerm(ssdv SortedSetDocValues, key *util.BytesRef) (int, error) {
+	low := 0
 	high := ssdv.GetValueCount() - 1
 
 	for low <= high {
@@ -57,7 +26,7 @@ func LookupTerm(ssdv SortedSetDocValues, key *util.BytesRef) (int64, error) {
 		if err != nil {
 			return 0, err
 		}
-		cmp := util.BytesRefCompare(term, key)
+		cmp := bytes.Compare(term, key.ValidBytes())
 
 		if cmp < 0 {
 			low = mid + 1
@@ -69,4 +38,49 @@ func LookupTerm(ssdv SortedSetDocValues, key *util.BytesRef) (int64, error) {
 	}
 
 	return -(low + 1), nil // key not found.
+}
+
+// OpenSetTermsEnum returns a TermsEnum over the values.
+// This is the Go port of SortedSetDocValues.termsEnum.
+func OpenSetTermsEnum(field string, ssdv SortedSetDocValues) (TermsEnum, error) {
+	return &sortedSetDVTermsEnum{SortedSetDocValuesTermsEnum: NewSortedSetDocValuesTermsEnum(field, ssdv)}, nil
+}
+
+// IntersectSet returns a TermsEnum over the values, filtered by a
+// CompiledAutomaton. This is the Go port of SortedSetDocValues.intersect.
+func IntersectSet(field string, ssdv SortedSetDocValues, compiled *automaton.CompiledAutomaton) (TermsEnum, error) {
+	in, err := OpenSetTermsEnum(field, ssdv)
+	if err != nil {
+		return nil, err
+	}
+	if compiled == nil {
+		return in, nil
+	}
+	switch compiled.Type {
+	case automaton.AutomatonTypeNone:
+		// Return empty terms enum (TermsEnum.EMPTY in Lucene).
+		return &EmptyTermsEnum{}, nil
+	case automaton.AutomatonTypeAll:
+		return in, nil
+	case automaton.AutomatonTypeSingle:
+		return newSingleTermFilteredEnum(in, NewTerm(field, compiled.Term)), nil
+	case automaton.AutomatonTypeNormal:
+		return NewAutomatonTermsEnum(in, compiled), nil
+	default:
+		return nil, fmt.Errorf("unhandled automaton type: %v", compiled.Type)
+	}
+}
+
+// sortedSetDVTermsEnum presents SortedSetDocValuesTermsEnum on the full
+// TermsEnum surface: the concrete type does not yet carry the impacts()
+// override that org.apache.lucene.index.SortedSetDocValuesTermsEnum declares.
+type sortedSetDVTermsEnum struct {
+	*SortedSetDocValuesTermsEnum
+}
+
+// Impacts is unsupported, mirroring
+// SortedSetDocValuesTermsEnum.impacts(int) which throws
+// UnsupportedOperationException in Apache Lucene 10.5.0.
+func (e *sortedSetDVTermsEnum) Impacts(_ int) (spi.ImpactsEnum, error) {
+	return nil, ErrUnsupportedSortedSetDVOp
 }

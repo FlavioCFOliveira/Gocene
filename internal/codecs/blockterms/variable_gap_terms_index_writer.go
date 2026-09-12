@@ -1,22 +1,21 @@
 package blockterms
 
 import (
-	"fmt"
-	"io"
-
 	"github.com/FlavioCFOliveira/Gocene/internal/codecs"
 	"github.com/FlavioCFOliveira/Gocene/internal/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/fst"
 )
 
 const (
-	TermsIndexExtension = "tiv"
-	TermsMetaExtension  = "tmv"
-	MetaCodecName       = "VariableGapTermsMeta"
-	CodecName           = "VariableGapTermsIndex"
-	VersionStart       = 4
-	VersionCurrent     = VersionStart
+	VariableGapTermsIndexExtension = "tiv"
+	TermsMetaExtension             = "tmv"
+	MetaCodecName                   = "VariableGapTermsMeta"
+	VariableGapTermsIndexCodecName  = "VariableGapTermsIndex"
+	VariableGapTermsIndexVersionStart = 4
+	VariableGapTermsIndexVersionCurrent = VariableGapTermsIndexVersionStart
 )
 
 // IndexTermSelector defines a policy for selecting which terms should be indexed.
@@ -85,9 +84,9 @@ type VariableGapTermsIndexWriter struct {
 	policy  IndexTermSelector
 }
 
-func NewVariableGapTermsIndexWriter(state *store.SegmentWriteState, policy IndexTermSelector) (*VariableGapTermsIndexWriter, error) {
-	metaFileName := store.IndexFileNamesSegmentFileName(state.SegmentInfo.Name, state.SegmentSuffix, TermsMetaExtension)
-	indexFileName := store.IndexFileNamesSegmentFileName(state.SegmentInfo.Name, state.SegmentSuffix, TermsIndexExtension)
+func NewVariableGapTermsIndexWriter(state *spi.SegmentWriteState, policy IndexTermSelector) (*VariableGapTermsIndexWriter, error) {
+	indexFileName := store.IndexFileNamesSegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, VariableGapTermsIndexExtension)
+	metaFileName := store.IndexFileNamesSegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, TermsMetaExtension)
 
 	metaOut, err := state.Directory.CreateOutput(metaFileName, state.Context)
 	if err != nil {
@@ -100,12 +99,12 @@ func NewVariableGapTermsIndexWriter(state *store.SegmentWriteState, policy Index
 		return nil, err
 	}
 
-	if err := store.CodecUtilWriteIndexHeader(metaOut, MetaCodecName, VersionCurrent, state.SegmentInfo.ID, state.SegmentSuffix); err != nil {
+	if err := store.CodecUtilWriteIndexHeader(metaOut, MetaCodecName, VariableGapTermsIndexVersionCurrent, state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
 		metaOut.Close()
 		out.Close()
 		return nil, err
 	}
-	if err := store.CodecUtilWriteIndexHeader(out, CodecName, VersionCurrent, state.SegmentInfo.ID, state.SegmentSuffix); err != nil {
+	if err := store.CodecUtilWriteIndexHeader(out, VariableGapTermsIndexCodecName, VariableGapTermsIndexVersionCurrent, state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
 		metaOut.Close()
 		out.Close()
 		return nil, err
@@ -153,8 +152,8 @@ type fstFieldWriter struct {
 }
 
 func newFstFieldWriter(field *index.FieldInfo, termsFilePointer int64, writer *VariableGapTermsIndexWriter) *fstFieldWriter {
-	compiler := fst.NewFSTCompiler[int64]()
-	compiler.Add([]byte{}, termsFilePointer)
+	compiler := fst.NewFSTCompilerBuilder[int64](fst.InputTypeByte1, fst.PositiveIntOutputs()).Build()
+	compiler.Add(util.NewIntsRef([]int{}), termsFilePointer)
 
 	return &fstFieldWriter{
 		fieldInfo:             field,
@@ -183,7 +182,13 @@ func (fw *fstFieldWriter) Add(text []byte, stats codecs.TermStats, termsFilePoin
 	prefixLen := fw.writer.indexedTermPrefixLength(fw.lastTerm, text)
 	trimmedText := text[:prefixLen]
 
-	if err := fw.compiler.Add(trimmedText, termsFilePointer); err != nil {
+	// Convert bytes to ints for FST input
+	ints := make([]int, len(trimmedText))
+	for i, b := range trimmedText {
+		ints[i] = int(b)
+	}
+
+	if err := fw.compiler.Add(util.NewIntsRef(ints), termsFilePointer); err != nil {
 		return err
 	}
 	fw.lastTerm = text
@@ -197,13 +202,13 @@ func (fw *fstFieldWriter) Finish(termsFilePointer int64) error {
 		return err
 	}
 	if f != nil {
-		if err := fw.writer.metaOut.WriteInt(fw.fieldInfo.Number); err != nil {
+		if err := fw.writer.metaOut.WriteInt(int32(fw.fieldInfo.Number())); err != nil {
 			return err
 		}
-		if err := fw.writer.metaOut.WriteVLong(fw.writer.out.FilePointer()); err != nil {
+		if err := fw.writer.metaOut.WriteVLong(fw.writer.out.GetFilePointer()); err != nil {
 			return err
 		}
-		if err := f.Save(fw.writer.metaOut, fw.writer.out); err != nil {
+		if err := f.Save(fw.writer.out); err != nil {
 			return err
 		}
 	}

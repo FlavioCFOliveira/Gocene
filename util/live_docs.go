@@ -161,6 +161,11 @@ func (s *SparseLiveDocs) LiveCount() int {
 	return s.maxDoc - s.deletedCount
 }
 
+// Cardinality returns the number of set bits.
+func (s *SparseLiveDocs) Cardinality() int {
+	return s.LiveCount()
+}
+
 // LiveDocsIterator returns an iterator over live documents.
 func (s *SparseLiveDocs) LiveDocsIterator() DocIdSetIterator {
 	return newSparseLiveDocsIterator(s, false)

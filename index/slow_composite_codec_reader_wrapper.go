@@ -122,7 +122,7 @@ func newSlowCompositeCodecReaderWrapper(codecReaders []CodecReader) (*SlowCompos
 	if allNilBits(subs) {
 		w.liveDocs = nil
 	} else {
-		w.liveDocs = NewMultiBits(subs, w.docStarts)
+		w.liveDocs = countedBits{NewMultiBits(subs, w.docStarts)}
 	}
 	return w, nil
 }
@@ -135,25 +135,21 @@ func mergeFieldInfosByName(readers []CodecReader) *FieldInfos {
 	merged := NewFieldInfos()
 	for _, r := range readers {
 		fi := r.GetFieldInfos()
-		if fi == nil && r.LeafReader != nil && r.LeafReader.IndexReader != nil {
-			// Fallback: pre-segment-bound CodecReader stubs (and any tests)
-			// publish FieldInfos through the embedded IndexReader rather
-			// than via coreReaders. The Lucene path always has a populated
-			// coreReaders, so this branch only matters for the in-test
-			// construction path.
-			fi = r.LeafReader.IndexReader.GetFieldInfos()
-		}
 		if fi == nil {
 			continue
 		}
-		for _, name := range fi.Names() {
-			if merged.FieldInfoByName(name) != nil {
+		// FieldInfos is Iterable<FieldInfo> in Lucene; the Gocene port exposes
+		// the same traversal through Iterator().
+		it := fi.Iterator()
+		for it.HasNext() {
+			leaf := it.Next()
+			if leaf == nil || merged.FieldInfoByName(leaf.Name()) != nil {
 				continue
 			}
-			if leaf := fi.FieldInfoByName(name); leaf != nil {
-				// Add ignores errors only when the collection is frozen; ours is not.
-				_ = merged.Add(leaf)
-			}
+			// Add reports the stored FieldInfo; the returned value is the
+			// existing entry when the name is already present, which the
+			// guard above has ruled out.
+			_ = merged.Add(leaf)
 		}
 	}
 	return merged
@@ -273,7 +269,7 @@ type SlowCompositeStoredFieldsReader struct {
 func (w *SlowCompositeCodecReaderWrapper) GetFieldsReader() *SlowCompositeStoredFieldsReader {
 	readers := make([]StoredFieldsReader, len(w.codecReaders))
 	for i, r := range w.codecReaders {
-		readers[i] = r.GetStoredFieldsReader()
+		readers[i] = r.GetFieldsReader()
 	}
 	return &SlowCompositeStoredFieldsReader{readers: readers, docStarts: w.docStarts, parent: w}
 }
@@ -448,19 +444,37 @@ func (w *SlowCompositeCodecReaderWrapper) GetPostingsReader() *SlowCompositeFiel
 }
 
 // fieldsProducerAsFields adapts FieldsProducer to the Fields interface that
-// MultiFields expects, since the two share Terms()/Iterator() semantics but
-// differ at the type level.
+// MultiFields expects. In Lucene org.apache.lucene.codecs.FieldsProducer
+// extends Fields, so every concrete producer also enumerates its field names;
+// the Gocene SPI narrows FieldsProducer to Terms/CheckIntegrity/Close, and this
+// adapter recovers the wider contract from the concrete producer.
 type fieldsProducerAsFields struct{ FieldsProducer }
 
+// asFields exposes a FieldsProducer through the Fields contract, returning the
+// producer unchanged when it already satisfies it.
+func asFields(fp FieldsProducer) Fields {
+	if fp == nil {
+		return nil
+	}
+	if f, ok := fp.(Fields); ok {
+		return f
+	}
+	return fieldsProducerAsFields{fp}
+}
+
 func (a fieldsProducerAsFields) Iterator() (FieldIterator, error) {
-	// Deviation: Gocene's FieldsProducer does not yet expose an iterator over
-	// field names. Once exposed, this adapter will forward; for now the
-	// MultiFields aggregate iterator falls back to combining per-segment views
-	// at the SegmentReader boundary.
+	if f, ok := a.FieldsProducer.(Fields); ok {
+		return f.Iterator()
+	}
 	return nil, ErrSlowCompositeNotPorted
 }
 
-func (a fieldsProducerAsFields) Size() int { return -1 }
+func (a fieldsProducerAsFields) Size() int {
+	if f, ok := a.FieldsProducer.(Fields); ok {
+		return f.Size()
+	}
+	return -1
+}
 
 // Close releases each underlying producer.
 func (p *SlowCompositeFieldsProducer) Close() error {

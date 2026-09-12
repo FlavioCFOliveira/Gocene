@@ -1,4 +1,3 @@
-
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
@@ -6,7 +5,6 @@
 package index
 
 import (
-	"fmt"
 	"math/rand"
 	"sync"
 
@@ -30,7 +28,7 @@ type RandomIndexWriter struct {
 	analyzer                 analysis.Analyzer // only if WE created it (then we close it)
 	softDeletesRatio         float64
 	config                   *LiveIndexWriterConfig
-	doRandomForceMerge       bool
+	shouldRandomForceMerge   bool
 	doRandomForceMergeAssert bool
 	mu                       sync.Mutex
 }
@@ -48,13 +46,13 @@ func NewRandomIndexWriter(w *IndexWriter, r *rand.Rand) *RandomIndexWriter {
 		r:             newRand,
 		flushAt:       nextInt(newRand, 10, 1000),
 		flushAtFactor: 1.0,
-		config:        w.GetConfig(),
+		config:        w.GetConfig().LiveIndexWriterConfig,
 		analyzer:      nil,
 	}
 
 	// Randomly decide whether to do force merges
 	if w.GetConfig().GetMergePolicy() != nil {
-		riw.doRandomForceMerge = newRand.Intn(2) == 0
+		riw.shouldRandomForceMerge = newRand.Intn(2) == 0
 	}
 
 	return riw
@@ -85,13 +83,13 @@ func NewRandomIndexWriterWithConfig(r *rand.Rand, dir store.Directory, config *I
 		r:                newRand,
 		flushAt:          nextInt(newRand, 10, 1000),
 		flushAtFactor:    1.0,
-		config:           w.GetConfig(),
+		config:           w.GetConfig().LiveIndexWriterConfig,
 		softDeletesRatio: softDeletesRatio,
 		analyzer:         config.GetAnalyzer(),
 	}
 
 	if w.GetConfig().GetMergePolicy() != nil {
-		riw.doRandomForceMerge = newRand.Intn(2) == 0
+		riw.shouldRandomForceMerge = newRand.Intn(2) == 0
 	}
 
 	return riw, nil
@@ -179,24 +177,19 @@ func (riw *RandomIndexWriter) DeleteDocuments(t *Term) (int64, error) {
 	defer riw.mu.Unlock()
 
 	maybeChangeConfig(riw.r, riw.config)
-	return riw.W.DeleteDocuments(t)
+	return riw.W.DeleteDocuments([]Term{*t})
 }
 
 // DeleteDocumentsWithQuery deletes documents matching a query.
-// q should implement the Query interface from the search package.
-func (riw *RandomIndexWriter) DeleteDocumentsWithQuery(q interface{}) (int64, error) {
+//
+// Mirrors RandomIndexWriter.deleteDocuments(Query); IndexWriter exposes the
+// Lucene varargs form as DeleteDocumentsQuery([]Query).
+func (riw *RandomIndexWriter) DeleteDocumentsWithQuery(q Query) (int64, error) {
 	riw.mu.Lock()
 	defer riw.mu.Unlock()
 
 	maybeChangeConfig(riw.r, riw.config)
-	// Use a type assertion to call the actual method
-	// This allows us to avoid the import cycle
-	if writerMethod, ok := riw.W.(interface {
-		DeleteDocumentsWithQuery(interface{}) (int64, error)
-	}); ok {
-		return writerMethod.DeleteDocumentsWithQuery(q)
-	}
-	return 0, fmt.Errorf("IndexWriter does not support DeleteDocumentsWithQuery")
+	return riw.W.DeleteDocumentsQuery([]Query{q})
 }
 
 // UpdateDocValues updates doc values.
@@ -205,7 +198,7 @@ func (riw *RandomIndexWriter) UpdateDocValues(term *Term, updates ...*document.F
 	defer riw.mu.Unlock()
 
 	maybeChangeConfig(riw.r, riw.config)
-	return riw.W.UpdateDocValues(term, updates...)
+	return riw.W.UpdateDocValues(term, updates)
 }
 
 // Commit commits the changes.
@@ -233,7 +226,7 @@ func (riw *RandomIndexWriter) ForceMerge(maxSegmentCount int) error {
 
 // SetDoRandomForceMerge sets whether to do random force merges.
 func (riw *RandomIndexWriter) SetDoRandomForceMerge(v bool) {
-	riw.doRandomForceMerge = v
+	riw.shouldRandomForceMerge = v
 }
 
 // SetDoRandomForceMergeAssert sets whether to assert merge limits.
@@ -250,23 +243,27 @@ func (riw *RandomIndexWriter) GetReader() (*DirectoryReader, error) {
 	riw.getReaderCalled = true
 
 	if riw.r.Intn(20) == 2 {
-		_ = riw.doRandomForceMerge()
+		if err := riw.doRandomForceMerge(); err != nil {
+			return nil, err
+		}
 	}
 
 	if riw.r.Intn(2) == 0 {
 		// Use NRT reader
 		if riw.r.Intn(5) == 1 {
-			_ = riw.W.Commit()
+			if _, err := riw.W.Commit(); err != nil {
+				return nil, err
+			}
 		}
 		// Return an NRT reader reflecting the writer's buffered state.
-		reader, err := OpenDirectoryReaderFromWriterWithOptions(riw.W, true, false)
-		return reader, err
-	} else {
-		// Open new reader from directory
-		_ = riw.W.Commit()
-		reader, err := DirectoryReaderOpen(riw.W.GetDirectory())
-		return reader, err
+		return OpenDirectoryReaderFromWriterWithOptions(riw.W, true, false)
 	}
+
+	// Open new reader from directory
+	if _, err := riw.W.Commit(); err != nil {
+		return nil, err
+	}
+	return DirectoryReaderOpen(riw.W.GetDirectory())
 }
 
 // Close closes the writer.
@@ -274,26 +271,47 @@ func (riw *RandomIndexWriter) Close() error {
 	riw.mu.Lock()
 	defer riw.mu.Unlock()
 
+	// If someone isn't using GetReader, force merge so that a reader opened on
+	// the directory afterwards sees a merged index; mirrors
+	// RandomIndexWriter.close().
+	var err error
 	if !riw.getReaderCalled && riw.r.Intn(8) == 2 && !riw.W.IsClosed() {
-		_ = riw.doRandomForceMerge()
-		if !riw.config.GetCommitOnClose() {
-			_ = riw.W.Commit()
+		if mergeErr := riw.doRandomForceMerge(); mergeErr != nil {
+			err = mergeErr
+		} else if !riw.config.GetCommitOnClose() {
+			// The index may have changed; the changes must be committed or
+			// they are discarded by the call to Close below.
+			if _, commitErr := riw.W.Commit(); commitErr != nil {
+				err = commitErr
+			}
 		}
 	}
 
-	err := riw.W.Close()
+	if closeErr := riw.W.Close(); closeErr != nil && err == nil {
+		err = closeErr
+	}
 	if riw.analyzer != nil {
-		riw.analyzer.Close()
+		if closeErr := riw.analyzer.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
 	}
 	return err
 }
 
 // Flush flushes the writer.
+//
+// Mirrors RandomIndexWriter.flush(), which calls IndexWriter.flush() — itself
+// flush(triggerMerge=true, applyAllDeletes=true). IndexWriter.doFlush already
+// folds in the merge trigger, so the whole contract is doFlush(true).
 func (riw *RandomIndexWriter) Flush() error {
 	riw.mu.Lock()
 	defer riw.mu.Unlock()
 
-	return riw.W.Flush()
+	if err := riw.W.ensureOpen(false); err != nil {
+		return err
+	}
+	_, err := riw.W.doFlush(true)
+	return err
 }
 
 // maybeFlushOrCommit maybe flushes or commits based on document count.
@@ -301,9 +319,16 @@ func (riw *RandomIndexWriter) maybeFlushOrCommit() error {
 	riw.docCount++
 	if riw.docCount == riw.flushAt {
 		if riw.r.Intn(2) == 0 {
-			_ = riw.W.Flush()
+			if err := riw.W.ensureOpen(false); err != nil {
+				return err
+			}
+			if _, err := riw.W.doFlush(true); err != nil {
+				return err
+			}
 		} else {
-			_ = riw.W.Commit()
+			if _, err := riw.W.Commit(); err != nil {
+				return err
+			}
 		}
 		riw.flushAt += nextInt(riw.r, int(riw.flushAtFactor*10), int(riw.flushAtFactor*1000))
 		if riw.flushAtFactor < 2e6 {
@@ -315,7 +340,7 @@ func (riw *RandomIndexWriter) maybeFlushOrCommit() error {
 
 // doRandomForceMerge randomly does a force merge.
 func (riw *RandomIndexWriter) doRandomForceMerge() error {
-	if !riw.doRandomForceMerge {
+	if !riw.shouldRandomForceMerge {
 		return nil
 	}
 

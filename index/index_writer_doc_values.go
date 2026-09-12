@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -78,7 +78,7 @@ func (w *IndexWriter) applyDocValuesUpdatesLocked(segs []*SegmentCommitInfo) err
 		return nil
 	}
 
-	codec := w.config.Codec()
+	codec := w.config.GetCodec()
 	if codec == nil {
 		return fmt.Errorf("commit: cannot apply doc-values updates: no codec configured")
 	}
@@ -122,14 +122,18 @@ func (w *IndexWriter) applyDocValuesUpdatesForSegmentLocked(
 	sci *SegmentCommitInfo,
 	updates []pendingDocValuesUpdate,
 	codec Codec,
-) error {
+) (err error) {
 	// Open a fully wired SegmentReader so term resolution and current DV reads
 	// go through the codec (including CFS handling and per-generation overlays).
-	sr, err := openSegmentReader(w.directory, sci)
+	sr, err := openSegmentReader(w.dir, sci)
 	if err != nil {
 		return fmt.Errorf("open segment reader: %w", err)
 	}
-	defer func() { _ = sr.Close() }()
+	defer func() {
+		if closeErr := sr.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close segment reader: %w", closeErr)
+		}
+	}()
 
 	fieldUpdates := make(map[string]map[int]docValuesFieldUpdate)
 	hasMatch := false
@@ -274,7 +278,10 @@ func (w *IndexWriter) writeMergedDocValues(
 			addedFields[fieldName] = global
 		}
 	}
-	newInfos := cloneFieldInfosUpdatingDVGen(currentInfos, fieldGens, addedFields)
+	newInfos, err := cloneFieldInfosUpdatingDVGen(currentInfos, fieldGens, addedFields)
+	if err != nil {
+		return err
+	}
 
 	// Read current values through the existing overlay so prior generations are
 	// visible during the merge.
@@ -284,7 +291,7 @@ func (w *IndexWriter) writeMergedDocValues(
 	// this update generation can be registered for the deleter, even when the
 	// per-field doc-values format writes files with a composite suffix that the
 	// caller cannot predict.
-	beforeFiles, err := w.directory.ListAll()
+	beforeFiles, err := w.dir.ListAll()
 	if err != nil {
 		return fmt.Errorf("list directory before writing DV update: %w", err)
 	}
@@ -314,7 +321,7 @@ func (w *IndexWriter) writeMergedDocValues(
 		dvInfos.Freeze()
 
 		writeState := &SegmentWriteState{
-			Directory:     w.directory,
+			Directory:     w.dir,
 			SegmentInfo:   segInfo,
 			FieldInfos:    dvInfos,
 			SegmentSuffix: suffix,
@@ -367,14 +374,14 @@ func (w *IndexWriter) writeMergedDocValues(
 
 	// Write a single new .fnm containing all fields with their per-gen values.
 	fiSuffix := strconv.FormatInt(newFIGen, 36)
-	if err := codec.FieldInfosFormat().Write(w.directory, segInfo, fiSuffix, newInfos, store.IOContextWrite); err != nil {
+	if err := codec.FieldInfosFormat().Write(w.dir, segInfo, fiSuffix, newInfos, store.IOContextWrite); err != nil {
 		return fmt.Errorf("write updated FieldInfos: %w", err)
 	}
 
 	// Discover every file this update generation produced, including composite
 	// names such as _N_G_<formatName>_<suffix>.{dvd,dvm} emitted by
 	// PerFieldDocValuesFormat.
-	afterFiles, err := w.directory.ListAll()
+	afterFiles, err := w.dir.ListAll()
 	if err != nil {
 		return fmt.Errorf("list directory after writing DV update: %w", err)
 	}
@@ -439,7 +446,7 @@ func cloneFieldInfosUpdatingDVGen(
 	src *FieldInfos,
 	gens map[string]int64,
 	added map[string]*FieldInfo,
-) *FieldInfos {
+) (*FieldInfos, error) {
 	out := NewFieldInfos()
 	seen := make(map[string]struct{})
 	it := src.Iterator()
@@ -470,11 +477,13 @@ func cloneFieldInfosUpdatingDVGen(
 		if gen, ok := gens[fi.Name()]; ok {
 			opts.DocValuesGen = gen
 		}
-		clone := schema.NewFieldInfo(fi.Name(), fi.Number(), opts)
+		clone := spi.NewFieldInfo(fi.Name(), fi.Number(), opts)
 		for k, v := range fi.GetAttributes() {
 			clone.PutCodecAttribute(k, v)
 		}
-		_ = out.Add(clone)
+		if err := out.Add(clone); err != nil {
+			return nil, fmt.Errorf("clone field %q: %w", fi.Name(), err)
+		}
 	}
 	for name, fi := range added {
 		if _, ok := seen[name]; ok {
@@ -512,14 +521,16 @@ func cloneFieldInfosUpdatingDVGen(
 			// field can coexist in this segment's FieldInfos.
 			fieldNumber = out.GetNextFieldNumber()
 		}
-		clone := schema.NewFieldInfo(fi.Name(), fieldNumber, opts)
+		clone := spi.NewFieldInfo(fi.Name(), fieldNumber, opts)
 		for k, v := range fi.GetAttributes() {
 			clone.PutCodecAttribute(k, v)
 		}
-		_ = out.Add(clone)
+		if err := out.Add(clone); err != nil {
+			return nil, fmt.Errorf("add field %q: %w", fi.Name(), err)
+		}
 	}
 	out.Freeze()
-	return out
+	return out, nil
 }
 
 // mergedNumericIterator merges an existing NumericDocValues source with a set
@@ -768,7 +779,7 @@ func (it *mergedBinaryIterator) Value() []byte { return it.value }
 // This mirrors Lucene's IndexWriter.tryUpdateDocValue(IndexReader, int, String,
 // ...).
 func (w *IndexWriter) TryUpdateDocValue(reader IndexReaderInterface, docID int, field string, value interface{}) (int64, error) {
-	if err := w.ensureOpen(); err != nil {
+	if err := w.ensureOpen(true); err != nil {
 		return -1, err
 	}
 
@@ -776,9 +787,9 @@ func (w *IndexWriter) TryUpdateDocValue(reader IndexReaderInterface, docID int, 
 	defer w.mu.Unlock()
 
 	// Reject index-sort fields, mirroring UpdateDocValues.
-	if sort := w.config.IndexSort(); sort != nil {
+	if sort, ok := w.config.GetIndexSort().(*spi.Sort); ok && sort != nil {
 		for _, sf := range sort.Fields() {
-			if sf.Field() == field {
+			if sf.Field == field {
 				return -1, fmt.Errorf(
 					"cannot update doc values for field %q because it participates in the index sort",
 					field)
@@ -814,7 +825,7 @@ func (w *IndexWriter) TryUpdateDocValue(reader IndexReaderInterface, docID int, 
 		value:       value,
 	})
 
-	return w.nextSequenceNumber(), nil
+	return w.docWriter.GetNextSequenceNumber(), nil
 }
 
 // validateDVValueType checks that value is compatible with the field's
@@ -837,4 +848,43 @@ func validateDVValueType(fi *FieldInfo, value interface{}) error {
 		return fmt.Errorf("field %q has unsupported doc values type %v for updates", fi.Name(), fi.DocValuesType())
 	}
 	return nil
+}
+
+// dvUpdateFieldTypes lists the DocValues types a field may carry, in the order
+// fieldInfoLocked probes the writer's global field-number registry. It mirrors
+// the ordinal order of org.apache.lucene.index.DocValuesType.
+var dvUpdateFieldTypes = []DocValuesType{
+	DocValuesTypeNumeric,
+	DocValuesTypeBinary,
+	DocValuesTypeSorted,
+	DocValuesTypeSortedNumeric,
+	DocValuesTypeSortedSet,
+}
+
+// fieldInfoLocked returns the FieldInfo the writer knows index-wide for field,
+// or nil when the field is unknown or carries no DocValues. The field number is
+// a placeholder; the caller re-assigns it against the target segment's
+// FieldInfos, the way Lucene's ReadersAndUpdates.writeFieldUpdates does when it
+// calls FieldInfos.FieldNumbers#constructFieldInfo with the builder's next
+// field number. It must be called with w.mu held.
+func (w *IndexWriter) fieldInfoLocked(field string) *FieldInfo {
+	if w.globalFieldNumberMap == nil {
+		return nil
+	}
+	for _, dvType := range dvUpdateFieldTypes {
+		if fi := w.globalFieldNumberMap.ConstructFieldInfo(field, dvType, 0); fi != nil {
+			return fi
+		}
+	}
+	return nil
+}
+
+// fieldDocValuesTypeLocked returns the DocValues type the writer knows
+// index-wide for field, or DocValuesTypeNone when the field is unknown or
+// carries no DocValues. It must be called with w.mu held.
+func (w *IndexWriter) fieldDocValuesTypeLocked(field string) DocValuesType {
+	if fi := w.fieldInfoLocked(field); fi != nil {
+		return fi.DocValuesType()
+	}
+	return DocValuesTypeNone
 }

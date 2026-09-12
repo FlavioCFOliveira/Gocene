@@ -89,13 +89,17 @@ var _ analysis.TokenFilter = (*SnowballFilter)(nil)
 // directly, as the Tartarus Go port is not yet available. Language-specific
 // stemmer construction is deferred to the snowball ext sprint.
 type SnowballPorterFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	stemmer        SnowballStemmer
 	protectedWords *analysis.CharArraySet
 }
 
 // NewSnowballPorterFilterFactory creates a factory wrapping stemmer.
 func NewSnowballPorterFilterFactory(stemmer SnowballStemmer) *SnowballPorterFilterFactory {
-	return &SnowballPorterFilterFactory{stemmer: stemmer}
+	return &SnowballPorterFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		stemmer:                stemmer,
+	}
 }
 
 // NewSnowballPorterFilterFactoryFull creates a factory with protected words.
@@ -103,7 +107,11 @@ func NewSnowballPorterFilterFactoryFull(
 	stemmer SnowballStemmer,
 	protectedWords *analysis.CharArraySet,
 ) *SnowballPorterFilterFactory {
-	return &SnowballPorterFilterFactory{stemmer: stemmer, protectedWords: protectedWords}
+	return &SnowballPorterFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		stemmer:                stemmer,
+		protectedWords:         protectedWords,
+	}
 }
 
 // Create creates a SnowballFilter, optionally preceded by a

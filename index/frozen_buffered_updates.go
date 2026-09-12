@@ -42,6 +42,7 @@ package index
 import (
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -153,7 +154,7 @@ func NewFrozenBufferedUpdates(
 	if updates == nil {
 		return nil, errors.New("frozen buffered updates: updates must not be nil")
 	}
-	if privateSegment != nil && !updates.deleteTerms.IsEmpty() {
+	if privateSegment != nil && !updates.deleteTerms.isEmpty() {
 		return nil, errors.New(
 			"frozen buffered updates: segment private packet must only carry query deletes",
 		)
@@ -176,8 +177,8 @@ func NewFrozenBufferedUpdates(
 	// the projection is sorted by query identity to keep observable
 	// output (RAM accounting, Any, String) deterministic across runs.
 	queries := make([]frozenQueryEntry, 0, len(updates.deleteQueries))
-	for q, limit := range updates.deleteQueries {
-		queries = append(queries, frozenQueryEntry{query: q, limit: limit})
+	for _, qd := range updates.deleteQueries {
+		queries = append(queries, frozenQueryEntry{query: qd.query, limit: qd.docUpTo})
 	}
 	sort.SliceStable(queries, func(i, j int) bool {
 		return queries[i].query.HashCode() < queries[j].query.HashCode()
@@ -408,14 +409,14 @@ func (f *FrozenBufferedUpdates) applyTermDeletes(segStates []*FrozenSegmentState
 			if term == nil {
 				break
 			}
-			postings, err := termDocsIt.NextTerm(term.Field, term.Bytes)
+			postings, err := termDocsIt.NextTerm(it.Field(), term)
 			if err != nil {
 				continue
 			}
 			if postings != nil {
 				for {
 					docID, err := postings.NextDoc()
-					if err != nil || docID == util.NoMoreDocs {
+					if err != nil || docID == util.NO_MORE_DOCS {
 						break
 					}
 					// Mark the document as deleted in the segment's RAU.
@@ -443,8 +444,24 @@ func (f *FrozenBufferedUpdates) applyQueryDeletes(segStates []*FrozenSegmentStat
 		}
 
 		for _, entry := range f.deleteQueries {
-			// use IndexSearcher to find docs
-			// ...
+			// Lucene: a query delete carries its own docIDUpto only for the
+			// generation it was frozen in; against older segments every
+			// matching document is deleted.
+			limit := entry.limit
+			if f.delGen != seg.DelGen {
+				limit = math.MaxInt32
+			}
+			// GAP: evaluating the query against the segment needs
+			// IndexSearcher / Weight / Scorer from package search, which
+			// imports package index and therefore cannot be imported here.
+			// Until the search-side bridge lands the query cannot be applied;
+			// report it on the info stream rather than silently
+			// under-deleting.
+			if f.infoStream.IsEnabled("BD") {
+				f.infoStream.Message("BD", fmt.Sprintf(
+					"GAP: query delete %v (docIDUpto=%d) not applied to segment delGen=%d: query evaluation is unported",
+					entry.query, limit, seg.DelGen))
+			}
 		}
 	}
 	return delCount

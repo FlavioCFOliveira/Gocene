@@ -10,8 +10,17 @@ package index
 // PointValuesGetMinPackedValue returns the minimum packed values across all leaves of the given IndexReader.
 func PointValuesGetMinPackedValue(reader IndexReader, field string) []byte {
 	var minValue []byte
-	for _, ctx := range reader.Leaves() {
-		values, err := ctx.Reader().GetPointValues(field)
+	leaves, err := reader.Leaves()
+	if err != nil {
+		// Divergence: PointValues.getMinPackedValue(IndexReader, String) throws
+		// IOException in Lucene, but this Gocene helper is consumed without one
+		// (search/numeric_field_stats.go). A reader that cannot enumerate its
+		// leaves contributes no point values, which is reported the same way a
+		// leaf without point values is: the "no values" result, nil.
+		return nil
+	}
+	for _, ctx := range leaves {
+		values, err := ctx.LeafReader().GetPointValues(field)
 		if err != nil || values == nil {
 			continue
 		}
@@ -38,8 +47,14 @@ func PointValuesGetMinPackedValue(reader IndexReader, field string) []byte {
 // PointValuesGetMaxPackedValue returns the maximum packed values across all leaves of the given IndexReader.
 func PointValuesGetMaxPackedValue(reader IndexReader, field string) []byte {
 	var maxValue []byte
-	for _, ctx := range reader.Leaves() {
-		values, err := ctx.Reader().GetPointValues(field)
+	leaves, err := reader.Leaves()
+	if err != nil {
+		// See PointValuesGetMinPackedValue for why the error is reported as
+		// "no values" rather than propagated.
+		return nil
+	}
+	for _, ctx := range leaves {
+		values, err := ctx.LeafReader().GetPointValues(field)
 		if err != nil || values == nil {
 			continue
 		}
@@ -66,8 +81,14 @@ func PointValuesGetMaxPackedValue(reader IndexReader, field string) []byte {
 // PointValuesGetDocCount returns the cumulated number of docs that have points across all leaves.
 func PointValuesGetDocCount(reader IndexReader, field string) int {
 	count := 0
-	for _, ctx := range reader.Leaves() {
-		values, err := ctx.Reader().GetPointValues(field)
+	leaves, err := reader.Leaves()
+	if err != nil {
+		// See PointValuesGetMinPackedValue for why the error is reported as
+		// "no values" rather than propagated.
+		return 0
+	}
+	for _, ctx := range leaves {
+		values, err := ctx.LeafReader().GetPointValues(field)
 		if err == nil && values != nil {
 			count += values.GetDocCount()
 		}

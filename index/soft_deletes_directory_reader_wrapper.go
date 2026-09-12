@@ -6,6 +6,8 @@ package index
 
 import (
 	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SoftDeletesDirectoryReaderWrapper wraps a DirectoryReader to filter soft-deleted documents.
@@ -64,14 +66,9 @@ func (r *SoftDeletesDirectoryReaderWrapper) NumDocs() int {
 		return r.inner.NumDocs()
 	}
 
-	// Count live documents
-	count := 0
-	for _, live := range liveDocs {
-		if live {
-			count++
-		}
-	}
-	return count
+	// Count live documents. util.Bits.Cardinality is the number of set
+	// (i.e. live) bits.
+	return liveDocs.Cardinality()
 }
 
 // HasDeletions returns true if there are deletions (including soft-deletes).
@@ -87,17 +84,12 @@ func (r *SoftDeletesDirectoryReaderWrapper) HasDeletions() bool {
 		return false
 	}
 
-	// Check if any document is marked as deleted
-	for _, live := range liveDocs {
-		if !live {
-			return true
-		}
-	}
-	return false
+	// Any cleared bit marks a deleted document.
+	return liveDocs.Cardinality() != liveDocs.Length()
 }
 
 // GetLiveDocs returns a Bits instance where soft-deleted documents are marked as deleted.
-func (r *SoftDeletesDirectoryReaderWrapper) GetLiveDocs() []bool {
+func (r *SoftDeletesDirectoryReaderWrapper) GetLiveDocs() util.Bits {
 	// Get the original live docs
 	originalLiveDocs := r.inner.GetLiveDocs()
 

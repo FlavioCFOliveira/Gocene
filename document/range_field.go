@@ -32,7 +32,7 @@ func NewIntRange(name string, min, max int32) *IntRange {
 	encoded[7] = byte(max)
 
 	ft := PointFieldType()
-	ft.DimensionNumBytes = 4
+	ft.SetDimensions(1, 4)
 
 	field, _ := NewField(name, encoded, ft)
 	return &IntRange{
@@ -61,50 +61,6 @@ func (r *IntRange) String() string {
 // sortable-bytes encoded) lives in long_range.go. The legacy single-dim
 // stub formerly defined here was removed by GOC-3219.
 
-// FloatRange is a field for indexing float ranges.
-type FloatRange struct {
-	Field
-	min float32
-	max float32
-}
-
-// NewFloatRange creates a new FloatRange field.
-func NewFloatRange(name string, min, max float32) *FloatRange {
-	// Encode using PackFloat
-	encoded := make([]byte, 8)
-	copy(encoded[0:4], PackFloat(min))
-	copy(encoded[4:8], PackFloat(max))
-
-	ft := PointFieldType()
-	ft.DimensionNumBytes = 4
-
-	field, _ := NewField(name, encoded, ft)
-	return &FloatRange{
-		Field: *field,
-		min:   min,
-		max:   max,
-	}
-}
-
-// Min returns the minimum value.
-func (r *FloatRange) Min() float32 {
-	return r.min
-}
-
-// Max returns the maximum value.
-func (r *FloatRange) Max() float32 {
-	return r.max
-}
-
-// String returns a string representation.
-func (r *FloatRange) String() string {
-	return fmt.Sprintf("FloatRange(name=%s, min=%f, max=%f)", r.name, r.min, r.max)
-}
-
-// NOTE: The canonical DoubleRange (Lucene 10.4.0-compatible, N-dimensional,
-// sortable-bytes encoded) lives in double_range.go. The legacy single-dim
-// stub formerly defined here was removed by GOC-3222.
-
 // BinaryRange is a field for indexing binary ranges.
 type BinaryRange struct {
 	Field
@@ -120,7 +76,7 @@ func NewBinaryRange(name string, min, max []byte) *BinaryRange {
 	copy(encoded[len(min):], max)
 
 	ft := PointFieldType()
-	ft.DimensionNumBytes = len(min)
+	ft.SetDimensions(1, len(min))
 
 	field, _ := NewField(name, encoded, ft)
 	return &BinaryRange{

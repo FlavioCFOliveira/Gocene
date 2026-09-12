@@ -295,6 +295,7 @@ var _ analysis.TokenFilter = (*ConcatenateGraphFilter)(nil)
 // org.apache.lucene.analysis.miscellaneous.ConcatenateGraphFilterFactory from
 // Apache Lucene 10.4.0.
 type ConcatenateGraphFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	tokenSeparator             rune
 	preservePositionIncrements bool
 	maxGraphExpansions         int
@@ -303,6 +304,7 @@ type ConcatenateGraphFilterFactory struct {
 // NewConcatenateGraphFilterFactory creates a factory with default settings.
 func NewConcatenateGraphFilterFactory() *ConcatenateGraphFilterFactory {
 	return &ConcatenateGraphFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
 		tokenSeparator:             DefaultSepLabel,
 		preservePositionIncrements: true,
 		maxGraphExpansions:         DefaultMaxGraphExpansions,
@@ -312,6 +314,7 @@ func NewConcatenateGraphFilterFactory() *ConcatenateGraphFilterFactory {
 // NewConcatenateGraphFilterFactoryFull creates a factory with explicit settings.
 func NewConcatenateGraphFilterFactoryFull(tokenSeparator rune, preservePositionIncrements bool, maxGraphExpansions int) *ConcatenateGraphFilterFactory {
 	return &ConcatenateGraphFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
 		tokenSeparator:             tokenSeparator,
 		preservePositionIncrements: preservePositionIncrements,
 		maxGraphExpansions:         maxGraphExpansions,
@@ -336,6 +339,7 @@ var _ analysis.TokenFilterFactory = (*ConcatenateGraphFilterFactory)(nil)
 // org.apache.lucene.analysis.miscellaneous.ConditionalTokenFilterFactory from
 // Apache Lucene 10.4.0.
 type ConditionalTokenFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	innerFilters []analysis.TokenFilterFactory
 }
 
@@ -422,6 +426,9 @@ type ProtectedTermFilterFactory struct {
 // NewProtectedTermFilterFactory creates a factory with the given protected terms set.
 func NewProtectedTermFilterFactory(protectedTerms *analysis.CharArraySet, ignoreCase bool) *ProtectedTermFilterFactory {
 	return &ProtectedTermFilterFactory{
+		ConditionalTokenFilterFactory: ConditionalTokenFilterFactory{
+			BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		},
 		protectedTerms: protectedTerms,
 		ignoreCase:     ignoreCase,
 	}
@@ -527,6 +534,7 @@ var _ analysis.TokenFilter = (*StemmerOverrideFilter)(nil)
 // org.apache.lucene.analysis.miscellaneous.StemmerOverrideFilterFactory from
 // Apache Lucene 10.4.0.
 type StemmerOverrideFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	overrides  map[string]string
 	ignoreCase bool
 }
@@ -534,8 +542,9 @@ type StemmerOverrideFilterFactory struct {
 // NewStemmerOverrideFilterFactory creates a factory with the given override dictionary.
 func NewStemmerOverrideFilterFactory(overrides map[string]string, ignoreCase bool) *StemmerOverrideFilterFactory {
 	return &StemmerOverrideFilterFactory{
-		overrides:  overrides,
-		ignoreCase: ignoreCase,
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		overrides:             overrides,
+		ignoreCase:            ignoreCase,
 	}
 }
 

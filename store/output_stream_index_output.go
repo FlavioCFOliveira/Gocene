@@ -8,6 +8,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // OutputStreamIndexOutput implements IndexOutput by wrapping an io.Writer.
@@ -15,7 +17,7 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.store.OutputStreamIndexOutput.
 type OutputStreamIndexOutput struct {
-	*BaseIndexOutput
+	*spi.BaseIndexOutput
 	*BaseDataOutput
 	writer io.Writer
 	buffer []byte
@@ -30,7 +32,7 @@ type OutputStreamIndexOutput struct {
 //   - bufferSize: the buffer size (currently unused but kept for API compatibility)
 func NewOutputStreamIndexOutput(resourceDescription, name string, writer io.Writer, bufferSize int) *OutputStreamIndexOutput {
 	out := &OutputStreamIndexOutput{
-		BaseIndexOutput: NewBaseIndexOutput(name),
+		BaseIndexOutput: spi.NewBaseIndexOutput(name),
 		writer:          writer,
 		buffer:          make([]byte, 8), // enough for int64
 	}

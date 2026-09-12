@@ -273,7 +273,7 @@ func (psdp *PersistentSnapshotDeletionPolicy) saveSnapshots() error {
 
 	// Write content
 	data := []byte(content.String())
-	if err := out.WriteBytes(data); err != nil {
+	if err := out.WriteBytes(data, 0, len(data)); err != nil {
 		return fmt.Errorf("cannot write snapshots: %w", err)
 	}
 
@@ -339,7 +339,7 @@ func (psdp *PersistentSnapshotDeletionPolicy) loadSnapshots() error {
 
 	// Read all data
 	data := make([]byte, in.Length())
-	if err := in.ReadBytes(data); err != nil {
+	if err := in.ReadBytes(data, 0, len(data)); err != nil {
 		return fmt.Errorf("cannot read snapshots file: %w", err)
 	}
 	in.Close()
@@ -400,8 +400,10 @@ func (psdp *PersistentSnapshotDeletionPolicy) OnInit(commits []Commit) error {
 // Note: The clone will share the same directory but will have its own
 // snapshot tracking. This should be used with caution.
 func (psdp *PersistentSnapshotDeletionPolicy) Clone() IndexDeletionPolicy {
-	// Clone the primary policy
-	primaryClone := psdp.SnapshotDeletionPolicy.GetPrimary().Clone()
+	// Clone the primary policy. SnapshotDeletionPolicy.primary is assigned
+	// once at construction and never mutated, so it is read directly here
+	// (the two types live in the same package).
+	primaryClone := psdp.SnapshotDeletionPolicy.primary.Clone()
 
 	// Create a new instance
 	clone := &PersistentSnapshotDeletionPolicy{
@@ -418,7 +420,7 @@ func (psdp *PersistentSnapshotDeletionPolicy) Clone() IndexDeletionPolicy {
 // String returns a string representation of this policy.
 func (psdp *PersistentSnapshotDeletionPolicy) String() string {
 	return fmt.Sprintf("PersistentSnapshotDeletionPolicy(primary=%v, snapshotCount=%d, dir=%v)",
-		psdp.SnapshotDeletionPolicy.GetPrimary(),
-		psdp.SnapshotDeletionPolicy.SnapshotCount(),
+		psdp.SnapshotDeletionPolicy.primary,
+		psdp.SnapshotDeletionPolicy.GetSnapshotCount(),
 		psdp.dir)
 }

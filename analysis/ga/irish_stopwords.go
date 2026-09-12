@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // IrishStopWords contains default Irish stop words from the Apache Lucene
@@ -71,7 +72,7 @@ func NewIrishAnalyzerWithStopwords(stopWords *analysis.CharArraySet) *IrishAnaly
 // exclusion set. Tokens in the exclusion set are not stemmed.
 func NewIrishAnalyzerFull(stopWords, stemExclusionSet *analysis.CharArraySet) *IrishAnalyzer {
 	a := &IrishAnalyzer{
-		BaseAnalyzer:     analysis.NewAnalyzer(),
+		BaseAnalyzer:     analysis.NewAnalyzer(analysis.GlobalReuseStrategy),
 		stopWords:        stopWords,
 		stemExclusionSet: stemExclusionSet,
 	}
@@ -100,4 +101,4 @@ func (a *IrishAnalyzer) GetStemExclusionSet() *analysis.CharArraySet { return a.
 
 // Ensure IrishAnalyzer implements Analyzer.
 var _ analysis.Analyzer = (*IrishAnalyzer)(nil)
-var _ analysis.api.Analyzer = (*IrishAnalyzer)(nil)
+var _ api.Analyzer = (*IrishAnalyzer)(nil)

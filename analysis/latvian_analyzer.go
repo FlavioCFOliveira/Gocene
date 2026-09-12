@@ -58,11 +58,11 @@ func NewLatvianAnalyzerWithWords(stopWords *CharArraySet) *LatvianAnalyzer {
 		tok = NewStopFilterWithWords(tok, stopWords)
 
 		return &TokenStreamComponents{
-			source: func(r io.Reader) error {
+			Source: func(r io.Reader) error {
 				src.SetReader(r)
 				return nil
 			},
-			sink: tok,
+			Sink: tok,
 		}
 	}
 	return a

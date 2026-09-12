@@ -38,5 +38,9 @@ func (f *StempelPolishStemFilterFactory) Create(input analysis.TokenStream) anal
 	return NewStempelFilter(input, NewStempelStemmer(GetDefaultTable()))
 }
 
+func (f *StempelPolishStemFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
+}
+
 // Ensure StempelPolishStemFilterFactory implements analysis.TokenFilterFactory.
 var _ analysis.TokenFilterFactory = (*StempelPolishStemFilterFactory)(nil)

@@ -6,7 +6,6 @@ package document
 
 import (
 	"fmt"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -49,7 +48,7 @@ func (lp *LongPoint) SetLongValues(point ...int64) {
 		panic(fmt.Sprintf("this field (name=%s) uses %d dimensions; cannot change to (incoming) %d dimensions",
 			lp.name, lp.ft.PointDimensionCount(), len(point)))
 	}
-	lp.value = binaryValue(Pack(point))
+	lp.value = binaryValue(Pack(point...))
 }
 
 // SetBytesValue is not supported for LongPoint.
@@ -101,7 +100,7 @@ func Unpack(bytesRef *util.BytesRef, start int, buf []int64) {
 // NewLongPoint creates a new LongPoint, indexing the provided N-dimensional long point.
 func NewLongPoint(name string, point ...int64) *LongPoint {
 	ft := getType(len(point))
-	f, _ := NewField(name, binaryValue(Pack(point)), ft)
+	f, _ := NewField(name, binaryValue(Pack(point...)), ft)
 	return &LongPoint{Field: *f}
 }
 

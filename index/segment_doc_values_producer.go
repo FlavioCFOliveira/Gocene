@@ -264,7 +264,7 @@ func (p *SegmentDocValuesProducer) GetSortedSet(field *FieldInfo) (SortedSetDocV
 }
 
 // GetSkipper returns the DocValuesSkipper for the given field.
-func (p *SegmentDocValuesProducer) GetSkipper(field *FieldInfo) (DocValuesSkipper, error) {
+func (p *SegmentDocValuesProducer) GetSkipper(field *FieldInfo) (spi.DocValuesSkipper, error) {
 	dvp, err := p.producerFor(field)
 	if err != nil {
 		return nil, err

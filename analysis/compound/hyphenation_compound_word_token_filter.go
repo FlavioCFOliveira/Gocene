@@ -157,6 +157,7 @@ var _ analysis.TokenFilter = (*HyphenationCompoundWordTokenFilter)(nil)
 // ResourceLoader. This Go port accepts pre-built instances to avoid filesystem
 // dependencies in the filter layer.
 type HyphenationCompoundWordTokenFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	dictionary          *analysis.CharArraySet
 	hyphenator          *hyphenation.HyphenationTree
 	minWordSize         int
@@ -175,14 +176,15 @@ func NewHyphenationCompoundWordTokenFilterFactory(
 	onlyLongestMatch, noSubMatches, noOverlappingMatches bool,
 ) *HyphenationCompoundWordTokenFilterFactory {
 	return &HyphenationCompoundWordTokenFilterFactory{
-		hyphenator:          hyphenator,
-		dictionary:          dictionary,
-		minWordSize:         minWordSize,
-		minSubwordSize:      minSubwordSize,
-		maxSubwordSize:      maxSubwordSize,
-		onlyLongestMatch:    onlyLongestMatch,
-		noSubMatches:        noSubMatches,
-		noOverlappingMatches: noOverlappingMatches,
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		hyphenator:             hyphenator,
+		dictionary:             dictionary,
+		minWordSize:            minWordSize,
+		minSubwordSize:         minSubwordSize,
+		maxSubwordSize:         maxSubwordSize,
+		onlyLongestMatch:       onlyLongestMatch,
+		noSubMatches:           noSubMatches,
+		noOverlappingMatches:   noOverlappingMatches,
 	}
 }
 

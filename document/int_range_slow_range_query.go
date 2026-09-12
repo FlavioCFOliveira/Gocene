@@ -110,7 +110,7 @@ func (q *IntRangeSlowRangeQuery) Equals(other *IntRangeSlowRangeQuery) bool {
 // a per-type constant rolled through (31*h + field-hash + Arrays.hashCode(min) + Arrays.hashCode(max)).
 func (q *IntRangeSlowRangeQuery) HashCode() int {
 	h := 0x6972_7372 // "irsr"
-	h = 31*h + stringHash(q.field)
+	h = 31*h + intStringHash(q.field)
 	h = 31*h + int32SliceHash(q.min)
 	h = 31*h + int32SliceHash(q.max)
 	return h
@@ -153,7 +153,7 @@ func (q *IntRangeSlowRangeQuery) ToString(field string) string {
 	return b.String()
 }
 
-func stringHash(s string) int {
+func intStringHash(s string) int {
 	const (
 		offset = 2166136261
 		prime  = 16777619

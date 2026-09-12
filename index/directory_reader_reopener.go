@@ -201,11 +201,13 @@ func (dr *DirectoryReaderReopener) doReopen() (*DirectoryReader, int64, error) {
 // reopenFromWriter performs an NRT reopen from the IndexWriter.
 func (dr *DirectoryReaderReopener) reopenFromWriter() (*DirectoryReader, int64, error) {
 	// Use the writer's GetReader to get a fresh NRT snapshot
-	newReader, err := dr.writer.GetReader()
+	// Lucene's DirectoryReader.openIfChanged(oldReader, writer) reopens with
+	// applyAllDeletes=true and writeAllDeletes=false.
+	newReader, err := dr.writer.GetReader(true, false)
 	if err != nil {
 		return nil, 0, err
 	}
-	return newReader, newReader.GetSegmentInfos().Generation(), nil
+	return newReader.DirectoryReader, newReader.GetSegmentInfos().Generation(), nil
 }
 
 // reopenFromDirectory performs a reopen by reading from the directory.

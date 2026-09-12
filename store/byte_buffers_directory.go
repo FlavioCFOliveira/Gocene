@@ -11,6 +11,8 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // ByteBuffersDirectory is an in-memory Directory implementation using byte slices.
@@ -152,7 +154,7 @@ func (d *ByteBuffersDirectory) CreateOutput(name string, ctx IOContext) (IndexOu
 	d.AddOpenFile(name)
 
 	return &ByteBuffersIndexOutput{
-		BaseIndexOutput: NewBaseIndexOutput(name),
+		BaseIndexOutput: spi.NewBaseIndexOutput(name),
 		file:            file,
 		directory:       d,
 	}, nil
@@ -280,7 +282,7 @@ func (d *ByteBuffersDirectory) Close() error {
 // a chunk size.
 type ByteBuffersIndexInput struct {
 	*BaseIndexInput
-	BaseDataInput
+	spi.BaseDataInput
 	chunks    [][]byte
 	cumLens   []int64
 	position  int64
@@ -657,7 +659,7 @@ func splitIntoChunks(data []byte, chunkSize int) [][]byte {
 // ByteBuffersIndexOutput is an IndexOutput implementation for ByteBuffersDirectory
 // with random-access write support via SetPosition.
 type ByteBuffersIndexOutput struct {
-	*BaseIndexOutput
+	*spi.BaseIndexOutput
 	BaseDataOutput
 	file      *byteBufferFile
 	directory *ByteBuffersDirectory

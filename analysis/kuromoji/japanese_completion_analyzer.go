@@ -5,6 +5,8 @@
 package kuromoji
 
 import (
+	"io"
+
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/kuromoji/dict"
 )
@@ -43,7 +45,13 @@ func (a *JapaneseCompletionAnalyzer) CreateComponents(_ string) *analysis.TokenS
 	tokenizer := NewJapaneseTokenizer(a.userDictionary, true, true, ModeNormal)
 	var stream analysis.TokenStream = NewJapaneseCompletionFilter(tokenizer, a.mode)
 	stream = analysis.NewLowerCaseFilter(stream)
-	return analysis.NewTokenStreamComponents(tokenizer, stream)
+	return &analysis.TokenStreamComponents{
+		Source: func(r io.Reader) error {
+			tokenizer.SetReader(r)
+			return nil
+		},
+		Sink: stream,
+	}
 }
 
 // Ensure JapaneseCompletionAnalyzer implements analysis.Analyzer.

@@ -5,8 +5,10 @@
 package index
 
 import (
+	"fmt"
 	"sort"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -40,72 +42,202 @@ type inMemTerm struct {
 	positions [][]int // positions[i] is the sorted positions for docIDs[i]; may be nil
 }
 
-// MergeInMemoryPostings builds an InMemoryFieldsProducer by merging
-// postings from all DWPTs in the pool.
+// MergeInMemoryPostings builds an InMemoryFieldsProducer by materialising the
+// buffered postings of every DWPT in the pool.
 //
-// In practice all documents within a flush unit are accumulated in the same
-// DWPT (pool[0]) whose internal docIDs are 0-based (dwpt.lastDocID starts at
-// -1 and is incremented before use, so the first document gets docID=0).
-// The global docID for pool[i] is docBase + localDoc, where docBase is the
-// cumulative document count of all previous DWPTs.  When the pool contains
-// multiple DWPTs (a future concurrency extension), each pool entry starts its
-// own 0-based sequence and docBase correctly offsets the totals.
-func MergeInMemoryPostings(dwptPool []*DocumentsWriterPerThread) *InMemoryFieldsProducer {
+// The source of truth is the same in-RAM structure the flush path consumes:
+// each DWPT's indexing chain holds one FreqProxTermsWriterPerField per
+// inverted field, and FreqProxFields is the Fields view over them (the Go port
+// of org.apache.lucene.index.FreqProxFields). Walking that view term by term
+// yields exactly the postings a codec would write.
+//
+// DWPT internal docIDs are 0-based, so the global docID for a document in
+// pool[i] is docBase(i) + localDoc, where docBase(i) is the cumulative
+// GetNumDocsInRAM of all previous DWPTs. When the pool holds a single DWPT —
+// the common case for one flush unit — docBase stays 0 throughout.
+func MergeInMemoryPostings(dwptPool []*DocumentsWriterPerThread) (*InMemoryFieldsProducer, error) {
 	p := &InMemoryFieldsProducer{
 		fields: make(map[string]*inMemField),
 	}
 
-	// Compute the docBase for each DWPT so that local docIDs map to correct
-	// global docIDs when there are multiple DWPTs.
 	docBase := 0
 	for _, dwpt := range dwptPool {
-		dwpt.invertedIndex.mu.RLock()
-		for fieldName, fp := range dwpt.invertedIndex.fields {
-			fp.mu.RLock()
-			for termText, posting := range fp.terms {
-				for i, localDoc := range posting.docIDs {
-					// localDoc is 0-based: DWPT.lastDocID starts at -1 and is incremented
-					// before use, so the first document gets docID=0.
-					// The global docID for pool[i] is docBase + localDoc.
-					globalDocID := docBase + localDoc
-					freq := 1
-					if i < len(posting.freqs) {
-						freq = posting.freqs[i]
-					}
-
-					imf, ok := p.fields[fieldName]
-					if !ok {
-						imf = &inMemField{
-							fieldName: fieldName,
-							terms:     make(map[string]*inMemTerm),
-						}
-						p.fields[fieldName] = imf
-					}
-					imt, ok := imf.terms[termText]
-					if !ok {
-						imt = &inMemTerm{text: termText}
-						imf.terms[termText] = imt
-					}
-					imt.docIDs = append(imt.docIDs, globalDocID)
-					imt.freqs = append(imt.freqs, freq)
-
-					// Copy positions when present.
-					if i < len(posting.positions) && len(posting.positions[i]) > 0 {
-						posCopy := make([]int, len(posting.positions[i]))
-						copy(posCopy, posting.positions[i])
-						imt.positions = append(imt.positions, posCopy)
-					} else {
-						imt.positions = append(imt.positions, nil)
-					}
-				}
-			}
-			fp.mu.RUnlock()
+		if dwpt == nil {
+			continue
 		}
-		docBase += dwpt.GetNumDocs()
-		dwpt.invertedIndex.mu.RUnlock()
+		perFields, err := bufferedPostingsFields(dwpt)
+		if err != nil {
+			return nil, err
+		}
+		for _, fp := range perFields {
+			if err := p.absorbField(fp, docBase); err != nil {
+				return nil, err
+			}
+		}
+		docBase += dwpt.GetNumDocsInRAM()
 	}
 
-	return p
+	return p, nil
+}
+
+// freqProxWriterLookup is the registry lookup FreqProxTermsWriter keeps so a
+// TermsHashPerField can be resolved back to its FreqProx wrapper. Lucene does
+// this with a downcast from TermsHashPerField to
+// FreqProxTermsWriterPerField; Go needs the explicit registry, and the
+// interface keeps this file independent of which concrete TermsHash the
+// indexing chain happens to be wired with.
+type freqProxWriterLookup interface {
+	lookupFreqProxByBase(base *TermsHashPerField) (*FreqProxTermsWriterPerField, bool)
+}
+
+// bufferedPostingsFields returns the per-field postings writers dwpt has
+// buffered, ordered by field name.
+//
+// It mirrors the hand-off IndexingChain.Flush performs: the chain's field hash
+// is walked for every field that was actually inverted, and each field's
+// TermsHashPerField is resolved back to its FreqProx wrapper through the
+// writer's registry (Lucene does this with a downcast). The field-name
+// ordering matches the invariant FreqProxTermsWriter establishes before
+// building FreqProxFields ("NOTE: fields are already sorted by field name").
+func bufferedPostingsFields(dwpt *DocumentsWriterPerThread) ([]*FreqProxTermsWriterPerField, error) {
+	chain := dwpt.indexingChain
+	if chain == nil {
+		return nil, nil
+	}
+	if chain.termsHash == nil {
+		// The inversion chain was never wired, so no field can have been
+		// inverted and there is nothing to materialise.
+		return nil, nil
+	}
+	writer, ok := chain.termsHash.(freqProxWriterLookup)
+	if !ok {
+		return nil, fmt.Errorf("MergeInMemoryPostings: indexing chain terms hash is %T, which exposes no FreqProx per-field registry", chain.termsHash)
+	}
+
+	byName := make(map[string]*FreqProxTermsWriterPerField)
+	names := make([]string, 0, len(chain.fieldHash))
+	for _, bucket := range chain.fieldHash {
+		for pf := bucket; pf != nil; pf = pf.next {
+			if pf.invertState == nil || pf.termsHashPerField == nil || pf.fieldInfo == nil {
+				continue
+			}
+			fp, ok := writer.lookupFreqProxByBase(pf.termsHashPerField)
+			if !ok {
+				continue
+			}
+			name := pf.fieldInfo.Name()
+			if _, dup := byName[name]; dup {
+				continue
+			}
+			byName[name] = fp
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+
+	ordered := make([]*FreqProxTermsWriterPerField, 0, len(names))
+	for _, name := range names {
+		ordered = append(ordered, byName[name])
+	}
+	return ordered, nil
+}
+
+// absorbField materialises every term of one buffered field into the
+// producer's in-memory postings, shifting each local docID by docBase.
+func (p *InMemoryFieldsProducer) absorbField(fp *FreqProxTermsWriterPerField, docBase int) error {
+	if fp == nil {
+		return nil
+	}
+	fieldName := fp.GetFieldName()
+
+	// Request the richest postings the field actually carries: FreqProxTermsEnum
+	// refuses positions or freqs that were never indexed, exactly as Lucene's
+	// FreqProxFields.FreqProxTermsEnum.postings does.
+	flags := PostingsFlagNone
+	switch {
+	case fp.hasProx:
+		flags = PostingsFlagPositions
+	case fp.hasFreq:
+		flags = PostingsFlagFreqs
+	}
+
+	enum, err := newFreqProxTerms(fp).GetIterator()
+	if err != nil {
+		return fmt.Errorf("MergeInMemoryPostings: field %q: iterator: %w", fieldName, err)
+	}
+	for {
+		term, err := enum.Next()
+		if err != nil {
+			return fmt.Errorf("MergeInMemoryPostings: field %q: next term: %w", fieldName, err)
+		}
+		if term == nil {
+			return nil
+		}
+		postings, err := enum.Postings(flags)
+		if err != nil {
+			return fmt.Errorf("MergeInMemoryPostings: field %q term %q: postings: %w", fieldName, term.Text(), err)
+		}
+		if err := p.absorbTerm(fieldName, term.Text(), postings, flags, docBase); err != nil {
+			return err
+		}
+	}
+}
+
+// absorbTerm drains one posting list into the producer's in-memory buffers.
+func (p *InMemoryFieldsProducer) absorbTerm(fieldName, termText string, postings PostingsEnum, flags, docBase int) error {
+	imf, ok := p.fields[fieldName]
+	if !ok {
+		imf = &inMemField{
+			fieldName: fieldName,
+			terms:     make(map[string]*inMemTerm),
+		}
+		p.fields[fieldName] = imf
+	}
+	imt, ok := imf.terms[termText]
+	if !ok {
+		imt = &inMemTerm{text: termText}
+		imf.terms[termText] = imt
+	}
+
+	for {
+		doc, err := postings.NextDoc()
+		if err != nil {
+			return fmt.Errorf("MergeInMemoryPostings: field %q term %q: next doc: %w", fieldName, termText, err)
+		}
+		if doc == NO_MORE_DOCS {
+			return nil
+		}
+
+		freq := 1
+		if flags != PostingsFlagNone {
+			freq, err = postings.Freq()
+			if err != nil {
+				return fmt.Errorf("MergeInMemoryPostings: field %q term %q: freq: %w", fieldName, termText, err)
+			}
+		}
+
+		var positions []int
+		if flags == PostingsFlagPositions {
+			positions = make([]int, 0, freq)
+			for i := 0; i < freq; i++ {
+				pos, err := postings.NextPosition()
+				if err != nil {
+					return fmt.Errorf("MergeInMemoryPostings: field %q term %q: next position: %w", fieldName, termText, err)
+				}
+				if pos == NO_MORE_POSITIONS {
+					break
+				}
+				positions = append(positions, pos)
+			}
+			if len(positions) == 0 {
+				positions = nil
+			}
+		}
+
+		imt.docIDs = append(imt.docIDs, docBase+doc)
+		imt.freqs = append(imt.freqs, freq)
+		imt.positions = append(imt.positions, positions)
+	}
 }
 
 // Terms returns an in-memory Terms implementation for the given field.
@@ -229,6 +361,18 @@ type inMemTermsEnum struct {
 	sorted      []string // sorted term texts
 	idx         int      // current position in sorted (-1 = before start)
 	currentTerm *inMemTerm
+}
+
+// Impacts returns an ImpactsEnum over the current term's postings. Mirrors
+// org.apache.lucene.index.BaseTermsEnum#impacts, whose default wraps the
+// postings in a SlowImpactsEnum because in-memory postings carry no impact
+// index.
+func (e *inMemTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	postings, err := e.Postings(flags)
+	if err != nil {
+		return nil, err
+	}
+	return spiImpactsEnum{ImpactsEnum: NewSlowImpactsEnum(postings)}, nil
 }
 
 func newInMemTermsEnum(field *inMemField, seekText string) *inMemTermsEnum {

@@ -6,6 +6,8 @@ package store
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // ByteArrayDataInput is a port of org.apache.lucene.store.ByteArrayDataInput.
@@ -13,7 +15,7 @@ import (
 //
 // WARNING: This class omits all low-level checks.
 type ByteArrayDataInput struct {
-	BaseDataInput
+	spi.BaseDataInput
 	bytes []byte
 	pos   int
 	limit int

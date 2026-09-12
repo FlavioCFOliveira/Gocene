@@ -16,8 +16,8 @@
 package testutil
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // Token is a pre-built, value-shaped token used to seed a
@@ -302,8 +302,8 @@ func (cts *CannedTokenStream) TypeAttribute() analysis.TypeAttribute {
 	return cts.typeAttr
 }
 
-// tokenattributes.PositionIncrementAttribute exposes the live tokenattributes.PositionIncrementAttribute.
-func (cts *CannedTokenStream) tokenattributes.PositionIncrementAttribute() tokenattributes.PositionIncrementAttribute {
+// PositionIncrementAttribute exposes the live PositionIncrementAttribute.
+func (cts *CannedTokenStream) PositionIncrementAttribute() tokenattributes.PositionIncrementAttribute {
 	return cts.posIncrAttr
 }
 

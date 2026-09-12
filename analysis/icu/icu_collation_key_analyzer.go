@@ -54,6 +54,11 @@ func (a *ICUCollationKeyAnalyzer) TokenStream(_ string, reader io.Reader) (analy
 // Close is a no-op; ICUCollationKeyAnalyzer holds no closeable resources.
 func (a *ICUCollationKeyAnalyzer) Close() error { return nil }
 
+func (a *ICUCollationKeyAnalyzer) Normalize(fieldName string) analysis.TokenStream {
+	ts, _ := a.TokenStream(fieldName, nil)
+	return ts
+}
+
 // Ensure compile-time interface satisfaction.
 var _ analysis.Analyzer = (*ICUCollationKeyAnalyzer)(nil)
 
@@ -91,6 +96,11 @@ func (s *collationKeyTokenStream) IncrementToken() (bool, error) {
 	s.termAttr.SetValue(s.input)
 	s.emitted = true
 	return true, nil
+}
+
+func (s *collationKeyTokenStream) Reset() error {
+	s.emitted = false
+	return nil
 }
 
 // End is a no-op.

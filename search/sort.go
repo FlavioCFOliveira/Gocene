@@ -1,14 +1,14 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-type SortFieldType = schema.SortFieldType
-type MissingValueStrategy = schema.MissingValueStrategy
-var STRING_FIRST = schema.STRING_FIRST
-var STRING_LAST = schema.STRING_LAST
-type SortField = schema.SortField
+type SortFieldType = spi.SortFieldType
+type MissingValueStrategy = spi.MissingValueStrategy
+var STRING_FIRST = spi.STRING_FIRST
+var STRING_LAST = spi.STRING_LAST
+type SortField = spi.SortField
 
 func (sf *SortField) GetField() string { return sf.Field }
 func (sf *SortField) GetReverse() bool { return sf.Reverse }

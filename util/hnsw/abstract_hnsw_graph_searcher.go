@@ -14,6 +14,7 @@
 package hnsw
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -39,7 +40,7 @@ type AbstractHnswGraphSearcher interface {
 	// holds level-0 ordinals. acceptOrds is the filter applied at
 	// collection time; nil accepts every node.
 	SearchLevel(
-		results KnnCollector,
+		results spi.KnnCollector,
 		scorer RandomVectorScorer,
 		level int,
 		eps []int,
@@ -57,7 +58,7 @@ type AbstractHnswGraphSearcher interface {
 	FindBestEntryPoint(
 		scorer RandomVectorScorer,
 		graph HnswGraph,
-		collector KnnCollector,
+		collector spi.KnnCollector,
 	) ([]int, error)
 }
 
@@ -72,7 +73,7 @@ type AbstractHnswGraphSearcher interface {
 // model preempts the Java single-inheritance shape).
 func Search(
 	s AbstractHnswGraphSearcher,
-	results KnnCollector,
+	results spi.KnnCollector,
 	scorer RandomVectorScorer,
 	graph HnswGraph,
 	acceptOrds util.Bits,
@@ -99,7 +100,7 @@ func Search(
 // AbstractHnswGraphSearcher#scoreEntryPoints — exposed as a free
 // helper since multiple concrete searchers reuse it.
 func scoreEntryPoints(
-	results KnnCollector,
+	results spi.KnnCollector,
 	scorer RandomVectorScorer,
 	visited util.BitSet,
 	eps []int,

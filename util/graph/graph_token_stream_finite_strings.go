@@ -25,8 +25,8 @@ package graph
 import (
 	"errors"
 	"fmt"
-
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
@@ -206,7 +206,7 @@ func (g *GraphTokenStreamFiniteStrings) build(in analysis.TokenStream) (*automat
 	if posIncRaw == nil {
 		return nil, errors.New("graph: input TokenStream lacks PositionIncrementAttribute")
 	}
-	posIncAtt, ok := posIncRaw.(analysis.PositionIncrementAttribute)
+	posIncAtt, ok := posIncRaw.(tokenattributes.PositionIncrementAttribute)
 	if !ok {
 		return nil, errors.New("graph: PositionIncrementAttribute has unexpected type")
 	}
@@ -402,7 +402,7 @@ type finiteStringsTokenStream struct {
 	offset int
 
 	termAtt    analysis.CharTermAttribute
-	posIncrAtt analysis.PositionIncrementAttribute
+	posIncrAtt tokenattributes.PositionIncrementAttribute
 	posLenAtt  analysis.PositionLengthAttribute
 }
 
@@ -413,11 +413,11 @@ func newFiniteStringsTokenStream(tokens []*tokenSnapshot, ids []int) *finiteStri
 		ids:             ids,
 	}
 	s.termAtt = analysis.NewCharTermAttribute()
-	s.posIncrAtt = analysis.NewPositionIncrementAttribute()
+	s.posIncrAtt = tokenattributes.NewPositionIncrementAttribute()
 	s.posLenAtt = analysis.NewPositionLengthAttribute()
-	s.AddAttribute(s.termAtt)
-	s.AddAttribute(s.posIncrAtt)
-	s.AddAttribute(s.posLenAtt)
+	s.AddAttributeImpl(s.termAtt)
+	s.AddAttributeImpl(s.posIncrAtt)
+	s.AddAttributeImpl(s.posLenAtt)
 	return s
 }
 

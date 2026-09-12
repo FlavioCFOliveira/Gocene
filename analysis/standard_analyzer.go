@@ -11,12 +11,12 @@ import (
 // NewStandardAnalyzer creates a new StandardAnalyzer with no stop words.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.standard.StandardAnalyzer.
-func NewStandardAnalyzer() *Analyzer {
+func NewStandardAnalyzer() Analyzer {
 	return NewStandardAnalyzerWithStopWords(nil)
 }
 
 // NewStandardAnalyzerWithStopWords creates a new StandardAnalyzer with the given stop words.
-func NewStandardAnalyzerWithStopWords(stopWords []string) *Analyzer {
+func NewStandardAnalyzerWithStopWords(stopWords []string) Analyzer {
 	a := NewAnalyzer(GlobalReuseStrategy)
 
 	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
@@ -29,11 +29,11 @@ func NewStandardAnalyzerWithStopWords(stopWords []string) *Analyzer {
 		}
 
 		return &TokenStreamComponents{
-			source: func(r io.Reader) error {
+			Source: func(r io.Reader) error {
 				src.SetReader(r)
 return nil
 			},
-			sink: tok,
+			Sink: tok,
 		}
 	}
 

@@ -27,7 +27,7 @@ type BaseFlushPolicy struct {
 // Init initializes the FlushPolicy with the given index writer configuration.
 func (p *BaseFlushPolicy) Init(indexWriterConfig *LiveIndexWriterConfig) {
 	p.indexWriterConfig = indexWriterConfig
-	p.infoStream = indexWriterConfig.getInfoStream()
+	p.infoStream = indexWriterConfig.GetInfoStream()
 }
 
 // FindLargestNonPendingWriter returns the current most RAM consuming non-pending

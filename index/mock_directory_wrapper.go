@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"io"
 	"math/rand"
+	"runtime"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -32,16 +35,16 @@ type MockDirectoryWrapper struct {
 
 	mu sync.Mutex
 
-	maxSize        int64
-	maxUsedSize    int64
-	randomIOERate  float64
+	maxSize           int64
+	maxUsedSize       int64
+	randomIOERate     float64
 	randomIOERateOpen float64
-	randomState    *rand.Rand
+	randomState       *rand.Rand
 
-	assertNoDeleteOpenFile           bool
-	trackDiskUsage                  bool
-	useSlowOpenClosers              bool
-	allowRandomFileNotFoundException bool
+	assertNoDeleteOpenFile             bool
+	trackDiskUsage                     bool
+	useSlowOpenClosers                 bool
+	allowRandomFileNotFoundException   bool
 	allowReadingFilesStillOpenForWrite bool
 
 	unSyncedFiles     map[string]struct{}
@@ -51,24 +54,30 @@ type MockDirectoryWrapper struct {
 	crashed           bool
 	throttling        Throttling
 
-	alwaysCorrupt bool
-	inputCloneCount atomic.Int32
-	openFileHandles map[io.Closer]error
+	// isOpen mirrors org.apache.lucene.tests.store.BaseDirectoryWrapper.isOpen:
+	// it tracks whether Close has already run on the wrapper itself, so that a
+	// double close is forwarded to the delegate instead of being masked.
+	isOpen bool
+
+	alwaysCorrupt    bool
+	inputCloneCount  atomic.Int32
+	openFileHandles  map[io.Closer]error
 	openFilesDeleted map[string]struct{}
-	failures        []Failure
+	failures         []Failure
 }
 
 func NewMockDirectoryWrapper(r *rand.Rand, delegate store.Directory) *MockDirectoryWrapper {
 	return &MockDirectoryWrapper{
-		in:                      delegate,
-		randomState:             rand.New(rand.NewSource(r.Int63())),
-		unSyncedFiles:           make(map[string]struct{}),
-		createdFiles:            make(map[string]struct{}),
-		openFilesForWrite:       make(map[string]struct{}),
-		openFileHandles:        make(map[io.Closer]error),
-		openFilesDeleted:        make(map[string]struct{}),
-		throttling:              ThrottlingNever,
+		in:                               delegate,
+		randomState:                      rand.New(rand.NewSource(r.Int63())),
+		unSyncedFiles:                    make(map[string]struct{}),
+		createdFiles:                     make(map[string]struct{}),
+		openFilesForWrite:                make(map[string]struct{}),
+		openFileHandles:                  make(map[io.Closer]error),
+		openFilesDeleted:                 make(map[string]struct{}),
+		throttling:                       ThrottlingNever,
 		allowRandomFileNotFoundException: true,
+		isOpen:                           true,
 	}
 }
 
@@ -176,14 +185,22 @@ func (m *MockDirectoryWrapper) SyncMetaData() error {
 func (m *MockDirectoryWrapper) SizeInBytes() (int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.sizeInBytes()
+}
 
+// sizeInBytes is the body of SizeInBytes with the wrapper lock already held.
+// Lucene declares every MockDirectoryWrapper method synchronized and Java
+// monitors are reentrant, so sizeInBytes() can be called from inside another
+// synchronized method; a Go sync.Mutex is not reentrant, so the lock-free core
+// is factored out here and called by the holders of m.mu.
+func (m *MockDirectoryWrapper) sizeInBytes() (int64, error) {
 	var size int64
 	files, err := m.in.ListAll()
 	if err != nil {
 		return 0, err
 	}
 	for _, file := range files {
-		if len(file) >= 5 && file[:5] == "extra" {
+		if strings.HasPrefix(file, "extra") {
 			continue
 		}
 		l, err := m.in.FileLength(file)
@@ -195,25 +212,44 @@ func (m *MockDirectoryWrapper) SizeInBytes() (int64, error) {
 	return size, nil
 }
 
+// CorruptUnknownFiles corrupts every file in the directory that no commit
+// point references, mirroring
+// org.apache.lucene.tests.store.MockDirectoryWrapper.corruptUnknownFiles().
 func (m *MockDirectoryWrapper) CorruptUnknownFiles() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	knownFiles := make(map[string]struct{})
 	files, err := m.in.ListAll()
 	if err != nil {
 		return err
 	}
+
+	// Gather every file referenced by a commit point.
+	knownFiles := make(map[string]struct{})
 	for _, fileName := range files {
-		if len(fileName) >= 9 && fileName[:9] == "segments_" {
+		if !strings.HasPrefix(fileName, SegmentsPrefix) {
+			continue
+		}
+		// Read through the delegate: Lucene reads through "this", but a Go
+		// sync.Mutex is not reentrant and m.mu is already held here.
+		infos, err := spi.ReadCommit(m.in, fileName)
+		if err != nil {
+			return err
+		}
+		for _, f := range infos.Files(true) {
+			knownFiles[f] = struct{}{}
 		}
 	}
 
-	toCorrupt := make([]string, 0)
+	toCorrupt := make([]string, 0, len(files))
 	for _, fileName := range files {
-		if _, known := knownFiles[fileName]; !known &&
-		   fileName != "write.lock" &&
-		   (len(fileName) >= 15 && fileName[:15] == "pending_segments") {
+		if _, known := knownFiles[fileName]; known {
+			continue
+		}
+		if strings.HasSuffix(fileName, "write.lock") {
+			continue
+		}
+		if CodecFilePattern.MatchString(fileName) || strings.HasPrefix(fileName, PendingSegmentsPrefix) {
 			toCorrupt = append(toCorrupt, fileName)
 		}
 	}
@@ -226,7 +262,13 @@ func (m *MockDirectoryWrapper) CorruptFiles(files []string) error {
 	return m.corruptFilesInternal(files)
 }
 
+// corruptFilesInternal applies one of six kinds of damage to each of the given
+// files, mirroring org.apache.lucene.tests.store.MockDirectoryWrapper._corruptFiles.
+// The caller must hold m.mu.
 func (m *MockDirectoryWrapper) corruptFilesInternal(files []string) error {
+	// Must make a copy because the incoming collection changes as temp files
+	// are created and files are deleted below. Sort so that the damage is
+	// reproducible regardless of the iteration order of the caller's set.
 	filesToCorrupt := make([]string, len(files))
 	copy(filesToCorrupt, files)
 	sort.Strings(filesToCorrupt)
@@ -242,159 +284,224 @@ func (m *MockDirectoryWrapper) corruptFilesInternal(files []string) error {
 			if err := m.in.DeleteFile(name); err != nil {
 				return err
 			}
+
 		case 1: // zeroed
-			length, err := m.in.FileLength(name)
-			if err != nil {
+			if err := m.zeroFile(name); err != nil {
 				return err
 			}
-			if err := m.in.DeleteFile(name); err != nil {
-				return err
-			}
-			out, err := m.in.CreateOutput(name, store.NewIOContext())
-			if err != nil {
-				return err
-			}
-			zeroes := make([]byte, 256)
-			var upto int64
-			for upto < length {
-				limit := int(length - upto)
-				if limit > 256 {
-					limit = 256
-				}
-				out.WriteBytes(zeroes[:limit])
-				upto += int64(limit)
-			}
-			out.Close()
+
 		case 2: // partially truncated
-			tempOut, err := m.in.CreateOutput("mdw_corrupt_temp", store.NewIOContext())
+			tempName, err := m.copyHalfToTemp(name)
 			if err != nil {
 				return err
 			}
-			tempName := tempOut.GetName()
-			ii, err := m.in.OpenInput(name, store.NewIOContext())
-			if err != nil {
-				tempOut.Close()
+			if err := m.copyWholeFileBack(name, tempName); err != nil {
 				return err
 			}
-			ii.Seek(0)
-			buf := make([]byte, 4096)
-			var copied int64
-			half := ii.Length() / 2
-			for copied < half {
-				n, err := ii.ReadBytes(buf)
-				if n > 0 {
-					if copied+int64(n) > half {
-						tempOut.WriteBytes(buf[:int(half-copied)])
-						copied = half
-						break
-					}
-					tempOut.WriteBytes(buf[:n])
-					copied += int64(n)
-				}
-				if err != nil {
-					break
-				}
+			if err := m.in.DeleteFile(tempName); err != nil {
+				return err
 			}
-			ii.Close()
-			tempOut.Close()
 
-			m.in.DeleteFile(name)
-			out, err := m.in.CreateOutput(name, store.NewIOContext())
-			if err != nil {
-				return err
-			}
-			ii2, err := m.in.OpenInput(tempName, store.NewIOContext())
-			if err != nil {
-				out.Close()
-				return err
-			}
-			for {
-				n, err := ii2.ReadBytes(buf)
-				if n > 0 {
-					out.WriteBytes(buf[:n])
-				}
-				if err != nil {
-					break
-				}
-			}
-			ii2.Close()
-			out.Close()
-			m.in.DeleteFile(tempName)
-		case 3: // didn't change
-		case 4: // flip bit
-			tempOut, err := m.in.CreateOutput("mdw_corrupt_bit", store.NewIOContext())
-			if err != nil {
-				return err
-			}
-			tempName := tempOut.GetName()
-			ii, err := m.in.OpenInput(name, store.NewIOContext())
-			if err != nil {
-				tempOut.Close()
-				return err
-			}
-			length := ii.Length()
-			if length > 0 {
-				byteToCorrupt := m.randomState.Int63n(length)
-				ii.Seek(byteToCorrupt)
-				b := ii.ReadByte()
-				bitToFlip := uint(m.randomState.Intn(8))
-				b ^= (1 << bitToFlip)
+		case 3: // the file survived intact
 
-				ii.Seek(0)
-				buf := make([]byte, 4096)
-				var current int64
-				for current < length {
-					n, err := ii.ReadBytes(buf)
-					if n > 0 {
-						for i := 0; i < n; i++ {
-							if current+int64(i) == byteToCorrupt {
-								buf[i] = b
-							}
-						}
-						tempOut.WriteBytes(buf[:n])
-						current += int64(n)
-					}
-					if err != nil {
-						break
-					}
-				}
+		case 4: // one bit flipped
+			tempName, err := m.copyWithFlippedBitToTemp(name)
+			if err != nil {
+				return err
 			}
-			ii.Close()
-			tempOut.Close()
+			if err := m.copyWholeFileBack(name, tempName); err != nil {
+				return err
+			}
+			if err := m.in.DeleteFile(tempName); err != nil {
+				return err
+			}
 
-			m.in.DeleteFile(name)
-			out, err := m.in.CreateOutput(name, store.NewIOContext())
-			if err != nil {
-				return err
-			}
-			ii2, err := m.in.OpenInput(tempName, store.NewIOContext())
-			if err != nil {
-				out.Close()
-				return err
-			}
-			buf2 := make([]byte, 4096)
-			for {
-				n, err := ii2.ReadBytes(buf2)
-				if n > 0 {
-					out.WriteBytes(buf2[:n])
-				}
-				if err != nil {
-					break
-				}
-			}
-			ii2.Close()
-			out.Close()
-			m.in.DeleteFile(tempName)
 		case 5: // fully truncated
-			m.in.DeleteFile(name)
-			out, err := m.in.CreateOutput(name, store.NewIOContext())
-			if err != nil {
+			if err := m.truncateFile(name); err != nil {
 				return err
 			}
-			out.Close()
 		}
 	}
 	return nil
+}
+
+// zeroFile rewrites name with the same number of zero bytes.
+func (m *MockDirectoryWrapper) zeroFile(name string) (err error) {
+	length, err := m.in.FileLength(name)
+	if err != nil {
+		return err
+	}
+	if err := m.in.DeleteFile(name); err != nil {
+		return err
+	}
+
+	out, err := m.in.CreateOutput(name, store.NewIOContext())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := out.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	zeroes := make([]byte, 256)
+	var upto int64
+	for upto < length {
+		limit := int(length - upto)
+		if limit > len(zeroes) {
+			limit = len(zeroes)
+		}
+		if err := out.WriteBytes(zeroes, 0, limit); err != nil {
+			return err
+		}
+		upto += int64(limit)
+	}
+	return nil
+}
+
+// truncateFile replaces name with a zero-length file.
+func (m *MockDirectoryWrapper) truncateFile(name string) (err error) {
+	if err := m.in.DeleteFile(name); err != nil {
+		return err
+	}
+	out, err := m.in.CreateOutput(name, store.NewIOContext())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := out.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+	// Mirrors Lucene's "just fake access to prevent compiler warning".
+	_ = out.GetFilePointer()
+	return nil
+}
+
+// copyHalfToTemp copies the first half of name into a fresh temporary file and
+// returns that file's name.
+func (m *MockDirectoryWrapper) copyHalfToTemp(name string) (tempName string, err error) {
+	tempOut, err := m.delegateCreateTempOutput("name", "mdw_corrupt", store.NewIOContext())
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if cerr := tempOut.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+	tempName = tempOut.GetName()
+
+	ii, err := m.in.OpenInput(name, store.NewIOContext())
+	if err != nil {
+		return tempName, err
+	}
+	defer func() {
+		if cerr := ii.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	return tempName, tempOut.CopyBytes(ii, ii.Length()/2)
+}
+
+// copyWithFlippedBitToTemp copies name into a fresh temporary file with exactly
+// one randomly chosen bit flipped, and returns that file's name.
+func (m *MockDirectoryWrapper) copyWithFlippedBitToTemp(name string) (tempName string, err error) {
+	tempOut, err := m.delegateCreateTempOutput("name", "mdw_corrupt", store.NewIOContext())
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if cerr := tempOut.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+	tempName = tempOut.GetName()
+
+	ii, err := m.in.OpenInput(name, store.NewIOContext())
+	if err != nil {
+		return tempName, err
+	}
+	defer func() {
+		if cerr := ii.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	length := ii.Length()
+	if length == 0 {
+		// The file survived intact.
+		return tempName, nil
+	}
+
+	// Copy the first part unchanged.
+	byteToCorrupt := int64(m.randomState.Float64() * float64(length))
+	if byteToCorrupt > 0 {
+		if err := tempOut.CopyBytes(ii, byteToCorrupt); err != nil {
+			return tempName, err
+		}
+	}
+
+	// Randomly flip one bit of this byte.
+	b, err := ii.ReadByte()
+	if err != nil {
+		return tempName, err
+	}
+	bitToFlip := uint(m.randomState.Intn(8))
+	b ^= 1 << bitToFlip
+	if err := tempOut.WriteByte(b); err != nil {
+		return tempName, err
+	}
+
+	// Copy the last part unchanged.
+	bytesLeft := length - byteToCorrupt - 1
+	if bytesLeft > 0 {
+		if err := tempOut.CopyBytes(ii, bytesLeft); err != nil {
+			return tempName, err
+		}
+	}
+	return tempName, nil
+}
+
+// copyWholeFileBack deletes name and rewrites it with the full contents of
+// tempName.
+func (m *MockDirectoryWrapper) copyWholeFileBack(name, tempName string) (err error) {
+	if err := m.in.DeleteFile(name); err != nil {
+		return err
+	}
+
+	out, err := m.in.CreateOutput(name, store.NewIOContext())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := out.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	ii, err := m.in.OpenInput(tempName, store.NewIOContext())
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := ii.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
+	return out.CopyBytes(ii, ii.Length())
+}
+
+// delegateCreateTempOutput creates a temporary file on the wrapped directory.
+func (m *MockDirectoryWrapper) delegateCreateTempOutput(prefix, suffix string, ctx store.IOContext) (store.IndexOutput, error) {
+	creator, ok := m.in.(tempOutputCreator)
+	if !ok {
+		return nil, fmt.Errorf("MockDirectoryWrapper: delegate directory %T does not support CreateTempOutput", m.in)
+	}
+	return creator.CreateTempOutput(prefix, suffix, ctx)
 }
 
 func (m *MockDirectoryWrapper) Crash() error {
@@ -603,15 +710,11 @@ func (m *MockDirectoryWrapper) CreateOutput(name string, ctx store.IOContext) (s
 		return nil, err
 	}
 
-	io := &mockIndexOutputWrapper{
-		dir:  m,
-		out:  delegateOutput,
-		name: name,
-	}
-	m.addFileHandle(io, name)
+	out := newMockIndexOutputWrapper(m, delegateOutput, name)
+	m.addFileHandle(out, name)
 	m.openFilesForWrite[name] = struct{}{}
 
-	return m.maybeThrottle(name, io)
+	return m.maybeThrottle(name, out), nil
 }
 
 func (m *MockDirectoryWrapper) CreateTempOutput(prefix, suffix string, ctx store.IOContext) (store.IndexOutput, error) {
@@ -630,7 +733,7 @@ func (m *MockDirectoryWrapper) CreateTempOutput(prefix, suffix string, ctx store
 		return nil, fmt.Errorf("cannot createTempOutput after crash")
 	}
 
-	delegateOutput, err := m.in.CreateTempOutput(prefix, suffix, ctx)
+	delegateOutput, err := m.delegateCreateTempOutput(prefix, suffix, ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -639,15 +742,11 @@ func (m *MockDirectoryWrapper) CreateTempOutput(prefix, suffix string, ctx store
 	m.unSyncedFiles[name] = struct{}{}
 	m.createdFiles[name] = struct{}{}
 
-	io := &mockIndexOutputWrapper{
-		dir:  m,
-		out:  delegateOutput,
-		name: name,
-	}
-	m.addFileHandle(io, name)
+	out := newMockIndexOutputWrapper(m, delegateOutput, name)
+	m.addFileHandle(out, name)
 	m.openFilesForWrite[name] = struct{}{}
 
-	return m.maybeThrottle(name, io)
+	return m.maybeThrottle(name, out), nil
 }
 
 func (m *MockDirectoryWrapper) maybeThrottle(name string, output store.IndexOutput) store.IndexOutput {
@@ -691,29 +790,35 @@ func (m *MockDirectoryWrapper) OpenInput(name string, ctx store.IOContext) (stor
 		return nil, err
 	}
 
-	ii := &mockIndexInputWrapper{
-		dir:      m,
-		name:     name,
-		delegate: delegateInput,
-	}
+	ii := newMockIndexInputWrapper(m, name, delegateInput, nil)
 	m.addFileHandle(ii, name)
-	return ii
+	return ii, nil
+}
+
+// IsOpen reports whether this wrapper has not been closed yet.
+// Mirrors org.apache.lucene.tests.store.BaseDirectoryWrapper.isOpen().
+func (m *MockDirectoryWrapper) IsOpen() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.isOpen
 }
 
 func (m *MockDirectoryWrapper) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if !m.in.IsOpen() {
+	if !m.isOpen {
+		// Already closed: close the wrapped directory again rather than
+		// masking a double-close bug (MockDirectoryWrapper.close()).
 		return m.in.Close()
 	}
+	m.isOpen = false
 
 	if len(m.openFileHandles) > 0 {
 		return fmt.Errorf("MockDirectoryWrapper: cannot close: there are still %d open files", len(m.openFileHandles))
 	}
 
-	err := m.in.Close()
-	return err
+	return m.in.Close()
 }
 
 func (m *MockDirectoryWrapper) ListAll() ([]string, error) {
@@ -784,186 +889,379 @@ func (m *MockDirectoryWrapper) maybeThrowDeterministicException() error {
 
 // --- Wrappers ---
 
+// mockIndexOutputWrapper is an IndexOutput that fails on a simulated full
+// disk, tracks the maximum disk space actually used, and may raise random
+// I/O errors.
+//
+// Port of org.apache.lucene.tests.store.MockIndexOutputWrapper.
 type mockIndexOutputWrapper struct {
+	*store.FilterIndexOutput
+
 	dir  *MockDirectoryWrapper
 	out  store.IndexOutput
 	name string
+
+	first  bool
+	closed bool
+
+	singleByte []byte
 }
 
-func (w *mockIndexOutputWrapper) WriteBytes(b []byte) error {
-	return w.WriteBytesWithOffset(b, 0, len(b))
+// newMockIndexOutputWrapper wraps out for the given directory.
+func newMockIndexOutputWrapper(dir *MockDirectoryWrapper, out store.IndexOutput, name string) *mockIndexOutputWrapper {
+	return &mockIndexOutputWrapper{
+		FilterIndexOutput: store.NewFilterIndexOutput("MockIndexOutputWrapper("+out.GetName()+")", out.GetName(), out),
+		dir:               dir,
+		out:               out,
+		name:              name,
+		first:             true,
+		singleByte:        make([]byte, 1),
+	}
 }
 
-func (w *mockIndexOutputWrapper) WriteBytesWithOffset(b []byte, offset, length int) error {
-	w.dir.mu.Lock()
-	defer w.dir.mu.Unlock()
+// ensureOpen reports an error once this output has been closed.
+func (w *mockIndexOutputWrapper) ensureOpen() error {
+	if w.closed {
+		return store.NewAlreadyClosedException("Already closed: "+w.name, nil)
+	}
+	return nil
+}
 
+// checkCrashed reports an error if the directory crashed since this output was
+// opened, in which case nothing may be written. The caller must hold w.dir.mu.
+func (w *mockIndexOutputWrapper) checkCrashed() error {
 	if w.dir.crashed {
 		return fmt.Errorf("MockDirectoryWrapper has crashed; cannot write to %s", w.name)
 	}
+	return nil
+}
 
-	if w.dir.maxSize != 0 {
-		size, _ := w.dir.SizeInBytes()
-		freeSpace := w.dir.maxSize - size
-		if freeSpace <= int64(length) {
-			return fmt.Errorf("fake disk full at %d bytes when writing %s", size, w.name)
+// checkDiskFull enforces the simulated disk-size limit and tracks the maximum
+// used size. Exactly one of b and in carries the pending payload. The caller
+// must hold w.dir.mu.
+func (w *mockIndexOutputWrapper) checkDiskFull(b []byte, offset int, in store.DataInput, length int64) error {
+	if w.dir.maxSize == 0 {
+		return nil
+	}
+
+	size, err := w.dir.sizeInBytes()
+	if err != nil {
+		return err
+	}
+	freeSpace := w.dir.maxSize - size
+	var realUsage int64
+
+	// Enforce disk full: compute the real disk free. This greatly slows the
+	// test down but makes it accurate.
+	if freeSpace <= length {
+		realUsage, err = w.dir.sizeInBytes()
+		if err != nil {
+			return err
 		}
+		freeSpace = w.dir.maxSize - realUsage
+	}
+
+	if freeSpace > length {
+		return nil
+	}
+
+	if freeSpace > 0 {
+		realUsage += freeSpace
+		if b != nil {
+			if err := w.out.WriteBytes(b, offset, int(freeSpace)); err != nil {
+				return err
+			}
+		} else {
+			if err := w.out.CopyBytes(in, freeSpace); err != nil {
+				return err
+			}
+		}
+	}
+	if realUsage > w.dir.maxUsedSize {
+		w.dir.maxUsedSize = realUsage
+	}
+
+	size, err = w.dir.sizeInBytes()
+	if err != nil {
+		return err
+	}
+	message := fmt.Sprintf("fake disk full at %d bytes when writing %s (file length=%d", size, w.name, w.out.GetFilePointer())
+	if freeSpace > 0 {
+		message += fmt.Sprintf("; wrote %d of %d bytes", freeSpace, length)
+	}
+	message += ")"
+	return errors.New(message)
+}
+
+// WriteByte writes a single byte through WriteBytes so that the disk-full and
+// fault-injection checks apply to it as well.
+func (w *mockIndexOutputWrapper) WriteByte(b byte) error {
+	w.singleByte[0] = b
+	return w.WriteBytes(w.singleByte, 0, 1)
+}
+
+// WriteBytes writes length bytes of b starting at offset.
+func (w *mockIndexOutputWrapper) WriteBytes(b []byte, offset, length int) error {
+	if err := w.ensureOpen(); err != nil {
+		return err
+	}
+
+	w.dir.mu.Lock()
+	defer w.dir.mu.Unlock()
+
+	if err := w.checkCrashed(); err != nil {
+		return err
+	}
+	if err := w.checkDiskFull(b, offset, nil, int64(length)); err != nil {
+		return err
 	}
 
 	if w.dir.randomState.Intn(200) == 0 {
 		half := length / 2
-		w.out.WriteBytes(b[offset : offset+half])
-		w.out.WriteBytes(b[offset+half : offset+length])
+		if err := w.out.WriteBytes(b, offset, half); err != nil {
+			return err
+		}
+		runtime.Gosched()
+		if err := w.out.WriteBytes(b, offset+half, length-half); err != nil {
+			return err
+		}
 	} else {
-		w.out.WriteBytes(b[offset : offset+length])
+		if err := w.out.WriteBytes(b, offset, length); err != nil {
+			return err
+		}
 	}
 
 	if err := w.dir.maybeThrowDeterministicException(); err != nil {
 		return err
 	}
 
+	if w.first {
+		// Maybe raise a random error; only on the first write to a new file.
+		w.first = false
+		if err := w.dir.maybeThrowIOException(w.name); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func (w *mockIndexOutputWrapper) CopyBytes(in store.IndexInput, numBytes int64) error {
+// WriteBytesN writes the first n bytes of b.
+func (w *mockIndexOutputWrapper) WriteBytesN(b []byte, n int) error {
+	return w.WriteBytes(b, 0, n)
+}
+
+// CopyBytes copies numBytes from input into this output.
+func (w *mockIndexOutputWrapper) CopyBytes(input store.DataInput, numBytes int64) error {
+	if err := w.ensureOpen(); err != nil {
+		return err
+	}
+
 	w.dir.mu.Lock()
 	defer w.dir.mu.Unlock()
 
-	if w.dir.crashed {
-		return fmt.Errorf("MockDirectoryWrapper has crashed; cannot write to %s", w.name)
+	if err := w.checkCrashed(); err != nil {
+		return err
 	}
-	err := w.out.CopyBytes(in, numBytes)
-	if err != nil {
+	if err := w.checkDiskFull(nil, 0, input, numBytes); err != nil {
+		return err
+	}
+
+	if err := w.out.CopyBytes(input, numBytes); err != nil {
 		return err
 	}
 	return w.dir.maybeThrowDeterministicException()
 }
 
+// GetFilePointer returns the delegate's current position.
 func (w *mockIndexOutputWrapper) GetFilePointer() int64 {
 	return w.out.GetFilePointer()
 }
 
+// GetName returns the delegate's file name.
 func (w *mockIndexOutputWrapper) GetName() string {
 	return w.out.GetName()
 }
 
+// Close closes the delegate, unregisters the handle and, when disk-usage
+// tracking is on, refreshes the directory's maximum used size.
 func (w *mockIndexOutputWrapper) Close() error {
+	if w.closed {
+		// Do not mask double-close bugs.
+		return w.out.Close()
+	}
+	w.closed = true
+
 	err := w.out.Close()
+
 	w.dir.removeIndexOutput(w, w.name)
+
+	w.dir.mu.Lock()
+	defer w.dir.mu.Unlock()
+
+	if derr := w.dir.maybeThrowDeterministicException(); derr != nil && err == nil {
+		err = derr
+	}
+	if w.dir.trackDiskUsage {
+		// Compute the actual disk usage and track the maximum in the directory.
+		size, serr := w.dir.sizeInBytes()
+		if serr != nil {
+			if err == nil {
+				err = serr
+			}
+		} else if size > w.dir.maxUsedSize {
+			w.dir.maxUsedSize = size
+		}
+	}
 	return err
 }
 
+// prefetchableIndexInput is the optional IndexInput capability Lucene declares
+// as IndexInput.prefetch, whose base implementation is a no-op. Gocene's
+// spi.IndexInput does not carry it, so a delegate that supports it is reached
+// through this assertion.
+type prefetchableIndexInput interface {
+	Prefetch(offset int64, length int64) error
+}
+
+// ioContextUpdatableIndexInput is the optional IndexInput capability Lucene
+// declares as IndexInput.updateIOContext, whose base implementation is a no-op.
+type ioContextUpdatableIndexInput interface {
+	UpdateIOContext(ctx store.IOContext) error
+}
+
+// mockIndexInputWrapper is an IndexInput that keeps track of when it has been
+// closed and of every clone and slice taken from it.
+//
+// Port of org.apache.lucene.tests.store.MockIndexInputWrapper.
 type mockIndexInputWrapper struct {
+	*store.FilterIndexInput
+
 	dir      *MockDirectoryWrapper
 	name     string
 	delegate store.IndexInput
 	closed   bool
+
+	// parent is the wrapper this one was cloned or sliced from, or nil when
+	// this wrapper was opened directly from the directory.
+	parent *mockIndexInputWrapper
 }
 
+// newMockIndexInputWrapper wraps delegate for the given directory. parent is
+// the wrapper this one was cloned or sliced from, or nil.
+func newMockIndexInputWrapper(dir *MockDirectoryWrapper, name string, delegate store.IndexInput, parent *mockIndexInputWrapper) *mockIndexInputWrapper {
+	return &mockIndexInputWrapper{
+		FilterIndexInput: store.NewFilterIndexInput("MockIndexInputWrapper(name="+name+")", delegate),
+		dir:              dir,
+		name:             name,
+		delegate:         delegate,
+		parent:           parent,
+	}
+}
+
+// ensureOpen reports an error when this input, or the input it was cloned
+// from, has already been closed.
+func (w *mockIndexInputWrapper) ensureOpen() error {
+	if w.closed {
+		return errors.New("Abusing closed IndexInput!")
+	}
+	if w.parent != nil && w.parent.closed {
+		return errors.New("Abusing clone of a closed IndexInput!")
+	}
+	return nil
+}
+
+// Close closes the delegate and, for a non-clone, unregisters the handle.
 func (w *mockIndexInputWrapper) Close() error {
 	if w.closed {
+		// Do not mask double-close bugs.
 		return w.delegate.Close()
 	}
 	w.closed = true
+
 	err := w.delegate.Close()
-	w.dir.removeIndexInput(w, w.name)
+
+	// Pending resolution on LUCENE-686 the clones are deliberately not tracked.
+	if w.parent == nil {
+		w.dir.removeIndexInput(w, w.name)
+	}
+
 	w.dir.mu.Lock()
-	if err := w.dir.maybeThrowDeterministicException(); err != nil {
-		w.dir.mu.Unlock()
-		return err
+	if derr := w.dir.maybeThrowDeterministicException(); derr != nil && err == nil {
+		err = derr
 	}
 	w.dir.mu.Unlock()
+
 	return err
 }
 
-func (w *mockIndexInputWrapper) ReadByte() (byte, error) {
-	return w.delegate.ReadByte()
-}
-
-func (w *mockIndexInputWrapper) ReadBytes(b []byte) (int, error) {
-	return w.delegate.ReadBytes(b)
-}
-
-func (w *mockIndexInputWrapper) ReadInt() (int, error) {
-	return w.delegate.ReadInt()
-}
-
-func (w *mockIndexInputWrapper) ReadLong() (int64, error) {
-	return w.delegate.ReadLong()
-}
-
-func (w *mockIndexInputWrapper) ReadFloat() (float32, error) {
-	return w.delegate.ReadFloat()
-}
-
-func (w *mockIndexInputWrapper) ReadVInt() (int, error) {
-	return w.delegate.ReadVInt()
-}
-
-func (w *mockIndexInputWrapper) ReadVLong() (int64, error) {
-	return w.delegate.ReadVLong()
-}
-
-func (w *mockIndexInputWrapper) ReadZInt() (int, error) {
-	return w.delegate.ReadZInt()
-}
-
-func (w *mockIndexInputWrapper) ReadZLong() (int64, error) {
-	return w.delegate.ReadZLong()
-}
-
-func (w *mockIndexInputWrapper) ReadString() (string, error) {
-	return w.delegate.ReadString()
-}
-
-func (w *mockIndexInputWrapper) Seek(pos int64) error {
-	return w.delegate.Seek(pos)
-}
-
-func (w *mockIndexInputWrapper) GetFilePointer() int64 {
-	return w.delegate.GetFilePointer()
-}
-
-func (w *mockIndexInputWrapper) Length() int64 {
-	return w.delegate.Length()
-}
-
-func (w *mockIndexInputWrapper) Clone() (store.IndexInput, error) {
-	w.dir.mu.Lock()
+// Clone returns an independent view over the same file.
+//
+// spi.IndexInput.Clone returns no error, so the "abusing a closed IndexInput"
+// check Lucene performs here is deferred to the next call that can report one.
+func (w *mockIndexInputWrapper) Clone() store.IndexInput {
 	w.dir.inputCloneCount.Add(1)
-	w.dir.mu.Unlock()
 
-	clone, err := w.delegate.Clone()
-	if err != nil {
+	parent := w.parent
+	if parent == nil {
+		parent = w
+	}
+	return newMockIndexInputWrapper(w.dir, w.name, w.delegate.Clone(), parent)
+}
+
+// Slice returns an independent view over a region of the same file.
+func (w *mockIndexInputWrapper) Slice(description string, offset, length int64) (store.IndexInput, error) {
+	if err := w.ensureOpen(); err != nil {
 		return nil, err
 	}
-	return &mockIndexInputWrapper{
-		dir:      w.dir,
-		name:     w.name,
-		delegate: clone,
-	}, nil
-}
-
-func (w *mockIndexInputWrapper) Slice(description string, offset, length int64) (store.IndexInput, error) {
-	w.dir.mu.Lock()
 	w.dir.inputCloneCount.Add(1)
-	w.dir.mu.Unlock()
 
 	slice, err := w.delegate.Slice(description, offset, length)
 	if err != nil {
 		return nil, err
 	}
-	return &mockIndexInputWrapper{
-		dir:      w.dir,
-		name:     description,
-		delegate: slice,
-	}, nil
+
+	parent := w.parent
+	if parent == nil {
+		parent = w
+	}
+	return newMockIndexInputWrapper(w.dir, description, slice, parent), nil
 }
 
+// SetPosition seeks the delegate to pos. This is Gocene's spelling of Lucene's
+// IndexInput.seek.
+func (w *mockIndexInputWrapper) SetPosition(pos int64) error {
+	if err := w.ensureOpen(); err != nil {
+		return err
+	}
+	return w.delegate.SetPosition(pos)
+}
+
+// Prefetch forwards the hint to the delegate when it supports one; Lucene's
+// IndexInput.prefetch is a no-op by default.
 func (w *mockIndexInputWrapper) Prefetch(offset, length int64) error {
-	return w.delegate.Prefetch(offset, length)
+	if err := w.ensureOpen(); err != nil {
+		return err
+	}
+	if p, ok := w.delegate.(prefetchableIndexInput); ok {
+		return p.Prefetch(offset, length)
+	}
+	return nil
 }
 
+// UpdateIOContext forwards the new context to the delegate when it supports
+// one; Lucene's IndexInput.updateIOContext is a no-op by default.
 func (w *mockIndexInputWrapper) UpdateIOContext(ctx store.IOContext) error {
-	return w.delegate.UpdateIOContext(ctx)
+	if err := w.ensureOpen(); err != nil {
+		return err
+	}
+	if u, ok := w.delegate.(ioContextUpdatableIndexInput); ok {
+		return u.UpdateIOContext(ctx)
+	}
+	return nil
 }
+
+// Compile-time assertions that the wrappers satisfy the store contracts.
+var (
+	_ store.IndexOutput = (*mockIndexOutputWrapper)(nil)
+	_ store.IndexInput  = (*mockIndexInputWrapper)(nil)
+)

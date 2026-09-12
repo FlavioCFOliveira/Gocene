@@ -10,6 +10,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"bufio"
 	"io"
+	"reflect"
 	"unicode"
 )
 
@@ -46,9 +47,9 @@ func NewUnicodeWhitespaceTokenizerWithFactory(factory util.AttributeFactory) *Un
 	t.termAttr = factory.CreateAttributeInstance(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
 	t.offsetAttr = factory.CreateAttributeInstance(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
 	t.posIncrAttr = factory.CreateAttributeInstance(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
+			t.AddAttribute(reflect.TypeOf((*analysis.CharTermAttribute)(nil)).Elem())
+			t.AddAttribute(reflect.TypeOf((*analysis.OffsetAttribute)(nil)).Elem())
+			t.AddAttribute(reflect.TypeOf((*tokenattributes.PositionIncrementAttribute)(nil)).Elem())
 	return t
 }
 
@@ -58,14 +59,13 @@ func NewUnicodeWhitespaceTokenizer() *UnicodeWhitespaceTokenizer {
 }
 
 // SetReader sets the input source for this Tokenizer.
-func (t *UnicodeWhitespaceTokenizer) SetReader(input io.Reader) error {
+func (t *UnicodeWhitespaceTokenizer) SetReader(input io.Reader) {
 	t.BaseTokenizer.SetReader(input)
 	t.scanner = bufio.NewScanner(input)
 	t.scanner.Split(bufio.ScanRunes)
 	t.currentOffset = 0
 	t.currentToken = nil
 	t.tokenStartOffset = 0
-	return nil
 }
 
 // IncrementToken advances to the next token.

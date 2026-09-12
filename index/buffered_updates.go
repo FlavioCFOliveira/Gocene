@@ -37,14 +37,14 @@ type BufferedUpdates struct {
 	segmentName string
 
 	// bytesUsed tracks the total bytes used for deletes
-	bytesUsed atomic.Int64
+	bytesUsed *util.Counter
 
 	// fieldUpdatesBytesUsed tracks the total bytes used for field updates
-	fieldUpdatesBytesUsed atomic.Int64
+	fieldUpdatesBytesUsed *util.Counter
 }
 
 type queryDelete struct {
-	query    Query
+	query   Query
 	docUpTo int
 }
 
@@ -52,10 +52,12 @@ const bytesPerDelQuery = 64 // Rough estimate mirroring Lucene's BYTES_PER_DEL_Q
 
 func NewBufferedUpdates(segmentName string) *BufferedUpdates {
 	return &BufferedUpdates{
-		segmentName:   segmentName,
-		deleteTerms:    newDeletedTerms(),
-		deleteQueries:  make([]queryDelete, 0),
-		fieldUpdates:    make(map[string]*FieldUpdatesBuffer),
+		segmentName:           segmentName,
+		deleteTerms:           newDeletedTerms(),
+		deleteQueries:         make([]queryDelete, 0),
+		fieldUpdates:          make(map[string]*FieldUpdatesBuffer),
+		bytesUsed:             util.NewCounter(),
+		fieldUpdatesBytesUsed: util.NewCounter(),
 	}
 }
 
@@ -70,8 +72,8 @@ func (b *BufferedUpdates) String() string {
 	if b.numFieldUpdates.Load() != 0 {
 		s += fmt.Sprintf(" %d field updates", b.numFieldUpdates.Load())
 	}
-	if b.bytesUsed.Load() != 0 {
-		s += fmt.Sprintf(" bytesUsed=%d", b.bytesUsed.Load())
+	if b.bytesUsed.Get() != 0 {
+		s += fmt.Sprintf(" bytesUsed=%d", b.bytesUsed.Get())
 	}
 	return s
 }
@@ -86,7 +88,7 @@ func (b *BufferedUpdates) AddQuery(query Query, docIDUpTo int) {
 	}
 	// New query
 	b.deleteQueries = append(b.deleteQueries, queryDelete{query: query, docUpTo: docIDUpTo})
-	b.bytesUsed.Add(bytesPerDelQuery)
+	b.bytesUsed.AddAndGet(bytesPerDelQuery)
 }
 
 func (b *BufferedUpdates) AddTerm(term Term, docIDUpTo int) {
@@ -119,14 +121,14 @@ func (b *BufferedUpdates) AddBinaryUpdate(update *BinaryDocValuesUpdate, docIDUp
 	buffer, ok := b.fieldUpdates[update.Field()]
 	if !ok {
 		var err error
-		buffer, err = NewFieldUpdatesBufferBinary(b.bytesUsed, update.Term(), docIDUpTo, update.value, update.HasValue())
+		buffer, err = NewFieldUpdatesBufferBinary(b.bytesUsed, update.Term(), docIDUpTo, util.NewBytesRef(update.value), update.HasValue())
 		if err != nil {
 			panic(err)
 		}
 		b.fieldUpdates[update.Field()] = buffer
 	}
 	if update.HasValue() {
-		buffer.AddBinaryUpdate(update.Term(), update.value, docIDUpTo)
+		buffer.AddBinaryUpdate(update.Term(), util.NewBytesRef(update.value), docIDUpTo)
 	} else {
 		buffer.AddNoValue(update.Term(), docIDUpTo)
 	}
@@ -142,8 +144,8 @@ func (b *BufferedUpdates) Clear() {
 	b.deleteQueries = b.deleteQueries[:0]
 	b.numFieldUpdates.Store(0)
 	b.fieldUpdates = make(map[string]*FieldUpdatesBuffer)
-	b.bytesUsed.Store(0)
-	b.fieldUpdatesBytesUsed.Store(0)
+	b.bytesUsed = util.NewCounter()
+	b.fieldUpdatesBytesUsed = util.NewCounter()
 }
 
 func (b *BufferedUpdates) Any() bool {
@@ -151,12 +153,12 @@ func (b *BufferedUpdates) Any() bool {
 }
 
 func (b *BufferedUpdates) RamBytesUsed() int64 {
-	return b.bytesUsed.Load() + b.fieldUpdatesBytesUsed.Load() + b.deleteTerms.ramBytesUsed()
+	return b.bytesUsed.Get() + b.fieldUpdatesBytesUsed.Get() + b.deleteTerms.ramBytesUsed()
 }
 
 type deletedTerms struct {
-	bytesUsed atomic.Int64
-	pool      *util.ByteBlockPool
+	bytesUsed   atomic.Int64
+	pool        *util.ByteBlockPool
 	deleteTerms map[string]*bytesRefIntMap
 	termsSize   int
 }
@@ -173,7 +175,7 @@ func (dt *deletedTerms) get(term Term) int {
 	if !ok {
 		return -1
 	}
-	return hash.get(term.Bytes)
+	return hash.get(term.Bytes.ValidBytes())
 }
 
 func (dt *deletedTerms) put(term Term, value int) {
@@ -182,7 +184,7 @@ func (dt *deletedTerms) put(term Term, value int) {
 		hash = newBytesRefIntMap(dt.pool, &dt.bytesUsed)
 		dt.deleteTerms[term.Field] = hash
 	}
-	if hash.put(term.Bytes, value) {
+	if hash.put(term.Bytes.ValidBytes(), value) {
 		dt.termsSize++
 	}
 }
@@ -208,11 +210,64 @@ func (dt *deletedTerms) ramBytesUsed() int64 {
 	return dt.bytesUsed.Load()
 }
 
+// deletedTermEntry is one buffered delete term together with the exclusive
+// upper-bound doc id it deletes up to. It is the Go rendering of the
+// (Term term, int docId) pair Lucene's DeletedTerms.DeletedTermConsumer
+// accepts.
+type deletedTermEntry struct {
+	// Field is the term's field name.
+	Field string
+	// Bytes is the term's encoded bytes.
+	Bytes []byte
+	// Value is the newest doc id buffered for this term; documents with a
+	// lower doc id are deleted.
+	Value int
+}
+
+// ForEachOrdered returns every buffered delete term in sorted order: by field
+// name, then by term bytes within each field.
+//
+// Mirrors DeletedTerms.forEachOrdered, which feeds an ordered stream to a
+// consumer; Go materialises the same ordered projection so callers can range
+// over it. Like the Java original this is a destructive operation: it calls
+// BytesRefHash.Sort() on every per-field hash.
+func (dt *deletedTerms) ForEachOrdered() []deletedTermEntry {
+	if dt.termsSize == 0 {
+		return nil
+	}
+	fields := make([]string, 0, len(dt.deleteTerms))
+	for field := range dt.deleteTerms {
+		fields = append(fields, field)
+	}
+	sort.Strings(fields)
+
+	out := make([]deletedTermEntry, 0, dt.termsSize)
+	for _, field := range fields {
+		terms := dt.deleteTerms[field]
+		indices := terms.bytesRefHash.Sort()
+		for i := 0; i < terms.bytesRefHash.Size(); i++ {
+			index := indices[i]
+			var scratch util.BytesRef
+			terms.bytesRefHash.Get(index, &scratch)
+			// Copy: the scratch view points into the shared byte pool, which
+			// the next Get call overwrites.
+			bytes := make([]byte, len(scratch.ValidBytes()))
+			copy(bytes, scratch.ValidBytes())
+			out = append(out, deletedTermEntry{
+				Field: field,
+				Bytes: bytes,
+				Value: terms.values[index],
+			})
+		}
+	}
+	return out
+}
+
 type bytesRefIntMap struct {
-	pool       *util.ByteBlockPool
+	pool         *util.ByteBlockPool
 	bytesRefHash *util.BytesRefHash
-	values     []int
-	counter    *atomic.Int64
+	values       []int
+	counter      *atomic.Int64
 }
 
 func newBytesRefIntMap(pool *util.ByteBlockPool, counter *atomic.Int64) *bytesRefIntMap {
@@ -227,7 +282,10 @@ func newBytesRefIntMap(pool *util.ByteBlockPool, counter *atomic.Int64) *bytesRe
 
 func (m *bytesRefIntMap) put(key []byte, value int) bool {
 	ref := &util.BytesRef{Bytes: key}
-	e := m.bytesRefHash.Add(ref)
+	e, err := m.bytesRefHash.Add(ref)
+	if err != nil {
+		panic(err)
+	}
 	if e < 0 {
 		idx := -e - 1
 		m.values[idx] = value

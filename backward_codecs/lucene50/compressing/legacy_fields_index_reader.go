@@ -131,13 +131,13 @@ func NewLegacyFieldsIndexReader(fieldsIndexIn store.DataInput, si *index.Segment
 		}
 
 		// Start pointers.
-		spRaw, err := store.ReadVLong(fieldsIndexIn)
+		spRaw, err := fieldsIndexIn.ReadVLong()
 		if err != nil {
 			return nil, fmt.Errorf("legacyFieldsIndex: block %d read startPointer: %w", blockCount, err)
 		}
 		startPointers[blockCount] = spRaw
 
-		avgChunkSizeRaw, err := store.ReadVLong(fieldsIndexIn)
+		avgChunkSizeRaw, err := fieldsIndexIn.ReadVLong()
 		if err != nil {
 			return nil, fmt.Errorf("legacyFieldsIndex: block %d read avgChunkSize: %w", blockCount, err)
 		}

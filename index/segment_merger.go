@@ -10,7 +10,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -111,33 +111,33 @@ func NewSegmentMerger(
 	// leaf's SegmentInfo.minVersion; Gocene's SegmentInfo does not yet expose
 	// a per-leaf minVersion, so the merged segment conservatively adopts the
 	// latest known version. Refined when SegmentInfo.minVersion lands.
-			// Compute the minimum index version across all leaves.
-		minVersion := util.Latest
-		for _, reader := range readers {
-			si := reader.GetSegmentInfo()
-			if si == nil {
-				minVersion = nil
-				break
-			}
-			v, ok := si.MinVersion()
-			if !ok {
-				minVersion = nil
-				break
-			}
-			leafMinVersion, err := util.Parse(v)
-			if err != nil {
-				minVersion = nil
-				break
-			}
-			if minVersion == nil || minVersion.OnOrAfter(leafMinVersion) {
-				minVersion = leafMinVersion
-			}
+	// Compute the minimum index version across all leaves.
+	minVersion := util.Latest
+	for _, reader := range readers {
+		si := reader.GetSegmentInfo()
+		if si == nil {
+			minVersion = nil
+			break
 		}
-		if minVersion != nil {
-			segmentInfo.SetMinVersion(minVersion.String())
-		} else {
-			segmentInfo.SetMinVersion("")
+		v, ok := si.MinVersion()
+		if !ok {
+			minVersion = nil
+			break
 		}
+		leafMinVersion, err := util.Parse(v)
+		if err != nil {
+			minVersion = nil
+			break
+		}
+		if minVersion == nil || minVersion.OnOrAfter(leafMinVersion) {
+			minVersion = leafMinVersion
+		}
+	}
+	if minVersion != nil {
+		segmentInfo.SetMinVersion(minVersion.String())
+	} else {
+		segmentInfo.SetMinVersion("")
+	}
 
 	if sm.infoStream.IsEnabled("SM") && segmentInfo.IndexSort() != nil {
 		sm.infoStream.Message("SM", "index sort during merge: "+segmentInfo.GetIndexSortDescription())
@@ -259,7 +259,7 @@ func (sm *SegmentMerger) mergeFieldInfos() error {
 			// different field names. Remap on collision so the merged FieldInfos
 			// remains valid; consumers resolve values by field name, not number.
 			if builder.FieldInfoByNumber(mergedFI.Number()) != nil {
-				mergedFI = schema.NewFieldInfo(mergedFI.Name(), builder.GetNextFieldNumber(), mergeFieldInfoOptions(mergedFI))
+				mergedFI = spi.NewFieldInfo(mergedFI.Name(), nextFreeFieldNumber(builder), mergeFieldInfoOptions(mergedFI))
 			}
 			if err := builder.Add(mergedFI); err != nil {
 				return fmt.Errorf("index: merge field infos: %w", err)
@@ -297,12 +297,31 @@ func mergeFieldInfoOptions(fi *FieldInfo) FieldInfoOptions {
 	}
 }
 
+// nextFreeFieldNumber returns the lowest field number that no FieldInfo in
+// builder occupies yet, i.e. one past the highest assigned number (or 0 when
+// builder is empty).
+//
+// PORT NOTE: Lucene draws merged field numbers from the writer-wide
+// FieldInfos.FieldNumbers registry, which Gocene does not share across the
+// index yet; this local allocator keeps the merged FieldInfos internally
+// consistent when two source segments assigned the same number to different
+// field names (see the call site in mergeFieldInfos).
+func nextFreeFieldNumber(builder *FieldInfos) int {
+	next := 0
+	for _, fi := range builder.Fields() {
+		if fi.Number() >= next {
+			next = fi.Number() + 1
+		}
+	}
+	return next
+}
+
 // cloneFieldInfoForMerge returns a FieldInfo suitable for the merged segment:
 // doc-values generation is reset to -1 and the per-field doc-values format
 // attributes that bind a field to a specific delegate file suffix are
 // removed so the merge writes fresh doc-values files.
 func cloneFieldInfoForMerge(fi *FieldInfo) *FieldInfo {
-	clone := schema.NewFieldInfo(fi.Name(), fi.Number(), mergeFieldInfoOptions(fi))
+	clone := spi.NewFieldInfo(fi.Name(), fi.Number(), mergeFieldInfoOptions(fi))
 	for k, v := range fi.GetAttributes() {
 		// Per-field doc-values format attributes bind a FieldInfo to the
 		// delegate file suffix used in its source segment. The merged segment
@@ -364,7 +383,7 @@ func (sm *SegmentMerger) mergeFields() (int, error) {
 
 	writeDoc := func(i, docID int) error {
 		reader := sm.MergeState.Readers[i]
-		sfr := reader.GetStoredFieldsReader()
+		sfr := reader.GetFieldsReader()
 		if err := writer.StartDocument(); err != nil {
 			return fmt.Errorf("index: merge stored fields: start doc: %w", err)
 		}
@@ -402,7 +421,7 @@ func (sm *SegmentMerger) mergeFields() (int, error) {
 			if reader == nil {
 				continue
 			}
-			if reader.GetStoredFieldsReader() == nil {
+			if reader.GetFieldsReader() == nil {
 				continue
 			}
 			maxDoc := sm.MergeState.MaxDocs[i]
@@ -428,7 +447,7 @@ func (sm *SegmentMerger) mergeFields() (int, error) {
 // stamped codec name if registered, else the process default.
 func resolveMergeCodec(segInfo *SegmentInfo) Codec {
 	if segInfo != nil {
-		if name := segInfo.Codec(); name != "" {
+		if name := segInfo.CodecName(); name != "" {
 			if c := LookupCodecByName(name); c != nil {
 				return c
 			}

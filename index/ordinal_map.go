@@ -6,6 +6,7 @@ package index
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"sort"
 )
 
@@ -28,7 +29,7 @@ import (
 //     SortedSetDocValuesTermsEnum and bridge the Ord() call via ordEnumPair.
 type OrdinalMap struct {
 	// Owner is the cache key owner this map is associated with.
-	Owner *CacheKey
+	Owner *spi.CacheKey
 
 	// valueCount is the number of distinct global ordinals.
 	valueCount int64
@@ -88,11 +89,13 @@ type ordEnumPair struct {
 // SortedDocValues. The weight for each segment is the number of unique values.
 // acceptableOverheadRatio is accepted for API compatibility but unused in the
 // current slice-based implementation.
-func BuildOrdinalMapFromSortedValues(owner *CacheKey, values []SortedDocValues, _ float32) (*OrdinalMap, error) {
+func BuildOrdinalMapFromSortedValues(owner *spi.CacheKey, values []SortedDocValues, _ float32) (*OrdinalMap, error) {
 	pairs := make([]ordEnumPair, len(values))
 	weights := make([]int64, len(values))
 	for i, v := range values {
-		te := NewSortedDocValuesTermsEnum("", v)
+		// sortedDVTermsEnum (sorted_doc_values.go) supplies the impacts()
+		// override and the long ord() that TermsEnum contracts for.
+		te := &sortedDVTermsEnum{SortedDocValuesTermsEnum: NewSortedDocValuesTermsEnum("", v)}
 		pairs[i] = ordEnumPair{te: te, ord: te.Ord}
 		weights[i] = int64(v.GetValueCount())
 	}
@@ -101,11 +104,13 @@ func BuildOrdinalMapFromSortedValues(owner *CacheKey, values []SortedDocValues, 
 
 // BuildOrdinalMapFromSortedSetValues builds an OrdinalMap from per-segment
 // SortedSetDocValues. The weight for each segment is the number of unique values.
-func BuildOrdinalMapFromSortedSetValues(owner *CacheKey, values []SortedSetDocValues, _ float32) (*OrdinalMap, error) {
+func BuildOrdinalMapFromSortedSetValues(owner *spi.CacheKey, values []SortedSetDocValues, _ float32) (*OrdinalMap, error) {
 	pairs := make([]ordEnumPair, len(values))
 	weights := make([]int64, len(values))
 	for i, v := range values {
-		te := NewSortedSetDocValuesTermsEnum("", v)
+		// sortedSetDVTermsEnum (sorted_set_doc_values.go) supplies the
+		// impacts() override that TermsEnum contracts for.
+		te := &sortedSetDVTermsEnum{SortedSetDocValuesTermsEnum: NewSortedSetDocValuesTermsEnum("", v)}
 		pairs[i] = ordEnumPair{te: te, ord: te.Ord}
 		weights[i] = int64(v.GetValueCount())
 	}
@@ -115,7 +120,7 @@ func BuildOrdinalMapFromSortedSetValues(owner *CacheKey, values []SortedSetDocVa
 // buildOrdinalMap is the internal constructor shared by both public build
 // functions. It merges per-segment TermsEnums in descending-weight order
 // using a priority queue and records per-segment ordinal deltas.
-func buildOrdinalMap(owner *CacheKey, pairs []ordEnumPair, weights []int64) (*OrdinalMap, error) {
+func buildOrdinalMap(owner *spi.CacheKey, pairs []ordEnumPair, weights []int64) (*OrdinalMap, error) {
 	if len(pairs) != len(weights) {
 		return nil, fmt.Errorf("OrdinalMap.build: pairs and weights must have the same length")
 	}

@@ -198,5 +198,9 @@ func (f *DaitchMokotoffSoundexFilterFactory) Create(input analysis.TokenStream) 
 	return NewDaitchMokotoffSoundexFilter(input, f.inject)
 }
 
+func (f *DaitchMokotoffSoundexFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
+}
+
 // Ensure DaitchMokotoffSoundexFilterFactory implements TokenFilterFactory.
 var _ analysis.TokenFilterFactory = (*DaitchMokotoffSoundexFilterFactory)(nil)

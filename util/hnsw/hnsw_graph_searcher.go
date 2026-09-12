@@ -16,6 +16,7 @@ package hnsw
 import (
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -158,7 +159,7 @@ func createBitSet(k, gSize int) util.BitSet {
 // FilteredHnswGraphSearcher and SeededHnswGraphSearcher land.
 func SearchWithCollector(
 	scorer RandomVectorScorer,
-	collector KnnCollector,
+	collector spi.KnnCollector,
 	graph HnswGraph,
 	acceptOrds util.Bits,
 ) error {
@@ -177,7 +178,7 @@ func SearchWithCollector(
 // branch is not yet ported.
 func SearchWithCollectorAndFilter(
 	scorer RandomVectorScorer,
-	collector KnnCollector,
+	collector spi.KnnCollector,
 	graph HnswGraph,
 	acceptOrds util.Bits,
 	filteredDocCount int,
@@ -227,8 +228,8 @@ func SearchWithCollectorAndFilter(
 
 // SearchWithOnHeapGraph mirrors the static
 // HnswGraphSearcher.search(scorer, topK, graph, acceptOrds,
-// visitedLimit) overload that returns a fresh KnnCollector. It
-// constructs a [TopKnnCollector] with the supplied visit budget,
+// visitedLimit) overload that returns a fresh spi.KnnCollector. It
+// constructs a [Topspi.KnnCollector] with the supplied visit budget,
 // runs the search through a thread-safe [OnHeapHnswGraphSearcher],
 // and returns the collector so callers can drain TopDocs.
 //
@@ -242,7 +243,7 @@ func SearchWithOnHeapGraph(
 	graph *OnHeapHnswGraph,
 	acceptOrds util.Bits,
 	visitedLimit int,
-) (KnnCollector, error) {
+) (spi.KnnCollector, error) {
 	collector := NewTopKnnCollector(topK, visitedLimit, nil)
 	gs := graphSize(graph)
 	if gs <= 0 {
@@ -270,7 +271,7 @@ func SearchWithOnHeapGraph(
 // HnswGraphSearcher implements AbstractHnswGraphSearcher; this is one
 // of the two methods Java's abstract class declares.
 func (s *HnswGraphSearcher) SearchLevel(
-	results KnnCollector,
+	results spi.KnnCollector,
 	scorer RandomVectorScorer,
 	level int,
 	eps []int,
@@ -415,7 +416,7 @@ func (s *HnswGraphSearcher) SearchLevel(
 func (s *HnswGraphSearcher) FindBestEntryPoint(
 	scorer RandomVectorScorer,
 	graph HnswGraph,
-	collector KnnCollector,
+	collector spi.KnnCollector,
 ) ([]int, error) {
 	currentEp, err := graph.EntryNode()
 	if err != nil {

@@ -10,9 +10,9 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // CrankyCodec is a codec for testing that throws random IOExceptions.
@@ -93,11 +93,11 @@ func (f *CrankyCompoundFormat) Name() string {
 	return f.delegate.Name()
 }
 
-func (f *CrankyCompoundFormat) GetCompoundReader(dir store.Directory, si *schema.SegmentInfo) (spi.CompoundDirectory, error) {
+func (f *CrankyCompoundFormat) GetCompoundReader(dir store.Directory, si *spi.SegmentInfo) (spi.CompoundDirectory, error) {
 	return f.delegate.GetCompoundReader(dir, si)
 }
 
-func (f *CrankyCompoundFormat) Write(dir store.Directory, si *schema.SegmentInfo, context store.IOContext) error {
+func (f *CrankyCompoundFormat) Write(dir store.Directory, si *spi.SegmentInfo, context store.IOContext) error {
 	if f.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException from CompoundFormat.write()")
 	}
@@ -147,35 +147,35 @@ func (c *CrankyDocValuesConsumer) Close() error {
 	return err
 }
 
-func (c *CrankyDocValuesConsumer) AddNumericField(field *schema.FieldInfo, valuesProducer spi.DocValuesProducer) error {
+func (c *CrankyDocValuesConsumer) AddNumericField(field *spi.FieldInfo, valuesProducer spi.DocValuesProducer) error {
 	if c.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException from DocValuesConsumer.addNumericField()")
 	}
 	return c.delegate.AddNumericField(field, valuesProducer)
 }
 
-func (c *CrankyDocValuesConsumer) AddBinaryField(field *schema.FieldInfo, valuesProducer spi.DocValuesProducer) error {
+func (c *CrankyDocValuesConsumer) AddBinaryField(field *spi.FieldInfo, valuesProducer spi.DocValuesProducer) error {
 	if c.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException from DocValuesConsumer.addBinaryField()")
 	}
 	return c.delegate.AddBinaryField(field, valuesProducer)
 }
 
-func (c *CrankyDocValuesConsumer) AddSortedField(field *schema.FieldInfo, valuesProducer spi.DocValuesProducer) error {
+func (c *CrankyDocValuesConsumer) AddSortedField(field *spi.FieldInfo, valuesProducer spi.DocValuesProducer) error {
 	if c.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException from DocValuesConsumer.addSortedField()")
 	}
 	return c.delegate.AddSortedField(field, valuesProducer)
 }
 
-func (c *CrankyDocValuesConsumer) AddSortedNumericField(field *schema.FieldInfo, valuesProducer spi.DocValuesProducer) error {
+func (c *CrankyDocValuesConsumer) AddSortedNumericField(field *spi.FieldInfo, valuesProducer spi.DocValuesProducer) error {
 	if c.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException from DocValuesConsumer.addSortedNumericField()")
 	}
 	return c.delegate.AddSortedNumericField(field, valuesProducer)
 }
 
-func (c *CrankyDocValuesConsumer) AddSortedSetField(field *schema.FieldInfo, valuesProducer spi.DocValuesProducer) error {
+func (c *CrankyDocValuesConsumer) AddSortedSetField(field *spi.FieldInfo, valuesProducer spi.DocValuesProducer) error {
 	if c.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException from DocValuesConsumer.addSortedSetField()")
 	}
@@ -197,11 +197,11 @@ func (f *CrankyFieldInfosFormat) Name() string {
 	return f.delegate.Name()
 }
 
-func (f *CrankyFieldInfosFormat) Read(dir store.Directory, si *schema.SegmentInfo, suffix string, context store.IOContext) (*schema.FieldInfos, error) {
+func (f *CrankyFieldInfosFormat) Read(dir store.Directory, si *spi.SegmentInfo, suffix string, context store.IOContext) (*spi.FieldInfos, error) {
 	return f.delegate.Read(dir, si, suffix, context)
 }
 
-func (f *CrankyFieldInfosFormat) Write(dir store.Directory, si *schema.SegmentInfo, suffix string, infos *schema.FieldInfos, context store.IOContext) error {
+func (f *CrankyFieldInfosFormat) Write(dir store.Directory, si *spi.SegmentInfo, suffix string, infos *spi.FieldInfos, context store.IOContext) error {
 	if f.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException from FieldInfosFormat.getFieldInfosWriter()")
 	}
@@ -223,11 +223,11 @@ func (f *CrankyLiveDocsFormat) Name() string {
 	return f.delegate.Name()
 }
 
-func (f *CrankyLiveDocsFormat) ReadLiveDocs(dir store.Directory, info *spi.SegmentCommitInfo, context store.IOContext) ([]byte, error) {
+func (f *CrankyLiveDocsFormat) ReadLiveDocs(dir store.Directory, info *spi.SegmentCommitInfo, context store.IOContext) (util.Bits, error) {
 	return f.delegate.ReadLiveDocs(dir, info, context)
 }
 
-func (f *CrankyLiveDocsFormat) WriteLiveDocs(bits []byte, dir store.Directory, info *spi.SegmentCommitInfo, newDelCount int, context store.IOContext) error {
+func (f *CrankyLiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directory, info *spi.SegmentCommitInfo, newDelCount int, context store.IOContext) error {
 	if f.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException from LiveDocsFormat.writeLiveDocs()")
 	}
@@ -281,7 +281,7 @@ func (c *CrankyNormsConsumer) Close() error {
 	return err
 }
 
-func (c *CrankyNormsConsumer) AddNormsField(field *schema.FieldInfo, valuesProducer spi.NormsProducer) error {
+func (c *CrankyNormsConsumer) AddNormsField(field *spi.FieldInfo, valuesProducer spi.NormsProducer) error {
 	if c.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException from NormsConsumer.addNormsField()")
 	}
@@ -324,7 +324,7 @@ type CrankyPointsWriter struct {
 	random   *rand.Rand
 }
 
-func (w *CrankyPointsWriter) WriteField(fieldInfo *schema.FieldInfo, reader spi.PointsReader) error {
+func (w *CrankyPointsWriter) WriteField(fieldInfo *spi.FieldInfo, reader spi.PointsReader) error {
 	if w.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException")
 	}
@@ -563,7 +563,7 @@ type CrankyFieldsConsumer struct {
 	random   *rand.Rand
 }
 
-func (c *CrankyFieldsConsumer) Write(fields schema.Fields, norms spi.NormsProducer) error {
+func (c *CrankyFieldsConsumer) Write(fields spi.Fields, norms spi.NormsProducer) error {
 	if c.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException from FieldsConsumer.write()")
 	}
@@ -593,11 +593,11 @@ func (f *CrankySegmentInfoFormat) Name() string {
 	return f.delegate.Name()
 }
 
-func (f *CrankySegmentInfoFormat) Read(dir store.Directory, name string, id []byte, context store.IOContext) (*schema.SegmentInfo, error) {
+func (f *CrankySegmentInfoFormat) Read(dir store.Directory, name string, id []byte, context store.IOContext) (*spi.SegmentInfo, error) {
 	return f.delegate.Read(dir, name, id, context)
 }
 
-func (f *CrankySegmentInfoFormat) Write(dir store.Directory, info *schema.SegmentInfo, context store.IOContext) error {
+func (f *CrankySegmentInfoFormat) Write(dir store.Directory, info *spi.SegmentInfo, context store.IOContext) error {
 	if f.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException from SegmentInfoFormat.write()")
 	}
@@ -619,11 +619,11 @@ func (f *CrankyStoredFieldsFormat) Name() string {
 	return f.delegate.Name()
 }
 
-func (f *CrankyStoredFieldsFormat) FieldsReader(dir store.Directory, si *schema.SegmentInfo, fn *schema.FieldInfos, context store.IOContext) (spi.StoredFieldsReader, error) {
+func (f *CrankyStoredFieldsFormat) FieldsReader(dir store.Directory, si *spi.SegmentInfo, fn *spi.FieldInfos, context store.IOContext) (spi.StoredFieldsReader, error) {
 	return f.delegate.FieldsReader(dir, si, fn, context)
 }
 
-func (f *CrankyStoredFieldsFormat) FieldsWriter(dir store.Directory, si *schema.SegmentInfo, context store.IOContext) (spi.StoredFieldsWriter, error) {
+func (f *CrankyStoredFieldsFormat) FieldsWriter(dir store.Directory, si *spi.SegmentInfo, context store.IOContext) (spi.StoredFieldsWriter, error) {
 	if f.random.Intn(100) == 0 {
 		return nil, fmt.Errorf("Fake IOException from StoredFieldsFormat.fieldsWriter()")
 	}
@@ -690,7 +690,7 @@ func (f *CrankyTermVectorsFormat) Name() string {
 	return f.delegate.Name()
 }
 
-func (f *CrankyTermVectorsFormat) VectorsReader(dir store.Directory, si *schema.SegmentInfo, fi *schema.FieldInfos, context store.IOContext) (spi.TermVectorsReader, error) {
+func (f *CrankyTermVectorsFormat) VectorsReader(dir store.Directory, si *spi.SegmentInfo, fi *spi.FieldInfos, context store.IOContext) (spi.TermVectorsReader, error) {
 	return f.delegate.VectorsReader(dir, si, fi, context)
 }
 
@@ -717,7 +717,7 @@ func (w *CrankyTermVectorsWriter) StartDocument(numFields int) error {
 	return w.delegate.StartDocument(numFields)
 }
 
-func (w *CrankyTermVectorsWriter) StartField(info *schema.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error {
+func (w *CrankyTermVectorsWriter) StartField(info *spi.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error {
 	if w.random.Intn(10000) == 0 {
 		return fmt.Errorf("Fake IOException from TermVectorsWriter.startField()")
 	}

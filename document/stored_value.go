@@ -7,7 +7,7 @@ package document
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // StoredValueType discriminates the variant carried by a StoredValue.
@@ -80,7 +80,7 @@ type StoredValue struct {
 	f64  float64
 	str  string
 	bin  []byte
-	dsi  *index.StoredFieldDataInput
+	dsi  *spi.StoredFieldDataInput
 }
 
 // NewStoredValueInt creates a StoredValue carrying an int32 value.
@@ -126,7 +126,7 @@ func NewStoredValueString(v string) *StoredValue {
 // bytes from v.In when the field is serialised.
 //
 // Panics when v is nil to match Java's NullPointerException.
-func NewStoredValueDataInput(v *index.StoredFieldDataInput) *StoredValue {
+func NewStoredValueDataInput(v *spi.StoredFieldDataInput) *StoredValue {
 	if v == nil {
 		panic("StoredFieldDataInput value cannot be nil")
 	}
@@ -180,7 +180,7 @@ func (s *StoredValue) StringValue() string {
 
 // DataInputValue returns the streamed payload. Panics if the
 // StoredValue does not hold a DATA_INPUT.
-func (s *StoredValue) DataInputValue() *index.StoredFieldDataInput {
+func (s *StoredValue) DataInputValue() *spi.StoredFieldDataInput {
 	s.expect(StoredValueTypeDataInput)
 	return s.dsi
 }
@@ -228,7 +228,7 @@ func (s *StoredValue) SetStringValue(v string) {
 
 // SetDataInputValue replaces the streamed payload. Panics if not of
 // type DATA_INPUT or if v is nil.
-func (s *StoredValue) SetDataInputValue(v *index.StoredFieldDataInput) {
+func (s *StoredValue) SetDataInputValue(v *spi.StoredFieldDataInput) {
 	s.expect(StoredValueTypeDataInput)
 	if v == nil {
 		panic("StoredFieldDataInput value cannot be nil")

@@ -13,6 +13,9 @@ import (
 
 const bytesPerValue = 8
 
+// LongRangeBytes is the width of a single long value in bytes.
+const LongRangeBytes = bytesPerValue
+
 // LongRange is an indexed Long Range field.
 //
 // This field indexes dimensional ranges defined as min/max pairs. It supports up to a maximum of
@@ -35,7 +38,7 @@ type LongRange struct {
 // max: range max values; each entry is the max value for the dimension.
 func NewLongRange(name string, min, max []int64) *LongRange {
 	dims := len(min)
-	ft := getType(dims)
+	ft := getLongRangeType(dims)
 
 	f, err := NewField(name, nil, ft)
 	if err != nil {
@@ -50,7 +53,7 @@ func NewLongRange(name string, min, max []int64) *LongRange {
 	return lr
 }
 
-func getType(dimensions int) *FieldType {
+func getLongRangeType(dimensions int) *FieldType {
 	if dimensions > 4 {
 		panic("LongRange does not support greater than 4 dimensions")
 	}
@@ -69,7 +72,7 @@ func getType(dimensions int) *FieldType {
 //
 // It panics if min or max is invalid.
 func (lr *LongRange) SetRangeValues(min, max []int64) {
-	checkArgs(min, max)
+	checkLongRangeArgs(min, max)
 	if len(min)*2 != lr.ft.PointDimensionCount() || len(max)*2 != lr.ft.PointDimensionCount() {
 		panic(fmt.Sprintf("field (name=%s) uses %d dimensions; cannot change to (incoming) %d dimensions",
 			lr.name, lr.ft.PointDimensionCount()/2, len(min)))
@@ -88,10 +91,10 @@ func (lr *LongRange) SetRangeValues(min, max []int64) {
 			lr.value = binaryValue(bytes)
 		}
 	}
-	verifyAndEncode(min, max, bytes)
+	verifyAndEncodeLongRange(min, max, bytes)
 }
 
-func checkArgs(min, max []int64) {
+func checkLongRangeArgs(min, max []int64) {
 	if min == nil || max == nil || len(min) == 0 || len(max) == 0 {
 		panic("min/max range values cannot be null or empty")
 	}
@@ -103,16 +106,18 @@ func checkArgs(min, max []int64) {
 	}
 }
 
-// Encode encodes the min, max ranges into a byte array.
-func Encode(min, max []int64) []byte {
-	checkArgs(min, max)
+// EncodeLongRange encodes the min, max ranges into a byte array.
+func EncodeLongRange(min, max []int64) []byte {
+	checkLongRangeArgs(min, max)
 	b := make([]byte, bytesPerValue*2*len(min))
-	verifyAndEncode(min, max, b)
+	verifyAndEncodeLongRange(min, max, b)
 	return b
 }
 
-func verifyAndEncode(min, max []int64, bytes []byte) {
-	for d, i, j := 0, 0, len(min)*bytesPerValue; d < len(min); d++, i += bytesPerValue, j += bytesPerValue {
+func verifyAndEncodeLongRange(min, max []int64, bytes []byte) {
+	for d := 0; d < len(min); d++ {
+		i := d * bytesPerValue
+		j := len(min)*bytesPerValue + i
 		if min[d] > max[d] {
 			panic(fmt.Sprintf("min value (%d) is greater than max value (%d)", min[d], max[d]))
 		}
@@ -188,8 +193,8 @@ func NewCrossesQuery(field string, min, max []int64) (*RangeFieldQuery, error) {
 }
 
 func newRelationQuery(field string, min, max []int64, relation RangeFieldQueryType) (*RangeFieldQuery, error) {
-	checkArgs(min, max)
-	return NewRangeFieldQuery(field, Encode(min, max), len(min), relation)
+	checkLongRangeArgs(min, max)
+	return NewRangeFieldQuery(field, EncodeLongRange(min, max), len(min), relation)
 }
 
 // String returns the string representation of the LongRange field.

@@ -44,12 +44,34 @@ This requirement supersedes every other guideline in this document. If any other
    - *Test* must include compatibility tests against Lucene-produced fixtures before the task can be closed. Every deliverable must prove, with passing tests, that Gocene behaves as a faithful port of Lucene 10.5.0 for the functionality in question.
    - *Document* must state the Lucene 10.5.0 source references and the compatibility test coverage for the feature.
 
+## Source Fidelity Mandate — Organisation and Behaviour (NON-NEGOTIABLE)
+
+Gocene is a **port**, not a reimplementation. Beyond the byte-level contract established by the *Binary Compatibility Mandate* above, **all Gocene code owes fidelity to the Apache Lucene 10.5.0 code in two further dimensions — organisation and functionality.** This mandate is subordinate only to the *Binary Compatibility Mandate*; it prevails over every stylistic preference, personal judgement, or perceived improvement.
+
+1. **Organisational fidelity.** The structure of Gocene must mirror the structure of Lucene 10.5.0: the package/namespace layout, the distribution of responsibilities across units, the decomposition into components, and the correspondence between a Lucene class and its Gocene counterpart. A Lucene package maps to the equivalent Gocene package; a Lucene class maps to the equivalent Gocene type in the equivalent file; a Lucene class hierarchy maps to the equivalent Go interface/embedding arrangement. Names must remain recognisable against the Lucene original after the necessary Go transliteration (exported identifiers in `CamelCase`, file names in `snake_case`). Do not merge, split, relocate, or rename Lucene units on your own initiative.
+
+2. **Behavioural fidelity.** The functionality of Gocene must reproduce the functionality of Lucene 10.5.0: the same algorithms, the same data structures, the same control flow, the same defaults, constants and limits, the same iteration and traversal order, the same edge cases, the same error and boundary handling, and the same observable side effects. Go idioms are welcome **only** where they leave the observable behaviour and the serialized form unchanged.
+
+3. **Lucene resolves every doubt.** In any case of **doubt, inconsistency, or incoherence** — within Gocene, between Gocene and Lucene, or between two candidate designs — **the formula followed by Lucene always prevails.** This is the default resolution and it requires no consultation: read the Lucene 10.5.0 source (§ 14), reproduce what it actually does, and record the source reference. A design that looks cleaner, simpler, faster, or "more Go" than Lucene's but diverges from it is a **bug in Gocene**, not an improvement. Lucene's apparent quirks, redundancies, and historical decisions are part of the contract and must be ported as they are.
+
+4. **Consulting the user is the exception, not the rule.** Under this mandate, the obligation of § 1.1 to ask the user does **not** apply to doubts that Lucene itself settles — those you resolve by following Lucene and proceeding. Consult the user **only** in these specific cases:
+   - Lucene 10.5.0 is itself genuinely ambiguous or contradictory on the point, and reading the source plus measurement (§ 7) cannot settle it;
+   - Lucene relies on a JVM-only facility with no faithful Go equivalent (for example class-loading SPI, finalisation, the JVM threading and locking model, or `MemorySegment` mapping), so a design decision is unavoidable;
+   - two equally faithful renderings exist and they differ in observable behaviour or in serialized form;
+   - fidelity would require changing the project's scope, public API surface, architecture, or previously agreed requirements;
+   - reproducing Lucene faithfully would introduce a safety problem, in the sense of § 10 (**correct → safe → fast**).
+
+   In every other situation, follow Lucene and continue: do not stop to ask, and do not invent an alternative.
+
+5. **Fidelity must be traceable.** Every ported unit must identify the Lucene 10.5.0 artefact it corresponds to (§ 5.1 records this correspondence in the Knowledge Graph as `PORTED_TO`), and any documented divergence must be justified against the Lucene source and covered by tests, exactly as required for binary divergences.
+
 ## 1. Base Rules
 
 1. **You are NOT AUTHORIZED to make decisions on your own.** Whenever the instructions are insufficient, unclear, non-specific, or non-concrete, or whenever they contain contradictions or ambiguities, you MUST ALWAYS ASK the user how to proceed.
    - When asking, always provide multiple options (a, b, c, ...) and indicate which one you recommend.
    - When several clarifications are required, present each question to the user sequentially (one at a time), not all at once.
    - **Boundary between acting and asking:** obvious, low-risk corrections (for example, a pre-existing bug with an unequivocal solution) may proceed immediately; any decision that changes scope, expected behaviour, architecture, or requirements requires prior user approval.
+   - **Exception — doubts that Lucene settles:** where the doubt, inconsistency, or incoherence concerns how Gocene should be organised or how it should behave, do not ask: apply the *Source Fidelity Mandate* above and follow Lucene 10.5.0. Only the specific cases listed in point 4 of that mandate require prior consultation.
 
 2. **Documentation in English.** All project documentation (including this `CLAUDE.md`) must be written in the most correct English possible, free of orthographic, grammatical, or syntactic errors. Use clear, simple, and unambiguous technical language intended for human readers.
 
@@ -166,6 +188,8 @@ The branching workflow for each task:
 
 Manage the Knowledge Graph with the assistance of the `knowledge-authority` skill.
 
+**Every change to the Knowledge Graph or to its model is made EXCLUSIVELY through the `knowledge-authority` skill (NON-NEGOTIABLE).** This applies without exception to the graph's data (creating, updating, or deleting nodes, edges, and properties), to its schema (labels, predicates, properties, constraints, indexes), and to the model document `knowledge-model.md`. No other skill, agent, script, or direct `rmp graph` invocation may write to the graph or edit `knowledge-model.md`. Other skills and agents — `roadmap-manager` included — may **read** the graph for planning and reporting, but every write and every act of maintenance routes through `knowledge-authority`. A change made by any other route is a defect and must be reverted and redone through the skill.
+
 Use the Graph features of `rmp` (Groadmap) to create, maintain (update), and query a knowledge graph for the project. This graph **MUST CONTAIN EVERYTHING** that is useful to know about the project. Examples:
 
 - which features exist and where they are specified and implemented;
@@ -179,6 +203,25 @@ The graph **MUST ALWAYS BE UPDATED on every `git commit`**, recording the change
 **This graph is the absolute truth about the project.** Keep it as up-to-date as possible so that, before reading files, you can query the graph and obtain what you need.
 
 Create whichever node and edge types make the most sense for the project. Use the graph together with tasks and sprints to coordinate work.
+
+### 5.1 Graph Fidelity Requirement (MANDATORY)
+
+The Knowledge Graph **MUST be faithful to the real state of the project**. Fidelity is not aspirational and is never assumed: it must be demonstrable by measurement (§ 7) against the Apache Lucene 10.5.0 reference tree (§ 14) and the Gocene working tree. Four requirements are mandatory and each one must hold independently:
+
+1. **Faithful representation of the source library (Apache Lucene).** The graph must represent the structure of Apache Lucene 10.5.0 — its components and their organisation and hierarchy (modules, packages/namespaces, classes, and their members: methods, fields, constants) — exactly as it exists in the reference tree at `/tmp/lucene`. Every `LuceneModule`, `LucenePackage`, and `LuceneClass` node must correspond to an artefact that is actually present in that tree, and the containment chain (module → package → class → member) must reproduce the real hierarchy. **The representation must not stop at class level:** methods and constructors, fields, constants, enum values, nested and inner classes, interfaces, records, and annotations must be represented as nodes of their own whenever the port depends on them. Nothing may be invented, inferred, or recorded from memory; conversely, no artefact of the reference tree that is in scope for the port may be missing from the graph.
+
+2. **Faithful representation of the target module (Gocene).** The graph must represent the structure of the Gocene module — its components and their organisation and hierarchy (packages, files, structs, interfaces, types, methods, functions, constants, variables, tests) — exactly as it exists in the repository working tree. Every `Package`, `File`, `Symbol`, `Component`, and `Feature` node must correspond to an artefact that is actually present in the repository, and the containment chain (package → file → symbol → member) must reproduce the real hierarchy. **The representation must not stop at type level:** `Symbol` must cover not only structs, interfaces, type aliases, and tests, but also functions, methods, constants, and package-level variables, at the granularity at which the port is actually carried out. Renames, moves, additions, and deletions in the code must be reflected in the graph in the same development cycle that performs them.
+
+3. **Faithful representation of the port relation and its status.** The graph must record the link between each Apache Lucene component and its Gocene counterpart, together with the **port state of that pair (Lucene → Gocene)**. The `PORTED_TO` predicate is the sole authority on port status: for every Lucene artefact it must state whether it is ported and, if so, to which Gocene artefact. **The relation must hold at every granularity at which porting actually happens** — module to package, package to package, class to type, and equally method to method, field to field, and constant to constant — so that port status is answerable per element and never merely per class. The absence of the relation means **"not ported"**, never "unknown" — unported artefacts must therefore be visible as such by query alone. Derived attributes (for example `LuceneClass.is_ported`) must be computed from the relation and never written independently, so the graph can never assert a port status that contradicts its own edges.
+
+4. **The graph must carry every structure the port needs to succeed.** Granularity is dictated by the needs of the porting/translation work, not by convenience: the graph must represent whatever is required to plan, execute, and verify the translation of Lucene 10.5.0 into Go, on both sides of the port and in the relation between them. **A representation that stops at the class or type level is insufficient** — functions, methods, constructors, fields, constants, enum values, nested types, signatures, and any other element on which the port depends must be present. If an element that the port depends on cannot be expressed by the current labels, properties, or predicates, **the model must be extended** and `knowledge-model.md` updated accordingly (§ 5): the schema is never a valid reason to omit structure, and structure is never simplified away because the schema does not yet accommodate it.
+
+Consequences of this requirement:
+
+- **Fidelity is measured, not claimed.** Any statement about port coverage, gaps, or scope must come from graph queries reconciled against both trees, with the evidence cited (§ 7).
+- **A divergence between the graph and either tree is a defect**, and it must be corrected immediately, within the current development cycle (§ 2). It must never be tolerated, annotated as acceptable, or deferred.
+- **Every `git commit` must leave the graph faithful**, including the commit that records the change (§ 5). Fidelity is a precondition for closing a task, not a follow-up task.
+- **`knowledge-model.md` must conform to the live graph** and is regenerated from measurements, never hand-written from memory. Use the `knowledge-authority` skill to sync, refresh, and audit fidelity.
 
 ## 6. Never Guess
 
@@ -242,6 +285,7 @@ When implementing Lucene features in Go:
 - Port algorithms and data structures from Lucene's Java implementation.
 - Consider how to translate Java's object-oriented patterns to Go's interface-based approach.
 - Test against Lucene's expected behavior for byte-level compatibility.
+- Apply the *Source Fidelity Mandate* (organisation and behaviour): Go idioms are admissible only where they leave the structure, the observable behaviour, and the serialized form faithful to Lucene 10.5.0; where they do not, Lucene prevails.
 
 ## 14. Lucene Reference Repository
 

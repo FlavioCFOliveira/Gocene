@@ -7,8 +7,6 @@ package index
 import (
 	"fmt"
 	"math"
-	"sort"
-	"strings"
 )
 
 const (
@@ -24,9 +22,9 @@ const (
 	// Mirrors LogMergePolicy.DEFAULT_MAX_MERGE_DOCS.
 	DefaultMaxMergeDocs = math.MaxInt32
 
-	// DefaultNoCFSRatio is the default ratio for disabling compound files.
+	// DefaultLogMergeNoCFSRatio is the default ratio for disabling compound files.
 	// Mirrors LogMergePolicy.DEFAULT_NO_CFS_RATIO.
-	DefaultNoCFSRatio = 0.1
+	DefaultLogMergeNoCFSRatio = 0.1
 )
 
 // LogMergePolicy implements a MergePolicy that tries to merge segments into levels of
@@ -66,7 +64,7 @@ type LogMergePolicy struct {
 // NewLogMergePolicy creates a new LogMergePolicy with default settings.
 func NewLogMergePolicy() *LogMergePolicy {
 	return &LogMergePolicy{
-		BaseMergePolicy:            NewBaseMergePolicyWithDefaults(DefaultNoCFSRatio, DefaultMaxCFSSegmentSize),
+		BaseMergePolicy:            NewBaseMergePolicyWithDefaults(DefaultLogMergeNoCFSRatio, DefaultMaxCFSSegmentSize),
 		mergeFactor:                DefaultMergeFactor,
 		maxMergeSizeForForcedMerge: math.MaxInt64,
 		maxMergeDocs:               DefaultMaxMergeDocs,
@@ -287,7 +285,11 @@ func (p *LogMergePolicy) FindForcedMerges(infos *SegmentInfos, maxNumSegments in
 		p.Message(fmt.Sprintf("findForcedMerges: maxNumSegs=%d segsToMerge=%v", maxNumSegments, segmentsToMerge), mergeContext)
 	}
 
-	if p.isMergedForced(infos, maxNumSegments, segmentsToMerge, mergeContext) {
+	alreadyMerged, err := p.isMergedForced(infos, maxNumSegments, segmentsToMerge, mergeContext)
+	if err != nil {
+		return nil, err
+	}
+	if alreadyMerged {
 		if p.Verbose(mergeContext) {
 			p.Message("already merged; skip", mergeContext)
 		}

@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
 
@@ -294,7 +296,7 @@ func applyDeletes(state *SegmentWriteState, fields Fields) error {
 		return nil
 	}
 	bu, ok := state.SegUpdates.(*BufferedUpdates)
-	if !ok || bu.deleteTerms.IsEmpty() {
+	if !ok || bu.deleteTerms.isEmpty() {
 		return nil
 	}
 
@@ -480,11 +482,6 @@ func (f *sortingFilterFields) Terms(field string) (Terms, error) {
 // SortingTerms wraps a Terms view and yields TermsEnums whose postings are
 // re-sorted by the supplied [SorterDocMap]. It is the Go port of the nested
 // SortingTerms class in Lucene 10.4.0's FreqProxTermsWriter.
-//
-// Divergences from Lucene:
-//   - Lucene exposes a second factory (intersect) that wraps the underlying
-//     Terms.intersect. Gocene's Terms interface does not expose intersect, so
-//     SortingTerms only forwards GetIterator / GetIteratorWithSeek.
 type SortingTerms struct {
 	in           Terms
 	docMap       SorterDocMap
@@ -519,6 +516,17 @@ func (t *SortingTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error) {
 	return NewSortingTermsEnum(delegate, t.docMap, t.indexOptions), nil
 }
 
+// Intersect wraps the automaton-driven enumerator of the underlying Terms in a
+// [SortingTermsEnum], mirroring SortingTerms.intersect(CompiledAutomaton,
+// BytesRef).
+func (t *SortingTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *Term) (TermsEnum, error) {
+	delegate, err := t.in.Intersect(compiled, startTerm)
+	if err != nil || delegate == nil {
+		return delegate, err
+	}
+	return NewSortingTermsEnum(delegate, t.docMap, t.indexOptions), nil
+}
+
 // Forwarders for the Terms metadata. All but HasFreqs/HasOffsets/HasPositions
 // are pass-throughs to the wrapped Terms.
 
@@ -537,6 +545,7 @@ func (t *SortingTerms) GetPostingsReader(termText string, flags int) (PostingsEn
 	return enum.Postings(flags)
 }
 
+func (t *SortingTerms) Field() string                       { return t.in.Field() }
 func (t *SortingTerms) Size() int64                         { return t.in.Size() }
 func (t *SortingTerms) GetDocCount() (int, error)           { return t.in.GetDocCount() }
 func (t *SortingTerms) GetSumDocFreq() (int64, error)       { return t.in.GetSumDocFreq() }
@@ -568,8 +577,16 @@ func (e *SortingTermsEnum) Next() (*Term, error)               { return e.in.Nex
 func (e *SortingTermsEnum) SeekCeil(term *Term) (*Term, error) { return e.in.SeekCeil(term) }
 func (e *SortingTermsEnum) SeekExact(term *Term) (bool, error) { return e.in.SeekExact(term) }
 func (e *SortingTermsEnum) Term() *Term                        { return e.in.Term() }
+func (e *SortingTermsEnum) Ord() int64                         { return e.in.Ord() }
 func (e *SortingTermsEnum) DocFreq() (int, error)              { return e.in.DocFreq() }
 func (e *SortingTermsEnum) TotalTermFreq() (int64, error)      { return e.in.TotalTermFreq() }
+
+// Impacts forwards to the wrapped enumerator. Lucene's SortingTermsEnum
+// extends FilterTermsEnum and does not override impacts(int), so the call
+// reaches the delegate unchanged.
+func (e *SortingTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return e.in.Impacts(flags)
+}
 
 // Postings dispatches to a [SortingPostingsEnum] when the field indexes
 // positions and the caller asks for FREQS or higher (mirroring Lucene's

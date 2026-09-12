@@ -11,7 +11,7 @@ import (
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/fst"
@@ -260,7 +260,7 @@ func NewVersionBlockTreeTermsReader(
 // field has no terms in this segment.
 //
 // Mirrors VersionBlockTreeTermsReader.terms(String).
-func (r *VersionBlockTreeTermsReader) Terms(field string) (schema.Terms, error) {
+func (r *VersionBlockTreeTermsReader) Terms(field string) (spi.Terms, error) {
 	fr, ok := r.Fields[field]
 	if !ok {
 		return nil, nil
@@ -369,8 +369,8 @@ func readBytesRefVBT(input store.IndexInput, vli store.VariableLengthInput) (*ut
 
 var _ codecs.FieldsProducer = (*VersionBlockTreeTermsReader)(nil)
 
-// VersionFieldReader also needs to satisfy schema.Terms for r.Terms to return it.
-var _ schema.Terms = (*VersionFieldReader)(nil)
+// VersionFieldReader also needs to satisfy spi.Terms for r.Terms to return it.
+var _ spi.Terms = (*VersionFieldReader)(nil)
 
 // Ensure FST outputs type matches what VersionFieldReader expects.
 var _ fst.Outputs[*fst.Pair[*util.BytesRef, int64]] = vbtFSTOutputsW

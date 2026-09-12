@@ -18,8 +18,8 @@ import (
 type LiveIndexWriterConfig struct {
 	analyzer analysis.Analyzer
 
-	maxBufferedDocs int
-	ramBufferSizeMB float64
+	maxBufferedDocs     int
+	ramBufferSizeMB     float64
 	mergedSegmentWarmer IndexReaderWarmer
 
 	delPolicy IndexDeletionPolicy
@@ -28,53 +28,53 @@ type LiveIndexWriterConfig struct {
 
 	createdVersionMajor int
 
-	similarity Similarity
-	mergeScheduler MergeScheduler
-	codec          spi.Codec
-	infoStream     util.InfoStream
-	mergePolicy    MergePolicy
-	flushPolicy    FlushPolicy
-	readerPooling  bool
+	similarity           Similarity
+	mergeScheduler       MergeScheduler
+	codec                spi.Codec
+	infoStream           util.InfoStream
+	mergePolicy          MergePolicy
+	flushPolicy          FlushPolicy
+	readerPooling        bool
 	perThreadHardLimitMB int
-	useCompoundFile bool
-	commitOnClose bool
+	useCompoundFile      bool
+	commitOnClose        bool
 
-	indexSort any // search.Sort
-	leafSorter any // Comparator<LeafReader>
+	indexSort       any // search.Sort
+	leafSorter      any // Comparator<LeafReader>
 	indexSortFields map[string]struct{}
 
-	parentField string
-	checkPendingFlushOnUpdate bool
-	softDeletesField string
+	parentField                 string
+	checkPendingFlushOnUpdate   bool
+	softDeletesField            string
 	maxFullFlushMergeWaitMillis int64
-	eventListener IndexWriterEventListener
+	eventListener               IndexWriterEventListener
 
 	mu sync.RWMutex
 }
 
 func NewLiveIndexWriterConfig(analyzer analysis.Analyzer) *LiveIndexWriterConfig {
 	return &LiveIndexWriterConfig{
-		analyzer:              analyzer,
-		ramBufferSizeMB:       16.0,
-		maxBufferedDocs:       -1,
-		delPolicy:             &KeepOnlyLastCommitDeletionPolicy{},
-		useCompoundFile:       true,
-		openMode:              CreateOrAppend,
+		analyzer:        analyzer,
+		ramBufferSizeMB: 16.0,
+		maxBufferedDocs: -1,
+		delPolicy:       &KeepOnlyLastCommitDeletionPolicy{},
+		useCompoundFile: true,
+		openMode:        CreateOrAppend,
 		// No default Similarity: the concrete default (BM25Similarity) lives
 		// in the search package, which imports index for FieldInvertState —
 		// index cannot import it back without a cycle. Callers that need
 		// Lucene's default norm encoding call SetSimilarity(search.DefaultSimilarity)
 		// explicitly (mirrored by search.NewIndexSearcher's own default).
-		similarity: nil,
-		mergeScheduler:        &ConcurrentMergeScheduler{},
-		codec:                 spi.DefaultCodec,
-		infoStream:            util.DefaultInfoStream,
-		mergePolicy:           &TieredMergePolicy{},
-		flushPolicy:           &FlushByRamOrCountsPolicy{},
-		readerPooling:        true,
-		perThreadHardLimitMB: 1945,
+		similarity:                  nil,
+		mergeScheduler:              &ConcurrentMergeScheduler{},
+		codec:                       GetDefaultCodec(),
+		infoStream:                  util.DefaultInfoStream(),
+		mergePolicy:                 &TieredMergePolicy{},
+		flushPolicy:                 &FlushByRamOrCountsPolicy{},
+		readerPooling:               true,
+		perThreadHardLimitMB:        1945,
 		maxFullFlushMergeWaitMillis: 500,
-		eventListener:         IndexWriterEventListenerNoOp,
+		eventListener:               IndexWriterEventListenerNoopInstance,
 	}
 }
 

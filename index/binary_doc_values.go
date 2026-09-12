@@ -1,18 +1,11 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package index
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/util"
-)
-
-// BinaryDocValues defines an iterator over binary values.
-// It extends DocValuesIterator, allowing advancing to an exact doc ID.
-type BinaryDocValues interface {
-	DocValuesIterator
-
-	// BinaryValue returns the binary value for the current document ID.
-	// It is illegal to call this method after AdvanceExact(int) returned false.
-	BinaryValue() ([]byte, error)
-
-	// GetVectorByteLength returns the vector byte length.
-	GetVectorByteLength() int
-}
+// The BinaryDocValues contract — the Go port of
+// org.apache.lucene.index.BinaryDocValues (Apache Lucene 10.5.0) — is
+// declared canonically in spi/doc_values.go and re-exported from this
+// package as the type alias index.BinaryDocValues in doc_values_types.go
+// (rmp #4710). No declaration remains in this file.

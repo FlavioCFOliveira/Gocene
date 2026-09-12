@@ -18,50 +18,53 @@ import (
 //
 // This is the Go port of Lucene's Analyzer.TokenStreamComponents.
 type TokenStreamComponents struct {
-	// source is the function to set the reader on the tokenizer.
-	source func(io.Reader) error
-	// sink is the resulting token stream.
-	sink api.TokenStream
+	// Source is the function to set the reader on the tokenizer.
+	Source func(io.Reader) error
+	// Sink is the resulting token stream.
+	Sink api.TokenStream
 	// reusableStringReader is an internal cache used by TokenStreamFromString.
 	reusableStringReader *ReusableStringReader
 }
 
 // GetTokenStream returns the sink TokenStream.
 func (tsc *TokenStreamComponents) GetTokenStream() api.TokenStream {
-	return tsc.sink
+	return tsc.Sink
 }
 
 // SetReader resets the encapsulated components with the given reader.
 func (tsc *TokenStreamComponents) SetReader(reader io.Reader) error {
-	return tsc.source(reader)
+	return tsc.Source(reader)
 }
 
 // ReuseStrategy defines how TokenStreamComponents are reused per call to TokenStream.
 type ReuseStrategy interface {
 	// GetReusableComponents gets the reusable TokenStreamComponents for the field with the given name.
-	GetReusableComponents(a *Analyzer, fieldName string) *TokenStreamComponents
+	GetReusableComponents(a Analyzer, fieldName string) *TokenStreamComponents
 	// SetReusableComponents stores the given TokenStreamComponents as the reusable components for the field.
-	SetReusableComponents(a *Analyzer, fieldName string, components *TokenStreamComponents)
+	SetReusableComponents(a Analyzer, fieldName string, components *TokenStreamComponents)
 }
 
 type globalReuseStrategy struct{}
 
-func (s *globalReuseStrategy) GetReusableComponents(a *Analyzer, fieldName string) *TokenStreamComponents {
-	val, ok := a.storedValue.Load("global")
+func (s *globalReuseStrategy) GetReusableComponents(a Analyzer, fieldName string) *TokenStreamComponents {
+	impl := a.(*analyzerImpl)
+	val, ok := impl.storedValue.Load("global")
 	if !ok {
 		return nil
 	}
 	return val.(*TokenStreamComponents)
 }
 
-func (s *globalReuseStrategy) SetReusableComponents(a *Analyzer, fieldName string, components *TokenStreamComponents) {
-	a.storedValue.Store("global", components)
+func (s *globalReuseStrategy) SetReusableComponents(a Analyzer, fieldName string, components *TokenStreamComponents) {
+	impl := a.(*analyzerImpl)
+	impl.storedValue.Store("global", components)
 }
 
 type perFieldReuseStrategy struct{}
 
-func (s *perFieldReuseStrategy) GetReusableComponents(a *Analyzer, fieldName string) *TokenStreamComponents {
-	val, ok := a.storedValue.Load("per-field")
+func (s *perFieldReuseStrategy) GetReusableComponents(a Analyzer, fieldName string) *TokenStreamComponents {
+	impl := a.(*analyzerImpl)
+	val, ok := impl.storedValue.Load("per-field")
 	if !ok {
 		return nil
 	}
@@ -69,12 +72,13 @@ func (s *perFieldReuseStrategy) GetReusableComponents(a *Analyzer, fieldName str
 	return m[fieldName]
 }
 
-func (s *perFieldReuseStrategy) SetReusableComponents(a *Analyzer, fieldName string, components *TokenStreamComponents) {
-	val, ok := a.storedValue.Load("per-field")
+func (s *perFieldReuseStrategy) SetReusableComponents(a Analyzer, fieldName string, components *TokenStreamComponents) {
+	impl := a.(*analyzerImpl)
+	val, ok := impl.storedValue.Load("per-field")
 	var m map[string]*TokenStreamComponents
 	if !ok {
 		m = make(map[string]*TokenStreamComponents)
-		a.storedValue.Store("per-field", m)
+		impl.storedValue.Store("per-field", m)
 	} else {
 		m = val.(map[string]*TokenStreamComponents)
 	}
@@ -91,9 +95,12 @@ var (
 // Analyzer builds TokenStreams, which analyze text.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.Analyzer.
-type Analyzer struct {
+type analyzerImpl struct {
 	reuseStrategy ReuseStrategy
 	storedValue   sync.Map
+
+	// TokenizerFactory is the factory used to create the tokenizer.
+	TokenizerFactory TokenizerFactory
 
 	// CreateComponents creates a new TokenStreamComponents instance for this analyzer.
 	CreateComponents func(fieldName string) *TokenStreamComponents
@@ -107,15 +114,22 @@ type Analyzer struct {
 	AttributeFactory func(fieldName string) util.AttributeFactory
 }
 
-// BaseAnalyzer is an alias for Analyzer to support legacy implementations.
-type BaseAnalyzer = Analyzer
+
+// Analyzer is an alias for the Analyzer interface defined in the api package.
+type Analyzer = api.Analyzer
+
+// AnalyzerFactory is an alias for the AnalyzerFactory interface defined in the api package.
+type AnalyzerFactory = api.AnalyzerFactory
+
+// BaseAnalyzer is an alias for the base analyzer implementation.
+type BaseAnalyzer = analyzerImpl
 
 // NewAnalyzer creates a new Analyzer with the given ReuseStrategy.
-func NewAnalyzer(strategy ReuseStrategy) *Analyzer {
+func NewAnalyzer(strategy ReuseStrategy) *analyzerImpl {
 	if strategy == nil {
 		strategy = GlobalReuseStrategy
 	}
-	a := &Analyzer{
+	a := &analyzerImpl{
 		reuseStrategy: strategy,
 	}
 	// Default implementations
@@ -134,8 +148,24 @@ func NewAnalyzer(strategy ReuseStrategy) *Analyzer {
 	return a
 }
 
+func (a *analyzerImpl) AddTokenFilter(factory TokenFilterFactory) {
+	oldCreate := a.CreateComponents
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		components := oldCreate(fieldName)
+		components.Sink = factory.Create(components.Sink)
+		return components
+	}
+}
+
+func (a *analyzerImpl) AddCharFilter(factory CharFilterFactory) {
+	oldInit := a.InitReader
+	a.InitReader = func(fieldName string, reader io.Reader) io.Reader {
+		return factory.Create(oldInit(fieldName, reader))
+	}
+}
+
 // TokenStream returns a TokenStream suitable for fieldName, tokenizing the contents of reader.
-func (a *Analyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
+func (a *analyzerImpl) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	components := a.reuseStrategy.GetReusableComponents(a, fieldName)
 	r := a.InitReader(fieldName, reader)
 	if components == nil {
@@ -149,7 +179,7 @@ func (a *Analyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStr
 }
 
 // TokenStreamFromString returns a TokenStream suitable for fieldName, tokenizing the contents of text.
-func (a *Analyzer) TokenStreamFromString(fieldName string, text string) (api.TokenStream, error) {
+func (a *analyzerImpl) TokenStreamFromString(fieldName string, text string) (api.TokenStream, error) {
 	components := a.reuseStrategy.GetReusableComponents(a, fieldName)
 	var strReader *ReusableStringReader
 	if components == nil || components.reusableStringReader == nil {
@@ -170,13 +200,13 @@ func (a *Analyzer) TokenStreamFromString(fieldName string, text string) (api.Tok
 	return components.GetTokenStream(), nil
 }
 
-func (a *Analyzer) Normalize(fieldName string) api.TokenStream {
+func (a *analyzerImpl) Normalize(fieldName string) api.TokenStream {
 	components := a.CreateComponents(fieldName)
 	return a.normalizeFilter(fieldName, components.GetTokenStream())
 }
 
 // NormalizeText normalizes a string down to the representation that it would have in the index.
-func (a *Analyzer) NormalizeText(fieldName string, text string) (*util.BytesRef, error) {
+func (a *analyzerImpl) NormalizeText(fieldName string, text string) (*util.BytesRef, error) {
 	// Apply char filters
 	var filteredText string
 	reader := NewReusableStringReader()
@@ -226,17 +256,17 @@ func (a *Analyzer) NormalizeText(fieldName string, text string) (*util.BytesRef,
 }
 
 // GetPositionIncrementGap returns the position increment gap.
-func (a *Analyzer) GetPositionIncrementGap(fieldName string) int {
+func (a *analyzerImpl) GetPositionIncrementGap(fieldName string) int {
 	return 0
 }
 
 // GetOffsetGap returns the offset gap.
-func (a *Analyzer) GetOffsetGap(fieldName string) int {
+func (a *analyzerImpl) GetOffsetGap(fieldName string) int {
 	return 1
 }
 
 // Close releases persistent resources used by this Analyzer.
-func (a *Analyzer) Close() error {
+func (a *analyzerImpl) Close() error {
 	return nil
 }
 

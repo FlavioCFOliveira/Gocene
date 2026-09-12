@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"unsafe"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // validFileNamePattern matches allowed filename characters
@@ -565,7 +567,7 @@ func (d *SimpleFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutpu
 		path:            path,
 		name:            name,
 		directory:       d,
-		BaseIndexOutput: NewBaseIndexOutput(name),
+		BaseIndexOutput: spi.NewBaseIndexOutput(name),
 	}, nil
 }
 
@@ -577,7 +579,7 @@ func (d *SimpleFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutpu
 // and only the root input closes the shared file descriptor.
 type SimpleFSIndexInput struct {
 	*BaseIndexInput
-	BaseDataInput
+	spi.BaseDataInput
 	file        *os.File
 	path        string
 	name        string
@@ -769,7 +771,7 @@ func (in *SimpleFSIndexInput) Close() error {
 
 // SimpleFSIndexOutput is an IndexOutput implementation for SimpleFSDirectory.
 type SimpleFSIndexOutput struct {
-	*BaseIndexOutput
+	*spi.BaseIndexOutput
 	BaseDataOutput
 	file      *os.File
 	path      string

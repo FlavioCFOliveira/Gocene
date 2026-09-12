@@ -4,7 +4,11 @@
 
 package index
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
 
 // docValuesNoMoreDocs is the exhaustion sentinel for read-side doc-values
 // iterators: DocIdSetIterator.NO_MORE_DOCS (Integer.MAX_VALUE) in Apache Lucene.
@@ -351,7 +355,7 @@ func anyLeafHasDVType(leaves []*LeafReaderContext, field string, dvType DocValue
 // readerOrdinalMapOwner returns the cache key that owns the OrdinalMap so the
 // map can be cached against the reader, or nil when the reader exposes no cache
 // helper (matching Lucene, which passes a null owner in that case).
-func readerOrdinalMapOwner(r IndexReaderInterface) *CacheKey {
+func readerOrdinalMapOwner(r IndexReaderInterface) *spi.CacheKey {
 	type cacheHelperProvider interface {
 		GetReaderCacheHelper() CacheHelper
 	}

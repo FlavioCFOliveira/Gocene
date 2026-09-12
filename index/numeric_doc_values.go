@@ -4,14 +4,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// NumericDocValues is a per-document numeric value.
-// This is the Go port of Lucene's org.apache.lucene.index.NumericDocValues.
-type NumericDocValues interface {
-	DocValuesIterator
-	// LongValue returns the numeric value for the current document ID.
-	// It is illegal to call this method after AdvanceExact(int) returned false.
-	LongValue() (int64, error)
-}
 
 // LongValues performs bulk retrieval of numeric doc values.
 // This is the Go port of NumericDocValues.longValues.
@@ -22,7 +14,7 @@ func LongValues(dv NumericDocValues, size int, docs []int, values []int64, defau
 // LongValuesWithOffsets is an offset-aware variant of LongValues.
 // This is the Go port of NumericDocValues.longValues(int, int[], int, long[], int, long).
 func LongValuesWithOffsets(dv NumericDocValues, size int, docs []int, docsOffset int, values []int64, valuesOffset int, defaultValue int64) error {
-	for di, vi := docsOffset, valuesOffset; di < docsOffset+size; di++, vi++ {
+	for di, vi := docsOffset, valuesOffset; di < docsOffset+size; di++ {
 		var value int64
 		if ok, err := dv.AdvanceExact(docs[di]); err != nil {
 			return err
@@ -36,6 +28,7 @@ func LongValuesWithOffsets(dv NumericDocValues, size int, docs []int, docsOffset
 			value = defaultValue
 		}
 		values[vi] = value
+		vi++
 	}
 	return nil
 }

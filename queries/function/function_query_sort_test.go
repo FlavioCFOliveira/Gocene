@@ -54,6 +54,6 @@ func TestFunctionQuerySort(t *testing.T) {
 	}
 
 	// IndexSort with FunctionQuery: verify that a sort field can reference
-	// the FunctionQuery's value source via schema.SortField.
+	// the FunctionQuery's value source via spi.SortField.
 	_ = index.Sort{}
 }

@@ -215,9 +215,9 @@ func (w *spanUnionWeight) GetSpans(context LeafReaderContext, requiredPostings P
 
 type spanUnionSpans struct {
 	byDocQueue             *spanDisiPriorityQueue
-	byPositionQueue       *util.PriorityQueue[Spans]
-	subSpans              []Spans
-	topPositionSpans     Spans
+	byPositionQueue        *util.PriorityQueue[Spans]
+	subSpans               []Spans
+	topPositionSpans       Spans
 	lastDocTwoPhaseMatched int
 }
 
@@ -421,15 +421,15 @@ func (s *spanUnionSpans) fillPositionQueue() error {
 // Support classes
 
 type spanDisiWrapper struct {
-	iterator           DocIdSetIterator
-	cost               int64
-	matchCost         float32
-	doc               int
-	next               *spanDisiWrapper
-	approximation      DocIdSetIterator
-	twoPhaseView       *TwoPhaseIterator
-	spans             Spans
-	lastApproxMatchDoc int
+	iterator              DocIdSetIterator
+	cost                  int64
+	matchCost             float32
+	doc                   int
+	next                  *spanDisiWrapper
+	approximation         DocIdSetIterator
+	twoPhaseView          *TwoPhaseIterator
+	spans                 Spans
+	lastApproxMatchDoc    int
 	lastApproxNonMatchDoc int
 }
 
@@ -450,20 +450,20 @@ func newSpanDisiWrapper(spans Spans) *spanDisiWrapper {
 	}
 
 	return &spanDisiWrapper{
-		spans:               spans,
-		iterator:            iterator,
-		cost:                cost,
-		doc:                 -1,
-		twoPhaseView:        twoPhaseView,
-		approximation:       approximation,
-		matchCost:           matchCost,
+		spans:                 spans,
+		iterator:              iterator,
+		cost:                  cost,
+		doc:                   -1,
+		twoPhaseView:          twoPhaseView,
+		approximation:         approximation,
+		matchCost:             matchCost,
 		lastApproxNonMatchDoc: -2,
-		lastApproxMatchDoc:   -2,
+		lastApproxMatchDoc:    -2,
 	}
 }
 
 type spanDisiPriorityQueue struct {
-	heap [] *spanDisiWrapper
+	heap []*spanDisiWrapper
 	size int
 }
 
@@ -501,7 +501,7 @@ func (pq *spanDisiPriorityQueue) topListRec(list *spanDisiWrapper, heap []*spanD
 	w := heap[i]
 	if w.doc == list.doc {
 		list = pq.prepend(w, list)
-		left := (i + 1) << 1 - 1
+		left := (i+1)<<1 - 1
 		right := left + 1
 		if right < size {
 			list = pq.topListRec(list, heap, size, left)
@@ -530,11 +530,11 @@ func (pq *spanDisiPriorityQueue) updateTop() *spanDisiWrapper {
 func (pq *spanDisiPriorityQueue) upHeap(i int) {
 	node := pq.heap[i]
 	nodeDoc := node.doc
-	j := ((i + 1) >>> 1) - 1
+	j := ((i + 1) >> 1) - 1
 	for j >= 0 && nodeDoc < pq.heap[j].doc {
 		pq.heap[i] = pq.heap[j]
 		i = j
-		j = ((i + 1) >>> 1) - 1
+		j = ((i + 1) >> 1) - 1
 	}
 	pq.heap[i] = node
 }
@@ -542,7 +542,7 @@ func (pq *spanDisiPriorityQueue) upHeap(i int) {
 func (pq *spanDisiPriorityQueue) downHeap(size int) {
 	i := 0
 	node := pq.heap[0]
-	j := (i + 1) << 1 - 1
+	j := (i+1)<<1 - 1
 	if j < size {
 		k := j + 1
 		if k < size && pq.heap[k].doc < pq.heap[j].doc {
@@ -552,7 +552,7 @@ func (pq *spanDisiPriorityQueue) downHeap(size int) {
 			for {
 				pq.heap[i] = pq.heap[j]
 				i = j
-				j = (i + 1) << 1 - 1
+				j = (i+1)<<1 - 1
 				k = j + 1
 				if j >= size {
 					break

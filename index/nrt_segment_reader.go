@@ -344,7 +344,7 @@ func (r *NRTSegmentReader) GetLiveDocCount() int {
 // String renders the pending-deletes set by count. The raw docID set is
 // deliberately not exposed, matching the shape of
 // org.apache.lucene.index.PendingDeletes#toString.
-func (p *nrtPendingDeletes) String() string {
+func (p *nrtPendingDeleteSet) String() string {
 	if p == nil {
 		return "<nil>"
 	}

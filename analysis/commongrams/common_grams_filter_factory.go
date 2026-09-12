@@ -50,6 +50,10 @@ func (f *CommonGramsFilterFactory) Create(input analysis.TokenStream) analysis.T
 	return NewCommonGramsFilter(input, f.Words())
 }
 
+func (f *CommonGramsFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return input
+}
+
 // Ensure interface compliance.
 var _ analysis.TokenFilterFactory = (*CommonGramsFilterFactory)(nil)
 
@@ -80,6 +84,10 @@ func NewCommonGramsQueryFilterFactory(args map[string]string) *CommonGramsQueryF
 func (f *CommonGramsQueryFilterFactory) Create(input analysis.TokenStream) analysis.TokenFilter {
 	cgf := NewCommonGramsFilter(input, f.Words())
 	return NewCommonGramsQueryFilter(cgf)
+}
+
+func (f *CommonGramsQueryFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return input
 }
 
 // Ensure interface compliance.

@@ -9,7 +9,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
@@ -54,7 +53,7 @@ func (b *BasePointsWriter) Merge(mergeState *index.MergeState) error {
 
 // mergeOneField implements the default naive merge for one field: it just re-indexes
 // all the values from the incoming segments.
-func (b *BasePointsWriter) mergeOneField(mergeState *index.MergeState, fieldInfo *schema.FieldInfo) error {
+func (b *BasePointsWriter) mergeOneField(mergeState *index.MergeState, fieldInfo *spi.FieldInfo) error {
 	var maxPointCount int64
 	for i := 0; i < len(mergeState.Readers); i++ {
 		reader := mergeState.Readers[i]
@@ -81,7 +80,7 @@ func (b *BasePointsWriter) mergeOneField(mergeState *index.MergeState, fieldInfo
 // mergedPointsReader is a temporary reader used during the naive merge process.
 type mergedPointsReader struct {
 	mergeState    *index.MergeState
-	fieldInfo     *schema.FieldInfo
+	fieldInfo     *spi.FieldInfo
 	maxPointCount int64
 }
 
@@ -103,16 +102,20 @@ type mergedPointValues struct {
 	reader *mergedPointsReader
 }
 
-func (v *mergedPointValues) GetDocCount() int                   { return 0 }
-func (v *mergedPointValues) GetDocCountWithValue() int64        { return 0 }
-func (v *mergedPointValues) GetValueCount() int64               { return v.reader.maxPointCount }
-func (v *mergedPointValues) GetMinPackedValue() ([]byte, error) { return nil, fmt.Errorf("unsupported") }
-func (v *mergedPointValues) GetMaxPackedValue() ([]byte, error) { return nil, fmt.Errorf("unsupported") }
-func (v *mergedPointValues) GetNumDimensions() int             { return 0 }
-func (v *mergedPointValues) GetBytesPerDimension() int          { return 0 }
+func (v *mergedPointValues) GetDocCount() int            { return 0 }
+func (v *mergedPointValues) GetDocCountWithValue() int64 { return 0 }
+func (v *mergedPointValues) GetValueCount() int64        { return v.reader.maxPointCount }
+func (v *mergedPointValues) GetMinPackedValue() ([]byte, error) {
+	return nil, fmt.Errorf("unsupported")
+}
+func (v *mergedPointValues) GetMaxPackedValue() ([]byte, error) {
+	return nil, fmt.Errorf("unsupported")
+}
+func (v *mergedPointValues) GetNumDimensions() int     { return 0 }
+func (v *mergedPointValues) GetBytesPerDimension() int { return 0 }
 
 // GetPointTree returns a cursor that streams points from the source segments.
-func (v *mergedPointValues) GetPointTree() util.bkd.PointTree {
+func (v *mergedPointValues) GetPointTree() bkd.PointTree {
 	return &mergedPointTree{
 		values: v,
 	}
@@ -123,7 +126,7 @@ type mergedPointTree struct {
 	values *mergedPointValues
 }
 
-func (t *mergedPointTree) Clone() util.bkd.PointTree {
+func (t *mergedPointTree) Clone() bkd.PointTree {
 	return nil // Not used in naive merge
 }
 
@@ -151,11 +154,11 @@ func (t *mergedPointTree) Size() int64 {
 	return t.values.reader.maxPointCount
 }
 
-func (t *mergedPointTree) VisitDocIDs(visitor util.bkd.IntersectVisitor) error {
+func (t *mergedPointTree) VisitDocIDs(visitor bkd.IntersectVisitor) error {
 	return nil // Not used in naive merge
 }
 
-func (t *mergedPointTree) VisitDocValues(visitor util.bkd.IntersectVisitor) error {
+func (t *mergedPointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
 	ms := t.values.reader.mergeState
 	fieldName := t.values.reader.fieldInfo.Name
 
@@ -178,10 +181,10 @@ func (t *mergedPointTree) VisitDocValues(visitor util.bkd.IntersectVisitor) erro
 		docMap := ms.DocMaps[i]
 
 		// Recover the PointTree from the source values via assertion.
-		if tree, ok := values.(interface{ GetPointTree() util.bkd.PointTree }); ok {
+		if tree, ok := values.(interface{ GetPointTree() bkd.PointTree }); ok {
 			if err := tree.VisitDocValues(&mergedVisitor{
 				mergedVisitor: visitor,
-				docMap:         docMap,
+				docMap:        docMap,
 			}); err != nil {
 				return err
 			}
@@ -192,7 +195,7 @@ func (t *mergedPointTree) VisitDocValues(visitor util.bkd.IntersectVisitor) erro
 
 // mergedVisitor maps docIDs from source segments to the merged segment's docIDs.
 type mergedVisitor struct {
-	mergedVisitor util.bkd.IntersectVisitor
+	mergedVisitor bkd.IntersectVisitor
 	docMap        index.DocMap
 }
 

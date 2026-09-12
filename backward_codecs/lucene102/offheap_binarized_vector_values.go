@@ -14,7 +14,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
+	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
 	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
@@ -295,7 +295,7 @@ func (it *denseDocIndexIterator) Cost() int64 {
 }
 
 type vectorScorerWrapper struct {
-	scorer   util.hnsw.RandomVectorScorer
+	scorer   utilhnsw.RandomVectorScorer
 	iterator search.DocIndexIterator
 }
 

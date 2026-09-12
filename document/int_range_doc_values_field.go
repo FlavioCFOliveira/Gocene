@@ -19,7 +19,7 @@ type IntRangeDocValuesField struct {
 
 // NewIntRangeDocValuesField is the sole constructor.
 func NewIntRangeDocValuesField(field string, min, max []int32) (*IntRangeDocValuesField, error) {
-	if err := checkArgs(min, max); err != nil {
+	if err := checkIntRangeDocValuesArgs(min, max); err != nil {
 		return nil, err
 	}
 	encoded, err := EncodeIntRangeLucene(min, max)
@@ -59,18 +59,18 @@ func (f *IntRangeDocValuesField) GetMax(dimension int) (int32, error) {
 
 // NewSlowIntersectsQuery creates a new range query that finds all ranges that intersect using doc values.
 // NOTE: This doesn't leverage indexing and may be slow.
-func NewSlowIntersectsQuery(field string, min, max []int32) (*IntRangeSlowRangeQuery, error) {
+func newIntSlowIntersectsQuery(field string, min, max []int32) (*IntRangeSlowRangeQuery, error) {
 	return newSlowRangeQuery(field, min, max, RangeFieldQueryTypeIntersects)
 }
 
 func newSlowRangeQuery(field string, min, max []int32, queryType RangeFieldQueryType) (*IntRangeSlowRangeQuery, error) {
-	if err := checkArgs(min, max); err != nil {
+	if err := checkIntRangeDocValuesArgs(min, max); err != nil {
 		return nil, err
 	}
 	return NewIntRangeSlowRangeQuery(field, min, max, queryType)
 }
 
-func checkArgs(min, max []int32) error {
+func checkIntRangeDocValuesArgs(min, max []int32) error {
 	if len(min) == 0 || len(max) == 0 {
 		return fmt.Errorf("min/max range values cannot be null or empty")
 	}

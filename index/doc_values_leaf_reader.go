@@ -7,6 +7,7 @@ package index
 import (
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -36,9 +37,16 @@ type DocValuesLeafReader struct {
 // method, mirroring Lucene's UnsupportedOperationException.
 var errDocValuesLeafReaderUnsupported = fmt.Errorf("operation not supported on DocValuesLeafReader")
 
-// NewDocValuesLeafReader returns a DocValuesLeafReader for the given segment.
-func NewDocValuesLeafReader(segmentInfo *SegmentInfo) *DocValuesLeafReader {
-	return &DocValuesLeafReader{LeafReader: NewLeafReader(segmentInfo)}
+// NewDocValuesLeafReader returns a DocValuesLeafReader.
+//
+// org.apache.lucene.index.DocValuesLeafReader declares only the implicit
+// no-argument constructor and holds no segment state, so the segmentInfo
+// parameter — retained for call-site compatibility — is deliberately unused.
+// The embedded LeafReader is left nil: every capability Lucene's
+// DocValuesLeafReader makes unsupported is shadowed below, and the doc-values
+// accessors are supplied by the concrete embedder (Lucene keeps them abstract).
+func NewDocValuesLeafReader(_ *SegmentInfo) *DocValuesLeafReader {
+	return &DocValuesLeafReader{}
 }
 
 // GetCoreCacheKey is unsupported. It panics, mirroring Lucene's
@@ -69,18 +77,18 @@ func (r *DocValuesLeafReader) GetPointValues(string) (PointValues, error) {
 }
 
 // GetFloatVectorValues is unsupported.
-func (r *DocValuesLeafReader) GetFloatVectorValues(string) (FloatVectorValues, error) {
+func (r *DocValuesLeafReader) GetFloatVectorValues(string) (spi.FloatVectorValues, error) {
 	return nil, errDocValuesLeafReaderUnsupported
 }
 
 // GetByteVectorValues is unsupported.
-func (r *DocValuesLeafReader) GetByteVectorValues(string) (ByteVectorValues, error) {
+func (r *DocValuesLeafReader) GetByteVectorValues(string) (spi.ByteVectorValues, error) {
 	return nil, errDocValuesLeafReaderUnsupported
 }
 
 // SearchNearestVectors is unsupported.
-func (r *DocValuesLeafReader) SearchNearestVectors(string, []float32, int, util.Bits) (TopDocs, error) {
-	return TopDocs{}, errDocValuesLeafReaderUnsupported
+func (r *DocValuesLeafReader) SearchNearestVectors(string, []float32, int, util.Bits, int) (spi.TopDocs, error) {
+	return spi.TopDocs{}, errDocValuesLeafReaderUnsupported
 }
 
 // CheckIntegrity is unsupported.
@@ -122,6 +130,6 @@ func (r *DocValuesLeafReader) StoredFields() (StoredFields, error) {
 }
 
 // GetDocValuesSkipper is unsupported.
-func (r *DocValuesLeafReader) GetDocValuesSkipper(string) (DocValuesSkipper, error) {
+func (r *DocValuesLeafReader) GetDocValuesSkipper(string) (spi.DocValuesSkipper, error) {
 	return nil, errDocValuesLeafReaderUnsupported
 }

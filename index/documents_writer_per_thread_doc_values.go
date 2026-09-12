@@ -11,6 +11,15 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
+// DocValuesBuffer buffers doc-values for a single field across multiple documents.
+type DocValuesBuffer struct {
+	docIDs            []int
+	numericValues     []int64
+	binaryValues      [][]byte
+	numericValuesMulti [][]int64
+	binaryValuesMulti  [][][]byte
+}
+
 // flushDocValues writes the buffered doc-values for every doc-values field to
 // the codec's DocValuesConsumer, serialising the per-segment .dvd / .dvm
 // files.

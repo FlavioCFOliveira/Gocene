@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // NIOFSBufferSize is the size of the buffered I/O buffer.
@@ -115,7 +117,7 @@ func (d *NIOFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutput, 
 		path:            path,
 		name:            name,
 		directory:       d,
-		BaseIndexOutput: NewBaseIndexOutput(name),
+		BaseIndexOutput: spi.NewBaseIndexOutput(name),
 	}
 	out.BaseDataOutput = *NewBaseDataOutput(out)
 	return out, nil
@@ -125,7 +127,7 @@ func (d *NIOFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutput, 
 // It uses buffered reading for improved I/O performance.
 type NIOFSIndexInput struct {
 	*BaseIndexInput
-	BaseDataInput
+	spi.BaseDataInput
 	file      *os.File
 	bufReader *bufio.Reader
 	path      string
@@ -355,7 +357,7 @@ func (in *NIOFSIndexInput) Close() error {
 // NIOFSIndexOutput is an IndexOutput implementation for NIOFSDirectory.
 // It uses buffered writing for improved I/O performance.
 type NIOFSIndexOutput struct {
-	*BaseIndexOutput
+	*spi.BaseIndexOutput
 	BaseDataOutput
 	file      *os.File
 	bufWriter *bufio.Writer

@@ -62,3 +62,13 @@ func (out *ByteArrayDataOutput) WriteBytes(b []byte, offset, length int) error {
 	out.pos += length
 	return nil
 }
+
+// GetBytes returns the underlying byte slice.
+func (out *ByteArrayDataOutput) GetBytes() []byte {
+	return out.bytes
+}
+
+// Length returns the total number of bytes available to write.
+func (out *ByteArrayDataOutput) Length() int {
+	return out.limit
+}

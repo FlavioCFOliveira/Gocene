@@ -16,6 +16,7 @@ package hnsw
 import (
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -148,7 +149,7 @@ func NewFilteredHnswGraphSearcher(
 // level 0; higher-level descent is the inherited regular path. A
 // panic is raised on any other level so misuse fails loudly.
 func (f *FilteredHnswGraphSearcher) SearchLevel(
-	results KnnCollector,
+	results spi.KnnCollector,
 	scorer RandomVectorScorer,
 	level int,
 	eps []int,

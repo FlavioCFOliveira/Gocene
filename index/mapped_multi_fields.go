@@ -7,7 +7,9 @@ package index
 import (
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // MappedMultiFields wraps a MultiFields and applies a MergeState.DocMap chain
@@ -98,6 +100,8 @@ type mappedMultiTerms struct {
 	delegate   *MultiTerms
 }
 
+func (t *mappedMultiTerms) Field() string { return t.field }
+
 // GetIterator returns a MappedMultiTermsEnum positioned before the first term.
 // If MultiTerms.Iterator() is not yet implemented it propagates the error.
 func (t *mappedMultiTerms) GetIterator() (TermsEnum, error) {
@@ -133,6 +137,27 @@ func (t *mappedMultiTerms) GetIteratorWithSeek(seek *Term) (TermsEnum, error) {
 		return nil, err
 	}
 	return it, nil
+}
+
+// Intersect runs the Terms.intersect base implementation that
+// MappedMultiFields.MappedMultiTerms inherits from FilterTerms: an
+// AutomatonTermsEnum over this Terms' own (mapped) iterator, restricted to
+// NORMAL automata. A non-nil startTerm is honoured through
+// FilteredTermsEnum.setInitialSeekTerm, which is where Lucene's anonymous
+// nextSeekTerm override routes it.
+func (t *mappedMultiTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *Term) (TermsEnum, error) {
+	it, err := t.GetIterator()
+	if err != nil {
+		return nil, err
+	}
+	if compiled == nil || compiled.Type != automaton.AutomatonTypeNormal {
+		return nil, fmt.Errorf("mappedMultiTerms.Intersect: please use CompiledAutomaton.GetTermsEnum instead")
+	}
+	enum := NewAutomatonTermsEnum(it, compiled)
+	if startTerm != nil {
+		enum.SetInitialSeekTerm(startTerm)
+	}
+	return enum, nil
 }
 
 // GetPostingsReader is not supported on mapped multi-terms (UnsupportedOperationException
@@ -182,14 +207,18 @@ func (t *mappedMultiTerms) GetMax() (*Term, error) { return nil, nil }
 // through MappingMultiPostingsEnum for merge-time docID translation. Mirrors
 // MappedMultiFields.MappedMultiTermsEnum (private static class in Lucene).
 type mappedMultiTermsEnum struct {
-	field      string
-	mergeState *MergeState
-	delegate   *MultiTermsEnum
-
-	// cachedMappingEnum is reused across Postings calls for the same field to
-	// avoid re-allocation of the per-sub MappingPostingsSubs. Mirrors Lucene's
-	// reuse pattern via the PostingsEnum argument.
+	field             string
+	mergeState        *MergeState
+	delegate          spi.TermsEnum
 	cachedMappingEnum *MappingMultiPostingsEnum
+}
+
+func (te *mappedMultiTermsEnum) Ord() int64 {
+	return -1
+}
+
+func (te *mappedMultiTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, nil
 }
 
 // Next advances to the next term. Delegates to the underlying MultiTermsEnum.

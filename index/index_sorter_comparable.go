@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -301,7 +302,7 @@ func buildSortedProviders(sf SortField, readers []CodecReader) ([]ComparableProv
 		}
 		return providers, nil
 	}
-	om, err := BuildOrdinalMapFromSortedValues(NewCacheKey(), omSubs, 0)
+	om, err := BuildOrdinalMapFromSortedValues(spi.NewCacheKey(), omSubs, 0)
 	if err != nil {
 		return nil, fmt.Errorf("index: index sort: sorted %q ordinal map: %w", sf.Field, err)
 	}
@@ -385,7 +386,7 @@ func buildSortedSetProviders(sf SortField, readers []CodecReader) ([]ComparableP
 		}
 		return providers, nil
 	}
-	om, err := BuildOrdinalMapFromSortedSetValues(NewCacheKey(), omSubs, 0)
+	om, err := BuildOrdinalMapFromSortedSetValues(spi.NewCacheKey(), omSubs, 0)
 	if err != nil {
 		return nil, fmt.Errorf("index: index sort: sorted-set %q ordinal map: %w", sf.Field, err)
 	}

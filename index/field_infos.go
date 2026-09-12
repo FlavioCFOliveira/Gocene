@@ -4,7 +4,7 @@
 
 package index
 
-import "github.com/FlavioCFOliveira/Gocene/schema"
+import "github.com/FlavioCFOliveira/Gocene/spi"
 
 // This file is the index-side facade for FieldInfos + FieldInfosIterator
 // + FieldInfosBuilder + EmptyFieldInfos after the SPI unification (rmp
@@ -13,32 +13,32 @@ import "github.com/FlavioCFOliveira/Gocene/schema"
 // the factories as thin wrappers so existing callers continue to
 // compile unchanged.
 
-// FieldInfos is an alias of schema.FieldInfos.
-type FieldInfos = schema.FieldInfos
+// FieldInfos is an alias of spi.FieldInfos.
+type FieldInfos = spi.FieldInfos
 
-// FieldInfosIterator is an alias of schema.FieldInfosIterator.
-type FieldInfosIterator = schema.FieldInfosIterator
+// FieldInfosIterator is an alias of spi.FieldInfosIterator.
+type FieldInfosIterator = spi.FieldInfosIterator
 
-// FieldInfosBuilder is an alias of schema.FieldInfosBuilder.
-type FieldInfosBuilder = schema.FieldInfosBuilder
+// FieldInfosBuilder is an alias of spi.FieldInfosBuilder.
+type FieldInfosBuilder = spi.FieldInfosBuilder
 
-// EmptyFieldInfos re-exports schema.EmptyFieldInfos.
-var EmptyFieldInfos = schema.EmptyFieldInfos
+// EmptyFieldInfos re-exports spi.EmptyFieldInfos.
+var EmptyFieldInfos = spi.EmptyFieldInfos
 
-// FieldNumbers is an alias of schema.FieldNumbers.
-type FieldNumbers = schema.FieldNumbers
+// FieldNumbers is an alias of spi.FieldNumbers.
+type FieldNumbers = spi.FieldNumbers
 
-// NewFieldNumbers re-exports schema.NewFieldNumbers.
+// NewFieldNumbers re-exports spi.NewFieldNumbers.
 func NewFieldNumbers(softDeletesFieldName, parentFieldName string) *FieldNumbers {
-	return schema.NewFieldNumbers(softDeletesFieldName, parentFieldName)
+	return spi.NewFieldNumbers(softDeletesFieldName, parentFieldName)
 }
 
-// NewFieldInfos re-exports schema.NewFieldInfos.
+// NewFieldInfos re-exports spi.NewFieldInfos.
 func NewFieldInfos() *FieldInfos {
-	return schema.NewFieldInfos()
+	return spi.NewFieldInfos()
 }
 
-// NewFieldInfosBuilder re-exports schema.NewFieldInfosBuilder.
+// NewFieldInfosBuilder re-exports spi.NewFieldInfosBuilder.
 //
 // PORT NOTE: Java's FieldInfos.Builder(FieldNumbers) asserts a non-null
 // registry, because Builder#add funnels every field through
@@ -46,12 +46,12 @@ func NewFieldInfos() *FieldInfos {
 // the builder a private, empty registry rather than nil; callers that need a
 // registry shared across segments must use NewFieldInfosBuilderFor.
 func NewFieldInfosBuilder() *FieldInfosBuilder {
-	return schema.NewFieldInfosBuilder(schema.NewFieldNumbers("", ""))
+	return spi.NewFieldInfosBuilder(spi.NewFieldNumbers("", ""))
 }
 
-// NewFieldInfosBuilderFor re-exports schema.NewFieldInfosBuilder with an
+// NewFieldInfosBuilderFor re-exports spi.NewFieldInfosBuilder with an
 // explicit global field-number registry, mirroring Java's
 // FieldInfos.Builder(FieldNumbers globalFieldNumbers).
-func NewFieldInfosBuilderFor(globalFieldNumbers *schema.FieldNumbers) *FieldInfosBuilder {
-	return schema.NewFieldInfosBuilder(globalFieldNumbers)
+func NewFieldInfosBuilderFor(globalFieldNumbers *spi.FieldNumbers) *FieldInfosBuilder {
+	return spi.NewFieldInfosBuilder(globalFieldNumbers)
 }

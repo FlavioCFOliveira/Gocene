@@ -80,45 +80,6 @@ func (p *KeepAllDeletionPolicy) String() string {
 	return "KeepAllDeletionPolicy"
 }
 
-// KeepLastNCommitsDeletionPolicy keeps the last N commits and removes all prior
-// commits after a new commit is done.
-type KeepLastNCommitsDeletionPolicy struct {
-	*BaseIndexDeletionPolicy
-	numCommitsToKeep int
-}
-
-func NewKeepLastNCommitsDeletionPolicy(numCommitsToKeep int) *KeepLastNCommitsDeletionPolicy {
-	if numCommitsToKeep <= 0 {
-		panic("number of recent commits to keep must be positive")
-	}
-	return &KeepLastNCommitsDeletionPolicy{
-		BaseIndexDeletionPolicy: &BaseIndexDeletionPolicy{},
-		numCommitsToKeep:        numCommitsToKeep,
-	}
-}
-
-func (p *KeepLastNCommitsDeletionPolicy) OnCommit(commits []Commit) error {
-	size := len(commits)
-	for i := 0; i < size-p.numCommitsToKeep; i++ {
-		if err := commits[i].Delete(); err != nil {
-			return fmt.Errorf("failed to delete commit %d: %w", i, err)
-		}
-	}
-	return nil
-}
-
-func (p *KeepLastNCommitsDeletionPolicy) OnInit(commits []Commit) error {
-	return p.OnCommit(commits)
-}
-
-func (p *KeepLastNCommitsDeletionPolicy) Clone() IndexDeletionPolicy {
-	return NewKeepLastNCommitsDeletionPolicy(p.numCommitsToKeep)
-}
-
-func (p *KeepLastNCommitsDeletionPolicy) String() string {
-	return fmt.Sprintf("KeepLastNCommitsDeletionPolicy(numToKeep=%d)", p.numCommitsToKeep)
-}
-
 // SnapshotDeletionPolicy wraps any other IndexDeletionPolicy and adds the
 // ability to hold and later release snapshots of an index.
 type SnapshotDeletionPolicy struct {

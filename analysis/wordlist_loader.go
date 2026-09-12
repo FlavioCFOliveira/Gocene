@@ -46,10 +46,10 @@ func GetWordSetWithComment(reader io.Reader, comment string) (*CharArraySet, err
 	return set, nil
 }
 
-// GetSnowballWordSet reads stopwords from a stopword list in Snowball format.
+// GetSnowballWordSetFromReader reads stopwords from a stopword list in Snowball format.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.WordlistLoader.getSnowballWordSet.
-func GetSnowballWordSet(reader io.Reader) (*CharArraySet, error) {
+func GetSnowballWordSetFromReader(reader io.Reader) (*CharArraySet, error) {
 	set := NewCharArraySet(16, false)
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {

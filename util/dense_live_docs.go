@@ -115,6 +115,13 @@ func (d *DenseLiveDocs) LiveCount() int {
 	return d.maxDoc - d.deletedCount
 }
 
+// Cardinality returns the number of set bits, i.e. the number of live
+// documents. It completes the util.Bits contract, which Lucene's Bits
+// exposes as the live-docs cardinality consumed by SegmentReader.numDocs().
+func (d *DenseLiveDocs) Cardinality() int {
+	return d.maxDoc - d.deletedCount
+}
+
 // LiveDocsIterator returns an iterator over live documents.
 func (d *DenseLiveDocs) LiveDocsIterator() DocIdSetIterator {
 	return &bitSetIterator{

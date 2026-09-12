@@ -8,6 +8,7 @@ package path
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
@@ -95,9 +96,9 @@ func NewReversePathHierarchyTokenizerFull(delimiter, replacement rune, skip int)
 	t.offsetAttr = analysis.NewOffsetAttribute()
 	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
 
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
+	t.AddAttribute(reflect.TypeOf((*analysis.CharTermAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*analysis.OffsetAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*tokenattributes.PositionIncrementAttribute)(nil)).Elem())
 
 	return t
 }

@@ -31,7 +31,7 @@ func (r *recordingRateLimiter) Pause(bytes int64) int64 {
 }
 
 type capturingOutput struct {
-	*BaseIndexOutput
+	*spi.BaseIndexOutput
 	buf []byte
 }
 
@@ -51,7 +51,7 @@ func (c *capturingOutput) Length() int64            { return int64(len(c.buf)) }
 
 func TestRateLimitedIndexOutput_PausesAtThreshold(t *testing.T) {
 	rl := &recordingRateLimiter{mbPerSec: 1.0, minPauseBytes: 16}
-	wrapped := &capturingOutput{BaseIndexOutput: NewBaseIndexOutput("test")}
+	wrapped := &capturingOutput{spi.BaseIndexOutput: Newspi.BaseIndexOutput("test")}
 	out := NewRateLimitedIndexOutput(rl, wrapped)
 	if err := out.WriteBytes(make([]byte, 32)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
@@ -66,7 +66,7 @@ func TestRateLimitedIndexOutput_PausesAtThreshold(t *testing.T) {
 
 func TestRateLimitedIndexOutput_NoPauseBelowThreshold(t *testing.T) {
 	rl := &recordingRateLimiter{mbPerSec: 1.0, minPauseBytes: 100}
-	wrapped := &capturingOutput{BaseIndexOutput: NewBaseIndexOutput("test")}
+	wrapped := &capturingOutput{spi.BaseIndexOutput: Newspi.BaseIndexOutput("test")}
 	out := NewRateLimitedIndexOutput(rl, wrapped)
 	for i := 0; i < 10; i++ {
 		if err := out.WriteByte(byte(i)); err != nil {
@@ -80,7 +80,7 @@ func TestRateLimitedIndexOutput_NoPauseBelowThreshold(t *testing.T) {
 
 func TestRateLimitedIndexOutput_DataForwarded(t *testing.T) {
 	rl := &recordingRateLimiter{mbPerSec: 1.0, minPauseBytes: 1 << 30}
-	wrapped := &capturingOutput{BaseIndexOutput: NewBaseIndexOutput("test")}
+	wrapped := &capturingOutput{spi.BaseIndexOutput: Newspi.BaseIndexOutput("test")}
 	out := NewRateLimitedIndexOutput(rl, wrapped)
 	data := []byte{0xAA, 0xBB, 0xCC, 0xDD}
 	if err := out.WriteBytes(data); err != nil {

@@ -5,14 +5,14 @@
 package index
 
 import (
+	"bytes"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // StandardDirectoryReader is the default implementation of DirectoryReader.
@@ -129,7 +129,7 @@ func OpenNRT(
 			return nil, err
 		}
 
-		if reader.NumDocs() > 0 || writer.GetConfig().MergePolicy.KeepFullyDeletedSegment(func() IndexReaderInterface { return reader }) {
+		if reader.NumDocs() > 0 || writer.GetConfig().GetMergePolicy().KeepFullyDeletedSegment(info) {
 			readers = append(readers, reader)
 			infosUpto++
 		} else {
@@ -211,7 +211,7 @@ func createSegmentReaders(sis *SegmentInfos, oldReaders []*SegmentReader) ([]*Se
 			defer wg.Done()
 			commitInfo := sis.Get(idx)
 			oldReader := getOldSegmentReader(oldReaders, previousSegmentReaders[commitInfo.SegmentInfo().Name()], commitInfo)
-			reader, err := createOrReuseSegmentReader(commitInfo, oldReader, sis.GetIndexCreatedVersionMajor())
+			reader, err := createOrReuseSegmentReader(commitInfo, oldReader, int(sis.IndexCreatedVersionMajor()))
 			if err != nil {
 				errs <- err
 				return
@@ -242,7 +242,7 @@ func mapPreviousReaders(oldReaders []*SegmentReader) map[string]int {
 	}
 	m := make(map[string]int, len(oldReaders))
 	for i, sr := range oldReaders {
-		m[sr.SegmentInfo().Name()] = i
+		m[sr.GetSegmentName()] = i
 	}
 	return m
 }
@@ -254,7 +254,7 @@ func getOldSegmentReader(oldReaders []*SegmentReader, oldReaderIndex int, commit
 	oldReader := oldReaders[oldReaderIndex]
 
 	// Detect illegal index removal and replacement.
-	if oldReader != nil && !util.EqualSlices(commitInfo.SegmentInfo().GetID(), oldReader.SegmentInfo().GetID()) {
+	if oldReader != nil && !bytes.Equal(commitInfo.SegmentInfo().GetID(), oldReader.GetSegmentInfo().GetID()) {
 		panic(fmt.Sprintf("same segment %s has invalid doc count change; likely you are re-opening a reader after illegally removing index files yourself", commitInfo.SegmentInfo().Name()))
 	}
 	return oldReader
@@ -264,32 +264,33 @@ func createOrReuseSegmentReader(commitInfo *SegmentCommitInfo, oldReader *Segmen
 	var newReader *SegmentReader
 
 	// Condition for creating a brand new reader.
-	if oldReader == nil || commitInfo.SegmentInfo().IsCompoundFile() != oldReader.SegmentInfo().IsCompoundFile() {
-		newReader = NewSegmentReader(commitInfo, indexCreatedVersionMajor, store.IOContextDefault)
+	if oldReader == nil || commitInfo.SegmentInfo().IsCompoundFile() != oldReader.GetSegmentInfo().IsCompoundFile() {
+		newReader = NewSegmentReader(commitInfo)
 	} else {
 		if oldReader.IsNRT() {
 			// NRT reader: must load liveDocs/DV updates from disk.
-			var liveDocs util.Bits
-			if commitInfo.HasDeletions() {
-				liveDocs, _ = commitInfo.SegmentInfo().Codec().LiveDocsFormat().ReadLiveDocs(commitInfo.SegmentInfo().Directory(), commitInfo, store.IOContextReadOnce)
+			liveDocs, err := commitLiveDocs(commitInfo.SegmentInfo().Directory(), commitInfo)
+			if err != nil {
+				return nil, err
 			}
-			newReader = NewSegmentReaderNRT(commitInfo, oldReader, liveDocs, liveDocs, commitInfo.SegmentInfo().MaxDoc()-commitInfo.DelCount(), false)
+			newReader = NewSegmentReaderClone(commitInfo, oldReader, liveDocs, liveDocs, commitInfo.SegmentInfo().MaxDoc()-commitInfo.DelCount(), false)
 		} else {
-			if oldReader.SegmentInfo().DelGen() == commitInfo.DelGen() && oldReader.SegmentInfo().FieldInfosGen() == commitInfo.FieldInfosGen() {
+			oldInfo := oldReader.GetSegmentCommitInfo()
+			if oldInfo.DelGen() == commitInfo.DelGen() && oldInfo.FieldInfosGen() == commitInfo.FieldInfosGen() {
 				// No change; reuse the reader.
 				_ = oldReader.IncRef()
 				newReader = oldReader
 			} else {
-				if oldReader.SegmentInfo().DelGen() == commitInfo.DelGen() {
+				if oldInfo.DelGen() == commitInfo.DelGen() {
 					// Only DV updates.
-					newReader = NewSegmentReaderDVUpdate(commitInfo, oldReader, oldReader.GetLiveDocs(), oldReader.GetHardLiveDocs(), oldReader.NumDocs(), false)
+					newReader = NewSegmentReaderClone(commitInfo, oldReader, oldReader.GetLiveDocs(), oldReader.GetHardLiveDocs(), oldReader.NumDocs(), false)
 				} else {
 					// Both DV and liveDocs changed.
-					var liveDocs util.Bits
-					if commitInfo.HasDeletions() {
-						liveDocs, _ = commitInfo.SegmentInfo().Codec().LiveDocsFormat().ReadLiveDocs(commitInfo.SegmentInfo().Directory(), commitInfo, store.IOContextReadOnce)
+					liveDocs, err := commitLiveDocs(commitInfo.SegmentInfo().Directory(), commitInfo)
+					if err != nil {
+						return nil, err
 					}
-					newReader = NewSegmentReaderNRT(commitInfo, oldReader, liveDocs, liveDocs, commitInfo.SegmentInfo().MaxDoc()-commitInfo.DelCount(), false)
+					newReader = NewSegmentReaderClone(commitInfo, oldReader, liveDocs, liveDocs, commitInfo.SegmentInfo().MaxDoc()-commitInfo.DelCount(), false)
 				}
 			}
 		}
@@ -314,7 +315,7 @@ func (r *StandardDirectoryReader) doOpenFromWriter(commit *IndexCommit, executor
 		return r.doOpenFromCommit(commit, executor)
 	}
 
-	if r.writer.NRTIsCurrent(r.segmentInfos) {
+	if r.writer.NrtIsCurrent(r.segmentInfos) {
 		return nil, nil
 	}
 
@@ -323,17 +324,12 @@ func (r *StandardDirectoryReader) doOpenFromWriter(commit *IndexCommit, executor
 		return nil, err
 	}
 
-	if reader.GetVersion() == r.segmentInfos.GetVersion() {
+	if reader.GetVersion() == r.segmentInfos.Version() {
 		_ = reader.DecRef()
 		return nil, nil
 	}
 
-	// Convert the DirectoryReader returned by GetReader to StandardDirectoryReader.
-	// Since GetReader in Gocene already returns *StandardDirectoryReader (based on IndexWriter.go), we can cast.
-	if std, ok := reader.(*StandardDirectoryReader); ok {
-		return std, nil
-	}
-	return nil, fmt.Errorf("GetReader did not return a StandardDirectoryReader")
+	return reader, nil
 }
 
 func (r *StandardDirectoryReader) doOpenNoWriter(commit *IndexCommit, executor interface{}) (*StandardDirectoryReader, error) {
@@ -363,12 +359,12 @@ func (r *StandardDirectoryReader) IsCurrentInternal() bool {
 	if err != nil {
 		return true
 	}
-	return sis.GetVersion() == r.segmentInfos.GetVersion()
+	return sis.Version() == r.segmentInfos.Version()
 }
 
 // GetVersion returns the version of the segment infos.
 func (r *StandardDirectoryReader) GetVersion() int64 {
-	return r.segmentInfos.GetVersion()
+	return r.segmentInfos.Version()
 }
 
 // GetSegmentInfos returns the SegmentInfos for this reader.
@@ -384,7 +380,7 @@ func (r *StandardDirectoryReader) IsCurrent() (bool, error) {
 	if r.writer == nil {
 		return r.IsCurrentInternal(), nil
 	}
-	return r.writer.NRTIsCurrent(r.segmentInfos), nil
+	return r.writer.NrtIsCurrent(r.segmentInfos), nil
 }
 
 func (r *StandardDirectoryReader) doClose() error {
@@ -442,7 +438,7 @@ func (r *StandardDirectoryReader) String() string {
 	if r.segmentInfos != nil {
 		sb.WriteString(r.segmentInfos.GetFileName())
 		sb.WriteByte(':')
-		sb.WriteString(strconv.FormatInt(r.segmentInfos.GetVersion(), 10))
+		sb.WriteString(strconv.FormatInt(r.segmentInfos.Version(), 10))
 	}
 	if r.writer != nil {
 		sb.WriteString(":nrt")

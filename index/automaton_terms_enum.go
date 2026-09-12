@@ -34,12 +34,12 @@ func NewAutomatonTermsEnum(delegate TermsEnum, compiled *automaton.CompiledAutom
 // returns AcceptYes / AcceptNo accordingly. AcceptNoAndSeek with a smarter
 // seek target is deferred to backlog #2704.
 func (a *AutomatonTermsEnum) Accept(term *Term) (AcceptStatus, error) {
-	if a.compiled == nil || a.compiled.RunAutomaton == nil {
+	if a.compiled == nil {
 		// Fallback: accept everything when no DFA was compiled.
 		return AcceptYes, nil
 	}
 	bytes := []byte(term.Text())
-	if a.compiled.RunAutomaton.Run(bytes, 0, len(bytes)) {
+	if a.compiled.GetAutomaton().Run(bytes, 0) {
 		return AcceptYes, nil
 	}
 	return AcceptNo, nil

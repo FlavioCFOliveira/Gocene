@@ -27,7 +27,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
@@ -78,11 +78,12 @@ type mutablePointTreeWrapper struct {
 	tree index.PointTreeBuffer
 }
 
-func (w *mutablePointTreeWrapper) Swap(i, j int)                   { w.tree.Swap(i, j) }
+func (w *mutablePointTreeWrapper) Swap(i, j int)                      { w.tree.Swap(i, j) }
 func (w *mutablePointTreeWrapper) GetValue(i int, dst *util.BytesRef) { w.tree.GetValue(i, dst) }
-func (w *mutablePointTreeWrapper) GetByteAt(i, k int) byte         { return w.// a la Java Lucene90PointsWriter.java
-	// This is a port of org.apache.lucene.codecs.lucene90.Lucene90PointsWriter.
-}
+func (w *mutablePointTreeWrapper) GetByteAt(i, k int) byte            { return w.tree.GetByteAt(i, k) }
+func (w *mutablePointTreeWrapper) GetDocID(i int) int                 { return w.tree.GetDocID(i) }
+func (w *mutablePointTreeWrapper) Save(i, j int)                      { w.tree.Save(i, j) }
+func (w *mutablePointTreeWrapper) Restore(i, j int)                   { w.tree.Restore(i, j) }
 
 // pointsWriter writes points in Lucene 9.0 format.
 type pointsWriter struct {
@@ -145,7 +146,7 @@ func newPointsWriter(state *codecs.SegmentWriteState, version int32) (codecs.Poi
 
 // WriteField writes the BKD tree for fieldInfo, pulling its point values from
 // reader (which must implement PointsSource).
-func (w *pointsWriter) WriteField(fieldInfo *schema.FieldInfo, reader codecs.PointsReader) error {
+func (w *pointsWriter) WriteField(fieldInfo *spi.FieldInfo, reader codecs.PointsReader) error {
 	if w.closed {
 		return errors.New("lucene90 points: writer closed")
 	}
@@ -267,7 +268,7 @@ func (w *pointsWriter) Merge(mergeState *codecs.MergeState) error {
 	return w.Finish()
 }
 
-func (w *pointsWriter) merge1D(mergeState *codecs.MergeState, fieldInfo *schema.FieldInfo) error {
+func (w *pointsWriter) merge1D(mergeState *codecs.MergeState, fieldInfo *spi.FieldInfo) error {
 	var totMaxSize int64
 	for i, reader := range mergeState.PointsReaders {
 		if reader == nil {
@@ -351,7 +352,7 @@ func (w *pointsWriter) merge1D(mergeState *codecs.MergeState, fieldInfo *schema.
 	return nil
 }
 
-func (w *pointsWriter) mergeOneField(mergeState *codecs.MergeState, fieldInfo *schema.FieldInfo) error {
+func (w *pointsWriter) mergeOneField(mergeState *codecs.MergeState, fieldInfo *spi.FieldInfo) error {
 	var maxPointCount int64
 	for i, reader := range mergeState.PointsReaders {
 		if reader == nil {
@@ -380,11 +381,11 @@ func (w *pointsWriter) mergeOneField(mergeState *codecs.MergeState, fieldInfo *s
 
 type mergedPointsReader struct {
 	mergeState *codecs.MergeState
-	fieldInfo  *schema.FieldInfo
+	fieldInfo  *spi.FieldInfo
 	totalCount int64
 }
 
-func (r *mergedPointsReader) Close() error { return nil }
+func (r *mergedPointsReader) Close() error          { return nil }
 func (r *mergedPointsReader) CheckIntegrity() error { return nil }
 func (r *mergedPointsReader) GetValues(fieldName string) (index.PointValues, error) {
 	if fieldName != r.fieldInfo.Name() {
@@ -405,25 +406,29 @@ func (pv *mergedPointValues) GetPointTree() (bkd.PointTree, error) {
 	}, nil
 }
 
-func (pv *mergedPointValues) GetMinPackedValue() ([]byte, error) { return nil, errors.New("not implemented") }
-func (pv *mergedPointValues) GetMaxPackedValue() ([]byte, error) { return nil, errors.New("not implemented") }
-func (pv *mergedPointValues) GetNumDimensions() int { return pv.reader.fieldInfo.PointDimensionCount() }
-func (pv *mergedPointValues) GetBytesPerDimension() int { return pv.reader.fieldInfo.PointNumBytes() }
-func (pv *mergedPointValues) GetDocCount() int { return 0 }
+func (pv *mergedPointValues) GetMinPackedValue() ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+func (pv *mergedPointValues) GetMaxPackedValue() ([]byte, error) {
+	return nil, errors.New("not implemented")
+}
+func (pv *mergedPointValues) GetNumDimensions() int       { return pv.reader.fieldInfo.PointDimensionCount() }
+func (pv *mergedPointValues) GetBytesPerDimension() int   { return pv.reader.fieldInfo.PointNumBytes() }
+func (pv *mergedPointValues) GetDocCount() int            { return 0 }
 func (pv *mergedPointValues) GetDocCountWithValue() int64 { return 0 }
-func (pv *mergedPointValues) GetValueCount() int64 { return pv.reader.totalCount }
+func (pv *mergedPointValues) GetValueCount() int64        { return pv.reader.totalCount }
 
 type mergedPointTree struct {
 	reader *mergedPointsReader
 }
 
-func (pt *mergedPointTree) Clone() bkd.PointTree { return nil }
-func (pt *mergedPointTree) MoveToChild() (bool, error) { return false, nil }
-func (pt *mergedPointTree) MoveToSibling() (bool, error) { return false, nil }
-func (pt *mergedPointTree) MoveToParent() (bool, error) { return false, nil }
-func (pt *mergedPointTree) GetMinPackedValue() []byte { return nil }
-func (pt *mergedPointTree) GetMaxPackedValue() []byte { return nil }
-func (pt *mergedPointTree) Size() int64 { return pt.reader.totalCount }
+func (pt *mergedPointTree) Clone() bkd.PointTree                           { return nil }
+func (pt *mergedPointTree) MoveToChild() (bool, error)                     { return false, nil }
+func (pt *mergedPointTree) MoveToSibling() (bool, error)                   { return false, nil }
+func (pt *mergedPointTree) MoveToParent() (bool, error)                    { return false, nil }
+func (pt *mergedPointTree) GetMinPackedValue() []byte                      { return nil }
+func (pt *mergedPointTree) GetMaxPackedValue() []byte                      { return nil }
+func (pt *mergedPointTree) Size() int64                                    { return pt.reader.totalCount }
 func (pt *mergedPointTree) VisitDocIDs(visitor bkd.IntersectVisitor) error { return nil }
 func (pt *mergedPointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
 	for i, reader := range pt.reader.mergeState.PointsReaders {

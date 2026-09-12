@@ -8,7 +8,9 @@ import (
 	"bytes"
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // buildDocMaps computes, for every sub-reader, the mapping from its local
@@ -115,12 +117,12 @@ func (sm *SegmentMerger) mergeTerms() error {
 	}
 
 	state := &SegmentWriteState{
-		Directory:     sm.directory,
-		SegmentInfo:   sm.MergeState.SegmentInfo,
-		FieldInfos:    sm.MergeState.MergeFieldInfos,
+		Directory:      sm.directory,
+		SegmentInfo:    sm.MergeState.SegmentInfo,
+		FieldInfos:     sm.MergeState.MergeFieldInfos,
 		SegmentSuffix:  "",
-			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
-			IsMerge:        true,
+		NeedsIndexSort: sm.MergeState.NeedsIndexSort,
+		IsMerge:        true,
 	}
 	consumer, err := sm.codec.PostingsFormat().FieldsConsumer(state)
 	if err != nil {
@@ -171,6 +173,29 @@ type mergeFieldTerms struct {
 	subs      []Terms
 	docMaps   []DocMap
 	fieldInfo *FieldInfo
+}
+
+// Field returns the name of the field this Terms view covers.
+func (t *mergeFieldTerms) Field() string { return t.fieldInfo.Name() }
+
+// Intersect runs the Terms.intersect base implementation: an
+// AutomatonTermsEnum over this Terms' own (merged) iterator, restricted to
+// NORMAL automata. A non-nil startTerm is honoured through
+// FilteredTermsEnum.setInitialSeekTerm, which is where Lucene's anonymous
+// nextSeekTerm override routes it.
+func (t *mergeFieldTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *Term) (TermsEnum, error) {
+	it, err := t.GetIterator()
+	if err != nil {
+		return nil, err
+	}
+	if compiled == nil || compiled.Type != automaton.AutomatonTypeNormal {
+		return nil, fmt.Errorf("mergeFieldTerms.Intersect: please use CompiledAutomaton.GetTermsEnum instead")
+	}
+	enum := NewAutomatonTermsEnum(it, compiled)
+	if startTerm != nil {
+		enum.SetInitialSeekTerm(startTerm)
+	}
+	return enum, nil
 }
 
 func (t *mergeFieldTerms) GetIterator() (TermsEnum, error) {
@@ -309,6 +334,56 @@ func (e *mergeTermsEnum) Postings(flags int) (PostingsEnum, error) {
 	return &mergeMappingPostings{parts: parts, idx: -1}, nil
 }
 
+// Impacts returns an ImpactsEnum with no skip data over the merged postings,
+// mirroring MultiTermsEnum.impacts: implemented so CheckIndex passes, but the
+// impacts carry no skip information (freq=MaxInt32, norm=1) so that no
+// impact-based early termination fires on a merge-time terms enum.
+func (e *mergeTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	pe, err := e.Postings(flags)
+	if err != nil {
+		return nil, err
+	}
+	if pe == nil {
+		return nil, nil
+	}
+	return spiImpactsEnum{ImpactsEnum: NewSlowImpactsEnum(pe)}, nil
+}
+
+// spiImpactsEnum adapts an index-side ImpactsEnum to spi.ImpactsEnum.
+//
+// PORT NOTE: package index still declares its own Impacts, ImpactsEnum and
+// FreqAndNormBuffer (index/impacts.go, index/impacts_enum.go,
+// index/freq_and_norm_buffer.go) alongside the SPI/util declarations they
+// were lifted to. The two ImpactsSource surfaces therefore differ only in the
+// buffer type they name, even though the buffer structs are identical. This
+// adapter bridges the two without copying; it becomes redundant — and should
+// be removed — once those three declarations are turned into aliases of
+// spi.Impacts, spi.ImpactsEnum and util.FreqAndNormBuffer.
+type spiImpactsEnum struct {
+	ImpactsEnum
+}
+
+// GetImpacts re-types the index-side Impacts as spi.Impacts.
+func (a spiImpactsEnum) GetImpacts() (spi.Impacts, error) {
+	imp, err := a.ImpactsEnum.GetImpacts()
+	if err != nil || imp == nil {
+		return nil, err
+	}
+	return spiImpacts{Impacts: imp}, nil
+}
+
+// spiImpacts adapts an index-side Impacts to spi.Impacts. See spiImpactsEnum.
+type spiImpacts struct {
+	Impacts
+}
+
+// GetImpacts re-types the index-side FreqAndNormBuffer as the util one. The
+// two structs have identical underlying types, so the pointer conversion is
+// exact and allocation-free.
+func (a spiImpacts) GetImpacts(level int) *util.FreqAndNormBuffer {
+	return (*util.FreqAndNormBuffer)(a.Impacts.GetImpacts(level))
+}
+
 func (e *mergeTermsEnum) PostingsWithLiveDocs(_ util.Bits, flags int) (PostingsEnum, error) {
 	// Source readers already exclude deleted docs via the DocMaps (deleted ->
 	// -1), so live-docs filtering is folded into the mapping.
@@ -350,6 +425,10 @@ func (e *mergeTermsEnum) SeekExact(target *Term) (bool, error) {
 }
 
 func (e *mergeTermsEnum) Term() *Term { return e.current }
+
+// Ord returns -1: a merge-time terms enum exposes no term ordinals, which is
+// how Lucene's MultiTermsEnum behaves (it leaves TermsEnum.ord unsupported).
+func (e *mergeTermsEnum) Ord() int64 { return -1 }
 
 func (e *mergeTermsEnum) DocFreq() (int, error) {
 	if e.current == nil {
@@ -447,6 +526,10 @@ func (p *mergeMappingPostings) Advance(target int) (int, error) {
 }
 
 func (p *mergeMappingPostings) DocID() int { return p.doc }
+
+// DocIDRunEnd assumes runs of a single doc ID and returns DocID()+1, the
+// default of org.apache.lucene.search.DocIdSetIterator.docIDRunEnd.
+func (p *mergeMappingPostings) DocIDRunEnd() int { return p.doc + 1 }
 
 func (p *mergeMappingPostings) current() PostingsEnum {
 	if p.idx < 0 || p.idx >= len(p.parts) {

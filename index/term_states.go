@@ -4,6 +4,10 @@
 
 package index
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 // TermStates aggregates per-segment TermState instances for a single Term
 // across a composite reader. Mirrors org.apache.lucene.index.TermStates from
 // Apache Lucene 10.4.0.
@@ -14,7 +18,7 @@ package index
 // from a top-level IndexReader+Term is deferred to backlog #2709.
 type TermStates struct {
 	// owner is the cache key owner.
-	owner *CacheKey
+	owner *spi.CacheKey
 
 	// docFreq is the artificial document frequency.
 	docFreq int
@@ -34,7 +38,7 @@ type TermStates struct {
 }
 
 // NewTermStates allocates an empty TermStates sized for leafCount leaves.
-func NewTermStates(owner *CacheKey, leafCount int) *TermStates {
+func NewTermStates(owner *spi.CacheKey, leafCount int) *TermStates {
 	return &TermStates{
 		owner:          owner,
 		states:         make([]TermState, leafCount),

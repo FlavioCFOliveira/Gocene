@@ -85,9 +85,15 @@ func (f *FilterSortedDocValues) Advance(target int) (int, error) {
 	}
 }
 
-// DocIDRunEnd returns the end of the run of consecutive doc IDs.
+// DocIDRunEnd returns the exclusive end of the current run of consecutive doc
+// IDs. Mirrors org.apache.lucene.search.DocIdSetIterator#docIDRunEnd: the
+// delegate's override is used when it declares one, otherwise the default
+// implementation "runs of a single doc ID" applies and docID() + 1 is returned.
 func (f *FilterSortedDocValues) DocIDRunEnd() int {
-	return f.in.DocIDRunEnd()
+	if runner, ok := f.in.(interface{ DocIDRunEnd() int }); ok {
+		return runner.DocIDRunEnd()
+	}
+	return f.in.DocID() + 1
 }
 
 // Cost returns the estimated cost of the iterator.
@@ -120,7 +126,7 @@ func (f *FilterSortedDocValues) OrdValue() (int, error) {
 }
 
 // LookupOrd retrieves the value for the specified ordinal.
-func (f *FilterSortedDocValues) LookupOrd(ord int) (*util.BytesRef, error) {
+func (f *FilterSortedDocValues) LookupOrd(ord int) ([]byte, error) {
 	return f.in.LookupOrd(ord)
 }
 

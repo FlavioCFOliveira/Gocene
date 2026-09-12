@@ -217,27 +217,27 @@ func (q *DoubleRangeFieldQuery) String() string {
 	return sb.String()
 }
 
-// NewIntersectsQuery creates a query for matching indexed ranges that intersect the defined range.
-func NewIntersectsQuery(field string, min, max []float64) (*DoubleRangeFieldQuery, error) {
-	return newRelationQuery(field, min, max, RangeFieldQueryTypeIntersects)
+// NewDoubleRangeIntersectsQuery creates a query for matching indexed ranges that intersect the defined range.
+func NewDoubleRangeIntersectsQuery(field string, min, max []float64) (*DoubleRangeFieldQuery, error) {
+	return newDoubleRelationQuery(field, min, max, RangeFieldQueryTypeIntersects)
 }
 
-// NewContainsQuery creates a query for matching indexed ranges that contain the defined range.
-func NewContainsQuery(field string, min, max []float64) (*DoubleRangeFieldQuery, error) {
-	return newRelationQuery(field, min, max, RangeFieldQueryTypeContains)
+// NewDoubleRangeContainsQuery creates a query for matching indexed ranges that contain the defined range.
+func NewDoubleRangeContainsQuery(field string, min, max []float64) (*DoubleRangeFieldQuery, error) {
+	return newDoubleRelationQuery(field, min, max, RangeFieldQueryTypeContains)
 }
 
-// NewWithinQuery creates a query for matching indexed ranges that are within the defined range.
-func NewWithinQuery(field string, min, max []float64) (*DoubleRangeFieldQuery, error) {
-	return newRelationQuery(field, min, max, RangeFieldQueryTypeWithin)
+// NewDoubleRangeWithinQuery creates a query for matching indexed ranges that are within the defined range.
+func NewDoubleRangeWithinQuery(field string, min, max []float64) (*DoubleRangeFieldQuery, error) {
+	return newDoubleRelationQuery(field, min, max, RangeFieldQueryTypeWithin)
 }
 
-// NewCrossesQuery creates a query for matching indexed ranges that cross the defined range.
-func NewCrossesQuery(field string, min, max []float64) (*DoubleRangeFieldQuery, error) {
-	return newRelationQuery(field, min, max, RangeFieldQueryTypeCrosses)
+// NewDoubleRangeCrossesQuery creates a query for matching indexed ranges that cross the defined range.
+func NewDoubleRangeCrossesQuery(field string, min, max []float64) (*DoubleRangeFieldQuery, error) {
+	return newDoubleRelationQuery(field, min, max, RangeFieldQueryTypeCrosses)
 }
 
-func newRelationQuery(field string, min, max []float64, qType RangeFieldQueryType) (*DoubleRangeFieldQuery, error) {
+func newDoubleRelationQuery(field string, min, max []float64, qType RangeFieldQueryType) (*DoubleRangeFieldQuery, error) {
 	if err := checkDoubleRangeArgs(min, max); err != nil {
 		return nil, err
 	}

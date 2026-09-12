@@ -5,6 +5,7 @@
 package index
 
 import (
+	"bytes"
 	"fmt"
 	"strconv"
 	"strings"
@@ -13,12 +14,10 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
 // DirectoryReader is a CompositeReader that reads from a Directory.
 
-//
 // This is the Go port of Lucene's org.apache.lucene.index.DirectoryReader.
 //
 // DirectoryReader is the main implementation of CompositeReader for reading
@@ -98,17 +97,13 @@ func OpenDirectoryReaderAtCommit(commit *IndexCommit) (*DirectoryReader, error) 
 // An empty slice produces an empty composite reader (valid for an empty index).
 func newCompositeReaderFromSegments(readers []*SegmentReader) (*CompositeReader, error) {
 	if len(readers) == 0 {
-		return &CompositeReader{
-			IndexReader: NewIndexReader(),
-			subReaders:  []IndexReaderInterface{},
-			starts:      []int{0},
-		}, nil
+		return spi.NewCompositeReader(), nil
 	}
 	subReaders := make([]IndexReaderInterface, len(readers))
 	for i, r := range readers {
 		subReaders[i] = r
 	}
-	return NewCompositeReaderWithSubReaders(subReaders)
+	return spi.NewCompositeReaderWithSubReaders(subReaders)
 }
 
 // openSegmentReader creates a SegmentReader for one SegmentCommitInfo, loading
@@ -122,13 +117,14 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 	// Resolve the codec for this segment. Prefer the segment's own codec name;
 	// fall back to the registered default when the name is absent (freshly-
 	// created in-memory segments have no on-disk codec name yet).
-	codecName := sci.SegmentInfo().Codec()
-	var codec Codec
-	if codecName != "" {
-		codec = LookupCodecByName(codecName)
-		if codec == nil {
-			// Codec name was stamped but not registered: fall back to default.
-			codec = GetDefaultCodec()
+	codec := sci.SegmentInfo().Codec()
+	if codec == nil {
+		if codecName := sci.SegmentInfo().CodecName(); codecName != "" {
+			codec = LookupCodecByName(codecName)
+			if codec == nil {
+				// Codec name was stamped but not registered: fall back to default.
+				codec = GetDefaultCodec()
+			}
 		}
 	}
 	// When no codec name is stamped on the segment (in-memory or codec-less
@@ -277,7 +273,6 @@ func openSegmentReader(directory store.Directory, sci *SegmentCommitInfo) (*Segm
 	// Codec-less / data-less fallback: expose the .si docCount and the .fnm
 	// FieldInfos without core readers.
 	sr := &SegmentReader{
-		LeafReader:        NewLeafReader(segInfo),
 		segmentCommitInfo: sci,
 		fieldInfos:        fi,
 		directory:         directory,
@@ -433,25 +428,28 @@ func OpenDirectoryReaderWithInfos(directory store.Directory, segmentInfos *Segme
 	}
 	wg.Wait()
 
-	// Check for errors and close any successfully opened readers on failure.
-	for i, err := range errors {
-		if err != nil {
-			for _, opened := range readers {
-				if opened != nil {
-					opened.Close() //nolint:errcheck
-				}
+	// closeOpened releases every reader opened so far. It runs only on a
+	// failure path, where the error being returned already describes what went
+	// wrong, so a close failure on the discarded readers is not reported.
+	closeOpened := func() {
+		for _, opened := range readers {
+			if opened != nil {
+				_ = opened.Close()
 			}
+		}
+	}
+
+	// Check for errors and close any successfully opened readers on failure.
+	for _, err := range errors {
+		if err != nil {
+			closeOpened()
 			return nil, err
 		}
 	}
 
 	compReader, err := newCompositeReaderFromSegments(readers)
 	if err != nil {
-		for _, opened := range readers {
-			if opened != nil {
-				opened.Close() //nolint:errcheck
-			}
-		}
+		closeOpened()
 		return nil, err
 	}
 
@@ -490,7 +488,13 @@ func OpenDirectoryReaderFromWriter(writer *IndexWriter) (*DirectoryReader, error
 	if writer == nil {
 		return nil, fmt.Errorf("OpenDirectoryReaderFromWriter: writer must not be nil")
 	}
-	return writer.GetReader()
+	// Lucene's DirectoryReader.open(IndexWriter) reopens with
+	// applyAllDeletes=true and writeAllDeletes=false.
+	reader, err := writer.GetReader(true, false)
+	if err != nil {
+		return nil, err
+	}
+	return reader.DirectoryReader, nil
 }
 
 // OpenDirectoryReaderFromWriterWithOptions opens a near-real-time
@@ -526,12 +530,12 @@ func OpenIfChangedFromWriter(old *DirectoryReader, writer *IndexWriter) (*Direct
 	// Fall back: if writer has no uncommitted changes and committed gen
 	// matches old, nothing changed.
 	if old != nil && !writer.hasUncommittedChanges() {
-		if cur, err := ReadSegmentInfos(writer.directory); err == nil &&
+		if cur, err := ReadSegmentInfos(writer.GetDirectory()); err == nil &&
 			old.segmentInfos != nil && cur.Generation() == old.segmentInfos.Generation() {
 			return nil, nil
 		}
 	}
-	return writer.GetReader()
+	return OpenDirectoryReaderFromWriter(writer)
 }
 
 // Reopen reopens the index to see if any changes have been made.
@@ -763,7 +767,7 @@ func (r *DirectoryReader) GetLiveDocs() util.Bits {
 	}
 	starts = append(starts, docBase)
 
-	return NewMultiBits(subs, starts)
+	return countedBits{NewMultiBits(subs, starts)}
 }
 
 // GetSequentialSubReaders returns the sequential sub-readers.
@@ -802,7 +806,7 @@ func (r *DirectoryReader) NumDeletedDocs() int {
 
 // EnsureOpen throws an error if the reader is closed.
 func (r *DirectoryReader) EnsureOpen() error {
-	if r.closed.Load() {
+	if r.IsClosed() {
 		return NewAlreadyClosedException("this IndexReader is closed", nil)
 	}
 	return nil
@@ -834,7 +838,7 @@ func (r *DirectoryReader) DecRef() error {
 
 // TryIncRef tries to increment the reference count.
 func (r *DirectoryReader) TryIncRef() bool {
-	if r.closed.Load() {
+	if r.IsClosed() {
 		return false
 	}
 	for _, reader := range r.readers {
@@ -863,7 +867,7 @@ func (r *DirectoryReader) GetRefCount() int32 {
 }
 
 // StoredFields returns a StoredFields instance for accessing stored fields.
-func (r *DirectoryReader) StoredFields() (StoredFields, error) {
+func (r *DirectoryReader) StoredFields() (spi.StoredFields, error) {
 	// For a DirectoryReader, this would need to aggregate across segments
 	// Return a wrapper that delegates to the appropriate segment
 	return &directoryStoredFields{reader: r}, nil
@@ -891,6 +895,15 @@ func (r *DirectoryReader) GetContext() (IndexReaderContext, error) {
 	return r.readerContext, nil
 }
 
+// GetVersion returns the version of the commit this reader reads, i.e. the
+// SegmentInfos version. Mirrors org.apache.lucene.index.DirectoryReader.getVersion().
+func (r *DirectoryReader) GetVersion() int64 {
+	if r.segmentInfos == nil {
+		return 0
+	}
+	return r.segmentInfos.Version()
+}
+
 // Leaves returns all leaf reader contexts from all segments.
 func (r *DirectoryReader) Leaves() ([]*LeafReaderContext, error) {
 	ctx, err := r.GetContext()
@@ -901,19 +914,19 @@ func (r *DirectoryReader) Leaves() ([]*LeafReaderContext, error) {
 }
 
 // buildDirectoryReaderContext builds the context hierarchy for a DirectoryReader.
-func buildDirectoryReaderContext(reader *DirectoryReader, parent IndexReaderContext) (*CompositeReaderContext, error) {
+func buildDirectoryReaderContext(reader *DirectoryReader, parent *CompositeReaderContext) (*CompositeReaderContext, error) {
 	children := make([]IndexReaderContext, len(reader.readers))
-	leaves := make([]*LeafReaderContext, 0)
+	leaves := make([]*LeafReaderContext, 0, len(reader.readers))
 	docBase := 0
 
 	for i, subReader := range reader.readers {
-		leafCtx := NewLeafReaderContext(subReader, parent, i, docBase)
+		leafCtx := spi.NewLeafReaderContext(subReader, parent, i, docBase)
 		children[i] = leafCtx
 		leaves = append(leaves, leafCtx)
 		docBase += subReader.MaxDoc()
 	}
 
-	return NewCompositeReaderContextWithChildren(reader, parent, children, leaves), nil
+	return spi.NewCompositeReaderContextWithChildren(reader, parent, children, leaves), nil
 }
 
 // directoryStoredFields wraps a DirectoryReader to provide StoredFields access.
@@ -928,7 +941,7 @@ func (dsf *directoryStoredFields) Prefetch(docIDs []int) error {
 }
 
 // Document retrieves the stored fields for a document using the visitor pattern.
-func (dsf *directoryStoredFields) Document(docID int, visitor StoredFieldVisitor) error {
+func (dsf *directoryStoredFields) Document(docID int, visitor spi.StoredFieldVisitor) error {
 	remainingDocID := docID
 	for _, subReader := range dsf.reader.readers {
 		maxDoc := subReader.MaxDoc()
@@ -1122,30 +1135,28 @@ var _ IndexReaderInterface = (*DirectoryReader)(nil)
 
 // SegmentReader additional methods
 
-// StoredFields returns a StoredFields instance for accessing stored fields.
-func (r *SegmentReader) StoredFields() (StoredFields, error) {
-	if r.coreReaders == nil {
-		return nil, fmt.Errorf("segment reader not initialized")
-	}
-	sfReader := r.coreReaders.GetStoredFieldsReader()
-	if sfReader == nil {
-		return NewEmptyStoredFields(), nil
-	}
-	liveDocs := r.GetLiveDocs()
-	return NewStoredFields(sfReader, liveDocs), nil
+// lengthBits is the Lucene org.apache.lucene.util.Bits surface: a get/length
+// pair with no cardinality accessor.
+type lengthBits interface {
+	Get(index int) bool
+	Length() int
 }
 
-// TermVectors returns a TermVectors instance for accessing term vectors.
-func (r *SegmentReader) TermVectors() (TermVectors, error) {
-	if r.coreReaders == nil {
-		return nil, fmt.Errorf("segment reader not initialized")
+// countedBits supplies the Cardinality accessor util.Bits requires on top of a
+// Lucene-shaped Bits, counting the set bits by linear scan.
+type countedBits struct {
+	lengthBits
+}
+
+// Cardinality counts the set bits of the wrapped Bits.
+func (c countedBits) Cardinality() int {
+	n := 0
+	for i, l := 0, c.Length(); i < l; i++ {
+		if c.Get(i) {
+			n++
+		}
 	}
-	tvReader := r.coreReaders.GetTermVectorsReader()
-	if tvReader == nil {
-		return NewEmptyTermVectors(), nil
-	}
-	liveDocs := r.GetLiveDocs()
-	return NewTermVectors(tvReader, liveDocs), nil
+	return n
 }
 
 // boolBits is a util.Bits backed by a []bool slice.
@@ -1153,6 +1164,18 @@ type boolBits []bool
 
 func (b boolBits) Get(index int) bool { return b[index] }
 func (b boolBits) Length() int        { return len(b) }
+
+// Cardinality counts the set (live) bits. util.Bits requires it; Lucene's Bits
+// carries only get/length, so the count is computed by a linear scan.
+func (b boolBits) Cardinality() int {
+	n := 0
+	for _, v := range b {
+		if v {
+			n++
+		}
+	}
+	return n
+}
 
 // Ensure SegmentReader implements IndexReaderInterface
 var _ IndexReaderInterface = (*SegmentReader)(nil)
@@ -1177,7 +1200,7 @@ func (r *DirectoryReader) doOpenFromWriter(commit *IndexCommit, executor interfa
 	if err != nil {
 		return nil, err
 	}
-	if reader.GetVersion() == r.segmentInfos.Generation() {
+	if reader.GetVersion() == r.segmentInfos.Version() {
 		reader.Close()
 		return nil, nil
 	}
@@ -1195,7 +1218,7 @@ func (r *DirectoryReader) doOpenNoWriter(commit *IndexCommit, executor interface
 		if commit.GetDirectory() != r.directory {
 			return nil, fmt.Errorf("the specified commit does not match the specified Directory")
 		}
-		if r.segmentInfos != nil && commit.GetSegmentsFileName() == r.segmentInfos.GetSegmentsFileName() {
+		if r.segmentInfos != nil && commit.GetSegmentsFileName() == r.segmentInfos.GetFileName() {
 			return nil, nil
 		}
 	}
@@ -1206,8 +1229,43 @@ func (r *DirectoryReader) doOpenFromCommit(commit *IndexCommit, executor interfa
 	return openDirectoryReaderWithSharing(r.directory, commit.GetSegmentInfos(), r.readers)
 }
 
+// commitLiveDocs reads the live-docs bits of sci through its codec's
+// LiveDocsFormat, returning nil when the segment carries no deletions.
+// Mirrors the codec.liveDocsFormat().readLiveDocs(directory, si, READONCE)
+// call Lucene makes whenever a reopened segment has to reload its deletions.
+func commitLiveDocs(directory store.Directory, sci *SegmentCommitInfo) (util.Bits, error) {
+	if sci == nil || !sci.HasDeletions() {
+		return nil, nil
+	}
+	codec := sci.SegmentInfo().Codec()
+	if codec == nil {
+		codec = GetDefaultCodec()
+	}
+	if codec == nil {
+		return nil, nil
+	}
+	format := codec.LiveDocsFormat()
+	if format == nil {
+		return nil, nil
+	}
+	if directory == nil {
+		directory = sci.SegmentInfo().Directory()
+	}
+	return format.ReadLiveDocs(directory, sci, store.IOContextReadOnce)
+}
+
+// openDirectoryReaderWithSharing opens a reader over segmentInfos, reusing the
+// matching reader from oldReaders wherever the segment has not changed.
+// Mirrors org.apache.lucene.index.StandardDirectoryReader.open(Directory,
+// SegmentInfos, List<? extends LeafReader>, Comparator).
 func openDirectoryReaderWithSharing(directory store.Directory, segmentInfos *SegmentInfos, oldReaders []*SegmentReader) (*DirectoryReader, error) {
 	readers := make([]*SegmentReader, 0, segmentInfos.Size())
+
+	closeOpened := func() {
+		for _, opened := range readers {
+			_ = opened.Close()
+		}
+	}
 
 	previousSegmentReaders := make(map[string]int)
 	for i, r := range oldReaders {
@@ -1222,82 +1280,74 @@ func openDirectoryReaderWithSharing(directory store.Directory, segmentInfos *Seg
 		var oldReader *SegmentReader
 		if ok {
 			oldReader = oldReaders[oldReaderIdx]
-			if oldReader.GetSegmentInfo().GetID() != sci.SegmentInfo().GetID() {
+			if !bytes.Equal(oldReader.GetSegmentInfo().GetID(), sci.SegmentInfo().GetID()) {
+				closeOpened()
 				return nil, fmt.Errorf("same segment %s has invalid doc count change; likely you are re-opening a reader after illegally removing index files yourself", sci.SegmentInfo().Name())
 			}
 		}
 
 		var newReader *SegmentReader
-		if oldReader == nil || sci.SegmentInfo().IsCompoundFile() != oldReader.GetSegmentInfo().IsCompoundFile() {
-			var err error
-			newReader, err = openSegmentReader(directory, sci)
+		switch {
+		case oldReader == nil || sci.SegmentInfo().IsCompoundFile() != oldReader.GetSegmentInfo().IsCompoundFile():
+			// The segment is new, or it changed its compound-file layout: open
+			// a brand new reader.
+			opened, err := openSegmentReader(directory, sci)
 			if err != nil {
-				for _, opened := range readers {
-					opened.Close()
-				}
+				closeOpened()
 				return nil, err
 			}
-		} else {
-			if oldReader.isNRT {
-				var liveDocs util.Bits
-				if sci.HasDeletions() {
-					codec := LookupCodecByName(sci.SegmentInfo().Codec())
-					var err error
-					liveDocs, err = codec.LiveDocsFormat().ReadLiveDocs(directory, sci, store.IOContextReadOnce)
-					if err != nil {
-						return nil, err
-					}
-				}
-				var err error
-				newReader, err = NewSegmentReaderFrom(sci, oldReader, liveDocs, liveDocs, sci.SegmentInfo().MaxDoc()-sci.GetDelCount(), false)
-				if err != nil {
+			newReader = opened
+
+		case oldReader.IsNRT():
+			// The previous reader carried its live docs in RAM, so the
+			// committed deletions have to be read back from disk.
+			liveDocs, err := commitLiveDocs(directory, sci)
+			if err != nil {
+				closeOpened()
+				return nil, err
+			}
+			newReader = NewSegmentReaderClone(sci, oldReader, liveDocs, liveDocs, sci.SegmentInfo().MaxDoc()-sci.DelCount(), false)
+
+		default:
+			oldInfo := oldReader.GetSegmentCommitInfo()
+			switch {
+			case oldInfo.DelGen() == sci.DelGen() && oldInfo.FieldInfosGen() == sci.FieldInfosGen():
+				// Nothing changed for this segment: share the existing reader.
+				if err := oldReader.IncRef(); err != nil {
+					closeOpened()
 					return nil, err
 				}
-			} else {
-				if oldReader.GetSegmentInfo().GetDelGen() == sci.GetDelGen() &&
-					oldReader.GetSegmentInfo().GetFieldInfosGen() == sci.GetFieldInfosGen() {
-					oldReader.IncRef()
-					newReader = oldReader
-				} else if oldReader.GetSegmentInfo().GetDelGen() == sci.GetDelGen() {
-					var err error
-					newReader, err = NewSegmentReaderFrom(sci, oldReader, oldReader.GetLiveDocs(), oldReader.GetHardLiveDocs(), oldReader.NumDocs(), false)
-					if err != nil {
-						return nil, err
-					}
-				} else {
-					var liveDocs util.Bits
-					if sci.HasDeletions() {
-						codec := LookupCodecByName(sci.SegmentInfo().Codec())
-						var err error
-						liveDocs, err = codec.LiveDocsFormat().ReadLiveDocs(directory, sci, store.IOContextReadOnce)
-						if err != nil {
-							return nil, err
-						}
-					}
-					var err error
-					newReader, err = NewSegmentReaderFrom(sci, oldReader, liveDocs, liveDocs, sci.SegmentInfo().MaxDoc()-sci.GetDelCount(), false)
-					if err != nil {
-						return nil, err
-					}
+				newReader = oldReader
+
+			case oldInfo.DelGen() == sci.DelGen():
+				// Only the doc values changed; the live docs carry over.
+				newReader = NewSegmentReaderClone(sci, oldReader, oldReader.GetLiveDocs(), oldReader.GetHardLiveDocs(), oldReader.NumDocs(), false)
+
+			default:
+				// Both the deletions and the doc values changed.
+				liveDocs, err := commitLiveDocs(directory, sci)
+				if err != nil {
+					closeOpened()
+					return nil, err
 				}
+				newReader = NewSegmentReaderClone(sci, oldReader, liveDocs, liveDocs, sci.SegmentInfo().MaxDoc()-sci.DelCount(), false)
 			}
-			readers = append(readers, newReader)
 		}
 
-		compReader, err := newCompositeReaderFromSegments(readers)
-		if err != nil {
-			for _, opened := range readers {
-				opened.Close()
-			}
-			return nil, err
-		}
-
-		return &DirectoryReader{
-			CompositeReader: compReader,
-			directory:       directory,
-			segmentInfos:    segmentInfos,
-			readers:         readers,
-			nrtGen:          0,
-		}, nil
+		readers = append(readers, newReader)
 	}
+
+	compReader, err := newCompositeReaderFromSegments(readers)
+	if err != nil {
+		closeOpened()
+		return nil, err
+	}
+
+	return &DirectoryReader{
+		CompositeReader: compReader,
+		directory:       directory,
+		segmentInfos:    segmentInfos,
+		readers:         readers,
+		nrtGen:          0,
+	}, nil
 }

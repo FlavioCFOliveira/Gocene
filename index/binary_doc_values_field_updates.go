@@ -5,7 +5,6 @@
 package index
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -26,8 +25,8 @@ type BinaryDocValuesFieldUpdates struct {
 	BaseDocValuesFieldUpdates
 
 	mu      sync.Mutex
-	offsets *packed.PagedGrowableWriter
-	lengths *packed.PagedGrowableWriter
+	offsets *packed.AbstractPagedMutable
+	lengths *packed.AbstractPagedMutable
 	values  *util.BytesRefBuilder
 }
 
@@ -38,8 +37,10 @@ func NewBinaryDocValuesFieldUpdates(delGen int64, field string, maxDoc int) *Bin
 		panic(err)
 	}
 
-	b.offsets, _ = packed.NewPagedGrowableWriter(1, docValuesFieldUpdatesPageSize, 1, packed.Fast)
-	b.lengths, _ = packed.NewPagedGrowableWriter(1, docValuesFieldUpdatesPageSize, 1, packed.Fast)
+	offsets, _ := packed.NewPagedGrowableWriter(1, docValuesFieldUpdatesPageSize, 1, packed.Fast)
+	lengths, _ := packed.NewPagedGrowableWriter(1, docValuesFieldUpdatesPageSize, 1, packed.Fast)
+	b.offsets = offsets.AbstractPagedMutable
+	b.lengths = lengths.AbstractPagedMutable
 	b.values = util.NewBytesRefBuilder()
 
 	b.HookSwap = b.swap
@@ -106,7 +107,7 @@ func (b *BinaryDocValuesFieldUpdates) resize(size int) {
 // Iterator returns an iterator over the updates.
 func (b *BinaryDocValuesFieldUpdates) Iterator() DocValuesFieldUpdatesIterator {
 	b.EnsureFinished()
-	return NewBinaryDocValuesFieldUpdatesIterator(b.Size, b.Docs, b.DelGen(), b.offsets, b.lengths, b.values.Bytes())
+	return NewBinaryDocValuesFieldUpdatesIterator(b.Size, b.Docs, b.DelGen(), b.offsets, b.lengths, util.NewBytesRef(b.values.Bytes()))
 }
 
 // RamBytesUsed reports the total RAM footprint of this packet.
@@ -128,19 +129,19 @@ func (b *BinaryDocValuesFieldUpdates) RamBytesUsed() int64 {
 type BinaryDocValuesFieldUpdatesIterator struct {
 	BaseDocValuesFieldUpdatesIterator
 
-	offsets *packed.PagedGrowableWriter
-	lengths *packed.PagedGrowableWriter
+	offsets *packed.AbstractPagedMutable
+	lengths *packed.AbstractPagedMutable
 	value   *util.BytesRef
 	offset  int
 	length  int
 }
 
 // NewBinaryDocValuesFieldUpdatesIterator initialises a new binary update iterator.
-func NewBinaryDocValuesFieldUpdatesIterator(size int, docs *packed.AbstractPagedMutable, delGen int64, offsets, lengths *packed.PagedGrowableWriter, values *util.BytesRef) DocValuesFieldUpdatesIterator {
+func NewBinaryDocValuesFieldUpdatesIterator(size int, docs *packed.AbstractPagedMutable, delGen int64, offsets, lengths *packed.AbstractPagedMutable, values *util.BytesRef) DocValuesFieldUpdatesIterator {
 	it := &BinaryDocValuesFieldUpdatesIterator{
 		offsets: offsets,
 		lengths: lengths,
-		value:   util.CloneBytesRef(values),
+		value:   util.NewBytesRef(values.ValidBytes()),
 	}
 	InitBaseDocValuesFieldUpdatesIterator(&it.BaseDocValuesFieldUpdatesIterator, size, docs, delGen)
 

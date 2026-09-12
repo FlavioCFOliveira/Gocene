@@ -85,4 +85,13 @@ type Codec interface {
 	// into package spi. Codec implementations that do not support norms
 	// may return nil.
 	NormsFormat() NormsFormat
+
+	// LiveDocsFormat returns the format used for the per-segment
+	// live/deleted documents bitset (.liv). Mirrors the abstract
+	// org.apache.lucene.codecs.Codec.liveDocsFormat() of Apache Lucene
+	// 10.5.0. The index read path (SegmentReader, DirectoryReader) and
+	// the index write path (DocumentsWriterPerThread, PendingDeletes)
+	// both reach the .liv encoder exclusively through this accessor.
+	// Codec implementations that cannot carry deletions may return nil.
+	LiveDocsFormat() LiveDocsFormat
 }

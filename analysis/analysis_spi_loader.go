@@ -13,47 +13,37 @@ import (
 
 var serviceNamePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]+$`)
 
-// AnalysisSPILoader is a helper class for loading named SPIs from the registry.
-//
-// This is the Go port of org.apache.lucene.analysis.AnalysisSPILoader.
-type AnalysisSPILoader[S any] struct {
+// GenericAnalysisSPILoader is a generic loader for SPIs.
+type GenericAnalysisSPILoader[S any] struct {
 	mu            sync.RWMutex
 	services      map[string]func(map[string]string) S
 	originalNames []string
 }
 
-// NewAnalysisSPILoader creates a new AnalysisSPILoader.
-func NewAnalysisSPILoader[S any]() *AnalysisSPILoader[S] {
-	return &AnalysisSPILoader[S]{
+// NewGenericAnalysisSPILoader creates a new GenericAnalysisSPILoader.
+func NewGenericAnalysisSPILoader[S any]() *GenericAnalysisSPILoader[S] {
+	return &GenericAnalysisSPILoader[S]{
 		services: make(map[string]func(map[string]string) S),
 	}
 }
 
 // Reload reloads the internal SPI list.
-//
-// In Go, discovery is typically via init() registration, so this is a no-op for fidelity
-// to the Lucene API.
-func (l *AnalysisSPILoader[S]) Reload() {
+func (l *GenericAnalysisSPILoader[S]) Reload() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 }
 
 // NewInstance creates a new instance of the given SPI by invoking its creator.
-//
-// This is the Go port of AnalysisSPILoader.newInstance.
-func (l *AnalysisSPILoader[S]) NewInstance(name string, args map[string]string) S {
+func (l *GenericAnalysisSPILoader[S]) NewInstance(name string, args map[string]string) S {
 	creator, err := l.Lookup(name)
 	if err != nil {
-		// Lucene throws IllegalArgumentException here.
 		panic(err)
 	}
 	return creator(args)
 }
 
 // Lookup finds the creator for the given SPI name.
-//
-// This is the Go port of AnalysisSPILoader.lookupClass.
-func (l *AnalysisSPILoader[S]) Lookup(name string) (func(map[string]string) S, error) {
+func (l *GenericAnalysisSPILoader[S]) Lookup(name string) (func(map[string]string) S, error) {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 
@@ -69,18 +59,14 @@ func (l *AnalysisSPILoader[S]) Lookup(name string) (func(map[string]string) S, e
 }
 
 // AvailableServices returns the list of all registered SPI names.
-//
-// This is the Go port of AnalysisSPILoader.availableServices.
-func (l *AnalysisSPILoader[S]) AvailableServices() []string {
+func (l *GenericAnalysisSPILoader[S]) AvailableServices() []string {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return l.originalNames
 }
 
 // Register adds a new SPI creator to the loader.
-//
-// This replaces the Java ServiceLoader mechanism in Go.
-func (l *AnalysisSPILoader[S]) Register(name string, creator func(map[string]string) S) error {
+func (l *GenericAnalysisSPILoader[S]) Register(name string, creator func(map[string]string) S) error {
 	if !isValidName(name) {
 		return fmt.Errorf(
 			"the name %s is invalid: Allowed characters are (English) alphabet, digits, and underscore. It should be started with an alphabet",
@@ -102,3 +88,53 @@ func (l *AnalysisSPILoader[S]) Register(name string, creator func(map[string]str
 func isValidName(name string) bool {
 	return serviceNamePattern.MatchString(name)
 }
+
+// AnalysisSPILoader is a loader for analysis services (Tokenizers, CharFilters, TokenFilters).
+type AnalysisSPILoader struct {
+	mu sync.RWMutex
+}
+
+// NewAnalysisSPILoader creates a new AnalysisSPILoader.
+func NewAnalysisSPILoader() *AnalysisSPILoader {
+	return &AnalysisSPILoader{}
+}
+
+// AvailableServices returns a list of all available service names across all registries.
+func (l *AnalysisSPILoader) AvailableServices() []string {
+	tokenizerNames := AvailableTokenizers()
+	charFilterNames := AvailableCharFilters()
+	tokenFilterNames := AvailableTokenFilters()
+
+	all := make(map[string]struct{})
+	for _, n := range tokenizerNames {
+		all[n] = struct{}{}
+	}
+	for _, n := range charFilterNames {
+		all[n] = struct{}{}
+	}
+	for _, n := range tokenFilterNames {
+		all[n] = struct{}{}
+	}
+
+	res := make([]string, 0, len(all))
+	for n := range all {
+		res = append(res, n)
+	}
+	return res
+}
+
+// NewInstance creates a new instance of the specified service.
+func (l *AnalysisSPILoader) NewInstance(name string, params map[string]string) (any, error) {
+	if tf, err := TokenizerForName(name, params); err == nil {
+		return tf, nil
+	}
+	if cf, err := CharFilterForName(name, params); err == nil {
+		return cf, nil
+	}
+	if tff, err := TokenFilterForName(name, params); err == nil {
+		return tff, nil
+	}
+
+	return nil, fmt.Errorf("no analysis service found with name: %s", name)
+}
+

@@ -14,11 +14,15 @@ import (
 // (Apache Lucene 10.4.0).
 //
 // SPI name: "kStem"
-type KStemFilterFactory struct{}
+type KStemFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewKStemFilterFactory creates a new KStemFilterFactory.
 func NewKStemFilterFactory() *KStemFilterFactory {
-	return &KStemFilterFactory{}
+	return &KStemFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+	}
 }
 
 // Create wraps the given input stream with a KStemFilter.

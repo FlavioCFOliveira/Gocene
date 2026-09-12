@@ -75,7 +75,7 @@ func (iu *IndexUpgrader) Upgrade() error {
 
 	// Create config with UpgradeIndexMergePolicy so that only segments written
 	// by older Lucene versions are rewritten during the forced merge.
-	config := NewIndexWriterConfig(nil)
+	config := NewIndexWriterConfig()
 	basePolicy := config.GetMergePolicy()
 	if basePolicy == nil {
 		basePolicy = NewTieredMergePolicy()
@@ -98,8 +98,9 @@ func (iu *IndexUpgrader) Upgrade() error {
 		return fmt.Errorf("force merge failed during upgrade: %w", err)
 	}
 
-	// Commit the changes
-	if err := writer.Commit(); err != nil {
+	// Commit the changes. The returned sequence number is not used here;
+	// Lucene's IndexUpgrader likewise discards IndexWriter.commit()'s value.
+	if _, err := writer.Commit(); err != nil {
 		return fmt.Errorf("commit failed during upgrade: %w", err)
 	}
 

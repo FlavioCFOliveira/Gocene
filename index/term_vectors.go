@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // TermVectors provides access to term vectors for documents.
@@ -17,29 +19,15 @@ import (
 //
 // TermVectors allows retrieving term vectors for documents.
 // It wraps a TermVectorsReader and provides thread-safe access.
-type TermVectors interface {
-	// Prefetch prefetches term vectors for the given document IDs.
-	// This is a hint to the implementation that these documents
-	// will likely be accessed soon.
-	Prefetch(docIDs []int) error
 
-	// Get retrieves the term vectors for a single document.
-	// Returns a Fields object containing all term vectors for the document.
-	Get(docID int) (Fields, error)
-
-	// GetField retrieves the term vector for a specific field in a document.
-	// Returns nil if the field has no term vector.
-	GetField(docID int, field string) (Terms, error)
-}
-
-// TermVectorsImpl is an implementation of TermVectors that wraps a TermVectorsReader.
+// TermVectorsImpl is an implementation of spi.TermVectors that wraps a TermVectorsReader.
 type TermVectorsImpl struct {
 	reader   TermVectorsReader
 	liveDocs util.Bits
 	mu       sync.RWMutex
 }
 
-// NewTermVectors creates a new TermVectors from a TermVectorsReader.
+// NewTermVectors creates a new spi.TermVectors from a TermVectorsReader.
 func NewTermVectors(reader TermVectorsReader, liveDocs util.Bits) *TermVectorsImpl {
 	return &TermVectorsImpl{
 		reader:   reader,
@@ -118,11 +106,11 @@ func (e *EmptyTermVectors) GetField(docID int, field string) (Terms, error) {
 	return nil, nil
 }
 
-// Ensure EmptyTermVectors implements TermVectors
-var _ TermVectors = (*EmptyTermVectors)(nil)
+// Ensure EmptyTermVectors implements spi.TermVectors
+var _ spi.TermVectors = (*EmptyTermVectors)(nil)
 
-// Ensure TermVectorsImpl implements TermVectors
-var _ TermVectors = (*TermVectorsImpl)(nil)
+// Ensure TermVectorsImpl implements spi.TermVectors
+var _ spi.TermVectors = (*TermVectorsImpl)(nil)
 
 // TermVector represents the term vector for a single field in a document.
 // It contains all terms, their frequencies, and positions in the field.
@@ -306,6 +294,29 @@ func NewTermVectorTerms(tv *TermVector) *TermVectorTerms {
 	return &TermVectorTerms{tv: tv}
 }
 
+// Field returns the name of the field whose term vector this Terms exposes.
+func (t *TermVectorTerms) Field() string { return t.tv.Field }
+
+// Intersect runs the Terms.intersect base implementation: an
+// AutomatonTermsEnum over this Terms' iterator, restricted to NORMAL automata
+// as org.apache.lucene.index.Terms#intersect requires. A non-nil startTerm is
+// honoured through FilteredTermsEnum.setInitialSeekTerm, which is where
+// Lucene's anonymous nextSeekTerm override routes it.
+func (t *TermVectorTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *Term) (TermsEnum, error) {
+	it, err := t.GetIterator()
+	if err != nil {
+		return nil, err
+	}
+	if compiled == nil || compiled.Type != automaton.AutomatonTypeNormal {
+		return nil, fmt.Errorf("TermVectorTerms.Intersect: please use CompiledAutomaton.GetTermsEnum instead")
+	}
+	enum := NewAutomatonTermsEnum(it, compiled)
+	if startTerm != nil {
+		enum.SetInitialSeekTerm(startTerm)
+	}
+	return enum, nil
+}
+
 // GetIterator returns an iterator over all terms in this field.
 func (t *TermVectorTerms) GetIterator() (TermsEnum, error) {
 	return NewTermVectorTermsEnum(t.tv), nil
@@ -429,6 +440,17 @@ func (e *TermVectorTermsEnum) Next() (*Term, error) {
 	return NewTerm(e.tv.Field, e.tv.Terms[e.index]), nil
 }
 
+// Ord returns the ordinal of the current term. A term vector keeps its terms
+// in sorted order, so the enumerator's cursor is the term ordinal. Returns -1
+// when the enumerator is not positioned or is exhausted, per the TermsEnum
+// contract.
+func (e *TermVectorTermsEnum) Ord() int64 {
+	if e.index < 0 || e.index >= len(e.tv.Terms) {
+		return -1
+	}
+	return int64(e.index)
+}
+
 // DocFreq returns the document frequency of the current term.
 func (e *TermVectorTermsEnum) DocFreq() (int, error) {
 	return 1, nil // In term vectors, each term appears in exactly one doc
@@ -445,6 +467,14 @@ func (e *TermVectorTermsEnum) TotalTermFreq() (int64, error) {
 // Postings returns a PostingsEnum for the current term.
 func (e *TermVectorTermsEnum) Postings(flags int) (PostingsEnum, error) {
 	return nil, fmt.Errorf("postings not supported for term vectors")
+}
+
+// Impacts is unsupported: impacts are derived from postings, which this
+// term-vector-backed enumerator does not expose. Mirrors the
+// UnsupportedOperationException raised by the term-vector TermsEnum in
+// org.apache.lucene.index.BaseTermsEnum#impacts when postings are unavailable.
+func (e *TermVectorTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, fmt.Errorf("impacts not supported for term vectors")
 }
 
 // SeekCeil seeks to the specified term or, if the term doesn't exist,

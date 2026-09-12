@@ -11,25 +11,34 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
-// TokenFilterFactory is the interface for factories that create TokenFilter instances.
-//
-// This is the Go port of Lucene's org.apache.lucene.analysis.TokenFilterFactory.
+// TokenFilterFactory is an alias for the TokenFilterFactory interface in the api package.
 type TokenFilterFactory = api.TokenFilterFactory
 
-// BaseTokenFilterFactory provides a base implementation for TokenFilterFactory.
-//
-// Embed this struct in concrete TokenFilterFactory implementations to inherit
-// the default Normalize behavior.
-type BaseTokenFilterFactory struct{}
+// BaseTokenFilterFactory is a base implementation of TokenFilterFactory.
+type BaseTokenFilterFactory struct {
+	args map[string]string
+}
 
-// Normalize normalizes the specified input TokenStream.
-// The default implementation returns input unchanged.
-func (f *BaseTokenFilterFactory) Normalize(input TokenStream) TokenStream {
+// NewBaseTokenFilterFactory creates a new BaseTokenFilterFactory.
+func NewBaseTokenFilterFactory(args map[string]string) *BaseTokenFilterFactory {
+	return &BaseTokenFilterFactory{
+		args: args,
+	}
+}
+
+// Normalize returns the input unchanged by default.
+func (f *BaseTokenFilterFactory) Normalize(input api.TokenStream) api.TokenStream {
 	return input
+}
+
+// GetArg returns the value of the specified argument.
+func (f *BaseTokenFilterFactory) GetArg(key string) string {
+	return f.args[key]
 }
 
 var (
 	tokenFilterRegistry = make(map[string]func(map[string]string) TokenFilterFactory)
+
 	tokenFilterMu       sync.RWMutex
 )
 
@@ -51,7 +60,7 @@ func TokenFilterForName(name string, args map[string]string) (TokenFilterFactory
 	return creator(args), nil
 }
 
-// AvailableTokenFilters returns a list of all available token filter names from the registry.
+// AvailableTokenFilters returns a list of all available token filter names.
 func AvailableTokenFilters() []string {
 	tokenFilterMu.RLock()
 	defer tokenFilterMu.RUnlock()
@@ -61,6 +70,3 @@ func AvailableTokenFilters() []string {
 	}
 	return names
 }
-
-// AnalyzerFactory is a type alias for api.AnalyzerFactory.
-type AnalyzerFactory = api.AnalyzerFactory

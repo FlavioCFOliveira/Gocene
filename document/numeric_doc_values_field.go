@@ -5,7 +5,7 @@
 package document
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // NumericDocValuesField is a field that stores a single int64 value as DocValues.
@@ -28,7 +28,7 @@ func init() {
 	NumericDocValuesFieldType = NewFieldType().
 		SetIndexed(false).
 		SetStored(false).
-		SetDocValuesType(schema.DocValuesTypeNumeric)
+		SetDocValuesType(spi.DocValuesTypeNumeric)
 	NumericDocValuesFieldType.Freeze()
 }
 

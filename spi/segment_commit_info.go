@@ -7,8 +7,6 @@ package spi
 import (
 	"fmt"
 	"sync"
-
-	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 // SegmentCommitInfo wraps SegmentInfo with commit-specific metadata.
@@ -21,8 +19,9 @@ import (
 // SegmentInfosFormat interface (and the on-disk segments_N reader/writer)
 // no longer require a back-edge into package index.
 type SegmentCommitInfo struct {
-	// segmentInfo is the wrapped SegmentInfo
-	segmentInfo *schema.SegmentInfo
+	// Info is the wrapped SegmentInfo. Exported final, mirroring Lucene's
+	// public final SegmentCommitInfo.info.
+	Info *SegmentInfo
 
 	// delCount is the number of deleted documents in this segment
 	delCount int
@@ -63,7 +62,7 @@ type SegmentCommitInfo struct {
 	// This is not persisted to disk; it is populated by IndexWriter during
 	// commit and copied by AddIndexes to preserve field metadata across
 	// directory boundaries.
-	inMemoryFieldInfos *schema.FieldInfos
+	inMemoryFieldInfos *FieldInfos
 
 	// inMemoryFields holds in-memory postings built from DocumentsWriter
 	// DWPTs when no codec was wired.  Used by SegmentReader.Terms() to
@@ -110,9 +109,9 @@ type SegmentCommitInfo struct {
 //   - segmentInfo: the SegmentInfo to wrap
 //   - delCount: number of deleted documents
 //   - delGen: deletion file generation (-1 if no deletions)
-func NewSegmentCommitInfo(segmentInfo *schema.SegmentInfo, delCount int, delGen int64) *SegmentCommitInfo {
+func NewSegmentCommitInfo(segmentInfo *SegmentInfo, delCount int, delGen int64) *SegmentCommitInfo {
 	return &SegmentCommitInfo{
-		segmentInfo:           segmentInfo,
+		Info:                  segmentInfo,
 		delCount:              delCount,
 		softDelCount:          0,
 		delGen:                delGen,
@@ -199,8 +198,8 @@ func (sci *SegmentCommitInfo) SetDocValuesUpdatesFiles(files map[int]map[string]
 }
 
 // SegmentInfo returns the wrapped SegmentInfo.
-func (sci *SegmentCommitInfo) SegmentInfo() *schema.SegmentInfo {
-	return sci.segmentInfo
+func (sci *SegmentCommitInfo) SegmentInfo() *SegmentInfo {
+	return sci.Info
 }
 
 // DelCount returns the number of deleted documents.
@@ -336,41 +335,44 @@ func (sci *SegmentCommitInfo) GetAttributes() map[string]string {
 
 // Name returns the segment name (delegates to SegmentInfo).
 func (sci *SegmentCommitInfo) Name() string {
-	return sci.segmentInfo.Name()
+	return sci.Info.Name()
 }
 
-// DocCount returns the total document count (delegates to SegmentInfo).
+// DocCount returns the total document count, including deleted documents
+// (delegates to Info.MaxDoc). Compatibility accessor; Lucene 10.5.0
+// callers read info.maxDoc() directly.
 func (sci *SegmentCommitInfo) DocCount() int {
-	return sci.segmentInfo.DocCount()
+	return sci.Info.MaxDoc()
 }
 
-// NumDocs returns the number of live documents (docCount - delCount - softDelCount).
+// NumDocs returns the number of live documents (maxDoc - delCount -
+// softDelCount).
 func (sci *SegmentCommitInfo) NumDocs() int {
 	sci.mu.RLock()
 	defer sci.mu.RUnlock()
-	return sci.segmentInfo.DocCount() - sci.delCount - sci.softDelCount
+	return sci.Info.MaxDoc() - sci.delCount - sci.softDelCount
 }
 
-// MaxDoc returns the maximum document ID (docCount - 1).
+// MaxDoc returns the segment's maxDoc (delegates to Info.MaxDoc).
 func (sci *SegmentCommitInfo) MaxDoc() int {
-	return sci.segmentInfo.DocCount() - 1
+	return sci.Info.MaxDoc()
 }
 
 // GetGeneration returns the segment generation (delegates to SegmentInfo).
 func (sci *SegmentCommitInfo) GetGeneration() int64 {
-	return sci.segmentInfo.GetGeneration()
+	return sci.Info.GetGeneration()
 }
 
 // GetInMemoryFieldInfos returns the in-memory FieldInfos for this segment.
 // May be nil if no documents have been added.
-func (sci *SegmentCommitInfo) GetInMemoryFieldInfos() *schema.FieldInfos {
+func (sci *SegmentCommitInfo) GetInMemoryFieldInfos() *FieldInfos {
 	sci.mu.RLock()
 	defer sci.mu.RUnlock()
 	return sci.inMemoryFieldInfos
 }
 
 // SetInMemoryFieldInfos sets the in-memory FieldInfos for this segment.
-func (sci *SegmentCommitInfo) SetInMemoryFieldInfos(fi *schema.FieldInfos) {
+func (sci *SegmentCommitInfo) SetInMemoryFieldInfos(fi *FieldInfos) {
 	sci.mu.Lock()
 	defer sci.mu.Unlock()
 	sci.inMemoryFieldInfos = fi
@@ -422,7 +424,7 @@ func (sci *SegmentCommitInfo) String() string {
 	sci.mu.RLock()
 	defer sci.mu.RUnlock()
 	return fmt.Sprintf("SegmentCommitInfo(name=%s, delCount=%d, delGen=%d, fieldInfosGen=%d)",
-		sci.segmentInfo.Name(), sci.delCount, sci.delGen, sci.fieldInfosGen)
+		sci.Info.Name(), sci.delCount, sci.delGen, sci.fieldInfosGen)
 }
 
 // Clone creates a copy of this SegmentCommitInfo.
@@ -431,7 +433,7 @@ func (sci *SegmentCommitInfo) Clone() *SegmentCommitInfo {
 	defer sci.mu.RUnlock()
 
 	clone := &SegmentCommitInfo{
-		segmentInfo:           sci.segmentInfo,
+		Info:                  sci.Info,
 		delCount:              sci.delCount,
 		softDelCount:          sci.softDelCount,
 		delGen:                sci.delGen,
@@ -523,7 +525,7 @@ func (sci *SegmentCommitInfo) GetDelFileName() string {
 	if sci.delGen < 0 {
 		return ""
 	}
-	return fmt.Sprintf("_%s_%d.del", sci.segmentInfo.Name()[1:], sci.delGen)
+	return fmt.Sprintf("_%s_%d.del", sci.Info.Name()[1:], sci.delGen)
 }
 
 // GetFieldInfosFileName returns the field infos file name for this generation.
@@ -535,7 +537,7 @@ func (sci *SegmentCommitInfo) GetFieldInfosFileName() string {
 	if sci.fieldInfosGen < 0 {
 		return ""
 	}
-	return fmt.Sprintf("_%s_%d.fnm", sci.segmentInfo.Name()[1:], sci.fieldInfosGen)
+	return fmt.Sprintf("_%s_%d.fnm", sci.Info.Name()[1:], sci.fieldInfosGen)
 }
 
 // GetDocValuesFileName returns the doc values file name for this generation.
@@ -547,7 +549,7 @@ func (sci *SegmentCommitInfo) GetDocValuesFileName() string {
 	if sci.docValuesGen < 0 {
 		return ""
 	}
-	return fmt.Sprintf("_%s_%d.dvd", sci.segmentInfo.Name()[1:], sci.docValuesGen)
+	return fmt.Sprintf("_%s_%d.dvd", sci.Info.Name()[1:], sci.docValuesGen)
 }
 
 // GetFiles returns all files associated with this segment commit.
@@ -572,20 +574,20 @@ func (sci *SegmentCommitInfo) GetFiles() []string {
 		out = append(out, name)
 	}
 
-	for _, f := range sci.segmentInfo.Files() {
+	for _, f := range sci.Info.Files() {
 		add(f)
 	}
 	if sci.delGen >= 0 {
 		// Lucene 10.4.0 live-docs extension is "liv" (org.apache.lucene.codecs.
 		// lucene90.Lucene90LiveDocsFormat.EXTENSION). The legacy "del" name
 		// was a Gocene stub that no longer matches the on-disk file.
-		add(fmt.Sprintf("_%s_%d.liv", sci.segmentInfo.Name()[1:], sci.delGen))
+		add(fmt.Sprintf("_%s_%d.liv", sci.Info.Name()[1:], sci.delGen))
 	}
 	if sci.fieldInfosGen >= 0 {
-		add(fmt.Sprintf("_%s_%d.fnm", sci.segmentInfo.Name()[1:], sci.fieldInfosGen))
+		add(fmt.Sprintf("_%s_%d.fnm", sci.Info.Name()[1:], sci.fieldInfosGen))
 	}
 	if sci.docValuesGen >= 0 {
-		add(fmt.Sprintf("_%s_%d.dvd", sci.segmentInfo.Name()[1:], sci.docValuesGen))
+		add(fmt.Sprintf("_%s_%d.dvd", sci.Info.Name()[1:], sci.docValuesGen))
 	}
 	for f := range sci.fieldInfosFiles {
 		add(f)
@@ -597,6 +599,58 @@ func (sci *SegmentCommitInfo) GetFiles() []string {
 	}
 
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// Lucene-named surface
+//
+// The accessors below carry the names used by
+// org.apache.lucene.index.SegmentCommitInfo. Each one delegates to the Gocene
+// accessor that already implements the behaviour, so there remains exactly one
+// implementation per behaviour.
+// ---------------------------------------------------------------------------
+
+// Files returns every file referenced by this segment commit. Port of
+// SegmentCommitInfo.files() (SegmentCommitInfo.java:239).
+//
+// Java declares the method to throw IOException; the Gocene implementation
+// never fails, so GetFiles, and therefore this alias, returns the slice alone.
+func (sci *SegmentCommitInfo) Files() []string {
+	return sci.GetFiles()
+}
+
+// GetDelCount returns the number of deleted documents in this segment. Port of
+// SegmentCommitInfo.getDelCount() (SegmentCommitInfo.java:321).
+func (sci *SegmentCommitInfo) GetDelCount() int {
+	return sci.DelCount()
+}
+
+// GetSoftDelCount returns the number of soft-deleted documents in this
+// segment. Port of SegmentCommitInfo.getSoftDelCount()
+// (SegmentCommitInfo.java:326).
+func (sci *SegmentCommitInfo) GetSoftDelCount() int {
+	return sci.SoftDelCount()
+}
+
+// GetDelGen returns the generation of the live-docs file for this segment, or
+// -1 when the segment has no deletions. Port of
+// SegmentCommitInfo.getDelGen() (SegmentCommitInfo.java:316).
+func (sci *SegmentCommitInfo) GetDelGen() int64 {
+	return sci.DelGen()
+}
+
+// GetFieldInfosGen returns the generation of the field-infos file for this
+// segment, or -1 when there are no field-infos updates. Port of
+// SegmentCommitInfo.getFieldInfosGen() (SegmentCommitInfo.java:293).
+func (sci *SegmentCommitInfo) GetFieldInfosGen() int64 {
+	return sci.FieldInfosGen()
+}
+
+// GetDocValuesGen returns the generation of the doc-values file for this
+// segment, or -1 when there are no doc-values updates. Port of
+// SegmentCommitInfo.getDocValuesGen() (SegmentCommitInfo.java:306).
+func (sci *SegmentCommitInfo) GetDocValuesGen() int64 {
+	return sci.DocValuesGen()
 }
 
 // SegmentCommitInfoList represents a list of SegmentCommitInfo.

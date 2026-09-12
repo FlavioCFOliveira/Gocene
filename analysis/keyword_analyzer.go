@@ -35,11 +35,11 @@ func NewKeywordAnalyzer() *KeywordAnalyzer {
 	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
 		src := NewKeywordTokenizer()
 		return &TokenStreamComponents{
-			source: func(r io.Reader) error {
+			Source: func(r io.Reader) error {
 				src.SetReader(r)
 				return nil
 			},
-			sink: src,
+			Sink: src,
 		}
 	}
 	return a

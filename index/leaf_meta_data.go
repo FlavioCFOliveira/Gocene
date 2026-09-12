@@ -7,7 +7,7 @@ package index
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -22,7 +22,7 @@ type LeafMetaData struct {
 	MinVersion *util.Version
 	// Sort is the order in which documents from this index are sorted,
 	// or nil if documents are in no particular order.
-	Sort *schema.Sort
+	Sort *spi.Sort
 	// HasBlocks returns true iff this index contains blocks created with
 	// IndexWriter.AddDocument(Iterable) or its corresponding update methods
 	// with at least 2 or more documents per call.
@@ -33,7 +33,7 @@ type LeafMetaData struct {
 
 // NewLeafMetaData is the sole constructor for LeafMetaData.
 // It validates the input parameters to ensure they are consistent with Lucene's requirements.
-func NewLeafMetaData(createdVersionMajor int, minVersion *util.Version, sort *schema.Sort, hasBlocks bool) (*LeafMetaData, error) {
+func NewLeafMetaData(createdVersionMajor int, minVersion *util.Version, sort *spi.Sort, hasBlocks bool) (*LeafMetaData, error) {
 	if createdVersionMajor > util.Latest.Major {
 		return nil, fmt.Errorf("createdVersionMajor is in the future: %d", createdVersionMajor)
 	}

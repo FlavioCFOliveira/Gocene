@@ -160,6 +160,11 @@ func (f *Field) BinaryValue() []byte {
 	}
 }
 
+	// SetBinaryValue sets the binary value of the field.
+	func (f *Field) SetBinaryValue(value []byte) {
+		f.value = binaryValue(value)
+	}
+
 // NumericValue returns the numeric value of the field.
 // The interface{} can be byte, int16, int32, int64, float32, or float64.
 // Returns nil if the field has no numeric value.
@@ -242,82 +247,3 @@ func (f *Field) DoubleValue() interface{} {
 	return nil
 }
 
-// NewIntField creates an indexed int32 field.
-func NewIntField(name string, value int, stored bool) (*Field, error) {
-	ft := NewFieldType()
-	ft.SetStored(stored)
-	ft.SetIndexed(true)
-	ft.SetTokenized(false)
-	ft.SetOmitNorms(true)
-	return NewField(name, int32(value), ft)
-}
-
-// NewLongField creates an indexed int64 field.
-func NewLongField(name string, value int64, stored bool) (*Field, error) {
-	ft := NewFieldType()
-	ft.SetStored(stored)
-	ft.SetIndexed(true)
-	ft.SetTokenized(false)
-	ft.SetOmitNorms(true)
-	return NewField(name, value, ft)
-}
-
-// NewFloatField creates an indexed float32 field.
-func NewFloatField(name string, value float32, stored bool) (*Field, error) {
-	ft := NewFieldType()
-	ft.SetStored(stored)
-	ft.SetIndexed(true)
-	ft.SetTokenized(false)
-	ft.SetOmitNorms(true)
-	return NewField(name, value, ft)
-}
-
-// NewDoubleField creates an indexed float64 field.
-func NewDoubleField(name string, value float64, stored bool) (*Field, error) {
-	ft := NewFieldType()
-	ft.SetStored(stored)
-	ft.SetIndexed(true)
-	ft.SetTokenized(false)
-	ft.SetOmitNorms(true)
-	return NewField(name, value, ft)
-}
-
-// NewIntPoint creates a point field for int32 values.
-func NewIntPoint(name string, value int32) *Field {
-	ft := NewFieldType()
-	ft.SetIndexed(true)
-	ft.SetStored(false)
-	ft.SetTokenized(false)
-	f, _ := NewField(name, value, ft)
-	return f
-}
-
-// NewLongPoint creates a point field for int64 values.
-func NewLongPoint(name string, value int64) *Field {
-	ft := NewFieldType()
-	ft.SetIndexed(true)
-	ft.SetStored(false)
-	ft.SetTokenized(false)
-	f, _ := NewField(name, value, ft)
-	return f
-}
-
-// NewFloatPoint creates a point field for float32 values.
-func NewFloatPoint(name string, value float32) *Field {
-	ft := NewFieldType()
-	ft.SetIndexed(true)
-	ft.SetStored(false)
-	ft.SetTokenized(false)
-	f, _ := NewField(name, value, ft)
-	return f
-}
-
-// NewDoublePoint creates a point field for float64 values.
-func NewDoublePoint(name string, value float64) *Field {
-	ft := NewFieldType()
-	ft.SetIndexed(true)
-	ft.SetStored(false)
-	ft.SetTokenized(false)
-	f, _ := NewField(name, value, ft)
-	return f
-}

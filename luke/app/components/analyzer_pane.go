@@ -2,7 +2,7 @@ package components
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/luke/models/analysis"
+	analysismodels "github.com/FlavioCFOliveira/Gocene/luke/models/analysis"
 )
 
 // AnalyzerPane implements AnalysisTabOperator.
@@ -21,7 +21,7 @@ func (p *AnalyzerPane) SetAnalyzerByType(analyzerType string) {
 	// Logic to set analyzer by type would go here, calling models.AnalysisFactory
 }
 
-func (p *AnalyzerPane) SetAnalyzerByCustomConfiguration(config *analysis.CustomAnalyzerConfig) {
+func (p *AnalyzerPane) SetAnalyzerByCustomConfiguration(config *analysismodels.CustomAnalyzerConfig) {
 	// Logic to set analyzer by custom config
 }
 

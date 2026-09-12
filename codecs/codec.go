@@ -97,6 +97,15 @@ func (c *BaseCodec) NormsFormat() NormsFormat {
 	return nil
 }
 
+// LiveDocsFormat returns the live docs (.liv) format. Returns nil by
+// default; concrete codecs override. Java declares
+// org.apache.lucene.codecs.Codec.liveDocsFormat() abstract, which Go
+// renders as this nil-returning default on the shared base struct, as
+// with every other per-component format accessor here.
+func (c *BaseCodec) LiveDocsFormat() LiveDocsFormat {
+	return nil
+}
+
 // CodecRegistry manages registered codecs.
 // This is a simple registry that allows looking up codecs by name.
 type CodecRegistry struct {

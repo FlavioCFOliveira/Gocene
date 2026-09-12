@@ -7,7 +7,8 @@ package document
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // KnnByteVectorField is a dense int8 (byte) KNN vector field for
@@ -24,7 +25,7 @@ type KnnByteVectorField struct {
 
 // NewKnnByteVectorField creates a new KnnByteVectorField with the given
 // vector using the supplied similarity function.
-func NewKnnByteVectorField(name string, vector []byte, similarity index.VectorSimilarityFunction) (*KnnByteVectorField, error) {
+func NewKnnByteVectorField(name string, vector []byte, similarity spi.VectorSimilarityFunction) (*KnnByteVectorField, error) {
 	if len(vector) == 0 {
 		return nil, fmt.Errorf("vector cannot be empty")
 	}
@@ -35,7 +36,7 @@ func NewKnnByteVectorField(name string, vector []byte, similarity index.VectorSi
 // NewKnnByteVectorFieldEuclidean creates a KnnByteVectorField with the
 // default EUCLIDEAN similarity function.
 func NewKnnByteVectorFieldEuclidean(name string, vector []byte) (*KnnByteVectorField, error) {
-	return NewKnnByteVectorField(name, vector, index.VectorSimilarityFunctionEuclidean)
+	return NewKnnByteVectorField(name, vector, util.EuclideanSim)
 }
 
 // NewKnnByteVectorFieldWithType creates a KnnByteVectorField from a
@@ -45,7 +46,7 @@ func NewKnnByteVectorFieldWithType(name string, vector []byte, ft *FieldType) (*
 	if ft == nil {
 		return nil, fmt.Errorf("FieldType cannot be nil")
 	}
-	if ft.GetVectorEncoding() != index.VectorEncodingByte {
+	if ft.GetVectorEncoding() != util.VectorEncodingByte {
 		return nil, fmt.Errorf("FieldType encoding %v != BYTE", ft.GetVectorEncoding())
 	}
 	if ft.GetVectorDimension() != len(vector) {
@@ -88,9 +89,9 @@ func (f *KnnByteVectorField) SetVectorValue(value []byte) {
 
 // KnnByteVectorFieldType creates the canonical FieldType for a
 // KnnByteVectorField of the given dimensionality and similarity.
-func KnnByteVectorFieldType(dimension int, similarity index.VectorSimilarityFunction) *FieldType {
+func KnnByteVectorFieldType(dimension int, similarity spi.VectorSimilarityFunction) *FieldType {
 	ft := NewFieldType()
-	ft.SetVectorAttributes(dimension, index.VectorEncodingByte, similarity)
+	ft.SetVectorAttributes(dimension, util.VectorEncodingByte, similarity)
 	ft.Freeze()
 	return ft
 }

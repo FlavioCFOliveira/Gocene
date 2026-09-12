@@ -11,7 +11,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	gfst "github.com/FlavioCFOliveira/Gocene/util/fst"
@@ -98,7 +97,7 @@ func NewFSTTermsReader(state *index.SegmentReadState, postingsReader spi.Posting
 		}
 		
 		var sumDocFreq int64
-		if fieldInfo.IndexOptions() == schema.IndexOptionsDocs {
+		if fieldInfo.IndexOptions() == spi.IndexOptionsDocs {
 			sumDocFreq = sumTotalTermFreq
 		} else {
 			sumDocFreq, err = in.ReadVLong()
@@ -139,7 +138,7 @@ func seekDir(in store.IndexInput) error {
 	return nil
 }
 
-func (r *FSTTermsReader) Terms(field string) (schema.Terms, error) {
+func (r *FSTTermsReader) Terms(field string) (spi.Terms, error) {
 	if tr, ok := r.fields[field]; ok {
 		return tr, nil
 	}
@@ -154,7 +153,7 @@ func (r *FSTTermsReader) Close() error {
 }
 
 type fstTermsReader struct {
-	fieldInfo        *schema.FieldInfo
+	fieldInfo        *spi.FieldInfo
 	numTerms         int64
 	sumTotalTermFreq int64
 	sumDocFreq       int64
@@ -162,7 +161,7 @@ type fstTermsReader struct {
 	dict             *gfst.FST
 }
 
-func newFstTermsReader(fieldInfo *schema.FieldInfo, in store.IndexInput, numTerms, sumTotalTermFreq, sumDocFreq int64, docCount int) (*fstTermsReader, error) {
+func newFstTermsReader(fieldInfo *spi.FieldInfo, in store.IndexInput, numTerms, sumTotalTermFreq, sumDocFreq int64, docCount int) (*fstTermsReader, error) {
 	outputs := &FSTTermOutputs{}
 	metadata, err := gfst.ReadMetadata(in, outputs)
 	if err != nil {
@@ -191,12 +190,12 @@ func (tr *fstTermsReader) Size() int64 { return tr.numTerms }
 func (tr *fstTermsReader) GetSumTotalTermFreq() int64 { return tr.sumTotalTermFreq }
 func (tr *fstTermsReader) GetSumDocFreq() (int64, error) { return tr.sumDocFreq, nil }
 func (tr *fstTermsReader) GetDocCount() (int, error) { return tr.docCount, nil }
-func (tr *fstTermsReader) HasFreqs() bool { return tr.fieldInfo.IndexOptions().Subsumes(schema.IndexOptionsDocsAndFreqs) }
-func (tr *fstTermsReader) HasOffsets() bool { return tr.fieldInfo.IndexOptions().Subsumes(schema.IndexOptionsDocsAndFreqsAndPositionsAndOffsets) }
-func (tr *fstTermsReader) HasPositions() bool { return tr.fieldInfo.IndexOptions().Subsumes(schema.IndexOptionsDocsAndFreqsAndPositions) }
+func (tr *fstTermsReader) HasFreqs() bool { return tr.fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqs) }
+func (tr *fstTermsReader) HasOffsets() bool { return tr.fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets) }
+func (tr *fstTermsReader) HasPositions() bool { return tr.fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqsAndPositions) }
 func (tr *fstTermsReader) HasPayloads() bool { return tr.fieldInfo.HasPayloads() }
 
-func (tr *fstTermsReader) GetIterator() (schema.TermsEnum, error) {
+func (tr *fstTermsReader) GetIterator() (spi.TermsEnum, error) {
 	return &fstTermsEnum{
 		tr:    tr,
 		enum:  gfst.NewBytesRefFSTEnum(tr.dict),
@@ -204,7 +203,7 @@ func (tr *fstTermsReader) GetIterator() (schema.TermsEnum, error) {
 	}, nil
 }
 
-func (tr *fstTermsReader) GetIteratorWithSeek(seekTerm *schema.Term) (schema.TermsEnum, error) {
+func (tr *fstTermsReader) GetIteratorWithSeek(seekTerm *spi.Term) (spi.TermsEnum, error) {
 	enum := &fstTermsEnum{
 		tr:    tr,
 		enum:  gfst.NewBytesRefFSTEnum(tr.dict),
@@ -215,15 +214,15 @@ func (tr *fstTermsReader) GetIteratorWithSeek(seekTerm *schema.Term) (schema.Ter
 	return enum, nil
 }
 
-func (tr *fstTermsReader) GetPostingsReader(termText string, flags int) (schema.PostingsEnum, error) {
+func (tr *fstTermsReader) GetPostingsReader(termText string, flags int) (spi.PostingsEnum, error) {
 	return nil, fmt.Errorf("FSTTermsReader: GetPostingsReader not implemented")
 }
 
-func (tr *fstTermsReader) GetMin() (*schema.Term, error) {
+func (tr *fstTermsReader) GetMin() (*spi.Term, error) {
 	return nil, fmt.Errorf("FSTTermsReader: GetMin not implemented")
 }
 
-func (tr *fstTermsReader) GetMax() (*schema.Term, error) {
+func (tr *fstTermsReader) GetMax() (*spi.Term, error) {
 	return nil, fmt.Errorf("FSTTermsReader: GetMax not implemented")
 }
 
@@ -257,7 +256,7 @@ func NewFSTTermsWriter(format *FSTPostingsFormat) *FSTTermsWriter {
 	return &FSTTermsWriter{Format: format}
 }
 
-func (w *FSTTermsWriter) Write(state *index.SegmentWriteState, fields schema.Terms) error {
+func (w *FSTTermsWriter) Write(state *index.SegmentWriteState, fields spi.Terms) error {
 	// Implementation of writing FST terms...
 	return fmt.Errorf("FSTTermsWriter: Write not yet implemented")
 }

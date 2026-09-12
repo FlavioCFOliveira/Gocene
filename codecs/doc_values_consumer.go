@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
@@ -59,7 +59,7 @@ func (b *BaseDocValuesConsumer) Merge(consumer DocValuesConsumer, mergeState *in
 	return nil
 }
 
-func (b *BaseDocValuesConsumer) mergeNumericField(consumer DocValuesConsumer, mergeFI *schema.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) error {
+func (b *BaseDocValuesConsumer) mergeNumericField(consumer DocValuesConsumer, mergeFI *spi.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) error {
 	return consumer.AddNumericField(mergeFI, &mergedNumericProducer{
 		consumer:   consumer,
 		mergeFI:    mergeFI,
@@ -68,7 +68,7 @@ func (b *BaseDocValuesConsumer) mergeNumericField(consumer DocValuesConsumer, me
 	})
 }
 
-func (b *BaseDocValuesConsumer) mergeBinaryField(consumer DocValuesConsumer, mergeFI *schema.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) error {
+func (b *BaseDocValuesConsumer) mergeBinaryField(consumer DocValuesConsumer, mergeFI *spi.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) error {
 	return consumer.AddBinaryField(mergeFI, &mergedBinaryProducer{
 		consumer:   consumer,
 		mergeFI:    mergeFI,
@@ -77,7 +77,7 @@ func (b *BaseDocValuesConsumer) mergeBinaryField(consumer DocValuesConsumer, mer
 	})
 }
 
-func (b *BaseDocValuesConsumer) mergeSortedNumericField(consumer DocValuesConsumer, mergeFI *schema.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) error {
+func (b *BaseDocValuesConsumer) mergeSortedNumericField(consumer DocValuesConsumer, mergeFI *spi.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) error {
 	return consumer.AddSortedNumericField(mergeFI, &mergedSortedNumericProducer{
 		consumer:   consumer,
 		mergeFI:    mergeFI,
@@ -86,7 +86,7 @@ func (b *BaseDocValuesConsumer) mergeSortedNumericField(consumer DocValuesConsum
 	})
 }
 
-func (b *BaseDocValuesConsumer) mergeSortedField(consumer DocValuesConsumer, mergeFI *schema.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) error {
+func (b *BaseDocValuesConsumer) mergeSortedField(consumer DocValuesConsumer, mergeFI *spi.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) error {
 	map_, err := createOrdinalMapForSortedDV(mergeFI, mergeState, producers)
 	if err != nil {
 		return err
@@ -100,7 +100,7 @@ func (b *BaseDocValuesConsumer) mergeSortedField(consumer DocValuesConsumer, mer
 	})
 }
 
-func (b *BaseDocValuesConsumer) mergeSortedSetField(consumer DocValuesConsumer, mergeFI *schema.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) error {
+func (b *BaseDocValuesConsumer) mergeSortedSetField(consumer DocValuesConsumer, mergeFI *spi.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) error {
 	toMerge := selectLeavesToMerge(mergeFI, mergeState, producers)
 	map_, err := createOrdinalMapForSortedSetDV(toMerge, mergeState)
 	if err != nil {
@@ -197,7 +197,7 @@ func (s *numericDocValuesSub) NextMappedDoc() (int, error) {
 	}
 }
 
-func getMergedNumericDocValues(mergeState *index.MergeState, mergeFI *schema.FieldInfo, producers []DocValuesProducer) (spi.NumericDocValues, error) {
+func getMergedNumericDocValues(mergeState *index.MergeState, mergeFI *spi.FieldInfo, producers []DocValuesProducer) (spi.NumericDocValues, error) {
 	subs := make([]index.DocIDMergerSub, 0)
 	for i, prod := range producers {
 		if prod == nil {
@@ -311,7 +311,7 @@ func (s *binaryDocValuesSub) NextMappedDoc() (int, error) {
 	}
 }
 
-func getMergedBinaryDocValues(mergeFI *schema.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) (spi.BinaryDocValues, error) {
+func getMergedBinaryDocValues(mergeFI *spi.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) (spi.BinaryDocValues, error) {
 	subs := make([]index.DocIDMergerSub, 0)
 	var cost int64
 	for i, prod := range producers {
@@ -417,7 +417,7 @@ func (s *sortedNumericDocValuesSub) NextMappedDoc() (int, error) {
 	}
 }
 
-func getMergedSortedNumericDocValues(mergeFI *schema.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) (spi.SortedNumericDocValues, error) {
+func getMergedSortedNumericDocValues(mergeFI *spi.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) (spi.SortedNumericDocValues, error) {
 	subs := make([]index.DocIDMergerSub, 0)
 	var cost int64
 	for i, prod := range producers {
@@ -537,7 +537,7 @@ func (s *sortedDocValuesSub) NextMappedDoc() (int, error) {
 	}
 }
 
-func createOrdinalMapForSortedDV(mergeFI *schema.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) (*index.OrdinalMap, error) {
+func createOrdinalMapForSortedDV(mergeFI *spi.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) (*index.OrdinalMap, error) {
 	toMerge := make([]spi.SortedDocValues, 0)
 	for i, prod := range producers {
 		if prod == nil {
@@ -669,7 +669,7 @@ func (s *sortedSetDocValuesSub) NextMappedDoc() (int, error) {
 	}
 }
 
-func selectLeavesToMerge(mergeFI *schema.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) []spi.SortedSetDocValues {
+func selectLeavesToMerge(mergeFI *spi.FieldInfo, mergeState *index.MergeState, producers []DocValuesProducer) []spi.SortedSetDocValues {
 	toMerge := make([]spi.SortedSetDocValues, 0)
 	for i, prod := range producers {
 		if prod == nil {
@@ -795,35 +795,35 @@ func (m *mergedSortedSetDocValues) TermsEnum() (spi.TermsEnum, error) {
 
 type mergedNumericProducer struct {
 	consumer   DocValuesConsumer
-	mergeFI    *schema.FieldInfo
+	mergeFI    *spi.FieldInfo
 	mergeState *index.MergeState
 	producers  []DocValuesProducer
 }
 
-func (p *mergedNumericProducer) GetNumeric(field *schema.FieldInfo) (spi.NumericDocValues, error) {
+func (p *mergedNumericProducer) GetNumeric(field *spi.FieldInfo) (spi.NumericDocValues, error) {
 	if field != p.mergeFI {
 		return nil, fmt.Errorf("wrong fieldInfo")
 	}
 	return getMergedNumericDocValues(p.mergeState, p.mergeFI, p.producers)
 }
 
-func (p *mergedNumericProducer) GetBinary(field *schema.FieldInfo) (spi.BinaryDocValues, error) {
+func (p *mergedNumericProducer) GetBinary(field *spi.FieldInfo) (spi.BinaryDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedNumericProducer) GetSorted(field *schema.FieldInfo) (spi.SortedDocValues, error) {
+func (p *mergedNumericProducer) GetSorted(field *spi.FieldInfo) (spi.SortedDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedNumericProducer) GetSortedSet(field *schema.FieldInfo) (spi.SortedSetDocValues, error) {
+func (p *mergedNumericProducer) GetSortedSet(field *spi.FieldInfo) (spi.SortedSetDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedNumericProducer) GetSortedNumeric(field *schema.FieldInfo) (spi.SortedNumericDocValues, error) {
+func (p *mergedNumericProducer) GetSortedNumeric(field *spi.FieldInfo) (spi.SortedNumericDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedNumericProducer) GetSkipper(field *schema.FieldInfo) (spi.DocValuesSkipper, error) {
+func (p *mergedNumericProducer) GetSkipper(field *spi.FieldInfo) (spi.DocValuesSkipper, error) {
 	return nil, nil
 }
 
@@ -837,35 +837,35 @@ func (p *mergedNumericProducer) Close() error {
 
 type mergedBinaryProducer struct {
 	consumer   DocValuesConsumer
-	mergeFI    *schema.FieldInfo
+	mergeFI    *spi.FieldInfo
 	mergeState *index.MergeState
 	producers  []DocValuesProducer
 }
 
-func (p *mergedBinaryProducer) GetNumeric(field *schema.FieldInfo) (spi.NumericDocValues, error) {
+func (p *mergedBinaryProducer) GetNumeric(field *spi.FieldInfo) (spi.NumericDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedBinaryProducer) GetBinary(field *schema.FieldInfo) (spi.BinaryDocValues, error) {
+func (p *mergedBinaryProducer) GetBinary(field *spi.FieldInfo) (spi.BinaryDocValues, error) {
 	if field != p.mergeFI {
 		return nil, fmt.Errorf("wrong fieldInfo")
 	}
 	return getMergedBinaryDocValues(p.mergeFI, p.mergeState, p.producers)
 }
 
-func (p *mergedBinaryProducer) GetSorted(field *schema.FieldInfo) (spi.SortedDocValues, error) {
+func (p *mergedBinaryProducer) GetSorted(field *spi.FieldInfo) (spi.SortedDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedBinaryProducer) GetSortedSet(field *schema.FieldInfo) (spi.SortedSetDocValues, error) {
+func (p *mergedBinaryProducer) GetSortedSet(field *spi.FieldInfo) (spi.SortedSetDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedBinaryProducer) GetSortedNumeric(field *schema.FieldInfo) (spi.SortedNumericDocValues, error) {
+func (p *mergedBinaryProducer) GetSortedNumeric(field *spi.FieldInfo) (spi.SortedNumericDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedBinaryProducer) GetSkipper(field *schema.FieldInfo) (spi.DocValuesSkipper, error) {
+func (p *mergedBinaryProducer) GetSkipper(field *spi.FieldInfo) (spi.DocValuesSkipper, error) {
 	return nil, nil
 }
 
@@ -879,35 +879,35 @@ func (p *mergedBinaryProducer) Close() error {
 
 type mergedSortedNumericProducer struct {
 	consumer   DocValuesConsumer
-	mergeFI    *schema.FieldInfo
+	mergeFI    *spi.FieldInfo
 	mergeState *index.MergeState
 	producers  []DocValuesProducer
 }
 
-func (p *mergedSortedNumericProducer) GetNumeric(field *schema.FieldInfo) (spi.NumericDocValues, error) {
+func (p *mergedSortedNumericProducer) GetNumeric(field *spi.FieldInfo) (spi.NumericDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedSortedNumericProducer) GetBinary(field *schema.FieldInfo) (spi.BinaryDocValues, error) {
+func (p *mergedSortedNumericProducer) GetBinary(field *spi.FieldInfo) (spi.BinaryDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedSortedNumericProducer) GetSorted(field *schema.FieldInfo) (spi.SortedDocValues, error) {
+func (p *mergedSortedNumericProducer) GetSorted(field *spi.FieldInfo) (spi.SortedDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedSortedNumericProducer) GetSortedSet(field *schema.FieldInfo) (spi.SortedSetDocValues, error) {
+func (p *mergedSortedNumericProducer) GetSortedSet(field *spi.FieldInfo) (spi.SortedSetDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedSortedNumericProducer) GetSortedNumeric(field *schema.FieldInfo) (spi.SortedNumericDocValues, error) {
+func (p *mergedSortedNumericProducer) GetSortedNumeric(field *spi.FieldInfo) (spi.SortedNumericDocValues, error) {
 	if field != p.mergeFI {
 		return nil, fmt.Errorf("wrong fieldInfo")
 	}
 	return getMergedSortedNumericDocValues(p.mergeFI, p.mergeState, p.producers)
 }
 
-func (p *mergedSortedNumericProducer) GetSkipper(field *schema.FieldInfo) (spi.DocValuesSkipper, error) {
+func (p *mergedSortedNumericProducer) GetSkipper(field *spi.FieldInfo) (spi.DocValuesSkipper, error) {
 	return nil, nil
 }
 
@@ -921,36 +921,36 @@ func (p *mergedSortedNumericProducer) Close() error {
 
 type mergedSortedProducer struct {
 	consumer   DocValuesConsumer
-	mergeFI    *schema.FieldInfo
+	mergeFI    *spi.FieldInfo
 	mergeState *index.MergeState
 	producers  []DocValuesProducer
 	ordinalMap *index.OrdinalMap
 }
 
-func (p *mergedSortedProducer) GetNumeric(field *schema.FieldInfo) (spi.NumericDocValues, error) {
+func (p *mergedSortedProducer) GetNumeric(field *spi.FieldInfo) (spi.NumericDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedSortedProducer) GetBinary(field *schema.FieldInfo) (spi.BinaryDocValues, error) {
+func (p *mergedSortedProducer) GetBinary(field *spi.FieldInfo) (spi.BinaryDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedSortedProducer) GetSorted(field *schema.FieldInfo) (spi.SortedDocValues, error) {
+func (p *mergedSortedProducer) GetSorted(field *spi.FieldInfo) (spi.SortedDocValues, error) {
 	if field != p.mergeFI {
 		return nil, fmt.Errorf("wrong fieldInfo")
 	}
 	return mergeSortedValues(p.toDocIDMergerSubs(), p.mergeState, p.ordinalMap)
 }
 
-func (p *mergedSortedProducer) GetSortedSet(field *schema.FieldInfo) (spi.SortedSetDocValues, error) {
+func (p *mergedSortedProducer) GetSortedSet(field *spi.FieldInfo) (spi.SortedSetDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedSortedProducer) GetSortedNumeric(field *schema.FieldInfo) (spi.SortedNumericDocValues, error) {
+func (p *mergedSortedProducer) GetSortedNumeric(field *spi.FieldInfo) (spi.SortedNumericDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedSortedProducer) GetSkipper(field *schema.FieldInfo) (spi.DocValuesSkipper, error) {
+func (p *mergedSortedProducer) GetSkipper(field *spi.FieldInfo) (spi.DocValuesSkipper, error) {
 	return nil, nil
 }
 
@@ -984,37 +984,37 @@ func (p *mergedSortedProducer) toDocIDMergerSubs() []index.DocIDMergerSub {
 
 type mergedSortedSetProducer struct {
 	consumer   DocValuesConsumer
-	mergeFI    *schema.FieldInfo
+	mergeFI    *spi.FieldInfo
 	mergeState *index.MergeState
 	producers  []DocValuesProducer
 	ordinalMap *index.OrdinalMap
 	toMerge    []spi.SortedSetDocValues
 }
 
-func (p *mergedSortedSetProducer) GetNumeric(field *schema.FieldInfo) (spi.NumericDocValues, error) {
+func (p *mergedSortedSetProducer) GetNumeric(field *spi.FieldInfo) (spi.NumericDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedSortedSetProducer) GetBinary(field *schema.FieldInfo) (spi.BinaryDocValues, error) {
+func (p *mergedSortedSetProducer) GetBinary(field *spi.FieldInfo) (spi.BinaryDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedSortedSetProducer) GetSorted(field *schema.FieldInfo) (spi.SortedDocValues, error) {
+func (p *mergedSortedSetProducer) GetSorted(field *spi.FieldInfo) (spi.SortedDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedSortedSetProducer) GetSortedSet(field *schema.FieldInfo) (spi.SortedSetDocValues, error) {
+func (p *mergedSortedSetProducer) GetSortedSet(field *spi.FieldInfo) (spi.SortedSetDocValues, error) {
 	if field != p.mergeFI {
 		return nil, fmt.Errorf("wrong fieldInfo")
 	}
 	return mergeSortedSetValues(p.toDocIDMergerSubs(), p.mergeState, p.ordinalMap, p.toMerge)
 }
 
-func (p *mergedSortedSetProducer) GetSortedNumeric(field *schema.FieldInfo) (spi.SortedNumericDocValues, error) {
+func (p *mergedSortedSetProducer) GetSortedNumeric(field *spi.FieldInfo) (spi.SortedNumericDocValues, error) {
 	return nil, nil
 }
 
-func (p *mergedSortedSetProducer) GetSkipper(field *schema.FieldInfo) (spi.DocValuesSkipper, error) {
+func (p *mergedSortedSetProducer) GetSkipper(field *spi.FieldInfo) (spi.DocValuesSkipper, error) {
 	return nil, nil
 }
 

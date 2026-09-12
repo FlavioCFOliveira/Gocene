@@ -8,6 +8,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // ByteBuffersDataInput is the Go port of
@@ -44,7 +46,7 @@ type ByteBuffersDataInput interface {
 // implementation backed by a single byte slice. It is unexported because all
 // access is through the ByteBuffersDataInput interface.
 type byteBuffersDataInputImpl struct {
-	BaseDataInput
+	spi.BaseDataInput
 	data   []byte
 	pos    int64
 	offset int64

@@ -912,6 +912,11 @@ func (s *ConcurrentMergeScheduler) updateIOThrottle(newMerge *OneMerge, rateLimi
 	return nil
 }
 
+// targetMBPerSecChanged is a hook subclasses can override to tweak
+// targetMBPerSec. The base implementation does nothing.
+// Mirrors ConcurrentMergeScheduler.targetMBPerSecChanged.
+func (s *ConcurrentMergeScheduler) targetMBPerSecChanged() {}
+
 // max returns the maximum of two integers.
 func max(a, b int) int {
 	if a > b {

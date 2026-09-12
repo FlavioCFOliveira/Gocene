@@ -5,7 +5,7 @@
 package spi
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+// No import needed for schema as it is now part of spi
 )
 
 // KnnVectorsFormat is the canonical wide service-provider interface for
@@ -72,7 +72,7 @@ type KnnVectorsWriter interface {
 	// implementations typically back it with a strongly-typed (FLOAT32 or
 	// BYTE) sub-writer; the non-generic interface mirrors Java's
 	// KnnFieldVectorsWriter<?> wildcard.
-	AddField(fieldInfo *schema.FieldInfo) (KnnFieldVectorsWriter, error)
+	AddField(fieldInfo *FieldInfo) (KnnFieldVectorsWriter, error)
 
 	// Flush serialises every buffered field for maxDoc documents,
 	// optionally remapping doc IDs through sortMap when the segment is
@@ -83,7 +83,7 @@ type KnnVectorsWriter interface {
 	// fieldInfo are streamed in from reader instead of from per-document
 	// AddValue calls. Implementations that buffer vectors in memory
 	// typically return an error here and rely on a separate merge path.
-	WriteField(fieldInfo *schema.FieldInfo, reader KnnVectorsReader) error
+	WriteField(fieldInfo *FieldInfo, reader KnnVectorsReader) error
 
 	// Finish is invoked once after Flush (or the last WriteField) to
 	// stamp any trailing metadata (sentinel, footer).

@@ -29,9 +29,9 @@ type ByteVectorValues interface {
 	Rescorer(target []byte) (util.VectorScorer, error)
 }
 
-// CheckField checks the Vector Encoding of a field.
+// CheckByteVectorField checks the Vector Encoding of a field.
 // This is the Go port of ByteVectorValues.checkField.
-func CheckField(in LeafReader, field string) error {
+func CheckByteVectorField(in LeafReader, field string) error {
 	fi := in.GetFieldInfos().FieldInfoByName(field)
 	if fi != nil && fi.VectorDimension() != 0 && fi.VectorEncoding() != VectorEncodingByte {
 		return fmt.Errorf("unexpected vector encoding (%s) for field %s (expected=%s)",
@@ -93,7 +93,7 @@ func (b *byteVectorValuesFromBytes) GetAcceptOrds(acceptDocs util.Bits) util.Bit
 }
 
 func (b *byteVectorValuesFromBytes) Iterator() util.DocIndexIterator {
-	return NewDenseDocIndexIterator(b.Size())
+	return util.NewDenseDocIndexIterator(b.Size())
 }
 
 func (b *byteVectorValuesFromBytes) VectorValue(ord int) ([]byte, error) {
@@ -126,6 +126,16 @@ func (b *acceptOrdsBitSet) Get(index int) bool {
 
 func (b *acceptOrdsBitSet) Length() int {
 	return b.size
+}
+
+func (b *acceptOrdsBitSet) Cardinality() int {
+	count := 0
+	for i := 0; i < b.size; i++ {
+		if b.Get(i) {
+			count++
+		}
+	}
+	return count
 }
 
 func (b *acceptOrdsBitSet) OrdToDoc(index int) int {

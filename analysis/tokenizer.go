@@ -73,6 +73,10 @@ func NewBaseTokenizerWithFactory(factory util.AttributeFactory) *BaseTokenizer {
 	}
 }
 
+func (t *BaseTokenizer) GetReader() io.Reader {
+	return t.input
+}
+
 // Close closes the input reader and resets the Tokenizer state.
 //
 // The default implementation closes the input Reader, so concrete implementations

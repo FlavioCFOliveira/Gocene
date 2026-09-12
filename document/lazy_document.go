@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // LazyDocument defers actually loading a field's value until you ask for it.
@@ -18,7 +18,7 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.misc.document.LazyDocument.
 type LazyDocument struct {
-	reader     index.IndexReaderInterface
+	reader     spi.IndexReaderInterface
 	docID      int
 	doc        *Document
 	fields     map[int][]*LazyField
@@ -27,7 +27,7 @@ type LazyDocument struct {
 }
 
 // NewLazyDocument creates a new LazyDocument for the given reader and document ID.
-func NewLazyDocument(reader index.IndexReaderInterface, docID int) *LazyDocument {
+func NewLazyDocument(reader spi.IndexReaderInterface, docID int) *LazyDocument {
 	return &LazyDocument{
 		reader:     reader,
 		docID:      docID,
@@ -44,7 +44,7 @@ func NewLazyDocument(reader index.IndexReaderInterface, docID int) *LazyDocument
 //
 // The lazy loading of field values from all instances of field objects returned by
 // this method are all backed by a single Document per LazyDocument instance.
-func (ld *LazyDocument) GetField(fieldInfo *index.FieldInfo) *LazyField {
+func (ld *LazyDocument) GetField(fieldInfo *spi.FieldInfo) *LazyField {
 	ld.fieldNames[fieldInfo.Name()] = struct{}{}
 
 	values, exists := ld.fields[fieldInfo.Number()]
@@ -261,7 +261,7 @@ type documentCollector struct {
 }
 
 // Ensure documentCollector implements StoredFieldVisitor
-var _ index.StoredFieldVisitor = (*documentCollector)(nil)
+var _ spi.StoredFieldVisitor = (*documentCollector)(nil)
 
 // StringField is called for a stored string field.
 func (dc *documentCollector) StringField(field string, value string) {

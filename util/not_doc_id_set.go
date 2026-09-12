@@ -100,6 +100,7 @@ type notBits struct{ in Bits }
 
 func (n notBits) Get(index int) bool { return !n.in.Get(index) }
 func (n notBits) Length() int        { return n.in.Length() }
+func (n notBits) Cardinality() int   { return n.in.Length() - n.in.Cardinality() }
 
 // notDocIdSetIterator is the negation of an inner DocIdSetIterator.
 // It mirrors the anonymous inner class in NotDocIdSet#iterator().

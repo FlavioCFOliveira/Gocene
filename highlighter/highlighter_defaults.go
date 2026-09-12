@@ -4,11 +4,6 @@
 
 package highlighter
 
-import (
-	"fmt"
-	"strings"
-)
-
 // DefaultEncoder is a simple encoder that wraps terms in <b> tags.
 //
 // This is the Go port of Lucene's org.apache.lucene.search.highlight.DefaultEncoder.

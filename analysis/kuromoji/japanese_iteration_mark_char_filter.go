@@ -101,7 +101,7 @@ func init() {
 // org.apache.lucene.analysis.ja.JapaneseIterationMarkCharFilter from Apache
 // Lucene 10.4.0.
 type JapaneseIterationMarkCharFilter struct {
-	*analysis.CharFilter
+	analysis.CharFilter
 	// runes holds the entire input as a rune slice (buffered up to 。 or EOF).
 	runes  []rune
 	pos    int

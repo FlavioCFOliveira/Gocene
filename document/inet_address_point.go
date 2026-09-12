@@ -8,7 +8,6 @@ import (
 	"bytes"
 	"fmt"
 	"net"
-	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -75,7 +74,7 @@ func NewInetAddressPoint(name string, addr net.IP) (*InetAddressPoint, error) {
 }
 
 // NextUp returns the net.IP that compares immediately greater than the given address.
-func NextUp(addr net.IP) (net.IP, error) {
+func inetNextUp(addr net.IP) (net.IP, error) {
 	encoded := EncodeInetAddress(addr)
 	if bytes.Equal(encoded, InetAddressMaxValue) {
 		return nil, fmt.Errorf("overflow: there is no greater InetAddress than %s", addr.String())
@@ -93,7 +92,7 @@ func NextUp(addr net.IP) (net.IP, error) {
 }
 
 // NextDown returns the net.IP that compares immediately less than the given address.
-func NextDown(addr net.IP) (net.IP, error) {
+func inetNextDown(addr net.IP) (net.IP, error) {
 	encoded := EncodeInetAddress(addr)
 	if bytes.Equal(encoded, InetAddressMinValue) {
 		return nil, fmt.Errorf("underflow: there is no smaller InetAddress than %s", addr.String())
@@ -144,7 +143,7 @@ func DecodeInetAddress(encoded []byte) (net.IP, error) {
 
 // String returns a string representation of the InetAddressPoint.
 func (p *InetAddressPoint) String() string {
-	addr, err := DecodeInetAddress(p.Field.Data.Bytes())
+	addr, err := DecodeInetAddress(p.Field.BinaryValue())
 	if err != nil {
 		return fmt.Sprintf("InetAddressPoint <%s:error>", p.Field.Name)
 	}

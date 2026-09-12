@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -45,7 +45,7 @@ func (v *memNumericDV) DocID() int { return v.docID }
 
 func (v *memNumericDV) NextDoc() (int, error) {
 	if v.exhausted {
-		return schema.NO_MORE_DOCS, nil
+		return spi.NO_MORE_DOCS, nil
 	}
 	v.docID = 0
 	v.exhausted = true
@@ -58,7 +58,7 @@ func (v *memNumericDV) Advance(target int) (int, error) {
 		v.exhausted = true
 		return 0, nil
 	}
-	return schema.NO_MORE_DOCS, nil
+	return spi.NO_MORE_DOCS, nil
 }
 
 func (v *memNumericDV) AdvanceExact(target int) (bool, error) {
@@ -84,7 +84,7 @@ func (v *memBinaryDV) DocID() int { return v.docID }
 
 func (v *memBinaryDV) NextDoc() (int, error) {
 	if v.exhausted {
-		return schema.NO_MORE_DOCS, nil
+		return spi.NO_MORE_DOCS, nil
 	}
 	v.docID = 0
 	v.exhausted = true
@@ -97,7 +97,7 @@ func (v *memBinaryDV) Advance(target int) (int, error) {
 		v.exhausted = true
 		return 0, nil
 	}
-	return schema.NO_MORE_DOCS, nil
+	return spi.NO_MORE_DOCS, nil
 }
 
 func (v *memBinaryDV) AdvanceExact(target int) (bool, error) {
@@ -161,7 +161,7 @@ func (v *memSortedSetDV) DocID() int { return v.docID }
 
 func (v *memSortedSetDV) NextDoc() (int, error) {
 	if v.exhausted {
-		return schema.NO_MORE_DOCS, nil
+		return spi.NO_MORE_DOCS, nil
 	}
 	v.docID = 0
 	v.exhausted = true
@@ -178,7 +178,7 @@ func (v *memSortedSetDV) Advance(target int) (int, error) {
 		v.ordExhausted = false
 		return 0, nil
 	}
-	return schema.NO_MORE_DOCS, nil
+	return spi.NO_MORE_DOCS, nil
 }
 
 func (v *memSortedSetDV) AdvanceExact(target int) (bool, error) {
@@ -287,14 +287,14 @@ func (tv *memoryTermVectors) Get(docID int) (index.Fields, error) {
 	}
 	tv.mi.mu.RLock()
 	defer tv.mi.mu.RUnlock()
-	fields := schema.NewMemoryFields()
+	fields := spi.NewMemoryFields()
 	for name, mf := range tv.mi.fields {
 		fields.AddField(name, newMemoryTerms(name, mf))
 	}
 	return fields, nil
 }
 
-func (tv *memoryTermVectors) GetField(docID int, field string) (schema.Terms, error) {
+func (tv *memoryTermVectors) GetField(docID int, field string) (spi.Terms, error) {
 	if docID != 0 {
 		return nil, fmt.Errorf("document ID %d out of range (single-doc MemoryIndex)", docID)
 	}
@@ -374,7 +374,7 @@ func (r *memoryIndexReader) TermVectors() (index.TermVectors, error) {
 
 // Terms returns the Terms for a given field, or nil if the field does not exist.
 // This is the bridge that allows search.IndexSearcher to find and iterate over terms.
-func (r *memoryIndexReader) Terms(field string) (schema.Terms, error) {
+func (r *memoryIndexReader) Terms(field string) (spi.Terms, error) {
 	r.mi.mu.RLock()
 	defer r.mi.mu.RUnlock()
 
@@ -557,11 +557,11 @@ func newMemoryIndexReader(mi *MemoryIndex) *memoryIndexReader {
 	return r
 }
 
-// --- memoryTerms: schema.Terms implementation ---
+// --- memoryTerms: spi.Terms implementation ---
 
-// memoryTerms implements schema.Terms over a single field's in-memory term data.
+// memoryTerms implements spi.Terms over a single field's in-memory term data.
 type memoryTerms struct {
-	schema.TermsBase
+	spi.TermsBase
 	field     string
 	terms     []string       // sorted list of term texts
 	freqs     map[string]int // term -> frequency
@@ -606,25 +606,25 @@ func (mt *memoryTerms) HasOffsets() bool   { return len(mt.offsets) > 0 }
 func (mt *memoryTerms) HasPositions() bool { return len(mt.positions) > 0 }
 func (mt *memoryTerms) HasPayloads() bool  { return false }
 
-func (mt *memoryTerms) GetMin() (*schema.Term, error) {
+func (mt *memoryTerms) GetMin() (*spi.Term, error) {
 	if len(mt.terms) == 0 {
 		return nil, nil
 	}
-	return schema.NewTerm(mt.field, mt.terms[0]), nil
+	return spi.NewTerm(mt.field, mt.terms[0]), nil
 }
 
-func (mt *memoryTerms) GetMax() (*schema.Term, error) {
+func (mt *memoryTerms) GetMax() (*spi.Term, error) {
 	if len(mt.terms) == 0 {
 		return nil, nil
 	}
-	return schema.NewTerm(mt.field, mt.terms[len(mt.terms)-1]), nil
+	return spi.NewTerm(mt.field, mt.terms[len(mt.terms)-1]), nil
 }
 
-func (mt *memoryTerms) GetIterator() (schema.TermsEnum, error) {
+func (mt *memoryTerms) GetIterator() (spi.TermsEnum, error) {
 	return newMemoryTermsEnum(mt), nil
 }
 
-func (mt *memoryTerms) GetIteratorWithSeek(seekTerm *schema.Term) (schema.TermsEnum, error) {
+func (mt *memoryTerms) GetIteratorWithSeek(seekTerm *spi.Term) (spi.TermsEnum, error) {
 	enum := newMemoryTermsEnum(mt)
 	if seekTerm != nil && seekTerm.Field == mt.field {
 		_, _ = enum.SeekCeil(seekTerm)
@@ -632,7 +632,7 @@ func (mt *memoryTerms) GetIteratorWithSeek(seekTerm *schema.Term) (schema.TermsE
 	return enum, nil
 }
 
-func (mt *memoryTerms) GetPostingsReader(termText string, flags int) (schema.PostingsEnum, error) {
+func (mt *memoryTerms) GetPostingsReader(termText string, flags int) (spi.PostingsEnum, error) {
 	freq, ok := mt.freqs[termText]
 	if !ok {
 		return nil, nil
@@ -640,20 +640,20 @@ func (mt *memoryTerms) GetPostingsReader(termText string, flags int) (schema.Pos
 
 	var positions []int
 	var offsets [][2]int
-	if flags&schema.PostingsFlagPositions != 0 {
+	if flags&spi.PostingsFlagPositions != 0 {
 		positions = mt.positions[termText]
 	}
-	if flags&schema.PostingsFlagOffsets != 0 {
+	if flags&spi.PostingsFlagOffsets != 0 {
 		offsets = mt.offsets[termText]
 	}
 
 	return newMemoryPostingsEnum(freq, positions, offsets), nil
 }
 
-// --- memoryTermsEnum: schema.TermsEnum implementation ---
+// --- memoryTermsEnum: spi.TermsEnum implementation ---
 
 type memoryTermsEnum struct {
-	schema.TermsEnumBase
+	spi.TermsEnumBase
 	mt      *memoryTerms
 	pos     int
 	started bool
@@ -663,17 +663,17 @@ func newMemoryTermsEnum(mt *memoryTerms) *memoryTermsEnum {
 	return &memoryTermsEnum{mt: mt, pos: -1}
 }
 
-func (e *memoryTermsEnum) Next() (*schema.Term, error) {
+func (e *memoryTermsEnum) Next() (*spi.Term, error) {
 	e.pos++
 	if e.pos >= len(e.mt.terms) {
 		return nil, nil
 	}
-	term := schema.NewTerm(e.mt.field, e.mt.terms[e.pos])
+	term := spi.NewTerm(e.mt.field, e.mt.terms[e.pos])
 	e.SetCurrentTerm(term)
 	return term, nil
 }
 
-func (e *memoryTermsEnum) SeekCeil(seek *schema.Term) (*schema.Term, error) {
+func (e *memoryTermsEnum) SeekCeil(seek *spi.Term) (*spi.Term, error) {
 	if seek == nil || seek.Field != e.mt.field {
 		e.pos = -1
 		return e.Next()
@@ -684,7 +684,7 @@ func (e *memoryTermsEnum) SeekCeil(seek *schema.Term) (*schema.Term, error) {
 	return e.Next()
 }
 
-func (e *memoryTermsEnum) SeekExact(seek *schema.Term) (bool, error) {
+func (e *memoryTermsEnum) SeekExact(seek *spi.Term) (bool, error) {
 	if seek == nil || seek.Field != e.mt.field {
 		return false, nil
 	}
@@ -711,25 +711,25 @@ func (e *memoryTermsEnum) TotalTermFreq() (int64, error) {
 	return int64(e.mt.freqs[e.mt.terms[e.pos]]), nil
 }
 
-func (e *memoryTermsEnum) Postings(flags int) (schema.PostingsEnum, error) {
+func (e *memoryTermsEnum) Postings(flags int) (spi.PostingsEnum, error) {
 	if e.pos < 0 || e.pos >= len(e.mt.terms) {
-		return &schema.EmptyPostingsEnum{}, nil
+		return &spi.EmptyPostingsEnum{}, nil
 	}
 	termText := e.mt.terms[e.pos]
 	return e.mt.GetPostingsReader(termText, flags)
 }
 
-func (e *memoryTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (schema.PostingsEnum, error) {
+func (e *memoryTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (spi.PostingsEnum, error) {
 	return e.Postings(flags)
 }
 
-// --- memoryPostingsEnum: schema.PostingsEnum implementation ---
+// --- memoryPostingsEnum: spi.PostingsEnum implementation ---
 
-// memoryPostingsEnum implements schema.PostingsEnum for a single-document
+// memoryPostingsEnum implements spi.PostingsEnum for a single-document
 // in-memory index. It returns doc 0 with the correct term frequency,
 // positions, and offsets.
 type memoryPostingsEnum struct {
-	schema.PostingsEnumBase
+	spi.PostingsEnumBase
 	freq       int
 	positions  []int
 	offsets    [][2]int
@@ -743,7 +743,7 @@ func newMemoryPostingsEnum(freq int, positions []int, offsets [][2]int) *memoryP
 		positions:        positions,
 		offsets:          offsets,
 		posIdx:           -1,
-		PostingsEnumBase: schema.NewPostingsEnumBase(-1),
+		PostingsEnumBase: spi.NewPostingsEnumBase(-1),
 	}
 }
 
@@ -753,8 +753,8 @@ func (p *memoryPostingsEnum) NextDoc() (int, error) {
 		p.CurrentDoc = 0
 		return 0, nil
 	}
-	p.CurrentDoc = schema.NO_MORE_DOCS
-	return schema.NO_MORE_DOCS, nil
+	p.CurrentDoc = spi.NO_MORE_DOCS
+	return spi.NO_MORE_DOCS, nil
 }
 
 func (p *memoryPostingsEnum) Advance(target int) (int, error) {
@@ -764,12 +764,12 @@ func (p *memoryPostingsEnum) Advance(target int) (int, error) {
 		return 0, nil
 	}
 	p.positioned = true
-	p.CurrentDoc = schema.NO_MORE_DOCS
-	return schema.NO_MORE_DOCS, nil
+	p.CurrentDoc = spi.NO_MORE_DOCS
+	return spi.NO_MORE_DOCS, nil
 }
 
 func (p *memoryPostingsEnum) Freq() (int, error) {
-	if !p.positioned || p.CurrentDoc == schema.NO_MORE_DOCS {
+	if !p.positioned || p.CurrentDoc == spi.NO_MORE_DOCS {
 		return 0, nil
 	}
 	return p.freq, nil
@@ -778,7 +778,7 @@ func (p *memoryPostingsEnum) Freq() (int, error) {
 func (p *memoryPostingsEnum) NextPosition() (int, error) {
 	p.posIdx++
 	if p.posIdx >= len(p.positions) {
-		return schema.NO_MORE_POSITIONS, nil
+		return spi.NO_MORE_POSITIONS, nil
 	}
 	return p.positions[p.posIdx], nil
 }

@@ -108,16 +108,26 @@ func AdvanceRange(s DocValuesSkipper, minValue, maxValue int64) error {
 // This is the Go port of DocValuesSkipper.globalMinValue.
 func GlobalMinValue(reader IndexReader, field string) (int64, error) {
 	minValue := int64(math.MaxInt64)
-	for _, ctx := range reader.Leaves() {
-		if ctx.Reader().GetFieldInfos().FieldInfo(field) == nil {
+	leaves, err := reader.Leaves()
+	if err != nil {
+		return 0, err
+	}
+	for _, ctx := range leaves {
+		leaf := ctx.LeafReader()
+		if leaf.GetFieldInfos().FieldInfoByName(field) == nil {
 			continue // no field values in this segment, so we can ignore it
 		}
-		skipper := ctx.Reader().GetDocValuesSkipper(field)
+		skipper, err := leaf.GetDocValuesSkipper(field)
+		if err != nil {
+			return 0, err
+		}
 		if skipper == nil {
 			// minimum cannot be computed correctly since skipper is not enabled for some leaf
 			return math.MinInt64, nil
 		}
-		val := skipper.GlobalMinValue()
+		// spi.DocValuesSkipper.MinValue is the per-segment global minimum,
+		// i.e. DocValuesSkipper.minValue() with no level argument in Lucene.
+		val := skipper.MinValue()
 		if val < minValue {
 			minValue = val
 		}
@@ -130,16 +140,26 @@ func GlobalMinValue(reader IndexReader, field string) (int64, error) {
 // This is the Go port of DocValuesSkipper.globalMaxValue.
 func GlobalMaxValue(reader IndexReader, field string) (int64, error) {
 	maxValue := int64(math.MinInt64)
-	for _, ctx := range reader.Leaves() {
-		if ctx.Reader().GetFieldInfos().FieldInfo(field) == nil {
+	leaves, err := reader.Leaves()
+	if err != nil {
+		return 0, err
+	}
+	for _, ctx := range leaves {
+		leaf := ctx.LeafReader()
+		if leaf.GetFieldInfos().FieldInfoByName(field) == nil {
 			continue // no field values in this segment, so we can ignore it
 		}
-		skipper := ctx.Reader().GetDocValuesSkipper(field)
+		skipper, err := leaf.GetDocValuesSkipper(field)
+		if err != nil {
+			return 0, err
+		}
 		if skipper == nil {
 			// maximum cannot be computed correctly since skipper is not enabled for some leaf
 			return math.MaxInt64, nil
 		}
-		val := skipper.GlobalMaxValue()
+		// spi.DocValuesSkipper.MaxValue is the per-segment global maximum,
+		// i.e. DocValuesSkipper.maxValue() with no level argument in Lucene.
+		val := skipper.MaxValue()
 		if val > maxValue {
 			maxValue = val
 		}
@@ -151,10 +171,19 @@ func GlobalMaxValue(reader IndexReader, field string) (int64, error) {
 // This is the Go port of DocValuesSkipper.globalDocCount.
 func GlobalDocCount(reader IndexReader, field string) (int, error) {
 	docCount := 0
-	for _, ctx := range reader.Leaves() {
-		skipper := ctx.Reader().GetDocValuesSkipper(field)
+	leaves, err := reader.Leaves()
+	if err != nil {
+		return 0, err
+	}
+	for _, ctx := range leaves {
+		skipper, err := ctx.LeafReader().GetDocValuesSkipper(field)
+		if err != nil {
+			return 0, err
+		}
 		if skipper != nil {
-			docCount += skipper.GlobalDocCount()
+			// spi.DocValuesSkipper.DocCount is the per-segment global document
+			// count, i.e. DocValuesSkipper.docCount() with no level argument.
+			docCount += skipper.DocCount()
 		}
 	}
 	return docCount, nil

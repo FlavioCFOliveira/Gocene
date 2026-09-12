@@ -6,7 +6,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/backward_codecs/compressing"
 	lucene50compressing "github.com/FlavioCFOliveira/Gocene/backward_codecs/lucene50/compressing"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -82,7 +82,7 @@ func (f *Lucene87StoredFieldsFormat) Name() string {
 }
 
 // FieldsReader opens a reader over the stored fields.
-func (f *Lucene87StoredFieldsFormat) FieldsReader(dir store.Directory, si *schema.SegmentInfo, fn *schema.FieldInfos, context store.IOContext) (spi.StoredFieldsReader, error) {
+func (f *Lucene87StoredFieldsFormat) FieldsReader(dir store.Directory, si *spi.SegmentInfo, fn *spi.FieldInfos, context store.IOContext) (spi.StoredFieldsReader, error) {
 	value := si.GetAttribute(ModeKey)
 	if value == "" {
 		return nil, fmt.Errorf("missing value for %s for segment: %s", ModeKey, si.Name)
@@ -95,7 +95,7 @@ func (f *Lucene87StoredFieldsFormat) FieldsReader(dir store.Directory, si *schem
 }
 
 // FieldsWriter is not supported for old codecs.
-func (f *Lucene87StoredFieldsFormat) FieldsWriter(dir store.Directory, si *schema.SegmentInfo, context store.IOContext) (spi.StoredFieldsWriter, error) {
+func (f *Lucene87StoredFieldsFormat) FieldsWriter(dir store.Directory, si *spi.SegmentInfo, context store.IOContext) (spi.StoredFieldsWriter, error) {
 	return nil, fmt.Errorf("old codecs may only be used for reading")
 }
 

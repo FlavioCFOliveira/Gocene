@@ -701,7 +701,7 @@ func newShapeReader(binaryValue *util.BytesRef) *shapeReader {
 	}
 }
 
-func (r *shapeReader) rewind() { _ = r.in.SetPosition(0) }
+func (r *shapeReader) rewind() { r.in.SetPosition(0) }
 
 func (r *shapeReader) readBBox() (*shapeBBox, error) {
 	minX, err := r.in.ReadVLong()
@@ -940,9 +940,7 @@ func (c *shapeComparator) relateRecurse(
 	// Cheap reject: if the query lies strictly beyond tMaxX/tMaxY
 	// the whole subtree can be skipped.
 	if query.MinX() > c.encoder.DecodeX(tMaxX) || query.MinY() > c.encoder.DecodeY(tMaxY) {
-		if err := c.reader.in.SetPosition(c.reader.in.GetPosition() + nodeSize); err != nil {
-			return geo.CellOutsideQuery, err
-		}
+		c.reader.in.SetPosition(c.reader.in.GetPosition() + nodeSize)
 		return geo.CellOutsideQuery, nil
 	}
 
@@ -991,9 +989,7 @@ func (c *shapeComparator) relateRecurse(
 				return geo.CellCrossesQuery, nil
 			}
 		} else {
-			if err := c.reader.in.SetPosition(c.reader.in.GetPosition() + int(size)); err != nil {
-				return geo.CellOutsideQuery, err
-			}
+			c.reader.in.SetPosition(c.reader.in.GetPosition() + int(size))
 		}
 	}
 	return geo.CellOutsideQuery, nil

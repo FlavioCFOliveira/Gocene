@@ -4,7 +4,7 @@
 
 package spi
 
-import "github.com/FlavioCFOliveira/Gocene/schema"
+// No import needed for schema as it is now part of spi
 
 // NormsFormat encodes and decodes per-field, per-document normalization
 // factors (the .nvd / .nvm pair in the on-disk codec).
@@ -42,7 +42,7 @@ type NormsFormat interface {
 type NormsConsumer interface {
 	// AddNormsField persists the norms for a single field. The values are
 	// drawn from the iterator in strictly increasing docID order.
-	AddNormsField(field *schema.FieldInfo, values NormsIterator) error
+	AddNormsField(field *FieldInfo, values NormsIterator) error
 
 	// Close flushes any pending bytes and releases the consumer's
 	// resources.
@@ -54,7 +54,7 @@ type NormsConsumer interface {
 type NormsProducer interface {
 	// GetNorms returns a NumericDocValues iterator over the norms of the
 	// given field, or nil when the field has no norms.
-	GetNorms(field *schema.FieldInfo) (NumericDocValues, error)
+	GetNorms(field *FieldInfo) (NumericDocValues, error)
 
 	// CheckIntegrity walks the per-field data and validates the checksum
 	// framing.

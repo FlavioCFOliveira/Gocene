@@ -9,7 +9,6 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TermVectorValidator provides comprehensive term vector validation.
@@ -587,7 +586,6 @@ func NewVectorValuesValidator(reader *SegmentReader) *VectorValuesValidator {
 // Validate performs comprehensive VectorValues validation.
 func (v *VectorValuesValidator) Validate() []error {
 	maxDoc := v.reader.MaxDoc()
-	liveDocs := v.reader.GetLiveDocs()
 
 	iter := v.fieldInfos.Iterator()
 	for iter.HasNext() {
@@ -600,7 +598,7 @@ func (v *VectorValuesValidator) Validate() []error {
 
 		field := fieldInfo.Name()
 
-		if err := v.validateVectorValues(field, dimension, maxDoc, liveDocs); err != nil {
+		if err := v.validateVectorValues(field, dimension, maxDoc); err != nil {
 			v.errors = append(v.errors, err)
 		}
 	}
@@ -609,7 +607,12 @@ func (v *VectorValuesValidator) Validate() []error {
 }
 
 // validateVectorValues validates vector values for a field.
-func (v *VectorValuesValidator) validateVectorValues(field string, dimension int, maxDoc int, liveDocs util.Bits) error {
+//
+// Mirrors org.apache.lucene.index.CheckIndex#checkFloatVectorValues: the
+// ordinal-addressed vector values are walked through their DocIndexIterator,
+// each vector is checked against the field's declared dimension, and the
+// number of value-bearing documents must equal the reported size.
+func (v *VectorValuesValidator) validateVectorValues(field string, dimension int, maxDoc int) error {
 	vectorValues, err := v.reader.GetFloatVectorValues(field)
 	if err != nil {
 		return fmt.Errorf("cannot get vector values for field %s: %w", field, err)
@@ -623,13 +626,23 @@ func (v *VectorValuesValidator) validateVectorValues(field string, dimension int
 	if dimension <= 0 {
 		return fmt.Errorf("invalid dimension %d for field %s", dimension, field)
 	}
+	if vectorValues.Dimension() != dimension {
+		return fmt.Errorf("field %s reports vector dimension %d, but FloatVectorValues reports %d",
+			field, dimension, vectorValues.Dimension())
+	}
 
-	// Validate vectors for all documents
+	// Validate every vector-bearing document.
 	docCount := 0
-	for docID := 0; docID < maxDoc; docID++ {
-		// Skip deleted documents
-		if liveDocs != nil && !liveDocs.Get(docID) {
-			continue
+	for {
+		docID, err := vectorValues.NextDoc()
+		if err != nil {
+			return fmt.Errorf("error advancing vector values for field %s: %w", field, err)
+		}
+		if docID == DocIdSetIteratorNoMoreDocs {
+			break
+		}
+		if docID < 0 || docID >= maxDoc {
+			return fmt.Errorf("vector values for field %s returned out-of-range docID %d (maxDoc=%d)", field, docID, maxDoc)
 		}
 
 		vector, err := vectorValues.Get(docID)
@@ -637,8 +650,7 @@ func (v *VectorValuesValidator) validateVectorValues(field string, dimension int
 			return fmt.Errorf("error reading vector for doc %d in field %s: %w", docID, field, err)
 		}
 
-		// If vector exists, check dimension
-		if vector != nil && len(vector) != dimension {
+		if len(vector) != dimension {
 			return fmt.Errorf("vector dimension mismatch for doc %d in field %s: got %d, expected %d", docID, field, len(vector), dimension)
 		}
 
@@ -715,7 +727,7 @@ func DefaultEnhancedCheckIndexOptions() *EnhancedCheckIndexOptions {
 }
 
 // CheckIndexWithEnhancedValidation performs enhanced index checking.
-func CheckIndexWithEnhancedValidation(dir store.Directory, opts *EnhancedCheckIndexOptions) (*CheckIndexStatus, []error, error) {
+func CheckIndexWithEnhancedValidation(dir store.Directory, opts *EnhancedCheckIndexOptions) (*Status, []error, error) {
 	if opts == nil {
 		opts = DefaultEnhancedCheckIndexOptions()
 	}
@@ -727,7 +739,7 @@ func CheckIndexWithEnhancedValidation(dir store.Directory, opts *EnhancedCheckIn
 	defer ci.Close()
 
 	// Perform basic check
-	status, err := ci.CheckIndex.CheckIndex()
+	status, err := ci.CheckIndex.CheckIndex(nil)
 	if err != nil {
 		return nil, nil, err
 	}

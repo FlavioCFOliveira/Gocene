@@ -125,7 +125,7 @@ func (w *DocIdsWriter) WriteDocIds(docIds []int32, start, count int, out store.D
 			if err := out.WriteByte(docIDsContinuous); err != nil {
 				return err
 			}
-			return store.WriteVInt(out, docIds[start])
+			return out.WriteVInt(docIds[start])
 		}
 		if min2max <= (count << 4) {
 			// Only trigger bitset optimization when max - min + 1 <= 16 * count
@@ -146,7 +146,7 @@ func (w *DocIdsWriter) WriteDocIds(docIds []int32, start, count int, out store.D
 		for i := 0; i < count; i++ {
 			w.scratch[i] = docIds[start+i] - minID
 		}
-		if err := store.WriteVInt(out, minID); err != nil {
+		if err := out.WriteVInt(minID); err != nil {
 			return err
 		}
 		halfLen := count >> 1
@@ -314,10 +314,10 @@ func writeIdsAsBitSet(docIds []int32, start, count int, out store.DataOutput) er
 	var currentWord int64
 	currentWordIndex := 0
 
-	if err := store.WriteVInt(out, int32(offsetWords)); err != nil {
+	if err := out.WriteVInt(int32(offsetWords)); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(out, int32(totalWordCount)); err != nil {
+	if err := out.WriteVInt(int32(totalWordCount)); err != nil {
 		return err
 	}
 	// Build bit set streaming.
@@ -435,7 +435,7 @@ type DocIDVisitor interface {
 // readContinuousIds decodes a CONTINUOUS_IDS block: a single VInt
 // starting docID, followed by count-1 implicit increments.
 func readContinuousIds(in store.IndexInput, count int, docIDs []int32) error {
-	startVal, err := store.ReadVInt(in)
+	startVal, err := in.ReadVInt()
 	if err != nil {
 		return err
 	}
@@ -446,7 +446,7 @@ func readContinuousIds(in store.IndexInput, count int, docIDs []int32) error {
 }
 
 func readContinuousIdsVisitor(in store.IndexInput, count int, visitor DocIDVisitor) error {
-	startVal, err := store.ReadVInt(in)
+	startVal, err := in.ReadVInt()
 	if err != nil {
 		return err
 	}
@@ -463,7 +463,7 @@ func readContinuousIdsVisitor(in store.IndexInput, count int, visitor DocIDVisit
 func readLegacyDeltaVInts(in store.IndexInput, count int, docIDs []int32) error {
 	var doc int32
 	for i := 0; i < count; i++ {
-		delta, err := store.ReadVInt(in)
+		delta, err := in.ReadVInt()
 		if err != nil {
 			return err
 		}
@@ -476,7 +476,7 @@ func readLegacyDeltaVInts(in store.IndexInput, count int, docIDs []int32) error 
 func readLegacyDeltaVIntsVisitor(in store.IndexInput, count int, visitor DocIDVisitor) error {
 	var doc int32
 	for i := 0; i < count; i++ {
-		delta, err := store.ReadVInt(in)
+		delta, err := in.ReadVInt()
 		if err != nil {
 			return err
 		}
@@ -537,11 +537,11 @@ func (w *DocIdsWriter) readBitSetVisitor(in store.IndexInput, count int, visitor
 // buffer is grown without copying to amortise allocation across many
 // leaf blocks (the previously-loaded values are not reused).
 func (w *DocIdsWriter) readBitSetIterator(in store.IndexInput, count int) (*util.DocBaseBitSetIterator, error) {
-	offsetWords, err := store.ReadVInt(in)
+	offsetWords, err := in.ReadVInt()
 	if err != nil {
 		return nil, err
 	}
-	longLen, err := store.ReadVInt(in)
+	longLen, err := in.ReadVInt()
 	if err != nil {
 		return nil, err
 	}
@@ -558,7 +558,7 @@ func (w *DocIdsWriter) readBitSetIterator(in store.IndexInput, count int) (*util
 		// no-op; the slice is reused with the correct logical length.
 	}
 	for i := 0; i < int(longLen); i++ {
-		v, err := store.ReadInt64LE(in)
+		v, err := in.ReadLong()
 		if err != nil {
 			return nil, err
 		}
@@ -590,13 +590,13 @@ func int64SliceAsUint64(in []int64) []uint64 {
 // readDelta16 decodes the DELTA_BPV_16 block: VInt min, count/2 ints
 // holding two packed 16-bit deltas each, optional trailing short.
 func readDelta16(in store.IndexInput, count int, docIds []int32) error {
-	minVal, err := store.ReadVInt(in)
+	minVal, err := in.ReadVInt()
 	if err != nil {
 		return err
 	}
 	half := count >> 1
 	for i := 0; i < half; i++ {
-		v, err := store.ReadInt32LE(in)
+		v, err := in.ReadInt()
 		if err != nil {
 			return err
 		}
@@ -654,7 +654,7 @@ func (w *DocIdsWriter) readInts21(in store.IndexInput, count int, docIDs []int32
 	oneThird := floorToMultipleOf16(count / 3)
 	numInts := oneThird << 1
 	for i := 0; i < numInts; i++ {
-		v, err := store.ReadInt32LE(in)
+		v, err := in.ReadInt()
 		if err != nil {
 			return err
 		}
@@ -663,7 +663,7 @@ func (w *DocIdsWriter) readInts21(in store.IndexInput, count int, docIDs []int32
 	decode21(docIDs, w.scratch, oneThird, numInts)
 	i := oneThird * 3
 	for ; i < count-2; i += 3 {
-		l, err := store.ReadInt64LE(in)
+		l, err := in.ReadLong()
 		if err != nil {
 			return err
 		}
@@ -728,7 +728,7 @@ func (w *DocIdsWriter) readInts24(in store.IndexInput, count int, docIDs []int32
 	quarter := count >> 2
 	numInts := quarter * 3
 	for i := 0; i < numInts; i++ {
-		v, err := store.ReadInt32LE(in)
+		v, err := in.ReadInt()
 		if err != nil {
 			return err
 		}
@@ -784,15 +784,15 @@ func decode24(docIDs, scratch []int32, quarter, numInts int) {
 func readScalarInts24(in store.IndexInput, count int, docIDs []int32) error {
 	i := 0
 	for ; i < count-7; i += 8 {
-		l1, err := store.ReadInt64LE(in)
+		l1, err := in.ReadLong()
 		if err != nil {
 			return err
 		}
-		l2, err := store.ReadInt64LE(in)
+		l2, err := in.ReadLong()
 		if err != nil {
 			return err
 		}
-		l3, err := store.ReadInt64LE(in)
+		l3, err := in.ReadLong()
 		if err != nil {
 			return err
 		}
@@ -836,7 +836,7 @@ func (w *DocIdsWriter) readScalarInts24Visitor(in store.IndexInput, count int, v
 // writeIntLE (little-endian), so the decode reads little-endian.
 func readInts32(in store.IndexInput, count int, docIDs []int32) error {
 	for i := 0; i < count; i++ {
-		v, err := store.ReadInt32LE(in)
+		v, err := in.ReadInt()
 		if err != nil {
 			return err
 		}
@@ -847,7 +847,7 @@ func readInts32(in store.IndexInput, count int, docIDs []int32) error {
 
 func (w *DocIdsWriter) readInts32Visitor(in store.IndexInput, count int, visitor DocIDVisitor) error {
 	for i := 0; i < count; i++ {
-		v, err := store.ReadInt32LE(in)
+		v, err := in.ReadInt()
 		if err != nil {
 			return err
 		}

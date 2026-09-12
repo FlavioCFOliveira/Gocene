@@ -6,7 +6,6 @@ package document
 
 import (
 	"fmt"
-	"sort"
 )
 
 // BinaryPoint is an indexed binary field for fast range filters. If you also need to store the value, you should
@@ -20,7 +19,7 @@ type BinaryPoint struct {
 	*Field
 }
 
-func getType(point [][]byte) *FieldType {
+func getBinaryPointType(point [][]byte) *FieldType {
 	if point == nil {
 		panic("point must not be null")
 	}
@@ -86,7 +85,7 @@ func pack(point ...[]byte) []byte {
 // NewBinaryPoint creates a new BinaryPoint, indexing the provided N-dimensional binary point.
 func NewBinaryPoint(name string, point ...[]byte) *BinaryPoint {
 	packed := pack(point...)
-	ft := getType(point)
+	ft := getBinaryPointType(point)
 	f, _ := NewField(name, packed, ft)
 	return &BinaryPoint{Field: f}
 }

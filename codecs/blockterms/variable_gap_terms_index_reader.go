@@ -24,7 +24,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -280,7 +280,7 @@ func (r *VariableGapTermsIndexReader) SupportsOrd() bool {
 // when the field has no terms index.
 //
 // Port of VariableGapTermsIndexReader.getFieldEnum(FieldInfo).
-func (r *VariableGapTermsIndexReader) GetFieldEnum(fieldInfo *schema.FieldInfo) TermsIndexEnum {
+func (r *VariableGapTermsIndexReader) GetFieldEnum(fieldInfo *spi.FieldInfo) TermsIndexEnum {
 	fieldData, ok := r.fields[fieldInfo.Name()]
 	if !ok {
 		return nil

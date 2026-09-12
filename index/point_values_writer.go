@@ -5,10 +5,10 @@
 package index
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
 	"errors"
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -160,7 +160,7 @@ func NewPointsWriter(bytesUsed util.CounterAPI, fieldInfo *FieldInfo) (*PointVal
 	if fieldInfo == nil {
 		return nil, errors.New("point values writer: fieldInfo must not be nil")
 	}
-	bytes, err := util.NewPagedBytes(12)
+	bytes, err := store.NewPagedBytes(12)
 	if err != nil {
 		return nil, fmt.Errorf("point values writer: alloc paged bytes: %w", err)
 	}
@@ -206,7 +206,7 @@ func (w *PointValuesWriter) AddPackedValue(docID int, value *util.BytesRef) erro
 	}
 
 	before := w.bytes.RamBytesUsed()
-	if err := w.bytesOut.WriteBytes(value.Bytes[value.Offset : value.Offset+value.Length]); err != nil {
+	if err := w.bytesOut.WriteBytes(value.Bytes, value.Offset, value.Length); err != nil {
 		return fmt.Errorf("field=%s: write packed value: %w", w.fieldInfo.Name(), err)
 	}
 	w.iwBytesUsed.AddAndGet(w.bytes.RamBytesUsed() - before)
@@ -274,7 +274,7 @@ func (w *PointValuesWriter) Flush(_ *SegmentWriteState, sortMap SorterDocMap, wr
 // permutation so the StableMSBRadixSorter inside the BKD writer can
 // reorder slots without touching the underlying byte storage.
 type bufferedMutablePointTree struct {
-	bytesReader       *util.Reader
+	bytesReader       *store.Reader
 	docIDs            []int
 	numPoints         int
 	packedBytesLength int
@@ -282,7 +282,7 @@ type bufferedMutablePointTree struct {
 	temp              []int
 }
 
-func newBufferedMutablePointTree(bytesReader *util.Reader, docIDs []int, numPoints, packedBytesLength int) *bufferedMutablePointTree {
+func newBufferedMutablePointTree(bytesReader *store.Reader, docIDs []int, numPoints, packedBytesLength int) *bufferedMutablePointTree {
 	ords := make([]int, numPoints)
 	for i := 0; i < numPoints; i++ {
 		ords[i] = i

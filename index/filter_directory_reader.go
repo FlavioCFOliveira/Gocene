@@ -4,12 +4,6 @@
 
 package index
 
-import (
-	"io"
-
-	"github.com/FlavioCFOliveira/Gocene/util"
-)
-
 // FilterDirectoryReader is a DirectoryReader that wraps another DirectoryReader.
 //
 // This is the Go port of Lucene's org.apache.lucene.index.FilterDirectoryReader.

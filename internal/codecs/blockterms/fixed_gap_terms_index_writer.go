@@ -3,60 +3,58 @@ package blockterms
 import (
 	"bytes"
 	"fmt"
-	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/internal/codecs"
 	"github.com/FlavioCFOliveira/Gocene/internal/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
 
 const (
-	TermsIndexExtension       = "tii"
-	CodecName                 = "FixedGapTermsIndex"
-	VersionStart              = 4
-	VersionCurrent            = VersionStart
-	BlockSize                 = 4096
-	DefaultTermIndexInterval  = 32
+	FixedGapTermsIndexExtension       = "tii"
+	FixedGapTermsIndexCodecName       = "FixedGapTermsIndex"
+	FixedGapTermsIndexVersionStart    = 4
+	FixedGapTermsIndexVersionCurrent  = FixedGapTermsIndexVersionStart
+	BlockSize                         = 4096
+	DefaultTermIndexInterval         = 32
 )
 
+type bufferPrimitiveWriter struct {
+	buf *bytes.Buffer
+}
+
+func (b *bufferPrimitiveWriter) WriteByte(c byte) error {
+	return b.buf.WriteByte(c)
+}
+
+func (b *bufferPrimitiveWriter) WriteBytes(p []byte, offset, length int) error {
+	_, err := b.buf.Write(p[offset : offset+length])
+	return err
+}
+
 type memoryDataOutput struct {
+	*store.BaseDataOutput
 	buf *bytes.Buffer
 }
 
 func newMemoryDataOutput() *memoryDataOutput {
-	return &memoryDataOutput{buf: new(bytes.Buffer)}
+	buf := new(bytes.Buffer)
+	return &memoryDataOutput{
+		BaseDataOutput: store.NewBaseDataOutput(&bufferPrimitiveWriter{buf: buf}),
+		buf:            buf,
+	}
 }
 
-func (m *memoryDataOutput) WriteByte(b byte) error {
-	return m.buf.WriteByte(b)
-}
-
-func (m *memoryDataOutput) WriteBytes(b []byte) error {
-	_, err := m.buf.Write(b)
+func (m *memoryDataOutput) WriteBytes(b []byte, offset, length int) error {
+	_, err := m.buf.Write(b[offset : offset+length])
 	return err
 }
 
 func (m *memoryDataOutput) WriteBytesN(b []byte, n int) error {
 	_, err := m.buf.Write(b[:n])
 	return err
-}
-
-func (m *memoryDataOutput) WriteInt(i int32) error {
-	return store.WriteInt(m.buf, i)
-}
-
-func (m *memoryDataOutput) WriteVInt(i int32) error {
-	return store.WriteVInt(m.buf, i)
-}
-
-func (m *memoryDataOutput) WriteLong(i int64) error {
-	return store.WriteLong(m.buf, i)
-}
-
-func (m *memoryDataOutput) WriteVLong(i int64) error {
-	return store.WriteVLong(m.buf, i)
 }
 
 func (m *memoryDataOutput) FilePointer() int64 {
@@ -79,16 +77,20 @@ type FixedGapTermsIndexWriter struct {
 	fields            []*simpleFieldWriter
 }
 
-func NewFixedGapTermsIndexWriter(state *store.SegmentWriteState, termIndexInterval int) (*FixedGapTermsIndexWriter, error) {
+func NewFixedGapTermsIndexWriter(state *spi.SegmentWriteState, termIndexInterval int) (*FixedGapTermsIndexWriter, error) {
 	if termIndexInterval <= 0 {
 		return nil, fmt.Errorf("invalid termIndexInterval: %d", termIndexInterval)
 	}
 
 	indexFileName := store.IndexFileNamesSegmentFileName(
-		state.SegmentInfo.Name, state.SegmentSuffix, TermsIndexExtension)
+		state.SegmentInfo.Name(), state.SegmentSuffix, FixedGapTermsIndexExtension)
 	out, err := state.Directory.CreateOutput(indexFileName, state.Context)
 	if err != nil {
 		return nil, err
+	}
+	storeOut, ok := out.(store.IndexOutput)
+	if !ok {
+		return nil, fmt.Errorf("output does not implement store.IndexOutput")
 	}
 
 	success := false
@@ -99,28 +101,28 @@ func NewFixedGapTermsIndexWriter(state *store.SegmentWriteState, termIndexInterv
 	}()
 
 	if err := store.CodecUtilWriteIndexHeader(
-		out, CodecName, VersionCurrent, state.SegmentInfo.ID, state.SegmentSuffix); err != nil {
+		storeOut, FixedGapTermsIndexCodecName, FixedGapTermsIndexVersionCurrent, state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
 		return nil, err
 	}
-	if err := out.WriteVInt(int32(termIndexInterval)); err != nil {
+	if err := storeOut.WriteVInt(int32(termIndexInterval)); err != nil {
 		return nil, err
 	}
-	if err := out.WriteVInt(int32(packed.VersionCurrent)); err != nil {
+	if err := storeOut.WriteVInt(int32(packed.VersionCurrent)); err != nil {
 		return nil, err
 	}
-	if err := out.WriteVInt(int32(BlockSize)); err != nil {
+	if err := storeOut.WriteVInt(int32(BlockSize)); err != nil {
 		return nil, err
 	}
 
 	success = true
 	return &FixedGapTermsIndexWriter{
-		out:               out,
+		out:               storeOut,
 		termIndexInterval: termIndexInterval,
 		fields:            make([]*simpleFieldWriter, 0),
 	}, nil
 }
 
-func NewFixedGapTermsIndexWriterDefault(state *store.SegmentWriteState) (*FixedGapTermsIndexWriter, error) {
+func NewFixedGapTermsIndexWriterDefault(state *spi.SegmentWriteState) (*FixedGapTermsIndexWriter, error) {
 	return NewFixedGapTermsIndexWriter(state, DefaultTermIndexInterval)
 }
 
@@ -128,7 +130,7 @@ func (w *FixedGapTermsIndexWriter) AddField(field *index.FieldInfo, termsFilePoi
 	writer := &simpleFieldWriter{
 		parent:            w,
 		fieldInfo:         field,
-		indexStart:        w.out.FilePointer(),
+		indexStart:        w.out.GetFilePointer(),
 		termsStart:        termsFilePointer,
 		termIndexInterval: w.termIndexInterval,
 	}
@@ -142,9 +144,7 @@ func (w *FixedGapTermsIndexWriter) Close() error {
 		return nil
 	}
 
-	dirStart := w.out.FilePointer()
-	fieldCount := len(w.fields)
-
+	dirStart := w.out.GetFilePointer()
 	nonNullFieldCount := 0
 	for _, field := range w.fields {
 		if field.numIndexTerms > 0 {
@@ -158,7 +158,7 @@ func (w *FixedGapTermsIndexWriter) Close() error {
 
 	for _, field := range w.fields {
 		if field.numIndexTerms > 0 {
-			if err := w.out.WriteVInt(int32(field.fieldInfo.Number)); err != nil {
+			if err := w.out.WriteVInt(int32(field.fieldInfo.Number())); err != nil {
 				return err
 			}
 			if err := w.out.WriteVInt(int32(field.numIndexTerms)); err != nil {
@@ -183,7 +183,7 @@ func (w *FixedGapTermsIndexWriter) Close() error {
 		return err
 	}
 
-	if err := store.CodecUtilWriteFooter(w.out); err != nil {
+	if err := store.WriteFooter(w.out); err != nil {
 		return err
 	}
 
@@ -239,11 +239,11 @@ func (fw *simpleFieldWriter) Add(text []byte, stats codecs.TermStats, termsFileP
 	} else {
 		p := util.NewBytesRef(fw.lastTerm)
 		i := util.NewBytesRef(text)
-		len, err := util.SortKeyLength(p, i)
+		length, err := util.SortKeyLength(p, i)
 		if err != nil {
 			indexedTermLength = len(text)
 		} else {
-			indexedTermLength = len
+			indexedTermLength = length
 		}
 	}
 
@@ -266,21 +266,21 @@ func (fw *simpleFieldWriter) Add(text []byte, stats codecs.TermStats, termsFileP
 }
 
 func (fw *simpleFieldWriter) Finish(termsFilePointer int64) error {
-	fw.packedIndexStart = fw.parent.out.FilePointer()
+	fw.packedIndexStart = fw.parent.out.GetFilePointer()
 
 	if err := fw.termAddresses.Finish(); err != nil {
 		return err
 	}
-	if _, err := fw.parent.out.WriteBytes(fw.addressBuffer.Bytes()); err != nil {
+	if err := fw.parent.out.WriteBytes(fw.addressBuffer.Bytes(), 0, len(fw.addressBuffer.Bytes())); err != nil {
 		return err
 	}
 
-	fw.packedOffsetsStart = fw.parent.out.FilePointer()
+	fw.packedOffsetsStart = fw.parent.out.GetFilePointer()
 
 	if err := fw.termOffsets.Finish(); err != nil {
 		return err
 	}
-	if _, err := fw.parent.out.WriteBytes(fw.offsetsBuffer.Bytes()); err != nil {
+	if err := fw.parent.out.WriteBytes(fw.offsetsBuffer.Bytes(), 0, len(fw.offsetsBuffer.Bytes())); err != nil {
 		return err
 	}
 

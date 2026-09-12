@@ -4,10 +4,6 @@
 
 package spi
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
-)
-
 // PointsFormat is the canonical service-provider interface for encoding
 // and decoding per-segment point (BKD) values. Mirrors
 // org.apache.lucene.codecs.PointsFormat from Apache Lucene 10.4.0.
@@ -51,7 +47,7 @@ type PointsWriter interface {
 	// GetValues accessor (the wide read surface lives on the codecs side;
 	// the SPI keeps only the integrity/close hooks here for the same reason
 	// KnnVectorsReader does).
-	WriteField(fieldInfo *schema.FieldInfo, reader PointsReader) error
+	WriteField(fieldInfo *FieldInfo, reader PointsReader) error
 
 	// Finish finalises the writing process (sentinel, lengths, footer).
 	Finish() error

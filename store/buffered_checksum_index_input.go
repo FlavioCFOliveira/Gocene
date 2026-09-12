@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // BufferedChecksumIndexInput is a simple ChecksumIndexInput implementation
@@ -20,7 +22,7 @@ import (
 //   - The checksum is computed using BufferedChecksum wrapping a CRC32.
 //   - GetFilePointer and Length delegate to the wrapped IndexInput.
 type BufferedChecksumIndexInput struct {
-	BaseDataInput
+	spi.BaseDataInput
 	main   IndexInput
 	digest *BufferedChecksum
 }
@@ -117,10 +119,10 @@ func (in *BufferedChecksumIndexInput) ReadString() (string, error) {
 	// Update checksum with length (VInt) and bytes
 	// This is tricky because we don't know the VInt bytes.
 	// The best way is to use a temporary buffer or just rely on the fact
-	// that ReadString in BaseDataInput calls ReadVInt and ReadBytes.
+	// that ReadString in spi.BaseDataInput calls ReadVInt and ReadBytes.
 	// We should override those if we want to track.
 	// But we already override ReadByte and ReadBytes.
-	// BaseDataInput's ReadString calls ReadVInt and ReadBytes.
+	// spi.BaseDataInput's ReadString calls ReadVInt and ReadBytes.
 	// ReadVInt calls ReadByte in a loop.
 	// ReadBytes calls our overridden ReadBytes.
 	// So the checksum is actually already updated!

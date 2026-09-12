@@ -7,6 +7,7 @@ package index
 import (
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -44,4 +45,8 @@ type BytesRef = util.BytesRef
 // the LeafReader interface and its concrete implementations; the
 // LeafReaderInterface alias exists because several packages already name the
 // contract that way. Both names denote exactly the same type.
-type LeafReaderInterface = LeafReader
+type LeafReader = spi.LeafReader
+type LeafReaderInterface = spi.LeafReader
+type CacheHelper = spi.CacheHelper
+type CompositeReader = spi.CompositeReader
+type IndexReaderContext = spi.IndexReaderContext

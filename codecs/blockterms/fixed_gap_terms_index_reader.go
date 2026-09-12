@@ -23,7 +23,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -455,7 +455,7 @@ func (d *fixedGapFieldIndexData) String() string {
 // GetFieldEnum returns an enumerator over fieldInfo's indexed terms.
 //
 // Port of FixedGapTermsIndexReader.getFieldEnum(FieldInfo).
-func (r *FixedGapTermsIndexReader) GetFieldEnum(fieldInfo *schema.FieldInfo) TermsIndexEnum {
+func (r *FixedGapTermsIndexReader) GetFieldEnum(fieldInfo *spi.FieldInfo) TermsIndexEnum {
 	return &fixedGapIndexEnum{
 		reader:     r,
 		fieldIndex: r.fields[fieldInfo.Name()],

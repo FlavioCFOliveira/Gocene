@@ -10,115 +10,22 @@ import (
 	"hash"
 	"hash/adler32"
 	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // NamedOutput provides access to the file name for index outputs.
-// This is a segregated interface for components that have an associated name.
-type NamedOutput interface {
-	// GetName returns the name of the file being written.
-	GetName() string
-}
+type NamedOutput = spi.NamedOutput
 
 // IndexOutput provides random access to write index files.
-//
-// IndexOutput is the abstract base class for writing index files.
-// It provides methods for writing primitive types (byte, int, long, etc.)
-// and arbitrary byte arrays. All writes are byte-aligned.
-//
-// This is the Go port of Lucene's org.apache.lucene.store.IndexOutput.
-// This interface is composed of smaller, focused interfaces following
-// the Interface Segregation Principle.
-type IndexOutput interface {
-	// DataOutput provides basic write operations
-	DataOutput
-
-	// RandomAccess provides position-aware operations
-	RandomAccess
-
-	// NamedOutput provides access to the file name
-	NamedOutput
-
-	// Closable provides resource cleanup
-	Closable
-}
+type IndexOutput = spi.IndexOutput
 
 // VariableLengthOutput provides methods for writing variable-length encoded data.
-// This is a segregated interface for components that need VInt/VLong support.
-type VariableLengthOutput interface {
-	// WriteVInt writes a variable-length integer (up to 5 bytes).
-	// This is Lucene's variable-length integer encoding.
-	WriteVInt(i int32) error
-
-	// WriteVLong writes a variable-length long (up to 9 bytes).
-	WriteVLong(i int64) error
-}
+type VariableLengthOutput = spi.VariableLengthOutput
 
 // BufferedOutput provides buffer management operations for buffered IndexOutput implementations.
-// This is a segregated interface for components that use buffering.
-type BufferedOutput interface {
-	// Flush flushes any buffered bytes to the underlying output.
-	Flush() error
+type BufferedOutput = spi.BufferedOutput
 
-	// GetBufferSize returns the current buffer size.
-	GetBufferSize() int
-
-	// SetBufferSize changes the buffer size.
-	SetBufferSize(size int) error
-}
-
-// BaseIndexOutput provides common functionality for IndexOutput implementations.
-// Embed this struct in concrete IndexOutput implementations.
-type BaseIndexOutput struct {
-	// name is the name of the file being written
-	name string
-
-	// filePointer is the current position in the output
-	filePointer int64
-}
-
-// NewBaseIndexOutput creates a new BaseIndexOutput.
-func NewBaseIndexOutput(name string) *BaseIndexOutput {
-	return &BaseIndexOutput{
-		name:        name,
-		filePointer: 0,
-	}
-}
-
-// GetName returns the name of the file being written.
-func (out *BaseIndexOutput) GetName() string {
-	return out.name
-}
-
-// GetFilePointer returns the current position in the output.
-func (out *BaseIndexOutput) GetFilePointer() int64 {
-	return out.filePointer
-}
-
-// SetFilePointer sets the current position in the output.
-// This should only be called by implementations.
-func (out *BaseIndexOutput) SetFilePointer(pos int64) {
-	out.filePointer = pos
-}
-
-// IncrementFilePointer increments the file pointer by n bytes.
-func (out *BaseIndexOutput) IncrementFilePointer(n int64) {
-	out.filePointer += n
-}
-
-// WriteBytes writes all bytes from b.
-func (out *BaseIndexOutput) WriteBytes(b []byte) error {
-	return errors.New("WriteBytes not implemented in BaseIndexOutput")
-}
-
-// WriteBytesN writes exactly n bytes from b.
-func (out *BaseIndexOutput) WriteBytesN(b []byte, n int) error {
-	return errors.New("WriteBytesN not implemented in BaseIndexOutput")
-}
-
-// WriteByte writes a single byte.
-func (out *BaseIndexOutput) WriteByte(b byte) error {
-	return errors.New("WriteByte not implemented in BaseIndexOutput")
-}
 
 // IndexOutputWithDigest wraps an IndexOutput and computes a digest (checksum).
 // This is useful for verifying data integrity on write.

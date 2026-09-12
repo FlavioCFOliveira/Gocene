@@ -194,6 +194,18 @@ func (a *Automaton) AddString(s string) {
 	// Stub: minimal implementation for compatibility
 }
 
+// Compile converts the Automaton into a CompiledAutomaton for faster execution.
+func (a *Automaton) Compile() *CompiledAutomaton {
+	t := AutomatonTypeNormal
+	if !a.deterministic {
+		t = AutomatonTypeNone
+	}
+	return &CompiledAutomaton{
+		automaton: a,
+		Type:      t,
+	}
+}
+
 func (a *Automaton) String() string {
 	return "Automaton{}"
 }

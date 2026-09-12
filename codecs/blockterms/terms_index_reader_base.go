@@ -20,7 +20,7 @@
 package blockterms
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -84,7 +84,7 @@ type TermsIndexReader interface {
 	// or nil when the field has no terms index.
 	//
 	// Port of TermsIndexReaderBase.getFieldEnum(FieldInfo).
-	GetFieldEnum(fieldInfo *schema.FieldInfo) TermsIndexEnum
+	GetFieldEnum(fieldInfo *spi.FieldInfo) TermsIndexEnum
 
 	// SupportsOrd reports whether TermsIndexEnum.Ord and
 	// TermsIndexEnum.SeekOrd are implemented.

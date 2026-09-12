@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -26,7 +26,7 @@ func NewAssertingTermVectorsFormat(in spi.TermVectorsFormat) *AssertingTermVecto
 }
 
 // VectorsReader opens a reader that produces the per-segment term-vector files.
-func (f *AssertingTermVectorsFormat) VectorsReader(dir store.Directory, segmentInfo *schema.SegmentInfo, fieldInfos *schema.FieldInfos, context store.IOContext) (spi.TermVectorsReader, error) {
+func (f *AssertingTermVectorsFormat) VectorsReader(dir store.Directory, segmentInfo *spi.SegmentInfo, fieldInfos *spi.FieldInfos, context store.IOContext) (spi.TermVectorsReader, error) {
 	reader, err := f.in.VectorsReader(dir, segmentInfo, fieldInfos, context)
 	if err != nil {
 		return nil, err
@@ -53,7 +53,7 @@ type AssertingTermVectorsReader struct {
 	in spi.TermVectorsReader
 }
 
-func (r *AssertingTermVectorsReader) Get(docID int) (schema.Fields, error) {
+func (r *AssertingTermVectorsReader) Get(docID int) (spi.Fields, error) {
 	fields, err := r.in.Get(docID)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (r *AssertingTermVectorsReader) Get(docID int) (schema.Fields, error) {
 	return &index.AssertingFields{In: fields}, nil
 }
 
-func (r *AssertingTermVectorsReader) GetField(docID int, field string) (schema.Terms, error) {
+func (r *AssertingTermVectorsReader) GetField(docID int, field string) (spi.Terms, error) {
 	// Lucene's AssertingTermVectorsReader doesn't override getField, it uses the base.
 	return r.in.GetField(docID, field)
 }
@@ -114,7 +114,7 @@ func (w *AssertingTermVectorsWriter) StartDocument(numFields int) error {
 	return nil
 }
 
-func (w *AssertingTermVectorsWriter) StartField(fieldInfo *schema.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error {
+func (w *AssertingTermVectorsWriter) StartField(fieldInfo *spi.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error {
 	if w.termCount != 0 {
 		panic("AssertingTermVectorsWriter: termCount != 0 at startField")
 	}

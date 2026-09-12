@@ -20,14 +20,9 @@ type LongRangeDocValuesField struct {
 // NewLongRangeDocValuesField constructs a LongRangeDocValuesField for the given field
 // name and min/max range values.
 func NewLongRangeDocValuesField(field string, min, max []int64) (*LongRangeDocValuesField, error) {
-	if err := checkLongRangeArgs(min, max); err != nil {
-		return nil, err
-	}
+	checkLongRangeArgs(min, max)
 
-	packed, err := EncodeLongRange(min, max)
-	if err != nil {
-		return nil, err
-	}
+	packed := EncodeLongRange(min, max)
 
 	b, err := NewBinaryRangeDocValuesField(field, packed, len(min), LongRangeBytes)
 	if err != nil {
@@ -68,6 +63,6 @@ func (f *LongRangeDocValuesField) GetMax(dimension int) (int64, error) {
 
 // NewSlowIntersectsQuery constructs a data carrier for a slow intersects query.
 // This matches the Java LongRangeDocValuesField.newSlowIntersectsQuery factory.
-func NewSlowIntersectsQuery(field string, min, max []int64) (*LongRangeSlowRangeQuery, error) {
+func newLongSlowIntersectsQuery(field string, min, max []int64) (*LongRangeSlowRangeQuery, error) {
 	return NewLongRangeSlowRangeQuery(field, min, max, RangeFieldQueryTypeIntersects)
 }

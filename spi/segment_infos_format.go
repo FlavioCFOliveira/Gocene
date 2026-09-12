@@ -4,9 +4,6 @@
 
 package spi
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/store"
-)
 
 // SegmentInfosFormat handles encoding/decoding of segment metadata (segments_N).
 //
@@ -27,9 +24,9 @@ type SegmentInfosFormat interface {
 	// Read reads the most recent segments_N file from dir and returns the
 	// reconstructed SegmentInfos. The IOContext follows the Lucene 10.4.0
 	// IndexInput contract for picking the appropriate read strategy.
-	Read(dir store.Directory, ctx store.IOContext) (*SegmentInfos, error)
+	Read(dir Directory, ctx IOContext) (*SegmentInfos, error)
 
 	// Write serialises the given SegmentInfos to a fresh segments_N file in
 	// dir, honouring infos.Generation() as the generation suffix.
-	Write(dir store.Directory, infos *SegmentInfos, ctx store.IOContext) error
+	Write(dir Directory, infos *SegmentInfos, ctx IOContext) error
 }

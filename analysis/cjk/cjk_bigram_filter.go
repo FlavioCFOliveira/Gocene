@@ -350,6 +350,7 @@ var _ analysis.TokenFilter = (*CJKBigramFilter)(nil)
 // org.apache.lucene.analysis.cjk.CJKBigramFilterFactory from
 // Apache Lucene 10.4.0.
 type CJKBigramFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	flags          int
 	outputUnigrams bool
 }
@@ -358,8 +359,9 @@ type CJKBigramFilterFactory struct {
 // no unigram output.
 func NewCJKBigramFilterFactory() *CJKBigramFilterFactory {
 	return &CJKBigramFilterFactory{
-		flags:          Han | Hiragana | Katakana | Hangul,
-		outputUnigrams: false,
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		flags:                 Han | Hiragana | Katakana | Hangul,
+		outputUnigrams:        false,
 	}
 }
 
@@ -378,7 +380,11 @@ func NewCJKBigramFilterFactoryFull(han, hiragana, katakana, hangul, outputUnigra
 	if hangul {
 		flags |= Hangul
 	}
-	return &CJKBigramFilterFactory{flags: flags, outputUnigrams: outputUnigrams}
+	return &CJKBigramFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		flags:                 flags,
+		outputUnigrams:        outputUnigrams,
+	}
 }
 
 // Create creates a CJKBigramFilter wrapping input.

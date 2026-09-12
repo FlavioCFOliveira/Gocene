@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -37,7 +37,7 @@ func NewBaseKnnVectorsWriter(writer spi.KnnVectorsWriter) *BaseKnnVectorsWriter 
 // It implements a naive merge by default, returning nil for deferred work.
 // Subclasses (via embedding) can override this to implement a two-phase merge strategy
 // (e.g., for HNSW graph construction).
-func (b *BaseKnnVectorsWriter) MergeOneField(fieldInfo *schema.FieldInfo, mergeState *index.MergeState) (func() error, error) {
+func (b *BaseKnnVectorsWriter) MergeOneField(fieldInfo *spi.FieldInfo, mergeState *index.MergeState) (func() error, error) {
 	switch fieldInfo.VectorEncoding() {
 	case index.VectorEncodingByte:
 		fieldWriter, err := b.writer.AddField(fieldInfo)
@@ -187,7 +187,7 @@ func MapOldOrdToNewOrd(
 
 // --- Merged Vector Values Implementation ---
 
-func mergeFloatVectorValues(fieldInfo *schema.FieldInfo, mergeState *index.MergeState) index.FloatVectorValues {
+func mergeFloatVectorValues(fieldInfo *spi.FieldInfo, mergeState *index.MergeState) index.FloatVectorValues {
 	if fieldInfo.VectorEncoding() != index.VectorEncodingFloat32 {
 		panic(fmt.Sprintf("cannot merge vectors encoded as [%s] as FLOAT32", fieldInfo.VectorEncoding()))
 	}
@@ -230,7 +230,7 @@ func mergeFloatVectorValues(fieldInfo *schema.FieldInfo, mergeState *index.Merge
 	}
 }
 
-func mergeByteVectorValues(fieldInfo *schema.FieldInfo, mergeState *index.MergeState) index.ByteVectorValues {
+func mergeByteVectorValues(fieldInfo *spi.FieldInfo, mergeState *index.MergeState) index.ByteVectorValues {
 	if fieldInfo.VectorEncoding() != index.VectorEncodingByte {
 		panic(fmt.Sprintf("cannot merge vectors encoded as [%s] as BYTE", fieldInfo.VectorEncoding()))
 	}

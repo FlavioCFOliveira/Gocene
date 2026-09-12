@@ -585,17 +585,17 @@ func (m *multiFieldNormValues) LongValues(size int, docs []int, values []int64, 
 }
 
 type disiWrapper struct {
-	iterator     DocIdSetIterator
-	postingsEnum index.PostingsEnum
-	scorer       Scorer
-	scorable     Scorable
-	cost         int64
-	matchCost    float32
-	doc          int
-	next         *disiWrapper
+	iterator      DocIdSetIterator
+	postingsEnum  index.PostingsEnum
+	scorer        Scorer
+	scorable      Scorable
+	cost          int64
+	matchCost     float32
+	doc           int
+	next          *disiWrapper
 	approximation DocIdSetIterator
-	twoPhaseView TwoPhaseIterator
-	weight       float32
+	twoPhaseView  TwoPhaseIterator
+	weight        float32
 }
 
 func newDisiWrapper(scorer Scorer, impacts bool, weight float32) *disiWrapper {
@@ -626,16 +626,16 @@ func newDisiWrapper(scorer Scorer, impacts bool, weight float32) *disiWrapper {
 	}
 
 	return &disiWrapper{
-		iterator:     iter,
-		postingsEnum: postingsEnum,
-		scorer:       scorer,
-		scorable:     ScorerUtilLikelyTermScorer(scorer),
-		cost:         cost,
-		doc:          -1,
-		twoPhaseView: twoPhaseView,
+		iterator:      iter,
+		postingsEnum:  postingsEnum,
+		scorer:        scorer,
+		scorable:      ScorerUtilLikelyTermScorer(scorer),
+		cost:          cost,
+		doc:           -1,
+		twoPhaseView:  twoPhaseView,
 		approximation: approximation,
-		matchCost:    matchCost,
-		weight:       weight,
+		matchCost:     matchCost,
+		weight:        weight,
 	}
 }
 
@@ -996,11 +996,11 @@ func (q *disiPriorityQueueN) Clear() {
 func (q *disiPriorityQueueN) upHeap(i int) {
 	node := q.heap[i]
 	nodeDoc := node.doc
-	j := ((i + 1) >>> 1) - 1
+	j := ((i + 1) >> 1) - 1
 	for j >= 0 && nodeDoc < q.heap[j].doc {
 		q.heap[i] = q.heap[j]
 		i = j
-		j = ((j + 1) >>> 1) - 1
+		j = ((j + 1) >> 1) - 1
 	}
 	q.heap[i] = node
 }

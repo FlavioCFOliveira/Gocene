@@ -9,7 +9,6 @@ import (
 	"runtime"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
@@ -67,7 +66,7 @@ type assertingNormsConsumer struct {
 	maxDoc int
 }
 
-func (c *assertingNormsConsumer) AddNormsField(field *schema.FieldInfo, values spi.NormsIterator) error {
+func (c *assertingNormsConsumer) AddNormsField(field *spi.FieldInfo, values spi.NormsIterator) error {
 	lastDocID := -1
 	for values.Next() {
 		docID := values.DocID()
@@ -96,7 +95,7 @@ type assertingNormsProducer struct {
 	maxDoc int
 }
 
-func (p *assertingNormsProducer) GetNorms(field *schema.FieldInfo) (index.NumericDocValues, error) {
+func (p *assertingNormsProducer) GetNorms(field *spi.FieldInfo) (index.NumericDocValues, error) {
 	if !field.HasNorms() {
 		panic("field must have norms")
 	}
@@ -122,10 +121,10 @@ func (p *assertingNormsProducer) Close() error {
 }
 
 type assertingNumericDocValues struct {
-	in       index.NumericDocValues
-	maxDoc   int
-	lastDoc  int
-	exists   bool
+	in      index.NumericDocValues
+	maxDoc  int
+	lastDoc int
+	exists  bool
 }
 
 func newAssertingNumericDocValues(in index.NumericDocValues, maxDoc int) *assertingNumericDocValues {
@@ -133,8 +132,8 @@ func newAssertingNumericDocValues(in index.NumericDocValues, maxDoc int) *assert
 		panic("NumericDocValues should start unpositioned (docID == -1)")
 	}
 	return &assertingNumericDocValues{
-		in:     in,
-		maxDoc: maxDoc,
+		in:      in,
+		maxDoc:  maxDoc,
 		lastDoc: -1,
 	}
 }
@@ -273,5 +272,4 @@ func (v *assertingNumericDocValues) LongValuesOffset(size int, docs []int32, doc
 func (v *assertingNumericDocValues) RangeIntoBitSet(fromDoc, toDoc int, minValue, maxValue int64, bitSet search.BitSet, offset int) error {
 	// Implement as needed, but the Java version focuses on docID bounds.
 	return v.in.RangeIntoBitSet(fromDoc, toDoc, minValue, maxValue, bitSet, offset)
-}
 }

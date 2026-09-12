@@ -139,11 +139,11 @@ func NewFinnishAnalyzerWithWords(stopWords *CharArraySet) *FinnishAnalyzer {
 		tok = NewFinnishLightStemFilter(tok)
 
 		return &TokenStreamComponents{
-			source: func(r io.Reader) error {
+			Source: func(r io.Reader) error {
 				src.SetReader(r)
 				return nil
 			},
-			sink: tok,
+			Sink: tok,
 		}
 	}
 

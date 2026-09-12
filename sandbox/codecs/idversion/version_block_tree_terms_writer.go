@@ -12,7 +12,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/fst"
@@ -107,7 +107,7 @@ type VersionBlockTreeTermsWriter struct {
 	maxItemsInBlock int
 
 	postingsWriter codecs.PushPostingsWriterBase
-	fieldInfos     *schema.FieldInfos
+	fieldInfos     *spi.FieldInfos
 
 	fields []*vbtFieldMetaData
 	closed bool
@@ -195,7 +195,7 @@ func NewVersionBlockTreeTermsWriter(
 // Write serialises all terms of field from terms into the on-disk files.
 //
 // Mirrors VersionBlockTreeTermsWriter.write(Fields, NormsProducer).
-func (w *VersionBlockTreeTermsWriter) Write(field string, terms schema.Terms) error {
+func (w *VersionBlockTreeTermsWriter) Write(field string, terms spi.Terms) error {
 	if w.closed {
 		return fmt.Errorf("VersionBlockTreeTermsWriter.Write: writer is closed")
 	}
@@ -569,7 +569,7 @@ func newVBTTermsWriter(parent *VersionBlockTreeTermsWriter, fi *index.FieldInfo)
 
 // writeTerm processes one term from the TermsEnum.
 // Mirrors VersionBlockTreeTermsWriter.TermsWriter.write(BytesRef, TermsEnum, NormsProducer).
-func (tw *vbtTermsWriter) writeTerm(term *util.BytesRef, termsEnum schema.TermsEnum) error {
+func (tw *vbtTermsWriter) writeTerm(term *util.BytesRef, termsEnum spi.TermsEnum) error {
 	pw := tw.parent.postingsWriter
 
 	state := pw.NewTermState()
@@ -584,9 +584,9 @@ func (tw *vbtTermsWriter) writeTerm(term *util.BytesRef, termsEnum schema.TermsE
 	}
 
 	fi := tw.fi
-	hasFreqs := fi.IndexOptions() >= schema.IndexOptionsDocsAndFreqs
-	hasPositions := fi.IndexOptions() >= schema.IndexOptionsDocsAndFreqsAndPositions
-	hasOffsets := fi.IndexOptions() >= schema.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
+	hasFreqs := fi.IndexOptions() >= spi.IndexOptionsDocsAndFreqs
+	hasPositions := fi.IndexOptions() >= spi.IndexOptionsDocsAndFreqsAndPositions
+	hasOffsets := fi.IndexOptions() >= spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
 	hasPayloads := fi.HasPayloads()
 
 	_, _, werr := codecs.WriteTerm(pw, postingsEnum, hasFreqs, hasPositions, hasOffsets, hasPayloads, nil)

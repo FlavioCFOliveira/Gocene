@@ -111,5 +111,14 @@ func (c *FilterCodec) NormsFormat() NormsFormat {
 	return c.delegate.NormsFormat()
 }
 
+// LiveDocsFormat returns the delegate's live docs format. Mirrors
+// org.apache.lucene.codecs.FilterCodec.liveDocsFormat() which forwards to
+// the wrapped delegate. Without this explicit forwarder FilterCodec would
+// inherit BaseCodec.LiveDocsFormat() (which returns nil) instead of the
+// delegate's real format.
+func (c *FilterCodec) LiveDocsFormat() LiveDocsFormat {
+	return c.delegate.LiveDocsFormat()
+}
+
 // Ensure FilterCodec satisfies the Codec interface.
 var _ Codec = (*FilterCodec)(nil)

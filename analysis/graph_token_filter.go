@@ -4,13 +4,17 @@
 
 package analysis
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // GraphTokenFilter is an abstract token filter that exposes its input stream as a graph.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.GraphTokenFilter.
 type GraphTokenFilter struct {
-	source TokenStream
+	Source TokenStream
 
 	tokenPool []Token
 	currentGraph []Token
@@ -30,7 +34,7 @@ const MaxTokenCacheSize = 100
 
 func NewGraphTokenFilter(source TokenStream) *GraphTokenFilter {
 	return &GraphTokenFilter{
-		source:            source,
+		Source:            source,
 		trailingPositions: -1,
 		finalOffsets:      -1,
 	}
@@ -102,12 +106,33 @@ func (f *GraphTokenFilter) IncrementGraph() (Token, bool) {
 	return Token{}, false
 }
 
+func (f *GraphTokenFilter) GetInput() TokenStream {
+	return f.Source
+}
+
+func (f *GraphTokenFilter) Unwrap() TokenStream {
+	return f.Source
+}
+
+func (f *GraphTokenFilter) GetAttributeSource() *util.AttributeSource {
+	if bts, ok := f.Source.(*BaseTokenStream); ok {
+		return bts.GetAttributeSource()
+	}
+	return nil
+}
+
+func (f *GraphTokenFilter) ClearAttributes() {
+	if src := f.GetAttributeSource(); src != nil {
+		src.ClearAttributes()
+	}
+}
+
 func (f *GraphTokenFilter) GetTrailingPositions() int {
 	return f.trailingPositions
 }
 
 func (f *GraphTokenFilter) Reset() error {
-	if err := ResetTokenStream(f.source); err != nil {
+	if err := ResetTokenStream(f.Source); err != nil {
 		return err
 	}
 	f.tokenPool = nil
@@ -120,7 +145,7 @@ func (f *GraphTokenFilter) Reset() error {
 }
 
 func (f *GraphTokenFilter) Close() error {
-	return f.source.Close()
+	return f.Source.Close()
 }
 
 func (f *GraphTokenFilter) nextTokenInGraph(token Token) (Token, bool) {
@@ -154,7 +179,7 @@ func (f *GraphTokenFilter) nextTokenInStream(token Token) (Token, bool) {
 	if f.trailingPositions != -1 {
 		return Token{}, false
 	}
-	t, ok := NextFromTokenStream(f.source)
+	t, ok := NextFromTokenStream(f.Source)
 	if !ok {
 		f.trailingPositions = t.PositionInc
 		f.finalOffsets = t.EndOffset

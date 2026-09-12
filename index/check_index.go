@@ -5,15 +5,16 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"runtime"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // CheckIndexError is the marker error used by CheckIndex APIs when index integrity failure is detected.
@@ -35,26 +36,26 @@ func NewCheckIndexError(message string, cause error) error {
 
 // Status details the health and status of the index.
 type Status struct {
-	Clean             bool
-	MissingSegments   bool
-	SegmentsFileName  string
-	NumSegments       int
-	SegmentsChecked   []string
-	ToolOutOfDate     bool
-	SegmentInfos      []SegmentInfoStatus
-	Dir               store.Directory
-	NewSegments       *SegmentInfos
-	TotLoseDocCount   int
-	NumBadSegments    int
-	Partial           bool
-	MaxSegmentName    int64
-	ValidCounter      bool
-	UserData          map[string]string
+	Clean            bool
+	MissingSegments  bool
+	SegmentsFileName string
+	NumSegments      int
+	SegmentsChecked  []string
+	ToolOutOfDate    bool
+	SegmentInfos     []*SegmentInfoStatus
+	Dir              store.Directory
+	NewSegments      *spi.SegmentInfos
+	TotLoseDocCount  int
+	NumBadSegments   int
+	Partial          bool
+	MaxSegmentName   int64
+	ValidCounter     bool
+	UserData         map[string]string
 }
 
 type SegmentInfoStatus struct {
 	Name               string
-	Codec              string
+	Codec              spi.Codec
 	MaxDoc             int
 	Compound           bool
 	NumFiles           int
@@ -109,20 +110,20 @@ type StoredFieldStatus struct {
 }
 
 type TermVectorStatus struct {
-	DocCount    int
-	TotVectors  int64
-	Error       error
+	DocCount   int
+	TotVectors int64
+	Error      error
 }
 
 type DocValuesStatus struct {
-	TotalValueFields       int64
-	TotalNumericFields     int64
-	TotalBinaryFields       int64
-	TotalSortedFields       int64
+	TotalValueFields         int64
+	TotalNumericFields       int64
+	TotalBinaryFields        int64
+	TotalSortedFields        int64
 	TotalSortedNumericFields int64
-	TotalSortedSetFields    int64
-	TotalSkippingIndex      int64
-	Error                   error
+	TotalSortedSetFields     int64
+	TotalSkippingIndex       int64
+	Error                    error
 }
 
 type PointsStatus struct {
@@ -149,10 +150,10 @@ type SoftDeletesStatus struct {
 type Level int
 
 const (
-	MinLevelValue             Level = 1
-	MaxValue                  Level = 3
-	DefaultLevelValue        Level = MinLevelValue
-	MinLevelForChecksumChecks Level = 1
+	MinLevelValue              Level = 1
+	MaxValue                   Level = 3
+	DefaultLevelValue          Level = MinLevelValue
+	MinLevelForChecksumChecks  Level = 1
 	MinLevelForIntegrityChecks Level = 2
 	MinLevelForSlowChecks      Level = 3
 )
@@ -169,10 +170,10 @@ type CheckIndex struct {
 	mu          sync.Mutex
 }
 
-func NewCheckIndex(dir store.Directory) (err error) {
+func NewCheckIndex(dir store.Directory) (*CheckIndex, error) {
 	lock, err := dir.ObtainLock("write.lock")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	return &CheckIndex{
 		dir:         dir,
@@ -273,7 +274,7 @@ func (ci *CheckIndex) CheckIndex(onlySegments []string) (*Status, error) {
 		return nil, fmt.Errorf("no segments* file found in %v: files: %v", ci.dir, files)
 	}
 
-	var lastCommit *SegmentInfos
+	var lastCommit *spi.SegmentInfos
 	allSegmentsFiles := make([]string, 0)
 	for _, fileName := range files {
 		if len(fileName) >= 9 && fileName[:9] == "segments_" && fileName != "segments_0" {
@@ -287,7 +288,7 @@ func (ci *CheckIndex) CheckIndex(onlySegments []string) (*Status, error) {
 
 	for _, fileName := range allSegmentsFiles {
 		isLastCommit := fileName == lastSegmentsFile
-		infos, err := ReadCommit(ci.dir, fileName, 0)
+		infos, err := spi.ReadCommit(ci.dir, fileName)
 		if err != nil {
 			if ci.failFast {
 				return nil, err
@@ -317,7 +318,7 @@ func (ci *CheckIndex) CheckIndex(onlySegments []string) (*Status, error) {
 
 	maxDoc := 0
 	delCount := 0
-	for _, info := range lastCommit.Infos {
+	for _, info := range lastCommit.List() {
 		maxDoc += info.MaxDoc()
 		delCount += info.DelCount()
 	}
@@ -327,8 +328,8 @@ func (ci *CheckIndex) CheckIndex(onlySegments []string) (*Status, error) {
 
 	var oldest, newest string
 	var oldSegs string
-	for _, si := range lastCommit.Infos {
-		version := si.Version()
+	for _, si := range lastCommit.List() {
+		version := si.SegmentInfo().Version()
 		if version == "" {
 			oldSegs = "pre-3.1"
 		} else {
@@ -341,15 +342,15 @@ func (ci *CheckIndex) CheckIndex(onlySegments []string) (*Status, error) {
 		}
 	}
 
-	numSegments := len(lastCommit.Infos)
-	segmentsFileName := lastCommit.SegmentsFileName()
+	numSegments := lastCommit.Size()
+	segmentsFileName := lastCommit.GetFileName()
 	result.SegmentsFileName = segmentsFileName
 	result.NumSegments = numSegments
-	result.UserData = lastCommit.UserData()
+	result.UserData = lastCommit.GetUserData()
 
 	userDataString := ""
-	if len(lastCommit.UserData()) > 0 {
-		userDataString = " userData=" + fmt.Sprintf("%v", lastCommit.UserData())
+	if len(lastCommit.GetUserData()) > 0 {
+		userDataString = " userData=" + fmt.Sprintf("%v", lastCommit.GetUserData())
 	}
 
 	versionString := ""
@@ -367,9 +368,8 @@ func (ci *CheckIndex) CheckIndex(onlySegments []string) (*Status, error) {
 		}
 	}
 
-	ci.msgf("Segments file=%s numSegments=%d %s id=%s%s",
-		segmentsFileName, numSegments, versionString,
-		fmt.Sprintf("%x", lastCommit.Id()), userDataString)
+	ci.msgf("Segments file=%s numSegments=%d %s%s",
+		segmentsFileName, numSegments, versionString, userDataString)
 
 	if onlySegments != nil {
 		result.Partial = true
@@ -389,7 +389,7 @@ func (ci *CheckIndex) CheckIndex(onlySegments []string) (*Status, error) {
 
 	if ci.threadCount <= 1 {
 		for i := 0; i < numSegments; i++ {
-			info := lastCommit.Info(i)
+			info := lastCommit.Get(i)
 			ci.updateMaxSegmentName(result, info)
 			if onlySegments != nil {
 				found := false
@@ -418,7 +418,7 @@ func (ci *CheckIndex) CheckIndex(onlySegments []string) (*Status, error) {
 		var wg sync.WaitGroup
 
 		segInfos := make([]*SegmentCommitInfo, 0, numSegments)
-		for _, sci := range lastCommit.Infos {
+		for _, sci := range lastCommit.List() {
 			segInfos = append(segInfos, sci)
 		}
 
@@ -469,7 +469,7 @@ func (ci *CheckIndex) CheckIndex(onlySegments []string) (*Status, error) {
 
 		for _, res := range finalResults {
 			ci.msg(res.output)
-			ci.processSegmentInfoStatusResult(result, lastCommit.Info(res.idx), res.status)
+			ci.processSegmentInfoStatusResult(result, lastCommit.Get(res.idx), res.status)
 		}
 	}
 
@@ -479,11 +479,11 @@ func (ci *CheckIndex) CheckIndex(onlySegments []string) (*Status, error) {
 		ci.msgf("WARNING: %d broken segments (containing %d documents) detected", result.NumBadSegments, result.TotLoseDocCount)
 	}
 
-	result.ValidCounter = result.MaxSegmentName < lastCommit.Counter
+	result.ValidCounter = result.MaxSegmentName < lastCommit.Counter()
 	if !result.ValidCounter {
 		result.Clean = false
-		result.NewSegments.Counter = result.MaxSegmentName + 1
-		ci.msgf("ERROR: Next segment name counter %d is not greater than max segment name %d", lastCommit.Counter, result.MaxSegmentName)
+		result.NewSegments.SetCounter(result.MaxSegmentName + 1)
+		ci.msgf("ERROR: Next segment name counter %d is not greater than max segment name %d", lastCommit.Counter(), result.MaxSegmentName)
 	}
 
 	if result.Clean {
@@ -515,11 +515,11 @@ func (ci *CheckIndex) processSegmentInfoStatusResult(result *Status, info *Segme
 	}
 }
 
-func (ci *CheckIndex) testSegment(sis *SegmentInfos, info *SegmentCommitInfo) *SegmentInfoStatus {
+func (ci *CheckIndex) testSegment(sis *spi.SegmentInfos, info *SegmentCommitInfo) *SegmentInfoStatus {
 	return ci.testSegmentWithWriter(nil, sis, info)
 }
 
-func (ci *CheckIndex) testSegmentWithWriter(w io.Writer, sis *SegmentInfos, info *SegmentCommitInfo) *SegmentInfoStatus {
+func (ci *CheckIndex) testSegmentWithWriter(w io.Writer, sis *spi.SegmentInfos, info *SegmentCommitInfo) *SegmentInfoStatus {
 	segInfoStat := &SegmentInfoStatus{
 		Name:   info.Name(),
 		MaxDoc: info.MaxDoc(),
@@ -547,15 +547,22 @@ func (ci *CheckIndex) testSegmentWithWriter(w io.Writer, sis *SegmentInfos, info
 	}
 
 	writeMsg(fmt.Sprintf("    version=%s", version))
-	writeMsg(fmt.Sprintf("    id=%x", info.Id()))
+	writeMsg(fmt.Sprintf("    id=%x", info.GetID()))
 	codec := info.SegmentInfo().Codec()
-	writeMsg(fmt.Sprintf("    codec=%s", codec))
+	writeMsg(fmt.Sprintf("    codec=%s", codec.Name()))
 	segInfoStat.Codec = codec
 	writeMsg(fmt.Sprintf("    compound=%v", info.SegmentInfo().IsCompoundFile()))
 	segInfoStat.Compound = info.SegmentInfo().IsCompoundFile()
 	writeMsg(fmt.Sprintf("    numFiles=%d", len(info.GetFiles())))
 	segInfoStat.NumFiles = len(info.GetFiles())
-	segInfoStat.SizeMB = float64(info.SizeInBytes()) / (1024.0 * 1024.0)
+	size, err := info.SizeInBytes()
+	if err != nil {
+		segInfoStat.Error = err
+		writeMsg("FAILED")
+		segInfoStat.ToLoseDocCount = toLoseDocCount
+		return segInfoStat
+	}
+	segInfoStat.SizeMB = float64(size) / (1024.0 * 1024.0)
 
 	writeMsg(fmt.Sprintf("    size (MB)=%.2f", segInfoStat.SizeMB))
 	diagnostics := info.SegmentInfo().GetDiagnostics()
@@ -577,8 +584,8 @@ func (ci *CheckIndex) testSegmentWithWriter(w io.Writer, sis *SegmentInfos, info
 	if w != nil {
 		fmt.Fprint(w, "    test: open reader.........")
 	}
-	var err error
-	reader, err = NewSegmentReader(info, sis.IndexCreatedVersionMajor(), store.DefaultIOContext)
+	// reader initialization
+	reader = NewSegmentReader(info)
 	if err != nil {
 		segInfoStat.Error = err
 		writeMsg("FAILED")
@@ -659,7 +666,7 @@ func (ci *CheckIndex) testSegmentWithWriter(w io.Writer, sis *SegmentInfos, info
 			segInfoStat.IndexSortStatus = ci.testSort(reader, indexSort, w)
 		}
 
-		softDeletesField := reader.FieldInfos().SoftDeletesField()
+		softDeletesField := reader.GetFieldInfos().GetSoftDeletesField()
 		if softDeletesField != "" {
 			segInfoStat.SoftDeletesStatus = ci.checkSoftDeletes(softDeletesField, info, reader, w)
 		}
@@ -773,14 +780,14 @@ func (ci *CheckIndex) testFieldInfos(reader *SegmentReader, w io.Writer) *FieldI
 		fmt.Fprint(w, "    test: field infos.........")
 	}
 
-	fieldInfos := reader.FieldInfos()
-	for _, f := range fieldInfos.Infos {
+	fieldInfos := reader.GetFieldInfos()
+	for _, f := range fieldInfos.Fields() {
 		if err := f.CheckConsistency(); err != nil {
 			status.Error = err
 			return status
 		}
 	}
-	status.TotFields = int64(len(fieldInfos.Infos))
+	status.TotFields = int64(len(fieldInfos.Fields()))
 
 	return status
 }
@@ -803,14 +810,18 @@ func (ci *CheckIndex) testFieldNorms(reader *SegmentReader, w io.Writer) *FieldN
 		fmt.Fprint(w, "    test: field norms.........")
 	}
 
-	normsReader := reader.GetNormsReader()
+	normsReader := reader.GetNormsProducer()
 	if normsReader != nil {
-		normsReader = normsReader.GetMergeInstance()
+		// removed GetMergeInstance()
 	}
 
-	for _, info := range reader.FieldInfos().Infos {
+	for _, info := range reader.GetFieldInfos().Fields() {
 		if info.HasNorms() {
-			norms := normsReader.GetNorms(info)
+			norms, err := normsReader.GetNorms(info)
+			if err != nil {
+				status.Error = err
+				return status
+			}
 			if err := checkNumericDocValues("norm", norms, norms); err != nil {
 				status.Error = err
 				return status
@@ -830,12 +841,29 @@ func checkNumericDocValues(fieldName string, ndv, ndv2 NumericDocValues) error {
 	if ndv.DocID() != -1 {
 		return NewCheckIndexError(fmt.Sprintf("dv iterator for field: %s should start at docID=-1, but got %d", fieldName, ndv.DocID()), nil)
 	}
-	for doc := ndv.NextDoc(); doc != -1; doc = ndv.NextDoc() {
-		value := ndv.LongValue()
-		if !ndv2.AdvanceExact(doc) {
+	for {
+		doc, err := ndv.NextDoc()
+		if err != nil {
+			return err
+		}
+		if doc == DocIdSetIteratorNoMoreDocs {
+			break
+		}
+		value, err := ndv.LongValue()
+		if err != nil {
+			return err
+		}
+		found, err := ndv2.AdvanceExact(doc)
+		if err != nil {
+			return err
+		}
+		if !found {
 			return NewCheckIndexError(fmt.Sprintf("advanceExact did not find matching doc ID: %d", doc), nil)
 		}
-		value2 := ndv2.LongValue()
+		value2, err := ndv2.LongValue()
+		if err != nil {
+			return err
+		}
 		if value != value2 {
 			return NewCheckIndexError(fmt.Sprintf("advanceExact reports different value: %d != %d", value, value2), nil)
 		}
@@ -859,12 +887,35 @@ func checkBulkFetchNumericDocValues(fieldName string, ndv, ndv2 NumericDocValues
 		}
 
 		defaultValue := int64(42)
-		ndv.LongValues(size, docs, values, defaultValue)
+		// Use a loop because LongValues is not in the SPI
+		for j := 0; j < size; j++ {
+			found, err := ndv.AdvanceExact(docs[j])
+			if err != nil {
+				return err
+			}
+			if found {
+				val, err := ndv.LongValue()
+				if err != nil {
+					return err
+				}
+				values[j] = val
+			} else {
+				values[j] = defaultValue
+			}
+		}
 
 		for j := 0; j < size; j++ {
 			var expected int64
-			if ndv2.AdvanceExact(docs[j]) {
-				expected = ndv2.LongValue()
+			found, err := ndv2.AdvanceExact(docs[j])
+			if err != nil {
+				return err
+			}
+			if found {
+				val, err := ndv2.LongValue()
+				if err != nil {
+					return err
+				}
+				expected = val
 			} else {
 				expected = defaultValue
 			}
@@ -922,13 +973,13 @@ func (ci *CheckIndex) testPostingsInternal(reader *SegmentReader, w io.Writer, v
 		fmt.Fprint(w, "    test: terms, freq, prox...")
 	}
 
-	fields := reader.GetPostingsReader()
+	fields := reader.GetFields()
 	if fields == nil {
 		return status
 	}
 
-	fieldInfos := reader.FieldInfos()
-	normsProducer := reader.GetNormsReader()
+	fieldInfos := reader.GetFieldInfos()
+	normsProducer := reader.GetNormsProducer()
 
 	err := ci.checkFields(fields, reader.GetLiveDocs(), maxDoc, fieldInfos, normsProducer, true, false, w, verbose, level, status)
 	if err != nil {
@@ -946,9 +997,9 @@ func (ci *CheckIndex) testPostingsInternal(reader *SegmentReader, w io.Writer, v
 
 func (ci *CheckIndex) checkFields(
 	fields Fields,
-	liveDocs Bits,
+	liveDocs util.Bits,
 	maxDoc int,
-	fieldInfos FieldInfos,
+	fieldInfos *FieldInfos,
 	normsProducer NormsProducer,
 	doPrint bool,
 	isVectors bool,
@@ -959,15 +1010,26 @@ func (ci *CheckIndex) checkFields(
 ) error {
 	computedFieldCount := 0
 	var lastField string
-	visitedDocs := NewFixedBitSet(maxDoc)
+	visitedDocs, err := util.NewFixedBitSet(maxDoc)
+	if err != nil {
+		return err
+	}
 
-	for field := range fields {
+	it, err := fields.Iterator()
+	if err != nil {
+		return err
+	}
+	for it.HasNext() {
+		field, err := it.Next()
+		if err != nil {
+			return err
+		}
 		if lastField != "" && field <= lastField {
 			return fmt.Errorf("fields out of order: lastField=%s field=%s", lastField, field)
 		}
 		lastField = field
 
-		fieldInfo := fieldInfos.FieldInfo(field)
+		fieldInfo := fieldInfos.FieldInfoByName(field)
 		if fieldInfo == nil {
 			return fmt.Errorf("fieldsEnum inconsistent with fieldInfos, no fieldInfos for: %s", field)
 		}
@@ -976,13 +1038,20 @@ func (ci *CheckIndex) checkFields(
 		}
 
 		computedFieldCount++
-		terms := fields.Terms(field)
+		terms, err := fields.Terms(field)
+		if err != nil {
+			return err
+		}
 		if terms == nil {
 			continue
 		}
 
-		if terms.DocCount() > maxDoc {
-			return fmt.Errorf("docCount > maxDoc for field: %s, docCount=%d, maxDoc=%d", field, terms.DocCount(), maxDoc)
+		docCount, err := terms.GetDocCount()
+		if err != nil {
+			return err
+		}
+		if docCount > maxDoc {
+			return fmt.Errorf("docCount > maxDoc for field: %s, docCount=%d, maxDoc=%d", field, docCount, maxDoc)
 		}
 
 		hasFreqs := terms.HasFreqs()
@@ -992,11 +1061,11 @@ func (ci *CheckIndex) checkFields(
 
 		var minTerm, maxTerm *BytesRef
 		if !isVectors {
-			if bb := terms.GetMin(); bb != nil {
-				minTerm = bb
+			if term, err := terms.GetMin(); err == nil && term != nil {
+				minTerm = term.BytesValue()
 			}
-			if bb := terms.GetMax(); bb != nil {
-				maxTerm = bb
+			if term, err := terms.GetMax(); err == nil && term != nil {
+				maxTerm = term.BytesValue()
 			}
 		}
 
@@ -1020,51 +1089,73 @@ func (ci *CheckIndex) checkFields(
 			}
 		}
 
-		termsEnum := terms.Iterator()
+		termsEnum, err := terms.GetIterator()
+		if err != nil {
+			return err
+		}
 		termCountStart := status.DelTermCount + status.TermCount
 		var lastTerm *BytesRef
 		sumTotalTermFreq := int64(0)
 		sumDocFreq := int64(0)
 
 		for {
-			term := termsEnum.Next()
+			term, err := termsEnum.Next()
+			if err != nil {
+				return err
+			}
 			if term == nil {
 				break
 			}
-			if lastTerm != nil && lastTerm.Compare(term) >= 0 {
+			if lastTerm != nil && util.BytesRefCompare(lastTerm, term.BytesValue()) >= 0 {
 				return fmt.Errorf("terms out of order: lastTerm=%s term=%s", lastTerm, term)
 			}
-			lastTerm = term
+			lastTerm = term.BytesValue()
 
 			if !isVectors {
-				if minTerm != nil && term.Compare(minTerm) < 0 {
+				if minTerm != nil && util.BytesRefCompare(term.BytesValue(), minTerm) < 0 {
 					return fmt.Errorf("field %s: invalid term: term=%s, minTerm=%s", field, term, minTerm)
 				}
-				if maxTerm != nil && term.Compare(maxTerm) > 0 {
+				if maxTerm != nil && util.BytesRefCompare(term.BytesValue(), maxTerm) > 0 {
 					return fmt.Errorf("field %s: invalid term: term=%s, maxTerm=%s", field, term, maxTerm)
 				}
 			}
 
-			docFreq := termsEnum.DocFreq()
+			docFreq, err := termsEnum.DocFreq()
+			if err != nil {
+				return err
+			}
 			if docFreq <= 0 {
 				return fmt.Errorf("docfreq: %d is out of bounds", docFreq)
 			}
 			sumDocFreq += int64(docFreq)
 
-			postings := termsEnum.Postings(PostingsEnumAll)
-			postings.NextDoc()
+			postings, err := termsEnum.Postings(spi.PostingsFlagAll)
+			if err != nil {
+				return err
+			}
+			if postings == nil {
+				continue
+			}
+			_, err = postings.NextDoc()
+			if err != nil {
+				return err
+			}
 
-			buffer := newDocAndFloatFeatureBuffer()
+			_ = newDocAndFloatFeatureBuffer()
 
 			if !hasFreqs {
-				if termsEnum.TotalTermFreq() != int64(docFreq) {
-					return fmt.Errorf("field %s hasFreqs is false, but TotalTermFreq=%d (should be %d)", field, termsEnum.TotalTermFreq(), docFreq)
+				ttf, err := termsEnum.TotalTermFreq()
+				if err != nil {
+					return err
+				}
+				if ttf != int64(docFreq) {
+					return fmt.Errorf("field %s hasFreqs is false, but TotalTermFreq=%d (should be %d)", field, ttf, docFreq)
 				}
 			}
 
 			ord := termsEnum.Ord()
 			if ord != -1 {
-				ordExpected := int64(status.DelTermCount + status.TermCount) - termCountStart
+				ordExpected := int64(status.DelTermCount+status.TermCount) - termCountStart
 				if ord != ordExpected {
 					return fmt.Errorf("ord mismatch: TermsEnum has ord=%d vs actual=%d", ord, ordExpected)
 				}
@@ -1075,17 +1166,20 @@ func (ci *CheckIndex) checkFields(
 			hasNonDeletedDocs := false
 			totalTermFreq := int64(0)
 			for {
-				doc := postings.NextDoc()
+				doc, err := postings.NextDoc()
+				if err != nil {
+					return fmt.Errorf("postings.NextDoc failed: %w", err)
+				}
 				if doc == DocIdSetIteratorNoMoreDocs {
 					break
 				}
 				visitedDocs.Set(doc)
-				freq := postings.Freq()
+				freq, err := postings.Freq()
 				if freq <= 0 {
 					return fmt.Errorf("term %s: doc %d: freq %d is out of bounds", term, doc, freq)
 				}
 
-				if !hasFreqs && postings.Freq() != 1 {
+				if !hasFreqs && freq != 1 {
 					return fmt.Errorf("term %s: doc %d: freq %d != 1 when hasFreqs is false", term, doc, freq)
 				}
 				totalTermFreq += int64(freq)
@@ -1109,7 +1203,7 @@ func (ci *CheckIndex) checkFields(
 				lastOffset := 0
 				if hasPositions {
 					for j := 0; j < freq; j++ {
-						pos := postings.NextPosition()
+						pos, _ := postings.NextPosition()
 						if pos < 0 || pos > 2147483647 {
 							return fmt.Errorf("term %s: doc %d: pos %d is out of bounds", term, doc, pos)
 						}
@@ -1119,8 +1213,8 @@ func (ci *CheckIndex) checkFields(
 						lastPos = pos
 
 						if hasOffsets {
-							startOffset := postings.StartOffset()
-							endOffset := postings.EndOffset()
+							startOffset, _ := postings.StartOffset()
+							endOffset, _ := postings.EndOffset()
 							if startOffset < 0 || startOffset < lastOffset {
 								return fmt.Errorf("term %s: doc %d: pos %d: startOffset %d is out of bounds or < lastStartOffset %d", term, doc, pos, startOffset, lastOffset)
 							}
@@ -1139,7 +1233,7 @@ func (ci *CheckIndex) checkFields(
 				status.DelTermCount++
 			}
 
-			totalTermFreq2 := termsEnum.TotalTermFreq()
+			totalTermFreq2, err := termsEnum.TotalTermFreq()
 			if docCount != docFreq {
 				return fmt.Errorf("term %s docFreq=%d != tot docs w/o deletions %d", term, docFreq, docCount)
 			}
@@ -1154,8 +1248,15 @@ func (ci *CheckIndex) checkFields(
 			if hasPositions {
 				for idx := 0; idx < 7; idx++ {
 					skipDocID := (idx + 1) * maxDoc / 8
-					postings = termsEnum.Postings(PostingsEnumAll)
-					docID := postings.Advance(skipDocID)
+					var err error
+					postings, err = termsEnum.Postings(spi.PostingsFlagAll)
+					if err != nil {
+						return err
+					}
+					docID, err := postings.Advance(skipDocID)
+					if err != nil {
+						return err
+					}
 					if docID == DocIdSetIteratorNoMoreDocs {
 						break
 					}
@@ -1166,33 +1267,76 @@ func (ci *CheckIndex) checkFields(
 			}
 
 			if level >= MinLevelForSlowChecks || docFreq > 1024 || (status.TermCount+status.DelTermCount)%1024 == 0 {
-				postings = termsEnum.Postings(PostingsEnumNone)
-				ci.checkDocIDRuns(postings)
+				postings, err = termsEnum.Postings(spi.PostingsFlagNone)
+				if err != nil {
+					return err
+				}
+				if err := ci.checkDocIDRuns(postings); err != nil {
+					return err
+				}
 				if hasFreqs {
-					postings = termsEnum.Postings(PostingsEnumFreqs)
-					ci.checkDocIDRuns(postings)
+					postings, err = termsEnum.Postings(spi.PostingsFlagFreqs)
+					if err != nil {
+						return err
+					}
+					if err := ci.checkDocIDRuns(postings); err != nil {
+						return err
+					}
 				}
 				if hasPositions {
-					postings = termsEnum.Postings(PostingsEnumPositions)
-					ci.checkDocIDRuns(postings)
+					postings, err = termsEnum.Postings(spi.PostingsFlagPositions)
+					if err != nil {
+						return err
+					}
+					if err := ci.checkDocIDRuns(postings); err != nil {
+						return err
+					}
 				}
 
 				if level >= MinLevelForSlowChecks {
-					impactsEnum := termsEnum.Impacts(PostingsEnumFreqs)
-					postings = termsEnum.Postings(PostingsEnumFreqs)
-					for doc := impactsEnum.NextDoc(); ; doc = impactsEnum.NextDoc() {
-						if postings.NextDoc() != doc {
+					var impactsEnum spi.ImpactsEnum
+					impactsEnum, err = termsEnum.Impacts(spi.PostingsFlagFreqs)
+					if err != nil {
+						return err
+					}
+					postings, err = termsEnum.Postings(spi.PostingsFlagFreqs)
+					if err != nil {
+						return err
+					}
+					for {
+						doc, err := impactsEnum.NextDoc()
+						if err != nil {
+							return err
+						}
+						nextDoc, err := postings.NextDoc()
+						if err != nil {
+							return err
+						}
+						if nextDoc != doc {
 							return fmt.Errorf("Wrong next doc: %d, expected %d", doc, postings.DocID())
 						}
 						if doc == DocIdSetIteratorNoMoreDocs {
 							break
 						}
-						if postings.Freq() != impactsEnum.Freq() {
-							return fmt.Errorf("Wrong freq, expected %d, but got %d", postings.Freq(), impactsEnum.Freq())
+						f1, err := postings.Freq()
+						if err != nil {
+							return err
 						}
-						if doc % 100 == 0 {
-							impacts := impactsEnum.GetImpacts()
-							ci.checkImpacts(impacts, doc)
+						f2, err := impactsEnum.Freq()
+						if err != nil {
+							return err
+						}
+						if f1 != f2 {
+							return fmt.Errorf("Wrong freq, expected %d, but got %d", f1, f2)
+						}
+						if doc%100 == 0 {
+							impacts, err := impactsEnum.GetImpacts()
+							if err != nil {
+								return err
+							}
+							if err := ci.checkImpacts(impacts, doc); err != nil {
+								return err
+							}
 						}
 					}
 				}
@@ -1203,13 +1347,24 @@ func (ci *CheckIndex) checkFields(
 			return fmt.Errorf("field %s: minTerm is non-null yet we saw no terms: %s", field, minTerm)
 		}
 
-		fieldTerms := fields.Terms(field)
+		fieldTerms, err := fields.Terms(field)
+		if err != nil {
+			return err
+		}
 		if fieldTerms != nil {
-			if sumDocFreq != fieldTerms.SumDocFreq() {
-				return fmt.Errorf("sumDocFreq for field %s=%d != recomputed sumDocFreq=%d", field, fieldTerms.SumDocFreq(), sumDocFreq)
+			fieldSumDocFreq, err := fieldTerms.GetSumDocFreq()
+			if err != nil {
+				return err
 			}
-			if sumTotalTermFreq != fieldTerms.SumTotalTermFreq() {
-				return fmt.Errorf("sumTotalTermFreq for field %s=%d != recomputed sumTotalTermFreq=%d", field, fieldTerms.SumTotalTermFreq(), sumTotalTermFreq)
+			if sumDocFreq != fieldSumDocFreq {
+				return fmt.Errorf("sumDocFreq for field %s=%d != recomputed sumDocFreq=%d", field, fieldSumDocFreq, sumDocFreq)
+			}
+			fieldSumTotalTermFreq, err := fieldTerms.GetSumTotalTermFreq()
+			if err != nil {
+				return err
+			}
+			if sumTotalTermFreq != fieldSumTotalTermFreq {
+				return fmt.Errorf("sumTotalTermFreq for field %s=%d != recomputed sumTotalTermFreq=%d", field, fieldSumTotalTermFreq, sumTotalTermFreq)
 			}
 		}
 	}
@@ -1221,43 +1376,78 @@ func (ci *CheckIndex) checkFields(
 	return nil
 }
 
-func (ci *CheckIndex) checkTermsIntersect(terms Terms, automaton Automaton, startTerm *BytesRef) error {
-	allTerms := terms.Iterator()
+func (ci *CheckIndex) checkTermsIntersect(terms Terms, automaton *automaton.Automaton, startTerm *util.BytesRef) error {
+	allTerms, err := terms.GetIterator()
+	if err != nil {
+		return err
+	}
 	compiledAutomaton := automaton.Compile()
-	filteredTerms := terms.Intersect(compiledAutomaton, startTerm)
+	startTermSPI := spi.NewTermFromBytesRef(terms.Field(), startTerm)
+	filteredTerms, err := terms.Intersect(compiledAutomaton, startTermSPI)
+	if err != nil {
+		return err
+	}
 
-	var term *BytesRef
+	var term *spi.Term
 	if startTerm != nil {
-		status := allTerms.SeekCeil(startTerm)
-		if status == TermsEnumFound {
-			term = allTerms.Next()
-		} else if status == TermsEnumNotFound {
+		landed, err := allTerms.SeekCeil(startTermSPI)
+		if err != nil {
+			return err
+		}
+		if landed != nil && landed.Equals(startTermSPI) {
+			term, err = allTerms.Next()
+			if err != nil {
+				return err
+			}
+		} else if landed != nil {
 			term = allTerms.Term()
 		} else {
 			term = nil
 		}
 	} else {
-		term = allTerms.Next()
+		var err error
+		term, err = allTerms.Next()
+		if err != nil {
+			return err
+		}
 	}
 
-	for ; term != nil; term = allTerms.Next() {
-		if automaton.Run(term) {
-			filteredTerm := filteredTerms.Next()
-			if filteredTerm == nil || filteredTerm.Compare(term) != 0 {
+	for term != nil {
+		if compiledAutomaton.Run(term.BytesValue()) {
+			filteredTerm, err := filteredTerms.Next()
+			if err != nil {
+				return err
+			}
+			if filteredTerm == nil || !filteredTerm.Equals(term) {
 				return fmt.Errorf("Expected next filtered term: %s, but got %s", term, filteredTerm)
 			}
 		}
+		term, err = allTerms.Next()
+		if err != nil {
+			return err
+		}
 	}
-	if filteredTerms.Next() != nil {
+	finalTerm, err := filteredTerms.Next()
+	if err != nil {
+		return err
+	}
+	if finalTerm != nil {
 		return fmt.Errorf("Expected exhausted TermsEnum, but got term")
 	}
 	return nil
 }
 
-func (ci *CheckIndex) checkDocIDRuns(iterator DocIdSetIterator) error {
+func (ci *CheckIndex) checkDocIDRuns(iterator spi.DocIdSetIterator) error {
 	prevDoc := -1
 	runEnd := 0
-	for doc := iterator.NextDoc(); doc != DocIdSetIteratorNoMoreDocs; doc = iterator.NextDoc() {
+	for {
+		doc, err := iterator.NextDoc()
+		if err != nil {
+			return err
+		}
+		if doc == DocIdSetIteratorNoMoreDocs {
+			break
+		}
 		if prevDoc+1 < runEnd && doc != prevDoc+1 {
 			return fmt.Errorf("Run end is %d but next doc after %d is %d", runEnd, prevDoc, doc)
 		}
@@ -1276,20 +1466,20 @@ func (ci *CheckIndex) checkDocIDRuns(iterator DocIdSetIterator) error {
 	return nil
 }
 
-func (ci *CheckIndex) checkImpacts(impacts Impacts, lastTarget int) error {
+func (ci *CheckIndex) checkImpacts(impacts spi.Impacts, lastTarget int) error {
 	numLevels := impacts.NumLevels()
 	if numLevels < 1 {
 		return fmt.Errorf("The number of impact levels must be >= 1, got %d", numLevels)
 	}
 
-	docIdUpTo0 := impacts.GetDocIdUpTo(0)
+	docIdUpTo0 := impacts.GetDocIDUpTo(0)
 	if docIdUpTo0 < lastTarget {
 		return fmt.Errorf("getDocIdUpTo returned %d on level 0, which is less than target %d", docIdUpTo0, lastTarget)
 	}
 
 	for level := 1; level < numLevels; level++ {
-		docIdUpTo := impacts.GetDocIdUpTo(level)
-		prevDocIdUpTo := impacts.GetDocIdUpTo(level - 1)
+		docIdUpTo := impacts.GetDocIDUpTo(level)
+		prevDocIdUpTo := impacts.GetDocIDUpTo(level - 1)
 		if docIdUpTo < prevDocIdUpTo {
 			return fmt.Errorf("Decreasing return for getDocIdUpTo: level %d returned %d but level %d returned %d", level-1, prevDocIdUpTo, level, docIdUpTo)
 		}
@@ -1339,7 +1529,11 @@ func (ci *CheckIndex) testStoredFields(reader *SegmentReader, w io.Writer) *Stor
 		fmt.Fprint(w, "    test: stored fields.......")
 	}
 
-	storedFields := reader.GetStoredFields()
+	storedFields, err := reader.StoredFields()
+	if err != nil {
+		status.Error = err
+		return status
+	}
 	if storedFields == nil {
 		return status
 	}
@@ -1352,16 +1546,38 @@ func (ci *CheckIndex) testStoredFields(reader *SegmentReader, w io.Writer) *Stor
 			continue
 		}
 
-		count, err := storedFields.CountFields(doc)
-		if err != nil {
+		visitor := &countingStoredFieldVisitor{}
+		if err := storedFields.Document(doc, visitor); err != nil {
 			status.Error = err
 			return status
 		}
-		status.TotFields += int64(count)
+		status.TotFields += int64(visitor.count)
 	}
 
 	return status
 }
+
+// countingStoredFieldVisitor counts the stored fields a document carries.
+// org.apache.lucene.index.CheckIndex.testStoredFields materialises a Document
+// with DocumentStoredFieldVisitor and adds doc.getFields().size() to totFields;
+// counting the visited fields yields the same quantity without materialising
+// the Document (Gocene's DocumentStoredFieldVisitor lives in package codecs,
+// which package index cannot import).
+type countingStoredFieldVisitor struct {
+	count int
+}
+
+func (v *countingStoredFieldVisitor) StringField(field string, value string) { v.count++ }
+
+func (v *countingStoredFieldVisitor) BinaryField(field string, value []byte) { v.count++ }
+
+func (v *countingStoredFieldVisitor) IntField(field string, value int) { v.count++ }
+
+func (v *countingStoredFieldVisitor) LongField(field string, value int64) { v.count++ }
+
+func (v *countingStoredFieldVisitor) FloatField(field string, value float32) { v.count++ }
+
+func (v *countingStoredFieldVisitor) DoubleField(field string, value float64) { v.count++ }
 
 func (ci *CheckIndex) testTermVectors(reader *SegmentReader, w io.Writer) *TermVectorStatus {
 	startNS := time.Now().UnixNano()
@@ -1381,7 +1597,11 @@ func (ci *CheckIndex) testTermVectors(reader *SegmentReader, w io.Writer) *TermV
 		fmt.Fprint(w, "    test: term vectors........")
 	}
 
-	termVectors := reader.GetTermVectors()
+	termVectors, err := reader.TermVectors()
+	if err != nil {
+		status.Error = err
+		return status
+	}
 	if termVectors == nil {
 		return status
 	}
@@ -1394,7 +1614,11 @@ func (ci *CheckIndex) testTermVectors(reader *SegmentReader, w io.Writer) *TermV
 			continue
 		}
 
-		vectors := termVectors.GetVector(doc)
+		vectors, err := termVectors.Get(doc)
+		if err != nil {
+			status.Error = err
+			return status
+		}
 		if vectors != nil {
 			status.TotVectors++
 		}
@@ -1421,14 +1645,29 @@ func (ci *CheckIndex) testDocValues(reader *SegmentReader, w io.Writer) *DocValu
 		fmt.Fprint(w, "    test: doc values..........")
 	}
 
-	fieldInfos := reader.FieldInfos()
-	for _, info := range fieldInfos.Infos {
-		if !info.HasDocValues() {
+	fieldInfos := reader.GetFieldInfos()
+	for _, info := range fieldInfos.Fields() {
+		if !info.DocValuesType().HasDocValues() {
 			continue
 		}
 
-		dv := reader.GetDocValues(info)
+		dv, err := reader.GetDocValues(info)
+		if err != nil {
+			return &DocValuesStatus{Error: err}
+		}
 		if dv == nil {
+			return &DocValuesStatus{Error: fmt.Errorf("doc values missing for field: %s", info.Name())}
+		}
+
+		// Lucene's CheckIndex.checkDocValues hands every per-type check two
+		// independently opened instances of the same field so that
+		// AdvanceExact can be cross-checked against NextDoc; open the second
+		// one here.
+		dv2, err := reader.GetDocValues(info)
+		if err != nil {
+			return &DocValuesStatus{Error: err}
+		}
+		if dv2 == nil {
 			return &DocValuesStatus{Error: fmt.Errorf("doc values missing for field: %s", info.Name())}
 		}
 
@@ -1444,31 +1683,61 @@ func (ci *CheckIndex) testDocValues(reader *SegmentReader, w io.Writer) *DocValu
 
 		switch info.DocValuesType() {
 		case DocValuesTypeBinary:
-			if err := ci.checkBinaryDocValues(info, dv); err != nil {
+			bdv, ok := dv.(BinaryDocValues)
+			bdv2, ok2 := dv2.(BinaryDocValues)
+			if !ok || !ok2 {
+				status.Error = fmt.Errorf("expected BinaryDocValues for field: %s", info.Name())
+				return status
+			}
+			if err := checkBinaryDocValues(info.Name(), bdv, bdv2); err != nil {
 				status.Error = err
 				return status
 			}
 			status.TotalBinaryFields++
 		case DocValuesTypeSorted:
-			if err := ci.checkSortedDocValues(info, dv); err != nil {
+			sdv, ok := dv.(SortedDocValues)
+			sdv2, ok2 := dv2.(SortedDocValues)
+			if !ok || !ok2 {
+				status.Error = fmt.Errorf("expected SortedDocValues for field: %s", info.Name())
+				return status
+			}
+			if err := checkSortedDocValues(info.Name(), sdv, sdv2); err != nil {
 				status.Error = err
 				return status
 			}
 			status.TotalSortedFields++
 		case DocValuesTypeSortedSet:
-			if err := ci.checkSortedSetDocValues(info, dv); err != nil {
+			ssdv, ok := dv.(SortedSetDocValues)
+			ssdv2, ok2 := dv2.(SortedSetDocValues)
+			if !ok || !ok2 {
+				status.Error = fmt.Errorf("expected SortedSetDocValues for field: %s", info.Name())
+				return status
+			}
+			if err := checkSortedSetDocValues(info.Name(), ssdv, ssdv2); err != nil {
 				status.Error = err
 				return status
 			}
 			status.TotalSortedSetFields++
 		case DocValuesTypeSortedNumeric:
-			if err := ci.checkSortedNumericDocValues(info, dv); err != nil {
+			sndv, ok := dv.(SortedNumericDocValues)
+			sndv2, ok2 := dv2.(SortedNumericDocValues)
+			if !ok || !ok2 {
+				status.Error = fmt.Errorf("expected SortedNumericDocValues for field: %s", info.Name())
+				return status
+			}
+			if err := checkSortedNumericDocValues(info.Name(), sndv, sndv2); err != nil {
 				status.Error = err
 				return status
 			}
 			status.TotalSortedNumericFields++
 		case DocValuesTypeNumeric:
-			if err := ci.checkNumericDocValuesInternal(info, dv); err != nil {
+			ndv, ok := dv.(NumericDocValues)
+			ndv2, ok2 := dv2.(NumericDocValues)
+			if !ok || !ok2 {
+				status.Error = fmt.Errorf("expected NumericDocValues for field: %s", info.Name())
+				return status
+			}
+			if err := checkNumericDocValues(info.Name(), ndv, ndv2); err != nil {
 				status.Error = err
 				return status
 			}
@@ -1481,7 +1750,7 @@ func (ci *CheckIndex) testDocValues(reader *SegmentReader, w io.Writer) *DocValu
 	return status
 }
 
-func (ci *CheckIndex) checkDocValueSkipper(dv DocValues) error {
+func (ci *CheckIndex) checkDocValueSkipper(dv spi.DocValues) error {
 	if dv.DocID() != -1 {
 		return fmt.Errorf("dv iterator should start at docID=-1, but got %d", dv.DocID())
 	}
@@ -1489,50 +1758,276 @@ func (ci *CheckIndex) checkDocValueSkipper(dv DocValues) error {
 	return nil
 }
 
-func (ci *CheckIndex) checkDVIterator(dv DocValues) error {
+func (ci *CheckIndex) checkDVIterator(dv spi.DocValues) error {
 	// Basic iterator check: advance through all docs.
 	// Since we don't have the reader context here, we just verify it doesn't crash.
 	return nil
 }
 
-func (ci *CheckIndex) checkBinaryDocValues(info FieldInfo, dv DocValues) error {
-	if bdv, ok := dv.(BinaryDocValues); ok {
-		// Binary check logic
-		return nil
+// checkBinaryDocValues walks every value-bearing document of a binary
+// doc-values field and cross-checks the NextDoc iteration against
+// AdvanceExact on an independently opened instance.
+//
+// Port of org.apache.lucene.index.CheckIndex#checkBinaryDocValues.
+func checkBinaryDocValues(fieldName string, bdv, bdv2 BinaryDocValues) error {
+	if bdv.DocID() != -1 {
+		return NewCheckIndexError(fmt.Sprintf("binary dv iterator for field: %s should start at docID=-1, but got %d", fieldName, bdv.DocID()), nil)
 	}
-	return fmt.Errorf("expected BinaryDocValues for field: %s", info.Name())
+	for {
+		doc, err := bdv.NextDoc()
+		if err != nil {
+			return err
+		}
+		if doc == DocIdSetIteratorNoMoreDocs {
+			break
+		}
+		value, err := bdv.BinaryValue()
+		if err != nil {
+			return err
+		}
+
+		found, err := bdv2.AdvanceExact(doc)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return NewCheckIndexError(fmt.Sprintf("advanceExact did not find matching doc ID: %d", doc), nil)
+		}
+		value2, err := bdv2.BinaryValue()
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(value, value2) {
+			return NewCheckIndexError(fmt.Sprintf("nextDoc and advanceExact report different values: %v != %v", value, value2), nil)
+		}
+	}
+	return nil
 }
 
-func (ci *CheckIndex) checkSortedDocValues(info FieldInfo, dv DocValues) error {
-	if sdv, ok := dv.(SortedDocValues); ok {
-		// Sorted check logic
-		return nil
+// checkSortedDocValues validates the ordinals of a sorted doc-values field:
+// every ordinal is in bounds, the ordinal space has no holes, the ordinals
+// agree with an independently opened instance driven by AdvanceExact, and the
+// ord-to-term mapping is strictly increasing.
+//
+// Port of org.apache.lucene.index.CheckIndex#checkSortedDocValues.
+func checkSortedDocValues(fieldName string, dv, dv2 SortedDocValues) error {
+	if dv.DocID() != -1 {
+		return NewCheckIndexError(fmt.Sprintf("sorted dv iterator for field: %s should start at docID=-1, but got %d", fieldName, dv.DocID()), nil)
 	}
-	return fmt.Errorf("expected SortedDocValues for field: %s", info.Name())
+	maxOrd := dv.GetValueCount() - 1
+	seenOrds, err := util.NewFixedBitSet(dv.GetValueCount())
+	if err != nil {
+		return err
+	}
+	maxOrd2 := -1
+	for {
+		doc, err := dv.NextDoc()
+		if err != nil {
+			return err
+		}
+		if doc == DocIdSetIteratorNoMoreDocs {
+			break
+		}
+		ord, err := dv.OrdValue()
+		if err != nil {
+			return err
+		}
+		if ord == -1 {
+			return NewCheckIndexError(fmt.Sprintf("dv for field: %s has -1 ord", fieldName), nil)
+		} else if ord < -1 || ord > maxOrd {
+			return NewCheckIndexError(fmt.Sprintf("ord out of bounds: %d", ord), nil)
+		} else {
+			if ord > maxOrd2 {
+				maxOrd2 = ord
+			}
+			seenOrds.Set(ord)
+		}
+
+		found, err := dv2.AdvanceExact(doc)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return NewCheckIndexError(fmt.Sprintf("advanceExact did not find matching doc ID: %d", doc), nil)
+		}
+		ord2, err := dv2.OrdValue()
+		if err != nil {
+			return err
+		}
+		if ord != ord2 {
+			return NewCheckIndexError(fmt.Sprintf("nextDoc and advanceExact report different ords: %d != %d", ord, ord2), nil)
+		}
+	}
+	if maxOrd != maxOrd2 {
+		return NewCheckIndexError(fmt.Sprintf("dv for field: %s reports wrong maxOrd=%d but this is not the case: %d", fieldName, maxOrd, maxOrd2), nil)
+	}
+	if seenOrds.Cardinality() != dv.GetValueCount() {
+		return NewCheckIndexError(fmt.Sprintf("dv for field: %s has holes in its ords, valueCount=%d but only used: %d", fieldName, dv.GetValueCount(), seenOrds.Cardinality()), nil)
+	}
+	var lastValue []byte
+	haveLast := false
+	for i := 0; i <= maxOrd; i++ {
+		term, err := dv.LookupOrd(i)
+		if err != nil {
+			return err
+		}
+		if haveLast && bytes.Compare(term, lastValue) <= 0 {
+			return NewCheckIndexError(fmt.Sprintf("dv for field: %s has ords out of order: %v >= %v", fieldName, lastValue, term), nil)
+		}
+		lastValue = append(lastValue[:0], term...)
+		haveLast = true
+	}
+	return nil
 }
 
-func (ci *CheckIndex) checkSortedSetDocValues(info FieldInfo, dv DocValues) error {
-	if ssdv, ok := dv.(SortedSetDocValues); ok {
-		// SortedSet check logic
-		return nil
+// checkSortedSetDocValues validates the per-document ordinal streams of a
+// sorted-set doc-values field: strictly increasing within a document, in
+// bounds, without holes in the global ordinal space, agreeing with an
+// independently opened instance, and with a strictly increasing ord-to-term
+// mapping.
+//
+// Port of org.apache.lucene.index.CheckIndex#checkSortedSetDocValues. Gocene's
+// SortedSetDocValues signals the end of a document's ordinal stream with the
+// -1 sentinel returned by NextOrd rather than exposing a docValueCount(), so
+// the per-document loop is driven by that sentinel.
+func checkSortedSetDocValues(fieldName string, dv, dv2 SortedSetDocValues) error {
+	maxOrd := dv.GetValueCount() - 1
+	seenOrds, err := util.NewFixedBitSet(dv.GetValueCount())
+	if err != nil {
+		return err
 	}
-	return fmt.Errorf("expected SortedSetDocValues for field: %s", info.Name())
+	maxOrd2 := -1
+	for {
+		docID, err := dv.NextDoc()
+		if err != nil {
+			return err
+		}
+		if docID == DocIdSetIteratorNoMoreDocs {
+			break
+		}
+		found, err := dv2.AdvanceExact(docID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return NewCheckIndexError(fmt.Sprintf("advanceExact did not find matching doc ID: %d", docID), nil)
+		}
+
+		lastOrd := -1
+		ordCount := 0
+		for {
+			ord, err := dv.NextOrd()
+			if err != nil {
+				return err
+			}
+			if ord == -1 {
+				break
+			}
+			ord2, err := dv2.NextOrd()
+			if err != nil {
+				return err
+			}
+			if ord != ord2 {
+				return NewCheckIndexError(fmt.Sprintf("nextDoc and advanceExact report different ords: %d != %d", ord, ord2), nil)
+			}
+			if ord <= lastOrd {
+				return NewCheckIndexError(fmt.Sprintf("ords out of order: %d <= %d for doc: %d", ord, lastOrd, docID), nil)
+			}
+			if ord < 0 || ord > maxOrd {
+				return NewCheckIndexError(fmt.Sprintf("ord out of bounds: %d", ord), nil)
+			}
+			lastOrd = ord
+			if ord > maxOrd2 {
+				maxOrd2 = ord
+			}
+			seenOrds.Set(ord)
+			ordCount++
+		}
+		if ordCount == 0 {
+			return NewCheckIndexError(fmt.Sprintf("dv for field: %s returned docID=%d yet has no ordinals", fieldName, docID), nil)
+		}
+	}
+	if maxOrd != maxOrd2 {
+		return NewCheckIndexError(fmt.Sprintf("dv for field: %s reports wrong maxOrd=%d but this is not the case: %d", fieldName, maxOrd, maxOrd2), nil)
+	}
+	if seenOrds.Cardinality() != dv.GetValueCount() {
+		return NewCheckIndexError(fmt.Sprintf("dv for field: %s has holes in its ords, valueCount=%d but only used: %d", fieldName, dv.GetValueCount(), seenOrds.Cardinality()), nil)
+	}
+	var lastValue []byte
+	haveLast := false
+	for i := 0; i <= maxOrd; i++ {
+		term, err := dv.LookupOrd(i)
+		if err != nil {
+			return err
+		}
+		if haveLast && bytes.Compare(term, lastValue) <= 0 {
+			return NewCheckIndexError(fmt.Sprintf("dv for field: %s has ords out of order: %v >= %v", fieldName, lastValue, term), nil)
+		}
+		lastValue = append(lastValue[:0], term...)
+		haveLast = true
+	}
+	return nil
 }
 
-func (ci *CheckIndex) checkSortedNumericDocValues(info FieldInfo, dv DocValues) error {
-	if sndv, ok := dv.(SortedNumericDocValues); ok {
-		// SortedNumeric check logic
-		return nil
+// checkSortedNumericDocValues validates the per-document value streams of a
+// sorted-numeric doc-values field: non-empty, non-decreasing, and identical to
+// the stream an independently opened instance reports via AdvanceExact.
+//
+// Port of org.apache.lucene.index.CheckIndex#checkSortedNumericDocValues.
+func checkSortedNumericDocValues(fieldName string, ndv, ndv2 SortedNumericDocValues) error {
+	if ndv.DocID() != -1 {
+		return NewCheckIndexError(fmt.Sprintf("dv iterator for field: %s should start at docID=-1, but got %d", fieldName, ndv.DocID()), nil)
 	}
-	return fmt.Errorf("expected SortedNumericDocValues for field: %s", info.Name())
-}
+	for {
+		docID, err := ndv.NextDoc()
+		if err != nil {
+			return err
+		}
+		if docID == DocIdSetIteratorNoMoreDocs {
+			break
+		}
+		count, err := ndv.DocValueCount()
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			return NewCheckIndexError(fmt.Sprintf("sorted numeric dv for field: %s returned docValueCount=0 for docID=%d", fieldName, docID), nil)
+		}
+		found, err := ndv2.AdvanceExact(docID)
+		if err != nil {
+			return err
+		}
+		if !found {
+			return NewCheckIndexError(fmt.Sprintf("advanceExact did not find matching doc ID: %d", docID), nil)
+		}
+		count2, err := ndv2.DocValueCount()
+		if err != nil {
+			return err
+		}
+		if count != count2 {
+			return NewCheckIndexError(fmt.Sprintf("advanceExact reports different value count: %d != %d", count, count2), nil)
+		}
+		previous := int64(math.MinInt64)
+		for j := 0; j < count; j++ {
+			value, err := ndv.NextValue()
+			if err != nil {
+				return err
+			}
+			if value < previous {
+				return NewCheckIndexError(fmt.Sprintf("values out of order: %d < %d for doc: %d", value, previous, docID), nil)
+			}
+			previous = value
 
-func (ci *CheckIndex) checkNumericDocValuesInternal(info FieldInfo, dv DocValues) error {
-	if ndv, ok := dv.(NumericDocValues); ok {
-		// Use the already implemented checkNumericDocValues
-		return checkNumericDocValues(info.Name(), ndv, ndv)
+			value2, err := ndv2.NextValue()
+			if err != nil {
+				return err
+			}
+			if value != value2 {
+				return NewCheckIndexError(fmt.Sprintf("advanceExact reports different value: %d != %d", value, value2), nil)
+			}
+		}
 	}
-	return fmt.Errorf("expected NumericDocValues for field: %s", info.Name())
+	return nil
 }
 
 func (ci *CheckIndex) testPoints(reader *SegmentReader, w io.Writer) *PointsStatus {
@@ -1553,17 +2048,33 @@ func (ci *CheckIndex) testPoints(reader *SegmentReader, w io.Writer) *PointsStat
 		fmt.Fprint(w, "    test: points................")
 	}
 
-	fieldInfos := reader.FieldInfos()
-	for _, info := range fieldInfos.Infos {
-		if info.HasPoints() {
-			points := reader.GetPoints(info)
+	fieldInfos := reader.GetFieldInfos()
+	for _, info := range fieldInfos.Fields() {
+		if info.PointDimensionCount() > 0 {
+			points, err := reader.GetPointValues(info.Name())
+			if err != nil {
+				status.Error = err
+				return status
+			}
 			if points == nil {
 				status.Error = fmt.Errorf("points missing for field: %s", info.Name())
 				return status
 			}
-			
+
+			// PointValues exposes the BKD walk through the wider
+			// intersectablePointValues surface the codec readers implement;
+			// spi.PointValues itself carries only the summary accessors.
+			intersectable, ok := points.(intersectablePointValues)
+			if !ok {
+				status.Error = fmt.Errorf("points for field %s (%T) cannot be intersected", info.Name(), points)
+				return status
+			}
+
 			visitor := &verifyPointsVisitor{}
-			points.Visit(visitor)
+			if err := intersectable.Intersect(visitor); err != nil {
+				status.Error = err
+				return status
+			}
 			if visitor.Error != nil {
 				status.Error = visitor.Error
 				return status
@@ -1576,14 +2087,34 @@ func (ci *CheckIndex) testPoints(reader *SegmentReader, w io.Writer) *PointsStat
 	return status
 }
 
+// verifyPointsVisitor counts every point a field's BKD tree holds. It mirrors
+// org.apache.lucene.index.CheckIndex.VerifyPointsVisitor, whose compare() always
+// reports CELL_CROSSES_QUERY so that the whole tree is walked leaf by leaf and
+// every packed value is handed to the visitor.
 type verifyPointsVisitor struct {
 	Count int
 	Error error
 }
 
-func (v *verifyPointsVisitor) Visit(doc int, value []byte) {
+// Visit counts a document matched from a fully-contained cell.
+func (v *verifyPointsVisitor) Visit(docID int) error {
 	v.Count++
+	return nil
 }
+
+// VisitByPackedValue counts a (document, packed value) pair from a crossing cell.
+func (v *verifyPointsVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
+	v.Count++
+	return nil
+}
+
+// Compare always reports CELL_CROSSES_QUERY (2) so that the whole tree is visited.
+func (v *verifyPointsVisitor) Compare(minPackedValue, maxPackedValue []byte) int {
+	return 2
+}
+
+// Grow is a no-op: the visitor only counts.
+func (v *verifyPointsVisitor) Grow(count int) {}
 
 func (ci *CheckIndex) testVectors(reader *SegmentReader, w io.Writer) *VectorValuesStatus {
 	startNS := time.Now().UnixNano()
@@ -1603,15 +2134,19 @@ func (ci *CheckIndex) testVectors(reader *SegmentReader, w io.Writer) *VectorVal
 		fmt.Fprint(w, "    test: vectors................")
 	}
 
-	fieldInfos := reader.FieldInfos()
-	for _, info := range fieldInfos.Infos {
-		if info.HasVectors() {
-			vectors := reader.GetVectors(info)
+	fieldInfos := reader.GetFieldInfos()
+	for _, info := range fieldInfos.Fields() {
+		if info.HasVectorValues() {
+			vectors, err := reader.GetFloatVectorValues(info.Name())
+			if err != nil {
+				status.Error = err
+				return status
+			}
 			if vectors == nil {
 				status.Error = fmt.Errorf("vectors missing for field: %s", info.Name())
 				return status
 			}
-			
+
 			// Basic check: iterate through vectors
 			count := vectors.Size()
 			status.TotalVectorValues += int64(count)
@@ -1622,7 +2157,7 @@ func (ci *CheckIndex) testVectors(reader *SegmentReader, w io.Writer) *VectorVal
 	return status
 }
 
-func (ci *CheckIndex) testSort(reader *SegmentReader, sort Info, w io.Writer) *IndexSortStatus {
+func (ci *CheckIndex) testSort(reader *SegmentReader, sort any, w io.Writer) *IndexSortStatus {
 	startNS := time.Now().UnixNano()
 	status := &IndexSortStatus{}
 
@@ -1663,8 +2198,17 @@ func (ci *CheckIndex) checkSoftDeletes(field string, info *SegmentCommitInfo, re
 		fmt.Fprint(w, "    test: soft deletes..........")
 	}
 
-	// Verify that the soft deletes field is a binary doc-values field.
-	dv := reader.GetDocValues(reader.FieldInfos().FieldInfo(field))
+	// Verify that the soft deletes field carries doc values.
+	fieldInfo := reader.GetFieldInfos().FieldInfoByName(field)
+	if fieldInfo == nil {
+		status.Error = fmt.Errorf("soft deletes field %s is missing", field)
+		return status
+	}
+	dv, err := reader.GetDocValues(fieldInfo)
+	if err != nil {
+		status.Error = err
+		return status
+	}
 	if dv == nil {
 		status.Error = fmt.Errorf("soft deletes field %s is missing", field)
 		return status
@@ -1680,19 +2224,41 @@ func (ci *CheckIndex) exorciseIndex(result *Status) error {
 
 	ci.msgf("Exorcising index... removing %d bad segments", result.NumBadSegments)
 
-	// The core logic is to write a new segments_N file that contains only the good segments.
-	// result.NewSegments already contains only the segments that passed the checks.
-	
-	newSegmentsFile := fmt.Sprintf("segments_%d", result.NewSegments.Counter)
-	
-	// Use a writer to save the new segments file.
-	// In Gocene, we need a way to serialize SegmentInfos to a file.
-	// Assuming the store package provides WriteCommit.
-	err := store.WriteCommit(ci.dir, newSegmentsFile, result.NewSegments)
-	if err != nil {
-		return fmt.Errorf("failed to write exorcised segments file: %v", err)
+	// Advance generation to create a new commit point.
+	nextGen := result.NewSegments.NextGeneration()
+
+	// Write the new segments_N file.
+	if err := spi.WriteSegmentInfos(result.NewSegments, ci.dir); err != nil {
+		return fmt.Errorf("failed to write exorcised segments file: %w", err)
 	}
 
-	ci.msgf("Successfully exorcised index. New segments file: %s", newSegmentsFile)
+	ci.msgf("Successfully exorcised index. New segments file: %s", spi.GetSegmentFileName(nextGen))
 	return nil
+}
+
+func GetLastCommitSegmentsFileName(files []string) string {
+	var maxGen int64 = -1
+	var latestFile string
+	for _, file := range files {
+		if len(file) >= 9 && file[:9] == "segments_" {
+			if gen, err := strconv.ParseInt(file[9:], 36, 64); err == nil {
+				if gen > maxGen {
+					maxGen = gen
+					latestFile = file
+				}
+			}
+		}
+	}
+	return latestFile
+}
+
+func GenerationFromSegmentsFileName(fileName string) int64 {
+	if len(fileName) < 9 || fileName[:9] != "segments_" {
+		return -1
+	}
+	gen, err := strconv.ParseInt(fileName[9:], 36, 64)
+	if err != nil {
+		return -1
+	}
+	return gen
 }

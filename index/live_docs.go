@@ -55,6 +55,56 @@ const (
 	liveDocsExtension = "liv"
 )
 
+// liveDocsOutput presents *store.ChecksumIndexOutput on the full
+// store.IndexOutput surface. store.ChecksumIndexOutput carries the primitive
+// writers (WriteByte/WriteBytes/WriteShort/WriteInt/WriteLong/WriteString) but
+// not the seven derived writers that org.apache.lucene.store.DataOutput
+// implements concretely and ChecksumIndexOutput never overrides
+// (writeVInt, writeVLong, writeZInt, writeZLong, writeSetOfStrings,
+// writeMapOfStrings, writeGroupVInts). Those are supplied here by the very
+// implementation store.BaseDataOutput already carries, layered over the
+// checksum output so every byte they emit still feeds the running CRC32.
+type liveDocsOutput struct {
+	*store.ChecksumIndexOutput
+
+	// defaults holds the DataOutput-inherited writers, wired to write through
+	// the embedded checksum output.
+	defaults *store.BaseDataOutput
+}
+
+// newLiveDocsOutput wires the DataOutput defaults over out.
+func newLiveDocsOutput(out *store.ChecksumIndexOutput) liveDocsOutput {
+	return liveDocsOutput{
+		ChecksumIndexOutput: out,
+		defaults:            store.NewBaseDataOutput(out),
+	}
+}
+
+// WriteVInt mirrors DataOutput.writeVInt.
+func (o liveDocsOutput) WriteVInt(i int32) error { return o.defaults.WriteVInt(i) }
+
+// WriteVLong mirrors DataOutput.writeVLong.
+func (o liveDocsOutput) WriteVLong(i int64) error { return o.defaults.WriteVLong(i) }
+
+// WriteZInt mirrors DataOutput.writeZInt.
+func (o liveDocsOutput) WriteZInt(i int32) error { return o.defaults.WriteZInt(i) }
+
+// WriteZLong mirrors DataOutput.writeZLong.
+func (o liveDocsOutput) WriteZLong(i int64) error { return o.defaults.WriteZLong(i) }
+
+// WriteSetOfStrings mirrors DataOutput.writeSetOfStrings.
+func (o liveDocsOutput) WriteSetOfStrings(s []string) error { return o.defaults.WriteSetOfStrings(s) }
+
+// WriteMapOfStrings mirrors DataOutput.writeMapOfStrings.
+func (o liveDocsOutput) WriteMapOfStrings(m map[string]string) error {
+	return o.defaults.WriteMapOfStrings(m)
+}
+
+// WriteGroupVInts mirrors DataOutput.writeGroupVInts.
+func (o liveDocsOutput) WriteGroupVInts(values []int32, limit int) error {
+	return o.defaults.WriteGroupVInts(values, limit)
+}
+
 // liveDocsFileName mirrors IndexFileNames.fileNameFromGeneration: a generation
 // of 0 yields "<segment>.liv"; any other generation appends "_<gen in base 36>".
 func liveDocsFileName(segmentName string, gen int64) string {
@@ -109,13 +159,14 @@ func writeLiveDocs(dir store.Directory, segmentName string, segmentID []byte, de
 		return 0, err
 	}
 	out := store.NewChecksumIndexOutput(rawOut)
+	envelope := newLiveDocsOutput(out)
 
-	if err := writeIndexHeader(out, liveDocsCodecName, liveDocsVersionCurrent, segmentID, base36(delGen)); err != nil {
+	if err := writeIndexHeader(envelope, liveDocsCodecName, liveDocsVersionCurrent, segmentID, base36(delGen)); err != nil {
 		_ = out.Close()
 		return 0, fmt.Errorf("live docs: header: %w", err)
 	}
 
-	delCount, err := writeLiveDocsBits(out, live)
+	delCount, err := writeLiveDocsBits(envelope, live)
 	if err != nil {
 		_ = out.Close()
 		return 0, fmt.Errorf("live docs: bits: %w", err)

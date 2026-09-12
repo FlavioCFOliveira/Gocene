@@ -8,7 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DocValuesSkipIndexType defines options for skip indexes on doc values.
@@ -28,22 +29,22 @@ const (
 // Mirrors org.apache.lucene.index.VectorEncoding and VectorSimilarityFunction.
 
 // VectorEncodingByte stores vector values as signed bytes.
-const VectorEncodingByte = schema.VectorEncodingByte
+const VectorEncodingByte = util.VectorEncodingByte
 
 // VectorEncodingFloat32 stores vector values as IEEE 32-bit floating point.
-const VectorEncodingFloat32 = schema.VectorEncodingFloat32
+const VectorEncodingFloat32 = util.VectorEncodingFloat32
 
 // VectorSimilarityFunctionEuclidean uses squared Euclidean distance.
-const VectorSimilarityFunctionEuclidean = schema.VectorSimilarityFunctionEuclidean
+var VectorSimilarityFunctionEuclidean = util.EuclideanSim
 
 // VectorSimilarityFunctionDotProduct uses dot product similarity.
-const VectorSimilarityFunctionDotProduct = schema.VectorSimilarityFunctionDotProduct
+var VectorSimilarityFunctionDotProduct = util.DotProductSim
 
 // VectorSimilarityFunctionCosine uses cosine similarity.
-const VectorSimilarityFunctionCosine = schema.VectorSimilarityFunctionCosine
+var VectorSimilarityFunctionCosine = util.CosineSim
 
 // VectorSimilarityFunctionMaximumInnerProduct uses maximum inner product similarity.
-const VectorSimilarityFunctionMaximumInnerProduct = schema.VectorSimilarityFunctionMaximumInnerProduct
+var VectorSimilarityFunctionMaximumInnerProduct = util.MaximumInnerProductSim
 
 // FieldType describes the properties of a field.
 //
@@ -58,11 +59,11 @@ type FieldType struct {
 	StoreTermVectorPayloads     bool
 	OmitNorms                   bool
 	Indexed                     bool // Mirrors whether IndexOptions != NONE
-	IndexOptions                schema.IndexOptions
-	DocValuesType               schema.DocValuesType
+	IndexOptions                spi.IndexOptions
+	DocValuesType               spi.DocValuesType
 	VectorDimension             int
-	VectorEncoding              schema.VectorEncoding
-	VectorSimilarityFunction    schema.VectorSimilarityFunction
+	VectorEncoding              spi.VectorEncoding
+	VectorSimilarityFunction    spi.VectorSimilarityFunction
 	DocValuesSkipIndex          DocValuesSkipIndexType
 
 	// Private fields with getter methods
@@ -83,14 +84,14 @@ func NewFieldType() *FieldType {
 		StoreTermVectorPositions: false,
 		StoreTermVectorPayloads:  false,
 		OmitNorms:                false,
-		IndexOptions:             schema.IndexOptionsNone,
-		DocValuesType:            schema.DocValuesTypeNone,
+		IndexOptions:             spi.IndexOptionsNone,
+		DocValuesType:            spi.DocValuesTypeNone,
 		pointDimensionCount:      0,
 		pointIndexDimensionCount: 0,
 		pointNumBytes:            0,
 		VectorDimension:          0,
-		VectorEncoding:           schema.VectorEncodingFloat32,
-		VectorSimilarityFunction: schema.VectorSimilarityFunctionEuclidean,
+		VectorEncoding:           util.VectorEncodingFloat32,
+		VectorSimilarityFunction: util.EuclideanSim,
 		DocValuesSkipIndex:       DocValuesSkipIndexTypeNone,
 		frozen:                   false,
 		attributes:               make(map[string]string),
@@ -237,15 +238,15 @@ func (ft *FieldType) OmitsNorms() bool {
 }
 
 // SetIndexOptions sets the indexing options.
-func (ft *FieldType) SetIndexOptions(value schema.IndexOptions) *FieldType {
+func (ft *FieldType) SetIndexOptions(value spi.IndexOptions) *FieldType {
 	ft.checkIfFrozen()
 	ft.IndexOptions = value
-	ft.Indexed = (value != schema.IndexOptionsNone)
+	ft.Indexed = (value != spi.IndexOptionsNone)
 	return ft
 }
 
 // GetIndexOptions returns the indexing options.
-func (ft *FieldType) GetIndexOptions() schema.IndexOptions {
+func (ft *FieldType) GetIndexOptions() spi.IndexOptions {
 	return ft.IndexOptions
 }
 
@@ -254,27 +255,27 @@ func (ft *FieldType) SetIndexed(indexed bool) *FieldType {
 	ft.checkIfFrozen()
 	ft.Indexed = indexed
 	if indexed {
-		ft.IndexOptions = schema.IndexOptionsDocsAndFreqsAndPositions
+		ft.IndexOptions = spi.IndexOptionsDocsAndFreqsAndPositions
 	} else {
-		ft.IndexOptions = schema.IndexOptionsNone
+		ft.IndexOptions = spi.IndexOptionsNone
 	}
 	return ft
 }
 
 // IsIndexed returns whether this field is indexed.
 func (ft *FieldType) IsIndexed() bool {
-	return ft.IndexOptions != schema.IndexOptionsNone
+	return ft.IndexOptions != spi.IndexOptionsNone
 }
 
 // SetDocValuesType sets the doc values type.
-func (ft *FieldType) SetDocValuesType(value schema.DocValuesType) *FieldType {
+func (ft *FieldType) SetDocValuesType(value spi.DocValuesType) *FieldType {
 	ft.checkIfFrozen()
 	ft.DocValuesType = value
 	return ft
 }
 
 // GetDocValuesType returns the doc values type.
-func (ft *FieldType) GetDocValuesType() schema.DocValuesType {
+func (ft *FieldType) GetDocValuesType() spi.DocValuesType {
 	return ft.DocValuesType
 }
 
@@ -356,7 +357,7 @@ func (ft *FieldType) DimensionNumBytes() int {
 }
 
 // SetVectorAttributes sets vector attributes.
-func (ft *FieldType) SetVectorAttributes(vectorDimension int, vectorEncoding schema.VectorEncoding, vectorSimilarityFunction schema.VectorSimilarityFunction) {
+func (ft *FieldType) SetVectorAttributes(vectorDimension int, vectorEncoding spi.VectorEncoding, vectorSimilarityFunction spi.VectorSimilarityFunction) {
 	ft.checkIfFrozen()
 	if vectorDimension <= 0 {
 		panic(fmt.Sprintf("vectorDimension must be > 0; got %d", vectorDimension))
@@ -372,19 +373,20 @@ func (ft *FieldType) GetVectorDimension() int {
 }
 
 // GetVectorEncoding returns the vector encoding.
-func (ft *FieldType) GetVectorEncoding() schema.VectorEncoding {
+func (ft *FieldType) GetVectorEncoding() spi.VectorEncoding {
 	return ft.VectorEncoding
 }
 
 // GetVectorSimilarityFunction returns the vector similarity function.
-func (ft *FieldType) GetVectorSimilarityFunction() schema.VectorSimilarityFunction {
+func (ft *FieldType) GetVectorSimilarityFunction() spi.VectorSimilarityFunction {
 	return ft.VectorSimilarityFunction
 }
 
 // SetDocValuesSkipIndexType sets the doc values skip index type.
-func (ft *FieldType) SetDocValuesSkipIndexType(value DocValuesSkipIndexType) {
+func (ft *FieldType) SetDocValuesSkipIndexType(value DocValuesSkipIndexType) *FieldType {
 	ft.checkIfFrozen()
 	ft.DocValuesSkipIndex = value
+	return ft
 }
 
 // DocValuesSkipIndexType returns the doc values skip index type.
@@ -450,7 +452,7 @@ func (ft *FieldType) attributesEqual(other map[string]string) bool {
 // Validate checks if the FieldType configuration is valid.
 func (ft *FieldType) Validate() error {
 	// If Indexed is true, IndexOptions must not be NONE
-	if ft.Indexed && ft.IndexOptions == schema.IndexOptionsNone {
+	if ft.Indexed && ft.IndexOptions == spi.IndexOptionsNone {
 		return fmt.Errorf("if Indexed is true, IndexOptions must not be NONE")
 	}
 	// If Tokenized is true, field must be indexed
@@ -489,7 +491,7 @@ func (ft *FieldType) String() string {
 	if ft.OmitNorms {
 		parts = append(parts, "omitNorms")
 	}
-	if ft.DocValuesType != schema.DocValuesTypeNone {
+	if ft.DocValuesType != spi.DocValuesTypeNone {
 		parts = append(parts, "docValuesType="+ft.DocValuesType.String())
 	}
 	if ft.PointDimensionCount() > 0 {

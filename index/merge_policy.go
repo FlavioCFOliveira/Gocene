@@ -446,8 +446,8 @@ func (m *OneMerge) TotalBytesSize() int64 { return m.TotalMergeBytes.Load() }
 func (m *OneMerge) TotalNumDocs() int { return m.TotalMaxDoc }
 
 // GetStoreMergeInfo returns the store.MergeInfo describing this merge.
-func (m *OneMerge) GetStoreMergeInfo() store.MergeInfo {
-	return store.MergeInfo{
+func (m *OneMerge) GetStoreMergeInfo() *store.MergeInfo {
+	return &store.MergeInfo{
 		TotalMaxDoc:         m.TotalMaxDoc,
 		EstimatedMergeBytes: m.EstimatedMergeBytes.Load(),
 		IsExternal:          m.IsExternal,

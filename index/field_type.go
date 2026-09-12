@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // FieldType describes the properties of a field.
@@ -146,7 +147,7 @@ func NewLuceneFieldType() *FieldType {
 
 // NewFieldTypeFrom creates a new FieldType copying every property from the
 // provided reference (excluding the frozen flag — the returned FieldType is
-// always mutable). Mirrors Lucene's `FieldType(schema.IndexableFieldType ref)`.
+// always mutable). Mirrors Lucene's `FieldType(spi.IndexableFieldType ref)`.
 func NewFieldTypeFrom(ref *FieldType) *FieldType {
 	if ref == nil {
 		return NewFieldType()
@@ -500,7 +501,7 @@ func (ft *FieldType) String() string {
 		writeSep(&b)
 		fmt.Fprintf(&b, "vectorEncoding=%s", ft.VectorEncoding.String())
 		writeSep(&b)
-		fmt.Fprintf(&b, "vectorSimilarityFunction=%s", ft.VectorSimilarityFunction.String())
+		fmt.Fprintf(&b, "vectorSimilarityFunction=%s", ft.VectorSimilarityFunction.ID().String())
 	}
 	if ft.DocValuesType != DocValuesTypeNone {
 		writeSep(&b)
@@ -572,15 +573,15 @@ func (e *FieldTypeValidationError) Error() string {
 }
 
 // fieldTypeAsIndexInterface wraps *FieldType so that it satisfies
-// schema.IndexableFieldType. The wrapper bridges the naming mismatch between
+// spi.IndexableFieldType. The wrapper bridges the naming mismatch between
 // index.FieldType's Get-prefixed term-vector methods
 // (GetStoreTermVectors/…) and the un-prefixed names required by
-// schema.IndexableFieldType (StoreTermVectors/…).
+// spi.IndexableFieldType (StoreTermVectors/…).
 type fieldTypeAsIndexInterface struct{ ft *FieldType }
 
-func (w fieldTypeAsIndexInterface) Stored() bool                                { return w.ft.Stored }
-func (w fieldTypeAsIndexInterface) Tokenized() bool                            { return w.ft.Tokenized }
-func (w fieldTypeAsIndexInterface) StoreTermVectors() bool                     { return w.ft.StoreTermVectors }
+func (w fieldTypeAsIndexInterface) Stored() bool           { return w.ft.Stored }
+func (w fieldTypeAsIndexInterface) Tokenized() bool        { return w.ft.Tokenized }
+func (w fieldTypeAsIndexInterface) StoreTermVectors() bool { return w.ft.StoreTermVectors }
 func (w fieldTypeAsIndexInterface) StoreTermVectorPositions() bool {
 	return w.ft.StoreTermVectorPositions
 }
@@ -588,17 +589,20 @@ func (w fieldTypeAsIndexInterface) StoreTermVectorOffsets() bool { return w.ft.S
 func (w fieldTypeAsIndexInterface) StoreTermVectorPayloads() bool {
 	return w.ft.StoreTermVectorPayloads
 }
-func (w fieldTypeAsIndexInterface) OmitNorms() bool                            { return w.ft.OmitNorms }
-func (w fieldTypeAsIndexInterface) IndexOptions() IndexOptions            { return w.ft.IndexOptions }
-func (w fieldTypeAsIndexInterface) DocValuesType() DocValuesType           { return w.ft.DocValuesType }
-func (w fieldTypeAsIndexInterface) DocValuesSkipIndexType() DocValuesSkipIndexType {
-	return w.ft.DocValuesSkipIndex
+func (w fieldTypeAsIndexInterface) OmitNorms() bool              { return w.ft.OmitNorms }
+func (w fieldTypeAsIndexInterface) IndexOptions() IndexOptions   { return w.ft.IndexOptions }
+func (w fieldTypeAsIndexInterface) DocValuesType() DocValuesType { return w.ft.DocValuesType }
+func (w fieldTypeAsIndexInterface) DocValuesSkipIndexType() spi.DocValuesSkipIndexType {
+	// index.DocValuesSkipIndexType and spi.DocValuesSkipIndexType declare the
+	// same ordinals (NONE=0, RANGE=1), so the numeric conversion preserves the
+	// serialized value.
+	return spi.DocValuesSkipIndexType(w.ft.DocValuesSkipIndex)
 }
-func (w fieldTypeAsIndexInterface) PointDimensionCount() int                    { return w.ft.DimensionCount }
-func (w fieldTypeAsIndexInterface) PointIndexDimensionCount() int               { return w.ft.IndexDimensionCount }
-func (w fieldTypeAsIndexInterface) PointNumBytes() int                          { return w.ft.DimensionNumBytes }
-func (w fieldTypeAsIndexInterface) VectorDimension() int                         { return w.ft.VectorDimension }
-func (w fieldTypeAsIndexInterface) VectorEncoding() VectorEncoding       { return w.ft.VectorEncoding }
+func (w fieldTypeAsIndexInterface) PointDimensionCount() int       { return w.ft.DimensionCount }
+func (w fieldTypeAsIndexInterface) PointIndexDimensionCount() int  { return w.ft.IndexDimensionCount }
+func (w fieldTypeAsIndexInterface) PointNumBytes() int             { return w.ft.DimensionNumBytes }
+func (w fieldTypeAsIndexInterface) VectorDimension() int           { return w.ft.VectorDimension }
+func (w fieldTypeAsIndexInterface) VectorEncoding() VectorEncoding { return w.ft.VectorEncoding }
 func (w fieldTypeAsIndexInterface) VectorSimilarityFunction() VectorSimilarityFunction {
 	return w.ft.VectorSimilarityFunction
 }
@@ -606,7 +610,7 @@ func (w fieldTypeAsIndexInterface) GetAttributes() map[string]string {
 	return w.ft.GetAttributes()
 }
 
-func (ft *FieldType) AsIndexFieldTypeInterface() schema.IndexableFieldType {
+func (ft *FieldType) AsIndexFieldTypeInterface() spi.IndexableFieldType {
 	return fieldTypeAsIndexInterface{ft: ft}
 }
 
@@ -618,7 +622,7 @@ func (w fieldAsIndexableField) StringValue() string       { return w.f.StringVal
 func (w fieldAsIndexableField) BinaryValue() []byte       { return w.f.BinaryValue() }
 func (w fieldAsIndexableField) ReaderValue() io.Reader    { return w.f.ReaderValue() }
 func (w fieldAsIndexableField) NumericValue() interface{} { return w.f.NumericValue() }
-func (w fieldAsIndexableField) FieldType() schema.IndexableFieldType {
+func (w fieldAsIndexableField) FieldType() spi.IndexableFieldType {
 	return w.f.ft.AsIndexFieldTypeInterface()
 }
 func (w fieldAsIndexableField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
@@ -714,5 +718,5 @@ func (v fieldStoredValue) StringValue() string {
 }
 
 // compile-time checks
-var _ schema.IndexableFieldType = fieldTypeAsIndexInterface{}
+var _ spi.IndexableFieldType = fieldTypeAsIndexInterface{}
 var _ IndexableField = fieldAsIndexableField{}

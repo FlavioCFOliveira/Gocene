@@ -67,30 +67,27 @@ func NewICUTokenizerWith(factory util.AttributeFactory, config ICUTokenizerConfi
 		breaker:       NewCompositeBreakIterator(config),
 	}
 
-	t.termAttr = factory.NewCharTermAttribute()
-	t.offsetAttr = factory.NewOffsetAttribute()
-	t.typeAttr = factory.NewTypeAttribute()
+	t.termAttr = factory.CreateAttributeInstance(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	t.offsetAttr = factory.CreateAttributeInstance(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
+	t.typeAttr = factory.CreateAttributeInstance(analysis.TypeAttributeType).(analysis.TypeAttribute)
 	t.scriptAttr = tokenattributes.NewScriptAttributeImpl()
 
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.typeAttr)
-	t.AddAttribute(t.scriptAttr)
+	t.AddAttribute(analysis.CharTermAttributeType)
+	t.AddAttribute(analysis.OffsetAttributeType)
+	t.AddAttribute(analysis.TypeAttributeType)
+	t.AddAttribute(tokenattributes.ScriptAttributeType)
 
 	return t
 }
 
 // SetReader sets the input reader and resets the internal bufio.Reader.
-func (t *ICUTokenizer) SetReader(input io.Reader) error {
-	if err := t.BaseTokenizer.SetReader(input); err != nil {
-		return err
-	}
+func (t *ICUTokenizer) SetReader(input io.Reader) {
+	t.BaseTokenizer.SetReader(input)
 	if input == nil {
 		t.br = nil
 	} else {
 		t.br = bufio.NewReader(input)
 	}
-	return nil
 }
 
 // IncrementToken advances to the next token.

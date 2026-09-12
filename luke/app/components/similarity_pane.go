@@ -1,7 +1,7 @@
 package components
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/luke/models/search"
+	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
 // SimilarityPane implements SimilarityTabOperator.

@@ -23,6 +23,7 @@ const SPINameOpenNLPPOS = "openNlppos"
 //
 // PosTaggerModelName is required.
 type OpenNLPPOSFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	PosTaggerModelName string
 }
 
@@ -32,7 +33,10 @@ func NewOpenNLPPOSFilterFactory(posTaggerModelName string) *OpenNLPPOSFilterFact
 	if posTaggerModelName == "" {
 		panic("OpenNLPPOSFilterFactory: posTaggerModelName must not be empty")
 	}
-	return &OpenNLPPOSFilterFactory{PosTaggerModelName: posTaggerModelName}
+	return &OpenNLPPOSFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		PosTaggerModelName:     posTaggerModelName,
+	}
 }
 
 // Create creates an OpenNLPPOSFilter wrapping input.

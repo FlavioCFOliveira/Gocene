@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // DefaultMaxChunkSize is the default maximum chunk size for memory mapping.
@@ -231,7 +233,7 @@ func groupBySegment(filename string) (string, bool) {
 // MMapIndexInput is an IndexInput implementation that reads from memory-mapped files.
 type MMapIndexInput struct {
 	*BaseIndexInput
-	BaseDataInput
+	spi.BaseDataInput
 	path      string
 	name      string
 	directory *MMapDirectory

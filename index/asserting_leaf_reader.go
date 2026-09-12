@@ -6,9 +6,10 @@ package index
 
 import (
 	"fmt"
-	"sync"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // AssertingLeafReader is a LeafReader that can be used to apply additional checks for tests.
@@ -50,7 +51,7 @@ func (r *AssertingLeafReader) Terms(field string) (Terms, error) {
 	return &AssertingTerms{in: terms}, nil
 }
 
-func (r *AssertingLeafReader) StoredFields() (StoredFields, error) {
+func (r *AssertingLeafReader) StoredFields() (spi.StoredFields, error) {
 	sf, err := r.LeafReader.StoredFields()
 	if err != nil {
 		return nil, err
@@ -61,7 +62,7 @@ func (r *AssertingLeafReader) StoredFields() (StoredFields, error) {
 	return &AssertingStoredFields{in: sf}, nil
 }
 
-func (r *AssertingLeafReader) TermVectors() (TermVectors, error) {
+func (r *AssertingLeafReader) TermVectors() (spi.TermVectors, error) {
 	tv, err := r.LeafReader.TermVectors()
 	if err != nil {
 		return nil, err
@@ -127,7 +128,7 @@ func (r *AssertingLeafReader) GetSortedSetDocValues(field string) (SortedSetDocV
 	return &AssertingSortedSetDocValues{in: dv, maxDoc: r.MaxDoc()}, nil
 }
 
-func (r *AssertingLeafReader) GetPointValues(field string) (PointValues, error) {
+func (r *AssertingLeafReader) GetPointValues(field string) (spi.PointValues, error) {
 	pv, err := r.LeafReader.GetPointValues(field)
 	if err != nil {
 		return nil, err
@@ -161,8 +162,10 @@ type AssertingTerms struct {
 	in Terms
 }
 
-func (t *AssertingTerms) TermsEnum(field string) (TermsEnum, error) {
-	te, err := t.in.TermsEnum(field)
+func (t *AssertingTerms) Field() string { return t.in.Field() }
+
+func (t *AssertingTerms) GetIterator() (TermsEnum, error) {
+	te, err := t.in.GetIterator()
 	if err != nil {
 		return nil, err
 	}
@@ -172,23 +175,41 @@ func (t *AssertingTerms) TermsEnum(field string) (TermsEnum, error) {
 	return &AssertingTermsEnum{in: te}, nil
 }
 
-func (t *AssertingTerms) GetMin() (util.BytesRef, error) {
+// Intersect delegates to the wrapped Terms and wraps the result. Mirrors
+// org.apache.lucene.tests.index.AssertingLeafReader.AssertingTerms#intersect:
+// the returned enumerator must never be null and the start term, when
+// supplied, must carry valid bytes.
+func (t *AssertingTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *spi.Term) (TermsEnum, error) {
+	te, err := t.in.Intersect(compiled, startTerm)
+	if err != nil {
+		return nil, err
+	}
+	if te == nil {
+		panic("AssertingTerms: intersect returned a nil TermsEnum")
+	}
+	if startTerm != nil && (startTerm.Bytes == nil || !startTerm.Bytes.IsValid()) {
+		panic("AssertingTerms: intersect start term is invalid")
+	}
+	return &AssertingTermsEnum{in: te}, nil
+}
+
+func (t *AssertingTerms) GetMin() (*spi.Term, error) {
 	v, err := t.in.GetMin()
 	if err != nil {
 		return nil, err
 	}
-	if v != nil && !v.IsValid() {
+	if v != nil && (v.Bytes == nil || !v.Bytes.IsValid()) {
 		panic("AssertingTerms: min term is invalid")
 	}
 	return v, nil
 }
 
-func (t *AssertingTerms) GetMax() (util.BytesRef, error) {
+func (t *AssertingTerms) GetMax() (*spi.Term, error) {
 	v, err := t.in.GetMax()
 	if err != nil {
 		return nil, err
 	}
-	if v != nil && !v.IsValid() {
+	if v != nil && (v.Bytes == nil || !v.Bytes.IsValid()) {
 		panic("AssertingTerms: max term is invalid")
 	}
 	return v, nil
@@ -205,43 +226,111 @@ func (t *AssertingTerms) GetDocCount() (int, error) {
 	return count, nil
 }
 
+func (t *AssertingTerms) GetIteratorWithSeek(seekTerm *spi.Term) (TermsEnum, error) {
+	te, err := t.in.GetIteratorWithSeek(seekTerm)
+	if err != nil {
+		return nil, err
+	}
+	if te == nil {
+		return nil, nil
+	}
+	return &AssertingTermsEnum{in: te}, nil
+}
+
+func (t *AssertingTerms) GetPostingsReader(termText string, flags int) (spi.PostingsEnum, error) {
+	return t.in.GetPostingsReader(termText, flags)
+}
+
+func (t *AssertingTerms) Size() int64 {
+	return t.in.Size()
+}
+
+func (t *AssertingTerms) GetSumDocFreq() (int64, error) {
+	return t.in.GetSumDocFreq()
+}
+
+func (t *AssertingTerms) GetSumTotalTermFreq() (int64, error) {
+	return t.in.GetSumTotalTermFreq()
+}
+
+func (t *AssertingTerms) HasFreqs() bool {
+	return t.in.HasFreqs()
+}
+
+func (t *AssertingTerms) HasOffsets() bool {
+	return t.in.HasOffsets()
+}
+
+func (t *AssertingTerms) HasPositions() bool {
+	return t.in.HasPositions()
+}
+
+func (t *AssertingTerms) HasPayloads() bool {
+	return t.in.HasPayloads()
+}
+
 type AssertingTermsEnum struct {
 	in TermsEnum
 }
 
-func (te *AssertingTermsEnum) NextDoc() (int, error) {
-	doc, err := te.in.NextDoc()
-	if err != nil {
-		return 0, err
-	}
-	return doc, nil
+func (te *AssertingTermsEnum) Ord() int64 {
+	return te.in.Ord()
 }
 
-func (te *AssertingTermsEnum) DocID() int {
-	return te.in.DocID()
+func (te *AssertingTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return te.in.Impacts(flags)
 }
 
-func (te *AssertingTermsEnum) Freq() (int, error) {
-	freq, err := te.in.Freq()
+func (te *AssertingTermsEnum) Next() (*Term, error) {
+	term, err := te.in.Next()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	if freq <= 0 {
-		panic(fmt.Sprintf("AssertingTermsEnum: freq %d <= 0", freq))
-	}
-	return freq, nil
+	return term, nil
+}
+
+func (te *AssertingTermsEnum) DocFreq() (int, error) {
+	return te.in.DocFreq()
+}
+
+func (te *AssertingTermsEnum) SeekCeil(term *spi.Term) (*spi.Term, error) {
+	return te.in.SeekCeil(term)
+}
+
+func (te *AssertingTermsEnum) SeekExact(term *spi.Term) (bool, error) {
+	return te.in.SeekExact(term)
+}
+
+func (te *AssertingTermsEnum) Term() *spi.Term {
+	return te.in.Term()
+}
+
+func (te *AssertingTermsEnum) TotalTermFreq() (int64, error) {
+	return te.in.TotalTermFreq()
+}
+
+func (te *AssertingTermsEnum) Postings(flags int) (spi.PostingsEnum, error) {
+	return te.in.Postings(flags)
+}
+
+func (te *AssertingTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (spi.PostingsEnum, error) {
+	return te.in.PostingsWithLiveDocs(liveDocs, flags)
 }
 
 type AssertingStoredFields struct {
-	in StoredFields
+	in spi.StoredFields
 }
 
 func (sf *AssertingStoredFields) Document(docID int, visitor StoredFieldVisitor) error {
 	return sf.in.Document(docID, visitor)
 }
 
+func (sf *AssertingStoredFields) Prefetch(docIDs []int) error {
+	return sf.in.Prefetch(docIDs)
+}
+
 type AssertingTermVectors struct {
-	in TermVectors
+	in spi.TermVectors
 }
 
 func (tv *AssertingTermVectors) Get(doc int) (Fields, error) {
@@ -255,12 +344,47 @@ func (tv *AssertingTermVectors) Get(doc int) (Fields, error) {
 	return &AssertingFields{in: f}, nil
 }
 
+func (tv *AssertingTermVectors) Prefetch(docIDs []int) error {
+	return tv.in.Prefetch(docIDs)
+}
+
+func (tv *AssertingTermVectors) GetField(docID int, field string) (spi.Terms, error) {
+	t, err := tv.in.GetField(docID, field)
+	if err != nil {
+		return nil, err
+	}
+	if t == nil {
+		return nil, nil
+	}
+	return &AssertingTerms{in: t}, nil
+}
+
 type AssertingFields struct {
 	in Fields
 }
 
-func (f *AssertingFields) Iterator() []string {
-	return f.in.Iterator()
+func (f *AssertingFields) Size() int {
+	return f.in.Size()
+}
+
+type AssertingFieldIterator struct {
+	in spi.FieldIterator
+}
+
+func (fi *AssertingFieldIterator) Next() (string, error) {
+	return fi.in.Next()
+}
+
+func (fi *AssertingFieldIterator) HasNext() bool {
+	return fi.in.HasNext()
+}
+
+func (f *AssertingFields) Iterator() (spi.FieldIterator, error) {
+	it, err := f.in.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	return &AssertingFieldIterator{in: it}, nil
 }
 
 func (f *AssertingFields) Terms(field string) (Terms, error) {
@@ -290,6 +414,33 @@ func (dv *AssertingNumericDocValues) NextDoc() (int, error) {
 	return doc, nil
 }
 
+func (dv *AssertingNumericDocValues) DocID() int {
+	return dv.in.DocID()
+}
+
+func (dv *AssertingNumericDocValues) Advance(target int) (int, error) {
+	doc, err := dv.in.Advance(target)
+	if err != nil {
+		return 0, err
+	}
+	if doc != -1 && doc >= dv.maxDoc {
+		panic(fmt.Sprintf("AssertingNumericDocValues: advance %d >= maxDoc %d", doc, dv.maxDoc))
+	}
+	return doc, nil
+}
+
+func (dv *AssertingNumericDocValues) AdvanceExact(target int) (bool, error) {
+	return dv.in.AdvanceExact(target)
+}
+
+func (dv *AssertingNumericDocValues) LongValue() (int64, error) {
+	return dv.in.LongValue()
+}
+
+func (dv *AssertingNumericDocValues) Cost() int64 {
+	return dv.in.Cost()
+}
+
 type AssertingBinaryDocValues struct {
 	in     BinaryDocValues
 	maxDoc int
@@ -304,6 +455,33 @@ func (dv *AssertingBinaryDocValues) NextDoc() (int, error) {
 		panic(fmt.Sprintf("AssertingBinaryDocValues: nextDoc %d >= maxDoc %d", doc, dv.maxDoc))
 	}
 	return doc, nil
+}
+
+func (dv *AssertingBinaryDocValues) DocID() int {
+	return dv.in.DocID()
+}
+
+func (dv *AssertingBinaryDocValues) Advance(target int) (int, error) {
+	doc, err := dv.in.Advance(target)
+	if err != nil {
+		return 0, err
+	}
+	if doc != -1 && doc >= dv.maxDoc {
+		panic(fmt.Sprintf("AssertingBinaryDocValues: advance %d >= maxDoc %d", doc, dv.maxDoc))
+	}
+	return doc, nil
+}
+
+func (dv *AssertingBinaryDocValues) AdvanceExact(target int) (bool, error) {
+	return dv.in.AdvanceExact(target)
+}
+
+func (dv *AssertingBinaryDocValues) BinaryValue() ([]byte, error) {
+	return dv.in.BinaryValue()
+}
+
+func (dv *AssertingBinaryDocValues) Cost() int64 {
+	return dv.in.Cost()
 }
 
 type AssertingSortedDocValues struct {
@@ -322,6 +500,45 @@ func (dv *AssertingSortedDocValues) NextDoc() (int, error) {
 	return doc, nil
 }
 
+func (dv *AssertingSortedDocValues) DocID() int {
+	return dv.in.DocID()
+}
+
+func (dv *AssertingSortedDocValues) Advance(target int) (int, error) {
+	doc, err := dv.in.Advance(target)
+	if err != nil {
+		return 0, err
+	}
+	if doc != -1 && doc >= dv.maxDoc {
+		panic(fmt.Sprintf("AssertingSortedDocValues: advance %d >= maxDoc %d", doc, dv.maxDoc))
+	}
+	return doc, nil
+}
+
+func (dv *AssertingSortedDocValues) AdvanceExact(target int) (bool, error) {
+	return dv.in.AdvanceExact(target)
+}
+
+func (dv *AssertingSortedDocValues) LookupOrd(ord int) ([]byte, error) {
+	return dv.in.LookupOrd(ord)
+}
+
+func (dv *AssertingSortedDocValues) OrdValue() (int, error) {
+	return dv.in.OrdValue()
+}
+
+func (dv *AssertingSortedDocValues) LongValue() (int64, error) {
+	return dv.in.LongValue()
+}
+
+func (dv *AssertingSortedDocValues) GetValueCount() int {
+	return dv.in.GetValueCount()
+}
+
+func (dv *AssertingSortedDocValues) Cost() int64 {
+	return dv.in.Cost()
+}
+
 type AssertingSortedNumericDocValues struct {
 	in     SortedNumericDocValues
 	maxDoc int
@@ -336,6 +553,41 @@ func (dv *AssertingSortedNumericDocValues) NextDoc() (int, error) {
 		panic(fmt.Sprintf("AssertingSortedNumericDocValues: nextDoc %d >= maxDoc %d", doc, dv.maxDoc))
 	}
 	return doc, nil
+}
+
+func (dv *AssertingSortedNumericDocValues) DocID() int {
+	return dv.in.DocID()
+}
+
+func (dv *AssertingSortedNumericDocValues) Advance(target int) (int, error) {
+	doc, err := dv.in.Advance(target)
+	if err != nil {
+		return 0, err
+	}
+	if doc != -1 && doc >= dv.maxDoc {
+		panic(fmt.Sprintf("AssertingSortedNumericDocValues: advance %d >= maxDoc %d", doc, dv.maxDoc))
+	}
+	return doc, nil
+}
+
+func (dv *AssertingSortedNumericDocValues) AdvanceExact(target int) (bool, error) {
+	return dv.in.AdvanceExact(target)
+}
+
+func (dv *AssertingSortedNumericDocValues) LongValue() (int64, error) {
+	return dv.in.LongValue()
+}
+
+func (dv *AssertingSortedNumericDocValues) NextValue() (int64, error) {
+	return dv.in.NextValue()
+}
+
+func (dv *AssertingSortedNumericDocValues) DocValueCount() (int, error) {
+	return dv.in.DocValueCount()
+}
+
+func (dv *AssertingSortedNumericDocValues) Cost() int64 {
+	return dv.in.Cost()
 }
 
 type AssertingSortedSetDocValues struct {
@@ -354,8 +606,43 @@ func (dv *AssertingSortedSetDocValues) NextDoc() (int, error) {
 	return doc, nil
 }
 
+func (dv *AssertingSortedSetDocValues) DocID() int {
+	return dv.in.DocID()
+}
+
+func (dv *AssertingSortedSetDocValues) Advance(target int) (int, error) {
+	doc, err := dv.in.Advance(target)
+	if err != nil {
+		return 0, err
+	}
+	if doc != -1 && doc >= dv.maxDoc {
+		panic(fmt.Sprintf("AssertingSortedSetDocValues: advance %d >= maxDoc %d", doc, dv.maxDoc))
+	}
+	return doc, nil
+}
+
+func (dv *AssertingSortedSetDocValues) AdvanceExact(target int) (bool, error) {
+	return dv.in.AdvanceExact(target)
+}
+
+func (dv *AssertingSortedSetDocValues) LookupOrd(ord int) ([]byte, error) {
+	return dv.in.LookupOrd(ord)
+}
+
+func (dv *AssertingSortedSetDocValues) NextOrd() (int, error) {
+	return dv.in.NextOrd()
+}
+
+func (dv *AssertingSortedSetDocValues) GetValueCount() int {
+	return dv.in.GetValueCount()
+}
+
+func (dv *AssertingSortedSetDocValues) Cost() int64 {
+	return dv.in.Cost()
+}
+
 type AssertingPointValues struct {
-	in     PointValues
+	in     spi.PointValues
 	maxDoc int
 }
 
@@ -365,6 +652,30 @@ func (pv *AssertingPointValues) GetDocCount() int {
 		panic(fmt.Sprintf("AssertingPointValues: docCount %d out of range [0, %d]", count, pv.maxDoc))
 	}
 	return count
+}
+
+func (pv *AssertingPointValues) GetBytesPerDimension() int {
+	return pv.in.GetBytesPerDimension()
+}
+
+func (pv *AssertingPointValues) GetDocCountWithValue() int64 {
+	return pv.in.GetDocCountWithValue()
+}
+
+func (pv *AssertingPointValues) GetValueCount() int64 {
+	return pv.in.GetValueCount()
+}
+
+func (pv *AssertingPointValues) GetMinPackedValue() ([]byte, error) {
+	return pv.in.GetMinPackedValue()
+}
+
+func (pv *AssertingPointValues) GetMaxPackedValue() ([]byte, error) {
+	return pv.in.GetMaxPackedValue()
+}
+
+func (pv *AssertingPointValues) GetNumDimensions() int {
+	return pv.in.GetNumDimensions()
 }
 
 type AssertingBits struct {
@@ -380,4 +691,8 @@ func (b *AssertingBits) Get(index int) bool {
 
 func (b *AssertingBits) Length() int {
 	return b.in.Length()
+}
+
+func (b *AssertingBits) Cardinality() int {
+	return b.in.Cardinality()
 }

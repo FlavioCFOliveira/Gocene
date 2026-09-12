@@ -20,6 +20,7 @@ import (
 // Deviation: Java reads pattern and preserve_original from a Map<String,String>
 // at Solr SPI initialisation time. Go callers supply values directly.
 type PatternCaptureGroupFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	pattern          *regexp.Regexp
 	preserveOriginal bool
 }
@@ -31,8 +32,9 @@ type PatternCaptureGroupFilterFactory struct {
 //     in the Java implementation)
 func NewPatternCaptureGroupFilterFactory(pattern *regexp.Regexp, preserveOriginal bool) *PatternCaptureGroupFilterFactory {
 	return &PatternCaptureGroupFilterFactory{
-		pattern:          pattern,
-		preserveOriginal: preserveOriginal,
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		pattern:                pattern,
+		preserveOriginal:       preserveOriginal,
 	}
 }
 

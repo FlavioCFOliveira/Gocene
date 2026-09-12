@@ -9,7 +9,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs/asserting"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
@@ -59,7 +58,7 @@ func (f *AssertingPointsFormat) FieldsReader(state *spi.SegmentReadState) (spi.P
 type assertingPointsReader struct {
 	in         spi.PointsReader
 	maxDoc     int
-	fieldInfos *schema.FieldInfos
+	fieldInfos *spi.FieldInfos
 	merging    bool
 	creationThread interface{}
 }
@@ -129,7 +128,7 @@ type assertingPointsWriter struct {
 	in spi.PointsWriter
 }
 
-func (w *assertingPointsWriter) WriteField(fieldInfo *schema.FieldInfo, reader spi.PointsReader) error {
+func (w *assertingPointsWriter) WriteField(fieldInfo *spi.FieldInfo, reader spi.PointsReader) error {
 	if fieldInfo.PointDimensionCount() == 0 {
 		panic(fmt.Sprintf("AssertingPointsWriter: writing field %q but pointDimensionCount is 0", fieldInfo.Name()))
 	}

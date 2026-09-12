@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -30,7 +30,7 @@ import (
 // translations of Java's seekExact(long) and ord(), surfaced on the concrete
 // type because Gocene's TermsEnum interface does not declare them.
 type SortedDocValuesTermsEnum struct {
-	schema.TermsEnumBase
+	spi.TermsEnumBase
 	values     SortedDocValues
 	field      string
 	currentOrd int
@@ -62,7 +62,7 @@ func NewSortedDocValuesTermsEnum(field string, values SortedDocValues) *SortedDo
 // SeekCeil seeks to term or, if absent, to the smallest term > term.
 // The returned *Term carries the field name supplied at construction.
 // On end-of-enumeration this returns nil.
-func (s *SortedDocValuesTermsEnum) SeekCeil(term *schema.Term) (*schema.Term, error) {
+func (s *SortedDocValuesTermsEnum) SeekCeil(term *spi.Term) (*spi.Term, error) {
 	if term == nil || term.Bytes == nil {
 		return nil, nil
 	}
@@ -89,7 +89,7 @@ func (s *SortedDocValuesTermsEnum) SeekCeil(term *schema.Term) (*schema.Term, er
 }
 
 // SeekExact seeks to term and returns whether it exists.
-func (s *SortedDocValuesTermsEnum) SeekExact(term *schema.Term) (bool, error) {
+func (s *SortedDocValuesTermsEnum) SeekExact(term *spi.Term) (bool, error) {
 	if term == nil || term.Bytes == nil {
 		return false, nil
 	}
@@ -122,7 +122,7 @@ func (s *SortedDocValuesTermsEnum) SeekExactOrd(ord int) error {
 
 // SeekExactWithTermState mirrors Java's seekExact(BytesRef, TermState):
 // trusts the supplied OrdTermState and seeks directly by ordinal.
-func (s *SortedDocValuesTermsEnum) SeekExactWithTermState(_ *schema.Term, state TermState) error {
+func (s *SortedDocValuesTermsEnum) SeekExactWithTermState(_ *spi.Term, state TermState) error {
 	if state == nil {
 		return errOrdTermStateRequired
 	}
@@ -134,7 +134,7 @@ func (s *SortedDocValuesTermsEnum) SeekExactWithTermState(_ *schema.Term, state 
 }
 
 // Next advances to the next term in the enumeration. Returns nil at the end.
-func (s *SortedDocValuesTermsEnum) Next() (*schema.Term, error) {
+func (s *SortedDocValuesTermsEnum) Next() (*spi.Term, error) {
 	s.currentOrd++
 	if s.currentOrd >= s.values.GetValueCount() {
 		return nil, nil
@@ -148,7 +148,7 @@ func (s *SortedDocValuesTermsEnum) Next() (*schema.Term, error) {
 }
 
 // Term returns the current term (or nil if not positioned).
-func (s *SortedDocValuesTermsEnum) Term() *schema.Term {
+func (s *SortedDocValuesTermsEnum) Term() *spi.Term {
 	if s.currentOrd < 0 || s.currentOrd >= s.values.GetValueCount() {
 		return nil
 	}
@@ -188,11 +188,11 @@ func (s *SortedDocValuesTermsEnum) PostingsWithLiveDocs(_ util.Bits, _ int) (Pos
 // currentTerm builds a fresh *Term carrying the configured field and the
 // current scratch bytes. A fresh Term is allocated each call to match the
 // "callers may retain the result" contract used elsewhere in Gocene.
-func (s *SortedDocValuesTermsEnum) currentTerm() *schema.Term {
+func (s *SortedDocValuesTermsEnum) currentTerm() *spi.Term {
 	bytes := s.scratch.Get()
 	buf := make([]byte, bytes.Length)
 	copy(buf, bytes.ValidBytes())
-	return &schema.Term{
+	return &spi.Term{
 		Field: s.field,
 		Bytes: util.NewBytesRef(buf),
 	}

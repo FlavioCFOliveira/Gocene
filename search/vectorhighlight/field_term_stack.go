@@ -110,7 +110,8 @@ func NewFieldTermStack(reader index.IndexReader, docID int, fieldName string, fi
 			if previous != nil {
 				previous.Next = first
 			}
-			previous = first = current
+			first = current
+			previous = current
 			currentPos = current.Position
 		}
 		processed = append(processed, current)

@@ -9,7 +9,8 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // KnnFloatVectorField is a dense float32 KNN vector field for similarity
@@ -27,7 +28,7 @@ type KnnFloatVectorField struct {
 
 // NewKnnFloatVectorField creates a new KnnFloatVectorField with the given
 // vector using the supplied similarity function.
-func NewKnnFloatVectorField(name string, vector []float32, similarity index.VectorSimilarityFunction) (*KnnFloatVectorField, error) {
+func NewKnnFloatVectorField(name string, vector []float32, similarity spi.VectorSimilarityFunction) (*KnnFloatVectorField, error) {
 	if len(vector) == 0 {
 		return nil, fmt.Errorf("vector cannot be empty")
 	}
@@ -38,7 +39,7 @@ func NewKnnFloatVectorField(name string, vector []float32, similarity index.Vect
 // NewKnnFloatVectorFieldEuclidean creates a KnnFloatVectorField using the
 // default EUCLIDEAN similarity. Mirrors Lucene's two-arg ctor.
 func NewKnnFloatVectorFieldEuclidean(name string, vector []float32) (*KnnFloatVectorField, error) {
-	return NewKnnFloatVectorField(name, vector, index.VectorSimilarityFunctionEuclidean)
+	return NewKnnFloatVectorField(name, vector, util.EuclideanSim)
 }
 
 // NewKnnFloatVectorFieldWithType creates a KnnFloatVectorField from a
@@ -48,7 +49,7 @@ func NewKnnFloatVectorFieldWithType(name string, vector []float32, ft *FieldType
 	if ft == nil {
 		return nil, fmt.Errorf("FieldType cannot be nil")
 	}
-	if ft.GetVectorEncoding() != index.VectorEncodingFloat32 {
+	if ft.GetVectorEncoding() != util.VectorEncodingFloat32 {
 		return nil, fmt.Errorf("FieldType encoding %v != FLOAT32", ft.GetVectorEncoding())
 	}
 	if ft.GetVectorDimension() != len(vector) {
@@ -94,9 +95,9 @@ func (f *KnnFloatVectorField) SetVectorValue(value []float32) {
 // KnnFloatVectorFieldType creates the canonical FieldType for a
 // KnnFloatVectorField of the given dimensionality and similarity.
 // Mirrors Lucene's createFieldType helper.
-func KnnFloatVectorFieldType(dimension int, similarity index.VectorSimilarityFunction) *FieldType {
+func KnnFloatVectorFieldType(dimension int, similarity spi.VectorSimilarityFunction) *FieldType {
 	ft := NewFieldType()
-	ft.SetVectorAttributes(dimension, index.VectorEncodingFloat32, similarity)
+	ft.SetVectorAttributes(dimension, util.VectorEncodingFloat32, similarity)
 	ft.Freeze()
 	return ft
 }

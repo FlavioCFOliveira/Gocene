@@ -106,6 +106,8 @@ func (m *MultiPostingsEnum) Freq() (int, error) {
 // DocID returns the current composite doc ID, or -1 before the first call.
 func (m *MultiPostingsEnum) DocID() int { return m.doc }
 
+func (m *MultiPostingsEnum) DocIDRunEnd() int { return m.doc }
+
 // Advance advances to the first document at or beyond target. Mirrors the
 // Lucene advance() implementation: if the current sub-enum has the target in
 // its window it delegates to sub.advance, otherwise it falls through to the

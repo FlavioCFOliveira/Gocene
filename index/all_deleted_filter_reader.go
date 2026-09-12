@@ -35,7 +35,7 @@ func (f *AllDeletedFilterReader) NumDocs() int {
 
 // GetCoreCacheHelper delegates to the wrapped reader.
 func (f *AllDeletedFilterReader) GetCoreCacheHelper() CacheHelper {
-	return f.FilterLeafReader.GetCoreCacheHelper()
+	return f.FilterLeafReader.GetCacheHelper()
 }
 
 // GetReaderCacheHelper returns nil, as this reader is not suited for caching.

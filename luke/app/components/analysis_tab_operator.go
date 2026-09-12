@@ -1,7 +1,7 @@
 package components
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/luke/models/analysis"
+	analysismodels "github.com/FlavioCFOliveira/Gocene/luke/models/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 )
 
@@ -10,6 +10,6 @@ type AnalysisTabOperator interface {
 	ComponentOperator
 
 	SetAnalyzerByType(analyzerType string)
-	SetAnalyzerByCustomConfiguration(config *analysis.CustomAnalyzerConfig)
+	SetAnalyzerByCustomConfiguration(config *analysismodels.CustomAnalyzerConfig)
 	GetCurrentAnalyzer() analysis.Analyzer
 }

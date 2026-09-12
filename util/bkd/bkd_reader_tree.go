@@ -5,7 +5,7 @@
 package bkd
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -448,7 +448,7 @@ func (t *bkdPointTree) readDocIDs(in store.IndexInput, blockFP int64, iter *bkdR
 func (t *bkdPointTree) readNodeData(isLeft bool) error {
 	t.leafBlockFPStack[t.level] = t.leafBlockFPStack[t.level-1]
 	if !isLeft {
-		delta, err := store.ReadVLong(t.innerNodes)
+		delta, err := t.innerNodes.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -497,7 +497,7 @@ func (t *bkdPointTree) readNodeData(isLeft bool) error {
 			oldByte := int(t.splitValuesStack[t.level][startPos]) & 0xFF
 			t.splitValuesStack[t.level][startPos] = byte(oldByte + firstDiffByteDelta)
 			if suffix-1 > 0 {
-				if err := t.innerNodes.ReadBytes(t.splitValuesStack[t.level][startPos+1 : startPos+suffix]); err != nil {
+				if err := t.innerNodes.ReadBytes(t.splitValuesStack[t.level][startPos+1 : startPos+suffix], 0, suffix-1); err != nil {
 					return err
 				}
 			}
@@ -637,11 +637,11 @@ func (t *bkdPointTree) visitDocValuesNoCardinality(visitor IntersectVisitor, cou
 			return err
 		}
 		r := visitor.Compare(t.scratchMinIndexPackedValue[:pibl], t.scratchMaxIndexPackedValue[:pibl])
-		if r == geo.RelationCellOutsideQuery {
+		if r == geo.CellOutsideQuery {
 			return nil
 		}
 		visitor.Grow(count)
-		if r == geo.RelationCellInsideQuery {
+		if r == geo.CellInsideQuery {
 			return t.visitAllInLeafAsIDs(visitor, count)
 		}
 	} else {
@@ -681,11 +681,11 @@ func (t *bkdPointTree) visitDocValuesWithCardinality(visitor IntersectVisitor, c
 			return err
 		}
 		r := visitor.Compare(t.scratchMinIndexPackedValue[:pibl], t.scratchMaxIndexPackedValue[:pibl])
-		if r == geo.RelationCellOutsideQuery {
+		if r == geo.CellOutsideQuery {
 			return nil
 		}
 		visitor.Grow(count)
-		if r == geo.RelationCellInsideQuery {
+		if r == geo.CellInsideQuery {
 			return t.visitAllInLeafAsIDs(visitor, count)
 		}
 	} else {
@@ -742,7 +742,7 @@ func (t *bkdPointTree) visitSparseRawDocValues(
 		length := int(length32)
 		for dim := 0; dim < t.config.NumDims(); dim++ {
 			prefix := commonPrefixLengths[dim]
-			if err := in.ReadBytes(scratchPackedValue[dim*bytesPerDim+prefix : dim*bytesPerDim+bytesPerDim]); err != nil {
+			if err := in.ReadBytes(scratchPackedValue[dim*bytesPerDim+prefix : dim*bytesPerDim+bytesPerDim], 0, bytesPerDim-prefix); err != nil {
 				return err
 			}
 		}
@@ -791,7 +791,7 @@ func (t *bkdPointTree) visitCompressedDocValues(
 		for j := 0; j < runLen; j++ {
 			for dim := 0; dim < t.config.NumDims(); dim++ {
 				prefix := commonPrefixLengths[dim]
-				if err := in.ReadBytes(scratchPackedValue[dim*bytesPerDim+prefix : dim*bytesPerDim+bytesPerDim]); err != nil {
+				if err := in.ReadBytes(scratchPackedValue[dim*bytesPerDim+prefix : dim*bytesPerDim+bytesPerDim], 0, bytesPerDim-prefix); err != nil {
 					return err
 				}
 			}
@@ -843,7 +843,7 @@ func (t *bkdPointTree) readCommonPrefixes(
 		prefix := int(prefix32)
 		commonPrefixLengths[dim] = prefix
 		if prefix > 0 {
-			if err := in.ReadBytes(scratchPackedValue[dim*bytesPerDim : dim*bytesPerDim+prefix]); err != nil {
+			if err := in.ReadBytes(scratchPackedValue[dim*bytesPerDim : dim*bytesPerDim+prefix], 0, prefix); err != nil {
 				return err
 			}
 		}
@@ -867,10 +867,10 @@ func (t *bkdPointTree) readMinMax(
 		if suffix == 0 {
 			continue
 		}
-		if err := in.ReadBytes(minPackedValue[dim*bytesPerDim+prefix : dim*bytesPerDim+bytesPerDim]); err != nil {
+		if err := in.ReadBytes(minPackedValue[dim*bytesPerDim+prefix : dim*bytesPerDim+bytesPerDim], 0, bytesPerDim-prefix); err != nil {
 			return err
 		}
-		if err := in.ReadBytes(maxPackedValue[dim*bytesPerDim+prefix : dim*bytesPerDim+bytesPerDim]); err != nil {
+		if err := in.ReadBytes(maxPackedValue[dim*bytesPerDim+prefix : dim*bytesPerDim+bytesPerDim], 0, bytesPerDim-prefix); err != nil {
 			return err
 		}
 	}

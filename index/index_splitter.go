@@ -303,11 +303,11 @@ func (is *IndexSplitter) copyFile(fileName string, srcDir, destDir store.Directo
 	// For simplicity, we read the entire file into memory
 	// In production, this should use a buffer for large files
 	data := make([]byte, srcLength)
-	if err := in.ReadBytes(data); err != nil {
+	if err := in.ReadBytes(data, 0, len(data)); err != nil {
 		return err
 	}
 
-	if err := out.WriteBytes(data); err != nil {
+	if err := out.WriteBytes(data, 0, len(data)); err != nil {
 		return err
 	}
 

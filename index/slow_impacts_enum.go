@@ -27,6 +27,8 @@ func (s *SlowImpactsEnum) NextDoc() (int, error) { return s.delegate.NextDoc() }
 // DocID returns the current document ID. Delegates to the underlying PostingsEnum.
 func (s *SlowImpactsEnum) DocID() int { return s.delegate.DocID() }
 
+func (s *SlowImpactsEnum) DocIDRunEnd() int { return s.delegate.DocIDRunEnd() }
+
 // Cost returns the cost of iterating over this enum. Delegates to the underlying PostingsEnum.
 func (s *SlowImpactsEnum) Cost() int64 { return s.delegate.Cost() }
 

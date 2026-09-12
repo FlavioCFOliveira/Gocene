@@ -92,7 +92,7 @@ func (m *NRTManager) GetReader() (*NRTDirectoryReader, error) {
 	}
 
 	// Create initial reader from the writer's directory.
-	var dir = m.writer.directory
+	var dir = m.writer.GetDirectory()
 	var dirReader *DirectoryReader
 	var err error
 	if dir != nil {
@@ -103,13 +103,14 @@ func (m *NRTManager) GetReader() (*NRTDirectoryReader, error) {
 		}
 	} else {
 		// Writer has no directory; construct a bare empty DirectoryReader.
+		compReader, cerr := newCompositeReaderFromSegments(nil)
+		if cerr != nil {
+			m.mu.Unlock()
+			return nil, fmt.Errorf("creating empty composite reader: %w", cerr)
+		}
 		dirReader = &DirectoryReader{
-			CompositeReader: &CompositeReader{
-				IndexReader: NewIndexReader(),
-				subReaders:  []IndexReaderInterface{},
-				starts:      []int{0},
-			},
-			segmentInfos: NewSegmentInfos(),
+			CompositeReader: compReader,
+			segmentInfos:    NewSegmentInfos(),
 		}
 	}
 

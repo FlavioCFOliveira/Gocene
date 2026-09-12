@@ -3,6 +3,8 @@ package index
 import (
 	"errors"
 	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // FloatVectorValues provides access to per-document floating point vector values.
@@ -23,13 +25,13 @@ type FloatVectorValues interface {
 	Rescorer(target []float32) (interface{}, error)
 }
 
-// CheckField checks the Vector Encoding of a field.
+// CheckFloatVectorField checks the Vector Encoding of a field.
 // This is the Go port of FloatVectorValues.checkField.
-func CheckField(in LeafReader, field string) error {
-	fi := in.GetFieldInfos().FieldInfo(field)
-	if fi != nil && fi.HasVectorValues() && fi.GetVectorEncoding() != VectorEncodingFloat32 {
+func CheckFloatVectorField(in LeafReader, field string) error {
+	fi := in.GetFieldInfos().FieldInfoByName(field)
+	if fi != nil && fi.VectorDimension() != 0 && fi.VectorEncoding() != VectorEncodingFloat32 {
 		return fmt.Errorf("unexpected vector encoding (%s) for field %s (expected=%s)",
-			fi.GetVectorEncoding(), field, VectorEncodingFloat32)
+			fi.VectorEncoding(), field, VectorEncodingFloat32)
 	}
 	return nil
 }
@@ -88,9 +90,21 @@ func (f *floatVectorValuesFromFloats) GetAcceptOrds(acceptDocs util.Bits) util.B
 }
 
 func (f *floatVectorValuesFromFloats) Iterator() util.DocIndexIterator {
-	return &denseDocIndexIterator{
-		size: f.Size(),
-	}
+	return newDenseDocIndexIterator(f.Size())
+}
+
+// denseDocIndexIterator is the Go port of the anonymous DocIndexIterator
+// returned by KnnVectorValues#createDenseIterator(): doc == ord over a dense
+// [0, size) range, starting unpositioned at -1.
+type denseDocIndexIterator struct {
+	doc  int
+	size int
+}
+
+// newDenseDocIndexIterator returns an iterator positioned before the first
+// document, matching createDenseIterator()'s `int doc = -1`.
+func newDenseDocIndexIterator(size int) *denseDocIndexIterator {
+	return &denseDocIndexIterator{doc: -1, size: size}
 }
 
 func (f *floatVectorValuesFromFloats) VectorValue(ord int) ([]float32, error) {
@@ -112,35 +126,6 @@ func (f *floatVectorValuesFromFloats) Rescorer(target []float32) (interface{}, e
 	return f.Scorer(target)
 }
 
-type acceptOrdsBitSet struct {
-	acceptDocs util.Bits
-	size       int
-}
-
-func (b *acceptOrdsBitSet) Get(index int) bool {
-	return b.acceptDocs.Get(b.OrdToDoc(index))
-}
-
-func (b *acceptOrdsBitSet) Length() int {
-	return b.size
-}
-
-func (b *acceptOrdsBitSet) OrdToDoc(index int) int {
-	return index
-}
-
-type denseDocIndexIterator struct {
-	size int
-	doc  int
-}
-
-func NewDenseDocIndexIterator(size int) *denseDocIndexIterator {
-	return &denseDocIndexIterator{
-		size: size,
-		doc:  -1,
-	}
-}
-
 func (it *denseDocIndexIterator) DocID() int {
 	return it.doc
 }
@@ -151,7 +136,7 @@ func (it *denseDocIndexIterator) Index() int {
 
 func (it *denseDocIndexIterator) NextDoc() (int, error) {
 	if it.doc >= it.size-1 {
-		it.doc = NO_MORE_DOCS
+		it.doc = util.NO_MORE_DOCS
 	} else {
 		it.doc++
 	}
@@ -160,11 +145,18 @@ func (it *denseDocIndexIterator) NextDoc() (int, error) {
 
 func (it *denseDocIndexIterator) Advance(target int) (int, error) {
 	if target >= it.size {
-		it.doc = NO_MORE_DOCS
+		it.doc = util.NO_MORE_DOCS
 	} else {
 		it.doc = target
 	}
 	return it.doc, nil
+}
+
+// DocIDRunEnd returns the exclusive end of the current run. The range is
+// dense, so every remaining document matches and the run ends at size,
+// mirroring createDenseIterator()'s docIDRunEnd().
+func (it *denseDocIndexIterator) DocIDRunEnd() int {
+	return it.size
 }
 
 func (it *denseDocIndexIterator) Cost() int64 {

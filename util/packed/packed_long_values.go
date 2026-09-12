@@ -225,6 +225,22 @@ func (b *PackedLongValuesBuilder) Build() *PackedLongValues {
 // Size returns the number of values added so far.
 func (b *PackedLongValuesBuilder) Size() int64 { return b.size }
 
+// RamBytesUsed reports the heap size of the builder.
+func (b *PackedLongValuesBuilder) RamBytesUsed() int64 {
+	var bytes int64
+	if b.pending != nil {
+		bytes += int64(len(b.pending) * 8)
+	}
+	bytes += int64(len(b.values) * 8)
+	if b.mins != nil {
+		bytes += int64(len(b.mins) * 8)
+	}
+	if b.averages != nil {
+		bytes += int64(len(b.averages) * 4)
+	}
+	return bytes + 64
+}
+
 func (b *PackedLongValuesBuilder) finish() {
 	if b.pendingOff > 0 {
 		if b.valuesOff == len(b.values) {

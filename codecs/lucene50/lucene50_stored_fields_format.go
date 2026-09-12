@@ -45,7 +45,7 @@ func (f *Lucene50StoredFieldsFormat) FieldsReader(dir store.Directory, si *index
 	if val == "" {
 		return nil, fmt.Errorf("missing value for Lucene50StoredFieldsFormat.mode for segment: %s", si.Name())
 	}
-	
+
 	// Map string to mode
 	mode := BestSpeed
 	if val == "BEST_COMPRESSION" {
@@ -53,7 +53,7 @@ func (f *Lucene50StoredFieldsFormat) FieldsReader(dir store.Directory, si *index
 	}
 
 	// This would normally delegate to a compressing reader.
-	return nil, fmt.Errorf("Lucene50StoredFieldsReader not yet implemented")
+	return nil, fmt.Errorf("Lucene50StoredFieldsReader (mode %v) not yet implemented", mode)
 }
 
 func (f *Lucene50StoredFieldsFormat) FieldsWriter(dir store.Directory, si *index.SegmentInfo, context store.IOContext) (spi.StoredFieldsWriter, error) {

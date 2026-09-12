@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -40,7 +41,7 @@ func NewUAX29URLEmailAnalyzer() *UAX29URLEmailAnalyzer {
 // given stop-word set.
 func NewUAX29URLEmailAnalyzerWithStopWords(stopWords *analysis.CharArraySet) *UAX29URLEmailAnalyzer {
 	a := &UAX29URLEmailAnalyzer{
-		BaseAnalyzer:   analysis.NewAnalyzer(),
+		BaseAnalyzer:   analysis.NewAnalyzer(analysis.GlobalReuseStrategy),
 		stopWords:      stopWords,
 		maxTokenLength: DefaultMaxTokenLength,
 	}
@@ -67,7 +68,7 @@ func (a *UAX29URLEmailAnalyzer) TokenStream(fieldName string, reader io.Reader) 
 
 // Ensure UAX29URLEmailAnalyzer implements Analyzer.
 var _ analysis.Analyzer = (*UAX29URLEmailAnalyzer)(nil)
-var _ analysis.api.Analyzer = (*UAX29URLEmailAnalyzer)(nil)
+var _ api.Analyzer = (*UAX29URLEmailAnalyzer)(nil)
 
 // uax29URLEmailTokenizerFactory creates UAX29URLEmailTokenizer instances with
 // the analyzer's current maxTokenLength.

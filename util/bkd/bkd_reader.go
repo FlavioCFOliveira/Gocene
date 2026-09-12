@@ -14,7 +14,7 @@
 package bkd
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"bytes"
 	"errors"
 	"fmt"
@@ -239,11 +239,11 @@ func NewBKDReader(metaIn, indexIn, dataIn store.IndexInput) (*BKDReader, error) 
 
 	pibl := config.PackedIndexBytesLength()
 	minPackedValue := make([]byte, pibl)
-	if err := metaIn.ReadBytes(minPackedValue); err != nil {
+	if err := metaIn.ReadBytes(minPackedValue, 0, pibl); err != nil {
 		return nil, fmt.Errorf("bkd: read minPackedValue: %w", err)
 	}
 	maxPackedValue := make([]byte, pibl)
-	if err := metaIn.ReadBytes(maxPackedValue); err != nil {
+	if err := metaIn.ReadBytes(maxPackedValue, 0, pibl); err != nil {
 		return nil, fmt.Errorf("bkd: read maxPackedValue: %w", err)
 	}
 
@@ -263,7 +263,7 @@ func NewBKDReader(metaIn, indexIn, dataIn store.IndexInput) (*BKDReader, error) 
 		maxPackedValue = minPackedValue
 	}
 
-	pointCount, err := store.ReadVLong(metaIn)
+	pointCount, err := metaIn.ReadVLong()
 	if err != nil {
 		return nil, fmt.Errorf("bkd: read pointCount: %w", err)
 	}
@@ -292,7 +292,7 @@ func NewBKDReader(metaIn, indexIn, dataIn store.IndexInput) (*BKDReader, error) 
 		// keep the legacy decode path so externally-produced indices
 		// (or future test fixtures) can be opened.
 		indexStartPointer = indexIn.GetFilePointer()
-		minLeafBlockFP, err = store.ReadVLong(indexIn)
+		minLeafBlockFP, err = indexIn.ReadVLong()
 		if err != nil {
 			return nil, fmt.Errorf("bkd: read legacy minLeafBlockFP: %w", err)
 		}
@@ -422,11 +422,11 @@ func (r *BKDReader) Intersect(visitor IntersectVisitor) error {
 func intersect(tree PointTree, visitor IntersectVisitor) error {
 	rel := visitor.Compare(tree.GetMinPackedValue(), tree.GetMaxPackedValue())
 	switch rel {
-	case geo.RelationCellOutsideQuery:
+	case geo.CellOutsideQuery:
 		return nil
-	case geo.RelationCellInsideQuery:
+	case geo.CellInsideQuery:
 		return tree.VisitDocIDs(visitor)
-	case geo.RelationCellCrossesQuery:
+	case geo.CellCrossesQuery:
 		// If we are on a leaf, scan all docs in this leaf with their
 		// packed values; otherwise recurse left + right.
 		// We do not have direct "isLeaf" on PointTree (Lucene exposes
@@ -478,11 +478,11 @@ func (r *BKDReader) EstimatePointCount(visitor IntersectVisitor) (int64, error) 
 func estimatePointCount(tree PointTree, visitor IntersectVisitor) (int64, error) {
 	rel := visitor.Compare(tree.GetMinPackedValue(), tree.GetMaxPackedValue())
 	switch rel {
-	case geo.RelationCellOutsideQuery:
+	case geo.CellOutsideQuery:
 		return 0, nil
-	case geo.RelationCellInsideQuery:
+	case geo.CellInsideQuery:
 		return tree.Size(), nil
-	case geo.RelationCellCrossesQuery:
+	case geo.CellCrossesQuery:
 		moved, err := tree.MoveToChild()
 		if err != nil {
 			return 0, err

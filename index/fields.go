@@ -10,52 +10,52 @@ package index
 // index.* names so existing callers compile unchanged.
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// Fields is an alias of schema.Fields.
-type Fields = schema.Fields
+// Fields is an alias of spi.Fields.
+type Fields = spi.Fields
 
-// FieldIterator is an alias of schema.FieldIterator.
-type FieldIterator = schema.FieldIterator
+// FieldIterator is an alias of spi.FieldIterator.
+type FieldIterator = spi.FieldIterator
 
-// FieldsBase is an alias of schema.FieldsBase.
-type FieldsBase = schema.FieldsBase
+// FieldsBase is an alias of spi.FieldsBase.
+type FieldsBase = spi.FieldsBase
 
-// EmptyFields is an alias of schema.EmptyFields.
-type EmptyFields = schema.EmptyFields
+// EmptyFields is an alias of spi.EmptyFields.
+type EmptyFields = spi.EmptyFields
 
-// EmptyFieldIterator is an alias of schema.EmptyFieldIterator.
-type EmptyFieldIterator = schema.EmptyFieldIterator
+// EmptyFieldIterator is an alias of spi.EmptyFieldIterator.
+type EmptyFieldIterator = spi.EmptyFieldIterator
 
-// MemoryFields is an alias of schema.MemoryFields.
-type MemoryFields = schema.MemoryFields
+// MemoryFields is an alias of spi.MemoryFields.
+type MemoryFields = spi.MemoryFields
 
-// MemoryFieldIterator is an alias of schema.MemoryFieldIterator.
-type MemoryFieldIterator = schema.MemoryFieldIterator
+// MemoryFieldIterator is an alias of spi.MemoryFieldIterator.
+type MemoryFieldIterator = spi.MemoryFieldIterator
 
-// SingleFieldFields is an alias of schema.SingleFieldFields.
-type SingleFieldFields = schema.SingleFieldFields
+// SingleFieldFields is an alias of spi.SingleFieldFields.
+type SingleFieldFields = spi.SingleFieldFields
 
-// SingleFieldIterator is an alias of schema.SingleFieldIterator.
-type SingleFieldIterator = schema.SingleFieldIterator
+// SingleFieldIterator is an alias of spi.SingleFieldIterator.
+type SingleFieldIterator = spi.SingleFieldIterator
 
 
-// FieldsStats is an alias of schema.FieldsStats.
-type FieldsStats = schema.FieldsStats
+// FieldsStats is an alias of spi.FieldsStats.
+type FieldsStats = spi.FieldsStats
 
 // NewMemoryFields creates a new empty MemoryFields.
 func NewMemoryFields() *MemoryFields {
-	return schema.NewMemoryFields()
+	return spi.NewMemoryFields()
 }
 
 // NewMemoryFieldIterator builds a MemoryFieldIterator over names.
 func NewMemoryFieldIterator(names []string) *MemoryFieldIterator {
-	return schema.NewMemoryFieldIterator(names)
+	return spi.NewMemoryFieldIterator(names)
 }
 
 // NewSingleFieldFields creates a new SingleFieldFields.
 func NewSingleFieldFields(field string, terms Terms) *SingleFieldFields {
-	return schema.NewSingleFieldFields(field, terms)
+	return spi.NewSingleFieldFields(field, terms)
 }
 

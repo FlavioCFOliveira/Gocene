@@ -2,7 +2,8 @@ package spi
 
 // KnnSearchStrategy is the search strategy used by KnnCollector.
 type KnnSearchStrategy interface {
-	// Strategy methods would go here.
+	// NextVectorsBlock signals that the searcher has moved to the next block of vectors.
+	NextVectorsBlock()
 }
 
 // KnnCollector is a knn collector used for gathering kNN results.

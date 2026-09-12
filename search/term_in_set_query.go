@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -89,7 +89,7 @@ func packTerms(field string, terms []*util.BytesRef) *index.PrefixCodedTerms {
 			continue // deduplicate
 		}
 
-		t := schema.NewTerm(field, term.ValidBytes())
+		t := spi.NewTerm(field, term.ValidBytes())
 		builder.Add(t)
 		previous = term
 	}
@@ -118,7 +118,7 @@ func (q *TermInSetQuery) Visit(visitor QueryVisitor) {
 	}
 	if q.termData.Size() == 1 {
 		termBytes := q.termData.Iterator().Next()
-		visitor.ConsumeTerms(q, schema.NewTerm(q.field, termBytes))
+		visitor.ConsumeTerms(q, spi.NewTerm(q.field, termBytes))
 	}
 	if q.termData.Size() > 1 {
 		visitor.ConsumeTermsMatching(q, q.field, q.asByteRunAutomaton)
@@ -189,7 +189,7 @@ type setEnum struct {
 	seekTerm []byte
 }
 
-func (s *setEnum) Accept(term *schema.Term) (index.AcceptStatus, error) {
+func (s *setEnum) Accept(term *spi.Term) (index.AcceptStatus, error) {
 	termBytes := term.Text()
 
 	var cmp int
@@ -210,9 +210,9 @@ func (s *setEnum) Accept(term *schema.Term) (index.AcceptStatus, error) {
 	}
 }
 
-func (s *setEnum) NextSeekTerm(current *schema.Term) (*schema.Term, error) {
+func (s *setEnum) NextSeekTerm(current *spi.Term) (*spi.Term, error) {
 	if current == nil {
-		return schema.NewTerm(s.query.field, s.seekTerm), nil
+		return spi.NewTerm(s.query.field, s.seekTerm), nil
 	}
 	currentBytes := current.Text()
 	for s.seekTerm != nil && bytes.Compare(s.seekTerm, currentBytes) <= 0 {
@@ -221,7 +221,7 @@ func (s *setEnum) NextSeekTerm(current *schema.Term) (*schema.Term, error) {
 	if s.seekTerm == nil {
 		return nil, nil
 	}
-	return schema.NewTerm(s.query.field, s.seekTerm), nil
+	return spi.NewTerm(s.query.field, s.seekTerm), nil
 }
 
 func computePrefixCodedTermsHash(p *index.PrefixCodedTerms) int {

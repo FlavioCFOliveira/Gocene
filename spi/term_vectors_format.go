@@ -3,12 +3,6 @@
 // that can be found in the LICENSE file.
 
 package spi
-
-import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
-	"github.com/FlavioCFOliveira/Gocene/store"
-)
-
 // TermVectorsFormat encodes and decodes the per-segment term-vector
 // files (.tvd / .tvx / .tvm in Lucene 10.4.0).
 //
@@ -23,7 +17,7 @@ type TermVectorsFormat interface {
 
 	// VectorsReader opens a reader over the per-segment term-vector
 	// files. The caller closes the reader when done.
-	VectorsReader(dir store.Directory, segmentInfo *schema.SegmentInfo, fieldInfos *schema.FieldInfos, context store.IOContext) (TermVectorsReader, error)
+	VectorsReader(dir Directory, segmentInfo *SegmentInfo, fieldInfos *FieldInfos, context IOContext) (TermVectorsReader, error)
 }
 
 // TermVectorsWriter serialises term vectors document by document,
@@ -37,7 +31,7 @@ type TermVectorsWriter interface {
 
 	// StartField signals the beginning of a new field within the current
 	// document; the flags describe what per-position data follows.
-	StartField(fieldInfo *schema.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error
+	StartField(fieldInfo *FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error
 
 	// StartTerm signals a new term in the current field.
 	StartTerm(term []byte, freq int) error
@@ -67,11 +61,11 @@ type TermVectorsWriter interface {
 type TermVectorsReader interface {
 	// Get returns the Fields enumeration for the document at docID, or
 	// an empty Fields when the document has no term vectors.
-	Get(docID int) (schema.Fields, error)
+	Get(docID int) (Fields, error)
 
 	// GetField returns the Terms enumeration for the named field at
 	// docID, or nil when no term vector exists for that field.
-	GetField(docID int, field string) (schema.Terms, error)
+	GetField(docID int, field string) (Terms, error)
 
 	// CheckIntegrity walks the term-vector data and validates the checksum
 	// framing.

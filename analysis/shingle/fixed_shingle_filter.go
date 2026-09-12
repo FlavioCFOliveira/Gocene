@@ -5,11 +5,11 @@
 package shingle
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"fmt"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // maxShingleSize is the maximum shingle size supported by FixedShingleFilter.
@@ -80,17 +80,11 @@ func NewFixedShingleFilterFull(
 func (f *FixedShingleFilter) IncrementToken() (bool, error) {
 	var shinglePosInc, startOffset, endOffset int
 
-outer:
+	outer:
 	for {
-		ok, err := f.IncrementGraph()
-		if err != nil {
-			return false, err
-		}
+		_, ok := f.IncrementGraph()
 		if !ok {
-			ok2, err2 := f.IncrementBaseToken()
-			if err2 != nil {
-				return false, err2
-			}
+			_, ok2 := f.IncrementBaseToken()
 			if !ok2 {
 				return false, nil
 			}
@@ -113,11 +107,8 @@ outer:
 		}
 
 		for i := 1; i < f.shingleSize; i++ {
-			tok, err := f.IncrementGraphToken()
-			if err != nil {
-				return false, err
-			}
-			if !tok {
+			_, ok := f.IncrementGraphToken()
+			if !ok {
 				trailing := f.GetTrailingPositions()
 				if i+trailing < f.shingleSize {
 					continue outer
@@ -177,6 +168,10 @@ outer:
 	return true, nil
 }
 
+func (f *FixedShingleFilter) End() error {
+	return nil
+}
+
 // Ensure FixedShingleFilter implements TokenFilter.
 var _ analysis.TokenFilter = (*FixedShingleFilter)(nil)
 
@@ -186,6 +181,7 @@ var _ analysis.TokenFilter = (*FixedShingleFilter)(nil)
 // org.apache.lucene.analysis.shingle.FixedShingleFilterFactory from
 // Apache Lucene 10.4.0.
 type FixedShingleFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	shingleSize    int
 	tokenSeparator string
 	fillerToken    string
@@ -195,9 +191,10 @@ type FixedShingleFilterFactory struct {
 // (shingleSize=2, separator=" ", filler="_").
 func NewFixedShingleFilterFactory() *FixedShingleFilterFactory {
 	return &FixedShingleFilterFactory{
-		shingleSize:    2,
-		tokenSeparator: " ",
-		fillerToken:    "_",
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		shingleSize:            2,
+		tokenSeparator:        " ",
+		fillerToken:            "_",
 	}
 }
 
@@ -207,9 +204,10 @@ func NewFixedShingleFilterFactoryFull(
 	tokenSeparator, fillerToken string,
 ) *FixedShingleFilterFactory {
 	return &FixedShingleFilterFactory{
-		shingleSize:    shingleSize,
-		tokenSeparator: tokenSeparator,
-		fillerToken:    fillerToken,
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		shingleSize:            shingleSize,
+		tokenSeparator:        tokenSeparator,
+		fillerToken:            fillerToken,
 	}
 }
 

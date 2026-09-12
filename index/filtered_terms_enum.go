@@ -5,6 +5,7 @@
 package index
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -50,7 +51,7 @@ type FilteredTermsEnum struct {
 
 	delegate      TermsEnum
 	acceptor      FilteredTermsEnumAcceptor
-	initialSeek   *util.BytesRef
+	initialSeek   *Term
 	startWithSeek bool
 }
 
@@ -72,8 +73,9 @@ func NewFilteredTermsEnumWithSeek(delegate TermsEnum, acceptor FilteredTermsEnum
 }
 
 // SetInitialSeekTerm sets the initial seek term. Equivalent to Lucene's
-// setInitialSeekTerm.
-func (f *FilteredTermsEnum) SetInitialSeekTerm(term *util.BytesRef) {
+// setInitialSeekTerm(BytesRef). Gocene's TermsEnum is keyed on *Term rather
+// than a bare BytesRef, so the seek key carries its field alongside the bytes.
+func (f *FilteredTermsEnum) SetInitialSeekTerm(term *Term) {
 	f.initialSeek = term
 }
 
@@ -202,6 +204,16 @@ func (f *FilteredTermsEnum) SeekExact(term *Term) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// Ord passes through, mirroring FilteredTermsEnum.ord() which delegates to
+// the wrapped enumerator.
+func (f *FilteredTermsEnum) Ord() int64 { return f.delegate.Ord() }
+
+// Impacts passes through, mirroring FilteredTermsEnum.impacts(int) which
+// delegates to the wrapped enumerator.
+func (f *FilteredTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return f.delegate.Impacts(flags)
 }
 
 // DocFreq passes through.

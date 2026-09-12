@@ -9,7 +9,7 @@ import (
 	"math"
 	"sort"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // IndexSorter sorts documents during flush and merge operations.
@@ -143,7 +143,7 @@ func buildFieldComparator(reader LeafReader, sf *SortField, numDocs int) (docCom
 	}
 
 	// If this is a BinarySortField, use the specialized binary comparator.
-	if bsf, ok := any(sf).(*schema.BinarySortField); ok {
+	if bsf, ok := any(sf).(*spi.BinarySortField); ok {
 		return buildBinaryComparator(reader, bsf, numDocs, reverseMul)
 	}
 
@@ -164,7 +164,7 @@ func buildFieldComparator(reader LeafReader, sf *SortField, numDocs int) (docCom
 	}
 }
 
-func buildBinaryComparator(reader LeafReader, bsf *schema.BinarySortField, numDocs, reverseMul int) (docCompareFn, error) {
+func buildBinaryComparator(reader LeafReader, bsf *spi.BinarySortField, numDocs, reverseMul int) (docCompareFn, error) {
 	values := make([][]byte, numDocs)
 	dvs, err := reader.GetBinaryDocValues(bsf.Field)
 	if err != nil {
@@ -193,7 +193,7 @@ func buildBinaryComparator(reader LeafReader, bsf *schema.BinarySortField, numDo
 	return func(a, b int) int {
 		va, vb := values[a], values[b]
 		if va == nil || vb == nil {
-			if va == vb {
+			if va == nil && vb == nil {
 				return 0
 			}
 			// missingFirst => null < present; missingLast => present < null
@@ -201,7 +201,7 @@ func buildBinaryComparator(reader LeafReader, bsf *schema.BinarySortField, numDo
 			if va != nil {
 				c = 1
 			}
-			if bsf.MissingValue == schema.STRING_LAST {
+			if bsf.MissingValue == spi.STRING_LAST {
 				c = -c
 			}
 			return c * reverseMul

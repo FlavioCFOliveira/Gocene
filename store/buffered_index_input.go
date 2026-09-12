@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 const (
@@ -34,7 +36,7 @@ type bufferedInternal interface {
 // BufferedIndexInput provides a buffered implementation of IndexInput.
 // It is a faithful port of org.apache.lucene.store.BufferedIndexInput.
 type BufferedIndexInput struct {
-	BaseDataInput
+	spi.BaseDataInput
 	impl bufferedInternal
 
 	bufferSize     int
@@ -144,6 +146,15 @@ func (in *BufferedIndexInput) readBytes(b []byte, offset, len int, useBuffer boo
 		}
 	}
 	return nil
+}
+
+// ReadBytesN reads n bytes into a new slice.
+func (in *BufferedIndexInput) ReadBytesN(n int) ([]byte, error) {
+	out := make([]byte, n)
+	if err := in.ReadBytes(out, 0, n); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // ReadShort reads a 16-bit value.

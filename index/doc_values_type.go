@@ -4,7 +4,7 @@
 
 package index
 
-import "github.com/FlavioCFOliveira/Gocene/schema"
+import "github.com/FlavioCFOliveira/Gocene/spi"
 
 // DocValuesType is the Go port of org.apache.lucene.index.DocValuesType from
 // Apache Lucene 10.5.0: the type of per-document values a field carries, if
@@ -20,31 +20,31 @@ import "github.com/FlavioCFOliveira/Gocene/schema"
 // The constant ordinals are the on-disk byte encoding written by
 // FieldInfosFormat, so they MUST match the Java enum ordinals exactly:
 // NONE=0, NUMERIC=1, BINARY=2, SORTED=3, SORTED_NUMERIC=4, SORTED_SET=5.
-type DocValuesType = schema.DocValuesType
+type DocValuesType = spi.DocValuesType
 
 const (
 	// DocValuesTypeNone means no doc values are stored for this field.
-	DocValuesTypeNone = schema.DocValuesTypeNone
+	DocValuesTypeNone = spi.DocValuesTypeNone
 
 	// DocValuesTypeNumeric stores a single numeric value per document.
-	DocValuesTypeNumeric = schema.DocValuesTypeNumeric
+	DocValuesTypeNumeric = spi.DocValuesTypeNumeric
 
 	// DocValuesTypeBinary stores a variable-length binary value per document.
 	// Values may be larger than 32766 bytes, but different codecs may enforce
 	// their own limits.
-	DocValuesTypeBinary = schema.DocValuesTypeBinary
+	DocValuesTypeBinary = spi.DocValuesTypeBinary
 
 	// DocValuesTypeSorted stores a pre-sorted byte slice per document. Fields
 	// with this type only store distinct byte values plus an offset pointer
 	// per document to dereference the shared values. Values must be <= 32766
 	// bytes.
-	DocValuesTypeSorted = schema.DocValuesTypeSorted
+	DocValuesTypeSorted = spi.DocValuesTypeSorted
 
 	// DocValuesTypeSortedNumeric stores a pre-sorted list of numbers per
 	// document, ordered as by Long.compare in Java.
-	DocValuesTypeSortedNumeric = schema.DocValuesTypeSortedNumeric
+	DocValuesTypeSortedNumeric = spi.DocValuesTypeSortedNumeric
 
 	// DocValuesTypeSortedSet stores a pre-sorted set of byte slices per
 	// document. Values must be <= 32766 bytes.
-	DocValuesTypeSortedSet = schema.DocValuesTypeSortedSet
+	DocValuesTypeSortedSet = spi.DocValuesTypeSortedSet
 )

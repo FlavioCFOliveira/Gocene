@@ -166,6 +166,11 @@ func WriteFooter(out IndexOutput) error {
 	return WriteCRC(out)
 }
 
+// CodecUtilWriteFooter is an alias for WriteFooter.
+func CodecUtilWriteFooter(out IndexOutput) error {
+	return WriteFooter(out)
+}
+
 // WriteCRC writes the checksum of the output.
 func WriteCRC(out IndexOutput) error {
 	if cw, ok := out.(checksumWriter); ok {

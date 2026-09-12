@@ -9,7 +9,7 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 const (
@@ -28,17 +28,16 @@ const (
 // FeatureMask returns a bitmask of the indexing features (Feature*) declared by fieldType.
 // Used by the column-batch path to enforce that, when several columns share a field name,
 // each feature is carried by at most one column.
-func FeatureMask(fieldType schema.IndexableFieldType) int {
+func FeatureMask(fieldType spi.IndexableFieldType) int {
 	mask := 0
-	if fieldType.IndexOptions() != schema.IndexOptionsNone {
+	if fieldType.IndexOptions() != spi.IndexOptionsNone {
 		mask |= FeatureInversion
 	}
 	if fieldType.Stored() {
 		mask |= FeatureStored
 	}
-	if fieldType.DocValuesType() != schema.DocValuesTypeNone {
+	if fieldType.DocValuesType() != spi.DocValuesTypeNone {
 		mask |= FeatureDocValues
-	}
 	}
 	if fieldType.PointDimensionCount() != 0 {
 		mask |= FeaturePoints
@@ -84,18 +83,18 @@ func FeatureNames(mask int) string {
 
 // ValidateColumnHasIndexingFeature panics if fieldType declares no indexing feature
 // (no doc values, no points, not stored, no index options, no vectors).
-func ValidateColumnHasIndexingFeature(fieldName string, fieldType schema.IndexableFieldType) {
-	if fieldType.DocValuesType() == schema.DocValuesTypeNone &&
+func ValidateColumnHasIndexingFeature(fieldName string, fieldType spi.IndexableFieldType) {
+	if fieldType.DocValuesType() == spi.DocValuesTypeNone &&
 		fieldType.PointDimensionCount() == 0 &&
 		fieldType.Stored() == false &&
-		fieldType.IndexOptions() == schema.IndexOptionsNone &&
+		fieldType.IndexOptions() == spi.IndexOptionsNone &&
 		fieldType.VectorDimension() == 0 {
 		panic(fmt.Sprintf("Column %q must have a non-NONE docValuesType, point dimensions, be stored, have index options, or have vector dimensions", fieldName))
 	}
 }
 
 // ValidateLongColumn validates a LongColumn against the field type it will feed.
-func ValidateLongColumn(column LongColumn, fieldType schema.IndexableFieldType) {
+func ValidateLongColumn(column LongColumn, fieldType spi.IndexableFieldType) {
 	pointDims := fieldType.PointDimensionCount()
 	if pointDims != 0 {
 		if pointDims != 1 {
@@ -123,9 +122,9 @@ func ValidateLongColumn(column LongColumn, fieldType schema.IndexableFieldType) 
 }
 
 // ValidateBinaryColumn validates a BinaryColumn against the field type it will feed.
-func ValidateBinaryColumn(column BinaryColumn, fieldType schema.IndexableFieldType) {
+func ValidateBinaryColumn(column BinaryColumn, fieldType spi.IndexableFieldType) {
 	dvType := fieldType.DocValuesType()
-	if dvType == schema.DocValuesTypeNumeric || dvType == schema.DocValuesTypeSortedNumeric {
+	if dvType == spi.DocValuesTypeNumeric || dvType == spi.DocValuesTypeSortedNumeric {
 		panic(fmt.Sprintf("BinaryColumn %q cannot feed docValuesType=%s; use a LongColumn", column.Name(), dvType))
 	}
 	if fieldType.Stored() {
@@ -142,12 +141,12 @@ func ValidateBinaryColumn(column BinaryColumn, fieldType schema.IndexableFieldTy
 }
 
 // ValidateDictionaryColumn validates a DictionaryColumn against the field type it will feed.
-func ValidateDictionaryColumn(column DictionaryColumn, fieldType schema.IndexableFieldType) {
+func ValidateDictionaryColumn(column DictionaryColumn, fieldType spi.IndexableFieldType) {
 	dv := fieldType.DocValuesType()
-	if dv == schema.DocValuesTypeNumeric || dv == schema.DocValuesTypeSortedNumeric {
+	if dv == spi.DocValuesTypeNumeric || dv == spi.DocValuesTypeSortedNumeric {
 		panic(fmt.Sprintf("DictionaryColumn %q cannot feed docValuesType=%s; use a LongColumn", column.Name(), dv))
 	}
-	if dv == schema.DocValuesTypeBinary {
+	if dv == spi.DocValuesTypeBinary {
 		panic(fmt.Sprintf("DictionaryColumn %q cannot feed docValuesType=BINARY (the writer does not dedup terms, so the dictionary provides no benefit); use a BinaryColumn", column.Name()))
 	}
 	if fieldType.PointDimensionCount() != 0 {
@@ -167,12 +166,12 @@ func ValidateDictionaryColumn(column DictionaryColumn, fieldType schema.Indexabl
 }
 
 // ValidateTokenStreamColumn validates a TokenStreamColumn against the field type it will feed.
-func ValidateTokenStreamColumn(column TokenStreamColumn, fieldType schema.IndexableFieldType) {
-	if fieldType.IndexOptions() == schema.IndexOptionsNone || fieldType.Tokenized() == false {
+func ValidateTokenStreamColumn(column TokenStreamColumn, fieldType spi.IndexableFieldType) {
+	if fieldType.IndexOptions() == spi.IndexOptionsNone || fieldType.Tokenized() == false {
 		panic(fmt.Sprintf("TokenStreamColumn %q requires indexOptions != NONE and tokenized == true; got indexOptions=%s, tokenized=%t", column.Name(), fieldType.IndexOptions(), fieldType.Tokenized()))
 	}
 	if fieldType.Stored() ||
-		fieldType.DocValuesType() != schema.DocValuesTypeNone ||
+		fieldType.DocValuesType() != spi.DocValuesTypeNone ||
 		fieldType.PointDimensionCount() != 0 ||
 		fieldType.VectorDimension() != 0 {
 		panic(fmt.Sprintf("TokenStreamColumn %q must be inverted-only: stored=false, docValuesType=NONE, pointDimensionCount=0, vectorDimension=0", column.Name()))
@@ -180,14 +179,14 @@ func ValidateTokenStreamColumn(column TokenStreamColumn, fieldType schema.Indexa
 }
 
 // ValidateVectorColumn validates a VectorColumn against the field type it will feed.
-func ValidateVectorColumn(column VectorColumn, fieldType schema.IndexableFieldType) {
+func ValidateVectorColumn(column VectorColumn, fieldType spi.IndexableFieldType) {
 	if fieldType.VectorDimension() <= 0 {
 		panic(fmt.Sprintf("VectorColumn %q requires fieldType.vectorDimension() > 0; got %d", column.Name(), fieldType.VectorDimension()))
 	}
-	if fieldType.DocValuesType() != schema.DocValuesTypeNone ||
+	if fieldType.DocValuesType() != spi.DocValuesTypeNone ||
 		fieldType.PointDimensionCount() != 0 ||
 		fieldType.Stored() ||
-		fieldType.IndexOptions() != index.IndexOptionsNone {
+		fieldType.IndexOptions() != spi.IndexOptionsNone {
 		panic(fmt.Sprintf("VectorColumn %q must be vector-only: docValuesType=NONE, pointDimensionCount=0, stored=false, indexOptions=NONE", column.Name()))
 	}
 }

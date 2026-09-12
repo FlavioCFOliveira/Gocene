@@ -68,11 +68,15 @@ var _ analysis.TokenFilter = (*PortugueseMinimalStemFilter)(nil)
 //
 // Go port of org.apache.lucene.analysis.pt.PortugueseMinimalStemFilterFactory
 // (Apache Lucene 10.4.0).
-type PortugueseMinimalStemFilterFactory struct{}
+type PortugueseMinimalStemFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewPortugueseMinimalStemFilterFactory creates a new factory.
 func NewPortugueseMinimalStemFilterFactory() *PortugueseMinimalStemFilterFactory {
-	return &PortugueseMinimalStemFilterFactory{}
+	return &PortugueseMinimalStemFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+	}
 }
 
 // Create creates a new PortugueseMinimalStemFilter.
@@ -146,11 +150,15 @@ var _ analysis.TokenFilter = (*PortugueseStemFilter)(nil)
 //
 // Go port of org.apache.lucene.analysis.pt.PortugueseStemFilterFactory
 // (Apache Lucene 10.4.0).
-type PortugueseStemFilterFactory struct{}
+type PortugueseStemFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewPortugueseStemFilterFactory creates a new factory.
 func NewPortugueseStemFilterFactory() *PortugueseStemFilterFactory {
-	return &PortugueseStemFilterFactory{}
+	return &PortugueseStemFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+	}
 }
 
 // Create creates a new PortugueseStemFilter.

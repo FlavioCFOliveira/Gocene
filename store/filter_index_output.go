@@ -4,6 +4,10 @@
 
 package store
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 // FilterIndexOutput is an IndexOutput implementation that delegates calls to
 // another IndexOutput. This is the decorator pattern applied to IndexOutput.
 //
@@ -16,17 +20,17 @@ package store
 // All methods forward to the wrapped delegate. The delegate is accessible
 // via GetDelegate.
 type FilterIndexOutput struct {
-	*BaseIndexOutput
+	*spi.BaseIndexOutput
 	out IndexOutput
 }
 
 // NewFilterIndexOutput creates a FilterIndexOutput wrapping the given
 // delegate. resourceDescription mirrors Lucene's super(resourceDescription,
-// name) call and is stored on the embedded BaseIndexOutput.
+// name) call and is stored on the embedded spi.BaseIndexOutput.
 func NewFilterIndexOutput(resourceDescription, name string, out IndexOutput) *FilterIndexOutput {
-	_ = resourceDescription // BaseIndexOutput only tracks name; description is informational
+	_ = resourceDescription // spi.BaseIndexOutput only tracks name; description is informational
 	return &FilterIndexOutput{
-		BaseIndexOutput: NewBaseIndexOutput(name),
+		BaseIndexOutput: spi.NewBaseIndexOutput(name),
 		out:             out,
 	}
 }

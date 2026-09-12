@@ -9,6 +9,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"io"
+	"reflect"
 )
 
 // defaultMaxTokenLength mirrors StandardAnalyzer.DEFAULT_MAX_TOKEN_LENGTH.
@@ -45,10 +46,10 @@ func NewClassicTokenizerWithFactory(factory util.AttributeFactory) *ClassicToken
 	offsetImpl := factory.CreateAttributeInstance(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
 	posIncImpl := factory.CreateAttributeInstance(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 	typeImpl := factory.CreateAttributeInstance(analysis.TypeAttributeType).(analysis.TypeAttribute)
-	t.AddAttribute(termImpl)
-	t.AddAttribute(offsetImpl)
-	t.AddAttribute(posIncImpl)
-	t.AddAttribute(typeImpl)
+	t.AddAttribute(reflect.TypeOf((*analysis.CharTermAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*analysis.OffsetAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*tokenattributes.PositionIncrementAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*analysis.TypeAttribute)(nil)).Elem())
 	t.termAttr = termImpl
 	t.offsetAttr = offsetImpl
 	t.posIncAttr = posIncImpl
@@ -78,13 +79,10 @@ func (t *ClassicTokenizer) GetMaxTokenLength() int { return t.maxTokenLength }
 // reads the whole input eagerly (bounded by analysis.MaxTokenizerInputSize);
 // an oversized or unreadable input surfaces as an error here rather than as a
 // silently truncated token stream.
-func (t *ClassicTokenizer) SetReader(r io.Reader) error {
-	if err := t.BaseTokenizer.SetReader(r); err != nil {
-		return err
-	}
+func (t *ClassicTokenizer) SetReader(r io.Reader) {
+	t.BaseTokenizer.SetReader(r)
 	t.scanner = NewClassicTokenizerImpl(r)
 	t.skippedPositions = 0
-	return t.scanner.Err()
 }
 
 // Reset reinitialises the scanner over the stored reader.

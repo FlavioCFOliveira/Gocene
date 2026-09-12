@@ -293,3 +293,46 @@ func (q *approximatePriorityQueue) remove(o any) bool {
 	}
 	return false
 }
+
+// lockableConcurrentApproximatePriorityQueue is a wrapper that provides
+// lock-and-poll semantics for a concurrentApproximatePriorityQueue.
+type lockableConcurrentApproximatePriorityQueue struct {
+	queue                *concurrentApproximatePriorityQueue
+	addAndUnlockCounter atomic.Int32
+}
+
+func newLockableConcurrentApproximatePriorityQueue() *lockableConcurrentApproximatePriorityQueue {
+	return &lockableConcurrentApproximatePriorityQueue{
+		queue: newConcurrentApproximatePriorityQueueDefault(),
+	}
+}
+
+func (l *lockableConcurrentApproximatePriorityQueue) lockAndPoll() *DocumentsWriterPerThread {
+	for {
+		count := l.addAndUnlockCounter.Load()
+		entry, ok := l.queue.poll(func(v any) bool {
+			return v.(*DocumentsWriterPerThread).TryLock()
+		})
+		if ok {
+			return entry.(*DocumentsWriterPerThread)
+		}
+		if count == l.addAndUnlockCounter.Load() {
+			break
+		}
+	}
+	return nil
+}
+
+func (l *lockableConcurrentApproximatePriorityQueue) addAndUnlock(entry *DocumentsWriterPerThread, weight int64) {
+	l.queue.add(entry, weight)
+	entry.Unlock()
+	l.addAndUnlockCounter.Add(1)
+}
+
+func (l *lockableConcurrentApproximatePriorityQueue) remove(o any) bool {
+	return l.queue.remove(o)
+}
+
+func (l *lockableConcurrentApproximatePriorityQueue) contains(o any) bool {
+	return l.queue.contains(o)
+}

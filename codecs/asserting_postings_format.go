@@ -9,7 +9,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -108,7 +108,7 @@ type AssertingFieldsConsumer struct {
 	lastTerm   *util.BytesRef
 }
 
-func (c *AssertingFieldsConsumer) Write(field string, terms schema.Terms) error {
+func (c *AssertingFieldsConsumer) Write(field string, terms spi.Terms) error {
 	// Write using the underlying consumer
 	if err := c.in.Write(field, terms); err != nil {
 		return err

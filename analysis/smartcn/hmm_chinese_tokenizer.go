@@ -57,11 +57,11 @@ func NewHMMChineseTokenizer(factory util.AttributeFactory) (*HMMChineseTokenizer
 	}
 
 	t.termAtt = factory.CreateAttributeInstance(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
-	t.offsetAttr = factory.CreateAttributeInstance(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
+	t.offsetAtt = factory.CreateAttributeInstance(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
 	t.typeAtt = factory.CreateAttributeInstance(analysis.TypeAttributeType).(analysis.TypeAttribute)
-	t.AddAttribute(t.termAtt)
-	t.AddAttribute(t.offsetAtt)
-	t.AddAttribute(t.typeAtt)
+	t.AddAttribute(analysis.CharTermAttributeType)
+	t.AddAttribute(analysis.OffsetAttributeType)
+	t.AddAttribute(analysis.TypeAttributeType)
 
 	iter := NewSentenceBreakIterator()
 	t.base = analysisutil.NewSegmentingTokenizerBase(iter)
@@ -72,9 +72,8 @@ func NewHMMChineseTokenizer(factory util.AttributeFactory) (*HMMChineseTokenizer
 }
 
 // SetReader sets the input reader for this tokenizer.
-func (t *HMMChineseTokenizer) SetReader(r io.Reader) error {
+func (t *HMMChineseTokenizer) SetReader(r io.Reader) {
 	t.base.SetReader(r)
-	return nil
 }
 
 // IncrementToken advances to the next token.

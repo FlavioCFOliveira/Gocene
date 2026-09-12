@@ -25,7 +25,7 @@ import (
 // by taking the sentinel instance as its initial head.
 //
 // Since each DeleteSlice maintains its own head and the list is only single linked
-// the garbage collector takes care of pruning the list for us. All nodes in the
+// the garbage collector takes care of pruning the list for us. All Nodes in the
 // list that are still relevant should be either directly or indirectly referenced
 // by one of the DWPT's private DeleteSlice or by the global BufferedUpdates slice.
 //
@@ -34,19 +34,25 @@ import (
 // The slice update guarantees a "happens before" relationship to all other updates in
 // the same indexing session. When a DWPT updates a document it:
 //
-// 1. consumes a document and finishes its processing
-// 2. updates its private DeleteSlice either by calling UpdateSlice(DeleteSlice)
-//    or Add(Node, DeleteSlice) (if the document has a delTerm)
-// 3. applies all deletes in the slice to its private BufferedUpdates and resets it
-// 4. increments its internal document id
+//  1. consumes a document and finishes its processing
+//  2. updates its private DeleteSlice either by calling UpdateSlice(DeleteSlice)
+//     or Add(Node, DeleteSlice) (if the document has a delTerm)
+//  3. applies all deletes in the slice to its private BufferedUpdates and resets it
+//  4. increments its internal document id
 //
 // The DWPT also doesn't apply its current documents delete term until it has updated
 // its delete slice which ensures the consistency of the update. If the update fails
 // before the DeleteSlice could have been updated the deleteTerm will also not be
 // added to its private deletes neither to the global deletes.
 type DocumentsWriterDeleteQueue struct {
-	// the current end (latest delete operation) in the delete queue:
-	tail atomic.Pointer[nodeBase]
+	// the current end (latest delete operation) in the delete queue.
+	//
+	// Java declares this slot as `volatile Node<?> tail`. Go cannot publish
+	// an interface value with atomic.Pointer, and atomic.Value rejects a
+	// second Store with a different dynamic type — every node kind here is a
+	// different type — so the volatile slot is rendered as an atomic.Pointer
+	// over the nodeRef holder below. Reads go through loadTail.
+	tail atomic.Pointer[nodeRef]
 
 	closed atomic.Bool
 
@@ -70,12 +76,30 @@ type DocumentsWriterDeleteQueue struct {
 
 	maxSeqNo int64
 
-	startSeqNo int64
+	startSeqNo       int64
 	previousMaxSeqId func() int64
-	advanced bool
+	advanced         bool
 
 	// mu protects the queue tail and the advanced state for synchronized operations.
 	mu sync.Mutex
+}
+
+// nodeRef boxes a Node so the queue tail can be published atomically. See
+// the tail field on DocumentsWriterDeleteQueue.
+type nodeRef struct {
+	node Node
+}
+
+// loadTail reads the current queue tail. Mirrors a volatile read of Java's
+// `tail` field.
+func (d *DocumentsWriterDeleteQueue) loadTail() Node {
+	return d.tail.Load().node
+}
+
+// storeTail publishes a new queue tail. Mirrors a volatile write of Java's
+// `tail` field.
+func (d *DocumentsWriterDeleteQueue) storeTail(n Node) {
+	d.tail.Store(&nodeRef{node: n})
 }
 
 const maxInt = 2147483647
@@ -104,7 +128,7 @@ func newDocumentsWriterDeleteQueue(
 	 * we use a sentinel instance as our initial tail. No slice will ever try to
 	 * apply this tail since the head is always omitted.
 	 */
-	sentinel := &nodeBase{item: nil}
+	sentinel := &NodeBase{item: nil}
 	dwdq := &DocumentsWriterDeleteQueue{
 		globalBufferedUpdates: globalBufferedUpdates,
 		generation:            generation,
@@ -118,7 +142,7 @@ func newDocumentsWriterDeleteQueue(
 	// Correction: Use actual MaxInt64 for maxSeqNo.
 	dwdq.maxSeqNo = 9223372036854775807
 
-	dwdq.tail.Store(sentinel)
+	dwdq.storeTail(sentinel)
 	dwdq.globalSlice = NewDeleteSlice(sentinel)
 
 	return dwdq
@@ -142,27 +166,27 @@ func (d *DocumentsWriterDeleteQueue) AddDocValuesUpdates(updates ...DocValuesUpd
 	return seqNo
 }
 
-func NewTermNode(term Term) node {
-	return &termNode{nodeBase: nodeBase{item: term}, term: term}
+func NewTermNode(term Term) Node {
+	return &termNode{NodeBase: NodeBase{item: term}, term: term}
 }
 
-func NewQueryNode(query Query) node {
-	return &queryNode{nodeBase: nodeBase{item: query}, query: query}
+func NewQueryNode(query Query) Node {
+	return &queryNode{NodeBase: NodeBase{item: query}, query: query}
 }
 
-func NewDocValuesUpdatesNode(updates ...DocValuesUpdate) node {
-	return &docValuesUpdatesNode{nodeBase: nodeBase{item: updates}, updates: updates}
+func NewDocValuesUpdatesNode(updates ...DocValuesUpdate) Node {
+	return &docValuesUpdatesNode{NodeBase: NodeBase{item: updates}, updates: updates}
 }
 
 // invariant for document update
-func (d *DocumentsWriterDeleteQueue) AddWithSlice(deleteNode node, slice *DeleteSlice) int64 {
+func (d *DocumentsWriterDeleteQueue) AddWithSlice(deleteNode Node, slice *DeleteSlice) int64 {
 	seqNo := d.AddNode(deleteNode)
 	/*
 	 * this is an update request where the term is the updated documents
 	 * delTerm. in that case we need to guarantee that this insert is atomic
 	 * with regards to the given delete slice. This means if two threads try to
 	 * update the same document with in turn the same delTerm one of them must
-	 * win. By taking the node we have created for our del term as the new tail
+	 * win. By taking the Node we have created for our del term as the new tail
 	 * it is guaranteed that if another thread adds the same right after us we
 	 * will apply this delete next time we update our slice and one of the two
 	 * competing updates wins!
@@ -175,19 +199,19 @@ func (d *DocumentsWriterDeleteQueue) AddWithSlice(deleteNode node, slice *Delete
 	return seqNo
 }
 
-func (d *DocumentsWriterDeleteQueue) AddNode(newNode node) int64 {
+func (d *DocumentsWriterDeleteQueue) AddNode(newNode Node) int64 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	d.ensureOpen()
 
 	// The Java code does: tail.next = newNode; this.tail = newNode;
-	// Since tail is a node, and node is an interface, we need to handle the next pointer.
-	// The implementation nodes will embed nodeBase.
+	// Since tail is a Node, and Node is an interface, we need to handle the next pointer.
+	// The implementation Nodes will embed NodeBase.
 
-	currentTail := d.tail.Load()
-	currentTail.next = newNode
-	d.tail.Store(newNode.(*nodeBase))
+	currentTail := d.loadTail()
+	currentTail.base().next = newNode
+	d.storeTail(newNode)
 
 	return d.getNextSequenceNumber()
 }
@@ -198,8 +222,8 @@ func (d *DocumentsWriterDeleteQueue) AnyChanges() bool {
 
 	return d.globalBufferedUpdates.Any() ||
 		!d.globalSlice.IsEmpty() ||
-		d.globalSlice.sliceTail != d.tail.Load() ||
-		d.tail.Load().next != nil
+		d.globalSlice.sliceTail != d.loadTail() ||
+		d.loadTail().base().next != nil
 }
 
 func (d *DocumentsWriterDeleteQueue) tryApplyGlobalSlice() {
@@ -217,7 +241,7 @@ func (d *DocumentsWriterDeleteQueue) FreezeGlobalBuffer(callerSlice *DeleteSlice
 	defer d.globalBufferLock.Unlock()
 
 	d.ensureOpen()
-	currentTail := d.tail.Load()
+	currentTail := d.loadTail()
 	if callerSlice != nil {
 		callerSlice.sliceTail = currentTail
 	}
@@ -229,7 +253,7 @@ func (d *DocumentsWriterDeleteQueue) MaybeFreezeGlobalBuffer() *FrozenBufferedUp
 	defer d.globalBufferLock.Unlock()
 
 	if !d.closed.Load() {
-		return d.freezeGlobalBufferInternal(d.tail.Load())
+		return d.freezeGlobalBufferInternal(d.loadTail())
 	}
 	if d.AnyChanges() {
 		panic("we are closed but have changes")
@@ -237,7 +261,7 @@ func (d *DocumentsWriterDeleteQueue) MaybeFreezeGlobalBuffer() *FrozenBufferedUp
 	return nil
 }
 
-func (d *DocumentsWriterDeleteQueue) freezeGlobalBufferInternal(currentTail *nodeBase) *FrozenBufferedUpdates {
+func (d *DocumentsWriterDeleteQueue) freezeGlobalBufferInternal(currentTail Node) *FrozenBufferedUpdates {
 	if d.globalSlice.sliceTail != currentTail {
 		d.globalSlice.sliceTail = currentTail
 		d.globalSlice.apply(d.globalBufferedUpdates, maxInt)
@@ -254,8 +278,32 @@ func (d *DocumentsWriterDeleteQueue) freezeGlobalBufferInternal(currentTail *nod
 	return nil
 }
 
+// Clear resets the global slice to the current tail and discards every
+// buffered global update. Mirrors DocumentsWriterDeleteQueue.clear().
+func (d *DocumentsWriterDeleteQueue) Clear() {
+	d.globalBufferLock.Lock()
+	defer d.globalBufferLock.Unlock()
+
+	currentTail := d.loadTail()
+	d.globalSlice.sliceHead = currentTail
+	d.globalSlice.sliceTail = currentTail
+	d.globalBufferedUpdates.Clear()
+}
+
+// GetBufferedUpdatesTermsSize returns the number of buffered global delete
+// terms. Mirrors DocumentsWriterDeleteQueue.getBufferedUpdatesTermsSize().
+func (d *DocumentsWriterDeleteQueue) GetBufferedUpdatesTermsSize() int {
+	return d.getBufferedUpdatesTermsSize()
+}
+
+// GetNextSequenceNumber hands out the next sequence number. Mirrors
+// DocumentsWriterDeleteQueue.getNextSequenceNumber().
+func (d *DocumentsWriterDeleteQueue) GetNextSequenceNumber() int64 {
+	return d.getNextSequenceNumber()
+}
+
 func (d *DocumentsWriterDeleteQueue) NewSlice() *DeleteSlice {
-	return NewDeleteSlice(d.tail.Load())
+	return NewDeleteSlice(d.loadTail())
 }
 
 func (d *DocumentsWriterDeleteQueue) UpdateSlice(slice *DeleteSlice) int64 {
@@ -264,16 +312,16 @@ func (d *DocumentsWriterDeleteQueue) UpdateSlice(slice *DeleteSlice) int64 {
 
 	d.ensureOpen()
 	seqNo := d.getNextSequenceNumber()
-	if slice.sliceTail != d.tail.Load() {
-		slice.sliceTail = d.tail.Load()
+	if slice.sliceTail != d.loadTail() {
+		slice.sliceTail = d.loadTail()
 		seqNo = -seqNo
 	}
 	return seqNo
 }
 
 func (d *DocumentsWriterDeleteQueue) updateSliceNoSeqNo(slice *DeleteSlice) bool {
-	if slice.sliceTail != d.tail.Load() {
-		slice.sliceTail = d.tail.Load()
+	if slice.sliceTail != d.loadTail() {
+		slice.sliceTail = d.loadTail()
 		return true
 	}
 	return false
@@ -309,7 +357,7 @@ func (d *DocumentsWriterDeleteQueue) getBufferedUpdatesTermsSize() int {
 	d.globalBufferLock.Lock()
 	defer d.globalBufferLock.Unlock()
 
-	currentTail := d.tail.Load()
+	currentTail := d.loadTail()
 	if d.globalSlice.sliceTail != currentTail {
 		d.globalSlice.sliceTail = currentTail
 		d.globalSlice.apply(d.globalBufferedUpdates, maxInt)
@@ -384,22 +432,39 @@ func (d *DocumentsWriterDeleteQueue) IsAdvanced() bool {
 
 // Node and its implementations
 
-type node interface {
+// Node mirrors the package-private Node<T> class of
+// DocumentsWriterDeleteQueue. Java gets the linked-list slot and the item
+// from the superclass fields; Go exposes them through base(), which only
+// NodeBase implements, so every node in the queue necessarily embeds it.
+type Node interface {
 	apply(bu *BufferedUpdates, docIDUpto int)
 	isDelete() bool
+	base() *NodeBase
 }
 
-type nodeBase struct {
-	next node
+// NodeBase is the Go rendering of the Node<T> base class itself. An instance
+// of NodeBase (never a subclass) is used as the queue sentinel, exactly as
+// Java uses `new Node<>(null)`; its apply therefore reproduces the base
+// class behaviour of refusing to be applied.
+type NodeBase struct {
+	next Node
 	item any
 }
 
-type DeleteSlice struct {
-	sliceHead node
-	sliceTail node
+func (n *NodeBase) base() *NodeBase { return n }
+
+func (n *NodeBase) apply(bu *BufferedUpdates, docIDUpto int) {
+	panic("sentinel item must never be applied")
 }
 
-func NewDeleteSlice(currentTail *nodeBase) *DeleteSlice {
+func (n *NodeBase) isDelete() bool { return true }
+
+type DeleteSlice struct {
+	sliceHead Node
+	sliceTail Node
+}
+
+func NewDeleteSlice(currentTail Node) *DeleteSlice {
 	if currentTail == nil {
 		panic("currentTail must not be nil")
 	}
@@ -415,14 +480,9 @@ func (s *DeleteSlice) apply(del *BufferedUpdates, docIDUpto int) {
 	}
 	current := s.sliceHead
 	for {
-		// We need to get the next node. Since nodes embed nodeBase, we can cast.
-		nb, ok := current.(*nodeBase)
-		if !ok {
-			panic("node must embed nodeBase")
-		}
-		current = nb.next
+		current = current.base().next
 		if current == nil {
-			panic("slice property violated between the head on the tail must not be a null node")
+			panic("slice property violated between the head on the tail must not be a null Node")
 		}
 		current.apply(del, docIDUpto)
 		if current == s.sliceTail {
@@ -440,29 +500,16 @@ func (s *DeleteSlice) IsEmpty() bool {
 	return s.sliceHead == s.sliceTail
 }
 
-func (s *DeleteSlice) isTail(n node) bool {
+func (s *DeleteSlice) isTail(n Node) bool {
 	return s.sliceTail == n
 }
 
 func (s *DeleteSlice) isTailItem(item any) bool {
-	nb, ok := s.sliceTail.(*nodeBase)
-	if !ok {
-		return false
-	}
-	return nb.item == item
+	return s.sliceTail.base().item == item
 }
-
-type sentinelNode struct {
-	nodeBase
-}
-
-func (n *sentinelNode) apply(bu *BufferedUpdates, docIDUpto int) {
-	panic("sentinel item must never be applied")
-}
-func (n *sentinelNode) isDelete() bool { return true }
 
 type termNode struct {
-	nodeBase
+	NodeBase
 	term Term
 }
 
@@ -472,7 +519,7 @@ func (n *termNode) apply(bu *BufferedUpdates, docIDUpto int) {
 func (n *termNode) isDelete() bool { return true }
 
 type queryNode struct {
-	nodeBase
+	NodeBase
 	query Query
 }
 
@@ -482,7 +529,7 @@ func (n *queryNode) apply(bu *BufferedUpdates, docIDUpto int) {
 func (n *queryNode) isDelete() bool { return true }
 
 type queryArrayNode struct {
-	nodeBase
+	NodeBase
 	queries []Query
 }
 
@@ -494,7 +541,7 @@ func (n *queryArrayNode) apply(bu *BufferedUpdates, docIDUpto int) {
 func (n *queryArrayNode) isDelete() bool { return true }
 
 type termArrayNode struct {
-	nodeBase
+	NodeBase
 	terms []Term
 }
 
@@ -506,7 +553,7 @@ func (n *termArrayNode) apply(bu *BufferedUpdates, docIDUpto int) {
 func (n *termArrayNode) isDelete() bool { return true }
 
 type docValuesUpdatesNode struct {
-	nodeBase
+	NodeBase
 	updates []DocValuesUpdate
 }
 
@@ -524,23 +571,23 @@ func (n *docValuesUpdatesNode) apply(bu *BufferedUpdates, docIDUpto int) {
 }
 func (n *docValuesUpdatesNode) isDelete() bool { return false }
 
-func newNodeQueryArray(queries []Query) node {
+func newNodeQueryArray(queries []Query) Node {
 	return &queryArrayNode{
-		nodeBase: nodeBase{item: queries},
+		NodeBase: NodeBase{item: queries},
 		queries:  queries,
 	}
 }
 
-func newNodeTermArray(terms []Term) node {
+func newNodeTermArray(terms []Term) Node {
 	return &termArrayNode{
-		nodeBase: nodeBase{item: terms},
+		NodeBase: NodeBase{item: terms},
 		terms:    terms,
 	}
 }
 
-func newNodeDocValuesUpdates(updates []DocValuesUpdate) node {
+func newNodeDocValuesUpdates(updates []DocValuesUpdate) Node {
 	return &docValuesUpdatesNode{
-		nodeBase: nodeBase{item: updates},
+		NodeBase: NodeBase{item: updates},
 		updates:  updates,
 	}
 }

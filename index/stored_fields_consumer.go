@@ -10,6 +10,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -358,7 +359,7 @@ func newStoredValueField(info *FieldInfo, value StoredValue) (*storedValueField,
 		// Handle DATA_INPUT variant via type assertion: if the value provides
 		// a streamed DataInput (StoredFieldDataInput), materialise the bytes as binary.
 		type dataInputProvider interface {
-			GetDataInputValue() *StoredFieldDataInput
+			GetDataInputValue() *spi.StoredFieldDataInput
 		}
 		if dip, ok := value.(dataInputProvider); ok {
 			dsi := dip.GetDataInputValue()
@@ -366,7 +367,7 @@ func newStoredValueField(info *FieldInfo, value StoredValue) (*storedValueField,
 				return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: StoredFieldDataInput has nil In")
 			}
 			buf := make([]byte, dsi.Length)
-			if err := dsi.In.ReadBytes(buf); err != nil {
+			if err := dsi.In.ReadBytes(buf, 0, dsi.Length); err != nil {
 				return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: read DataInput bytes: %w", err)
 			}
 			f.bin = buf
@@ -382,7 +383,7 @@ func newStoredValueField(info *FieldInfo, value StoredValue) (*storedValueField,
 func (f *storedValueField) Name() string { return f.name }
 
 // FieldType implements IndexableField.
-func (f *storedValueField) FieldType() schema.IndexableFieldType { return storedValueFieldType{} }
+func (f *storedValueField) FieldType() spi.IndexableFieldType { return storedValueFieldType{} }
 
 // StringValue implements IndexableField. Returns the payload only for the
 // STRING variant; "" otherwise.
@@ -438,23 +439,30 @@ func (f *storedValueField) StoredValue() StoredValue { return f.val }
 // writer.
 type storedValueFieldType struct{}
 
-func (storedValueFieldType) Stored() bool                                   { return true }
-func (storedValueFieldType) Tokenized() bool                                 { return false }
-func (storedValueFieldType) StoreTermVectors() bool                          { return false }
-func (storedValueFieldType) StoreTermVectorPositions() bool                  { return false }
-func (storedValueFieldType) StoreTermVectorOffsets() bool                    { return false }
-func (storedValueFieldType) StoreTermVectorPayloads() bool                   { return false }
-func (storedValueFieldType) OmitNorms() bool                                 { return false }
-func (storedValueFieldType) IndexOptions() IndexOptions                       { return IndexOptionsNone }
-func (storedValueFieldType) DocValuesType() DocValuesType                     { return DocValuesTypeNone }
-func (storedValueFieldType) DocValuesSkipIndexType() DocValuesSkipIndexType   { return DocValuesSkipIndexTypeNone }
-func (storedValueFieldType) PointDimensionCount() int                          { return 0 }
-func (storedValueFieldType) PointIndexDimensionCount() int                     { return 0 }
-func (storedValueFieldType) PointNumBytes() int                                { return 0 }
-func (storedValueFieldType) VectorDimension() int                              { return 0 }
-func (storedValueFieldType) VectorEncoding() VectorEncoding                    { return 0 }
-func (storedValueFieldType) VectorSimilarityFunction() VectorSimilarityFunction { return 0 }
-func (storedValueFieldType) GetAttributes() map[string]string                { return nil }
+func (storedValueFieldType) Stored() bool                   { return true }
+func (storedValueFieldType) Tokenized() bool                { return false }
+func (storedValueFieldType) StoreTermVectors() bool         { return false }
+func (storedValueFieldType) StoreTermVectorPositions() bool { return false }
+func (storedValueFieldType) StoreTermVectorOffsets() bool   { return false }
+func (storedValueFieldType) StoreTermVectorPayloads() bool  { return false }
+func (storedValueFieldType) OmitNorms() bool                { return false }
+func (storedValueFieldType) IndexOptions() IndexOptions     { return IndexOptionsNone }
+func (storedValueFieldType) DocValuesType() DocValuesType   { return DocValuesTypeNone }
+func (storedValueFieldType) DocValuesSkipIndexType() spi.DocValuesSkipIndexType {
+	return spi.DocValuesSkipIndexTypeNone
+}
+func (storedValueFieldType) PointDimensionCount() int       { return 0 }
+func (storedValueFieldType) PointIndexDimensionCount() int  { return 0 }
+func (storedValueFieldType) PointNumBytes() int             { return 0 }
+func (storedValueFieldType) VectorDimension() int           { return 0 }
+func (storedValueFieldType) VectorEncoding() VectorEncoding { return 0 }
+
+// VectorSimilarityFunction mirrors Lucene's FieldType default of
+// VectorSimilarityFunction.EUCLIDEAN for a field that carries no vector.
+func (storedValueFieldType) VectorSimilarityFunction() VectorSimilarityFunction {
+	return VectorSimilarityFunctionEuclidean
+}
+func (storedValueFieldType) GetAttributes() map[string]string { return nil }
 
 // Compile-time assertion that the adapter satisfies IndexableField.
 var _ IndexableField = (*storedValueField)(nil)

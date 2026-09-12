@@ -5,13 +5,13 @@
 package ko
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
 	"unicode/utf8"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/ko/dict"
-	"github.com/FlavioCFOliveira/Gocene/analysis/ko/tokenattributes"
+	koattrs "github.com/FlavioCFOliveira/Gocene/analysis/ko/tokenattributes"
+	tokenattrs "github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // DecompoundMode controls how compound, inflected and pre-analysis tokens are
@@ -52,10 +52,10 @@ type KoreanTokenizer struct {
 
 	termAttr    analysis.CharTermAttribute
 	offsetAttr  analysis.OffsetAttribute
-	posIncrAttr tokenattributes.PositionIncrementAttribute
+	posIncrAttr tokenattrs.PositionIncrementAttribute
 	posLenAttr  analysis.PositionLengthAttribute
-	posAtt      tokenattributes.PartOfSpeechAttribute
-	readingAtt  tokenattributes.ReadingAttribute
+	posAtt      koattrs.PartOfSpeechAttribute
+	readingAtt  koattrs.ReadingAttribute
 
 	exhausted bool
 }
@@ -128,25 +128,23 @@ func (t *KoreanTokenizer) wireAttributes() {
 	if a := src.GetAttribute(analysis.OffsetAttributeType); a != nil {
 		t.offsetAttr, _ = a.(analysis.OffsetAttribute)
 	}
-	if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
-		t.posIncrAttr, _ = a.(tokenattributes.PositionIncrementAttribute)
+	if a := src.GetAttribute(tokenattrs.PositionIncrementAttributeType); a != nil {
+		t.posIncrAttr, _ = a.(tokenattrs.PositionIncrementAttribute)
 	}
 	if a := src.GetAttribute(analysis.PositionLengthAttributeType); a != nil {
 		t.posLenAttr, _ = a.(analysis.PositionLengthAttribute)
 	}
-	if a := src.GetAttribute(tokenattributes.PartOfSpeechAttributeType); a != nil {
-		t.posAtt, _ = a.(tokenattributes.PartOfSpeechAttribute)
+	if a := src.GetAttribute(koattrs.PartOfSpeechAttributeType); a != nil {
+		t.posAtt, _ = a.(koattrs.PartOfSpeechAttribute)
 	}
-	if a := src.GetAttribute(tokenattributes.ReadingAttributeType); a != nil {
-		t.readingAtt, _ = a.(tokenattributes.ReadingAttribute)
+	if a := src.GetAttribute(koattrs.ReadingAttributeType); a != nil {
+		t.readingAtt, _ = a.(koattrs.ReadingAttribute)
 	}
 }
 
 // SetReader sets the input reader and loads all characters for analysis.
 func (t *KoreanTokenizer) SetReader(r io.Reader) error {
-	if err := t.BaseTokenizer.SetReader(r); err != nil {
-		return err
-	}
+	t.BaseTokenizer.SetReader(r)
 	// Bound the read by analysis.MaxTokenizerInputSize so an oversized input
 	// is rejected with analysis.ErrInputTooLarge rather than exhausting memory.
 	// Read one byte past the cap to distinguish "at limit" from "over limit".

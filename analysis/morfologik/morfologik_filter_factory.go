@@ -161,6 +161,10 @@ func (f *MorfologikFilterFactory) Create(ts analysis.TokenStream) analysis.Token
 	return NewMorfologikFilter(ts, f.dictionary.NewStemmer())
 }
 
+func (f *MorfologikFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return input
+}
+
 // Ensure MorfologikFilterFactory implements analysis.TokenFilterFactory.
 var _ analysis.TokenFilterFactory = (*MorfologikFilterFactory)(nil)
 

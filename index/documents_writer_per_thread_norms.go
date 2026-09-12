@@ -11,142 +11,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// FieldInvertState captures the inversion counters for a field in a document.
-// This is the Go port of Lucene's org.apache.lucene.index.FieldInvertState.
-type FieldInvertState struct {
-	// Length is the total number of terms in this field.
-	Length int
-
-	// NumOverlap is the number of terms whose position increment is zero.
-	NumOverlap int
-
-	// UniqueTermCount is the number of distinct terms encountered in this
-	// field.
-	UniqueTermCount int
-
-	// MaxTermFrequency is the highest term frequency of any term in this
-	// field. A field holding "the quick brown fox jumps over the lazy dog" has
-	// a value of 2, because "the" occurs twice.
-	MaxTermFrequency int
-
-	// indexCreatedVersionMajor is the major version the index was created
-	// with, or 6 when it predates 7.0.
-	indexCreatedVersionMajor int
-
-	// name is the field's name.
-	name string
-
-	// indexOptions records what the field indexes.
-	indexOptions IndexOptions
-
-	// position is the last processed term position.
-	position int
-
-	// offset is the end offset of the last processed term.
-	offset int
-
-	// lastStartOffset and lastPosition are carried across field instances, so
-	// a multi-valued field keeps advancing rather than restarting.
-	lastStartOffset int
-	lastPosition    int
-}
-
-// NewFieldInvertState creates the inversion state for the named field.
-// Mirrors FieldInvertState(int, String, IndexOptions).
-func NewFieldInvertState(indexCreatedVersionMajor int, name string, indexOptions IndexOptions) *FieldInvertState {
-	return &FieldInvertState{
-		indexCreatedVersionMajor: indexCreatedVersionMajor,
-		name:                     name,
-		indexOptions:             indexOptions,
-	}
-}
-
-// Reset clears the per-document counters, keeping the field identity.
-// Mirrors FieldInvertState.reset.
-func (s *FieldInvertState) Reset() {
-	s.position = -1
-	s.Length = 0
-	s.NumOverlap = 0
-	s.offset = 0
-	s.MaxTermFrequency = 0
-	s.UniqueTermCount = 0
-	s.lastStartOffset = 0
-	s.lastPosition = 0
-}
-
-// Position returns the last processed term position. Mirrors getPosition.
-func (s *FieldInvertState) Position() int { return s.position }
-
-// SetPosition sets the last processed term position.
-func (s *FieldInvertState) SetPosition(position int) { s.position = position }
-
-// GetLength returns the total number of terms in this field. Mirrors
-// getLength.
-func (s *FieldInvertState) GetLength() int { return s.Length }
-
-// SetLength sets the total number of terms in this field. Mirrors setLength.
-func (s *FieldInvertState) SetLength(length int) { s.Length = length }
-
-// GetNumOverlap returns the number of terms with a zero position increment.
-// Mirrors getNumOverlap.
-func (s *FieldInvertState) GetNumOverlap() int { return s.NumOverlap }
-
-// SetNumOverlap sets the number of terms with a zero position increment.
-// Mirrors setNumOverlap.
-func (s *FieldInvertState) SetNumOverlap(numOverlap int) { s.NumOverlap = numOverlap }
-
-// Offset returns the end offset of the last processed term. Mirrors getOffset.
-func (s *FieldInvertState) Offset() int { return s.offset }
-
-// SetOffset sets the end offset of the last processed term.
-func (s *FieldInvertState) SetOffset(offset int) { s.offset = offset }
-
-// GetMaxTermFrequency returns the highest term frequency in this field.
-// Mirrors getMaxTermFrequency.
-func (s *FieldInvertState) GetMaxTermFrequency() int { return s.MaxTermFrequency }
-
-// SetMaxTermFrequency sets the highest term frequency in this field.
-func (s *FieldInvertState) SetMaxTermFrequency(maxTermFrequency int) {
-	s.MaxTermFrequency = maxTermFrequency
-}
-
-// GetUniqueTermCount returns the number of distinct terms in this field.
-// Mirrors getUniqueTermCount.
-func (s *FieldInvertState) GetUniqueTermCount() int { return s.UniqueTermCount }
-
-// SetUniqueTermCount sets the number of distinct terms in this field.
-func (s *FieldInvertState) SetUniqueTermCount(uniqueTermCount int) {
-	s.UniqueTermCount = uniqueTermCount
-}
-
-// LastStartOffset returns the start offset carried over from the previous
-// value of a multi-valued field.
-func (s *FieldInvertState) LastStartOffset() int { return s.lastStartOffset }
-
-// SetLastStartOffset sets the start offset carried over from the previous
-// value of a multi-valued field.
-func (s *FieldInvertState) SetLastStartOffset(lastStartOffset int) {
-	s.lastStartOffset = lastStartOffset
-}
-
-// LastPosition returns the position carried over from the previous value of a
-// multi-valued field.
-func (s *FieldInvertState) LastPosition() int { return s.lastPosition }
-
-// SetLastPosition sets the position carried over from the previous value of a
-// multi-valued field.
-func (s *FieldInvertState) SetLastPosition(lastPosition int) { s.lastPosition = lastPosition }
-
-// Name returns the field's name. Mirrors getName.
-func (s *FieldInvertState) Name() string { return s.name }
-
-// IndexOptions returns what the field indexes.
-func (s *FieldInvertState) IndexOptions() IndexOptions { return s.indexOptions }
-
-// IndexCreatedVersionMajor returns the major version the index was created
-// with. Mirrors getIndexCreatedVersionMajor.
-func (s *FieldInvertState) IndexCreatedVersionMajor() int { return s.indexCreatedVersionMajor }
-
 // NormsBuffer holds the per-document norm value for a single field, in
 // document order. It is the live-path counterpart of Lucene's NormValuesWriter
 // accumulator. docIDs is strictly increasing because ProcessDocument assigns
@@ -208,10 +72,10 @@ func (a *normsAccumulator) addToken(term string, termFreq, posIncr int) error {
 // ToFieldInvertState returns a snapshot of the current inversion counters.
 func (a *normsAccumulator) ToFieldInvertState() FieldInvertState {
 	return FieldInvertState{
-		Length:           a.length,
-		NumOverlap:       a.numOverlap,
-		UniqueTermCount:  len(a.uniqueTerms),
-		MaxTermFrequency: a.maxTermFreq,
+		length:           a.length,
+		numOverlap:       a.numOverlap,
+		uniqueTermCount:  len(a.uniqueTerms),
+		maxTermFrequency: a.maxTermFreq,
 	}
 }
 

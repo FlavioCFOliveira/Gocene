@@ -6,7 +6,6 @@ package document
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -36,7 +35,7 @@ func NewIntPoint(name string, point ...int32) *IntPoint {
 		panic("point must not be 0 dimensions")
 	}
 	ft := getIntPointType(len(point))
-	val := Pack(point)
+	val := packIntPoint(point...)
 	f, _ := NewField(name, val, ft)
 	return &IntPoint{Field: *f}
 }
@@ -52,7 +51,7 @@ func (ip *IntPoint) SetIntValues(point ...int32) {
 		panic(fmt.Sprintf("this field (name=%s) uses %d dimensions; cannot change to (incoming) %d dimensions",
 			ip.name, ip.ft.PointDimensionCount(), len(point)))
 	}
-	ip.value = binaryValue(Pack(point))
+	ip.value = binaryValue(packIntPoint(point...))
 }
 
 // SetBytesValue is not supported for IntPoint.
@@ -70,11 +69,11 @@ func (ip *IntPoint) NumericValue() interface{} {
 	if len(bytes) != 4 {
 		panic("invalid binary value length for int point")
 	}
-	return DecodeDimension(bytes, 0)
+	return decodeIntDimension(bytes, 0)
 }
 
-// Pack packs an integer point into a byte slice.
-func Pack(point ...int32) []byte {
+// packIntPoint packs an integer point into a byte slice.
+func packIntPoint(point ...int32) []byte {
 	if point == nil {
 		panic("point must not be null")
 	}
@@ -84,7 +83,7 @@ func Pack(point ...int32) []byte {
 	packed := make([]byte, len(point)*4)
 
 	for dim := 0; dim < len(point); dim++ {
-		EncodeDimension(point[dim], packed, dim*4)
+		encodeIntDimension(point[dim], packed, dim*4)
 	}
 
 	return packed
@@ -101,19 +100,19 @@ func (ip *IntPoint) String() string {
 		if dim > 0 {
 			sb.WriteByte(',')
 		}
-		sb.WriteString(fmt.Sprintf("%d", DecodeDimension(bytes, dim*4)))
+		sb.WriteString(fmt.Sprintf("%d", decodeIntDimension(bytes, dim*4)))
 	}
 
 	sb.WriteByte('>')
 	return sb.String()
 }
 
-// EncodeDimension encodes a single integer dimension.
-func EncodeDimension(value int32, dest []byte, offset int) {
+// encodeIntDimension encodes a single integer dimension.
+func encodeIntDimension(value int32, dest []byte, offset int) {
 	util.IntToSortableBytes(value, dest, offset)
 }
 
-// DecodeDimension decodes a single integer dimension.
-func DecodeDimension(value []byte, offset int) int32 {
+// decodeIntDimension decodes a single integer dimension.
+func decodeIntDimension(value []byte, offset int) int32 {
 	return util.SortableBytesToInt(value, offset)
 }

@@ -442,7 +442,7 @@ func writeTermVectorsDoc(writer TermVectorsWriter, vectors Fields, fieldInfos *F
 			}
 			freq := int(freq64)
 
-			if err := writer.StartTerm(termBytes(term)); err != nil {
+			if err := writer.StartTerm(termBytes(term), freq); err != nil {
 				return fmt.Errorf("start term in %q: %w", fieldName, err)
 			}
 

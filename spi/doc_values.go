@@ -22,6 +22,14 @@ package spi
 // GetOrd(docID) projection is gone from every Gocene production
 // implementation.
 
+// DocValues is the base interface for all doc-values types.
+type DocValues interface {
+	// DocID returns the current document ID, or -1 before NextDoc /
+	// Advance has been called, or NO_MORE_DOCS once the iterator is
+	// exhausted.
+	DocID() int
+}
+
 // NumericDocValues provides per-document numeric values.
 //
 // Mirrors org.apache.lucene.index.NumericDocValues in Apache

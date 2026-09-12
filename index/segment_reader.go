@@ -7,6 +7,7 @@ package index
 import (
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
@@ -83,27 +84,138 @@ func NewSegmentReaderClone(
 }
 
 func (r *SegmentReader) initLiveDocs() {
-	if r.segmentCommitInfo == nil || r.codec == nil {
+	if r.segmentCommitInfo == nil || r.directory == nil {
 		return
 	}
-	if r.segmentCommitInfo.HasDeletions() {
-		liveDocs, err := r.codec.LiveDocsFormat().ReadLiveDocs(r.directory, r.segmentCommitInfo, store.IOContextReadOnce)
-		if err != nil {
-			panic(fmt.Sprintf("failed to read live docs for seg=%s: %v", r.segmentCommitInfo, err))
-		}
-		r.liveDocs = liveDocs
-		r.hardLiveDocs = liveDocs
+	if !r.segmentCommitInfo.HasDeletions() {
+		return
 	}
+	segInfo := r.segmentCommitInfo.SegmentInfo()
+	maxDoc := segInfo.MaxDoc()
+	if maxDoc <= 0 {
+		return
+	}
+	// Mirrors SegmentReader's constructor, which reads the segment's .liv
+	// through codec.liveDocsFormat().readLiveDocs(...). Gocene serves the
+	// Lucene90 live-docs format directly from readLiveDocs (live_docs.go);
+	// it is the only live-docs format Lucene 10.5.0 defines.
+	liveDocs, err := readLiveDocs(r.directory, segInfo.Name(), segInfo.GetID(), r.segmentCommitInfo.DelGen(), maxDoc)
+	if err != nil {
+		panic(fmt.Sprintf("failed to read live docs for seg=%s: %v", r.segmentCommitInfo, err))
+	}
+	if liveDocs == nil {
+		return
+	}
+	r.liveDocs = liveDocs
+	r.hardLiveDocs = liveDocs
 }
 
-// GetSegmentCommitInfo returns the SegmentCommitInfo for this reader.
+// GetNormsProducer returns the norms producer for this segment.
+func (r *SegmentReader) GetNormsProducer() NormsProducer {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetNormsProducer()
+}
+
+// GetSegmentCommitInfo returns the SegmentCommitInfo for this reader. This is
+// the Go counterpart of org.apache.lucene.index.SegmentReader.getSegmentInfo(),
+// which returns the commit-level info; GetSegmentInfo is reserved for the
+// per-segment .si metadata the CodecReader contract exposes.
 func (r *SegmentReader) GetSegmentCommitInfo() *SegmentCommitInfo {
 	return r.segmentCommitInfo
+}
+
+// GetSegmentInfo returns the per-segment .si metadata backing this reader, as
+// required by the CodecReader contract.
+func (r *SegmentReader) GetSegmentInfo() *SegmentInfo {
+	if r.segmentCommitInfo == nil {
+		return nil
+	}
+	return r.segmentCommitInfo.SegmentInfo()
+}
+
+// GetSegmentName returns the name of the segment this reader reads.
+func (r *SegmentReader) GetSegmentName() string {
+	if r.segmentCommitInfo == nil {
+		return ""
+	}
+	return r.segmentCommitInfo.SegmentInfo().Name()
+}
+
+// IsNRT reports whether this reader was opened over live-docs carried in RAM
+// rather than read from a committed .liv file. Mirrors the package-private
+// SegmentReader.isNRT flag.
+func (r *SegmentReader) IsNRT() bool {
+	return r.isNRT
 }
 
 // GetCoreReaders returns the SegmentCoreReaders for this reader.
 func (r *SegmentReader) GetCoreReaders() *SegmentCoreReaders {
 	return r.coreReaders
+}
+
+// GetFieldsReader returns the codec's stored-fields reader, or nil when the
+// segment has no core readers. Mirrors SegmentReader.getFieldsReader().
+func (r *SegmentReader) GetFieldsReader() StoredFieldsReader {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetStoredFieldsReader()
+}
+
+// GetTermVectorsReader returns the codec's term-vectors reader, or nil when the
+// segment stores none. Mirrors SegmentReader.getTermVectorsReader().
+func (r *SegmentReader) GetTermVectorsReader() TermVectorsReader {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetTermVectorsReader()
+}
+
+// GetNormsReader returns the codec's norms producer. Mirrors
+// SegmentReader.getNormsReader().
+func (r *SegmentReader) GetNormsReader() NormsProducer {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetNormsProducer()
+}
+
+// GetDocValuesReader returns the doc-values producer serving this reader.
+// Mirrors SegmentReader.getDocValuesReader().
+func (r *SegmentReader) GetDocValuesReader() DocValuesProducer {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetDocValuesProducer()
+}
+
+// GetPostingsReader returns the codec's postings producer. Mirrors
+// SegmentReader.getPostingsReader().
+func (r *SegmentReader) GetPostingsReader() FieldsProducer {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetFields()
+}
+
+// GetPointsReader returns the codec's points reader. Mirrors
+// SegmentReader.getPointsReader().
+func (r *SegmentReader) GetPointsReader() PointsReader {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetPointsReader()
+}
+
+// GetVectorReader returns the codec's KNN vectors reader. Mirrors
+// SegmentReader.getVectorReader().
+func (r *SegmentReader) GetVectorReader() KnnVectorsReader {
+	if r.coreReaders == nil {
+		return nil
+	}
+	return r.coreReaders.GetVectorReader()
 }
 
 // GetFieldInfos returns the FieldInfos for this reader.
@@ -243,6 +355,32 @@ func (r *SegmentReader) GetTermVectors(docID int) (Fields, error) {
 	return tvReader.Get(docID)
 }
 
+// GetFields returns the Fields for this segment.
+func (r *SegmentReader) GetFields() Fields {
+	if r.coreReaders != nil {
+		fp := r.coreReaders.GetFields()
+		if fp == nil {
+			return nil
+		}
+		return asFields(fp)
+	}
+
+	if r.segmentCommitInfo != nil {
+		if fp := r.segmentCommitInfo.GetInMemoryFields(); fp != nil {
+			return asFields(fp)
+		}
+	}
+
+	if r.directory != nil && r.segmentCommitInfo != nil {
+		segName := r.segmentCommitInfo.SegmentInfo().Name()
+		if fp := LookupInMemoryFields(r.directory, segName); fp != nil {
+			return asFields(fp)
+		}
+	}
+
+	return nil
+}
+
 // Terms returns the Terms for a field.
 // Implements LeafReader.Terms by delegating to the FieldsProducer.
 // Falls back to the in-memory FieldsProducer when coreReaders is nil
@@ -312,15 +450,15 @@ func (r *SegmentReader) TermVectors() (TermVectors, error) {
 //
 // The contract uses only types the index package can name: the index-facing
 // [FloatVectorValues] / [ByteVectorValues] interfaces (the codec adapters
-// implement both their own and these) and [utilhnsw.TopDocs] (shared by
+// implement both their own and these) and [spi.TopDocs] (shared by
 // index and codecs, which both import util/hnsw without a cycle).
 type knnVectorsReaderDelegate interface {
 	FloatVectorValues(field string) (FloatVectorValues, error)
 	ByteVectorValues(field string) (ByteVectorValues, error)
-	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
-	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
-	SearchNearestFloatCollector(field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
-	SearchNearestByteCollector(field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
+	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*spi.TopDocs, error)
+	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*spi.TopDocs, error)
+	SearchNearestFloatCollector(field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits) error
+	SearchNearestByteCollector(field string, target []byte, collector spi.KnnCollector, acceptDocs util.Bits) error
 }
 
 // vectorsDelegate narrows the core readers' KNN vectors reader to the
@@ -345,36 +483,53 @@ func (r *SegmentReader) vectorsDelegate() knnVectorsReaderDelegate {
 // the codec's KNN vectors reader. Returns (nil, nil) when the segment has no
 // vectors reader or no delegate owns the field (matching the LeafReader
 // contract). Implements LeafReader.GetFloatVectorValues.
-func (r *SegmentReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+func (r *SegmentReader) GetFloatVectorValues(field string) (spi.FloatVectorValues, error) {
 	d := r.vectorsDelegate()
 	if d == nil {
 		return nil, nil
 	}
-	return d.FloatVectorValues(field)
+	vv, err := d.FloatVectorValues(field)
+	if err != nil || vv == nil {
+		return nil, err
+	}
+	return newSPIFloatVectorValues(vv), nil
 }
 
 // GetByteVectorValues returns the byte vectors for field, delegating to the
 // codec's KNN vectors reader. Implements LeafReader.GetByteVectorValues.
-func (r *SegmentReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+func (r *SegmentReader) GetByteVectorValues(field string) (spi.ByteVectorValues, error) {
 	d := r.vectorsDelegate()
 	if d == nil {
 		return nil, nil
 	}
-	return d.ByteVectorValues(field)
+	vv, err := d.ByteVectorValues(field)
+	if err != nil || vv == nil {
+		return nil, err
+	}
+	return newSPIByteVectorValues(vv), nil
 }
 
 // SearchNearestVectors runs top-k nearest-neighbour float-vector search for
-// target in field. Implements LeafReader.SearchNearestVectors.
-func (r *SegmentReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error) {
+// target in field, bounded by visitedLimit visited vectors. Implements
+// LeafReader.SearchNearestVectors.
+//
+// Mirrors org.apache.lucene.index.LeafReader.searchNearestVectors(String,
+// float[], int, Bits, int), which wraps (k, visitedLimit) in a
+// TopKnnCollector and drives the codec's collector-based search.
+func (r *SegmentReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits, visitedLimit int) (spi.TopDocs, error) {
 	d := r.vectorsDelegate()
 	if d == nil {
-		return TopDocs{}, nil
+		return spi.TopDocs{}, nil
 	}
-	td, err := d.SearchNearestFloat(field, target, k, acceptDocs)
-	if err != nil {
-		return TopDocs{}, err
+	collector := utilhnsw.NewTopKnnCollector(k, visitedLimit, nil)
+	if err := d.SearchNearestFloatCollector(field, target, collector, acceptDocs); err != nil {
+		return spi.TopDocs{}, err
 	}
-	return knnTopDocsToIndex(td), nil
+	td := collector.TopDocs()
+	if td == nil {
+		return spi.TopDocs{}, nil
+	}
+	return *td, nil
 }
 
 // SearchNearestVectorsByte is the byte-vector analogue of
@@ -404,7 +559,7 @@ func (r *SegmentReader) SearchNearestVectorsByte(field string, target []byte, k 
 // has no vectors reader. Mirrors LeafReader.searchNearestVectors(field,
 // target, KnnCollector, acceptDocs) in Lucene, which delegates straight to
 // the codec KnnVectorsReader.
-func (r *SegmentReader) SearchNearestVectorsCollector(field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error {
+func (r *SegmentReader) SearchNearestVectorsCollector(field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits) error {
 	d := r.vectorsDelegate()
 	if d == nil {
 		return nil
@@ -414,7 +569,7 @@ func (r *SegmentReader) SearchNearestVectorsCollector(field string, target []flo
 
 // SearchNearestVectorsByteCollector is the byte-vector analogue of
 // [SegmentReader.SearchNearestVectorsCollector].
-func (r *SegmentReader) SearchNearestVectorsByteCollector(field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error {
+func (r *SegmentReader) SearchNearestVectorsByteCollector(field string, target []byte, collector spi.KnnCollector, acceptDocs util.Bits) error {
 	d := r.vectorsDelegate()
 	if d == nil {
 		return nil
@@ -427,10 +582,10 @@ func (r *SegmentReader) SearchNearestVectorsByteCollector(field string, target [
 // concrete reader — the BKD-backed reader from the codecs/lucene90 sub-package
 // — satisfies it structurally via its GetValues accessor (the Go counterpart
 // of org.apache.lucene.codecs.PointsReader.getValues). The contract uses only
-// the index-facing [PointValues] type, so the index package can name it
+// the index-facing [spi.PointValues] type, so the index package can name it
 // without importing codecs.
 type pointsReaderDelegate interface {
-	GetValues(field string) (PointValues, error)
+	GetValues(field string) (spi.PointValues, error)
 }
 
 // pointsDelegate narrows the core readers' points reader to the wide
@@ -455,7 +610,7 @@ func (r *SegmentReader) pointsDelegate() pointsReaderDelegate {
 // codec's points reader. Returns (nil, nil) when the segment has no points
 // reader or the field has no indexed points. Mirrors
 // org.apache.lucene.index.SegmentReader.getPointValues / CodecReader.
-func (r *SegmentReader) GetPointValues(field string) (PointValues, error) {
+func (r *SegmentReader) GetPointValues(field string) (spi.PointValues, error) {
 	d := r.pointsDelegate()
 	if d == nil {
 		return nil, nil
@@ -508,11 +663,34 @@ func (r *SegmentReader) dvFieldInfo(field string) *FieldInfo {
 	if fis == nil {
 		return nil
 	}
-	fi := fis.GetByName(field)
+	fi := fis.FieldInfoByName(field)
 	if fi == nil || !fi.DocValuesType().HasDocValues() {
 		return nil
 	}
 	return fi
+}
+
+// GetDocValues returns the doc values for field as a generic spi.DocValues.
+// Returns (nil, nil) when the segment has no doc values producer or the field
+// has no doc values.
+func (r *SegmentReader) GetDocValues(field *FieldInfo) (spi.DocValues, error) {
+	if field == nil {
+		return nil, fmt.Errorf("GetDocValues requires a non-nil FieldInfo")
+	}
+	switch field.DocValuesType() {
+	case DocValuesTypeNumeric:
+		return r.GetNumericDocValues(field.Name())
+	case DocValuesTypeBinary:
+		return r.GetBinaryDocValues(field.Name())
+	case DocValuesTypeSorted:
+		return r.GetSortedDocValues(field.Name())
+	case DocValuesTypeSortedNumeric:
+		return r.GetSortedNumericDocValues(field.Name())
+	case DocValuesTypeSortedSet:
+		return r.GetSortedSetDocValues(field.Name())
+	default:
+		return nil, nil
+	}
 }
 
 // GetNumericDocValues returns the numeric doc values for field, delegating to
@@ -613,7 +791,7 @@ func (r *SegmentReader) normsFieldInfo(field string) *FieldInfo {
 	if fis == nil {
 		return nil
 	}
-	fi := fis.GetByName(field)
+	fi := fis.FieldInfoByName(field)
 	if fi == nil || !fi.HasNorms() {
 		return nil
 	}
@@ -634,9 +812,23 @@ func (r *SegmentReader) GetNormValues(field string) (NumericDocValues, error) {
 }
 
 // GetDocValuesSkipper returns the DocValuesSkipper for field, or nil when the
-// segment carries no skip index for it.
-func (r *SegmentReader) GetDocValuesSkipper(field string) (DocValuesSkipper, error) {
-	return nil, nil
+// segment carries no skip index for it. Mirrors
+// org.apache.lucene.index.CodecReader.getDocValuesSkipper, which asks the
+// doc-values producer for the field's skipper when the field was indexed with
+// a skip index.
+func (r *SegmentReader) GetDocValuesSkipper(field string) (spi.DocValuesSkipper, error) {
+	fi := r.dvFieldInfo(field)
+	if fi == nil || fi.DocValuesSkipIndexType() == spi.DocValuesSkipIndexTypeNone {
+		return nil, nil
+	}
+	if r.coreReaders == nil {
+		return nil, nil
+	}
+	dvp := r.coreReaders.GetDocValuesProducer()
+	if dvp == nil {
+		return nil, nil
+	}
+	return dvp.GetSkipper(fi)
 }
 
 // knnTopDocsToIndex converts a util/hnsw TopDocs (the codec search result)
@@ -644,7 +836,7 @@ func (r *SegmentReader) GetDocValuesSkipper(field string) (DocValuesSkipper, err
 // score-descending; TotalHits is the visited-count lower bound, but the
 // index TopDocs.TotalHits records the number of returned hits, matching how
 // the index layer reports per-leaf vector results.
-func knnTopDocsToIndex(td *utilhnsw.TopDocs) TopDocs {
+func knnTopDocsToIndex(td *spi.TopDocs) TopDocs {
 	if td == nil {
 		return TopDocs{}
 	}
@@ -672,16 +864,25 @@ func (r *SegmentReader) GetMetaData() *IndexReaderMetaData {
 	}
 }
 
-// GetContext returns the reader context for this leaf reader.
-func (r *SegmentReader) GetContext() (IndexReaderContext, error) {
-	return NewLeafReaderContext(nil, r, 0, 0, 0, 0), nil
+// EnsureOpen throws an error if the reader is closed.
+func (r *SegmentReader) EnsureOpen() error {
+	if r.coreReaders == nil {
+		return spi.ErrAlreadyClosed
+	}
+	return nil
 }
 
-// boolBits is a util.Bits backed by a []bool slice.
-type boolBits []bool
+// Leaves returns all leaf reader contexts.
+// Since SegmentReader is a leaf reader, it returns a slice containing only itself.
+func (r *SegmentReader) Leaves() ([]*spi.LeafReaderContext, error) {
+	ctx := spi.NewLeafReaderContextForReader(r)
+	return []*spi.LeafReaderContext{ctx}, nil
+}
 
-func (b boolBits) Get(index int) bool { return b[index] }
-func (b boolBits) Length() int        { return len(b) }
+// GetContext returns the reader context for this leaf reader.
+func (r *SegmentReader) GetContext() (IndexReaderContext, error) {
+	return spi.NewLeafReaderContextForReader(r), nil
+}
 
 // GetLiveDocs returns a Bits representing the live (non-deleted) documents in
 // this segment. Returns nil when no documents are deleted.
@@ -779,5 +980,89 @@ func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
 	return r.GetCoreCacheHelper()
 }
 
+// spiFloatVectorValues adapts the Lucene 10.5.0-shaped [FloatVectorValues] the
+// codec KNN readers expose — ordinal-addressed vector values plus an explicit
+// [util.DocIndexIterator], mirroring org.apache.lucene.index.FloatVectorValues
+// — to the document-addressed [spi.FloatVectorValues] contract that
+// [spi.LeafReader] declares.
+type spiFloatVectorValues struct {
+	values FloatVectorValues
+	it     util.DocIndexIterator
+}
+
+func newSPIFloatVectorValues(values FloatVectorValues) *spiFloatVectorValues {
+	return &spiFloatVectorValues{values: values, it: values.Iterator()}
+}
+
+// Get returns the vector of docID, or nil when that document carries none.
+// The backing iterator only moves forward, so a request for an already-passed
+// document restarts it, matching the random-access contract spi.LeafReader
+// callers expect.
+func (v *spiFloatVectorValues) Get(docID int) ([]float32, error) {
+	if v.it.DocID() > docID {
+		v.it = v.values.Iterator()
+	}
+	if v.it.DocID() < docID {
+		if _, err := v.it.Advance(docID); err != nil {
+			return nil, err
+		}
+	}
+	if v.it.DocID() != docID {
+		return nil, nil
+	}
+	return v.values.VectorValue(v.it.Index())
+}
+
+func (v *spiFloatVectorValues) Advance(target int) (int, error) { return v.it.Advance(target) }
+func (v *spiFloatVectorValues) NextDoc() (int, error)           { return v.it.NextDoc() }
+func (v *spiFloatVectorValues) DocID() int                      { return v.it.DocID() }
+func (v *spiFloatVectorValues) Dimension() int                  { return v.values.Dimension() }
+func (v *spiFloatVectorValues) Size() int                       { return v.values.Size() }
+
+// spiByteVectorValues is the byte-vector counterpart of [spiFloatVectorValues].
+type spiByteVectorValues struct {
+	values ByteVectorValues
+	it     util.DocIndexIterator
+}
+
+func newSPIByteVectorValues(values ByteVectorValues) *spiByteVectorValues {
+	return &spiByteVectorValues{values: values, it: values.Iterator()}
+}
+
+// Get returns the vector of docID, or nil when that document carries none.
+func (v *spiByteVectorValues) Get(docID int) ([]byte, error) {
+	if v.it.DocID() > docID {
+		v.it = v.values.Iterator()
+	}
+	if v.it.DocID() < docID {
+		if _, err := v.it.Advance(docID); err != nil {
+			return nil, err
+		}
+	}
+	if v.it.DocID() != docID {
+		return nil, nil
+	}
+	return v.values.VectorValue(v.it.Index())
+}
+
+func (v *spiByteVectorValues) Advance(target int) (int, error) { return v.it.Advance(target) }
+func (v *spiByteVectorValues) NextDoc() (int, error)           { return v.it.NextDoc() }
+func (v *spiByteVectorValues) DocID() int                      { return v.it.DocID() }
+func (v *spiByteVectorValues) Dimension() int                  { return v.values.Dimension() }
+func (v *spiByteVectorValues) Size() int                       { return v.values.Size() }
+
+var (
+	_ spi.FloatVectorValues = (*spiFloatVectorValues)(nil)
+	_ spi.ByteVectorValues  = (*spiByteVectorValues)(nil)
+)
+
 // Ensure SegmentReader implements IndexReaderInterface.
 var _ IndexReaderInterface = (*SegmentReader)(nil)
+
+// Ensure SegmentReader implements the leaf-reader contract every index-side
+// consumer (LeafReaderContext, IndexWriter's per-segment views) relies on.
+var _ LeafReader = (*SegmentReader)(nil)
+
+// Ensure SegmentReader implements the codec-reader contract, as Lucene's
+// SegmentReader extends CodecReader.
+var _ CodecReader = (*SegmentReader)(nil)

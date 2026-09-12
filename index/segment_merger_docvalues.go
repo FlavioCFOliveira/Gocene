@@ -28,12 +28,12 @@ func (sm *SegmentMerger) mergeDocValues() error {
 	}
 
 	state := &SegmentWriteState{
-		Directory:     sm.directory,
-		SegmentInfo:   sm.MergeState.SegmentInfo,
-		FieldInfos:    sm.MergeState.MergeFieldInfos,
+		Directory:      sm.directory,
+		SegmentInfo:    sm.MergeState.SegmentInfo,
+		FieldInfos:     sm.MergeState.MergeFieldInfos,
 		SegmentSuffix:  "",
-			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
-			IsMerge:        true,
+		NeedsIndexSort: sm.MergeState.NeedsIndexSort,
+		IsMerge:        true,
 	}
 	consumer, err := sm.codec.DocValuesFormat().FieldsConsumer(state)
 	if err != nil {
@@ -310,7 +310,7 @@ func (sm *SegmentMerger) mergeSortedDV(consumer DocValuesConsumer, info *FieldIn
 	if len(omSubs) == 0 {
 		return nil
 	}
-	om, err := BuildOrdinalMapFromSortedValues(NewCacheKey(), omSubs, 0)
+	om, err := BuildOrdinalMapFromSortedValues(spi.NewCacheKey(), omSubs, 0)
 	if err != nil {
 		return fmt.Errorf("index: merge doc values: sorted %q ordinal map: %w", info.Name(), err)
 	}
@@ -377,7 +377,7 @@ func (sm *SegmentMerger) mergeSortedSetDV(consumer DocValuesConsumer, info *Fiel
 	if len(omSubs) == 0 {
 		return nil
 	}
-	om, err := BuildOrdinalMapFromSortedSetValues(NewCacheKey(), omSubs, 0)
+	om, err := BuildOrdinalMapFromSortedSetValues(spi.NewCacheKey(), omSubs, 0)
 	if err != nil {
 		return fmt.Errorf("index: merge doc values: sorted-set %q ordinal map: %w", info.Name(), err)
 	}

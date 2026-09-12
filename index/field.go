@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // Field is the base struct for all field types.
@@ -131,7 +132,7 @@ func (f *Field) Name() string {
 }
 
 // FieldType returns the FieldType for this field.
-func (f *Field) FieldType() schema.IndexableFieldType {
+func (f *Field) FieldType() spi.IndexableFieldType {
 	return f.ft.AsIndexFieldTypeInterface()
 }
 

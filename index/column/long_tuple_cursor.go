@@ -1,6 +1,7 @@
 package column
 
-import "github.com/FlavioCFOliveira/Gocene/util"
+import (
+)
 
 // LongTupleCursor is a tuple cursor over a LongColumn.
 // It yields (docID, longValue) pairs.

@@ -73,10 +73,16 @@ var _ analysis.TokenFilter = (*LatvianStemFilter)(nil)
 // This is the Go port of
 // org.apache.lucene.analysis.lv.LatvianStemFilterFactory from
 // Apache Lucene 10.4.0.
-type LatvianStemFilterFactory struct{}
+type LatvianStemFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewLatvianStemFilterFactory creates a LatvianStemFilterFactory.
-func NewLatvianStemFilterFactory() *LatvianStemFilterFactory { return &LatvianStemFilterFactory{} }
+func NewLatvianStemFilterFactory() *LatvianStemFilterFactory {
+	return &LatvianStemFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+	}
+}
 
 // Create creates a LatvianStemFilter wrapping input.
 func (f *LatvianStemFilterFactory) Create(input analysis.TokenStream) analysis.TokenFilter {

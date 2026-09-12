@@ -130,10 +130,16 @@ var _ analysis.TokenFilter = (*CJKWidthFilter)(nil)
 // This is the Go port of
 // org.apache.lucene.analysis.cjk.CJKWidthFilterFactory from
 // Apache Lucene 10.4.0.
-type CJKWidthFilterFactory struct{}
+type CJKWidthFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewCJKWidthFilterFactory creates a CJKWidthFilterFactory.
-func NewCJKWidthFilterFactory() *CJKWidthFilterFactory { return &CJKWidthFilterFactory{} }
+func NewCJKWidthFilterFactory() *CJKWidthFilterFactory {
+	return &CJKWidthFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+	}
+}
 
 // Create creates a CJKWidthFilter wrapping input.
 func (f *CJKWidthFilterFactory) Create(input analysis.TokenStream) analysis.TokenFilter {

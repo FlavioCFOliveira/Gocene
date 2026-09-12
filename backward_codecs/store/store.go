@@ -13,6 +13,7 @@
 package store
 
 import (
+	"fmt"
 	"math/bits"
 
 	gstore "github.com/FlavioCFOliveira/Gocene/store"
@@ -173,6 +174,22 @@ func (w *EndiannessReverserDataOutput) WriteInt(v int32) error {
 
 func (w *EndiannessReverserDataOutput) WriteLong(v int64) error {
 	return w.Out.WriteLong(int64(bits.ReverseBytes64(uint64(v))))
+}
+
+func (w *EndiannessReverserDataOutput) WriteVInt(v int32) error {
+	return w.Out.WriteVInt(v)
+}
+
+func (w *EndiannessReverserDataOutput) WriteZInt(v int32) error {
+	return w.Out.WriteZInt(v)
+}
+
+func (w *EndiannessReverserDataOutput) WriteVLong(v int64) error {
+	return w.Out.WriteVLong(v)
+}
+
+func (w *EndiannessReverserDataOutput) WriteZLong(v int64) error {
+	return w.Out.WriteZLong(v)
 }
 
 func (w *EndiannessReverserDataOutput) WriteGroupVInts(values []int32, limit int) error {

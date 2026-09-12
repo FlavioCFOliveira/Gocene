@@ -21,7 +21,7 @@ type FloatRangeDocValuesField struct {
 // NewFloatRangeDocValuesField constructs a FloatRangeDocValuesField for the
 // given field name and min/max range values.
 func NewFloatRangeDocValuesField(field string, min, max []float32) (*FloatRangeDocValuesField, error) {
-	if err := checkArgs(min, max); err != nil {
+	if err := checkFloatRangeDocValuesArgs(min, max); err != nil {
 		return nil, err
 	}
 
@@ -64,7 +64,7 @@ func (f *FloatRangeDocValuesField) GetMax(dimension int) float32 {
 	return f.max[dimension]
 }
 
-func checkArgs(min, max []float32) error {
+func checkFloatRangeDocValuesArgs(min, max []float32) error {
 	if len(min) == 0 || len(max) == 0 {
 		return fmt.Errorf("min/max range values cannot be null or empty")
 	}

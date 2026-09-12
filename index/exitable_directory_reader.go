@@ -6,11 +6,12 @@ package index
 
 import (
 	"fmt"
-	"sync/atomic"
 
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
+	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
 const docsBetweenTimeoutCheck = 1000
@@ -50,7 +51,7 @@ func NewExitableDirectoryReader(in *DirectoryReader, queryTimeout QueryTimeout) 
 }
 
 // Wrap wraps a provided DirectoryReader.
-func Wrap(in *DirectoryReader, queryTimeout QueryTimeout) *ExitableDirectoryReader {
+func WrapExitableDirectoryReader(in *DirectoryReader, queryTimeout QueryTimeout) *ExitableDirectoryReader {
 	return NewExitableDirectoryReader(in, queryTimeout)
 }
 
@@ -68,34 +69,21 @@ func (r *ExitableDirectoryReader) Leaves() ([]*LeafReaderContext, error) {
 
 	exitableLeaves := make([]*LeafReaderContext, len(leaves))
 	for i, leaf := range leaves {
-		wrappedLeaf := &ExitableFilterAtomicReader{
-			LeafReader:   NewLeafReader(leaf.GetSegmentInfo()),
-			in:           leaf.LeafReader(),
-			queryTimeout: r.queryTimeout,
-		}
-		exitableLeaves[i] = NewLeafReaderContext(wrappedLeaf, leaf.Parent(), leaf.Ord, leaf.DocBase)
+		wrapped := newExitableFilterAtomicReader(leaf.LeafReader(), r.queryTimeout)
+		exitableLeaves[i] = spi.NewLeafReaderContext(wrapped, leaf.Parent(), leaf.Ord, leaf.DocBase)
 	}
 	return exitableLeaves, nil
 }
 
-// GetSequentialSubReaders returns the segment readers, wrapping each with an exitable leaf reader.
+// GetSequentialSubReaders returns the sub-readers, wrapping every leaf with an
+// exitable leaf reader. Mirrors
+// ExitableDirectoryReader.ExitableSubReaderWrapper.wrap(LeafReader), which
+// returns an ExitableFilterAtomicReader around the leaf itself.
 func (r *ExitableDirectoryReader) GetSequentialSubReaders() []IndexReaderInterface {
 	subs := r.DirectoryReader.GetSequentialSubReaders()
 	exitableSubs := make([]IndexReaderInterface, len(subs))
-	for i, sr := range subs {
-		// We wrap the segment reader by providing a new SegmentReader that uses an exitable leaf reader.
-		// In Gocene, SegmentReader is a struct, so we create a new one mirroring its state.
-		wrappedLeaf := &ExitableFilterAtomicReader{
-			LeafReader:   NewLeafReader(sr.GetSegmentInfo()),
-			in:           sr.LeafReader,
-			queryTimeout: r.queryTimeout,
-		}
-		exitableSubs[i] = &SegmentReader{
-			LeafReader:        wrappedLeaf,
-			segmentCommitInfo: sr.segmentCommitInfo,
-			fieldInfos:        sr.fieldInfos,
-			directory:         sr.directory,
-		}
+	for i, sub := range subs {
+		exitableSubs[i] = newExitableFilterAtomicReader(sub, r.queryTimeout)
 	}
 	return exitableSubs
 }
@@ -107,7 +95,18 @@ type ExitableFilterAtomicReader struct {
 	queryTimeout QueryTimeout
 }
 
-func (r *ExitableFilterAtomicReader) GetPointValues(field string) (PointValues, error) {
+// newExitableFilterAtomicReader wraps in so every enumeration it hands out
+// honours queryTimeout. Mirrors the ExitableFilterAtomicReader(LeafReader,
+// QueryTimeout) constructor.
+func newExitableFilterAtomicReader(in LeafReader, queryTimeout QueryTimeout) *ExitableFilterAtomicReader {
+	return &ExitableFilterAtomicReader{
+		LeafReader:   in,
+		in:           in,
+		queryTimeout: queryTimeout,
+	}
+}
+
+func (r *ExitableFilterAtomicReader) GetPointValues(field string) (spi.PointValues, error) {
 	pv, err := r.in.GetPointValues(field)
 	if err != nil || pv == nil {
 		return pv, err
@@ -152,9 +151,11 @@ func (r *ExitableFilterAtomicReader) GetSortedNumericDocValues(field string) (So
 	if err != nil || snv == nil {
 		return snv, err
 	}
-	// If it's a singleton, we wrap the underlying NumericDocValues
-	if nv := unwrapSingleton(snv); nv != nil {
-		return singleton(wrapNumericDocValues(nv)), nil
+	// A singleton view is unwrapped, guarded and re-wrapped so it keeps its
+	// singleton shape, exactly as ExitableFilterAtomicReader does through
+	// DocValues.unwrapSingleton / DocValues.singleton.
+	if nv := UnwrapSingletonSortedNumeric(snv); nv != nil {
+		return Singleton(&exitableNumericDocValues{NumericDocValues: nv, queryTimeout: r.queryTimeout}), nil
 	}
 	return &exitableSortedNumericDocValues{SortedNumericDocValues: snv, queryTimeout: r.queryTimeout}, nil
 }
@@ -164,42 +165,55 @@ func (r *ExitableFilterAtomicReader) GetSortedSetDocValues(field string) (Sorted
 	if err != nil || ssv == nil {
 		return ssv, err
 	}
-	if sv := unwrapSingleton(ssv); sv != nil {
-		return singleton(wrapSortedDocValues(sv)), nil
+	if sv := UnwrapSingletonSortedSet(ssv); sv != nil {
+		return SingletonSortedSet(&exitableSortedDocValues{SortedDocValues: sv, queryTimeout: r.queryTimeout}), nil
 	}
 	return &exitableSortedSetDocValues{SortedSetDocValues: ssv, queryTimeout: r.queryTimeout}, nil
 }
 
-func (r *ExitableFilterAtomicReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+func (r *ExitableFilterAtomicReader) GetFloatVectorValues(field string) (spi.FloatVectorValues, error) {
 	vv, err := r.in.GetFloatVectorValues(field)
 	if err != nil || vv == nil {
 		return vv, err
 	}
-	return &ExitableFloatVectorValues{FloatVectorValues: vv, vectorValues: vv}, nil
+	return &ExitableFloatVectorValues{FloatVectorValues: vv, queryTimeout: r.queryTimeout}, nil
 }
 
-func (r *ExitableFilterAtomicReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+func (r *ExitableFilterAtomicReader) GetByteVectorValues(field string) (spi.ByteVectorValues, error) {
 	vv, err := r.in.GetByteVectorValues(field)
 	if err != nil || vv == nil {
 		return vv, err
 	}
-	return &ExitableByteVectorValues{ByteVectorValues: vv, vectorValues: vv}, nil
+	return &ExitableByteVectorValues{ByteVectorValues: vv, queryTimeout: r.queryTimeout}, nil
 }
 
-func (r *ExitableFilterAtomicReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error) {
+func (r *ExitableFilterAtomicReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits, visitedLimit int) (spi.TopDocs, error) {
 	wrappedAcceptDocs := &ExitableAcceptDocs{
 		in:     acceptDocs,
 		maxDoc: r.MaxDoc(),
 	}
-	return r.in.SearchNearestVectors(field, target, k, wrappedAcceptDocs)
+	return r.in.SearchNearestVectors(field, target, k, wrappedAcceptDocs, visitedLimit)
 }
 
+// byteVectorSearcher is the byte-vector half of Lucene's
+// LeafReader.searchNearestVectors overload pair. spi.LeafReader declares only
+// the float form, so the byte form is recovered from the wrapped leaf.
+type byteVectorSearcher interface {
+	SearchNearestVectorsByte(field string, target []byte, k int, acceptDocs util.Bits) (TopDocs, error)
+}
+
+// SearchNearestVectorsByte runs the byte-vector nearest-neighbour search of the
+// wrapped leaf with an accept-docs view that honours the timeout.
 func (r *ExitableFilterAtomicReader) SearchNearestVectorsByte(field string, target []byte, k int, acceptDocs util.Bits) (TopDocs, error) {
+	searcher, ok := r.in.(byteVectorSearcher)
+	if !ok {
+		return TopDocs{}, fmt.Errorf("index: %T does not support byte vector search", r.in)
+	}
 	wrappedAcceptDocs := &ExitableAcceptDocs{
 		in:     acceptDocs,
 		maxDoc: r.MaxDoc(),
 	}
-	return r.in.SearchNearestVectorsByte(field, target, k, wrappedAcceptDocs)
+	return searcher.SearchNearestVectorsByte(field, target, k, wrappedAcceptDocs)
 }
 
 func (r *ExitableFilterAtomicReader) checkAndThrow(in interface{}) error {
@@ -441,19 +455,15 @@ func (e *exitableSortedSetDocValues) checkAndThrow() error {
 	return nil
 }
 
-func wrapNumericDocValues(in NumericDocValues) NumericDocValues {
-	return &exitableNumericDocValues{NumericDocValues: in}
-}
-
-func wrapSortedDocValues(in SortedDocValues) SortedDocValues {
-	return &exitableSortedDocValues{SortedDocValues: in}
-}
-
-// PointValues Wrappers
+// PointValues wrappers
+//
+// spi.PointValues carries only the per-field statistics; the BKD cursor is
+// recovered from the delegate through pointValuesWithTree, the same technique
+// SortingPointValues uses (sorting_codec_reader_helpers.go).
 
 type ExitablePointValues struct {
-	PointValues
-	in           PointValues
+	spi.PointValues
+	in           spi.PointValues
 	queryTimeout QueryTimeout
 }
 
@@ -464,11 +474,15 @@ func (e *ExitablePointValues) checkAndThrow() error {
 	return nil
 }
 
-func (e *ExitablePointValues) GetPointTree() (PointTree, error) {
+func (e *ExitablePointValues) GetPointTree() (bkd.PointTree, error) {
 	if err := e.checkAndThrow(); err != nil {
 		return nil, err
 	}
-	tree, err := e.in.GetPointTree()
+	withTree, ok := e.in.(pointValuesWithTree)
+	if !ok {
+		return nil, fmt.Errorf("index: ExitablePointValues: %T does not expose GetPointTree", e.in)
+	}
+	tree, err := withTree.GetPointTree()
 	if err != nil || tree == nil {
 		return tree, err
 	}
@@ -493,78 +507,92 @@ func (e *ExitablePointValues) GetMaxPackedValue() ([]byte, error) {
 	return e.in.GetMaxPackedValue()
 }
 
-func (e *ExitablePointValues) GetNumDimensions() (int, error) {
-	if err := e.checkAndThrow(); err != nil {
-		return 0, err
-	}
+func (e *ExitablePointValues) GetNumDimensions() int {
 	return e.in.GetNumDimensions()
 }
 
-func (e *ExitablePointValues) GetNumIndexDimensions() (int, error) {
-	if err := e.checkAndThrow(); err != nil {
-		return 0, err
-	}
-	return e.in.GetNumIndexDimensions()
-}
-
-func (e *ExitablePointValues) GetBytesPerDimension() (int, error) {
-	if err := e.checkAndThrow(); err != nil {
-		return 0, err
-	}
+func (e *ExitablePointValues) GetBytesPerDimension() int {
 	return e.in.GetBytesPerDimension()
 }
 
-func (e *ExitablePointValues) Size() (int64, error) {
-	if err := e.checkAndThrow(); err != nil {
-		return 0, err
-	}
-	return e.in.Size()
+// GetValueCount returns the total number of point values, mirroring
+// PointValues.size().
+func (e *ExitablePointValues) GetValueCount() int64 {
+	return e.in.GetValueCount()
 }
 
-func (e *ExitablePointValues) GetDocCount() (int, error) {
-	if err := e.checkAndThrow(); err != nil {
-		return 0, err
-	}
+// GetDocCountWithValue returns the number of documents carrying a value.
+func (e *ExitablePointValues) GetDocCountWithValue() int64 {
+	return e.in.GetDocCountWithValue()
+}
+
+func (e *ExitablePointValues) GetDocCount() int {
 	return e.in.GetDocCount()
 }
 
+// ExitablePointTree guards a BKD cursor with the query timeout.
+//
+// PORT NOTE: Lucene's checkAndThrow() throws an unchecked
+// ExitingReaderException from every method, including the accessors that carry
+// no error channel in Go (Clone, GetMinPackedValue, GetMaxPackedValue, Size).
+// Those record the timeout in pending instead, and the very next method that
+// can report an error surfaces it, so the walk still stops at the same point.
 type ExitablePointTree struct {
-	pointValues  PointValues
-	in           PointTree
+	pointValues  spi.PointValues
+	in           bkd.PointTree
 	queryTimeout QueryTimeout
 	calls        int
+	pending      error
+}
+
+func (e *ExitablePointTree) timeoutError() error {
+	return &ExitingReaderError{msg: fmt.Sprintf("The request took too long to intersect point values. Timeout: %v, PointValues=%v", e.queryTimeout, e.pointValues)}
 }
 
 func (e *ExitablePointTree) checkAndThrowWithSampling() error {
-	if e.calls%16 == 0 {
-		if e.queryTimeout.ShouldExit() {
-			return &ExitingReaderError{msg: fmt.Sprintf("The request took too long to intersect point values. Timeout: %v, PointValues=%v", e.queryTimeout, e.pointValues)}
-		}
+	if e.pending != nil {
+		return e.takePending()
+	}
+	if e.calls%16 == 0 && e.queryTimeout.ShouldExit() {
+		e.calls++
+		return e.timeoutError()
 	}
 	e.calls++
 	return nil
 }
 
 func (e *ExitablePointTree) checkAndThrow() error {
+	if e.pending != nil {
+		return e.takePending()
+	}
 	if e.queryTimeout.ShouldExit() {
-		return &ExitingReaderError{msg: fmt.Sprintf("The request took too long to intersect point values. Timeout: %v, PointValues=%v", e.queryTimeout, e.pointValues)}
+		return e.timeoutError()
 	}
 	return nil
 }
 
-func (e *ExitablePointTree) Clone() (PointTree, error) {
-	if err := e.checkAndThrow(); err != nil {
-		return nil, err
+// recordIfTimedOut latches a timeout hit from an accessor that cannot report
+// an error, so the next error-returning method reports it.
+func (e *ExitablePointTree) recordIfTimedOut() {
+	if e.pending == nil && e.queryTimeout.ShouldExit() {
+		e.pending = e.timeoutError()
 	}
-	cloned, err := e.in.Clone()
-	if err != nil || cloned == nil {
-		return cloned, err
-	}
+}
+
+func (e *ExitablePointTree) takePending() error {
+	err := e.pending
+	e.pending = nil
+	return err
+}
+
+func (e *ExitablePointTree) Clone() bkd.PointTree {
+	e.recordIfTimedOut()
 	return &ExitablePointTree{
 		pointValues:  e.pointValues,
-		in:           cloned,
+		in:           e.in.Clone(),
 		queryTimeout: e.queryTimeout,
-	}, nil
+		pending:      e.pending,
+	}
 }
 
 func (e *ExitablePointTree) MoveToChild() (bool, error) {
@@ -588,35 +616,29 @@ func (e *ExitablePointTree) MoveToParent() (bool, error) {
 	return e.in.MoveToParent()
 }
 
-func (e *ExitablePointTree) GetMinPackedValue() ([]byte, error) {
-	if err := e.checkAndThrowWithSampling(); err != nil {
-		return nil, err
-	}
+func (e *ExitablePointTree) GetMinPackedValue() []byte {
+	e.recordIfTimedOut()
 	return e.in.GetMinPackedValue()
 }
 
-func (e *ExitablePointTree) GetMaxPackedValue() ([]byte, error) {
-	if err := e.checkAndThrowWithSampling(); err != nil {
-		return nil, err
-	}
+func (e *ExitablePointTree) GetMaxPackedValue() []byte {
+	e.recordIfTimedOut()
 	return e.in.GetMaxPackedValue()
 }
 
-func (e *ExitablePointTree) Size() (int64, error) {
-	if err := e.checkAndThrow(); err != nil {
-		return 0, err
-	}
+func (e *ExitablePointTree) Size() int64 {
+	e.recordIfTimedOut()
 	return e.in.Size()
 }
 
-func (e *ExitablePointTree) VisitDocIDs(visitor PointValues.IntersectVisitor) error {
+func (e *ExitablePointTree) VisitDocIDs(visitor bkd.IntersectVisitor) error {
 	if err := e.checkAndThrow(); err != nil {
 		return err
 	}
 	return e.in.VisitDocIDs(visitor)
 }
 
-func (e *ExitablePointTree) VisitDocValues(visitor PointValues.IntersectVisitor) error {
+func (e *ExitablePointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
 	if err := e.checkAndThrow(); err != nil {
 		return err
 	}
@@ -627,27 +649,41 @@ func (e *ExitablePointTree) VisitDocValues(visitor PointValues.IntersectVisitor)
 	return e.in.VisitDocValues(wrappedVisitor)
 }
 
+// ExitableIntersectVisitor guards a BKD intersect visitor with the query
+// timeout. Mirrors ExitableDirectoryReader.ExitableIntersectVisitor.
+//
+// PORT NOTE: Compare and Grow carry no error channel in bkd.IntersectVisitor,
+// so a timeout hit there is latched in pending and reported by the next Visit
+// or VisitByPackedValue call, which the walk always reaches next.
 type ExitableIntersectVisitor struct {
-	in           PointValues.IntersectVisitor
+	in           bkd.IntersectVisitor
 	queryTimeout QueryTimeout
 	calls        int
+	pending      error
+}
+
+func (v *ExitableIntersectVisitor) timeoutError() error {
+	return &ExitingReaderError{msg: fmt.Sprintf("The request took too long to intersect point values. Timeout: %v, IntersectVisitor=%v", v.queryTimeout, v.in)}
 }
 
 func (v *ExitableIntersectVisitor) checkAndThrowWithSampling() error {
-	if v.calls%16 == 0 {
-		if v.queryTimeout.ShouldExit() {
-			return &ExitingReaderError{msg: fmt.Sprintf("The request took too long to intersect point values. Timeout: %v, PointValues=%v", v.queryTimeout, v.in)}
-		}
+	if v.pending != nil {
+		err := v.pending
+		v.pending = nil
+		return err
+	}
+	if v.calls%16 == 0 && v.queryTimeout.ShouldExit() {
+		v.calls++
+		return v.timeoutError()
 	}
 	v.calls++
 	return nil
 }
 
-func (v *ExitableIntersectVisitor) checkAndThrow() error {
-	if v.queryTimeout.ShouldExit() {
-		return &ExitingReaderError{msg: fmt.Sprintf("The request took too long to intersect point values. Timeout: %v, PointValues=%v", v.queryTimeout, v.in)}
+func (v *ExitableIntersectVisitor) recordIfTimedOut() {
+	if v.pending == nil && v.queryTimeout.ShouldExit() {
+		v.pending = v.timeoutError()
 	}
-	return nil
 }
 
 func (v *ExitableIntersectVisitor) Visit(docID int) error {
@@ -657,36 +693,31 @@ func (v *ExitableIntersectVisitor) Visit(docID int) error {
 	return v.in.Visit(docID)
 }
 
-func (v *ExitableIntersectVisitor) VisitWithPackedValue(docID int, packedValue []byte) error {
+func (v *ExitableIntersectVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
 	if err := v.checkAndThrowWithSampling(); err != nil {
 		return err
 	}
-	return v.in.VisitWithPackedValue(docID, packedValue)
+	return v.in.VisitByPackedValue(docID, packedValue)
 }
 
-func (v *ExitableIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) PointValues.Relation {
-	if err := v.checkAndThrow(); err != nil {
-		// In Go, this returns a Relation (int). We might need to signal error via another way
-		// but we follow the Lucene signature.
-	}
+func (v *ExitableIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+	v.recordIfTimedOut()
 	return v.in.Compare(minPackedValue, maxPackedValue)
 }
 
 func (v *ExitableIntersectVisitor) Grow(count int) {
-	if err := v.checkAndThrow(); err != nil {
-		// ignore
-	}
+	v.recordIfTimedOut()
 	v.in.Grow(count)
 }
 
-// Terms Wrappers
+// Terms wrappers
 
 type ExitableTerms struct {
 	Terms
 	queryTimeout QueryTimeout
 }
 
-func (t *ExitableTerms) Intersect(compiled spi.CompiledAutomaton, startTerm util.BytesRef) (TermsEnum, error) {
+func (t *ExitableTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *spi.Term) (TermsEnum, error) {
 	enum, err := t.Terms.Intersect(compiled, startTerm)
 	if err != nil || enum == nil {
 		return enum, err
@@ -698,8 +729,24 @@ func (t *ExitableTerms) Intersect(compiled spi.CompiledAutomaton, startTerm util
 	}, nil
 }
 
-func (t *ExitableTerms) Iterator() (TermsEnum, error) {
-	enum, err := t.Terms.Iterator()
+// GetIterator returns the guarded term enumeration. Mirrors
+// ExitableTerms.iterator().
+func (t *ExitableTerms) GetIterator() (TermsEnum, error) {
+	enum, err := t.Terms.GetIterator()
+	if err != nil || enum == nil {
+		return enum, err
+	}
+	return &ExitableTermsEnum{
+		TermsEnum:    enum,
+		in:           enum,
+		queryTimeout: t.queryTimeout,
+	}, nil
+}
+
+// GetIteratorWithSeek returns the guarded term enumeration positioned at or
+// after seekTerm.
+func (t *ExitableTerms) GetIteratorWithSeek(seekTerm *spi.Term) (TermsEnum, error) {
+	enum, err := t.Terms.GetIteratorWithSeek(seekTerm)
 	if err != nil || enum == nil {
 		return enum, err
 	}
@@ -727,37 +774,111 @@ func (e *ExitableTermsEnum) checkTimeoutWithSampling() error {
 	return nil
 }
 
-func (e *ExitableTermsEnum) Next() (util.BytesRef, error) {
+func (e *ExitableTermsEnum) Next() (*spi.Term, error) {
 	if err := e.checkTimeoutWithSampling(); err != nil {
 		return nil, err
 	}
 	return e.in.Next()
 }
 
-// Vector Wrappers
+// Vector wrappers
 
+// vectorValuesWithIterator is the (docID, ordinal) cursor Lucene 10.5.0 exposes
+// through KnnVectorValues.iterator(). spi.FloatVectorValues / spi.ByteVectorValues
+// carry only the document-addressed surface, so the cursor is recovered from
+// the delegate.
+type vectorValuesWithIterator interface {
+	Iterator() util.DocIndexIterator
+}
+
+// ExitableFloatVectorValues guards a float-vector view with the query timeout.
 type ExitableFloatVectorValues struct {
-	FloatVectorValues
-	vectorValues FloatVectorValues
+	spi.FloatVectorValues
+	queryTimeout QueryTimeout
+	nextCheck    int
 }
 
-func (v *ExitableFloatVectorValues) Iterator() DocIndexIterator {
-	// Note: We need to access the queryTimeout from the reader that created this.
-	// Since we don't have a direct reference, this is a tricky part of the port.
-	// In Java, it's passed in. We'll have to adjust the constructor.
-	return nil // placeholder
+func (v *ExitableFloatVectorValues) timeoutError() error {
+	return &ExitingReaderError{msg: fmt.Sprintf("The request took too long to iterate over knn vector values. Timeout: %v, KnnVectorValues=%v", v.queryTimeout, v.FloatVectorValues)}
 }
 
+func (v *ExitableFloatVectorValues) NextDoc() (int, error) {
+	doc, err := v.FloatVectorValues.NextDoc()
+	if err == nil && doc >= v.nextCheck {
+		if v.queryTimeout.ShouldExit() {
+			return -1, v.timeoutError()
+		}
+		v.nextCheck = doc + docsBetweenTimeoutCheck
+	}
+	return doc, err
+}
+
+func (v *ExitableFloatVectorValues) Advance(target int) (int, error) {
+	doc, err := v.FloatVectorValues.Advance(target)
+	if err == nil && doc >= v.nextCheck {
+		if v.queryTimeout.ShouldExit() {
+			return -1, v.timeoutError()
+		}
+		v.nextCheck = doc + docsBetweenTimeoutCheck
+	}
+	return doc, err
+}
+
+// Iterator returns the delegate's cursor wrapped so the timeout is honoured
+// while walking it, or nil when the delegate exposes no cursor. Mirrors
+// ExitableFloatVectorValues.iterator().
+func (v *ExitableFloatVectorValues) Iterator() util.DocIndexIterator {
+	src, ok := v.FloatVectorValues.(vectorValuesWithIterator)
+	if !ok {
+		return nil
+	}
+	return createExitableIterator(src.Iterator(), v.queryTimeout)
+}
+
+// ExitableByteVectorValues guards a byte-vector view with the query timeout.
 type ExitableByteVectorValues struct {
-	ByteVectorValues
-	vectorValues ByteVectorValues
+	spi.ByteVectorValues
+	queryTimeout QueryTimeout
+	nextCheck    int
 }
 
-func (v *ExitableByteVectorValues) Iterator() DocIndexIterator {
-	return nil // placeholder
+func (v *ExitableByteVectorValues) timeoutError() error {
+	return &ExitingReaderError{msg: fmt.Sprintf("The request took too long to iterate over knn vector values. Timeout: %v, KnnVectorValues=%v", v.queryTimeout, v.ByteVectorValues)}
 }
 
-func createExitableIterator(delegate DocIndexIterator, queryTimeout QueryTimeout) DocIndexIterator {
+func (v *ExitableByteVectorValues) NextDoc() (int, error) {
+	doc, err := v.ByteVectorValues.NextDoc()
+	if err == nil && doc >= v.nextCheck {
+		if v.queryTimeout.ShouldExit() {
+			return -1, v.timeoutError()
+		}
+		v.nextCheck = doc + docsBetweenTimeoutCheck
+	}
+	return doc, err
+}
+
+func (v *ExitableByteVectorValues) Advance(target int) (int, error) {
+	doc, err := v.ByteVectorValues.Advance(target)
+	if err == nil && doc >= v.nextCheck {
+		if v.queryTimeout.ShouldExit() {
+			return -1, v.timeoutError()
+		}
+		v.nextCheck = doc + docsBetweenTimeoutCheck
+	}
+	return doc, err
+}
+
+// Iterator returns the delegate's cursor wrapped so the timeout is honoured
+// while walking it, or nil when the delegate exposes no cursor.
+func (v *ExitableByteVectorValues) Iterator() util.DocIndexIterator {
+	src, ok := v.ByteVectorValues.(vectorValuesWithIterator)
+	if !ok {
+		return nil
+	}
+	return createExitableIterator(src.Iterator(), v.queryTimeout)
+}
+
+func createExitableIterator(delegate util.DocIndexIterator, queryTimeout QueryTimeout) util.DocIndexIterator {
 	return &exitableDocIndexIterator{
 		delegate:     delegate,
 		queryTimeout: queryTimeout,
@@ -765,7 +886,7 @@ func createExitableIterator(delegate DocIndexIterator, queryTimeout QueryTimeout
 }
 
 type exitableDocIndexIterator struct {
-	delegate     DocIndexIterator
+	delegate     util.DocIndexIterator
 	queryTimeout QueryTimeout
 	nextCheck    int
 }
@@ -776,6 +897,10 @@ func (i *exitableDocIndexIterator) Index() int {
 
 func (i *exitableDocIndexIterator) DocID() int {
 	return i.delegate.DocID()
+}
+
+func (i *exitableDocIndexIterator) DocIDRunEnd() int {
+	return i.delegate.DocIDRunEnd()
 }
 
 func (i *exitableDocIndexIterator) NextDoc() (int, error) {
@@ -804,8 +929,10 @@ func (i *exitableDocIndexIterator) Advance(target int) (int, error) {
 	return doc, err
 }
 
-// AcceptDocs Wrapper
+// AcceptDocs wrapper
 
+// ExitableAcceptDocs exposes the query's accepted documents as util.Bits,
+// treating a nil delegate as "every document is accepted" over maxDoc.
 type ExitableAcceptDocs struct {
 	in     util.Bits
 	maxDoc int
@@ -825,23 +952,36 @@ func (a *ExitableAcceptDocs) Length() int {
 	return a.in.Length()
 }
 
+// Cardinality counts the accepted documents. util.Bits requires it; Lucene's
+// Bits carries only get/length.
+func (a *ExitableAcceptDocs) Cardinality() int {
+	if a.in == nil {
+		return a.maxDoc
+	}
+	return a.in.Cardinality()
+}
+
+// bitsWithIterator is the doc-id cursor Lucene 10.5.0's AcceptDocs exposes
+// through iterator(). util.Bits does not declare it, so it is recovered from
+// the delegate.
+type bitsWithIterator interface {
+	Iterator() (util.DocIdSetIterator, error)
+}
+
+// Iterator returns the delegate's doc-id cursor over the accepted documents.
 func (a *ExitableAcceptDocs) Iterator() (util.DocIdSetIterator, error) {
 	if a.in == nil {
-		return nil, fmt.Errorf("no bits available")
+		return nil, fmt.Errorf("index: ExitableAcceptDocs: no bits available")
 	}
-	return a.in.Iterator()
+	it, ok := a.in.(bitsWithIterator)
+	if !ok {
+		return nil, fmt.Errorf("index: ExitableAcceptDocs: %T exposes no doc-id iterator", a.in)
+	}
+	return it.Iterator()
 }
 
+// Cost returns the accepted-document count, matching the cost the doc-id
+// cursor over these bits reports.
 func (a *ExitableAcceptDocs) Cost() int {
-	return 0
-}
-
-// Helper functions for singleton wrapping
-
-func unwrapSingleton(sv interface{}) interface{} {
-	return nil
-}
-
-func singleton(v interface{}) interface{} {
-	return v
+	return a.Cardinality()
 }

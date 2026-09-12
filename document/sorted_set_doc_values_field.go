@@ -5,7 +5,7 @@
 package document
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // SortedSetDocValuesField is a field that stores multiple binary values as sorted DocValues.
@@ -29,7 +29,7 @@ func init() {
 	SortedSetDocValuesFieldType = NewFieldType().
 		SetIndexed(false).
 		SetStored(false).
-		SetDocValuesType(schema.DocValuesTypeSortedSet)
+		SetDocValuesType(spi.DocValuesTypeSortedSet)
 	SortedSetDocValuesFieldType.Freeze()
 }
 

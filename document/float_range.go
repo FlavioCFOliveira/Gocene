@@ -35,11 +35,11 @@ const BYTES = 4
 // min range min values; each entry is the min value for the dimension.
 // max range max values; each entry is the max value for the dimension.
 func NewFloatRange(name string, min, max []float32) (*FloatRange, error) {
-	if err := checkArgs(min, max); err != nil {
+	if err := checkFloatRangeArgs(min, max); err != nil {
 		return nil, err
 	}
 
-	ft := getType(len(min))
+	ft := getFloatRangeType(len(min))
 	f, err := NewField(name, nil, ft)
 	if err != nil {
 		return nil, err
@@ -53,7 +53,7 @@ func NewFloatRange(name string, min, max []float32) (*FloatRange, error) {
 	return fr, nil
 }
 
-func getType(dimensions int) *FieldType {
+func getFloatRangeType(dimensions int) *FieldType {
 	if dimensions > 4 {
 		panic("FloatRange does not support greater than 4 dimensions")
 	}
@@ -70,7 +70,7 @@ func getType(dimensions int) *FieldType {
 // min array of min values. (accepts math.Inf(-1))
 // max array of max values. (accepts math.Inf(1))
 func (fr *FloatRange) SetRangeValues(min, max []float32) error {
-	if err := checkArgs(min, max); err != nil {
+	if err := checkFloatRangeArgs(min, max); err != nil {
 		return err
 	}
 
@@ -90,7 +90,7 @@ func (fr *FloatRange) SetRangeValues(min, max []float32) error {
 	return verifyAndEncode(min, max, bytes)
 }
 
-func checkArgs(min, max []float32) error {
+func checkFloatRangeArgs(min, max []float32) error {
 	if min == nil || max == nil || len(min) == 0 || len(max) == 0 {
 		return fmt.Errorf("min/max range values cannot be null or empty")
 	}
@@ -105,7 +105,7 @@ func checkArgs(min, max []float32) error {
 
 // Encode encodes the min, max ranges into a byte array.
 func Encode(min, max []float32) ([]byte, error) {
-	if err := checkArgs(min, max); err != nil {
+	if err := checkFloatRangeArgs(min, max); err != nil {
 		return nil, err
 	}
 	b := make([]byte, BYTES*2*len(min))
@@ -167,28 +167,28 @@ func DecodeMax(b []byte, dimension int) float32 {
 	return util.SortableIntToFloat(util.SortableBytesToInt(b, offset))
 }
 
-// NewIntersectsQuery creates a query for matching indexed ranges that intersect the defined range.
-func NewIntersectsQuery(field string, min, max []float32) (*RangeFieldQuery, error) {
-	return newRelationQuery(field, min, max, RangeFieldQueryTypeIntersects)
+// NewFloatRangeIntersectsQuery creates a query for matching indexed ranges that intersect the defined range.
+func NewFloatRangeIntersectsQuery(field string, min, max []float32) (*RangeFieldQuery, error) {
+	return newFloatRelationQuery(field, min, max, RangeFieldQueryTypeIntersects)
 }
 
-// NewContainsQuery creates a query for matching indexed float ranges that contain the defined range.
-func NewContainsQuery(field string, min, max []float32) (*RangeFieldQuery, error) {
-	return newRelationQuery(field, min, max, RangeFieldQueryTypeContains)
+// NewFloatRangeContainsQuery creates a query for matching indexed float ranges that contain the defined range.
+func NewFloatRangeContainsQuery(field string, min, max []float32) (*RangeFieldQuery, error) {
+	return newFloatRelationQuery(field, min, max, RangeFieldQueryTypeContains)
 }
 
-// NewWithinQuery creates a query for matching indexed ranges that are within the defined range.
-func NewWithinQuery(field string, min, max []float32) (*RangeFieldQuery, error) {
-	return newRelationQuery(field, min, max, RangeFieldQueryTypeWithin)
+// NewFloatRangeWithinQuery creates a query for matching indexed ranges that are within the defined range.
+func NewFloatRangeWithinQuery(field string, min, max []float32) (*RangeFieldQuery, error) {
+	return newFloatRelationQuery(field, min, max, RangeFieldQueryTypeWithin)
 }
 
-// NewCrossesQuery creates a query for matching indexed ranges that cross the defined range.
-func NewCrossesQuery(field string, min, max []float32) (*RangeFieldQuery, error) {
-	return newRelationQuery(field, min, max, RangeFieldQueryTypeCrosses)
+// NewFloatRangeCrossesQuery creates a query for matching indexed ranges that cross the defined range.
+func NewFloatRangeCrossesQuery(field string, min, max []float32) (*RangeFieldQuery, error) {
+	return newFloatRelationQuery(field, min, max, RangeFieldQueryTypeCrosses)
 }
 
-func newRelationQuery(field string, min, max []float32, relation RangeFieldQueryType) (*RangeFieldQuery, error) {
-	if err := checkArgs(min, max); err != nil {
+func newFloatRelationQuery(field string, min, max []float32, relation RangeFieldQueryType) (*RangeFieldQuery, error) {
+	if err := checkFloatRangeArgs(min, max); err != nil {
 		return nil, err
 	}
 	encoded, err := Encode(min, max)

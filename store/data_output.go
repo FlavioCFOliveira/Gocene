@@ -3,31 +3,12 @@ package store
 import (
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DataOutput is an interface for performing write operations of Lucene's low-level data types.
-// It may only be used from one thread, because it is not thread safe (it keeps
-// internal state like file position).
-//
-// This is a port of org.apache.lucene.store.DataOutput.
-type DataOutput interface {
-	WriteByte(b byte) error
-	WriteBytes(b []byte, offset, length int) error
-	WriteBytesN(b []byte, n int) error
-	WriteInt(i int32) error
-	WriteShort(i int16) error
-	WriteVInt(i int32) error
-	WriteZInt(i int32) error
-	WriteLong(i int64) error
-	WriteVLong(i int64) error
-	WriteZLong(i int64) error
-	WriteString(s string) error
-	CopyBytes(input DataInput, numBytes int64) error
-	WriteMapOfStrings(m map[string]string) error
-	WriteSetOfStrings(s []string) error
-	WriteGroupVInts(values []int32, limit int) error
-}
+type DataOutput = spi.DataOutput
 
 // PrimitiveWriter is an internal interface used by BaseDataOutput to delegate
 // the most basic write operations.

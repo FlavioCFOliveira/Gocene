@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // IndexableField represents a single field for indexing. IndexWriter consumes
@@ -18,8 +19,8 @@ type IndexableField interface {
 	// Name returns the field name.
 	Name() string
 
-	// FieldType returns the schema.IndexableFieldType describing the properties of this field.
-	FieldType() schema.IndexableFieldType
+	// FieldType returns the spi.IndexableFieldType describing the properties of this field.
+	FieldType() spi.IndexableFieldType
 
 	// TokenStream creates the TokenStream used for indexing this field.
 	// If appropriate, implementations should use the given analyzer to create the TokenStreams.

@@ -186,7 +186,7 @@ func loadCharacterDefinition(data []byte) (*CharacterDefinition, error) {
 		return nil, err
 	}
 	var categoryMap [0x10000]byte
-	if err := r.ReadBytes(categoryMap[:]); err != nil {
+	if err := r.ReadBytes(categoryMap[:], 0, len(categoryMap)); err != nil {
 		return nil, fmt.Errorf("ko/dict: CharacterDefinition: category map: %w", err)
 	}
 	invokeMap := make([]bool, CharClassCount)
@@ -267,7 +267,7 @@ func loadBinaryDict(targetMapData []byte, targetMapCodec string,
 		return nil, fmt.Errorf("ko/dict: BinaryDict(%s): bufSize: %w", dictCodec, err)
 	}
 	buf := make([]byte, int(bufSize))
-	if err := dr.ReadBytes(buf); err != nil {
+	if err := dr.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, fmt.Errorf("ko/dict: BinaryDict(%s): buffer: %w", dictCodec, err)
 	}
 
@@ -417,4 +417,3 @@ func loadUnknownDictionary() (*UnknownDictionary, error) {
 	charDef := GetCharacterDefinitionInstance()
 	return NewUnknownDictionary(morphAtts, charDef, buildTargetMapSlices(binaryDict)), nil
 }
-

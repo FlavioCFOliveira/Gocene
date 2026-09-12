@@ -89,7 +89,7 @@ func NewNepaliAnalyzerWithStopWords(stopWords *analysis.CharArraySet) *NepaliAna
 // stem-exclusion set.
 func NewNepaliAnalyzerFull(stopWords, stemExclusionSet *analysis.CharArraySet) *NepaliAnalyzer {
 	a := &NepaliAnalyzer{
-		BaseAnalyzer:     analysis.NewAnalyzer(),
+		BaseAnalyzer:     analysis.NewAnalyzer(analysis.GlobalReuseStrategy),
 		stopWords:        stopWords,
 		stemExclusionSet: stemExclusionSet,
 	}
@@ -113,4 +113,3 @@ func (a *NepaliAnalyzer) TokenStream(fieldName string, reader io.Reader) (analys
 
 // Ensure NepaliAnalyzer implements Analyzer.
 var _ analysis.Analyzer = (*NepaliAnalyzer)(nil)
-var _ analysis.api.Analyzer = (*NepaliAnalyzer)(nil)

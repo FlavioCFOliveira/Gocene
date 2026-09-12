@@ -4,10 +4,6 @@
 
 package spi
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
-)
-
 // PostingsFormat encodes and decodes the term -> document postings of a
 // segment. Lucene stores postings in the per-segment .pst / .doc / .pos
 // / .pay files; the format is responsible for both the on-disk byte
@@ -37,7 +33,7 @@ type PostingsFormat interface {
 // Mirrors org.apache.lucene.codecs.FieldsConsumer.
 type FieldsConsumer interface {
 	// Write serialises the postings for one field.
-	Write(field string, terms schema.Terms) error
+	Write(field string, terms Terms) error
 
 	// Close releases any resources held by the consumer.
 	Close() error
@@ -50,7 +46,7 @@ type FieldsConsumer interface {
 type FieldsProducer interface {
 	// Terms returns the Terms enumeration for the given field, or nil
 	// when the field has no postings in this segment.
-	Terms(field string) (schema.Terms, error)
+	Terms(field string) (Terms, error)
 
 	// CheckIntegrity walks the per-field postings data and validates the
 	// checksum framing.

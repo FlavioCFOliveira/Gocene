@@ -13,26 +13,30 @@
 
 package hnsw
 
-// OrdinalTranslatedKnnCollector wraps a KnnCollector and translates
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
+// OrdinalTranslatedKnnCollector wraps a spi.KnnCollector and translates
 // the vectorId ordinal to a documentId before delegating to the
 // underlying collector. Port of
 // org.apache.lucene.util.hnsw.OrdinalTranslatedKnnCollector
 // (Lucene 10.4.0).
 //
-// Lucene extends KnnCollector.Decorator (an inner class of the
-// canonical spi.KnnCollector). The local KnnCollector stub in
+// Lucene extends spi.KnnCollector.Decorator (an inner class of the
+// canonical spi.spi.KnnCollector). The local spi.KnnCollector stub in
 // knn_collector.go does not expose a Decorator helper, so this
 // implementation delegates by composition: it embeds the wrapped
-// KnnCollector and overrides Collect and TopDocs.
+// spi.KnnCollector and overrides Collect and spi.TopDocs.
 type OrdinalTranslatedKnnCollector struct {
-	KnnCollector
+	spi.KnnCollector
 	vectorOrdinalToDocID IntToIntFunction
 }
 
 // NewOrdinalTranslatedKnnCollector wraps collector so that every
 // Collect call translates vectorId via vectorOrdinalToDocID before
 // passing through.
-func NewOrdinalTranslatedKnnCollector(collector KnnCollector, vectorOrdinalToDocID IntToIntFunction) *OrdinalTranslatedKnnCollector {
+func NewOrdinalTranslatedKnnCollector(collector spi.KnnCollector, vectorOrdinalToDocID IntToIntFunction) *OrdinalTranslatedKnnCollector {
 	return &OrdinalTranslatedKnnCollector{
 		KnnCollector:         collector,
 		vectorOrdinalToDocID: vectorOrdinalToDocID,
@@ -45,14 +49,14 @@ func (c *OrdinalTranslatedKnnCollector) Collect(vectorID int, similarity float32
 	return c.KnnCollector.Collect(c.vectorOrdinalToDocID.Apply(vectorID), similarity)
 }
 
-// TopDocs returns the wrapped TopDocs with a fresh TotalHits that
+// spi.TopDocs returns the wrapped spi.TopDocs with a fresh TotalHits that
 // reports the current visitedCount and the early-termination
 // relation. Mirrors Lucene's override exactly.
-func (c *OrdinalTranslatedKnnCollector) TopDocs() *TopDocs {
+func (c *OrdinalTranslatedKnnCollector) TopDocs() *spi.TopDocs {
 	td := c.KnnCollector.TopDocs()
-	rel := EqualTo
+	rel := spi.EQUAL_TO
 	if c.KnnCollector.EarlyTerminated() {
-		rel = GreaterThanOrEqualTo
+		rel = spi.GREATER_THAN_OR_EQUAL_TO
 	}
-	return NewTopDocs(NewTotalHits(c.KnnCollector.VisitedCount(), rel), td.ScoreDocs)
+	return spi.NewTopDocs(spi.NewTotalHits(c.KnnCollector.VisitedCount(), rel), td.ScoreDocs)
 }

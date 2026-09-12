@@ -6,6 +6,7 @@ package index
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -14,7 +15,7 @@ import (
 // Returns the new reader if changed, or the same reader if unchanged.
 //
 // This implements GC-641: openIfChanged for IndexReader
-func OpenIfChanged(reader IndexReaderInterface) (IndexReaderInterface, error) {
+func OpenIfChanged(reader spi.IndexReaderInterface) (spi.IndexReaderInterface, error) {
 	// Check if the reader supports IsCurrent
 	type currentChecker interface {
 		IsCurrent() (bool, error)
@@ -41,7 +42,7 @@ func OpenIfChanged(reader IndexReaderInterface) (IndexReaderInterface, error) {
 // what the reader was opened with.
 //
 // This implements GC-641: openIfChanged with commit
-func OpenIfChangedWithCommit(reader IndexReaderInterface, commit *IndexCommit) (IndexReaderInterface, error) {
+func OpenIfChangedWithCommit(reader spi.IndexReaderInterface, commit *IndexCommit) (spi.IndexReaderInterface, error) {
 	if commit == nil {
 		return OpenIfChanged(reader)
 	}
@@ -63,77 +64,138 @@ func OpenIfChangedWithCommit(reader IndexReaderInterface, commit *IndexCommit) (
 	return reader, fmt.Errorf("reopening from commit not yet fully implemented")
 }
 
-// GetDocCount returns the number of documents containing at least one term for the given field.
-// Returns 0 if the field does not exist or has no terms.
+// leafTerms narrows a reader to the LeafReader terms accessor. IndexReader is
+// an alias of the SPI reader interface, which does not carry Terms(field);
+// leaves do.
+type leafTerms interface {
+	Terms(field string) (Terms, error)
+}
+
+// GetDocCount returns the number of documents that have at least one term for
+// field, 0 when the field is absent.
 //
-// This implements GC-644: getDocCount
-func (r *IndexReader) GetDocCount(field string) (int, error) {
-	terms, err := r.Terms(field)
+// Mirrors org.apache.lucene.index.IndexReader.getDocCount(String): a leaf reads
+// the value off the field's Terms, a composite sums its sub-readers.
+//
+// PORT NOTE: Lucene declares this abstract on IndexReader and overrides it in
+// LeafReader and BaseCompositeReader. index.IndexReader is an alias of
+// spi.IndexReaderInterface — a non-local type, on which Go forbids new methods
+// — so the two overrides are reunited here as one free function that dispatches
+// on the reader's own shape.
+func GetDocCount(reader IndexReader, field string) (int, error) {
+	if leaf, ok := reader.(leafTerms); ok {
+		terms, err := leaf.Terms(field)
+		if err != nil {
+			return 0, err
+		}
+		if terms == nil {
+			return 0, nil
+		}
+		return terms.GetDocCount()
+	}
+	leaves, err := reader.Leaves()
 	if err != nil {
 		return 0, err
 	}
-	if terms == nil {
-		return 0, nil
+	total := 0
+	for _, ctx := range leaves {
+		sub, err := GetDocCount(ctx.LeafReader(), field)
+		if err != nil {
+			return 0, err
+		}
+		total += sub
 	}
-	return terms.GetDocCount()
+	return total, nil
 }
 
-// GetSumDocFreq returns the sum of document frequencies for all terms in the given field.
-// Returns -1 if the field does not exist or the value is unknown.
+// GetSumDocFreq returns the sum of the document frequencies of every term in
+// field, 0 when the field is absent.
 //
-// This implements GC-645: getSumDocFreq
-func (r *IndexReader) GetSumDocFreq(field string) (int64, error) {
-	terms, err := r.Terms(field)
+// Mirrors org.apache.lucene.index.IndexReader.getSumDocFreq(String). See the
+// port note on [GetDocCount] for why it is a free function.
+func GetSumDocFreq(reader IndexReader, field string) (int64, error) {
+	if leaf, ok := reader.(leafTerms); ok {
+		terms, err := leaf.Terms(field)
+		if err != nil {
+			return 0, err
+		}
+		if terms == nil {
+			return 0, nil
+		}
+		return terms.GetSumDocFreq()
+	}
+	leaves, err := reader.Leaves()
 	if err != nil {
-		return -1, err
+		return 0, err
 	}
-	if terms == nil {
-		return -1, nil
+	var total int64
+	for _, ctx := range leaves {
+		sub, err := GetSumDocFreq(ctx.LeafReader(), field)
+		if err != nil {
+			return 0, err
+		}
+		total += sub
 	}
-	return terms.GetSumDocFreq()
+	return total, nil
 }
 
-// GetSumTotalTermFreq returns the sum of total term frequencies for all terms in the given field.
-// Returns -1 if the field does not exist or the value is unknown.
+// GetSumTotalTermFreq returns the sum of the total term frequencies of every
+// term in field, 0 when the field is absent.
 //
-// This implements GC-646: getSumTotalTermFreq
-func (r *IndexReader) GetSumTotalTermFreq(field string) (int64, error) {
-	terms, err := r.Terms(field)
+// Mirrors org.apache.lucene.index.IndexReader.getSumTotalTermFreq(String). See
+// the port note on [GetDocCount] for why it is a free function.
+func GetSumTotalTermFreq(reader IndexReader, field string) (int64, error) {
+	if leaf, ok := reader.(leafTerms); ok {
+		terms, err := leaf.Terms(field)
+		if err != nil {
+			return 0, err
+		}
+		if terms == nil {
+			return 0, nil
+		}
+		return terms.GetSumTotalTermFreq()
+	}
+	leaves, err := reader.Leaves()
 	if err != nil {
-		return -1, err
+		return 0, err
 	}
-	if terms == nil {
-		return -1, nil
+	var total int64
+	for _, ctx := range leaves {
+		sub, err := GetSumTotalTermFreq(ctx.LeafReader(), field)
+		if err != nil {
+			return 0, err
+		}
+		total += sub
 	}
-	return terms.GetSumTotalTermFreq()
+	return total, nil
 }
 
 // IndexReaderAdvanced provides advanced IndexReader operations.
 // This is a helper struct for advanced reader operations.
 type IndexReaderAdvanced struct {
-	reader IndexReaderInterface
+	reader spi.IndexReaderInterface
 }
 
 // NewIndexReaderAdvanced creates a new IndexReaderAdvanced wrapper.
-func NewIndexReaderAdvanced(reader IndexReaderInterface) *IndexReaderAdvanced {
+func NewIndexReaderAdvanced(reader spi.IndexReaderInterface) *IndexReaderAdvanced {
 	return &IndexReaderAdvanced{reader: reader}
 }
 
 // OpenIfChanged reopens the index if there have been changes.
 // Returns the new reader if changed, or the same reader if unchanged.
-func (a *IndexReaderAdvanced) OpenIfChanged() (IndexReaderInterface, error) {
+func (a *IndexReaderAdvanced) OpenIfChanged() (spi.IndexReaderInterface, error) {
 	return OpenIfChanged(a.reader)
 }
 
 // OpenIfChangedWithWriter reopens the index if there have been changes made by the given writer.
-func (a *IndexReaderAdvanced) OpenIfChangedWithWriter(writer *IndexWriter) (IndexReaderInterface, error) {
+func (a *IndexReaderAdvanced) OpenIfChangedWithWriter(writer *IndexWriter) (spi.IndexReaderInterface, error) {
 	// If a writer is provided, we should check if there are uncommitted changes
 	// For now, just delegate to OpenIfChanged
 	return OpenIfChanged(a.reader)
 }
 
 // OpenIfChangedWithCommit reopens the index if the provided commit is different.
-func (a *IndexReaderAdvanced) OpenIfChangedWithCommit(commit *IndexCommit) (IndexReaderInterface, error) {
+func (a *IndexReaderAdvanced) OpenIfChangedWithCommit(commit *IndexCommit) (spi.IndexReaderInterface, error) {
 	return OpenIfChangedWithCommit(a.reader, commit)
 }
 
@@ -256,7 +318,7 @@ type DirectoryReaderAdvanced struct {
 }
 
 // NewDirectoryReaderAdvanced creates a new DirectoryReaderAdvanced.
-func NewDirectoryReaderAdvanced(reader IndexReaderInterface, directory store.Directory) *DirectoryReaderAdvanced {
+func NewDirectoryReaderAdvanced(reader spi.IndexReaderInterface, directory store.Directory) *DirectoryReaderAdvanced {
 	return &DirectoryReaderAdvanced{
 		IndexReaderAdvanced: NewIndexReaderAdvanced(reader),
 		directory:           directory,
@@ -271,7 +333,7 @@ func (a *DirectoryReaderAdvanced) ListCommits() ([]*IndexCommit, error) {
 }
 
 // OpenCommit opens a reader for a specific commit.
-func (a *DirectoryReaderAdvanced) OpenCommit(commit *IndexCommit) (IndexReaderInterface, error) {
+func (a *DirectoryReaderAdvanced) OpenCommit(commit *IndexCommit) (spi.IndexReaderInterface, error) {
 	if commit == nil {
 		return nil, fmt.Errorf("commit cannot be nil")
 	}

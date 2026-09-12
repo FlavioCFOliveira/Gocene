@@ -4,6 +4,7 @@ package prefix
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/spatial/prefixtree"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // BytesRefIteratorTokenStream wraps a BytesRefIterator into a TokenStream.
@@ -41,6 +42,17 @@ func (s *BytesRefIteratorTokenStream) End() error { return nil }
 
 // Close is a no-op.
 func (s *BytesRefIteratorTokenStream) Close() error { return nil }
+
+// Reset resets the token stream.
+func (s *BytesRefIteratorTokenStream) Reset() error {
+	s.exhausted = false
+	return nil
+}
+
+// GetAttributeSource returns nil as this TokenStream does not use attributes.
+func (s *BytesRefIteratorTokenStream) GetAttributeSource() *util.AttributeSource {
+	return nil
+}
 
 var _ analysis.TokenStream = (*BytesRefIteratorTokenStream)(nil)
 

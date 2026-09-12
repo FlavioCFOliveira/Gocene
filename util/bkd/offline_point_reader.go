@@ -154,7 +154,7 @@ func (r *OfflinePointReader) Next() (bool, error) {
 			toRead = int(r.countLeft)
 		}
 		readBytes := toRead * r.config.BytesPerDoc()
-		if err := r.in.ReadBytes(r.onHeapBuffer[:readBytes]); err != nil {
+		if err := r.in.ReadBytes(r.onHeapBuffer, 0, readBytes); err != nil {
 			return false, err
 		}
 		r.pointsInBuffer = toRead - 1

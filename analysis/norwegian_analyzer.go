@@ -66,11 +66,11 @@ func NewNorwegianAnalyzerWithWords(stopWords *CharArraySet) *NorwegianAnalyzer {
 		tok = NewNorwegianLightStemFilter(tok)
 
 		return &TokenStreamComponents{
-			source: func(r io.Reader) error {
+			Source: func(r io.Reader) error {
 				src.SetReader(r)
 				return nil
 			},
-			sink: tok,
+			Sink: tok,
 		}
 	}
 

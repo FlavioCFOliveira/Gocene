@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // XYDocValuesField stores a Cartesian point as numeric doc-values: a
@@ -30,7 +30,7 @@ var (
 
 func init() {
 	XYDocValuesFieldType = NewFieldType()
-	XYDocValuesFieldType.SetDocValuesType(schema.DocValuesTypeSortedNumeric)
+	XYDocValuesFieldType.SetDocValuesType(spi.DocValuesTypeSortedNumeric)
 	XYDocValuesFieldType.Freeze()
 	XYDocValuesFieldTYPE = XYDocValuesFieldType
 }

@@ -4,7 +4,11 @@
 
 package index
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
 
 // mergePoints merges the point (BKD) values of every point field across the
 // source segments into the new segment, remapping each point's docID through
@@ -58,10 +62,10 @@ func (sm *SegmentMerger) mergePoints() error {
 }
 
 // intersectablePointValues is the wider PointValues surface the codec's on-disk
-// BKD-backed PointValues exposes (index.PointTreeIntersectVisitor walk), used to
+// BKD-backed PointValues exposes (index.spi.PointTreeIntersectVisitor walk), used to
 // enumerate every point of a source segment during a merge.
 type intersectablePointValues interface {
-	Intersect(visitor PointTreeIntersectVisitor) error
+	Intersect(visitor spi.PointTreeIntersectVisitor) error
 }
 
 // segPointValues returns the source reader's PointValues for field, or nil.

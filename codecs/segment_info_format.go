@@ -9,7 +9,7 @@ import (
 	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -223,9 +223,9 @@ func (f *Lucene104SegmentInfosFormat) readSegmentCommitInfo(in store.IndexInput,
 	// For now, we don't have SegmentInfo fully populated from .si file here
 	// In Lucene, it's loaded lazily or passed in.
 	// We'll create a placeholder SegmentInfo.
-	si := schema.NewSegmentInfo(name, 0, dir)
+	si := spi.NewSegmentInfo(name, 0, dir)
 	si.SetID(id)
-	si.SetCodec(codecName)
+	si.SetCodecName(codecName)
 
 	sci := spi.NewSegmentCommitInfo(si, int(delCount), delGen)
 	sci.SetFieldInfosGen(fieldInfosGen)
@@ -318,7 +318,7 @@ func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *spi.Segm
 func (f *Lucene104SegmentInfosFormat) writeSegmentCommitInfo(out store.IndexOutput, sci *spi.SegmentCommitInfo) error {
 	store.WriteString(out, sci.Name())
 	out.WriteBytes(sci.SegmentInfo().GetID())
-	store.WriteString(out, sci.SegmentInfo().Codec())
+	store.WriteString(out, sci.SegmentInfo().CodecName())
 	store.WriteInt64(out, sci.DelGen())
 	store.WriteInt32(out, int32(sci.DelCount()))
 	store.WriteInt64(out, sci.FieldInfosGen())

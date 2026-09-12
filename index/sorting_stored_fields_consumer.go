@@ -10,6 +10,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -374,7 +375,7 @@ const (
 func (f *copiedField) Name() string { return f.name }
 
 // FieldType implements IndexableField.
-func (f *copiedField) FieldType() schema.IndexableFieldType { return copiedFieldType{} }
+func (f *copiedField) FieldType() spi.IndexableFieldType { return copiedFieldType{} }
 
 // StringValue implements IndexableField.
 func (f *copiedField) StringValue() string {
@@ -481,23 +482,30 @@ func (f *copiedField) DoubleValue() float64 {
 // writer.
 type copiedFieldType struct{}
 
-func (copiedFieldType) Stored() bool                                   { return true }
-func (copiedFieldType) Tokenized() bool                                 { return false }
-func (copiedFieldType) StoreTermVectors() bool                          { return false }
-func (copiedFieldType) StoreTermVectorPositions() bool                  { return false }
-func (copiedFieldType) StoreTermVectorOffsets() bool                    { return false }
-func (copiedFieldType) StoreTermVectorPayloads() bool                   { return false }
-func (copiedFieldType) OmitNorms() bool                                 { return false }
-func (copiedFieldType) IndexOptions() IndexOptions                       { return IndexOptionsNone }
-func (copiedFieldType) DocValuesType() DocValuesType                     { return DocValuesTypeNone }
-func (copiedFieldType) DocValuesSkipIndexType() DocValuesSkipIndexType   { return DocValuesSkipIndexTypeNone }
-func (copiedFieldType) PointDimensionCount() int                          { return 0 }
-func (copiedFieldType) PointIndexDimensionCount() int                     { return 0 }
-func (copiedFieldType) PointNumBytes() int                                { return 0 }
-func (copiedFieldType) VectorDimension() int                              { return 0 }
-func (copiedFieldType) VectorEncoding() VectorEncoding                    { return 0 }
-func (copiedFieldType) VectorSimilarityFunction() VectorSimilarityFunction { return 0 }
-func (copiedFieldType) GetAttributes() map[string]string                { return nil }
+func (copiedFieldType) Stored() bool                   { return true }
+func (copiedFieldType) Tokenized() bool                { return false }
+func (copiedFieldType) StoreTermVectors() bool         { return false }
+func (copiedFieldType) StoreTermVectorPositions() bool { return false }
+func (copiedFieldType) StoreTermVectorOffsets() bool   { return false }
+func (copiedFieldType) StoreTermVectorPayloads() bool  { return false }
+func (copiedFieldType) OmitNorms() bool                { return false }
+func (copiedFieldType) IndexOptions() IndexOptions     { return IndexOptionsNone }
+func (copiedFieldType) DocValuesType() DocValuesType   { return DocValuesTypeNone }
+func (copiedFieldType) DocValuesSkipIndexType() spi.DocValuesSkipIndexType {
+	return spi.DocValuesSkipIndexTypeNone
+}
+func (copiedFieldType) PointDimensionCount() int       { return 0 }
+func (copiedFieldType) PointIndexDimensionCount() int  { return 0 }
+func (copiedFieldType) PointNumBytes() int             { return 0 }
+func (copiedFieldType) VectorDimension() int           { return 0 }
+func (copiedFieldType) VectorEncoding() VectorEncoding { return 0 }
+
+// VectorSimilarityFunction mirrors Lucene's FieldType default of
+// VectorSimilarityFunction.EUCLIDEAN for a field that carries no vector.
+func (copiedFieldType) VectorSimilarityFunction() VectorSimilarityFunction {
+	return VectorSimilarityFunctionEuclidean
+}
+func (copiedFieldType) GetAttributes() map[string]string { return nil }
 
 // trackingTmpDirectoryWrapper is the Sprint 55 stand-in for
 // org.apache.lucene.index.TrackingTmpOutputDirectoryWrapper. It records

@@ -54,7 +54,7 @@ func (f *ICUNormalizer2FilterFactory) Create(input analysis.TokenStream) analysi
 }
 
 // Normalize is an alias for Create.
-func (f *ICUNormalizer2FilterFactory) Normalize(input analysis.TokenStream) analysis.TokenFilter {
+func (f *ICUNormalizer2FilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
 	return f.Create(input)
 }
 

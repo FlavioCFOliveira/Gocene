@@ -103,6 +103,10 @@ var _ BulkSimScorer = (*DefaultBulkSimScorer)(nil)
 // passed through. Errors from IntToByte4 are impossible here — Lucene
 // guarantees the input is non-negative — but we coerce a negative count to
 // zero to mirror Lucene's promotion of the encoded byte.
+// DefaultComputeNormFromInvertState is the canonical implementation of
+// Similarity.computeNorm(FieldInvertState) from Lucene 10.4.0. It returns
+// the normalization encoded by SmallFloat.IntToByte4 in the low 8 bits of
+// the result.
 func DefaultComputeNormFromInvertState(state *index.FieldInvertState, discountOverlaps bool) int64 {
 	if state == nil {
 		return 1
@@ -127,3 +131,12 @@ func DefaultComputeNormFromInvertState(state *index.FieldInvertState, discountOv
 	}
 	return int64(b)
 }
+
+// SimilarityConfig is a configuration for Similarity.
+type SimilarityConfig struct {
+	UseClassicSimilarity bool
+	DiscountOverlaps     bool
+	K1                   float32
+	B                    float32
+}
+

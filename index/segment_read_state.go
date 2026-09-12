@@ -10,8 +10,8 @@ import (
 
 // SegmentReadState and SegmentWriteState are declared as SPI aliases in
 // codec_interface.go (type SegmentReadState = spi.SegmentReadState). These
-// constructors bridge from the index package's own *SegmentInfo (see
-// SegmentInfo.ToSchema) to the codec-facing shape.
+// constructors assemble the codec-facing shape from the index package's
+// *SegmentInfo, which is itself an alias of *spi.SegmentInfo.
 
 // NewSegmentReadState constructs a SegmentReadState for reading segment info.
 func NewSegmentReadState(dir store.Directory, info *SegmentInfo, fieldInfos *FieldInfos, _ store.IOContext) *SegmentReadState {
@@ -22,7 +22,7 @@ func NewSegmentReadState(dir store.Directory, info *SegmentInfo, fieldInfos *Fie
 func NewSegmentReadStateWithSuffix(dir store.Directory, info *SegmentInfo, fieldInfos *FieldInfos, _ store.IOContext, suffix string) *SegmentReadState {
 	return &SegmentReadState{
 		Directory:     dir,
-		SegmentInfo:   info.ToSchema(),
+		SegmentInfo:   info,
 		FieldInfos:    fieldInfos,
 		SegmentSuffix: suffix,
 	}

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/FlavioCFOliveira/Gocene/index/column"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -73,19 +74,19 @@ type FlushNotifications interface {
 type DocumentsWriter struct {
 	mu sync.Mutex
 
-	pendingNumDocs *atomic.Int64
+	pendingNumDocs     *atomic.Int64
 	flushNotifications FlushNotifications
-	closed atomic.Bool
-	infoStream util.InfoStream
-	config *LiveIndexWriterConfig
-	numDocsInRAM *atomic.Int32
+	closed             atomic.Bool
+	infoStream         util.InfoStream
+	config             *LiveIndexWriterConfig
+	numDocsInRAM       *atomic.Int32
 
-	deleteQueue *DocumentsWriterDeleteQueue
-	ticketQueue *DocumentsWriterFlushQueue
+	deleteQueue                      *DocumentsWriterDeleteQueue
+	ticketQueue                      *DocumentsWriterFlushQueue
 	pendingChangesInCurrentFullFlush atomic.Bool
 
 	perThreadPool *DocumentsWriterPerThreadPool
-	flushControl *DocumentsWriterFlushControl
+	flushControl  *DocumentsWriterFlushControl
 }
 
 func NewDocumentsWriter(
@@ -97,20 +98,20 @@ func NewDocumentsWriter(
 	config *LiveIndexWriterConfig,
 	directoryOrig store.Directory,
 	directory store.Directory,
-	globalFieldNumberMap *FieldInfos,
+	globalFieldNumberMap *FieldNumbers,
 ) *DocumentsWriter {
 	dw := &DocumentsWriter{
-		config: config,
-		infoStream: config.GetInfoStream(),
-		pendingNumDocs: pendingNumDocs,
+		config:             config,
+		infoStream:         config.GetInfoStream(),
+		pendingNumDocs:     pendingNumDocs,
 		flushNotifications: flushNotifications,
-		numDocsInRAM: &atomic.Int32{},
+		numDocsInRAM:       &atomic.Int32{},
 	}
 	dw.deleteQueue = NewDocumentsWriterDeleteQueue(dw.infoStream)
 	dw.perThreadPool = NewDocumentsWriterPerThreadPool(func() *DocumentsWriterPerThread {
-		infos := NewFieldInfosBuilder(globalFieldNumberMap)
+		infos := NewFieldInfosBuilderFor(globalFieldNumberMap)
 		return NewDocumentsWriterPerThread(
-			dw,
+			indexCreatedVersionMajor,
 			segmentNameSupplier(),
 			directoryOrig,
 			directory,
@@ -128,23 +129,19 @@ func NewDocumentsWriter(
 
 func (dw *DocumentsWriter) DeleteQueries(queries ...Query) (int64, error) {
 	return dw.applyDeleteOrUpdate(func(dq *DocumentsWriterDeleteQueue) int64 {
-		return dq.AddDeleteQueries(queries)
+		return dq.AddDelete(queries...)
 	})
 }
 
 func (dw *DocumentsWriter) DeleteTerms(terms ...Term) (int64, error) {
 	return dw.applyDeleteOrUpdate(func(dq *DocumentsWriterDeleteQueue) int64 {
-		var lastSeq int64
-		for _, t := range terms {
-			lastSeq = dq.Add(NewTermNode(t))
-		}
-		return lastSeq
+		return dq.AddDeleteTerms(terms...)
 	})
 }
 
 func (dw *DocumentsWriter) UpdateDocValues(updates ...DocValuesUpdate) (int64, error) {
 	return dw.applyDeleteOrUpdate(func(dq *DocumentsWriterDeleteQueue) int64 {
-		return dq.Add(NewDocValuesUpdatesNode(updates))
+		return dq.AddDocValuesUpdates(updates...)
 	})
 }
 
@@ -168,15 +165,15 @@ func (dw *DocumentsWriter) applyAllDeletes() (bool, error) {
 
 	if dw.flushControl.GetApplyAllDeletes() &&
 		!dw.flushControl.IsFullFlush() &&
-		dq.isOpen() &&
+		dq.IsOpen() &&
 		dw.flushControl.GetAndResetApplyAllDeletes() {
 
-		ticket, err := dw.ticketQueue.AddTicket(func() (*FlushQueueTicket, error) {
+		ticket, err := dw.ticketQueue.AddTicket(func() (*FlushTicket, error) {
 			frozen := dq.MaybeFreezeGlobalBuffer()
 			if frozen == nil {
 				return nil, nil
 			}
-			return NewFlushQueueTicket(frozen, false), nil
+			return NewFlushTicket(frozen, false), nil
 		})
 		if err != nil {
 			return false, err
@@ -189,7 +186,7 @@ func (dw *DocumentsWriter) applyAllDeletes() (bool, error) {
 	return false, nil
 }
 
-func (dw *DocumentsWriter) PurgeFlushTickets(forced bool, consumer func(*FlushQueueTicket) error) error {
+func (dw *DocumentsWriter) PurgeFlushTickets(forced bool, consumer func(*FlushTicket) error) error {
 	if forced {
 		return dw.ticketQueue.ForcePurge(consumer)
 	}
@@ -198,6 +195,23 @@ func (dw *DocumentsWriter) PurgeFlushTickets(forced bool, consumer func(*FlushQu
 
 func (dw *DocumentsWriter) GetNumDocs() int {
 	return int(dw.numDocsInRAM.Load())
+}
+
+// GetDeleteQueue returns the delete queue this writer is currently bound to.
+//
+// Mirrors the package-private DocumentsWriter.deleteQueue field, which Java
+// reads without synchronization from DocumentsWriterFlushControl. The field is
+// only reassigned by ResetDeleteQueue under dw.mu, so the read is left
+// unsynchronized here too: taking dw.mu would invert the lock order against
+// DocumentsWriterFlushControl.mu.
+func (dw *DocumentsWriter) GetDeleteQueue() *DocumentsWriterDeleteQueue {
+	return dw.deleteQueue
+}
+
+// GetPerThreadPool returns the per-thread pool backing this writer. Mirrors the
+// package-private DocumentsWriter.perThreadPool field.
+func (dw *DocumentsWriter) GetPerThreadPool() *DocumentsWriterPerThreadPool {
+	return dw.perThreadPool
 }
 
 func (dw *DocumentsWriter) ensureOpen() error {
@@ -268,7 +282,7 @@ func (dw *DocumentsWriter) LockAndAbortAll() (io.Closer, error) {
 		dw.infoStream.Message("DW", "lockAndAbortAll")
 	}
 
-	dw.ticketQueue.ForcePurge(func(ticket *FlushQueueTicket) error {
+	dw.ticketQueue.ForcePurge(func(ticket *FlushTicket) error {
 		if seg := ticket.GetFlushedSegment(); seg != nil {
 			dw.pendingNumDocs.Add(-int64(seg.SegmentInfo.Info.MaxDoc()))
 		}
@@ -310,7 +324,7 @@ func (dw *DocumentsWriter) LockAndAbortAll() (io.Closer, error) {
 		}
 	}
 	dw.deleteQueue.Clear()
-	dw.deleteQueue.SkipSequenceNumbers(len(writers) + 1)
+	dw.deleteQueue.SkipSequenceNumbers(int64(len(writers) + 1))
 
 	dw.flushControl.AbortPendingFlushes()
 	dw.flushControl.WaitForFlush()
@@ -331,7 +345,7 @@ func (a *abortReleaseCloser) Close() error {
 
 func (dw *DocumentsWriter) abortDocumentsWriterPerThread(perThread *DocumentsWriterPerThread) error {
 	defer dw.flushControl.DoOnAbort(perThread)
-	dw.SubtractFlushedNumDocs(perThread.GetNumDocs())
+	dw.SubtractFlushedNumDocs(perThread.GetNumDocsInRAM())
 	return perThread.Abort()
 }
 
@@ -461,7 +475,7 @@ func (dw *DocumentsWriter) UpdateDocuments(docs [][]IndexableField, delNode Node
 	return seqNo, nil
 }
 
-func (dw *DocumentsWriter) UpdateBatch(columnBatch *ColumnBatch, delNode Node) (int64, error) {
+func (dw *DocumentsWriter) UpdateBatch(columnBatch *column.ColumnBatch, delNode Node) (int64, error) {
 	hasEvents, err := dw.preUpdate()
 	if err != nil {
 		return 0, err
@@ -528,70 +542,111 @@ func (dw *DocumentsWriter) maybeFlush() (bool, error) {
 
 func (dw *DocumentsWriter) doFlush(flushingDWPT *DocumentsWriterPerThread) error {
 	if flushingDWPT == nil {
-		return fmt.Errorf("Flushing DWPT must not be null")
+		return fmt.Errorf("flushing DWPT must not be null")
 	}
 	for {
-		if flushingDWPT.HasFlushed() {
-			break
+		if err := dw.doFlushOne(flushingDWPT); err != nil {
+			return err
 		}
-		success := false
-		var ticket *FlushQueueTicket
-
-		func() {
-			defer func() {
-				if !success && ticket != nil {
-					dw.ticketQueue.MarkTicketFailed(ticket)
-				}
-			}()
-
-			ticket, err := dw.ticketQueue.AddTicket(func() (*FlushQueueTicket, error) {
-				frozen, err := flushingDWPT.PrepareFlush()
-				if err != nil {
-					return nil, err
-				}
-				return NewFlushQueueTicket(frozen, true), nil
-			})
-			if err != nil {
-				panic(err)
-			}
-
-			flushingDocsInRam := flushingDWPT.GetNumDocs()
-			dwptSuccess := false
-			func() {
-				defer func() {
-					dw.SubtractFlushedNumDocs(flushingDocsInRam)
-					if files := flushingDWPT.PendingFilesToDelete(); len(files) > 0 {
-						dw.flushNotifications.DeleteUnusedFiles(files)
-					}
-					if !dwptSuccess {
-						dw.flushNotifications.FlushFailed(flushingDWPT.SegmentInfo)
-					}
-				}()
-
-				seg, err := flushingDWPT.Flush(dw.perThreadPool.Directory, dw.perThreadPool.Codec, flushingDWPT.SegmentInfo.Name())
-				if err != nil {
-					panic(err)
-				}
-				if seg != nil {
-					_ = dw.ticketQueue.AddSegment(ticket, seg)
-					dwptSuccess = true
-				}
-			}()
-			success = true
-		}()
-
-		if dw.ticketQueue.GetTicketCount() >= dw.perThreadPool.Size() {
-			dw.flushNotifications.OnTicketBacklog()
-		}
-
-		dw.flushControl.DoAfterFlush(flushingDWPT)
-
 		flushingDWPT = dw.flushControl.NextPendingFlush()
 		if flushingDWPT == nil {
 			break
 		}
 	}
-	dw.flushNotifications.AfterSegmentsFlushed()
+	return dw.flushNotifications.AfterSegmentsFlushed()
+}
+
+// doFlushOne is one iteration of the do/while body of
+// DocumentsWriter.doFlush. It is a separate function so the two nested
+// try/finally blocks of the Java original map onto deferred calls with the
+// same unwinding order: the ticket-failure guard runs first, then
+// flushControl.doAfterFlush.
+func (dw *DocumentsWriter) doFlushOne(flushingDWPT *DocumentsWriterPerThread) (err error) {
+	// Java: finally { flushControl.doAfterFlush(flushingDWPT); }
+	defer dw.flushControl.DoAfterFlush(flushingDWPT)
+
+	success := false
+	var ticket *FlushTicket
+	// Java: finally { if (!success && ticket != null) markTicketFailed(ticket); }
+	// In the case of a failure make sure we are making progress and apply all
+	// the deletes since the segment flush failed, because the flush ticket
+	// could hold global deletes — see FlushTicket#canPublish().
+	defer func() {
+		if !success && ticket != nil {
+			dw.ticketQueue.MarkTicketFailed(ticket)
+		}
+	}()
+
+	/*
+	 * Since with DWPT the flush process is concurrent and several DWPT could
+	 * flush at the same time we must maintain the order of the flushes before
+	 * we can apply the flushed segment and the frozen global deletes it is
+	 * buffering. The reason for this is that the global deletes mark a certain
+	 * point in time where we took a DWPT out of rotation and froze the global
+	 * deletes.
+	 *
+	 * Example: a flush 'A' starts and freezes the global deletes, then flush
+	 * 'B' starts and freezes all deletes that occurred since 'A' started. If
+	 * 'B' finishes before 'A' we need to wait until 'A' is done, otherwise the
+	 * deletes frozen by 'B' are not applied to 'A' and we might fail to delete
+	 * documents in 'A'.
+	 */
+	dwpt := flushingDWPT
+	// Each flush is assigned a ticket in the order they acquire the ticketQueue lock.
+	ticket, err = dw.ticketQueue.AddTicket(func() (*FlushTicket, error) {
+		frozen, ferr := dwpt.PrepareFlush()
+		if ferr != nil {
+			return nil, ferr
+		}
+		return NewFlushTicket(frozen, true), nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if err := dw.flushAndAddSegment(flushingDWPT, ticket); err != nil {
+		return err
+	}
+	// The flush was successful once we reach this point — the new segment has
+	// been assigned to the ticket.
+	success = true
+
+	if dw.ticketQueue.GetTicketCount() >= dw.perThreadPool.Size() {
+		// This means there is a backlog: the one goroutine in innerPurge can't
+		// keep up with all the other goroutines flushing segments. In this case
+		// we forcefully stall the producers.
+		dw.flushNotifications.OnTicketBacklog()
+	}
+	return nil
+}
+
+// flushAndAddSegment performs the concurrent (unlocked) flush of one DWPT and
+// hands the resulting segment to its ticket. It carries the inner
+// try/finally of DocumentsWriter.doFlush that subtracts the flushed docs,
+// reports files to delete and signals a failed flush.
+func (dw *DocumentsWriter) flushAndAddSegment(
+	flushingDWPT *DocumentsWriterPerThread,
+	ticket *FlushTicket,
+) (err error) {
+	flushingDocsInRAM := flushingDWPT.GetNumDocsInRAM()
+	dwptSuccess := false
+	defer func() {
+		dw.SubtractFlushedNumDocs(flushingDocsInRAM)
+		if files := flushingDWPT.PendingFilesToDelete(); len(files) > 0 {
+			dw.flushNotifications.DeleteUnusedFiles(files)
+		}
+		if !dwptSuccess {
+			dw.flushNotifications.FlushFailed(flushingDWPT.GetSegmentInfo())
+		}
+	}()
+
+	// Flush concurrently, without holding the DocumentsWriter monitor.
+	newSegment, err := flushingDWPT.Flush(dw.flushNotifications)
+	if err != nil {
+		return err
+	}
+	dw.ticketQueue.AddSegment(ticket, newSegment)
+	dwptSuccess = true
 	return nil
 }
 
@@ -652,12 +707,12 @@ func (dw *DocumentsWriter) FlushAllThreads() (int64, error) {
 			if dw.infoStream.IsEnabled("DW") {
 				dw.infoStream.Message("DW", "flush naked frozen global deletes")
 			}
-			_, _ = dw.ticketQueue.AddTicket(func() (*FlushQueueTicket, error) {
+			_, _ = dw.ticketQueue.AddTicket(func() (*FlushTicket, error) {
 				frozen := flushingDeleteQueue.MaybeFreezeGlobalBuffer()
 				if frozen == nil {
 					return nil, nil
 				}
-				return NewFlushQueueTicket(frozen, false), nil
+				return NewFlushTicket(frozen, false), nil
 			})
 		}
 	}()

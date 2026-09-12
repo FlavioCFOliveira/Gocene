@@ -22,6 +22,7 @@ const SPINameOpenNLPChunker = "openNlpChunker"
 // chunker model from a file at inform() time. In Go, the model must be
 // registered in the tools.OpenNLPOpsFactory cache before use.
 type OpenNLPChunkerFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	ChunkerModelName string
 }
 
@@ -29,7 +30,10 @@ type OpenNLPChunkerFilterFactory struct {
 // model. If chunkerModelName is empty, the filter is created without a
 // chunking model (no chunking performed).
 func NewOpenNLPChunkerFilterFactory(chunkerModelName string) *OpenNLPChunkerFilterFactory {
-	return &OpenNLPChunkerFilterFactory{ChunkerModelName: chunkerModelName}
+	return &OpenNLPChunkerFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		ChunkerModelName:       chunkerModelName,
+	}
 }
 
 // Create creates an OpenNLPChunkerFilter wrapping input.

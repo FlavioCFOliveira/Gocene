@@ -6,6 +6,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -45,7 +46,7 @@ type fieldMetaData struct {
 	maxTerm       *util.BytesRef
 }
 
-func NewOrdsBlockTreeTermsWriter(state *store.SegmentWriteState, postingsWriter codecs.PostingsWriter, minItemsInBlock, maxItemsInBlock int) (*OrdsBlockTreeTermsWriter, error) {
+func NewOrdsBlockTreeTermsWriter(state *spi.SegmentWriteState, postingsWriter codecs.PostingsWriter, minItemsInBlock, maxItemsInBlock int) (*OrdsBlockTreeTermsWriter, error) {
 	if minItemsInBlock <= 0 || maxItemsInBlock < minItemsInBlock {
 		return nil, fmt.Errorf("invalid block size settings")
 	}

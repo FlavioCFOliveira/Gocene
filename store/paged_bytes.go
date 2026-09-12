@@ -10,6 +10,7 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -385,7 +386,7 @@ func (r *Reader) RamBytesUsed() int64 {
 
 // PagedBytesDataInput implements DataInput for reading from PagedBytes.
 type PagedBytesDataInput struct {
-	BaseDataInput
+	spi.BaseDataInput
 	pagedBytes        *PagedBytes
 	blocks            [][]byte
 	currentBlockIndex int

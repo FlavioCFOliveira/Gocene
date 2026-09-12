@@ -61,11 +61,11 @@ func NewRussianAnalyzerWithWords(stopWords *CharArraySet) *RussianAnalyzer {
 		tok = NewRussianLightStemFilter(tok)
 
 		return &TokenStreamComponents{
-			source: func(r io.Reader) error {
+			Source: func(r io.Reader) error {
 				src.SetReader(r)
 				return nil
 			},
-			sink: tok,
+			Sink: tok,
 		}
 	}
 

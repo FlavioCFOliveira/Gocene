@@ -9,25 +9,25 @@ package index
 // historically lived under index.* for source-level back-compat.
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// Terms is an alias of schema.Terms.
-type Terms = schema.Terms
+// Terms is an alias of spi.Terms.
+type Terms = spi.Terms
 
-// TermsBase is an alias of schema.TermsBase.
-type TermsBase = schema.TermsBase
+// TermsBase is an alias of spi.TermsBase.
+type TermsBase = spi.TermsBase
 
-// TermsStats is an alias of schema.TermsStats.
-type TermsStats = schema.TermsStats
+// TermsStats is an alias of spi.TermsStats.
+type TermsStats = spi.TermsStats
 
-// EmptyTerms is an alias of schema.EmptyTerms.
-type EmptyTerms = schema.EmptyTerms
+// EmptyTerms is an alias of spi.EmptyTerms.
+type EmptyTerms = spi.EmptyTerms
 
-// SingleTermTerms is an alias of schema.SingleTermTerms.
-type SingleTermTerms = schema.SingleTermTerms
+// SingleTermTerms is an alias of spi.SingleTermTerms.
+type SingleTermTerms = spi.SingleTermTerms
 
 // NewSingleTermTerms creates a new SingleTermTerms.
 func NewSingleTermTerms(term *Term, docFreq int, totalFreq int64) *SingleTermTerms {
-	return schema.NewSingleTermTerms(term, docFreq, totalFreq)
+	return spi.NewSingleTermTerms(term, docFreq, totalFreq)
 }

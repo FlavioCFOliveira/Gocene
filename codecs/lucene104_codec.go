@@ -42,6 +42,7 @@ type Lucene104Codec struct {
 	knnVectorsFormat   KnnVectorsFormat // PerFieldKnnVectorsFormat wrapping Lucene99HnswVectorsFormat
 	pointsFormat       PointsFormat     // Lucene90PointsFormat (BKD)
 	normsFormat        NormsFormat      // Lucene90NormsFormat (.nvd / .nvm)
+	liveDocsFormat     LiveDocsFormat   // Lucene90LiveDocsFormat (.liv)
 }
 
 // newLucene104CodecDefaults constructs a *Lucene104Codec with all format fields
@@ -65,6 +66,7 @@ func newLucene104CodecDefaults(mode Lucene104CodecMode, sf StoredFieldsFormat) *
 		knnVectorsFormat:   NewPerFieldKnnVectorsFormatWithDefault(defaultKnn),
 		pointsFormat:       NewLucene90PointsFormat(),
 		normsFormat:        NewLucene90NormsFormat(),
+		liveDocsFormat:     NewLucene90LiveDocsFormat(),
 	}
 }
 
@@ -162,6 +164,14 @@ func (c *Lucene104Codec) PointsFormat() PointsFormat {
 // returns Lucene90NormsFormat in Lucene 10.4.0.
 func (c *Lucene104Codec) NormsFormat() NormsFormat {
 	return c.normsFormat
+}
+
+// LiveDocsFormat returns the Lucene90LiveDocsFormat used for the per-segment
+// live/deleted documents bitset, mirroring
+// org.apache.lucene.codecs.lucene104.Lucene104Codec.liveDocsFormat(), which
+// holds a single `new Lucene90LiveDocsFormat()` in a final field.
+func (c *Lucene104Codec) LiveDocsFormat() LiveDocsFormat {
+	return c.liveDocsFormat
 }
 
 // NewLucene99Codec creates a codec that is functionally identical to Lucene104Codec.

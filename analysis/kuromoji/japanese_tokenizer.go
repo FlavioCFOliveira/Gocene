@@ -5,13 +5,14 @@
 package kuromoji
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	attrs "github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
+	"reflect"
 	"unicode/utf8"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/kuromoji/dict"
-	"github.com/FlavioCFOliveira/Gocene/analysis/kuromoji/tokenattributes"
+	jaattrs "github.com/FlavioCFOliveira/Gocene/analysis/kuromoji/tokenattributes"
 )
 
 // Mode is the tokenization mode for JapaneseTokenizer.
@@ -55,12 +56,12 @@ type JapaneseTokenizer struct {
 
 	termAttr      analysis.CharTermAttribute
 	offsetAttr    analysis.OffsetAttribute
-	posIncrAttr   tokenattributes.PositionIncrementAttribute
+	posIncrAttr   attrs.PositionIncrementAttribute
 	posLenAttr    analysis.PositionLengthAttribute
-	baseFormAttr  tokenattributes.BaseFormAttribute
-	posAttr       tokenattributes.PartOfSpeechAttribute
-	readingAttr   tokenattributes.ReadingAttribute
-	inflAttr      tokenattributes.InflectionAttribute
+	baseFormAttr  jaattrs.BaseFormAttribute
+	posAttr       jaattrs.PartOfSpeechAttribute
+	readingAttr   jaattrs.ReadingAttribute
+	inflAttr      jaattrs.InflectionAttribute
 
 	mode               Mode
 	discardPunctuation bool
@@ -96,29 +97,29 @@ func NewJapaneseTokenizer(
 	// Create and register standard attributes.
 	t.termAttr = analysis.NewCharTermAttribute()
 	t.offsetAttr = analysis.NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
+	t.posIncrAttr = attrs.NewPositionIncrementAttribute()
 	t.posLenAttr = analysis.NewPositionLengthAttribute()
 
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
-	t.AddAttribute(t.posLenAttr)
+	t.AddAttribute(reflect.TypeOf((*analysis.CharTermAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*analysis.OffsetAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*attrs.PositionIncrementAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*analysis.PositionLengthAttribute)(nil)).Elem())
 
 	// Create and register Japanese-specific attributes.
-	baseFormImpl := tokenattributes.NewBaseFormAttributeImpl()
-	posImpl := tokenattributes.NewPartOfSpeechAttributeImpl()
-	readingImpl := tokenattributes.NewReadingAttributeImpl()
-	inflImpl := tokenattributes.NewInflectionAttributeImpl()
+	baseFormImpl := jaattrs.NewBaseFormAttributeImpl()
+	posImpl := jaattrs.NewPartOfSpeechAttributeImpl()
+	readingImpl := jaattrs.NewReadingAttributeImpl()
+	inflImpl := jaattrs.NewInflectionAttributeImpl()
 
 	t.baseFormAttr = baseFormImpl
 	t.posAttr = posImpl
 	t.readingAttr = readingImpl
 	t.inflAttr = inflImpl
 
-	t.AddAttribute(baseFormImpl)
-	t.AddAttribute(posImpl)
-	t.AddAttribute(readingImpl)
-	t.AddAttribute(inflImpl)
+	t.AddAttribute(reflect.TypeOf((*jaattrs.BaseFormAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*jaattrs.PartOfSpeechAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*jaattrs.ReadingAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*jaattrs.InflectionAttribute)(nil)).Elem())
 
 	return t
 }

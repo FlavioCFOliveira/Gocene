@@ -1,9 +1,5 @@
 package index
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/util"
-)
-
 // FilterBinaryDocValues delegates all methods to a wrapped BinaryDocValues.
 // This is the Go port of Lucene's org.apache.lucene.index.FilterBinaryDocValues.
 type FilterBinaryDocValues struct {
@@ -41,6 +37,6 @@ func (f *FilterBinaryDocValues) Cost() int64 {
 }
 
 // BinaryValue returns the binary value for the current document ID.
-func (f *FilterBinaryDocValues) BinaryValue() (*util.BytesRef, error) {
+func (f *FilterBinaryDocValues) BinaryValue() ([]byte, error) {
 	return f.in.BinaryValue()
 }

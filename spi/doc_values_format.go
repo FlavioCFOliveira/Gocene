@@ -4,7 +4,7 @@
 
 package spi
 
-import "github.com/FlavioCFOliveira/Gocene/schema"
+// No import needed for schema as it is now part of spi
 
 // DocValuesFormat encodes and decodes per-document column-stride values
 // (the .dvd / .dvm pair in the on-disk codec).
@@ -37,19 +37,19 @@ type DocValuesFormat interface {
 // serializes the values to the segment's .dvd / .dvm files.
 type DocValuesConsumer interface {
 	// AddNumericField persists a numeric doc-values field.
-	AddNumericField(field *schema.FieldInfo, values NumericDocValuesIterator) error
+	AddNumericField(field *FieldInfo, values NumericDocValuesIterator) error
 
 	// AddBinaryField persists a binary doc-values field.
-	AddBinaryField(field *schema.FieldInfo, values BinaryDocValuesIterator) error
+	AddBinaryField(field *FieldInfo, values BinaryDocValuesIterator) error
 
 	// AddSortedField persists a sorted doc-values field.
-	AddSortedField(field *schema.FieldInfo, values SortedDocValuesIterator) error
+	AddSortedField(field *FieldInfo, values SortedDocValuesIterator) error
 
 	// AddSortedSetField persists a sorted-set doc-values field.
-	AddSortedSetField(field *schema.FieldInfo, values SortedSetDocValuesIterator) error
+	AddSortedSetField(field *FieldInfo, values SortedSetDocValuesIterator) error
 
 	// AddSortedNumericField persists a sorted-numeric doc-values field.
-	AddSortedNumericField(field *schema.FieldInfo, values SortedNumericDocValuesIterator) error
+	AddSortedNumericField(field *FieldInfo, values SortedNumericDocValuesIterator) error
 
 	// Close flushes any pending bytes and releases the consumer's
 	// resources.
@@ -67,30 +67,30 @@ type DocValuesConsumer interface {
 type DocValuesProducer interface {
 	// GetNumeric returns a NumericDocValues iterator for the given
 	// field, or nil when the field has no numeric values.
-	GetNumeric(field *schema.FieldInfo) (NumericDocValues, error)
+	GetNumeric(field *FieldInfo) (NumericDocValues, error)
 
 	// GetBinary returns a BinaryDocValues iterator for the given
 	// field, or nil when the field has no binary values.
-	GetBinary(field *schema.FieldInfo) (BinaryDocValues, error)
+	GetBinary(field *FieldInfo) (BinaryDocValues, error)
 
 	// GetSorted returns a SortedDocValues iterator for the given
 	// field, or nil when the field has no sorted values.
-	GetSorted(field *schema.FieldInfo) (SortedDocValues, error)
+	GetSorted(field *FieldInfo) (SortedDocValues, error)
 
 	// GetSortedSet returns a SortedSetDocValues iterator for the given
 	// field, or nil when the field has no sorted-set values.
-	GetSortedSet(field *schema.FieldInfo) (SortedSetDocValues, error)
+	GetSortedSet(field *FieldInfo) (SortedSetDocValues, error)
 
 	// GetSortedNumeric returns a SortedNumericDocValues iterator for
 	// the given field, or nil when the field has no sorted-numeric
 	// values.
-	GetSortedNumeric(field *schema.FieldInfo) (SortedNumericDocValues, error)
+	GetSortedNumeric(field *FieldInfo) (SortedNumericDocValues, error)
 
 	// GetSkipper returns the DocValuesSkipper for the given field, or
 	// nil when the codec did not write a skipper companion for that
 	// field. Mirrors the GetSkipper(FieldInfo) addition in Apache
 	// Lucene 10.4.0's DocValuesProducer.
-	GetSkipper(field *schema.FieldInfo) (DocValuesSkipper, error)
+	GetSkipper(field *FieldInfo) (DocValuesSkipper, error)
 
 	// CheckIntegrity walks the per-field data and validates the
 	// checksum framing.

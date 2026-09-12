@@ -8,6 +8,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/opennlp/tools"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"reflect"
 )
 
 // OpenNLPChunkerFilter runs an OpenNLP chunker over the token stream,
@@ -33,8 +34,8 @@ func NewOpenNLPChunkerFilter(input analysis.TokenStream, chunkerOp *tools.NLPChu
 	base := analysis.NewBaseTokenFilter(input)
 	sentImpl := analysis.NewSentenceAttributeImpl()
 	typeImpl := analysis.NewTypeAttributeImpl()
-	base.AddAttribute(sentImpl)
-	base.AddAttribute(typeImpl)
+	base.AddAttribute(reflect.TypeOf((*analysis.SentenceAttribute)(nil)).Elem())
+	base.AddAttribute(reflect.TypeOf((*analysis.TypeAttribute)(nil)).Elem())
 
 	f := &OpenNLPChunkerFilter{
 		BaseTokenFilter:            base,

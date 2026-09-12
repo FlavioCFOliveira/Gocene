@@ -7,7 +7,6 @@ package document
 import (
 	"fmt"
 	"math"
-	"sort"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -27,7 +26,7 @@ type DoublePoint struct {
 // NextUp returns the least double that compares greater than d consistently with
 // math.Float64bits. The only difference with math.Nextafter is that this method
 // returns +0d when the argument is -0d.
-func NextUp(d float64) float64 {
+func doubleNextUp(d float64) float64 {
 	if math.Float64bits(d) == 0x8000000000000000 { // -0d
 		return 0.0
 	}
@@ -37,14 +36,14 @@ func NextUp(d float64) float64 {
 // NextDown returns the greatest double that compares less than d consistently with
 // math.Float64bits. The only difference with math.Nextafter is that this method
 // returns -0d when the argument is +0d.
-func NextDown(d float64) float64 {
+func doubleNextDown(d float64) float64 {
 	if math.Float64bits(d) == 0 { // +0d
 		return math.Float64frombits(0x8000000000000000) // -0d
 	}
 	return math.Nextafter(d, math.Inf(-1))
 }
 
-func getType(numDims int) *FieldType {
+func getDoublePointType(numDims int) *FieldType {
 	ft := NewFieldType()
 	ft.SetDimensions(numDims, 8) // Double.BYTES = 8
 	ft.Freeze()
@@ -57,8 +56,8 @@ func NewDoublePoint(name string, point ...float64) *DoublePoint {
 		panic("point must not be 0 dimensions")
 	}
 
-	packed := Pack(point)
-	ft := getType(len(point))
+	packed := packDoublePoint(point)
+	ft := getDoublePointType(len(point))
 
 	// Use NewField to initialize the base Field struct
 	f, _ := NewField(name, packed.Bytes, ft)
@@ -76,7 +75,7 @@ func (dp *DoublePoint) SetDoubleValues(point ...float64) {
 		panic(fmt.Sprintf("this field (name=%s) uses %d dimensions; cannot change to %d dimensions",
 			dp.name, dp.ft.PointDimensionCount(), len(point)))
 	}
-	dp.value = binaryValue(Pack(point).Bytes)
+	dp.value = binaryValue(packDoublePoint(point).Bytes)
 }
 
 // SetBytesValue is not supported for DoublePoint.
@@ -97,11 +96,11 @@ func (dp *DoublePoint) NumericValue() interface{} {
 		return nil
 	}
 
-	return DecodeDimension(bytes, 0)
+	return decodeDoubleDimension(bytes, 0)
 }
 
 // Pack packs a double point into a BytesRef.
-func Pack(point []float64) *util.BytesRef {
+func packDoublePoint(point []float64) *util.BytesRef {
 	if point == nil {
 		panic("point must not be null")
 	}
@@ -111,20 +110,20 @@ func Pack(point []float64) *util.BytesRef {
 
 	packed := make([]byte, len(point)*8)
 	for dim := 0; dim < len(point); dim++ {
-		EncodeDimension(point[dim], packed, dim*8)
+		encodeDoubleDimension(point[dim], packed, dim*8)
 	}
 
 	return util.NewBytesRef(packed)
 }
 
-// EncodeDimension encodes a single double dimension.
-func EncodeDimension(value float64, dest []byte, offset int) {
+// encodeDoubleDimension encodes a single double dimension.
+func encodeDoubleDimension(value float64, dest []byte, offset int) {
 	sortableLong := util.DoubleToSortableLong(value)
 	util.LongToSortableBytes(sortableLong, dest, offset)
 }
 
-// DecodeDimension decodes a single double dimension.
-func DecodeDimension(value []byte, offset int) float64 {
+// decodeDoubleDimension decodes a single double dimension.
+func decodeDoubleDimension(value []byte, offset int) float64 {
 	sortableLong := util.SortableBytesToLong(value, offset)
 	return util.SortableLongToDouble(sortableLong)
 }
@@ -143,7 +142,7 @@ func (dp *DoublePoint) String() string {
 			if dim > 0 {
 				sb.WriteByte(',')
 			}
-			sb.WriteString(fmt.Sprintf("%g", DecodeDimension(bytes, dim*8)))
+			sb.WriteString(fmt.Sprintf("%g", decodeDoubleDimension(bytes, dim*8)))
 		}
 	}
 
