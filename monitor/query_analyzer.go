@@ -121,7 +121,7 @@ func (qb *queryBuilder) GetSubVisitor(occur search.Occur, parent search.Query) s
 		if bq, ok := parent.(*search.BooleanQuery); ok {
 			positiveCount := 0
 			for _, c := range bq.Clauses() {
-				if c.Occur != search.MUST_NOT {
+				if c.Occur() != search.MUST_NOT {
 					positiveCount++
 				}
 			}
@@ -141,7 +141,7 @@ func (qb *queryBuilder) GetSubVisitor(occur search.Occur, parent search.Query) s
 		if bq, ok := parent.(*search.BooleanQuery); ok {
 			requiredCount := 0
 			for _, c := range bq.Clauses() {
-				if c.Occur == search.MUST || c.Occur == search.FILTER {
+				if c.Occur() == search.MUST || c.Occur() == search.FILTER {
 					requiredCount++
 				}
 			}
@@ -222,7 +222,7 @@ func (db *disjunctionBuilder) GetSubVisitor(occur search.Occur, parent search.Qu
 		if bq, ok := parent.(*search.BooleanQuery); ok {
 			positiveCount := 0
 			for _, c := range bq.Clauses() {
-				if c.Occur != search.MUST_NOT {
+				if c.Occur() != search.MUST_NOT {
 					positiveCount++
 				}
 			}
@@ -238,7 +238,7 @@ func (db *disjunctionBuilder) GetSubVisitor(occur search.Occur, parent search.Qu
 		// If the parent has MUST/FILTER, ignore disjunction children.
 		if bq, ok := parent.(*search.BooleanQuery); ok {
 			for _, c := range bq.Clauses() {
-				if c.Occur == search.MUST || c.Occur == search.FILTER {
+				if c.Occur() == search.MUST || c.Occur() == search.FILTER {
 					return search.EmptyQueryVisitor
 				}
 			}

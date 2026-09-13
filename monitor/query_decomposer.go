@@ -55,19 +55,19 @@ func (d *QueryDecomposer) decomposeBoolean(bq *search.BooleanQuery) []search.Que
 	var result []search.Query
 
 	for _, clause := range bq.Clauses() {
-		switch clause.Occur {
+		switch clause.Occur() {
 		case search.SHOULD:
 			// SHOULD clauses are direct candidates for decomposition.
-			result = append(result, d.Decompose(clause.Query)...)
+			result = append(result, d.Decompose(clause.Query())...)
 
 		case search.MUST:
 			// MUST clauses with single leaf sub-queries are decomposable.
-			subs := d.Decompose(clause.Query)
+			subs := d.Decompose(clause.Query())
 			result = append(result, subs...)
 
 		case search.FILTER:
 			// FILTER clauses decompose like MUST.
-			subs := d.Decompose(clause.Query)
+			subs := d.Decompose(clause.Query())
 			result = append(result, subs...)
 
 		case search.MUST_NOT:

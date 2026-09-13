@@ -5,24 +5,18 @@
 package monitor
 
 import (
-	"fmt"
-	"github.com/FlavioCFOliveira/Gocene/spi"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// ForceNoBulkScoringQuery wraps a Query to force doc-by-doc scoring by
-// preventing the use of a BulkScorer. The created Weight delegates all
-// methods to the inner weight but overrides BulkScorer to return nil,
-// so IndexSearcher falls back to the Scorer-based path.
+// ForceNoBulkScoringQuery is a query wrapper that forces its wrapped Query to
+// use the default doc-by-doc BulkScorer.
 //
-// This is the Go port of
-// org.apache.lucene.monitor.ForceNoBulkScoringQuery from Apache Lucene 10.4.0.
-//
-// Deviation from Lucene: Gocene's Query.CreateWeight uses (needsScores bool)
-// instead of (scoreMode ScoreMode). The inner query's CreateWeight is called
-// with the same needsScores value.
+// Port of org.apache.lucene.monitor.ForceNoBulkScoringQuery (Apache Lucene
+// 10.5.0).
 type ForceNoBulkScoringQuery struct {
 	inner search.Query
 }
@@ -39,44 +33,51 @@ func (q *ForceNoBulkScoringQuery) GetWrappedQuery() search.Query {
 }
 
 // Rewrite rewrites the inner query and wraps the result.
-func (q *ForceNoBulkScoringQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
-	rewritten, err := q.inner.Rewrite(reader)
+func (q *ForceNoBulkScoringQuery) Rewrite(indexSearcher *search.IndexSearcher) (search.Query, error) {
+	rewritten, err := q.inner.Rewrite(indexSearcher)
 	if err != nil {
 		return nil, err
 	}
 	if rewritten != q.inner {
 		return NewForceNoBulkScoringQuery(rewritten), nil
 	}
-	return rewritten, nil
+	// super.rewrite(indexSearcher) returns this.
+	return q, nil
 }
 
-// Clone returns a copy of this query.
-func (q *ForceNoBulkScoringQuery) Clone() search.Query {
-	return NewForceNoBulkScoringQuery(q.inner.Clone())
-}
-
-// Equals returns true if the other query is a ForceNoBulkScoringQuery wrapping
-// an equal inner query.
-func (q *ForceNoBulkScoringQuery) Equals(other spi.Query) bool {
-	if other == nil {
-		return false
+// Visit delegates to the inner query's Visit method.
+//
+// PORT NOTE: Gocene's search.Query interface does not declare Visit, so the
+// call is made through the method set the concrete query carries, the same
+// idiom already used by ConstantScoreWeight (search/constant_score_weight.go).
+func (q *ForceNoBulkScoringQuery) Visit(visitor search.QueryVisitor) {
+	if v, ok := q.inner.(interface{ Visit(search.QueryVisitor) }); ok {
+		v.Visit(visitor)
 	}
-	otherQ, ok := other.(*ForceNoBulkScoringQuery)
+}
+
+// Equals reports whether other is a ForceNoBulkScoringQuery wrapping an equal
+// inner query.
+func (q *ForceNoBulkScoringQuery) Equals(other spi.Query) bool {
+	if q == other {
+		return true
+	}
+	that, ok := other.(*ForceNoBulkScoringQuery)
 	if !ok {
 		return false
 	}
-	return q.inner.Equals(otherQ.inner)
+	return q.inner.Equals(that.inner)
 }
 
-// HashCode returns a hash code based on the inner query.
+// HashCode renders Objects.hash(inner).
 func (q *ForceNoBulkScoringQuery) HashCode() int {
-	return q.inner.HashCode()*31 + 17
+	return 31 + q.inner.HashCode()
 }
 
 // CreateWeight delegates to the inner query's CreateWeight and wraps the
-// result in a Weight that suppresses BulkScorer usage.
-func (q *ForceNoBulkScoringQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	innerWeight, err := q.inner.CreateWeight(searcher, needsScores, boost)
+// result in a Weight that inherits the default doc-by-doc BulkScorer.
+func (q *ForceNoBulkScoringQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	innerWeight, err := q.inner.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
 	}
@@ -86,27 +87,34 @@ func (q *ForceNoBulkScoringQuery) CreateWeight(searcher *search.IndexSearcher, n
 	}, nil
 }
 
-// Visit delegates to the inner query's Visit method when available via type
-// assertion; otherwise treats the inner query as a leaf.
+// ToString renders toString(String s).
+func (q *ForceNoBulkScoringQuery) ToString(field string) string {
+	return "NoBulkScorer(" + forceNoBulkScoringQueryText(q.inner, field) + ")"
+}
+
+// forceNoBulkScoringQueryText renders inner.toString(s).
 //
-// Deviation from Lucene: Gocene's Query interface does not include Visit,
-// so we reach it via optional interface assertion.
-func (q *ForceNoBulkScoringQuery) Visit(visitor search.QueryVisitor) {
-	if v, ok := q.inner.(interface{ Visit(search.QueryVisitor) }); ok {
-		v.Visit(visitor)
-	} else {
-		// If the inner query does not implement Visit, treat it as a leaf.
-		visitor.VisitLeaf(q.inner)
+// PORT NOTE: Gocene's search.Query interface does not declare ToString, so the
+// call is made through the method set the concrete query carries, the same
+// idiom already used by ConstantScoreWeight (search/constant_score_weight.go).
+func forceNoBulkScoringQueryText(q search.Query, field string) string {
+	if ts, ok := q.(interface{ ToString(string) string }); ok {
+		return ts.ToString(field)
 	}
+	if ts, ok := q.(interface{ String(string) string }); ok {
+		return ts.String(field)
+	}
+	if s, ok := q.(interface{ String() string }); ok {
+		return s.String()
+	}
+	return ""
 }
 
-// String returns a string representation of this query.
-func (q *ForceNoBulkScoringQuery) String(field string) string {
-	return "NoBulkScorer(inner=" + fmt.Sprintf("%T", q.inner) + ")"
-}
-
-// noBulkScoringWeight is a Weight that wraps an inner weight but returns nil
-// from BulkScorer, forcing IndexSearcher to use doc-by-doc scoring.
+// noBulkScoringWeight renders the anonymous Weight created by
+// ForceNoBulkScoringQuery.createWeight. It overrides exactly the four methods
+// Java overrides (isCacheable, explain, scorerSupplier, matches) and reproduces
+// Weight's own defaults for the rest, so that the wrapped query loses its
+// optimised BulkScorer.
 type noBulkScoringWeight struct {
 	inner       search.Weight
 	parentQuery search.Query
@@ -116,33 +124,53 @@ func (w *noBulkScoringWeight) GetQuery() search.Query {
 	return w.parentQuery
 }
 
-func (w *noBulkScoringWeight) Explain(context *index.LeafReaderContext, doc int) (search.Explanation, error) {
-	return w.inner.Explain(context, doc)
-}
-
-func (w *noBulkScoringWeight) ScorerSupplier(context *index.LeafReaderContext) (search.ScorerSupplier, error) {
-	return w.inner.ScorerSupplier(context)
-}
-
-func (w *noBulkScoringWeight) Scorer(context *index.LeafReaderContext) (search.Scorer, error) {
-	return w.inner.Scorer(context)
-}
-
-func (w *noBulkScoringWeight) BulkScorer(context *index.LeafReaderContext) (search.BulkScorer, error) {
-	// Return nil to suppress BulkScorer usage, forcing doc-by-doc scoring.
-	return nil, nil
-}
-
 func (w *noBulkScoringWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 	return w.inner.IsCacheable(ctx)
 }
 
-func (w *noBulkScoringWeight) Count(context *index.LeafReaderContext) (int, error) {
-	return w.inner.Count(context)
+func (w *noBulkScoringWeight) Explain(ctx *index.LeafReaderContext, doc int) (search.Explanation, error) {
+	return w.inner.Explain(ctx, doc)
 }
 
-func (w *noBulkScoringWeight) Matches(context *index.LeafReaderContext, doc int) (search.Matches, error) {
-	return w.inner.Matches(context, doc)
+func (w *noBulkScoringWeight) ScorerSupplier(ctx *index.LeafReaderContext) (search.ScorerSupplier, error) {
+	return w.inner.ScorerSupplier(ctx)
+}
+
+func (w *noBulkScoringWeight) Matches(ctx *index.LeafReaderContext, doc int) (search.Matches, error) {
+	return w.inner.Matches(ctx, doc)
+}
+
+// Scorer reproduces Weight.scorer(LeafReaderContext), which this weight does
+// not override.
+func (w *noBulkScoringWeight) Scorer(ctx *index.LeafReaderContext) (search.Scorer, error) {
+	supplier, err := w.ScorerSupplier(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if supplier == nil {
+		return nil, nil
+	}
+	return supplier.Get(math.MaxInt64)
+}
+
+// BulkScorer reproduces Weight.bulkScorer(LeafReaderContext), which this weight
+// does not override: that default is the doc-by-doc scorer this class exists to
+// impose.
+func (w *noBulkScoringWeight) BulkScorer(ctx *index.LeafReaderContext) (search.BulkScorer, error) {
+	scorer, err := w.Scorer(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if scorer == nil {
+		return nil, nil
+	}
+	return search.NewDefaultBulkScorer(scorer), nil
+}
+
+// Count reproduces Weight.count(LeafReaderContext), which this weight does not
+// override.
+func (w *noBulkScoringWeight) Count(ctx *index.LeafReaderContext) (int, error) {
+	return -1, nil
 }
 
 // Ensure types implement the expected interfaces.

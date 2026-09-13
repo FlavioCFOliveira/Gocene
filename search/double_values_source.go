@@ -101,3 +101,36 @@ func (v *basicDoubleValues) AdvanceExact(doc int) (bool, error) {
 	}
 	return next == doc, nil
 }
+
+// DoubleValuesSourceFromScorer returns a DoubleValues instance that wraps
+// scores returned by a Scorer.
+//
+// Mirrors the static org.apache.lucene.search.DoubleValuesSource#fromScorer
+// (Apache Lucene 10.5.0). It is a free function because Go has no static
+// methods on an interface type.
+func DoubleValuesSourceFromScorer(scorer Scorable) DoubleValues {
+	return &fromScorerDoubleValues{scorer: scorer}
+}
+
+// fromScorerDoubleValues renders the anonymous DoubleValues returned by
+// DoubleValuesSource.fromScorer(Scorable), whose advanceExact always returns
+// true.
+//
+// PORT NOTE: search/rescore_top_n_query.go carries an unrelated local
+// scorerDoubleValues whose AdvanceExact instead reports scorer.DocID() == doc;
+// it is not this Lucene member and is left untouched.
+type fromScorerDoubleValues struct {
+	scorer Scorable
+}
+
+func (v *fromScorerDoubleValues) DoubleValue() (float64, error) {
+	score, err := v.scorer.Score()
+	if err != nil {
+		return 0, err
+	}
+	return float64(score), nil
+}
+
+func (v *fromScorerDoubleValues) AdvanceExact(doc int) (bool, error) {
+	return true, nil
+}

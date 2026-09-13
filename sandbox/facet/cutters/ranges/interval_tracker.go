@@ -7,7 +7,7 @@
 package ranges
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/join"
+	"github.com/FlavioCFOliveira/Gocene/search/join"
 )
 
 // NoMoreOrds is the sentinel value returned by IntervalTracker.NextOrd when

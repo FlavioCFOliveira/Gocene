@@ -71,6 +71,53 @@ type leafTerms interface {
 	Terms(field string) (Terms, error)
 }
 
+// DocFreq returns the number of documents containing term.
+//
+// Mirrors org.apache.lucene.index.IndexReader.docFreq(Term). A leaf reader
+// seeks the term in its own Terms, a composite sums its sub-readers. See the
+// port note on [GetDocCount] for why it is a free function.
+//
+// This method returns 0 if the term or field does not exist.
+//
+// This method does not take into account deleted documents that have not yet
+// been merged away.
+func DocFreq(reader IndexReader, term *Term) (int, error) {
+	if leaf, ok := reader.(leafTerms); ok {
+		terms, err := leaf.Terms(term.Field)
+		if err != nil {
+			return 0, err
+		}
+		if terms == nil {
+			return 0, nil
+		}
+		termsEnum, err := terms.GetIterator()
+		if err != nil {
+			return 0, err
+		}
+		found, err := termsEnum.SeekExact(term)
+		if err != nil {
+			return 0, err
+		}
+		if !found {
+			return 0, nil
+		}
+		return termsEnum.DocFreq()
+	}
+	leaves, err := reader.Leaves()
+	if err != nil {
+		return 0, err
+	}
+	total := 0
+	for _, ctx := range leaves {
+		sub, err := DocFreq(ctx.LeafReader(), term)
+		if err != nil {
+			return 0, err
+		}
+		total += sub
+	}
+	return total, nil
+}
+
 // GetDocCount returns the number of documents that have at least one term for
 // field, 0 when the field is absent.
 //

@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/join"
+	"github.com/FlavioCFOliveira/Gocene/search/join"
 )
 
 // BlockGroupingCollector collects documents into groups based on block structure.

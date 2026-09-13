@@ -5,12 +5,12 @@ import (
 )
 
 const (
-	MarginDefault           = 6
-	MinFragCharSizeFactor   = 3
+	MarginDefault         = 6
+	MinFragCharSizeFactor = 3
 )
 
 type BaseFragListBuilder struct {
-	Margin         int
+	Margin          int
 	MinFragCharSize int
 }
 
@@ -95,7 +95,9 @@ func (b *BaseFragListBuilder) acceptPhrase(info *WeightedPhraseInfo, matchLength
 type iteratorQueue struct {
 	iter   []*WeightedPhraseInfo
 	cursor int
-	top    *WeightedPhraseInfo
+	// topValue renders the Java field IteratorQueue.top, which Go cannot name
+	// alongside the accessor method top().
+	topValue *WeightedPhraseInfo
 }
 
 func newIteratorQueue(list []*WeightedPhraseInfo) *iteratorQueue {
@@ -107,16 +109,16 @@ func newIteratorQueue(list []*WeightedPhraseInfo) *iteratorQueue {
 }
 
 func (iq *iteratorQueue) top() *WeightedPhraseInfo {
-	return iq.top
+	return iq.topValue
 }
 
 func (iq *iteratorQueue) removeTop() *WeightedPhraseInfo {
-	currentTop := iq.top
+	currentTop := iq.topValue
 	if iq.cursor < len(iq.iter) {
-		iq.top = iq.iter[iq.cursor]
+		iq.topValue = iq.iter[iq.cursor]
 		iq.cursor++
 	} else {
-		iq.top = nil
+		iq.topValue = nil
 	}
 	return currentTop
 }
