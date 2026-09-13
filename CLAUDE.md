@@ -2,21 +2,123 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Absolute Rules — Read Before Acting (BINDING)
+
+**These four rules govern every interaction, every task, and every action in this repository. They are stated here so they cannot be missed, and stated in full in their own sections below. Where anything else in this file, in a skill, or in a subagent's instructions appears to say otherwise, these rules win.**
+
+| # | Absolute rule | In full |
+|---|---|---|
+| **A1** | **FAITHFUL PORT.** Gocene is Apache Lucene 10.5.0 expressed in Go — faithful in function, in technique, and in output. Results must be **100% equal to and interoperable with** Lucene's. Any divergence is a defect in Gocene. | *Prime Directive*, *Binary Compatibility Mandate*, *Source Fidelity Mandate* |
+| **A2** | **RESTRAINT — NO PROACTIVITY.** Do exactly what the user asked, and nothing else. Any extra need, however small or obvious, is **reported** and executed **only after explicit authorisation**. | *Model Conduct — Restraint and Non-Proactivity*, § 1.1 |
+| **A3** | **DELEGATE TO A SPECIALIST.** Every task is executed by the subagent specialised in that task's requirements and objectives. The main agent plans, delegates, validates, and reports. | § 9.1 |
+| **A4** | **ONE SUBAGENT, ALWAYS.** Never more than one subagent at a time. Parallelism is exceptional, requires **prior** authorisation, and that authorisation **expires immediately**. | § 9.2 |
+
+### Self-check before every action
+
+Before every action — every tool call, every edit, every command, every delegation — confirm all five. If any answer is "no", **STOP and ask the user**:
+
+1. **Requested?** Is this exactly what the user asked for, and nothing beyond it? *(A2)*
+2. **Authorised?** If it goes beyond the request, do I hold the user's explicit authorisation for this specific item? *(A2)*
+3. **Delegated?** Is the work being carried out by the subagent specialised in it? *(A3)*
+4. **Alone?** Is exactly one subagent running — this one? *(A4)*
+5. **Faithful?** Does the result reproduce Apache Lucene 10.5.0 exactly — in behaviour, in construction, and in output? *(A1)*
+
+### Order of precedence
+
+When two rules appear to conflict, resolve them in this order; the higher entry wins:
+
+1. **Conduct rules A2, A3, A4.** They govern *whether you may act at all*, *who carries out the work*, and *how many agents do it*. Nothing overrides them: no mandate, no deadline, no efficiency argument, and no other section of this file authorises unrequested action, undelegated work, or parallel subagents.
+2. **Binary Compatibility Mandate** — the byte-level contract; the highest-priority rule among those that govern *how the work must be done*.
+3. **Source Fidelity Mandate** — organisational and behavioural fidelity.
+4. Every other section of this file, in the order in which it appears.
+
+A1 (the *Prime Directive*) is the premise of 2 and 3 and is never traded away.
+
+### No deviation
+
+- **No exceptions by interpretation.** These are not defaults, not guidelines, and not subject to in-the-moment judgement about what would be faster, more helpful, or more complete.
+- **Every deviation is a defect.** Treat it exactly like a failing test: state it to the user as soon as it is noticed, and correct it.
+- **Nothing else may weaken them** — no section of this file, no skill, no subagent instruction, no habit from another project, no urgency. If any instruction appears to permit a deviation, it is being misread or it is wrong: **STOP and ask the user.**
+- **Silence is not authorisation.** Neither is the absence of an objection, an authorisation previously granted for a similar case, nor the user's haste.
+
+## Prime Directive — This Repository Is a FAITHFUL PORT of Apache Lucene (ABSOLUTE, NON-NEGOTIABLE)
+
+**Read this before anything else. It states the identity of the project and it is the premise on which every other rule in this document rests.**
+
+Gocene (this repository, the Go module `github.com/FlavioCFOliveira/Gocene`) is a **FAITHFUL PORT** of the **Apache Lucene** library — the search library written in **Java** by the Apache Software Foundation — translated into the **Go** language, targeting the **Apache Lucene 10.5.0** reference release. That is the whole of what this project is.
+
+State it plainly, because everything else follows from it:
+
+> **Gocene is Apache Lucene 10.5.0, expressed in Go.**
+> The Java source is the specification. Go is merely the target language of the translation.
+> Anything Gocene does that Apache Lucene 10.5.0 does not do — or does differently — is a **defect in Gocene**.
+
+### What this project is NOT
+
+- It is **not** a new search engine, and not an original design.
+- It is **not** a library "inspired by", "based on", "in the spirit of", or "API-compatible with" Lucene.
+- It is **not** a reimplementation, a reinterpretation, a redesign, or a modernisation of Lucene.
+- It is **not** an opportunity to improve, simplify, generalise, optimise, clean up, or correct Lucene.
+- It is **not** "Lucene-like search, the Go way". Idiomatic Go is a matter of spelling, never of substance.
+
+### The three dimensions of fidelity — all three are mandatory
+
+The port must be faithful in **all three dimensions simultaneously**. Failing any one of them is a defect, however well the other two hold:
+
+1. **Functional fidelity — the same behaviour.** Gocene must *do* what Lucene 10.5.0 does: the same semantics for every operation, the same defaults, constants and limits, the same edge cases, the same validation, the same errors and boundary handling, the same observable side effects, the same concurrency and lifecycle contracts.
+
+2. **Technical fidelity — the same construction.** Gocene must be *built the way* Lucene 10.5.0 is built: the same algorithms, the same data structures, the same control flow, the same iteration and traversal order, the same decomposition into components, the same package and class layout, and names that remain recognisable against the Java original after Go transliteration (see the *Source Fidelity Mandate*).
+
+3. **Fidelity of results — 100% identical output.** Gocene must *produce* what Lucene 10.5.0 produces: byte-for-byte identical artefacts and result-for-result identical answers (see *The 100% rule* below, and the *Binary Compatibility Mandate*).
+
+### The 100% rule
+
+Given the same input, the same configuration, and the same version, **Gocene must produce results that are 100% equal to, and 100% interoperable with, those of Apache Lucene 10.5.0.** Concretely, and without limitation:
+
+- **The same bytes.** Every file, header, footer, checksum, envelope, segment, and serialized structure written by Gocene is byte-identical to what Lucene 10.5.0 writes for the same logical input.
+- **The same answers.** The same query over the same index returns the same documents, in the same order, with the same scores, the same totals, the same explanations, and the same pagination behaviour.
+- **The same analysis.** The same text through the same chain yields the same tokens, with the same offsets, positions, position increments, types, payloads, and attributes.
+- **The same failures.** Invalid input fails in the same situations, at the same points, with the same meaning; limits, overflows, and rejections occur exactly where Lucene's occur.
+- **Full interoperability in both directions.** Anything Gocene writes, Lucene 10.5.0 reads without modification; anything Lucene 10.5.0 writes, Gocene reads without loss or reinterpretation.
+
+**"Almost identical", "equivalent", "functionally similar", "compatible in practice", "close enough" are FAILURES, not successes.** There is no partial credit: either the result is the same, or the port is wrong.
+
+### Operational consequences
+
+1. **Apache Lucene 10.5.0 is the sole arbiter.** Not intuition, not Go convention, not what looks better, not what another port did, not what a search engine "should" do. The reference tree (§ 14) settles every question of fact.
+2. **In case of doubt, read the Java source and reproduce it exactly** — then record the source reference. This requires no consultation (see the *Source Fidelity Mandate*, point 4, for the few exceptions).
+3. **Go idioms are admissible only where they change nothing observable** — not the behaviour, not the structure, not the serialized form. Where an idiom would change any of those, Lucene's form prevails.
+4. **Do not add and do not omit.** Do not invent API, behaviour, options, or safeguards that Lucene 10.5.0 does not have; do not drop behaviour, branches, or constants that it does have.
+5. **Lucene's quirks are part of the contract.** Apparent redundancies, historical decisions, odd constants, awkward names, and code that looks dead must be ported as they are. "Fixing" them here is a defect.
+6. **Fidelity is proven, never asserted.** Every claim of faithfulness rests on measured evidence (§ 7) and on compatibility tests against Lucene 10.5.0 fixtures (*Binary Compatibility Mandate*, point 4). An untested claim of compatibility counts as no compatibility at all.
+
+### Precedence
+
+This Prime Directive is the premise; the two mandates that follow are how it is enforced. Among the rules that govern **how the work must be done**, the order is the one already established:
+
+1. **Binary Compatibility Mandate** — the byte-level contract; highest operative priority, superseding every other guideline about how the work is done.
+2. **Source Fidelity Mandate** — organisational and behavioural fidelity; subordinate only to the mandate above.
+3. Everything else in this document.
+
+These mandates say *how* the work must be done; they never say *what* work to undertake. They therefore never authorise action the user has not requested, and they are always exercised through the conduct rules A2–A4 — see *Order of precedence* in *Absolute Rules* at the top of this file, which is the canonical ordering.
+
+No rule, convention, preference, or judgement anywhere in this repository may be read in a way that weakens the Prime Directive.
+
 ## Roadmap
 
 **Name:** gocene
 
 ## Project Overview
 
-Gocene is a Go module that is a port of Apache Lucene to modern idiomatic Golang. Its defining goal is byte-by-byte and behaviour-by-behaviour compatibility with the original Apache Lucene library — specifically the Apache Lucene 10.5.0 reference release. Every index file, codec envelope, directory artefact, and on-disk format produced by Gocene must be readable by Apache Lucene 10.5.0 without modification, and Gocene must be able to read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.5.0.
+Gocene is a Go module that is a **faithful port** of Apache Lucene — the Java search library of the Apache Software Foundation — into Go, as established by the *Prime Directive* above. It is a translation, not a reimplementation: its defining goal is byte-by-byte, behaviour-by-behaviour, and result-by-result equality with the original Apache Lucene library — specifically the Apache Lucene 10.5.0 reference release. Go idioms are used only where they leave the behaviour, the structure, and the serialized form unchanged. Every index file, codec envelope, directory artefact, and on-disk format produced by Gocene must be readable by Apache Lucene 10.5.0 without modification, and Gocene must be able to read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.5.0.
 
-Because Gocene is a port rather than a reimplementation, Lucene is the sole reference of truth. Implementation choices that deviate from observed Lucene behaviour are bugs in Gocene, not in Lucene. Correctness is measured against the Apache Lucene 10.5.0 source tree and the binaries it produces.
+Because Gocene is a port rather than a reimplementation, Lucene is the **sole** reference of truth, in functionality and in technique alike. Implementation choices that deviate from observed Lucene behaviour are bugs in Gocene, not in Lucene, and results that merely resemble Lucene's are wrong results. Correctness is measured — never assumed — against the Apache Lucene 10.5.0 source tree and the binaries it produces.
 
 This is an early-stage project. The module structure, packages, and development workflow are still being established, but the compatibility mandate is non-negotiable and governs all development decisions.
 
 ## Binary Compatibility Mandate (TOP-PRIORITY, NON-NEGOTIABLE)
 
-This requirement supersedes every other guideline in this document. If any other rule, convention, or stylistic preference conflicts with it, this requirement wins.
+This requirement supersedes every other guideline in this document about **how the work must be done**. If any other rule, convention, or stylistic preference conflicts with it, this requirement wins. It does **not** authorise work the user has not requested: it constrains the work that is undertaken, and is subordinate to the conduct rules A2–A4 (*Absolute Rules*, top of this file) as to whether, by whom, and by how many agents that work is undertaken.
 
 1. **Produce (write) and Consume (read).** Gocene **MUST** produce binary artefacts that Apache Lucene 10.5.0 can read without modification, **AND** Gocene **MUST** read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.5.0. Compatibility is bidirectional and exact; "approximately compatible" is not compatible.
 
@@ -44,6 +146,22 @@ This requirement supersedes every other guideline in this document. If any other
    - *Test* must include compatibility tests against Lucene-produced fixtures before the task can be closed. Every deliverable must prove, with passing tests, that Gocene behaves as a faithful port of Lucene 10.5.0 for the functionality in question.
    - *Document* must state the Lucene 10.5.0 source references and the compatibility test coverage for the feature.
 
+### Index Interoperability — The Round Trip Must Close (NON-NEGOTIABLE)
+
+Point 1 of this mandate (*Produce (write) and Consume (read)*) states the contract in general terms; this states it for the artefact that matters most, so that it cannot be read weakly. **An index is not a format Gocene supports — it is a format Gocene and Apache Lucene 10.5.0 share.** Both directions are mandatory, and they are symmetric.
+
+1. **Read direction — flawless, first time, every time.** Any index written by Apache Lucene 10.5.0 **MUST** open, be traversed, be searched, and be closed by Gocene **without a single error, warning, fallback, degradation, partial read, reinterpretation, or loss of information**. This holds for the index exactly as it is found on disk: every segment, every field kind, and every format enumerated in point 2 of this mandate (*Scope — everything Lucene serializes*); the compound and non-compound layouts; deletions and doc-values updates; and the whole commit and generation history (`segments_N`) as Lucene exposes it. Gocene reads a Lucene index because Gocene *is* Lucene, not because it recognises a foreign format.
+
+2. **Write direction — indistinguishable, not merely readable.** Any index written by Gocene **MUST** be accepted by Apache Lucene 10.5.0 **as if Lucene itself had produced it**. Readable is not the standard; **undetectable as foreign** is the standard: the same file names and extensions, the same headers and footers, the same checksums, the same segment metadata, the same codec identifiers, the same version constants. Nothing in the bytes may reveal which of the two libraries wrote them.
+
+3. **The round trip must close in both orders.** Each of these sequences must preserve the logical content exactly, with no drift at any hop:
+   - Lucene-write → Gocene-read → Gocene-write → Lucene-read;
+   - Gocene-write → Lucene-read → Lucene-write → Gocene-read.
+
+4. **Any failure of the above is a defect in Gocene.** An error, an exception, a `CorruptIndexException`, an `IndexFormatTooOldException` or `IndexFormatTooNewException` on an index Apache Lucene 10.5.0 itself accepts, an unsupported-format path, a lenient or "best effort" read, a silently skipped field or segment, or **any need to special-case a Lucene-produced index** is a **defect in Gocene** — never a limitation to document, to work around, or to accept. It is fixed at its cause (§ 2.1) and never suppressed.
+
+5. **Proven against real Lucene fixtures, never asserted.** This interoperability is established empirically (§ 7) under the test obligation of point 4 of this mandate (*Mandatory compatibility tests — isolated AND in combination*): with fixtures produced by Apache Lucene 10.5.0 itself, through the Java fixture harness under `tools/lucene-fixtures/` (fixture digests pinned in `manifests/baseline.tsv`) and the Go-side compatibility layer under `internal/compat/` (per-package round trips behind the `compat` build tag; integration scenarios gated by `GOCENE_COMPAT_HARNESS=1`). Both legs — Lucene-write → Gocene-read **and** Gocene-write → Lucene-read — must be covered for every index artefact a feature touches. **An untested direction is an unsupported direction.**
+
 ## Source Fidelity Mandate — Organisation and Behaviour (NON-NEGOTIABLE)
 
 Gocene is a **port**, not a reimplementation. Beyond the byte-level contract established by the *Binary Compatibility Mandate* above, **all Gocene code owes fidelity to the Apache Lucene 10.5.0 code in two further dimensions — organisation and functionality.** This mandate is subordinate only to the *Binary Compatibility Mandate*; it prevails over every stylistic preference, personal judgement, or perceived improvement.
@@ -65,12 +183,35 @@ Gocene is a **port**, not a reimplementation. Beyond the byte-level contract est
 
 5. **Fidelity must be traceable.** Every ported unit must identify the Lucene 10.5.0 artefact it corresponds to (§ 5.1 records this correspondence in the Knowledge Graph as `PORTED_TO`), and any documented divergence must be justified against the Lucene source and covered by tests, exactly as required for binary divergences.
 
+## Model Conduct — Restraint and Non-Proactivity (NON-NEGOTIABLE)
+
+This rule governs the behaviour of the Claude model itself. It applies to every interaction, every task, and every mode of work.
+
+1. **Maximum restraint is the required default.** Do exactly what the user asked — no more, no less. The user's request defines the entire scope of the work. Anything outside that request is out of scope by default.
+
+2. **You are FORBIDDEN from being proactive or acting on your own initiative.** Do not anticipate needs, do not add improvements, do not extend scope, do not "while I was here" anything. Specifically, and without limitation, you must NOT, unless it was requested:
+   - refactor, reorganise, rename, or reformat code that the request did not target;
+   - add features, options, helpers, abstractions, or configuration that were not requested;
+   - create, delete, or rename files, directories, branches, tasks, or documents;
+   - fix unrelated bugs, warnings, or lint findings discovered along the way;
+   - add or rewrite tests, documentation, or comments beyond what the request covers;
+   - run commands with side effects (commits, merges, pushes, installs, migrations, graph or roadmap writes) that the request did not call for;
+   - "clean up" anything on your own judgement.
+
+3. **Any extra need requires prior authorisation.** If, while carrying out the request, you identify a need that is not expressed in it or is not clear from it — a prerequisite, a side effect, an adjacent defect, a missing piece — you may **NOT** act on it. You must **STOP, REPORT it to the user, and ASK** whether to proceed. You may only act after the user explicitly authorises it. Silence, absence of objection, or a previous authorisation for a similar case is **not** authorisation.
+
+4. **When asking, follow § 1.1.** Present the situation briefly and objectively, offer multiple options (a, b, c, ...), state which one you recommend, and ask one question at a time.
+
+5. **Report, do not act.** Observations, suspicions, improvement ideas, and detected defects are to be **reported** to the user and left there. Reporting is the deliverable; acting on them is not, until authorised.
+
+6. **This rule does not license incomplete work.** Restraint applies to the *scope* of the work, never to its *quality* or *completeness*: what the user did ask for must still be delivered in full, finished and production-grade (§ 2, § 3). Do not use this rule as a reason to stop halfway through the requested work.
+
 ## 1. Base Rules
 
 1. **You are NOT AUTHORIZED to make decisions on your own.** Whenever the instructions are insufficient, unclear, non-specific, or non-concrete, or whenever they contain contradictions or ambiguities, you MUST ALWAYS ASK the user how to proceed.
    - When asking, always provide multiple options (a, b, c, ...) and indicate which one you recommend.
    - When several clarifications are required, present each question to the user sequentially (one at a time), not all at once.
-   - **Boundary between acting and asking:** obvious, low-risk corrections (for example, a pre-existing bug with an unequivocal solution) may proceed immediately; any decision that changes scope, expected behaviour, architecture, or requirements requires prior user approval.
+   - **Boundary between acting and asking:** the boundary is **the user's request**, not the size or the risk of the change. Whatever lies inside the request is executed; whatever lies outside it — including an obvious, low-risk correction, or a pre-existing bug with an unequivocal solution — is **reported and awaits explicit authorisation** (Absolute Rule A2, *Model Conduct — Restraint and Non-Proactivity*). A decision that changes scope, expected behaviour, architecture, or requirements always requires prior user approval.
    - **Exception — doubts that Lucene settles:** where the doubt, inconsistency, or incoherence concerns how Gocene should be organised or how it should behave, do not ask: apply the *Source Fidelity Mandate* above and follow Lucene 10.5.0. Only the specific cases listed in point 4 of that mandate require prior consultation.
 
 2. **Documentation in English.** All project documentation (including this `CLAUDE.md`) must be written in the most correct English possible, free of orthographic, grammatical, or syntactic errors. Use clear, simple, and unambiguous technical language intended for human readers.
@@ -83,13 +224,13 @@ Gocene is a **port**, not a reimplementation. Beyond the byte-level contract est
 
 All development cycles must be self-contained. You must NEVER deliver only part of a task; every development cycle must produce a complete, working result.
 
-When new needs are discovered during the course of a task — needs that were not anticipated beforehand — they must be resolved within the same development cycle, as immediately as possible. This means creating new tasks and executing them right away, rather than deferring them.
+Self-containment applies to the scope the user has authorised. When new needs are discovered during the course of a task — needs that were not anticipated beforehand — they must be **reported to the user and authorised before being acted upon**, as required by the *Model Conduct — Restraint and Non-Proactivity* mandate above. Once authorised, they must be resolved within the same development cycle, as immediately as possible, rather than deferred. Without authorisation they are reported and left undone; they are never executed on your own initiative.
 
 All code and all development output must be, as a rule, **full-fledged**: no half-implementations, no stubs left dangling, no "to be completed later" placeholders.
 
 Tests must never use `t.Skip()`; a gap in coverage must fail, not be silenced.
 
-Whenever you encounter pre-existing bugs during a task, fix them immediately and then continue with the original task.
+Whenever you encounter pre-existing bugs during a task, **report them to the user and ask whether to fix them**. Only after explicit authorisation do you fix them and continue with the original task; without it, you record the finding and carry on with the task as requested.
 
 ### 2.1 No Error Suppression (NON-NEGOTIABLE)
 
@@ -167,7 +308,8 @@ Execution notes:
 - You may develop **only one task at a time**, in strict sequential order. Active development work must never be parallelised across multiple tasks.
 - Whenever possible, adapt the model and its effort level to the requirements of each individual task operation.
 - Task and sprint execution is **sequential**.
-- Evaluations and audits may run in parallel, but such parallel execution must **ALWAYS be authorised by the user**.
+- Evaluations and audits may run in parallel **only** under the exceptional, single-use authorisation described in § 9.2: parallel execution must **ALWAYS be authorised by the user beforehand**, and that authorisation expires immediately once the authorised run ends.
+- Every task is executed by a specialised subagent (§ 9.1), and never more than one subagent at a time (§ 9.2).
 
 ### 4.3 Gitflow Integration
 
@@ -186,7 +328,7 @@ The branching workflow for each task:
 
 ## 5. Knowledge Graph
 
-Manage the Knowledge Graph with the assistance of the `knowledge-authority` skill.
+The Knowledge Graph is the **central element** of this project: the instrument through which the structure of Apache Lucene 10.5.0, the structure of Gocene, and the relation between the two are known, recorded, queried, and kept current (§ 5.2). Manage it with the assistance of the `knowledge-authority` skill.
 
 **Every change to the Knowledge Graph or to its model is made EXCLUSIVELY through the `knowledge-authority` skill (NON-NEGOTIABLE).** This applies without exception to the graph's data (creating, updating, or deleting nodes, edges, and properties), to its schema (labels, predicates, properties, constraints, indexes), and to the model document `knowledge-model.md`. No other skill, agent, script, or direct `rmp graph` invocation may write to the graph or edit `knowledge-model.md`. Other skills and agents — `roadmap-manager` included — may **read** the graph for planning and reporting, but every write and every act of maintenance routes through `knowledge-authority`. A change made by any other route is a defect and must be reverted and redone through the skill.
 
@@ -223,6 +365,45 @@ Consequences of this requirement:
 - **Every `git commit` must leave the graph faithful**, including the commit that records the change (§ 5). Fidelity is a precondition for closing a task, not a follow-up task.
 - **`knowledge-model.md` must conform to the live graph** and is regenerated from measurements, never hand-written from memory. Use the `knowledge-authority` skill to sync, refresh, and audit fidelity.
 
+### 5.2 The Graph Is the Central Instrument of the Port (MANDATORY)
+
+**The Knowledge Graph — its nodes and its edges — is the central element of the porting work.** It is not documentation written about the work after the fact: it is the medium through which the port is known, planned, executed, verified, and remembered. Every porting decision starts from a graph query and ends with a graph update.
+
+Over each of the three objects below you must be able to perform the full cycle — **read, analyse, recognise, persist, query, and maintain** — using the graph as the instrument. Writes and maintenance go exclusively through the `knowledge-authority` skill (§ 5); reads are queries over nodes and edges.
+
+1. **Know the structure of the source library, Apache Lucene (Java), faithfully.**
+   - **Read** the reference tree at `/tmp/lucene` (§ 14) — never memory, never assumption (§ 6).
+   - **Analyse and recognise** the artefacts it actually contains: modules, packages, classes, interfaces, enums, records, annotations, nested and inner types, constructors, methods, fields, constants, enum values, signatures, and the relations between them (containment, inheritance, implementation, use).
+   - **Persist** them as nodes and edges that reproduce that structure and hierarchy exactly (§ 5.1, point 1).
+   - **Query** them to establish the scope, the shape, and the dependencies of any piece of work before touching code.
+   - **Maintain** them as the port advances into new areas of the library, so the source side of the graph is always the real Lucene 10.5.0 tree.
+
+2. **Know the structure of the target module, Gocene (Go), faithfully.**
+   - **Read** the repository working tree as it actually is.
+   - **Analyse and recognise** its packages, files, types, structs, interfaces, functions, methods, constants, variables, and tests, together with their relations and dependencies.
+   - **Persist** them as nodes and edges that reproduce that structure and hierarchy exactly (§ 5.1, point 2).
+   - **Query** them before reading files: the graph answers what exists, where it lives, and what depends on it (§ 12).
+   - **Maintain** them in the **same development cycle** that adds, renames, moves, or deletes code — never in a later one.
+
+3. **Know and maintain the relation between origin (1) and destination (2), so that it serves the porting work.**
+   - The `PORTED_TO` edges are the link and the sole authority on port status, at **every granularity at which porting actually happens** (§ 5.1, point 3): module→package, package→package, class→type, method→method, field→field, constant→constant.
+   - The purpose of the relation is **utility to the port**, so the graph must answer, by query alone and without reading a single file:
+     - **what is already ported**, and to exactly which Go artefact;
+     - **what remains to be ported**, element by element — the absence of `PORTED_TO` *is* the answer, and it means "not ported", never "unknown";
+     - **port coverage**, per module, per package, per class, and per member;
+     - **what a given Lucene artefact became in Go**, and conversely, what a given Go artefact came from;
+     - **what blocks a piece of work** — the unported dependencies a task would need first;
+     - **the impact and scope of a change**, on either side of the port.
+   - **Maintain** the relation with the same cycle as the code: a port that is done but not recorded is, for every purpose in this project, a port that has not happened.
+
+**Operational protocol — binding:**
+
+1. **Query the graph first.** Before planning, before choosing what to port next, before reading source files, and before answering any factual question about either tree, query the graph.
+2. **Act with the graph as the map.** Scope, order of work, dependencies, and blockers are taken from the graph, not from intuition or recollection.
+3. **Update the graph immediately after.** Every change to either tree is reflected in nodes and edges within the same development cycle and recorded on the corresponding `git commit` (§ 5).
+4. **Coverage is measured, never estimated.** Any statement about what is ported, what is missing, or how much is done must be produced by a graph query reconciled against both trees, with the evidence cited (§ 7, § 5.1).
+5. **A gap in the graph is a defect**, handled like any other defect: report it to the user, and correct it when the work at hand covers it or once authorised (Absolute Rule A2).
+
 ## 6. Never Guess
 
 All interactions on the project must be based **exclusively** on verified knowledge. You must never try to guess the intended answer.
@@ -249,13 +430,28 @@ Whenever a bug is identified, create the necessary regression tests to ensure th
 
 ## 9. Team of Subagents
 
-You have at your disposal a team composed of all available subagents (global, user-defined, or project-defined).
+You have at your disposal a team composed of all available subagents (global, user-defined, or project-defined). They are used **one at a time and in strict sequence** (§ 9.2): the strength of a task comes from choosing the right specialist for it, never from running several at once.
 
-Use them collaboratively and in a complementary way so that each task is completed with maximum confidence, effectiveness, and accuracy.
+Each task is carried out by the single subagent whose specialisation matches its requirements and objectives (§ 9.1), so that the task is completed with maximum confidence, effectiveness, and accuracy. Where a task genuinely requires more than one specialisation, the specialists are used **sequentially** — one finishes and reports before the next is launched — and each works strictly within the scope it was given, contributing its specialisation to that scope and nothing beyond it.
 
-Each subagent should contribute proactively with their specialisation.
+When initiating a task, identify the single most appropriate specialist (skill or agent) for the task's scope. However, always remember: **the focus of any task is to contribute to the development of Gocene.** Avoid excessive research or analysis — the goal is implementation, not just understanding. Gather only the information necessary to complete the task.
 
-When initiating a task, identify the most appropriate specialists (skills or agents) to understand the task scope. However, always remember: **the focus of any task is to contribute to the development of Gocene.** Avoid excessive research or analysis — the goal is implementation, not just understanding. Gather only the information necessary to complete the task.
+### 9.1 Mandatory Delegation to a Specialised Subagent (NON-NEGOTIABLE)
+
+**Every task must be executed by a subagent specialised in the requirements and objectives of that task.** This is not a preference and not an optimisation: it is the required mode of execution.
+
+1. **No task is executed directly.** Before starting any task, identify the requirements and the objective of the task, choose the subagent whose specialisation matches them, and delegate the execution to that subagent. The main agent plans, chooses the specialist, delegates, validates the acceptance criteria, and reports — it does not do the work itself.
+2. **The choice must be justified by the match.** The subagent is chosen because its specialisation covers what the task actually requires (language, subsystem, domain, type of work), never by convenience or habit. If no existing subagent matches the task, stop and ask the user which subagent to use or to create.
+3. **Delegation does not transfer responsibility.** Every rule of this document applies in full to the delegated work, and the result must be validated against the task's acceptance criteria before the task is closed (§ 4.2).
+
+### 9.2 One Subagent at a Time (ABSOLUTELY FORBIDDEN to Exceed)
+
+**You are ABSOLUTELY FORBIDDEN from running more than one subagent in parallel. One subagent, on every occasion, without exception.**
+
+1. **Strictly one at a time.** Launch a subagent, wait for it to finish, read its result, and only then consider the next one. Never dispatch two or more subagents in the same message, never start a second while a first is still running, and never fan out work across several subagents "to save time".
+2. **This applies to every kind of work** — development, research, exploration, review, evaluation, audit, documentation, measurement — and to every mechanism of delegation, including background execution and workflows.
+3. **Parallelism requires explicit prior authorisation from the user**, and is exceptional. Ask, state how many subagents and for exactly what, and wait for the answer.
+4. **The authorisation expires immediately.** It is valid only for the single, specific occasion for which it was granted, and it lapses the instant that parallel execution ends. It is never a standing permission, is never carried over to a similar case, and is never extended by analogy. The next occasion requires a new authorisation.
 
 ## 10. Decision Framework
 
