@@ -56,9 +56,13 @@ func NewLucene95CodecWithMode(mode Mode) *Lucene95Codec {
 	var sf codecs.StoredFieldsFormat
 	switch mode {
 	case BestSpeed:
-		sf = codecs.NewCompressingStoredFieldsFormat(codecs.CompressionModeLZ4Fast, 16*1024, 128)
+		// Java: new Lucene90StoredFieldsFormat(Objects.requireNonNull(mode).storedMode)
+		// (Lucene95Codec(Mode), storedMode == Lucene90StoredFieldsFormat.Mode.BEST_SPEED).
+		sf = lucene90.NewLucene90StoredFieldsFormatWithMode(lucene90.Lucene90StoredFieldsBestSpeed)
 	case BestCompression:
-		sf = codecs.NewCompressingStoredFieldsFormat(codecs.CompressionModeDeflate, 64*1024, 256)
+		// Java: the same call with storedMode ==
+		// Lucene90StoredFieldsFormat.Mode.BEST_COMPRESSION.
+		sf = lucene90.NewLucene90StoredFieldsFormatWithMode(lucene90.Lucene90StoredFieldsBestCompression)
 	default:
 		sf = lucene90.NewLucene90StoredFieldsFormat()
 	}
