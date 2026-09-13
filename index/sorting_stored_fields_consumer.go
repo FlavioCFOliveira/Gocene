@@ -215,7 +215,7 @@ func (c *SortingStoredFieldsConsumer) Flush(state *SegmentWriteState, sortMap So
 		return fmt.Errorf("index: SortingStoredFieldsConsumer flush open sort writer: %w", err)
 	}
 
-	flushErr := c.copyDocuments(reader, sortWriter, state.SegmentInfo.DocCount(), sortMap)
+	flushErr := c.copyDocuments(reader, sortWriter, state.FieldInfos, state.SegmentInfo.DocCount(), sortMap)
 	closeErr := closeAll(reader, sortWriter)
 	c.cleanupTempFiles()
 
@@ -230,8 +230,8 @@ func (c *SortingStoredFieldsConsumer) Flush(state *SegmentWriteState, sortMap So
 
 // copyDocuments walks the buffered reader in sorted order, copying every
 // field of every document into the codec writer.
-func (c *SortingStoredFieldsConsumer) copyDocuments(reader StoredFieldsReader, sortWriter StoredFieldsWriter, maxDoc int, sortMap SorterDocMap) error {
-	visitor := &copyVisitor{writer: sortWriter}
+func (c *SortingStoredFieldsConsumer) copyDocuments(reader StoredFieldsReader, sortWriter StoredFieldsWriter, fieldInfos *FieldInfos, maxDoc int, sortMap SorterDocMap) error {
+	visitor := &copyVisitor{writer: sortWriter, fieldInfos: fieldInfos}
 	for docID := 0; docID < maxDoc; docID++ {
 		if err := sortWriter.StartDocument(); err != nil {
 			return fmt.Errorf("index: SortingStoredFieldsConsumer flush start doc %d: %w", docID, err)
@@ -304,16 +304,33 @@ func closeAll(reader StoredFieldsReader, writer StoredFieldsWriter) error {
 //
 // Any error returned by the underlying writer is captured in copyVisitor.err
 // rather than panicked; Flush inspects err between Visit/FinishDocument.
+//
+// Java's CopyVisitor receives the FieldInfo on every callback
+// (SortingStoredFieldsConsumer.java:137-166) and hands it straight to
+// writer.writeField. Gocene's spi.StoredFieldVisitor callbacks carry only
+// the field name, so the FieldInfo — and with it the field number the codec
+// stamps into the record — is recovered by name from the segment's
+// FieldInfos, which is the same object Lucene's visitor was handed.
 type copyVisitor struct {
-	writer StoredFieldsWriter
-	err    error
+	writer     StoredFieldsWriter
+	fieldInfos *FieldInfos
+	err        error
 }
 
 func (v *copyVisitor) write(field IndexableField) {
 	if v.err != nil {
 		return
 	}
-	if err := v.writer.WriteField(field); err != nil {
+	if v.fieldInfos == nil {
+		v.err = fmt.Errorf("index: SortingStoredFieldsConsumer: no FieldInfos to resolve stored field %q", field.Name())
+		return
+	}
+	info := v.fieldInfos.FieldInfoByName(field.Name())
+	if info == nil {
+		v.err = fmt.Errorf("index: SortingStoredFieldsConsumer: stored field %q is absent from the segment FieldInfos", field.Name())
+		return
+	}
+	if err := v.writer.WriteField(info, field); err != nil {
 		v.err = err
 	}
 }

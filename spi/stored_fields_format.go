@@ -52,10 +52,18 @@ type StoredFieldsWriter interface {
 	FinishDocument() error
 
 	// WriteField serialises one stored field of the current document.
-	// The field is exposed via the narrow spi.IndexableField interface;
-	// every concrete field type implemented by package document
-	// satisfies it implicitly.
-	WriteField(field IndexableField) error
+	// info carries the field number the codec stamps into the serialized
+	// record; the value is exposed via the narrow spi.IndexableField
+	// interface, which every concrete field type implemented by package
+	// document satisfies implicitly.
+	//
+	// Mirrors the org.apache.lucene.codecs.StoredFieldsWriter.writeField
+	// overload family (StoredFieldsWriter.java:63-87), every member of
+	// which takes the FieldInfo as its first argument. Java dispatches on
+	// the static type of the value; Go has no overloading, so the port
+	// carries the value behind IndexableField and dispatches on its
+	// StoredValue.
+	WriteField(info *FieldInfo, field IndexableField) error
 
 	// Finish finalises the segment after numDocs documents have been
 	// written. Mirrors codecs.StoredFieldsWriter.finish.

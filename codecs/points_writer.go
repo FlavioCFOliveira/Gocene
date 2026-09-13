@@ -40,7 +40,9 @@ func (b *BasePointsWriter) Merge(mergeState *index.MergeState) error {
 	}
 
 	// Merge field at a time
-	for _, fieldInfo := range mergeState.MergeFieldInfos {
+	// Java: for (FieldInfo fieldInfo : mergeState.mergeFieldInfos)
+	// (PointsWriter.java:230).
+	for _, fieldInfo := range mergeState.MergeFieldInfos.Infos() {
 		if fieldInfo.PointDimensionCount() != 0 {
 			if err := b.mergeOneField(mergeState, fieldInfo); err != nil {
 				return err
@@ -58,9 +60,9 @@ func (b *BasePointsWriter) mergeOneField(mergeState *index.MergeState, fieldInfo
 	for i := 0; i < len(mergeState.Readers); i++ {
 		reader := mergeState.Readers[i]
 		if reader != nil {
-			readerFieldInfo := mergeState.FieldInfos[i].FieldInfoByName(fieldInfo.Name)
+			readerFieldInfo := mergeState.FieldInfos[i].FieldInfoByName(fieldInfo.Name())
 			if readerFieldInfo != nil && readerFieldInfo.PointDimensionCount() > 0 {
-				values, err := reader.GetPointValues(fieldInfo.Name)
+				values, err := reader.GetPointValues(fieldInfo.Name())
 				if err == nil && values != nil {
 					maxPointCount += values.GetValueCount()
 				}
@@ -89,7 +91,7 @@ func (r *mergedPointsReader) Close() error          { return nil }
 
 // GetValues recovers the wide read surface for the merged points.
 func (r *mergedPointsReader) GetValues(field string) (index.PointValues, error) {
-	if field != r.fieldInfo.Name {
+	if field != r.fieldInfo.Name() {
 		return nil, fmt.Errorf("field name must match the field being merged")
 	}
 	return &mergedPointValues{
@@ -160,7 +162,7 @@ func (t *mergedPointTree) VisitDocIDs(visitor bkd.IntersectVisitor) error {
 
 func (t *mergedPointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
 	ms := t.values.reader.mergeState
-	fieldName := t.values.reader.fieldInfo.Name
+	fieldName := t.values.reader.fieldInfo.Name()
 
 	for i := 0; i < len(ms.Readers); i++ {
 		reader := ms.Readers[i]

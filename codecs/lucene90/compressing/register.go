@@ -5,6 +5,7 @@
 package compressing
 
 import (
+	gcodecs "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/codecs/compressing"
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
@@ -23,6 +24,20 @@ func init() {
 		128*1024, 1, 10,
 	)
 	index.RegisterDefaultTempStoredFieldsFormat(tempStored)
+
+	// Arms codecs.NewLucene90CompressingStoredFieldsFormat, the spelling of
+	// this package's constructor that package codecs needs but cannot reach
+	// directly (this package imports codecs).
+	gcodecs.RegisterLucene90CompressingStoredFieldsFormat(
+		func(opts gcodecs.Lucene90CompressingStoredFieldsFormatOptions) (gcodecs.StoredFieldsFormat, error) {
+			return NewLucene90CompressingStoredFieldsFormatWithOptions(
+				opts.FormatName,
+				opts.CompressionMode,
+				opts.ChunkSize,
+				opts.MaxDocsPerChunk,
+				opts.BlockShift,
+			), nil
+		})
 
 	// Lucene90CompressingTermVectorsFormat in the Gocene port is currently a
 	// stub that does not accept tuning options; once it gains the 5-arg

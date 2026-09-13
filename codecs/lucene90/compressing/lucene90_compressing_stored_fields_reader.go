@@ -378,107 +378,107 @@ func readZInt(in store.DataInput) (int32, error) {
 	return int32(uint32(v)>>1) ^ -(v & 1), nil
 }
 
-// readZFloat mirrors Lucene's Lucene90CompressingStoredFieldsReader.readZFloat.
+// readZFloat mirrors Lucene's Lucene90CompressingStoredFieldsReader.readZFloat
+// (Lucene90CompressingStoredFieldsReader.java:317-330):
 //
-// All multi-byte reads use ReadByte to be endian-independent.
+//	int b = in.readByte() & 0xFF;
+//	if (b == 0xFF) {
+//	  return Float.intBitsToFloat(in.readInt());
+//	} else if ((b & 0x80) != 0) {
+//	  return (b & 0x7f) - 1;
+//	} else {
+//	  int bits = b << 24 | ((in.readShort() & 0xFFFF) << 8) | (in.readByte() & 0xFF);
+//	  return Float.intBitsToFloat(bits);
+//	}
+//
+// DataInput.readShort and DataInput.readInt are LITTLE-endian in Lucene 10.5.0,
+// and so are store.DataInput's; this is the exact mirror of writeZFloat.
 func readZFloat(in store.DataInput) (float32, error) {
 	b, err := in.ReadByte()
 	if err != nil {
 		return 0, err
 	}
 	if b == 0xFF {
-		// Negative float: 4 bytes big-endian.
-		b1, err := in.ReadByte()
+		// negative value
+		v, err := in.ReadInt()
 		if err != nil {
 			return 0, err
 		}
-		b2, err := in.ReadByte()
-		if err != nil {
-			return 0, err
-		}
-		b3, err := in.ReadByte()
-		if err != nil {
-			return 0, err
-		}
-		b4, err := in.ReadByte()
-		if err != nil {
-			return 0, err
-		}
-		bits := uint32(b1)<<24 | uint32(b2)<<16 | uint32(b3)<<8 | uint32(b4)
-		return math.Float32frombits(bits), nil
+		return math.Float32frombits(uint32(v)), nil
 	} else if (b & 0x80) != 0 {
-		// Small integer.
+		// small integer [-1..125]
 		return float32(int32(b&0x7F) - 1), nil
 	}
-	// Positive float: b is top byte, then 3 more bytes.
-	b2, err := in.ReadByte()
+	// positive float
+	sh, err := in.ReadShort()
 	if err != nil {
 		return 0, err
 	}
-	b3, err := in.ReadByte()
+	lo, err := in.ReadByte()
 	if err != nil {
 		return 0, err
 	}
-	b4, err := in.ReadByte()
-	if err != nil {
-		return 0, err
-	}
-	bits := uint32(b)<<24 | uint32(b2)<<16 | uint32(b3)<<8 | uint32(b4)
+	bits := uint32(b)<<24 | (uint32(uint16(sh)) << 8) | uint32(lo)
 	return math.Float32frombits(bits), nil
 }
 
-// readZDouble mirrors Lucene's Lucene90CompressingStoredFieldsReader.readZDouble.
+// readZDouble mirrors Lucene's Lucene90CompressingStoredFieldsReader.readZDouble
+// (Lucene90CompressingStoredFieldsReader.java:336-356):
 //
-// All multi-byte reads use ReadByte to be endian-independent.
+//	int b = in.readByte() & 0xFF;
+//	if (b == 0xFF) {
+//	  return Double.longBitsToDouble(in.readLong());
+//	} else if (b == 0xFE) {
+//	  return Float.intBitsToFloat(in.readInt());
+//	} else if ((b & 0x80) != 0) {
+//	  return (b & 0x7f) - 1;
+//	} else {
+//	  long bits = ((long) b) << 56
+//	      | ((in.readInt() & 0xFFFFFFFFL) << 24)
+//	      | ((in.readShort() & 0xFFFFL) << 8)
+//	      | (in.readByte() & 0xFFL);
+//	  return Double.longBitsToDouble(bits);
+//	}
 func readZDouble(in store.DataInput) (float64, error) {
 	b, err := in.ReadByte()
 	if err != nil {
 		return 0, err
 	}
 	if b == 0xFF {
-		// Negative double: 8 bytes big-endian.
-		var bits uint64
-		for i := 0; i < 8; i++ {
-			bx, err := in.ReadByte()
-			if err != nil {
-				return 0, err
-			}
-			bits = bits<<8 | uint64(bx)
+		// negative value
+		v, err := in.ReadLong()
+		if err != nil {
+			return 0, err
 		}
-		return math.Float64frombits(bits), nil
+		return math.Float64frombits(uint64(v)), nil
 	} else if b == 0xFE {
-		// Float32 representation: 4 bytes big-endian.
-		b1, err := in.ReadByte()
+		// float
+		v, err := in.ReadInt()
 		if err != nil {
 			return 0, err
 		}
-		b2, err := in.ReadByte()
-		if err != nil {
-			return 0, err
-		}
-		b3, err := in.ReadByte()
-		if err != nil {
-			return 0, err
-		}
-		b4, err := in.ReadByte()
-		if err != nil {
-			return 0, err
-		}
-		bits := uint32(b1)<<24 | uint32(b2)<<16 | uint32(b3)<<8 | uint32(b4)
-		return float64(math.Float32frombits(bits)), nil
+		return float64(math.Float32frombits(uint32(v))), nil
 	} else if (b & 0x80) != 0 {
-		// Small integer.
+		// small integer [-1..124]
 		return float64(int64(b&0x7F) - 1), nil
 	}
-	// Positive double: b is the top byte, followed by 7 more bytes big-endian.
-	var bits uint64 = uint64(b)
-	for i := 0; i < 7; i++ {
-		bx, err := in.ReadByte()
-		if err != nil {
-			return 0, err
-		}
-		bits = bits<<8 | uint64(bx)
+	// positive double
+	mid, err := in.ReadInt()
+	if err != nil {
+		return 0, err
 	}
+	sh, err := in.ReadShort()
+	if err != nil {
+		return 0, err
+	}
+	lo, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	bits := uint64(b)<<56 |
+		(uint64(uint32(mid)) << 24) |
+		(uint64(uint16(sh)) << 8) |
+		uint64(lo)
 	return math.Float64frombits(bits), nil
 }
 

@@ -82,12 +82,19 @@ func NewLucene104Codec() *Lucene104Codec {
 //
 // Mirrors org.apache.lucene.codecs.lucene104.Lucene104Codec(Mode).
 func NewLucene104CodecWithMode(mode Lucene104CodecMode) *Lucene104Codec {
+	// Java: this.storedFieldsFormat =
+	//           new Lucene90StoredFieldsFormat(Objects.requireNonNull(mode).storedMode);
+	// with Mode.BEST_SPEED -> Lucene90StoredFieldsFormat.Mode.BEST_SPEED and
+	// Mode.BEST_COMPRESSION -> Lucene90StoredFieldsFormat.Mode.BEST_COMPRESSION
+	// (Lucene104Codec.java:87-99, 118-124). The format itself lives in
+	// codecs/lucene90, which imports this package, so it is reached through
+	// the init()-time registration described in stored_fields_format.go.
 	var sf StoredFieldsFormat
 	switch mode {
 	case Lucene104CodecBestSpeed:
-		sf = NewCompressingStoredFieldsFormat(CompressionModeLZ4Fast, 16*1024, 128)
+		sf = Lucene90StoredFieldsFormatForMode(StoredFieldsBestSpeed)
 	case Lucene104CodecBestCompression:
-		sf = NewCompressingStoredFieldsFormat(CompressionModeDeflate, 64*1024, 256)
+		sf = Lucene90StoredFieldsFormatForMode(StoredFieldsBestCompression)
 	default:
 		sf = NewLucene104StoredFieldsFormat()
 	}

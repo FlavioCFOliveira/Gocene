@@ -244,7 +244,7 @@ func (fw *lucene99ScalarQuantizedFieldWriter) AddValue(docID int, vectorValue an
 // RamBytesUsed reports the per-field in-memory footprint. Mirrors Java's
 // FieldWriter.ramBytesUsed.
 func (fw *lucene99ScalarQuantizedFieldWriter) RamBytesUsed() int64 {
-	return fw.delegate.ramBytesUsed()
+	return fw.delegate.RamBytesUsed()
 }
 
 // Finish marks the field complete. Mirrors Java's FieldWriter.finish.

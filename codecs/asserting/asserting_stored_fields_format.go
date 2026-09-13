@@ -166,9 +166,9 @@ func (w *AssertingStoredFieldsWriter) FinishDocument() error {
 	return err
 }
 
-func (w *AssertingStoredFieldsWriter) WriteField(field spi.IndexableField) error {
+func (w *AssertingStoredFieldsWriter) WriteField(info *spi.FieldInfo, field spi.IndexableField) error {
 	AssertState(w.docStatus == StatusStarted, "WriteField called outside of a started document")
-	return w.in.WriteField(field)
+	return w.in.WriteField(info, field)
 }
 
 func (w *AssertingStoredFieldsWriter) Finish(numDocs int) error {

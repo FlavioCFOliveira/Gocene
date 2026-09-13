@@ -51,6 +51,17 @@ type MergeState struct {
 
 	// NormsProducers is the per-sub-reader norms producer.
 	NormsProducers []spi.NormsProducer
+
+	// TermVectorsReaders is the per-sub-reader TermVectorsReader, in the same
+	// order as Readers, with a nil entry for a sub-reader that stores no term
+	// vectors. Mirrors MergeState.termVectorsReaders (MergeState.java:59).
+	//
+	// DIVERGENCE, reported: Java wraps each non-null entry in
+	// getMergeInstance() (MergeState.java:150-153). spi.TermVectorsReader
+	// declares no such member, so the reader itself is carried. Java's default
+	// TermVectorsReader.getMergeInstance() returns this, so this is
+	// behaviour-preserving for every codec that does not override it.
+	TermVectorsReaders []TermVectorsReader
 }
 
 // CheckAborted returns an error if the merge operation has been aborted.

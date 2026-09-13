@@ -1069,7 +1069,9 @@ func (c *lucene90DVConsumer) addTermsDict(values dvSortedSetValues) error {
 				if uncompLen > maxBlockLength {
 					maxBlockLength = uncompLen
 				}
-				buf.Reset()
+				// Java: bufferedOutput.reset(termsDictBuffer)
+				// (Lucene90DocValuesConsumer.java:778).
+				buf.Reset(c.termsDictBuf)
 			}
 			if err := addrWriter.Add(c.data.GetFilePointer() - start); err != nil {
 				return err
@@ -1083,7 +1085,9 @@ func (c *lucene90DVConsumer) addTermsDict(values dvSortedSetValues) error {
 			}
 			// also buffer as dict for next block; re-wrap buf at pos 0 after reset
 			buf = c.growTermsDictBuf(buf, len(term))
-			if err := buf.WriteBytes(term); err != nil {
+			// Java: bufferedOutput.writeBytes(term.bytes, term.offset, term.length)
+			// (Lucene90DocValuesConsumer.java:786).
+			if err := buf.WriteBytes(term, 0, len(term)); err != nil {
 				return err
 			}
 			dictLen = len(term)
@@ -1112,7 +1116,9 @@ func (c *lucene90DVConsumer) addTermsDict(values dvSortedSetValues) error {
 					return err
 				}
 			}
-			if err := buf.WriteBytes(term[prefixLen:]); err != nil {
+			// Java: bufferedOutput.writeBytes(term.bytes, term.offset + prefixLength, suffixLength)
+			// (Lucene90DocValuesConsumer.java:801).
+			if err := buf.WriteBytes(term, prefixLen, suffixLen); err != nil {
 				return err
 			}
 		}

@@ -252,7 +252,7 @@ func (fw *scalarQuantizedFieldWriter) AddValue(docID int, vectorValue any) error
 // RamBytesUsed reports the per-field in-memory footprint: the delegate's raw
 // vectors plus the magnitudes slice. Mirrors Java's FieldWriter.ramBytesUsed.
 func (fw *scalarQuantizedFieldWriter) RamBytesUsed() int64 {
-	return fw.delegate.ramBytesUsed() + int64(len(fw.magnitudes))*floatBytes
+	return fw.delegate.RamBytesUsed() + int64(len(fw.magnitudes))*floatBytes
 }
 
 // Finish marks the field complete. Mirrors Java's FieldWriter.finish.
@@ -296,7 +296,7 @@ func (f *flatDelegateFieldWriter) AddValue(docID int, vectorValue any) error {
 }
 
 // RamBytesUsed reports the delegate's footprint.
-func (f *flatDelegateFieldWriter) RamBytesUsed() int64 { return f.delegate.ramBytesUsed() }
+func (f *flatDelegateFieldWriter) RamBytesUsed() int64 { return f.delegate.RamBytesUsed() }
 
 // Finish marks the delegate field complete.
 func (f *flatDelegateFieldWriter) Finish() error { return nil }

@@ -85,11 +85,18 @@ func NewSegmentMerger(
 		MaxDocs:     make([]int, 0, len(readers)),
 		LiveDocs:    make([]util.Bits, 0, len(readers)),
 		Readers:     readers,
+
+		TermVectorsReaders: make([]TermVectorsReader, 0, len(readers)),
 	}
 	for _, reader := range readers {
 		mergeState.FieldInfos = append(mergeState.FieldInfos, reader.GetFieldInfos())
 		mergeState.MaxDocs = append(mergeState.MaxDocs, reader.MaxDoc())
 		mergeState.LiveDocs = append(mergeState.LiveDocs, reader.GetLiveDocs())
+		// Java: termVectorsReaders[i] = reader.getTermVectorsReader()
+		// (MergeState.java:150). The getMergeInstance() wrap that follows it in
+		// Java has no counterpart on spi.TermVectorsReader; see the field's
+		// doc comment on MergeState.
+		mergeState.TermVectorsReaders = append(mergeState.TermVectorsReaders, reader.GetTermVectorsReader())
 	}
 
 	// Resolve the codec for the merged segment: use the explicit codec when
@@ -388,7 +395,7 @@ func (sm *SegmentMerger) mergeFields() (int, error) {
 			return fmt.Errorf("index: merge stored fields: start doc: %w", err)
 		}
 		if sfr != nil {
-			visitor := &storedFieldsMergeVisitor{writer: writer}
+			visitor := &storedFieldsMergeVisitor{writer: writer, fieldInfos: sm.MergeState.MergeFieldInfos}
 			if err := sfr.VisitDocument(docID, visitor); err != nil {
 				return fmt.Errorf("index: merge stored fields: visit doc %d of reader %d: %w", docID, i, err)
 			}
@@ -459,16 +466,34 @@ func resolveMergeCodec(segInfo *SegmentInfo) Codec {
 // storedFieldsMergeVisitor forwards each stored field decoded from a source
 // segment straight to the merged segment's StoredFieldsWriter. The first
 // WriteField error is captured and surfaced by mergeFields.
+// The merged segment's FieldInfos supplies the field number the codec stamps
+// into each record. Java's StoredFieldsWriter.MergeVisitor receives the source
+// FieldInfo on every callback and routes it through remap(), which resolves
+// mergeState.mergeFieldInfos.fieldInfo(field.name) whenever the source and
+// merged numbering disagree (StoredFieldsWriter.java:196-203, 260-267).
+// Gocene's visitor callbacks carry only the name, so the by-name resolution
+// against the merged FieldInfos is performed unconditionally — the same
+// lookup, with the same result.
 type storedFieldsMergeVisitor struct {
-	writer StoredFieldsWriter
-	err    error
+	writer     StoredFieldsWriter
+	fieldInfos *FieldInfos
+	err        error
 }
 
 func (v *storedFieldsMergeVisitor) write(f *mergeStoredField) {
 	if v.err != nil {
 		return
 	}
-	if err := v.writer.WriteField(f); err != nil {
+	if v.fieldInfos == nil {
+		v.err = fmt.Errorf("index: merge stored fields: no merged FieldInfos to resolve field %q", f.name)
+		return
+	}
+	info := v.fieldInfos.FieldInfoByName(f.name)
+	if info == nil {
+		v.err = fmt.Errorf("index: merge stored fields: field %q is absent from the merged FieldInfos", f.name)
+		return
+	}
+	if err := v.writer.WriteField(info, f); err != nil {
 		v.err = fmt.Errorf("index: merge stored fields: write field %q: %w", f.name, err)
 	}
 }

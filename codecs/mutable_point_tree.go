@@ -5,7 +5,6 @@
 package codecs
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 

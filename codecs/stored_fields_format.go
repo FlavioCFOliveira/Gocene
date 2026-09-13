@@ -65,6 +65,148 @@ func RegisterLucene90StoredFieldsFormat(factory func() StoredFieldsFormat) {
 	lucene90StoredFieldsFormatFactory = factory
 }
 
+// ---------------------------------------------------------------------------
+// Deferred construction of the Lucene90 stored-fields formats
+// ---------------------------------------------------------------------------
+//
+// In Apache Lucene these formats are simply constructed at their use sites:
+// Lucene104Codec(Mode) does
+//
+//	this.storedFieldsFormat = new Lucene90StoredFieldsFormat(mode.storedMode);
+//
+// (Lucene104Codec.java:118-124) and the test-framework CompressingCodec does
+//
+//	this.storedFieldsFormat = new Lucene90CompressingStoredFieldsFormat(
+//	    name, segmentSuffix, compressionMode, chunkSize, maxDocsPerChunk, blockShift);
+//
+// (CompressingCodec.java:119-121). Neither constructor is reachable from this
+// package: both formats live under codecs/lucene90[/compressing], and those
+// packages import codecs, so a direct import would close an import cycle. The
+// port therefore resolves the seam the same way it already resolves the
+// Lucene90 reader above — with an init()-time registration performed by the
+// defining package, and construction deferred to first use. Importing
+// codecs/lucene90 (directly or through a codec package) arms both factories.
+
+// StoredFieldsMode is the canonical Java name of a
+// Lucene90StoredFieldsFormat.Mode constant: "BEST_SPEED" or
+// "BEST_COMPRESSION". It is the same textual form Lucene persists in the
+// segment attribute Lucene90StoredFieldsFormat.MODE_KEY
+// ("Lucene90StoredFieldsFormat.mode"), so no new vocabulary is introduced.
+type StoredFieldsMode string
+
+const (
+	// StoredFieldsBestSpeed is Lucene90StoredFieldsFormat.Mode.BEST_SPEED.
+	StoredFieldsBestSpeed StoredFieldsMode = "BEST_SPEED"
+	// StoredFieldsBestCompression is
+	// Lucene90StoredFieldsFormat.Mode.BEST_COMPRESSION.
+	StoredFieldsBestCompression StoredFieldsMode = "BEST_COMPRESSION"
+)
+
+// lucene90StoredFieldsFormatByMode is populated by codecs/lucene90 via init().
+var lucene90StoredFieldsFormatByMode func(mode StoredFieldsMode) (StoredFieldsFormat, error)
+
+// RegisterLucene90StoredFieldsFormatByMode sets the factory that builds
+// org.apache.lucene.codecs.lucene90.Lucene90StoredFieldsFormat for a given
+// Mode. Called from codecs/lucene90's init().
+func RegisterLucene90StoredFieldsFormatByMode(factory func(mode StoredFieldsMode) (StoredFieldsFormat, error)) {
+	lucene90StoredFieldsFormatByMode = factory
+}
+
+// Lucene90CompressingStoredFieldsFormatOptions is the argument tuple of the
+// org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingStoredFieldsFormat
+// constructor (Lucene90CompressingStoredFieldsFormat.java:63-77), minus the
+// segment suffix, which the Gocene port of that format does not yet carry.
+type Lucene90CompressingStoredFieldsFormatOptions struct {
+	FormatName      string
+	CompressionMode CompressionMode
+	ChunkSize       int
+	MaxDocsPerChunk int
+	BlockShift      int
+}
+
+// lucene90CompressingStoredFieldsFormatFactory is populated by
+// codecs/lucene90/compressing via init().
+var lucene90CompressingStoredFieldsFormatFactory func(Lucene90CompressingStoredFieldsFormatOptions) (StoredFieldsFormat, error)
+
+// RegisterLucene90CompressingStoredFieldsFormat sets the factory that builds
+// Lucene90CompressingStoredFieldsFormat from its constructor tuple. Called
+// from codecs/lucene90/compressing's init().
+func RegisterLucene90CompressingStoredFieldsFormat(factory func(Lucene90CompressingStoredFieldsFormatOptions) (StoredFieldsFormat, error)) {
+	lucene90CompressingStoredFieldsFormatFactory = factory
+}
+
+// deferredStoredFieldsFormat is a StoredFieldsFormat that resolves its
+// delegate on first use through one of the factories above. It exists purely
+// to break the import cycle: every call it receives is forwarded unchanged to
+// the real Lucene90 format, and an unarmed factory surfaces as an explicit
+// error rather than a silently different format.
+type deferredStoredFieldsFormat struct {
+	name    string
+	resolve func() (StoredFieldsFormat, error)
+}
+
+func (f *deferredStoredFieldsFormat) Name() string { return f.name }
+
+func (f *deferredStoredFieldsFormat) delegate() (StoredFieldsFormat, error) {
+	sf, err := f.resolve()
+	if err != nil {
+		return nil, err
+	}
+	if sf == nil {
+		return nil, fmt.Errorf("codecs: the registered factory produced no stored-fields format for %q", f.name)
+	}
+	return sf, nil
+}
+
+func (f *deferredStoredFieldsFormat) FieldsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos, context store.IOContext) (StoredFieldsReader, error) {
+	sf, err := f.delegate()
+	if err != nil {
+		return nil, err
+	}
+	return sf.FieldsReader(dir, segmentInfo, fieldInfos, context)
+}
+
+func (f *deferredStoredFieldsFormat) FieldsWriter(dir store.Directory, segmentInfo *index.SegmentInfo, context store.IOContext) (StoredFieldsWriter, error) {
+	sf, err := f.delegate()
+	if err != nil {
+		return nil, err
+	}
+	return sf.FieldsWriter(dir, segmentInfo, context)
+}
+
+var _ StoredFieldsFormat = (*deferredStoredFieldsFormat)(nil)
+
+// Lucene90StoredFieldsFormatForMode returns the Lucene90StoredFieldsFormat for
+// mode, resolved through the factory codecs/lucene90 registers. It is the
+// package-local spelling of `new Lucene90StoredFieldsFormat(mode)`.
+func Lucene90StoredFieldsFormatForMode(mode StoredFieldsMode) StoredFieldsFormat {
+	return &deferredStoredFieldsFormat{
+		name: "Lucene90StoredFieldsFormat(" + string(mode) + ")",
+		resolve: func() (StoredFieldsFormat, error) {
+			if lucene90StoredFieldsFormatByMode == nil {
+				return nil, fmt.Errorf("codecs: no Lucene90 stored-fields format registered for mode %s; import codecs/lucene90", mode)
+			}
+			return lucene90StoredFieldsFormatByMode(mode)
+		},
+	}
+}
+
+// NewLucene90CompressingStoredFieldsFormat returns the
+// Lucene90CompressingStoredFieldsFormat described by opts, resolved through
+// the factory codecs/lucene90/compressing registers. It is the package-local
+// spelling of that format's constructor.
+func NewLucene90CompressingStoredFieldsFormat(opts Lucene90CompressingStoredFieldsFormatOptions) StoredFieldsFormat {
+	return &deferredStoredFieldsFormat{
+		name: opts.FormatName,
+		resolve: func() (StoredFieldsFormat, error) {
+			if lucene90CompressingStoredFieldsFormatFactory == nil {
+				return nil, fmt.Errorf("codecs: no Lucene90CompressingStoredFieldsFormat factory registered; import codecs/lucene90/compressing")
+			}
+			return lucene90CompressingStoredFieldsFormatFactory(opts)
+		},
+	}
+}
+
 // Lucene104StoredFieldsFormat is the Lucene 10.4 stored fields format.
 type Lucene104StoredFieldsFormat struct {
 	*BaseStoredFieldsFormat
@@ -186,7 +328,7 @@ func (w *Lucene104StoredFieldsWriter) FinishDocument() error {
 }
 
 // WriteField writes a field.
-func (w *Lucene104StoredFieldsWriter) WriteField(field spi.IndexableField) error {
+func (w *Lucene104StoredFieldsWriter) WriteField(info *spi.FieldInfo, field spi.IndexableField) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 

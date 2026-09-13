@@ -92,7 +92,7 @@ func roundTripCompressing(
 	chunkSize, maxDocsPerChunk, blockShift int,
 	numDocs int,
 	fieldNames []string,
-	buildDoc func(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, docID int),
+	buildDoc func(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, fis *index.FieldInfos, docID int),
 ) []collectedFields {
 	t.Helper()
 
@@ -113,6 +113,11 @@ func roundTripCompressing(
 		t.Fatalf("set segment ID: %v", err)
 	}
 
+	// The same FieldInfos drives both phases: the writer stamps
+	// FieldInfo.number into each record and the reader maps it back to the
+	// name, exactly as Lucene does.
+	fi := makeFieldInfos(t, fieldNames...)
+
 	// --- Write phase ---
 	format := NewLucene90CompressingStoredFieldsFormatWithOptions(
 		formatName, mode, chunkSize, maxDocsPerChunk, blockShift,
@@ -127,7 +132,7 @@ func roundTripCompressing(
 		if err := w.StartDocument(); err != nil {
 			t.Fatalf("StartDocument doc=%d: %v", docID, err)
 		}
-		buildDoc(t, w, docID)
+		buildDoc(t, w, fi, docID)
 		if err := w.FinishDocument(); err != nil {
 			t.Fatalf("FinishDocument doc=%d: %v", docID, err)
 		}
@@ -137,7 +142,6 @@ func roundTripCompressing(
 	}
 
 	// --- Read phase ---
-	fi := makeFieldInfos(t, fieldNames...)
 	reader, err := format.FieldsReader(tmpDir, si, fi, store.IOContext{})
 	if err != nil {
 		t.Fatalf("FieldsReader: %v", err)
@@ -231,10 +235,7 @@ func testRoundTrip(
 			longs:    []namedValue[int64]{{"count", -9999999999}},
 			doubles:  []namedValue[float64]{{"score", 3.14}},
 		},
-		// doc 4: large binary to exercise the compressor. Fields are written
-		// in FieldInfos order (title=0, payload=1, count=2) so that the
-		// sequential per-doc IDs match the FieldInfo numbers and name
-		// round-trip is correct.
+		// doc 4: large binary to exercise the compressor.
 		{
 			strings:  []namedValue[string]{{"title", "large-binary-doc"}},
 			binaries: []namedValue[[]byte]{{"payload", makeLargeBinary(4096)}},
@@ -244,27 +245,26 @@ func testRoundTrip(
 
 	got := roundTripCompressing(t, formatName, mode, chunkSize, maxDocsPerChunk, blockShift,
 		numDocs, fieldNames,
-		func(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, docID int) {
+		func(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, fis *index.FieldInfos, docID int) {
 			t.Helper()
 			switch docID {
 			case 0:
-				mustWriteField(t, w, "title", "hello world")
-				mustWriteFieldBytes(t, w, "payload", []byte{0x01, 0x02, 0x03})
-				mustWriteFieldLong(t, w, "count", 42)
+				mustWriteField(t, w, fis, "title", "hello world")
+				mustWriteFieldBytes(t, w, fis, "payload", []byte{0x01, 0x02, 0x03})
+				mustWriteFieldLong(t, w, fis, "count", 42)
 			case 1:
-				mustWriteField(t, w, "title", "second doc")
+				mustWriteField(t, w, fis, "title", "second doc")
 			case 2:
 				// empty doc
 			case 3:
-				mustWriteField(t, w, "title", "all types")
-				mustWriteFieldBytes(t, w, "payload", []byte("binary payload"))
-				mustWriteFieldLong(t, w, "count", -9999999999)
-				mustWriteFieldDouble(t, w, "score", 3.14)
+				mustWriteField(t, w, fis, "title", "all types")
+				mustWriteFieldBytes(t, w, fis, "payload", []byte("binary payload"))
+				mustWriteFieldLong(t, w, fis, "count", -9999999999)
+				mustWriteFieldDouble(t, w, fis, "score", 3.14)
 			case 4:
-				// Write in FieldInfos order so sequential IDs match FieldInfo numbers.
-				mustWriteField(t, w, "title", "large-binary-doc")
-				mustWriteFieldBytes(t, w, "payload", makeLargeBinary(4096))
-				mustWriteFieldLong(t, w, "count", 0)
+				mustWriteField(t, w, fis, "title", "large-binary-doc")
+				mustWriteFieldBytes(t, w, fis, "payload", makeLargeBinary(4096))
+				mustWriteFieldLong(t, w, fis, "count", 0)
 			}
 		},
 	)
@@ -347,10 +347,10 @@ func TestLucene90Compressing_RoundTrip_MultiChunk(t *testing.T) {
 	got := roundTripCompressing(t, "Lucene90StoredFieldsFastData", mode,
 		chunkSz, maxDPChunk, bShift,
 		maxDocs, fieldNames,
-		func(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, docID int) {
+		func(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, fis *index.FieldInfos, docID int) {
 			t.Helper()
-			mustWriteField(t, w, "title", fmt.Sprintf("doc-%d", docID))
-			mustWriteFieldBytes(t, w, "payload", []byte(fmt.Sprintf("payload-%d", docID)))
+			mustWriteField(t, w, fis, "title", fmt.Sprintf("doc-%d", docID))
+			mustWriteFieldBytes(t, w, fis, "payload", []byte(fmt.Sprintf("payload-%d", docID)))
 		},
 	)
 
@@ -381,11 +381,11 @@ func TestLucene90Compressing_RoundTrip_FieldNames(t *testing.T) {
 		"Lucene90StoredFieldsFastData", mode,
 		10*8*1024, 1024, 10,
 		1, fieldNames,
-		func(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, _ int) {
+		func(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, fis *index.FieldInfos, _ int) {
 			t.Helper()
-			mustWriteField(t, w, "alpha", "val-a")
-			mustWriteField(t, w, "bravo", "val-b")
-			mustWriteFieldLong(t, w, "charlie", 999)
+			mustWriteField(t, w, fis, "alpha", "val-a")
+			mustWriteField(t, w, fis, "bravo", "val-b")
+			mustWriteFieldLong(t, w, fis, "charlie", 999)
 		},
 	)
 
@@ -408,46 +408,62 @@ func TestLucene90Compressing_RoundTrip_FieldNames(t *testing.T) {
 // Helpers for writing test documents
 // ---------------------------------------------------------------------------
 
-func mustWriteField(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, name, value string) {
+func mustWriteField(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, fis *index.FieldInfos, name, value string) {
 	t.Helper()
 	f, err := document.NewStoredField(name, value)
 	if err != nil {
 		t.Fatalf("NewStoredField(%s): %v", name, err)
 	}
-	if err := w.WriteField(f); err != nil {
+	info := fis.FieldInfoByName(name)
+	if info == nil {
+		t.Fatalf("WriteField(%s): field absent from FieldInfos", name)
+	}
+	if err := w.WriteField(info, f); err != nil {
 		t.Fatalf("WriteField(%s): %v", name, err)
 	}
 }
 
-func mustWriteFieldBytes(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, name string, value []byte) {
+func mustWriteFieldBytes(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, fis *index.FieldInfos, name string, value []byte) {
 	t.Helper()
 	f, err := document.NewStoredFieldFromBytes(name, value)
 	if err != nil {
 		t.Fatalf("NewStoredFieldFromBytes(%s): %v", name, err)
 	}
-	if err := w.WriteField(f); err != nil {
+	info := fis.FieldInfoByName(name)
+	if info == nil {
+		t.Fatalf("WriteField(%s): field absent from FieldInfos", name)
+	}
+	if err := w.WriteField(info, f); err != nil {
 		t.Fatalf("WriteField(%s): %v", name, err)
 	}
 }
 
-func mustWriteFieldLong(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, name string, value int64) {
+func mustWriteFieldLong(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, fis *index.FieldInfos, name string, value int64) {
 	t.Helper()
 	f, err := document.NewStoredFieldFromInt64(name, value)
 	if err != nil {
 		t.Fatalf("NewStoredFieldFromInt64(%s): %v", name, err)
 	}
-	if err := w.WriteField(f); err != nil {
+	info := fis.FieldInfoByName(name)
+	if info == nil {
+		t.Fatalf("WriteField(%s): field absent from FieldInfos", name)
+	}
+	if err := w.WriteField(info, f); err != nil {
 		t.Fatalf("WriteField(%s): %v", name, err)
 	}
 }
 
-func mustWriteFieldDouble(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, name string, value float64) {
+func mustWriteFieldDouble(t *testing.T, w *Lucene90CompressingStoredFieldsWriter, fis *index.FieldInfos, name string, value float64) {
 	t.Helper()
 	f, err := document.NewStoredFieldFromFloat64(name, value)
 	if err != nil {
 		t.Fatalf("NewStoredFieldFromFloat64(%s): %v", name, err)
 	}
-	if err := w.WriteField(f); err != nil {
+	info := fis.FieldInfoByName(name)
+	if info == nil {
+		t.Fatalf("WriteField(%s): field absent from FieldInfos", name)
+	}
+	if err := w.WriteField(info, f); err != nil {
 		t.Fatalf("WriteField(%s): %v", name, err)
 	}
 }

@@ -31,7 +31,11 @@ func (b *BaseDocValuesConsumer) Merge(consumer DocValuesConsumer, mergeState *in
 		}
 	}
 
-	for _, mergeFI := range mergeState.MergeFieldInfos {
+	// Java: for (FieldInfo mergeFieldInfo : mergeState.mergeFieldInfos)
+	// (DocValuesConsumer.java:140). FieldInfos is Iterable<FieldInfo> in Java;
+	// Infos() exposes the very collection FieldInfos.iterator() walks, in the
+	// same order.
+	for _, mergeFI := range mergeState.MergeFieldInfos.Infos() {
 		dvType := mergeFI.DocValuesType()
 		if dvType == spi.DocValuesTypeNone {
 			continue
@@ -489,7 +493,10 @@ func (m *mergedSortedNumericDocValues) AdvanceExact(target int) (bool, error) {
 
 func (m *mergedSortedNumericDocValues) DocValueCount() (int, error) {
 	if s, ok := m.currentSub.(*sortedNumericDocValuesSub); ok {
-		return s.values.DocValueCount(), nil
+		// Java's SortedNumericDocValues.docValueCount() returns int and does
+		// not throw; Gocene's returns (int, error), so the sub's error is
+		// propagated rather than dropped.
+		return s.values.DocValueCount()
 	}
 	return 0, fmt.Errorf("no current sub")
 }

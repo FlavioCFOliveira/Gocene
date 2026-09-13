@@ -252,30 +252,36 @@ type storedValueField interface {
 	StoredValue() *document.StoredValue
 }
 
-// WriteField serializes one stored field from an IndexableField.
+// WriteField serializes one stored field of the current document.
 //
-// Type dispatch uses StoredValue() when the field implements storedValueField
-// (e.g. document.StoredField), which gives the exact type tag without
-// ambiguity. Fields that do not implement the interface fall back to
+// Java declares one writeField overload per value type, each of them
+// computing the record header as
+//
+//	final long infoAndBits = (((long) info.number) << TYPE_BITS) | TYPE;
+//
+// (Lucene90CompressingStoredFieldsWriter.java:271-326). Go has no
+// overloading, so the value arrives behind spi.IndexableField and the type
+// tag is recovered from its StoredValue(), which gives the exact tag
+// without ambiguity. Fields that do not expose a StoredValue fall back to
 // NumericValue() then StringValue().
 //
-// The wire encoding mirrors Lucene's per-type writeField methods, using a
-// sequential 0-based field ID in place of the FieldInfo.number that Lucene
-// uses (see package divergence note).
-func (w *Lucene90CompressingStoredFieldsWriter) WriteField(field spi.IndexableField) error {
+// The field number is info.Number() — exactly Java's info.number. It is
+// NOT a per-document sequence: the two coincide only when a document
+// stores every field of the segment, in ascending field order.
+func (w *Lucene90CompressingStoredFieldsWriter) WriteField(info *spi.FieldInfo, field spi.IndexableField) error {
+	if info == nil {
+		return errors.New("lucene90/compressing: WriteField requires a non-nil FieldInfo")
+	}
 	w.numStoredFieldsInDoc++
 
-	// Assign a sequential field ID for this document. In Lucene the field
-	// number comes from FieldInfo; here we use (numStoredFieldsInDoc - 1)
-	// as a monotonically increasing identifier within the document.
-	fieldSeq := int64(w.numStoredFieldsInDoc - 1)
+	fieldNumber := int64(info.Number())
 
 	// Prefer StoredValue() for exact type tagging — this avoids the
 	// ambiguity where document.stringValue.Binary() returns []byte(string)
 	// and would be mis-classified as a binary field.
 	if svf, ok := field.(storedValueField); ok {
 		if sv := svf.StoredValue(); sv != nil {
-			return w.writeStoredValue(fieldSeq, sv)
+			return w.writeStoredValue(fieldNumber, sv)
 		}
 	}
 
@@ -284,10 +290,10 @@ func (w *Lucene90CompressingStoredFieldsWriter) WriteField(field spi.IndexableFi
 	// checked here because document.stringValue.Binary() is non-nil for
 	// any non-empty string, which would cause mis-classification.
 	if nv := field.NumericValue(); nv != nil {
-		return w.writeNumericValue(fieldSeq, nv)
+		return w.writeNumericValue(fieldNumber, nv)
 	}
-	// String field (sv may be "" for an empty stored string).
-	infoAndBits := (fieldSeq << typeBits) | typeString
+	// String field (the value may be "" for an empty stored string).
+	infoAndBits := (fieldNumber << typeBits) | typeString
 	if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 		return err
 	}
@@ -295,11 +301,11 @@ func (w *Lucene90CompressingStoredFieldsWriter) WriteField(field spi.IndexableFi
 }
 
 // writeStoredValue encodes a StoredValue into the buffered document stream.
-func (w *Lucene90CompressingStoredFieldsWriter) writeStoredValue(fieldSeq int64, sv *document.StoredValue) error {
+func (w *Lucene90CompressingStoredFieldsWriter) writeStoredValue(fieldNumber int64, sv *document.StoredValue) error {
 	switch sv.Type() {
 	case document.StoredValueTypeBinary:
 		bv := sv.BinaryValue()
-		infoAndBits := (fieldSeq << typeBits) | typeByteArray
+		infoAndBits := (fieldNumber << typeBits) | typeByteArray
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
@@ -308,31 +314,31 @@ func (w *Lucene90CompressingStoredFieldsWriter) writeStoredValue(fieldSeq int64,
 		}
 		return w.bufferedDocs.WriteBytes(bv, 0, len(bv))
 	case document.StoredValueTypeString:
-		infoAndBits := (fieldSeq << typeBits) | typeString
+		infoAndBits := (fieldNumber << typeBits) | typeString
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
 		return w.bufferedDocs.WriteString(sv.StringValue())
 	case document.StoredValueTypeInteger:
-		infoAndBits := (fieldSeq << typeBits) | typeNumericInt
+		infoAndBits := (fieldNumber << typeBits) | typeNumericInt
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
 		return writeZInt(w.bufferedDocs, sv.IntValue())
 	case document.StoredValueTypeLong:
-		infoAndBits := (fieldSeq << typeBits) | typeNumericLong
+		infoAndBits := (fieldNumber << typeBits) | typeNumericLong
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
 		return writeTLong(w.bufferedDocs, sv.LongValue())
 	case document.StoredValueTypeFloat:
-		infoAndBits := (fieldSeq << typeBits) | typeNumericFloat
+		infoAndBits := (fieldNumber << typeBits) | typeNumericFloat
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
 		return writeZFloat(w.bufferedDocs, sv.FloatValue())
 	case document.StoredValueTypeDouble:
-		infoAndBits := (fieldSeq << typeBits) | typeNumericDouble
+		infoAndBits := (fieldNumber << typeBits) | typeNumericDouble
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
@@ -344,41 +350,41 @@ func (w *Lucene90CompressingStoredFieldsWriter) writeStoredValue(fieldSeq int64,
 
 // writeNumericValue is the fallback path for fields that do not implement
 // storedValueField but do return a NumericValue().
-func (w *Lucene90CompressingStoredFieldsWriter) writeNumericValue(fieldSeq int64, nv interface{}) error {
+func (w *Lucene90CompressingStoredFieldsWriter) writeNumericValue(fieldNumber int64, nv interface{}) error {
 	switch v := nv.(type) {
 	case int:
-		infoAndBits := (fieldSeq << typeBits) | typeNumericInt
+		infoAndBits := (fieldNumber << typeBits) | typeNumericInt
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
 		return writeZInt(w.bufferedDocs, int32(v))
 	case int32:
-		infoAndBits := (fieldSeq << typeBits) | typeNumericInt
+		infoAndBits := (fieldNumber << typeBits) | typeNumericInt
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
 		return writeZInt(w.bufferedDocs, v)
 	case int64:
-		infoAndBits := (fieldSeq << typeBits) | typeNumericLong
+		infoAndBits := (fieldNumber << typeBits) | typeNumericLong
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
 		return writeTLong(w.bufferedDocs, v)
 	case float32:
-		infoAndBits := (fieldSeq << typeBits) | typeNumericFloat
+		infoAndBits := (fieldNumber << typeBits) | typeNumericFloat
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
 		return writeZFloat(w.bufferedDocs, v)
 	case float64:
-		infoAndBits := (fieldSeq << typeBits) | typeNumericDouble
+		infoAndBits := (fieldNumber << typeBits) | typeNumericDouble
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
 		return writeZDouble(w.bufferedDocs, v)
 	default:
 		// Unknown numeric type — serialize as string.
-		infoAndBits := (fieldSeq << typeBits) | typeString
+		infoAndBits := (fieldNumber << typeBits) | typeString
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
@@ -597,110 +603,99 @@ func writeZInt(out store.DataOutput, v int32) error {
 	return out.WriteVInt(int32((v << 1) ^ (v >> 31)))
 }
 
-// writeZFloat mirrors Lucene's Lucene90CompressingStoredFieldsWriter.writeZFloat.
+// writeZFloat mirrors Lucene's Lucene90CompressingStoredFieldsWriter.writeZFloat
+// (Lucene90CompressingStoredFieldsWriter.java:356-370):
 //
-// All multi-byte writes are done byte-by-byte in big-endian order to match
-// Lucene's DataOutput contract and be independent of the underlying
-// DataOutput implementation's endianness (ByteBuffersDataOutput is BE;
-// ByteArrayDataOutput is LE — using explicit bytes avoids the mismatch).
+//	if (f == intVal && intVal >= -1 && intVal <= 0x7D && floatBits != NEGATIVE_ZERO_FLOAT) {
+//	  out.writeByte((byte) (0x80 | (1 + intVal)));
+//	} else if ((floatBits >>> 31) == 0) {
+//	  out.writeByte((byte) (floatBits >> 24));
+//	  out.writeShort((short) (floatBits >>> 8));
+//	  out.writeByte((byte) floatBits);
+//	} else {
+//	  out.writeByte((byte) 0xFF);
+//	  out.writeInt(floatBits);
+//	}
+//
+// DataOutput.writeShort and DataOutput.writeInt are LITTLE-endian in Lucene
+// 10.5.0 (DataOutput.java:73-89), and so are store.DataOutput's, so the
+// multi-byte tail is emitted through them rather than by hand.
 func writeZFloat(out store.DataOutput, f float32) error {
 	intVal := int32(f)
 	floatBits := math.Float32bits(f)
 
 	if f == float32(intVal) && intVal >= -1 && intVal <= 0x7D && floatBits != negativezeroFloat32 {
-		// Small integer [-1..125]: single byte.
+		// small integer value [-1..125]: single byte
 		return out.WriteByte(byte(0x80 | (1 + intVal)))
 	} else if (floatBits >> 31) == 0 {
-		// Positive float: 4 bytes big-endian.
+		// other positive floats: 4 bytes
 		if err := out.WriteByte(byte(floatBits >> 24)); err != nil {
 			return err
 		}
-		if err := out.WriteByte(byte(floatBits >> 16)); err != nil {
-			return err
-		}
-		if err := out.WriteByte(byte(floatBits >> 8)); err != nil {
+		if err := out.WriteShort(int16(floatBits >> 8)); err != nil {
 			return err
 		}
 		return out.WriteByte(byte(floatBits))
 	}
-	// Negative float: 0xFF header + 4 bytes big-endian.
+	// other negative float: 5 bytes
 	if err := out.WriteByte(0xFF); err != nil {
 		return err
 	}
-	if err := out.WriteByte(byte(floatBits >> 24)); err != nil {
-		return err
-	}
-	if err := out.WriteByte(byte(floatBits >> 16)); err != nil {
-		return err
-	}
-	if err := out.WriteByte(byte(floatBits >> 8)); err != nil {
-		return err
-	}
-	return out.WriteByte(byte(floatBits))
+	return out.WriteInt(int32(floatBits))
 }
 
-// writeZDouble mirrors Lucene's Lucene90CompressingStoredFieldsWriter.writeZDouble.
+// writeZDouble mirrors Lucene's Lucene90CompressingStoredFieldsWriter.writeZDouble
+// (Lucene90CompressingStoredFieldsWriter.java:388-408):
 //
-// All multi-byte writes are done byte-by-byte in big-endian order (see
-// writeZFloat for the endianness rationale).
+//	if (d == intVal && intVal >= -1 && intVal <= 0x7C && doubleBits != NEGATIVE_ZERO_DOUBLE) {
+//	  out.writeByte((byte) (0x80 | (intVal + 1)));
+//	  return;
+//	} else if (d == (float) d) {
+//	  out.writeByte((byte) 0xFE);
+//	  out.writeInt(Float.floatToIntBits((float) d));
+//	} else if ((doubleBits >>> 63) == 0) {
+//	  out.writeByte((byte) (doubleBits >> 56));
+//	  out.writeInt((int) (doubleBits >>> 24));
+//	  out.writeShort((short) (doubleBits >>> 8));
+//	  out.writeByte((byte) (doubleBits));
+//	} else {
+//	  out.writeByte((byte) 0xFF);
+//	  out.writeLong(doubleBits);
+//	}
+//
+// As in writeZFloat, the multi-byte tail goes through the little-endian
+// writeShort/writeInt/writeLong of DataOutput.
 func writeZDouble(out store.DataOutput, d float64) error {
 	intVal := int64(d)
 	doubleBits := math.Float64bits(d)
 
 	if d == float64(intVal) && intVal >= -1 && intVal <= 0x7C && doubleBits != negativezeroFloat64 {
-		// Small integer [-1..124]: single byte.
+		// small integer value [-1..124]: single byte
 		return out.WriteByte(byte(0x80 | (intVal + 1)))
 	} else if d == float64(float32(d)) {
-		// Double has accurate float32 representation: 0xFE + 4 bytes.
-		fb := math.Float32bits(float32(d))
+		// d has an accurate float representation: 5 bytes
 		if err := out.WriteByte(0xFE); err != nil {
 			return err
 		}
-		if err := out.WriteByte(byte(fb >> 24)); err != nil {
-			return err
-		}
-		if err := out.WriteByte(byte(fb >> 16)); err != nil {
-			return err
-		}
-		if err := out.WriteByte(byte(fb >> 8)); err != nil {
-			return err
-		}
-		return out.WriteByte(byte(fb))
+		return out.WriteInt(int32(math.Float32bits(float32(d))))
 	} else if (doubleBits >> 63) == 0 {
-		// Positive double: 7 bytes (byte + 4 bytes + 2 bytes + 1 byte = 8 total).
+		// other positive doubles: 8 bytes
 		if err := out.WriteByte(byte(doubleBits >> 56)); err != nil {
 			return err
 		}
-		if err := out.WriteByte(byte(doubleBits >> 48)); err != nil {
+		if err := out.WriteInt(int32(doubleBits >> 24)); err != nil {
 			return err
 		}
-		if err := out.WriteByte(byte(doubleBits >> 40)); err != nil {
-			return err
-		}
-		if err := out.WriteByte(byte(doubleBits >> 32)); err != nil {
-			return err
-		}
-		if err := out.WriteByte(byte(doubleBits >> 24)); err != nil {
-			return err
-		}
-		if err := out.WriteByte(byte(doubleBits >> 16)); err != nil {
-			return err
-		}
-		if err := out.WriteByte(byte(doubleBits >> 8)); err != nil {
+		if err := out.WriteShort(int16(doubleBits >> 8)); err != nil {
 			return err
 		}
 		return out.WriteByte(byte(doubleBits))
 	}
-	// Negative double: 0xFF header + 8 bytes big-endian.
+	// other negative doubles: 9 bytes
 	if err := out.WriteByte(0xFF); err != nil {
 		return err
 	}
-	for shift := 56; shift >= 0; shift -= 8 {
-		if err := out.WriteByte(byte(doubleBits >> shift)); err != nil {
-			return err
-		}
-	}
-	return nil
+	return out.WriteLong(int64(doubleBits))
 }
 
 // writeTLong mirrors Lucene's Lucene90CompressingStoredFieldsWriter.writeTLong.

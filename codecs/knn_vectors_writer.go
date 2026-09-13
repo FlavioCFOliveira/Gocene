@@ -111,7 +111,9 @@ func (b *BaseKnnVectorsWriter) Merge(mergeState *index.MergeState) error {
 
 	// Phase 1: merge flat vectors for all fields, collecting deferred work
 	var deferredWork []func() error
-	for _, fieldInfo := range mergeState.MergeFieldInfos.Iterator() {
+	// Java: for (FieldInfo fieldInfo : mergeState.mergeFieldInfos)
+	// (KnnVectorsWriter.java:123).
+	for _, fieldInfo := range mergeState.MergeFieldInfos.Infos() {
 		if fieldInfo.HasVectorValues() {
 			deferred, err := b.MergeOneField(fieldInfo, mergeState)
 			if err != nil {
@@ -513,7 +515,12 @@ func (it *mergedVectorIterator) Index() int {
 
 func (it *mergedVectorIterator) NextDoc() (int, error) {
 	if m, ok := it.parent.(*mergedFloat32VectorValues); ok {
-		sub := m.docIdMerger.Next()
+		// Java: DocIDMerger.next() throws IOException; the Go port returns it,
+		// so it is propagated rather than dropped (KnnVectorsWriter.java).
+		sub, err := m.docIdMerger.Next()
+		if err != nil {
+			return 0, err
+		}
 		if sub == nil {
 			m.docId = util.NO_MORE_DOCS
 			m.lastOrd = util.NO_MORE_DOCS
@@ -525,7 +532,12 @@ func (it *mergedVectorIterator) NextDoc() (int, error) {
 		return m.docId, nil
 	}
 	if m, ok := it.parent.(*mergedByteVectorValues); ok {
-		sub := m.docIdMerger.Next()
+		// Java: DocIDMerger.next() throws IOException; the Go port returns it,
+		// so it is propagated rather than dropped (KnnVectorsWriter.java).
+		sub, err := m.docIdMerger.Next()
+		if err != nil {
+			return 0, err
+		}
 		if sub == nil {
 			m.docId = util.NO_MORE_DOCS
 			m.lastOrd = util.NO_MORE_DOCS

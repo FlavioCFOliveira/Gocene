@@ -613,7 +613,7 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 	// so false serialises to 0xFF == 255 (matching the isCompoundFile sentinel),
 	// not literal 0. The reader compares the byte against YES. (rmp #4784)
 	hasBlocks := byte(255)
-	if info.HasBlocks() {
+	if info.GetHasBlocks() {
 		hasBlocks = 1
 	}
 	if err := checksumOut.WriteByte(hasBlocks); err != nil {

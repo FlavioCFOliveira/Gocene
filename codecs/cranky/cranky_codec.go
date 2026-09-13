@@ -653,11 +653,11 @@ func (w *CrankyStoredFieldsWriter) FinishDocument() error {
 	return w.delegate.FinishDocument()
 }
 
-func (w *CrankyStoredFieldsWriter) WriteField(field spi.IndexableField) error {
+func (w *CrankyStoredFieldsWriter) WriteField(info *spi.FieldInfo, field spi.IndexableField) error {
 	if w.random.Intn(10000) == 0 {
 		return fmt.Errorf("Fake IOException from StoredFieldsWriter.writeField()")
 	}
-	return w.delegate.WriteField(field)
+	return w.delegate.WriteField(info, field)
 }
 
 func (w *CrankyStoredFieldsWriter) Finish(numDocs int) error {

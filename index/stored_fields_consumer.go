@@ -238,7 +238,7 @@ func (c *StoredFieldsConsumer) WriteField(fi *FieldInfo, value StoredValue) erro
 	if err != nil {
 		return err
 	}
-	if err := c.writer.WriteField(field); err != nil {
+	if err := c.writer.WriteField(fi, field); err != nil {
 		return fmt.Errorf("index: StoredFieldsConsumer.WriteField: %w", err)
 	}
 	return nil

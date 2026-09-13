@@ -152,15 +152,23 @@ func storedFieldsIntsWriteInts16(out store.DataOutput, count int, values []int32
 }
 
 // storedFieldsIntsWriteInts32 is StoredFieldsInts.writeInts32
-// (StoredFieldsInts.java:97-112).
+// (StoredFieldsInts.java:97-112):
+//
+//	long l = ((long) values[step + i] << 32) | (long) values[step + 64 + i];
+//
+// Both operands are Java int values widened by a SIGN-extending (long) cast.
+// The widening of the high operand is immaterial once it is shifted left by
+// 32, but the low operand is OR'd in unshifted, so a negative value there
+// sets every one of the 64 bits. Masking it to 32 bits would set only the
+// low half and emit different bytes; the port therefore widens through int64,
+// exactly as Java does.
 func storedFieldsIntsWriteInts32(out store.DataOutput, count int, values []int32, offset int) error {
 	k := 0
 	for ; k < count-storedFieldsIntsBlockSizeMinusOne; k += storedFieldsIntsBlockSize {
 		step := offset + k
 		for i := 0; i < 64; i++ {
-			l := uint64(uint32(values[step+i]))<<32 |
-				uint64(uint32(values[step+64+i]))
-			if err := out.WriteLong(int64(l)); err != nil {
+			l := (int64(values[step+i]) << 32) | int64(values[step+64+i])
+			if err := out.WriteLong(l); err != nil {
 				return fmt.Errorf("lucene90/compressing: StoredFieldsInts writeInts32 long: %w", err)
 			}
 		}

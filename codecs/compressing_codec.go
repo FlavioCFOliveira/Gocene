@@ -9,6 +9,16 @@ import (
 	"sync"
 )
 
+// compressingCodecName is the codec name, which Java's CompressingCodec also
+// passes as the stored-fields and term-vectors format name
+// (CompressingCodec.java:113-124).
+const compressingCodecName = "CompressingCodec"
+
+// compressingCodecBlockShift is the fields-index block shift. Java takes it as
+// a constructor argument; this Gocene constructor does not carry one, so it
+// uses 10, the value Lucene90StoredFieldsFormat.impl(Mode) passes.
+const compressingCodecBlockShift = 10
+
 // CompressingCodec is a codec that compresses stored fields and term vectors.
 //
 // This is the Go port of Lucene's CompressingCodec.
@@ -52,11 +62,30 @@ func NewCompressingCodec(mode CompressionMode, chunkSize, maxDocsPerChunk int) *
 		maxDocsPerChunk = 1
 	}
 
-	storedFieldsFormat := NewCompressingStoredFieldsFormat(mode, chunkSize, maxDocsPerChunk)
+	// Java: this.storedFieldsFormat = new Lucene90CompressingStoredFieldsFormat(
+	//           name, segmentSuffix, compressionMode, chunkSize, maxDocsPerChunk, blockShift)
+	// (CompressingCodec.java:113-121) — the codec's own name doubles as the
+	// format name. That constructor lives in codecs/lucene90/compressing,
+	// which imports this package, so it is reached through the init()-time
+	// registration described in stored_fields_format.go.
+	//
+	// DIVERGENCE, pre-existing: Java's CompressingCodec constructor takes
+	// segmentSuffix and blockShift; this Gocene constructor carries neither.
+	// The suffix is empty (the ported format has no suffix support) and the
+	// block shift is 10, the value Lucene90StoredFieldsFormat.impl(Mode)
+	// passes (Lucene90StoredFieldsFormat.java:157-170).
+	storedFieldsFormat := NewLucene90CompressingStoredFieldsFormat(
+		Lucene90CompressingStoredFieldsFormatOptions{
+			FormatName:      compressingCodecName,
+			CompressionMode: mode,
+			ChunkSize:       chunkSize,
+			MaxDocsPerChunk: maxDocsPerChunk,
+			BlockShift:      compressingCodecBlockShift,
+		})
 	termVectorsFormat := NewCompressingTermVectorsFormat(mode, chunkSize, maxDocsPerChunk)
 
 	return &CompressingCodec{
-		BaseCodec:          NewBaseCodec("CompressingCodec"),
+		BaseCodec:          NewBaseCodec(compressingCodecName),
 		storedFieldsFormat: storedFieldsFormat,
 		termVectorsFormat:  termVectorsFormat,
 		fieldInfosFormat:   NewLucene104FieldInfosFormat(),

@@ -402,7 +402,8 @@ var _ spi.IndexableField = (*fixtureStoredField)(nil)
 // version, segment id and chunk parameters Lucene used, and requires the
 // emitted .fdt, .fdx and .fdm to be byte-identical to Lucene's.
 func TestLucene90CompressingStoredFieldsLuceneFixtureWrite(t *testing.T) {
-	luceneDir, id, _ := prepareFixtureSegment(t)
+	luceneDir, id, fields := prepareFixtureSegment(t)
+	fis := fixtureFieldInfos(fields)
 
 	goceneDir := t.TempDir()
 	si, d := fixtureSegmentInfo(t, goceneDir, id, fixtureNumDocs)
@@ -420,8 +421,12 @@ func TestLucene90CompressingStoredFieldsLuceneFixtureWrite(t *testing.T) {
 			{"tag", document.NewStoredValueString(fmt.Sprintf("tag-%d", doc%5))},
 			{"int_point_stored", document.NewStoredValueInt(int32(doc))},
 		} {
-			if err := writer.WriteField(f); err != nil {
-				t.Fatalf("doc %d field %q: WriteField: %v", doc, f.name, err)
+			info := fis.FieldInfoByName(f.name)
+			if info == nil {
+				t.Fatalf("doc %d: field %q is absent from the fixture's .fnm", doc, f.name)
+			}
+			if err := writer.WriteField(info, f); err != nil {
+				t.Fatalf("doc %d field %q (number %d): WriteField: %v", doc, f.name, info.Number(), err)
 			}
 		}
 		if err := writer.FinishDocument(); err != nil {
