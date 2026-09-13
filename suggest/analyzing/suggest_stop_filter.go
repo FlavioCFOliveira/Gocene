@@ -1,6 +1,9 @@
 package analyzing
 
-import "github.com/FlavioCFOliveira/Gocene/analysis"
+import (
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // SuggestStopFilter is the TokenFilter the analyzing-suggester family uses
 // to drop stop words before indexing. Unlike the regular StopFilter, the
@@ -26,6 +29,16 @@ func NewSuggestStopFilter(input analysis.TokenStream, stopWords []string) *Sugge
 func (f *SuggestStopFilter) IncrementToken() (bool, error) {
 	return f.input.IncrementToken()
 }
+
+// GetAttributeSource returns the wrapped stream's AttributeSource. Java's
+// TokenFilter shares its input's AttributeSource through super(input); this
+// forwarding reproduces that.
+func (f *SuggestStopFilter) GetAttributeSource() *util.AttributeSource {
+	return f.input.GetAttributeSource()
+}
+
+// Reset forwards Reset.
+func (f *SuggestStopFilter) Reset() error { return f.input.Reset() }
 
 // End forwards End.
 func (f *SuggestStopFilter) End() error { return f.input.End() }

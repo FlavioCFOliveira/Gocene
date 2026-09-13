@@ -68,7 +68,7 @@ func (q *NearestFuzzyQuery) Build() (search.Query, error) {
 		return nil, fmt.Errorf("NearestFuzzyQuery: analyzer is nil")
 	}
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	termCount := 0
 
 	for _, fv := range q.fieldVals {
@@ -110,9 +110,9 @@ func (q *NearestFuzzyQuery) Build() (search.Query, error) {
 	}
 
 	if termCount == 0 {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery("NearestFuzzyQuery: no terms after analysis"), nil
 	}
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // attributeSourceFor extracts the AttributeSource from a TokenStream if
@@ -126,21 +126,23 @@ func attributeSourceFor(stream analysis.TokenStream) *util.AttributeSource {
 }
 
 // Rewrite builds the query and rewrites it.
-func (q *NearestFuzzyQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
+//
+// Mirrors NearestFuzzyQuery.rewrite(IndexSearcher).
+func (q *NearestFuzzyQuery) Rewrite(indexSearcher *search.IndexSearcher) (search.Query, error) {
 	built, err := q.Build()
 	if err != nil {
 		return nil, err
 	}
-	return built.Rewrite(reader)
+	return built.Rewrite(indexSearcher)
 }
 
 // CreateWeight builds the query and delegates weight creation.
-func (q *NearestFuzzyQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
+func (q *NearestFuzzyQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
 	built, err := q.Build()
 	if err != nil {
 		return nil, err
 	}
-	return built.CreateWeight(searcher, needsScores, boost)
+	return built.CreateWeight(searcher, scoreMode, boost)
 }
 
 // Clone returns a shallow copy.

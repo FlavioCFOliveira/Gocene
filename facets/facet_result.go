@@ -22,11 +22,11 @@ type FacetResult struct {
 	ChildCount int
 
 	// LabelValues contains the child labels and their corresponding values.
-	LabelValues []LabelAndValue
+	LabelValues []*LabelAndValue
 }
 
 // NewFacetResult creates a new FacetResult.
-func NewFacetResult(dim string, path []string, value float64, labelValues []LabelAndValue, childCount int) *FacetResult {
+func NewFacetResult(dim string, path []string, value float64, labelValues []*LabelAndValue, childCount int) *FacetResult {
 	return &FacetResult{
 		Dim:         dim,
 		Path:        path,

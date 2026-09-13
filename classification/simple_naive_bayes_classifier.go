@@ -283,12 +283,12 @@ func (c *SimpleNaiveBayesClassifier) countDocsWithClass(classes index.Terms) (in
 	if docCount == -1 {
 		// Codec returns -1 (unknown) — fall back to a wildcard search as Java does.
 		wq := search.NewWildcardQuery(index.NewTerm(c.classFieldName, "*"))
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(wq, search.MUST)
 		if c.query != nil {
 			bq.Add(c.query, search.MUST)
 		}
-		return countQuery(c.searcher, bq)
+		return countQuery(c.searcher, bq.Build())
 	}
 	if docCount == 0 {
 		// Gocene block-tree writer does not populate docCount for DOCS-only
@@ -399,15 +399,15 @@ func (c *SimpleNaiveBayesClassifier) getTextTermFreqForClass(term *index.Term) (
 // getWordFreqForClass returns the number of documents labelled with term that
 // also contain word in any text field.
 func (c *SimpleNaiveBayesClassifier) getWordFreqForClass(word string, term *index.Term) (int, error) {
-	subQuery := search.NewBooleanQuery()
+	subQuery := search.NewBooleanQueryBuilder()
 	for _, fieldName := range c.textFieldNames {
 		subQuery.Add(search.NewTermQuery(index.NewTerm(fieldName, word)), search.SHOULD)
 	}
-	bq := search.NewBooleanQuery()
-	bq.Add(subQuery, search.MUST)
+	bq := search.NewBooleanQueryBuilder()
+	bq.Add(subQuery.Build(), search.MUST)
 	bq.Add(search.NewTermQuery(term), search.MUST)
 	if c.query != nil {
 		bq.Add(c.query, search.MUST)
 	}
-	return countQuery(c.searcher, bq)
+	return countQuery(c.searcher, bq.Build())
 }

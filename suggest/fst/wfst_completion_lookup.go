@@ -174,7 +174,7 @@ func (l *WFSTCompletionLookup) lookupPrefix(scratch []byte, arc *fstp.Arc[int64]
 
 // Store writes count and the FST to output.
 func (l *WFSTCompletionLookup) Store(output store.DataOutput) (bool, error) {
-	if err := store.WriteVLong(output, l.count); err != nil {
+	if err := output.WriteVLong(l.count); err != nil {
 		return false, err
 	}
 	if l.fst == nil {
@@ -188,7 +188,7 @@ func (l *WFSTCompletionLookup) Store(output store.DataOutput) (bool, error) {
 
 // Load reads count and the FST from input.
 func (l *WFSTCompletionLookup) Load(input store.DataInput) (bool, error) {
-	cnt, err := store.ReadVLong(input)
+	cnt, err := input.ReadVLong()
 	if err != nil {
 		return false, err
 	}

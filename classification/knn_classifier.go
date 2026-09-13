@@ -62,7 +62,7 @@ func NewKNearestNeighborClassifier(
 	}
 	if ri, ok := reader.(index.IndexReaderInterface); ok {
 		searcher := search.NewIndexSearcher(ri)
-		searcher.SetSimilarity(search.NewBM25Similarity())
+		searcher.SetSimilarity(search.NewLuceneBM25Similarity())
 		c.searcher = searcher
 
 		mlt := search.NewMoreLikeThis(analyzer)
@@ -129,20 +129,20 @@ func (c *KNearestNeighborClassifier) knnSearch(text string) (*search.TopDocs, er
 		return nil, nil
 	}
 
-	mltQuery := search.NewBooleanQuery()
+	mltQuery := search.NewBooleanQueryBuilder()
 	for _, fieldName := range c.textFieldNames {
 		plain, boost := splitFieldBoost(fieldName)
 		tokens, err := tokenizeForField(c.analyzer, plain, text)
 		if err != nil || len(tokens) == 0 {
 			continue
 		}
-		fieldQuery := search.NewBooleanQuery()
+		fieldQuery := search.NewBooleanQueryBuilder()
 		for _, tok := range tokens {
 			fieldQuery.Add(search.NewTermQuery(index.NewTerm(plain, tok)), search.SHOULD)
 		}
-		var fq search.Query = fieldQuery
+		var fq search.Query = fieldQuery.Build()
 		if boost > 0 {
-			fq = search.NewBoostQuery(fieldQuery, boost)
+			fq = search.NewBoostQuery(fq, boost)
 		}
 		mltQuery.Add(fq, search.SHOULD)
 	}
@@ -152,7 +152,7 @@ func (c *KNearestNeighborClassifier) knnSearch(text string) (*search.TopDocs, er
 		mltQuery.Add(c.query, search.MUST)
 	}
 
-	return c.searcher.Search(mltQuery, c.k)
+	return c.searcher.Search(mltQuery.Build(), c.k)
 }
 
 // tokenizeForField runs text through the analyzer for a single field and

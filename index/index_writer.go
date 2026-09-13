@@ -1837,6 +1837,42 @@ func (w *IndexWriter) NumDeletesToMerge(info *SegmentCommitInfo) int {
 	return numDeletesToMerge
 }
 
+// DocStats carries the document statistics of an index.
+//
+// Mirrors org.apache.lucene.index.IndexWriter.DocStats.
+type DocStats struct {
+	// MaxDoc is the total number of docs in this index, counting docs not yet
+	// flushed (still in the RAM buffer), and also counting deleted docs.
+	//
+	// NOTE: buffered deletions are not counted. If you really need these to be
+	// counted you should call Commit first.
+	MaxDoc int
+
+	// NumDocs is the total number of docs in this index, counting docs not yet
+	// flushed (still in the RAM buffer), but not counting deleted docs.
+	NumDocs int
+}
+
+// GetDocStats returns accurate DocStats for this writer. The NumDocs, for
+// instance, can change after MaxDoc is fetched, which causes NumDocs to be
+// greater than MaxDoc and makes it hard to get accurate document statistics
+// from an IndexWriter.
+//
+// Mirrors org.apache.lucene.index.IndexWriter#getDocStats.
+func (w *IndexWriter) GetDocStats() (DocStats, error) {
+	if err := w.ensureOpen(true); err != nil {
+		return DocStats{}, err
+	}
+	numDocs := w.docWriter.GetNumDocs()
+	maxDoc := numDocs
+	for i := 0; i < w.segmentInfos.Size(); i++ {
+		info := w.segmentInfos.Get(i)
+		maxDoc += info.Info.MaxDoc()
+		numDocs += info.Info.MaxDoc() - w.NumDeletedDocs(info)
+	}
+	return DocStats{MaxDoc: maxDoc, NumDocs: numDocs}, nil
+}
+
 // NumDeletedDocs returns the number of deleted documents for a pooled reader,
 // falling back to the segment's own delete count when the reader is not
 // pooled.

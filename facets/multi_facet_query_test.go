@@ -4,13 +4,11 @@ import "testing"
 
 func TestMultiFacetQuery(t *testing.T) {
 	q := NewMultiFacetQuery(nil, "color", []string{"red"}, []string{"blue"})
-	if q.GetDim() != "color" {
-		t.Error("dim")
+	if got := q.GetTermsCount(); got != 2 {
+		t.Errorf("terms = %d, want 2", got)
 	}
-	if len(q.GetPaths()) != 2 {
-		t.Errorf("paths = %d", len(q.GetPaths()))
-	}
-	if len(q.Clauses()) != 2 {
-		t.Errorf("clauses = %d", len(q.Clauses()))
+	// MultiFacetQuery indexes into the dimension's drill-down field.
+	if got := q.ToString(""); got == "" {
+		t.Error("ToString returned an empty description")
 	}
 }

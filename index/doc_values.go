@@ -4,7 +4,12 @@
 
 package index
 
-import "github.com/FlavioCFOliveira/Gocene/util"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // This file ports the static helper methods of
 // org.apache.lucene.index.DocValues from Apache Lucene 10.4.0:
@@ -73,6 +78,49 @@ func UnwrapSingletonSortedNumeric(dv SortedNumericDocValues) NumericDocValues {
 
 // UnwrapSingletonSortedSet returns the underlying SortedDocValues if dv was
 // produced by SingletonSortedSet(SortedDocValues), otherwise nil.
+// checkField reports a field that carries a different doc-values type from the
+// one the caller expected. Mirrors org.apache.lucene.index.DocValues#checkField,
+// whose IllegalStateException becomes an error here.
+func checkField(in LeafReader, field string, expected ...spi.DocValuesType) error {
+	fi := in.GetFieldInfos().FieldInfo(field)
+	if fi != nil {
+		actual := fi.DocValuesType()
+		if len(expected) == 1 {
+			return fmt.Errorf("unexpected docvalues type %v for field '%s' (expected=%v). Re-index with correct docvalues type.",
+				actual, field, expected[0])
+		}
+		return fmt.Errorf("unexpected docvalues type %v for field '%s' (expected one of %v). Re-index with correct docvalues type.",
+			actual, field, expected)
+	}
+	return nil
+}
+
+// GetSortedSet returns SortedSetDocValues for the field, or an empty instance
+// when the field has none. A single-valued SORTED field is wrapped as a
+// singleton set.
+//
+// Mirrors org.apache.lucene.index.DocValues#getSortedSet.
+func GetSortedSet(reader LeafReader, field string) (SortedSetDocValues, error) {
+	dv, err := reader.GetSortedSetDocValues(field)
+	if err != nil {
+		return nil, err
+	}
+	if dv == nil {
+		sorted, err := reader.GetSortedDocValues(field)
+		if err != nil {
+			return nil, err
+		}
+		if sorted == nil {
+			if err := checkField(reader, field, spi.DocValuesTypeSorted, spi.DocValuesTypeSortedSet); err != nil {
+				return nil, err
+			}
+			return EmptySortedSet(), nil
+		}
+		dv = SingletonSortedSet(sorted)
+	}
+	return dv, nil
+}
+
 func UnwrapSingletonSortedSet(dv SortedSetDocValues) SortedDocValues {
 	if s, ok := dv.(*singletonSortedSet); ok {
 		return s.wrapped

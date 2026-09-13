@@ -1,8 +1,6 @@
 package facets
 
 import (
-	"fmt"
-
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -83,9 +81,6 @@ func mergeMatchingDocs(md1, md2 *MatchingDocs) *MatchingDocs {
 	bits2 := md2.Bits
 
 	// Create a new bitset that is the union of bits1 and bits2.
-	// In Gocene, we can use a map-based bitset for this.
-	unionDocs := make([]int, 0, md1.TotalHits+md2.TotalHits)
-
 	// This is inefficient for large sets, but matches the provided DocIdSetBits implementation.
 	// A better way would be to use a proper BitSet.
 	mergedBits := NewDocIdSetBits(maxDoc, nil)

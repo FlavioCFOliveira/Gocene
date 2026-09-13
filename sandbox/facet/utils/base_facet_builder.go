@@ -143,7 +143,7 @@ func (c *BaseFacetBuilderConfig) GetResult(
 	fr := &facets.FacetResult{
 		Dim:        c.Dimension,
 		Path:       c.Path,
-		Value:      overallValue,
+		Value:      float64(overallValue),
 		ChildCount: len(ords),
 	}
 	for _, ord := range ords {

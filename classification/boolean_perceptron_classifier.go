@@ -127,12 +127,12 @@ func NewBooleanPerceptronClassifier(
 	}
 	searcher := search.NewIndexSearcher(ri)
 
-	trainingBQ := search.NewBooleanQuery()
+	trainingBQ := search.NewBooleanQueryBuilder()
 	trainingBQ.Add(search.NewWildcardQuery(index.NewTerm(classFieldName, "*")), search.MUST)
 	if filterQuery != nil {
 		trainingBQ.Add(filterQuery, search.MUST)
 	}
-	topDocs, err := searcher.Search(trainingBQ, ri.MaxDoc())
+	topDocs, err := searcher.Search(trainingBQ.Build(), ri.MaxDoc())
 	if err != nil {
 		return c
 	}

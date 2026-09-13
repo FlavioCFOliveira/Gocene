@@ -2,22 +2,24 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package suggest
+package analyzing
 
 import (
-	"fmt"
 	"math"
 	"sort"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/suggest"
 )
 
 const (
-	linearCoef = 0.10
+	linearCoef       = 0.10
 	defaultNumFactor = 10
 )
 
@@ -41,10 +43,6 @@ type BlendedInfixSuggester struct {
 
 // NewBlendedInfixSuggester creates a new instance with default blending (Position Linear).
 func NewBlendedInfixSuggester(dir store.Directory, analyzer analysis.Analyzer) (*BlendedInfixSuggester, error) {
-	ais, err := NewAnalyzingInfixSuggester(dir, analyzer)
-	if err != nil {
-		return nil, err
-	}
 	return NewBlendedInfixSuggesterAdvanced(
 		dir,
 		analyzer,
@@ -86,9 +84,9 @@ func NewBlendedInfixSuggesterAdvanced(
 
 	bis := &BlendedInfixSuggester{
 		AnalyzingInfixSuggester: ais,
-		blenderType:            blenderType,
-		numFactor:              numFactor,
-		exponent:               exponent,
+		blenderType:             blenderType,
+		numFactor:               numFactor,
+		exponent:                exponent,
 	}
 
 	// Override the results creator to apply blending
@@ -99,16 +97,16 @@ func NewBlendedInfixSuggesterAdvanced(
 	return bis, nil
 }
 
-func (s *BlendedInfixSuggester) getBlendedTextFieldType() *index.FieldType {
-	ft := index.NewFieldType(index.TextFieldTypeNotStored)
-	ft.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
+func (s *BlendedInfixSuggester) getBlendedTextFieldType() *document.FieldType {
+	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	ft.SetIndexOptions(spi.IndexOptionsDocsAndFreqsAndPositions)
 	ft.SetStoreTermVectors(true)
 	ft.SetStoreTermVectorPositions(true)
 	ft.SetOmitNorms(true)
 	return ft
 }
 
-func (s *BlendedInfixSuggester) LookupResults(key string, contexts [][]byte, onlyMorePopular bool, num int) ([]*LookupResult, error) {
+func (s *BlendedInfixSuggester) LookupResults(key string, contexts [][]byte, onlyMorePopular bool, num int) ([]*suggest.LookupResult, error) {
 	// BlendedInfixSuggester overrides lookup to multiply num by numFactor
 	// We have to call the internal lookup logic of AnalyzingInfixSuggester, but with num * numFactor.
 	// Since AnalyzingInfixSuggester.lookup is private and doesn't take num as a direct param in some variants,
@@ -118,7 +116,7 @@ func (s *BlendedInfixSuggester) LookupResults(key string, contexts [][]byte, onl
 
 // lookupInternal is a helper to access the internal lookup logic of AnalyzingInfixSuggester
 // but with the blended num.
-func (s *BlendedInfixSuggester) lookupInternal(key string, contexts [][]byte, num int, allTermsRequired bool, doHighlight bool) ([]*LookupResult, error) {
+func (s *BlendedInfixSuggester) lookupInternal(key string, contexts [][]byte, num int, allTermsRequired bool, doHighlight bool) ([]*suggest.LookupResult, error) {
 	// We can't call the private lookup method of the embedded struct from outside the package
 	// but we are in the same package, so we can.
 	return s.AnalyzingInfixSuggester.lookup(key, contexts, num, allTermsRequired, doHighlight)
@@ -131,24 +129,54 @@ func (s *BlendedInfixSuggester) createBlendedResults(
 	key string,
 	doHighlight bool,
 	matchedTokens []string,
-	prefixToken string) []*LookupResult {
+	prefixToken string) []*suggest.LookupResult {
 
 	actualNum := num / s.numFactor
-	results := make([]*LookupResult, 0, len(hits.ScoreDocs))
+	results := make([]*suggest.LookupResult, 0, len(hits.FieldDocs))
 
-	termVectors := searcher.IndexReader().TermVectors()
-	textDV := searcher.IndexReader().MultiDocValues().BinaryValues(textFieldName)
-	payloadsDV := searcher.IndexReader().MultiDocValues().BinaryValues(payloadsFieldName)
+	reader := searcher.GetIndexReader()
+	termVectors, err := reader.TermVectors()
+	if err != nil {
+		return nil
+	}
+	textDV, err := index.MultiDocValuesGetBinaryValues(reader, textFieldName)
+	if err != nil {
+		return nil
+	}
+	payloadsDV, err := index.MultiDocValuesGetBinaryValues(reader, payloadsFieldName)
+	if err != nil {
+		return nil
+	}
 
-	for _, sd := range hits.ScoreDocs {
-		textDV.Advance(sd.Doc)
-		text := string(textDV.BinaryValue())
-		weight := sd.Fields[0].(int64)
+	for _, fd := range hits.FieldDocs {
+		if _, err := textDV.Advance(fd.Doc); err != nil {
+			return nil
+		}
+		raw, err := textDV.BinaryValue()
+		if err != nil {
+			return nil
+		}
+		text := string(raw)
+
+		var weight int64
+		if len(fd.Fields) > 0 {
+			if w, ok := fd.Fields[0].(int64); ok {
+				weight = w
+			}
+		}
 
 		var payload []byte
 		if payloadsDV != nil {
-			if payloadsDV.Advance(sd.Doc) == sd.Doc {
-				payload = append([]byte(nil), payloadsDV.BinaryValue()...)
+			target, err := payloadsDV.Advance(fd.Doc)
+			if err != nil {
+				return nil
+			}
+			if target == fd.Doc {
+				pv, err := payloadsDV.BinaryValue()
+				if err != nil {
+					return nil
+				}
+				payload = append([]byte(nil), pv...)
 			}
 		}
 
@@ -156,7 +184,7 @@ func (s *BlendedInfixSuggester) createBlendedResults(
 		if strings.HasPrefix(text, key) {
 			coefficient = 1.0
 		} else {
-			coefficient = s.createCoefficient(termVectors, sd.Doc, matchedTokens, prefixToken)
+			coefficient = s.createCoefficient(termVectors, fd.Doc, matchedTokens, prefixToken)
 		}
 
 		if weight == 0 {
@@ -171,15 +199,15 @@ func (s *BlendedInfixSuggester) createBlendedResults(
 
 		var resultKey string
 		if doHighlight {
-			resultKey = s.highlight(text, matchedTokens, prefixToken)
+			resultKey = s.doHighlight(text, matchedTokens, prefixToken)
 		} else {
 			resultKey = text
 		}
 
-		results = append(results, &LookupResult{
-			Key:      resultKey,
-			Value:    score,
-			Payload:  payload,
+		results = append(results, &suggest.LookupResult{
+			Key:     resultKey,
+			Value:   score,
+			Payload: payload,
 		})
 	}
 
@@ -204,16 +232,25 @@ func (s *BlendedInfixSuggester) createCoefficient(
 	matchedTokens []string,
 	prefixToken string) float64 {
 
-	tv := termVectors.Get(doc, textFieldName)
-	it := tv.Iterator()
+	tv, err := termVectors.GetField(doc, textFieldName)
+	if err != nil || tv == nil {
+		return s.calculateCoefficient(math.MaxInt32)
+	}
+	it, err := tv.GetIterator()
+	if err != nil {
+		return s.calculateCoefficient(math.MaxInt32)
+	}
 
 	position := math.MaxInt32
 	for {
-		term, ok := it.Next()
-		if !ok {
+		term, err := it.Next()
+		if err != nil {
+			return s.calculateCoefficient(math.MaxInt32)
+		}
+		if term == nil {
 			break
 		}
-		docTerm := string(term)
+		docTerm := term.Text()
 		isMatch := false
 		for _, mt := range matchedTokens {
 			if mt == docTerm {
@@ -226,9 +263,17 @@ func (s *BlendedInfixSuggester) createCoefficient(
 		}
 
 		if isMatch {
-			posEnum := it.Postings(nil, index.PostingsOffsets)
-			posEnum.NextDoc()
-			p := posEnum.NextPosition()
+			posEnum, err := it.Postings(spi.PostingsFlagOffsets)
+			if err != nil {
+				return s.calculateCoefficient(math.MaxInt32)
+			}
+			if _, err := posEnum.NextDoc(); err != nil {
+				return s.calculateCoefficient(math.MaxInt32)
+			}
+			p, err := posEnum.NextPosition()
+			if err != nil {
+				return s.calculateCoefficient(math.MaxInt32)
+			}
 			if p < position {
 				position = p
 			}

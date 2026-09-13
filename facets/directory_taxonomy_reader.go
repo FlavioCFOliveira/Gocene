@@ -155,7 +155,7 @@ func (r *DirectoryTaxonomyReader) loadFromDirectory() error {
 			continue
 		}
 		maxDoc := lr.MaxDoc()
-		base := lrc.DocBase()
+		base := lrc.DocBase
 
 		bdv, err := lr.GetBinaryDocValues(taxoFieldFull)
 		if err != nil || bdv == nil {

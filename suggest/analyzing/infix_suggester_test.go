@@ -2,11 +2,10 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package suggest
+package analyzing
 
 import (
 	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -43,7 +42,7 @@ func TestAnalyzingInfixSuggester(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	dir, err := store.FSDirectoryOpen(tmpDir)
+	dir, err := store.NewFSDirectory(tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +131,7 @@ func TestBlendedInfixSuggester(t *testing.T) {
 	}
 	defer os.RemoveAll(tmpDir)
 
-	dir, err := store.FSDirectoryOpen(tmpDir)
+	dir, err := store.NewFSDirectory(tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}
