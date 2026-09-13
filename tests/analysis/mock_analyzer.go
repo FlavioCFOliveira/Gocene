@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package testutil
+package analysis
 
 import (
 	"hash/fnv"
@@ -38,7 +38,7 @@ type MockAnalyzer struct {
 	payloadRandom    *rand.Rand
 
 	positionIncrementGap int
-	offsetGap            int
+	offsetGap            *int
 	reuseTokenStream     bool
 
 	// reuse holds a lazily-created TokenStreamComponents pair when
@@ -64,7 +64,6 @@ func NewMockAnalyzer(runAutomaton *automaton.CharacterRunAutomaton, lowerCase bo
 		stopSet:              stopSet,
 		enableChecks:         enableChecks,
 		positionIncrementGap: 0,
-		offsetGap:            1,
 	}
 }
 
@@ -131,31 +130,54 @@ func (a *MockAnalyzer) SetPositionIncrementGap(gap int) {
 }
 
 // GetPositionIncrementGap returns the configured position increment gap.
-func (a *MockAnalyzer) GetPositionIncrementGap() int {
+//
+// Java: MockAnalyzer#getPositionIncrementGap(String). fieldName is currently
+// unused: the same gap is returned for every field.
+func (a *MockAnalyzer) GetPositionIncrementGap(fieldName string) int {
 	return a.positionIncrementGap
 }
 
-// SetOffsetGap sets the offset gap inserted between field values.
+// SetOffsetGap sets a new offset gap which will then be added to the offset
+// when several fields with the same name are indexed.
 func (a *MockAnalyzer) SetOffsetGap(gap int) {
-	a.offsetGap = gap
+	a.offsetGap = &gap
 }
 
-// GetOffsetGap returns the configured offset gap.
-func (a *MockAnalyzer) GetOffsetGap() int {
-	return a.offsetGap
+// GetOffsetGap returns the offset gap between tokens in fields if several
+// fields with the same name were added.
+//
+// Java: MockAnalyzer#getOffsetGap(String), which falls back to
+// Analyzer#getOffsetGap (1) while no gap has been set. fieldName is currently
+// unused: the same gap is returned for every field.
+func (a *MockAnalyzer) GetOffsetGap(fieldName string) int {
+	if a.offsetGap == nil {
+		return 1
+	}
+	return *a.offsetGap
 }
 
 // TokenStream builds a fresh analysis chain for the requested field.
 func (a *MockAnalyzer) TokenStream(fieldName string, reader io.Reader) (analysis.TokenStream, error) {
 	components := a.CreateComponents(fieldName)
-	src := components.GetSource()
-	if err := src.SetReader(reader); err != nil {
+	if err := components.SetReader(reader); err != nil {
 		return nil, err
 	}
-	if err := src.Reset(); err != nil {
+	stream := components.GetTokenStream()
+	if err := stream.Reset(); err != nil {
 		return nil, err
 	}
-	return components.GetSink(), nil
+	return stream, nil
+}
+
+// Normalize returns a normalized version of the analysis chain for the given
+// field. Mirrors org.apache.lucene.tests.analysis.MockAnalyzer#normalize,
+// which wraps the stream in a lower-case filter when lowerCase is set.
+func (a *MockAnalyzer) Normalize(fieldName string) analysis.TokenStream {
+	var result analysis.TokenStream = a.CreateComponents(fieldName).GetTokenStream()
+	if a.lowerCase {
+		result = analysis.NewLowerCaseFilter(result)
+	}
+	return result
 }
 
 // CreateComponents builds the (Tokenizer, TokenStream) pair for a field.
@@ -186,7 +208,15 @@ func (a *MockAnalyzer) CreateComponents(fieldName string) *analysis.TokenStreamC
 		}
 	}
 
-	components := analysis.NewTokenStreamComponents(tokenizer, stream)
+	// Java: new TokenStreamComponents(tokenizer, stream), whose source is
+	// the tokenizer's setReader method reference.
+	components := &analysis.TokenStreamComponents{
+		Source: func(r io.Reader) error {
+			tokenizer.SetReader(r)
+			return nil
+		},
+		Sink: stream,
+	}
 	if a.reuseTokenStream {
 		a.reuse = components
 	}
@@ -216,7 +246,7 @@ func (a *MockAnalyzer) SetReuseTokenStream(reuse bool) {
 // Close releases resources held by this analyzer.
 func (a *MockAnalyzer) Close() error {
 	if a.reuse != nil {
-		if err := a.reuse.GetSink().Close(); err != nil {
+		if err := a.reuse.GetTokenStream().Close(); err != nil {
 			return err
 		}
 		a.reuse = nil

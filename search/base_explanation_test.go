@@ -29,8 +29,8 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/search/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testsearch "github.com/FlavioCFOliveira/Gocene/tests/search"
 
 	// Register the production codec so postings / doc-values are flushed.
 	_ "github.com/FlavioCFOliveira/Gocene/codecs"
@@ -106,7 +106,7 @@ func newExplanationTestCase(t *testing.T) *explanationTestCase {
 		},
 	}
 
-// createExplDoc mirrors BaseExplanationTestCase.createDoc(index).
+	// createExplDoc mirrors BaseExplanationTestCase.createDoc(index).
 }
 func createExplDoc(t *testing.T, idx int) *document.Document {
 	t.Helper()
@@ -148,7 +148,7 @@ func (tc *explanationTestCase) qtest(q search.Query, expDocNrs []int) {
 	if tc.nonMatches {
 		// TestSimpleExplanationsOfNonMatches overrides qtest to verify that the
 		// explanation for every NON-matching document is a non-match.
-		testutil.CheckNoMatchExplanations(tc.t, q, explField, tc.searcher, expDocNrs)
+		testsearch.CheckNoMatchExplanations(tc.t, q, explField, tc.searcher, expDocNrs)
 		return
 	}
 	if tc.rng.Intn(2) == 0 {
@@ -157,10 +157,10 @@ func (tc *explanationTestCase) qtest(q search.Query, expDocNrs []int) {
 		bq.Add(search.NewTermQuery(index.NewTerm("NEVER", "MATCH")), search.SHOULD)
 		q = bq
 	}
-	testutil.CheckHitCollector(tc.t, q, explField, tc.searcher, expDocNrs)
+	testsearch.CheckHitCollector(tc.t, q, explField, tc.searcher, expDocNrs)
 	// QueryUtils.check (run by Lucene's checkHitCollector) validates the
 	// explanation tree; Gocene's CheckHitCollector does not, so do it here.
-	testutil.CheckExplanations(tc.t, q, explField, tc.searcher, true)
+	testsearch.CheckExplanations(tc.t, q, explField, tc.searcher, true)
 }
 
 // bqtest mirrors BaseExplanationTestCase.bqtest: qtest the query wrapped both

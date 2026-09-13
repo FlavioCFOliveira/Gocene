@@ -28,7 +28,7 @@ type ComplexPhraseQueryParser struct {
 
 // NewComplexPhraseQueryParser builds the parser using the default field and
 // analyzer. InOrder defaults to true (clauses must appear in phrase order).
-func NewComplexPhraseQueryParser(defaultField string, analyzer *analysis.StandardAnalyzer) *ComplexPhraseQueryParser {
+func NewComplexPhraseQueryParser(defaultField string, analyzer analysis.Analyzer) *ComplexPhraseQueryParser {
 	return &ComplexPhraseQueryParser{
 		QueryParser:  queryparser.NewQueryParser(defaultField, analyzer),
 		DefaultField: defaultField,

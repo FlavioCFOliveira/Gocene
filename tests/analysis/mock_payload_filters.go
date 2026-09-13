@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package testutil
+package analysis
 
 import (
 	"math/rand"
@@ -40,8 +40,8 @@ func NewMockFixedLengthPayloadFilter(input analysis.TokenStream, length int, r *
 		random:          r,
 		length:          length,
 	}
-	f.AddAttribute(analysis.NewPayloadAttributeImpl())
-	f.payloadAttr = f.GetAttributeSource().GetAttribute(analysis.PayloadAttributeType).(analysis.PayloadAttribute)
+	// Java: private final PayloadAttribute payloadAtt = addAttribute(PayloadAttribute.class);
+	f.payloadAttr = f.AddAttribute(analysis.PayloadAttributeType).(analysis.PayloadAttribute)
 	return f
 }
 
@@ -92,8 +92,8 @@ func NewMockVariableLengthPayloadFilter(input analysis.TokenStream, length int, 
 		random:          r,
 		length:          length,
 	}
-	f.AddAttribute(analysis.NewPayloadAttributeImpl())
-	f.payloadAttr = f.GetAttributeSource().GetAttribute(analysis.PayloadAttributeType).(analysis.PayloadAttribute)
+	// Java: private final PayloadAttribute payloadAtt = addAttribute(PayloadAttribute.class);
+	f.payloadAttr = f.AddAttribute(analysis.PayloadAttributeType).(analysis.PayloadAttribute)
 	return f
 }
 

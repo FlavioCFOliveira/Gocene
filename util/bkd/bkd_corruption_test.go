@@ -5,7 +5,7 @@
 package bkd
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"math/rand"
 	"strings"
 	"testing"

@@ -5,8 +5,8 @@
 package bkd
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
 	"encoding/binary"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"sort"
 	"testing"
 

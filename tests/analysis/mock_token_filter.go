@@ -2,12 +2,13 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package testutil
+package analysis
 
 import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // MockTokenFilter is the Go port of Lucene 10.4.0's
@@ -85,8 +86,8 @@ func (f *MockTokenFilter) IncrementToken() (bool, error) {
 	if f.streamState != tfStateReset && f.streamState != tfStateIncrement {
 		f.fail("incrementToken() called in wrong state")
 	}
-	posIncAttr := f.GetAttributeSource().GetAttribute(analysis.PositionIncrementAttributeType)
-	posInc, _ := posIncAttr.(analysis.PositionIncrementAttribute)
+	posIncAttr := f.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType)
+	posInc, _ := posIncAttr.(tokenattributes.PositionIncrementAttribute)
 
 	for {
 		next, err := f.GetInput().IncrementToken()

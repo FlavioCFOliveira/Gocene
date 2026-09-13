@@ -1,5 +1,7 @@
 package index
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // FilterNumericDocValues delegates all methods to a wrapped NumericDocValues.
 // This is the Go port of Lucene's org.apache.lucene.index.FilterNumericDocValues.
 type FilterNumericDocValues struct {
@@ -42,4 +44,21 @@ func (f *FilterNumericDocValues) LongValue() (int64, error) {
 // Cost returns an estimate of the cost of iterating over the entire value-bearing document set.
 func (f *FilterNumericDocValues) Cost() int64 {
 	return f.in.Cost()
+}
+
+// IntoBitSet loads doc IDs into a FixedBitSet, shifted down by offset.
+//
+// Java's FilterNumericDocValues does not override intoBitSet: it inherits the
+// DocIdSetIterator default, which this reproduces.
+func (f *FilterNumericDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd returns one plus the last doc ID of the run of consecutive
+// matching doc IDs containing DocID().
+//
+// Java's FilterNumericDocValues does not override docIDRunEnd: it inherits the
+// DocIdSetIterator default, which this reproduces.
+func (f *FilterNumericDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(f)
 }

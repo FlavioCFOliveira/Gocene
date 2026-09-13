@@ -7,7 +7,7 @@
 //
 // Indexes ~1000 documents, each carrying a random number of "foo" StringField
 // values, into a single segment, then runs 100 random MUST conjunctions through
-// CheckHits.checkTopScores (search/testutil.CheckTopScores), which asserts that
+// CheckHits.checkTopScores (search/testsearch.CheckTopScores), which asserts that
 // the COMPLETE and TOP_SCORES (block-max WAND / dynamic-pruning) collectors agree
 // on the top hits and that the block-max bounds are valid. Each conjunction is
 // also exercised with a FILTER clause and with two-phase-approximation-wrapped
@@ -32,7 +32,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/search/testutil"
+	testsearch "github.com/FlavioCFOliveira/Gocene/tests/search"
 )
 
 // TestBlockMaxConjunction_Random ports testRandom.
@@ -82,13 +82,13 @@ func TestBlockMaxConjunction_Random(t *testing.T) {
 		}
 		query := builder
 
-		testutil.CheckTopScores(t, rng, query, s)
+		testsearch.CheckTopScores(t, rng, query, s)
 
 		filterTerm := rng.Intn(30)
 		filtered := search.NewBooleanQuery()
 		filtered.Add(query, search.MUST)
 		filtered.Add(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("%d", filterTerm))), search.FILTER)
-		testutil.CheckTopScores(t, rng, filtered, s)
+		testsearch.CheckTopScores(t, rng, filtered, s)
 
 		tpBuilder := search.NewBooleanQuery()
 		for i := 0; i < numClauses; i++ {
@@ -97,6 +97,6 @@ func TestBlockMaxConjunction_Random(t *testing.T) {
 		twoPhase := search.NewBooleanQuery()
 		twoPhase.Add(query, search.MUST)
 		twoPhase.Add(search.NewTermQuery(index.NewTerm("foo", fmt.Sprintf("%d", filterTerm))), search.FILTER)
-		testutil.CheckTopScores(t, rng, twoPhase, s)
+		testsearch.CheckTopScores(t, rng, twoPhase, s)
 	}
 }

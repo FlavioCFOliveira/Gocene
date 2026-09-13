@@ -61,7 +61,7 @@ func (mfp *MultiFieldQueryParser) Parse(queryText string) (search.Query, error) 
 
 	// Parse the query using the base parser
 	// For now, we'll create a simple boolean query across all fields
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 
 	for _, field := range mfp.fields {
 		// Create a query for this field
@@ -79,7 +79,7 @@ func (mfp *MultiFieldQueryParser) Parse(queryText string) (search.Query, error) 
 		bq.Add(query, search.SHOULD)
 	}
 
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // ParseWithField parses a query string for a specific field.

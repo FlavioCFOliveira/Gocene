@@ -2,57 +2,82 @@ package documents
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DocumentField is a holder for a document field's information and data.
 type DocumentField struct {
-	name               string
-	idxOptions         index.IndexOptions
-	hasTermVectors     bool
-	hasPayloads        bool
-	hasNorms           bool
-	norm               int64
-	isStored           bool
-	stringValue        string
-	binaryValue        *util.BytesRef
-	numericValue       float64 // Simplified from java.lang.Number
-	dvType             index.DocValuesType
+	name                string
+	idxOptions          index.IndexOptions
+	hasTermVectors      bool
+	hasPayloads         bool
+	hasNorms            bool
+	norm                int64
+	isStored            bool
+	stringValue         string
+	binaryValue         *util.BytesRef
+	numericValue        float64 // Simplified from java.lang.Number
+	dvType              index.DocValuesType
 	pointDimensionCount int
-	pointNumBytes      int
-	vectorDimension    int
-	vectorSimilarity   index.VectorSimilarityFunction
+	pointNumBytes       int
+	vectorDimension     int
+	vectorSimilarity    index.VectorSimilarityFunction
 }
 
-func NewDocumentField(finfo index.FieldInfo, field index.IndexableField, reader index.IndexReader, docID int) (*DocumentField, error) {
+func NewDocumentField(finfo index.FieldInfo, field document.IndexableField, reader index.IndexReader, docID int) (*DocumentField, error) {
 	dfield := &DocumentField{
-		name:               finfo.Name(),
-		idxOptions:         finfo.IndexOptions(),
-		hasTermVectors:     finfo.HasTermVectors(),
-		hasPayloads:        finfo.HasPayloads(),
-		hasNorms:           finfo.HasNorms(),
-		dvType:             finfo.DocValuesType(),
+		name:                finfo.Name(),
+		idxOptions:          finfo.IndexOptions(),
+		hasTermVectors:      finfo.HasTermVectors(),
+		hasPayloads:         finfo.HasPayloads(),
+		hasNorms:            finfo.HasNorms(),
+		dvType:              finfo.DocValuesType(),
 		pointDimensionCount: finfo.PointDimensionCount(),
-		pointNumBytes:      finfo.PointNumBytes(),
-		vectorDimension:    finfo.VectorDimension(),
-		vectorSimilarity:   finfo.VectorSimilarityFunction(),
+		pointNumBytes:       finfo.PointNumBytes(),
+		vectorDimension:     finfo.VectorDimension(),
+		vectorSimilarity:    finfo.VectorSimilarityFunction(),
 	}
 
 	if finfo.HasNorms() {
-		norms := index.MultiDocValuesGetNormValues(reader, finfo.Name())
-		if norms.AdvanceExact(docID) {
-			dfield.norm = norms.LongValue()
+		norms, err := index.MultiDocValuesGetNormValues(reader, finfo.Name())
+		if err != nil {
+			return nil, err
+		}
+		if norms != nil {
+			ok, err := norms.AdvanceExact(docID)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				if dfield.norm, err = norms.LongValue(); err != nil {
+					return nil, err
+				}
+			}
 		}
 	}
 
 	if field != nil {
-		dfield.isStored = field.FieldType().Stored()
+		dfield.isStored = field.FieldType().Stored
 		dfield.stringValue = field.StringValue()
-		if field.BinaryValue() != nil {
-			dfield.binaryValue = util.BytesRefDeepCopyOf(field.BinaryValue())
+		if b := field.BinaryValue(); b != nil {
+			dfield.binaryValue = util.BytesRefDeepCopyOf(util.NewBytesRef(b))
 		}
-		dfield.numericValue = field.NumericValue()
+		// Java keeps the raw java.lang.Number; Gocene's DocumentField narrows
+		// it to float64, so the numeric kinds Lucene can store are converted.
+		switch v := field.NumericValue().(type) {
+		case int:
+			dfield.numericValue = float64(v)
+		case int32:
+			dfield.numericValue = float64(v)
+		case int64:
+			dfield.numericValue = float64(v)
+		case float32:
+			dfield.numericValue = float64(v)
+		case float64:
+			dfield.numericValue = v
+		}
 	}
 
 	return dfield, nil

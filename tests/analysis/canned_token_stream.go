@@ -13,7 +13,7 @@
 //
 //	lucene/test-framework/src/java/org/apache/lucene/tests/analysis/CannedTokenStream.java
 //	lucene/test-framework/src/java/org/apache/lucene/tests/analysis/Token.java
-package testutil
+package analysis
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -164,8 +164,8 @@ type CannedTokenStream struct {
 	typeAttr    analysis.TypeAttribute
 	posIncrAttr tokenattributes.PositionIncrementAttribute
 	posLenAttr  analysis.PositionLengthAttribute
-	flagsAttr   *analysis.FlagsAttributeImpl
-	payloadAttr *analysis.PayloadAttributeImpl
+	flagsAttr   analysis.FlagsAttribute
+	payloadAttr analysis.PayloadAttribute
 }
 
 // Compile-time interface assertion.
@@ -194,21 +194,15 @@ func NewCannedTokenStreamWithFinal(finalPosInc, finalOffset int, tokens ...Token
 	// exposes via Token.TOKEN_ATTRIBUTE_FACTORY. We use the
 	// individual concrete impls rather than PackedTokenAttributeImpl
 	// to keep the stream's surface easy to inspect from tests.
-	cts.termAttr = analysis.NewCharTermAttribute()
-	cts.offsetAttr = analysis.NewOffsetAttribute()
-	cts.typeAttr = analysis.NewTypeAttributeImpl()
-	cts.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-	cts.posLenAttr = analysis.NewPositionLengthAttributeImpl()
-	cts.flagsAttr = analysis.NewFlagsAttributeImpl()
-	cts.payloadAttr = analysis.NewPayloadAttributeImpl()
-
-	cts.AddAttribute(cts.termAttr)
-	cts.AddAttribute(cts.offsetAttr)
-	cts.AddAttribute(cts.typeAttr)
-	cts.AddAttribute(cts.posIncrAttr)
-	cts.AddAttribute(cts.posLenAttr)
-	cts.AddAttribute(cts.flagsAttr)
-	cts.AddAttribute(cts.payloadAttr)
+	// Java registers each attribute through addAttribute(X.class), which
+	// creates the impl via the configured AttributeFactory and returns it.
+	cts.termAttr = cts.AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	cts.offsetAttr = cts.AddAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
+	cts.typeAttr = cts.AddAttribute(analysis.TypeAttributeType).(analysis.TypeAttribute)
+	cts.posIncrAttr = cts.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
+	cts.posLenAttr = cts.AddAttribute(analysis.PositionLengthAttributeType).(analysis.PositionLengthAttribute)
+	cts.flagsAttr = cts.AddAttribute(analysis.FlagsAttributeType).(analysis.FlagsAttribute)
+	cts.payloadAttr = cts.AddAttribute(analysis.PayloadAttributeType).(analysis.PayloadAttribute)
 
 	return cts
 }
@@ -313,11 +307,11 @@ func (cts *CannedTokenStream) PositionLengthAttribute() analysis.PositionLengthA
 }
 
 // FlagsAttribute exposes the live FlagsAttribute.
-func (cts *CannedTokenStream) FlagsAttribute() *analysis.FlagsAttributeImpl {
+func (cts *CannedTokenStream) FlagsAttribute() analysis.FlagsAttribute {
 	return cts.flagsAttr
 }
 
 // PayloadAttribute exposes the live PayloadAttribute.
-func (cts *CannedTokenStream) PayloadAttribute() *analysis.PayloadAttributeImpl {
+func (cts *CannedTokenStream) PayloadAttribute() analysis.PayloadAttribute {
 	return cts.payloadAttr
 }

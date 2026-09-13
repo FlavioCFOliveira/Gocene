@@ -55,14 +55,12 @@ func (TermsQueryBuilder) GetQuery(e *xml.Element) (search.Query, error) {
 	if err != nil {
 		return nil, err
 	}
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
+	bq.SetMinimumNumberShouldMatch(xml.GetAttributeInt(e, "minimumNumberShouldMatch", 0))
 	for _, tok := range strings.Fields(text) {
 		bq.Add(search.NewTermQuery(index.NewTerm(field, tok)), search.SHOULD)
 	}
-	if mm := xml.GetAttributeInt(e, "minimumNumberShouldMatch", 0); mm > 0 {
-		bq.SetMinimumNumberShouldMatch(mm)
-	}
-	return applyBoost(e, bq), nil
+	return applyBoost(e, bq.Build()), nil
 }
 
 var _ xml.QueryBuilder = TermsQueryBuilder{}
@@ -80,7 +78,8 @@ func NewBooleanQueryBuilder(factory *xml.QueryBuilderFactory) *BooleanQueryBuild
 
 // GetQuery walks the element's <Clause> children and assembles a BooleanQuery.
 func (b *BooleanQueryBuilder) GetQuery(e *xml.Element) (search.Query, error) {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
+	bq.SetMinimumNumberShouldMatch(xml.GetAttributeInt(e, "minimumNumberShouldMatch", 0))
 	for _, clause := range xml.GetChildrenByTagName(e, "Clause") {
 		sub, err := b.parseClause(clause)
 		if err != nil {
@@ -95,10 +94,7 @@ func (b *BooleanQueryBuilder) GetQuery(e *xml.Element) (search.Query, error) {
 		}
 		bq.Add(sub, occur)
 	}
-	if mm := xml.GetAttributeInt(e, "minimumNumberShouldMatch", 0); mm > 0 {
-		bq.SetMinimumNumberShouldMatch(mm)
-	}
-	return applyBoost(e, bq), nil
+	return applyBoost(e, bq.Build()), nil
 }
 
 func (b *BooleanQueryBuilder) parseClause(clause *xml.Element) (search.Query, error) {
@@ -180,7 +176,7 @@ func (b *DisjunctionMaxQueryBuilder) GetQuery(e *xml.Element) (search.Query, err
 			disjuncts = append(disjuncts, sub)
 		}
 	}
-	q := search.NewDisjunctionMaxQueryWithTieBreaker(disjuncts, tb)
+	q := search.NewDisjunctionMaxQuery(disjuncts, tb)
 	return applyBoost(e, q), nil
 }
 

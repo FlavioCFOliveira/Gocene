@@ -34,7 +34,6 @@
 package index
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/store"
 	"strings"
 	"testing"
 

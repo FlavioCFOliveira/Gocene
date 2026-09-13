@@ -11,7 +11,6 @@
 package search_test
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/spi"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -184,10 +183,10 @@ func TestVisitVectorSimilarityQuery_RejectedField(t *testing.T) {
 		t.Errorf("VisitLeaf was called when field was rejected (count=%d)", len(v.visited))
 	}
 
-// ─── CreateVectorSimilarityWeight ────────────────────────────────────────────
+	// ─── CreateVectorSimilarityWeight ────────────────────────────────────────────
 
-// TestCreateVectorSimilarityWeight_NoFilter verifies that a weight can be
-// constructed without a filter (filterWeight = nil).
+	// TestCreateVectorSimilarityWeight_NoFilter verifies that a weight can be
+	// constructed without a filter (filterWeight = nil).
 }
 func TestCreateVectorSimilarityWeight_NoFilter(t *testing.T) {
 	q, _ := search.NewBaseVectorSimilarityQuery("vec", 0.5, 0.8, nil)

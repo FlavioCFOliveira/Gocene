@@ -20,7 +20,7 @@
 // AdvanceShallow / GetMaxScore / SetMinCompetitiveScore — produces a valid
 // upper bound at every position). All three drive a real in-memory
 // IndexSearcher.
-package testutil
+package search
 
 import (
 	"fmt"
@@ -156,38 +156,48 @@ func CheckHitCollector(t TB, query search.Query, defaultField string, searcher *
 //
 // Its ScoreMode is COMPLETE_NO_SCORES — collection is score-independent.
 type setCollector struct {
-	*search.SimpleCollector
-	bag map[int]struct{}
+	*search.BaseSimpleCollector
+	*search.BaseLeafCollector
+	bag  map[int]struct{}
+	base int
 }
 
 func newSetCollector() *setCollector {
-	return &setCollector{
-		SimpleCollector: search.NewSimpleCollector(search.COMPLETE_NO_SCORES),
-		bag:             make(map[int]struct{}),
+	c := &setCollector{
+		BaseSimpleCollector: &search.BaseSimpleCollector{},
+		BaseLeafCollector:   search.NewBaseLeafCollector(),
+		bag:                 make(map[int]struct{}),
 	}
+	// Java's SimpleCollector.getLeafCollector returns `this`.
+	c.BaseSimpleCollector.Outer = c
+	return c
 }
 
-func (c *setCollector) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
-	docBase := 0
+// DoSetNextReader captures the segment's docBase, as SetCollector does.
+func (c *setCollector) DoSetNextReader(context *index.LeafReaderContext) error {
+	c.base = 0
 	if context != nil {
-		docBase = context.DocBase()
+		c.base = context.DocBase
 	}
-	return &setLeafCollector{bag: c.bag, docBase: docBase}, nil
-}
-
-// setLeafCollector adds doc+docBase to the shared bag for each collected doc.
-type setLeafCollector struct {
-	*search.BaseLeafCollector
-	bag     map[int]struct{}
-	docBase int
-}
-
-func (c *setLeafCollector) SetScorer(scorer search.Scorer) error { return nil }
-
-func (c *setLeafCollector) Collect(doc int) error {
-	c.bag[doc+c.docBase] = struct{}{}
 	return nil
 }
+
+func (c *setCollector) SetScorer(scorer search.Scorable) error { return nil }
+
+func (c *setCollector) Collect(doc int) error {
+	c.bag[doc+c.base] = struct{}{}
+	return nil
+}
+
+func (c *setCollector) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+func (c *setCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+func (c *setCollector) ScoreMode() search.ScoreMode { return search.COMPLETE_NO_SCORES }
 
 // CheckMatches asserts that Weight.Matches returns a non-null Matches for every
 // document matching the query, and that the immediately preceding (non-matching)
@@ -202,7 +212,7 @@ func (c *setLeafCollector) Collect(doc int) error {
 func CheckMatches(t TB, query search.Query, searcher *search.IndexSearcher) {
 	t.Helper()
 
-	rewritten, err := query.Rewrite(searcher.GetIndexReader())
+	rewritten, err := query.Rewrite(searcher)
 	if err != nil {
 		t.Fatalf("CheckMatches: rewrite failed: %v", err)
 		return
@@ -217,7 +227,7 @@ func CheckMatches(t TB, query search.Query, searcher *search.IndexSearcher) {
 		return
 	}
 
-	collector := &matchesAsserter{t: t, weight: weight}
+	collector := &matchesAsserter{BaseSimpleCollector: &search.BaseSimpleCollector{}, t: t, weight: weight}
 	if err := searcher.SearchWithCollector(rewritten, collector); err != nil {
 		t.Fatalf("CheckMatches: search failed for [[%s]]: %v", QueryString(query, ""), err)
 	}
@@ -226,7 +236,7 @@ func CheckMatches(t TB, query search.Query, searcher *search.IndexSearcher) {
 // matchesAsserter is the Collector that performs the Weight.Matches assertions,
 // porting CheckHits.MatchesAsserter.
 type matchesAsserter struct {
-	*search.SimpleCollector
+	*search.BaseSimpleCollector
 	t      TB
 	weight search.Weight
 }
@@ -234,7 +244,7 @@ type matchesAsserter struct {
 func (a *matchesAsserter) ScoreMode() search.ScoreMode { return search.COMPLETE_NO_SCORES }
 
 func (a *matchesAsserter) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
-	return &matchesAsserterLeaf{t: a.t, weight: a.weight, context: context, lastCheckedDoc: -1}, nil
+	return &matchesAsserterLeaf{BaseLeafCollector: search.NewBaseLeafCollector(), t: a.t, weight: a.weight, context: context, lastCheckedDoc: -1}, nil
 }
 
 type matchesAsserterLeaf struct {
@@ -249,7 +259,15 @@ type matchesAsserterLeaf struct {
 	collectedOnce  bool
 }
 
-func (c *matchesAsserterLeaf) SetScorer(scorer search.Scorer) error { return nil }
+func (c *matchesAsserterLeaf) SetScorer(scorer search.Scorable) error { return nil }
+
+func (c *matchesAsserterLeaf) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+func (c *matchesAsserterLeaf) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
 
 func (c *matchesAsserterLeaf) Collect(doc int) error {
 	matches, err := c.weight.Matches(c.context, doc)
@@ -349,16 +367,15 @@ func searchWithManager(searcher *search.IndexSearcher, query search.Query, mgr *
 // SetMinCompetitiveScore (when supported) never strands a competitive document.
 // It is the Go port of CheckHits.doCheckMaxScores.
 //
-// Adaptation to Gocene: a Gocene Scorer IS a DocIdSetIterator (it embeds the
-// interface), so "s.iterator()" is the scorer itself; the optional
-// TwoPhaseIterator is obtained via search.AsTwoPhaseIterator; and
+// Adaptation to Gocene: Scorer.Iterator() renders Java's s.iterator(); the
+// optional TwoPhaseIterator is obtained via Scorer.TwoPhaseIterator(); and
 // setMinCompetitiveScore is the optional search.MinCompetitiveScorer interface
 // (a scorer that cannot prune simply does not implement it, which is legal and
 // leaves the bound assertions intact).
 func doCheckMaxScores(t TB, rng *rand.Rand, query search.Query, searcher *search.IndexSearcher) {
 	t.Helper()
 
-	rewritten, err := query.Rewrite(searcher.GetIndexReader())
+	rewritten, err := query.Rewrite(searcher)
 	if err != nil {
 		t.Fatalf("doCheckMaxScores: rewrite: %v", err)
 		return
@@ -418,7 +435,7 @@ func iteratorExhausted(t TB, s search.Scorer) bool {
 	if s == nil {
 		return true
 	}
-	doc, err := s.NextDoc()
+	doc, err := s.Iterator().NextDoc()
 	if err != nil {
 		t.Errorf("doCheckMaxScores: NextDoc on lone scorer: %v", err)
 		return true
@@ -450,8 +467,8 @@ func checkMaxScoresLeafSequential(t TB, rng *rand.Rand, w1, w2 search.Weight, ct
 		return false
 	}
 
-	tp1 := search.AsTwoPhaseIterator(s1)
-	tp2 := search.AsTwoPhaseIterator(s2)
+	tp1 := s1.TwoPhaseIterator()
+	tp2 := s2.TwoPhaseIterator()
 	approx1 := approximationOf(s1, tp1)
 	approx2 := approximationOf(s2, tp2)
 
@@ -476,9 +493,9 @@ func checkMaxScoresLeafSequential(t TB, rng *rand.Rand, w1, w2 search.Weight, ct
 				t.Fatalf("doCheckMaxScores: tp1.Matches: %v", err)
 				return true
 			} else if ok {
-				if s1.Score() >= minScore {
+				if sc := scoreOf(t, s1, "doCheckMaxScores"); sc >= minScore {
 					t.Errorf("doCheckMaxScores: skipped doc %d had score %v >= minScore %v",
-						doc1, s1.Score(), minScore)
+						doc1, sc, minScore)
 				}
 			}
 			doc1, err = approx1.NextDoc()
@@ -503,7 +520,7 @@ func checkMaxScoresLeafSequential(t TB, rng *rand.Rand, w1, w2 search.Weight, ct
 			if upTo < doc2 {
 				t.Errorf("doCheckMaxScores: AdvanceShallow(%d)=%d < target", doc2, upTo)
 			}
-			maxScore = s2.GetMaxScore(upTo)
+			maxScore = maxScoreOf(t, s2, upTo, "doCheckMaxScores")
 		}
 
 		ok2, err := twoPhaseMatches(tp2)
@@ -518,9 +535,9 @@ func checkMaxScoresLeafSequential(t TB, rng *rand.Rand, w1, w2 search.Weight, ct
 			} else if !ok1 {
 				t.Errorf("doCheckMaxScores: doc %d matched by s2 but not s1", doc2)
 			}
-			score := s2.Score()
-			if s1.Score() != score {
-				t.Errorf("doCheckMaxScores: doc %d score mismatch s1=%v s2=%v", doc2, s1.Score(), score)
+			score := scoreOf(t, s2, "doCheckMaxScores")
+			if s1Score := scoreOf(t, s1, "doCheckMaxScores"); s1Score != score {
+				t.Errorf("doCheckMaxScores: doc %d score mismatch s1=%v s2=%v", doc2, s1Score, score)
 			}
 			if score > maxScore {
 				t.Errorf("doCheckMaxScores: doc %d score %v > maxScore %v up to %d", doc2, score, maxScore, upTo)
@@ -563,8 +580,8 @@ func checkMaxScoresLeafAdvancing(t TB, rng *rand.Rand, w1, w2 search.Weight, ctx
 		return false
 	}
 
-	tp1 := search.AsTwoPhaseIterator(s1)
-	tp2 := search.AsTwoPhaseIterator(s2)
+	tp1 := s1.TwoPhaseIterator()
+	tp2 := s2.TwoPhaseIterator()
 	approx1 := approximationOf(s1, tp1)
 	approx2 := approximationOf(s2, tp2)
 
@@ -599,7 +616,7 @@ func checkMaxScoresLeafAdvancing(t TB, rng *rand.Rand, w1, w2 search.Weight, ctx
 			if m < target {
 				t.Errorf("doCheckMaxScores(adv): AdvanceShallow(%d)=%d < target", target, m)
 			}
-			maxScore = s2.GetMaxScore(upTo)
+			maxScore = maxScoreOf(t, s2, upTo, "doCheckMaxScores(adv)")
 		}
 
 		if advance {
@@ -622,9 +639,9 @@ func checkMaxScoresLeafAdvancing(t TB, rng *rand.Rand, w1, w2 search.Weight, ctx
 				t.Fatalf("doCheckMaxScores(adv): tp1.Matches: %v", err)
 				return true
 			} else if ok {
-				if s1.Score() >= minScore {
+				if sc := scoreOf(t, s1, "doCheckMaxScores(adv)"); sc >= minScore {
 					t.Errorf("doCheckMaxScores(adv): skipped doc %d had score %v >= minScore %v",
-						doc1, s1.Score(), minScore)
+						doc1, sc, minScore)
 				}
 			}
 			doc1, err = approx1.NextDoc()
@@ -652,9 +669,9 @@ func checkMaxScoresLeafAdvancing(t TB, rng *rand.Rand, w1, w2 search.Weight, ctx
 			} else if !ok1 {
 				t.Errorf("doCheckMaxScores(adv): doc %d matched by s2 but not s1", doc2)
 			}
-			score := s2.Score()
-			if s1.Score() != score {
-				t.Errorf("doCheckMaxScores(adv): doc %d score mismatch s1=%v s2=%v", doc2, s1.Score(), score)
+			score := scoreOf(t, s2, "doCheckMaxScores(adv)")
+			if s1Score := scoreOf(t, s1, "doCheckMaxScores(adv)"); s1Score != score {
+				t.Errorf("doCheckMaxScores(adv): doc %d score mismatch s1=%v s2=%v", doc2, s1Score, score)
 			}
 			if doc2 > upTo {
 				upTo, err = s2.AdvanceShallow(doc2)
@@ -665,7 +682,7 @@ func checkMaxScoresLeafAdvancing(t TB, rng *rand.Rand, w1, w2 search.Weight, ctx
 				if upTo < doc2 {
 					t.Errorf("doCheckMaxScores(adv): AdvanceShallow(%d)=%d < target", doc2, upTo)
 				}
-				maxScore = s2.GetMaxScore(upTo)
+				maxScore = maxScoreOf(t, s2, upTo, "doCheckMaxScores(adv)")
 			}
 			if score > maxScore {
 				t.Errorf("doCheckMaxScores(adv): doc %d score %v > maxScore %v", doc2, score, maxScore)
@@ -680,12 +697,35 @@ func checkMaxScoresLeafAdvancing(t TB, rng *rand.Rand, w1, w2 search.Weight, ctx
 
 // approximationOf returns the iterator a scorer's matches should be driven
 // through: the TwoPhaseIterator's approximation when one is present, otherwise
-// the scorer itself (a Gocene Scorer is a DocIdSetIterator).
-func approximationOf(s search.Scorer, tp *search.TwoPhaseIterator) util.DocIdSetIterator {
+// the scorer's own iterator (Java: s.iterator()).
+func approximationOf(s search.Scorer, tp *search.TwoPhaseIterator) search.DocIdSetIterator {
 	if tp != nil {
 		return tp.Approximation()
 	}
-	return s
+	return s.Iterator()
+}
+
+// scoreOf returns the scorer's score at the current document. Java's
+// Scorable.score() throws IOException; Gocene returns it, so the call sites
+// that Lucene writes as bare expressions go through this helper.
+func scoreOf(t TB, s search.Scorable, where string) float32 {
+	v, err := s.Score()
+	if err != nil {
+		t.Fatalf("%s: Score: %v", where, err)
+		return 0
+	}
+	return v
+}
+
+// maxScoreOf returns the block upper bound up to upTo. Java's
+// Scorer.getMaxScore(int) throws IOException; Gocene returns it.
+func maxScoreOf(t TB, s search.Scorer, upTo int, where string) float32 {
+	v, err := s.GetMaxScore(upTo)
+	if err != nil {
+		t.Fatalf("%s: GetMaxScore(%d): %v", where, upTo, err)
+		return 0
+	}
+	return v
 }
 
 // twoPhaseMatches reports whether the current approximation document is a true
@@ -708,15 +748,11 @@ func setMinCompetitiveScore(t TB, s search.Scorer, minScore float32) {
 	}
 }
 
-// leavesOf returns the leaf contexts of the searcher's reader. It supports the
-// DirectoryReader (multi-segment) shape used by the test harness and a single
-// leaf reader; each context carries the segment's docBase and ordinal.
+// leavesOf returns the leaf contexts of the searcher's reader, rendering
+// Java's searcher.getIndexReader().leaves(). Each context carries the
+// segment's docBase and ordinal.
 func leavesOf(searcher *search.IndexSearcher) ([]*index.LeafReaderContext, error) {
-	reader := searcher.GetIndexReader()
-	if dr, ok := reader.(*index.DirectoryReader); ok {
-		return dr.Leaves()
-	}
-	return []*index.LeafReaderContext{index.NewLeafReaderContext(reader, nil, 0, 0)}, nil
+	return searcher.GetLeafContexts(), nil
 }
 
 // CheckDocIds tests that hits has exactly the expected doc ids in the

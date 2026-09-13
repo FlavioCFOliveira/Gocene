@@ -2,30 +2,35 @@ package documents
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/luke/models"
 	"github.com/FlavioCFOliveira/Gocene/luke/models/util"
-	"github.com/FlavioCFOliveira/Gocene/util"
+	coreutil "github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DocumentsImpl is the default implementation of Documents.
 type DocumentsImpl struct {
-	reader         index.IndexReader
-	tvAdapter     *TermVectorsAdapter
-	dvAdapter     *DocValuesAdapter
-	curField       string
-	tenum          index.TermsEnum
-	penum          index.PostingsEnum
-	liveDocs       *util.Bits
+	reader    index.IndexReader
+	tvAdapter *TermVectorsAdapter
+	dvAdapter *DocValuesAdapter
+	curField  string
+	tenum     index.TermsEnum
+	penum     index.PostingsEnum
+	liveDocs  coreutil.Bits
 }
 
-func NewDocumentsImpl(reader index.IndexReader) *DocumentsImpl {
-	return &DocumentsImpl{
-		reader:     reader,
-		tvAdapter:  NewTermVectorsAdapter(reader),
-		dvAdapter:  NewDocValuesAdapter(reader),
-		liveDocs:   util.GetLiveDocs(reader),
+func NewDocumentsImpl(reader index.IndexReader) (*DocumentsImpl, error) {
+	liveDocs, err := util.GetLiveDocs(reader)
+	if err != nil {
+		return nil, err
 	}
+	return &DocumentsImpl{
+		reader:    reader,
+		tvAdapter: NewTermVectorsAdapter(reader),
+		dvAdapter: NewDocValuesAdapter(reader),
+		liveDocs:  liveDocs,
+	}, nil
 }
 
 func (d *DocumentsImpl) GetMaxDoc() int {
@@ -45,22 +50,35 @@ func (d *DocumentsImpl) GetDocumentFields(docid int) ([]*DocumentField, error) {
 	}
 
 	var res []*DocumentField
-	doc, err := d.reader.StoredFields().Document(docid)
+	storedFields, err := d.reader.StoredFields()
 	if err != nil {
 		return nil, models.NewLukeException(fmt.Sprintf("Fields information not available for doc %d.", docid), err)
 	}
+	// Java: reader.storedFields().document(docid). Gocene's StoredFields
+	// mirrors Lucene's visitor-based primitive, so the Document is rebuilt
+	// through DocumentStoredFieldVisitor exactly as Lucene's own
+	// document(int) overload does.
+	visitor := document.NewDocumentStoredFieldVisitor()
+	if err := storedFields.Document(docid, visitor); err != nil {
+		return nil, models.NewLukeException(fmt.Sprintf("Fields information not available for doc %d.", docid), err)
+	}
+	doc := visitor.GetDocument()
 
-	for _, finfo := range util.GetFieldInfos(d.reader) {
-		fields := doc.GetFields(finfo.Name())
+	fieldInfos, err := util.GetFieldInfos(d.reader)
+	if err != nil {
+		return nil, models.NewLukeException(fmt.Sprintf("Fields information not available for doc %d.", docid), err)
+	}
+	for _, finfo := range fieldInfos.Infos() {
+		fields := doc.GetFieldsByName(finfo.Name())
 		if len(fields) == 0 {
-			df, err := NewDocumentField(finfo, nil, d.reader, docid)
+			df, err := NewDocumentField(*finfo, nil, d.reader, docid)
 			if err != nil {
 				return nil, err
 			}
 			res = append(res, df)
 		} else {
 			for _, field := range fields {
-				df, err := NewDocumentField(finfo, field, d.reader, docid)
+				df, err := NewDocumentField(*finfo, field, d.reader, docid)
 				if err != nil {
 					return nil, err
 				}
@@ -90,15 +108,24 @@ func (d *DocumentsImpl) FirstTerm(field string) (*index.Term, error) {
 	}
 
 	d.curField = field
-	d.tenum = terms.Iterator()
+	tenum, err := terms.GetIterator()
+	if err != nil {
+		d.resetTermsIterator()
+		return nil, err
+	}
+	d.tenum = tenum
 
-	if d.tenum.Next() == nil {
+	next, err := d.tenum.Next()
+	if err != nil {
+		return nil, err
+	}
+	if next == nil {
 		d.resetTermsIterator()
 		return nil, nil
 	}
 
 	d.resetPostingsIterator()
-	return index.NewTerm(d.curField, d.tenum.Term()), nil
+	return index.NewTermFromBytesRef(d.curField, d.tenum.Term().Bytes), nil
 }
 
 func (d *DocumentsImpl) NextTerm() (*index.Term, error) {
@@ -106,13 +133,17 @@ func (d *DocumentsImpl) NextTerm() (*index.Term, error) {
 		return nil, nil
 	}
 
-	if d.tenum.Next() == nil {
+	next, err := d.tenum.Next()
+	if err != nil {
+		return nil, err
+	}
+	if next == nil {
 		d.resetTermsIterator()
 		return nil, nil
 	}
 
 	d.resetPostingsIterator()
-	return index.NewTerm(d.curField, d.tenum.Term()), nil
+	return index.NewTermFromBytesRef(d.curField, d.tenum.Term().Bytes), nil
 }
 
 func (d *DocumentsImpl) SeekTerm(termText string) (*index.Term, error) {
@@ -126,14 +157,26 @@ func (d *DocumentsImpl) SeekTerm(termText string) (*index.Term, error) {
 		return nil, models.NewLukeException(fmt.Sprintf("Terms not available for field: %s.", d.curField), err)
 	}
 
-	d.tenum = terms.Iterator()
-	if d.tenum.SeekCeil(util.BytesRefFromStr(termText)) == index.TermsEnumSeekStatusEnd {
+	tenum, err := terms.GetIterator()
+	if err != nil {
+		d.resetTermsIterator()
+		return nil, err
+	}
+	d.tenum = tenum
+
+	// Java: if (tenum.seekCeil(new BytesRef(termText)) == SeekStatus.END).
+	// Gocene's SeekCeil returns the term it landed on, or nil past the end.
+	seeked, err := d.tenum.SeekCeil(index.NewTerm(d.curField, termText))
+	if err != nil {
+		return nil, err
+	}
+	if seeked == nil {
 		d.resetTermsIterator()
 		return nil, nil
 	}
 
 	d.resetPostingsIterator()
-	return index.NewTerm(d.curField, d.tenum.Term()), nil
+	return index.NewTermFromBytesRef(d.curField, d.tenum.Term().Bytes), nil
 }
 
 func (d *DocumentsImpl) FirstTermDoc() (*int, error) {
@@ -141,14 +184,18 @@ func (d *DocumentsImpl) FirstTermDoc() (*int, error) {
 		return nil, nil
 	}
 
-	penum, err := d.tenum.Postings(nil, index.PostingsEnumAll)
+	penum, err := d.tenum.Postings(index.PostingsFlagAll)
 	if err != nil {
 		d.resetPostingsIterator()
 		return nil, models.NewLukeException(fmt.Sprintf("Term docs not available for field: %s.", d.curField), err)
 	}
 	d.penum = penum
 
-	if d.penum.NextDoc() == index.PostingsEnumNoMoreDocs {
+	doc, err := d.penum.NextDoc()
+	if err != nil {
+		return nil, err
+	}
+	if doc == coreutil.NO_MORE_DOCS {
 		d.resetPostingsIterator()
 		return nil, nil
 	}
@@ -162,7 +209,11 @@ func (d *DocumentsImpl) NextTermDoc() (*int, error) {
 		return nil, nil
 	}
 
-	if d.penum.NextDoc() == index.PostingsEnumNoMoreDocs {
+	doc, err := d.penum.NextDoc()
+	if err != nil {
+		return nil, err
+	}
+	if doc == coreutil.NO_MORE_DOCS {
 		d.resetPostingsIterator()
 		return nil, nil
 	}
@@ -177,9 +228,15 @@ func (d *DocumentsImpl) GetTermPositions() ([]*TermPosting, error) {
 	}
 
 	var res []*TermPosting
-	freq := d.penum.Freq()
+	freq, err := d.penum.Freq()
+	if err != nil {
+		return nil, err
+	}
 	for i := 0; i < freq; i++ {
-		pos := d.penum.NextPosition()
+		pos, err := d.penum.NextPosition()
+		if err != nil {
+			return nil, err
+		}
 		if pos < 0 {
 			continue
 		}
@@ -198,7 +255,10 @@ func (d *DocumentsImpl) GetDocFreq() (*int, error) {
 		return nil, nil
 	}
 
-	freq := d.tenum.DocFreq()
+	freq, err := d.tenum.DocFreq()
+	if err != nil {
+		return nil, err
+	}
 	return &freq, nil
 }
 

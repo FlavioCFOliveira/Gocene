@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package testutil_test
+package search_test
 
 import (
 	"math/rand"
@@ -12,10 +12,10 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	idxtestutil "github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/search/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
+	testsearch "github.com/FlavioCFOliveira/Gocene/tests/search"
 )
 
 // buildScoringIndex builds an index in which the term "alpha" occurs with
@@ -31,15 +31,16 @@ import (
 func buildScoringIndex(t *testing.T) (searcher *search.IndexSearcher, alphaDocs []int, cleanup func()) {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	// Interleave commits (creating multiple segments) but never force-merge:
 	// the real ForceMerge write-path is not yet complete (roadmap #114) and a
 	// merge would drop postings. A multi-segment reader exercises the per-leaf
 	// docBase rebasing the collector-path and block-max helpers depend on.
-	riw := idxtestutil.NewWithConfig(mustWriter(t, dir, cfg), 7, idxtestutil.Config{
-		CommitProbability:     0.5,
-		ForceMergeProbability: -1,
-	})
+	riw, err := testindex.NewRandomIndexWriterWithConfig(rand.New(rand.NewSource(7)), dir, cfg)
+	if err != nil {
+		t.Fatalf("NewRandomIndexWriterWithConfig: %v", err)
+	}
+	riw.SetDoRandomForceMerge(false)
 
 	alphaFreqs := []int{1, 5, 2, 9, 3, 7, 4, 6}
 	docID := 0
@@ -51,8 +52,11 @@ func buildScoringIndex(t *testing.T) (searcher *search.IndexSearcher, alphaDocs 
 			t.Fatalf("NewTextField: %v", err)
 		}
 		doc.Add(f)
-		if err := riw.AddDocument(doc); err != nil {
+		if _, err := riw.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
+		}
+		if _, err := riw.Commit(); err != nil {
+			t.Fatalf("Commit: %v", err)
 		}
 		alphaDocs = append(alphaDocs, docID)
 		docID++
@@ -64,21 +68,24 @@ func buildScoringIndex(t *testing.T) (searcher *search.IndexSearcher, alphaDocs 
 			t.Fatalf("NewTextField: %v", err)
 		}
 		doc.Add(f)
-		if err := riw.AddDocument(doc); err != nil {
+		if _, err := riw.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
+		}
+		if _, err := riw.Commit(); err != nil {
+			t.Fatalf("Commit: %v", err)
 		}
 		docID++
 	}
 
-	if err := riw.Commit(); err != nil {
+	if _, err := riw.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := riw.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+	reader, rerr := index.OpenDirectoryReader(dir)
+	if rerr != nil {
+		t.Fatalf("OpenDirectoryReader: %v", rerr)
 	}
 	searcher = search.NewIndexSearcher(reader)
 	cleanup = func() {
@@ -96,14 +103,14 @@ func TestCheckHitCollector_TermQuery(t *testing.T) {
 
 	// Correct expected set passes.
 	rt := &recordTB{}
-	testutil.CheckHitCollector(rt, q, "field", searcher, []int{0, 2, 4})
+	testsearch.CheckHitCollector(rt, q, "field", searcher, []int{0, 2, 4})
 	if rt.failed() {
 		t.Fatalf("CheckHitCollector flagged a correct collector result set: errs=%v fatals=%v", rt.errs, rt.fatals)
 	}
 
 	// Wrong expected set fails.
 	rt = &recordTB{}
-	testutil.CheckHitCollector(rt, q, "field", searcher, []int{0, 1})
+	testsearch.CheckHitCollector(rt, q, "field", searcher, []int{0, 1})
 	if !rt.failed() {
 		t.Fatalf("CheckHitCollector did not flag a wrong collector result set")
 	}
@@ -133,7 +140,7 @@ func TestCheckHitCollector_MultiSegmentDocBase(t *testing.T) {
 
 	q := search.NewTermQuery(index.NewTerm("content", "alpha"))
 	rt := &recordTB{}
-	testutil.CheckHitCollector(rt, q, "content", searcher, alphaDocs)
+	testsearch.CheckHitCollector(rt, q, "content", searcher, alphaDocs)
 	if rt.failed() {
 		t.Fatalf("CheckHitCollector flagged the correct multi-segment alpha set %v: errs=%v fatals=%v",
 			alphaDocs, rt.errs, rt.fatals)
@@ -147,7 +154,7 @@ func TestCheckMatches_TermQuery(t *testing.T) {
 	q := search.NewTermQuery(index.NewTerm("field", "aaa"))
 
 	rt := &recordTB{}
-	testutil.CheckMatches(rt, q, searcher)
+	testsearch.CheckMatches(rt, q, searcher)
 	if rt.failed() {
 		t.Fatalf("CheckMatches flagged a TermQuery whose Matches is non-null on every hit: errs=%v fatals=%v",
 			rt.errs, rt.fatals)
@@ -165,7 +172,7 @@ func TestCheckMatches_DetectsNullMatches(t *testing.T) {
 	q := &nullMatchesQuery{inner: inner}
 
 	rt := &recordTB{}
-	testutil.CheckMatches(rt, q, searcher)
+	testsearch.CheckMatches(rt, q, searcher)
 	if !rt.failed() {
 		t.Fatalf("CheckMatches did not flag a query whose Matches is always null")
 	}
@@ -200,7 +207,7 @@ func TestCheckTopScores_TermQuery(t *testing.T) {
 
 	rng := rand.New(rand.NewSource(12345))
 	rt := &recordTB{}
-	testutil.CheckTopScores(rt, rng, q, searcher)
+	testsearch.CheckTopScores(rt, rng, q, searcher)
 	if rt.failed() {
 		t.Fatalf("CheckTopScores flagged a real TermQuery: errs=%v fatals=%v", rt.errs, rt.fatals)
 	}
@@ -214,10 +221,10 @@ type nullMatchesQuery struct {
 	inner search.Query
 }
 
-func (q *nullMatchesQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
+func (q *nullMatchesQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
 	// Keep the wrapper across rewrite so CreateWeight installs the null-Matches
 	// weight; the inner query is rewritten underneath.
-	rw, err := q.inner.Rewrite(reader)
+	rw, err := q.inner.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
@@ -227,8 +234,8 @@ func (q *nullMatchesQuery) Rewrite(reader search.IndexReader) (search.Query, err
 	return &nullMatchesQuery{inner: rw}, nil
 }
 
-func (q *nullMatchesQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	inner, err := q.inner.CreateWeight(searcher, needsScores, boost)
+func (q *nullMatchesQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	inner, err := q.inner.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
 	}
@@ -236,7 +243,7 @@ func (q *nullMatchesQuery) CreateWeight(searcher *search.IndexSearcher, needsSco
 }
 
 func (q *nullMatchesQuery) String() string {
-	return "nullMatches(" + testutil.QueryString(q.inner, "") + ")"
+	return "nullMatches(" + testsearch.QueryString(q.inner, "") + ")"
 }
 
 // nullMatchesWeight delegates to an inner Weight but always reports nil Matches.

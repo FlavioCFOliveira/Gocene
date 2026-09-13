@@ -2,7 +2,6 @@ package surround
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/queries/spans"
-	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
 // SpanNearClauseFactory accumulates the SpanQuery clauses produced by a

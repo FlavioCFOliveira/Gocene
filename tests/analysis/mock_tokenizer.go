@@ -2,11 +2,10 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package testutil
+package analysis
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -128,10 +127,10 @@ func NewMockTokenizerWithFactory(factory util.AttributeFactory, runAutomaton *au
 		bufferedCodePoint: -1,
 		random:            rand.New(rand.NewSource(0xDEADBEEF)),
 	}
-	t.AddAttribute(analysis.NewCharTermAttribute())
-	t.AddAttribute(analysis.NewOffsetAttribute())
-	t.termAtt = t.GetAttributeSource().GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
-	t.offsetAtt = t.GetAttributeSource().GetAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
+	// Java: private final CharTermAttribute termAtt = addAttribute(CharTermAttribute.class);
+	//       private final OffsetAttribute offsetAtt = addAttribute(OffsetAttribute.class);
+	t.termAtt = t.AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	t.offsetAtt = t.AddAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
 	return t
 }
 
@@ -150,20 +149,24 @@ func (t *MockTokenizer) failAlways(msg string) {
 	panic(fmt.Sprintf("MockTokenizer: %s", msg))
 }
 
-// SetReader sets the input source for this tokenizer.
-func (t *MockTokenizer) SetReader(input io.Reader) error {
+// SetReader sets the input source for this tokenizer, running the
+// setReaderTestPoint() state check of
+// org.apache.lucene.tests.analysis.MockTokenizer.
+func (t *MockTokenizer) SetReader(input io.Reader) {
+	if input == nil {
+		panic("MockTokenizer.SetReader: input must not be nil")
+	}
+	t.setReaderTestPoint()
+	t.BaseTokenizer.SetReader(input)
+	t.reader = bufio.NewReader(input)
+}
+
+// setReaderTestPoint mirrors MockTokenizer#setReaderTestPoint.
+func (t *MockTokenizer) setReaderTestPoint() {
+	defer func() { t.streamState = stateSetReader }()
 	if t.streamState != stateClose {
 		t.fail("setReader() called in wrong state")
 	}
-	defer func() { t.streamState = stateSetReader }()
-	if input == nil {
-		return errors.New("MockTokenizer.SetReader: input must not be nil")
-	}
-	if err := t.BaseTokenizer.SetReader(input); err != nil {
-		return err
-	}
-	t.reader = bufio.NewReader(input)
-	return nil
 }
 
 // Reset prepares the tokenizer for a new tokenization session.

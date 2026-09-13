@@ -52,7 +52,15 @@ func (c *ProfilerCollectorWrapper) GetLeafCollector(context *index.LeafReaderCon
 	if err != nil {
 		return nil, err
 	}
-	return &profilerLeafCollectorWrapper{in: inner, parent: c}, nil
+	return &profilerLeafCollectorWrapper{BaseLeafCollector: search.NewBaseLeafCollector(), in: inner, parent: c}, nil
+}
+
+// SetWeight delegates to the wrapped collector.
+//
+// Java: ProfilerCollectorWrapper extends FilterCollector, which delegates
+// setWeight to the wrapped collector.
+func (c *ProfilerCollectorWrapper) SetWeight(weight search.Weight) {
+	c.in.SetWeight(weight)
 }
 
 // GetTime returns the total nanoseconds spent in this collector so far.
@@ -65,6 +73,10 @@ var _ search.Collector = (*ProfilerCollectorWrapper)(nil)
 // profilerLeafCollectorWrapper wraps a search.LeafCollector, timing each
 // Collect and SetScorer call and accumulating into the parent's time counter.
 type profilerLeafCollectorWrapper struct {
+	// Java's inner class extends FilterLeafCollector, which supplies
+	// competitiveIterator() and finish().
+	*search.BaseLeafCollector
+
 	in     search.LeafCollector
 	parent *ProfilerCollectorWrapper
 }
@@ -81,8 +93,21 @@ func (lc *profilerLeafCollectorWrapper) Collect(doc int) error {
 	return err
 }
 
+// CollectRange carries the LeafCollector default, which dispatches back to
+// Collect; Java's inner class extends FilterLeafCollector and does not
+// override it.
+func (lc *profilerLeafCollectorWrapper) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(lc, min, max)
+}
+
+// CollectStream carries the LeafCollector default, which dispatches back to
+// Collect.
+func (lc *profilerLeafCollectorWrapper) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(lc, stream)
+}
+
 // SetScorer times the call and delegates to the inner leaf collector.
-func (lc *profilerLeafCollectorWrapper) SetScorer(scorer search.Scorer) error {
+func (lc *profilerLeafCollectorWrapper) SetScorer(scorer search.Scorable) error {
 	start := time.Now().UnixNano()
 	err := lc.in.SetScorer(scorer)
 	elapsed := time.Now().UnixNano() - start

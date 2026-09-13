@@ -37,14 +37,14 @@ import (
 //   - {a TO b}: exclusive range
 type QueryParser struct {
 	defaultField string
-	analyzer     *analysis.StandardAnalyzer
+	analyzer     analysis.Analyzer
 	tokenManager *QueryParserTokenManager
 	currentToken Token
 	lookAhead    Token
 }
 
 // NewQueryParser creates a new QueryParser.
-func NewQueryParser(defaultField string, analyzer *analysis.StandardAnalyzer) *QueryParser {
+func NewQueryParser(defaultField string, analyzer analysis.Analyzer) *QueryParser {
 	return &QueryParser{
 		defaultField: defaultField,
 		analyzer:     analyzer,
@@ -119,7 +119,11 @@ func (p *QueryParser) parseExpression() (search.Query, error) {
 		}
 		operands = append(operands, next)
 	}
-	return search.NewBooleanQueryOrWithQueries(operands...), nil
+	bq := search.NewBooleanQueryBuilder()
+	for _, op := range operands {
+		bq.Add(op, search.SHOULD)
+	}
+	return bq.Build(), nil
 }
 
 // parseAndOrSequence handles explicit AND and implicit sequences (space-separated
@@ -138,9 +142,9 @@ func (p *QueryParser) parseAndOrSequence() (search.Query, error) {
 		if firstOccur == search.SHOULD {
 			return first, nil
 		}
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(first, firstOccur)
-		return bq, nil
+		return bq.Build(), nil
 	}
 
 	// Multiple clauses.
@@ -163,7 +167,7 @@ func (p *QueryParser) parseAndOrSequence() (search.Query, error) {
 		clauses = append(clauses, clauseEntry{q, occur})
 	}
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, c := range clauses {
 		if explicitAnd {
 			// Explicit AND: all clauses become MUST regardless of prefix.
@@ -172,7 +176,7 @@ func (p *QueryParser) parseAndOrSequence() (search.Query, error) {
 			bq.Add(c.q, c.occur)
 		}
 	}
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // parseClauseWithOccur parses one clause and returns the query together with
@@ -512,7 +516,7 @@ func (p *QueryParser) applyFuzzy(query search.Query) (search.Query, error) {
 
 	// Extract term from query
 	if tq, ok := query.(*search.TermQuery); ok {
-		term := tq.Term()
+		term := tq.GetTerm()
 		return search.NewFuzzyQueryWithMaxEdits(term, maxEdits), nil
 	}
 
@@ -537,14 +541,11 @@ func (p *QueryParser) applyProximity(query search.Query) (search.Query, error) {
 	}
 
 	// Re-emit the phrase query with the parsed slop. Lucene's
-	// QueryParser.handleBoost / addSlopToPhrase pattern preserves the
-	// existing terms and field and produces a new PhraseQuery so the
-	// returned value carries the requested slop. PhraseQuery exposes
-	// SetSlop directly in Gocene, so an in-place mutation is sufficient
-	// and avoids re-walking the term list.
+	// QueryParser.addSlopToPhrase preserves the existing terms and field and
+	// produces a NEW PhraseQuery carrying the requested slop: PhraseQuery is
+	// immutable, exactly as in Lucene.
 	if pq, ok := query.(*search.PhraseQuery); ok {
-		pq.SetSlop(slop)
-		return pq, nil
+		return search.NewPhraseQueryWithTerms(slop, pq.GetField(), pq.GetTerms()...), nil
 	}
 
 	return query, nil
@@ -567,11 +568,11 @@ func (p *QueryParser) createTermQuery(field, text string) search.Query {
 	case 1:
 		return search.NewTermQuery(index.NewTerm(field, tokens[0]))
 	default:
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		for _, tok := range tokens {
 			bq.Add(search.NewTermQuery(index.NewTerm(field, tok)), search.SHOULD)
 		}
-		return bq
+		return bq.Build()
 	}
 }
 
@@ -619,13 +620,13 @@ func (p *QueryParser) createPhraseQuery(field string, terms []string) search.Que
 	for i, text := range terms {
 		termPtrs[i] = index.NewTerm(field, text)
 	}
-	return search.NewPhraseQuery(field, termPtrs...)
+	return search.NewPhraseQueryWithTerms(0, field, termPtrs...)
 }
 
 // createRangeQuery creates a range query.
 func (p *QueryParser) createRangeQuery(field, lower, upper string, includeLower, includeUpper bool) search.Query {
 	// Use TermRangeQuery for string ranges
-	return search.NewTermRangeQuery(field, []byte(lower), []byte(upper), includeLower, includeUpper)
+	return search.NewTermRangeQuery(field, util.NewBytesRef([]byte(lower)), util.NewBytesRef([]byte(upper)), includeLower, includeUpper)
 }
 
 // applyFieldToQuery applies a field to a query (for field:(expression)
@@ -645,39 +646,39 @@ func (p *QueryParser) applyFieldToQuery(field string, query search.Query) (searc
 
 	switch q := query.(type) {
 	case *search.TermQuery:
-		return search.NewTermQuery(index.NewTerm(field, q.Term().Text())), nil
+		return search.NewTermQuery(index.NewTerm(field, q.GetTerm().Text())), nil
 
 	case *search.PhraseQuery:
-		terms := q.Terms()
+		terms := q.GetTerms()
 		retargeted := make([]*index.Term, len(terms))
 		for i, t := range terms {
 			retargeted[i] = index.NewTerm(field, t.Text())
 		}
-		pq := search.NewPhraseQueryWithSlop(q.GetSlop(), field, retargeted...)
+		pq := search.NewPhraseQueryWithTerms(q.GetSlop(), field, retargeted...)
 		return pq, nil
 
 	case *search.BooleanQuery:
-		nq := search.NewBooleanQuery()
-		nq.SetMinimumNumberShouldMatch(q.MinimumNumberShouldMatch())
+		nq := search.NewBooleanQueryBuilder()
+		nq.SetMinimumNumberShouldMatch(q.GetMinimumNumberShouldMatch())
 		for _, clause := range q.Clauses() {
-			sub, err := p.applyFieldToQuery(field, clause.Query)
+			sub, err := p.applyFieldToQuery(field, clause.Query())
 			if err != nil {
 				return nil, err
 			}
-			nq.Add(sub, clause.Occur)
+			nq.Add(sub, clause.Occur())
 		}
-		return nq, nil
+		return nq.Build(), nil
 
 	case *search.FuzzyQuery:
-		return search.NewFuzzyQuery(index.NewTerm(field, q.Term().Text())), nil
+		return search.NewFuzzyQuery(index.NewTerm(field, q.GetTerm().Text())), nil
 
 	case *search.WildcardQuery:
-		return search.NewWildcardQuery(index.NewTerm(field, q.Term().Text())), nil
+		return search.NewWildcardQuery(index.NewTerm(field, q.GetTerm().Text())), nil
 
 	case *search.TermRangeQuery:
 		return search.NewTermRangeQuery(
 			field,
-			q.LowerTerm(), q.UpperTerm(),
+			q.GetLowerTerm(), q.GetUpperTerm(),
 			q.IncludesLower(), q.IncludesUpper(),
 		), nil
 
@@ -700,11 +701,11 @@ func (p *QueryParser) SetDefaultField(field string) {
 }
 
 // GetAnalyzer returns the analyzer used by this parser.
-func (p *QueryParser) GetAnalyzer() *analysis.StandardAnalyzer {
+func (p *QueryParser) GetAnalyzer() analysis.Analyzer {
 	return p.analyzer
 }
 
 // SetAnalyzer sets the analyzer for this parser.
-func (p *QueryParser) SetAnalyzer(analyzer *analysis.StandardAnalyzer) {
+func (p *QueryParser) SetAnalyzer(analyzer analysis.Analyzer) {
 	p.analyzer = analyzer
 }

@@ -3,6 +3,7 @@ package join
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -99,14 +100,24 @@ func WrapSortedDocValues(values index.SortedDocValues, selection BlockJoinSelect
 // among its children using the configured selection type. When a parent has children with missing values,
 // childMissingValue participates in the min/max selection.
 func WrapSortedNumeric(sortedNumerics index.SortedNumericDocValues, selection BlockJoinSelectorType, parents util.BitSet, children util.DocIdSetIterator, childMissingValue *int64) index.NumericDocValues {
-	var values index.NumericDocValues
+	var (
+		values index.NumericDocValues
+		err    error
+	)
 	switch selection {
 	case BlockJoinSelectorMin:
-		values = search.WrapSortedNumeric(sortedNumerics, search.SortedNumericSelectorMin)
+		// Java: SortedNumericSelector.wrap(sortedNumerics, Type.MIN, SortField.Type.LONG)
+		values, err = search.WrapSortedNumeric(sortedNumerics, search.SortedNumericSelectorMin, spi.SortFieldTypeLong)
 	case BlockJoinSelectorMax:
-		values = search.WrapSortedNumeric(sortedNumerics, search.SortedNumericSelectorMax)
+		// Java: SortedNumericSelector.wrap(sortedNumerics, Type.MAX, SortField.Type.LONG)
+		values, err = search.WrapSortedNumeric(sortedNumerics, search.SortedNumericSelectorMax, spi.SortFieldTypeLong)
 	default:
 		panic("invalid selection type")
+	}
+	if err != nil {
+		// Java throws AssertionError here: MIN/MAX with SortField.Type.LONG is
+		// always a valid combination.
+		panic(err)
 	}
 	return wrapNumeric(values, selection, parents, children, childMissingValue)
 }

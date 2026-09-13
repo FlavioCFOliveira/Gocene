@@ -107,8 +107,20 @@ func (q *DiversifyingChildrenByteKnnVectorQuery) ExactSearch(
 		return search.NewTopDocs(search.NewTotalHits(0, search.EQUAL_TO), nil), nil
 	}
 	sim := leafVectorSimilarity(ctx, q.Field)
+	// Java addresses vectors by ordinal (KnnVectorValues#vectorValue(int ord));
+	// the doc -> ord mapping is the values' own DocIndexIterator, whose
+	// index() is the ordinal of the document it is positioned on.
+	valuesIt := values.Iterator()
 	score := func(docID int) (float32, bool, error) {
-		vec, err := values.Get(docID)
+		doc, err := valuesIt.Advance(docID)
+		if err != nil {
+			return 0, false, err
+		}
+		if doc != docID {
+			// No vector for this document.
+			return 0, false, nil
+		}
+		vec, err := values.VectorValue(valuesIt.Index())
 		if err != nil {
 			return 0, false, err
 		}

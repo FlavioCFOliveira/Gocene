@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -269,7 +269,7 @@ func (pv *memPointValues) GetMaxPackedValue() ([]byte, error) {
 	return max, nil
 }
 
-func (pv *memPointValues) GetNumDimensions() int    { return pv.meta.numDims }
+func (pv *memPointValues) GetNumDimensions() int     { return pv.meta.numDims }
 func (pv *memPointValues) GetBytesPerDimension() int { return pv.meta.bytesPerDim }
 
 // --- memoryTermVectors ---
@@ -309,10 +309,10 @@ func (tv *memoryTermVectors) GetField(docID int, field string) (spi.Terms, error
 
 // --- index.IndexReaderInterface ---
 
-func (r *memoryIndexReader) DocCount() int     { return 1 }
-func (r *memoryIndexReader) NumDocs() int      { return 1 }
-func (r *memoryIndexReader) MaxDoc() int       { return 1 }
-func (r *memoryIndexReader) HasDeletions() bool { return false }
+func (r *memoryIndexReader) DocCount() int       { return 1 }
+func (r *memoryIndexReader) NumDocs() int        { return 1 }
+func (r *memoryIndexReader) MaxDoc() int         { return 1 }
+func (r *memoryIndexReader) HasDeletions() bool  { return false }
 func (r *memoryIndexReader) NumDeletedDocs() int { return 0 }
 
 func (r *memoryIndexReader) Close() error {
@@ -495,8 +495,8 @@ func (r *memoryIndexReader) GetPointValues(field string) (index.PointValues, err
 func (r *memoryIndexReader) GetLiveDocs() util.Bits { return nil }
 
 // Postings returns postings for the given term.
-func (r *memoryIndexReader) Postings(term index.Term) (index.PostingsEnum, error) {
-	return r.PostingsWithFreqPositions(term, 0)
+func (r *memoryIndexReader) Postings(term index.Term, flags int) (index.PostingsEnum, error) {
+	return r.PostingsWithFreqPositions(term, flags)
 }
 
 // PostingsWithFreqPositions returns postings for the given term with flags.
@@ -512,17 +512,17 @@ func (r *memoryIndexReader) PostingsWithFreqPositions(term index.Term, flags int
 }
 
 // GetFloatVectorValues returns nil for memory index.
-func (r *memoryIndexReader) GetFloatVectorValues(field string) (index.FloatVectorValues, error) {
+func (r *memoryIndexReader) GetFloatVectorValues(field string) (spi.FloatVectorValues, error) {
 	return nil, nil
 }
 
 // GetByteVectorValues returns nil for memory index.
-func (r *memoryIndexReader) GetByteVectorValues(field string) (index.ByteVectorValues, error) {
+func (r *memoryIndexReader) GetByteVectorValues(field string) (spi.ByteVectorValues, error) {
 	return nil, nil
 }
 
 // GetDocValuesSkipper returns nil for memory index.
-func (r *memoryIndexReader) GetDocValuesSkipper(field string) (index.DocValuesSkipper, error) {
+func (r *memoryIndexReader) GetDocValuesSkipper(field string) (spi.DocValuesSkipper, error) {
 	return nil, nil
 }
 
@@ -546,8 +546,8 @@ func (r *memoryIndexReader) GetSegmentInfo() *index.SegmentInfo {
 }
 
 // SearchNearestVectors is not supported by the memory index.
-func (r *memoryIndexReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (index.TopDocs, error) {
-	return index.TopDocs{}, fmt.Errorf("SearchNearestVectors not supported by memory index")
+func (r *memoryIndexReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits, visitedLimit int) (spi.TopDocs, error) {
+	return spi.TopDocs{}, fmt.Errorf("SearchNearestVectors not supported by memory index")
 }
 
 // newMemoryIndexReader creates a new reader wrapping the given MemoryIndex.
@@ -848,4 +848,234 @@ func (r *memoryIndexReader) String() string {
 	}
 	sb.WriteString("}")
 	return sb.String()
+}
+
+// --- DocIdSetIterator defaults inherited in Java -----------------------------
+//
+// Java's DocValuesIterator subclasses inherit intoBitSet(int, FixedBitSet, int)
+// and docIDRunEnd() from DocIdSetIterator; Go interfaces have no defaults, so
+// each type restates them via the shared default bodies.
+
+func (v *memNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(v, upTo, bitSet, offset)
+}
+
+func (v *memNumericDV) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(v) }
+
+func (v *memBinaryDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(v, upTo, bitSet, offset)
+}
+
+func (v *memBinaryDV) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(v) }
+
+func (v *memSortedDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(v, upTo, bitSet, offset)
+}
+
+func (v *memSortedDV) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(v) }
+
+func (v *memSortedNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(v, upTo, bitSet, offset)
+}
+
+func (v *memSortedNumericDV) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(v) }
+
+func (v *memSortedSetDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(v, upTo, bitSet, offset)
+}
+
+func (v *memSortedSetDV) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(v) }
+
+func (p *memoryPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
+}
+
+// DocFreq returns the number of documents containing the term.
+//
+// Java's LeafReader.docFreq(Term) is final: it opens the field's TermsEnum,
+// seeks the term exactly, and returns termsEnum.docFreq() (0 when absent).
+func (r *memoryIndexReader) DocFreq(term spi.Term) (int, error) {
+	terms, err := r.Terms(term.Field)
+	if err != nil || terms == nil {
+		return 0, err
+	}
+	termsEnum, err := terms.GetIterator()
+	if err != nil || termsEnum == nil {
+		return 0, err
+	}
+	found, err := termsEnum.SeekExact(&term)
+	if err != nil {
+		return 0, err
+	}
+	if !found {
+		return 0, nil
+	}
+	return termsEnum.DocFreq()
+}
+
+// DocID returns the first document ID in this segment. A MemoryIndex holds
+// exactly one document, numbered 0.
+func (r *memoryIndexReader) DocID() int { return 0 }
+
+// DocValueCount returns the number of ordinals bound to the current document.
+//
+// Java: SortedSetDocValues.docValueCount(); a MemoryIndex field carries all of
+// its terms on its single document.
+func (v *memSortedSetDV) DocValueCount() int { return len(v.terms) }
+
+// Impacts returns an ImpactsEnum over this term's postings.
+//
+// Java's TermsEnum.impacts(int) default is
+// new SlowImpactsEnum(postings(null, flags)): an in-RAM buffer carries no
+// impact index.
+func (e *memoryTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	postings, err := e.Postings(flags)
+	if err != nil {
+		return nil, err
+	}
+	return spiImpactsEnum{ImpactsEnum: index.NewSlowImpactsEnum(postings)}, nil
+}
+
+// spiImpactsEnum adapts an index-side ImpactsEnum to spi.ImpactsEnum.
+//
+// index and spi each declare their own Impacts/FreqAndNormBuffer to break the
+// index <-> search import cycle; the two structs have identical underlying
+// types, so the conversion below is exact and allocation-free. This mirrors the
+// adapter index/segment_merger_postings.go keeps for the same reason.
+type spiImpactsEnum struct {
+	index.ImpactsEnum
+}
+
+// GetImpacts re-types the index-side Impacts as spi.Impacts.
+func (a spiImpactsEnum) GetImpacts() (spi.Impacts, error) {
+	imp, err := a.ImpactsEnum.GetImpacts()
+	if err != nil || imp == nil {
+		return nil, err
+	}
+	return spiImpacts{Impacts: imp}, nil
+}
+
+// spiImpacts adapts an index-side Impacts to spi.Impacts. See spiImpactsEnum.
+type spiImpacts struct {
+	index.Impacts
+}
+
+// GetImpacts re-types the index-side FreqAndNormBuffer as the util one.
+func (a spiImpacts) GetImpacts(level int) *util.FreqAndNormBuffer {
+	return (*util.FreqAndNormBuffer)(a.Impacts.GetImpacts(level))
+}
+
+// GetCoreCacheHelper returns nil: a MemoryIndex reader is not cacheable.
+//
+// Java: MemoryIndexReader.getCoreCacheHelper() returns null.
+func (r *memoryIndexReader) GetCoreCacheHelper() spi.CacheHelper { return nil }
+
+// GetReaderCacheHelper returns nil: a MemoryIndex reader is not cacheable.
+//
+// Java: MemoryIndexReader.getReaderCacheHelper() returns null.
+func (r *memoryIndexReader) GetReaderCacheHelper() spi.CacheHelper { return nil }
+
+// GetFieldInfos returns the FieldInfos describing all fields in this reader.
+//
+// Java: MemoryIndexReader builds one FieldInfo per Info (field ordinal in
+// sorted field order) carrying that field's index options, doc-values type and
+// point dimensions, then wraps them in a FieldInfos.
+func (r *memoryIndexReader) GetFieldInfos() *spi.FieldInfos {
+	r.mi.mu.RLock()
+	defer r.mi.mu.RUnlock()
+
+	names := make([]string, 0, len(r.mi.fields)+len(r.mi.docValues)+len(r.mi.pointFields))
+	seen := make(map[string]struct{}, cap(names))
+	for _, m := range []map[string]bool{fieldKeySet(r.mi.fields), fieldKeySet(r.mi.docValues), fieldKeySet(r.mi.pointFields)} {
+		for name := range m {
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+
+	infos := make([]*spi.FieldInfo, 0, len(names))
+	for ord, name := range names {
+		opts := spi.FieldInfoOptions{DocValuesGen: -1}
+		if _, ok := r.mi.fields[name]; ok {
+			// MemoryIndex always stores freqs, positions and offsets.
+			opts.IndexOptions = spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
+			opts.Tokenized = true
+		}
+		if dv, ok := r.mi.docValues[name]; ok {
+			switch {
+			case dv.numeric != nil:
+				opts.DocValuesType = spi.DocValuesTypeNumeric
+			case dv.binary != nil:
+				opts.DocValuesType = spi.DocValuesTypeBinary
+			case dv.sorted != nil:
+				opts.DocValuesType = spi.DocValuesTypeSorted
+			case dv.sortedNumeric != nil:
+				opts.DocValuesType = spi.DocValuesTypeSortedNumeric
+			case dv.sortedSet != nil:
+				opts.DocValuesType = spi.DocValuesTypeSortedSet
+			}
+		}
+		if pf, ok := r.mi.pointFields[name]; ok {
+			opts.PointDimensionCount = pf.numDims
+			opts.PointIndexDimensionCount = pf.numDims
+			opts.PointNumBytes = pf.bytesPerDim
+		}
+		infos = append(infos, spi.NewFieldInfo(name, ord, opts))
+	}
+	return spi.NewFieldInfos(infos...)
+}
+
+// fieldKeySet returns the key set of any of the MemoryIndex field maps.
+func fieldKeySet[V any](m map[string]V) map[string]bool {
+	out := make(map[string]bool, len(m))
+	for k := range m {
+		out[k] = true
+	}
+	return out
+}
+
+// SearchNearestVectorsByteCollector is not supported by the memory index: a
+// MemoryIndex stores no vector fields.
+//
+// Java: MemoryIndexReader.searchNearestVectors(String, byte[], KnnCollector,
+// Bits) throws UnsupportedOperationException.
+func (r *memoryIndexReader) SearchNearestVectorsByteCollector(field string, target []byte, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	return fmt.Errorf("SearchNearestVectorsByteCollector not supported by memory index")
+}
+
+// SearchNearestVectorsCollector is not supported by the memory index: a
+// MemoryIndex stores no vector fields.
+//
+// Java: MemoryIndexReader.searchNearestVectors(String, float[], KnnCollector,
+// Bits) throws UnsupportedOperationException.
+func (r *memoryIndexReader) SearchNearestVectorsCollector(field string, target []float32, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	return fmt.Errorf("SearchNearestVectorsCollector not supported by memory index")
+}
+
+// TotalTermFreq returns the total number of occurrences of the term.
+//
+// Java's LeafReader.totalTermFreq(Term) is final: it opens the field's
+// TermsEnum, seeks the term exactly, and returns termsEnum.totalTermFreq()
+// (0 when absent).
+func (r *memoryIndexReader) TotalTermFreq(term spi.Term) (int64, error) {
+	terms, err := r.Terms(term.Field)
+	if err != nil || terms == nil {
+		return 0, err
+	}
+	termsEnum, err := terms.GetIterator()
+	if err != nil || termsEnum == nil {
+		return 0, err
+	}
+	found, err := termsEnum.SeekExact(&term)
+	if err != nil {
+		return 0, err
+	}
+	if !found {
+		return 0, nil
+	}
+	return termsEnum.TotalTermFreq()
 }

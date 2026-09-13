@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package testutil
+package util
 
 import (
 	"testing"
@@ -19,7 +19,7 @@ func TestRamCopyOf(t *testing.T) {
 	src := store.NewByteBuffersDirectory()
 	defer func() { _ = src.Close() }()
 
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := index.NewIndexWriter(src, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -33,7 +33,7 @@ func TestRamCopyOf(t *testing.T) {
 	if _, err := w.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -74,7 +74,8 @@ func TestWrapDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := out.WriteBytes([]byte("payload")); err != nil {
+	payload := []byte("payload")
+	if err := out.WriteBytes(payload, 0, len(payload)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if err := out.Close(); err != nil {

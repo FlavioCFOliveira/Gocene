@@ -5,7 +5,7 @@
 package bkd
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"sort"
 	"testing"
 
@@ -130,7 +130,7 @@ func TestBKD_TooLittleHeap(t *testing.T) {
 // that wraps the second temp output with a corruptingIndexOutput.
 func TestBKD_WithExceptions(t *testing.T) {
 	rng := verifyRNG(t)
-	numDocs := 1000 + rng.Intn(9001) // ~1000-10000
+	numDocs := 1000 + rng.Intn(9001)  // ~1000-10000
 	numBytesPerDim := 2 + rng.Intn(9) // [2, 10]
 	numDataDims := 1 + rng.Intn(MaxDims)
 	numIndexDims := 1 + rng.Intn(numDataDims)
@@ -154,8 +154,8 @@ func TestBKD_WithExceptions(t *testing.T) {
 
 	dir := &nthOutputCorruptingDir{
 		ByteBuffersDirectory: baseDir,
-		corruptAt:           2,
-		byteToCorrupt:       12,
+		corruptAt:            2,
+		byteToCorrupt:        12,
 	}
 
 	err := captureVerifyError(t, rng, dir, docValues, nil, numDataDims, numIndexDims, numBytesPerDim)

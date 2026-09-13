@@ -5,8 +5,8 @@
 package bkd
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
 	"bytes"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"math/rand"
 	"sort"
 	"testing"

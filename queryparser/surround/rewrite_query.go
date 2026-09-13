@@ -6,9 +6,9 @@ package surround
 
 import (
 	"fmt"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // RewriteQuery is the abstract base for surround rewrite queries. It holds a
@@ -95,9 +95,9 @@ func NewSimpleTermRewriteQuery(srndQuery SimpleTerm, fieldName string, qf *Basic
 
 // Rewrite expands the SimpleTerm against the current BasicQueryFactory state
 // and returns the resulting query.
-func (q *SimpleTermRewriteQuery) Rewrite(reader index.IndexReader) (search.Query, error) {
+func (q *SimpleTermRewriteQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
 	visitor := NewMatchingTermVisitor()
-	if err := q.st.Visit(visitor, reader, q.fieldName); err != nil {
+	if err := q.st.Visit(visitor, searcher.GetIndexReader(), q.fieldName); err != nil {
 		return nil, err
 	}
 
@@ -111,8 +111,9 @@ func (q *SimpleTermRewriteQuery) Rewrite(reader index.IndexReader) (search.Query
 		return q.st.MakeLuceneQueryField(q.fieldName, q.qf)
 	}
 
-	// Multiple matches: return a BooleanQuery (OR) of all matched terms.
-	bq := search.NewBooleanQuery()
+	// Multiple matches: OR the subquery terms, as
+	// SrndBooleanQuery.makeBooleanQuery does, through BooleanQuery.Builder.
+	bq := search.NewBooleanQueryBuilder()
 	for _, term := range matchedTerms {
 		tq, err := q.qf.MakeBasicTermQuery(q.fieldName, term.Text())
 		if err != nil {
@@ -121,7 +122,7 @@ func (q *SimpleTermRewriteQuery) Rewrite(reader index.IndexReader) (search.Query
 		bq.AddClause(search.NewBooleanClause(tq, search.SHOULD))
 	}
 
-	return q.st.WrapWithBoost(bq), nil
+	return q.st.WrapWithBoost(bq.Build()), nil
 }
 
 // Clone returns a copy of this query.
@@ -143,9 +144,11 @@ func (q *SimpleTermRewriteQuery) HashCode() int {
 	return rewriteQueryHashCode(q.fieldName, q.qf.GetMaxBasicQueries())
 }
 
-// CreateWeight is not implemented at the surround rewrite layer.
-func (q *SimpleTermRewriteQuery) CreateWeight(_ *search.IndexSearcher, _ bool, _ float32) (search.Weight, error) {
-	return nil, nil
+// CreateWeight is unsupported: Java's RewriteQuery does not override
+// Query#createWeight, whose default implementation throws
+// UnsupportedOperationException. The query must be rewritten first.
+func (q *SimpleTermRewriteQuery) CreateWeight(_ *search.IndexSearcher, _ search.ScoreMode, _ float32) (search.Weight, error) {
+	return nil, fmt.Errorf("surround: SimpleTermRewriteQuery must be rewritten before a Weight can be created")
 }
 
 // DistanceRewriteQuery rewrites a DistanceQuery surround node into a Lucene
@@ -166,7 +169,7 @@ func NewDistanceRewriteQuery(srndQuery *DistanceQuery, fieldName string, qf *Bas
 
 // Rewrite delegates to DistanceQuery.MakeLuceneQueryField, producing a
 // SpanNearQuery over the named field.
-func (q *DistanceRewriteQuery) Rewrite(_ search.IndexReader) (search.Query, error) {
+func (q *DistanceRewriteQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) {
 	return q.dq.MakeLuceneQueryField(q.fieldName, q.qf)
 }
 
@@ -189,7 +192,9 @@ func (q *DistanceRewriteQuery) HashCode() int {
 	return rewriteQueryHashCode(q.fieldName, q.qf.GetMaxBasicQueries()) ^ q.dq.GetOpDistance()
 }
 
-// CreateWeight is not implemented at the surround rewrite layer.
-func (q *DistanceRewriteQuery) CreateWeight(_ *search.IndexSearcher, _ bool, _ float32) (search.Weight, error) {
-	return nil, nil
+// CreateWeight is unsupported: Java's RewriteQuery does not override
+// Query#createWeight, whose default implementation throws
+// UnsupportedOperationException. The query must be rewritten first.
+func (q *DistanceRewriteQuery) CreateWeight(_ *search.IndexSearcher, _ search.ScoreMode, _ float32) (search.Weight, error) {
+	return nil, fmt.Errorf("surround: DistanceRewriteQuery must be rewritten before a Weight can be created")
 }

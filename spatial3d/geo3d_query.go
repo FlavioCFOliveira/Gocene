@@ -5,9 +5,8 @@
 package spatial3d
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
-	t "github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -83,7 +82,7 @@ func (q *PointInGeo3DShapeQuery) GetShape() geom.GeoShape { return q.shape }
 // PointInGeo3DShapeQuery operates on an inverted (BKD) structure and never
 // rewrites to a different query form, mirroring the Java reference which does
 // not override rewrite.
-func (q *PointInGeo3DShapeQuery) Rewrite(_ search.IndexReader) (search.Query, error) {
+func (q *PointInGeo3DShapeQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) {
 	return q, nil
 }
 
@@ -142,16 +141,12 @@ func stringHashGeo3D(s string) int {
 // scorerSupplier pulls the leaf's PointValues, walks the BKD tree with
 // PointInShapeIntersectVisitor into a DocIdSetBuilder, and wraps the resulting
 // iterator in a ConstantScoreScorer.
-func (q *PointInGeo3DShapeQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	mode := search.COMPLETE
-	if !needsScores {
-		mode = search.COMPLETE_NO_SCORES
-	}
+func (q *PointInGeo3DShapeQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
 	return &pointInGeo3DShapeWeight{
 		BaseWeight: search.NewBaseWeight(q),
 		query:      q,
 		score:      boost,
-		scoreMode:  mode,
+		scoreMode:  scoreMode,
 	}, nil
 }
 
@@ -241,12 +236,16 @@ func (w *pointInGeo3DShapeWeight) Explain(context *index.LeafReaderContext, doc 
 		return nil, err
 	}
 	if scorer != nil {
-		advanced, err := scorer.Advance(doc)
+		advanced, err := scorer.Iterator().Advance(doc)
 		if err != nil {
 			return nil, err
 		}
 		if advanced == doc {
-			return search.MatchExplanation(scorer.Score(), w.query.String()), nil
+			score, err := scorer.Score()
+			if err != nil {
+				return nil, err
+			}
+			return search.MatchExplanation(score, w.query.String()), nil
 		}
 	}
 	return search.NoMatchExplanation(fmt.Sprintf("%s doesn't match id %d", w.query, doc)), nil
@@ -288,13 +287,18 @@ func (s *pointInGeo3DShapeScorerSupplier) Get(_ int64) (search.Scorer, error) {
 		return nil, err
 	}
 	if docSet == nil {
-		return search.NewConstantScoreScorer(s.score, s.scoreMode, search.NewEmptyDocIdSetIterator()), nil
+		return search.NewConstantScoreScorer(s.score, s.scoreMode, util.EmptyDocIdSetIterator()), nil
 	}
 	iter := docSet.Iterator()
 	if iter == nil {
-		return search.NewConstantScoreScorer(s.score, s.scoreMode, search.NewEmptyDocIdSetIterator()), nil
+		return search.NewConstantScoreScorer(s.score, s.scoreMode, util.EmptyDocIdSetIterator()), nil
 	}
 	return search.NewConstantScoreScorer(s.score, s.scoreMode, newGeo3DUtilDISIAdapter(iter)), nil
+}
+
+// BulkScorer carries ScorerSupplier#bulkScorer()'s default body.
+func (s *pointInGeo3DShapeScorerSupplier) BulkScorer() (search.BulkScorer, error) {
+	return search.DefaultScorerSupplierBulkScorer(s)
 }
 
 // Cost returns a lazy, cached estimate of the matching-document count.

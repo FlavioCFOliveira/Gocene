@@ -33,7 +33,7 @@ func (q *SrndBooleanQuery) MakeLuceneQueryField(field string, factory *BasicQuer
 		return nil, fmt.Errorf("surround: too few subqueries for SrndBooleanQuery: %d", len(q.queries))
 	}
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, sq := range q.queries {
 		lq, err := sq.MakeLuceneQueryField(field, factory)
 		if err != nil {
@@ -42,7 +42,7 @@ func (q *SrndBooleanQuery) MakeLuceneQueryField(field string, factory *BasicQuer
 		bq.Add(lq, q.occur)
 	}
 
-	return q.WrapWithBoost(bq), nil
+	return q.WrapWithBoost(bq.Build()), nil
 }
 
 // String returns the string representation of the boolean query.
@@ -60,8 +60,9 @@ func (q *SrndBooleanQuery) String() string {
 	return sb.String()
 }
 
-// AddQueriesToBoolean is a legacy utility that appends queries to a BooleanQuery.
-func AddQueriesToBoolean(bq *search.BooleanQuery, queries []search.Query, occur search.Occur) {
+// AddQueriesToBoolean appends queries to a BooleanQuery.Builder. Mirrors
+// SrndBooleanQuery.addQueriesToBoolean(BooleanQuery.Builder, List<Query>, Occur).
+func AddQueriesToBoolean(bq *search.BooleanQueryBuilder, queries []search.Query, occur search.Occur) {
 	for _, q := range queries {
 		bq.Add(q, occur)
 	}
@@ -72,9 +73,9 @@ func MakeBooleanQuery(queries []search.Query, occur search.Occur) search.Query {
 	if len(queries) <= 1 {
 		panic("surround: too few subqueries for MakeBooleanQuery: " + itoa(len(queries)))
 	}
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	AddQueriesToBoolean(bq, queries, occur)
-	return bq
+	return bq.Build()
 }
 
 func itoa(n int) string {

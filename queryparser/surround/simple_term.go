@@ -166,12 +166,18 @@ func (q *SrndPrefixQuery) Visit(visitor *MatchingTermVisitor, reader index.Index
 		if term == nil {
 			break
 		}
-		if !term.StartsWith(q.prefix) {
+		if !term.StartsWith([]byte(q.prefix)) {
 			break
 		}
 		visitor.AddTerm(*term)
 	}
 	return nil
+}
+
+// AddSpanQueries adds the prefix as a weighted span clause, mirroring the
+// sibling SimpleTerm implementations in this package.
+func (q *SrndPrefixQuery) AddSpanQueries(factory *SpanNearClauseFactory) error {
+	return factory.AddTermWeighted(q.prefix, q.GetWeight())
 }
 
 var _ SimpleTerm = (*SrndPrefixQuery)(nil)

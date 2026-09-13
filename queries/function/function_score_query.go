@@ -49,8 +49,8 @@ func (q *FunctionScoreQuery) String() string {
 
 // Rewrite delegates to the inner query and rebuilds the FunctionScoreQuery
 // when the inner rewrite changes identity.
-func (q *FunctionScoreQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
-	rewritten, err := q.inner.Rewrite(reader)
+func (q *FunctionScoreQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
+	rewritten, err := q.inner.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
@@ -58,11 +58,6 @@ func (q *FunctionScoreQuery) Rewrite(reader search.IndexReader) (search.Query, e
 		return q, nil
 	}
 	return NewFunctionScoreQuery(rewritten, q.source), nil
-}
-
-// Clone returns a defensive copy.
-func (q *FunctionScoreQuery) Clone() search.Query {
-	return &FunctionScoreQuery{inner: q.inner.Clone(), source: q.source}
 }
 
 // Equals checks value equality.
@@ -99,13 +94,18 @@ func (q *FunctionScoreQuery) Visit(visitor search.QueryVisitor) {
 }
 
 // CreateWeight produces the score-substituting weight.
-func (q *FunctionScoreQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	innerNeedsScores := needsScores && q.source.NeedsScores()
-	innerWeight, err := q.inner.CreateWeight(searcher, innerNeedsScores, 1)
+func (q *FunctionScoreQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	// Java: sm = (scoreMode.needsScores() && source.needsScores()) ? COMPLETE
+	// : COMPLETE_NO_SCORES; in.createWeight(searcher, sm, 1f).
+	sm := search.COMPLETE_NO_SCORES
+	if scoreMode.NeedsScores() && q.source.NeedsScores() {
+		sm = search.COMPLETE
+	}
+	innerWeight, err := q.inner.CreateWeight(searcher, sm, 1)
 	if err != nil {
 		return nil, err
 	}
-	if !needsScores {
+	if !scoreMode.NeedsScores() {
 		return innerWeight, nil
 	}
 	rewritten, err := q.source.Rewrite(searcher)
@@ -154,7 +154,7 @@ func (w *functionScoreWeight) ScorerSupplier(ctx *index.LeafReaderContext) (sear
 	if scorer == nil {
 		return nil, nil
 	}
-	return search.NewScorerSupplierAdapter(scorer), nil
+	return search.NewDefaultScorerSupplier(scorer), nil
 }
 
 func (w *functionScoreWeight) BulkScorer(ctx *index.LeafReaderContext) (search.BulkScorer, error) {
@@ -245,12 +245,12 @@ type functionScoreScorer struct {
 	boost  float32
 }
 
-func (s *functionScoreScorer) DocID() int                 { return s.inner.DocID() }
-func (s *functionScoreScorer) NextDoc() (int, error)      { return s.inner.NextDoc() }
-func (s *functionScoreScorer) Advance(t int) (int, error) { return s.inner.Advance(t) }
-func (s *functionScoreScorer) Cost() int64                { return s.inner.Cost() }
-func (s *functionScoreScorer) DocIDRunEnd() (int, error)  { return s.inner.DocIDRunEnd() }
-func (s *functionScoreScorer) GetMaxScore(_ int) float32  { return float32(math.Inf(1)) }
+func (s *functionScoreScorer) DocID() int                         { return s.inner.DocID() }
+func (s *functionScoreScorer) NextDoc() (int, error)              { return s.inner.Iterator().NextDoc() }
+func (s *functionScoreScorer) Advance(t int) (int, error)         { return s.inner.Iterator().Advance(t) }
+func (s *functionScoreScorer) Cost() int64                        { return s.inner.Iterator().Cost() }
+func (s *functionScoreScorer) DocIDRunEnd() (int, error)          { return s.inner.Iterator().DocIDRunEnd() }
+func (s *functionScoreScorer) GetMaxScore(_ int) (float32, error) { return float32(math.Inf(1)), nil }
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. Lucene's FunctionScoreQuery
@@ -260,16 +260,56 @@ func (s *functionScoreScorer) AdvanceShallow(target int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
 
-func (s *functionScoreScorer) Score() float32 {
+func (s *functionScoreScorer) Score() (float32, error) {
 	ok, err := s.values.AdvanceExact(s.inner.DocID())
-	if err != nil || !ok {
-		return 0
+	if err != nil {
+		return 0, err
+	}
+	if !ok {
+		return 0, nil
 	}
 	v, err := s.values.DoubleValue()
-	if err != nil || v < 0 || math.IsNaN(v) {
-		return 0
+	if err != nil {
+		return 0, err
 	}
-	return float32(v * float64(s.boost))
+	if v < 0 || math.IsNaN(v) {
+		return 0, nil
+	}
+	return float32(v * float64(s.boost)), nil
+}
+
+// Iterator returns the DocIdSetIterator view of this scorer (Java: iterator()).
+func (s *functionScoreScorer) Iterator() search.DocIdSetIterator { return &functionScoreIterator{s: s} }
+
+// TwoPhaseIterator carries Scorer#twoPhaseIterator()'s default body (null).
+func (s *functionScoreScorer) TwoPhaseIterator() *search.TwoPhaseIterator { return nil }
+
+// GetChildren carries Scorable.getChildren()'s default body (empty list).
+func (s *functionScoreScorer) GetChildren() ([]search.ChildScorable, error) {
+	return []search.ChildScorable{}, nil
+}
+
+// SmoothingScore carries Scorable.smoothingScore(int)'s default body (0f).
+func (s *functionScoreScorer) SmoothingScore(docID int) (float32, error) { return 0, nil }
+
+// SetMinCompetitiveScore carries Scorable.setMinCompetitiveScore's empty default.
+func (s *functionScoreScorer) SetMinCompetitiveScore(minScore float32) error { return nil }
+
+// NextDocsAndScores carries Scorer#nextDocsAndScores's default body.
+func (s *functionScoreScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// functionScoreIterator is the DocIdSetIterator view of functionScoreScorer.
+type functionScoreIterator struct{ s *functionScoreScorer }
+
+func (it *functionScoreIterator) DocID() int                 { return it.s.DocID() }
+func (it *functionScoreIterator) Cost() int64                { return it.s.Cost() }
+func (it *functionScoreIterator) NextDoc() (int, error)      { return it.s.NextDoc() }
+func (it *functionScoreIterator) Advance(t int) (int, error) { return it.s.Advance(t) }
+func (it *functionScoreIterator) DocIDRunEnd() (int, error)  { return it.s.DocIDRunEnd() }
+func (it *functionScoreIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
 }
 
 // scorerAsDoubleValues adapts a search.Scorer.Score() snapshot into a
@@ -282,7 +322,14 @@ type scorerDoubleValues struct {
 	scorer search.Scorer
 }
 
-func (s *scorerDoubleValues) DoubleValue() (float64, error)    { return float64(s.scorer.Score()), nil }
+func (s *scorerDoubleValues) DoubleValue() (float64, error) {
+	score, err := s.scorer.Score()
+	if err != nil {
+		return 0, err
+	}
+	return float64(score), nil
+}
+
 func (s *scorerDoubleValues) AdvanceExact(_ int) (bool, error) { return true, nil }
 
 // multiplicativeBoostValuesSource multiplies the upstream score by a

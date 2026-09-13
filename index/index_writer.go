@@ -1172,6 +1172,20 @@ func (w *IndexWriter) adjustPendingNumDocs(delta int) {
 	w.pendingNumDocs.Add(int64(delta))
 }
 
+// Flush flushes all in-memory buffered updates (adds and deletes) to the
+// Directory.
+//
+// This is the Go port of org.apache.lucene.index.IndexWriter#flush(), which
+// delegates to flush(triggerMerge=true, applyAllDeletes=true); doFlush already
+// folds in the merge trigger.
+func (w *IndexWriter) Flush() error {
+	if err := w.ensureOpen(false); err != nil {
+		return err
+	}
+	_, err := w.doFlush(true)
+	return err
+}
+
 // FlushNextBuffer flushes the largest in-memory buffer to disk and reports
 // whether a buffer was flushed.
 //

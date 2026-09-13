@@ -132,8 +132,19 @@ func (s *queryProfilerScorerSupplier) Cost() int64 {
 }
 
 // SetTopLevelScoringClause delegates to the inner supplier.
-func (s *queryProfilerScorerSupplier) SetTopLevelScoringClause() {
-	s.inner.SetTopLevelScoringClause()
+func (s *queryProfilerScorerSupplier) SetTopLevelScoringClause() error {
+	return s.inner.SetTopLevelScoringClause()
+}
+
+// BulkScorer uses the default bulk scorer instead of the specialized one.
+//
+// Java (QueryProfilerWeight.scorerSupplier): "BulkScorers do everything at
+// once: finding matches, scoring them and calling the collector, so they make
+// it impossible to see where time is spent, which is the purpose of query
+// profiling. The default bulk scorer will pull a scorer and iterate over
+// matches."
+func (s *queryProfilerScorerSupplier) BulkScorer() (search.BulkScorer, error) {
+	return search.DefaultScorerSupplierBulkScorer(s)
 }
 
 var _ search.ScorerSupplier = (*queryProfilerScorerSupplier)(nil)
