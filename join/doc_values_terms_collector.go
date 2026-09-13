@@ -10,9 +10,9 @@ import (
 )
 
 // LeafReaderDocValuesFunc is a function that retrieves a doc-values iterator
-// from a *index.LeafReader. It mirrors the @FunctionalInterface
+// from an index.LeafReader. It mirrors the @FunctionalInterface
 // org.apache.lucene.search.join.DocValuesTermsCollector.Function.
-type LeafReaderDocValuesFunc[DV any] func(reader *index.LeafReader) (DV, error)
+type LeafReaderDocValuesFunc[DV any] func(reader index.LeafReader) (DV, error)
 
 // DocValuesTermsCollector is an abstract base collector that refreshes a
 // doc-values cursor at the start of each segment.
@@ -48,7 +48,7 @@ func (c *DocValuesTermsCollector[DV]) ScoreMode() search.ScoreMode { return c.sc
 // GetLeafCollector implements search.Collector.
 func (c *DocValuesTermsCollector[DV]) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
 	var dv DV
-	if lr := leafReaderFromContext(context); lr != nil && c.dvFunc != nil {
+	if lr := context.LeafReader(); lr != nil && c.dvFunc != nil {
 		var err error
 		dv, err = c.dvFunc(lr)
 		if err != nil {
@@ -61,15 +61,31 @@ func (c *DocValuesTermsCollector[DV]) GetLeafCollector(context *index.LeafReader
 
 // dvTermsLeafCollector is a leaf collector that delegates to a per-doc function.
 type dvTermsLeafCollector[DV any] struct {
+	// BaseLeafCollector carries the default bodies of
+	// LeafCollector.competitiveIterator() and finish().
+	search.BaseLeafCollector
+
 	dv        DV
 	collectFn func(dv DV, doc int) error
 }
 
-func (lc *dvTermsLeafCollector[DV]) SetScorer(_ search.Scorer) error { return nil }
+func (lc *dvTermsLeafCollector[DV]) SetScorer(_ search.Scorable) error { return nil }
 
 func (lc *dvTermsLeafCollector[DV]) Collect(doc int) error {
 	if lc.collectFn == nil {
 		return nil
 	}
 	return lc.collectFn(lc.dv, doc)
+}
+
+// CollectRange carries the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (c *dvTermsLeafCollector[DV]) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (c *dvTermsLeafCollector[DV]) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
 }

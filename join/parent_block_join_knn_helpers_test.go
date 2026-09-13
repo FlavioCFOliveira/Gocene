@@ -10,7 +10,6 @@
 package join
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
 	"strconv"
 	"testing"

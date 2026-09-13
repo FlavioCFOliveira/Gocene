@@ -29,21 +29,30 @@ func newBlockJoinScore(scoreMode ScoreMode) *blockJoinScore {
 }
 
 // reset seeds the aggregate with the first child's score. Mirrors Score.reset.
-func (s *blockJoinScore) reset(firstChild search.Scorer) {
+func (s *blockJoinScore) reset(firstChild search.Scorable) error {
 	if s.scoreMode == None {
 		s.score = 0
 	} else {
-		s.score = float64(firstChild.Score())
+		score, err := firstChild.Score()
+		if err != nil {
+			return err
+		}
+		s.score = float64(score)
 	}
 	s.freq = 1
+	return nil
 }
 
 // addChildScore folds a subsequent child's score into the aggregate. Mirrors
 // Score.addChildScore.
-func (s *blockJoinScore) addChildScore(child search.Scorer) {
+func (s *blockJoinScore) addChildScore(child search.Scorable) error {
 	var childScore float64
 	if s.scoreMode != None {
-		childScore = float64(child.Score())
+		score, err := child.Score()
+		if err != nil {
+			return err
+		}
+		childScore = float64(score)
 	}
 	s.freq++
 	switch s.scoreMode {
@@ -60,6 +69,7 @@ func (s *blockJoinScore) addChildScore(child search.Scorer) {
 	case None:
 		// no score contribution
 	}
+	return nil
 }
 
 // value returns the aggregated score, dividing by freq for Avg. Mirrors
@@ -75,23 +85,18 @@ func (s *blockJoinScore) value() float32 {
 // BlockJoinBulkScorer evaluates all child hits per parent in batches, emitting
 // one collect call per parent with the ScoreMode-aggregated score. It is the Go
 // port of ToParentBlockJoinQuery.BlockJoinBulkScorer (Lucene 10.4.0).
-//
-// Deviation from Java: Gocene's LeafCollector.SetScorer takes a search.Scorer
-// (not a Scorable), so the per-parent score view handed to the wrapped
-// collector is a small search.Scorer (blockJoinBatchScorable) that also
-// implements search.MinCompetitiveScorer to forward the hint to the real child
-// scorer for ScoreMode.None/Max.
+
 type BlockJoinBulkScorer struct {
 	childBulkScorer search.BulkScorer
 	scoreMode       ScoreMode
-	parents         *FixedBitSet
+	parents         util.BitSet
 	parentsLength   int
 }
 
 // NewBlockJoinBulkScorer builds a BlockJoinBulkScorer over a child bulk scorer.
 //
 // Mirrors BlockJoinBulkScorer(BulkScorer, BitSet, ScoreMode).
-func NewBlockJoinBulkScorer(childBulkScorer search.BulkScorer, parents *FixedBitSet, scoreMode ScoreMode) *BlockJoinBulkScorer {
+func NewBlockJoinBulkScorer(childBulkScorer search.BulkScorer, parents util.BitSet, scoreMode ScoreMode) *BlockJoinBulkScorer {
 	return &BlockJoinBulkScorer{
 		childBulkScorer: childBulkScorer,
 		scoreMode:       scoreMode,
@@ -168,19 +173,23 @@ func (bs *BlockJoinBulkScorer) wrapCollector(collector search.LeafCollector) *ba
 // It is the Go port of the anonymous BatchAwareLeafCollector returned by
 // BlockJoinBulkScorer.wrapCollector (Lucene 10.4.0).
 type batchAwareLeafCollector struct {
+	// BaseLeafCollector carries the default bodies of
+	// LeafCollector.competitiveIterator() and finish().
+	search.BaseLeafCollector
+
 	in                 search.LeafCollector
-	parents            *FixedBitSet
+	parents            util.BitSet
 	scoreMode          ScoreMode
 	currentParentScore *blockJoinScore
 	currentParent      int
-	scorer             search.Scorer
+	scorer             search.Scorable
 }
 
 // SetScorer records the real child scorer and forwards a per-parent score view
 // to the outer collector. Mirrors the anonymous setScorer override: the view's
 // Score() returns the current parent's aggregated score, and its
 // SetMinCompetitiveScore forwards to the child scorer for None/Max.
-func (c *batchAwareLeafCollector) SetScorer(scorer search.Scorer) error {
+func (c *batchAwareLeafCollector) SetScorer(scorer search.Scorable) error {
 	if scorer == nil {
 		return fmt.Errorf("BlockJoinBulkScorer: child scorer must not be nil")
 	}
@@ -200,14 +209,30 @@ func (c *batchAwareLeafCollector) Collect(doc int) error {
 				return err
 			}
 		}
-		c.currentParent = c.parents.NextSetBit(doc)
-		c.currentParentScore.reset(c.scorer)
+		c.currentParent = c.parents.NextSetBitBounded(doc)
+		if err := c.currentParentScore.reset(c.scorer); err != nil {
+			return err
+		}
 	case doc == c.currentParent:
 		return fmt.Errorf("%s%d, %T", childMatchesParentMessage, doc, c.scorer)
 	default:
-		c.currentParentScore.addChildScore(c.scorer)
+		if err := c.currentParentScore.addChildScore(c.scorer); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// CollectRange carries the default body of
+// LeafCollector.collectRange(int, int) in Apache Lucene 10.5.0.
+func (c *batchAwareLeafCollector) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body of
+// LeafCollector.collect(DocIdStream) in Apache Lucene 10.5.0.
+func (c *batchAwareLeafCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
 }
 
 // endBatch emits the final parent accumulated during the batch. Mirrors the
@@ -220,28 +245,21 @@ func (c *batchAwareLeafCollector) endBatch() error {
 }
 
 // blockJoinBatchScorable is the per-parent score view handed to the outer
-// collector. Its Score() returns the current parent's aggregated score; its
-// SetMinCompetitiveScore forwards to the real child scorer for None/Max.
-// Iteration methods are inert because the bulk scorer drives document
-// iteration directly.
+// collector. It is the Go port of the anonymous Scorable that
+// BatchAwareLeafCollector.setScorer passes to super.setScorer: its Score()
+// returns the current parent's aggregated score and its SetMinCompetitiveScore
+// forwards to the real child scorer for ScoreMode.None/Max.
 type blockJoinBatchScorable struct {
-	search.BaseDocIdSetIterator
+	// BaseScorable carries the default bodies of Scorable.smoothingScore(int)
+	// and getChildren(), which the anonymous Java Scorable does not override.
+	search.BaseScorable
+
 	collector *batchAwareLeafCollector
 }
 
-func (s *blockJoinBatchScorable) Score() float32 {
-	return s.collector.currentParentScore.value()
-}
-
-func (s *blockJoinBatchScorable) GetMaxScore(_ int) float32 {
-	return s.collector.currentParentScore.value()
-}
-
-// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
-// org.apache.lucene.search.Scorer#advanceShallow. This batch scorable does not
-// expose per-block impact information.
-func (s *blockJoinBatchScorable) AdvanceShallow(target int) (int, error) {
-	return search.NO_MORE_DOCS, nil
+// Score mirrors the anonymous Scorable.score(): currentParentScore.score().
+func (s *blockJoinBatchScorable) Score() (float32, error) {
+	return s.collector.currentParentScore.value(), nil
 }
 
 // SetMinCompetitiveScore forwards the hint to the real child scorer only for
@@ -258,6 +276,6 @@ func (s *blockJoinBatchScorable) SetMinCompetitiveScore(minScore float32) error 
 var (
 	_ search.BulkScorer           = (*BlockJoinBulkScorer)(nil)
 	_ search.LeafCollector        = (*batchAwareLeafCollector)(nil)
-	_ search.Scorer               = (*blockJoinBatchScorable)(nil)
+	_ search.Scorable             = (*blockJoinBatchScorable)(nil)
 	_ search.MinCompetitiveScorer = (*blockJoinBatchScorable)(nil)
 )

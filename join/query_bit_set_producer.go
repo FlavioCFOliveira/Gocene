@@ -80,11 +80,11 @@ func (p *QueryBitSetProducer) GetBitSet(context *index.LeafReaderContext) (util.
 	searcher := search.NewIndexSearcher(leafReader)
 
 	// Rewrite + create a non-scoring Weight.
-	rewritten, err := p.query.Rewrite(leafReader)
+	rewritten, err := p.query.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
-	weight, err := rewritten.CreateWeight(searcher, false, 1.0)
+	weight, err := rewritten.CreateWeight(searcher, search.ScoreModeCompleteNoScores, 1.0)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func (p *QueryBitSetProducer) GetBitSet(context *index.LeafReaderContext) (util.
 
 	bitSet, _ := util.NewFixedBitSet(maxDoc)
 	for {
-		doc, err := scorer.NextDoc()
+		doc, err := scorer.Iterator().NextDoc()
 		if err != nil {
 			return nil, err
 		}
@@ -148,7 +148,7 @@ func (p *QueryBitSetProducer) GetQuery() search.Query {
 
 // String returns a string representation of this QueryBitSetProducer.
 func (p *QueryBitSetProducer) String() string {
-	return fmt.Sprintf("QueryBitSetProducer(%s)", p.query.String())
+	return fmt.Sprintf("QueryBitSetProducer(%v)", p.query)
 }
 
 // Equals returns true if this QueryBitSetProducer is equal to another.

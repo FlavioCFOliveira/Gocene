@@ -9,6 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -88,11 +89,11 @@ func NewToParentBlockJoinSortFieldOrder(field string, typ search.SortFieldType, 
 // does not support (only STRING/INT/LONG/FLOAT/DOUBLE are valid).
 func validateSortType(typ search.SortFieldType) error {
 	switch typ {
-	case search.SortFieldTypeString,
-		search.SortFieldTypeInt,
-		search.SortFieldTypeLong,
-		search.SortFieldTypeFloat,
-		search.SortFieldTypeDouble:
+	case spi.SortFieldTypeString,
+		spi.SortFieldTypeInt,
+		spi.SortFieldTypeLong,
+		spi.SortFieldTypeFloat,
+		spi.SortFieldTypeDouble:
 		return nil
 	default:
 		return fmt.Errorf("join: ToParentBlockJoinSortField sort type %d is not supported", typ)
@@ -116,9 +117,9 @@ func (s *ToParentBlockJoinSortField) IsAscending() bool { return !s.reverse }
 // `order ? BlockJoinSelector.Type.MAX : BlockJoinSelector.Type.MIN`.
 func (s *ToParentBlockJoinSortField) selectorType() BlockJoinSelectorType {
 	if s.order {
-		return BlockJoinMax
+		return BlockJoinSelectorMax
 	}
-	return BlockJoinMin
+	return BlockJoinSelectorMin
 }
 
 // SortField builds the *search.SortField that drives the field-sorted search
@@ -133,7 +134,7 @@ func (s *ToParentBlockJoinSortField) selectorType() BlockJoinSelectorType {
 func (s *ToParentBlockJoinSortField) SortField() *search.SortField {
 	sf := search.NewSortField(s.field, s.typ)
 	sf.Reverse = s.reverse
-	if s.typ == search.SortFieldTypeString {
+	if s.typ == spi.SortFieldTypeString {
 		sf.SetSortedDocValuesSource(&blockJoinSortedDVSource{
 			selection:    s.selectorType(),
 			parentFilter: s.parentFilter,
@@ -259,6 +260,19 @@ func (a *sortedNumericSelectorAdapter) AdvanceExact(target int) (bool, error) {
 
 func (a *sortedNumericSelectorAdapter) Cost() int64 { return a.values.Cost() }
 
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which this adapter does not override.
+func (a *sortedNumericSelectorAdapter) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(a)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which this adapter does not override.
+func (a *sortedNumericSelectorAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(a, upTo, bitSet, offset)
+}
+
 // LongValue returns the selected (MIN/MAX) value for the current document. The
 // values within a document are stored in ascending order (SortedNumericDocValues
 // contract), so MIN is the first value and MAX is the last.
@@ -281,11 +295,11 @@ func (a *sortedNumericSelectorAdapter) LongValue() (int64, error) {
 			continue
 		}
 		switch a.selection {
-		case BlockJoinMin:
+		case BlockJoinSelectorMin:
 			if v < selected {
 				selected = v
 			}
-		case BlockJoinMax:
+		case BlockJoinSelectorMax:
 			if v > selected {
 				selected = v
 			}
@@ -330,10 +344,10 @@ func (s *blockJoinSortedDVSource) SortedDocValues(reader search.IndexReader, fie
 	return WrapSortedDocValues(sorted, s.selection, parents, children), nil
 }
 
-// toUtilBitSet copies the set bits of a join FixedBitSet into a util.FixedBitSet
+// toUtilBitSet copies the set bits of a join util.FixedBitSet into a util.FixedBitSet
 // so the ToParentDocValues wrappers (which expect util.BitSet) can use it. The
 // parents BitSet is small (one bit per parent doc) so the copy is cheap.
-func toUtilBitSet(src *FixedBitSet) (*util.FixedBitSet, error) {
+func toUtilBitSet(src util.BitSet) (*util.FixedBitSet, error) {
 	n := src.Length()
 	if n == 0 {
 		n = 1
@@ -342,21 +356,21 @@ func toUtilBitSet(src *FixedBitSet) (*util.FixedBitSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	for b := src.NextSetBit(0); b >= 0; b = src.NextSetBit(b + 1) {
+	for b := src.NextSetBitBounded(0); b >= 0; b = src.NextSetBitBounded(b + 1) {
 		dst.Set(b)
 	}
 	return dst, nil
 }
 
-// fixedBitSetDISI is a DocIdSetIterator over a join FixedBitSet, mirroring
+// fixedBitSetDISI is a DocIdSetIterator over a join util.FixedBitSet, mirroring
 // org.apache.lucene.util.BitSetIterator. It is the children iterator handed to
 // BlockJoinSelector.wrap (Lucene's toIter(children)).
 type fixedBitSetDISI struct {
-	bits  *FixedBitSet
+	bits  util.BitSet
 	docID int
 }
 
-func newFixedBitSetDISI(bits *FixedBitSet) *fixedBitSetDISI {
+func newFixedBitSetDISI(bits util.BitSet) *fixedBitSetDISI {
 	return &fixedBitSetDISI{bits: bits, docID: -1}
 }
 
@@ -371,7 +385,7 @@ func (it *fixedBitSetDISI) Advance(target int) (int, error) {
 		it.docID = search.NO_MORE_DOCS
 		return it.docID, nil
 	}
-	next := it.bits.NextSetBit(target)
+	next := it.bits.NextSetBitBounded(target)
 	if next < 0 {
 		it.docID = search.NO_MORE_DOCS
 		return it.docID, nil
@@ -392,7 +406,7 @@ var (
 )
 
 // IntoBitSet carries the default body of
-// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// DocIdSetIterator.intoBitSet(int, util.FixedBitSet, int) in Apache Lucene
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (it *fixedBitSetDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)

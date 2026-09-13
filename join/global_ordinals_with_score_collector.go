@@ -88,6 +88,9 @@ func (o *ordinalOccurrences) get(ord int) int32 {
 //
 // Mirrors org.apache.lucene.search.join.GlobalOrdinalsWithScoreCollector.
 type GlobalOrdinalsWithScoreCollector struct {
+	// BaseCollector carries the default body of Collector.setWeight(Weight).
+	search.BaseCollector
+
 	field         string
 	doMinMax      bool
 	min           int
@@ -191,7 +194,7 @@ func (c *GlobalOrdinalsWithScoreCollector) GetLeafCollector(context *index.LeafR
 	var sdv index.SortedDocValues
 	var globalOrds []int64
 
-	if lr := leafReaderFromContext(context); lr != nil {
+	if lr := context.LeafReader(); lr != nil {
 		var err error
 		sdv, err = lr.GetSortedDocValues(c.field)
 		if err != nil {
@@ -220,14 +223,18 @@ func (c *GlobalOrdinalsWithScoreCollector) GetLeafCollector(context *index.LeafR
 // --- leaf collectors ---
 
 type globalOrdsWithScoreLeafCollector struct {
+	// BaseLeafCollector carries the default bodies of
+	// LeafCollector.competitiveIterator() and finish().
+	search.BaseLeafCollector
+
 	sdv        index.SortedDocValues
 	globalOrds []int64
 	parent     *GlobalOrdinalsWithScoreCollector
-	scorer     search.Scorer
+	scorer     search.Scorable
 	withScore  bool
 }
 
-func (lc *globalOrdsWithScoreLeafCollector) SetScorer(s search.Scorer) error {
+func (lc *globalOrdsWithScoreLeafCollector) SetScorer(s search.Scorable) error {
 	lc.scorer = s
 	return nil
 }
@@ -259,7 +266,10 @@ func (lc *globalOrdsWithScoreLeafCollector) Collect(doc int) error {
 	globalOrd := int(lc.globalOrds[ord])
 	lc.parent.collectedOrds.Set(int64(globalOrd))
 	if lc.withScore && lc.scorer != nil {
-		score := lc.scorer.Score()
+		score, err := lc.scorer.Score()
+		if err != nil {
+			return err
+		}
 		existing := lc.parent.scores.get(globalOrd)
 		if lc.parent.doScore != nil {
 			lc.parent.doScore(globalOrd, existing, score)
@@ -272,13 +282,17 @@ func (lc *globalOrdsWithScoreLeafCollector) Collect(doc int) error {
 }
 
 type segmentOrdsWithScoreLeafCollector struct {
+	// BaseLeafCollector carries the default bodies of
+	// LeafCollector.competitiveIterator() and finish().
+	search.BaseLeafCollector
+
 	sdv       index.SortedDocValues
 	parent    *GlobalOrdinalsWithScoreCollector
-	scorer    search.Scorer
+	scorer    search.Scorable
 	withScore bool
 }
 
-func (lc *segmentOrdsWithScoreLeafCollector) SetScorer(s search.Scorer) error {
+func (lc *segmentOrdsWithScoreLeafCollector) SetScorer(s search.Scorable) error {
 	lc.scorer = s
 	return nil
 }
@@ -304,7 +318,10 @@ func (lc *segmentOrdsWithScoreLeafCollector) Collect(doc int) error {
 	}
 	lc.parent.collectedOrds.Set(int64(ord))
 	if lc.withScore && lc.scorer != nil {
-		score := lc.scorer.Score()
+		score, err := lc.scorer.Score()
+		if err != nil {
+			return err
+		}
 		existing := lc.parent.scores.get(ord)
 		if lc.parent.doScore != nil {
 			lc.parent.doScore(ord, existing, score)
@@ -428,3 +445,27 @@ var (
 	_ search.LeafCollector = (*globalOrdsWithScoreLeafCollector)(nil)
 	_ search.LeafCollector = (*segmentOrdsWithScoreLeafCollector)(nil)
 )
+
+// CollectRange carries the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (lc *globalOrdsWithScoreLeafCollector) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(lc, min, max)
+}
+
+// CollectStream carries the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (lc *globalOrdsWithScoreLeafCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(lc, stream)
+}
+
+// CollectRange carries the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (lc *segmentOrdsWithScoreLeafCollector) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(lc, min, max)
+}
+
+// CollectStream carries the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (lc *segmentOrdsWithScoreLeafCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(lc, stream)
+}

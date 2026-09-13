@@ -6,6 +6,7 @@ package join
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // BlockJoinCollector is a collector for block join queries.
@@ -14,10 +15,10 @@ import (
 // This is the Go port of Lucene's org.apache.lucene.search.join.BlockJoinCollector.
 type BlockJoinCollector struct {
 	// parentFilter identifies parent documents
-	parentFilter *FixedBitSet
+	parentFilter util.BitSet
 
 	// childFilter identifies child documents
-	childFilter *FixedBitSet
+	childFilter util.BitSet
 
 	// collectedDocs tracks collected document IDs
 	collectedDocs []int
@@ -33,7 +34,7 @@ type BlockJoinCollector struct {
 }
 
 // NewBlockJoinCollector creates a new BlockJoinCollector.
-func NewBlockJoinCollector(parentFilter, childFilter *FixedBitSet, scoreMode ScoreMode) *BlockJoinCollector {
+func NewBlockJoinCollector(parentFilter, childFilter util.BitSet, scoreMode ScoreMode) *BlockJoinCollector {
 	return &BlockJoinCollector{
 		parentFilter:    parentFilter,
 		childFilter:     childFilter,
@@ -97,7 +98,7 @@ func (c *BlockJoinCollector) GetParentDoc(childDoc int) int {
 	}
 
 	// Search forward for the next parent document
-	for doc := childDoc + 1; doc < c.parentFilter.Size(); doc++ {
+	for doc := childDoc + 1; doc < c.parentFilter.Length(); doc++ {
 		if c.parentFilter.Get(doc) {
 			return doc
 		}

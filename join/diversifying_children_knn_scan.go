@@ -13,6 +13,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // negInf is float32 negative infinity, used to seed the per-block best score.
@@ -34,7 +35,7 @@ type childScorer func(docID int) (score float32, hasVector bool, err error)
 // inner DiversifyingChildrenVectorScorer (nextParent / bestChild / score).
 func diversifyingExactSearch(
 	acceptIterator util.DocIdSetIterator,
-	parentBitSet *FixedBitSet,
+	parentBitSet util.BitSet,
 	k int,
 	timeout index.QueryTimeout,
 	score childScorer,
@@ -96,7 +97,7 @@ func diversifyingExactSearch(
 // Mirrors DiversifyingChildrenFloatKnnVectorQuery.DiversifyingChildrenVectorScorer.
 type diversifyingChildrenVectorScorer struct {
 	acceptIterator util.DocIdSetIterator
-	parentBitSet   *FixedBitSet
+	parentBitSet   util.BitSet
 	score          childScorer
 
 	currentParent int
@@ -147,10 +148,10 @@ func (s *diversifyingChildrenVectorScorer) nextParent() (int, error) {
 }
 
 // parentBitSetNextSetBit returns the first parent bit at or after fromIndex,
-// translating the Gocene FixedBitSet "-1 means none" convention into Lucene's
+// translating the Gocene util.BitSet "-1 means none" convention into Lucene's
 // NO_MORE_DOCS sentinel so the block-grouping comparison (child < parent) holds.
-func parentBitSetNextSetBit(bs *FixedBitSet, fromIndex int) int {
-	b := bs.NextSetBit(fromIndex)
+func parentBitSetNextSetBit(bs util.BitSet, fromIndex int) int {
+	b := bs.NextSetBitBounded(fromIndex)
 	if b < 0 {
 		return search.NO_MORE_DOCS
 	}

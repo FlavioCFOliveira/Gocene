@@ -63,7 +63,7 @@ func (s *MultiTermIntervalsSource) Intervals(field string, ctx *index.LeafReader
 		if t == nil {
 			break
 		}
-		if !s.compiled.Run([]byte(t.Text())) {
+		if !s.compiled.Run(t.BytesValue()) {
 			continue
 		}
 		it, err := termIntervals([]byte(t.Text()), te)
@@ -108,7 +108,7 @@ func (s *MultiTermIntervalsSource) Matches(field string, ctx *index.LeafReaderCo
 		if t == nil {
 			break
 		}
-		if !s.compiled.Run([]byte(t.Text())) {
+		if !s.compiled.Run(t.BytesValue()) {
 			continue
 		}
 		mi, err := termMatches(te, doc, field)
@@ -135,11 +135,11 @@ type multiTermMatchesIterator struct {
 	inner search.MatchesIterator
 }
 
-func (m *multiTermMatchesIterator) Gaps() int  { return 0 }
-func (m *multiTermMatchesIterator) Width() int { return 1 }
-func (m *multiTermMatchesIterator) Next() (bool, error) { return m.inner.Next() }
-func (m *multiTermMatchesIterator) StartPosition() int  { return m.inner.StartPosition() }
-func (m *multiTermMatchesIterator) EndPosition() int    { return m.inner.EndPosition() }
+func (m *multiTermMatchesIterator) Gaps() int                 { return 0 }
+func (m *multiTermMatchesIterator) Width() int                { return 1 }
+func (m *multiTermMatchesIterator) Next() (bool, error)       { return m.inner.Next() }
+func (m *multiTermMatchesIterator) StartPosition() int        { return m.inner.StartPosition() }
+func (m *multiTermMatchesIterator) EndPosition() int          { return m.inner.EndPosition() }
 func (m *multiTermMatchesIterator) StartOffset() (int, error) { return m.inner.StartOffset() }
 func (m *multiTermMatchesIterator) EndOffset() (int, error)   { return m.inner.EndOffset() }
 func (m *multiTermMatchesIterator) GetSubMatches() (search.MatchesIterator, error) {

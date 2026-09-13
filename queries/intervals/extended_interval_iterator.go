@@ -8,7 +8,6 @@
 package intervals
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 

@@ -8,13 +8,14 @@ package join
 //   lucene/join/src/java/org/apache/lucene/search/join/DiversifyingChildrenFloatKnnVectorQuery.java
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/search/knn"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DiversifyingChildrenFloatKnnVectorQuery is a kNN float-vector query that joins
@@ -138,7 +139,7 @@ func (q *DiversifyingChildrenFloatKnnVectorQuery) ExactSearch(
 		if vec == nil {
 			return 0, false, nil
 		}
-		return sim.Compare(q.Target, vec), true, nil
+		return sim.CompareFloat(q.Target, vec), true, nil
 	}
 	return diversifyingExactSearch(acceptIterator, parentBitSet, q.K, timeout, score)
 }

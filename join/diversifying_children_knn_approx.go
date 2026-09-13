@@ -11,24 +11,23 @@ package join
 //      with a DiversifyingNearestChildrenKnnCollector)
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
 // knnFloatLeafCollectorSearcher is the structural per-leaf search surface a
 // leaf reader exposes to drive a caller-owned KnnCollector through the codec's
 // HNSW traversal for float vectors. *index.SegmentReader satisfies it.
 type knnFloatLeafCollectorSearcher interface {
-	SearchNearestVectorsCollector(field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
+	SearchNearestVectorsCollector(field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits) error
 }
 
 // knnByteLeafCollectorSearcher is the byte analogue of
 // [knnFloatLeafCollectorSearcher].
 type knnByteLeafCollectorSearcher interface {
-	SearchNearestVectorsByteCollector(field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
+	SearchNearestVectorsByteCollector(field string, target []byte, collector spi.KnnCollector, acceptDocs util.Bits) error
 }
 
 // diversifyingApproxFloat runs the collector-driven (HNSW) approximate path
@@ -138,32 +137,32 @@ func newDiversifyingLeafCollector(
 	return collector, nil
 }
 
-// joinFixedBitSetToUtil converts a join *FixedBitSet (the BitSetProducer
-// output, in leaf-local doc-id space) into a util.FixedBitSet so the
+// joinFixedBitSetToUtil copies the set bits of the BitSetProducer output (in
+// leaf-local doc-id space) into a util.FixedBitSet so the
 // DiversifyingNearestChildrenKnnCollector can call NextSetBitBounded on it.
 // Only the set parent bits (one per block, so a small set) are copied.
-func joinFixedBitSetToUtil(bs *FixedBitSet) (util.BitSet, error) {
+func joinFixedBitSetToUtil(bs util.BitSet) (util.BitSet, error) {
 	out, err := util.NewFixedBitSet(bs.Length())
 	if err != nil {
 		return nil, err
 	}
-	for b := bs.NextSetBit(0); b >= 0; b = bs.NextSetBit(b + 1) {
+	for b := bs.NextSetBitBounded(0); b >= 0; b = bs.NextSetBitBounded(b + 1) {
 		out.Set(b)
 	}
 	return out, nil
 }
 
 // diversifyingHnswCollector adapts a *DiversifyingNearestChildrenKnnCollector
-// to the util/hnsw.KnnCollector interface so it can be driven by the codec's
+// to the spi.KnnCollector interface so it can be driven by the codec's
 // HNSW graph traversal. It bridges the two contract differences:
 //
 //   - Collect on the inner collector returns (bool, error); the inner
 //     implementation never returns a non-nil error, so this adapter drops it.
 //     The HNSW searcher's Collect must return a plain bool.
 //   - The inner TopDocs returns []search.ScoreDoc; this adapter exposes the
-//     util/hnsw.TopDocs the searcher's interface requires. The query reads
+//     spi.TopDocs the searcher's interface requires. The query reads
 //     results back through the inner collector (TopDocsSearch), so the
-//     util/hnsw.TopDocs here is only consumed if the searcher calls it.
+//     spi.TopDocs here is only consumed if the searcher calls it.
 //
 // Visit-count bookkeeping is kept on the adapter (matching Lucene's
 // AbstractKnnCollector contract: incVisitedCount drives visitedCount /
@@ -211,24 +210,24 @@ func (c *diversifyingHnswCollector) MinCompetitiveSimilarity() float32 {
 }
 
 // GetSearchStrategy returns nil so the HNSW searcher falls back to its default
-// Hnsw strategy. The util/hnsw.KnnSearchStrategy and search.KnnSearchStrategy
+// Hnsw strategy. The spi.KnnSearchStrategy and search.KnnSearchStrategy
 // surfaces are distinct stubs today, and the strategy does not alter the
 // result set, so the inner collector's stored strategy is not forwarded.
-func (c *diversifyingHnswCollector) GetSearchStrategy() utilhnsw.KnnSearchStrategy {
+func (c *diversifyingHnswCollector) GetSearchStrategy() spi.KnnSearchStrategy {
 	return nil
 }
 
-// TopDocs returns the inner collector's results as a util/hnsw.TopDocs. The
+// TopDocs returns the inner collector's results as a spi.TopDocs. The
 // query reads results through the inner collector directly; this method exists
-// only to satisfy the util/hnsw.KnnCollector interface.
-func (c *diversifyingHnswCollector) TopDocs() *utilhnsw.TopDocs {
+// only to satisfy the spi.KnnCollector interface.
+func (c *diversifyingHnswCollector) TopDocs() *spi.TopDocs {
 	docs := c.inner.TopDocs()
-	scoreDocs := make([]*utilhnsw.ScoreDoc, len(docs))
+	scoreDocs := make([]*spi.ScoreDoc, len(docs))
 	for i, d := range docs {
-		scoreDocs[i] = utilhnsw.NewScoreDoc(d.Doc, d.Score)
+		scoreDocs[i] = spi.NewScoreDoc(d.Doc, d.Score, -1)
 	}
-	return utilhnsw.NewTopDocs(utilhnsw.NewTotalHits(c.visitedCount, utilhnsw.EqualTo), scoreDocs)
+	return spi.NewTopDocs(spi.NewTotalHits(c.visitedCount, spi.EQUAL_TO), scoreDocs)
 }
 
 // Compile-time guard: the adapter satisfies the HNSW collector contract.
-var _ utilhnsw.KnnCollector = (*diversifyingHnswCollector)(nil)
+var _ spi.KnnCollector = (*diversifyingHnswCollector)(nil)

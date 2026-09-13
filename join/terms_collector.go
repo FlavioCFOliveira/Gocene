@@ -6,7 +6,6 @@ package join
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
 // TermsCollector collects terms from a set of documents.

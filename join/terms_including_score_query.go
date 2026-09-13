@@ -95,7 +95,7 @@ func (q *TermsIncludingScoreQuery) String() string {
 }
 
 // Rewrite implements search.Query.
-func (q *TermsIncludingScoreQuery) Rewrite(_ search.IndexReader) (search.Query, error) {
+func (q *TermsIncludingScoreQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) {
 	return q, nil
 }
 
@@ -131,7 +131,7 @@ func (q *TermsIncludingScoreQuery) HashCode() int {
 }
 
 // CreateWeight implements search.Query.
-func (q *TermsIncludingScoreQuery) CreateWeight(_ *search.IndexSearcher, _ bool, boost float32) (search.Weight, error) {
+func (q *TermsIncludingScoreQuery) CreateWeight(_ *search.IndexSearcher, _ search.ScoreMode, boost float32) (search.Weight, error) {
 	w := &termsIncludingScoreWeight{
 		BaseWeight: search.NewBaseWeight(q),
 		query:      q,
@@ -259,6 +259,11 @@ func (w *termsIncludingScoreWeight) Matches(_ *index.LeafReaderContext, _ int) (
 // from the last matching term is used (overwrites previous).  Mirrors
 // SVInOrderScorer in Lucene 10.4.0.
 type svInOrderScorer struct {
+	// BaseScorer carries the concrete members of the abstract classes
+	// org.apache.lucene.search.Scorer and Scorable that this scorer does
+	// not override.
+	search.BaseScorer
+
 	matchingDocsIter util.DocIdSetIterator
 	docScores        []float32
 	cost             int64
@@ -331,9 +336,9 @@ func fillDocsAndScoresSV(
 	return nil
 }
 
-func (s *svInOrderScorer) Score() float32            { return s.docScores[s.currentDoc] * s.boost }
-func (s *svInOrderScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
-func (s *svInOrderScorer) DocID() int                { return s.currentDoc }
+func (s *svInOrderScorer) Score() (float32, error)            { return s.docScores[s.currentDoc] * s.boost, nil }
+func (s *svInOrderScorer) GetMaxScore(_ int) (float32, error) { return float32(math.Inf(1)), nil }
+func (s *svInOrderScorer) DocID() int                         { return s.currentDoc }
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
@@ -362,6 +367,11 @@ var _ search.Scorer = (*svInOrderScorer)(nil)
 // is kept (subsequent scores for the same doc are discarded).  Mirrors
 // MVInOrderScorer / MVInnerScorer in Lucene 10.4.0.
 type mvInOrderScorer struct {
+	// BaseScorer carries the concrete members of the abstract classes
+	// org.apache.lucene.search.Scorer and Scorable that this scorer does
+	// not override.
+	search.BaseScorer
+
 	matchingDocsIter util.DocIdSetIterator
 	docScores        []float32
 	cost             int64
@@ -437,9 +447,9 @@ func fillDocsAndScoresMV(
 	return nil
 }
 
-func (s *mvInOrderScorer) Score() float32            { return s.docScores[s.currentDoc] * s.boost }
-func (s *mvInOrderScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
-func (s *mvInOrderScorer) DocID() int                { return s.currentDoc }
+func (s *mvInOrderScorer) Score() (float32, error)            { return s.docScores[s.currentDoc] * s.boost, nil }
+func (s *mvInOrderScorer) GetMaxScore(_ int) (float32, error) { return float32(math.Inf(1)), nil }
+func (s *mvInOrderScorer) DocID() int                         { return s.currentDoc }
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
@@ -477,4 +487,24 @@ func (s *svInOrderScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset 
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *mvInOrderScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// Iterator mirrors Scorer.iterator(). This scorer carries Lucene's Scorer
+// and its inner DocIdSetIterator in one type, so it is its own iterator.
+func (s *svInOrderScorer) Iterator() search.DocIdSetIterator { return s }
+
+// NextDocsAndScores carries the concrete body of Scorer.nextDocsAndScores
+// in Apache Lucene 10.5.0, which this scorer does not override.
+func (s *svInOrderScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// Iterator mirrors Scorer.iterator(). This scorer carries Lucene's Scorer
+// and its inner DocIdSetIterator in one type, so it is its own iterator.
+func (s *mvInOrderScorer) Iterator() search.DocIdSetIterator { return s }
+
+// NextDocsAndScores carries the concrete body of Scorer.nextDocsAndScores
+// in Apache Lucene 10.5.0, which this scorer does not override.
+func (s *mvInOrderScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
 }

@@ -9,6 +9,7 @@ package intervals
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // noIntervalsSource is the sentinel returned when no terms are found.
@@ -40,9 +41,9 @@ func AnalyzeText(stream *analysis.CachingTokenFilter, maxGaps int, ordered bool)
 			break
 		}
 		numTokens++
-		posIncAttr := stream.GetAttribute("PositionIncrementAttribute")
+		posIncAttr := stream.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType)
 		if posIncAttr != nil {
-			if pa, ok := posIncAttr.(analysis.PositionIncrementAttribute); ok {
+			if pa, ok := posIncAttr.(tokenattributes.PositionIncrementAttribute); ok {
 				if pa.GetPositionIncrement() == 0 {
 					hasSynonyms = true
 				}
@@ -97,9 +98,9 @@ func analyzeSimplePhrase(stream *analysis.CachingTokenFilter, maxGaps int, order
 			continue
 		}
 		precedingSpaces := 0
-		posIncAttr := stream.GetAttribute("PositionIncrementAttribute")
+		posIncAttr := stream.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType)
 		if posIncAttr != nil {
-			if pa, ok := posIncAttr.(analysis.PositionIncrementAttribute); ok {
+			if pa, ok := posIncAttr.(tokenattributes.PositionIncrementAttribute); ok {
 				precedingSpaces = pa.GetPositionIncrement() - 1
 			}
 		}
@@ -125,9 +126,9 @@ func analyzeSynonyms(stream *analysis.CachingTokenFilter, maxGaps int, ordered b
 			break
 		}
 		posInc := 1
-		posIncAttr := stream.GetAttribute("PositionIncrementAttribute")
+		posIncAttr := stream.GetAttributeSource().GetAttribute(tokenattributes.PositionIncrementAttributeType)
 		if posIncAttr != nil {
-			if pa, ok := posIncAttr.(analysis.PositionIncrementAttribute); ok {
+			if pa, ok := posIncAttr.(tokenattributes.PositionIncrementAttribute); ok {
 				posInc = pa.GetPositionIncrement()
 			}
 		}
@@ -188,7 +189,7 @@ func extendSource(src IntervalsSource, precedingSpaces int) IntervalsSource {
 
 // getTermBytes extracts the current token bytes from a CachingTokenFilter.
 func getTermBytes(stream *analysis.CachingTokenFilter) []byte {
-	attr := stream.GetAttribute("TermToBytesRefAttribute")
+	attr := stream.GetAttributeSource().GetAttribute(analysis.TermToBytesRefAttributeType)
 	if attr == nil {
 		return nil
 	}

@@ -46,10 +46,10 @@ func Check(reader index.IndexReaderInterface, parentsFilter BitSetProducer) erro
 			return err
 		}
 		if parents == nil || parents.Cardinality() == 0 {
-			return fmt.Errorf("join: every segment should have at least one parent, but segment ord %d does not have any", context.Ord())
+			return fmt.Errorf("join: every segment should have at least one parent, but segment ord %d does not have any", context.Ord)
 		}
 		if !parents.Get(maxDoc - 1) {
-			return fmt.Errorf("join: the last document of a segment must always be a parent, but segment ord %d has a child as a last doc", context.Ord())
+			return fmt.Errorf("join: the last document of a segment must always be a parent, but segment ord %d has a child as a last doc", context.Ord)
 		}
 
 		var liveDocs util.Bits
@@ -61,15 +61,15 @@ func Check(reader index.IndexReaderInterface, parentsFilter BitSetProducer) erro
 		}
 
 		prevParentDoc := -1
-		for parentDoc := parents.NextSetBit(0); parentDoc >= 0; parentDoc = parents.NextSetBit(parentDoc + 1) {
+		for parentDoc := parents.NextSetBitBounded(0); parentDoc >= 0; parentDoc = parents.NextSetBitBounded(parentDoc + 1) {
 			parentIsLive := liveDocs.Get(parentDoc)
 			for child := prevParentDoc + 1; child != parentDoc; child++ {
 				childIsLive := liveDocs.Get(child)
 				if parentIsLive != childIsLive {
 					if parentIsLive {
-						return fmt.Errorf("join: parent doc %d of segment ord %d is live but has a deleted child document %d", parentDoc, context.Ord(), child)
+						return fmt.Errorf("join: parent doc %d of segment ord %d is live but has a deleted child document %d", parentDoc, context.Ord, child)
 					}
-					return fmt.Errorf("join: parent doc %d of segment ord %d is deleted but has a live child document %d", parentDoc, context.Ord(), child)
+					return fmt.Errorf("join: parent doc %d of segment ord %d is deleted but has a live child document %d", parentDoc, context.Ord, child)
 				}
 			}
 			prevParentDoc = parentDoc

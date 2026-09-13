@@ -139,7 +139,7 @@ func (q *PointInSetIncludingScoreQuery) String() string {
 }
 
 // Rewrite implements search.Query.
-func (q *PointInSetIncludingScoreQuery) Rewrite(_ search.IndexReader) (search.Query, error) {
+func (q *PointInSetIncludingScoreQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) {
 	return q, nil
 }
 
@@ -194,7 +194,7 @@ func (q *PointInSetIncludingScoreQuery) HashCode() int {
 }
 
 // CreateWeight implements search.Query.
-func (q *PointInSetIncludingScoreQuery) CreateWeight(_ *search.IndexSearcher, _ bool, boost float32) (search.Weight, error) {
+func (q *PointInSetIncludingScoreQuery) CreateWeight(_ *search.IndexSearcher, _ search.ScoreMode, boost float32) (search.Weight, error) {
 	return &pointInSetIncludingScoreWeight{
 		BaseWeight: search.NewBaseWeight(q),
 		query:      q,
@@ -394,18 +394,25 @@ func (v *mergePointVisitor) Grow(_ int) {}
 // pointInSetIncludingScoreScorer returns matched docs in docID order with
 // their collected scores.
 type pointInSetIncludingScoreScorer struct {
+	// BaseScorer carries the concrete members of the abstract classes
+	// org.apache.lucene.search.Scorer and Scorable that this scorer does
+	// not override.
+	search.BaseScorer
+
 	disi   util.DocIdSetIterator
 	scores []float32
 }
 
-func (s *pointInSetIncludingScoreScorer) Score() float32 {
+func (s *pointInSetIncludingScoreScorer) Score() (float32, error) {
 	doc := s.disi.DocID()
 	if doc >= 0 && doc < len(s.scores) {
-		return s.scores[doc]
+		return s.scores[doc], nil
 	}
-	return 0
+	return 0, nil
 }
-func (s *pointInSetIncludingScoreScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
+func (s *pointInSetIncludingScoreScorer) GetMaxScore(_ int) (float32, error) {
+	return float32(math.Inf(1)), nil
+}
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
@@ -450,11 +457,15 @@ func (w *pointInSetIncludingScoreWeight) Explain(ctx *index.LeafReaderContext, d
 	if err != nil || scorer == nil {
 		return search.NewExplanation(false, 0, "No match"), nil
 	}
-	target, err2 := scorer.Advance(doc)
+	target, err2 := scorer.Iterator().Advance(doc)
 	if err2 != nil || target != doc {
 		return search.NewExplanation(false, 0, "Not a match"), nil
 	}
-	return search.NewExplanation(true, scorer.Score(), "A match"), nil
+	score, err := scorer.Score()
+	if err != nil {
+		return nil, err
+	}
+	return search.NewExplanation(true, score, "A match"), nil
 }
 
 func (w *pointInSetIncludingScoreWeight) Count(_ *index.LeafReaderContext) (int, error) {
@@ -474,12 +485,23 @@ type pointInSetScorerSupplier struct {
 }
 
 func (s *pointInSetScorerSupplier) Get(_ int64) (search.Scorer, error) { return s.scorer, nil }
-func (s *pointInSetScorerSupplier) Cost() int64                        { return s.scorer.Cost() }
-func (s *pointInSetScorerSupplier) SetTopLevelScoringClause()          {}
+func (s *pointInSetScorerSupplier) Cost() int64                        { return s.scorer.Iterator().Cost() }
+func (s *pointInSetScorerSupplier) SetTopLevelScoringClause() error    { return nil }
+
+// BulkScorer carries the concrete body of ScorerSupplier.bulkScorer() in
+// Apache Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (s *pointInSetScorerSupplier) BulkScorer() (search.BulkScorer, error) {
+	return search.DefaultScorerSupplierBulkScorer(s)
+}
 
 // ── stub scorer ──────────────────────────────────────────────────────────────
 
 type pointInSetStubScorer struct {
+	// BaseScorer carries the concrete members of the abstract classes
+	// org.apache.lucene.search.Scorer and Scorable that this scorer does
+	// not override.
+	search.BaseScorer
+
 	*search.BaseDocIdSetIterator
 	boost float32
 }
@@ -491,9 +513,9 @@ func newPointInSetStubScorer(boost float32) *pointInSetStubScorer {
 	}
 }
 
-func (s *pointInSetStubScorer) Score() float32            { return 0 }
-func (s *pointInSetStubScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
-func (s *pointInSetStubScorer) DocID() int                { return search.NO_MORE_DOCS }
+func (s *pointInSetStubScorer) Score() (float32, error)            { return 0, nil }
+func (s *pointInSetStubScorer) GetMaxScore(_ int) (float32, error) { return float32(math.Inf(1)), nil }
+func (s *pointInSetStubScorer) DocID() int                         { return search.NO_MORE_DOCS }
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow.
@@ -536,4 +558,24 @@ func (s *pointInSetIncludingScoreScorer) IntoBitSet(upTo int, bitSet *util.Fixed
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *pointInSetStubScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// Iterator mirrors Scorer.iterator(). This scorer carries Lucene's Scorer
+// and its inner DocIdSetIterator in one type, so it is its own iterator.
+func (s *pointInSetIncludingScoreScorer) Iterator() search.DocIdSetIterator { return s }
+
+// NextDocsAndScores carries the concrete body of Scorer.nextDocsAndScores
+// in Apache Lucene 10.5.0, which this scorer does not override.
+func (s *pointInSetIncludingScoreScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// Iterator mirrors Scorer.iterator(). This scorer carries Lucene's Scorer
+// and its inner DocIdSetIterator in one type, so it is its own iterator.
+func (s *pointInSetStubScorer) Iterator() search.DocIdSetIterator { return s }
+
+// NextDocsAndScores carries the concrete body of Scorer.nextDocsAndScores
+// in Apache Lucene 10.5.0, which this scorer does not override.
+func (s *pointInSetStubScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
 }

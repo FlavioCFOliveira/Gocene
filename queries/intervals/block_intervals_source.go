@@ -12,6 +12,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // BlockIntervalsSource returns intervals where sub-source intervals appear

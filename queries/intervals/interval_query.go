@@ -71,12 +71,6 @@ func (q *IntervalQuery) Visit(visitor search.QueryVisitor) {
 	}
 }
 
-// Clone returns a shallow copy.
-func (q *IntervalQuery) Clone() search.Query {
-	cp := *q
-	return &cp
-}
-
 // Equals reports structural equality.
 func (q *IntervalQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*IntervalQuery)
@@ -96,9 +90,9 @@ func (q *IntervalQuery) String() string {
 	return fmt.Sprintf("%s:%s", q.field, q.source.String())
 }
 
-// CreateWeight creates a Weight for this query.
-// Full scoring Weight with interval iteration is used when needsScores is true.
-func (q *IntervalQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
+// CreateWeight mirrors IntervalQuery.createWeight(IndexSearcher, ScoreMode, float):
+// return new IntervalWeight(this, boost).
+func (q *IntervalQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
 	return &intervalWeight{BaseWeight: search.NewBaseWeight(q), query: q, boost: boost}, nil
 }
 
@@ -115,26 +109,25 @@ func (w *intervalWeight) Explain(ctx *index.LeafReaderContext, doc int) (search.
 	if err != nil || supplier == nil {
 		return search.NoMatchExplanation("no matching intervals"), nil
 	}
-	sc, err := supplier.Get(0)
-	if err != nil || sc == nil {
-		return search.NoMatchExplanation("no matching intervals"), nil
-	}
-	advanced, err := sc.Advance(doc)
+	// Weight.scorer(LeafReaderContext) passes Long.MAX_VALUE as the lead cost.
+	sc, err := supplier.Get(1<<63 - 1)
 	if err != nil {
 		return nil, err
 	}
-	if advanced != doc {
-		return search.NoMatchExplanation("no matching intervals"), nil
+	if is, ok := sc.(*IntervalScorer); ok {
+		newDoc, err := is.Iterator().Advance(doc)
+		if err != nil {
+			return nil, err
+		}
+		if newDoc == doc {
+			freq, err := is.Freq()
+			if err != nil {
+				return nil, err
+			}
+			return w.query.scoreFunction.Explain(w.query.String(), w.boost, freq), nil
+		}
 	}
-	is, ok := sc.(*IntervalScorer)
-	if !ok {
-		return search.NoMatchExplanation("no matching intervals"), nil
-	}
-	freq, err := is.Freq()
-	if err != nil {
-		return nil, err
-	}
-	return w.query.scoreFunction.Explain(w.query.String(), w.boost, freq), nil
+	return search.NoMatchExplanation("no matching intervals"), nil
 }
 
 // ScorerSupplier creates a ScorerSupplier for the given leaf context.
@@ -147,7 +140,7 @@ func (w *intervalWeight) ScorerSupplier(ctx *index.LeafReaderContext) (search.Sc
 		return nil, nil
 	}
 	scorer := NewIntervalScorer(intervals, w.query.source.MinExtent(), w.boost, w.query.scoreFunction)
-	return search.NewScorerSupplierAdapter(scorer), nil
+	return search.NewDefaultScorerSupplier(scorer), nil
 }
 
 // Matches returns a Matches instance for the given document, exposing the

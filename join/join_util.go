@@ -4,11 +4,6 @@
 
 package join
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/search"
-)
-
 // JoinUtil provides utility methods for join operations.
 //
 // This is the Go port of Lucene's org.apache.lucene.search.join.JoinUtil.

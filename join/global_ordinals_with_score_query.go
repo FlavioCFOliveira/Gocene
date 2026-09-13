@@ -70,7 +70,7 @@ func (q *GlobalOrdinalsWithScoreQuery) String() string {
 }
 
 // Rewrite implements search.Query.
-func (q *GlobalOrdinalsWithScoreQuery) Rewrite(_ search.IndexReader) (search.Query, error) {
+func (q *GlobalOrdinalsWithScoreQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) {
 	return q, nil
 }
 
@@ -109,7 +109,7 @@ func (q *GlobalOrdinalsWithScoreQuery) HashCode() int {
 }
 
 // CreateWeight implements search.Query.
-func (q *GlobalOrdinalsWithScoreQuery) CreateWeight(_ *search.IndexSearcher, _ bool, boost float32) (search.Weight, error) {
+func (q *GlobalOrdinalsWithScoreQuery) CreateWeight(_ *search.IndexSearcher, _ search.ScoreMode, boost float32) (search.Weight, error) {
 	return &globalOrdinalsWithScoreWeight{
 		BaseWeight: search.NewBaseWeight(q),
 		query:      q,
@@ -137,7 +137,7 @@ func (w *globalOrdinalsWithScoreWeight) Scorer(ctx *index.LeafReaderContext) (se
 	boost := w.boost
 	var segToGlobal []int64
 	if globalOrds != nil && ctx != nil {
-		segToGlobal = globalOrds.GetGlobalOrds(ctx.Ord())
+		segToGlobal = globalOrds.GetGlobalOrds(ctx.Ord)
 	}
 
 	return &globalOrdinalsWithScoreScorer{
@@ -180,7 +180,7 @@ func (w *globalOrdinalsWithScoreWeight) Explain(ctx *index.LeafReaderContext, do
 	}
 	globalOrd := segOrd
 	if w.query.globalOrds != nil {
-		globalOrd = int(w.query.globalOrds.GetGlobalOrds(ctx.Ord())[segOrd])
+		globalOrd = int(w.query.globalOrds.GetGlobalOrds(ctx.Ord)[segOrd])
 	}
 	if w.query.collector.Match(globalOrd) {
 		score := w.query.collector.Score(globalOrd) * w.boost
@@ -203,6 +203,11 @@ func (w *globalOrdinalsWithScoreWeight) Matches(_ *index.LeafReaderContext, _ in
 // globalOrdinalsWithScoreScorer iterates matching "to" documents and returns
 // the per-ordinal score from the GlobalOrdinalsWithScoreCollector.
 type globalOrdinalsWithScoreScorer struct {
+	// BaseScorer carries the concrete members of the abstract classes
+	// org.apache.lucene.search.Scorer and Scorable that this scorer does
+	// not override.
+	search.BaseScorer
+
 	values      index.SortedDocValues
 	collector   *GlobalOrdinalsWithScoreCollector
 	segToGlobal []int64
@@ -238,9 +243,11 @@ func (s *globalOrdinalsWithScoreScorer) advance(target int) (int, error) {
 	}
 }
 
-func (s *globalOrdinalsWithScoreScorer) Score() float32            { return s.curScore }
-func (s *globalOrdinalsWithScoreScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
-func (s *globalOrdinalsWithScoreScorer) DocID() int                { return s.currentDoc }
+func (s *globalOrdinalsWithScoreScorer) Score() (float32, error) { return s.curScore, nil }
+func (s *globalOrdinalsWithScoreScorer) GetMaxScore(_ int) (float32, error) {
+	return float32(math.Inf(1)), nil
+}
+func (s *globalOrdinalsWithScoreScorer) DocID() int { return s.currentDoc }
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
@@ -263,4 +270,14 @@ var _ search.Scorer = (*globalOrdinalsWithScoreScorer)(nil)
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *globalOrdinalsWithScoreScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// Iterator mirrors Scorer.iterator(). This scorer carries Lucene's Scorer
+// and its inner DocIdSetIterator in one type, so it is its own iterator.
+func (s *globalOrdinalsWithScoreScorer) Iterator() search.DocIdSetIterator { return s }
+
+// NextDocsAndScores carries the concrete body of Scorer.nextDocsAndScores
+// in Apache Lucene 10.5.0, which this scorer does not override.
+func (s *globalOrdinalsWithScoreScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
 }

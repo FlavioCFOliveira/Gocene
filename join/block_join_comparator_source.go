@@ -7,6 +7,7 @@ package join
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // BlockJoinComparatorSource creates comparators for sorting documents in block join queries.
@@ -56,7 +57,7 @@ type BlockJoinComparator struct {
 	// parentsBits is the BitSet of parent documents in the current leaf.
 	// It is populated lazily on SetContext and is used by getParentDoc to
 	// resolve the parent of a child document via NextSetBit.
-	parentsBits *FixedBitSet
+	parentsBits util.BitSet
 }
 
 // NewBlockJoinComparator creates a new BlockJoinComparator.
@@ -125,8 +126,8 @@ func (c *BlockJoinComparator) Copy(slot int, doc int) {
 }
 
 // SetScorer sets the scorer.
-func (c *BlockJoinComparator) SetScorer(scorer search.Scorer) {
-	c.parentComparator.SetScorer(scorer)
+func (c *BlockJoinComparator) SetScorer(scorer search.Scorable) error {
+	return c.parentComparator.SetScorer(scorer)
 }
 
 // getParentDoc finds the parent document for the given child document.
@@ -141,7 +142,7 @@ func (c *BlockJoinComparator) getParentDoc(childDoc int) int {
 	if c.parentsBits == nil {
 		return childDoc
 	}
-	parent := c.parentsBits.NextSetBit(childDoc)
+	parent := c.parentsBits.NextSetBitBounded(childDoc)
 	if parent < 0 {
 		return childDoc
 	}

@@ -61,8 +61,8 @@ func (q *ToParentBlockJoinQuery) GetScoreMode() ScoreMode {
 }
 
 // Rewrite rewrites this query.
-func (q *ToParentBlockJoinQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
-	rewrittenChild, err := q.childQuery.Rewrite(reader)
+func (q *ToParentBlockJoinQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
+	rewrittenChild, err := q.childQuery.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
@@ -72,15 +72,6 @@ func (q *ToParentBlockJoinQuery) Rewrite(reader search.IndexReader) (search.Quer
 	}
 
 	return q, nil
-}
-
-// Clone creates a copy of this query.
-func (q *ToParentBlockJoinQuery) Clone() search.Query {
-	return NewToParentBlockJoinQuery(
-		q.childQuery.Clone(),
-		q.parentsFilter,
-		q.scoreMode,
-	)
 }
 
 // Equals checks if this query equals another.
@@ -100,18 +91,45 @@ func (q *ToParentBlockJoinQuery) HashCode() int {
 	return 31*(31*q.childQuery.HashCode()+17) + int(q.scoreMode)
 }
 
-// CreateWeight creates a Weight for this query.
-func (q *ToParentBlockJoinQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	// Create the child query weight
-	childWeight, err := q.childQuery.CreateWeight(searcher, needsScores, boost)
+// CreateWeight mirrors
+// ToParentBlockJoinQuery.createWeight(IndexSearcher, org.apache.lucene.search.ScoreMode, float).
+//
+// weightScoreMode is the search-level ScoreMode; q.scoreMode is the join's
+// child-aggregation ScoreMode.
+func (q *ToParentBlockJoinQuery) CreateWeight(searcher *search.IndexSearcher, weightScoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	childScoreMode := None
+	if weightScoreMode.NeedsScores() {
+		childScoreMode = q.scoreMode
+	}
+
+	var childWeight search.Weight
+	var err error
+	if childScoreMode == None {
+		// We do not need to compute a score for the child query, so wrap it
+		// in a constant-score query that can early-terminate when the minimum
+		// score is greater than 0 and the total hit count is not requested.
+		var rewritten search.Query
+		rewritten, err = searcher.Rewrite(search.NewConstantScoreQuery(q.childQuery))
+		if err != nil {
+			return nil, fmt.Errorf("failed to rewrite child query: %w", err)
+		}
+		childWeight, err = rewritten.CreateWeight(searcher, weightScoreMode, 0)
+	} else {
+		// If the score is needed and the score mode is not Max, force the
+		// collection mode to COMPLETE because the child query cannot skip
+		// non-competitive documents. weightScoreMode.NeedsScores() is always
+		// true here, but the check is kept to make the logic clearer.
+		childWeightScoreMode := weightScoreMode
+		if weightScoreMode.NeedsScores() && childScoreMode != Max {
+			childWeightScoreMode = search.ScoreModeComplete
+		}
+		childWeight, err = q.childQuery.CreateWeight(searcher, childWeightScoreMode, boost)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to create child weight: %w", err)
 	}
 
-	// Create and return the ToParentBlockJoinWeight
-	// For ToParentBlockJoinQuery, we need a special weight that handles
-	// the child-to-parent relationship using the BitSetProducer
-	return NewToParentBlockJoinWeight(q, childWeight, q.parentsFilter, q.scoreMode, boost), nil
+	return NewToParentBlockJoinWeight(q, childWeight, q.parentsFilter, childScoreMode, boost), nil
 }
 
 // String returns a string representation of this query.

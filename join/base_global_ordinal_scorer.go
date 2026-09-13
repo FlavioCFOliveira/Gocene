@@ -20,6 +20,11 @@ import (
 //
 // Concrete subtypes must provide createTwoPhaseIterator.
 type BaseGlobalOrdinalScorer struct {
+	// BaseScorer carries the concrete members of the abstract classes
+	// org.apache.lucene.search.Scorer and Scorable that this scorer does
+	// not override.
+	search.BaseScorer
+
 	values        index.SortedDocValues
 	approximation util.DocIdSetIterator
 	boost         float32
@@ -51,10 +56,12 @@ func newBaseGlobalOrdinalScorer(
 }
 
 // Score implements search.Scorer.
-func (s *BaseGlobalOrdinalScorer) Score() float32 { return s.score * s.boost }
+func (s *BaseGlobalOrdinalScorer) Score() (float32, error) { return s.score * s.boost, nil }
 
 // GetMaxScore implements search.Scorer.
-func (s *BaseGlobalOrdinalScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
+func (s *BaseGlobalOrdinalScorer) GetMaxScore(_ int) (float32, error) {
+	return float32(math.Inf(1)), nil
+}
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
@@ -167,4 +174,14 @@ var _ search.Scorer = (*BaseGlobalOrdinalScorer)(nil)
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *BaseGlobalOrdinalScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// Iterator mirrors Scorer.iterator(). This scorer carries Lucene's Scorer
+// and its inner DocIdSetIterator in one type, so it is its own iterator.
+func (s *BaseGlobalOrdinalScorer) Iterator() search.DocIdSetIterator { return s }
+
+// NextDocsAndScores carries the concrete body of Scorer.nextDocsAndScores
+// in Apache Lucene 10.5.0, which this scorer does not override.
+func (s *BaseGlobalOrdinalScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
 }

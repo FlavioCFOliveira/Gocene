@@ -61,8 +61,8 @@ func (q *ToChildBlockJoinQuery) GetScoreMode() ScoreMode {
 }
 
 // Rewrite rewrites this query.
-func (q *ToChildBlockJoinQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
-	rewrittenParent, err := q.parentQuery.Rewrite(reader)
+func (q *ToChildBlockJoinQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
+	rewrittenParent, err := q.parentQuery.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
@@ -72,15 +72,6 @@ func (q *ToChildBlockJoinQuery) Rewrite(reader search.IndexReader) (search.Query
 	}
 
 	return q, nil
-}
-
-// Clone creates a copy of this query.
-func (q *ToChildBlockJoinQuery) Clone() search.Query {
-	return NewToChildBlockJoinQuery(
-		q.parentQuery.Clone(),
-		q.parentsFilter,
-		q.scoreMode,
-	)
 }
 
 // Equals checks if this query equals another.
@@ -100,10 +91,14 @@ func (q *ToChildBlockJoinQuery) HashCode() int {
 	return 31*(31*q.parentQuery.HashCode()+int(q.scoreMode)) + 17
 }
 
-// CreateWeight creates a Weight for this query.
-func (q *ToChildBlockJoinQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
+// CreateWeight mirrors
+// ToChildBlockJoinQuery.createWeight(IndexSearcher, org.apache.lucene.search.ScoreMode, float):
+// return new ToChildBlockJoinWeight(this, parentQuery.createWeight(searcher,
+// scoreMode, boost), parentsFilter, scoreMode.needsScores()).
+func (q *ToChildBlockJoinQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	needsScores := scoreMode.NeedsScores()
 	// Create the parent query weight
-	parentWeight, err := q.parentQuery.CreateWeight(searcher, needsScores, boost)
+	parentWeight, err := q.parentQuery.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create parent weight: %w", err)
 	}

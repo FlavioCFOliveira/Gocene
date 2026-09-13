@@ -47,6 +47,10 @@ func (w *wrappedTermsCollector) ScoreMode() search.ScoreMode {
 	return w.inner.ScoreMode()
 }
 
+// SetWeight implements search.Collector by delegating to the wrapped
+// collector, the way Java's FilterCollector.setWeight does.
+func (w *wrappedTermsCollector) SetWeight(weight search.Weight) { w.inner.SetWeight(weight) }
+
 // GetCollectedTerms implements GenericTermsCollector.
 func (w *wrappedTermsCollector) GetCollectedTerms() *util.BytesRefHash { return w.terms }
 
@@ -71,6 +75,10 @@ func (s *scoringGenericTermsCollector) GetLeafCollector(context *index.LeafReade
 func (s *scoringGenericTermsCollector) ScoreMode() search.ScoreMode {
 	return s.inner.ScoreMode()
 }
+
+// SetWeight implements search.Collector by delegating to the wrapped
+// collector, the way Java's FilterCollector.setWeight does.
+func (s *scoringGenericTermsCollector) SetWeight(weight search.Weight) { s.inner.SetWeight(weight) }
 
 // GetCollectedTerms implements GenericTermsCollector.
 func (s *scoringGenericTermsCollector) GetCollectedTerms() *util.BytesRefHash { return s.terms }

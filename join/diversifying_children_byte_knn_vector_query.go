@@ -8,13 +8,14 @@ package join
 //   lucene/join/src/java/org/apache/lucene/search/join/DiversifyingChildrenByteKnnVectorQuery.java
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/search/knn"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DiversifyingChildrenByteKnnVectorQuery is the byte-vector variant of the
