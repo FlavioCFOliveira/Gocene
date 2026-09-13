@@ -114,6 +114,32 @@ func GetNumeric(reader LeafReader, field string) (NumericDocValues, error) {
 	return dv, nil
 }
 
+// GetSortedNumeric returns SortedNumericDocValues for the field, or an empty
+// instance when the field has none. A single-valued NUMERIC field is adapted
+// with Singleton, exactly as Java does.
+//
+// Mirrors org.apache.lucene.index.DocValues#getSortedNumeric (Apache Lucene 10.5.0).
+func GetSortedNumeric(reader LeafReader, field string) (SortedNumericDocValues, error) {
+	dv, err := reader.GetSortedNumericDocValues(field)
+	if err != nil {
+		return nil, err
+	}
+	if dv == nil {
+		single, err := reader.GetNumericDocValues(field)
+		if err != nil {
+			return nil, err
+		}
+		if single == nil {
+			if err := checkField(reader, field, spi.DocValuesTypeSortedNumeric, spi.DocValuesTypeNumeric); err != nil {
+				return nil, err
+			}
+			return EmptySortedNumeric(), nil
+		}
+		return Singleton(single), nil
+	}
+	return dv, nil
+}
+
 // IsCacheable reports whether results computed from the given fields' doc
 // values are safe to cache against ctx. A field whose doc-values generation has
 // advanced past -1 has been updated, so its values are not stable.

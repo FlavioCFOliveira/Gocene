@@ -130,7 +130,7 @@ type vectorValueSourceTwo struct {
 	name string
 }
 
-func (v *vectorValueSourceTwo) ByteValMulti(doc int, vals []byte) error {
+func (v *vectorValueSourceTwo) ByteValMulti(doc int, vals []int8) error {
 	b1, err := v.x.ByteVal(doc)
 	if err != nil {
 		return err
@@ -246,7 +246,7 @@ type vectorValueSourceMulti struct {
 	name    string
 }
 
-func (v *vectorValueSourceMulti) ByteValMulti(doc int, vals []byte) error {
+func (v *vectorValueSourceMulti) ByteValMulti(doc int, vals []int8) error {
 	for i, fv := range v.valsArr {
 		bv, err := fv.ByteVal(doc)
 		if err != nil {

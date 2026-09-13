@@ -4,147 +4,98 @@
 
 package valuesource
 
+// Ported from Apache Lucene 10.5.0:
+//   lucene/queries/src/java/org/apache/lucene/queries/function/valuesource/SortedSetFieldSource.java
+
 import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
 	"github.com/FlavioCFOliveira/Gocene/queries/function/docvalues"
+	"github.com/FlavioCFOliveira/Gocene/search"
 )
-
-// SortedSetSelectorType mirrors org.apache.lucene.search.SortedSetSelector.Type.
-type SortedSetSelectorType int
-
-const (
-	SortedSetSelectorMin SortedSetSelectorType = iota
-	SortedSetSelectorMax
-)
-
-func (t SortedSetSelectorType) String() string {
-	switch t {
-	case SortedSetSelectorMin:
-		return "MIN"
-	case SortedSetSelectorMax:
-		return "MAX"
-	default:
-		return "UNKNOWN"
-	}
-}
 
 // SortedSetFieldSource retrieves [function.FunctionValues] instances for
 // multi-valued string based fields.
+//
+// Port of org.apache.lucene.queries.function.valuesource.SortedSetFieldSource.
 type SortedSetFieldSource struct {
 	FieldCacheSource
-	Selector SortedSetSelectorType
+	Selector search.SortedSetSelectorType
 }
 
+// NewSortedSetFieldSource creates a SortedSetFieldSource selecting the minimum
+// value, mirroring SortedSetFieldSource(String).
 func NewSortedSetFieldSource(field string) *SortedSetFieldSource {
-	return NewSortedSetFieldSourceWithSelector(field, SortedSetSelectorMin)
+	return NewSortedSetFieldSourceWithSelector(field, search.SortedSetSelectorMin)
 }
 
-func NewSortedSetFieldSourceWithSelector(field string, selector SortedSetSelectorType) *SortedSetFieldSource {
+// NewSortedSetFieldSourceWithSelector mirrors
+// SortedSetFieldSource(String, SortedSetSelector.Type).
+func NewSortedSetFieldSourceWithSelector(field string, selector search.SortedSetSelectorType) *SortedSetFieldSource {
 	return &SortedSetFieldSource{
 		FieldCacheSource: FieldCacheSource{Field: field},
 		Selector:         selector,
 	}
 }
 
+// Description returns "sortedset(<field>,selector=<selector>)".
+//
+// Mirrors SortedSetFieldSource.description().
 func (f *SortedSetFieldSource) Description() string {
 	return fmt.Sprintf("sortedset(%s,selector=%s)", f.Field, f.Selector)
 }
 
+// GetValues reads the field's SortedSetDocValues and reduces them to a single
+// value per document with SortedSetSelector.wrap.
+//
+// Mirrors SortedSetFieldSource.getValues(Map, LeafReaderContext).
 func (f *SortedSetFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	// In Lucene, SortedSetSelector.wrap(sortedSet, selector) is used.
-	// In Gocene, we rely on DocTermsIndexDocValues to surface SortedDocValues.
-	// However, SortedSetDocValues can contain multiple values per doc.
-	// Lucene's SortedSetSelector.wrap returns a SortedDocValues view that
-	// selects a single representative value.
-
-	// Since Gocene's SortedSetDocValues doesn't have a built-in "Selector" wrapper yet,
-	// and SortedSetFieldSource expects a single value, we must implement the selection.
-
-	sdv, err := readerContext.LeafReader().GetSortedSetDocValues(f.Field)
+	sortedSet, err := index.GetSortedSet(readerContext.LeafReader(), f.Field)
 	if err != nil {
 		return nil, err
 	}
-
-	// Wrap the SortedSetDocValues in a view that selects MIN or MAX.
-	view := wrapSortedSet(sdv, f.Selector)
+	view := search.WrapSortedSet(sortedSet, f.Selector)
 
 	dv := docvalues.NewDocTermsIndexDocValuesFromDV(f, view)
-	dv.SetSelf(dv)
 
 	return &sortedSetFallback{
 		DocTermsIndexDocValues: dv,
 	}, nil
 }
 
+// Equals reports value equality.
+//
+// Mirrors SortedSetFieldSource.equals(Object).
+func (f *SortedSetFieldSource) Equals(other function.ValueSource) bool {
+	o, ok := other.(*SortedSetFieldSource)
+	if !ok || o == nil {
+		return false
+	}
+	if f.Selector != o.Selector {
+		return false
+	}
+	return f.Field == o.Field
+}
+
+// HashCode returns a stable hash.
+//
+// Mirrors SortedSetFieldSource.hashCode(): 31 * super.hashCode() plus the
+// selector.
+func (f *SortedSetFieldSource) HashCode() int32 {
+	return 31*f.FieldCacheSource.HashCode() + int32(f.Selector)
+}
+
+// sortedSetFallback renders the anonymous DocTermsIndexDocValues subclass that
+// getValues returns, overriding objectVal to delegate to strVal.
 type sortedSetFallback struct {
 	*docvalues.DocTermsIndexDocValues
 }
 
+// ObjectVal mirrors the anonymous class's objectVal(int) override.
 func (f *sortedSetFallback) ObjectVal(doc int) (any, error) {
 	return f.StrVal(doc)
 }
 
-// wrapSortedSet provides a SortedDocValues view of a SortedSetDocValues
-// based on the selected representative value (MIN or MAX).
-func wrapSortedSet(sdv index.SortedSetDocValues, selector SortedSetSelectorType) index.SortedDocValues {
-	return &sortedSetView{
-		sdv:      sdv,
-		selector: selector,
-	}
-}
-
-type sortedSetView struct {
-	sdv      index.SortedSetDocValues
-	selector SortedSetSelectorType
-}
-
-func (v *sortedSetView) DocID() int {
-	return v.sdv.DocID()
-}
-
-func (v *sortedSetView) NextDoc() (int, error) {
-	return v.sdv.NextDoc()
-}
-
-func (v *sortedSetView) Advance(target int) (int, error) {
-	return v.sdv.Advance(target)
-}
-
-func (v *sortedSetView) AdvanceExact(target int) (bool, error) {
-	return v.sdv.AdvanceExact(target)
-}
-
-func (v *sortedSetView) OrdValue() (int, error) {
-	// Select the representative ordinal
-	if v.selector == SortedSetSelectorMin {
-		// The first ordinal for the document is the MIN.
-		// SortedSetDocValues.NextOrd() returns the first one for the current doc
-		// if we just advanced to it.
-		return v.sdv.NextOrd()
-	} else {
-		// MAX: we must iterate through all ordinals for this doc.
-		var lastOrd int = -1
-		for {
-			ord, err := v.sdv.NextOrd()
-			if err != nil {
-				return -1, err
-			}
-			if ord == -1 {
-				break
-			}
-			lastOrd = ord
-		}
-		return lastOrd, nil
-	}
-}
-
-func (v *sortedSetView) LookupOrd(ord int) ([]byte, error) {
-	return v.sdv.LookupOrd(ord)
-}
-
-func (v *sortedSetView) GetValueCount() int {
-	return v.sdv.GetValueCount()
-}
+var _ function.ValueSource = (*SortedSetFieldSource)(nil)

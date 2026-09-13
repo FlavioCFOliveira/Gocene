@@ -490,7 +490,7 @@ func (m *minimumMatchesIterator) GetSubMatches() (search.MatchesIterator, error)
 			mis = append(mis, cmi)
 		}
 	}
-	return search.DisjunctionMatchesIterator(mis), nil
+	return search.MatchesUtils.Disjunction(mis)
 }
 
 func (m *minimumMatchesIterator) GetQuery() search.Query { return nil }

@@ -81,7 +81,7 @@ func (m *mockFunctionValues) ToString(doc int) (string, error) {
 	return "mock", nil
 }
 func (m *mockFunctionValues) GetValueFiller() ValueFiller { return nil }
-func (m *mockFunctionValues) ByteValMulti(_ int, _ []byte) error { return ErrUnsupportedValue }
+func (m *mockFunctionValues) ByteValMulti(_ int, _ []int8) error { return ErrUnsupportedValue }
 func (m *mockFunctionValues) ShortValMulti(_ int, _ []int16) error { return ErrUnsupportedValue }
 func (m *mockFunctionValues) FloatValMulti(_ int, _ []float32) error { return ErrUnsupportedValue }
 func (m *mockFunctionValues) IntValMulti(_ int, _ []int32) error { return ErrUnsupportedValue }

@@ -22,3 +22,11 @@ func (m matchesUtils) FromSubMatches(subMatches []Matches) Matches {
 	// but ideally we should implement a composite Matches.
 	return subMatches[0]
 }
+
+// Disjunction merges the supplied sub-iterators into a single MatchesIterator.
+//
+// Mirrors MatchesUtils.disjunction(List<MatchesIterator>), which delegates to
+// DisjunctionMatchesIterator.fromSubIterators.
+func (m matchesUtils) Disjunction(subMatches []MatchesIterator) (MatchesIterator, error) {
+	return disjunctionFromSubIterators(subMatches)
+}

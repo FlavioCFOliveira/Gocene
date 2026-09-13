@@ -28,6 +28,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // Lucene 9.0 norms format constants. Per Lucene 10.4.0 source, the format

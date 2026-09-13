@@ -6,6 +6,7 @@ package valuesource
 
 import (
 	"fmt"
+	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
@@ -118,23 +119,28 @@ func (f *enumDocValues) GetRangeScorer(
 	lower := f.stringValueToIntValue(lowerVal)
 	upper := f.stringValueToIntValue(upperVal)
 
+	// Instead of using separate comparison functions, adjust the range
+	// endpoints. Java boxes the bounds in Integer so that "absent" is null;
+	// the Go port uses *int for the same purpose and unboxes here.
+	var ll int
 	if lower == nil {
-		lower = -2147483648 // Integer.MIN_VALUE
+		ll = math.MinInt32 // Integer.MIN_VALUE
 	} else {
-		if !includeLower && lower < 2147483647 {
-			lower++
+		ll = *lower
+		if !includeLower && ll < math.MaxInt32 {
+			ll++
 		}
 	}
 
+	var uu int
 	if upper == nil {
-		upper = 2147483647 // Integer.MAX_VALUE
+		uu = math.MaxInt32 // Integer.MAX_VALUE
 	} else {
-		if !includeUpper && upper > -2147483648 {
-			upper--
+		uu = *upper
+		if !includeUpper && uu > math.MinInt32 {
+			uu--
 		}
 	}
-
-	ll, uu := lower, upper
 
 	return &enumRangeScorer{
 		readerContext: readerContext,
@@ -180,14 +186,22 @@ type enumRangeScorer struct {
 	upper         int
 }
 
-func (s *enumRangeScorer) Matches(doc int) bool {
+// Matches reports whether doc's enum value falls inside the adjusted range.
+//
+// Mirrors the anonymous ValueSourceScorer.matches(int) override in
+// EnumFieldSource.getRangeScorer; the IOException Java propagates becomes the
+// returned error.
+func (s *enumRangeScorer) Matches(doc int) (bool, error) {
 	exists, err := s.source.Exists(doc)
-	if err != nil || !exists {
-		return false
+	if err != nil {
+		return false, err
+	}
+	if !exists {
+		return false, nil
 	}
 	val, err := s.source.IntVal(doc)
 	if err != nil {
-		return false
+		return false, err
 	}
-	return int(val) >= s.lower && int(val) <= s.upper
+	return int(val) >= s.lower && int(val) <= s.upper, nil
 }

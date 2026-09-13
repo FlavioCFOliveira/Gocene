@@ -6,7 +6,6 @@ package valuesource
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
@@ -36,7 +35,8 @@ func (f *BytesRefFieldSource) GetValues(ctx function.Context, readerContext *ind
 		}
 
 		fv := &bytesRefDocValues{
-			ndv: ndv,
+			source: f,
+			ndv:    ndv,
 		}
 		fv.SetSelf(fv)
 		return fv, nil
@@ -55,6 +55,10 @@ func (f *BytesRefFieldSource) GetValues(ctx function.Context, readerContext *ind
 
 type bytesRefDocValues struct {
 	function.BaseFunctionValues
+	// source is the enclosing BytesRefFieldSource, standing in for the Java
+	// anonymous class's reference to its outer instance; toString(int) calls
+	// description() on it.
+	source    function.ValueSource
 	ndv       index.BinaryDocValues
 	lastDocID int
 }
@@ -125,7 +129,7 @@ func (f *bytesRefDocValues) ToString(doc int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("bytesref(%s)=%s", f.Field, s), nil
+	return fmt.Sprintf("%s=%s", f.source.Description(), s), nil
 }
 
 type bytesRefFallback struct {
@@ -141,5 +145,5 @@ func (f *bytesRefFallback) ToString(doc int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("bytesref(%s)=%s", f.Field, s), nil
+	return fmt.Sprintf("%s=%s", f.VS.Description(), s), nil
 }

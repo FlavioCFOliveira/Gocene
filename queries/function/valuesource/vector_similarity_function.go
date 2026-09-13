@@ -66,7 +66,7 @@ func (v *VectorSimilarityFunction) HashCode() int32 {
 
 // Description renders a human-readable representation.
 func (v *VectorSimilarityFunction) Description() string {
-	return fmt.Sprintf("%s(%s, %s)", v.similarityFunction.Name(), v.vector1.Description(), v.vector2.Description())
+	return fmt.Sprintf("%s(%s, %s)", v.similarityFunction.ID().String(), v.vector1.Description(), v.vector2.Description())
 }
 
 type vectorSimilarityFunctionValues struct {
@@ -149,7 +149,7 @@ func (v *ByteVectorSimilarityFunction) funcImpl(doc int, f1, f2 function.Functio
 		return 0, fmt.Errorf("vectors must have the same length: %d != %d", len(vec1), len(vec2))
 	}
 
-	return v.similarityFunction.CompareByte(vec1, vec2), nil
+	return v.similarityFunction.CompareBytes(vec1, vec2), nil
 }
 
 // FloatVectorSimilarityFunction returns a similarity function between two knn vectors with float elements.

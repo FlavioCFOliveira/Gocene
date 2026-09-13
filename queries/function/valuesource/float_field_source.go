@@ -16,6 +16,14 @@ import (
 // makes those values available as other numeric types, casting as needed.
 type FloatFieldSource struct {
 	FieldCacheSource
+	// self is the most-derived ValueSource. Java's getValues builds its
+	// FunctionValues with `this`, so a subclass's description() is the one
+	// reported; Go embedding loses that, so the subclass installs itself here.
+	self function.ValueSource
+	// numericDocValues renders the protected, overridable
+	// FloatFieldSource.getNumericDocValues(Map, LeafReaderContext). A nil value selects
+	// the base behaviour, DocValues.getNumeric(reader, field).
+	numericDocValues func(ctx function.Context, readerContext *index.LeafReaderContext) (index.NumericDocValues, error)
 }
 
 func NewFloatFieldSource(field string) *FloatFieldSource {
@@ -29,22 +37,42 @@ func (f *FloatFieldSource) Description() string {
 }
 
 func (f *FloatFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	ndv, err := readerContext.LeafReader().GetNumericDocValues(f.Field)
+	ndv, err := f.getNumericDocValues(ctx, readerContext)
 	if err != nil {
 		return nil, err
 	}
 
 	fv := &floatDocValues{
-		source: f,
+		source: f.valueSource(),
 		ndv:    ndv,
 	}
 	fv.SetSelf(fv)
 	return fv, nil
 }
 
+// getNumericDocValues dispatches to the installed override, or falls back to
+// the base behaviour, DocValues.getNumeric(readerContext.reader(), field).
+//
+// Mirrors the protected FloatFieldSource.getNumericDocValues(Map, LeafReaderContext).
+func (f *FloatFieldSource) getNumericDocValues(ctx function.Context, readerContext *index.LeafReaderContext) (index.NumericDocValues, error) {
+	if f.numericDocValues != nil {
+		return f.numericDocValues(ctx, readerContext)
+	}
+	return index.GetNumeric(readerContext.LeafReader(), f.Field)
+}
+
+// valueSource returns the most-derived ValueSource, standing in for Java's
+// `this` inside getValues.
+func (f *FloatFieldSource) valueSource() function.ValueSource {
+	if f.self != nil {
+		return f.self
+	}
+	return f
+}
+
 type floatDocValues struct {
 	function.BaseFunctionValues
-	source    *FloatFieldSource
+	source    function.ValueSource
 	ndv       index.NumericDocValues
 	lastDocID int
 }
@@ -81,5 +109,9 @@ func (f *floatDocValues) Exists(doc int) (bool, error) {
 }
 
 func (f *floatDocValues) ToString(doc int) (string, error) {
-	return fmt.Sprintf("float(%s)=%g", f.source.Field, f.FloatVal(doc)), nil
+	val, err := f.FloatVal(doc)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s=%g", f.source.Description(), val), nil
 }

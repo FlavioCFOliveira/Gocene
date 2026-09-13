@@ -4,94 +4,87 @@
 
 package valuesource
 
+// Ported from Apache Lucene 10.5.0:
+//   lucene/queries/src/java/org/apache/lucene/queries/function/valuesource/MultiValuedDoubleFieldSource.java
+
 import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
-	"github.com/FlavioCFOliveira/Gocene/queries/function/docvalues"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// MultiValuedDoubleFieldSource obtains double field values from
-// SortedNumericDocValues, selecting a single value per document.
+// MultiValuedDoubleFieldSource obtains double field values from SortedNumericDocValues,
+// selecting a single value per document with the configured selector.
 //
-// Go port of org.apache.lucene.queries.function.valuesource.MultiValuedDoubleFieldSource.
+// Java subclasses DoubleFieldSource and overrides only getSortField, description,
+// getNumericDocValues, equals and hashCode; the Go port embeds DoubleFieldSource
+// and installs the doc-values override, so every other behaviour — including
+// the per-document exists/advance contract — is inherited unchanged.
+//
+// Port of org.apache.lucene.queries.function.valuesource.MultiValuedDoubleFieldSource.
 type MultiValuedDoubleFieldSource struct {
-	function.BaseValueSource
-	field    string
+	DoubleFieldSource
 	selector search.SortedNumericSelectorType
 }
 
 // NewMultiValuedDoubleFieldSource creates a MultiValuedDoubleFieldSource.
+//
+// Mirrors MultiValuedDoubleFieldSource(String, SortedNumericSelector.Type).
 func NewMultiValuedDoubleFieldSource(field string, selector search.SortedNumericSelectorType) *MultiValuedDoubleFieldSource {
-	return &MultiValuedDoubleFieldSource{field: field, selector: selector}
+	s := &MultiValuedDoubleFieldSource{
+		DoubleFieldSource: *NewDoubleFieldSource(field),
+		selector:          selector,
+	}
+	s.self = s
+	s.numericDocValues = s.selectedNumericDocValues
+	return s
 }
 
 // Description returns "double(<field>,<selector>)".
+//
+// Mirrors MultiValuedDoubleFieldSource.description().
 func (s *MultiValuedDoubleFieldSource) Description() string {
-	return fmt.Sprintf("double(%s,%s)", s.field, s.selector)
+	return fmt.Sprintf("double(%s,%s)", s.Field, s.selector)
 }
 
-// GetField returns the field name.
-func (s *MultiValuedDoubleFieldSource) GetField() string { return s.field }
-
-// GetValues returns FunctionValues backed by SortedNumericDocValues.
-func (s *MultiValuedDoubleFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	sndv, err := getSortedNumericDocValues(s.field, readerContext)
+// selectedNumericDocValues renders the overridden protected
+// MultiValuedDoubleFieldSource.getNumericDocValues(Map, LeafReaderContext): it reads the
+// field's SortedNumericDocValues and reduces them to a single value per
+// document with SortedNumericSelector.wrap.
+//
+// DocValues.getSortedNumeric never returns null in Java — it substitutes an
+// empty instance — so there is no missing-values branch here.
+func (s *MultiValuedDoubleFieldSource) selectedNumericDocValues(_ function.Context, readerContext *index.LeafReaderContext) (index.NumericDocValues, error) {
+	sortedDv, err := index.GetSortedNumeric(readerContext.LeafReader(), s.Field)
 	if err != nil {
 		return nil, err
 	}
-	if sndv == nil {
-		return &multiDoubleMissingValues{description: s.Description()}, nil
-	}
-
-	wrapped := wrapSortedNumericDocValues(sndv, s.selector, search.SortFieldTypeDouble)
-	v := &multiDoubleFunctionValues{
-		DoubleDocValues: *docvalues.NewDoubleDocValues(s, func(doc int) (float64, error) {
-			if docFieldExists(wrapped, doc) {
-				raw, err := wrapped.LongValue()
-				if err != nil {
-					return 0, err
-				}
-				return doubleBitsToDouble(raw), nil
-			}
-			return 0, nil
-		}),
-		arr: wrapped,
-	}
-	return v, nil
+	return search.WrapSortedNumeric(sortedDv, s.selector, spi.SortFieldTypeDouble)
 }
 
 // Equals reports value equality.
+//
+// Mirrors MultiValuedDoubleFieldSource.equals(Object), whose getClass() test becomes the
+// Go type assertion.
 func (s *MultiValuedDoubleFieldSource) Equals(other function.ValueSource) bool {
 	o, ok := other.(*MultiValuedDoubleFieldSource)
 	if !ok || o == nil {
 		return false
 	}
-	return s.field == o.field && s.selector == o.selector
+	if s.selector != o.selector {
+		return false
+	}
+	return s.Field == o.Field
 }
 
 // HashCode returns a stable hash.
+//
+// Mirrors MultiValuedDoubleFieldSource.hashCode(): super.hashCode() plus the selector.
 func (s *MultiValuedDoubleFieldSource) HashCode() int32 {
-	return hashString("mdouble") + hashString(s.field) + int32(s.selector)
-}
-
-type multiDoubleFunctionValues struct {
-	docvalues.DoubleDocValues
-	arr index.NumericDocValues
-}
-
-func (v *multiDoubleFunctionValues) Exists(doc int) (bool, error) { return docFieldExists(v.arr, doc), nil }
-
-type multiDoubleMissingValues struct {
-	missingValuesBase
-	description string
-}
-
-func (v *multiDoubleMissingValues) ToString(doc int) (string, error) { return v.description + "=0.0", nil }
-func (v *multiDoubleMissingValues) GetScorer(readerContext *index.LeafReaderContext) function.ValueSourceScorer {
-	return newAllValueSourceScorer(readerContext, v)
+	return s.DoubleFieldSource.HashCode() + int32(s.selector)
 }
 
 var _ function.ValueSource = (*MultiValuedDoubleFieldSource)(nil)

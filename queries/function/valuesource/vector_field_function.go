@@ -30,7 +30,7 @@ func NewVectorFieldFunction(valueSource function.ValueSource) *VectorFieldFuncti
 
 // GetVectorIterator is implemented by concrete subtypes.
 type vectorIteratorProvider interface {
-	getVectorIterator() util.DocIdSetIterator
+	getVectorIterator() search.DocIdSetIterator
 }
 
 // Exists reports whether the document has a vector.
@@ -49,7 +49,11 @@ func (v *VectorFieldFunction) Exists(doc int) (bool, error) {
 	it := provider.getVectorIterator()
 	curDocID := it.DocID()
 	if doc > curDocID {
-		curDocID = it.Advance(doc)
+		advanced, err := it.Advance(doc)
+		if err != nil {
+			return false, err
+		}
+		curDocID = advanced
 	}
 	return doc == curDocID, nil
 }

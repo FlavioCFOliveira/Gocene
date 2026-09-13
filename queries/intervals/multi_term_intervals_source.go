@@ -123,7 +123,10 @@ func (s *MultiTermIntervalsSource) Matches(field string, ctx *index.LeafReaderCo
 			}
 		}
 	}
-	mi := search.DisjunctionMatchesIterator(subMatches)
+	mi, err := search.MatchesUtils.Disjunction(subMatches)
+	if err != nil {
+		return nil, err
+	}
 	if mi == nil {
 		return nil, nil
 	}

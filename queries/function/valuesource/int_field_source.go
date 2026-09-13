@@ -6,7 +6,6 @@ package valuesource
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
@@ -16,6 +15,14 @@ import (
 // makes those values available as other numeric types, casting as needed.
 type IntFieldSource struct {
 	FieldCacheSource
+	// self is the most-derived ValueSource. Java's getValues builds its
+	// FunctionValues with `this`, so a subclass's description() is the one
+	// reported; Go embedding loses that, so the subclass installs itself here.
+	self function.ValueSource
+	// numericDocValues renders the protected, overridable
+	// IntFieldSource.getNumericDocValues(Map, LeafReaderContext). A nil value selects
+	// the base behaviour, DocValues.getNumeric(reader, field).
+	numericDocValues func(ctx function.Context, readerContext *index.LeafReaderContext) (index.NumericDocValues, error)
 }
 
 func NewIntFieldSource(field string) *IntFieldSource {
@@ -29,22 +36,42 @@ func (f *IntFieldSource) Description() string {
 }
 
 func (f *IntFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	ndv, err := readerContext.LeafReader().GetNumericDocValues(f.Field)
+	ndv, err := f.getNumericDocValues(ctx, readerContext)
 	if err != nil {
 		return nil, err
 	}
 
 	fv := &intDocValues{
-		source: f,
+		source: f.valueSource(),
 		ndv:    ndv,
 	}
 	fv.SetSelf(fv)
 	return fv, nil
 }
 
+// getNumericDocValues dispatches to the installed override, or falls back to
+// the base behaviour, DocValues.getNumeric(readerContext.reader(), field).
+//
+// Mirrors the protected IntFieldSource.getNumericDocValues(Map, LeafReaderContext).
+func (f *IntFieldSource) getNumericDocValues(ctx function.Context, readerContext *index.LeafReaderContext) (index.NumericDocValues, error) {
+	if f.numericDocValues != nil {
+		return f.numericDocValues(ctx, readerContext)
+	}
+	return index.GetNumeric(readerContext.LeafReader(), f.Field)
+}
+
+// valueSource returns the most-derived ValueSource, standing in for Java's
+// `this` inside getValues.
+func (f *IntFieldSource) valueSource() function.ValueSource {
+	if f.self != nil {
+		return f.self
+	}
+	return f
+}
+
 type intDocValues struct {
 	function.BaseFunctionValues
-	source    *IntFieldSource
+	source    function.ValueSource
 	ndv       index.NumericDocValues
 	lastDocID int
 }
@@ -89,5 +116,9 @@ func (f *intDocValues) Exists(doc int) (bool, error) {
 }
 
 func (f *intDocValues) ToString(doc int) (string, error) {
-	return fmt.Sprintf("int(%s)=%d", f.source.Field, f.IntVal(doc)), nil
+	val, err := f.IntVal(doc)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s=%d", f.source.Description(), val), nil
 }

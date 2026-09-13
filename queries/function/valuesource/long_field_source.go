@@ -15,6 +15,14 @@ import (
 // makes those values available as other numeric types, casting as needed.
 type LongFieldSource struct {
 	FieldCacheSource
+	// self is the most-derived ValueSource. Java's getValues builds its
+	// FunctionValues with `this`, so a subclass's description() is the one
+	// reported; Go embedding loses that, so the subclass installs itself here.
+	self function.ValueSource
+	// numericDocValues renders the protected, overridable
+	// LongFieldSource.getNumericDocValues(Map, LeafReaderContext). A nil value selects
+	// the base behaviour, DocValues.getNumeric(reader, field).
+	numericDocValues func(ctx function.Context, readerContext *index.LeafReaderContext) (index.NumericDocValues, error)
 }
 
 func NewLongFieldSource(field string) *LongFieldSource {
@@ -28,22 +36,42 @@ func (f *LongFieldSource) Description() string {
 }
 
 func (f *LongFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	ndv, err := readerContext.LeafReader().GetNumericDocValues(f.Field)
+	ndv, err := f.getNumericDocValues(ctx, readerContext)
 	if err != nil {
 		return nil, err
 	}
 
 	fv := &longDocValues{
-		source: f,
+		source: f.valueSource(),
 		ndv:    ndv,
 	}
 	fv.SetSelf(fv)
 	return fv, nil
 }
 
+// getNumericDocValues dispatches to the installed override, or falls back to
+// the base behaviour, DocValues.getNumeric(readerContext.reader(), field).
+//
+// Mirrors the protected LongFieldSource.getNumericDocValues(Map, LeafReaderContext).
+func (f *LongFieldSource) getNumericDocValues(ctx function.Context, readerContext *index.LeafReaderContext) (index.NumericDocValues, error) {
+	if f.numericDocValues != nil {
+		return f.numericDocValues(ctx, readerContext)
+	}
+	return index.GetNumeric(readerContext.LeafReader(), f.Field)
+}
+
+// valueSource returns the most-derived ValueSource, standing in for Java's
+// `this` inside getValues.
+func (f *LongFieldSource) valueSource() function.ValueSource {
+	if f.self != nil {
+		return f.self
+	}
+	return f
+}
+
 type longDocValues struct {
 	function.BaseFunctionValues
-	source    *LongFieldSource
+	source    function.ValueSource
 	ndv       index.NumericDocValues
 	lastDocID int
 }
@@ -95,5 +123,9 @@ func (f *longDocValues) ObjectVal(doc int) (any, error) {
 }
 
 func (f *longDocValues) ToString(doc int) (string, error) {
-	return fmt.Sprintf("long(%s)=%d", f.source.Field, f.LongVal(doc)), nil
+	val, err := f.LongVal(doc)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s=%d", f.source.Description(), val), nil
 }
