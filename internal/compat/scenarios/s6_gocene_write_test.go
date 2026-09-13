@@ -16,12 +16,12 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/document"
-	gcompat "github.com/FlavioCFOliveira/Gocene/internal/compat"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	gcompat "github.com/FlavioCFOliveira/Gocene/internal/compat"
 	"github.com/FlavioCFOliveira/Gocene/queryparser"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/search/uhighlight"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/highlight/uhighlight"
 )
 
 const s6TsvName = "s6-highlights.tsv"
@@ -30,7 +30,7 @@ const s6TsvName = "s6-highlights.tsv"
 type s6Row struct {
 	queryText    string
 	docID        string
-	snippetIndex  int
+	snippetIndex int
 	snippetText  string
 }
 
@@ -186,10 +186,10 @@ func s6Evaluate(reader index.IndexReaderInterface, analyzer *analysis.StandardAn
 				return nil, fmt.Errorf("doc %d missing id", sd.Doc)
 			}
 			rows = append(rows, s6Row{
-				queryText:   qtext,
-				docID:       idField.StringValue(),
+				queryText:    qtext,
+				docID:        idField.StringValue(),
 				snippetIndex: 0,
-				snippetText: snippets[i],
+				snippetText:  snippets[i],
 			})
 		}
 	}

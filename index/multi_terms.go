@@ -240,3 +240,40 @@ func (m *MultiTerms) HasPayloads() bool {
 	}
 	return true
 }
+
+// MultiTermsGetTerms exposes a merged view of the Terms for one field across
+// every leaf of the supplied reader, or nil when no leaf indexes that field.
+//
+// Mirrors org.apache.lucene.index.MultiTerms#getTerms(IndexReader, String) of
+// Apache Lucene 10.5.0. The name carries the declaring class because Java
+// distinguishes this static from Terms#getTerms(LeafReader, String) — ported
+// as GetTerms in terms.go — by its class, which Go package scope cannot do.
+// The same convention is used for TermCompare and TermEquals.
+func MultiTermsGetTerms(r IndexReader, field string) (Terms, error) {
+	leaves, err := r.Leaves()
+	if err != nil {
+		return nil, err
+	}
+	if len(leaves) == 1 {
+		return leaves[0].LeafReader().Terms(field)
+	}
+
+	termsPerLeaf := make([]Terms, 0, len(leaves))
+	slicePerLeaf := make([]ReaderSlice, 0, len(leaves))
+
+	for leafIdx, ctx := range leaves {
+		subTerms, err := ctx.LeafReader().Terms(field)
+		if err != nil {
+			return nil, err
+		}
+		if subTerms != nil {
+			termsPerLeaf = append(termsPerLeaf, subTerms)
+			slicePerLeaf = append(slicePerLeaf, NewReaderSlice(ctx.DocBase, r.MaxDoc(), leafIdx))
+		}
+	}
+
+	if len(termsPerLeaf) == 0 {
+		return nil, nil
+	}
+	return NewMultiTerms(termsPerLeaf, slicePerLeaf)
+}

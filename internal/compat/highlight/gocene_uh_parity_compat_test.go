@@ -37,7 +37,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	uhighlight "github.com/FlavioCFOliveira/Gocene/highlight/uhighlight"
+	uhighlight "github.com/FlavioCFOliveira/Gocene/search/uhighlight"
 )
 
 // uhCorpusDocBody builds the body text for document i with the given seed,

@@ -22,7 +22,11 @@ type SimpleTerm interface {
 	IsQuoted() bool
 
 	// Visit enumerates matching terms in the index and adds them to the visitor.
-	Visit(visitor *MatchingTermVisitor, reader search.IndexReader, field string) error
+	//
+	// Mirrors SimpleTerm.visitMatchingTerms(IndexReader, String,
+	// MatchingTermVisitor), whose reader is org.apache.lucene.index.IndexReader
+	// — not the narrower search-side reader Gocene used previously.
+	Visit(visitor *MatchingTermVisitor, reader index.IndexReader, field string) error
 
 	// WrapWithBoost wraps the query with the term's boost.
 	WrapWithBoost(q search.Query) search.Query
@@ -56,8 +60,8 @@ func (q *SrndTermQuery) MakeLuceneQueryField(field string, factory *BasicQueryFa
 	return q.WrapWithBoost(query), nil
 }
 
-func (q *SrndTermQuery) Visit(visitor *MatchingTermVisitor, reader search.IndexReader, field string) error {
-	terms, err := reader.Terms(field)
+func (q *SrndTermQuery) Visit(visitor *MatchingTermVisitor, reader index.IndexReader, field string) error {
+	terms, err := index.MultiTermsGetTerms(reader, field)
 	if err != nil {
 		return err
 	}
@@ -142,8 +146,8 @@ func (q *SrndPrefixQuery) String() string {
 	return sb.String()
 }
 
-func (q *SrndPrefixQuery) Visit(visitor *MatchingTermVisitor, reader search.IndexReader, field string) error {
-	terms, err := reader.Terms(field)
+func (q *SrndPrefixQuery) Visit(visitor *MatchingTermVisitor, reader index.IndexReader, field string) error {
+	terms, err := index.MultiTermsGetTerms(reader, field)
 	if err != nil {
 		return err
 	}
@@ -219,8 +223,8 @@ func (q *SrndTruncQuery) AddSpanQueries(factory *SpanNearClauseFactory) error {
 	return factory.AddTermWeighted(q.truncated, q.GetWeight())
 }
 
-func (q *SrndTruncQuery) Visit(visitor *MatchingTermVisitor, reader search.IndexReader, field string) error {
-	terms, err := reader.Terms(field)
+func (q *SrndTruncQuery) Visit(visitor *MatchingTermVisitor, reader index.IndexReader, field string) error {
+	terms, err := index.MultiTermsGetTerms(reader, field)
 	if err != nil {
 		return err
 	}

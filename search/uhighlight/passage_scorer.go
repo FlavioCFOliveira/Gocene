@@ -1,78 +1,103 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package uhighlight
 
-import (
-	"math"
-)
+import "math"
 
-// PassageScorer ranks passages found by UnifiedHighlighter.
-// Each passage is scored as a miniature document within the document.
-// The final score is computed as norm * sum(weight * tf).
+// PassageScorer ranks passages found by UnifiedHighlighter using a
+// BM25-flavoured formula. Each passage is scored as
+//
+//	norm * Σ ( weight * tf )
+//
+// where weight, tf, and norm are computed from the passage's match list
+// and content length.
+//
+// Mirrors org.apache.lucene.search.uhighlight.PassageScorer.
 type PassageScorer struct {
 	k1    float32
 	b     float32
 	pivot float32
 }
 
-// NewPassageScorer creates a PassageScorer with default values:
-// k1 = 1.2, b = 0.75, pivot = 87.
+// NewPassageScorer returns a scorer with the Lucene defaults (k1=1.2,
+// b=0.75, pivot=87) — 87 is the typical average English sentence length
+// used by the Lucene reference.
 func NewPassageScorer() *PassageScorer {
-	return &PassageScorer{
-		k1:    1.2,
-		b:     0.75,
-		pivot: 87,
-	}
+	return NewPassageScorerWith(1.2, 0.75, 87)
 }
 
-// NewPassageScorerWithParams creates a PassageScorer with specified scoring parameters.
-func NewPassageScorerWithParams(k1, b, pivot float32) *PassageScorer {
-	return &PassageScorer{
-		k1:    k1,
-		b:     b,
-		pivot: pivot,
-	}
+// NewPassageScorerWith returns a scorer with the supplied BM25 parameters.
+func NewPassageScorerWith(k1, b, pivot float32) *PassageScorer {
+	return &PassageScorer{k1: k1, b: b, pivot: pivot}
 }
 
-// Weight computes term importance, given its in-document statistics.
-func (ps *PassageScorer) Weight(contentLength, totalTermFreq int) float32 {
-	numDocs := 1.0 + float64(contentLength)/float64(ps.pivot)
-	return float32((float64(ps.k1) + 1.0) * math.Log(1.0+(numDocs+0.5)/(float64(totalTermFreq)+0.5)))
+// K1 returns the BM25 k1 parameter (term-frequency saturation).
+func (s *PassageScorer) K1() float32 { return s.k1 }
+
+// B returns the BM25 b parameter (length normalisation).
+func (s *PassageScorer) B() float32 { return s.b }
+
+// Pivot returns the length-normalisation pivot.
+func (s *PassageScorer) Pivot() float32 { return s.pivot }
+
+// Weight computes the term importance term given its in-document
+// statistics. numDocs is approximated from contentLength / pivot.
+func (s *PassageScorer) Weight(contentLength, totalTermFreq int) float32 {
+	numDocs := 1 + float32(contentLength)/s.pivot
+	x := float64(1 + (float64(numDocs)+0.5)/(float64(totalTermFreq)+0.5))
+	return (s.k1 + 1) * float32(math.Log(x))
 }
 
-// Tf computes term weight, given the frequency within the passage and the passage's length.
-func (ps *PassageScorer) Tf(freq, passageLen int) float32 {
-	norm := ps.k1 * ((1 - ps.b) + ps.b*(float32(passageLen)/ps.pivot))
+// TF computes the term-frequency contribution given the in-passage
+// frequency and the passage length.
+func (s *PassageScorer) TF(freq, passageLen int) float32 {
+	norm := s.k1 * ((1 - s.b) + s.b*(float32(passageLen)/s.pivot))
 	return float32(freq) / (float32(freq) + norm)
 }
 
-// Norm normalize a passage according to its position in the document.
-func (ps *PassageScorer) Norm(passageStart int) float32 {
-	return 1 + 1/float32(math.Log(float64(ps.pivot)+float64(passageStart)))
+// Norm computes the passage-position boost. Passages towards the
+// beginning of the document are weighed more heavily by default.
+func (s *PassageScorer) Norm(passageStart int) float32 {
+	return 1 + 1/float32(math.Log(float64(s.pivot)+float64(passageStart)))
 }
 
-// Score computes the score for a passage.
-func (ps *PassageScorer) Score(passage *Passage, contentLength int) float32 {
+// Score computes the score of the given passage relative to the document
+// length contentLength.
+func (s *PassageScorer) Score(passage *Passage, contentLength int) float32 {
+	if passage == nil || passage.NumMatches() == 0 {
+		return 0
+	}
+	// We need to aggregate matches that share the same term text. Build a
+	// small dedup table backed by string keys derived from the term bytes
+	// so the BM25 sum mirrors the Lucene BytesRefHash-driven loop in
+	// PassageScorer#score.
+	hitCount := passage.NumMatches()
+	termIndex := make(map[string]int, hitCount)
+	termFreqsInPassage := make([]int, 0, hitCount)
+	termFreqsInDoc := make([]int, 0, hitCount)
+
+	terms := passage.MatchTerms()
+	freqsInDoc := passage.MatchTermFreqsInDoc()
+	for i := 0; i < hitCount; i++ {
+		key := string(terms[i])
+		idx, ok := termIndex[key]
+		if !ok {
+			idx = len(termFreqsInPassage)
+			termIndex[key] = idx
+			termFreqsInPassage = append(termFreqsInPassage, 0)
+			termFreqsInDoc = append(termFreqsInDoc, freqsInDoc[i])
+		}
+		termFreqsInPassage[idx]++
+	}
+
 	var score float64
-
-	// Map to track term frequency in the passage
-	termFreqsInPassage := make(map[string]int)
-	termFreqsInDoc := make(map[string]int)
-
-	numMatches := passage.NumMatches()
-	matchTerms := passage.MatchTerms()
-	matchTermFreqsInDoc := passage.MatchTermFreqsInDoc()
-
-	for i := 0; i < numMatches; i++ {
-		term := matchTerms[i].String()
-		termFreqsInPassage[term]++
-		termFreqsInDoc[term] = matchTermFreqsInDoc[i]
+	passageLen := passage.Length()
+	for i := range termFreqsInPassage {
+		score += float64(s.TF(termFreqsInPassage[i], passageLen)) *
+			float64(s.Weight(contentLength, termFreqsInDoc[i]))
 	}
-
-	for term, freq := range termFreqsInPassage {
-		tf := ps.Tf(freq, passage.Length())
-		weight := ps.Weight(contentLength, termFreqsInDoc[term])
-		score += float64(tf * weight)
-	}
-
-	score *= float64(ps.Norm(passage.StartOffset()))
+	score *= float64(s.Norm(passage.StartOffset()))
 	return float32(score)
 }

@@ -2,6 +2,7 @@ package matchhighlight
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -82,11 +83,29 @@ func (o *OffsetsFromPositions) convertPositionsToOffsets(positionRanges []Offset
 	for valueIndex, value := range values {
 		lastValue := valueIndex+1 == len(values)
 
-		ts := o.analyzer.TokenStream(o.field, value)
-		offsetAttr := ts.OffsetAttribute()
-		posAttr := ts.PositionIncrementAttribute()
-		ts.Reset()
-		for ts.IncrementToken() {
+		ts, err := o.analyzer.TokenStream(o.field, strings.NewReader(value))
+		if err != nil {
+			return nil, err
+		}
+		offsetAttr, err := offsetAttribute(ts)
+		if err != nil {
+			return nil, err
+		}
+		posAttr, err := positionIncrementAttribute(ts)
+		if err != nil {
+			return nil, err
+		}
+		if err := ts.Reset(); err != nil {
+			return nil, err
+		}
+		for {
+			more, err := ts.IncrementToken()
+			if err != nil {
+				return nil, err
+			}
+			if !more {
+				break
+			}
 			position += posAttr.GetPositionIncrement()
 
 			if position >= minPosition {
@@ -112,15 +131,24 @@ func (o *OffsetsFromPositions) convertPositionsToOffsets(positionRanges []Offset
 					j++
 				}
 				spanCount = j
-			}
-			if position > maxPosition && lastValue {
-				break
+
+				// Only short-circuit if we're on the last value (which should be
+				// the common case since most fields would only have a single
+				// value anyway). We need to make sure of this because otherwise
+				// offsetAttr would have incorrect value.
+				if position > maxPosition && lastValue {
+					break
+				}
 			}
 		}
-		ts.End()
-		position += posAttr.GetPositionIncrement() + o.analyzer.GetPositionIncrementGap(o.field)
-		valueOffset += offsetAttr.EndOffset() + o.analyzer.GetOffsetGap(o.field)
-		ts.Close()
+		if err := ts.End(); err != nil {
+			return nil, err
+		}
+		position += posAttr.GetPositionIncrement() + positionIncrementGap(o.analyzer, o.field)
+		valueOffset += offsetAttr.EndOffset() + offsetGap(o.analyzer, o.field)
+		if err := ts.Close(); err != nil {
+			return nil, err
+		}
 	}
 
 	converted := make([]OffsetRange, 0, len(spans))

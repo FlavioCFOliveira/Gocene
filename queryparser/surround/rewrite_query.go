@@ -95,7 +95,7 @@ func NewSimpleTermRewriteQuery(srndQuery SimpleTerm, fieldName string, qf *Basic
 
 // Rewrite expands the SimpleTerm against the current BasicQueryFactory state
 // and returns the resulting query.
-func (q *SimpleTermRewriteQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
+func (q *SimpleTermRewriteQuery) Rewrite(reader index.IndexReader) (search.Query, error) {
 	visitor := NewMatchingTermVisitor()
 	if err := q.st.Visit(visitor, reader, q.fieldName); err != nil {
 		return nil, err

@@ -475,7 +475,11 @@ func (fn *FieldNumbers) AddOrGet(fi *FieldInfo) int {
 		return props.number
 	}
 
-	var fieldNumber int
+	// fieldNumber must start at -1, not at Go's zero value, so that the
+	// allocation branch below is reachable. Mirrors Java's `int fieldNumber;`
+	// followed by an if/else, where the else branch always runs when the
+	// field's own number cannot be reused.
+	fieldNumber := -1
 	if fi.Number() != -1 {
 		if _, ok := fn.numberToName[fi.Number()]; !ok {
 			fieldNumber = fi.Number()
@@ -661,4 +665,66 @@ func (b *FieldInfosBuilder) FieldInfos() *FieldInfos {
 		infos = append(infos, fi)
 	}
 	return NewFieldInfos(infos...)
+}
+
+// getAndValidateParentField returns the parent document field shared by every
+// leaf, failing when the leaves disagree.
+//
+// Mirrors org.apache.lucene.index.FieldInfos#getAndValidateParentField of
+// Apache Lucene 10.5.0.
+func getAndValidateParentField(leaves []*LeafReaderContext) (string, error) {
+	set := false
+	theField := ""
+	for _, ctx := range leaves {
+		field := ctx.LeafReader().GetFieldInfos().GetParentField()
+		if set && field != theField {
+			return "", fmt.Errorf(
+				"expected parent doc field to be %q across all segments but found a segment with different field %q",
+				theField, field)
+		}
+		theField = field
+		set = true
+	}
+	return theField, nil
+}
+
+// GetMergedFieldInfos returns a single FieldInfos describing every field of
+// every leaf of reader, with field numbers made consistent across the leaves.
+//
+// Mirrors org.apache.lucene.index.FieldInfos#getMergedFieldInfos(IndexReader)
+// of Apache Lucene 10.5.0. Java's `null` soft-deletes and parent field names
+// are rendered as the empty string, which is how FieldInfos already spells
+// "no such field".
+func GetMergedFieldInfos(reader IndexReaderInterface) (*FieldInfos, error) {
+	leaves, err := reader.Leaves()
+	if err != nil {
+		return nil, err
+	}
+	if len(leaves) == 0 {
+		return EmptyFieldInfos, nil
+	}
+	if len(leaves) == 1 {
+		return leaves[0].LeafReader().GetFieldInfos(), nil
+	}
+
+	// leaves.stream().map(getSoftDeletesField).filter(nonNull).findAny()
+	softDeletesField := ""
+	for _, l := range leaves {
+		if f := l.LeafReader().GetFieldInfos().GetSoftDeletesField(); f != "" {
+			softDeletesField = f
+			break
+		}
+	}
+	parentField, err := getAndValidateParentField(leaves)
+	if err != nil {
+		return nil, err
+	}
+
+	builder := NewFieldInfosBuilder(NewFieldNumbers(softDeletesField, parentField))
+	for _, ctx := range leaves {
+		for _, fieldInfo := range ctx.LeafReader().GetFieldInfos().Fields() {
+			builder.Add(fieldInfo)
+		}
+	}
+	return builder.Build(), nil
 }

@@ -55,3 +55,12 @@ func NewFieldInfosBuilder() *FieldInfosBuilder {
 func NewFieldInfosBuilderFor(globalFieldNumbers *spi.FieldNumbers) *FieldInfosBuilder {
 	return spi.NewFieldInfosBuilder(globalFieldNumbers)
 }
+
+// FieldInfosGetMergedFieldInfos returns a single FieldInfos describing every field of
+// every leaf of reader, with field numbers made consistent across the leaves.
+//
+// Mirrors org.apache.lucene.index.FieldInfos#getMergedFieldInfos(IndexReader)
+// of Apache Lucene 10.5.0.
+func FieldInfosGetMergedFieldInfos(reader IndexReader) (*FieldInfos, error) {
+	return spi.GetMergedFieldInfos(reader)
+}

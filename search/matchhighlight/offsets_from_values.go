@@ -1,6 +1,8 @@
 package matchhighlight
 
 import (
+	"strings"
+
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -27,18 +29,37 @@ func (o *OffsetsFromValues) Get(matchesIterator search.MatchesIterator, doc Fiel
 	var ranges []OffsetRange
 	valueOffset := 0
 	for _, value := range values {
-		ts := o.analyzer.TokenStream(o.field, value)
-		offsetAttr := ts.OffsetAttribute()
-		ts.Reset()
-		for ts.IncrementToken() {
-			// Go through all tokens to increment offset attribute properly.
+		ts, err := o.analyzer.TokenStream(o.field, strings.NewReader(value))
+		if err != nil {
+			return nil, err
 		}
-		ts.End()
+		offsetAttr, err := offsetAttribute(ts)
+		if err != nil {
+			return nil, err
+		}
+		if err := ts.Reset(); err != nil {
+			return nil, err
+		}
 		startOffset := valueOffset
+		for {
+			// Go through all tokens to increment offset attribute properly.
+			more, err := ts.IncrementToken()
+			if err != nil {
+				return nil, err
+			}
+			if !more {
+				break
+			}
+		}
+		if err := ts.End(); err != nil {
+			return nil, err
+		}
 		valueOffset += offsetAttr.EndOffset()
 		ranges = append(ranges, OffsetRange{From: startOffset, To: valueOffset})
-		valueOffset += o.analyzer.GetOffsetGap(o.field)
-		ts.Close()
+		valueOffset += offsetGap(o.analyzer, o.field)
+		if err := ts.Close(); err != nil {
+			return nil, err
+		}
 	}
 	return ranges, nil
 }
