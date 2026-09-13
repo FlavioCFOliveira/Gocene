@@ -6,18 +6,18 @@ import (
 
 // FirstPassGroupingCollectorManager is a CollectorManager implementation for FirstPassGroupingCollector.
 type FirstPassGroupingCollectorManager[T any] struct {
-	groupSelectorFactory func() GroupSelector[T]
-	groupSort            *search.Sort
-	topNGroups           int
+	groupSelectorFactory        func() GroupSelector[T]
+	groupSort                   *search.Sort
+	topNGroups                  int
 	ignoreDocsWithoutGroupField bool
 }
 
 // NewFirstPassGroupingCollectorManager creates a new FirstPassGroupingCollectorManager.
 func NewFirstPassGroupingCollectorManager[T any](factory func() GroupSelector[T], groupSort *search.Sort, topNGroups int, ignoreDocsWithoutGroupField bool) *FirstPassGroupingCollectorManager[T] {
 	return &FirstPassGroupingCollectorManager[T]{
-		groupSelectorFactory: factory,
-		groupSort:            groupSort,
-		topNGroups:           topNGroups,
+		groupSelectorFactory:        factory,
+		groupSort:                   groupSort,
+		topNGroups:                  topNGroups,
 		ignoreDocsWithoutGroupField: ignoreDocsWithoutGroupField,
 	}
 }
@@ -42,5 +42,5 @@ func (m *FirstPassGroupingCollectorManager[T]) Reduce(collectors []search.Collec
 		}
 	}
 
-	return Merge(allTopGroups, 0, m.topNGroups, m.groupSort), nil
+	return MergeSearchGroups(allTopGroups, 0, m.topNGroups, m.groupSort), nil
 }

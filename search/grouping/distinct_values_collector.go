@@ -1,6 +1,7 @@
 package grouping
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -96,7 +97,7 @@ func (c *DistinctValuesCollector[T, R]) GetGroups() []GroupCount[T, R] {
 		}
 
 		counts = append(counts, GroupCount[T, R]{
-			GroupValue:   *group.GroupValue,
+			GroupValue:   group.GroupValue,
 			UniqueValues: uniqueValues,
 		})
 	}
@@ -105,14 +106,14 @@ func (c *DistinctValuesCollector[T, R]) GetGroups() []GroupCount[T, R] {
 
 type DistinctValuesCollectorManager[T any, R any] struct {
 	groupSelectorFactory func() GroupSelector[T]
-	valueSelectorFactory  func() GroupSelector[R]
+	valueSelectorFactory func() GroupSelector[R]
 	searchGroups         []SearchGroup[T]
 }
 
 func NewDistinctValuesCollectorManager[T any, R any](gsf func() GroupSelector[T], vsf func() GroupSelector[R], groups []SearchGroup[T]) *DistinctValuesCollectorManager[T, R] {
 	return &DistinctValuesCollectorManager[T, R]{
 		groupSelectorFactory: gsf,
-		valueSelectorFactory:  vsf,
+		valueSelectorFactory: vsf,
 		searchGroups:         groups,
 	}
 }
@@ -131,7 +132,10 @@ func (m *DistinctValuesCollectorManager[T, R]) Reduce(collectors []search.Collec
 	groups := firstCollector.groups
 
 	// We use a map of maps to accumulate distinct values per group
-	mergedValues := make(map[T]map[any]R)
+	// Java keys the accumulator by the group value itself; Go needs a
+	// comparable key, so the group value is narrowed the same way the
+	// collectors narrow it.
+	mergedValues := make(map[any]map[any]R)
 
 	for _, c := range collectors {
 		collector, ok := c.(*DistinctValuesCollector[T, R])
@@ -143,24 +147,26 @@ func (m *DistinctValuesCollectorManager[T, R]) Reduce(collectors []search.Collec
 			valColl := collector.groupReducer.GetCollector(group.GroupValue)
 			vc := valColl.(*valuesCollector[R])
 
-			if mergedValues[group.GroupValue] == nil {
-				mergedValues[group.GroupValue] = make(map[any]R)
+			groupKey := getComparableKey(group.GroupValue)
+			if mergedValues[groupKey] == nil {
+				mergedValues[groupKey] = make(map[any]R)
 			}
 			for k, v := range vc.values {
-				mergedValues[group.GroupValue][k] = v
+				mergedValues[groupKey][k] = v
 			}
 		}
 	}
 
 	res := make([]GroupCount[T, R], 0, len(groups))
 	for _, group := range groups {
-		uniqueValues := make([]R, 0, len(mergedValues[group.GroupValue]))
-		for _, v := range mergedValues[group.GroupValue] {
+		groupKey := getComparableKey(group.GroupValue)
+		uniqueValues := make([]R, 0, len(mergedValues[groupKey]))
+		for _, v := range mergedValues[groupKey] {
 			uniqueValues = append(uniqueValues, v)
 		}
 
 		res = append(res, GroupCount[T, R]{
-			GroupValue:   *group.GroupValue,
+			GroupValue:   group.GroupValue,
 			UniqueValues: uniqueValues,
 		})
 	}

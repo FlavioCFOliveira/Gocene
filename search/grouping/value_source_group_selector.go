@@ -1,8 +1,6 @@
 package grouping
 
 import (
-	"fmt"
-
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
 	"github.com/FlavioCFOliveira/Gocene/search"

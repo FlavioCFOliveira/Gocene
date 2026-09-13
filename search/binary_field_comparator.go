@@ -11,10 +11,17 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// BinaryFieldComparator orders documents by the unsigned byte order of their binary values.
+// BinaryFieldComparator sorts by a field's natural term sort order. All
+// comparisons are done using unsigned byte order, which is slow for medium to
+// large result sets but possibly very fast for very small result sets.
 //
-// This is the Go port of Lucene's org.apache.lucene.search.FieldComparator.TermValComparator.
+// This is the Go port of org.apache.lucene.search.FieldComparator.TermValComparator,
+// which extends FieldComparator<BytesRef> and implements LeafFieldComparator;
+// the Go type therefore satisfies both [FieldComparator] and
+// [LeafFieldComparator].
 type BinaryFieldComparator struct {
+	BaseFieldComparator
+
 	field          string
 	values         [][]byte
 	docTerms       spi.BinaryDocValues
@@ -25,6 +32,15 @@ type BinaryFieldComparator struct {
 	dvSource func(index.IndexReader) (spi.BinaryDocValues, error)
 }
 
+// NewBinaryFieldComparator creates the comparator for numHits queue slots.
+//
+// bsf is the BinarySortField whose getSortKeyDocValues override resolves the
+// per-document sort key; it is nil for a plain Type.STRING_VAL SortField, in
+// which case the comparator reads the field's BinaryDocValues directly — the
+// body of BinarySortField.getSortKeyDocValues, and of
+// TermValComparator.getBinaryDocValues, which is DocValues.getBinary(reader, field).
+//
+// Mirrors FieldComparator.TermValComparator(int, String, boolean).
 func NewBinaryFieldComparator(numHits int, field string, sortMissingLast bool, bsf *BinarySortField) *BinaryFieldComparator {
 	missingCmp := -1
 	if sortMissingLast {
@@ -49,21 +65,37 @@ func NewBinaryFieldComparator(numHits int, field string, sortMissingLast bool, b
 			if !ok {
 				return index.EmptyBinary(), nil
 			}
+			if bsf == nil {
+				return provider.GetBinaryDocValues(field)
+			}
 			return bsf.GetSortKeyDocValues(provider)
 		},
 	}
 }
 
-func (c *BinaryFieldComparator) compare(slot1, slot2 int) int {
-	v1, v2 := c.values[slot1], c.values[slot2]
-	return c.compareValues(v1, v2)
+// Compare compares the terms cached in the two slots.
+//
+// Mirrors TermValComparator.compare.
+func (c *BinaryFieldComparator) Compare(slot1, slot2 int) int {
+	return c.CompareValues(c.values[slot1], c.values[slot2])
 }
 
-func (c *BinaryFieldComparator) value(slot int) any {
+// Value returns the term cached in the slot, or nil for a missing value.
+//
+// Mirrors TermValComparator.value.
+func (c *BinaryFieldComparator) Value(slot int) any {
+	if c.values[slot] == nil {
+		return nil
+	}
 	return c.values[slot]
 }
 
+// setReader binds the comparator to a leaf reader's binary doc values.
 func (c *BinaryFieldComparator) setReader(reader index.IndexReader) error {
+	if reader == nil {
+		c.docTerms = index.EmptyBinary()
+		return nil
+	}
 	dv, err := c.dvSource(reader)
 	if err != nil {
 		return err
@@ -72,83 +104,128 @@ func (c *BinaryFieldComparator) setReader(reader index.IndexReader) error {
 	return nil
 }
 
-func (c *BinaryFieldComparator) Compare(slot1, slot2 int) int {
-	return c.compare(slot1, slot2)
-}
-
-func (c *BinaryFieldComparator) SetBottom(slot int) {
-	c.bottom = c.values[slot]
-}
-
-func (c *BinaryFieldComparator) CompareBottom(doc int) int {
-	val := c.getValueForDoc(doc)
-	return c.compareValues(c.bottom, val)
-}
-
-func (c *BinaryFieldComparator) Copy(slot, doc int) {
-	val := c.getValueForDoc(doc)
-	if val == nil {
-		c.values[slot] = nil
-	} else {
-		cp := make([]byte, len(val))
-		copy(cp, val)
-		c.values[slot] = cp
-	}
-}
-
-func (c *BinaryFieldComparator) SetScorer(scorer Scorable) error {
-	return nil
-}
-
-func (c *BinaryFieldComparator) compareValues(v1, v2 []byte) int {
-	if v1 == nil {
-		if v2 == nil {
-			return 0
-		}
-		return c.missingSortCmp
-	} else if v2 == nil {
-		return -c.missingSortCmp
-	}
-	return bytes.Compare(v1, v2)
-}
-
-func (c *BinaryFieldComparator) getValueForDoc(doc int) []byte {
-	if c.docTerms == nil {
-		return nil
-	}
-	exists, err := c.docTerms.AdvanceExact(doc)
-	if err != nil || !exists {
-		return nil
-	}
-	val, err := c.docTerms.BinaryValue()
-	if err != nil {
-		return nil
-	}
-	return val
-}
-
-// getLeafComparator mirrors FieldComparator.getLeafComparator(LeafReaderContext):
-// it binds the comparator to the segment's binary doc values and returns
-// itself, as Java's TermValComparator does (it implements LeafFieldComparator).
+// GetLeafComparator binds the comparator to the segment's binary doc values and
+// returns itself, as TermValComparator does (it implements LeafFieldComparator).
 //
-// The concrete type is returned rather than the LeafFieldComparator interface:
-// Gocene's search.FieldComparator (sort.go) and search.LeafFieldComparator
-// declare CompareBottom, CompareTop, Copy and SetBottom with different
-// signatures, so no single Go type can satisfy both. This is the same
-// resolution already used by SimpleFieldComparator, LatLonPointDistanceComparator
-// and XYPointDistanceComparator.
-func (c *BinaryFieldComparator) getLeafComparator(ctx *index.LeafReaderContext) (*BinaryFieldComparator, error) {
-	if err := c.setReader(ctx.LeafReader()); err != nil {
+// Mirrors TermValComparator.getLeafComparator(LeafReaderContext).
+func (c *BinaryFieldComparator) GetLeafComparator(context *index.LeafReaderContext) (LeafFieldComparator, error) {
+	var reader index.IndexReader
+	if context != nil && context.LeafReader() != nil {
+		reader = context.LeafReader()
+	}
+	if err := c.setReader(reader); err != nil {
 		return nil, err
 	}
 	return c, nil
 }
 
-func (c *BinaryFieldComparator) CompareTop(doc int) int {
-	val := c.getValueForDoc(doc)
-	return c.compareValues(c.topValue, val)
+// SetBottom records the bottom slot's term.
+//
+// Mirrors TermValComparator.setBottom.
+func (c *BinaryFieldComparator) SetBottom(slot int) error {
+	c.bottom = c.values[slot]
+	return nil
 }
 
-func (c *BinaryFieldComparator) SetTopValue(val []byte) {
-	c.topValue = val
+// CompareBottom compares the bottom term with the term of doc.
+//
+// Mirrors TermValComparator.compareBottom.
+func (c *BinaryFieldComparator) CompareBottom(doc int) (int, error) {
+	val, err := c.getValueForDoc(doc)
+	if err != nil {
+		return 0, err
+	}
+	return c.CompareValues(c.bottom, val), nil
 }
+
+// CompareTop compares the top term with the term of doc.
+//
+// Mirrors TermValComparator.compareTop.
+func (c *BinaryFieldComparator) CompareTop(doc int) (int, error) {
+	val, err := c.getValueForDoc(doc)
+	if err != nil {
+		return 0, err
+	}
+	return c.CompareValues(c.topValue, val), nil
+}
+
+// SetTopValue records the top term. A nil value is fine: it means the last doc
+// of the prior search was missing this value.
+//
+// Mirrors TermValComparator.setTopValue.
+func (c *BinaryFieldComparator) SetTopValue(value any) {
+	c.topValue = bytesRefValue(value, "SetTopValue")
+}
+
+// Copy caches the term of doc into the slot.
+//
+// Mirrors TermValComparator.copy.
+func (c *BinaryFieldComparator) Copy(slot, doc int) error {
+	val, err := c.getValueForDoc(doc)
+	if err != nil {
+		return err
+	}
+	if val == nil {
+		c.values[slot] = nil
+		return nil
+	}
+	cp := make([]byte, len(val))
+	copy(cp, val)
+	c.values[slot] = cp
+	return nil
+}
+
+// SetScorer is empty, as TermValComparator.setScorer is.
+func (c *BinaryFieldComparator) SetScorer(Scorable) error { return nil }
+
+// CompetitiveIterator returns nil: TermValComparator does not override the
+// LeafFieldComparator default, which returns null.
+func (c *BinaryFieldComparator) CompetitiveIterator() (DocIdSetIterator, error) { return nil, nil }
+
+// SetHitsThresholdReached is empty: TermValComparator does not override the
+// LeafFieldComparator default, whose body is empty.
+func (c *BinaryFieldComparator) SetHitsThresholdReached() error { return nil }
+
+// CompareValues orders two terms; a missing value sorts first or last according
+// to the comparator's missing-value placement.
+//
+// Mirrors TermValComparator.compareValues(BytesRef, BytesRef), which overrides
+// the FieldComparator default.
+func (c *BinaryFieldComparator) CompareValues(first, second any) int {
+	val1 := bytesRefValue(first, "CompareValues")
+	val2 := bytesRefValue(second, "CompareValues")
+	// missing always sorts first:
+	if val1 == nil {
+		if val2 == nil {
+			return 0
+		}
+		return c.missingSortCmp
+	} else if val2 == nil {
+		return -c.missingSortCmp
+	}
+	return bytes.Compare(val1, val2)
+}
+
+// getValueForDoc positions the bound iterator on doc and returns its term, or
+// nil when the document has no value.
+//
+// Mirrors the private TermValComparator.getValueForDoc, which declares
+// `throws IOException`; the error is propagated here rather than discarded.
+func (c *BinaryFieldComparator) getValueForDoc(doc int) ([]byte, error) {
+	if c.docTerms == nil {
+		return nil, nil
+	}
+	exists, err := c.docTerms.AdvanceExact(doc)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, nil
+	}
+	return c.docTerms.BinaryValue()
+}
+
+var (
+	_ FieldComparator     = (*BinaryFieldComparator)(nil)
+	_ LeafFieldComparator = (*BinaryFieldComparator)(nil)
+)

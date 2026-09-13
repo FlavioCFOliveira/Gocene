@@ -13,7 +13,7 @@ type TopGroupsCollectorManager[T any] struct {
 	withinGroupOffset    int
 	maxDocsPerGroup      int
 	getMaxScores         bool
-	scoreMergeMode       int // 0: None, 1: Total, 2: Avg
+	scoreMergeMode       ScoreMergeMode
 }
 
 // NewTopGroupsCollectorManager creates a new TopGroupsCollectorManager.
@@ -26,7 +26,7 @@ func NewTopGroupsCollectorManager[T any](factory func() GroupSelector[T], search
 		withinGroupOffset:    withinGroupOffset,
 		maxDocsPerGroup:      maxDocsPerGroup,
 		getMaxScores:         getMaxScores,
-		scoreMergeMode:       0,
+		scoreMergeMode:       ScoreMergeModeNone,
 	}
 }
 
@@ -50,5 +50,5 @@ func (m *TopGroupsCollectorManager[T]) Reduce(collectors []search.Collector) (*T
 		}
 	}
 
-	return Merge(shardGroups, m.groupSort, m.withinGroupSort, m.withinGroupOffset, m.maxDocsPerGroup, m.scoreMergeMode), nil
+	return Merge(shardGroups, m.groupSort, m.withinGroupSort, m.withinGroupOffset, m.maxDocsPerGroup, m.scoreMergeMode)
 }

@@ -1,8 +1,6 @@
 package grouping
 
 import (
-	"fmt"
-
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -31,14 +29,14 @@ func NewTermGroupSelector(field string) *TermGroupSelector {
 
 func (s *TermGroupSelector) SetNextReader(readerContext *index.LeafReaderContext) error {
 	var err error
-	s.docValues, err = index.GetSortedDocValues(readerContext.Reader(), s.field)
+	s.docValues, err = index.GetSorted(readerContext.LeafReader(), s.field)
 	if err != nil {
 		return err
 	}
 
 	s.ordsToIDs = make(map[int]int)
 	for i, val := range s.values {
-		ord, err := s.docValues.LookupTerm(val)
+		ord, err := index.SortedDocValuesLookupTerm(s.docValues, val)
 		if err == nil && ord >= 0 {
 			s.ordsToIDs[ord] = i
 		}

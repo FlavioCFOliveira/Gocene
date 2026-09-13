@@ -95,6 +95,82 @@ func SortFieldComparatorSource(sf *SortField) FieldComparatorSource {
 	return src
 }
 
+// SortFieldGetComparator returns the [FieldComparator] to use for sorting sf.
+//
+// Ported from SortField.getComparator(int, Pruning). Go cannot declare a method
+// on spi.SortField from this package — the comparator types it returns live
+// here and spi must not import search — so the member is rendered as a
+// function, exactly as [RewriteSortField] renders SortField.rewrite. A
+// SortField subclass that overrides getComparator in Java (BinarySortField,
+// FeatureSortField, LatLonPointSortField, XYPointSortField) declares its own
+// GetComparator method on the Go type instead; a caller holding the base
+// *SortField calls this function.
+//
+// numHits is the number of top hits the queue will store. pruning controls how
+// the comparator may skip documents through
+// LeafFieldComparator.CompetitiveIterator; no comparator in this package
+// implements skipping yet, so the argument is recorded in the signature and
+// currently changes nothing observable — Lucene's comparators with pruning
+// disabled produce the identical ordering. The same holds for Java's `reverse`
+// constructor argument, which its comparators use only to decide whether
+// skipping is safe; the queue applies the direction itself through reverseMul.
+//
+// Java raises IllegalStateException for Type.REWRITEABLE and for an unknown
+// type, and asserts that a CUSTOM sort carries a comparator source; all three
+// are unchecked, and the Go rendering panics, as Gocene already renders the
+// unchecked exceptions of SortField.validateField.
+func SortFieldGetComparator(sf *SortField, numHits int, pruning Pruning) FieldComparator {
+	var fieldComparator FieldComparator
+	switch sf.Type {
+	case spi.SortFieldTypeScore:
+		fieldComparator = newRelevanceComparator(numHits)
+
+	case spi.SortFieldTypeDoc:
+		fieldComparator = newDocComparator(numHits)
+
+	case spi.SortFieldTypeInt:
+		fieldComparator = newIntComparator(numHits, sf.Field, missingInt32(sf))
+
+	case spi.SortFieldTypeFloat:
+		fieldComparator = newFloatComparator(numHits, sf.Field, missingFloat32(sf))
+
+	case spi.SortFieldTypeLong:
+		fieldComparator = newLongComparator(numHits, sf.Field, missingInt64(sf))
+
+	case spi.SortFieldTypeDouble:
+		fieldComparator = newDoubleComparator(numHits, sf.Field, missingFloat64(sf))
+
+	case spi.SortFieldTypeCustom:
+		// SortField.getComparatorSource() is typed any on spi.SortField, which
+		// must not import search; SortFieldComparatorSource restores Java's
+		// FieldComparatorSource return type at the package boundary.
+		comparatorSource := SortFieldComparatorSource(sf)
+		if comparatorSource == nil {
+			panic(fmt.Sprintf("search: CUSTOM SortField %q has no FieldComparatorSource", sf.Field))
+		}
+		fieldComparator = comparatorSource.NewComparator(sf.Field, numHits, pruning, sf.Reverse)
+		if fieldComparator == nil {
+			panic(fmt.Sprintf("search: FieldComparatorSource for %q returned a nil comparator", sf.Field))
+		}
+
+	case spi.SortFieldTypeString:
+		fieldComparator = newTermOrdValComparator(numHits, sf.Field, sf.MissingValue == STRING_LAST)
+
+	case spi.SortFieldTypeStringVal:
+		fieldComparator = NewBinaryFieldComparator(numHits, sf.Field, sf.MissingValue == STRING_LAST, nil)
+
+	case spi.SortFieldTypeRewriteable:
+		panic("SortField needs to be rewritten through Sort.rewrite(..) and SortField.rewrite(..)")
+
+	default:
+		panic(fmt.Sprintf("Illegal sort type: %s", sf.Type))
+	}
+	if !sf.GetOptimizeSortWithIndexedData() {
+		fieldComparator.DisableSkipping()
+	}
+	return fieldComparator
+}
+
 // RewriteSortField rewrites sf, returning a new SortField if a change is made.
 // The base implementation returns sf unchanged; SortFields of type REWRITEABLE
 // are expected to be rewritten by the type that defines them.

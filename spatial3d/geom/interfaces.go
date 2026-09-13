@@ -158,6 +158,15 @@ type GeoDistance interface {
 type GeoDistanceShape interface {
 	GeoDistance
 	GeoSizeable
+
+	// GetDistanceBounds computes a bound based on a provided distance measure.
+	// It takes an input distance and distance metric and provides bounds on the
+	// shape if reduced to match that distance. The method is allowed to return
+	// bounds that are larger than the distance would indicate, but never
+	// smaller.
+	//
+	// Mirrors GeoDistanceShape.getDistanceBounds(Bounds, DistanceStyle, double).
+	GetDistanceBounds(bounds Bounds, distanceStyle DistanceStyle, distanceValue float64)
 }
 
 // GeoOutsideDistance computes distances from outside the shape.

@@ -102,8 +102,11 @@ func (s *numericLeafState) getRawValueForDoc(doc int, missing int64) (int64, err
 //
 // Mirrors org.apache.lucene.search.comparators.IntComparator.
 type intComparator struct {
+	BaseFieldComparator
+
 	values   []int32
 	bottom   int32
+	topValue int32
 	missing  int32
 	field    string
 	leaf     *numericLeafState
@@ -114,11 +117,11 @@ func newIntComparator(numHits int, field string, missing int32) *intComparator {
 	return &intComparator{values: make([]int32, numHits), field: field, missing: missing}
 }
 
-func (c *intComparator) compare(slot1, slot2 int) int {
+func (c *intComparator) Compare(slot1, slot2 int) int {
 	return cmpInt32(c.values[slot1], c.values[slot2])
 }
 
-func (c *intComparator) value(slot int) any { return c.values[slot] }
+func (c *intComparator) Value(slot int) any { return c.values[slot] }
 
 func (c *intComparator) setReader(reader IndexReader) error {
 	leaf, err := bindNumericLeaf(reader, c.field, c.dvSource)
@@ -144,7 +147,34 @@ func (c *intComparator) CompareBottom(doc int) (int, error) {
 	return cmpInt32(c.bottom, v), nil
 }
 
-func (c *intComparator) CompareTop(doc int) (int, error) { return 0, nil }
+// CompareTop compares the top value recorded by SetTopValue with doc's value.
+//
+// Mirrors IntComparator.IntLeafComparator.compareTop.
+func (c *intComparator) CompareTop(doc int) (int, error) {
+	v, err := c.getValueForDoc(doc)
+	if err != nil {
+		return 0, err
+	}
+	return cmpInt32(c.topValue, v), nil
+}
+
+// SetTopValue records the top value for CompareTop.
+//
+// Mirrors IntComparator.setTopValue(Integer).
+func (c *intComparator) SetTopValue(value any) { c.topValue = topValueInt32(value) }
+
+// GetLeafComparator binds this comparator to the segment and returns itself as
+// its own per-leaf view.
+//
+// Mirrors IntComparator.getLeafComparator(LeafReaderContext), which builds a
+// IntLeafComparator over the same value cache; this port carries no per-leaf
+// skipping state, so the single instance is the leaf comparator.
+func (c *intComparator) GetLeafComparator(context *index.LeafReaderContext) (LeafFieldComparator, error) {
+	if err := c.setReader(leafReaderOf(context)); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
 
 func (c *intComparator) Copy(slot, doc int) error {
 	v, err := c.getValueForDoc(doc)
@@ -157,7 +187,7 @@ func (c *intComparator) Copy(slot, doc int) error {
 
 func (c *intComparator) SetScorer(Scorable) error                       { return nil }
 func (c *intComparator) CompetitiveIterator() (DocIdSetIterator, error) { return nil, nil }
-func (c *intComparator) SetHitsThresholdReached()                       {}
+func (c *intComparator) SetHitsThresholdReached() error                 { return nil }
 
 // --- LongComparator ----------------------------------------------------------
 
@@ -165,8 +195,11 @@ func (c *intComparator) SetHitsThresholdReached()                       {}
 //
 // Mirrors org.apache.lucene.search.comparators.LongComparator.
 type longComparator struct {
+	BaseFieldComparator
+
 	values   []int64
 	bottom   int64
+	topValue int64
 	missing  int64
 	field    string
 	leaf     *numericLeafState
@@ -177,11 +210,11 @@ func newLongComparator(numHits int, field string, missing int64) *longComparator
 	return &longComparator{values: make([]int64, numHits), field: field, missing: missing}
 }
 
-func (c *longComparator) compare(slot1, slot2 int) int {
+func (c *longComparator) Compare(slot1, slot2 int) int {
 	return cmpInt64(c.values[slot1], c.values[slot2])
 }
 
-func (c *longComparator) value(slot int) any { return c.values[slot] }
+func (c *longComparator) Value(slot int) any { return c.values[slot] }
 
 func (c *longComparator) setReader(reader IndexReader) error {
 	leaf, err := bindNumericLeaf(reader, c.field, c.dvSource)
@@ -206,7 +239,34 @@ func (c *longComparator) CompareBottom(doc int) (int, error) {
 	return cmpInt64(c.bottom, v), nil
 }
 
-func (c *longComparator) CompareTop(doc int) (int, error) { return 0, nil }
+// CompareTop compares the top value recorded by SetTopValue with doc's value.
+//
+// Mirrors LongComparator.LongLeafComparator.compareTop.
+func (c *longComparator) CompareTop(doc int) (int, error) {
+	v, err := c.getValueForDoc(doc)
+	if err != nil {
+		return 0, err
+	}
+	return cmpInt64(c.topValue, v), nil
+}
+
+// SetTopValue records the top value for CompareTop.
+//
+// Mirrors LongComparator.setTopValue(Long).
+func (c *longComparator) SetTopValue(value any) { c.topValue = topValueInt64(value) }
+
+// GetLeafComparator binds this comparator to the segment and returns itself as
+// its own per-leaf view.
+//
+// Mirrors LongComparator.getLeafComparator(LeafReaderContext), which builds a
+// LongLeafComparator over the same value cache; this port carries no per-leaf
+// skipping state, so the single instance is the leaf comparator.
+func (c *longComparator) GetLeafComparator(context *index.LeafReaderContext) (LeafFieldComparator, error) {
+	if err := c.setReader(leafReaderOf(context)); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
 
 func (c *longComparator) Copy(slot, doc int) error {
 	v, err := c.getValueForDoc(doc)
@@ -219,7 +279,7 @@ func (c *longComparator) Copy(slot, doc int) error {
 
 func (c *longComparator) SetScorer(Scorable) error                       { return nil }
 func (c *longComparator) CompetitiveIterator() (DocIdSetIterator, error) { return nil, nil }
-func (c *longComparator) SetHitsThresholdReached()                       {}
+func (c *longComparator) SetHitsThresholdReached() error                 { return nil }
 
 // --- FloatComparator ---------------------------------------------------------
 
@@ -230,8 +290,11 @@ func (c *longComparator) SetHitsThresholdReached()                       {}
 // Mirrors org.apache.lucene.search.comparators.FloatComparator, whose
 // getValueForDoc does Float.intBitsToFloat((int) docValues.longValue()).
 type floatComparator struct {
+	BaseFieldComparator
+
 	values   []float32
 	bottom   float32
+	topValue float32
 	missing  float32
 	field    string
 	leaf     *numericLeafState
@@ -242,11 +305,11 @@ func newFloatComparator(numHits int, field string, missing float32) *floatCompar
 	return &floatComparator{values: make([]float32, numHits), field: field, missing: missing}
 }
 
-func (c *floatComparator) compare(slot1, slot2 int) int {
+func (c *floatComparator) Compare(slot1, slot2 int) int {
 	return cmpFloat32(c.values[slot1], c.values[slot2])
 }
 
-func (c *floatComparator) value(slot int) any { return c.values[slot] }
+func (c *floatComparator) Value(slot int) any { return c.values[slot] }
 
 func (c *floatComparator) setReader(reader IndexReader) error {
 	leaf, err := bindNumericLeaf(reader, c.field, c.dvSource)
@@ -285,7 +348,34 @@ func (c *floatComparator) CompareBottom(doc int) (int, error) {
 	return cmpFloat32(c.bottom, v), nil
 }
 
-func (c *floatComparator) CompareTop(doc int) (int, error) { return 0, nil }
+// CompareTop compares the top value recorded by SetTopValue with doc's value.
+//
+// Mirrors FloatComparator.FloatLeafComparator.compareTop.
+func (c *floatComparator) CompareTop(doc int) (int, error) {
+	v, err := c.getValueForDoc(doc)
+	if err != nil {
+		return 0, err
+	}
+	return cmpFloat32(c.topValue, v), nil
+}
+
+// SetTopValue records the top value for CompareTop.
+//
+// Mirrors FloatComparator.setTopValue(Float).
+func (c *floatComparator) SetTopValue(value any) { c.topValue = topValueFloat32(value) }
+
+// GetLeafComparator binds this comparator to the segment and returns itself as
+// its own per-leaf view.
+//
+// Mirrors FloatComparator.getLeafComparator(LeafReaderContext), which builds a
+// FloatLeafComparator over the same value cache; this port carries no per-leaf
+// skipping state, so the single instance is the leaf comparator.
+func (c *floatComparator) GetLeafComparator(context *index.LeafReaderContext) (LeafFieldComparator, error) {
+	if err := c.setReader(leafReaderOf(context)); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
 
 func (c *floatComparator) Copy(slot, doc int) error {
 	v, err := c.getValueForDoc(doc)
@@ -298,7 +388,7 @@ func (c *floatComparator) Copy(slot, doc int) error {
 
 func (c *floatComparator) SetScorer(Scorable) error                       { return nil }
 func (c *floatComparator) CompetitiveIterator() (DocIdSetIterator, error) { return nil, nil }
-func (c *floatComparator) SetHitsThresholdReached()                       {}
+func (c *floatComparator) SetHitsThresholdReached() error                 { return nil }
 
 // --- DoubleComparator --------------------------------------------------------
 
@@ -308,8 +398,11 @@ func (c *floatComparator) SetHitsThresholdReached()                       {}
 // Mirrors org.apache.lucene.search.comparators.DoubleComparator, whose
 // getValueForDoc does Double.longBitsToDouble(docValues.longValue()).
 type doubleComparator struct {
+	BaseFieldComparator
+
 	values   []float64
 	bottom   float64
+	topValue float64
 	missing  float64
 	field    string
 	leaf     *numericLeafState
@@ -320,11 +413,11 @@ func newDoubleComparator(numHits int, field string, missing float64) *doubleComp
 	return &doubleComparator{values: make([]float64, numHits), field: field, missing: missing}
 }
 
-func (c *doubleComparator) compare(slot1, slot2 int) int {
+func (c *doubleComparator) Compare(slot1, slot2 int) int {
 	return cmpFloat64(c.values[slot1], c.values[slot2])
 }
 
-func (c *doubleComparator) value(slot int) any { return c.values[slot] }
+func (c *doubleComparator) Value(slot int) any { return c.values[slot] }
 
 func (c *doubleComparator) setReader(reader IndexReader) error {
 	leaf, err := bindNumericLeaf(reader, c.field, c.dvSource)
@@ -363,7 +456,34 @@ func (c *doubleComparator) CompareBottom(doc int) (int, error) {
 	return cmpFloat64(c.bottom, v), nil
 }
 
-func (c *doubleComparator) CompareTop(doc int) (int, error) { return 0, nil }
+// CompareTop compares the top value recorded by SetTopValue with doc's value.
+//
+// Mirrors DoubleComparator.DoubleLeafComparator.compareTop.
+func (c *doubleComparator) CompareTop(doc int) (int, error) {
+	v, err := c.getValueForDoc(doc)
+	if err != nil {
+		return 0, err
+	}
+	return cmpFloat64(c.topValue, v), nil
+}
+
+// SetTopValue records the top value for CompareTop.
+//
+// Mirrors DoubleComparator.setTopValue(Double).
+func (c *doubleComparator) SetTopValue(value any) { c.topValue = topValueFloat64(value) }
+
+// GetLeafComparator binds this comparator to the segment and returns itself as
+// its own per-leaf view.
+//
+// Mirrors DoubleComparator.getLeafComparator(LeafReaderContext), which builds a
+// DoubleLeafComparator over the same value cache; this port carries no per-leaf
+// skipping state, so the single instance is the leaf comparator.
+func (c *doubleComparator) GetLeafComparator(context *index.LeafReaderContext) (LeafFieldComparator, error) {
+	if err := c.setReader(leafReaderOf(context)); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
 
 func (c *doubleComparator) Copy(slot, doc int) error {
 	v, err := c.getValueForDoc(doc)
@@ -376,7 +496,7 @@ func (c *doubleComparator) Copy(slot, doc int) error {
 
 func (c *doubleComparator) SetScorer(Scorable) error                       { return nil }
 func (c *doubleComparator) CompetitiveIterator() (DocIdSetIterator, error) { return nil, nil }
-func (c *doubleComparator) SetHitsThresholdReached()                       {}
+func (c *doubleComparator) SetHitsThresholdReached() error                 { return nil }
 
 // --- primitive comparison helpers (Java Integer.compare etc. semantics) ------
 

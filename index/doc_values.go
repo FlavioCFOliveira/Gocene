@@ -5,6 +5,7 @@
 package index
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
@@ -144,6 +145,36 @@ func GetSorted(reader LeafReader, field string) (SortedDocValues, error) {
 		return EmptySorted(), nil
 	}
 	return dv, nil
+}
+
+// SortedDocValuesLookupTerm returns the ordinal of key in dv, or a negative
+// insertion point -(insertionPoint + 1) when the term is absent.
+//
+// Mirrors the concrete org.apache.lucene.index.SortedDocValues#lookupTerm
+// (Apache Lucene 10.5.0), whose body is a binary search over lookupOrd. Gocene
+// renders SortedDocValues as an interface, so a concrete member of Java's
+// abstract class becomes a free function rather than forcing every
+// implementation to write it.
+func SortedDocValuesLookupTerm(dv SortedDocValues, key []byte) (int, error) {
+	low := 0
+	high := dv.GetValueCount() - 1
+	for low <= high {
+		mid := int(uint(low+high) >> 1)
+		term, err := dv.LookupOrd(mid)
+		if err != nil {
+			return 0, err
+		}
+		cmp := bytes.Compare(term, key)
+		switch {
+		case cmp < 0:
+			low = mid + 1
+		case cmp > 0:
+			high = mid - 1
+		default:
+			return mid, nil
+		}
+	}
+	return -(low + 1), nil
 }
 
 // GetSortedSet returns SortedSetDocValues for the field, or an empty instance

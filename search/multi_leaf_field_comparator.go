@@ -22,10 +22,10 @@ import "fmt"
 // single comparator that applies them in priority order (first non-zero result wins).
 // The reverseMul slice carries the sort direction: +1 for ascending, -1 for descending.
 type multiLeafFieldComparator struct {
-	comparators      []LeafFieldComparator
-	reverseMul       []int
-	firstComparator  LeafFieldComparator
-	firstReverseMul  int
+	comparators     []LeafFieldComparator
+	reverseMul      []int
+	firstComparator LeafFieldComparator
+	firstReverseMul int
 }
 
 // newMultiLeafFieldComparator constructs a multiLeafFieldComparator. Both slices must have
@@ -121,8 +121,8 @@ func (m *multiLeafFieldComparator) SetScorer(scorer Scorable) error {
 
 // SetHitsThresholdReached notifies only the first comparator (skipping is only
 // relevant for the primary sort key).
-func (m *multiLeafFieldComparator) SetHitsThresholdReached() {
-	m.firstComparator.SetHitsThresholdReached()
+func (m *multiLeafFieldComparator) SetHitsThresholdReached() error {
+	return m.firstComparator.SetHitsThresholdReached()
 }
 
 // CompetitiveIterator delegates to the first comparator (skipping is only
