@@ -153,11 +153,18 @@ func (d *ByteBuffersDirectory) CreateOutput(name string, ctx IOContext) (IndexOu
 	d.files[name] = file
 	d.AddOpenFile(name)
 
-	return &ByteBuffersIndexOutput{
+	out := &ByteBuffersIndexOutput{
 		BaseIndexOutput: spi.NewBaseIndexOutput(name),
 		file:            file,
 		directory:       d,
-	}, nil
+	}
+	// Java's ByteBuffersIndexOutput forwards every derived writer to a
+	// ByteBuffersDataOutput delegate, which inherits them from DataOutput.
+	// Gocene collapses that delegate into this type, so the same bodies are
+	// supplied by the embedded BaseDataOutput and reach the buffer through
+	// this type's own WriteByte/WriteBytes.
+	out.BaseDataOutput = *NewBaseDataOutput(out)
+	return out, nil
 }
 
 // OpenInput returns an IndexInput for reading an existing file.
@@ -732,14 +739,6 @@ func (out *ByteBuffersIndexOutput) WriteLong(i int64) error {
 		byte(i >> 32), byte(i >> 40), byte(i >> 48), byte(i >> 56),
 	}
 	return out.WriteBytes(b, 0, len(b))
-}
-
-// WriteString writes a string.
-func (out *ByteBuffersIndexOutput) WriteString(s string) error {
-	if err := out.WriteVInt(int32(len(s))); err != nil {
-		return err
-	}
-	return out.WriteBytes([]byte(s), 0, len(s))
 }
 
 // CopyBytes copies bytes from the given input into this output.

@@ -547,15 +547,55 @@ func (out *PagedBytesDataOutput) WriteByte(b byte) error {
 	return nil
 }
 
-// WriteBytes writes bytes from b.
+// WriteBytes writes length bytes from b starting at offset, filling the
+// current block and rolling over to a fresh block as many times as needed.
+//
+// Port of PagedBytesDataOutput.writeBytes (PagedBytes.java:390-422). Java's
+// leading assert on b.length is rendered as a returned error.
 func (out *PagedBytesDataOutput) WriteBytes(b []byte, offset, length int) error {
+	if offset < 0 || length < 0 || len(b) < offset+length {
+		return fmt.Errorf("b.length=%d offset=%d length=%d", len(b), offset, length)
+	}
 	if length == 0 {
 		return nil
 	}
-	return out.WriteBytesN(b[offset:], length)
+
+	p := out.pagedBytes
+	if p.frozen {
+		return fmt.Errorf("cannot write after freeze")
+	}
+
+	if p.upto == p.blockSize {
+		if p.currentBlock != nil {
+			p.addBlock(p.currentBlock)
+		}
+		p.currentBlock = make([]byte, p.blockSize)
+		p.upto = 0
+	}
+
+	offsetEnd := offset + length
+	for {
+		left := offsetEnd - offset
+		blockLeft := p.blockSize - p.upto
+		if blockLeft < left {
+			copy(p.currentBlock[p.upto:p.upto+blockLeft], b[offset:offset+blockLeft])
+			p.addBlock(p.currentBlock)
+			p.currentBlock = make([]byte, p.blockSize)
+			p.upto = 0
+			offset += blockLeft
+		} else {
+			// Last block
+			copy(p.currentBlock[p.upto:p.upto+left], b[offset:offset+left])
+			p.upto += left
+			break
+		}
+	}
+	return nil
 }
 
-// WriteBytesN writes exactly length bytes from b.
+// WriteBytesN writes exactly length bytes from the front of b. It has no Java
+// counterpart; it is the Gocene spelling of the two-argument writeBytes
+// convenience and therefore forwards to the real body above.
 func (out *PagedBytesDataOutput) WriteBytesN(b []byte, length int) error {
 	if length > len(b) {
 		return fmt.Errorf("length %d exceeds buffer size %d", length, len(b))
@@ -601,13 +641,17 @@ var _ DataOutput = (*PagedBytesDataOutput)(nil)
 
 // Additional DataInput methods to satisfy interface
 
-// ReadShort reads a 16-bit value.
+// ReadShort reads a 16-bit value, low byte first.
+//
+// The read-side counterpart of WriteShort above: Java's PagedBytesDataInput
+// overrides only readByte and readBytes, so readShort is inherited from
+// DataInput.readShort (DataInput.java:82-86), which is little-endian.
 func (in *PagedBytesDataInput) ReadShort() (int16, error) {
 	b, err := in.ReadBytesN(2)
 	if err != nil {
 		return 0, err
 	}
-	return int16(b[0])<<8 | int16(b[1]), nil
+	return int16(uint16(b[0]) | uint16(b[1])<<8), nil
 }
 
 // ReadInt reads a 32-bit value.
@@ -629,9 +673,15 @@ func (in *PagedBytesDataInput) ReadLong() (int64, error) {
 		int64(b[4])<<24 | int64(b[5])<<16 | int64(b[6])<<8 | int64(b[7]), nil
 }
 
-// ReadString reads a string.
+// ReadString reads a string: a vInt length followed by that many UTF-8 bytes.
+//
+// Java's PagedBytesDataInput overrides only readByte and readBytes; readString
+// is inherited from DataInput.readString (DataInput.java:230-235), which reads
+// the length as a vInt — not as a fixed 4-byte int. Reading a fixed int here
+// desynchronised the stream against PagedBytesDataOutput.WriteString, which
+// writes the vInt form, so the round trip did not close.
 func (in *PagedBytesDataInput) ReadString() (string, error) {
-	length, err := in.ReadInt()
+	length, err := in.ReadVInt()
 	if err != nil {
 		return "", err
 	}
@@ -644,9 +694,14 @@ func (in *PagedBytesDataInput) ReadString() (string, error) {
 
 // Additional DataOutput methods to satisfy interface
 
-// WriteShort writes a 16-bit value.
+// WriteShort writes a 16-bit value, low byte first.
+//
+// Java's PagedBytesDataOutput overrides only writeByte and writeBytes;
+// writeShort is inherited from DataOutput.writeShort (DataOutput.java:86-89),
+// which emits the low byte and then the high byte. This wrote them in the
+// opposite order.
 func (out *PagedBytesDataOutput) WriteShort(v int16) error {
-	buf := []byte{byte(v >> 8), byte(v)}
+	buf := []byte{byte(v), byte(v >> 8)}
 	return out.WriteBytes(buf, 0, len(buf))
 }
 

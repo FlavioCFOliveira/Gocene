@@ -17,10 +17,18 @@ import (
 // read.
 //
 // This is the Go port of org.apache.lucene.store.BufferedChecksumIndexInput
-// (Apache Lucene 10.4.0). Per the Lucene contract:
+// (Apache Lucene 10.5.0). Per the Lucene contract:
 //   - Clone and Slice are not supported and return an error.
 //   - The checksum is computed using BufferedChecksum wrapping a CRC32.
 //   - GetFilePointer and Length delegate to the wrapped IndexInput.
+//
+// Java overrides exactly readByte, readBytes, readShort, readInt, readLong and
+// readLongs. Everything else — readVInt, readVLong, readString, readInts,
+// readFloats, readMapOfStrings, readSetOfStrings — is inherited from DataInput
+// and is therefore built on the overridden primitives, so the digest sees every
+// byte. The embedded spi.BaseDataInput (whose Core is this input) supplies the
+// same inherited bodies here. Re-declaring any of them to delegate to the
+// wrapped input would carry those bytes past the digest.
 type BufferedChecksumIndexInput struct {
 	spi.BaseDataInput
 	main   IndexInput
@@ -110,25 +118,6 @@ func (in *BufferedChecksumIndexInput) ReadLong() (int64, error) {
 	return v, nil
 }
 
-// ReadString reads a length-prefixed UTF-8 string and updates the checksum.
-func (in *BufferedChecksumIndexInput) ReadString() (string, error) {
-	s, err := in.main.ReadString()
-	if err != nil {
-		return "", err
-	}
-	// Update checksum with length (VInt) and bytes
-	// This is tricky because we don't know the VInt bytes.
-	// The best way is to use a temporary buffer or just rely on the fact
-	// that ReadString in spi.BaseDataInput calls ReadVInt and ReadBytes.
-	// We should override those if we want to track.
-	// But we already override ReadByte and ReadBytes.
-	// spi.BaseDataInput's ReadString calls ReadVInt and ReadBytes.
-	// ReadVInt calls ReadByte in a loop.
-	// ReadBytes calls our overridden ReadBytes.
-	// So the checksum is actually already updated!
-	return s, nil
-}
-
 // GetChecksum returns the CRC32 checksum computed over every byte read so
 // far. Matches Lucene's getChecksum().
 func (in *BufferedChecksumIndexInput) GetChecksum() uint32 {
@@ -210,40 +199,6 @@ func (in *BufferedChecksumIndexInput) Clone() IndexInput {
 // UnsupportedOperationException for this method.
 func (in *BufferedChecksumIndexInput) Slice(desc string, offset int64, length int64) (IndexInput, error) {
 	return nil, ErrBufferedChecksumNotSupported
-}
-
-// ReadFloats reads len floats into dst.
-func (in *BufferedChecksumIndexInput) ReadFloats(dst []float32, offset, len int) error {
-	return in.main.ReadFloats(dst, offset, len)
-}
-
-// ReadInts reads a specified number of ints into an array at the specified offset.
-func (in *BufferedChecksumIndexInput) ReadInts(dst []int32, offset, length int) error {
-	return in.main.ReadInts(dst, offset, length)
-}
-
-// ReadMapOfStrings reads a map of strings and updates the checksum.
-func (in *BufferedChecksumIndexInput) ReadMapOfStrings() (map[string]string, error) {
-	m, err := in.main.ReadMapOfStrings()
-	if err != nil {
-		return nil, err
-	}
-	// To accurately track the checksum, we must update it with the actual bytes read.
-	// Since ReadMapOfStrings is a complex operation, we rely on the underlying
-	// input's checksumming if it has one, or we can't easily track it here.
-	// However, Lucene's BufferedChecksumIndexInput typically handles this by
-	// wrapping the underlying stream.
-	// For now, we delegate to main.
-	return m, nil
-}
-
-// ReadSetOfStrings reads a set of strings and updates the checksum.
-func (in *BufferedChecksumIndexInput) ReadSetOfStrings() ([]string, error) {
-	s, err := in.main.ReadSetOfStrings()
-	if err != nil {
-		return nil, err
-	}
-	return s, nil
 }
 
 // Ensure BufferedChecksumIndexInput satisfies the IndexInput interface.

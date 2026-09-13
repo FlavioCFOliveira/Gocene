@@ -224,11 +224,6 @@ func (in *NIOFSIndexInput) ReadLong() (int64, error) {
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56), nil
 }
 
-// ReadString reads a string.
-func (in *NIOFSIndexInput) ReadString() (string, error) {
-	return ReadString(in)
-}
-
 // SetPosition changes the current position in the file.
 // This operation discards the buffer and repositions the underlying file.
 func (in *NIOFSIndexInput) SetPosition(pos int64) error {
@@ -255,7 +250,7 @@ func (in *NIOFSIndexInput) Clone() IndexInput {
 	file, err := os.Open(in.path)
 	if err != nil {
 		// Return a clone that will fail on read
-		return &NIOFSIndexInput{
+		broken := &NIOFSIndexInput{
 			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 			file:           nil,
 			bufReader:      nil,
@@ -264,13 +259,15 @@ func (in *NIOFSIndexInput) Clone() IndexInput {
 			directory:      in.directory,
 			off:            in.off,
 		}
+		broken.Core = broken
+		return broken
 	}
 
 	// Position the new file at the current absolute position.
 	currentPos := in.GetFilePointer()
 	if _, err := file.Seek(in.off+currentPos, io.SeekStart); err != nil {
 		file.Close()
-		return &NIOFSIndexInput{
+		broken := &NIOFSIndexInput{
 			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 			file:           nil,
 			bufReader:      nil,
@@ -279,6 +276,8 @@ func (in *NIOFSIndexInput) Clone() IndexInput {
 			directory:      in.directory,
 			off:            in.off,
 		}
+		broken.Core = broken
+		return broken
 	}
 
 	in.directory.AddOpenFile(in.name)
@@ -292,6 +291,9 @@ func (in *NIOFSIndexInput) Clone() IndexInput {
 		directory:      in.directory,
 		off:            in.off,
 	}
+	// Every DataInput-derived reader (readVInt, readString, ...) dispatches
+	// through Core; a clone whose Core is unset would nil-panic on the first one.
+	clone.Core = clone
 	// Set the file pointer to match the original (logical, within the slice).
 	clone.SetFilePointer(currentPos)
 	return clone
@@ -318,7 +320,7 @@ func (in *NIOFSIndexInput) Slice(desc string, offset int64, length int64) (Index
 
 	in.directory.AddOpenFile(in.name)
 
-	return &NIOFSIndexInput{
+	slice := &NIOFSIndexInput{
 		BaseIndexInput: NewBaseIndexInput(desc, length),
 		file:           file,
 		bufReader:      bufio.NewReaderSize(file, NIOFSBufferSize),
@@ -326,7 +328,9 @@ func (in *NIOFSIndexInput) Slice(desc string, offset int64, length int64) (Index
 		name:           in.name,
 		directory:      in.directory,
 		off:            sliceOff,
-	}, nil
+	}
+	slice.Core = slice
+	return slice, nil
 }
 
 // ensureFileOpen returns an error if the underlying file handle is nil,
@@ -445,11 +449,6 @@ func (out *NIOFSIndexOutput) WriteLong(i int64) error {
 		byte(i >> 32), byte(i >> 40), byte(i >> 48), byte(i >> 56),
 	}
 	return out.WriteBytes(b, 0, len(b))
-}
-
-// WriteString writes a string.
-func (out *NIOFSIndexOutput) WriteString(s string) error {
-	return WriteString(out, s)
 }
 
 // Length returns the total length of the file written so far.

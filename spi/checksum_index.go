@@ -6,6 +6,7 @@ package spi
 
 import (
 	"encoding/binary"
+	"fmt"
 	"hash"
 	"hash/adler32"
 	"hash/crc32"
@@ -117,18 +118,6 @@ func (in *ChecksumIndexInput) ReadBytes(b []byte, offset, length int) error {
 	return nil
 }
 
-func (in *ChecksumIndexInput) ReadInts(dst []int32, offset, length int) error {
-	return in.input.ReadInts(dst, offset, length)
-}
-
-func (in *ChecksumIndexInput) ReadLongs(dst []int64, offset, length int) error {
-	return in.input.ReadLongs(dst, offset, length)
-}
-
-func (in *ChecksumIndexInput) ReadFloats(dst []float32, offset, length int) error {
-	return in.input.ReadFloats(dst, offset, length)
-}
-
 // ReadBytesN reads exactly n bytes and returns them, updating the checksum.
 func (in *ChecksumIndexInput) ReadBytesN(n int) ([]byte, error) {
 	b := make([]byte, n)
@@ -168,31 +157,24 @@ func (in *ChecksumIndexInput) ReadLong() (int64, error) {
 	return int64(binary.LittleEndian.Uint64(b)), nil
 }
 
-// ReadString reads a string.
-func (in *ChecksumIndexInput) ReadString() (string, error) {
-	return in.input.ReadString()
-}
-
 // SetPosition changes the current position in the file.
-// If the new position is ahead of the current position, it skips bytes
-// to update the checksum. If it's behind, it resets the checksum.
+//
+// A ChecksumIndexInput can only seek forward, and forward seeks are expensive
+// since they imply reading the bytes between the current position and the
+// target position in order to update the checksum. A backward seek is refused:
+// it would invalidate the running digest, and Lucene's contract is that the
+// digest of a ChecksumIndexInput always covers every byte from position zero.
+//
+// Port of ChecksumIndexInput.seek (ChecksumIndexInput.java:56-64), whose
+// IllegalStateException is rendered here as an error.
 func (in *ChecksumIndexInput) SetPosition(pos int64) error {
-	current := in.GetFilePointer()
-	if pos == current {
-		return nil
+	curFP := in.GetFilePointer()
+	skip := pos - curFP
+	if skip < 0 {
+		return NewChecksumError(fmt.Sprintf(
+			"*spi.ChecksumIndexInput cannot seek backwards (pos=%d getFilePointer()=%d)", pos, curFP))
 	}
-	if pos < current {
-		if err := in.input.SetPosition(pos); err != nil {
-			return err
-		}
-		// Reset the checksum digest since we cannot maintain checksum across backward seeks
-		in.digest.Reset()
-		in.SetFilePointer(pos)
-		return nil
-	}
-
-	// Forward seek: skip bytes to update checksum
-	return in.SkipBytes(pos - current)
+	return in.SkipBytes(skip)
 }
 
 // SkipBytes skips n bytes forward in the input and updates the checksum.
@@ -248,6 +230,9 @@ func (in *ChecksumIndexInput) Clone() IndexInput {
 		digest:         in.cloneDigest(),
 		checksum:       in.checksum,
 	}
+	// Every DataInput-derived reader dispatches through Core; without this the
+	// clone would nil-panic on its first ReadVInt/ReadString.
+	clone.Core = clone
 	clone.SetFilePointer(in.GetFilePointer())
 	return clone
 }
@@ -274,12 +259,14 @@ func (in *ChecksumIndexInput) Slice(desc string, offset int64, length int64) (In
 		return nil, err
 	}
 
-	return &ChecksumIndexInput{
+	slice := &ChecksumIndexInput{
 		BaseIndexInput: NewBaseIndexInput(desc, length),
 		input:          slicedInput,
 		digest:         in.cloneDigest(),
 		checksum:       in.checksum,
-	}, nil
+	}
+	slice.Core = slice
+	return slice, nil
 }
 
 // Close closes this ChecksumIndexInput and the underlying input.
@@ -322,10 +309,14 @@ func (e *ChecksumException) Error() string {
 // This is the Go port of Lucene's org.apache.lucene.store.ChecksumIndexOutput.
 type ChecksumIndexOutput struct {
 	*BaseIndexOutput
-	output   IndexOutput
-	digest   hash.Hash32
-	checksum ChecksumType
+	output     IndexOutput
+	digest     hash.Hash32
+	checksum   ChecksumType
+	copyBuffer []byte
 }
+
+// checksumCopyBufferSize mirrors DataOutput.COPY_BUFFER_SIZE (DataOutput.java:277).
+const checksumCopyBufferSize = 16384
 
 // NewChecksumIndexOutput creates a new ChecksumIndexOutput wrapping the given output.
 // By default, uses CRC32 for checksum calculation.
@@ -413,9 +404,20 @@ func (out *ChecksumIndexOutput) WriteLong(i int64) error {
 	return out.WriteBytes(b, 0, len(b))
 }
 
-// WriteString writes a string.
+// WriteString writes a string as a vInt length followed by its UTF-8 bytes,
+// through this output's own WriteVInt and WriteBytes so that every byte enters
+// the digest and advances the file pointer.
+//
+// Port of DataOutput.writeString (DataOutput.java:271-275). It must not be
+// delegated to the wrapped output: that would keep the string's bytes out of
+// the checksum, and the footer this type writes would then be rejected by
+// Apache Lucene.
 func (out *ChecksumIndexOutput) WriteString(s string) error {
-	return out.output.WriteString(s)
+	utf8Result := util.NewBytesRef([]byte(s))
+	if err := out.WriteVInt(int32(utf8Result.Length)); err != nil {
+		return err
+	}
+	return out.WriteBytes(utf8Result.Bytes, utf8Result.Offset, utf8Result.Length)
 }
 
 // WriteVInt writes a variable-length integer and updates the checksum.
@@ -477,9 +479,34 @@ func (out *ChecksumIndexOutput) WriteSetOfStrings(s []string) error {
 	return nil
 }
 
-// CopyBytes copies bytes from the input to this output.
+// CopyBytes copies numBytes bytes from the input into this output, through
+// this output's own WriteBytes so that the copied bytes enter the digest and
+// advance the file pointer.
+//
+// Port of DataOutput.copyBytes (DataOutput.java:281-294). Like WriteString it
+// must not be delegated to the wrapped output.
 func (out *ChecksumIndexOutput) CopyBytes(input DataInput, numBytes int64) error {
-	return out.output.CopyBytes(input, numBytes)
+	if numBytes < 0 {
+		return NewChecksumError(fmt.Sprintf("numBytes must be non-negative, got %d", numBytes))
+	}
+	left := numBytes
+	if out.copyBuffer == nil {
+		out.copyBuffer = make([]byte, checksumCopyBufferSize)
+	}
+	for left > 0 {
+		toCopy := int(left)
+		if left > checksumCopyBufferSize {
+			toCopy = checksumCopyBufferSize
+		}
+		if err := input.ReadBytes(out.copyBuffer, 0, toCopy); err != nil {
+			return err
+		}
+		if err := out.WriteBytes(out.copyBuffer, 0, toCopy); err != nil {
+			return err
+		}
+		left -= int64(toCopy)
+	}
+	return nil
 }
 
 // Length returns the current length of the file.

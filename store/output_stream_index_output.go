@@ -71,11 +71,6 @@ func (out *OutputStreamIndexOutput) WriteBytesN(b []byte, n int) error {
 	return nil
 }
 
-// WriteString writes a string.
-func (out *OutputStreamIndexOutput) WriteString(s string) error {
-	return WriteString(out, s)
-}
-
 // SetPosition sets the current position. Not supported for output streams.
 func (out *OutputStreamIndexOutput) SetPosition(pos int64) error {
 	return fmt.Errorf("SetPosition not supported for OutputStreamIndexOutput")

@@ -562,13 +562,19 @@ func (d *SimpleFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutpu
 
 	d.AddOpenFile(name)
 
-	return &SimpleFSIndexOutput{
+	out := &SimpleFSIndexOutput{
 		file:            file,
 		path:            path,
 		name:            name,
 		directory:       d,
 		BaseIndexOutput: spi.NewBaseIndexOutput(name),
-	}, nil
+	}
+	// The embedded BaseDataOutput supplies every derived writer Java inherits
+	// from DataOutput (writeVInt, writeString, writeMapOfStrings, ...). Those
+	// bodies reach the file through this type's own WriteByte/WriteBytes, which
+	// is exactly how Java's FSIndexOutput -> OutputStreamIndexOutput dispatches.
+	out.BaseDataOutput = *NewBaseDataOutput(out)
+	return out, nil
 }
 
 // SimpleFSIndexInput is an IndexInput implementation for SimpleFSDirectory.
@@ -686,11 +692,6 @@ func (in *SimpleFSIndexInput) ReadLong() (int64, error) {
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56), nil
 }
 
-// ReadString reads a string.
-func (in *SimpleFSIndexInput) ReadString() (string, error) {
-	return ReadString(in)
-}
-
 // SetPosition changes the current logical position in the input.
 // No OS seek is needed because ReadAt reads from an absolute offset.
 func (in *SimpleFSIndexInput) SetPosition(pos int64) error {
@@ -706,7 +707,7 @@ func (in *SimpleFSIndexInput) SetPosition(pos int64) error {
 // matching Lucene's NIOFSIndexInput.clone() semantics. Only the root input
 // owns the file descriptor and closes it.
 func (in *SimpleFSIndexInput) Clone() IndexInput {
-	return &SimpleFSIndexInput{
+	clone := &SimpleFSIndexInput{
 		BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 		file:           in.file,
 		path:           in.path,
@@ -715,6 +716,11 @@ func (in *SimpleFSIndexInput) Clone() IndexInput {
 		sliceOffset:    in.sliceOffset,
 		isClone:        true,
 	}
+	// Every DataInput-derived reader (readVInt, readString, ...) dispatches
+	// through Core; a clone whose Core is unset would nil-panic on the first
+	// one. Java gets this for free because the clone is the same object type.
+	clone.Core = clone
+	return clone
 }
 
 // Slice returns a subset of this IndexInput.
@@ -732,7 +738,7 @@ func (in *SimpleFSIndexInput) Slice(desc string, offset int64, length int64) (In
 	// dictionary and postings headers (rmp #4747).
 	absOffset := in.sliceOffset + offset
 
-	return &SimpleFSIndexInput{
+	slice := &SimpleFSIndexInput{
 		BaseIndexInput: NewBaseIndexInput(desc, length),
 		file:           in.file,
 		path:           in.path,
@@ -740,7 +746,9 @@ func (in *SimpleFSIndexInput) Slice(desc string, offset int64, length int64) (In
 		directory:      in.directory,
 		sliceOffset:    absOffset,
 		isClone:        true,
-	}, nil
+	}
+	slice.Core = slice
+	return slice, nil
 }
 
 // ensureFileOpen returns an error if the underlying file handle is nil,
@@ -838,11 +846,6 @@ func (out *SimpleFSIndexOutput) WriteLong(i int64) error {
 		byte(i >> 32), byte(i >> 40), byte(i >> 48), byte(i >> 56),
 	}
 	return out.WriteBytes(b, 0, len(b))
-}
-
-// WriteString writes a string.
-func (out *SimpleFSIndexOutput) WriteString(s string) error {
-	return WriteString(out, s)
 }
 
 // Length returns the total length of the file written so far.

@@ -360,10 +360,6 @@ func (in *MMapIndexInput) ReadLong() (int64, error) {
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56), nil
 }
 
-func (in *MMapIndexInput) ReadString() (string, error) {
-	return ReadString(in)
-}
-
 func (in *MMapIndexInput) SetPosition(pos int64) error {
 	if pos < 0 || pos > in.Length() {
 		return fmt.Errorf("invalid position: %d", pos)
@@ -375,7 +371,7 @@ func (in *MMapIndexInput) SetPosition(pos int64) error {
 func (in *MMapIndexInput) Clone() IndexInput {
 	full, err := in.directory.OpenInput(in.name, IOContextRead)
 	if err != nil {
-		return &MMapIndexInput{
+		broken := &MMapIndexInput{
 			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 			path:           in.path,
 			name:           in.name,
@@ -384,6 +380,8 @@ func (in *MMapIndexInput) Clone() IndexInput {
 			chunkSize:      in.chunkSize,
 			sliceOffset:    in.sliceOffset,
 		}
+		broken.Core = broken
+		return broken
 	}
 
 	if in.sliceOffset == 0 {
@@ -393,7 +391,7 @@ func (in *MMapIndexInput) Clone() IndexInput {
 	fm, ok := full.(*MMapIndexInput)
 	if !ok {
 		full.Close()
-		return &MMapIndexInput{
+		broken := &MMapIndexInput{
 			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 			path:           in.path,
 			name:           in.name,
@@ -402,8 +400,12 @@ func (in *MMapIndexInput) Clone() IndexInput {
 			chunkSize:      in.chunkSize,
 			sliceOffset:    in.sliceOffset,
 		}
+		broken.Core = broken
+		return broken
 	}
-	return &MMapIndexInput{
+	// Every DataInput-derived reader (readVInt, readString, ...) dispatches
+	// through Core; a clone whose Core is unset would nil-panic on the first one.
+	clone := &MMapIndexInput{
 		BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 		path:           fm.path,
 		name:           fm.name,
@@ -413,6 +415,8 @@ func (in *MMapIndexInput) Clone() IndexInput {
 		sliceOffset:    in.sliceOffset,
 		isSlice:        false,
 	}
+	clone.Core = clone
+	return clone
 }
 
 func (in *MMapIndexInput) Slice(desc string, offset int64, length int64) (IndexInput, error) {
@@ -420,7 +424,7 @@ func (in *MMapIndexInput) Slice(desc string, offset int64, length int64) (IndexI
 		return nil, fmt.Errorf("invalid slice parameters: offset=%d, length=%d, fileLength=%d", offset, length, in.Length())
 	}
 
-	return &MMapIndexInput{
+	slice := &MMapIndexInput{
 		BaseIndexInput: NewBaseIndexInput(desc, length),
 		path:           in.path,
 		name:           in.name,
@@ -429,7 +433,9 @@ func (in *MMapIndexInput) Slice(desc string, offset int64, length int64) (IndexI
 		chunkSize:      in.chunkSize,
 		sliceOffset:    in.sliceOffset + offset,
 		isSlice:        true,
-	}, nil
+	}
+	slice.Core = slice
+	return slice, nil
 }
 
 func (in *MMapIndexInput) ensureChunksOpen() error {
