@@ -504,66 +504,6 @@ func (n *MinShouldMatchNode) String() string {
 	return fmt.Sprintf("<min_should_match min=%d>", n.minimumShouldMatch)
 }
 
-// MultiPhraseQueryNode holds multiple alternative token arrays for each position,
-// forming a multi-phrase query.
-// This is the Go equivalent of Lucene's MultiPhraseQueryNode.
-type MultiPhraseQueryNode struct {
-	*QueryNodeImpl
-	field string
-}
-
-// NewMultiPhraseQueryNode creates a new MultiPhraseQueryNode.
-func NewMultiPhraseQueryNode(field string, children []QueryNode) *MultiPhraseQueryNode {
-	return &MultiPhraseQueryNode{
-		QueryNodeImpl: NewQueryNodeImpl(children),
-		field:         field,
-	}
-}
-
-// GetField returns the field name.
-func (n *MultiPhraseQueryNode) GetField() string { return n.field }
-
-// SetField sets the field name.
-func (n *MultiPhraseQueryNode) SetField(field string) { n.field = field }
-
-// ToQueryString emits a phrase-like representation.
-func (n *MultiPhraseQueryNode) ToQueryString(escapeSpecialSyntax bool) string {
-	var sb strings.Builder
-	if n.field != "" {
-		sb.WriteString(n.field)
-		sb.WriteString(":")
-	}
-	sb.WriteRune('"')
-	for i, child := range n.GetChildren() {
-		if i > 0 {
-			sb.WriteRune(' ')
-		}
-		sb.WriteString(child.ToQueryString(escapeSpecialSyntax))
-	}
-	sb.WriteRune('"')
-	return sb.String()
-}
-
-// CloneTree deep-copies this node.
-func (n *MultiPhraseQueryNode) CloneTree() QueryNode {
-	cloned := &MultiPhraseQueryNode{
-		QueryNodeImpl: NewQueryNodeImpl(nil),
-		field:         n.field,
-	}
-	for _, k := range n.GetTagKeys() {
-		cloned.SetTag(k, n.GetTag(k))
-	}
-	for _, child := range n.GetChildren() {
-		cloned.AddChild(child.CloneTree())
-	}
-	return cloned
-}
-
-// String returns a debug representation.
-func (n *MultiPhraseQueryNode) String() string {
-	return fmt.Sprintf("<multi_phrase field=%s positions=%d>", n.field, len(n.GetChildren()))
-}
-
 // IntervalQueryNode represents an interval function query.
 // This is the Go equivalent of Lucene's IntervalQueryNode.
 type IntervalQueryNode struct {

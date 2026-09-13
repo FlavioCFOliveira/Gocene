@@ -229,9 +229,7 @@ func (f *IntersectTermsEnumFrame) LoadNextFloorBlock() error {
 	if f.FloorDataReader == nil {
 		return errors.New("IntersectTermsEnumFrame.LoadNextFloorBlock: floorDataReader is nil")
 	}
-	if err := f.FloorDataReader.SetPosition(f.FloorDataPos); err != nil {
-		return fmt.Errorf("IntersectTermsEnumFrame.LoadNextFloorBlock: seek floor data: %w", err)
-	}
+	f.FloorDataReader.SetPosition(f.FloorDataPos)
 	for {
 		delta, err := f.FloorDataReader.ReadVLong()
 		if err != nil {
@@ -492,9 +490,7 @@ func (f *IntersectTermsEnumFrame) NextLeaf() error {
 	}
 	f.Suffix = int(suffix)
 	f.StartBytePos = f.SuffixesReader.GetPosition()
-	if err := f.SuffixesReader.SetPosition(f.StartBytePos + f.Suffix); err != nil {
-		return fmt.Errorf("IntersectTermsEnumFrame.NextLeaf: skip suffix bytes: %w", err)
-	}
+	f.SuffixesReader.SetPosition(f.StartBytePos + f.Suffix)
 	return nil
 }
 
@@ -516,9 +512,7 @@ func (f *IntersectTermsEnumFrame) NextNonLeaf() (bool, error) {
 	}
 	f.Suffix = int(uint32(code) >> 1)
 	f.StartBytePos = f.SuffixesReader.GetPosition()
-	if err := f.SuffixesReader.SetPosition(f.StartBytePos + f.Suffix); err != nil {
-		return false, fmt.Errorf("IntersectTermsEnumFrame.NextNonLeaf: skip suffix bytes: %w", err)
-	}
+	f.SuffixesReader.SetPosition(f.StartBytePos + f.Suffix)
 	if code&1 == 0 {
 		// A normal term.
 		if f.TermState != nil {

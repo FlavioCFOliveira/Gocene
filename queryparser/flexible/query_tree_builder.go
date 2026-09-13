@@ -220,7 +220,7 @@ func (b *FuzzyQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 	// Create fuzzy query
 	// Convert minSimilarity (0.0-1.0) to maxEdits (integer)
 	// This is a simplified conversion - in practice, this would use Levenshtein distance calculation
-	maxEdits := calculateMaxEdits(fuzzyNode.GetMinSimilarity(), len(fuzzyNode.GetText()))
+	maxEdits := calculateMaxEdits(float64(fuzzyNode.GetSimilarity()), len(fuzzyNode.GetText()))
 
 	term := index.NewTerm(fuzzyNode.GetField(), fuzzyNode.GetText())
 	fuzzyQuery := search.NewFuzzyQueryWithParams(term, maxEdits, fuzzyNode.GetPrefixLength(), 50)

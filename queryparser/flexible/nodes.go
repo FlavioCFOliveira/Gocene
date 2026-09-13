@@ -4,12 +4,6 @@
 
 package flexible
 
-import (
-	"fmt"
-	"strconv"
-	"strings"
-)
-
 // FieldableNode is implemented by query nodes that carry a field name.
 // This is the Go equivalent of Lucene's FieldableNode.
 type FieldableNode interface {

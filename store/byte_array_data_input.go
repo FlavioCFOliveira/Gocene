@@ -32,18 +32,18 @@ func NewByteArrayDataInput(bytes []byte) *ByteArrayDataInput {
 // starting at the specified offset and with the given length.
 func NewByteArrayDataInputWithOffset(bytes []byte, offset, len int) *ByteArrayDataInput {
 	in := &ByteArrayDataInput{}
-	in.ResetWithOffset(bytes, offset, len)
+	in.ResetWithSlice(bytes, offset, len)
 	return in
 }
 
 // Reset resets the input to read from the given byte slice.
 func (in *ByteArrayDataInput) Reset(bytes []byte) {
-	in.ResetWithOffset(bytes, 0, len(bytes))
+	in.ResetWithSlice(bytes, 0, len(bytes))
 }
 
-// ResetWithOffset resets the input to read from the given byte slice, starting at the specified offset
+// ResetWithSlice resets the input to read from the given byte slice, starting at the specified offset
 // and with the given length.
-func (in *ByteArrayDataInput) ResetWithOffset(bytes []byte, offset, len int) {
+func (in *ByteArrayDataInput) ResetWithSlice(bytes []byte, offset, len int) {
 	in.bytes = bytes
 	in.pos = offset
 	in.limit = offset + len
@@ -51,7 +51,7 @@ func (in *ByteArrayDataInput) ResetWithOffset(bytes []byte, offset, len int) {
 }
 
 // Rewind sets the position to 0.
-// NOTE: this is not correct if ResetWithOffset was called with a non-zero offset.
+// NOTE: this is not correct if ResetWithSlice was called with a non-zero offset.
 func (in *ByteArrayDataInput) Rewind() {
 	in.pos = 0
 }

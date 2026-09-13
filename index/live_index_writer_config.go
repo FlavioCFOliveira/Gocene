@@ -53,11 +53,11 @@ type LiveIndexWriterConfig struct {
 }
 
 func NewLiveIndexWriterConfig(analyzer analysis.Analyzer) *LiveIndexWriterConfig {
-	return &LiveIndexWriterConfig{
+	c := &LiveIndexWriterConfig{
 		analyzer:        analyzer,
 		ramBufferSizeMB: 16.0,
 		maxBufferedDocs: -1,
-		delPolicy:       &KeepOnlyLastCommitDeletionPolicy{},
+		delPolicy:       NewKeepOnlyLastCommitDeletionPolicy(),
 		useCompoundFile: true,
 		openMode:        CreateOrAppend,
 		// No default Similarity: the concrete default (BM25Similarity) lives
@@ -66,16 +66,26 @@ func NewLiveIndexWriterConfig(analyzer analysis.Analyzer) *LiveIndexWriterConfig
 		// Lucene's default norm encoding call SetSimilarity(search.DefaultSimilarity)
 		// explicitly (mirrored by search.NewIndexSearcher's own default).
 		similarity:                  nil,
-		mergeScheduler:              &ConcurrentMergeScheduler{},
+		mergeScheduler:              NewConcurrentMergeScheduler(),
 		codec:                       GetDefaultCodec(),
 		infoStream:                  util.DefaultInfoStream(),
-		mergePolicy:                 &TieredMergePolicy{},
-		flushPolicy:                 &FlushByRamOrCountsPolicy{},
+		mergePolicy:                 NewTieredMergePolicy(),
 		readerPooling:               true,
 		perThreadHardLimitMB:        1945,
 		maxFullFlushMergeWaitMillis: 500,
 		eventListener:               IndexWriterEventListenerNoopInstance,
+		// LiveIndexWriterConfig.java:57 —
+		// `protected int createdVersionMajor = Version.LATEST.major;`
+		createdVersionMajor: util.Latest.Major,
 	}
+	// Java builds the policy with `new FlushByRamOrCountsPolicy()` and has
+	// IndexWriter bind the config afterwards (IndexWriter.java:1140 —
+	// `config.getFlushPolicy().init(config)`). Gocene's FlushByRamOrCountsPolicy
+	// takes the config at construction, so the binding happens here, once the
+	// config value exists. A zero-valued literal would leave cfg nil and make
+	// every OnChange dereference it.
+	c.flushPolicy = NewFlushByRamOrCountsPolicy(c)
+	return c
 }
 
 func (c *LiveIndexWriterConfig) GetAnalyzer() analysis.Analyzer {

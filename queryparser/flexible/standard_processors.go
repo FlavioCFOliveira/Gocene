@@ -750,7 +750,7 @@ func (b *StandardFuzzyQueryNodeBuilder) Build(queryNode QueryNode) (search.Query
 	if !ok {
 		return nil, fmt.Errorf("expected FuzzyQueryNode, got %T", queryNode)
 	}
-	minSim := n.GetMinSimilarity()
+	minSim := float64(n.GetSimilarity())
 	prefixLen := n.GetPrefixLength()
 
 	// Convert similarity to maxEdits (Lucene convention: float < 1 = ratio, >= 1 = integer edits)

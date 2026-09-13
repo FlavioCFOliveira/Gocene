@@ -4,10 +4,6 @@
 
 package flexible
 
-import (
-	"fmt"
-)
-
 // DeletedQueryNode represents a node that was deleted from the query node tree.
 // This is the Go equivalent of Lucene's DeletedQueryNode.
 type DeletedQueryNode struct {

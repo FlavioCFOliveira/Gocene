@@ -487,15 +487,15 @@ func (p *queryStringParser) createTermNode(field, term string, start, end int) (
 	// Check for fuzzy (~)
 	if strings.HasSuffix(term, "~") {
 		baseTerm := term[:len(term)-1]
-		return NewFuzzyQueryNode(field, baseTerm, 0.5, 0, start, end), nil
+		return NewFuzzyQueryNode(field, baseTerm, 0.5, start, end), nil
 	}
 
 	// Check for fuzzy with similarity (~N)
 	if idx := strings.LastIndex(term, "~"); idx > 0 && idx < len(term)-1 {
 		baseTerm := term[:idx]
 		simStr := term[idx+1:]
-		if sim, err := strconv.ParseFloat(simStr, 64); err == nil {
-			return NewFuzzyQueryNode(field, baseTerm, sim, 0, start, end), nil
+		if sim, err := strconv.ParseFloat(simStr, 32); err == nil {
+			return NewFuzzyQueryNode(field, baseTerm, float32(sim), start, end), nil
 		}
 	}
 
