@@ -82,7 +82,7 @@ func checkFooter50(in checksumLike50) error {
 	if remaining > footerLen {
 		return fmt.Errorf("lucene50 compound: misplaced codec footer (extended?): remaining=%d", remaining)
 	}
-	magic, err := store.ReadInt32(in)
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func checkFooter50(in checksumLike50) error {
 	if magic != footerMagic {
 		return fmt.Errorf("lucene50 compound: codec footer mismatch: actual=%#x expected=%#x", magic, footerMagic)
 	}
-	alg, err := store.ReadInt32(in)
+	alg, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func checkFooter50(in checksumLike50) error {
 		return fmt.Errorf("lucene50 compound: codec footer unknown algorithmID: %d", alg)
 	}
 	actualChecksum := int64(in.GetChecksum())
-	expectedChecksum, err := store.ReadInt64(in)
+	expectedChecksum, err := store.ReadBELong(in)
 	if err != nil {
 		return err
 	}

@@ -72,7 +72,9 @@ const codecMagic int32 = 0x3FD76C17
 //	n bytes  codec name (ASCII)
 //	4 bytes  big-endian version
 func checkHeader(r *store.ByteArrayDataInput, codec string, minV, maxV int32) (int32, error) {
-	magic, err := store.ReadInt32(r)
+	// CodecUtil.checkHeader reads the magic with CodecUtil.readBEInt
+	// (CodecUtil.java:185), i.e. BIG-endian, not DataInput.readInt.
+	magic, err := store.ReadBEInt(r)
 	if err != nil {
 		return 0, fmt.Errorf("ko/dict: checkHeader(%s): read magic: %w", codec, err)
 	}
@@ -86,7 +88,9 @@ func checkHeader(r *store.ByteArrayDataInput, codec string, minV, maxV int32) (i
 	if name != codec {
 		return 0, fmt.Errorf("ko/dict: checkHeader(%s): codec name mismatch: got %q", codec, name)
 	}
-	version, err := store.ReadInt32(r)
+	// CodecUtil.checkHeaderNoMagic reads the version with CodecUtil.readBEInt
+	// (CodecUtil.java:209).
+	version, err := store.ReadBEInt(r)
 	if err != nil {
 		return 0, fmt.Errorf("ko/dict: checkHeader(%s): read version: %w", codec, err)
 	}

@@ -826,7 +826,9 @@ func readSegmentInfosByFileName(directory store.Directory, fileName string) (*Se
 		return nil, err
 	}
 
-	magic, err := store.ReadInt32(in)
+	// The codec magic is the BIG-endian CODEC_MAGIC of CodecUtil.writeHeader
+	// (CodecUtil.java:83), not a little-endian DataInput.readInt.
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		_ = in.Close()
 		return nil, err

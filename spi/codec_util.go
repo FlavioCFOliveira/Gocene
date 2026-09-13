@@ -65,9 +65,76 @@ const CodecMagic int32 = 0x3FD76C17
 // Mirrors org.apache.lucene.codecs.CodecUtil.FOOTER_MAGIC = ^0x3FD76C17.
 const FooterMagic int32 = ^0x3FD76C17
 
-// WriteIndexHeader writes a codec index header: magic (int32) + codec name
-// (string) + version (int32) + id (16 bytes) + suffix (len byte + bytes).
-// Byte-for-byte identical to org.apache.lucene.codecs.CodecUtil.writeIndexHeader.
+// WriteBEInt writes an int value on header / footer with big endian order.
+//
+// Port of org.apache.lucene.codecs.CodecUtil#writeBEInt (CodecUtil.java:653).
+// Lucene's DataOutput.writeInt is LITTLE-endian; every fixed-width field of a
+// codec header or footer goes through this big-endian writer instead.
+func WriteBEInt(out DataOutput, i int32) error {
+	if err := out.WriteByte(byte(i >> 24)); err != nil {
+		return err
+	}
+	if err := out.WriteByte(byte(i >> 16)); err != nil {
+		return err
+	}
+	if err := out.WriteByte(byte(i >> 8)); err != nil {
+		return err
+	}
+	return out.WriteByte(byte(i))
+}
+
+// WriteBELong writes a long value on header / footer with big endian order.
+//
+// Port of org.apache.lucene.codecs.CodecUtil#writeBELong (CodecUtil.java:661).
+func WriteBELong(out DataOutput, l int64) error {
+	if err := WriteBEInt(out, int32(l>>32)); err != nil {
+		return err
+	}
+	return WriteBEInt(out, int32(l))
+}
+
+// ReadBEInt reads an int value from header / footer with big endian order.
+//
+// Port of org.apache.lucene.codecs.CodecUtil#readBEInt (CodecUtil.java:667).
+func ReadBEInt(in DataInput) (int32, error) {
+	b1, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	b2, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	b3, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	b4, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	return int32(b1)<<24 | int32(b2)<<16 | int32(b3)<<8 | int32(b4), nil
+}
+
+// ReadBELong reads a long value from header / footer with big endian order.
+//
+// Port of org.apache.lucene.codecs.CodecUtil#readBELong (CodecUtil.java:675).
+func ReadBELong(in DataInput) (int64, error) {
+	hi, err := ReadBEInt(in)
+	if err != nil {
+		return 0, err
+	}
+	lo, err := ReadBEInt(in)
+	if err != nil {
+		return 0, err
+	}
+	return int64(hi)<<32 | (int64(lo) & 0xFFFFFFFF), nil
+}
+
+// WriteIndexHeader writes a codec index header: magic (BE int32) + codec name
+// (string) + version (BE int32) + id (16 bytes) + suffix (len byte + bytes).
+// Byte-for-byte identical to org.apache.lucene.codecs.CodecUtil.writeIndexHeader
+// (CodecUtil.java:121-135).
 func WriteIndexHeader(out IndexOutput, codec string, version int32, id []byte, suffix string) error {
 	if len(id) != 16 {
 		return fmt.Errorf("WriteIndexHeader: id length must be 16, got %d", len(id))
@@ -75,13 +142,13 @@ func WriteIndexHeader(out IndexOutput, codec string, version int32, id []byte, s
 	if len(suffix) > 255 {
 		return fmt.Errorf("WriteIndexHeader: suffix too long (%d > 255)", len(suffix))
 	}
-	if err := out.WriteInt(CodecMagic); err != nil {
+	if err := WriteBEInt(out, CodecMagic); err != nil {
 		return err
 	}
 	if err := out.WriteString(codec); err != nil {
 		return err
 	}
-	if err := out.WriteInt(version); err != nil {
+	if err := WriteBEInt(out, version); err != nil {
 		return err
 	}
 	if err := out.WriteBytes(id, 0, len(id)); err != nil {
@@ -102,7 +169,7 @@ func WriteIndexHeader(out IndexOutput, codec string, version int32, id []byte, s
 // Returns the version number on success.
 // Mirrors org.apache.lucene.codecs.CodecUtil.checkIndexHeader.
 func CheckIndexHeader(in IndexInput, codec string, minVersion, maxVersion int32, expectedID []byte, expectedSuffix string) (int32, error) {
-	magic, err := in.ReadInt()
+	magic, err := ReadBEInt(in)
 	if err != nil {
 		return 0, err
 	}
@@ -116,7 +183,7 @@ func CheckIndexHeader(in IndexInput, codec string, minVersion, maxVersion int32,
 	if actualCodec != codec {
 		return 0, fmt.Errorf("CheckIndexHeader: codec mismatch %q (expected %q)", actualCodec, codec)
 	}
-	version, err := in.ReadInt()
+	version, err := ReadBEInt(in)
 	if err != nil {
 		return 0, err
 	}
@@ -148,32 +215,32 @@ func CheckIndexHeader(in IndexInput, codec string, minVersion, maxVersion int32,
 	return version, nil
 }
 
-// WriteFooter writes the codec footer: FooterMagic (int32) + algo=0 (int32) +
-// CRC32 checksum (int64). out must be a *ChecksumIndexOutput.
-// Mirrors org.apache.lucene.codecs.CodecUtil.writeFooter.
+// WriteFooter writes the codec footer: FooterMagic (BE int32) + algo=0
+// (BE int32) + CRC32 checksum (BE int64). out must be a *ChecksumIndexOutput.
+// Mirrors org.apache.lucene.codecs.CodecUtil.writeFooter (CodecUtil.java:409).
 func WriteFooter(out *ChecksumIndexOutput) error {
-	if err := out.WriteInt(FooterMagic); err != nil {
+	if err := WriteBEInt(out, FooterMagic); err != nil {
 		return err
 	}
-	if err := out.WriteInt(0); err != nil { // algo = CRC32
+	if err := WriteBEInt(out, 0); err != nil { // algo = CRC32
 		return err
 	}
 	checksum := out.GetChecksum()
-	return out.WriteLong(int64(checksum))
+	return WriteBELong(out, int64(checksum))
 }
 
 // CheckFooter validates the codec footer and returns the checksum.
 // in must be positioned just before the footer (FooterMagic field).
 // Mirrors org.apache.lucene.codecs.CodecUtil.checkFooter.
 func CheckFooter(in *ChecksumIndexInput) (int64, error) {
-	magic, err := in.ReadInt()
+	magic, err := ReadBEInt(in)
 	if err != nil {
 		return 0, err
 	}
 	if magic != FooterMagic {
 		return 0, fmt.Errorf("CheckFooter: invalid footer magic 0x%x (expected 0x%x)", magic, FooterMagic)
 	}
-	algo, err := in.ReadInt()
+	algo, err := ReadBEInt(in)
 	if err != nil {
 		return 0, err
 	}
@@ -181,7 +248,7 @@ func CheckFooter(in *ChecksumIndexInput) (int64, error) {
 		return 0, fmt.Errorf("CheckFooter: unknown checksum algorithm %d", algo)
 	}
 	actualChecksum := in.GetChecksum()
-	expectedChecksum, err := in.ReadLong()
+	expectedChecksum, err := ReadBELong(in)
 	if err != nil {
 		return 0, err
 	}

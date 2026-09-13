@@ -334,7 +334,7 @@ func checkFooterWithChecksum(in checksumIndexInputLike) error {
 		return fmt.Errorf("misplaced codec footer (extended?): remaining=%d", remaining)
 	}
 
-	magic, err := store.ReadInt32(in)
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -342,7 +342,7 @@ func checkFooterWithChecksum(in checksumIndexInputLike) error {
 	if magic != footerMagic {
 		return fmt.Errorf("codec footer mismatch: actual=%x expected=%x", magic, footerMagic)
 	}
-	alg, err := store.ReadInt32(in)
+	alg, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -351,7 +351,7 @@ func checkFooterWithChecksum(in checksumIndexInputLike) error {
 	}
 
 	actualChecksum := int64(in.GetChecksum())
-	expectedChecksum, err := store.ReadInt64(in)
+	expectedChecksum, err := store.ReadBELong(in)
 	if err != nil {
 		return err
 	}

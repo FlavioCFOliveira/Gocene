@@ -1084,8 +1084,9 @@ func readSegmentInfosFileByGen(dir store.Directory, name string, gen int64) (*Se
 	if err != nil {
 		return nil, err
 	}
-	// Peek at the magic to validate the format before delegating.
-	magic, err := store.ReadInt32(rawIn)
+	// Peek at the magic to validate the format before delegating. The codec
+	// magic is BIG-endian (CodecUtil.java:83), not DataInput.readInt.
+	magic, err := store.ReadBEInt(rawIn)
 	if err != nil {
 		_ = rawIn.Close()
 		return nil, fmt.Errorf("readSegmentInfosFile %q: read magic: %w", name, err)

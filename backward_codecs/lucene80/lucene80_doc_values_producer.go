@@ -921,7 +921,7 @@ func checkLucene80DVFooter(in *bcstore.EndiannessReverserChecksumIndexInput) err
 	if remaining > footerLen {
 		return fmt.Errorf("lucene80 doc values: misplaced codec footer (too long): remaining=%d", remaining)
 	}
-	magic, err := gstore.ReadInt32(in)
+	magic, err := gstore.ReadBEInt(in)
 	if err != nil {
 		return fmt.Errorf("lucene80 doc values: footer magic: %w", err)
 	}
@@ -929,7 +929,7 @@ func checkLucene80DVFooter(in *bcstore.EndiannessReverserChecksumIndexInput) err
 	if magic != footerMagic {
 		return fmt.Errorf("lucene80 doc values: footer magic mismatch: got %x want %x", magic, footerMagic)
 	}
-	algID, err := gstore.ReadInt32(in)
+	algID, err := gstore.ReadBEInt(in)
 	if err != nil {
 		return fmt.Errorf("lucene80 doc values: footer algorithmID: %w", err)
 	}
@@ -937,7 +937,7 @@ func checkLucene80DVFooter(in *bcstore.EndiannessReverserChecksumIndexInput) err
 		return fmt.Errorf("lucene80 doc values: unknown algorithmID: %d", algID)
 	}
 	actualChecksum := int64(in.GetChecksum())
-	expected, err := gstore.ReadInt64(in)
+	expected, err := gstore.ReadBELong(in)
 	if err != nil {
 		return fmt.Errorf("lucene80 doc values: footer checksum: %w", err)
 	}

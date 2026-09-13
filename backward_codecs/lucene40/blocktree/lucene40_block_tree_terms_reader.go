@@ -469,7 +469,7 @@ func checkFooter(in checksumLike) error {
 	if remaining > footerLen {
 		return fmt.Errorf("blocktree: misplaced codec footer (extended?): remaining=%d", remaining)
 	}
-	magic, err := store.ReadInt32(in)
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -477,7 +477,7 @@ func checkFooter(in checksumLike) error {
 	if magic != footerMagic {
 		return fmt.Errorf("blocktree: codec footer mismatch: actual=%#x expected=%#x", magic, footerMagic)
 	}
-	alg, err := store.ReadInt32(in)
+	alg, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -485,7 +485,7 @@ func checkFooter(in checksumLike) error {
 		return fmt.Errorf("blocktree: codec footer unknown algorithmID: %d", alg)
 	}
 	actualChecksum := int64(in.GetChecksum())
-	expectedChecksum, err := store.ReadInt64(in)
+	expectedChecksum, err := store.ReadBELong(in)
 	if err != nil {
 		return err
 	}

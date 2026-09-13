@@ -11,6 +11,11 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
+// Endianness: Lucene's DataOutput.writeInt / writeLong are LITTLE-endian, but
+// every fixed-width field of a codec header or footer is written through
+// CodecUtil.writeBEInt / writeBELong and is therefore BIG-endian
+// (CodecUtil.java:83,85,410,411,653,661). See store/codec_util.go.
+
 const (
 	// CODEC_MAGIC is the magic number for codec headers.
 	CODEC_MAGIC int32 = 0x3FD76C17
@@ -44,13 +49,13 @@ func WriteHeader(out store.IndexOutput, codec string, version int32) error {
 	if err := checkCodecName(codec); err != nil {
 		return err
 	}
-	if err := store.WriteInt32(out, CODEC_MAGIC); err != nil {
+	if err := store.WriteBEInt(out, CODEC_MAGIC); err != nil {
 		return err
 	}
 	if err := store.WriteString(out, codec); err != nil {
 		return err
 	}
-	return store.WriteInt32(out, version)
+	return store.WriteBEInt(out, version)
 }
 
 // WriteIndexHeader writes an index header, which includes a unique ID and suffix.
@@ -99,7 +104,7 @@ func checkCodecName(codec string) error {
 
 // CheckHeader reads and validates a codec header.
 func CheckHeader(in store.IndexInput, codec string, minVersion, maxVersion int32) (int32, error) {
-	magic, err := store.ReadInt32(in)
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		return 0, err
 	}
@@ -113,7 +118,7 @@ func CheckHeader(in store.IndexInput, codec string, minVersion, maxVersion int32
 	if actualCodec != codec {
 		return 0, fmt.Errorf("invalid codec name: %s (expected %s)", actualCodec, codec)
 	}
-	version, err := store.ReadInt32(in)
+	version, err := store.ReadBEInt(in)
 	if err != nil {
 		return 0, err
 	}
@@ -154,10 +159,10 @@ func CheckIndexHeader(in store.IndexInput, codec string, minVersion, maxVersion 
 
 // WriteFooter writes a codec footer with a checksum.
 func WriteFooter(out store.IndexOutput) error {
-	if err := store.WriteInt32(out, FOOTER_MAGIC); err != nil {
+	if err := store.WriteBEInt(out, FOOTER_MAGIC); err != nil {
 		return err
 	}
-	if err := store.WriteInt32(out, 0); err != nil {
+	if err := store.WriteBEInt(out, 0); err != nil {
 		return err
 	}
 	return WriteCRC(out)
@@ -167,14 +172,14 @@ func WriteFooter(out store.IndexOutput) error {
 func WriteCRC(out store.IndexOutput) error {
 	if cw, ok := out.(checksumWriter); ok {
 		checksum := cw.GetChecksum()
-		return store.WriteInt64(out, int64(checksum))
+		return store.WriteBELong(out, int64(checksum))
 	}
 	return fmt.Errorf("output does not support checksums")
 }
 
 // ReadCRC reads a checksum from the input.
 func ReadCRC(in store.IndexInput) (int64, error) {
-	checksum, err := store.ReadInt64(in)
+	checksum, err := store.ReadBELong(in)
 	if err != nil {
 		return 0, err
 	}
@@ -212,7 +217,7 @@ func validateFooter(in store.IndexInput) error {
 		return fmt.Errorf("misplaced codec footer (file extended?): remaining=%d, expected=%d, fp=%d", remaining, expected, in.GetFilePointer())
 	}
 
-	magic, err := store.ReadInt32(in)
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -220,7 +225,7 @@ func validateFooter(in store.IndexInput) error {
 		return fmt.Errorf("codec footer mismatch: actual footer=%x vs expected footer=%x", magic, FOOTER_MAGIC)
 	}
 
-	algorithmID, err := store.ReadInt32(in)
+	algorithmID, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}

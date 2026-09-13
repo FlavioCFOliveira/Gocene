@@ -1189,8 +1189,9 @@ func WriteSegmentInfos(si *SegmentInfos, directory Directory) error {
 		return err
 	}
 
-	// Index version counter.
-	if err := out.WriteLong(si.version); err != nil {
+	// Index version counter. BE long: SegmentInfos.write ->
+	// CodecUtil.writeBELong (SegmentInfos.java:620 area / readBELong at :372).
+	if err := WriteBELong(out, si.version); err != nil {
 		return err
 	}
 
@@ -1199,8 +1200,9 @@ func WriteSegmentInfos(si *SegmentInfos, directory Directory) error {
 		return err
 	}
 
-	// Number of segments.
-	if err := out.WriteInt(int32(len(si.segments))); err != nil {
+	// Number of segments. BE int: CodecUtil.writeBEInt (SegmentInfos.java,
+	// read back with CodecUtil.readBEInt at SegmentInfos.java:374).
+	if err := WriteBEInt(out, int32(len(si.segments))); err != nil {
 		return err
 	}
 
@@ -1292,28 +1294,31 @@ func writeSegmentCommitInfoLucene104(out IndexOutput, sci *SegmentCommitInfo) er
 		return err
 	}
 
-	// Deletion generation (-1 if no deletions file).
-	if err := out.WriteLong(sci.DelGen()); err != nil {
+	// Deletion generation (-1 if no deletions file). BE long:
+	// CodecUtil.writeBELong (SegmentInfos.java:658).
+	if err := WriteBELong(out, sci.DelGen()); err != nil {
 		return err
 	}
 
-	// Deletion count.
-	if err := out.WriteInt(int32(sci.DelCount())); err != nil {
+	// Deletion count. BE int: CodecUtil.writeBEInt (SegmentInfos.java:669).
+	if err := WriteBEInt(out, int32(sci.DelCount())); err != nil {
 		return err
 	}
 
-	// FieldInfos generation (-1 if none).
-	if err := out.WriteLong(sci.FieldInfosGen()); err != nil {
+	// FieldInfos generation (-1 if none). BE long: CodecUtil.writeBELong
+	// (SegmentInfos.java:670).
+	if err := WriteBELong(out, sci.FieldInfosGen()); err != nil {
 		return err
 	}
 
-	// DocValues generation (-1 if none).
-	if err := out.WriteLong(sci.DocValuesGen()); err != nil {
+	// DocValues generation (-1 if none). BE long: CodecUtil.writeBELong
+	// (SegmentInfos.java:671).
+	if err := WriteBELong(out, sci.DocValuesGen()); err != nil {
 		return err
 	}
 
-	// Soft delete count.
-	if err := out.WriteInt(int32(sci.SoftDelCount())); err != nil {
+	// Soft delete count. BE int: CodecUtil.writeBEInt (SegmentInfos.java:682).
+	if err := WriteBEInt(out, int32(sci.SoftDelCount())); err != nil {
 		return err
 	}
 
@@ -1347,11 +1352,11 @@ func writeSegmentCommitInfoLucene104(out IndexOutput, sci *SegmentCommitInfo) er
 }
 
 // readDVUpdateFilesLucene reads the docValuesUpdatesFiles map in Lucene wire
-// format: count as BE int32, then per entry: key as BE int32 + value as
-// ReadSetOfStrings.  This differs from store.ReadMapOfIntToSetOfStrings which
-// uses VInt for both count and key.
+// format (SegmentInfos.java:441-449): count as BE int32, then per entry:
+// key as BE int32 + value as ReadSetOfStrings.  Lucene uses CodecUtil.readBEInt
+// here, never readVInt.
 func readDVUpdateFilesLucene(in IndexInput) (map[int]map[string]struct{}, error) {
-	countRaw, err := in.ReadInt()
+	countRaw, err := ReadBEInt(in)
 	if err != nil {
 		return nil, err
 	}
@@ -1361,7 +1366,7 @@ func readDVUpdateFilesLucene(in IndexInput) (map[int]map[string]struct{}, error)
 	}
 	m := make(map[int]map[string]struct{}, count)
 	for i := 0; i < count; i++ {
-		keyRaw, err := in.ReadInt()
+		keyRaw, err := ReadBEInt(in)
 		if err != nil {
 			return nil, err
 		}
@@ -1405,11 +1410,11 @@ func minSegmentVersion(segments SegmentCommitInfoList) (int32, int32, int32) {
 // format: count as BE int32, then per entry: key as BE int32 + value as
 // WriteSetOfStrings.  This mirrors CodecUtil.writeBEInt used by Lucene Java.
 func writeDVUpdateFilesLucene(out IndexOutput, m map[int]map[string]struct{}) error {
-	if err := out.WriteInt(int32(len(m))); err != nil {
+	if err := WriteBEInt(out, int32(len(m))); err != nil {
 		return err
 	}
 	for k, v := range m {
-		if err := out.WriteInt(int32(k)); err != nil {
+		if err := WriteBEInt(out, int32(k)); err != nil {
 			return err
 		}
 		files := make([]string, 0, len(v))
@@ -1462,8 +1467,8 @@ func ReadSegmentInfos(directory Directory) (*SegmentInfos, error) {
 
 	// Peek at the first 4 bytes to determine the format without consuming them
 	// from a non-seekable stream.  Both formats write an int32 as their first
-	// 4 bytes, so we can inspect rawIn directly via ReadInt32 and then branch.
-	magic, err := ReadInt32(rawIn)
+	// 4 bytes, so we can inspect rawIn directly via ReadBEInt and then branch.
+	magic, err := ReadBEInt(rawIn)
 	if err != nil {
 		_ = rawIn.Close()
 		return nil, fmt.Errorf("reading segments magic: %w", err)
@@ -1599,8 +1604,8 @@ func readSegmentInfosLucene104(rawIn IndexInput, directory Directory, maxGen int
 		return nil, err
 	}
 
-	// Index version.
-	version, err := ReadInt64(checksumIn)
+	// Index version. BE long: CodecUtil.readBELong (SegmentInfos.java:372).
+	version, err := ReadBELong(checksumIn)
 	if err != nil {
 		return nil, err
 	}
@@ -1611,8 +1616,8 @@ func readSegmentInfosLucene104(rawIn IndexInput, directory Directory, maxGen int
 		return nil, err
 	}
 
-	// Number of segments.
-	numSegments, err := ReadInt32(checksumIn)
+	// Number of segments. BE int: CodecUtil.readBEInt (SegmentInfos.java:374).
+	numSegments, err := ReadBEInt(checksumIn)
 	if err != nil {
 		return nil, err
 	}
@@ -1752,27 +1757,30 @@ func readSegmentCommitInfoLucene104(in IndexInput, directory Directory) (*Segmen
 	}
 
 	// Min version: hasMinVersion byte then VInt major/minor/bugfix.
-	delGen, err := in.ReadLong()
+	// delGen / delCount / fieldInfosGen / dvGen / softDelCount are all written
+	// big-endian by CodecUtil.writeBELong / writeBEInt and read back with
+	// CodecUtil.readBELong / readBEInt (SegmentInfos.java:400-409).
+	delGen, err := ReadBELong(in)
 	if err != nil {
 		return nil, err
 	}
 
-	delCount, err := in.ReadInt()
+	delCount, err := ReadBEInt(in)
 	if err != nil {
 		return nil, err
 	}
 
-	fieldInfosGen, err := in.ReadLong()
+	fieldInfosGen, err := ReadBELong(in)
 	if err != nil {
 		return nil, err
 	}
 
-	docValuesGen, err := in.ReadLong()
+	docValuesGen, err := ReadBELong(in)
 	if err != nil {
 		return nil, err
 	}
 
-	softDelCount, err := in.ReadInt()
+	softDelCount, err := ReadBEInt(in)
 	if err != nil {
 		return nil, err
 	}

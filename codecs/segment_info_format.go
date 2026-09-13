@@ -97,8 +97,8 @@ func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory, ctx store.IOCont
 		return nil, err
 	}
 
-	// Read version
-	version, err := store.ReadInt64(checksumIn)
+	// Read version. BE long: CodecUtil.readBELong (SegmentInfos.java:372).
+	version, err := store.ReadBELong(checksumIn)
 	if err != nil {
 		return nil, err
 	}
@@ -109,8 +109,8 @@ func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory, ctx store.IOCont
 		return nil, err
 	}
 
-	// Read segment count
-	numSegments, err := store.ReadInt32(checksumIn)
+	// Read segment count. BE int: CodecUtil.readBEInt (SegmentInfos.java:374).
+	numSegments, err := store.ReadBEInt(checksumIn)
 	if err != nil {
 		return nil, err
 	}
@@ -172,27 +172,29 @@ func (f *Lucene104SegmentInfosFormat) readSegmentCommitInfo(in store.IndexInput,
 		return nil, err
 	}
 
-	delGen, err := store.ReadInt64(in)
+	// delGen / delCount / fieldInfosGen / dvGen / softDelCount are big-endian:
+	// CodecUtil.readBELong / readBEInt (SegmentInfos.java:400-409).
+	delGen, err := store.ReadBELong(in)
 	if err != nil {
 		return nil, err
 	}
 
-	delCount, err := store.ReadInt32(in)
+	delCount, err := store.ReadBEInt(in)
 	if err != nil {
 		return nil, err
 	}
 
-	fieldInfosGen, err := store.ReadInt64(in)
+	fieldInfosGen, err := store.ReadBELong(in)
 	if err != nil {
 		return nil, err
 	}
 
-	docValuesGen, err := store.ReadInt64(in)
+	docValuesGen, err := store.ReadBELong(in)
 	if err != nil {
 		return nil, err
 	}
 
-	softDelCount, err := store.ReadInt32(in)
+	softDelCount, err := store.ReadBEInt(in)
 	if err != nil {
 		return nil, err
 	}
@@ -214,7 +216,7 @@ func (f *Lucene104SegmentInfosFormat) readSegmentCommitInfo(in store.IndexInput,
 		return nil, err
 	}
 
-	docValuesUpdatesFiles, err := store.ReadMapOfIntToSetOfStrings(in)
+	docValuesUpdatesFiles, err := readDocValuesUpdatesFiles(in)
 	if err != nil {
 		return nil, err
 	}
@@ -268,15 +270,15 @@ func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *spi.Segm
 		// Write created major
 		checksumOut.WriteVInt(infos.IndexCreatedVersionMajor())
 
-		// Write version
-		store.WriteInt64(checksumOut, infos.Version())
+		// Write version. BE long: CodecUtil.writeBELong (SegmentInfos.java).
+		store.WriteBELong(checksumOut, infos.Version())
 
 		// Write counter
 		checksumOut.WriteVLong(infos.Counter())
 
-		// Write segment count
+		// Write segment count. BE int: CodecUtil.writeBEInt (SegmentInfos.java).
 		segments := infos.List()
-		store.WriteInt32(checksumOut, int32(len(segments)))
+		store.WriteBEInt(checksumOut, int32(len(segments)))
 
 		// Write min segment version if any
 		if len(segments) > 0 {
@@ -318,11 +320,13 @@ func (f *Lucene104SegmentInfosFormat) writeSegmentCommitInfo(out store.IndexOutp
 	store.WriteString(out, sci.Name())
 	out.WriteBytes(sci.SegmentInfo().GetID(), 0, len(sci.SegmentInfo().GetID()))
 	store.WriteString(out, sci.SegmentInfo().CodecName())
-	store.WriteInt64(out, sci.DelGen())
-	store.WriteInt32(out, int32(sci.DelCount()))
-	store.WriteInt64(out, sci.FieldInfosGen())
-	store.WriteInt64(out, sci.DocValuesGen())
-	store.WriteInt32(out, int32(sci.SoftDelCount()))
+	// SegmentInfos.java:658-682: every one of these is written big-endian via
+	// CodecUtil.writeBELong / CodecUtil.writeBEInt.
+	store.WriteBELong(out, sci.DelGen())
+	store.WriteBEInt(out, int32(sci.DelCount()))
+	store.WriteBELong(out, sci.FieldInfosGen())
+	store.WriteBELong(out, sci.DocValuesGen())
+	store.WriteBEInt(out, int32(sci.SoftDelCount()))
 
 	sciID := sci.GetID()
 	if len(sciID) == 16 {
@@ -333,8 +337,65 @@ func (f *Lucene104SegmentInfosFormat) writeSegmentCommitInfo(out store.IndexOutp
 	}
 
 	out.WriteSetOfStrings(sci.FieldInfosFiles())
-	store.WriteMapOfIntToSetOfStrings(out, sci.DocValuesUpdatesFiles())
+	if err := writeDocValuesUpdatesFiles(out, sci.DocValuesUpdatesFiles()); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+// readDocValuesUpdatesFiles reads the docValuesUpdatesFiles map exactly as
+// SegmentInfos.java:441-449 writes it: the entry count as a BIG-endian int32
+// (CodecUtil.readBEInt), then per entry the field number as a BIG-endian int32
+// followed by readSetOfStrings. Lucene never uses a vInt here.
+func readDocValuesUpdatesFiles(in store.IndexInput) (map[int]map[string]struct{}, error) {
+	numDVFields, err := store.ReadBEInt(in)
+	if err != nil {
+		return nil, err
+	}
+	if numDVFields == 0 {
+		return map[int]map[string]struct{}{}, nil
+	}
+	m := make(map[int]map[string]struct{}, int(numDVFields))
+	for i := int32(0); i < numDVFields; i++ {
+		key, err := store.ReadBEInt(in)
+		if err != nil {
+			return nil, err
+		}
+		files, err := in.ReadSetOfStrings()
+		if err != nil {
+			return nil, err
+		}
+		set := make(map[string]struct{}, len(files))
+		for _, f := range files {
+			set[f] = struct{}{}
+		}
+		m[int(key)] = set
+	}
+	return m, nil
+}
+
+// writeDocValuesUpdatesFiles writes the docValuesUpdatesFiles map exactly as
+// SegmentInfos.java:696-701 does: the entry count as a BIG-endian int32
+// (CodecUtil.writeBEInt), then per entry the field number as a BIG-endian int32
+// followed by writeSetOfStrings. Java iterates entrySet(), which is unordered;
+// the keys are not sorted.
+func writeDocValuesUpdatesFiles(out store.IndexOutput, m map[int]map[string]struct{}) error {
+	if err := store.WriteBEInt(out, int32(len(m))); err != nil {
+		return err
+	}
+	for k, v := range m {
+		if err := store.WriteBEInt(out, int32(k)); err != nil {
+			return err
+		}
+		files := make([]string, 0, len(v))
+		for f := range v {
+			files = append(files, f)
+		}
+		if err := out.WriteSetOfStrings(files); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

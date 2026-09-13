@@ -109,11 +109,13 @@ const (
 	PostingsFlagOffsets = PostingsFlagPositions | 1<<5
 
 	// PostingsFlagPayloads requests payload bytes in postings.
-	// Implies PostingsFlagPositions. Mirrors PostingsEnum.PAYLOADS (value 152).
-	PostingsFlagPayloads = PostingsFlagPositions | 1<<7
+	// Implies PostingsFlagPositions. Mirrors PostingsEnum.PAYLOADS
+	// (PostingsEnum.java:58 = POSITIONS | 1 << 6, value 88).
+	PostingsFlagPayloads = PostingsFlagPositions | 1<<6
 
 	// PostingsFlagAll requests all available postings data.
-	// Mirrors PostingsEnum.ALL (value 208).
+	// Mirrors PostingsEnum.ALL (PostingsEnum.java:64 = OFFSETS | PAYLOADS,
+	// value 120).
 	PostingsFlagAll = PostingsFlagOffsets | PostingsFlagPayloads
 )
 

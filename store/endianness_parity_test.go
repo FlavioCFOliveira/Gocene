@@ -10,12 +10,17 @@ import (
 
 // TestStorePrimitivesAreLittleEndian asserts that WriteShort/WriteInt/WriteLong
 // on every IndexOutput implementation emit little-endian bytes (low byte
-// first), matching Lucene 10.x org.apache.lucene.store.DataOutput (rmp #4786),
-// and that the on-disk bytes are identical across implementations.
+// first), matching Lucene 10.x org.apache.lucene.store.DataOutput
+// (DataOutput.java:73,86,223), and that the on-disk bytes are identical across
+// implementations.
 //
-// The framing primitives (CodecUtil header/footer) remain big-endian via the
-// explicit store.WriteInt32/WriteInt64 helpers and are intentionally NOT
-// covered here.
+// The codec framing primitives (CodecUtil header/footer) are big-endian, but
+// NOT via store.WriteInt32/WriteInt64: those two helpers are plain
+// DataOutput.writeInt / writeLong and are little-endian like everything else
+// here. The big-endian framing writers are store.WriteBEInt / WriteBELong,
+// ports of CodecUtil.writeBEInt / writeBELong (CodecUtil.java:653,661); they
+// are covered by TestBigEndianPrimitives and the rest of
+// codec_util_endianness_test.go, not here.
 func TestStorePrimitivesAreLittleEndian(t *testing.T) {
 	const (
 		shortVal = int16(0x0102)
@@ -40,11 +45,11 @@ func TestStorePrimitivesAreLittleEndian(t *testing.T) {
 	}
 
 	t.Run("ByteArrayDataOutput", func(t *testing.T) {
-		out := NewByteArrayDataOutput(16)
+		out := NewByteArrayDataOutput(make([]byte, 16))
 		if err := writeAll(out); err != nil {
 			t.Fatalf("write: %v", err)
 		}
-		assertBytes(t, out.GetBytes(), want)
+		assertBytes(t, out.GetBytes()[:out.GetPosition()], want)
 	})
 
 	t.Run("ByteBuffersDataOutput", func(t *testing.T) {
@@ -179,7 +184,7 @@ func TestStoreCrossImplAgreement(t *testing.T) {
 		t.Fatalf("OpenInput(fs): %v", err)
 	}
 	raw := make([]byte, 14)
-	if err := fsIn.ReadBytes(raw); err != nil {
+	if err := fsIn.ReadBytes(raw, 0, len(raw)); err != nil {
 		fsIn.Close()
 		t.Fatalf("ReadBytes: %v", err)
 	}
@@ -208,7 +213,7 @@ func TestStoreCrossImplAgreement(t *testing.T) {
 			if err != nil {
 				return nil, func() { _ = bbDir.Close() }, err
 			}
-			if err := o.WriteBytes(raw); err != nil {
+			if err := o.WriteBytes(raw, 0, len(raw)); err != nil {
 				_ = o.Close()
 				return nil, func() { _ = bbDir.Close() }, err
 			}

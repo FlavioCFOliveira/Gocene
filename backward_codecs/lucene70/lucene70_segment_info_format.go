@@ -436,14 +436,14 @@ func checkLucene70SIFooter(in *bcstore.EndiannessReverserChecksumIndexInput) err
 	if remaining > footerLen {
 		return fmt.Errorf("lucene70 segment info: misplaced footer (too long): remaining=%d", remaining)
 	}
-	magic, err := gstore.ReadInt32(in)
+	magic, err := gstore.ReadBEInt(in)
 	if err != nil {
 		return fmt.Errorf("lucene70 segment info: footer magic: %w", err)
 	}
 	if magic != lucene70FooterMagic {
 		return fmt.Errorf("lucene70 segment info: footer magic mismatch: got %x want %x", magic, lucene70FooterMagic)
 	}
-	algID, err := gstore.ReadInt32(in)
+	algID, err := gstore.ReadBEInt(in)
 	if err != nil {
 		return fmt.Errorf("lucene70 segment info: footer algorithmID: %w", err)
 	}
@@ -451,7 +451,7 @@ func checkLucene70SIFooter(in *bcstore.EndiannessReverserChecksumIndexInput) err
 		return fmt.Errorf("lucene70 segment info: unknown algorithmID: %d", algID)
 	}
 	actualChecksum := int64(in.GetChecksum())
-	expected, err := gstore.ReadInt64(in)
+	expected, err := gstore.ReadBELong(in)
 	if err != nil {
 		return fmt.Errorf("lucene70 segment info: footer checksum: %w", err)
 	}

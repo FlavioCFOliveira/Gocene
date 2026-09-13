@@ -149,7 +149,7 @@ func checkLucene92Footer(in *bcstore.EndiannessReverserChecksumIndexInput) error
 		return fmt.Errorf("misplaced codec footer: remaining=%d (too long)", remaining)
 	}
 
-	magic, err := store.ReadInt32(in)
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -158,7 +158,7 @@ func checkLucene92Footer(in *bcstore.EndiannessReverserChecksumIndexInput) error
 		return fmt.Errorf("codec footer magic mismatch: got %x", magic)
 	}
 
-	algID, err := store.ReadInt32(in)
+	algID, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -167,7 +167,7 @@ func checkLucene92Footer(in *bcstore.EndiannessReverserChecksumIndexInput) error
 	}
 
 	actualChecksum := int64(in.GetChecksum())
-	expectedChecksum, err := store.ReadInt64(in)
+	expectedChecksum, err := store.ReadBELong(in)
 	if err != nil {
 		return err
 	}

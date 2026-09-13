@@ -295,13 +295,15 @@ func (f *Lucene90CompoundFormat) copyFileBody(dataOut store.IndexOutput, dir sto
 	// Stamp a footer onto the data stream that carries the SOURCE file's
 	// original checksum (NOT dataOut's running checksum). Mirrors Java's
 	// "this is poached from CodecUtil.writeFooter" block.
-	if err := store.WriteInt32(dataOut, FOOTER_MAGIC); err != nil {
+	// Lucene90CompoundFormat.java:153-155 uses CodecUtil.writeBEInt /
+	// writeBELong here, i.e. big-endian, exactly like CodecUtil.writeFooter.
+	if err := store.WriteBEInt(dataOut, FOOTER_MAGIC); err != nil {
 		return err
 	}
-	if err := store.WriteInt32(dataOut, 0); err != nil {
+	if err := store.WriteBEInt(dataOut, 0); err != nil {
 		return err
 	}
-	if err := store.WriteInt64(dataOut, checksum); err != nil {
+	if err := store.WriteBELong(dataOut, checksum); err != nil {
 		return err
 	}
 	return nil
