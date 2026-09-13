@@ -614,3 +614,45 @@ func (s *sortingSortedNumericDocValues) LongValue() (int64, error) {
 // SortingSortedNumericDocValues semantics where cost() falls through
 // to the unsorted view.
 func (s *sortingSortedNumericDocValues) Cost() int64 { return s.in.Cost() }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (b *bufferedNumericDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(b, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (b *bufferedNumericDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(b)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (b *bufferedSortedNumericDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(b, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (b *bufferedSortedNumericDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(b)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (s *sortingSortedNumericDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (s *sortingSortedNumericDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(s)
+}

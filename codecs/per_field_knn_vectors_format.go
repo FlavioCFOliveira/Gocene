@@ -12,7 +12,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
 // PerFieldKnnVectorsFormat name and FieldInfo attribute keys.
@@ -457,10 +456,10 @@ type knnVectorSearchReader interface {
 	GetByteVectorValues(field string) (ByteVectorValues, error)
 	FloatVectorValues(field string) (index.FloatVectorValues, error)
 	ByteVectorValues(field string) (index.ByteVectorValues, error)
-	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
-	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
-	SearchNearestFloatCollector(field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
-	SearchNearestByteCollector(field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
+	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*spi.TopDocs, error)
+	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*spi.TopDocs, error)
+	SearchNearestFloatCollector(field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits) error
+	SearchNearestByteCollector(field string, target []byte, collector spi.KnnCollector, acceptDocs util.Bits) error
 }
 
 // fieldSearchReader resolves the delegate that owns field and narrows it to
@@ -528,13 +527,13 @@ func (r *PerFieldKnnVectorsReader) ByteVectorValues(field string) (index.ByteVec
 // TopDocs when no delegate owns the field.
 func (r *PerFieldKnnVectorsReader) SearchNearestFloat(
 	field string, target []float32, k int, acceptDocs util.Bits,
-) (*utilhnsw.TopDocs, error) {
+) (*spi.TopDocs, error) {
 	sr, err := r.fieldSearchReader(field)
 	if err != nil {
 		return nil, err
 	}
 	if sr == nil {
-		return utilhnsw.NewTopDocs(utilhnsw.NewTotalHits(0, utilhnsw.EqualTo), nil), nil
+		return spi.NewTopDocs(spi.NewTotalHits(0, spi.EQUAL_TO), nil), nil
 	}
 	return sr.SearchNearestFloat(field, target, k, acceptDocs)
 }
@@ -544,13 +543,13 @@ func (r *PerFieldKnnVectorsReader) SearchNearestFloat(
 // TopDocs when no delegate owns the field.
 func (r *PerFieldKnnVectorsReader) SearchNearestByte(
 	field string, target []byte, k int, acceptDocs util.Bits,
-) (*utilhnsw.TopDocs, error) {
+) (*spi.TopDocs, error) {
 	sr, err := r.fieldSearchReader(field)
 	if err != nil {
 		return nil, err
 	}
 	if sr == nil {
-		return utilhnsw.NewTopDocs(utilhnsw.NewTotalHits(0, utilhnsw.EqualTo), nil), nil
+		return spi.NewTopDocs(spi.NewTotalHits(0, spi.EQUAL_TO), nil), nil
 	}
 	return sr.SearchNearestByte(field, target, k, acceptDocs)
 }
@@ -560,7 +559,7 @@ func (r *PerFieldKnnVectorsReader) SearchNearestByte(
 // It is a no-op (returns nil, leaving collector empty) when no delegate owns
 // the field.
 func (r *PerFieldKnnVectorsReader) SearchNearestFloatCollector(
-	field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+	field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits,
 ) error {
 	sr, err := r.fieldSearchReader(field)
 	if err != nil || sr == nil {
@@ -572,7 +571,7 @@ func (r *PerFieldKnnVectorsReader) SearchNearestFloatCollector(
 // SearchNearestByteCollector is the byte analogue of
 // [SearchNearestFloatCollector].
 func (r *PerFieldKnnVectorsReader) SearchNearestByteCollector(
-	field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+	field string, target []byte, collector spi.KnnCollector, acceptDocs util.Bits,
 ) error {
 	sr, err := r.fieldSearchReader(field)
 	if err != nil || sr == nil {

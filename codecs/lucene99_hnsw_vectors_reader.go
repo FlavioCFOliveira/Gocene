@@ -27,6 +27,7 @@ import (
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
@@ -498,7 +499,7 @@ func (r *Lucene99HnswVectorsReader) SearchByte(_ string, _ []byte, _ any, _ util
 // large relative to the graph, score every accepted ordinal exhaustively.
 func (r *Lucene99HnswVectorsReader) SearchNearestFloat(
 	field string, target []float32, k int, acceptDocs util.Bits,
-) (*utilhnsw.TopDocs, error) {
+) (*spi.TopDocs, error) {
 	scorer, err := r.flatReader.randomVectorScorerFloat(field, target)
 	if err != nil {
 		return nil, err
@@ -509,7 +510,7 @@ func (r *Lucene99HnswVectorsReader) SearchNearestFloat(
 // SearchNearestByte is the byte analogue of [SearchNearestFloat].
 func (r *Lucene99HnswVectorsReader) SearchNearestByte(
 	field string, target []byte, k int, acceptDocs util.Bits,
-) (*utilhnsw.TopDocs, error) {
+) (*spi.TopDocs, error) {
 	scorer, err := r.flatReader.randomVectorScorerByte(field, target)
 	if err != nil {
 		return nil, err
@@ -525,7 +526,7 @@ func (r *Lucene99HnswVectorsReader) SearchNearestByte(
 // for one segment.
 func (r *Lucene99HnswVectorsReader) search(
 	field string, scorer utilhnsw.RandomVectorScorer, k int, acceptDocs util.Bits,
-) (*utilhnsw.TopDocs, error) {
+) (*spi.TopDocs, error) {
 	collector := utilhnsw.NewTopKnnCollector(k, int(^uint(0)>>1), nil)
 	if err := r.searchCollector(field, scorer, collector, acceptDocs); err != nil {
 		return nil, err
@@ -549,7 +550,7 @@ func (r *Lucene99HnswVectorsReader) search(
 // AcceptDocs), which passes the caller-owned collector straight through to
 // HnswGraphSearcher / the exhaustive fallback.
 func (r *Lucene99HnswVectorsReader) searchCollector(
-	field string, scorer utilhnsw.RandomVectorScorer, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+	field string, scorer utilhnsw.RandomVectorScorer, collector spi.KnnCollector, acceptDocs util.Bits,
 ) error {
 	info := r.fieldInfos.GetByName(field)
 	if info == nil {
@@ -615,7 +616,7 @@ func (r *Lucene99HnswVectorsReader) searchCollector(
 // graph search itself diversifies by parent block. Mirrors the body of
 // Lucene99HnswVectorsReader.search(String, float[], KnnCollector, AcceptDocs).
 func (r *Lucene99HnswVectorsReader) SearchNearestFloatCollector(
-	field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+	field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits,
 ) error {
 	scorer, err := r.flatReader.randomVectorScorerFloat(field, target)
 	if err != nil {
@@ -627,7 +628,7 @@ func (r *Lucene99HnswVectorsReader) SearchNearestFloatCollector(
 // SearchNearestByteCollector is the byte analogue of
 // [SearchNearestFloatCollector].
 func (r *Lucene99HnswVectorsReader) SearchNearestByteCollector(
-	field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+	field string, target []byte, collector spi.KnnCollector, acceptDocs util.Bits,
 ) error {
 	scorer, err := r.flatReader.randomVectorScorerByte(field, target)
 	if err != nil {

@@ -260,3 +260,17 @@ func (e *emptyNormsDocValues) Advance(target int) (int, error) { return -1, nil 
 func (e *emptyNormsDocValues) AdvanceExact(int) (bool, error)  { return false, nil }
 func (e *emptyNormsDocValues) LongValue() (int64, error)       { return 0, nil }
 func (e *emptyNormsDocValues) Cost() int64                     { return 0 }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *emptyNormsDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *emptyNormsDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}

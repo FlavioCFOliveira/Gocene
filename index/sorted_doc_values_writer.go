@@ -346,3 +346,17 @@ func (s *sortingSortedDocValues) Cost() int64 { return s.in.Cost() }
 func (s *sortingSortedDocValues) LookupOrd(ord int) ([]byte, error) { return s.in.LookupOrd(ord) }
 
 func (s *sortingSortedDocValues) GetValueCount() int { return s.in.GetValueCount() }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (s *sortingSortedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (s *sortingSortedDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(s)
+}

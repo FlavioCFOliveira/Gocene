@@ -4,6 +4,8 @@
 
 package index
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // This file ports org.apache.lucene.index.SingletonSortedNumericDocValues
 // from Apache Lucene 10.4.0.
 //
@@ -137,4 +139,20 @@ func itoa(n int) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+
+// IntoBitSet delegates to the wrapped NumericDocValues.
+//
+// Port of org.apache.lucene.index.SingletonSortedNumericDocValues#intoBitSet
+// (Lucene 10.5.0): in.intoBitSet(upTo, bitSet, offset).
+func (s *singletonSortedNumeric) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.wrapped.IntoBitSet(upTo, bitSet, offset)
+}
+
+// DocIDRunEnd delegates to the wrapped NumericDocValues.
+//
+// Port of org.apache.lucene.index.SingletonSortedNumericDocValues#docIDRunEnd
+// (Lucene 10.5.0): return in.docIDRunEnd().
+func (s *singletonSortedNumeric) DocIDRunEnd() (int, error) {
+	return s.wrapped.DocIDRunEnd()
 }

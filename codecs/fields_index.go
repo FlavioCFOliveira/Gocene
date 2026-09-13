@@ -16,6 +16,14 @@ import (
 type FieldsIndex interface {
 	GetStartPointer(docID int) int64
 	MaxPointer() int64
+
+	// CheckIntegrity validates the checksum of the fields-index file.
+	//
+	// Mirrors the abstract
+	// org.apache.lucene.codecs.lucene90.compressing.FieldsIndex#checkIntegrity
+	// (Lucene 10.5.0).
+	CheckIntegrity() error
+
 	Close() error
 }
 
@@ -63,4 +71,14 @@ func (r *fieldsIndexReader) MaxPointer() int64 {
 
 func (r *fieldsIndexReader) Close() error {
 	return r.in.Close()
+}
+
+// CheckIntegrity validates the checksum of the entire fields-index file.
+//
+// Port of
+// org.apache.lucene.codecs.lucene90.compressing.FieldsIndexReader#checkIntegrity
+// (Lucene 10.5.0): CodecUtil.checksumEntireFile(indexInput).
+func (r *fieldsIndexReader) CheckIntegrity() error {
+	_, err := ChecksumEntireFile(r.in)
+	return err
 }

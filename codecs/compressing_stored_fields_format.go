@@ -315,3 +315,20 @@ func readBytes(in store.IndexInput) ([]byte, error) {
 	}
 	return buf.Bytes(), nil
 }
+
+// CheckIntegrity validates the checksums of the fields index and of the entire
+// fields stream.
+//
+// Port of
+// org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingStoredFieldsReader#checkIntegrity
+// (Lucene 10.5.0):
+//
+//	indexReader.checkIntegrity();
+//	CodecUtil.checksumEntireFile(fieldsStream);
+func (r *CompressingStoredFieldsReader) CheckIntegrity() error {
+	if err := r.indexReader.CheckIntegrity(); err != nil {
+		return err
+	}
+	_, err := ChecksumEntireFile(r.fieldsStream)
+	return err
+}

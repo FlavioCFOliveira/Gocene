@@ -227,3 +227,17 @@ func (b *bufferedNorms) LongValue() (int64, error) {
 // Cost returns the number of value-bearing documents in the buffered
 // stream.
 func (b *bufferedNorms) Cost() int64 { return int64(len(b.docs)) }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (b *bufferedNorms) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(b, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (b *bufferedNorms) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(b)
+}

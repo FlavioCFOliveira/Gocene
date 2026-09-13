@@ -225,3 +225,12 @@ func (w *AssertingTermVectorsWriter) Close() error {
 	_ = w.in.Close() // close again to test double-close
 	return err
 }
+
+// CheckIntegrity delegates to the wrapped TermVectorsReader.
+//
+// Port of
+// org.apache.lucene.tests.codecs.asserting.AssertingTermVectorsFormat.AssertingTermVectorsReader#checkIntegrity
+// (Lucene 10.5.0): in.checkIntegrity().
+func (a *AssertingTermVectorsReader) CheckIntegrity() error {
+	return a.in.CheckIntegrity()
+}

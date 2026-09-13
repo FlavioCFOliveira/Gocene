@@ -451,3 +451,25 @@ var (
 	_ FieldPostingsFormatProvider = (*MapFieldPostingsFormatProvider)(nil)
 	_ FieldPostingsFormatProvider = (FieldPostingsFormatProviderFunc)(nil)
 )
+
+// CheckIntegrity walks every delegate FieldsProducer and validates its
+// checksums.
+//
+// Port of
+// org.apache.lucene.codecs.perfield.PerFieldPostingsFormat.FieldsReader#checkIntegrity
+// (Lucene 10.5.0):
+//
+//	for (FieldsProducer producer : formats.values()) { producer.checkIntegrity(); }
+//
+// formats is keyed by format suffix in Java, so the Go loop walks
+// producersBySuffix — the map that likewise holds one entry per open delegate.
+func (p *PerFieldFieldsProducer) CheckIntegrity() error {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	for _, producer := range p.producersBySuffix {
+		if err := producer.CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	return nil
+}

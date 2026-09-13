@@ -146,6 +146,51 @@ func (fs *FixedBitSet) Cardinality() int {
 	return count
 }
 
+// CardinalityRange returns the number of set bits in the range
+// [from, to). It is the Go rendering of the two-argument overload
+// {@code FixedBitSet#cardinality(int, int)}; Go has no overloading, so
+// the range form carries the Range suffix already used by SetRange and
+// FlipRange. It panics on an invalid range, mirroring the
+// IndexOutOfBoundsException thrown by Lucene's Objects.checkFromToIndex.
+//
+// Lucene 10.5.0 reference:
+//
+//	lucene/core/src/java/org/apache/lucene/util/FixedBitSet.java
+func (fs *FixedBitSet) CardinalityRange(from, to int) int {
+	if from < 0 || from > to || to > fs.Length() {
+		panic(fmt.Sprintf("FixedBitSet.cardinality: from=%d to=%d out of bounds (length: %d)",
+			from, to, fs.Length()))
+	}
+
+	cardinality := 0
+
+	// First, align `from` with a word start, ie. a multiple of uint64 (64)
+	if (from & wordMask) != 0 {
+		// Java's `>>> from` masks the shift count to 63 bits.
+		bits := fs.bits[from>>log2BitsPerWord] >> (from & wordMask)
+		numBitsTilNextWord := -from & wordMask
+		if to-from < numBitsTilNextWord {
+			bits &= (uint64(1) << (to - from)) - 1
+			return popcount(bits)
+		}
+		cardinality += popcount(bits)
+		from += numBitsTilNextWord
+	}
+
+	for i, end := from>>log2BitsPerWord, to>>log2BitsPerWord; i < end; i++ {
+		cardinality += popcount(fs.bits[i])
+	}
+
+	// Now handle bits between the last complete word and to
+	if (to & wordMask) != 0 {
+		// Java's `<< -to` masks the shift count to 63 bits.
+		bits := fs.bits[to>>log2BitsPerWord] << (-to & wordMask)
+		cardinality += popcount(bits)
+	}
+
+	return cardinality
+}
+
 // popcount returns the number of set bits in a uint64.
 func popcount(x uint64) int {
 	// Using the SWAR (SIMD Within A Register) algorithm
@@ -462,6 +507,17 @@ func (fs *FixedBitSet) NumWords() int {
 
 // Ensure that FixedBitSet implements Bits
 var _ Bits = (*FixedBitSet)(nil)
+
+// FixedBitSetBits2Words returns the number of 64-bit words it would
+// take to hold numBits. It is the exported Go rendering of the public
+// static {@code FixedBitSet#bits2words(int)}, which callers outside
+// this package need; the unexported bits2words below carries the body.
+// (Named FixedBitSetBits2Words to avoid clashing with LongBitSet's
+// Bits2Words, exactly as FixedBitSetOrRange and
+// FixedBitSetEnsureCapacity do.)
+func FixedBitSetBits2Words(numBits int) int {
+	return bits2words(numBits)
+}
 
 // bits2words returns the number of 64-bit words it would take to hold
 // numBits. Mirrors Lucene's FixedBitSet.bits2words: get the

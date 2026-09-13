@@ -1682,3 +1682,102 @@ func (e *lucene103BlockPostingsEnum) DocIDRunEnd() (int, error) {
 	}
 	return util.DefaultDocIDRunEnd(e)
 }
+
+// IntoBitSet loads the doc IDs of this postings enum into bitSet, shifted down
+// by offset, up to but excluding upTo.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// org.apache.lucene.backward_codecs.lucene103.Lucene103PostingsReader.BlockPostingsEnum
+// (Lucene 10.5.0). The PACKED branch copies the decoded doc buffer doc by doc;
+// the UNARY branch ORs the level-0 bit set straight into the destination with
+// FixedBitSet.orRange, which is why this override exists at all.
+func (e *lucene103BlockPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	if e.doc >= upTo {
+		return nil
+	}
+
+	// Handle the current doc separately, it may be on the previous docBuffer.
+	bitSet.Set(e.doc - offset)
+
+	for {
+		if e.doc == e.level0LastDocID {
+			if err := e.moveToNextLevel0Block(); err != nil {
+				return err
+			}
+		}
+
+		switch e.encoding {
+		case deltaEncodingPacked:
+			start := e.docBufferUpto
+			end := e.computeBufferEndBoundary(upTo)
+			if end != 0 {
+				e.bufferIntoBitSet(start, end, bitSet, offset)
+				e.doc = int(e.docBuffer[end-1])
+			}
+			e.docBufferUpto = end
+			if end != lucene103PostingsBlockSize {
+				// Either the block is a tail block, or the block did not fully
+				// match, we're done.
+				if _, err := e.NextDoc(); err != nil {
+					return err
+				}
+				return nil
+			}
+
+		case deltaEncodingUnary:
+			var sourceFrom int
+			if e.docBufferUpto == 0 {
+				// start from beginning
+				sourceFrom = 0
+			} else {
+				// start after the current doc
+				sourceFrom = e.doc - e.docBitSetBase + 1
+			}
+
+			destFrom := e.docBitSetBase - offset + sourceFrom
+
+			sourceTo := min(upTo, e.level0LastDocID+1) - e.docBitSetBase
+
+			if sourceTo > sourceFrom {
+				util.FixedBitSetOrRange(e.docBitSet, sourceFrom, bitSet, destFrom, sourceTo-sourceFrom)
+			}
+			if e.docBitSetBase+sourceTo <= e.level0LastDocID {
+				// We stopped before the end of the current bit set, which means
+				// that we're done. Set the current doc before returning.
+				if _, err := e.Advance(e.docBitSetBase + sourceTo); err != nil {
+					return err
+				}
+				return nil
+			}
+			e.doc = e.level0LastDocID
+			e.docBufferUpto = lucene103PostingsBlockSize
+		}
+	}
+}
+
+// computeBufferEndBoundary returns the exclusive end index in docBuffer of the
+// docs that are below upTo.
+//
+// Port of the private computeBufferEndBoundary(int) on
+// org.apache.lucene.backward_codecs.lucene103.Lucene103PostingsReader.BlockPostingsEnum.
+func (e *lucene103BlockPostingsEnum) computeBufferEndBoundary(upTo int) int {
+	if e.docBufferSize != 0 && e.docBuffer[e.docBufferSize-1] < int64(upTo) {
+		// All docs in the buffer are under upTo
+		return e.docBufferSize
+	}
+	// Find the index of the first doc that is greater than or equal to upTo
+	return findNextGEQ64(e.docBuffer[:], upTo, e.docBufferUpto, e.docBufferSize)
+}
+
+// bufferIntoBitSet sets docBuffer[start:end], shifted down by offset, in
+// bitSet.
+//
+// Port of the private bufferIntoBitSet(int, int, FixedBitSet, int) on
+// org.apache.lucene.backward_codecs.lucene103.Lucene103PostingsReader.BlockPostingsEnum.
+func (e *lucene103BlockPostingsEnum) bufferIntoBitSet(start, end int, bitSet *util.FixedBitSet, offset int) {
+	// bitSet#set and `doc - offset` get auto-vectorized
+	for i := start; i < end; i++ {
+		doc := int(e.docBuffer[i])
+		bitSet.Set(doc - offset)
+	}
+}

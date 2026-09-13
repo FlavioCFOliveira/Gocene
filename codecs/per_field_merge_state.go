@@ -173,3 +173,12 @@ func (f *filterFieldsProducer) Terms(field string) (index.Terms, error) {
 func (f *filterFieldsProducer) Close() error {
 	return f.inner.Close()
 }
+
+// CheckIntegrity delegates to the wrapped FieldsProducer.
+//
+// Port of
+// org.apache.lucene.codecs.perfield.PerFieldMergeState.FilterFieldsProducer#checkIntegrity
+// (Lucene 10.5.0): in.checkIntegrity().
+func (f *filterFieldsProducer) CheckIntegrity() error {
+	return f.inner.CheckIntegrity()
+}

@@ -22,6 +22,8 @@ package spi
 // GetOrd(docID) projection is gone from every Gocene production
 // implementation.
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // DocValues is the base interface for all doc-values types.
 type DocValues interface {
 	// DocID returns the current document ID, or -1 before NextDoc /
@@ -65,6 +67,15 @@ type NumericDocValues interface {
 	// Cost is an estimate of the cost of iterating over the entire
 	// value-bearing document set.
 	Cost() int64
+
+	// IntoBitSet loads doc IDs into a FixedBitSet, shifted down by offset.
+	// In Java this is inherited from DocIdSetIterator via DocValuesIterator.
+	IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error
+
+	// DocIDRunEnd returns one plus the last doc ID of the run of consecutive
+	// matching doc IDs that contains docID(). In Java this is inherited from
+	// DocIdSetIterator via DocValuesIterator.
+	DocIDRunEnd() (int, error)
 }
 
 // BinaryDocValues provides per-document binary values.
@@ -101,6 +112,15 @@ type BinaryDocValues interface {
 	// Cost is an estimate of the cost of iterating over the entire
 	// value-bearing document set.
 	Cost() int64
+
+	// IntoBitSet loads doc IDs into a FixedBitSet, shifted down by offset.
+	// In Java this is inherited from DocIdSetIterator via DocValuesIterator.
+	IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error
+
+	// DocIDRunEnd returns one plus the last doc ID of the run of consecutive
+	// matching doc IDs that contains docID(). In Java this is inherited from
+	// DocIdSetIterator via DocValuesIterator.
+	DocIDRunEnd() (int, error)
 }
 
 // SortedDocValues provides per-document sorted binary values addressed

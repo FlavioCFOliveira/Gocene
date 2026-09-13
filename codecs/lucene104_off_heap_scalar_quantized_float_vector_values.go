@@ -171,7 +171,10 @@ type DocIDSetIteratorView interface {
 	// Cost returns the estimated cost.
 	Cost() int64
 	// DocIDRunEnd returns one plus the last doc ID of the current run.
-	DocIDRunEnd() int
+	// It mirrors DocIdSetIterator.docIDRunEnd(), which throws IOException in
+	// Java, so the Go rendering returns an error alongside the doc ID exactly
+	// as util.DocIdSetIterator does.
+	DocIDRunEnd() (int, error)
 }
 
 // noMoreDocsView mirrors search.NO_MORE_DOCS as a local constant. The
@@ -827,4 +830,18 @@ func (d *denseDocIndexIterator) DocIDRunEnd() (int, error) {
 // does not override.
 func (i *indexedDISIDocIndexIterator) DocIDRunEnd() (int, error) {
 	return util.DefaultDocIDRunEnd(i)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (d *denseDocIndexIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (i *indexedDISIDocIndexIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(i, upTo, bitSet, offset)
 }
