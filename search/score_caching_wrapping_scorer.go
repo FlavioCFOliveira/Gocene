@@ -4,93 +4,67 @@
 
 package search
 
-// ScoreCachingWrappingScorer wraps a Scorer and caches the score of the
-// current document. Repeated Score() calls return the cached value until the
-// underlying scorer advances to a new document.
+// ScoreCachingWrappingScorer is a Scorable which wraps another one and caches
+// the score of the current document. Successive calls to Score() return the
+// same result and do not invoke the wrapped Scorable's score(), unless the
+// current document has changed.
 //
-// Mirrors org.apache.lucene.search.ScoreCachingWrappingScorer.
+// Mirrors the final class org.apache.lucene.search.ScoreCachingWrappingScorer,
+// which extends Scorable — not Scorer — and therefore declares exactly
+// score(), setMinCompetitiveScore(float) and getChildren(), plus the static
+// wrap(LeafCollector) factory.
 type ScoreCachingWrappingScorer struct {
-	inner   Scorer
-	cached  bool
-	score   float32
-	lastDoc int
+	BaseScorable
+	scoreIsCached bool
+	curScore      float32
+	in            Scorable
 }
 
-// WrapScoreCachingScorer returns a ScoreCachingWrappingScorer around inner.
-// If inner is already a ScoreCachingWrappingScorer, it is returned unchanged.
-func WrapScoreCachingScorer(inner Scorer) Scorer {
-	if inner == nil {
-		return nil
-	}
-	if w, ok := inner.(*ScoreCachingWrappingScorer); ok {
+// newScoreCachingWrappingScorer mirrors the private constructor
+// ScoreCachingWrappingScorer(Scorable).
+func newScoreCachingWrappingScorer(scorer Scorable) *ScoreCachingWrappingScorer {
+	return &ScoreCachingWrappingScorer{in: scorer}
+}
+
+// WrapScoreCachingLeafCollector wraps the provided LeafCollector so that scores
+// are computed lazily and cached if accessed multiple times.
+//
+// Mirrors the static ScoreCachingWrappingScorer.wrap(LeafCollector).
+func WrapScoreCachingLeafCollector(collector LeafCollector) LeafCollector {
+	if w, ok := collector.(*scoreCachingWrappingLeafCollector); ok {
 		return w
 	}
-	return &ScoreCachingWrappingScorer{inner: inner, lastDoc: -2}
+	return &scoreCachingWrappingLeafCollector{in: collector}
 }
-
-// DocID delegates to the inner scorer and invalidates the cached score when
-// the document changes.
-func (s *ScoreCachingWrappingScorer) DocID() int {
-	d := s.inner.DocID()
-	if d != s.lastDoc {
-		s.cached = false
-		s.lastDoc = d
-	}
-	return d
-}
-
-// NextDoc advances the inner scorer and invalidates the cache.
-func (s *ScoreCachingWrappingScorer) NextDoc() (int, error) {
-	d, err := s.inner.NextDoc()
-	s.cached = false
-	s.lastDoc = d
-	return d, err
-}
-
-// Advance positions the inner scorer at target and invalidates the cache.
-func (s *ScoreCachingWrappingScorer) Advance(target int) (int, error) {
-	d, err := s.inner.Advance(target)
-	s.cached = false
-	s.lastDoc = d
-	return d, err
-}
-
-// Cost forwards to the inner scorer.
-func (s *ScoreCachingWrappingScorer) Cost() int64 { return s.inner.Cost() }
-
-// DocIDRunEnd forwards to the inner scorer so callers that exploit
-// consecutive-run skipping continue to work.
-func (s *ScoreCachingWrappingScorer) DocIDRunEnd() int { return s.inner.DocIDRunEnd() }
 
 // Score returns the cached value if available, otherwise computes and caches it.
-func (s *ScoreCachingWrappingScorer) Score() float32 {
-	if !s.cached {
-		s.score = s.inner.Score()
-		s.cached = true
+//
+// Mirrors ScoreCachingWrappingScorer.score().
+func (s *ScoreCachingWrappingScorer) Score() (float32, error) {
+	if !s.scoreIsCached {
+		sc, err := s.in.Score()
+		if err != nil {
+			return 0, err
+		}
+		s.curScore = sc
+		s.scoreIsCached = true
 	}
-	return s.score
+	return s.curScore, nil
 }
 
-// GetMaxScore forwards to the inner scorer.
-func (s *ScoreCachingWrappingScorer) GetMaxScore(upTo int) float32 {
-	return s.inner.GetMaxScore(upTo)
+// SetMinCompetitiveScore mirrors
+// ScoreCachingWrappingScorer.setMinCompetitiveScore(float).
+func (s *ScoreCachingWrappingScorer) SetMinCompetitiveScore(minScore float32) error {
+	return s.in.SetMinCompetitiveScore(minScore)
 }
 
-// AdvanceShallow forwards to the inner scorer so block boundaries and block-max
-// upper bounds match the wrapped scorer.
-func (s *ScoreCachingWrappingScorer) AdvanceShallow(target int) (int, error) {
-	return s.inner.AdvanceShallow(target)
+// GetChildren mirrors ScoreCachingWrappingScorer.getChildren(), whose body is
+// Collections.singleton(new ChildScorable(in, "CACHED")).
+func (s *ScoreCachingWrappingScorer) GetChildren() ([]ChildScorable, error) {
+	return []ChildScorable{{Child: s.in, Relationship: "CACHED"}}, nil
 }
 
-// invalidate drops the cached score so the next Score() recomputes it. This is
-// used by scoreCachingLeafCollector to reset the cache on each collected
-// document, mirroring the scoreIsCached=false reset in Lucene's
-// ScoreCachingWrappingLeafCollector.collect.
-func (s *ScoreCachingWrappingScorer) invalidate() {
-	s.cached = false
-}
-
-// scoreCachingLeafCollector wraps a LeafCollector so that the Scorer it
+// scoreCachingWrappingLeafCollector wraps a LeafCollector so that the Scorer it
 // receives is a ScoreCachingWrappingScorer, computing scores lazily and caching
 // them across the (possibly several) child collectors that read them for the
 // same document.
@@ -98,32 +72,31 @@ func (s *ScoreCachingWrappingScorer) invalidate() {
 // This is the Go port of
 // org.apache.lucene.search.ScoreCachingWrappingScorer.ScoreCachingWrappingLeafCollector
 // (obtained via ScoreCachingWrappingScorer.wrap(LeafCollector)).
-type scoreCachingLeafCollector struct {
+type scoreCachingWrappingLeafCollector struct {
+	BaseLeafCollector
 	in     LeafCollector
 	scorer *ScoreCachingWrappingScorer
 }
 
-// newScoreCachingLeafCollector wraps in so scores are cached. If in is already
-// a scoreCachingLeafCollector it is returned unchanged, matching Lucene's wrap.
+// newScoreCachingLeafCollector is the package-internal spelling of
+// WrapScoreCachingLeafCollector, kept for the existing MultiCollector call site.
 func newScoreCachingLeafCollector(in LeafCollector) LeafCollector {
-	if w, ok := in.(*scoreCachingLeafCollector); ok {
-		return w
-	}
-	return &scoreCachingLeafCollector{in: in}
+	return WrapScoreCachingLeafCollector(in)
 }
 
 // SetScorer wraps the incoming scorer in a ScoreCachingWrappingScorer and
 // forwards that to the inner leaf collector.
-func (c *scoreCachingLeafCollector) SetScorer(scorer Scorer) error {
-	c.scorer = &ScoreCachingWrappingScorer{inner: scorer, lastDoc: -2}
+func (c *scoreCachingWrappingLeafCollector) SetScorer(scorer Scorable) error {
+	c.scorer = newScoreCachingWrappingScorer(scorer)
 	return c.in.SetScorer(c.scorer)
 }
 
 // Collect invalidates the per-document cache before delegating, so each new
 // document recomputes its score on first access.
-func (c *scoreCachingLeafCollector) Collect(doc int) error {
+func (c *scoreCachingWrappingLeafCollector) Collect(doc int) error {
 	if c.scorer != nil {
-		c.scorer.invalidate()
+		// Invalidate cache when collecting a new doc
+		c.scorer.scoreIsCached = false
 	}
 	return c.in.Collect(doc)
 }
@@ -131,16 +104,33 @@ func (c *scoreCachingLeafCollector) Collect(doc int) error {
 // Finish forwards to the inner leaf collector when it supports finishing,
 // preserving the MultiCollector terminate-and-drain semantics through the
 // caching wrapper.
-func (c *scoreCachingLeafCollector) Finish() error {
+func (c *scoreCachingWrappingLeafCollector) Finish() error {
 	if f, ok := c.in.(leafCollectorFinisher); ok {
 		return f.Finish()
 	}
 	return nil
 }
 
-// Ensure scoreCachingLeafCollector implements LeafCollector and the optional
+// Ensure scoreCachingWrappingLeafCollector implements LeafCollector and the optional
 // finisher.
 var (
-	_ LeafCollector         = (*scoreCachingLeafCollector)(nil)
-	_ leafCollectorFinisher = (*scoreCachingLeafCollector)(nil)
+	_ LeafCollector         = (*scoreCachingWrappingLeafCollector)(nil)
+	_ leafCollectorFinisher = (*scoreCachingWrappingLeafCollector)(nil)
 )
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (s *scoreCachingWrappingLeafCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(s, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (s *scoreCachingWrappingLeafCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(s, stream)
+}
+
+// Apache Lucene 10.5.0 declares ScoreCachingWrappingScorer as a Scorable, not
+// as a Scorer: it therefore has no iterator(), no nextDocsAndScores and no
+// intoBitSet. The three members that used to sit here had no counterpart in the
+// Java class.

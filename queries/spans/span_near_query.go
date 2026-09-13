@@ -9,6 +9,8 @@ package spans
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -29,7 +31,7 @@ import (
 //   - SimScorer construction deferred (same as SpanTermQuery).
 type SpanNearQuery struct {
 	search.BaseQuery
-	clauses []*SpanTermQuery // only SpanTermQuery for now; full clause type is SpanQuery
+	clauses []SpanQuery
 	slop    int
 	inOrder bool
 	field   string
@@ -44,7 +46,7 @@ type SpanNearBuilder struct {
 }
 
 type spanClause struct {
-	query *SpanTermQuery
+	query SpanQuery
 	gap   int // > 0 means this is a gap
 }
 
@@ -58,8 +60,10 @@ func NewUnorderedNearQuery(field string) *SpanNearBuilder {
 	return &SpanNearBuilder{field: field, ordered: false}
 }
 
-// AddClause adds a SpanTermQuery clause.
-func (b *SpanNearBuilder) AddClause(q *SpanTermQuery) *SpanNearBuilder {
+// AddClause adds a clause.
+//
+// Mirrors SpanNearQuery.Builder.addClause(SpanQuery).
+func (b *SpanNearBuilder) AddClause(q SpanQuery) *SpanNearBuilder {
 	b.clauses = append(b.clauses, spanClause{query: q})
 	return b
 }
@@ -78,7 +82,7 @@ func (b *SpanNearBuilder) SetSlop(slop int) *SpanNearBuilder {
 
 // Build constructs the SpanNearQuery.
 func (b *SpanNearBuilder) Build() *SpanNearQuery {
-	clauses := make([]*SpanTermQuery, 0, len(b.clauses))
+	clauses := make([]SpanQuery, 0, len(b.clauses))
 	for _, c := range b.clauses {
 		if c.query != nil {
 			clauses = append(clauses, c.query)
@@ -88,7 +92,7 @@ func (b *SpanNearBuilder) Build() *SpanNearQuery {
 }
 
 // newSpanNearQuery is the internal constructor.
-func newSpanNearQuery(clauses []*SpanTermQuery, slop int, inOrder bool, field string) *SpanNearQuery {
+func newSpanNearQuery(clauses []SpanQuery, slop int, inOrder bool, field string) *SpanNearQuery {
 	if field == "" && len(clauses) > 0 {
 		field = clauses[0].GetField()
 	}
@@ -100,16 +104,55 @@ func newSpanNearQuery(clauses []*SpanTermQuery, slop int, inOrder bool, field st
 	}
 }
 
-// NewSpanNearQueryFromTerms constructs a SpanNearQuery directly from terms.
+// NewSpanNearQuery constructs a SpanNearQuery. It matches spans matching a
+// span from each clause, with up to slop total unmatched positions between
+// them.
+//
+// When inOrder is true, the spans from each clause must be in the same order as
+// in clauses and must be non-overlapping. When inOrder is false, the spans from
+// each clause need not be ordered and may overlap.
+//
+// Mirrors SpanNearQuery(SpanQuery[], int, boolean).
+func NewSpanNearQuery(clausesIn []SpanQuery, slop int, inOrder bool) (*SpanNearQuery, error) {
+	q := &SpanNearQuery{
+		clauses: make([]SpanQuery, 0, len(clausesIn)),
+		slop:    slop,
+		inOrder: inOrder,
+	}
+	for _, clause := range clausesIn {
+		if q.field == "" { // check field
+			q.field = clause.GetField()
+		} else if clause.GetField() != "" && clause.GetField() != q.field {
+			return nil, fmt.Errorf("Clauses must have same field.")
+		}
+		q.clauses = append(q.clauses, clause)
+	}
+	return q, nil
+}
+
+// NewSpanNearQueryFromTerms constructs a SpanNearQuery directly from term
+// clauses. It is the SpanTermQuery-typed spelling of Java's
+// SpanNearQuery(SpanQuery[], int, boolean) constructor, kept because the
+// package's own tests build near queries from terms.
 func NewSpanNearQueryFromTerms(clauses []*SpanTermQuery, slop int, inOrder bool) *SpanNearQuery {
-	return newSpanNearQuery(clauses, slop, inOrder, "")
+	widened := make([]SpanQuery, len(clauses))
+	for i, c := range clauses {
+		widened[i] = c
+	}
+	return newSpanNearQuery(widened, slop, inOrder, "")
 }
 
 // GetField returns the field targeted by this query.
 func (q *SpanNearQuery) GetField() string { return q.field }
 
-// GetClauses returns the sub-queries.
-func (q *SpanNearQuery) GetClauses() []*SpanTermQuery { return q.clauses }
+// GetClauses returns the clauses whose spans are matched.
+//
+// Mirrors SpanNearQuery.getClauses().
+func (q *SpanNearQuery) GetClauses() []SpanQuery {
+	out := make([]SpanQuery, len(q.clauses))
+	copy(out, q.clauses)
+	return out
+}
 
 // GetSlop returns the maximum positional distance between sub-spans.
 func (q *SpanNearQuery) GetSlop() int { return q.slop }
@@ -124,21 +167,19 @@ func (q *SpanNearQuery) Visit(visitor search.QueryVisitor) {
 	}
 	subVisitor := visitor.GetSubVisitor(search.MUST, q)
 	for _, c := range q.clauses {
-		c.Visit(subVisitor)
+		visitSpanQuery(c, subVisitor)
 	}
 }
 
-// Clone returns a deep copy.
+// Clone returns a copy carrying the same clauses.
 func (q *SpanNearQuery) Clone() search.Query {
-	clauses := make([]*SpanTermQuery, len(q.clauses))
-	for i, c := range q.clauses {
-		clauses[i] = c.Clone().(*SpanTermQuery)
-	}
+	clauses := make([]SpanQuery, len(q.clauses))
+	copy(clauses, q.clauses)
 	return newSpanNearQuery(clauses, q.slop, q.inOrder, q.field)
 }
 
 // Equals reports structural equality.
-func (q *SpanNearQuery) Equals(other search.Query) bool {
+func (q *SpanNearQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*SpanNearQuery)
 	if !ok {
 		return false
@@ -175,29 +216,32 @@ func (q *SpanNearQuery) HashCode() int {
 	return h
 }
 
-// String returns the Lucene canonical rendering.
-func (q *SpanNearQuery) String() string {
+// ToString mirrors SpanNearQuery.toString(String field).
+func (q *SpanNearQuery) ToString(field string) string {
 	parts := make([]string, len(q.clauses))
 	for i, c := range q.clauses {
-		parts[i] = c.String()
+		parts[i] = spanQueryToString(c, field)
 	}
 	return fmt.Sprintf("spanNear([%s], %d, %v)", strings.Join(parts, ", "), q.slop, q.inOrder)
 }
 
+// String renders Query.toString(), whose Java body is toString("").
+func (q *SpanNearQuery) String() string { return q.ToString("") }
+
 // CreateWeight creates a Weight for this query.
-func (q *SpanNearQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	return q.createSpanWeight(searcher, needsScores, boost)
+func (q *SpanNearQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	return q.createSpanWeight(searcher, scoreMode, boost)
 }
 
 // CreateSpanWeight creates a SpanWeight for this query.
-func (q *SpanNearQuery) CreateSpanWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (*SpanWeight, error) {
-	return q.createSpanWeight(searcher, needsScores, boost)
+func (q *SpanNearQuery) CreateSpanWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (*SpanWeight, error) {
+	return q.createSpanWeight(searcher, scoreMode, boost)
 }
 
-func (q *SpanNearQuery) createSpanWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (*SpanWeight, error) {
+func (q *SpanNearQuery) createSpanWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (*SpanWeight, error) {
 	subWeights := make([]*SpanWeight, len(q.clauses))
 	for i, clause := range q.clauses {
-		sw, err := clause.CreateSpanWeight(searcher, needsScores, boost)
+		sw, err := clause.CreateSpanWeight(searcher, scoreMode, boost)
 		if err != nil {
 			return nil, err
 		}
@@ -320,7 +364,7 @@ func (s *GapSpans) Advance(target int) (int, error) { s.pos = -1; s.doc = target
 func (s *GapSpans) Cost() int64 { return 0 }
 
 // DocIDRunEnd returns the conservative upper bound.
-func (s *GapSpans) DocIDRunEnd() int { return s.doc + 1 }
+func (s *GapSpans) DocIDRunEnd() (int, error) { return s.doc + 1, nil }
 
 // PositionsCost returns 0.
 func (s *GapSpans) PositionsCost() float32 { return 0 }
@@ -330,3 +374,10 @@ func (s *GapSpans) AsTwoPhaseIterator() *search.TwoPhaseIterator { return nil }
 
 var _ Spans = (*GapSpans)(nil)
 var _ search.Query = (*SpanNearQuery)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *GapSpans) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

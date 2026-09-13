@@ -43,6 +43,11 @@ type DisiPriorityQueue interface {
 	UpdateTopWith(topReplacement *DisiWrapper) *DisiWrapper
 	// Clear removes all entries from the heap.
 	Clear()
+	// All iterates over the entries of this queue in heap order.
+	//
+	// Mirrors Iterable<DisiWrapper>.iterator(), which the abstract Java class
+	// DisiPriorityQueue implements and both subclasses override.
+	All() func(yield func(*DisiWrapper) bool)
 }
 
 // OfMaxSize creates a DisiPriorityQueue of the given maximum size.

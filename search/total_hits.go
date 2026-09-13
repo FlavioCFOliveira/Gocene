@@ -24,7 +24,8 @@ func NewTotalHits(value int64, relation Relation) *TotalHits {
 	return spi.NewTotalHits(value, relation)
 }
 
-// IsExact returns true if the hit count is exact.
-func (t *TotalHits) IsExact() bool {
-	return t.Relation == EQUAL_TO
-}
+// IsExact is declared on spi.TotalHits, the type TotalHits aliases, and cannot
+// be re-declared here: Go allows methods only on a package's own types. The
+// duplicate that used to sit here had no Lucene counterpart either — Apache
+// Lucene 10.5.0 declares TotalHits as a record with value() and relation()
+// only.

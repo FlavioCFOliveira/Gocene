@@ -6,6 +6,8 @@ package function
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -103,7 +105,7 @@ func (q *FunctionRangeQuery) String() string {
 }
 
 // Equals checks value-equality with another query.
-func (q *FunctionRangeQuery) Equals(other search.Query) bool {
+func (q *FunctionRangeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*FunctionRangeQuery)
 	if !ok || o == nil {
 		return false
@@ -317,8 +319,8 @@ func (a *rangeScorerAdapter) Advance(target int) (int, error) {
 	return a.NextDoc()
 }
 
-func (a *rangeScorerAdapter) Cost() int64      { return a.iter.Cost() }
-func (a *rangeScorerAdapter) DocIDRunEnd() int { return a.doc + 1 }
+func (a *rangeScorerAdapter) Cost() int64               { return a.iter.Cost() }
+func (a *rangeScorerAdapter) DocIDRunEnd() (int, error) { return a.doc + 1, nil }
 func (a *rangeScorerAdapter) GetMaxScore(_ int) float32 {
 	return a.scorer.MaxScore(0)
 }
@@ -342,3 +344,10 @@ func (a *rangeScorerAdapter) Score() float32 {
 var _ search.Query = (*FunctionRangeQuery)(nil)
 var _ search.Weight = (*functionRangeWeight)(nil)
 var _ search.Scorer = (*rangeScorerAdapter)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (a *rangeScorerAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(a, upTo, bitSet, offset)
+}

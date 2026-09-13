@@ -5,11 +5,11 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ForceNoBulkScoringQuery is a query wrapper that forces its wrapped Query to use the default doc-by-doc BulkScorer.
@@ -34,11 +34,7 @@ func (q *ForceNoBulkScoringQuery) Rewrite(searcher *IndexSearcher) (Query, error
 	return q, nil
 }
 
-func (q *ForceNoBulkScoringQuery) Clone() Query {
-	return NewForceNoBulkScoringQuery(q.inner.Clone())
-}
-
-func (q *ForceNoBulkScoringQuery) Equals(other Query) bool {
+func (q *ForceNoBulkScoringQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*ForceNoBulkScoringQuery)
 	if !ok || o == nil {
 		return false
@@ -50,8 +46,8 @@ func (q *ForceNoBulkScoringQuery) HashCode() int {
 	return q.inner.HashCode() ^ 0x46_4E_42_53 // "FNBS" magic
 }
 
-func (q *ForceNoBulkScoringQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	innerWeight, err := q.inner.CreateWeight(searcher, needsScores, boost)
+func (q *ForceNoBulkScoringQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	innerWeight, err := q.inner.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +79,7 @@ func (w *forceNoBulkScoringWeight) Count(ctx *index.LeafReaderContext) (int, err
 }
 
 func (q *ForceNoBulkScoringQuery) String() string {
-	return fmt.Sprintf("NoBulkScorer(%s)", q.inner.String())
+	return fmt.Sprintf("NoBulkScorer(%s)", queryToString(q.inner, ""))
 }
 
 // DisablingBulkScorerQuery is a Query wrapper that disables bulk-scoring optimizations.
@@ -108,11 +104,7 @@ func (q *DisablingBulkScorerQuery) Rewrite(searcher *IndexSearcher) (Query, erro
 	return q, nil
 }
 
-func (q *DisablingBulkScorerQuery) Clone() Query {
-	return NewDisablingBulkScorerQuery(q.inner.Clone())
-}
-
-func (q *DisablingBulkScorerQuery) Equals(other Query) bool {
+func (q *DisablingBulkScorerQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*DisablingBulkScorerQuery)
 	if !ok || o == nil {
 		return false
@@ -124,8 +116,8 @@ func (q *DisablingBulkScorerQuery) HashCode() int {
 	return q.inner.HashCode() ^ 0x44_42_53_51 // "DBSQ" magic
 }
 
-func (q *DisablingBulkScorerQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	innerWeight, err := q.inner.CreateWeight(searcher, needsScores, boost)
+func (q *DisablingBulkScorerQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	innerWeight, err := q.inner.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
 	}
@@ -152,16 +144,8 @@ type disablingBulkScorerSupplier struct {
 	supplier ScorerSupplier
 }
 
-func (s *disablingBulkScorerSupplier) Get(weightIndex int) (Scorer, error) {
-	return s.supplier.Get(weightIndex)
-}
-
-func (s *disablingBulkScorerSupplier) GetMatchCost() float32 {
-	return s.supplier.GetMatchCost()
-}
-
-func (s *disablingBulkScorerSupplier) GetDocCount() int {
-	return s.supplier.GetDocCount()
+func (s *disablingBulkScorerSupplier) Get(leadCost int64) (Scorer, error) {
+	return s.supplier.Get(leadCost)
 }
 
 func (w *disablingBulkScorerWeight) BulkScorer(ctx *index.LeafReaderContext) (BulkScorer, error) {
@@ -188,7 +172,7 @@ func (w *disablingBulkScorerWeight) Count(ctx *index.LeafReaderContext) (int, er
 }
 
 func (q *DisablingBulkScorerQuery) String() string {
-	return q.inner.String()
+	return queryToString(q.inner, "")
 }
 
 // BulkScorerWrapperScorer is a Scorer backed by a BulkScorer.
@@ -242,13 +226,14 @@ func (s *BulkScorerWrapperScorer) refill(target int) error {
 }
 
 type bulkScorerWrapperCollector struct {
+	BaseLeafCollector
 	scorer *BulkScorerWrapperScorer
 	docs   []int
 	scores []float32
 	bufLen *int
 }
 
-func (c *bulkScorerWrapperCollector) SetScorer(scorer Scorer) error {
+func (c *bulkScorerWrapperCollector) SetScorer(scorer Scorable) error {
 	return nil
 }
 
@@ -311,17 +296,63 @@ func (s *BulkScorerWrapperScorer) Advance(target int) (int, error) {
 	return s.doc, nil
 }
 
-func (s *BulkScorerWrapperScorer) Score() float32 {
+func (s *BulkScorerWrapperScorer) Score() (float32, error) {
 	if s.i < 0 || s.i >= s.bufLen {
-		return 0
+		return 0, nil
 	}
-	return s.scores[s.i]
+	return s.scores[s.i], nil
 }
 
-func (s *BulkScorerWrapperScorer) GetMaxScore(_ int) float32 {
-	return float32(math.Inf(1))
+func (s *BulkScorerWrapperScorer) GetMaxScore(_ int) (float32, error) {
+	return float32(math.Inf(1)), nil
 }
 
 func (s *BulkScorerWrapperScorer) Cost() int64 {
 	return s.scorer.Cost()
+}
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (d *disablingBulkScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(d)
+}
+
+// SetTopLevelScoringClause mirrors ScorerSupplier.setTopLevelScoringClause(),
+// whose body in Apache Lucene 10.5.0 is empty.
+func (d *disablingBulkScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
+
+// Cost delegates to the wrapped supplier: disabling bulk scoring does not
+// change the number of documents the scorer will visit.
+func (s *disablingBulkScorerSupplier) Cost() int64 {
+	return s.supplier.Cost()
+}
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (b *bulkScorerWrapperCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(b, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (b *bulkScorerWrapperCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(b, stream)
+}
+
+// IsCacheable mirrors the isCacheable(LeafReaderContext) override of the
+// anonymous Weight in ForceNoBulkScoringQuery.createWeight of Apache Lucene
+// 10.5.0 (ForceNoBulkScoringQuery.java:79-80): `return innerWeight.isCacheable(ctx)`.
+func (w *forceNoBulkScoringWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return w.innerWeight.IsCacheable(ctx)
+}
+
+// IsCacheable mirrors FilterWeight.isCacheable(LeafReaderContext) of Apache
+// Lucene 10.5.0 (FilterWeight.java:48-50): `return in.isCacheable(ctx)`.
+// DisablingBulkScorerQuery.createWeight builds a FilterWeight over the inner
+// weight and does not override isCacheable
+// (DisablingBulkScorerQuery.java:54-76).
+func (w *disablingBulkScorerWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
+	return w.innerWeight.IsCacheable(ctx)
 }

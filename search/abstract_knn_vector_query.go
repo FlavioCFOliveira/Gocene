@@ -10,12 +10,11 @@ package search
 import (
 	"context"
 	"math"
-	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search/knn"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	hnswutil "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
 // lambdaKnn controls the degree of additional result exploration during
@@ -157,20 +156,20 @@ func (q *BaseKnnVectorQuery) Visit(visitor QueryVisitor) {
 //  5. Merge and return the global top-K.
 //
 // Mirrors AbstractKnnVectorQuery.rewrite(IndexSearcher).
-func (q *BaseKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *BaseKnnVectorQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	// Gocene's Query interface uses Rewrite(IndexReader) — a minimal
 	// interface. The full algorithm needs Leaves() and leaf-level access;
 	// we type-assert to index.IndexReaderInterface to access those.
 	// If the reader does not satisfy that interface (e.g. a mock in tests),
 	// return MatchNoDocsQuery gracefully rather than panicking.
-	ir, ok := reader.(index.IndexReaderInterface)
+	ir, ok := searcher.GetIndexReader().(index.IndexReaderInterface)
 	if !ok {
 		return NewMatchNoDocsQuery("MatchNoDocsQuery"), nil
 	}
 
 	var filterWeight Weight
 	if q.filter != nil {
-		rewrittenFilter, err := q.filter.Rewrite(reader)
+		rewrittenFilter, err := q.filter.Rewrite(searcher)
 		if err != nil {
 			return nil, err
 		}
@@ -179,20 +178,17 @@ func (q *BaseKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
 		}
 		if _, ok := rewrittenFilter.(*MatchAllDocsQuery); !ok {
 			// Build a filter BooleanQuery: filter AND field_exists.
-			bq := NewBooleanQuery()
+			bq := NewBooleanQueryBuilder()
 			bq.Add(q.filter, FILTER)
 			bq.Add(NewFieldExistsQuery(q.field), FILTER)
-			rewritten, err := bq.Rewrite(reader)
+			rewritten, err := bq.Build().Rewrite(searcher)
 			if err != nil {
 				return nil, err
 			}
 			if _, ok := rewritten.(*MatchNoDocsQuery); ok {
 				return NewMatchNoDocsQuery("MatchNoDocsQuery"), nil
 			}
-			// CreateWeight with nil searcher — the weight is only used for
-			// obtaining a per-leaf Scorer. Callers that need scoring must
-			// provide a full IndexSearcher via RewriteWithSearcher.
-			filterWeight, err = rewritten.CreateWeight(nil, false, 1.0)
+			filterWeight, err = searcher.CreateWeight(rewritten, ScoreModeCompleteNoScores, 1.0)
 			if err != nil {
 				return nil, err
 			}
@@ -246,7 +242,7 @@ func (q *BaseKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
 		var phase2Leaves []*index.LeafReaderContext
 		var phase2Calls []Callable[*TopDocs]
 		for _, ctx := range leaves {
-			perLeaf, ok := perLeafResults[ctx.Ord()]
+			perLeaf, ok := perLeafResults[ctx.Ord]
 			if !ok {
 				continue
 			}
@@ -270,7 +266,7 @@ func (q *BaseKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
 	if len(topK.ScoreDocs) == 0 {
 		return NewMatchNoDocsQuery("MatchNoDocsQuery"), nil
 	}
-	return newDocAndScoreQueryFromTopDocs(topK, leaves), nil
+	return CreateDocAndScoreQuery(ir, topK), nil
 }
 
 // runSearchTasks executes callables, stores results keyed by leaf ordinal,
@@ -288,7 +284,7 @@ func (q *BaseKnnVectorQuery) runSearchTasks(
 		if err != nil {
 			return nil, err
 		}
-		perLeafResults[leaves[i].Ord()] = td
+		perLeafResults[leaves[i].Ord] = td
 	}
 	tasks = tasks[:0]
 
@@ -313,9 +309,9 @@ func (q *BaseKnnVectorQuery) searchLeaf(
 	if err != nil {
 		return nil, err
 	}
-	if ctx.DocBase() > 0 {
+	if ctx.DocBase > 0 {
 		for _, sd := range results.ScoreDocs {
-			sd.Doc += ctx.DocBase()
+			sd.Doc += ctx.DocBase
 		}
 	}
 	return results, nil
@@ -339,13 +335,13 @@ func (q *BaseKnnVectorQuery) getLeafResults(
 	maxDoc := ctx.Reader().MaxDoc()
 
 	if filterWeight == nil {
-		acceptDocs := AcceptDocsFromLiveDocs(liveDocs, maxDoc)
+		acceptDocs := FromLiveDocs(liveDocs, maxDoc)
 		return q.impl.ApproximateSearch(ctx, acceptDocs, math.MaxInt32, timeLimiting)
 	}
 
 	var scorer Scorer
 	if leafReader != nil {
-		leafCtx := index.NewLeafReaderContext(ctx.Reader(), ctx.Parent(), ctx.Ord(), ctx.DocBase())
+		leafCtx := index.NewLeafReaderContext(ctx.LeafReader(), ctx.Parent(), ctx.Ord, ctx.DocBase)
 		var err error
 		scorer, err = filterWeight.Scorer(leafCtx)
 		if err != nil {
@@ -356,17 +352,16 @@ func (q *BaseKnnVectorQuery) getLeafResults(
 	var iterSupplier func() (DocIdSetIterator, error)
 	if scorer == nil {
 		iterSupplier = func() (DocIdSetIterator, error) {
-			return NewEmptyDocIdSetIterator(), nil
+			return Empty(), nil
 		}
 	} else {
-		// Scorer embeds DocIdSetIterator in Gocene (Java: scorer.iterator()).
 		s := scorer
 		iterSupplier = func() (DocIdSetIterator, error) {
-			return s, nil
+			return s.Iterator(), nil
 		}
 	}
 
-	acceptDocs := AcceptDocsFromIteratorSupplier(iterSupplier, liveDocs, maxDoc)
+	acceptDocs := FromIteratorSupplier(iterSupplier, liveDocs, maxDoc)
 	cost, err := acceptDocs.Cost()
 	if err != nil {
 		return nil, err
@@ -510,7 +505,7 @@ func (q *BaseKnnVectorQuery) exactSearch(
 //
 // Mirrors AbstractKnnVectorQuery.mergeLeafResults (protected, overridable).
 func (q *BaseKnnVectorQuery) mergeLeafResults(perLeafResults []*TopDocs) *TopDocs {
-	return Merge(perLeafResults, q.k)
+	return MergeSimple(q.k, perLeafResults)
 }
 
 // EqualsBase checks structural equality for the base fields.
@@ -580,7 +575,7 @@ func (m *optimisticKnnCollectorManager) NewCollector(
 	visitedLimit int,
 	strategy knn.KnnSearchStrategy,
 	ctx *index.LeafReaderContext,
-) (hnswutil.KnnCollector, error) {
+) (spi.KnnCollector, error) {
 	if knn.IsOptimistic(m.delegate) && ctx.Parent() != nil {
 		proportion := float64(ctx.Reader().MaxDoc()) /
 			float64(ctx.Parent().Reader().MaxDoc())
@@ -623,7 +618,7 @@ func (m *reentrantKnnCollectorManager) NewCollector(
 	visitLimit int,
 	strategy knn.KnnSearchStrategy,
 	ctx *index.LeafReaderContext,
-) (hnswutil.KnnCollector, error) {
+) (spi.KnnCollector, error) {
 	// Delegate to the base manager. Full seeded strategy requires
 	// IndexedDISI / KnnVectorValues.DocIndexIterator which are not yet
 	// wired in Gocene's SegmentReader. The base collector produces correct
@@ -664,7 +659,7 @@ func (m *searchTimeLimitingKnnCollectorManager) NewCollector(
 	visitedLimit int,
 	strategy knn.KnnSearchStrategy,
 	ctx *index.LeafReaderContext,
-) (hnswutil.KnnCollector, error) {
+) (spi.KnnCollector, error) {
 	c, err := m.delegate.NewCollector(visitedLimit, strategy, ctx)
 	if err != nil {
 		return nil, err
@@ -678,10 +673,10 @@ func (m *searchTimeLimitingKnnCollectorManager) NewCollector(
 // Compile-time check.
 var _ knn.KnnCollectorManager = (*searchTimeLimitingKnnCollectorManager)(nil)
 
-// timeLimitingKnnCollector decorates a [hnswutil.KnnCollector] with
+// timeLimitingKnnCollector decorates a [spi.KnnCollector] with
 // early-termination driven by a [index.QueryTimeout].
 type timeLimitingKnnCollector struct {
-	hnswutil.KnnCollector
+	spi.KnnCollector
 	timeout index.QueryTimeout
 }
 
@@ -693,11 +688,11 @@ func (c *timeLimitingKnnCollector) EarlyTerminated() bool {
 
 // TopDocs adjusts the relation to GREATER_THAN_OR_EQUAL_TO when the
 // timeout has fired.
-func (c *timeLimitingKnnCollector) TopDocs() *hnswutil.TopDocs {
+func (c *timeLimitingKnnCollector) TopDocs() *TopDocs {
 	docs := c.KnnCollector.TopDocs()
 	if c.timeout.ShouldExit() {
-		return hnswutil.NewTopDocs(
-			hnswutil.NewTotalHits(docs.TotalHits.Value, hnswutil.GreaterThanOrEqualTo),
+		return NewTopDocs(
+			NewTotalHits(docs.TotalHits.Value, GREATER_THAN_OR_EQUAL_TO),
 			docs.ScoreDocs,
 		)
 	}
@@ -710,46 +705,6 @@ func (c *timeLimitingKnnCollector) TopDocs() *hnswutil.TopDocs {
 // TopDocsCollector.EMPTY_TOPDOCS).
 func emptyTopDocs() *TopDocs {
 	return NewTopDocs(NewTotalHits(0, EQUAL_TO), nil)
-}
-
-// newDocAndScoreQueryFromTopDocs converts a TopDocs (carrying GLOBAL doc IDs)
-// into a leaf-scoped DocAndScoreQuery. The per-leaf segmentStarts are computed
-// from the reader's leaf doc-bases so the resulting query's per-leaf scorers
-// each emit only their own slice of the merged top-K (rebased to leaf-local
-// doc IDs). Without the segmentStarts, IndexSearcher's per-segment execution
-// would re-emit every global doc once per leaf and re-apply each leaf's
-// docBase, corrupting multi-segment results.
-//
-// Mirrors DocAndScoreQuery.createDocAndScoreQuery(IndexReader, TopDocs).
-func newDocAndScoreQueryFromTopDocs(topK *TopDocs, leaves []*index.LeafReaderContext) *DocAndScoreQuery {
-	n := len(topK.ScoreDocs)
-	docIDs := make([]int, n)
-	scores := make([]float32, n)
-	for i, sd := range topK.ScoreDocs {
-		docIDs[i] = sd.Doc
-		scores[i] = sd.Score
-	}
-	// docIDs must be ascending for findSegmentStarts; NewDocAndScoreQueryWithSegmentStarts
-	// also sorts, so sort a local copy here to compute segmentStarts against
-	// the same ordering.
-	sortedDocs := make([]int, n)
-	copy(sortedDocs, docIDs)
-	sort.Ints(sortedDocs)
-
-	var segmentStarts []int
-	if len(leaves) > 0 {
-		// Index doc-bases by leaf ordinal so docBases[ord] matches the ord the
-		// per-leaf scorer is later created with (Leaves() is ord-ordered, but
-		// keying by Ord() is robust regardless).
-		docBases := make([]int, len(leaves))
-		for _, lc := range leaves {
-			if o := lc.Ord(); o >= 0 && o < len(docBases) {
-				docBases[o] = lc.DocBase()
-			}
-		}
-		segmentStarts = findSegmentStarts(docBases, sortedDocs)
-	}
-	return NewDocAndScoreQueryWithSegmentStarts(docIDs, scores, segmentStarts)
 }
 
 // leafFieldInfo extracts the FieldInfo for the given field from a leaf's

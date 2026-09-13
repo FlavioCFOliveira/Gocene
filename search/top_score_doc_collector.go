@@ -18,7 +18,7 @@ import (
 // This is a specialized collector that optimizes for score-based sorting.
 // It is more efficient than TopFieldCollector when only score sorting is needed.
 type TopScoreDocCollector struct {
-	*SimpleCollector
+	BaseSimpleCollector
 
 	// numHits is the maximum number of hits to collect
 	numHits int
@@ -42,25 +42,28 @@ type TopScoreDocCollector struct {
 // NewTopScoreDocCollector creates a new TopScoreDocCollector.
 func NewTopScoreDocCollector(numHits int) *TopScoreDocCollector {
 	return &TopScoreDocCollector{
-		SimpleCollector: NewSimpleCollector(COMPLETE),
-		numHits:         numHits,
-		pq:              NewScoreDocPriorityQueue(numHits),
-		totalHits:       0,
-		maxScore:        0,
+		numHits:   numHits,
+		pq:        NewScoreDocPriorityQueue(numHits),
+		totalHits: 0,
+		maxScore:  0,
 	}
 }
 
 // NewTopScoreDocCollectorWithAfter creates a new TopScoreDocCollector with pagination.
 func NewTopScoreDocCollectorWithAfter(numHits int, after *ScoreDoc) *TopScoreDocCollector {
 	return &TopScoreDocCollector{
-		SimpleCollector: NewSimpleCollector(COMPLETE),
-		numHits:         numHits,
-		after:           after,
-		pq:              NewScoreDocPriorityQueue(numHits),
-		totalHits:       0,
-		maxScore:        0,
+		numHits:   numHits,
+		after:     after,
+		pq:        NewScoreDocPriorityQueue(numHits),
+		totalHits: 0,
+		maxScore:  0,
 	}
 }
+
+// ScoreMode mirrors TopScoreDocCollector.scoreMode(), which returns
+// ScoreMode.COMPLETE while the total-hits threshold is unbounded - the only
+// case this port models.
+func (c *TopScoreDocCollector) ScoreMode() ScoreMode { return COMPLETE }
 
 // GetLeafCollector returns a LeafCollector for the given context. The leaf
 // collector's docBase is taken from context.DocBase() so doc ids are rebased
@@ -68,7 +71,7 @@ func NewTopScoreDocCollectorWithAfter(numHits int, after *ScoreDoc) *TopScoreDoc
 func (c *TopScoreDocCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
 	docBase := 0
 	if context != nil {
-		docBase = context.DocBase()
+		docBase = context.DocBase
 	}
 	return NewTopScoreDocLeafCollector(c, docBase), nil
 }
@@ -86,7 +89,6 @@ func (c *TopScoreDocCollector) TopDocs() *TopDocs {
 	return &TopDocs{
 		TotalHits: NewTotalHits(int64(c.totalHits), EQUAL_TO),
 		ScoreDocs: scoreDocs,
-		MaxScore:  c.maxScore,
 	}
 }
 
@@ -98,17 +100,17 @@ func (c *TopScoreDocCollector) GetTotalHits() int {
 }
 
 // GetMaxScore returns the maximum score seen.
-func (c *TopScoreDocCollector) GetMaxScore() float32 {
+func (c *TopScoreDocCollector) GetMaxScore(_ int) (float32, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.maxScore
+	return c.maxScore, nil
 }
 
 // TopScoreDocLeafCollector collects documents for a single segment with score sorting.
 type TopScoreDocLeafCollector struct {
 	*BaseLeafCollector
 	collector *TopScoreDocCollector
-	scorer    Scorer
+	scorer    Scorable
 	docBase   int
 }
 
@@ -122,7 +124,7 @@ func NewTopScoreDocLeafCollector(collector *TopScoreDocCollector, docBase int) *
 }
 
 // SetScorer sets the scorer.
-func (c *TopScoreDocLeafCollector) SetScorer(scorer Scorer) error {
+func (c *TopScoreDocLeafCollector) SetScorer(scorer Scorable) error {
 	c.scorer = scorer
 	return nil
 }
@@ -138,7 +140,10 @@ func (c *TopScoreDocLeafCollector) Collect(doc int) error {
 	defer c.collector.mu.Unlock()
 
 	c.collector.totalHits++
-	score := c.scorer.Score()
+	score, err := c.scorer.Score()
+	if err != nil {
+		return err
+	}
 
 	if score > c.collector.maxScore {
 		c.collector.maxScore = score
@@ -173,3 +178,15 @@ func (c *TopScoreDocLeafCollector) Collect(doc int) error {
 
 // Ensure TopScoreDocCollector implements Collector
 var _ Collector = (*TopScoreDocCollector)(nil)
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (t *TopScoreDocLeafCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(t, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (t *TopScoreDocLeafCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(t, stream)
+}

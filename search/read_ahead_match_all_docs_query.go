@@ -12,6 +12,7 @@ package search
 // used to validate TopFieldCollector read-ahead compatibility.
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -33,7 +34,7 @@ func (q *ReadAheadMatchAllDocsQuery) String(_ string) string {
 }
 
 // Equals checks if this query equals another.
-func (q *ReadAheadMatchAllDocsQuery) Equals(other Query) bool {
+func (q *ReadAheadMatchAllDocsQuery) Equals(other spi.Query) bool {
 	_, ok := other.(*ReadAheadMatchAllDocsQuery)
 	return ok
 }
@@ -48,18 +49,13 @@ func (q *ReadAheadMatchAllDocsQuery) Visit(visitor QueryVisitor) {
 	// no-op: this query does not match specific terms/fields
 }
 
-// Clone creates a copy of this query.
-func (q *ReadAheadMatchAllDocsQuery) Clone() Query {
-	return NewReadAheadMatchAllDocsQuery()
-}
-
 // Rewrite rewrites this query.
-func (q *ReadAheadMatchAllDocsQuery) Rewrite(_ IndexReader) (Query, error) {
+func (q *ReadAheadMatchAllDocsQuery) Rewrite(_ *IndexSearcher) (Query, error) {
 	return q, nil
 }
 
 // CreateWeight creates a weight for scoring.
-func (q *ReadAheadMatchAllDocsQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *ReadAheadMatchAllDocsQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return NewConstantScoreWeight(
 		q,
 		boost,
@@ -76,7 +72,7 @@ func (q *ReadAheadMatchAllDocsQuery) CreateWeight(searcher *IndexSearcher, needs
 // the anonymous ScorerSupplier inside ReadAheadMatchAllDocsQuery's
 // ConstantScoreWeight.
 type SingleClauseDenseScorerSupplier struct {
-	*BaseScorerSupplier
+	BaseScorerSupplier
 	maxDoc int
 	score  float32
 }
@@ -85,11 +81,14 @@ type SingleClauseDenseScorerSupplier struct {
 // document range and constant score.
 func NewSingleClauseDenseScorerSupplier(maxDoc int, score float32) *SingleClauseDenseScorerSupplier {
 	return &SingleClauseDenseScorerSupplier{
-		BaseScorerSupplier: NewBaseScorerSupplier(int64(maxDoc)),
-		maxDoc:             maxDoc,
-		score:              score,
+		maxDoc: maxDoc,
+		score:  score,
 	}
 }
+
+// Cost mirrors the cost() override on the anonymous ScorerSupplier in
+// ReadAheadMatchAllDocsQuery, which returns context.reader().maxDoc().
+func (s *SingleClauseDenseScorerSupplier) Cost() int64 { return int64(s.maxDoc) }
 
 // Get returns a Scorer for single-clause dense iteration.
 func (s *SingleClauseDenseScorerSupplier) Get(_ int64) (Scorer, error) {
@@ -109,6 +108,6 @@ func (s *SingleClauseDenseScorerSupplier) BulkScorer() (BulkScorer, error) {
 
 // Verify interface compliance.
 var (
-	_ Query         = (*ReadAheadMatchAllDocsQuery)(nil)
+	_ Query          = (*ReadAheadMatchAllDocsQuery)(nil)
 	_ ScorerSupplier = (*SingleClauseDenseScorerSupplier)(nil)
 )

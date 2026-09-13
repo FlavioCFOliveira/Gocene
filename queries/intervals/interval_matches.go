@@ -9,6 +9,7 @@ package intervals
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // IntervalMatches provides utility functions for creating IntervalMatchesIterators
@@ -65,10 +66,10 @@ func (a *asMatchesIterator) Next() (bool, error) {
 	}
 	return next != NoMoreIntervals, nil
 }
-func (a *asMatchesIterator) StartPosition() int                       { return a.iterator.Start() }
-func (a *asMatchesIterator) EndPosition() int                         { return a.iterator.End() }
-func (a *asMatchesIterator) StartOffset() (int, error)                { return a.source.StartOffset() }
-func (a *asMatchesIterator) EndOffset() (int, error)                  { return a.source.EndOffset() }
+func (a *asMatchesIterator) StartPosition() int        { return a.iterator.Start() }
+func (a *asMatchesIterator) EndPosition() int          { return a.iterator.End() }
+func (a *asMatchesIterator) StartOffset() (int, error) { return a.source.StartOffset() }
+func (a *asMatchesIterator) EndOffset() (int, error)   { return a.source.EndOffset() }
 func (a *asMatchesIterator) GetSubMatches() (search.MatchesIterator, error) {
 	return a.source.GetSubMatches()
 }
@@ -151,5 +152,12 @@ func (w *wrappedMatchesIterator) Advance(target int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
 
-func (w *wrappedMatchesIterator) Cost() int64     { return 1 }
-func (w *wrappedMatchesIterator) DocIDRunEnd() int { return w.DocID() + 1 }
+func (w *wrappedMatchesIterator) Cost() int64               { return 1 }
+func (w *wrappedMatchesIterator) DocIDRunEnd() (int, error) { return w.DocID() + 1, nil }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (w *wrappedMatchesIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(w, upTo, bitSet, offset)
+}

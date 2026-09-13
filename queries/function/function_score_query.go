@@ -6,6 +6,8 @@ package function
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -64,7 +66,7 @@ func (q *FunctionScoreQuery) Clone() search.Query {
 }
 
 // Equals checks value equality.
-func (q *FunctionScoreQuery) Equals(other search.Query) bool {
+func (q *FunctionScoreQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*FunctionScoreQuery)
 	if !ok || o == nil {
 		return false
@@ -247,7 +249,7 @@ func (s *functionScoreScorer) DocID() int                 { return s.inner.DocID
 func (s *functionScoreScorer) NextDoc() (int, error)      { return s.inner.NextDoc() }
 func (s *functionScoreScorer) Advance(t int) (int, error) { return s.inner.Advance(t) }
 func (s *functionScoreScorer) Cost() int64                { return s.inner.Cost() }
-func (s *functionScoreScorer) DocIDRunEnd() int           { return s.inner.DocIDRunEnd() }
+func (s *functionScoreScorer) DocIDRunEnd() (int, error)  { return s.inner.DocIDRunEnd() }
 func (s *functionScoreScorer) GetMaxScore(_ int) float32  { return float32(math.Inf(1)) }
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
@@ -361,3 +363,10 @@ var (
 	_ search.Weight = (*functionScoreWeight)(nil)
 	_ search.Scorer = (*functionScoreScorer)(nil)
 )
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *functionScoreScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

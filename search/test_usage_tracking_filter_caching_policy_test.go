@@ -72,7 +72,11 @@ func TestUsageTrackingFilterCachingPolicy_NeverCacheMatchAll(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		policy.OnUse(q)
 	}
-	if policy.ShouldCache(q) {
+	cached, err := policy.ShouldCache(q)
+	if err != nil {
+		t.Fatalf("ShouldCache: %v", err)
+	}
+	if cached {
 		t.Error("MatchAllDocsQuery must never be cached")
 	}
 }
@@ -85,7 +89,11 @@ func TestUsageTrackingFilterCachingPolicy_NeverCacheTermFilter(t *testing.T) {
 	for i := 0; i < 1000; i++ {
 		policy.OnUse(q)
 	}
-	if policy.ShouldCache(q) {
+	cached, err := policy.ShouldCache(q)
+	if err != nil {
+		t.Fatalf("ShouldCache: %v", err)
+	}
+	if cached {
 		t.Error("TermQuery must never be cached")
 	}
 }
@@ -98,7 +106,11 @@ func TestUsageTrackingFilterCachingPolicy_NeverCacheDocValuesFieldExistsFilter(t
 	for i := 0; i < 1000; i++ {
 		policy.OnUse(q)
 	}
-	if policy.ShouldCache(q) {
+	cached, err := policy.ShouldCache(q)
+	if err != nil {
+		t.Fatalf("ShouldCache: %v", err)
+	}
+	if cached {
 		t.Error("FieldExistsQuery must never be cached")
 	}
 }
@@ -119,7 +131,11 @@ func TestUsageTrackingFilterCachingPolicy_BooleanQueries(t *testing.T) {
 
 	policy := search.NewUsageTrackingQueryCachingPolicy()
 	// Never-cache queries: TermQuery children return false from ShouldCache.
-	if policy.ShouldCache(search.NewTermQuery(index.NewTerm("foo", "bar"))) {
+	cached, err := policy.ShouldCache(search.NewTermQuery(index.NewTerm("foo", "bar")))
+	if err != nil {
+		t.Fatalf("ShouldCache: %v", err)
+	}
+	if cached {
 		t.Error("TermQuery must never be cached")
 	}
 	// The BooleanQuery itself may be cacheable under the policy, but without

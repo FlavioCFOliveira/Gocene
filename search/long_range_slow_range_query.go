@@ -15,6 +15,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strconv"
 	"strings"
 
@@ -123,7 +124,7 @@ func (q *longRangeSlowRangeQuery) Max() []int64 {
 
 // Equals mirrors the Java reference: two LongRangeSlowRangeQuery are equal
 // iff they share field, min, and max arrays.
-func (q *longRangeSlowRangeQuery) Equals(other Query) bool {
+func (q *longRangeSlowRangeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*longRangeSlowRangeQuery)
 	if !ok {
 		return false
@@ -179,17 +180,13 @@ func (q *longRangeSlowRangeQuery) String(field string) string {
 
 // Rewrite mirrors the Java reference, which simply forwards to
 // super.rewrite(IndexSearcher) — i.e. returns the query unchanged.
-func (q *longRangeSlowRangeQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
-
-// Clone returns the query unchanged. The encoded payload and long arrays
-// are owned by the query and never mutated through its API.
-func (q *longRangeSlowRangeQuery) Clone() Query { return q }
+func (q *longRangeSlowRangeQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // CreateWeight delegates to the binary base so the doc-values plumbing is
 // reused verbatim. The long wrapper contributes only equality/visit and
 // the public min/max accessors.
-func (q *longRangeSlowRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	w, err := q.binaryRangeFieldRangeQuery.CreateWeight(searcher, needsScores, boost)
+func (q *longRangeSlowRangeQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	w, err := q.binaryRangeFieldRangeQuery.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
 	}
@@ -204,8 +201,29 @@ func (q *longRangeSlowRangeQuery) CreateWeight(searcher *IndexSearcher, needsSco
 // encodeLongRanges packs an N-dimensional [min, max] payload via the existing
 // Lucene-compatible encoder so the byte stream is identical to the Java
 // reference (LongRange.verifyAndEncode + LongToSortableBytes).
+//
+// [document.EncodeLongRangeLucene] renders Java's IllegalArgumentException as
+// a panic, unlike its int/float/double siblings which return an error. The
+// guards below reproduce LongRange.checkArgs and the min>max check of
+// LongRange.verifyAndEncode — with Lucene's exact messages — ahead of the
+// call, so the rejected inputs surface as errors here and the encoder's
+// panic is unreachable.
 func encodeLongRanges(min, max []int64) ([]byte, error) {
-	return document.EncodeLongRangeLucene(min, max)
+	if len(min) == 0 || len(max) == 0 {
+		return nil, fmt.Errorf("min/max range values cannot be null or empty")
+	}
+	if len(min) != len(max) {
+		return nil, fmt.Errorf("min/max ranges must agree")
+	}
+	if len(min) > 4 {
+		return nil, fmt.Errorf("LongRange does not support greater than 4 dimensions")
+	}
+	for d := range min {
+		if min[d] > max[d] {
+			return nil, fmt.Errorf("min value (%d) is greater than max value (%d)", min[d], max[d])
+		}
+	}
+	return document.EncodeLongRangeLucene(min, max), nil
 }
 
 // int64SliceEquals mirrors java.util.Arrays.equals(long[], long[]).

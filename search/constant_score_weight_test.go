@@ -5,6 +5,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"errors"
 	"testing"
 
@@ -24,7 +25,7 @@ func newStubQuery(hash int) *stubQuery {
 }
 
 func (q *stubQuery) HashCode() int { return q.hash }
-func (q *stubQuery) Equals(other Query) bool {
+func (q *stubQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*stubQuery)
 	return ok && o.hash == q.hash
 }
@@ -89,7 +90,7 @@ func TestConstantScoreWeight_ScorerSupplier_NilHookReturnsNil(t *testing.T) {
 // is returned verbatim.
 func TestConstantScoreWeight_ScorerSupplier_DelegatesToHook(t *testing.T) {
 	t.Parallel()
-	want := NewConstantScoreScorerSupplierFromIterator(1.0, COMPLETE, NewEmptyDocIdSetIterator())
+	want := NewConstantScoreScorerSupplierFromIterator(1.0, COMPLETE, Empty())
 	w := NewConstantScoreWeight(
 		newStubQuery(0),
 		1.0,

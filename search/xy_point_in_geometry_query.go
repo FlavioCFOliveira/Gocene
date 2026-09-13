@@ -16,6 +16,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
@@ -126,21 +127,14 @@ func (q *xyPointInGeometryQuery) Visit(visitor QueryVisitor) {
 
 // Rewrite returns the query unchanged. The Java reference inherits the
 // no-op rewrite from Query.
-func (q *xyPointInGeometryQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
-
-// Clone returns a shallow copy. The geometries slice is treated as
-// immutable through the API surface, so a shared header is safe.
-func (q *xyPointInGeometryQuery) Clone() Query {
-	c := *q
-	return &c
-}
+func (q *xyPointInGeometryQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // Equals mirrors the Java reference: two queries are equal iff they
 // share the same concrete type, field, and geometry sequence (in
 // order). Element equality reduces to Go == on the interface value,
 // which delegates to the underlying XYGeometry implementation's
 // equality. Mirrors Arrays.equals on XYGeometry[].
-func (q *xyPointInGeometryQuery) Equals(other Query) bool {
+func (q *xyPointInGeometryQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*xyPointInGeometryQuery)
 	if !ok {
 		return false
@@ -218,7 +212,7 @@ func (q *xyPointInGeometryQuery) toString(field string) string {
 // reference, which calls XYGeometry.create in createWeight) and returns
 // a [xyPointInGeometryWeight]. The supplier returns nil when the field
 // is unknown to the leaf, matching Lucene's null-Scorer fast path.
-func (q *xyPointInGeometryQuery) CreateWeight(searcher *IndexSearcher, _ bool, boost float32) (Weight, error) {
+func (q *xyPointInGeometryQuery) CreateWeight(searcher *IndexSearcher, _ ScoreMode, boost float32) (Weight, error) {
 	tree, err := geo.CreateXYGeometry(q.geometries...)
 	if err != nil {
 		return nil, fmt.Errorf("xy point in geometry query: build component tree: %w", err)
@@ -537,20 +531,19 @@ func (s *xyPointInGeometryScorerSupplier) Get(_ int64) (Scorer, error) {
 	}
 	var disi DocIdSetIterator
 	if set == nil {
-		disi = NewEmptyDocIdSetIterator()
+		disi = Empty()
 	} else {
 		utilIter := set.Iterator()
 		if utilIter == nil {
-			disi = NewEmptyDocIdSetIterator()
+			disi = Empty()
 		} else {
 			disi = newUtilToSearchDISIAdapter(utilIter)
 		}
 	}
 	return &xyPointInGeometryScorer{
-		BaseScorer: NewBaseScorer(s.weight),
-		weight:     s.weight,
-		iter:       disi,
-		score:      s.weight.boost,
+		weight: s.weight,
+		iter:   disi,
+		score:  s.weight.boost,
 	}, nil
 }
 
@@ -568,7 +561,9 @@ func (s *xyPointInGeometryScorerSupplier) Cost() int64 {
 }
 
 // SetTopLevelScoringClause is a no-op for this constant-score supplier.
-func (s *xyPointInGeometryScorerSupplier) SetTopLevelScoringClause() {}
+func (s *xyPointInGeometryScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
 
 // Ensure xyPointInGeometryScorerSupplier implements ScorerSupplier.
 var _ ScorerSupplier = (*xyPointInGeometryScorerSupplier)(nil)
@@ -699,7 +694,7 @@ func xyRelationFromGeo(r geo.Relation) xyPointCellRelation {
 // forwards every position/cost call to the materialized DocIdSet's
 // iterator.
 type xyPointInGeometryScorer struct {
-	*BaseScorer
+	BaseScorer
 
 	weight *xyPointInGeometryWeight
 	iter   DocIdSetIterator
@@ -721,13 +716,60 @@ func (s *xyPointInGeometryScorer) Advance(target int) (int, error) {
 func (s *xyPointInGeometryScorer) Cost() int64 { return s.iter.Cost() }
 
 // DocIDRunEnd returns the end of the current run.
-func (s *xyPointInGeometryScorer) DocIDRunEnd() int { return s.iter.DocIDRunEnd() }
+func (s *xyPointInGeometryScorer) DocIDRunEnd() (int, error) { return s.iter.DocIDRunEnd() }
 
 // Score returns the constant boost score.
-func (s *xyPointInGeometryScorer) Score() float32 { return s.score }
+//
+// Mirrors ConstantScoreScorer.score(), whose body is `return score;`.
+func (s *xyPointInGeometryScorer) Score() (float32, error) { return s.score, nil }
 
 // GetMaxScore returns the constant boost score (no per-doc variability).
-func (s *xyPointInGeometryScorer) GetMaxScore(_ int) float32 { return s.score }
+//
+// Mirrors ConstantScoreScorer.getMaxScore(int), whose body is `return score;`.
+func (s *xyPointInGeometryScorer) GetMaxScore(_ int) (float32, error) { return s.score, nil }
+
+// Iterator mirrors ConstantScoreScorer.iterator(), whose body is
+// `return disi;` — the DocIdSetIterator the Java query hands to the
+// ConstantScoreScorer constructor.
+func (s *xyPointInGeometryScorer) Iterator() DocIdSetIterator { return s.iter }
+
+// NextDocsAndScores mirrors ConstantScoreScorer.nextDocsAndScores(int, Bits,
+// DocAndFloatFeatureBuffer) (Lucene 10.5.0):
+//
+//	int batchSize = 64;
+//	buffer.growNoCopy(batchSize);
+//	int size = 0;
+//	DocIdSetIterator iterator = iterator();
+//	for (int doc = iterator.docID(); doc < upTo && size < batchSize; doc = iterator.nextDoc()) {
+//	  if (liveDocs == null || liveDocs.get(doc)) {
+//	    buffer.docs[size] = doc;
+//	    ++size;
+//	  }
+//	}
+//	Arrays.fill(buffer.features, 0, size, score);
+//	buffer.size = size;
+func (s *xyPointInGeometryScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	batchSize := 64
+	buffer.GrowNoCopy(batchSize)
+	size := 0
+	iterator := s.Iterator()
+	for doc := iterator.DocID(); doc < upTo && size < batchSize; {
+		if liveDocs == nil || liveDocs.Get(doc) {
+			buffer.Docs[size] = doc
+			size++
+		}
+		next, err := iterator.NextDoc()
+		if err != nil {
+			return err
+		}
+		doc = next
+	}
+	for i := 0; i < size; i++ {
+		buffer.Features[i] = s.score
+	}
+	buffer.Size = size
+	return nil
+}
 
 // Ensure xyPointInGeometryScorer implements Scorer.
 var _ Scorer = (*xyPointInGeometryScorer)(nil)
@@ -750,7 +792,7 @@ func (a *xyUtilDISIAdapter) DocID() int                      { return a.inner.Do
 func (a *xyUtilDISIAdapter) NextDoc() (int, error)           { return a.inner.NextDoc() }
 func (a *xyUtilDISIAdapter) Advance(target int) (int, error) { return a.inner.Advance(target) }
 func (a *xyUtilDISIAdapter) Cost() int64                     { return a.inner.Cost() }
-func (a *xyUtilDISIAdapter) DocIDRunEnd() int                { return a.inner.DocIDRunEnd() }
+func (a *xyUtilDISIAdapter) DocIDRunEnd() (int, error)       { return a.inner.DocIDRunEnd() }
 
 var _ DocIdSetIterator = (*xyUtilDISIAdapter)(nil)
 
@@ -774,3 +816,22 @@ func xyGeometriesHash(geoms []geo.XYGeometry) int {
 // constant. Distinct from other query class hashes so two different
 // query types with the same field/payload do not collide.
 const classHashXYPointInGeometryQuery = 0x7879_7069 // "xypi"
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (x *xyPointInGeometryScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(x)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (x *xyUtilDISIAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(x, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *xyPointInGeometryScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

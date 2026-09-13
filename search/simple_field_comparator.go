@@ -17,7 +17,7 @@ type SimpleFieldComparator struct {
 	// DoSetNextReader is invoked before each leaf is processed. Optional.
 	DoSetNextReader func(ctx *index.LeafReaderContext) error
 	// SetScorerHook is invoked once the scorer becomes available. Optional.
-	SetScorerHook func(scorer Scorer) error
+	SetScorerHook func(scorer Scorable) error
 }
 
 // GetLeafComparator invokes the optional reader-setup hook and returns the
@@ -32,7 +32,7 @@ func (c *SimpleFieldComparator) GetLeafComparator(ctx *index.LeafReaderContext) 
 }
 
 // SetScorer delegates to the optional hook (no-op by default).
-func (c *SimpleFieldComparator) SetScorer(scorer Scorer) error {
+func (c *SimpleFieldComparator) SetScorer(scorer Scorable) error {
 	if c.SetScorerHook != nil {
 		return c.SetScorerHook(scorer)
 	}

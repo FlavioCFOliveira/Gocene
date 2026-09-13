@@ -5,7 +5,7 @@
 package search
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -102,25 +102,8 @@ func (q *PointRangeQuery) BytesPerDim() int {
 	return q.bytesPerDim
 }
 
-// Clone creates a copy of this query.
-func (q *PointRangeQuery) Clone() Query {
-	lowerCopy := make([]byte, len(q.lowerValue))
-	copy(lowerCopy, q.lowerValue)
-	upperCopy := make([]byte, len(q.upperValue))
-	copy(upperCopy, q.upperValue)
-
-	return &PointRangeQuery{
-		BaseQuery:   &BaseQuery{},
-		field:       q.field,
-		lowerValue:  lowerCopy,
-		upperValue:  upperCopy,
-		numDims:     q.numDims,
-		bytesPerDim: q.bytesPerDim,
-	}
-}
-
 // Equals checks if this query equals another.
-func (q *PointRangeQuery) Equals(other Query) bool {
+func (q *PointRangeQuery) Equals(other spi.Query) bool {
 	if o, ok := other.(*PointRangeQuery); ok {
 		if q.field != o.field || q.numDims != o.numDims || q.bytesPerDim != o.bytesPerDim {
 			return false
@@ -161,7 +144,7 @@ func (q *PointRangeQuery) HashCode() int {
 }
 
 // Rewrite rewrites the query to a simpler form.
-func (q *PointRangeQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *PointRangeQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	// For now, return itself
 	// A full implementation would potentially rewrite to MatchAllDocsQuery
 	// if the range covers all possible values
@@ -169,8 +152,8 @@ func (q *PointRangeQuery) Rewrite(reader IndexReader) (Query, error) {
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *PointRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewPointRangeWeight(q, searcher, needsScores), nil
+func (q *PointRangeQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return NewPointRangeWeight(q, searcher, scoreMode.NeedsScores()), nil
 }
 
 // String returns a string representation of this query.
@@ -253,7 +236,7 @@ func (w *PointRangeWeight) ScorerSupplier(context *index.LeafReaderContext) (Sco
 		}
 		if allMatch {
 			disi := newRangeDocIdSetIterator(maxDoc)
-			return NewScorerSupplierAdapter(NewConstantScoreScorer(float32(1.0), COMPLETE, disi)), nil
+			return NewDefaultScorerSupplier(NewConstantScoreScorer(float32(1.0), COMPLETE, disi)), nil
 		}
 	}
 
@@ -480,66 +463,14 @@ func (w *PointRangeWeight) Matches(context *index.LeafReaderContext, doc int) (M
 // Ensure PointRangeWeight implements Weight
 var _ Weight = (*PointRangeWeight)(nil)
 
-// PointRangeScorer is a scorer for point range queries.
-type PointRangeScorer struct {
-	*BaseScorer
-	maxDoc int
-	doc    int
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (p *pointRangeScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(p)
 }
 
-// NewPointRangeScorer creates a new PointRangeScorer.
-func NewPointRangeScorer(weight Weight, maxDoc int) *PointRangeScorer {
-	return &PointRangeScorer{
-		BaseScorer: NewBaseScorer(weight),
-		maxDoc:     maxDoc,
-		doc:        -1,
-	}
+// SetTopLevelScoringClause mirrors ScorerSupplier.setTopLevelScoringClause(),
+// whose body in Apache Lucene 10.5.0 is empty.
+func (p *pointRangeScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
 }
-
-// DocID returns the current document ID.
-func (s *PointRangeScorer) DocID() int {
-	return s.doc
-}
-
-// NextDoc advances to the next document.
-func (s *PointRangeScorer) NextDoc() (int, error) {
-	s.doc++
-	if s.doc >= s.maxDoc {
-		s.doc = NO_MORE_DOCS
-		return NO_MORE_DOCS, nil
-	}
-	return s.doc, nil
-}
-
-// Advance advances to the target document.
-func (s *PointRangeScorer) Advance(target int) (int, error) {
-	if target >= s.maxDoc {
-		s.doc = NO_MORE_DOCS
-		return NO_MORE_DOCS, nil
-	}
-	s.doc = target
-	return s.doc, nil
-}
-
-// Cost returns the estimated cost.
-func (s *PointRangeScorer) Cost() int64 {
-	return int64(s.maxDoc)
-}
-
-// DocIDRunEnd returns the end of the current run.
-func (s *PointRangeScorer) DocIDRunEnd() int {
-	return s.doc + 1
-}
-
-// Score returns the score for the current document.
-func (s *PointRangeScorer) Score() float32 {
-	return 1.0
-}
-
-// GetMaxScore returns the maximum score for documents up to the given doc.
-func (s *PointRangeScorer) GetMaxScore(upTo int) float32 {
-	return 1.0
-}
-
-// Ensure PointRangeScorer implements Scorer
-var _ Scorer = (*PointRangeScorer)(nil)

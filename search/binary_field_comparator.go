@@ -34,8 +34,22 @@ func NewBinaryFieldComparator(numHits int, field string, sortMissingLast bool, b
 		field:          field,
 		values:         make([][]byte, numHits),
 		missingSortCmp: missingCmp,
+		// Java's BinarySortField.getComparator overrides
+		// TermValComparator.getBinaryDocValues(LeafReaderContext, String) to
+		// call getSortKeyDocValues(context.reader()), whose default body is
+		// DocValues.getBinary(reader, field). Gocene's LeafReaderContext
+		// exposes IndexReaderInterface, which does not declare the
+		// doc-values accessor, so the leaf reader is reached through the
+		// narrow type assertion already used by LatLonPointDistanceComparator
+		// and XYPointDistanceComparator. A reader without that surface falls
+		// back to an empty stream, mirroring DocValues.getBinary's
+		// null-defence path.
 		dvSource: func(r index.IndexReader) (spi.BinaryDocValues, error) {
-			return bsf.GetSortKeyDocValues(r)
+			provider, ok := r.(binaryDocValuesProvider)
+			if !ok {
+				return index.EmptyBinary(), nil
+			}
+			return bsf.GetSortKeyDocValues(provider)
 		},
 	}
 }
@@ -82,7 +96,9 @@ func (c *BinaryFieldComparator) Copy(slot, doc int) {
 	}
 }
 
-func (c *BinaryFieldComparator) SetScorer(scorer Scorer) {}
+func (c *BinaryFieldComparator) SetScorer(scorer Scorable) error {
+	return nil
+}
 
 func (c *BinaryFieldComparator) compareValues(v1, v2 []byte) int {
 	if v1 == nil {
@@ -111,7 +127,17 @@ func (c *BinaryFieldComparator) getValueForDoc(doc int) []byte {
 	return val
 }
 
-func (c *BinaryFieldComparator) getLeafComparator(ctx *index.LeafReaderContext) (LeafFieldComparator, error) {
+// getLeafComparator mirrors FieldComparator.getLeafComparator(LeafReaderContext):
+// it binds the comparator to the segment's binary doc values and returns
+// itself, as Java's TermValComparator does (it implements LeafFieldComparator).
+//
+// The concrete type is returned rather than the LeafFieldComparator interface:
+// Gocene's search.FieldComparator (sort.go) and search.LeafFieldComparator
+// declare CompareBottom, CompareTop, Copy and SetBottom with different
+// signatures, so no single Go type can satisfy both. This is the same
+// resolution already used by SimpleFieldComparator, LatLonPointDistanceComparator
+// and XYPointDistanceComparator.
+func (c *BinaryFieldComparator) getLeafComparator(ctx *index.LeafReaderContext) (*BinaryFieldComparator, error) {
 	if err := c.setReader(ctx.LeafReader()); err != nil {
 		return nil, err
 	}

@@ -8,6 +8,7 @@ package intervals
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // NoMoreIntervals is the sentinel value returned by IntervalIterator.NextInterval
@@ -101,14 +102,14 @@ func NewIntervalFilter(in IntervalIterator, accept func() bool) *IntervalFilter 
 	return &IntervalFilter{In: in, accept: accept}
 }
 
-func (f *IntervalFilter) DocID() int             { return f.In.DocID() }
-func (f *IntervalFilter) DocIDRunEnd() int        { return f.DocID() + 1 }
-func (f *IntervalFilter) Start() int             { return f.In.Start() }
-func (f *IntervalFilter) End() int               { return f.In.End() }
-func (f *IntervalFilter) Gaps() int              { return f.In.Gaps() }
-func (f *IntervalFilter) Width() int             { return f.In.Width() }
-func (f *IntervalFilter) MatchCost() float32     { return f.In.MatchCost() }
-func (f *IntervalFilter) Cost() int64            { return f.In.Cost() }
+func (f *IntervalFilter) DocID() int                { return f.In.DocID() }
+func (f *IntervalFilter) DocIDRunEnd() (int, error) { return f.DocID() + 1, nil }
+func (f *IntervalFilter) Start() int                { return f.In.Start() }
+func (f *IntervalFilter) End() int                  { return f.In.End() }
+func (f *IntervalFilter) Gaps() int                 { return f.In.Gaps() }
+func (f *IntervalFilter) Width() int                { return f.In.Width() }
+func (f *IntervalFilter) MatchCost() float32        { return f.In.MatchCost() }
+func (f *IntervalFilter) Cost() int64               { return f.In.Cost() }
 
 func (f *IntervalFilter) NextDoc() (int, error) {
 	return f.In.NextDoc()
@@ -128,4 +129,11 @@ func (f *IntervalFilter) NextInterval() (int, error) {
 			return next, nil
 		}
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (f *IntervalFilter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
 }

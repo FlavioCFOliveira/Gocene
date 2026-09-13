@@ -9,6 +9,8 @@ import "github.com/FlavioCFOliveira/Gocene/index"
 // TotalHitCountCollector counts the total number of matching documents.
 // This is the Go port of Lucene's org.apache.lucene.search.TotalHitCountCollector.
 type TotalHitCountCollector struct {
+	BaseCollector
+	BaseLeafCollector
 	totalHits int
 }
 
@@ -39,10 +41,22 @@ func (c *TotalHitCountCollector) ScoreMode() ScoreMode {
 }
 
 // SetScorer sets the scorer for this collector.
-func (c *TotalHitCountCollector) SetScorer(scorer Scorer) error {
+func (c *TotalHitCountCollector) SetScorer(scorer Scorable) error {
 	return nil
 }
 
 // Ensure TotalHitCountCollector implements Collector and LeafCollector
 var _ Collector = (*TotalHitCountCollector)(nil)
 var _ LeafCollector = (*TotalHitCountCollector)(nil)
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (t *TotalHitCountCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(t, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (t *TotalHitCountCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(t, stream)
+}

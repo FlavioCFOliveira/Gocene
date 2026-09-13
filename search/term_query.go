@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
@@ -58,16 +59,8 @@ func (q *TermQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	return q, nil
 }
 
-// Clone creates a copy of this query.
-func (q *TermQuery) Clone() Query {
-	return &TermQuery{
-		term:               q.term,
-		perReaderTermState: q.perReaderTermState,
-	}
-}
-
 // Equals checks if this query equals another.
-func (q *TermQuery) Equals(other Query) bool {
+func (q *TermQuery) Equals(other spi.Query) bool {
 	if otherQuery, ok := other.(*TermQuery); ok {
 		return q.term.Equals(otherQuery.term)
 	}
@@ -79,27 +72,20 @@ func (q *TermQuery) HashCode() int {
 	return classHashTermQuery ^ q.term.HashCode()
 }
 
-// CreateWeight creates a Weight for this query.
-// This implements the Query interface with a bool-based scoreMode.
-func (q *TermQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	// Convert bool to ScoreMode
-	var scoreMode ScoreMode
-	if needsScores {
-		scoreMode = COMPLETE
-	} else {
-		scoreMode = COMPLETE_NO_SCORES
-	}
+// CreateWeight creates a Weight for this query, mirroring
+// TermQuery.createWeight(IndexSearcher, ScoreMode, float).
+func (q *TermQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return q.CreateWeightScoreMode(searcher, scoreMode, boost)
 }
 
 // CreateWeightScoreMode creates a Weight with full ScoreMode information.
 // This implements the scoreModeWeightCreator interface.
 func (q *TermQuery) CreateWeightScoreMode(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
-	context := searcher.GetReader().GetTopReaderContext()
+	context := searcher.GetTopReaderContext()
 	var termState *index.TermStates
 	if q.perReaderTermState == nil || !q.perReaderTermState.WasBuiltFor(context) {
 		var err error
-		termState, err = index.BuildTermStates(searcher.GetReader(), q.term, scoreMode.NeedsScores())
+		termState, err = index.BuildTermStates(searcher, q.term, scoreMode.NeedsScores())
 		if err != nil {
 			return nil, err
 		}
@@ -107,13 +93,13 @@ func (q *TermQuery) CreateWeightScoreMode(searcher *IndexSearcher, scoreMode Sco
 		termState = q.perReaderTermState
 	}
 
-	return NewTermWeight(searcher, q.term, scoreMode, boost, termState), nil
+	return NewTermWeight(searcher, q.term, scoreMode, boost, termState)
 }
 
 // ToString returns a user-readable version of this query.
 func (q *TermQuery) ToString(field string) string {
-	if q.term.Field() != field {
-		return fmt.Sprintf("%s:%s", q.term.Field(), q.term.Text())
+	if q.term.Field != field {
+		return fmt.Sprintf("%s:%s", q.term.Field, q.term.Text())
 	}
 	return q.term.Text()
 }

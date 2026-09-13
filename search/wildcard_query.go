@@ -9,8 +9,8 @@ import (
 
 const (
 	WILDCARD_STRING = '*'
-	WILDCARD_CHAR    = '?'
-	WILDCARD_ESCAPE  = '\\'
+	WILDCARD_CHAR   = '?'
+	WILDCARD_ESCAPE = '\\'
 )
 
 // WildcardQuery implements the wildcard search query. Supported wildcards are '*',
@@ -30,22 +30,29 @@ func NewWildcardQuery(term *index.Term) *WildcardQuery {
 // limit is the maximum effort to spend while compiling the automaton from this
 // wildcard. Set higher to allow more complex queries and lower to prevent memory exhaustion.
 func NewWildcardQueryWithLimit(term *index.Term, limit int) *WildcardQuery {
-	return NewWildcardQueryWithRewrite(term, limit, CONSTANT_SCORE_BLENDED_REWRITE)
+	return NewWildcardQueryWithRewrite(term, limit, ConstantScoreBlendedRewrite)
 }
 
 // NewWildcardQueryWithRewrite constructs a query for terms matching term.
 // limit is the maximum effort to spend while compiling the automaton from this
 // wildcard. rewriteMethod is the rewrite method to use when building the final query.
 func NewWildcardQueryWithRewrite(term *index.Term, limit int, rewriteMethod RewriteMethod) *WildcardQuery {
-	auto := ToAutomaton(term, limit)
-	return &WildcardQuery{
+	auto := WildcardQueryToAutomaton(term, limit)
+	q := &WildcardQuery{
 		AutomatonQuery: *NewAutomatonQuery(term, auto, false, rewriteMethod),
 		term:           term,
 	}
+	// The embedded AutomatonQuery was copied by value, so the owner installed
+	// by NewAutomatonQuery points at the temporary: re-install it on the final
+	// object. See MultiTermQuery.SetOwner.
+	q.MultiTermQuery.SetOwner(q)
+	return q
 }
 
-// ToAutomaton converts Lucene wildcard syntax into an automaton.
-func ToAutomaton(term *index.Term, limit int) *automaton.Automaton {
+// WildcardQueryToAutomaton converts Lucene wildcard syntax into an automaton.
+//
+// Mirrors the static method WildcardQuery.toAutomaton(Term, int).
+func WildcardQueryToAutomaton(term *index.Term, limit int) *automaton.Automaton {
 	var automata []*automaton.Automaton
 	text := term.Text()
 

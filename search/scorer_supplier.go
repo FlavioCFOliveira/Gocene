@@ -1,5 +1,7 @@
 package search
 
+import "math"
+
 // ScorerSupplier is a supplier of Scorer. This allows to get an estimate of the cost
 // before building the Scorer.
 type ScorerSupplier interface {
@@ -23,4 +25,34 @@ type ScorerSupplier interface {
 
 	// BulkScorer gets a scorer that is optimized for bulk-scoring.
 	BulkScorer() (BulkScorer, error)
+}
+
+// BaseScorerSupplier carries the concrete members of the abstract class
+// org.apache.lucene.search.ScorerSupplier (Lucene 10.5.0).
+//
+// Go has no class inheritance, so a type that ports a ScorerSupplier subclass
+// embeds BaseScorerSupplier and overrides only what the Java subclass
+// overrides. Java's get(long) and cost() are abstract and are therefore not
+// provided here: the embedder must supply them.
+type BaseScorerSupplier struct{}
+
+// SetTopLevelScoringClause mirrors ScorerSupplier.setTopLevelScoringClause(),
+// whose body in Java is empty.
+func (s *BaseScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
+
+// DefaultScorerSupplierBulkScorer is the body of ScorerSupplier.bulkScorer():
+// new DefaultBulkScorer(get(Long.MAX_VALUE)).
+//
+// It is a free function rather than a method on BaseScorerSupplier because the
+// Java body dispatches back to the abstract get(long), which an embedded Go
+// struct cannot reach. This mirrors the idiom scorer.go already uses for
+// Scorer's self-dispatching default (DefaultNextDocsAndScores).
+func DefaultScorerSupplierBulkScorer(s ScorerSupplier) (BulkScorer, error) {
+	scorer, err := s.Get(math.MaxInt64)
+	if err != nil {
+		return nil, err
+	}
+	return NewDefaultBulkScorer(scorer), nil
 }

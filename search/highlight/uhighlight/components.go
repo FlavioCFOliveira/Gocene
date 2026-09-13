@@ -2,6 +2,7 @@ package uhighlight
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -20,21 +21,21 @@ type UHComponents struct {
 
 // PhraseHelper handles position-sensitive queries.
 type PhraseHelper struct {
-	query               search.Query
-	field               string
-	fieldMatcher        func(string) bool
-	requiresRewrite     func(*search.SpanQuery) *bool
-	preSpanQueryRewrite func(search.Query) []search.Query
+	query                search.Query
+	field                string
+	fieldMatcher         func(string) bool
+	requiresRewrite      func(*spans.SpanQuery) *bool
+	preSpanQueryRewrite  func(search.Query) []search.Query
 	handleMultiTermQuery bool
 }
 
-func NewPhraseHelper(query search.Query, field string, fieldMatcher func(string) bool, requiresRewrite func(*search.SpanQuery) *bool, preSpanQueryRewrite func(search.Query) []search.Query, handleMultiTermQuery bool) *PhraseHelper {
+func NewPhraseHelper(query search.Query, field string, fieldMatcher func(string) bool, requiresRewrite func(*spans.SpanQuery) *bool, preSpanQueryRewrite func(search.Query) []search.Query, handleMultiTermQuery bool) *PhraseHelper {
 	return &PhraseHelper{
-		query:               query,
-		field:               field,
-		fieldMatcher:        fieldMatcher,
-		requiresRewrite:     requiresRewrite,
-		preSpanQueryRewrite: preSpanQueryRewrite,
+		query:                query,
+		field:                field,
+		fieldMatcher:         fieldMatcher,
+		requiresRewrite:      requiresRewrite,
+		preSpanQueryRewrite:  preSpanQueryRewrite,
 		handleMultiTermQuery: handleMultiTermQuery,
 	}
 }

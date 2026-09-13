@@ -6,23 +6,14 @@ import (
 
 type SortFieldType = spi.SortFieldType
 type MissingValueStrategy = spi.MissingValueStrategy
+
 var STRING_FIRST = spi.STRING_FIRST
 var STRING_LAST = spi.STRING_LAST
-type SortField = spi.SortField
 
-func (sf *SortField) GetField() string { return sf.Field }
-func (sf *SortField) GetReverse() bool { return sf.Reverse }
-func (sf *SortField) SetMissingValue(v interface{}) { sf.MissingValue = v }
-func (sf *SortField) SetOptimizeSortWithIndexedData(v bool) {
-	sf.optimizeSortWithIndexedData = v
-	sf.optimizeSet = true
-}
-func (sf *SortField) GetOptimizeSortWithIndexedData() bool {
-	if !sf.optimizeSet {
-		return true
-	}
-	return sf.optimizeSortWithIndexedData
-}
+// SortField is declared in sort_field.go, the file named for SortField.java.
+// The five accessors that used to be re-declared here are already provided by
+// spi.SortField itself, and Go does not allow a package to add methods to a
+// type it does not define.
 
 // Sort defines the sort order for search results.
 type Sort struct {
@@ -38,7 +29,7 @@ func NewSort(fields ...*SortField) *Sort {
 func NewSortByScore() *Sort {
 	return &Sort{
 		Fields: []*SortField{
-			{Type: SortFieldTypeScore, Reverse: true},
+			{Type: spi.SortFieldTypeScore, Reverse: true},
 		},
 	}
 }
@@ -47,7 +38,7 @@ func NewSortByScore() *Sort {
 func NewSortByDoc() *Sort {
 	return &Sort{
 		Fields: []*SortField{
-			{Type: SortFieldTypeDoc},
+			{Type: spi.SortFieldTypeDoc},
 		},
 	}
 }
@@ -55,7 +46,7 @@ func NewSortByDoc() *Sort {
 // NeedsScores returns true if any sort field needs scores.
 func (s *Sort) NeedsScores() bool {
 	for _, field := range s.Fields {
-		if field.Type == SortFieldTypeScore {
+		if field.Type == spi.SortFieldTypeScore {
 			return true
 		}
 	}
@@ -77,5 +68,30 @@ type FieldComparator interface {
 	Copy(slot int, doc int)
 
 	// SetScorer sets the scorer.
-	SetScorer(scorer Scorer)
+	// Mirrors LeafFieldComparator.setScorer(Scorable) of Apache Lucene 10.5.0.
+	SetScorer(scorer Scorable) error
+}
+
+// Rewrite rewrites this Sort, returning a new Sort if any of the sort fields
+// changed during their rewriting, or this Sort otherwise.
+//
+// Mirrors Sort.rewrite(IndexSearcher) of Apache Lucene 10.5.0.
+func (s *Sort) Rewrite(searcher *IndexSearcher) (*Sort, error) {
+	changed := false
+	rewrittenSortFields := make([]*SortField, len(s.Fields))
+	for i := 0; i < len(s.Fields); i++ {
+		rewritten, err := RewriteSortField(s.Fields[i], searcher)
+		if err != nil {
+			return nil, err
+		}
+		rewrittenSortFields[i] = rewritten
+		if s.Fields[i] != rewrittenSortFields[i] {
+			changed = true
+		}
+	}
+
+	if changed {
+		return NewSort(rewrittenSortFields...), nil
+	}
+	return s, nil
 }

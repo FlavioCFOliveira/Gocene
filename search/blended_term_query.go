@@ -5,12 +5,11 @@
 package search
 
 import (
-	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"sort"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // BlendedTermQuery blends index statistics across multiple terms.
@@ -18,10 +17,10 @@ import (
 // regardless of their index statistics.
 type BlendedTermQuery struct {
 	BaseQuery
-	terms          []*index.Term
-	boosts         []float32
-	contexts       []*index.TermStates
-	rewriteMethod  RewriteMethod
+	terms         []*index.Term
+	boosts        []float32
+	contexts      []*index.TermStates
+	rewriteMethod BlendedTermQueryRewriteMethod
 }
 
 // BlendedTermQueryBuilder is a builder for BlendedTermQuery.
@@ -30,7 +29,7 @@ type BlendedTermQueryBuilder struct {
 	terms         []*index.Term
 	boosts        []float32
 	contexts      []*index.TermStates
-	rewriteMethod RewriteMethod
+	rewriteMethod BlendedTermQueryRewriteMethod
 }
 
 // NewBlendedTermQueryBuilder creates a new builder for BlendedTermQuery.
@@ -41,7 +40,7 @@ func NewBlendedTermQueryBuilder() *BlendedTermQueryBuilder {
 }
 
 // SetRewriteMethod sets the rewrite method. Default is DISJUNCTION_MAX_REWRITE.
-func (b *BlendedTermQueryBuilder) SetRewriteMethod(m RewriteMethod) *BlendedTermQueryBuilder {
+func (b *BlendedTermQueryBuilder) SetRewriteMethod(m BlendedTermQueryRewriteMethod) *BlendedTermQueryBuilder {
 	b.rewriteMethod = m
 	return b
 }
@@ -73,8 +72,14 @@ func (b *BlendedTermQueryBuilder) Build() *BlendedTermQuery {
 	return NewBlendedTermQuery(b.terms, b.boosts, b.contexts, b.rewriteMethod)
 }
 
-// RewriteMethod defines how queries for individual terms should be merged.
-type RewriteMethod interface {
+// BlendedTermQueryRewriteMethod defines how queries for individual terms should
+// be merged.
+//
+// Mirrors the nested class BlendedTermQuery.RewriteMethod (Lucene 10.5.0). It is
+// a different contract from MultiTermQuery.RewriteMethod — which Go's flat
+// package namespace would otherwise collide with — so it carries its enclosing
+// class in the name.
+type BlendedTermQueryRewriteMethod interface {
 	Rewrite(subQueries []Query) Query
 }
 
@@ -82,11 +87,11 @@ type RewriteMethod interface {
 type BooleanRewrite struct{}
 
 func (r *BooleanRewrite) Rewrite(subQueries []Query) Query {
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	for _, q := range subQueries {
 		bq.Add(q, SHOULD)
 	}
-	return bq
+	return bq.Build()
 }
 
 var BOOLEAN_REWRITE = &BooleanRewrite{}
@@ -100,7 +105,9 @@ func (r *DisjunctionMaxRewrite) Rewrite(subQueries []Query) Query {
 	return NewDisjunctionMaxQuery(subQueries, r.tieBreakerMultiplier)
 }
 
-func (r *DisjunctionMaxRewrite) Equal(other Query) bool {
+// Equals mirrors DisjunctionMaxRewrite.equals(Object), which takes a bare
+// Object rather than a Query.
+func (r *DisjunctionMaxRewrite) Equals(other any) bool {
 	if o, ok := other.(*DisjunctionMaxRewrite); ok {
 		return r.tieBreakerMultiplier == o.tieBreakerMultiplier
 	}
@@ -110,7 +117,7 @@ func (r *DisjunctionMaxRewrite) Equal(other Query) bool {
 var DISJUNCTION_MAX_REWRITE = &DisjunctionMaxRewrite{tieBreakerMultiplier: 0.01}
 
 // NewBlendedTermQuery constructs a new BlendedTermQuery.
-func NewBlendedTermQuery(terms []*index.Term, boosts []float32, contexts []*index.TermStates, rewriteMethod RewriteMethod) *BlendedTermQuery {
+func NewBlendedTermQuery(terms []*index.Term, boosts []float32, contexts []*index.TermStates, rewriteMethod BlendedTermQueryRewriteMethod) *BlendedTermQuery {
 	// Sort terms to ensure Equals/HashCode consistency.
 	type termEntry struct {
 		term    *index.Term
@@ -149,7 +156,7 @@ func (q *BlendedTermQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 
 	for i := 0; i < len(contexts); i++ {
 		if contexts[i] == nil || !contexts[i].WasBuiltFor(searcher.GetTopReaderContext()) {
-			ctx, err := buildTermStates(searcher, q.terms[i])
+			ctx, err := index.BuildTermStates(searcher, q.terms[i], true)
 			if err != nil {
 				return nil, err
 			}
@@ -166,53 +173,61 @@ func (q *BlendedTermQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	}
 
 	for i := 0; i < len(contexts); i++ {
-		contexts[i].AccumulateStatistics(df, ttf)
+		adjusted, err := adjustFrequencies(searcher.GetTopReaderContext(), contexts[i], df, ttf)
+		if err != nil {
+			return nil, err
+		}
+		contexts[i] = adjusted
 	}
 
 	termQueries := make([]Query, len(q.terms))
 	for i := 0; i < len(q.terms); i++ {
-		tq := NewTermQuery(q.terms[i], contexts[i])
+		termQueries[i] = NewTermQueryWithStates(q.terms[i], contexts[i])
 		if q.boosts[i] != 1.0 {
-			tq = NewBoostQuery(tq, q.boosts[i])
+			termQueries[i] = NewBoostQuery(termQueries[i], q.boosts[i])
 		}
-		termQueries[i] = tq
 	}
 
 	return q.rewriteMethod.Rewrite(termQueries), nil
 }
 
-func buildTermStates(searcher *IndexSearcher, term *index.Term) (*index.TermStates, error) {
-	ctx := searcher.GetTopReaderContext()
-	leaves, err := ctx.Leaves()
+// adjustFrequencies rebuilds ctx over the same leaves with artificial
+// statistics, leaving the original TermStates untouched.
+//
+// Mirrors the private static
+// BlendedTermQuery.adjustFrequencies(IndexReaderContext, TermStates, int, long).
+func adjustFrequencies(readerContext index.IndexReaderContext, ctx *index.TermStates, artificialDf int, artificialTtf int64) (*index.TermStates, error) {
+	leaves, err := readerContext.Leaves()
 	if err != nil {
 		return nil, err
 	}
-
-	ts := index.NewTermStates(ctx.ID().(*struct{}), len(leaves))
-	for i, leaf := range leaves {
-		terms := leaf.Reader().Terms(term.Field)
-		if terms == nil {
-			continue
-		}
-		// Seek to the term.
-		if err := terms.Seek(term); err != nil {
-			continue
-		}
-		if terms.Next() == nil || !terms.GetTerm().Equals(term) {
-			continue
-		}
-		// Get TermState.
-		state := terms.GetState()
-		if state == nil {
-			continue
-		}
-		ts.Register(i, state, terms.DocFreq(), terms.TotalTermFreq())
+	newCtx, err := index.NewTermStatesForContext(readerContext)
+	if err != nil {
+		return nil, err
 	}
-	return ts, nil
+	for i := 0; i < len(leaves); i++ {
+		supplier, err := ctx.Get(leaves[i])
+		if err != nil {
+			return nil, err
+		}
+		if supplier == nil {
+			continue
+		}
+		termState, err := supplier()
+		if err != nil {
+			return nil, err
+		}
+		if termState == nil {
+			continue
+		}
+		newCtx.RegisterState(i, termState)
+	}
+	newCtx.AccumulateStatistics(artificialDf, artificialTtf)
+	return newCtx, nil
 }
 
 // Equals checks if this query equals another.
-func (q *BlendedTermQuery) Equals(other Query) bool {
+func (q *BlendedTermQuery) Equals(other spi.Query) bool {
 	if o, ok := other.(*BlendedTermQuery); ok {
 		if len(q.terms) != len(o.terms) {
 			return false
@@ -239,29 +254,35 @@ func (q *BlendedTermQuery) HashCode() int {
 	return h
 }
 
-// String returns a string representation of the query.
-func (q *BlendedTermQuery) String() string {
+// ToString mirrors BlendedTermQuery.toString(String).
+func (q *BlendedTermQuery) ToString(field string) string {
 	var sb strings.Builder
 	sb.WriteString("Blended(")
 	for i := range q.terms {
 		if i != 0 {
 			sb.WriteString(" ")
 		}
-		tq := NewTermQuery(q.terms[i])
+		var termQuery Query = NewTermQuery(q.terms[i])
 		if q.boosts[i] != 1.0 {
-			tq = NewBoostQuery(tq, q.boosts[i])
+			termQuery = NewBoostQuery(termQuery, q.boosts[i])
 		}
-		sb.WriteString(tq.String())
+		sb.WriteString(queryToString(termQuery, field))
 	}
 	sb.WriteString(")")
 	return sb.String()
+}
+
+// String renders Query.toString(), the no-argument form that delegates to
+// toString(String) with the empty default field.
+func (q *BlendedTermQuery) String() string {
+	return q.ToString("")
 }
 
 // Visit visits the terms in this query.
 func (q *BlendedTermQuery) Visit(visitor QueryVisitor) {
 	var termsToVisit []*index.Term
 	for _, t := range q.terms {
-		if visitor.AcceptField(t.Field()) {
+		if visitor.AcceptField(t.Field) {
 			termsToVisit = append(termsToVisit, t)
 		}
 	}

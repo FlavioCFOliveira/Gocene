@@ -34,19 +34,33 @@ func NewDisjunctionScoreBlockBoundaryPropagator(scorers []Scorer) (*disjunctionS
 		}
 	}
 
-	// Sort by max score ascending, then by cost ascending.
+	// Sort by max score ascending, then by cost ascending. Java's
+	// MAX_SCORE_COMPARATOR rethrows the IOException of getMaxScore wrapped in a
+	// RuntimeException from inside Arrays.sort; Go's comparator cannot fail, so
+	// the first error is captured and reported once the sort has finished.
+	var sortErr error
 	slices.SortFunc(s, func(a, b Scorer) int {
-		scoreA := a.GetMaxScore(NO_MORE_DOCS)
-		scoreB := b.GetMaxScore(NO_MORE_DOCS)
+		scoreA, errA := a.GetMaxScore(NO_MORE_DOCS)
+		scoreB, errB := b.GetMaxScore(NO_MORE_DOCS)
+		if sortErr == nil {
+			sortErr = cmp.Or(errA, errB)
+		}
 		if scoreA != scoreB {
 			return cmp.Compare(scoreA, scoreB)
 		}
-		return cmp.Compare(a.Cost(), b.Cost())
+		return cmp.Compare(a.Iterator().Cost(), b.Iterator().Cost())
 	})
+	if sortErr != nil {
+		return nil, sortErr
+	}
 
 	maxScores := make([]float32, len(s))
 	for i, scorer := range s {
-		maxScores[i] = scorer.GetMaxScore(NO_MORE_DOCS)
+		m, err := scorer.GetMaxScore(NO_MORE_DOCS)
+		if err != nil {
+			return nil, err
+		}
+		maxScores[i] = m
 	}
 
 	return &disjunctionScoreBlockBoundaryPropagator{

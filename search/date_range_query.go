@@ -7,6 +7,7 @@ package search
 import (
 	"encoding/binary"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"time"
 )
 
@@ -60,9 +61,9 @@ func (q *DateRangeQuery) Upper() time.Time {
 //
 // When the lower bound is after the upper bound the query collapses to
 // MatchNoDocsQuery, matching the empty-range semantics from Lucene.
-func (q *DateRangeQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *DateRangeQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	if q.lower.After(q.upper) {
-		return NewMatchNoDocsQuery(), nil
+		return NewMatchNoDocsQuery(""), nil
 	}
 	lower, upper := q.packedBounds()
 	return NewPointRangeQuery(q.field, lower, upper)
@@ -71,7 +72,7 @@ func (q *DateRangeQuery) Rewrite(reader IndexReader) (Query, error) {
 // CreateWeight creates a Weight for this query by delegating to the
 // PointRangeQuery produced by Rewrite.  The BKD-tree intersection
 // scorer in PointRangeWeight handles the actual leaf walk.
-func (q *DateRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *DateRangeQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	rewritten, err := q.Rewrite(nil)
 	if err != nil {
 		return nil, err
@@ -79,7 +80,7 @@ func (q *DateRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool,
 	if rewritten == nil {
 		return nil, fmt.Errorf("date_range_query: nil rewrite")
 	}
-	return rewritten.CreateWeight(searcher, needsScores, boost)
+	return rewritten.CreateWeight(searcher, scoreMode, boost)
 }
 
 // packedBounds materialises the lower/upper time bounds as big-endian
@@ -103,19 +104,8 @@ func (q *DateRangeQuery) packedBounds() ([]byte, []byte) {
 	return lower, upper
 }
 
-// Clone creates a copy of this query.
-func (q *DateRangeQuery) Clone() Query {
-	return &DateRangeQuery{
-		field:          q.field,
-		lower:          q.lower,
-		upper:          q.upper,
-		lowerInclusive: q.lowerInclusive,
-		upperInclusive: q.upperInclusive,
-	}
-}
-
 // Equals checks if this query equals another.
-func (q *DateRangeQuery) Equals(other Query) bool {
+func (q *DateRangeQuery) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}

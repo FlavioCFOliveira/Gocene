@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // NumericDocValuesIterator and SortedDocValuesIterator are the public aliases for
@@ -21,6 +22,29 @@ type (
 	// SortedDocValuesIterator is the iterator a SortedDocValuesSource returns.
 	SortedDocValuesIterator = index.SortedDocValues
 )
+
+// NumericDocValuesSource resolves the NumericDocValues a numeric field comparator
+// should read for a given leaf reader and field. A custom source lets callers
+// substitute a derived/wrapped iterator (e.g. block-join MIN/MAX selection over a
+// parent's children) in place of the field's stored values.
+//
+// Mirrors the getNumericDocValues(LeafReaderContext, String) hook that Lucene's
+// numeric LeafComparators expose for subclassing.
+type NumericDocValuesSource interface {
+	// NumericDocValues returns the iterator the comparator reads, or nil when the
+	// leaf has no values (treated as every document missing). The reader is the
+	// leaf reader the comparator was just bound to.
+	NumericDocValues(reader IndexReader, field string) (NumericDocValuesIterator, error)
+}
+
+// SortedDocValuesSource resolves the SortedDocValues the STRING comparator should
+// read for a given leaf reader and field. Mirrors the getSortedDocValues hook in
+// Lucene's TermOrdValComparator.
+type SortedDocValuesSource interface {
+	// SortedDocValues returns the iterator the comparator reads, or nil when the
+	// leaf has no values (treated as every document missing).
+	SortedDocValues(reader IndexReader, field string) (SortedDocValuesIterator, error)
+}
 
 // Ported from Apache Lucene 10.4.0:
 //
@@ -60,31 +84,33 @@ type sortFieldComparator interface {
 func newSortFieldComparator(sf *SortField, numHits int) (sortFieldComparator, error) {
 	sortMissingLast := missingSortsLast(sf)
 	switch sf.Type {
-	case SortFieldTypeInt:
-		c := newIntComparator(numHits, sf.Field, missingInt32(sf))
-		c.dvSource = sf.numericDVSource
-		return c, nil
-	case SortFieldTypeLong:
-		c := newLongComparator(numHits, sf.Field, missingInt64(sf))
-		c.dvSource = sf.numericDVSource
-		return c, nil
-	case SortFieldTypeFloat:
-		c := newFloatComparator(numHits, sf.Field, missingFloat32(sf))
-		c.dvSource = sf.numericDVSource
-		return c, nil
-	case SortFieldTypeDouble:
-		c := newDoubleComparator(numHits, sf.Field, missingFloat64(sf))
-		c.dvSource = sf.numericDVSource
-		return c, nil
-	case SortFieldTypeString:
-		c := newTermOrdValComparator(numHits, sf.Field, sortMissingLast)
-		c.dvSource = sf.sortedDVSource
-		return c, nil
-	case SortFieldTypeCustom:
-		if sf.comparatorSource == nil {
+	// SortField carries no doc-values override in Apache Lucene 10.5.0: the
+	// comparators resolve the segment's values themselves through the
+	// overridable getNumericDocValues / getSortedDocValues hooks, and a
+	// subclass that needs a different resolution (for example
+	// ToParentBlockJoinSortField) overrides getComparator and supplies the
+	// hooks on the comparator it builds. The comparators' dvSource fields are
+	// that hook; they are set by whoever builds the comparator, never by the
+	// SortField.
+	case spi.SortFieldTypeInt:
+		return newIntComparator(numHits, sf.Field, missingInt32(sf)), nil
+	case spi.SortFieldTypeLong:
+		return newLongComparator(numHits, sf.Field, missingInt64(sf)), nil
+	case spi.SortFieldTypeFloat:
+		return newFloatComparator(numHits, sf.Field, missingFloat32(sf)), nil
+	case spi.SortFieldTypeDouble:
+		return newDoubleComparator(numHits, sf.Field, missingFloat64(sf)), nil
+	case spi.SortFieldTypeString:
+		return newTermOrdValComparator(numHits, sf.Field, sortMissingLast), nil
+	case spi.SortFieldTypeCustom:
+		// SortField.getComparatorSource() is typed any on spi.SortField, which
+		// must not import search; SortFieldComparatorSource restores Java's
+		// FieldComparatorSource return type at the package boundary.
+		comparatorSource := SortFieldComparatorSource(sf)
+		if comparatorSource == nil {
 			return nil, fmt.Errorf("search: CUSTOM SortField %q has no FieldComparatorSource", sf.Field)
 		}
-		inner := sf.comparatorSource.NewComparator(sf.Field, numHits, PruningNone, sf.Reverse)
+		inner := comparatorSource.NewComparator(sf.Field, numHits, PruningNone, sf.Reverse)
 		if inner == nil {
 			return nil, fmt.Errorf("search: FieldComparatorSource for %q returned a nil comparator", sf.Field)
 		}
@@ -183,7 +209,7 @@ func missingSortsLast(sf *SortField) bool {
 	case STRING_LAST:
 		return true
 	}
-	return sf.Missing != MissingValueFirst
+	return sf.Missing != spi.MissingValueFirst
 }
 
 // missingInt32 resolves the int missing value (default 0, matching Lucene's

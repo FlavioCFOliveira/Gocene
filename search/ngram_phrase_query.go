@@ -5,9 +5,8 @@
 package search
 
 import (
-	"fmt"
-
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // NGramPhraseQuery is a PhraseQuery which is optimized for n-gram phrase query.
@@ -72,7 +71,7 @@ func (q *NGramPhraseQuery) Visit(visitor QueryVisitor) {
 }
 
 // Equals checks structural equality.
-func (q *NGramPhraseQuery) Equals(other Query) bool {
+func (q *NGramPhraseQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*NGramPhraseQuery)
 	if !ok {
 		return false
@@ -113,25 +112,7 @@ func (q *NGramPhraseQuery) String() string {
 	return q.ToString("")
 }
 
-// Clone returns an independent copy.
-func (q *NGramPhraseQuery) Clone() Query {
-	// phraseQuery is immutable once built, but we should follow the pattern.
-	// Since PhraseQuery is a struct and we have a pointer, we can't easily "Clone" it
-	// unless PhraseQuery implements Clone().
-	// Looking at phrase_query.go, it doesn't implement Clone() explicitly on the struct,
-	// but we can rebuild it using a builder.
-	builder := NewPhraseQueryBuilder()
-	builder.SetSlop(q.phraseQuery.GetSlop())
-	for i, term := range q.phraseQuery.GetTerms() {
-		builder.AddWithPosition(term, q.phraseQuery.GetPositions()[i])
-	}
-	return &NGramPhraseQuery{
-		n:           q.n,
-		phraseQuery: builder.Build(),
-	}
-}
-
 // CreateWeight delegates to the underlying PhraseQuery.
-func (q *NGramPhraseQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return q.phraseQuery.CreateWeight(searcher, needsScores, boost)
+func (q *NGramPhraseQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return q.phraseQuery.CreateWeight(searcher, scoreMode, boost)
 }

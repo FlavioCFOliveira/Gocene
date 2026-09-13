@@ -18,6 +18,8 @@ package search
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 )
 
@@ -48,11 +50,11 @@ func (c *justCompileCollector) ScoreMode() ScoreMode { panic("compile check only
 
 type justCompileDISI struct{}
 
-func (d *justCompileDISI) DocID() int               { panic("compile check only") }
-func (d *justCompileDISI) NextDoc() (int, error)    { panic("compile check only") }
-func (d *justCompileDISI) Advance(int) (int, error) { panic("compile check only") }
-func (d *justCompileDISI) Cost() int64              { panic("compile check only") }
-func (d *justCompileDISI) DocIDRunEnd() int         { panic("compile check only") }
+func (d *justCompileDISI) DocID() int                { panic("compile check only") }
+func (d *justCompileDISI) NextDoc() (int, error)     { panic("compile check only") }
+func (d *justCompileDISI) Advance(int) (int, error)  { panic("compile check only") }
+func (d *justCompileDISI) Cost() int64               { panic("compile check only") }
+func (d *justCompileDISI) DocIDRunEnd() (int, error) { panic("compile check only") }
 
 // justCompileScorer embeds justCompileDISI to satisfy the embedded DocIdSetIterator.
 type justCompileScorer struct{ justCompileDISI }
@@ -69,7 +71,7 @@ type justCompileQuery struct{}
 
 func (q *justCompileQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
 func (q *justCompileQuery) Clone() Query                         { return q }
-func (q *justCompileQuery) Equals(_ Query) bool                  { return false }
+func (q *justCompileQuery) Equals(_ spi.Query) bool              { return false }
 func (q *justCompileQuery) HashCode() int                        { return 0 }
 func (q *justCompileQuery) CreateWeight(_ *IndexSearcher, _ bool, _ float32) (Weight, error) {
 	return nil, nil
@@ -105,4 +107,11 @@ func (w *justCompileWeight) Count(_ *index.LeafReaderContext) (int, error) {
 }
 func (w *justCompileWeight) Matches(_ *index.LeafReaderContext, _ int) (Matches, error) {
 	panic("compile check only")
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *justCompileDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
 }

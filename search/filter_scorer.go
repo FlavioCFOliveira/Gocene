@@ -49,8 +49,10 @@ func (fs *FilterScorer) DocID() int {
 	return fs.in.DocID()
 }
 
-// Iterator returns a DocIdSetIterator over matching documents.
-func (fs *FilterScorer) Iterator() util.DocIdSetIterator {
+// Iterator mirrors FilterScorer.iterator(), whose body is
+// `return in.iterator();` and whose declared type is
+// org.apache.lucene.search.DocIdSetIterator.
+func (fs *FilterScorer) Iterator() DocIdSetIterator {
 	return fs.in.Iterator()
 }
 

@@ -9,6 +9,7 @@ package payloads
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/spans"
@@ -21,8 +22,8 @@ import (
 //
 // Mirrors org.apache.lucene.queries.payloads.SpanPayloadCheckQuery.
 type SpanPayloadCheckQuery struct {
-	search.BaseSpanQuery
-	match          search.SpanQuery
+	search.BaseQuery
+	match          spans.SpanQuery
 	payloadToMatch []*util.BytesRef
 	payloadType    PayloadType
 	operation      MatchOperation
@@ -30,16 +31,15 @@ type SpanPayloadCheckQuery struct {
 
 // NewSpanPayloadCheckQuery creates a SpanPayloadCheckQuery with STRING type
 // and EQ operation (default).
-func NewSpanPayloadCheckQuery(match search.SpanQuery, payloadToMatch []*util.BytesRef) *SpanPayloadCheckQuery {
+func NewSpanPayloadCheckQuery(match spans.SpanQuery, payloadToMatch []*util.BytesRef) *SpanPayloadCheckQuery {
 	return NewSpanPayloadCheckQueryWithType(match, payloadToMatch, PayloadTypeSTRING, MatchOperationEQ)
 }
 
 // NewSpanPayloadCheckQueryWithType creates a SpanPayloadCheckQuery with the
 // given payload type and match operation.
-func NewSpanPayloadCheckQueryWithType(match search.SpanQuery, payloadToMatch []*util.BytesRef,
+func NewSpanPayloadCheckQueryWithType(match spans.SpanQuery, payloadToMatch []*util.BytesRef,
 	payloadType PayloadType, operation MatchOperation) *SpanPayloadCheckQuery {
 	return &SpanPayloadCheckQuery{
-		BaseSpanQuery:  *search.NewBaseSpanQuery(match.GetField()),
 		match:          match,
 		payloadToMatch: payloadToMatch,
 		payloadType:    payloadType,
@@ -58,7 +58,7 @@ func (q *SpanPayloadCheckQuery) Rewrite(reader search.IndexReader) (search.Query
 		return nil, err
 	}
 	if rewritten != q.match {
-		sp, ok := rewritten.(search.SpanQuery)
+		sp, ok := rewritten.(spans.SpanQuery)
 		if !ok {
 			return nil, fmt.Errorf("SpanPayloadCheckQuery.Rewrite: inner rewrite returned non-SpanQuery %T", rewritten)
 		}
@@ -99,8 +99,7 @@ func (q *SpanPayloadCheckQuery) CreateWeight(searcher *search.IndexSearcher, nee
 // Clone returns a copy of this query.
 func (q *SpanPayloadCheckQuery) Clone() search.Query {
 	return &SpanPayloadCheckQuery{
-		BaseSpanQuery:  *search.NewBaseSpanQuery(q.GetField()),
-		match:          q.match.Clone().(search.SpanQuery),
+		match:          q.match.Clone().(spans.SpanQuery),
 		payloadToMatch: cloneBytesRefSlice(q.payloadToMatch),
 		payloadType:    q.payloadType,
 		operation:      q.operation,
@@ -108,7 +107,7 @@ func (q *SpanPayloadCheckQuery) Clone() search.Query {
 }
 
 // Equals returns true if other is equal to this.
-func (q *SpanPayloadCheckQuery) Equals(other search.Query) bool {
+func (q *SpanPayloadCheckQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*SpanPayloadCheckQuery)
 	if !ok {
 		return false
@@ -148,7 +147,7 @@ func (q *SpanPayloadCheckQuery) HashCode() int {
 // String returns a string representation.
 func (q *SpanPayloadCheckQuery) String(field string) string {
 	buf := "SpanPayloadCheckQuery("
-	buf += q.match.String(field)
+	buf += q.match.ToString(field)
 	buf += ", payloadRef: "
 	for _, br := range q.payloadToMatch {
 		buf += util.ToStringBytesRef(br)
@@ -160,8 +159,8 @@ func (q *SpanPayloadCheckQuery) String(field string) string {
 	return buf
 }
 
-// Ensure SpanPayloadCheckQuery implements search.SpanQuery.
-var _ search.SpanQuery = (*SpanPayloadCheckQuery)(nil)
+// Ensure SpanPayloadCheckQuery implements spans.SpanQuery.
+var _ spans.SpanQuery = (*SpanPayloadCheckQuery)(nil)
 
 // --- Weight implementation ---
 
@@ -280,13 +279,13 @@ type payloadCheckFilterSpans struct {
 	checker *payloadChecker
 }
 
-func (fs *payloadCheckFilterSpans) DocID() int            { return fs.inner.DocID() }
-func (fs *payloadCheckFilterSpans) Cost() int64           { return fs.inner.Cost() }
-func (fs *payloadCheckFilterSpans) DocIDRunEnd() int      { return fs.inner.DocIDRunEnd() }
-func (fs *payloadCheckFilterSpans) StartPosition() int    { return fs.inner.StartPosition() }
-func (fs *payloadCheckFilterSpans) EndPosition() int      { return fs.inner.EndPosition() }
-func (fs *payloadCheckFilterSpans) Width() int            { return fs.inner.Width() }
-func (fs *payloadCheckFilterSpans) PositionsCost() float32 { return fs.inner.PositionsCost() }
+func (fs *payloadCheckFilterSpans) DocID() int                { return fs.inner.DocID() }
+func (fs *payloadCheckFilterSpans) Cost() int64               { return fs.inner.Cost() }
+func (fs *payloadCheckFilterSpans) DocIDRunEnd() (int, error) { return fs.inner.DocIDRunEnd() }
+func (fs *payloadCheckFilterSpans) StartPosition() int        { return fs.inner.StartPosition() }
+func (fs *payloadCheckFilterSpans) EndPosition() int          { return fs.inner.EndPosition() }
+func (fs *payloadCheckFilterSpans) Width() int                { return fs.inner.Width() }
+func (fs *payloadCheckFilterSpans) PositionsCost() float32    { return fs.inner.PositionsCost() }
 func (fs *payloadCheckFilterSpans) AsTwoPhaseIterator() *search.TwoPhaseIterator {
 	return fs.inner.AsTwoPhaseIterator()
 }
@@ -417,8 +416,8 @@ func (s *payloadCheckScorer) Advance(target int) (int, error) {
 	return doc, nil
 }
 
-func (s *payloadCheckScorer) Cost() int64      { return s.spans.Cost() }
-func (s *payloadCheckScorer) DocIDRunEnd() int { return s.spans.DocIDRunEnd() }
+func (s *payloadCheckScorer) Cost() int64               { return s.spans.Cost() }
+func (s *payloadCheckScorer) DocIDRunEnd() (int, error) { return s.spans.DocIDRunEnd() }
 
 func (s *payloadCheckScorer) setFreqCurrentDoc() error {
 	s.freq = 0
@@ -492,4 +491,18 @@ func cloneBytesRefSlice(src []*util.BytesRef) []*util.BytesRef {
 		}
 	}
 	return dst
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (fs *payloadCheckFilterSpans) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(fs, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *payloadCheckScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

@@ -7,6 +7,8 @@
 
 package intervals
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // DisjunctionDISIApproximation is a DocIdSetIterator which is the disjunction
 // of the approximations of the provided interval iterators.
 //
@@ -32,7 +34,7 @@ func (d *DisjunctionDISIApproximation) Cost() int64 { return d.cost }
 func (d *DisjunctionDISIApproximation) DocID() int { return d.subIterators.Top().Doc }
 
 // DocIDRunEnd returns a conservative upper bound.
-func (d *DisjunctionDISIApproximation) DocIDRunEnd() int { return d.DocID() + 1 }
+func (d *DisjunctionDISIApproximation) DocIDRunEnd() (int, error) { return d.DocID() + 1, nil }
 
 // NextDoc advances to the next document.
 func (d *DisjunctionDISIApproximation) NextDoc() (int, error) {
@@ -67,4 +69,11 @@ func (d *DisjunctionDISIApproximation) Advance(target int) (int, error) {
 		}
 	}
 	return top.Doc, nil
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *DisjunctionDISIApproximation) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
 }

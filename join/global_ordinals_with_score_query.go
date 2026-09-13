@@ -6,6 +6,8 @@ package join
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -79,7 +81,7 @@ func (q *GlobalOrdinalsWithScoreQuery) Clone() search.Query {
 }
 
 // Equals implements search.Query.
-func (q *GlobalOrdinalsWithScoreQuery) Equals(other search.Query) bool {
+func (q *GlobalOrdinalsWithScoreQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*GlobalOrdinalsWithScoreQuery)
 	if !ok {
 		return false
@@ -251,7 +253,14 @@ func (s *globalOrdinalsWithScoreScorer) NextDoc() (int, error) {
 }
 func (s *globalOrdinalsWithScoreScorer) Advance(target int) (int, error) { return s.advance(target) }
 func (s *globalOrdinalsWithScoreScorer) Cost() int64                     { return 0 }
-func (s *globalOrdinalsWithScoreScorer) DocIDRunEnd() int                { return s.currentDoc + 1 }
+func (s *globalOrdinalsWithScoreScorer) DocIDRunEnd() (int, error)       { return s.currentDoc + 1, nil }
 
 var _ search.Query = (*GlobalOrdinalsWithScoreQuery)(nil)
 var _ search.Scorer = (*globalOrdinalsWithScoreScorer)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *globalOrdinalsWithScoreScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

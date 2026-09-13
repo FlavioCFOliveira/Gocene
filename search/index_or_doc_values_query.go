@@ -4,7 +4,10 @@
 
 package search
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
 
 // IndexOrDocValuesQuery wraps two queries that must match the same documents
 // with the same scores. Lucene uses one for sequential iteration (index path)
@@ -40,7 +43,7 @@ func (q *IndexOrDocValuesQuery) String() string {
 }
 
 // Equals checks structural equality.
-func (q *IndexOrDocValuesQuery) Equals(other Query) bool {
+func (q *IndexOrDocValuesQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*IndexOrDocValuesQuery)
 	if !ok {
 		return false
@@ -56,21 +59,13 @@ func (q *IndexOrDocValuesQuery) HashCode() int {
 	return h
 }
 
-// Clone returns an independent copy.
-func (q *IndexOrDocValuesQuery) Clone() Query {
-	return &IndexOrDocValuesQuery{
-		indexQuery:        q.indexQuery.Clone(),
-		randomAccessQuery: q.randomAccessQuery.Clone(),
-	}
-}
-
 // Rewrite rewrites both wrapped queries.
-func (q *IndexOrDocValuesQuery) Rewrite(reader IndexReader) (Query, error) {
-	rwIdx, err := q.indexQuery.Rewrite(reader)
+func (q *IndexOrDocValuesQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	rwIdx, err := q.indexQuery.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
-	rwRand, err := q.randomAccessQuery.Rewrite(reader)
+	rwRand, err := q.randomAccessQuery.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
@@ -84,6 +79,6 @@ func (q *IndexOrDocValuesQuery) Rewrite(reader IndexReader) (Query, error) {
 // Weight that chooses between the two scorers based on lead cost. Here we
 // take the indexQuery path by default and let downstream code optimise when
 // random-access cost data becomes available.
-func (q *IndexOrDocValuesQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return q.indexQuery.CreateWeight(searcher, needsScores, boost)
+func (q *IndexOrDocValuesQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return q.indexQuery.CreateWeight(searcher, scoreMode, boost)
 }

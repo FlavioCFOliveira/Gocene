@@ -5,6 +5,7 @@
 package join
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -113,8 +114,8 @@ func (s *BaseGlobalOrdinalScorer) Cost() int64 {
 }
 
 // DocIDRunEnd implements util.DocIdSetIterator.
-func (s *BaseGlobalOrdinalScorer) DocIDRunEnd() int {
-	return s.DocID() + 1
+func (s *BaseGlobalOrdinalScorer) DocIDRunEnd() (int, error) {
+	return s.DocID() + 1, nil
 }
 
 // nextDocTwoPhase advances a TwoPhaseIterator to the next matching document.
@@ -160,3 +161,10 @@ func advanceTwoPhase(tpi *search.TwoPhaseIterator, target int) (int, error) {
 
 // interface compliance — BaseGlobalOrdinalScorer itself satisfies search.Scorer.
 var _ search.Scorer = (*BaseGlobalOrdinalScorer)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *BaseGlobalOrdinalScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

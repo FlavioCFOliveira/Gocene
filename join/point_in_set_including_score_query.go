@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -149,7 +150,7 @@ func (q *PointInSetIncludingScoreQuery) Clone() search.Query {
 }
 
 // Equals implements search.Query.
-func (q *PointInSetIncludingScoreQuery) Equals(other search.Query) bool {
+func (q *PointInSetIncludingScoreQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*PointInSetIncludingScoreQuery)
 	if !ok {
 		return false
@@ -416,7 +417,7 @@ func (s *pointInSetIncludingScoreScorer) DocID() int                 { return s.
 func (s *pointInSetIncludingScoreScorer) NextDoc() (int, error)      { return s.disi.NextDoc() }
 func (s *pointInSetIncludingScoreScorer) Advance(t int) (int, error) { return s.disi.Advance(t) }
 func (s *pointInSetIncludingScoreScorer) Cost() int64                { return s.disi.Cost() }
-func (s *pointInSetIncludingScoreScorer) DocIDRunEnd() int           { return s.disi.DocIDRunEnd() }
+func (s *pointInSetIncludingScoreScorer) DocIDRunEnd() (int, error)  { return s.disi.DocIDRunEnd() }
 
 // ── weight methods ──────────────────────────────────────────────────────────
 
@@ -503,8 +504,8 @@ func (s *pointInSetStubScorer) NextDoc() (int, error) { return search.NO_MORE_DO
 func (s *pointInSetStubScorer) Advance(_ int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
-func (s *pointInSetStubScorer) Cost() int64      { return 0 }
-func (s *pointInSetStubScorer) DocIDRunEnd() int { return search.NO_MORE_DOCS }
+func (s *pointInSetStubScorer) Cost() int64               { return 0 }
+func (s *pointInSetStubScorer) DocIDRunEnd() (int, error) { return search.NO_MORE_DOCS, nil }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -522,3 +523,17 @@ func defaultPointFormatter(value []byte) string {
 var _ search.Query = (*PointInSetIncludingScoreQuery)(nil)
 var _ search.Scorer = (*pointInSetIncludingScoreScorer)(nil)
 var _ search.Scorer = (*pointInSetStubScorer)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *pointInSetIncludingScoreScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *pointInSetStubScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

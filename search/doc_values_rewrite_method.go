@@ -18,9 +18,11 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // DocValuesRewriteMethod rewrites MultiTermQueries into a
@@ -149,13 +151,20 @@ func newMultiTermQueryDocValuesWrapper(query *MultiTermQuery) *multiTermQueryDoc
 // GetField returns the field name.
 func (w *multiTermQueryDocValuesWrapper) GetField() string { return w.mtq.GetField() }
 
-// String mirrors MultiTermQueryDocValuesWrapper.toString.
+// String mirrors MultiTermQueryDocValuesWrapper.toString, whose body is
+// `return query.toString(field);`.
+//
+// Java reaches the concrete MultiTermQuery subclass through the abstract
+// Query.toString(String) declaration. Gocene's Query interface does not carry
+// that member (see the note in query.go), so the call is routed through
+// queryToString, which dispatches on whatever rendering the concrete query
+// actually declares.
 func (w *multiTermQueryDocValuesWrapper) String(field string) string {
-	return w.mtq.String(field)
+	return queryToString(w.mtq, field)
 }
 
 // Equals mirrors MultiTermQueryDocValuesWrapper.equals.
-func (w *multiTermQueryDocValuesWrapper) Equals(other Query) bool {
+func (w *multiTermQueryDocValuesWrapper) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}
@@ -181,14 +190,14 @@ func (w *multiTermQueryDocValuesWrapper) Visit(visitor QueryVisitor) {
 }
 
 // Rewrite returns self.
-func (w *multiTermQueryDocValuesWrapper) Rewrite(reader IndexReader) (Query, error) {
+func (w *multiTermQueryDocValuesWrapper) Rewrite(searcher *IndexSearcher) (Query, error) {
 	return w, nil
 }
 
 // CreateWeight builds the DocValues-backed constant-score Weight.
 func (w *multiTermQueryDocValuesWrapper) CreateWeight(
 	searcher *IndexSearcher,
-	needsScores bool,
+	scoreMode ScoreMode,
 	boost float32,
 ) (Weight, error) {
 	return NewConstantScoreWeight(
@@ -211,9 +220,9 @@ func dvwScorerSupplier(
 	ctx *index.LeafReaderContext,
 	score float32,
 ) (ScorerSupplier, error) {
-	// ctx.Reader() is IndexReaderInterface; type-assert to *index.LeafReader
+	// ctx.Reader() is IndexReaderInterface; type-assert to index.LeafReader
 	// for concrete DocValues access.
-	lr, ok := ctx.Reader().(*index.LeafReader)
+	lr, ok := ctx.Reader().(index.LeafReader)
 	if !ok {
 		return nil, nil
 	}
@@ -235,7 +244,7 @@ func dvwScorerSupplier(
 	if !hasProvider {
 		return newEmptyDVWScorerSupplier(score), nil
 	}
-	te, err := provider.GetTermsEnum(newSortedSetDocValuesTerms(ext))
+	te, err := provider.GetTermsEnum(newSortedSetDocValuesTerms(w.mtq.GetField(), ext))
 	if err != nil {
 		return nil, err
 	}
@@ -275,7 +284,7 @@ func dvwScorerSupplier(
 	if err != nil {
 		return nil, err
 	}
-	disi := NewTwoPhaseIteratorAsDocIdSetIterator(twoPhase)
+	disi := AsDocIdSetIterator(twoPhase)
 	// Use GetValueCount as a cost upper-bound; actual cost is the
 	// number of matched docs, which is unknown before iteration.
 	cost := int64(values.GetValueCount())
@@ -376,11 +385,71 @@ func dvwBuildTwoPhase(
 // sortedSetDocValuesTerms wraps a SortedSetDocValuesWithTermsEnum as an
 // index.Terms, allowing MultiTermQueryTermsEnumProvider to enumerate it.
 type sortedSetDocValuesTerms struct {
+	// field has no counterpart in the Java anonymous Terms:
+	// org.apache.lucene.index.Terms declares no field() member. It is carried
+	// here only to satisfy spi.Terms.Field, a Gocene addition to the contract,
+	// and holds the name the enclosing MultiTermQuery sorts on.
+	field  string
 	values SortedSetDocValuesWithTermsEnum
 }
 
-func newSortedSetDocValuesTerms(v SortedSetDocValuesWithTermsEnum) *sortedSetDocValuesTerms {
-	return &sortedSetDocValuesTerms{values: v}
+func newSortedSetDocValuesTerms(field string, v SortedSetDocValuesWithTermsEnum) *sortedSetDocValuesTerms {
+	return &sortedSetDocValuesTerms{field: field, values: v}
+}
+
+// Field satisfies spi.Terms. See the field comment above: Lucene's Terms has
+// no such member.
+func (t *sortedSetDocValuesTerms) Field() string { return t.field }
+
+// Intersect carries the concrete body org.apache.lucene.index.Terms declares
+// and the anonymous Terms of DocValuesRewriteMethod inherits unchanged: it
+// rejects a non-NORMAL automaton, and otherwise filters this Terms' iterator
+// with an AutomatonTermsEnum, substituting startTerm for a null current term
+// in nextSeekTerm when one was supplied.
+func (t *sortedSetDocValuesTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *index.Term) (index.TermsEnum, error) {
+	if compiled == nil || compiled.Type != automaton.AutomatonTypeNormal {
+		return nil, fmt.Errorf("please use CompiledAutomaton.getTermsEnum instead")
+	}
+	it, err := t.GetIterator()
+	if err != nil {
+		return nil, err
+	}
+	if startTerm == nil {
+		return index.NewAutomatonTermsEnum(it, compiled), nil
+	}
+	return newStartTermAutomatonTermsEnum(it, compiled, startTerm), nil
+}
+
+// startTermAutomatonTermsEnum renders the anonymous AutomatonTermsEnum
+// subclass Terms.intersect creates when startTerm is non-null: nextSeekTerm
+// substitutes startTerm for a null current term, then defers to the
+// superclass body.
+//
+// Go has no virtual dispatch through embedding, so the filtered enumerator
+// the base constructor installed is rebuilt with this wrapper as the acceptor;
+// Accept is still promoted from the embedded AutomatonTermsEnum, while
+// NextSeekTerm resolves here.
+type startTermAutomatonTermsEnum struct {
+	*index.AutomatonTermsEnum
+	startTerm *index.Term
+}
+
+func newStartTermAutomatonTermsEnum(delegate index.TermsEnum, compiled *automaton.CompiledAutomaton, startTerm *index.Term) *startTermAutomatonTermsEnum {
+	ate := index.NewAutomatonTermsEnum(delegate, compiled)
+	e := &startTermAutomatonTermsEnum{AutomatonTermsEnum: ate, startTerm: startTerm}
+	// startWithSeek == false for the same documented reason as
+	// index.NewAutomatonTermsEnum: AutomatonTermsEnum.NextSeekTerm is still a
+	// stub, so an initial seek would end the enumeration before it started.
+	ate.FilteredTermsEnum = index.NewFilteredTermsEnumWithSeek(delegate, e, false)
+	return e
+}
+
+// NextSeekTerm mirrors the anonymous subclass's override.
+func (e *startTermAutomatonTermsEnum) NextSeekTerm(term *index.Term) (*index.Term, error) {
+	if term == nil {
+		term = e.startTerm
+	}
+	return e.AutomatonTermsEnum.NextSeekTerm(term)
 }
 
 func (t *sortedSetDocValuesTerms) GetIterator() (index.TermsEnum, error) {
@@ -433,7 +502,7 @@ func (e *alwaysExhaustedDISI) DocID() int                      { return NO_MORE_
 func (e *alwaysExhaustedDISI) NextDoc() (int, error)           { return NO_MORE_DOCS, nil }
 func (e *alwaysExhaustedDISI) Advance(target int) (int, error) { return NO_MORE_DOCS, nil }
 func (e *alwaysExhaustedDISI) Cost() int64                     { return 0 }
-func (e *alwaysExhaustedDISI) DocIDRunEnd() int                { return NO_MORE_DOCS }
+func (e *alwaysExhaustedDISI) DocIDRunEnd() (int, error)       { return NO_MORE_DOCS, nil }
 
 func newAlwaysExhaustedDISI() DocIdSetIterator { return &alwaysExhaustedDISI{} }
 
@@ -452,7 +521,9 @@ func (s *dvwScorerSupplierImpl) Cost() int64 { return s.cost }
 
 // SetTopLevelScoringClause is a no-op for DocValues-backed suppliers;
 // the constant score does not benefit from top-level clause hints.
-func (s *dvwScorerSupplierImpl) SetTopLevelScoringClause() {}
+func (s *dvwScorerSupplierImpl) SetTopLevelScoringClause() error {
+	return nil
+}
 
 // newEmptyDVWScorerSupplier returns a ScorerSupplier that yields zero
 // results (immediately exhausted).
@@ -470,3 +541,15 @@ var (
 	_ DocIdSetIterator = (*alwaysExhaustedDISI)(nil)
 	_ ScorerSupplier   = (*dvwScorerSupplierImpl)(nil)
 )
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (d *dvwScorerSupplierImpl) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(d)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (a *alwaysExhaustedDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(a, upTo, bitSet, offset)
+}

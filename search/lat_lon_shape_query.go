@@ -341,7 +341,11 @@ func NewPointQuery(field string, queryRelation document.QueryRelation, points ..
 		if len(p) < 2 {
 			return nil, fmt.Errorf("point %d must have at least two coordinates (lat, lon)", i)
 		}
-		geoms[i] = geo.NewPoint(p[0], p[1])
+		pt, err := geo.NewPoint(p[0], p[1])
+		if err != nil {
+			return nil, err
+		}
+		geoms[i] = pt
 	}
 	return NewLatLonShapeQuery(field, queryRelation, geoms...)
 }

@@ -60,7 +60,7 @@ func (bs *BatchScoreBulkScorer) Score(collector LeafCollector, acceptDocs util.B
 //
 // Mirrors BatchScoreBulkScorer.cost().
 func (bs *BatchScoreBulkScorer) Cost() int64 {
-	return bs.scorer.Cost()
+	return bs.scorer.Iterator().Cost()
 }
 
 var _ BulkScorer = (*BatchScoreBulkScorer)(nil)

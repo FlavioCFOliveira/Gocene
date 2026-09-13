@@ -128,7 +128,7 @@ func TestDisjunctionDISIApproximation_BasicOperations(t *testing.T) {
 		t.Errorf("Expected positive cost, got %d", cost)
 	}
 
-// TestDisjunctionDISIApproximation_Empty tests behavior with adjacent ranges.
+	// TestDisjunctionDISIApproximation_Empty tests behavior with adjacent ranges.
 }
 func TestDisjunctionDISIApproximation_Empty(t *testing.T) {
 	// Create iterators with adjacent ranges

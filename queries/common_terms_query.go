@@ -8,6 +8,7 @@
 package queries
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
 	"math"
 
@@ -141,7 +142,7 @@ func (q *CommonTermsQuery) Clone() search.Query {
 }
 
 // Equals reports structural equality.
-func (q *CommonTermsQuery) Equals(other search.Query) bool {
+func (q *CommonTermsQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*CommonTermsQuery)
 	if !ok {
 		return false

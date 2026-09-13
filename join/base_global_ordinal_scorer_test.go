@@ -18,7 +18,7 @@ func (emptyDISI) DocID() int                 { return search.NO_MORE_DOCS }
 func (emptyDISI) NextDoc() (int, error)      { return search.NO_MORE_DOCS, nil }
 func (emptyDISI) Advance(_ int) (int, error) { return search.NO_MORE_DOCS, nil }
 func (emptyDISI) Cost() int64                { return 0 }
-func (emptyDISI) DocIDRunEnd() int           { return search.NO_MORE_DOCS }
+func (emptyDISI) DocIDRunEnd() (int, error)  { return search.NO_MORE_DOCS, nil }
 
 var _ util.DocIdSetIterator = emptyDISI{}
 

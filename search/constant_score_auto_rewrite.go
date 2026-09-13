@@ -43,11 +43,11 @@ func (r *ConstantScoreAutoRewrite) GetThreshold() int {
 // The full Lucene path also walks PostingsEnum to collect a doc-id-set
 // efficiently for the "many terms" case; Gocene defers that optimisation
 // because TermsEnum.TermState() is not yet exposed (see ScoringRewrite).
-func (r *ConstantScoreAutoRewrite) Rewrite(query *MultiTermQuery, reader IndexReader) (Query, error) {
+func (r *ConstantScoreAutoRewrite) Rewrite(searcher *IndexSearcher, query *MultiTermQuery) (Query, error) {
 	if query == nil {
 		return nil, nil
 	}
-	rewritten, err := ConstantScoreBooleanRewriteMethod.Rewrite(query, reader)
+	rewritten, err := ConstantScoreBooleanRewriteMethod.Rewrite(searcher, query)
 	if err != nil {
 		if err == ErrTooManyClauses {
 			// Many-terms branch: keep the query as a single ConstantScoreQuery.
@@ -57,7 +57,7 @@ func (r *ConstantScoreAutoRewrite) Rewrite(query *MultiTermQuery, reader IndexRe
 	}
 	// Apply the threshold check on the resulting BooleanQuery (if any).
 	if cs, ok := rewritten.(*ConstantScoreQuery); ok {
-		if bq, ok := cs.Query().(*BooleanQuery); ok {
+		if bq, ok := cs.GetQuery().(*BooleanQuery); ok {
 			if len(bq.Clauses()) > r.threshold {
 				return NewConstantScoreQuery(query), nil
 			}

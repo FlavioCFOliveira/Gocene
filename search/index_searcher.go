@@ -5,6 +5,8 @@
 package search
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -12,7 +14,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TooManyClauses is thrown when an attempt is made to add more than
@@ -28,6 +29,12 @@ func (e *TooManyClauses) Error() string {
 
 func (e *TooManyClauses) GetMaxClauseCount() int {
 	return e.maxClauseCount
+}
+
+// NewTooManyClauses mirrors the no-argument constructor
+// IndexSearcher.TooManyClauses(), whose body captures getMaxClauseCount().
+func NewTooManyClauses() *TooManyClauses {
+	return &TooManyClauses{maxClauseCount: GetMaxClauseCount()}
 }
 
 // TooManyNestedClauses is thrown when a client attempts to execute a Query that has more than
@@ -53,9 +60,9 @@ var (
 	MaxClauseCount = 1024
 
 	// DefaultSimilarity is the default Similarity instance.
-	DefaultSimilarity = NewBM25Similarity()
+	DefaultSimilarity = NewLuceneBM25Similarity()
 
-	defaultQueryCache       QueryCache
+	defaultQueryCache         QueryCache
 	defaultQueryCachingPolicy QueryCachingPolicy
 )
 
@@ -86,7 +93,7 @@ type IndexSearcher struct {
 
 	// readerContext and leafContexts are cached from the reader.
 	readerContext index.IndexReaderContext
-	leafContexts  []index.LeafReaderContext
+	leafContexts  []*index.LeafReaderContext
 
 	// leafSlices caches the concurrent search partitions.
 	leafSlices []LeafSlice
@@ -123,7 +130,7 @@ func (s *IndexSearcher) GetIndexReader() index.IndexReaderInterface {
 }
 
 // GetLeafContexts returns leaf contexts associated with this searcher.
-func (s *IndexSearcher) GetLeafContexts() []index.LeafReaderContext {
+func (s *IndexSearcher) GetLeafContexts() []*index.LeafReaderContext {
 	return s.leafContexts
 }
 
@@ -165,12 +172,12 @@ func NewIndexSearcherWithExecutor(r index.IndexReaderInterface, executor Executo
 	}
 
 	s := &IndexSearcher{
-		reader:            r,
-		similarity:        DefaultSimilarity,
-		readerContext:     ctx,
-		leafContexts:      leaves,
-		taskExecutor:      NewTaskExecutor(executor),
-		queryCache:        defaultQueryCache,
+		reader:             r,
+		similarity:         DefaultSimilarity,
+		readerContext:      ctx,
+		leafContexts:       leaves,
+		taskExecutor:       NewTaskExecutor(executorDispatch(executor)),
+		queryCache:         defaultQueryCache,
 		queryCachingPolicy: defaultQueryCachingPolicy,
 	}
 
@@ -230,13 +237,13 @@ func (s *IndexSearcher) GetQueryCachingPolicy() QueryCachingPolicy {
 }
 
 // slices creates an array of leaf slices each holding a subset of the given leaves.
-func (s *IndexSearcher) slices(leaves []index.LeafReaderContext) []LeafSlice {
-	return slices(leaves, MAX_DOCS_PER_SLICE, MAX_SEGMENTS_PER_SLICE, false)
+func (s *IndexSearcher) slices(leaves []*index.LeafReaderContext) []LeafSlice {
+	return Slices(leaves, MAX_DOCS_PER_SLICE, MAX_SEGMENTS_PER_SLICE, false)
 }
 
 // Slices segregates LeafReaderContexts amongst multiple slices.
-func Slices(leaves []index.LeafReaderContext, maxDocsPerSlice, maxSegmentsPerSlice int, allowSegmentPartitions bool) []LeafSlice {
-	sortedLeaves := make([]index.LeafReaderContext, len(leaves))
+func Slices(leaves []*index.LeafReaderContext, maxDocsPerSlice, maxSegmentsPerSlice int, allowSegmentPartitions bool) []LeafSlice {
+	sortedLeaves := make([]*index.LeafReaderContext, len(leaves))
 	copy(sortedLeaves, leaves)
 
 	sort.Slice(sortedLeaves, func(i, j int) bool {
@@ -247,17 +254,17 @@ func Slices(leaves []index.LeafReaderContext, maxDocsPerSlice, maxSegmentsPerSli
 		return slicesWithSegmentPartitions(maxDocsPerSlice, maxSegmentsPerSlice, sortedLeaves)
 	}
 
-	var groupedLeaves [][]index.LeafReaderContext
+	var groupedLeaves [][]*index.LeafReaderContext
 	var docSum int
-	var group []index.LeafReaderContext
+	var group []*index.LeafReaderContext
 
 	for _, ctx := range sortedLeaves {
 		if ctx.Reader().MaxDoc() > maxDocsPerSlice {
 			group = nil
-			groupedLeaves = append(groupedLeaves, []index.LeafReaderContext{ctx})
+			groupedLeaves = append(groupedLeaves, []*index.LeafReaderContext{ctx})
 		} else {
 			if group == nil {
-				group = []index.LeafReaderContext{ctx}
+				group = []*index.LeafReaderContext{ctx}
 				groupedLeaves = append(groupedLeaves, group)
 			} else {
 				group = append(group, ctx)
@@ -278,7 +285,7 @@ func Slices(leaves []index.LeafReaderContext, maxDocsPerSlice, maxSegmentsPerSli
 	return res
 }
 
-func slicesWithSegmentPartitions(maxDocsPerSlice, maxSegmentsPerSlice int, sortedLeaves []index.LeafReaderContext) []LeafSlice {
+func slicesWithSegmentPartitions(maxDocsPerSlice, maxSegmentsPerSlice int, sortedLeaves []*index.LeafReaderContext) []LeafSlice {
 	var groupedLeafPartitions [][]LeafReaderContextPartition
 	currentSliceNumDocs := 0
 	var group []LeafReaderContextPartition
@@ -322,11 +329,6 @@ func slicesWithSegmentPartitions(maxDocsPerSlice, maxSegmentsPerSlice int, sorte
 	return res
 }
 
-// GetIndexReader returns the IndexReader this searches.
-func (s *IndexSearcher) GetIndexReader() index.IndexReaderInterface {
-	return s.reader
-}
-
 // StoredFields returns a StoredFields reader for the stored fields of this index.
 func (s *IndexSearcher) StoredFields() (index.StoredFields, error) {
 	return s.reader.StoredFields()
@@ -361,36 +363,51 @@ func (s *IndexSearcher) Count(query Query) (int, error) {
 	// Unwrap CSQ to check for optimizations on the inner query
 	innerQuery := rewritten
 	if csq, ok := rewritten.(*ConstantScoreQuery); ok {
-		innerQuery = csq.Query
+		innerQuery = csq.GetQuery()
 	}
 
 	// Check if two clause disjunction optimization applies
 	if bq, ok := innerQuery.(*BooleanQuery); ok && !s.reader.HasDeletions() && bq.IsTwoClausePureDisjunctionWithTerms() {
-		queries := bq.RewriteTwoClauseDisjunctionWithTermsForCount(s)
-		countTerm1, err1 := s.Count(queries[0])
-		countTerm2, err2 := s.Count(queries[1])
-		if err1 != nil || err2 != nil {
-			return 0, fmt.Errorf("error counting disjunction clauses")
+		queries, err := bq.RewriteTwoClauseDisjunctionWithTermsForCount(s)
+		if err != nil {
+			return 0, err
+		}
+		countTerm1, err := s.Count(queries[0])
+		if err != nil {
+			return 0, err
+		}
+		countTerm2, err := s.Count(queries[1])
+		if err != nil {
+			return 0, err
 		}
 		if countTerm1 == 0 || countTerm2 == 0 {
-			return int(math.Max(float64(countTerm1), float64(countTerm2))), nil
-		} else if float64(int(math.Min(float64(countTerm1), float64(countTerm2))))/float64(int(math.Max(float64(countTerm1), float64(countTerm2)))) < 0.1 {
-			countTerm3, err3 := s.Count(queries[2])
-			if err3 != nil {
-				return 0, err3
+			return max(countTerm1, countTerm2), nil
+			// Only apply optimization if the intersection is significantly smaller than the union
+		} else if float64(min(countTerm1, countTerm2))/float64(max(countTerm1, countTerm2)) < 0.1 {
+			countTerm3, err := s.Count(queries[2])
+			if err != nil {
+				return 0, err
 			}
 			return countTerm1 + countTerm2 - countTerm3, nil
 		}
 	}
 
-	collectorManager := NewTotalHitCountCollectorManager(s.GetSlices())
-	firstCollector := collectorManager.NewCollector()
+	// Use the already-rewritten query directly, avoiding a redundant rewrite in search(query,
+	// collector)
+	//
+	// PORT NOTE. Lucene passes getSlices() to the TotalHitCountCollectorManager
+	// constructor so the manager can tell whether any leaf is partitioned;
+	// Gocene's TotalHitCountCollectorManager does not yet carry that parameter.
+	collectorManager := NewTotalHitCountCollectorManager()
+	firstCollector, err := collectorManager.NewCollector()
+	if err != nil {
+		return 0, err
+	}
 	weight, err := s.CreateWeight(rewritten, firstCollector.ScoreMode(), 1.0)
 	if err != nil {
 		return 0, err
 	}
-	result := s.searchWeight(weight, collectorManager, firstCollector)
-	return result.(int), nil
+	return searchWeightWithCollectorManager[*TotalHitCountCollector, int](s, weight, collectorManager, firstCollector)
 }
 
 // GetSlices returns the leaf slices used for concurrent searching.
@@ -445,8 +462,12 @@ func (s *IndexSearcher) SearchAfter(after *ScoreDoc, query Query, n int) (*TopDo
 		cappedNumHits = limit
 	}
 
-	manager := NewTopScoreDocCollectorManager(cappedNumHits, after, TOTAL_HITS_THRESHOLD)
-	return s.searchQuery(query, manager)
+	manager, err := NewTopScoreDocCollectorManager(cappedNumHits, after, TOTAL_HITS_THRESHOLD)
+	if err != nil {
+		return nil, err
+	}
+
+	return SearchWithCollectorManager[*TopScoreDocCollector, *TopDocs](s, query, manager)
 }
 
 // GetTimeout returns the configured QueryTimeout for all searches.
@@ -468,7 +489,7 @@ func (s *IndexSearcher) Search(query Query, n int) (*TopDocs, error) {
 
 // SearchWithCollector searches the index using the given collector.
 func (s *IndexSearcher) SearchWithCollector(query Query, collector Collector) error {
-	rewritten, err := s.Rewrite(query, collector.ScoreMode().NeedsScores())
+	rewritten, err := s.rewrite(query, collector.ScoreMode().NeedsScores())
 	if err != nil {
 		return err
 	}
@@ -518,22 +539,42 @@ func (s *IndexSearcher) SearchWithSortAfter(after *FieldDoc, query Query, n int,
 		cappedNumHits = limit
 	}
 
-	rewrittenSort := sort.Rewrite(s)
-	manager := NewTopFieldCollectorManager(rewrittenSort, cappedNumHits, after, TOTAL_HITS_THRESHOLD)
-
-	topDocs := s.searchQuery(query, manager)
-	if topDocs == nil {
-		return nil, fmt.Errorf("search failed to produce results")
+	rewrittenSort, err := sort.Rewrite(s)
+	if err != nil {
+		return nil, err
 	}
 
-	tfDocs := topDocs.(*TopFieldDocs)
+	// PORT NOTE. Lucene's TopFieldCollectorManager takes the FieldDoc marker
+	// itself; Gocene's constructor declares a *ScoreDoc, so only the ScoreDoc
+	// half of the marker is forwarded.
+	var afterScoreDoc *ScoreDoc
+	if after != nil {
+		afterScoreDoc = after.ScoreDoc
+	}
+	manager, err := NewTopFieldCollectorManager(rewrittenSort, cappedNumHits, afterScoreDoc, TOTAL_HITS_THRESHOLD)
+	if err != nil {
+		return nil, err
+	}
+
+	topDocs, err := SearchWithCollectorManager[*TopFieldCollector, *TopFieldDocs](s, query, manager)
+	if err != nil {
+		return nil, err
+	}
 	if doDocScores {
-		PopulateScores(tfDocs.ScoreDocs, s, query)
+		if err := PopulateScores(topDocs.ScoreDocs, s, query); err != nil {
+			return nil, err
+		}
 	}
-	return tfDocs, nil
+	return topDocs, nil
 }
 
-// SearchWithCollectorManager searches the index using a CollectorManager to parallelize execution.
+// SearchWithCollectorManager is the lower-level search API: it searches all
+// leaves using the given CollectorManager, using the searcher's Executor to
+// parallelize execution of the collection over the configured slices.
+//
+// Mirrors `public <C extends Collector, T> T search(Query, CollectorManager<C, T>)`
+// of Apache Lucene 10.5.0. Go has no generic methods, so the Java method is
+// rendered as a free function taking the searcher as its first parameter.
 func SearchWithCollectorManager[C Collector, T any](s *IndexSearcher, query Query, manager CollectorManager[C, T]) (T, error) {
 	var zero T
 	firstCollector, err := manager.NewCollector()
@@ -541,7 +582,7 @@ func SearchWithCollectorManager[C Collector, T any](s *IndexSearcher, query Quer
 		return zero, err
 	}
 
-	rewritten, err := s.Rewrite(query, firstCollector.ScoreMode().NeedsScores())
+	rewritten, err := s.rewrite(query, firstCollector.ScoreMode().NeedsScores())
 	if err != nil {
 		return zero, err
 	}
@@ -551,187 +592,125 @@ func SearchWithCollectorManager[C Collector, T any](s *IndexSearcher, query Quer
 		return zero, err
 	}
 
-	slices := s.GetSlices()
-	if len(slices) == 0 {
+	return searchWeightWithCollectorManager(s, weight, manager, firstCollector)
+}
+
+// searchWeightWithCollectorManager mirrors the private
+// `<C extends Collector, T> T search(Weight, CollectorManager<C, T>, C)` of
+// Apache Lucene 10.5.0, rendered as a free function for the same reason as
+// SearchWithCollectorManager above.
+func searchWeightWithCollectorManager[C Collector, T any](
+	s *IndexSearcher,
+	weight Weight,
+	manager CollectorManager[C, T],
+	firstCollector C,
+) (T, error) {
+	var zero T
+	leafSlices := s.GetSlices()
+	if len(leafSlices) == 0 {
+		// there are no segments, nothing to offload to the executor, but we do
+		// need to call reduce to create some kind of empty result
 		return manager.Reduce([]C{firstCollector})
 	}
 
-	collectors := make([]C, len(slices))
-	collectors[0] = firstCollector
+	collectors := make([]C, 0, len(leafSlices))
+	collectors = append(collectors, firstCollector)
 	scoreMode := firstCollector.ScoreMode()
-
-	for i := 1; i < len(slices); i++ {
-		c, err := manager.NewCollector()
+	for i := 1; i < len(leafSlices); i++ {
+		collector, err := manager.NewCollector()
 		if err != nil {
 			return zero, err
 		}
-		if c.ScoreMode() != scoreMode {
+		collectors = append(collectors, collector)
+		if scoreMode != collector.ScoreMode() {
 			return zero, fmt.Errorf("CollectorManager does not always produce collectors with the same score mode")
 		}
-		collectors[i] = c
 	}
 
-	tasks := make([]func() Collector, len(slices))
-	for i := 0; i < len(slices); i++ {
-		partitions := slices[i].Partitions
-		c := collectors[i]
-		tasks[i] = func() Collector {
-			s.searchPartitions(partitions, weight, c)
-			return c
-		}
+	listTasks := make([]Callable[C], 0, len(leafSlices))
+	for i := 0; i < len(leafSlices); i++ {
+		leaves := leafSlices[i].Partitions
+		collector := collectors[i]
+		listTasks = append(listTasks, func(context.Context) (C, error) {
+			if err := s.searchPartitions(leaves, weight, collector); err != nil {
+				var zeroC C
+				return zeroC, err
+			}
+			return collector, nil
+		})
 	}
 
-	results := s.taskExecutor.InvokeAll(tasks)
-	typedResults := make([]C, len(results))
-	for i, r := range results {
-		typedResults[i] = r.(C)
+	results, err := InvokeAll(s.taskExecutor, context.Background(), listTasks)
+	if err != nil {
+		return zero, err
 	}
-
-	return manager.Reduce(typedResults)
+	return manager.Reduce(results)
 }
 
-func (s *IndexSearcher) searchQuery(query Query, manager any) any {
-	// This is a private helper to avoid generic complexity in the internal search path.
-	// In Gocene, we call the standalone SearchWithCollectorManager.
+// searchPartitions mirrors
+// `protected void search(LeafReaderContextPartition[], Weight, Collector)`.
+func (s *IndexSearcher) searchPartitions(partitions []LeafReaderContextPartition, weight Weight, collector Collector) error {
+	collector.SetWeight(weight)
 
-	// Since we can't easily call a generic function with 'any' parameters,
-	// we'll implement a simple version here or use a type-switch.
-
-	// For the most common case (TopScoreDocCollectorManager), we can use a specific path.
-	// But for a general port, we should handle the generic logic.
-
-	// In a real implementation, this would be a method on IndexSearcher that
-	// delegates to a generic internal function.
-
-	// Because of Go's current generic limitations, let's simplify this part
-	// to call the generic function if possible, or handle the most common managers.
-
-	// Actually, the most faithful way is to use the standalone function.
-	// But since this is a method call in Java, let's implement a wrapper.
-
-	// Since we cannot easily do this with generics in a method return,
-	// we'll use the standalone function and cast.
-
-	// This is a simplification for the port:
-	if manager == nil {
-		return nil
-	}
-
-	// In practice, we'd use a type switch or a wrapper.
-	// For now, we'll use the standalone function if we can determine the types.
-
-	// Let's implement the common logic here for TopScoreDocCollectorManager and TopFieldCollectorManager.
-
-	// This is a bit messy in Go. Let's just implement the core search logic.
-
-	// Actually, the simplest way is to just call SearchWithCollectorManager
-	// with the specific types if we know them.
-
-	// Let's implement a simplified version of the generic search logic.
-	return nil // Placeholder, the caller should use SearchWithCollectorManager
-}
-
-func (s *IndexSearcher) searchWeight(weight Weight, manager any, firstCollector Collector) any {
-	// This mirrors Java's search(Weight, CollectorManager, C).
-	// Since we can't use generics easily here, we'll implement the logic
-	// and return any.
-
-	slices := s.GetSlices()
-	if len(slices) == 0 {
-		// Need to call manager.Reduce([]Collector{firstCollector})
-		// We'll assume manager implements a Reducer interface.
-		if reducer, ok := manager.(interface {
-			Reduce(collectors []Collector) any
-		}); ok {
-			return reducer.Reduce([]Collector{firstCollector})
-		}
-	} else {
-		collectors := make([]Collector, len(slices))
-		collectors[0] = firstCollector
-
-		for i := 1; i < len(slices); i++ {
-			if collMgr, ok := manager.(interface {
-				NewCollector() (Collector, error)
-			}); ok {
-				c, _ := collMgr.NewCollector()
-				collectors[i] = c
-			}
-		}
-
-		tasks := make([]func() Collector, len(slices))
-		for i := 0; i < len(slices); i++ {
-			partitions := slices[i].Partitions
-			c := collectors[i]
-			tasks[i] = func() Collector {
-				s.searchPartitions(partitions, weight, c)
-				return c
-			}
-		}
-
-		results := s.taskExecutor.InvokeAll(tasks)
-		if reducer, ok := manager.(interface {
-			Reduce(collectors []Collector) any
-		}); ok {
-			return reducer.Reduce(results)
+	for _, partition := range partitions { // search each leaf partition
+		if err := s.searchLeaf(partition.Ctx, partition.MinDocId, partition.MaxDocId, weight, collector); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func (s *IndexSearcher) searchPartitions(partitions []LeafReaderContextPartition, weight Weight, collector Collector) {
-	collector.SetWeight(weight)
-
-	for _, partition := range partitions {
-		s.searchLeaf(partition.Ctx, partition.MinDocId, partition.MaxDocId, weight, collector)
-	}
-}
-
-func (s *IndexSearcher) searchLeaf(ctx index.LeafReaderContext, minDocId, maxDocId int, weight Weight, collector Collector) error {
+// searchLeaf mirrors
+// `protected void searchLeaf(LeafReaderContext, int, int, Weight, Collector)`
+// of Apache Lucene 10.5.0.
+//
+// PORT NOTE. Java wraps the live docs in ScorerUtil.likelyLiveDocs, a JIT
+// devirtualisation hint with no Go counterpart; the bits are used directly.
+func (s *IndexSearcher) searchLeaf(ctx *index.LeafReaderContext, minDocId, maxDocId int, weight Weight, collector Collector) error {
 	leafCollector, err := collector.GetLeafCollector(ctx)
 	if err != nil {
 		if IsCollectionTerminated(err) {
+			// there is no doc of interest in this reader context
+			// continue with the following leaf
 			return nil
 		}
 		return err
 	}
-
-	scorerSupplier := weight.ScorerSupplier(ctx)
+	scorerSupplier, err := weight.ScorerSupplier(ctx)
+	if err != nil {
+		return err
+	}
 	if scorerSupplier != nil {
-		scorerSupplier.SetTopLevelScoringClause()
-		scorer := scorerSupplier.BulkScorer()
-
+		if err := scorerSupplier.SetTopLevelScoringClause(); err != nil {
+			return err
+		}
+		scorer, err := scorerSupplier.BulkScorer()
+		if err != nil {
+			return err
+		}
+		var bulkScorer BulkScorer = scorer
 		if s.queryTimeout != nil {
-			scorer = NewTimeLimitingBulkScorer(scorer, s.queryTimeout)
+			bulkScorer = NewTimeLimitingBulkScorer(scorer, s.queryTimeout)
 		}
-
-		var liveDocs util.Bits
-		if lr, ok := ctx.Reader().(interface{ GetLiveDocs() util.Bits }); ok {
-			liveDocs = lr.GetLiveDocs()
-		}
-
-		for {
-			doc, err := scorer.NextDoc()
-			if err != nil {
-				return err
-			}
-			if doc == NO_MORE_DOCS {
-				break
-			}
-			if liveDocs != nil && !liveDocs.Get(doc) {
-				continue
-			}
-
-			err = leafCollector.Collect(doc)
-			if err != nil {
-				if IsCollectionTerminated(err) {
-					break
-				}
+		acceptDocs := ctx.LeafReader().GetLiveDocs()
+		if _, err := bulkScorer.Score(leafCollector, acceptDocs, minDocId, maxDocId); err != nil {
+			switch {
+			case IsCollectionTerminated(err):
+				// collection was terminated prematurely
+				// continue with the following leaf
+			case errors.Is(err, ErrTimeExceeded):
+				s.mu.Lock()
+				s.partialResult = true
+				s.mu.Unlock()
+			default:
 				return err
 			}
 		}
 	}
-	leafCollector.Finish()
-	return nil
+	// Note: this is called if collection ran successfully, including the above
+	// special cases of CollectionTerminatedException and TimeExceededException,
+	// but no other error.
+	return leafCollector.Finish()
 }
 
 // Rewrite rewrites the query into primitive queries.
@@ -749,14 +728,19 @@ func (s *IndexSearcher) Rewrite(original Query) (Query, error) {
 	}
 
 	visitor := getNumClausesCheckVisitor()
-	query.Visit(visitor)
+	visitQuery(query, visitor)
 	return query, nil
 }
 
-func (s *IndexSearcher) Rewrite(original Query, needsScores bool) (Query, error) {
+// rewrite mirrors the private overload
+// IndexSearcher.rewrite(Query original, boolean needsScores) of Apache Lucene
+// 10.5.0. Go has no overloading, so the private sibling keeps the Java name in
+// its unexported form.
+func (s *IndexSearcher) rewrite(original Query, needsScores bool) (Query, error) {
 	if needsScores {
 		return s.Rewrite(original)
 	}
+	// Take advantage of the few extra rewrite rules of ConstantScoreQuery.
 	return s.Rewrite(NewConstantScoreQuery(original))
 }
 
@@ -766,6 +750,12 @@ func getNumClausesCheckVisitor() *numClausesCheckVisitor {
 
 type numClausesCheckVisitor struct {
 	numClauses int
+}
+
+// AcceptField mirrors the default body of QueryVisitor.acceptField(String),
+// which Java's anonymous subclass inherits unchanged: `return true`.
+func (v *numClausesCheckVisitor) AcceptField(field string) bool {
+	return true
 }
 
 func (v *numClausesCheckVisitor) GetSubVisitor(occur Occur, parent Query) QueryVisitor {
@@ -779,7 +769,7 @@ func (v *numClausesCheckVisitor) VisitLeaf(query Query) {
 	v.numClauses++
 }
 
-func (v *numClausesCheckVisitor) ConsumeTerms(query Query, terms ...Term) {
+func (v *numClausesCheckVisitor) ConsumeTerms(query Query, terms ...*index.Term) {
 	if v.numClauses > MaxClauseCount {
 		panic(NewTooManyNestedClauses())
 	}
@@ -809,26 +799,24 @@ func (s *IndexSearcher) Explain(query Query, doc int) (Explanation, error) {
 	return s.explainWeight(weight, doc)
 }
 
+// explainWeight is the expert low-level implementation method: it returns an
+// Explanation that describes how doc scored against weight.
+//
+// Mirrors `protected Explanation explain(Weight weight, int doc)` of Apache
+// Lucene 10.5.0. Go has no overloading, so the protected sibling of
+// Explain(Query, int) keeps the Java name in an unexported, disambiguated form.
 func (s *IndexSearcher) explainWeight(weight Weight, doc int) (Explanation, error) {
-	docBase := 0
-	for ord, sr := range s.reader.GetSegmentReaders() {
-		maxDoc := sr.MaxDoc()
-		if doc >= docBase && doc < docBase+maxDoc {
-			return s.explainLeaf(sr, ord, docBase, weight, doc-docBase, doc)
-		}
-		docBase += maxDoc
+	n := index.ReaderUtilSubIndexLeaves(doc, s.leafContexts)
+	if n < 0 || n >= len(s.leafContexts) {
+		return nil, fmt.Errorf("doc id %d is out of bounds", doc)
 	}
-	return NoMatchExplanation(fmt.Sprintf("Document %d is out of range", doc)), nil
-}
-
-func (s *IndexSearcher) explainLeaf(reader index.IndexReaderInterface, ord, docBase int, weight Weight, leafDoc, globalDoc int) (Explanation, error) {
-	if lr, ok := reader.(interface{ GetLiveDocs() util.Bits }); ok {
-		if liveDocs := lr.GetLiveDocs(); liveDocs != nil && !liveDocs.Get(leafDoc) {
-			return NoMatchExplanation(fmt.Sprintf("Document %d is deleted", globalDoc)), nil
-		}
+	ctx := s.leafContexts[n]
+	deBasedDoc := doc - ctx.DocBase
+	liveDocs := ctx.LeafReader().GetLiveDocs()
+	if liveDocs != nil && !liveDocs.Get(deBasedDoc) {
+		return NoMatchExplanation(fmt.Sprintf("Document %d is deleted", doc)), nil
 	}
-	ctx := index.NewLeafReaderContext(reader, nil, ord, docBase)
-	return weight.Explain(ctx, leafDoc)
+	return weight.Explain(ctx, deBasedDoc)
 }
 
 // CreateWeight builds the Weight for the given query, potentially adding caching if possible and configured.
@@ -853,9 +841,17 @@ func (s *IndexSearcher) GetTopReaderContext() index.IndexReaderContext {
 	return s.readerContext
 }
 
-// TermStatistics returns statistics for a term.
-func (s *IndexSearcher) TermStatistics(term Term, docFreq int, totalTermFreq int64) TermStatistics {
-	return NewTermStatistics(term.Bytes(), docFreq, totalTermFreq)
+// TermStatistics returns statistics for a term, and never nil.
+//
+// docFreq is the document frequency of the term; it must be greater than or
+// equal to 1. totalTermFreq is the total term frequency.
+//
+// Mirrors IndexSearcher.termStatistics(Term, int, long). Java passes
+// term.bytes() to the TermStatistics constructor; Gocene's TermStatistics
+// carries the whole Term, so the term is forwarded unchanged.
+func (s *IndexSearcher) TermStatistics(term *index.Term, docFreq int, totalTermFreq int64) TermStatistics {
+	// This constructor will throw an exception if docFreq <= 0.
+	return *NewTermStatistics(term, docFreq, totalTermFreq)
 }
 
 // CollectionStatistics returns statistics for a field.
@@ -865,16 +861,31 @@ func (s *IndexSearcher) CollectionStatistics(field string) (*CollectionStatistic
 	var sumDocFreq int64
 
 	for _, leaf := range s.leafContexts {
-		terms := GetTerms(leaf.Reader(), field)
-		docCount += int64(terms.DocCount())
-		sumTotalTermFreq += terms.SumTotalTermFreq()
-		sumDocFreq += int64(terms.SumDocFreq())
+		terms, err := index.GetTerms(leaf.LeafReader(), field)
+		if err != nil {
+			return nil, err
+		}
+		dc, err := terms.GetDocCount()
+		if err != nil {
+			return nil, err
+		}
+		sttf, err := terms.GetSumTotalTermFreq()
+		if err != nil {
+			return nil, err
+		}
+		sdf, err := terms.GetSumDocFreq()
+		if err != nil {
+			return nil, err
+		}
+		docCount += int64(dc)
+		sumTotalTermFreq += sttf
+		sumDocFreq += sdf
 	}
 
 	if docCount == 0 {
 		return nil, nil
 	}
-	return NewCollectionStatistics(field, s.reader.MaxDoc(), docCount, sumTotalTermFreq, sumDocFreq), nil
+	return NewCollectionStatistics(field, s.reader.MaxDoc(), int(docCount), sumTotalTermFreq, sumDocFreq), nil
 }
 
 // GetTaskExecutor returns the TaskExecutor that this searcher relies on.
@@ -882,21 +893,26 @@ func (s *IndexSearcher) GetTaskExecutor() *TaskExecutor {
 	return s.taskExecutor
 }
 
-// Doc retrieves stored fields for a document.
+// Doc retrieves the stored fields of a document.
+//
+// PORT NOTE. Apache Lucene 10.5.0 has no IndexSearcher.doc(int): the caller
+// pulls a StoredFields from searcher.storedFields() and calls document(docID)
+// on it. Gocene keeps this sugar because several packages already depend on it;
+// its body reproduces the technique of BaseCompositeReader.storedFields(),
+// which resolves the leaf that owns docID and delegates to that leaf's own
+// StoredFields.
 func (s *IndexSearcher) Doc(docID int) (*document.Document, error) {
-	docBase := 0
-	for _, sr := range s.reader.GetSegmentReaders() {
-		maxDoc := sr.MaxDoc()
-		if docID >= docBase && docID < docBase+maxDoc {
-			return s.docFromSegment(sr, docID-docBase)
+	for _, ctx := range s.leafContexts {
+		leaf := ctx.LeafReader()
+		if docID >= ctx.DocBase && docID < ctx.DocBase+leaf.MaxDoc() {
+			return s.docFromLeaf(leaf, docID-ctx.DocBase)
 		}
-		docBase += maxDoc
 	}
 	return nil, nil
 }
 
-func (s *IndexSearcher) docFromSegment(sr *index.SegmentReader, docID int) (*document.Document, error) {
-	storedFields, err := sr.StoredFields()
+func (s *IndexSearcher) docFromLeaf(leaf index.LeafReader, docID int) (*document.Document, error) {
+	storedFields, err := leaf.StoredFields()
 	if err != nil {
 		return nil, err
 	}
@@ -933,6 +949,13 @@ func NewDocumentVisitor() *DocumentVisitor {
 	return &DocumentVisitor{
 		doc: document.NewDocument(),
 	}
+}
+
+// Document returns the Document assembled from the visited stored fields.
+//
+// Mirrors DocumentStoredFieldVisitor.getDocument().
+func (v *DocumentVisitor) Document() *document.Document {
+	return v.doc
 }
 
 func (v *DocumentVisitor) StringField(field, value string) {
@@ -974,7 +997,7 @@ type LeafSlice struct {
 	Partitions []LeafReaderContextPartition
 }
 
-func entireSegments(contexts []index.LeafReaderContext) LeafSlice {
+func entireSegments(contexts []*index.LeafReaderContext) LeafSlice {
 	parts := make([]LeafReaderContextPartition, len(contexts))
 	for i, ctx := range contexts {
 		parts[i] = NewLeafReaderContextPartitionForEntireSegment(ctx)
@@ -986,10 +1009,10 @@ func entireSegments(contexts []index.LeafReaderContext) LeafSlice {
 type LeafReaderContextPartition struct {
 	MinDocId int
 	MaxDocId int
-	Ctx      index.LeafReaderContext
+	Ctx      *index.LeafReaderContext
 }
 
-func NewLeafReaderContextPartitionForEntireSegment(ctx index.LeafReaderContext) LeafReaderContextPartition {
+func NewLeafReaderContextPartitionForEntireSegment(ctx *index.LeafReaderContext) LeafReaderContextPartition {
 	return LeafReaderContextPartition{
 		MinDocId: 0,
 		MaxDocId: NO_MORE_DOCS,
@@ -997,7 +1020,7 @@ func NewLeafReaderContextPartitionForEntireSegment(ctx index.LeafReaderContext) 
 	}
 }
 
-func NewLeafReaderContextPartitionFromAndTo(ctx index.LeafReaderContext, minDocId, maxDocId int) LeafReaderContextPartition {
+func NewLeafReaderContextPartitionFromAndTo(ctx *index.LeafReaderContext, minDocId, maxDocId int) LeafReaderContextPartition {
 	return LeafReaderContextPartition{
 		MinDocId: minDocId,
 		MaxDocId: maxDocId,
@@ -1005,39 +1028,21 @@ func NewLeafReaderContextPartitionFromAndTo(ctx index.LeafReaderContext, minDocI
 	}
 }
 
-// TaskExecutor handles concurrent execution of tasks.
-type TaskExecutor struct {
-	executor Executor
-}
-
-func NewTaskExecutor(executor Executor) *TaskExecutor {
-	return &TaskExecutor{executor: executor}
-}
-
-func (te *TaskExecutor) InvokeAll(tasks []func() Collector) []Collector {
-	if te.executor == nil {
-		results := make([]Collector, len(tasks))
-		for i, task := range tasks {
-			results[i] = task()
-		}
-		return results
-	}
-
-	results := make([]Collector, len(tasks))
-	var wg sync.WaitGroup
-	wg.Add(len(tasks))
-
-	for i, task := range tasks {
-		go func(idx int, t func() Collector) {
-			defer wg.Done()
-			results[idx] = t()
-		}(i, task)
-	}
-	wg.Wait()
-	return results
-}
-
 // Executor is an interface for executing tasks concurrently.
+//
+// It is the Go rendering of java.util.concurrent.Executor, the type
+// IndexSearcher's constructor accepts; like the JDK interface it declares
+// exactly one method.
 type Executor interface {
 	Execute(runnable func())
+}
+
+// executorDispatch adapts an Executor to the dispatcher TaskExecutor expects.
+// A nil Executor yields a nil dispatcher, which runs every task on the caller
+// goroutine, mirroring Java's IndexSearcher(reader, null) contract.
+func executorDispatch(executor Executor) func(func()) {
+	if executor == nil {
+		return nil
+	}
+	return executor.Execute
 }

@@ -6,6 +6,7 @@ package join
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -105,7 +106,7 @@ func (q *TermsIncludingScoreQuery) Clone() search.Query {
 }
 
 // Equals implements search.Query.
-func (q *TermsIncludingScoreQuery) Equals(other search.Query) bool {
+func (q *TermsIncludingScoreQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*TermsIncludingScoreQuery)
 	if !ok {
 		return false
@@ -350,8 +351,8 @@ func (s *svInOrderScorer) Advance(target int) (int, error) {
 	s.currentDoc = doc
 	return doc, err
 }
-func (s *svInOrderScorer) Cost() int64      { return s.cost }
-func (s *svInOrderScorer) DocIDRunEnd() int { return s.currentDoc + 1 }
+func (s *svInOrderScorer) Cost() int64               { return s.cost }
+func (s *svInOrderScorer) DocIDRunEnd() (int, error) { return s.currentDoc + 1, nil }
 
 var _ search.Scorer = (*svInOrderScorer)(nil)
 
@@ -456,10 +457,24 @@ func (s *mvInOrderScorer) Advance(target int) (int, error) {
 	s.currentDoc = doc
 	return doc, err
 }
-func (s *mvInOrderScorer) Cost() int64      { return s.cost }
-func (s *mvInOrderScorer) DocIDRunEnd() int { return s.currentDoc + 1 }
+func (s *mvInOrderScorer) Cost() int64               { return s.cost }
+func (s *mvInOrderScorer) DocIDRunEnd() (int, error) { return s.currentDoc + 1, nil }
 
 var _ search.Scorer = (*mvInOrderScorer)(nil)
 
 // interface compliance
 var _ search.Query = (*TermsIncludingScoreQuery)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *svInOrderScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *mvInOrderScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

@@ -97,8 +97,8 @@ func (l *listDISI) Advance(target int) (int, error) {
 	}
 	return l.docID, nil
 }
-func (l *listDISI) Cost() int64      { return int64(len(l.docs)) }
-func (l *listDISI) DocIDRunEnd() int { return l.docID + 1 }
+func (l *listDISI) Cost() int64               { return int64(len(l.docs)) }
+func (l *listDISI) DocIDRunEnd() (int, error) { return l.docID + 1, nil }
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -261,4 +261,11 @@ func TestWrapNumericDocValues_EmptyChildren(t *testing.T) {
 	if doc != search.NO_MORE_DOCS {
 		t.Errorf("expected NO_MORE_DOCS for empty children, got %d", doc)
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (l *listDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(l, upTo, bitSet, offset)
 }

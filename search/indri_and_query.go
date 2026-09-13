@@ -21,6 +21,6 @@ func NewIndriAndQuery(clauses []*BooleanClause) *IndriAndQuery {
 // weight as a thin wrapper around a BooleanWeight-equivalent because the
 // full Indri scoring loop (with belief networks and smoothing scores) is
 // deferred to the Indri-specific scoring rewrite.
-func (q *IndriAndQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *IndriAndQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return NewIndriAndWeight(q, searcher, boost), nil
 }

@@ -15,37 +15,25 @@ package search
 
 import (
 	"fmt"
-	"io"
-	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // NO_MORE_DOCS is the sentinel value meaning the iterator has exhausted.
-const NO_MORE_DOCS = math.MaxInt32
+// DocIdSetIterator.NO_MORE_DOCS in Apache Lucene 10.5.0; it is the same
+// constant as util.NO_MORE_DOCS, which the canonical declaration carries.
+const NO_MORE_DOCS = util.NO_MORE_DOCS
 
-// DocIdSetIterator defines methods to iterate over a set of non-decreasing doc ids.
-type DocIdSetIterator interface {
-	// docID returns the current doc ID.
-	// -1 if not yet positioned, NO_MORE_DOCS if exhausted.
-	DocID() int
-
-	// NextDoc advances to the next document and returns its ID.
-	NextDoc() (int, error)
-
-	// Advance advances to the first document >= target.
-	Advance(target int) (int, error)
-
-	// Cost returns an estimated cost of this iterator.
-	Cost() int64
-
-	// IntoBitSet loads doc IDs into a FixedBitSet.
-	IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error
-
-	// DocIDRunEnd returns the end of the current run of consecutive doc IDs.
-	DocIDRunEnd() (int, error)
-}
+// DocIdSetIterator is org.apache.lucene.search.DocIdSetIterator (Apache Lucene
+// 10.5.0), under the package and name Lucene gives it.
+//
+// Gocene declares the type exactly once, in util, because util types that
+// Lucene also expresses in terms of it — BitSet.or(DocIdSetIterator) and
+// BitSet.of(DocIdSetIterator, int) — must refer to it, and util cannot import
+// search or spi without an import cycle. This alias is the same convention the
+// port already applies to SortField (declared in spi, aliased here) and to
+// LeafReaderContext (declared in spi, aliased in index).
+type DocIdSetIterator = util.DocIdSetIterator
 
 // AbstractDocIdSetIterator provides a base implementation that tracks the current doc ID.
 type AbstractDocIdSetIterator struct {
@@ -72,7 +60,7 @@ func NewRangeDocIdSetIterator(minDoc, maxDoc int) *RangeDocIdSetIterator {
 }
 
 func (r *RangeDocIdSetIterator) NextDoc() (int, error) {
-	return r.Advance(r.Doc + 1), nil
+	return r.Advance(r.Doc + 1)
 }
 
 func (r *RangeDocIdSetIterator) Advance(target int) (int, error) {
@@ -97,8 +85,10 @@ func (r *RangeDocIdSetIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, o
 			limit = r.maxDoc
 		}
 		if limit > r.Doc {
-			bitSet.Set(r.Doc-offset, limit-offset)
-			r.Advance(limit)
+			bitSet.SetRange(r.Doc-offset, limit-offset)
+			if _, err := r.Advance(limit); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -130,4 +120,37 @@ func Range(minDoc, maxDoc int) DocIdSetIterator {
 		panic(fmt.Sprintf("minDoc must be >= 0 but got minDoc=%d", minDoc))
 	}
 	return NewRangeDocIdSetIterator(minDoc, maxDoc)
+}
+
+// BaseDocIdSetIterator carries the concrete members of the abstract class
+// org.apache.lucene.search.DocIdSetIterator (Lucene 10.5.0) that do not
+// dispatch back to an abstract method: slowAdvance(int).
+//
+// intoBitSet(int, FixedBitSet, int) and docIDRunEnd() are concrete in Java too,
+// but their bodies call the abstract docID() and nextDoc(); they are therefore
+// rendered as the free functions DefaultIntoBitSet and DefaultDocIDRunEnd
+// below, which take the concrete iterator explicitly.
+//
+// Java's docID(), nextDoc(), advance(int) and cost() are abstract and are
+// therefore not provided here: the embedder must supply them.
+type BaseDocIdSetIterator struct{}
+
+// SlowAdvance mirrors the protected final helper
+// DocIdSetIterator.slowAdvance(int): it advances it by calling NextDoc until a
+// document at or beyond target is reached.
+func (b *BaseDocIdSetIterator) SlowAdvance(it DocIdSetIterator, target int) (int, error) {
+	return util.SlowAdvance(it, target)
+}
+
+// DefaultIntoBitSet is the body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+// The single body lives with the single declaration of the type, in util.
+func DefaultIntoBitSet(it DocIdSetIterator, upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DefaultDocIDRunEnd is the body of DocIdSetIterator.docIDRunEnd() in Apache
+// Lucene 10.5.0, which returns docID() + 1.
+func DefaultDocIDRunEnd(it DocIdSetIterator) (int, error) {
+	return util.DefaultDocIDRunEnd(it)
 }

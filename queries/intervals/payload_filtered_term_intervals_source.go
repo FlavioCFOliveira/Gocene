@@ -9,6 +9,7 @@ package intervals
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/util"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -78,14 +79,14 @@ type payloadFilteredIntervalIterator struct {
 	upto         int
 }
 
-func (t *payloadFilteredIntervalIterator) DocID() int        { return t.pe.DocID() }
-func (t *payloadFilteredIntervalIterator) DocIDRunEnd() int   { return t.DocID() + 1 }
-func (t *payloadFilteredIntervalIterator) Cost() int64       { return t.pe.Cost() }
-func (t *payloadFilteredIntervalIterator) MatchCost() float32 { return t.matchCostVal }
-func (t *payloadFilteredIntervalIterator) Start() int        { return t.pos }
-func (t *payloadFilteredIntervalIterator) End() int          { return t.pos }
-func (t *payloadFilteredIntervalIterator) Gaps() int         { return 0 }
-func (t *payloadFilteredIntervalIterator) Width() int        { return 1 }
+func (t *payloadFilteredIntervalIterator) DocID() int                { return t.pe.DocID() }
+func (t *payloadFilteredIntervalIterator) DocIDRunEnd() (int, error) { return t.DocID() + 1, nil }
+func (t *payloadFilteredIntervalIterator) Cost() int64               { return t.pe.Cost() }
+func (t *payloadFilteredIntervalIterator) MatchCost() float32        { return t.matchCostVal }
+func (t *payloadFilteredIntervalIterator) Start() int                { return t.pos }
+func (t *payloadFilteredIntervalIterator) End() int                  { return t.pos }
+func (t *payloadFilteredIntervalIterator) Gaps() int                 { return 0 }
+func (t *payloadFilteredIntervalIterator) Width() int                { return 1 }
 
 func (t *payloadFilteredIntervalIterator) NextDoc() (int, error) {
 	doc, err := t.pe.NextDoc()
@@ -234,8 +235,10 @@ func (m *payloadFilteredMatchesIterator) StartOffset() (int, error) {
 func (m *payloadFilteredMatchesIterator) EndOffset() (int, error) {
 	return m.pe.EndOffset()
 }
-func (m *payloadFilteredMatchesIterator) GetSubMatches() (search.MatchesIterator, error) { return nil, nil }
-func (m *payloadFilteredMatchesIterator) GetQuery() search.Query                          { panic("unsupported") }
+func (m *payloadFilteredMatchesIterator) GetSubMatches() (search.MatchesIterator, error) {
+	return nil, nil
+}
+func (m *payloadFilteredMatchesIterator) GetQuery() search.Query { panic("unsupported") }
 
 // Visit visits with the query visitor.
 func (s *PayloadFilteredTermIntervalsSource) Visit(field string, visitor search.QueryVisitor) {
@@ -272,4 +275,11 @@ func (s *PayloadFilteredTermIntervalsSource) HashCode() int {
 // String returns a string representation.
 func (s *PayloadFilteredTermIntervalsSource) String() string {
 	return "PAYLOAD_FILTERED(" + string(s.term) + ")"
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (t *payloadFilteredIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(t, upTo, bitSet, offset)
 }

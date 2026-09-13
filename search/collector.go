@@ -27,6 +27,17 @@ type Collector interface {
 	SetWeight(weight Weight)
 }
 
+// BaseCollector carries the default methods of the interface
+// org.apache.lucene.search.Collector (Lucene 10.5.0): setWeight(Weight).
+//
+// Java's getLeafCollector(LeafReaderContext) and scoreMode() have no default
+// body and are therefore not provided here: the embedder must supply them.
+type BaseCollector struct{}
+
+// SetWeight mirrors the default body of Collector.setWeight(Weight), which is
+// empty.
+func (c *BaseCollector) SetWeight(weight Weight) {}
+
 // FilterCollector is a Collector delegator.
 type FilterCollector struct {
 	In Collector
@@ -104,16 +115,26 @@ type SimpleCollector interface {
 }
 
 // BaseSimpleCollector provides a default implementation of SimpleCollector.
+//
+// Mirrors the abstract class org.apache.lucene.search.SimpleCollector, which
+// implements both Collector and LeafCollector and whose getLeafCollector
+// returns `this`. Go embedding cannot reach the embedder, so the concrete
+// collector registers itself in Outer, the idiom the package already uses for
+// Java's "return this" bases.
 type BaseSimpleCollector struct {
-	// Put fields if needed
+	// Outer is the concrete SimpleCollector that embeds this base. It renders
+	// Java's `this` in getLeafCollector.
+	Outer LeafCollector
 }
 
 // GetLeafCollector creates a new LeafCollector to collect the given context.
+//
+// Mirrors `public final LeafCollector getLeafCollector(LeafReaderContext)`.
 func (s *BaseSimpleCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
 	if err := s.DoSetNextReader(context); err != nil {
 		return nil, err
 	}
-	return s
+	return s.Outer, nil
 }
 
 // DoSetNextReader is called before collecting context.
@@ -133,8 +154,52 @@ func (s *BaseSimpleCollector) SetWeight(weight Weight) {
 
 // ScoreMode returns the score mode. BaseSimpleCollector defaults to ScoreMode_NONE.
 func (s *BaseSimpleCollector) ScoreMode() ScoreMode {
-	return ScoreMode_NONE
+	return COMPLETE_NO_SCORES
 }
 
 // Note: Collect(doc int) must be implemented by the actual collector.
 
+// BaseLeafCollector carries the default methods of the interface
+// org.apache.lucene.search.LeafCollector (Lucene 10.5.0): competitiveIterator()
+// and finish().
+//
+// Java's setScorer(Scorable) and collect(int) have no default body and are
+// therefore not provided here: the embedder must supply them.
+//
+// LeafCollector's other two defaults, collectRange(int, int) and
+// collect(DocIdStream), both dispatch back to the abstract collect(int), which
+// an embedded Go struct cannot reach; they are therefore rendered as the free
+// functions DefaultCollectRange and DefaultCollectStream below, which take the
+// concrete collector explicitly. This mirrors the idiom the port already uses
+// for such self-dispatching defaults (see DefaultNextDocsAndScores in
+// scorer.go). An implementation with a cheaper bulk path — as several Java ones
+// have — simply declares its own method instead of calling these.
+type BaseLeafCollector struct{}
+
+// NewBaseLeafCollector creates a BaseLeafCollector.
+func NewBaseLeafCollector() *BaseLeafCollector {
+	return &BaseLeafCollector{}
+}
+
+// CompetitiveIterator mirrors the default body of
+// LeafCollector.competitiveIterator(), which returns null.
+func (c *BaseLeafCollector) CompetitiveIterator() (DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish mirrors the default body of LeafCollector.finish(), which is empty.
+func (c *BaseLeafCollector) Finish() error {
+	return nil
+}
+
+// DefaultCollectRange is the body of LeafCollector.collectRange(int, int) in
+// Apache Lucene 10.5.0: collect(new RangeDocIdStream(min, max)).
+func DefaultCollectRange(lc LeafCollector, min, max int) error {
+	return lc.CollectStream(NewRangeDocIdStream(min, max))
+}
+
+// DefaultCollectStream is the body of LeafCollector.collect(DocIdStream) in
+// Apache Lucene 10.5.0: stream.forEach(this::collect).
+func DefaultCollectStream(lc LeafCollector, stream DocIdStream) error {
+	return stream.ForEach(lc.Collect)
+}

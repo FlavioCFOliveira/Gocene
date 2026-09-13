@@ -2,6 +2,7 @@ package join
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -83,7 +84,7 @@ func (q *ToParentBlockJoinQuery) Clone() search.Query {
 }
 
 // Equals checks if this query equals another.
-func (q *ToParentBlockJoinQuery) Equals(other search.Query) bool {
+func (q *ToParentBlockJoinQuery) Equals(other spi.Query) bool {
 	if o, ok := other.(*ToParentBlockJoinQuery); ok {
 		return q.childQuery.Equals(o.childQuery) &&
 			q.parentsFilter == o.parentsFilter &&

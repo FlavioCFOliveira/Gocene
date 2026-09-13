@@ -382,11 +382,18 @@ func (it *fixedBitSetDISI) Advance(target int) (int, error) {
 
 func (it *fixedBitSetDISI) Cost() int64 { return int64(it.bits.Cardinality()) }
 
-func (it *fixedBitSetDISI) DocIDRunEnd() int { return it.docID + 1 }
+func (it *fixedBitSetDISI) DocIDRunEnd() (int, error) { return it.docID + 1, nil }
 
 // interface compliance
 var (
 	_ search.NumericDocValuesSource = (*blockJoinNumericDVSource)(nil)
 	_ search.SortedDocValuesSource  = (*blockJoinSortedDVSource)(nil)
-	_ util.DocIdSetIterator       = (*fixedBitSetDISI)(nil)
+	_ util.DocIdSetIterator         = (*fixedBitSetDISI)(nil)
 )
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *fixedBitSetDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}

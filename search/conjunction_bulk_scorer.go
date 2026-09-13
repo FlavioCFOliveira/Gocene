@@ -61,7 +61,7 @@ func NewConjunctionBulkScorer(requiredScoring, requiredNoScoring []Scorer) (*Con
 
 	iterators := make([]DocIdSetIterator, numClauses)
 	for i, sc := range allScorers {
-		iterators[i] = sc // Scorer embeds DocIdSetIterator
+		iterators[i] = sc.Iterator()
 	}
 	sort.Slice(iterators, func(i, j int) bool {
 		return iterators[i].Cost() < iterators[j].Cost()
@@ -96,16 +96,20 @@ type conjunctionScorerAdapter struct {
 }
 
 // Score sums the scores of all scoring sub-scorers.
-func (a *conjunctionScorerAdapter) Score() float32 {
+func (a *conjunctionScorerAdapter) Score() (float32, error) {
 	var sum float64
 	for _, sc := range a.parent.scoringScorers {
-		sum += float64(sc.Score())
+		sc0, err := sc.Score()
+		if err != nil {
+			return 0, err
+		}
+		sum += float64(sc0)
 	}
-	return float32(sum)
+	return float32(sum), nil
 }
 
 // GetMaxScore returns 0; the adapter is not used for block-max pruning.
-func (a *conjunctionScorerAdapter) GetMaxScore(_ int) float32 { return 0 }
+func (a *conjunctionScorerAdapter) GetMaxScore(_ int) (float32, error) { return 0, nil }
 
 // Score scores documents in [min, max) that match every clause, applying the
 // acceptDocs filter (nil accepts all), and returns lead1's docID after the

@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 )
 
@@ -56,7 +57,7 @@ func (q *DisjunctionMaxQuery) ToString(field string) string {
 			sb.WriteString(bq.ToString(field))
 			sb.WriteString(")")
 		} else {
-			sb.WriteString(sub.ToString(field))
+			sb.WriteString(queryToString(sub, field))
 		}
 		if i < len(q.disjuncts)-1 {
 			sb.WriteString(" | ")
@@ -74,13 +75,13 @@ func (q *DisjunctionMaxQuery) ToString(field string) string {
 func (q *DisjunctionMaxQuery) Visit(visitor QueryVisitor) {
 	v := visitor.GetSubVisitor(SHOULD, q)
 	for _, sub := range q.disjuncts {
-		sub.Visit(v)
+		visitQuery(sub, v)
 	}
 }
 
 // Equals checks if this query equals another.
 // Mirrors DisjunctionMaxQuery.equals.
-func (q *DisjunctionMaxQuery) Equals(other Query) bool {
+func (q *DisjunctionMaxQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*DisjunctionMaxQuery)
 	if !ok {
 		return false
@@ -113,25 +114,25 @@ func (q *DisjunctionMaxQuery) HashCode() int {
 
 // Rewrite optimizes this query and its sub-queries.
 // Mirrors DisjunctionMaxQuery.rewrite.
-func (q *DisjunctionMaxQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *DisjunctionMaxQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	if len(q.disjuncts) == 0 {
-		return NewMatchNoDocsQueryWithReason("empty DisjunctionMaxQuery"), nil
+		return NewMatchNoDocsQuery("empty DisjunctionMaxQuery"), nil
 	}
 	if len(q.disjuncts) == 1 {
 		return q.disjuncts[0], nil
 	}
 	if q.tieBreakerMultiplier == 1.0 {
-		bq := NewBooleanQuery()
+		bq := NewBooleanQueryBuilder()
 		for _, sub := range q.disjuncts {
 			bq.Add(sub, SHOULD)
 		}
-		return bq, nil
+		return bq.Build(), nil
 	}
 
 	actuallyRewritten := false
 	rewrittenDisjuncts := make([]Query, 0, len(q.disjuncts))
 	for _, sub := range q.disjuncts {
-		rewrittenSub, err := sub.Rewrite(reader)
+		rewrittenSub, err := sub.Rewrite(searcher)
 		if err != nil {
 			return nil, err
 		}
@@ -148,7 +149,7 @@ func (q *DisjunctionMaxQuery) Rewrite(reader IndexReader) (Query, error) {
 	}
 
 	if len(rewrittenDisjuncts) == 0 {
-		return NewMatchNoDocsQueryWithReason("empty DisjunctionMaxQuery"), nil
+		return NewMatchNoDocsQuery("empty DisjunctionMaxQuery"), nil
 	}
 	if len(rewrittenDisjuncts) == 1 {
 		return rewrittenDisjuncts[0], nil
@@ -158,9 +159,9 @@ func (q *DisjunctionMaxQuery) Rewrite(reader IndexReader) (Query, error) {
 }
 
 // CreateWeight builds the Weight for this query.
-func (q *DisjunctionMaxQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *DisjunctionMaxQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	mode := COMPLETE
-	if !needsScores {
+	if !scoreMode.NeedsScores() {
 		mode = COMPLETE_NO_SCORES
 	}
 	return q.CreateWeightScoreMode(searcher, mode, boost)
@@ -170,9 +171,4 @@ func (q *DisjunctionMaxQuery) CreateWeight(searcher *IndexSearcher, needsScores 
 // ScoreMode down to each disjunct's weight.
 func (q *DisjunctionMaxQuery) CreateWeightScoreMode(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return NewDisjunctionMaxWeight(searcher, q, scoreMode, boost)
-}
-
-func isMatchNoDocs(q Query) bool {
-	_, ok := q.(*MatchNoDocsQuery)
-	return ok
 }

@@ -4,10 +4,6 @@
 
 package search
 
-import (
-	"io"
-)
-
 // PhraseMatcher is the base interface for exact and sloppy phrase matching.
 // Mirrors org.apache.lucene.search.PhraseMatcher.
 type PhraseMatcher interface {
@@ -15,7 +11,7 @@ type PhraseMatcher interface {
 	Approximation() DocIdSetIterator
 
 	// ImpactsApproximation returns an approximation that is aware of impacts.
-	ImpactsApproximation() ImpactsDISI
+	ImpactsApproximation() *ImpactsDISI
 
 	// MaxFreq returns an upper bound on the number of possible matches on this document.
 	MaxFreq() (float32, error)

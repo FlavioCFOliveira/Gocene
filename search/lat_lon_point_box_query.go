@@ -99,10 +99,10 @@ func NewLatLonPointBoxQuery(
 			return nil, err
 		}
 
-		bq := NewBooleanQuery()
+		bq := NewBooleanQueryBuilder()
 		bq.Add(left, SHOULD)
 		bq.Add(right, SHOULD)
-		return NewConstantScoreQuery(bq), nil
+		return NewConstantScoreQuery(bq.Build()), nil
 	}
 
 	return NewPointRangeQueryMultiDim(field, lower, upper, 2)

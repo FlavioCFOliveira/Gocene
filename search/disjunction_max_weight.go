@@ -65,7 +65,7 @@ func (w *DisjunctionMaxWeight) Matches(context *index.LeafReaderContext, doc int
 			mis = append(mis, mi)
 		}
 	}
-	return FromSubMatches(mis), nil
+	return MatchesUtils.FromSubMatches(mis), nil
 }
 
 // ScorerSupplier combines the non-nil sub-suppliers for the leaf. With zero it
@@ -175,7 +175,7 @@ func (w *DisjunctionMaxWeight) Explain(context *index.LeafReaderContext, doc int
 		score := float32(max + otherSum*float64(w.tieBreakerMultiplier))
 		desc := "max of:"
 		if w.tieBreakerMultiplier != 0 {
-			desc = "max plus " + formatFloat(w.tieBreakerMultiplier) + " times others of:"
+			desc = "max plus " + formatFloatGeneric(w.tieBreakerMultiplier) + " times others of:"
 		}
 		return MatchExplanationWithDetails(score, desc, subsOnMatch...), nil
 	}
@@ -220,13 +220,20 @@ func (s *disjunctionMaxScorerSupplier) Cost() int64 {
 // SetTopLevelScoringClause propagates the top-level marker to sub-suppliers
 // only when there is no tie-breaker, so they may prune via
 // setMinCompetitiveScore. Mirrors the inner supplier's override.
-func (s *disjunctionMaxScorerSupplier) SetTopLevelScoringClause() {
+func (s *disjunctionMaxScorerSupplier) SetTopLevelScoringClause() error {
 	if s.tieBreakerMultiplier == 0 {
 		for _, ss := range s.suppliers {
 			ss.SetTopLevelScoringClause()
 		}
 	}
+	return nil
 }
 
 // Ensure the weight satisfies the Weight contract.
 var _ Weight = (*DisjunctionMaxWeight)(nil)
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (d *disjunctionMaxScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(d)
+}

@@ -1,7 +1,11 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"math"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DrillDownQuery mirrors Lucene's org.apache.lucene.facet.DrillDownQuery.
@@ -16,10 +20,10 @@ func NewDrillDownQuery(query Query) *DrillDownQuery {
 }
 
 func (q *DrillDownQuery) ToString(field string) string {
-	return q.query.ToString(field)
+	return queryToString(q.query, field)
 }
 
-func (q *DrillDownQuery) Equals(other Query) bool {
+func (q *DrillDownQuery) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}
@@ -30,15 +34,21 @@ func (q *DrillDownQuery) Equals(other Query) bool {
 	return q.query == o.query
 }
 
+// Rewrite mirrors the default body of Query.rewrite(IndexSearcher) in Apache
+// Lucene 10.5.0, which returns this.
+func (q *DrillDownQuery) Rewrite(indexSearcher *IndexSearcher) (Query, error) {
+	return q, nil
+}
+
 func (q *DrillDownQuery) HashCode() int {
 	return 0
 }
 
 func (q *DrillDownQuery) Visit(visitor QueryVisitor) {
-	q.query.Visit(visitor)
+	visitQuery(q.query, visitor)
 }
 
-func (q *DrillDownQuery) CreateWeight(searcher IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+func (q *DrillDownQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	weight, err := q.query.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
@@ -49,6 +59,7 @@ func (q *DrillDownQuery) CreateWeight(searcher IndexSearcher, scoreMode ScoreMod
 }
 
 type drillDownWeight struct {
+	BaseWeight
 	weight Weight
 }
 
@@ -76,10 +87,10 @@ func NewDrillSidewaysQuery(query Query) *DrillSidewaysQuery {
 }
 
 func (q *DrillSidewaysQuery) ToString(field string) string {
-	return q.query.ToString(field)
+	return queryToString(q.query, field)
 }
 
-func (q *DrillSidewaysQuery) Equals(other Query) bool {
+func (q *DrillSidewaysQuery) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}
@@ -90,15 +101,21 @@ func (q *DrillSidewaysQuery) Equals(other Query) bool {
 	return q.query == o.query
 }
 
+// Rewrite mirrors the default body of Query.rewrite(IndexSearcher) in Apache
+// Lucene 10.5.0, which returns this.
+func (q *DrillSidewaysQuery) Rewrite(indexSearcher *IndexSearcher) (Query, error) {
+	return q, nil
+}
+
 func (q *DrillSidewaysQuery) HashCode() int {
 	return 0
 }
 
 func (q *DrillSidewaysQuery) Visit(visitor QueryVisitor) {
-	q.query.Visit(visitor)
+	visitQuery(q.query, visitor)
 }
 
-func (q *DrillSidewaysQuery) CreateWeight(searcher IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+func (q *DrillSidewaysQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	weight, err := q.query.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
@@ -109,6 +126,7 @@ func (q *DrillSidewaysQuery) CreateWeight(searcher IndexSearcher, scoreMode Scor
 }
 
 type drillSidewaysWeight struct {
+	BaseWeight
 	weight Weight
 }
 
@@ -122,7 +140,7 @@ func (w *drillSidewaysWeight) ScorerSupplier(context *index.LeafReaderContext) (
 		return supplier, err
 	}
 
-	scorer, err := supplier.GetScorer()
+	scorer, err := supplier.Get(math.MaxInt64)
 	if err != nil {
 		return nil, err
 	}
@@ -138,6 +156,7 @@ func (w *drillSidewaysWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 
 // DrillSidewaysScorer mirrors Lucene's org.apache.lucene.facet.DrillSidewaysScorer.
 type DrillSidewaysScorer struct {
+	BaseScorer
 	scorer Scorer
 }
 
@@ -157,7 +176,13 @@ func (s *DrillSidewaysScorer) Iterator() DocIdSetIterator {
 	return s.scorer.Iterator()
 }
 
-func (s *DrillSidewaysScorer) TwoPhaseIterator() TwoPhaseIterator {
+// TwoPhaseIterator returns the two-phase view of the wrapped Scorer.
+//
+// Apache Lucene 10.5.0 declares `public TwoPhaseIterator twoPhaseIterator()`
+// on Scorer (Scorer.java:58), returning a nullable reference; the Go rendering
+// of a nullable Java reference is the pointer type *TwoPhaseIterator, which is
+// what the Scorer interface requires.
+func (s *DrillSidewaysScorer) TwoPhaseIterator() *TwoPhaseIterator {
 	return s.scorer.TwoPhaseIterator()
 }
 

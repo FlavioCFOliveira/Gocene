@@ -7,6 +7,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
@@ -215,7 +216,7 @@ func (q *SpatialQuery) Visit(visitor QueryVisitor) {
 // rewritten query would lose its CreateWeight override and silently
 // match zero documents. Returning the *SpatialQuery receiver keeps the
 // concrete query type through the IndexSearcher rewrite step.
-func (q *SpatialQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
+func (q *SpatialQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // QueryIsCacheable forwards to the per-leaf hook (defaulting to
 // "true" when the hook is nil), mirroring Java's protected
@@ -240,9 +241,9 @@ func (q *SpatialQuery) QueryIsCacheable(ctx *index.LeafReaderContext) bool {
 // propagates that mode to the spatial scorers. Subclasses that
 // need the full ScoreMode enum can call CreateWeightWithScoreMode
 // directly.
-func (q *SpatialQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *SpatialQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	mode := COMPLETE_NO_SCORES
-	if needsScores {
+	if scoreMode.NeedsScores() {
 		mode = COMPLETE
 	}
 	return q.CreateWeightWithScoreMode(searcher, mode, boost), nil
@@ -350,7 +351,7 @@ func (q *SpatialQuery) getScorerSupplier(
 // Equals reports whether o is a SpatialQuery with the same field,
 // relation and geometry slice (element-wise).
 // Mirrors SpatialQuery.equalsTo on the Java reference.
-func (q *SpatialQuery) Equals(other Query) bool {
+func (q *SpatialQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*SpatialQuery)
 	if !ok {
 		return false

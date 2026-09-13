@@ -1,146 +1,237 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package search
 
+// Ported from Apache Lucene 10.5.0:
+//   lucene/core/src/java/org/apache/lucene/search/PhraseWeight.java
+
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
+// PhraseWeight is the expert Weight class for phrase matching.
+//
+// Mirrors the abstract class org.apache.lucene.search.PhraseWeight. Java
+// declares two abstract hooks, getStats(IndexSearcher) and
+// getPhraseMatcher(LeafReaderContext, SimScorer, boolean); Go has no abstract
+// methods, so the concrete subclass supplies them as function fields at
+// construction — exactly what the anonymous subclass in
+// PhraseQuery.createWeight does.
 type PhraseWeight struct {
 	BaseWeight
-	query      *PhraseQuery
-	searcher   *IndexSearcher
 	scoreMode  ScoreMode
+	stats      SimScorer
 	similarity Similarity
+	field      string
+
+	// getPhraseMatcher carries the abstract
+	// PhraseWeight.getPhraseMatcher(LeafReaderContext, SimScorer, boolean).
+	getPhraseMatcher func(context *index.LeafReaderContext, scorer SimScorer, exposeOffsets bool) (PhraseMatcher, error)
 }
 
-func NewPhraseWeight(query *PhraseQuery, searcher *IndexSearcher, scoreMode ScoreMode, boost float32) *PhraseWeight {
-	return &PhraseWeight{
-		BaseWeight: BaseWeight{query: query},
-		query:      query,
-		searcher:   searcher,
-		scoreMode:  scoreMode,
-		similarity: searcher.GetSimilarity(),
+// constantOneSimScorer is the anonymous Similarity.SimScorer whose
+// score(freq, norm) returns 1, installed by the PhraseWeight constructor when
+// getStats returns null (no terms, or scores are not needed).
+type constantOneSimScorer struct{}
+
+// Score104 mirrors the anonymous SimScorer.score(float, long), which returns 1.
+func (constantOneSimScorer) Score104(freq float32, norm int64) float32 { return 1 }
+
+// AsBulkSimScorer mirrors the concrete body of
+// Similarity.SimScorer.asBulkSimScorer(): new DefaultBulkSimScorer(this).
+func (c constantOneSimScorer) AsBulkSimScorer() BulkSimScorer {
+	return NewDefaultBulkSimScorer(c)
+}
+
+// Explain104 mirrors the concrete body of
+// Similarity.SimScorer.explain(Explanation, long).
+func (c constantOneSimScorer) Explain104(freq Explanation, norm int64) Explanation {
+	e := NewExplanation(true, c.Score104(freq.GetValue(), norm),
+		fmt.Sprintf("score(freq=%s), with freq of:", formatFloatGeneric(freq.GetValue())))
+	e.AddDetail(freq)
+	return e
+}
+
+// NewPhraseWeight creates a PhraseWeight instance.
+//
+// Mirrors PhraseWeight(Query, String, IndexSearcher, ScoreMode). getStats and
+// getPhraseMatcher stand in for the two abstract methods of the Java class.
+func NewPhraseWeight(
+	query Query,
+	field string,
+	searcher *IndexSearcher,
+	scoreMode ScoreMode,
+	getStats func(searcher *IndexSearcher) (SimScorer, error),
+	getPhraseMatcher func(context *index.LeafReaderContext, scorer SimScorer, exposeOffsets bool) (PhraseMatcher, error),
+) (*PhraseWeight, error) {
+	w := &PhraseWeight{
+		BaseWeight:       BaseWeight{query: query},
+		scoreMode:        scoreMode,
+		field:            field,
+		similarity:       searcher.GetSimilarity(),
+		getPhraseMatcher: getPhraseMatcher,
 	}
+	stats, err := getStats(searcher)
+	if err != nil {
+		return nil, err
+	}
+	if stats == nil { // Means no terms or scores are not needed
+		stats = constantOneSimScorer{}
+	}
+	w.stats = stats
+	return w, nil
 }
 
+// ScorerSupplier returns a supplier of the phrase scorer for the given leaf, or
+// nil when the leaf cannot match.
+//
+// Mirrors PhraseWeight.scorerSupplier(LeafReaderContext).
 func (w *PhraseWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
-	var suppliers []ScorerSupplier
-	for _, term := range w.query.terms {
-		_ = term
+	matcher, err := w.getPhraseMatcher(context, w.stats, false)
+	if err != nil {
+		return nil, err
 	}
-	
-	return &phraseScorerSupplier{
-		weight:  w,
-		context: context,
-	}, nil
-}
-
-type phraseScorerSupplier struct {
-	weight  *PhraseWeight
-	context *index.LeafReaderContext
-}
-
-func (s *phraseScorerSupplier) Get(weightIndex int) (Scorer, error) {
-	var scorers []Scorer
-	var postingsData []struct {
-		postings index.PostingsEnum
-		position index.PostingsEnum
-		terms    []byte
-		freq     int
+	if matcher == nil {
+		return nil, nil
 	}
-
-	for _, term := range s.weight.query.terms {
-		te := s.context.Reader().Terms(s.weight.query.field).Iterator()
-		te.SeekExact(term.Bytes(), nil)
-
-		scorer := NewTermScorer(te.Postings(nil, index.PostingsEnumFreqs), nil, nil, s.weight.scoreMode)
-		scorers = append(scorers, scorer)
-
-		postingsData = append(postingsData, struct {
-			postings index.PostingsEnum
-			position index.PostingsEnum
-			terms    []byte
-			freq     int
-		}{
-			postings: te.Postings(nil, index.PostingsEnumFreqs),
-			position: te.Postings(nil, index.PostingsEnumFreqs),
-			terms:    term.Bytes(),
-			freq:     0,
-		})
+	var norms index.NumericDocValues
+	if w.scoreMode.NeedsScores() {
+		norms, err = context.LeafReader().GetNormValues(w.field)
+		if err != nil {
+			return nil, err
+		}
 	}
-
-	matcher := NewSloppyPhraseMatcher(
-		postingsData,
-		s.weight.query.slop,
-		s.weight.scoreMode,
-		nil,
-		1.0,
-		true,
-	)
-
-	return &phraseScorer{
-		conjunction: NewConjunctionScorer(scorers, scorers),
-		matcher:     matcher,
-		query:       s.weight.query,
-		scoreMode:   s.weight.scoreMode,
-	}, nil
+	scorer := newPhraseScorer(matcher, w.scoreMode, w.stats, norms)
+	return NewDefaultScorerSupplier(scorer), nil
 }
 
-func (s *phraseScorerSupplier) GetMatchCost() float32 {
-	return 1.0
-}
-
-func (s *phraseScorerSupplier) GetDocCount() int {
-	return -1
-}
-
-type phraseScorer struct {
-	conjunction *ConjunctionScorer
-	matcher     PhraseMatcher
-	query       *PhraseQuery
-	scoreMode   ScoreMode
-}
-
-func (s *phraseScorer) NextDoc() (int, error) {
+// Explain produces an Explanation for the given document.
+//
+// Mirrors PhraseWeight.explain(LeafReaderContext, int).
+func (w *PhraseWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
+	matcher, err := w.getPhraseMatcher(context, w.stats, false)
+	if err != nil {
+		return nil, err
+	}
+	if matcher == nil {
+		return NoMatchExplanation("no matching terms"), nil
+	}
+	advanced, err := matcher.Approximation().Advance(doc)
+	if err != nil {
+		return nil, err
+	}
+	if advanced != doc {
+		return NoMatchExplanation("no matching terms"), nil
+	}
+	if err := matcher.ResetPositions(); err != nil {
+		return nil, err
+	}
+	matched, err := matcher.NextMatch()
+	if err != nil {
+		return nil, err
+	}
+	if !matched {
+		return NoMatchExplanation("no matching phrase"), nil
+	}
+	freq := matcher.SloppyWeight()
 	for {
-		doc, err := s.conjunction.NextDoc()
-		if err != nil || doc == NO_MORE_DOCS {
-			return NO_MORE_DOCS, err
+		more, err := matcher.NextMatch()
+		if err != nil {
+			return nil, err
 		}
-		s.matcher.ResetPositions()
-		if s.matcher.NextMatch() {
-			return doc, nil
+		if !more {
+			break
+		}
+		freq += matcher.SloppyWeight()
+	}
+	freqExplanation := MatchExplanation(freq, fmt.Sprintf("phraseFreq=%s", formatFloatGeneric(freq)))
+	var norms index.NumericDocValues
+	if w.scoreMode.NeedsScores() {
+		norms, err = context.LeafReader().GetNormValues(w.field)
+		if err != nil {
+			return nil, err
 		}
 	}
+	var norm int64 = 1
+	if norms != nil {
+		ok, err := norms.AdvanceExact(doc)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			norm, err = norms.LongValue()
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	scoreExplanation := w.stats.Explain104(freqExplanation, norm)
+	return MatchExplanationWithDetails(
+		scoreExplanation.GetValue(),
+		fmt.Sprintf("weight(%s in %d) [%s], result of:",
+			queryToString(w.BaseWeight.GetQuery(), ""), doc, w.similarityName()),
+		scoreExplanation), nil
 }
 
-func (s *phraseScorer) verifyPositions(doc int) bool {
+// similarityName returns the descriptive name of the similarity backing this
+// weight for use in explanations. It stands in for Java's
+// similarity.getClass().getSimpleName().
+func (w *PhraseWeight) similarityName() string {
+	if w.similarity == nil {
+		return "Similarity"
+	}
+	if s, ok := w.similarity.(interface{ String() string }); ok {
+		return s.String()
+	}
+	return "Similarity"
+}
+
+// IsCacheable mirrors PhraseWeight.isCacheable(LeafReaderContext), whose body
+// is `return true`.
+func (w *PhraseWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 	return true
 }
 
-func (s *phraseScorer) Score() float32 {
-	return s.conjunction.Score()
-}
+var _ Weight = (*PhraseWeight)(nil)
 
-func (s *phraseScorer) DocID() int {
-	return s.conjunction.DocID()
-}
+// ---------------------------------------------------------------------------
+// postingsAdvanceTo — sequential advance for PostingsEnums without Advance()
+// ---------------------------------------------------------------------------
 
-func (s *phraseScorer) Iterator() DocIdSetIterator {
-	return s.conjunction.Iterator()
-}
-
-func (s *phraseScorer) Advance(target int) (int, error) {
+// postingsAdvanceTo advances pe to the first document with doc ID >= target
+// using NextDoc() calls.  This is necessary because FreqProxPostingsEnum
+// does not implement Advance(); it can only be scanned forward sequentially.
+//
+// Returns the doc ID, or index.NO_MORE_DOCS once the enum is exhausted.
+//
+// PORT NOTE. This helper has no counterpart in PhraseWeight.java; it is a
+// Gocene-only utility consumed by spans.go and synonym_scorer.go, and it lives
+// here only because that is where it was first written.
+func postingsAdvanceTo(pe index.PostingsEnum, target int) (int, error) {
+	current := pe.DocID()
+	if current >= target {
+		// Already past or at target; return current position.
+		return current, nil
+	}
 	for {
-		doc, err := s.conjunction.Advance(target)
-		if err != nil || doc == NO_MORE_DOCS {
-			return NO_MORE_DOCS, err
+		doc, err := pe.NextDoc()
+		if err != nil {
+			return index.NO_MORE_DOCS, err
 		}
-		s.matcher.ResetPositions()
-		if s.matcher.NextMatch() {
+		if doc >= target || doc == index.NO_MORE_DOCS {
 			return doc, nil
 		}
-		target = doc + 1
 	}
 }
 
-var _ Weight = (*PhraseWeight)(nil)
+// phraseFreqScorer is implemented by phrase scorers that expose their cached
+// per-document phrase frequency for explanation purposes.
+//
+// PORT NOTE. Gocene-only interface, with no counterpart in PhraseWeight.java.
+type phraseFreqScorer interface {
+	PhraseFreq() float32
+}

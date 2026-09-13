@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
@@ -40,7 +41,7 @@ func NewRescoreTopNQuery(query Query, valuesSource DoubleValuesSource, n int) *R
 // Rewrite implements the rewrite method.
 func (q *RescoreTopNQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	rewrittenValueSource := q.valuesSource.Rewrite(searcher)
-	reader := searcher.IndexReader()
+	reader := searcher.GetIndexReader()
 	rewritten, err := searcher.Rewrite(q.query)
 	if err != nil {
 		return nil, err
@@ -52,7 +53,11 @@ func (q *RescoreTopNQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 
 	queue := NewHitQueue(q.n, false)
 	originalCount := 0
-	for _, leaf := range reader.Leaves() {
+	leaves, err := reader.Leaves()
+	if err != nil {
+		return nil, err
+	}
+	for _, leaf := range leaves {
 		scorer, err := weight.Scorer(leaf)
 		if err != nil || scorer == nil {
 			continue
@@ -81,7 +86,9 @@ func (q *RescoreTopNQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 				}
 			}
 
-			queue.InsertWithOverflow(NewScoreDoc(leaf.DocBase()+docID, float32(val)))
+			// Java calls the two-argument ScoreDoc(int, float), which delegates
+			// to ScoreDoc(doc, score, -1).
+			queue.InsertWithOverflow(NewScoreDoc(leaf.DocBase+docID, float32(val), -1))
 			originalCount++
 		}
 	}
@@ -97,20 +104,8 @@ func (q *RescoreTopNQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 		scoreDocs[i], scoreDocs[j] = scoreDocs[j], scoreDocs[i]
 	}
 
-	docIDs := make([]int, len(scoreDocs))
-	scores := make([]float32, len(scoreDocs))
-	for i, sd := range scoreDocs {
-		docIDs[i] = sd.Doc
-		scores[i] = sd.Score
-	}
-
-	leafBases := make([]int, len(reader.Leaves()))
-	for i, leaf := range reader.Leaves() {
-		leafBases[i] = leaf.DocBase()
-	}
-	starts := findSegmentStarts(leafBases, docIDs)
-
-	return NewDocAndScoreQueryWithSegmentStarts(docIDs, scores, starts), nil
+	topDocs := NewTopDocs(NewTotalHits(int64(originalCount), EQUAL_TO), scoreDocs)
+	return CreateDocAndScoreQuery(reader, topDocs), nil
 }
 
 func (q *RescoreTopNQuery) getDoubleValues(innerScorer Scorer) DoubleValues {
@@ -125,7 +120,11 @@ type scorerDoubleValues struct {
 }
 
 func (v *scorerDoubleValues) DoubleValue() (float64, error) {
-	return float64(v.scorer.Score()), nil
+	sc0, err := v.scorer.Score()
+	if err != nil {
+		return 0, err
+	}
+	return float64(sc0), nil
 }
 
 func (v *scorerDoubleValues) AdvanceExact(doc int) (bool, error) {
@@ -141,7 +140,7 @@ func (q *RescoreTopNQuery) HashCode() int {
 }
 
 // Equals checks structural equality.
-func (q *RescoreTopNQuery) Equals(other Query) bool {
+func (q *RescoreTopNQuery) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}
@@ -155,14 +154,14 @@ func (q *RescoreTopNQuery) Equals(other Query) bool {
 // String returns a debug representation.
 func (q *RescoreTopNQuery) String() string {
 	return fmt.Sprintf("RescoreTopNQuery:%s:%v[%d]",
-		q.query.String(),
+		queryToString(q.query, ""),
 		q.valuesSource,
 		q.n)
 }
 
 // Visit implements the visitor pattern.
 func (q *RescoreTopNQuery) Visit(visitor QueryVisitor) {
-	q.query.Visit(visitor)
+	visitQuery(q.query, visitor)
 }
 
 // CreateFullPrecisionRescorerQuery creates a new RescoreTopNQuery which uses full-precision vectors for
@@ -179,5 +178,5 @@ func CreateLateInteractionQuery(in Query, n int, fieldName string, queryVector [
 	if err != nil {
 		panic(err)
 	}
-	return NewRescoreTopNQuery(in, valSource.(DoubleValuesSource), n)
+	return NewRescoreTopNQuery(in, valSource, n)
 }

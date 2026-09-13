@@ -4,6 +4,10 @@
 
 package search
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 // MultiTermQueryConstantScoreWrapper wraps a MultiTermQuery with constant score.
 // This is the Go port of Lucene's org.apache.lucene.search.MultiTermQueryConstantScoreWrapper.
 type MultiTermQueryConstantScoreWrapper struct {
@@ -36,11 +40,11 @@ func (w *MultiTermQueryConstantScoreWrapper) GetField() string {
 // concrete TermQuery / BooleanQuery / ... structure that matches the
 // indexed terms) and then wrapped in a ConstantScoreQuery so that all
 // matching documents receive an identical score equal to the query boost.
-func (w *MultiTermQueryConstantScoreWrapper) Rewrite(reader IndexReader) (Query, error) {
+func (w *MultiTermQueryConstantScoreWrapper) Rewrite(searcher *IndexSearcher) (Query, error) {
 	if w.query == nil {
 		return nil, nil
 	}
-	inner, err := w.query.Rewrite(reader)
+	inner, err := w.query.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
@@ -54,17 +58,19 @@ func (w *MultiTermQueryConstantScoreWrapper) Rewrite(reader IndexReader) (Query,
 }
 
 // CreateWeight creates a Weight for this query.
-func (w *MultiTermQueryConstantScoreWrapper) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewSpanWeight(w, nil), nil
-}
-
-// Clone creates a copy of this query.
-func (w *MultiTermQueryConstantScoreWrapper) Clone() Query {
-	return NewMultiTermQueryConstantScoreWrapper(w.query)
+//
+// Mirrors MultiTermQueryConstantScoreWrapper.createWeight(IndexSearcher,
+// ScoreMode, float) of Apache Lucene 10.5.0, which returns
+// `new RewritingWeight(query, boost, scoreMode, searcher) { ... }`.
+// RewritingWeight extends ConstantScoreWeight and is constructed with the
+// boost as its constant score, so the Weight handed back here is a
+// ConstantScoreWeight over this query.
+func (w *MultiTermQueryConstantScoreWrapper) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return NewConstantScoreWeight(w, boost, nil, nil), nil
 }
 
 // Equals checks if this query equals another.
-func (w *MultiTermQueryConstantScoreWrapper) Equals(other Query) bool {
+func (w *MultiTermQueryConstantScoreWrapper) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}
@@ -79,9 +85,16 @@ func (w *MultiTermQueryConstantScoreWrapper) HashCode() int {
 	return w.query.HashCode()
 }
 
-// String returns a string representation of the query.
+// String mirrors AbstractMultiTermQueryConstantScoreWrapper.toString, whose
+// body is `return "ConstantScore(" + query.toString(field) + ")";`.
+//
+// Java reaches the concrete MultiTermQuery subclass through the abstract
+// Query.toString(String) declaration. Gocene's Query interface does not carry
+// that member (see the note in query.go), so the call is routed through
+// queryToString, which dispatches on whatever rendering the concrete query
+// actually declares.
 func (w *MultiTermQueryConstantScoreWrapper) String(field string) string {
-	return "ConstantScore(" + w.query.String(field) + ")"
+	return "ConstantScore(" + queryToString(w.query, field) + ")"
 }
 
 // Ensure MultiTermQueryConstantScoreWrapper implements Query

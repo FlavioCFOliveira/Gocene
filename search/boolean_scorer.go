@@ -22,32 +22,16 @@ type bucket struct {
 	freq  int
 }
 
-type disiWrapper struct {
-	scorer   Scorer
-	iterator util.DocIdSetIterator
-	doc      int
-	cost     int64
-}
-
-func newDisiWrapper(scorer Scorer) *disiWrapper {
-	return &disiWrapper{
-		scorer:   scorer,
-		iterator: scorer.Iterator(),
-		doc:      scorer.DocID(),
-		cost:     scorer.Iterator().Cost(),
-	}
-}
-
 type BooleanScorer struct {
-	buckets    []bucket
-	matching   *util.FixedBitSet
-	leads      []*disiWrapper
-	head       *util.PriorityQueue[*disiWrapper]
-	tail       *util.PriorityQueue[*disiWrapper]
-	score      *SimpleScorable
-	minShouldMatch int
-	cost       int64
-	needsScores    bool
+	buckets           []bucket
+	matching          *util.FixedBitSet
+	leads             []*DisiWrapper
+	head              *util.PriorityQueue[*DisiWrapper]
+	tail              *util.PriorityQueue[*DisiWrapper]
+	score             *SimpleScorable
+	minShouldMatch    int
+	cost              int64
+	needsScores       bool
 	docAndScoreBuffer *DocAndFloatFeatureBuffer
 }
 
@@ -66,17 +50,17 @@ func NewBooleanScorer(scorers []Scorer, minShouldMatch int, needsScores bool) (*
 		buckets = make([]bucket, booleanScorerSize)
 	}
 
-	leads := make([]*disiWrapper, len(scorers))
-	head, _ := util.NewPriorityQueue(len(scorers)-minShouldMatch+1, func(a, b *disiWrapper) bool {
+	leads := make([]*DisiWrapper, len(scorers))
+	head, _ := util.NewPriorityQueue(len(scorers)-minShouldMatch+1, func(a, b *DisiWrapper) bool {
 		return a.doc < b.doc
 	})
-	tail, _ := util.NewPriorityQueue(minShouldMatch-1, func(a, b *disiWrapper) bool {
+	tail, _ := util.NewPriorityQueue(minShouldMatch-1, func(a, b *DisiWrapper) bool {
 		return a.cost < b.cost
 	})
 
 	costs := make([]int64, 0, len(scorers))
 	for _, s := range scorers {
-		w := newDisiWrapper(s)
+		w := NewDisiWrapper(s, false)
 		costs = append(costs, w.cost)
 		if evicted, overflow := tail.InsertWithOverflow(w); overflow {
 			if evicted != nil {
@@ -86,19 +70,19 @@ func NewBooleanScorer(scorers []Scorer, minShouldMatch int, needsScores bool) (*
 	}
 
 	return &BooleanScorer{
-		buckets:           buckets,
-		matching:          func() *util.FixedBitSet {
+		buckets: buckets,
+		matching: func() *util.FixedBitSet {
 			fs, _ := util.NewFixedBitSet(booleanScorerSize)
 			return fs
 		}(),
 		leads:             leads,
-		head:               head,
-		tail:               tail,
-		score:              &SimpleScorable{},
-		minShouldMatch:     minShouldMatch,
-		cost:               CostWithMinShouldMatch(costs, len(scorers), minShouldMatch),
-		needsScores:        needsScores,
-		docAndScoreBuffer:  NewDocAndFloatFeatureBuffer(),
+		head:              head,
+		tail:              tail,
+		score:             &SimpleScorable{},
+		minShouldMatch:    minShouldMatch,
+		cost:              CostWithMinShouldMatch(costs, len(scorers), minShouldMatch),
+		needsScores:       needsScores,
+		docAndScoreBuffer: NewDocAndFloatFeatureBuffer(),
 	}, nil
 }
 
@@ -106,7 +90,14 @@ func (bs *BooleanScorer) Cost() int64 {
 	return bs.cost
 }
 
-func (bs *BooleanScorer) score(collector LeafCollector, acceptDocs util.Bits, min, max int) (int, error) {
+// Score mirrors BooleanScorer.score(LeafCollector, Bits, int, int), the
+// BulkScorer override.
+//
+// Java names this method score and also declares a field
+// `final SimpleScorable score`; Go has no separate method and field
+// namespaces, so the BulkScorer member carries the exported Go spelling
+// (Score) that the interface requires, while the field keeps Lucene's name.
+func (bs *BooleanScorer) Score(collector LeafCollector, acceptDocs util.Bits, min, max int) (int, error) {
 	collector.SetScorer(bs.score)
 
 	top := bs.advance(min)
@@ -121,7 +112,7 @@ func (bs *BooleanScorer) score(collector LeafCollector, acceptDocs util.Bits, mi
 	return top.doc, nil
 }
 
-func (bs *BooleanScorer) advance(min int) *disiWrapper {
+func (bs *BooleanScorer) advance(min int) *DisiWrapper {
 	headTop := bs.head.Top()
 	tailTop := bs.tail.Top()
 	for headTop.doc < min {
@@ -149,7 +140,7 @@ func (bs *BooleanScorer) safeAdvance(it util.DocIdSetIterator, target int) int {
 	return doc
 }
 
-func (bs *BooleanScorer) scoreWindow(top *disiWrapper, collector LeafCollector, acceptDocs util.Bits, min, max int) (*disiWrapper, error) {
+func (bs *BooleanScorer) scoreWindow(top *DisiWrapper, collector LeafCollector, acceptDocs util.Bits, min, max int) (*DisiWrapper, error) {
 	windowBase := top.doc & ^booleanScorerMask
 	windowMin := min
 	if windowBase > min {
@@ -183,7 +174,7 @@ func (bs *BooleanScorer) scoreWindow(top *disiWrapper, collector LeafCollector, 
 	return bs.head.Top(), nil
 }
 
-func (bs *BooleanScorer) scoreWindowSingleScorer(w *disiWrapper, collector LeafCollector, acceptDocs util.Bits, windowMin, windowMax, max int) error {
+func (bs *BooleanScorer) scoreWindowSingleScorer(w *DisiWrapper, collector LeafCollector, acceptDocs util.Bits, windowMin, windowMax, max int) error {
 	nextWindowBase := bs.head.Top().doc & ^booleanScorerMask
 	end := windowMax
 	if max < end {
@@ -265,7 +256,7 @@ func (bs *BooleanScorer) scoreWindowMultipleScorers(collector LeafCollector, acc
 	return nil
 }
 
-func (bs *BooleanScorer) scoreWindowIntoBitSetAndReplay(collector LeafCollector, acceptDocs util.Bits, base, min, max int, scorers []*disiWrapper, numScorers int) error {
+func (bs *BooleanScorer) scoreWindowIntoBitSetAndReplay(collector LeafCollector, acceptDocs util.Bits, base, min, max int, scorers []*DisiWrapper, numScorers int) error {
 	for i := 0; i < numScorers; i++ {
 		w := scorers[i]
 		it := w.iterator

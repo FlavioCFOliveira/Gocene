@@ -4,22 +4,16 @@
 
 package search
 
-// VectorSimilarityFunction is the structural placeholder for the canonical
-// per-vector similarity used across multi-vector comparisons.
-type VectorSimilarityFunction interface {
-	// Compare returns the similarity score between two vectors of equal
-	// dimension.
-	Compare(a, b []float32) float32
-}
+import "github.com/FlavioCFOliveira/Gocene/index"
 
 // MultiVectorSimilarity computes similarity between two multi-vectors using a
-// per-vector VectorSimilarityFunction. Each multi-vector is a list of token
+// per-vector index.VectorSimilarityFunction. Each multi-vector is a list of token
 // vectors of the same dimension; the two multi-vectors may differ in token
 // count.
 //
 // Mirrors org.apache.lucene.search.MultiVectorSimilarity.
 type MultiVectorSimilarity interface {
-	Compare(a, b [][]float32, sim VectorSimilarityFunction) float32
+	Compare(a, b [][]float32, sim index.VectorSimilarityFunction) float32
 }
 
 // SumMaxSimilarity is the canonical MultiVectorSimilarity that returns, for
@@ -28,13 +22,13 @@ type MultiVectorSimilarity interface {
 type SumMaxSimilarity struct{}
 
 // Compare implements MultiVectorSimilarity for SumMaxSimilarity.
-func (SumMaxSimilarity) Compare(a, b [][]float32, sim VectorSimilarityFunction) float32 {
+func (SumMaxSimilarity) Compare(a, b [][]float32, sim index.VectorSimilarityFunction) float32 {
 	total := float32(0)
 	for _, q := range a {
 		var best float32 = -1
 		first := true
 		for _, d := range b {
-			s := sim.Compare(q, d)
+			s := sim.CompareFloat(q, d)
 			if first || s > best {
 				best = s
 				first = false

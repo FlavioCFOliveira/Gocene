@@ -6,6 +6,8 @@ package function
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -80,7 +82,7 @@ func (q *FunctionMatchQuery) Clone() search.Query {
 // closures and the comparison conservatively returns false (matching
 // Java's reference-equality semantics for arbitrary DoublePredicate
 // instances).
-func (q *FunctionMatchQuery) Equals(other search.Query) bool {
+func (q *FunctionMatchQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*FunctionMatchQuery)
 	if !ok || o == nil {
 		return false
@@ -234,10 +236,10 @@ func (s *functionMatchScorer) Advance(target int) (int, error) {
 	return s.NextDoc()
 }
 
-func (s *functionMatchScorer) Cost() int64             { return s.cost }
-func (s *functionMatchScorer) DocIDRunEnd() int        { return s.doc + 1 }
-func (s *functionMatchScorer) Score() float32          { return s.boost }
-func (s *functionMatchScorer) GetMaxScore(int) float32 { return s.boost }
+func (s *functionMatchScorer) Cost() int64               { return s.cost }
+func (s *functionMatchScorer) DocIDRunEnd() (int, error) { return s.doc + 1, nil }
+func (s *functionMatchScorer) Score() float32            { return s.boost }
+func (s *functionMatchScorer) GetMaxScore(int) float32   { return s.boost }
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
@@ -263,3 +265,10 @@ var (
 	_ search.Weight = (*functionMatchWeight)(nil)
 	_ search.Scorer = (*functionMatchScorer)(nil)
 )
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *functionMatchScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

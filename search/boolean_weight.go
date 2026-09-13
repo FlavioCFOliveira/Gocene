@@ -30,15 +30,15 @@ type BooleanWeight struct {
 func NewBooleanWeight(query *BooleanQuery, searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (*BooleanWeight, error) {
 	bw := &BooleanWeight{
 		BaseWeight: BaseWeight{query: query},
-		query:       query,
-		scoreMode:   scoreMode,
-		similarity:  searcher.GetSimilarity(),
+		query:      query,
+		scoreMode:  scoreMode,
+		similarity: searcher.GetSimilarity(),
 	}
 
 	for _, c := range query.Clauses() {
 		mode := scoreMode
 		if !c.IsScoring() {
-			mode = CompleteNoScores
+			mode = COMPLETE_NO_SCORES
 		}
 		w, err := c.Query().CreateWeight(searcher, mode, boost)
 		if err != nil {
@@ -80,7 +80,7 @@ func (bw *BooleanWeight) Explain(ctx *index.LeafReaderContext, doc int) (Explana
 				))
 			} else if c.IsProhibited() {
 				subs = append(subs, NoMatchExplanationWithDetails(
-					fmt.Sprintf("match on prohibited clause (%s)", c.Query().ToString("")),
+					fmt.Sprintf("match on prohibited clause (%s)", queryToString(c.Query(), "")),
 					e,
 				))
 				fail = true
@@ -93,13 +93,13 @@ func (bw *BooleanWeight) Explain(ctx *index.LeafReaderContext, doc int) (Explana
 			}
 		} else if c.IsRequired() {
 			subs = append(subs, NoMatchExplanationWithDetails(
-				fmt.Sprintf("no match on required clause (%s)", c.Query().ToString("")),
+				fmt.Sprintf("no match on required clause (%s)", queryToString(c.Query(), "")),
 				e,
 			))
 			fail = true
 		} else if c.Occur() == SHOULD {
 			failingOptionals = append(failingOptionals, NoMatchExplanationWithDetails(
-				fmt.Sprintf("no match on optional clause (%s)", c.Query().ToString("")),
+				fmt.Sprintf("no match on optional clause (%s)", queryToString(c.Query(), "")),
 				e,
 			))
 		}
@@ -132,7 +132,11 @@ func (bw *BooleanWeight) Explain(ctx *index.LeafReaderContext, doc int) (Explana
 		if advanced != doc {
 			return NoMatchExplanation("doc not matched by scorer"), nil
 		}
-		return MatchExplanationWithDetails(scorer.Score(), "sum of:", subs...), nil
+		sc0, err := scorer.Score()
+		if err != nil {
+			return nil, err
+		}
+		return MatchExplanationWithDetails(sc0, "sum of:", subs...), nil
 	}
 }
 
@@ -282,7 +286,9 @@ func (bw *BooleanWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 		// Note: Weight interface doesn't have IsCacheable.
 		// In Lucene, Weight is a class with this method.
 		// We need to check if the concrete weight implements it.
-		if cacheable, ok := wc.weight.(interface{ IsCacheable(*index.LeafReaderContext) bool }); ok {
+		if cacheable, ok := wc.weight.(interface {
+			IsCacheable(*index.LeafReaderContext) bool
+		}); ok {
 			if !cacheable.IsCacheable(ctx) {
 				return false
 			}
@@ -333,7 +339,7 @@ func (bw *BooleanWeight) ScorerSupplier(ctx *index.LeafReaderContext) (ScorerSup
 
 	if bw.scoreMode.NeedsScores() == false &&
 		minShouldMatch == 0 &&
-		(len(scorers[MUST]) + len(scorers[FILTER]) > 0) {
+		(len(scorers[MUST])+len(scorers[FILTER]) > 0) {
 		scorers[SHOULD] = []ScorerSupplier{}
 	}
 

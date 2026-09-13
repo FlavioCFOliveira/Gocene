@@ -9,6 +9,7 @@ package spans
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ConjunctionSpans is the common base for span iterators that require multiple
@@ -18,8 +19,8 @@ import (
 //
 // Deviations from Java:
 //   - Java's abstract class uses ConjunctionUtils.createConjunction to build the
-//     conjunction DISI.  Gocene uses search.CreateConjunctionFromLists and
-//     search.AddIteratorToConjunctionLists / AddTwoPhaseIteratorToConjunctionLists.
+//     conjunction DISI.  Gocene uses search.CreateConjunction and
+//     search.AddIterator / search.AddTwoPhaseIterator.
 //   - TwoPhaseCurrentDocMatches is a function field instead of an abstract method.
 type ConjunctionSpans struct {
 	BaseSpans
@@ -59,14 +60,14 @@ func NewConjunctionSpans(subSpans []Spans, matchFn func() (bool, error)) (*Conju
 	for _, s := range subSpans {
 		tpi := s.AsTwoPhaseIterator()
 		if tpi != nil {
-			search.AddTwoPhaseIteratorToConjunctionLists(tpi, &allIters, &twoPhaseIters)
+			search.AddTwoPhaseIterator(tpi, &allIters, &twoPhaseIters)
 			totalMatchCost += tpi.MatchCost()
 		} else {
-			search.AddIteratorToConjunctionLists(s, &allIters, &twoPhaseIters)
+			search.AddIterator(s, &allIters, &twoPhaseIters)
 			totalMatchCost += s.PositionsCost()
 		}
 	}
-	conjunction := search.CreateConjunctionFromLists(allIters, twoPhaseIters)
+	conjunction := search.CreateConjunction(allIters, twoPhaseIters)
 
 	cs := &ConjunctionSpans{
 		SubSpans:            make([]Spans, len(subSpans)),
@@ -120,7 +121,7 @@ func (cs *ConjunctionSpans) DocID() int { return cs.Conjunction.DocID() }
 func (cs *ConjunctionSpans) Cost() int64 { return cs.Conjunction.Cost() }
 
 // DocIDRunEnd returns the conservative upper bound for the current run.
-func (cs *ConjunctionSpans) DocIDRunEnd() int { return cs.DocID() + 1 }
+func (cs *ConjunctionSpans) DocIDRunEnd() (int, error) { return cs.DocID() + 1, nil }
 
 // NextDoc advances to the next matching document.
 func (cs *ConjunctionSpans) NextDoc() (int, error) {
@@ -185,3 +186,10 @@ func (cs *ConjunctionSpans) PositionsCost() float32 {
 
 // GetSubSpans returns the sub-span array.
 func (cs *ConjunctionSpans) GetSubSpans() []Spans { return cs.SubSpans }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (cs *ConjunctionSpans) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(cs, upTo, bitSet, offset)
+}

@@ -16,6 +16,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"strings"
 
@@ -148,20 +149,13 @@ func (q *latLonPointDistanceQuery) Visit(visitor QueryVisitor) {
 
 // Rewrite returns the query unchanged. The Java reference inherits
 // the no-op rewrite from Query.
-func (q *latLonPointDistanceQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
-
-// Clone returns a shallow copy. The query holds only value-type
-// fields, so a structural copy is safe.
-func (q *latLonPointDistanceQuery) Clone() Query {
-	c := *q
-	return &c
-}
+func (q *latLonPointDistanceQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // Equals mirrors the Java reference: two queries are equal iff they
 // share the same concrete type, field, and (latitude, longitude,
 // radiusMeters) triple compared by IEEE-754 long bits (so NaN ==
 // NaN and +0 != -0, matching Double.doubleToLongBits).
-func (q *latLonPointDistanceQuery) Equals(other Query) bool {
+func (q *latLonPointDistanceQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*latLonPointDistanceQuery)
 	if !ok {
 		return false
@@ -232,7 +226,7 @@ func (q *latLonPointDistanceQuery) toString(field string) string {
 // when the field is unknown to the leaf, matching Lucene's null-
 // Scorer fast path.
 func (q *latLonPointDistanceQuery) CreateWeight(
-	_ *IndexSearcher, _ bool, boost float32,
+	_ *IndexSearcher, _ ScoreMode, boost float32,
 ) (Weight, error) {
 	box, err := geo.FromPointDistance(q.latitude, q.longitude, q.radiusMeters)
 	if err != nil {
@@ -606,20 +600,19 @@ func (s *latLonPointDistanceScorerSupplier) Get(_ int64) (Scorer, error) {
 	}
 	var disi DocIdSetIterator
 	if set == nil {
-		disi = NewEmptyDocIdSetIterator()
+		disi = Empty()
 	} else {
 		utilIter := set.Iterator()
 		if utilIter == nil {
-			disi = NewEmptyDocIdSetIterator()
+			disi = Empty()
 		} else {
 			disi = newLatLonDistanceUtilDISIAdapter(utilIter)
 		}
 	}
 	return &latLonPointDistanceScorer{
-		BaseScorer: NewBaseScorer(s.weight),
-		weight:     s.weight,
-		iter:       disi,
-		score:      s.weight.boost,
+		weight: s.weight,
+		iter:   disi,
+		score:  s.weight.boost,
 	}, nil
 }
 
@@ -640,7 +633,9 @@ func (s *latLonPointDistanceScorerSupplier) Cost() int64 {
 }
 
 // SetTopLevelScoringClause is a no-op for this constant-score supplier.
-func (s *latLonPointDistanceScorerSupplier) SetTopLevelScoringClause() {}
+func (s *latLonPointDistanceScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
 
 // Ensure latLonPointDistanceScorerSupplier implements ScorerSupplier.
 var _ ScorerSupplier = (*latLonPointDistanceScorerSupplier)(nil)
@@ -838,7 +833,7 @@ func latLonDistanceRelationFromGeo(r geo.Relation) latLonDistanceCellRelation {
 // forwards every position/cost call to the materialized DocIdSet's
 // iterator.
 type latLonPointDistanceScorer struct {
-	*BaseScorer
+	BaseScorer
 
 	weight *latLonPointDistanceWeight
 	iter   DocIdSetIterator
@@ -860,13 +855,60 @@ func (s *latLonPointDistanceScorer) Advance(target int) (int, error) {
 func (s *latLonPointDistanceScorer) Cost() int64 { return s.iter.Cost() }
 
 // DocIDRunEnd returns the end of the current run.
-func (s *latLonPointDistanceScorer) DocIDRunEnd() int { return s.iter.DocIDRunEnd() }
+func (s *latLonPointDistanceScorer) DocIDRunEnd() (int, error) { return s.iter.DocIDRunEnd() }
 
 // Score returns the constant boost score.
-func (s *latLonPointDistanceScorer) Score() float32 { return s.score }
+//
+// Mirrors ConstantScoreScorer.score(), whose body is `return score;`.
+func (s *latLonPointDistanceScorer) Score() (float32, error) { return s.score, nil }
 
 // GetMaxScore returns the constant boost score (no per-doc variability).
-func (s *latLonPointDistanceScorer) GetMaxScore(_ int) float32 { return s.score }
+//
+// Mirrors ConstantScoreScorer.getMaxScore(int), whose body is `return score;`.
+func (s *latLonPointDistanceScorer) GetMaxScore(_ int) (float32, error) { return s.score, nil }
+
+// Iterator mirrors ConstantScoreScorer.iterator(), whose body is
+// `return disi;` — the DocIdSetIterator the Java query hands to the
+// ConstantScoreScorer constructor.
+func (s *latLonPointDistanceScorer) Iterator() DocIdSetIterator { return s.iter }
+
+// NextDocsAndScores mirrors ConstantScoreScorer.nextDocsAndScores(int, Bits,
+// DocAndFloatFeatureBuffer) (Lucene 10.5.0):
+//
+//	int batchSize = 64;
+//	buffer.growNoCopy(batchSize);
+//	int size = 0;
+//	DocIdSetIterator iterator = iterator();
+//	for (int doc = iterator.docID(); doc < upTo && size < batchSize; doc = iterator.nextDoc()) {
+//	  if (liveDocs == null || liveDocs.get(doc)) {
+//	    buffer.docs[size] = doc;
+//	    ++size;
+//	  }
+//	}
+//	Arrays.fill(buffer.features, 0, size, score);
+//	buffer.size = size;
+func (s *latLonPointDistanceScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	batchSize := 64
+	buffer.GrowNoCopy(batchSize)
+	size := 0
+	iterator := s.Iterator()
+	for doc := iterator.DocID(); doc < upTo && size < batchSize; {
+		if liveDocs == nil || liveDocs.Get(doc) {
+			buffer.Docs[size] = doc
+			size++
+		}
+		next, err := iterator.NextDoc()
+		if err != nil {
+			return err
+		}
+		doc = next
+	}
+	for i := 0; i < size; i++ {
+		buffer.Features[i] = s.score
+	}
+	buffer.Size = size
+	return nil
+}
 
 // Ensure latLonPointDistanceScorer implements Scorer.
 var _ Scorer = (*latLonPointDistanceScorer)(nil)
@@ -890,8 +932,10 @@ func (a *latLonDistanceUtilDISIAdapter) NextDoc() (int, error) { return a.inner.
 func (a *latLonDistanceUtilDISIAdapter) Advance(target int) (int, error) {
 	return a.inner.Advance(target)
 }
-func (a *latLonDistanceUtilDISIAdapter) Cost() int64      { return a.inner.Cost() }
-func (a *latLonDistanceUtilDISIAdapter) DocIDRunEnd() int { return a.inner.DocIDRunEnd() }
+func (a *latLonDistanceUtilDISIAdapter) Cost() int64 { return a.inner.Cost() }
+func (a *latLonDistanceUtilDISIAdapter) DocIDRunEnd() (int, error) {
+	return a.inner.DocIDRunEnd()
+}
 
 var _ DocIdSetIterator = (*latLonDistanceUtilDISIAdapter)(nil)
 
@@ -943,3 +987,22 @@ func foldLongBits(bits uint64) int {
 // constant. Distinct from other query class hashes so two different
 // query types with the same field/payload do not collide.
 const classHashLatLonPointDistanceQuery = 0x4c4c_5044 // "LLPD"
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (l *latLonPointDistanceScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(l)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (l *latLonDistanceUtilDISIAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(l, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *latLonPointDistanceScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

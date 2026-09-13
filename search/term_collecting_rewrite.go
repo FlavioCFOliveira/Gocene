@@ -18,6 +18,7 @@ package search
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TermCollector is the Go equivalent of TermCollectingRewrite.TermCollector.
@@ -25,6 +26,14 @@ import (
 //
 // Mirrors org.apache.lucene.search.TermCollectingRewrite.TermCollector.
 type TermCollector interface {
+	// Attributes returns the attributes used for communication with the enum.
+	//
+	// Mirrors the public final field
+	// {@code public final AttributeSource attributes = new AttributeSource();}
+	// of TermCollectingRewrite.TermCollector; a Go interface can only carry a
+	// method, and [BaseTermCollector] supplies the single instance.
+	Attributes() *util.AttributeSource
+
 	// SetReaderContext is called once per leaf before term iteration begins.
 	SetReaderContext(topCtx index.IndexReaderContext, leafCtx *index.LeafReaderContext)
 	// SetNextEnum is called with the filtered TermsEnum for the current leaf.
@@ -45,6 +54,23 @@ type BaseTermCollector struct {
 	ReaderContext *index.LeafReaderContext
 	// TopReaderContext is the top-level context (updated by SetReaderContext).
 	TopReaderContext index.IndexReaderContext
+	// atts backs Attributes(). Java initialises the field eagerly
+	// ({@code = new AttributeSource()}); Go zero values cannot run an
+	// initialiser, so the single instance is created on first use and reused
+	// for the whole collection, which is the property the field guarantees.
+	atts *util.AttributeSource
+}
+
+// Attributes returns the attributes used for communication with the enum,
+// reproducing the public final AttributeSource field of
+// TermCollectingRewrite.TermCollector. The same instance is returned for the
+// lifetime of the collector, so a value stored by one leaf's TermsEnum is
+// visible to the next.
+func (b *BaseTermCollector) Attributes() *util.AttributeSource {
+	if b.atts == nil {
+		b.atts = util.NewAttributeSource()
+	}
+	return b.atts
 }
 
 // SetReaderContext records the current leaf and top-level contexts.
@@ -62,18 +88,20 @@ func (b *BaseTermCollector) SetReaderContext(topCtx index.IndexReaderContext, le
 //   - The reader parameter is index.IndexReaderInterface (not the minimal
 //     search.IndexReader) because leaf access requires GetContext / Leaves,
 //     which are only defined on the full index reader.
-//   - AttributeSource is omitted: Gocene's GetTermsEnum does not yet accept
-//     an AttributeSource.
-//   - If query does not implement MultiTermQueryTermsEnumProvider, the field's
-//     full TermsEnum is used instead (no term filtering).
-func CollectTerms(reader index.IndexReaderInterface, query *MultiTermQuery, collector TermCollector) error {
-	topCtx, err := index.GetReaderContext(reader)
+//   - Java's collectTerms is an instance method on TermCollectingRewrite and
+//     reaches the getTermsEnum(MultiTermQuery, Terms, AttributeSource) member
+//     through {@code this}. Go renders it as a package function, so the
+//     rewrite method that Java would have used as the receiver is the first
+//     parameter.
+func CollectTerms(method RewriteMethod, reader index.IndexReaderInterface, query *MultiTermQuery, collector TermCollector) error {
+	topCtx, err := reader.GetContext()
 	if err != nil {
 		return err
 	}
-	leaves := index.GetLeafReaderContexts(topCtx)
-
-	provider, hasProvider := any(query).(MultiTermQueryTermsEnumProvider)
+	leaves, err := topCtx.Leaves()
+	if err != nil {
+		return err
+	}
 
 	for _, leafCtx := range leaves {
 		leafReader := leafCtx.LeafReader()
@@ -89,12 +117,7 @@ func CollectTerms(reader index.IndexReaderInterface, query *MultiTermQuery, coll
 			continue
 		}
 
-		var termsEnum index.TermsEnum
-		if hasProvider {
-			termsEnum, err = provider.GetTermsEnum(terms)
-		} else {
-			termsEnum, err = terms.GetIterator()
-		}
+		termsEnum, err := rewriteMethodGetTermsEnum(method, query, terms, collector.Attributes())
 		if err != nil {
 			return err
 		}

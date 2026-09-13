@@ -75,6 +75,16 @@ func (pq *DisiPriorityQueue2) Add(entry *DisiWrapper) *DisiWrapper {
 }
 
 // Pop removes and returns the top entry; the former top2 becomes the new top.
+// AddAll bulk-inserts length entries from entries[offset:offset+length].
+//
+// Mirrors the concrete DisiPriorityQueue.addAll(DisiWrapper[], int, int) that
+// DisiPriorityQueue2 inherits from its abstract base: a plain loop over Add.
+func (pq *DisiPriorityQueue2) AddAll(entries []*DisiWrapper, offset, length int) {
+	for i := 0; i < length; i++ {
+		pq.Add(entries[offset+i])
+	}
+}
+
 func (pq *DisiPriorityQueue2) Pop() *DisiWrapper {
 	ret := pq.top
 	pq.top = pq.top2
@@ -112,5 +122,24 @@ func (pq *DisiPriorityQueue2) Slice() []*DisiWrapper {
 		return []*DisiWrapper{pq.top}
 	default:
 		return []*DisiWrapper{pq.top, pq.top2}
+	}
+}
+
+// All iterates over the queue's entries.
+//
+// Mirrors DisiPriorityQueue2.iterator(), which yields top and top2 when both
+// are set, top alone when only it is set, and nothing otherwise.
+func (pq *DisiPriorityQueue2) All() func(yield func(*DisiWrapper) bool) {
+	return func(yield func(*DisiWrapper) bool) {
+		if pq.top2 != nil {
+			if !yield(pq.top) {
+				return
+			}
+			yield(pq.top2)
+			return
+		}
+		if pq.top != nil {
+			yield(pq.top)
+		}
 	}
 }

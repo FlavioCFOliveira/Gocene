@@ -14,6 +14,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 )
 
@@ -67,7 +68,7 @@ func NewLatLonDocValuesDistanceSort(field string, latitude, longitude float64) (
 	}
 	sf := NewSortFieldCustom(field, src, false)
 	// Missing values sort last (Java sets the missing sentinel to +Inf).
-	sf.Missing = MissingValueLast
+	sf.Missing = spi.MissingValueLast
 	sf.MissingValue = math.Inf(1)
 	return sf, nil
 }
@@ -84,7 +85,7 @@ func NewXYDocValuesDistanceSort(field string, x, y float32) (*SortField, error) 
 	}
 	src := &xyDistanceComparatorSource{field: field, x: x, y: y}
 	sf := NewSortFieldCustom(field, src, false)
-	sf.Missing = MissingValueLast
+	sf.Missing = spi.MissingValueLast
 	sf.MissingValue = math.Inf(1)
 	return sf, nil
 }
@@ -139,7 +140,9 @@ func (c *latLonDistanceFieldComparator) CompareBottom(doc int) int {
 
 func (c *latLonDistanceFieldComparator) Copy(slot, doc int) { _ = c.inner.Copy(slot, doc) }
 
-func (c *latLonDistanceFieldComparator) SetScorer(_ Scorer) {}
+func (c *latLonDistanceFieldComparator) SetScorer(_ Scorable) error {
+	return nil
+}
 
 // SetReader is the optional leaf-binding hook (search.leafBindingComparator).
 func (c *latLonDistanceFieldComparator) SetReader(reader IndexReader) error {
@@ -202,7 +205,9 @@ func (c *xyDistanceFieldComparator) CompareBottom(doc int) int {
 
 func (c *xyDistanceFieldComparator) Copy(slot, doc int) { _ = c.inner.Copy(slot, doc) }
 
-func (c *xyDistanceFieldComparator) SetScorer(_ Scorer) {}
+func (c *xyDistanceFieldComparator) SetScorer(_ Scorable) error {
+	return nil
+}
 
 // SetReader is the optional leaf-binding hook (search.leafBindingComparator).
 func (c *xyDistanceFieldComparator) SetReader(reader IndexReader) error {

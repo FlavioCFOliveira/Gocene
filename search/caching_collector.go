@@ -19,11 +19,12 @@ type CachingCollector interface {
 }
 
 type cachedScorable struct {
+	BaseScorable
 	score float32
 }
 
-func (s *cachedScorable) Score() float32 {
-	return s.score
+func (s *cachedScorable) Score() (float32, error) {
+	return s.score, nil
 }
 
 type cachingCollectorBase struct {
@@ -116,18 +117,19 @@ func (c *scoreCachingCollector) GetLeafCollector(context *index.LeafReaderContex
 			noScoreCachingLeafCollector: noScoreCachingLeafCollector{
 				in:             in,
 				maxDocsToCache: c.maxDocsToCache,
-				collector:      c,
+				collector:      &c.noScoreCachingCollector,
 				docs:           make([]int, 128),
 				docCount:       0,
 			},
-			scores: make([]float32, 128),
+			scoreCollector: c,
+			scores:         make([]float32, 128),
 		}, nil
 	}
 	return in, nil
 }
 
 func (c *scoreCachingCollector) ScoreMode() ScoreMode {
-	return ScoreMode_COMPLETE
+	return COMPLETE
 }
 
 func (c *scoreCachingCollector) Replay(other Collector) error {
@@ -220,8 +222,17 @@ func (l *noScoreCachingLeafCollector) Finish() error {
 
 type scoreCachingLeafCollector struct {
 	noScoreCachingLeafCollector
-	scorer Scorable
-	scores []float32
+	// scoreCollector is the same object as the embedded base's collector
+	// field, held at its concrete type. Java's ScoreCachingLeafCollector
+	// stores only the NoScoreCachingCollector reference inherited from its
+	// superclass and recovers the subclass in postCollect with the downcast
+	// ((ScoreCachingCollector) collector). Go has no downcast from an
+	// embedded base, so the concrete reference is kept alongside; the
+	// constructor is the only writer, exactly as the Java cast is guaranteed
+	// by ScoreCachingCollector.wrap being its sole caller.
+	scoreCollector *scoreCachingCollector
+	scorer         Scorable
+	scores         []float32
 }
 
 func (l *scoreCachingLeafCollector) SetScorer(scorer Scorable) error {
@@ -253,7 +264,11 @@ func (l *scoreCachingLeafCollector) Collect(doc int) error {
 		}
 		if l.docs != nil {
 			if l.scores != nil && l.scorer != nil {
-				l.scores[l.docCount] = l.scorer.Score()
+				sc0, err := l.scorer.Score()
+				if err != nil {
+					return err
+				}
+				l.scores[l.docCount] = sc0
 			}
 			l.docs[l.docCount] = doc
 			l.docCount++
@@ -276,12 +291,9 @@ func (l *scoreCachingLeafCollector) Finish() error {
 		l.collector.maxDocsToCache -= len(docs)
 		l.collector.docs = append(l.collector.docs, docs)
 
-		if col, ok := l.collector.(*scoreCachingCollector); ok {
-			col.scores = append(col.scores, scores)
-		} else if colBase, ok := l.collector.(*noScoreCachingCollector); ok {
-			// This case shouldn't happen with the current CreateCachingCollector but for safety
-			_ = colBase
-		}
+		// Mirrors ScoreCachingLeafCollector.postCollect:
+		// ((ScoreCachingCollector) collector).scores.add(cachedScores()).
+		l.scoreCollector.scores = append(l.scoreCollector.scores, scores)
 	} else {
 		l.collector.invalidate()
 	}

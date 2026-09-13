@@ -10,6 +10,7 @@ package intervals
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // oneTimeIntervalSource is a mock IntervalsSource that returns a constant position
@@ -29,14 +30,14 @@ type oneTimeIntervalIterator struct {
 	flag   bool
 }
 
-func (it *oneTimeIntervalIterator) DocID() int      { return it.doc }
-func (it *oneTimeIntervalIterator) DocIDRunEnd() int { return it.doc + 1 }
-func (it *oneTimeIntervalIterator) Start() int       { return 0 }
-func (it *oneTimeIntervalIterator) End() int         { return 0 }
-func (it *oneTimeIntervalIterator) Gaps() int        { return 0 }
-func (it *oneTimeIntervalIterator) Width() int       { return 1 }
-func (it *oneTimeIntervalIterator) MatchCost() float32 { return 0 }
-func (it *oneTimeIntervalIterator) Cost() int64     { return 0 }
+func (it *oneTimeIntervalIterator) DocID() int                { return it.doc }
+func (it *oneTimeIntervalIterator) DocIDRunEnd() (int, error) { return it.doc + 1, nil }
+func (it *oneTimeIntervalIterator) Start() int                { return 0 }
+func (it *oneTimeIntervalIterator) End() int                  { return 0 }
+func (it *oneTimeIntervalIterator) Gaps() int                 { return 0 }
+func (it *oneTimeIntervalIterator) Width() int                { return 1 }
+func (it *oneTimeIntervalIterator) MatchCost() float32        { return 0 }
+func (it *oneTimeIntervalIterator) Cost() int64               { return 0 }
 
 func (it *oneTimeIntervalIterator) NextDoc() (int, error) {
 	it.doc++
@@ -88,12 +89,12 @@ func (m *oneTimeMatchesIterator) Next() (bool, error) {
 	return false, nil
 }
 
-func (m *oneTimeMatchesIterator) StartPosition() int { return 0 }
-func (m *oneTimeMatchesIterator) EndPosition() int   { return 0 }
-func (m *oneTimeMatchesIterator) StartOffset() (int, error) { return 0, nil }
-func (m *oneTimeMatchesIterator) EndOffset() (int, error)   { return 0, nil }
+func (m *oneTimeMatchesIterator) StartPosition() int                             { return 0 }
+func (m *oneTimeMatchesIterator) EndPosition() int                               { return 0 }
+func (m *oneTimeMatchesIterator) StartOffset() (int, error)                      { return 0, nil }
+func (m *oneTimeMatchesIterator) EndOffset() (int, error)                        { return 0, nil }
 func (m *oneTimeMatchesIterator) GetSubMatches() (search.MatchesIterator, error) { return nil, nil }
-func (m *oneTimeMatchesIterator) GetQuery() search.Query                          { return nil }
+func (m *oneTimeMatchesIterator) GetQuery() search.Query                         { return nil }
 
 func (s *oneTimeIntervalSource) Visit(_ string, _ search.QueryVisitor) {}
 
@@ -103,6 +104,13 @@ func (s *oneTimeIntervalSource) PullUpDisjunctions() []IntervalsSource {
 	return []IntervalsSource{s}
 }
 
-func (s *oneTimeIntervalSource) Equals(_ IntervalsSource) bool  { return false }
-func (s *oneTimeIntervalSource) HashCode() int                  { return 0 }
-func (s *oneTimeIntervalSource) String() string                 { return "" }
+func (s *oneTimeIntervalSource) Equals(_ IntervalsSource) bool { return false }
+func (s *oneTimeIntervalSource) HashCode() int                 { return 0 }
+func (s *oneTimeIntervalSource) String() string                { return "" }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *oneTimeIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}

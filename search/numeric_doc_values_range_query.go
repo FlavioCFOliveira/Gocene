@@ -5,6 +5,9 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -50,7 +53,7 @@ func (q *NumericDocValuesRangeQuery) String() string {
 }
 
 // Equals checks structural equality.
-func (q *NumericDocValuesRangeQuery) Equals(other Query) bool {
+func (q *NumericDocValuesRangeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*NumericDocValuesRangeQuery)
 	if !ok {
 		return false
@@ -70,14 +73,9 @@ func (q *NumericDocValuesRangeQuery) HashCode() int {
 	return h
 }
 
-// Clone returns an independent copy.
-func (q *NumericDocValuesRangeQuery) Clone() Query {
-	return &NumericDocValuesRangeQuery{field: q.field, lowerValue: q.lowerValue, upperValue: q.upperValue}
-}
-
 // Rewrite returns the query unchanged. Mirrors the Java base class which
 // also relies on subclasses for any concrete simplification.
-func (q *NumericDocValuesRangeQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
+func (q *NumericDocValuesRangeQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // CreateWeight returns a ConstantScoreWeight that walks the per-leaf
 // NumericDocValues iterator and emits a doc-id set containing every
@@ -88,7 +86,7 @@ func (q *NumericDocValuesRangeQuery) Rewrite(_ IndexReader) (Query, error) { ret
 // single concrete CreateWeight so the query can be used directly by the
 // DoubleValuesSource / LongValuesSource ranges without a separate
 // subclass.
-func (q *NumericDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, _ bool, boost float32) (Weight, error) {
+func (q *NumericDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, _ ScoreMode, boost float32) (Weight, error) {
 	lower, upper, field := q.lowerValue, q.upperValue, q.field
 
 	supplier := func(ctx *index.LeafReaderContext) (ScorerSupplier, error) {
@@ -143,7 +141,7 @@ func (q *NumericDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, _ bool, boos
 			return nil, nil
 		}
 		iter := newSortedDocIdSetIterator(matches, maxDoc)
-		return NewScorerSupplierAdapter(NewConstantScoreScorer(boost, COMPLETE, iter)), nil
+		return NewDefaultScorerSupplier(NewConstantScoreScorer(boost, COMPLETE, iter)), nil
 	}
 	return NewConstantScoreWeight(q, boost, supplier, nil), nil
 }
@@ -189,9 +187,9 @@ func (it *sortedDocIdSetIterator) Advance(target int) (int, error) {
 
 func (it *sortedDocIdSetIterator) Cost() int64 { return int64(len(it.docs)) }
 
-func (it *sortedDocIdSetIterator) DocIDRunEnd() int {
+func (it *sortedDocIdSetIterator) DocIDRunEnd() (int, error) {
 	if it.doc < 0 || it.doc == NO_MORE_DOCS {
-		return it.doc + 1
+		return it.doc + 1, nil
 	}
 	end := it.doc + 1
 	for i := it.idx + 1; i < len(it.docs); i++ {
@@ -200,5 +198,11 @@ func (it *sortedDocIdSetIterator) DocIDRunEnd() int {
 		}
 		end = it.docs[i] + 1
 	}
-	return end
+	return end, nil
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (s *sortedDocIdSetIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

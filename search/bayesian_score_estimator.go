@@ -41,7 +41,7 @@ func Estimate(searcher *IndexSearcher, field string, nSamples, tokensPerQuery in
 		return Parameters{}, fmt.Errorf("tokensPerQuery must be positive, got %d", tokensPerQuery)
 	}
 
-	reader := searcher.GetReader()
+	reader := searcher.GetIndexReader()
 	maxDoc := reader.MaxDoc()
 	if maxDoc == 0 {
 		return Parameters{Alpha: 1.0, Beta: 0.0, BaseRate: 0.01}, nil
@@ -61,7 +61,7 @@ func Estimate(searcher *IndexSearcher, field string, nSamples, tokensPerQuery in
 	var baseRateFractions []float32
 
 	for offset := 0; offset < len(sampledTerms); offset += tokensPerQuery {
-		bq := NewBooleanQuery()
+		bq := NewBooleanQueryBuilder()
 		end := offset + tokensPerQuery
 		if end > len(sampledTerms) {
 			end = len(sampledTerms)
@@ -72,7 +72,7 @@ func Estimate(searcher *IndexSearcher, field string, nSamples, tokensPerQuery in
 		}
 
 		// Collect all scores
-		scores, err := collectScores(searcher, bq, maxDoc)
+		scores, err := collectScores(searcher, bq.Build(), maxDoc)
 		if err != nil {
 			return Parameters{}, err
 		}
@@ -184,7 +184,7 @@ func sampleVocabularyTerms(reader index.IndexReaderInterface, field string, samp
 	}
 
 	reservoir := make([]*util.BytesRef, 0, sampleSize)
-	iterator, err := terms.Iterator()
+	iterator, err := terms.GetIterator()
 	if err != nil {
 		return nil, err
 	}
@@ -200,11 +200,11 @@ func sampleVocabularyTerms(reader index.IndexReaderInterface, field string, samp
 		}
 		seen++
 		if len(reservoir) < sampleSize {
-			reservoir = append(reservoir, term.Bytes())
+			reservoir = append(reservoir, term.Bytes)
 		} else {
 			replacement := nextLong(rng, seen)
 			if replacement < int64(sampleSize) {
-				reservoir[replacement] = term.Bytes()
+				reservoir[replacement] = term.Bytes
 			}
 		}
 	}

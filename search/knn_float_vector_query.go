@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"slices"
 
@@ -59,37 +60,43 @@ func NewKnnFloatVectorQueryWithStrategy(
 
 // ApproximateSearch executes an approximate KNN search on one leaf.
 //
-// Mirrors AbstractKnnVectorQuery.approximateSearch.
+// Mirrors KnnFloatVectorQuery.approximateSearch(LeafReaderContext, AcceptDocs,
+// int, KnnCollectorManager).
 func (q *KnnFloatVectorQuery) ApproximateSearch(
 	ctx *index.LeafReaderContext,
 	acceptDocs AcceptDocs,
 	visitedLimit int,
 	collectorManager knn.KnnCollectorManager,
 ) (*TopDocs, error) {
+	knnCollector, err := collectorManager.NewCollector(visitedLimit, q.strategy, ctx)
+	if err != nil {
+		return nil, err
+	}
 	reader := ctx.LeafReader()
 	floatVectorValues, err := reader.GetFloatVectorValues(q.field)
 	if err != nil {
 		return nil, err
 	}
 	if floatVectorValues == nil {
-		// Java: FloatVectorValues.checkField(reader, field);
+		if err := index.CheckFloatVectorField(reader, q.field); err != nil {
+			return nil, err
+		}
 		return emptyTopDocs(), nil
 	}
 
-	// Java: if (Math.min(knnCollector.k(), floatVectorValues.size()) == 0) { return NO_RESULTS; }
-	// In Gocene, the rescaled k is handled by the collector, but we check against the global k
-	// and the actual number of vectors available in the leaf.
-	if q.k <= 0 || floatVectorValues.Size() == 0 {
+	if min(knnCollector.K(), floatVectorValues.Size()) == 0 {
 		return emptyTopDocs(), nil
 	}
 
-	// Gocene's SearchNearestVectors performs the search and returns TopDocs.
-	// We use the global k here; the codec-level search implementation handles the
-	// actual visit budget and result collection.
-	results, err := reader.SearchNearestVectors(q.field, q.target, q.k, acceptDocs.Bits())
+	bits, err := acceptDocs.Bits()
 	if err != nil {
 		return nil, err
 	}
+	if err := reader.SearchNearestVectorsCollector(q.field, q.target, knnCollector, bits); err != nil {
+		return nil, err
+	}
+
+	results := knnCollector.TopDocs()
 	if results == nil {
 		return emptyTopDocs(), nil
 	}
@@ -145,7 +152,7 @@ func (q *KnnFloatVectorQuery) String() string {
 // Equals checks if two KnnFloatVectorQueries are identical.
 //
 // Mirrors KnnFloatVectorQuery.equals.
-func (q *KnnFloatVectorQuery) Equals(other Query) bool {
+func (q *KnnFloatVectorQuery) Equals(other spi.Query) bool {
 	if q == other {
 		return true
 	}

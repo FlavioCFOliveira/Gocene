@@ -173,7 +173,7 @@ func (q *DiversifyingChildrenFloatKnnVectorQuery) String() string {
 }
 
 // Equals reports structural equality.
-func (q *DiversifyingChildrenFloatKnnVectorQuery) Equals(other search.Query) bool {
+func (q *DiversifyingChildrenFloatKnnVectorQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*DiversifyingChildrenFloatKnnVectorQuery)
 	if !ok {
 		return false

@@ -4,7 +4,11 @@
 
 package search
 
-import "math"
+import (
+	"fmt"
+
+	"math"
+)
 
 // DFRSimilarity implements the Divergence From Randomness (DFR) framework.
 // DFR is a probabilistic retrieval framework based on measuring the divergence
@@ -80,6 +84,32 @@ func (s *DFRSimilarity) ComputeWeight(boost float32, collectionStats *Collection
 }
 
 // Scorer creates a scorer for this similarity.
+// Scorer104 mirrors SimilarityBase.scorer(float, CollectionStatistics,
+// TermStatistics...) (Lucene 10.5.0), which DFRSimilarity inherits
+// unchanged — the method is final in Java:
+//
+//	SimScorer[] scorers = new SimScorer[termStats.length];
+//	for (int i = 0; i < termStats.length; i++) {
+//	  BasicStats basicStats = newStats(collectionStats.field(), boost);
+//	  fillBasicStats(basicStats, collectionStats, termStats[i]);
+//	  scorers[i] = new BasicSimScorer(basicStats);
+//	}
+//	if (scorers.length == 1) { return scorers[0]; }
+//	return new MultiSimilarity.MultiSimScorer(scorers);
+func (s *DFRSimilarity) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
+	if len(termStats) == 0 {
+		return &noopSimScorer{}
+	}
+	scorers := make([]SimScorer, len(termStats))
+	for i, ts := range termStats {
+		scorers[i] = NewDFRSimScorerWithWeight(NewDFRSimWeight(s, collectionStats, ts, boost))
+	}
+	if len(scorers) == 1 {
+		return scorers[0]
+	}
+	return newMultiSimScorerLucene(scorers)
+}
+
 func (s *DFRSimilarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
 	return NewDFRSimScorer(s, collectionStats, termStats)
 }
@@ -178,7 +208,7 @@ func NewDFRSimScorerWithWeight(weight *DFRSimWeight) *DFRSimScorer {
 // The norm argument mirrors Lucene's SimScorer.score(float, long) signature.
 // This legacy DFR scorer does not consult norms; it is ignored to preserve the
 // existing behaviour of in-repo tests.
-func (s *DFRSimScorer) Score(doc int, freq float32, norm int64) float32 {
+func (s *DFRSimScorer) Score104(freq float32, norm int64) float32 {
 	if freq == 0 || s.basicStats == nil {
 		return 0
 	}
@@ -349,4 +379,20 @@ func (n *NormalizationNoOp) Tfn(stats *LuceneBasicStats, freq float64, docLen fl
 // Name returns the name of this normalization.
 func (n *NormalizationNoOp) Name() string {
 	return "NoNormalization"
+}
+
+// AsBulkSimScorer mirrors the concrete body of Similarity.SimScorer.asBulkSimScorer()
+// in Apache Lucene 10.5.0: new DefaultBulkSimScorer(this).
+func (d *DFRSimScorer) AsBulkSimScorer() BulkSimScorer {
+	return NewDefaultBulkSimScorer(d)
+}
+
+// Explain104 mirrors the concrete body of Similarity.SimScorer.explain(Explanation, long)
+// in Apache Lucene 10.5.0: Explanation.match(score(freq.getValue().floatValue(), norm),
+// "score(freq=" + freq.getValue() + "), with freq of:", freq).
+func (d *DFRSimScorer) Explain104(freq Explanation, norm int64) Explanation {
+	e := NewExplanation(true, d.Score104(freq.GetValue(), norm),
+		fmt.Sprintf("score(freq=%s), with freq of:", formatFloatGeneric(freq.GetValue())))
+	e.AddDetail(freq)
+	return e
 }

@@ -9,6 +9,7 @@ package intervals
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -77,7 +78,7 @@ func (q *IntervalQuery) Clone() search.Query {
 }
 
 // Equals reports structural equality.
-func (q *IntervalQuery) Equals(other search.Query) bool {
+func (q *IntervalQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*IntervalQuery)
 	if !ok {
 		return false

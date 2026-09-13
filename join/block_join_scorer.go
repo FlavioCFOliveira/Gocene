@@ -6,6 +6,7 @@ package join
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -215,7 +216,7 @@ func (s *BlockJoinScorer) Cost() int64 {
 }
 
 // DocIDRunEnd returns the end of the run of consecutive doc IDs.
-func (s *BlockJoinScorer) DocIDRunEnd() int {
+func (s *BlockJoinScorer) DocIDRunEnd() (int, error) {
 	// Delegate to parent scorer
 	return s.parentScorer.DocIDRunEnd()
 }
@@ -513,8 +514,8 @@ func (s *ToChildBlockJoinScorer) Cost() int64 {
 //
 // The block-join child stream is not a dense run, so report the next document
 // after the current child (the most conservative, always-correct answer).
-func (s *ToChildBlockJoinScorer) DocIDRunEnd() int {
-	return s.childDoc + 1
+func (s *ToChildBlockJoinScorer) DocIDRunEnd() (int, error) {
+	return s.childDoc + 1, nil
 }
 
 // GetParentDoc returns the current parent document ID.
@@ -807,8 +808,8 @@ func (s *ToParentBlockJoinScorer) AdvanceShallow(target int) (int, error) {
 // DocIDRunEnd returns the end of the run of consecutive doc IDs.
 //
 // Parent matches are not a dense run, so report one past the current parent.
-func (s *ToParentBlockJoinScorer) DocIDRunEnd() int {
-	return s.doc + 1
+func (s *ToParentBlockJoinScorer) DocIDRunEnd() (int, error) {
+	return s.doc + 1, nil
 }
 
 // GetChildren returns the child scorer.
@@ -823,3 +824,24 @@ var (
 	_ search.MinCompetitiveScorer = (*ToParentBlockJoinScorer)(nil)
 	_ search.ScoreErrorReporter   = (*ToParentBlockJoinScorer)(nil)
 )
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *BlockJoinScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *ToChildBlockJoinScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *ToParentBlockJoinScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

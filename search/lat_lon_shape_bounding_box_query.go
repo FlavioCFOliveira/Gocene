@@ -7,6 +7,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
@@ -152,7 +153,7 @@ func (q *LatLonShapeBoundingBoxQuery) GetRectangle() geo.Rectangle { return q.re
 // the same field, relation, and rectangle. Mirrors the Java
 // reference's equalsTo override (parent's equalsTo plus a Rectangle
 // comparison).
-func (q *LatLonShapeBoundingBoxQuery) Equals(other Query) bool {
+func (q *LatLonShapeBoundingBoxQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*LatLonShapeBoundingBoxQuery)
 	if !ok {
 		return false
@@ -612,7 +613,7 @@ func NewBoxQuery(
 ) (Query, error) {
 	// Handle dateline crossing for CONTAINS.
 	if queryRelation == document.QueryRelationContains && minLon > maxLon {
-		bq := NewBooleanQuery()
+		bq := NewBooleanQueryBuilder()
 		must1, err := NewBoxQuery(
 			field, queryRelation, minLat, maxLat, minLon, geo.MaxLonIncl)
 		if err != nil {
@@ -625,7 +626,7 @@ func NewBoxQuery(
 			return nil, err
 		}
 		bq.Add(must2, MUST)
-		return bq, nil
+		return bq.Build(), nil
 	}
 	rect, err := geo.NewRectangle(minLat, maxLat, minLon, maxLon)
 	if err != nil {

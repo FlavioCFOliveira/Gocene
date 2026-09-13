@@ -13,6 +13,8 @@
 
 package search
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // Ported from Apache Lucene 10.4.0:
 //   lucene/core/src/java/org/apache/lucene/search/DisjunctionDISIApproximation.java
 
@@ -35,7 +37,7 @@ import "slices"
 // @lucene.internal
 type DisjunctionDISIApproximation struct {
 	// leadIterators is the min-doc heap of "lead" wrappers.
-	leadIterators *DisiPriorityQueue
+	leadIterators DisiPriorityQueue
 	// otherIterators is the linear-scan slice of remaining wrappers.
 	otherIterators []*DisiWrapper
 	cost           int64
@@ -96,7 +98,7 @@ func NewDisjunctionDISIApproximation(wrappers []*DisiWrapper, leadCost int64) *D
 	}
 
 	pqLen := len(wrappers) - lastIdx - 1
-	pq := NewDisiPriorityQueue(pqLen)
+	pq := OfMaxSize(pqLen)
 	pq.AddAll(wrappers, lastIdx+1, pqLen)
 
 	otherSlice := wrappers[:lastIdx+1]
@@ -191,14 +193,18 @@ func (it *DisjunctionDISIApproximation) Advance(target int) (int, error) {
 // document IDs.
 //
 // Mirrors DisjunctionDISIApproximation.docIDRunEnd().
-func (it *DisjunctionDISIApproximation) DocIDRunEnd() int {
+func (it *DisjunctionDISIApproximation) DocIDRunEnd() (int, error) {
 	max := it.doc + 1
 	for w := it.topList(); w != nil; w = w.next {
-		if end := w.approximation.DocIDRunEnd(); end > max {
+		end, err := w.approximation.DocIDRunEnd()
+		if err != nil {
+			return 0, err
+		}
+		if end > max {
 			max = end
 		}
 	}
-	return max
+	return max, nil
 }
 
 // TopList returns a linked list (via DisiWrapper.next) of all wrappers
@@ -233,3 +239,9 @@ func (it *DisjunctionDISIApproximation) computeTopList() *DisiWrapper {
 
 // Compile-time check.
 var _ DocIdSetIterator = (*DisjunctionDISIApproximation)(nil)
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (d *DisjunctionDISIApproximation) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(d, upTo, bitSet, offset)
+}

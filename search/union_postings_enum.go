@@ -18,6 +18,7 @@ package search
 //   (inner classes UnionPostingsEnum and PositionsQueue)
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -203,3 +204,17 @@ func (q *positionsQueue) size() int {
 
 // Compile-time assertion: UnionPostingsEnum implements index.PostingsEnum.
 var _ index.PostingsEnum = (*UnionPostingsEnum)(nil)
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which assumes runs of a single doc ID and returns
+// docID() + 1; every subclass inherits it unless it overrides it.
+func (u *UnionPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(u)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (u *UnionPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(u, upTo, bitSet, offset)
+}

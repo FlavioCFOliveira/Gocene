@@ -26,6 +26,7 @@ package join
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 type randomApproximationQuery struct {
@@ -52,7 +53,7 @@ func (q *randomApproximationQuery) Clone() search.Query {
 	return &randomApproximationQuery{inner: q.inner.Clone(), seed: q.seed}
 }
 
-func (q *randomApproximationQuery) Equals(other search.Query) bool {
+func (q *randomApproximationQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*randomApproximationQuery)
 	return ok && q.inner.Equals(o.inner)
 }

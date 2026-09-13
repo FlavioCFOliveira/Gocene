@@ -5,6 +5,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -86,8 +87,8 @@ func (q *ConstantScoreQuery) Visit(visitor QueryVisitor) {
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *ConstantScoreQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return q.CreateWeightScoreMode(searcher, scoreModeFromNeedsScores(needsScores), boost)
+func (q *ConstantScoreQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return q.CreateWeightScoreMode(searcher, scoreMode, boost)
 }
 
 func scoreModeFromNeedsScores(needsScores bool) ScoreMode {
@@ -115,11 +116,18 @@ func (q *ConstantScoreQuery) CreateWeightScoreMode(searcher *IndexSearcher, scor
 	}
 
 	if scoreMode.NeedsScores() {
-		return &constantScoreQueryWeight{
-			ConstantScoreWeight: *NewConstantScoreWeight(q, searcher, scoreMode, boost),
-			scoreMode:            scoreMode,
-			innerWeight:          innerWeight,
-		}, nil
+		// Java builds `new ConstantScoreWeight(this, boost) { ... }`, whose
+		// anonymous body overrides scorerSupplier, matches, isCacheable and
+		// count over innerWeight. In Go the weight is allocated first so the
+		// scorerSupplier override can be handed to the base class as a method
+		// value bound to it, exactly as the anonymous class closes over its
+		// enclosing instance.
+		w := &constantScoreQueryWeight{
+			scoreMode:   scoreMode,
+			innerWeight: innerWeight,
+		}
+		w.ConstantScoreWeight = *NewConstantScoreWeight(q, boost, w.scorerSupplier, nil)
+		return w, nil
 	}
 
 	return innerWeight, nil
@@ -131,7 +139,9 @@ type constantScoreQueryWeight struct {
 	innerWeight Weight
 }
 
-func (w *constantScoreQueryWeight) ScorerSupplier(ctx *index.LeafReaderContext) (ScorerSupplier, error) {
+// scorerSupplier mirrors the anonymous ConstantScoreWeight's
+// scorerSupplier(LeafReaderContext) override in ConstantScoreQuery.java.
+func (w *constantScoreQueryWeight) scorerSupplier(ctx *index.LeafReaderContext) (ScorerSupplier, error) {
 	innerSupplier, err := w.innerWeight.ScorerSupplier(ctx)
 	if err != nil {
 		return nil, err
@@ -173,9 +183,9 @@ func (s *constantScoreQueryScorerSupplier) Get(leadCost int64) (Scorer, error) {
 
 	twoPhase := innerScorer.TwoPhaseIterator()
 	if twoPhase == nil {
-		return NewConstantScoreScorer(s.weight.constant, s.weight.scoreMode, innerScorer.Iterator()), nil
+		return NewConstantScoreScorer(s.weight.Score(), s.weight.scoreMode, innerScorer.Iterator()), nil
 	}
-	return NewConstantScoreScorer(s.weight.constant, s.weight.scoreMode, twoPhase), nil
+	return NewConstantScoreScorerFromTwoPhase(s.weight.Score(), s.weight.scoreMode, twoPhase), nil
 }
 
 func (s *constantScoreQueryScorerSupplier) BulkScorer() (BulkScorer, error) {
@@ -192,7 +202,7 @@ func (s *constantScoreQueryScorerSupplier) BulkScorer() (BulkScorer, error) {
 	return &constantBulkScorer{
 		bulkScorer: innerBulkScorer,
 		weight:     s.weight,
-		theScore:   s.weight.constant,
+		theScore:   s.weight.Score(),
 	}, nil
 }
 
@@ -281,10 +291,10 @@ func (f *filterScorable) GetChildren() ([]ChildScorable, error) {
 }
 
 func (q *ConstantScoreQuery) ToString(field string) string {
-	return fmt.Sprintf("ConstantScore(%s)", q.query.ToString(field))
+	return fmt.Sprintf("ConstantScore(%s)", queryToString(q.query, field))
 }
 
-func (q *ConstantScoreQuery) Equals(other Query) bool {
+func (q *ConstantScoreQuery) Equals(other spi.Query) bool {
 	if o, ok := other.(*ConstantScoreQuery); ok {
 		return q.query.Equals(o.query)
 	}

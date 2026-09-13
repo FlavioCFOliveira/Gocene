@@ -35,23 +35,10 @@ var ErrTooManyClauses = errors.New("too many boolean clauses")
 // Mirrors IndexSearcher.getMaxClauseCount() default of 1024 (Lucene 10.4.0).
 const DefaultMaxClauseCount = 1024
 
-// maxClauseCount is the package-level configurable limit.
-var maxClauseCount = DefaultMaxClauseCount
-
-// SetMaxClauseCount sets the global maximum clause count for multi-term
-// query rewrites. It panics if n < 1, mirroring
-// org.apache.lucene.search.IndexSearcher#setMaxClauseCount, which throws an
-// IllegalArgumentException ("maxClauseCount must be >= 1") and leaves the
-// current value unchanged.
-func SetMaxClauseCount(n int) {
-	if n < 1 {
-		panic("maxClauseCount must be >= 1")
-	}
-	maxClauseCount = n
-}
-
-// GetMaxClauseCount returns the current maximum clause count.
-func GetMaxClauseCount() int { return maxClauseCount }
+// SetMaxClauseCount and GetMaxClauseCount are declared by
+// org.apache.lucene.search.IndexSearcher, not by ScoringRewrite, and therefore
+// live in index_searcher.go over the MaxClauseCount variable. ScoringRewrite
+// reads the limit the way Java does, through IndexSearcher.getMaxClauseCount().
 
 // ─── ScoringRewriteDelegate ─────────────────────────────────────────────────
 
@@ -65,16 +52,16 @@ func GetMaxClauseCount() int { return maxClauseCount }
 //   - checkMaxClauseCount → CheckMaxClauseCount
 type ScoringRewriteDelegate interface {
 	// GetTopLevelBuilder returns a fresh builder for the top-level query.
-	GetTopLevelBuilder() *BooleanQuery
+	GetTopLevelBuilder() *BooleanQueryBuilder
 
 	// Build finalises the builder into a Query.
-	Build(b *BooleanQuery) Query
+	Build(b *BooleanQueryBuilder) Query
 
 	// AddClause adds one term clause to the builder.
 	// term is the matched term; docCount is the df; boost is the per-term
 	// weight; states carries the per-leaf TermState (may be nil when not
 	// available).
-	AddClause(b *BooleanQuery, term *index.Term, docCount int, boost float32, states *index.TermStates) error
+	AddClause(b *BooleanQueryBuilder, term *index.Term, docCount int, boost float32, states *index.TermStates) error
 
 	// CheckMaxClauseCount is called after each new term is added; it must
 	// return ErrTooManyClauses (or a wrapping error) when the limit is
@@ -122,7 +109,7 @@ func NewScoringRewrite(delegate ScoringRewriteDelegate) *ScoringRewrite {
 //
 // Once the index package exposes TermState() on TermsEnum the inner loop
 // below can be completed without changing the public signature.
-func (r *ScoringRewrite) Rewrite(query *MultiTermQuery, _ IndexReader) (Query, error) {
+func (r *ScoringRewrite) Rewrite(searcher *IndexSearcher, query *MultiTermQuery) (Query, error) {
 	// Degradation: the full collectTerms expansion requires
 	// TermsEnum.TermState() and the per-leaf BoostAttribute cursor, neither
 	// of which is currently exposed by Gocene's index package. The
@@ -238,12 +225,14 @@ func NewParallelArraysTermCollector() *ParallelArraysTermCollector {
 // scoringBooleanDelegate is the concrete delegate for ScoringBooleanRewriteMethod.
 type scoringBooleanDelegate struct{}
 
-func (d *scoringBooleanDelegate) GetTopLevelBuilder() *BooleanQuery { return NewBooleanQuery() }
+func (d *scoringBooleanDelegate) GetTopLevelBuilder() *BooleanQueryBuilder {
+	return NewBooleanQueryBuilder()
+}
 
-func (d *scoringBooleanDelegate) Build(b *BooleanQuery) Query { return b }
+func (d *scoringBooleanDelegate) Build(b *BooleanQueryBuilder) Query { return b.Build() }
 
 func (d *scoringBooleanDelegate) AddClause(
-	b *BooleanQuery,
+	b *BooleanQueryBuilder,
 	term *index.Term,
 	_ int,
 	boost float32,
@@ -260,7 +249,7 @@ func (d *scoringBooleanDelegate) AddClause(
 }
 
 func (d *scoringBooleanDelegate) CheckMaxClauseCount(count int) error {
-	if count > maxClauseCount {
+	if count > GetMaxClauseCount() {
 		return ErrTooManyClauses
 	}
 	return nil
@@ -281,12 +270,14 @@ var ScoringBooleanRewriteMethod = NewScoringRewrite(&scoringBooleanDelegate{})
 // ConstantScoreBooleanRewriteMethod.
 type constantScoreBooleanDelegate struct{}
 
-func (d *constantScoreBooleanDelegate) GetTopLevelBuilder() *BooleanQuery { return NewBooleanQuery() }
-func (d *constantScoreBooleanDelegate) Build(b *BooleanQuery) Query {
-	return NewConstantScoreQuery(b)
+func (d *constantScoreBooleanDelegate) GetTopLevelBuilder() *BooleanQueryBuilder {
+	return NewBooleanQueryBuilder()
+}
+func (d *constantScoreBooleanDelegate) Build(b *BooleanQueryBuilder) Query {
+	return NewConstantScoreQuery(b.Build())
 }
 func (d *constantScoreBooleanDelegate) AddClause(
-	b *BooleanQuery,
+	b *BooleanQueryBuilder,
 	term *index.Term,
 	_ int,
 	boost float32,
@@ -301,7 +292,7 @@ func (d *constantScoreBooleanDelegate) AddClause(
 	return nil
 }
 func (d *constantScoreBooleanDelegate) CheckMaxClauseCount(count int) error {
-	if count > maxClauseCount {
+	if count > GetMaxClauseCount() {
 		return ErrTooManyClauses
 	}
 	return nil
@@ -324,8 +315,8 @@ type constantScoreBooleanRewriteMethod struct{}
 // result in a ConstantScoreQuery.
 //
 // Mirrors ScoringRewrite.CONSTANT_SCORE_BOOLEAN_REWRITE.rewrite().
-func (m *constantScoreBooleanRewriteMethod) Rewrite(query *MultiTermQuery, reader IndexReader) (Query, error) {
-	bq, err := ScoringBooleanRewriteMethod.Rewrite(query, reader)
+func (m *constantScoreBooleanRewriteMethod) Rewrite(searcher *IndexSearcher, query *MultiTermQuery) (Query, error) {
+	bq, err := ScoringBooleanRewriteMethod.Rewrite(searcher, query)
 	if err != nil {
 		return nil, err
 	}

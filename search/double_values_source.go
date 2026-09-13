@@ -5,6 +5,7 @@
 package search
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -100,4 +101,3 @@ func (v *basicDoubleValues) AdvanceExact(doc int) (bool, error) {
 	}
 	return next == doc, nil
 }
-

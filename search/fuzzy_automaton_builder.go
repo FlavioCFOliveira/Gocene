@@ -94,7 +94,7 @@ func (b *FuzzyAutomatonBuilder) BuildAutomatonSet() []*automaton.CompiledAutomat
 	compiled := make([]*automaton.CompiledAutomaton, b.maxEdits+1)
 	for i := 0; i <= b.maxEdits; i++ {
 		a := b.levBuilder.ToAutomatonWithPrefix(i, b.prefix)
-		compiled[i] = automaton.CompileFull(a, true, false, false)
+		compiled[i] = automaton.NewCompiledAutomaton(a, true, false, false)
 	}
 	return compiled
 }
@@ -104,7 +104,7 @@ func (b *FuzzyAutomatonBuilder) BuildAutomatonSet() []*automaton.CompiledAutomat
 // Mirrors FuzzyAutomatonBuilder.buildMaxEditAutomaton (Lucene 10.4.0).
 func (b *FuzzyAutomatonBuilder) BuildMaxEditAutomaton() *automaton.CompiledAutomaton {
 	a := b.levBuilder.ToAutomatonWithPrefix(b.maxEdits, b.prefix)
-	return automaton.CompileFull(a, true, false, false)
+	return automaton.NewCompiledAutomaton(a, true, false, false)
 }
 
 // GetTermLength returns the number of Unicode codepoints in the source term.

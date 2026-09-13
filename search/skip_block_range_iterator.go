@@ -4,6 +4,8 @@
 
 package search
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // DocValuesSkipper is the minimal contract this iterator needs from a
 // DocValuesSkipper. Concrete codec types satisfy it.
 type DocValuesSkipper interface {
@@ -67,11 +69,18 @@ func (it *SkipBlockRangeIterator) Cost() int64 { return int64(NO_MORE_DOCS) }
 
 // DocIDRunEnd returns the inclusive upper doc id of the run that contains the
 // current doc.
-func (it *SkipBlockRangeIterator) DocIDRunEnd() int {
+func (it *SkipBlockRangeIterator) DocIDRunEnd() (int, error) {
 	for level := 0; level < it.skipper.NumLevels(); level++ {
 		if it.skipper.MinValue(level) > it.maxValue || it.skipper.MaxValue(level) < it.minValue {
-			return it.skipper.MaxDocID(level) + 1
+			return it.skipper.MaxDocID(level) + 1, nil
 		}
 	}
-	return it.doc + 1
+	return it.doc + 1, nil
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *SkipBlockRangeIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
 }

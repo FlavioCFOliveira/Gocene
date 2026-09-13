@@ -12,6 +12,8 @@
 package join
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -72,8 +74,8 @@ func (s *fakeScorer) Advance(target int) (int, error) {
 	}
 }
 
-func (s *fakeScorer) Cost() int64      { return s.cost }
-func (s *fakeScorer) DocIDRunEnd() int { return s.DocID() + 1 }
+func (s *fakeScorer) Cost() int64               { return s.cost }
+func (s *fakeScorer) DocIDRunEnd() (int, error) { return s.DocID() + 1, nil }
 func (s *fakeScorer) Score() float32 {
 	if s.idx < 0 || s.idx >= len(s.scores) {
 		return 0
@@ -174,7 +176,7 @@ type fakeQuery struct{ scorer search.Scorer }
 
 func (q *fakeQuery) Rewrite(search.IndexReader) (search.Query, error) { return q, nil }
 func (q *fakeQuery) Clone() search.Query                              { return q }
-func (q *fakeQuery) Equals(search.Query) bool                         { return false }
+func (q *fakeQuery) Equals(spi.Query) bool                            { return false }
 func (q *fakeQuery) HashCode() int                                    { return 0 }
 func (q *fakeQuery) CreateWeight(*search.IndexSearcher, bool, float32) (search.Weight, error) {
 	return &fakeWeight{scorer: q.scorer}, nil
@@ -331,4 +333,11 @@ func TestJoinUtil_BuildBitSet_NilReaderReturnsEmpty(t *testing.T) {
 	if bs.Length() != 0 {
 		t.Errorf("expected length 0, got %d", bs.Length())
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *fakeScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

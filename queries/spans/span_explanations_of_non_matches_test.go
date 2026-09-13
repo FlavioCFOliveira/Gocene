@@ -31,10 +31,13 @@ func TestSpanExplanationsOfNonMatches_Explain(t *testing.T) {
 
 	t.Run("explain_non_matching_doc_or_query", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "absent")),
+		q, err := NewSpanOrQuery(
+			NewSpanTermQuery(index.NewTerm("f", "absent")),
 		)
-		w, err := q.CreateWeight(nil, false, 1.0)
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
+		w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}
@@ -49,10 +52,13 @@ func TestSpanExplanationsOfNonMatches_Explain(t *testing.T) {
 
 	t.Run("non_match_description_contains_no_match", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "ghost")),
+		q, err := NewSpanOrQuery(
+			NewSpanTermQuery(index.NewTerm("f", "ghost")),
 		)
-		w, err := q.CreateWeight(nil, false, 1.0)
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
+		w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}
@@ -68,11 +74,14 @@ func TestSpanExplanationsOfNonMatches_Explain(t *testing.T) {
 
 	t.Run("search_SpanNotQuery_explain_non_match", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanNotQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "x")),
-			search.NewSpanTermQuery(index.NewTerm("f", "y")),
+		q, err := NewSpanNotQuery(
+			NewSpanTermQuery(index.NewTerm("f", "x")),
+			NewSpanTermQuery(index.NewTerm("f", "y")),
 		)
-		w, err := q.CreateWeight(nil, false, 1.0)
+		if err != nil {
+			t.Fatalf("NewSpanNotQuery: %v", err)
+		}
+		w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}
@@ -87,10 +96,13 @@ func TestSpanExplanationsOfNonMatches_Explain(t *testing.T) {
 
 	t.Run("explain_no_panic_for_nil_context", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "term")),
+		q, err := NewSpanOrQuery(
+			NewSpanTermQuery(index.NewTerm("f", "term")),
 		)
-		w, err := q.CreateWeight(nil, true, 1.0)
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
+		w, err := q.CreateWeight(nil, search.COMPLETE, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}
@@ -107,10 +119,13 @@ func TestSpanExplanationsOfNonMatches_Explain(t *testing.T) {
 
 	t.Run("explain_multiple_docs", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "notfound")),
+		q, err := NewSpanOrQuery(
+			NewSpanTermQuery(index.NewTerm("f", "notfound")),
 		)
-		w, err := q.CreateWeight(nil, false, 1.0)
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
+		w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}

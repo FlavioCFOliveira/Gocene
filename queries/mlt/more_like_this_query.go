@@ -9,6 +9,7 @@ package mlt
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"slices"
 
@@ -93,7 +94,7 @@ func (q *MoreLikeThisQuery) String() string {
 }
 
 // Equals reports whether this query equals other.
-func (q *MoreLikeThisQuery) Equals(other search.Query) bool {
+func (q *MoreLikeThisQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*MoreLikeThisQuery)
 	if !ok {
 		return false

@@ -53,7 +53,7 @@ func (c *MaxScoreCache) AdvanceShallow(target int) (int, error) {
 
 // GetMaxScore returns the highest cached max-score whose level upper bound is
 // at least upTo. If no level applies, the global max is returned.
-func (c *MaxScoreCache) GetMaxScore(upTo int) float32 {
+func (c *MaxScoreCache) GetMaxScore(upTo int) (float32, error) {
 	n := c.src.NumLevels()
 	c.ensureCacheSize(n)
 	best := c.global
@@ -67,7 +67,7 @@ func (c *MaxScoreCache) GetMaxScore(upTo int) float32 {
 		}
 		break
 	}
-	return best
+	return best, nil
 }
 
 // GetSkipUpTo identifies an upper doc id below which the source can be safely

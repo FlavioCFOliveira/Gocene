@@ -23,6 +23,7 @@
 package search_test
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math/rand"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -147,7 +148,7 @@ func newRandomApproximationScorer(inner search.Scorer, rng *rand.Rand) *randomAp
 	s := &randomApproximationScorer{Scorer: inner, lastDoc: -1}
 	s.approx = &randomApproximation{rng: rng, disi: inner, doc: -1}
 	s.twoPhase = search.NewTwoPhaseIteratorWithMatchCost(s.approx, s.matches, rng.Float32()*200)
-	s.disi = search.NewTwoPhaseIteratorAsDocIdSetIterator(s.twoPhase)
+	s.disi = search.AsDocIdSetIterator(s.twoPhase)
 	return s
 }
 
@@ -167,7 +168,7 @@ func (s *randomApproximationScorer) DocID() int                                 
 func (s *randomApproximationScorer) NextDoc() (int, error)                      { return s.disi.NextDoc() }
 func (s *randomApproximationScorer) Advance(target int) (int, error)            { return s.disi.Advance(target) }
 func (s *randomApproximationScorer) Cost() int64                                { return s.disi.Cost() }
-func (s *randomApproximationScorer) DocIDRunEnd() int                           { return s.disi.DocIDRunEnd() }
+func (s *randomApproximationScorer) DocIDRunEnd() (int, error)                  { return s.disi.DocIDRunEnd() }
 func (s *randomApproximationScorer) Score() float32                             { return s.Scorer.Score() }
 func (s *randomApproximationScorer) GetMaxScore(upTo int) float32               { return s.Scorer.GetMaxScore(upTo) }
 func (s *randomApproximationScorer) AdvanceShallow(target int) (int, error) {
@@ -211,8 +212,8 @@ func (a *randomApproximation) Advance(target int) (int, error) {
 	return a.doc, nil
 }
 
-func (a *randomApproximation) Cost() int64      { return a.disi.Cost() }
-func (a *randomApproximation) DocIDRunEnd() int { return a.doc + 1 }
+func (a *randomApproximation) Cost() int64               { return a.disi.Cost() }
+func (a *randomApproximation) DocIDRunEnd() (int, error) { return a.doc + 1, nil }
 
 // ── AssertingQuery (minimal delegating wrapper) ─────────────────────────────
 
@@ -253,4 +254,18 @@ func (q *assertingQuery) CreateWeight(searcher *search.IndexSearcher, needsScore
 
 func (q *assertingQuery) CreateWeightScoreMode(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
 	return searcher.CreateWeight(q.in, scoreMode, boost)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *randomApproximationScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (a *randomApproximation) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(a, upTo, bitSet, offset)
 }

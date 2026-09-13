@@ -479,7 +479,7 @@ func (s *relationScorerSupplier) Get(_ int64) (Scorer, error) {
 		return nil, err
 	}
 	if iter == nil {
-		iter = NewEmptyDocIdSetIterator()
+		iter = Empty()
 	}
 	return NewConstantScoreScorer(s.score, s.scoreMode, iter), nil
 }
@@ -501,8 +501,9 @@ func (s *relationScorerSupplier) Cost() int64 {
 
 // SetTopLevelScoringClause is a no-op for this supplier today;
 // recorded so callers can inspect it if needed in tests.
-func (s *relationScorerSupplier) SetTopLevelScoringClause() {
+func (s *relationScorerSupplier) SetTopLevelScoringClause() error {
 	s.topLevelScoring = true
+	return nil
 }
 
 // getSparseIterator mirrors RelationScorerSupplier.getSparseScorer.
@@ -537,7 +538,7 @@ func (s *relationScorerSupplier) getSparseIterator() (DocIdSetIterator, error) {
 			return nil, err
 		}
 		if cost[0] == 0 {
-			return NewEmptyDocIdSetIterator(), nil
+			return Empty(), nil
 		}
 		return newUtilToSearchDISIAdapter(util.NewBitSetIterator(result, cost[0])), nil
 	}
@@ -551,11 +552,11 @@ func (s *relationScorerSupplier) getSparseIterator() (DocIdSetIterator, error) {
 		return nil, err
 	}
 	if set == nil {
-		return NewEmptyDocIdSetIterator(), nil
+		return Empty(), nil
 	}
 	utilIter := set.Iterator()
 	if utilIter == nil {
-		return NewEmptyDocIdSetIterator(), nil
+		return Empty(), nil
 	}
 	return newUtilToSearchDISIAdapter(utilIter), nil
 }
@@ -598,7 +599,7 @@ func (s *relationScorerSupplier) getDenseIterator() (DocIdSetIterator, error) {
 		}
 	}
 	if cost[0] == 0 {
-		return NewEmptyDocIdSetIterator(), nil
+		return Empty(), nil
 	}
 	return newUtilToSearchDISIAdapter(util.NewBitSetIterator(result, cost[0])), nil
 }
@@ -625,7 +626,7 @@ func (s *relationScorerSupplier) getContainsDenseIterator() (DocIdSetIterator, e
 		return nil, err
 	}
 	if cost[0] == 0 {
-		return NewEmptyDocIdSetIterator(), nil
+		return Empty(), nil
 	}
 	return newUtilToSearchDISIAdapter(util.NewBitSetIterator(result, cost[0])), nil
 }
@@ -648,3 +649,9 @@ func setAllBits(fbs *util.FixedBitSet, maxDoc int) {
 // relations. Surfaced as an error (not a panic) because the value
 // can flow from user input on some shape queries.
 var errSpatialUnsupportedRelation = errors.New("search: unsupported spatial query relation")
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (r *relationScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(r)
+}

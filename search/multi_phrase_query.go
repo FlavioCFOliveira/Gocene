@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -88,11 +89,11 @@ func (b *MultiPhraseQueryBuilder) AddTermsAtPosition(terms []*index.Term, positi
 		panic("Term array must not be null")
 	}
 	if len(b.termArrays) == 0 {
-		b.field = terms[0].Field()
+		b.field = terms[0].Field
 	}
 
 	for _, term := range terms {
-		if term.Field() != b.field {
+		if term.Field != b.field {
 			panic(fmt.Sprintf("All phrase terms must be in the same field (%s): %v", b.field, term))
 		}
 	}
@@ -146,11 +147,11 @@ func (q *MultiPhraseQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 		return NewMatchNoDocsQuery("empty MultiPhraseQuery"), nil
 	} else if len(q.termArrays) == 1 { // optimize one-term case
 		terms := q.termArrays[0]
-		bq := NewBooleanQuery()
+		bq := NewBooleanQueryBuilder()
 		for _, term := range terms {
 			bq.Add(NewTermQuery(term), SHOULD)
 		}
-		return bq, nil
+		return bq.Build(), nil
 	}
 	return q, nil
 }
@@ -216,7 +217,7 @@ func (q *MultiPhraseQuery) String() string {
 }
 
 // Equals returns true if the other query is equal to this.
-func (q *MultiPhraseQuery) Equals(other Query) bool {
+func (q *MultiPhraseQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*MultiPhraseQuery)
 	if !ok {
 		return false

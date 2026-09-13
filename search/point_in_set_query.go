@@ -1,6 +1,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"bytes"
 	"fmt"
 
@@ -45,7 +46,10 @@ func NewPointInSetQuery(field string, numDims, bytesPerDim int, packedPoints Poi
 	var lowerPoint, upperPoint []byte
 
 	for {
-		current := packedPoints.Next()
+		current, err := packedPoints.Next()
+		if err != nil {
+			return nil, err
+		}
 		if current == nil {
 			break
 		}
@@ -104,129 +108,220 @@ func (q *PointInSetQuery) Visit(visitor QueryVisitor) {
 	}
 }
 
-func (q *PointInSetQuery) CreateWeight(searcher IndexSearcher, scoreMode ScoreMode, boost float32) Weight {
+func (q *PointInSetQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return &pointInSetWeight{
-		query:  q,
-		boost:  boost,
-		score:  boost, // Constant score
-		sMode:  scoreMode,
-	}
+		BaseWeight: BaseWeight{query: q},
+		query:      q,
+		boost:      boost,
+		score:      boost, // Constant score
+		sMode:      scoreMode,
+	}, nil
 }
 
 type pointInSetWeight struct {
-	query  *PointInSetQuery
-	boost  float32
-	score  float32
-	sMode  ScoreMode
+	BaseWeight
+	query *PointInSetQuery
+	boost float32
+	score float32
+	sMode ScoreMode
 }
 
-func (w *pointInSetWeight) IsCacheable(ctx index.LeafReaderContext) bool {
+// IsCacheable mirrors the anonymous ConstantScoreWeight's
+// isCacheable(LeafReaderContext), whose body is `return true`.
+func (w *pointInSetWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 	return true
 }
 
-func (w *pointInSetWeight) ScorerSupplier(ctx index.LeafReaderContext) ScorerSupplier {
-	reader := ctx.Reader()
-	values := reader.GetPointValues(w.query.field)
+// pointInSetPointTreeIntersect is the rich, visitor-driven read surface a
+// BKD-backed PointValues exposes beyond the metadata-only index.PointValues.
+// The on-disk reader returned by LeafReader.GetPointValues (the codec's
+// *pointValues) satisfies it structurally; the parameter type is the
+// index-package alias so the type assertion succeeds for the real codec reader
+// (the same reason LatLonPointDistanceQuery and PointRangeQuery alias
+// index.PointTreeIntersectVisitor).
+//
+// PORT NOTE. Java's cost() calls PointValues.estimateDocCount(visitor), a final
+// method that rescales estimatePointCount(visitor) by docCount/size. Gocene's
+// BKD reader exposes only EstimatePointCount, so that is what the cost uses —
+// the same treatment lat_lon_point_distance_query.go applies.
+type pointInSetPointTreeIntersect interface {
+	Intersect(visitor index.PointTreeIntersectVisitor) error
+	EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64
+}
+
+// ScorerSupplier mirrors the anonymous ConstantScoreWeight's
+// scorerSupplier(LeafReaderContext) in PointInSetQuery.createWeight.
+func (w *pointInSetWeight) ScorerSupplier(ctx *index.LeafReaderContext) (ScorerSupplier, error) {
+	reader := ctx.LeafReader()
+	values, err := reader.GetPointValues(w.query.field)
+	if err != nil {
+		return nil, err
+	}
 	if values == nil {
-		return nil
+		// No docs in this segment/field indexed any points
+		return nil, nil
 	}
 
 	if values.GetNumDimensions() != w.query.numDims {
-		panic(fmt.Sprintf("field=%q was indexed with numIndexDims=%d but this query has numIndexDims=%d",
-			w.query.field, values.GetNumDimensions(), w.query.numDims))
+		return nil, fmt.Errorf("field=%q was indexed with numIndexDims=%d but this query has numIndexDims=%d",
+			w.query.field, values.GetNumDimensions(), w.query.numDims)
 	}
 	if values.GetBytesPerDimension() != w.query.bytesPerDim {
-		panic(fmt.Sprintf("field=%q was indexed with bytesPerDim=%d but this query has bytesPerDim=%d",
-			w.query.field, values.GetBytesPerDimension(), w.query.bytesPerDim))
+		return nil, fmt.Errorf("field=%q was indexed with bytesPerDim=%d but this query has bytesPerDim=%d",
+			w.query.field, values.GetBytesPerDimension(), w.query.bytesPerDim)
 	}
 
 	if values.GetDocCount() == 0 {
-		return nil
+		return nil, nil
 	} else if w.query.lowerPoint != nil {
 		// Fast overlap check
-		minPacked, _ := values.GetMinPackedValue()
-		maxPacked, _ := values.GetMaxPackedValue()
+		minPacked, err := values.GetMinPackedValue()
+		if err != nil {
+			return nil, err
+		}
+		maxPacked, err := values.GetMaxPackedValue()
+		if err != nil {
+			return nil, err
+		}
 		for i := 0; i < w.query.numDims; i++ {
 			offset := i * w.query.bytesPerDim
 			if bytes.Compare(w.query.lowerPoint[offset:], maxPacked[offset:]) > 0 ||
 				bytes.Compare(w.query.upperPoint[offset:], minPacked[offset:]) < 0 {
-				return nil
+				return nil, nil
 			}
 		}
 	}
 
+	tree, ok := values.(pointInSetPointTreeIntersect)
+	if !ok {
+		// The PointValues does not expose the visitor-driven walk, so no
+		// document can be materialised from it.
+		return nil, nil
+	}
+
 	if w.query.numDims == 1 {
+		// We optimize this common case, effectively doing a merge sort of the
+		// indexed values vs the queried set.
 		return &pointInSetScorerSupplier1D{
 			query:  w.query,
 			reader: reader,
-			values: values,
+			values: tree,
 			weight: w,
-		}
+			cost:   -1,
+		}, nil
 	}
 
+	// NOTE: this is naive implementation, where for each point we re-walk the
+	// KD tree to intersect.
 	return &pointInSetScorerSupplierND{
 		query:  w.query,
 		reader: reader,
-		values: values,
+		values: tree,
 		weight: w,
-	}
+		cost:   -1,
+	}, nil
 }
 
 type pointInSetScorerSupplier1D struct {
+	BaseScorerSupplier
 	query  *PointInSetQuery
 	reader index.LeafReader
-	values index.PointValues
+	values pointInSetPointTreeIntersect
 	weight *pointInSetWeight
+	cost   int64 // calculate lazily, only once
 }
 
+// Cost mirrors cost() of the 1-dimension anonymous ScorerSupplier: computing it
+// may be expensive, so the estimate is produced once and cached.
 func (s *pointInSetScorerSupplier1D) Cost() int64 {
-	result := util.NewDocIdSetBuilder(s.reader.MaxDoc())
-	cost := s.values.Intersect(newMergePointVisitor(s.query.sortedPackedPoints, result))
-	return int64(cost) // Simplified: assume Intersect returns count or use builder count
+	if s.cost == -1 {
+		result := util.NewDocIdSetBuilder(s.reader.MaxDoc())
+		s.cost = s.values.EstimatePointCount(newMergePointVisitor(s.query.sortedPackedPoints, result))
+	}
+	return s.cost
 }
 
-func (s *pointInSetScorerSupplier1D) Get(leadCost int64) Scorer {
+// Get mirrors get(long leadCost) of the anonymous ScorerSupplier that
+// PointInSetQuery.createWeight returns in the 1-dimension case of Apache
+// Lucene 10.5.0 (PointInSetQuery.java:209-214):
+//
+//	DocIdSetBuilder result = new DocIdSetBuilder(reader.maxDoc(), values);
+//	values.intersect(new MergePointVisitor(sortedPackedPoints, result));
+//	DocIdSetIterator iterator = result.build().iterator();
+//	return new ConstantScoreScorer(score(), scoreMode, iterator);
+//
+// Java's get declares `throws IOException`, so the Go rendering returns
+// (Scorer, error) and propagates the failures of intersect and build instead
+// of discarding them.
+func (s *pointInSetScorerSupplier1D) Get(leadCost int64) (Scorer, error) {
 	result := util.NewDocIdSetBuilder(s.reader.MaxDoc())
-	_ = s.values.Intersect(newMergePointVisitor(s.query.sortedPackedPoints, result))
-	return NewConstantScoreScorer(s.weight.score, s.weight.sMode, result.Build())
+	if err := s.values.Intersect(newMergePointVisitor(s.query.sortedPackedPoints, result)); err != nil {
+		return nil, err
+	}
+	set, err := result.Build()
+	if err != nil {
+		return nil, err
+	}
+	return NewConstantScoreScorer(s.weight.score, s.weight.sMode, set.Iterator()), nil
 }
 
 type pointInSetScorerSupplierND struct {
+	BaseScorerSupplier
 	query  *PointInSetQuery
 	reader index.LeafReader
-	values index.PointValues
+	values pointInSetPointTreeIntersect
 	weight *pointInSetWeight
+	cost   int64 // calculate lazily, only once
 }
 
+// Cost mirrors cost() of the n-dimension anonymous ScorerSupplier: it sums the
+// per-point estimates of one KD-tree walk each, once.
 func (s *pointInSetScorerSupplierND) Cost() int64 {
-	var cost int64
-	result := util.NewDocIdSetBuilder(s.reader.MaxDoc())
-	visitor := &singlePointVisitor{
-		result: result,
-		bytesPerDim: s.query.bytesPerDim,
-		numDims: s.query.numDims,
+	if s.cost == -1 {
+		result := util.NewDocIdSetBuilder(s.reader.MaxDoc())
+		visitor := &singlePointVisitor{
+			result:      result,
+			bytesPerDim: s.query.bytesPerDim,
+			numDims:     s.query.numDims,
+		}
+		iterator := s.query.sortedPackedPoints.Iterator()
+		var cost int64
+		for point := iterator.Next(); point != nil; point = iterator.Next() {
+			visitor.setPoint(point)
+			cost += s.values.EstimatePointCount(visitor)
+		}
+		s.cost = cost
 	}
-	iterator := s.query.sortedPackedPoints.Iterator()
-	for point := iterator.Next(); point != nil; point = iterator.Next() {
-		visitor.setPoint(point)
-		cost += int64(s.values.Intersect(visitor)) // Assume Intersect returns count for estimate
-	}
-	return cost
+	return s.cost
 }
 
-func (s *pointInSetScorerSupplierND) Get(leadCost int64) Scorer {
+// Get mirrors get(long leadCost) of the anonymous ScorerSupplier that
+// PointInSetQuery.createWeight returns in the n-dimension case of Apache
+// Lucene 10.5.0 (PointInSetQuery.java:242-251): re-walk the KD tree once per
+// queried point, then build one ConstantScoreScorer over the union.
+//
+// Java's get declares `throws IOException`, so the Go rendering returns
+// (Scorer, error) and propagates the failures of intersect and build instead
+// of discarding them.
+func (s *pointInSetScorerSupplierND) Get(leadCost int64) (Scorer, error) {
 	result := util.NewDocIdSetBuilder(s.reader.MaxDoc())
 	visitor := &singlePointVisitor{
-		result: result,
+		result:      result,
 		bytesPerDim: s.query.bytesPerDim,
-		numDims: s.query.numDims,
+		numDims:     s.query.numDims,
 	}
 	iterator := s.query.sortedPackedPoints.Iterator()
 	for point := iterator.Next(); point != nil; point = iterator.Next() {
 		visitor.setPoint(point)
-		_ = s.values.Intersect(visitor)
+		if err := s.values.Intersect(visitor); err != nil {
+			return nil, err
+		}
 	}
-	return NewConstantScoreScorer(s.weight.score, s.weight.sMode, result.Build())
+	set, err := result.Build()
+	if err != nil {
+		return nil, err
+	}
+	return NewConstantScoreScorer(s.weight.score, s.weight.sMode, set.Iterator()), nil
 }
 
 type mergePointVisitor struct {
@@ -379,7 +474,13 @@ func (q *PointInSetQuery) RamBytesUsed() int64 {
 	return q.ramBytesUsed
 }
 
-func (q *PointInSetQuery) Equals(other any) bool {
+// Rewrite mirrors the Query.rewrite(IndexSearcher) that PointInSetQuery
+// inherits unchanged from Query, whose body is `return this`.
+func (q *PointInSetQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	return q, nil
+}
+
+func (q *PointInSetQuery) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}
@@ -391,20 +492,7 @@ func (q *PointInSetQuery) Equals(other any) bool {
 		o.numDims == q.numDims &&
 		o.bytesPerDim == q.bytesPerDim &&
 		o.sortedPackedPointsHashCode == q.sortedPackedPointsHashCode &&
-		q.sortedPackedPoints.equals(o.sortedPackedPoints)
-}
-
-// equals is a helper for PrefixCodedTerms comparison.
-func (p *PrefixCodedTerms) equals(other *PrefixCodedTerms) bool {
-	if len(p.terms) != len(other.terms) {
-		return false
-	}
-	for i := range p.terms {
-		if p.terms[i].field != other.terms[i].field || !bytes.Equal(p.terms[i].bytes, other.terms[i].bytes) {
-			return false
-		}
-	}
-	return true
+		q.sortedPackedPoints.Equals(o.sortedPackedPoints)
 }
 
 func (q *PointInSetQuery) ToString(field string) string {
@@ -434,4 +522,28 @@ func (q *PointInSetQuery) HashCode() int {
 	hash = 31*hash + q.numDims
 	hash = 31*hash + q.bytesPerDim
 	return hash
+}
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (p *pointInSetScorerSupplier1D) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(p)
+}
+
+// SetTopLevelScoringClause mirrors ScorerSupplier.setTopLevelScoringClause(),
+// whose body in Apache Lucene 10.5.0 is empty.
+func (p *pointInSetScorerSupplier1D) SetTopLevelScoringClause() error {
+	return nil
+}
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (p *pointInSetScorerSupplierND) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(p)
+}
+
+// SetTopLevelScoringClause mirrors ScorerSupplier.setTopLevelScoringClause(),
+// whose body in Apache Lucene 10.5.0 is empty.
+func (p *pointInSetScorerSupplierND) SetTopLevelScoringClause() error {
+	return nil
 }

@@ -5,7 +5,7 @@
 package search
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -129,7 +129,7 @@ func (q *RangeFieldQuery) BytesPerDim() int { return q.bytesPerDim }
 func (q *RangeFieldQuery) QueryType() RangeFieldQueryType { return q.queryType }
 
 // Rewrite returns q unchanged.
-func (q *RangeFieldQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
+func (q *RangeFieldQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // CreateWeight builds a ConstantScoreWeight that uses BKD-tree intersection.
 //
@@ -137,7 +137,7 @@ func (q *RangeFieldQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil 
 // back to matching no documents rather than panicking.
 //
 // Port of RangeFieldQuery.createWeight (Lucene 10.4.0).
-func (q *RangeFieldQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *RangeFieldQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	if q.numDims == 0 || q.bytesPerDim == 0 {
 		// No dimension metadata → return empty weight.
 		return NewConstantScoreWeight(q, boost, func(_ *index.LeafReaderContext) (ScorerSupplier, error) {
@@ -184,7 +184,7 @@ func (q *RangeFieldQuery) CreateWeight(searcher *IndexSearcher, needsScores bool
 
 		if allDocsMatch {
 			disi := newRangeDocIdSetIterator(maxDoc)
-			return NewScorerSupplierAdapter(NewConstantScoreScorer(boost, COMPLETE, disi)), nil
+			return NewDefaultScorerSupplier(NewConstantScoreScorer(boost, COMPLETE, disi)), nil
 		}
 
 		// Full intersection via BKD tree.
@@ -507,24 +507,8 @@ func newRangeDocIdSetIterator(maxDoc int) DocIdSetIterator {
 	return NewRangeDocIdSetIterator(0, maxDoc)
 }
 
-// Clone returns a copy of the query.
-func (q *RangeFieldQuery) Clone() Query {
-	minCopy := make([]byte, len(q.queryMin))
-	copy(minCopy, q.queryMin)
-	maxCopy := make([]byte, len(q.queryMax))
-	copy(maxCopy, q.queryMax)
-	return &RangeFieldQuery{
-		field:       q.field,
-		queryMin:    minCopy,
-		queryMax:    maxCopy,
-		numDims:     q.numDims,
-		bytesPerDim: q.bytesPerDim,
-		queryType:   q.queryType,
-	}
-}
-
 // Equals reports structural equality.
-func (q *RangeFieldQuery) Equals(other Query) bool {
+func (q *RangeFieldQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*RangeFieldQuery)
 	if !ok {
 		return false
@@ -578,3 +562,15 @@ func (q *RangeFieldQuery) String(field string) string {
 
 // Ensure RangeFieldQuery implements Query.
 var _ Query = (*RangeFieldQuery)(nil)
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (r *rangeFieldScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(r)
+}
+
+// SetTopLevelScoringClause mirrors ScorerSupplier.setTopLevelScoringClause(),
+// whose body in Apache Lucene 10.5.0 is empty.
+func (r *rangeFieldScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}

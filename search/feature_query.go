@@ -4,6 +4,10 @@
 
 package search
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 // FeatureQuery is a query that uses machine learning features for scoring.
 // This query allows incorporating ML model features into the search scoring.
 type FeatureQuery struct {
@@ -43,24 +47,17 @@ func (q *FeatureQuery) GetBoost() float32 {
 }
 
 // Rewrite rewrites this query to a simpler form.
-func (q *FeatureQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *FeatureQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	return q, nil
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *FeatureQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewConstantScoreQuery(q).CreateWeight(searcher, needsScores, q.boost*boost)
-}
-
-// Clone creates a copy of this query.
-func (q *FeatureQuery) Clone() Query {
-	fq := NewFeatureQuery(q.fieldName, q.featureValue)
-	fq.boost = q.boost
-	return fq
+func (q *FeatureQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return NewConstantScoreQuery(q).CreateWeight(searcher, scoreMode, q.boost*boost)
 }
 
 // Equals checks if this query equals another.
-func (q *FeatureQuery) Equals(other Query) bool {
+func (q *FeatureQuery) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}

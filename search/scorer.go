@@ -15,13 +15,16 @@ type Scorer interface {
 
 	// Iterator returns a DocIdSetIterator over matching documents.
 	//
+	// Mirrors the abstract Scorer.iterator(), which returns
+	// org.apache.lucene.search.DocIdSetIterator.
+	//
 	// The returned iterator will either be positioned on -1 if no documents have been
-	// scored yet, util.NO_MORE_DOCS if all documents have been scored already, or
+	// scored yet, NO_MORE_DOCS if all documents have been scored already, or
 	// the last document id that has been scored otherwise.
 	//
 	// The returned iterator is a view: calling this method several times will return
 	// iterators that have the same state.
-	Iterator() util.DocIdSetIterator
+	Iterator() DocIdSetIterator
 
 	// TwoPhaseIterator returns a TwoPhaseIterator view of this Scorer.
 	// A return value of nil indicates that two-phase iteration is not supported.
@@ -54,6 +57,37 @@ type Scorer interface {
 	// between 8 and a couple hundreds, to keep heap requirements contained, while still
 	// being large enough to enable operations on the buffer to auto-vectorize efficiently.
 	NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error
+}
+
+// ScoreErrorReporter is the optional Scorer extension for scorers that can
+// detect an error condition while computing a score. Gocene's Scorer.Score
+// returns only a float32 (no error), unlike Lucene where Scorer.score() throws
+// IOException/IllegalStateException; this interface lets such scorers surface a
+// deferred error that the search loop consults after the score is consumed.
+//
+// It is used to faithfully reproduce the block-join "Child query must not match
+// same docs with parent filter" IllegalStateException that Lucene raises from
+// ToParentBlockJoinQuery.BlockJoinScorer.scoreChildDocs.
+type ScoreErrorReporter interface {
+	// ScoreError returns a non-nil error if the most recent Score call detected
+	// an invariant violation, or nil otherwise.
+	ScoreError() error
+}
+
+// MinCompetitiveScorer is the optional Scorer extension that lets a collector
+// (or a parent scorer) hint at the minimum score a hit must reach to be
+// competitive, enabling non-competitive documents to be skipped. It mirrors
+// org.apache.lucene.search.Scorer#setMinCompetitiveScore.
+//
+// It is modelled as an optional interface rather than a method on Scorer so
+// that the many existing Scorer implementations keep compiling unchanged: only
+// scorers that participate in TOP_SCORES early termination implement it, and
+// callers type-assert before forwarding the hint.
+type MinCompetitiveScorer interface {
+	// SetMinCompetitiveScore informs the scorer that hits scoring below
+	// minScore are not competitive and may be skipped. Implementations that
+	// cannot skip should leave it a no-op.
+	SetMinCompetitiveScore(minScore float32) error
 }
 
 // DefaultTwoPhaseIterator returns nil, mirroring the default implementation in Lucene.
@@ -91,4 +125,32 @@ func DefaultNextDocsAndScores(s Scorer, upTo int, liveDocs util.Bits, buffer *Do
 	}
 	buffer.Size = size
 	return nil
+}
+
+// BaseScorer carries the concrete members of the abstract class
+// org.apache.lucene.search.Scorer (Lucene 10.5.0): the default bodies of
+// twoPhaseIterator() and advanceShallow(int). It embeds BaseScorable because
+// Java's Scorer extends Scorable, so a Scorer also inherits that class's
+// defaults.
+//
+// Java's docID(), iterator() and getMaxScore(int) are abstract and are
+// therefore not provided here: the embedder must supply them. Java's
+// nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) is concrete, but its
+// body dispatches back to the abstract iterator(), docID() and score(); Go
+// embedding cannot do that, so it is rendered as the free function
+// DefaultNextDocsAndScores above, which takes the concrete Scorer explicitly.
+type BaseScorer struct {
+	BaseScorable
+}
+
+// TwoPhaseIterator mirrors Scorer.twoPhaseIterator(), whose default body in
+// Java returns null.
+func (s *BaseScorer) TwoPhaseIterator() *TwoPhaseIterator {
+	return nil
+}
+
+// AdvanceShallow mirrors Scorer.advanceShallow(int), whose default body in
+// Java returns DocIdSetIterator.NO_MORE_DOCS.
+func (s *BaseScorer) AdvanceShallow(target int) (int, error) {
+	return util.NO_MORE_DOCS, nil
 }

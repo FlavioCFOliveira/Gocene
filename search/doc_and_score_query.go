@@ -6,9 +6,11 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DocAndScoreQuery is a query that wraps precomputed documents and scores.
@@ -49,8 +51,12 @@ func (q *DocAndScoreQuery) Visited() int64 {
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *DocAndScoreQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	if searcher.GetIndexReader().GetContext().ID() != q.contextIdentity {
+func (q *DocAndScoreQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	ctx, err := searcher.GetIndexReader().GetContext()
+	if err != nil {
+		return nil, err
+	}
+	if ctx.ID() != q.contextIdentity {
 		return nil, fmt.Errorf("this DocAndScore query was created by a different reader")
 	}
 	return NewDocAndScoreWeight(q, boost), nil
@@ -70,7 +76,7 @@ func (q *DocAndScoreQuery) Visit(visitor QueryVisitor) {
 }
 
 // Equals checks if this query equals another.
-func (q *DocAndScoreQuery) Equals(other Query) bool {
+func (q *DocAndScoreQuery) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}
@@ -115,12 +121,20 @@ func (q *DocAndScoreQuery) HashCode() int {
 	return h
 }
 
+// hashAny renders Objects.hash's treatment of the context identity token: Java
+// falls through to Object.hashCode(), the JVM identity hash. Go exposes no
+// identity hash, so the token's address is rendered and hashed with Java's
+// String.hashCode algorithm, which preserves the same notion of identity.
 func (q *DocAndScoreQuery) hashAny(v any) int {
 	if v == nil {
 		return 0
 	}
-	// Simplified: use pointer as identity.
-	return fmt.Sprintf("%p", v)[0:] // This is a placeholder; actual identity hashing is complex.
+	addr := fmt.Sprintf("%p", v)
+	h := 0
+	for i := 0; i < len(addr); i++ {
+		h = 31*h + int(addr[i])
+	}
+	return h
 }
 
 // CreateDocAndScoreQuery is a factory method to create a DocAndScoreQuery from TopDocs.
@@ -143,16 +157,24 @@ func CreateDocAndScoreQuery(reader index.IndexReaderInterface, topK *TopDocs) *D
 		scores[i] = topK.ScoreDocs[i].Score
 	}
 
-	leaves, _ := reader.GetContext().Leaves()
+	leaves, err := reader.Leaves()
+	if err != nil {
+		return nil
+	}
 	segmentStarts := FindSegmentStarts(leaves, docs)
+
+	ctx, err := reader.GetContext()
+	if err != nil {
+		return nil
+	}
 
 	return NewDocAndScoreQuery(
 		docs,
 		scores,
 		maxScore,
 		segmentStarts,
-		topK.TotalHits.Value(),
-		reader.GetContext().ID(),
+		topK.TotalHits.Value,
+		ctx.ID(),
 	)
 }
 
@@ -204,8 +226,8 @@ func (w *DocAndScoreWeight) Explain(context *index.LeafReaderContext, doc int) (
 	return NewExplanation(true, w.query.scores[idx]*w.boost, "within top "+fmt.Sprintf("%d", len(docs))+" docs"), nil
 }
 
-func (w *DocAndScoreWeight) Count(context *index.LeafReaderContext) int {
-	return w.query.segmentStarts[context.Ord+1] - w.query.segmentStarts[context.Ord]
+func (w *DocAndScoreWeight) Count(context *index.LeafReaderContext) (int, error) {
+	return w.query.segmentStarts[context.Ord+1] - w.query.segmentStarts[context.Ord], nil
 }
 
 func (w *DocAndScoreWeight) Scorer(context *index.LeafReaderContext) (Scorer, error) {
@@ -267,15 +289,15 @@ func (s *DocAndScoreScorer) DocID() int {
 	return s.docIDNoShadow()
 }
 
-func (s *DocAndScoreScorer) Score() float32 {
+func (s *DocAndScoreScorer) Score() (float32, error) {
 	if s.upTo >= s.lower && s.upTo < s.upper {
-		return s.weight.query.scores[s.upTo] * s.weight.boost
+		return s.weight.query.scores[s.upTo] * s.weight.boost, nil
 	}
-	return 0
+	return 0, nil
 }
 
-func (s *DocAndScoreScorer) GetMaxScore(docID int) float32 {
-	return s.weight.query.maxScore * s.weight.boost
+func (s *DocAndScoreScorer) GetMaxScore(docID int) (float32, error) {
+	return s.weight.query.maxScore * s.weight.boost, nil
 }
 
 func (s *DocAndScoreScorer) Advance(target int) (int, error) {
@@ -293,6 +315,64 @@ func (s *DocAndScoreScorer) Advance(target int) (int, error) {
 func (s *DocAndScoreScorer) Cost() int64 {
 	return int64(s.upper - s.lower)
 }
+
+// Iterator mirrors the anonymous Scorer.iterator() of
+// DocAndScoreQuery.createWeight(...).scorerSupplier(...) (Lucene 10.5.0,
+// DocAndScoreQuery.java:101-127), which returns an anonymous DocIdSetIterator
+// over the enclosing scorer's upTo cursor.
+func (s *DocAndScoreScorer) Iterator() DocIdSetIterator {
+	return &docAndScoreIterator{scorer: s}
+}
+
+// NextDocsAndScores mirrors the concrete body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) in Apache
+// Lucene 10.5.0, which this anonymous Scorer inherits unchanged.
+func (s *DocAndScoreScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// docAndScoreIterator is the anonymous DocIdSetIterator returned by the Java
+// scorer's iterator(). It shares the enclosing scorer's upTo cursor, exactly as
+// the Java inner class closes over it.
+type docAndScoreIterator struct {
+	BaseDocIdSetIterator
+	scorer *DocAndScoreScorer
+}
+
+// DocID mirrors `return docIdNoShadow();`.
+func (it *docAndScoreIterator) DocID() int { return it.scorer.docIDNoShadow() }
+
+// NextDoc mirrors:
+//
+//	if (upTo == -1) { upTo = lower; } else { ++upTo; }
+//	return docIdNoShadow();
+func (it *docAndScoreIterator) NextDoc() (int, error) {
+	if it.scorer.upTo == -1 {
+		it.scorer.upTo = it.scorer.lower
+	} else {
+		it.scorer.upTo++
+	}
+	return it.scorer.docIDNoShadow(), nil
+}
+
+// Advance mirrors `return slowAdvance(target);`.
+func (it *docAndScoreIterator) Advance(target int) (int, error) {
+	return it.SlowAdvance(it, target)
+}
+
+// Cost mirrors `return upper - lower;`.
+func (it *docAndScoreIterator) Cost() int64 { return int64(it.scorer.upper - it.scorer.lower) }
+
+// IntoBitSet mirrors the concrete default of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int).
+func (it *docAndScoreIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd mirrors the concrete default of DocIdSetIterator.docIDRunEnd().
+func (it *docAndScoreIterator) DocIDRunEnd() (int, error) { return DefaultDocIDRunEnd(it) }
+
+var _ DocIdSetIterator = (*docAndScoreIterator)(nil)
 
 var _ Query = (*DocAndScoreQuery)(nil)
 var _ Weight = (*DocAndScoreWeight)(nil)

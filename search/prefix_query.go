@@ -1,6 +1,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -20,24 +21,35 @@ type PrefixQuery struct {
 
 // NewPrefixQuery constructs a query for terms starting with prefix.
 func NewPrefixQuery(prefix *index.Term) *PrefixQuery {
-	return NewPrefixQueryWithRewriteMethod(prefix, CONSTANT_SCORE_BLENDED_REWRITE)
+	return NewPrefixQueryWithRewriteMethod(prefix, ConstantScoreBlendedRewrite)
 }
 
 // NewPrefixQueryWithRewriteMethod constructs a query for terms starting with prefix using a defined RewriteMethod.
 func NewPrefixQueryWithRewriteMethod(prefix *index.Term, rewriteMethod RewriteMethod) *PrefixQuery {
-	return &PrefixQuery{
-		AutomatonQuery: *NewAutomatonQuery(prefix, ToAutomaton(prefix.Bytes()), true, rewriteMethod),
+	q := &PrefixQuery{
+		AutomatonQuery: *NewAutomatonQuery(prefix, PrefixQueryToAutomaton(prefix.Bytes), true, rewriteMethod),
 	}
+	// The embedded AutomatonQuery was copied by value, so the owner installed
+	// by NewAutomatonQuery points at the temporary: re-install it on the final
+	// object. See MultiTermQuery.SetOwner.
+	q.MultiTermQuery.SetOwner(q)
+	return q
 }
 
-// ToAutomaton builds an automaton accepting all terms with the specified prefix.
-func ToAutomaton(prefix *util.BytesRef) *automaton.Automaton {
-	numStatesAndTransitions := prefix.Length() + 1
+// PrefixQueryToAutomaton builds an automaton accepting all terms with the
+// specified prefix.
+//
+// Mirrors the static method PrefixQuery.toAutomaton(BytesRef). WildcardQuery
+// and TermRangeQuery declare their own toAutomaton with different contracts,
+// which Go's flat package namespace would collide with, so each carries its
+// declaring class in the name.
+func PrefixQueryToAutomaton(prefix *util.BytesRef) *automaton.Automaton {
+	numStatesAndTransitions := prefix.Length + 1
 	auto := automaton.NewAutomatonWithCapacity(numStatesAndTransitions, numStatesAndTransitions)
 	lastState := auto.CreateState()
-	for i := 0; i < prefix.Length(); i++ {
+	for i := 0; i < prefix.Length; i++ {
 		state := auto.CreateState()
-		b := prefix.Bytes()[i]
+		b := prefix.Bytes[prefix.Offset+i]
 		auto.AddTransition(lastState, state, int(b)&0xff, int(b)&0xff)
 		lastState = state
 	}
@@ -73,7 +85,7 @@ func (q *PrefixQuery) HashCode() int {
 }
 
 // Equals reports whether another object is equal to this query.
-func (q *PrefixQuery) Equals(other Query) bool {
+func (q *PrefixQuery) Equals(other spi.Query) bool {
 	if q == other {
 		return true
 	}

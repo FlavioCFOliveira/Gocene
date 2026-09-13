@@ -1,188 +1,270 @@
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
+//
+// Licensed to the Apache Software Foundation (ASF) under one or more
+// contributor license agreements.  See the NOTICE file distributed with
+// this work for additional information regarding copyright ownership.
+// The ASF licenses this file to You under the Apache License, Version 2.0
+// (the "License"); you may not use this file except in compliance with
+// the License.  You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
 
 package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/document"
 )
 
-// FloatRangeSlowRangeQuery is a range query over FloatRange doc-values fields.
+// floatRangeSizeBytes mirrors org.apache.lucene.document.FloatRange.BYTES,
+// the byte-width of a single packed float dimension value (4 bytes /
+// Float.BYTES).
+const floatRangeSizeBytes = 4
+
+// floatRangeSlowRangeQuery is the Go port of Apache Lucene 10.5.0
+// org.apache.lucene.document.FloatRangeSlowRangeQuery
+// (lucene/core/src/java/org/apache/lucene/document/FloatRangeSlowRangeQuery.java).
 //
-// This is a faithful port of Lucene's org.apache.lucene.document.FloatRangeSlowRangeQuery.
-type FloatRangeSlowRangeQuery struct {
-	RangeFieldQuery
+// The query matches documents whose FloatRange doc-values intersect the
+// supplied [min, max] query rectangle on every dimension. The match is
+// scored as a constant score (boost) — there is no per-doc scoring signal.
+//
+// # Divergence from Lucene
+//
+//  1. Package: the Java type is package-private in org.apache.lucene.document.
+//     In Gocene queries live in search/ to avoid the search<->document
+//     import cycle. search/ imports document/ for the encoder
+//     ([document.Encode], the Go rendering of FloatRange.verifyAndEncode)
+//     and the QueryType enum.
+//
+//  2. Exposure: the Java class is package-private. In Gocene the type is
+//     unexported (floatRangeSlowRangeQuery) but the factory
+//     [NewFloatRangeSlowRangeQuery] is exported so external callers
+//     (typically FloatRange.newSlowIntersectsQuery) can construct it.
+//
+//  3. Inheritance: the Java type extends BinaryRangeFieldRangeQuery. Go uses
+//     composition: floatRangeSlowRangeQuery embeds *binaryRangeFieldRangeQuery
+//     for the shared field/numDims/queryPackedValue plumbing and overrides
+//     Equals/HashCode/Visit/String with the float-aware variants.
+type floatRangeSlowRangeQuery struct {
+	*binaryRangeFieldRangeQuery
+
 	field string
 	min   []float32
 	max   []float32
 }
 
-// NewFloatRangeSlowRangeQuery constructs a FloatRangeSlowRangeQuery.
+// NewFloatRangeSlowRangeQuery constructs a FloatRangeSlowRangeQuery for the
+// given field. The two arrays must have the same length (one entry per
+// dimension), each min[d] <= max[d], and neither may contain NaN (Lucene
+// rejects both inside FloatRange.verifyAndEncode, mirrored here by
+// [document.Encode]).
 //
-// This mirrors the constructor of Lucene's FloatRangeSlowRangeQuery.
-func NewFloatRangeSlowRangeQuery(field string, min, max []float32, queryType RangeFieldQueryType) (*FloatRangeSlowRangeQuery, error) {
-	if field == "" {
-		return nil, fmt.Errorf("field must not be null")
-	}
-	if len(min) == 0 || len(max) == 0 {
-		return nil, fmt.Errorf("min/max range values cannot be null or empty")
-	}
+// queryType must be [document.RangeFieldQueryTypeIntersects]; the binary
+// base rejects every other variant, matching the Java reference.
+func NewFloatRangeSlowRangeQuery(field string, min, max []float32, queryType document.RangeFieldQueryType) (Query, error) {
 	if len(min) != len(max) {
-		return nil, fmt.Errorf("min/max ranges must agree")
+		return nil, fmt.Errorf("min length %d != max length %d", len(min), len(max))
 	}
-	if len(min) > 4 {
-		return nil, fmt.Errorf("FloatRange does not support greater than 4 dimensions")
+	if len(min) == 0 {
+		return nil, fmt.Errorf("min/max must contain at least one dimension")
 	}
-	for i := range min {
-		if math.IsNaN(float64(min[i])) {
-			return nil, fmt.Errorf("invalid min value (%f) in FloatRange", min[i])
-		}
-		if math.IsNaN(float64(max[i])) {
-			return nil, fmt.Errorf("invalid max value (%f) in FloatRange", max[i])
-		}
-		if min[i] > max[i] {
-			return nil, fmt.Errorf("min value (%f) is greater than max value (%f)", min[i], max[i])
-		}
-	}
-
-	encoded, err := Encode(min, max)
+	packed, err := encodeFloatRanges(min, max)
 	if err != nil {
 		return nil, err
 	}
-
-	rfq, err := NewRangeFieldQuery(field, encoded, len(min), queryType)
+	base, err := newBinaryRangeFieldRangeQuery(field, packed, floatRangeSizeBytes, len(min), queryType)
 	if err != nil {
 		return nil, err
 	}
-
-	dupMin := make([]float32, len(min))
-	copy(dupMin, min)
-	dupMax := make([]float32, len(max))
-	copy(dupMax, max)
-
-	return &FloatRangeSlowRangeQuery{
-		RangeFieldQuery: *rfq,
-		field:           field,
-		min:             dupMin,
-		max:             dupMax,
+	// Defensive copies so the caller cannot mutate the query payload via the
+	// slices it passed in; the Java reference does not need this because
+	// arrays are by-reference but the FloatRange writers always allocate
+	// fresh arrays before reaching this constructor.
+	dupMin := append([]float32(nil), min...)
+	dupMax := append([]float32(nil), max...)
+	return &floatRangeSlowRangeQuery{
+		binaryRangeFieldRangeQuery: base,
+		field:                      field,
+		min:                        dupMin,
+		max:                        dupMax,
 	}, nil
 }
 
-// Equals reports whether two FloatRangeSlowRangeQuery instances are equal.
-//
-// This mirrors the equals method in Lucene's FloatRangeSlowRangeQuery.
-func (q *FloatRangeSlowRangeQuery) Equals(other Query) bool {
-	if q == other {
-		return true
-	}
-	that, ok := other.(*FloatRangeSlowRangeQuery)
+// Field returns the field name. Shadows the base method for documentation
+// clarity and to surface the field on the concrete type's API.
+func (q *floatRangeSlowRangeQuery) Field() string { return q.field }
+
+// Min returns a defensive copy of the per-dimension query lower bounds.
+func (q *floatRangeSlowRangeQuery) Min() []float32 {
+	out := make([]float32, len(q.min))
+	copy(out, q.min)
+	return out
+}
+
+// Max returns a defensive copy of the per-dimension query upper bounds.
+func (q *floatRangeSlowRangeQuery) Max() []float32 {
+	out := make([]float32, len(q.max))
+	copy(out, q.max)
+	return out
+}
+
+// Equals mirrors the Java reference: two FloatRangeSlowRangeQuery are equal
+// iff they share field, min, and max arrays.
+func (q *floatRangeSlowRangeQuery) Equals(other spi.Query) bool {
+	o, ok := other.(*floatRangeSlowRangeQuery)
 	if !ok {
 		return false
 	}
-	if q.field != that.field {
+	if q == o {
+		return true
+	}
+	if q.field != o.field {
 		return false
 	}
-	if len(q.min) != len(that.min) || len(q.max) != len(that.max) {
+	return float32SliceEquals(q.min, o.min) && float32SliceEquals(q.max, o.max)
+}
+
+// HashCode mirrors Java's Objects/Arrays-based hash: a per-type constant
+// rolled through (31*h + field-hash + Arrays.hashCode(min) + Arrays.hashCode(max)).
+func (q *floatRangeSlowRangeQuery) HashCode() int {
+	h := classHashFloatRangeSlowRangeQuery
+	h = 31*h + stringHash(q.field)
+	h = 31*h + float32SliceHash(q.min)
+	h = 31*h + float32SliceHash(q.max)
+	return h
+}
+
+// Visit mirrors the Java reference: the visitor is asked for the field; on
+// accept the query reports itself as a leaf. Shadows the base implementation
+// so the leaf reported to the visitor is the concrete float query, not the
+// embedded binary base.
+func (q *floatRangeSlowRangeQuery) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(q.field) {
+		visitor.VisitLeaf(q)
+	}
+}
+
+// String formats the query as Lucene does: optional "field:" prefix when
+// rendered out of context, followed by "[ [min0, min1, ...] TO [max0, max1, ...] ]".
+// Mirrors java.util.Arrays.toString for float[].
+func (q *floatRangeSlowRangeQuery) String(field string) string {
+	var b strings.Builder
+	if q.field != field {
+		b.WriteString(q.field)
+		b.WriteByte(':')
+	}
+	b.WriteByte('[')
+	b.WriteString(formatFloat32Slice(q.min))
+	b.WriteString(" TO ")
+	b.WriteString(formatFloat32Slice(q.max))
+	b.WriteByte(']')
+	return b.String()
+}
+
+// Rewrite mirrors the Java reference, which simply forwards to
+// super.rewrite(IndexSearcher) — i.e. returns the query unchanged.
+func (q *floatRangeSlowRangeQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
+
+// CreateWeight delegates to the binary base so the doc-values plumbing is
+// reused verbatim. The float wrapper contributes only equality/visit and
+// the public min/max accessors.
+func (q *floatRangeSlowRangeQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	w, err := q.binaryRangeFieldRangeQuery.CreateWeight(searcher, scoreMode, boost)
+	if err != nil {
+		return nil, err
+	}
+	// Re-point the BaseWeight at the concrete float query so GetQuery
+	// returns the FloatRangeSlowRangeQuery instead of the embedded base.
+	if brw, ok := w.(*binaryRangeFieldRangeWeight); ok {
+		brw.BaseWeight = NewBaseWeight(q)
+	}
+	return w, nil
+}
+
+// encodeFloatRanges packs an N-dimensional [min, max] payload via the existing
+// Lucene-compatible encoder so the byte stream is identical to the Java
+// reference (FloatRange.verifyAndEncode + FloatToSortableInt +
+// IntToSortableBytes).
+func encodeFloatRanges(min, max []float32) ([]byte, error) {
+	return document.Encode(min, max)
+}
+
+// float32SliceEquals mirrors java.util.Arrays.equals(float[], float[]), which
+// compares Float.floatToIntBits so that NaN equals NaN and -0.0 differs from 0.0.
+func float32SliceEquals(a, b []float32) bool {
+	if len(a) != len(b) {
 		return false
 	}
-	for i := range q.min {
-		if q.min[i] != that.min[i] {
-			return false
-		}
-	}
-	for i := range q.max {
-		if q.max[i] != that.max[i] {
+	for i := range a {
+		if math.Float32bits(a[i]) != math.Float32bits(b[i]) {
 			return false
 		}
 	}
 	return true
 }
 
-func (q *FloatRangeSlowRangeQuery) Clone() Query {
-	dupMin := make([]float32, len(q.min))
-	copy(dupMin, q.min)
-	dupMax := make([]float32, len(q.max))
-	copy(dupMax, q.max)
-
-	return &FloatRangeSlowRangeQuery{
-		RangeFieldQuery: q.RangeFieldQuery,
-		field:           q.field,
-		min:             dupMin,
-		max:             dupMax,
+// float32SliceHash mirrors java.util.Arrays.hashCode(float[]).
+// The Java reference seeds at 1 and folds each element via
+// 31*h + Float.floatToIntBits(element).
+func float32SliceHash(a []float32) int {
+	h := int32(1)
+	for _, v := range a {
+		h = 31*h + int32(math.Float32bits(v))
 	}
+	return int(h)
 }
 
-// CreateWeight is a stub for the weight implementation.
-func (q *FloatRangeSlowRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return nil, fmt.Errorf("CreateWeight is not yet implemented for FloatRangeSlowRangeQuery")
-}
-
-// HashCode returns a hash code for the query.
-//
-// This mirrors the hashCode method in Lucene's FloatRangeSlowRangeQuery.
-func (q *FloatRangeSlowRangeQuery) HashCode() int {
-	h := 1 // Simple class hash seed
-	h = 31*h + hashString(q.field)
-	h = 31*h + hashFloatSlice(q.min)
-	h = 31*h + hashFloatSlice(q.max)
-	return h
-}
-
-func hashString(s string) int {
-	h := 0
-	for i := 0; i < len(s); i++ {
-		h = 31*h + int(s[i])
+// formatFloat32Slice formats a float slice as java.util.Arrays.toString does:
+// "[v0, v1, v2]" with the default Float.toString rendering.
+func formatFloat32Slice(a []float32) string {
+	if len(a) == 0 {
+		return "[]"
 	}
-	return h
-}
-
-func hashFloatSlice(slice []float32) int {
-	h := 0
-	for _, v := range slice {
-		// In Java, Arrays.hashCode(float[]) uses Float.floatToIntBits
-		h = 31*h + int(math.Float32bits(v))
-	}
-	return h
-}
-
-// Visit allows a QueryVisitor to visit this query.
-func (q *FloatRangeSlowRangeQuery) Visit(visitor QueryVisitor) {
-	if visitor.AcceptField(q.field) {
-		visitor.VisitLeaf(q)
-	}
-}
-
-// ToString returns a string representation of the query.
-//
-// This mirrors the toString(String field) method in Lucene's FloatRangeSlowRangeQuery.
-func (q *FloatRangeSlowRangeQuery) ToString(field string) string {
 	var b strings.Builder
-	if q.field != field {
-		b.WriteString(q.field)
-		b.WriteString(":")
-	}
 	b.WriteByte('[')
-	for i, v := range q.min {
+	for i, v := range a {
 		if i > 0 {
-			b.WriteByte(' ')
+			b.WriteString(", ")
 		}
-		fmt.Fprintf(&b, "%f", v)
-	}
-	b.WriteString(" TO ")
-	for i, v := range q.max {
-		if i > 0 {
-			b.WriteByte(' ')
-		}
-		fmt.Fprintf(&b, "%f", v)
+		b.WriteString(formatFloat32(v))
 	}
 	b.WriteByte(']')
 	return b.String()
 }
 
-// Rewrite returns a rewritten version of the query.
-func (q *FloatRangeSlowRangeQuery) Rewrite(indexSearcher IndexSearcher) (Query, error) {
-	return q, nil
+// formatFloat32 renders a float32 the way java.lang.Float.toString does for
+// the common finite-value range. Special values match Java's literal names.
+func formatFloat32(v float32) string {
+	d := float64(v)
+	switch {
+	case math.IsNaN(d):
+		return "NaN"
+	case math.IsInf(d, 1):
+		return "Infinity"
+	case math.IsInf(d, -1):
+		return "-Infinity"
+	default:
+		// Shortest round-trip representation at float32 precision. Go's %g
+		// with bitSize 32 matches Java's Float.toString for the common
+		// finite-value range; callers compare strings only in tests, not as
+		// a wire format.
+		return fmt.Sprintf("%g", v)
+	}
 }
+
+// classHashFloatRangeSlowRangeQuery seeds the float query hash. Distinct from
+// classHashBinaryRangeFieldRangeQuery, classHashIntRangeSlowRangeQuery,
+// classHashLongRangeSlowRangeQuery and classHashDoubleRangeSlowRangeQuery so
+// a float query and a binary-base, int, long or double query with the same
+// packed payload do not collide.
+const classHashFloatRangeSlowRangeQuery = 0x6672_7372 // "frsr"
+
+// Ensure floatRangeSlowRangeQuery implements Query.
+var _ Query = (*floatRangeSlowRangeQuery)(nil)

@@ -9,6 +9,7 @@ package intervals
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // FilteringIntervalIterator is the abstract base for two-source conjunction interval
@@ -43,7 +44,7 @@ func NewFilteringIntervalIterator(a, b IntervalIterator, nextFn func() (int, err
 func (f *FilteringIntervalIterator) DocID() int { return f.approximation.DocID() }
 
 // DocIDRunEnd returns a conservative upper bound.
-func (f *FilteringIntervalIterator) DocIDRunEnd() int { return f.DocID() + 1 }
+func (f *FilteringIntervalIterator) DocIDRunEnd() (int, error) { return f.DocID() + 1, nil }
 
 // Cost returns the estimated iteration cost.
 func (f *FilteringIntervalIterator) Cost() int64 { return f.approximation.Cost() }
@@ -116,3 +117,10 @@ func (f *FilteringIntervalIterator) reset() error {
 }
 
 var _ util.DocIdSetIterator = (*FilteringIntervalIterator)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (f *FilteringIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
+}

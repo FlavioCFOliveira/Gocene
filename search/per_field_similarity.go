@@ -34,25 +34,12 @@ func (s *PerFieldSimilarityWrapper) SetFieldSimilarity(field string, similarity 
 	s.fieldSimilarities[field] = similarity
 }
 
-// ComputeNorm computes the norm value for a field.
-func (s *PerFieldSimilarityWrapper) ComputeNorm(field string, stats interface{}) float32 {
-	return s.GetFieldSimilarity(field).ComputeNorm(field, stats)
-}
-
-// ComputeWeight computes the weight for a query.
-func (s *PerFieldSimilarityWrapper) ComputeWeight(boost float32, collectionStats *CollectionStatistics, termStats *TermStatistics) SimWeight {
-	return s.defaultSimilarity.ComputeWeight(boost, collectionStats, termStats)
-}
-
-// Scorer creates a SimScorer for scoring documents, dispatching to the
-// per-field Similarity when collectionStats carries a recognisable field name.
-func (s *PerFieldSimilarityWrapper) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
-	if collectionStats != nil {
-		if sim, ok := s.fieldSimilarities[collectionStats.Field()]; ok {
-			return sim.Scorer(collectionStats, termStats)
-		}
-	}
-	return s.defaultSimilarity.Scorer(collectionStats, termStats)
+// Scorer104 mirrors PerFieldSimilarityWrapper.scorer(float,
+// CollectionStatistics, TermStatistics...) (Lucene 10.5.0,
+// PerFieldSimilarityWrapper.java:42-45), whose body is
+// `return get(collectionStats.field()).scorer(boost, collectionStats, termStats);`.
+func (s *PerFieldSimilarityWrapper) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
+	return s.GetFieldSimilarity(collectionStats.Field()).Scorer104(boost, collectionStats, termStats...)
 }
 
 // Ensure PerFieldSimilarityWrapper implements Similarity

@@ -10,6 +10,7 @@
 package search_test
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 	"testing"
 
@@ -63,12 +64,12 @@ func (s *dssFixedScorer) Advance(target int) (int, error) {
 
 func (s *dssFixedScorer) Cost() int64 { return int64(len(s.docs)) }
 
-func (s *dssFixedScorer) DocIDRunEnd() int {
+func (s *dssFixedScorer) DocIDRunEnd() (int, error) {
 	doc := s.DocID()
 	if doc == search.NO_MORE_DOCS {
-		return search.NO_MORE_DOCS
+		return search.NO_MORE_DOCS, nil
 	}
-	return doc + 1
+	return doc + 1, nil
 }
 
 func (s *dssFixedScorer) Score() float32 {
@@ -194,7 +195,7 @@ func TestDisjunctionSumScorer_InitialDocID(t *testing.T) {
 		t.Errorf("initial DocID() = %d, want -1", got)
 	}
 
-// ─── DisiPriorityQueue tests ──────────────────────────────────────────────
+	// ─── DisiPriorityQueue tests ──────────────────────────────────────────────
 
 }
 func TestDisiPriorityQueue_AddTopPop(t *testing.T) {
@@ -210,7 +211,7 @@ func TestDisiPriorityQueue_AddTopPop(t *testing.T) {
 	w2.SetDoc(5)
 	w3.SetDoc(8)
 
-	pq := search.NewDisiPriorityQueue(3)
+	pq := search.OfMaxSize(3)
 	pq.Add(w1)
 	pq.Add(w2)
 	pq.Add(w3)
@@ -225,4 +226,11 @@ func TestDisiPriorityQueue_AddTopPop(t *testing.T) {
 	if top := pq.Top(); top.Doc() != 8 {
 		t.Errorf("Top().doc = %d, want 8", top.Doc())
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *dssFixedScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

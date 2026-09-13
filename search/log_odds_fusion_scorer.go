@@ -21,6 +21,8 @@ package search
 
 import (
 	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // Ported from Apache Lucene 10.5.0:
@@ -71,13 +73,13 @@ func NewLogOddsFusionScorer(
 
 	return &LogOddsFusionScorer{
 		DisjunctionScorer: ds,
-		subScorers:         subScorers,
-		totalClauses:       totalClauses,
-		scalingFactor:      scalingFactor,
-		signalWeights:      signalWeights,
-		logitMin:           logitMin,
-		logitMax:           logitMax,
-		scorerIndexMap:     indexMap,
+		subScorers:        subScorers,
+		totalClauses:      totalClauses,
+		scalingFactor:     scalingFactor,
+		signalWeights:     signalWeights,
+		logitMin:          logitMin,
+		logitMax:          logitMax,
+		scorerIndexMap:    indexMap,
 	}
 }
 
@@ -96,7 +98,7 @@ func logit(p float32) float32 {
 	return float32(math.Log(float64(clamped / (1.0 - clamped))))
 }
 
-func sigmoid(x float32) float32 {
+func logOddsFusionScorerSigmoid(x float32) float32 {
 	if x >= 0 {
 		return float32(1.0 / (1.0 + math.Exp(float64(-x))))
 	}
@@ -130,19 +132,22 @@ func (s *LogOddsFusionScorer) gateLogit(rawLogit float32, signalIndex int) float
 }
 
 // Score overrides DisjunctionScorer.Score by calling the specialized scoreTopList.
-func (s *LogOddsFusionScorer) Score() float32 {
+func (s *LogOddsFusionScorer) Score() (float32, error) {
 	topList, err := s.getSubMatches()
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	return s.scoreTopList(topList)
 }
 
 // scoreTopList implements the Log-Odds Fusion formula.
-func (s *LogOddsFusionScorer) scoreTopList(topList *DisiWrapper) float32 {
+func (s *LogOddsFusionScorer) scoreTopList(topList *DisiWrapper) (float32, error) {
 	var logitSum float64
 	for w := topList; w != nil; w = w.next {
-		subScore := w.scorable.Score()
+		subScore, err := w.scorable.Score()
+		if err != nil {
+			return 0, err
+		}
 		idx := -1
 		if s.scorerIndexMap != nil {
 			idx = s.scorerIndexMap[w.scorer]
@@ -167,15 +172,18 @@ func (s *LogOddsFusionScorer) scoreTopList(topList *DisiWrapper) float32 {
 	} else {
 		scaledLogit = float32((logitSum / float64(s.totalClauses)) * float64(s.scalingFactor))
 	}
-	return sigmoid(scaledLogit)
+	return logOddsFusionScorerSigmoid(scaledLogit), nil
 }
 
 // GetMaxScore returns an upper bound on the score for any document ≤ upTo.
-func (s *LogOddsFusionScorer) GetMaxScore(upTo int) float32 {
+func (s *LogOddsFusionScorer) GetMaxScore(upTo int) (float32, error) {
 	var maxLogitSum float64
 	for i, scorer := range s.subScorers {
 		if scorer.DocID() <= upTo {
-			maxSubScore := scorer.GetMaxScore(upTo)
+			maxSubScore, err := scorer.GetMaxScore(upTo)
+			if err != nil {
+				return 0, err
+			}
 			gated := s.gateLogit(logit(maxSubScore), i)
 			if s.signalWeights != nil {
 				maxLogitSum += float64(s.signalWeights[i] * gated)
@@ -191,5 +199,15 @@ func (s *LogOddsFusionScorer) GetMaxScore(upTo int) float32 {
 	} else {
 		scaledLogit = float32((maxLogitSum / float64(s.totalClauses)) * float64(s.scalingFactor))
 	}
-	return sigmoid(scaledLogit)
+	return logOddsFusionScorerSigmoid(scaledLogit), nil
 }
+
+// NextDocsAndScores mirrors the concrete body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) in Apache
+// Lucene 10.5.0, which LogOddsFusionScorer inherits unchanged through
+// DisjunctionScorer.
+func (s *LogOddsFusionScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+var _ Scorer = (*LogOddsFusionScorer)(nil)

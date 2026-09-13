@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"sort"
 	"strconv"
@@ -146,7 +147,7 @@ func (q *SynonymQuery) HashCode() int {
 }
 
 // Equals checks if this query is equal to another.
-func (q *SynonymQuery) Equals(other Query) bool {
+func (q *SynonymQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*SynonymQuery)
 	if !ok {
 		return false
@@ -166,7 +167,7 @@ func (q *SynonymQuery) Equals(other Query) bool {
 func (q *SynonymQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	if len(q.terms) == 0 {
 		// return new BooleanQuery.Builder().build();
-		return NewBooleanQuery(), nil
+		return NewBooleanQueryBuilder().Build(), nil
 	}
 	if len(q.terms) == 1 && q.terms[0].boost == 1.0 {
 		return NewTermQuery(index.NewTerm(q.field, q.terms[0].term)), nil
@@ -179,31 +180,31 @@ func (q *SynonymQuery) Visit(visitor QueryVisitor) {
 	if !visitor.AcceptField(q.field) {
 		return
 	}
-	v := visitor.GetSubVisitor(BooleanClauseOccurShould, q)
+	v := visitor.GetSubVisitor(SHOULD, q)
 	ts := make([]*index.Term, len(q.terms))
 	for i, tb := range q.terms {
 		ts[i] = index.NewTerm(q.field, tb.term)
 	}
-	v.ConsumeTerms(q, ts)
+	v.ConsumeTerms(q, ts...)
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *SynonymQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	if needsScores {
-		return NewSynonymWeight(q, searcher, needsScores, boost), nil
+func (q *SynonymQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	if scoreMode.NeedsScores() {
+		return NewSynonymWeight(q, searcher, scoreMode.NeedsScores(), boost)
 	}
 
 	// if scores are not needed, let BooleanWeight deal with optimizing that case.
-	bq := NewBooleanQuery()
+	bq := NewBooleanQueryBuilder()
 	for _, tb := range q.terms {
-		bq.Add(NewTermQuery(index.NewTerm(q.field, tb.term)), BooleanClauseOccurShould)
+		bq.Add(NewTermQuery(index.NewTerm(q.field, tb.term)), SHOULD)
 	}
 
-	rewritten, err := searcher.Rewrite(bq)
+	rewritten, err := searcher.Rewrite(bq.Build())
 	if err != nil {
 		return nil, err
 	}
-	return rewritten.CreateWeight(searcher, false, boost)
+	return rewritten.CreateWeight(searcher, scoreMode, boost)
 }
 
 // SynonymWeight is the Weight implementation for SynonymQuery.
@@ -218,7 +219,7 @@ type SynonymWeight struct {
 }
 
 // NewSynonymWeight creates a new SynonymWeight.
-func NewSynonymWeight(q *SynonymQuery, searcher *IndexSearcher, needsScores bool, boost float32) *SynonymWeight {
+func NewSynonymWeight(q *SynonymQuery, searcher *IndexSearcher, needsScores bool, boost float32) (*SynonymWeight, error) {
 	w := &SynonymWeight{
 		BaseWeight:  NewBaseWeight(q),
 		field:       q.field,
@@ -235,7 +236,10 @@ func NewSynonymWeight(q *SynonymQuery, searcher *IndexSearcher, needsScores bool
 	var totalTermFreq int64
 	for _, tb := range w.terms {
 		term := index.NewTerm(w.field, tb.term)
-		ts := BuildTermStates(searcher, term, true)
+		ts, err := index.BuildTermStates(searcher, term, true)
+		if err != nil {
+			return nil, err
+		}
 		if ts.DocFreq() > 0 {
 			stats := searcher.TermStatistics(term, ts.DocFreq(), ts.TotalTermFreq())
 			if stats.DocFreq() > docFreq {
@@ -248,10 +252,10 @@ func NewSynonymWeight(q *SynonymQuery, searcher *IndexSearcher, needsScores bool
 	w.similarity = searcher.GetSimilarity()
 	if docFreq > 0 {
 		pseudoStats := NewTermStatistics(index.NewTerm(w.field, "synonym pseudo-term"), docFreq, totalTermFreq)
-		w.simScorer = w.similarity.Scorer(boost, collectionStats, pseudoStats)
+		w.simScorer = w.similarity.Scorer104(boost, collectionStats, pseudoStats)
 	}
 
-	return w
+	return w, nil
 }
 
 // Scorer creates a scorer for this weight.
@@ -305,7 +309,7 @@ func (w *SynonymWeight) ScorerSupplier(context *index.LeafReaderContext) (Scorer
 	if scorer == nil {
 		return nil, nil
 	}
-	return NewScorerSupplierAdapter(scorer), nil
+	return NewDefaultScorerSupplier(scorer), nil
 }
 
 // Explain returns an explanation of the score for the given document.
@@ -315,12 +319,15 @@ func (w *SynonymWeight) Explain(context *index.LeafReaderContext, doc int) (Expl
 		return nil, err
 	}
 	if scorer != nil {
-		advanced, err := scorer.Advance(doc)
+		advanced, err := scorer.Iterator().Advance(doc)
 		if err != nil {
 			return nil, err
 		}
 		if advanced == doc {
-			score := scorer.Score()
+			score, err := scorer.Score()
+			if err != nil {
+				return nil, err
+			}
 
 			result := MatchExplanation(score, fmt.Sprintf("weight(%v in %d) [%s], result of:",
 				w.GetQuery(), doc, w.similarityName()))

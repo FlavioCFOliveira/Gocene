@@ -140,3 +140,43 @@ type SimilarityConfig struct {
 	B                    float32
 }
 
+// BaseSimilarity carries the concrete members of the abstract class
+// org.apache.lucene.search.similarities.Similarity (Lucene 10.5.0): the
+// private final discountOverlaps field, the final getDiscountOverlaps()
+// accessor and the default computeNorm(FieldInvertState) body.
+//
+// Go has no class inheritance, so a type that ports a Similarity subclass
+// embeds BaseSimilarity and overrides only what the Java subclass overrides.
+// Java's scorer(float, CollectionStatistics, TermStatistics...) is abstract and
+// is therefore not provided here: the embedder must supply Scorer104.
+type BaseSimilarity struct {
+	// discountOverlaps mirrors Similarity.discountOverlaps: true when overlap
+	// tokens (a position increment of zero) are discounted from a document's
+	// length when computing norms.
+	discountOverlaps bool
+}
+
+// NewBaseSimilarity mirrors the default constructor Similarity(), which in
+// Java delegates to Similarity(true).
+func NewBaseSimilarity() *BaseSimilarity {
+	return NewBaseSimilarityWithDiscountOverlaps(true)
+}
+
+// NewBaseSimilarityWithDiscountOverlaps mirrors the expert constructor
+// Similarity(boolean discountOverlaps).
+func NewBaseSimilarityWithDiscountOverlaps(discountOverlaps bool) *BaseSimilarity {
+	return &BaseSimilarity{discountOverlaps: discountOverlaps}
+}
+
+// GetDiscountOverlaps mirrors the final accessor
+// Similarity.getDiscountOverlaps().
+func (s *BaseSimilarity) GetDiscountOverlaps() bool {
+	return s.discountOverlaps
+}
+
+// ComputeNormFromInvertState mirrors the default body of
+// Similarity.computeNorm(FieldInvertState), which encodes the term count with
+// SmallFloat.intToByte4.
+func (s *BaseSimilarity) ComputeNormFromInvertState(state *index.FieldInvertState) int64 {
+	return DefaultComputeNormFromInvertState(state, s.discountOverlaps)
+}

@@ -22,9 +22,11 @@ package search
 // Lucene produces the identical ordering, so the omission is not observable.
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // fieldEntry is one slot in the field-value priority queue. slot indexes the
@@ -130,7 +132,11 @@ func (q *fieldValueHitQueue) updateTop() *fieldEntry {
 // TopFieldCollector collects the top-N documents sorted by the sort fields'
 // DocValues. It is the Go port of org.apache.lucene.search.TopFieldCollector.
 type TopFieldCollector struct {
-	*SimpleCollector
+	BaseSimpleCollector
+
+	// scoreMode mirrors the TopFieldCollector.scoreMode field, returned
+	// verbatim by ScoreMode.
+	scoreMode ScoreMode
 
 	numHits int
 	sort    *Sort
@@ -176,12 +182,12 @@ func NewTopFieldCollector(numHits int, sort *Sort) *TopFieldCollector {
 	}
 
 	return &TopFieldCollector{
-		SimpleCollector: NewSimpleCollector(scoreMode),
-		numHits:         numHits,
-		sort:            sort,
-		comparators:     comparators,
-		reverseMul:      reverseMuls,
-		queue:           newFieldValueHitQueue(comparators, reverseMuls, numHits),
+		scoreMode:   scoreMode,
+		numHits:     numHits,
+		sort:        sort,
+		comparators: comparators,
+		reverseMul:  reverseMuls,
+		queue:       newFieldValueHitQueue(comparators, reverseMuls, numHits),
 	}
 }
 
@@ -201,6 +207,10 @@ func NewTopFieldCollectorAfter(numHits int, sort *Sort, after *FieldDoc) *TopFie
 	return c
 }
 
+// ScoreMode mirrors TopFieldCollector.scoreMode(), which returns the
+// scoreMode field computed at construction time.
+func (c *TopFieldCollector) ScoreMode() ScoreMode { return c.scoreMode }
+
 // GetLeafCollector binds every comparator to the new leaf and returns a
 // LeafCollector. The context's reader carries the segment's DocValues, which
 // the comparators resolve in setReader, and its docBase rebases collected doc
@@ -209,7 +219,7 @@ func (c *TopFieldCollector) GetLeafCollector(context *index.LeafReaderContext) (
 	docBase := 0
 	var reader IndexReader
 	if context != nil {
-		docBase = context.DocBase()
+		docBase = context.DocBase
 		// context.Reader() is an index.IndexReaderInterface, which exposes the
 		// DocCount/NumDocs/MaxDoc subset that the minimal search.IndexReader
 		// requires, so it satisfies the comparator setReader contract.
@@ -307,7 +317,7 @@ func canEarlyTerminateOnPrefix(searchSort, indexSort *Sort) bool {
 // DOC sort over the (empty) field name with no missing-value override.
 func sortFieldEqualsFieldDoc(sf *SortField) bool {
 	return sf != nil &&
-		sf.Type == SortFieldTypeDoc &&
+		sf.Type == spi.SortFieldTypeDoc &&
 		sf.Field == "" &&
 		!sf.Reverse &&
 		sf.MissingValue == nil
@@ -333,7 +343,7 @@ func sortFieldEquals(a, b *SortField) bool {
 func (c *TopFieldCollector) GetTotalHits() int { return c.totalHits }
 
 // GetMaxScore returns the maximum score seen (0 unless the sort needs scores).
-func (c *TopFieldCollector) GetMaxScore() float32 { return c.maxScore }
+func (c *TopFieldCollector) GetMaxScore(_ int) (float32, error) { return c.maxScore, nil }
 
 // TopFieldLeafCollector drives one segment. It composes the per-leaf comparators
 // into a single multiLeafFieldComparator (so a multi-key sort short-circuits on
@@ -342,7 +352,7 @@ type TopFieldLeafCollector struct {
 	*BaseLeafCollector
 	collector  *TopFieldCollector
 	comparator LeafFieldComparator
-	scorer     Scorer
+	scorer     Scorable
 	docBase    int
 }
 
@@ -377,12 +387,9 @@ func NewTopFieldLeafCollector(collector *TopFieldCollector, docBase int) *TopFie
 
 // SetScorer records the scorer and forwards it to the comparators (only a
 // score-typed comparator consumes it).
-func (c *TopFieldLeafCollector) SetScorer(scorer Scorer) error {
+func (c *TopFieldLeafCollector) SetScorer(scorer Scorable) error {
 	c.scorer = scorer
-	if sc, ok := scorerAsScorable(scorer); ok {
-		return c.comparator.SetScorer(sc)
-	}
-	return nil
+	return c.comparator.SetScorer(scorer)
 }
 
 // SetDocBase sets the document base offset for the segment and propagates it to
@@ -403,7 +410,11 @@ func (c *TopFieldLeafCollector) Collect(doc int) error {
 	col := c.collector
 	col.totalHits++
 	if c.scorer != nil {
-		if s := c.scorer.Score(); s > col.maxScore {
+		s, err := c.scorer.Score()
+		if err != nil {
+			return err
+		}
+		if s > col.maxScore {
 			col.maxScore = s
 		}
 	}
@@ -463,7 +474,7 @@ type scorerScorableAdapter struct {
 	s Scorer
 }
 
-func (a *scorerScorableAdapter) Score() (float32, error) { return a.s.Score(), nil }
+func (a *scorerScorableAdapter) Score() (float32, error) { return a.s.Score() }
 
 // Ensure TopFieldCollector implements Collector and the leaf type satisfies
 // LeafCollector.
@@ -475,3 +486,82 @@ var (
 // reader-type assertion helper: the search loop hands GetLeafCollector the
 // concrete leaf reader; the comparators type-assert it to the DocValues views.
 var _ = index.NumericDocValues(nil)
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (t *TopFieldLeafCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(t, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (t *TopFieldLeafCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(t, stream)
+}
+
+// PopulateScores populates the scores of the given topDocs.
+//
+// topDocs is the top docs to populate, searcher the index searcher that has
+// been used to compute topDocs, and query the query that has been used to
+// compute them. An error is returned if there is evidence that topDocs have
+// been computed against a different searcher or a different query.
+//
+// Mirrors the static TopFieldCollector.populateScores(ScoreDoc[], IndexSearcher, Query)
+// of Apache Lucene 10.5.0.
+func PopulateScores(topDocs []*ScoreDoc, searcher *IndexSearcher, query Query) error {
+	// Get the score docs sorted in doc id order
+	sorted := make([]*ScoreDoc, len(topDocs))
+	copy(sorted, topDocs)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Doc < sorted[j].Doc })
+
+	rewritten, err := searcher.Rewrite(query)
+	if err != nil {
+		return err
+	}
+	weight, err := searcher.CreateWeight(rewritten, COMPLETE, 1)
+	if err != nil {
+		return err
+	}
+	contexts, err := searcher.GetIndexReader().Leaves()
+	if err != nil {
+		return err
+	}
+
+	var currentContext *index.LeafReaderContext
+	var currentScorer Scorer
+	for _, scoreDoc := range sorted {
+		if currentContext == nil ||
+			scoreDoc.Doc >= currentContext.DocBase+currentContext.LeafReader().MaxDoc() {
+			if scoreDoc.Doc < 0 || scoreDoc.Doc >= searcher.GetIndexReader().MaxDoc() {
+				return fmt.Errorf("doc id %d is out of bounds", scoreDoc.Doc)
+			}
+			newContextIndex := index.ReaderUtilSubIndexLeaves(scoreDoc.Doc, contexts)
+			currentContext = contexts[newContextIndex]
+			scorerSupplier, err := weight.ScorerSupplier(currentContext)
+			if err != nil {
+				return err
+			}
+			if scorerSupplier == nil {
+				return fmt.Errorf("doc id %d doesn't match the query", scoreDoc.Doc)
+			}
+			currentScorer, err = scorerSupplier.Get(1) // random-access
+			if err != nil {
+				return err
+			}
+		}
+		leafDoc := scoreDoc.Doc - currentContext.DocBase
+		advanced, err := currentScorer.Iterator().Advance(leafDoc)
+		if err != nil {
+			return err
+		}
+		if leafDoc != advanced {
+			return fmt.Errorf("doc id %d doesn't match the query", scoreDoc.Doc)
+		}
+		score, err := currentScorer.Score()
+		if err != nil {
+			return err
+		}
+		scoreDoc.Score = score
+	}
+	return nil
+}

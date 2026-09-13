@@ -5,8 +5,6 @@
 package search
 
 import (
-	"math"
-
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -58,8 +56,12 @@ func getStatsFromSkipper(reader index.IndexReader, field string) (*Stats, error)
 	var docCount int
 	initialized := false
 
-	for _, ctx := range reader.Leaves() {
-		leafReader := ctx.Reader()
+	leaves, err := reader.Leaves()
+	if err != nil {
+		return nil, err
+	}
+	for _, ctx := range leaves {
+		leafReader := ctx.LeafReader()
 		if leafReader.GetFieldInfos().FieldInfo(field) == nil {
 			continue
 		}

@@ -74,7 +74,7 @@ func NewIBSimilarityWithDiscount(discountOverlaps bool, distribution IBDistribut
 		normExpl := ib.normalization.Explain(stats, freq, docLen)
 		lambdaExpl := ib.lambda.Explain(stats)
 		subs = append(subs, normExpl, lambdaExpl)
-		subs = append(subs, ib.distribution.Explain(stats, normExpl.GetValue(), lambdaExpl.GetValue()))
+		subs = append(subs, ib.distribution.Explain(stats, float64(normExpl.GetValue()), float64(lambdaExpl.GetValue())))
 		return subs
 	}
 

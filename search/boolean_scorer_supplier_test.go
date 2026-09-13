@@ -404,8 +404,8 @@ func (bs *BooleanScorer) AdvanceShallow(int) (int, error) {
 }
 
 // DocIDRunEnd returns the end of the current run of consecutive doc IDs.
-func (bs *BooleanScorer) DocIDRunEnd() int {
-	return bs.currentDoc + 1
+func (bs *BooleanScorer) DocIDRunEnd() (int, error) {
+	return bs.currentDoc + 1, nil
 }
 
 // DefaultBulkScorer is a test-local BulkScorer used only to satisfy the
@@ -1067,8 +1067,8 @@ func TestBooleanScorerSupplier_SingleShouldScoringClause(t *testing.T) {
 		t.Error("clause2 should NOT be topLevelScoringClause for MUST_NOT")
 	}
 
-// TestBooleanScorerSupplier_MaxScoreNonTopLevelScoringClause tests max score calculation
-// Source: testMaxScoreNonTopLevelScoringClause()
+	// TestBooleanScorerSupplier_MaxScoreNonTopLevelScoringClause tests max score calculation
+	// Source: testMaxScoreNonTopLevelScoringClause()
 }
 func TestBooleanScorerSupplier_MaxScoreNonTopLevelScoringClause(t *testing.T) {
 	subs := make(map[search.Occur][]search.ScorerSupplier)
@@ -1112,4 +1112,11 @@ func TestBooleanScorerSupplier_MaxScoreNonTopLevelScoringClause(t *testing.T) {
 	if maxScore != 2.0 {
 		t.Errorf("Expected max score 2.0, got %f", maxScore)
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (bs *BooleanScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(bs, upTo, bitSet, offset)
 }

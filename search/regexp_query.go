@@ -29,16 +29,9 @@ func (p *defaultAutomatonProvider) GetAutomaton(name string) (*automaton.Automat
 // DefaultAutomatonProvider is the default provider that returns no named automata.
 var DefaultAutomatonProvider automaton.AutomatonProvider = &defaultAutomatonProvider{}
 
-// ConstantScoreBlendedRewrite is the default rewrite method for RegexpQuery.
-type constantScoreBlendedRewriteMethod struct{}
-
-func (m *constantScoreBlendedRewriteMethod) Rewrite(searcher *IndexSearcher, query *MultiTermQuery) (Query, error) {
-	return newMultiTermQueryConstantScoreBlendedWrapper(query), nil
-}
-
-// ConstantScoreBlendedRewrite is a rewrite method that balances BooleanQuery-like
-// implementation over costly terms and a filter bitset for others.
-var ConstantScoreBlendedRewrite RewriteMethod = &constantScoreBlendedRewriteMethod{}
+// ConstantScoreBlendedRewrite, the default rewrite method for RegexpQuery, is
+// declared by MultiTermQuery (CONSTANT_SCORE_BLENDED_REWRITE) and therefore
+// lives in multi_term_query.go, alongside the other RewriteMethod constants.
 
 // NewRegexpQuery constructs a query for terms matching the regular expression in term.
 // By default, all regular expression features are enabled.
@@ -95,14 +88,23 @@ func NewRegexpQueryFull(
 		panic("regexp: failed to produce automaton")
 	}
 
-	return &RegexpQuery{
+	q := &RegexpQuery{
 		AutomatonQuery: *NewAutomatonQuery(term, aut, false, rewriteMethod),
 	}
+	// The embedded AutomatonQuery was copied by value, so the owner installed
+	// by NewAutomatonQuery points at the temporary: re-install it on the final
+	// object. See MultiTermQuery.SetOwner.
+	q.MultiTermQuery.SetOwner(q)
+	return q
 }
 
 func toAutomaton(regexp *automaton.RegExp, limit int, provider automaton.AutomatonProvider, doDeterminization bool) *automaton.Automaton {
 	if doDeterminization {
-		aut, err := automaton.Determinize(regexp.ToAutomatonWith(nil, provider), limit)
+		nfa, err := regexp.ToAutomatonWith(nil, provider)
+		if err != nil {
+			panic(fmt.Sprintf("regexp: %v", err))
+		}
+		aut, err := automaton.Determinize(nfa, limit)
 		if err != nil {
 			// Mirror Java's behavior of throwing an exception if determinization fails
 			panic(fmt.Sprintf("regexp: %v", err))
@@ -124,8 +126,8 @@ func (q *RegexpQuery) GetRegexp() *index.Term {
 // ToString prints a user-readable version of this query.
 func (q *RegexpQuery) ToString(field string) string {
 	var sb strings.Builder
-	if q.term.Field() != field {
-		sb.WriteString(q.term.Field())
+	if q.term.Field != field {
+		sb.WriteString(q.term.Field)
 		sb.WriteString(":")
 	}
 	sb.WriteByte('/')

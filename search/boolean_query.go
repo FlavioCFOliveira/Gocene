@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"strings"
 
@@ -47,7 +48,7 @@ func (b *BooleanQueryBuilder) Add(query Query, occur Occur) *BooleanQueryBuilder
 // AddClause adds a new clause to this Builder.
 func (b *BooleanQueryBuilder) AddClause(clause *BooleanClause) *BooleanQueryBuilder {
 	if len(b.clauses) >= GetMaxClauseCount() {
-		panic(&TooManyClauses{MaxClauseCount: GetMaxClauseCount()})
+		panic(NewTooManyClauses())
 	}
 	b.clauses = append(b.clauses, clause)
 	return b
@@ -128,7 +129,11 @@ func (q *BooleanQuery) RewriteTwoClauseDisjunctionWithTermsForCount(searcher *In
 		tq := q.clauses[i].Query().(*TermQuery)
 		// Optimization will count term query several times so use cache to avoid multiple terms dictionary lookups
 		if tq.GetTermStates() == nil {
-			tq = NewTermQueryWithStates(tq.GetTerm(), index.BuildTermStates(searcher.GetReader(), tq.GetTerm(), false))
+			termStates, err := index.BuildTermStates(searcher, tq.GetTerm(), false)
+			if err != nil {
+				return nil, err
+			}
+			tq = NewTermQueryWithStates(tq.GetTerm(), termStates)
 		}
 		builder.Add(tq, MUST)
 		queries[i] = tq
@@ -152,9 +157,9 @@ func (q *BooleanQuery) RewriteNoScoring() *BooleanQuery {
 
 		for {
 			if bq, ok := rewritten.(*BoostQuery); ok {
-				rewritten = bq.Query
+				rewritten = bq.Query()
 			} else if csq, ok := rewritten.(*ConstantScoreQuery); ok {
-				rewritten = csq.Query
+				rewritten = csq.GetQuery()
 			} else if bq, ok := rewritten.(*BooleanQuery); ok {
 				rewritten = bq.RewriteNoScoring()
 			} else {
@@ -185,7 +190,7 @@ func (q *BooleanQuery) RewriteNoScoring() *BooleanQuery {
 
 // CreateWeight builds the Weight for the given query.
 func (q *BooleanQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
-	return NewBooleanWeight(q, searcher, scoreMode, boost), nil
+	return NewBooleanWeight(q, searcher, scoreMode, boost)
 }
 
 // Rewrite rewrites the query into primitive queries.
@@ -231,7 +236,7 @@ func (q *BooleanQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 					return nil, err
 				}
 				if csq, ok := rewritten.(*ConstantScoreQuery); ok {
-					rewritten = csq.Query
+					rewritten = csq.GetQuery()
 				}
 			} else {
 				rewritten, err = query.Rewrite(searcher)
@@ -288,7 +293,7 @@ func (q *BooleanQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 				return NewMatchNoDocsQuery("FILTER or MUST clause also in MUST_NOT"), nil
 			}
 		}
-		if contains(mustNotClauses, MatchAllDocsQuery) {
+		if contains(mustNotClauses, Instance) {
 			return NewMatchNoDocsQuery("MUST_NOT clause is MatchAllDocsQuery"), nil
 		}
 	}
@@ -301,10 +306,7 @@ func (q *BooleanQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 		}
 		modified := false
 		if len(filters) > 1 || len(q.GetClauses(MUST)) > 0 {
-			if _, exists := filters[MatchAllDocsQuery]; exists {
-				delete(filters, MatchAllDocsQuery)
-				modified = true
-			}
+			modified = removeQueryFromSet(filters, Instance)
 		}
 		musts := q.GetClauses(MUST)
 		for _, m := range musts {
@@ -365,8 +367,8 @@ func (q *BooleanQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 			curr := query
 			for {
 				if bq, ok := curr.(*BoostQuery); ok {
-					boost *= float64(bq.Boost)
-					curr = bq.Query
+					boost *= float64(bq.Boost())
+					curr = bq.Query()
 				} else {
 					break
 				}
@@ -399,8 +401,8 @@ func (q *BooleanQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 			curr := query
 			for {
 				if bq, ok := curr.(*BoostQuery); ok {
-					boost *= float64(bq.Boost)
-					curr = bq.Query
+					boost *= float64(bq.Boost())
+					curr = bq.Query()
 				} else {
 					break
 				}
@@ -434,10 +436,10 @@ func (q *BooleanQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 			boost := float32(1.0)
 			curr := must
 			if bq, ok := curr.(*BoostQuery); ok {
-				curr = bq.Query
-				boost = bq.Boost
+				curr = bq.Query()
+				boost = bq.Boost()
 			}
-			if curr == MatchAllDocsQuery {
+			if _, isMatchAllDocs := curr.(*MatchAllDocsQuery); isMatchAllDocs {
 				builder := NewBooleanQueryBuilder()
 				for _, clause := range q.clauses {
 					switch clause.Occur() {
@@ -445,7 +447,7 @@ func (q *BooleanQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 						builder.AddClause(clause)
 					}
 				}
-				rewritten := builder.Build()
+				var rewritten Query = builder.Build()
 				rewritten = NewConstantScoreQuery(rewritten)
 				if boost != 1.0 {
 					rewritten = NewBoostQuery(rewritten, boost)
@@ -571,9 +573,27 @@ func isMatchNoDocs(q Query) bool {
 	return ok
 }
 
+// contains renders java.util.Collection.contains(Object) over a clause list:
+// membership is decided by Query.equals, not by object identity. The identity
+// test is kept as the fast path, exactly as Java's AbstractCollection.contains
+// reaches equals only after the reference comparison inside it.
 func contains(slice []Query, q Query) bool {
 	for _, item := range slice {
-		if item == q {
+		if item == q || item.Equals(q) {
+			return true
+		}
+	}
+	return false
+}
+
+// removeQueryFromSet renders java.util.Set.remove(Object) over a Go set of
+// queries: the entry equal to q is removed and true is reported when the set
+// changed. Go map lookup compares interface values by identity, so the set is
+// scanned with Query.equals instead.
+func removeQueryFromSet(set map[Query]struct{}, q Query) bool {
+	for item := range set {
+		if item == q || item.Equals(q) {
+			delete(set, item)
 			return true
 		}
 	}
@@ -587,12 +607,12 @@ func (q *BooleanQuery) Visit(visitor QueryVisitor) {
 		if len(queries) > 0 {
 			if occur == MUST {
 				for _, query := range queries {
-					query.Visit(sub)
+					visitQuery(query, sub)
 				}
 			} else {
 				v := visitor.GetSubVisitor(occur, q)
 				for _, query := range queries {
-					query.Visit(v)
+					visitQuery(query, v)
 				}
 			}
 		}
@@ -616,7 +636,7 @@ func (q *BooleanQuery) ToString(field string) string {
 			sb.WriteString(bq.ToString(field))
 			sb.WriteString(")")
 		} else {
-			sb.WriteString(subQuery.ToString(field))
+			sb.WriteString(queryToString(subQuery, field))
 		}
 
 		if i != len(q.clauses)-1 {
@@ -637,7 +657,7 @@ func (q *BooleanQuery) ToString(field string) string {
 }
 
 // Equals checks if this query equals another.
-func (q *BooleanQuery) Equals(other Query) bool {
+func (q *BooleanQuery) Equals(other spi.Query) bool {
 	otherQuery, ok := other.(*BooleanQuery)
 	if !ok {
 		return false

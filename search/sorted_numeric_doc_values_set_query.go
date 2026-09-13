@@ -6,6 +6,7 @@ package search
 
 import (
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"slices"
 	"strconv"
 	"strings"
@@ -148,7 +149,7 @@ func int64SliceString(xs []int64) string {
 
 // Equals mirrors SortedNumericDocValuesSetQuery.equals: same class,
 // same field, same numeric set (element-wise on the sorted view).
-func (q *sortedNumericDocValuesSetQuery) Equals(other Query) bool {
+func (q *sortedNumericDocValuesSetQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*sortedNumericDocValuesSetQuery)
 	if !ok {
 		return false
@@ -185,17 +186,12 @@ func (q *sortedNumericDocValuesSetQuery) Visit(visitor QueryVisitor) {
 // Rewrite mirrors SortedNumericDocValuesSetQuery.rewrite: an empty set
 // folds to MatchNoDocsQuery (no document can possibly carry a value
 // from an empty set). Every non-empty query rewrites to itself.
-func (q *sortedNumericDocValuesSetQuery) Rewrite(_ IndexReader) (Query, error) {
+func (q *sortedNumericDocValuesSetQuery) Rewrite(_ *IndexSearcher) (Query, error) {
 	if q.numbers.Size() == 0 {
-		return NewMatchNoDocsQuery(), nil
+		return NewMatchNoDocsQuery(""), nil
 	}
 	return q, nil
 }
-
-// Clone returns the query itself. The struct is logically immutable
-// (the value set was copied at construction time), so a shallow clone
-// preserves query identity and equals semantics.
-func (q *sortedNumericDocValuesSetQuery) Clone() Query { return q }
 
 // CreateWeight builds a [ConstantScoreWeight] that resolves the
 // per-leaf [index.SortedNumericDocValues] iterator and wraps a
@@ -212,9 +208,9 @@ func (q *sortedNumericDocValuesSetQuery) Clone() Query { return q }
 // signature uses a needsScores bool, so the supplier infers the mode
 // (true => COMPLETE, false => COMPLETE_NO_SCORES) and propagates it
 // to the ConstantScoreScorer.
-func (q *sortedNumericDocValuesSetQuery) CreateWeight(_ *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *sortedNumericDocValuesSetQuery) CreateWeight(_ *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	mode := COMPLETE_NO_SCORES
-	if needsScores {
+	if scoreMode.NeedsScores() {
 		mode = COMPLETE
 	}
 
@@ -295,13 +291,18 @@ func (q *sortedNumericDocValuesSetQuery) CreateWeight(_ *IndexSearcher, needsSco
 			}
 		}
 
-		tpi := NewTwoPhaseIterator(approx, matchFn)
+		// Mirrors the anonymous TwoPhaseIterators of
+		// SortedNumericDocValuesSetQuery.createWeight(...).scorerSupplier(...)
+		// (Lucene 10.5.0, SortedNumericDocValuesSetQuery.java:124-126 for the
+		// singleton branch and :148-150 for the multi-valued branch): both
+		// return 5 ("2 comparisons, possible lookup in the set").
+		tpi := NewTwoPhaseIteratorWithMatchCost(approx, matchFn, 5)
 		return NewConstantScoreScorerSupplier(
 			boost,
 			mode,
 			approx.Cost(),
 			func(_ int64) (DocIdSetIterator, error) {
-				return tpi.AsDocIdSetIterator(), nil
+				return AsDocIdSetIterator(tpi), nil
 			},
 		), nil
 	}

@@ -1,6 +1,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -51,7 +52,7 @@ func NewTermRangeQueryWithRewriteMethod(
 	includeUpper bool,
 	rewriteMethod RewriteMethod,
 ) *TermRangeQuery {
-	auto, err := ToAutomaton(lowerTerm, upperTerm, includeLower, includeUpper)
+	auto, err := TermRangeQueryToAutomaton(lowerTerm, upperTerm, includeLower, includeUpper)
 	if err != nil {
 		// In Java, toAutomaton is static and called in constructor.
 		// If it fails, it's a programmer error or invalid range.
@@ -69,8 +70,12 @@ func NewTermRangeQueryWithRewriteMethod(
 	}
 }
 
-// ToAutomaton creates an automaton matching the requested binary interval.
-func ToAutomaton(lowerTerm *util.BytesRef, upperTerm *util.BytesRef, includeLower, includeUpper bool) (*automaton.Automaton, error) {
+// TermRangeQueryToAutomaton creates an automaton matching the requested binary
+// interval.
+//
+// Mirrors the static method TermRangeQuery.toAutomaton(BytesRef, BytesRef,
+// boolean, boolean).
+func TermRangeQueryToAutomaton(lowerTerm *util.BytesRef, upperTerm *util.BytesRef, includeLower, includeUpper bool) (*automaton.Automaton, error) {
 	if lowerTerm == nil {
 		includeLower = true
 	}
@@ -207,7 +212,7 @@ func (q *TermRangeQuery) HashCode() int {
 	return result
 }
 
-func (q *TermRangeQuery) Equals(other Query) bool {
+func (q *TermRangeQuery) Equals(other spi.Query) bool {
 	if q == other {
 		return true
 	}

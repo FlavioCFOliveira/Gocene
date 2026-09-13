@@ -24,6 +24,7 @@
 package search_test
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 	"math/rand"
 	"testing"
@@ -291,7 +292,7 @@ func (s *booleanOrIntScorer) Advance(target int) (int, error) {
 }
 
 func (s *booleanOrIntScorer) Cost() int64               { return int64(len(s.docs)) }
-func (s *booleanOrIntScorer) DocIDRunEnd() int          { return s.DocID() + 1 }
+func (s *booleanOrIntScorer) DocIDRunEnd() (int, error) { return s.DocID() + 1, nil }
 func (s *booleanOrIntScorer) Score() float32            { return 0 }
 func (s *booleanOrIntScorer) GetMaxScore(_ int) float32 { return math.MaxFloat32 }
 
@@ -326,4 +327,11 @@ func TestBooleanOr_SubScorerNextIsNotMatch(t *testing.T) {
 	if c := scorer.Cost(); c != 9 {
 		t.Errorf("Cost() = %d, want 9 (3+2+4)", c)
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *booleanOrIntScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

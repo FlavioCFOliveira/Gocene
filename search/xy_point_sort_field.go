@@ -7,6 +7,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 )
 
@@ -64,9 +65,9 @@ func NewXYPointSortField(field string, originX, originY float32) (*XYPointSortFi
 	if err := checkXYValue(originY); err != nil {
 		return nil, err
 	}
-	sf := NewSortField(field, SortFieldTypeCustom)
+	sf := NewSortField(field, spi.SortFieldTypeCustom)
 	sf.Reverse = false
-	sf.Missing = MissingValueLast
+	sf.Missing = spi.MissingValueLast
 	sf.MissingValue = math.Inf(1)
 	return &XYPointSortField{
 		SortField: sf,

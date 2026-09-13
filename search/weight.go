@@ -21,12 +21,16 @@ import (
 // and the context used to create a Scorer.
 //
 // A Weight is used in the following way:
-// 1. A Weight is constructed by a top-level query, given an IndexSearcher
-//    (Query.CreateWeight(IndexSearcher, ScoreMode, float)).
-// 2. A Scorer is constructed by Weight.Scorer(LeafReaderContext).
+//  1. A Weight is constructed by a top-level query, given an IndexSearcher
+//     (Query.CreateWeight(IndexSearcher, ScoreMode, float)).
+//  2. A Scorer is constructed by Weight.Scorer(LeafReaderContext).
 //
 // This is the Go port of org.apache.lucene.search.Weight.
 type Weight interface {
+	// SegmentCacheable contributes IsCacheable(LeafReaderContext): Java declares
+	// `public abstract class Weight implements SegmentCacheable`.
+	SegmentCacheable
+
 	// GetQuery returns the query that this weight concerns.
 	GetQuery() Query
 
@@ -149,7 +153,7 @@ func (w *BaseWeight) Matches(ctx *index.LeafReaderContext, doc int) (Matches, er
 		return nil, nil
 	}
 
-	twoPhase := UnwrapTwoPhase(scorer.Iterator())
+	twoPhase := Unwrap(scorer.Iterator())
 	if twoPhase == nil {
 		advanced, err := scorer.Iterator().Advance(doc)
 		if err != nil {
@@ -186,13 +190,13 @@ func NewDefaultScorerSupplier(scorer Scorer) *DefaultScorerSupplier {
 }
 
 // Get returns the wrapped scorer.
-func (s *DefaultScorerSupplier) Get(leadCost int) (Scorer, error) {
+func (s *DefaultScorerSupplier) Get(leadCost int64) (Scorer, error) {
 	return s.scorer, nil
 }
 
 // GetMatchCost returns the cost of the underlying scorer.
 func (s *DefaultScorerSupplier) GetMatchCost() float32 {
-	return float32(s.scorer.Cost())
+	return float32(s.scorer.Iterator().Cost())
 }
 
 // GetDocCount returns the number of documents that match this weight.
@@ -201,5 +205,67 @@ func (s *DefaultScorerSupplier) GetDocCount() int {
 	return -1
 }
 
-// Ensure BaseWeight implements Weight
-var _ Weight = (*BaseWeight)(nil)
+// BaseWeight deliberately carries no compile-time `var _ Weight` assertion.
+//
+// It renders the abstract class org.apache.lucene.search.Weight, declared in
+// Apache Lucene 10.5.0 as `public abstract class Weight implements
+// SegmentCacheable` (Weight.java:54). Weight names SegmentCacheable but
+// supplies no isCacheable body: the method stays abstract, so the abstract
+// class itself does not satisfy the interface — only its concrete subclasses
+// do, each with its own isCacheable. Asserting that BaseWeight satisfies
+// Weight would therefore assert something the Java reference does not hold,
+// and supplying an IsCacheable default here would invent a caching decision
+// Lucene never makes. Concrete weights carry the method, as they do in Java.
+
+// scorerMatch positions a freshly created Scorer on the requested leaf-local
+// document and reports whether the scorer actually matches that document.
+//
+// It mirrors the universal shape of Lucene's Weight.explain implementations,
+// which pull a Scorer for the leaf and advance its iterator to doc: a hit
+// occurs precisely when iterator().advance(doc) == doc. Driving the
+// explanation off the same Scorer the search path uses guarantees that the
+// explained value equals the scored value — the property Lucene preserves by
+// computing the explained score from a live Scorer rather than re-deriving it.
+//
+// The returned score is meaningful only when matched is true; callers must
+// treat it as undefined otherwise. A nil scorer (no candidates on this leaf)
+// is reported as a non-match with a zero score and no error.
+func scorerMatch(w Weight, context *index.LeafReaderContext, doc int) (matched bool, score float32, err error) {
+	scorer, err := w.Scorer(context)
+	if err != nil {
+		return false, 0, err
+	}
+	if scorer == nil {
+		return false, 0, nil
+	}
+	advanced, err := scorer.Iterator().Advance(doc)
+	if err != nil {
+		return false, 0, err
+	}
+	if advanced != doc {
+		return false, 0, nil
+	}
+	sc0, err := scorer.Score()
+	if err != nil {
+		return false, 0, err
+	}
+	return true, sc0, nil
+}
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (d *DefaultScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(d)
+}
+
+// SetTopLevelScoringClause mirrors ScorerSupplier.setTopLevelScoringClause(),
+// whose body in Apache Lucene 10.5.0 is empty.
+func (d *DefaultScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
+
+// Cost mirrors Weight.DefaultScorerSupplier.cost() of Apache Lucene 10.5.0:
+// scorer.iterator().cost().
+func (s *DefaultScorerSupplier) Cost() int64 {
+	return s.scorer.Iterator().Cost()
+}

@@ -70,7 +70,7 @@ func Merge(start, topN int, shardHits []*TopDocs, tieBreaker TieBreaker) *TopDoc
 	availHitCount := 0
 
 	// Prepare the heap
-	h := &heap{
+	h := &shardRefHeap{
 		less: func(a, b shardRef) bool {
 			firstDoc := shardHits[a.shardIndex].ScoreDocs[a.hitIndex]
 			secondDoc := shardHits[b.shardIndex].ScoreDocs[b.hitIndex]
@@ -79,7 +79,7 @@ func Merge(start, topN int, shardHits []*TopDocs, tieBreaker TieBreaker) *TopDoc
 			} else if firstDoc.Score > secondDoc.Score {
 				return true
 			} else {
-				return tieBreakLessThan(a, firstDoc, b, secondDoc, tieBreaker)
+				return tieBreakLessThan(a, b, firstDoc, secondDoc, tieBreaker)
 			}
 		},
 	}
@@ -163,7 +163,7 @@ func MergeSort(sort *Sort, start, topN int, shardHits []*TopFieldDocs) (*TopFiel
 		}
 	}
 
-	h := &heap{
+	h := &shardRefHeap{
 		less: func(a, b shardRef) bool {
 			fa := shardHits[a.shardIndex].FieldDocs[a.hitIndex]
 			fb := shardHits[b.shardIndex].FieldDocs[b.hitIndex]
@@ -332,17 +332,17 @@ type shardIndexAndDoc struct {
 	doc        int
 }
 
-type heap struct {
+type shardRefHeap struct {
 	data []shardRef
 	less func(a, b shardRef) bool
 }
 
-func (h *heap) push(v shardRef) {
+func (h *shardRefHeap) push(v shardRef) {
 	h.data = append(h.data, v)
 	h.up(len(h.data) - 1)
 }
 
-func (h *heap) pop() shardRef {
+func (h *shardRefHeap) pop() shardRef {
 	res := h.data[0]
 	last := len(h.data) - 1
 	h.data[0] = h.data[last]
@@ -353,7 +353,7 @@ func (h *heap) pop() shardRef {
 	return res
 }
 
-func (h *heap) up(i int) {
+func (h *shardRefHeap) up(i int) {
 	for i > 0 {
 		p := (i - 1) / 2
 		if h.less(h.data[i], h.data[p]) {
@@ -365,7 +365,7 @@ func (h *heap) up(i int) {
 	}
 }
 
-func (h *heap) down(i int) {
+func (h *shardRefHeap) down(i int) {
 	n := len(h.data)
 	for {
 		l := 2*i + 1
@@ -387,19 +387,19 @@ func (h *heap) down(i int) {
 
 func compareSortValues(t SortFieldType, a, b any) int {
 	switch t {
-	case SortFieldTypeScore:
+	case spi.SortFieldTypeScore:
 		return compareFloat32(toFloat32(b), toFloat32(a))
-	case SortFieldTypeDoc:
+	case spi.SortFieldTypeDoc:
 		return compareInt(toInt(a), toInt(b))
-	case SortFieldTypeInt:
+	case spi.SortFieldTypeInt:
 		return cmpInt64(int64(toInt32(a)), int64(toInt32(b)))
-	case SortFieldTypeLong:
+	case spi.SortFieldTypeLong:
 		return cmpInt64(toInt64(a), toInt64(b))
-	case SortFieldTypeFloat:
+	case spi.SortFieldTypeFloat:
 		return compareFloat32(toFloat32(a), toFloat32(b))
-	case SortFieldTypeDouble:
+	case spi.SortFieldTypeDouble:
 		return compareFloat64(toFloat64(a), toFloat64(b))
-	case SortFieldTypeString:
+	case spi.SortFieldTypeString:
 		ba, _ := a.([]byte)
 		bb, _ := b.([]byte)
 		if ba == nil && bb == nil {
@@ -479,36 +479,6 @@ func toFloat64(v any) float64 {
 		return x
 	case float32:
 		return float64(x)
-	}
-	return 0
-}
-
-func cmpInt64(a, b int64) int {
-	if a < b {
-		return -1
-	}
-	if a > b {
-		return 1
-	}
-	return 0
-}
-
-func compareFloat32(a, b float32) int {
-	if a < b {
-		return -1
-	}
-	if a > b {
-		return 1
-	}
-	return 0
-}
-
-func compareFloat64(a, b float64) int {
-	if a < b {
-		return -1
-	}
-	if a > b {
-		return 1
 	}
 	return 0
 }

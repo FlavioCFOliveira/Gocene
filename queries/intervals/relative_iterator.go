@@ -9,6 +9,7 @@ package intervals
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // RelativeIterator is the abstract base for interval iterators that operate
@@ -19,9 +20,9 @@ import (
 // Deviations from Java:
 //   - nextIntervalFn is a function field instead of an abstract method.
 type RelativeIterator struct {
-	A             IntervalIterator
-	B             IntervalIterator
-	Bpos          bool
+	A              IntervalIterator
+	B              IntervalIterator
+	Bpos           bool
 	nextIntervalFn func() (int, error)
 }
 
@@ -35,7 +36,7 @@ func NewRelativeIterator(a, b IntervalIterator, nextFn func() (int, error)) *Rel
 func (r *RelativeIterator) DocID() int { return r.A.DocID() }
 
 // DocIDRunEnd returns a conservative upper bound.
-func (r *RelativeIterator) DocIDRunEnd() int { return r.DocID() + 1 }
+func (r *RelativeIterator) DocIDRunEnd() (int, error) { return r.DocID() + 1, nil }
 
 // Cost returns the estimated cost.
 func (r *RelativeIterator) Cost() int64 { return r.A.Cost() }
@@ -116,3 +117,10 @@ func (r *RelativeIterator) AdvanceBToStart() error {
 
 // Ensure RelativeIterator satisfies util.DocIdSetIterator at compile time.
 var _ util.DocIdSetIterator = (*RelativeIterator)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (r *RelativeIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(r, upTo, bitSet, offset)
+}

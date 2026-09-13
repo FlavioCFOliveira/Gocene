@@ -22,10 +22,9 @@ import (
 	"math"
 	"sort"
 
-	hnswutil "github.com/FlavioCFOliveira/Gocene/util/hnsw"
-
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search/knn"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -120,7 +119,7 @@ func (m *vSimilarityCollectorManager) NewCollector(
 	visitLimit int,
 	_ knn.KnnSearchStrategy,
 	_ *index.LeafReaderContext,
-) (hnswutil.KnnCollector, error) {
+) (spi.KnnCollector, error) {
 	return newVectorSimilarityKnnAdapter(m.traversalSimilarity, m.resultSimilarity, int64(visitLimit)), nil
 }
 
@@ -147,23 +146,23 @@ func newVectorSimilarityKnnAdapter(traversal, result float32, visitLimit int64) 
 
 // GetSearchStrategy returns nil; the hnsw.KnnSearchStrategy hook is not used
 // by VectorSimilarityCollector.
-func (a *vectorSimilarityKnnAdapter) GetSearchStrategy() hnswutil.KnnSearchStrategy { return nil }
+func (a *vectorSimilarityKnnAdapter) GetSearchStrategy() spi.KnnSearchStrategy { return nil }
 
 // TopDocs converts *search.TopDocs to *hnsw.TopDocs by mapping fields.
-func (a *vectorSimilarityKnnAdapter) TopDocs() *hnswutil.TopDocs {
+func (a *vectorSimilarityKnnAdapter) TopDocs() *TopDocs {
 	src := a.VectorSimilarityCollector.TopDocs()
 	if src == nil {
-		return hnswutil.NewTopDocs(hnswutil.NewTotalHits(0, hnswutil.EqualTo), nil)
+		return NewTopDocs(NewTotalHits(0, EQUAL_TO), nil)
 	}
-	scoreDocs := make([]*hnswutil.ScoreDoc, len(src.ScoreDocs))
+	scoreDocs := make([]*ScoreDoc, len(src.ScoreDocs))
 	for i, sd := range src.ScoreDocs {
-		scoreDocs[i] = hnswutil.NewScoreDoc(sd.Doc, sd.Score)
+		scoreDocs[i] = NewScoreDoc(sd.Doc, sd.Score, -1)
 	}
-	relation := hnswutil.EqualTo
+	relation := EQUAL_TO
 	if src.TotalHits != nil && src.TotalHits.Relation != EQUAL_TO {
-		relation = hnswutil.GreaterThanOrEqualTo
+		relation = GREATER_THAN_OR_EQUAL_TO
 	}
-	totalHits := hnswutil.NewTotalHits(
+	totalHits := NewTotalHits(
 		func() int64 {
 			if src.TotalHits != nil {
 				return src.TotalHits.Value
@@ -172,10 +171,10 @@ func (a *vectorSimilarityKnnAdapter) TopDocs() *hnswutil.TopDocs {
 		}(),
 		relation,
 	)
-	return hnswutil.NewTopDocs(totalHits, scoreDocs)
+	return NewTopDocs(totalHits, scoreDocs)
 }
 
-var _ hnswutil.KnnCollector = (*vectorSimilarityKnnAdapter)(nil)
+var _ spi.KnnCollector = (*vectorSimilarityKnnAdapter)(nil)
 
 // CreateVectorSimilarityWeight creates the Weight for an
 // AbstractVectorSimilarityQuery given a concrete impl.
@@ -221,7 +220,7 @@ func (w *vectorSimilarityWeight) Explain(ctx *index.LeafReaderContext, doc int) 
 		if filterScorer == nil {
 			return NoMatchExplanation("Doc does not match the filter"), nil
 		}
-		advanced, err := filterScorer.Advance(doc)
+		advanced, err := filterScorer.Iterator().Advance(doc)
 		if err != nil {
 			return nil, err
 		}
@@ -268,7 +267,7 @@ func (w *vectorSimilarityWeight) ScorerSupplier(ctx *index.LeafReaderContext) (S
 		// No filter — exhaustive approximate search.
 		results, err := w.impl.ApproximateSearch(
 			ctx,
-			AcceptDocsFromLiveDocs(liveDocs, maxDoc),
+			FromLiveDocs(liveDocs, maxDoc),
 			math.MaxInt32,
 			w.timeLimitingManager,
 		)
@@ -279,16 +278,16 @@ func (w *vectorSimilarityWeight) ScorerSupplier(ctx *index.LeafReaderContext) (S
 	}
 
 	// With filter: build acceptDocs from filter scorer.
-	acceptDocs := AcceptDocsFromIteratorSupplier(
+	acceptDocs := FromIteratorSupplier(
 		func() (DocIdSetIterator, error) {
 			sc, err := w.filterWeight.Scorer(ctx)
 			if err != nil {
 				return nil, err
 			}
 			if sc == nil {
-				return NewEmptyDocIdSetIterator(), nil
+				return Empty(), nil
 			}
-			return sc, nil
+			return sc.Iterator(), nil
 		},
 		liveDocs,
 		maxDoc,
@@ -368,9 +367,8 @@ func vSimilarityScorerSupplierFromScoreDocs(boost float32, scoreDocs []*ScoreDoc
 	it := &scoreDocDISI{docs: sorted, boost: boost, cached: &score, index: -1}
 	it.doc = -1
 	return &vSimilarityScorerSupplier{
-		BaseScorerSupplier: BaseScorerSupplier{cost: int64(len(sorted))},
-		iterator:           it,
-		cachedScore:        &score,
+		iterator:    it,
+		cachedScore: &score,
 	}
 }
 
@@ -399,11 +397,14 @@ func vSimilarityScorerSupplierFromAcceptDocs(
 		doc:    -1,
 	}
 	return &vSimilarityScorerSupplier{
-		BaseScorerSupplier: BaseScorerSupplier{cost: vectorIt.Cost()},
-		iterator:           it,
-		cachedScore:        &score,
+		iterator:    it,
+		cachedScore: &score,
 	}
 }
+
+// Cost mirrors VectorSimilarityScorerSupplier.cost(), which returns
+// iterator.cost().
+func (s *vSimilarityScorerSupplier) Cost() int64 { return s.iterator.Cost() }
 
 func (s *vSimilarityScorerSupplier) Get(_ int64) (Scorer, error) {
 	return &vectorSimilarityScorer{iterator: s.iterator, cachedScore: s.cachedScore}, nil
@@ -421,15 +422,30 @@ func (s *vectorSimilarityScorer) DocID() int                 { return s.iterator
 func (s *vectorSimilarityScorer) NextDoc() (int, error)      { return s.iterator.NextDoc() }
 func (s *vectorSimilarityScorer) Advance(t int) (int, error) { return s.iterator.Advance(t) }
 func (s *vectorSimilarityScorer) Cost() int64                { return s.iterator.Cost() }
-func (s *vectorSimilarityScorer) DocIDRunEnd() int {
+func (s *vectorSimilarityScorer) DocIDRunEnd() (int, error) {
 	d := s.iterator.DocID()
 	if d >= NO_MORE_DOCS {
-		return NO_MORE_DOCS
+		return NO_MORE_DOCS, nil
 	}
-	return d + 1
+	return d + 1, nil
 }
-func (s *vectorSimilarityScorer) Score() float32            { return *s.cachedScore }
-func (s *vectorSimilarityScorer) GetMaxScore(_ int) float32 { return float32(math.Inf(1)) }
+
+// Iterator mirrors the anonymous Scorer.iterator() in
+// VectorSimilarityScorerSupplier.get(long), whose body is `return iterator;`.
+func (s *vectorSimilarityScorer) Iterator() DocIdSetIterator { return s.iterator }
+
+func (s *vectorSimilarityScorer) Score() (float32, error) { return *s.cachedScore, nil }
+func (s *vectorSimilarityScorer) GetMaxScore(_ int) (float32, error) {
+	return float32(math.Inf(1)), nil
+}
+
+// NextDocsAndScores mirrors the concrete body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) in Apache
+// Lucene 10.5.0, which the anonymous Scorer of
+// VectorSimilarityScorerSupplier.get(long) inherits unchanged.
+func (s *vectorSimilarityScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
 
 var _ Scorer = (*vectorSimilarityScorer)(nil)
 
@@ -481,12 +497,12 @@ func (it *scoreDocDISI) Advance(target int) (int, error) {
 
 func (it *scoreDocDISI) Cost() int64 { return int64(len(it.docs)) }
 
-func (it *scoreDocDISI) DocIDRunEnd() int {
+func (it *scoreDocDISI) DocIDRunEnd() (int, error) {
 	id := it.DocID()
 	if id >= NO_MORE_DOCS {
-		return NO_MORE_DOCS
+		return NO_MORE_DOCS, nil
 	}
-	return id + 1
+	return id + 1, nil
 }
 
 // filteredVectorDISI iterates over a conjunction, filtering by score threshold.
@@ -505,11 +521,11 @@ type filteredVectorDISI struct {
 
 func (it *filteredVectorDISI) DocID() int { return it.doc }
 
-func (it *filteredVectorDISI) DocIDRunEnd() int {
+func (it *filteredVectorDISI) DocIDRunEnd() (int, error) {
 	if it.doc >= NO_MORE_DOCS {
-		return NO_MORE_DOCS
+		return NO_MORE_DOCS, nil
 	}
-	return it.doc + 1
+	return it.doc + 1, nil
 }
 
 func (it *filteredVectorDISI) NextDoc() (int, error) {
@@ -607,4 +623,35 @@ func filterString(q Query) string {
 		return s.String()
 	}
 	return fmt.Sprintf("%v", q)
+}
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (v *vSimilarityScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(v)
+}
+
+// SetTopLevelScoringClause mirrors ScorerSupplier.setTopLevelScoringClause(),
+// whose body in Apache Lucene 10.5.0 is empty.
+func (v *vSimilarityScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (f *filteredVectorDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(f, upTo, bitSet, offset)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (s *scoreDocDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *vectorSimilarityScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

@@ -68,16 +68,17 @@ type windowedBulkScorer interface {
 // methods are no-ops because the replay phase in disjunctionMaxBulkScorer
 // drives document iteration directly.
 type dmSimpleScorer struct {
+	BaseScorable
 	BaseDocIdSetIterator
 	score               float32
 	minCompetitiveScore float32
 }
 
 // Score returns the most recently set score.
-func (s *dmSimpleScorer) Score() float32 { return s.score }
+func (s *dmSimpleScorer) Score() (float32, error) { return s.score, nil }
 
 // GetMaxScore returns the most recently set score as the upper bound.
-func (s *dmSimpleScorer) GetMaxScore(_ int) float32 { return s.score }
+func (s *dmSimpleScorer) GetMaxScore(_ int) (float32, error) { return s.score, nil }
 
 // AdvanceShallow returns NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. This bulk-scoring helper does
@@ -200,15 +201,16 @@ func (d *disjunctionMaxBulkScorer) Cost() int64 {
 // dmWindowLeafCollector is used during the window-fill phase.  It records
 // the maximum score per window slot and which slots have at least one hit.
 type dmWindowLeafCollector struct {
+	BaseLeafCollector
 	windowMin     int
 	windowMatches *util.FixedBitSet
 	windowScores  []float32
 	minCompScore  float32
-	innerScorer   Scorer
+	innerScorer   Scorable
 }
 
 // SetScorer stores the inner scorer for score retrieval during Collect.
-func (w *dmWindowLeafCollector) SetScorer(scorer Scorer) error {
+func (w *dmWindowLeafCollector) SetScorer(scorer Scorable) error {
 	w.innerScorer = scorer
 	return nil
 }
@@ -219,7 +221,10 @@ func (w *dmWindowLeafCollector) Collect(doc int) error {
 	if delta < 0 || delta >= dmWindowSize {
 		return nil
 	}
-	score := w.innerScorer.Score()
+	score, err := w.innerScorer.Score()
+	if err != nil {
+		return err
+	}
 	w.windowMatches.Set(delta)
 	if score > w.windowScores[delta] {
 		w.windowScores[delta] = score
@@ -229,3 +234,15 @@ func (w *dmWindowLeafCollector) Collect(doc int) error {
 
 // Ensure dmWindowLeafCollector implements LeafCollector.
 var _ LeafCollector = (*dmWindowLeafCollector)(nil)
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (d *dmWindowLeafCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(d, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (d *dmWindowLeafCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(d, stream)
+}

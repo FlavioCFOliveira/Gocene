@@ -16,6 +16,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
@@ -138,18 +139,12 @@ func (q *LatLonPointDistanceFeatureQuery) PivotDistance() float64 { return q.piv
 
 // Rewrite returns this query unchanged; LatLonPointDistanceFeatureQuery
 // does not rewrite to a simpler form.
-func (q *LatLonPointDistanceFeatureQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
-
-// Clone returns a shallow copy of this query.
-func (q *LatLonPointDistanceFeatureQuery) Clone() Query {
-	c := *q
-	return &c
-}
+func (q *LatLonPointDistanceFeatureQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // Equals returns true when other is a LatLonPointDistanceFeatureQuery
 // with the same field, origin, and pivot. Mirrors the Java equalsTo
 // helper exactly: float comparisons by bit-pattern equality (==).
-func (q *LatLonPointDistanceFeatureQuery) Equals(other Query) bool {
+func (q *LatLonPointDistanceFeatureQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*LatLonPointDistanceFeatureQuery)
 	if !ok || o == nil {
 		return false
@@ -196,7 +191,7 @@ func (q *LatLonPointDistanceFeatureQuery) Visit(visitor QueryVisitor) {
 // canonical index.LeafReaderInterface; tests can override it for
 // in-memory fixtures via the package-internal installTestLeafLookup
 // helper.
-func (q *LatLonPointDistanceFeatureQuery) CreateWeight(searcher *IndexSearcher, _ bool, boost float32) (Weight, error) {
+func (q *LatLonPointDistanceFeatureQuery) CreateWeight(searcher *IndexSearcher, _ ScoreMode, boost float32) (Weight, error) {
 	return &latLonPointDistanceFeatureWeight{
 		query:      q,
 		boost:      boost,
@@ -487,7 +482,9 @@ func (s *latLonPointDistanceFeatureScorerSupplier) Cost() int64 {
 }
 
 // SetTopLevelScoringClause is a no-op.
-func (s *latLonPointDistanceFeatureScorerSupplier) SetTopLevelScoringClause() {}
+func (s *latLonPointDistanceFeatureScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
 
 // Ensure latLonPointDistanceFeatureScorerSupplier implements ScorerSupplier.
 var _ ScorerSupplier = (*latLonPointDistanceFeatureScorerSupplier)(nil)
@@ -497,6 +494,7 @@ var _ ScorerSupplier = (*latLonPointDistanceFeatureScorerSupplier)(nil)
 // when setMinCompetitiveScore is called. Mirrors the Java
 // DistanceScorer inner class.
 type latLonPointDistanceFeatureScorer struct {
+	BaseScorer
 	weight        *latLonPointDistanceFeatureWeight
 	dv            latLonPointDocValues
 	pts           latLonPointDistanceFeaturePointSource
@@ -551,24 +549,26 @@ func (s *latLonPointDistanceFeatureScorer) DocID() int { return s.doc }
 // Score returns the per-doc score computed from the current value.
 // Mirrors Java's score(): zero when the doc has no value, otherwise
 // boost * pivot / (pivot + haversine(origin, lat, lon)).
-func (s *latLonPointDistanceFeatureScorer) Score() float32 {
+func (s *latLonPointDistanceFeatureScorer) Score() (float32, error) {
 	ok, err := s.dv.AdvanceExact(s.doc)
 	if err != nil || !ok {
-		return 0
+		return 0, nil
 	}
 	encoded, err := s.dv.EncodedValue()
 	if err != nil {
-		return 0
+		return 0, nil
 	}
 	lat := geo.DecodeLatitude(int32(encoded >> 32))
 	lon := geo.DecodeLongitude(int32(encoded & 0xFFFFFFFF))
 	distance := util.HaversinMeters(s.originLat, s.originLon, lat, lon)
-	return computeLatLonDistanceFeatureScore(s.boost, s.pivotDistance, distance)
+	return computeLatLonDistanceFeatureScore(s.boost, s.pivotDistance, distance), nil
 }
 
 // GetMaxScore returns boost: the score reaches its maximum when the
 // distance is zero, which evaluates to boost * pivot / pivot = boost.
-func (s *latLonPointDistanceFeatureScorer) GetMaxScore(_ int) float32 { return s.boost }
+func (s *latLonPointDistanceFeatureScorer) GetMaxScore(_ int) (float32, error) {
+	return s.boost, nil
+}
 
 // AdvanceShallow returns NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. Lucene's distance-feature
@@ -582,7 +582,7 @@ func (s *latLonPointDistanceFeatureScorer) AdvanceShallow(target int) (int, erro
 func (s *latLonPointDistanceFeatureScorer) Cost() int64 { return s.it.Cost() }
 
 // DocIDRunEnd defers to the underlying iterator.
-func (s *latLonPointDistanceFeatureScorer) DocIDRunEnd() int { return s.it.DocIDRunEnd() }
+func (s *latLonPointDistanceFeatureScorer) DocIDRunEnd() (int, error) { return s.it.DocIDRunEnd() }
 
 // NextDoc and Advance go through the iterator wrapper so the scorer
 // always observes the latest skip iterator after setMinCompetitiveScore
@@ -610,7 +610,7 @@ func (s *latLonPointDistanceFeatureScorer) Iterator() DocIdSetIterator {
 // it intersects the point values to materialize a fresh iterator.
 func (s *latLonPointDistanceFeatureScorer) SetMinCompetitiveScore(minScore float32) error {
 	if minScore > s.boost {
-		s.it = NewEmptyDocIdSetIterator()
+		s.it = Empty()
 		return nil
 	}
 
@@ -769,7 +769,7 @@ func (w *latLonPointDistanceFeatureIteratorWrapper) Advance(target int) (int, er
 func (w *latLonPointDistanceFeatureIteratorWrapper) Cost() int64 { return w.owner.it.Cost() }
 
 // DocIDRunEnd defers to the wrapped iterator.
-func (w *latLonPointDistanceFeatureIteratorWrapper) DocIDRunEnd() int {
+func (w *latLonPointDistanceFeatureIteratorWrapper) DocIDRunEnd() (int, error) {
 	return w.owner.it.DocIDRunEnd()
 }
 
@@ -913,8 +913,10 @@ func (a *latLonPointDocValuesIteratorAdapter) NextDoc() (int, error) { return a.
 func (a *latLonPointDocValuesIteratorAdapter) Advance(target int) (int, error) {
 	return a.dv.Advance(target)
 }
-func (a *latLonPointDocValuesIteratorAdapter) Cost() int64      { return a.dv.Cost() }
-func (a *latLonPointDocValuesIteratorAdapter) DocIDRunEnd() int { return a.dv.DocID() + 1 }
+func (a *latLonPointDocValuesIteratorAdapter) Cost() int64 { return a.dv.Cost() }
+func (a *latLonPointDocValuesIteratorAdapter) DocIDRunEnd() (int, error) {
+	return a.dv.DocID() + 1, nil
+}
 
 var _ DocIdSetIterator = (*latLonPointDocValuesIteratorAdapter)(nil)
 
@@ -933,8 +935,8 @@ func (a *latLonPointDocIdSetIteratorAdapter) NextDoc() (int, error) { return a.i
 func (a *latLonPointDocIdSetIteratorAdapter) Advance(target int) (int, error) {
 	return a.inner.Advance(target)
 }
-func (a *latLonPointDocIdSetIteratorAdapter) Cost() int64      { return a.inner.Cost() }
-func (a *latLonPointDocIdSetIteratorAdapter) DocIDRunEnd() int { return a.inner.DocIDRunEnd() }
+func (a *latLonPointDocIdSetIteratorAdapter) Cost() int64               { return a.inner.Cost() }
+func (a *latLonPointDocIdSetIteratorAdapter) DocIDRunEnd() (int, error) { return a.inner.DocIDRunEnd() }
 
 var _ DocIdSetIterator = (*latLonPointDocIdSetIteratorAdapter)(nil)
 
@@ -1085,4 +1087,42 @@ func (noopLatLonPointDistanceFeaturePointSource) Intersect(_ latLonPointDistance
 
 func (noopLatLonPointDistanceFeaturePointSource) EstimatePointCountGreaterThanOrEqualTo(_ latLonPointDistanceFeaturePointVisitor, _ int64) bool {
 	return false
+}
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (l *latLonPointDistanceFeatureScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(l)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (l *latLonPointDistanceFeatureIteratorWrapper) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(l, upTo, bitSet, offset)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (l *latLonPointDocIdSetIteratorAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(l, upTo, bitSet, offset)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (l *latLonPointDocValuesIteratorAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(l, upTo, bitSet, offset)
+}
+
+// NextDocsAndScores mirrors the concrete body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) in Apache
+// Lucene 10.5.0.
+func (l *latLonPointDistanceFeatureScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(l, upTo, liveDocs, buffer)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *latLonPointDistanceFeatureScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

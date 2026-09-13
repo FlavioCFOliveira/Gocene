@@ -5,8 +5,12 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
 	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // BayesianScoreQuery is a query wrapper that transforms the inner query's score into a calibrated probability via sigmoid
@@ -90,7 +94,7 @@ func (q *BayesianScoreQuery) GetBaseRate() float32 {
 	return q.baseRate
 }
 
-func sigmoid(x float32) float32 {
+func bayesianScoreQuerySigmoid(x float32) float32 {
 	if x >= 0 {
 		return float32(1.0 / (1.0 + math.Exp(float64(-x))))
 	}
@@ -99,7 +103,7 @@ func sigmoid(x float32) float32 {
 }
 
 // CreateWeight creates a Weight for the query.
-func (q *BayesianScoreQuery) CreateWeight(searcher IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+func (q *BayesianScoreQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	innerWeight, err := q.query.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
@@ -108,14 +112,14 @@ func (q *BayesianScoreQuery) CreateWeight(searcher IndexSearcher, scoreMode Scor
 		return innerWeight, nil
 	}
 	return &bayesianScoreWeight{
-		query:        q,
+		query:       q,
 		innerWeight: innerWeight,
 	}, nil
 }
 
 // Rewrite rewrites the query.
-func (q *BayesianScoreQuery) Rewrite(indexSearcher IndexSearcher) (Query, error) {
-	rewritten, err := q.query.Rewrite(indexSearcher)
+func (q *BayesianScoreQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	rewritten, err := q.query.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
@@ -130,12 +134,15 @@ func (q *BayesianScoreQuery) Rewrite(indexSearcher IndexSearcher) (Query, error)
 
 // Visit visits the query.
 func (q *BayesianScoreQuery) Visit(visitor QueryVisitor) {
-	visitor.GetSubVisitor(MUST, q).Visit(q.query)
+	// Java: `query.visit(visitor.getSubVisitor(BooleanClause.Occur.MUST, this))`
+	// (BayesianScoreQuery.java:145-147). The sub-visitor is the ARGUMENT to the
+	// child query's visit, not the receiver.
+	visitQuery(q.query, visitor.GetSubVisitor(MUST, q))
 }
 
 // String returns a string representation of the query.
 func (q *BayesianScoreQuery) String(field string) string {
-	base := fmt.Sprintf("BayesianScore(%s, alpha=%f, beta=%f", q.query.String(field), q.alpha, q.beta)
+	base := fmt.Sprintf("BayesianScore(%s, alpha=%f, beta=%f", queryToString(q.query, field), q.alpha, q.beta)
 	if q.baseRate > 0 {
 		base += fmt.Sprintf(", baseRate=%f", q.baseRate)
 	}
@@ -143,7 +150,7 @@ func (q *BayesianScoreQuery) String(field string) string {
 }
 
 // Equals reports whether q and other model the same query.
-func (q *BayesianScoreQuery) Equals(other Query) bool {
+func (q *BayesianScoreQuery) Equals(other spi.Query) bool {
 	if q == other {
 		return true
 	}
@@ -171,17 +178,18 @@ func (q *BayesianScoreQuery) HashCode() int {
 }
 
 type bayesianScoreWeight struct {
+	BaseWeight
 	query       *BayesianScoreQuery
 	innerWeight Weight
 }
 
 // Matches returns the matches for the document.
-func (w *bayesianScoreWeight) Matches(context LeafReaderContext, doc int) (Matches, error) {
+func (w *bayesianScoreWeight) Matches(context *index.LeafReaderContext, doc int) (Matches, error) {
 	return w.innerWeight.Matches(context, doc)
 }
 
 // Explain returns an explanation for the score.
-func (w *bayesianScoreWeight) Explain(context LeafReaderContext, doc int) (Explanation, error) {
+func (w *bayesianScoreWeight) Explain(context *index.LeafReaderContext, doc int) (Explanation, error) {
 	innerExpl, err := w.innerWeight.Explain(context, doc)
 	if err != nil {
 		return nil, err
@@ -192,7 +200,7 @@ func (w *bayesianScoreWeight) Explain(context LeafReaderContext, doc int) (Expla
 
 	innerScore := innerExpl.GetValue()
 	logOdds := w.query.alpha*(innerScore-w.query.beta) + w.query.logitBaseRate
-	transformed := sigmoid(logOdds)
+	transformed := bayesianScoreQuerySigmoid(logOdds)
 
 	if w.query.baseRate > 0 {
 		return MatchExplanationWithDetails(
@@ -215,7 +223,7 @@ func (w *bayesianScoreWeight) Explain(context LeafReaderContext, doc int) (Expla
 }
 
 // ScorerSupplier returns a scorer supplier.
-func (w *bayesianScoreWeight) ScorerSupplier(context LeafReaderContext) (ScorerSupplier, error) {
+func (w *bayesianScoreWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
 	innerSupplier, err := w.innerWeight.ScorerSupplier(context)
 	if err != nil {
 		return nil, err
@@ -229,11 +237,11 @@ func (w *bayesianScoreWeight) ScorerSupplier(context LeafReaderContext) (ScorerS
 	}, nil
 }
 
-func (w *bayesianScoreWeight) Count(context LeafReaderContext) (int, error) {
+func (w *bayesianScoreWeight) Count(context *index.LeafReaderContext) (int, error) {
 	return w.innerWeight.Count(context)
 }
 
-func (w *bayesianScoreWeight) IsCacheable(ctx LeafReaderContext) bool {
+func (w *bayesianScoreWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 	return w.innerWeight.IsCacheable(ctx)
 }
 
@@ -263,7 +271,7 @@ func (s *bayesianScoreScorerSupplier) SetTopLevelScoringClause() error {
 
 type bayesianScoreScorer struct {
 	inner Scorer
-	query  *BayesianScoreQuery
+	query *BayesianScoreQuery
 }
 
 func (s *bayesianScoreScorer) Score() (float32, error) {
@@ -271,14 +279,19 @@ func (s *bayesianScoreScorer) Score() (float32, error) {
 	if err != nil {
 		return 0, err
 	}
-	return sigmoid(s.query.alpha*(innerScore-s.query.beta) + s.query.logitBaseRate), nil
+	return bayesianScoreQuerySigmoid(s.query.alpha*(innerScore-s.query.beta) + s.query.logitBaseRate), nil
 }
 
 func (s *bayesianScoreScorer) DocID() int {
 	return s.inner.DocID()
 }
 
-func (s *bayesianScoreScorer) Iterator() util.DocIdSetIterator {
+// Iterator mirrors `public final DocIdSetIterator iterator()` of FilterScorer
+// in Apache Lucene 10.5.0 (FilterScorer.java:58-61), which BayesianScoreScorer
+// inherits: `return in.iterator()`. The return type is
+// org.apache.lucene.search.DocIdSetIterator, so the Go rendering is the
+// search package's DocIdSetIterator, not util's.
+func (s *bayesianScoreScorer) Iterator() DocIdSetIterator {
 	return s.inner.Iterator()
 }
 
@@ -295,7 +308,7 @@ func (s *bayesianScoreScorer) GetMaxScore(upTo int) (float32, error) {
 	if err != nil {
 		return 0, err
 	}
-	return sigmoid(s.query.alpha*(innerMax-s.query.beta) + s.query.logitBaseRate), nil
+	return bayesianScoreQuerySigmoid(s.query.alpha*(innerMax-s.query.beta) + s.query.logitBaseRate), nil
 }
 
 func (s *bayesianScoreScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
@@ -306,7 +319,7 @@ func (s *bayesianScoreScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, bu
 	}
 	for i := 0; i < buffer.Size; i++ {
 		score := buffer.Features[i]
-		buffer.Features[i] = sigmoid(s.query.alpha*(score-s.query.beta) + s.query.logitBaseRate)
+		buffer.Features[i] = bayesianScoreQuerySigmoid(s.query.alpha*(score-s.query.beta) + s.query.logitBaseRate)
 	}
 	return nil
 }
@@ -335,4 +348,10 @@ func (s *bayesianScoreScorer) SetMinCompetitiveScore(minScore float32) error {
 
 func (s *bayesianScoreScorer) GetChildren() ([]ChildScorable, error) {
 	return s.inner.GetChildren()
+}
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (b *bayesianScoreScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(b)
 }

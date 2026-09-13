@@ -1,19 +1,17 @@
 package search
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/index"
-)
+import ()
 
 // WANDCoordinator manages a set of WANDScorers to efficiently find top documents.
 type WANDCoordinator struct {
 	scorers []*WANDScorer
-	pq      *DisiPriorityQueue
+	pq      DisiPriorityQueue
 }
 
 func NewWANDCoordinator(scorers []*WANDScorer) *WANDCoordinator {
 	return &WANDCoordinator{
 		scorers: scorers,
-		pq:      NewDisiPriorityQueue(len(scorers)),
+		pq:      OfMaxSize(len(scorers)),
 	}
 }
 
@@ -28,7 +26,7 @@ func (wc *WANDCoordinator) Next(minScore float32) int {
 			minDoc = doc
 		}
 	}
-	
+
 	if minDoc == -1 {
 		return -1
 	}
@@ -41,12 +39,16 @@ func (wc *WANDCoordinator) Next(minScore float32) int {
 	return minDoc
 }
 
-func (wc *WANDCoordinator) Score(doc int) float32 {
+func (wc *WANDCoordinator) Score(doc int) (float32, error) {
 	var total float32
 	for _, s := range wc.scorers {
 		if s.DocID() == doc {
-			total += s.Score()
+			sc0, err := s.Score()
+			if err != nil {
+				return 0, err
+			}
+			total += sc0
 		}
 	}
-	return total
+	return total, nil
 }

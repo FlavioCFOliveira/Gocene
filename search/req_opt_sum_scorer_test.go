@@ -21,6 +21,7 @@
 package search_test
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 	"testing"
 
@@ -273,12 +274,12 @@ func (s *rosFixedScorer) Advance(target int) (int, error) {
 }
 
 func (s *rosFixedScorer) Cost() int64 { return int64(len(s.docs)) }
-func (s *rosFixedScorer) DocIDRunEnd() int {
+func (s *rosFixedScorer) DocIDRunEnd() (int, error) {
 	doc := s.DocID()
 	if doc == search.NO_MORE_DOCS {
-		return search.NO_MORE_DOCS
+		return search.NO_MORE_DOCS, nil
 	}
-	return doc + 1
+	return doc + 1, nil
 }
 func (s *rosFixedScorer) Score() float32            { return s.currentScore() }
 func (s *rosFixedScorer) GetMaxScore(_ int) float32 { return s.maxScore }
@@ -388,4 +389,11 @@ func TestReqOptSumScorer_GetMaxScore(t *testing.T) {
 	if math.Abs(float64(max-5.0)) > 1e-6 {
 		t.Errorf("GetMaxScore() = %v, want 5.0", max)
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *rosFixedScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

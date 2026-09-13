@@ -11,6 +11,7 @@ import "github.com/FlavioCFOliveira/Gocene/index"
 //
 // Mirrors org.apache.lucene.search.PositiveScoresOnlyCollector.
 type PositiveScoresOnlyCollector struct {
+	BaseCollector
 	inner Collector
 }
 
@@ -26,28 +27,36 @@ func (c *PositiveScoresOnlyCollector) GetLeafCollector(context *index.LeafReader
 	if err != nil {
 		return nil, err
 	}
-	return &positiveScoresOnlyLeafCollector{leaf: leaf}, nil
+	return WrapScoreCachingLeafCollector(&positiveScoresOnlyLeafCollector{leaf: leaf}), nil
 }
 
 // ScoreMode delegates to the wrapped collector.
 func (c *PositiveScoresOnlyCollector) ScoreMode() ScoreMode { return c.inner.ScoreMode() }
 
+// positiveScoresOnlyLeafCollector is the anonymous FilterLeafCollector declared
+// inside PositiveScoresOnlyCollector.getLeafCollector; the score caching that
+// Java applies around it is supplied by WrapScoreCachingLeafCollector, exactly
+// as in ScoreCachingWrappingScorer.wrap(...) at the call site above.
 type positiveScoresOnlyLeafCollector struct {
+	BaseLeafCollector
 	leaf   LeafCollector
-	scorer Scorer
+	scorer Scorable
 }
 
-func (l *positiveScoresOnlyLeafCollector) SetScorer(scorer Scorer) error {
-	wrapped := WrapScoreCachingScorer(scorer)
-	l.scorer = wrapped
-	return l.leaf.SetScorer(wrapped)
+func (l *positiveScoresOnlyLeafCollector) SetScorer(scorer Scorable) error {
+	l.scorer = scorer
+	return l.leaf.SetScorer(scorer)
 }
 
 func (l *positiveScoresOnlyLeafCollector) Collect(doc int) error {
 	if l.scorer == nil {
 		return l.leaf.Collect(doc)
 	}
-	if l.scorer.Score() > 0 {
+	score, err := l.scorer.Score()
+	if err != nil {
+		return err
+	}
+	if score > 0 {
 		return l.leaf.Collect(doc)
 	}
 	return nil
@@ -58,3 +67,15 @@ var (
 	_ Collector     = (*PositiveScoresOnlyCollector)(nil)
 	_ LeafCollector = (*positiveScoresOnlyLeafCollector)(nil)
 )
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (p *positiveScoresOnlyLeafCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(p, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (p *positiveScoresOnlyLeafCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(p, stream)
+}

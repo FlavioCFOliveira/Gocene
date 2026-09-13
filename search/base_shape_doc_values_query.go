@@ -166,9 +166,9 @@ func NewBaseShapeDocValuesQuery(
 // the override BaseShapeDocValuesQuery.getScorerSupplier in the Java
 // reference; the Java code reaches this entry through the parent's
 // createWeight, which in Gocene we override directly.
-func (q *BaseShapeDocValuesQuery) CreateWeight(_ *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *BaseShapeDocValuesQuery) CreateWeight(_ *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	mode := COMPLETE_NO_SCORES
-	if needsScores {
+	if scoreMode.NeedsScores() {
 		mode = COMPLETE
 	}
 	return q.createWeight(mode, boost), nil
@@ -251,7 +251,12 @@ func (q *BaseShapeDocValuesQuery) newScorerSupplier(
 	score float32,
 ) ScorerSupplier {
 	approx := newBinaryDocValuesApproximation(values, maxDoc)
-	twoPhase := NewTwoPhaseIterator(approx, func() (bool, error) {
+	// Mirrors the anonymous TwoPhaseIterator of
+	// BaseShapeDocValuesQuery.getScorerSupplier (Lucene 10.5.0,
+	// BaseShapeDocValuesQuery.java:82-84): matchCost() returns
+	// BaseShapeDocValuesQuery.this.matchCost(), whose default body (:110-114)
+	// is `return 60 * 100;`.
+	twoPhase := NewTwoPhaseIteratorWithMatchCost(approx, func() (bool, error) {
 		docID := values.DocID()
 		if docID < 0 || docID == NO_MORE_DOCS {
 			return false, nil
@@ -275,8 +280,8 @@ func (q *BaseShapeDocValuesQuery) newScorerSupplier(
 			return false, nil
 		}
 		return q.matchFn(sdv)
-	})
-	iter := NewTwoPhaseIteratorAsDocIdSetIterator(twoPhase)
+	}, q.MatchCost())
+	iter := AsDocIdSetIterator(twoPhase)
 
 	return &baseShapeDocValuesScorerSupplier{
 		query:     q,
@@ -368,7 +373,9 @@ func (s *baseShapeDocValuesScorerSupplier) Cost() int64 { return int64(s.maxDoc)
 
 // SetTopLevelScoringClause is a no-op for this supplier: the wrapped
 // scorer always returns a constant score regardless of context.
-func (s *baseShapeDocValuesScorerSupplier) SetTopLevelScoringClause() {}
+func (s *baseShapeDocValuesScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
 
 var _ ScorerSupplier = (*baseShapeDocValuesScorerSupplier)(nil)
 
@@ -419,12 +426,12 @@ func (a *binaryDocValuesApproximation) Cost() int64 { return a.cost }
 // DocIDRunEnd returns DocID()+1 because BinaryDocValues exposes no
 // notion of a contiguous match run; one-doc runs are the safe
 // default.
-func (a *binaryDocValuesApproximation) DocIDRunEnd() int {
+func (a *binaryDocValuesApproximation) DocIDRunEnd() (int, error) {
 	doc := a.values.DocID()
 	if doc < 0 || doc == NO_MORE_DOCS {
-		return doc
+		return doc, nil
 	}
-	return doc + 1
+	return doc + 1, nil
 }
 
 var _ DocIdSetIterator = (*binaryDocValuesApproximation)(nil)
@@ -450,4 +457,16 @@ func (v *noopBaseShapeVisitor) Within() func(packed []byte) bool {
 
 func (v *noopBaseShapeVisitor) Contains() func(packed []byte) geo.WithinRelation {
 	return func(_ []byte) geo.WithinRelation { return geo.WithinDisjoint }
+}
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (b *baseShapeDocValuesScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(b)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (b *binaryDocValuesApproximation) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(b, upTo, bitSet, offset)
 }

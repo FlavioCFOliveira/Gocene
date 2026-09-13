@@ -33,11 +33,14 @@ func TestSpanExplanations_SpanWeightExplain(t *testing.T) {
 
 	t.Run("search_SpanOrWeight_Explain_non_nil", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "a")),
-			search.NewSpanTermQuery(index.NewTerm("f", "b")),
+		q, err := NewSpanOrQuery(
+			NewSpanTermQuery(index.NewTerm("f", "a")),
+			NewSpanTermQuery(index.NewTerm("f", "b")),
 		)
-		w, err := q.CreateWeight(nil, false, 1.0)
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
+		w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}
@@ -52,11 +55,14 @@ func TestSpanExplanations_SpanWeightExplain(t *testing.T) {
 
 	t.Run("search_SpanNotWeight_Explain_non_nil", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanNotQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "include")),
-			search.NewSpanTermQuery(index.NewTerm("f", "exclude")),
+		q, err := NewSpanNotQuery(
+			NewSpanTermQuery(index.NewTerm("f", "include")),
+			NewSpanTermQuery(index.NewTerm("f", "exclude")),
 		)
-		w, err := q.CreateWeight(nil, false, 1.0)
+		if err != nil {
+			t.Fatalf("NewSpanNotQuery: %v", err)
+		}
+		w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}
@@ -71,10 +77,13 @@ func TestSpanExplanations_SpanWeightExplain(t *testing.T) {
 
 	t.Run("search_SpanFirstWeight_Explain_non_nil", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanFirstQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "term")), 3,
+		q, err := NewSpanFirstQuery(
+			NewSpanTermQuery(index.NewTerm("f", "term")), 3,
 		)
-		w, err := q.CreateWeight(nil, false, 1.0)
+		if err != nil {
+			t.Fatalf("NewSpanFirstQuery: %v", err)
+		}
+		w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}
@@ -89,10 +98,13 @@ func TestSpanExplanations_SpanWeightExplain(t *testing.T) {
 
 	t.Run("explanation_non_empty_string", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "test")),
+		q, err := NewSpanOrQuery(
+			NewSpanTermQuery(index.NewTerm("f", "test")),
 		)
-		w, err := q.CreateWeight(nil, false, 1.0)
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
+		w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}
@@ -107,10 +119,13 @@ func TestSpanExplanations_SpanWeightExplain(t *testing.T) {
 
 	t.Run("explanation_string_contains_query", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "myterm")),
+		q, err := NewSpanOrQuery(
+			NewSpanTermQuery(index.NewTerm("f", "myterm")),
 		)
-		w, err := q.CreateWeight(nil, false, 1.0)
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
+		w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}

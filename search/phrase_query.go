@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // PhraseQuery matches documents containing a particular sequence of terms.
@@ -73,8 +74,8 @@ func (b *PhraseQueryBuilder) AddWithPosition(term *index.Term, position int) *Ph
 			panic(fmt.Sprintf("Positions must be added in order, got %d after %d", position, lastPosition))
 		}
 	}
-	if len(b.terms) > 0 && term.Field() != b.terms[0].Field() {
-		panic(fmt.Sprintf("All terms must be on the same field, got %s and %s", term.Field(), b.terms[0].Field()))
+	if len(b.terms) > 0 && term.Field != b.terms[0].Field {
+		panic(fmt.Sprintf("All terms must be on the same field, got %s and %s", term.Field, b.terms[0].Field))
 	}
 	if b.maxTerms > 0 && len(b.terms) >= b.maxTerms {
 		panic(fmt.Sprintf("The current number of terms is %d, which exceeds the limit of %d", len(b.terms), b.maxTerms))
@@ -114,7 +115,7 @@ func NewPhraseQueryWithTerms(slop int, field string, terms ...*index.Term) *Phra
 func NewPhraseQueryWithBytes(slop int, field string, terms ...[]byte) *PhraseQuery {
 	luceneTerms := make([]*index.Term, len(terms))
 	for i, t := range terms {
-		luceneTerms[i] = index.NewTermBytes(field, t)
+		luceneTerms[i] = index.NewTermFromBytes(field, t)
 	}
 	return NewPhraseQueryWithTerms(slop, field, luceneTerms...)
 }
@@ -132,7 +133,7 @@ func newPhraseQuery(slop int, terms []*index.Term, positions []int) *PhraseQuery
 		}
 	}
 	for i := 1; i < len(terms); i++ {
-		if terms[i-1].Field() != terms[i].Field() {
+		if terms[i-1].Field != terms[i].Field {
 			panic("All terms should have the same field")
 		}
 	}
@@ -149,7 +150,7 @@ func newPhraseQuery(slop int, terms []*index.Term, positions []int) *PhraseQuery
 
 	var field string
 	if len(terms) > 0 {
-		field = terms[0].Field()
+		field = terms[0].Field
 	}
 
 	return &PhraseQuery{
@@ -207,7 +208,221 @@ func (q *PhraseQuery) Visit(visitor QueryVisitor) {
 
 // CreateWeight creates a Weight for this query.
 func (q *PhraseQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
-	return NewPhraseWeight(q, searcher, scoreMode, boost), nil
+	return NewPhraseWeight(q, q.field, searcher, scoreMode, q.getStats(scoreMode, boost), q.getPhraseMatcher(scoreMode))
+}
+
+// getStats carries the body of the anonymous PhraseWeight subclass's
+// getStats(IndexSearcher) in PhraseQuery.createWeight.
+//
+// PORT NOTE. Lucene builds a TermStates per term (TermStates.build(searcher,
+// term, needsScores)) and reads docFreq/totalTermFreq off it; index does not
+// yet provide TermStates.build, so the same aggregation is performed directly
+// over the searcher's leaves by aggregateTermStatistics. The resulting
+// statistics — and therefore the SimScorer — are the same. The per-leaf
+// TermState cache that Lucene also gets from TermStates is consequently not
+// available, so getPhraseMatcher seeks each term by value instead.
+func (q *PhraseQuery) getStats(scoreMode ScoreMode, boost float32) func(*IndexSearcher) (SimScorer, error) {
+	return func(searcher *IndexSearcher) (SimScorer, error) {
+		positions := q.GetPositions()
+		if len(positions) < 2 {
+			panic("PhraseWeight does not support less than 2 terms, call rewrite first")
+		} else if positions[0] != 0 {
+			panic("PhraseWeight requires that the first position is 0, call rewrite first")
+		}
+		termStats := make([]*TermStatistics, 0, len(q.terms))
+		for _, term := range q.terms {
+			if !scoreMode.NeedsScores() {
+				continue
+			}
+			docFreq, totalTermFreq, err := aggregateTermStatistics(searcher, term)
+			if err != nil {
+				return nil, err
+			}
+			if docFreq > 0 {
+				ts := searcher.TermStatistics(term, docFreq, totalTermFreq)
+				termStats = append(termStats, &ts)
+			}
+		}
+		if len(termStats) > 0 {
+			collectionStats, err := searcher.CollectionStatistics(q.field)
+			if err != nil {
+				return nil, err
+			}
+			return searcher.GetSimilarity().Scorer104(boost, collectionStats, termStats...), nil
+		}
+		// no terms at all, we won't use similarity
+		return nil, nil
+	}
+}
+
+// aggregateTermStatistics sums the per-leaf docFreq and totalTermFreq of term
+// across the searcher's leaves.
+//
+// PORT NOTE. Stands in for org.apache.lucene.index.TermStates.build(IndexSearcher,
+// Term, boolean), which index does not yet provide.
+func aggregateTermStatistics(searcher *IndexSearcher, term *index.Term) (int, int64, error) {
+	var docFreq int
+	var totalTermFreq int64
+	for i := range searcher.GetLeafContexts() {
+		ctx := searcher.GetLeafContexts()[i]
+		reader := ctx.LeafReader()
+		if reader == nil {
+			continue
+		}
+		terms, err := reader.Terms(term.Field)
+		if err != nil {
+			return 0, 0, err
+		}
+		if terms == nil {
+			continue
+		}
+		te, err := terms.GetIterator()
+		if err != nil {
+			return 0, 0, err
+		}
+		found, err := te.SeekExact(term)
+		if err != nil {
+			return 0, 0, err
+		}
+		if !found {
+			continue
+		}
+		df, err := te.DocFreq()
+		if err != nil {
+			return 0, 0, err
+		}
+		ttf, err := te.TotalTermFreq()
+		if err != nil {
+			return 0, 0, err
+		}
+		docFreq += df
+		totalTermFreq += ttf
+	}
+	return docFreq, totalTermFreq, nil
+}
+
+// getPhraseMatcher carries the body of the anonymous PhraseWeight subclass's
+// getPhraseMatcher(LeafReaderContext, SimScorer, boolean) in
+// PhraseQuery.createWeight.
+//
+// PORT NOTE. Lucene positions the reused TermsEnum with
+// te.seekExact(t.bytes(), state) using the TermState cached by TermStates; the
+// state cache is unavailable here (see getStats), so the term is sought by
+// value with te.seekExact(t), which reaches the same term.
+func (q *PhraseQuery) getPhraseMatcher(scoreMode ScoreMode) func(*index.LeafReaderContext, SimScorer, bool) (PhraseMatcher, error) {
+	return func(context *index.LeafReaderContext, scorer SimScorer, exposeOffsets bool) (PhraseMatcher, error) {
+		reader := context.LeafReader()
+		postingsFreqs := make([]*postingsAndFreq, len(q.terms))
+
+		fieldTerms, err := reader.Terms(q.field)
+		if err != nil {
+			return nil, err
+		}
+		if fieldTerms == nil {
+			return nil, nil
+		}
+
+		if !fieldTerms.HasPositions() {
+			panic(fmt.Sprintf(
+				"field %q was indexed without position data; cannot run PhraseQuery (phrase=%s)",
+				q.field, queryToString(q, "")))
+		}
+
+		// Reuse single TermsEnum below:
+		te, err := fieldTerms.GetIterator()
+		if err != nil {
+			return nil, err
+		}
+		var totalMatchCost float32
+
+		flags := index.PostingsFlagPositions
+		if exposeOffsets {
+			flags = index.PostingsFlagOffsets
+		}
+
+		for i := 0; i < len(q.terms); i++ {
+			t := q.terms[i]
+			found, err := te.SeekExact(t)
+			if err != nil {
+				return nil, err
+			}
+			if !found {
+				// term doesn't exist in this segment
+				return nil, nil
+			}
+			var postingsEnum index.PostingsEnum
+			var impactsEnum index.ImpactsEnum
+			if scoreMode == ScoreModeTopScores {
+				ie, err := te.Impacts(flags)
+				if err != nil {
+					return nil, err
+				}
+				postingsEnum = ie
+				impactsEnum = spiImpactsEnumAdapter{ImpactsEnum: ie}
+			} else {
+				pe, err := te.Postings(flags)
+				if err != nil {
+					return nil, err
+				}
+				postingsEnum = pe
+				impactsEnum = index.NewSlowImpactsEnum(pe)
+			}
+			postingsFreqs[i] = NewPostingsAndFreq(postingsEnum, impactsEnum, q.positions[i], t)
+			cost, err := TermPositionsCost(te)
+			if err != nil {
+				return nil, err
+			}
+			totalMatchCost += cost
+		}
+
+		// sort by increasing docFreq order
+		if q.slop == 0 {
+			sort.SliceStable(postingsFreqs, func(a, b int) bool {
+				return postingsFreqs[a].CompareTo(postingsFreqs[b]) < 0
+			})
+			return NewExactPhraseMatcher(postingsFreqs, scoreMode, scorer, totalMatchCost), nil
+		}
+		return NewSloppyPhraseMatcher(
+			postingsFreqs, q.slop, scoreMode, scorer, totalMatchCost, exposeOffsets), nil
+	}
+}
+
+// spiImpactsEnumAdapter presents an spi.ImpactsEnum as an index.ImpactsEnum.
+//
+// PORT NOTE. Gocene declares org.apache.lucene.index.Impacts twice — once in
+// spi (GetImpacts(level) returns *util.FreqAndNormBuffer) and once in index
+// (returns *index.FreqAndNormBuffer) — and likewise for
+// org.apache.lucene.index.FreqAndNormBuffer. The two are structurally identical,
+// so this adapter re-presents the spi flavour under the index interface without
+// copying the underlying parallel arrays.
+type spiImpactsEnumAdapter struct {
+	spi.ImpactsEnum
+}
+
+// GetImpacts re-presents the spi Impacts snapshot as an index Impacts snapshot.
+func (a spiImpactsEnumAdapter) GetImpacts() (index.Impacts, error) {
+	imp, err := a.ImpactsEnum.GetImpacts()
+	if err != nil {
+		return nil, err
+	}
+	if imp == nil {
+		return nil, nil
+	}
+	return spiImpactsAdapter{Impacts: imp}, nil
+}
+
+// spiImpactsAdapter presents an spi.Impacts as an index.Impacts.
+type spiImpactsAdapter struct {
+	spi.Impacts
+}
+
+// GetImpacts re-presents the level's (freq, norm) buffer under the index type.
+func (a spiImpactsAdapter) GetImpacts(level int) *index.FreqAndNormBuffer {
+	buf := a.Impacts.GetImpacts(level)
+	if buf == nil {
+		return nil
+	}
+	return &index.FreqAndNormBuffer{Freqs: buf.Freqs, Norms: buf.Norms, Size: buf.Size}
 }
 
 // CreateWeightBasic implements the basic Query interface.
@@ -269,7 +484,7 @@ func (q *PhraseQuery) ToString(f string) string {
 }
 
 // Equals returns true iff other is equal to this.
-func (q *PhraseQuery) Equals(other Query) bool {
+func (q *PhraseQuery) Equals(other spi.Query) bool {
 	if otherQuery, ok := other.(*PhraseQuery); ok {
 		if q.slop != otherQuery.slop {
 			return false
@@ -319,15 +534,15 @@ func (q *PhraseQuery) HashCode() int {
 
 // postingsAndFreq contains term postings and position information for phrase matching.
 type postingsAndFreq struct {
-	postings PostingsEnum
-	impacts  ImpactsEnum
+	postings index.PostingsEnum
+	impacts  index.ImpactsEnum
 	position int
 	terms    []*index.Term
 	nTerms   int
 }
 
 // NewPostingsAndFreq creates a postingsAndFreq instance.
-func NewPostingsAndFreq(postings PostingsEnum, impacts ImpactsEnum, position int, terms ...*index.Term) *postingsAndFreq {
+func NewPostingsAndFreq(postings index.PostingsEnum, impacts index.ImpactsEnum, position int, terms ...*index.Term) *postingsAndFreq {
 	var finalTerms []*index.Term
 	nTerms := len(terms)
 	if nTerms > 0 {
@@ -351,7 +566,7 @@ func NewPostingsAndFreq(postings PostingsEnum, impacts ImpactsEnum, position int
 }
 
 // NewPostingsAndFreqWithList creates a postingsAndFreq instance from a list of terms.
-func NewPostingsAndFreqWithList(postings PostingsEnum, impacts ImpactsEnum, position int, termsList []*index.Term) *postingsAndFreq {
+func NewPostingsAndFreqWithList(postings index.PostingsEnum, impacts index.ImpactsEnum, position int, termsList []*index.Term) *postingsAndFreq {
 	nTerms := len(termsList)
 	var finalTerms []*index.Term
 	if nTerms > 0 {
@@ -432,11 +647,35 @@ func (p *postingsAndFreq) Equals(other interface{}) bool {
 	return true
 }
 
-// TermPositionsCost returns an expected cost in simple operations of processing the occurrences
-// of a term in a document that contains the term.
-func TermPositionsCost(termsEnum index.TermsEnum) float32 {
-	docFreq := termsEnum.DocFreq()
-	totalTermFreq := termsEnum.TotalTermFreq()
+// termPosnsSeekOpsPerDoc is the number of simple operations in
+// Lucene104PostingsReader.BlockImpactsPostingsEnum#nextPosition() when no
+// seek or buffer refill is done.
+//
+// Mirrors PhraseQuery.TERM_POSNS_SEEK_OPS_PER_DOC.
+const termPosnsSeekOpsPerDoc = 256
+
+// termOpsPerPos is the number of simple operations in
+// Lucene104PostingsReader.BlockPostingsEnum#nextPosition() when no seek or
+// buffer refill is done.
+//
+// Mirrors PhraseQuery.TERM_OPS_PER_POS.
+const termOpsPerPos = 7
+
+// TermPositionsCost returns an expected cost in simple operations of
+// processing the occurrences of a term in a document that contains the term.
+// This is for use by TwoPhaseIterator.MatchCost implementations.
+//
+// Mirrors PhraseQuery.termPositionsCost(TermsEnum). The term is the term at
+// which termsEnum is positioned.
+func TermPositionsCost(termsEnum index.TermsEnum) (float32, error) {
+	docFreq, err := termsEnum.DocFreq()
+	if err != nil {
+		return 0, err
+	}
+	totalTermFreq, err := termsEnum.TotalTermFreq()
+	if err != nil {
+		return 0, err
+	}
 	expOccurrencesInMatchingDoc := float32(totalTermFreq) / float32(docFreq)
-	return 256 + expOccurrencesInMatchingDoc*7
+	return termPosnsSeekOpsPerDoc + expOccurrencesInMatchingDoc*termOpsPerPos, nil
 }

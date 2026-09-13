@@ -9,6 +9,7 @@ package payloads
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -22,8 +23,8 @@ import (
 //
 // Mirrors org.apache.lucene.queries.payloads.PayloadScoreQuery.
 type PayloadScoreQuery struct {
-	search.BaseSpanQuery
-	wrappedQuery     search.SpanQuery
+	search.BaseQuery
+	wrappedQuery     spans.SpanQuery
 	function         PayloadFunction
 	decoder          PayloadDecoder
 	includeSpanScore bool
@@ -31,16 +32,15 @@ type PayloadScoreQuery struct {
 
 // NewPayloadScoreQuery creates a PayloadScoreQuery that includes the underlying
 // span scores.
-func NewPayloadScoreQuery(wrappedQuery search.SpanQuery, function PayloadFunction, decoder PayloadDecoder) *PayloadScoreQuery {
+func NewPayloadScoreQuery(wrappedQuery spans.SpanQuery, function PayloadFunction, decoder PayloadDecoder) *PayloadScoreQuery {
 	return NewPayloadScoreQueryWithInclude(wrappedQuery, function, decoder, true)
 }
 
 // NewPayloadScoreQueryWithInclude creates a PayloadScoreQuery.
 // If includeSpanScore is true, both span score and payload score are combined.
-func NewPayloadScoreQueryWithInclude(wrappedQuery search.SpanQuery, function PayloadFunction,
+func NewPayloadScoreQueryWithInclude(wrappedQuery spans.SpanQuery, function PayloadFunction,
 	decoder PayloadDecoder, includeSpanScore bool) *PayloadScoreQuery {
 	return &PayloadScoreQuery{
-		BaseSpanQuery:    *search.NewBaseSpanQuery(wrappedQuery.GetField()),
 		wrappedQuery:     wrappedQuery,
 		function:         function,
 		decoder:          decoder,
@@ -52,7 +52,7 @@ func NewPayloadScoreQueryWithInclude(wrappedQuery search.SpanQuery, function Pay
 func (q *PayloadScoreQuery) GetField() string { return q.wrappedQuery.GetField() }
 
 // GetWrappedQuery returns the wrapped query.
-func (q *PayloadScoreQuery) GetWrappedQuery() search.SpanQuery { return q.wrappedQuery }
+func (q *PayloadScoreQuery) GetWrappedQuery() spans.SpanQuery { return q.wrappedQuery }
 
 // Rewrite rewrites the wrapped query and returns a new PayloadScoreQuery if
 // the wrapped query changed.
@@ -62,7 +62,7 @@ func (q *PayloadScoreQuery) Rewrite(reader search.IndexReader) (search.Query, er
 		return nil, err
 	}
 	if rewritten != q.wrappedQuery {
-		sp, ok := rewritten.(search.SpanQuery)
+		sp, ok := rewritten.(spans.SpanQuery)
 		if !ok {
 			return nil, fmt.Errorf("PayloadScoreQuery.Rewrite: inner rewrite returned non-SpanQuery %T", rewritten)
 		}
@@ -101,8 +101,7 @@ func (q *PayloadScoreQuery) CreateWeight(searcher *search.IndexSearcher, needsSc
 // Clone returns a copy of this query.
 func (q *PayloadScoreQuery) Clone() search.Query {
 	return &PayloadScoreQuery{
-		BaseSpanQuery:    *search.NewBaseSpanQuery(q.GetField()),
-		wrappedQuery:     q.wrappedQuery.Clone().(search.SpanQuery),
+		wrappedQuery:     q.wrappedQuery.Clone().(spans.SpanQuery),
 		function:         q.function,
 		decoder:          q.decoder,
 		includeSpanScore: q.includeSpanScore,
@@ -110,7 +109,7 @@ func (q *PayloadScoreQuery) Clone() search.Query {
 }
 
 // Equals returns true if other is equal to this.
-func (q *PayloadScoreQuery) Equals(other search.Query) bool {
+func (q *PayloadScoreQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*PayloadScoreQuery)
 	if !ok {
 		return false
@@ -139,11 +138,11 @@ func classHash() int {
 // String returns a string representation.
 func (q *PayloadScoreQuery) String(field string) string {
 	return fmt.Sprintf("PayloadScoreQuery(%s, function: %T, includeSpanScore: %t)",
-		q.wrappedQuery.String(field), q.function, q.includeSpanScore)
+		q.wrappedQuery.ToString(field), q.function, q.includeSpanScore)
 }
 
-// Ensure PayloadScoreQuery implements search.SpanQuery.
-var _ search.SpanQuery = (*PayloadScoreQuery)(nil)
+// Ensure PayloadScoreQuery implements spans.SpanQuery.
+var _ spans.SpanQuery = (*PayloadScoreQuery)(nil)
 
 // --- Weight implementation ---
 
@@ -285,20 +284,20 @@ func newPayloadScoreSpans(inner spans.Spans, decoder PayloadDecoder, function Pa
 	}
 }
 
-func (ps *payloadScoreSpans) DocID() int    { return ps.inner.DocID() }
-func (ps *payloadScoreSpans) Cost() int64   { return ps.inner.Cost() }
-func (ps *payloadScoreSpans) DocIDRunEnd() int      { return ps.inner.DocIDRunEnd() }
-func (ps *payloadScoreSpans) StartPosition() int    { return ps.inner.StartPosition() }
-func (ps *payloadScoreSpans) EndPosition() int      { return ps.inner.EndPosition() }
-func (ps *payloadScoreSpans) Width() int            { return ps.inner.Width() }
-func (ps *payloadScoreSpans) PositionsCost() float32 { return ps.inner.PositionsCost() }
+func (ps *payloadScoreSpans) DocID() int                { return ps.inner.DocID() }
+func (ps *payloadScoreSpans) Cost() int64               { return ps.inner.Cost() }
+func (ps *payloadScoreSpans) DocIDRunEnd() (int, error) { return ps.inner.DocIDRunEnd() }
+func (ps *payloadScoreSpans) StartPosition() int        { return ps.inner.StartPosition() }
+func (ps *payloadScoreSpans) EndPosition() int          { return ps.inner.EndPosition() }
+func (ps *payloadScoreSpans) Width() int                { return ps.inner.Width() }
+func (ps *payloadScoreSpans) PositionsCost() float32    { return ps.inner.PositionsCost() }
 func (ps *payloadScoreSpans) AsTwoPhaseIterator() *search.TwoPhaseIterator {
 	return ps.inner.AsTwoPhaseIterator()
 }
 func (ps *payloadScoreSpans) Collect(collector spans.SpanCollector) error {
 	return ps.inner.Collect(collector)
 }
-func (ps *payloadScoreSpans) NextDoc() (int, error) { return ps.inner.NextDoc() }
+func (ps *payloadScoreSpans) NextDoc() (int, error)           { return ps.inner.NextDoc() }
 func (ps *payloadScoreSpans) Advance(target int) (int, error) { return ps.inner.Advance(target) }
 func (ps *payloadScoreSpans) NextStartPosition() (int, error) { return ps.inner.NextStartPosition() }
 
@@ -390,8 +389,8 @@ func (s *payloadScoreScorer) Advance(target int) (int, error) {
 	return doc, nil
 }
 
-func (s *payloadScoreScorer) Cost() int64      { return s.spans.Cost() }
-func (s *payloadScoreScorer) DocIDRunEnd() int { return s.spans.DocIDRunEnd() }
+func (s *payloadScoreScorer) Cost() int64               { return s.spans.Cost() }
+func (s *payloadScoreScorer) DocIDRunEnd() (int, error) { return s.spans.DocIDRunEnd() }
 
 // setFreqCurrentDoc accumulates sloppy frequency and triggers payload collection.
 func (s *payloadScoreScorer) setFreqCurrentDoc() error {
@@ -498,3 +497,17 @@ func (s *payloadScoreScorer) AdvanceShallow(target int) (int, error) {
 }
 
 var _ search.Scorer = (*payloadScoreScorer)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (ps *payloadScoreSpans) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(ps, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *payloadScoreScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

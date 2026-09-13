@@ -5,6 +5,7 @@
 package join
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -17,7 +18,7 @@ type mockQuery struct{}
 
 func (q *mockQuery) Rewrite(reader search.IndexReader) (search.Query, error) { return q, nil }
 func (q *mockQuery) Clone() search.Query                                     { return &mockQuery{} }
-func (q *mockQuery) Equals(other search.Query) bool                          { _, ok := other.(*mockQuery); return ok }
+func (q *mockQuery) Equals(other spi.Query) bool                             { _, ok := other.(*mockQuery); return ok }
 func (q *mockQuery) HashCode() int                                           { return 0 }
 func (q *mockQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
 	return nil, nil

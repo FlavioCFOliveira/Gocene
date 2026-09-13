@@ -4,6 +4,10 @@
 
 package search
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 // NamedMatches wraps a Matches with a name, used to identify which sub-query
 // inside a larger compound query produced the match.
 //
@@ -62,7 +66,7 @@ func (q *namedQuery) Name() string   { return q.name }
 func (q *namedQuery) Inner() Query   { return q.inner }
 func (q *namedQuery) String() string { return "NamedQuery(" + q.name + ")" }
 
-func (q *namedQuery) Equals(other Query) bool {
+func (q *namedQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*namedQuery)
 	if !ok {
 		return false
@@ -84,18 +88,11 @@ func (q *namedQuery) HashCode() int {
 	return h
 }
 
-func (q *namedQuery) Clone() Query {
-	if q.inner == nil {
-		return &namedQuery{name: q.name}
-	}
-	return &namedQuery{name: q.name, inner: q.inner.Clone()}
-}
-
-func (q *namedQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *namedQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	if q.inner == nil {
 		return q, nil
 	}
-	rw, err := q.inner.Rewrite(reader)
+	rw, err := q.inner.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
@@ -105,11 +102,11 @@ func (q *namedQuery) Rewrite(reader IndexReader) (Query, error) {
 	return &namedQuery{name: q.name, inner: rw}, nil
 }
 
-func (q *namedQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *namedQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	if q.inner == nil {
 		return nil, nil
 	}
-	return q.inner.CreateWeight(searcher, needsScores, boost)
+	return q.inner.CreateWeight(searcher, scoreMode, boost)
 }
 
 // sprintQuery is a tiny helper that calls Stringer if available, otherwise

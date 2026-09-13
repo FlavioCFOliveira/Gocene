@@ -9,6 +9,7 @@ package spans
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -61,7 +62,7 @@ func (q *SpanTermQuery) Clone() search.Query {
 }
 
 // Equals reports structural equality.
-func (q *SpanTermQuery) Equals(other search.Query) bool {
+func (q *SpanTermQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*SpanTermQuery)
 	if !ok {
 		return false
@@ -83,26 +84,33 @@ func (q *SpanTermQuery) HashCode() int {
 	return h
 }
 
-// String returns the canonical Lucene rendering.
-func (q *SpanTermQuery) String() string {
+// ToString mirrors SpanTermQuery.toString(String field): the term's text alone
+// when it belongs to the default field, and the whole Term otherwise.
+func (q *SpanTermQuery) ToString(field string) string {
 	text := ""
 	if q.term.Bytes != nil {
 		text = q.term.Bytes.String()
 	}
+	if q.term.Field == field {
+		return text
+	}
 	return fmt.Sprintf("%s:%s", q.term.Field, text)
 }
 
+// String renders Query.toString(), whose Java body is toString("").
+func (q *SpanTermQuery) String() string { return q.ToString("") }
+
 // CreateWeight creates a Weight for this query (non-span path, used by IndexSearcher).
-func (q *SpanTermQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	return q.createSpanWeight(searcher, needsScores, boost)
+func (q *SpanTermQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	return q.createSpanWeight(searcher, scoreMode, boost)
 }
 
 // CreateSpanWeight creates a SpanWeight for this query.
-func (q *SpanTermQuery) CreateSpanWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (*SpanWeight, error) {
-	return q.createSpanWeight(searcher, needsScores, boost)
+func (q *SpanTermQuery) CreateSpanWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (*SpanWeight, error) {
+	return q.createSpanWeight(searcher, scoreMode, boost)
 }
 
-func (q *SpanTermQuery) createSpanWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (*SpanWeight, error) {
+func (q *SpanTermQuery) createSpanWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (*SpanWeight, error) {
 	term := q.term
 	return NewSpanWeight(q, SpanWeightConfig{
 		Field:     term.Field,

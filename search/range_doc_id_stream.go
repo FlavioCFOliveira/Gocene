@@ -54,7 +54,7 @@ func (s *RangeDocIdStream) MayHaveRemaining() bool {
 // calls consumer for each. Advances s.upTo afterward.
 //
 // Mirrors RangeDocIdStream.forEach(int, CheckedIntConsumer).
-func (s *RangeDocIdStream) ForEachUpTo(upTo int, consumer IntConsumer) error {
+func (s *RangeDocIdStream) ForEachUpTo(upTo int, consumer func(int) error) error {
 	if upTo <= s.upTo {
 		return nil
 	}
@@ -111,3 +111,34 @@ func (s *RangeDocIdStream) IntoArrayUpTo(upTo int, array []int) int {
 
 // Compile-time check: RangeDocIdStream satisfies DocIdStream.
 var _ DocIdStream = (*RangeDocIdStream)(nil)
+
+// ForEach iterates over every doc ID contained in this stream in order,
+// calling consumer on each. This is a terminal operation.
+//
+// Mirrors the concrete DocIdStream.forEach(CheckedIntConsumer) of Apache
+// Lucene 10.5.0 (DocIdStream.java:36-38), whose body is
+// `forEach(DocIdSetIterator.NO_MORE_DOCS, consumer)`.
+func (s *RangeDocIdStream) ForEach(consumer func(int) error) error {
+	return s.ForEachUpTo(NO_MORE_DOCS, consumer)
+}
+
+// Count returns the number of entries in this stream. This is a terminal
+// operation.
+//
+// Mirrors the concrete DocIdStream.count() of Apache Lucene 10.5.0
+// (DocIdStream.java:48-50), whose body is
+// `count(DocIdSetIterator.NO_MORE_DOCS)`.
+func (s *RangeDocIdStream) Count() (int, error) {
+	return s.CountUpTo(NO_MORE_DOCS)
+}
+
+// IntoArray copies some matching doc IDs into array and returns the number of
+// copied elements. A return value of 0 indicates that there are no remaining
+// doc IDs. array must not be empty.
+//
+// Mirrors the concrete DocIdStream.intoArray(int[]) of Apache Lucene 10.5.0
+// (DocIdStream.java:64-66), whose body is
+// `intoArray(DocIdSetIterator.NO_MORE_DOCS, array)`.
+func (s *RangeDocIdStream) IntoArray(array []int) int {
+	return s.IntoArrayUpTo(NO_MORE_DOCS, array)
+}

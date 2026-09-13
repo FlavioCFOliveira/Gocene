@@ -166,7 +166,7 @@ func NewSlowDocValuesBoxQuery(
 	minLat, maxLat, minLon, maxLon float64,
 ) (Query, error) {
 	if queryRelation == document.QueryRelationContains && minLon > maxLon {
-		bq := NewBooleanQuery()
+		bq := NewBooleanQueryBuilder()
 		must1, err := NewBoxQuery(
 			field, queryRelation, minLat, maxLat, minLon, geo.MaxLonIncl)
 		if err != nil {
@@ -179,7 +179,7 @@ func NewSlowDocValuesBoxQuery(
 			return nil, err
 		}
 		bq.Add(must2, MUST)
-		return bq, nil
+		return bq.Build(), nil
 	}
 	rect, err := geo.NewRectangle(minLat, maxLat, minLon, maxLon)
 	if err != nil {

@@ -5,6 +5,7 @@
 package join
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -44,8 +45,8 @@ func (it *sliceDISI) Advance(target int) (int, error) {
 	}
 }
 
-func (it *sliceDISI) Cost() int64      { return int64(len(it.docs)) }
-func (it *sliceDISI) DocIDRunEnd() int { return it.DocID() + 1 }
+func (it *sliceDISI) Cost() int64               { return int64(len(it.docs)) }
+func (it *sliceDISI) DocIDRunEnd() (int, error) { return it.DocID() + 1, nil }
 
 // TestDiversifyingExactSearch_BestPerParent verifies the core diversifying scan:
 // children are grouped into parent blocks by the parent bitset, exactly one
@@ -130,4 +131,11 @@ func TestDiversifyingExactSearch_TopKTruncates(t *testing.T) {
 	if td.ScoreDocs[0].Doc != 1 || td.ScoreDocs[1].Doc != 3 {
 		t.Errorf("docs = [%d %d], want [1 3]", td.ScoreDocs[0].Doc, td.ScoreDocs[1].Doc)
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *sliceDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
 }

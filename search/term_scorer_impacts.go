@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // indexImpactsSource adapts an index.ImpactsEnum to the search.ImpactsSource
@@ -34,7 +35,7 @@ import (
 // ImpactsEnum, refreshes the Impacts snapshot, and reports getDocIdUpTo(0) as
 // the block boundary.
 type indexImpactsSource struct {
-	enum    index.ImpactsEnum
+	enum    index.ImpactsSource
 	impacts index.Impacts // snapshot refreshed on each AdvanceShallow
 	scratch []Impact      // reused conversion buffer (allocation-free hot path)
 }
@@ -49,6 +50,16 @@ func newIndexImpactsSource(enum index.ImpactsEnum) (*indexImpactsSource, error) 
 		return nil, err
 	}
 	return s, nil
+}
+
+// newLazyIndexImpactsSource wraps an index.ImpactsSource without materialising
+// the first Impacts snapshot. This is the shape Lucene's ExactPhraseMatcher
+// needs: its constructor hands mergeImpacts(...) straight to
+// new MaxScoreCache(impactsSource, scorer) without reading it, and the snapshot
+// is first read when ImpactsDISI shallow-advances. Since the Java constructor
+// does not throw, the Go constructor must not be able to fail either.
+func newLazyIndexImpactsSource(src index.ImpactsSource) *indexImpactsSource {
+	return &indexImpactsSource{enum: src}
 }
 
 // refresh re-reads the current Impacts snapshot from the underlying enum.
@@ -127,48 +138,34 @@ func (s *indexImpactsSource) GetImpacts(level int) []Impact {
 // contract consumed by MaxScoreCache.
 var _ ImpactsSource = (*indexImpactsSource)(nil)
 
-// legacySimImpactScorer adapts the legacy [SimScorer] (Score(doc, freq)) to the
-// ImpactSimScorer contract (Score(freq, norm)) consumed by MaxScoreCache.
+// simImpactScorer adapts a [SimScorer] to the ImpactSimScorer contract
+// (Score(freq, norm)) consumed by MaxScoreCache.
 //
 // Faithfulness note. Lucene's MaxScoreCache scores impacts through
-// Similarity.SimScorer.score(freq, norm), and TermScorer.score applies the
-// per-document norm. Gocene's TermWeight/TermScorer use the legacy SimScorer
-// surface, whose Score(doc, freq) deliberately does NOT apply norms (see
-// term_weight.go: "Norms are not consulted because the legacy scoring path does
-// not apply them"). The block-max upper bound MUST be computed with the very
-// same scoring function the scorer uses for live documents, otherwise it could
-// under-estimate and violate the getMaxScore >= score invariant. Therefore this
-// adapter:
-//
-//   - ignores norm (exactly as the live Score path does), and
-//   - is monotonically non-decreasing in freq for the legacy similarities used
-//     here (ClassicSimScorer: sqrt(freq)*idf*boost; BaseSimScorer: constant 1),
-//     so feeding the per-block maximum freq yields the per-block maximum score.
-//
-// The doc argument is irrelevant to these legacy scorers (they ignore it), so a
-// fixed placeholder doc is passed. This makes GetMaxScore a correct (and, for
-// real codec impacts, tight) upper bound while staying byte-faithful to how the
-// legacy path scores live documents.
-type legacySimImpactScorer struct {
+// Similarity.SimScorer.score(float freq, long norm); Gocene spells that method
+// Score104(freq, norm) (see search/similarity.go). This adapter is therefore a
+// pure name bridge between the two surfaces: the block-max upper bound is
+// computed with exactly the scoring function the live scorer uses, preserving
+// the getMaxScore >= score invariant.
+type simImpactScorer struct {
 	sim SimScorer
 }
 
-// newLegacySimImpactScorer wraps a legacy SimScorer. A nil sim yields a scorer
-// whose Score always returns 0, matching TermScorer.Score's nil-sim behaviour
-// where it would otherwise return the constant 1.0 — here 0 is the safe lower
-// bound that never lets GetMaxScore exceed the (constant) live score, but the
-// real wiring always supplies a non-nil sim when scores are needed.
-func newLegacySimImpactScorer(sim SimScorer) *legacySimImpactScorer {
-	return &legacySimImpactScorer{sim: sim}
+// newSimImpactScorer wraps a SimScorer. A nil sim yields a scorer whose Score
+// always returns 0, matching TermScorer.Score's nil-sim behaviour where it
+// would otherwise return the constant 1.0 — here 0 is the safe lower bound
+// that never lets GetMaxScore exceed the (constant) live score, but the real
+// wiring always supplies a non-nil sim when scores are needed.
+func newSimImpactScorer(sim SimScorer) *simImpactScorer {
+	return &simImpactScorer{sim: sim}
 }
 
-// Score returns the legacy similarity score for the given impact frequency and
-// encoded norm. The legacy live-scoring path now consults norms for
-// similarities that use them (e.g. BM25), so the norm is forwarded so that the
-// block-max upper bound is computed with the same scoring function the live
-// scorer uses. The negative placeholder doc is never consulted by the legacy
-// similarities.
-func (s *legacySimImpactScorer) Score(freq float32, norm int64) float32 {
+// Score returns the similarity score for the given impact frequency and
+// encoded norm.
+//
+// Mirrors the Similarity.SimScorer.score(freq, norm) call made by
+// MaxScoreCache.getMaxScoreForLevel.
+func (s *simImpactScorer) Score(freq float32, norm int64) float32 {
 	if s.sim == nil {
 		return 0
 	}
@@ -178,13 +175,100 @@ func (s *legacySimImpactScorer) Score(freq float32, norm int64) float32 {
 	if math.IsInf(float64(freq), 0) || math.IsNaN(float64(freq)) {
 		freq = math.MaxFloat32
 	}
-	return s.sim.Score(impactScorerPlaceholderDoc, freq, norm)
+	return s.sim.Score104(freq, norm)
 }
 
-// impactScorerPlaceholderDoc is the doc id handed to the legacy SimScorer when
-// computing block-max scores. Legacy similarities ignore the doc id (they do
-// not apply norms), so any value is safe; -1 is used to signal "no live doc".
-const impactScorerPlaceholderDoc = -1
+// Compile-time assertion: simImpactScorer satisfies ImpactSimScorer.
+var _ ImpactSimScorer = (*simImpactScorer)(nil)
 
-// Compile-time assertion: legacySimImpactScorer satisfies ImpactSimScorer.
-var _ ImpactSimScorer = (*legacySimImpactScorer)(nil)
+// spiImpactsSource adapts an spi.ImpactsSource to the search.ImpactsSource
+// contract consumed by MaxScoreCache.
+//
+// It exists alongside indexImpactsSource because Gocene declares the Lucene
+// class org.apache.lucene.index.Impacts twice — once in index (whose
+// GetImpacts(level) returns *index.FreqAndNormBuffer) and once in spi (whose
+// GetImpacts(level) returns *util.FreqAndNormBuffer). The two are structurally
+// identical but are distinct Go types, so a single adapter cannot serve both.
+// TermsEnum.Impacts hands back the spi flavour; SlowImpactsEnum the index one.
+type spiImpactsSource struct {
+	enum    spi.ImpactsSource
+	impacts spi.Impacts // snapshot refreshed on each AdvanceShallow
+	scratch []Impact    // reused conversion buffer (allocation-free hot path)
+}
+
+// newSPIImpactsSource wraps an spi.ImpactsSource. It eagerly materialises the
+// first Impacts snapshot so that NumLevels/GetDocIDUpTo/GetImpacts are valid
+// before any AdvanceShallow call, matching Lucene where impactsSource.getImpacts
+// is always callable once the enum is positioned.
+func newSPIImpactsSource(enum spi.ImpactsSource) (*spiImpactsSource, error) {
+	s := &spiImpactsSource{enum: enum}
+	if err := s.refresh(); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// refresh re-reads the current Impacts snapshot from the underlying enum.
+func (s *spiImpactsSource) refresh() error {
+	imp, err := s.enum.GetImpacts()
+	if err != nil {
+		return err
+	}
+	s.impacts = imp
+	return nil
+}
+
+// AdvanceShallow shallow-advances the underlying source to target, refreshes the
+// Impacts snapshot, and returns the inclusive upper doc id of the level-0 block.
+// Mirrors MaxScoreCache.advanceShallow.
+func (s *spiImpactsSource) AdvanceShallow(target int) (int, error) {
+	if err := s.enum.AdvanceShallow(target); err != nil {
+		return 0, err
+	}
+	if err := s.refresh(); err != nil {
+		return 0, err
+	}
+	return s.GetDocIDUpTo(0), nil
+}
+
+// NumLevels returns the number of impact levels in the current snapshot.
+func (s *spiImpactsSource) NumLevels() int {
+	if s.impacts == nil {
+		return 0
+	}
+	return s.impacts.NumLevels()
+}
+
+// GetDocIDUpTo returns the inclusive upper doc id for level.
+func (s *spiImpactsSource) GetDocIDUpTo(level int) int {
+	if s.impacts == nil {
+		return NO_MORE_DOCS
+	}
+	return s.impacts.GetDocIDUpTo(level)
+}
+
+// GetImpacts converts the level's (freq, norm) buffer into a []search.Impact,
+// reusing the scratch slice across calls.
+func (s *spiImpactsSource) GetImpacts(level int) []Impact {
+	if s.impacts == nil {
+		return nil
+	}
+	buf := s.impacts.GetImpacts(level)
+	if buf == nil {
+		return nil
+	}
+	n := buf.Size
+	if cap(s.scratch) < n {
+		s.scratch = make([]Impact, n)
+	} else {
+		s.scratch = s.scratch[:n]
+	}
+	for i := 0; i < n; i++ {
+		s.scratch[i] = Impact{Freq: buf.Freqs[i], Norm: buf.Norms[i]}
+	}
+	return s.scratch
+}
+
+// Compile-time assertion: spiImpactsSource satisfies the search ImpactsSource
+// contract consumed by MaxScoreCache.
+var _ ImpactsSource = (*spiImpactsSource)(nil)

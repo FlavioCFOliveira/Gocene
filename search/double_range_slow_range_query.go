@@ -15,6 +15,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"strings"
 
@@ -132,7 +133,7 @@ func (q *doubleRangeSlowRangeQuery) Max() []float64 {
 // payload but differ in min/max bit-pattern; the Java reference compares the
 // original arrays via java.util.Arrays.equals (which uses
 // Double.doubleToLongBits), so we do too.
-func (q *doubleRangeSlowRangeQuery) Equals(other Query) bool {
+func (q *doubleRangeSlowRangeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*doubleRangeSlowRangeQuery)
 	if !ok {
 		return false
@@ -191,17 +192,13 @@ func (q *doubleRangeSlowRangeQuery) String(field string) string {
 
 // Rewrite mirrors the Java reference, which simply forwards to
 // super.rewrite(IndexSearcher) — i.e. returns the query unchanged.
-func (q *doubleRangeSlowRangeQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
-
-// Clone returns the query unchanged. The encoded payload and double arrays
-// are owned by the query and never mutated through its API.
-func (q *doubleRangeSlowRangeQuery) Clone() Query { return q }
+func (q *doubleRangeSlowRangeQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // CreateWeight delegates to the binary base so the doc-values plumbing is
 // reused verbatim. The double wrapper contributes only equality/visit and
 // the public min/max accessors.
-func (q *doubleRangeSlowRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	w, err := q.binaryRangeFieldRangeQuery.CreateWeight(searcher, needsScores, boost)
+func (q *doubleRangeSlowRangeQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	w, err := q.binaryRangeFieldRangeQuery.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
 	}

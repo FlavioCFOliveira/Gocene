@@ -7,6 +7,7 @@ package search
 import (
 	"bytes"
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strconv"
 	"strings"
 
@@ -119,7 +120,7 @@ func (q *sortedSetDocValuesRangeQuery) UpperInclusive() bool { return q.upperInc
 
 // Equals mirrors SortedSetDocValuesRangeQuery.equals: same class, same
 // field, same bounds (byte-equal BytesRefs), same inclusivity flags.
-func (q *sortedSetDocValuesRangeQuery) Equals(other Query) bool {
+func (q *sortedSetDocValuesRangeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*sortedSetDocValuesRangeQuery)
 	if !ok {
 		return false
@@ -248,18 +249,12 @@ func bytesRefBoundString(b *util.BytesRef) string {
 // (no lower bound and no upper bound) folds to FieldExistsQuery (the
 // match set is "any document with a value in the field"). Every other
 // query rewrites to itself.
-func (q *sortedSetDocValuesRangeQuery) Rewrite(_ IndexReader) (Query, error) {
+func (q *sortedSetDocValuesRangeQuery) Rewrite(_ *IndexSearcher) (Query, error) {
 	if q.lowerValue == nil && q.upperValue == nil {
 		return NewFieldExistsQuery(q.field), nil
 	}
 	return q, nil
 }
-
-// Clone returns the query itself. The struct is logically immutable
-// (the bounds are captured by reference and the contract documents
-// that callers must not mutate them), so a shallow clone preserves
-// query identity and equals semantics.
-func (q *sortedSetDocValuesRangeQuery) Clone() Query { return q }
 
 // CreateWeight builds a [ConstantScoreWeight] that resolves the
 // per-leaf [index.SortedSetDocValues] iterator and wraps a
@@ -275,9 +270,9 @@ func (q *sortedSetDocValuesRangeQuery) Clone() Query { return q }
 //
 // See the type-level deviation notes for the omitted DocValuesSkipper
 // fast paths and the local binary-search substitute for LookupTerm.
-func (q *sortedSetDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *sortedSetDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	mode := COMPLETE_NO_SCORES
-	if needsScores {
+	if scoreMode.NeedsScores() {
 		mode = COMPLETE
 	}
 
@@ -308,13 +303,24 @@ func (q *sortedSetDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, needsScore
 		// DocIdSetIterator.empty().
 		if minOrd > maxOrd {
 			return NewConstantScoreScorerSupplierFromIterator(
-				boost, mode, NewEmptyDocIdSetIterator()), nil
+				boost, mode, Empty()), nil
 		}
 
 		approx := newSortedSetApproximation(values, maxDoc)
 		singleton := index.UnwrapSingletonSortedSet(values)
 
 		var matchFn func() (bool, error)
+		// matchCost mirrors the third argument Java's
+		// DocValuesRangeIterator.forOrdinalRange passes to
+		// DocValuesValueRangeIterator on the skipper == null path (Lucene
+		// 10.5.0, DocValuesRangeIterator.java:100 and :126): 2 for the
+		// SortedDocValues singleton, 5 for SortedSetDocValues.
+		var matchCost float32
+		if singleton != nil {
+			matchCost = 2
+		} else {
+			matchCost = 5
+		}
 		if singleton != nil {
 			// Singleton fast path: each doc carries at most one
 			// ordinal. Mirrors the Java
@@ -357,13 +363,13 @@ func (q *sortedSetDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, needsScore
 			}
 		}
 
-		tpi := NewTwoPhaseIterator(approx, matchFn)
+		tpi := NewTwoPhaseIteratorWithMatchCost(approx, matchFn, matchCost)
 		return NewConstantScoreScorerSupplier(
 			boost,
 			mode,
 			approx.Cost(),
 			func(_ int64) (DocIdSetIterator, error) {
-				return tpi.AsDocIdSetIterator(), nil
+				return AsDocIdSetIterator(tpi), nil
 			},
 		), nil
 	}
@@ -570,12 +576,18 @@ func (s *sortedSetApproximation) Cost() int64 { return s.cost }
 
 // DocIDRunEnd returns the current doc id + 1, matching the
 // DocIdSetIterator default contract.
-func (s *sortedSetApproximation) DocIDRunEnd() int {
+func (s *sortedSetApproximation) DocIDRunEnd() (int, error) {
 	if s.docID < 0 || s.docID == NO_MORE_DOCS {
-		return s.docID
+		return s.docID, nil
 	}
-	return s.docID + 1
+	return s.docID + 1, nil
 }
 
 // Ensure sortedSetApproximation satisfies DocIdSetIterator.
 var _ DocIdSetIterator = (*sortedSetApproximation)(nil)
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (s *sortedSetApproximation) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

@@ -104,7 +104,7 @@ func NearestLatLonPoint(
 		readers = append(readers, document.PointTreeNearestReader{
 			Tree:     &bkdPointTreeWalker{tree: tree},
 			LiveDocs: liveDocs,
-			DocBase:  leafCtx.DocBase(),
+			DocBase:  leafCtx.DocBase,
 		})
 	}
 
@@ -242,11 +242,11 @@ func (a *nearestVisitorToBKD) VisitByPackedValue(docID int, packedValue []byte) 
 func (a *nearestVisitorToBKD) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
 	switch a.v.Compare(minPackedValue, maxPackedValue) {
 	case document.PointTreeCellInsideQuery:
-		return geo.RelationCellInsideQuery
+		return geo.CellInsideQuery
 	case document.PointTreeCellCrossesQuery:
-		return geo.RelationCellCrossesQuery
+		return geo.CellCrossesQuery
 	default:
-		return geo.RelationCellOutsideQuery
+		return geo.CellOutsideQuery
 	}
 }
 

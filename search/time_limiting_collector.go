@@ -14,6 +14,8 @@ import (
 // TimeLimitingCollector terminates collection if it exceeds a time limit.
 // This is the Go port of Lucene's org.apache.lucene.search.TimeLimitingCollector.
 type TimeLimitingCollector struct {
+	BaseCollector
+	BaseLeafCollector
 	delegate Collector
 	timeout  time.Duration
 	baseline time.Time
@@ -50,7 +52,7 @@ func (c *TimeLimitingCollector) ScoreMode() ScoreMode {
 }
 
 // SetScorer sets the scorer for this collector.
-func (c *TimeLimitingCollector) SetScorer(scorer Scorer) error {
+func (c *TimeLimitingCollector) SetScorer(scorer Scorable) error {
 	return nil
 }
 
@@ -67,3 +69,15 @@ func (c *TimeLimitingCollector) IsTimeout() bool {
 // Ensure TimeLimitingCollector implements Collector and LeafCollector
 var _ Collector = (*TimeLimitingCollector)(nil)
 var _ LeafCollector = (*TimeLimitingCollector)(nil)
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (t *TimeLimitingCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(t, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (t *TimeLimitingCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(t, stream)
+}

@@ -160,11 +160,11 @@ func TestSpanQueryVisitor_SpanNearQuery_GetTermStates(t *testing.T) {
 	// but GetTermStatesFromSlice must not panic and must return a valid (empty) map.
 	t1 := NewSpanTermQuery(newTerm("body", "x"))
 	t2 := NewSpanTermQuery(newTerm("body", "y"))
-	w1, err := t1.CreateSpanWeight(nil, false, 1.0)
+	w1, err := t1.CreateSpanWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateSpanWeight t1: %v", err)
 	}
-	w2, err := t2.CreateSpanWeight(nil, false, 1.0)
+	w2, err := t2.CreateSpanWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateSpanWeight t2: %v", err)
 	}

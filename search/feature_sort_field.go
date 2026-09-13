@@ -10,6 +10,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // ErrFeatureSortFieldMissingValueUnsupported reports the error raised when a
@@ -44,7 +45,7 @@ func NewFeatureSortField(field, featureName string) (*FeatureSortField, error) {
 	if featureName == "" {
 		return nil, errors.New("featureName must not be empty")
 	}
-	sf := NewSortField(field, SortFieldTypeCustom)
+	sf := NewSortField(field, spi.SortFieldTypeCustom)
 	sf.Reverse = true
 	return &FeatureSortField{
 		SortField:   sf,

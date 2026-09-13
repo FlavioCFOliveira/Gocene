@@ -70,9 +70,8 @@ func NewDisjunctionMaxScorer(
 // The score is max(subScores) + tieBreakerMultiplier * sum(remaining subScores).
 //
 // Mirrors DisjunctionMaxScorer.score(DisiWrapper topList).
-func (s *DisjunctionMaxScorer) Score() float32 {
-	v, _ := s.scoreWithError()
-	return v
+func (s *DisjunctionMaxScorer) Score() (float32, error) {
+	return s.scoreWithError()
 }
 
 func (s *DisjunctionMaxScorer) scoreWithError() (float32, error) {
@@ -80,15 +79,18 @@ func (s *DisjunctionMaxScorer) scoreWithError() (float32, error) {
 	if err != nil {
 		return 0, err
 	}
-	return s.scoreTopList(topList), nil
+	return s.scoreTopList(topList)
 }
 
 // scoreTopList computes the DisjunctionMax formula over the top-list chain.
-func (s *DisjunctionMaxScorer) scoreTopList(topList *DisiWrapper) float32 {
+func (s *DisjunctionMaxScorer) scoreTopList(topList *DisiWrapper) (float32, error) {
 	var scoreMax float32
 	var otherScoreSum float64
 	for w := topList; w != nil; w = w.next {
-		subScore := w.scorable.Score()
+		subScore, err := w.scorable.Score()
+		if err != nil {
+			return 0, err
+		}
 		if subScore >= scoreMax {
 			otherScoreSum += float64(scoreMax)
 			scoreMax = subScore
@@ -96,18 +98,21 @@ func (s *DisjunctionMaxScorer) scoreTopList(topList *DisiWrapper) float32 {
 			otherScoreSum += float64(subScore)
 		}
 	}
-	return float32(float64(scoreMax) + otherScoreSum*float64(s.tieBreakerMultiplier))
+	return float32(float64(scoreMax) + otherScoreSum*float64(s.tieBreakerMultiplier)), nil
 }
 
 // GetMaxScore returns an upper bound on the score for any document up to upTo.
 //
 // Mirrors DisjunctionMaxScorer.getMaxScore(int).
-func (s *DisjunctionMaxScorer) GetMaxScore(upTo int) float32 {
+func (s *DisjunctionMaxScorer) GetMaxScore(upTo int) (float32, error) {
 	var scoreMax float32
 	var otherScoreSum float64
 	for _, sc := range s.subScorers {
 		if sc.DocID() <= upTo {
-			subScore := sc.GetMaxScore(upTo)
+			subScore, err := sc.GetMaxScore(upTo)
+			if err != nil {
+				return 0, err
+			}
 			if subScore >= scoreMax {
 				otherScoreSum += float64(scoreMax)
 				scoreMax = subScore
@@ -118,7 +123,7 @@ func (s *DisjunctionMaxScorer) GetMaxScore(upTo int) float32 {
 	}
 
 	if s.tieBreakerMultiplier == 0 {
-		return scoreMax
+		return scoreMax, nil
 	}
 	// Apply relative-error correction to account for floating-point summation
 	// order differences, mirroring the Java getMaxScore implementation.
@@ -126,7 +131,7 @@ func (s *DisjunctionMaxScorer) GetMaxScore(upTo int) float32 {
 	if n > 0 {
 		otherScoreSum *= (1 + 2*util.MathSumRelativeErrorBound(n))
 	}
-	return float32(float64(scoreMax) + otherScoreSum*float64(s.tieBreakerMultiplier))
+	return float32(float64(scoreMax) + otherScoreSum*float64(s.tieBreakerMultiplier)), nil
 }
 
 // AdvanceShallow returns NO_MORE_DOCS, the default defined by
@@ -135,6 +140,13 @@ func (s *DisjunctionMaxScorer) GetMaxScore(upTo int) float32 {
 // as a single block.
 func (s *DisjunctionMaxScorer) AdvanceShallow(target int) (int, error) {
 	return NO_MORE_DOCS, nil
+}
+
+// NextDocsAndScores mirrors the concrete body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) in Apache
+// Lucene 10.5.0, which DisjunctionMaxScorer inherits unchanged.
+func (s *DisjunctionMaxScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
 }
 
 var _ Scorer = (*DisjunctionMaxScorer)(nil)

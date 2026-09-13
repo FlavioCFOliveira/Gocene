@@ -24,15 +24,6 @@ type DefaultSearcherFactory struct {
 	executor Executor
 }
 
-// Executor is an interface for executing search tasks concurrently.
-// This is typically a thread pool or similar mechanism.
-type Executor interface {
-	// Execute runs the given function in a separate goroutine/worker
-	Execute(fn func())
-	// Shutdown gracefully shuts down the executor
-	Shutdown() error
-}
-
 // NewDefaultSearcherFactory creates a new DefaultSearcherFactory.
 // This factory creates IndexSearcher instances with standard configuration.
 func NewDefaultSearcherFactory() *DefaultSearcherFactory {

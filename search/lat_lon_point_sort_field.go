@@ -11,6 +11,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -64,9 +65,9 @@ func NewLatLonPointSortField(field string, originLat, originLon float64) (*LatLo
 	if err := geo.CheckLongitude(originLon); err != nil {
 		return nil, err
 	}
-	sf := NewSortField(field, SortFieldTypeCustom)
+	sf := NewSortField(field, spi.SortFieldTypeCustom)
 	sf.Reverse = false
-	sf.Missing = MissingValueLast
+	sf.Missing = spi.MissingValueLast
 	sf.MissingValue = math.Inf(1)
 	return &LatLonPointSortField{
 		SortField: sf,

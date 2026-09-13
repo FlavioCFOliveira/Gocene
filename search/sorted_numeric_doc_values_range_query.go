@@ -6,6 +6,7 @@ package search
 
 import (
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"strconv"
 	"strings"
@@ -103,7 +104,7 @@ func (q *sortedNumericDocValuesRangeQuery) UpperValue() int64 { return q.upperVa
 // NumericDocValuesRangeQuery; Gocene re-implements it locally because
 // its NumericDocValuesRangeQuery is a sibling concrete type rather than
 // an abstract base.
-func (q *sortedNumericDocValuesRangeQuery) Equals(other Query) bool {
+func (q *sortedNumericDocValuesRangeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*sortedNumericDocValuesRangeQuery)
 	if !ok {
 		return false
@@ -169,20 +170,15 @@ func (q *sortedNumericDocValuesRangeQuery) String(defaultField string) string {
 // The globalMin / globalMax / globalDocCount branches from the Java
 // reference are skipped (see the type-level deviation notes). Their
 // omission is performance-only; the matched doc set is unchanged.
-func (q *sortedNumericDocValuesRangeQuery) Rewrite(_ IndexReader) (Query, error) {
+func (q *sortedNumericDocValuesRangeQuery) Rewrite(_ *IndexSearcher) (Query, error) {
 	if q.lowerValue == math.MinInt64 && q.upperValue == math.MaxInt64 {
 		return NewFieldExistsQuery(q.field), nil
 	}
 	if q.lowerValue > q.upperValue {
-		return NewMatchNoDocsQuery(), nil
+		return NewMatchNoDocsQuery(""), nil
 	}
 	return q, nil
 }
-
-// Clone returns the query itself. The struct is logically immutable
-// (all fields are primitives captured at construction), so a shallow
-// clone preserves query identity and equals semantics.
-func (q *sortedNumericDocValuesRangeQuery) Clone() Query { return q }
 
 // CreateWeight builds a [ConstantScoreWeight] that resolves the
 // per-leaf [index.SortedNumericDocValues] iterator and wraps a
@@ -199,9 +195,9 @@ func (q *sortedNumericDocValuesRangeQuery) Clone() Query { return q }
 // See the type-level deviation notes for the omitted DocValuesSkipper
 // fast paths (early "no matches" / "all matches" and primary-sort
 // doc-id-range short-circuits).
-func (q *sortedNumericDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *sortedNumericDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	mode := COMPLETE_NO_SCORES
-	if needsScores {
+	if scoreMode.NeedsScores() {
 		mode = COMPLETE
 	}
 
@@ -237,6 +233,17 @@ func (q *sortedNumericDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, needsS
 		singleton := index.UnwrapSingletonSortedNumeric(values)
 
 		var matchFn func() (bool, error)
+		// matchCost mirrors the third argument Java's
+		// DocValuesRangeIterator.forRange passes to
+		// DocValuesValueRangeIterator on the skipper == null path (Lucene
+		// 10.5.0, DocValuesRangeIterator.java:53 and :78): 2 for the
+		// NumericDocValues singleton, 5 for SortedNumericDocValues.
+		var matchCost float32
+		if singleton != nil {
+			matchCost = 2
+		} else {
+			matchCost = 5
+		}
 		if singleton != nil {
 			// Singleton fast path: each doc has exactly one value.
 			// singleton is positioned on approx.DocID() via the
@@ -271,13 +278,13 @@ func (q *sortedNumericDocValuesRangeQuery) CreateWeight(_ *IndexSearcher, needsS
 			}
 		}
 
-		tpi := NewTwoPhaseIterator(approx, matchFn)
+		tpi := NewTwoPhaseIteratorWithMatchCost(approx, matchFn, matchCost)
 		return NewConstantScoreScorerSupplier(
 			boost,
 			mode,
 			approx.Cost(),
 			func(_ int64) (DocIdSetIterator, error) {
-				return tpi.AsDocIdSetIterator(), nil
+				return AsDocIdSetIterator(tpi), nil
 			},
 		), nil
 	}

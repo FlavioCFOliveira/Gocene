@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 )
 
@@ -54,7 +55,7 @@ func (q *IndriQuery) ToString(field string) string {
 }
 
 // Equals checks if this query equals another.
-func (q *IndriQuery) Equals(other Query) bool {
+func (q *IndriQuery) Equals(other spi.Query) bool {
 	otherQuery, ok := other.(*IndriQuery)
 	if !ok {
 		return false

@@ -4,6 +4,10 @@
 
 package search
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 // Ported from Apache Lucene 10.4.0:
 //   lucene/core/src/java/org/apache/lucene/search/FieldComparator.java
 //     (RelevanceComparator)
@@ -19,7 +23,7 @@ package search
 // CUSTOM falls back to a DOC comparator, which keeps the collector functional
 // (FieldComparatorSource is not yet wired into this path).
 func newBuiltinComparator(numHits int, sf *SortField) sortFieldComparator {
-	if sf.Type == SortFieldTypeScore {
+	if sf.Type == spi.SortFieldTypeScore {
 		return newRelevanceComparator(numHits)
 	}
 	return newDocComparator(numHits)

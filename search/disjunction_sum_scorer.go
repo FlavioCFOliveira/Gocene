@@ -4,107 +4,121 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// DisjunctionSumScorer is a scorer that matches documents that match any of its clauses,
-// summing their scores.
+// DisjunctionSumScorer is a Scorer for OR like queries, counterpart of
+// ConjunctionScorer.
+//
+// Mirrors org.apache.lucene.search.DisjunctionSumScorer (Lucene 10.5.0,
+// lucene/core/src/java/org/apache/lucene/search/DisjunctionSumScorer.java).
+//
+// Deviations from Java, forced by the target language:
+//   - Java's DisjunctionSumScorer extends DisjunctionScorer; Go embeds
+//     *DisjunctionScorer.
+//   - Java's protected abstract score(DisiWrapper) is dispatched virtually
+//     from DisjunctionScorer.score(); Go has no virtual dispatch, so Score()
+//     is shadowed here and calls this type's own scoreTopList, exactly as
+//     DisjunctionMaxScorer does.
 type DisjunctionSumScorer struct {
-	scorers   []Scorer
-	scoreMode ScoreMode
-	leadCost  int64
+	*DisjunctionScorer
+	scorers []Scorer
 }
 
-func NewDisjunctionSumScorer(scorers []Scorer, scoreMode ScoreMode, leadCost int64) *DisjunctionSumScorer {
+// NewDisjunctionSumScorer constructs a DisjunctionSumScorer.
+//
+// Mirrors DisjunctionSumScorer(List<Scorer>, ScoreMode, long), whose body is
+// `super(subScorers, scoreMode, leadCost); this.scorers = subScorers;`.
+func NewDisjunctionSumScorer(subScorers []Scorer, scoreMode ScoreMode, leadCost int64) *DisjunctionSumScorer {
 	return &DisjunctionSumScorer{
-		scorers:   scorers,
-		scoreMode: scoreMode,
-		leadCost:  leadCost,
+		DisjunctionScorer: newDisjunctionScorer(subScorers, scoreMode, leadCost),
+		scorers:           subScorers,
 	}
 }
 
-func (s *DisjunctionSumScorer) NextDoc() (int, error) {
-	if len(s.scorers) == 0 {
-		return NO_MORE_DOCS, nil
+// Score returns the score of the current document.
+//
+// Mirrors DisjunctionScorer.score(), whose body is `return score(getSubMatches())`,
+// with the virtual call resolved to this type's scoreTopList.
+func (s *DisjunctionSumScorer) Score() (float32, error) {
+	topList, err := s.DisjunctionScorer.getSubMatches()
+	if err != nil {
+		return 0, err
 	}
+	return s.scoreTopList(topList)
+}
 
-	minDoc := NO_MORE_DOCS
-	for _, sc := range s.scorers {
-		doc, err := sc.NextDoc()
+// scoreTopList sums the scores of every sub-scorer on the current document.
+//
+// Mirrors DisjunctionSumScorer.score(DisiWrapper topList):
+//
+//	double score = 0;
+//	for (DisiWrapper w = topList; w != null; w = w.next) {
+//	  score += w.scorable.score();
+//	}
+//	return (float) score;
+func (s *DisjunctionSumScorer) scoreTopList(topList *DisiWrapper) (float32, error) {
+	var score float64
+	for w := topList; w != nil; w = w.next {
+		sub, err := w.scorable.Score()
 		if err != nil {
-			return NO_MORE_DOCS, err
+			return 0, err
 		}
-		if doc != NO_MORE_DOCS && (minDoc == NO_MORE_DOCS || doc < minDoc) {
-			minDoc = doc
-		}
+		score += float64(sub)
 	}
-
-	if minDoc == NO_MORE_DOCS {
-		return NO_MORE_DOCS, nil
-	}
-
-	// Advance all other scorers to this minDoc to ensure correct scoring
-	for _, sc := range s.scorers {
-		advanced, err := sc.Advance(minDoc)
-		if err != nil {
-			return NO_MORE_DOCS, err
-		}
-		if advanced != minDoc {
-			// This should not happen if we use NextDoc properly, but for safety:
-			// If it doesn't match, we just don't count its score.
-		}
-	}
-
-	return minDoc, nil
+	return float32(score), nil
 }
 
-func (s *DisjunctionSumScorer) Score() float32 {
-	var total float32
-	for _, sc := range s.scorers {
-		if sc.DocID() == s.currentDoc() { // Need currentDoc
-			total += sc.Score()
+// AdvanceShallow mirrors DisjunctionSumScorer.advanceShallow(int):
+//
+//	int min = DocIdSetIterator.NO_MORE_DOCS;
+//	for (Scorer scorer : scorers) {
+//	  if (scorer.docID() <= target) {
+//	    min = Math.min(min, scorer.advanceShallow(target));
+//	  }
+//	}
+//	return min;
+func (s *DisjunctionSumScorer) AdvanceShallow(target int) (int, error) {
+	min := NO_MORE_DOCS
+	for _, scorer := range s.scorers {
+		if scorer.DocID() <= target {
+			shallow, err := scorer.AdvanceShallow(target)
+			if err != nil {
+				return 0, err
+			}
+			if shallow < min {
+				min = shallow
+			}
 		}
 	}
-	return total
+	return min, nil
 }
 
-func (s *DisjunctionSumScorer) currentDoc() int {
-	if len(s.scorers) == 0 {
-		return -1
-	}
-	return s.scorers[0].DocID()
-}
-
-func (s *DisjunctionSumScorer) DocID() int {
-	return s.currentDoc()
-}
-
-func (s *DisjunctionSumScorer) Iterator() DocIdSetIterator {
-	// Lucene uses a specialized iterator for disjunctions.
-	// For now, we return nil or a simple wrap.
-	return nil
-}
-
-func (s *DisjunctionSumScorer) Advance(target int) (int, error) {
-	if len(s.scorers) == 0 {
-		return NO_MORE_DOCS, nil
-	}
-
-	minDoc := NO_MORE_DOCS
-	for _, sc := range s.scorers {
-		doc, err := sc.Advance(target)
-		if err != nil {
-			return NO_MORE_DOCS, err
-		}
-		if doc != NO_MORE_DOCS && (minDoc == NO_MORE_DOCS || doc < minDoc) {
-			minDoc = doc
+// GetMaxScore mirrors DisjunctionSumScorer.getMaxScore(int):
+//
+//	double maxScore = 0;
+//	for (Scorer scorer : scorers) {
+//	  if (scorer.docID() <= upTo) {
+//	    maxScore += scorer.getMaxScore(upTo);
+//	  }
+//	}
+//	return (float) MathUtil.sumUpperBound(maxScore, scorers.size());
+func (s *DisjunctionSumScorer) GetMaxScore(upTo int) (float32, error) {
+	var maxScore float64
+	for _, scorer := range s.scorers {
+		if scorer.DocID() <= upTo {
+			m, err := scorer.GetMaxScore(upTo)
+			if err != nil {
+				return 0, err
+			}
+			maxScore += float64(m)
 		}
 	}
-
-	if minDoc == NO_MORE_DOCS {
-		return NO_MORE_DOCS, nil
-	}
-
-	for _, sc := range s.scorers {
-		sc.Advance(minDoc)
-	}
-
-	return minDoc, nil
+	return float32(util.MathSumUpperBound(maxScore, len(s.scorers))), nil
 }
+
+// NextDocsAndScores mirrors the concrete body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) in Apache
+// Lucene 10.5.0, which DisjunctionSumScorer inherits unchanged.
+func (s *DisjunctionSumScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+var _ Scorer = (*DisjunctionSumScorer)(nil)

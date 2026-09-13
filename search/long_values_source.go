@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // LongValuesSource provides long values for use in queries and sorting.
@@ -126,7 +127,7 @@ func (s *LongValuesSource) GetValues(context interface{}) ([]int64, error) {
 
 // GetSortField returns a SortField for sorting by these values.
 func (s *LongValuesSource) GetSortField(reverse bool) *SortField {
-	sf := NewSortField(s.field, SortFieldTypeLong)
+	sf := NewSortField(s.field, spi.SortFieldTypeLong)
 	sf.Reverse = reverse
 	return sf
 }
@@ -137,7 +138,7 @@ func (s *LongValuesSource) GetSortField(reverse bool) *SortField {
 // open-ended ranges, matching Lucene's helper conventions.
 func (s *LongValuesSource) GetRangeQuery(lower, upper int64) Query {
 	if lower > upper {
-		return NewMatchNoDocsQuery()
+		return NewMatchNoDocsQuery("")
 	}
 	if lower == math.MinInt64 && upper == math.MaxInt64 {
 		return NewFieldExistsQuery(s.field)

@@ -561,7 +561,7 @@ func (w *binaryRangeFieldRangeWeight) scorerSupplierForTest(reader binaryDocValu
 		return nil, nil
 	}
 	scorer := newBinaryRangeFieldRangeScorer(w, dv)
-	return NewScorerSupplierAdapter(scorer), nil
+	return NewDefaultScorerSupplier(scorer), nil
 }
 
 // docRange is a per-document packed-range fixture.

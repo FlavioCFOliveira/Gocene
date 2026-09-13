@@ -8,6 +8,7 @@
 package intervals
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -44,7 +45,7 @@ func NewIntervalScorer(intervals IntervalIterator, minExtent int, boost float32,
 func (s *IntervalScorer) DocID() int { return s.intervals.DocID() }
 
 // DocIDRunEnd returns a conservative upper bound.
-func (s *IntervalScorer) DocIDRunEnd() int { return s.DocID() + 1 }
+func (s *IntervalScorer) DocIDRunEnd() (int, error) { return s.DocID() + 1, nil }
 
 // Cost returns the estimated cost.
 func (s *IntervalScorer) Cost() int64 { return s.intervals.Cost() }
@@ -103,3 +104,10 @@ func (s *IntervalScorer) ensureFreq() error {
 }
 
 var _ search.Scorer = (*IntervalScorer)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *IntervalScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

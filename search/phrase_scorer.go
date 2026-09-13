@@ -4,121 +4,119 @@
 
 package search
 
+// Ported from Apache Lucene 10.5.0:
+//   lucene/core/src/java/org/apache/lucene/search/PhraseScorer.java
+
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// phraseScorer is the Go port of org.apache.lucene.search.PhraseScorer.
+// phraseScorer is the Scorer produced by PhraseWeight.
+//
+// Mirrors org.apache.lucene.search.PhraseScorer, a package-private class.
 type phraseScorer struct {
-	approximation       DocIdSetIterator
-	impactsApproximation ImpactsDISI
-	matcher             PhraseMatcher
-	scoreMode           ScoreMode
-	simScorer           SimScorer
-	norms               index.NumericDocValues
+	BaseScorer
+	approximation        DocIdSetIterator
+	impactsApproximation *ImpactsDISI
+	maxScoreCache        *MaxScoreCache
+	matcher              PhraseMatcher
+	scoreMode            ScoreMode
+	simScorer            SimScorer
+	norms                index.NumericDocValues
+	matchCost            float32
+
 	minCompetitiveScore float32
 	freq                float32
-	matchCost           float32
 }
 
-// NewPhraseScorer creates a new PhraseScorer for exact phrases.
-func NewPhraseScorer(weight Weight, postings []index.PostingsEnum, positions []int, simScorer SimScorer, norms index.NumericDocValues) Scorer {
-	mw, ok := weight.(*MultiPhraseWeight)
-	if !ok {
-		return nil
-	}
-
-	// Convert to format expected by NewExactPhraseMatcher
-	matcherPostings := make([]struct {
-		postings index.PostingsEnum
-		offset   int
-	}, len(postings))
-
-	for i := 0; i < len(postings); i++ {
-		matcherPostings[i].postings = postings[i]
-		matcherPostings[i].offset = positions[i]
-	}
-
-	// Using 1.0 as default matchCost as in Lucene's default behavior for phrase matchers
-	matcher := NewExactPhraseMatcher(matcherPostings, mw.needsScores, simScorer, 1.0)
-
-	return &phraseScorer{
-		approximation:       matcher.Approximation(),
+// newPhraseScorer builds a phraseScorer over the supplied matcher.
+//
+// Mirrors PhraseScorer(PhraseMatcher, ScoreMode, SimScorer, NumericDocValues).
+func newPhraseScorer(matcher PhraseMatcher, scoreMode ScoreMode, simScorer SimScorer, norms index.NumericDocValues) *phraseScorer {
+	s := &phraseScorer{
+		matcher:              matcher,
+		scoreMode:            scoreMode,
+		simScorer:            simScorer,
+		norms:                norms,
+		matchCost:            matcher.GetMatchCost(),
+		approximation:        matcher.Approximation(),
 		impactsApproximation: matcher.ImpactsApproximation(),
-		matcher:             matcher,
-		scoreMode:           mw.needsScores, // Using needsScores as a placeholder for ScoreMode if not available in MultiPhraseWeight
-		simScorer:           simScorer,
-		norms:               norms,
-		matchCost:           matcher.GetMatchCost(),
 	}
+	s.maxScoreCache = s.impactsApproximation.GetMaxScoreCache()
+	return s
 }
 
-// NewSloppyPhraseScorer creates a new PhraseScorer for sloppy phrases.
-func NewSloppyPhraseScorer(weight Weight, postings []index.PostingsEnum, positions []int, simScorer SimScorer, slop int, norms index.NumericDocValues) Scorer {
-	mw, ok := weight.(*MultiPhraseWeight)
-	if !ok {
-		return nil
-	}
+// phraseTwoPhaseVerifier is the anonymous TwoPhaseIterator body returned by
+// PhraseScorer.twoPhaseIterator().
+type phraseTwoPhaseVerifier struct {
+	scorer *phraseScorer
+}
 
-	// Convert to format expected by NewSloppyPhraseMatcher
-	matcherPostings := make([]struct {
-		postings index.PostingsEnum
-		position index.PostingsEnum
-		terms    []byte
-		freq     int
-	}, len(postings))
-
-	for i := 0; i < len(postings); i++ {
-		// Use the first term of the array as the term representative for the matcher
-		var termBytes []byte
-		if len(mw.query.termArrays[i]) > 0 {
-			termBytes = mw.query.termArrays[i][0].Bytes()
+// Matches mirrors the anonymous TwoPhaseIterator.matches().
+func (v phraseTwoPhaseVerifier) Matches() (bool, error) {
+	s := v.scorer
+	if s.scoreMode == ScoreModeTopScores && s.minCompetitiveScore > 0 {
+		maxFreq, err := s.matcher.MaxFreq()
+		if err != nil {
+			return false, err
 		}
-
-		matcherPostings[i] = struct {
-			postings index.PostingsEnum
-			position index.PostingsEnum
-			terms    []byte
-			freq     int
-		}{
-			postings: postings[i],
-			position: postings[i],
-			terms:    termBytes,
-			freq:     0,
+		var norm int64 = 1
+		if s.norms != nil {
+			ok, err := s.norms.AdvanceExact(s.DocID())
+			if err != nil {
+				return false, err
+			}
+			if ok {
+				norm, err = s.norms.LongValue()
+				if err != nil {
+					return false, err
+				}
+			}
+		}
+		if s.simScorer.Score104(maxFreq, norm) < s.minCompetitiveScore {
+			// The maximum score we could get is less than the min competitive score
+			return false, nil
 		}
 	}
-
-	matcher := NewSloppyPhraseMatcher(
-		matcherPostings,
-		slop,
-		mw.needsScores,
-		simScorer,
-		1.0,
-		true,
-	)
-
-	return &phraseScorer{
-		approximation:       matcher.Approximation(),
-		impactsApproximation: matcher.ImpactsApproximation(),
-		matcher:             matcher,
-		scoreMode:           mw.needsScores,
-		simScorer:           simScorer,
-		norms:               norms,
-		matchCost:           matcher.GetMatchCost(),
+	if err := s.matcher.ResetPositions(); err != nil {
+		return false, err
 	}
+	s.freq = 0
+	return s.matcher.NextMatch()
 }
 
+// MatchCost mirrors the anonymous TwoPhaseIterator.matchCost().
+func (v phraseTwoPhaseVerifier) MatchCost() float32 {
+	return v.scorer.matchCost
+}
+
+// TwoPhaseIterator returns the two-phase view of this scorer.
+//
+// Mirrors PhraseScorer.twoPhaseIterator().
+func (s *phraseScorer) TwoPhaseIterator() *TwoPhaseIterator {
+	return NewTwoPhaseIterator(s.approximation, phraseTwoPhaseVerifier{scorer: s})
+}
+
+// DocID returns the doc ID that is currently being scored.
+//
+// Mirrors PhraseScorer.docID().
 func (s *phraseScorer) DocID() int {
 	return s.approximation.DocID()
 }
 
-func (s *phraseScorer) Score() float32 {
+// Score returns the score of the current document.
+//
+// Mirrors PhraseScorer.score().
+func (s *phraseScorer) Score() (float32, error) {
 	if s.freq == 0 {
 		s.freq = s.matcher.SloppyWeight()
 		for {
 			ok, err := s.matcher.NextMatch()
-			if err != nil || !ok {
+			if err != nil {
+				return 0, err
+			}
+			if !ok {
 				break
 			}
 			s.freq += s.matcher.SloppyWeight()
@@ -126,64 +124,56 @@ func (s *phraseScorer) Score() float32 {
 	}
 	var norm int64 = 1
 	if s.norms != nil {
-		if ok, err := s.norms.AdvanceExact(s.DocID()); err == nil && ok {
-			norm = s.norms.LongValue()
+		ok, err := s.norms.AdvanceExact(s.DocID())
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			norm, err = s.norms.LongValue()
+			if err != nil {
+				return 0, err
+			}
 		}
 	}
-	return s.simScorer.Score(s.freq, norm)
+	return s.simScorer.Score104(s.freq, norm), nil
 }
 
-func (s *phraseScorer) Iterator() util.DocIdSetIterator {
-	return s.TwoPhaseIterator().AsDocIdSetIterator()
+// Iterator returns a DocIdSetIterator over matching documents.
+//
+// Mirrors PhraseScorer.iterator().
+func (s *phraseScorer) Iterator() DocIdSetIterator {
+	return AsDocIdSetIterator(s.TwoPhaseIterator())
 }
 
-func (s *phraseScorer) TwoPhaseIterator() *TwoPhaseIterator {
-	return &TwoPhaseIterator{
-		approximation: s.approximation,
-		matches: func() (bool, error) {
-			if s.scoreMode == ScoreModeTopScores && s.minCompetitiveScore > 0 {
-				maxFreq, err := s.matcher.MaxFreq()
-				if err != nil {
-					return false, err
-				}
-				var norm int64 = 1
-				if s.norms != nil {
-					if ok, err := s.norms.AdvanceExact(s.approximation.DocID()); err == nil && ok {
-						norm = s.norms.LongValue()
-					}
-				}
-				if s.simScorer.Score(maxFreq, norm) < s.minCompetitiveScore {
-					return false, nil
-				}
-			}
-			if err := s.matcher.ResetPositions(); err != nil {
-				return false, err
-			}
-			s.freq = 0
-			return s.matcher.NextMatch()
-		},
-		matchCost: func() float32 {
-			return s.matchCost
-		},
-	}
-}
-
-func (s *phraseScorer) AdvanceShallow(target int) (int, error) {
-	return s.impactsApproximation.AdvanceShallow(target)
-}
-
-func (s *phraseScorer) GetMaxScore(upTo int) (float32, error) {
-	return s.impactsApproximation.GetMaxScore(upTo)
-}
-
-func (s *phraseScorer) SetMinCompetitiveScore(minScore float32) {
+// SetMinCompetitiveScore records the minimum competitive score and forwards it
+// to the impacts approximation.
+//
+// Mirrors PhraseScorer.setMinCompetitiveScore(float).
+func (s *phraseScorer) SetMinCompetitiveScore(minScore float32) error {
 	s.minCompetitiveScore = minScore
 	s.impactsApproximation.SetMinCompetitiveScore(minScore)
+	return nil
 }
 
-// BulkScorer implementation: delegates to DefaultBulkScorer as per Lucene.
-func (s *phraseScorer) BulkScorer() BulkScorer {
-	return NewDefaultBulkScorer(s)
+// AdvanceShallow advances to the block of documents that contains target.
+//
+// Mirrors PhraseScorer.advanceShallow(int).
+func (s *phraseScorer) AdvanceShallow(target int) (int, error) {
+	return s.maxScoreCache.AdvanceShallow(target)
+}
+
+// GetMaxScore returns the maximum score up to and including upTo.
+//
+// Mirrors PhraseScorer.getMaxScore(int).
+func (s *phraseScorer) GetMaxScore(upTo int) (float32, error) {
+	return s.maxScoreCache.GetMaxScore(upTo)
+}
+
+// NextDocsAndScores carries the inherited default body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer), which
+// PhraseScorer does not override.
+func (s *phraseScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
 }
 
 var _ Scorer = (*phraseScorer)(nil)

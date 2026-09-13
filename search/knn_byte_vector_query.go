@@ -7,6 +7,7 @@ package search
 import (
 	"bytes"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search/knn"
@@ -65,10 +66,13 @@ func (q *KnnByteVectorQuery) ApproximateSearch(
 	if err != nil {
 		return nil, err
 	}
-	reader := ctx.Reader()
-	byteVectorValues := reader.GetByteVectorValues(q.field)
+	reader := ctx.LeafReader()
+	byteVectorValues, err := reader.GetByteVectorValues(q.field)
+	if err != nil {
+		return nil, err
+	}
 	if byteVectorValues == nil {
-		if err := index.CheckField(reader, q.field); err != nil {
+		if err := index.CheckByteVectorField(reader, q.field); err != nil {
 			return nil, err
 		}
 		return emptyTopDocs(), nil
@@ -78,7 +82,11 @@ func (q *KnnByteVectorQuery) ApproximateSearch(
 		return emptyTopDocs(), nil
 	}
 
-	if err := reader.SearchNearestVectors(q.field, q.target, knnCollector, acceptDocs); err != nil {
+	bits, err := acceptDocs.Bits()
+	if err != nil {
+		return nil, err
+	}
+	if err := reader.SearchNearestVectorsByteCollector(q.field, q.target, knnCollector, bits); err != nil {
 		return nil, err
 	}
 
@@ -94,10 +102,13 @@ func (q *KnnByteVectorQuery) ApproximateSearch(
 //
 // Mirrors KnnByteVectorQuery.createVectorScorer.
 func (q *KnnByteVectorQuery) CreateVectorScorer(ctx *index.LeafReaderContext, fi *index.FieldInfo) (VectorScorer, error) {
-	reader := ctx.Reader()
-	vectorValues := reader.GetByteVectorValues(q.field)
+	reader := ctx.LeafReader()
+	vectorValues, err := reader.GetByteVectorValues(q.field)
+	if err != nil {
+		return nil, err
+	}
 	if vectorValues == nil {
-		if err := index.CheckField(reader, q.field); err != nil {
+		if err := index.CheckByteVectorField(reader, q.field); err != nil {
 			return nil, err
 		}
 		return nil, nil
@@ -115,13 +126,13 @@ func (q *KnnByteVectorQuery) ToString(field string) string {
 	res := fmt.Sprintf("KnnByteVectorQuery:%s[%s,...][%d]",
 		field, targetFirst, q.k)
 	if q.filter != nil {
-		res += fmt.Sprintf("[%s]", q.filter.ToString())
+		res += fmt.Sprintf("[%s]", queryToString(q.filter, ""))
 	}
 	return res
 }
 
 // Equals checks if this query equals another.
-func (q *KnnByteVectorQuery) Equals(other Query) bool {
+func (q *KnnByteVectorQuery) Equals(other spi.Query) bool {
 	if q == other {
 		return true
 	}

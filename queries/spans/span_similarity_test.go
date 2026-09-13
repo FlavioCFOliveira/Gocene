@@ -30,7 +30,7 @@ func TestSpanSimilarity_WeightCreation(t *testing.T) {
 	t.Run("SpanTermQuery_CreateWeight", func(t *testing.T) {
 		t.Parallel()
 		q := NewSpanTermQuery(index.NewTerm("f", "term"))
-		w, err := q.CreateWeight(nil, false, 1.0)
+		w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}
@@ -42,7 +42,7 @@ func TestSpanSimilarity_WeightCreation(t *testing.T) {
 	t.Run("SpanTermQuery_CreateSpanWeight", func(t *testing.T) {
 		t.Parallel()
 		q := NewSpanTermQuery(index.NewTerm("f", "term"))
-		sw, err := q.CreateSpanWeight(nil, false, 1.0)
+		sw, err := q.CreateSpanWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateSpanWeight: %v", err)
 		}
@@ -58,7 +58,7 @@ func TestSpanSimilarity_WeightCreation(t *testing.T) {
 			AddClause(NewSpanTermQuery(index.NewTerm("f", "b"))).
 			SetSlop(0).
 			Build()
-		w, err := q.CreateWeight(nil, false, 1.0)
+		w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}
@@ -69,11 +69,14 @@ func TestSpanSimilarity_WeightCreation(t *testing.T) {
 
 	t.Run("search_SpanOrQuery_Weight", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "a")),
-			search.NewSpanTermQuery(index.NewTerm("f", "b")),
+		q, err := NewSpanOrQuery(
+			NewSpanTermQuery(index.NewTerm("f", "a")),
+			NewSpanTermQuery(index.NewTerm("f", "b")),
 		)
-		w, err := q.CreateWeight(nil, false, 1.0)
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
+		w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateWeight: %v", err)
 		}
@@ -85,7 +88,7 @@ func TestSpanSimilarity_WeightCreation(t *testing.T) {
 	t.Run("SpanWeight_IsCacheable", func(t *testing.T) {
 		t.Parallel()
 		q := NewSpanTermQuery(index.NewTerm("f", "t"))
-		sw, err := q.CreateSpanWeight(nil, false, 1.0)
+		sw, err := q.CreateSpanWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateSpanWeight: %v", err)
 		}
@@ -105,8 +108,8 @@ func TestSpanSimilarity_NoNegativeInfNaN(t *testing.T) {
 	// SpanScorer with zero positions should have freq=0 → score=0.
 	t.Run("empty_spans_scorer_freq_zero", func(t *testing.T) {
 		t.Parallel()
-		emptySpans := search.NewSpans(nil, nil, nil)
-		scorer := search.NewSpanScorer(emptySpans, 1.0)
+		emptySpans := NewSpans(nil, nil, nil)
+		scorer := NewSpanScorer(emptySpans, 1.0)
 		score := scorer.Score()
 		if score < 0 || math.IsInf(float64(score), 0) || math.IsNaN(float64(score)) {
 			t.Errorf("bad score: %v", score)
@@ -116,7 +119,7 @@ func TestSpanSimilarity_NoNegativeInfNaN(t *testing.T) {
 	// SpanWeight.GetValue should return 1.0.
 	t.Run("span_weight_get_value", func(t *testing.T) {
 		t.Parallel()
-		sw := search.NewSpanWeight(nil, nil)
+		sw := NewSpanWeight(nil, nil)
 		v := sw.GetValue()
 		if v != 1.0 {
 			t.Errorf("GetValue = %f; want 1.0", v)
@@ -126,7 +129,7 @@ func TestSpanSimilarity_NoNegativeInfNaN(t *testing.T) {
 	// SpanWeight.Count returns -1 (placeholder).
 	t.Run("span_weight_count", func(t *testing.T) {
 		t.Parallel()
-		sw := search.NewSpanWeight(nil, nil)
+		sw := NewSpanWeight(nil, nil)
 		c, err := sw.Count(nil)
 		if err != nil {
 			t.Fatalf("Count: %v", err)
@@ -155,7 +158,7 @@ func TestSpanSimilarity_NoNegativeInfNaN(t *testing.T) {
 			search.NewTermStatistics(&term, 1, 3),
 		)
 		sc := newSpanScorer(sp, simScorer, nil)
-		doc, err := sc.NextDoc()
+		doc, err := sc.Iterator().NextDoc()
 		if err != nil || doc != 0 {
 			t.Fatalf("NextDoc: %v", err)
 		}
@@ -186,7 +189,7 @@ func TestSpanSimilarity_NoNegativeInfNaN(t *testing.T) {
 			search.NewTermStatistics(&term, 1, 1),
 		)
 		sc := newSpanScorer(sp, simScorer, nil)
-		doc, err := sc.NextDoc()
+		doc, err := sc.Iterator().NextDoc()
 		if err != nil || doc != 0 {
 			t.Fatalf("NextDoc: %v", err)
 		}

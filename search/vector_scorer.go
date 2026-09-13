@@ -6,4 +6,7 @@ import (
 
 type VectorScorer = util.VectorScorer
 type Bulk = util.Bulk
-type DocAndFloatFeatureBuffer = util.DocAndFloatFeatureBuffer
+
+// DocAndFloatFeatureBuffer is NOT declared by VectorScorer.java; it is its own
+// Lucene class, org.apache.lucene.search.DocAndFloatFeatureBuffer, and is
+// declared in doc_feature_buffers.go.

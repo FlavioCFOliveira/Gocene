@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
@@ -30,7 +31,7 @@ func NewMatchNoDocsQuery(reason string) *MatchNoDocsQuery {
 	}
 }
 
-func (q *MatchNoDocsQuery) Equals(other Query) bool {
+func (q *MatchNoDocsQuery) Equals(other spi.Query) bool {
 	_, ok := other.(*MatchNoDocsQuery)
 	return ok
 }
@@ -40,7 +41,7 @@ func (q *MatchNoDocsQuery) HashCode() int {
 	return 0
 }
 
-func (q *MatchNoDocsQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *MatchNoDocsQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return &matchNoDocsWeight{
 		BaseWeight: NewBaseWeight(q),
 	}, nil

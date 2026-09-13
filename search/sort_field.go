@@ -2,368 +2,335 @@ package search
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// Type specifies the type of the terms to be sorted, or special types such as CUSTOM.
-type Type string
-
-const (
-	TypeScore      Type = "SCORE"
-	TypeDoc        Type = "DOC"
-	TypeString     Type = "STRING"
-	TypeInt        Type = "INT"
-	TypeFloat      Type = "FLOAT"
-	TypeLong       Type = "LONG"
-	TypeDouble     Type = "DOUBLE"
-	TypeCustom     Type = "CUSTOM"
-	TypeStringVal  Type = "STRING_VAL"
-	TypeRewriteable Type = "REWRITEABLE"
-)
+// SortField stores information about how to sort documents by terms in an
+// individual field. Fields must be indexed in order to sort by them.
+//
+// Ported from org.apache.lucene.search.SortField. The struct itself lives in
+// the spi package so that index/ and search/ can both refer to it without an
+// import cycle; this alias keeps the Lucene name in the Lucene-named file.
+//
+// Because Go only allows a package to declare methods on a type it defines,
+// the members of SortField.java are split by the types they need:
+//
+//   - spi/sort_field.go carries everything expressible without search/ or
+//     index/ types: the Type enum, the constructors, getField/getType/
+//     getReverse/getMissingValue/setMissingValue, getComparatorSource,
+//     needsScores, toString, equals, hashCode and the optimizeSortWith*
+//     accessors;
+//   - this file carries the members that need search/ or index/ types:
+//     rewrite(IndexSearcher) and the nested Provider, plus the FIELD_SCORE /
+//     FIELD_DOC constants and the typed constructor façades.
+type SortField = spi.SortField
 
 var (
 	// FieldScore represents sorting by document score (relevance).
-	FieldScore = NewSortField(nil, TypeScore)
-	// FieldDoc represents sorting by document number (index order).
-	FieldDoc = NewSortField(nil, TypeDoc)
+	//
+	// Mirrors the static field SortField.FIELD_SCORE, which Java builds as
+	// new SortField(null, Type.SCORE). spi.SortField.Field is a string rather
+	// than a pointer, so Java's null field name is rendered as the empty
+	// string; SortField.validateField accepts exactly that for SCORE and DOC.
+	FieldScore = NewSortField("", spi.SortFieldTypeScore)
 
-	// StringFirst is passed to setMissingValue to have missing string values sort first.
-	StringFirst = &stringFirst{}
-	// StringLast is passed to setMissingValue to have missing string values sort last.
-	StringLast = &stringLast{}
+	// FIELD_DOC represents sorting by document number (index order).
+	//
+	// Mirrors the static field SortField.FIELD_DOC, built by Java as
+	// new SortField(null, Type.DOC); see FieldScore for the null field name.
+	// It keeps Java's constant spelling because "FieldDoc" is taken by the
+	// class org.apache.lucene.search.FieldDoc, ported in field_doc.go.
+	FIELD_DOC = NewSortField("", spi.SortFieldTypeDoc)
 )
 
-type stringFirst struct{}
-type stringLast struct{}
-
-func (s *stringFirst) String() string { return "SortField.STRING_FIRST" }
-func (s *stringLast) String() string  { return "SortField.STRING_LAST" }
-
-// SortField stores information about how to sort documents by terms in an individual field.
-// Fields must be indexed in order to sort by them.
-type SortField struct {
-	field            string
-	fieldType       Type
-	reverse          bool
-	comparatorSource FieldComparatorSource
-	missingValue     any
-	// optimizeSortWithIndexedData indicates if sort should be optimized with indexed data.
-	// Deprecated: remove in Lucene 10.
-	optimizeSortWithIndexedData bool
+// NewSortField creates a sort by terms in the given field with the type of term
+// values explicitly given.
+//
+// Ported from SortField(String, Type).
+func NewSortField(field string, sortType SortFieldType) *SortField {
+	return spi.NewSortField(field, sortType)
 }
 
-// NewSortField creates a sort by terms in the given field with the type of term values explicitly given.
-func NewSortField(field string, fieldType Type) *SortField {
-	return NewSortFieldWithReverse(field, fieldType, false, nil)
+// NewSortFieldWithReverse creates a sort, possibly in reverse, by terms in the
+// given field with the type of term values explicitly given.
+//
+// Ported from SortField(String, Type, boolean).
+func NewSortFieldWithReverse(field string, sortType SortFieldType, reverse bool) *SortField {
+	return spi.NewSortFieldFull(field, sortType, reverse)
 }
 
-// NewSortFieldWithReverse creates a sort by terms in the given field with the type of term values explicitly given.
-func NewSortFieldWithReverse(field string, fieldType Type, reverse bool) *SortField {
-	return NewSortFieldWithMissing(field, fieldType, reverse, nil)
+// NewSortFieldWithMissing creates a sort, possibly in reverse, by terms in the
+// given field with the type of term values explicitly given and an initial
+// missing-value sentinel.
+//
+// Ported from SortField(String, Type, boolean, Object).
+func NewSortFieldWithMissing(field string, sortType SortFieldType, reverse bool, missingValue any) *SortField {
+	return spi.NewSortFieldWithMissing(field, sortType, reverse, missingValue)
 }
 
-// NewSortFieldWithMissing creates a sort, possibly in reverse, by terms in the given field with the type of term values explicitly given.
-func NewSortFieldWithMissing(field string, fieldType Type, reverse bool, missingValue any) *SortField {
-	sf := &SortField{
-		field:                      field,
-		fieldType:                  fieldType,
-		reverse:                    reverse,
-		missingValue:               missingValue,
-		optimizeSortWithIndexedData: true,
-	}
-	sf.validateField(field, fieldType, missingValue)
-	return sf
+// NewSortFieldCustom creates a sort, possibly in reverse, with a custom
+// comparison function.
+//
+// Ported from SortField(String, FieldComparatorSource, boolean). Java's
+// two-argument SortField(String, FieldComparatorSource) is that same
+// constructor with reverse = false, which Go cannot spell under the same name;
+// callers write NewSortFieldCustom(field, comparator, false).
+func NewSortFieldCustom(field string, comparator FieldComparatorSource, reverse bool) *SortField {
+	return spi.NewSortFieldCustom(field, comparator, reverse)
 }
 
-// NewCustomSortField creates a sort with a custom comparison function.
-func NewCustomSortField(field string, comparator FieldComparatorSource) *SortField {
-	return NewCustomSortFieldWithReverse(field, comparator, false)
+// SortFieldComparatorSource returns the FieldComparatorSource a CUSTOM
+// SortField was built with, or nil when the sort is not CUSTOM.
+//
+// spi.SortField.GetComparatorSource is typed any because spi must not import
+// search; this is the typed view of it for search-side callers. It is not a
+// separate Lucene member: it is SortField.getComparatorSource() restored to its
+// Java return type at the package boundary.
+func SortFieldComparatorSource(sf *SortField) FieldComparatorSource {
+	src, _ := sf.GetComparatorSource().(FieldComparatorSource)
+	return src
 }
 
-// NewCustomSortFieldWithReverse creates a sort, possibly in reverse, with a custom comparison function.
-func NewCustomSortFieldWithReverse(field string, comparator FieldComparatorSource, reverse bool) *SortField {
-	sf := &SortField{
-		field:            field,
-		fieldType:        TypeCustom,
-		reverse:          reverse,
-		comparatorSource: comparator,
-		missingValue:    nil, // missingValue factored into comparator source
-		optimizeSortWithIndexedData: true,
-	}
-	sf.validateField(field, TypeCustom, nil)
-	return sf
-}
-
-func (sf *SortField) validateField(field string, fieldType Type, missingValue any) {
-	if field == "" {
-		if fieldType != TypeScore && fieldType != TypeDoc {
-			panic("field can only be null when type is SCORE or DOC")
-		}
-	}
-	if fieldType == TypeString {
-		if missingValue != nil && missingValue != StringFirst && missingValue != StringLast {
-			panic("for Type.STRING, missing value must be either STRING_FIRST or STRING_LAST")
-		}
-	}
-}
-
-func (sf *SortField) GetField() string {
-	return sf.field
-}
-
-func (sf *SortField) GetType() Type {
-	return sf.fieldType
-}
-
-func (sf *SortField) GetReverse() bool {
-	return sf.reverse
-}
-
-func (sf *SortField) GetComparatorSource() FieldComparatorSource {
-	return sf.comparatorSource
-}
-
-func (sf *SortField) GetMissingValue() any {
-	return sf.missingValue
-}
-
-// SetMissingValue sets the value to use for documents that don't have a value.
-// Deprecated: remove in Lucene 10.
-func (sf *SortField) SetMissingValue(missingValue any) {
-	if sf.fieldType == TypeString || sf.fieldType == TypeStringVal {
-		if missingValue != nil && missingValue != StringFirst && missingValue != StringLast {
-			panic("for STRING type, missing value must be either STRING_FIRST or STRING_LAST")
-		}
-	} else if sf.fieldType == TypeInt {
-		if missingValue != nil {
-			if _, ok := missingValue.(int); !ok {
-				panic(fmt.Sprintf("missing values for Type.INT can only be of type int, but got %T", missingValue))
-			}
-		}
-	} else if sf.fieldType == TypeLong {
-		if missingValue != nil {
-			if _, ok := missingValue.(int64); !ok {
-				panic(fmt.Sprintf("missing values for Type.LONG can only be of type int64, but got %T", missingValue))
-			}
-		}
-	} else if sf.fieldType == TypeFloat {
-		if missingValue != nil {
-			if _, ok := missingValue.(float32); !ok {
-				panic(fmt.Sprintf("missing values for Type.FLOAT can only be of type float32, but got %T", missingValue))
-			}
-		}
-	} else if sf.fieldType == TypeDouble {
-		if missingValue != nil {
-			if _, ok := missingValue.(float64); !ok {
-				panic(fmt.Sprintf("missing values for Type.DOUBLE can only be of type float64, but got %T", missingValue))
-			}
-		}
-	} else {
-		panic("missing value only works for numeric or STRING types")
-	}
-	sf.missingValue = missingValue
-}
-
-func (sf *SortField) String() string {
-	var buffer string
-	switch sf.fieldType {
-	case TypeScore:
-		buffer = "<score>"
-	case TypeDoc:
-		buffer = "<doc>"
-	case TypeString:
-		buffer = fmt.Sprintf("<string: \"%s\">", sf.field)
-	case TypeStringVal:
-		buffer = fmt.Sprintf("<string_val: \"%s\">", sf.field)
-	case TypeInt:
-		buffer = fmt.Sprintf("<int: \"%s\">", sf.field)
-	case TypeLong:
-		buffer = fmt.Sprintf("<long: \"%s\">", sf.field)
-	case TypeFloat:
-		buffer = fmt.Sprintf("<float: \"%s\">", sf.field)
-	case TypeDouble:
-		buffer = fmt.Sprintf("<double: \"%s\">", sf.field)
-	case TypeCustom:
-		buffer = fmt.Sprintf("<custom:\"%s\": %v>", sf.field, sf.comparatorSource)
-	case TypeRewriteable:
-		buffer = fmt.Sprintf("<rewriteable: \"%s\">", sf.field)
-	default:
-		buffer = fmt.Sprintf("<???: \"%s\">", sf.field)
-	}
-
-	if sf.reverse {
-		buffer += "!"
-	}
-	if sf.missingValue != nil {
-		buffer += fmt.Sprintf(" missingValue=%v", sf.missingValue)
-	}
-
-	return buffer
-}
-
-func (sf *SortField) Equals(other *SortField) bool {
-	if sf == other {
-		return true
-	}
-	if other == nil {
-		return false
-	}
-	return sf.field == other.field &&
-		sf.fieldType == other.fieldType &&
-		sf.reverse == other.reverse &&
-		sf.comparatorSource == other.comparatorSource &&
-		sf.missingValue == other.missingValue
-}
-
-func (sf *SortField) HashCode() int {
-	// Simple hash combination for Go
-	h := 17
-	h = 31*h + len(sf.field)
-	h = 31*h + int(len(sf.fieldType))
-	if sf.reverse {
-		h = 31*h + 1
-	} else {
-		h = 31*h + 0
-	}
-	// Note: in a real implementation, we'd want to use a proper hash for the objects
-	return h
-}
-
-func (sf *SortField) GetComparator(numHits int, pruning Pruning) FieldComparator {
-	var fieldComparator FieldComparator
-	switch sf.fieldType {
-	case TypeScore:
-		// fieldComparator = NewRelevanceComparator(numHits)
-		// TODO: implement RelevanceComparator
-	case TypeDoc:
-		// fieldComparator = NewDocComparator(numHits, sf.reverse, pruning)
-		// TODO: implement DocComparator
-	case TypeInt:
-		// fieldComparator = NewIntComparator(numHits, sf.field, sf.missingValue.(int), sf.reverse, pruning)
-		// TODO: implement IntComparator
-	case TypeFloat:
-		// fieldComparator = NewFloatComparator(numHits, sf.field, sf.missingValue.(float32), sf.reverse, pruning)
-		// TODO: implement FloatComparator
-	case TypeLong:
-		// fieldComparator = NewLongComparator(numHits, sf.field, sf.missingValue.(int64), sf.reverse, pruning)
-		// TODO: implement LongComparator
-	case TypeDouble:
-		// fieldComparator = NewDoubleComparator(numHits, sf.field, sf.missingValue.(float64), sf.reverse, pruning)
-		// TODO: implement DoubleComparator
-	case TypeCustom:
-		if sf.comparatorSource == nil {
-			panic("comparatorSource cannot be nil for TypeCustom")
-		}
-		fieldComparator = sf.comparatorSource.NewComparator(sf.field, numHits, pruning, sf.reverse)
-	case TypeString:
-		// fieldComparator = NewTermOrdValComparator(numHits, sf.field, sf.missingValue == StringLast, sf.reverse, pruning)
-		// TODO: implement TermOrdValComparator
-	case TypeStringVal:
-		// fieldComparator = NewTermValComparator(numHits, sf.field, sf.missingValue == StringLast)
-		// TODO: implement TermValComparator
-	case TypeRewriteable:
-		panic("SortField needs to be rewritten through Sort.rewrite(..) and SortField.rewrite(..)")
-	default:
-		panic(fmt.Sprintf("Illegal sort type: %s", sf.fieldType))
-	}
-
-	if !sf.getOptimizeSortWithIndexedData() {
-		if fieldComparator != nil {
-			fieldComparator.DisableSkipping()
-		}
-	}
-	return fieldComparator
-}
-
-func (sf *SortField) Rewrite(searcher *IndexSearcher) (*SortField, error) {
+// RewriteSortField rewrites sf, returning a new SortField if a change is made.
+// The base implementation returns sf unchanged; SortFields of type REWRITEABLE
+// are expected to be rewritten by the type that defines them.
+//
+// Ported from SortField.rewrite(IndexSearcher). Go cannot declare a method on
+// spi.SortField from this package, so the member is rendered as a function.
+func RewriteSortField(sf *SortField, searcher *IndexSearcher) (*SortField, error) {
+	_ = searcher
 	return sf, nil
 }
 
-func (sf *SortField) NeedsScores() bool {
-	return sf.fieldType == TypeScore
-}
-
-func (sf *SortField) GetIndexSorter() *index.IndexSorter {
-	switch sf.fieldType {
-	case TypeString:
-		// return index.NewStringSorter(ProviderName, sf.missingValue, sf.reverse, func(reader index.Reader) index.DocValues {
-		// 	return index.GetSorted(reader, sf.field)
-		// })
-	case TypeInt:
-		// return index.NewIntSorter(ProviderName, sf.missingValue.(int), sf.reverse, func(reader index.Reader) index.DocValues {
-		// 	return index.GetNumeric(reader, sf.field)
-		// })
-	case TypeLong:
-		// return index.NewLongSorter(ProviderName, sf.missingValue.(int64), sf.reverse, func(reader index.Reader) index.DocValues {
-		// 	return index.GetNumeric(reader, sf.field)
-		// })
-	case TypeDouble:
-		// return index.NewDoubleSorter(ProviderName, sf.missingValue.(float64), sf.reverse, func(reader index.Reader) index.DocValues {
-		// 	return index.GetNumeric(reader, sf.field)
-		// })
-	case TypeFloat:
-		// return index.NewFloatSorter(ProviderName, sf.missingValue.(float32), sf.reverse, func(reader index.Reader) index.DocValues {
-		// 	return index.GetNumeric(reader, sf.field)
-		// })
-	}
-	return nil
-}
-
-func (sf *SortField) setOptimizeSortWithIndexedData(optimize bool) {
-	sf.optimizeSortWithIndexedData = optimize
-}
-
-func (sf *SortField) getOptimizeSortWithIndexedData() bool {
-	return sf.optimizeSortWithIndexedData
-}
-
-func (sf *SortField) SetOptimizeSortWithPoints(optimize bool) {
-	sf.setOptimizeSortWithIndexedData(optimize)
-}
-
-func (sf *SortField) GetOptimizeSortWithPoints() bool {
-	return sf.getOptimizeSortWithIndexedData()
-}
-
-// Provider is a SortFieldProvider for field sorts.
-type Provider struct {
-	index.SortFieldProvider
-}
-
+// ProviderName is the name the SortField Provider is registered under.
+//
+// Mirrors SortField.Provider.NAME.
 const ProviderName = "SortField"
 
-func NewProvider() *Provider {
-	return &Provider{}
+// Provider is the SortFieldProvider for plain field sorts. It reads and writes
+// the byte sequence SortField.Provider reads and writes, so segment-info files
+// written here are read back by Apache Lucene 10.5.0 and vice versa.
+//
+// Ported from org.apache.lucene.search.SortField.Provider.
+type Provider struct{}
+
+// NewProvider creates a new Provider.
+//
+// Mirrors SortField.Provider().
+func NewProvider() *Provider { return &Provider{} }
+
+// Name returns the name this Provider is registered under.
+func (p *Provider) Name() string { return ProviderName }
+
+// ReadSortField reconstructs a SortField from in.
+//
+// Ported from SortField.Provider.readSortField(DataInput).
+func (p *Provider) ReadSortField(in store.DataInput) (index.SortFieldValue, error) {
+	field, err := in.ReadString()
+	if err != nil {
+		return nil, err
+	}
+	sortType, err := readType(in)
+	if err != nil {
+		return nil, err
+	}
+	reverseInt, err := in.ReadInt()
+	if err != nil {
+		return nil, err
+	}
+	reverse := reverseInt == 1
+	hasMissing, err := in.ReadInt()
+	if err != nil {
+		return nil, err
+	}
+	if hasMissing == 1 {
+		// missing object
+		switch sortType {
+		case spi.SortFieldTypeString:
+			missingString, err := in.ReadInt()
+			if err != nil {
+				return nil, err
+			}
+			if missingString == 1 {
+				return NewSortFieldWithMissing(field, sortType, reverse, STRING_FIRST), nil
+			}
+			return NewSortFieldWithMissing(field, sortType, reverse, STRING_LAST), nil
+		case spi.SortFieldTypeInt:
+			v, err := in.ReadInt()
+			if err != nil {
+				return nil, err
+			}
+			return NewSortFieldWithMissing(field, sortType, reverse, v), nil
+		case spi.SortFieldTypeLong:
+			v, err := in.ReadLong()
+			if err != nil {
+				return nil, err
+			}
+			return NewSortFieldWithMissing(field, sortType, reverse, v), nil
+		case spi.SortFieldTypeFloat:
+			v, err := in.ReadInt()
+			if err != nil {
+				return nil, err
+			}
+			return NewSortFieldWithMissing(field, sortType, reverse, util.SortableIntToFloat(v)), nil
+		case spi.SortFieldTypeDouble:
+			v, err := in.ReadLong()
+			if err != nil {
+				return nil, err
+			}
+			return NewSortFieldWithMissing(field, sortType, reverse, util.SortableLongToDouble(v)), nil
+		default:
+			return nil, fmt.Errorf("cannot deserialize sort of type %s", sortType)
+		}
+	}
+	return NewSortFieldWithMissing(field, sortType, reverse, nil), nil
 }
 
-func (p *Provider) ReadSortField(in io.Reader) (*SortField, error) {
-	// This requires DataInput-like reader.
-	// In Gocene, this would use a specific binary reader.
-	// For the sake of faithful translation, the logic is:
-	// field := in.readString()
-	// type := readType(in)
-	// ...
-	return nil, fmt.Errorf("ReadSortField not yet implemented: requires DataInput")
+// WriteSortField writes sf to out using this provider's wire format.
+//
+// Ported from SortField.Provider.writeSortField(SortField, DataOutput).
+func (p *Provider) WriteSortField(sf index.SortFieldValue, out store.DataOutput) error {
+	field, ok := sf.(*SortField)
+	if !ok {
+		return fmt.Errorf("sort field is not a *search.SortField")
+	}
+	return serializeSortField(field, out)
 }
 
-func (p *Provider) WriteSortField(sf *SortField, out io.Writer) error {
-	return sf.serialize(out)
+var _ index.SortFieldProvider = (*Provider)(nil)
+
+// readType reads the enum constant name written by serializeSortField and
+// resolves it back to a SortFieldType.
+//
+// Ported from the protected static SortField.readType(DataInput).
+func readType(in store.DataInput) (SortFieldType, error) {
+	name, err := in.ReadString()
+	if err != nil {
+		return 0, err
+	}
+	return spi.ParseSortFieldType(name)
 }
 
-func readType(in io.Reader) (Type, error) {
-	// typeStr := in.readString()
-	// return Type(typeStr), nil
-	return "", nil
+// serializeSortField writes sf in the byte layout SortField.Provider reads.
+//
+// Ported from the private SortField.serialize(DataOutput). Go cannot declare a
+// method on spi.SortField from this package, so the member is rendered as a
+// function next to the Provider that is its only caller, mirroring Java's
+// nesting of Provider inside SortField.
+func serializeSortField(sf *SortField, out store.DataOutput) error {
+	if err := out.WriteString(sf.Field); err != nil {
+		return err
+	}
+	if err := out.WriteString(sf.Type.String()); err != nil {
+		return err
+	}
+	reverseInt := int32(0)
+	if sf.Reverse {
+		reverseInt = 1
+	}
+	if err := out.WriteInt(reverseInt); err != nil {
+		return err
+	}
+	if sf.MissingValue == nil {
+		return out.WriteInt(0)
+	}
+	if err := out.WriteInt(1); err != nil {
+		return err
+	}
+	switch sf.Type {
+	case spi.SortFieldTypeString:
+		switch sf.MissingValue {
+		case STRING_LAST:
+			return out.WriteInt(0)
+		case STRING_FIRST:
+			return out.WriteInt(1)
+		default:
+			return fmt.Errorf("cannot serialize missing value of %v for type STRING", sf.MissingValue)
+		}
+	case spi.SortFieldTypeInt:
+		v, err := sortFieldMissingInt32(sf.MissingValue)
+		if err != nil {
+			return err
+		}
+		return out.WriteInt(v)
+	case spi.SortFieldTypeLong:
+		v, err := sortFieldMissingInt64(sf.MissingValue)
+		if err != nil {
+			return err
+		}
+		return out.WriteLong(v)
+	case spi.SortFieldTypeFloat:
+		v, err := sortFieldMissingFloat32(sf.MissingValue)
+		if err != nil {
+			return err
+		}
+		return out.WriteInt(util.FloatToSortableInt(v))
+	case spi.SortFieldTypeDouble:
+		v, err := sortFieldMissingFloat64(sf.MissingValue)
+		if err != nil {
+			return err
+		}
+		return out.WriteLong(util.DoubleToSortableLong(v))
+	default:
+		return fmt.Errorf("cannot serialize SortField of type %s", sf.Type)
+	}
 }
 
-func (sf *SortField) serialize(out io.Writer) error {
-	// Logic from Java:
-	// out.writeString(field)
-	// out.writeString(type.toString())
-	// out.writeInt(reverse ? 1 : 0)
-	// ...
-	return fmt.Errorf("serialize not yet implemented: requires DataOutput")
+// sortFieldMissingInt32 narrows a Type.INT missing value to the 32-bit width
+// Java writes. Java casts the boxed Integer directly and raises
+// ClassCastException on anything else; the Go rendering accepts the integer
+// spellings the comparator factory already accepts (see missingInt32) and
+// reports the same refusal as an error.
+func sortFieldMissingInt32(v any) (int32, error) {
+	switch n := v.(type) {
+	case int32:
+		return n, nil
+	case int:
+		return int32(n), nil
+	case int64:
+		return int32(n), nil
+	}
+	return 0, fmt.Errorf("missing values for Type.INT can only be integers, but got %T", v)
+}
+
+// sortFieldMissingInt64 narrows a Type.LONG missing value; see
+// sortFieldMissingInt32 for the rendering of Java's cast.
+func sortFieldMissingInt64(v any) (int64, error) {
+	switch n := v.(type) {
+	case int64:
+		return n, nil
+	case int:
+		return int64(n), nil
+	case int32:
+		return int64(n), nil
+	}
+	return 0, fmt.Errorf("missing values for Type.LONG can only be integers, but got %T", v)
+}
+
+// sortFieldMissingFloat32 narrows a Type.FLOAT missing value; see
+// sortFieldMissingInt32 for the rendering of Java's cast.
+func sortFieldMissingFloat32(v any) (float32, error) {
+	switch n := v.(type) {
+	case float32:
+		return n, nil
+	case float64:
+		return float32(n), nil
+	}
+	return 0, fmt.Errorf("missing values for Type.FLOAT can only be floats, but got %T", v)
+}
+
+// sortFieldMissingFloat64 narrows a Type.DOUBLE missing value; see
+// sortFieldMissingInt32 for the rendering of Java's cast.
+func sortFieldMissingFloat64(v any) (float64, error) {
+	switch n := v.(type) {
+	case float64:
+		return n, nil
+	case float32:
+		return float64(n), nil
+	}
+	return 0, fmt.Errorf("missing values for Type.DOUBLE can only be floats, but got %T", v)
 }

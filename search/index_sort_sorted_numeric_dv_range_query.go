@@ -4,7 +4,10 @@
 
 package search
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
 
 // IndexSortSortedNumericDocValuesRangeQuery is a range query over a
 // SortedNumeric doc-values field that exploits the segment's index sort when
@@ -57,7 +60,7 @@ func (q *IndexSortSortedNumericDocValuesRangeQuery) String() string {
 }
 
 // Equals checks structural equality.
-func (q *IndexSortSortedNumericDocValuesRangeQuery) Equals(other Query) bool {
+func (q *IndexSortSortedNumericDocValuesRangeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*IndexSortSortedNumericDocValuesRangeQuery)
 	if !ok {
 		return false
@@ -77,19 +80,9 @@ func (q *IndexSortSortedNumericDocValuesRangeQuery) HashCode() int {
 	return h
 }
 
-// Clone returns an independent copy.
-func (q *IndexSortSortedNumericDocValuesRangeQuery) Clone() Query {
-	return &IndexSortSortedNumericDocValuesRangeQuery{
-		field:      q.field,
-		lowerValue: q.lowerValue,
-		upperValue: q.upperValue,
-		fallback:   q.fallback.Clone(),
-	}
-}
-
 // Rewrite rewrites the fallback query.
-func (q *IndexSortSortedNumericDocValuesRangeQuery) Rewrite(reader IndexReader) (Query, error) {
-	rw, err := q.fallback.Rewrite(reader)
+func (q *IndexSortSortedNumericDocValuesRangeQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	rw, err := q.fallback.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +102,6 @@ func (q *IndexSortSortedNumericDocValuesRangeQuery) Rewrite(reader IndexReader) 
 // scorer) requires SegmentReader leaf-sort metadata that is not yet wired in
 // this package; the placeholder ensures correctness while keeping the API
 // shape stable for future tuning.
-func (q *IndexSortSortedNumericDocValuesRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return q.fallback.CreateWeight(searcher, needsScores, boost)
+func (q *IndexSortSortedNumericDocValuesRangeQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return q.fallback.CreateWeight(searcher, scoreMode, boost)
 }

@@ -12,17 +12,14 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// RefreshCommitSupplier provides the commit to refresh the searcher on.
-type RefreshCommitSupplier interface {
-	// GetSearcherRefreshCommit returns the commit to refresh the searcher on.
-	// Returns nil if no refresh is needed.
-	GetSearcherRefreshCommit(reader *index.DirectoryReader) *index.IndexCommit
-}
-
+// defaultRefreshCommitSupplier mirrors the anonymous
+// "new RefreshCommitSupplier() {}" instance that SearcherManager installs when
+// no supplier is given; it relies on the interface's default behaviour of
+// refreshing on the latest commit.
 type defaultRefreshCommitSupplier struct{}
 
-func (s *defaultRefreshCommitSupplier) GetSearcherRefreshCommit(reader *index.DirectoryReader) *index.IndexCommit {
-	return nil
+func (s *defaultRefreshCommitSupplier) GetSearcherRefreshCommit(reader *index.DirectoryReader) (*index.IndexCommit, error) {
+	return nil, nil
 }
 
 // SearcherManager is a utility class to safely share IndexSearcher instances across multiple threads,
@@ -170,7 +167,10 @@ func (sm *SearcherManager) MaybeRefresh() (bool, error) {
 		return false, fmt.Errorf("searcher's IndexReader should be a DirectoryReader, but got %T", reader)
 	}
 
-	refreshCommit := sm.refreshCommitSupplier.GetSearcherRefreshCommit(dr)
+	refreshCommit, err := sm.refreshCommitSupplier.GetSearcherRefreshCommit(dr)
+	if err != nil {
+		return false, err
+	}
 
 	// To simulate openIfChanged(dr, refreshCommit):
 	// 1. Open from commit
@@ -233,7 +233,7 @@ func (sm *SearcherManager) GetSearcherCommitGeneration() (int64, error) {
 		return 0, fmt.Errorf("searcher's IndexReader should be a DirectoryReader, but got %T", reader)
 	}
 
-	return dr.GetIndexCommit().Generation(), nil
+	return dr.GetIndexCommit().GetGeneration(), nil
 }
 
 // IsSearcherCurrent returns true if no changes have occurred since this searcher was opened.

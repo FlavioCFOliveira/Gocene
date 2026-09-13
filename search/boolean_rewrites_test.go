@@ -10,6 +10,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"testing"
 
@@ -36,7 +37,7 @@ func (q *testRewriteQuery) Clone() Query {
 }
 
 // Equals checks if this query equals another.
-func (q *testRewriteQuery) Equals(other Query) bool {
+func (q *testRewriteQuery) Equals(other spi.Query) bool {
 	_, ok := other.(*testRewriteQuery)
 	return ok
 }

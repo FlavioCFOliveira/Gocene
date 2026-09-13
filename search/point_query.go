@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
@@ -21,14 +22,11 @@ type PointQuery struct {
 	bytesPerDim int
 }
 
-// NewPointQuery creates a new PointQuery.
-func NewPointQuery(field string, numDims, bytesPerDim int) *PointQuery {
-	return &PointQuery{
-		field:       field,
-		numDims:     numDims,
-		bytesPerDim: bytesPerDim,
-	}
-}
+// NOTE: the constructor that stood here was named NewPointQuery, which is the
+// port name of LatLonShape.newPointQuery (lat_lon_shape_query.go). There is no
+// org.apache.lucene.search.PointQuery in Lucene 10.5.0, so neither this
+// constructor nor the PointQuery type below corresponds to a Lucene artefact,
+// and nothing in the package referenced them.
 
 // Field returns the field name.
 func (q *PointQuery) Field() string {
@@ -46,7 +44,7 @@ func (q *PointQuery) BytesPerDim() int {
 }
 
 // Rewrite rewrites this query to a more primitive form.
-func (q *PointQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *PointQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	return q, nil
 }
 
@@ -58,7 +56,7 @@ func (q *PointQuery) Rewrite(reader IndexReader) (Query, error) {
 // yields nil mirrors Lucene's "empty" Weight contract for abstract
 // queries and lets the parent type be composed (e.g. as a base in
 // PointInSetQuery) without triggering an error.
-func (q *PointQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *PointQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return NewConstantScoreWeight(q, boost,
 		func(_ *index.LeafReaderContext) (ScorerSupplier, error) { return nil, nil },
 		nil,
@@ -73,17 +71,8 @@ func (q *PointQuery) String(field string) string {
 	return "PointQuery"
 }
 
-// Clone creates a copy of this query.
-func (q *PointQuery) Clone() Query {
-	return &PointQuery{
-		field:       q.field,
-		numDims:     q.numDims,
-		bytesPerDim: q.bytesPerDim,
-	}
-}
-
 // Equals checks if this query equals another.
-func (q *PointQuery) Equals(other Query) bool {
+func (q *PointQuery) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}

@@ -4,6 +4,10 @@
 
 package search
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 // BoostQuery wraps another query with a boost factor.
 type BoostQuery struct {
 	*BaseQuery
@@ -30,24 +34,8 @@ func (q *BoostQuery) Boost() float32 {
 	return q.boost
 }
 
-// Clone creates a copy of this query.
-func (q *BoostQuery) Clone() Query {
-	if q.query == nil {
-		return &BoostQuery{
-			BaseQuery: &BaseQuery{},
-			query:     nil,
-			boost:     q.boost,
-		}
-	}
-	return &BoostQuery{
-		BaseQuery: &BaseQuery{},
-		query:     q.query.Clone(),
-		boost:     q.boost,
-	}
-}
-
 // Equals checks if this query equals another.
-func (q *BoostQuery) Equals(other Query) bool {
+func (q *BoostQuery) Equals(other spi.Query) bool {
 	if o, ok := other.(*BoostQuery); ok {
 		if q.boost != o.boost {
 			return false
@@ -71,8 +59,8 @@ func (q *BoostQuery) HashCode() int {
 
 // Rewrite rewrites the query to a simpler form.
 // Mirrors BoostQuery.rewrite(IndexSearcher) from Lucene 10.4.0.
-func (q *BoostQuery) Rewrite(reader IndexReader) (Query, error) {
-	rewritten, err := fullyRewrite(q.query, reader)
+func (q *BoostQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	rewritten, err := q.query.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
@@ -87,7 +75,7 @@ func (q *BoostQuery) Rewrite(reader IndexReader) (Query, error) {
 	}
 
 	// Bubble up MatchNoDocsQuery.
-	if isMatchNoDocsQuery(rewritten) {
+	if isMatchNoDocs(rewritten) {
 		return rewritten, nil
 	}
 
@@ -111,6 +99,6 @@ func (q *BoostQuery) Rewrite(reader IndexReader) (Query, error) {
 //
 // Faithful port of BoostQuery.createWeight(IndexSearcher, ScoreMode, float):
 // query.createWeight(searcher, scoreMode, this.boost * boost).
-func (q *BoostQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return q.query.CreateWeight(searcher, needsScores, q.boost*boost)
+func (q *BoostQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return q.query.CreateWeight(searcher, scoreMode, q.boost*boost)
 }

@@ -8,6 +8,8 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // NewBinaryPointExactQuery returns a query matching documents whose
@@ -94,7 +96,7 @@ func NewBinaryPointSetQuery(field string, values ...[]byte) (Query, error) {
 		return nil, fmt.Errorf("BinaryPoint set query: field must not be empty")
 	}
 	if len(values) == 0 {
-		return NewMatchNoDocsQueryWithReason("empty BinaryPoint.newSetQuery"), nil
+		return NewMatchNoDocsQuery("empty BinaryPoint.newSetQuery"), nil
 	}
 
 	bytesPerDim := -1
@@ -127,7 +129,25 @@ func NewBinaryPointSetQuery(field string, values ...[]byte) (Query, error) {
 		return bytes.Compare(sorted[i], sorted[j]) < 0
 	})
 
-	return NewPointInSetQuery(field, 1, bytesPerDim, sorted), nil
+	// Mirrors the anonymous PointInSetQuery.Stream of the Java reference: a
+	// single BytesRef whose backing array is re-pointed at each sorted value
+	// in turn, and nil once the values are exhausted. The anonymous
+	// PointInSetQuery subclass that overrides toString(byte[]) with
+	// `new BytesRef(value).toString()` becomes the toStringValue function.
+	encoded := &util.BytesRef{Bytes: make([]byte, bytesPerDim), Offset: 0, Length: bytesPerDim}
+	upto := 0
+	stream := util.BytesRefIteratorFunc(func() (*util.BytesRef, error) {
+		if upto == len(sorted) {
+			return nil, nil
+		}
+		encoded.Bytes = sorted[upto]
+		upto++
+		return encoded, nil
+	})
+
+	return NewPointInSetQuery(field, 1, bytesPerDim, stream, func(value []byte) string {
+		return bytesRefBoundString(util.NewBytesRef(value))
+	})
 }
 
 // packBinaryPoint concatenates equal-length dimension byte slices into a

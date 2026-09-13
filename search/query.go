@@ -5,8 +5,7 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // IndexReader is a minimal interface needed by Query.
@@ -17,58 +16,44 @@ type IndexReader interface {
 }
 
 // Query is the abstract base class for all queries.
+//
+// The equals/hashCode half of org.apache.lucene.search.Query is declared by
+// [spi.Query] and embedded here, because package index holds Query values too
+// (BufferedUpdates, FrozenBufferedUpdates, DocumentsWriterDeleteQueue,
+// IndexWriter) and Go, unlike Java, cannot let it import this package back.
+// There is therefore one Query contract, not two: index.Query is an alias of
+// spi.Query, and every search.Query is one.
 type Query interface {
-	// Rewrite rewrites the query to a simpler form.
+	// spi.Query contributes the two members Java's Query.java declares
+	// abstract and that need no org.apache.lucene.search type:
+	//
+	//	@Override public abstract boolean equals(Object obj);
+	//	@Override public abstract int hashCode();
+	spi.Query
+
+	// Rewrite expert: called to re-write queries into primitive queries.
+	// Mirrors Query.rewrite(IndexSearcher) of Apache Lucene 10.5.0.
 	Rewrite(searcher *IndexSearcher) (Query, error)
-	// Clone creates a copy of this query.
-	Clone() Query
-	// Equals checks if this query equals another.
-	Equals(other Query) bool
-	// HashCode returns a hash code for this query.
-	HashCode() int
-	// CreateWeight creates a Weight for this query.
-	CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error)
+	// CreateWeight expert: constructs an appropriate Weight implementation for
+	// this query. Mirrors Query.createWeight(IndexSearcher, ScoreMode, float).
+	CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error)
 }
 
-// RewriteMethod defines how a MultiTermQuery is rewritten.
-type RewriteMethod interface {
-	// Rewrite rewrites the given MultiTermQuery into a simpler Query.
-	Rewrite(searcher *IndexSearcher, query MultiTermQuery) (Query, error)
-}
+// RewriteMethod and MultiTermQuery are declared by MultiTermQuery.java, not by
+// Query.java: RewriteMethod is the nested class MultiTermQuery.RewriteMethod.
+// Both live in multi_term_query.go.
 
-// MultiTermQuery is a query that matches documents containing a subset of terms.
-type MultiTermQuery interface {
-	Query
-	// Field returns the field name for this query.
-	Field() string
-	// RewriteMethod returns the rewrite method used to build the final query.
-	RewriteMethod() RewriteMethod
-	// GetTermsEnum constructs the enumeration to be used, expanding the pattern term.
-	GetTermsEnum(terms index.Terms, atts *util.AttributeSource) (index.TermsEnum, error)
-	// TermsCount returns the number of unique terms contained in this query, if known.
-	TermsCount() int64
-}
-
-// scoreModeWeightCreator is the optional, ScoreMode-aware sibling of
-// Query.CreateWeight.
-
+// scoreModeWeightCreator is a Gocene-only interface with no counterpart in
+// Apache Lucene 10.5.0, where Query.createWeight(IndexSearcher, ScoreMode,
+// float) already carries the full ScoreMode enum (COMPLETE /
+// COMPLETE_NO_SCORES / TOP_SCORES / TOP_DOCS / TOP_DOCS_WITH_SCORES).
 //
-// In Apache Lucene 10.4.0 every Query.createWeight receives the full ScoreMode
-// enum (COMPLETE / COMPLETE_NO_SCORES / TOP_SCORES / TOP_DOCS /
-// TOP_DOCS_WITH_SCORES), which lets composite queries forward a precise mode to
-// their children — for example BooleanQuery forwards COMPLETE_NO_SCORES to
-// FILTER / MUST_NOT clauses, and ConstantScoreQuery forwards COMPLETE_NO_SCORES
-// or TOP_DOCS to its wrapped query depending on exhaustiveness.
-//
-// Gocene's stable Query.CreateWeight signature collapses that enum to a
-// needsScores bool, which would prevent a sub-query from observing anything but
-// COMPLETE / COMPLETE_NO_SCORES. Queries that must propagate the exact ScoreMode
-// to their children (BooleanQuery, ConstantScoreQuery) — and test wrappers that
-// assert on the received mode — implement this interface. IndexSearcher's
-// createWeight dispatch prefers it when present and otherwise falls back to the
-// bool-based CreateWeight (collapsing the mode via ScoreMode.needsScores), so
-// the change is fully backward compatible with the dozens of existing
-// CreateWeight implementations.
+// It was introduced while Query.CreateWeight still collapsed that enum to a
+// needsScores bool, so that composite queries (BooleanQuery,
+// ConstantScoreQuery) could still forward a precise mode to their children.
+// Query.CreateWeight now takes the ScoreMode itself, so this interface is
+// redundant; it is retained only because a number of queries and test wrappers
+// still declare CreateWeightScoreMode, and IndexSearcher never depends on it.
 type scoreModeWeightCreator interface {
 	// CreateWeightScoreMode builds a Weight for the given full ScoreMode.
 	CreateWeightScoreMode(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error)
@@ -78,9 +63,56 @@ type scoreModeWeightCreator interface {
 type BaseQuery struct{}
 
 func (q *BaseQuery) Rewrite(searcher *IndexSearcher) (Query, error) { return q, nil }
-func (q *BaseQuery) Clone() Query                              { return q }
-func (q *BaseQuery) Equals(other Query) bool                   { return false }
-func (q *BaseQuery) HashCode() int                             { return 0 }
-func (q *BaseQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *BaseQuery) Equals(other spi.Query) bool                    { return false }
+func (q *BaseQuery) HashCode() int                                  { return 0 }
+func (q *BaseQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return nil, nil
+}
+
+// Apache Lucene 10.5.0 declares two members on Query that Gocene's Query
+// interface does not carry:
+//
+//	public abstract String toString(String field);
+//	public abstract void visit(QueryVisitor visitor);
+//
+// They are absent because the port is incomplete, not because Lucene lacks
+// them. Declaring either on the interface today is measurably net-negative:
+// against the current tree, adding ToString costs 255 further compile errors
+// and adding Visit costs 151, because the implementors that still lack the
+// member outnumber the call sites that want it. Until enough of the query
+// tree carries them, the two helpers below render the calls through the
+// method set each concrete query actually has — the idiom already used by
+// IndriQuery (search/indri_query.go) and ConstantScoreQuery.Visit
+// (search/constant_score_query.go).
+//
+// Both helpers must be withdrawn, and their call sites reduced to plain method
+// calls, as soon as the members move onto the Query interface.
+
+// queryToString renders Java's Query.toString(String field). Java's
+// no-argument Query.toString() is toString("") and is spelled here as
+// queryToString(q, "").
+func queryToString(q Query, field string) string {
+	if q == nil {
+		return ""
+	}
+	if ts, ok := q.(interface{ ToString(string) string }); ok {
+		return ts.ToString(field)
+	}
+	if s, ok := q.(interface{ String(string) string }); ok {
+		return s.String(field)
+	}
+	if s, ok := q.(interface{ String() string }); ok {
+		return s.String()
+	}
+	return ""
+}
+
+// visitQuery renders Java's Query.visit(QueryVisitor visitor).
+func visitQuery(q Query, visitor QueryVisitor) {
+	if q == nil {
+		return
+	}
+	if v, ok := q.(interface{ Visit(QueryVisitor) }); ok {
+		v.Visit(visitor)
+	}
 }

@@ -7,6 +7,8 @@
 
 package spans
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // SpanDisjunctionDISIApproximation is a DocIdSetIterator which is a disjunction
 // of the approximations of the provided iterators.
 //
@@ -38,8 +40,8 @@ func (d *SpanDisjunctionDISIApproximation) DocID() int {
 }
 
 // DocIDRunEnd returns the end of the current run (single-doc, conservative).
-func (d *SpanDisjunctionDISIApproximation) DocIDRunEnd() int {
-	return d.DocID() + 1
+func (d *SpanDisjunctionDISIApproximation) DocIDRunEnd() (int, error) {
+	return d.DocID() + 1, nil
 }
 
 // NextDoc advances to the next document.
@@ -75,4 +77,11 @@ func (d *SpanDisjunctionDISIApproximation) Advance(target int) (int, error) {
 		}
 	}
 	return top.Doc, nil
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *SpanDisjunctionDISIApproximation) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
 }
