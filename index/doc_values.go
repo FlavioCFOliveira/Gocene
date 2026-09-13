@@ -95,6 +95,57 @@ func checkField(in LeafReader, field string, expected ...spi.DocValuesType) erro
 	return nil
 }
 
+// GetNumeric returns NumericDocValues for the field, or an empty instance when
+// the field has none.
+//
+// Mirrors org.apache.lucene.index.DocValues#getNumeric (Apache Lucene 10.5.0).
+func GetNumeric(reader LeafReader, field string) (NumericDocValues, error) {
+	dv, err := reader.GetNumericDocValues(field)
+	if err != nil {
+		return nil, err
+	}
+	if dv == nil {
+		if err := checkField(reader, field, spi.DocValuesTypeNumeric); err != nil {
+			return nil, err
+		}
+		return EmptyNumeric(), nil
+	}
+	return dv, nil
+}
+
+// IsCacheable reports whether results computed from the given fields' doc
+// values are safe to cache against ctx. A field whose doc-values generation has
+// advanced past -1 has been updated, so its values are not stable.
+//
+// Mirrors org.apache.lucene.index.DocValues#isCacheable (Apache Lucene 10.5.0).
+func IsCacheable(ctx *LeafReaderContext, fields ...string) bool {
+	for _, field := range fields {
+		fi := ctx.LeafReader().GetFieldInfos().FieldInfo(field)
+		if fi != nil && fi.DocValuesGen() > -1 {
+			return false
+		}
+	}
+	return true
+}
+
+// GetSorted returns SortedDocValues for the field, or an empty instance when
+// the field has none.
+//
+// Mirrors org.apache.lucene.index.DocValues#getSorted (Apache Lucene 10.5.0).
+func GetSorted(reader LeafReader, field string) (SortedDocValues, error) {
+	dv, err := reader.GetSortedDocValues(field)
+	if err != nil {
+		return nil, err
+	}
+	if dv == nil {
+		if err := checkField(reader, field, spi.DocValuesTypeSorted); err != nil {
+			return nil, err
+		}
+		return EmptySorted(), nil
+	}
+	return dv, nil
+}
+
 // GetSortedSet returns SortedSetDocValues for the field, or an empty instance
 // when the field has none. A single-valued SORTED field is wrapped as a
 // singleton set.

@@ -28,7 +28,7 @@ func NewByteKnnVectorFieldSource(fieldName string) *ByteKnnVectorFieldSource {
 
 // GetValues returns the FunctionValues for the given context and reader.
 func (v *ByteKnnVectorFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	reader := readerContext.Reader()
+	reader := readerContext.LeafReader()
 	vectorValues := reader.GetByteVectorValues(v.fieldName)
 
 	if vectorValues == nil {
@@ -116,7 +116,7 @@ func NewFloatKnnVectorFieldSource(fieldName string) *FloatKnnVectorFieldSource {
 
 // GetValues returns the FunctionValues for the given context and reader.
 func (v *FloatKnnVectorFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	reader := readerContext.Reader()
+	reader := readerContext.LeafReader()
 	vectorValues := reader.GetFloatVectorValues(v.fieldName)
 
 	if vectorValues == nil {

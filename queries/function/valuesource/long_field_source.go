@@ -28,7 +28,7 @@ func (f *LongFieldSource) Description() string {
 }
 
 func (f *LongFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	ndv, err := readerContext.Reader().GetNumericDocValues(f.Field)
+	ndv, err := readerContext.LeafReader().GetNumericDocValues(f.Field)
 	if err != nil {
 		return nil, err
 	}
@@ -43,8 +43,8 @@ func (f *LongFieldSource) GetValues(ctx function.Context, readerContext *index.L
 
 type longDocValues struct {
 	function.BaseFunctionValues
-	source   *LongFieldSource
-	ndv      index.NumericDocValues
+	source    *LongFieldSource
+	ndv       index.NumericDocValues
 	lastDocID int
 }
 

@@ -34,6 +34,48 @@ type DoubleValuesSource interface {
 	Rewrite(searcher *IndexSearcher) DoubleValuesSource
 }
 
+// numericProvider is the narrow capability required from a context argument:
+// the ability to obtain a NumericDocValues iterator for a field.
+//
+// PORT NOTE: Gocene-only. Apache Lucene 10.5.0 calls
+// DocValues.getNumeric(ctx.reader(), field) directly; this indirection exists
+// only because basicDoubleValuesSource accepts context shapes that do not
+// implement spi.LeafReader.
+type numericProvider interface {
+	GetNumericDocValues(field string) (index.NumericDocValues, error)
+}
+
+// numericProviderFromContext extracts a NumericDocValues iterator from a
+// context argument. Accepted shapes:
+//
+//   - *index.LeafReaderContext (unwraps via LeafReader())
+//   - any type exposing GetNumericDocValues(field string)
+//
+// Returns a nil iterator and no error when no provider can be located.
+func numericProviderFromContext(ctx interface{}, field string) (index.NumericDocValues, error) {
+	if ctx == nil {
+		return nil, nil
+	}
+	switch v := ctx.(type) {
+	case *index.LeafReaderContext:
+		if v == nil {
+			return nil, nil
+		}
+		reader := v.LeafReader()
+		if reader == nil {
+			return nil, nil
+		}
+		if np, ok := interface{}(reader).(numericProvider); ok {
+			return np.GetNumericDocValues(field)
+		}
+		return nil, nil
+	case numericProvider:
+		return v.GetNumericDocValues(field)
+	default:
+		return nil, nil
+	}
+}
+
 // basicDoubleValuesSource is the default implementation of DoubleValuesSource.
 type basicDoubleValuesSource struct {
 	field string

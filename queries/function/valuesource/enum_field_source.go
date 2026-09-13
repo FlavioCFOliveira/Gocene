@@ -39,7 +39,7 @@ func (f *EnumFieldSource) Description() string {
 }
 
 func (f *EnumFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	ndv, err := readerContext.Reader().GetNumericDocValues(f.Field)
+	ndv, err := readerContext.LeafReader().GetNumericDocValues(f.Field)
 	if err != nil {
 		return nil, err
 	}

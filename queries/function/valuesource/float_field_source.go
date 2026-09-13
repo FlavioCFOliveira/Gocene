@@ -29,7 +29,7 @@ func (f *FloatFieldSource) Description() string {
 }
 
 func (f *FloatFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	ndv, err := readerContext.Reader().GetNumericDocValues(f.Field)
+	ndv, err := readerContext.LeafReader().GetNumericDocValues(f.Field)
 	if err != nil {
 		return nil, err
 	}
@@ -44,8 +44,8 @@ func (f *FloatFieldSource) GetValues(ctx function.Context, readerContext *index.
 
 type floatDocValues struct {
 	function.BaseFunctionValues
-	source   *FloatFieldSource
-	ndv      index.NumericDocValues
+	source    *FloatFieldSource
+	ndv       index.NumericDocValues
 	lastDocID int
 }
 

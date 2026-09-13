@@ -63,7 +63,7 @@ func (f *SortedSetFieldSource) GetValues(ctx function.Context, readerContext *in
 	// Since Gocene's SortedSetDocValues doesn't have a built-in "Selector" wrapper yet,
 	// and SortedSetFieldSource expects a single value, we must implement the selection.
 
-	sdv, err := readerContext.Reader().GetSortedSetDocValues(f.Field)
+	sdv, err := readerContext.LeafReader().GetSortedSetDocValues(f.Field)
 	if err != nil {
 		return nil, err
 	}

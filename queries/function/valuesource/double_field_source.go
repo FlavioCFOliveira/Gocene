@@ -29,7 +29,7 @@ func (f *DoubleFieldSource) Description() string {
 }
 
 func (f *DoubleFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	ndv, err := readerContext.Reader().GetNumericDocValues(f.Field)
+	ndv, err := readerContext.LeafReader().GetNumericDocValues(f.Field)
 	if err != nil {
 		return nil, err
 	}
@@ -44,8 +44,8 @@ func (f *DoubleFieldSource) GetValues(ctx function.Context, readerContext *index
 
 type doubleDocValues struct {
 	function.BaseFunctionValues
-	source   *DoubleFieldSource
-	ndv      index.NumericDocValues
+	source    *DoubleFieldSource
+	ndv       index.NumericDocValues
 	lastDocID int
 }
 

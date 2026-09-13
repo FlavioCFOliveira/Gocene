@@ -26,11 +26,11 @@ func NewBytesRefFieldSource(field string) *BytesRefFieldSource {
 }
 
 func (f *BytesRefFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	fieldInfo := readerContext.Reader().GetFieldInfos().GetByName(f.Field)
+	fieldInfo := readerContext.LeafReader().GetFieldInfos().GetByName(f.Field)
 
 	// To be sorted or not to be sorted, that is the question
 	if fieldInfo != nil && fieldInfo.DocValuesType() == index.DocValuesTypeBinary {
-		ndv, err := readerContext.Reader().GetBinaryDocValues(f.Field)
+		ndv, err := readerContext.LeafReader().GetBinaryDocValues(f.Field)
 		if err != nil {
 			return nil, err
 		}

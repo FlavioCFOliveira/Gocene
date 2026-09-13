@@ -40,6 +40,15 @@ func (s *TFIDFSimilarity) GetDiscountOverlaps() bool {
 	return s.discountOverlaps
 }
 
+// Idf computes a score factor based on a term's document frequency (the number
+// of documents which contain the term).
+//
+// Mirrors TFIDFSimilarity.idf(long docFreq, long docCount) of Apache Lucene
+// 10.5.0, which this port delegates to the configured provider.
+func (s *TFIDFSimilarity) Idf(docFreq, docCount int64) float32 {
+	return s.provider.Idf(docFreq, docCount)
+}
+
 // IdfExplain computes a score factor for a simple term and returns an explanation.
 func (s *TFIDFSimilarity) IdfExplain(collectionStats *CollectionStatistics, termStats *TermStatistics) Explanation {
 	df := int64(termStats.DocFreq())

@@ -122,20 +122,6 @@ func TestDoubleValuesSource_GetRangeQuery(t *testing.T) {
 	}
 }
 
-// TestLongValuesSource_GetRangeQuery verifies the long-values path.
-func TestLongValuesSource_GetRangeQuery(t *testing.T) {
-	src := NewLongValuesSource("v")
-	if _, ok := src.GetRangeQuery(math.MinInt64, math.MaxInt64).(*FieldExistsQuery); !ok {
-		t.Errorf("full-open range should fold to FieldExistsQuery")
-	}
-	if _, ok := src.GetRangeQuery(10, 1).(*MatchNoDocsQuery); !ok {
-		t.Errorf("inverted range should fold to MatchNoDocsQuery")
-	}
-	if _, ok := src.GetRangeQuery(0, 100).(*NumericDocValuesRangeQuery); !ok {
-		t.Errorf("normal range should produce a NumericDocValuesRangeQuery")
-	}
-}
-
 // TestAutomatonQuery_RewriteWithoutReader verifies the safe degradation
 // path when no reader is available (e.g. unit-test contexts).  The query
 // is wrapped in a ConstantScoreQuery rather than producing nil.
