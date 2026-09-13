@@ -99,3 +99,12 @@ func (w *MultiTermQueryConstantScoreWrapper) String(field string) string {
 
 // Ensure MultiTermQueryConstantScoreWrapper implements Query
 var _ Query = (*MultiTermQueryConstantScoreWrapper)(nil)
+
+// Visit mirrors AbstractMultiTermQueryConstantScoreWrapper.visit(QueryVisitor)
+// of Apache Lucene 10.5.0. MultiTermQueryConstantScoreWrapper.java declares no
+// override and inherits this body.
+func (w *MultiTermQueryConstantScoreWrapper) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(w.GetField()) {
+		w.query.Visit(visitor.GetSubVisitor(FILTER, w))
+	}
+}

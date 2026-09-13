@@ -77,13 +77,7 @@ func (q *ConstantScoreQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 // Visit walks the query tree.
 func (q *ConstantScoreQuery) Visit(visitor QueryVisitor) {
 	// In Lucene: query.visit(visitor.getSubVisitor(BooleanClause.Occur.FILTER, this));
-	// Note: Since Gocene's Query interface doesn't have Visit, this requires the query to be
-	// type-asserted or implemented as a method.
-	if v, ok := q.query.(interface {
-		Visit(QueryVisitor)
-	}); ok {
-		v.Visit(visitor.GetSubVisitor(MUST, q))
-	}
+	q.query.Visit(visitor.GetSubVisitor(MUST, q))
 }
 
 // CreateWeight creates a Weight for this query.

@@ -148,9 +148,9 @@ func (r *OrdsFieldReader) HasPayloads() bool {
 	return r.fieldInfo.HasPayloads()
 }
 
-// GetIterator implements index.Terms.  Returns an OrdsSegmentTermsEnum
+// Iterator implements index.Terms.  Returns an OrdsSegmentTermsEnum
 // positioned before the first term.
-func (r *OrdsFieldReader) GetIterator() (index.TermsEnum, error) {
+func (r *OrdsFieldReader) Iterator() (index.TermsEnum, error) {
 	return NewOrdsSegmentTermsEnum(r, nil)
 }
 

@@ -29,12 +29,12 @@ type mockTerms struct {
 	entries []mockTermEntry
 }
 
-func (m *mockTerms) GetIterator() (index.TermsEnum, error) {
+func (m *mockTerms) Iterator() (index.TermsEnum, error) {
 	return &mockTermsEnum{entries: m.entries, pos: -1}, nil
 }
 
 func (m *mockTerms) GetIteratorWithSeek(*index.Term) (index.TermsEnum, error) {
-	return m.GetIterator()
+	return m.Iterator()
 }
 
 func (m *mockTerms) GetPostingsReader(string, int) (index.PostingsEnum, error) { return nil, nil }

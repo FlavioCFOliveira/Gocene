@@ -195,7 +195,7 @@ func resolveDocsForTerm(sr *SegmentReader, term *Term) ([]int, error) {
 	if terms == nil {
 		return nil, nil
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}

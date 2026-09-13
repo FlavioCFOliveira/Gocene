@@ -410,7 +410,7 @@ func (t *sortedSetDocValuesTerms) Intersect(compiled *automaton.CompiledAutomato
 	if compiled == nil || compiled.Type != automaton.AutomatonTypeNormal {
 		return nil, fmt.Errorf("please use CompiledAutomaton.getTermsEnum instead")
 	}
-	it, err := t.GetIterator()
+	it, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -452,7 +452,7 @@ func (e *startTermAutomatonTermsEnum) NextSeekTerm(term *index.Term) (*index.Ter
 	return e.AutomatonTermsEnum.NextSeekTerm(term)
 }
 
-func (t *sortedSetDocValuesTerms) GetIterator() (index.TermsEnum, error) {
+func (t *sortedSetDocValuesTerms) Iterator() (index.TermsEnum, error) {
 	return t.values.TermsEnum()
 }
 

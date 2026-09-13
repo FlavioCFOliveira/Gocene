@@ -103,7 +103,7 @@ func NewQueryAutoStopWordAnalyzerWithMaxDocFreq(
 			continue
 		}
 
-		te, err := terms.GetIterator()
+		te, err := terms.Iterator()
 		if err != nil {
 			return nil, err
 		}

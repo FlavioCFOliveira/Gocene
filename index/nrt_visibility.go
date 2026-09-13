@@ -206,8 +206,8 @@ func (t *liveDocsTerms) Intersect(compiled *automaton.CompiledAutomaton, startTe
 	}, nil
 }
 
-func (t *liveDocsTerms) GetIterator() (spi.TermsEnum, error) {
-	te, err := t.delegate.GetIterator()
+func (t *liveDocsTerms) Iterator() (spi.TermsEnum, error) {
+	te, err := t.delegate.Iterator()
 	if err != nil || te == nil {
 		return te, err
 	}

@@ -713,7 +713,7 @@ func (it *TermDocsIterator) setField(field string) error {
 		it.termsEnum = nil
 		return nil
 	}
-	enum, err := terms.GetIterator()
+	enum, err := terms.Iterator()
 	if err != nil {
 		return err
 	}

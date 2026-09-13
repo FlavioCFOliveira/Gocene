@@ -303,7 +303,7 @@ func (t *TermVectorTerms) Field() string { return t.tv.Field }
 // honoured through FilteredTermsEnum.setInitialSeekTerm, which is where
 // Lucene's anonymous nextSeekTerm override routes it.
 func (t *TermVectorTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *Term) (TermsEnum, error) {
-	it, err := t.GetIterator()
+	it, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -317,8 +317,8 @@ func (t *TermVectorTerms) Intersect(compiled *automaton.CompiledAutomaton, start
 	return enum, nil
 }
 
-// GetIterator returns an iterator over all terms in this field.
-func (t *TermVectorTerms) GetIterator() (TermsEnum, error) {
+// Iterator returns an iterator over all terms in this field.
+func (t *TermVectorTerms) Iterator() (TermsEnum, error) {
 	return NewTermVectorTermsEnum(t.tv), nil
 }
 

@@ -91,9 +91,9 @@ func assertPostings(t *testing.T, producer FieldsProducer, tp termPosting) {
 		t.Fatalf("Terms(%q) returned nil", tp.field)
 	}
 
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator(%q): %v", tp.field, err)
+		t.Fatalf("Iterator(%q): %v", tp.field, err)
 	}
 
 	key := index.NewTerm(tp.field, tp.text)
@@ -475,9 +475,9 @@ func TestLucene104PostingsFormat_MultiField_ImpactsEnum(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Terms(%q): %v", fieldName, err)
 			}
-			te, err := terms.GetIterator()
+			te, err := terms.Iterator()
 			if err != nil {
-				t.Fatalf("GetIterator: %v", err)
+				t.Fatalf("Iterator: %v", err)
 			}
 			term, err := te.Next()
 			if err != nil || term == nil {
@@ -655,9 +655,9 @@ func TestLucene104PostingsFormat_TermMatchesAfterClose(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Terms: %v", err)
 		}
-		te, err := terms.GetIterator()
+		te, err := terms.Iterator()
 		if err != nil {
-			t.Fatalf("GetIterator: %v", err)
+			t.Fatalf("Iterator: %v", err)
 		}
 		found, err := te.SeekExact(index.NewTerm("body", "zzz_absent"))
 		if err != nil {
@@ -716,9 +716,9 @@ func TestLucene104PostingsFormat_BlockBoundaryPositions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Terms: %v", err)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	tm, err := te.Next()
 	if err != nil || tm == nil {

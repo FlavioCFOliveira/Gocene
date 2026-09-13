@@ -728,7 +728,7 @@ func (s *IndexSearcher) Rewrite(original Query) (Query, error) {
 	}
 
 	visitor := getNumClausesCheckVisitor()
-	visitQuery(query, visitor)
+	query.Visit(visitor)
 	return query, nil
 }
 

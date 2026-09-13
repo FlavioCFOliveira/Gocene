@@ -198,3 +198,17 @@ func (q *DistanceRewriteQuery) HashCode() int {
 func (q *DistanceRewriteQuery) CreateWeight(_ *search.IndexSearcher, _ search.ScoreMode, _ float32) (search.Weight, error) {
 	return nil, fmt.Errorf("surround: DistanceRewriteQuery must be rewritten before a Weight can be created")
 }
+
+// Visit mirrors SimpleTermRewriteQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0. The comment is Lucene's own and is carried across unchanged.
+func (q *SimpleTermRewriteQuery) Visit(visitor search.QueryVisitor) {
+	// TODO: implement this
+	visitor.VisitLeaf(q)
+}
+
+// Visit mirrors DistanceRewriteQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0. The comment is Lucene's own and is carried across unchanged.
+func (q *DistanceRewriteQuery) Visit(visitor search.QueryVisitor) {
+	// TODO implement this
+	visitor.VisitLeaf(q)
+}

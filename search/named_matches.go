@@ -142,3 +142,10 @@ func FindNamedMatches(m Matches) []*NamedMatches {
 	}
 	return out
 }
+
+// Visit mirrors NamedMatches.NamedQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (NamedMatches.java). inner is this port's spelling of Java's in field.
+func (q *namedQuery) Visit(visitor QueryVisitor) {
+	sub := visitor.GetSubVisitor(MUST, q)
+	q.inner.Visit(sub)
+}

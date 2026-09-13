@@ -135,7 +135,7 @@ func NewFieldTermStack(reader index.IndexReader, docID int, fieldName string, fi
 		return fts, nil
 	}
 
-	termsEnum, err := vector.GetIterator()
+	termsEnum, err := vector.Iterator()
 	if err != nil {
 		return nil, err
 	}

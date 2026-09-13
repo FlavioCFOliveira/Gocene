@@ -752,10 +752,10 @@ func (t *ExitableTerms) Intersect(compiled *automaton.CompiledAutomaton, startTe
 	}, nil
 }
 
-// GetIterator returns the guarded term enumeration. Mirrors
+// Iterator returns the guarded term enumeration. Mirrors
 // ExitableTerms.iterator().
-func (t *ExitableTerms) GetIterator() (TermsEnum, error) {
-	enum, err := t.Terms.GetIterator()
+func (t *ExitableTerms) Iterator() (TermsEnum, error) {
+	enum, err := t.Terms.Iterator()
 	if err != nil || enum == nil {
 		return enum, err
 	}

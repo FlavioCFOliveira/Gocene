@@ -54,7 +54,7 @@ func (q *BlockScoreQueryWrapper) HashCode() int {
 }
 
 func (q *BlockScoreQueryWrapper) Visit(visitor QueryVisitor) {
-	visitQuery(q.query, visitor)
+	q.query.Visit(visitor)
 }
 
 func (q *BlockScoreQueryWrapper) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {

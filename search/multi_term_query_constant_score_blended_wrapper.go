@@ -124,3 +124,12 @@ func (w *multiTermQueryConstantScoreBlendedWrapper) CreateWeight(
 
 // Ensure multiTermQueryConstantScoreBlendedWrapper implements Query.
 var _ Query = (*multiTermQueryConstantScoreBlendedWrapper)(nil)
+
+// Visit mirrors AbstractMultiTermQueryConstantScoreWrapper.visit(QueryVisitor)
+// of Apache Lucene 10.5.0. MultiTermQueryConstantScoreBlendedWrapper.java
+// declares no override and inherits this body.
+func (w *multiTermQueryConstantScoreBlendedWrapper) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(w.GetField()) {
+		w.query.Visit(visitor.GetSubVisitor(FILTER, w))
+	}
+}

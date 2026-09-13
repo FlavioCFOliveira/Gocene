@@ -32,7 +32,7 @@ func newListTerms(field string, terms ...string) *listTerms {
 	return &listTerms{field: field, terms: sorted}
 }
 
-func (lt *listTerms) GetIterator() (index.TermsEnum, error) {
+func (lt *listTerms) Iterator() (index.TermsEnum, error) {
 	return &listTermsEnum{terms: lt.terms, field: lt.field}, nil
 }
 

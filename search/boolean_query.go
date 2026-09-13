@@ -607,12 +607,12 @@ func (q *BooleanQuery) Visit(visitor QueryVisitor) {
 		if len(queries) > 0 {
 			if occur == MUST {
 				for _, query := range queries {
-					visitQuery(query, sub)
+					query.Visit(sub)
 				}
 			} else {
 				v := visitor.GetSubVisitor(occur, q)
 				for _, query := range queries {
-					visitQuery(query, v)
+					query.Visit(v)
 				}
 			}
 		}

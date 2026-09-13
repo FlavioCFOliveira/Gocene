@@ -88,3 +88,10 @@ func (q *SeededKnnVectorQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 func (q *SeededKnnVectorQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return q.inner.CreateWeight(searcher, scoreMode, boost)
 }
+
+// Visit mirrors SeededKnnVectorQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (SeededKnnVectorQuery.java). inner is this port's spelling of Java's
+// delegate field.
+func (q *SeededKnnVectorQuery) Visit(visitor QueryVisitor) {
+	q.inner.Visit(visitor)
+}

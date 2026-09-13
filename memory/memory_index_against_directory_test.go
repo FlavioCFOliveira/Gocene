@@ -139,9 +139,9 @@ func TestMemoryIndexAgainstDirectory_DocsEnumStart(t *testing.T) {
 		t.Fatal("Terms returned nil")
 	}
 
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 
 	// Seek to "quick" and get postings.
@@ -211,9 +211,9 @@ func TestMemoryIndexAgainstDirectory_DocsAndPositionsEnumStart(t *testing.T) {
 		t.Fatal("Terms returned nil")
 	}
 
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 
 	seeked, err := termsEnum.SeekExact(schema.NewTerm("field", "quick"))

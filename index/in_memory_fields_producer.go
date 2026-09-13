@@ -161,7 +161,7 @@ func (p *InMemoryFieldsProducer) absorbField(fp *FreqProxTermsWriterPerField, do
 		flags = PostingsFlagFreqs
 	}
 
-	enum, err := newFreqProxTerms(fp).GetIterator()
+	enum, err := newFreqProxTerms(fp).Iterator()
 	if err != nil {
 		return fmt.Errorf("MergeInMemoryPostings: field %q: iterator: %w", fieldName, err)
 	}
@@ -264,7 +264,7 @@ func newInMemTerms(f *inMemField) *inMemTerms {
 	return &inMemTerms{field: f}
 }
 
-func (t *inMemTerms) GetIterator() (TermsEnum, error) {
+func (t *inMemTerms) Iterator() (TermsEnum, error) {
 	return newInMemTermsEnum(t.field, ""), nil
 }
 

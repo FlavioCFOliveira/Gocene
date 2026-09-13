@@ -115,7 +115,7 @@ func (c *BM25NBClassifier) assignClassNormalizedList(inputDocument string) ([]*C
 		return nil, err
 	}
 
-	it, err := classes.GetIterator()
+	it, err := classes.Iterator()
 	if err != nil {
 		return nil, err
 	}

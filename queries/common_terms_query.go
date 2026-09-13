@@ -258,7 +258,7 @@ func (q *CommonTermsQuery) Rewrite(searcher *search.IndexSearcher) (search.Query
 			if terms == nil {
 				continue
 			}
-			te, err := terms.GetIterator()
+			te, err := terms.Iterator()
 			if err != nil {
 				return nil, err
 			}
@@ -366,4 +366,19 @@ func minNrShouldMatch(minNrShouldMatch float32, numOptional int) int {
 		return int(minNrShouldMatch)
 	}
 	return int(math.Round(float64(minNrShouldMatch) * float64(numOptional)))
+}
+
+// Visit mirrors CommonTermsQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (org.apache.lucene.queries.CommonTermsQuery).
+func (q *CommonTermsQuery) Visit(visitor search.QueryVisitor) {
+	var selectedTerms []*index.Term
+	for _, t := range q.terms {
+		if visitor.AcceptField(t.Field) {
+			selectedTerms = append(selectedTerms, t)
+		}
+	}
+	if len(selectedTerms) > 0 {
+		v := visitor.GetSubVisitor(search.SHOULD, q)
+		v.ConsumeTerms(q, selectedTerms...)
+	}
 }

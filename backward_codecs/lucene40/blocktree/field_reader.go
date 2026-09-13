@@ -212,8 +212,8 @@ func (fr *FieldReader) GetSumTotalTermFreq() (int64, error) {
 	return fr.sumTotalTermFreq, nil
 }
 
-// GetIterator returns a TermsEnum over all terms in this field.
-func (fr *FieldReader) GetIterator() (index.TermsEnum, error) {
+// Iterator returns a TermsEnum over all terms in this field.
+func (fr *FieldReader) Iterator() (index.TermsEnum, error) {
 	return newSegmentTermsEnum(fr)
 }
 
@@ -233,7 +233,7 @@ func (fr *FieldReader) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnu
 
 // GetPostingsReader returns a PostingsEnum for the given term, or nil if not found.
 func (fr *FieldReader) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {
-	te, err := fr.GetIterator()
+	te, err := fr.Iterator()
 	if err != nil {
 		return nil, err
 	}

@@ -70,6 +70,18 @@ type PointsReader interface {
 	// CheckIntegrity verifies the integrity of the on-disk point data.
 	CheckIntegrity() error
 
-	// Close releases the underlying inputs. Idempotent.
+	// GetValues returns the PointValues for the given field. The behaviour is
+	// undefined if the field does not have points enabled on its FieldInfo.
+	// Renders `public abstract PointValues getValues(String field)`.
+	GetValues(field string) (PointValues, error)
+
+	// GetMergeInstance returns an instance optimised for merging. The instance
+	// may only be used in the goroutine that acquires it. Renders
+	// `public PointsReader getMergeInstance()`, whose default body returns
+	// this.
+	GetMergeInstance() PointsReader
+
+	// Close releases the underlying inputs. Idempotent. Renders the
+	// Closeable that PointsReader implements.
 	Close() error
 }

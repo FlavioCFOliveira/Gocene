@@ -74,9 +74,9 @@ func Test2BPostings(t *testing.T) {
 		t.Fatal("Terms returned nil")
 	}
 
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 
 	// Only one unique term "term" across docs.

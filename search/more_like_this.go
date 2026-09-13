@@ -278,7 +278,7 @@ func (mlt *MoreLikeThis) retrieveTerms(reader IndexReader, docID int, fieldName 
 		if terms == nil {
 			return nil
 		}
-		it, err := terms.GetIterator()
+		it, err := terms.Iterator()
 		if err != nil || it == nil {
 			return err
 		}
@@ -365,7 +365,7 @@ func (mlt *MoreLikeThis) retrieveTerms(reader IndexReader, docID int, fieldName 
 
 // selectInterestingTerms selects the most interesting terms based on TF/IDF scoring.
 //
-// docFreq is read from the index via Terms.GetIterator when the reader
+// docFreq is read from the index via Terms.Iterator when the reader
 // exposes a Terms(field) accessor; otherwise we fall back to the raw
 // term-vector frequency.  This matches the Lucene behaviour where the
 // stop-list / min-doc-freq filter is applied against the *index* and
@@ -396,7 +396,7 @@ func (mlt *MoreLikeThis) selectInterestingTerms(reader IndexReader, termFreqs ma
 		docFreq := tf.freq
 		if tp != nil && tf.field != "" {
 			if terms, err := tp.Terms(tf.field); err == nil && terms != nil {
-				if it, err := terms.GetIterator(); err == nil && it != nil {
+				if it, err := terms.Iterator(); err == nil && it != nil {
 					target := index.NewTerm(tf.field, tf.term)
 					if found, err := it.SeekExact(target); err == nil && found {
 						if df, err := it.DocFreq(); err == nil && df > 0 {
@@ -555,3 +555,9 @@ func (q *MoreLikeThisQuery) String() string {
 
 // Ensure MoreLikeThisQuery implements Query
 var _ Query = (*MoreLikeThisQuery)(nil)
+
+// Visit mirrors MoreLikeThisQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (org.apache.lucene.queries.mlt.MoreLikeThisQuery).
+func (q *MoreLikeThisQuery) Visit(visitor QueryVisitor) {
+	visitor.VisitLeaf(q)
+}

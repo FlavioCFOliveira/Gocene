@@ -105,3 +105,13 @@ func (q *IndexSortSortedNumericDocValuesRangeQuery) Rewrite(searcher *IndexSearc
 func (q *IndexSortSortedNumericDocValuesRangeQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return q.fallback.CreateWeight(searcher, scoreMode, boost)
 }
+
+// Visit mirrors IndexSortSortedNumericDocValuesRangeQuery.visit(QueryVisitor)
+// of Apache Lucene 10.5.0 (IndexSortSortedNumericDocValuesRangeQuery.java).
+// fallback is this port's spelling of Java's fallbackQuery field.
+func (q *IndexSortSortedNumericDocValuesRangeQuery) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(q.field) {
+		visitor.VisitLeaf(q)
+		q.fallback.Visit(visitor)
+	}
+}

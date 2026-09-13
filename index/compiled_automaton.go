@@ -34,9 +34,9 @@ func CompiledAutomatonTermsEnum(compiled *automaton.CompiledAutomaton, terms Ter
 	case automaton.AutomatonTypeNone:
 		return &EmptyTermsEnum{}, nil
 	case automaton.AutomatonTypeAll:
-		return terms.GetIterator()
+		return terms.Iterator()
 	case automaton.AutomatonTypeSingle:
-		in, err := terms.GetIterator()
+		in, err := terms.Iterator()
 		if err != nil {
 			return nil, err
 		}

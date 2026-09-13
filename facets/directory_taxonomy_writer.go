@@ -682,7 +682,7 @@ func (w *DirectoryTaxonomyWriter) AddTaxonomy(srcDir store.Directory, ordMap Ord
 		if terms == nil {
 			continue
 		}
-		te, err := terms.GetIterator()
+		te, err := terms.Iterator()
 		if err != nil {
 			return fmt.Errorf("getting terms iterator: %w", err)
 		}

@@ -84,3 +84,11 @@ func (q *FeatureQuery) String() string {
 
 // Ensure FeatureQuery implements Query
 var _ Query = (*FeatureQuery)(nil)
+
+// Visit mirrors FeatureQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (org.apache.lucene.document.FeatureQuery).
+func (q *FeatureQuery) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(q.fieldName) {
+		visitor.VisitLeaf(q)
+	}
+}

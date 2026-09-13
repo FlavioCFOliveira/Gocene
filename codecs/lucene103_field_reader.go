@@ -193,11 +193,11 @@ func (r *Lucene103FieldReader) HasPayloads() bool {
 	return r.fieldInfo.HasPayloads()
 }
 
-// GetIterator returns a SegmentTermsEnum positioned before the first
+// Iterator returns a SegmentTermsEnum positioned before the first
 // term. Mirrors FieldReader.iterator() in Java. The byte-level FST
 // traversal is the deferred deep port; the typed stub returned here
 // satisfies index.TermsEnum and terminates at the first Next() call.
-func (r *Lucene103FieldReader) GetIterator() (index.TermsEnum, error) {
+func (r *Lucene103FieldReader) Iterator() (index.TermsEnum, error) {
 	return NewLucene103SegmentTermsEnum(r, nil), nil
 }
 

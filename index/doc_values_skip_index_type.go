@@ -4,28 +4,36 @@
 
 package index
 
-// DocValuesSkipIndexType defines options for skip indexes on doc values.
-// Mirrors org.apache.lucene.index.DocValuesSkipIndexType from Apache Lucene 10.5.0.
-type DocValuesSkipIndexType int
+import "github.com/FlavioCFOliveira/Gocene/spi"
+
+// DocValuesSkipIndexType is the Go port of
+// org.apache.lucene.index.DocValuesSkipIndexType from Apache Lucene 10.5.0:
+// the options for a skip index on doc values.
+//
+// Apache Lucene 10.5.0 declares this enum exactly once, in
+// org.apache.lucene.index (DocValuesSkipIndexType.java). It had been declared
+// twice here — once in this package and once in spi — so the same Lucene enum
+// existed as two incompatible Go types and every value crossing the boundary
+// was a compile error.
+//
+// The surviving declaration is spi's, for the same reason DocValuesType,
+// FieldInfo, FieldInfos, IndexOptions and PostingsEnum survive there: packages
+// below index in the dependency graph (codecs, search) must name the type
+// without importing index, and index imports spi rather than the reverse.
+// index re-exports it here under its Lucene name, exactly as
+// doc_values_type.go does.
+//
+// The constant ordinals are the on-disk byte encoding written by
+// FieldInfosFormat, so they MUST match the Java enum ordinals exactly:
+// NONE=0, RANGE=1.
+type DocValuesSkipIndexType = spi.DocValuesSkipIndexType
 
 const (
-	// DocValuesSkipIndexTypeNone: No skip index should be created.
-	DocValuesSkipIndexTypeNone DocValuesSkipIndexType = iota
-	// DocValuesSkipIndexTypeRange: Record range of values.
-	DocValuesSkipIndexTypeRange
-)
+	// DocValuesSkipIndexTypeNone means no skip index should be created.
+	DocValuesSkipIndexTypeNone = spi.DocValuesSkipIndexTypeNone
 
-// IsCompatibleWith reports whether the skip index type is compatible with the given doc values type.
-func (t DocValuesSkipIndexType) IsCompatibleWith(dvType DocValuesType) bool {
-	switch t {
-	case DocValuesSkipIndexTypeNone:
-		return true
-	case DocValuesSkipIndexTypeRange:
-		return dvType == DocValuesTypeNumeric ||
-			dvType == DocValuesTypeSortedNumeric ||
-			dvType == DocValuesTypeSorted ||
-			dvType == DocValuesTypeSortedSet
-	default:
-		return false
-	}
-}
+	// DocValuesSkipIndexTypeRange records the range of values. Suitable for
+	// NUMERIC, SORTED_NUMERIC, SORTED and SORTED_SET doc values; records the
+	// min/max values per range of doc IDs.
+	DocValuesSkipIndexTypeRange = spi.DocValuesSkipIndexTypeRange
+)

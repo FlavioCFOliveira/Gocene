@@ -46,7 +46,7 @@ func (s *PayloadFilteredTermIntervalsSource) Intervals(field string, ctx *index.
 	if !terms.HasPayloads() {
 		return nil, fmt.Errorf("cannot create a payload-filtered iterator over field %s because it has no indexed payloads", field)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +164,7 @@ func (s *PayloadFilteredTermIntervalsSource) Matches(field string, ctx *index.Le
 	if !terms.HasPayloads() {
 		return nil, fmt.Errorf("cannot create a payload-filtered iterator over field %s because it has no indexed payloads", field)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}

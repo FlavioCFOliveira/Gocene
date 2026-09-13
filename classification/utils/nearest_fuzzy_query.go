@@ -197,3 +197,9 @@ func (q *NearestFuzzyQuery) HashCode() int {
 	}
 	return h
 }
+
+// Visit mirrors NearestFuzzyQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (org.apache.lucene.classification.utils.NearestFuzzyQuery).
+func (q *NearestFuzzyQuery) Visit(visitor search.QueryVisitor) {
+	visitor.VisitLeaf(q)
+}

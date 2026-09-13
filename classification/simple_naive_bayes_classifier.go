@@ -42,7 +42,7 @@ func docFreqForTerm(reader termsProvider, term *index.Term) (int, error) {
 	if terms == nil {
 		return 0, nil
 	}
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
 		return 0, err
 	}
@@ -230,7 +230,7 @@ func (c *SimpleNaiveBayesClassifier) assignClassNormalizedList(inputDocument str
 		return nil, err
 	}
 
-	it, err := classes.GetIterator()
+	it, err := classes.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +316,7 @@ func (c *SimpleNaiveBayesClassifier) countDocsWithClass(classes index.Terms) (in
 // This is the last-resort fallback when neither docCount nor sumDocFreq are
 // available.
 func (c *SimpleNaiveBayesClassifier) sumClassDocFreqs(classes index.Terms) (int, error) {
-	it, err := classes.GetIterator()
+	it, err := classes.Iterator()
 	if err != nil {
 		return 0, err
 	}

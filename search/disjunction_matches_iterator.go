@@ -86,7 +86,7 @@ func disjunctionFromTermsEnum(context *index.LeafReaderContext, doc int, query Q
 	if err != nil {
 		return nil, err
 	}
-	te, err := t.GetIterator()
+	te, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}

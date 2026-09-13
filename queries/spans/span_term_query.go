@@ -150,7 +150,7 @@ func getSpansForTerm(ctx *index.LeafReaderContext, term *index.Term, postingsLev
 		return nil, fmt.Errorf("field %q was indexed without position data; cannot run SpanTermQuery (term=%q)",
 			term.Field, text)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}

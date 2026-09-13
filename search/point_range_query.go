@@ -474,3 +474,11 @@ func (p *pointRangeScorerSupplier) BulkScorer() (BulkScorer, error) {
 func (p *pointRangeScorerSupplier) SetTopLevelScoringClause() error {
 	return nil
 }
+
+// Visit mirrors PointRangeQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (PointRangeQuery.java).
+func (q *PointRangeQuery) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(q.field) {
+		visitor.VisitLeaf(q)
+	}
+}

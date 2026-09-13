@@ -251,9 +251,9 @@ func checkTVField(t *testing.T, r codecs.TermVectorsReader, docID int, fieldName
 	if terms == nil {
 		t.Fatalf("Get(%d).Terms(%q): nil", docID, fieldName)
 	}
-	iter, err := terms.GetIterator()
+	iter, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	var got []string
 	for {
@@ -785,9 +785,9 @@ func TestLucene90TermVectorsFormat_PostingsEnum(t *testing.T) {
 	}
 
 	// SeekExact for a known term.
-	iter, err := terms.GetIterator()
+	iter, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	targetTerm := index.NewTerm("body", "hello")
 	found, err := iter.SeekExact(targetTerm)

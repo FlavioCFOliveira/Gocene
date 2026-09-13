@@ -75,7 +75,7 @@ func (q *DisjunctionMaxQuery) ToString(field string) string {
 func (q *DisjunctionMaxQuery) Visit(visitor QueryVisitor) {
 	v := visitor.GetSubVisitor(SHOULD, q)
 	for _, sub := range q.disjuncts {
-		visitQuery(sub, v)
+		sub.Visit(v)
 	}
 }
 

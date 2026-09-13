@@ -38,12 +38,12 @@ type memTerms struct {
 	entries []memTermsEntry
 }
 
-func (m *memTerms) GetIterator() (schema.TermsEnum, error) {
+func (m *memTerms) Iterator() (schema.TermsEnum, error) {
 	return &memTermsEnum{fi: m.fi, entries: m.entries, pos: -1}, nil
 }
 
 func (m *memTerms) GetIteratorWithSeek(_ *schema.Term) (schema.TermsEnum, error) {
-	return m.GetIterator()
+	return m.Iterator()
 }
 
 func (m *memTerms) GetPostingsReader(_ string, _ int) (schema.PostingsEnum, error) {
@@ -314,9 +314,9 @@ func TestIDVersionPostingsFormat_RoundTrip_WriteAndRead(t *testing.T) {
 	}
 
 	// Verify the iterator returns all three terms.
-	te, err := schemaTerms.GetIterator()
+	te, err := schemaTerms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 
 	var gotTerms []string

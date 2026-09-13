@@ -146,9 +146,9 @@ func regexp2BuildReference(t *testing.T, s *search.IndexSearcher, reg string) se
 	if terms == nil {
 		return search.NewMatchNoDocsQuery()
 	}
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	bq := search.NewBooleanQuery()
 	any := false

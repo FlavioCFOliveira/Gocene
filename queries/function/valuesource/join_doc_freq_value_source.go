@@ -56,7 +56,7 @@ func (v *JoinDocFreqValueSource) GetValues(ctx function.Context, readerContext *
 	if t == nil {
 		termsEnum = &index.EmptyTermsEnum{}
 	} else {
-		termsEnum, err = t.GetIterator()
+		termsEnum, err = t.Iterator()
 		if err != nil {
 			return nil, err
 		}

@@ -403,12 +403,12 @@ type multiTermTerms struct {
 	entries []termWithDocs
 }
 
-func (m *multiTermTerms) GetIterator() (TermsEnum, error) {
+func (m *multiTermTerms) Iterator() (TermsEnum, error) {
 	return &multiTermTermsEnum{owner: m, idx: -1}, nil
 }
 
 func (m *multiTermTerms) GetIteratorWithSeek(seek *Term) (TermsEnum, error) {
-	return m.GetIterator()
+	return m.Iterator()
 }
 
 func (m *multiTermTerms) GetPostingsReader(_ string, _ int) (PostingsEnum, error) {

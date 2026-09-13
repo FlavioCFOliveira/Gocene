@@ -19,10 +19,10 @@ type Terms interface {
 	// Field returns the name of the field this Terms instance represents.
 	Field() string
 
-	// GetIterator returns a TermsEnum for iterating over all terms in this field.
+	// Iterator returns a TermsEnum for iterating over all terms in this field.
 	// The returned TermsEnum is positioned before the first term.
 	// Use TermsEnum.Next() to advance to the first term.
-	GetIterator() (TermsEnum, error)
+	Iterator() (TermsEnum, error)
 
 	// GetIteratorWithSeek returns a TermsEnum positioned at or after the given term.
 	// If the term exists, the iterator is positioned at that term.
@@ -161,8 +161,8 @@ type EmptyTerms struct {
 	TermsBase
 }
 
-// GetIterator returns an empty TermsEnum.
-func (e *EmptyTerms) GetIterator() (TermsEnum, error) {
+// Iterator returns an empty TermsEnum.
+func (e *EmptyTerms) Iterator() (TermsEnum, error) {
 	return &EmptyTermsEnum{}, nil
 }
 
@@ -215,15 +215,15 @@ func NewSingleTermTerms(term *Term, docFreq int, totalFreq int64) *SingleTermTer
 	}
 }
 
-// GetIterator returns a TermsEnum for the single term.
-func (s *SingleTermTerms) GetIterator() (TermsEnum, error) {
+// Iterator returns a TermsEnum for the single term.
+func (s *SingleTermTerms) Iterator() (TermsEnum, error) {
 	return NewSingleTermsEnum(s.term, s.docFreq, s.totalFreq), nil
 }
 
 // GetIteratorWithSeek returns a TermsEnum positioned at the given term or after.
 func (s *SingleTermTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error) {
 	if seekTerm == nil {
-		return s.GetIterator()
+		return s.Iterator()
 	}
 	cmp := s.term.CompareTo(seekTerm)
 	if cmp < 0 {
@@ -231,7 +231,7 @@ func (s *SingleTermTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error)
 		return &EmptyTermsEnum{}, nil
 	}
 	// our term is at or after the seek term
-	return s.GetIterator()
+	return s.Iterator()
 }
 
 // Size returns 1.

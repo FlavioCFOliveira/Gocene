@@ -193,11 +193,11 @@ type fakeVectorTerms struct {
 
 func newFakeVectorTerms(f *fakeVectorField) *fakeVectorTerms { return &fakeVectorTerms{f: f} }
 
-func (t *fakeVectorTerms) GetIterator() (TermsEnum, error) {
+func (t *fakeVectorTerms) Iterator() (TermsEnum, error) {
 	return &fakeVectorTermsEnum{f: t.f, idx: -1}, nil
 }
 func (t *fakeVectorTerms) GetIteratorWithSeek(seek *Term) (TermsEnum, error) {
-	return t.GetIterator()
+	return t.Iterator()
 }
 func (t *fakeVectorTerms) Size() int64                         { return int64(len(t.f.terms)) }
 func (t *fakeVectorTerms) GetDocCount() (int, error)           { return 1, nil }
@@ -358,7 +358,7 @@ func writeDoc(t *testing.T, w TermVectorsWriter, field, term string, positions [
 	if err := w.FinishDocument(); err != nil {
 		t.Fatal(err)
 	}
-	// The reader-side fakeVectorTerms.GetIterator uses the writer's
+	// The reader-side fakeVectorTerms.Iterator uses the writer's
 	// recorded name; since StartField got a nil FieldInfo above, set
 	// the field name on the most recently buffered field record.
 	store := w.(*fakeTermVectorsWriter).store

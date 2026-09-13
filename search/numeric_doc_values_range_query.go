@@ -206,3 +206,17 @@ func (it *sortedDocIdSetIterator) DocIDRunEnd() (int, error) {
 func (s *sortedDocIdSetIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return DefaultIntoBitSet(s, upTo, bitSet, offset)
 }
+
+// Visit mirrors the body both concrete subclasses of Apache Lucene 10.5.0's
+// abstract NumericDocValuesRangeQuery declare — SortedNumericDocValuesRangeQuery
+// (org.apache.lucene.document) verbatim, and
+// IndexSortSortedNumericDocValuesRangeQuery with the extra fallback recursion it
+// owns. NumericDocValuesRangeQuery.java itself declares no visit, because
+// Query.visit is abstract; this port folds the abstract class and its
+// doc-values-walking subclass into one concrete type (see CreateWeight above),
+// so it carries that subclass's body.
+func (q *NumericDocValuesRangeQuery) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(q.field) {
+		visitor.VisitLeaf(q)
+	}
+}

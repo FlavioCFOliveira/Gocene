@@ -25,7 +25,7 @@ const DefaultMaxExpansions = 128
 // Mirrors org.apache.lucene.queries.intervals.MultiTermIntervalsSource.
 //
 // Deviations from Java:
-//   - Uses Terms.GetIterator() + CompiledAutomaton.Run([]byte) for term matching
+//   - Uses Terms.Iterator() + CompiledAutomaton.Run([]byte) for term matching
 //     instead of automaton.getTermsEnum(terms), since Gocene's CompiledAutomaton
 //     does not expose a filtered TermsEnum.
 //   - automaton.Visit (QueryVisitor) not delegated; VisitLeaf is used instead.
@@ -50,7 +50,7 @@ func (s *MultiTermIntervalsSource) Intervals(field string, ctx *index.LeafReader
 		return nil, nil
 	}
 	var subIters []IntervalIterator
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (s *MultiTermIntervalsSource) Matches(field string, ctx *index.LeafReaderCo
 	if terms == nil {
 		return nil, nil
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}

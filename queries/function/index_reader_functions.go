@@ -323,7 +323,7 @@ func (s *termFreqDoubleValuesSource) GetValues(ctx *index.LeafReaderContext, _ D
 	if terms == nil {
 		return EmptyDoubleValues, nil
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}

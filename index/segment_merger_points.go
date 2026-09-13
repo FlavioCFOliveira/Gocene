@@ -5,6 +5,7 @@
 package index
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
@@ -26,12 +27,12 @@ func (sm *SegmentMerger) mergePoints() error {
 	}
 
 	state := &SegmentWriteState{
-		Directory:     sm.directory,
-		SegmentInfo:   sm.MergeState.SegmentInfo,
-		FieldInfos:    sm.MergeState.MergeFieldInfos,
+		Directory:      sm.directory,
+		SegmentInfo:    sm.MergeState.SegmentInfo,
+		FieldInfos:     sm.MergeState.MergeFieldInfos,
 		SegmentSuffix:  "",
-			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
-			IsMerge:        true,
+		NeedsIndexSort: sm.MergeState.NeedsIndexSort,
+		IsMerge:        true,
 	}
 	writer, err := sm.codec.PointsFormat().FieldsWriter(state)
 	if err != nil {
@@ -96,6 +97,77 @@ type mergePointsSource struct {
 
 func (s *mergePointsSource) CheckIntegrity() error { return nil }
 func (s *mergePointsSource) Close() error          { return nil }
+
+// GetMergeInstance renders the default body of
+// org.apache.lucene.codecs.PointsReader.getMergeInstance (PointsReader.java:56),
+// `return this`. The anonymous PointsReader that Java's
+// PointsWriter.mergeOneField hands to writeField declares no override either,
+// so it inherits the same body.
+func (s *mergePointsSource) GetMergeInstance() spi.PointsReader { return s }
+
+// ErrMergePointValuesUnsupported is returned by the members of the merged
+// PointValues that Apache Lucene 10.5.0 leaves unimplemented. In
+// PointsWriter.mergeOneField the anonymous PointValues handed to writeField
+// throws UnsupportedOperationException from getMinPackedValue,
+// getMaxPackedValue, getNumDimensions, getNumIndexDimensions,
+// getBytesPerDimension and getDocCount; only size() and the point tree's
+// size()/visitDocValues() carry a body.
+var ErrMergePointValuesUnsupported = errors.New(
+	"index: merge points: PointsWriter.mergeOneField's merged PointValues implements only size() and visitDocValues()",
+)
+
+// GetValues renders `public PointValues getValues(String fieldName)` of the
+// anonymous PointsReader that Apache Lucene 10.5.0's
+// PointsWriter.mergeOneField hands to writeField (PointsWriter.java).
+//
+// Lucene rejects any field but the one being merged; Gocene's writer drives
+// the merge field by field through the same source, so the check is the same
+// one Lucene makes, deferred to the point where the field is named.
+func (s *mergePointsSource) GetValues(field string) (spi.PointValues, error) {
+	return &mergePointValues{src: s, field: field}, nil
+}
+
+// mergePointValues is the merged PointValues of
+// PointsWriter.mergeOneField. Java expresses it as a PointValues wrapping a
+// single-node PointTree; this port carries the two members that have a Java
+// body — size() and visitDocValues() — and reports the rest as unsupported,
+// exactly as Lucene's UnsupportedOperationException does.
+//
+// Lucene has no PointValues.getPointTree() counterpart in this port (see
+// [intersectablePointValues]), so visitDocValues is reached through Intersect,
+// the surface every BKD-backed PointValues in Gocene already exposes.
+type mergePointValues struct {
+	src   *mergePointsSource
+	field string
+}
+
+// GetValueCount renders `public long size()`, whose body in both the
+// PointValues and its PointTree is `return finalMaxPointCount`.
+func (v *mergePointValues) GetValueCount() int64 { return v.src.PointValueCount(v.field) }
+
+// Intersect renders the PointTree's `visitDocValues(IntersectVisitor)`: it
+// walks every source segment's points, remaps each docID through that
+// segment's DocMap, drops the deleted, and forwards the rest to the merged
+// visitor. That loop is [mergePointsSource.VisitPoints].
+func (v *mergePointValues) Intersect(visitor spi.PointTreeIntersectVisitor) error {
+	return v.src.VisitPoints(v.field, func(docID int, packedValue []byte) error {
+		return visitor.VisitByPackedValue(docID, packedValue)
+	})
+}
+
+// The remaining members throw UnsupportedOperationException in Lucene.
+func (v *mergePointValues) GetDocCount() int { panic(ErrMergePointValuesUnsupported) }
+func (v *mergePointValues) GetDocCountWithValue() int64 {
+	panic(ErrMergePointValuesUnsupported)
+}
+func (v *mergePointValues) GetMinPackedValue() ([]byte, error) {
+	return nil, ErrMergePointValuesUnsupported
+}
+func (v *mergePointValues) GetMaxPackedValue() ([]byte, error) {
+	return nil, ErrMergePointValuesUnsupported
+}
+func (v *mergePointValues) GetNumDimensions() int     { panic(ErrMergePointValuesUnsupported) }
+func (v *mergePointValues) GetBytesPerDimension() int { panic(ErrMergePointValuesUnsupported) }
 
 // PointValueCount returns the exact number of live points VisitPoints will emit
 // for field across all segments — the count the BKD writer is sized against.

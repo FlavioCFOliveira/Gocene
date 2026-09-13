@@ -142,16 +142,16 @@ func newFreqProxTerms(terms *FreqProxTermsWriterPerField) *FreqProxTerms {
 	return &FreqProxTerms{terms: terms}
 }
 
-// GetIterator returns a FreqProxTermsEnum pre-positioned before the first
+// Iterator returns a FreqProxTermsEnum pre-positioned before the first
 // term. The returned enumerator is independent of any prior iterator over
 // the same FreqProxTerms.
-func (t *FreqProxTerms) GetIterator() (TermsEnum, error) {
+func (t *FreqProxTerms) Iterator() (TermsEnum, error) {
 	return newFreqProxTermsEnum(t.terms), nil
 }
 
 // GetIteratorWithSeek returns a FreqProxTermsEnum positioned at the seek
 // term (or after it). If seekTerm is nil, the enumerator is positioned
-// before the first term, mirroring GetIterator.
+// before the first term, mirroring Iterator.
 func (t *FreqProxTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error) {
 	enum := newFreqProxTermsEnum(t.terms)
 	if seekTerm == nil {

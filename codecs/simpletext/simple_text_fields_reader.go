@@ -337,8 +337,8 @@ func (t *simpleTextTerms) loadTerms() error {
 	return nil
 }
 
-// GetIterator returns a TermsEnum for this field.
-func (t *simpleTextTerms) GetIterator() (index.TermsEnum, error) {
+// Iterator returns a TermsEnum for this field.
+func (t *simpleTextTerms) Iterator() (index.TermsEnum, error) {
 	if t.fst == nil {
 		return emptyTermsEnum, nil
 	}
@@ -351,7 +351,7 @@ func (t *simpleTextTerms) GetIterator() (index.TermsEnum, error) {
 
 // GetIteratorWithSeek positions the returned TermsEnum at or after seekTerm.
 func (t *simpleTextTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
-	te, err := t.GetIterator()
+	te, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -370,7 +370,7 @@ func (t *simpleTextTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.Terms
 
 // GetPostingsReader returns a PostingsEnum for the named term.
 func (t *simpleTextTerms) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {
-	te, err := t.GetIterator()
+	te, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}

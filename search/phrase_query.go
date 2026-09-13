@@ -276,7 +276,7 @@ func aggregateTermStatistics(searcher *IndexSearcher, term *index.Term) (int, in
 		if terms == nil {
 			continue
 		}
-		te, err := terms.GetIterator()
+		te, err := terms.Iterator()
 		if err != nil {
 			return 0, 0, err
 		}
@@ -329,7 +329,7 @@ func (q *PhraseQuery) getPhraseMatcher(scoreMode ScoreMode) func(*index.LeafRead
 		}
 
 		// Reuse single TermsEnum below:
-		te, err := fieldTerms.GetIterator()
+		te, err := fieldTerms.Iterator()
 		if err != nil {
 			return nil, err
 		}

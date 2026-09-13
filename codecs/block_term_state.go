@@ -17,13 +17,13 @@ type BlockTermState struct {
 	index.OrdTermState
 
 	// DocFreq is how many docs have this term.
-	DocFreq int32
+	DocFreq int
 
 	// TotalTermFreq is the total number of occurrences of this term.
 	TotalTermFreq int64
 
 	// TermBlockOrd is the term's ord in the current block.
-	TermBlockOrd int32
+	TermBlockOrd int
 
 	// BlockFilePointer is the fp into the terms dict primary file (_X.tim) that holds this term.
 	BlockFilePointer int64

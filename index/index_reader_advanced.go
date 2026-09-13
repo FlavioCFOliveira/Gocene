@@ -90,7 +90,7 @@ func DocFreq(reader IndexReader, term *Term) (int, error) {
 		if terms == nil {
 			return 0, nil
 		}
-		termsEnum, err := terms.GetIterator()
+		termsEnum, err := terms.Iterator()
 		if err != nil {
 			return 0, err
 		}

@@ -107,9 +107,9 @@ func buildDumbPrefixQuery(t *testing.T, s *search.IndexSearcher, prefix string) 
 	if terms == nil {
 		return search.NewMatchNoDocsQuery()
 	}
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	prefixBytes := []byte(prefix)
 	bq := search.NewBooleanQuery()

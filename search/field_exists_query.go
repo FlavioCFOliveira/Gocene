@@ -478,3 +478,11 @@ func knnValuesIterator(values any, field string) (DocIdSetIterator, error) {
 	}
 	return kvv.Iterator(), nil
 }
+
+// Visit mirrors FieldExistsQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (FieldExistsQuery.java).
+func (q *FieldExistsQuery) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(q.field) {
+		visitor.VisitLeaf(q)
+	}
+}

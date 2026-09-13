@@ -351,7 +351,7 @@ func (w *Lucene103BlockTreeTermsWriter) writeField(fieldInfo *index.FieldInfo, t
 		return err
 	}
 
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
 		return err
 	}

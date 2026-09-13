@@ -37,7 +37,7 @@ func (tva *TermVectorsAdapter) GetTermVector(docid int, field string) ([]*TermVe
 	}
 
 	var res []*TermVectorEntry
-	te, err := termVector.GetIterator()
+	te, err := termVector.Iterator()
 	if err != nil {
 		return nil, err
 	}

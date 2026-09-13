@@ -164,8 +164,8 @@ type AssertingTerms struct {
 
 func (t *AssertingTerms) Field() string { return t.in.Field() }
 
-func (t *AssertingTerms) GetIterator() (TermsEnum, error) {
-	te, err := t.in.GetIterator()
+func (t *AssertingTerms) Iterator() (TermsEnum, error) {
+	te, err := t.in.Iterator()
 	if err != nil {
 		return nil, err
 	}

@@ -195,7 +195,7 @@ func (tr *fstTermsReader) HasOffsets() bool { return tr.fieldInfo.IndexOptions()
 func (tr *fstTermsReader) HasPositions() bool { return tr.fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqsAndPositions) }
 func (tr *fstTermsReader) HasPayloads() bool { return tr.fieldInfo.HasPayloads() }
 
-func (tr *fstTermsReader) GetIterator() (spi.TermsEnum, error) {
+func (tr *fstTermsReader) Iterator() (spi.TermsEnum, error) {
 	return &fstTermsEnum{
 		tr:    tr,
 		enum:  gfst.NewBytesRefFSTEnum(tr.dict),

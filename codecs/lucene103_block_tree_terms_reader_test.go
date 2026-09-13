@@ -162,11 +162,11 @@ type fakeTerms struct {
 	entries []fakeTermEntry
 }
 
-func (t *fakeTerms) GetIterator() (index.TermsEnum, error) {
+func (t *fakeTerms) Iterator() (index.TermsEnum, error) {
 	return &fakeTermsEnum{terms: t.entries}, nil
 }
 func (t *fakeTerms) GetIteratorWithSeek(_ *index.Term) (index.TermsEnum, error) {
-	return t.GetIterator()
+	return t.Iterator()
 }
 func (t *fakeTerms) GetPostingsReader(_ string, _ int) (index.PostingsEnum, error) {
 	return nil, nil

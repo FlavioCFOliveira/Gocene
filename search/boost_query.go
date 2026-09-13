@@ -102,3 +102,9 @@ func (q *BoostQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 func (q *BoostQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return q.query.CreateWeight(searcher, scoreMode, q.boost*boost)
 }
+
+// Visit mirrors BoostQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (BoostQuery.java).
+func (q *BoostQuery) Visit(visitor QueryVisitor) {
+	q.query.Visit(visitor.GetSubVisitor(MUST, q))
+}

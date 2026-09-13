@@ -52,9 +52,9 @@ func segmentTermDocsSeekCeil(t *testing.T, air index.LeafReader, fieldName, seek
 	if terms == nil {
 		return nil
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 	found, err := te.SeekCeil(index.NewTerm(fieldName, seekTerm))
 	if err != nil {
@@ -83,9 +83,9 @@ func segmentTermDocsSeekExact(t *testing.T, air index.LeafReader, fieldName, ter
 	if terms == nil {
 		return nil
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 	found, err := te.SeekExact(index.NewTerm(fieldName, term))
 	if err != nil {

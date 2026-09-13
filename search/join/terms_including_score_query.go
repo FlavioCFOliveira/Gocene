@@ -177,7 +177,7 @@ func (w *termsIncludingScoreWeight) Scorer(ctx *index.LeafReaderContext) (search
 	}
 	maxDoc := r.MaxDoc()
 	cost := int64(maxDoc) * terms.Size()
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
 		return nil, fmt.Errorf("termsIncludingScoreQuery: get iterator: %w", err)
 	}
@@ -217,7 +217,7 @@ func (w *termsIncludingScoreWeight) Explain(ctx *index.LeafReaderContext, doc in
 	if err != nil || terms == nil {
 		return search.NewExplanation(false, 0, "Not a match"), nil
 	}
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil || termsEnum == nil {
 		return search.NewExplanation(false, 0, "Not a match"), nil
 	}

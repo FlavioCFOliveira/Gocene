@@ -38,7 +38,7 @@ type mockTerms struct {
 	termList []index.Term
 }
 
-func (m *mockTerms) GetIterator() (index.TermsEnum, error) {
+func (m *mockTerms) Iterator() (index.TermsEnum, error) {
 	return &mockTermsEnum{terms: m.termList, pos: -1}, nil
 }
 func (m *mockTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {

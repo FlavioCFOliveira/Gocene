@@ -190,3 +190,17 @@ func (q *FloatVectorSimilarityQuery) Rewrite(_ *IndexSearcher) (Query, error) {
 
 var _ VectorSimilarityQueryImpl = (*FloatVectorSimilarityQuery)(nil)
 var _ Query = (*FloatVectorSimilarityQuery)(nil)
+
+// Visit mirrors AbstractVectorSimilarityQuery.visit(QueryVisitor) of Apache
+// Lucene 10.5.0 (AbstractVectorSimilarityQuery.java:260). FloatVectorSimilarityQuery.java
+// declares no override and inherits that body; the body is written here rather
+// than on [BaseVectorSimilarityQuery] because Java's
+// AbstractVectorSimilarityQuery.createWeight is concrete (line 146) while this
+// port pushed CreateWeight down to each concrete query, so the base type does
+// not satisfy [Query] and cannot be handed to VisitLeaf. Java's `this` is the
+// concrete query at run time, so the visitor sees the same leaf either way.
+func (q *FloatVectorSimilarityQuery) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(q.Field) {
+		visitor.VisitLeaf(q)
+	}
+}

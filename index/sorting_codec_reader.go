@@ -313,6 +313,12 @@ func (r *sortingPointsReader) GetValues(field string) (PointValues, error) {
 	return NewSortingPointValues(values, r.docMap), nil
 }
 
+// GetMergeInstance renders the default body of
+// org.apache.lucene.codecs.PointsReader.getMergeInstance (PointsReader.java:56),
+// `return this`. SortingCodecReader declares no override, so its points reader
+// inherits it.
+func (r *sortingPointsReader) GetMergeInstance() PointsReader { return r }
+
 func (r *sortingPointsReader) Close() error {
 	return r.delegate.Close()
 }

@@ -59,7 +59,7 @@ func (m *MultiTerms) Iterator() (TermsEnum, error) {
 	enum := NewMultiTermsEnum(m.subSlices)
 	subEnums := make([]TermsEnum, len(m.subs))
 	for i, sub := range m.subs {
-		te, err := sub.GetIterator()
+		te, err := sub.Iterator()
 		if err != nil {
 			return nil, fmt.Errorf("MultiTerms.Iterator: sub %d: %w", i, err)
 		}
@@ -75,10 +75,6 @@ func (m *MultiTerms) Iterator() (TermsEnum, error) {
 	}
 	return bound, nil
 }
-
-// GetIterator returns the merged TermsEnum (Terms-interface alias for
-// Iterator), so a MultiTerms can stand in for any single-segment Terms.
-func (m *MultiTerms) GetIterator() (TermsEnum, error) { return m.Iterator() }
 
 // GetIteratorWithSeek returns the merged TermsEnum positioned on the smallest
 // term >= seekTerm, or nil when no such term exists.

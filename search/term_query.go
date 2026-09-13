@@ -114,3 +114,11 @@ var _ scoreModeWeightCreator = (*TermQuery)(nil)
 // The Java reference uses Query.classHash(), which returns a runtime-class-derived constant.
 // Gocene uses a per-type literal so distinct query classes never collide on equal term triples.
 const classHashTermQuery = 0x5472_6d51 // "TrmQ"
+
+// Visit mirrors TermQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (TermQuery.java).
+func (q *TermQuery) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(q.term.Field) {
+		visitor.ConsumeTerms(q, q.term)
+	}
+}

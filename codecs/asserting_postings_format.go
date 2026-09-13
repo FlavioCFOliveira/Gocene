@@ -124,7 +124,7 @@ func (c *AssertingFieldsConsumer) Write(field string, terms spi.Terms) error {
 	}
 
 	// Assert term order and postings correctness
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return err
 	}

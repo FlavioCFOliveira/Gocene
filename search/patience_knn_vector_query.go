@@ -83,3 +83,10 @@ func (q *PatienceKnnVectorQuery) Rewrite(searcher *IndexSearcher) (Query, error)
 func (q *PatienceKnnVectorQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return q.inner.CreateWeight(searcher, scoreMode, boost)
 }
+
+// Visit mirrors PatienceKnnVectorQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (PatienceKnnVectorQuery.java). inner is this port's spelling of Java's
+// delegate field.
+func (q *PatienceKnnVectorQuery) Visit(visitor QueryVisitor) {
+	q.inner.Visit(visitor)
+}

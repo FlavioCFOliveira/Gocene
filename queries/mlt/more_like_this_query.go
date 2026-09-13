@@ -54,7 +54,15 @@ func NewMoreLikeThisQueryFull(likeText string, moreLikeFields []string, analyzer
 }
 
 // Rewrite constructs the real MoreLikeThis object and returns the generated Query.
-func (q *MoreLikeThisQuery) Rewrite(_ search.IndexReader) (search.Query, error) {
+//
+// The parameter is *search.IndexSearcher because Java's
+// MoreLikeThisQuery.rewrite is `public Query rewrite(IndexSearcher
+// indexSearcher)` (MoreLikeThisQuery.java:60), overriding
+// Query.rewrite(IndexSearcher) (Query.java:82). It had been rendered here as
+// search.IndexReader, which is neither Java's parameter type nor the one
+// search.Query declares, so this type never satisfied search.Query. The
+// argument is unused by this body in both spellings.
+func (q *MoreLikeThisQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) {
 	mlt := search.NewMoreLikeThis(q.analyzer)
 	mlt.FieldNames = q.moreLikeFields
 	mlt.MinTermFreq = q.minTermFrequency
@@ -185,3 +193,9 @@ func (q *MoreLikeThisQuery) GetMinDocFreq() int { return q.minDocFreq }
 
 // SetMinDocFreq sets the minimum document frequency.
 func (q *MoreLikeThisQuery) SetMinDocFreq(v int) { q.minDocFreq = v }
+
+// Visit mirrors MoreLikeThisQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (org.apache.lucene.queries.mlt.MoreLikeThisQuery).
+func (q *MoreLikeThisQuery) Visit(visitor search.QueryVisitor) {
+	visitor.VisitLeaf(q)
+}

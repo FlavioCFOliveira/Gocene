@@ -120,9 +120,9 @@ func firstPosition(t *testing.T, r *index.DirectoryReader, field, term string) i
 	if terms == nil {
 		t.Fatalf("Terms(%q) returned nil", field)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	found, err := te.SeekExact(index.NewTerm(field, term))
 	if err != nil || !found {

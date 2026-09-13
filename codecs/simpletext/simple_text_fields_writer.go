@@ -110,9 +110,9 @@ func (w *SimpleTextFieldsWriter) Write(field string, terms index.Terms) error {
 		flags |= pfFreqs
 	}
 
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
-		return fmt.Errorf("SimpleTextFieldsWriter.Write(%q): GetIterator: %w", field, err)
+		return fmt.Errorf("SimpleTextFieldsWriter.Write(%q): Iterator: %w", field, err)
 	}
 
 	wroteField := false

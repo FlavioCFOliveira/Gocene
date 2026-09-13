@@ -4,6 +4,8 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries"
+	"github.com/FlavioCFOliveira/Gocene/queries/function"
 	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -196,7 +198,7 @@ func extractForPhraseHelper(
 			return nil
 		}
 
-		if ctq, ok := q.(*search.CommonTermsQuery); ok {
+		if ctq, ok := q.(*queries.CommonTermsQuery); ok {
 			ctq.Visit(search.TermCollector(func(field string, term []byte) {
 				if fieldMatcher(field) {
 					onWeightedTerm(term)
@@ -271,7 +273,7 @@ func extractForPhraseHelper(
 			return nil
 		}
 
-		if fsq, ok := q.(*search.FunctionScoreQuery); ok {
+		if fsq, ok := q.(*function.FunctionScoreQuery); ok {
 			return extract(fsq.GetWrappedQuery(), boost)
 		}
 
@@ -351,7 +353,7 @@ func (p *PhraseHelper) CreateOffsetsEnumsForSpans(leafReader index.LeafReader, d
 		}
 
 		spans := scorer.GetSpans()
-		if spans != nil && spans.NextStartPosition() != index.NoMorePositions {
+		if spans != nil && spans.NextStartPosition() != spans.NoMorePositions {
 			spansPQ.Push(spans)
 		}
 	}
@@ -360,7 +362,7 @@ func (p *PhraseHelper) CreateOffsetsEnumsForSpans(leafReader index.LeafReader, d
 	for spansPQ.Len() > 0 {
 		spans := spansPQ.Pop()
 		spans.Collect(collector)
-		if spans.NextStartPosition() != index.NoMorePositions {
+		if spans.NextStartPosition() != spans.NoMorePositions {
 			spansPQ.Push(spans)
 		}
 	}
@@ -373,15 +375,15 @@ func (p *PhraseHelper) CreateOffsetsEnumsForSpans(leafReader index.LeafReader, d
 
 // Internal priority queue for Spans.
 type spansPQ struct {
-	data []*index.Spans
+	data []spans.Spans
 }
 
 func newSpansPQ(cap int) *spansPQ {
-	return &spansPQ{data: make([]*index.Spans, 0, cap)}
+	return &spansPQ{data: make([]spans.Spans, 0, cap)}
 }
 
 func (pq *spansPQ) Len() int { return len(pq.data) }
-func (pq *spansPQ) Push(s *index.Spans) {
+func (pq *spansPQ) Push(s spans.Spans) {
 	pq.data = append(pq.data, s)
 	// simplistic sort for now, in real implementation we should use a heap.
 	// however, we only care about startPosition.
@@ -389,7 +391,7 @@ func (pq *spansPQ) Push(s *index.Spans) {
 		pq.data[i], pq.data[i-1] = pq.data[i-1], pq.data[i]
 	}
 }
-func (pq *spansPQ) Pop() *index.Spans {
+func (pq *spansPQ) Pop() spans.Spans {
 	res := pq.data[0]
 	pq.data = pq.data[1:]
 	return res

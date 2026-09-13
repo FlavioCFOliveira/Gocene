@@ -95,9 +95,9 @@ func assertPayloads(t *testing.T, reader *index.DirectoryReader, field, term str
 	if err != nil {
 		t.Fatalf("Terms(%q): %v", field, err)
 	}
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	var postings schema.PostingsEnum
 	for {
@@ -290,9 +290,9 @@ func TestPayloads_Encoding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Terms: %v", err)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	for {
 		term, err := te.Next()
@@ -397,9 +397,9 @@ func TestPayloads_ThreadSafety(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Terms: %v", err)
 	}
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	var postings schema.PostingsEnum
 	for {
@@ -515,9 +515,9 @@ func TestPayloads_MixupDocs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Terms: %v", err)
 	}
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	it.Next()
 	postings, err := it.Postings(schema.PostingsFlagPayloads)

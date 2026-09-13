@@ -377,7 +377,7 @@ func (q *MultiTermQuery) Visit(visitor QueryVisitor) {
 		return
 	}
 	if owner, ok := q.owner.(Query); ok {
-		visitQuery(owner, visitor)
+		owner.Visit(visitor)
 	}
 }
 

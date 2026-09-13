@@ -183,7 +183,7 @@ func (p *SpatialPrefixTreeFieldCacheProvider) createCacheEntry(reader *index.Ind
 // the foundation gap (see GOC-2701-class backlog tasks) still blocks
 // end-to-end.
 func populateEntryFromTerms(entry *FieldCacheEntry, terms index.Terms) error {
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return fmt.Errorf("failed to obtain terms iterator: %w", err)
 	}

@@ -180,7 +180,7 @@ func (sm *SegmentMerger) writeDocTermVectors(writer TermVectorsWriter, fields Fi
 // TermsEnum exposes no Postings enum — the rmp #121 read gap — in which case
 // the term frequency is taken from TotalTermFreq and no positions are emitted).
 func collectTVTerms(terms Terms, hasPos, hasOff, hasPay bool) (out []tvTerm, gotPositions, gotOffsets bool, err error) {
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, false, false, err
 	}

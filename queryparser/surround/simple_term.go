@@ -234,7 +234,7 @@ func (q *SrndTruncQuery) Visit(visitor *MatchingTermVisitor, reader index.IndexR
 	if err != nil {
 		return err
 	}
-	iter, err := terms.GetIterator()
+	iter, err := terms.Iterator()
 	if err != nil {
 		return err
 	}

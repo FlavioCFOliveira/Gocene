@@ -574,3 +574,11 @@ func (r *rangeFieldScorerSupplier) BulkScorer() (BulkScorer, error) {
 func (r *rangeFieldScorerSupplier) SetTopLevelScoringClause() error {
 	return nil
 }
+
+// Visit mirrors RangeFieldQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (org.apache.lucene.document.RangeFieldQuery).
+func (q *RangeFieldQuery) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(q.field) {
+		visitor.VisitLeaf(q)
+	}
+}

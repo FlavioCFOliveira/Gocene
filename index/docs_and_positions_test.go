@@ -50,9 +50,9 @@ func getDocsAndPositions(t *testing.T, air index.LeafReader, fieldName, term str
 	if terms == nil {
 		return nil
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 	found, err := te.SeekExact(index.NewTerm(fieldName, term))
 	if err != nil {

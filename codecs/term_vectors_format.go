@@ -528,12 +528,12 @@ type tv104Terms struct {
 
 func newTV104Terms(f *tv104Field) *tv104Terms { return &tv104Terms{f: f} }
 
-func (t *tv104Terms) GetIterator() (index.TermsEnum, error) {
+func (t *tv104Terms) Iterator() (index.TermsEnum, error) {
 	return &tv104TermsEnum{terms: t.f.terms, pos: -1, field: t.f.name, f: t.f}, nil
 }
 
 func (t *tv104Terms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
-	return t.GetIterator()
+	return t.Iterator()
 }
 
 func (t *tv104Terms) Size() int64               { return int64(len(t.f.terms)) }

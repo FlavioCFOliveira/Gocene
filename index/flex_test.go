@@ -98,7 +98,7 @@ func TestFlex_NonFlex(t *testing.T) {
 			if terms == nil {
 				continue
 			}
-			it, err := terms.GetIterator()
+			it, err := terms.Iterator()
 			if err != nil {
 				t.Fatalf("Failed to obtain iterator on iter %d: %v", iter, err)
 			}
@@ -180,7 +180,7 @@ func TestFlex_TermOrd(t *testing.T) {
 	if terms == nil {
 		t.Fatal("Expected terms for field f, got nil")
 	}
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
 		t.Fatalf("Failed to obtain iterator: %v", err)
 	}

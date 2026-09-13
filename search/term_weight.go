@@ -163,7 +163,7 @@ func (s *termScorerSupplier) getTermsEnum() (index.TermsEnum, error) {
 		if err != nil {
 			return nil, err
 		}
-		te, err := terms.GetIterator()
+		te, err := terms.Iterator()
 		if err != nil {
 			return nil, err
 		}
@@ -283,7 +283,7 @@ func (tw *TermWeight) getTermsEnum(context *index.LeafReaderContext) (index.Term
 	if err != nil {
 		return nil, err
 	}
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}

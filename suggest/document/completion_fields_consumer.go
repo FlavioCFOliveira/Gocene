@@ -99,7 +99,7 @@ func (c *CompletionFieldsConsumer) Write(field string, terms index.Terms) error 
 	}
 
 	tw := newCompletionTermWriter()
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
 		return err
 	}

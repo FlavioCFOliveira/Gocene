@@ -137,7 +137,7 @@ func (q *BayesianScoreQuery) Visit(visitor QueryVisitor) {
 	// Java: `query.visit(visitor.getSubVisitor(BooleanClause.Occur.MUST, this))`
 	// (BayesianScoreQuery.java:145-147). The sub-visitor is the ARGUMENT to the
 	// child query's visit, not the receiver.
-	visitQuery(q.query, visitor.GetSubVisitor(MUST, q))
+	q.query.Visit(visitor.GetSubVisitor(MUST, q))
 }
 
 // String returns a string representation of the query.

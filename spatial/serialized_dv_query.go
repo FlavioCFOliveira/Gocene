@@ -322,3 +322,9 @@ func (s *serializedDVScorer) predicate(doc int) (bool, error) {
 func (s *serializedDVScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }
+
+// Visit mirrors SerializedDVStrategy.PredicateValueSourceQuery.visit(QueryVisitor)
+// of Apache Lucene 10.5.0 (SerializedDVStrategy.java:152).
+func (q *serializedDVQuery) Visit(visitor search.QueryVisitor) {
+	visitor.VisitLeaf(q)
+}

@@ -458,7 +458,7 @@ func (f *emptyFields) Terms(field string) (index.Terms, error) { return nil, nil
 // emptyTerms is a placeholder implementation of index.Terms
 type emptyTerms struct{}
 
-func (t *emptyTerms) GetIterator() (index.TermsEnum, error) { return nil, nil }
+func (t *emptyTerms) Iterator() (index.TermsEnum, error) { return nil, nil }
 func (t *emptyTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
 	return nil, nil
 }
@@ -524,13 +524,13 @@ type termVectorsTerms struct {
 	field *fieldTermVector
 }
 
-func (t *termVectorsTerms) GetIterator() (index.TermsEnum, error) {
+func (t *termVectorsTerms) Iterator() (index.TermsEnum, error) {
 	return &termVectorsTermsEnum{field: t.field, index: -1}, nil
 }
 
 func (t *termVectorsTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
 	// For term vectors, we don't support seeking - just return a regular iterator
-	return t.GetIterator()
+	return t.Iterator()
 }
 
 func (t *termVectorsTerms) Size() int64 {

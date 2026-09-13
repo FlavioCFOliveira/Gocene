@@ -356,3 +356,16 @@ func (w *forceNoBulkScoringWeight) IsCacheable(ctx *index.LeafReaderContext) boo
 func (w *disablingBulkScorerWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 	return w.innerWeight.IsCacheable(ctx)
 }
+
+// Visit mirrors ForceNoBulkScoringQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (org.apache.lucene.monitor.ForceNoBulkScoringQuery).
+func (q *ForceNoBulkScoringQuery) Visit(visitor QueryVisitor) {
+	q.inner.Visit(visitor)
+}
+
+// Visit mirrors DisablingBulkScorerQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (org.apache.lucene.tests.search.DisablingBulkScorerQuery). inner is
+// this port's spelling of Java's query field.
+func (q *DisablingBulkScorerQuery) Visit(visitor QueryVisitor) {
+	q.inner.Visit(visitor)
+}

@@ -205,9 +205,9 @@ func (w *VersionBlockTreeTermsWriter) Write(field string, terms spi.Terms) error
 		return fmt.Errorf("VersionBlockTreeTermsWriter.Write: unknown field %q", field)
 	}
 
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		return fmt.Errorf("VersionBlockTreeTermsWriter.Write: field %q GetIterator: %w", field, err)
+		return fmt.Errorf("VersionBlockTreeTermsWriter.Write: field %q Iterator: %w", field, err)
 	}
 
 	tw := newVBTTermsWriter(w, fi)

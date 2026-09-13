@@ -72,9 +72,9 @@ func openPostings(t *testing.T, opts index.IndexOptions, field, text string, doc
 	if err != nil {
 		t.Fatalf("Terms: %v", err)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	found, err := te.SeekExact(index.NewTerm(field, text))
 	if err != nil || !found {

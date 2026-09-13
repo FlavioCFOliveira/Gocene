@@ -50,9 +50,9 @@ func readDocTV(t *testing.T, fields index.Fields) map[string]int64 {
 	if err != nil || terms == nil {
 		return out
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("TV GetIterator: %v", err)
+		t.Fatalf("TV Iterator: %v", err)
 	}
 	for {
 		term, err := te.Next()

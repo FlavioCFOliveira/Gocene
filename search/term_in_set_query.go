@@ -228,7 +228,7 @@ func (q *TermInSetQuery) GetTermsEnumWithAttributes(terms index.Terms, atts *uti
 		iterator: q.termData.Iterator(),
 	}
 	se.seekTerm = se.iterator.Next()
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}

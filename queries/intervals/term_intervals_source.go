@@ -68,7 +68,7 @@ func (s *TermIntervalsSource) Intervals(field string, ctx *index.LeafReaderConte
 	if !terms.HasPositions() {
 		return nil, fmt.Errorf("cannot create an IntervalIterator over field %s because it has no indexed positions", field)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func (s *TermIntervalsSource) Matches(field string, ctx *index.LeafReaderContext
 	if !terms.HasPositions() {
 		return nil, fmt.Errorf("cannot create an IntervalIterator over field %s because it has no indexed positions", field)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}

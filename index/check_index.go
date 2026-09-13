@@ -1093,7 +1093,7 @@ func (ci *CheckIndex) checkFields(
 			}
 		}
 
-		termsEnum, err := terms.GetIterator()
+		termsEnum, err := terms.Iterator()
 		if err != nil {
 			return err
 		}
@@ -1387,7 +1387,7 @@ func (ci *CheckIndex) checkFields(
 // makes that identifier shadow the util/automaton package, so the parameter
 // carries the abbreviated name.
 func (ci *CheckIndex) checkTermsIntersect(terms Terms, a *automaton.Automaton, startTerm *util.BytesRef) error {
-	allTerms, err := terms.GetIterator()
+	allTerms, err := terms.Iterator()
 	if err != nil {
 		return err
 	}

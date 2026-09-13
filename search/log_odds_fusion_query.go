@@ -387,7 +387,7 @@ func (q *LogOddsFusionQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 func (q *LogOddsFusionQuery) Visit(visitor QueryVisitor) {
 	v := visitor.GetSubVisitor(SHOULD, q)
 	for _, clause := range q.clauses {
-		visitQuery(clause, v)
+		clause.Visit(v)
 	}
 }
 

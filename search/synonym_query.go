@@ -274,7 +274,7 @@ func (w *SynonymWeight) Scorer(context *index.LeafReaderContext) (Scorer, error)
 
 	subs := make([]synonymSub, 0, len(w.terms))
 	for _, tb := range w.terms {
-		termsEnum, err := terms.GetIterator()
+		termsEnum, err := terms.Iterator()
 		if err != nil {
 			return nil, err
 		}

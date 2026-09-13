@@ -93,7 +93,7 @@ func (v *TermVectorValidator) validateTermVectorField(docID int, field string, t
 	}
 
 	// Validate terms
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
 		return fmt.Errorf("doc %d: cannot get terms iterator for field %s: %w", docID, field, err)
 	}

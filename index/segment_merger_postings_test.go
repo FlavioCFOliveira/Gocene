@@ -103,9 +103,9 @@ func TestSegmentMerger_PostingsRoundTrip(t *testing.T) {
 	}
 
 	postingsOf := func(term string) []int {
-		te, err := terms.GetIterator()
+		te, err := terms.Iterator()
 		if err != nil {
-			t.Fatalf("GetIterator: %v", err)
+			t.Fatalf("Iterator: %v", err)
 		}
 		var pe interface {
 			NextDoc() (int, error)

@@ -104,7 +104,7 @@ func (w *MultiPhraseWeight) Scorer(context *index.LeafReaderContext) (Scorer, er
 		for _, term := range termArray {
 			// Each slot needs its own TermsEnum so duplicate terms across
 			// positions (e.g. "a (a b)") obtain independent PostingsEnums.
-			termsEnum, err := terms.GetIterator()
+			termsEnum, err := terms.Iterator()
 			if err != nil {
 				return nil, err
 			}

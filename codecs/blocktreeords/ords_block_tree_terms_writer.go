@@ -580,7 +580,7 @@ func (w *ordsBlockTreeTermsWriter) writeField(fieldInfo *index.FieldInfo, terms 
 		return err
 	}
 
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
 		return err
 	}

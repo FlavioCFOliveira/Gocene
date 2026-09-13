@@ -121,7 +121,7 @@ func (c *CachingNaiveBayesClassifier) reInitCache(minTermOccurrenceInCache int, 
 		if err != nil || terms == nil {
 			continue
 		}
-		it, err := terms.GetIterator()
+		it, err := terms.Iterator()
 		if err != nil {
 			return err
 		}
@@ -147,7 +147,7 @@ func (c *CachingNaiveBayesClassifier) reInitCache(minTermOccurrenceInCache int, 
 	}
 
 	// Enumerate all class values.
-	classIt, err := classesTerms.GetIterator()
+	classIt, err := classesTerms.Iterator()
 	if err != nil {
 		return err
 	}

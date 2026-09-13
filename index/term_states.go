@@ -130,7 +130,7 @@ func BuildTermStates(indexSearcher spi.IndexSearcher, term *Term, needsStats boo
 			if err != nil {
 				return nil, err
 			}
-			termsEnum, err := terms.GetIterator()
+			termsEnum, err := terms.Iterator()
 			if err != nil {
 				return nil, err
 			}
@@ -260,7 +260,7 @@ func (ts *TermStates) Get(ctx *LeafReaderContext) (util.IOSupplier[TermState], e
 			ts.states[ctx.Ord] = emptyTermState
 			return nil, nil
 		}
-		termsEnum, err := terms.GetIterator()
+		termsEnum, err := terms.Iterator()
 		if err != nil {
 			return nil, err
 		}

@@ -102,9 +102,9 @@ type mappedMultiTerms struct {
 
 func (t *mappedMultiTerms) Field() string { return t.field }
 
-// GetIterator returns a MappedMultiTermsEnum positioned before the first term.
+// Iterator returns a MappedMultiTermsEnum positioned before the first term.
 // If MultiTerms.Iterator() is not yet implemented it propagates the error.
-func (t *mappedMultiTerms) GetIterator() (TermsEnum, error) {
+func (t *mappedMultiTerms) Iterator() (TermsEnum, error) {
 	it, err := t.delegate.Iterator()
 	if err != nil {
 		return nil, err
@@ -126,7 +126,7 @@ func (t *mappedMultiTerms) GetIterator() (TermsEnum, error) {
 
 // GetIteratorWithSeek positions the enum at the given term and wraps the result.
 func (t *mappedMultiTerms) GetIteratorWithSeek(seek *Term) (TermsEnum, error) {
-	it, err := t.GetIterator()
+	it, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func (t *mappedMultiTerms) GetIteratorWithSeek(seek *Term) (TermsEnum, error) {
 // FilteredTermsEnum.setInitialSeekTerm, which is where Lucene's anonymous
 // nextSeekTerm override routes it.
 func (t *mappedMultiTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *Term) (TermsEnum, error) {
-	it, err := t.GetIterator()
+	it, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func (t *mappedMultiTerms) Intersect(compiled *automaton.CompiledAutomaton, star
 }
 
 // GetPostingsReader is not supported on mapped multi-terms (UnsupportedOperationException
-// in Lucene). Callers must iterate via GetIterator().
+// in Lucene). Callers must iterate via Iterator().
 func (t *mappedMultiTerms) GetPostingsReader(termText string, flags int) (PostingsEnum, error) {
 	return nil, fmt.Errorf("mappedMultiTerms.GetPostingsReader: unsupported operation")
 }

@@ -490,7 +490,7 @@ func (w *combinedFieldWeight) ScorerSupplier(context *index.LeafReaderContext) (
 			if err != nil {
 				return nil, err
 			}
-			termsEnum, err := terms.GetIterator()
+			termsEnum, err := terms.Iterator()
 			if err != nil {
 				return nil, err
 			}

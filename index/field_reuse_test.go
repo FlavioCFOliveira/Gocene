@@ -100,9 +100,9 @@ func TestFieldReuse_StringFieldIndexed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Terms: %v", err)
 	}
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	term, err := it.Next()
 	if err != nil {

@@ -174,7 +174,7 @@ func (c *FeatureComparator) DoSetNextReader(ctx *index.LeafReaderContext) error 
 		c.currentReaderPostingsValues = nil
 		return nil
 	}
-	iterator, err := terms.GetIterator()
+	iterator, err := terms.Iterator()
 	if err != nil {
 		return fmt.Errorf("feature sort: iterator for %q: %w", c.field, err)
 	}

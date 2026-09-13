@@ -244,7 +244,7 @@ func TestSegmentTermEnumPrevTermAtEnd(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get terms: %v", err)
 	}
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
 		t.Fatalf("Failed to get terms iterator: %v", err)
 	}

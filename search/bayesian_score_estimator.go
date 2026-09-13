@@ -184,7 +184,7 @@ func sampleVocabularyTerms(reader index.IndexReaderInterface, field string, samp
 	}
 
 	reservoir := make([]*util.BytesRef, 0, sampleSize)
-	iterator, err := terms.GetIterator()
+	iterator, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}

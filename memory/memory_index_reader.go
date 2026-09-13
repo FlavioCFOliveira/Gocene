@@ -620,7 +620,7 @@ func (mt *memoryTerms) GetMax() (*spi.Term, error) {
 	return spi.NewTerm(mt.field, mt.terms[len(mt.terms)-1]), nil
 }
 
-func (mt *memoryTerms) GetIterator() (spi.TermsEnum, error) {
+func (mt *memoryTerms) Iterator() (spi.TermsEnum, error) {
 	return newMemoryTermsEnum(mt), nil
 }
 
@@ -899,7 +899,7 @@ func (r *memoryIndexReader) DocFreq(term spi.Term) (int, error) {
 	if err != nil || terms == nil {
 		return 0, err
 	}
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil || termsEnum == nil {
 		return 0, err
 	}
@@ -1066,7 +1066,7 @@ func (r *memoryIndexReader) TotalTermFreq(term spi.Term) (int64, error) {
 	if err != nil || terms == nil {
 		return 0, err
 	}
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil || termsEnum == nil {
 		return 0, err
 	}

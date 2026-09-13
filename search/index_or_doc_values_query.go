@@ -82,3 +82,12 @@ func (q *IndexOrDocValuesQuery) Rewrite(searcher *IndexSearcher) (Query, error) 
 func (q *IndexOrDocValuesQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return q.indexQuery.CreateWeight(searcher, scoreMode, boost)
 }
+
+// Visit mirrors IndexOrDocValuesQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (IndexOrDocValuesQuery.java). randomAccessQuery is this port's
+// spelling of Java's dvQuery field.
+func (q *IndexOrDocValuesQuery) Visit(visitor QueryVisitor) {
+	v := visitor.GetSubVisitor(MUST, q)
+	q.indexQuery.Visit(v)
+	q.randomAccessQuery.Visit(v)
+}

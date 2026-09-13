@@ -161,7 +161,7 @@ func (q *RescoreTopNQuery) String() string {
 
 // Visit implements the visitor pattern.
 func (q *RescoreTopNQuery) Visit(visitor QueryVisitor) {
-	visitQuery(q.query, visitor)
+	q.query.Visit(visitor)
 }
 
 // CreateFullPrecisionRescorerQuery creates a new RescoreTopNQuery which uses full-precision vectors for

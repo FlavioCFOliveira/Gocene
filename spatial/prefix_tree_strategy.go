@@ -373,7 +373,7 @@ func (dvv *prefixTreeDistanceValueSourceValues) tokensForDoc(doc int) ([]string,
 		return nil, nil
 	}
 
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, fmt.Errorf("failed to obtain terms iterator: %w", err)
 	}

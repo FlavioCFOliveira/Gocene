@@ -114,9 +114,9 @@ func assertPostings(t *testing.T, reader *index.DirectoryReader, term string, wa
 	if err != nil {
 		t.Fatalf("Terms: %v", err)
 	}
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	var postings schema.PostingsEnum
 	for {
@@ -332,9 +332,9 @@ func TestPostingsOffsets_Random(t *testing.T) {
 			docIDToID[i] = int(v)
 		}
 
-		te, err := terms.GetIterator()
+		te, err := terms.Iterator()
 		if err != nil {
-			t.Fatalf("GetIterator: %v", err)
+			t.Fatalf("Iterator: %v", err)
 		}
 
 		for _, term := range termsList {

@@ -192,9 +192,9 @@ func TestMemoryTermVectorsReader(t *testing.T) {
 	}
 
 	// Verify we can iterate over terms
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 
 	term, err := termsEnum.Next()

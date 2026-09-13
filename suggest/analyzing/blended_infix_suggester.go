@@ -236,7 +236,7 @@ func (s *BlendedInfixSuggester) createCoefficient(
 	if err != nil || tv == nil {
 		return s.calculateCoefficient(math.MaxInt32)
 	}
-	it, err := tv.GetIterator()
+	it, err := tv.Iterator()
 	if err != nil {
 		return s.calculateCoefficient(math.MaxInt32)
 	}

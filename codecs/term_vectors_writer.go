@@ -252,14 +252,23 @@ func (h *TermVectorsWriterHelper) addAllDocVectors(writer spi.TermVectorsWriter,
 			}
 			termCount++
 
-			freq := int(termsEnum.TotalTermFreq())
+			// Java: final int freq = (int) termsEnum.totalTermFreq();
+			ttf, err := termsEnum.TotalTermFreq()
+			if err != nil {
+				return err
+			}
+			freq := int(ttf)
 
-			if err := writer.StartTerm(term.ValidBytes(), freq); err != nil {
+			// Java: startTerm(termsEnum.term(), freq) — term() is a BytesRef.
+			if err := writer.StartTerm(term.BytesValue().ValidBytes(), freq); err != nil {
 				return err
 			}
 
 			if hasPositions || hasOffsets {
-				docsAndPositionsEnum, err := termsEnum.Postings(nil, index.PostingsFlagOffsets|index.PostingsFlagPayloads)
+				// Java: termsEnum.postings(docsAndPositionsEnum, PostingsEnum.OFFSETS | PostingsEnum.PAYLOADS).
+				// spi.TermsEnum.Postings takes the flags alone; Java's reuse
+				// argument has no counterpart on this contract.
+				docsAndPositionsEnum, err := termsEnum.Postings(index.PostingsFlagOffsets | index.PostingsFlagPayloads)
 				if err != nil {
 					return err
 				}
@@ -272,8 +281,12 @@ func (h *TermVectorsWriterHelper) addAllDocVectors(writer spi.TermVectorsWriter,
 					return fmt.Errorf("expected docID in postings enum")
 				}
 
-				if docsAndPositionsEnum.Freq() != freq {
-					return fmt.Errorf("postings freq %d does not match term freq %d", docsAndPositionsEnum.Freq(), freq)
+				postingsFreq, err := docsAndPositionsEnum.Freq()
+				if err != nil {
+					return err
+				}
+				if postingsFreq != freq {
+					return fmt.Errorf("postings freq %d does not match term freq %d", postingsFreq, freq)
 				}
 
 				for posUpto := 0; posUpto < freq; posUpto++ {
@@ -281,9 +294,18 @@ func (h *TermVectorsWriterHelper) addAllDocVectors(writer spi.TermVectorsWriter,
 					if err != nil {
 						return err
 					}
-					startOffset := docsAndPositionsEnum.StartOffset()
-					endOffset := docsAndPositionsEnum.EndOffset()
-					payload := docsAndPositionsEnum.GetPayload()
+					startOffset, err := docsAndPositionsEnum.StartOffset()
+					if err != nil {
+						return err
+					}
+					endOffset, err := docsAndPositionsEnum.EndOffset()
+					if err != nil {
+						return err
+					}
+					payload, err := docsAndPositionsEnum.GetPayload()
+					if err != nil {
+						return err
+					}
 
 					if err := writer.AddPosition(pos, startOffset, endOffset, payload); err != nil {
 						return err

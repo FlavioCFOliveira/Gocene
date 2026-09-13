@@ -7,6 +7,8 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/memory"
+	"github.com/FlavioCFOliveira/Gocene/queries"
+	"github.com/FlavioCFOliveira/Gocene/queries/function"
 	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -107,7 +109,7 @@ func (w *WeightedSpanTermExtractor) Extract(query search.Query, boost float32, t
 		return nil
 	}
 
-	if ctq, ok := query.(*search.CommonTermsQuery); ok {
+	if ctq, ok := query.(*queries.CommonTermsQuery); ok {
 		return w.extractWeightedTerms(terms, ctq, boost)
 	}
 
@@ -178,7 +180,7 @@ func (w *WeightedSpanTermExtractor) Extract(query search.Query, boost float32, t
 		return nil
 	}
 
-	if fsq, ok := query.(*search.FunctionScoreQuery); ok {
+	if fsq, ok := query.(*function.FunctionScoreQuery); ok {
 		return w.Extract(fsq.GetWrappedQuery(), boost, terms)
 	}
 
@@ -252,17 +254,17 @@ func (w *WeightedSpanTermExtractor) extractWeightedSpanTerms(terms map[string]*W
 	}
 
 	weight := searcher.CreateWeight(query, search.ScoreModeCompleteNoScores, 1.0)
-	spans := weight.GetSpans(context, index.SpanWeightPositions)
+	spans := weight.GetSpans(context, spans.PostingsPositions)
 	if spans == nil {
 		return nil
 	}
 
 	acceptDocs := context.GetReader().GetLiveDocs()
-	for spans.NextDoc() != index.NoMoreDocs {
+	for spans.NextDoc() != index.NO_MORE_DOCS {
 		if acceptDocs != nil && !acceptDocs.Get(spans.DocID()) {
 			continue
 		}
-		for spans.NextStartPosition() != index.NoMorePositions {
+		for spans.NextStartPosition() != spans.NoMorePositions {
 			spanPositions = append(spanPositions, NewPositionSpan(spans.StartPosition(), spans.EndPosition()-1))
 		}
 	}
@@ -356,7 +358,7 @@ func (w *WeightedSpanTermExtractor) closeInternalReader() {
 }
 
 func (w *WeightedSpanTermExtractor) collectSpanQueryFields(spanQuery spans.SpanQuery, fieldNames map[string]bool) {
-	if sq, ok := spanQuery.(*search.FieldMaskingSpanQuery); ok {
+	if sq, ok := spanQuery.(*spans.FieldMaskingSpanQuery); ok {
 		w.collectSpanQueryFields(sq.GetMaskedQuery(), fieldNames)
 	} else if sq, ok := spanQuery.(*spans.SpanFirstQuery); ok {
 		w.collectSpanQueryFields(sq.GetMatch(), fieldNames)
@@ -379,7 +381,7 @@ func (w *WeightedSpanTermExtractor) mustRewriteQuery(spanQuery spans.SpanQuery) 
 	if !w.expandMultiTermQuery {
 		return false
 	}
-	if sq, ok := spanQuery.(*search.FieldMaskingSpanQuery); ok {
+	if sq, ok := spanQuery.(*spans.FieldMaskingSpanQuery); ok {
 		return w.mustRewriteQuery(sq.GetMaskedQuery())
 	}
 	if sq, ok := spanQuery.(*spans.SpanFirstQuery); ok {

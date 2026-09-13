@@ -147,7 +147,12 @@ func (f *VersionFieldReader) HasPayloads() bool {
 }
 
 // Iterator returns a TermsEnum over this field.
-func (f *VersionFieldReader) Iterator() (*IDVersionSegmentTermsEnum, error) {
+//
+// Mirrors `public TermsEnum iterator()` of Apache Lucene 10.5.0
+// (VersionFieldReader.java:150). The return type had been narrowed to
+// *IDVersionSegmentTermsEnum, which is neither Java's nor spi.Terms's, so a
+// second method (Iterator) existed only to widen it back.
+func (f *VersionFieldReader) Iterator() (spi.TermsEnum, error) {
 	return newIDVersionSegmentTermsEnum(f)
 }
 
@@ -172,13 +177,6 @@ func (f *VersionFieldReader) GetSumDocFreq() (int64, error) {
 //
 // Implements spi.Terms.
 func (f *VersionFieldReader) GetDocCount() (int, error) { return f.DocCount, nil }
-
-// GetIterator returns a TermsEnum positioned before the first term.
-//
-// Implements spi.Terms.
-func (f *VersionFieldReader) GetIterator() (spi.TermsEnum, error) {
-	return f.Iterator()
-}
 
 // GetIteratorWithSeek returns a TermsEnum positioned at or after seekTerm.
 //

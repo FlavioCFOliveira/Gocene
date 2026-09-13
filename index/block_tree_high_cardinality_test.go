@@ -107,9 +107,9 @@ func TestBlockTreeHighCardinality_SeekExactEveryTerm(t *testing.T) {
 	defer sdr.Close()
 
 	// (a) Full Next() walk: every term, in sorted order, exactly once.
-	walkEnum, err := terms.GetIterator()
+	walkEnum, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator (walk): %v", err)
+		t.Fatalf("Iterator (walk): %v", err)
 	}
 	var prev []byte
 	seen := 0
@@ -139,9 +139,9 @@ func TestBlockTreeHighCardinality_SeekExactEveryTerm(t *testing.T) {
 	// (b) SeekExact every term; assert DocFreq==1 and a single matching doc.
 	// Collect the docID per id to prove the mapping is a bijection onto
 	// {0..N-1}.
-	seekEnum, err := terms.GetIterator()
+	seekEnum, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator (seek): %v", err)
+		t.Fatalf("Iterator (seek): %v", err)
 	}
 	docForID := make(map[string]int, highCardinalityTermCount)
 	for i := 0; i < highCardinalityTermCount; i++ {
@@ -196,9 +196,9 @@ func TestBlockTreeHighCardinality_SeekExactEveryTerm(t *testing.T) {
 	// (c) Known-absent terms must report not-found.
 	absent := []string{"id_9999", "aaaaa", "zzzzz", "id_00005_extra", "i"}
 	for _, a := range absent {
-		ae, err := terms.GetIterator()
+		ae, err := terms.Iterator()
 		if err != nil {
-			t.Fatalf("GetIterator (absent %q): %v", a, err)
+			t.Fatalf("Iterator (absent %q): %v", a, err)
 		}
 		found, err := ae.SeekExact(index.NewTerm("id", a))
 		if err != nil {
@@ -226,9 +226,9 @@ func TestBlockTreeHighCardinality_SeekCeil(t *testing.T) {
 	defer sdr.Close()
 
 	// Exact hit deep in the dictionary.
-	enum, err := terms.GetIterator()
+	enum, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	got, err := enum.SeekCeil(index.NewTerm("id", "id_0500"))
 	if err != nil {
@@ -240,9 +240,9 @@ func TestBlockTreeHighCardinality_SeekCeil(t *testing.T) {
 
 	// NOT_FOUND ceiling: "id_0500a" sits between id_0500 and id_0501, so the
 	// ceiling must be id_0501.
-	enum2, err := terms.GetIterator()
+	enum2, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	got2, err := enum2.SeekCeil(index.NewTerm("id", "id_0500a"))
 	if err != nil {
@@ -253,9 +253,9 @@ func TestBlockTreeHighCardinality_SeekCeil(t *testing.T) {
 	}
 
 	// END: a term greater than every id returns nil.
-	enum3, err := terms.GetIterator()
+	enum3, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	got3, err := enum3.SeekCeil(index.NewTerm("id", "id_9999"))
 	if err != nil {

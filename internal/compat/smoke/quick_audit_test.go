@@ -127,14 +127,14 @@ func testPostingsTerms(t *testing.T, seed int64) scenarioResult {
 		return r
 	}
 
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		r.component = "Terms.GetIterator"
+		r.component = "Terms.Iterator"
 		r.errMsg = err.Error()
 		return r
 	}
 	if te == nil {
-		r.component = "Terms.GetIterator"
+		r.component = "Terms.Iterator"
 		r.errMsg = "term enum is nil"
 		return r
 	}

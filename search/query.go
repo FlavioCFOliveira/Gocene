@@ -37,6 +37,9 @@ type Query interface {
 	// CreateWeight expert: constructs an appropriate Weight implementation for
 	// this query. Mirrors Query.createWeight(IndexSearcher, ScoreMode, float).
 	CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error)
+	// Visit recurses through the query tree, visiting any child queries.
+	// Mirrors Query.visit(QueryVisitor) of Apache Lucene 10.5.0.
+	Visit(visitor QueryVisitor)
 }
 
 // RewriteMethod and MultiTermQuery are declared by MultiTermQuery.java, not by
@@ -69,24 +72,36 @@ func (q *BaseQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, b
 	return nil, nil
 }
 
-// Apache Lucene 10.5.0 declares two members on Query that Gocene's Query
-// interface does not carry:
+// Visit renders `public abstract void visit(QueryVisitor visitor)` of
+// Query.java:93. Java declares it abstract, so no Query instance can reach a
+// body here: a concrete subclass that omitted it would not compile. Go cannot
+// express that, because BaseQuery must satisfy Query for Query.rewrite's
+// `return this` (Query.java:82) to type-check, so the abstract declaration is
+// rendered as a panic rather than as a silent no-op. A no-op would be a
+// fabricated traversal — it would report a query tree with no terms and no
+// leaves, which Lucene never does.
+func (q *BaseQuery) Visit(visitor QueryVisitor) {
+	panic("search: Query.visit(QueryVisitor) is abstract in Apache Lucene 10.5.0 (Query.java:93); the concrete query must declare Visit")
+}
+
+// Apache Lucene 10.5.0 declares one further member on Query that Gocene's
+// Query interface does not carry:
 //
 //	public abstract String toString(String field);
-//	public abstract void visit(QueryVisitor visitor);
 //
-// They are absent because the port is incomplete, not because Lucene lacks
-// them. Declaring either on the interface today is measurably net-negative:
-// against the current tree, adding ToString costs 255 further compile errors
-// and adding Visit costs 151, because the implementors that still lack the
-// member outnumber the call sites that want it. Until enough of the query
-// tree carries them, the two helpers below render the calls through the
-// method set each concrete query actually has — the idiom already used by
-// IndriQuery (search/indri_query.go) and ConstantScoreQuery.Visit
-// (search/constant_score_query.go).
+// It is absent because the port is incomplete, not because Lucene lacks it:
+// against the current tree, adding ToString costs 255 further compile errors,
+// because the implementors that still lack the member outnumber the call sites
+// that want it. Until enough of the query tree carries it, the helper below
+// renders the call through the method set each concrete query actually has.
 //
-// Both helpers must be withdrawn, and their call sites reduced to plain method
-// calls, as soon as the members move onto the Query interface.
+// visit(QueryVisitor) was the other such member. It now sits on the Query
+// interface above, so its shim (visitQuery) has been withdrawn and its call
+// sites reduced to plain q.Visit(visitor) calls, exactly as the note that
+// stood here required.
+//
+// queryToString must be withdrawn in the same way, and its call sites reduced
+// to plain method calls, as soon as ToString moves onto the Query interface.
 
 // queryToString renders Java's Query.toString(String field). Java's
 // no-argument Query.toString() is toString("") and is spelled here as
@@ -105,14 +120,4 @@ func queryToString(q Query, field string) string {
 		return s.String()
 	}
 	return ""
-}
-
-// visitQuery renders Java's Query.visit(QueryVisitor visitor).
-func visitQuery(q Query, visitor QueryVisitor) {
-	if q == nil {
-		return
-	}
-	if v, ok := q.(interface{ Visit(QueryVisitor) }); ok {
-		v.Visit(visitor)
-	}
 }

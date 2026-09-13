@@ -163,7 +163,7 @@ func (r *FilterCodecReader) TotalTermFreq(term Term) (int64, error) {
 	if terms == nil {
 		return 0, nil
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil || te == nil {
 		return 0, err
 	}
@@ -180,7 +180,7 @@ func (r *FilterCodecReader) Postings(term Term, flags int) (PostingsEnum, error)
 	if err != nil || terms == nil {
 		return nil, err
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil || te == nil {
 		return nil, err
 	}
@@ -472,7 +472,7 @@ func (r *FilterCodecReader) DocFreq(term Term) (int, error) {
 	if terms == nil {
 		return 0, nil
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil || te == nil {
 		return 0, err
 	}

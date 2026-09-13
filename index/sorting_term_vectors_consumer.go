@@ -420,7 +420,7 @@ func writeTermVectorsDoc(writer TermVectorsWriter, vectors Fields, fieldInfos *F
 			return fmt.Errorf("start field %q: %w", fieldName, err)
 		}
 
-		termsEnum, err := terms.GetIterator()
+		termsEnum, err := terms.Iterator()
 		if err != nil {
 			return fmt.Errorf("terms iterator for %q: %w", fieldName, err)
 		}
@@ -501,7 +501,7 @@ func countTerms(terms Terms) (int, error) {
 	if n := terms.Size(); n >= 0 {
 		return int(n), nil
 	}
-	enum, err := terms.GetIterator()
+	enum, err := terms.Iterator()
 	if err != nil {
 		return 0, fmt.Errorf("count terms iterator: %w", err)
 	}

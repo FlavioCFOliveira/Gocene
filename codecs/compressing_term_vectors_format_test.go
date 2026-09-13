@@ -437,9 +437,9 @@ func TestCompressingTermVectorsFormat_NoOrds(t *testing.T) {
 	}
 
 	// Verify term iteration.
-	iter, err := terms.GetIterator()
+	iter, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 	var gotTerms []string
 	for {
@@ -551,9 +551,9 @@ func TestCompressingTermVectorsFormat_ChunkCleanup(t *testing.T) {
 		if terms == nil {
 			t.Fatalf("doc %d: nil Terms for 'content'", docID)
 		}
-		iter, err := terms.GetIterator()
+		iter, err := terms.Iterator()
 		if err != nil {
-			t.Fatalf("doc %d GetIterator: %v", docID, err)
+			t.Fatalf("doc %d Iterator: %v", docID, err)
 		}
 		term, err := iter.Next()
 		if err != nil {

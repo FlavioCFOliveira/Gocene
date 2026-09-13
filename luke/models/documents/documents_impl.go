@@ -108,7 +108,7 @@ func (d *DocumentsImpl) FirstTerm(field string) (*index.Term, error) {
 	}
 
 	d.curField = field
-	tenum, err := terms.GetIterator()
+	tenum, err := terms.Iterator()
 	if err != nil {
 		d.resetTermsIterator()
 		return nil, err
@@ -157,7 +157,7 @@ func (d *DocumentsImpl) SeekTerm(termText string) (*index.Term, error) {
 		return nil, models.NewLukeException(fmt.Sprintf("Terms not available for field: %s.", d.curField), err)
 	}
 
-	tenum, err := terms.GetIterator()
+	tenum, err := terms.Iterator()
 	if err != nil {
 		d.resetTermsIterator()
 		return nil, err

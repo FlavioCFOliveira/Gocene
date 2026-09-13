@@ -412,9 +412,9 @@ func (f *FilterTerms) Field() string {
 	return f.in.Field()
 }
 
-// GetIterator returns the wrapped Terms' iterator.
-func (f *FilterTerms) GetIterator() (TermsEnum, error) {
-	return f.in.GetIterator()
+// Iterator returns the wrapped Terms' iterator.
+func (f *FilterTerms) Iterator() (TermsEnum, error) {
+	return f.in.Iterator()
 }
 
 // GetIteratorWithSeek returns the wrapped Terms' iterator positioned at or

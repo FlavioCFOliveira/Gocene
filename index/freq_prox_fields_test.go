@@ -211,9 +211,9 @@ func TestFreqProxTermsEnum_NextIteratesSortedTerms(t *testing.T) {
 
 	fields := NewFreqProxFields([]*FreqProxTermsWriterPerField{h.w})
 	terms, _ := fields.Terms("body")
-	enum, err := terms.GetIterator()
+	enum, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 
 	want := []string{"alpha", "bravo", "charlie", "delta"}
@@ -248,7 +248,7 @@ func TestFreqProxTermsEnum_SeekCeilAndExact(t *testing.T) {
 	terms, _ := fields.Terms("body")
 
 	// Found.
-	enum, _ := terms.GetIterator()
+	enum, _ := terms.Iterator()
 	concrete := enum.(*FreqProxTermsEnum)
 	got, err := concrete.SeekCeil(NewTerm("body", "charlie"))
 	if err != nil {
@@ -262,7 +262,7 @@ func TestFreqProxTermsEnum_SeekCeilAndExact(t *testing.T) {
 	}
 
 	// Not found, lands on next term.
-	enum2, _ := terms.GetIterator()
+	enum2, _ := terms.Iterator()
 	concrete2 := enum2.(*FreqProxTermsEnum)
 	got2, err := concrete2.SeekCeil(NewTerm("body", "bravo"))
 	if err != nil {
@@ -276,7 +276,7 @@ func TestFreqProxTermsEnum_SeekCeilAndExact(t *testing.T) {
 	}
 
 	// Past end.
-	enum3, _ := terms.GetIterator()
+	enum3, _ := terms.Iterator()
 	concrete3 := enum3.(*FreqProxTermsEnum)
 	got3, err := concrete3.SeekCeil(NewTerm("body", "zulu"))
 	if err != nil {
@@ -290,7 +290,7 @@ func TestFreqProxTermsEnum_SeekCeilAndExact(t *testing.T) {
 	}
 
 	// SeekExact.
-	enum4, _ := terms.GetIterator()
+	enum4, _ := terms.Iterator()
 	found, err := enum4.SeekExact(NewTerm("body", "alpha"))
 	if err != nil {
 		t.Fatalf("SeekExact: %v", err)
@@ -320,7 +320,7 @@ func TestFreqProxDocsEnum_ReplaysDocsAndFreqs(t *testing.T) {
 
 	fields := NewFreqProxFields([]*FreqProxTermsWriterPerField{h.w})
 	terms, _ := fields.Terms("body")
-	enum, _ := terms.GetIterator()
+	enum, _ := terms.Iterator()
 	if _, err := enum.SeekExact(NewTerm("body", "alpha")); err != nil {
 		t.Fatalf("SeekExact alpha: %v", err)
 	}
@@ -361,7 +361,7 @@ func TestFreqProxDocsEnum_RejectsFreqsRequestWhenNotIndexed(t *testing.T) {
 
 	fields := NewFreqProxFields([]*FreqProxTermsWriterPerField{h.w})
 	terms, _ := fields.Terms("body")
-	enum, _ := terms.GetIterator()
+	enum, _ := terms.Iterator()
 	if _, err := enum.SeekExact(NewTerm("body", "alpha")); err != nil {
 		t.Fatalf("SeekExact: %v", err)
 	}
@@ -398,7 +398,7 @@ func TestFreqProxPostingsEnum_ReplaysPositionsAndOffsets(t *testing.T) {
 
 	fields := NewFreqProxFields([]*FreqProxTermsWriterPerField{h.w})
 	terms, _ := fields.Terms("body")
-	enum, _ := terms.GetIterator()
+	enum, _ := terms.Iterator()
 	if _, err := enum.SeekExact(NewTerm("body", "alpha")); err != nil {
 		t.Fatalf("SeekExact alpha: %v", err)
 	}
@@ -466,7 +466,7 @@ func TestFreqProxPostingsEnum_PayloadsRoundtrip(t *testing.T) {
 	if !terms.HasPayloads() {
 		t.Fatalf("HasPayloads = false, want true")
 	}
-	enum, _ := terms.GetIterator()
+	enum, _ := terms.Iterator()
 	if _, err := enum.SeekExact(NewTerm("body", "alpha")); err != nil {
 		t.Fatalf("SeekExact: %v", err)
 	}
@@ -500,7 +500,7 @@ func TestFreqProxPostingsEnum_RejectsPositionsWhenNotIndexed(t *testing.T) {
 	h.addToken(t, "alpha", 0, 0, 0, 0, 1, nil)
 	fields := NewFreqProxFields([]*FreqProxTermsWriterPerField{h.w})
 	terms, _ := fields.Terms("body")
-	enum, _ := terms.GetIterator()
+	enum, _ := terms.Iterator()
 	if _, err := enum.SeekExact(NewTerm("body", "alpha")); err != nil {
 		t.Fatalf("SeekExact: %v", err)
 	}
@@ -514,7 +514,7 @@ func TestFreqProxPostingsEnum_RejectsOffsetsWhenNotIndexed(t *testing.T) {
 	h.addToken(t, "alpha", 0, 0, 0, 0, 1, nil)
 	fields := NewFreqProxFields([]*FreqProxTermsWriterPerField{h.w})
 	terms, _ := fields.Terms("body")
-	enum, _ := terms.GetIterator()
+	enum, _ := terms.Iterator()
 	if _, err := enum.SeekExact(NewTerm("body", "alpha")); err != nil {
 		t.Fatalf("SeekExact: %v", err)
 	}
@@ -530,7 +530,7 @@ func TestFreqProxTermsEnum_SeekExactOrdAndOrd(t *testing.T) {
 	}
 	fields := NewFreqProxFields([]*FreqProxTermsWriterPerField{h.w})
 	terms, _ := fields.Terms("body")
-	enum, _ := terms.GetIterator()
+	enum, _ := terms.Iterator()
 	concrete := enum.(*FreqProxTermsEnum)
 	concrete.SeekExactOrd(2)
 	if got := concrete.Term().Text(); got != "charlie" {
@@ -556,7 +556,7 @@ func TestFreqProxTermsEnum_StatsUnsupported(t *testing.T) {
 	h.addToken(t, "alpha", 0, 0, 0, 1, 1, nil)
 	fields := NewFreqProxFields([]*FreqProxTermsWriterPerField{h.w})
 	terms, _ := fields.Terms("body")
-	enum, _ := terms.GetIterator()
+	enum, _ := terms.Iterator()
 	concrete := enum.(*FreqProxTermsEnum)
 	if _, err := enum.SeekExact(NewTerm("body", "alpha")); err != nil {
 		t.Fatalf("SeekExact: %v", err)

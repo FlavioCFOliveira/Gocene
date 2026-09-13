@@ -495,9 +495,9 @@ func NewSortingTerms(in Terms, indexOptions IndexOptions, docMap SorterDocMap) *
 	return &SortingTerms{in: in, docMap: docMap, indexOptions: indexOptions}
 }
 
-// GetIterator returns a [SortingTermsEnum] over the wrapped Terms.
-func (t *SortingTerms) GetIterator() (TermsEnum, error) {
-	delegate, err := t.in.GetIterator()
+// Iterator returns a [SortingTermsEnum] over the wrapped Terms.
+func (t *SortingTerms) Iterator() (TermsEnum, error) {
+	delegate, err := t.in.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -531,7 +531,7 @@ func (t *SortingTerms) Intersect(compiled *automaton.CompiledAutomaton, startTer
 // are pass-throughs to the wrapped Terms.
 
 func (t *SortingTerms) GetPostingsReader(termText string, flags int) (PostingsEnum, error) {
-	enum, err := t.GetIterator()
+	enum, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}

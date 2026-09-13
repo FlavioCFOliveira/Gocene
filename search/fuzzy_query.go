@@ -264,7 +264,7 @@ func (q *FuzzyQuery) Visit(visitor QueryVisitor) {
 // not carry the Lucene name.
 func (q *FuzzyQuery) GetTermsEnumWithAttributes(terms index.Terms, atts *util.AttributeSource) (index.TermsEnum, error) {
 	if q.maxEdits == 0 { // can only match if it's exact
-		it, err := terms.GetIterator()
+		it, err := terms.Iterator()
 		if err != nil {
 			return nil, err
 		}

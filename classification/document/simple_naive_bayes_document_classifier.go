@@ -159,7 +159,7 @@ func (c *SimpleNaiveBayesDocumentClassifier) assignNormClasses(inputDocument *do
 		return nil, err
 	}
 
-	it, err := classes.GetIterator()
+	it, err := classes.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +293,7 @@ func docFreqForTerm(reader termsProvider, term *index.Term) (int, error) {
 	if terms == nil {
 		return 0, nil
 	}
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
 		return 0, err
 	}
@@ -339,7 +339,7 @@ func countDocsWithClass(reader termsProvider, searcher *search.IndexSearcher, cl
 			return int(sumDocFreq), nil
 		}
 		// Last resort: sum per-class docFreq.
-		it, err := classTerms.GetIterator()
+		it, err := classTerms.Iterator()
 		if err != nil {
 			return 0, err
 		}

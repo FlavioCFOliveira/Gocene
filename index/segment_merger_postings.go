@@ -167,7 +167,7 @@ func (sm *SegmentMerger) mergeTerms() error {
 
 // mergeFieldTerms is a Terms view over one field's per-segment Terms whose
 // postings are remapped to the merged doc space. The block-tree terms writer
-// only calls GetIterator and reads the per-field flags from FieldInfo, so the
+// only calls Iterator and reads the per-field flags from FieldInfo, so the
 // statistical accessors return best-effort values.
 type mergeFieldTerms struct {
 	subs      []Terms
@@ -184,7 +184,7 @@ func (t *mergeFieldTerms) Field() string { return t.fieldInfo.Name() }
 // FilteredTermsEnum.setInitialSeekTerm, which is where Lucene's anonymous
 // nextSeekTerm override routes it.
 func (t *mergeFieldTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *Term) (TermsEnum, error) {
-	it, err := t.GetIterator()
+	it, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -198,11 +198,11 @@ func (t *mergeFieldTerms) Intersect(compiled *automaton.CompiledAutomaton, start
 	return enum, nil
 }
 
-func (t *mergeFieldTerms) GetIterator() (TermsEnum, error) {
+func (t *mergeFieldTerms) Iterator() (TermsEnum, error) {
 	enums := make([]TermsEnum, len(t.subs))
 	curr := make([]*Term, len(t.subs))
 	for i, s := range t.subs {
-		te, err := s.GetIterator()
+		te, err := s.Iterator()
 		if err != nil {
 			return nil, err
 		}
@@ -212,7 +212,7 @@ func (t *mergeFieldTerms) GetIterator() (TermsEnum, error) {
 }
 
 func (t *mergeFieldTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error) {
-	te, err := t.GetIterator()
+	te, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +225,7 @@ func (t *mergeFieldTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error)
 }
 
 func (t *mergeFieldTerms) GetPostingsReader(termText string, flags int) (PostingsEnum, error) {
-	te, err := t.GetIterator()
+	te, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -253,7 +253,7 @@ func (t *mergeFieldTerms) HasPositions() bool {
 }
 func (t *mergeFieldTerms) HasPayloads() bool { return t.fieldInfo.HasPayloads() }
 func (t *mergeFieldTerms) GetMin() (*Term, error) {
-	te, err := t.GetIterator()
+	te, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
