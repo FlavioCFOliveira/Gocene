@@ -7,7 +7,10 @@
 
 package automaton
 
-import "fmt"
+import (
+	"fmt"
+	"slices"
+)
 
 // RunAutomaton is a finite-state automaton optimised for fast matching.
 // The initial state is always 0. The class is immutable after construction
@@ -176,4 +179,34 @@ func (r *RunAutomaton) RunString(input string) bool {
 		}
 	}
 	return r.IsAccept(p)
+}
+
+// Equals reports whether r and other describe the same compiled automaton.
+//
+// Mirrors RunAutomaton.equals(Object): the alphabet size, the state count,
+// the interval start points, the accept bitset and the transition table must
+// all agree. The Java getClass() guard has no Go counterpart here because the
+// receiver type already fixes the class; ByteRunAutomaton and
+// CharacterRunAutomaton embed *RunAutomaton and do not override equals, which
+// is also the Java arrangement.
+func (r *RunAutomaton) Equals(other *RunAutomaton) bool {
+	if r == other {
+		return true
+	}
+	if r == nil || other == nil {
+		return false
+	}
+	if r.alphabetSize != other.alphabetSize {
+		return false
+	}
+	if r.size != other.size {
+		return false
+	}
+	if !slices.Equal(r.points, other.points) {
+		return false
+	}
+	if !slices.Equal(r.accept, other.accept) {
+		return false
+	}
+	return slices.Equal(r.transitions, other.transitions)
 }
