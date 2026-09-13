@@ -552,3 +552,10 @@ func (it *mergedVectorIterator) Cost() int64 {
 	}
 	return 0
 }
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (it *mergedVectorIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}

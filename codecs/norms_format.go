@@ -191,11 +191,11 @@ func NewNormsWriter(out store.IndexOutput) *NormsWriter {
 // WriteHeader writes the norms file header.
 func (w *NormsWriter) WriteHeader() error {
 	// Write magic number (NRM = Norms)
-	if err := store.WriteUint32(w.out, 0x4E524D00); err != nil {
+	if err := store.WriteBEInt(w.out, 0x4E524D00); err != nil {
 		return fmt.Errorf("failed to write magic number: %w", err)
 	}
 	// Write version
-	if err := store.WriteUint32(w.out, 1); err != nil {
+	if err := store.WriteBEInt(w.out, 1); err != nil {
 		return fmt.Errorf("failed to write version: %w", err)
 	}
 	return nil
@@ -224,7 +224,7 @@ func NewNormsReader(in store.IndexInput) *NormsReader {
 // ReadHeader reads and validates the norms file header.
 func (r *NormsReader) ReadHeader() error {
 	// Read magic number
-	magic, err := store.ReadUint32(r.in)
+	magic, err := store.ReadBEInt(r.in)
 	if err != nil {
 		return fmt.Errorf("failed to read magic number: %w", err)
 	}
@@ -233,7 +233,7 @@ func (r *NormsReader) ReadHeader() error {
 	}
 
 	// Read version
-	version, err := store.ReadUint32(r.in)
+	version, err := store.ReadBEInt(r.in)
 	if err != nil {
 		return fmt.Errorf("failed to read version: %w", err)
 	}

@@ -536,3 +536,10 @@ func (dv *memorySortedNumericDocValues) DocValueCount() (int, error) {
 	}
 	return 0, nil
 }
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (dv *memorySortedSetDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(dv)
+}

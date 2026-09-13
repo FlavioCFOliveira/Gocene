@@ -814,3 +814,17 @@ func readFloatsLE(in store.IndexInput, out []float32) error {
 func (d *docIndexIteratorAsDocIDSet) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
 }
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (d *denseDocIndexIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(d)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (i *indexedDISIDocIndexIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(i)
+}

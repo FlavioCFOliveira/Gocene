@@ -185,11 +185,11 @@ const SpatialIndexFileMagic = 0x53500000
 // WriteSpatialIndexFileHeader writes the spatial index file header.
 func WriteSpatialIndexFileHeader(out store.IndexOutput) error {
 	// Write magic number
-	if err := store.WriteUint32(out, SpatialIndexFileMagic); err != nil {
+	if err := store.WriteBEInt(out, SpatialIndexFileMagic); err != nil {
 		return fmt.Errorf("failed to write magic number: %w", err)
 	}
 	// Write version
-	if err := store.WriteUint32(out, SpatialIndexFileHeaderCurrentVersion); err != nil {
+	if err := store.WriteBEInt(out, SpatialIndexFileHeaderCurrentVersion); err != nil {
 		return fmt.Errorf("failed to write version: %w", err)
 	}
 	return nil
@@ -198,7 +198,7 @@ func WriteSpatialIndexFileHeader(out store.IndexOutput) error {
 // ReadSpatialIndexFileHeader reads and validates the spatial index file header.
 func ReadSpatialIndexFileHeader(in store.IndexInput) (*SpatialIndexFileHeader, error) {
 	// Read magic number
-	magic, err := store.ReadUint32(in)
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read magic number: %w", err)
 	}
@@ -207,7 +207,7 @@ func ReadSpatialIndexFileHeader(in store.IndexInput) (*SpatialIndexFileHeader, e
 	}
 
 	// Read version
-	version, err := store.ReadUint32(in)
+	version, err := store.ReadBEInt(in)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read version: %w", err)
 	}

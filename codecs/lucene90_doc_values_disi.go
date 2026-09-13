@@ -463,3 +463,26 @@ func dvReadLongLE(in store.IndexInput) (int64, error) {
 		uint64(buf[4])<<32 | uint64(buf[5])<<40 | uint64(buf[6])<<48 | uint64(buf[7])<<56
 	return int64(v), nil
 }
+
+// DocIDRunEnd returns the end of the run of consecutive doc IDs containing the
+// current docID.
+//
+// Port of org.apache.lucene.codecs.lucene90.IndexedDISI#docIDRunEnd, which
+// dispatches to the per-Method body (Lucene 10.5.0):
+//
+//	SPARSE: disi.doc + 1
+//	DENSE:  disi.word == -1L ? (disi.doc | 0x3F) + 1 : disi.doc + 1
+//	ALL:    (disi.doc | 0xFFFF) + 1
+func (d *dvIndexedDISI) DocIDRunEnd() (int, error) {
+	switch d.method {
+	case dvMethodDense:
+		if d.word == ^uint64(0) {
+			return (d.doc | 0x3F) + 1, nil
+		}
+		return d.doc + 1, nil
+	case dvMethodAll:
+		return (d.doc | 0xFFFF) + 1, nil
+	default:
+		return d.doc + 1, nil
+	}
+}

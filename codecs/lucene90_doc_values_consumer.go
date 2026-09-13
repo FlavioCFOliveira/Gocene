@@ -1045,7 +1045,7 @@ func (c *lucene90DVConsumer) addTermsDict(values dvSortedSetValues) error {
 	ht := compress.NewFastCompressionHashTable()
 	// termsDictBuf doubles as staging buffer; wrap it directly so
 	// compressAndGetTermsDictBlockLength reads from the same backing slice.
-	buf := store.NewByteArrayDataOutputAt(c.termsDictBuf, 0)
+	buf := store.NewByteArrayDataOutput(c.termsDictBuf)
 	dictLen := 0
 
 	if err := values.Reset(); err != nil {
@@ -1174,13 +1174,13 @@ func (c *lucene90DVConsumer) growTermsDictBuf(buf *store.ByteArrayDataOutput, ne
 	pos := buf.GetPosition()
 	if pos+needed < len(c.termsDictBuf)-1 {
 		// no growth needed — re-wrap at current pos to get a fresh view
-		return store.NewByteArrayDataOutputAt(c.termsDictBuf, pos)
+		return store.NewByteArrayDataOutputWithOffset(c.termsDictBuf, pos, len(c.termsDictBuf)-pos)
 	}
 	newLen := len(c.termsDictBuf) + needed
 	grown := make([]byte, newLen)
 	copy(grown, c.termsDictBuf)
 	c.termsDictBuf = grown
-	return store.NewByteArrayDataOutputAt(c.termsDictBuf, pos)
+	return store.NewByteArrayDataOutputWithOffset(c.termsDictBuf, pos, len(c.termsDictBuf)-pos)
 }
 
 func (c *lucene90DVConsumer) compressAndGetTermsDictBlockLength(

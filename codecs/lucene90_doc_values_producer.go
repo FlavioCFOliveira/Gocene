@@ -28,6 +28,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/compress"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
@@ -2019,4 +2020,71 @@ func dvSliceRandomAccess(data store.IndexInput, offset, length int64) (store.Ran
 		return nil, fmt.Errorf("dvSliceRandomAccess: read %d bytes at %d: %w", length, offset, err)
 	}
 	return store.NewByteArrayRandomAccessInput(buf), nil
+}
+
+// DocIDRunEnd returns maxDoc: every document carries a value in the dense
+// encoding, so the run extends to the end of the segment.
+//
+// Port of the docIDRunEnd() override on the dense BaseSortedSetDocValues of
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer#getSortedSet
+// (Lucene 10.5.0).
+func (s *sortedSetDVDense) DocIDRunEnd() (int, error) { return s.maxDoc, nil }
+
+// DocIDRunEnd delegates to the backing IndexedDISI.
+//
+// Port of the docIDRunEnd() override on the sparse BaseSortedSetDocValues of
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer#getSortedSet
+// (Lucene 10.5.0): return disi.docIDRunEnd().
+func (s *sortedSetDVSparse) DocIDRunEnd() (int, error) { return s.disi.DocIDRunEnd() }
+
+// DocIDRunEnd delegates to the backing ordinals iterator.
+//
+// Port of the docIDRunEnd() override on the ordinals-backed
+// BaseSortedSetDocValues of
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer#getSortedSet
+// (Lucene 10.5.0): return ords.docIDRunEnd().
+func (s *sortedSetDVGeneral) DocIDRunEnd() (int, error) { return s.sndv.DocIDRunEnd() }
+
+// DocIDRunEnd delegates to the wrapped SortedDocValues.
+//
+// Port of org.apache.lucene.index.SingletonSortedSetDocValues#docIDRunEnd
+// (Lucene 10.5.0): return in.docIDRunEnd().
+func (s *singletonSS) DocIDRunEnd() (int, error) { return s.sdv.DocIDRunEnd() }
+
+// IntoBitSet sets every doc in [docID(), upTo) — the dense encoding gives every
+// document a value — and advances past the range.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on the dense
+// BaseSortedSetDocValues of
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer#getSortedSet
+// (Lucene 10.5.0).
+func (s *sortedSetDVDense) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	if upTo > s.maxDoc {
+		upTo = s.maxDoc
+	}
+	if upTo > s.doc {
+		bitSet.SetRange(s.doc-offset, upTo-offset)
+		if _, err := s.Advance(upTo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// IntoBitSet delegates to the backing ordinals iterator.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on the
+// ordinals-backed BaseSortedSetDocValues of
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer#getSortedSet
+// (Lucene 10.5.0): ords.intoBitSet(upTo, bitSet, offset).
+func (s *sortedSetDVGeneral) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.sndv.IntoBitSet(upTo, bitSet, offset)
+}
+
+// IntoBitSet delegates to the wrapped SortedDocValues.
+//
+// Port of org.apache.lucene.index.SingletonSortedSetDocValues#intoBitSet
+// (Lucene 10.5.0): in.intoBitSet(upTo, bitSet, offset).
+func (s *singletonSS) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.sdv.IntoBitSet(upTo, bitSet, offset)
 }

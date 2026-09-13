@@ -239,10 +239,10 @@ func (f *Lucene90CompoundFormat) writeCompoundFile(entriesOut store.IndexOutput,
 		if err := store.WriteString(entriesOut, stripSegmentNamePrefix(sf.name)); err != nil {
 			return fmt.Errorf("lucene90 compound: write entry name: %w", err)
 		}
-		if err := store.WriteInt64LE(entriesOut, startOffset); err != nil {
+		if err := entriesOut.WriteLong(startOffset); err != nil {
 			return fmt.Errorf("lucene90 compound: write entry offset: %w", err)
 		}
-		if err := store.WriteInt64LE(entriesOut, length); err != nil {
+		if err := entriesOut.WriteLong(length); err != nil {
 			return fmt.Errorf("lucene90 compound: write entry length: %w", err)
 		}
 	}

@@ -365,15 +365,15 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	}
 
 	// Version fields use Java's DataOutput.writeInt (little-endian), not CodecUtil.writeBEInt.
-	major, err := store.ReadInt32LE(checksumIn)
+	major, err := checksumIn.ReadInt()
 	if err != nil {
 		return nil, err
 	}
-	minor, err := store.ReadInt32LE(checksumIn)
+	minor, err := checksumIn.ReadInt()
 	if err != nil {
 		return nil, err
 	}
-	bugfix, err := store.ReadInt32LE(checksumIn)
+	bugfix, err := checksumIn.ReadInt()
 	if err != nil {
 		return nil, err
 	}
@@ -388,15 +388,15 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	case 0:
 		// no minVersion
 	case 1:
-		minMajor, err := store.ReadInt32LE(checksumIn)
+		minMajor, err := checksumIn.ReadInt()
 		if err != nil {
 			return nil, err
 		}
-		minMinor, err := store.ReadInt32LE(checksumIn)
+		minMinor, err := checksumIn.ReadInt()
 		if err != nil {
 			return nil, err
 		}
-		minBugfix, err := store.ReadInt32LE(checksumIn)
+		minBugfix, err := checksumIn.ReadInt()
 		if err != nil {
 			return nil, err
 		}
@@ -406,7 +406,7 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 		return nil, fmt.Errorf("illegal hasMinVersion byte value: %d", hasMinVersion)
 	}
 
-	docCount, err := store.ReadInt32LE(checksumIn)
+	docCount, err := checksumIn.ReadInt()
 	if err != nil {
 		return nil, err
 	}
@@ -500,13 +500,13 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 	// uses DataOutput.writeInt (little-endian). Only the CodecUtil header/footer
 	// framing is big-endian, so payload ints must use the LE helpers.
 	major, minor, bugfix := parseVersion(info.Version())
-	if err := store.WriteInt32LE(checksumOut, major); err != nil {
+	if err := checksumOut.WriteInt(major); err != nil {
 		return err
 	}
-	if err := store.WriteInt32LE(checksumOut, minor); err != nil {
+	if err := checksumOut.WriteInt(minor); err != nil {
 		return err
 	}
-	if err := store.WriteInt32LE(checksumOut, bugfix); err != nil {
+	if err := checksumOut.WriteInt(bugfix); err != nil {
 		return err
 	}
 
@@ -518,13 +518,13 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 			return err
 		}
 		minMajor, minMinor, minBugfix := parseVersion(minVer)
-		if err := store.WriteInt32LE(checksumOut, minMajor); err != nil {
+		if err := checksumOut.WriteInt(minMajor); err != nil {
 			return err
 		}
-		if err := store.WriteInt32LE(checksumOut, minMinor); err != nil {
+		if err := checksumOut.WriteInt(minMinor); err != nil {
 			return err
 		}
-		if err := store.WriteInt32LE(checksumOut, minBugfix); err != nil {
+		if err := checksumOut.WriteInt(minBugfix); err != nil {
 			return err
 		}
 	} else {
@@ -533,7 +533,7 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 		}
 	}
 
-	if err := store.WriteInt32LE(checksumOut, int32(info.DocCount())); err != nil {
+	if err := checksumOut.WriteInt(int32(info.DocCount())); err != nil {
 		return err
 	}
 

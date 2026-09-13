@@ -273,7 +273,7 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 				requiredLen += 2 + len(payload)
 			}
 			entry := make([]byte, requiredLen)
-			out := store.NewByteArrayDataOutputAt(entry, 0)
+			out := store.NewByteArrayDataOutput(entry)
 			out.WriteShort(int16(analyzedLen))
 			out.WriteBytes(analyzedBytes.Bytes[analyzedBytes.Offset : analyzedBytes.Offset+analyzedLen])
 			out.WriteInt(int32(encodeWeight(weight)))

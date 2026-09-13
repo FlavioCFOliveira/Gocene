@@ -116,10 +116,10 @@ func NewDocValuesWriter(out store.IndexOutput) *DocValuesWriter {
 
 // WriteHeader writes the legacy magic-number / version pair.
 func (w *DocValuesWriter) WriteHeader() error {
-	if err := store.WriteUint32(w.out, 0x44564C00); err != nil {
+	if err := store.WriteBEInt(w.out, 0x44564C00); err != nil {
 		return fmt.Errorf("failed to write magic number: %w", err)
 	}
-	if err := store.WriteUint32(w.out, 1); err != nil {
+	if err := store.WriteBEInt(w.out, 1); err != nil {
 		return fmt.Errorf("failed to write version: %w", err)
 	}
 	return nil
@@ -148,7 +148,7 @@ func NewDocValuesReader(in store.IndexInput) *DocValuesReader {
 // ReadHeader reads and validates the legacy magic-number / version
 // pair written by [DocValuesWriter.WriteHeader].
 func (r *DocValuesReader) ReadHeader() error {
-	magic, err := store.ReadUint32(r.in)
+	magic, err := store.ReadBEInt(r.in)
 	if err != nil {
 		return fmt.Errorf("failed to read magic number: %w", err)
 	}
@@ -156,7 +156,7 @@ func (r *DocValuesReader) ReadHeader() error {
 		return fmt.Errorf("invalid magic number: expected 0x44564C00, got 0x%08x", magic)
 	}
 
-	version, err := store.ReadUint32(r.in)
+	version, err := store.ReadBEInt(r.in)
 	if err != nil {
 		return fmt.Errorf("failed to read version: %w", err)
 	}

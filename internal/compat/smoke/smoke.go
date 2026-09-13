@@ -79,12 +79,12 @@ func Write(targetDir string, seed int64) error {
 	}
 	// Payload uses Lucene's DataOutput.writeInt / writeLong byte order, which is
 	// little-endian (unlike the CodecUtil header/footer envelope which is BE).
-	if err := store.WriteInt32LE(out, Count); err != nil {
+	if err := out.WriteInt(Count); err != nil {
 		out.Close()
 		return fmt.Errorf("smoke: write count: %w", err)
 	}
 	for i := 0; i < Count; i++ {
-		if err := store.WriteInt64LE(out, PayloadValue(seed, i)); err != nil {
+		if err := out.WriteLong(PayloadValue(seed, i)); err != nil {
 			out.Close()
 			return fmt.Errorf("smoke: write payload[%d]: %w", i, err)
 		}
@@ -117,7 +117,7 @@ func Read(sourceDir string, seed int64) ([]int64, error) {
 		return nil, fmt.Errorf("smoke: check index header: %w", err)
 	}
 	// Payload byte order matches Lucene's DataOutput.writeInt / writeLong (LE).
-	count, err := store.ReadInt32LE(in)
+	count, err := in.ReadInt()
 	if err != nil {
 		return nil, fmt.Errorf("smoke: read count: %w", err)
 	}
@@ -126,7 +126,7 @@ func Read(sourceDir string, seed int64) ([]int64, error) {
 	}
 	values := make([]int64, count)
 	for i := int32(0); i < count; i++ {
-		v, err := store.ReadInt64LE(in)
+		v, err := in.ReadLong()
 		if err != nil {
 			return nil, fmt.Errorf("smoke: read payload[%d]: %w", i, err)
 		}

@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // CompressingDocValuesFormat is a DocValuesFormat that compresses doc values
@@ -486,3 +487,10 @@ func (e *emptySortedNumericDocValues) LongValue() (int64, error)       { return 
 func (e *emptySortedNumericDocValues) Cost() int64                     { return 0 }
 func (e *emptySortedNumericDocValues) NextValue() (int64, error)       { return 0, nil }
 func (e *emptySortedNumericDocValues) DocValueCount() (int, error)     { return 0, nil }
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *emptySortedSetDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}

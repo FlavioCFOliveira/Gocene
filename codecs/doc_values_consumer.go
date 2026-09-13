@@ -9,6 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // BaseDocValuesConsumer provides a default implementation of the merge logic for
@@ -1072,4 +1073,11 @@ func (p *mergedSortedSetProducer) toDocIDMergerSubs() []index.DocIDMergerSub {
 		}
 	}
 	return subs
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (m *mergedSortedSetDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(m)
 }

@@ -264,6 +264,49 @@ func (o *ByteBuffersDataOutput) WriteZLong(v int64) error {
 // WriteString writes a string.
 // Uses unsafe conversion to avoid heap allocation when converting string to bytes.
 // Safe because WriteBytes only reads the data and does not modify it.
+// WriteMapOfStrings writes a String map.
+//
+// First the size is written as a vInt, followed by each key-value pair written
+// as two consecutive Strings.
+//
+// Port of org.apache.lucene.store.DataOutput#writeMapOfStrings, which
+// ByteBuffersDataOutput inherits in Java; Go has no inheritance, so the
+// inherited body is rendered on the type itself.
+func (o *ByteBuffersDataOutput) WriteMapOfStrings(m map[string]string) error {
+	if err := o.WriteVInt(int32(len(m))); err != nil {
+		return err
+	}
+	for k, v := range m {
+		if err := o.WriteString(k); err != nil {
+			return err
+		}
+		if err := o.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteSetOfStrings writes a String set.
+//
+// First the size is written as a vInt, followed by each value written as a
+// String.
+//
+// Port of org.apache.lucene.store.DataOutput#writeSetOfStrings, which
+// ByteBuffersDataOutput inherits in Java; Go has no inheritance, so the
+// inherited body is rendered on the type itself.
+func (o *ByteBuffersDataOutput) WriteSetOfStrings(s []string) error {
+	if err := o.WriteVInt(int32(len(s))); err != nil {
+		return err
+	}
+	for _, v := range s {
+		if err := o.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (o *ByteBuffersDataOutput) WriteString(s string) error {
 	if err := o.WriteVInt(int32(len(s))); err != nil {
 		return err

@@ -145,7 +145,7 @@ func NewCompressingTermVectorsWriter(state *SegmentWriteState, mode CompressionM
 	}
 
 	// Write header
-	if err := store.WriteUint32(out, 0x54564400); err != nil { // "TVD\0"
+	if err := store.WriteBEInt(out, 0x54564400); err != nil { // "TVD\0"
 		return nil, errors.Join(fmt.Errorf("failed to write magic number: %w", err), out.Close())
 	}
 	if err := out.WriteVInt(1); err != nil { // Version
@@ -412,7 +412,7 @@ func (w *CompressingTermVectorsWriter) writeIndex() error {
 	defer out.Close()
 
 	// Write header
-	if err := store.WriteUint32(out, 0x54565800); err != nil { // "TVX\0"
+	if err := store.WriteBEInt(out, 0x54565800); err != nil { // "TVX\0"
 		return fmt.Errorf("failed to write index magic number: %w", err)
 	}
 	if err := out.WriteVInt(1); err != nil { // Version
@@ -498,7 +498,7 @@ func (r *CompressingTermVectorsReader) loadData(fileName string) error {
 	defer in.Close()
 
 	// Read magic number
-	magic, err := store.ReadUint32(in)
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		return fmt.Errorf("failed to read magic number: %w", err)
 	}
@@ -1040,4 +1040,18 @@ func (p *termVectorsPostingsEnum) GetPayload() ([]byte, error) {
 
 func (p *termVectorsPostingsEnum) Cost() int64 {
 	return int64(p.term.freq)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (p *termVectorsPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(p)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (p *termVectorsPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
 }

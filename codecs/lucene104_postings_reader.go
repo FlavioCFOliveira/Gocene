@@ -1912,3 +1912,34 @@ var _ index.ImpactsEnum = (*blockPostingsEnum)(nil)
 
 // Compile-time check: Lucene104PostingsReader implements PostingsReaderBase.
 var _ PostingsReaderBase = (*Lucene104PostingsReader)(nil)
+
+// DocIDRunEnd returns the end of the run of consecutive doc IDs containing the
+// current docID.
+//
+// Port of the docIDRunEnd() override on
+// org.apache.lucene.codecs.lucene104.Lucene104PostingsReader.BlockPostingsEnum
+// (Lucene 10.5.0). The body assumes BLOCK_SIZE == 256, i.e. four 64-bit words:
+// when all four words of the level-0 bit set are all-ones the whole level-0
+// block is a run, and when the level-1 doc count matches the level-1 doc-ID
+// span the run reaches to the end of the level-1 block.
+func (e *blockPostingsEnum) DocIDRunEnd() (int, error) {
+	if e.encoding == deltaEncodingUnary {
+		level0IsDense := true
+		bits := e.docBitSet.GetBits()
+		for i := 0; i < 4; i++ {
+			if bits[i] != ^uint64(0) {
+				level0IsDense = false
+				break
+			}
+		}
+		if level0IsDense {
+			level0DocCountUpto := e.docFreq - e.docCountLeft
+			level1IsDense := e.level1LastDocID-e.level0LastDocID == e.level1DocCountUpto-level0DocCountUpto
+			if level1IsDense {
+				return e.level1LastDocID + 1, nil
+			}
+			return e.level0LastDocID + 1, nil
+		}
+	}
+	return util.DefaultDocIDRunEnd(e)
+}

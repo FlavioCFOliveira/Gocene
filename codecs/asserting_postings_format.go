@@ -130,16 +130,16 @@ func (c *AssertingFieldsConsumer) Write(field string, terms spi.Terms) error {
 	}
 
 	var term *util.BytesRef
-	var postings PostingsEnum
+	var postings index.PostingsEnum
 
 	fieldInfo := c.writeState.FieldInfos.FieldInfo(field)
 	if fieldInfo == nil {
 		panic(fmt.Sprintf("AssertingFieldsConsumer: field %s not found in FieldInfos", field))
 	}
 
-	hasFreqs := fieldInfo.IndexOptions.Subsumes(spi.IndexOptionsDocsAndFreqs)
-	hasPositions := fieldInfo.IndexOptions.Subsumes(spi.IndexOptionsDocsAndFreqsAndPositions)
-	hasOffsets := fieldInfo.IndexOptions.Subsumes(spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets)
+	hasFreqs := fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqs)
+	hasPositions := fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqsAndPositions)
+	hasOffsets := fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets)
 	hasPayloads := terms.HasPayloads()
 
 	for {
@@ -161,15 +161,15 @@ func (c *AssertingFieldsConsumer) Write(field string, terms spi.Terms) error {
 		flags := 0
 		if !hasPositions {
 			if hasFreqs {
-				flags |= spi.PostingsEnumFreqs
+				flags |= spi.PostingsFlagFreqs
 			}
 		} else {
-			flags |= spi.PostingsEnumPositions
+			flags |= spi.PostingsFlagPositions
 			if hasPayloads {
-				flags |= spi.PostingsEnumPayloads
+				flags |= spi.PostingsFlagPayloads
 			}
 			if hasOffsets {
-				flags |= spi.PostingsEnumOffsets
+				flags |= spi.PostingsFlagOffsets
 			}
 		}
 
@@ -187,7 +187,7 @@ func (c *AssertingFieldsConsumer) Write(field string, terms spi.Terms) error {
 			if err != nil {
 				return err
 			}
-			if docID == spi.PostingsEnumNoMoreDocs {
+			if docID == spi.NO_MORE_DOCS {
 				break
 			}
 			if docID <= lastDocID {

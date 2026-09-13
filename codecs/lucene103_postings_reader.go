@@ -1657,3 +1657,28 @@ var (
 	_ index.ImpactsEnum  = (*lucene103BlockPostingsEnum)(nil)
 	_ index.Impacts      = (*lucene103BlockImpacts)(nil)
 )
+
+// DocIDRunEnd returns the end of the run of consecutive doc IDs containing the
+// current docID.
+//
+// Port of the docIDRunEnd() override on
+// org.apache.lucene.backward_codecs.lucene103.Lucene103PostingsReader.BlockPostingsEnum
+// (Lucene 10.5.0). The body assumes BLOCK_SIZE == 128, i.e. two 64-bit words:
+// when both words of the level-0 bit set are all-ones the whole level-0 block
+// is a run, and when the level-1 doc count matches the level-1 doc-ID span the
+// run reaches to the end of the level-1 block.
+func (e *lucene103BlockPostingsEnum) DocIDRunEnd() (int, error) {
+	bits := e.docBitSet.GetBits()
+	level0IsDense := e.encoding == deltaEncodingUnary &&
+		bits[0] == ^uint64(0) &&
+		bits[1] == ^uint64(0)
+	if level0IsDense {
+		level0DocCountUpto := e.docFreq - e.docCountLeft
+		level1IsDense := e.level1LastDocID-e.level0LastDocID == e.level1DocCountUpto-level0DocCountUpto
+		if level1IsDense {
+			return e.level1LastDocID + 1, nil
+		}
+		return e.level0LastDocID + 1, nil
+	}
+	return util.DefaultDocIDRunEnd(e)
+}

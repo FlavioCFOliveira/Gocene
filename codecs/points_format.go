@@ -112,11 +112,11 @@ func NewPointsWriterHelper(out store.IndexOutput) *PointsWriterHelper {
 // WriteHeader writes the points file header.
 func (w *PointsWriterHelper) WriteHeader() error {
 	// Write magic number (PT = Points)
-	if err := store.WriteUint32(w.out, 0x50540000); err != nil {
+	if err := store.WriteBEInt(w.out, 0x50540000); err != nil {
 		return fmt.Errorf("failed to write magic number: %w", err)
 	}
 	// Write version
-	if err := store.WriteUint32(w.out, 1); err != nil {
+	if err := store.WriteBEInt(w.out, 1); err != nil {
 		return fmt.Errorf("failed to write version: %w", err)
 	}
 	return nil
@@ -145,7 +145,7 @@ func NewPointsReaderHelper(in store.IndexInput) *PointsReaderHelper {
 // ReadHeader reads and validates the points file header.
 func (r *PointsReaderHelper) ReadHeader() error {
 	// Read magic number
-	magic, err := store.ReadUint32(r.in)
+	magic, err := store.ReadBEInt(r.in)
 	if err != nil {
 		return fmt.Errorf("failed to read magic number: %w", err)
 	}
@@ -154,7 +154,7 @@ func (r *PointsReaderHelper) ReadHeader() error {
 	}
 
 	// Read version
-	version, err := store.ReadUint32(r.in)
+	version, err := store.ReadBEInt(r.in)
 	if err != nil {
 		return fmt.Errorf("failed to read version: %w", err)
 	}

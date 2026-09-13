@@ -2728,3 +2728,73 @@ var _ index.PostingsEnum = (*everythingEnum99)(nil)
 var _ index.ImpactsEnum = (*blockImpactsDocsEnum99)(nil)
 var _ index.ImpactsEnum = (*blockImpactsPostingsEnum99)(nil)
 var _ index.ImpactsEnum = (*blockImpactsEverythingEnum99)(nil)
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *blockDocsEnum99) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *everythingEnum99) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *blockImpactsDocsEnum99) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *blockImpactsPostingsEnum99) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *blockImpactsEverythingEnum99) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *blockDocsEnum99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *everythingEnum99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *blockImpactsDocsEnum99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *blockImpactsPostingsEnum99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *blockImpactsEverythingEnum99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}

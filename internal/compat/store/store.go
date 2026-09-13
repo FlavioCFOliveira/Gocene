@@ -224,10 +224,10 @@ func writeFrame(out store.DataOutput, seed int64, i int) error {
 	if err := writeShortLE(out, ShortValue(seed, i)); err != nil {
 		return fmt.Errorf("short: %w", err)
 	}
-	if err := store.WriteInt32LE(out, IntValue(seed, i)); err != nil {
+	if err := out.WriteInt(IntValue(seed, i)); err != nil {
 		return fmt.Errorf("int: %w", err)
 	}
-	if err := store.WriteInt64LE(out, LongValue(seed, i)); err != nil {
+	if err := out.WriteLong(LongValue(seed, i)); err != nil {
 		return fmt.Errorf("long: %w", err)
 	}
 	return nil
@@ -285,14 +285,14 @@ func readFrame(in store.DataInput, seed int64, i int) error {
 	if exp := ShortValue(seed, i); sh != exp {
 		return fmt.Errorf("short mismatch: got %d, want %d", sh, exp)
 	}
-	ii, err := store.ReadInt32LE(in)
+	ii, err := in.ReadInt()
 	if err != nil {
 		return fmt.Errorf("int: %w", err)
 	}
 	if exp := IntValue(seed, i); ii != exp {
 		return fmt.Errorf("int mismatch: got %d, want %d", ii, exp)
 	}
-	ll, err := store.ReadInt64LE(in)
+	ll, err := in.ReadLong()
 	if err != nil {
 		return fmt.Errorf("long: %w", err)
 	}

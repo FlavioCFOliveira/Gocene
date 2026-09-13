@@ -313,3 +313,67 @@ func WriteString(out DataOutput, s string) error {
 func ReadString(in DataInput) (string, error) {
 	return in.ReadString()
 }
+
+// WriteBEInt writes an int value on header / footer with big endian order.
+//
+// Port of org.apache.lucene.codecs.CodecUtil#writeBEInt (Lucene 10.5.0).
+func WriteBEInt(out DataOutput, i int32) error {
+	if err := out.WriteByte(byte(i >> 24)); err != nil {
+		return err
+	}
+	if err := out.WriteByte(byte(i >> 16)); err != nil {
+		return err
+	}
+	if err := out.WriteByte(byte(i >> 8)); err != nil {
+		return err
+	}
+	return out.WriteByte(byte(i))
+}
+
+// WriteBELong writes a long value on header / footer with big endian order.
+//
+// Port of org.apache.lucene.codecs.CodecUtil#writeBELong (Lucene 10.5.0).
+func WriteBELong(out DataOutput, l int64) error {
+	if err := WriteBEInt(out, int32(l>>32)); err != nil {
+		return err
+	}
+	return WriteBEInt(out, int32(l))
+}
+
+// ReadBEInt reads an int value from header / footer with big endian order.
+//
+// Port of org.apache.lucene.codecs.CodecUtil#readBEInt (Lucene 10.5.0).
+func ReadBEInt(in DataInput) (int32, error) {
+	b1, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	b2, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	b3, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	b4, err := in.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	return int32(b1)<<24 | int32(b2)<<16 | int32(b3)<<8 | int32(b4), nil
+}
+
+// ReadBELong reads a long value from header / footer with big endian order.
+//
+// Port of org.apache.lucene.codecs.CodecUtil#readBELong (Lucene 10.5.0).
+func ReadBELong(in DataInput) (int64, error) {
+	hi, err := ReadBEInt(in)
+	if err != nil {
+		return 0, err
+	}
+	lo, err := ReadBEInt(in)
+	if err != nil {
+		return 0, err
+	}
+	return int64(hi)<<32 | (int64(lo) & 0xFFFFFFFF), nil
+}

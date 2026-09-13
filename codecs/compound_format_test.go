@@ -314,11 +314,11 @@ func TestLucene90CompoundFormat_FileLengthOrdering(t *testing.T) {
 		}
 		// .cfe offset/length are little-endian (DataOutput.writeLong),
 		// matching Lucene90CompoundFormat.
-		offset, err := store.ReadInt64LE(csIn)
+		offset, err := csIn.ReadLong()
 		if err != nil {
 			t.Fatalf("ReadInt64LE offset %d: %v", i, err)
 		}
-		length, err := store.ReadInt64LE(csIn)
+		length, err := csIn.ReadLong()
 		if err != nil {
 			t.Fatalf("ReadInt64LE length %d: %v", i, err)
 		}
