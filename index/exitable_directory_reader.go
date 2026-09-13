@@ -975,15 +975,6 @@ func (a *ExitableAcceptDocs) Length() int {
 	return a.in.Length()
 }
 
-// Cardinality counts the accepted documents. util.Bits requires it; Lucene's
-// Bits carries only get/length.
-func (a *ExitableAcceptDocs) Cardinality() int {
-	if a.in == nil {
-		return a.maxDoc
-	}
-	return a.in.Cardinality()
-}
-
 // bitsWithIterator is the doc-id cursor Lucene 10.5.0's AcceptDocs exposes
 // through iterator(). util.Bits does not declare it, so it is recovered from
 // the delegate.
@@ -1003,10 +994,21 @@ func (a *ExitableAcceptDocs) Iterator() (util.DocIdSetIterator, error) {
 	return it.Iterator()
 }
 
-// Cost returns the accepted-document count, matching the cost the doc-id
-// cursor over these bits reports.
+// Cost is the cost of iterating the accepted documents.
+//
+// Java's ExitableAcceptDocs.cost() reads `return in.cost()` — it delegates to
+// the AcceptDocs it wraps (ExitableDirectoryReader.java:416-419). The delegate
+// held here is a Bits rather than an AcceptDocs, so the cost is the one
+// AcceptDocs.fromLiveDocs gives a Bits: BitsAcceptDocs stores
+// `bits instanceof BitSet ? bitSet.cardinality() : maxDoc` and returns it from
+// cost(), with the comment "We have no better estimate. This should be ok in
+// practice since background merges should keep the number of deletes under
+// control (< 20% by default)" (AcceptDocs.java:129-133, 151-156).
 func (a *ExitableAcceptDocs) Cost() int {
-	return a.Cardinality()
+	if bitSet, ok := a.in.(util.BitSet); ok {
+		return bitSet.Cardinality()
+	}
+	return a.maxDoc
 }
 
 // IntoBitSet carries the default body of

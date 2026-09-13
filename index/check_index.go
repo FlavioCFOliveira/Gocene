@@ -741,7 +741,11 @@ func (ci *CheckIndex) testLiveDocs(reader *SegmentReader, w io.Writer) *LiveDocS
 			status.Error = NewCheckIndexError("segment should have deletions, but liveDocs is null", nil)
 			return status
 		}
-		numLive := liveDocs.Cardinality()
+		numLive, err := bitsCardinality(liveDocs)
+		if err != nil {
+			status.Error = NewCheckIndexError("failed to count live docs", err)
+			return status
+		}
 		if numLive != numDocs {
 			status.Error = NewCheckIndexError(fmt.Sprintf("liveDocs count mismatch: info=%d, vs bits=%d", numDocs, numLive), nil)
 			return status
@@ -2274,4 +2278,42 @@ func GenerationFromSegmentsFileName(fileName string) int64 {
 		return -1
 	}
 	return gen
+}
+
+// bitsCardinalityBatchBits is the batch size bitsCardinality processes at a
+// time. Java: `FixedBitSet copy = new FixedBitSet(1024)`.
+const bitsCardinalityBatchBits = 1024
+
+// bitsCardinality returns the cardinality of the given Bits.
+//
+// This method processes bits in batches of 1024 using [util.ApplyMask] and
+// [util.FixedBitSet.Cardinality], which is faster than checking bits one by
+// one.
+//
+// Port of the package-private org.apache.lucene.index.CheckIndex#bitsCardinality
+// (Apache Lucene 10.5.0, CheckIndex.java:1312). It is unexported here for the
+// same reason it is package-private there: Lucene's Bits interface carries only
+// get/length/applyMask, so every reader in this package that needs a count of a
+// Bits goes through this one helper rather than through a method on the
+// interface.
+//
+// The error return has no Java counterpart: Java's `new FixedBitSet(1024)`
+// cannot fail, whereas the Go constructor reports a negative size.
+func bitsCardinality(bits util.Bits) (int, error) {
+	cardinality := 0
+	copyBits, err := util.NewFixedBitSet(bitsCardinalityBatchBits)
+	if err != nil {
+		return 0, err
+	}
+	for offset := 0; offset < bits.Length(); offset += copyBits.Length() {
+		numBitsToCopy := min(bits.Length()-offset, copyBits.Length())
+		copyBits.SetRange(0, copyBits.Length())
+		if numBitsToCopy < copyBits.Length() {
+			// Clear ghost bits
+			copyBits.ClearRange(numBitsToCopy, copyBits.Length())
+		}
+		util.ApplyMask(bits, copyBits, offset)
+		cardinality += copyBits.Cardinality()
+	}
+	return cardinality, nil
 }

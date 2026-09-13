@@ -32,16 +32,6 @@ func (b *SortingBits) Length() int {
 	return b.in.Length()
 }
 
-// Cardinality returns the number of set bits. A Sorter.DocMap is a
-// permutation of [0, maxDoc), so reordering does not change how many bits are
-// set and the delegate's count is exact.
-//
-// PORT NOTE: Lucene's Bits has no cardinality(); util.Bits adds it, so the
-// method has no Java counterpart to mirror.
-func (b *SortingBits) Cardinality() int {
-	return b.in.Cardinality()
-}
-
 // pointValuesWithTree is the point-tree surface Lucene exposes through
 // PointValues.getPointTree(). spi.PointValues carries only the per-field
 // statistics, so the cursor is recovered by assertion — the same technique

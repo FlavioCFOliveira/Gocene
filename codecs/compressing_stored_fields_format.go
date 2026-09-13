@@ -17,6 +17,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/internal/util"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util/compress"
 )
 
 // CompressingStoredFieldsFormat is a StoredFieldsFormat that compresses documents
@@ -64,10 +65,50 @@ func (m CompressionMode) decompressor() func([]byte, int) ([]byte, error) {
 	}
 }
 
+// lz4Decompress decompresses an LZ4 block produced by Apache Lucene.
+//
+// It is the adapter that gives this package's []byte-shaped decompressor
+// signature access to the faithful port of org.apache.lucene.util.compress.LZ4
+// in util/compress. The reference is the anonymous LZ4_DECOMPRESSOR held by
+// org.apache.lucene.codecs.compressing.CompressionMode (Lucene 10.5.0,
+// CompressionMode.java:118-141), which is the Decompressor returned by both
+// CompressionMode.FAST and CompressionMode.FAST_DECOMPRESSION:
+//
+//	public void decompress(DataInput in, int originalLength, int offset,
+//	                       int length, BytesRef bytes) throws IOException {
+//	  assert offset + length <= originalLength;
+//	  // add 7 padding bytes, this is not necessary but can help decompression run faster
+//	  if (bytes.bytes.length < originalLength + 7) {
+//	    bytes.bytes = new byte[ArrayUtil.oversize(originalLength + 7, 1)];
+//	  }
+//	  final int decompressedLength = LZ4.decompress(in, offset + length, bytes.bytes, 0);
+//	  if (decompressedLength > originalLength) {
+//	    throw new CorruptIndexException(
+//	        "Corrupted: lengths mismatch: " + decompressedLength + " > " + originalLength, in);
+//	  }
+//	  bytes.offset = offset;
+//	  bytes.length = length;
+//	}
+//
+// This entry point carries the whole-block case (Java offset == 0 and
+// length == originalLength), so Java's LZ4.decompress(in, offset + length, ...)
+// becomes LZ4Decompress(in, uncompressedLen, ...). The 7 padding bytes and the
+// "lengths mismatch" guard are reproduced exactly.
+//
+// LZ4.decompress is DataInput-based in Java and so is its Go port, so the
+// []byte block is wrapped in a store.ByteArrayDataInput rather than the LZ4
+// decoder being written a second time against a slice.
 func lz4Decompress(data []byte, uncompressedLen int) ([]byte, error) {
-	// Placeholder: in production, use a real LZ4 library.
-	// For now, assume it's just identity or a simple length-prefixed format.
-	return data, nil
+	dest := make([]byte, uncompressedLen+lz4DecompressorPadding)
+	in := store.NewByteArrayDataInput(data)
+	decompressedLength, err := compress.LZ4Decompress(in, uncompressedLen, dest, 0)
+	if err != nil {
+		return nil, err
+	}
+	if decompressedLength > uncompressedLen {
+		return nil, fmt.Errorf("Corrupted: lengths mismatch: %d > %d", decompressedLength, uncompressedLen)
+	}
+	return dest[:decompressedLength], nil
 }
 
 func deflateDecompress(data []byte, uncompressedLen int) ([]byte, error) {

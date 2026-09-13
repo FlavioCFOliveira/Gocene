@@ -86,22 +86,23 @@ func (f *Lucene104TermVectorsFormat) VectorsWriter(state *SegmentWriteState) (Te
 }
 
 // VectorsReader returns a term vectors reader.
-// When the Lucene90 term-vectors factory has been registered, this method
-// attempts to open the segment with the Lucene90 format first.  If that fails
-// with a header-mismatch or missing-file error, it falls back to the legacy
-// Gocene104 simple format so that both Lucene-compatible and older Gocene
-// indexes remain readable.
+//
+// Apache Lucene's Lucene104Codec.vectorsFormat() returns a
+// Lucene90TermVectorsFormat (Lucene104Codec.java:71) — there is no
+// Lucene104TermVectorsFormat and no Lucene104 term-vectors reader in Lucene
+// 10.5.0 — so the only faithful reader is the Lucene90 one, opened through the
+// registered factory. The invented "Gocene104TermVectorsData" fallback reader
+// that used to sit here read a file format Apache Lucene never writes, and it
+// was reached by discarding the real reader's error.
 func (f *Lucene104TermVectorsFormat) VectorsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos, context store.IOContext) (TermVectorsReader, error) {
-	if lucene90TermVectorsFormatFactory != nil {
-		lucene90Format := lucene90TermVectorsFormatFactory()
-		if lucene90Format != nil {
-			reader, err := lucene90Format.VectorsReader(dir, segmentInfo, fieldInfos, context)
-			if err == nil {
-				return reader, nil
-			}
-		}
+	if lucene90TermVectorsFormatFactory == nil {
+		return nil, fmt.Errorf("codecs: no Lucene90 term-vectors format registered; import codecs/lucene90")
 	}
-	return NewLucene104TermVectorsReader(dir, segmentInfo, fieldInfos, context)
+	lucene90Format := lucene90TermVectorsFormatFactory()
+	if lucene90Format == nil {
+		return nil, fmt.Errorf("codecs: the registered Lucene90 term-vectors factory produced no format")
+	}
+	return lucene90Format.VectorsReader(dir, segmentInfo, fieldInfos, context)
 }
 
 // -----------------------------------------------------------------------------
@@ -472,167 +473,6 @@ type tv104Pos struct {
 	startOffset int
 	endOffset   int
 	payload     []byte
-}
-
-// Lucene104TermVectorsReader reads .tvd files written by Lucene104TermVectorsWriter.
-type Lucene104TermVectorsReader struct {
-	docs []tv104Doc
-	mu   sync.RWMutex
-}
-
-// NewLucene104TermVectorsReader opens a Lucene104TermVectorsReader for the given segment.
-func NewLucene104TermVectorsReader(dir store.Directory, segmentInfo *index.SegmentInfo, _ *index.FieldInfos, _ store.IOContext) (*Lucene104TermVectorsReader, error) {
-	r := &Lucene104TermVectorsReader{}
-	if err := r.load(dir, segmentInfo); err != nil {
-		return nil, err
-	}
-	return r, nil
-}
-
-// load reads the .tvd file.
-func (r *Lucene104TermVectorsReader) load(dir store.Directory, si *index.SegmentInfo) error {
-	fileName := si.Name() + ".tvd"
-	if !dir.FileExists(fileName) {
-		return nil
-	}
-	rawIn, err := dir.OpenInput(fileName, store.IOContext{Context: store.ContextRead})
-	if err != nil {
-		return fmt.Errorf("open .tvd: %w", err)
-	}
-	defer rawIn.Close()
-
-	in := store.NewChecksumIndexInput(rawIn)
-	segID := si.GetID()
-	if _, err := CheckIndexHeader(in, lucene104TVDataCodec,
-		lucene104TVDataVersion, lucene104TVDataVersion, segID, ""); err != nil {
-		return fmt.Errorf(".tvd header mismatch: %w", err)
-	}
-
-	numDocs, err := store.ReadVInt(in)
-	if err != nil {
-		return err
-	}
-	r.docs = make([]tv104Doc, numDocs)
-	for i := int32(0); i < numDocs; i++ {
-		numFields, err := store.ReadVInt(in)
-		if err != nil {
-			return fmt.Errorf("doc %d numFields: %w", i, err)
-		}
-		doc := tv104Doc{fields: make(map[string]*tv104Field, numFields)}
-		for j := int32(0); j < numFields; j++ {
-			fieldName, err := store.ReadString(in)
-			if err != nil {
-				return fmt.Errorf("doc %d field %d name: %w", i, j, err)
-			}
-			flags, err := in.ReadByte()
-			if err != nil {
-				return fmt.Errorf("doc %d field %d flags: %w", i, j, err)
-			}
-			hasPositions := flags&0x01 != 0
-			hasOffsets := flags&0x02 != 0
-			hasPayloads := flags&0x04 != 0
-
-			numTerms, err := store.ReadVInt(in)
-			if err != nil {
-				return fmt.Errorf("doc %d field %d numTerms: %w", i, j, err)
-			}
-			f := &tv104Field{
-				name:         fieldName,
-				hasPositions: hasPositions,
-				hasOffsets:   hasOffsets,
-				hasPayloads:  hasPayloads,
-				terms:        make([]*tv104Term, 0, numTerms),
-			}
-			for k := int32(0); k < numTerms; k++ {
-				termLen, err := store.ReadVInt(in)
-				if err != nil {
-					return fmt.Errorf("doc %d field %d term %d len: %w", i, j, k, err)
-				}
-				termBytes, err := in.ReadBytesN(int(termLen))
-				if err != nil {
-					return fmt.Errorf("doc %d field %d term %d bytes: %w", i, j, k, err)
-				}
-				freq, err := store.ReadVInt(in)
-				if err != nil {
-					return fmt.Errorf("doc %d field %d term %d freq: %w", i, j, k, err)
-				}
-				t := &tv104Term{text: termBytes, positions: make([]tv104Pos, freq)}
-				for p := int32(0); p < freq; p++ {
-					var pos tv104Pos
-					if hasPositions {
-						v, err := store.ReadVInt(in)
-						if err != nil {
-							return err
-						}
-						pos.position = int(v)
-					}
-					if hasOffsets {
-						so, err := store.ReadVInt(in)
-						if err != nil {
-							return err
-						}
-						eo, err := store.ReadVInt(in)
-						if err != nil {
-							return err
-						}
-						pos.startOffset = int(so)
-						pos.endOffset = int(eo)
-					}
-					if hasPayloads {
-						pl, err := store.ReadVInt(in)
-						if err != nil {
-							return err
-						}
-						if pl > 0 {
-							payload, err := in.ReadBytesN(int(pl))
-							if err != nil {
-								return err
-							}
-							pos.payload = payload
-						}
-					}
-					t.positions[p] = pos
-				}
-				f.terms = append(f.terms, t)
-			}
-			doc.fields[fieldName] = f
-		}
-		r.docs[i] = doc
-	}
-	return nil
-}
-
-// Get retrieves term vectors for the given document ID.
-func (r *Lucene104TermVectorsReader) Get(docID int) (index.Fields, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if docID < 0 || docID >= len(r.docs) {
-		return nil, nil
-	}
-	fields := r.docs[docID].fields
-	if len(fields) == 0 {
-		return nil, nil
-	}
-	return newTV104Fields(fields), nil
-}
-
-// GetField retrieves the term vector for a specific field in a document.
-func (r *Lucene104TermVectorsReader) GetField(docID int, field string) (index.Terms, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if docID < 0 || docID >= len(r.docs) {
-		return nil, nil
-	}
-	f, ok := r.docs[docID].fields[field]
-	if !ok {
-		return nil, nil
-	}
-	return newTV104Terms(f), nil
-}
-
-// Close releases resources.
-func (r *Lucene104TermVectorsReader) Close() error {
-	return nil
 }
 
 // -----------------------------------------------------------------------------

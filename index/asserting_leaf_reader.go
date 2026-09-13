@@ -701,10 +701,6 @@ func (b *AssertingBits) Length() int {
 	return b.in.Length()
 }
 
-func (b *AssertingBits) Cardinality() int {
-	return b.in.Cardinality()
-}
-
 // DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
 // Apache Lucene 10.5.0, which assumes runs of a single doc ID and returns
 // docID() + 1; every subclass inherits it unless it overrides it.

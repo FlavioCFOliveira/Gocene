@@ -30,9 +30,6 @@ type Bits interface {
 
 	// Length returns the number of bits exposed by this Bits.
 	Length() int
-
-	// Cardinality returns the number of set bits.
-	Cardinality() int
 }
 
 // EmptyBitsArray is the Go equivalent of {@code Bits.EMPTY_ARRAY}, a
