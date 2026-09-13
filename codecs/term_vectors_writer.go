@@ -49,7 +49,7 @@ func (h *TermVectorsWriterHelper) AddProx(writer spi.TermVectorsWriter, numProx 
 				payload.GrowNoCopy(int(payloadLength))
 
 				buf := make([]byte, payloadLength)
-				if err := positions.ReadBytes(buf); err != nil {
+				if err := positions.ReadBytes(buf, 0, len(buf)); err != nil {
 					return err
 				}
 				payload.SetLength(int(payloadLength))

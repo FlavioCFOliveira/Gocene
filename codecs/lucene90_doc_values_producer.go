@@ -502,7 +502,7 @@ func (p *lucene90DVProducer) readSortedSetEntry(meta store.DataInput) (*dvSorted
 }
 
 func readTermsDictEntry(meta store.DataInput, e *dvTermsDictEntry) error {
-	size, err := store.ReadVLong(meta)
+	size, err := meta.ReadVLong()
 	if err != nil {
 		return err
 	}
@@ -663,6 +663,21 @@ func (p *lucene90DVProducer) GetSkipper(field *index.FieldInfo) (DocValuesSkippe
 		return nil, nil
 	}
 	return &lucene90DocValuesSkipper{entry: entry, docID: -1}, nil
+}
+
+// GetMergeInstance returns an instance optimized for merging: a producer that
+// shares the decoded per-field entry maps with the receiver but reads through
+// its own clone of the .dvd input.
+//
+// Mirrors Lucene90DocValuesProducer.getMergeInstance() of Apache Lucene 10.5.0,
+// which hands the entry maps to the private cloning constructor; that
+// constructor stores data.clone() and sets merging = true.
+func (p *lucene90DVProducer) GetMergeInstance() *lucene90DVProducer {
+	clone := *p
+	if p.data != nil {
+		clone.data = p.data.Clone()
+	}
+	return &clone
 }
 
 func (p *lucene90DVProducer) CheckIntegrity() error { return nil }
@@ -1067,7 +1082,7 @@ func (td *dvTermsDict) Next() ([]byte, error) {
 			td.term = make([]byte, total)
 		}
 		td.term = td.term[:total]
-		if err := td.blockInput.ReadBytes(td.term[prefixLen:]); err != nil {
+		if err := td.blockInput.ReadBytes(td.term[prefixLen:], 0, len(td.term[prefixLen:])); err != nil {
 			return nil, err
 		}
 	}
@@ -1141,7 +1156,7 @@ func (td *dvTermsDict) decompressBlock() error {
 		td.term = make([]byte, termLen)
 	}
 	td.term = td.term[:termLen]
-	if err := td.bytes.ReadBytes(td.term); err != nil {
+	if err := td.bytes.ReadBytes(td.term, 0, len(td.term)); err != nil {
 		return err
 	}
 	offset := td.bytes.GetFilePointer()
@@ -1742,7 +1757,7 @@ func (s *sortedSetDVSparse) DocValueCount() int {
 	}
 	return s.count
 }
-func (s *sortedSetDVSparse) Cost() int64        { return s.disi.Cost() }
+func (s *sortedSetDVSparse) Cost() int64 { return s.disi.Cost() }
 
 // sortedSetDVGeneral wraps a SortedNumericDocValues for multi-valued case.
 type sortedSetDVGeneral struct {
@@ -1941,14 +1956,14 @@ func (s *sortedNumericDVSparse) NextValue() (int64, error) {
 	s.start++
 	return v, nil
 }
-func (s *sortedNumericDVSparse) LongValue() (int64, error)   { return s.NextValue() }
+func (s *sortedNumericDVSparse) LongValue() (int64, error) { return s.NextValue() }
 func (s *sortedNumericDVSparse) DocValueCount() (int, error) {
 	if err := s.setIfNeeded(); err != nil {
 		return 0, err
 	}
 	return s.count, nil
 }
-func (s *sortedNumericDVSparse) Cost() int64                 { return s.disi.Cost() }
+func (s *sortedNumericDVSparse) Cost() int64 { return s.disi.Cost() }
 
 // ---------------------------------------------------------------------------
 // Utility interfaces and helpers
@@ -2000,7 +2015,7 @@ func dvSliceRandomAccess(data store.IndexInput, offset, length int64) (store.Ran
 	}
 	// fall back: read into memory
 	buf := make([]byte, length)
-	if err := sub.ReadBytes(buf); err != nil && !errors.Is(err, io.EOF) {
+	if err := sub.ReadBytes(buf, 0, len(buf)); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("dvSliceRandomAccess: read %d bytes at %d: %w", length, offset, err)
 	}
 	return store.NewByteArrayRandomAccessInput(buf), nil

@@ -583,6 +583,74 @@ func (r *PerFieldKnnVectorsReader) SearchNearestByteCollector(
 
 // CheckIntegrity runs an integrity check on every underlying delegate
 // reader.
+// GetMergeInstance returns a reader whose delegates are each delegate's own
+// merge instance, with the per-field map rebuilt so that fields which shared a
+// delegate still share the same merge instance.
+//
+// Mirrors PerFieldKnnVectorsFormat.FieldsReader.getMergeInstance() of Apache
+// Lucene 10.5.0, which calls the FieldsReader(FieldsReader) copy constructor:
+// that constructor fills `fields` with
+// fieldsReader.fields.get(fi.number).getMergeInstance().
+func (r *PerFieldKnnVectorsReader) GetMergeInstance() (KnnVectorsReader, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	oldToNew := make(map[KnnVectorsReader]KnnVectorsReader, len(r.readersBySuffix))
+	bySuffix := make(map[string]KnnVectorsReader, len(r.readersBySuffix))
+	for suffix, reader := range r.readersBySuffix {
+		merged, err := reader.GetMergeInstance()
+		if err != nil {
+			return nil, err
+		}
+		bySuffix[suffix] = merged
+		oldToNew[reader] = merged
+	}
+
+	byField := make(map[int]KnnVectorsReader, len(r.readersByField))
+	for fieldNumber, reader := range r.readersByField {
+		byField[fieldNumber] = oldToNew[reader]
+	}
+
+	return &PerFieldKnnVectorsReader{
+		state:           r.state,
+		readersByField:  byField,
+		readersBySuffix: bySuffix,
+	}, nil
+}
+
+// FinishMerge forwards to every delegate.
+//
+// Mirrors PerFieldKnnVectorsFormat.FieldsReader.finishMerge() of Apache
+// Lucene 10.5.0, which iterates fields.values() calling finishMerge().
+func (r *PerFieldKnnVectorsReader) FinishMerge() error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, reader := range r.readersByField {
+		if err := reader.FinishMerge(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetOffHeapByteSize forwards to the delegate that owns the field.
+//
+// Mirrors PerFieldKnnVectorsFormat.FieldsReader.getOffHeapByteSize(FieldInfo)
+// of Apache Lucene 10.5.0: fields.get(fieldInfo.number).getOffHeapByteSize(fieldInfo).
+func (r *PerFieldKnnVectorsReader) GetOffHeapByteSize(fieldInfo *index.FieldInfo) map[string]int64 {
+	if fieldInfo == nil {
+		return map[string]int64{}
+	}
+	r.mu.RLock()
+	reader, ok := r.readersByField[fieldInfo.Number()]
+	r.mu.RUnlock()
+	if !ok || reader == nil {
+		return map[string]int64{}
+	}
+	return reader.GetOffHeapByteSize(fieldInfo)
+}
+
 func (r *PerFieldKnnVectorsReader) CheckIntegrity() error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

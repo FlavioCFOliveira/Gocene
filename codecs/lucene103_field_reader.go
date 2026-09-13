@@ -89,15 +89,15 @@ func NewLucene103FieldReader(
 		return nil, errors.New("Lucene103FieldReader: minTerm and maxTerm must not be nil")
 	}
 
-	indexStart, err := store.ReadVLong(metaIn)
+	indexStart, err := metaIn.ReadVLong()
 	if err != nil {
 		return nil, fmt.Errorf("Lucene103FieldReader: read indexStart: %w", err)
 	}
-	rootFP, err := store.ReadVLong(metaIn)
+	rootFP, err := metaIn.ReadVLong()
 	if err != nil {
 		return nil, fmt.Errorf("Lucene103FieldReader: read rootFP: %w", err)
 	}
-	indexEnd, err := store.ReadVLong(metaIn)
+	indexEnd, err := metaIn.ReadVLong()
 	if err != nil {
 		return nil, fmt.Errorf("Lucene103FieldReader: read indexEnd: %w", err)
 	}

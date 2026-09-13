@@ -331,7 +331,7 @@ func l99prefixSum16(arr []int64, base int64) {
 // l99readLongs reads count int64 values from in (big-endian) into longs[0..count-1].
 func l99readLongs(in store.IndexInput, count int, longs []int64) error {
 	buf := make([]byte, count*8)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 		return err
 	}
 	for i := 0; i < count; i++ {
@@ -445,7 +445,7 @@ func (f *lucene99ForUtil) encode(ints []int64, bitsPerValue int, out store.Index
 	var b [8]byte
 	for i := 0; i < numLongsPerShift; i++ {
 		binary.BigEndian.PutUint64(b[:], uint64(tmp[i]))
-		if err := out.WriteBytes(b[:]); err != nil {
+		if err := out.WriteBytes(b[:], 0, len(b[:])); err != nil {
 			return err
 		}
 	}

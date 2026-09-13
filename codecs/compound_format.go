@@ -33,9 +33,6 @@ import (
 // CompoundFormat is an alias of spi.CompoundFormat.
 type CompoundFormat = spi.CompoundFormat
 
-// CompoundDirectory is an alias of spi.CompoundDirectory.
-type CompoundDirectory = spi.CompoundDirectory
-
 // BaseCompoundFormat provides common functionality for CompoundFormat implementations.
 type BaseCompoundFormat struct {
 	name string
@@ -220,7 +217,7 @@ func (f *Lucene90CompoundFormat) writeCompoundFile(entriesOut store.IndexOutput,
 		return sized[i].name < sized[j].name
 	})
 
-	if err := store.WriteVInt(entriesOut, int32(len(sized))); err != nil {
+	if err := entriesOut.WriteVInt(int32(len(sized))); err != nil {
 		return fmt.Errorf("lucene90 compound: write numFiles: %w", err)
 	}
 
@@ -323,10 +320,10 @@ func copyDataInputToOutput(in store.DataInput, n int64, out store.IndexOutput) e
 		if take > n {
 			take = n
 		}
-		if err := in.ReadBytes(scratch[:take]); err != nil {
+		if err := in.ReadBytes(scratch[:take], 0, len(scratch[:take])); err != nil {
 			return err
 		}
-		if err := out.WriteBytes(scratch[:take]); err != nil {
+		if err := out.WriteBytes(scratch[:take], 0, len(scratch[:take])); err != nil {
 			return err
 		}
 		n -= take

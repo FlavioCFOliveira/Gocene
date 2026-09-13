@@ -148,7 +148,7 @@ func NewCompressingTermVectorsWriter(state *SegmentWriteState, mode CompressionM
 	if err := store.WriteUint32(out, 0x54564400); err != nil { // "TVD\0"
 		return nil, errors.Join(fmt.Errorf("failed to write magic number: %w", err), out.Close())
 	}
-	if err := store.WriteVInt(out, 1); err != nil { // Version
+	if err := out.WriteVInt(1); err != nil { // Version
 		return nil, errors.Join(fmt.Errorf("failed to write version: %w", err), out.Close())
 	}
 
@@ -308,7 +308,7 @@ func (w *CompressingTermVectorsWriter) flushChunk() error {
 	}
 
 	// Write compressed data
-	if err := w.out.WriteBytes(compressed); err != nil {
+	if err := w.out.WriteBytes(compressed, 0, len(compressed)); err != nil {
 		return fmt.Errorf("failed to write chunk: %w", err)
 	}
 
@@ -415,7 +415,7 @@ func (w *CompressingTermVectorsWriter) writeIndex() error {
 	if err := store.WriteUint32(out, 0x54565800); err != nil { // "TVX\0"
 		return fmt.Errorf("failed to write index magic number: %w", err)
 	}
-	if err := store.WriteVInt(out, 1); err != nil { // Version
+	if err := out.WriteVInt(1); err != nil { // Version
 		return fmt.Errorf("failed to write index version: %w", err)
 	}
 
@@ -518,7 +518,7 @@ func (r *CompressingTermVectorsReader) loadData(fileName string) error {
 	// Read the rest of the file (compressed data)
 	length := in.Length() - in.GetFilePointer()
 	compressedData := make([]byte, length)
-	if err := in.ReadBytes(compressedData); err != nil {
+	if err := in.ReadBytes(compressedData, 0, len(compressedData)); err != nil {
 		return fmt.Errorf("failed to read compressed data: %w", err)
 	}
 

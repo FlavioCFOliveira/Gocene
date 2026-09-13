@@ -10,7 +10,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -41,7 +40,7 @@ func (f *AssertingPostingsFormat) FieldsConsumer(state *SegmentWriteState) (Fiel
 		return nil, err
 	}
 	return &AssertingFieldsConsumer{
-		in:        in,
+		in:         in,
 		writeState: state,
 	}, nil
 }

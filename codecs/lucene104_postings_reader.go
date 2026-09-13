@@ -328,7 +328,7 @@ func (r *Lucene104PostingsReader) DecodeTerm(
 		its.PayStartFP = 0
 	}
 
-	l, err := store.ReadVLong(in)
+	l, err := in.ReadVLong()
 	if err != nil {
 		return fmt.Errorf("lucene104 decode term: read vlong l: %w", err)
 	}
@@ -351,7 +351,7 @@ func (r *Lucene104PostingsReader) DecodeTerm(
 
 	opts := fieldInfo.IndexOptions()
 	if opts >= index.IndexOptionsDocsAndFreqsAndPositions {
-		delta, err2 := store.ReadVLong(in)
+		delta, err2 := in.ReadVLong()
 		if err2 != nil {
 			return fmt.Errorf("lucene104 decode term: read pos fp delta: %w", err2)
 		}
@@ -359,7 +359,7 @@ func (r *Lucene104PostingsReader) DecodeTerm(
 
 		if opts >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets ||
 			fieldInfo.HasPayloads() {
-			delta2, err3 := store.ReadVLong(in)
+			delta2, err3 := in.ReadVLong()
 			if err3 != nil {
 				return fmt.Errorf("lucene104 decode term: read pay fp delta: %w", err3)
 			}
@@ -367,7 +367,7 @@ func (r *Lucene104PostingsReader) DecodeTerm(
 		}
 
 		if termState.TotalTermFreq > int64(lucene104BlockSize) {
-			offset, err4 := store.ReadVLong(in)
+			offset, err4 := in.ReadVLong()
 			if err4 != nil {
 				return fmt.Errorf("lucene104 decode term: read lastPosBlockOffset: %w", err4)
 			}
@@ -490,7 +490,7 @@ func readVLong15(in store.IndexInput) (int64, error) {
 	if s >= 0 {
 		return int64(s), nil
 	}
-	v, err := store.ReadVLong(in)
+	v, err := in.ReadVLong()
 	if err != nil {
 		return 0, err
 	}
@@ -1048,7 +1048,7 @@ func (e *blockPostingsEnum) skipLevel1To(target int) error {
 		}
 		e.level1LastDocID += int(delta1)
 
-		delta2, err := store.ReadVLong(e.docIn)
+		delta2, err := e.docIn.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("lucene104 skipLevel1To: read level1DocEndFP delta: %w", err)
 		}
@@ -1067,7 +1067,7 @@ func (e *blockPostingsEnum) skipLevel1To(target int) error {
 			}
 
 			if e.needsImpacts && e.level1LastDocID >= target {
-				if err4 := e.docIn.ReadBytes(e.level1SerializedImpacts[:numImpactBytes]); err4 != nil {
+				if err4 := e.docIn.ReadBytes(e.level1SerializedImpacts[:numImpactBytes], 0, len(e.level1SerializedImpacts[:numImpactBytes])); err4 != nil {
 					return fmt.Errorf("lucene104 skipLevel1To: read impact bytes: %w", err4)
 				}
 				e.level1ImpactLen = int(numImpactBytes)
@@ -1078,7 +1078,7 @@ func (e *blockPostingsEnum) skipLevel1To(target int) error {
 			}
 
 			if e.indexHasPos {
-				posEndFPDelta, err5 := store.ReadVLong(e.docIn)
+				posEndFPDelta, err5 := e.docIn.ReadVLong()
 				if err5 != nil {
 					return fmt.Errorf("lucene104 skipLevel1To: read posEndFP delta: %w", err5)
 				}
@@ -1091,7 +1091,7 @@ func (e *blockPostingsEnum) skipLevel1To(target int) error {
 				e.level1BlockPosUpto = int(posUpto) & 0xFF
 
 				if e.indexHasOffsetsOrPayloads {
-					payEndFPDelta, err7 := store.ReadVLong(e.docIn)
+					payEndFPDelta, err7 := e.docIn.ReadVLong()
 					if err7 != nil {
 						return fmt.Errorf("lucene104 skipLevel1To: read payEndFP delta: %w", err7)
 					}
@@ -1119,7 +1119,7 @@ func (e *blockPostingsEnum) skipLevel1To(target int) error {
 // readLevel0PosData reads pos/pay skip data for a level-0 block.
 // Mirrors BlockPostingsEnum.readLevel0PosData().
 func (e *blockPostingsEnum) readLevel0PosData() error {
-	posEndFPDelta, err := store.ReadVLong(e.docIn)
+	posEndFPDelta, err := e.docIn.ReadVLong()
 	if err != nil {
 		return err
 	}
@@ -1132,7 +1132,7 @@ func (e *blockPostingsEnum) readLevel0PosData() error {
 	e.level0BlockPosUpto = int(posUpto) & 0xFF
 
 	if e.indexHasOffsetsOrPayloads {
-		payEndFPDelta, err3 := store.ReadVLong(e.docIn)
+		payEndFPDelta, err3 := e.docIn.ReadVLong()
 		if err3 != nil {
 			return err3
 		}
@@ -1193,7 +1193,7 @@ func (e *blockPostingsEnum) skipLevel0To(target int) error {
 			break
 		}
 
-		numSkipBytes, err := store.ReadVLong(e.docIn)
+		numSkipBytes, err := e.docIn.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("lucene104 skipLevel0To: read numSkipBytes: %w", err)
 		}
@@ -1223,7 +1223,7 @@ func (e *blockPostingsEnum) skipLevel0To(target int) error {
 					return fmt.Errorf("lucene104 skipLevel0To: read numImpactBytes: %w", err5)
 				}
 				if e.needsImpacts && found {
-					if err6 := e.docIn.ReadBytes(e.level0SerializedImpacts[:numImpactBytes]); err6 != nil {
+					if err6 := e.docIn.ReadBytes(e.level0SerializedImpacts[:numImpactBytes], 0, len(e.level0SerializedImpacts[:numImpactBytes])); err6 != nil {
 						return fmt.Errorf("lucene104 skipLevel0To: read impact bytes: %w", err6)
 					}
 					e.level0ImpactLen = int(numImpactBytes)
@@ -1298,7 +1298,7 @@ func (e *blockPostingsEnum) doMoveToNextLevel0Block() error {
 
 	if e.docCountLeft >= lucene104BlockSize {
 		// Read level-0 skip header.
-		level0NumBytes, err := store.ReadVLong(e.docIn)
+		level0NumBytes, err := e.docIn.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("lucene104 doMoveToNextLevel0Block: read level0NumBytes: %w", err)
 		}
@@ -1322,7 +1322,7 @@ func (e *blockPostingsEnum) doMoveToNextLevel0Block() error {
 				return fmt.Errorf("lucene104 doMoveToNextLevel0Block: read numImpactBytes: %w", err4)
 			}
 			if e.needsImpacts {
-				if err5 := e.docIn.ReadBytes(e.level0SerializedImpacts[:numImpactBytes]); err5 != nil {
+				if err5 := e.docIn.ReadBytes(e.level0SerializedImpacts[:numImpactBytes], 0, len(e.level0SerializedImpacts[:numImpactBytes])); err5 != nil {
 					return err5
 				}
 				e.level0ImpactLen = int(numImpactBytes)
@@ -1358,7 +1358,7 @@ func (e *blockPostingsEnum) moveToNextLevel0Block() error {
 	e.prevDocID = e.level0LastDocID
 
 	if e.needsDocsAndFreqsOnly && e.docCountLeft >= lucene104BlockSize {
-		level0NumBytes, err := store.ReadVLong(e.docIn)
+		level0NumBytes, err := e.docIn.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("lucene104 moveToNextLevel0Block: read level0NumBytes: %w", err)
 		}
@@ -1547,7 +1547,7 @@ func (e *blockPostingsEnum) refillLastPositionBlock() error {
 						copy(newBytes, e.payloadBytes)
 						e.payloadBytes = newBytes
 					}
-					if err2 := e.posIn.ReadBytes(e.payloadBytes[e.payloadByteUpto : e.payloadByteUpto+payloadLength]); err2 != nil {
+					if err2 := e.posIn.ReadBytes(e.payloadBytes[e.payloadByteUpto:e.payloadByteUpto+payloadLength], 0, len(e.payloadBytes[e.payloadByteUpto:e.payloadByteUpto+payloadLength])); err2 != nil {
 						return err2
 					}
 					e.payloadByteUpto += payloadLength
@@ -1598,7 +1598,7 @@ func (e *blockPostingsEnum) refillOffsetsOrPayloads() error {
 			if n > len(e.payloadBytes) {
 				e.payloadBytes = make([]byte, n*2)
 			}
-			if err3 := e.payIn.ReadBytes(e.payloadBytes[:n]); err3 != nil {
+			if err3 := e.payIn.ReadBytes(e.payloadBytes[:n], 0, len(e.payloadBytes[:n])); err3 != nil {
 				return err3
 			}
 		} else if e.payIn != nil {
@@ -1890,7 +1890,7 @@ func readImpactsFromBytes(in *store.ByteArrayDataInput, reuse *index.FreqAndNorm
 		freq += freqDelta + 1
 		if raw&1 != 0 {
 			// norm delta is encoded as ZLong (zig-zag VLong).
-			zigzag, _ := store.ReadVLong(in)
+			zigzag, _ := in.ReadVLong()
 			// zig-zag decode: (raw >>> 1) ^ -(raw & 1)
 			normDelta := int64(zigzag>>1) ^ -(int64(zigzag) & 1)
 			norm += normDelta + 1

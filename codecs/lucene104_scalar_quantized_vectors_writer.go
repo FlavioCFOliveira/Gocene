@@ -408,7 +408,7 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeVectors(
 		if err := packQuantized(w.encoding, scratch, packed); err != nil {
 			return fmt.Errorf("lucene104 sq: pack quantized: %w", err)
 		}
-		if err := w.vectorData.WriteBytes(packed); err != nil {
+		if err := w.vectorData.WriteBytes(packed, 0, len(packed)); err != nil {
 			return err
 		}
 		if err := w.writeCorrections(corrections); err != nil {
@@ -452,21 +452,21 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeMeta(
 	if err := w.meta.WriteInt(simOrd); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(w.meta, int32(fieldInfo.VectorDimension())); err != nil {
+	if err := w.meta.WriteVInt(int32(fieldInfo.VectorDimension())); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorDataOffset); err != nil {
+	if err := w.meta.WriteVLong(vectorDataOffset); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorDataLength); err != nil {
+	if err := w.meta.WriteVLong(vectorDataLength); err != nil {
 		return err
 	}
 	count := len(docIDs)
-	if err := store.WriteVInt(w.meta, int32(count)); err != nil {
+	if err := w.meta.WriteVInt(int32(count)); err != nil {
 		return err
 	}
 	if count > 0 {
-		if err := store.WriteVInt(w.meta, int32(w.encoding.GetWireNumber())); err != nil {
+		if err := w.meta.WriteVInt(int32(w.encoding.GetWireNumber())); err != nil {
 			return err
 		}
 		if err := writeFloatsLE(w.meta, clusterCenter); err != nil {

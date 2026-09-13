@@ -125,7 +125,7 @@ func (p *lucene103PForUtil) encode(ints []int32, out store.IndexOutput) error {
 		if err := out.WriteByte(byte(numExceptions << 5)); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, intsCopy[0]); err != nil {
+		if err := out.WriteVInt(intsCopy[0]); err != nil {
 			return err
 		}
 	} else {
@@ -138,7 +138,7 @@ func (p *lucene103PForUtil) encode(ints []int32, out store.IndexOutput) error {
 		}
 	}
 
-	return out.WriteBytes(exceptions)
+	return out.WriteBytes(exceptions, 0, len(exceptions))
 }
 
 // decode decodes 128 integers from in into ints. Mirrors PForUtil.decode.
@@ -191,7 +191,7 @@ func lucene103PForUtilSkip(in store.IndexInput) error {
 	bitsPerValue := token & 0x1F
 	numExceptions := token >> 5
 	if bitsPerValue == 0 {
-		if _, err2 := store.ReadVLong(in); err2 != nil {
+		if _, err2 := in.ReadVLong(); err2 != nil {
 			return err2
 		}
 		return skipBytesInput(in, int64(numExceptions<<1))

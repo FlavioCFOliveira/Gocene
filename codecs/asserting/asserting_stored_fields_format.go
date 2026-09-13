@@ -8,8 +8,8 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // Status represents the state of a document being written.
@@ -84,21 +84,54 @@ func (r *AssertingStoredFieldsReader) Close() error {
 	return err
 }
 
-func (r *AssertingStoredFieldsReader) Clone() (spi.StoredFieldsReader, error) {
+// Clone mirrors AssertingStoredFieldsReader.clone():
+//
+//	assert merging == false : "Merge instances do not support cloning";
+//	return new AssertingStoredFieldsReader(in.clone(), maxDoc, false);
+//
+// Lucene declares clone() on the StoredFieldsReader abstract class and it
+// throws no checked exception, hence the single, error-free return value.
+// spi.StoredFieldsReader does not carry the hook, so the delegate's clone()
+// is recovered by assertion on the wide read surface — the same convention
+// the sibling assertingPointsReader applies to GetMergeInstance. A delegate
+// without the hook cannot arise in Lucene, where every StoredFieldsReader
+// implements it, so its absence is a programming error and panics rather
+// than silently degrading to a shared delegate.
+func (r *AssertingStoredFieldsReader) Clone() spi.StoredFieldsReader {
 	AssertState(!r.merging, "Merge instances do not support cloning")
-	clonedIn, err := r.in.Clone()
-	if err != nil {
-		return nil, err
+	wideReader, ok := r.in.(interface {
+		Clone() spi.StoredFieldsReader
+	})
+	if !ok {
+		panic("AssertingStoredFieldsReader: underlying StoredFieldsReader does not expose Clone")
 	}
-	return NewAssertingStoredFieldsReader(clonedIn, r.maxDoc, false), nil
+	return NewAssertingStoredFieldsReader(wideReader.Clone(), r.maxDoc, false)
 }
 
-func (r *AssertingStoredFieldsReader) GetMergeInstance() (spi.StoredFieldsReader, error) {
-	mergeIn, err := r.in.GetMergeInstance()
-	if err != nil {
-		return nil, err
+// CheckIntegrity delegates to the wrapped reader. Mirrors
+// AssertingStoredFieldsReader.checkIntegrity():
+//
+//	in.checkIntegrity();
+func (r *AssertingStoredFieldsReader) CheckIntegrity() error {
+	return r.in.CheckIntegrity()
+}
+
+// GetMergeInstance mirrors AssertingStoredFieldsReader.getMergeInstance():
+//
+//	return new AssertingStoredFieldsReader(in.getMergeInstance(), maxDoc, true);
+//
+// Lucene declares getMergeInstance() on the StoredFieldsReader abstract
+// class with a default that returns this and throws no checked exception,
+// hence the single, error-free return value. The delegate's hook is
+// recovered exactly as in [AssertingStoredFieldsReader.Clone].
+func (r *AssertingStoredFieldsReader) GetMergeInstance() spi.StoredFieldsReader {
+	wideReader, ok := r.in.(interface {
+		GetMergeInstance() spi.StoredFieldsReader
+	})
+	if !ok {
+		panic("AssertingStoredFieldsReader: underlying StoredFieldsReader does not expose GetMergeInstance")
 	}
-	return NewAssertingStoredFieldsReader(mergeIn, r.maxDoc, true), nil
+	return NewAssertingStoredFieldsReader(wideReader.GetMergeInstance(), r.maxDoc, true)
 }
 
 type AssertingStoredFieldsWriter struct {

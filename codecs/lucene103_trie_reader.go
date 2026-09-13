@@ -350,7 +350,7 @@ func obtainRandomAccess(input store.IndexInput) (store.RandomAccessInput, error)
 		return nil, fmt.Errorf("obtainRandomAccess: rewind: %w", err)
 	}
 	if length > 0 {
-		if err := input.ReadBytes(buf); err != nil && !errors.Is(err, io.EOF) {
+		if err := input.ReadBytes(buf, 0, len(buf)); err != nil && !errors.Is(err, io.EOF) {
 			return nil, fmt.Errorf("obtainRandomAccess: read input: %w", err)
 		}
 	}

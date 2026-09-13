@@ -9,7 +9,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // BaseDocValuesConsumer provides a default implementation of the merge logic for
@@ -131,7 +130,7 @@ func IsSingleValued(docToValueCount iterableNumber) bool {
 // SingletonView returns a single-valued view, using missingValue when count is zero.
 func SingletonView(docToValueCount iterableNumber, values iterableNumber, missingValue int64) iterableNumber {
 	return &singletonView{
-		countIterator: docToValueCount,
+		countIterator:  docToValueCount,
 		valuesIterator: values,
 		missingValue:   missingValue,
 	}
@@ -149,7 +148,7 @@ type number interface {
 type singletonView struct {
 	countIterator  iterableNumber
 	valuesIterator iterableNumber
-	missingValue  int64
+	missingValue   int64
 }
 
 func (s *singletonView) Next() bool {
@@ -168,6 +167,10 @@ type fixedNumber int64
 
 func (f fixedNumber) Int64() int64 { return int64(f) }
 
+// numericDocValuesSub is the Go rendering of the private static nested class
+// DocValuesConsumer.NumericDocValuesSub of Apache Lucene 10.5.0. NormsConsumer
+// declares a nested class of the same simple name; see
+// normsConsumerNumericDocValuesSub.
 type numericDocValuesSub struct {
 	docMap index.DocMap
 	values spi.NumericDocValues
@@ -827,6 +830,11 @@ func (p *mergedNumericProducer) GetSkipper(field *spi.FieldInfo) (spi.DocValuesS
 	return nil, nil
 }
 
+// GetMergeInstance returns the receiver. The anonymous DocValuesProducer
+// Apache Lucene 10.5.0 builds inside DocValuesConsumer.merge* does not
+// override getMergeInstance, so it inherits the default, which returns this.
+func (p *mergedNumericProducer) GetMergeInstance() DocValuesProducer { return p }
+
 func (p *mergedNumericProducer) CheckIntegrity() error {
 	return nil
 }
@@ -868,6 +876,11 @@ func (p *mergedBinaryProducer) GetSortedNumeric(field *spi.FieldInfo) (spi.Sorte
 func (p *mergedBinaryProducer) GetSkipper(field *spi.FieldInfo) (spi.DocValuesSkipper, error) {
 	return nil, nil
 }
+
+// GetMergeInstance returns the receiver. The anonymous DocValuesProducer
+// Apache Lucene 10.5.0 builds inside DocValuesConsumer.merge* does not
+// override getMergeInstance, so it inherits the default, which returns this.
+func (p *mergedBinaryProducer) GetMergeInstance() DocValuesProducer { return p }
 
 func (p *mergedBinaryProducer) CheckIntegrity() error {
 	return nil
@@ -911,6 +924,11 @@ func (p *mergedSortedNumericProducer) GetSkipper(field *spi.FieldInfo) (spi.DocV
 	return nil, nil
 }
 
+// GetMergeInstance returns the receiver. The anonymous DocValuesProducer
+// Apache Lucene 10.5.0 builds inside DocValuesConsumer.merge* does not
+// override getMergeInstance, so it inherits the default, which returns this.
+func (p *mergedSortedNumericProducer) GetMergeInstance() DocValuesProducer { return p }
+
 func (p *mergedSortedNumericProducer) CheckIntegrity() error {
 	return nil
 }
@@ -953,6 +971,11 @@ func (p *mergedSortedProducer) GetSortedNumeric(field *spi.FieldInfo) (spi.Sorte
 func (p *mergedSortedProducer) GetSkipper(field *spi.FieldInfo) (spi.DocValuesSkipper, error) {
 	return nil, nil
 }
+
+// GetMergeInstance returns the receiver. The anonymous DocValuesProducer
+// Apache Lucene 10.5.0 builds inside DocValuesConsumer.merge* does not
+// override getMergeInstance, so it inherits the default, which returns this.
+func (p *mergedSortedProducer) GetMergeInstance() DocValuesProducer { return p }
 
 func (p *mergedSortedProducer) CheckIntegrity() error {
 	return nil
@@ -1017,6 +1040,11 @@ func (p *mergedSortedSetProducer) GetSortedNumeric(field *spi.FieldInfo) (spi.So
 func (p *mergedSortedSetProducer) GetSkipper(field *spi.FieldInfo) (spi.DocValuesSkipper, error) {
 	return nil, nil
 }
+
+// GetMergeInstance returns the receiver. The anonymous DocValuesProducer
+// Apache Lucene 10.5.0 builds inside DocValuesConsumer.merge* does not
+// override getMergeInstance, so it inherits the default, which returns this.
+func (p *mergedSortedSetProducer) GetMergeInstance() DocValuesProducer { return p }
 
 func (p *mergedSortedSetProducer) CheckIntegrity() error {
 	return nil

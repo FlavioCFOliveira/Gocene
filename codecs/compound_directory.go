@@ -7,6 +7,7 @@ package codecs
 import (
 	"errors"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -16,14 +17,12 @@ var (
 )
 
 // CompoundDirectory is a read-only Directory that consists of a view over a compound file.
-type CompoundDirectory interface {
-	store.Directory
-	// CheckIntegrity checks consistency of this directory.
-	//
-	// Note that this may be costly in terms of I/O, e.g. may involve computing a checksum value
-	// against large data files.
-	CheckIntegrity() error
-}
+//
+// Mirrors org.apache.lucene.codecs.CompoundDirectory in Apache Lucene 10.5.0.
+// The declaration itself lives in the spi package because index also names this
+// contract (index.CompoundDirectory), and index is imported by codecs; hosting
+// it here directly would close an index <-> codecs import cycle.
+type CompoundDirectory = spi.CompoundDirectory
 
 // BaseCompoundDirectory provides a base implementation for CompoundDirectory,
 // enforcing the read-only nature of compound files.

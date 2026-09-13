@@ -106,7 +106,7 @@ func newDVIndexedDISI(data store.IndexInput, offset, length int64, jumpTableEntr
 			return nil, err
 		}
 		buf := make([]byte, jumpTableBytes)
-		if err := data.ReadBytes(buf); err != nil {
+		if err := data.ReadBytes(buf, 0, len(buf)); err != nil {
 			return nil, err
 		}
 		_ = data.SetPosition(saved)
@@ -268,7 +268,7 @@ func (d *dvIndexedDISI) readBlockHeader() error {
 		}
 		d.blockEnd = d.denseBitmapOff + (1 << 13) // 1024 longs × 8 bytes
 		if d.denseRankPower != 0xFF {
-			if err := d.slice.ReadBytes(d.denseRankTable); err != nil {
+			if err := d.slice.ReadBytes(d.denseRankTable, 0, len(d.denseRankTable)); err != nil {
 				return err
 			}
 		}
@@ -456,7 +456,7 @@ func dvReadShortLE(in store.IndexInput) (int16, error) {
 // dvReadLongLE reads 8 bytes LE from an IndexInput.
 func dvReadLongLE(in store.IndexInput) (int64, error) {
 	buf := make([]byte, 8)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 		return 0, err
 	}
 	v := uint64(buf[0]) | uint64(buf[1])<<8 | uint64(buf[2])<<16 | uint64(buf[3])<<24 |

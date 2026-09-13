@@ -59,10 +59,6 @@ func (f *BaseNormsFormat) NormsProducer(state *SegmentReadState) (NormsProducer,
 // names), so existing implementations compile unchanged under the alias.
 type NormsConsumer = spi.NormsConsumer
 
-// NormsProducer is an alias of [spi.NormsProducer] — the per-segment read
-// side of the norms pipeline.
-type NormsProducer = spi.NormsProducer
-
 // NormsIterator is an alias of [spi.NormsIterator] — the single-pass
 // writer-side cursor the norms flush replays into
 // NormsConsumer.AddNormsField.
@@ -96,6 +92,10 @@ func (p *MemoryNormsProducer) GetNorms(field *index.FieldInfo) (NumericDocValues
 	}
 	return nil, nil
 }
+
+// GetMergeInstance returns the receiver, the NormsProducer default of Apache
+// Lucene 10.5.0 ("The default implementation returns this").
+func (p *MemoryNormsProducer) GetMergeInstance() NormsProducer { return p }
 
 // CheckIntegrity checks the integrity of the norms.
 func (p *MemoryNormsProducer) CheckIntegrity() error {

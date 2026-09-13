@@ -295,13 +295,13 @@ func (b *TrieBuilder) Save(meta store.DataOutput, index store.IndexOutput) error
 	if b.status != trieStatusBuilding {
 		return fmt.Errorf("only unsaved trie can be saved, got: %s", b.status)
 	}
-	if err := store.WriteVLong(meta, index.GetFilePointer()); err != nil {
+	if err := meta.WriteVLong(index.GetFilePointer()); err != nil {
 		return err
 	}
 	if err := b.saveNodes(index); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(meta, b.root.fp); err != nil {
+	if err := meta.WriteVLong(b.root.fp); err != nil {
 		return err
 	}
 	// 8 extra bytes so the read side can over-read a long without risking
@@ -309,7 +309,7 @@ func (b *TrieBuilder) Save(meta store.DataOutput, index store.IndexOutput) error
 	if err := index.WriteLong(0); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(meta, index.GetFilePointer()); err != nil {
+	if err := meta.WriteVLong(index.GetFilePointer()); err != nil {
 		return err
 	}
 	b.status = trieStatusSaved

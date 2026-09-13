@@ -42,10 +42,27 @@ const (
 
 	// Block-size constants for the various sub-encodings.
 	lucene80DirectMonotonicBlockShift = 16
-	lucene80NumericBlockShift         = 14
-	lucene80TermsDictBlockShift       = 4
-	lucene80TermsDictBlockLZ4Shift    = 6
-	lucene80TermsDictBlockLZ4Code     = (lucene80TermsDictBlockLZ4Shift << 16) | 1
+
+	lucene80NumericBlockShift = 14
+	lucene80NumericBlockSize  = 1 << lucene80NumericBlockShift
+
+	lucene80BinaryBlockShift             = 5
+	lucene80BinaryDocsPerCompressedBlock = 1 << lucene80BinaryBlockShift
+
+	lucene80TermsDictBlockShift = 4
+	lucene80TermsDictBlockSize  = 1 << lucene80TermsDictBlockShift
+	lucene80TermsDictBlockMask  = lucene80TermsDictBlockSize - 1
+
+	lucene80TermsDictBlockCompressionThreshold = 32
+	lucene80TermsDictBlockLZ4Shift             = 6
+	lucene80TermsDictBlockLZ4Size              = 1 << lucene80TermsDictBlockLZ4Shift
+	lucene80TermsDictBlockLZ4Mask              = lucene80TermsDictBlockLZ4Size - 1
+	lucene80TermsDictCompressorLZ4Code         = 1
+	lucene80TermsDictBlockLZ4Code              = lucene80TermsDictBlockLZ4Shift<<16 | lucene80TermsDictCompressorLZ4Code
+
+	lucene80TermsDictReverseIndexShift = 10
+	lucene80TermsDictReverseIndexSize  = 1 << lucene80TermsDictReverseIndexShift
+	lucene80TermsDictReverseIndexMask  = lucene80TermsDictReverseIndexSize - 1
 )
 
 // lucene80DVNumericEntry holds the per-field metadata for a NUMERIC field.
@@ -858,6 +875,11 @@ func (p *Lucene80DocValuesProducer) GetSkipper(field *index.FieldInfo) (codecs.D
 	_ = field
 	return nil, nil
 }
+
+// GetMergeInstance returns the receiver. Lucene80DocValuesProducer does not
+// override getMergeInstance in Apache Lucene 10.5.0, so it inherits the
+// DocValuesProducer default, which returns this.
+func (p *Lucene80DocValuesProducer) GetMergeInstance() codecs.DocValuesProducer { return p }
 
 // CheckIntegrity verifies the checksum on the data file.
 //

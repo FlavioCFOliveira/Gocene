@@ -492,7 +492,7 @@ func (d *docIndexIterToView94) DocID() int                 { return d.it.DocID()
 func (d *docIndexIterToView94) NextDoc() (int, error)      { return d.it.NextDoc() }
 func (d *docIndexIterToView94) Advance(t int) (int, error) { return d.it.Advance(t) }
 func (d *docIndexIterToView94) Cost() int64                { return d.it.Cost() }
-func (d *docIndexIterToView94) DocIDRunEnd() int           { return noMoreDocs94 }
+func (d *docIndexIterToView94) DocIDRunEnd() (int, error)  { return noMoreDocs94, nil }
 
 // similarityCompare94 mirrors VectorSimilarityFunction.compare.
 func similarityCompare94(sim index.VectorSimilarityFunction, v1, v2 []float32) float32 {
@@ -544,7 +544,7 @@ func cosineSimilarity94(v1, v2 []float32) float32 {
 	if norm1 == 0 || norm2 == 0 {
 		return 0
 	}
-	return (dot/(float32(math.Sqrt(float64(norm1)))*float32(math.Sqrt(float64(norm2))))+1.0)/2.0
+	return (dot/(float32(math.Sqrt(float64(norm1)))*float32(math.Sqrt(float64(norm2)))) + 1.0) / 2.0
 }
 
 func maxInnerProductSimilarity94(v1, v2 []float32) float32 {
@@ -556,4 +556,11 @@ func maxInnerProductSimilarity94(v1, v2 []float32) float32 {
 		return 1.0 / (1.0 - dot)
 	}
 	return dot + 1.0
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *docIndexIterToView94) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
 }

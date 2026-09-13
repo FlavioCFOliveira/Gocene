@@ -308,7 +308,7 @@ func (w *Lucene103BlockTreeTermsWriter) Close() error {
 		}
 	}()
 
-	if err := store.WriteVInt(w.metaOut, int32(len(w.fields))); err != nil {
+	if err := w.metaOut.WriteVInt(int32(len(w.fields))); err != nil {
 		setErr(err)
 		return firstErr
 	}
@@ -503,11 +503,11 @@ func (s *statsWriter) add(df int, ttf int64) error {
 	if err := s.finish(); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(s.out, int32(df<<1)); err != nil {
+	if err := s.out.WriteVInt(int32(df << 1)); err != nil {
 		return err
 	}
 	if s.hasFreqs {
-		if err := store.WriteVLong(s.out, ttf-int64(df)); err != nil {
+		if err := s.out.WriteVLong(ttf - int64(df)); err != nil {
 			return err
 		}
 	}
@@ -518,7 +518,7 @@ func (s *statsWriter) finish() error {
 	if s.singletonCount <= 0 {
 		return nil
 	}
-	if err := store.WriteVInt(s.out, int32(((s.singletonCount-1)<<1)|1)); err != nil {
+	if err := s.out.WriteVInt(int32(((s.singletonCount - 1) << 1) | 1)); err != nil {
 		return err
 	}
 	s.singletonCount = 0
@@ -938,7 +938,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 	if end == len(t.pending) {
 		code |= 1
 	}
-	if err := store.WriteVInt(t.parent.termsOut, int32(code)); err != nil {
+	if err := t.parent.termsOut.WriteVInt(int32(code)); err != nil {
 		return nil, err
 	}
 
@@ -1053,7 +1053,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 		token |= 0x04
 	}
 	token |= int64(compressionAlg.Code())
-	if err := store.WriteVLong(t.parent.termsOut, token); err != nil {
+	if err := t.parent.termsOut.WriteVLong(token); err != nil {
 		return nil, err
 	}
 	if err := t.parent.termsOut.WriteBytesN(t.suffixWriter.Bytes()[:suffixLen], suffixLen); err != nil {
@@ -1081,14 +1081,14 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 	}
 	t.suffixLengthsWriter.Reset()
 	if numSuffixBytes > 0 && bytesAllEqual(t.spareBytes[1:numSuffixBytes], t.spareBytes[0]) {
-		if err := store.WriteVInt(t.parent.termsOut, int32((numSuffixBytes<<1)|1)); err != nil {
+		if err := t.parent.termsOut.WriteVInt(int32((numSuffixBytes << 1) | 1)); err != nil {
 			return nil, err
 		}
 		if err := t.parent.termsOut.WriteByte(t.spareBytes[0]); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := store.WriteVInt(t.parent.termsOut, int32(numSuffixBytes<<1)); err != nil {
+		if err := t.parent.termsOut.WriteVInt(int32(numSuffixBytes << 1)); err != nil {
 			return nil, err
 		}
 		if numSuffixBytes > 0 {
@@ -1100,7 +1100,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 
 	// Stats blob.
 	numStatsBytes := int(t.statsWriter.Size())
-	if err := store.WriteVInt(t.parent.termsOut, int32(numStatsBytes)); err != nil {
+	if err := t.parent.termsOut.WriteVInt(int32(numStatsBytes)); err != nil {
 		return nil, err
 	}
 	if numStatsBytes > 0 {
@@ -1112,7 +1112,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 
 	// Term metadata blob (PostingsWriterBase output).
 	numMetaBytes := int(t.metaWriter.Size())
-	if err := store.WriteVInt(t.parent.termsOut, int32(numMetaBytes)); err != nil {
+	if err := t.parent.termsOut.WriteVInt(int32(numMetaBytes)); err != nil {
 		return nil, err
 	}
 	if numMetaBytes > 0 {
@@ -1141,7 +1141,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 // writeBytesRefVInt emits vInt(len) followed by the raw bytes; mirrors
 // the private writeBytesRef helper in the Java writer.
 func writeBytesRefVInt(out store.DataOutput, b []byte) error {
-	if err := store.WriteVInt(out, int32(len(b))); err != nil {
+	if err := out.WriteVInt(int32(len(b))); err != nil {
 		return err
 	}
 	if len(b) == 0 {
@@ -1206,8 +1206,10 @@ type byteBuffersDataOutputAsIndexOutput struct {
 
 var _ store.IndexOutput = byteBuffersDataOutputAsIndexOutput{}
 
-func (a byteBuffersDataOutputAsIndexOutput) WriteByte(b byte) error    { return a.inner.WriteByte(b) }
-func (a byteBuffersDataOutputAsIndexOutput) WriteBytes(b []byte) error { return a.inner.WriteBytes(b) }
+func (a byteBuffersDataOutputAsIndexOutput) WriteByte(b byte) error { return a.inner.WriteByte(b) }
+func (a byteBuffersDataOutputAsIndexOutput) WriteBytes(b []byte) error {
+	return a.inner.WriteBytes(b, 0, len(b))
+}
 func (a byteBuffersDataOutputAsIndexOutput) WriteBytesN(b []byte, n int) error {
 	return a.inner.WriteBytesN(b, n)
 }

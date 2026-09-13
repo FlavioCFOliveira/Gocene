@@ -31,13 +31,6 @@ type DocValuesFormat = spi.DocValuesFormat
 // DocValuesConsumer is an alias of [spi.DocValuesConsumer].
 type DocValuesConsumer = spi.DocValuesConsumer
 
-// DocValuesProducer is an alias of [spi.DocValuesProducer]. The SPI
-// surface carries GetSkipper, matching Apache Lucene 10.4.0; every
-// production implementation in this package and in backward_codecs/
-// satisfies the new method (returning (nil, nil) when the format does
-// not write a sparse skipper companion).
-type DocValuesProducer = spi.DocValuesProducer
-
 // NumericDocValues is an alias of [spi.NumericDocValues] — the
 // iterator-shaped surface exposed by codec doc-values producers.
 type NumericDocValues = spi.NumericDocValues

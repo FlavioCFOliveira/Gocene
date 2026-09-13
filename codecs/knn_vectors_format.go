@@ -21,14 +21,6 @@ type KnnVectorsFormat = spi.KnnVectorsFormat
 // #4707 alongside KnnVectorsFormat.
 type KnnVectorsWriter = spi.KnnVectorsWriter
 
-// KnnVectorsReader is an alias of [spi.KnnVectorsReader]. The narrow
-// Accountable-style read-side surface (CheckIntegrity / Close) is the
-// only contract the wide [spi.KnnVectorsWriter.WriteField] entrypoint
-// requires today; the per-encoding read methods (getFloatVectorValues,
-// getByteVectorValues, search, …) live in this codecs package as
-// concrete-typed helpers on per-format reader implementations.
-type KnnVectorsReader = spi.KnnVectorsReader
-
 // BaseKnnVectorsFormat provides common functionality for KnnVectorsFormat implementations.
 type BaseKnnVectorsFormat struct {
 	name string

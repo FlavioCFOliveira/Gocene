@@ -545,17 +545,17 @@ func (d *IndexedDISI) AdvanceExact(target int) (bool, error) {
 
 // DocIDRunEnd returns one past the end of the current run of consecutive
 // doc IDs.
-func (d *IndexedDISI) DocIDRunEnd() int {
+func (d *IndexedDISI) DocIDRunEnd() (int, error) {
 	switch d.method {
 	case methodAll:
-		return (d.doc | 0xFFFF) + 1
+		return (d.doc | 0xFFFF) + 1, nil
 	case methodDense:
 		if d.word == ^uint64(0) {
-			return (d.doc | 0x3F) + 1
+			return (d.doc | 0x3F) + 1, nil
 		}
-		return d.doc + 1
+		return d.doc + 1, nil
 	default: // SPARSE
-		return d.doc + 1
+		return d.doc + 1, nil
 	}
 }
 

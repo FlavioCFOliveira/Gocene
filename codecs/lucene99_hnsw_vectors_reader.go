@@ -208,11 +208,11 @@ func (r *Lucene99HnswVectorsReader) readFieldEntry(meta store.DataInput, info *i
 	}
 	sim := lucene99HnswSimilarityOrdinals[simOrd]
 
-	vectorIndexOffset, err := store.ReadVLong(meta)
+	vectorIndexOffset, err := meta.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
-	vectorIndexLength, err := store.ReadVLong(meta)
+	vectorIndexLength, err := meta.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
@@ -309,6 +309,61 @@ func (r *Lucene99HnswVectorsReader) readFieldEntry(meta store.DataInput, info *i
 }
 
 // CheckIntegrity verifies the checksums of the .vex and .vec files.
+// GetMergeInstance returns a reader wrapping the flat reader's merge instance.
+//
+// Mirrors Lucene99HnswVectorsReader.getMergeInstance() of Apache Lucene 10.5.0:
+// new Lucene99HnswVectorsReader(this, this.flatVectorsReader.getMergeInstance()).
+func (r *Lucene99HnswVectorsReader) GetMergeInstance() (KnnVectorsReader, error) {
+	clone := *r
+	if r.flatReader != nil {
+		mergeFlat, err := r.flatReader.GetMergeInstance()
+		if err != nil {
+			return nil, err
+		}
+		flat, ok := mergeFlat.(*Lucene99FlatVectorsReader)
+		if !ok {
+			return nil, fmt.Errorf(
+				"lucene99 hnsw: flat reader merge instance has type %T, want *Lucene99FlatVectorsReader",
+				mergeFlat)
+		}
+		clone.flatReader = flat
+	}
+	return &clone, nil
+}
+
+// FinishMerge forwards to the flat reader.
+//
+// Mirrors Lucene99HnswVectorsReader.finishMerge() of Apache Lucene 10.5.0:
+// flatVectorsReader.finishMerge().
+func (r *Lucene99HnswVectorsReader) FinishMerge() error {
+	if r.flatReader == nil {
+		return nil
+	}
+	return r.flatReader.FinishMerge()
+}
+
+// GetOffHeapByteSize merges the flat reader's accounting with the .vex graph
+// bytes for the given field.
+//
+// Mirrors Lucene99HnswVectorsReader.getOffHeapByteSize(FieldInfo) of Apache
+// Lucene 10.5.0, which merges flatVectorsReader.getOffHeapByteSize(fieldInfo)
+// with Map.of(VECTOR_INDEX_EXTENSION, entry.vectorIndexLength).
+func (r *Lucene99HnswVectorsReader) GetOffHeapByteSize(fieldInfo *index.FieldInfo) map[string]int64 {
+	if fieldInfo == nil {
+		return map[string]int64{}
+	}
+	var flat map[string]int64
+	if r.flatReader != nil {
+		flat = r.flatReader.GetOffHeapByteSize(fieldInfo)
+	}
+	entry, ok := r.fields[fieldInfo.Number()]
+	if !ok {
+		return MergeOffHeapByteSizeMaps(flat, nil)
+	}
+	graph := map[string]int64{lucene99HnswIndexExtension: entry.vectorIndexLength}
+	return MergeOffHeapByteSizeMaps(flat, graph)
+}
+
 func (r *Lucene99HnswVectorsReader) CheckIntegrity() error {
 	if r.closed {
 		return errors.New("hnsw99 reader: closed")
@@ -623,7 +678,7 @@ func newOffHeapHnswGraph(entry *lucene99HnswFieldEntry, vectorIndex store.IndexI
 		addrRA = ra
 	} else {
 		buf := make([]byte, entry.offsetsLength)
-		if e := addrSlice.ReadBytes(buf); e != nil {
+		if e := addrSlice.ReadBytes(buf, 0, len(buf)); e != nil {
 			return nil, fmt.Errorf("hnsw99 offHeap: read addrs: %w", e)
 		}
 		addrRA = newByteArrayRandomAccess(buf)

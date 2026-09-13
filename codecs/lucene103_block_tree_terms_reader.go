@@ -243,7 +243,7 @@ func (r *Lucene103BlockTreeTermsReader) loadMeta(
 			priorErr = fmt.Errorf("Lucene103BlockTreeTermsReader: read fieldNumber[%d]: %w", i, ferr)
 			return 0, 0, nil, nil, priorErr
 		}
-		numTerms, ferr := store.ReadVLong(checksum)
+		numTerms, ferr := checksum.ReadVLong()
 		if ferr != nil {
 			priorErr = fmt.Errorf("Lucene103BlockTreeTermsReader: read numTerms for field %d: %w", fieldNumber, ferr)
 			return 0, 0, nil, nil, priorErr
@@ -257,7 +257,7 @@ func (r *Lucene103BlockTreeTermsReader) loadMeta(
 			priorErr = fmt.Errorf("Lucene103BlockTreeTermsReader: invalid field number: %d", fieldNumber)
 			return 0, 0, nil, nil, priorErr
 		}
-		sumTotalTermFreq, ferr := store.ReadVLong(checksum)
+		sumTotalTermFreq, ferr := checksum.ReadVLong()
 		if ferr != nil {
 			priorErr = fmt.Errorf("Lucene103BlockTreeTermsReader: read sumTotalTermFreq for field %d: %w", fieldNumber, ferr)
 			return 0, 0, nil, nil, priorErr
@@ -268,7 +268,7 @@ func (r *Lucene103BlockTreeTermsReader) loadMeta(
 		if fieldInfo.IndexOptions() == index.IndexOptionsDocs {
 			sumDocFreq = sumTotalTermFreq
 		} else {
-			sumDocFreq, ferr = store.ReadVLong(checksum)
+			sumDocFreq, ferr = checksum.ReadVLong()
 			if ferr != nil {
 				priorErr = fmt.Errorf("Lucene103BlockTreeTermsReader: read sumDocFreq for field %d: %w", fieldNumber, ferr)
 				return 0, 0, nil, nil, priorErr
@@ -352,7 +352,7 @@ func readMetaBytesRef(in store.IndexInput) (*util.BytesRef, error) {
 		return util.NewBytesRefEmpty(), nil
 	}
 	buf := make([]byte, n)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, err
 	}
 	return util.NewBytesRef(buf), nil

@@ -1,27 +1,20 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package codecs
 
 import (
-	"io"
-
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // NormsProducer is an abstract API that produces field normalization values.
-type NormsProducer interface {
-	io.Closer
-
-	// GetNorms returns NumericDocValues for this field. The returned instance need not be thread-safe:
-	// it will only be used by a single thread. The behavior is undefined if the given field doesn't
-	// have norms enabled on its FieldInfo. The return value is never nil.
-	GetNorms(field index.FieldInfo) (index.NumericDocValues, error)
-
-	// CheckIntegrity checks consistency of this producer.
-	//
-	// Note that this may be costly in terms of I/O, e.g. may involve computing a checksum value
-	// against large data files.
-	CheckIntegrity() error
-
-	// GetMergeInstance returns an instance optimized for merging. This instance may only be used from the thread that
-	// acquires it.
-	GetMergeInstance() NormsProducer
-}
+//
+// Mirrors org.apache.lucene.codecs.NormsProducer in Apache Lucene 10.5.0.
+//
+// The declaration itself lives in the spi package: index names this contract
+// and index is imported by codecs, so hosting it here directly would close an
+// index <-> codecs import cycle. spi.NormsFormat.NormsProducer likewise
+// traffics in spi.NormsProducer, which is why this is an alias rather than a
+// wider codecs-side interface.
+type NormsProducer = spi.NormsProducer

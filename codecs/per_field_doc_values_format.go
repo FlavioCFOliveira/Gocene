@@ -568,6 +568,39 @@ func (p *PerFieldDocValuesProducer) GetSkipper(field *index.FieldInfo) (DocValue
 
 // CheckIntegrity runs an integrity check on every underlying delegate
 // producer.
+// GetMergeInstance returns a producer whose delegates are each delegate's own
+// merge instance, with the per-field map rebuilt so that fields which shared a
+// delegate still share the same merge instance.
+//
+// Mirrors PerFieldDocValuesFormat.FieldsReader.getMergeInstance() of Apache
+// Lucene 10.5.0, which calls the FieldsReader(FieldsReader) copy constructor:
+// it first replaces every entry of `formats` by ent.getValue().getMergeInstance()
+// while recording an old-to-new identity map, then rebuilds `fields` through
+// that map.
+func (p *PerFieldDocValuesProducer) GetMergeInstance() DocValuesProducer {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	oldToNew := make(map[DocValuesProducer]DocValuesProducer, len(p.producersBySuffix))
+	bySuffix := make(map[string]DocValuesProducer, len(p.producersBySuffix))
+	for suffix, producer := range p.producersBySuffix {
+		merged := producer.GetMergeInstance()
+		bySuffix[suffix] = merged
+		oldToNew[producer] = merged
+	}
+
+	byField := make(map[int]DocValuesProducer, len(p.producersByField))
+	for fieldNumber, producer := range p.producersByField {
+		byField[fieldNumber] = oldToNew[producer]
+	}
+
+	return &PerFieldDocValuesProducer{
+		state:             p.state,
+		producersByField:  byField,
+		producersBySuffix: bySuffix,
+	}
+}
+
 func (p *PerFieldDocValuesProducer) CheckIntegrity() error {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

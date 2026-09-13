@@ -7,7 +7,6 @@ package codecs
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // BaseNormsConsumer provides a base implementation of the NormsConsumer API.
@@ -83,7 +82,7 @@ func (it *mergeNormsIterator) init() error {
 				if err != nil {
 					return err
 				}
-				subs = append(subs, &numericDocValuesSub{
+				subs = append(subs, &normsConsumerNumericDocValuesSub{
 					docMap: it.mergeState.DocMaps[i],
 					values: norms,
 				})
@@ -121,7 +120,7 @@ func (it *mergeNormsIterator) LongValue() int64 {
 	if it.current == nil {
 		return 0
 	}
-	sub, ok := it.current.(*numericDocValuesSub)
+	sub, ok := it.current.(*normsConsumerNumericDocValuesSub)
 	if !ok {
 		return 0
 	}
@@ -132,20 +131,24 @@ func (it *mergeNormsIterator) LongValue() int64 {
 	return val
 }
 
-type numericDocValuesSub struct {
+// normsConsumerNumericDocValuesSub is the Go rendering of the private static
+// nested class NormsConsumer.NumericDocValuesSub of Apache Lucene 10.5.0.
+// DocValuesConsumer declares a nested class of the same simple name; Java keeps
+// the two apart by their enclosing class, so the Go names carry the owner.
+type normsConsumerNumericDocValuesSub struct {
 	docMap index.DocMap
 	values index.NumericDocValues
 }
 
-func (s *numericDocValuesSub) MappedDocID() int {
+func (s *normsConsumerNumericDocValuesSub) MappedDocID() int {
 	return s.docMap.Get(s.values.DocID())
 }
 
-func (s *numericDocValuesSub) NextDoc() (int, error) {
+func (s *normsConsumerNumericDocValuesSub) NextDoc() (int, error) {
 	return s.values.NextDoc()
 }
 
-func (s *numericDocValuesSub) NextMappedDoc() (int, error) {
+func (s *normsConsumerNumericDocValuesSub) NextMappedDoc() (int, error) {
 	for {
 		doc, err := s.NextDoc()
 		if err != nil {

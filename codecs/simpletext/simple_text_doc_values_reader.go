@@ -823,6 +823,11 @@ func (r *SimpleTextDocValuesReader) GetSkipper(field *index.FieldInfo) (codecs.D
 // CheckIntegrity validates the checksum of the data file.
 //
 // Port of SimpleTextDocValuesReader.checkIntegrity().
+// GetMergeInstance returns the receiver. The corresponding class in Apache
+// Lucene 10.5.0 does not override getMergeInstance, so it inherits the
+// DocValuesProducer default, which returns this.
+func (r *SimpleTextDocValuesReader) GetMergeInstance() codecs.DocValuesProducer { return r }
+
 func (r *SimpleTextDocValuesReader) CheckIntegrity() error {
 	clone := r.data.Clone()
 	if err := clone.SetPosition(0); err != nil {

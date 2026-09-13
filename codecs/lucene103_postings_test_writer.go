@@ -216,7 +216,7 @@ func (w *lucene103PostingsTestWriter) Init(termsOut store.IndexOutput, state *Se
 	if err := WriteIndexHeader(termsOut, lucene103TermsCodec, int32(w.version), state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
 		return fmt.Errorf("lucene103 test writer Init: write terms header: %w", err)
 	}
-	if err := store.WriteVInt(termsOut, lucene103PostingsBlockSize); err != nil {
+	if err := termsOut.WriteVInt(lucene103PostingsBlockSize); err != nil {
 		return fmt.Errorf("lucene103 test writer Init: write block size: %w", err)
 	}
 	return nil
@@ -334,10 +334,10 @@ func (w *lucene103PostingsTestWriter) AddPosition(position int, payload []byte, 
 			if err := w.pforUtil.encode(w.payloadLengthBuffer, w.payOut); err != nil {
 				return fmt.Errorf("lucene103 test writer: encode payload lengths: %w", err)
 			}
-			if err := store.WriteVInt(w.payOut, int32(w.payloadByteUpto)); err != nil {
+			if err := w.payOut.WriteVInt(int32(w.payloadByteUpto)); err != nil {
 				return err
 			}
-			if err := w.payOut.WriteBytes(w.payloadBytes[:w.payloadByteUpto]); err != nil {
+			if err := w.payOut.WriteBytes(w.payloadBytes[:w.payloadByteUpto], 0, len(w.payloadBytes[:w.payloadByteUpto])); err != nil {
 				return err
 			}
 			w.payloadByteUpto = 0
@@ -423,25 +423,25 @@ func (w *lucene103PostingsTestWriter) writeTrailingPositions() error {
 			}
 			if payloadLength != lastPayloadLength {
 				lastPayloadLength = payloadLength
-				if err := store.WriteVInt(w.posOut, (posDelta<<1)|1); err != nil {
+				if err := w.posOut.WriteVInt((posDelta << 1) | 1); err != nil {
 					return err
 				}
-				if err := store.WriteVInt(w.posOut, payloadLength); err != nil {
+				if err := w.posOut.WriteVInt(payloadLength); err != nil {
 					return err
 				}
 			} else {
-				if err := store.WriteVInt(w.posOut, posDelta<<1); err != nil {
+				if err := w.posOut.WriteVInt(posDelta << 1); err != nil {
 					return err
 				}
 			}
 			if payloadLength != 0 {
-				if err := w.posOut.WriteBytes(w.payloadBytes[payloadBytesReadUpto : payloadBytesReadUpto+int(payloadLength)]); err != nil {
+				if err := w.posOut.WriteBytes(w.payloadBytes[payloadBytesReadUpto:payloadBytesReadUpto+int(payloadLength)], 0, len(w.payloadBytes[payloadBytesReadUpto:payloadBytesReadUpto+int(payloadLength)])); err != nil {
 					return err
 				}
 				payloadBytesReadUpto += int(payloadLength)
 			}
 		} else {
-			if err := store.WriteVInt(w.posOut, posDelta); err != nil {
+			if err := w.posOut.WriteVInt(posDelta); err != nil {
 				return err
 			}
 		}
@@ -450,14 +450,14 @@ func (w *lucene103PostingsTestWriter) writeTrailingPositions() error {
 			delta := w.offsetStartDeltaBuffer[i]
 			length := w.offsetLengthBuffer[i]
 			if length == lastOffsetLength {
-				if err := store.WriteVInt(w.posOut, delta<<1); err != nil {
+				if err := w.posOut.WriteVInt(delta << 1); err != nil {
 					return err
 				}
 			} else {
-				if err := store.WriteVInt(w.posOut, delta<<1|1); err != nil {
+				if err := w.posOut.WriteVInt(delta<<1 | 1); err != nil {
 					return err
 				}
-				if err := store.WriteVInt(w.posOut, length); err != nil {
+				if err := w.posOut.WriteVInt(length); err != nil {
 					return err
 				}
 				lastOffsetLength = length
@@ -483,32 +483,32 @@ func (w *lucene103PostingsTestWriter) EncodeTerm(out store.IndexOutput, fieldInf
 
 	if last.SingletonDocID != -1 && its.SingletonDocID != -1 && its.DocStartFP == last.DocStartFP {
 		delta := int64(its.SingletonDocID) - int64(last.SingletonDocID)
-		if err := store.WriteVLong(out, (util.ZigZagEncodeInt64(delta)<<1)|0x01); err != nil {
+		if err := out.WriteVLong((util.ZigZagEncodeInt64(delta) << 1) | 0x01); err != nil {
 			return err
 		}
 	} else {
-		if err := store.WriteVLong(out, (its.DocStartFP-last.DocStartFP)<<1); err != nil {
+		if err := out.WriteVLong((its.DocStartFP - last.DocStartFP) << 1); err != nil {
 			return err
 		}
 		if its.SingletonDocID != -1 {
-			if err := store.WriteVInt(out, int32(its.SingletonDocID)); err != nil {
+			if err := out.WriteVInt(int32(its.SingletonDocID)); err != nil {
 				return err
 			}
 		}
 	}
 
 	if w.writePositions {
-		if err := store.WriteVLong(out, its.PosStartFP-last.PosStartFP); err != nil {
+		if err := out.WriteVLong(its.PosStartFP - last.PosStartFP); err != nil {
 			return err
 		}
 		if w.writePayloads || w.writeOffsets {
-			if err := store.WriteVLong(out, its.PayStartFP-last.PayStartFP); err != nil {
+			if err := out.WriteVLong(its.PayStartFP - last.PayStartFP); err != nil {
 				return err
 			}
 		}
 	}
 	if w.writePositions && its.LastPosBlockOffset != -1 {
-		if err := store.WriteVLong(out, its.LastPosBlockOffset); err != nil {
+		if err := out.WriteVLong(its.LastPosBlockOffset); err != nil {
 			return err
 		}
 	}
@@ -732,7 +732,7 @@ func (w *lucene103PostingsTestWriter) encodeDocBlock() error {
 }
 
 func (w *lucene103PostingsTestWriter) writeLevel1SkipData() error {
-	if err := store.WriteVInt(w.docOut, int32(w.docID-w.level1LastDocID)); err != nil {
+	if err := w.docOut.WriteVInt(int32(w.docID - w.level1LastDocID)); err != nil {
 		return err
 	}
 
@@ -772,7 +772,7 @@ func (w *lucene103PostingsTestWriter) writeLevel1SkipData() error {
 		}
 
 		level1Len := int64(4) + w.scratchOutput.Size() + w.level1Output.Size()
-		if err := store.WriteVLong(w.docOut, level1Len); err != nil {
+		if err := w.docOut.WriteVLong(level1Len); err != nil {
 			return err
 		}
 		level1End = w.docOut.GetFilePointer() + level1Len
@@ -789,7 +789,7 @@ func (w *lucene103PostingsTestWriter) writeLevel1SkipData() error {
 		}
 		w.scratchOutput.Reset()
 	} else {
-		if err := store.WriteVLong(w.docOut, w.level1Output.Size()); err != nil {
+		if err := w.docOut.WriteVLong(w.level1Output.Size()); err != nil {
 			return err
 		}
 		level1End = w.docOut.GetFilePointer() + w.level1Output.Size()

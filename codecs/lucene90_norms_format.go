@@ -601,10 +601,25 @@ func normsDataSlice(data store.IndexInput, entry *normsEntry) (store.RandomAcces
 		return ra, nil
 	}
 	buf := make([]byte, length)
-	if err := sub.ReadBytes(buf); err != nil {
+	if err := sub.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, fmt.Errorf("lucene90 norms: read %d data bytes at %d: %w", length, entry.normsOffset, err)
 	}
 	return store.NewByteArrayRandomAccessInput(buf), nil
+}
+
+// GetMergeInstance returns an instance optimized for merging: a clone of this
+// producer over a cloned .nvd input, so the merge thread reads through its own
+// file pointer.
+//
+// Mirrors Lucene90NormsProducer.getMergeInstance() of Apache Lucene 10.5.0,
+// which clones the producer, replaces data with data.clone() and resets the
+// per-field input caches.
+func (p *Lucene90NormsProducer) GetMergeInstance() NormsProducer {
+	clone := *p
+	if p.data != nil {
+		clone.data = p.data.Clone()
+	}
+	return &clone
 }
 
 // CheckIntegrity verifies the .nvd checksum over the entire file. Mirrors

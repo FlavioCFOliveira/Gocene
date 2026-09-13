@@ -233,7 +233,7 @@ func (f *IntersectTermsEnumFrame) LoadNextFloorBlock() error {
 		return fmt.Errorf("IntersectTermsEnumFrame.LoadNextFloorBlock: seek floor data: %w", err)
 	}
 	for {
-		delta, err := store.ReadVLong(f.FloorDataReader)
+		delta, err := f.FloorDataReader.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("IntersectTermsEnumFrame.LoadNextFloorBlock: read sub-block delta: %w", err)
 		}
@@ -335,7 +335,7 @@ func (f *IntersectTermsEnumFrame) Load(node *TrieNode) error {
 				return fmt.Errorf("IntersectTermsEnumFrame.Load: transitionIndex=%d", f.TransitionIndex)
 			}
 			for f.NumFollowFloorBlocks != 0 && f.NextFloorLabel <= f.Transition.Min {
-				delta, err := store.ReadVLong(reader)
+				delta, err := reader.ReadVLong()
 				if err != nil {
 					return fmt.Errorf("IntersectTermsEnumFrame.Load: read sub-block delta: %w", err)
 				}
@@ -369,7 +369,7 @@ func (f *IntersectTermsEnumFrame) Load(node *TrieNode) error {
 	f.IsLastInFloor = (code & 1) != 0
 
 	// Term suffixes: a VLong header packs (numSuffixBytes << 3) | (isLeaf << 2) | compressionAlgCode.
-	codeL, err := store.ReadVLong(f.ite.in)
+	codeL, err := f.ite.in.ReadVLong()
 	if err != nil {
 		return fmt.Errorf("IntersectTermsEnumFrame.Load: read suffix code: %w", err)
 	}
@@ -417,7 +417,7 @@ func (f *IntersectTermsEnumFrame) Load(node *TrieNode) error {
 			buf[i] = b
 		}
 	} else {
-		if err := f.ite.in.ReadBytes(f.SuffixLengthBytes[:numLenBytes]); err != nil {
+		if err := f.ite.in.ReadBytes(f.SuffixLengthBytes[:numLenBytes], 0, len(f.SuffixLengthBytes[:numLenBytes])); err != nil {
 			return fmt.Errorf("IntersectTermsEnumFrame.Load: read suffix lengths: %w", err)
 		}
 	}
@@ -431,7 +431,7 @@ func (f *IntersectTermsEnumFrame) Load(node *TrieNode) error {
 	if cap(f.StatBytes) < int(numBytes) {
 		f.StatBytes = make([]byte, util.Oversize(int(numBytes), 1))
 	}
-	if err := f.ite.in.ReadBytes(f.StatBytes[:numBytes]); err != nil {
+	if err := f.ite.in.ReadBytes(f.StatBytes[:numBytes], 0, len(f.StatBytes[:numBytes])); err != nil {
 		return fmt.Errorf("IntersectTermsEnumFrame.Load: read stats: %w", err)
 	}
 	f.StatsReader.ResetWithSlice(f.StatBytes, 0, int(numBytes))
@@ -451,7 +451,7 @@ func (f *IntersectTermsEnumFrame) Load(node *TrieNode) error {
 	if cap(f.Bytes) < int(numBytes) {
 		f.Bytes = make([]byte, util.Oversize(int(numBytes), 1))
 	}
-	if err := f.ite.in.ReadBytes(f.Bytes[:numBytes]); err != nil {
+	if err := f.ite.in.ReadBytes(f.Bytes[:numBytes], 0, len(f.Bytes[:numBytes])); err != nil {
 		return fmt.Errorf("IntersectTermsEnumFrame.Load: read metadata: %w", err)
 	}
 	f.BytesReader.ResetWithSlice(f.Bytes, 0, int(numBytes))

@@ -221,6 +221,10 @@ func (p *CompressingNormsProducer) GetNorms(field *index.FieldInfo) (NumericDocV
 	return &emptyNormsDocValues{}, nil
 }
 
+// GetMergeInstance returns the receiver, the NormsProducer default of Apache
+// Lucene 10.5.0 ("The default implementation returns this").
+func (p *CompressingNormsProducer) GetMergeInstance() NormsProducer { return p }
+
 // CheckIntegrity checks the integrity of the norms.
 func (p *CompressingNormsProducer) CheckIntegrity() error {
 	p.mu.RLock()

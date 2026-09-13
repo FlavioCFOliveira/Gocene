@@ -194,11 +194,11 @@ func (r *Lucene99FlatVectorsReader) readFieldEntry(meta store.DataInput, info *i
 	}
 	sim := lucene99HnswSimilarityOrdinals[simOrd]
 
-	vectorDataOffset, err := store.ReadVLong(meta)
+	vectorDataOffset, err := meta.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
-	vectorDataLength, err := store.ReadVLong(meta)
+	vectorDataLength, err := meta.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
@@ -460,6 +460,40 @@ func (r *Lucene99FlatVectorsReader) randomVectorScorerByte(field string, target 
 }
 
 // CheckIntegrity verifies the checksum of the `.vec` file.
+// GetMergeInstance returns the receiver.
+//
+// Mirrors Lucene99FlatVectorsReader.getMergeInstance() of Apache Lucene 10.5.0,
+// whose body updates the .vec read advice to SEQUENTIAL and then returns this.
+// Gocene's store.IndexInput carries no IO-context hint, so only the "return
+// this" half has an observable counterpart here.
+func (r *Lucene99FlatVectorsReader) GetMergeInstance() (KnnVectorsReader, error) {
+	return r, nil
+}
+
+// FinishMerge reverts the merge-time state.
+//
+// Mirrors Lucene99FlatVectorsReader.finishMerge() of Apache Lucene 10.5.0,
+// whose body restores the .vec read advice that GetMergeInstance changed.
+// Gocene's store.IndexInput carries no IO-context hint, so there is nothing to
+// restore.
+func (r *Lucene99FlatVectorsReader) FinishMerge() error { return nil }
+
+// GetOffHeapByteSize reports the .vec bytes this reader would like off-heap for
+// the given field.
+//
+// Mirrors Lucene99FlatVectorsReader.getOffHeapByteSize(FieldInfo) of Apache
+// Lucene 10.5.0: Map.of(VECTOR_DATA_EXTENSION, entry.vectorDataLength()).
+func (r *Lucene99FlatVectorsReader) GetOffHeapByteSize(fieldInfo *index.FieldInfo) map[string]int64 {
+	if fieldInfo == nil {
+		return map[string]int64{}
+	}
+	entry, ok := r.fields[fieldInfo.Number()]
+	if !ok {
+		return map[string]int64{}
+	}
+	return map[string]int64{lucene99FlatDataExtension: entry.vectorDataLength}
+}
+
 func (r *Lucene99FlatVectorsReader) CheckIntegrity() error {
 	if r.closed {
 		return errors.New("lucene99 flat: reader closed")
@@ -602,7 +636,7 @@ func (v *flatDenseByteVectorValues) VectorValue(ord int) ([]byte, error) {
 	if err := v.slice.SetPosition(int64(ord) * int64(v.byteSize)); err != nil {
 		return nil, err
 	}
-	if err := v.slice.ReadBytes(v.value); err != nil {
+	if err := v.slice.ReadBytes(v.value, 0, len(v.value)); err != nil {
 		return nil, err
 	}
 	v.lastOrd = ord

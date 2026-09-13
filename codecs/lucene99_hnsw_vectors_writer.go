@@ -770,28 +770,28 @@ func (w *Lucene99HnswVectorsWriter) writeMeta(
 	if err := w.meta.WriteInt(simOrd); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorIndexOffset); err != nil {
+	if err := w.meta.WriteVLong(vectorIndexOffset); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorIndexLength); err != nil {
+	if err := w.meta.WriteVLong(vectorIndexLength); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(w.meta, int32(fieldInfo.VectorDimension())); err != nil {
+	if err := w.meta.WriteVInt(int32(fieldInfo.VectorDimension())); err != nil {
 		return err
 	}
 	if err := w.meta.WriteInt(int32(count)); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(w.meta, int32(w.maxConn)); err != nil {
+	if err := w.meta.WriteVInt(int32(w.maxConn)); err != nil {
 		return err
 	}
 
 	if graph == nil {
-		return store.WriteVInt(w.meta, 0)
+		return w.meta.WriteVInt(0)
 	}
 
 	numLevels, _ := graph.NumLevels()
-	if err := store.WriteVInt(w.meta, int32(numLevels)); err != nil {
+	if err := w.meta.WriteVInt(int32(numLevels)); err != nil {
 		return err
 	}
 
@@ -811,7 +811,7 @@ func (w *Lucene99HnswVectorsWriter) writeMeta(
 					level, consumed, nodes.Size())
 			}
 			sort.Ints(nol)
-			if err := store.WriteVInt(w.meta, int32(len(nol))); err != nil {
+			if err := w.meta.WriteVInt(int32(len(nol))); err != nil {
 				return err
 			}
 			for i := len(nol) - 1; i > 0; i-- {
@@ -822,7 +822,7 @@ func (w *Lucene99HnswVectorsWriter) writeMeta(
 					return fmt.Errorf(
 						"hnsw99: level %d delta encoding produced negative %d", level, n)
 				}
-				if err := store.WriteVInt(w.meta, int32(n)); err != nil {
+				if err := w.meta.WriteVInt(int32(n)); err != nil {
 					return err
 				}
 			}
@@ -836,11 +836,11 @@ func (w *Lucene99HnswVectorsWriter) writeMeta(
 	if err := w.meta.WriteLong(start); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(w.meta, lucene99HnswDirectMonotonicBlockShift); err != nil {
+	if err := w.meta.WriteVInt(lucene99HnswDirectMonotonicBlockShift); err != nil {
 		return err
 	}
 	dm, err := packed.NewDirectMonotonicWriter(
-		dmAdapter{w.meta}, dmAdapter{w.vectorIndex},
+		newDMAdapter(w.meta), newDMAdapter(w.vectorIndex),
 		valueCount, lucene99HnswDirectMonotonicBlockShift,
 	)
 	if err != nil {
@@ -866,19 +866,15 @@ func (w *Lucene99HnswVectorsWriter) writeMeta(
 // DirectMonotonicWriter requires a narrow interface (DataOutput +
 // GetFilePointer) rather than the full IndexOutput surface.
 type dmAdapter struct {
+	*store.BaseDataOutput
 	out store.IndexOutput
 }
 
-func (a dmAdapter) WriteByte(b byte) error    { return a.out.WriteByte(b) }
-func (a dmAdapter) WriteBytes(b []byte) error { return a.out.WriteBytes(b) }
-func (a dmAdapter) WriteBytesN(b []byte, n int) error {
-	return a.out.WriteBytesN(b, n)
+func newDMAdapter(out store.IndexOutput) dmAdapter {
+	return dmAdapter{BaseDataOutput: store.NewBaseDataOutput(out), out: out}
 }
-func (a dmAdapter) WriteShort(v int16) error   { return a.out.WriteShort(v) }
-func (a dmAdapter) WriteInt(v int32) error     { return a.out.WriteInt(v) }
-func (a dmAdapter) WriteLong(v int64) error    { return a.out.WriteLong(v) }
-func (a dmAdapter) WriteString(s string) error { return a.out.WriteString(s) }
-func (a dmAdapter) GetFilePointer() int64      { return a.out.GetFilePointer() }
+
+func (a dmAdapter) GetFilePointer() int64 { return a.out.GetFilePointer() }
 
 // vectorEncodingOrdinal maps a VectorEncoding to its on-disk ordinal.
 // The Java reference uses Enum.ordinal(), which yields BYTE=0,
@@ -945,7 +941,7 @@ func writeHnswGraph(
 				actualSize++
 			}
 
-			if err := store.WriteVInt(out, int32(actualSize)); err != nil {
+			if err := out.WriteVInt(int32(actualSize)); err != nil {
 				return nil, err
 			}
 			if version >= lucene99HnswVersionGroupVInt {
@@ -957,7 +953,7 @@ func writeHnswGraph(
 				}
 			} else {
 				for i := 0; i < actualSize; i++ {
-					if err := store.WriteVInt(out, int32(scratch[i])); err != nil {
+					if err := out.WriteVInt(int32(scratch[i])); err != nil {
 						return nil, err
 					}
 				}

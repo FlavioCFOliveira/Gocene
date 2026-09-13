@@ -202,7 +202,7 @@ func (p *lucene99PForUtil) encode(longs []int64, out store.IndexOutput) error {
 		if err := out.WriteByte(byte(numExceptions << 5)); err != nil {
 			return err
 		}
-		if err := store.WriteVLong(out, longsCopy[0]); err != nil {
+		if err := out.WriteVLong(longsCopy[0]); err != nil {
 			return err
 		}
 	} else {
@@ -215,7 +215,7 @@ func (p *lucene99PForUtil) encode(longs []int64, out store.IndexOutput) error {
 		}
 	}
 
-	return out.WriteBytes(exceptions)
+	return out.WriteBytes(exceptions, 0, len(exceptions))
 }
 
 // decode decodes 128 int64 values from in into longs. Mirrors PForUtil.decode.
@@ -234,7 +234,7 @@ func (p *lucene99PForUtil) decode(in store.IndexInput, longs []int64) error {
 
 	if bitsPerValue == 0 {
 		// All values are the same constant.
-		val, err := store.ReadVLong(in)
+		val, err := in.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -276,7 +276,7 @@ func (p *lucene99PForUtil) skip(in store.IndexInput) error {
 
 	if bitsPerValue == 0 {
 		// Constant value: skip the VLong and the exception bytes.
-		if _, err := store.ReadVLong(in); err != nil {
+		if _, err := in.ReadVLong(); err != nil {
 			return err
 		}
 		if numExceptions > 0 {

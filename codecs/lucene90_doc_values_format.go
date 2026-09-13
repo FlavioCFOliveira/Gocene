@@ -465,6 +465,13 @@ func (p *Lucene90DocValuesProducer) GetSkipper(field *index.FieldInfo) (DocValue
 }
 
 // CheckIntegrity checks the integrity of the doc values files.
+// GetMergeInstance returns an instance optimized for merging.
+//
+// Mirrors Lucene90DocValuesProducer.getMergeInstance() of Apache Lucene 10.5.0.
+func (p *Lucene90DocValuesProducer) GetMergeInstance() DocValuesProducer {
+	return &Lucene90DocValuesProducer{real: p.real.GetMergeInstance()}
+}
+
 func (p *Lucene90DocValuesProducer) CheckIntegrity() error { return p.real.CheckIntegrity() }
 
 // Close releases resources.

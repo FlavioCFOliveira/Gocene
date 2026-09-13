@@ -121,6 +121,11 @@ func (p *MemoryDocValuesProducer) GetSkipper(field *index.FieldInfo) (DocValuesS
 }
 
 // CheckIntegrity checks the integrity of the doc values.
+// GetMergeInstance returns the receiver. The corresponding class in Apache
+// Lucene 10.5.0 does not override getMergeInstance, so it inherits the
+// DocValuesProducer default, which returns this.
+func (p *MemoryDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
+
 func (p *MemoryDocValuesProducer) CheckIntegrity() error {
 	// In-memory implementation is always valid
 	return nil

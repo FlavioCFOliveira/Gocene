@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // BufferingKnnVectorsWriter is a KnnVectorsWriter that buffers every vector

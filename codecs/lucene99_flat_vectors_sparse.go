@@ -169,7 +169,7 @@ func (v *flatSparseByteVectorValues) VectorValue(ord int) ([]byte, error) {
 	if err := v.slice.SetPosition(int64(ord) * int64(v.byteSize)); err != nil {
 		return nil, err
 	}
-	if err := v.slice.ReadBytes(v.value); err != nil {
+	if err := v.slice.ReadBytes(v.value, 0, len(v.value)); err != nil {
 		return nil, err
 	}
 	v.lastOrd = ord

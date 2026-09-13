@@ -103,7 +103,7 @@ func (a CompressionAlgorithm) Read(in CompressionInput, out []byte, length int) 
 	}
 	switch a {
 	case CompressionNoCompression:
-		return in.ReadBytes(out[:length])
+		return in.ReadBytes(out[:length], 0, len(out[:length]))
 	case CompressionLowercaseASCII:
 		return compress.Decompress(in, out, length)
 	case CompressionLZ4:

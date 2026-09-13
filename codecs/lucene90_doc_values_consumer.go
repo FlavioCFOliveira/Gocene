@@ -203,7 +203,7 @@ func (c *lucene90DVConsumer) addBinaryField(field *index.FieldInfo, values dvBin
 		if err != nil {
 			return err
 		}
-		if err := c.data.WriteBytes(v); err != nil {
+		if err := c.data.WriteBytes(v, 0, len(v)); err != nil {
 			return err
 		}
 		l := len(v)
@@ -288,12 +288,12 @@ func (c *lucene90DVConsumer) addBinaryField(field *index.FieldInfo, values dvBin
 		if err := c.meta.WriteLong(addrStart); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(c.meta, int32(Lucene90DocValuesDirectMonotonicBlockShift)); err != nil {
+		if err := c.meta.WriteVInt(int32(Lucene90DocValuesDirectMonotonicBlockShift)); err != nil {
 			return err
 		}
 		addrWriter, err := packed.NewDirectMonotonicWriter(
-			dvChecksumDataOutputAt{c.meta},
-			dvChecksumDataOutputAt{c.data},
+			newDVChecksumDataOutputAt(c.meta),
+			newDVChecksumDataOutputAt(c.data),
 			int64(numDocsWithField+1),
 			Lucene90DocValuesDirectMonotonicBlockShift,
 		)
@@ -466,12 +466,12 @@ func (c *lucene90DVConsumer) doAddSortedNumericField(field *index.FieldInfo, val
 		if err := c.meta.WriteLong(addrStart); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(c.meta, int32(Lucene90DocValuesDirectMonotonicBlockShift)); err != nil {
+		if err := c.meta.WriteVInt(int32(Lucene90DocValuesDirectMonotonicBlockShift)); err != nil {
 			return err
 		}
 		addrWriter, err := packed.NewDirectMonotonicWriter(
-			dvChecksumDataOutputAt{c.meta},
-			dvChecksumDataOutputAt{c.data},
+			newDVChecksumDataOutputAt(c.meta),
+			newDVChecksumDataOutputAt(c.data),
 			int64(numDocsWithField+1),
 			Lucene90DocValuesDirectMonotonicBlockShift,
 		)
@@ -979,7 +979,7 @@ func (c *lucene90DVConsumer) writeBlock(vals []int64, gcd int64, encBuf *store.B
 	}
 	bpv := packed.DirectWriterUnsignedBitsRequired(uint64((maxVal - minVal) / gcd))
 	encBuf.Reset()
-	w, err := packed.GetDirectWriter(bbdoIndexOutputAt{encBuf}, int64(len(vals)), bpv)
+	w, err := packed.GetDirectWriter(newBBDOIndexOutputAt(encBuf), int64(len(vals)), bpv)
 	if err != nil {
 		return err
 	}
@@ -1013,7 +1013,7 @@ func (c *lucene90DVConsumer) writeBlock(vals []int64, gcd int64, encBuf *store.B
 // SortedSet or Sorted field.
 func (c *lucene90DVConsumer) addTermsDict(values dvSortedSetValues) error {
 	size := int64(values.GetValueCount())
-	if err := store.WriteVLong(c.meta, size); err != nil {
+	if err := c.meta.WriteVLong(size); err != nil {
 		return err
 	}
 
@@ -1028,8 +1028,8 @@ func (c *lucene90DVConsumer) addTermsDict(values dvSortedSetValues) error {
 	addrBuf := store.NewByteBuffersDataOutput()
 	numBlocks := (size + blockMask) >> shift
 	addrWriter, err := packed.NewDirectMonotonicWriter(
-		dvChecksumDataOutputAt{c.meta},
-		bbdoIndexOutputAt{addrBuf},
+		newDVChecksumDataOutputAt(c.meta),
+		newBBDOIndexOutputAt(addrBuf),
 		numBlocks,
 		Lucene90DocValuesDirectMonotonicBlockShift,
 	)
@@ -1075,10 +1075,10 @@ func (c *lucene90DVConsumer) addTermsDict(values dvSortedSetValues) error {
 				return err
 			}
 			// write first term verbatim to data
-			if err := store.WriteVInt(c.data, int32(len(term))); err != nil {
+			if err := c.data.WriteVInt(int32(len(term))); err != nil {
 				return err
 			}
-			if err := c.data.WriteBytes(term); err != nil {
+			if err := c.data.WriteBytes(term, 0, len(term)); err != nil {
 				return err
 			}
 			// also buffer as dict for next block; re-wrap buf at pos 0 after reset
@@ -1103,12 +1103,12 @@ func (c *lucene90DVConsumer) addTermsDict(values dvSortedSetValues) error {
 				return err
 			}
 			if prefixLen >= 15 {
-				if err := store.WriteVInt(buf, int32(prefixLen-15)); err != nil {
+				if err := buf.WriteVInt(int32(prefixLen - 15)); err != nil {
 					return err
 				}
 			}
 			if suffixLen >= 16 {
-				if err := store.WriteVInt(buf, int32(suffixLen-16)); err != nil {
+				if err := buf.WriteVInt(int32(suffixLen - 16)); err != nil {
 					return err
 				}
 			}
@@ -1190,7 +1190,7 @@ func (c *lucene90DVConsumer) compressAndGetTermsDictBlockLength(
 ) (int, error) {
 	pos := buf.GetPosition()
 	uncompLen := pos - dictLen
-	if err := store.WriteVInt(c.data, int32(uncompLen)); err != nil {
+	if err := c.data.WriteVInt(int32(uncompLen)); err != nil {
 		return 0, err
 	}
 	if err := compress.LZ4CompressWithDictionary(c.termsDictBuf, 0, dictLen, uncompLen, c.data, ht); err != nil {
@@ -1209,8 +1209,8 @@ func (c *lucene90DVConsumer) writeTermsIndex(values dvSortedSetValues) error {
 	numBlocks := 1 + ((size + int64(Lucene90DocValuesTermsDictReverseIndexMask)) >> uint(Lucene90DocValuesTermsDictReverseIndexShift))
 	addrBuf := store.NewByteBuffersDataOutput()
 	addrWriter, err := packed.NewDirectMonotonicWriter(
-		dvChecksumDataOutputAt{c.meta},
-		bbdoIndexOutputAt{addrBuf},
+		newDVChecksumDataOutputAt(c.meta),
+		newBBDOIndexOutputAt(addrBuf),
 		numBlocks,
 		Lucene90DocValuesDirectMonotonicBlockShift,
 	)
@@ -1246,7 +1246,7 @@ func (c *lucene90DVConsumer) writeTermsIndex(values dvSortedSetValues) error {
 			}
 			offset += int64(sortKeyLen)
 			if sortKeyLen > 0 {
-				if err := c.data.WriteBytes(term[:sortKeyLen]); err != nil {
+				if err := c.data.WriteBytes(term[:sortKeyLen], 0, len(term[:sortKeyLen])); err != nil {
 					return err
 				}
 			}
@@ -1716,33 +1716,33 @@ func (it *snDVDocIdSet) NextDoc() (int, error) {
 // ---------------------------------------------------------------------------
 
 // dvChecksumDataOutputAt adapts *store.ChecksumIndexOutput to DataOutputAt.
+//
+// The derived write methods come from store.BaseDataOutput over the wrapped
+// output's two primitives, mirroring the way org.apache.lucene.store.DataOutput
+// of Apache Lucene 10.5.0 derives every other write from writeByte/writeBytes.
 type dvChecksumDataOutputAt struct {
+	*store.BaseDataOutput
 	out *store.ChecksumIndexOutput
 }
 
-func (d dvChecksumDataOutputAt) WriteByte(b byte) error            { return d.out.WriteByte(b) }
-func (d dvChecksumDataOutputAt) WriteBytes(b []byte) error         { return d.out.WriteBytes(b) }
-func (d dvChecksumDataOutputAt) WriteBytesN(b []byte, n int) error { return d.out.WriteBytesN(b, n) }
-func (d dvChecksumDataOutputAt) WriteShort(v int16) error          { return d.out.WriteShort(v) }
-func (d dvChecksumDataOutputAt) WriteInt(v int32) error            { return d.out.WriteInt(v) }
-func (d dvChecksumDataOutputAt) WriteLong(v int64) error           { return d.out.WriteLong(v) }
-func (d dvChecksumDataOutputAt) WriteString(s string) error        { return d.out.WriteString(s) }
-func (d dvChecksumDataOutputAt) GetFilePointer() int64             { return d.out.GetFilePointer() }
+func newDVChecksumDataOutputAt(out *store.ChecksumIndexOutput) dvChecksumDataOutputAt {
+	return dvChecksumDataOutputAt{BaseDataOutput: store.NewBaseDataOutput(out), out: out}
+}
+
+func (d dvChecksumDataOutputAt) GetFilePointer() int64 { return d.out.GetFilePointer() }
 
 // bbdoIndexOutputAt adapts *store.ByteBuffersDataOutput to DataOutputAt
 // (used for in-memory address buffers in addTermsDict).
 type bbdoIndexOutputAt struct {
+	*store.BaseDataOutput
 	out *store.ByteBuffersDataOutput
 }
 
-func (b bbdoIndexOutputAt) WriteByte(v byte) error            { return b.out.WriteByte(v) }
-func (b bbdoIndexOutputAt) WriteBytes(v []byte) error         { return b.out.WriteBytes(v) }
-func (b bbdoIndexOutputAt) WriteBytesN(v []byte, n int) error { return b.out.WriteBytesN(v, n) }
-func (b bbdoIndexOutputAt) WriteShort(v int16) error          { return b.out.WriteShort(v) }
-func (b bbdoIndexOutputAt) WriteInt(v int32) error            { return b.out.WriteInt(v) }
-func (b bbdoIndexOutputAt) WriteLong(v int64) error           { return b.out.WriteLong(v) }
-func (b bbdoIndexOutputAt) WriteString(s string) error        { return b.out.WriteString(s) }
-func (b bbdoIndexOutputAt) GetFilePointer() int64             { return b.out.Size() }
+func newBBDOIndexOutputAt(out *store.ByteBuffersDataOutput) bbdoIndexOutputAt {
+	return bbdoIndexOutputAt{BaseDataOutput: store.NewBaseDataOutput(out), out: out}
+}
+
+func (b bbdoIndexOutputAt) GetFilePointer() int64 { return b.out.Size() }
 
 // ---------------------------------------------------------------------------
 // Utility functions

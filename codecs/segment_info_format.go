@@ -10,7 +10,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -105,7 +104,7 @@ func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory, ctx store.IOCont
 	}
 
 	// Read counter
-	counter, err := store.ReadVLong(checksumIn)
+	counter, err := checksumIn.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +142,7 @@ func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory, ctx store.IOCont
 		sis.Add(sci)
 	}
 
-	userData, err := store.ReadMapOfStrings(checksumIn)
+	userData, err := checksumIn.ReadMapOfStrings()
 	if err != nil {
 		return nil, err
 	}
@@ -210,7 +209,7 @@ func (f *Lucene104SegmentInfosFormat) readSegmentCommitInfo(in store.IndexInput,
 		}
 	}
 
-	fieldInfosFiles, err := store.ReadSetOfStrings(in)
+	fieldInfosFiles, err := in.ReadSetOfStrings()
 	if err != nil {
 		return nil, err
 	}
@@ -262,18 +261,18 @@ func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *spi.Segm
 		// Write Lucene version
 		var major, minor, bugfix int32
 		fmt.Sscanf(infos.LuceneVersion(), "%d.%d.%d", &major, &minor, &bugfix)
-		store.WriteVInt(checksumOut, major)
-		store.WriteVInt(checksumOut, minor)
-		store.WriteVInt(checksumOut, bugfix)
+		checksumOut.WriteVInt(major)
+		checksumOut.WriteVInt(minor)
+		checksumOut.WriteVInt(bugfix)
 
 		// Write created major
-		store.WriteVInt(checksumOut, infos.IndexCreatedVersionMajor())
+		checksumOut.WriteVInt(infos.IndexCreatedVersionMajor())
 
 		// Write version
 		store.WriteInt64(checksumOut, infos.Version())
 
 		// Write counter
-		store.WriteVLong(checksumOut, infos.Counter())
+		checksumOut.WriteVLong(infos.Counter())
 
 		// Write segment count
 		segments := infos.List()
@@ -282,9 +281,9 @@ func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *spi.Segm
 		// Write min segment version if any
 		if len(segments) > 0 {
 			// Just write current version as min version for now
-			store.WriteVInt(checksumOut, major)
-			store.WriteVInt(checksumOut, minor)
-			store.WriteVInt(checksumOut, bugfix)
+			checksumOut.WriteVInt(major)
+			checksumOut.WriteVInt(minor)
+			checksumOut.WriteVInt(bugfix)
 		}
 
 		for _, sci := range segments {
@@ -293,7 +292,7 @@ func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *spi.Segm
 			}
 		}
 
-		store.WriteMapOfStrings(checksumOut, infos.GetUserData())
+		checksumOut.WriteMapOfStrings(infos.GetUserData())
 
 		if err := WriteFooter(checksumOut); err != nil {
 			return err
@@ -317,7 +316,7 @@ func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *spi.Segm
 
 func (f *Lucene104SegmentInfosFormat) writeSegmentCommitInfo(out store.IndexOutput, sci *spi.SegmentCommitInfo) error {
 	store.WriteString(out, sci.Name())
-	out.WriteBytes(sci.SegmentInfo().GetID())
+	out.WriteBytes(sci.SegmentInfo().GetID(), 0, len(sci.SegmentInfo().GetID()))
 	store.WriteString(out, sci.SegmentInfo().CodecName())
 	store.WriteInt64(out, sci.DelGen())
 	store.WriteInt32(out, int32(sci.DelCount()))
@@ -328,12 +327,12 @@ func (f *Lucene104SegmentInfosFormat) writeSegmentCommitInfo(out store.IndexOutp
 	sciID := sci.GetID()
 	if len(sciID) == 16 {
 		out.WriteByte(1)
-		out.WriteBytes(sciID)
+		out.WriteBytes(sciID, 0, len(sciID))
 	} else {
 		out.WriteByte(0)
 	}
 
-	store.WriteSetOfStrings(out, sci.FieldInfosFiles())
+	out.WriteSetOfStrings(sci.FieldInfosFiles())
 	store.WriteMapOfIntToSetOfStrings(out, sci.DocValuesUpdatesFiles())
 
 	return nil
@@ -430,17 +429,17 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	}
 	hasBlocks := hasBlocksByte == 1
 
-	diagnostics, err := store.ReadMapOfStrings(checksumIn)
+	diagnostics, err := checksumIn.ReadMapOfStrings()
 	if err != nil {
 		return nil, err
 	}
 
-	files, err := store.ReadSetOfStrings(checksumIn)
+	files, err := checksumIn.ReadSetOfStrings()
 	if err != nil {
 		return nil, err
 	}
 
-	attributes, err := store.ReadMapOfStrings(checksumIn)
+	attributes, err := checksumIn.ReadMapOfStrings()
 	if err != nil {
 		return nil, err
 	}
@@ -560,7 +559,7 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 		return err
 	}
 
-	if err := store.WriteMapOfStrings(checksumOut, info.GetDiagnostics()); err != nil {
+	if err := checksumOut.WriteMapOfStrings(info.GetDiagnostics()); err != nil {
 		return err
 	}
 
@@ -568,11 +567,11 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 	for _, f := range info.Files() {
 		files[f] = struct{}{}
 	}
-	if err := store.WriteSetOfStrings(checksumOut, files); err != nil {
+	if err := checksumOut.WriteSetOfStrings(files); err != nil {
 		return err
 	}
 
-	if err := store.WriteMapOfStrings(checksumOut, info.GetAttributes()); err != nil {
+	if err := checksumOut.WriteMapOfStrings(info.GetAttributes()); err != nil {
 		return err
 	}
 

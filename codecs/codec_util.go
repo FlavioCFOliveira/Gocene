@@ -61,7 +61,7 @@ func WriteIndexHeader(out store.IndexOutput, codec string, version int32, id []b
 	if err := WriteHeader(out, codec, version); err != nil {
 		return err
 	}
-	if err := out.WriteBytes(id); err != nil {
+	if err := out.WriteBytes(id, 0, len(id)); err != nil {
 		return err
 	}
 	return writeSuffix(out, suffix)
@@ -81,7 +81,7 @@ func writeSuffix(out store.IndexOutput, suffix string) error {
 		return err
 	}
 	// Write actual suffix bytes directly
-	return out.WriteBytes([]byte(suffix))
+	return out.WriteBytes([]byte(suffix), 0, len([]byte(suffix)))
 }
 
 // checkCodecName verifies the codec name is valid.

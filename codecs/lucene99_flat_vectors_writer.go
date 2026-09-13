@@ -381,7 +381,7 @@ func (w *Lucene99FlatVectorsWriter) writeFloat32Vectors(fw *lucene99FlatFieldWri
 		for i, f := range v {
 			binary.LittleEndian.PutUint32(buf[i*floatBytes:], math.Float32bits(f))
 		}
-		if err := w.vectorData.WriteBytes(buf); err != nil {
+		if err := w.vectorData.WriteBytes(buf, 0, len(buf)); err != nil {
 			return err
 		}
 	}
@@ -392,7 +392,7 @@ func (w *Lucene99FlatVectorsWriter) writeFloat32Vectors(fw *lucene99FlatFieldWri
 // writeByteVectors.
 func (w *Lucene99FlatVectorsWriter) writeByteVectors(fw *lucene99FlatFieldWriter) error {
 	for _, v := range fw.bytes {
-		if err := w.vectorData.WriteBytes(v); err != nil {
+		if err := w.vectorData.WriteBytes(v, 0, len(v)); err != nil {
 			return err
 		}
 	}
@@ -428,13 +428,13 @@ func (w *Lucene99FlatVectorsWriter) writeMeta(
 	if err := w.meta.WriteInt(simOrd); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorDataOffset); err != nil {
+	if err := w.meta.WriteVLong(vectorDataOffset); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorDataLength); err != nil {
+	if err := w.meta.WriteVLong(vectorDataLength); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(w.meta, int32(fw.dim)); err != nil {
+	if err := w.meta.WriteVInt(int32(fw.dim)); err != nil {
 		return err
 	}
 	count := fw.numDocs()
@@ -540,11 +540,11 @@ func writeFlatOrdToDocStoredMeta(
 	if err := meta.WriteLong(start); err != nil { // addressesOffset
 		return err
 	}
-	if err := store.WriteVInt(meta, int32(directMonotonicBlockShift)); err != nil {
+	if err := meta.WriteVInt(int32(directMonotonicBlockShift)); err != nil {
 		return err
 	}
 	ordToDocWriter, err := packed.NewDirectMonotonicWriter(
-		dmAdapter{meta}, dmAdapter{vectorData},
+		newDMAdapter(meta), newDMAdapter(vectorData),
 		int64(count), directMonotonicBlockShift,
 	)
 	if err != nil {

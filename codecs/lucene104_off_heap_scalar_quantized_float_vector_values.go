@@ -292,7 +292,7 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) VectorValue(targetOrd int) ([]
 	if err := v.slice.SetPosition(int64(targetOrd) * int64(v.byteSize)); err != nil {
 		return nil, fmt.Errorf("lucene104: OffHeapScalarQuantizedFloatVectorValues: seek ord=%d: %w", targetOrd, err)
 	}
-	if err := v.slice.ReadBytes(v.byteValue); err != nil {
+	if err := v.slice.ReadBytes(v.byteValue, 0, len(v.byteValue)); err != nil {
 		return nil, fmt.Errorf("lucene104: OffHeapScalarQuantizedFloatVectorValues: read packed bytes: %w", err)
 	}
 	if err := readFloatsLE(v.slice, v.correctiveValues[:]); err != nil {
@@ -725,7 +725,7 @@ func (d *docIndexIteratorAsDocIDSet) Cost() int64                     { return d
 // DocIDRunEnd returns the end of the current run. Defaults to docID + 1,
 // matching the search.BaseDocIdSetIterator default; the wrapped iterator
 // does not expose a richer run accessor today.
-func (d *docIndexIteratorAsDocIDSet) DocIDRunEnd() int { return d.it.DocID() + 1 }
+func (d *docIndexIteratorAsDocIDSet) DocIDRunEnd() (int, error) { return d.it.DocID() + 1, nil }
 
 // denseDocIndexIterator mirrors KnnVectorValues#createDenseIterator(): it
 // iterates ord = 0..size-1 with docID == ord.
@@ -795,7 +795,7 @@ func unpackNibblesPacked(packed, unpacked []byte) {
 // the Lucene wire-format (little-endian since Lucene 10).
 func readFloatsLE(in store.IndexInput, out []float32) error {
 	buf := make([]byte, 4*len(out))
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 		return err
 	}
 	for i := range out {
@@ -806,4 +806,11 @@ func readFloatsLE(in store.IndexInput, out []float32) error {
 		out[i] = math.Float32frombits(bits)
 	}
 	return nil
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *docIndexIteratorAsDocIDSet) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
 }

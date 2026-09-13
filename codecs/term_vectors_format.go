@@ -352,11 +352,11 @@ func (w *Lucene104TermVectorsWriter) writeTVD() error {
 		return fmt.Errorf("write .tvd header: %w", err)
 	}
 
-	if err := store.WriteVInt(out, int32(len(w.docs))); err != nil {
+	if err := out.WriteVInt(int32(len(w.docs))); err != nil {
 		return err
 	}
 	for _, doc := range w.docs {
-		if err := store.WriteVInt(out, int32(len(doc.fields))); err != nil {
+		if err := out.WriteVInt(int32(len(doc.fields))); err != nil {
 			return err
 		}
 		for _, f := range doc.fields {
@@ -376,40 +376,40 @@ func (w *Lucene104TermVectorsWriter) writeTVD() error {
 			if err := out.WriteByte(flags); err != nil {
 				return err
 			}
-			if err := store.WriteVInt(out, int32(len(f.terms))); err != nil {
+			if err := out.WriteVInt(int32(len(f.terms))); err != nil {
 				return err
 			}
 			for _, t := range f.terms {
-				if err := store.WriteVInt(out, int32(len(t.text))); err != nil {
+				if err := out.WriteVInt(int32(len(t.text))); err != nil {
 					return err
 				}
-				if err := out.WriteBytes(t.text); err != nil {
+				if err := out.WriteBytes(t.text, 0, len(t.text)); err != nil {
 					return err
 				}
 				freq := int32(len(t.positions))
-				if err := store.WriteVInt(out, freq); err != nil {
+				if err := out.WriteVInt(freq); err != nil {
 					return err
 				}
 				for _, p := range t.positions {
 					if f.hasPositions {
-						if err := store.WriteVInt(out, int32(p.position)); err != nil {
+						if err := out.WriteVInt(int32(p.position)); err != nil {
 							return err
 						}
 					}
 					if f.hasOffsets {
-						if err := store.WriteVInt(out, int32(p.startOffset)); err != nil {
+						if err := out.WriteVInt(int32(p.startOffset)); err != nil {
 							return err
 						}
-						if err := store.WriteVInt(out, int32(p.endOffset)); err != nil {
+						if err := out.WriteVInt(int32(p.endOffset)); err != nil {
 							return err
 						}
 					}
 					if f.hasPayloads {
-						if err := store.WriteVInt(out, int32(len(p.payload))); err != nil {
+						if err := out.WriteVInt(int32(len(p.payload))); err != nil {
 							return err
 						}
 						if len(p.payload) > 0 {
-							if err := out.WriteBytes(p.payload); err != nil {
+							if err := out.WriteBytes(p.payload, 0, len(p.payload)); err != nil {
 								return err
 							}
 						}
@@ -436,7 +436,7 @@ func (w *Lucene104TermVectorsWriter) writeTVX() error {
 	if err := WriteIndexHeader(out, lucene104TVIndexCodec, lucene104TVIndexVersion, si.GetID(), ""); err != nil {
 		return fmt.Errorf("write .tvx header: %w", err)
 	}
-	if err := store.WriteVInt(out, int32(len(w.docs))); err != nil {
+	if err := out.WriteVInt(int32(len(w.docs))); err != nil {
 		return err
 	}
 	return WriteFooter(out)

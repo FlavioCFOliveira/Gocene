@@ -326,6 +326,14 @@ func (r *Lucene90CompoundReader) ObtainLock(_ string) (store.Lock, error) {
 	return nil, ErrReadOnlyCompoundDirectory
 }
 
+// Rename is not supported on a compound reader.
+//
+// Mirrors the final CompoundDirectory.rename(String, String) of Apache Lucene
+// 10.5.0, which always throws UnsupportedOperationException.
+func (r *Lucene90CompoundReader) Rename(_, _ string) error {
+	return ErrReadOnlyCompoundDirectory
+}
+
 // Compile-time assertions.
 var (
 	_ CompoundDirectory = (*Lucene90CompoundReader)(nil)

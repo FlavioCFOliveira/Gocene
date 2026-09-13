@@ -7,7 +7,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/backward_codecs/compressing"
 	lucene50compressing "github.com/FlavioCFOliveira/Gocene/backward_codecs/lucene50/compressing"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 

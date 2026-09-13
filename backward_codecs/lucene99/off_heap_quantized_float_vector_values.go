@@ -516,4 +516,11 @@ func (d *docIndexIterToView99) DocID() int                 { return d.it.DocID()
 func (d *docIndexIterToView99) NextDoc() (int, error)      { return d.it.NextDoc() }
 func (d *docIndexIterToView99) Advance(t int) (int, error) { return d.it.Advance(t) }
 func (d *docIndexIterToView99) Cost() int64                { return d.it.Cost() }
-func (d *docIndexIterToView99) DocIDRunEnd() int           { return noMoreDocs99 }
+func (d *docIndexIterToView99) DocIDRunEnd() (int, error)  { return noMoreDocs99, nil }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *docIndexIterToView99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
+}

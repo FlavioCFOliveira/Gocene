@@ -263,7 +263,7 @@ func (r *Lucene104StoredFieldsReader) readField(in store.IndexInput) (storedFiel
 			return field, fmt.Errorf("failed to read binary length: %w", err)
 		}
 		data := make([]byte, length)
-		if err := in.ReadBytes(data); err != nil {
+		if err := in.ReadBytes(data, 0, len(data)); err != nil {
 			return field, fmt.Errorf("failed to read binary value: %w", err)
 		}
 		field.value = data
@@ -276,7 +276,7 @@ func (r *Lucene104StoredFieldsReader) readField(in store.IndexInput) (storedFiel
 		field.value = int(val)
 
 	case fieldTypeLong:
-		val, err := store.ReadVLong(in)
+		val, err := in.ReadVLong()
 		if err != nil {
 			return field, fmt.Errorf("failed to read long value: %w", err)
 		}
@@ -468,7 +468,7 @@ func (w *Lucene104StoredFieldsWriter) Close() error {
 	}
 
 	// Write number of documents
-	if err := store.WriteVInt(out, int32(len(w.docs))); err != nil {
+	if err := out.WriteVInt(int32(len(w.docs))); err != nil {
 		return fmt.Errorf("failed to write doc count: %w", err)
 	}
 
@@ -489,7 +489,7 @@ func (w *Lucene104StoredFieldsWriter) Close() error {
 // writeDocument writes a single document to the output.
 func (w *Lucene104StoredFieldsWriter) writeDocument(out store.IndexOutput, doc storedDoc) error {
 	// Write number of fields
-	if err := store.WriteVInt(out, int32(len(doc.fields))); err != nil {
+	if err := out.WriteVInt(int32(len(doc.fields))); err != nil {
 		return fmt.Errorf("failed to write field count: %w", err)
 	}
 
@@ -524,20 +524,20 @@ func (w *Lucene104StoredFieldsWriter) writeField(out store.IndexOutput, field st
 
 	case fieldTypeBinary:
 		data := field.value.([]byte)
-		if err := store.WriteVInt(out, int32(len(data))); err != nil {
+		if err := out.WriteVInt(int32(len(data))); err != nil {
 			return fmt.Errorf("failed to write binary length: %w", err)
 		}
-		if err := out.WriteBytes(data); err != nil {
+		if err := out.WriteBytes(data, 0, len(data)); err != nil {
 			return fmt.Errorf("failed to write binary value: %w", err)
 		}
 
 	case fieldTypeInt:
-		if err := store.WriteVInt(out, int32(field.value.(int))); err != nil {
+		if err := out.WriteVInt(int32(field.value.(int))); err != nil {
 			return fmt.Errorf("failed to write int value: %w", err)
 		}
 
 	case fieldTypeLong:
-		if err := store.WriteVLong(out, field.value.(int64)); err != nil {
+		if err := out.WriteVLong(field.value.(int64)); err != nil {
 			return fmt.Errorf("failed to write long value: %w", err)
 		}
 
@@ -575,7 +575,7 @@ func binaryWriteFloat(out store.IndexOutput, v float32) error {
 		byte(val >> 8),
 		byte(val),
 	}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 func binaryReadDouble(in store.IndexInput, v *float64) error {
@@ -602,7 +602,7 @@ func binaryWriteDouble(out store.IndexOutput, v float64) error {
 		byte(val >> 8),
 		byte(val),
 	}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 func float32bits(f float32) uint32 {

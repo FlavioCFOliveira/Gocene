@@ -166,7 +166,7 @@ func (f *Lucene94FieldInfosFormat) readFrom(in *store.ChecksumIndexInput, segmen
 			return nil, err
 		}
 
-		attributes, err := store.ReadMapOfStrings(in)
+		attributes, err := in.ReadMapOfStrings()
 		if err != nil {
 			return nil, err
 		}
@@ -278,7 +278,7 @@ func (f *Lucene94FieldInfosFormat) writeTo(out *store.ChecksumIndexOutput, segme
 	if err := WriteIndexHeader(out, lucene94FICodecName, lucene94FIFormatCurrent, segmentInfo.GetID(), segmentSuffix); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(out, int32(infos.Size())); err != nil {
+	if err := out.WriteVInt(int32(infos.Size())); err != nil {
 		return err
 	}
 
@@ -288,7 +288,7 @@ func (f *Lucene94FieldInfosFormat) writeTo(out *store.ChecksumIndexOutput, segme
 		if err := store.WriteString(out, fi.Name()); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, int32(fi.Number())); err != nil {
+		if err := out.WriteVInt(int32(fi.Number())); err != nil {
 			return err
 		}
 
@@ -357,23 +357,23 @@ func (f *Lucene94FieldInfosFormat) writeTo(out *store.ChecksumIndexOutput, segme
 		if err := store.WriteInt64LE(out, fi.DocValuesGen()); err != nil {
 			return err
 		}
-		if err := store.WriteMapOfStrings(out, fi.GetAttributes()); err != nil {
+		if err := out.WriteMapOfStrings(fi.GetAttributes()); err != nil {
 			return err
 		}
 
-		if err := store.WriteVInt(out, int32(fi.PointDimensionCount())); err != nil {
+		if err := out.WriteVInt(int32(fi.PointDimensionCount())); err != nil {
 			return err
 		}
 		if fi.PointDimensionCount() != 0 {
-			if err := store.WriteVInt(out, int32(fi.PointIndexDimensionCount())); err != nil {
+			if err := out.WriteVInt(int32(fi.PointIndexDimensionCount())); err != nil {
 				return err
 			}
-			if err := store.WriteVInt(out, int32(fi.PointNumBytes())); err != nil {
+			if err := out.WriteVInt(int32(fi.PointNumBytes())); err != nil {
 				return err
 			}
 		}
 
-		if err := store.WriteVInt(out, int32(fi.VectorDimension())); err != nil {
+		if err := out.WriteVInt(int32(fi.VectorDimension())); err != nil {
 			return err
 		}
 		veByte, err := encodeVectorEncoding(fi.VectorEncoding())

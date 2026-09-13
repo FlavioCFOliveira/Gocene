@@ -204,18 +204,18 @@ func (w *MultiLevelSkipListWriter) WriteSkip(output store.IndexOutput) (int64, e
 	// length so the reader can seek past the upper levels in one pass.
 	for level := w.numberOfSkipLevels - 1; level > 0; level-- {
 		levelBytes := w.skipBuffer[level].GetBytes()
-		if err := store.WriteVLong(output, int64(len(levelBytes))); err != nil {
+		if err := output.WriteVLong(int64(len(levelBytes))); err != nil {
 			return 0, fmt.Errorf("MultiLevelSkipListWriter: writeLevelLength(level=%d): %w", level, err)
 		}
 		if len(levelBytes) > 0 {
-			if err := output.WriteBytes(levelBytes); err != nil {
+			if err := output.WriteBytes(levelBytes, 0, len(levelBytes)); err != nil {
 				return 0, fmt.Errorf("MultiLevelSkipListWriter: writeBytes(level=%d): %w", level, err)
 			}
 		}
 	}
 	level0 := w.skipBuffer[0].GetBytes()
 	if len(level0) > 0 {
-		if err := output.WriteBytes(level0); err != nil {
+		if err := output.WriteBytes(level0, 0, len(level0)); err != nil {
 			return 0, fmt.Errorf("MultiLevelSkipListWriter: writeBytes(level=0): %w", err)
 		}
 	}

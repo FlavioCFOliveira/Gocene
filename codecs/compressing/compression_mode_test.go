@@ -103,11 +103,13 @@ func compressWindow(t *testing.T, mode CompressionMode, decompressed []byte, off
 	copy(window, decompressed[off:off+length])
 	in := store.NewByteBuffersDataInput(window)
 
-	out := store.NewByteArrayDataOutput(length*3 + 16)
+	compressed := make([]byte, length*3+16)
+	out := store.NewByteArrayDataOutput(compressed)
 	if err := c.Compress(in, out); err != nil {
 		t.Fatalf("Compressor.Compress: %v (mode=%s off=%d len=%d)", err, mode.String(), off, length)
 	}
-	return out.GetBytes()
+	// Java: return ArrayUtil.copyOfSubArray(compressed, 0, out.getPosition());
+	return compressed[:out.GetPosition()]
 }
 
 // decompressWhole mirrors the AbstractTestCompressionMode.decompress
@@ -332,11 +334,12 @@ func TestLZ4DecompressorClone(t *testing.T) {
 	c := mode.NewCompressor()
 	t.Cleanup(func() { _ = c.Close() })
 	in := store.NewByteBuffersDataInput(original)
-	out := store.NewByteArrayDataOutput(len(original) * 3)
+	scratch := make([]byte, len(original)*3)
+	out := store.NewByteArrayDataOutput(scratch)
 	if err := c.Compress(in, out); err != nil {
 		t.Fatalf("Compress: %v", err)
 	}
-	compressed := out.GetBytes()
+	compressed := scratch[:out.GetPosition()]
 
 	d := mode.NewDecompressor()
 	clone := d.Clone()
@@ -361,11 +364,12 @@ func TestDeflateDecompressorClone(t *testing.T) {
 	c := mode.NewCompressor()
 	t.Cleanup(func() { _ = c.Close() })
 	in := store.NewByteBuffersDataInput(original)
-	out := store.NewByteArrayDataOutput(len(original) + 16)
+	scratch := make([]byte, len(original)+16)
+	out := store.NewByteArrayDataOutput(scratch)
 	if err := c.Compress(in, out); err != nil {
 		t.Fatalf("Compress: %v", err)
 	}
-	compressed := out.GetBytes()
+	compressed := scratch[:out.GetPosition()]
 
 	d1 := mode.NewDecompressor()
 	d2 := d1.Clone()
@@ -415,11 +419,12 @@ func TestLZ4FastWireFormatGolden(t *testing.T) {
 
 	c := FAST.NewCompressor()
 	t.Cleanup(func() { _ = c.Close() })
-	out := store.NewByteArrayDataOutput(64)
+	scratch := make([]byte, 64)
+	out := store.NewByteArrayDataOutput(scratch)
 	if err := c.Compress(store.NewByteBuffersDataInput(input), out); err != nil {
 		t.Fatalf("Compress: %v", err)
 	}
-	got := out.GetBytes()
+	got := scratch[:out.GetPosition()]
 
 	// Expected: literal-only block. With literalLen=16 the literal-len
 	// nibble in the token saturates at 0x0F and one continuation byte

@@ -97,7 +97,7 @@ func (p *PForUtil) Encode(ints []int32, out store.IndexOutput) error {
 		if err := out.WriteByte(byte(numExceptions << 5)); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, intsCopy[0]); err != nil {
+		if err := out.WriteVInt(intsCopy[0]); err != nil {
 			return err
 		}
 	} else {
@@ -111,7 +111,7 @@ func (p *PForUtil) Encode(ints []int32, out store.IndexOutput) error {
 	}
 
 	// Write exceptions
-	if err := out.WriteBytes(exceptions); err != nil {
+	if err := out.WriteBytes(exceptions, 0, len(exceptions)); err != nil {
 		return err
 	}
 
@@ -180,7 +180,7 @@ func PForUtilSkip(in store.IndexInput) error {
 
 	if bitsPerValue == 0 {
 		// Skip VInt for the repeated value
-		_, err := store.ReadVLong(in)
+		_, err := in.ReadVLong()
 		if err != nil {
 			return err
 		}

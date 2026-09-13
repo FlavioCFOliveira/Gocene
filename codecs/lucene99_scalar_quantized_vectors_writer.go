@@ -63,15 +63,15 @@ import (
 // definitions in org.apache.lucene.backward_codecs.lucene99.
 // Lucene99ScalarQuantizedVectorsFormat (Lucene 10.4.0).
 const (
-	lucene99SQMetaCodecName     = "Lucene99ScalarQuantizedVectorsFormatMeta"
-	lucene99SQDataCodecName     = "Lucene99ScalarQuantizedVectorsFormatData"
-	lucene99SQMetaExtension     = "vemq"
-	lucene99SQDataExtension     = "veq"
-	lucene99SQVersionStart      int32 = 0
-	lucene99SQVersionAddBits    int32 = 1
-	lucene99SQVersionCurrent    int32 = lucene99SQVersionAddBits
-	lucene99SQDirectMonotonicBlockShift = 16
-	lucene99SQMinimumConfidenceInterval = 0.9
+	lucene99SQMetaCodecName                   = "Lucene99ScalarQuantizedVectorsFormatMeta"
+	lucene99SQDataCodecName                   = "Lucene99ScalarQuantizedVectorsFormatData"
+	lucene99SQMetaExtension                   = "vemq"
+	lucene99SQDataExtension                   = "veq"
+	lucene99SQVersionStart              int32 = 0
+	lucene99SQVersionAddBits            int32 = 1
+	lucene99SQVersionCurrent            int32 = lucene99SQVersionAddBits
+	lucene99SQDirectMonotonicBlockShift       = 16
+	lucene99SQMinimumConfidenceInterval       = 0.9
 )
 
 // Lucene99ScalarQuantizedVectorsWriter is the Go port of the Java test-only
@@ -82,7 +82,7 @@ const (
 type Lucene99ScalarQuantizedVectorsWriter struct {
 	state *SegmentWriteState
 
-	meta              store.IndexOutput
+	meta                store.IndexOutput
 	quantizedVectorData store.IndexOutput
 
 	// rawVectorDelegate owns the raw FLOAT32 vectors (.vec / .vemf).
@@ -333,11 +333,11 @@ func (w *Lucene99ScalarQuantizedVectorsWriter) writeVectors(
 			if err := PackNibbles(quantizedScratch, compressedScratch); err != nil {
 				return fmt.Errorf("lucene99 sq: pack nibbles: %w", err)
 			}
-			if err := w.quantizedVectorData.WriteBytes(compressedScratch); err != nil {
+			if err := w.quantizedVectorData.WriteBytes(compressedScratch, 0, len(compressedScratch)); err != nil {
 				return err
 			}
 		} else {
-			if err := w.quantizedVectorData.WriteBytes(quantizedScratch); err != nil {
+			if err := w.quantizedVectorData.WriteBytes(quantizedScratch, 0, len(quantizedScratch)); err != nil {
 				return err
 			}
 		}
@@ -369,17 +369,17 @@ func (w *Lucene99ScalarQuantizedVectorsWriter) writeMeta(
 	if err := w.meta.WriteInt(simOrd); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorDataOffset); err != nil {
+	if err := w.meta.WriteVLong(vectorDataOffset); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorDataLength); err != nil {
+	if err := w.meta.WriteVLong(vectorDataLength); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(w.meta, int32(fieldInfo.VectorDimension())); err != nil {
+	if err := w.meta.WriteVInt(int32(fieldInfo.VectorDimension())); err != nil {
 		return err
 	}
 	count := len(docIDs)
-	if err := store.WriteVInt(w.meta, int32(count)); err != nil {
+	if err := w.meta.WriteVInt(int32(count)); err != nil {
 		return err
 	}
 	if count > 0 {
@@ -553,7 +553,7 @@ type floatVectorList struct {
 	dim     int
 }
 
-func (f *floatVectorList) Dimension() int                          { return f.dim }
+func (f *floatVectorList) Dimension() int                         { return f.dim }
 func (f *floatVectorList) VectorValue(ord int) ([]float32, error) { return f.vectors[ord], nil }
 func (f *floatVectorList) Iterator() quantization.DocIndexIterator {
 	return &floatVectorListIterator{vectors: f.vectors, docID: -1}
@@ -587,7 +587,7 @@ type normalizedFloatVectorValues struct {
 	copy   []float32
 }
 
-func (n *normalizedFloatVectorValues) Dimension() int                          { return n.values.Dimension() }
+func (n *normalizedFloatVectorValues) Dimension() int { return n.values.Dimension() }
 func (n *normalizedFloatVectorValues) VectorValue(ord int) ([]float32, error) {
 	vec, err := n.values.VectorValue(ord)
 	if err != nil {
@@ -597,7 +597,9 @@ func (n *normalizedFloatVectorValues) VectorValue(ord int) ([]float32, error) {
 	util.L2Normalize(n.copy)
 	return n.copy, nil
 }
-func (n *normalizedFloatVectorValues) Iterator() quantization.DocIndexIterator { return n.values.Iterator() }
+func (n *normalizedFloatVectorValues) Iterator() quantization.DocIndexIterator {
+	return n.values.Iterator()
+}
 
 // boolToByte returns 1 if b is true, 0 otherwise.
 func boolToByte(b bool) byte {

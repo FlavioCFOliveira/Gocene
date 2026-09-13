@@ -38,7 +38,7 @@ func buildValidCFE(tb testing.TB) []byte {
 	if err := WriteIndexHeader(out, Lucene90CompoundEntriesCodec, Lucene90CompoundVersionCurrent, fuzzCFESegmentID, ""); err != nil {
 		tb.Fatalf("write header: %v", err)
 	}
-	if err := store.WriteVInt(out, 1); err != nil { // one entry
+	if err := out.WriteVInt(1); err != nil { // one entry
 		tb.Fatalf("write count: %v", err)
 	}
 	if err := store.WriteString(out, "_0.fdt"); err != nil {

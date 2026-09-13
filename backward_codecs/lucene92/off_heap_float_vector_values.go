@@ -213,8 +213,8 @@ func (denseOffHeap92Variant) scorer(parent *OffHeapFloatVectorValues, target []f
 	}
 	it := cp.Iterator()
 	return &floatScorerView92{
-		it:   it,
-		fvv:  cp,
+		it:     it,
+		fvv:    cp,
 		target: target,
 	}, nil
 }
@@ -313,8 +313,8 @@ func (s *sparseOffHeap92Variant) scorer(parent *OffHeapFloatVectorValues, target
 	}
 	it := cp.Iterator()
 	return &floatScorerView92{
-		it:   it,
-		fvv:  cp,
+		it:     it,
+		fvv:    cp,
 		target: target,
 	}, nil
 }
@@ -481,7 +481,7 @@ func (d *docIndexIterToView92) DocID() int                 { return d.it.DocID()
 func (d *docIndexIterToView92) NextDoc() (int, error)      { return d.it.NextDoc() }
 func (d *docIndexIterToView92) Advance(t int) (int, error) { return d.it.Advance(t) }
 func (d *docIndexIterToView92) Cost() int64                { return d.it.Cost() }
-func (d *docIndexIterToView92) DocIDRunEnd() int           { return noMoreDocs92 }
+func (d *docIndexIterToView92) DocIDRunEnd() (int, error)  { return noMoreDocs92, nil }
 
 // similarityCompare mirrors
 // org.apache.lucene.index.VectorSimilarityFunction.compare(float[], float[]).
@@ -534,7 +534,7 @@ func cosineSimilarity(v1, v2 []float32) float32 {
 	if norm1 == 0 || norm2 == 0 {
 		return 0
 	}
-	return (dot/(float32(math.Sqrt(float64(norm1)))*float32(math.Sqrt(float64(norm2))))+1.0)/2.0
+	return (dot/(float32(math.Sqrt(float64(norm1)))*float32(math.Sqrt(float64(norm2)))) + 1.0) / 2.0
 }
 
 func maxInnerProductSimilarity(v1, v2 []float32) float32 {
@@ -546,4 +546,11 @@ func maxInnerProductSimilarity(v1, v2 []float32) float32 {
 		return 1.0 / (1.0 - dot)
 	}
 	return dot + 1.0
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *docIndexIterToView92) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
 }

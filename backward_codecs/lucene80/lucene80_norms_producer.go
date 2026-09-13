@@ -213,6 +213,19 @@ func (p *Lucene80NormsProducer) GetNorms(field *index.FieldInfo) (codecs.Numeric
 	return nil, nil
 }
 
+// GetMergeInstance returns an instance optimized for merging: a clone of this
+// producer over a cloned .nvd input, so the merge thread reads through its own
+// file pointer.
+//
+// Mirrors Lucene80NormsProducer.getMergeInstance() of Apache Lucene 10.5.0.
+func (p *Lucene80NormsProducer) GetMergeInstance() codecs.NormsProducer {
+	clone := *p
+	if p.data != nil {
+		clone.data = p.data.Clone()
+	}
+	return &clone
+}
+
 // CheckIntegrity verifies the norms data file.
 //
 // DEFERRED: full checksum verification requires cloning the data input.

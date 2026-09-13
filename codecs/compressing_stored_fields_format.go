@@ -14,9 +14,9 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/internal/util"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/internal/util"
 )
 
 // CompressingStoredFieldsFormat is a StoredFieldsFormat that compresses documents
@@ -89,27 +89,27 @@ func deflateDecompress(data []byte, uncompressedLen int) ([]byte, error) {
 }
 
 type CompressingStoredFieldsReader struct {
-	directory       store.Directory
-	segmentInfo     *index.SegmentInfo
-	fieldInfos      *index.FieldInfos
-	compressionMode CompressionMode
-	chunkSize       int
+	directory         store.Directory
+	segmentInfo       *index.SegmentInfo
+	fieldInfos        *index.FieldInfos
+	compressionMode   CompressionMode
+	chunkSize         int
 	packedIntsVersion int
-	fieldsStream    store.IndexInput
-	indexReader     FieldsIndex
-	maxPointer      int64
-	numDocs         int
-	closed          bool
-	mu              sync.Mutex
-	state           *blockState
+	fieldsStream      store.IndexInput
+	indexReader       FieldsIndex
+	maxPointer        int64
+	numDocs           int
+	closed            bool
+	mu                sync.Mutex
+	state             *blockState
 }
 
 type blockState struct {
-	docBase     int
-	chunkDocs   int
-	sliced      bool
-	offsets     []int64
-	numFields   []int
+	docBase      int
+	chunkDocs    int
+	sliced       bool
+	offsets      []int64
+	numFields    []int
 	startPointer int64
 }
 
@@ -279,7 +279,7 @@ func (r *CompressingStoredFieldsReader) visit(docID int, visitor spi.StoredField
 			break
 		}
 
-		infoAndBits, _ := store.ReadVLong(docData) // Need to wrap []byte as store.IndexInput
+		infoAndBits, _ := docData.ReadVLong() // Need to wrap []byte as store.IndexInput
 		// ... handle fields ...
 	}
 
@@ -302,7 +302,7 @@ func readBytes(in store.IndexInput) ([]byte, error) {
 	var buf bytes.Buffer
 	tmp := make([]byte, 1024)
 	for {
-		n, err := in.ReadBytes(tmp)
+		n, err := in.ReadBytes(tmp, 0, len(tmp))
 		if n > 0 {
 			buf.Write(tmp[:n])
 		}
