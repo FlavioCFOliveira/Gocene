@@ -301,11 +301,13 @@ func (w *CompressingTermVectorsWriter) flushChunk() error {
 	chunkData := w.serializeChunk()
 
 	// Compress
-	compressor := w.compressionMode.compressor()
-	compressed, err := compressor(chunkData)
-	if err != nil {
+	compressor := w.compressionMode.NewCompressor()
+	defer compressor.Close()
+	compressedOut := store.NewByteBuffersDataOutput()
+	if err := compressor.Compress(store.NewByteBuffersDataInput(chunkData), compressedOut); err != nil {
 		return fmt.Errorf("failed to compress chunk: %w", err)
 	}
+	compressed := compressedOut.ToArrayCopy()
 
 	// Write compressed data
 	if err := w.out.WriteBytes(compressed, 0, len(compressed)); err != nil {

@@ -152,7 +152,7 @@ func (c *deflateWithPresetDictCompressor) doCompress(b []byte, off, length int, 
 	if err := writeVInt(out, int32(len(c.compressed))); err != nil {
 		return err
 	}
-	return out.WriteBytes(c.compressed)
+	return out.WriteBytes(c.compressed, 0, len(c.compressed))
 }
 
 // Compress implements compressing.Compressor. The wire format mirrors Lucene:
@@ -199,7 +199,7 @@ func (c *deflateWithPresetDictCompressor) Compress(buffersInput store.ByteBuffer
 
 	// Compress the dictionary first (no preset dict).
 	if dictLength > 0 {
-		if err := buffersInput.ReadBytes(c.buffer[:dictLength]); err != nil {
+		if err := buffersInput.ReadBytes(c.buffer, 0, dictLength); err != nil {
 			return err
 		}
 	}
@@ -214,7 +214,7 @@ func (c *deflateWithPresetDictCompressor) Compress(buffersInput store.ByteBuffer
 			l = length - start
 		}
 		if l > 0 {
-			if err := buffersInput.ReadBytes(c.buffer[dictLength : dictLength+l]); err != nil {
+			if err := buffersInput.ReadBytes(c.buffer, dictLength, l); err != nil {
 				return err
 			}
 		}
@@ -276,7 +276,7 @@ func (d *deflateWithPresetDictDecompressor) doDecompress(in store.DataInput, dic
 	} else {
 		d.compressed = d.compressed[:compressedLength]
 	}
-	if err := in.ReadBytes(d.compressed); err != nil {
+	if err := in.ReadBytes(d.compressed, 0, len(d.compressed)); err != nil {
 		return err
 	}
 
@@ -449,7 +449,7 @@ func skipBytes(in store.DataInput, n int64) error {
 		if take > n {
 			take = n
 		}
-		if err := in.ReadBytes(scratch[:take]); err != nil {
+		if err := in.ReadBytes(scratch, 0, int(take)); err != nil {
 			return err
 		}
 		n -= take

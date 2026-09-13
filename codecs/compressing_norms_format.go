@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // CompressingNormsFormat is a NormsFormat that compresses norms data
@@ -165,11 +166,13 @@ func (c *CompressingNormsConsumer) writeData() error {
 	}
 
 	// Compress the data
-	compressor := c.compressionMode.compressor()
-	compressed, err := compressor(buf.Bytes())
-	if err != nil {
+	compressor := c.compressionMode.NewCompressor()
+	defer compressor.Close()
+	compressedOut := store.NewByteBuffersDataOutput()
+	if err := compressor.Compress(store.NewByteBuffersDataInput(buf.Bytes()), compressedOut); err != nil {
 		return fmt.Errorf("failed to compress norms: %w", err)
 	}
+	compressed := compressedOut.ToArrayCopy()
 
 	// Write to file (simplified - would write to actual file in full implementation)
 	_ = compressed

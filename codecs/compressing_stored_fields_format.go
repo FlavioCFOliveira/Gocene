@@ -6,13 +6,14 @@ package codecs
 
 import (
 	"bytes"
-	"compress/zlib"
+	"compress/flate"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
 	"sync"
 
+	"github.com/FlavioCFOliveira/Gocene/codecs/compressing"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/internal/util"
 	"github.com/FlavioCFOliveira/Gocene/spi"
@@ -46,24 +47,33 @@ func (f *CompressingStoredFieldsFormat) FieldsWriter(dir store.Directory, segmen
 	return nil, fmt.Errorf("old formats can't be used for writing")
 }
 
-type CompressionMode int
+// CompressionMode is org.apache.lucene.codecs.compressing.CompressionMode.
+//
+// Lucene declares exactly one CompressionMode, an abstract class with
+// newCompressor()/newDecompressor() and three static instances
+// (CompressionMode.java:44 FAST, :68 HIGH_COMPRESSION, :94 FAST_DECOMPRESSION).
+// Gocene's faithful port of that class lives in codecs/compressing; this alias
+// keeps that single definition authoritative. The int enum that used to stand
+// here was a second, divergent CompressionMode with a []byte-shaped
+// decompressor() and no compressor() at all — a shape Lucene does not have.
+type CompressionMode = compressing.CompressionMode
 
-const (
-	CompressionModeLZ4Fast CompressionMode = iota
-	CompressionModeLZ4High
-	CompressionModeDeflate
+// The three CompressionMode singletons declared by the Java class.
+var (
+	// CompressionModeLZ4Fast is CompressionMode.FAST: an LZ4 fast compressor
+	// paired with the shared LZ4_DECOMPRESSOR (CompressionMode.java:44-59).
+	CompressionModeLZ4Fast = compressing.FAST
+
+	// CompressionModeLZ4High is CompressionMode.FAST_DECOMPRESSION: an LZ4
+	// high compressor paired with the same shared LZ4_DECOMPRESSOR
+	// (CompressionMode.java:94-108).
+	CompressionModeLZ4High = compressing.FAST_DECOMPRESSION
+
+	// CompressionModeDeflate is CompressionMode.HIGH_COMPRESSION:
+	// DeflateCompressor(6) with DeflateDecompressor
+	// (CompressionMode.java:68-85).
+	CompressionModeDeflate = compressing.HIGH_COMPRESSION
 )
-
-func (m CompressionMode) decompressor() func([]byte, int) ([]byte, error) {
-	switch m {
-	case CompressionModeLZ4Fast, CompressionModeLZ4High:
-		return lz4Decompress
-	case CompressionModeDeflate:
-		return deflateDecompress
-	default:
-		return lz4Decompress
-	}
-}
 
 // lz4Decompress decompresses an LZ4 block produced by Apache Lucene.
 //
@@ -111,20 +121,36 @@ func lz4Decompress(data []byte, uncompressedLen int) ([]byte, error) {
 	return dest[:decompressedLength], nil
 }
 
+// deflateDecompress inflates a raw DEFLATE payload produced by Apache Lucene.
+//
+// The reference is DeflateDecompressor.decompress in
+// org.apache.lucene.codecs.compressing.CompressionMode (Lucene 10.5.0,
+// CompressionMode.java:186-241), whose decoder is:
+//
+//	final Inflater decompressor = new Inflater(true);
+//
+// The `true` argument is java.util.zip's "nowrap" mode: RAW DEFLATE, with no
+// zlib wrapper. Lucene writes the payload with `new Deflater(level, true)`, so
+// the stream carries neither the 2-byte zlib header nor the 4-byte Adler-32
+// trailer. Go's counterpart of a nowrap Inflater is compress/flate; using
+// compress/zlib here — as this function previously did — makes every
+// Lucene-written HIGH_COMPRESSION chunk fail to parse, because zlib.NewReader
+// demands a header Lucene never emits.
+//
+// Java also appends one dummy padding byte before inflating ("we do it for
+// compliance, but it's unnecessary for years in zlib"). compress/flate does not
+// require it and its presence or absence does not change the decoded output, so
+// no padding byte is added here.
 func deflateDecompress(data []byte, uncompressedLen int) ([]byte, error) {
-	buf := bytes.NewReader(data)
-	r, err := zlib.NewReader(buf)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
 	result := make([]byte, uncompressedLen)
+	r := flate.NewReader(bytes.NewReader(data))
+	defer r.Close()
 	n, err := io.ReadFull(r, result)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return nil, err
 	}
 	if n != uncompressedLen {
-		return nil, fmt.Errorf("decompressed length mismatch: expected %d, got %d", uncompressedLen, n)
+		return nil, fmt.Errorf("Lengths mismatch: %d != %d", n, uncompressedLen)
 	}
 	return result, nil
 }
@@ -299,7 +325,7 @@ func (r *CompressingStoredFieldsReader) visit(docID int, visitor spi.StoredField
 
 	// Decompression
 	r.fieldsStream.SetPosition(r.state.startPointer)
-	decomp := r.compressionMode.decompressor()
+	decomp := r.compressionMode.NewDecompressor()
 
 	// Simplified: read whole chunk and then slice
 	// In production, handle sliced chunks properly
@@ -308,10 +334,11 @@ func (r *CompressingStoredFieldsReader) visit(docID int, visitor spi.StoredField
 		return err
 	}
 
-	uncompressed, err := decomp(data, 0) // simplified
-	if err != nil {
+	var uncompressedRef util.BytesRef
+	if err := decomp.Decompress(store.NewByteArrayDataInput(data), 0, 0, 0, &uncompressedRef); err != nil {
 		return err
 	}
+	uncompressed := uncompressedRef.Bytes
 
 	docData := uncompressed[offset : offset+length]
 

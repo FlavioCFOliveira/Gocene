@@ -405,7 +405,7 @@ func (b *fieldsIndexBuilder) finish(numDocs int, maxPointer int64, metaOut store
 	metaOut.WriteLong(maxPointer)
 
 	// Write footer on .fdx.
-	if err := gstore.WriteFooter(fdxOut); err != nil {
+	if err := store.WriteFooter(fdxOut); err != nil {
 		return fmt.Errorf("lucene90/compressing: write fdx footer: %w", err)
 	}
 	fdxCloseErr = fdxOut.Close()
@@ -517,7 +517,7 @@ func newLucene90CompressingStoredFieldsWriter(
 	}
 
 	// Write chunkSize to meta stream (read back by reader).
-	if err := store.WriteVInt(metaStream, int32(chunkSize)); err != nil {
+	if err := metaStream.WriteVInt(int32(chunkSize)); err != nil {
 		return nil, fmt.Errorf("lucene90/compressing: write chunkSize: %w", err)
 	}
 
@@ -617,9 +617,9 @@ func (w *Lucene90CompressingStoredFieldsWriter) WriteField(field spi.IndexableFi
 
 // writeStoredValue encodes a StoredValue into the buffered document stream.
 func (w *Lucene90CompressingStoredFieldsWriter) writeStoredValue(fieldSeq int64, sv *document.StoredValue) error {
-	switch sv.GetType() {
+	switch sv.Type() {
 	case document.StoredValueTypeBinary:
-		bv := sv.GetBinaryValue()
+		bv := sv.BinaryValue()
 		infoAndBits := (fieldSeq << typeBits) | typeByteArray
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
@@ -627,39 +627,39 @@ func (w *Lucene90CompressingStoredFieldsWriter) writeStoredValue(fieldSeq int64,
 		if err := w.bufferedDocs.WriteVInt(int32(len(bv))); err != nil {
 			return err
 		}
-		return w.bufferedDocs.WriteBytes(bv)
+		return w.bufferedDocs.WriteBytes(bv, 0, len(bv))
 	case document.StoredValueTypeString:
 		infoAndBits := (fieldSeq << typeBits) | typeString
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
-		return w.bufferedDocs.WriteString(sv.GetStringValue())
+		return w.bufferedDocs.WriteString(sv.StringValue())
 	case document.StoredValueTypeInteger:
 		infoAndBits := (fieldSeq << typeBits) | typeNumericInt
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
-		return writeZInt(w.bufferedDocs, sv.GetIntValue())
+		return writeZInt(w.bufferedDocs, sv.IntValue())
 	case document.StoredValueTypeLong:
 		infoAndBits := (fieldSeq << typeBits) | typeNumericLong
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
-		return writeTLong(w.bufferedDocs, sv.GetLongValue())
+		return writeTLong(w.bufferedDocs, sv.LongValue())
 	case document.StoredValueTypeFloat:
 		infoAndBits := (fieldSeq << typeBits) | typeNumericFloat
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
-		return writeZFloat(w.bufferedDocs, sv.GetFloatValue())
+		return writeZFloat(w.bufferedDocs, sv.FloatValue())
 	case document.StoredValueTypeDouble:
 		infoAndBits := (fieldSeq << typeBits) | typeNumericDouble
 		if err := w.bufferedDocs.WriteVLong(infoAndBits); err != nil {
 			return err
 		}
-		return writeZDouble(w.bufferedDocs, sv.GetDoubleValue())
+		return writeZDouble(w.bufferedDocs, sv.DoubleValue())
 	default:
-		return fmt.Errorf("lucene90/compressing: unsupported StoredValue type %v", sv.GetType())
+		return fmt.Errorf("lucene90/compressing: unsupported StoredValue type %v", sv.Type())
 	}
 }
 
@@ -794,7 +794,7 @@ func (w *Lucene90CompressingStoredFieldsWriter) writeChunkHeader(
 	numStoredFields, lengths []int32,
 	sliced, dirtyChunk bool,
 ) error {
-	if err := store.WriteVInt(w.fieldsStream, int32(docBase)); err != nil {
+	if err := w.fieldsStream.WriteVInt(int32(docBase)); err != nil {
 		return err
 	}
 	slicedBit := int32(0)
@@ -806,7 +806,7 @@ func (w *Lucene90CompressingStoredFieldsWriter) writeChunkHeader(
 		dirtyBit = 2
 	}
 	code := int32(numBufferedDocs<<2) | dirtyBit | slicedBit
-	if err := store.WriteVInt(w.fieldsStream, code); err != nil {
+	if err := w.fieldsStream.WriteVInt(code); err != nil {
 		return err
 	}
 	if err := saveInts(numStoredFields, numBufferedDocs, w.fieldsStream); err != nil {
@@ -820,7 +820,7 @@ func (w *Lucene90CompressingStoredFieldsWriter) writeChunkHeader(
 // StoredFieldsInts.writeInts (called WriteStoredFieldsInts in Gocene).
 func saveInts(values []int32, length int, out store.DataOutput) error {
 	if length == 1 {
-		return store.WriteVInt(out, values[0])
+		return out.WriteVInt(values[0])
 	}
 	return gcodecs.WriteStoredFieldsInts(values, 0, length, out)
 }
@@ -873,21 +873,21 @@ func (w *Lucene90CompressingStoredFieldsWriter) finish(numDocs int) error {
 	}
 
 	// Write dirty-chunk stats and footer to .fdm.
-	if err := store.WriteVLong(w.metaStream, w.numChunks); err != nil {
+	if err := w.metaStream.WriteVLong(w.numChunks); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.metaStream, w.numDirtyChunks); err != nil {
+	if err := w.metaStream.WriteVLong(w.numDirtyChunks); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.metaStream, w.numDirtyDocs); err != nil {
+	if err := w.metaStream.WriteVLong(w.numDirtyDocs); err != nil {
 		return err
 	}
-	if err := gstore.WriteFooter(w.metaStream); err != nil {
+	if err := store.WriteFooter(w.metaStream); err != nil {
 		return err
 	}
 
 	// Write footer to .fdt.
-	return gstore.WriteFooter(w.fieldsStream)
+	return store.WriteFooter(w.fieldsStream)
 }
 
 // Close finalizes both streams. It calls finish with the segment's doc count.
@@ -1014,20 +1014,20 @@ func newLucene90CompressingStoredFieldsReader(
 		return nil, fmt.Errorf("lucene90/compressing: read fields index: %w", err)
 	}
 
-	numChunks, err := store.ReadVLong(metaIn)
+	numChunks, err := metaIn.ReadVLong()
 	if err != nil {
 		return nil, fmt.Errorf("lucene90/compressing: read numChunks: %w", err)
 	}
-	numDirtyChunks, err := store.ReadVLong(metaIn)
+	numDirtyChunks, err := metaIn.ReadVLong()
 	if err != nil {
 		return nil, fmt.Errorf("lucene90/compressing: read numDirtyChunks: %w", err)
 	}
-	numDirtyDocs, err := store.ReadVLong(metaIn)
+	numDirtyDocs, err := metaIn.ReadVLong()
 	if err != nil {
 		return nil, fmt.Errorf("lucene90/compressing: read numDirtyDocs: %w", err)
 	}
 
-	if _, err := gstore.CheckFooter(metaIn); err != nil {
+	if _, err := store.CheckFooter(metaIn); err != nil {
 		return nil, fmt.Errorf("lucene90/compressing: check fdm footer: %w", err)
 	}
 	_ = metaIn.Close()
@@ -1144,7 +1144,7 @@ func (r *Lucene90CompressingStoredFieldsReader) VisitDocument(docID int, visitor
 	// Parse fields from dst.Bytes[dst.Offset : dst.Offset+dst.Length].
 	docData := store.NewByteArrayDataInput(dst.Bytes[dst.Offset : dst.Offset+dst.Length])
 	for fieldIDX := 0; fieldIDX < numFields; fieldIDX++ {
-		infoAndBits, err := store.ReadVLong(docData)
+		infoAndBits, err := docData.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("lucene90/compressing: read infoAndBits: %w", err)
 		}
@@ -1172,7 +1172,7 @@ func (r *Lucene90CompressingStoredFieldsReader) VisitDocument(docID int, visitor
 				return err
 			}
 			b := make([]byte, length)
-			if err := docData.ReadBytes(b); err != nil {
+			if err := docData.ReadBytes(b, 0, len(b)); err != nil {
 				return err
 			}
 			visitor.BinaryField(fieldName, b)
@@ -1221,6 +1221,24 @@ func (r *Lucene90CompressingStoredFieldsReader) Close() error {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
+}
+
+// CheckIntegrity walks the stored-field data and validates the checksum
+// framing.
+//
+// Go port of Lucene90CompressingStoredFieldsReader.checkIntegrity
+// (Lucene 10.5.0, Lucene90CompressingStoredFieldsReader.java):
+//
+//	public void checkIntegrity() throws IOException {
+//	  indexReader.checkIntegrity();
+//	  CodecUtil.checksumEntireFile(fieldsStream);
+//	}
+func (r *Lucene90CompressingStoredFieldsReader) CheckIntegrity() error {
+	if err := r.indexReader.checkIntegrity(); err != nil {
+		return err
+	}
+	_, err := store.ChecksumEntireFile(r.fieldsStream)
+	return err
 }
 
 // Compile-time guarantee.
@@ -1373,6 +1391,19 @@ func (r *luceneFieldsIndexReader) getStartPointer(docID int) (int64, error) {
 	return r.startPointers.Get(blockIdx)
 }
 
+// checkIntegrity validates the checksum of the whole .fdx file.
+//
+// Go port of FieldsIndexReader.checkIntegrity (Lucene 10.5.0,
+// FieldsIndexReader.java:159-161):
+//
+//	void checkIntegrity() throws IOException {
+//	  CodecUtil.checksumEntireFile(indexInput);
+//	}
+func (r *luceneFieldsIndexReader) checkIntegrity() error {
+	_, err := store.ChecksumEntireFile(r.indexInput)
+	return err
+}
+
 func (r *luceneFieldsIndexReader) close() error {
 	return r.indexInput.Close()
 }
@@ -1399,7 +1430,7 @@ func sliceToRandomAccess(in store.IndexInput, desc string, offset, length int64)
 	}
 	// Fall back: read everything into memory.
 	buf := make([]byte, length)
-	if err := sub.ReadBytes(buf); err != nil {
+	if err := sub.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, fmt.Errorf("sliceToRandomAccess: read %d bytes at %d: %w", length, offset, err)
 	}
 	return store.NewByteArrayRandomAccessInput(buf), nil
@@ -1411,7 +1442,7 @@ func sliceToRandomAccess(in store.IndexInput, desc string, offset, length int64)
 
 // writeZInt writes a 32-bit integer using zigzag+VInt encoding.
 func writeZInt(out store.DataOutput, v int32) error {
-	return store.WriteVInt(out, int32((v<<1)^(v>>31)))
+	return out.WriteVInt(int32((v << 1) ^ (v >> 31)))
 }
 
 // readZInt reads a zigzag+VInt encoded int32.
@@ -1658,7 +1689,7 @@ func writeTLong(out store.DataOutput, l int64) error {
 		return err
 	}
 	if upperBits != 0 {
-		return store.WriteVLong(out, int64(upperBits))
+		return out.WriteVLong(int64(upperBits))
 	}
 	return nil
 }
@@ -1672,7 +1703,7 @@ func readTLong(in store.DataInput) (int64, error) {
 	header := int(headerByte)
 	bits := uint64(header & 0x1F)
 	if (header & 0x20) != 0 {
-		upper, err := store.ReadVLong(in)
+		upper, err := in.ReadVLong()
 		if err != nil {
 			return 0, err
 		}
