@@ -7,6 +7,7 @@ package search
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // QueryProfilerScorer is a search.Scorer wrapper that records how much time is
@@ -52,7 +53,7 @@ func (s *QueryProfilerScorer) Advance(target int) (int, error) {
 }
 
 // DocIDRunEnd returns the end of the run of consecutive doc IDs.
-func (s *QueryProfilerScorer) DocIDRunEnd() int { return s.scorer.DocIDRunEnd() }
+func (s *QueryProfilerScorer) DocIDRunEnd() (int, error) { return s.scorer.DocIDRunEnd() }
 
 // Cost returns the approximate cost of iteration.
 func (s *QueryProfilerScorer) Cost() int64 { return s.scorer.Cost() }
@@ -82,3 +83,10 @@ func (s *QueryProfilerScorer) AdvanceShallow(target int) (int, error) {
 }
 
 var _ search.Scorer = (*QueryProfilerScorer)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *QueryProfilerScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

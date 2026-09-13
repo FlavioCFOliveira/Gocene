@@ -7,6 +7,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -20,7 +21,7 @@ type stubQuery struct {
 
 func (q *stubQuery) Rewrite(_ search.IndexReader) (search.Query, error) { return q, nil }
 func (q *stubQuery) Clone() search.Query                                { return q }
-func (q *stubQuery) Equals(other search.Query) bool {
+func (q *stubQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*stubQuery)
 	return ok && o.label == q.label
 }

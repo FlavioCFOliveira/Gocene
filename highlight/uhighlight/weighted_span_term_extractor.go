@@ -7,6 +7,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/memory"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -15,15 +16,15 @@ import (
 // based on whether Terms from the Query are contained in a supplied TokenStream.
 // Mirrors org.apache.lucene.search.highlight.WeightedSpanTermExtractor.
 type WeightedSpanTermExtractor struct {
-	fieldName               string
-	tokenStream             analysis.TokenStream
-	defaultField            string
-	expandMultiTermQuery    bool
-	cachedTokenStream       bool
-	wrapToCaching          bool
-	maxDocCharsToAnalyze    int
-	usePayloads             bool
-	internalReader          index.LeafReader
+	fieldName            string
+	tokenStream          analysis.TokenStream
+	defaultField         string
+	expandMultiTermQuery bool
+	cachedTokenStream    bool
+	wrapToCaching        bool
+	maxDocCharsToAnalyze int
+	usePayloads          bool
+	internalReader       index.LeafReader
 }
 
 func NewWeightedSpanTermExtractor(defaultField string) *WeightedSpanTermExtractor {
@@ -54,12 +55,12 @@ func (w *WeightedSpanTermExtractor) Extract(query search.Query, boost float32, t
 	if pq, ok := query.(*search.PhraseQuery); ok {
 		termsList := pq.GetTerms()
 		if len(termsList) == 1 {
-			return w.extractWeightedSpanTerms(terms, search.NewSpanTermQuery(termsList[0]), boost)
+			return w.extractWeightedSpanTerms(terms, spans.NewSpanTermQuery(termsList[0]), boost)
 		}
 
-		clauses := make([]search.SpanQuery, len(termsList))
+		clauses := make([]spans.SpanQuery, len(termsList))
 		for i, term := range termsList {
-			clauses[i] = search.NewSpanTermQuery(term)
+			clauses[i] = spans.NewSpanTermQuery(term)
 		}
 
 		positionGaps := 0
@@ -72,7 +73,10 @@ func (w *WeightedSpanTermExtractor) Extract(query search.Query, boost float32, t
 		}
 
 		inOrder := (pq.GetSlop() == 0)
-		sp := search.NewSpanNearQuery(clauses, pq.GetSlop()+positionGaps, inOrder)
+		sp, err := spans.NewSpanNearQuery(clauses, pq.GetSlop()+positionGaps, inOrder)
+		if err != nil {
+			return err
+		}
 		return w.extractWeightedSpanTerms(terms, sp, boost)
 	}
 
@@ -91,7 +95,7 @@ func (w *WeightedSpanTermExtractor) Extract(query search.Query, boost float32, t
 		return w.extractWeightedTerms(terms, query, boost)
 	}
 
-	if sq, ok := query.(search.SpanQuery); ok {
+	if sq, ok := query.(spans.SpanQuery); ok {
 		return w.extractWeightedSpanTerms(terms, sq, boost)
 	}
 
@@ -127,25 +131,29 @@ func (w *WeightedSpanTermExtractor) Extract(query search.Query, boost float32, t
 				}
 			}
 
-			disjunctLists := make([][]search.SpanQuery, maxPosition+1)
+			disjunctLists := make([][]spans.SpanQuery, maxPosition+1)
 			distinctPositions := 0
 			for i, termArray := range termArrays {
 				pos := positions[i]
 				if disjunctLists[pos] == nil {
-					disjunctLists[pos] = make([]search.SpanQuery, 0, len(termArray))
+					disjunctLists[pos] = make([]spans.SpanQuery, 0, len(termArray))
 					distinctPositions++
 				}
 				for _, term := range termArray {
-					disjunctLists[pos] = append(disjunctLists[pos], search.NewSpanTermQuery(term))
+					disjunctLists[pos] = append(disjunctLists[pos], spans.NewSpanTermQuery(term))
 				}
 			}
 
 			positionGaps := 0
 			position := 0
-			clauses := make([]search.SpanQuery, distinctPositions)
+			clauses := make([]spans.SpanQuery, distinctPositions)
 			for _, disjuncts := range disjunctLists {
 				if disjuncts != nil {
-					clauses[position] = search.NewSpanOrQuery(disjuncts)
+					or, err := spans.NewSpanOrQuery(disjuncts...)
+					if err != nil {
+						return err
+					}
+					clauses[position] = or
 					position++
 				} else {
 					positionGaps++
@@ -157,7 +165,10 @@ func (w *WeightedSpanTermExtractor) Extract(query search.Query, boost float32, t
 			}
 			slop := mpq.GetSlop()
 			inOrder := (slop == 0)
-			sp := search.NewSpanNearQuery(clauses, slop+positionGaps, inOrder)
+			sp, err := spans.NewSpanNearQuery(clauses, slop+positionGaps, inOrder)
+			if err != nil {
+				return err
+			}
 			return w.extractWeightedSpanTerms(terms, sp, boost)
 		}
 		return nil
@@ -212,7 +223,7 @@ func (w *WeightedSpanTermExtractor) extractUnknownQuery(query search.Query, term
 	return nil
 }
 
-func (w *WeightedSpanTermExtractor) extractWeightedSpanTerms(terms map[string]*WeightedSpanTerm, spanQuery search.SpanQuery, boost float32) error {
+func (w *WeightedSpanTermExtractor) extractWeightedSpanTerms(terms map[string]*WeightedSpanTerm, spanQuery spans.SpanQuery, boost float32) error {
 	queryFieldNames := make(map[string]bool)
 	w.collectSpanQueryFields(spanQuery, queryFieldNames)
 
@@ -225,7 +236,7 @@ func (w *WeightedSpanTermExtractor) extractWeightedSpanTerms(terms map[string]*W
 
 	query := spanQuery
 	if w.mustRewriteQuery(spanQuery) {
-		query = searcher.Rewrite(spanQuery).(search.SpanQuery)
+		query = searcher.Rewrite(spanQuery).(spans.SpanQuery)
 	}
 
 	nonWeightedTerms := make(map[string]*index.Term)
@@ -344,18 +355,18 @@ func (w *WeightedSpanTermExtractor) closeInternalReader() {
 	}
 }
 
-func (w *WeightedSpanTermExtractor) collectSpanQueryFields(spanQuery search.SpanQuery, fieldNames map[string]bool) {
+func (w *WeightedSpanTermExtractor) collectSpanQueryFields(spanQuery spans.SpanQuery, fieldNames map[string]bool) {
 	if sq, ok := spanQuery.(*search.FieldMaskingSpanQuery); ok {
 		w.collectSpanQueryFields(sq.GetMaskedQuery(), fieldNames)
-	} else if sq, ok := spanQuery.(*search.SpanFirstQuery); ok {
+	} else if sq, ok := spanQuery.(*spans.SpanFirstQuery); ok {
 		w.collectSpanQueryFields(sq.GetMatch(), fieldNames)
-	} else if sq, ok := spanQuery.(*search.SpanNearQuery); ok {
+	} else if sq, ok := spanQuery.(*spans.SpanNearQuery); ok {
 		for _, clause := range sq.GetClauses() {
 			w.collectSpanQueryFields(clause, fieldNames)
 		}
-	} else if sq, ok := spanQuery.(*search.SpanNotQuery); ok {
+	} else if sq, ok := spanQuery.(*spans.SpanNotQuery); ok {
 		w.collectSpanQueryFields(sq.GetInclude(), fieldNames)
-	} else if sq, ok := spanQuery.(*search.SpanOrQuery); ok {
+	} else if sq, ok := spanQuery.(*spans.SpanOrQuery); ok {
 		for _, clause := range sq.GetClauses() {
 			w.collectSpanQueryFields(clause, fieldNames)
 		}
@@ -364,17 +375,17 @@ func (w *WeightedSpanTermExtractor) collectSpanQueryFields(spanQuery search.Span
 	}
 }
 
-func (w *WeightedSpanTermExtractor) mustRewriteQuery(spanQuery search.SpanQuery) bool {
+func (w *WeightedSpanTermExtractor) mustRewriteQuery(spanQuery spans.SpanQuery) bool {
 	if !w.expandMultiTermQuery {
 		return false
 	}
 	if sq, ok := spanQuery.(*search.FieldMaskingSpanQuery); ok {
 		return w.mustRewriteQuery(sq.GetMaskedQuery())
 	}
-	if sq, ok := spanQuery.(*search.SpanFirstQuery); ok {
+	if sq, ok := spanQuery.(*spans.SpanFirstQuery); ok {
 		return w.mustRewriteQuery(sq.GetMatch())
 	}
-	if sq, ok := spanQuery.(*search.SpanNearQuery); ok {
+	if sq, ok := spanQuery.(*spans.SpanNearQuery); ok {
 		for _, clause := range sq.GetClauses() {
 			if w.mustRewriteQuery(clause) {
 				return true
@@ -382,10 +393,10 @@ func (w *WeightedSpanTermExtractor) mustRewriteQuery(spanQuery search.SpanQuery)
 		}
 		return false
 	}
-	if sq, ok := spanQuery.(*search.SpanNotQuery); ok {
+	if sq, ok := spanQuery.(*spans.SpanNotQuery); ok {
 		return w.mustRewriteQuery(sq.GetInclude()) || w.mustRewriteQuery(sq.GetExclude())
 	}
-	if sq, ok := spanQuery.(*search.SpanOrQuery); ok {
+	if sq, ok := spanQuery.(*spans.SpanOrQuery); ok {
 		for _, clause := range sq.GetClauses() {
 			if w.mustRewriteQuery(clause) {
 				return true
@@ -393,7 +404,7 @@ func (w *WeightedSpanTermExtractor) mustRewriteQuery(spanQuery search.SpanQuery)
 		}
 		return false
 	}
-	if _, ok := spanQuery.(*search.SpanTermQuery); ok {
+	if _, ok := spanQuery.(*spans.SpanTermQuery); ok {
 		return false
 	}
 	return true

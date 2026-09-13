@@ -2,6 +2,7 @@
 package queries
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
 	"strings"
 
@@ -181,7 +182,7 @@ func (q *FuzzyLikeThisQuery) Clone() search.Query {
 }
 
 // Equals checks if this query equals another.
-func (q *FuzzyLikeThisQuery) Equals(other search.Query) bool {
+func (q *FuzzyLikeThisQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*FuzzyLikeThisQuery)
 	if !ok {
 		return false

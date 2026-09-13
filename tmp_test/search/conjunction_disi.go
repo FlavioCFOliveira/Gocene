@@ -62,7 +62,7 @@ func (c *conjunctionDISI) Advance(target int) (int, error) {
 
 func (c *conjunctionDISI) Cost() int64 { return c.lead1.Cost() }
 
-func (c *conjunctionDISI) DocIDRunEnd() int { return c.lead1.DocID() + 1 }
+func (c *conjunctionDISI) DocIDRunEnd() (int, error) { return c.lead1.DocID() + 1, nil }
 
 // doNext advances all iterators until they agree on the same document.
 func (c *conjunctionDISI) doNext(doc int) (int, error) {
@@ -166,7 +166,7 @@ func (b *bitSetConjunctionDISI) Advance(target int) (int, error) {
 
 func (b *bitSetConjunctionDISI) Cost() int64 { return b.lead.Cost() }
 
-func (b *bitSetConjunctionDISI) DocIDRunEnd() int { return b.lead.DocID() + 1 }
+func (b *bitSetConjunctionDISI) DocIDRunEnd() (int, error) { return b.lead.DocID() + 1, nil }
 
 func (b *bitSetConjunctionDISI) doNext(doc int) (int, error) {
 	for {
@@ -460,3 +460,17 @@ var (
 	_ DocIdSetIterator = (*conjunctionDISI)(nil)
 	_ DocIdSetIterator = (*bitSetConjunctionDISI)(nil)
 )
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (c *conjunctionDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(c, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (b *bitSetConjunctionDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(b, upTo, bitSet, offset)
+}

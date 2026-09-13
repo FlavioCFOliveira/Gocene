@@ -4,6 +4,8 @@
 
 package search
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 import "math"
 
 // ImpactsDISI is a DocIdSetIterator wrapper that skips documents whose
@@ -61,7 +63,7 @@ func (i *ImpactsDISI) Advance(target int) (int, error) {
 func (i *ImpactsDISI) Cost() int64 { return i.in.Cost() }
 
 // DocIDRunEnd forwards to the underlying iterator.
-func (i *ImpactsDISI) DocIDRunEnd() int { return i.in.DocIDRunEnd() }
+func (i *ImpactsDISI) DocIDRunEnd() (int, error) { return i.in.DocIDRunEnd() }
 
 func (i *ImpactsDISI) maybeSkip(doc int) (int, error) {
 	for doc != NO_MORE_DOCS {
@@ -84,4 +86,11 @@ func (i *ImpactsDISI) maybeSkip(doc int) (int, error) {
 		doc = nd
 	}
 	return doc, nil
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (i *ImpactsDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(i, upTo, bitSet, offset)
 }

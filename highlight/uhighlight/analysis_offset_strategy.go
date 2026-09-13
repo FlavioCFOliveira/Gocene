@@ -73,8 +73,8 @@ type multiValueTokenStream struct {
 	posIncAtt analysis.PositionIncrementAttribute
 	offsetAtt analysis.OffsetAttribute
 
-	startValIdx      int
-	endValIdx        int
+	startValIdx     int
+	endValIdx       int
 	remainingPosInc int
 }
 
@@ -89,12 +89,12 @@ func NewMultiValueTokenStream(
 
 	ts := &multiValueTokenStream{
 		fieldName:     fieldName,
-		indexAnalyzer:  indexAnalyzer,
+		indexAnalyzer: indexAnalyzer,
 		content:       content,
 		splitChar:     splitChar,
 		input:         subTokenStream,
-		startValIdx:    0,
-		endValIdx:      splitCharIdx,
+		startValIdx:   0,
+		endValIdx:     splitCharIdx,
 	}
 
 	src := attributeSourceFor(subTokenStream)

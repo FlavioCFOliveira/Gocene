@@ -6,6 +6,7 @@ package facets
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/util"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -223,14 +224,14 @@ func (s *DrillSidewaysScorer) GetMaxScore(upTo int) float32 {
 }
 
 // DocIDRunEnd returns the end of the current run of consecutive doc IDs.
-func (s *DrillSidewaysScorer) DocIDRunEnd() int {
+func (s *DrillSidewaysScorer) DocIDRunEnd() (int, error) {
 	if s.baseScorer != nil {
 		// Check if baseScorer has DocIDRunEnd method
 		if dsi, ok := s.baseScorer.(interface{ DocIDRunEnd() int }); ok {
 			return dsi.DocIDRunEnd()
 		}
 	}
-	return s.currentDoc + 1
+	return s.currentDoc + 1, nil
 }
 
 // Matches returns true if the current document matches all drill-down queries.
@@ -264,4 +265,11 @@ func (s *DrillSidewaysScorer) GetDrillDownScorer(dim string) search.Scorer {
 // GetBaseScorer returns the base query scorer.
 func (s *DrillSidewaysScorer) GetBaseScorer() search.Scorer {
 	return s.baseScorer
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *DrillSidewaysScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

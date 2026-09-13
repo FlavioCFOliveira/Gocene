@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/queryparser/xml"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -12,7 +13,7 @@ import (
 // org.apache.lucene.queryparser.xml.builders.SpanQueryBuilder.
 type SpanQueryBuilder interface {
 	xml.QueryBuilder
-	GetSpanQuery(e *xml.Element) (search.SpanQuery, error)
+	GetSpanQuery(e *xml.Element) (spans.SpanQuery, error)
 }
 
 // SpanQueryBuilderFactory dispatches an *Element to a registered SpanQueryBuilder
@@ -37,7 +38,7 @@ func (f *SpanQueryBuilderFactory) GetBuilder(name string) SpanQueryBuilder {
 }
 
 // GetSpanQuery dispatches to the appropriate registered span builder.
-func (f *SpanQueryBuilderFactory) GetSpanQuery(e *xml.Element) (search.SpanQuery, error) {
+func (f *SpanQueryBuilderFactory) GetSpanQuery(e *xml.Element) (spans.SpanQuery, error) {
 	b, ok := f.builders[e.TagName]
 	if !ok {
 		return nil, xml.NewParserException("no SpanQueryBuilder registered for <" + e.TagName + ">")
@@ -69,7 +70,7 @@ func NewSpanBuilderBase(factory *SpanQueryBuilderFactory) SpanBuilderBase {
 }
 
 // getChildSpan resolves the first child element to a SpanQuery via the factory.
-func (b SpanBuilderBase) getChildSpan(e *xml.Element) (search.SpanQuery, error) {
+func (b SpanBuilderBase) getChildSpan(e *xml.Element) (spans.SpanQuery, error) {
 	child, err := xml.GetFirstChildOrFail(e)
 	if err != nil {
 		return nil, err
@@ -81,7 +82,7 @@ func (b SpanBuilderBase) getChildSpan(e *xml.Element) (search.SpanQuery, error) 
 type SpanTermBuilder struct{}
 
 // GetSpanQuery satisfies SpanQueryBuilder.
-func (SpanTermBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error) {
+func (SpanTermBuilder) GetSpanQuery(e *xml.Element) (spans.SpanQuery, error) {
 	field, err := xml.GetAttributeOrFail(e, "fieldName")
 	if err != nil {
 		return nil, err
@@ -90,7 +91,7 @@ func (SpanTermBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error) {
 	if err != nil {
 		return nil, err
 	}
-	return search.NewSpanTermQuery(index.NewTerm(field, text)), nil
+	return spans.NewSpanTermQuery(index.NewTerm(field, text)), nil
 }
 
 // GetQuery satisfies xml.QueryBuilder.
@@ -113,8 +114,8 @@ func NewSpanOrBuilder(factory *SpanQueryBuilderFactory) *SpanOrBuilder {
 }
 
 // GetSpanQuery satisfies SpanQueryBuilder.
-func (b *SpanOrBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error) {
-	clauses := make([]search.SpanQuery, 0, len(e.Children))
+func (b *SpanOrBuilder) GetSpanQuery(e *xml.Element) (spans.SpanQuery, error) {
+	clauses := make([]spans.SpanQuery, 0, len(e.Children))
 	for _, child := range e.Children {
 		sub, err := b.Factory.GetSpanQuery(child)
 		if err != nil {
@@ -124,7 +125,7 @@ func (b *SpanOrBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error) {
 			clauses = append(clauses, sub)
 		}
 	}
-	return search.NewSpanOrQuery(clauses...), nil
+	return spans.NewSpanOrQuery(clauses...)
 }
 
 // GetQuery satisfies xml.QueryBuilder.
@@ -144,7 +145,7 @@ var _ SpanQueryBuilder = (*SpanOrBuilder)(nil)
 type SpanOrTermsBuilder struct{}
 
 // GetSpanQuery satisfies SpanQueryBuilder.
-func (SpanOrTermsBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error) {
+func (SpanOrTermsBuilder) GetSpanQuery(e *xml.Element) (spans.SpanQuery, error) {
 	field, err := xml.GetAttributeOrFail(e, "fieldName")
 	if err != nil {
 		return nil, err
@@ -157,11 +158,11 @@ func (SpanOrTermsBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error)
 	if len(tokens) == 0 {
 		return nil, xml.NewParserException("SpanOrTerms requires at least one term")
 	}
-	terms := make([]*index.Term, len(tokens))
+	clausesList := make([]spans.SpanQuery, len(tokens))
 	for i, t := range tokens {
-		terms[i] = index.NewTerm(field, t)
+		clausesList[i] = spans.NewSpanTermQuery(index.NewTerm(field, t))
 	}
-	return search.NewSpanOrTermsQuery(terms...), nil
+	return spans.NewSpanOrQuery(clausesList...)
 }
 
 // GetQuery satisfies xml.QueryBuilder.
@@ -185,7 +186,7 @@ func NewSpanNotBuilder(factory *SpanQueryBuilderFactory) *SpanNotBuilder {
 }
 
 // GetSpanQuery satisfies SpanQueryBuilder.
-func (b *SpanNotBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error) {
+func (b *SpanNotBuilder) GetSpanQuery(e *xml.Element) (spans.SpanQuery, error) {
 	include, err := xml.GetChildByTagNameOrFail(e, "Include")
 	if err != nil {
 		return nil, err
@@ -202,7 +203,7 @@ func (b *SpanNotBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error) 
 	if err != nil {
 		return nil, err
 	}
-	return search.NewSpanNotQuery(inc, exc), nil
+	return spans.NewSpanNotQuery(inc, exc)
 }
 
 // GetQuery satisfies xml.QueryBuilder.
@@ -226,10 +227,10 @@ func NewSpanNearBuilder(factory *SpanQueryBuilderFactory) *SpanNearBuilder {
 }
 
 // GetSpanQuery satisfies SpanQueryBuilder.
-func (b *SpanNearBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error) {
+func (b *SpanNearBuilder) GetSpanQuery(e *xml.Element) (spans.SpanQuery, error) {
 	slop := xml.GetAttributeInt(e, "slop", 0)
 	inOrder := xml.GetAttributeBoolean(e, "inOrder", false)
-	clauses := make([]search.SpanQuery, 0, len(e.Children))
+	clauses := make([]spans.SpanQuery, 0, len(e.Children))
 	for _, child := range e.Children {
 		sub, err := b.Factory.GetSpanQuery(child)
 		if err != nil {
@@ -239,7 +240,7 @@ func (b *SpanNearBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error)
 			clauses = append(clauses, sub)
 		}
 	}
-	return search.NewSpanNearQuery(clauses, slop, inOrder), nil
+	return spans.NewSpanNearQuery(clauses, slop, inOrder)
 }
 
 // GetQuery satisfies xml.QueryBuilder.
@@ -263,7 +264,7 @@ func NewSpanFirstBuilder(factory *SpanQueryBuilderFactory) *SpanFirstBuilder {
 }
 
 // GetSpanQuery satisfies SpanQueryBuilder.
-func (b *SpanFirstBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error) {
+func (b *SpanFirstBuilder) GetSpanQuery(e *xml.Element) (spans.SpanQuery, error) {
 	end, err := xml.GetAttributeIntOrFail(e, "end")
 	if err != nil {
 		return nil, err
@@ -272,7 +273,7 @@ func (b *SpanFirstBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error
 	if err != nil {
 		return nil, err
 	}
-	return search.NewSpanFirstQuery(sub, end), nil
+	return spans.NewSpanFirstQuery(sub, end)
 }
 
 // GetQuery satisfies xml.QueryBuilder.
@@ -295,7 +296,7 @@ func NewSpanPositionRangeBuilder(factory *SpanQueryBuilderFactory) *SpanPosition
 }
 
 // GetSpanQuery satisfies SpanQueryBuilder.
-func (b *SpanPositionRangeBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error) {
+func (b *SpanPositionRangeBuilder) GetSpanQuery(e *xml.Element) (spans.SpanQuery, error) {
 	start, err := xml.GetAttributeIntOrFail(e, "start")
 	if err != nil {
 		return nil, err
@@ -308,7 +309,7 @@ func (b *SpanPositionRangeBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuer
 	if err != nil {
 		return nil, err
 	}
-	return search.NewSpanPositionRangeQuery(sub, start, end), nil
+	return spans.NewSpanPositionRangeQuery(sub, start, end)
 }
 
 // GetQuery satisfies xml.QueryBuilder.
@@ -328,7 +329,7 @@ var _ SpanQueryBuilder = (*SpanPositionRangeBuilder)(nil)
 type BoostingTermBuilder struct{}
 
 // GetSpanQuery satisfies SpanQueryBuilder.
-func (BoostingTermBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error) {
+func (BoostingTermBuilder) GetSpanQuery(e *xml.Element) (spans.SpanQuery, error) {
 	field, err := xml.GetAttributeOrFail(e, "fieldName")
 	if err != nil {
 		return nil, err
@@ -337,7 +338,7 @@ func (BoostingTermBuilder) GetSpanQuery(e *xml.Element) (search.SpanQuery, error
 	if err != nil {
 		return nil, err
 	}
-	return search.NewSpanTermQuery(index.NewTerm(field, text)), nil
+	return spans.NewSpanTermQuery(index.NewTerm(field, text)), nil
 }
 
 // GetQuery satisfies xml.QueryBuilder. Always wraps the SpanTermQuery in a

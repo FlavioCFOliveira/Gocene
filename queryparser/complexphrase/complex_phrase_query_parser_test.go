@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -24,7 +25,7 @@ func TestPhraseWithWildcardBecomesSpan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := q.(*search.SpanNearQuery); !ok {
+	if _, ok := q.(*spans.SpanNearQuery); !ok {
 		t.Errorf("got %T, want SpanNearQuery", q)
 	}
 }
@@ -35,7 +36,7 @@ func TestPhraseWithQuestionMarkBecomesSpan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := q.(*search.SpanNearQuery); !ok {
+	if _, ok := q.(*spans.SpanNearQuery); !ok {
 		t.Errorf("got %T, want SpanNearQuery", q)
 	}
 }
@@ -57,7 +58,7 @@ func TestSinglePhraseTokenWithWildcardCollapses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := q.(*search.SpanMultiTermQueryWrapper); !ok {
+	if _, ok := q.(*spans.SpanMultiTermQueryWrapper); !ok {
 		t.Errorf("got %T, want SpanMultiTermQueryWrapper", q)
 	}
 }

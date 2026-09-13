@@ -6,6 +6,7 @@ package monitor
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -56,7 +57,7 @@ func (q *ForceNoBulkScoringQuery) Clone() search.Query {
 
 // Equals returns true if the other query is a ForceNoBulkScoringQuery wrapping
 // an equal inner query.
-func (q *ForceNoBulkScoringQuery) Equals(other search.Query) bool {
+func (q *ForceNoBulkScoringQuery) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}

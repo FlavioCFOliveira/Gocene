@@ -8,6 +8,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -37,11 +38,11 @@ func newListScorer(docs []int, score float32) *listScorer {
 }
 
 func (s *listScorer) DocID() int { return s.doc }
-func (s *listScorer) DocIDRunEnd() int {
+func (s *listScorer) DocIDRunEnd() (int, error) {
 	if s.doc == search.NO_MORE_DOCS {
-		return search.NO_MORE_DOCS
+		return search.NO_MORE_DOCS, nil
 	}
-	return s.doc + 1
+	return s.doc + 1, nil
 }
 
 func (s *listScorer) NextDoc() (int, error) {
@@ -175,4 +176,11 @@ func TestCoveringScorer_GetMaxScore(t *testing.T) {
 	if got != cs.GetMaxScore(0) {
 		t.Error("GetMaxScore must return same value regardless of upTo")
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *listScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

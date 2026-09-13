@@ -22,7 +22,7 @@ func TestSrndQuery_Boosts(t *testing.T) {
 			weighted: false,
 		},
 		{
-			name:     "term weighted",
+			name: "term weighted",
 			node: func() SrndQuery {
 				q := NewSrndTermQuery("apple", false)
 				q.SetWeight(2.0)
@@ -37,7 +37,7 @@ func TestSrndQuery_Boosts(t *testing.T) {
 			weighted: false,
 		},
 		{
-			name:     "prefix weighted",
+			name: "prefix weighted",
 			node: func() SrndQuery {
 				q := NewSrndPrefixQuery("app", false, '*')
 				q.SetWeight(1.5)
@@ -52,7 +52,7 @@ func TestSrndQuery_Boosts(t *testing.T) {
 			weighted: false,
 		},
 		{
-			name:     "trunc weighted",
+			name: "trunc weighted",
 			node: func() SrndQuery {
 				q := NewSrndTruncQuery("a?p*", '*', '?')
 				q.SetWeight(3.0)
@@ -105,7 +105,7 @@ func TestSrndQuery_String(t *testing.T) {
 			expected: `"apple pie"`,
 		},
 		{
-			name:     "term weighted",
+			name: "term weighted",
 			node: func() SrndQuery {
 				q := NewSrndTermQuery("apple", false)
 				q.SetWeight(2.0)
@@ -124,7 +124,7 @@ func TestSrndQuery_String(t *testing.T) {
 			expected: `"app"*`,
 		},
 		{
-			name:     "prefix weighted",
+			name: "prefix weighted",
 			node: func() SrndQuery {
 				q := NewSrndPrefixQuery("app", false, '*')
 				q.SetWeight(1.5)
@@ -138,7 +138,7 @@ func TestSrndQuery_String(t *testing.T) {
 			expected: "a?p*",
 		},
 		{
-			name:     "trunc weighted",
+			name: "trunc weighted",
 			node: func() SrndQuery {
 				q := NewSrndTruncQuery("a?p*", '*', '?')
 				q.SetWeight(3.0)

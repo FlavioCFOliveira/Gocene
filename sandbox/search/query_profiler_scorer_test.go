@@ -6,6 +6,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -28,7 +29,7 @@ func (s *stubScorer) AdvanceShallow(int) (int, error) {
 }
 func (s *stubScorer) NextDoc() (int, error)      { return s.nextDocVal, nil }
 func (s *stubScorer) Advance(_ int) (int, error) { return s.advanceVal, nil }
-func (s *stubScorer) DocIDRunEnd() int           { return s.BaseDocIdSetIterator.DocIDRunEnd() }
+func (s *stubScorer) DocIDRunEnd() (int, error)  { return s.BaseDocIdSetIterator.DocIDRunEnd() }
 
 var _ search.Scorer = (*stubScorer)(nil)
 
@@ -134,4 +135,11 @@ func TestQueryProfilerScorer_CostDelegated(t *testing.T) {
 	if got := ps.Cost(); got != 0 {
 		t.Errorf("Cost() = %d; want 0", got)
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *stubScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

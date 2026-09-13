@@ -188,7 +188,7 @@ func (s *TermAutomatonScorer) pushCurrentDoc() {
 func (s *TermAutomatonScorer) DocID() int { return s.docID }
 
 // DocIDRunEnd returns docID+1.
-func (s *TermAutomatonScorer) DocIDRunEnd() int { return s.docID + 1 }
+func (s *TermAutomatonScorer) DocIDRunEnd() (int, error) { return s.docID + 1, nil }
 
 // NextDoc advances to the next matching document.
 func (s *TermAutomatonScorer) NextDoc() (int, error) {
@@ -456,3 +456,10 @@ func (s *TermAutomatonScorer) AdvanceShallow(target int) (int, error) {
 }
 
 var _ search.Scorer = (*TermAutomatonScorer)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *TermAutomatonScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

@@ -61,9 +61,9 @@ func (r *TermVectorFilteredLeafReader) TermEntries(field string) []TermVectorEnt
 //
 // Mirrors the inner TermVectorFilteredTermsEnum in the Java original.
 type FilteredTermsIterator struct {
-	base   []TermVectorEntry // base term list (sorted by term)
-	filter []TermVectorEntry // filter term list (sorted by term)
-	pos    int               // position in filter list
+	base    []TermVectorEntry // base term list (sorted by term)
+	filter  []TermVectorEntry // filter term list (sorted by term)
+	pos     int               // position in filter list
 	baseIdx map[string]int    // index into base by term
 }
 

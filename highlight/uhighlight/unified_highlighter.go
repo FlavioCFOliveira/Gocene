@@ -23,71 +23,71 @@ const (
 )
 
 const (
-	defaultMaxLength                = 10000
-	defaultCacheFieldValCharsThreshold = 524288
-	defaultEnableMultiTermQuery     = true
+	defaultMaxLength                      = 10000
+	defaultCacheFieldValCharsThreshold    = 524288
+	defaultEnableMultiTermQuery           = true
 	defaultEnableHighlightPhrasesStrictly = true
-	defaultEnableWeightMatches      = true
-	defaultEnableRelevancyOverSpeed = true
-	defaultMaxHighlightPassages     = -1
+	defaultEnableWeightMatches            = true
+	defaultEnableRelevancyOverSpeed       = true
+	defaultMaxHighlightPassages           = -1
 )
 
 // UnifiedHighlighter is a Highlighter that can get offsets from either postings,
 // term vectors, or via re-analyzing text.
 type UnifiedHighlighter struct {
-	searcher            *search.IndexSearcher
-	indexAnalyzer       analysis.Analyzer
-	fieldInfos          *index.FieldInfos
-	fieldInfosMu        sync.RWMutex
-	fieldMatcher        func(string) bool
-	maskedFieldsFunc    func(string) []string
-	flags               map[HighlightFlag]struct{}
-	handleMultiTermQuery bool
-	highlightPhrasesStrictly bool
-	weightMatches        bool
-	passageRelevancyOverSpeed bool
-	maxLength           int
-	breakIterator       func() BreakIterator
-	scorer              PassageScorer
-	formatter           PassageFormatter
-	maxNoHighlightPassages int
+	searcher                    *search.IndexSearcher
+	indexAnalyzer               analysis.Analyzer
+	fieldInfos                  *index.FieldInfos
+	fieldInfosMu                sync.RWMutex
+	fieldMatcher                func(string) bool
+	maskedFieldsFunc            func(string) []string
+	flags                       map[HighlightFlag]struct{}
+	handleMultiTermQuery        bool
+	highlightPhrasesStrictly    bool
+	weightMatches               bool
+	passageRelevancyOverSpeed   bool
+	maxLength                   int
+	breakIterator               func() BreakIterator
+	scorer                      PassageScorer
+	formatter                   PassageFormatter
+	maxNoHighlightPassages      int
 	cacheFieldValCharsThreshold int
-	passageSortComparator func(p1, p2 *Passage) int
+	passageSortComparator       func(p1, p2 *Passage) int
 }
 
 // Builder for UnifiedHighlighter.
 type Builder struct {
-	searcher               *search.IndexSearcher
-	indexAnalyzer          analysis.Analyzer
-	fieldMatcher           func(string) bool
-	maskedFieldsFunc       func(string) []string
-	flags                  map[HighlightFlag]struct{}
-	handleMultiTermQuery   bool
-	highlightPhrasesStrictly bool
-	passageRelevancyOverSpeed bool
-	weightMatches          bool
-	maxLength             int
-	breakIterator         func() BreakIterator
-	scorer                PassageScorer
-	formatter             PassageFormatter
-	maxNoHighlightPassages int
+	searcher                    *search.IndexSearcher
+	indexAnalyzer               analysis.Analyzer
+	fieldMatcher                func(string) bool
+	maskedFieldsFunc            func(string) []string
+	flags                       map[HighlightFlag]struct{}
+	handleMultiTermQuery        bool
+	highlightPhrasesStrictly    bool
+	passageRelevancyOverSpeed   bool
+	weightMatches               bool
+	maxLength                   int
+	breakIterator               func() BreakIterator
+	scorer                      PassageScorer
+	formatter                   PassageFormatter
+	maxNoHighlightPassages      int
 	cacheFieldValCharsThreshold int
-	passageSortComparator func(p1, p2 *Passage) int
+	passageSortComparator       func(p1, p2 *Passage) int
 }
 
 func NewBuilder(searcher *search.IndexSearcher, analyzer analysis.Analyzer) *Builder {
 	return &Builder{
-		searcher:               searcher,
-		indexAnalyzer:          analyzer,
-		handleMultiTermQuery:   defaultEnableMultiTermQuery,
-		highlightPhrasesStrictly: defaultEnableHighlightPhrasesStrictly,
-		passageRelevancyOverSpeed: defaultEnableRelevancyOverSpeed,
-		weightMatches:          defaultEnableWeightMatches,
-		maxLength:             defaultMaxLength,
-		breakIterator:         func() BreakIterator { return NewSentenceBreakIterator() },
-		scorer:                NewPassageScorer(),
-		formatter:             NewDefaultPassageFormatter(),
-		maxNoHighlightPassages: defaultMaxHighlightPassages,
+		searcher:                    searcher,
+		indexAnalyzer:               analyzer,
+		handleMultiTermQuery:        defaultEnableMultiTermQuery,
+		highlightPhrasesStrictly:    defaultEnableHighlightPhrasesStrictly,
+		passageRelevancyOverSpeed:   defaultEnableRelevancyOverSpeed,
+		weightMatches:               defaultEnableWeightMatches,
+		maxLength:                   defaultMaxLength,
+		breakIterator:               func() BreakIterator { return NewSentenceBreakIterator() },
+		scorer:                      NewPassageScorer(),
+		formatter:                   NewDefaultPassageFormatter(),
+		maxNoHighlightPassages:      defaultMaxHighlightPassages,
 		cacheFieldValCharsThreshold: defaultCacheFieldValCharsThreshold,
 		passageSortComparator: func(p1, p2 *Passage) int {
 			if p1.StartOffset < p2.StartOffset {
@@ -179,17 +179,17 @@ func (b *Builder) WithPassageSortComparator(value func(p1, p2 *Passage) int) *Bu
 
 func (b *Builder) Build() *UnifiedHighlighter {
 	uh := &UnifiedHighlighter{
-		searcher:            b.searcher,
-		indexAnalyzer:       b.indexAnalyzer,
-		maxLength:           b.maxLength,
-		breakIterator:       b.breakIterator,
-		fieldMatcher:        b.fieldMatcher,
-		maskedFieldsFunc:    b.maskedFieldsFunc,
-		scorer:              b.scorer,
-		formatter:           b.formatter,
-		maxNoHighlightPassages: b.maxNoHighlightPassages,
+		searcher:                    b.searcher,
+		indexAnalyzer:               b.indexAnalyzer,
+		maxLength:                   b.maxLength,
+		breakIterator:               b.breakIterator,
+		fieldMatcher:                b.fieldMatcher,
+		maskedFieldsFunc:            b.maskedFieldsFunc,
+		scorer:                      b.scorer,
+		formatter:                   b.formatter,
+		maxNoHighlightPassages:      b.maxNoHighlightPassages,
 		cacheFieldValCharsThreshold: b.cacheFieldValCharsThreshold,
-		passageSortComparator: b.passageSortComparator,
+		passageSortComparator:       b.passageSortComparator,
 	}
 	uh.flags = uh.evaluateFlags(b)
 	return uh
@@ -325,9 +325,9 @@ func (uh *UnifiedHighlighter) highlightFieldsAsObjects(fieldsIn []string, query 
 		for fieldIdx := 0; fieldIdx < len(fields); fieldIdx++ {
 			resultByDocIn := highlightDocsInByField[fieldIdx]
 			fh := fieldHighlighters[fieldIdx]
-			for docIdx := batchDocIdx; docIdx - batchDocIdx < len(fieldValsByDoc); docIdx++ {
+			for docIdx := batchDocIdx; docIdx-batchDocIdx < len(fieldValsByDoc); docIdx++ {
 				docId := docIds[docIdx]
-				content := fieldValsByDoc[docIdx - batchDocIdx][fieldIdx]
+				content := fieldValsByDoc[docIdx-batchDocIdx][fieldIdx]
 				if content == nil {
 					continue
 				}
@@ -347,20 +347,20 @@ func (uh *UnifiedHighlighter) highlightFieldsAsObjects(fieldsIn []string, query 
 				adjDocId := docId - leafCtx.DocBase
 
 				docInIndex := docInIndexes[docIdx]
-									var docContext any
-					switch fh.GetOffsetSource() {
-					case OffsetSourcePostings:
-						docContext = uh.buildPostingsDocContext(leafReader, adjDocId, fields[fieldIdx], queryTerms)
-					case OffsetSourcePostingsWithTermVectors:
-						docContext = uh.buildPostingsDocContext(leafReader, adjDocId, fields[fieldIdx], queryTerms)
-					default:
-						docContext = nil
-					}
-					snippet, err := fh.HighlightFieldForDoc(docContext, string(content))
-					if err != nil {
-						return nil, err
-					}
-					resultByDocIn[docInIndex] = snippet
+				var docContext any
+				switch fh.GetOffsetSource() {
+				case OffsetSourcePostings:
+					docContext = uh.buildPostingsDocContext(leafReader, adjDocId, fields[fieldIdx], queryTerms)
+				case OffsetSourcePostingsWithTermVectors:
+					docContext = uh.buildPostingsDocContext(leafReader, adjDocId, fields[fieldIdx], queryTerms)
+				default:
+					docContext = nil
+				}
+				snippet, err := fh.HighlightFieldForDoc(docContext, string(content))
+				if err != nil {
+					return nil, err
+				}
+				resultByDocIn[docInIndex] = snippet
 			}
 		}
 		batchDocIdx += len(fieldValsByDoc)
@@ -526,7 +526,7 @@ func (uh *UnifiedHighlighter) getHighlightComponents(field string, query search.
 		PhraseHelper:              phraseHelper,
 		Automata:                  automata,
 		QueryHasUnrecognizedQuery: queryHasUnrecognizedPart,
-		HighlightFlags:           highlightFlags,
+		HighlightFlags:            highlightFlags,
 	}
 }
 
@@ -712,18 +712,18 @@ func (uh *UnifiedHighlighter) loadFieldValues(fields []string, docIter *docIdSet
 
 func (uh *UnifiedHighlighter) newLimitedStoredFieldVisitor(fields []string) *LimitedStoredFieldVisitor {
 	return &LimitedStoredFieldVisitor{
-		fields:        fields,
+		fields:         fields,
 		valueSeparator: MultivalSepChar,
-		maxLength:     uh.maxLength,
+		maxLength:      uh.maxLength,
 	}
 }
 
 type LimitedStoredFieldVisitor struct {
-	fields        []string
+	fields         []string
 	valueSeparator rune
-	maxLength     int
-	values        []string
-	currentField  int
+	maxLength      int
+	values         []string
+	currentField   int
 }
 
 func (v *LimitedStoredFieldVisitor) Init() {

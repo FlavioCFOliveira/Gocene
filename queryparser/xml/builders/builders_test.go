@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/queryparser/xml"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -171,7 +172,7 @@ func TestSpanTermBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := q.(*search.SpanTermQuery); !ok {
+	if _, ok := q.(*spans.SpanTermQuery); !ok {
 		t.Errorf("got %T", q)
 	}
 }
@@ -185,7 +186,7 @@ func TestSpanOrBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := q.(*search.SpanOrQuery); !ok {
+	if _, ok := q.(*spans.SpanOrQuery); !ok {
 		t.Errorf("got %T", q)
 	}
 }
@@ -213,7 +214,7 @@ func TestSpanNotBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := q.(*search.SpanNotQuery); !ok {
+	if _, ok := q.(*spans.SpanNotQuery); !ok {
 		t.Errorf("got %T", q)
 	}
 }
@@ -230,7 +231,7 @@ func TestSpanNearBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := q.(*search.SpanNearQuery); !ok {
+	if _, ok := q.(*spans.SpanNearQuery); !ok {
 		t.Errorf("got %T", q)
 	}
 }
@@ -244,7 +245,7 @@ func TestSpanFirstBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := q.(*search.SpanFirstQuery); !ok {
+	if _, ok := q.(*spans.SpanFirstQuery); !ok {
 		t.Errorf("got %T", q)
 	}
 }
@@ -258,7 +259,7 @@ func TestSpanPositionRangeBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := q.(*search.SpanPositionRangeQuery); !ok {
+	if _, ok := q.(*spans.SpanPositionRangeQuery); !ok {
 		t.Errorf("got %T", q)
 	}
 }

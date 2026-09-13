@@ -4,6 +4,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -13,7 +14,7 @@ import (
 type PhraseHelper struct {
 	fieldName                string
 	positionInsensitiveTerms map[string]bool
-	spanQueries              map[search.SpanQuery]bool
+	spanQueries              map[spans.SpanQuery]bool
 	willRewrite              bool
 	fieldMatcher             func(string) bool
 }
@@ -22,7 +23,7 @@ type PhraseHelper struct {
 var NONE = &PhraseHelper{
 	fieldName:                "_ignored_",
 	positionInsensitiveTerms: make(map[string]bool),
-	spanQueries:              make(map[search.SpanQuery]bool),
+	spanQueries:              make(map[spans.SpanQuery]bool),
 	willRewrite:              true,
 	fieldMatcher:             func(s string) bool { return false },
 }
@@ -32,7 +33,7 @@ func NewPhraseHelper(
 	query search.Query,
 	field string,
 	fieldMatcher func(string) bool,
-	rewriteQueryPred func(search.SpanQuery) *bool,
+	rewriteQueryPred func(spans.SpanQuery) *bool,
 	preExtractRewriteFunction func(search.Query) []search.Query,
 	ignoreQueriesNeedingRewrite bool,
 ) *PhraseHelper {
@@ -40,7 +41,7 @@ func NewPhraseHelper(
 		fieldName:                field,
 		fieldMatcher:             fieldMatcher,
 		positionInsensitiveTerms: make(map[string]bool),
-		spanQueries:              make(map[search.SpanQuery]bool),
+		spanQueries:              make(map[spans.SpanQuery]bool),
 	}
 
 	mustRewriteHolder := false
@@ -60,14 +61,14 @@ func NewPhraseHelper(
 
 	// Actually, I'll implement a internal function that mirrors the Lucene anonymous class logic.
 	err := extractForPhraseHelper(extractor, query, fieldMatcher, preExtractRewriteFunction,
-		func(sq search.SpanQuery) bool {
+		func(sq spans.SpanQuery) bool {
 			res := rewriteQueryPred(sq)
 			if res != nil {
 				return *res
 			}
 			return extractor.MustRewriteQuery(sq)
 		},
-		func(sq search.SpanQuery) {
+		func(sq spans.SpanQuery) {
 			// If this span query isn't for this field, skip it.
 			fieldNames := make(map[string]bool)
 			extractor.CollectSpanQueryFields(sq, fieldNames)
@@ -105,8 +106,8 @@ func extractForPhraseHelper(
 	query search.Query,
 	fieldMatcher func(string) bool,
 	preExtractRewriteFunction func(search.Query) []search.Query,
-	rewriteQueryPred func(search.SpanQuery) bool,
-	onSpanQuery func(search.SpanQuery),
+	rewriteQueryPred func(spans.SpanQuery) bool,
+	onSpanQuery func(spans.SpanQuery),
 	onWeightedTerm func([]byte),
 	mustRewriteHolder *bool,
 ) error {
@@ -131,14 +132,14 @@ func extractForPhraseHelper(
 		if pq, ok := q.(*search.PhraseQuery); ok {
 			terms := pq.GetTerms()
 			if len(terms) == 1 {
-				sq := search.NewSpanTermQuery(terms[0])
+				sq := spans.NewSpanTermQuery(terms[0])
 				onSpanQuery(sq)
 				return nil
 			}
 			// Convert PhraseQuery to SpanNearQuery as Lucene does.
-			clauses := make([]search.SpanQuery, len(terms))
+			clauses := make([]spans.SpanQuery, len(terms))
 			for i, term := range terms {
-				clauses[i] = search.NewSpanTermQuery(term)
+				clauses[i] = spans.NewSpanTermQuery(term)
 			}
 			posGaps := 0
 			positions := pq.GetPositions()
@@ -149,7 +150,10 @@ func extractForPhraseHelper(
 				}
 			}
 			inOrder := (pq.GetSlop() == 0)
-			sp := search.NewSpanNearQuery(clauses, pq.GetSlop()+posGaps, inOrder)
+			sp, err := spans.NewSpanNearQuery(clauses, pq.GetSlop()+posGaps, inOrder)
+			if err != nil {
+				return err
+			}
 			onSpanQuery(sp)
 			return nil
 		}
@@ -179,7 +183,7 @@ func extractForPhraseHelper(
 			return nil
 		}
 
-		if sq, ok := q.(search.SpanQuery); ok {
+		if sq, ok := q.(spans.SpanQuery); ok {
 			onSpanQuery(sq)
 			return nil
 		}
@@ -221,24 +225,28 @@ func extractForPhraseHelper(
 						maxPos = p
 					}
 				}
-				disjunctLists := make([][]search.SpanQuery, maxPos+1)
+				disjunctLists := make([][]spans.SpanQuery, maxPos+1)
 				distinctPos := 0
 				for i, termArray := range termArrays {
 					pos := positions[i]
 					if disjunctLists[pos] == nil {
-						disjunctLists[pos] = make([]search.SpanQuery, 0, len(termArray))
+						disjunctLists[pos] = make([]spans.SpanQuery, 0, len(termArray))
 						distinctPos++
 					}
 					for _, term := range termArray {
-						disjunctLists[pos] = append(disjunctLists[pos], search.NewSpanTermQuery(term))
+						disjunctLists[pos] = append(disjunctLists[pos], spans.NewSpanTermQuery(term))
 					}
 				}
 				posGaps := 0
 				posIdx := 0
-				clauses := make([]search.SpanQuery, distinctPos)
+				clauses := make([]spans.SpanQuery, distinctPos)
 				for _, disjuncts := range disjunctLists {
 					if disjuncts != nil {
-						clauses[posIdx] = search.NewSpanOrQuery(disjuncts)
+						or, err := spans.NewSpanOrQuery(disjuncts...)
+						if err != nil {
+							return err
+						}
+						clauses[posIdx] = or
 						posIdx++
 					} else {
 						posGaps++
@@ -249,7 +257,10 @@ func extractForPhraseHelper(
 				} else {
 					slop := mpq.GetSlop()
 					inOrder := (slop == 0)
-					sp := search.NewSpanNearQuery(clauses, slop+posGaps, inOrder)
+					sp, err := spans.NewSpanNearQuery(clauses, slop+posGaps, inOrder)
+					if err != nil {
+						return err
+					}
 					onSpanQuery(sp)
 				}
 			}
@@ -386,13 +397,13 @@ func (pq *spansPQ) Pop() *index.Spans {
 
 // Internal collector for spans.
 type offsetSpanCollector struct {
-	fieldMatcher func(string) bool
+	fieldMatcher       func(string) bool
 	termToOffsetsEnums map[string]*OffsetsEnum
 }
 
 func newOffsetSpanCollector(fm func(string) bool) *offsetSpanCollector {
 	return &offsetSpanCollector{
-		fieldMatcher: fm,
+		fieldMatcher:       fm,
 		termToOffsetsEnums: make(map[string]*OffsetsEnum),
 	}
 }

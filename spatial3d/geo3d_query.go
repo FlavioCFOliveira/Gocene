@@ -5,8 +5,9 @@
 package spatial3d
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
+	t "github.com/FlavioCFOliveira/Gocene/geo"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -99,7 +100,7 @@ func (q *PointInGeo3DShapeQuery) Clone() search.Query {
 // and shape.
 //
 // Port of PointInGeo3DShapeQuery.equalsTo.
-func (q *PointInGeo3DShapeQuery) Equals(other search.Query) bool {
+func (q *PointInGeo3DShapeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*PointInGeo3DShapeQuery)
 	if !ok {
 		return false
@@ -642,6 +643,13 @@ func (a *geo3dUtilDISIAdapter) DocID() int                      { return a.inner
 func (a *geo3dUtilDISIAdapter) NextDoc() (int, error)           { return a.inner.NextDoc() }
 func (a *geo3dUtilDISIAdapter) Advance(target int) (int, error) { return a.inner.Advance(target) }
 func (a *geo3dUtilDISIAdapter) Cost() int64                     { return a.inner.Cost() }
-func (a *geo3dUtilDISIAdapter) DocIDRunEnd() int                { return a.inner.DocIDRunEnd() }
+func (a *geo3dUtilDISIAdapter) DocIDRunEnd() (int, error)       { return a.inner.DocIDRunEnd() }
 
 var _ util.DocIdSetIterator = (*geo3dUtilDISIAdapter)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (a *geo3dUtilDISIAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(a, upTo, bitSet, offset)
+}

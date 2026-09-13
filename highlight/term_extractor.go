@@ -5,6 +5,7 @@
 package highlight
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -68,8 +69,8 @@ func extractQueryTerms(query search.Query, field string, boost float32, terms []
 			}
 		}
 
-	case *search.SpanTermQuery:
-		t := q.Term()
+	case *spans.SpanTermQuery:
+		t := q.GetTerm()
 		if t != nil {
 			add(t.Field, t.Text(), boost)
 		}

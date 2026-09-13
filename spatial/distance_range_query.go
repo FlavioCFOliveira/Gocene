@@ -6,6 +6,7 @@ package spatial
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -111,7 +112,7 @@ func (q *DistanceRangeQuery) Clone() search.Query {
 }
 
 // Equals checks if this query equals another.
-func (q *DistanceRangeQuery) Equals(other search.Query) bool {
+func (q *DistanceRangeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*DistanceRangeQuery)
 	if !ok {
 		return false

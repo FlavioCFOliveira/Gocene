@@ -6,6 +6,7 @@ package spatial
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -109,7 +110,7 @@ func (q *IntersectsPrefixTreeQuery) Clone() search.Query {
 }
 
 // Equals checks if this query equals another.
-func (q *IntersectsPrefixTreeQuery) Equals(other search.Query) bool {
+func (q *IntersectsPrefixTreeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*IntersectsPrefixTreeQuery)
 	if !ok {
 		return false
@@ -231,7 +232,7 @@ func (q *IsWithinPrefixTreeQuery) Clone() search.Query {
 }
 
 // Equals checks if this query equals another.
-func (q *IsWithinPrefixTreeQuery) Equals(other search.Query) bool {
+func (q *IsWithinPrefixTreeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*IsWithinPrefixTreeQuery)
 	if !ok {
 		return false
@@ -341,7 +342,7 @@ func (q *ContainsPrefixTreeQuery) Clone() search.Query {
 }
 
 // Equals checks if this query equals another.
-func (q *ContainsPrefixTreeQuery) Equals(other search.Query) bool {
+func (q *ContainsPrefixTreeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*ContainsPrefixTreeQuery)
 	if !ok {
 		return false
@@ -475,7 +476,7 @@ func (q *DistanceQuery) Clone() search.Query {
 }
 
 // Equals checks if this query equals another.
-func (q *DistanceQuery) Equals(other search.Query) bool {
+func (q *DistanceQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*DistanceQuery)
 	if !ok {
 		return false

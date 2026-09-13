@@ -38,10 +38,10 @@ type SliceOffsetsEnum struct {
 
 // OffsetEntry is a single (term, start, end, weight) tuple.
 type OffsetEntry struct {
-	Term         string
-	StartOffset  int
-	EndOffset    int
-	Weight       float32
+	Term        string
+	StartOffset int
+	EndOffset   int
+	Weight      float32
 }
 
 // NewSliceOffsetsEnum builds an enum backed by entries.

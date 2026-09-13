@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -149,7 +150,7 @@ func TestDistanceQueryBuildsSpanNear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sn, ok := q.(*search.SpanNearQuery)
+	sn, ok := q.(*spans.SpanNearQuery)
 	if !ok {
 		t.Fatalf("expected SpanNearQuery, got %T", q)
 	}

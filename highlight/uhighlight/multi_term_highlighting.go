@@ -1,6 +1,7 @@
 package uhighlight
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -69,7 +70,7 @@ func (c *automataCollector) AcceptField(field string) bool {
 // GetSubVisitor skips span-query sub-trees when lookInSpan is false.
 func (c *automataCollector) GetSubVisitor(occur search.Occur, parent search.Query) search.QueryVisitor {
 	if !c.lookInSpan {
-		if _, ok := parent.(search.SpanQuery); ok {
+		if _, ok := parent.(spans.SpanQuery); ok {
 			return search.EmptyQueryVisitor
 		}
 	}

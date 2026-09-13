@@ -6,6 +6,8 @@ package spatial
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -77,7 +79,7 @@ func (q *serializedDVQuery) Clone() search.Query {
 }
 
 // Equals tests identity against another query.
-func (q *serializedDVQuery) Equals(other search.Query) bool {
+func (q *serializedDVQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*serializedDVQuery)
 	if !ok {
 		return false
@@ -292,9 +294,9 @@ func (s *serializedDVScorer) Advance(target int) (int, error) {
 	return s.NextDoc()
 }
 
-func (s *serializedDVScorer) Score() float32   { return s.score }
-func (s *serializedDVScorer) Cost() int64      { return int64(s.maxDoc) }
-func (s *serializedDVScorer) DocIDRunEnd() int { return s.maxDoc }
+func (s *serializedDVScorer) Score() float32            { return s.score }
+func (s *serializedDVScorer) Cost() int64               { return int64(s.maxDoc) }
+func (s *serializedDVScorer) DocIDRunEnd() (int, error) { return s.maxDoc, nil }
 
 // predicate decodes the BinaryDocValues payload for doc and applies
 // the configured spatial operation against the query shape. Errors
@@ -312,4 +314,11 @@ func (s *serializedDVScorer) predicate(doc int) (bool, error) {
 		return false, nil
 	}
 	return s.weight.query.strategy.matchShape(s.weight.query.operation, s.weight.query.queryShape, data)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *serializedDVScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

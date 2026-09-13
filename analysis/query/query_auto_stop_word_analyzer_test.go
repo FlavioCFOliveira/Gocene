@@ -46,6 +46,20 @@ func (m *mockTerms) Size() int64                                               {
 type mockTermsEnum struct {
 	entries []mockTermEntry
 	pos     int
+	// atts mirrors the private AttributeSource field of
+	// org.apache.lucene.index.BaseTermsEnum: nil until the first
+	// Attributes() call, reused for every call thereafter.
+	atts *util.AttributeSource
+}
+
+// Attributes returns the related attributes, reproducing the body of
+// org.apache.lucene.index.BaseTermsEnum#attributes() in Apache Lucene 10.5.0:
+// the AttributeSource is created on first use and reused thereafter.
+func (e *mockTermsEnum) Attributes() *util.AttributeSource {
+	if e.atts == nil {
+		e.atts = util.NewAttributeSource()
+	}
+	return e.atts
 }
 
 func (e *mockTermsEnum) Next() (*index.Term, error) {

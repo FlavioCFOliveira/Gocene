@@ -6,6 +6,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -83,7 +84,7 @@ func (s *coveringScorer) twoPhaseMatches() (bool, error) {
 func (s *coveringScorer) DocID() int { return s.doc }
 
 // DocIDRunEnd returns doc+1 as the run never spans more than one document.
-func (s *coveringScorer) DocIDRunEnd() int { return s.doc + 1 }
+func (s *coveringScorer) DocIDRunEnd() (int, error) { return s.doc + 1, nil }
 
 // NextDoc advances to the next document via the TwoPhaseIterator DISI.
 func (s *coveringScorer) NextDoc() (int, error) {
@@ -269,6 +270,20 @@ func (a *coveringApproximation) Advance(target int) (int, error) {
 
 func (a *coveringApproximation) Cost() int64 { return int64(a.s.maxDoc) }
 
-func (a *coveringApproximation) DocIDRunEnd() int { return a.s.doc + 1 }
+func (a *coveringApproximation) DocIDRunEnd() (int, error) { return a.s.doc + 1, nil }
 
 var _ util.DocIdSetIterator = (*coveringApproximation)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *coveringScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (a *coveringApproximation) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(a, upTo, bitSet, offset)
+}

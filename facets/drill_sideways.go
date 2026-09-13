@@ -6,6 +6,7 @@ package facets
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -367,7 +368,7 @@ func (dsq *DrillSidewaysQuery) Clone() search.Query {
 }
 
 // Equals checks if this query equals another.
-func (dsq *DrillSidewaysQuery) Equals(other search.Query) bool {
+func (dsq *DrillSidewaysQuery) Equals(other spi.Query) bool {
 	otherDSQ, ok := other.(*DrillSidewaysQuery)
 	if !ok {
 		return false

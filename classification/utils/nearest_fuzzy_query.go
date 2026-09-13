@@ -6,6 +6,7 @@ package utils
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -167,7 +168,7 @@ func (q *NearestFuzzyQuery) String() string {
 }
 
 // Equals reports whether other is an identical NearestFuzzyQuery.
-func (q *NearestFuzzyQuery) Equals(other search.Query) bool {
+func (q *NearestFuzzyQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*NearestFuzzyQuery)
 	if !ok {
 		return false

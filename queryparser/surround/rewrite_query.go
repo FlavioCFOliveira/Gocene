@@ -6,6 +6,7 @@ package surround
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -129,7 +130,7 @@ func (q *SimpleTermRewriteQuery) Clone() search.Query {
 }
 
 // Equals checks structural equality.
-func (q *SimpleTermRewriteQuery) Equals(other search.Query) bool {
+func (q *SimpleTermRewriteQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*SimpleTermRewriteQuery)
 	if !ok {
 		return false
@@ -175,7 +176,7 @@ func (q *DistanceRewriteQuery) Clone() search.Query {
 }
 
 // Equals checks structural equality.
-func (q *DistanceRewriteQuery) Equals(other search.Query) bool {
+func (q *DistanceRewriteQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*DistanceRewriteQuery)
 	if !ok {
 		return false

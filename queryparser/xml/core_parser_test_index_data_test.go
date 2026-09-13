@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/queryparser/xml"
 	"github.com/FlavioCFOliveira/Gocene/queryparser/xml/builders"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -116,7 +117,7 @@ func TestCoreParserSpanTerm(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := q.(*search.SpanTermQuery); !ok {
+	if _, ok := q.(*spans.SpanTermQuery); !ok {
 		t.Errorf("expected SpanTermQuery, got %T", q)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -228,7 +229,7 @@ func (q *DistanceQuery) MakeLuceneQueryField(field string, factory *BasicQueryFa
 	if slop < 0 {
 		slop = 0
 	}
-	return search.NewSpanNearQuery(clauses, slop, q.ordered), nil
+	return spans.NewSpanNearQuery(clauses, slop, q.ordered)
 }
 
 // AddSpanQueries makes DistanceQuery itself a DistanceSubQuery so it can be

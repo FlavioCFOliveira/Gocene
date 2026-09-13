@@ -109,6 +109,18 @@ func (p *assertingNormsProducer) GetNorms(field *spi.FieldInfo) (index.NumericDo
 	return newAssertingNumericDocValues(values, p.maxDoc), nil
 }
 
+// GetMergeInstance wraps the delegate's merge instance in a fresh asserting
+// producer.
+//
+// Mirrors AssertingNormsProducer.getMergeInstance() of Apache Lucene 10.5.0:
+// new AssertingNormsProducer(in.getMergeInstance(), maxDoc, true).
+func (p *assertingNormsProducer) GetMergeInstance() spi.NormsProducer {
+	return &assertingNormsProducer{
+		in:     p.in.GetMergeInstance(),
+		maxDoc: p.maxDoc,
+	}
+}
+
 func (p *assertingNormsProducer) CheckIntegrity() error {
 	return p.in.CheckIntegrity()
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -115,7 +116,7 @@ func TestExtractQueryTerms_ConstantScoreQuery(t *testing.T) {
 }
 
 func TestExtractQueryTerms_SpanTermQuery(t *testing.T) {
-	q := search.NewSpanTermQuery(newTerm("body", "spanned"))
+	q := spans.NewSpanTermQuery(newTerm("body", "spanned"))
 	weights := map[string]float32{}
 	got := extractQueryTerms(q, "", 1.0, nil, weights)
 	if len(got) != 1 || got[0] != "spanned" {
