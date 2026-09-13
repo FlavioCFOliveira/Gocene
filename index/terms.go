@@ -31,3 +31,19 @@ type SingleTermTerms = spi.SingleTermTerms
 func NewSingleTermTerms(term *Term, docFreq int, totalFreq int64) *SingleTermTerms {
 	return spi.NewSingleTermTerms(term, docFreq, totalFreq)
 }
+
+// GetTerms returns the Terms index for field on reader, or an empty Terms when
+// the field carries no terms. It never returns nil.
+//
+// Mirrors Terms.getTerms(LeafReader, String), which substitutes Terms.EMPTY for
+// a null LeafReader.terms(field) result so callers need no null check.
+func GetTerms(reader LeafReader, field string) (Terms, error) {
+	terms, err := reader.Terms(field)
+	if err != nil {
+		return nil, err
+	}
+	if terms == nil {
+		return &EmptyTerms{}, nil
+	}
+	return terms, nil
+}

@@ -6,6 +6,7 @@ package index
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/util"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
@@ -1007,3 +1008,27 @@ var (
 	_ SortedDocValues        = (*MultiSortedDocValues)(nil)
 	_ SortedSetDocValues     = (*MultiSortedSetDocValues)(nil)
 )
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which assumes runs of a single doc ID and returns
+// docID() + 1; every subclass inherits it unless it overrides it.
+func (m *MultiSortedSetDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(m)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (m *MultiSortedSetDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(m, upTo, bitSet, offset)
+}
+
+// DocValueCount returns the number of ordinals bound to the current document.
+// Mirrors MultiDocValues.MultiSortedSetDocValues#docValueCount, which returns currentValues.docValueCount()
+// (Apache Lucene 10.5.0).
+func (m *MultiSortedSetDocValues) DocValueCount() int {
+	if m.current == nil {
+		return 0
+	}
+	return m.current.DocValueCount()
+}

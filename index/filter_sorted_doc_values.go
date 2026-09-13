@@ -89,11 +89,13 @@ func (f *FilterSortedDocValues) Advance(target int) (int, error) {
 // IDs. Mirrors org.apache.lucene.search.DocIdSetIterator#docIDRunEnd: the
 // delegate's override is used when it declares one, otherwise the default
 // implementation "runs of a single doc ID" applies and docID() + 1 is returned.
-func (f *FilterSortedDocValues) DocIDRunEnd() int {
-	if runner, ok := f.in.(interface{ DocIDRunEnd() int }); ok {
+func (f *FilterSortedDocValues) DocIDRunEnd() (int, error) {
+	if runner, ok := f.in.(interface {
+		DocIDRunEnd() (int, error)
+	}); ok {
 		return runner.DocIDRunEnd()
 	}
-	return f.in.DocID() + 1
+	return f.in.DocID() + 1, nil
 }
 
 // Cost returns the estimated cost of the iterator.
@@ -133,4 +135,11 @@ func (f *FilterSortedDocValues) LookupOrd(ord int) ([]byte, error) {
 // GetValueCount returns the number of unique values.
 func (f *FilterSortedDocValues) GetValueCount() int {
 	return f.in.GetValueCount()
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (f *FilterSortedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
 }

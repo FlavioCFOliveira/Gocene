@@ -63,21 +63,24 @@ func (e *liveDocsPostingsEnum) DocID() int {
 // DocIDRunEnd returns the exclusive end of the current run of consecutive
 // matching documents. The delegate's run may span deleted documents, so it is
 // truncated at the first one this enumerator would skip.
-func (e *liveDocsPostingsEnum) DocIDRunEnd() int {
-	end := e.delegate.DocIDRunEnd()
+func (e *liveDocsPostingsEnum) DocIDRunEnd() (int, error) {
+	end, err := e.delegate.DocIDRunEnd()
+	if err != nil {
+		return 0, err
+	}
 	if e.liveDocs == nil {
-		return end
+		return end, nil
 	}
 	doc := e.delegate.DocID()
 	if doc < 0 || end > e.liveDocs.Length() {
-		return end
+		return end, nil
 	}
 	for d := doc; d < end; d++ {
 		if !e.liveDocs.Get(d) {
-			return d
+			return d, nil
 		}
 	}
-	return end
+	return end, nil
 }
 
 func (e *liveDocsPostingsEnum) Freq() (int, error) {
@@ -108,6 +111,14 @@ func (e *liveDocsPostingsEnum) Cost() int64 {
 type liveDocsTermsEnum struct {
 	delegate spi.TermsEnum
 	liveDocs util.Bits
+}
+
+// Attributes returns the related attributes, reproducing
+// org.apache.lucene.index.FilterLeafReader.FilterTermsEnum#attributes() in
+// Apache Lucene 10.5.0 — {@code return in.attributes();} — so the
+// AttributeSource is shared with the wrapped enumerator.
+func (e *liveDocsTermsEnum) Attributes() *util.AttributeSource {
+	return e.delegate.Attributes()
 }
 
 func (e *liveDocsTermsEnum) Next() (*spi.Term, error) {
@@ -277,4 +288,11 @@ func WrapTerms(t spi.Terms, liveDocs util.Bits) spi.Terms {
 		delegate: t,
 		liveDocs: liveDocs,
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (e *liveDocsPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
 }

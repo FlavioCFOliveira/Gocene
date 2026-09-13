@@ -374,6 +374,16 @@ func (r *sortingKnnVectorsReader) SearchBytes(field string, target []byte, knnCo
 	panic("not implemented")
 }
 
+// GetMergeInstance returns the receiver. SortingCodecReader's KnnVectorsReader
+// overrides only getOffHeapByteSize in Apache Lucene 10.5.0, so it inherits the
+// KnnVectorsReader default, which returns this.
+func (r *sortingKnnVectorsReader) GetMergeInstance() (KnnVectorsReader, error) { return r, nil }
+
+// FinishMerge does nothing. SortingCodecReader's KnnVectorsReader does not
+// override finishMerge in Apache Lucene 10.5.0, so it inherits the
+// KnnVectorsReader default, whose body is empty.
+func (r *sortingKnnVectorsReader) FinishMerge() error { return nil }
+
 // GetOffHeapByteSize forwards the delegate's off-heap accounting. When the
 // delegate does not expose the hook, an empty map is returned, which is the
 // default of org.apache.lucene.codecs.KnnVectorsReader.getOffHeapByteSize.
@@ -423,6 +433,11 @@ func (p *sortingNormsProducer) GetNorms(field *FieldInfo) (NumericDocValues, err
 	}
 	return newSortingNumericDocValues(dvs), nil
 }
+
+// GetMergeInstance returns the receiver. SortingCodecReader's norms producer
+// does not override getMergeInstance in Apache Lucene 10.5.0, so it inherits
+// the NormsProducer default, which returns this.
+func (p *sortingNormsProducer) GetMergeInstance() NormsProducer { return p }
 
 func (p *sortingNormsProducer) CheckIntegrity() error {
 	return p.delegate.CheckIntegrity()
@@ -559,6 +574,11 @@ func (p *sortingDocValuesProducer) GetSortedSet(field *FieldInfo) (SortedSetDocV
 	}
 	return newSortingSortedSetDocValues(old, ords), nil
 }
+
+// GetMergeInstance returns the receiver. The corresponding class in Apache
+// Lucene 10.5.0 does not override getMergeInstance, so it inherits the
+// DocValuesProducer default, which returns this.
+func (p *sortingDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
 
 func (p *sortingDocValuesProducer) CheckIntegrity() error {
 	return p.delegate.CheckIntegrity()

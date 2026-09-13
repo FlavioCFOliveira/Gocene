@@ -11,6 +11,16 @@ import (
 // TermsEnum provides an iterator over the terms dictionary for a field.
 // This is the Go port of Lucene's org.apache.lucene.index.TermsEnum.
 type TermsEnum interface {
+	// Attributes returns the related attributes.
+	//
+	// Mirrors the abstract org.apache.lucene.index.TermsEnum#attributes(),
+	// whose Java signature is {@code public abstract AttributeSource
+	// attributes()}. Every enumerator has one: Lucene supplies the default
+	// body on BaseTermsEnum, which lazily creates a single AttributeSource
+	// and returns it thereafter. [TermsEnumBase] carries that same default
+	// here, so embedding it is enough.
+	Attributes() *util.AttributeSource
+
 	// Next advances to the next term in the enumeration.
 	// Returns the term or nil if the end has been reached.
 	Next() (*Term, error)
@@ -55,6 +65,22 @@ type TermsEnum interface {
 // TermsEnumBase provides a base implementation of the TermsEnum interface.
 type TermsEnumBase struct {
 	currentTerm *Term
+	// atts mirrors the private AttributeSource field of
+	// org.apache.lucene.index.BaseTermsEnum: it stays nil until the first
+	// Attributes() call and is reused for every call thereafter.
+	atts *util.AttributeSource
+}
+
+// Attributes returns the related attributes, reproducing the default body of
+// org.apache.lucene.index.BaseTermsEnum#attributes() in Apache Lucene 10.5.0:
+//
+//	if (atts == null) { atts = new AttributeSource(); }
+//	return atts;
+func (t *TermsEnumBase) Attributes() *util.AttributeSource {
+	if t.atts == nil {
+		t.atts = util.NewAttributeSource()
+	}
+	return t.atts
 }
 
 // Term returns the current term.

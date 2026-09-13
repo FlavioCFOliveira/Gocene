@@ -195,6 +195,29 @@ func (r *ExitableFilterAtomicReader) SearchNearestVectors(field string, target [
 	return r.in.SearchNearestVectors(field, target, k, wrappedAcceptDocs, visitedLimit)
 }
 
+// SearchNearestVectorsCollector ports
+// ExitableDirectoryReader.ExitableFilterAtomicReader.searchNearestVectors(String,
+// float[], KnnCollector, AcceptDocs): it wraps acceptDocs in a timeout-checking
+// view and delegates to the wrapped leaf.
+func (r *ExitableFilterAtomicReader) SearchNearestVectorsCollector(field string, target []float32, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	wrappedAcceptDocs := &ExitableAcceptDocs{
+		in:     acceptDocs,
+		maxDoc: r.MaxDoc(),
+	}
+	return r.in.SearchNearestVectorsCollector(field, target, knnCollector, wrappedAcceptDocs)
+}
+
+// SearchNearestVectorsByteCollector ports
+// ExitableDirectoryReader.ExitableFilterAtomicReader.searchNearestVectors(String,
+// byte[], KnnCollector, AcceptDocs).
+func (r *ExitableFilterAtomicReader) SearchNearestVectorsByteCollector(field string, target []byte, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	wrappedAcceptDocs := &ExitableAcceptDocs{
+		in:     acceptDocs,
+		maxDoc: r.MaxDoc(),
+	}
+	return r.in.SearchNearestVectorsByteCollector(field, target, knnCollector, wrappedAcceptDocs)
+}
+
 // byteVectorSearcher is the byte-vector half of Lucene's
 // LeafReader.searchNearestVectors overload pair. spi.LeafReader declares only
 // the float form, so the byte form is recovered from the wrapped leaf.
@@ -899,7 +922,7 @@ func (i *exitableDocIndexIterator) DocID() int {
 	return i.delegate.DocID()
 }
 
-func (i *exitableDocIndexIterator) DocIDRunEnd() int {
+func (i *exitableDocIndexIterator) DocIDRunEnd() (int, error) {
 	return i.delegate.DocIDRunEnd()
 }
 
@@ -984,4 +1007,11 @@ func (a *ExitableAcceptDocs) Iterator() (util.DocIdSetIterator, error) {
 // cursor over these bits reports.
 func (a *ExitableAcceptDocs) Cost() int {
 	return a.Cardinality()
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (i *exitableDocIndexIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(i, upTo, bitSet, offset)
 }

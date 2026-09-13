@@ -213,6 +213,14 @@ type mappedMultiTermsEnum struct {
 	cachedMappingEnum *MappingMultiPostingsEnum
 }
 
+// Attributes returns the related attributes, reproducing
+// org.apache.lucene.index.FilterLeafReader.FilterTermsEnum#attributes() in
+// Apache Lucene 10.5.0 — {@code return in.attributes();} — so the
+// AttributeSource is shared with the wrapped enumerator.
+func (te *mappedMultiTermsEnum) Attributes() *util.AttributeSource {
+	return te.delegate.Attributes()
+}
+
 func (te *mappedMultiTermsEnum) Ord() int64 {
 	return -1
 }

@@ -4,6 +4,10 @@
 
 package index
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
 // BaseTermsEnum provides default implementations for a subset of TermsEnum
 // methods. Mirrors org.apache.lucene.index.BaseTermsEnum from Apache
 // Lucene 10.4.0.
@@ -16,7 +20,7 @@ package index
 //   - SeekExactDelegated   — defaults to SeekCeil + FOUND check
 //   - SeekExactWithState   — defaults to SeekExactDelegated + state copy
 //   - TermState            — returns a placeholder OrdTermState (subclasses
-//                            should override with their codec-specific impl)
+//     should override with their codec-specific impl)
 //
 // Concrete TermsEnum implementations embed BaseTermsEnum to inherit these
 // behaviours and only override the codec-specific bits.
@@ -82,3 +86,43 @@ var (
 type errorString string
 
 func (e errorString) Error() string { return string(e) }
+
+// PrepareSeekExactDelegated reproduces the default body of
+// BaseTermsEnum.prepareSeekExact(BytesRef) in Apache Lucene 10.5.0 —
+// {@code return () -> seekExact(text)} — while still honouring an enumerator
+// that overrides the method, exactly as Java's dynamic dispatch would. owner is
+// the TermsEnum the call is made on; Go cannot reach an embedder's interface
+// methods without an explicit reference.
+//
+// A nil supplier means the enumerator could determine cheaply that the term
+// does not exist; the default body never returns nil.
+func PrepareSeekExactDelegated(owner TermsEnum, term *Term) (util.IOBooleanSupplier, error) {
+	if preparer, ok := owner.(interface {
+		PrepareSeekExact(term *Term) (util.IOBooleanSupplier, error)
+	}); ok {
+		return preparer.PrepareSeekExact(term)
+	}
+	return func() (bool, error) { return owner.SeekExact(term) }, nil
+}
+
+// TermStateDelegated reproduces the default body of BaseTermsEnum.termState()
+// in Apache Lucene 10.5.0 — an anonymous TermState whose copyFrom throws
+// UnsupportedOperationException — while still honouring an enumerator that
+// overrides the method.
+func TermStateDelegated(owner TermsEnum) (TermState, error) {
+	if stateful, ok := owner.(interface{ TermState() (TermState, error) }); ok {
+		return stateful.TermState()
+	}
+	return baseTermState{}, nil
+}
+
+// baseTermState mirrors the anonymous TermState returned by
+// BaseTermsEnum.termState(), whose copyFrom throws UnsupportedOperationException.
+type baseTermState struct{}
+
+// CopyFrom is unsupported, mirroring the anonymous TermState's copyFrom.
+func (baseTermState) CopyFrom(TermState) error {
+	return errBaseTermStateCopyFrom
+}
+
+var errBaseTermStateCopyFrom = errorString("BaseTermsEnum.TermState.CopyFrom: unsupported operation")

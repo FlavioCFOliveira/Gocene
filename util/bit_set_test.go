@@ -116,8 +116,8 @@ func (r *rangeIterator) Advance(target int) (int, error) {
 	r.pos++
 	return doc, nil
 }
-func (r *rangeIterator) Cost() int64      { return r.cost }
-func (r *rangeIterator) DocIDRunEnd() int { return r.DocID() + 1 }
+func (r *rangeIterator) Cost() int64               { return r.cost }
+func (r *rangeIterator) DocIDRunEnd() (int, error) { return r.DocID() + 1, nil }
 
 // TestBitSet_OfDocIdSetIterator_FixedBranch confirms the dense branch
 // is taken when cost >= maxDoc/128 and returns a *FixedBitSet.
@@ -154,4 +154,11 @@ func TestBitSet_OfDocIdSetIterator_SparseBranch(t *testing.T) {
 	if !bs.Get(5) {
 		t.Error("bit 5 not set")
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (r *rangeIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(r, upTo, bitSet, offset)
 }

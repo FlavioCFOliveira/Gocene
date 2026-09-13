@@ -697,3 +697,45 @@ func (s *sortingSortedSetDocValues) initCount() {
 		s.ordUpto++
 	}
 }
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which assumes runs of a single doc ID and returns
+// docID() + 1; every subclass inherits it unless it overrides it.
+func (b *bufferedSortedSetDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(b)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which assumes runs of a single doc ID and returns
+// docID() + 1; every subclass inherits it unless it overrides it.
+func (s *sortingSortedSetDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(s)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (b *bufferedSortedSetDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(b, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *sortingSortedSetDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// DocValueCount returns the number of ordinals bound to the current document.
+// Mirrors SortedSetDocValuesWriter.BufferedSortedSetDocValues#docValueCount, which returns the ord count of the current document
+// (Apache Lucene 10.5.0).
+func (b *bufferedSortedSetDocValues) DocValueCount() int {
+	return b.ordCount
+}
+
+// DocValueCount returns the number of ordinals bound to the current document.
+// Mirrors SortedSetDocValuesWriter.SortingSortedSetDocValues#docValueCount, which returns the count of the current document
+// (Apache Lucene 10.5.0).
+func (s *sortingSortedSetDocValues) DocValueCount() int {
+	return s.count
+}

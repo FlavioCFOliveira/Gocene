@@ -273,6 +273,14 @@ type AssertingTermsEnum struct {
 	in TermsEnum
 }
 
+// Attributes returns the related attributes, reproducing
+// org.apache.lucene.index.FilterLeafReader.FilterTermsEnum#attributes() in
+// Apache Lucene 10.5.0 — {@code return in.attributes();} — so the
+// AttributeSource is shared with the wrapped enumerator.
+func (te *AssertingTermsEnum) Attributes() *util.AttributeSource {
+	return te.in.Attributes()
+}
+
 func (te *AssertingTermsEnum) Ord() int64 {
 	return te.in.Ord()
 }
@@ -695,4 +703,25 @@ func (b *AssertingBits) Length() int {
 
 func (b *AssertingBits) Cardinality() int {
 	return b.in.Cardinality()
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which assumes runs of a single doc ID and returns
+// docID() + 1; every subclass inherits it unless it overrides it.
+func (a *AssertingSortedSetDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(a)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (a *AssertingSortedSetDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(a, upTo, bitSet, offset)
+}
+
+// DocValueCount returns the number of ordinals bound to the current document.
+// Mirrors AssertingLeafReader.AssertingSortedSetDocValues#docValueCount, which delegates to the wrapped values
+// (Apache Lucene 10.5.0).
+func (dv *AssertingSortedSetDocValues) DocValueCount() int {
+	return dv.in.DocValueCount()
 }

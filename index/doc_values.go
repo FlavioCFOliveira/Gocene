@@ -4,6 +4,8 @@
 
 package index
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // This file ports the static helper methods of
 // org.apache.lucene.index.DocValues from Apache Lucene 10.4.0:
 //
@@ -127,8 +129,8 @@ func (e *emptySortedNumericDV) NextDoc() (int, error) {
 	e.docID = NO_MORE_DOCS
 	return NO_MORE_DOCS, nil
 }
-func (e *emptySortedNumericDV) DocID() int   { return e.docID }
-func (e *emptySortedNumericDV) Cost() int64  { return 0 }
+func (e *emptySortedNumericDV) DocID() int  { return e.docID }
+func (e *emptySortedNumericDV) Cost() int64 { return 0 }
 
 type emptySortedSetDV struct{ docID int }
 
@@ -372,4 +374,25 @@ func IsDocValuesCacheable(ctx *LeafReaderContext, fields ...string) bool {
 		}
 	}
 	return true
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which assumes runs of a single doc ID and returns
+// docID() + 1; every subclass inherits it unless it overrides it.
+func (e *emptySortedSetDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (e *emptySortedSetDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocValueCount returns the number of ordinals bound to the current document.
+// Mirrors DocValues#emptySortedSet, which is singleton(emptySorted()) and therefore reports the SingletonSortedSetDocValues count of 1
+// (Apache Lucene 10.5.0).
+func (e *emptySortedSetDV) DocValueCount() int {
+	return 1
 }

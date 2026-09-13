@@ -268,12 +268,12 @@ func (it *sparseLiveDocsIterator) Cost() int64 {
 }
 
 // DocIDRunEnd returns the end of the current run of consecutive doc IDs.
-func (it *sparseLiveDocsIterator) DocIDRunEnd() int {
+func (it *sparseLiveDocsIterator) DocIDRunEnd() (int, error) {
 	if it.currentDoc < 0 || it.currentDoc >= it.liveDocs.maxDoc {
-		return it.currentDoc + 1
+		return it.currentDoc + 1, nil
 	}
 	// For simplicity, assume runs of a single doc ID
-	return it.currentDoc + 1
+	return it.currentDoc + 1, nil
 }
 
 // RangeDocIdSetIterator iterates over a range of document IDs [minDoc, maxDoc).
@@ -330,8 +330,8 @@ func (it *RangeDocIdSetIterator) Cost() int64 {
 }
 
 // DocIDRunEnd returns the end of the current run.
-func (it *RangeDocIdSetIterator) DocIDRunEnd() int {
-	return it.maxDoc
+func (it *RangeDocIdSetIterator) DocIDRunEnd() (int, error) {
+	return it.maxDoc, nil
 }
 
 // Ensure RangeDocIdSetIterator implements DocIdSetIterator
@@ -368,8 +368,8 @@ func (it *emptyDocIdSetIterator) Cost() int64 {
 }
 
 // DocIDRunEnd returns NO_MORE_DOCS + 1.
-func (it *emptyDocIdSetIterator) DocIDRunEnd() int {
-	return NO_MORE_DOCS + 1
+func (it *emptyDocIdSetIterator) DocIDRunEnd() (int, error) {
+	return NO_MORE_DOCS + 1, nil
 }
 
 // Ensure emptyDocIdSetIterator implements DocIdSetIterator
@@ -382,3 +382,24 @@ var _ DocIdSetIterator = (*sparseLiveDocsIterator)(nil)
 // SparseLiveDocs and DenseLiveDocs are Bits-typed views: callers that
 // only need {Get, Length} can pass them where any [Bits] is accepted.
 var _ Bits = (*SparseLiveDocs)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *sparseLiveDocsIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *RangeDocIdSetIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *emptyDocIdSetIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(it, upTo, bitSet, offset)
+}

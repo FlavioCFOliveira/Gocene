@@ -157,10 +157,17 @@ func (it *notDocIdSetIterator) Cost() int64 { return int64(it.maxDoc) }
 // DocIDRunEnd returns the end of the run of consecutive matching
 // docs that contains DocID. Conservative single-doc run is returned;
 // callers requiring tighter bounds should rely on Iterator semantics.
-func (it *notDocIdSetIterator) DocIDRunEnd() int { return it.doc + 1 }
+func (it *notDocIdSetIterator) DocIDRunEnd() (int, error) { return it.doc + 1, nil }
 
 // Compile-time conformance checks.
 var (
 	_ DocIdSet         = (*NotDocIdSet)(nil)
 	_ DocIdSetIterator = (*notDocIdSetIterator)(nil)
 )
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *notDocIdSetIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(it, upTo, bitSet, offset)
+}

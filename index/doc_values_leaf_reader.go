@@ -91,6 +91,20 @@ func (r *DocValuesLeafReader) SearchNearestVectors(string, []float32, int, util.
 	return spi.TopDocs{}, errDocValuesLeafReaderUnsupported
 }
 
+// SearchNearestVectorsCollector is unsupported, mirroring
+// DocValuesLeafReader.searchNearestVectors(String, float[], KnnCollector, AcceptDocs),
+// whose body throws UnsupportedOperationException.
+func (r *DocValuesLeafReader) SearchNearestVectorsCollector(string, []float32, spi.KnnCollector, util.Bits) error {
+	return errDocValuesLeafReaderUnsupported
+}
+
+// SearchNearestVectorsByteCollector is unsupported, mirroring
+// DocValuesLeafReader.searchNearestVectors(String, byte[], KnnCollector, AcceptDocs),
+// whose body throws UnsupportedOperationException.
+func (r *DocValuesLeafReader) SearchNearestVectorsByteCollector(string, []byte, spi.KnnCollector, util.Bits) error {
+	return errDocValuesLeafReaderUnsupported
+}
+
 // CheckIntegrity is unsupported.
 func (r *DocValuesLeafReader) CheckIntegrity() error {
 	return errDocValuesLeafReaderUnsupported

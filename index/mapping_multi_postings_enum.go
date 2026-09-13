@@ -6,6 +6,7 @@ package index
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // MappingMultiPostingsEnum exposes the flex API merged from the flex APIs of
@@ -162,8 +163,8 @@ func (m *MappingMultiPostingsEnum) DocID() int {
 }
 
 // DocIDRunEnd returns the end of the current run of documents.
-func (m *MappingMultiPostingsEnum) DocIDRunEnd() int {
-	return m.DocID()
+func (m *MappingMultiPostingsEnum) DocIDRunEnd() (int, error) {
+	return m.DocID(), nil
 }
 
 // Advance is unsupported — mirrors Lucene which throws
@@ -241,3 +242,10 @@ func (m *MappingMultiPostingsEnum) Cost() int64 {
 // PostingsEnum surface. Kept at file scope so an accidental signature drift
 // breaks the build rather than a runtime call site.
 var _ PostingsEnum = (*MappingMultiPostingsEnum)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (m *MappingMultiPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(m, upTo, bitSet, offset)
+}

@@ -96,6 +96,15 @@ type DocValuesProducer interface {
 	// checksum framing.
 	CheckIntegrity() error
 
+	// GetMergeInstance returns an instance optimized for merging. This
+	// instance may only be consumed in the thread that called
+	// GetMergeInstance.
+	//
+	// The default implementation returns the receiver itself.
+	//
+	// Mirrors DocValuesProducer.getMergeInstance() of Apache Lucene 10.5.0.
+	GetMergeInstance() DocValuesProducer
+
 	// Close releases the producer's resources.
 	Close() error
 }

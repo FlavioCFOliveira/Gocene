@@ -60,6 +60,15 @@ type NormsProducer interface {
 	// framing.
 	CheckIntegrity() error
 
+	// GetMergeInstance returns an instance optimized for merging. This
+	// instance may only be consumed in the thread that called
+	// GetMergeInstance.
+	//
+	// The default implementation returns the receiver itself.
+	//
+	// Mirrors NormsProducer.getMergeInstance() of Apache Lucene 10.5.0.
+	GetMergeInstance() NormsProducer
+
 	// Close releases the producer's resources.
 	Close() error
 }

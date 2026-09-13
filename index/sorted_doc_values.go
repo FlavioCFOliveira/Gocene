@@ -80,7 +80,7 @@ func Intersect(field string, sdv SortedDocValues, compiled *automaton.CompiledAu
 	case automaton.AutomatonTypeAll:
 		return in, nil
 	case automaton.AutomatonTypeSingle:
-		return newSingleTermFilteredEnum(in, NewTerm(field, compiled.Term)), nil
+		return NewSingleTermFilteredEnum(in, NewTermFromBytesRef(field, compiled.Term)), nil
 	case automaton.AutomatonTypeNormal:
 		return NewAutomatonTermsEnum(in, compiled), nil
 	default:
@@ -109,10 +109,29 @@ func (a *singleTermAcceptor) Accept(term *Term) (AcceptStatus, error) {
 // the (already consumed) initial seek term and then nil.
 func (a *singleTermAcceptor) NextSeekTerm(_ *Term) (*Term, error) { return nil, nil }
 
-// newSingleTermFilteredEnum is the Go port of
+// NewSingleTermFilteredEnum is the Go port of
 // org.apache.lucene.index.SingleTermsEnum: a FilteredTermsEnum over in that
 // enumerates termText and nothing else, seeded with setInitialSeekTerm.
-func newSingleTermFilteredEnum(in TermsEnum, termText *Term) *FilteredTermsEnum {
+//
+// It reproduces the whole Java class:
+//
+//	public final class SingleTermsEnum extends FilteredTermsEnum {
+//	  SingleTermsEnum(TermsEnum tenum, BytesRef termText) {
+//	    super(tenum); singleRef = termText; setInitialSeekTerm(termText);
+//	  }
+//	  protected AcceptStatus accept(BytesRef term) {
+//	    return term.equals(singleRef) ? AcceptStatus.YES : AcceptStatus.END;
+//	  }
+//	}
+//
+// NAMING: Lucene's name for this unit is SingleTermsEnum, but that identifier
+// is already taken in this package by `type SingleTermsEnum = spi.SingleTermsEnum`
+// — an unrelated standalone one-term enumerator that has no Apache Lucene
+// counterpart. Reclaiming the Lucene name would change the published surface of
+// both packages, which is a decision for the project owner (Source Fidelity
+// Mandate, point 4), so the port is exported here under a name that does not
+// claim to be the unrelated type.
+func NewSingleTermFilteredEnum(in TermsEnum, termText *Term) *FilteredTermsEnum {
 	enum := NewFilteredTermsEnum(in, &singleTermAcceptor{single: termText})
 	enum.SetInitialSeekTerm(termText)
 	return enum

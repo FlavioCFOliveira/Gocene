@@ -237,6 +237,11 @@ func (p *slowDocValuesProducer) GetSkipper(field *FieldInfo) (spi.DocValuesSkipp
 	return p.delegate.GetDocValuesSkipper(field.Name())
 }
 
+// GetMergeInstance returns the receiver. The corresponding class in Apache
+// Lucene 10.5.0 does not override getMergeInstance, so it inherits the
+// DocValuesProducer default, which returns this.
+func (p *slowDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
+
 func (p *slowDocValuesProducer) CheckIntegrity() error { return nil }
 
 func (p *slowDocValuesProducer) Close() error { return nil }
@@ -255,6 +260,11 @@ func (p *slowNormsProducer) GetNorms(field *FieldInfo) (NumericDocValues, error)
 
 // CheckIntegrity is a no-op (the slow wrapper already called CheckIntegrity on
 // construction, matching Lucene's comment).
+// GetMergeInstance returns the receiver. SlowCodecReaderWrapper's norms
+// producer does not override getMergeInstance in Apache Lucene 10.5.0, so it
+// inherits the NormsProducer default, which returns this.
+func (p *slowNormsProducer) GetMergeInstance() NormsProducer { return p }
+
 func (p *slowNormsProducer) CheckIntegrity() error { return nil }
 
 // Close is a no-op.

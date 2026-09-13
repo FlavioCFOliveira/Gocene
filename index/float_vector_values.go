@@ -155,10 +155,17 @@ func (it *denseDocIndexIterator) Advance(target int) (int, error) {
 // DocIDRunEnd returns the exclusive end of the current run. The range is
 // dense, so every remaining document matches and the run ends at size,
 // mirroring createDenseIterator()'s docIDRunEnd().
-func (it *denseDocIndexIterator) DocIDRunEnd() int {
-	return it.size
+func (it *denseDocIndexIterator) DocIDRunEnd() (int, error) {
+	return it.size, nil
 }
 
 func (it *denseDocIndexIterator) Cost() int64 {
 	return int64(it.size)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *denseDocIndexIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
 }

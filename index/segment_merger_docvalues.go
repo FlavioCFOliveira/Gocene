@@ -6,6 +6,7 @@ package index
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
@@ -828,3 +829,51 @@ func (m *materializedSortedSetDocValues) AdvanceExact(target int) (bool, error) 
 	return d == target, err
 }
 func (m *materializedSortedSetDocValues) Cost() int64 { return int64(len(m.docIDs)) }
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which assumes runs of a single doc ID and returns
+// docID() + 1; every subclass inherits it unless it overrides it.
+func (m *mergedSortedSetDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(m)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which assumes runs of a single doc ID and returns
+// docID() + 1; every subclass inherits it unless it overrides it.
+func (m *materializedSortedSetDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(m)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (m *mergedSortedSetDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(m, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (m *materializedSortedSetDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(m, upTo, bitSet, offset)
+}
+
+// DocValueCount returns the number of ordinals bound to the current document.
+// Mirrors DocValuesConsumer#mergeSortedSetField, whose merged view returns currentSub.values.docValueCount()
+// (Apache Lucene 10.5.0).
+func (m *mergedSortedSetDocValues) DocValueCount() int {
+	if m.si >= len(m.subs) {
+		return 0
+	}
+	return m.subs[m.si].DocValueCount()
+}
+
+// DocValueCount returns the number of ordinals bound to the current document.
+// Mirrors DocValuesConsumer#mergeSortedSetField: the number of ordinals held for the current document
+// (Apache Lucene 10.5.0).
+func (m *materializedSortedSetDocValues) DocValueCount() int {
+	if m.pos < 0 || m.pos >= len(m.ordSets) {
+		return 0
+	}
+	return len(m.ordSets[m.pos])
+}

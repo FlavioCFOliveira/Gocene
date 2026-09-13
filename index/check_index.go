@@ -1376,12 +1376,22 @@ func (ci *CheckIndex) checkFields(
 	return nil
 }
 
-func (ci *CheckIndex) checkTermsIntersect(terms Terms, automaton *automaton.Automaton, startTerm *util.BytesRef) error {
+// checkTermsIntersect is the Go port of CheckIndex.checkTermsIntersect(Terms,
+// Automaton, BytesRef).
+//
+// The Java parameter is also named automaton; Go's flat file-level namespace
+// makes that identifier shadow the util/automaton package, so the parameter
+// carries the abbreviated name.
+func (ci *CheckIndex) checkTermsIntersect(terms Terms, a *automaton.Automaton, startTerm *util.BytesRef) error {
 	allTerms, err := terms.GetIterator()
 	if err != nil {
 		return err
 	}
-	compiledAutomaton := automaton.Compile()
+	a, err = automaton.Determinize(a, automaton.DefaultDeterminizeWorkLimit)
+	if err != nil {
+		return err
+	}
+	compiledAutomaton := automaton.NewCompiledAutomaton(a, false, true, true)
 	startTermSPI := spi.NewTermFromBytesRef(terms.Field(), startTerm)
 	filteredTerms, err := terms.Intersect(compiledAutomaton, startTermSPI)
 	if err != nil {
@@ -1451,7 +1461,10 @@ func (ci *CheckIndex) checkDocIDRuns(iterator spi.DocIdSetIterator) error {
 		if prevDoc+1 < runEnd && doc != prevDoc+1 {
 			return fmt.Errorf("Run end is %d but next doc after %d is %d", runEnd, prevDoc, doc)
 		}
-		newRunEnd := iterator.DocIDRunEnd()
+		newRunEnd, err := iterator.DocIDRunEnd()
+		if err != nil {
+			return err
+		}
 		if newRunEnd <= doc {
 			return fmt.Errorf("Run end %d is <= doc ID %d", newRunEnd, doc)
 		}

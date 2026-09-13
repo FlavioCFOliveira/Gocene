@@ -181,6 +181,12 @@ func (e *EmptyTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm 
 	return &EmptyTermsEnum{}, nil
 }
 
+// GetMin returns nil: the default Terms.getMin() is iterator().next(), which
+// is null for an empty TermsEnum.
+func (e *EmptyTerms) GetMin() (*Term, error) {
+	return nil, nil
+}
+
 // GetMax returns nil.
 func (e *EmptyTerms) GetMax() (*Term, error) {
 	return nil, nil

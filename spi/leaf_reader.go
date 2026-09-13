@@ -66,7 +66,27 @@ type LeafReader interface {
 	GetByteVectorValues(field string) (ByteVectorValues, error)
 
 	// SearchNearestVectors searches for the k nearest float vectors to target.
+	//
+	// Mirrors the final convenience overload
+	// LeafReader.searchNearestVectors(String, float[], int, AcceptDocs, int).
 	SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits, visitedLimit int) (TopDocs, error)
+
+	// SearchNearestVectorsCollector returns the nearest neighbour documents of
+	// target in field, gathering them into knnCollector.
+	//
+	// Mirrors the abstract overload
+	// LeafReader.searchNearestVectors(String, float[], KnnCollector, AcceptDocs).
+	// Go has no overloading, so the collector-driven form carries the Collector
+	// suffix; acceptDocs is rendered as util.Bits, the spelling this interface
+	// already uses for the same Lucene parameter on the convenience overload.
+	SearchNearestVectorsCollector(field string, target []float32, knnCollector KnnCollector, acceptDocs util.Bits) error
+
+	// SearchNearestVectorsByteCollector returns the nearest neighbour documents
+	// of the byte-valued target in field, gathering them into knnCollector.
+	//
+	// Mirrors the abstract overload
+	// LeafReader.searchNearestVectors(String, byte[], KnnCollector, AcceptDocs).
+	SearchNearestVectorsByteCollector(field string, target []byte, knnCollector KnnCollector, acceptDocs util.Bits) error
 
 	// GetFieldInfos returns the FieldInfos describing all fields in this reader.
 	GetFieldInfos() *FieldInfos

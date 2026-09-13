@@ -116,9 +116,9 @@ func (it *DocBaseBitSetIterator) Cost() int64 {
 // of set bits that contains the current doc id. When the iterator is
 // not positioned on a set bit (e.g. before NextDoc or at NO_MORE_DOCS)
 // it returns doc + 1.
-func (it *DocBaseBitSetIterator) DocIDRunEnd() int {
+func (it *DocBaseBitSetIterator) DocIDRunEnd() (int, error) {
 	if it.doc < 0 || it.doc >= it.length {
-		return it.doc + 1
+		return it.doc + 1, nil
 	}
 	local := it.doc - it.docBase
 	runEnd := local + 1
@@ -126,8 +126,15 @@ func (it *DocBaseBitSetIterator) DocIDRunEnd() int {
 	for runEnd < bitsLen && it.bits.Get(runEnd) {
 		runEnd++
 	}
-	return runEnd + it.docBase
+	return runEnd + it.docBase, nil
 }
 
 // Static type check.
 var _ DocIdSetIterator = (*DocBaseBitSetIterator)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *DocBaseBitSetIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(it, upTo, bitSet, offset)
+}

@@ -46,7 +46,9 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -381,7 +383,11 @@ func (f *FrozenBufferedUpdates) Apply(segStates []*FrozenSegmentState) (int64, e
 
 	var total int64
 	total += f.applyTermDeletes(segStates)
-	total += f.applyQueryDeletes(segStates)
+	queryDelCount, err := f.applyQueryDeletes(segStates)
+	total += queryDelCount
+	if err != nil {
+		return total, err
+	}
 	// applyDocValuesUpdates is deferred
 
 	f.fireApplied()
@@ -429,42 +435,159 @@ func (f *FrozenBufferedUpdates) applyTermDeletes(segStates []*FrozenSegmentState
 	return delCount
 }
 
-func (f *FrozenBufferedUpdates) applyQueryDeletes(segStates []*FrozenSegmentState) int64 {
+// applyQueryDeletes is the body of
+// org.apache.lucene.index.FrozenBufferedUpdates#applyQueryDeletes in Apache
+// Lucene 10.5.0:
+//
+//	for (BufferedUpdatesStream.SegmentState segState : segStates) {
+//	  if (delGen < segState.delGen) continue;          // segment newer than this packet
+//	  if (segState.rld.refCount() == 1) continue;      // merged away while we ran
+//	  final LeafReaderContext readerContext = segState.reader.getContext();
+//	  for (int i = 0; i < deleteQueries.length; i++) {
+//	    Query query = deleteQueries[i];
+//	    int limit;
+//	    if (delGen == segState.delGen) { limit = deleteQueryLimits[i]; }
+//	    else                           { limit = Integer.MAX_VALUE; }
+//	    final IndexSearcher searcher = new IndexSearcher(readerContext.reader());
+//	    searcher.setQueryCache(null);
+//	    query = searcher.rewrite(query);
+//	    final Weight weight = searcher.createWeight(query, ScoreMode.COMPLETE_NO_SCORES, 1);
+//	    final Scorer scorer = weight.scorer(readerContext);
+//	    if (scorer != null) {
+//	      final DocIdSetIterator it = scorer.iterator();
+//	      if (segState.rld.sortMap != null && limit != Integer.MAX_VALUE) {
+//	        int docID;
+//	        while ((docID = it.nextDoc()) != DocIdSetIterator.NO_MORE_DOCS) {
+//	          // The limit is in the pre-sorted doc space:
+//	          if (segState.rld.sortMap.newToOld(docID) < limit) {
+//	            if (segState.rld.delete(docID)) delCount++;
+//	          }
+//	        }
+//	      } else {
+//	        int docID;
+//	        while ((docID = it.nextDoc()) < limit) {
+//	          if (segState.rld.delete(docID)) delCount++;
+//	        }
+//	      }
+//	    }
+//	  }
+//	}
+//
+// The searcher, its Weight and its Scorer live in package search, which imports
+// this package; the constructor therefore arrives through
+// [spi.NewQueryScorerSource]. Nothing else moves: the loop, the docIDUpto
+// limit, the sortMap branch and the ReadersAndUpdates.Delete calls are all
+// here, where Lucene puts them.
+func (f *FrozenBufferedUpdates) applyQueryDeletes(segStates []*FrozenSegmentState) (int64, error) {
 	if len(f.deleteQueries) == 0 {
-		return 0
+		return 0, nil
 	}
+
+	startNS := time.Now()
 
 	var delCount int64
 	for _, seg := range segStates {
-		if seg.DelGen > f.delGen {
+		if f.delGen < seg.DelGen {
+			// segment is newer than this deletes packet
 			continue
 		}
 		if seg.RefCount == 1 {
+			// This means we are the only remaining reference to this segment,
+			// meaning it was merged away while we were running, so we can
+			// safely skip running because we will run on the newly merged
+			// segment next:
 			continue
 		}
 
-		for _, entry := range f.deleteQueries {
-			// Lucene: a query delete carries its own docIDUpto only for the
-			// generation it was frozen in; against older segments every
-			// matching document is deleted.
-			limit := entry.limit
-			if f.delGen != seg.DelGen {
+		readerContext, err := seg.Reader.GetContext()
+		if err != nil {
+			return delCount, fmt.Errorf("frozen buffered updates: segment reader context: %w", err)
+		}
+		leafContext, ok := readerContext.(*LeafReaderContext)
+		if !ok {
+			return delCount, fmt.Errorf(
+				"frozen buffered updates: segment reader context is %T, want *LeafReaderContext", readerContext)
+		}
+
+		for i := range f.deleteQueries {
+			query := f.deleteQueries[i].query
+			var limit int
+			if f.delGen == seg.DelGen {
+				limit = f.deleteQueries[i].limit
+			} else {
 				limit = math.MaxInt32
 			}
-			// GAP: evaluating the query against the segment needs
-			// IndexSearcher / Weight / Scorer from package search, which
-			// imports package index and therefore cannot be imported here.
-			// Until the search-side bridge lands the query cannot be applied;
-			// report it on the info stream rather than silently
-			// under-deleting.
-			if f.infoStream.IsEnabled("BD") {
-				f.infoStream.Message("BD", fmt.Sprintf(
-					"GAP: query delete %v (docIDUpto=%d) not applied to segment delGen=%d: query evaluation is unported",
-					entry.query, limit, seg.DelGen))
+
+			// new IndexSearcher(readerContext.reader()); setQueryCache(null)
+			searcher, err := spi.NewQueryScorerSource(leafContext.LeafReader())
+			if err != nil {
+				return delCount, err
+			}
+			rewritten, err := searcher.Rewrite(query)
+			if err != nil {
+				return delCount, fmt.Errorf("frozen buffered updates: rewriting query delete: %w", err)
+			}
+			it, err := searcher.ScorerIterator(rewritten, leafContext)
+			if err != nil {
+				return delCount, fmt.Errorf("frozen buffered updates: scoring query delete: %w", err)
+			}
+			if it == nil {
+				// Java: scorer == null — no document in this leaf matches.
+				continue
+			}
+
+			sortMap := seg.RAU.SortMap()
+			if sortMap != nil && limit != math.MaxInt32 {
+				// This segment was sorted on flush; we must apply seg-private
+				// deletes carefully in this case.
+				for {
+					docID, err := it.NextDoc()
+					if err != nil {
+						return delCount, fmt.Errorf("frozen buffered updates: iterating query delete: %w", err)
+					}
+					if docID == util.NO_MORE_DOCS {
+						break
+					}
+					// The limit is in the pre-sorted doc space:
+					if sortMap.NewToOld(docID) < limit {
+						deleted, err := seg.RAU.Delete(docID)
+						if err != nil {
+							return delCount, fmt.Errorf("frozen buffered updates: deleting doc %d: %w", docID, err)
+						}
+						if deleted {
+							delCount++
+						}
+					}
+				}
+			} else {
+				for {
+					docID, err := it.NextDoc()
+					if err != nil {
+						return delCount, fmt.Errorf("frozen buffered updates: iterating query delete: %w", err)
+					}
+					if docID >= limit {
+						break
+					}
+					deleted, err := seg.RAU.Delete(docID)
+					if err != nil {
+						return delCount, fmt.Errorf("frozen buffered updates: deleting doc %d: %w", docID, err)
+					}
+					if deleted {
+						delCount++
+					}
+				}
 			}
 		}
 	}
-	return delCount
+
+	if f.infoStream.IsEnabled("BD") {
+		f.infoStream.Message("BD", fmt.Sprintf(
+			"applyQueryDeletes took %.2f msec for %d segments and %d queries; %d new deletions",
+			float64(time.Since(startNS).Nanoseconds())/float64(time.Millisecond.Nanoseconds()),
+			len(segStates), len(f.deleteQueries), delCount))
+	}
+
+	return delCount, nil
 }
 
 // fireApplied closes the latch exactly once. Safe to call from any

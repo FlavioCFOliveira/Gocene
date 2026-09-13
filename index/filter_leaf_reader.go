@@ -277,6 +277,20 @@ func (r *FilterLeafReader) SearchNearestVectors(field string, target []float32, 
 	return r.in.SearchNearestVectors(field, target, k, acceptDocs, visitedLimit)
 }
 
+// SearchNearestVectorsCollector ports
+// FilterLeafReader.searchNearestVectors(String, float[], KnnCollector, AcceptDocs),
+// whose body is a straight delegation to the wrapped reader.
+func (r *FilterLeafReader) SearchNearestVectorsCollector(field string, target []float32, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	return r.in.SearchNearestVectorsCollector(field, target, knnCollector, acceptDocs)
+}
+
+// SearchNearestVectorsByteCollector ports
+// FilterLeafReader.searchNearestVectors(String, byte[], KnnCollector, AcceptDocs),
+// whose body is a straight delegation to the wrapped reader.
+func (r *FilterLeafReader) SearchNearestVectorsByteCollector(field string, target []byte, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	return r.in.SearchNearestVectorsByteCollector(field, target, knnCollector, acceptDocs)
+}
+
 // GetDocValuesSkipper returns a DocValuesSkipper for efficient skipping.
 func (r *FilterLeafReader) GetDocValuesSkipper(field string) (spi.DocValuesSkipper, error) {
 	return r.in.GetDocValuesSkipper(field)
@@ -651,7 +665,7 @@ func (f *FilterPostingsEnum) DocID() int {
 }
 
 // DocIDRunEnd delegates to the wrapped enumerator.
-func (f *FilterPostingsEnum) DocIDRunEnd() int {
+func (f *FilterPostingsEnum) DocIDRunEnd() (int, error) {
 	return f.in.DocIDRunEnd()
 }
 
@@ -698,4 +712,11 @@ func (f *FilterPostingsEnum) Cost() int64 {
 // Unwrap returns the wrapped enumerator, mirroring Unwrappable<PostingsEnum>.
 func (f *FilterPostingsEnum) Unwrap() PostingsEnum {
 	return f.in
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (f *FilterPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
 }

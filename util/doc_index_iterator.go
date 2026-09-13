@@ -40,10 +40,17 @@ func (it *denseDocIndexIterator) Advance(target int) (int, error) {
 	return it.idx, nil
 }
 
-func (it *denseDocIndexIterator) DocIDRunEnd() int {
-	return it.n
+func (it *denseDocIndexIterator) DocIDRunEnd() (int, error) {
+	return it.n, nil
 }
 
 func (it *denseDocIndexIterator) Cost() int64 { return 1 }
 
 func (it *denseDocIndexIterator) Index() int { return it.idx }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *denseDocIndexIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(it, upTo, bitSet, offset)
+}

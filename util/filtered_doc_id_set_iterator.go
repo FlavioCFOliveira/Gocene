@@ -57,8 +57,8 @@ func (f *FilteredDocIdSetIterator) Advance(target int) (int, error) {
 
 // DocIDRunEnd returns the end of the run of consecutive doc IDs that match
 // this iterator and contains the current docID.
-func (f *FilteredDocIdSetIterator) DocIDRunEnd() int {
-	return f.doc + 1
+func (f *FilteredDocIdSetIterator) DocIDRunEnd() (int, error) {
+	return f.doc + 1, nil
 }
 
 // Cost returns the estimated cost of this iterator.
@@ -79,4 +79,11 @@ func (f *FilteredDocIdSetIterator) HashCode() int {
 // String returns a string representation of the iterator.
 func (f *FilteredDocIdSetIterator) String() string {
 	return fmt.Sprintf("FilteredDocIdSetIterator@%p", f)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (f *FilteredDocIdSetIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(f, upTo, bitSet, offset)
 }

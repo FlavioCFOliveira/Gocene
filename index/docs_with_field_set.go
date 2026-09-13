@@ -141,18 +141,25 @@ func (it *docsWithFieldSetIterator) Advance(target int) (int, error) {
 	return it.NextDoc()
 }
 
-func (it *docsWithFieldSetIterator) DocIDRunEnd() int {
+func (it *docsWithFieldSetIterator) DocIDRunEnd() (int, error) {
 	if it.currentDocID == -1 || it.currentDocID == util.NO_MORE_DOCS {
-		return -1
+		return -1, nil
 	}
 
 	runEnd := it.currentDocID + 1
 	for it.set.Contains(runEnd) {
 		runEnd++
 	}
-	return runEnd
+	return runEnd, nil
 }
 
 func (it *docsWithFieldSetIterator) Cost() int64 {
 	return 0
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *docsWithFieldSetIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
 }

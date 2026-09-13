@@ -9,6 +9,8 @@ import (
 	"math"
 	"sync"
 	"unsafe"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // copyBuffersPool is a sync.Pool for reusable byte buffers used in CopyBytes.
@@ -44,6 +46,12 @@ type ByteBuffersDataOutput struct {
 	recycler        func([]byte)
 	// recycled holds buffers returned by recycler, keyed by capacity, for reuse.
 	recycled map[int][][]byte
+
+	// groupVIntBytes is the lazily allocated scratch buffer used by
+	// WriteGroupVInts. Port of the private field DataOutput.groupVIntBytes,
+	// which ByteBuffersDataOutput inherits in Java; Go has no inheritance, so
+	// the field lives on the type that carries the method.
+	groupVIntBytes []byte
 }
 
 // NewByteBuffersDataOutput creates a new output with default settings.
@@ -271,6 +279,24 @@ func (o *ByteBuffersDataOutput) WriteString(s string) error {
 
 // CopyBytes copies bytes from a DataInput.
 // Uses a pooled buffer to avoid heap allocations for copies up to 8KB.
+// WriteGroupVInts encodes the first limit values of values using the
+// group-varint format and appends the result to this output.
+//
+// Java's ByteBuffersDataOutput does not override writeGroupVInts; it inherits
+// the DataOutput default, which lazily allocates a
+// GroupVIntUtil.MAX_LENGTH_PER_GROUP scratch buffer and delegates to
+// GroupVIntUtil.writeGroupVInts(DataOutput, byte[], int[], int). This is that
+// default, reproduced verbatim.
+//
+// Port of org.apache.lucene.store.DataOutput.writeGroupVInts(int[], int)
+// (Lucene 10.5.0).
+func (o *ByteBuffersDataOutput) WriteGroupVInts(values []int32, limit int) error {
+	if o.groupVIntBytes == nil {
+		o.groupVIntBytes = make([]byte, util.GroupVIntMaxLengthPerGroup)
+	}
+	return util.WriteGroupVInts(o, o.groupVIntBytes, values, limit)
+}
+
 func (o *ByteBuffersDataOutput) CopyBytes(input DataInput, numBytes int64) error {
 	remaining := numBytes
 

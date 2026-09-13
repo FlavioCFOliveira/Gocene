@@ -188,17 +188,17 @@ func (it *bitSetIterator) Advance(target int) (int, error) {
 
 // DocIDRunEnd returns the end of the run of consecutive doc IDs that match
 // this iterator and that contains the current docID.
-func (it *bitSetIterator) DocIDRunEnd() int {
+func (it *bitSetIterator) DocIDRunEnd() (int, error) {
 	if it.current < 0 || it.current >= it.bits.Length() {
-		return it.current + 1
+		return it.current + 1, nil
 	}
 	// Find the first clear bit starting from currentDoc + 1
 	for i := it.current + 1; i < it.bits.Length(); i++ {
 		if !it.bits.Get(i) {
-			return i
+			return i, nil
 		}
 	}
-	return it.bits.Length()
+	return it.bits.Length(), nil
 }
 
 // Cost returns the estimated cost of this iterator.
@@ -211,3 +211,10 @@ var _ LiveDocs = (*DenseLiveDocs)(nil)
 
 // Ensure that bitSetIterator implements DocIdSetIterator.
 var _ DocIdSetIterator = (*bitSetIterator)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *bitSetIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(it, upTo, bitSet, offset)
+}

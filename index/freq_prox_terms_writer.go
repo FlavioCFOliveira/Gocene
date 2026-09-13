@@ -566,6 +566,14 @@ type SortingTermsEnum struct {
 	indexOptions IndexOptions
 }
 
+// Attributes returns the related attributes, reproducing
+// org.apache.lucene.index.FilterLeafReader.FilterTermsEnum#attributes() in
+// Apache Lucene 10.5.0 — {@code return in.attributes();} — so the
+// AttributeSource is shared with the wrapped enumerator.
+func (e *SortingTermsEnum) Attributes() *util.AttributeSource {
+	return e.in.Attributes()
+}
+
 // NewSortingTermsEnum wraps in with a sort-aware enumerator.
 func NewSortingTermsEnum(in TermsEnum, docMap SorterDocMap, indexOptions IndexOptions) *SortingTermsEnum {
 	return &SortingTermsEnum{in: in, docMap: docMap, indexOptions: indexOptions}
@@ -1165,4 +1173,18 @@ func (r *postingScratchReader) readBytes(dst []byte) error {
 	copy(dst, r.buf[r.pos:r.pos+len(dst)])
 	r.pos += len(dst)
 	return nil
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *SortingPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *SortingDocsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

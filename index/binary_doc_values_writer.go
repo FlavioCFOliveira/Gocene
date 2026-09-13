@@ -22,17 +22,17 @@ const (
 
 // BinaryDocValuesWriter buffers up pending byte[] per doc, then flushes when segment flushes.
 type BinaryDocValuesWriter struct {
-	bytes      *store.PagedBytes
-	bytesOut   *store.PagedBytesDataOutput
+	bytes       *store.PagedBytes
+	bytesOut    *store.PagedBytesDataOutput
 	iwBytesUsed *util.Counter
 
-	lengths      *packed.PackedLongValuesBuilder
+	lengths       *packed.PackedLongValuesBuilder
 	docsWithField *DocsWithFieldSet
-	fieldInfo    spi.FieldInfo
-	bytesUsed    int64
-	lastDocID    int
-	maxLength    int
-	frozen       bool
+	fieldInfo     spi.FieldInfo
+	bytesUsed     int64
+	lastDocID     int
+	maxLength     int
+	frozen        bool
 
 	finalLengths *packed.PackedLongValues
 }
@@ -55,15 +55,15 @@ func NewBinaryDocValuesWriter(fieldInfo spi.FieldInfo, iwBytesUsed *util.Counter
 	iwBytesUsed.AddAndGet(bytesUsed)
 
 	return &BinaryDocValuesWriter{
-		bytes:        bytes,
-		bytesOut:     bytesOut,
-		iwBytesUsed:  iwBytesUsed,
-		lengths:      lengths,
+		bytes:         bytes,
+		bytesOut:      bytesOut,
+		iwBytesUsed:   iwBytesUsed,
+		lengths:       lengths,
 		docsWithField: docsWithField,
-		fieldInfo:    fieldInfo,
-		bytesUsed:    bytesUsed,
-		lastDocID:    -1,
-		maxLength:    0,
+		fieldInfo:     fieldInfo,
+		bytesUsed:     bytesUsed,
+		lastDocID:     -1,
+		maxLength:     0,
 	}, nil
 }
 
@@ -83,7 +83,6 @@ func (w *BinaryDocValuesWriter) AddValue(docID int, value *util.BytesRef) error 
 		w.maxLength = value.Length
 	}
 	w.lengths.Add(int64(value.Length))
-
 
 	if err := w.bytesOut.WriteBytes(value.Bytes, value.Offset, value.Length); err != nil {
 		return fmt.Errorf("failed to write bytes to PagedBytes: %w", err)
@@ -121,11 +120,11 @@ func (w *BinaryDocValuesWriter) GetDocValues() BinaryDocValues {
 	}
 
 	return &bufferedBinaryDocValues{
-		finalLengths:   w.finalLengths,
-		maxLength:      w.maxLength,
-		bytesIterator:   bytesIn,
-		docsWithField:   w.docsWithField.Iterator(),
-		value:           util.NewBytesRefBuilder(),
+		finalLengths:  w.finalLengths,
+		maxLength:     w.maxLength,
+		bytesIterator: bytesIn,
+		docsWithField: w.docsWithField.Iterator(),
+		value:         util.NewBytesRefBuilder(),
 	}
 }
 
@@ -222,7 +221,7 @@ func (b *bufferedBinaryDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet,
 	return nil
 }
 
-func (b *bufferedBinaryDocValues) DocIDRunEnd() int {
+func (b *bufferedBinaryDocValues) DocIDRunEnd() (int, error) {
 	return b.docsWithField.DocIDRunEnd()
 }
 

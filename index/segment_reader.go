@@ -1013,6 +1013,22 @@ func (v *spiFloatVectorValues) Get(docID int) ([]float32, error) {
 	return v.values.VectorValue(v.it.Index())
 }
 
+// Scorer forwards FloatVectorValues.scorer(float[]) to the wrapped ordinal-
+// addressed values, narrowing the interface{} the index-side contract returns
+// (it cannot name util.VectorScorer's search-side alias) back to the scorer
+// contract spi.FloatVectorValues declares.
+func (v *spiFloatVectorValues) Scorer(target []float32) (util.VectorScorer, error) {
+	scorer, err := v.values.Scorer(target)
+	if err != nil || scorer == nil {
+		return nil, err
+	}
+	vs, ok := scorer.(util.VectorScorer)
+	if !ok {
+		return nil, fmt.Errorf("index: %T is not a util.VectorScorer", scorer)
+	}
+	return vs, nil
+}
+
 func (v *spiFloatVectorValues) Advance(target int) (int, error) { return v.it.Advance(target) }
 func (v *spiFloatVectorValues) NextDoc() (int, error)           { return v.it.NextDoc() }
 func (v *spiFloatVectorValues) DocID() int                      { return v.it.DocID() }
@@ -1043,6 +1059,21 @@ func (v *spiByteVectorValues) Get(docID int) ([]byte, error) {
 		return nil, nil
 	}
 	return v.values.VectorValue(v.it.Index())
+}
+
+// Scorer forwards ByteVectorValues.scorer(byte[]) to the wrapped ordinal-
+// addressed values, narrowing the interface{} the index-side contract returns
+// back to the scorer contract spi.ByteVectorValues declares.
+func (v *spiByteVectorValues) Scorer(target []byte) (util.VectorScorer, error) {
+	scorer, err := v.values.Scorer(target)
+	if err != nil || scorer == nil {
+		return nil, err
+	}
+	vs, ok := scorer.(util.VectorScorer)
+	if !ok {
+		return nil, fmt.Errorf("index: %T is not a util.VectorScorer", scorer)
+	}
+	return vs, nil
 }
 
 func (v *spiByteVectorValues) Advance(target int) (int, error) { return v.it.Advance(target) }

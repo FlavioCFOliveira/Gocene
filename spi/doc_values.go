@@ -133,20 +133,11 @@ type SortedDocValues interface {
 // ordinals through NextOrd; -1 signals the end of the document's
 // ordinal stream.
 type SortedSetDocValues interface {
-	// DocID returns the current document ID, or -1 before NextDoc /
-	// Advance has been called, or NO_MORE_DOCS once the iterator is
-	// exhausted.
-	DocID() int
-
-	// NextDoc advances to the next document that has at least one
-	// value and returns its ID, or NO_MORE_DOCS when no document
-	// follows.
-	NextDoc() (int, error)
-
-	// Advance positions the iterator on the first document with at
-	// least one value whose ID is >= target and returns that ID, or
-	// NO_MORE_DOCS when no such document exists.
-	Advance(target int) (int, error)
+	// DocIdSetIterator is the Java superclass chain:
+	// SortedSetDocValues extends DocValuesIterator extends DocIdSetIterator
+	// (Apache Lucene 10.5.0). It contributes DocID, NextDoc, Advance, Cost,
+	// IntoBitSet and DocIDRunEnd.
+	DocIdSetIterator
 
 	// AdvanceExact positions the iterator on the given target document
 	// and returns true if that document has at least one ordinal.
@@ -159,16 +150,18 @@ type SortedSetDocValues interface {
 	// when the document has no more ordinals.
 	NextOrd() (int, error)
 
+	// DocValueCount returns the number of ordinals bound to the current
+	// document. Mirrors the abstract
+	// org.apache.lucene.index.SortedSetDocValues#docValueCount, which
+	// neither throws nor returns a sentinel.
+	DocValueCount() int
+
 	// LookupOrd returns the value bound to the given ordinal.
 	LookupOrd(ord int) ([]byte, error)
 
 	// GetValueCount returns the number of unique ordinals stored for
 	// this field.
 	GetValueCount() int
-
-	// Cost is an estimate of the cost of iterating over the entire
-	// value-bearing document set.
-	Cost() int64
 }
 
 // SortedNumericDocValues provides per-document multi-valued numeric

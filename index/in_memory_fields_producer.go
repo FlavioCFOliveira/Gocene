@@ -554,3 +554,10 @@ func (e *inMemPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }
 func (e *inMemPostingsEnum) Cost() int64 {
 	return int64(len(e.term.docIDs))
 }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (i *inMemPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(i, upTo, bitSet, offset)
+}

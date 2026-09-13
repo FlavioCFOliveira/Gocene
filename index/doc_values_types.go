@@ -19,4 +19,12 @@ type IndexReaderInterface = spi.IndexReaderInterface
 type LeafReaderContext = spi.LeafReaderContext
 type CompositeReaderContext = spi.CompositeReaderContext
 type PointValues = spi.PointValues
+
+// PointTreeIntersectVisitor mirrors the nested interface
+// org.apache.lucene.index.PointValues.IntersectVisitor: the visitor a
+// point-values consumer drives during a BKD intersection. The canonical
+// declaration lives in spi so the codec packages can implement it without
+// importing index; it is re-exported here because org.apache.lucene.index is
+// its home in Lucene 10.5.0.
+type PointTreeIntersectVisitor = spi.PointTreeIntersectVisitor
 type IndexReaderMetaData = spi.IndexReaderMetaData

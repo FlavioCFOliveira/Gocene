@@ -4,6 +4,8 @@
 
 package index
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 import "math"
 
 // SlowImpactsEnum wraps a PostingsEnum and returns trivial Impacts (constant
@@ -27,7 +29,7 @@ func (s *SlowImpactsEnum) NextDoc() (int, error) { return s.delegate.NextDoc() }
 // DocID returns the current document ID. Delegates to the underlying PostingsEnum.
 func (s *SlowImpactsEnum) DocID() int { return s.delegate.DocID() }
 
-func (s *SlowImpactsEnum) DocIDRunEnd() int { return s.delegate.DocIDRunEnd() }
+func (s *SlowImpactsEnum) DocIDRunEnd() (int, error) { return s.delegate.DocIDRunEnd() }
 
 // Cost returns the cost of iterating over this enum. Delegates to the underlying PostingsEnum.
 func (s *SlowImpactsEnum) Cost() int64 { return s.delegate.Cost() }
@@ -103,3 +105,10 @@ func (si *slowImpacts) GetImpacts(_ int) *FreqAndNormBuffer {
 
 // Compile-time assertion: SlowImpactsEnum satisfies the ImpactsEnum surface.
 var _ ImpactsEnum = (*SlowImpactsEnum)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *SlowImpactsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

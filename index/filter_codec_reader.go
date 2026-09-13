@@ -361,6 +361,46 @@ func (r *FilterCodecReader) SearchNearestVectors(field string, target []float32,
 	return *td, nil
 }
 
+// SearchNearestVectorsCollector ports the final method
+// CodecReader.searchNearestVectors(String, float[], KnnCollector, AcceptDocs),
+// resolved through this reader's own getVectorReader override.
+func (r *FilterCodecReader) SearchNearestVectorsCollector(field string, target []float32, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	fis := r.codecSelf().GetFieldInfos()
+	if fis == nil {
+		return nil
+	}
+	fi := fis.FieldInfoByName(field)
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != util.VectorEncodingFloat32 {
+		// Field does not exist or does not index vectors
+		return nil
+	}
+	d := r.vectorsDelegate()
+	if d == nil {
+		return nil
+	}
+	return d.SearchNearestFloatCollector(field, target, knnCollector, acceptDocs)
+}
+
+// SearchNearestVectorsByteCollector ports the final method
+// CodecReader.searchNearestVectors(String, byte[], KnnCollector, AcceptDocs),
+// resolved through this reader's own getVectorReader override.
+func (r *FilterCodecReader) SearchNearestVectorsByteCollector(field string, target []byte, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	fis := r.codecSelf().GetFieldInfos()
+	if fis == nil {
+		return nil
+	}
+	fi := fis.FieldInfoByName(field)
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != util.VectorEncodingByte {
+		// Field does not exist or does not index vectors
+		return nil
+	}
+	d := r.vectorsDelegate()
+	if d == nil {
+		return nil
+	}
+	return d.SearchNearestByteCollector(field, target, knnCollector, acceptDocs)
+}
+
 // GetCoreCacheHelper ports FilterCodecReader.getCoreCacheHelper.
 func (r *FilterCodecReader) GetCoreCacheHelper() CacheHelper {
 	return r.in.GetCoreCacheHelper()

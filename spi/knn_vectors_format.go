@@ -106,6 +106,33 @@ type KnnVectorsReader interface {
 	// CheckIntegrity verifies the integrity of the on-disk vector data.
 	CheckIntegrity() error
 
+	// GetMergeInstance returns an instance optimized for merging. This
+	// instance may only be used from the thread that called
+	// GetMergeInstance.
+	//
+	// The default implementation returns the receiver itself.
+	//
+	// Mirrors KnnVectorsReader.getMergeInstance() of Apache Lucene 10.5.0.
+	GetMergeInstance() (KnnVectorsReader, error)
+
+	// FinishMerge cleans up any state that was built for merging, once the
+	// merge instance is no longer needed.
+	//
+	// The default implementation does nothing.
+	//
+	// Mirrors KnnVectorsReader.finishMerge() of Apache Lucene 10.5.0.
+	FinishMerge() error
+
+	// GetOffHeapByteSize reports the desired off-heap memory, keyed by file
+	// extension, for the given field. An empty or absent entry means the
+	// reader keeps nothing off-heap for that category.
+	//
+	// The default implementation returns an empty map.
+	//
+	// Mirrors KnnVectorsReader.getOffHeapByteSize(FieldInfo) of Apache
+	// Lucene 10.5.0, whose default body is "return Map.of()".
+	GetOffHeapByteSize(fieldInfo *FieldInfo) map[string]int64
+
 	// Close releases the underlying inputs. Idempotent.
 	Close() error
 }

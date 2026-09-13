@@ -24,9 +24,22 @@ type AutomatonTermsEnum struct {
 
 // NewAutomatonTermsEnum builds an AutomatonTermsEnum that filters delegate
 // using the provided CompiledAutomaton.
+//
+// DIVERGENCE (documented, Source Fidelity Mandate point 5). Java's
+// AutomatonTermsEnum calls `super(tenum)`, i.e. startWithSeek == true, because
+// its nextSeekTerm is a real implementation that walks the DFA (nextString /
+// setLinear / backtrack) and returns the first matching string. Gocene's
+// NextSeekTerm below is still the stub recorded in this file's type comment
+// (backlog #2704) and returns nil, which under the faithful
+// FilteredTermsEnum.next() body would end the enumeration before it started
+// and make every NORMAL-automaton query match nothing. The stub's Accept
+// likewise never returns YES_AND_SEEK/NO_AND_SEEK, so this enumerator is
+// internally a no-skip scan; startWithSeek == false is the construction that
+// makes that scan produce Lucene's result set. Restore `super(tenum)`
+// semantics here the moment NextSeekTerm is ported for real.
 func NewAutomatonTermsEnum(delegate TermsEnum, compiled *automaton.CompiledAutomaton) *AutomatonTermsEnum {
 	te := &AutomatonTermsEnum{compiled: compiled}
-	te.FilteredTermsEnum = NewFilteredTermsEnum(delegate, te)
+	te.FilteredTermsEnum = NewFilteredTermsEnumWithSeek(delegate, te, false)
 	return te
 }
 

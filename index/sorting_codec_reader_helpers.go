@@ -277,8 +277,8 @@ func (it *SortingValuesIterator) Advance(target int) (int, error) {
 
 // DocIDRunEnd assumes runs of a single doc ID and returns DocID()+1, the
 // default of org.apache.lucene.search.DocIdSetIterator.docIDRunEnd.
-func (it *SortingValuesIterator) DocIDRunEnd() int {
-	return it.doc + 1
+func (it *SortingValuesIterator) DocIDRunEnd() (int, error) {
+	return it.doc + 1, nil
 }
 
 func (it *SortingValuesIterator) Cost() int64 {
@@ -454,4 +454,11 @@ func (v *SortingByteVectorValues) Scorer(target []byte) (util.VectorScorer, erro
 // Rescorer delegates to Scorer, matching ByteVectorValues.rescorer's default.
 func (v *SortingByteVectorValues) Rescorer(target []byte) (util.VectorScorer, error) {
 	return v.Scorer(target)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *SortingValuesIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
 }

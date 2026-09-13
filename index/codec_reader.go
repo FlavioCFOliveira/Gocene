@@ -76,6 +76,15 @@ type knnVectorsReaderWithSearch interface {
 	SearchByte(field string, target []byte, k int, acceptDocs util.Bits) (TopDocs, error)
 }
 
+// knnVectorsReaderWithCollectorSearch is the collector-driven half of the wide
+// KnnVectorsReader surface: the Go rendering of
+// KnnVectorsReader.search(String, float[], KnnCollector, AcceptDocs) and its
+// byte overload.
+type knnVectorsReaderWithCollectorSearch interface {
+	SearchNearestFloatCollector(field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits) error
+	SearchNearestByteCollector(field string, target []byte, collector spi.KnnCollector, acceptDocs util.Bits) error
+}
+
 // baseCodecReader provides the common implementation of LeafReader methods
 // by delegating to the CodecReader interface.
 type baseCodecReader struct {
@@ -300,6 +309,43 @@ func (b *baseCodecReader) SearchNearestVectorsByte(field string, target []byte, 
 		return TopDocs{}, fmt.Errorf("vector reader %T does not expose SearchByte", b.impl.GetVectorReader())
 	}
 	return reader.SearchByte(field, target, k, acceptDocs)
+}
+
+// SearchNearestVectorsCollector gathers the nearest neighbours of the
+// float-valued target in field into knnCollector.
+//
+// Mirrors the final method CodecReader.searchNearestVectors(String, float[],
+// KnnCollector, AcceptDocs), which returns without touching the collector when
+// the field does not exist or does not index FLOAT32 vectors.
+func (b *baseCodecReader) SearchNearestVectorsCollector(field string, target []float32, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != VectorEncodingFloat32 {
+		// Field does not exist or does not index vectors
+		return nil
+	}
+	reader, ok := b.impl.GetVectorReader().(knnVectorsReaderWithCollectorSearch)
+	if !ok {
+		return fmt.Errorf("vector reader %T does not expose the collector-driven Search", b.impl.GetVectorReader())
+	}
+	return reader.SearchNearestFloatCollector(field, target, knnCollector, acceptDocs)
+}
+
+// SearchNearestVectorsByteCollector gathers the nearest neighbours of the
+// byte-valued target in field into knnCollector.
+//
+// Mirrors the final method CodecReader.searchNearestVectors(String, byte[],
+// KnnCollector, AcceptDocs).
+func (b *baseCodecReader) SearchNearestVectorsByteCollector(field string, target []byte, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != VectorEncodingByte {
+		// Field does not exist or does not index vectors
+		return nil
+	}
+	reader, ok := b.impl.GetVectorReader().(knnVectorsReaderWithCollectorSearch)
+	if !ok {
+		return fmt.Errorf("vector reader %T does not expose the collector-driven Search", b.impl.GetVectorReader())
+	}
+	return reader.SearchNearestByteCollector(field, target, knnCollector, acceptDocs)
 }
 
 func (b *baseCodecReader) CheckIntegrity() error {

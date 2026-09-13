@@ -380,16 +380,11 @@ func contains(haystack, needle string) bool {
 // only exercises HashCode + identity, never Rewrite/CreateWeight.
 type testQuery struct{ id int }
 
-func (q testQuery) Rewrite(_ *IndexReader) (Query, error) { return q, nil }
-func (q testQuery) Clone() Query                          { return q }
 func (q testQuery) Equals(other Query) bool {
 	o, ok := other.(testQuery)
 	return ok && o.id == q.id
 }
 func (q testQuery) HashCode() int { return q.id }
-func (q testQuery) CreateWeight(_ IndexSearcher, _ bool, _ float32) (Weight, error) {
-	return nil, errors.New("test query: CreateWeight not used in this test")
-}
 
 // termWithDocs is a (term, doc-ids) pair used by newMultiTermTerms.
 type termWithDocs struct {

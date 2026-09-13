@@ -50,7 +50,7 @@ func (s *stubDocValuesIterator) Advance(target int) (int, error) {
 
 func (s *stubDocValuesIterator) Cost() int64 { return int64(len(s.withValue)) }
 
-func (s *stubDocValuesIterator) DocIDRunEnd() int { return s.docID + 1 }
+func (s *stubDocValuesIterator) DocIDRunEnd() (int, error) { return s.docID + 1, nil }
 
 func (s *stubDocValuesIterator) AdvanceExact(target int) (bool, error) {
 	s.docID = target
@@ -109,4 +109,11 @@ func TestDocValuesIterator_EmbedsDocIdSetIterator(t *testing.T) {
 	if doc, _ := it.NextDoc(); doc != util.NO_MORE_DOCS {
 		t.Errorf("exhausted NextDoc() = %d, want NO_MORE_DOCS", doc)
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *stubDocValuesIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

@@ -12,21 +12,10 @@ import (
 // PostingsEnum provides an iterator over the postings (documents) for a term.
 // This is the Go port of Lucene's org.apache.lucene.index.PostingsEnum.
 type PostingsEnum interface {
-	// NextDoc advances to the next document in the postings list.
-	// Returns the doc ID, or NO_MORE_DOCS if there are no more documents.
-	NextDoc() (int, error)
-
-	// Advance advances to the first document with doc ID >= target.
-	// Returns the doc ID, or NO_MORE_DOCS if there are no more documents.
-	Advance(target int) (int, error)
-
-	// DocID returns the current document ID.
-	// Returns -1 if the iterator is not positioned or -2 (NO_MORE_DOCS) at the end.
-	DocID() int
-
-	// DocIDRunEnd returns the end of the current run of documents.
-	// Returns -1 if the iterator is not positioned or at the end.
-	DocIDRunEnd() int
+	// DocIdSetIterator is the Java superclass: PostingsEnum extends
+	// DocIdSetIterator (org.apache.lucene.index.PostingsEnum, Lucene 10.5.0).
+	// It contributes DocID, NextDoc, Advance, Cost, IntoBitSet and DocIDRunEnd.
+	DocIdSetIterator
 
 	// Freq returns the term frequency in the current document.
 	// This is the number of occurrences of the term in the current document.
@@ -47,10 +36,6 @@ type PostingsEnum interface {
 	// GetPayload returns the payload bytes for the current occurrence.
 	// Returns nil if there is no payload.
 	GetPayload() ([]byte, error)
-
-	// Cost returns an estimate of the cost of iterating over all postings.
-	// Higher values indicate higher cost.
-	Cost() int64
 }
 
 // Impacts conveys information about upcoming impacts (i.e. (freq, norm)
@@ -149,8 +134,8 @@ func (p *PostingsEnumBase) DocID() int {
 }
 
 // DocIDRunEnd returns the end of the current run of documents.
-func (p *PostingsEnumBase) DocIDRunEnd() int {
-	return p.DocID()
+func (p *PostingsEnumBase) DocIDRunEnd() (int, error) {
+	return p.DocID(), nil
 }
 
 // SetCurrentDoc updates the cached current document ID. Equivalent to
@@ -189,8 +174,8 @@ func (e *EmptyPostingsEnum) Freq() (int, error) {
 }
 
 // DocIDRunEnd returns NO_MORE_DOCS.
-func (e *EmptyPostingsEnum) DocIDRunEnd() int {
-	return NO_MORE_DOCS
+func (e *EmptyPostingsEnum) DocIDRunEnd() (int, error) {
+	return NO_MORE_DOCS, nil
 }
 
 // NextPosition returns NO_MORE_POSITIONS.
@@ -268,8 +253,8 @@ func (s *SingleDocPostingsEnum) Freq() (int, error) {
 }
 
 // DocIDRunEnd returns the current doc ID.
-func (s *SingleDocPostingsEnum) DocIDRunEnd() int {
-	return s.DocID()
+func (s *SingleDocPostingsEnum) DocIDRunEnd() (int, error) {
+	return s.DocID(), nil
 }
 
 // NextPosition returns NO_MORE_POSITIONS.
@@ -369,4 +354,25 @@ func (s *SinglePostingsEnum) GetPayload() ([]byte, error) {
 // Cost returns the docFreq.
 func (s *SinglePostingsEnum) Cost() int64 {
 	return int64(s.docFreq)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (e *EmptyPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *SingleDocPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *SinglePostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

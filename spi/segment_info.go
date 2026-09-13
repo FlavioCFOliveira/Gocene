@@ -150,7 +150,12 @@ func NewSortedSetSortField(name string, reverse bool) *SortedSetSortField {
 }
 
 // NewSortField creates a new SortField with the given name and type number.
+//
+// Ported from SortField(String, Type), which delegates to
+// SortField(String, Type, boolean, Object) and therefore validates the field
+// name against the type.
 func NewSortField(field string, sortType SortFieldType) *SortField {
+	validateField(field, sortType, nil)
 	return &SortField{
 		Field:   field,
 		Type:    sortType,
@@ -159,7 +164,12 @@ func NewSortField(field string, sortType SortFieldType) *SortField {
 }
 
 // NewSortFieldFull creates a new SortField with the given name, type number, and descending flag.
+//
+// Ported from SortField(String, Type, boolean), which delegates to
+// SortField(String, Type, boolean, Object) and therefore validates the field
+// name against the type.
 func NewSortFieldFull(field string, sortType SortFieldType, descending bool) *SortField {
+	validateField(field, sortType, nil)
 	return &SortField{
 		Field:   field,
 		Type:    sortType,

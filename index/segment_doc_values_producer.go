@@ -275,6 +275,11 @@ func (p *SegmentDocValuesProducer) GetSkipper(field *FieldInfo) (spi.DocValuesSk
 // CheckIntegrity calls CheckIntegrity on every unique underlying producer.
 // It returns the first non-nil error, joined with any subsequent failures so
 // callers see the complete picture.
+// GetMergeInstance returns the receiver. The corresponding class in Apache
+// Lucene 10.5.0 does not override getMergeInstance, so it inherits the
+// DocValuesProducer default, which returns this.
+func (p *SegmentDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
+
 func (p *SegmentDocValuesProducer) CheckIntegrity() error {
 	var joined error
 	for _, dvp := range p.dvProducers {

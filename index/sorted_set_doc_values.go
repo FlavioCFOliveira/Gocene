@@ -63,7 +63,7 @@ func IntersectSet(field string, ssdv SortedSetDocValues, compiled *automaton.Com
 	case automaton.AutomatonTypeAll:
 		return in, nil
 	case automaton.AutomatonTypeSingle:
-		return newSingleTermFilteredEnum(in, NewTerm(field, compiled.Term)), nil
+		return NewSingleTermFilteredEnum(in, NewTermFromBytesRef(field, compiled.Term)), nil
 	case automaton.AutomatonTypeNormal:
 		return NewAutomatonTermsEnum(in, compiled), nil
 	default:
