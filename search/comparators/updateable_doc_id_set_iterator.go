@@ -48,7 +48,7 @@ type UpdateableDocIdSetIterator struct {
 // starting at doc = -1 with an empty inner iterator.
 func NewUpdateableDocIdSetIterator() *UpdateableDocIdSetIterator {
 	return &UpdateableDocIdSetIterator{
-		in:  search.NewEmptyDocIdSetIterator(),
+		in:  util.EmptyDocIdSetIterator(),
 		doc: -1,
 	}
 }

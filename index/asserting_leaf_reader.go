@@ -411,6 +411,16 @@ type AssertingNumericDocValues struct {
 	maxDoc int
 }
 
+// NewAssertingNumericDocValues wraps in so every access is checked against
+// maxDoc.
+//
+// Mirrors the public constructor
+// AssertingLeafReader.AssertingNumericDocValues(NumericDocValues, int) of
+// Apache Lucene 10.5.0 (AssertingLeafReader.java:765).
+func NewAssertingNumericDocValues(in NumericDocValues, maxDoc int) *AssertingNumericDocValues {
+	return &AssertingNumericDocValues{in: in, maxDoc: maxDoc}
+}
+
 func (dv *AssertingNumericDocValues) NextDoc() (int, error) {
 	doc, err := dv.in.NextDoc()
 	if err != nil {
@@ -652,6 +662,15 @@ func (dv *AssertingSortedSetDocValues) Cost() int64 {
 type AssertingPointValues struct {
 	in     spi.PointValues
 	maxDoc int
+}
+
+// NewAssertingPointValues wraps in so every access is checked against maxDoc.
+//
+// Mirrors the public constructor
+// AssertingLeafReader.AssertingPointValues(PointValues, int) of Apache
+// Lucene 10.5.0 (AssertingLeafReader.java:1487).
+func NewAssertingPointValues(in spi.PointValues, maxDoc int) *AssertingPointValues {
+	return &AssertingPointValues{in: in, maxDoc: maxDoc}
 }
 
 func (pv *AssertingPointValues) GetDocCount() int {

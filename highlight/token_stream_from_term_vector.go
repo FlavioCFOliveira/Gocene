@@ -7,6 +7,8 @@ import "github.com/FlavioCFOliveira/Gocene/analysis"
 // stream of a document without re-tokenising it. Mirrors
 // org.apache.lucene.search.highlight.TokenStreamFromTermVector.
 type TokenStreamFromTermVector struct {
+	*analysis.BaseTokenStream
+
 	tokens []string
 	idx    int
 }
@@ -23,7 +25,7 @@ func NewTokenStreamFromTermVector(reader *TermVectorLeafReader) *TokenStreamFrom
 		}
 	}
 	if maxPos < 0 {
-		return &TokenStreamFromTermVector{}
+		return &TokenStreamFromTermVector{BaseTokenStream: analysis.NewBaseTokenStream()}
 	}
 	out := make([]string, maxPos+1)
 	for _, e := range reader.Terms() {
@@ -31,7 +33,7 @@ func NewTokenStreamFromTermVector(reader *TermVectorLeafReader) *TokenStreamFrom
 			out[p] = e.Term
 		}
 	}
-	return &TokenStreamFromTermVector{tokens: out, idx: -1}
+	return &TokenStreamFromTermVector{BaseTokenStream: analysis.NewBaseTokenStream(), tokens: out, idx: -1}
 }
 
 // IncrementToken advances to the next token.

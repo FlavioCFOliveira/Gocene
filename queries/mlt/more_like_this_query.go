@@ -79,13 +79,13 @@ func (q *MoreLikeThisQuery) Rewrite(_ search.IndexReader) (search.Query, error) 
 		return bq, nil
 	}
 	clauses := boolQ.Clauses()
-	result := search.NewBooleanQuery()
+	result := search.NewBooleanQueryBuilder()
 	for _, clause := range clauses {
-		result.Add(clause.Query, clause.Occur)
+		result.AddClause(clause)
 	}
 	min := int(math.Round(float64(len(clauses)) * float64(q.percentTermsToMatch)))
 	result.SetMinimumNumberShouldMatch(min)
-	return result, nil
+	return result.Build(), nil
 }
 
 // String returns a string representation of this query.

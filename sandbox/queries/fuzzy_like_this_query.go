@@ -66,8 +66,13 @@ func (q *FuzzyLikeThisQuery) IsIgnoreTF() bool {
 }
 
 // Rewrite expands this query into a BooleanQuery of FuzzyQuery clauses.
-func (q *FuzzyLikeThisQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
-	bq := search.NewBooleanQuery()
+func (q *FuzzyLikeThisQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
+	// Java: IndexReader reader = indexSearcher.getIndexReader();
+	// (FuzzyLikeThisQuery.java:283-284)
+	reader := searcher.GetIndexReader()
+	// Java: BooleanQuery.Builder bq = new BooleanQuery.Builder();
+	// (FuzzyLikeThisQuery.java:291)
+	bq := search.NewBooleanQueryBuilder()
 	globalSeen := make(map[string]bool)
 
 	for _, f := range q.FieldVals {
@@ -159,13 +164,10 @@ func (q *FuzzyLikeThisQuery) Rewrite(reader search.IndexReader) (search.Query, e
 		}
 	}
 
-	if len(bq.Clauses()) == 0 {
-		return search.NewMatchNoDocsQuery(), nil
-	}
-	if len(bq.Clauses()) == 1 {
-		return bq.Clauses()[0].Query, nil
-	}
-	return bq, nil
+	// Java: return bq.build(); (FuzzyLikeThisQuery.java:332). Lucene returns the
+	// BooleanQuery unconditionally: it neither substitutes a MatchNoDocsQuery for
+	// an empty clause list nor unwraps a single clause.
+	return bq.Build(), nil
 }
 
 // Clone creates a copy of this query.
@@ -247,13 +249,12 @@ func (q *FuzzyLikeThisQuery) Visit(visitor search.QueryVisitor) {
 }
 
 // CreateWeight creates a Weight for this query by rewriting first.
-func (q *FuzzyLikeThisQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	reader := searcher.GetReader()
-	rewritten, err := q.Rewrite(reader)
+func (q *FuzzyLikeThisQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	rewritten, err := q.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
-	return rewritten.CreateWeight(searcher, needsScores, boost)
+	return rewritten.CreateWeight(searcher, scoreMode, boost)
 }
 
 // Ensure FuzzyLikeThisQuery implements search.Query.

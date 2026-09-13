@@ -27,6 +27,8 @@ type attributeSourceProvider interface {
 // maxStartOffset. Tokens whose start offset is strictly greater than
 // maxStartOffset are discarded, and the stream ends.
 type OffsetLimitTokenFilter struct {
+	*analysis.BaseTokenStream
+
 	input          analysis.TokenStream
 	maxStartOffset int
 	offsetAttr     analysis.OffsetAttribute
@@ -40,8 +42,9 @@ type OffsetLimitTokenFilter struct {
 // attribute is always available on correctly-constructed streams.
 func NewOffsetLimitTokenFilter(input analysis.TokenStream, maxStartOffset int) *OffsetLimitTokenFilter {
 	f := &OffsetLimitTokenFilter{
-		input:          input,
-		maxStartOffset: maxStartOffset,
+		BaseTokenStream: analysis.NewBaseTokenStreamFrom(input.GetAttributeSource()),
+		input:           input,
+		maxStartOffset:  maxStartOffset,
 	}
 	// Resolve the OffsetAttribute from the wrapped stream's attribute source.
 	if asp, ok := input.(attributeSourceProvider); ok {

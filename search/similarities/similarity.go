@@ -51,14 +51,21 @@ func (s *BaseSimilarity) GetDiscountOverlaps() bool {
 
 func (s *BaseSimilarity) ComputeNorm(state *index.FieldInvertState) int64 {
 	var numTerms int
-	if state.IndexOptions == index.Docs {
-		numTerms = state.GetUniqueTermCount()
+	if state.IndexOptions() == index.IndexOptionsDocs {
+		numTerms = state.UniqueTermCount()
 	} else if s.discountOverlaps {
-		numTerms = state.GetLength() - state.GetNumOverlap()
+		numTerms = state.Length() - state.NumOverlap()
 	} else {
-		numTerms = state.GetLength()
+		numTerms = state.Length()
 	}
-	return util.IntToByte4(numTerms)
+	// Java: return SmallFloat.intToByte4(numTerms); intToByte4 throws the
+	// unchecked IllegalArgumentException for a negative argument, which
+	// propagates out of computeNorm. Gocene renders that as a panic.
+	b, err := util.IntToByte4(numTerms)
+	if err != nil {
+		panic(err)
+	}
+	return int64(b)
 }
 
 // DefaultBulkSimScorer is the default implementation of BulkSimScorer.

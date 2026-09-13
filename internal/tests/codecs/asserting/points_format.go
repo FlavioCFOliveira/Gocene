@@ -7,7 +7,7 @@ package asserting
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs/asserting"
+	assertingcodec "github.com/FlavioCFOliveira/Gocene/codecs/asserting"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
@@ -49,7 +49,7 @@ func (f *AssertingPointsFormat) FieldsReader(state *spi.SegmentReadState) (spi.P
 	}
 	return &assertingPointsReader{
 		in:         reader,
-		maxDoc:     state.SegmentInfo.MaxDoc,
+		maxDoc:     state.SegmentInfo.MaxDoc(),
 		fieldInfos: state.FieldInfos,
 		merging:    false,
 	}, nil
@@ -100,10 +100,7 @@ func (r *assertingPointsReader) GetValues(field string) (index.PointValues, erro
 		return nil, nil
 	}
 
-	return &index.AssertingPointValues{
-		in:     values,
-		maxDoc: r.maxDoc,
-	}, nil
+	return index.NewAssertingPointValues(values, r.maxDoc), nil
 }
 
 func (r *assertingPointsReader) GetMergeInstance() spi.PointsReader {

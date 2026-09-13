@@ -41,13 +41,13 @@ func (e *WeightedSpanTermExtractor) Extract(query search.Query) map[string]*Weig
 func (e *WeightedSpanTermExtractor) extract(query search.Query, weight float32, positionSensitive bool, out map[string]*WeightedSpanTerm) {
 	switch q := query.(type) {
 	case *search.TermQuery:
-		term := q.Term()
+		term := q.GetTerm()
 		if e.fieldName != "" && term.Field != e.fieldName {
 			return
 		}
 		e.add(term.Text(), weight, positionSensitive, out)
 	case *search.PhraseQuery:
-		for _, t := range q.Terms() {
+		for _, t := range q.GetTerms() {
 			if e.fieldName != "" && t.Field != e.fieldName {
 				continue
 			}
@@ -55,10 +55,10 @@ func (e *WeightedSpanTermExtractor) extract(query search.Query, weight float32, 
 		}
 	case *search.BooleanQuery:
 		for _, c := range q.Clauses() {
-			if c.Occur == search.MUST_NOT {
+			if c.Occur() == search.MUST_NOT {
 				continue
 			}
-			e.extract(c.Query, weight, positionSensitive, out)
+			e.extract(c.Query(), weight, positionSensitive, out)
 		}
 	case *search.BoostQuery:
 		e.extract(q.Query(), weight*q.Boost(), positionSensitive, out)
