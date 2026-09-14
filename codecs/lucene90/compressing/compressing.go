@@ -81,33 +81,3 @@
 //     document-by-document. Bulk merge is an optimisation and does not affect
 //     correctness.
 package compressing
-
-// Lucene90CompressingTermVectorsFormat mirrors
-// org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingTermVectorsFormat.
-type Lucene90CompressingTermVectorsFormat struct{}
-
-// NewLucene90CompressingTermVectorsFormat builds a
-// Lucene90CompressingTermVectorsFormat.
-func NewLucene90CompressingTermVectorsFormat() *Lucene90CompressingTermVectorsFormat {
-	return &Lucene90CompressingTermVectorsFormat{}
-}
-
-// Lucene90CompressingTermVectorsReader mirrors
-// org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingTermVectorsReader.
-type Lucene90CompressingTermVectorsReader struct{}
-
-// NewLucene90CompressingTermVectorsReader builds a
-// Lucene90CompressingTermVectorsReader.
-func NewLucene90CompressingTermVectorsReader() *Lucene90CompressingTermVectorsReader {
-	return &Lucene90CompressingTermVectorsReader{}
-}
-
-// Lucene90CompressingTermVectorsWriter mirrors
-// org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingTermVectorsWriter.
-type Lucene90CompressingTermVectorsWriter struct{}
-
-// NewLucene90CompressingTermVectorsWriter builds a
-// Lucene90CompressingTermVectorsWriter.
-func NewLucene90CompressingTermVectorsWriter() *Lucene90CompressingTermVectorsWriter {
-	return &Lucene90CompressingTermVectorsWriter{}
-}

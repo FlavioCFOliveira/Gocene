@@ -168,6 +168,24 @@ func (f *filterFieldsProducer) Terms(field string) (index.Terms, error) {
 	return f.inner.Terms(field)
 }
 
+// Iterator returns the filtered field names. Mirrors
+// PerFieldMergeState.FilterFieldsProducer.iterator().
+func (f *filterFieldsProducer) Iterator() (index.FieldIterator, error) {
+	return index.NewMemoryFieldIterator(f.allow.ordered), nil
+}
+
+// Size returns the number of filtered fields. Mirrors
+// PerFieldMergeState.FilterFieldsProducer.size().
+func (f *filterFieldsProducer) Size() int {
+	return len(f.allow.ordered)
+}
+
+// GetMergeInstance returns the receiver: FilterFieldsProducer does not override
+// FieldsProducer.getMergeInstance(), whose default returns this.
+func (f *filterFieldsProducer) GetMergeInstance() FieldsProducer {
+	return f
+}
+
 // Close releases the wrapped producer. The filter holds no resources of
 // its own beyond the allow set.
 func (f *filterFieldsProducer) Close() error {

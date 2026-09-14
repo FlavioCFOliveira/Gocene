@@ -423,8 +423,14 @@ func (r *Lucene40BlockTreeTermsReader) Close() error {
 }
 
 // Iterator returns a channel-based iterator over sorted field names.
-func (r *Lucene40BlockTreeTermsReader) Iterator() []string {
-	return r.fieldList
+func (r *Lucene40BlockTreeTermsReader) Iterator() (index.FieldIterator, error) {
+	return index.NewMemoryFieldIterator(r.fieldList), nil
+}
+
+// GetMergeInstance returns the receiver: Lucene40BlockTreeTermsReader does not
+// override FieldsProducer.getMergeInstance(), whose default returns this.
+func (r *Lucene40BlockTreeTermsReader) GetMergeInstance() codecs.FieldsProducer {
+	return r
 }
 
 // Size returns the number of indexed fields.

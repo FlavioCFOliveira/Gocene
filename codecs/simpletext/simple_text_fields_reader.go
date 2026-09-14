@@ -7,6 +7,7 @@ package simpletext
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -134,6 +135,28 @@ func (r *SimpleTextFieldsReader) readFields(raw store.IndexInput) (map[string]in
 // present.
 //
 // Port of SimpleTextFieldsReader.terms(String).
+// Iterator returns the field names in sorted order. Mirrors
+// SimpleTextFieldsReader.iterator(), which walks the key set of a TreeMap.
+func (r *SimpleTextFieldsReader) Iterator() (index.FieldIterator, error) {
+	names := make([]string, 0, len(r.fields))
+	for name := range r.fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return index.NewMemoryFieldIterator(names), nil
+}
+
+// Size returns -1, exactly as SimpleTextFieldsReader.size() does.
+func (r *SimpleTextFieldsReader) Size() int {
+	return -1
+}
+
+// GetMergeInstance returns the receiver: SimpleTextFieldsReader does not
+// override FieldsProducer.getMergeInstance(), whose default returns this.
+func (r *SimpleTextFieldsReader) GetMergeInstance() codecs.FieldsProducer {
+	return r
+}
+
 func (r *SimpleTextFieldsReader) Terms(field string) (index.Terms, error) {
 	r.termsMu.Lock()
 	defer r.termsMu.Unlock()

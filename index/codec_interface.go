@@ -116,10 +116,6 @@ type FieldInfosFormat = spi.FieldInfosFormat
 // SegmentInfoFormat is an alias of spi.SegmentInfoFormat.
 type SegmentInfoFormat = spi.SegmentInfoFormat
 
-// SegmentInfosFormat is an alias of spi.SegmentInfosFormat. The plural
-// segments_N format was lifted onto the SPI by rmp #4706.
-type SegmentInfosFormat = spi.SegmentInfosFormat
-
 // TermVectorsFormat is an alias of spi.TermVectorsFormat.
 type TermVectorsFormat = spi.TermVectorsFormat
 

@@ -608,10 +608,16 @@ func TestCompressingStoredFieldsFormat_ChunkCleanup(t *testing.T) {
 		})
 	}
 
-	// Verify CompressingTermVectorsFormat uses the same chunk config pattern
-	tvFormat := codecs.NewCompressingTermVectorsFormat(codecs.CompressionModeLZ4High, 4096, 16)
+	// Verify Lucene90CompressingTermVectorsFormat accepts the same chunk config pattern
+	tvFormat := codecs.NewLucene90CompressingTermVectorsFormat(codecs.Lucene90CompressingTermVectorsFormatOptions{
+		FormatName:      "CompressingTermVectors",
+		CompressionMode: codecs.CompressionModeLZ4High,
+		ChunkSize:       4096,
+		MaxDocsPerChunk: 16,
+		BlockSize:       10,
+	})
 	if tvFormat == nil {
-		t.Fatal("NewCompressingTermVectorsFormat returned nil")
+		t.Fatal("NewLucene90CompressingTermVectorsFormat returned nil")
 	}
 }
 

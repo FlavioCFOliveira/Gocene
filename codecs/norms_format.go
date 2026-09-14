@@ -6,9 +6,7 @@ package codecs
 
 import (
 	"fmt"
-	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -63,119 +61,6 @@ type NormsConsumer = spi.NormsConsumer
 // writer-side cursor the norms flush replays into
 // NormsConsumer.AddNormsField.
 type NormsIterator = spi.NormsIterator
-
-// MemoryNormsProducer is an in-memory implementation of NormsProducer.
-type MemoryNormsProducer struct {
-	fields map[string]NumericDocValues
-	mu     sync.RWMutex
-	closed bool
-}
-
-// NewMemoryNormsProducer creates a new MemoryNormsProducer.
-func NewMemoryNormsProducer() *MemoryNormsProducer {
-	return &MemoryNormsProducer{
-		fields: make(map[string]NumericDocValues),
-	}
-}
-
-// GetNorms returns a NumericDocValues for the given field.
-func (p *MemoryNormsProducer) GetNorms(field *index.FieldInfo) (NumericDocValues, error) {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	if p.closed {
-		return nil, fmt.Errorf("producer is closed")
-	}
-
-	if dv, ok := p.fields[field.Name()]; ok {
-		return dv, nil
-	}
-	return nil, nil
-}
-
-// GetMergeInstance returns the receiver, the NormsProducer default of Apache
-// Lucene 10.5.0 ("The default implementation returns this").
-func (p *MemoryNormsProducer) GetMergeInstance() NormsProducer { return p }
-
-// CheckIntegrity checks the integrity of the norms.
-func (p *MemoryNormsProducer) CheckIntegrity() error {
-	return nil
-}
-
-// Close releases resources.
-func (p *MemoryNormsProducer) Close() error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if p.closed {
-		return nil
-	}
-	p.closed = true
-	p.fields = nil
-	return nil
-}
-
-// SetNormsField sets a norms field for testing.
-func (p *MemoryNormsProducer) SetNormsField(name string, dv NumericDocValues) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.fields[name] = dv
-}
-
-// MemoryNormsConsumer is an in-memory implementation of NormsConsumer.
-type MemoryNormsConsumer struct {
-	fields map[string]map[int]int64
-	mu     sync.Mutex
-	closed bool
-}
-
-// NewMemoryNormsConsumer creates a new MemoryNormsConsumer.
-func NewMemoryNormsConsumer() *MemoryNormsConsumer {
-	return &MemoryNormsConsumer{
-		fields: make(map[string]map[int]int64),
-	}
-}
-
-// AddNormsField writes a norms field.
-func (c *MemoryNormsConsumer) AddNormsField(field *index.FieldInfo, values NormsIterator) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.closed {
-		return fmt.Errorf("consumer is closed")
-	}
-
-	fieldValues := make(map[int]int64)
-	for values.Next() {
-		fieldValues[values.DocID()] = values.LongValue()
-	}
-	c.fields[field.Name()] = fieldValues
-	return nil
-}
-
-// Close releases resources.
-func (c *MemoryNormsConsumer) Close() error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if c.closed {
-		return nil
-	}
-	c.closed = true
-	return nil
-}
-
-// ToProducer creates a MemoryNormsProducer from the consumed data.
-func (c *MemoryNormsConsumer) ToProducer() *MemoryNormsProducer {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	producer := NewMemoryNormsProducer()
-	for name, values := range c.fields {
-		producer.SetNormsField(name, NewMemoryNumericDocValues(values))
-	}
-	return producer
-}
 
 // NormsWriter is a helper for writing norms.
 type NormsWriter struct {

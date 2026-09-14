@@ -2,6 +2,7 @@ package document
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -197,6 +198,25 @@ func (p *CompletionFieldsProducer) Terms(field string) (index.Terms, error) {
 // Mirrors CompletionFieldsProducer.size().
 func (p *CompletionFieldsProducer) Size() int {
 	return len(p.readers)
+}
+
+// Iterator returns the completion field names. Mirrors
+// CompletionFieldsProducer.iterator(), which walks readers.keySet() of a
+// java.util.HashMap; Go maps have no stable order, so the names are returned
+// sorted.
+func (p *CompletionFieldsProducer) Iterator() (index.FieldIterator, error) {
+	names := make([]string, 0, len(p.readers))
+	for name := range p.readers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return index.NewMemoryFieldIterator(names), nil
+}
+
+// CheckIntegrity mirrors CompletionFieldsProducer.checkIntegrity():
+// delegateFieldsProducer.checkIntegrity().
+func (p *CompletionFieldsProducer) CheckIntegrity() error {
+	return p.delegateFieldsProducer.CheckIntegrity()
 }
 
 var _ codecs.FieldsProducer = (*CompletionFieldsProducer)(nil)

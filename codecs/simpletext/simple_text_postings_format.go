@@ -32,9 +32,8 @@ func (f *SimpleTextPostingsFormat) FieldsConsumer(state *index.SegmentWriteState
 }
 
 func (f *SimpleTextPostingsFormat) FieldsProducer(state *index.SegmentReadState) (spi.FieldsProducer, error) {
-	return &simpleTextFieldsProducer{
-		state: state,
-	}, nil
+	// SimpleTextPostingsFormat.fieldsProducer returns new SimpleTextFieldsReader(state).
+	return NewSimpleTextFieldsReader(state)
 }
 
 type simpleTextFieldsConsumer struct {
@@ -55,13 +54,13 @@ func (c *simpleTextFieldsConsumer) Write(field string, terms spi.Terms) error {
 		if term == nil {
 			break
 		}
-		
+
 		postings := it.Postings(nil, 0)
 		docID := postings.NextDoc()
-		
+
 		// Write term and its postings in text
 		Write(out, field+": "+string(term)+" ")
-		
+
 		for docID != spi.PostingsEnumNoMoreDocs {
 			Write(out, strconv.Itoa(docID))
 			Write(out, " ")
@@ -73,19 +72,6 @@ func (c *simpleTextFieldsConsumer) Write(field string, terms spi.Terms) error {
 }
 
 func (c *simpleTextFieldsConsumer) Close() error {
-	return nil
-}
-
-type simpleTextFieldsProducer struct {
-	state *index.SegmentReadState
-}
-
-func (p *simpleTextFieldsProducer) Terms(field string) (spi.Terms, error) {
-	// Simplified reader
-	return nil, fmt.Errorf("SimpleTextFieldsProducer not yet implemented")
-}
-
-func (p *simpleTextFieldsProducer) Close() error {
 	return nil
 }
 

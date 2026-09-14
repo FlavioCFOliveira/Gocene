@@ -309,7 +309,6 @@ func (c *fakeCodecTV) Name() string                           { return "fake-cod
 func (c *fakeCodecTV) PostingsFormat() PostingsFormat         { return nil }
 func (c *fakeCodecTV) StoredFieldsFormat() StoredFieldsFormat { return nil }
 func (c *fakeCodecTV) FieldInfosFormat() FieldInfosFormat     { return nil }
-func (c *fakeCodecTV) SegmentInfosFormat() SegmentInfosFormat { return nil }
 func (c *fakeCodecTV) SegmentInfoFormat() SegmentInfoFormat   { return nil }
 func (c *fakeCodecTV) TermVectorsFormat() TermVectorsFormat   { return c.tv }
 func (c *fakeCodecTV) CompoundFormat() CompoundFormat         { return nil }

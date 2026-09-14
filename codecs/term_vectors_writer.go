@@ -129,7 +129,7 @@ func (h *TermVectorsWriterHelper) Merge(writer spi.TermVectorsWriter, mergeState
 			}
 		}
 
-		if err := h.addAllDocVectors(writer, vectors, mergeState); err != nil {
+		if err := h.AddAllDocVectors(writer, vectors, mergeState); err != nil {
 			return 0, err
 		}
 		docCount++
@@ -142,7 +142,7 @@ func (h *TermVectorsWriterHelper) Merge(writer spi.TermVectorsWriter, mergeState
 	return docCount, nil
 }
 
-func (h *TermVectorsWriterHelper) addAllDocVectors(writer spi.TermVectorsWriter, vectors index.Fields, mergeState *index.MergeState) error {
+func (h *TermVectorsWriterHelper) AddAllDocVectors(writer spi.TermVectorsWriter, vectors index.Fields, mergeState *index.MergeState) error {
 	if vectors == nil {
 		if err := writer.StartDocument(0); err != nil {
 			return err

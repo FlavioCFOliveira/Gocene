@@ -6,26 +6,10 @@ package codecs
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/util"
-)
-
-// Codec envelope constants for Lucene104TermVectorsWriter.
-//
-// NOTE (DEVIATION): Lucene 10.4.0 uses "Lucene90TermVectorsData" with the
-// LZ4-compressed packed-int chunk format. Gocene uses a simpler sequential
-// format under distinct codec names so that these files carry the standard
-// 16-byte CodecUtil footer (enabling CFS packing and footer integrity
-// checks) while clearly advertising the divergence.
-const (
-	lucene104TVDataCodec    = "Gocene104TermVectorsData"
-	lucene104TVDataVersion  = int32(0)
-	lucene104TVIndexCodec   = "Gocene104TermVectorsIndex"
-	lucene104TVIndexVersion = int32(0)
 )
 
 // TermVectorsFormat is an alias of spi.TermVectorsFormat.
@@ -37,698 +21,112 @@ type TermVectorsWriter = spi.TermVectorsWriter
 // TermVectorsReader is an alias of spi.TermVectorsReader.
 type TermVectorsReader = spi.TermVectorsReader
 
-// BaseTermVectorsFormat provides common functionality.
-type BaseTermVectorsFormat struct {
-	name string
-}
+// The term-vectors formats Apache Lucene 10.5.0 ships live in
+// org.apache.lucene.codecs.lucene90 (Lucene90TermVectorsFormat) and
+// org.apache.lucene.codecs.lucene90.compressing
+// (Lucene90CompressingTermVectorsFormat). Their Go ports sit in
+// codecs/lucene90 and codecs/lucene90/compressing, which import this package,
+// so the codecs that name them here (Lucene104Codec, CompressingCodec) reach
+// their constructors through the init()-time registrations below, exactly as
+// the stored-fields formats are reached (see stored_fields_format.go).
 
-// NewBaseTermVectorsFormat creates a new BaseTermVectorsFormat.
-func NewBaseTermVectorsFormat(name string) *BaseTermVectorsFormat {
-	return &BaseTermVectorsFormat{name: name}
-}
-
-// Name returns the format name.
-func (f *BaseTermVectorsFormat) Name() string {
-	return f.name
-}
-
-// lucene90TermVectorsFormatFactory is populated by package codecs via init
-// when the Lucene90TermVectorsFormat is linked.  When non-nil,
-// Lucene104TermVectorsFormat.VectorsReader tries it first so that indexes
-// written with Lucene90TermVectorsFormat (the wire format used by Apache
-// Lucene 10.4.0) can be read back.
+// lucene90TermVectorsFormatFactory is populated by package codecs/lucene90
+// via init.
 var lucene90TermVectorsFormatFactory func() TermVectorsFormat
 
-// RegisterLucene90TermVectorsFormat sets the factory used by
-// Lucene104TermVectorsFormat to attempt Lucene90-format term vectors before
-// falling back to the legacy Gocene104 simple format.
+// RegisterLucene90TermVectorsFormat sets the factory that builds
+// codecs/lucene90.Lucene90TermVectorsFormat.
 func RegisterLucene90TermVectorsFormat(factory func() TermVectorsFormat) {
 	lucene90TermVectorsFormatFactory = factory
 }
 
-// Lucene104TermVectorsFormat is the Lucene 10.4 term vectors format.
-// This is a placeholder implementation.
-type Lucene104TermVectorsFormat struct {
-	*BaseTermVectorsFormat
+// Lucene90CompressingTermVectorsFormatOptions carries the constructor
+// arguments of
+// org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingTermVectorsFormat.
+type Lucene90CompressingTermVectorsFormatOptions struct {
+	FormatName      string
+	SegmentSuffix   string
+	CompressionMode CompressionMode
+	ChunkSize       int
+	MaxDocsPerChunk int
+	BlockSize       int
 }
 
-// NewLucene104TermVectorsFormat creates a new Lucene104TermVectorsFormat.
-func NewLucene104TermVectorsFormat() *Lucene104TermVectorsFormat {
-	return &Lucene104TermVectorsFormat{
-		BaseTermVectorsFormat: NewBaseTermVectorsFormat("Lucene104TermVectorsFormat"),
-	}
+// lucene90CompressingTermVectorsFormatFactory is populated by package
+// codecs/lucene90/compressing via init.
+var lucene90CompressingTermVectorsFormatFactory func(Lucene90CompressingTermVectorsFormatOptions) (TermVectorsFormat, error)
+
+// RegisterLucene90CompressingTermVectorsFormat sets the factory that builds
+// codecs/lucene90/compressing.Lucene90CompressingTermVectorsFormat.
+func RegisterLucene90CompressingTermVectorsFormat(factory func(Lucene90CompressingTermVectorsFormatOptions) (TermVectorsFormat, error)) {
+	lucene90CompressingTermVectorsFormatFactory = factory
 }
 
-// VectorsWriter returns a term vectors writer.
-func (f *Lucene104TermVectorsFormat) VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error) {
-	// Placeholder: Full implementation would write to .tvx, .tvd, .tvm files
-	return NewLucene104TermVectorsWriter(state), nil
+// deferredTermVectorsFormat resolves its registered format on first use, so a
+// codec constructed before the registering package's init() has run still
+// reaches the real format.
+type deferredTermVectorsFormat struct {
+	name    string
+	resolve func() (TermVectorsFormat, error)
 }
 
-// VectorsReader returns a term vectors reader.
-//
-// Apache Lucene's Lucene104Codec.vectorsFormat() returns a
-// Lucene90TermVectorsFormat (Lucene104Codec.java:71) — there is no
-// Lucene104TermVectorsFormat and no Lucene104 term-vectors reader in Lucene
-// 10.5.0 — so the only faithful reader is the Lucene90 one, opened through the
-// registered factory. The invented "Gocene104TermVectorsData" fallback reader
-// that used to sit here read a file format Apache Lucene never writes, and it
-// was reached by discarding the real reader's error.
-func (f *Lucene104TermVectorsFormat) VectorsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos, context store.IOContext) (TermVectorsReader, error) {
-	if lucene90TermVectorsFormatFactory == nil {
-		return nil, fmt.Errorf("codecs: no Lucene90 term-vectors format registered; import codecs/lucene90")
-	}
-	lucene90Format := lucene90TermVectorsFormatFactory()
-	if lucene90Format == nil {
-		return nil, fmt.Errorf("codecs: the registered Lucene90 term-vectors factory produced no format")
-	}
-	return lucene90Format.VectorsReader(dir, segmentInfo, fieldInfos, context)
-}
+func (f *deferredTermVectorsFormat) Name() string { return f.name }
 
-// -----------------------------------------------------------------------------
-// Lucene104TermVectorsWriter — on-disk format (DEVIATION from Lucene 10.4.0)
-//
-// Lucene 10.4.0 uses "Lucene90TermVectorsData" with LZ4-compressed packed-int
-// chunks. Gocene uses a simpler sequential format under the codec name
-// "Gocene104TermVectorsData" so that:
-//   - The standard 16-byte CodecUtil footer is always present (required by
-//     copyFileBody / CFS packing).
-//   - Format divergence is clearly advertised in the on-disk header.
-//
-// File layout (.tvd — data file):
-//   IndexHeader("Gocene104TermVectorsData", 0, segID, "")
-//   VInt(numDocs)
-//   for each doc:
-//     VInt(numFields)
-//     for each field:
-//       String(fieldName)
-//       Byte(flags: bit0=hasPositions, bit1=hasOffsets, bit2=hasPayloads)
-//       VInt(numTerms)
-//       for each term:
-//         VInt(termLen) + bytes(term)
-//         VInt(freq)
-//         for each occurrence (if hasPositions):
-//           VInt(position)
-//           if hasOffsets: VInt(startOffset), VInt(endOffset)
-//           if hasPayloads: VInt(payloadLen) + bytes(payload) [0 len = no payload]
-//   Footer
-//
-// File layout (.tvx — index file):
-//   IndexHeader("Gocene104TermVectorsIndex", 0, segID, "")
-//   VInt(numDocs)   -- mirrors numDocs in data for quick validation
-//   Footer
-// -----------------------------------------------------------------------------
-
-// tvField accumulates term vectors for one field.
-type tvField struct {
-	name         string
-	hasPositions bool
-	hasOffsets   bool
-	hasPayloads  bool
-	terms        []*tvTerm
-}
-
-// tvTerm accumulates positions/offsets/payloads for one term occurrence.
-type tvTerm struct {
-	text      []byte
-	positions []tvPos
-}
-
-// tvPos is one position with optional offset and payload.
-type tvPos struct {
-	position    int
-	startOffset int
-	endOffset   int
-	payload     []byte
-}
-
-// tvDoc is the term-vector accumulator for one document.
-type tvDoc struct {
-	fields []*tvField
-}
-
-// Lucene104TermVectorsWriter writes term vectors to .tvd + .tvx files with
-// standard CodecUtil envelopes.
-type Lucene104TermVectorsWriter struct {
-	state    *SegmentWriteState
-	docs     []*tvDoc
-	curDoc   *tvDoc
-	curField *tvField
-	curTerm  *tvTerm
-	mu       sync.Mutex
-	closed   bool
-}
-
-// NewLucene104TermVectorsWriter creates a new Lucene104TermVectorsWriter.
-func NewLucene104TermVectorsWriter(state *SegmentWriteState) *Lucene104TermVectorsWriter {
-	return &Lucene104TermVectorsWriter{state: state}
-}
-
-// StartDocument starts writing term vectors for a document.
-func (w *Lucene104TermVectorsWriter) StartDocument(numFields int) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return fmt.Errorf("term vectors writer is closed")
-	}
-	w.curDoc = &tvDoc{fields: make([]*tvField, 0, numFields)}
-	return nil
-}
-
-// StartField starts writing a term vector for a field.
-func (w *Lucene104TermVectorsWriter) StartField(fieldInfo *index.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return fmt.Errorf("term vectors writer is closed")
-	}
-	if w.curDoc == nil {
-		return fmt.Errorf("StartField called before StartDocument")
-	}
-	w.curField = &tvField{
-		name:         fieldInfo.Name(),
-		hasPositions: hasPositions,
-		hasOffsets:   hasOffsets,
-		hasPayloads:  hasPayloads,
-		terms:        make([]*tvTerm, 0, numTerms),
-	}
-	return nil
-}
-
-// StartTerm starts a new term in the current field.
-func (w *Lucene104TermVectorsWriter) StartTerm(term []byte) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return fmt.Errorf("term vectors writer is closed")
-	}
-	if w.curField == nil {
-		return fmt.Errorf("StartTerm called before StartField")
-	}
-	cp := make([]byte, len(term))
-	copy(cp, term)
-	w.curTerm = &tvTerm{text: cp}
-	return nil
-}
-
-// AddPosition adds a position for the current term.
-func (w *Lucene104TermVectorsWriter) AddPosition(position int, startOffset, endOffset int, payload []byte) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return fmt.Errorf("term vectors writer is closed")
-	}
-	if w.curTerm == nil {
-		return fmt.Errorf("AddPosition called before StartTerm")
-	}
-	var pl []byte
-	if len(payload) > 0 {
-		pl = make([]byte, len(payload))
-		copy(pl, payload)
-	}
-	w.curTerm.positions = append(w.curTerm.positions, tvPos{
-		position:    position,
-		startOffset: startOffset,
-		endOffset:   endOffset,
-		payload:     pl,
-	})
-	return nil
-}
-
-// FinishTerm finishes the current term.
-func (w *Lucene104TermVectorsWriter) FinishTerm() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return fmt.Errorf("term vectors writer is closed")
-	}
-	if w.curTerm == nil {
-		return nil
-	}
-	w.curField.terms = append(w.curField.terms, w.curTerm)
-	w.curTerm = nil
-	return nil
-}
-
-// FinishField finishes the current field.
-func (w *Lucene104TermVectorsWriter) FinishField() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return fmt.Errorf("term vectors writer is closed")
-	}
-	if w.curField == nil {
-		return nil
-	}
-	w.curDoc.fields = append(w.curDoc.fields, w.curField)
-	w.curField = nil
-	return nil
-}
-
-// FinishDocument finishes the current document.
-func (w *Lucene104TermVectorsWriter) FinishDocument() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return fmt.Errorf("term vectors writer is closed")
-	}
-	if w.curDoc == nil {
-		return nil
-	}
-	w.docs = append(w.docs, w.curDoc)
-	w.curDoc = nil
-	return nil
-}
-
-// Close flushes all accumulated documents to .tvd + .tvx and closes.
-func (w *Lucene104TermVectorsWriter) Close() error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return nil
-	}
-	w.closed = true
-	if err := w.writeTVD(); err != nil {
-		return fmt.Errorf("term vectors: write .tvd: %w", err)
-	}
-	if err := w.writeTVX(); err != nil {
-		return fmt.Errorf("term vectors: write .tvx: %w", err)
-	}
-	return nil
-}
-
-// SetSegmentWriteState rebinds the writer to the final segment write state.
-//
-// Gocene's DocumentsWriter reserves a segment name when a DWPT is obtained from
-// the pool, so the term-vectors writer can be opened lazily during indexing with
-// the correct name.  However, IndexWriter.Commit creates a fresh SegmentInfo
-// (with a new segment ID) for the committed segment and passes it to the DWPT
-// flush methods.  Rebinding the writer to that state before Close ensures the
-// .tvd/.tvx headers carry the same segment ID that the .si file advertises.
-func (w *Lucene104TermVectorsWriter) SetSegmentWriteState(state *SegmentWriteState) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if w.closed {
-		return fmt.Errorf("term vectors writer is closed")
-	}
-	if state == nil || state.SegmentInfo == nil {
-		return fmt.Errorf("SetSegmentWriteState requires a non-nil SegmentWriteState with SegmentInfo")
-	}
-	w.state = state
-	return nil
-}
-
-// writeTVD writes the term vectors data file.
-func (w *Lucene104TermVectorsWriter) writeTVD() error {
-	si := w.state.SegmentInfo
-	fileName := si.Name() + ".tvd"
-	raw, err := w.state.Directory.CreateOutput(fileName, store.IOContext{Context: store.ContextWrite})
+func (f *deferredTermVectorsFormat) delegate() (TermVectorsFormat, error) {
+	tv, err := f.resolve()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	out := store.NewChecksumIndexOutput(raw)
-	defer out.Close()
-
-	if err := WriteIndexHeader(out, lucene104TVDataCodec, lucene104TVDataVersion, si.GetID(), ""); err != nil {
-		return fmt.Errorf("write .tvd header: %w", err)
+	if tv == nil {
+		return nil, fmt.Errorf("codecs: the registered factory produced no term-vectors format for %q", f.name)
 	}
-
-	if err := out.WriteVInt(int32(len(w.docs))); err != nil {
-		return err
-	}
-	for _, doc := range w.docs {
-		if err := out.WriteVInt(int32(len(doc.fields))); err != nil {
-			return err
-		}
-		for _, f := range doc.fields {
-			if err := store.WriteString(out, f.name); err != nil {
-				return err
-			}
-			flags := byte(0)
-			if f.hasPositions {
-				flags |= 0x01
-			}
-			if f.hasOffsets {
-				flags |= 0x02
-			}
-			if f.hasPayloads {
-				flags |= 0x04
-			}
-			if err := out.WriteByte(flags); err != nil {
-				return err
-			}
-			if err := out.WriteVInt(int32(len(f.terms))); err != nil {
-				return err
-			}
-			for _, t := range f.terms {
-				if err := out.WriteVInt(int32(len(t.text))); err != nil {
-					return err
-				}
-				if err := out.WriteBytes(t.text, 0, len(t.text)); err != nil {
-					return err
-				}
-				freq := int32(len(t.positions))
-				if err := out.WriteVInt(freq); err != nil {
-					return err
-				}
-				for _, p := range t.positions {
-					if f.hasPositions {
-						if err := out.WriteVInt(int32(p.position)); err != nil {
-							return err
-						}
-					}
-					if f.hasOffsets {
-						if err := out.WriteVInt(int32(p.startOffset)); err != nil {
-							return err
-						}
-						if err := out.WriteVInt(int32(p.endOffset)); err != nil {
-							return err
-						}
-					}
-					if f.hasPayloads {
-						if err := out.WriteVInt(int32(len(p.payload))); err != nil {
-							return err
-						}
-						if len(p.payload) > 0 {
-							if err := out.WriteBytes(p.payload, 0, len(p.payload)); err != nil {
-								return err
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return WriteFooter(out)
+	return tv, nil
 }
 
-// writeTVX writes the term vectors index file.
-func (w *Lucene104TermVectorsWriter) writeTVX() error {
-	si := w.state.SegmentInfo
-	fileName := si.Name() + ".tvx"
-	raw, err := w.state.Directory.CreateOutput(fileName, store.IOContext{Context: store.ContextWrite})
+func (f *deferredTermVectorsFormat) VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error) {
+	tv, err := f.delegate()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	out := store.NewChecksumIndexOutput(raw)
-	defer out.Close()
+	return tv.VectorsWriter(state)
+}
 
-	if err := WriteIndexHeader(out, lucene104TVIndexCodec, lucene104TVIndexVersion, si.GetID(), ""); err != nil {
-		return fmt.Errorf("write .tvx header: %w", err)
+func (f *deferredTermVectorsFormat) VectorsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos, context store.IOContext) (TermVectorsReader, error) {
+	tv, err := f.delegate()
+	if err != nil {
+		return nil, err
 	}
-	if err := out.WriteVInt(int32(len(w.docs))); err != nil {
-		return err
-	}
-	return WriteFooter(out)
+	return tv.VectorsReader(dir, segmentInfo, fieldInfos, context)
 }
 
-// -----------------------------------------------------------------------------
-// Lucene104TermVectorsReader — reads .tvd written by Lucene104TermVectorsWriter.
-// -----------------------------------------------------------------------------
+var _ TermVectorsFormat = (*deferredTermVectorsFormat)(nil)
 
-// tv104Doc holds deserialized term vectors for one document.
-type tv104Doc struct {
-	fields map[string]*tv104Field
-}
-
-// tv104Field holds deserialized term vectors for one field.
-type tv104Field struct {
-	name         string
-	hasPositions bool
-	hasOffsets   bool
-	hasPayloads  bool
-	terms        []*tv104Term
-}
-
-// tv104Term holds one term's data.
-type tv104Term struct {
-	text      []byte
-	positions []tv104Pos
-}
-
-// tv104Pos holds one position entry.
-type tv104Pos struct {
-	position    int
-	startOffset int
-	endOffset   int
-	payload     []byte
-}
-
-// -----------------------------------------------------------------------------
-// index.Fields / index.Terms / index.TermsEnum / index.PostingsEnum adapters
-// for the Lucene104TermVectorsReader deserialized data.
-// -----------------------------------------------------------------------------
-
-type tv104Fields struct {
-	fields map[string]*tv104Field
-	names  []string
-}
-
-func newTV104Fields(fields map[string]*tv104Field) *tv104Fields {
-	names := make([]string, 0, len(fields))
-	for n := range fields {
-		names = append(names, n)
-	}
-	return &tv104Fields{fields: fields, names: names}
-}
-
-func (f *tv104Fields) Iterator() (index.FieldIterator, error) {
-	return &tv104FieldIterator{names: f.names, pos: -1}, nil
-}
-
-func (f *tv104Fields) Terms(name string) (index.Terms, error) {
-	fv, ok := f.fields[name]
-	if !ok {
-		return nil, nil
-	}
-	return newTV104Terms(fv), nil
-}
-
-func (f *tv104Fields) Size() int { return len(f.fields) }
-
-type tv104FieldIterator struct {
-	names []string
-	pos   int
-}
-
-func (it *tv104FieldIterator) Next() (string, error) {
-	it.pos++
-	if it.pos >= len(it.names) {
-		return "", nil
-	}
-	return it.names[it.pos], nil
-}
-
-func (it *tv104FieldIterator) HasNext() bool { return it.pos+1 < len(it.names) }
-
-type tv104Terms struct {
-	f *tv104Field
-}
-
-func newTV104Terms(f *tv104Field) *tv104Terms { return &tv104Terms{f: f} }
-
-func (t *tv104Terms) Iterator() (index.TermsEnum, error) {
-	return &tv104TermsEnum{terms: t.f.terms, pos: -1, field: t.f.name, f: t.f}, nil
-}
-
-func (t *tv104Terms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
-	return t.Iterator()
-}
-
-func (t *tv104Terms) Size() int64               { return int64(len(t.f.terms)) }
-func (t *tv104Terms) GetDocCount() (int, error) { return 1, nil }
-func (t *tv104Terms) GetSumDocFreq() (int64, error) {
-	return int64(len(t.f.terms)), nil
-}
-
-func (t *tv104Terms) GetSumTotalTermFreq() (int64, error) {
-	var total int64
-	for _, term := range t.f.terms {
-		total += int64(len(term.positions))
-	}
-	return total, nil
-}
-
-func (t *tv104Terms) HasFreqs() bool     { return true }
-func (t *tv104Terms) HasOffsets() bool   { return t.f.hasOffsets }
-func (t *tv104Terms) HasPositions() bool { return t.f.hasPositions }
-func (t *tv104Terms) HasPayloads() bool  { return t.f.hasPayloads }
-
-func (t *tv104Terms) GetMin() (*index.Term, error) {
-	if len(t.f.terms) == 0 {
-		return nil, nil
-	}
-	return index.NewTermFromBytes(t.f.name, t.f.terms[0].text), nil
-}
-
-func (t *tv104Terms) GetMax() (*index.Term, error) {
-	if len(t.f.terms) == 0 {
-		return nil, nil
-	}
-	return index.NewTermFromBytes(t.f.name, t.f.terms[len(t.f.terms)-1].text), nil
-}
-
-func (t *tv104Terms) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {
-	for _, term := range t.f.terms {
-		if string(term.text) == termText {
-			return &tv104PostingsEnum{term: term, f: t.f}, nil
-		}
-	}
-	return nil, nil
-}
-
-type tv104TermsEnum struct {
-	terms []*tv104Term
-	pos   int
-	field string
-	f     *tv104Field
-}
-
-func (e *tv104TermsEnum) Next() (*index.Term, error) {
-	e.pos++
-	if e.pos >= len(e.terms) {
-		return nil, nil
-	}
-	return index.NewTermFromBytes(e.field, e.terms[e.pos].text), nil
-}
-
-func (e *tv104TermsEnum) DocFreq() (int, error) {
-	if e.pos < 0 || e.pos >= len(e.terms) {
-		return 0, fmt.Errorf("iterator not positioned")
-	}
-	return 1, nil
-}
-
-func (e *tv104TermsEnum) TotalTermFreq() (int64, error) {
-	if e.pos < 0 || e.pos >= len(e.terms) {
-		return 0, fmt.Errorf("iterator not positioned")
-	}
-	return int64(len(e.terms[e.pos].positions)), nil
-}
-
-func (e *tv104TermsEnum) Postings(flags int) (index.PostingsEnum, error) {
-	if e.pos < 0 || e.pos >= len(e.terms) {
-		return nil, fmt.Errorf("iterator not positioned")
-	}
-	return &tv104PostingsEnum{term: e.terms[e.pos], f: e.f}, nil
-}
-
-func (e *tv104TermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (index.PostingsEnum, error) {
-	return e.Postings(flags)
-}
-
-func (e *tv104TermsEnum) SeekCeil(text *index.Term) (*index.Term, error) {
-	textStr := text.Bytes.String()
-	for i, t := range e.terms {
-		if string(t.text) >= textStr {
-			e.pos = i
-			return index.NewTermFromBytes(e.field, t.text), nil
-		}
-	}
-	return nil, nil
-}
-
-func (e *tv104TermsEnum) SeekExact(text *index.Term) (bool, error) {
-	textStr := text.Bytes.String()
-	for i, t := range e.terms {
-		if string(t.text) == textStr {
-			e.pos = i
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-func (e *tv104TermsEnum) Term() *index.Term {
-	if e.pos < 0 || e.pos >= len(e.terms) {
-		return nil
-	}
-	return index.NewTermFromBytes(e.field, e.terms[e.pos].text)
-}
-
-type tv104PostingsEnum struct {
-	term   *tv104Term
-	f      *tv104Field
-	posIdx int
-	docPos int // 0 = not started, 1 = at doc 0, 2 = exhausted
-}
-
-func (p *tv104PostingsEnum) NextDoc() (int, error) {
-	if p.docPos == 0 {
-		p.docPos = 1
-		return 0, nil
-	}
-	return index.NO_MORE_DOCS, nil
-}
-
-func (p *tv104PostingsEnum) Advance(target int) (int, error) {
-	if target <= 0 && p.docPos == 0 {
-		p.docPos = 1
-		return 0, nil
-	}
-	return index.NO_MORE_DOCS, nil
-}
-
-func (p *tv104PostingsEnum) DocID() int {
-	switch p.docPos {
-	case 0:
-		return -1
-	case 1:
-		return 0
-	default:
-		return index.NO_MORE_DOCS
+// NewLucene90TermVectorsFormat returns codecs/lucene90.Lucene90TermVectorsFormat,
+// the format Lucene104Codec.termVectorsFormat() returns
+// (new Lucene90TermVectorsFormat()).
+func NewLucene90TermVectorsFormat() TermVectorsFormat {
+	return &deferredTermVectorsFormat{
+		name: "Lucene90TermVectorsFormat",
+		resolve: func() (TermVectorsFormat, error) {
+			if lucene90TermVectorsFormatFactory == nil {
+				return nil, fmt.Errorf("codecs: no Lucene90 term-vectors format registered; import codecs/lucene90")
+			}
+			return lucene90TermVectorsFormatFactory(), nil
+		},
 	}
 }
 
-func (p *tv104PostingsEnum) Freq() (int, error) { return len(p.term.positions), nil }
-
-func (p *tv104PostingsEnum) NextPosition() (int, error) {
-	if !p.f.hasPositions {
-		return -1, fmt.Errorf("positions not available")
+// NewLucene90CompressingTermVectorsFormat returns
+// codecs/lucene90/compressing.Lucene90CompressingTermVectorsFormat built from
+// opts.
+func NewLucene90CompressingTermVectorsFormat(opts Lucene90CompressingTermVectorsFormatOptions) TermVectorsFormat {
+	return &deferredTermVectorsFormat{
+		name: opts.FormatName,
+		resolve: func() (TermVectorsFormat, error) {
+			if lucene90CompressingTermVectorsFormatFactory == nil {
+				return nil, fmt.Errorf("codecs: no Lucene90CompressingTermVectorsFormat factory registered; import codecs/lucene90/compressing")
+			}
+			return lucene90CompressingTermVectorsFormatFactory(opts)
+		},
 	}
-	if p.posIdx >= len(p.term.positions) {
-		return -1, nil
-	}
-	pos := p.term.positions[p.posIdx]
-	p.posIdx++
-	return pos.position, nil
-}
-
-func (p *tv104PostingsEnum) StartOffset() (int, error) {
-	if !p.f.hasOffsets || p.posIdx == 0 {
-		return -1, nil
-	}
-	return p.term.positions[p.posIdx-1].startOffset, nil
-}
-
-func (p *tv104PostingsEnum) EndOffset() (int, error) {
-	if !p.f.hasOffsets || p.posIdx == 0 {
-		return -1, nil
-	}
-	return p.term.positions[p.posIdx-1].endOffset, nil
-}
-
-func (p *tv104PostingsEnum) Payload() ([]byte, error) {
-	if !p.f.hasPayloads || p.posIdx == 0 {
-		return nil, nil
-	}
-	return p.term.positions[p.posIdx-1].payload, nil
-}
-
-func (p *tv104PostingsEnum) GetPayload() ([]byte, error) { return p.Payload() }
-func (p *tv104PostingsEnum) Cost() int64                 { return int64(len(p.term.positions)) }
-
-// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
-// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
-// does not override.
-func (p *tv104PostingsEnum) DocIDRunEnd() (int, error) {
-	return util.DefaultDocIDRunEnd(p)
-}
-
-// IntoBitSet carries the default body of
-// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
-// which the Java counterpart of this type does not override.
-func (p *tv104PostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
-	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
 }

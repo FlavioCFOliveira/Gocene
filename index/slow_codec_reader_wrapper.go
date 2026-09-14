@@ -198,6 +198,24 @@ func (p *slowFieldsProducer) Terms(field string) (Terms, error) {
 	return p.delegate.Terms(field)
 }
 
+// Iterator returns the indexed field names. Mirrors the iterator() of the
+// anonymous FieldsProducer built by SlowCodecReaderWrapper.readerToFieldsProducer.
+func (p *slowFieldsProducer) Iterator() (FieldIterator, error) {
+	return NewMemoryFieldIterator(p.fields), nil
+}
+
+// Size returns the number of indexed fields. Mirrors the size() of the
+// anonymous FieldsProducer built by SlowCodecReaderWrapper.readerToFieldsProducer.
+func (p *slowFieldsProducer) Size() int {
+	return len(p.fields)
+}
+
+// GetMergeInstance returns the receiver: the anonymous FieldsProducer does not
+// override FieldsProducer.getMergeInstance(), whose default returns this.
+func (p *slowFieldsProducer) GetMergeInstance() FieldsProducer {
+	return p
+}
+
 func (p *slowFieldsProducer) Close() error { return nil }
 
 func (p *slowFieldsProducer) CheckIntegrity() error { return nil }

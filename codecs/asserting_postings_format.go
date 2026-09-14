@@ -60,6 +60,18 @@ type AssertingFieldsProducer struct {
 	in FieldsProducer
 }
 
+func (p *AssertingFieldsProducer) Iterator() (index.FieldIterator, error) {
+	iterator, err := p.in.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	// assert iterator != null;
+	if iterator == nil {
+		panic("AssertingFieldsProducer: in.iterator() returned null")
+	}
+	return iterator, nil
+}
+
 func (p *AssertingFieldsProducer) Terms(field string) (index.Terms, error) {
 	terms, err := p.in.Terms(field)
 	if err != nil {
@@ -87,12 +99,9 @@ func (p *AssertingFieldsProducer) CheckIntegrity() error {
 	return p.in.CheckIntegrity()
 }
 
-func (p *AssertingFieldsProducer) GetMergeInstance() (FieldsProducer, error) {
-	in, err := p.in.GetMergeInstance()
-	if err != nil {
-		return nil, err
-	}
-	return &AssertingFieldsProducer{in: in}, nil
+func (p *AssertingFieldsProducer) GetMergeInstance() FieldsProducer {
+	// new AssertingFieldsProducer(in.getMergeInstance())
+	return &AssertingFieldsProducer{in: p.in.GetMergeInstance()}
 }
 
 func (p *AssertingFieldsProducer) String() string {

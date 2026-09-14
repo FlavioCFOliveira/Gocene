@@ -416,6 +416,20 @@ func (r *Lucene103BlockTreeTermsReader) Size() int {
 	return len(r.fieldMap)
 }
 
+// Iterator returns the names of the fields of this segment, in the order of
+// fieldList. Mirrors Lucene103BlockTreeTermsReader.iterator().
+func (r *Lucene103BlockTreeTermsReader) Iterator() (index.FieldIterator, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return index.NewMemoryFieldIterator(r.fieldList), nil
+}
+
+// GetMergeInstance returns the receiver: Lucene103BlockTreeTermsReader does not
+// override FieldsProducer.getMergeInstance(), whose default returns this.
+func (r *Lucene103BlockTreeTermsReader) GetMergeInstance() FieldsProducer {
+	return r
+}
+
 // FieldNames returns the indexed field names in ascending order.
 func (r *Lucene103BlockTreeTermsReader) FieldNames() []string {
 	r.mu.RLock()

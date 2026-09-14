@@ -260,6 +260,23 @@ func NewVersionBlockTreeTermsReader(
 // field has no terms in this segment.
 //
 // Mirrors VersionBlockTreeTermsReader.terms(String).
+// Iterator returns the field names in sorted order. Mirrors
+// VersionBlockTreeTermsReader.iterator(), which walks the key set of a TreeMap.
+func (r *VersionBlockTreeTermsReader) Iterator() (spi.FieldIterator, error) {
+	return spi.NewMemoryFieldIterator(r.fieldOrder), nil
+}
+
+// Size returns the number of fields. Mirrors VersionBlockTreeTermsReader.size().
+func (r *VersionBlockTreeTermsReader) Size() int {
+	return len(r.Fields)
+}
+
+// GetMergeInstance returns the receiver: VersionBlockTreeTermsReader does not
+// override FieldsProducer.getMergeInstance(), whose default returns this.
+func (r *VersionBlockTreeTermsReader) GetMergeInstance() spi.FieldsProducer {
+	return r
+}
+
 func (r *VersionBlockTreeTermsReader) Terms(field string) (spi.Terms, error) {
 	fr, ok := r.Fields[field]
 	if !ok {

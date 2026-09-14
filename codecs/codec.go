@@ -14,7 +14,7 @@ import (
 // Codec is an alias of [spi.Codec]. After rmp #4708 lifted the
 // DocValuesFormat family onto the SPI, every per-component format
 // accessor — PostingsFormat, StoredFieldsFormat, FieldInfosFormat,
-// SegmentInfoFormat, SegmentInfosFormat, TermVectorsFormat,
+// SegmentInfoFormat, TermVectorsFormat,
 // CompoundFormat, KnnVectorsFormat, DocValuesFormat — lives on the
 // canonical SPI surface, and the codecs-package Codec collapsed to
 // this pure alias.
@@ -47,11 +47,6 @@ func (c *BaseCodec) StoredFieldsFormat() StoredFieldsFormat {
 
 // FieldInfosFormat returns the field infos format.
 func (c *BaseCodec) FieldInfosFormat() FieldInfosFormat {
-	return nil
-}
-
-// SegmentInfosFormat returns the segment infos format.
-func (c *BaseCodec) SegmentInfosFormat() SegmentInfosFormat {
 	return nil
 }
 

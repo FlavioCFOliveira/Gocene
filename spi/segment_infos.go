@@ -61,6 +61,11 @@ type SegmentInfos struct {
 	// of the last Commit.  Not serialised; used by AddIndexes validation.
 	inMemoryIndexSort *Sort
 
+	// pendingCommit is true while a pending_segments_N file written by
+	// PrepareCommit has not yet been renamed by FinishCommit. Mirrors the
+	// private boolean pendingCommit field of Lucene's SegmentInfos.
+	pendingCommit bool
+
 	// mu protects mutable fields
 	mu sync.RWMutex
 }
@@ -444,6 +449,9 @@ func (si *SegmentInfos) Clone() *SegmentInfos {
 		// still see the index sort / parent field used for validation.
 		inMemoryParentField: si.inMemoryParentField,
 		inMemoryIndexSort:   si.inMemoryIndexSort,
+		// SegmentInfos.clone() starts from super.clone(), which copies the
+		// pendingCommit flag with every other primitive field.
+		pendingCommit: si.pendingCommit,
 	}
 
 	// Deep-clone each SegmentCommitInfo so mutations through the clone (e.g.
@@ -1149,16 +1157,24 @@ func decodeFieldInfosFromUserData(encoded string) (*FieldInfos, error) {
 // map under "_gocene_*" keys so that the file remains byte-format compatible
 // with the Lucene 10.4.0 reader.
 func WriteSegmentInfos(si *SegmentInfos, directory Directory) error {
-	si.mu.RLock()
-	defer si.mu.RUnlock()
-
-	fileName := GetSegmentFileName(si.generation)
+	fileName := GetSegmentFileName(si.Generation())
 	rawOut, err := directory.CreateOutput(fileName, IOContextWrite)
 	if err != nil {
 		return err
 	}
 	out := NewChecksumIndexOutput(rawOut)
 	defer out.Close()
+	return si.Write(out)
+}
+
+// Write writes this SegmentInfos, framed by the CodecUtil index header and
+// footer, to out. Mirrors SegmentInfos.write(IndexOutput) of Apache Lucene
+// 10.5.0; the parameter is the checksumming output because a Java IndexOutput
+// carries its own running checksum for CodecUtil.writeFooter, which the Go
+// WriteFooter reads from *ChecksumIndexOutput.
+func (si *SegmentInfos) Write(out *ChecksumIndexOutput) error {
+	si.mu.RLock()
+	defer si.mu.RUnlock()
 
 	// Random 16-byte ID for the index header.
 	id := make([]byte, 16)
@@ -1714,28 +1730,128 @@ func ReadCommit(dir Directory, fileName string) (*SegmentInfos, error) {
 	return ReadSegmentInfosFromHandle(rawIn, dir, gen)
 }
 
-// FinishCommit serialises the current SegmentInfos to a segments_N file in dir.
-// This follows the "write-then-rename" pattern to ensure atomicity.
-func (s *SegmentInfos) FinishCommit(dir Directory, codec Codec) (string, error) {
-	if codec == nil {
-		return "", fmt.Errorf("codec must not be null for FinishCommit")
+// pendingSegmentsFileName renders
+// IndexFileNames.fileNameFromGeneration(IndexFileNames.PENDING_SEGMENTS, "", gen)
+// for the generations SegmentInfos writes (always >= 1).
+func pendingSegmentsFileName(generation int64) string {
+	return "pending_segments_" + strconv.FormatInt(generation, 36)
+}
+
+// getNextPendingGeneration returns the generation of the next
+// pending_segments_N file. Mirrors the private
+// SegmentInfos.getNextPendingGeneration() of Apache Lucene 10.5.0.
+//
+// The caller must hold si.mu.
+func (si *SegmentInfos) getNextPendingGeneration() int64 {
+	if si.generation == -1 {
+		return 1
+	}
+	return si.generation + 1
+}
+
+// write writes this SegmentInfos to a new pending_segments_N file in
+// directory, always advancing the generation. Mirrors the private
+// SegmentInfos.write(Directory) of Apache Lucene 10.5.0.
+func (si *SegmentInfos) write(directory Directory) error {
+	si.mu.Lock()
+	nextGeneration := si.getNextPendingGeneration()
+	segmentFileName := pendingSegmentsFileName(nextGeneration)
+	// Always advance the generation on write:
+	si.generation = nextGeneration
+	si.mu.Unlock()
+
+	// On failure Lucene closes the output while handling the exception and
+	// deletes the file ignoring exceptions (IOUtils.closeWhileHandlingException,
+	// IOUtils.deleteFilesIgnoringExceptions), so that no truncated segments
+	// file is left in the index; both secondary failures are suppressed so the
+	// original error reaches the caller.
+	rawOut, err := directory.CreateOutput(segmentFileName, IOContextDefault)
+	if err != nil {
+		_ = directory.DeleteFile(segmentFileName) // deleteFilesIgnoringExceptions
+		return err
+	}
+	out := NewChecksumIndexOutput(rawOut)
+	if err := si.Write(out); err != nil {
+		_ = out.Close()                           // closeWhileHandlingException
+		_ = directory.DeleteFile(segmentFileName) // deleteFilesIgnoringExceptions
+		return err
+	}
+	if err := out.Close(); err != nil {
+		_ = directory.DeleteFile(segmentFileName) // deleteFilesIgnoringExceptions
+		return err
+	}
+	// directory.sync(Collections.singleton(segmentFileName)). spi.Directory
+	// does not declare Sync; directories that implement it are synced.
+	if syncer, ok := directory.(interface{ Sync(names []string) error }); ok {
+		if err := syncer.Sync([]string{segmentFileName}); err != nil {
+			_ = directory.DeleteFile(segmentFileName) // deleteFilesIgnoringExceptions
+			return err
+		}
 	}
 
-	format := codec.SegmentInfosFormat()
-	if format == nil {
-		return "", fmt.Errorf("codec does not provide a SegmentInfosFormat")
+	si.mu.Lock()
+	si.pendingCommit = true
+	si.mu.Unlock()
+	return nil
+}
+
+// PrepareCommit is the first phase of a two-phase commit: it writes a
+// pending_segments_N file. FinishCommit completes the commit and
+// RollbackCommit abandons it. Mirrors the package-private
+// SegmentInfos.prepareCommit(Directory) of Apache Lucene 10.5.0.
+func (si *SegmentInfos) PrepareCommit(dir Directory) error {
+	si.mu.RLock()
+	pending := si.pendingCommit
+	si.mu.RUnlock()
+	if pending {
+		return fmt.Errorf("prepareCommit was already called")
+	}
+	// dir.syncMetaData(). spi.Directory does not declare SyncMetaData;
+	// directories that implement it are synced.
+	if syncer, ok := dir.(interface{ SyncMetaData() error }); ok {
+		if err := syncer.SyncMetaData(); err != nil {
+			return err
+		}
+	}
+	return si.write(dir)
+}
+
+// FinishCommit is the second phase of a two-phase commit: it renames the
+// pending_segments_N file written by PrepareCommit to segments_N and returns
+// the name of the new segments file. Mirrors the package-private
+// SegmentInfos.finishCommit(Directory) of Apache Lucene 10.5.0.
+func (si *SegmentInfos) FinishCommit(dir Directory) (string, error) {
+	si.mu.RLock()
+	pending := si.pendingCommit
+	generation := si.generation
+	si.mu.RUnlock()
+	if !pending {
+		return "", fmt.Errorf("prepareCommit was not called")
 	}
 
-	// 1. Determine the filename (e.g., segments_123)
-	fileName := fmt.Sprintf("segments_%d", s.generation)
-
-	// 2. Write to a temporary file (e.g., segments_123.tmp)
-	// The format.Write implementation is responsible for the atomic write-then-rename.
-	if err := format.Write(dir, s, IOContextWrite); err != nil {
+	src := pendingSegmentsFileName(generation)
+	dest := GetSegmentFileName(generation)
+	if err := dir.Rename(src, dest); err != nil {
+		// deletes pending_segments_N:
+		_ = si.RollbackCommit(dir) // RollbackCommit suppresses its own failures
 		return "", err
 	}
+	if syncer, ok := dir.(interface{ SyncMetaData() error }); ok {
+		if err := syncer.SyncMetaData(); err != nil {
+			// at this point we already created the file but missed to sync
+			// directory; remove the renamed file, ignoring exceptions:
+			_ = dir.DeleteFile(dest) // deleteFilesIgnoringExceptions
+			// deletes pending_segments_N:
+			_ = si.RollbackCommit(dir) // RollbackCommit suppresses its own failures
+			return "", err
+		}
+	}
 
-	return fileName, nil
+	si.mu.Lock()
+	si.pendingCommit = false
+	si.lastGeneration = si.generation
+	si.mu.Unlock()
+	return dest, nil
 }
 
 // readSegmentCommitInfoLucene104 reads a single per-segment entry from a

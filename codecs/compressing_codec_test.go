@@ -116,9 +116,10 @@ func TestCompressingCodec_TermVectorsFormat(t *testing.T) {
 		t.Fatal("TermVectorsFormat returned nil")
 	}
 
-	// Check that it's a CompressingTermVectorsFormat
-	if _, ok := format.(*CompressingTermVectorsFormat); !ok {
-		t.Errorf("expected *CompressingTermVectorsFormat, got %T", format)
+	// CompressingCodec passes its own name as the term-vectors format name
+	// (new Lucene90CompressingTermVectorsFormat(name, ...)).
+	if format.Name() != compressingCodecName {
+		t.Errorf("TermVectorsFormat().Name() = %q, want %q", format.Name(), compressingCodecName)
 	}
 }
 
@@ -129,16 +130,6 @@ func TestCompressingCodec_FieldInfosFormat(t *testing.T) {
 	format := codec.FieldInfosFormat()
 	if format == nil {
 		t.Fatal("FieldInfosFormat returned nil")
-	}
-}
-
-// TestCompressingCodec_SegmentInfosFormat tests segment infos format
-func TestCompressingCodec_SegmentInfosFormat(t *testing.T) {
-	codec := DefaultCompressingCodec()
-
-	format := codec.SegmentInfosFormat()
-	if format == nil {
-		t.Fatal("SegmentInfosFormat returned nil")
 	}
 }
 
@@ -290,9 +281,6 @@ func TestCompressingCodec_AllCompressionModes(t *testing.T) {
 			}
 			if codec.FieldInfosFormat() == nil {
 				t.Error("FieldInfosFormat is nil")
-			}
-			if codec.SegmentInfosFormat() == nil {
-				t.Error("SegmentInfosFormat is nil")
 			}
 			if codec.PostingsFormat() == nil {
 				t.Error("PostingsFormat is nil")

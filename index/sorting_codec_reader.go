@@ -206,11 +206,22 @@ func (p *sortingFieldsProducer) Terms(field string) (Terms, error) {
 // FieldsProducer extends Fields, which does), so the count is recovered by
 // assertion; -1 is the value Lucene's Fields.size() contract reserves for
 // "unknown".
+// Iterator mirrors the iterator() of the anonymous FieldsProducer returned by
+// SortingCodecReader.getPostingsReader(): postingsReader.iterator().
+func (p *sortingFieldsProducer) Iterator() (FieldIterator, error) {
+	return p.delegate.Iterator()
+}
+
+// Size mirrors the size() of the anonymous FieldsProducer returned by
+// SortingCodecReader.getPostingsReader(): postingsReader.size().
 func (p *sortingFieldsProducer) Size() int {
-	if sized, ok := p.delegate.(interface{ Size() int }); ok {
-		return sized.Size()
-	}
-	return -1
+	return p.delegate.Size()
+}
+
+// GetMergeInstance returns the receiver: the anonymous FieldsProducer does not
+// override FieldsProducer.getMergeInstance(), whose default returns this.
+func (p *sortingFieldsProducer) GetMergeInstance() FieldsProducer {
+	return p
 }
 
 func (s *SortingCodecReader) GetFieldsReader() StoredFieldsReader {

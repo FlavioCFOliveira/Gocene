@@ -917,7 +917,13 @@ func (w *IndexWriter) finishCommit() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	committedSegmentsFileName, err := w.pendingCommit.FinishCommit(w.dir, w.config.GetCodec())
+	// segments_N is written by SegmentInfos itself (SegmentInfos.prepareCommit
+	// writes pending_segments_N, SegmentInfos.finishCommit renames it); Apache
+	// Lucene 10.5.0 has no per-codec segments_N format.
+	if err := w.pendingCommit.PrepareCommit(w.dir); err != nil {
+		return err
+	}
+	committedSegmentsFileName, err := w.pendingCommit.FinishCommit(w.dir)
 	if err != nil {
 		return err
 	}

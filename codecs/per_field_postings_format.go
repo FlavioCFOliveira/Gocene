@@ -6,6 +6,7 @@ package codecs
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -472,4 +473,62 @@ func (p *PerFieldFieldsProducer) CheckIntegrity() error {
 		}
 	}
 	return nil
+}
+
+// Iterator returns the names of the fields that carry postings, in sorted
+// order. Mirrors PerFieldPostingsFormat.FieldsReader.iterator(), which walks
+// the key set of a TreeMap.
+func (p *PerFieldFieldsProducer) Iterator() (index.FieldIterator, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	names := make([]string, 0, len(p.producersByField))
+	for name := range p.producersByField {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return index.NewMemoryFieldIterator(names), nil
+}
+
+// Size returns the number of fields that carry postings. Mirrors
+// PerFieldPostingsFormat.FieldsReader.size().
+func (p *PerFieldFieldsProducer) Size() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.producersByField)
+}
+
+// GetMergeInstance returns a new producer holding the merge instance of every
+// delegate. Mirrors PerFieldPostingsFormat.FieldsReader.getMergeInstance(),
+// which returns new FieldsReader(this).
+func (p *PerFieldFieldsProducer) GetMergeInstance() FieldsProducer {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return newPerFieldFieldsProducerForMerge(p)
+}
+
+// newPerFieldFieldsProducerForMerge is the "clone for merge" constructor
+// FieldsReader(FieldsReader other) of PerFieldPostingsFormat.
+func newPerFieldFieldsProducerForMerge(other *PerFieldFieldsProducer) *PerFieldFieldsProducer {
+	p := &PerFieldFieldsProducer{
+		state:             other.state,
+		producersByField:  make(map[string]FieldsProducer, len(other.producersByField)),
+		producersBySuffix: make(map[string]FieldsProducer, len(other.producersBySuffix)),
+	}
+	oldToNew := make(map[FieldsProducer]FieldsProducer, len(other.producersBySuffix))
+	// First clone all formats
+	for suffix, producer := range other.producersBySuffix {
+		values := producer.GetMergeInstance()
+		p.producersBySuffix[suffix] = values
+		oldToNew[producer] = values
+	}
+	// Then rebuild fields:
+	for field, producer := range other.producersByField {
+		newProducer, ok := oldToNew[producer]
+		// assert producer != null;
+		if !ok {
+			panic(fmt.Sprintf("PerFieldFieldsProducer: no merge instance for the producer of field %q", field))
+		}
+		p.producersByField[field] = newProducer
+	}
+	return p
 }

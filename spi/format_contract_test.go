@@ -41,10 +41,6 @@ func TestSegmentInfoFormat_Name(t *testing.T) {
 	var _ SegmentInfoFormat = nil
 }
 
-func TestSegmentInfosFormat_Name(t *testing.T) {
-	var _ SegmentInfosFormat = nil
-}
-
 func TestFieldInfosFormat_Name(t *testing.T) {
 	var _ FieldInfosFormat = nil
 }

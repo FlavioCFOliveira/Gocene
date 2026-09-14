@@ -38,14 +38,51 @@ type ramPostings struct {
 	mu           sync.RWMutex
 }
 
-func (p *ramPostings) Terms(field string) spi.Terms {
+func (p *ramPostings) Terms(field string) (spi.Terms, error) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	return p.fieldToTerms[field]
+	// fieldToTerms.get(field): null when the field is absent.
+	if terms, ok := p.fieldToTerms[field]; ok {
+		return terms, nil
+	}
+	return nil, nil
+}
+
+// Size mirrors RAMOnlyPostingsFormat.RAMPostings.size().
+func (p *ramPostings) Size() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.fieldToTerms)
+}
+
+// Iterator returns the field names in sorted order. Mirrors
+// RAMOnlyPostingsFormat.RAMPostings.iterator(), which walks the key set of a
+// TreeMap.
+func (p *ramPostings) Iterator() (spi.FieldIterator, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	names := make([]string, 0, len(p.fieldToTerms))
+	for name := range p.fieldToTerms {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return spi.NewMemoryFieldIterator(names), nil
 }
 
 func (p *ramPostings) Close() error {
 	return nil
+}
+
+// CheckIntegrity mirrors RAMOnlyPostingsFormat.RAMPostings.checkIntegrity(),
+// whose body is empty: the postings live in RAM and carry no checksum.
+func (p *ramPostings) CheckIntegrity() error {
+	return nil
+}
+
+// GetMergeInstance returns the receiver: RAMPostings does not override
+// FieldsProducer.getMergeInstance(), whose default returns this.
+func (p *ramPostings) GetMergeInstance() spi.FieldsProducer {
+	return p
 }
 
 type ramField struct {

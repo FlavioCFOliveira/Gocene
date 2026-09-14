@@ -42,16 +42,24 @@ type FieldsConsumer interface {
 // FieldsProducer is the read-side surface a PostingsFormat exposes for
 // iterating over per-field postings.
 //
-// Mirrors org.apache.lucene.codecs.FieldsProducer.
+// Mirrors org.apache.lucene.codecs.FieldsProducer of Apache Lucene 10.5.0,
+// which extends org.apache.lucene.index.Fields (iterator(), terms(String),
+// size()) and implements Closeable.
 type FieldsProducer interface {
-	// Terms returns the Terms enumeration for the given field, or nil
-	// when the field has no postings in this segment.
-	Terms(field string) (Terms, error)
+	// Fields supplies Iterator, Terms and Size.
+	Fields
+
+	// Close releases any resources held by the producer.
+	Close() error
 
 	// CheckIntegrity walks the per-field postings data and validates the
 	// checksum framing.
 	CheckIntegrity() error
 
-	// Close releases any resources held by the producer.
-	Close() error
+	// GetMergeInstance returns an instance optimized for merging. This
+	// instance may only be consumed in the thread that called
+	// GetMergeInstance.
+	//
+	// The default implementation returns the receiver itself.
+	GetMergeInstance() FieldsProducer
 }

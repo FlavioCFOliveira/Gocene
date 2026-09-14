@@ -68,11 +68,6 @@ func (c *FilterCodec) FieldInfosFormat() FieldInfosFormat {
 	return c.delegate.FieldInfosFormat()
 }
 
-// SegmentInfosFormat returns the delegate's segment infos format.
-func (c *FilterCodec) SegmentInfosFormat() SegmentInfosFormat {
-	return c.delegate.SegmentInfosFormat()
-}
-
 // SegmentInfoFormat returns the delegate's singular .si format.
 func (c *FilterCodec) SegmentInfoFormat() SegmentInfoFormat {
 	return c.delegate.SegmentInfoFormat()

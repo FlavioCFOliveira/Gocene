@@ -22,8 +22,7 @@ const (
 //   - Lucene104PostingsFormat for postings (term -> document mappings)
 //   - Lucene104StoredFieldsFormat for stored fields (or CompressingStoredFieldsFormat when Mode is specified)
 //   - Lucene104FieldInfosFormat for field metadata
-//   - Lucene104SegmentInfosFormat for segment metadata
-//   - Lucene104TermVectorsFormat for term vectors
+//   - Lucene90TermVectorsFormat for term vectors
 //   - Lucene90DocValuesFormat for doc values (Lucene 10.x uses the same format as 9.x)
 //   - Lucene99HnswVectorsFormat (via PerFieldKnnVectorsFormat) for KNN vectors
 //
@@ -34,7 +33,6 @@ type Lucene104Codec struct {
 	postingsFormat     PostingsFormat
 	storedFieldsFormat StoredFieldsFormat
 	fieldInfosFormat   FieldInfosFormat
-	segmentInfosFormat SegmentInfosFormat
 	segmentInfoFormat  SegmentInfoFormat
 	termVectorsFormat  TermVectorsFormat
 	docValuesFormat    DocValuesFormat
@@ -58,9 +56,8 @@ func newLucene104CodecDefaults(mode Lucene104CodecMode, sf StoredFieldsFormat) *
 		postingsFormat:     NewPerFieldPostingsFormatWithDefault(NewLucene104PostingsFormat()),
 		storedFieldsFormat: sf,
 		fieldInfosFormat:   NewLucene104FieldInfosFormat(),
-		segmentInfosFormat: NewLucene104SegmentInfosFormat(),
 		segmentInfoFormat:  NewLucene99SegmentInfoFormat(),
-		termVectorsFormat:  NewLucene104TermVectorsFormat(),
+		termVectorsFormat:  NewLucene90TermVectorsFormat(),
 		docValuesFormat:    NewPerFieldDocValuesFormatWithDefault(NewLucene90DocValuesFormat()),
 		compoundFormat:     NewLucene90CompoundFormat(),
 		knnVectorsFormat:   NewPerFieldKnnVectorsFormatWithDefault(defaultKnn),
@@ -128,11 +125,6 @@ func (c *Lucene104Codec) StoredFieldsFormat() StoredFieldsFormat {
 // FieldInfosFormat returns the field infos format.
 func (c *Lucene104Codec) FieldInfosFormat() FieldInfosFormat {
 	return c.fieldInfosFormat
-}
-
-// SegmentInfosFormat returns the segment infos format.
-func (c *Lucene104Codec) SegmentInfosFormat() SegmentInfosFormat {
-	return c.segmentInfosFormat
 }
 
 // TermVectorsFormat returns the term vectors format.

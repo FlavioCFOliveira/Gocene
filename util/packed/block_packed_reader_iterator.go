@@ -24,8 +24,10 @@ type BlockPackedReaderIterator struct {
 	blockSize         int
 	values            []int64
 	blocks            []byte
-	off               int
-	ord               int64
+	// valuesRef mirrors the LongsRef that Java's next(int) returns over values.
+	valuesRef *util.LongsRef
+	off       int
+	ord       int64
 }
 
 // NewBlockPackedReaderIterator returns an iterator over a stream of
@@ -39,6 +41,7 @@ func NewBlockPackedReaderIterator(in store.DataInput, packedIntsVersion, blockSi
 		blockSize:         blockSize,
 		values:            make([]int64, blockSize),
 	}
+	r.valuesRef = &util.LongsRef{Longs: r.values, Offset: 0, Length: 0}
 	r.Reset(in, valueCount)
 	return r, nil
 }
@@ -68,6 +71,34 @@ func (r *BlockPackedReaderIterator) Next() (int64, error) {
 	r.off++
 	r.ord++
 	return v, nil
+}
+
+// NextN reads between 1 and count next values. The returned LongsRef shares
+// the iterator's buffer and MUST NOT be modified. Mirrors
+// BlockPackedReaderIterator.next(int count) of Apache Lucene 10.5.0.
+func (r *BlockPackedReaderIterator) NextN(count int) (*util.LongsRef, error) {
+	// assert count > 0;
+	if r.ord == r.valueCount {
+		return nil, io.EOF
+	}
+	if r.off == r.blockSize {
+		if err := r.refill(); err != nil {
+			return nil, err
+		}
+	}
+
+	if count > r.blockSize-r.off {
+		count = r.blockSize - r.off
+	}
+	if int64(count) > r.valueCount-r.ord {
+		count = int(r.valueCount - r.ord)
+	}
+
+	r.valuesRef.Offset = r.off
+	r.valuesRef.Length = count
+	r.off += count
+	r.ord += int64(count)
+	return r.valuesRef, nil
 }
 
 func (r *BlockPackedReaderIterator) refill() error {

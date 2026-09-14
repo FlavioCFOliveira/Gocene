@@ -39,12 +39,18 @@ func init() {
 			), nil
 		})
 
-	// Lucene90CompressingTermVectorsFormat in the Gocene port is currently a
-	// stub that does not accept tuning options; once it gains the 5-arg
-	// constructor matching the Java reference this hook switches to the
-	// canonical ("TempTermVectors", NO_COMPRESSION, 128 KB, 1, 10) tuple.
-	// In the meantime, leaving DefaultTempTermVectorsFormat unset keeps
-	// SortingTermVectorsConsumer surfacing ErrTempTermVectorsFormatUnset on
-	// the first use rather than producing a silently-wrong segment.
-	_ = NewLucene90CompressingTermVectorsFormat
+	// Arms codecs.NewLucene90CompressingTermVectorsFormat, the spelling of
+	// this package's term-vectors constructor that package codecs needs but
+	// cannot reach directly (this package imports codecs).
+	gcodecs.RegisterLucene90CompressingTermVectorsFormat(
+		func(opts gcodecs.Lucene90CompressingTermVectorsFormatOptions) (gcodecs.TermVectorsFormat, error) {
+			return NewLucene90CompressingTermVectorsFormat(
+				opts.FormatName,
+				opts.SegmentSuffix,
+				opts.CompressionMode,
+				opts.ChunkSize,
+				opts.MaxDocsPerChunk,
+				opts.BlockSize,
+			), nil
+		})
 }
