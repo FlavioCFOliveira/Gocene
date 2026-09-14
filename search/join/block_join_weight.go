@@ -193,27 +193,16 @@ func (w *ToChildBlockJoinWeight) Count(context *index.LeafReaderContext) (int, e
 	return -1, nil
 }
 
-// Matches returns the matches for a specific document.
+// Matches returns the matches for a specific document by delegating to the
+// wrapped parent weight.
+//
+// ToChildBlockJoinWeight declares no matches() of its own in Apache Lucene
+// 10.5.0: it extends FilterWeight and therefore inherits
+// FilterWeight.matches(LeafReaderContext, int), whose body is
+// "return in.matches(context, doc)" over the parent weight it wraps. This port
+// does not embed FilterWeight, so that inherited body is restated here.
 func (w *ToChildBlockJoinWeight) Matches(context *index.LeafReaderContext, doc int) (search.Matches, error) {
-	scorer, err := w.Scorer(context)
-	if err != nil {
-		return nil, err
-	}
-
-	if scorer == nil {
-		return nil, nil
-	}
-
-	actualDoc, err := scorer.Iterator().Advance(doc)
-	if err != nil {
-		return nil, err
-	}
-
-	if actualDoc != doc {
-		return nil, nil
-	}
-
-	return search.NewBaseMatches(w.query, doc), nil
+	return w.parentWeight.Matches(context, doc)
 }
 
 // Ensure ToChildBlockJoinWeight implements Weight
@@ -501,6 +490,11 @@ func (w *ToParentBlockJoinWeight) Count(context *index.LeafReaderContext) (int, 
 }
 
 // Matches returns the matches for a specific document.
+//
+// Mirrors ToParentBlockJoinWeight.matches(LeafReaderContext, int): the default
+// Weight implementation would delegate to the join query's weight, which
+// matches on children, so the parent scorer is advanced here instead and a
+// bare MATCH_WITH_NO_TERMS is reported.
 func (w *ToParentBlockJoinWeight) Matches(context *index.LeafReaderContext, doc int) (search.Matches, error) {
 	scorer, err := w.Scorer(context)
 	if err != nil {
@@ -520,7 +514,7 @@ func (w *ToParentBlockJoinWeight) Matches(context *index.LeafReaderContext, doc 
 		return nil, nil
 	}
 
-	return search.NewBaseMatches(w.query, doc), nil
+	return search.MatchWithNoTerms, nil
 }
 
 // Ensure ToParentBlockJoinWeight implements Weight

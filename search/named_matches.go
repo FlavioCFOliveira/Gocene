@@ -6,6 +6,7 @@ package search
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // NamedMatches wraps a Matches with a name, used to identify which sub-query
@@ -25,29 +26,20 @@ func NewNamedMatches(name string, inner Matches) *NamedMatches {
 // Name returns the assigned name.
 func (n *NamedMatches) Name() string { return n.name }
 
-// GetQuery delegates to the wrapped Matches.
-func (n *NamedMatches) GetQuery() Query {
-	if n.inner == nil {
-		return nil
-	}
-	return n.inner.GetQuery()
+// GetMatches delegates to the wrapped Matches.
+func (n *NamedMatches) GetMatches(field string) (MatchesIterator, error) {
+	return n.inner.GetMatches(field)
 }
 
-// GetDocID delegates to the wrapped Matches.
-func (n *NamedMatches) GetDocID() int {
-	if n.inner == nil {
-		return -1
-	}
-	return n.inner.GetDocID()
-}
-
-// GetSubMatches returns the inner Matches wrapped in a slice so the caller can
-// continue traversing.
+// GetSubMatches returns the wrapped Matches as a one-element collection,
+// mirroring Collections.singleton(in).
 func (n *NamedMatches) GetSubMatches() []Matches {
-	if n.inner == nil {
-		return nil
-	}
 	return []Matches{n.inner}
+}
+
+// Iterator delegates to the wrapped Matches.
+func (n *NamedMatches) Iterator() util.Iterator[string] {
+	return n.inner.Iterator()
 }
 
 // WrapQuery wraps a Query so that any Matches it produces are tagged with the

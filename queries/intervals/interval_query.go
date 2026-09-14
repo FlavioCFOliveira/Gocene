@@ -19,14 +19,6 @@ import (
 // and scores them using an IntervalScoreFunction.
 //
 // Mirrors org.apache.lucene.queries.intervals.IntervalQuery.
-//
-// Deviations from Java:
-//   - The Matches returned by intervalWeight.Matches uses the simplified
-//     Gocene search.Matches interface (GetQuery/GetDocID/GetSubMatches) rather
-//     than Lucene's richer Matches interface with per-field getMatches(String)
-//     and field-iterator support.  The Java reference wraps the
-//     IntervalMatchesIterator in a FilterMatchesIterator that overrides
-//     getQuery(); here we adapt to the Gocene Matches contract instead.
 type IntervalQuery struct {
 	search.BaseQuery
 	field         string
@@ -143,41 +135,45 @@ func (w *intervalWeight) ScorerSupplier(ctx *index.LeafReaderContext) (search.Sc
 	return search.NewDefaultScorerSupplier(scorer), nil
 }
 
-// Matches returns a Matches instance for the given document, exposing the
-// interval positions through the simplified Gocene search.Matches API.
+// Matches returns a Matches instance for the given document.
 //
-// Mirrors IntervalWeight.matches(LeafReaderContext, int) in Java: it calls
-// source.Matches(field, ctx, doc) and, if nil is returned, returns nil to
-// signal "no matches for this document".  When a non-nil iterator is
-// available, wraps it in an intervalMatches so callers can retrieve the
-// query and (if needed) the sub-match positions.
+// Mirrors IntervalWeight.matches(LeafReaderContext, int): it hands
+// MatchesUtils.forField a supplier that calls intervalsSource.matches(field,
+// context, doc) and, when that yields an iterator, wraps it in a
+// FilterMatchesIterator whose getQuery() reports a fresh IntervalQuery over the
+// same field and source.
 func (w *intervalWeight) Matches(ctx *index.LeafReaderContext, doc int) (search.Matches, error) {
-	mi, err := w.query.source.Matches(w.query.field, ctx, doc)
-	if err != nil {
-		return nil, err
-	}
-	if mi == nil {
-		return nil, nil
-	}
-	return &intervalMatches{
-		query: w.query,
-		docID: doc,
-		iter:  mi,
-	}, nil
+	field := w.query.field
+	source := w.query.source
+	return search.MatchesUtils.ForField(field, func() (search.MatchesIterator, error) {
+		mi, err := source.Matches(field, ctx, doc)
+		if err != nil {
+			return nil, err
+		}
+		if mi == nil {
+			return nil, nil
+		}
+		return &intervalQueryMatchesIterator{
+			FilterMatchesIterator: search.NewFilterMatchesIterator(mi),
+			field:                 field,
+			source:                source,
+		}, nil
+	})
 }
 
-// intervalMatches adapts an IntervalMatchesIterator to the Gocene
-// search.Matches interface.  The Java reference uses a FilterMatchesIterator
-// that overrides getQuery(); here we embed the query and docID directly.
-type intervalMatches struct {
-	query *IntervalQuery
-	docID int
-	iter  IntervalMatchesIterator
+// intervalQueryMatchesIterator renders the anonymous FilterMatchesIterator
+// subclass created by IntervalWeight.matches, which overrides getQuery().
+type intervalQueryMatchesIterator struct {
+	*search.FilterMatchesIterator
+	field  string
+	source IntervalsSource
 }
 
-func (m *intervalMatches) GetQuery() search.Query          { return m.query }
-func (m *intervalMatches) GetDocID() int                   { return m.docID }
-func (m *intervalMatches) GetSubMatches() []search.Matches { return nil }
+// GetQuery returns a new IntervalQuery over the weight's field and source,
+// mirroring the overridden getQuery() of the Java anonymous class.
+func (m *intervalQueryMatchesIterator) GetQuery() search.Query {
+	return NewIntervalQuery(m.field, m.source)
+}
 
 // IsCacheable returns true.
 func (w *intervalWeight) IsCacheable(ctx *index.LeafReaderContext) bool { return true }
@@ -186,4 +182,4 @@ func (w *intervalWeight) IsCacheable(ctx *index.LeafReaderContext) bool { return
 func (w *intervalWeight) Count(_ *index.LeafReaderContext) (int, error) { return -1, nil }
 
 var _ search.Weight = (*intervalWeight)(nil)
-var _ search.Matches = (*intervalMatches)(nil)
+var _ search.MatchesIterator = (*intervalQueryMatchesIterator)(nil)
