@@ -16,7 +16,7 @@ correct statement without exploring the graph first.
 - **Lucene reference:** Apache Lucene 10.5.0 at `/tmp/lucene`, tag
   `releases/lucene/10.5.0`, commit `f6eaee8148b7569e83c433feacc4f624608188fd`
   (2026-06-19).
-- **Live graph, verified 2026-09-14:** **209 671 nodes, 313 080 edges, 29 labels,
+- **Live graph, verified 2026-09-14:** **209 276 nodes, 312 482 edges, 29 labels,
   36 predicates, 59 property keys, 29 constraints, 31 indexes.**
 
 ## Scope
