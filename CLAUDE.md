@@ -10,8 +10,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 |---|---|---|
 | **A1** | **FAITHFUL PORT.** Gocene is Apache Lucene 10.5.0 expressed in Go — faithful in function, in technique, and in output. Results must be **100% equal to and interoperable with** Lucene's. Any divergence is a defect in Gocene. | *Prime Directive*, *Binary Compatibility Mandate*, *Source Fidelity Mandate* |
 | **A2** | **RESTRAINT — NO PROACTIVITY.** Do exactly what the user asked, and nothing else. Any extra need, however small or obvious, is **reported** and executed **only after explicit authorisation**. | *Model Conduct — Restraint and Non-Proactivity*, § 1.1 |
-| **A3** | **DELEGATE TO A SPECIALIST.** Every task is executed by the subagent specialised in that task's requirements and objectives. The main agent plans, delegates, validates, and reports. | § 9.1 |
-| **A4** | **ONE SUBAGENT, ALWAYS.** Never more than one subagent at a time. Parallelism is exceptional, requires **prior** authorisation, and that authorisation **expires immediately**. | § 9.2 |
+| **A3** | **DELEGATE TO A SPECIALIST.** **ALL** work is executed by the subagent specialised in the requirements and objectives it is meant to achieve — **ALWAYS** the most suitable one. The main agent plans, delegates, validates, and reports. | § 9.1 |
+| **A4** | **ONE SUBAGENT, ALWAYS.** **ONLY ONE** subagent runs in parallel with the main conversation — **NEVER** more. Use every subagent the objective needs, **in series, never in parallel**. Running more than one in parallel is an exception that requires **prior** authorisation, and that authorisation **expires immediately** and is always revoked at the end of the task. | § 9.2 |
 
 ### Self-check before every action
 
@@ -187,9 +187,9 @@ Gocene is a **port**, not a reimplementation. Beyond the byte-level contract est
 
 This rule governs the behaviour of the Claude model itself. It applies to every interaction, every task, and every mode of work.
 
-1. **Maximum restraint is the required default.** Do exactly what the user asked — no more, no less. The user's request defines the entire scope of the work. Anything outside that request is out of scope by default.
+1. **Maximum restraint is the required default.** Your action must be **HIGHLY** directed at the objective of each piece of work. Do exactly what the user asked — no more, no less. The user's request defines the entire scope of the work. Anything outside that request is out of scope by default.
 
-2. **You are FORBIDDEN from being proactive or acting on your own initiative.** Do not anticipate needs, do not add improvements, do not extend scope, do not "while I was here" anything. Specifically, and without limitation, you must NOT, unless it was requested:
+2. **You are FORBIDDEN from being proactive, from acting on your own initiative, and from voluntarily starting tasks that were not EXPLICITLY requested.** Do not anticipate needs, do not add improvements, do not extend scope, do not "while I was here" anything. Specifically, and without limitation, you must NOT, unless it was requested:
    - refactor, reorganise, rename, or reformat code that the request did not target;
    - add features, options, helpers, abstractions, or configuration that were not requested;
    - create, delete, or rename files, directories, branches, tasks, or documents;
@@ -198,13 +198,22 @@ This rule governs the behaviour of the Claude model itself. It applies to every 
    - run commands with side effects (commits, merges, pushes, installs, migrations, graph or roadmap writes) that the request did not call for;
    - "clean up" anything on your own judgement.
 
-3. **Any extra need requires prior authorisation.** If, while carrying out the request, you identify a need that is not expressed in it or is not clear from it — a prerequisite, a side effect, an adjacent defect, a missing piece — you may **NOT** act on it. You must **STOP, REPORT it to the user, and ASK** whether to proceed. You may only act after the user explicitly authorises it. Silence, absence of objection, or a previous authorisation for a similar case is **not** authorisation.
+3. **Any extra need requires prior authorisation.** If, while carrying out the request, you identify a need outside the scope of the task being executed — one that is not expressed in the request or is not clear from it: a prerequisite, a side effect, an adjacent defect, a missing piece — you may **NOT** act on it, and you must **NEVER** start that task proactively. You must **STOP, REPORT it to the user, and ASK** how to proceed. You may only act after the user explicitly authorises it. Silence, absence of objection, or a previous authorisation for a similar case is **not** authorisation.
 
 4. **When asking, follow § 1.1.** Present the situation briefly and objectively, offer multiple options (a, b, c, ...), state which one you recommend, and ask one question at a time.
 
 5. **Report, do not act.** Observations, suspicions, improvement ideas, and detected defects are to be **reported** to the user and left there. Reporting is the deliverable; acting on them is not, until authorised.
 
 6. **This rule does not license incomplete work.** Restraint applies to the *scope* of the work, never to its *quality* or *completeness*: what the user did ask for must still be delivered in full, finished and production-grade (§ 2, § 3). Do not use this rule as a reason to stop halfway through the requested work.
+
+## Language Used in Instructions and Work
+
+You must seek to use (write) and to interpret language in a way that, at every moment, allows you to:
+
+- **BE EXPLICIT**, so that what is intended is clear;
+- **BE OBJECTIVE**, so that what is to be executed is always known;
+- **BE CLOSED**, so that the scope of the work to be done is defined;
+- **BE CONCISE**, so that few words are used to describe what is intended.
 
 ## 1. Base Rules
 
@@ -222,7 +231,7 @@ This rule governs the behaviour of the Claude model itself. It applies to every 
 
 ## 2. Self-Contained Development Policy
 
-All development cycles must be self-contained. You must NEVER deliver only part of a task; every development cycle must produce a complete, working result.
+All development cycles must be self-contained. You are FORBIDDEN from executing tasks or work only partially: at every moment, you must ensure that every piece of work started is carried out to its full extent. You must NEVER deliver only part of a task; every development cycle must produce a complete, working result. **DO NOT LEAVE TASKS HALF-DONE OR PARTIALLY DONE.**
 
 Self-containment applies to the scope the user has authorised. When new needs are discovered during the course of a task — needs that were not anticipated beforehand — they must be **reported to the user and authorised before being acted upon**, as required by the *Model Conduct — Restraint and Non-Proactivity* mandate above. Once authorised, they must be resolved within the same development cycle, as immediately as possible, rather than deferred. Without authorisation they are reported and left undone; they are never executed on your own initiative.
 
@@ -449,7 +458,7 @@ Whenever a bug is identified, create the necessary regression tests to ensure th
 
 ## 9. Team of Subagents
 
-You have at your disposal a team composed of all available subagents (global, user-defined, or project-defined). They are used **one at a time and in strict sequence** (§ 9.2): the strength of a task comes from choosing the right specialist for it, never from running several at once.
+You have at your disposal a team composed of all available subagents (global, user-defined, or project-defined). You **MUST** use every subagent you need to achieve your objective, but they are used **in series, never in parallel** — one at a time and in strict sequence (§ 9.2): the strength of a task comes from choosing the right specialist for it, never from running several at once.
 
 Each task is carried out by the single subagent whose specialisation matches its requirements and objectives (§ 9.1), so that the task is completed with maximum confidence, effectiveness, and accuracy. Where a task genuinely requires more than one specialisation, the specialists are used **sequentially** — one finishes and reports before the next is launched — and each works strictly within the scope it was given, contributing its specialisation to that scope and nothing beyond it.
 
@@ -457,20 +466,20 @@ When initiating a task, identify the single most appropriate specialist (skill o
 
 ### 9.1 Mandatory Delegation to a Specialised Subagent (NON-NEGOTIABLE)
 
-**Every task must be executed by a subagent specialised in the requirements and objectives of that task.** This is not a preference and not an optimisation: it is the required mode of execution.
+**ALL work in this project must delegate its execution to a subagent specialised in the requirements and objectives that the work is meant to achieve, and you must ALWAYS choose the most suitable subagent.** This is not a preference and not an optimisation: it is the required mode of execution.
 
 1. **No task is executed directly.** Before starting any task, identify the requirements and the objective of the task, choose the subagent whose specialisation matches them, and delegate the execution to that subagent. The main agent plans, chooses the specialist, delegates, validates the acceptance criteria, and reports — it does not do the work itself.
-2. **The choice must be justified by the match.** The subagent is chosen because its specialisation covers what the task actually requires (language, subsystem, domain, type of work), never by convenience or habit. If no existing subagent matches the task, stop and ask the user which subagent to use or to create.
+2. **The choice must be justified by the match.** The subagent chosen is **ALWAYS** the most suitable one: it is chosen because its specialisation covers what the task actually requires (language, subsystem, domain, type of work), never by convenience or habit. If no existing subagent matches the task, stop and ask the user which subagent to use or to create.
 3. **Delegation does not transfer responsibility.** Every rule of this document applies in full to the delegated work, and the result must be validated against the task's acceptance criteria before the task is closed (§ 4.2).
 
 ### 9.2 One Subagent at a Time (ABSOLUTELY FORBIDDEN to Exceed)
 
-**You are ABSOLUTELY FORBIDDEN from running more than one subagent in parallel. One subagent, on every occasion, without exception.**
+**You must use ONLY ONE SINGLE subagent in parallel with the main Claude Code conversation. You are ABSOLUTELY FORBIDDEN from running more than one subagent in parallel — you must NEVER use more than one. One subagent, on every occasion, without exception.**
 
 1. **Strictly one at a time.** Launch a subagent, wait for it to finish, read its result, and only then consider the next one. Never dispatch two or more subagents in the same message, never start a second while a first is still running, and never fan out work across several subagents "to save time".
 2. **This applies to every kind of work** — development, research, exploration, review, evaluation, audit, documentation, measurement — and to every mechanism of delegation, including background execution and workflows.
-3. **Parallelism requires explicit prior authorisation from the user**, and is exceptional. Ask, state how many subagents and for exactly what, and wait for the answer.
-4. **The authorisation expires immediately.** It is valid only for the single, specific occasion for which it was granted, and it lapses the instant that parallel execution ends. It is never a standing permission, is never carried over to a similar case, and is never extended by analogy. The next occasion requires a new authorisation.
+3. **Parallelism requires explicit prior authorisation from the user**, and whenever the user authorises more than one subagent in parallel, that authorisation is an exception. Ask, state how many subagents and for exactly what, and wait for the answer.
+4. **The authorisation expires immediately and is always revoked at the end of the task.** It is valid only for the single, specific occasion for which it was granted; it lapses the instant that parallel execution ends and, in every case, is revoked at the end of the task for which it was granted. It is never a standing permission, is never carried over to a similar case, and is never extended by analogy. The next occasion requires a new authorisation.
 
 ## 10. Decision Framework
 
