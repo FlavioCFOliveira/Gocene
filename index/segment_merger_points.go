@@ -5,17 +5,20 @@
 package index
 
 import (
-	"errors"
 	"fmt"
-
-	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// mergePoints merges the point (BKD) values of every point field across the
-// source segments into the new segment, remapping each point's docID through
-// the merge DocMaps. It drives the codec PointsWriter with a merged PointsReader
-// that re-emits every live source point — mirroring the net effect of Lucene's
-// PointsWriter.merge(MergeState) (rmp #14/#114).
+// pointsWriterMerger is the merge member of PointsWriter. The codec writers
+// carry it through codecs.BasePointsWriter (spi cannot declare it: MergeState
+// lives in this package).
+type pointsWriterMerger interface {
+	Merge(mergeState *MergeState) error
+}
+
+// mergePoints merges the point values of the readers being merged into the
+// new segment. Mirrors SegmentMerger.mergePoints: the codec's PointsWriter is
+// opened for the merged segment and merges every point field of the
+// MergeState.
 func (sm *SegmentMerger) mergePoints() error {
 	if sm.codec == nil || sm.codec.PointsFormat() == nil {
 		return nil
@@ -38,246 +41,19 @@ func (sm *SegmentMerger) mergePoints() error {
 	if err != nil {
 		return fmt.Errorf("index: merge points: open writer: %w", err)
 	}
-	defer writer.Close()
-
-	src := &mergePointsSource{sm: sm}
-	wroteAny := false
-	iter := sm.MergeState.MergeFieldInfos.Iterator()
-	for iter.HasNext() {
-		info := iter.Next()
-		if info.PointDimensionCount() <= 0 {
-			continue
-		}
-		if err := writer.WriteField(info, src); err != nil {
-			return fmt.Errorf("index: merge points: write field %q: %w", info.Name(), err)
-		}
-		wroteAny = true
-	}
-	if !wroteAny {
-		return nil
-	}
-	if err := writer.Finish(); err != nil {
-		return fmt.Errorf("index: merge points: finish: %w", err)
-	}
-	return nil
-}
-
-// intersectablePointValues is the wider PointValues surface the codec's on-disk
-// BKD-backed PointValues exposes (index.spi.PointTreeIntersectVisitor walk), used to
-// enumerate every point of a source segment during a merge.
-type intersectablePointValues interface {
-	Intersect(visitor spi.PointTreeIntersectVisitor) error
-}
-
-// segPointValues returns the source reader's PointValues for field, or nil.
-func segPointValues(reader CodecReader, field string) PointValues {
-	pr := reader.GetPointsReader()
-	if pr == nil {
-		return nil
-	}
-	getter, ok := pr.(interface {
-		GetValues(field string) (PointValues, error)
-	})
+	merger, ok := writer.(pointsWriterMerger)
 	if !ok {
-		return nil
+		closeErr := writer.Close()
+		if closeErr != nil {
+			return fmt.Errorf("index: merge points: writer %T does not carry PointsWriter.merge (close: %v)", writer, closeErr)
+		}
+		return fmt.Errorf("index: merge points: writer %T does not carry PointsWriter.merge", writer)
 	}
-	pv, err := getter.GetValues(field)
-	if err != nil || pv == nil {
-		return nil
+	// try (PointsWriter writer = ...) { writer.merge(mergeState); }
+	mergeErr := merger.Merge(sm.MergeState)
+	closeErr := writer.Close()
+	if mergeErr != nil {
+		return mergeErr
 	}
-	return pv
+	return closeErr
 }
-
-// mergePointsSource is the merged PointsReader handed to the codec PointsWriter.
-// It satisfies both the SPI PointsReader (CheckIntegrity/Close) and the codec's
-// structural PointsSource (PointValueCount/VisitPoints) contracts.
-type mergePointsSource struct {
-	sm *SegmentMerger
-}
-
-func (s *mergePointsSource) CheckIntegrity() error { return nil }
-func (s *mergePointsSource) Close() error          { return nil }
-
-// GetMergeInstance renders the default body of
-// org.apache.lucene.codecs.PointsReader.getMergeInstance (PointsReader.java:56),
-// `return this`. The anonymous PointsReader that Java's
-// PointsWriter.mergeOneField hands to writeField declares no override either,
-// so it inherits the same body.
-func (s *mergePointsSource) GetMergeInstance() spi.PointsReader { return s }
-
-// ErrMergePointValuesUnsupported is returned by the members of the merged
-// PointValues that Apache Lucene 10.5.0 leaves unimplemented. In
-// PointsWriter.mergeOneField the anonymous PointValues handed to writeField
-// throws UnsupportedOperationException from getMinPackedValue,
-// getMaxPackedValue, getNumDimensions, getNumIndexDimensions,
-// getBytesPerDimension and getDocCount; only size() and the point tree's
-// size()/visitDocValues() carry a body.
-var ErrMergePointValuesUnsupported = errors.New(
-	"index: merge points: PointsWriter.mergeOneField's merged PointValues implements only size() and visitDocValues()",
-)
-
-// GetValues renders `public PointValues getValues(String fieldName)` of the
-// anonymous PointsReader that Apache Lucene 10.5.0's
-// PointsWriter.mergeOneField hands to writeField (PointsWriter.java).
-//
-// Lucene rejects any field but the one being merged; Gocene's writer drives
-// the merge field by field through the same source, so the check is the same
-// one Lucene makes, deferred to the point where the field is named.
-func (s *mergePointsSource) GetValues(field string) (spi.PointValues, error) {
-	return &mergePointValues{src: s, field: field}, nil
-}
-
-// mergePointValues is the merged PointValues of
-// PointsWriter.mergeOneField. Java expresses it as a PointValues wrapping a
-// single-node PointTree; this port carries the two members that have a Java
-// body — size() and visitDocValues() — and reports the rest as unsupported,
-// exactly as Lucene's UnsupportedOperationException does.
-//
-// Lucene has no PointValues.getPointTree() counterpart in this port (see
-// [intersectablePointValues]), so visitDocValues is reached through Intersect,
-// the surface every BKD-backed PointValues in Gocene already exposes.
-type mergePointValues struct {
-	src   *mergePointsSource
-	field string
-}
-
-// GetValueCount renders `public long size()`, whose body in both the
-// PointValues and its PointTree is `return finalMaxPointCount`.
-func (v *mergePointValues) GetValueCount() int64 { return v.src.PointValueCount(v.field) }
-
-// Intersect renders the PointTree's `visitDocValues(IntersectVisitor)`: it
-// walks every source segment's points, remaps each docID through that
-// segment's DocMap, drops the deleted, and forwards the rest to the merged
-// visitor. That loop is [mergePointsSource.VisitPoints].
-func (v *mergePointValues) Intersect(visitor spi.PointTreeIntersectVisitor) error {
-	return v.src.VisitPoints(v.field, func(docID int, packedValue []byte) error {
-		return visitor.VisitByPackedValue(docID, packedValue)
-	})
-}
-
-// The remaining members throw UnsupportedOperationException in Lucene.
-func (v *mergePointValues) GetDocCount() int { panic(ErrMergePointValuesUnsupported) }
-func (v *mergePointValues) GetDocCountWithValue() int64 {
-	panic(ErrMergePointValuesUnsupported)
-}
-func (v *mergePointValues) GetMinPackedValue() ([]byte, error) {
-	return nil, ErrMergePointValuesUnsupported
-}
-func (v *mergePointValues) GetMaxPackedValue() ([]byte, error) {
-	return nil, ErrMergePointValuesUnsupported
-}
-func (v *mergePointValues) GetNumDimensions() int     { panic(ErrMergePointValuesUnsupported) }
-func (v *mergePointValues) GetBytesPerDimension() int { panic(ErrMergePointValuesUnsupported) }
-
-// PointValueCount returns the exact number of live points VisitPoints will emit
-// for field across all segments — the count the BKD writer is sized against.
-func (s *mergePointsSource) PointValueCount(field string) int64 {
-	var total int64
-	for i, reader := range s.sm.MergeState.Readers {
-		if reader == nil {
-			continue
-		}
-		pv := segPointValues(reader, field)
-		if pv == nil {
-			continue
-		}
-		// Fast path: with no deletions in this segment, every stored point is
-		// live, so the codec's own value count is exact.
-		if reader.GetLiveDocs() == nil {
-			total += pv.GetValueCount()
-			continue
-		}
-		// Otherwise count the live points by walking the tree.
-		iv, ok := pv.(intersectablePointValues)
-		if !ok {
-			total += pv.GetValueCount()
-			continue
-		}
-		var n int64
-		_ = iv.Intersect(&countLivePointsVisitor{docMap: s.sm.MergeState.DocMaps[i], n: &n})
-		total += n
-	}
-	return total
-}
-
-// VisitPoints re-emits every live point of field across all segments, remapping
-// each docID into the merged doc space.
-func (s *mergePointsSource) VisitPoints(field string, fn func(docID int, packedValue []byte) error) error {
-	for i, reader := range s.sm.MergeState.Readers {
-		if reader == nil {
-			continue
-		}
-		pv := segPointValues(reader, field)
-		if pv == nil {
-			continue
-		}
-		iv, ok := pv.(intersectablePointValues)
-		if !ok {
-			return fmt.Errorf("index: merge points: field %q reader %d: PointValues %T is not intersectable", field, i, pv)
-		}
-		v := &mergePointVisitor{docMap: s.sm.MergeState.DocMaps[i], fn: fn}
-		if err := iv.Intersect(v); err != nil {
-			return err
-		}
-		if v.err != nil {
-			return v.err
-		}
-	}
-	return nil
-}
-
-// mergePointVisitor forwards every (docID, packedValue) of a source segment to
-// the merge sink, remapping the docID and dropping deleted documents. Compare
-// always returns CELL_CROSSES_QUERY (2) so the BKD walk delivers packed values
-// for every point rather than docID-only inside-cell hits.
-type mergePointVisitor struct {
-	docMap DocMap
-	fn     func(docID int, packedValue []byte) error
-	err    error
-}
-
-func (v *mergePointVisitor) Visit(docID int) error {
-	// Unreachable while Compare returns CROSSES (no inside-cell, value-less
-	// hits); guarding makes a future Compare change fail loud instead of
-	// silently dropping points.
-	return fmt.Errorf("index: merge points: unexpected value-less Visit(doc=%d)", docID)
-}
-
-func (v *mergePointVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
-	mapped := v.docMap.Get(docID)
-	if mapped < 0 {
-		return nil // deleted in the source segment
-	}
-	cp := make([]byte, len(packedValue))
-	copy(cp, packedValue)
-	if err := v.fn(mapped, cp); err != nil {
-		v.err = err
-		return err
-	}
-	return nil
-}
-
-func (v *mergePointVisitor) Compare(minPackedValue, maxPackedValue []byte) int { return 2 }
-func (v *mergePointVisitor) Grow(count int)                                    {}
-
-// countLivePointsVisitor counts the live points of a segment (used to size the
-// BKD writer when a segment carries deletions).
-type countLivePointsVisitor struct {
-	docMap DocMap
-	n      *int64
-}
-
-func (c *countLivePointsVisitor) Visit(docID int) error {
-	if c.docMap.Get(docID) >= 0 {
-		*c.n++
-	}
-	return nil
-}
-func (c *countLivePointsVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
-	if c.docMap.Get(docID) >= 0 {
-		*c.n++
-	}
-	return nil
-}
-func (c *countLivePointsVisitor) Compare(minPackedValue, maxPackedValue []byte) int { return 2 }
-func (c *countLivePointsVisitor) Grow(count int)                                    {}

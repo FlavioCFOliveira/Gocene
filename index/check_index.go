@@ -2104,6 +2104,13 @@ func (ci *CheckIndex) testPoints(reader *SegmentReader, w io.Writer) *PointsStat
 	return status
 }
 
+// intersectablePointValues is the wider PointValues surface the codec's on-disk
+// BKD-backed PointValues exposes (the PointTreeIntersectVisitor walk that
+// renders PointValues.intersect), used to walk every point of a field.
+type intersectablePointValues interface {
+	Intersect(visitor PointTreeIntersectVisitor) error
+}
+
 // verifyPointsVisitor counts every point a field's BKD tree holds. It mirrors
 // org.apache.lucene.index.CheckIndex.VerifyPointsVisitor, whose compare() always
 // reports CELL_CROSSES_QUERY so that the whole tree is walked leaf by leaf and

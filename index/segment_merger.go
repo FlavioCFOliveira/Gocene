@@ -88,6 +88,7 @@ func NewSegmentMerger(
 
 		TermVectorsReaders: make([]TermVectorsReader, 0, len(readers)),
 		DocValuesProducers: make([]DocValuesProducer, 0, len(readers)),
+		PointsReaders:      make([]PointsReader, 0, len(readers)),
 	}
 	for _, reader := range readers {
 		mergeState.FieldInfos = append(mergeState.FieldInfos, reader.GetFieldInfos())
@@ -100,6 +101,13 @@ func NewSegmentMerger(
 			docValuesProducer = docValuesProducer.GetMergeInstance()
 		}
 		mergeState.DocValuesProducers = append(mergeState.DocValuesProducers, docValuesProducer)
+		// Java: pointsReaders[i] = reader.getPointsReader(); if non-null it is
+		// replaced by its getMergeInstance() (MergeState.java:160-163).
+		pointsReader := reader.GetPointsReader()
+		if pointsReader != nil {
+			pointsReader = pointsReader.GetMergeInstance()
+		}
+		mergeState.PointsReaders = append(mergeState.PointsReaders, pointsReader)
 		// Java: termVectorsReaders[i] = reader.getTermVectorsReader()
 		// (MergeState.java:150). The getMergeInstance() wrap that follows it in
 		// Java has no counterpart on spi.TermVectorsReader; see the field's

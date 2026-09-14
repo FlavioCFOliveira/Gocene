@@ -132,6 +132,20 @@ func (w *assertingPointsWriter) WriteField(fieldInfo *spi.FieldInfo, reader spi.
 	return w.in.WriteField(fieldInfo, reader)
 }
 
+// Merge renders AssertingPointsWriter.merge(MergeState): in.merge(mergeState).
+// PointsWriter.merge is carried by codecs.BasePointsWriter, not by
+// spi.PointsWriter (MergeState lives in package index), so it is reached
+// through the member every codec points writer carries.
+func (w *assertingPointsWriter) Merge(mergeState *index.MergeState) error {
+	merger, ok := w.in.(interface {
+		Merge(mergeState *index.MergeState) error
+	})
+	if !ok {
+		return fmt.Errorf("AssertingPointsWriter: delegate %T does not carry PointsWriter.merge", w.in)
+	}
+	return merger.Merge(mergeState)
+}
+
 func (w *assertingPointsWriter) Finish() error {
 	return w.in.Finish()
 }

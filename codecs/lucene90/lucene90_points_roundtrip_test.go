@@ -7,6 +7,8 @@ package lucene90_test
 import (
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"sort"
 	"testing"
 
@@ -15,41 +17,80 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
-// fakePointsSource is an in-memory PointsSource over a single 1-dimension,
-// 4-byte field. It mirrors what DocumentsWriterPerThread.flushPoints feeds the
-// Lucene90 points writer: a per-field point count and a doc-ordered walk over
-// (docID, packedValue) pairs.
+// fakePointsSource is an in-memory PointsReader over a single 1-dimension,
+// 4-byte field. Lucene90PointsWriter.writeField reads
+// reader.getValues(field).getPointTree() and, for a tree that is not a
+// MutablePointTree, walks it with visitDocValues; the fake serves exactly that
+// path over doc-ordered (docID, packedValue) pairs.
 type fakePointsSource struct {
 	field  string
 	docIDs []int
 	values [][]byte
 }
 
-func (s *fakePointsSource) PointValueCount(field string) int64 {
+var errFakeUnsupported = errors.New("fake points: unsupported")
+
+func (s *fakePointsSource) GetValues(field string) (index.PointValues, error) {
 	if field != s.field {
-		return 0
+		return nil, fmt.Errorf("fake points: field %q is not %q", field, s.field)
 	}
-	return int64(len(s.values))
+	return &fakePointValues{src: s}, nil
 }
 
-func (s *fakePointsSource) VisitPoints(field string, fn func(docID int, packedValue []byte) error) error {
-	if field != s.field {
-		return nil
-	}
-	for i, v := range s.values {
-		if err := fn(s.docIDs[i], v); err != nil {
+func (s *fakePointsSource) CheckIntegrity() error                 { return nil }
+func (s *fakePointsSource) Close() error                          { return nil }
+func (s *fakePointsSource) GetMergeInstance() codecs.PointsReader { return s }
+
+// fakePointValues is the PointValues of fakePointsSource; only size() and
+// getPointTree() are consulted by the writer.
+type fakePointValues struct {
+	src *fakePointsSource
+}
+
+func (v *fakePointValues) GetPointTree() (bkd.PointTree, error) {
+	return &fakePointTree{src: v.src}, nil
+}
+func (v *fakePointValues) GetDocCount() int                   { return len(v.src.docIDs) }
+func (v *fakePointValues) GetDocCountWithValue() int64        { return int64(len(v.src.docIDs)) }
+func (v *fakePointValues) GetValueCount() int64               { return int64(len(v.src.values)) }
+func (v *fakePointValues) GetMinPackedValue() ([]byte, error) { return nil, errFakeUnsupported }
+func (v *fakePointValues) GetMaxPackedValue() ([]byte, error) { return nil, errFakeUnsupported }
+func (v *fakePointValues) GetNumDimensions() int              { return 1 }
+func (v *fakePointValues) GetBytesPerDimension() int          { return 4 }
+
+// fakePointTree is a single-leaf PointTree over fakePointsSource.
+type fakePointTree struct {
+	src *fakePointsSource
+}
+
+func (t *fakePointTree) Clone() bkd.PointTree         { return &fakePointTree{src: t.src} }
+func (t *fakePointTree) MoveToChild() (bool, error)   { return false, nil }
+func (t *fakePointTree) MoveToSibling() (bool, error) { return false, nil }
+func (t *fakePointTree) MoveToParent() (bool, error)  { return false, nil }
+func (t *fakePointTree) GetMinPackedValue() []byte    { return t.src.values[0] }
+func (t *fakePointTree) GetMaxPackedValue() []byte    { return t.src.values[len(t.src.values)-1] }
+func (t *fakePointTree) Size() int64                  { return int64(len(t.src.values)) }
+
+func (t *fakePointTree) VisitDocIDs(visitor bkd.IntersectVisitor) error {
+	for _, docID := range t.src.docIDs {
+		if err := visitor.Visit(docID); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// CheckIntegrity / Close satisfy the narrow codecs.PointsReader surface the
-// writer's WriteField parameter declares.
-func (s *fakePointsSource) CheckIntegrity() error { return nil }
-func (s *fakePointsSource) Close() error          { return nil }
+func (t *fakePointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
+	for i, v := range t.src.values {
+		if err := visitor.VisitByPackedValue(t.src.docIDs[i], v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 func packInt32BE(v int32) []byte {
 	b := make([]byte, 4)

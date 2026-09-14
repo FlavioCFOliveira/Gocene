@@ -103,7 +103,7 @@ func (v *OffHeapByteVectorValues) VectorValue(targetOrd int) ([]byte, error) {
 	if err := v.slice.SetPosition(int64(targetOrd) * int64(v.byteSize)); err != nil {
 		return nil, fmt.Errorf("lucene94 off-heap byte: seek to ord %d: %w", targetOrd, err)
 	}
-	if err := v.slice.ReadBytes(v.binaryValue); err != nil {
+	if err := v.slice.ReadBytes(v.binaryValue, 0, len(v.binaryValue)); err != nil {
 		return nil, fmt.Errorf("lucene94 off-heap byte: read bytes: %w", err)
 	}
 	v.curOrd = targetOrd

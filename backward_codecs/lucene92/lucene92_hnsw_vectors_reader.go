@@ -9,10 +9,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	bcstore "github.com/FlavioCFOliveira/Gocene/backward_codecs/store"
+	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
 
@@ -45,9 +46,9 @@ type lucene92FieldEntry struct {
 	addressesLength int64
 
 	// HNSW graph topology
-	maxConn  int // M parameter
-	numLevels int
-	nodesByLevel        [][]int32
+	maxConn      int // M parameter
+	numLevels    int
+	nodesByLevel [][]int32
 	// graphOffsetsByLevel[l] is the byte offset in .vex where level l begins
 	graphOffsetsByLevel []int64
 }
@@ -209,7 +210,13 @@ func readLucene92FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene92F
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q similarity: %w", fi.Name(), err)
 	}
-	simFn := index.VectorSimilarityFunction(simID)
+	// Java: readSimilarityFunction(input), which rejects an id outside
+	// VectorSimilarityFunction.values() and returns values()[id].
+	if simID < 0 || int(simID) > int(util.VectorSimilarityIDMaximumInnerProduct) {
+		return nil, index.NewCorruptIndexException(
+			fmt.Sprintf("Invalid similarity function id: %d", simID), fmt.Sprint(in))
+	}
+	simFn := util.GetSimilarityFunction(util.VectorSimilarityID(simID))
 	if simFn != fi.VectorSimilarityFunction() {
 		return nil, fmt.Errorf("readFieldEntry %q: similarity mismatch %v != %v",
 			fi.Name(), simFn, fi.VectorSimilarityFunction())
@@ -217,16 +224,16 @@ func readLucene92FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene92F
 
 	e := &lucene92FieldEntry{similarityFunction: simFn}
 
-	if e.vectorDataOffset, err = store.ReadVLong(in); err != nil {
+	if e.vectorDataOffset, err = in.ReadVLong(); err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q vectorDataOffset: %w", fi.Name(), err)
 	}
-	if e.vectorDataLength, err = store.ReadVLong(in); err != nil {
+	if e.vectorDataLength, err = in.ReadVLong(); err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q vectorDataLength: %w", fi.Name(), err)
 	}
-	if e.vectorIndexOffset, err = store.ReadVLong(in); err != nil {
+	if e.vectorIndexOffset, err = in.ReadVLong(); err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q vectorIndexOffset: %w", fi.Name(), err)
 	}
-	if e.vectorIndexLength, err = store.ReadVLong(in); err != nil {
+	if e.vectorIndexLength, err = in.ReadVLong(); err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q vectorIndexLength: %w", fi.Name(), err)
 	}
 
@@ -254,7 +261,7 @@ func readLucene92FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene92F
 	}
 	e.docsWithFieldLength = docsLen
 
-	jt, err := store.ReadInt16(in)
+	jt, err := in.ReadShort()
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q jumpTableEntryCount: %w", fi.Name(), err)
 	}

@@ -280,7 +280,7 @@ func flushIndexedDISIBlock(block int, buffer *util.FixedBitSet, cardinality int,
 		if cardinality != blockSize { // not ALL
 			if denseRankPower != 0xFF {
 				rank := createDenseRank(buffer, denseRankPower)
-				if err := out.WriteBytes(rank); err != nil {
+				if err := out.WriteBytes(rank, 0, len(rank)); err != nil {
 					return err
 				}
 			}
@@ -462,7 +462,7 @@ func CreateJumpTable(slice store.IndexInput, offset, length int64, jumpTableEntr
 		return nil, err
 	}
 	buf := make([]byte, jumpTableBytes)
-	if err := slice.ReadBytes(buf); err != nil {
+	if err := slice.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, err
 	}
 	_ = slice.SetPosition(saved)
@@ -657,7 +657,7 @@ func (d *IndexedDISI) readBlockHeader() error {
 		}
 		d.blockEnd = d.denseBitmapOff + (1 << 13) // 1024 longs = 8192 bytes
 		if d.denseRankPower != 0xFF {
-			if err := d.slice.ReadBytes(d.denseRankTable); err != nil {
+			if err := d.slice.ReadBytes(d.denseRankTable, 0, len(d.denseRankTable)); err != nil {
 				return err
 			}
 		}

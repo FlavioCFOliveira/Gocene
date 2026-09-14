@@ -22,15 +22,13 @@
 package lucene90
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
 	"errors"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
@@ -208,6 +206,11 @@ func (r *pointsReader) Close() error {
 	r.readers = nil
 	return lastErr
 }
+
+// GetMergeInstance returns this reader. Lucene90PointsReader does not override
+// getMergeInstance(), so it keeps the PointsReader default body,
+// `return this;` (PointsReader.java).
+func (r *pointsReader) GetMergeInstance() codecs.PointsReader { return r }
 
 // pointsReaderGetValues is the wide read surface a Lucene90 points reader
 // exposes beyond the narrow codecs.PointsReader (CheckIntegrity/Close). It

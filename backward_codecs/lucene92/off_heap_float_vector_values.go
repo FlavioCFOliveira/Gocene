@@ -111,7 +111,7 @@ func (v *OffHeapFloatVectorValues) VectorValue(targetOrd int) ([]float32, error)
 	}
 	// Read dimension * 4 bytes and decode as little-endian float32 values.
 	buf := make([]byte, v.byteSize)
-	if err := v.slice.ReadBytes(buf); err != nil {
+	if err := v.slice.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, fmt.Errorf("lucene92 off-heap float: read bytes: %w", err)
 	}
 	for i := range v.floatValue {
@@ -397,6 +397,16 @@ func (d *denseDocIter92) Cost() int64 { return int64(d.size) }
 
 func (d *denseDocIter92) Index() int { return d.doc }
 
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which the
+// iterator returned by KnnVectorValues.createDenseIterator() inherits.
+func (d *denseDocIter92) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the iterator returned by KnnVectorValues.createDenseIterator() inherits.
+func (d *denseDocIter92) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(d) }
+
 // ---------------------------------------------------------------------------
 // IndexedDISI DocIndexIterator wrapper
 // ---------------------------------------------------------------------------
@@ -414,6 +424,17 @@ func (i *indexedDISIIter92) Advance(target int) (int, error) { return i.disi.Adv
 func (i *indexedDISIIter92) Cost() int64 { return i.disi.Cost() }
 
 func (i *indexedDISIIter92) Index() int { return i.disi.Index() }
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which the
+// iterator returned by IndexedDISI.asDocIndexIterator(IndexedDISI) inherits.
+func (i *indexedDISIIter92) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(i, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the iterator returned by IndexedDISI.asDocIndexIterator(IndexedDISI)
+// inherits; that anonymous class does not delegate to IndexedDISI.docIDRunEnd.
+func (i *indexedDISIIter92) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(i) }
 
 // ---------------------------------------------------------------------------
 // Ordinal-keyed Bits (sparse variant's getAcceptOrds)
@@ -451,7 +472,7 @@ type codecDocIDSetIteratorView interface {
 	NextDoc() (int, error)
 	Advance(target int) (int, error)
 	Cost() int64
-	DocIDRunEnd() int
+	DocIDRunEnd() (int, error)
 }
 
 type floatScorerView92 struct {
@@ -482,7 +503,7 @@ func (d *docIndexIterToView92) DocID() int                 { return d.it.DocID()
 func (d *docIndexIterToView92) NextDoc() (int, error)      { return d.it.NextDoc() }
 func (d *docIndexIterToView92) Advance(t int) (int, error) { return d.it.Advance(t) }
 func (d *docIndexIterToView92) Cost() int64                { return d.it.Cost() }
-func (d *docIndexIterToView92) DocIDRunEnd() (int, error)  { return noMoreDocs92, nil }
+func (d *docIndexIterToView92) DocIDRunEnd() (int, error)  { return d.it.DocIDRunEnd() }
 
 // similarityCompare mirrors
 // org.apache.lucene.index.VectorSimilarityFunction.compare(float[], float[]).

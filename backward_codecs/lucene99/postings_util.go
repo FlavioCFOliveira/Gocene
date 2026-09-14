@@ -96,7 +96,7 @@ func WriteVIntBlock(
 	}
 
 	scratch := make([]byte, util.GroupVIntMaxLengthPerGroup)
-	if err := util.WriteGroupVIntsInt64(docOut, scratch, docBuffer, num); err != nil {
+	if err := store.WriteGroupVIntsInt64(docOut, scratch, docBuffer, num); err != nil {
 		return err
 	}
 
@@ -104,7 +104,7 @@ func WriteVIntBlock(
 		for i := 0; i < num; i++ {
 			freq := int32(freqBuffer[i])
 			if freq != 1 {
-				if err := store.WriteVInt(docOut, freq); err != nil {
+				if err := docOut.WriteVInt(freq); err != nil {
 					return err
 				}
 			}

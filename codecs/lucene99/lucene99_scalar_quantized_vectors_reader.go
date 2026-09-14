@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
+	"github.com/FlavioCFOliveira/Gocene/codecs/lucene95"
 	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
@@ -287,7 +287,7 @@ type fieldEntry struct {
 	size               int
 	bits               byte
 	compress           bool
-	ordToDoc           OrdToDocDISIReaderConfiguration
+	ordToDoc           *lucene95.OrdToDocDISIReaderConfiguration
 }
 
 func createFieldEntry(input IndexInput, versionMeta int, vectorEncoding VectorEncoding, similarityFunction VectorSimilarityFunction) (*fieldEntry, error) {
@@ -322,7 +322,7 @@ func createFieldEntry(input IndexInput, versionMeta int, vectorEncoding VectorEn
 		compress = false
 	}
 
-	ordToDoc, err := lucene90.FromStoredMeta(input, size)
+	ordToDoc, err := lucene95.FromStoredMeta(input, size)
 	if err != nil {
 		return nil, err
 	}

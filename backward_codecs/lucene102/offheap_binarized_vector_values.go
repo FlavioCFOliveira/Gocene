@@ -10,6 +10,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
+	"github.com/FlavioCFOliveira/Gocene/codecs/lucene95"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -90,7 +91,7 @@ func (v *offHeapBinarizedVectorValues) VectorValue(targetOrd int) ([]byte, error
 		return nil, err
 	}
 
-	if err := v.slice.ReadBytes(v.binaryValue); err != nil {
+	if err := v.slice.ReadBytes(v.binaryValue, 0, len(v.binaryValue)); err != nil {
 		return nil, err
 	}
 
@@ -162,7 +163,7 @@ func (v *offHeapBinarizedVectorValues) GetVectorByteLength() int {
 
 // Load creates an off-heap binarized vector values reader.
 func Load(
-	configuration *lucene90.OrdToDocDISIReaderConfiguration,
+	configuration *lucene95.OrdToDocDISIReaderConfiguration,
 	dimension int,
 	size int,
 	binaryQuantizer *quantization.OptimizedScalarQuantizer,
@@ -198,6 +199,16 @@ func Load(
 		}, nil
 	}
 
+	// Java: this.ordToDoc = configuration.getDirectMonotonicReader(dataIn);
+	//       this.disi = configuration.getIndexedDISI(dataIn);
+	ordToDoc, err := configuration.GetDirectMonotonicReader(vectorData)
+	if err != nil {
+		return nil, err
+	}
+	disi, err := configuration.GetIndexedDISI(vectorData)
+	if err != nil {
+		return nil, err
+	}
 	return &SparseOffHeapVectorValues{
 		offHeapBinarizedVectorValues: newOffHeapBinarizedVectorValues(
 			dimension,
@@ -211,8 +222,8 @@ func Load(
 		),
 		configuration: configuration,
 		dataIn:        vectorData,
-		ordToDoc:      configuration.GetDirectMonotonicReader(vectorData),
-		disi:          configuration.GetIndexedDISI(vectorData),
+		ordToDoc:      ordToDoc,
+		disi:          disi,
 	}, nil
 }
 
@@ -312,7 +323,7 @@ type SparseOffHeapVectorValues struct {
 	ordToDoc      *packed.DirectMonotonicReader
 	disi          *lucene90.IndexedDISI
 	dataIn        store.IndexInput
-	configuration *lucene90.OrdToDocDISIReaderConfiguration
+	configuration *lucene95.OrdToDocDISIReaderConfiguration
 }
 
 func (v *SparseOffHeapVectorValues) Copy() (BinarizedByteVectorValues, error) {

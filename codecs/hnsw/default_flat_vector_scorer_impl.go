@@ -72,7 +72,7 @@ func (s *floatScoringSupplier) Copy() (hnsw.RandomVectorScorerSupplier, error) {
 
 // String returns the canonical Java toString() output.
 func (s *floatScoringSupplier) String() string {
-	return fmt.Sprintf("FloatScoringSupplier(similarityFunction=%s)", s.similarityFunction.String())
+	return fmt.Sprintf("FloatScoringSupplier(similarityFunction=%s)", s.similarityFunction.ID().String())
 }
 
 // floatScoringSupplierScorer is the per-Scorer() closure equivalent.
@@ -158,7 +158,7 @@ func (s *byteScoringSupplier) Copy() (hnsw.RandomVectorScorerSupplier, error) {
 
 // String returns the canonical Java toString() output.
 func (s *byteScoringSupplier) String() string {
-	return fmt.Sprintf("ByteScoringSupplier(similarityFunction=%s)", s.similarityFunction.String())
+	return fmt.Sprintf("ByteScoringSupplier(similarityFunction=%s)", s.similarityFunction.ID().String())
 }
 
 // byteScoringSupplierScorer is the per-Scorer() closure for byte

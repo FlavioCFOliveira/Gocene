@@ -124,7 +124,7 @@ func (r *Lucene99ScoreSkipReader) readImpactsLevel(level int, skipStream store.I
 		r.impactData[level] = make([]byte, util.Oversize(length, 1))
 	}
 	r.impactData[level] = r.impactData[level][:length]
-	if err := skipStream.ReadBytes(r.impactData[level]); err != nil {
+	if err := skipStream.ReadBytes(r.impactData[level], 0, len(r.impactData[level])); err != nil {
 		return err
 	}
 	r.impactDataLength[level] = length

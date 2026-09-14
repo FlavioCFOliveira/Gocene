@@ -148,7 +148,7 @@ func (v *OffHeapQuantizedFloatVectorValues) VectorValue(targetOrd int) ([]float3
 	if err := v.slice.SetPosition(int64(targetOrd) * int64(v.byteSize)); err != nil {
 		return nil, fmt.Errorf("lucene99 off-heap quantized float: seek to ord %d: %w", targetOrd, err)
 	}
-	if err := v.slice.ReadBytes(v.binaryValue[:v.numBytes]); err != nil {
+	if err := v.slice.ReadBytes(v.binaryValue[:v.numBytes], 0, len(v.binaryValue[:v.numBytes])); err != nil {
 		return nil, fmt.Errorf("lucene99 off-heap quantized float: read bytes: %w", err)
 	}
 	// Read one little-endian float32 corrective value.
@@ -415,7 +415,7 @@ func decompressBytes99(compressed []byte, numBytes int) {
 // readOneLEFloat32 reads a single little-endian float32 from in.
 func readOneLEFloat32(in store.IndexInput) (float32, error) {
 	var buf [4]byte
-	if err := in.ReadBytes(buf[:]); err != nil {
+	if err := in.ReadBytes(buf[:], 0, len(buf[:])); err != nil {
 		return 0, err
 	}
 	bits := uint32(buf[0]) | uint32(buf[1])<<8 | uint32(buf[2])<<16 | uint32(buf[3])<<24
@@ -452,6 +452,16 @@ func (d *denseDocIter99) Cost() int64 { return int64(d.size) }
 
 func (d *denseDocIter99) Index() int { return d.doc }
 
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which the
+// iterator returned by KnnVectorValues.createDenseIterator() inherits.
+func (d *denseDocIter99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the iterator returned by KnnVectorValues.createDenseIterator() inherits.
+func (d *denseDocIter99) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(d) }
+
 // ---------------------------------------------------------------------------
 // IndexedDISI DocIndexIterator wrapper
 // ---------------------------------------------------------------------------
@@ -469,6 +479,17 @@ func (i *indexedDISIIter99) Advance(target int) (int, error) { return i.disi.Adv
 func (i *indexedDISIIter99) Cost() int64 { return i.disi.Cost() }
 
 func (i *indexedDISIIter99) Index() int { return i.disi.Index() }
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which the
+// iterator returned by IndexedDISI.asDocIndexIterator(IndexedDISI) inherits.
+func (i *indexedDISIIter99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(i, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the iterator returned by IndexedDISI.asDocIndexIterator(IndexedDISI)
+// inherits; that anonymous class does not delegate to IndexedDISI.docIDRunEnd.
+func (i *indexedDISIIter99) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(i) }
 
 // ---------------------------------------------------------------------------
 // Ordinal-keyed Bits (sparse variant's getAcceptOrds)
@@ -517,7 +538,7 @@ func (d *docIndexIterToView99) DocID() int                 { return d.it.DocID()
 func (d *docIndexIterToView99) NextDoc() (int, error)      { return d.it.NextDoc() }
 func (d *docIndexIterToView99) Advance(t int) (int, error) { return d.it.Advance(t) }
 func (d *docIndexIterToView99) Cost() int64                { return d.it.Cost() }
-func (d *docIndexIterToView99) DocIDRunEnd() (int, error)  { return noMoreDocs99, nil }
+func (d *docIndexIterToView99) DocIDRunEnd() (int, error)  { return d.it.DocIDRunEnd() }
 
 // IntoBitSet carries the default body of
 // DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene

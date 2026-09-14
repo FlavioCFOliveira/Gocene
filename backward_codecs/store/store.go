@@ -14,8 +14,10 @@ package store
 
 import (
 	"fmt"
+	"math"
 	"math/bits"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	gstore "github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -97,7 +99,9 @@ func (r *EndiannessReverserDataInput) ReadLongs(dst []int64, offset, length int)
 
 func (r *EndiannessReverserDataInput) ReadByte() (byte, error) { return r.In.ReadByte() }
 
-func (r *EndiannessReverserDataInput) ReadBytes(b []byte, offset, length int) error { return r.In.ReadBytes(b, offset, length) }
+func (r *EndiannessReverserDataInput) ReadBytes(b []byte, offset, length int) error {
+	return r.In.ReadBytes(b, offset, length)
+}
 
 func (r *EndiannessReverserDataInput) ReadBytesN(n int) ([]byte, error) {
 	out := make([]byte, n)
@@ -154,7 +158,9 @@ func NewEndiannessReverserDataOutput(out gstore.DataOutput) *EndiannessReverserD
 
 func (w *EndiannessReverserDataOutput) WriteByte(b byte) error { return w.Out.WriteByte(b) }
 
-func (w *EndiannessReverserDataOutput) WriteBytes(b []byte, offset, length int) error { return w.Out.WriteBytes(b, offset, length) }
+func (w *EndiannessReverserDataOutput) WriteBytes(b []byte, offset, length int) error {
+	return w.Out.WriteBytes(b, offset, length)
+}
 
 func (w *EndiannessReverserDataOutput) WriteBytesN(b []byte, n int) error {
 	return w.Out.WriteBytesN(b, n)
@@ -326,15 +332,77 @@ var _ gstore.IndexOutput = (*EndiannessReverserIndexOutput)(nil)
 // Port of org.apache.lucene.backward_codecs.store.EndiannessReverserChecksumIndexInput
 // (Lucene 10.4.0, package-private).
 type EndiannessReverserChecksumIndexInput struct {
+	// BaseDataInput carries the concrete members Java's DataInput supplies to
+	// this class (readVInt, readVLong, readZInt, readZLong, readMapOfStrings,
+	// readSetOfStrings), built on the overridden readByte and readBytes. Its
+	// Core is this input.
+	spi.BaseDataInput
+
 	inner *gstore.BufferedChecksumIndexInput
 }
 
 // NewEndiannessReverserChecksumIndexInput wraps in so bytes are checksummed
 // and multi-byte integers are byte-swapped.
 func NewEndiannessReverserChecksumIndexInput(in gstore.IndexInput) *EndiannessReverserChecksumIndexInput {
-	return &EndiannessReverserChecksumIndexInput{
+	r := &EndiannessReverserChecksumIndexInput{
 		inner: gstore.NewBufferedChecksumIndexInput(in),
 	}
+	r.Core = r
+	return r
+}
+
+// SkipBytes renders DataInput.skipBytes, which reads and discards the bytes
+// through readBytes; the checksumming input it delegates to does the same.
+func (r *EndiannessReverserChecksumIndexInput) SkipBytes(numBytes int64) error {
+	return r.inner.SkipBytes(numBytes)
+}
+
+// ReadInts renders DataInput.readInts, which reads every value through the
+// overridden, byte-swapping readInt.
+func (r *EndiannessReverserChecksumIndexInput) ReadInts(dst []int32, offset, length int) error {
+	if offset < 0 || length < 0 || offset+length > len(dst) {
+		return fmt.Errorf("index out of bounds: offset=%d length=%d size=%d", offset, length, len(dst))
+	}
+	for i := 0; i < length; i++ {
+		v, err := r.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadLongs renders DataInput.readLongs, which reads every value through the
+// overridden, byte-swapping readLong.
+func (r *EndiannessReverserChecksumIndexInput) ReadLongs(dst []int64, offset, length int) error {
+	if offset < 0 || length < 0 || offset+length > len(dst) {
+		return fmt.Errorf("index out of bounds: offset=%d length=%d size=%d", offset, length, len(dst))
+	}
+	for i := 0; i < length; i++ {
+		v, err := r.ReadLong()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadFloats renders DataInput.readFloats: Float.intBitsToFloat(readInt()) for
+// every value, through the overridden, byte-swapping readInt.
+func (r *EndiannessReverserChecksumIndexInput) ReadFloats(dst []float32, offset, length int) error {
+	if offset < 0 || length < 0 || offset+length > len(dst) {
+		return fmt.Errorf("index out of bounds: offset=%d length=%d size=%d", offset, length, len(dst))
+	}
+	for i := 0; i < length; i++ {
+		v, err := r.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = math.Float32frombits(uint32(v))
+	}
+	return nil
 }
 
 func (r *EndiannessReverserChecksumIndexInput) ReadByte() (byte, error) {

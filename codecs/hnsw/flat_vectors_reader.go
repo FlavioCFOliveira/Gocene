@@ -72,10 +72,11 @@ type FlatVectorsReader interface {
 	// method getRandomVectorScorer(String, byte[]).
 	GetRandomVectorScorerByte(field string, target []byte) (hnsw.RandomVectorScorer, error)
 
-	// GetMergeInstance returns an instance optimized for merging. The
-	// default in the Java reference returns the receiver; the
-	// embeddable base reuses that default.
-	GetMergeInstance() (FlatVectorsReader, error)
+	// GetMergeInstance is inherited from [codecs.KnnVectorsReader]. Java's
+	// FlatVectorsReader.getMergeInstance() narrows the return type to
+	// FlatVectorsReader and returns this; a Go interface cannot redeclare an
+	// embedded method with a covariant result, so implementers return
+	// themselves as a codecs.KnnVectorsReader.
 }
 
 // BaseFlatVectorsReader carries the [FlatVectorsScorer] handle and

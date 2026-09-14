@@ -5,6 +5,7 @@
 package codecs
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
@@ -13,217 +14,277 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
-// BasePointsWriter provides the default merge implementation for point values.
-// This is the Go port of the common logic in org.apache.lucene.codecs.PointsWriter.
+// BasePointsWriter carries the concrete members of the abstract class
+// org.apache.lucene.codecs.PointsWriter (Apache Lucene 10.5.0): mergeOneField
+// and merge. The abstract members (writeField, finish) and close are the
+// methods of [PointsWriter].
+//
+// Every concrete writer embeds a BasePointsWriter built with
+// [NewBasePointsWriter], passing itself as impl: impl is the receiver on which
+// the merge members invoke writeField and finish, which Java dispatches
+// through this. merge is not part of [PointsWriter] because MergeState lives
+// in package index, which spi cannot import.
 type BasePointsWriter struct {
-	writer spi.PointsWriter
+	impl PointsWriter
 }
 
-// NewBasePointsWriter creates a new BasePointsWriter wrapping the given implementation.
-func NewBasePointsWriter(writer spi.PointsWriter) *BasePointsWriter {
-	return &BasePointsWriter{writer: writer}
+// NewBasePointsWriter returns the base of the writer impl. Mirrors the
+// protected constructor PointsWriter().
+func NewBasePointsWriter(impl PointsWriter) *BasePointsWriter {
+	return &BasePointsWriter{impl: impl}
 }
 
-// Merge coordinates the merging of incoming points readers by visiting all their points
-// and adding them to the current writer.
-func (b *BasePointsWriter) Merge(mergeState *index.MergeState) error {
-	// Check each incoming reader
-	for _, reader := range mergeState.Readers {
-		if reader != nil {
-			if err := mergeState.CheckAborted(); err != nil {
-				return err
-			}
-			if err := reader.GetPointsReader().CheckIntegrity(); err != nil {
-				return err
-			}
-		}
-	}
+// errMergedPointsUnsupported renders the UnsupportedOperationException thrown
+// by the members of the anonymous PointsReader, PointValues and PointTree that
+// PointsWriter.mergeOneField hands to writeField. Only size(), getPointTree()
+// and the tree's moveTo*/size()/visitDocValues() carry a body in Java.
+var errMergedPointsUnsupported = errors.New(
+	"codecs: PointsWriter.mergeOneField's merged points reader supports only getValues, size and visitDocValues",
+)
 
-	// Merge field at a time
-	// Java: for (FieldInfo fieldInfo : mergeState.mergeFieldInfos)
-	// (PointsWriter.java:230).
-	for _, fieldInfo := range mergeState.MergeFieldInfos.Infos() {
-		if fieldInfo.PointDimensionCount() != 0 {
-			if err := b.mergeOneField(mergeState, fieldInfo); err != nil {
-				return err
-			}
-		}
-	}
-
-	return b.writer.Finish()
-}
-
-// mergeOneField implements the default naive merge for one field: it just re-indexes
-// all the values from the incoming segments.
-func (b *BasePointsWriter) mergeOneField(mergeState *index.MergeState, fieldInfo *spi.FieldInfo) error {
+// MergeOneField is the default naive merge implementation for one field: it
+// just re-indexes all the values from the incoming segment. The default codec
+// overrides this for 1D fields and uses a faster but more complex
+// implementation.
+//
+// Port of the protected PointsWriter.mergeOneField(MergeState, FieldInfo).
+func (b *BasePointsWriter) MergeOneField(mergeState *index.MergeState, fieldInfo *spi.FieldInfo) error {
 	var maxPointCount int64
-	for i := 0; i < len(mergeState.Readers); i++ {
-		reader := mergeState.Readers[i]
-		if reader != nil {
+	for i, pointsReader := range mergeState.PointsReaders {
+		if pointsReader != nil {
 			readerFieldInfo := mergeState.FieldInfos[i].FieldInfoByName(fieldInfo.Name())
 			if readerFieldInfo != nil && readerFieldInfo.PointDimensionCount() > 0 {
-				values, err := reader.GetPointValues(fieldInfo.Name())
-				if err == nil && values != nil {
+				values, err := pointsReader.GetValues(fieldInfo.Name())
+				if err != nil {
+					return err
+				}
+				if values != nil {
 					maxPointCount += values.GetValueCount()
 				}
 			}
 		}
 	}
-
-	mergedReader := &mergedPointsReader{
-		mergeState:    mergeState,
-		fieldInfo:     fieldInfo,
-		maxPointCount: maxPointCount,
-	}
-
-	return b.writer.WriteField(fieldInfo, mergedReader)
+	finalMaxPointCount := maxPointCount
+	return b.impl.WriteField(fieldInfo, &mergedPointsReader{
+		mergeState:         mergeState,
+		fieldInfo:          fieldInfo,
+		finalMaxPointCount: finalMaxPointCount,
+	})
 }
 
-// mergedPointsReader is a temporary reader used during the naive merge process.
-type mergedPointsReader struct {
-	mergeState    *index.MergeState
-	fieldInfo     *spi.FieldInfo
-	maxPointCount int64
-}
-
-func (r *mergedPointsReader) CheckIntegrity() error { return nil }
-func (r *mergedPointsReader) Close() error          { return nil }
-
-// GetMergeInstance returns this reader. The anonymous PointsReader in Java's
-// PointsWriter.mergeOneField does not override getMergeInstance(), so it keeps
-// the PointsReader default body, `return this;`.
-func (r *mergedPointsReader) GetMergeInstance() spi.PointsReader { return r }
-
-// GetValues recovers the wide read surface for the merged points.
-func (r *mergedPointsReader) GetValues(field string) (index.PointValues, error) {
-	if field != r.fieldInfo.Name() {
-		return nil, fmt.Errorf("field name must match the field being merged")
-	}
-	return &mergedPointValues{
-		reader: r,
-	}, nil
-}
-
-// mergedPointValues implements a PointValues view over the incoming merge state.
-type mergedPointValues struct {
-	reader *mergedPointsReader
-}
-
-func (v *mergedPointValues) GetDocCount() int            { return 0 }
-func (v *mergedPointValues) GetDocCountWithValue() int64 { return 0 }
-func (v *mergedPointValues) GetValueCount() int64        { return v.reader.maxPointCount }
-func (v *mergedPointValues) GetMinPackedValue() ([]byte, error) {
-	return nil, fmt.Errorf("unsupported")
-}
-func (v *mergedPointValues) GetMaxPackedValue() ([]byte, error) {
-	return nil, fmt.Errorf("unsupported")
-}
-func (v *mergedPointValues) GetNumDimensions() int     { return 0 }
-func (v *mergedPointValues) GetBytesPerDimension() int { return 0 }
-
-// GetPointTree returns a cursor that streams points from the source segments.
-func (v *mergedPointValues) GetPointTree() bkd.PointTree {
-	return &mergedPointTree{
-		values: v,
-	}
-}
-
-// mergedPointTree implements a PointTree that iterates over multiple source segments.
-type mergedPointTree struct {
-	values *mergedPointValues
-}
-
-func (t *mergedPointTree) Clone() bkd.PointTree {
-	return nil // Not used in naive merge
-}
-
-func (t *mergedPointTree) MoveToChild() (bool, error) {
-	return false, nil
-}
-
-func (t *mergedPointTree) MoveToSibling() (bool, error) {
-	return false, nil
-}
-
-func (t *mergedPointTree) MoveToParent() (bool, error) {
-	return false, nil
-}
-
-func (t *mergedPointTree) GetMinPackedValue() []byte {
-	return nil
-}
-
-func (t *mergedPointTree) GetMaxPackedValue() []byte {
-	return nil
-}
-
-func (t *mergedPointTree) Size() int64 {
-	return t.values.reader.maxPointCount
-}
-
-func (t *mergedPointTree) VisitDocIDs(visitor bkd.IntersectVisitor) error {
-	return nil // Not used in naive merge
-}
-
-func (t *mergedPointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
-	ms := t.values.reader.mergeState
-	fieldName := t.values.reader.fieldInfo.Name()
-
-	for i := 0; i < len(ms.Readers); i++ {
-		reader := ms.Readers[i]
-		if reader == nil {
-			continue
-		}
-
-		readerFieldInfo := ms.FieldInfos[i].FieldInfoByName(fieldName)
-		if readerFieldInfo == nil || readerFieldInfo.PointDimensionCount() == 0 {
-			continue
-		}
-
-		values, err := reader.GetPointValues(fieldName)
-		if err != nil || values == nil {
-			continue
-		}
-
-		docMap := ms.DocMaps[i]
-
-		// Recover the PointTree from the source values via assertion.
-		// values.getPointTree().visitDocValues(new IntersectVisitor() {...})
-		if src, ok := values.(interface{ GetPointTree() bkd.PointTree }); ok {
-			if err := src.GetPointTree().VisitDocValues(&mergedVisitor{
-				mergedVisitor: visitor,
-				docMap:        docMap,
-			}); err != nil {
+// Merge is the default merge implementation to merge incoming points readers
+// by visiting all their points and adding to this writer.
+//
+// Port of PointsWriter.merge(MergeState).
+func (b *BasePointsWriter) Merge(mergeState *index.MergeState) error {
+	// check each incoming reader
+	for _, reader := range mergeState.PointsReaders {
+		if reader != nil {
+			if err := mergeState.CheckAborted(); err != nil {
+				return err
+			}
+			if err := reader.CheckIntegrity(); err != nil {
 				return err
 			}
 		}
 	}
+	// merge field at a time
+	// Java: for (FieldInfo fieldInfo : mergeState.mergeFieldInfos).
+	for _, fieldInfo := range mergeState.MergeFieldInfos.Infos() {
+		if fieldInfo.PointDimensionCount() != 0 {
+			if err := b.MergeOneField(mergeState, fieldInfo); err != nil {
+				return err
+			}
+		}
+	}
+	return b.impl.Finish()
+}
+
+// mergedPointsReader is the anonymous PointsReader that
+// PointsWriter.mergeOneField hands to writeField.
+type mergedPointsReader struct {
+	mergeState         *index.MergeState
+	fieldInfo          *spi.FieldInfo
+	finalMaxPointCount int64
+}
+
+func (r *mergedPointsReader) Close() error { return nil }
+
+// GetValues renders `public PointValues getValues(String fieldName)`.
+func (r *mergedPointsReader) GetValues(fieldName string) (spi.PointValues, error) {
+	if fieldName != r.fieldInfo.Name() {
+		return nil, fmt.Errorf("field name must match the field being merged")
+	}
+	return &mergedPointValues{reader: r, fieldName: fieldName}, nil
+}
+
+// CheckIntegrity throws UnsupportedOperationException in Java.
+func (r *mergedPointsReader) CheckIntegrity() error {
+	return errMergedPointsUnsupported
+}
+
+// GetMergeInstance returns this reader. The anonymous PointsReader does not
+// override getMergeInstance(), so it keeps the PointsReader default body,
+// `return this;`.
+func (r *mergedPointsReader) GetMergeInstance() spi.PointsReader { return r }
+
+// mergedPointValues is the anonymous PointValues returned by
+// mergedPointsReader.GetValues.
+type mergedPointValues struct {
+	reader    *mergedPointsReader
+	fieldName string
+}
+
+// GetPointTree renders `public PointTree getPointTree()`.
+func (v *mergedPointValues) GetPointTree() (bkd.PointTree, error) {
+	return &mergedPointTree{values: v}, nil
+}
+
+// GetMinPackedValue throws UnsupportedOperationException in Java.
+func (v *mergedPointValues) GetMinPackedValue() ([]byte, error) {
+	return nil, errMergedPointsUnsupported
+}
+
+// GetMaxPackedValue throws UnsupportedOperationException in Java.
+func (v *mergedPointValues) GetMaxPackedValue() ([]byte, error) {
+	return nil, errMergedPointsUnsupported
+}
+
+// GetNumDimensions throws UnsupportedOperationException in Java.
+func (v *mergedPointValues) GetNumDimensions() int { panic(errMergedPointsUnsupported) }
+
+// GetNumIndexDimensions throws UnsupportedOperationException in Java.
+func (v *mergedPointValues) GetNumIndexDimensions() int { panic(errMergedPointsUnsupported) }
+
+// GetBytesPerDimension throws UnsupportedOperationException in Java.
+func (v *mergedPointValues) GetBytesPerDimension() int { panic(errMergedPointsUnsupported) }
+
+// GetValueCount renders `public long size()`, whose body is
+// `return finalMaxPointCount`.
+func (v *mergedPointValues) GetValueCount() int64 { return v.reader.finalMaxPointCount }
+
+// GetDocCount throws UnsupportedOperationException in Java.
+func (v *mergedPointValues) GetDocCount() int { panic(errMergedPointsUnsupported) }
+
+// GetDocCountWithValue is a member of spi.PointValues with no Lucene
+// counterpart; the anonymous PointValues supports nothing beyond size() and
+// getPointTree().
+func (v *mergedPointValues) GetDocCountWithValue() int64 { panic(errMergedPointsUnsupported) }
+
+// mergedPointTree is the anonymous PointTree returned by
+// mergedPointValues.GetPointTree.
+type mergedPointTree struct {
+	values *mergedPointValues
+}
+
+// Clone throws UnsupportedOperationException in Java.
+func (t *mergedPointTree) Clone() bkd.PointTree { panic(errMergedPointsUnsupported) }
+
+func (t *mergedPointTree) MoveToChild() (bool, error) { return false, nil }
+
+func (t *mergedPointTree) MoveToSibling() (bool, error) { return false, nil }
+
+func (t *mergedPointTree) MoveToParent() (bool, error) { return false, nil }
+
+// GetMinPackedValue throws UnsupportedOperationException in Java.
+func (t *mergedPointTree) GetMinPackedValue() []byte { panic(errMergedPointsUnsupported) }
+
+// GetMaxPackedValue throws UnsupportedOperationException in Java.
+func (t *mergedPointTree) GetMaxPackedValue() []byte { panic(errMergedPointsUnsupported) }
+
+func (t *mergedPointTree) Size() int64 { return t.values.reader.finalMaxPointCount }
+
+// VisitDocIDs throws UnsupportedOperationException in Java.
+func (t *mergedPointTree) VisitDocIDs(visitor bkd.IntersectVisitor) error {
+	return errMergedPointsUnsupported
+}
+
+// VisitDocValues renders `public void visitDocValues(IntersectVisitor
+// mergedVisitor)`.
+func (t *mergedPointTree) VisitDocValues(mergedVisitor bkd.IntersectVisitor) error {
+	mergeState := t.values.reader.mergeState
+	fieldName := t.values.fieldName
+	for i, pointsReader := range mergeState.PointsReaders {
+		if pointsReader == nil {
+			// This segment has no points
+			continue
+		}
+		readerFieldInfo := mergeState.FieldInfos[i].FieldInfoByName(fieldName)
+		if readerFieldInfo == nil {
+			// This segment never saw this field
+			continue
+		}
+
+		if readerFieldInfo.PointDimensionCount() == 0 {
+			// This segment saw this field, but the field did not index points in it:
+			continue
+		}
+
+		values, err := pointsReader.GetValues(fieldName)
+		if err != nil {
+			return err
+		}
+		if values == nil {
+			continue
+		}
+		docMap := mergeState.DocMaps[i]
+		// Java: values.getPointTree(). spi.PointValues does not declare
+		// getPointTree, so it is reached through the member every BKD-backed
+		// PointValues in Gocene carries.
+		treeSource, ok := values.(interface {
+			GetPointTree() (bkd.PointTree, error)
+		})
+		if !ok {
+			return fmt.Errorf("codecs: merge points: PointValues %T does not expose getPointTree", values)
+		}
+		tree, err := treeSource.GetPointTree()
+		if err != nil {
+			return err
+		}
+		if err := tree.VisitDocValues(&mergedSegmentVisitor{
+			mergedVisitor: mergedVisitor,
+			docMap:        docMap,
+		}); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// mergedVisitor maps docIDs from source segments to the merged segment's docIDs.
-type mergedVisitor struct {
+// mergedSegmentVisitor is the anonymous IntersectVisitor that maps each source
+// segment's docIDs to the merged segment's docIDs.
+type mergedSegmentVisitor struct {
 	mergedVisitor bkd.IntersectVisitor
 	docMap        index.DocMap
 }
 
-func (v *mergedVisitor) Visit(docID int) error {
-	return fmt.Errorf("should never be called during VisitDocValues")
+// Visit throws IllegalStateException in Java: it must never be called during
+// visitDocValues.
+func (v *mergedSegmentVisitor) Visit(docID int) error {
+	return fmt.Errorf("codecs: merge points: visit(int) called during visitDocValues")
 }
 
-func (v *mergedVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
+func (v *mergedSegmentVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
 	newDocID := v.docMap.Get(docID)
 	if newDocID != -1 {
+		// Not deleted:
 		return v.mergedVisitor.VisitByPackedValue(newDocID, packedValue)
 	}
 	return nil
 }
 
-func (v *mergedVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
-	// Forces this segment's PointsReader to always visit all docs + values.
+// Compare forces this segment's PointsReader to always visit all docs +
+// values.
+func (v *mergedSegmentVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
 	return geo.CellCrossesQuery
 }
 
-func (v *mergedVisitor) Grow(count int) {
-	v.mergedVisitor.Grow(count)
-}
+// Grow keeps the IntersectVisitor default body, which does nothing.
+func (v *mergedSegmentVisitor) Grow(count int) {}
+
+var (
+	_ PointsReader         = (*mergedPointsReader)(nil)
+	_ spi.PointValues      = (*mergedPointValues)(nil)
+	_ bkd.PointTree        = (*mergedPointTree)(nil)
+	_ bkd.IntersectVisitor = (*mergedSegmentVisitor)(nil)
+)

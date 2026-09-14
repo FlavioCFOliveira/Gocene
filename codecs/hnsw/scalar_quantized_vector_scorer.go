@@ -268,7 +268,7 @@ func (s *ScalarQuantizedRandomVectorScorerSupplier) Copy() (hnsw.RandomVectorSco
 
 // String returns the canonical Java toString() output.
 func (s *ScalarQuantizedRandomVectorScorerSupplier) String() string {
-	return fmt.Sprintf("ScalarQuantizedRandomVectorScorerSupplier(vectorSimilarityFunction=%s)", s.vectorSimilarityFunction.String())
+	return fmt.Sprintf("ScalarQuantizedRandomVectorScorerSupplier(vectorSimilarityFunction=%s)", s.vectorSimilarityFunction.ID().String())
 }
 
 // scalarQuantizedSupplierScorer is the per-Scorer() closure for the

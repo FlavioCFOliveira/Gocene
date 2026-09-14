@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 //
-// Portions adapted from Apache Lucene 10.4.0:
+// Portions adapted from Apache Lucene 10.5.0:
 //
 //   Licensed to the Apache Software Foundation (ASF) under one or more
 //   contributor license agreements. See the NOTICE file distributed with
@@ -26,6 +26,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -33,213 +34,213 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
-// -----------------------------------------------------------------------------
-// Write-side point source contract.
-// -----------------------------------------------------------------------------
-
-// PointsSource is the surface pointsWriter pulls point values from when
-// WriteField is invoked. The indexing chain hands the writer a
-// codecs.PointsReader that also implements this interface (the in-memory
-// buffer flushed by DocumentsWriterPerThread).
-//
-// It mirrors the part of org.apache.lucene.index.PointValues that
-// Lucene90PointsWriter.writeField consumes: the per-field point count (used to
-// size the BKDWriter) and a visitor-style walk over every indexed (docID,
-// packedValue) pair (PointValues.visitDocValues with a CELL_CROSSES_QUERY
-// visitor).
-type PointsSource interface {
-	// PointValueCount returns the number of indexed point values for field
-	// (PointValues.size()).
-	PointValueCount(field string) int64
-
-	// VisitPoints invokes fn for every indexed (docID, packedValue) pair for
-	// field, in the order they were buffered. The packedValue slice is owned
-	// by the source for the duration of the call; implementations that retain
-	// it must copy.
-	VisitPoints(field string, fn func(docID int, packedValue []byte) error) error
-}
-
-// pointTreeSource is an optional extension of PointsSource that exposes the
-// in-memory MutablePointTree directly. When available, pointsWriter uses
-// BKDWriter.WriteField (the heap path) instead of Add/Finish (the offline
-// spill path), matching the code path Lucene 10.4.0 takes for buffered points
-// and producing byte-identical output for small in-memory trees.
-type pointTreeSource interface {
-	PointsSource
-	// MutablePointTree returns the in-memory tree and its point count.
-	index.MutablePointTreeSource
-}
-
-// mutablePointTreeWrapper adapts an index.PointTreeBuffer to the
-// bkd.MutablePointTree interface expected by BKDWriter.WriteField. The two
-// interfaces have identical method sets; the wrapper avoids importing
-// util/bkd into the index package (which would create an import cycle).
-type mutablePointTreeWrapper struct {
-	tree index.PointTreeBuffer
-}
-
-func (w *mutablePointTreeWrapper) Swap(i, j int)                      { w.tree.Swap(i, j) }
-func (w *mutablePointTreeWrapper) GetValue(i int, dst *util.BytesRef) { w.tree.GetValue(i, dst) }
-func (w *mutablePointTreeWrapper) GetByteAt(i, k int) byte            { return w.tree.GetByteAt(i, k) }
-func (w *mutablePointTreeWrapper) GetDocID(i int) int                 { return w.tree.GetDocID(i) }
-func (w *mutablePointTreeWrapper) Save(i, j int)                      { w.tree.Save(i, j) }
-func (w *mutablePointTreeWrapper) Restore(i, j int)                   { w.tree.Restore(i, j) }
-
-// pointsWriter writes points in Lucene 9.0 format.
+// pointsWriter writes dimensional values. It is the Go port of
+// org.apache.lucene.codecs.lucene90.Lucene90PointsWriter (Apache Lucene
+// 10.5.0).
 type pointsWriter struct {
-	state               *codecs.SegmentWriteState
-	version             int32
+	*codecs.BasePointsWriter
+
+	// Outputs used to write the BKD tree data files.
+	metaOut, indexOut, dataOut store.IndexOutput
+
+	writeState          *codecs.SegmentWriteState
 	maxPointsInLeafNode int
 	maxMBSortInHeap     float64
-
-	metaOut  store.IndexOutput
-	indexOut store.IndexOutput
-	dataOut  store.IndexOutput
+	version             int32
 
 	finished bool
-	closed   bool
 }
 
-// newPointsWriter opens and header-stamps the three output files (.kdd, .kdm,
-// .kdi) and returns the writer. Installed as the codecs Lucene90 points writer
-// hook.
-func newPointsWriter(state *codecs.SegmentWriteState, version int32) (codecs.PointsWriter, error) {
-	if _, err := codecs.Lucene90PointsBKDVersion(version); err != nil {
-		return nil, err
-	}
+// newPointsWriter renders the constructor Lucene90PointsWriter(SegmentWriteState,
+// int maxPointsInLeafNode, double maxMBSortInHeap, int version) as reached from
+// Lucene90PointsFormat.fieldsWriter, with the defaults
+// BKDConfig.DEFAULT_MAX_POINTS_IN_LEAF_NODE and
+// BKDWriter.DEFAULT_MAX_MB_SORT_IN_HEAP. Installed as the codecs Lucene90
+// points writer hook.
+func newPointsWriter(writeState *codecs.SegmentWriteState, version int32) (codecs.PointsWriter, error) {
 	w := &pointsWriter{
-		state:               state,
-		version:             version,
+		writeState:          writeState,
 		maxPointsInLeafNode: bkd.DefaultMaxPointsInLeafNode,
 		maxMBSortInHeap:     bkd.DefaultMaxMBSortInHeap,
+		version:             version,
+	}
+	w.BasePointsWriter = codecs.NewBasePointsWriter(w)
+
+	files := codecs.Lucene90PointFileList(writeState.SegmentInfo.Name(), writeState.SegmentSuffix)
+	dataEntry, indexEntry, metaEntry := files[0], files[1], files[2]
+	create := func(entry codecs.Lucene90PointFileEntry) (store.IndexOutput, error) {
+		raw, err := writeState.Directory.CreateOutput(entry.Name, store.IOContext{Context: store.ContextWrite})
+		if err != nil {
+			return nil, err
+		}
+		return store.NewChecksumIndexOutput(raw), nil
 	}
 
-	files := codecs.Lucene90PointFileList(state.SegmentInfo.Name(), state.SegmentSuffix)
-	open := func(entry codecs.Lucene90PointFileEntry) (store.IndexOutput, error) {
-		raw, err := state.Directory.CreateOutput(entry.Name, store.IOContext{Context: store.ContextWrite})
-		if err != nil {
-			return nil, fmt.Errorf("lucene90 points: create %q: %w", entry.Name, err)
+	success := false
+	defer func() {
+		if !success {
+			// IOUtils.closeWhileHandlingException(this)
+			util.CloseAllWhileHandlingException(w.metaOut, w.indexOut, w.dataOut)
 		}
-		out := store.NewChecksumIndexOutput(raw)
-		if err := codecs.WriteIndexHeader(out, entry.Codec, codecs.Lucene90PointsVersionCurrent, state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
-			_ = out.Close()
-			return nil, fmt.Errorf("lucene90 points: header %q: %w", entry.Name, err)
-		}
-		return out, nil
-	}
+	}()
 
 	var err error
-	if w.dataOut, err = open(files[0]); err != nil {
+	if w.dataOut, err = create(dataEntry); err != nil {
 		return nil, err
 	}
-	if w.metaOut, err = open(files[2]); err != nil {
-		_ = w.dataOut.Close()
+	if err := codecs.WriteIndexHeader(w.dataOut, dataEntry.Codec, codecs.Lucene90PointsVersionCurrent,
+		writeState.SegmentInfo.GetID(), writeState.SegmentSuffix); err != nil {
 		return nil, err
 	}
-	if w.indexOut, err = open(files[1]); err != nil {
-		_ = w.dataOut.Close()
-		_ = w.metaOut.Close()
+
+	if w.metaOut, err = create(metaEntry); err != nil {
 		return nil, err
 	}
+	if err := codecs.WriteIndexHeader(w.metaOut, metaEntry.Codec, codecs.Lucene90PointsVersionCurrent,
+		writeState.SegmentInfo.GetID(), writeState.SegmentSuffix); err != nil {
+		return nil, err
+	}
+
+	if w.indexOut, err = create(indexEntry); err != nil {
+		return nil, err
+	}
+	if err := codecs.WriteIndexHeader(w.indexOut, indexEntry.Codec, codecs.Lucene90PointsVersionCurrent,
+		writeState.SegmentInfo.GetID(), writeState.SegmentSuffix); err != nil {
+		return nil, err
+	}
+	success = true
 	return w, nil
 }
 
-// WriteField writes the BKD tree for fieldInfo, pulling its point values from
-// reader (which must implement PointsSource).
+// WriteField renders Lucene90PointsWriter.writeField(FieldInfo, PointsReader).
 func (w *pointsWriter) WriteField(fieldInfo *spi.FieldInfo, reader codecs.PointsReader) error {
-	if w.closed {
-		return errors.New("lucene90 points: writer closed")
+	pointValues, err := reader.GetValues(fieldInfo.Name())
+	if err != nil {
+		return err
 	}
-	if w.finished {
-		return errors.New("lucene90 points: writer already finished")
-	}
-	src, ok := reader.(PointsSource)
+	// Java: reader.getValues(fieldInfo.name).getPointTree(). spi.PointValues
+	// does not declare getPointTree, so it is reached through the member every
+	// PointValues handed to a points writer carries.
+	treeSource, ok := pointValues.(interface {
+		GetPointTree() (bkd.PointTree, error)
+	})
 	if !ok {
-		return fmt.Errorf("lucene90 points: reader %T does not implement PointsSource", reader)
+		return fmt.Errorf("lucene90 points: PointValues %T does not expose getPointTree", pointValues)
+	}
+	values, err := treeSource.GetPointTree()
+	if err != nil {
+		return err
 	}
 
-	config, err := bkd.Of(
+	config, err := bkd.NewBKDConfig(
 		fieldInfo.PointDimensionCount(),
 		fieldInfo.PointIndexDimensionCount(),
 		fieldInfo.PointNumBytes(),
-		w.maxPointsInLeafNode,
-	)
+		w.maxPointsInLeafNode)
 	if err != nil {
-		return fmt.Errorf("lucene90 points: field %q config: %w", fieldInfo.Name(), err)
+		return err
 	}
 
 	bkdVersion, err := codecs.Lucene90PointsBKDVersion(w.version)
 	if err != nil {
 		return err
 	}
-
-	totalPointCount := src.PointValueCount(fieldInfo.Name())
 	writer, err := bkd.NewBKDWriterWithVersion(
-		w.state.SegmentInfo.DocCount(),
-		w.state.Directory,
-		w.state.SegmentInfo.Name(),
+		w.writeState.SegmentInfo.MaxDoc(),
+		w.writeState.Directory,
+		w.writeState.SegmentInfo.Name(),
 		config,
 		w.maxMBSortInHeap,
-		totalPointCount,
-		int(bkdVersion),
-	)
+		values.Size(),
+		int(bkdVersion))
 	if err != nil {
-		return fmt.Errorf("lucene90 points: field %q new bkd writer: %w", fieldInfo.Name(), err)
+		return err
 	}
-	defer func() { _ = writer.Close() }()
+	// try (BKDWriter writer = ...) { ... }
+	writeErr := w.writeFieldWith(writer, fieldInfo, values)
+	closeErr := writer.Close()
+	if writeErr != nil {
+		return writeErr
+	}
+	return closeErr
+}
 
-	fieldName := fieldInfo.Name()
-	if pts, ok := reader.(pointTreeSource); ok {
-		tree, size := pts.MutablePointTree()
-		if tree != nil {
-			finalizer, err := writer.WriteField(w.metaOut, w.indexOut, w.dataOut, fieldName, &mutablePointTreeWrapper{tree: tree}, size)
-			if err != nil {
-				return fmt.Errorf("lucene90 points: field %q writeField: %w", fieldName, err)
-			}
-			if finalizer != nil {
-				if err := w.metaOut.WriteInt(int32(fieldInfo.Number())); err != nil {
-					return fmt.Errorf("lucene90 points: field %q write field number: %w", fieldName, err)
-				}
-				if err := finalizer(); err != nil {
-					return fmt.Errorf("lucene90 points: field %q finalizer: %w", fieldName, err)
-				}
-			}
-			return nil
+// writeFieldWith is the body of the try-with-resources block of
+// Lucene90PointsWriter.writeField.
+func (w *pointsWriter) writeFieldWith(writer *bkd.BKDWriter, fieldInfo *spi.FieldInfo, values bkd.PointTree) error {
+	if mutable, ok := values.(bkd.MutablePointTree); ok {
+		finalizer, err := writer.WriteField(w.metaOut, w.indexOut, w.dataOut, fieldInfo.Name(), mutable, int(values.Size()))
+		if err != nil {
+			return err
 		}
+		if finalizer != nil {
+			if err := w.metaOut.WriteInt(int32(fieldInfo.Number())); err != nil {
+				return err
+			}
+			if err := finalizer(); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
-	if err := src.VisitPoints(fieldName, func(docID int, packedValue []byte) error {
-		return writer.Add(packedValue, docID)
-	}); err != nil {
-		return fmt.Errorf("lucene90 points: field %q add: %w", fieldName, err)
+	if err := values.VisitDocValues(&writeFieldIntersectVisitor{writer: writer}); err != nil {
+		return err
 	}
 
+	// We could have 0 points on merge since all docs with dimensional fields may be deleted:
 	finalizer, err := writer.Finish(w.metaOut, w.indexOut, w.dataOut)
 	if err != nil {
-		return fmt.Errorf("lucene90 points: field %q finish: %w", fieldName, err)
+		return err
 	}
 	if finalizer != nil {
 		if err := w.metaOut.WriteInt(int32(fieldInfo.Number())); err != nil {
-			return fmt.Errorf("lucene90 points: field %q write field number: %w", fieldName, err)
+			return err
 		}
 		if err := finalizer(); err != nil {
-			return fmt.Errorf("lucene90 points: field %q finalizer: %w", fieldName, err)
+			return err
 		}
 	}
 	return nil
 }
 
-// Merge merges multiple points readers.
-func (w *pointsWriter) Merge(mergeState *codecs.MergeState) error {
+// writeFieldIntersectVisitor is the anonymous IntersectVisitor that
+// Lucene90PointsWriter.writeField passes to visitDocValues.
+type writeFieldIntersectVisitor struct {
+	writer *bkd.BKDWriter
+}
+
+// Visit throws IllegalStateException in Java.
+func (v *writeFieldIntersectVisitor) Visit(docID int) error {
+	return errors.New("lucene90 points: writeField: visit(int) called during visitDocValues")
+}
+
+func (v *writeFieldIntersectVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
+	return v.writer.Add(packedValue, docID)
+}
+
+func (v *writeFieldIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+	return geo.CellCrossesQuery
+}
+
+// Grow keeps the IntersectVisitor default body, which does nothing.
+func (v *writeFieldIntersectVisitor) Grow(count int) {}
+
+// Merge renders Lucene90PointsWriter.merge(MergeState).
+func (w *pointsWriter) Merge(mergeState *index.MergeState) error {
+	/*
+	 * If indexSort is activated and some of the leaves are not sorted the next test will catch that
+	 * and the non-optimized merge will run. If the readers are all sorted then it's safe to perform
+	 * a bulk merge of the points.
+	 */
 	for _, reader := range mergeState.PointsReaders {
-		if reader == nil {
-			continue
-		}
+		// Java: reader instanceof Lucene90PointsReader == false, which also
+		// holds for a null reader.
 		if _, ok := reader.(*pointsReader); !ok {
-			return codecs.DefaultPointsMerge(mergeState, w)
+			// We can only bulk merge when all to-be-merged segments use our format:
+			return w.BasePointsWriter.Merge(mergeState)
 		}
 	}
-
 	for _, reader := range mergeState.PointsReaders {
 		if reader != nil {
 			if err := mergeState.CheckAborted(); err != nil {
@@ -251,14 +252,14 @@ func (w *pointsWriter) Merge(mergeState *codecs.MergeState) error {
 		}
 	}
 
-	for _, fieldInfo := range mergeState.MergeFieldInfos {
+	for _, fieldInfo := range mergeState.MergeFieldInfos.Infos() {
 		if fieldInfo.PointDimensionCount() != 0 {
 			if fieldInfo.PointDimensionCount() == 1 {
-				if err := w.merge1D(mergeState, fieldInfo); err != nil {
+				if err := w.merge1DField(mergeState, fieldInfo); err != nil {
 					return err
 				}
 			} else {
-				if err := w.mergeOneField(mergeState, fieldInfo); err != nil {
+				if err := w.MergeOneField(mergeState, fieldInfo); err != nil {
 					return err
 				}
 			}
@@ -268,71 +269,89 @@ func (w *pointsWriter) Merge(mergeState *codecs.MergeState) error {
 	return w.Finish()
 }
 
-func (w *pointsWriter) merge1D(mergeState *codecs.MergeState, fieldInfo *spi.FieldInfo) error {
+// merge1DField is the fieldInfo.getPointDimensionCount() == 1 branch of
+// Lucene90PointsWriter.merge.
+func (w *pointsWriter) merge1DField(mergeState *index.MergeState, fieldInfo *spi.FieldInfo) error {
+	// Worst case total maximum size (if none of the points are deleted):
 	var totMaxSize int64
 	for i, reader := range mergeState.PointsReaders {
-		if reader == nil {
-			continue
-		}
-		readerFieldInfos := mergeState.FieldInfos[i]
-		readerFieldInfo := readerFieldInfos.FieldInfo(fieldInfo.Name())
-		if readerFieldInfo != nil && readerFieldInfo.PointDimensionCount() > 0 {
-			values, err := reader.GetValues(fieldInfo.Name())
-			if err != nil {
-				return err
-			}
-			if values != nil {
-				totMaxSize += values.GetValueCount()
+		if reader != nil {
+			readerFieldInfos := mergeState.FieldInfos[i]
+			readerFieldInfo := readerFieldInfos.FieldInfoByName(fieldInfo.Name())
+			if readerFieldInfo != nil && readerFieldInfo.PointDimensionCount() > 0 {
+				values, err := reader.GetValues(fieldInfo.Name())
+				if err != nil {
+					return err
+				}
+				if values != nil {
+					totMaxSize += values.GetValueCount()
+				}
 			}
 		}
 	}
 
-	config, err := bkd.Of(
+	config, err := bkd.NewBKDConfig(
 		fieldInfo.PointDimensionCount(),
 		fieldInfo.PointIndexDimensionCount(),
 		fieldInfo.PointNumBytes(),
-		w.maxPointsInLeafNode,
-	)
+		w.maxPointsInLeafNode)
 	if err != nil {
 		return err
 	}
 
+	// Optimize the 1D case to use BKDWriter.merge, which does a single merge sort of the
+	// already sorted incoming segments, instead of trying to sort all points again as if
+	// we were simply reindexing them:
 	bkdVersion, err := codecs.Lucene90PointsBKDVersion(w.version)
 	if err != nil {
 		return err
 	}
-
 	writer, err := bkd.NewBKDWriterWithVersion(
-		w.state.SegmentInfo.DocCount(),
-		w.state.Directory,
-		w.state.SegmentInfo.Name(),
+		w.writeState.SegmentInfo.MaxDoc(),
+		w.writeState.Directory,
+		w.writeState.SegmentInfo.Name(),
 		config,
 		w.maxMBSortInHeap,
 		totMaxSize,
-		int(bkdVersion),
-	)
+		int(bkdVersion))
 	if err != nil {
 		return err
 	}
-	defer func() { _ = writer.Close() }()
+	// try (BKDWriter writer = ...) { ... }
+	mergeErr := w.merge1DFieldWith(writer, mergeState, fieldInfo)
+	closeErr := writer.Close()
+	if mergeErr != nil {
+		return mergeErr
+	}
+	return closeErr
+}
 
-	var pointValues []index.PointValues
-	var docMaps []*codecs.DocMap
+// merge1DFieldWith is the body of the try-with-resources block of the 1D
+// branch of Lucene90PointsWriter.merge.
+func (w *pointsWriter) merge1DFieldWith(writer *bkd.BKDWriter, mergeState *index.MergeState, fieldInfo *spi.FieldInfo) error {
+	var pointValues []spi.PointValues
+	var docMaps []spi.DocMap
 	for i, reader := range mergeState.PointsReaders {
-		if reader == nil {
-			continue
-		}
-		reader90 := reader.(*pointsReader)
-		readerFieldInfos := mergeState.FieldInfos[i]
-		readerFieldInfo := readerFieldInfos.FieldInfo(fieldInfo.Name())
-		if readerFieldInfo != nil && readerFieldInfo.PointDimensionCount() > 0 {
-			aPointValues, err := reader90.GetValues(readerFieldInfo.Name())
-			if err != nil {
-				return err
-			}
-			if aPointValues != nil {
-				pointValues = append(pointValues, aPointValues)
-				docMaps = append(docMaps, mergeState.DocMaps[i])
+		if reader != nil {
+			// we confirmed this up above
+			reader90 := reader.(*pointsReader)
+
+			// NOTE: we cannot just use the merged fieldInfo.number (instead of resolving to
+			// this
+			// reader's FieldInfo as we do below) because field numbers can easily be different
+			// when addIndexes(Directory...) copies over segments from another index:
+
+			readerFieldInfos := mergeState.FieldInfos[i]
+			readerFieldInfo := readerFieldInfos.FieldInfoByName(fieldInfo.Name())
+			if readerFieldInfo != nil && readerFieldInfo.PointDimensionCount() > 0 {
+				aPointValues, err := reader90.GetValues(readerFieldInfo.Name())
+				if err != nil {
+					return err
+				}
+				if aPointValues != nil {
+					pointValues = append(pointValues, aPointValues)
+					docMaps = append(docMaps, mergeState.DocMaps[i])
+				}
 			}
 		}
 	}
@@ -352,130 +371,13 @@ func (w *pointsWriter) merge1D(mergeState *codecs.MergeState, fieldInfo *spi.Fie
 	return nil
 }
 
-func (w *pointsWriter) mergeOneField(mergeState *codecs.MergeState, fieldInfo *spi.FieldInfo) error {
-	var maxPointCount int64
-	for i, reader := range mergeState.PointsReaders {
-		if reader == nil {
-			continue
-		}
-		readerFieldInfo := mergeState.FieldInfos[i].FieldInfo(fieldInfo.Name())
-		if readerFieldInfo != nil && readerFieldInfo.PointDimensionCount() > 0 {
-			values, err := reader.GetValues(fieldInfo.Name())
-			if err != nil {
-				return err
-			}
-			if values != nil {
-				maxPointCount += values.GetValueCount()
-			}
-		}
-	}
-
-	mergedReader := &mergedPointsReader{
-		mergeState: mergeState,
-		fieldInfo:  fieldInfo,
-		totalCount: maxPointCount,
-	}
-
-	return w.WriteField(fieldInfo, mergedReader)
-}
-
-type mergedPointsReader struct {
-	mergeState *codecs.MergeState
-	fieldInfo  *spi.FieldInfo
-	totalCount int64
-}
-
-func (r *mergedPointsReader) Close() error          { return nil }
-func (r *mergedPointsReader) CheckIntegrity() error { return nil }
-func (r *mergedPointsReader) GetValues(fieldName string) (index.PointValues, error) {
-	if fieldName != r.fieldInfo.Name() {
-		return nil, fmt.Errorf("field name must match the field being merged")
-	}
-	return &mergedPointValues{
-		reader: r,
-	}, nil
-}
-
-type mergedPointValues struct {
-	reader *mergedPointsReader
-}
-
-func (pv *mergedPointValues) GetPointTree() (bkd.PointTree, error) {
-	return &mergedPointTree{
-		reader: pv.reader,
-	}, nil
-}
-
-func (pv *mergedPointValues) GetMinPackedValue() ([]byte, error) {
-	return nil, errors.New("not implemented")
-}
-func (pv *mergedPointValues) GetMaxPackedValue() ([]byte, error) {
-	return nil, errors.New("not implemented")
-}
-func (pv *mergedPointValues) GetNumDimensions() int       { return pv.reader.fieldInfo.PointDimensionCount() }
-func (pv *mergedPointValues) GetBytesPerDimension() int   { return pv.reader.fieldInfo.PointNumBytes() }
-func (pv *mergedPointValues) GetDocCount() int            { return 0 }
-func (pv *mergedPointValues) GetDocCountWithValue() int64 { return 0 }
-func (pv *mergedPointValues) GetValueCount() int64        { return pv.reader.totalCount }
-
-type mergedPointTree struct {
-	reader *mergedPointsReader
-}
-
-func (pt *mergedPointTree) Clone() bkd.PointTree                           { return nil }
-func (pt *mergedPointTree) MoveToChild() (bool, error)                     { return false, nil }
-func (pt *mergedPointTree) MoveToSibling() (bool, error)                   { return false, nil }
-func (pt *mergedPointTree) MoveToParent() (bool, error)                    { return false, nil }
-func (pt *mergedPointTree) GetMinPackedValue() []byte                      { return nil }
-func (pt *mergedPointTree) GetMaxPackedValue() []byte                      { return nil }
-func (pt *mergedPointTree) Size() int64                                    { return pt.reader.totalCount }
-func (pt *mergedPointTree) VisitDocIDs(visitor bkd.IntersectVisitor) error { return nil }
-func (pt *mergedPointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
-	for i, reader := range pt.reader.mergeState.PointsReaders {
-		if reader == nil {
-			continue
-		}
-		readerFieldInfo := pt.reader.mergeState.FieldInfos[i].FieldInfo(pt.reader.fieldInfo.Name())
-		if readerFieldInfo == nil || readerFieldInfo.PointDimensionCount() == 0 {
-			continue
-		}
-		values, err := reader.GetValues(pt.reader.fieldInfo.Name())
-		if err != nil {
-			return err
-		}
-		if values == nil {
-			continue
-		}
-		docMap := pt.reader.mergeState.DocMaps[i]
-		tree, err := values.GetPointTree()
-		if err != nil {
-			return err
-		}
-		err = tree.VisitDocValues(func(docID int, packedValue []byte) error {
-			newDocID := docMap.Get(docID)
-			if newDocID != -1 {
-				return visitor.VisitByPackedValue(newDocID, packedValue)
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Finish stamps the meta sentinel (-1), the index/data footers, the index and
-// data lengths, and the meta footer. Mirrors Lucene90PointsWriter.finish.
+// Finish renders Lucene90PointsWriter.finish(): the meta sentinel (-1), the
+// index and data footers, the index and data lengths, and the meta footer.
 func (w *pointsWriter) Finish() error {
-	if w.closed {
-		return errors.New("lucene90 points: writer closed")
-	}
 	if w.finished {
-		return errors.New("lucene90 points: already finished")
+		return errors.New("already finished")
 	}
 	w.finished = true
-
 	if err := w.metaOut.WriteInt(-1); err != nil {
 		return err
 	}
@@ -494,20 +396,13 @@ func (w *pointsWriter) Finish() error {
 	return store.WriteFooter(w.metaOut)
 }
 
-// Close releases the three outputs. Idempotent.
+// Close renders Lucene90PointsWriter.close(): IOUtils.close(metaOut, indexOut,
+// dataOut).
 func (w *pointsWriter) Close() error {
-	if w.closed {
-		return nil
-	}
-	w.closed = true
-	var lastErr error
-	for _, out := range []store.IndexOutput{w.metaOut, w.indexOut, w.dataOut} {
-		if out == nil {
-			continue
-		}
-		if err := out.Close(); err != nil {
-			lastErr = err
-		}
-	}
-	return lastErr
+	return util.CloseAll(w.metaOut, w.indexOut, w.dataOut)
 }
+
+var (
+	_ codecs.PointsWriter  = (*pointsWriter)(nil)
+	_ bkd.IntersectVisitor = (*writeFieldIntersectVisitor)(nil)
+)

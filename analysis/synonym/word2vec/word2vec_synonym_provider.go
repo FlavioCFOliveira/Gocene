@@ -33,7 +33,7 @@ type Word2VecSynonymProvider struct {
 
 // similarityFunction is the vector similarity function used by the synonym
 // provider (dot product on L2-normalized vectors = cosine similarity).
-const similarityFunction = index.VectorSimilarityFunctionDotProduct
+var similarityFunction = index.VectorSimilarityFunctionDotProduct
 
 // NewWord2VecSynonymProvider constructs a Word2VecSynonymProvider and builds
 // the HNSW graph from the given model.
