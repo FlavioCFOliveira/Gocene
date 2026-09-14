@@ -24,11 +24,6 @@ import (
 //     Gocene has no such base type yet, so this writer exposes its public
 //     surface (AddValue, GetDocValues, Flush) directly. Same pattern as
 //     [SortedNumericDocValuesWriter] / [SortedDocValuesWriter].
-//   - Java's flush() targets DocValuesConsumer.addNumericField via an
-//     EmptyDocValuesProducer anonymous subclass. To avoid an import cycle
-//     with the codecs package this writer takes a local NumericFieldConsumer
-//     callback; the codec wiring layer adapts codecs.DocValuesConsumer to
-//     this signature.
 //   - DocsWithFieldSet does not expose a Java-style iterator; the writer
 //     reuses the dense-or-sparse traversal helper shared with
 //     [SortedNumericDocValuesWriter] (docsWithFieldDocs / trailingZeros64).
@@ -115,12 +110,16 @@ func (w *NumericDocValuesWriter) GetDocValues() NumericDocValues {
 	return newBufferedNumericDocValues(w.finalValues, w.docsWithFieldDocs())
 }
 
-// docsWithFieldDocs returns the docIDs in the order they were added. The
-// existing DocsWithFieldSet exposes no iterator; we synthesise a slice from
-// either its dense prefix or its sparse bitset, mirroring the helper used by
-// SortedNumericDocValuesWriter.
+// docsWithFieldDocs returns the docIDs in the order they were added.
 func (w *NumericDocValuesWriter) docsWithFieldDocs() []int {
-	d := w.docsWithField
+	return docsWithFieldSetDocs(w.docsWithField)
+}
+
+// docsWithFieldSetDocs materialises the documents of d, in ascending order,
+// for the slice-backed buffered views: it stands in for the
+// docsWithField.iterator() the Java views consume, read from either the
+// dense prefix or the sparse bitset of d.
+func docsWithFieldSetDocs(d *DocsWithFieldSet) []int {
 	docs := make([]int, 0, d.Cardinality())
 	if d.bits == nil {
 		for i := 0; i < d.Cardinality(); i++ {
@@ -138,55 +137,78 @@ func (w *NumericDocValuesWriter) docsWithFieldDocs() []int {
 	return docs
 }
 
-// NumericFieldConsumer is the callback used by Flush to hand the buffered
-// NumericDocValues to the underlying codec consumer.
-//
-// Gocene divergence: replaces the Java DocValuesConsumer.addNumericField +
-// EmptyDocValuesProducer.getNumeric anonymous override with a simple
-// function-typed boundary. The wiring layer in the codecs package adapts
-// codecs.DocValuesConsumer to this signature.
-type NumericFieldConsumer func(field *FieldInfo, values NumericDocValues) error
-
-// Flush hands the buffered state to consumer. When sortMap is non-nil the
-// values are re-mapped via the segment's IndexSorter docmap.
-//
-// Gocene divergence: maxDoc is passed in explicitly rather than read from
-// SegmentWriteState because Gocene's SegmentWriteState in the index package
-// does not yet carry SegmentInfo.MaxDoc (same convention as
-// [SortedNumericDocValuesWriter.Flush]).
+// Flush hands the buffered values to dvConsumer.AddNumericField through the
+// producer built by getDocValuesProducer. When sortMap is non-nil the values
+// are re-mapped via the segment's IndexSorter docmap. Mirrors
+// NumericDocValuesWriter.flush(SegmentWriteState, Sorter.DocMap,
+// DocValuesConsumer).
 func (w *NumericDocValuesWriter) Flush(
-	maxDoc int,
+	state *SegmentWriteState,
 	sortMap SorterDocMap,
-	consumer NumericFieldConsumer,
+	dvConsumer DocValuesConsumer,
 ) error {
-	if consumer == nil {
+	if dvConsumer == nil {
 		return errors.New("NumericDocValuesWriter.Flush: consumer must not be nil")
 	}
 	w.finish()
-	values, err := w.getNumeric(maxDoc, sortMap)
+	producer, err := numericDocValuesWriterGetDocValuesProducer(w.fieldInfo, w.finalValues, w.docsWithField, sortMap)
 	if err != nil {
 		return err
 	}
-	return consumer(w.fieldInfo, values)
+	return dvConsumer.AddNumericField(w.fieldInfo, producer)
 }
 
-// getNumeric mirrors the Java getDocValuesProducer helper: it returns either
-// the plain buffered view or, when sortMap is set, the docmap-remapped view.
-func (w *NumericDocValuesWriter) getNumeric(
-	maxDoc int,
+// numericDocValuesWriterGetDocValuesProducer mirrors the static
+// NumericDocValuesWriter.getDocValuesProducer(FieldInfo, PackedLongValues,
+// DocsWithFieldSet, Sorter.DocMap): when sortMap is set the values are sorted
+// once, and the returned producer hands out a fresh view on every call.
+func numericDocValuesWriterGetDocValuesProducer(
+	writerFieldInfo *FieldInfo,
+	values *packed.PackedLongValues,
+	docsWithField *DocsWithFieldSet,
 	sortMap SorterDocMap,
-) (NumericDocValues, error) {
-	if sortMap == nil {
-		return newBufferedNumericDocValues(w.finalValues, w.docsWithFieldDocs()), nil
+) (DocValuesProducer, error) {
+	var sorted *numericDVs
+	if sortMap != nil {
+		oldValues := newBufferedNumericDocValues(values, docsWithFieldSetDocs(docsWithField))
+		s, err := sortNumericDocValues(
+			sortMap.Size(), sortMap, oldValues, sortMap.Size() == docsWithField.Cardinality())
+		if err != nil {
+			return nil, err
+		}
+		sorted = s
 	}
-	old := newBufferedNumericDocValues(w.finalValues, w.docsWithFieldDocs())
-	dense := sortMap.Size() == w.docsWithField.Cardinality()
-	sorted, err := sortNumericDocValues(sortMap.Size(), sortMap, old, dense)
-	if err != nil {
-		return nil, err
-	}
-	return newSortingNumericDocValues(sorted), nil
+	return &numericDocValuesWriterDocValuesProducer{
+		writerFieldInfo: writerFieldInfo,
+		values:          values,
+		docsWithField:   docsWithField,
+		sorted:          sorted,
+	}, nil
 }
+
+// numericDocValuesWriterDocValuesProducer is the anonymous
+// EmptyDocValuesProducer subclass returned by getDocValuesProducer.
+type numericDocValuesWriterDocValuesProducer struct {
+	EmptyDocValuesProducer
+	writerFieldInfo *FieldInfo
+	values          *packed.PackedLongValues
+	docsWithField   *DocsWithFieldSet
+	sorted          *numericDVs
+}
+
+// GetNumeric returns the buffered values, or their sorted view.
+func (p *numericDocValuesWriterDocValuesProducer) GetNumeric(fieldInfo *FieldInfo) (NumericDocValues, error) {
+	if fieldInfo != p.writerFieldInfo {
+		return nil, errors.New("wrong fieldInfo")
+	}
+	if p.sorted == nil {
+		return newBufferedNumericDocValues(p.values, docsWithFieldSetDocs(p.docsWithField)), nil
+	}
+	return newSortingNumericDocValues(p.sorted), nil
+}
+
+// GetMergeInstance returns the receiver (DocValuesProducer default).
+func (p *numericDocValuesWriterDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
 
 // sortNumericDocValues walks oldDocValues, remaps each docID through sortMap and
 // scatters the values into a maxDoc-sized array. When dense is false a

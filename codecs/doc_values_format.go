@@ -16,10 +16,9 @@ import (
 // thin BaseDocValuesFormat / DocValuesWriter / DocValuesReader helpers
 // the codecs package historically exposed.
 //
-// All eleven interfaces (DocValuesFormat, DocValuesConsumer,
-// DocValuesProducer plus the six value-type interfaces and the five
-// writer-side iterators) and their previous concrete bodies in this
-// file were collapsed to Go type aliases of spi.* by rmp #4708
+// The interfaces (DocValuesFormat, DocValuesConsumer, DocValuesProducer
+// plus the six value-type interfaces) and their previous concrete bodies
+// in this file were collapsed to Go type aliases of spi.* by rmp #4708
 // (Sprint 118 phase 2d). Existing callers compile unchanged: an
 // implementation that satisfied codecs.DocValuesProducer continues to
 // satisfy it under the alias because the alias makes the codecs name
@@ -49,25 +48,6 @@ type SortedNumericDocValues = spi.SortedNumericDocValues
 
 // DocValuesSkipper is an alias of [spi.DocValuesSkipper].
 type DocValuesSkipper = spi.DocValuesSkipper
-
-// NumericDocValuesIterator is an alias of
-// [spi.NumericDocValuesIterator] — the writer-side iterator that the
-// flush path feeds into DocValuesConsumer.AddNumericField.
-type NumericDocValuesIterator = spi.NumericDocValuesIterator
-
-// BinaryDocValuesIterator is an alias of [spi.BinaryDocValuesIterator].
-type BinaryDocValuesIterator = spi.BinaryDocValuesIterator
-
-// SortedDocValuesIterator is an alias of [spi.SortedDocValuesIterator].
-type SortedDocValuesIterator = spi.SortedDocValuesIterator
-
-// SortedSetDocValuesIterator is an alias of
-// [spi.SortedSetDocValuesIterator].
-type SortedSetDocValuesIterator = spi.SortedSetDocValuesIterator
-
-// SortedNumericDocValuesIterator is an alias of
-// [spi.SortedNumericDocValuesIterator].
-type SortedNumericDocValuesIterator = spi.SortedNumericDocValuesIterator
 
 // BaseDocValuesFormat provides the partial DocValuesFormat
 // implementation that codec ports embed to inherit the Name accessor

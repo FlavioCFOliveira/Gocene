@@ -153,6 +153,10 @@ func (f *PerFieldDocValuesFormat) FieldsProducer(state *SegmentReadState) (DocVa
 // delegate DocValuesFormat returned by the FieldDocValuesFormatProvider,
 // recording the format/suffix metadata on every FieldInfo it touches.
 type PerFieldDocValuesConsumer struct {
+	// BaseDocValuesConsumer carries the members FieldsWriter inherits from
+	// DocValuesConsumer; FieldsWriter overrides merge (see Merge).
+	*BaseDocValuesConsumer
+
 	formatProvider FieldDocValuesFormatProvider
 	state          *SegmentWriteState
 
@@ -178,152 +182,246 @@ type docValuesConsumerAndSuffix struct {
 
 // NewPerFieldDocValuesConsumer creates a new PerFieldDocValuesConsumer.
 func NewPerFieldDocValuesConsumer(provider FieldDocValuesFormatProvider, state *SegmentWriteState) *PerFieldDocValuesConsumer {
-	return &PerFieldDocValuesConsumer{
+	c := &PerFieldDocValuesConsumer{
 		formatProvider:       provider,
 		state:                state,
 		consumersByFormat:    make(map[DocValuesFormat]*docValuesConsumerAndSuffix),
 		suffixesByFormatName: make(map[string]int),
 	}
+	c.BaseDocValuesConsumer = NewBaseDocValuesConsumer(c)
+	return c
 }
 
-// getInstance returns the delegate DocValuesConsumer for field, allocating
-// a new one and bumping the format-name suffix counter on first use. It
-// also stamps the per-field codec attributes onto the field's FieldInfo.
+// getInstance returns the DocValuesConsumer for the given field. Mirrors
+// PerFieldDocValuesFormat.FieldsWriter.getInstance(FieldInfo, boolean).
 //
-// Unlike PerFieldPostingsFormat, doc-values fields may carry an existing
-// PerFieldDocValuesFormat attribute when the field already exists in a
-// segment that is being updated. When the field's DocValuesGen is non-zero
-// and the existing attribute is set, the suffix is honoured so the update
-// lands in the same delegate file as the prior generation.
-func (c *PerFieldDocValuesConsumer) getInstance(field *index.FieldInfo) (DocValuesConsumer, error) {
-	format := c.formatProvider.GetDocValuesFormat(field.Name())
+// When the field carries a doc-values generation (it is being updated), the
+// format and suffix recorded on it by the previous generation are honoured
+// unless ignoreCurrentFormat is set, which merge does so that the fields being
+// merged are rewritten with the format the provider currently chooses.
+func (c *PerFieldDocValuesConsumer) getInstance(field *index.FieldInfo, ignoreCurrentFormat bool) (DocValuesConsumer, error) {
+	var format DocValuesFormat
+	if field.DocValuesGen() != -1 {
+		formatName := ""
+		if !ignoreCurrentFormat {
+			formatName = field.GetAttribute(PER_FIELD_DOC_VALUES_FORMAT_KEY)
+		}
+		// this means the field never existed in that segment, yet is applied updates
+		if formatName != "" {
+			f, err := DocValuesFormatByName(formatName)
+			if err != nil {
+				return nil, err
+			}
+			format = f
+		}
+	}
+	if format == nil {
+		format = c.formatProvider.GetDocValuesFormat(field.Name())
+	}
 	if format == nil {
 		return nil, fmt.Errorf("invalid null DocValuesFormat for field=%q", field.Name())
 	}
 	formatName := format.Name()
 
 	field.PutCodecAttribute(PER_FIELD_DOC_VALUES_FORMAT_KEY, formatName)
+	var suffix int
 
 	cas, ok := c.consumersByFormat[format]
 	if !ok {
-		// First time we are seeing this format instance.
-		var suffix int
-		var pinned bool
+		// First time we are seeing this format; create a new instance
+		suffixSet := false
 
 		if field.DocValuesGen() != -1 {
-			// Updated field: respect any pre-existing suffix attribute so the
-			// new generation lands in the same delegate file.
-			if existing := field.GetAttribute(PER_FIELD_DOC_VALUES_SUFFIX_KEY); existing != "" {
-				if parsed, err := strconv.Atoi(existing); err == nil {
-					suffix = parsed
-					pinned = true
+			suffixAtt := ""
+			if !ignoreCurrentFormat {
+				suffixAtt = field.GetAttribute(PER_FIELD_DOC_VALUES_SUFFIX_KEY)
+			}
+			// even when dvGen is != -1, it can still be a new field, that never
+			// existed in the segment, and therefore doesn't have the recorded
+			// attributes yet.
+			if suffixAtt != "" {
+				parsed, err := strconv.Atoi(suffixAtt)
+				if err != nil {
+					return nil, err
 				}
+				suffix = parsed
+				suffixSet = true
 			}
 		}
 
-		if !pinned {
+		if !suffixSet {
+			// bump the suffix
 			if prev, seen := c.suffixesByFormatName[formatName]; seen {
 				suffix = prev + 1
+			} else {
+				suffix = 0
 			}
 		}
 		c.suffixesByFormatName[formatName] = suffix
 
-		innerSuffix := perFieldDocValuesSuffix(formatName, strconv.Itoa(suffix))
-		segmentSuffix := perFieldDocValuesFullSegmentSuffix(c.state.SegmentSuffix, innerSuffix)
-
-		delegateState := &SegmentWriteState{
-			Directory:     c.state.Directory,
-			SegmentInfo:   c.state.SegmentInfo,
-			FieldInfos:    c.state.FieldInfos,
-			SegmentSuffix: segmentSuffix,
-		}
-
-		consumer, err := format.FieldsConsumer(delegateState)
+		segmentSuffix := perFieldDocValuesFullSegmentSuffix(
+			c.state.SegmentSuffix, perFieldDocValuesSuffix(formatName, strconv.Itoa(suffix)))
+		consumer, err := format.FieldsConsumer(index.NewSegmentWriteStateFromOther(c.state, segmentSuffix))
 		if err != nil {
-			return nil, fmt.Errorf("failed to create DocValuesConsumer for field %q: %w", field.Name(), err)
+			return nil, err
 		}
 		cas = &docValuesConsumerAndSuffix{consumer: consumer, suffix: suffix}
 		c.consumersByFormat[format] = cas
+	} else {
+		// we've already seen this format, so just grab its suffix
+		suffix = cas.suffix
 	}
 
-	field.PutCodecAttribute(PER_FIELD_DOC_VALUES_SUFFIX_KEY, strconv.Itoa(cas.suffix))
+	field.PutCodecAttribute(PER_FIELD_DOC_VALUES_SUFFIX_KEY, strconv.Itoa(suffix))
+	// TODO: we should only provide the "slice" of FIS
+	// that this DVF actually sees ...
 	return cas.consumer, nil
 }
 
 // AddNumericField writes a numeric doc values field through the delegate
 // chosen for field, recording the format/suffix metadata on field.
-func (c *PerFieldDocValuesConsumer) AddNumericField(field *index.FieldInfo, values NumericDocValuesIterator) error {
+func (c *PerFieldDocValuesConsumer) AddNumericField(field *index.FieldInfo, valuesProducer DocValuesProducer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
 		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
 	}
-	consumer, err := c.getInstance(field)
+	consumer, err := c.getInstance(field, false)
 	if err != nil {
 		return err
 	}
-	return consumer.AddNumericField(field, values)
+	return consumer.AddNumericField(field, valuesProducer)
 }
 
 // AddBinaryField writes a binary doc values field through the delegate
 // chosen for field, recording the format/suffix metadata on field.
-func (c *PerFieldDocValuesConsumer) AddBinaryField(field *index.FieldInfo, values BinaryDocValuesIterator) error {
+func (c *PerFieldDocValuesConsumer) AddBinaryField(field *index.FieldInfo, valuesProducer DocValuesProducer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
 		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
 	}
-	consumer, err := c.getInstance(field)
+	consumer, err := c.getInstance(field, false)
 	if err != nil {
 		return err
 	}
-	return consumer.AddBinaryField(field, values)
+	return consumer.AddBinaryField(field, valuesProducer)
 }
 
 // AddSortedField writes a sorted doc values field through the delegate
 // chosen for field, recording the format/suffix metadata on field.
-func (c *PerFieldDocValuesConsumer) AddSortedField(field *index.FieldInfo, values SortedDocValuesIterator) error {
+func (c *PerFieldDocValuesConsumer) AddSortedField(field *index.FieldInfo, valuesProducer DocValuesProducer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
 		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
 	}
-	consumer, err := c.getInstance(field)
+	consumer, err := c.getInstance(field, false)
 	if err != nil {
 		return err
 	}
-	return consumer.AddSortedField(field, values)
-}
-
-// AddSortedSetField writes a sorted-set doc values field through the
-// delegate chosen for field, recording the format/suffix metadata on field.
-func (c *PerFieldDocValuesConsumer) AddSortedSetField(field *index.FieldInfo, values SortedSetDocValuesIterator) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
-	}
-	consumer, err := c.getInstance(field)
-	if err != nil {
-		return err
-	}
-	return consumer.AddSortedSetField(field, values)
+	return consumer.AddSortedField(field, valuesProducer)
 }
 
 // AddSortedNumericField writes a sorted-numeric doc values field through
 // the delegate chosen for field, recording the format/suffix metadata on
 // field.
-func (c *PerFieldDocValuesConsumer) AddSortedNumericField(field *index.FieldInfo, values SortedNumericDocValuesIterator) error {
+func (c *PerFieldDocValuesConsumer) AddSortedNumericField(field *index.FieldInfo, valuesProducer DocValuesProducer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.closed {
 		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
 	}
-	consumer, err := c.getInstance(field)
+	consumer, err := c.getInstance(field, false)
 	if err != nil {
 		return err
 	}
-	return consumer.AddSortedNumericField(field, values)
+	return consumer.AddSortedNumericField(field, valuesProducer)
+}
+
+// AddSortedSetField writes a sorted-set doc values field through the
+// delegate chosen for field, recording the format/suffix metadata on field.
+func (c *PerFieldDocValuesConsumer) AddSortedSetField(field *index.FieldInfo, valuesProducer DocValuesProducer) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
+	}
+	consumer, err := c.getInstance(field, false)
+	if err != nil {
+		return err
+	}
+	return consumer.AddSortedSetField(field, valuesProducer)
+}
+
+// docValuesConsumerMerger is the merge member of DocValuesConsumer, which
+// BaseDocValuesConsumer carries and every concrete consumer inherits by
+// embedding it (spi.DocValuesConsumer cannot declare it: MergeState lives in
+// package index).
+type docValuesConsumerMerger interface {
+	Merge(mergeState *index.MergeState) error
+}
+
+// Merge groups the fields of mergeState by the delegate consumer that handles
+// them and delegates the merge of each group to that consumer, restricted to
+// its fields. Mirrors PerFieldDocValuesFormat.FieldsWriter.merge(MergeState).
+func (c *PerFieldDocValuesConsumer) Merge(mergeState *index.MergeState) error {
+	type consumerAndFields struct {
+		consumer DocValuesConsumer
+		fields   []string
+	}
+	// Java keys an IdentityHashMap by consumer; its iteration order is
+	// unspecified, the Go rendering keeps first-seen order.
+	var consumersToField []*consumerAndFields
+
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
+	}
+	// Group each consumer by the fields it handles
+	for _, fi := range mergeState.MergeFieldInfos.Infos() {
+		if fi.DocValuesType() == index.DocValuesTypeNone {
+			continue
+		}
+		// merge should ignore current format for the fields being merged
+		consumer, err := c.getInstance(fi, true)
+		if err != nil {
+			c.mu.Unlock()
+			return err
+		}
+		var fieldsForConsumer *consumerAndFields
+		for _, e := range consumersToField {
+			if e.consumer == consumer {
+				fieldsForConsumer = e
+				break
+			}
+		}
+		if fieldsForConsumer == nil {
+			fieldsForConsumer = &consumerAndFields{consumer: consumer}
+			consumersToField = append(consumersToField, fieldsForConsumer)
+		}
+		fieldsForConsumer.fields = append(fieldsForConsumer.fields, fi.Name())
+	}
+	c.mu.Unlock()
+
+	// Delegate the merge to the appropriate consumer
+	for _, e := range consumersToField {
+		// Gocene's MergeState carries no fieldsProducers slot, so no
+		// FieldsProducer is restricted alongside the FieldInfos.
+		restricted, _, err := RestrictFields(mergeState, make([]FieldsProducer, len(mergeState.FieldInfos)), e.fields)
+		if err != nil {
+			return err
+		}
+		merger, ok := e.consumer.(docValuesConsumerMerger)
+		if !ok {
+			return fmt.Errorf("PerFieldDocValuesConsumer: delegate consumer %T does not carry DocValuesConsumer.merge", e.consumer)
+		}
+		if err := merger.Merge(restricted); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Close closes every delegate DocValuesConsumer that was opened. It
@@ -347,64 +445,6 @@ func (c *PerFieldDocValuesConsumer) Close() error {
 	c.consumersByFormat = nil
 	return lastErr
 }
-// sortedFieldFromReader is a local copy of the structural contract that
-// index.sortedDVConsumerDelegate requires. We define it here because the
-// index interface is unexported; Go structural typing means a type assertion
-// in the index package against this concrete type will succeed when these
-// methods are present.
-type sortedFieldFromReader interface {
-	AddSortedFieldFromReader(field *index.FieldInfo, reset func() (index.SortedDocValues, error)) error
-	AddSortedSetFieldFromReader(field *index.FieldInfo, reset func() (index.SortedSetDocValues, error)) error
-}
-
-// AddSortedFieldFromReader writes a SORTED doc-values field through the
-// delegate chosen for field, using the read-side entry point that builds the
-// terms dictionary from a reset-closure-backed SortedDocValues.
-//
-// This satisfies the index.sortedDVConsumerDelegate interface (via structural
-// typing) so the DWPT flush path can route SORTED fields through the
-// PerField wrapper to the underlying Lucene90DocValuesConsumer.
-func (c *PerFieldDocValuesConsumer) AddSortedFieldFromReader(field *index.FieldInfo, reset func() (index.SortedDocValues, error)) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
-	}
-	consumer, err := c.getInstance(field)
-	if err != nil {
-		return err
-	}
-	delegate, ok := consumer.(sortedFieldFromReader)
-	if !ok {
-		return fmt.Errorf("PerFieldDocValuesConsumer: underlying consumer for field %q does not support SORTED fields from reader", field.Name())
-	}
-	return delegate.AddSortedFieldFromReader(field, reset)
-}
-
-// AddSortedSetFieldFromReader writes a SORTED_SET doc-values field through the
-// delegate chosen for field, using the read-side entry point that builds the
-// terms dictionary from a reset-closure-backed SortedSetDocValues.
-//
-// This satisfies the index.sortedDVConsumerDelegate interface (via structural
-// typing) so the DWPT flush path can route SORTED_SET fields through the
-// PerField wrapper to the underlying Lucene90DocValuesConsumer.
-func (c *PerFieldDocValuesConsumer) AddSortedSetFieldFromReader(field *index.FieldInfo, reset func() (index.SortedSetDocValues, error)) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.closed {
-		return fmt.Errorf("PerFieldDocValuesConsumer is closed")
-	}
-	consumer, err := c.getInstance(field)
-	if err != nil {
-		return err
-	}
-	delegate, ok := consumer.(sortedFieldFromReader)
-	if !ok {
-		return fmt.Errorf("PerFieldDocValuesConsumer: underlying consumer for field %q does not support SORTED_SET fields from reader", field.Name())
-	}
-	return delegate.AddSortedSetFieldFromReader(field, reset)
-}
-
 
 // PerFieldDocValuesProducer reads doc-values written by
 // PerFieldDocValuesConsumer. It resolves the delegate format per FieldInfo

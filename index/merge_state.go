@@ -52,6 +52,12 @@ type MergeState struct {
 	// NormsProducers is the per-sub-reader norms producer.
 	NormsProducers []spi.NormsProducer
 
+	// DocValuesProducers is the per-sub-reader doc values producer, in the
+	// same order as Readers, with a nil entry for a sub-reader without doc
+	// values. Each non-nil entry is the producer's merge instance. Mirrors
+	// MergeState.docValuesProducers (MergeState.java:65, 140-143).
+	DocValuesProducers []DocValuesProducer
+
 	// TermVectorsReaders is the per-sub-reader TermVectorsReader, in the same
 	// order as Readers, with a nil entry for a sub-reader that stores no term
 	// vectors. Mirrors MergeState.termVectorsReaders (MergeState.java:59).

@@ -24,11 +24,6 @@ import (
 //   - The original extends an abstract DocValuesWriter; Gocene has no
 //     such base type yet, so this writer exposes its public surface
 //     (AddValue, GetDocValues, Flush) directly.
-//   - The Java flush() targets DocValuesConsumer.addSortedSetField. To
-//     avoid an import cycle with the codecs package, Flush accepts a
-//     local SortedSetFieldConsumer callback. A higher-level wiring layer
-//     in the codecs package adapts the codec DocValuesConsumer to this
-//     callback.
 //   - BufferedSortedDocValues lives in the not-yet-ported
 //     SortedDocValuesWriter; the singleton branch here uses the
 //     existing DocValues helper SingletonSortedSet over an inline
@@ -299,53 +294,108 @@ func trailingZeros64(v uint64) int {
 	return 64
 }
 
-// SortedSetFieldConsumer is the callback used by Flush to hand the buffered
-// SortedSetDocValues to the underlying codec consumer.
-//
-// Gocene divergence: replaces the Java DocValuesConsumer.addSortedSetField +
-// EmptyDocValuesProducer.getSortedSet anonymous override with a simple
-// function-typed boundary. The wiring layer in the codecs package adapts
-// codecs.DocValuesConsumer to this signature.
-type SortedSetFieldConsumer func(field *FieldInfo, values SortedSetDocValues) error
-
-// Flush hands the buffered state to consumer. When sortMap is non-nil the
-// values are re-mapped via the segment's IndexSorter docmap.
-//
-// Gocene divergence: maxDoc is passed in explicitly rather than read from
-// SegmentWriteState because Gocene's SegmentWriteState in the index package
-// does not yet carry SegmentInfo.MaxDoc.
+// Flush hands the buffered values to dvConsumer.AddSortedSetField. A field
+// that never saw a multi-valued document is flushed through the
+// SortedDocValuesWriter producer wrapped as a singleton. When sortMap is
+// non-nil the values are re-mapped via the segment's IndexSorter docmap.
+// Mirrors SortedSetDocValuesWriter.flush(SegmentWriteState, Sorter.DocMap,
+// DocValuesConsumer).
 func (w *SortedSetDocValuesWriter) Flush(
-	maxDoc int,
+	state *SegmentWriteState,
 	sortMap SorterDocMap,
-	consumer SortedSetFieldConsumer,
+	dvConsumer DocValuesConsumer,
 ) error {
-	if consumer == nil {
+	if dvConsumer == nil {
 		return errors.New("SortedSetDocValuesWriter.Flush: consumer must not be nil")
 	}
 	if err := w.finish(); err != nil {
 		return err
 	}
-	values := w.getValues(
-		w.finalSortedValues, w.finalOrdMap, w.finalOrds, w.finalOrdCounts, w.maxCount,
-	)
-	if sortMap == nil {
-		return consumer(w.fieldInfo, values)
+	ords := w.finalOrds
+	ordCounts := w.finalOrdCounts
+	sortedValues := w.finalSortedValues
+	ordMap := w.finalOrdMap
+
+	if ordCounts == nil {
+		singleValueProducer, err := sortedDocValuesWriterGetDocValuesProducer(
+			w.fieldInfo, w.hash, ords, sortedValues, ordMap, w.docsWithField, sortMap)
+		if err != nil {
+			return err
+		}
+		return dvConsumer.AddSortedSetField(w.fieldInfo, &sortedSetDocValuesWriterSingletonProducer{
+			singleValueProducer: singleValueProducer,
+		})
 	}
-	if w.finalOrdCounts == nil {
-		// Single-valued path: defer to consumer with the unmodified view.
-		// A future port of SortedDocValuesWriter will provide the proper
-		// sort-aware bridge; for now this preserves correctness when no
-		// sort is in play and panics-free behaviour when one is.
-		return consumer(w.fieldInfo, values)
+
+	var sortedDocOrds *docOrds
+	if sortMap != nil {
+		d, err := newDocOrds(
+			state.SegmentInfo.MaxDoc(),
+			sortMap,
+			w.getValues(sortedValues, ordMap, ords, ordCounts, w.maxCount),
+			packed.Fastest,
+			packed.BitsRequired(int64(w.maxCount)),
+		)
+		if err != nil {
+			return err
+		}
+		sortedDocOrds = d
 	}
-	docOrds, err := newDocOrds(
-		maxDoc, sortMap, values, packed.Fastest, packed.BitsRequired(int64(w.maxCount)),
-	)
-	if err != nil {
-		return err
-	}
-	return consumer(w.fieldInfo, newSortingSortedSetDocValues(values, docOrds))
+	return dvConsumer.AddSortedSetField(w.fieldInfo, &sortedSetDocValuesWriterDocValuesProducer{
+		w:            w,
+		ords:         ords,
+		ordCounts:    ordCounts,
+		sortedValues: sortedValues,
+		ordMap:       ordMap,
+		docOrds:      sortedDocOrds,
+	})
 }
+
+// sortedSetDocValuesWriterSingletonProducer is the anonymous
+// EmptyDocValuesProducer subclass flush builds for a single-valued field.
+type sortedSetDocValuesWriterSingletonProducer struct {
+	EmptyDocValuesProducer
+	singleValueProducer DocValuesProducer
+}
+
+// GetSortedSet returns DocValues.singleton(singleValueProducer.getSorted(fieldInfo)).
+func (p *sortedSetDocValuesWriterSingletonProducer) GetSortedSet(fieldInfo *FieldInfo) (SortedSetDocValues, error) {
+	sorted, err := p.singleValueProducer.GetSorted(fieldInfo)
+	if err != nil {
+		return nil, err
+	}
+	return SingletonSortedSet(sorted), nil
+}
+
+// GetMergeInstance returns the receiver (DocValuesProducer default).
+func (p *sortedSetDocValuesWriterSingletonProducer) GetMergeInstance() DocValuesProducer { return p }
+
+// sortedSetDocValuesWriterDocValuesProducer is the anonymous
+// EmptyDocValuesProducer subclass flush builds for a multi-valued field.
+type sortedSetDocValuesWriterDocValuesProducer struct {
+	EmptyDocValuesProducer
+	w            *SortedSetDocValuesWriter
+	ords         *packed.PackedLongValues
+	ordCounts    *packed.PackedLongValues
+	sortedValues []int
+	ordMap       []int
+	docOrds      *docOrds
+}
+
+// GetSortedSet returns the buffered values, or their sorted view.
+func (p *sortedSetDocValuesWriterDocValuesProducer) GetSortedSet(fieldInfoIn *FieldInfo) (SortedSetDocValues, error) {
+	if fieldInfoIn != p.w.fieldInfo {
+		return nil, errors.New("wrong fieldInfo")
+	}
+	buf := p.w.getValues(p.sortedValues, p.ordMap, p.ords, p.ordCounts, p.w.maxCount)
+	if p.docOrds == nil {
+		return buf, nil
+	}
+	return newSortingSortedSetDocValues(buf, p.docOrds), nil
+}
+
+// GetMergeInstance returns the receiver (DocValuesProducer default).
+func (p *sortedSetDocValuesWriterDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
 
 // ============================================================================
 // BufferedSortedSetDocValues — in-memory view over the writer's pending state.

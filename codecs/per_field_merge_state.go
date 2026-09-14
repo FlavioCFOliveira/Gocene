@@ -77,6 +77,9 @@ func RestrictFields(
 		LiveDocs:        in.LiveDocs,
 		Directory:       in.Directory,
 		NeedsIndexSort:  in.NeedsIndexSort,
+		// Java passes in.docValuesProducers through unchanged
+		// (PerFieldMergeState.java:63).
+		DocValuesProducers: in.DocValuesProducers,
 	}
 	return out, restrictedProducers, nil
 }

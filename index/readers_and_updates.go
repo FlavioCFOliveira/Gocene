@@ -335,12 +335,11 @@ func (m *mergedDocValues[T]) intoBitSet(upTo int, bitSet *util.FixedBitSet, offs
 	return nil
 }
 
+// numericMergedDocValues is the anonymous NumericDocValues the producer
+// handed to DocValuesConsumer.addNumericField returns: the merge sort of the
+// original doc values with the updated doc values.
 type numericMergedDocValues struct {
 	merged *mergedDocValues[NumericDocValues]
-
-	// err records the first failure hit through the writer-side iterator
-	// surface (Next/Value), which has no error channel of its own.
-	err error
 }
 
 func (n *numericMergedDocValues) LongValue() (int64, error) {
@@ -366,37 +365,6 @@ func (n *numericMergedDocValues) NextDoc() (int, error) {
 	return n.merged.nextDoc(n.merged.onDisk.NextDoc, n.merged.update.NextDoc)
 }
 
-// Next advances to the next document and reports whether one exists. It is the
-// writer-side [spi.NumericDocValuesIterator] surface the doc-values consumer
-// drives; a failure is recorded and surfaced by Err.
-func (n *numericMergedDocValues) Next() bool {
-	doc, err := n.NextDoc()
-	if err != nil {
-		if n.err == nil {
-			n.err = err
-		}
-		return false
-	}
-	return doc != util.NO_MORE_DOCS
-}
-
-// Value returns the numeric value of the current document, recording any
-// failure for Err.
-func (n *numericMergedDocValues) Value() int64 {
-	v, err := n.LongValue()
-	if err != nil {
-		if n.err == nil {
-			n.err = err
-		}
-		return 0
-	}
-	return v
-}
-
-// Err returns the first failure observed through the writer-side iterator
-// surface, or nil.
-func (n *numericMergedDocValues) Err() error { return n.err }
-
 func (n *numericMergedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return n.merged.intoBitSet(upTo, bitSet, offset, func(s *util.FixedBitSet, off, u int) error {
 		return dvIntoBitSet(n.merged.onDisk, u, s, off)
@@ -407,12 +375,17 @@ func (n *numericMergedDocValues) Cost() int64 {
 	return n.merged.onDisk.Cost()
 }
 
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd(),
+// which the Java anonymous NumericDocValues does not override.
+func (n *numericMergedDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(n)
+}
+
+// binaryMergedDocValues is the anonymous BinaryDocValues the producer handed
+// to DocValuesConsumer.addBinaryField returns: the merge sort of the original
+// doc values with the updated doc values.
 type binaryMergedDocValues struct {
 	merged *mergedDocValues[BinaryDocValues]
-
-	// err records the first failure hit through the writer-side iterator
-	// surface (Next/Value), which has no error channel of its own.
-	err error
 }
 
 func (b *binaryMergedDocValues) BinaryValue() ([]byte, error) {
@@ -438,37 +411,6 @@ func (b *binaryMergedDocValues) NextDoc() (int, error) {
 	return b.merged.nextDoc(b.merged.onDisk.NextDoc, b.merged.update.NextDoc)
 }
 
-// Next advances to the next document and reports whether one exists. It is the
-// writer-side [spi.BinaryDocValuesIterator] surface the doc-values consumer
-// drives; a failure is recorded and surfaced by Err.
-func (b *binaryMergedDocValues) Next() bool {
-	doc, err := b.NextDoc()
-	if err != nil {
-		if b.err == nil {
-			b.err = err
-		}
-		return false
-	}
-	return doc != util.NO_MORE_DOCS
-}
-
-// Value returns the binary value of the current document, recording any
-// failure for Err.
-func (b *binaryMergedDocValues) Value() []byte {
-	v, err := b.BinaryValue()
-	if err != nil {
-		if b.err == nil {
-			b.err = err
-		}
-		return nil
-	}
-	return v
-}
-
-// Err returns the first failure observed through the writer-side iterator
-// surface, or nil.
-func (b *binaryMergedDocValues) Err() error { return b.err }
-
 func (b *binaryMergedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return b.merged.intoBitSet(upTo, bitSet, offset, func(s *util.FixedBitSet, off, u int) error {
 		return dvIntoBitSet(b.merged.onDisk, u, s, off)
@@ -478,6 +420,84 @@ func (b *binaryMergedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, o
 func (b *binaryMergedDocValues) Cost() int64 {
 	return b.merged.onDisk.Cost()
 }
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd(),
+// which the Java anonymous BinaryDocValues does not override.
+func (b *binaryMergedDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(b)
+}
+
+// dvUpdateSupplier renders the DocValuesFieldUpdates::iterator supplier
+// handleDVUpdates hands to the doc values producers.
+type dvUpdateSupplier func(fi *spi.FieldInfo) (DocValuesFieldUpdatesIterator, error)
+
+// readersAndUpdatesBinaryDocValuesProducer is the anonymous
+// EmptyDocValuesProducer subclass handleDVUpdates hands to
+// DocValuesConsumer.addBinaryField: every call merges the on-disk values with
+// a fresh iterator over the updates.
+type readersAndUpdatesBinaryDocValuesProducer struct {
+	EmptyDocValuesProducer
+	fieldInfo      *spi.FieldInfo
+	reader         *SegmentReader
+	field          string
+	updateSupplier dvUpdateSupplier
+}
+
+// GetBinary merge-sorts the original doc values with the updated doc values.
+func (p *readersAndUpdatesBinaryDocValuesProducer) GetBinary(*spi.FieldInfo) (BinaryDocValues, error) {
+	valuesIterator, err := p.updateSupplier(p.fieldInfo)
+	if err != nil {
+		return nil, err
+	}
+	docsIterator, err := p.updateSupplier(p.fieldInfo)
+	if err != nil {
+		return nil, err
+	}
+	onDisk, err := p.reader.GetBinaryDocValues(p.field)
+	if err != nil {
+		return nil, err
+	}
+	return &binaryMergedDocValues{
+		merged: newMergedDocValues(onDisk, AsBinaryDocValues(valuesIterator), docsIterator),
+	}, nil
+}
+
+// GetMergeInstance returns the receiver (DocValuesProducer default).
+func (p *readersAndUpdatesBinaryDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
+
+// readersAndUpdatesNumericDocValuesProducer is the anonymous
+// EmptyDocValuesProducer subclass handleDVUpdates hands to
+// DocValuesConsumer.addNumericField: every call merges the on-disk values with
+// a fresh iterator over the updates.
+type readersAndUpdatesNumericDocValuesProducer struct {
+	EmptyDocValuesProducer
+	fieldInfo      *spi.FieldInfo
+	reader         *SegmentReader
+	field          string
+	updateSupplier dvUpdateSupplier
+}
+
+// GetNumeric merge-sorts the original doc values with the updated doc values.
+func (p *readersAndUpdatesNumericDocValuesProducer) GetNumeric(*spi.FieldInfo) (NumericDocValues, error) {
+	valuesIterator, err := p.updateSupplier(p.fieldInfo)
+	if err != nil {
+		return nil, err
+	}
+	docsIterator, err := p.updateSupplier(p.fieldInfo)
+	if err != nil {
+		return nil, err
+	}
+	onDisk, err := p.reader.GetNumericDocValues(p.field)
+	if err != nil {
+		return nil, err
+	}
+	return &numericMergedDocValues{
+		merged: newMergedDocValues(onDisk, AsNumericDocValues(valuesIterator), docsIterator),
+	}, nil
+}
+
+// GetMergeInstance returns the receiver (DocValuesProducer default).
+func (p *readersAndUpdatesNumericDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
 
 // ReadersAndUpdates holds an open [SegmentReader] (for searching or
 // merging), plus pending deletes and resolved doc-values updates, for a
@@ -969,7 +989,7 @@ func (r *ReadersAndUpdates) handleDVUpdates(
 		// the consumer. The concrete numeric/binary packet supplies the
 		// iterator; the shared base does not, so a packet that only carries the
 		// base bookkeeping is reported rather than silently skipped.
-		updateSupplier := func(fi *spi.FieldInfo) (DocValuesFieldUpdatesIterator, error) {
+		updateSupplier := dvUpdateSupplier(func(fi *spi.FieldInfo) (DocValuesFieldUpdatesIterator, error) {
 			if fi.Name() != fieldInfo.Name() {
 				return nil, fmt.Errorf("expected field info for field: %s but got: %s", fieldInfo.Name(), fi.Name())
 			}
@@ -982,45 +1002,24 @@ func (r *ReadersAndUpdates) handleDVUpdates(
 				subs[i] = iterable.Iterator()
 			}
 			return MergedDocValuesFieldUpdatesIterator(subs), nil
-		}
-
-		valuesIterator, err := updateSupplier(fieldInfo)
-		if err != nil {
-			_ = fieldsConsumer.Close()
-			return err
-		}
-		docsIterator, err := updateSupplier(fieldInfo)
-		if err != nil {
-			_ = fieldsConsumer.Close()
-			return err
-		}
+		})
 
 		if dvType == DocValuesTypeBinary {
-			onDisk, dvErr := reader.GetBinaryDocValues(field)
-			if dvErr != nil {
-				_ = fieldsConsumer.Close()
-				return dvErr
-			}
-			merged := &binaryMergedDocValues{
-				merged: newMergedDocValues(onDisk, AsBinaryDocValues(valuesIterator), docsIterator),
-			}
-			err = fieldsConsumer.AddBinaryField(fieldInfo, merged)
-			if err == nil {
-				err = merged.Err()
-			}
+			// write the binary updates to a new gen'd docvalues file
+			err = fieldsConsumer.AddBinaryField(fieldInfo, &readersAndUpdatesBinaryDocValuesProducer{
+				fieldInfo:      fieldInfo,
+				reader:         reader,
+				field:          field,
+				updateSupplier: updateSupplier,
+			})
 		} else {
-			onDisk, dvErr := reader.GetNumericDocValues(field)
-			if dvErr != nil {
-				_ = fieldsConsumer.Close()
-				return dvErr
-			}
-			merged := &numericMergedDocValues{
-				merged: newMergedDocValues(onDisk, AsNumericDocValues(valuesIterator), docsIterator),
-			}
-			err = fieldsConsumer.AddNumericField(fieldInfo, merged)
-			if err == nil {
-				err = merged.Err()
-			}
+			// write the numeric updates to a new gen'd docvalues file
+			err = fieldsConsumer.AddNumericField(fieldInfo, &readersAndUpdatesNumericDocValuesProducer{
+				fieldInfo:      fieldInfo,
+				reader:         reader,
+				field:          field,
+				updateSupplier: updateSupplier,
+			})
 		}
 		if closeErr := fieldsConsumer.Close(); closeErr != nil && err == nil {
 			err = closeErr

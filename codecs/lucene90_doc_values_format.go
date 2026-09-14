@@ -22,7 +22,6 @@
 package codecs
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -177,7 +176,7 @@ func (f *Lucene90DocValuesFormat) FieldsConsumer(state *SegmentWriteState) (DocV
 	if err != nil {
 		return nil, err
 	}
-	return &Lucene90DocValuesConsumer{real: real}, nil
+	return newLucene90DocValuesConsumerFromReal(real), nil
 }
 
 // FieldsProducer returns a producer for reading doc values. Phase 1
@@ -190,16 +189,27 @@ func (f *Lucene90DocValuesFormat) FieldsProducer(state *SegmentReadState) (DocVa
 // Lucene90DocValuesConsumer — real implementation wrapper.
 // -----------------------------------------------------------------------------
 
-// Lucene90DocValuesConsumer writes doc values in Lucene 9.0 format.
+// Lucene90DocValuesConsumer writes doc values in Lucene 9.0 format. Go port
+// of org.apache.lucene.codecs.lucene90.Lucene90DocValuesConsumer, which
+// extends DocValuesConsumer and therefore inherits its merge members through
+// the embedded BaseDocValuesConsumer.
 //
-// This wraps the real lucene90DVConsumer and satisfies the DocValuesConsumer
-// interface. The AddSortedField / AddSortedSetField methods require rich
-// SortedDocValues / SortedSetDocValues implementors (with term lookup); the
-// DocValuesConsumer interface iterator types only carry ordinals, so those
-// paths return an error unless the iterator implements the richer interface.
-// Direct callers (tests, merge) should call the underlying real methods.
+// The byte encoding lives in lucene90DVConsumer, whose writers iterate the
+// values through the internal dv*Values contracts; the Add*Field methods
+// adapt the DocValuesProducer they receive to those contracts, obtaining a
+// fresh iterator from the producer on every Reset, exactly where the Java
+// consumer calls valuesProducer.getXxx(field) again.
 type Lucene90DocValuesConsumer struct {
+	*BaseDocValuesConsumer
 	real *lucene90DVConsumer
+}
+
+// newLucene90DocValuesConsumerFromReal wraps real and wires the base
+// DocValuesConsumer members to the new consumer.
+func newLucene90DocValuesConsumerFromReal(real *lucene90DVConsumer) *Lucene90DocValuesConsumer {
+	c := &Lucene90DocValuesConsumer{real: real}
+	c.BaseDocValuesConsumer = NewBaseDocValuesConsumer(c)
+	return c
 }
 
 // NewLucene90DocValuesConsumer creates a new Lucene90DocValuesConsumer.
@@ -212,42 +222,60 @@ func NewLucene90DocValuesConsumer(state *SegmentWriteState) *Lucene90DocValuesCo
 		// so misconfiguration is caught at startup.
 		panic(fmt.Sprintf("lucene90 doc values: consumer init failed: %v", err))
 	}
-	return &Lucene90DocValuesConsumer{real: real}
+	return newLucene90DocValuesConsumerFromReal(real)
 }
 
-// Real returns the underlying lucene90DVConsumer for direct use by tests and
-// merge code that have access to richer iterator types.
+// Real returns the underlying lucene90DVConsumer for direct use by tests.
 func (c *Lucene90DocValuesConsumer) Real() *lucene90DVConsumer { return c.real }
 
-// AddNumericField adapts a NumericDocValuesIterator to a dvSortedNumericValues
-// and writes a numeric DV field.
-func (c *Lucene90DocValuesConsumer) AddNumericField(field *index.FieldInfo, values NumericDocValuesIterator) error {
-	return c.real.AddNumericField(field, &numericIterAsSortedNumeric{it: values})
+// AddNumericField writes a numeric DV field from valuesProducer.GetNumeric.
+// Java wraps the producer as a single-valued sorted-numeric producer
+// (DocValues.singleton(valuesProducer.getNumeric(field))); the adapter
+// exposes the same one-value-per-document view.
+func (c *Lucene90DocValuesConsumer) AddNumericField(field *index.FieldInfo, valuesProducer DocValuesProducer) error {
+	a := &numericProducerAsDV{field: field, valuesProducer: valuesProducer}
+	if err := a.Reset(); err != nil {
+		return err
+	}
+	return c.real.AddNumericField(field, a)
 }
 
-// AddBinaryField adapts a BinaryDocValuesIterator and writes a binary DV field.
-func (c *Lucene90DocValuesConsumer) AddBinaryField(field *index.FieldInfo, values BinaryDocValuesIterator) error {
-	return c.real.AddBinaryField(field, &binaryIterAsDvBinary{it: values})
+// AddBinaryField writes a binary DV field from valuesProducer.GetBinary.
+func (c *Lucene90DocValuesConsumer) AddBinaryField(field *index.FieldInfo, valuesProducer DocValuesProducer) error {
+	a := &binaryProducerAsDV{field: field, valuesProducer: valuesProducer}
+	if err := a.Reset(); err != nil {
+		return err
+	}
+	return c.real.AddBinaryField(field, a)
 }
 
-// AddSortedField writes a sorted DV field. Requires that the indexing chain
-// passes a dvSortedValues (with LookupOrd/GetValueCount). Until the indexing
-// chain is wired, direct callers should use Real().AddSortedField.
-func (c *Lucene90DocValuesConsumer) AddSortedField(field *index.FieldInfo, values SortedDocValuesIterator) error {
-	// SortedDocValuesIterator only carries Ord(); we need term bytes.
-	// The indexing chain is not yet wired (see indexing_chain.go GAP).
-	return errors.New("lucene90 doc values: AddSortedField via DocValuesConsumer interface not supported; use Real().AddSortedField with a dvSortedValues")
+// AddSortedField writes a sorted DV field from valuesProducer.GetSorted.
+func (c *Lucene90DocValuesConsumer) AddSortedField(field *index.FieldInfo, valuesProducer DocValuesProducer) error {
+	a := &sortedReaderAsDV{reset: func() (SortedDocValues, error) { return valuesProducer.GetSorted(field) }}
+	if err := a.Reset(); err != nil {
+		return err
+	}
+	return c.real.AddSortedField(field, a)
 }
 
-// AddSortedSetField writes a sorted-set DV field. Same restriction as
-// AddSortedField: requires a dvSortedSetValues; use Real().AddSortedSetField.
-func (c *Lucene90DocValuesConsumer) AddSortedSetField(field *index.FieldInfo, values SortedSetDocValuesIterator) error {
-	return errors.New("lucene90 doc values: AddSortedSetField via DocValuesConsumer interface not supported; use Real().AddSortedSetField with a dvSortedSetValues")
+// AddSortedSetField writes a sorted-set DV field from
+// valuesProducer.GetSortedSet.
+func (c *Lucene90DocValuesConsumer) AddSortedSetField(field *index.FieldInfo, valuesProducer DocValuesProducer) error {
+	a := &sortedSetReaderAsDV{reset: func() (SortedSetDocValues, error) { return valuesProducer.GetSortedSet(field) }}
+	if err := a.Reset(); err != nil {
+		return err
+	}
+	return c.real.AddSortedSetField(field, a)
 }
 
-// AddSortedNumericField adapts a SortedNumericDocValuesIterator and writes the field.
-func (c *Lucene90DocValuesConsumer) AddSortedNumericField(field *index.FieldInfo, values SortedNumericDocValuesIterator) error {
-	return c.real.AddSortedNumericField(field, &snIterAsDvSortedNumeric{it: values})
+// AddSortedNumericField writes a sorted-numeric DV field from
+// valuesProducer.GetSortedNumeric.
+func (c *Lucene90DocValuesConsumer) AddSortedNumericField(field *index.FieldInfo, valuesProducer DocValuesProducer) error {
+	a := &sortedNumericProducerAsDV{field: field, valuesProducer: valuesProducer}
+	if err := a.Reset(); err != nil {
+		return err
+	}
+	return c.real.AddSortedNumericField(field, a)
 }
 
 // Close finalises the .dvd and .dvm files.
@@ -256,153 +284,95 @@ func (c *Lucene90DocValuesConsumer) Close() error {
 }
 
 // ---------------------------------------------------------------------------
-// DocValuesConsumer iterator adapters
+// DocValuesProducer adapters onto the internal dv*Values contracts
 // ---------------------------------------------------------------------------
 
-// numericIterAsSortedNumeric wraps a NumericDocValuesIterator as
-// dvSortedNumericValues (single-value-per-doc).
-type numericIterAsSortedNumeric struct {
-	it    NumericDocValuesIterator
-	buf   []iterEntry // collected in Reset pass
-	pos   int
-	built bool
+// numericProducerAsDV presents valuesProducer.GetNumeric(field) as a
+// single-valued dvSortedNumericValues. Reset obtains a fresh iterator.
+type numericProducerAsDV struct {
+	field          *index.FieldInfo
+	valuesProducer DocValuesProducer
+	cur            NumericDocValues
 }
 
-type iterEntry struct {
-	doc int
-	val int64
-}
-
-func (a *numericIterAsSortedNumeric) Reset() error {
-	// pos = -1 so the first NextDoc advances to entry 0. The buffer is built
-	// once (drained from the writer-side iterator) and replayed on every
-	// Reset; this is required because the consumer iterates the values more
-	// than once (skip index, DISI doc set, values) and the DISI pass calls
-	// NextDoc only — never NextValue.
-	a.pos = -1
-	if !a.built {
-		for a.it.Next() {
-			a.buf = append(a.buf, iterEntry{doc: a.it.DocID(), val: a.it.Value()})
-		}
-		a.built = true
+func (a *numericProducerAsDV) Reset() error {
+	values, err := a.valuesProducer.GetNumeric(a.field)
+	if err != nil {
+		return err
 	}
+	a.cur = values
 	return nil
 }
-func (a *numericIterAsSortedNumeric) NextDoc() (int, error) {
-	a.pos++
-	if a.pos >= len(a.buf) {
-		return dvNoMoreDocs, nil
+
+func (a *numericProducerAsDV) NextDoc() (int, error) {
+	doc, err := a.cur.NextDoc()
+	if err != nil {
+		return 0, err
 	}
-	return a.buf[a.pos].doc, nil
-}
-func (a *numericIterAsSortedNumeric) DocValueCount() (int, error) { return 1, nil }
-
-// NextValue returns the current document's value. NextDoc owns cursor
-// advancement, so NextValue is a read at the current position and may be
-// called zero or one time per document.
-func (a *numericIterAsSortedNumeric) NextValue() (int64, error) {
-	return a.buf[a.pos].val, nil
+	return normalizeDVDoc(doc), nil
 }
 
-// binaryIterAsDvBinary wraps BinaryDocValuesIterator as dvBinaryValues.
-type binaryIterAsDvBinary struct {
-	it    BinaryDocValuesIterator
-	buf   []binaryEntry
-	pos   int
-	built bool
+func (a *numericProducerAsDV) DocValueCount() (int, error) { return 1, nil }
+
+// NextValue returns the current document's value; NextDoc owns cursor
+// advancement.
+func (a *numericProducerAsDV) NextValue() (int64, error) { return a.cur.LongValue() }
+
+// binaryProducerAsDV presents valuesProducer.GetBinary(field) as a
+// dvBinaryValues. Reset obtains a fresh iterator.
+type binaryProducerAsDV struct {
+	field          *index.FieldInfo
+	valuesProducer DocValuesProducer
+	cur            BinaryDocValues
 }
 
-type binaryEntry struct {
-	doc int
-	val []byte
-}
-
-func (a *binaryIterAsDvBinary) Reset() error {
-	// pos = -1 so the first NextDoc advances to entry 0. See
-	// numericIterAsSortedNumeric.Reset for why the DISI pass (NextDoc-only)
-	// requires NextDoc — not BinaryValue — to own cursor advancement.
-	a.pos = -1
-	if !a.built {
-		for a.it.Next() {
-			cp := make([]byte, len(a.it.Value()))
-			copy(cp, a.it.Value())
-			a.buf = append(a.buf, binaryEntry{doc: a.it.DocID(), val: cp})
-		}
-		a.built = true
+func (a *binaryProducerAsDV) Reset() error {
+	values, err := a.valuesProducer.GetBinary(a.field)
+	if err != nil {
+		return err
 	}
+	a.cur = values
 	return nil
 }
-func (a *binaryIterAsDvBinary) NextDoc() (int, error) {
-	a.pos++
-	if a.pos >= len(a.buf) {
-		return dvNoMoreDocs, nil
+
+func (a *binaryProducerAsDV) NextDoc() (int, error) {
+	doc, err := a.cur.NextDoc()
+	if err != nil {
+		return 0, err
 	}
-	return a.buf[a.pos].doc, nil
+	return normalizeDVDoc(doc), nil
 }
 
-// BinaryValue returns the current document's value. NextDoc owns cursor
-// advancement, so BinaryValue is a read at the current position.
-func (a *binaryIterAsDvBinary) BinaryValue() ([]byte, error) {
-	return a.buf[a.pos].val, nil
+func (a *binaryProducerAsDV) BinaryValue() ([]byte, error) { return a.cur.BinaryValue() }
+
+// sortedNumericProducerAsDV presents valuesProducer.GetSortedNumeric(field)
+// as a dvSortedNumericValues. Reset obtains a fresh iterator.
+type sortedNumericProducerAsDV struct {
+	field          *index.FieldInfo
+	valuesProducer DocValuesProducer
+	cur            SortedNumericDocValues
 }
 
-// snIterAsDvSortedNumeric wraps SortedNumericDocValuesIterator as
-// dvSortedNumericValues.
-type snIterAsDvSortedNumeric struct {
-	it    SortedNumericDocValuesIterator
-	buf   []snEntry
-	pos   int
-	built bool
-	// current doc state
-	docIdx int
-	docCnt int
-}
-
-type snEntry struct {
-	doc  int
-	vals []int64
-}
-
-func (a *snIterAsDvSortedNumeric) Reset() error {
-	// pos = -1 so the first NextDoc advances to entry 0. NextDoc owns cursor
-	// advancement (not NextValue) so the DISI pass — which calls NextDoc only,
-	// never NextValue — terminates instead of spinning on a stuck cursor.
-	a.pos = -1
-	a.docIdx = 0
-	a.docCnt = 0
-	if !a.built {
-		for a.it.NextDoc() {
-			cnt := a.it.DocValueCount()
-			vals := make([]int64, cnt)
-			for i := 0; i < cnt; i++ {
-				vals[i] = a.it.NextValue()
-			}
-			a.buf = append(a.buf, snEntry{doc: a.it.DocID(), vals: vals})
-		}
-		a.built = true
+func (a *sortedNumericProducerAsDV) Reset() error {
+	values, err := a.valuesProducer.GetSortedNumeric(a.field)
+	if err != nil {
+		return err
 	}
+	a.cur = values
 	return nil
 }
-func (a *snIterAsDvSortedNumeric) NextDoc() (int, error) {
-	a.pos++
-	if a.pos >= len(a.buf) {
-		return dvNoMoreDocs, nil
-	}
-	e := a.buf[a.pos]
-	a.docCnt = len(e.vals)
-	a.docIdx = 0
-	return e.doc, nil
-}
-func (a *snIterAsDvSortedNumeric) DocValueCount() (int, error) { return a.docCnt, nil }
 
-// NextValue returns the current document's next value. The per-document value
-// cursor (docIdx) is independent of the document cursor (pos), which NextDoc
-// owns; NextValue must be called exactly DocValueCount() times per document.
-func (a *snIterAsDvSortedNumeric) NextValue() (int64, error) {
-	v := a.buf[a.pos].vals[a.docIdx]
-	a.docIdx++
-	return v, nil
+func (a *sortedNumericProducerAsDV) NextDoc() (int, error) {
+	doc, err := a.cur.NextDoc()
+	if err != nil {
+		return 0, err
+	}
+	return normalizeDVDoc(doc), nil
 }
+
+func (a *sortedNumericProducerAsDV) DocValueCount() (int, error) { return a.cur.DocValueCount() }
+
+func (a *sortedNumericProducerAsDV) NextValue() (int64, error) { return a.cur.NextValue() }
 
 // -----------------------------------------------------------------------------
 // Lucene90DocValuesProducer — real implementation.

@@ -5,9 +5,9 @@
 package index
 
 import (
+	"errors"
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
@@ -20,7 +20,8 @@ const (
 	blockBits = 12
 )
 
-// BinaryDocValuesWriter buffers up pending byte[] per doc, then flushes when segment flushes.
+// BinaryDocValuesWriter buffers up pending byte[] per doc, then flushes when
+// segment flushes. Go port of org.apache.lucene.index.BinaryDocValuesWriter.
 type BinaryDocValuesWriter struct {
 	bytes       *store.PagedBytes
 	bytesOut    *store.PagedBytesDataOutput
@@ -28,7 +29,7 @@ type BinaryDocValuesWriter struct {
 
 	lengths       *packed.PackedLongValuesBuilder
 	docsWithField *DocsWithFieldSet
-	fieldInfo     spi.FieldInfo
+	fieldInfo     *FieldInfo
 	bytesUsed     int64
 	lastDocID     int
 	maxLength     int
@@ -38,7 +39,7 @@ type BinaryDocValuesWriter struct {
 }
 
 // NewBinaryDocValuesWriter creates a new BinaryDocValuesWriter.
-func NewBinaryDocValuesWriter(fieldInfo spi.FieldInfo, iwBytesUsed *util.Counter) (*BinaryDocValuesWriter, error) {
+func NewBinaryDocValuesWriter(fieldInfo *FieldInfo, iwBytesUsed *util.Counter) (*BinaryDocValuesWriter, error) {
 	bytes, err := store.NewPagedBytes(blockBits)
 	if err != nil {
 		return nil, err
@@ -70,13 +71,13 @@ func NewBinaryDocValuesWriter(fieldInfo spi.FieldInfo, iwBytesUsed *util.Counter
 // AddValue adds a binary value for the given docID.
 func (w *BinaryDocValuesWriter) AddValue(docID int, value *util.BytesRef) error {
 	if docID <= w.lastDocID {
-		return fmt.Errorf("DocValuesField %q appears more than once in this document (only one value is allowed per field)", w.fieldInfo.Name)
+		return fmt.Errorf("DocValuesField %q appears more than once in this document (only one value is allowed per field)", w.fieldInfo.Name())
 	}
 	if value == nil {
-		return fmt.Errorf("field=%q: null value not allowed", w.fieldInfo.Name)
+		return fmt.Errorf("field=%q: null value not allowed", w.fieldInfo.Name())
 	}
 	if value.Length > maxBinaryLength {
-		return fmt.Errorf("DocValuesField %q is too large, must be <= %d", w.fieldInfo.Name, maxBinaryLength)
+		return fmt.Errorf("DocValuesField %q is too large, must be <= %d", w.fieldInfo.Name(), maxBinaryLength)
 	}
 
 	if value.Length > w.maxLength {
@@ -100,6 +101,9 @@ func (w *BinaryDocValuesWriter) updateBytesUsed() {
 	w.bytesUsed = newBytesUsed
 }
 
+// freezeBytes freezes the PagedBytes exactly once. GetDocValues may be called
+// before Flush (e.g. when index sorting on this field reads the in-RAM
+// values), so Flush cannot rely on being the first to freeze.
 func (w *BinaryDocValuesWriter) freezeBytes() {
 	if !w.frozen {
 		w.bytes.Freeze(false)
@@ -119,58 +123,88 @@ func (w *BinaryDocValuesWriter) GetDocValues() BinaryDocValues {
 		panic(err) // Should not happen after freeze
 	}
 
-	return &bufferedBinaryDocValues{
-		finalLengths:  w.finalLengths,
-		maxLength:     w.maxLength,
-		bytesIterator: bytesIn,
-		docsWithField: w.docsWithField.Iterator(),
-		value:         util.NewBytesRefBuilder(),
-	}
+	return newBufferedBinaryDocValues(w.finalLengths, w.maxLength, bytesIn, w.docsWithField.Iterator())
 }
 
-// Flush writes the binary doc values to the consumer.
-func (w *BinaryDocValuesWriter) Flush(state *spi.SegmentWriteState, sortMap spi.SorterDocMap, consumer spi.DocValuesConsumer) error {
+// Flush hands the buffered values to dvConsumer.AddBinaryField. When sortMap
+// is non-nil the values are re-mapped via the segment's IndexSorter docmap.
+// Mirrors BinaryDocValuesWriter.flush(SegmentWriteState, Sorter.DocMap,
+// DocValuesConsumer).
+func (w *BinaryDocValuesWriter) Flush(state *SegmentWriteState, sortMap SorterDocMap, dvConsumer DocValuesConsumer) error {
+	if dvConsumer == nil {
+		return errors.New("BinaryDocValuesWriter.Flush: consumer must not be nil")
+	}
 	w.freezeBytes()
 	if w.finalLengths == nil {
 		w.finalLengths = w.lengths.Build()
 	}
-
-	var sorted BinaryDocValues
+	var sorted *binaryDVs
 	if sortMap != nil {
-		sorted = NewBinaryDVs(
-			state.SegmentInfo.DocCount(),
+		bytesIn, err := w.bytes.GetDataInput()
+		if err != nil {
+			return err
+		}
+		s, err := newBinaryDVs(
+			state.SegmentInfo.MaxDoc(),
 			sortMap,
-			w.GetDocValues(),
+			newBufferedBinaryDocValues(w.finalLengths, w.maxLength, bytesIn, w.docsWithField.Iterator()),
 		)
+		if err != nil {
+			return err
+		}
+		sorted = s
 	}
-
-	var values BinaryDocValues
-	if sorted == nil {
-		values = w.GetDocValues()
-	} else {
-		values = sorted
-	}
-
-	return consumer.AddBinaryField(&w.fieldInfo, &binaryDocValuesWriterIterator{dvs: values})
-
+	return dvConsumer.AddBinaryField(w.fieldInfo, &binaryDocValuesWriterDocValuesProducer{w: w, sorted: sorted})
 }
 
+// binaryDocValuesWriterDocValuesProducer is the anonymous
+// EmptyDocValuesProducer subclass built by flush.
+type binaryDocValuesWriterDocValuesProducer struct {
+	EmptyDocValuesProducer
+	w      *BinaryDocValuesWriter
+	sorted *binaryDVs
+}
+
+// GetBinary returns the buffered values, or their sorted view.
+func (p *binaryDocValuesWriterDocValuesProducer) GetBinary(fieldInfoIn *FieldInfo) (BinaryDocValues, error) {
+	if fieldInfoIn != p.w.fieldInfo {
+		return nil, errors.New("wrong fieldInfo")
+	}
+	if p.sorted == nil {
+		bytesIn, err := p.w.bytes.GetDataInput()
+		if err != nil {
+			return nil, err
+		}
+		return newBufferedBinaryDocValues(p.w.finalLengths, p.w.maxLength, bytesIn, p.w.docsWithField.Iterator()), nil
+	}
+	return newSortingBinaryDocValues(p.sorted), nil
+}
+
+// GetMergeInstance returns the receiver (DocValuesProducer default).
+func (p *binaryDocValuesWriterDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
+
+// bufferedBinaryDocValues iterates over the values we have in ram. Mirrors
+// BinaryDocValuesWriter.BufferedBinaryDocValues.
 type bufferedBinaryDocValues struct {
 	value           *util.BytesRefBuilder
 	lengthsIterator *packed.PackedLongValuesIterator
 	docsWithField   util.DocIdSetIterator
 	bytesIterator   *store.PagedBytesDataInput
-	maxLength       int
-	finalLengths    *packed.PackedLongValues
 }
 
-func (b *bufferedBinaryDocValues) init() {
-	if b.value == nil {
-		b.value = util.NewBytesRefBuilder()
-		b.value.Grow(b.maxLength)
-	}
-	if b.lengthsIterator == nil {
-		b.lengthsIterator = b.finalLengths.Iterator()
+func newBufferedBinaryDocValues(
+	lengths *packed.PackedLongValues,
+	maxLength int,
+	bytesIterator *store.PagedBytesDataInput,
+	docsWithFields util.DocIdSetIterator,
+) *bufferedBinaryDocValues {
+	value := util.NewBytesRefBuilder()
+	value.Grow(maxLength)
+	return &bufferedBinaryDocValues{
+		value:           value,
+		lengthsIterator: lengths.Iterator(),
+		bytesIterator:   bytesIterator,
+		docsWithField:   docsWithFields,
 	}
 }
 
@@ -179,7 +213,6 @@ func (b *bufferedBinaryDocValues) DocID() int {
 }
 
 func (b *bufferedBinaryDocValues) NextDoc() (int, error) {
-	b.init()
 	docID, err := b.docsWithField.NextDoc()
 	if err != nil {
 		return docID, err
@@ -229,10 +262,15 @@ func (b *bufferedBinaryDocValues) BinaryValue() ([]byte, error) {
 	return b.value.Get().ValidBytes(), nil
 }
 
+// sortingBinaryDocValues mirrors BinaryDocValuesWriter.SortingBinaryDocValues.
 type sortingBinaryDocValues struct {
 	dvs   *binaryDVs
 	spare *util.BytesRef
 	docID int
+}
+
+func newSortingBinaryDocValues(dvs *binaryDVs) *sortingBinaryDocValues {
+	return &sortingBinaryDocValues{dvs: dvs, spare: util.NewBytesRefEmpty(), docID: -1}
 }
 
 func (s *sortingBinaryDocValues) NextDoc() (int, error) {
@@ -277,6 +315,8 @@ func (s *sortingBinaryDocValues) DocIDRunEnd() (int, error) {
 	panic("unsupported")
 }
 
+// binaryDVs mirrors BinaryDocValuesWriter.BinaryDVs: the values re-keyed into
+// new-doc order.
 type binaryDVs struct {
 	offsets []int
 	values  *util.BytesRefArray
@@ -290,55 +330,36 @@ func (b *binaryDVs) AdvanceExact(target int) (bool, error) {
 	panic("unsupported")
 }
 
-func NewBinaryDVs(maxDoc int, sortMap spi.SorterDocMap, oldValues BinaryDocValues) BinaryDocValues {
+func newBinaryDVs(maxDoc int, sortMap SorterDocMap, oldValues BinaryDocValues) (*binaryDVs, error) {
 	offsets := make([]int, maxDoc)
 	values := util.NewBytesRefArray(4096)
 	offset := 1 // 0 means no values for this document
-
-	docID, err := oldValues.NextDoc()
-	for err == nil && docID != util.NO_MORE_DOCS {
+	for {
+		docID, err := oldValues.NextDoc()
+		if err != nil {
+			return nil, err
+		}
+		if docID == util.NO_MORE_DOCS {
+			break
+		}
 		newDocID := sortMap.OldToNew(docID)
-		val, errVal := oldValues.BinaryValue()
-		if errVal != nil {
-			// In-memory buffered values should not fail.
-			panic(errVal)
+		val, err := oldValues.BinaryValue()
+		if err != nil {
+			return nil, err
 		}
 		values.AppendBytes(val)
 		offsets[newDocID] = offset
 		offset++
-		docID, err = oldValues.NextDoc()
 	}
-
-	return &sortingBinaryDocValues{
-		dvs: &binaryDVs{
-			offsets: offsets,
-			values:  values,
-		},
-		spare: util.NewBytesRefEmpty(),
-		docID: -1,
-	}
+	return &binaryDVs{offsets: offsets, values: values}, nil
 }
 
-type binaryDocValuesWriterIterator struct {
-	dvs BinaryDocValues
-}
-
-func (it *binaryDocValuesWriterIterator) Next() bool {
-	doc, err := it.dvs.NextDoc()
-	if err != nil || doc == util.NO_MORE_DOCS {
-		return false
-	}
-	return true
-}
-
-func (it *binaryDocValuesWriterIterator) DocID() int {
-	return it.dvs.DocID()
-}
-
-func (it *binaryDocValuesWriterIterator) Value() []byte {
-	val, err := it.dvs.BinaryValue()
+// NewBinaryDVs returns a SortingBinaryDocValues over
+// new BinaryDVs(maxDoc, sortMap, oldValues), the form SortingCodecReader uses.
+func NewBinaryDVs(maxDoc int, sortMap SorterDocMap, oldValues BinaryDocValues) BinaryDocValues {
+	dvs, err := newBinaryDVs(maxDoc, sortMap, oldValues)
 	if err != nil {
 		panic(err)
 	}
-	return val
+	return newSortingBinaryDocValues(dvs)
 }

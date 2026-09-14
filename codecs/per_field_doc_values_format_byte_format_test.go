@@ -62,23 +62,23 @@ type recordingDocValuesConsumer struct {
 	closed       bool
 }
 
-func (c *recordingDocValuesConsumer) AddNumericField(field *index.FieldInfo, _ NumericDocValuesIterator) error {
+func (c *recordingDocValuesConsumer) AddNumericField(field *index.FieldInfo, _ DocValuesProducer) error {
 	c.addedNumeric = append(c.addedNumeric, field.Name())
 	return nil
 }
 
-func (c *recordingDocValuesConsumer) AddBinaryField(field *index.FieldInfo, _ BinaryDocValuesIterator) error {
+func (c *recordingDocValuesConsumer) AddBinaryField(field *index.FieldInfo, _ DocValuesProducer) error {
 	c.addedBinary = append(c.addedBinary, field.Name())
 	return nil
 }
 
-func (c *recordingDocValuesConsumer) AddSortedField(field *index.FieldInfo, _ SortedDocValuesIterator) error {
+func (c *recordingDocValuesConsumer) AddSortedField(field *index.FieldInfo, _ DocValuesProducer) error {
 	return nil
 }
-func (c *recordingDocValuesConsumer) AddSortedSetField(*index.FieldInfo, SortedSetDocValuesIterator) error {
+func (c *recordingDocValuesConsumer) AddSortedSetField(*index.FieldInfo, DocValuesProducer) error {
 	return nil
 }
-func (c *recordingDocValuesConsumer) AddSortedNumericField(*index.FieldInfo, SortedNumericDocValuesIterator) error {
+func (c *recordingDocValuesConsumer) AddSortedNumericField(*index.FieldInfo, DocValuesProducer) error {
 	return nil
 }
 func (c *recordingDocValuesConsumer) Close() error {
@@ -122,12 +122,12 @@ func (p *recordingDocValuesProducer) Close() error          { p.closed = true; r
 // a non-nil value travels through the per-field reader on dispatch.
 type numericMarker struct{ n int }
 
-func (numericMarker) DocID() int                  { return -1 }
-func (numericMarker) NextDoc() (int, error)       { return index.NO_MORE_DOCS, nil }
-func (numericMarker) Advance(int) (int, error)    { return index.NO_MORE_DOCS, nil }
+func (numericMarker) DocID() int                     { return -1 }
+func (numericMarker) NextDoc() (int, error)          { return index.NO_MORE_DOCS, nil }
+func (numericMarker) Advance(int) (int, error)       { return index.NO_MORE_DOCS, nil }
 func (numericMarker) AdvanceExact(int) (bool, error) { return false, nil }
-func (m numericMarker) LongValue() (int64, error) { return int64(m.n), nil }
-func (numericMarker) Cost() int64                 { return 0 }
+func (m numericMarker) LongValue() (int64, error)    { return int64(m.n), nil }
+func (numericMarker) Cost() int64                    { return 0 }
 
 // newNumericFieldInfo creates a frozen FieldInfo with NUMERIC doc-values so
 // it qualifies for PerFieldDocValuesFormat purposes.
@@ -137,14 +137,6 @@ func newNumericFieldInfo(name string, number int) *index.FieldInfo {
 		DocValuesGen:  -1,
 	})
 }
-
-// nopNumericIterator is a NumericDocValuesIterator that exposes no values;
-// it is sufficient to drive the per-field writer's getInstance side effects.
-type nopNumericIterator struct{}
-
-func (nopNumericIterator) Next() bool   { return false }
-func (nopNumericIterator) DocID() int   { return -1 }
-func (nopNumericIterator) Value() int64 { return 0 }
 
 // TestPerFieldDocValuesFormat_SuffixAssignment verifies that two fields
 // that resolve to the same delegate DocValuesFormat share a single
@@ -173,7 +165,7 @@ func TestPerFieldDocValuesFormat_SuffixAssignment(t *testing.T) {
 	}
 
 	for _, name := range []string{"dv1", "dv2"} {
-		if err := consumer.AddNumericField(fis.GetByName(name), nopNumericIterator{}); err != nil {
+		if err := consumer.AddNumericField(fis.GetByName(name), index.EmptyDocValuesProducer{}); err != nil {
 			t.Fatalf("AddNumericField(%q): %v", name, err)
 		}
 	}
@@ -234,7 +226,7 @@ func TestPerFieldDocValuesFormat_DistinctFormatsBumpSuffix(t *testing.T) {
 		t.Fatalf("FieldsConsumer: %v", err)
 	}
 	for _, name := range []string{"dv1", "dv2", "dv3"} {
-		if err := consumer.AddNumericField(fis.GetByName(name), nopNumericIterator{}); err != nil {
+		if err := consumer.AddNumericField(fis.GetByName(name), index.EmptyDocValuesProducer{}); err != nil {
 			t.Fatalf("AddNumericField(%q): %v", name, err)
 		}
 	}
@@ -306,7 +298,7 @@ func TestPerFieldDocValuesFormat_BumpSuffixPerFormatName(t *testing.T) {
 		t.Fatalf("FieldsConsumer: %v", err)
 	}
 	for _, fname := range []string{"a", "b"} {
-		if err := consumer.AddNumericField(fis.GetByName(fname), nopNumericIterator{}); err != nil {
+		if err := consumer.AddNumericField(fis.GetByName(fname), index.EmptyDocValuesProducer{}); err != nil {
 			t.Fatalf("AddNumericField(%q): %v", fname, err)
 		}
 	}
@@ -585,7 +577,7 @@ func TestPerFieldDocValuesFormat_UpdatedFieldHonoursPriorSuffix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FieldsConsumer: %v", err)
 	}
-	if err := consumer.AddNumericField(updated, nopNumericIterator{}); err != nil {
+	if err := consumer.AddNumericField(updated, index.EmptyDocValuesProducer{}); err != nil {
 		t.Fatalf("AddNumericField: %v", err)
 	}
 	if err := consumer.Close(); err != nil {

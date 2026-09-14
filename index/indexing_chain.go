@@ -695,7 +695,7 @@ func (c *IndexingChain) initializeFieldInfo(pf *indexingPerField) error {
 	case DocValuesTypeNumeric:
 		pf.docValuesWriter = newDVWNumeric(NewNumericDocValuesWriter(registered, c.bytesUsed))
 	case DocValuesTypeBinary:
-		w, err := NewBinaryDocValuesWriter(*registered, c.bytesUsed)
+		w, err := NewBinaryDocValuesWriter(registered, c.bytesUsed)
 		if err != nil {
 			return err
 		}

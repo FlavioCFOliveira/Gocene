@@ -275,20 +275,22 @@ type testRecordingDVConsumer struct {
 	closed       bool
 }
 
-func (c *testRecordingDVConsumer) AddNumericField(field *index.FieldInfo, _ codecs.NumericDocValuesIterator) error {
+func (c *testRecordingDVConsumer) AddNumericField(field *index.FieldInfo, _ codecs.DocValuesProducer) error {
 	c.addedNumeric = append(c.addedNumeric, field.Name())
 	return nil
 }
 
-func (c *testRecordingDVConsumer) AddBinaryField(field *index.FieldInfo, _ codecs.BinaryDocValuesIterator) error {
+func (c *testRecordingDVConsumer) AddBinaryField(field *index.FieldInfo, _ codecs.DocValuesProducer) error {
 	c.addedBinary = append(c.addedBinary, field.Name())
 	return nil
 }
-func (c *testRecordingDVConsumer) AddSortedField(*index.FieldInfo, codecs.SortedDocValuesIterator) error   { return nil }
-func (c *testRecordingDVConsumer) AddSortedSetField(*index.FieldInfo, codecs.SortedSetDocValuesIterator) error {
+func (c *testRecordingDVConsumer) AddSortedField(*index.FieldInfo, codecs.DocValuesProducer) error {
 	return nil
 }
-func (c *testRecordingDVConsumer) AddSortedNumericField(*index.FieldInfo, codecs.SortedNumericDocValuesIterator) error {
+func (c *testRecordingDVConsumer) AddSortedSetField(*index.FieldInfo, codecs.DocValuesProducer) error {
+	return nil
+}
+func (c *testRecordingDVConsumer) AddSortedNumericField(*index.FieldInfo, codecs.DocValuesProducer) error {
 	return nil
 }
 func (c *testRecordingDVConsumer) Close() error { c.closed = true; return nil }
@@ -300,14 +302,24 @@ type testRecordingDVProducer struct {
 	closed bool
 }
 
-func (p *testRecordingDVProducer) GetNumeric(*index.FieldInfo) (codecs.NumericDocValues, error)     { return nil, nil }
-func (p *testRecordingDVProducer) GetBinary(*index.FieldInfo) (codecs.BinaryDocValues, error)        { return nil, nil }
-func (p *testRecordingDVProducer) GetSorted(*index.FieldInfo) (codecs.SortedDocValues, error)        { return nil, nil }
-func (p *testRecordingDVProducer) GetSortedSet(*index.FieldInfo) (codecs.SortedSetDocValues, error)  { return nil, nil }
+func (p *testRecordingDVProducer) GetNumeric(*index.FieldInfo) (codecs.NumericDocValues, error) {
+	return nil, nil
+}
+func (p *testRecordingDVProducer) GetBinary(*index.FieldInfo) (codecs.BinaryDocValues, error) {
+	return nil, nil
+}
+func (p *testRecordingDVProducer) GetSorted(*index.FieldInfo) (codecs.SortedDocValues, error) {
+	return nil, nil
+}
+func (p *testRecordingDVProducer) GetSortedSet(*index.FieldInfo) (codecs.SortedSetDocValues, error) {
+	return nil, nil
+}
 func (p *testRecordingDVProducer) GetSortedNumeric(*index.FieldInfo) (codecs.SortedNumericDocValues, error) {
 	return nil, nil
 }
-func (p *testRecordingDVProducer) GetSkipper(*index.FieldInfo) (codecs.DocValuesSkipper, error) { return nil, nil }
+func (p *testRecordingDVProducer) GetSkipper(*index.FieldInfo) (codecs.DocValuesSkipper, error) {
+	return nil, nil
+}
 func (p *testRecordingDVProducer) CheckIntegrity() error { return nil }
 func (p *testRecordingDVProducer) Close() error          { p.closed = true; return nil }
 

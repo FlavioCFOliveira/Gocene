@@ -187,7 +187,7 @@ func TestSortedNumericDocValuesWriter_RejectNilConsumer(t *testing.T) {
 	if err := w.AddValue(0, 1); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.Flush(1, nil, nil); err == nil {
+	if err := w.Flush(flushTestState(1), nil, nil); err == nil {
 		t.Fatal("expected error for nil consumer")
 	}
 }
@@ -207,7 +207,7 @@ func TestSortedNumericDocValuesWriter_FlushUnsorted(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got SortedNumericDocValues
-	err := w.Flush(2, nil, func(fi *FieldInfo, v SortedNumericDocValues) error {
+	err := w.flushToCallback(2, nil, func(fi *FieldInfo, v SortedNumericDocValues) error {
 		if fi.Name() != "f" {
 			t.Errorf("consumer field=%q, want %q", fi.Name(), "f")
 		}
@@ -255,7 +255,7 @@ func TestSortedNumericDocValuesWriter_FlushSortedMulti(t *testing.T) {
 	sortMap := &reverseSortMap{n: maxDoc}
 
 	var got map[int][]int64
-	err := w.Flush(maxDoc, sortMap, func(_ *FieldInfo, v SortedNumericDocValues) error {
+	err := w.flushToCallback(maxDoc, sortMap, func(_ *FieldInfo, v SortedNumericDocValues) error {
 		got = drainSortedNumeric(t, v)
 		return nil
 	})

@@ -117,7 +117,29 @@ func BuildOrdinalMapFromSortedSetValues(owner *spi.CacheKey, values []SortedSetD
 	return buildOrdinalMap(owner, pairs, weights)
 }
 
-// buildOrdinalMap is the internal constructor shared by both public build
+// BuildOrdinalMap creates an ordinal map that allows mapping ords to/from a
+// merged space from subs. Mirrors
+// OrdinalMap.build(IndexReader.CacheKey, TermsEnum[], long[], float) of
+// Apache Lucene 10.5.0.
+//
+// subs must support TermsEnum.Ord(); they need not be dense (they can be
+// FilteredTermsEnums). weights holds a weight for each sub, ideally
+// correlated with the number of unique terms each sub introduces compared to
+// the other subs. acceptableOverheadRatio is accepted for API compatibility
+// but unused by the current slice-based storage (see the type comment).
+func BuildOrdinalMap(owner *spi.CacheKey, subs []TermsEnum, weights []int64, _ float32) (*OrdinalMap, error) {
+	if len(subs) != len(weights) {
+		return nil, fmt.Errorf("subs and weights must have the same length")
+	}
+	pairs := make([]ordEnumPair, len(subs))
+	for i, sub := range subs {
+		// Java reads top.termsEnum.ord() (OrdinalMap.java:289).
+		pairs[i] = ordEnumPair{te: sub, ord: sub.Ord}
+	}
+	return buildOrdinalMap(owner, pairs, weights)
+}
+
+// buildOrdinalMap is the internal constructor shared by the public build
 // functions. It merges per-segment TermsEnums in descending-weight order
 // using a priority queue and records per-segment ordinal deltas.
 func buildOrdinalMap(owner *spi.CacheKey, pairs []ordEnumPair, weights []int64) (*OrdinalMap, error) {

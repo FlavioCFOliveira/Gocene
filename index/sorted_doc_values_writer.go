@@ -24,11 +24,6 @@ import (
 //   - The Java original extends an abstract DocValuesWriter<SortedDocValues>;
 //     Gocene has no such base type, so the public surface (AddValue,
 //     GetDocValues, Flush) is exposed directly on the writer.
-//   - Java's flush() targets DocValuesConsumer.addSortedField via an
-//     EmptyDocValuesProducer anonymous subclass. To avoid an import cycle
-//     with the codecs package this writer takes a local SortedFieldConsumer
-//     callback; the codec wiring layer adapts codecs.DocValuesConsumer to
-//     this signature (same pattern as [SortedSetDocValuesWriter]).
 //   - DocsWithFieldSet does not expose a Java-style iterator; the writer
 //     reuses the dense-or-sparse traversal helper materialised by the
 //     sibling SortedSetDocValuesWriter (docsWithFieldDocs / trailingZeros64).
@@ -184,51 +179,95 @@ func (w *SortedDocValuesWriter) docsWithFieldDocs() []int {
 	return docs
 }
 
-// SortedFieldConsumer is the callback used by Flush to hand the buffered
-// SortedDocValues to the underlying codec consumer.
-//
-// Gocene divergence: replaces the Java DocValuesConsumer.addSortedField +
-// EmptyDocValuesProducer.getSorted anonymous override with a simple
-// function-typed boundary. The wiring layer in the codecs package adapts
-// codecs.DocValuesConsumer to this signature.
-type SortedFieldConsumer func(field *FieldInfo, values SortedDocValues) error
-
-// Flush hands the buffered state to consumer. When sortMap is non-nil the
-// values are re-mapped via the segment's IndexSorter docmap.
-//
-// Gocene divergence: maxDoc is passed in explicitly rather than read from
-// SegmentWriteState because Gocene's SegmentWriteState in the index package
-// does not yet carry SegmentInfo.MaxDoc (same convention as
-// [SortedSetDocValuesWriter.Flush]).
+// Flush hands the buffered values to dvConsumer.AddSortedField through the
+// producer built by getDocValuesProducer. When sortMap is non-nil the values
+// are re-mapped via the segment's IndexSorter docmap. Mirrors
+// SortedDocValuesWriter.flush(SegmentWriteState, Sorter.DocMap,
+// DocValuesConsumer).
 func (w *SortedDocValuesWriter) Flush(
-	maxDoc int,
+	state *SegmentWriteState,
 	sortMap SorterDocMap,
-	consumer SortedFieldConsumer,
+	dvConsumer DocValuesConsumer,
 ) error {
-	if consumer == nil {
+	if dvConsumer == nil {
 		return errors.New("SortedDocValuesWriter.Flush: consumer must not be nil")
 	}
 	if err := w.finish(); err != nil {
 		return err
 	}
-	buf := newBufferedSingleSortedDocValues(
-		w.hash, w.finalOrds, w.finalSortedValues, w.finalOrdMap, w.docsWithFieldDocs(),
-	)
-	if sortMap == nil {
-		return consumer(w.fieldInfo, buf)
-	}
-	sorted, err := sortDocValues(maxDoc, sortMap, buf)
+	producer, err := sortedDocValuesWriterGetDocValuesProducer(
+		w.fieldInfo, w.hash, w.finalOrds, w.finalSortedValues, w.finalOrdMap, w.docsWithField, sortMap)
 	if err != nil {
 		return err
 	}
-	// Rebuild a fresh buffered view: the Java original constructs a second
-	// BufferedSortedDocValues so that the SortingSortedDocValues delegate
-	// has an untouched iterator state to fall back to for lookupOrd.
-	delegate := newBufferedSingleSortedDocValues(
-		w.hash, w.finalOrds, w.finalSortedValues, w.finalOrdMap, w.docsWithFieldDocs(),
-	)
-	return consumer(w.fieldInfo, newSortingSortedDocValues(delegate, sorted))
+	return dvConsumer.AddSortedField(w.fieldInfo, producer)
 }
+
+// sortedDocValuesWriterGetDocValuesProducer mirrors the static
+// SortedDocValuesWriter.getDocValuesProducer(FieldInfo, BytesRefHash,
+// PackedLongValues, int[], int[], DocsWithFieldSet, Sorter.DocMap): when
+// sortMap is set the ordinals are sorted once, and the returned producer hands
+// out a fresh view on every call.
+func sortedDocValuesWriterGetDocValuesProducer(
+	writerFieldInfo *FieldInfo,
+	hash *util.BytesRefHash,
+	ords *packed.PackedLongValues,
+	sortedValues []int,
+	ordMap []int,
+	docsWithField *DocsWithFieldSet,
+	sortMap SorterDocMap,
+) (DocValuesProducer, error) {
+	var sorted []int
+	if sortMap != nil {
+		s, err := sortDocValues(
+			sortMap.Size(),
+			sortMap,
+			newBufferedSingleSortedDocValues(hash, ords, sortedValues, ordMap, docsWithFieldSetDocs(docsWithField)),
+		)
+		if err != nil {
+			return nil, err
+		}
+		sorted = s
+	}
+	return &sortedDocValuesWriterDocValuesProducer{
+		writerFieldInfo: writerFieldInfo,
+		hash:            hash,
+		ords:            ords,
+		sortedValues:    sortedValues,
+		ordMap:          ordMap,
+		docsWithField:   docsWithField,
+		sorted:          sorted,
+	}, nil
+}
+
+// sortedDocValuesWriterDocValuesProducer is the anonymous
+// EmptyDocValuesProducer subclass returned by getDocValuesProducer.
+type sortedDocValuesWriterDocValuesProducer struct {
+	EmptyDocValuesProducer
+	writerFieldInfo *FieldInfo
+	hash            *util.BytesRefHash
+	ords            *packed.PackedLongValues
+	sortedValues    []int
+	ordMap          []int
+	docsWithField   *DocsWithFieldSet
+	sorted          []int
+}
+
+// GetSorted returns the buffered values, or their sorted view.
+func (p *sortedDocValuesWriterDocValuesProducer) GetSorted(fieldInfoIn *FieldInfo) (SortedDocValues, error) {
+	if fieldInfoIn != p.writerFieldInfo {
+		return nil, errors.New("wrong fieldInfo")
+	}
+	buf := newBufferedSingleSortedDocValues(
+		p.hash, p.ords, p.sortedValues, p.ordMap, docsWithFieldSetDocs(p.docsWithField))
+	if p.sorted == nil {
+		return buf, nil
+	}
+	return newSortingSortedDocValues(buf, p.sorted), nil
+}
+
+// GetMergeInstance returns the receiver (DocValuesProducer default).
+func (p *sortedDocValuesWriterDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
 
 // sortDocValues mirrors SortedDocValuesWriter.sortDocValues in the Java
 // source: it walks the unsorted view and builds an ord-per-newDocID slice,

@@ -51,6 +51,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // testNoMoreDocs mirrors the codecs-internal dvNoMoreDocs sentinel
@@ -149,23 +150,88 @@ func dvSkipperTestSegment(t *testing.T, maxDoc int) (
 	return ws, rs, fi, cleanup
 }
 
-// simpleNumericIter implements codecs.NumericDocValuesIterator from
-// parallel doc/value slices.
+// simpleNumericProducer serves, on every GetNumeric call, a fresh
+// NumericDocValues over parallel doc/value slices.
+type simpleNumericProducer struct {
+	index.EmptyDocValuesProducer
+	docs   []int
+	values []int64
+}
+
+func (p *simpleNumericProducer) GetNumeric(*index.FieldInfo) (codecs.NumericDocValues, error) {
+	return &simpleNumericIter{docs: p.docs, values: p.values, pos: -1}, nil
+}
+
+func (p *simpleNumericProducer) GetMergeInstance() codecs.DocValuesProducer { return p }
+
+// simpleNumericIter is a forward-only NumericDocValues over parallel
+// doc/value slices.
 type simpleNumericIter struct {
 	docs   []int
 	values []int64
 	pos    int
 }
 
-func (s *simpleNumericIter) Next() bool {
-	s.pos++
-	return s.pos < len(s.docs)
+func (s *simpleNumericIter) DocID() int {
+	if s.pos < 0 {
+		return -1
+	}
+	if s.pos >= len(s.docs) {
+		return testNoMoreDocs
+	}
+	return s.docs[s.pos]
 }
-func (s *simpleNumericIter) DocID() int   { return s.docs[s.pos] }
-func (s *simpleNumericIter) Value() int64 { return s.values[s.pos] }
 
-// simpleSNIter implements codecs.SortedNumericDocValuesIterator for
-// multi-value numeric tests.
+func (s *simpleNumericIter) NextDoc() (int, error) {
+	s.pos++
+	return s.DocID(), nil
+}
+
+func (s *simpleNumericIter) Advance(target int) (int, error) {
+	for {
+		doc, err := s.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+		if doc >= target {
+			return doc, nil
+		}
+	}
+}
+
+func (s *simpleNumericIter) AdvanceExact(target int) (bool, error) {
+	doc, err := s.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return doc == target, nil
+}
+
+func (s *simpleNumericIter) LongValue() (int64, error) { return s.values[s.pos], nil }
+
+func (s *simpleNumericIter) Cost() int64 { return int64(len(s.docs)) }
+
+func (s *simpleNumericIter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+func (s *simpleNumericIter) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(s) }
+
+// simpleSNProducer serves, on every GetSortedNumeric call, a fresh
+// SortedNumericDocValues over the entries.
+type simpleSNProducer struct {
+	index.EmptyDocValuesProducer
+	entries []snEntry
+}
+
+func (p *simpleSNProducer) GetSortedNumeric(*index.FieldInfo) (codecs.SortedNumericDocValues, error) {
+	return &simpleSNIter{entries: p.entries, pos: -1}, nil
+}
+
+func (p *simpleSNProducer) GetMergeInstance() codecs.DocValuesProducer { return p }
+
+// simpleSNIter is a forward-only SortedNumericDocValues for multi-value
+// numeric tests.
 type simpleSNIter struct {
 	entries []snEntry
 	pos     int
@@ -177,18 +243,61 @@ type snEntry struct {
 	values []int64
 }
 
-func (s *simpleSNIter) NextDoc() bool {
+func (s *simpleSNIter) DocID() int {
+	if s.pos < 0 {
+		return -1
+	}
+	if s.pos >= len(s.entries) {
+		return testNoMoreDocs
+	}
+	return s.entries[s.pos].doc
+}
+
+func (s *simpleSNIter) NextDoc() (int, error) {
 	s.pos++
 	s.valPos = 0
-	return s.pos < len(s.entries)
+	return s.DocID(), nil
 }
-func (s *simpleSNIter) DocID() int { return s.entries[s.pos].doc }
-func (s *simpleSNIter) NextValue() int64 {
+
+func (s *simpleSNIter) Advance(target int) (int, error) {
+	for {
+		doc, err := s.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+		if doc >= target {
+			return doc, nil
+		}
+	}
+}
+
+func (s *simpleSNIter) AdvanceExact(target int) (bool, error) {
+	doc, err := s.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return doc == target, nil
+}
+
+func (s *simpleSNIter) NextValue() (int64, error) {
 	v := s.entries[s.pos].values[s.valPos]
 	s.valPos++
-	return v
+	return v, nil
 }
-func (s *simpleSNIter) DocValueCount() int { return len(s.entries[s.pos].values) }
+
+// LongValue satisfies the NumericDocValues surface SortedNumericDocValues
+// embeds; it reads the next value like NextValue.
+func (s *simpleSNIter) LongValue() (int64, error) { return s.NextValue() }
+
+func (s *simpleSNIter) DocValueCount() (int, error) { return len(s.entries[s.pos].values), nil }
+
+func (s *simpleSNIter) Cost() int64 { return int64(len(s.entries)) }
+
+func (s *simpleSNIter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+func (s *simpleSNIter) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(s) }
 
 // ---------------------------------------------------------------------------
 // TestSkipperAllEqualValue
@@ -220,7 +329,7 @@ func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValue(t *tes
 		docs[i] = i
 		vals[i] = 0
 	}
-	if err := consumer.AddNumericField(fi, &simpleNumericIter{docs: docs, values: vals}); err != nil {
+	if err := consumer.AddNumericField(fi, &simpleNumericProducer{docs: docs, values: vals}); err != nil {
 		t.Fatalf("AddNumericField: %v", err)
 	}
 	if err := consumer.Close(); err != nil {
@@ -308,7 +417,7 @@ func TestLucene90DocValuesFormatVariableSkipInterval_SkipperFewValuesSorted(t *t
 		docs[i] = i
 		vals[i] = int64(i / interval)
 	}
-	if err := consumer.AddNumericField(fi, &simpleNumericIter{docs: docs, values: vals}); err != nil {
+	if err := consumer.AddNumericField(fi, &simpleNumericProducer{docs: docs, values: vals}); err != nil {
 		t.Fatalf("AddNumericField: %v", err)
 	}
 	if err := consumer.Close(); err != nil {
@@ -391,7 +500,7 @@ func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithGap
 	if err != nil {
 		t.Fatalf("FieldsConsumer: %v", err)
 	}
-	if err := consumer.AddNumericField(fi, &simpleNumericIter{docs: docs, values: vals}); err != nil {
+	if err := consumer.AddNumericField(fi, &simpleNumericProducer{docs: docs, values: vals}); err != nil {
 		t.Fatalf("AddNumericField: %v", err)
 	}
 	if err := consumer.Close(); err != nil {
@@ -486,7 +595,7 @@ func TestLucene90DocValuesFormatVariableSkipInterval_SkipperAllEqualValueWithMul
 	if err != nil {
 		t.Fatalf("FieldsConsumer: %v", err)
 	}
-	if err := consumer.AddSortedNumericField(fi, &simpleSNIter{entries: entries}); err != nil {
+	if err := consumer.AddSortedNumericField(fi, &simpleSNProducer{entries: entries}); err != nil {
 		t.Fatalf("AddSortedNumericField: %v", err)
 	}
 	if err := consumer.Close(); err != nil {

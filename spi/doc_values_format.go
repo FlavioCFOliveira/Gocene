@@ -28,31 +28,41 @@ type DocValuesFormat interface {
 	FieldsProducer(state *SegmentReadState) (DocValuesProducer, error)
 }
 
-// DocValuesConsumer is the per-segment write side of the doc-values
-// pipeline. Mirrors org.apache.lucene.codecs.DocValuesConsumer in
-// Apache Lucene 10.4.0.
+// DocValuesConsumer is the abstract API that consumes numeric, binary and
+// sorted doc values. Mirrors the abstract members of
+// org.apache.lucene.codecs.DocValuesConsumer in Apache Lucene 10.5.0.
 //
-// The flush path feeds each Add*Field call with a writer-side
-// iterator over the in-memory accumulator's contents; the consumer
-// serializes the values to the segment's .dvd / .dvm files.
+// The lifecycle is: the consumer is created by
+// DocValuesFormat.FieldsConsumer; AddNumericField, AddBinaryField,
+// AddSortedField, AddSortedSetField or AddSortedNumericField is called for
+// each Numeric, Binary, Sorted, SortedSet or SortedNumeric doc-values field;
+// after all fields are added, the consumer is closed. The API is a "pull"
+// rather than a "push": every Add*Field receives a DocValuesProducer and the
+// implementation is free to obtain the values from it more than once.
+//
+// The concrete members of the Java abstract class (merge, mergeNumericField,
+// mergeBinaryField, mergeSortedField, mergeSortedSetField,
+// mergeSortedNumericField and their helpers) take a MergeState, which lives
+// in package index; they are carried by codecs.BaseDocValuesConsumer, which
+// every concrete consumer embeds.
 type DocValuesConsumer interface {
-	// AddNumericField persists a numeric doc-values field.
-	AddNumericField(field *FieldInfo, values NumericDocValuesIterator) error
+	// AddNumericField writes numeric doc values for a field.
+	AddNumericField(field *FieldInfo, valuesProducer DocValuesProducer) error
 
-	// AddBinaryField persists a binary doc-values field.
-	AddBinaryField(field *FieldInfo, values BinaryDocValuesIterator) error
+	// AddBinaryField writes binary doc values for a field.
+	AddBinaryField(field *FieldInfo, valuesProducer DocValuesProducer) error
 
-	// AddSortedField persists a sorted doc-values field.
-	AddSortedField(field *FieldInfo, values SortedDocValuesIterator) error
+	// AddSortedField writes pre-sorted binary doc values for a field.
+	AddSortedField(field *FieldInfo, valuesProducer DocValuesProducer) error
 
-	// AddSortedSetField persists a sorted-set doc-values field.
-	AddSortedSetField(field *FieldInfo, values SortedSetDocValuesIterator) error
+	// AddSortedNumericField writes pre-sorted numeric doc values for a
+	// field.
+	AddSortedNumericField(field *FieldInfo, valuesProducer DocValuesProducer) error
 
-	// AddSortedNumericField persists a sorted-numeric doc-values field.
-	AddSortedNumericField(field *FieldInfo, values SortedNumericDocValuesIterator) error
+	// AddSortedSetField writes pre-sorted set doc values for a field.
+	AddSortedSetField(field *FieldInfo, valuesProducer DocValuesProducer) error
 
-	// Close flushes any pending bytes and releases the consumer's
-	// resources.
+	// Close releases the consumer's resources (Closeable.close()).
 	Close() error
 }
 

@@ -127,7 +127,9 @@ func (f *CrankyDocValuesFormat) FieldsConsumer(state *spi.SegmentWriteState) (sp
 	if err != nil {
 		return nil, err
 	}
-	return &CrankyDocValuesConsumer{delegate: consumer, random: f.random}, nil
+	c := &CrankyDocValuesConsumer{delegate: consumer, random: f.random}
+	c.BaseDocValuesConsumer = codecs.NewBaseDocValuesConsumer(c)
+	return c, nil
 }
 
 func (f *CrankyDocValuesFormat) FieldsProducer(state *spi.SegmentReadState) (spi.DocValuesProducer, error) {
@@ -135,6 +137,10 @@ func (f *CrankyDocValuesFormat) FieldsProducer(state *spi.SegmentReadState) (spi
 }
 
 type CrankyDocValuesConsumer struct {
+	// BaseDocValuesConsumer carries the members inherited from
+	// DocValuesConsumer (merge and its helpers).
+	*codecs.BaseDocValuesConsumer
+
 	delegate spi.DocValuesConsumer
 	random   *rand.Rand
 }
