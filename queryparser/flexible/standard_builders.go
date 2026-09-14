@@ -6,10 +6,8 @@ package flexible
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/queries/intervals"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -23,7 +21,7 @@ func NewDummyQueryNodeBuilder() *DummyQueryNodeBuilder { return &DummyQueryNodeB
 
 // Build returns a MatchNoDocsQuery regardless of the node.
 func (b *DummyQueryNodeBuilder) Build(_ QueryNode) (search.Query, error) {
-	return search.NewMatchNoDocsQuery(), nil
+	return search.NewMatchNoDocsQuery(""), nil
 }
 
 // AnyQueryNodeBuilder builds a BooleanQuery from an AnyQueryNode.
@@ -45,7 +43,8 @@ func (b *AnyQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 		return nil, fmt.Errorf("expected AnyQueryNode, got %T", node)
 	}
 
-	bq := search.NewBooleanQuery()
+	// Lucene builds this through BooleanQuery.Builder.
+	bq := search.NewBooleanQueryBuilder()
 	for _, child := range anyNode.GetChildren() {
 		childQuery, err := b.treeBuilder.Build(child)
 		if err != nil {
@@ -54,7 +53,7 @@ func (b *AnyQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 		bq.Add(childQuery, search.SHOULD)
 	}
 	bq.SetMinimumNumberShouldMatch(anyNode.GetMinimumMatchingElements())
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // ModifierQueryNodeBuilder builds queries from ModifierQueryNode.
@@ -82,7 +81,7 @@ func (b *ModifierQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 
 	children := modNode.GetChildren()
 	if len(children) == 0 {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 
 	childQuery, err := b.treeBuilder.Build(children[0])
@@ -92,13 +91,13 @@ func (b *ModifierQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 
 	switch modNode.GetModifier() {
 	case ModifierRequired:
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(childQuery, search.MUST)
-		return bq, nil
+		return bq.Build(), nil
 	case ModifierProhibited:
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(childQuery, search.MUST_NOT)
-		return bq, nil
+		return bq.Build(), nil
 	default:
 		return childQuery, nil
 	}
@@ -203,11 +202,10 @@ func (b *RegexpQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 		return nil, fmt.Errorf("expected RegexpQueryNode, got %T", node)
 	}
 
-	q, err := search.NewRegexpQuery(rnNode.GetField(), rnNode.GetText())
-	if err != nil {
-		return nil, fmt.Errorf("creating regexp query: %w", err)
-	}
-	return q, nil
+	// Mirrors RegexpQueryNodeBuilder#build: new RegexpQuery(new Term(
+	// regexpNode.getFieldAsString(), regexpNode.textToBytesRef())).
+	return search.NewRegexpQuery(
+		index.NewTermFromBytesRef(rnNode.GetFieldAsString(), rnNode.TextToBytesRef())), nil
 }
 
 // SlopQueryNodeBuilder builds a PhraseQuery with slop from SlopQueryNode.
@@ -230,7 +228,7 @@ func (b *SlopQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 
 	children := slopNode.GetChildren()
 	if len(children) == 0 {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 
 	childQuery, err := b.treeBuilder.Build(children[0])
@@ -245,24 +243,41 @@ func (b *SlopQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 	return childQuery, nil
 }
 
-// SynonymQueryNodeBuilder builds SynonymQuery from SynonymQueryNode.
-// This is the Go equivalent of Lucene's SynonymQueryNodeBuilder.
-type SynonymQueryNodeBuilder struct{}
+// SynonymQueryNodeBuilder builds a BooleanQuery from a SynonymQueryNode.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.standard.builders.SynonymQueryNodeBuilder,
+// which — despite the name — produces a BooleanQuery of SHOULD clauses, one per
+// child, and not a SynonymQuery (the Java source carries a "TODO: use
+// SynonymQuery instead").
+type SynonymQueryNodeBuilder struct {
+	treeBuilder *QueryTreeBuilder
+}
 
 // NewSynonymQueryNodeBuilder creates a new SynonymQueryNodeBuilder.
-func NewSynonymQueryNodeBuilder() *SynonymQueryNodeBuilder { return &SynonymQueryNodeBuilder{} }
+func NewSynonymQueryNodeBuilder(treeBuilder *QueryTreeBuilder) *SynonymQueryNodeBuilder {
+	return &SynonymQueryNodeBuilder{treeBuilder: treeBuilder}
+}
 
-// Build builds a SynonymQuery from a SynonymQueryNode.
+// Build builds a BooleanQuery of SHOULD clauses from a SynonymQueryNode.
+//
+// Java reads each child's already-built query from the
+// QueryTreeBuilder.QUERY_TREE_BUILDER_TAGID tag; this package builds children
+// through the tree builder instead, which is the mechanism every other builder
+// here uses. The resulting query is the same.
 func (b *SynonymQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 	synNode, ok := node.(*SynonymQueryNode)
 	if !ok {
 		return nil, fmt.Errorf("expected SynonymQueryNode, got %T", node)
 	}
 
-	builder := search.NewSynonymQueryBuilder(synNode.GetField())
+	builder := search.NewBooleanQueryBuilder()
 	for _, child := range synNode.GetChildren() {
-		if fqn, ok := child.(*FieldQueryNode); ok {
-			builder.AddTerm(index.NewTerm(synNode.GetField(), fqn.GetText()))
+		childQuery, err := b.treeBuilder.Build(child)
+		if err != nil {
+			return nil, err
+		}
+		if childQuery != nil {
+			builder.Add(childQuery, search.SHOULD)
 		}
 	}
 	return builder.Build(), nil
@@ -311,135 +326,22 @@ func (b *MinShouldMatchNodeBuilder) Build(node QueryNode) (search.Query, error) 
 	return builder.Build(), nil
 }
 
-// IntervalQueryNodeBuilder converts an IntervalQueryNode into a real IntervalQuery
-// backed by the intervals execution layer (queries/intervals).
+// IntervalQueryNodeBuilder builds a Query from an IntervalQueryNode.
 //
-// Mapping from node functions to IntervalsSource combinators:
-//
-//	"or"       → DisjunctionIntervalsSource
-//	"and"      → ConjunctionIntervalsSource (unordered)
-//	"ordered"  → ConjunctionIntervalsSource (ordered)
-//	"phrase"   → ConjunctionIntervalsSource (ordered with maxGaps=0)
-//	"not"      → DifferenceIntervalsSource
-//	"prefix"   → MultiTermIntervalsSource (prefix automaton)
-//	"wildcard" → MultiTermIntervalsSource (wildcard automaton)
-//	"fuzzy"    → MultiTermIntervalsSource (fuzzy automaton)
-//
-// Children are recursively converted: FieldQueryNode → TermIntervalsSource,
-// GroupQueryNode → unwrapped, IntervalQueryNode → recursive build.
+// Mirrors org.apache.lucene.queryparser.flexible.standard.builders.IntervalQueryNodeBuilder,
+// whose whole body is `return ((IntervalQueryNode) queryNode).getQuery();`.
 type IntervalQueryNodeBuilder struct{}
 
 // NewIntervalQueryNodeBuilder creates a new IntervalQueryNodeBuilder.
 func NewIntervalQueryNodeBuilder() *IntervalQueryNodeBuilder { return &IntervalQueryNodeBuilder{} }
 
-// Build converts an IntervalQueryNode to a search.Query (IntervalQuery).
+// Build returns the IntervalQuery carried by the node.
 func (b *IntervalQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 	intervalNode, ok := node.(*IntervalQueryNode)
 	if !ok {
 		return nil, fmt.Errorf("expected IntervalQueryNode, got %T", node)
 	}
-
-	source, err := b.buildSource(intervalNode)
-	if err != nil {
-		return nil, err
-	}
-	if source == nil {
-		return search.NewMatchNoDocsQuery(), nil
-	}
-	return intervals.NewIntervalQuery(intervalNode.GetField(), source), nil
-}
-
-// buildSource recursively builds an IntervalsSource from an IntervalQueryNode.
-func (b *IntervalQueryNodeBuilder) buildSource(intervalNode *IntervalQueryNode) (intervals.IntervalsSource, error) {
-	children := intervalNode.GetChildren()
-	fn := intervalNode.GetFunction()
-
-	// Build sub-sources from children.
-	subSources := make([]intervals.IntervalsSource, 0, len(children))
-	for _, child := range children {
-		cs, err := b.toSource(child)
-		if err != nil {
-			return nil, err
-		}
-		if cs != nil {
-			subSources = append(subSources, cs)
-		}
-	}
-
-	if len(subSources) == 0 {
-		return intervals.NewNoMatchIntervalsSource(
-			fmt.Sprintf("interval %s: no valid sub-sources", fn)), nil
-	}
-
-	switch strings.ToLower(fn) {
-	case "or", "any":
-		return intervals.Or(subSources...), nil
-
-	case "and", "unordered":
-		return intervals.Unordered(subSources...), nil
-
-	case "ordered":
-		return intervals.Ordered(subSources...), nil
-
-	case "phrase":
-		return intervals.PhraseOf(subSources...), nil
-
-	case "not":
-		if len(subSources) < 2 {
-			return nil, fmt.Errorf("interval not(field, minuend, subtrahend): expected at least 2 sources, got %d", len(subSources))
-		}
-		return intervals.NotContaining(subSources[0], subSources[1]), nil
-
-	default:
-		// Unknown function: treat as single source if there is exactly one child.
-		if len(subSources) == 1 {
-			return subSources[0], nil
-		}
-		return nil, fmt.Errorf("interval function %q: %d sub-sources (expected exactly 1 or a known combinator)", fn, len(subSources))
-	}
-}
-
-// toSource converts a generic QueryNode to an IntervalsSource.
-func (b *IntervalQueryNodeBuilder) toSource(node QueryNode) (intervals.IntervalsSource, error) {
-	switch n := node.(type) {
-	case *FieldQueryNode:
-		text := n.GetText()
-		if text == "" {
-			return nil, nil
-		}
-		return intervals.NewTermIntervalsSource([]byte(text)), nil
-
-	case *IntervalQueryNode:
-		return b.buildSource(n)
-
-	case *GroupQueryNode:
-		// Unwrap group — interval query children are flat.
-		kids := n.GetChildren()
-		if len(kids) == 0 {
-			return nil, nil
-		}
-		if len(kids) == 1 {
-			return b.toSource(kids[0])
-		}
-		// Multiple children in a group → treat as unordered conjunction.
-		subs := make([]intervals.IntervalsSource, 0, len(kids))
-		for _, k := range kids {
-			src, err := b.toSource(k)
-			if err != nil {
-				return nil, err
-			}
-			if src != nil {
-				subs = append(subs, src)
-			}
-		}
-		if len(subs) == 0 {
-			return nil, nil
-		}
-		return intervals.Unordered(subs...), nil
-
-	default:
-		return nil, nil // unsupported node types produce no source
-	}
+	return intervalNode.GetQuery(), nil
 }
 
 // StandardQueryBuilder is the top-level builder interface for the standard query parser.

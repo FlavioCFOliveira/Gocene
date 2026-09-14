@@ -12,7 +12,10 @@ type DeletedQueryNode struct {
 
 // NewDeletedQueryNode creates a new DeletedQueryNode.
 func NewDeletedQueryNode() *DeletedQueryNode {
-	return &DeletedQueryNode{QueryNodeImpl: NewQueryNodeImpl(nil)}
+	n := &DeletedQueryNode{QueryNodeImpl: NewQueryNodeImpl(nil)}
+	// DeletedQueryNode is a leaf in Lucene: it never calls setLeaf(false).
+	n.SetLeaf(true)
+	return n
 }
 
 // ToQueryString returns the deleted marker.

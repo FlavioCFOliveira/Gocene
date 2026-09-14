@@ -223,15 +223,23 @@ func (p *PrecedenceQueryNodeProcessor) Process(queryTree QueryNode) (QueryNode, 
 	}
 
 	// Process children first
+	// Mirrors QueryNodeProcessorImpl#processChildren(QueryNode): the processed
+	// children are collected into a fresh list which is then handed to
+	// queryTree.set(...). Lucene has no replaceChild.
 	children := queryTree.GetChildren()
-	for _, child := range children {
-		processedChild, err := p.Process(child)
-		if err != nil {
-			return nil, err
+	if len(children) > 0 {
+		newChildren := make([]QueryNode, 0, len(children))
+		for _, child := range children {
+			processedChild, err := p.Process(child)
+			if err != nil {
+				return nil, err
+			}
+			if processedChild == nil {
+				return nil, NewQueryNodeError(NewMessageImpl(MsgInvalidSyntax, "query node processor returned a nil child"))
+			}
+			newChildren = append(newChildren, processedChild)
 		}
-		if processedChild != child {
-			queryTree.ReplaceChild(child, processedChild)
-		}
+		queryTree.SetChildren(newChildren)
 	}
 
 	return queryTree, nil
@@ -257,15 +265,23 @@ func (p *AnalyzerQueryNodeProcessor) Process(queryTree QueryNode) (QueryNode, er
 	}
 
 	// Process children first
+	// Mirrors QueryNodeProcessorImpl#processChildren(QueryNode): the processed
+	// children are collected into a fresh list which is then handed to
+	// queryTree.set(...). Lucene has no replaceChild.
 	children := queryTree.GetChildren()
-	for _, child := range children {
-		processedChild, err := p.Process(child)
-		if err != nil {
-			return nil, err
+	if len(children) > 0 {
+		newChildren := make([]QueryNode, 0, len(children))
+		for _, child := range children {
+			processedChild, err := p.Process(child)
+			if err != nil {
+				return nil, err
+			}
+			if processedChild == nil {
+				return nil, NewQueryNodeError(NewMessageImpl(MsgInvalidSyntax, "query node processor returned a nil child"))
+			}
+			newChildren = append(newChildren, processedChild)
 		}
-		if processedChild != child {
-			queryTree.ReplaceChild(child, processedChild)
-		}
+		queryTree.SetChildren(newChildren)
 	}
 
 	return queryTree, nil
@@ -299,15 +315,23 @@ func (p *PhraseSlopQueryNodeProcessor) Process(queryTree QueryNode) (QueryNode, 
 	}
 
 	// Process children
+	// Mirrors QueryNodeProcessorImpl#processChildren(QueryNode): the processed
+	// children are collected into a fresh list which is then handed to
+	// queryTree.set(...). Lucene has no replaceChild.
 	children := queryTree.GetChildren()
-	for _, child := range children {
-		processedChild, err := p.Process(child)
-		if err != nil {
-			return nil, err
+	if len(children) > 0 {
+		newChildren := make([]QueryNode, 0, len(children))
+		for _, child := range children {
+			processedChild, err := p.Process(child)
+			if err != nil {
+				return nil, err
+			}
+			if processedChild == nil {
+				return nil, NewQueryNodeError(NewMessageImpl(MsgInvalidSyntax, "query node processor returned a nil child"))
+			}
+			newChildren = append(newChildren, processedChild)
 		}
-		if processedChild != child {
-			queryTree.ReplaceChild(child, processedChild)
-		}
+		queryTree.SetChildren(newChildren)
 	}
 
 	return queryTree, nil
@@ -341,15 +365,23 @@ func (p *BoostQueryNodeProcessor) Process(queryTree QueryNode) (QueryNode, error
 	}
 
 	// Process children
+	// Mirrors QueryNodeProcessorImpl#processChildren(QueryNode): the processed
+	// children are collected into a fresh list which is then handed to
+	// queryTree.set(...). Lucene has no replaceChild.
 	children := queryTree.GetChildren()
-	for _, child := range children {
-		processedChild, err := p.Process(child)
-		if err != nil {
-			return nil, err
+	if len(children) > 0 {
+		newChildren := make([]QueryNode, 0, len(children))
+		for _, child := range children {
+			processedChild, err := p.Process(child)
+			if err != nil {
+				return nil, err
+			}
+			if processedChild == nil {
+				return nil, NewQueryNodeError(NewMessageImpl(MsgInvalidSyntax, "query node processor returned a nil child"))
+			}
+			newChildren = append(newChildren, processedChild)
 		}
-		if processedChild != child {
-			queryTree.ReplaceChild(child, processedChild)
-		}
+		queryTree.SetChildren(newChildren)
 	}
 
 	return queryTree, nil

@@ -121,6 +121,24 @@ const (
 	PointsTypeDouble
 )
 
+// String returns the simple name of the java.lang.Number subclass this points
+// type corresponds to, matching what Lucene prints via
+// PointsConfig#getType().getSimpleName().
+func (t PointsType) String() string {
+	switch t {
+	case PointsTypeInt:
+		return "Integer"
+	case PointsTypeLong:
+		return "Long"
+	case PointsTypeFloat:
+		return "Float"
+	case PointsTypeDouble:
+		return "Double"
+	default:
+		return "Number"
+	}
+}
+
 // NewPointsConfig creates a PointsConfig for the given type and number of dimensions.
 func NewPointsConfig(pointsType PointsType, numDims int) *PointsConfig {
 	bytesPerDim := 4

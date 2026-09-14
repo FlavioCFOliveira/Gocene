@@ -194,7 +194,7 @@ const (
 
 // NewRangeQueryNode creates a new RangeQueryNode.
 func NewRangeQueryNode(field, lower, upper string, lowerBound, upperBound BoundType) *RangeQueryNode {
-	return &RangeQueryNode{
+	n := &RangeQueryNode{
 		QueryNodeImpl: NewQueryNodeImpl(nil),
 		field:         field,
 		lower:         lower,
@@ -202,6 +202,8 @@ func NewRangeQueryNode(field, lower, upper string, lowerBound, upperBound BoundT
 		lowerBound:    lowerBound,
 		upperBound:    upperBound,
 	}
+	n.SetLeaf(true)
+	return n
 }
 
 // GetField returns the field name.
@@ -466,9 +468,12 @@ type MatchAllDocsQueryNode struct {
 
 // NewMatchAllDocsQueryNode creates a new MatchAllDocsQueryNode.
 func NewMatchAllDocsQueryNode() *MatchAllDocsQueryNode {
-	return &MatchAllDocsQueryNode{
+	n := &MatchAllDocsQueryNode{
 		QueryNodeImpl: NewQueryNodeImpl(nil),
 	}
+	// MatchAllDocsQueryNode is a leaf in Lucene: it never calls setLeaf(false).
+	n.SetLeaf(true)
+	return n
 }
 
 // ToQueryString returns the query string representation.
@@ -502,9 +507,12 @@ type MatchNoDocsQueryNode struct {
 
 // NewMatchNoDocsQueryNode creates a new MatchNoDocsQueryNode.
 func NewMatchNoDocsQueryNode() *MatchNoDocsQueryNode {
-	return &MatchNoDocsQueryNode{
+	n := &MatchNoDocsQueryNode{
 		QueryNodeImpl: NewQueryNodeImpl(nil),
 	}
+	// MatchNoDocsQueryNode extends DeletedQueryNode in Lucene, which is a leaf.
+	n.SetLeaf(true)
+	return n
 }
 
 // ToQueryString returns the query string representation.

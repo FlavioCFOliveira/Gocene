@@ -679,7 +679,7 @@ func (p *StandardQueryParser) Parse(query string) (search.Query, error) {
 	}
 
 	if queryTree == nil {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 
 	// Process the query tree
@@ -689,7 +689,7 @@ func (p *StandardQueryParser) Parse(query string) (search.Query, error) {
 	}
 
 	if processedTree == nil {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 
 	// Build the Lucene Query

@@ -31,10 +31,13 @@ func NewPathQueryNode(pathElements []PathQueryNodeText) *PathQueryNode {
 	}
 	elems := make([]PathQueryNodeText, len(pathElements))
 	copy(elems, pathElements)
-	return &PathQueryNode{
+	n := &PathQueryNode{
 		QueryNodeImpl: NewQueryNodeImpl(nil),
 		values:        elems,
 	}
+	// PathQueryNode is a leaf in Lucene: it never calls setLeaf(false).
+	n.SetLeaf(true)
+	return n
 }
 
 // GetPathElements returns the list of path elements.
