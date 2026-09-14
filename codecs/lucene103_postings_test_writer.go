@@ -471,7 +471,7 @@ func (w *lucene103PostingsTestWriter) writeTrailingPositions() error {
 	return nil
 }
 
-func (w *lucene103PostingsTestWriter) EncodeTerm(out store.IndexOutput, fieldInfo *index.FieldInfo, base *BlockTermState, absolute bool) error {
+func (w *lucene103PostingsTestWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, base *BlockTermState, absolute bool) error {
 	its, ok := w.stateCache[base]
 	if !ok {
 		its = &IntBlockTermState{BlockTermState: base, LastPosBlockOffset: -1, SingletonDocID: -1}

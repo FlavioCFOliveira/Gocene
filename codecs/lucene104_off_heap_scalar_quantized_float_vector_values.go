@@ -317,32 +317,28 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) VectorValue(targetOrd int) ([]
 	case ScalarEncodingDibitQueryNibble:
 		quantization.UntransposeDibit(v.byteValue, v.unpackedByteVectorValue)
 	case ScalarEncodingUnsignedByte, ScalarEncodingSevenBit:
-		if _, err := quantization.DeQuantize(
+		quantization.DeQuantize(
 			v.byteValue,
 			v.vectorValue,
 			byte(v.encoding.GetBits()),
 			v.correctiveValues[0],
 			v.correctiveValues[1],
 			v.centroid,
-		); err != nil {
-			return nil, fmt.Errorf("lucene104: OffHeapScalarQuantizedFloatVectorValues: dequantize: %w", err)
-		}
+		)
 		v.lastOrd = targetOrd
 		return v.vectorValue, nil
 	default:
 		return nil, fmt.Errorf("lucene104: OffHeapScalarQuantizedFloatVectorValues: unsupported encoding %s", v.encoding)
 	}
 
-	if _, err := quantization.DeQuantize(
+	quantization.DeQuantize(
 		v.unpackedByteVectorValue,
 		v.vectorValue,
 		byte(v.encoding.GetBits()),
 		v.correctiveValues[0],
 		v.correctiveValues[1],
 		v.centroid,
-	); err != nil {
-		return nil, fmt.Errorf("lucene104: OffHeapScalarQuantizedFloatVectorValues: dequantize: %w", err)
-	}
+	)
 	v.lastOrd = targetOrd
 	return v.vectorValue, nil
 }
@@ -356,7 +352,7 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) GetCorrectiveTerms(targetOrd i
 			LowerInterval:         v.correctiveValues[0],
 			UpperInterval:         v.correctiveValues[1],
 			AdditionalCorrection:  v.correctiveValues[2],
-			QuantizedComponentSum: v.quantizedComponentSum,
+			QuantizedComponentSum: int(v.quantizedComponentSum),
 		}, nil
 	}
 	if v.slice == nil {
@@ -377,7 +373,7 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) GetCorrectiveTerms(targetOrd i
 		LowerInterval:         v.correctiveValues[0],
 		UpperInterval:         v.correctiveValues[1],
 		AdditionalCorrection:  v.correctiveValues[2],
-		QuantizedComponentSum: v.quantizedComponentSum,
+		QuantizedComponentSum: int(v.quantizedComponentSum),
 	}, nil
 }
 

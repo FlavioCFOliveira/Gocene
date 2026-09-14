@@ -293,6 +293,18 @@ func (fw *lucene99FlatFieldWriter) addValueByte(docID int, vector []byte) error 
 	return nil
 }
 
+// Finish marks the field complete. Mirrors FieldWriter.finish():
+//
+//	if (finished) { return; }
+//	this.finished = true;
+func (fw *lucene99FlatFieldWriter) Finish() error {
+	if fw.finished {
+		return nil
+	}
+	fw.finished = true
+	return nil
+}
+
 // numDocs returns the number of vectors accumulated for the field.
 func (fw *lucene99FlatFieldWriter) numDocs() int {
 	if fw.encoding == index.VectorEncodingByte {

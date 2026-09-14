@@ -330,12 +330,8 @@ func (e *Lucene103IntersectTermsEnum) seekToStartTerm(target *util.BytesRef) err
 				e.currentFrame.LastSubFP = saveLastSubFP
 				e.currentFrame.StartBytePos = saveStartBytePos
 				e.currentFrame.Suffix = saveSuffix
-				if err := e.currentFrame.SuffixesReader.SetPosition(savePos); err != nil {
-					return fmt.Errorf("seekToStartTerm: restore suffixesReader: %w", err)
-				}
-				if err := e.currentFrame.SuffixLengthsReader.SetPosition(saveLengthPos); err != nil {
-					return fmt.Errorf("seekToStartTerm: restore suffixLengthsReader: %w", err)
-				}
+				e.currentFrame.SuffixesReader.SetPosition(savePos)
+				e.currentFrame.SuffixLengthsReader.SetPosition(saveLengthPos)
 				if e.currentFrame.TermState != nil {
 					e.currentFrame.TermState.TermBlockOrd = saveTermBlockOrd
 				}
@@ -677,6 +673,18 @@ func (e *Lucene103IntersectTermsEnum) TermState() (index.TermState, error) {
 		return nil, fmt.Errorf("IntersectTermsEnum.TermState: %w", err)
 	}
 	return nil, nil
+}
+
+// Impacts decodes term metadata and delegates to the underlying
+// PostingsReaderBase. Mirrors IntersectTermsEnum.impacts(int):
+//
+//	currentFrame.decodeMetaData();
+//	return fr.parent.postingsReader.impacts(fr.fieldInfo, currentFrame.termState, flags);
+func (e *Lucene103IntersectTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	if err := e.currentFrame.DecodeMetaData(); err != nil {
+		return nil, fmt.Errorf("IntersectTermsEnum.Impacts: DecodeMetaData: %w", err)
+	}
+	return e.fr.parent.postingsReader.Impacts(e.fr.fieldInfo, e.currentFrame.TermState, flags)
 }
 
 // SeekCeil is not part of IntersectTermsEnum's contract — the Java

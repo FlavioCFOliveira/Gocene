@@ -60,7 +60,7 @@ func (r *AssertingTermVectorsReader) Get(docID int) (spi.Fields, error) {
 	if fields == nil {
 		return nil, nil
 	}
-	return &index.AssertingFields{In: fields}, nil
+	return index.NewAssertingFields(fields), nil
 }
 
 func (r *AssertingTermVectorsReader) GetField(docID int, field string) (spi.Terms, error) {
@@ -86,13 +86,14 @@ const (
 type AssertingTermVectorsWriter struct {
 	in spi.TermVectorsWriter
 
-	docStatus    writerStatus
-	fieldStatus  writerStatus
-	termStatus   writerStatus
-	fieldCount   int
-	docCount     int
-	termCount    int
-	hasPositions bool
+	docStatus     writerStatus
+	fieldStatus   writerStatus
+	termStatus    writerStatus
+	fieldCount    int
+	docCount      int
+	termCount     int
+	positionCount int
+	hasPositions  bool
 }
 
 func (w *AssertingTermVectorsWriter) StartDocument(numFields int) error {
@@ -134,7 +135,7 @@ func (w *AssertingTermVectorsWriter) StartField(fieldInfo *spi.FieldInfo, numTer
 	return nil
 }
 
-func (w *AssertingTermVectorsWriter) StartTerm(term []byte) error {
+func (w *AssertingTermVectorsWriter) StartTerm(term []byte, freq int) error {
 	if w.docStatus != statusStarted {
 		panic(fmt.Sprintf("AssertingTermVectorsWriter: docStatus is %v, expected STARTED at startTerm", w.docStatus))
 	}
@@ -145,11 +146,17 @@ func (w *AssertingTermVectorsWriter) StartTerm(term []byte) error {
 		panic("AssertingTermVectorsWriter: termStatus is already STARTED at startTerm")
 	}
 
-	if err := w.in.StartTerm(term); err != nil {
+	if err := w.in.StartTerm(term, freq); err != nil {
 		return err
 	}
 
 	w.termStatus = statusStarted
+	// positionCount = hasPositions ? freq : 0;
+	if w.hasPositions {
+		w.positionCount = freq
+	} else {
+		w.positionCount = 0
+	}
 	return nil
 }
 
@@ -164,10 +171,17 @@ func (w *AssertingTermVectorsWriter) AddPosition(position int, startOffset, endO
 		panic(fmt.Sprintf("AssertingTermVectorsWriter: termStatus is %v, expected STARTED at addPosition", w.termStatus))
 	}
 
-	return w.in.AddPosition(position, startOffset, endOffset, payload)
+	if err := w.in.AddPosition(position, startOffset, endOffset, payload); err != nil {
+		return err
+	}
+	w.positionCount--
+	return nil
 }
 
 func (w *AssertingTermVectorsWriter) FinishTerm() error {
+	if w.positionCount != 0 {
+		panic(fmt.Sprintf("AssertingTermVectorsWriter: positionCount (%d) != 0 at finishTerm", w.positionCount))
+	}
 	if w.docStatus != statusStarted {
 		panic(fmt.Sprintf("AssertingTermVectorsWriter: docStatus is %v, expected STARTED at finishTerm", w.docStatus))
 	}
@@ -218,6 +232,33 @@ func (w *AssertingTermVectorsWriter) FinishDocument() error {
 
 	w.docStatus = statusFinished
 	return nil
+}
+
+// Finish mirrors AssertingTermVectorsWriter.finish(int numDocs):
+//
+//	assert docCount == numDocs;
+//	assert docStatus == (numDocs > 0 ? Status.FINISHED : Status.UNDEFINED);
+//	assert fieldStatus != Status.STARTED;
+//	assert termStatus != Status.STARTED;
+//	in.finish(numDocs);
+func (w *AssertingTermVectorsWriter) Finish(numDocs int) error {
+	if w.docCount != numDocs {
+		panic(fmt.Sprintf("AssertingTermVectorsWriter: docCount (%d) != numDocs (%d) at finish", w.docCount, numDocs))
+	}
+	expectedDocStatus := statusUndefined
+	if numDocs > 0 {
+		expectedDocStatus = statusFinished
+	}
+	if w.docStatus != expectedDocStatus {
+		panic(fmt.Sprintf("AssertingTermVectorsWriter: docStatus is %v, expected %v at finish", w.docStatus, expectedDocStatus))
+	}
+	if w.fieldStatus == statusStarted {
+		panic("AssertingTermVectorsWriter: fieldStatus is STARTED at finish")
+	}
+	if w.termStatus == statusStarted {
+		panic("AssertingTermVectorsWriter: termStatus is STARTED at finish")
+	}
+	return w.in.Finish(numDocs)
 }
 
 func (w *AssertingTermVectorsWriter) Close() error {

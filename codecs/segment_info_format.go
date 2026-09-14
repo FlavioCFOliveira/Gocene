@@ -505,14 +505,45 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 		return nil, err
 	}
 
-	// Index sort (numSortFields + per-field SortField), decoded in lock-step
-	// with the index-package .si writer via index.ReadSegmentInfoSort (rmp
-	// #4789). Keeping the two .si readers byte-aligned is what lets a segment
-	// written by IndexWriter.writeSegmentInfo be reopened through the codec
-	// SegmentInfoFormat at directory_reader.go.
-	indexSort, err := index.ReadSegmentInfoSort(checksumIn)
+	// Index sort. Mirrors Lucene99SegmentInfoFormat.parseSegmentInfo:
+	//
+	//	int numSortFields = input.readVInt();
+	//	if (numSortFields > 0) {
+	//	  for (...) { String name = input.readString();
+	//	              sortFields[i] = SortFieldProvider.forName(name).readSortField(input); }
+	//	  indexSort = new Sort(sortFields);
+	//	} else if (numSortFields < 0) {
+	//	  throw new CorruptIndexException("invalid index sort field count: " + numSortFields, input);
+	//	} else { indexSort = null; }
+	numSortFields, err := checksumIn.ReadVInt()
 	if err != nil {
-		return nil, fmt.Errorf("index sort: %w", err)
+		return nil, err
+	}
+	var indexSort *index.Sort
+	if numSortFields > 0 {
+		sortFields := make([]*index.SortField, numSortFields)
+		for i := range sortFields {
+			providerName, err := checksumIn.ReadString()
+			if err != nil {
+				return nil, err
+			}
+			provider, err := index.LookupSortFieldProvider(providerName)
+			if err != nil {
+				return nil, err
+			}
+			value, err := provider.ReadSortField(checksumIn)
+			if err != nil {
+				return nil, err
+			}
+			sortField, ok := value.(*index.SortField)
+			if !ok {
+				return nil, fmt.Errorf("sort field provider %q returned %T, not a SortField", providerName, value)
+			}
+			sortFields[i] = sortField
+		}
+		indexSort = index.NewSort(sortFields...)
+	} else if numSortFields < 0 {
+		return nil, fmt.Errorf("invalid index sort field count: %d", numSortFields)
 	}
 
 	_, err = CheckFooter(checksumIn)
@@ -529,11 +560,7 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	si.SetHasBlocks(hasBlocks)
 	si.SetCompoundFile(isCompoundFile)
 	si.SetDiagnostics(diagnostics)
-	fileList := make([]string, 0, len(files))
-	for f := range files {
-		fileList = append(fileList, f)
-	}
-	si.SetFiles(fileList)
+	si.SetFiles(files)
 	for k, v := range attributes {
 		si.SetAttribute(k, v)
 	}
@@ -624,11 +651,7 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 		return err
 	}
 
-	files := make(map[string]struct{}, len(info.Files()))
-	for _, f := range info.Files() {
-		files[f] = struct{}{}
-	}
-	if err := checksumOut.WriteSetOfStrings(files); err != nil {
+	if err := checksumOut.WriteSetOfStrings(info.Files()); err != nil {
 		return err
 	}
 
@@ -636,10 +659,38 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 		return err
 	}
 
-	// Index sort: numSortFields followed by each SortField, byte-faithful to
-	// Lucene90SegmentInfoFormat.write (rmp #4789).
-	if err := index.WriteSegmentInfoSort(checksumOut, info.IndexSort()); err != nil {
-		return fmt.Errorf("write index sort: %w", err)
+	// Index sort. Mirrors Lucene99SegmentInfoFormat.writeSegmentInfo:
+	//
+	//	int numSortFields = indexSort == null ? 0 : indexSort.getSort().length;
+	//	output.writeVInt(numSortFields);
+	//	for (...) {
+	//	  IndexSorter sorter = sortField.getIndexSorter();
+	//	  if (sorter == null) throw new IllegalArgumentException("cannot serialize SortField " + sortField);
+	//	  output.writeString(sorter.getProviderName());
+	//	  SortFieldProvider.write(sortField, output);
+	//	}
+	//
+	// sortField.getIndexSorter().getProviderName() is rendered by the
+	// index.SortFieldNamer view (see index/sort_field_provider.go).
+	var sortFields []*index.SortField
+	if indexSort := info.IndexSort(); indexSort != nil {
+		sortFields = indexSort.Fields()
+	}
+	if err := checksumOut.WriteVInt(int32(len(sortFields))); err != nil {
+		return err
+	}
+	for _, sortField := range sortFields {
+		var namer any = sortField
+		sorter, ok := namer.(index.SortFieldNamer)
+		if !ok || sorter.ProviderName() == "" {
+			return fmt.Errorf("%w: %v", index.ErrSortFieldNotSerializable, sortField)
+		}
+		if err := checksumOut.WriteString(sorter.ProviderName()); err != nil {
+			return err
+		}
+		if err := index.WriteSortField(sortField, checksumOut); err != nil {
+			return err
+		}
 	}
 
 	return WriteFooter(checksumOut)

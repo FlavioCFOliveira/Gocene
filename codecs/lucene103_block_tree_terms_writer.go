@@ -976,7 +976,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 			if err := stats.add(term.state.DocFreq, term.state.TotalTermFreq); err != nil {
 				return nil, err
 			}
-			if err := t.parent.postingsWriter.EncodeTerm(byteBuffersDataOutputAsIndexOutput{t.metaWriter}, t.fieldInfo, term.state, absolute); err != nil {
+			if err := t.parent.postingsWriter.EncodeTerm(t.metaWriter, t.fieldInfo, term.state, absolute); err != nil {
 				return nil, err
 			}
 			absolute = false
@@ -1001,7 +1001,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 				if err := stats.add(term.state.DocFreq, term.state.TotalTermFreq); err != nil {
 					return nil, err
 				}
-				if err := t.parent.postingsWriter.EncodeTerm(byteBuffersDataOutputAsIndexOutput{t.metaWriter}, t.fieldInfo, term.state, absolute); err != nil {
+				if err := t.parent.postingsWriter.EncodeTerm(t.metaWriter, t.fieldInfo, term.state, absolute); err != nil {
 					return nil, err
 				}
 				absolute = false
@@ -1071,13 +1071,10 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 		t.spareBytes = t.spareBytes[:numSuffixBytes]
 	}
 	if numSuffixBytes > 0 {
-		// Drain the suffix-lengths buffer through a ByteArrayDataOutput
-		// so we can inspect the bytes and decide on the all-equal path.
-		tmp := store.NewByteArrayDataOutput(numSuffixBytes)
-		if err := t.suffixLengthsWriter.CopyTo(tmp); err != nil {
+		// suffixLengthsWriter.copyTo(new ByteArrayDataOutput(spareBytes));
+		if err := t.suffixLengthsWriter.CopyTo(store.NewByteArrayDataOutput(t.spareBytes)); err != nil {
 			return nil, err
 		}
-		copy(t.spareBytes, tmp.GetBytes()[:numSuffixBytes])
 	}
 	t.suffixLengthsWriter.Reset()
 	if numSuffixBytes > 0 && bytesAllEqual(t.spareBytes[1:numSuffixBytes], t.spareBytes[0]) {
@@ -1193,42 +1190,6 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
-
-// byteBuffersDataOutputAsIndexOutput is a thin adapter that lets the
-// PostingsWriterBase.EncodeTerm hook (which insists on store.IndexOutput
-// for symmetry with the Java signature) accept a ByteBuffersDataOutput.
-// Only DataOutput methods are forwarded; RandomAccess / file-pointer
-// methods are stubbed because EncodeTerm is supposed to be a streaming
-// writer and the upstream caller drains the buffer separately.
-type byteBuffersDataOutputAsIndexOutput struct {
-	inner *store.ByteBuffersDataOutput
-}
-
-var _ store.IndexOutput = byteBuffersDataOutputAsIndexOutput{}
-
-func (a byteBuffersDataOutputAsIndexOutput) WriteByte(b byte) error { return a.inner.WriteByte(b) }
-func (a byteBuffersDataOutputAsIndexOutput) WriteBytes(b []byte) error {
-	return a.inner.WriteBytes(b, 0, len(b))
-}
-func (a byteBuffersDataOutputAsIndexOutput) WriteBytesN(b []byte, n int) error {
-	return a.inner.WriteBytesN(b, n)
-}
-func (a byteBuffersDataOutputAsIndexOutput) WriteShort(v int16) error { return a.inner.WriteShort(v) }
-func (a byteBuffersDataOutputAsIndexOutput) WriteInt(v int32) error   { return a.inner.WriteInt(v) }
-func (a byteBuffersDataOutputAsIndexOutput) WriteLong(v int64) error  { return a.inner.WriteLong(v) }
-func (a byteBuffersDataOutputAsIndexOutput) WriteString(s string) error {
-	return a.inner.WriteString(s)
-}
-func (a byteBuffersDataOutputAsIndexOutput) GetName() string       { return "ByteBuffersDataOutput" }
-func (a byteBuffersDataOutputAsIndexOutput) GetFilePointer() int64 { return a.inner.Size() }
-func (a byteBuffersDataOutputAsIndexOutput) SetPosition(pos int64) error {
-	// PostingsWriterBase.EncodeTerm is a forward-only writer; positional
-	// rewinds are not part of the protocol. Refuse them rather than
-	// silently producing a corrupt term blob.
-	return fmt.Errorf("byteBuffersDataOutputAsIndexOutput.SetPosition(%d): adapter does not support seek", pos)
-}
-func (a byteBuffersDataOutputAsIndexOutput) Length() int64 { return a.inner.Size() }
-func (a byteBuffersDataOutputAsIndexOutput) Close() error  { return nil }
 
 // closeQuietly closes every Closer in order, swallowing every error. Used
 // on the unwind path mirroring IOUtils.closeWhileHandlingException.

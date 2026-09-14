@@ -576,7 +576,7 @@ func (w *Lucene104PostingsWriter) writeTrailingPositions() error {
 // relative to the previous term (or the empty sentinel when absolute=true).
 //
 // Satisfies PostingsWriterBase.
-func (w *Lucene104PostingsWriter) EncodeTerm(out store.IndexOutput, fieldInfo *index.FieldInfo, base *BlockTermState, absolute bool) error {
+func (w *Lucene104PostingsWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, base *BlockTermState, absolute bool) error {
 	its, ok := w.stateCache[base]
 	if !ok {
 		its = &IntBlockTermState{BlockTermState: base, LastPosBlockOffset: -1, SingletonDocID: -1}

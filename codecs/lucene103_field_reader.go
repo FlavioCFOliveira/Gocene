@@ -121,6 +121,11 @@ func NewLucene103FieldReader(
 // FieldInfo exposes the wrapped FieldInfo to downstream consumers.
 func (r *Lucene103FieldReader) FieldInfo() *index.FieldInfo { return r.fieldInfo }
 
+// Field returns the name of the field this reader enumerates. Java's Terms has
+// no field() accessor; the Gocene spi.Terms contract declares one, and the name
+// is the one FieldReader carries through its fieldInfo (fieldInfo.name).
+func (r *Lucene103FieldReader) Field() string { return r.fieldInfo.Name() }
+
 // NumTerms returns the number of unique terms in this field.
 func (r *Lucene103FieldReader) NumTerms() int64 { return r.numTerms }
 

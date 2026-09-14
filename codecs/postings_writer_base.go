@@ -60,8 +60,10 @@ type PostingsWriterBase interface {
 	// absolute indicates whether the term is the first term in a block (and
 	// therefore stored absolutely) or a delta against the previous term in
 	// the same block. The encoded bytes must round-trip through the matching
-	// PostingsReaderBase.DecodeTerm.
-	EncodeTerm(out store.IndexOutput, fieldInfo *index.FieldInfo, state *BlockTermState, absolute bool) error
+	// PostingsReaderBase.DecodeTerm. out is a DataOutput, as in Java's
+	// encodeTerm(DataOutput out, FieldInfo, BlockTermState, boolean): the
+	// block-tree writer passes its in-memory metaWriter.
+	EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, state *BlockTermState, absolute bool) error
 
 	// Close releases file handles and writes any tail metadata (footers).
 	Close() error

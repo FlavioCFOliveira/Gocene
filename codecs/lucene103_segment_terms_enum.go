@@ -42,6 +42,10 @@ import (
 //
 // The per-block decode logic lives in [segmentTermsEnumFrame].
 type Lucene103SegmentTermsEnum struct {
+	// TermsEnumBase renders `extends BaseTermsEnum`: it carries the lazily
+	// created AttributeSource behind attributes().
+	index.TermsEnumBase
+
 	// in is the per-enum clone of the parent reader's .tim IndexInput. Nil
 	// until the first loadBlock (lazy init mirrors Java).
 	in store.IndexInput
@@ -739,9 +743,28 @@ func (e *Lucene103SegmentTermsEnum) TermState() (index.TermState, error) {
 	return nil, nil
 }
 
-// Ord is not supported by the block-tree codec (Java throws UOE).
-func (e *Lucene103SegmentTermsEnum) Ord() (int64, error) {
-	return -1, errSegmentTermsEnumOrdUnsupported
+// Impacts decodes the current term's metadata and returns an ImpactsEnum from
+// the postings reader. Mirrors SegmentTermsEnum.impacts(int):
+//
+//	assert !eof;
+//	currentFrame.decodeMetaData();
+//	return fr.parent.postingsReader.impacts(fr.fieldInfo, currentFrame.state, flags);
+func (e *Lucene103SegmentTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	if e.eof {
+		return nil, errors.New("Lucene103SegmentTermsEnum.Impacts: enum is exhausted (assert !eof)")
+	}
+	if err := e.currentFrame.decodeMetaData(); err != nil {
+		return nil, fmt.Errorf("Lucene103SegmentTermsEnum.Impacts: decodeMetaData: %w", err)
+	}
+	return e.fr.parent.postingsReader.Impacts(e.fr.fieldInfo, e.currentFrame.state, flags)
+}
+
+// Ord is not supported by the block-tree codec. Port of SegmentTermsEnum.ord(),
+// which throws UnsupportedOperationException. Ord carries no error in the
+// TermsEnum contract (Java's ord() declares no checked exception), so the
+// unsupported call panics, mirroring the unchecked Java exception.
+func (e *Lucene103SegmentTermsEnum) Ord() int64 {
+	panic(errSegmentTermsEnumOrdUnsupported)
 }
 
 var errSegmentTermsEnumOrdUnsupported = errors.New(

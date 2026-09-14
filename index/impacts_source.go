@@ -4,16 +4,14 @@
 
 package index
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 // ImpactsSource produces Impacts and supports shallow-advance to allow callers
 // to retrieve more precise impact information for upcoming docs. Mirrors
 // org.apache.lucene.index.ImpactsSource from Apache Lucene 10.5.0.
-type ImpactsSource interface {
-	// AdvanceShallow shallow-advances to target. Cheaper than calling Advance
-	// on the underlying iterator and lets subsequent GetImpacts calls ignore
-	// doc IDs less than target.
-	AdvanceShallow(target int) error
-
-	// GetImpacts returns Impacts for upcoming doc IDs greater than or equal
-	// to the maximum of the current docID and the last AdvanceShallow target.
-	GetImpacts() (Impacts, error)
-}
+//
+// Lucene declares ImpactsSource once; spi carries the declaration, so the index
+// spelling is an alias.
+type ImpactsSource = spi.ImpactsSource

@@ -6,6 +6,7 @@ package codecs
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
@@ -139,11 +140,11 @@ func (b *BaseKnnVectorsWriter) Merge(mergeState *index.MergeState) error {
 //
 // This is the Go port of KnnVectorsWriter.mapOldOrdToNewOrd.
 func MapOldOrdToNewOrd(
-	oldDocIds util.Bits,
-	sortMap index.DocMap,
+	oldDocIds *index.DocsWithFieldSet,
+	sortMap index.SorterDocMap,
 	old2NewOrd []int,
 	new2OldOrd []int,
-	newDocsWithField util.Bits,
+	newDocsWithField *index.DocsWithFieldSet,
 ) error {
 	if oldDocIds == nil {
 		return fmt.Errorf("oldDocIds must not be nil")
@@ -153,18 +154,27 @@ func MapOldOrdToNewOrd(
 	}
 
 	newIdToOldOrd := make(map[int]int)
-	newDocIds := make([]int, 0, oldDocIds.Cardinality())
+	// int[] newDocIds = new int[oldDocIds.cardinality()];
+	newDocIds := make([]int, oldDocIds.Cardinality())
 
 	iter := oldDocIds.Iterator()
 	oldOrd := 0
-	for docID, err := iter.NextDoc(); err == nil && docID != util.NO_MORE_DOCS; docID, err = iter.NextDoc() {
-		newID := sortMap.Get(docID)
+	for {
+		oldDocID, err := iter.NextDoc()
+		if err != nil {
+			return err
+		}
+		if oldDocID == util.NO_MORE_DOCS {
+			break
+		}
+		newID := sortMap.OldToNew(oldDocID)
 		newIdToOldOrd[newID] = oldOrd
-		newDocIds = append(newDocIds, newID)
+		newDocIds[oldOrd] = newID
 		oldOrd++
 	}
 
-	util.SortInts(newDocIds)
+	// Arrays.sort(newDocIds);
+	sort.Ints(newDocIds)
 
 	newOrd := 0
 	for _, newDocID := range newDocIds {
@@ -179,7 +189,9 @@ func MapOldOrdToNewOrd(
 			new2OldOrd[newOrd] = currOldOrd
 		}
 		if newDocsWithField != nil {
-			newDocsWithField.Set(newDocID)
+			if err := newDocsWithField.Add(newDocID); err != nil {
+				return err
+			}
 		}
 		newOrd++
 	}

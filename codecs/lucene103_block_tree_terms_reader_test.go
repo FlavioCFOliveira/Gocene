@@ -50,7 +50,7 @@ func (f *fakePostingsWriter) FinishTerm(state *BlockTermState) error {
 	return nil
 }
 
-func (f *fakePostingsWriter) EncodeTerm(out store.IndexOutput, _ *index.FieldInfo, _ *BlockTermState, _ bool) error {
+func (f *fakePostingsWriter) EncodeTerm(out store.DataOutput, _ *index.FieldInfo, _ *BlockTermState, _ bool) error {
 	return out.WriteByte(byte(f.termOrd))
 }
 

@@ -31,7 +31,7 @@ func (w *fakePushWriter) NewTermState() *BlockTermState                    { ret
 func (w *fakePushWriter) SetField(fieldInfo *index.FieldInfo) (int, error) { return 0, nil }
 func (w *fakePushWriter) StartTerm(norms index.NumericDocValues) error     { return nil }
 func (w *fakePushWriter) FinishTerm(state *BlockTermState) error           { return nil }
-func (w *fakePushWriter) EncodeTerm(out store.IndexOutput, fieldInfo *index.FieldInfo, state *BlockTermState, absolute bool) error {
+func (w *fakePushWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, state *BlockTermState, absolute bool) error {
 	return nil
 }
 func (w *fakePushWriter) Close() error { return nil }

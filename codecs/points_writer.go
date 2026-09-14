@@ -89,6 +89,11 @@ type mergedPointsReader struct {
 func (r *mergedPointsReader) CheckIntegrity() error { return nil }
 func (r *mergedPointsReader) Close() error          { return nil }
 
+// GetMergeInstance returns this reader. The anonymous PointsReader in Java's
+// PointsWriter.mergeOneField does not override getMergeInstance(), so it keeps
+// the PointsReader default body, `return this;`.
+func (r *mergedPointsReader) GetMergeInstance() spi.PointsReader { return r }
+
 // GetValues recovers the wide read surface for the merged points.
 func (r *mergedPointsReader) GetValues(field string) (index.PointValues, error) {
 	if field != r.fieldInfo.Name() {
@@ -183,8 +188,9 @@ func (t *mergedPointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
 		docMap := ms.DocMaps[i]
 
 		// Recover the PointTree from the source values via assertion.
-		if tree, ok := values.(interface{ GetPointTree() bkd.PointTree }); ok {
-			if err := tree.VisitDocValues(&mergedVisitor{
+		// values.getPointTree().visitDocValues(new IntersectVisitor() {...})
+		if src, ok := values.(interface{ GetPointTree() bkd.PointTree }); ok {
+			if err := src.GetPointTree().VisitDocValues(&mergedVisitor{
 				mergedVisitor: visitor,
 				docMap:        docMap,
 			}); err != nil {

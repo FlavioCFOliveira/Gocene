@@ -229,7 +229,7 @@ func (w *IDVersionPostingsWriter) FinishTerm(state *codecs.BlockTermState) error
 
 // EncodeTerm serializes the docID and version delta into out.
 func (w *IDVersionPostingsWriter) EncodeTerm(
-	out store.IndexOutput,
+	out store.DataOutput,
 	_ *index.FieldInfo,
 	state *codecs.BlockTermState,
 	absolute bool,

@@ -162,6 +162,12 @@ type AssertingTerms struct {
 	in Terms
 }
 
+// NewAssertingTerms wraps in. Mirrors the public constructor
+// AssertingLeafReader.AssertingTerms(Terms in), whose body is `super(in)`.
+func NewAssertingTerms(in Terms) *AssertingTerms {
+	return &AssertingTerms{in: in}
+}
+
 func (t *AssertingTerms) Field() string { return t.in.Field() }
 
 func (t *AssertingTerms) Iterator() (TermsEnum, error) {
@@ -369,6 +375,12 @@ func (tv *AssertingTermVectors) GetField(docID int, field string) (spi.Terms, er
 
 type AssertingFields struct {
 	in Fields
+}
+
+// NewAssertingFields wraps in. Mirrors the public constructor
+// AssertingLeafReader.AssertingFields(Fields in), whose body is `super(in)`.
+func NewAssertingFields(in Fields) *AssertingFields {
+	return &AssertingFields{in: in}
 }
 
 func (f *AssertingFields) Size() int {

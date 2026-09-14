@@ -534,7 +534,7 @@ func (w *Lucene99PostingsWriter) FinishTerm(base *BlockTermState) error {
 // relative to the previous term (or the empty sentinel when absolute=true).
 //
 // Satisfies PostingsWriterBase.
-func (w *Lucene99PostingsWriter) EncodeTerm(out store.IndexOutput, fieldInfo *index.FieldInfo, base *BlockTermState, absolute bool) error {
+func (w *Lucene99PostingsWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, base *BlockTermState, absolute bool) error {
 	its, ok := w.stateCache[base]
 	if !ok {
 		return fmt.Errorf("lucene99 postings writer: EncodeTerm called with unrecognized BlockTermState")
@@ -716,7 +716,7 @@ func writeLucene99VIntBlock(
 	}
 
 	// Write the (possibly combined) doc values as group-varint.
-	if err := util.WriteGroupVIntsInt64(out, scratch, docDeltaBuffer, num); err != nil {
+	if err := store.WriteGroupVIntsInt64(out, scratch, docDeltaBuffer, num); err != nil {
 		return err
 	}
 
@@ -775,8 +775,9 @@ type lucene99SkipWriter struct {
 	lastPosFP   int64
 	lastPayFP   int64
 
-	// Scratch buffer for impacts
-	freqNormOut *store.ByteArrayDataOutput
+	// Scratch buffer for impacts. Mirrors
+	// `private final ByteBuffersDataOutput freqNormOut = ByteBuffersDataOutput.newResettableInstance()`.
+	freqNormOut *store.ByteBuffersDataOutput
 }
 
 // newLucene99SkipWriter creates a skip writer for the Lucene99 postings format.
@@ -790,7 +791,7 @@ func newLucene99SkipWriter(maxSkipLevels, blockSize, maxDoc int, docOut, posOut,
 		docOut:             docOut,
 		posOut:             posOut,
 		payOut:             payOut,
-		freqNormOut:        store.NewByteArrayDataOutput(0),
+		freqNormOut:        store.NewByteBuffersDataOutput(),
 	}
 	// Allocate per-level competitive accumulators
 	sw.curCompetitiveFreqNorms = make([]*CompetitiveImpactAccumulator, maxSkipLevels)
@@ -807,7 +808,7 @@ func newLucene99SkipWriter(maxSkipLevels, blockSize, maxDoc int, docOut, posOut,
 		8,
 		maxSkipLevels,
 		maxDoc,
-		func(level int, skipBuf *store.ByteArrayDataOutput) error {
+		func(level int, skipBuf store.DataOutput) error {
 			return sw.writeSkipData(level, skipBuf)
 		},
 	)
@@ -909,7 +910,7 @@ func (sw *lucene99SkipWriter) writeSkip(out store.IndexOutput) (int64, error) {
 
 // writeSkipData writes the per-level skip payload for the current skip point.
 // Mirrors Java Lucene99SkipWriter.writeSkipData(int, DataOutput).
-func (sw *lucene99SkipWriter) writeSkipData(level int, skipBuf *store.ByteArrayDataOutput) error {
+func (sw *lucene99SkipWriter) writeSkipData(level int, skipBuf store.DataOutput) error {
 	// Doc ID delta
 	delta := sw.curDoc - sw.lastSkipDoc[level]
 	if err := skipBuf.WriteVInt(int32(delta)); err != nil {
@@ -956,17 +957,20 @@ func (sw *lucene99SkipWriter) writeSkipData(level int, skipBuf *store.ByteArrayD
 		sw.curCompetitiveFreqNorms[level+1].AddAll(competitiveFreqNorms)
 	}
 
-	// Write impacts to scratch, then copy to skipBuf
-	sw.freqNormOut.Reset()
+	// writeImpacts(competitiveFreqNorms, freqNormOut);
+	// skipBuffer.writeVInt(Math.toIntExact(freqNormOut.size()));
+	// freqNormOut.copyTo(skipBuffer);
+	// freqNormOut.reset();
 	if err := writeLucene99Impacts(competitiveFreqNorms.GetCompetitiveFreqNormPairs(), sw.freqNormOut); err != nil {
 		return err
 	}
-	if err := skipBuf.WriteVInt(int32(sw.freqNormOut.Length())); err != nil {
+	if err := skipBuf.WriteVInt(int32(sw.freqNormOut.Size())); err != nil {
 		return err
 	}
-	if err := skipBuf.WriteBytes(sw.freqNormOut.GetBytes(), 0, len(sw.freqNormOut.GetBytes())); err != nil {
+	if err := sw.freqNormOut.CopyTo(skipBuf); err != nil {
 		return err
 	}
+	sw.freqNormOut.Reset()
 	competitiveFreqNorms.Clear()
 	return nil
 }
@@ -975,7 +979,7 @@ func (sw *lucene99SkipWriter) writeSkipData(level int, skipBuf *store.ByteArrayD
 
 // writeLucene99Impacts encodes a slice of Impact values into out using
 // delta compression. Mirrors Lucene99SkipWriter.writeImpacts.
-func writeLucene99Impacts(impacts []Impact, out *store.ByteArrayDataOutput) error {
+func writeLucene99Impacts(impacts []Impact, out store.DataOutput) error {
 	prev := Impact{}
 	for _, imp := range impacts {
 		if imp.Freq <= prev.Freq {

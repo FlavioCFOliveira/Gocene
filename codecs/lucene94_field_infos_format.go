@@ -524,7 +524,7 @@ func encodeVectorSimilarityFunction(v index.VectorSimilarityFunction) (byte, err
 
 func decodeVectorSimilarityFunction(b byte) (index.VectorSimilarityFunction, error) {
 	if int(b) >= len(lucene94SimilarityFunctions) {
-		return 0, fmt.Errorf("invalid distance function: %d", b)
+		return nil, fmt.Errorf("invalid distance function: %d", b)
 	}
 	return lucene94SimilarityFunctions[b], nil
 }
