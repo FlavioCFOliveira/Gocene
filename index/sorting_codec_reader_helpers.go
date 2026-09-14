@@ -311,7 +311,7 @@ func (v *SortingFloatVectorValues) Size() int {
 	return v.iteratorSupplier.Size()
 }
 
-func (v *SortingFloatVectorValues) Iterator() util.DocIndexIterator {
+func (v *SortingFloatVectorValues) Iterator() DocIndexIterator {
 	return v.iteratorSupplier.Get()
 }
 
@@ -341,23 +341,19 @@ func (v *SortingFloatVectorValues) GetVectorByteLength() int {
 	return v.Dimension() * VectorEncodingByteSize(v.GetEncoding())
 }
 
+// GetAcceptOrds carries the KnnVectorValues.getAcceptOrds default, which
+// SortingFloatVectorValues does not override.
 func (v *SortingFloatVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
-	if acceptDocs == nil {
-		return nil
-	}
-	return &acceptOrdsBitSet{
-		acceptDocs: acceptDocs,
-		size:       v.Size(),
-	}
+	return spi.DefaultGetAcceptOrds(v, acceptDocs)
 }
 
 // Scorer is unsupported, matching FloatVectorValues.scorer's default.
-func (v *SortingFloatVectorValues) Scorer(target []float32) (interface{}, error) {
+func (v *SortingFloatVectorValues) Scorer(target []float32) (util.VectorScorer, error) {
 	return nil, fmt.Errorf("index: SortingFloatVectorValues: Scorer is not supported")
 }
 
 // Rescorer delegates to Scorer, matching FloatVectorValues.rescorer's default.
-func (v *SortingFloatVectorValues) Rescorer(target []float32) (interface{}, error) {
+func (v *SortingFloatVectorValues) Rescorer(target []float32) (util.VectorScorer, error) {
 	return v.Scorer(target)
 }
 
@@ -388,7 +384,7 @@ func (v *SortingByteVectorValues) VectorValue(ord int) ([]byte, error) {
 	return v.delegate.VectorValue(ord)
 }
 
-func (v *SortingByteVectorValues) Iterator() util.DocIndexIterator {
+func (v *SortingByteVectorValues) Iterator() DocIndexIterator {
 	return v.iteratorSupplier.Get()
 }
 
@@ -426,14 +422,10 @@ func (v *SortingByteVectorValues) GetVectorByteLength() int {
 	return v.Dimension() * VectorEncodingByteSize(v.GetEncoding())
 }
 
+// GetAcceptOrds carries the KnnVectorValues.getAcceptOrds default, which
+// SortingByteVectorValues does not override.
 func (v *SortingByteVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
-	if acceptDocs == nil {
-		return nil
-	}
-	return &acceptOrdsBitSet{
-		acceptDocs: acceptDocs,
-		size:       v.Size(),
-	}
+	return spi.DefaultGetAcceptOrds(v, acceptDocs)
 }
 
 // Scorer is unsupported, matching ByteVectorValues.scorer's default.

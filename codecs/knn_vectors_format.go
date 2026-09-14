@@ -46,54 +46,6 @@ func (f *BaseKnnVectorsFormat) FieldsReader(state *SegmentReadState) (KnnVectors
 	return nil, fmt.Errorf("FieldsReader not implemented")
 }
 
-// FloatVectorValues provides access to float vector values.
-// This is the Go port of Lucene's org.apache.lucene.index.FloatVectorValues.
-type FloatVectorValues interface {
-	// Dimension returns the dimension of the vectors.
-	Dimension() int
-
-	// Size returns the number of vectors.
-	Size() int
-
-	// GetVector returns the vector value for the given document.
-	GetVector(docID int) ([]float32, error)
-
-	// DocID returns the current document ID.
-	DocID() int
-
-	// NextDoc advances to the next document that has a vector.
-	// Returns NO_MORE_DOCS if there are no more documents.
-	NextDoc() (int, error)
-
-	// Advance advances to the first document >= target that has a vector.
-	// Returns NO_MORE_DOCS if there are no more documents.
-	Advance(target int) (int, error)
-}
-
-// ByteVectorValues provides access to byte vector values.
-// This is the Go port of Lucene's org.apache.lucene.index.ByteVectorValues.
-type ByteVectorValues interface {
-	// Dimension returns the dimension of the vectors.
-	Dimension() int
-
-	// Size returns the number of vectors.
-	Size() int
-
-	// GetVector returns the vector value for the given document.
-	GetVector(docID int) ([]byte, error)
-
-	// DocID returns the current document ID.
-	DocID() int
-
-	// NextDoc advances to the next document that has a vector.
-	// Returns NO_MORE_DOCS if there are no more documents.
-	NextDoc() (int, error)
-
-	// Advance advances to the first document >= target that has a vector.
-	// Returns NO_MORE_DOCS if there are no more documents.
-	Advance(target int) (int, error)
-}
-
 // RandomVectorScorer scores vectors randomly.
 // This is the Go port of Lucene's org.apache.lucene.util.RandomVectorScorer.
 type RandomVectorScorer interface {

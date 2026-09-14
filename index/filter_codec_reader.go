@@ -307,11 +307,7 @@ func (r *FilterCodecReader) GetFloatVectorValues(field string) (spi.FloatVectorV
 	if d == nil {
 		return nil, nil
 	}
-	vv, err := d.FloatVectorValues(field)
-	if err != nil || vv == nil {
-		return nil, err
-	}
-	return newSPIFloatVectorValues(vv), nil
+	return d.GetFloatVectorValues(field)
 }
 
 // GetByteVectorValues ports the final method CodecReader.getByteVectorValues.
@@ -328,11 +324,7 @@ func (r *FilterCodecReader) GetByteVectorValues(field string) (spi.ByteVectorVal
 	if d == nil {
 		return nil, nil
 	}
-	vv, err := d.ByteVectorValues(field)
-	if err != nil || vv == nil {
-		return nil, err
-	}
-	return newSPIByteVectorValues(vv), nil
+	return d.GetByteVectorValues(field)
 }
 
 // SearchNearestVectors ports the final method

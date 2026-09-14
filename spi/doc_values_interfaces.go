@@ -4,10 +4,6 @@
 
 package spi
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/util"
-)
-
 // This file is the index-side facade for the doc-values value-type
 // contracts after rmp #4710 (Sprint 118 phase 2f). The canonical
 // declarations live in spi/ (lifted there by rmp #4708) and the
@@ -20,70 +16,6 @@ import (
 // satisfy the alias because every Gocene producer (codec-side,
 // writer-side, filter wrapper, singleton wrapper, …) was migrated to
 // the iterator surface as part of T4710.
-
-// FloatVectorValues provides an iterator over float vector values.
-// This is the Go port of Lucene's org.apache.lucene.index.FloatVectorValues.
-//
-// Out of scope for the rmp #4710 doc-values collapse: vector values
-// have not yet been lifted onto the SPI iterator surface.
-type FloatVectorValues interface {
-	// Get returns the float vector for the given document.
-	// Returns nil if the document has no vector for this field.
-	Get(docID int) ([]float32, error)
-
-	// Advance advances to the given document.
-	// Returns the document ID or NO_MORE_DOCS.
-	Advance(target int) (int, error)
-
-	// NextDoc returns the next document that has a vector.
-	// Returns NO_MORE_DOCS if there are no more documents.
-	NextDoc() (int, error)
-
-	// DocID returns the current document ID.
-	DocID() int
-
-	// Dimension returns the dimension of the vectors.
-	Dimension() int
-
-	// Size returns the number of documents with vectors.
-	Size() int
-
-	// Scorer returns a VectorScorer for the given query vector and these
-	// FloatVectorValues, mirroring FloatVectorValues.scorer(float[]).
-	Scorer(target []float32) (util.VectorScorer, error)
-}
-
-// ByteVectorValues provides an iterator over byte vector values.
-// This is the Go port of Lucene's org.apache.lucene.index.ByteVectorValues.
-//
-// Out of scope for the rmp #4710 doc-values collapse: vector values
-// have not yet been lifted onto the SPI iterator surface.
-type ByteVectorValues interface {
-	// Get returns the byte vector for the given document.
-	// Returns nil if the document has no vector for this field.
-	Get(docID int) ([]byte, error)
-
-	// Advance advances to the given document.
-	// Returns the document ID or NO_MORE_DOCS.
-	Advance(target int) (int, error)
-
-	// NextDoc returns the next document that has a vector.
-	// Returns NO_MORE_DOCS if there are no more documents.
-	NextDoc() (int, error)
-
-	// DocID returns the current document ID.
-	DocID() int
-
-	// Dimension returns the dimension of the vectors.
-	Dimension() int
-
-	// Size returns the number of documents with vectors.
-	Size() int
-
-	// Scorer returns a VectorScorer for the given query vector and these
-	// ByteVectorValues, mirroring ByteVectorValues.scorer(byte[]).
-	Scorer(target []byte) (util.VectorScorer, error)
-}
 
 // PointValues provides access to point values.
 // This is the Go port of Lucene's org.apache.lucene.index.PointValues.

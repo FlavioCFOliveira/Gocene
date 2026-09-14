@@ -25,17 +25,18 @@ import (
 func collectFloatVectors(t *testing.T, fvv index.FloatVectorValues, maxDoc int) map[int][]float32 {
 	t.Helper()
 	out := map[int][]float32{}
+	it := fvv.Iterator()
 	for {
-		d, err := fvv.NextDoc()
+		d, err := it.NextDoc()
 		if err != nil {
 			t.Fatalf("vector NextDoc: %v", err)
 		}
 		if d < 0 || d >= maxDoc {
 			break
 		}
-		v, err := fvv.Get(d)
+		v, err := fvv.VectorValue(it.Index())
 		if err != nil {
-			t.Fatalf("vector Get(%d): %v", d, err)
+			t.Fatalf("vector VectorValue(%d) of doc %d: %v", it.Index(), d, err)
 		}
 		cp := make([]float32, len(v))
 		copy(cp, v)
@@ -134,13 +135,7 @@ func TestSegmentMerger_VectorsRoundTrip(t *testing.T) {
 	}
 	defer vr.Close()
 
-	delegate, ok := vr.(interface {
-		FloatVectorValues(field string) (index.FloatVectorValues, error)
-	})
-	if !ok {
-		t.Fatalf("KnnVectorsReader %T has no FloatVectorValues", vr)
-	}
-	mfvv, err := delegate.FloatVectorValues("vec")
+	mfvv, err := vr.GetFloatVectorValues("vec")
 	if err != nil || mfvv == nil {
 		t.Fatalf("merged FloatVectorValues: fvv=%v err=%v", mfvv, err)
 	}
@@ -503,17 +498,18 @@ func TestForceMerge_ByteVectorsSparseDeletedRoundTrip(t *testing.T) {
 
 	// Collect byte vectors keyed by remapped docID.
 	gotBytes := map[int][]byte{}
+	bIt := bvv.Iterator()
 	for {
-		d, err := bvv.NextDoc()
+		d, err := bIt.NextDoc()
 		if err != nil {
 			t.Fatalf("byte NextDoc: %v", err)
 		}
 		if d < 0 || d >= sr.MaxDoc() {
 			break
 		}
-		v, err := bvv.Get(d)
+		v, err := bvv.VectorValue(bIt.Index())
 		if err != nil {
-			t.Fatalf("byte Get(%d): %v", d, err)
+			t.Fatalf("byte VectorValue(%d) of doc %d: %v", bIt.Index(), d, err)
 		}
 		cp := make([]byte, len(v))
 		copy(cp, v)

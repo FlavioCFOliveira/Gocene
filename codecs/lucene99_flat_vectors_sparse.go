@@ -21,7 +21,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
 
@@ -52,14 +51,19 @@ import (
 // ---------------------------------------------------------------------------
 
 type flatSparseFloatVectorValues struct {
+	// reader and entry are the Go counterparts of the configuration and
+	// dataIn fields Java keeps to construct copies.
+	reader *Lucene99FlatVectorsReader
+	entry  *lucene99FlatFieldEntry
+
 	dimension int
 	size      int
 	byteSize  int
 	slice     store.IndexInput
 	sim       index.VectorSimilarityFunction
 
-	ordToDoc    *packed.DirectMonotonicReader
-	disiFactory func() (*dvIndexedDISI, error)
+	ordToDoc *packed.DirectMonotonicReader
+	disi     *dvIndexedDISI
 
 	lastOrd int
 	value   []float32
@@ -115,9 +119,58 @@ func (v *flatSparseFloatVectorValues) VectorValue(ord int) ([]float32, error) {
 
 // Iterator returns a DISI-backed iterator over (docID, ordinal) pairs. Mirrors
 // IndexedDISI.asDocIndexIterator(disi).
-func (v *flatSparseFloatVectorValues) Iterator() utilhnsw.DocIndexIterator {
-	disi, err := v.disiFactory()
-	return &flatSparseIterator{disi: disi, err: err}
+func (v *flatSparseFloatVectorValues) Iterator() index.DocIndexIterator {
+	return dvIndexedDISIAsDocIndexIterator(v.disi)
+}
+
+// Copy mirrors SparseOffHeapVectorValues.copy(): a new view over a clone of
+// the slice, with its own IndexedDISI and ord-to-doc reader.
+func (v *flatSparseFloatVectorValues) Copy() (index.KnnVectorValues, error) {
+	return v.CopyFloatVectorValues()
+}
+
+// CopyFloatVectorValues is the covariant copy(); see [flatSparseFloatVectorValues.Copy].
+func (v *flatSparseFloatVectorValues) CopyFloatVectorValues() (index.FloatVectorValues, error) {
+	cp, err := v.reader.newFlatSparseFloatVectorValues(v.entry, v.slice.Clone())
+	if err != nil {
+		return nil, err
+	}
+	return cp, nil
+}
+
+// Prefetch mirrors OffHeapFloatVectorValues.prefetch(int[], int).
+func (v *flatSparseFloatVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error {
+	return flatPrefetch(v.slice, v.byteSize, ordsToPrefetch, numOrds)
+}
+
+// GetEncoding carries the FloatVectorValues.getEncoding override.
+func (v *flatSparseFloatVectorValues) GetEncoding() index.VectorEncoding {
+	return index.VectorEncodingFloat32
+}
+
+// GetVectorByteLength carries the KnnVectorValues.getVectorByteLength default.
+func (v *flatSparseFloatVectorValues) GetVectorByteLength() int {
+	return v.Dimension() * index.VectorEncodingByteSize(v.GetEncoding())
+}
+
+// Scorer mirrors SparseOffHeapVectorValues.scorer(query): it scores a copy of
+// these values against query, reading the score of the iterator's current
+// ordinal.
+func (v *flatSparseFloatVectorValues) Scorer(query []float32) (util.VectorScorer, error) {
+	cp, err := v.reader.newFlatSparseFloatVectorValues(v.entry, v.slice.Clone())
+	if err != nil {
+		return nil, err
+	}
+	if len(query) != cp.Dimension() {
+		return nil, fmt.Errorf("lucene99 flat: query dim %d != field dim %d", len(query), cp.Dimension())
+	}
+	iterator := cp.Iterator()
+	return &flatSparseVectorScorer{scorer: newFlatFloatQueryScorer(cp, query), iterator: iterator}, nil
+}
+
+// Rescorer carries the FloatVectorValues.rescorer default.
+func (v *flatSparseFloatVectorValues) Rescorer(target []float32) (util.VectorScorer, error) {
+	return v.Scorer(target)
 }
 
 // ---------------------------------------------------------------------------
@@ -125,14 +178,19 @@ func (v *flatSparseFloatVectorValues) Iterator() utilhnsw.DocIndexIterator {
 // ---------------------------------------------------------------------------
 
 type flatSparseByteVectorValues struct {
+	// reader and entry are the Go counterparts of the configuration and
+	// dataIn fields Java keeps to construct copies.
+	reader *Lucene99FlatVectorsReader
+	entry  *lucene99FlatFieldEntry
+
 	dimension int
 	size      int
 	byteSize  int
 	slice     store.IndexInput
 	sim       index.VectorSimilarityFunction
 
-	ordToDoc    *packed.DirectMonotonicReader
-	disiFactory func() (*dvIndexedDISI, error)
+	ordToDoc *packed.DirectMonotonicReader
+	disi     *dvIndexedDISI
 
 	lastOrd int
 	value   []byte
@@ -176,36 +234,103 @@ func (v *flatSparseByteVectorValues) VectorValue(ord int) ([]byte, error) {
 	return v.value, nil
 }
 
-func (v *flatSparseByteVectorValues) Iterator() utilhnsw.DocIndexIterator {
-	disi, err := v.disiFactory()
-	return &flatSparseIterator{disi: disi, err: err}
+func (v *flatSparseByteVectorValues) Iterator() index.DocIndexIterator {
+	return dvIndexedDISIAsDocIndexIterator(v.disi)
+}
+
+// Copy mirrors SparseOffHeapVectorValues.copy(): a new view over a clone of
+// the slice, with its own IndexedDISI and ord-to-doc reader.
+func (v *flatSparseByteVectorValues) Copy() (index.KnnVectorValues, error) {
+	return v.CopyByteVectorValues()
+}
+
+// CopyByteVectorValues is the covariant copy(); see [flatSparseByteVectorValues.Copy].
+func (v *flatSparseByteVectorValues) CopyByteVectorValues() (index.ByteVectorValues, error) {
+	cp, err := v.reader.newFlatSparseByteVectorValues(v.entry, v.slice.Clone())
+	if err != nil {
+		return nil, err
+	}
+	return cp, nil
+}
+
+// Prefetch mirrors OffHeapByteVectorValues.prefetch(int[], int).
+func (v *flatSparseByteVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error {
+	return flatPrefetch(v.slice, v.byteSize, ordsToPrefetch, numOrds)
+}
+
+// GetEncoding carries the ByteVectorValues.getEncoding override.
+func (v *flatSparseByteVectorValues) GetEncoding() index.VectorEncoding {
+	return index.VectorEncodingByte
+}
+
+// GetVectorByteLength carries the KnnVectorValues.getVectorByteLength default.
+func (v *flatSparseByteVectorValues) GetVectorByteLength() int {
+	return v.Dimension() * index.VectorEncodingByteSize(v.GetEncoding())
+}
+
+// Scorer mirrors SparseOffHeapVectorValues.scorer(query): it scores a copy of
+// these values against query, reading the score of the iterator's current
+// ordinal.
+func (v *flatSparseByteVectorValues) Scorer(query []byte) (util.VectorScorer, error) {
+	cp, err := v.reader.newFlatSparseByteVectorValues(v.entry, v.slice.Clone())
+	if err != nil {
+		return nil, err
+	}
+	if len(query) != cp.Dimension() {
+		return nil, fmt.Errorf("lucene99 flat: query dim %d != field dim %d", len(query), cp.Dimension())
+	}
+	iterator := cp.Iterator()
+	return &flatSparseVectorScorer{scorer: newFlatByteQueryScorer(cp, query), iterator: iterator}, nil
+}
+
+// Rescorer carries the ByteVectorValues.rescorer default.
+func (v *flatSparseByteVectorValues) Rescorer(target []byte) (util.VectorScorer, error) {
+	return v.Scorer(target)
 }
 
 // ---------------------------------------------------------------------------
-// flatSparseIterator — DocIndexIterator backed by an IndexedDISI.
-//
-// NextDoc advances the DISI to the next docID; Index returns the DISI's
-// internal ordinal (the count of preceding set bits). Mirrors the adapter
-// returned by IndexedDISI.asDocIndexIterator.
+// dvIndexedDISIAsDocIndexIterator — IndexedDISI.asDocIndexIterator(disi).
 // ---------------------------------------------------------------------------
 
-type flatSparseIterator struct {
+// dvIndexedDISIAsDocIndexIterator ports the static
+// IndexedDISI.asDocIndexIterator(IndexedDISI) of Apache Lucene 10.5.0 over
+// the package-local IndexedDISI rendering.
+func dvIndexedDISIAsDocIndexIterator(disi *dvIndexedDISI) index.DocIndexIterator {
+	return &dvIndexedDISIDocIndexIterator{disi: disi}
+}
+
+// dvIndexedDISIDocIndexIterator is the anonymous DocIndexIterator returned by
+// IndexedDISI.asDocIndexIterator: it forwards docID, index, nextDoc, advance
+// and cost to the DISI and inherits the remaining DocIdSetIterator defaults.
+type dvIndexedDISIDocIndexIterator struct {
 	disi *dvIndexedDISI
-	err  error
 }
 
-func (it *flatSparseIterator) NextDoc() (int, error) {
-	if it.err != nil {
-		return 0, it.err
-	}
-	return it.disi.NextDoc()
+// DocID forwards to the DISI.
+func (it *dvIndexedDISIDocIndexIterator) DocID() int { return it.disi.DocID() }
+
+// Index forwards to the DISI.
+func (it *dvIndexedDISIDocIndexIterator) Index() int { return it.disi.Index() }
+
+// NextDoc forwards to the DISI.
+func (it *dvIndexedDISIDocIndexIterator) NextDoc() (int, error) { return it.disi.NextDoc() }
+
+// Advance forwards to the DISI.
+func (it *dvIndexedDISIDocIndexIterator) Advance(target int) (int, error) {
+	return it.disi.Advance(target)
 }
 
-func (it *flatSparseIterator) Index() int {
-	if it.disi == nil {
-		return -1
-	}
-	return it.disi.Index()
+// Cost forwards to the DISI.
+func (it *dvIndexedDISIDocIndexIterator) Cost() int64 { return it.disi.Cost() }
+
+// IntoBitSet carries the DocIdSetIterator.intoBitSet default.
+func (it *dvIndexedDISIDocIndexIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the DocIdSetIterator.docIDRunEnd default.
+func (it *dvIndexedDISIDocIndexIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
 }
 
 // ---------------------------------------------------------------------------
@@ -232,8 +357,8 @@ func (s *flatSparseAcceptOrds) Length() int { return s.size }
 
 // Compile-time guards: the sparse views satisfy the shared interfaces.
 var (
-	_ flatFloatVectorValues     = (*flatSparseFloatVectorValues)(nil)
-	_ flatByteVectorValues      = (*flatSparseByteVectorValues)(nil)
-	_ utilhnsw.DocIndexIterator = (*flatSparseIterator)(nil)
-	_ util.Bits                 = (*flatSparseAcceptOrds)(nil)
+	_ flatFloatVectorValues  = (*flatSparseFloatVectorValues)(nil)
+	_ flatByteVectorValues   = (*flatSparseByteVectorValues)(nil)
+	_ index.DocIndexIterator = (*dvIndexedDISIDocIndexIterator)(nil)
+	_ util.Bits              = (*flatSparseAcceptOrds)(nil)
 )

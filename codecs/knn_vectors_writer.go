@@ -306,7 +306,7 @@ func calculateTotalSize[T any](subs []*T, sizeFn func(*T) int) int {
 type floatVectorValuesSub struct {
 	docMap index.DocMap
 	values index.FloatVectorValues
-	iter   util.DocIndexIterator
+	iter   spi.DocIndexIterator
 }
 
 func (s *floatVectorValuesSub) MappedDocID() int {
@@ -336,7 +336,7 @@ func (s *floatVectorValuesSub) NextMappedDoc() (int, error) {
 type byteVectorValuesSub struct {
 	docMap index.DocMap
 	values index.ByteVectorValues
-	iter   util.DocIndexIterator
+	iter   spi.DocIndexIterator
 }
 
 func (s *byteVectorValuesSub) MappedDocID() int {
@@ -407,7 +407,7 @@ func (m *mergedFloat32VectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bit
 	panic("not implemented")
 }
 
-func (m *mergedFloat32VectorValues) Iterator() util.DocIndexIterator {
+func (m *mergedFloat32VectorValues) Iterator() spi.DocIndexIterator {
 	return &mergedVectorIterator{
 		parent: m,
 	}
@@ -424,11 +424,11 @@ func (m *mergedFloat32VectorValues) CopyFloatVectorValues() (index.FloatVectorVa
 	panic("not implemented")
 }
 
-func (m *mergedFloat32VectorValues) Scorer(target []float32) (interface{}, error) {
+func (m *mergedFloat32VectorValues) Scorer(target []float32) (util.VectorScorer, error) {
 	panic("not implemented")
 }
 
-func (m *mergedFloat32VectorValues) Rescorer(target []float32) (interface{}, error) {
+func (m *mergedFloat32VectorValues) Rescorer(target []float32) (util.VectorScorer, error) {
 	panic("not implemented")
 }
 
@@ -476,7 +476,7 @@ func (m *mergedByteVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
 	panic("not implemented")
 }
 
-func (m *mergedByteVectorValues) Iterator() util.DocIndexIterator {
+func (m *mergedByteVectorValues) Iterator() spi.DocIndexIterator {
 	return &mergedVectorIterator{
 		parent: m,
 	}

@@ -18,25 +18,16 @@ import (
 // traffics in spi.KnnVectorsReader, which is why this is an alias rather than a
 // wider codecs-side interface.
 //
+// checkIntegrity, getFloatVectorValues, getByteVectorValues,
 // getMergeInstance, finishMerge and getOffHeapByteSize are part of the SPI
 // contract.
 //
-// KNOWN GAP: getFloatVectorValues, getByteVectorValues and the two search
-// overloads of Apache Lucene 10.5.0 still have no counterpart on
-// spi.KnnVectorsReader, and cannot be lifted onto it as the module stands:
-//
-//   - getFloatVectorValues/getByteVectorValues would have to name
-//     FloatVectorValues/ByteVectorValues, and spi's copies are a different
-//     contract from index's (spi's are docID-iterator shaped; index's are the
-//     faithful Lucene 10 ordinal-addressed ones). Reconciling the two is the
-//     vector-values lift spi/doc_values_interfaces.go already records as
-//     deferred.
-//   - Both search overloads take AcceptDocs, which lives in the search
-//     package; search imports spi, so spi cannot name it without closing the
-//     very cycle spi exists to break. Go also has no overloading, so the two
-//     would need distinct names.
-//
-// The concrete readers expose all four as concrete-typed methods meanwhile.
+// KNOWN GAP: the two search overloads of Apache Lucene 10.5.0 still have no
+// counterpart on spi.KnnVectorsReader. Both take AcceptDocs, which lives in
+// the search package; search imports spi, so spi cannot name it without
+// closing the very cycle spi exists to break. Go also has no overloading, so
+// the two would need distinct names. The concrete readers expose
+// collector-driven search methods meanwhile.
 type KnnVectorsReader = spi.KnnVectorsReader
 
 // MergeOffHeapByteSizeMaps merges the maps returned by GetOffHeapByteSize.

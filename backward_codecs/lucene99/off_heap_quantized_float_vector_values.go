@@ -12,6 +12,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	codecs_lucene90 "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/quantization"
@@ -79,7 +80,7 @@ type OffHeapQuantizedFloatVectorValues struct {
 
 // offHeap99Variant captures layout-specific behaviour.
 type offHeap99Variant interface {
-	iterator(parent *OffHeapQuantizedFloatVectorValues) util.DocIndexIterator
+	iterator(parent *OffHeapQuantizedFloatVectorValues) spi.DocIndexIterator
 	ordToDoc(parent *OffHeapQuantizedFloatVectorValues, ord int) int
 	getAcceptOrds(parent *OffHeapQuantizedFloatVectorValues, acceptDocs util.Bits) util.Bits
 	copy(parent *OffHeapQuantizedFloatVectorValues) (*OffHeapQuantizedFloatVectorValues, error)
@@ -165,7 +166,7 @@ func (v *OffHeapQuantizedFloatVectorValues) VectorValue(targetOrd int) ([]float3
 }
 
 // Iterator returns a DocIndexIterator over this vector set.
-func (v *OffHeapQuantizedFloatVectorValues) Iterator() util.DocIndexIterator {
+func (v *OffHeapQuantizedFloatVectorValues) Iterator() spi.DocIndexIterator {
 	return v.variant.iterator(v)
 }
 
@@ -234,7 +235,7 @@ func LoadQuantizedFloat(
 
 type denseOffHeap99Variant struct{}
 
-func (denseOffHeap99Variant) iterator(parent *OffHeapQuantizedFloatVectorValues) util.DocIndexIterator {
+func (denseOffHeap99Variant) iterator(parent *OffHeapQuantizedFloatVectorValues) spi.DocIndexIterator {
 	return newDenseDocIter99(parent.size)
 }
 
@@ -309,7 +310,7 @@ func newSparseOffHeap99(
 	), nil
 }
 
-func (s *sparseOffHeap99Variant) iterator(_ *OffHeapQuantizedFloatVectorValues) util.DocIndexIterator {
+func (s *sparseOffHeap99Variant) iterator(_ *OffHeapQuantizedFloatVectorValues) spi.DocIndexIterator {
 	return &indexedDISIIter99{disi: s.disi}
 }
 
@@ -371,7 +372,7 @@ func newEmptyOffHeap99(
 	)
 }
 
-func (emptyOffHeap99Variant) iterator(parent *OffHeapQuantizedFloatVectorValues) util.DocIndexIterator {
+func (emptyOffHeap99Variant) iterator(parent *OffHeapQuantizedFloatVectorValues) spi.DocIndexIterator {
 	return newDenseDocIter99(0)
 }
 
@@ -495,7 +496,7 @@ type FlatRandomVectorScorer99 interface {
 }
 
 type quantizedFloatScorerView99 struct {
-	it     util.DocIndexIterator
+	it     spi.DocIndexIterator
 	scorer FlatRandomVectorScorer99
 }
 
@@ -509,8 +510,8 @@ func (s *quantizedFloatScorerView99) Iterator() codecs.DocIDSetIteratorView {
 
 func (s *quantizedFloatScorerView99) Bulk() codecs.VectorScorerBulkView { return nil }
 
-// docIndexIterToView99 adapts util.DocIndexIterator to codecs.DocIDSetIteratorView.
-type docIndexIterToView99 struct{ it util.DocIndexIterator }
+// docIndexIterToView99 adapts spi.DocIndexIterator to codecs.DocIDSetIteratorView.
+type docIndexIterToView99 struct{ it spi.DocIndexIterator }
 
 func (d *docIndexIterToView99) DocID() int                 { return d.it.DocID() }
 func (d *docIndexIterToView99) NextDoc() (int, error)      { return d.it.NextDoc() }

@@ -20,6 +20,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
@@ -301,20 +302,19 @@ func (r *Lucene99FlatVectorsReader) getFieldEntry(field string, expected index.V
 }
 
 // flatFloatVectorValues is the common surface exposed by the dense, empty
-// and sparse off-heap float32 vector views. It mirrors the slice of
-// org.apache.lucene.codecs.lucene99.OffHeapFloatVectorValues consumed by the
-// codecs package: the KnnVectorValues iterator/ord-mapping methods plus the
-// ordinal-keyed VectorValue accessor and the configured similarity function.
+// and sparse off-heap float32 vector views, the Go renderings of
+// org.apache.lucene.codecs.lucene95.OffHeapFloatVectorValues and its Dense,
+// Sparse and Empty subclasses: the full FloatVectorValues surface plus the
+// configured similarity function.
 type flatFloatVectorValues interface {
-	utilhnsw.KnnVectorValues
-	VectorValue(ord int) ([]float32, error)
+	index.FloatVectorValues
 	similarity() index.VectorSimilarityFunction
 }
 
-// flatByteVectorValues is the byte analogue of [flatFloatVectorValues].
+// flatByteVectorValues is the byte analogue of [flatFloatVectorValues]
+// (org.apache.lucene.codecs.lucene95.OffHeapByteVectorValues).
 type flatByteVectorValues interface {
-	utilhnsw.KnnVectorValues
-	VectorValue(ord int) ([]byte, error)
+	index.ByteVectorValues
 	similarity() index.VectorSimilarityFunction
 }
 
@@ -359,6 +359,27 @@ func (r *Lucene99FlatVectorsReader) byteVectorValues(field string) (flatByteVect
 	return r.newFlatSparseByteVectorValues(entry, slice)
 }
 
+// GetFloatVectorValues returns the float vectors for field. Mirrors
+// Lucene99FlatVectorsReader.getFloatVectorValues(String), which loads the
+// dense, sparse or empty OffHeapFloatVectorValues of the field entry.
+func (r *Lucene99FlatVectorsReader) GetFloatVectorValues(field string) (index.FloatVectorValues, error) {
+	values, err := r.floatVectorValues(field)
+	if err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+// GetByteVectorValues returns the byte vectors for field. Mirrors
+// Lucene99FlatVectorsReader.getByteVectorValues(String).
+func (r *Lucene99FlatVectorsReader) GetByteVectorValues(field string) (index.ByteVectorValues, error) {
+	values, err := r.byteVectorValues(field)
+	if err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
 // newFlatSparseFloatVectorValues builds the sparse float32 view, opening the
 // IndexedDISI doc-id set and the DirectMonotonicReader ord->doc mapping from
 // the .vec file. Mirrors OffHeapFloatVectorValues.SparseOffHeapVectorValues.
@@ -369,16 +390,22 @@ func (r *Lucene99FlatVectorsReader) newFlatSparseFloatVectorValues(
 	if err != nil {
 		return nil, err
 	}
+	disi, err := disiFactory()
+	if err != nil {
+		return nil, err
+	}
 	return &flatSparseFloatVectorValues{
-		dimension:   entry.dimension,
-		size:        entry.size,
-		byteSize:    entry.dimension * floatBytes,
-		slice:       slice,
-		sim:         entry.similarityFunction,
-		ordToDoc:    ordToDoc,
-		disiFactory: disiFactory,
-		lastOrd:     -1,
-		value:       make([]float32, entry.dimension),
+		reader:    r,
+		entry:     entry,
+		dimension: entry.dimension,
+		size:      entry.size,
+		byteSize:  entry.dimension * floatBytes,
+		slice:     slice,
+		sim:       entry.similarityFunction,
+		ordToDoc:  ordToDoc,
+		disi:      disi,
+		lastOrd:   -1,
+		value:     make([]float32, entry.dimension),
 	}, nil
 }
 
@@ -391,16 +418,22 @@ func (r *Lucene99FlatVectorsReader) newFlatSparseByteVectorValues(
 	if err != nil {
 		return nil, err
 	}
+	disi, err := disiFactory()
+	if err != nil {
+		return nil, err
+	}
 	return &flatSparseByteVectorValues{
-		dimension:   entry.dimension,
-		size:        entry.size,
-		byteSize:    entry.dimension,
-		slice:       slice,
-		sim:         entry.similarityFunction,
-		ordToDoc:    ordToDoc,
-		disiFactory: disiFactory,
-		lastOrd:     -1,
-		value:       make([]byte, entry.dimension),
+		reader:    r,
+		entry:     entry,
+		dimension: entry.dimension,
+		size:      entry.size,
+		byteSize:  entry.dimension,
+		slice:     slice,
+		sim:       entry.similarityFunction,
+		ordToDoc:  ordToDoc,
+		disi:      disi,
+		lastOrd:   -1,
+		value:     make([]byte, entry.dimension),
 	}, nil
 }
 
@@ -556,7 +589,12 @@ func (v *flatDenseFloatVectorValues) similarity() index.VectorSimilarityFunction
 }
 func (v *flatDenseFloatVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
 	// Dense: the ordinal space is the doc space, so the accept bits map
-	// through unchanged. Mirrors DenseOffHeapVectorValues.getAcceptOrds.
+	// through unchanged. Mirrors DenseOffHeapVectorValues.getAcceptOrds; the
+	// empty view mirrors EmptyOffHeapVectorValues.getAcceptOrds, which
+	// returns null.
+	if v.slice == nil {
+		return nil
+	}
 	return acceptDocs
 }
 
@@ -580,9 +618,66 @@ func (v *flatDenseFloatVectorValues) VectorValue(ord int) ([]float32, error) {
 	return v.value, nil
 }
 
-// Iterator returns a dense sequential (docID == ordinal) iterator.
-func (v *flatDenseFloatVectorValues) Iterator() utilhnsw.DocIndexIterator {
-	return &flatDenseIterator{size: v.size, cur: -1}
+// Iterator returns a dense iterator. Mirrors DenseOffHeapVectorValues.iterator()
+// and EmptyOffHeapVectorValues.iterator(), which both return
+// createDenseIterator().
+func (v *flatDenseFloatVectorValues) Iterator() index.DocIndexIterator {
+	return spi.CreateDenseIterator(v)
+}
+
+// Copy returns a view over a clone of the slice. Mirrors
+// DenseOffHeapVectorValues.copy(); for the empty view (nil slice) it mirrors
+// EmptyOffHeapVectorValues.copy(), which throws UnsupportedOperationException.
+func (v *flatDenseFloatVectorValues) Copy() (index.KnnVectorValues, error) {
+	return v.CopyFloatVectorValues()
+}
+
+// CopyFloatVectorValues is the covariant copy(); see [flatDenseFloatVectorValues.Copy].
+func (v *flatDenseFloatVectorValues) CopyFloatVectorValues() (index.FloatVectorValues, error) {
+	if v.slice == nil {
+		return nil, errors.New("lucene99 flat: copy of empty vector values is not supported")
+	}
+	return newFlatDenseFloatVectorValues(v.dimension, v.size, v.slice.Clone(), v.sim), nil
+}
+
+// Prefetch mirrors OffHeapFloatVectorValues.prefetch(int[], int).
+func (v *flatDenseFloatVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error {
+	return flatPrefetch(v.slice, v.byteSize, ordsToPrefetch, numOrds)
+}
+
+// GetEncoding carries the FloatVectorValues.getEncoding override.
+func (v *flatDenseFloatVectorValues) GetEncoding() index.VectorEncoding {
+	return index.VectorEncodingFloat32
+}
+
+// GetVectorByteLength carries the KnnVectorValues.getVectorByteLength default.
+func (v *flatDenseFloatVectorValues) GetVectorByteLength() int {
+	return v.Dimension() * index.VectorEncodingByteSize(v.GetEncoding())
+}
+
+// Scorer mirrors DenseOffHeapVectorValues.scorer(query): it scores a copy of
+// these values against query, reading the score of the ordinal equal to the
+// iterator's current document. The empty view mirrors
+// EmptyOffHeapVectorValues.scorer, which returns null.
+func (v *flatDenseFloatVectorValues) Scorer(query []float32) (util.VectorScorer, error) {
+	if v.slice == nil {
+		return nil, nil
+	}
+	values, err := v.CopyFloatVectorValues()
+	if err != nil {
+		return nil, err
+	}
+	cp := values.(*flatDenseFloatVectorValues)
+	if len(query) != cp.Dimension() {
+		return nil, fmt.Errorf("lucene99 flat: query dim %d != field dim %d", len(query), cp.Dimension())
+	}
+	iterator := cp.Iterator()
+	return &flatDenseVectorScorer{scorer: newFlatFloatQueryScorer(cp, query), iterator: iterator}, nil
+}
+
+// Rescorer carries the FloatVectorValues.rescorer default.
+func (v *flatDenseFloatVectorValues) Rescorer(target []float32) (util.VectorScorer, error) {
+	return v.Scorer(target)
 }
 
 // ---------------------------------------------------------------------------
@@ -621,6 +716,9 @@ func (v *flatDenseByteVectorValues) similarity() index.VectorSimilarityFunction 
 	return v.sim
 }
 func (v *flatDenseByteVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
+	if v.slice == nil {
+		return nil
+	}
 	return acceptDocs
 }
 
@@ -643,30 +741,130 @@ func (v *flatDenseByteVectorValues) VectorValue(ord int) ([]byte, error) {
 	return v.value, nil
 }
 
-// Iterator returns a dense sequential iterator.
-func (v *flatDenseByteVectorValues) Iterator() utilhnsw.DocIndexIterator {
-	return &flatDenseIterator{size: v.size, cur: -1}
+// Iterator returns a dense iterator. Mirrors DenseOffHeapVectorValues.iterator()
+// and EmptyOffHeapVectorValues.iterator(), which both return
+// createDenseIterator().
+func (v *flatDenseByteVectorValues) Iterator() index.DocIndexIterator {
+	return spi.CreateDenseIterator(v)
 }
 
-// ---------------------------------------------------------------------------
-// flatDenseIterator — DocIndexIterator with identity ordinal -> docID.
-// ---------------------------------------------------------------------------
-
-type flatDenseIterator struct {
-	size int
-	cur  int
+// Copy returns a view over a clone of the slice. Mirrors
+// DenseOffHeapVectorValues.copy(); for the empty view (nil slice) it mirrors
+// EmptyOffHeapVectorValues.copy(), which throws UnsupportedOperationException.
+func (v *flatDenseByteVectorValues) Copy() (index.KnnVectorValues, error) {
+	return v.CopyByteVectorValues()
 }
 
-func (it *flatDenseIterator) NextDoc() (int, error) {
-	it.cur++
-	if it.cur >= it.size {
-		it.cur = it.size
-		return util.NO_MORE_DOCS, nil
+// CopyByteVectorValues is the covariant copy(); see [flatDenseByteVectorValues.Copy].
+func (v *flatDenseByteVectorValues) CopyByteVectorValues() (index.ByteVectorValues, error) {
+	if v.slice == nil {
+		return nil, errors.New("lucene99 flat: copy of empty vector values is not supported")
 	}
-	return it.cur, nil
+	return newFlatDenseByteVectorValues(v.dimension, v.size, v.slice.Clone(), v.sim), nil
 }
 
-func (it *flatDenseIterator) Index() int { return it.cur }
+// Prefetch mirrors OffHeapByteVectorValues.prefetch(int[], int).
+func (v *flatDenseByteVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error {
+	return flatPrefetch(v.slice, v.byteSize, ordsToPrefetch, numOrds)
+}
+
+// GetEncoding carries the ByteVectorValues.getEncoding override.
+func (v *flatDenseByteVectorValues) GetEncoding() index.VectorEncoding {
+	return index.VectorEncodingByte
+}
+
+// GetVectorByteLength carries the KnnVectorValues.getVectorByteLength default.
+func (v *flatDenseByteVectorValues) GetVectorByteLength() int {
+	return v.Dimension() * index.VectorEncodingByteSize(v.GetEncoding())
+}
+
+// Scorer mirrors DenseOffHeapVectorValues.scorer(query): it scores a copy of
+// these values against query, reading the score of the ordinal equal to the
+// iterator's current document. The empty view mirrors
+// EmptyOffHeapVectorValues.scorer, which returns null.
+func (v *flatDenseByteVectorValues) Scorer(query []byte) (util.VectorScorer, error) {
+	if v.slice == nil {
+		return nil, nil
+	}
+	values, err := v.CopyByteVectorValues()
+	if err != nil {
+		return nil, err
+	}
+	cp := values.(*flatDenseByteVectorValues)
+	if len(query) != cp.Dimension() {
+		return nil, fmt.Errorf("lucene99 flat: query dim %d != field dim %d", len(query), cp.Dimension())
+	}
+	iterator := cp.Iterator()
+	return &flatDenseVectorScorer{scorer: newFlatByteQueryScorer(cp, query), iterator: iterator}, nil
+}
+
+// Rescorer carries the ByteVectorValues.rescorer default.
+func (v *flatDenseByteVectorValues) Rescorer(target []byte) (util.VectorScorer, error) {
+	return v.Scorer(target)
+}
+
+// ---------------------------------------------------------------------------
+// VectorScorers returned by the off-heap views' Scorer methods, and the shared
+// prefetch body.
+// ---------------------------------------------------------------------------
+
+// flatDenseVectorScorer is the anonymous VectorScorer returned by
+// DenseOffHeapVectorValues.scorer(query) in OffHeapFloatVectorValues and
+// OffHeapByteVectorValues: the current document is the ordinal to score.
+type flatDenseVectorScorer struct {
+	scorer   utilhnsw.RandomVectorScorer
+	iterator index.DocIndexIterator
+}
+
+// Score scores the iterator's current document.
+func (s *flatDenseVectorScorer) Score() (float32, error) {
+	return s.scorer.Score(s.iterator.DocID())
+}
+
+// Iterator returns the iterator over the scored copy.
+func (s *flatDenseVectorScorer) Iterator() util.DocIdSetIterator { return s.iterator }
+
+// flatSparseVectorScorer is the anonymous VectorScorer returned by
+// SparseOffHeapVectorValues.scorer(query): the iterator's current index is the
+// ordinal to score.
+type flatSparseVectorScorer struct {
+	scorer   utilhnsw.RandomVectorScorer
+	iterator index.DocIndexIterator
+}
+
+// Score scores the iterator's current ordinal.
+func (s *flatSparseVectorScorer) Score() (float32, error) {
+	return s.scorer.Score(s.iterator.Index())
+}
+
+// Iterator returns the iterator over the scored copy.
+func (s *flatSparseVectorScorer) Iterator() util.DocIdSetIterator { return s.iterator }
+
+// flatPrefetch is the body of OffHeapFloatVectorValues.prefetch and
+// OffHeapByteVectorValues.prefetch: when more than one ordinal is requested,
+// the byte range of each is prefetched from the slice. IndexInput.prefetch
+// defaults to a no-op in Apache Lucene 10.5.0, so a slice without the
+// prefetch capability does nothing.
+func flatPrefetch(slice store.IndexInput, byteSize int, ordsToPrefetch []int, numOrds int) error {
+	if ordsToPrefetch == nil {
+		return nil
+	}
+	finalNumOrds := min(numOrds, len(ordsToPrefetch))
+	if finalNumOrds <= 1 {
+		return nil
+	}
+	p, ok := slice.(store.PrefetchableRandomAccessInput)
+	if !ok {
+		return nil
+	}
+	for i := 0; i < finalNumOrds; i++ {
+		offset := int64(ordsToPrefetch[i]) * int64(byteSize)
+		if err := p.Prefetch(offset, int64(byteSize)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // ---------------------------------------------------------------------------
 // Query-vs-node RandomVectorScorers over the dense off-heap values.
@@ -742,8 +940,10 @@ func (s *flatByteQueryScorer) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
 
 // Compile-time guards.
 var (
-	_ utilhnsw.KnnVectorValues    = (*flatDenseFloatVectorValues)(nil)
-	_ utilhnsw.KnnVectorValues    = (*flatDenseByteVectorValues)(nil)
+	_ flatFloatVectorValues       = (*flatDenseFloatVectorValues)(nil)
+	_ flatByteVectorValues        = (*flatDenseByteVectorValues)(nil)
+	_ util.VectorScorer           = (*flatDenseVectorScorer)(nil)
+	_ util.VectorScorer           = (*flatSparseVectorScorer)(nil)
 	_ utilhnsw.RandomVectorScorer = (*flatFloatQueryScorer)(nil)
 	_ utilhnsw.RandomVectorScorer = (*flatByteQueryScorer)(nil)
 )

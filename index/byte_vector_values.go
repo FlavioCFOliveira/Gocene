@@ -8,26 +8,14 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// ByteVectorValues provides access to per-document vector values indexed as bytes.
-// This is the Go port of Lucene's org.apache.lucene.index.ByteVectorValues.
-type ByteVectorValues interface {
-	KnnVectorValues
-	// VectorValue returns the vector value for the given vector ordinal.
-	// It is illegal to call this method if ord is not in [0, Size() - 1].
-	VectorValue(ord int) ([]byte, error)
-
-	// CopyByteVectorValues creates a new copy of this ByteVectorValues.
-	CopyByteVectorValues() (ByteVectorValues, error)
-
-	// Scorer returns a VectorScorer for the given query vector and the current ByteVectorValues.
-	Scorer(target []byte) (util.VectorScorer, error)
-
-	// Rescorer rescores using the given query vector and the current ByteVectorValues.
-	Rescorer(target []byte) (util.VectorScorer, error)
-}
+// ByteVectorValues provides access to per-document vector values indexed as
+// bytes. It is the Go port of org.apache.lucene.index.ByteVectorValues; the
+// declaration lives in spi (see [KnnVectorValues]).
+type ByteVectorValues = spi.ByteVectorValues
 
 // CheckByteVectorField checks the Vector Encoding of a field.
 // This is the Go port of ByteVectorValues.checkField.
@@ -49,6 +37,8 @@ func FromBytes(vectors [][]byte, dim int) ByteVectorValues {
 	}
 }
 
+// byteVectorValuesFromBytes is the anonymous ByteVectorValues returned by
+// ByteVectorValues.fromBytes.
 type byteVectorValuesFromBytes struct {
 	vectors [][]byte
 	dim     int
@@ -62,10 +52,12 @@ func (b *byteVectorValuesFromBytes) Size() int {
 	return len(b.vectors)
 }
 
+// OrdToDoc carries the KnnVectorValues.ordToDoc default, which returns ord.
 func (b *byteVectorValuesFromBytes) OrdToDoc(ord int) int {
 	return ord
 }
 
+// Prefetch carries the KnnVectorValues.prefetch default, which does nothing.
 func (b *byteVectorValuesFromBytes) Prefetch(ordsToPrefetch []int, numOrds int) error {
 	return nil
 }
@@ -74,26 +66,23 @@ func (b *byteVectorValuesFromBytes) Copy() (KnnVectorValues, error) {
 	return b, nil
 }
 
+// GetEncoding carries the ByteVectorValues.getEncoding override.
 func (b *byteVectorValuesFromBytes) GetEncoding() VectorEncoding {
 	return VectorEncodingByte
 }
 
+// GetVectorByteLength carries the KnnVectorValues.getVectorByteLength default.
 func (b *byteVectorValuesFromBytes) GetVectorByteLength() int {
 	return b.Dimension() * VectorEncodingByteSize(b.GetEncoding())
 }
 
+// GetAcceptOrds carries the KnnVectorValues.getAcceptOrds default.
 func (b *byteVectorValuesFromBytes) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
-	if acceptDocs == nil {
-		return nil
-	}
-	return &acceptOrdsBitSet{
-		acceptDocs: acceptDocs,
-		size:       b.Size(),
-	}
+	return spi.DefaultGetAcceptOrds(b, acceptDocs)
 }
 
-func (b *byteVectorValuesFromBytes) Iterator() util.DocIndexIterator {
-	return util.NewDenseDocIndexIterator(b.Size())
+func (b *byteVectorValuesFromBytes) Iterator() DocIndexIterator {
+	return spi.CreateDenseIterator(b)
 }
 
 func (b *byteVectorValuesFromBytes) VectorValue(ord int) ([]byte, error) {
@@ -107,37 +96,14 @@ func (b *byteVectorValuesFromBytes) CopyByteVectorValues() (ByteVectorValues, er
 	return b, nil
 }
 
+// Scorer carries the ByteVectorValues.scorer default, which throws
+// UnsupportedOperationException.
 func (b *byteVectorValuesFromBytes) Scorer(target []byte) (util.VectorScorer, error) {
 	return nil, errors.New("not implemented")
 }
 
+// Rescorer carries the ByteVectorValues.rescorer default, which returns
+// scorer(target).
 func (b *byteVectorValuesFromBytes) Rescorer(target []byte) (util.VectorScorer, error) {
 	return b.Scorer(target)
-}
-
-type acceptOrdsBitSet struct {
-	acceptDocs util.Bits
-	size       int
-}
-
-func (b *acceptOrdsBitSet) Get(index int) bool {
-	return b.acceptDocs.Get(b.OrdToDoc(index))
-}
-
-func (b *acceptOrdsBitSet) Length() int {
-	return b.size
-}
-
-func (b *acceptOrdsBitSet) Cardinality() int {
-	count := 0
-	for i := 0; i < b.size; i++ {
-		if b.Get(i) {
-			count++
-		}
-	}
-	return count
-}
-
-func (b *acceptOrdsBitSet) OrdToDoc(index int) int {
-	return index
 }

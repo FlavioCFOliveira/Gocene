@@ -60,15 +60,6 @@ type pointsReaderWithValues interface {
 	GetValues(field string) (spi.PointValues, error)
 }
 
-// knnVectorsReaderWithValues is the wide read surface Lucene's
-// org.apache.lucene.codecs.KnnVectorsReader exposes. spi.KnnVectorsReader keeps
-// only the integrity/close hooks for the same import-cycle reason as
-// pointsReaderWithValues.
-type knnVectorsReaderWithValues interface {
-	GetFloatVectorValues(field string) (FloatVectorValues, error)
-	GetByteVectorValues(field string) (ByteVectorValues, error)
-}
-
 // knnVectorsReaderWithSearch is the nearest-neighbour search half of the wide
 // KnnVectorsReader surface.
 type knnVectorsReaderWithSearch interface {
@@ -265,11 +256,7 @@ func (b *baseCodecReader) GetFloatVectorValues(field string) (FloatVectorValues,
 		// Field does not exist or does not index vectors
 		return nil, nil
 	}
-	reader, ok := b.impl.GetVectorReader().(knnVectorsReaderWithValues)
-	if !ok {
-		return nil, fmt.Errorf("vector reader %T does not expose GetFloatVectorValues", b.impl.GetVectorReader())
-	}
-	return reader.GetFloatVectorValues(field)
+	return b.impl.GetVectorReader().GetFloatVectorValues(field)
 }
 
 func (b *baseCodecReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
@@ -278,11 +265,7 @@ func (b *baseCodecReader) GetByteVectorValues(field string) (ByteVectorValues, e
 		// Field does not exist or does not index vectors
 		return nil, nil
 	}
-	reader, ok := b.impl.GetVectorReader().(knnVectorsReaderWithValues)
-	if !ok {
-		return nil, fmt.Errorf("vector reader %T does not expose GetByteVectorValues", b.impl.GetVectorReader())
-	}
-	return reader.GetByteVectorValues(field)
+	return b.impl.GetVectorReader().GetByteVectorValues(field)
 }
 
 func (b *baseCodecReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error) {

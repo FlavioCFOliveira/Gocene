@@ -98,13 +98,28 @@ type KnnVectorsWriter interface {
 // exposes for KNN vectors. Mirrors
 // org.apache.lucene.codecs.KnnVectorsReader from Apache Lucene 10.4.0.
 //
-// Only the integrity-check and close hooks are part of the SPI surface;
-// the per-encoding read methods (getFloatVectorValues, getByteVectorValues,
-// search, …) live on the codecs-side wider interface because they
-// reference iterator types that have not yet been lifted into the SPI.
+// The two search(String, float[]/byte[], KnnCollector, AcceptDocs) overloads
+// are not part of this interface yet: AcceptDocs is declared in the search
+// package, which imports spi.
 type KnnVectorsReader interface {
 	// CheckIntegrity verifies the integrity of the on-disk vector data.
 	CheckIntegrity() error
+
+	// GetFloatVectorValues returns the FloatVectorValues for the given field.
+	// The behavior is undefined if the given field doesn't have KNN vectors
+	// enabled on its FieldInfo. The return value is never nil.
+	//
+	// Mirrors KnnVectorsReader.getFloatVectorValues(String) of Apache Lucene
+	// 10.5.0.
+	GetFloatVectorValues(field string) (FloatVectorValues, error)
+
+	// GetByteVectorValues returns the ByteVectorValues for the given field.
+	// The behavior is undefined if the given field doesn't have KNN vectors
+	// enabled on its FieldInfo. The return value is never nil.
+	//
+	// Mirrors KnnVectorsReader.getByteVectorValues(String) of Apache Lucene
+	// 10.5.0.
+	GetByteVectorValues(field string) (ByteVectorValues, error)
 
 	// GetMergeInstance returns an instance optimized for merging. This
 	// instance may only be used from the thread that called

@@ -19,6 +19,7 @@ package search
 // pre-filter narrows the candidate set below the per-leaf k.
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -46,7 +47,7 @@ type floatExactVectorScorer struct {
 	target  []float32
 	maxDoc  int
 	iter    *vectorValuesIterator
-	vit     util.DocIndexIterator
+	vit     spi.DocIndexIterator
 }
 
 // newFloatExactVectorScorer builds a scorer over values for target. maxDoc
@@ -123,7 +124,7 @@ type byteExactVectorScorer struct {
 	target  []byte
 	maxDoc  int
 	iter    *vectorValuesIterator
-	vit     util.DocIndexIterator
+	vit     spi.DocIndexIterator
 }
 
 // newByteExactVectorScorer builds a byte scorer over values for target.

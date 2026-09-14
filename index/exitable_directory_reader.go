@@ -176,7 +176,7 @@ func (r *ExitableFilterAtomicReader) GetFloatVectorValues(field string) (spi.Flo
 	if err != nil || vv == nil {
 		return vv, err
 	}
-	return &ExitableFloatVectorValues{FloatVectorValues: vv, queryTimeout: r.queryTimeout}, nil
+	return &ExitableFloatVectorValues{vectorValues: vv, queryTimeout: r.queryTimeout}, nil
 }
 
 func (r *ExitableFilterAtomicReader) GetByteVectorValues(field string) (spi.ByteVectorValues, error) {
@@ -184,7 +184,7 @@ func (r *ExitableFilterAtomicReader) GetByteVectorValues(field string) (spi.Byte
 	if err != nil || vv == nil {
 		return vv, err
 	}
-	return &ExitableByteVectorValues{ByteVectorValues: vv, queryTimeout: r.queryTimeout}, nil
+	return &ExitableByteVectorValues{vectorValues: vv, queryTimeout: r.queryTimeout}, nil
 }
 
 func (r *ExitableFilterAtomicReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits, visitedLimit int) (spi.TopDocs, error) {
@@ -806,102 +806,137 @@ func (e *ExitableTermsEnum) Next() (*spi.Term, error) {
 
 // Vector wrappers
 
-// vectorValuesWithIterator is the (docID, ordinal) cursor Lucene 10.5.0 exposes
-// through KnnVectorValues.iterator(). spi.FloatVectorValues / spi.ByteVectorValues
-// carry only the document-addressed surface, so the cursor is recovered from
-// the delegate.
-type vectorValuesWithIterator interface {
-	Iterator() util.DocIndexIterator
-}
-
-// ExitableFloatVectorValues guards a float-vector view with the query timeout.
+// ExitableFloatVectorValues ports the private inner class
+// ExitableDirectoryReader.ExitableFilterAtomicReader.ExitableFloatVectorValues
+// of Apache Lucene 10.5.0: it forwards to the wrapped values and wraps their
+// iterator so the query timeout is honoured while walking it. Members Java
+// does not override carry the FloatVectorValues / KnnVectorValues defaults.
 type ExitableFloatVectorValues struct {
-	spi.FloatVectorValues
+	vectorValues FloatVectorValues
 	queryTimeout QueryTimeout
-	nextCheck    int
 }
 
-func (v *ExitableFloatVectorValues) timeoutError() error {
-	return &ExitingReaderError{msg: fmt.Sprintf("The request took too long to iterate over knn vector values. Timeout: %v, KnnVectorValues=%v", v.queryTimeout, v.FloatVectorValues)}
+// Dimension forwards to the wrapped values.
+func (v *ExitableFloatVectorValues) Dimension() int { return v.vectorValues.Dimension() }
+
+// VectorValue forwards to the wrapped values.
+func (v *ExitableFloatVectorValues) VectorValue(ord int) ([]float32, error) {
+	return v.vectorValues.VectorValue(ord)
 }
 
-func (v *ExitableFloatVectorValues) NextDoc() (int, error) {
-	doc, err := v.FloatVectorValues.NextDoc()
-	if err == nil && doc >= v.nextCheck {
-		if v.queryTimeout.ShouldExit() {
-			return -1, v.timeoutError()
-		}
-		v.nextCheck = doc + docsBetweenTimeoutCheck
-	}
-	return doc, err
+// OrdToDoc forwards to the wrapped values.
+func (v *ExitableFloatVectorValues) OrdToDoc(ord int) int { return v.vectorValues.OrdToDoc(ord) }
+
+// Size forwards to the wrapped values.
+func (v *ExitableFloatVectorValues) Size() int { return v.vectorValues.Size() }
+
+// Iterator wraps the delegate's iterator so the timeout is honoured while
+// walking it.
+func (v *ExitableFloatVectorValues) Iterator() DocIndexIterator {
+	return createExitableIterator(v.vectorValues.Iterator(), v.queryTimeout)
 }
 
-func (v *ExitableFloatVectorValues) Advance(target int) (int, error) {
-	doc, err := v.FloatVectorValues.Advance(target)
-	if err == nil && doc >= v.nextCheck {
-		if v.queryTimeout.ShouldExit() {
-			return -1, v.timeoutError()
-		}
-		v.nextCheck = doc + docsBetweenTimeoutCheck
-	}
-	return doc, err
+// Scorer forwards to the wrapped values.
+func (v *ExitableFloatVectorValues) Scorer(target []float32) (util.VectorScorer, error) {
+	return v.vectorValues.Scorer(target)
 }
 
-// Iterator returns the delegate's cursor wrapped so the timeout is honoured
-// while walking it, or nil when the delegate exposes no cursor. Mirrors
-// ExitableFloatVectorValues.iterator().
-func (v *ExitableFloatVectorValues) Iterator() util.DocIndexIterator {
-	src, ok := v.FloatVectorValues.(vectorValuesWithIterator)
-	if !ok {
-		return nil
-	}
-	return createExitableIterator(src.Iterator(), v.queryTimeout)
+// Copy is unsupported: Java's copy() throws UnsupportedOperationException.
+func (v *ExitableFloatVectorValues) Copy() (KnnVectorValues, error) {
+	return nil, fmt.Errorf("index: ExitableFloatVectorValues: Copy is not supported")
 }
 
-// ExitableByteVectorValues guards a byte-vector view with the query timeout.
+// CopyFloatVectorValues is unsupported for the same reason as Copy.
+func (v *ExitableFloatVectorValues) CopyFloatVectorValues() (FloatVectorValues, error) {
+	return nil, fmt.Errorf("index: ExitableFloatVectorValues: Copy is not supported")
+}
+
+// Rescorer carries the FloatVectorValues.rescorer default.
+func (v *ExitableFloatVectorValues) Rescorer(target []float32) (util.VectorScorer, error) {
+	return v.Scorer(target)
+}
+
+// GetEncoding carries the FloatVectorValues.getEncoding override.
+func (v *ExitableFloatVectorValues) GetEncoding() VectorEncoding { return VectorEncodingFloat32 }
+
+// Prefetch carries the KnnVectorValues.prefetch default, which does nothing.
+func (v *ExitableFloatVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+
+// GetVectorByteLength carries the KnnVectorValues.getVectorByteLength default.
+func (v *ExitableFloatVectorValues) GetVectorByteLength() int {
+	return v.Dimension() * VectorEncodingByteSize(v.GetEncoding())
+}
+
+// GetAcceptOrds carries the KnnVectorValues.getAcceptOrds default.
+func (v *ExitableFloatVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
+	return spi.DefaultGetAcceptOrds(v, acceptDocs)
+}
+
+// ExitableByteVectorValues ports the private inner class
+// ExitableDirectoryReader.ExitableFilterAtomicReader.ExitableByteVectorValues
+// of Apache Lucene 10.5.0. See [ExitableFloatVectorValues].
 type ExitableByteVectorValues struct {
-	spi.ByteVectorValues
+	vectorValues ByteVectorValues
 	queryTimeout QueryTimeout
-	nextCheck    int
 }
 
-func (v *ExitableByteVectorValues) timeoutError() error {
-	return &ExitingReaderError{msg: fmt.Sprintf("The request took too long to iterate over knn vector values. Timeout: %v, KnnVectorValues=%v", v.queryTimeout, v.ByteVectorValues)}
+// Dimension forwards to the wrapped values.
+func (v *ExitableByteVectorValues) Dimension() int { return v.vectorValues.Dimension() }
+
+// Size forwards to the wrapped values.
+func (v *ExitableByteVectorValues) Size() int { return v.vectorValues.Size() }
+
+// VectorValue forwards to the wrapped values.
+func (v *ExitableByteVectorValues) VectorValue(ord int) ([]byte, error) {
+	return v.vectorValues.VectorValue(ord)
 }
 
-func (v *ExitableByteVectorValues) NextDoc() (int, error) {
-	doc, err := v.ByteVectorValues.NextDoc()
-	if err == nil && doc >= v.nextCheck {
-		if v.queryTimeout.ShouldExit() {
-			return -1, v.timeoutError()
-		}
-		v.nextCheck = doc + docsBetweenTimeoutCheck
-	}
-	return doc, err
+// OrdToDoc forwards to the wrapped values.
+func (v *ExitableByteVectorValues) OrdToDoc(ord int) int { return v.vectorValues.OrdToDoc(ord) }
+
+// Iterator wraps the delegate's iterator so the timeout is honoured while
+// walking it.
+func (v *ExitableByteVectorValues) Iterator() DocIndexIterator {
+	return createExitableIterator(v.vectorValues.Iterator(), v.queryTimeout)
 }
 
-func (v *ExitableByteVectorValues) Advance(target int) (int, error) {
-	doc, err := v.ByteVectorValues.Advance(target)
-	if err == nil && doc >= v.nextCheck {
-		if v.queryTimeout.ShouldExit() {
-			return -1, v.timeoutError()
-		}
-		v.nextCheck = doc + docsBetweenTimeoutCheck
-	}
-	return doc, err
+// Scorer forwards to the wrapped values.
+func (v *ExitableByteVectorValues) Scorer(target []byte) (util.VectorScorer, error) {
+	return v.vectorValues.Scorer(target)
 }
 
-// Iterator returns the delegate's cursor wrapped so the timeout is honoured
-// while walking it, or nil when the delegate exposes no cursor.
-func (v *ExitableByteVectorValues) Iterator() util.DocIndexIterator {
-	src, ok := v.ByteVectorValues.(vectorValuesWithIterator)
-	if !ok {
-		return nil
-	}
-	return createExitableIterator(src.Iterator(), v.queryTimeout)
+// Copy is unsupported: Java's copy() throws UnsupportedOperationException.
+func (v *ExitableByteVectorValues) Copy() (KnnVectorValues, error) {
+	return nil, fmt.Errorf("index: ExitableByteVectorValues: Copy is not supported")
 }
 
-func createExitableIterator(delegate util.DocIndexIterator, queryTimeout QueryTimeout) util.DocIndexIterator {
+// CopyByteVectorValues is unsupported for the same reason as Copy.
+func (v *ExitableByteVectorValues) CopyByteVectorValues() (ByteVectorValues, error) {
+	return nil, fmt.Errorf("index: ExitableByteVectorValues: Copy is not supported")
+}
+
+// Rescorer carries the ByteVectorValues.rescorer default.
+func (v *ExitableByteVectorValues) Rescorer(target []byte) (util.VectorScorer, error) {
+	return v.Scorer(target)
+}
+
+// GetEncoding carries the ByteVectorValues.getEncoding override.
+func (v *ExitableByteVectorValues) GetEncoding() VectorEncoding { return VectorEncodingByte }
+
+// Prefetch carries the KnnVectorValues.prefetch default, which does nothing.
+func (v *ExitableByteVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+
+// GetVectorByteLength carries the KnnVectorValues.getVectorByteLength default.
+func (v *ExitableByteVectorValues) GetVectorByteLength() int {
+	return v.Dimension() * VectorEncodingByteSize(v.GetEncoding())
+}
+
+// GetAcceptOrds carries the KnnVectorValues.getAcceptOrds default.
+func (v *ExitableByteVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
+	return spi.DefaultGetAcceptOrds(v, acceptDocs)
+}
+
+func createExitableIterator(delegate DocIndexIterator, queryTimeout QueryTimeout) DocIndexIterator {
 	return &exitableDocIndexIterator{
 		delegate:     delegate,
 		queryTimeout: queryTimeout,
@@ -909,7 +944,7 @@ func createExitableIterator(delegate util.DocIndexIterator, queryTimeout QueryTi
 }
 
 type exitableDocIndexIterator struct {
-	delegate     util.DocIndexIterator
+	delegate     DocIndexIterator
 	queryTimeout QueryTimeout
 	nextCheck    int
 }

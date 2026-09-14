@@ -54,6 +54,7 @@ import (
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/quantization"
@@ -219,7 +220,7 @@ type OffHeapScalarQuantizedFloatVectorValues struct {
 // types when no per-variant fields are needed.
 type offHeapScalarQuantizedFloatVariant interface {
 	// iterator returns a DocIndexIterator over the values owned by parent.
-	iterator(parent *OffHeapScalarQuantizedFloatVectorValues) util.DocIndexIterator
+	iterator(parent *OffHeapScalarQuantizedFloatVectorValues) spi.DocIndexIterator
 
 	// ordToDoc maps a vector ordinal to its docID.
 	ordToDoc(parent *OffHeapScalarQuantizedFloatVectorValues, ord int) int
@@ -428,7 +429,7 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) GetAcceptOrds(acceptDocs util.
 }
 
 // Iterator returns a DocIndexIterator over the available ordinals.
-func (v *OffHeapScalarQuantizedFloatVectorValues) Iterator() util.DocIndexIterator {
+func (v *OffHeapScalarQuantizedFloatVectorValues) Iterator() spi.DocIndexIterator {
 	return v.variant.iterator(v)
 }
 
@@ -502,7 +503,7 @@ func newDenseOffHeapScalarQuantizedFloatVectorValues(
 	)
 }
 
-func (denseOffHeapScalarQuantizedFloatVariant) iterator(parent *OffHeapScalarQuantizedFloatVectorValues) util.DocIndexIterator {
+func (denseOffHeapScalarQuantizedFloatVariant) iterator(parent *OffHeapScalarQuantizedFloatVectorValues) spi.DocIndexIterator {
 	return newDenseDocIndexIterator(parent.size)
 }
 
@@ -578,7 +579,7 @@ func newSparseOffHeapScalarQuantizedFloatVectorValues(
 	), nil
 }
 
-func (s *sparseOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuantizedFloatVectorValues) util.DocIndexIterator {
+func (s *sparseOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuantizedFloatVectorValues) spi.DocIndexIterator {
 	return &indexedDISIDocIndexIterator{disi: s.disi}
 }
 
@@ -646,7 +647,7 @@ func newEmptyOffHeapScalarQuantizedFloatVectorValues(
 	)
 }
 
-func (emptyOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuantizedFloatVectorValues) util.DocIndexIterator {
+func (emptyOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuantizedFloatVectorValues) spi.DocIndexIterator {
 	return newDenseDocIndexIterator(0)
 }
 
@@ -693,7 +694,7 @@ func (s *sparseAcceptOrds) Length() int { return s.size }
 // header note about VectorScorer.Bulk port).
 type quantizedFloatVectorScorer struct {
 	scorer FlatRandomVectorScorer
-	it     util.DocIndexIterator
+	it     spi.DocIndexIterator
 }
 
 // Score scores the current ordinal.
@@ -713,7 +714,7 @@ func (q *quantizedFloatVectorScorer) Bulk() VectorScorerBulkView { return nil }
 // docIndexIteratorAsDocIDSet narrows a DocIndexIterator to the
 // util.DocIdSetIterator surface required by VectorScorerView.
 type docIndexIteratorAsDocIDSet struct {
-	it util.DocIndexIterator
+	it spi.DocIndexIterator
 }
 
 func (d *docIndexIteratorAsDocIDSet) DocID() int                      { return d.it.DocID() }

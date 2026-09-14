@@ -72,7 +72,7 @@ type KnnVectorValues interface {
 // (Lucene 10.4.0).
 //
 // This is the minimal surface required by quantization consumers.
-// The util.DocIndexIterator exposes additional methods (DocID,
+// The spi.DocIndexIterator exposes additional methods (DocID,
 // Advance, Cost) for use by codec-level iterators; quantization
 // callers only need NextDoc and Index.
 type DocIndexIterator interface {

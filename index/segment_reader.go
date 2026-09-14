@@ -448,13 +448,13 @@ func (r *SegmentReader) TermVectors() (TermVectors, error) {
 // an interface{}). The concrete reader — *codecs.PerFieldKnnVectorsReader
 // wrapping *codecs.Lucene99HnswVectorsReader — satisfies it structurally.
 //
-// The contract uses only types the index package can name: the index-facing
-// [FloatVectorValues] / [ByteVectorValues] interfaces (the codec adapters
-// implement both their own and these) and [spi.TopDocs] (shared by
-// index and codecs, which both import util/hnsw without a cycle).
+// The contract uses only types the index package can name:
+// [FloatVectorValues] / [ByteVectorValues] (declared in spi) and
+// [spi.TopDocs] (shared by index and codecs, which both import util/hnsw
+// without a cycle).
 type knnVectorsReaderDelegate interface {
-	FloatVectorValues(field string) (FloatVectorValues, error)
-	ByteVectorValues(field string) (ByteVectorValues, error)
+	GetFloatVectorValues(field string) (FloatVectorValues, error)
+	GetByteVectorValues(field string) (ByteVectorValues, error)
 	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*spi.TopDocs, error)
 	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*spi.TopDocs, error)
 	SearchNearestFloatCollector(field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits) error
@@ -488,11 +488,7 @@ func (r *SegmentReader) GetFloatVectorValues(field string) (spi.FloatVectorValue
 	if d == nil {
 		return nil, nil
 	}
-	vv, err := d.FloatVectorValues(field)
-	if err != nil || vv == nil {
-		return nil, err
-	}
-	return newSPIFloatVectorValues(vv), nil
+	return d.GetFloatVectorValues(field)
 }
 
 // GetByteVectorValues returns the byte vectors for field, delegating to the
@@ -502,11 +498,7 @@ func (r *SegmentReader) GetByteVectorValues(field string) (spi.ByteVectorValues,
 	if d == nil {
 		return nil, nil
 	}
-	vv, err := d.ByteVectorValues(field)
-	if err != nil || vv == nil {
-		return nil, err
-	}
-	return newSPIByteVectorValues(vv), nil
+	return d.GetByteVectorValues(field)
 }
 
 // SearchNearestVectors runs top-k nearest-neighbour float-vector search for
@@ -979,113 +971,6 @@ func (r *SegmentReader) GetCoreCacheHelper() CacheHelper {
 func (r *SegmentReader) GetReaderCacheHelper() CacheHelper {
 	return r.GetCoreCacheHelper()
 }
-
-// spiFloatVectorValues adapts the Lucene 10.5.0-shaped [FloatVectorValues] the
-// codec KNN readers expose — ordinal-addressed vector values plus an explicit
-// [util.DocIndexIterator], mirroring org.apache.lucene.index.FloatVectorValues
-// — to the document-addressed [spi.FloatVectorValues] contract that
-// [spi.LeafReader] declares.
-type spiFloatVectorValues struct {
-	values FloatVectorValues
-	it     util.DocIndexIterator
-}
-
-func newSPIFloatVectorValues(values FloatVectorValues) *spiFloatVectorValues {
-	return &spiFloatVectorValues{values: values, it: values.Iterator()}
-}
-
-// Get returns the vector of docID, or nil when that document carries none.
-// The backing iterator only moves forward, so a request for an already-passed
-// document restarts it, matching the random-access contract spi.LeafReader
-// callers expect.
-func (v *spiFloatVectorValues) Get(docID int) ([]float32, error) {
-	if v.it.DocID() > docID {
-		v.it = v.values.Iterator()
-	}
-	if v.it.DocID() < docID {
-		if _, err := v.it.Advance(docID); err != nil {
-			return nil, err
-		}
-	}
-	if v.it.DocID() != docID {
-		return nil, nil
-	}
-	return v.values.VectorValue(v.it.Index())
-}
-
-// Scorer forwards FloatVectorValues.scorer(float[]) to the wrapped ordinal-
-// addressed values, narrowing the interface{} the index-side contract returns
-// (it cannot name util.VectorScorer's search-side alias) back to the scorer
-// contract spi.FloatVectorValues declares.
-func (v *spiFloatVectorValues) Scorer(target []float32) (util.VectorScorer, error) {
-	scorer, err := v.values.Scorer(target)
-	if err != nil || scorer == nil {
-		return nil, err
-	}
-	vs, ok := scorer.(util.VectorScorer)
-	if !ok {
-		return nil, fmt.Errorf("index: %T is not a util.VectorScorer", scorer)
-	}
-	return vs, nil
-}
-
-func (v *spiFloatVectorValues) Advance(target int) (int, error) { return v.it.Advance(target) }
-func (v *spiFloatVectorValues) NextDoc() (int, error)           { return v.it.NextDoc() }
-func (v *spiFloatVectorValues) DocID() int                      { return v.it.DocID() }
-func (v *spiFloatVectorValues) Dimension() int                  { return v.values.Dimension() }
-func (v *spiFloatVectorValues) Size() int                       { return v.values.Size() }
-
-// spiByteVectorValues is the byte-vector counterpart of [spiFloatVectorValues].
-type spiByteVectorValues struct {
-	values ByteVectorValues
-	it     util.DocIndexIterator
-}
-
-func newSPIByteVectorValues(values ByteVectorValues) *spiByteVectorValues {
-	return &spiByteVectorValues{values: values, it: values.Iterator()}
-}
-
-// Get returns the vector of docID, or nil when that document carries none.
-func (v *spiByteVectorValues) Get(docID int) ([]byte, error) {
-	if v.it.DocID() > docID {
-		v.it = v.values.Iterator()
-	}
-	if v.it.DocID() < docID {
-		if _, err := v.it.Advance(docID); err != nil {
-			return nil, err
-		}
-	}
-	if v.it.DocID() != docID {
-		return nil, nil
-	}
-	return v.values.VectorValue(v.it.Index())
-}
-
-// Scorer forwards ByteVectorValues.scorer(byte[]) to the wrapped ordinal-
-// addressed values, narrowing the interface{} the index-side contract returns
-// back to the scorer contract spi.ByteVectorValues declares.
-func (v *spiByteVectorValues) Scorer(target []byte) (util.VectorScorer, error) {
-	scorer, err := v.values.Scorer(target)
-	if err != nil || scorer == nil {
-		return nil, err
-	}
-	vs, ok := scorer.(util.VectorScorer)
-	if !ok {
-		return nil, fmt.Errorf("index: %T is not a util.VectorScorer", scorer)
-	}
-	return vs, nil
-}
-
-func (v *spiByteVectorValues) Advance(target int) (int, error) { return v.it.Advance(target) }
-func (v *spiByteVectorValues) NextDoc() (int, error)           { return v.it.NextDoc() }
-func (v *spiByteVectorValues) DocID() int                      { return v.it.DocID() }
-func (v *spiByteVectorValues) Dimension() int                  { return v.values.Dimension() }
-func (v *spiByteVectorValues) Size() int                       { return v.values.Size() }
-
-var (
-	_ spi.FloatVectorValues = (*spiFloatVectorValues)(nil)
-	_ spi.ByteVectorValues  = (*spiByteVectorValues)(nil)
-)
 
 // Ensure SegmentReader implements IndexReaderInterface.
 var _ IndexReaderInterface = (*SegmentReader)(nil)

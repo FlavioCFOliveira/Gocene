@@ -92,7 +92,7 @@ func (sm *SegmentMerger) mergeOneVectorField(info *FieldInfo, handle KnnFieldVec
 
 		switch info.VectorEncoding() {
 		case VectorEncodingByte:
-			bvv, err := delegate.ByteVectorValues(info.Name())
+			bvv, err := delegate.GetByteVectorValues(info.Name())
 			if err != nil {
 				return fmt.Errorf("index: merge vectors: byte values %q reader %d: %w", info.Name(), i, err)
 			}
@@ -126,7 +126,7 @@ func (sm *SegmentMerger) mergeOneVectorField(info *FieldInfo, handle KnnFieldVec
 				}
 			}
 		default: // VectorEncodingFloat32
-			fvv, err := delegate.FloatVectorValues(info.Name())
+			fvv, err := delegate.GetFloatVectorValues(info.Name())
 			if err != nil {
 				return fmt.Errorf("index: merge vectors: float values %q reader %d: %w", info.Name(), i, err)
 			}

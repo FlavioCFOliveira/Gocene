@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // FullPrecisionFloatVectorSimilarityValuesSource provides double values that compute vector
@@ -158,7 +158,7 @@ type floatVectorSimilarityValues struct {
 	iterator DocIdSetIterator
 
 	vectorValues     index.FloatVectorValues
-	docIndexIterator util.DocIndexIterator
+	docIndexIterator spi.DocIndexIterator
 	simFunc          index.VectorSimilarityFunction
 	queryVector      []float32
 }

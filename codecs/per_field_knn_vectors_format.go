@@ -448,14 +448,12 @@ func (r *PerFieldKnnVectorsReader) GetFieldReader(field string) KnnVectorsReader
 // (currently *Lucene99HnswVectorsReader) implements it; the PerField
 // reader forwards to the delegate that owns the requested field.
 //
-// It is declared here (rather than in spi/) because the per-encoding read
-// methods deliberately live in the codecs package — see the
-// [KnnVectorsReader] alias doc.
+// It is declared here (rather than in spi/) because the search methods are
+// not yet part of spi.KnnVectorsReader — see the [KnnVectorsReader] alias
+// doc.
 type knnVectorSearchReader interface {
-	GetFloatVectorValues(field string) (FloatVectorValues, error)
-	GetByteVectorValues(field string) (ByteVectorValues, error)
-	FloatVectorValues(field string) (index.FloatVectorValues, error)
-	ByteVectorValues(field string) (index.ByteVectorValues, error)
+	GetFloatVectorValues(field string) (index.FloatVectorValues, error)
+	GetByteVectorValues(field string) (index.ByteVectorValues, error)
 	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*spi.TopDocs, error)
 	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*spi.TopDocs, error)
 	SearchNearestFloatCollector(field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits) error
@@ -484,7 +482,7 @@ func (r *PerFieldKnnVectorsReader) fieldSearchReader(field string) (knnVectorSea
 // GetFloatVectorValues returns the float vectors for field by delegating
 // to the per-field reader. Returns (nil, nil) when no delegate owns the
 // field. Mirrors Java's PerFieldKnnVectorsFormat.FieldsReader.getFloatVectorValues.
-func (r *PerFieldKnnVectorsReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+func (r *PerFieldKnnVectorsReader) GetFloatVectorValues(field string) (index.FloatVectorValues, error) {
 	sr, err := r.fieldSearchReader(field)
 	if err != nil || sr == nil {
 		return nil, err
@@ -494,32 +492,12 @@ func (r *PerFieldKnnVectorsReader) GetFloatVectorValues(field string) (FloatVect
 
 // GetByteVectorValues returns the byte vectors for field by delegating to
 // the per-field reader. Returns (nil, nil) when no delegate owns the field.
-func (r *PerFieldKnnVectorsReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+func (r *PerFieldKnnVectorsReader) GetByteVectorValues(field string) (index.ByteVectorValues, error) {
 	sr, err := r.fieldSearchReader(field)
 	if err != nil || sr == nil {
 		return nil, err
 	}
 	return sr.GetByteVectorValues(field)
-}
-
-// FloatVectorValues returns the field's float vectors typed as
-// index.FloatVectorValues (the index-facing surface). Returns (nil, nil)
-// when no delegate owns the field.
-func (r *PerFieldKnnVectorsReader) FloatVectorValues(field string) (index.FloatVectorValues, error) {
-	sr, err := r.fieldSearchReader(field)
-	if err != nil || sr == nil {
-		return nil, err
-	}
-	return sr.FloatVectorValues(field)
-}
-
-// ByteVectorValues is the byte analogue of [FloatVectorValues].
-func (r *PerFieldKnnVectorsReader) ByteVectorValues(field string) (index.ByteVectorValues, error) {
-	sr, err := r.fieldSearchReader(field)
-	if err != nil || sr == nil {
-		return nil, err
-	}
-	return sr.ByteVectorValues(field)
 }
 
 // SearchNearestFloat runs nearest-neighbour search for the float32 target

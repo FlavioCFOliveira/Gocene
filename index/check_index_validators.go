@@ -633,8 +633,9 @@ func (v *VectorValuesValidator) validateVectorValues(field string, dimension int
 
 	// Validate every vector-bearing document.
 	docCount := 0
+	iterator := vectorValues.Iterator()
 	for {
-		docID, err := vectorValues.NextDoc()
+		docID, err := iterator.NextDoc()
 		if err != nil {
 			return fmt.Errorf("error advancing vector values for field %s: %w", field, err)
 		}
@@ -645,7 +646,7 @@ func (v *VectorValuesValidator) validateVectorValues(field string, dimension int
 			return fmt.Errorf("vector values for field %s returned out-of-range docID %d (maxDoc=%d)", field, docID, maxDoc)
 		}
 
-		vector, err := vectorValues.Get(docID)
+		vector, err := vectorValues.VectorValue(iterator.Index())
 		if err != nil {
 			return fmt.Errorf("error reading vector for doc %d in field %s: %w", docID, field, err)
 		}

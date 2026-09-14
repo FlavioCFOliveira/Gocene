@@ -10,7 +10,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // ByteKnnVectorFieldSource is an implementation for retrieving FunctionValues
@@ -74,7 +74,7 @@ func (v *ByteKnnVectorFieldSource) Description() string {
 type byteKnnVectorFieldFunction struct {
 	*VectorFieldFunction
 	vectorValues index.ByteVectorValues
-	iterator     util.DocIndexIterator
+	iterator     spi.DocIndexIterator
 }
 
 func (v *byteKnnVectorFieldFunction) ByteVectorVal(doc int) ([]byte, error) {
@@ -165,7 +165,7 @@ func (v *FloatKnnVectorFieldSource) Description() string {
 type floatKnnVectorFieldFunction struct {
 	*VectorFieldFunction
 	vectorValues index.FloatVectorValues
-	iterator     util.DocIndexIterator
+	iterator     spi.DocIndexIterator
 }
 
 func (v *floatKnnVectorFieldFunction) FloatVectorVal(doc int) ([]float32, error) {

@@ -355,14 +355,8 @@ func (r *sortingKnnVectorsReader) CheckIntegrity() error {
 }
 
 // GetFloatVectorValues returns the sorted view of the field's float vectors.
-// The wide read surface of org.apache.lucene.codecs.KnnVectorsReader is
-// recovered by assertion (see knnVectorsReaderWithValues in codec_reader.go).
 func (r *sortingKnnVectorsReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
-	wide, ok := r.delegate.(knnVectorsReaderWithValues)
-	if !ok {
-		return nil, nil
-	}
-	delegate, err := wide.GetFloatVectorValues(field)
+	delegate, err := r.delegate.GetFloatVectorValues(field)
 	if err != nil || delegate == nil {
 		return delegate, err
 	}
@@ -371,11 +365,7 @@ func (r *sortingKnnVectorsReader) GetFloatVectorValues(field string) (FloatVecto
 
 // GetByteVectorValues returns the sorted view of the field's byte vectors.
 func (r *sortingKnnVectorsReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
-	wide, ok := r.delegate.(knnVectorsReaderWithValues)
-	if !ok {
-		return nil, nil
-	}
-	delegate, err := wide.GetByteVectorValues(field)
+	delegate, err := r.delegate.GetByteVectorValues(field)
 	if err != nil || delegate == nil {
 		return delegate, err
 	}
