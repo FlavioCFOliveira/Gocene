@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
@@ -634,88 +635,42 @@ func (w fieldAsIndexableField) InvertableType() InvertableType {
 	}
 	return InvertableTypeBinary
 }
-func (w fieldAsIndexableField) StoredValue() StoredValue {
-	return fieldStoredValue{f: w.f}
+func (w fieldAsIndexableField) StoredValue() *StoredValue {
+	return fieldStoredValue(w.f)
 }
 
-type fieldStoredValue struct{ f *Field }
-
-func (v fieldStoredValue) Type() StoredValueType {
-	switch val := v.f.value.(type) {
+// fieldStoredValue builds the StoredValue for one Field, mirroring
+// org.apache.lucene.document.Field#storedValue() from Apache Lucene 10.5.0:
+// it returns nil when the field is not stored, and otherwise dispatches on
+// the concrete type of the field's value.
+func fieldStoredValue(f *Field) *StoredValue {
+	if !f.ft.Stored {
+		return nil
+	}
+	switch val := f.value.(type) {
 	case stringValue:
-		return StoredValueTypeString
+		return document.NewStoredValueString(string(val))
 	case binaryValue:
-		return StoredValueTypeBinary
+		return document.NewStoredValueBinary([]byte(val))
 	case numericValue:
-		switch val.n.(type) {
+		switch n := val.n.(type) {
 		case int32:
-			return StoredValueTypeInteger
+			return document.NewStoredValueInt(n)
 		case int64:
-			return StoredValueTypeLong
+			return document.NewStoredValueLong(n)
 		case float32:
-			return StoredValueTypeFloat
+			return document.NewStoredValueFloat(n)
 		case float64:
-			return StoredValueTypeDouble
+			return document.NewStoredValueDouble(n)
 		}
 	}
-	return StoredValueTypeBinary
+	return nil
 }
 
-func (v fieldStoredValue) IntValue() int32 {
-	if v.f.value == nil {
-		return 0
-	}
-	if nv, ok := v.f.value.(numericValue); ok {
-		if n, ok := nv.n.(int32); ok {
-			return n
-		}
-	}
-	return 0
-}
-
-func (v fieldStoredValue) LongValue() int64 {
-	if v.f.value == nil {
-		return 0
-	}
-	if nv, ok := v.f.value.(numericValue); ok {
-		if n, ok := nv.n.(int64); ok {
-			return n
-		}
-	}
-	return 0
-}
-
-func (v fieldStoredValue) FloatValue() float32 {
-	if v.f.value == nil {
-		return 0
-	}
-	if nv, ok := v.f.value.(numericValue); ok {
-		if n, ok := nv.n.(float32); ok {
-			return n
-		}
-	}
-	return 0
-}
-
-func (v fieldStoredValue) DoubleValue() float64 {
-	if v.f.value == nil {
-		return 0
-	}
-	if nv, ok := v.f.value.(numericValue); ok {
-		if n, ok := nv.n.(float64); ok {
-			return n
-		}
-	}
-	return 0
-}
-
-func (v fieldStoredValue) BinaryValue() []byte {
-	return v.f.BinaryValue()
-}
-
-func (v fieldStoredValue) StringValue() string {
-	return v.f.StringValue()
-}
+// GetCharSequenceValue returns the field value as a character sequence.
+// Mirrors the default body of IndexableField#getCharSequenceValue(), which
+// returns stringValue().
+func (w fieldAsIndexableField) GetCharSequenceValue() string { return w.f.StringValue() }
 
 // compile-time checks
 var _ spi.IndexableFieldType = fieldTypeAsIndexInterface{}

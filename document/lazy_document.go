@@ -219,7 +219,7 @@ func (lf *LazyField) NumericValue() interface{} {
 }
 
 // FieldType returns the field type.
-func (lf *LazyField) FieldType() *FieldType {
+func (lf *LazyField) FieldType() spi.IndexableFieldType {
 	real, err := lf.getRealValue()
 	if err != nil {
 		return nil
@@ -244,7 +244,9 @@ func (lf *LazyField) ReaderValue() io.Reader {
 
 // TokenStream returns the TokenStream for the field value, or nil if the
 // underlying field has no TokenStream.
-func (lf *LazyField) TokenStream() analysis.TokenStream {
+//
+// Mirrors LazyDocument.LazyField#tokenStream(Analyzer, TokenStream).
+func (lf *LazyField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
 	real, err := lf.getRealValue()
 	if err != nil {
 		return nil
@@ -252,7 +254,47 @@ func (lf *LazyField) TokenStream() analysis.TokenStream {
 	if real == nil {
 		return nil
 	}
-	return real.TokenStream()
+	return real.TokenStream(analyzer, reuse)
+}
+
+// GetCharSequenceValue returns the field value as a character sequence.
+func (lf *LazyField) GetCharSequenceValue() string {
+	real, err := lf.getRealValue()
+	if err != nil {
+		return ""
+	}
+	if real == nil {
+		return ""
+	}
+	return real.GetCharSequenceValue()
+}
+
+// StoredValue returns the stored value of the underlying field.
+//
+// Mirrors LazyDocument.LazyField#storedValue().
+func (lf *LazyField) StoredValue() *StoredValue {
+	real, err := lf.getRealValue()
+	if err != nil {
+		return nil
+	}
+	if real == nil {
+		return nil
+	}
+	return real.StoredValue()
+}
+
+// InvertableType describes how the underlying field should be inverted.
+//
+// Mirrors LazyDocument.LazyField#invertableType().
+func (lf *LazyField) InvertableType() InvertableType {
+	real, err := lf.getRealValue()
+	if err != nil {
+		return InvertableTypeTokenStream
+	}
+	if real == nil {
+		return InvertableTypeTokenStream
+	}
+	return real.InvertableType()
 }
 
 // documentCollector is a StoredFieldVisitor that collects fields into a Document.

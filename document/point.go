@@ -271,12 +271,12 @@ func UnpackDoubles(packed []byte) []float64 {
 // Point fields are indexed but not tokenized.
 func PointFieldType() *FieldType {
 	ft := NewFieldType()
-	ft.Indexed = true
-	ft.Stored = false
-	ft.Tokenized = false
-	ft.OmitNorms = true
-	ft.IndexOptions = spi.IndexOptionsDocs
-	ft.DocValuesType = spi.DocValuesTypeNone
+	ft.indexed = true
+	ft.stored = false
+	ft.tokenized = false
+	ft.omitNorms = true
+	ft.indexOptions = spi.IndexOptionsDocs
+	ft.docValuesType = spi.DocValuesTypeNone
 	ft.SetDimensions(1, 4)
 	return ft
 }

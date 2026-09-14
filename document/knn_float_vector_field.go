@@ -49,11 +49,11 @@ func NewKnnFloatVectorFieldWithType(name string, vector []float32, ft *FieldType
 	if ft == nil {
 		return nil, fmt.Errorf("FieldType cannot be nil")
 	}
-	if ft.GetVectorEncoding() != util.VectorEncodingFloat32 {
-		return nil, fmt.Errorf("FieldType encoding %v != FLOAT32", ft.GetVectorEncoding())
+	if ft.VectorEncoding() != util.VectorEncodingFloat32 {
+		return nil, fmt.Errorf("FieldType encoding %v != FLOAT32", ft.VectorEncoding())
 	}
-	if ft.GetVectorDimension() != len(vector) {
-		return nil, fmt.Errorf("vector length %d != FieldType dimension %d", len(vector), ft.GetVectorDimension())
+	if ft.VectorDimension() != len(vector) {
+		return nil, fmt.Errorf("vector length %d != FieldType dimension %d", len(vector), ft.VectorDimension())
 	}
 	return newKnnFloatVectorFieldFromType(name, vector, ft)
 }
@@ -82,8 +82,8 @@ func (f *KnnFloatVectorField) VectorValue() []float32 {
 // SetVectorValue replaces the field's vector. Panics if the new vector
 // dimensionality differs from the configured FieldType dimension.
 func (f *KnnFloatVectorField) SetVectorValue(value []float32) {
-	if len(value) != f.FieldType().GetVectorDimension() {
-		panic(fmt.Sprintf("vector length %d != FieldType dimension %d", len(value), f.FieldType().GetVectorDimension()))
+	if len(value) != f.FieldType().VectorDimension() {
+		panic(fmt.Sprintf("vector length %d != FieldType dimension %d", len(value), f.FieldType().VectorDimension()))
 	}
 	encoded := encodeFloat32Vector(value)
 	f.Field.SetBytesValue(encoded)

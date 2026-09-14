@@ -211,7 +211,7 @@ func (b *BaseFragmentsBuilder) getFragmentSourceMSO(buffer *strings.Builder, ind
 	}
 	bufferLength := buffer.Len()
 	// we added the multi value char to the last buffer, ignore it
-	if values[*index-1].FieldType().IsTokenized() {
+	if values[*index-1].FieldType().Tokenized() {
 		bufferLength--
 	}
 	eo := bufferLength

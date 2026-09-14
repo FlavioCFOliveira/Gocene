@@ -8,54 +8,81 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// IndexableField is the interface implemented by all field types that can
-// be added to a Document.
+// IndexableField represents a single field for indexing. IndexWriter consumes
+// a sequence of IndexableField as a document.
 //
-// This is the Go port of Lucene's org.apache.lucene.index.IndexableField.
+// This is the Go port of org.apache.lucene.index.IndexableField from Apache
+// Lucene 10.5.0, and it carries Lucene's member set exactly.
 //
-// Architectural note: Gocene exposes two complementary IndexableField
-// interfaces by design:
+// # Why this interface lives in package document
 //
-//   - document.IndexableField (this file) is the document-facing surface
-//     and carries the full document-side API including ReaderValue.
-//   - index.IndexableField is the codec-facing surface, a narrower
-//     interface accepted by SegmentWriteState/StoredFieldsWriter chains
-//     (see index/codec_interface.go for the full divergence note).
+// Java declares IndexableField in org.apache.lucene.index, and that is also
+// where package index's alias spells it (index.IndexableField). The
+// declaration itself has to sit here because Java's IndexableField sits on
+// both sides of a package cycle that Go forbids:
 //
-// Every concrete field type implements both because every method on
-// index.IndexableField is also present on document.IndexableField (with
-// a compatible signature once FieldType is dispatched through
-// FieldTypeInterface). Callers driving the codec layer use the index
-// alias; callers building documents use this one.
+//   - org.apache.lucene.index.IndexableField imports
+//     org.apache.lucene.document.StoredValue and
+//     org.apache.lucene.document.InvertableType, which appear in its signature;
+//   - org.apache.lucene.document.Document imports
+//     org.apache.lucene.index.IndexableField, the element type it holds.
+//
+// Java permits that cycle between packages; Go does not. Package document is
+// the only Gocene package that can name every type in Lucene's member set
+// (analysis.Analyzer and analysis.TokenStream, spi.IndexableFieldType,
+// StoredValue and InvertableType) without importing package index, so the one
+// declaration lives here and package index aliases it. Both Lucene spellings
+// therefore resolve to a single type with a single member set.
 type IndexableField interface {
-	// Name returns the name of the field.
+	// Name returns the field name.
 	Name() string
 
-	// FieldType returns the FieldType for this field.
-	// The FieldType describes how the field should be indexed and stored.
-	FieldType() *FieldType
+	// FieldType returns the IndexableFieldType describing the properties of
+	// this field.
+	FieldType() spi.IndexableFieldType
 
-	// StringValue returns the string value of the field.
-	// Returns empty string if the field has no string value.
-	StringValue() string
+	// TokenStream creates the TokenStream used for indexing this field. If
+	// appropriate, implementations should use the given analyzer to create the
+	// TokenStreams.
+	//
+	// analyzer is the Analyzer that should be used to create the TokenStreams
+	// from. reuse is the TokenStream for a previous instance of this field
+	// name; this allows custom field types (like StringField and NumericField)
+	// that do not use the analyzer to still have good performance. Note: the
+	// passed-in type may be inappropriate, for example if you mix up different
+	// types of Fields for the same field name, so it is the responsibility of
+	// the implementation to check.
+	//
+	// Returns the TokenStream value for indexing the document. Should always
+	// return a non-nil value if the field is to be indexed.
+	TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream
 
-	// ReaderValue returns a reader for the field value.
-	// Returns nil if the field has no reader value.
-	ReaderValue() io.Reader
-
-	// BinaryValue returns the binary value of the field.
-	// Returns nil if the field has no binary value.
+	// BinaryValue returns a non-nil value if this field has a binary value.
 	BinaryValue() []byte
 
-	// NumericValue returns the numeric value of the field.
-	// The interface{} can be int, int64, float32, or float64.
-	// Returns nil if the field has no numeric value.
+	// StringValue returns a non-empty value if this field has a string value.
+	StringValue() string
+
+	// GetCharSequenceValue returns a non-empty value if this field has a
+	// string value. Java declares this as a default method returning
+	// stringValue(); Go interfaces carry no default bodies, so every
+	// implementation states it.
+	GetCharSequenceValue() string
+
+	// ReaderValue returns a non-nil value if this field has a Reader value.
+	ReaderValue() io.Reader
+
+	// NumericValue returns a non-nil value if this field has a numeric value.
 	NumericValue() interface{}
 
-	// TokenStream returns a TokenStream for the field value.
-	// This is used during indexing to analyze the field content.
-	// Returns nil if the field was not constructed with a TokenStream value.
-	TokenStream() analysis.TokenStream
+	// StoredValue returns the stored value. This method is called to populate
+	// stored fields and must return a non-nil value if the field is stored.
+	StoredValue() *StoredValue
+
+	// InvertableType describes how this field should be inverted. This must
+	// return a meaningful value if the field indexes terms and postings.
+	InvertableType() InvertableType
 }

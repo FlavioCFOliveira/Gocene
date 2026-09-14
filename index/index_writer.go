@@ -441,34 +441,17 @@ func (w *IndexWriter) maybeCloseOnTragicEvent() error {
 	return nil
 }
 
-// toIndexableFields adapts the document-level field view to the index-level
-// IndexableField the indexing chain consumes. Every concrete field type
-// implements both interfaces; a field that does not is a programming error and
-// is reported rather than silently dropped.
-func toIndexableFields(fields []document.IndexableField) ([]IndexableField, error) {
-	out := make([]IndexableField, len(fields))
-	for i, f := range fields {
-		field, ok := f.(IndexableField)
-		if !ok {
-			return nil, fmt.Errorf("index: field %q does not implement index.IndexableField", f.Name())
-		}
-		out[i] = field
-	}
-	return out, nil
-}
-
-// toIndexableFieldsBatch adapts a block of documents to the indexing chain's
-// field view, preserving document order.
-func toIndexableFieldsBatch(docs []*document.Document) ([][]IndexableField, error) {
+// fieldsBatch collects each document's fields, preserving document order.
+//
+// IndexableField is one type (Java declares org.apache.lucene.index.
+// IndexableField once), so a document's fields are already the indexing
+// chain's field view and need no conversion.
+func fieldsBatch(docs []*document.Document) [][]IndexableField {
 	out := make([][]IndexableField, len(docs))
 	for i, doc := range docs {
-		fields, err := toIndexableFields(doc.GetAllFields())
-		if err != nil {
-			return nil, err
-		}
-		out[i] = fields
+		out[i] = doc.GetAllFields()
 	}
-	return out, nil
+	return out
 }
 
 // AddDocument adds a document to this index.
@@ -483,11 +466,7 @@ func (w *IndexWriter) AddDocument(doc *document.Document) (int64, error) {
 //
 // Mirrors org.apache.lucene.index.IndexWriter#updateDocument.
 func (w *IndexWriter) UpdateDocument(term *Term, doc *document.Document) (int64, error) {
-	fields, err := toIndexableFields(doc.GetAllFields())
-	if err != nil {
-		return 0, err
-	}
-	return w.updateDocumentsInternal(newDeleteTermNode(term), [][]IndexableField{fields})
+	return w.updateDocumentsInternal(newDeleteTermNode(term), [][]IndexableField{doc.GetAllFields()})
 }
 
 // AddDocuments atomically adds a block of documents with sequentially assigned
@@ -503,10 +482,7 @@ func (w *IndexWriter) AddDocuments(docs []*document.Document) (int64, error) {
 //
 // Mirrors org.apache.lucene.index.IndexWriter#updateDocuments.
 func (w *IndexWriter) UpdateDocuments(term *Term, docs []*document.Document) (int64, error) {
-	docsFields, err := toIndexableFieldsBatch(docs)
-	if err != nil {
-		return 0, err
-	}
+	docsFields := fieldsBatch(docs)
 	return w.updateDocumentsInternal(newDeleteTermNode(term), docsFields)
 }
 
@@ -595,7 +571,7 @@ func (w *IndexWriter) UpdateDocValues(term *Term, updates []*document.Field) (in
 func (w *IndexWriter) buildDocValuesUpdate(term *Term, updates []*document.Field) []DocValuesUpdate {
 	dvUpdates := make([]DocValuesUpdate, len(updates))
 	for i, f := range updates {
-		dvType := f.FieldType().DocValuesType
+		dvType := f.FieldType().DocValuesType()
 		if dvType == DocValuesTypeNone {
 			panic(fmt.Sprintf("can only update NUMERIC or BINARY fields! field=%s", f.Name()))
 		}
@@ -656,12 +632,7 @@ func (w *IndexWriter) SoftUpdateDocument(term *Term, doc *document.Document, sof
 	dvUpdates := w.buildDocValuesUpdate(term, softDeletes)
 	delNode := NewDocValuesUpdatesNode(dvUpdates...)
 
-	fields, err := toIndexableFields(doc.GetAllFields())
-	if err != nil {
-		return 0, err
-	}
-
-	seqNo, err := w.docWriter.UpdateDocuments([][]IndexableField{fields}, delNode)
+	seqNo, err := w.docWriter.UpdateDocuments([][]IndexableField{doc.GetAllFields()}, delNode)
 	if err != nil {
 		return 0, w.tragicEvent(err, "SoftUpdateDocument")
 	}
@@ -680,10 +651,7 @@ func (w *IndexWriter) SoftUpdateDocuments(term *Term, docs []*document.Document,
 	dvUpdates := w.buildDocValuesUpdate(term, softDeletes)
 	delNode := NewDocValuesUpdatesNode(dvUpdates...)
 
-	docsFields, err := toIndexableFieldsBatch(docs)
-	if err != nil {
-		return 0, err
-	}
+	docsFields := fieldsBatch(docs)
 
 	seqNo, err := w.docWriter.UpdateDocuments(docsFields, delNode)
 	if err != nil {

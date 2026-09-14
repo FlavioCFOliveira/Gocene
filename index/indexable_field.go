@@ -4,60 +4,16 @@
 
 package index
 
-import (
-	"io"
-
-	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/spi"
-)
+import "github.com/FlavioCFOliveira/Gocene/document"
 
 // IndexableField represents a single field for indexing. IndexWriter consumes
-// Iterable<IndexableField> as a document.
+// a sequence of IndexableField as a document.
 //
-// Mirrors org.apache.lucene.index.IndexableField from Apache Lucene 10.5.0.
-type IndexableField interface {
-	// Name returns the field name.
-	Name() string
-
-	// FieldType returns the spi.IndexableFieldType describing the properties of this field.
-	FieldType() spi.IndexableFieldType
-
-	// TokenStream creates the TokenStream used for indexing this field.
-	// If appropriate, implementations should use the given analyzer to create the TokenStreams.
-	//
-	// analyzer: Analyzer that should be used to create the TokenStreams from.
-	// reuse: TokenStream for a previous instance of this field name. This allows custom
-	// field types (like StringField and NumericField) that do not use the analyzer to still have
-	// good performance. Note: the passed-in type may be inappropriate, for example if you mix up
-	// different types of Fields for the same field name. So it's the responsibility of the
-	// implementation to check.
-	//
-	// Returns TokenStream value for indexing the document. Should always return a non-null
-	// value if the field is to be indexed.
-	TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream
-
-	// BinaryValue returns the binary value of this field.
-	// Returns non-null if this field has a binary value.
-	BinaryValue() []byte
-
-	// StringValue returns the string value of this field.
-	// Returns non-null if this field has a string value.
-	StringValue() string
-
-	// ReaderValue returns the Reader value of this field.
-	// Returns non-null if this field has a Reader value.
-	ReaderValue() io.Reader
-
-	// NumericValue returns the numeric value of this field.
-	// Returns non-null if this field has a numeric value.
-	NumericValue() any
-
-	// StoredValue returns the stored value of this field.
-	// This method is called to populate stored fields and must return a non-null
-	// value if the field is stored.
-	StoredValue() StoredValue
-
-	// InvertableType describes how this field should be inverted.
-	// This must return a non-null value if the field indexes terms and postings.
-	InvertableType() InvertableType
-}
+// This is org.apache.lucene.index.IndexableField from Apache Lucene 10.5.0,
+// spelled in the Lucene package that declares it. Java's interface sits on
+// both sides of an index/document package cycle that Go forbids -- its
+// signature names document.StoredValue and document.InvertableType, while
+// document.Document names IndexableField -- so the single declaration lives in
+// package document and is aliased here. Both spellings name one type with one
+// member set; see document.IndexableField for the full rationale.
+type IndexableField = document.IndexableField

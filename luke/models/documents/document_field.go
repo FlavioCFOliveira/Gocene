@@ -59,7 +59,7 @@ func NewDocumentField(finfo index.FieldInfo, field document.IndexableField, read
 	}
 
 	if field != nil {
-		dfield.isStored = field.FieldType().Stored
+		dfield.isStored = field.FieldType().Stored()
 		dfield.stringValue = field.StringValue()
 		if b := field.BinaryValue(); b != nil {
 			dfield.binaryValue = util.BytesRefDeepCopyOf(util.NewBytesRef(b))

@@ -34,19 +34,19 @@ type fieldValue interface {
 // stringValue wraps a string value.
 type stringValue string
 
-func (v stringValue) String() string       { return string(v) }
-func (v stringValue) Binary() []byte       { return []byte(v) }
-func (v stringValue) Reader() io.Reader    { return nil }
-func (v stringValue) Numeric() interface{} { return nil }
+func (v stringValue) String() string                    { return string(v) }
+func (v stringValue) Binary() []byte                    { return []byte(v) }
+func (v stringValue) Reader() io.Reader                 { return nil }
+func (v stringValue) Numeric() interface{}              { return nil }
 func (v stringValue) TokenStream() analysis.TokenStream { return nil }
 
 // binaryValue wraps a binary value.
 type binaryValue []byte
 
-func (v binaryValue) String() string       { return string(v) }
-func (v binaryValue) Binary() []byte       { return v }
-func (v binaryValue) Reader() io.Reader    { return nil }
-func (v binaryValue) Numeric() interface{} { return nil }
+func (v binaryValue) String() string                    { return string(v) }
+func (v binaryValue) Binary() []byte                    { return v }
+func (v binaryValue) Reader() io.Reader                 { return nil }
+func (v binaryValue) Numeric() interface{}              { return nil }
 func (v binaryValue) TokenStream() analysis.TokenStream { return nil }
 
 // readerValue wraps an io.Reader.
@@ -54,10 +54,10 @@ type readerValue struct {
 	r io.Reader
 }
 
-func (v readerValue) String() string       { return "" }
-func (v readerValue) Binary() []byte       { return nil }
-func (v readerValue) Reader() io.Reader    { return v.r }
-func (v readerValue) Numeric() interface{} { return nil }
+func (v readerValue) String() string                    { return "" }
+func (v readerValue) Binary() []byte                    { return nil }
+func (v readerValue) Reader() io.Reader                 { return v.r }
+func (v readerValue) Numeric() interface{}              { return nil }
 func (v readerValue) TokenStream() analysis.TokenStream { return nil }
 
 // numericValue wraps a numeric value.
@@ -70,18 +70,18 @@ type tokenStreamValue struct {
 	ts analysis.TokenStream
 }
 
-func (v tokenStreamValue) String() string       { return "" }
-func (v tokenStreamValue) Binary() []byte       { return nil }
-func (v tokenStreamValue) Reader() io.Reader    { return nil }
-func (v tokenStreamValue) Numeric() interface{} { return nil }
+func (v tokenStreamValue) String() string                    { return "" }
+func (v tokenStreamValue) Binary() []byte                    { return nil }
+func (v tokenStreamValue) Reader() io.Reader                 { return nil }
+func (v tokenStreamValue) Numeric() interface{}              { return nil }
 func (v tokenStreamValue) TokenStream() analysis.TokenStream { return v.ts }
 
 func (v numericValue) String() string {
 	return fmt.Sprintf("%v", v.n)
 }
-func (v numericValue) Binary() []byte       { return nil }
-func (v numericValue) Reader() io.Reader    { return nil }
-func (v numericValue) Numeric() interface{} { return v.n }
+func (v numericValue) Binary() []byte                    { return nil }
+func (v numericValue) Reader() io.Reader                 { return nil }
+func (v numericValue) Numeric() interface{}              { return v.n }
 func (v numericValue) TokenStream() analysis.TokenStream { return nil }
 
 // NewField creates a new Field with the given name, value, and FieldType.
@@ -193,8 +193,8 @@ func (f *Field) InvertableType() InvertableType {
 }
 
 // StoredValue returns the stored value for this field.
-func (f *Field) StoredValue() StoredValue {
-	return fieldStoredValue{f: f}
+func (f *Field) StoredValue() *StoredValue {
+	return fieldStoredValue(f)
 }
 
 // IsStored returns true if the field value is stored.
@@ -231,6 +231,11 @@ func (f *Field) HasTermVectors() bool {
 func (f *Field) OmitNorms() bool {
 	return f.ft.OmitNorms
 }
+
+// GetCharSequenceValue returns the field value as a character sequence.
+// Mirrors the default body of IndexableField#getCharSequenceValue(), which
+// returns stringValue().
+func (f *Field) GetCharSequenceValue() string { return f.StringValue() }
 
 // Ensure Field implements IndexableField
 var _ IndexableField = (*Field)(nil)

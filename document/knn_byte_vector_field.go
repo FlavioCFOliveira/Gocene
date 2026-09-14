@@ -46,11 +46,11 @@ func NewKnnByteVectorFieldWithType(name string, vector []byte, ft *FieldType) (*
 	if ft == nil {
 		return nil, fmt.Errorf("FieldType cannot be nil")
 	}
-	if ft.GetVectorEncoding() != util.VectorEncodingByte {
-		return nil, fmt.Errorf("FieldType encoding %v != BYTE", ft.GetVectorEncoding())
+	if ft.VectorEncoding() != util.VectorEncodingByte {
+		return nil, fmt.Errorf("FieldType encoding %v != BYTE", ft.VectorEncoding())
 	}
-	if ft.GetVectorDimension() != len(vector) {
-		return nil, fmt.Errorf("vector length %d != FieldType dimension %d", len(vector), ft.GetVectorDimension())
+	if ft.VectorDimension() != len(vector) {
+		return nil, fmt.Errorf("vector length %d != FieldType dimension %d", len(vector), ft.VectorDimension())
 	}
 	return newKnnByteVectorFieldFromType(name, vector, ft)
 }
@@ -78,8 +78,8 @@ func (f *KnnByteVectorField) VectorValue() []byte {
 // SetVectorValue replaces the field's vector. Panics if the new vector's
 // dimensionality differs from the configured FieldType dimension.
 func (f *KnnByteVectorField) SetVectorValue(value []byte) {
-	if len(value) != f.FieldType().GetVectorDimension() {
-		panic(fmt.Sprintf("vector length %d != FieldType dimension %d", len(value), f.FieldType().GetVectorDimension()))
+	if len(value) != f.FieldType().VectorDimension() {
+		panic(fmt.Sprintf("vector length %d != FieldType dimension %d", len(value), f.FieldType().VectorDimension()))
 	}
 	dup := make([]byte, len(value))
 	copy(dup, value)

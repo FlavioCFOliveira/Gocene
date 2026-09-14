@@ -10,6 +10,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -434,65 +435,35 @@ func (f *copiedField) NumericValue() interface{} {
 // InvertableType implements IndexableField.
 func (f *copiedField) InvertableType() InvertableType { return InvertableTypeBinary }
 
-// StoredValue implements IndexableField.
-func (f *copiedField) StoredValue() StoredValue { return f }
+// StoredValue implements IndexableField, mirroring Field#storedValue().
+func (f *copiedField) StoredValue() *StoredValue {
+	switch f.kind {
+	case copiedString:
+		return document.NewStoredValueString(f.str)
+	case copiedBinary:
+		return document.NewStoredValueBinary(f.bin)
+	case copiedInt:
+		return document.NewStoredValueInt(int32(f.num))
+	case copiedLong:
+		return document.NewStoredValueLong(f.num)
+	case copiedFloat:
+		return document.NewStoredValueFloat(f.f32)
+	case copiedDouble:
+		return document.NewStoredValueDouble(f.f64)
+	default:
+		return nil
+	}
+}
 
 // TokenStream implements IndexableField.
 func (f *copiedField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
 	return nil
 }
 
-// Type implements index.StoredValue.
-func (f *copiedField) Type() StoredValueType {
-	switch f.kind {
-	case copiedString:
-		return StoredValueTypeString
-	case copiedBinary:
-		return StoredValueTypeBinary
-	case copiedInt:
-		return StoredValueTypeInteger
-	case copiedLong:
-		return StoredValueTypeLong
-	case copiedFloat:
-		return StoredValueTypeFloat
-	case copiedDouble:
-		return StoredValueTypeDouble
-	default:
-		return 0
-	}
-}
-
-// IntValue implements index.StoredValue.
-func (f *copiedField) IntValue() int32 {
-	if f.kind == copiedInt {
-		return int32(f.num)
-	}
-	return 0
-}
-
-// LongValue implements index.StoredValue.
-func (f *copiedField) LongValue() int64 {
-	if f.kind == copiedLong {
-		return f.num
-	}
-	return 0
-}
-
-// FloatValue implements index.StoredValue.
-func (f *copiedField) FloatValue() float32 {
-	if f.kind == copiedFloat {
-		return f.f32
-	}
-	return 0
-}
-
-// DoubleValue implements index.StoredValue.
-func (f *copiedField) DoubleValue() float64 {
-	if f.kind == copiedDouble {
-		return f.f64
-	}
-	return 0
-}
+// GetCharSequenceValue returns the field value as a character sequence.
+// Mirrors the default body of IndexableField#getCharSequenceValue(), which
+// returns stringValue().
+func (f *copiedField) GetCharSequenceValue() string { return f.StringValue() }
 
 // copiedFieldType marks the copied field as stored-only. Every other
 // indexing property is false because the copier is feeding a stored-only
