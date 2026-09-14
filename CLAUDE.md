@@ -251,6 +251,25 @@ A broken build is an accurate report that the code is broken. Leave it reporting
 
 Where suppressions already exist in the tree, they are technical debt to be removed: the file must be re-enabled and the real errors resolved.
 
+### 2.2 Complete Components Only — A Partial Port Is Not a Port (NON-NEGOTIABLE)
+
+**Porting work is always carried out over complete components. A partial port is a defect in Gocene; only a complete port is acceptable.**
+
+The unit of porting work is the whole Apache Lucene 10.5.0 component — a class or interface together with its full member set: every constructor and method, every field, constant and enum value, every nested and inner type, and the behaviour of each of them. It is never the subset that happens to make a caller compile.
+
+Prohibited — this list is illustrative, not exhaustive:
+
+- porting "just enough" of a class to satisfy a caller: members left unported, branches or edge cases dropped, behaviour narrowed to the path currently in use;
+- a stand-in body where Lucene has an algorithm — a `return nil`, a constant answer, an identity function where Lucene transforms, an empty collection where Lucene computes one;
+- a type or interface declaring fewer members than the Java original, or a signature reshaped so that less has to be ported;
+- an invented substitute with no counterpart in Lucene 10.5.0 — a type, a helper, a format — standing in for a component that is simply absent (*Prime Directive*, *Operational consequences*, point 4: **do not add and do not omit**).
+
+**If a component cannot be ported completely within the current cycle, port none of it and report** (Absolute Rule A2). Leaving it absent is the correct outcome, and the resulting compile error is an accurate report that must be left standing (§ 2.1). A partial port removes that report without removing its cause: it compiles, it passes, and it turns the build green over code that does not exist in Lucene. **A partial port is therefore worse than no port at all** — a missing component announces itself, a fabricated one does not.
+
+Dependencies are part of the assessment. If a faithful port of a component requires another component that is itself absent, that is **reported and awaits authorisation** — never worked around by inventing a narrow local substitute for the missing dependency.
+
+Completeness is **measured, never asserted** (§ 7): established member by member against the Apache Lucene 10.5.0 source (§ 14), recorded at that granularity in the `PORTED_TO` relation (§ 5.1, point 3), and reported with the evidence cited. "Most of the class", "the parts we use", and "enough to compile" are not completeness.
+
 ## 3. Production Orientation
 
 Every action you take — whether development, fixes, evaluations, analysis, audits, or any other work — must be treated with production-grade standards.
