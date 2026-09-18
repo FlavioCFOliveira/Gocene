@@ -57,7 +57,7 @@ var ErrBadQuery = errors.New("invalid query syntax")
 // writer. No Book is retained between calls.
 type BookStore struct {
 	dir      *store.MMapDirectory
-	analyzer *analysis.StandardAnalyzer
+	analyzer analysis.Analyzer
 
 	mu     sync.RWMutex
 	writer *index.IndexWriter
@@ -76,8 +76,8 @@ func OpenBookStore(path string) (*BookStore, error) {
 	}
 
 	analyzer := analysis.NewStandardAnalyzer()
-	cfg := index.NewIndexWriterConfig(analyzer)
-	cfg.SetOpenMode(index.CREATE_OR_APPEND)
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analyzer)
+	cfg.SetOpenMode(index.CreateOrAppend)
 	writer, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("open index writer at %q: %w", path, err)
@@ -97,7 +97,7 @@ func (s *BookStore) Close() error {
 
 	var firstErr error
 	if s.writer != nil {
-		if err := s.writer.Commit(); err != nil && firstErr == nil {
+		if _, err := s.writer.Commit(); err != nil && firstErr == nil {
 			firstErr = fmt.Errorf("commit on close: %w", err)
 		}
 		if err := s.writer.Close(); err != nil && firstErr == nil {
@@ -294,8 +294,8 @@ func (s *BookStore) rebuildLocked(books []Book) error {
 		}
 	}
 
-	cfg := index.NewIndexWriterConfig(s.analyzer)
-	cfg.SetOpenMode(index.CREATE_OR_APPEND)
+	cfg := index.NewIndexWriterConfigWithAnalyzer(s.analyzer)
+	cfg.SetOpenMode(index.CreateOrAppend)
 	writer, err := index.NewIndexWriter(s.dir, cfg)
 	if err != nil {
 		return fmt.Errorf("open writer for rebuild: %w", err)
@@ -312,7 +312,7 @@ func (s *BookStore) rebuildLocked(books []Book) error {
 			return fmt.Errorf("index %q: %w", books[i].ID, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		_ = writer.Close()
 		return fmt.Errorf("commit: %w", err)
 	}

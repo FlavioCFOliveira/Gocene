@@ -9,6 +9,8 @@ import (
 
 	bcstore "github.com/FlavioCFOliveira/Gocene/backward_codecs/store"
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
@@ -20,7 +22,7 @@ import (
 type Lucene60PointsReader struct {
 	dataIn    store.IndexInput
 	readState *codecs.SegmentReadState
-	readers   map[int]codecs.PointValues
+	readers   map[int]index.PointValues
 }
 
 // NewLucene60PointsReader opens the points data and index files, reads the
@@ -89,7 +91,7 @@ func NewLucene60PointsReader(state *codecs.SegmentReadState) (*Lucene60PointsRea
 	}
 
 	// Initialize BKD readers for each field.
-	readers := make(map[int]codecs.PointValues)
+	readers := make(map[int]index.PointValues)
 	for fieldNumber, fp := range fieldToFP {
 		if err := dataIn.SetPosition(fp); err != nil {
 			_ = dataIn.Close()
@@ -112,7 +114,7 @@ func NewLucene60PointsReader(state *codecs.SegmentReadState) (*Lucene60PointsRea
 }
 
 // GetValues returns the PointValues for the given field.
-func (r *Lucene60PointsReader) GetValues(fieldName string) (codecs.PointValues, error) {
+func (r *Lucene60PointsReader) GetValues(fieldName string) (index.PointValues, error) {
 	fi := r.readState.FieldInfos.GetByName(fieldName)
 	if fi == nil {
 		return nil, fmt.Errorf("Lucene60PointsReader.GetValues: field %q is unrecognized", fieldName)
@@ -129,6 +131,13 @@ func (r *Lucene60PointsReader) GetValues(fieldName string) (codecs.PointValues, 
 }
 
 // CheckIntegrity verifies the CRC32 checksum of the data file.
+// GetMergeInstance returns an instance optimised for merging.
+//
+// Port of org.apache.lucene.codecs.PointsReader#getMergeInstance(), whose
+// default body in Apache Lucene 10.5.0 is `return this;`. Lucene60PointsReader
+// does not override it.
+func (r *Lucene60PointsReader) GetMergeInstance() codecs.PointsReader { return r }
+
 func (r *Lucene60PointsReader) CheckIntegrity() error {
 	_, err := codecs.ChecksumEntireFile(r.dataIn)
 	return err
@@ -153,37 +162,89 @@ type bkdPointValues struct {
 	bkdReader *bkd.BKDReader
 }
 
-func (w *bkdPointValues) Intersect(visitor codecs.IntersectVisitor) error {
-	return w.bkdReader.Intersect(visitor)
+// Intersect walks the BKD tree, driving visitor for every matching cell and
+// point. It bridges index.PointTreeIntersectVisitor (Compare returns an int)
+// to util/bkd.IntersectVisitor (Compare returns a geo.Relation), exactly as
+// the Lucene90 points reader does.
+func (w *bkdPointValues) Intersect(visitor index.PointTreeIntersectVisitor) error {
+	return w.bkdReader.Intersect(&bkdVisitorBridge{v: visitor})
 }
 
-func (w *bkdPointValues) EstimatePointCount(visitor codecs.IntersectVisitor) int64 {
-	count, err := w.bkdReader.EstimatePointCount(visitor)
-	if err != nil {
-		// In a real scenario, we should log this, but the interface requires int64.
+// EstimatePointCount returns the BKDReader's estimate of how many points the
+// visitor will match; a failing estimate is reported as 0.
+func (w *bkdPointValues) EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64 {
+	count, err := w.bkdReader.EstimatePointCount(&bkdVisitorBridge{v: visitor})
+	if err != nil || count < 0 {
 		return 0
 	}
 	return count
 }
 
-func (w *bkdPointValues) GetMinPackedValue() []byte {
-	return w.bkdReader.GetMinPackedValue()
+// GetMinPackedValue returns the per-dimension minimum packed value across the
+// tree. The error return matches index.PointValues; the BKDReader accessor
+// never fails, so the error is always nil.
+func (w *bkdPointValues) GetMinPackedValue() ([]byte, error) {
+	return w.bkdReader.GetMinPackedValue(), nil
 }
 
-func (w *bkdPointValues) GetMaxPackedValue() []byte {
-	return w.bkdReader.GetMaxPackedValue()
+// GetMaxPackedValue returns the per-dimension maximum packed value.
+func (w *bkdPointValues) GetMaxPackedValue() ([]byte, error) {
+	return w.bkdReader.GetMaxPackedValue(), nil
 }
 
+// GetNumDimensions returns the number of indexed point dimensions.
 func (w *bkdPointValues) GetNumDimensions() int {
 	return w.bkdReader.GetNumDimensions()
 }
 
+// GetBytesPerDimension returns the number of bytes per dimension.
 func (w *bkdPointValues) GetBytesPerDimension() int {
 	return w.bkdReader.GetBytesPerDimension()
 }
 
+// GetDocCount returns the number of documents with at least one point value.
 func (w *bkdPointValues) GetDocCount() int {
 	return w.bkdReader.GetDocCount()
 }
+
+// GetDocCountWithValue returns the document count (BKD tracks doc count, not
+// per-document value multiplicity).
+func (w *bkdPointValues) GetDocCountWithValue() int64 {
+	return int64(w.bkdReader.GetDocCount())
+}
+
+// GetValueCount returns the total number of indexed point values
+// (PointValues.size()).
+func (w *bkdPointValues) GetValueCount() int64 { return w.bkdReader.Size() }
+
+// GetPointTree returns a fresh BKD PointTree cursor positioned at the root of
+// the field's tree, rendering org.apache.lucene.index.PointValues#getPointTree().
+func (w *bkdPointValues) GetPointTree() (bkd.PointTree, error) {
+	return w.bkdReader.GetPointTree()
+}
+
+var _ index.PointValues = (*bkdPointValues)(nil)
+
+// bkdVisitorBridge adapts an index.PointTreeIntersectVisitor (Compare returns
+// an int in {0,1,2}) to a util/bkd.IntersectVisitor (Compare returns a
+// geo.Relation). The int convention matches the Relation enum order, so the
+// conversion is a direct cast.
+type bkdVisitorBridge struct {
+	v index.PointTreeIntersectVisitor
+}
+
+func (b *bkdVisitorBridge) Visit(docID int) error { return b.v.Visit(docID) }
+
+func (b *bkdVisitorBridge) VisitByPackedValue(docID int, packedValue []byte) error {
+	return b.v.VisitByPackedValue(docID, packedValue)
+}
+
+func (b *bkdVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+	return geo.Relation(b.v.Compare(minPackedValue, maxPackedValue))
+}
+
+func (b *bkdVisitorBridge) Grow(count int) { b.v.Grow(count) }
+
+var _ bkd.IntersectVisitor = (*bkdVisitorBridge)(nil)
 
 var _ codecs.PointsReader = (*Lucene60PointsReader)(nil)

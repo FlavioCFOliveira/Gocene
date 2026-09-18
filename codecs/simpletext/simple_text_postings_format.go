@@ -9,6 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SimpleTextPostingsFormat writes postings as text.
@@ -58,7 +59,7 @@ func (c *simpleTextFieldsConsumer) Write(field string, terms spi.Terms) error {
 		// Write term and its postings in text
 		Write(out, field+": "+string(term)+" ")
 
-		for docID != spi.PostingsEnumNoMoreDocs {
+		for docID != util.NO_MORE_DOCS {
 			Write(out, strconv.Itoa(docID))
 			Write(out, " ")
 			docID = postings.NextDoc()

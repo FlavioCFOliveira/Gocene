@@ -572,7 +572,7 @@ func (f *segmentTermsEnumFrame) scanToTermLeaf(target *util.BytesRef, exactOnly 
 		v, _ := store.ReadVInt(f.suffixLengthsReader)
 		f.suffix = int(v)
 		f.startBytePos = f.suffixesReader.GetPosition()
-		_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffix)
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffix)
 
 		cmp := bytes.Compare(
 			f.suffixBytes[f.startBytePos:f.startBytePos+f.suffix],
@@ -614,7 +614,7 @@ func (f *segmentTermsEnumFrame) scanToTermNonLeaf(target *util.BytesRef, exactOn
 		f.suffix = int(code >> 1)
 		termLen := f.prefix + f.suffix
 		f.startBytePos = f.suffixesReader.GetPosition()
-		_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffix)
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffix)
 		f.ste.termExists = (code & 1) == 0
 		if f.ste.termExists {
 			if f.state != nil {

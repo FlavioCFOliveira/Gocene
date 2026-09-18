@@ -177,3 +177,84 @@ func readIntInGroup(in DataInput, numBytesMinus1 int) (int32, error) {
 		return in.ReadInt()
 	}
 }
+
+// WriteGroupVIntsInt64 encodes the given int64 values using group varint
+// encoding, using a scratch buffer of at least GroupVIntMaxLengthPerGroup
+// bytes to construct each group before writing it to the output.
+//
+// This is the Go port of the deprecated long[] overload
+// org.apache.lucene.util.GroupVIntUtil#writeGroupVInts(DataOutput, byte[],
+// long[], int) in Apache Lucene 10.5.0, which Java distinguishes from the
+// int[] overload (ported here as WriteGroupVInts) by parameter type. Java
+// preserves it for the backwards codecs alone.
+func WriteGroupVIntsInt64(out DataOutput, scratch []byte, values []int64, limit int) error {
+	if len(scratch) < GroupVIntMaxLengthPerGroup {
+		panic("scratch buffer too small")
+	}
+
+	readPos := 0
+
+	// encode each group
+	for (limit - readPos) >= 4 {
+		writePos := 0
+
+		v1, err := ToInt32(values[readPos])
+		if err != nil {
+			return err
+		}
+		v2, err := ToInt32(values[readPos+1])
+		if err != nil {
+			return err
+		}
+		v3, err := ToInt32(values[readPos+2])
+		if err != nil {
+			return err
+		}
+		v4, err := ToInt32(values[readPos+3])
+		if err != nil {
+			return err
+		}
+
+		n1Minus1 := numBytes(v1) - 1
+		n2Minus1 := numBytes(v2) - 1
+		n3Minus1 := numBytes(v3) - 1
+		n4Minus1 := numBytes(v4) - 1
+
+		flag := byte((n1Minus1 << 6) | (n2Minus1 << 4) | (n3Minus1 << 2) | n4Minus1)
+		scratch[writePos] = flag
+		writePos++
+
+		binary.LittleEndian.PutUint32(scratch[writePos:], uint32(int32(values[readPos])))
+		writePos += n1Minus1 + 1
+		readPos++
+
+		binary.LittleEndian.PutUint32(scratch[writePos:], uint32(int32(values[readPos])))
+		writePos += n2Minus1 + 1
+		readPos++
+
+		binary.LittleEndian.PutUint32(scratch[writePos:], uint32(int32(values[readPos])))
+		writePos += n3Minus1 + 1
+		readPos++
+
+		binary.LittleEndian.PutUint32(scratch[writePos:], uint32(int32(values[readPos])))
+		writePos += n4Minus1 + 1
+		readPos++
+
+		if err := out.WriteBytes(scratch, 0, writePos); err != nil {
+			return err
+		}
+	}
+
+	// tail vints
+	for ; readPos < limit; readPos++ {
+		v, err := ToInt32(values[readPos])
+		if err != nil {
+			return err
+		}
+		if err := out.WriteVInt(v); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}

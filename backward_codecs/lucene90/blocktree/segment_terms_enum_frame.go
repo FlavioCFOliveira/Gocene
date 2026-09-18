@@ -321,7 +321,7 @@ func (f *segmentTermsEnumFrame) rewind() {
 		// rewindPos is always a valid position — it was captured from
 		// GetPosition() after SetFloorData. Ignore the error (out-of-range
 		// would be a programming error, not a runtime condition).
-		_ = f.floorDataReader.SetPosition(f.rewindPos)
+		f.floorDataReader.SetPosition(f.rewindPos)
 		numFollow, _ := f.floorDataReader.ReadVInt()
 		f.numFollowFloorBlocks = int(numFollow)
 		b, _ := f.floorDataReader.ReadByte()
@@ -517,9 +517,7 @@ func (f *segmentTermsEnumFrame) scanToSubBlock(subFP int64) error {
 		}
 		suffLen := int(uint32(code) >> 1)
 		curPos := f.suffixesReader.GetPosition()
-		if err := f.suffixesReader.SetPosition(curPos + suffLen); err != nil {
-			return fmt.Errorf("scanToSubBlock: skip suffix: %w", err)
-		}
+		f.suffixesReader.SetPosition(curPos + suffLen)
 		if code&1 != 0 {
 			subCode, err := f.suffixLengthsReader.ReadVLong()
 			if err != nil {
@@ -566,9 +564,7 @@ func (f *segmentTermsEnumFrame) scanToTermLeaf(target *util.BytesRef, exactOnly 
 		}
 		f.suffixLength = int(suffLen)
 		f.startBytePos = f.suffixesReader.GetPosition()
-		if err := f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength); err != nil {
-			return 0, fmt.Errorf("scanToTermLeaf: skip suffix: %w", err)
-		}
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 		cmp := bytes.Compare(
 			f.suffixBytes[f.startBytePos:f.startBytePos+f.suffixLength],
 			target.Bytes[target.Offset+f.prefixLength:target.Offset+target.Length],
@@ -624,9 +620,7 @@ func (f *segmentTermsEnumFrame) binarySearchTermLeaf(target *util.BytesRef, exac
 		} else if cmp > 0 {
 			end = mid - 1
 		} else {
-			if err := f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength); err != nil {
-				return 0, fmt.Errorf("binarySearchTermLeaf: set position: %w", err)
-			}
+			f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 			f.fillTerm()
 			return index.SeekStatusFound, nil
 		}
@@ -637,15 +631,11 @@ func (f *segmentTermsEnumFrame) binarySearchTermLeaf(target *util.BytesRef, exac
 			f.startBytePos += f.suffixLength
 			f.nextEnt++
 		}
-		if err := f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength); err != nil {
-			return 0, fmt.Errorf("binarySearchTermLeaf: set position after not-found: %w", err)
-		}
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 		f.fillTerm()
 		return index.SeekStatusNotFound, nil
 	}
-	if err := f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength); err != nil {
-		return 0, fmt.Errorf("binarySearchTermLeaf: set position at end: %w", err)
-	}
+	f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 	if exactOnly {
 		f.fillTerm()
 	}
@@ -670,9 +660,7 @@ func (f *segmentTermsEnumFrame) scanToTermNonLeaf(target *util.BytesRef, exactOn
 		}
 		f.suffixLength = int(uint32(code) >> 1)
 		f.startBytePos = f.suffixesReader.GetPosition()
-		if err := f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength); err != nil {
-			return 0, fmt.Errorf("scanToTermNonLeaf: skip suffix: %w", err)
-		}
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 		f.ste.termExists = (code & 1) == 0
 		if f.ste.termExists {
 			f.state.TermBlockOrd++

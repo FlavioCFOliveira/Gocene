@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -70,7 +71,7 @@ type multiValueTokenStream struct {
 	splitChar     rune
 	input         analysis.TokenStream
 
-	posIncAtt analysis.PositionIncrementAttribute
+	posIncAtt tokenattributes.PositionIncrementAttribute
 	offsetAtt analysis.OffsetAttribute
 
 	startValIdx     int
@@ -102,7 +103,7 @@ func NewMultiValueTokenStream(
 		panic("subTokenStream must provide an AttributeSource")
 	}
 
-	ts.posIncAtt, _ = src.GetAttribute(analysis.PositionIncrementAttributeType).(analysis.PositionIncrementAttribute)
+	ts.posIncAtt, _ = src.GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 	ts.offsetAtt, _ = src.GetAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
 
 	return ts
@@ -170,7 +171,7 @@ func (ts *multiValueTokenStream) IncrementToken() (bool, error) {
 			ts.input = tokenStream
 			src := attributeSourceFor(tokenStream)
 			if src != nil {
-				ts.posIncAtt, _ = src.GetAttribute(analysis.PositionIncrementAttributeType).(analysis.PositionIncrementAttribute)
+				ts.posIncAtt, _ = src.GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 				ts.offsetAtt, _ = src.GetAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
 			}
 		}

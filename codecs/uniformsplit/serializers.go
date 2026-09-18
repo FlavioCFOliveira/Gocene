@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/bits"
 
+	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -272,11 +273,11 @@ func (s *DeltaBaseTermStateSerializer) WriteTermState(out store.DataOutput, fiel
 	hasOffsets := opts >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
 	hasPayloads := fieldInfo.HasPayloads()
 
-	if err := out.WriteVInt(ts.docFreq); err != nil {
+	if err := out.WriteVInt(ts.DocFreq); err != nil {
 		return err
 	}
 	if hasFreqs {
-		if err := out.WriteVLong(ts.totalTermFreq - int64(ts.docFreq)); err != nil {
+		if err := out.WriteVLong(ts.TotalTermFreq - int64(ts.DocFreq)); err != nil {
 			return err
 		}
 	}
@@ -328,10 +329,10 @@ func (s *DeltaBaseTermStateSerializer) ReadTermState(baseDocStartFP, basePosStar
 		ts = codecs.NewBlockTermState()
 	} else {
 		ts.Ord = 0
-		ts.docFreq = 0
-		ts.totalTermFreq = 0
-		ts.termBlockOrd = 0
-		ts.blockFilePointer = 0
+		ts.DocFreq = 0
+		ts.TotalTermFreq = 0
+		ts.TermBlockOrd = 0
+		ts.BlockFilePointer = 0
 		ts.docStartFP = 0
 		ts.posStartFP = 0
 		ts.payStartFP = 0
@@ -343,19 +344,19 @@ func (s *DeltaBaseTermStateSerializer) ReadTermState(baseDocStartFP, basePosStar
 	if err != nil {
 		return nil, err
 	}
-	ts.docFreq = docFreq
+	ts.DocFreq = docFreq
 
 	if hasFreqs {
 		deltaTF, err := in.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
-		ts.totalTermFreq = int64(docFreq) + deltaTF
+		ts.TotalTermFreq = int64(docFreq) + deltaTF
 	} else {
-		ts.totalTermFreq = int64(docFreq)
+		ts.TotalTermFreq = int64(docFreq)
 	}
 
-	if ts.docFreq == 1 {
+	if ts.DocFreq == 1 {
 		singletonID, err := in.ReadVInt()
 		if err != nil {
 			return nil, err
@@ -385,7 +386,7 @@ func (s *DeltaBaseTermStateSerializer) ReadTermState(baseDocStartFP, basePosStar
 			ts.payStartFP = basePayStartFP + deltaPayFP
 		}
 
-		if ts.totalTermFreq > 128 { // BLOCK_SIZE is 128 in Lucene 10.5.0
+		if ts.TotalTermFreq > 128 { // BLOCK_SIZE is 128 in Lucene 10.5.0
 			lastPosOff, err := in.ReadVLong()
 			if err != nil {
 				return nil, err

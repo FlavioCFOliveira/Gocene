@@ -10,6 +10,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // noMoreDocs is the sentinel that signals end of enumeration in the docBuffer.
@@ -286,6 +287,22 @@ func (e *blockDocsEnum) Advance(target int) (int, error) {
 		return index.NO_MORE_DOCS, nil
 	}
 	return e.doc, nil
+}
+
+// IntoBitSet loads the remaining doc IDs up to upTo into bitSet, shifted down
+// by offset. Lucene912PostingsReader's enums do not override
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// so this reproduces the inherited default body.
+func (e *blockDocsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd returns one plus the last doc ID of the run containing the
+// current doc. Lucene912PostingsReader's enums do not override
+// DocIdSetIterator.docIDRunEnd() in Apache Lucene 10.5.0, so this reproduces
+// the inherited default body (docID() + 1).
+func (e *blockDocsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
 }
 
 func (e *blockDocsEnum) DocID() int {
@@ -654,6 +671,22 @@ func (e *everythingEnum) reset(its *IntBlockTermState, flags int) (index.Posting
 	e.docBufferSize = BlockSize
 	e.docBufferUpto = BlockSize
 	return e, nil
+}
+
+// IntoBitSet loads the remaining doc IDs up to upTo into bitSet, shifted down
+// by offset. Lucene912PostingsReader's enums do not override
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// so this reproduces the inherited default body.
+func (e *everythingEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd returns one plus the last doc ID of the run containing the
+// current doc. Lucene912PostingsReader's enums do not override
+// DocIdSetIterator.docIDRunEnd() in Apache Lucene 10.5.0, so this reproduces
+// the inherited default body (docID() + 1).
+func (e *everythingEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
 }
 
 func (e *everythingEnum) DocID() int {
@@ -1289,6 +1322,22 @@ func newBlockImpactsDocsEnum(r *Lucene912PostingsReader, indexHasPos bool, its *
 	return e, nil
 }
 
+// IntoBitSet loads the remaining doc IDs up to upTo into bitSet, shifted down
+// by offset. Lucene912PostingsReader's enums do not override
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// so this reproduces the inherited default body.
+func (e *blockImpactsDocsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd returns one plus the last doc ID of the run containing the
+// current doc. Lucene912PostingsReader's enums do not override
+// DocIdSetIterator.docIDRunEnd() in Apache Lucene 10.5.0, so this reproduces
+// the inherited default body (docID() + 1).
+func (e *blockImpactsDocsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
 func (e *blockImpactsDocsEnum) DocID() int {
 	if e.doc == postingsNoMoreDocsBuffer {
 		return index.NO_MORE_DOCS
@@ -1745,6 +1794,22 @@ func newBlockImpactsPostingsEnum(r *Lucene912PostingsReader, fieldInfo *index.Fi
 	e.docBufferSize = BlockSize
 	e.docBufferUpto = BlockSize
 	return e, nil
+}
+
+// IntoBitSet loads the remaining doc IDs up to upTo into bitSet, shifted down
+// by offset. Lucene912PostingsReader's enums do not override
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// so this reproduces the inherited default body.
+func (e *blockImpactsPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd returns one plus the last doc ID of the run containing the
+// current doc. Lucene912PostingsReader's enums do not override
+// DocIdSetIterator.docIDRunEnd() in Apache Lucene 10.5.0, so this reproduces
+// the inherited default body (docID() + 1).
+func (e *blockImpactsPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
 }
 
 func (e *blockImpactsPostingsEnum) DocID() int {

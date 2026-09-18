@@ -50,13 +50,13 @@ func NewOrdsBlockTreeTermsWriter(state *spi.SegmentWriteState, postingsWriter co
 		return nil, fmt.Errorf("invalid block size settings")
 	}
 
-	termsFileName := store.IndexFileNamesSegmentFileName(state.SegmentInfo.Name, state.SegmentSuffix, TermsExtension)
+	termsFileName := store.IndexFileNamesSegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, TermsExtension)
 	out, err := state.Directory.CreateOutput(termsFileName, state.Context)
 	if err != nil {
 		return nil, err
 	}
 
-	indexFileName := store.IndexFileNamesSegmentFileName(state.SegmentInfo.Name, state.SegmentSuffix, TermsIndexExtension)
+	indexFileName := store.IndexFileNamesSegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, TermsIndexExtension)
 	indexOut, err := state.Directory.CreateOutput(indexFileName, state.Context)
 	if err != nil {
 		out.Close()
@@ -71,10 +71,10 @@ func NewOrdsBlockTreeTermsWriter(state *spi.SegmentWriteState, postingsWriter co
 		}
 	}()
 
-	if err := store.CodecUtilWriteIndexHeader(out, TermsCodecName, VersionCurrent, state.SegmentInfo.ID, state.SegmentSuffix); err != nil {
+	if err := store.CodecUtilWriteIndexHeader(out, TermsCodecName, VersionCurrent, state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
 		return nil, err
 	}
-	if err := store.CodecUtilWriteIndexHeader(indexOut, TermsIndexCodecName, VersionCurrent, state.SegmentInfo.ID, state.SegmentSuffix); err != nil {
+	if err := store.CodecUtilWriteIndexHeader(indexOut, TermsIndexCodecName, VersionCurrent, state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
 		return nil, err
 	}
 

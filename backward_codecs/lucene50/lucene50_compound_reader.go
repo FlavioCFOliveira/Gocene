@@ -365,6 +365,14 @@ func (r *Lucene50CompoundReader) DeleteFile(_ string) error {
 	return errReadOnlyCompound50
 }
 
+// Rename is not supported on a compound reader.
+//
+// Port of org.apache.lucene.codecs.CompoundDirectory#rename(String, String),
+// which throws UnsupportedOperationException in Apache Lucene 10.5.0.
+func (r *Lucene50CompoundReader) Rename(_, _ string) error {
+	return errReadOnlyCompound50
+}
+
 // ObtainLock is not supported on a compound reader.
 func (r *Lucene50CompoundReader) ObtainLock(_ string) (store.Lock, error) {
 	return nil, errReadOnlyCompound50

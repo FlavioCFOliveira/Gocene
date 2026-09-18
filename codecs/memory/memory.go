@@ -43,14 +43,14 @@ func NewFSTPostingsFormat() *FSTPostingsFormat { return &FSTPostingsFormat{} }
 // org.apache.lucene.codecs.memory.FSTTermsReader.
 type FSTTermsReader struct {
 	fields         map[string]*fstTermsReader
-	postingsReader spi.PostingsReader
+	postingsReader codecs.PostingsReaderBase
 	fstTermsInput  store.IndexInput
 	segmentInfo    *index.SegmentInfo
 	segmentSuffix  string
 }
 
 // NewFSTTermsReader builds the reader.
-func NewFSTTermsReader(state *index.SegmentReadState, postingsReader spi.PostingsReader) (*FSTTermsReader, error) {
+func NewFSTTermsReader(state *index.SegmentReadState, postingsReader codecs.PostingsReaderBase) (*FSTTermsReader, error) {
 	termsFileName := codecs.IndexFileNamesSegment(state.SegmentInfo.Name, state.SegmentSuffix, "terms")
 
 	fstTermsInput, err := state.Directory.OpenInput(termsFileName)

@@ -28,21 +28,6 @@ type BaseTermsEnum struct {
 	TermsEnumBase
 }
 
-// SeekStatus represents the outcome of a SeekCeil call, matching Lucene's
-// TermsEnum.SeekStatus enum.
-type SeekStatus int
-
-const (
-	// SeekStatusFound — the requested term was found exactly.
-	SeekStatusFound SeekStatus = iota
-	// SeekStatusNotFound — the requested term was not found; the enumerator
-	// is positioned at the smallest term greater than the requested one.
-	SeekStatusNotFound
-	// SeekStatusEnd — the requested term is greater than all terms in the
-	// enumerator; the enumerator is exhausted.
-	SeekStatusEnd
-)
-
 // SeekExactDelegated reproduces Java's default seekExact via SeekCeil. owner
 // is the TermsEnum that embeds this base; it is required because Go cannot
 // reach into the embedder's interface methods without an explicit reference.

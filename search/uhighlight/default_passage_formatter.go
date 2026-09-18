@@ -1,5 +1,7 @@
 package uhighlight
 
+import "strings"
+
 // DefaultPassageFormatter renders matches with <b>...</b> markup and
 // joins disjoint passages with an ellipsis. Mirrors
 // org.apache.lucene.search.uhighlight.DefaultPassageFormatter.

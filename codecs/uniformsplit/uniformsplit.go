@@ -3,6 +3,8 @@
 package uniformsplit
 
 import (
+	"io"
+
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -142,11 +144,11 @@ func (s *DeltaBaseTermStateSerializer) WriteTermState(out store.DataOutput, fi *
 	hasFreqs := opts != index.IndexOptionsDocs
 	hasPositions := opts >= index.IndexOptionsDocsAndFreqsAndPositions
 
-	if err := out.WriteVInt(int32(ts.docFreq)); err != nil {
+	if err := out.WriteVInt(int32(ts.DocFreq)); err != nil {
 		return err
 	}
 	if hasFreqs {
-		if err := out.WriteVLong(ts.totalTermFreq - int64(ts.docFreq)); err != nil {
+		if err := out.WriteVLong(ts.TotalTermFreq - int64(ts.DocFreq)); err != nil {
 			return err
 		}
 	}
@@ -180,7 +182,7 @@ func (s *DeltaBaseTermStateSerializer) WriteTermState(out store.DataOutput, fi *
 				return err
 			}
 		}
-		if ts.totalTermFreq > 128 {
+		if ts.TotalTermFreq > 128 {
 			if err := out.WriteVLong(ts.lastPosBlockOffset); err != nil {
 				return err
 			}
@@ -203,19 +205,19 @@ func (s *DeltaBaseTermStateSerializer) ReadTermState(baseDocFP, basePosFP, baseP
 	if err != nil {
 		return nil, err
 	}
-	ts.docFreq = int32(docFreq)
+	ts.DocFreq = int32(docFreq)
 
 	if hasFreqs {
 		deltaTF, err := in.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
-		ts.totalTermFreq = int64(docFreq) + deltaTF
+		ts.TotalTermFreq = int64(docFreq) + deltaTF
 	} else {
-		ts.totalTermFreq = int64(docFreq)
+		ts.TotalTermFreq = int64(docFreq)
 	}
 
-	if ts.docFreq == 1 {
+	if ts.DocFreq == 1 {
 		singletonID, err := in.ReadZInt()
 		if err != nil {
 			return nil, err
@@ -244,7 +246,7 @@ func (s *DeltaBaseTermStateSerializer) ReadTermState(baseDocFP, basePosFP, baseP
 			ts.payStartFP = basePayFP + deltaPayFP
 		}
 
-		if ts.totalTermFreq > 128 {
+		if ts.TotalTermFreq > 128 {
 			lastPosOff, err := in.ReadVLong()
 			if err != nil {
 				return nil, err

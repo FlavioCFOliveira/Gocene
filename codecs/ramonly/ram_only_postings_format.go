@@ -12,6 +12,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // RAMOnlyPostingsFormat stores all postings data in RAM.
@@ -173,7 +174,7 @@ func (c *ramFieldsConsumer) Write(field string, terms spi.Terms) error {
 
 		for {
 			docID := postingsEnum.NextDoc()
-			if docID == spi.PostingsEnumNoMoreDocs {
+			if docID == util.NO_MORE_DOCS {
 				break
 			}
 			docsSeen[docID] = struct{}{}
@@ -295,7 +296,7 @@ func (e *ramDocsEnum) NextDoc() int {
 	if e.upto < len(e.term.docs) {
 		return e.term.docs[e.upto].docID
 	}
-	return spi.PostingsEnumNoMoreDocs
+	return util.NO_MORE_DOCS
 }
 
 func (e *ramDocsEnum) DocID() int {

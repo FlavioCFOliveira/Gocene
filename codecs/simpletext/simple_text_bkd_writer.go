@@ -7,9 +7,9 @@ package simpletext
 import (
 	"bytes"
 	"fmt"
-	t "github.com/FlavioCFOliveira/Gocene/geo"
 	"strconv"
 
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"

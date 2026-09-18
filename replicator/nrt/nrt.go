@@ -1137,7 +1137,7 @@ func (s *SegmentInfosSearcherManager) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.currentSearcher != nil {
-		reader := s.currentSearcher.GetReader()
+		reader := s.currentSearcher.GetIndexReader()
 		if reader != nil {
 			_ = reader.Close()
 		}

@@ -223,6 +223,27 @@ func (e *SegmentTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
 	)
 }
 
+// Impacts decodes the current term's metadata and returns an ImpactsEnum.
+//
+// Port of SegmentTermsEnum.impacts(int):
+//
+//	assert !eof;
+//	currentFrame.decodeMetaData();
+//	return fr.parent.postingsReader.impacts(fr.fieldInfo, currentFrame.state, flags);
+func (e *SegmentTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	if err := e.currentFrame.decodeMetaData(); err != nil {
+		return nil, err
+	}
+	if e.currentFrame.state == nil {
+		return nil, fmt.Errorf("blocktree Impacts: term state is nil")
+	}
+	return e.fr.parent.postingsReader.Impacts(
+		e.fr.fieldInfo,
+		e.currentFrame.state,
+		flags,
+	)
+}
+
 // PostingsWithLiveDocs returns a PostingsEnum for the current term with live
 // docs applied.
 func (e *SegmentTermsEnum) PostingsWithLiveDocs(_ util.Bits, flags int) (index.PostingsEnum, error) {

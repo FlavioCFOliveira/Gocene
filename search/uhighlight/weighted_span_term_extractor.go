@@ -2,6 +2,7 @@ package uhighlight
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/highlight"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/memory"
 	"github.com/FlavioCFOliveira/Gocene/queries"
@@ -320,11 +321,11 @@ func (w *WeightedSpanTermExtractor) getLeafContext() (index.IndexReaderContext, 
 		if w.internalReader == nil {
 			indexer := memory.NewMemoryIndex()
 			if cacheIt {
-				w.tokenStream = analysis.NewCachingTokenFilter(analysis.NewOffsetLimitTokenFilter(w.tokenStream, w.maxDocCharsToAnalyze))
+				w.tokenStream = analysis.NewCachingTokenFilter(highlight.NewOffsetLimitTokenFilter(w.tokenStream, w.maxDocCharsToAnalyze))
 				w.cachedTokenStream = true
 				indexer.AddField("shadowed_field", w.tokenStream)
 			} else {
-				indexer.AddField("shadowed_field", analysis.NewOffsetLimitTokenFilter(w.tokenStream, w.maxDocCharsToAnalyze))
+				indexer.AddField("shadowed_field", highlight.NewOffsetLimitTokenFilter(w.tokenStream, w.maxDocCharsToAnalyze))
 			}
 			searcher, err := indexer.CreateSearcher()
 			if err != nil {
@@ -415,10 +416,10 @@ func (w *WeightedSpanTermExtractor) isCachingTokenFilter() bool {
 }
 
 func (w *WeightedSpanTermExtractor) isTokenStreamFromTermVector() bool {
-	_, ok := w.tokenStream.(*analysis.TokenStreamFromTermVector)
+	_, ok := w.tokenStream.(*highlight.TokenStreamFromTermVector)
 	return ok
 }
 
-func (w *WeightedSpanTermExtractor) getTokenStreamFromTermVector() *analysis.TokenStreamFromTermVector {
-	return w.tokenStream.(*analysis.TokenStreamFromTermVector)
+func (w *WeightedSpanTermExtractor) getTokenStreamFromTermVector() *highlight.TokenStreamFromTermVector {
+	return w.tokenStream.(*highlight.TokenStreamFromTermVector)
 }

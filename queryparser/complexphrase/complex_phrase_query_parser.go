@@ -145,7 +145,7 @@ func (p *ComplexPhraseQueryParser) substituteComplexPhrases(q search.Query, phra
 	idx := lookupByPlaceholder(phrases)
 	return mapQuery(q, func(inner search.Query) search.Query {
 		if tq, ok := inner.(*search.TermQuery); ok {
-			text := tq.Term().Text()
+			text := tq.GetTerm().Text()
 			if span, ok := idx[text]; ok {
 				return span
 			}
@@ -162,7 +162,7 @@ func (p *ComplexPhraseQueryParser) buildSpan(field, phrase string, slop int) (se
 		clauses = append(clauses, spanClauseForToken(field, tok))
 	}
 	if len(clauses) == 0 {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 	if len(clauses) == 1 {
 		return clauses[0], nil
@@ -198,11 +198,11 @@ func lookupByPlaceholder(phrases []*complexPhrase) map[string]search.Query {
 func mapQuery(q search.Query, fn func(search.Query) search.Query) search.Query {
 	switch v := q.(type) {
 	case *search.BooleanQuery:
-		out := search.NewBooleanQuery()
+		out := search.NewBooleanQueryBuilder()
 		for _, c := range v.Clauses() {
-			out.Add(mapQuery(c.Query, fn), c.Occur)
+			out.Add(mapQuery(c.Query(), fn), c.Occur())
 		}
-		return out
+		return out.Build()
 	case *search.BoostQuery:
 		return search.NewBoostQuery(mapQuery(v.Query(), fn), v.Boost())
 	default:

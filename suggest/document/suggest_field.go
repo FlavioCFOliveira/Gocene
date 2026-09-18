@@ -69,10 +69,10 @@ func (f *SuggestField) TokenStream(analyzer analysis.Analyzer, reuse analysis.To
 }
 
 func (f *SuggestField) wrapTokenStream(stream analysis.TokenStream) analysis.TokenStream {
-	if cts, ok := stream.(*analysis.CompletionTokenStream); ok {
+	if cts, ok := stream.(*CompletionTokenStream); ok {
 		return cts
 	}
-	return analysis.NewCompletionTokenStream(stream)
+	return NewCompletionTokenStream(stream)
 }
 
 func (f *SuggestField) buildSuggestPayload() []byte {
@@ -85,7 +85,7 @@ func (f *SuggestField) buildSuggestPayload() []byte {
 }
 
 func isReserved(r rune) bool {
-	return r == analysis.SEP_LABEL || r == analysis.HOLE || r == 0 // SEP_LABEL, HOLE, END_BYTE
+	return r == analysis.SepLabel || r == analysis.HOLE || r == 0 // SEP_LABEL, HOLE, END_BYTE
 }
 
 // Type returns the type of the field.

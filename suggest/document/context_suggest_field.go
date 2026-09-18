@@ -9,6 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/miscellaneous"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // CONTEXT_SEPARATOR is the separator used between context value and the suggest field value.
@@ -103,9 +104,9 @@ func (f *PrefixTokenFilter) IncrementToken() (bool, error) {
 		term := f.prefixes[f.currentPrefix]
 		f.GetAttribute(analysis.CharTermAttributeType).(*analysis.CharTermAttribute).AppendString(term + string(f.separator))
 		if f.currentPrefix == 0 {
-			f.GetAttribute(analysis.PositionIncrementAttributeType).(*analysis.PositionIncrementAttribute).SetPositionIncrement(1)
+			f.GetAttribute(tokenattributes.PositionIncrementAttributeType).(*tokenattributes.PositionIncrementAttribute).SetPositionIncrement(1)
 		} else {
-			f.GetAttribute(analysis.PositionIncrementAttributeType).(*analysis.PositionIncrementAttribute).SetPositionIncrement(0)
+			f.GetAttribute(tokenattributes.PositionIncrementAttributeType).(*tokenattributes.PositionIncrementAttribute).SetPositionIncrement(0)
 		}
 		f.currentPrefix++
 		return true, nil

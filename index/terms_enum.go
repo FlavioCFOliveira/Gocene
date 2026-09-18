@@ -19,6 +19,20 @@ type TermsEnum = spi.TermsEnum
 // TermsEnumBase is an alias of spi.TermsEnumBase.
 type TermsEnumBase = spi.TermsEnumBase
 
+// SeekStatus is an alias of spi.SeekStatus, the port of the nested enum
+// org.apache.lucene.index.TermsEnum.SeekStatus, which lives beside the
+// TermsEnum interface in spi.
+type SeekStatus = spi.SeekStatus
+
+const (
+	// SeekStatusFound is an alias of spi.SeekStatusFound.
+	SeekStatusFound = spi.SeekStatusFound
+	// SeekStatusNotFound is an alias of spi.SeekStatusNotFound.
+	SeekStatusNotFound = spi.SeekStatusNotFound
+	// SeekStatusEnd is an alias of spi.SeekStatusEnd.
+	SeekStatusEnd = spi.SeekStatusEnd
+)
+
 // EmptyTermsEnum is an alias of spi.EmptyTermsEnum.
 type EmptyTermsEnum = spi.EmptyTermsEnum
 

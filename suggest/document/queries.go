@@ -117,23 +117,29 @@ func (q *ContextQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode se
 	}, nil
 }
 
+// toContextAutomaton is the port of the private static
+// ContextQuery.toContextAutomaton(Map<IntsRef, ContextMetaData>, boolean) in
+// Apache Lucene 10.5.0. Java reaches the Operations / Automata statics through
+// their class names; in Gocene those statics are plain package-level functions
+// in util/automaton, so they are spelled automaton.Repeat, automaton.MakeChar
+// and so on.
 func (q *ContextQuery) toContextAutomaton() *automaton.Automaton {
+	matchAllAutomaton := automaton.Repeat(automaton.MakeAnyString())
+	sep := automaton.MakeChar(CONTEXT_SEPARATOR)
 	if q.MatchAll || len(q.Contexts) == 0 {
-		return automaton.Operations.Concatenate(
-			automaton.Operations.Repeat(automaton.Automata.MakeAnyString()),
-			automaton.Automata.MakeChar(0x1F), // SEP_LABEL
-		)
+		return automaton.Concatenate([]*automaton.Automaton{matchAllAutomaton, sep})
 	}
 
 	var automataList []*automaton.Automaton
 	for ctx, meta := range q.Contexts {
-		ctxAuto := automaton.Automata.MakeString(ctx)
+		contextAutomaton := []*automaton.Automaton{automaton.MakeString(ctx)}
 		if !meta.Exact {
-			ctxAuto = automaton.Operations.Union(ctxAuto, automaton.Operations.Repeat(automaton.Automata.MakeAnyString()))
+			contextAutomaton = append(contextAutomaton, matchAllAutomaton)
 		}
-		automataList = append(automataList, automaton.Operations.Concatenate(ctxAuto, automaton.Automata.MakeChar(0x1F)))
+		contextAutomaton = append(contextAutomaton, sep)
+		automataList = append(automataList, automaton.Concatenate(contextAutomaton))
 	}
-	return automaton.Operations.Determinize(automaton.Operations.Union(automataList), 1000)
+	return automaton.Union(automataList)
 }
 
 func (q *ContextQuery) getContextLengths() []int {

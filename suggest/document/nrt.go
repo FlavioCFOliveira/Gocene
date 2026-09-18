@@ -1,7 +1,11 @@
 package document
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/store"
+	util "github.com/FlavioCFOliveira/Gocene/util"
+	utilfst "github.com/FlavioCFOliveira/Gocene/util/fst"
 )
 
 // NRTSuggester executes Top N search on a weighted FST. Mirrors

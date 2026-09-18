@@ -5,7 +5,6 @@
 package simpletext
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
 	"bytes"
 	"fmt"
 	"math/bits"
@@ -13,6 +12,7 @@ t"github.com/FlavioCFOliveira/Gocene/geo"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
@@ -205,7 +205,7 @@ func (a bkdVisitorAdapter) VisitByPackedValue(docID int, pv []byte) error {
 	return a.v.VisitByPackedValue(docID, pv)
 }
 func (a bkdVisitorAdapter) Compare(min, max []byte) geo.Relation { return a.v.Compare(min, max) }
-func (a bkdVisitorAdapter) Grow(count int)                          { a.v.Grow(count) }
+func (a bkdVisitorAdapter) Grow(count int)                       { a.v.Grow(count) }
 
 var _ bkd.IntersectVisitor = bkdVisitorAdapter{}
 

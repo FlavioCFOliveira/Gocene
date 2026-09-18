@@ -62,6 +62,24 @@ type TermsEnum interface {
 	PostingsWithLiveDocs(liveDocs util.Bits, flags int) (PostingsEnum, error)
 }
 
+// SeekStatus represents the outcome of a SeekCeil call. It is the Go port of
+// the enum org.apache.lucene.index.TermsEnum.SeekStatus (Apache Lucene 10.5.0,
+// lucene/core/src/java/org/apache/lucene/index/TermsEnum.java), which Java
+// nests inside TermsEnum; Go has no nested types, so it is declared here beside
+// the [TermsEnum] interface it belongs to.
+type SeekStatus int
+
+const (
+	// SeekStatusFound — the requested term was found exactly.
+	SeekStatusFound SeekStatus = iota
+	// SeekStatusNotFound — the requested term was not found; the enumerator
+	// is positioned at the smallest term greater than the requested one.
+	SeekStatusNotFound
+	// SeekStatusEnd — the requested term is greater than all terms in the
+	// enumerator; the enumerator is exhausted.
+	SeekStatusEnd
+)
+
 // TermsEnumBase provides a base implementation of the TermsEnum interface.
 type TermsEnumBase struct {
 	currentTerm *Term

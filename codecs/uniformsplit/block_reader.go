@@ -399,7 +399,7 @@ func (r *BlockReader) DocFreq() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return int(ts.docFreq), nil
+	return int(ts.DocFreq), nil
 }
 
 func (r *BlockReader) TotalTermFreq() (int64, error) {
@@ -407,7 +407,7 @@ func (r *BlockReader) TotalTermFreq() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return ts.totalTermFreq, nil
+	return ts.TotalTermFreq, nil
 }
 
 func (r *BlockReader) Postings(flags int) (spi.PostingsEnum, error) {
