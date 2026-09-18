@@ -8,6 +8,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -21,6 +22,11 @@ const (
 	HighlightFlagPassageRelevancyOverSpeed
 	HighlightFlagWeightMatches
 )
+
+// MultivalSepChar renders UnifiedHighlighter.MULTIVAL_SEP_CHAR
+// (UnifiedHighlighter.java:98), the character used to join the values of a
+// multi-valued field before analysis.
+const MultivalSepChar = rune(0)
 
 const (
 	defaultMaxLength                      = 10000
@@ -48,7 +54,7 @@ type UnifiedHighlighter struct {
 	passageRelevancyOverSpeed   bool
 	maxLength                   int
 	breakIterator               func() BreakIterator
-	scorer                      PassageScorer
+	scorer                      *PassageScorer
 	formatter                   PassageFormatter
 	maxNoHighlightPassages      int
 	cacheFieldValCharsThreshold int
@@ -68,7 +74,7 @@ type Builder struct {
 	weightMatches               bool
 	maxLength                   int
 	breakIterator               func() BreakIterator
-	scorer                      PassageScorer
+	scorer                      *PassageScorer
 	formatter                   PassageFormatter
 	maxNoHighlightPassages      int
 	cacheFieldValCharsThreshold int
@@ -84,15 +90,15 @@ func NewBuilder(searcher *search.IndexSearcher, analyzer analysis.Analyzer) *Bui
 		passageRelevancyOverSpeed:   defaultEnableRelevancyOverSpeed,
 		weightMatches:               defaultEnableWeightMatches,
 		maxLength:                   defaultMaxLength,
-		breakIterator:               func() BreakIterator { return NewSentenceBreakIterator() },
+		breakIterator:               func() BreakIterator { return SentenceBreakIterator{} },
 		scorer:                      NewPassageScorer(),
 		formatter:                   NewDefaultPassageFormatter(),
 		maxNoHighlightPassages:      defaultMaxHighlightPassages,
 		cacheFieldValCharsThreshold: defaultCacheFieldValCharsThreshold,
 		passageSortComparator: func(p1, p2 *Passage) int {
-			if p1.StartOffset < p2.StartOffset {
+			if p1.StartOffset() < p2.StartOffset() {
 				return -1
-			} else if p1.StartOffset > p2.StartOffset {
+			} else if p1.StartOffset() > p2.StartOffset() {
 				return 1
 			}
 			return 0
@@ -152,7 +158,7 @@ func (b *Builder) WithMaskedFieldsFunc(value func(string) []string) *Builder {
 	return b
 }
 
-func (b *Builder) WithScorer(value PassageScorer) *Builder {
+func (b *Builder) WithScorer(value *PassageScorer) *Builder {
 	b.scorer = value
 	return b
 }
@@ -220,36 +226,61 @@ func (uh *UnifiedHighlighter) evaluateFlags(b *Builder) map[HighlightFlag]struct
 	return flags
 }
 
+// Highlight highlights the top passages from a single field.
+//
+// Mirrors UnifiedHighlighter.highlight(String, Query, TopDocs)
+// (UnifiedHighlighter.java:747).
 func (uh *UnifiedHighlighter) Highlight(field string, query search.Query, topDocs *search.TopDocs) ([]string, error) {
-	return uh.Highlight(field, query, topDocs, 1)
+	return uh.HighlightMaxPassages(field, query, topDocs, 1)
 }
 
-func (uh *UnifiedHighlighter) Highlight(field string, query search.Query, topDocs *search.TopDocs, maxPassages int) ([]string, error) {
-	res, err := uh.HighlightFields([]string{field}, query, topDocs, []int{maxPassages})
+// HighlightMaxPassages highlights the top-N passages from a single field.
+//
+// Mirrors UnifiedHighlighter.highlight(String, Query, TopDocs, int)
+// (UnifiedHighlighter.java:766). Go has no overloading, so the maxPassages
+// parameter is named in the method name.
+func (uh *UnifiedHighlighter) HighlightMaxPassages(field string, query search.Query, topDocs *search.TopDocs, maxPassages int) ([]string, error) {
+	res, err := uh.HighlightFieldsMaxPassages([]string{field}, query, topDocs, []int{maxPassages})
 	if err != nil {
 		return nil, err
 	}
 	return res[field], nil
 }
 
+// HighlightFields highlights the top passages from multiple fields.
+//
+// Mirrors UnifiedHighlighter.highlightFields(String[], Query, TopDocs)
+// (UnifiedHighlighter.java:796).
 func (uh *UnifiedHighlighter) HighlightFields(fields []string, query search.Query, topDocs *search.TopDocs) (map[string][]string, error) {
 	maxPassages := make([]int, len(fields))
 	for i := range maxPassages {
 		maxPassages[i] = 1
 	}
-	return uh.HighlightFields(fields, query, topDocs, maxPassages)
+	return uh.HighlightFieldsMaxPassages(fields, query, topDocs, maxPassages)
 }
 
-func (uh *UnifiedHighlighter) HighlightFields(fields []string, query search.Query, topDocs *search.TopDocs, maxPassages []int) (map[string][]string, error) {
+// HighlightFieldsMaxPassages highlights the top-N passages from multiple
+// fields.
+//
+// Mirrors UnifiedHighlighter.highlightFields(String[], Query, TopDocs, int[])
+// (UnifiedHighlighter.java:828). Go has no overloading, so the per-field
+// maxPassages parameter is named in the method name.
+func (uh *UnifiedHighlighter) HighlightFieldsMaxPassages(fields []string, query search.Query, topDocs *search.TopDocs, maxPassages []int) (map[string][]string, error) {
 	scoreDocs := topDocs.ScoreDocs
 	docids := make([]int, len(scoreDocs))
 	for i := range docids {
 		docids[i] = scoreDocs[i].Doc
 	}
-	return uh.HighlightFields(fields, query, docids, maxPassages)
+	return uh.HighlightFieldsForDocIDs(fields, query, docids, maxPassages)
 }
 
-func (uh *UnifiedHighlighter) HighlightFields(fieldsIn []string, query search.Query, docidsIn []int, maxPassagesIn []int) (map[string][]string, error) {
+// HighlightFieldsForDocIDs highlights the top-N passages from multiple fields,
+// for the provided document IDs.
+//
+// Mirrors UnifiedHighlighter.highlightFields(String[], Query, int[], int[])
+// (UnifiedHighlighter.java:854). Go has no overloading, so the docids
+// parameter is named in the method name.
+func (uh *UnifiedHighlighter) HighlightFieldsForDocIDs(fieldsIn []string, query search.Query, docidsIn []int, maxPassagesIn []int) (map[string][]string, error) {
 	objs, err := uh.highlightFieldsAsObjects(fieldsIn, query, docidsIn, maxPassagesIn)
 	if err != nil {
 		return nil, err
@@ -308,9 +339,9 @@ func (uh *UnifiedHighlighter) highlightFieldsAsObjects(fieldsIn []string, query 
 
 	cacheCharsThreshold := uh.calculateOptimalCacheCharsThreshold(numTermVectors, numPostings)
 
-	var indexReaderWithTermVecCache *index.IndexReader
+	var indexReaderWithTermVecCache index.IndexReaderInterface
 	if numTermVectors >= 2 {
-		indexReaderWithTermVecCache = uh.searcher.IndexReader()
+		indexReaderWithTermVecCache = uh.searcher.GetIndexReader()
 	}
 
 	highlightDocsInByField := make([][]interface{}, len(fields))
@@ -328,11 +359,11 @@ func (uh *UnifiedHighlighter) highlightFieldsAsObjects(fieldsIn []string, query 
 			for docIdx := batchDocIdx; docIdx-batchDocIdx < len(fieldValsByDoc); docIdx++ {
 				docId := docIds[docIdx]
 				content := fieldValsByDoc[docIdx-batchDocIdx][fieldIdx]
-				if content == nil {
+				if content == "" {
 					continue
 				}
 
-				indexReader := uh.searcher.IndexReader()
+				indexReader := uh.searcher.GetIndexReader()
 				if fh.GetOffsetSource() == OffsetSourceTermVectors && indexReaderWithTermVecCache != nil {
 					indexReader = indexReaderWithTermVecCache
 				}
@@ -342,8 +373,8 @@ func (uh *UnifiedHighlighter) highlightFieldsAsObjects(fieldsIn []string, query 
 				if err != nil {
 					return nil, err
 				}
-				leafCtx := leaves[index.ReaderUtilSubIndex(docId, leaves)]
-				leafReader = leafCtx.Reader()
+				leafCtx := leaves[index.ReaderUtilSubIndexLeaves(docId, leaves)]
+				leafReader = leafCtx.LeafReader()
 				adjDocId := docId - leafCtx.DocBase
 
 				docInIndex := docInIndexes[docIdx]
@@ -354,9 +385,9 @@ func (uh *UnifiedHighlighter) highlightFieldsAsObjects(fieldsIn []string, query 
 				case OffsetSourcePostingsWithTermVectors:
 					docContext = uh.buildPostingsDocContext(leafReader, adjDocId, fields[fieldIdx], queryTerms)
 				default:
-					docContext = nil
+					docContext = content
 				}
-				snippet, err := fh.HighlightFieldForDoc(docContext, string(content))
+				snippet, err := fh.HighlightFieldForDoc(docContext, content)
 				if err != nil {
 					return nil, err
 				}
@@ -373,31 +404,48 @@ func (uh *UnifiedHighlighter) highlightFieldsAsObjects(fieldsIn []string, query 
 	return resultMap, nil
 }
 
-func (uh *UnifiedHighlighter) buildPostingsDocContext(leafReader index.LeafReader, docId int, field string, terms map[*util.BytesRef]struct{}) *PostingsDocContext {
+func (uh *UnifiedHighlighter) buildPostingsDocContext(leafReader index.LeafReader, docId int, field string, terms map[*index.Term]struct{}) *PostingsDocContext {
 	ctx := &PostingsDocContext{
 		TermFreqsInDoc: make(map[string]int),
 	}
 	for term := range terms {
-		pe, err := leafReader.GetPostings(field, term)
+		pe, err := leafReader.Postings(index.Term{Field: field, Bytes: term.Bytes}, index.PostingsFlagOffsets)
 		if err != nil || pe == nil {
 			continue
 		}
-		defer pe.Close()
-		if !pe.Advance(docId) {
+		doc, err := pe.Advance(docId)
+		if err != nil || doc != docId {
 			continue
 		}
+		freq, err := pe.Freq()
+		if err != nil {
+			continue
+		}
+		text := term.Bytes.String()
+		ctx.TermFreqsInDoc[text] = freq
 
-		freq := pe.Freq()
-		ctx.TermFreqsInDoc[term.String()] = freq
-
-		startOffsets := pe.StartOffsets()
-		endOffsets := pe.EndOffsets()
+		var startOffsets, endOffsets []int
+		for i := 0; i < freq; i++ {
+			if _, err := pe.NextPosition(); err != nil {
+				break
+			}
+			start, err := pe.StartOffset()
+			if err != nil {
+				break
+			}
+			end, err := pe.EndOffset()
+			if err != nil {
+				break
+			}
+			startOffsets = append(startOffsets, start)
+			endOffsets = append(endOffsets, end)
+		}
 		if len(startOffsets) == 0 || len(endOffsets) == 0 {
 			continue
 		}
 
 		entry := PostingsEntry{
-			Term:         term.String(),
+			Term:         text,
 			StartOffsets: startOffsets,
 			EndOffsets:   endOffsets,
 		}
@@ -468,10 +516,10 @@ func (uh *UnifiedHighlighter) HighlightWithoutSearcher(field string, query searc
 		return nil, errors.New("content is required")
 	}
 	queryTerms := extractTerms(query)
-	return uh.getFieldHighlighter(field, query, queryTerms, maxPassages).HighlightFieldForDoc(nil, -1, content), nil
+	return uh.getFieldHighlighter(field, query, queryTerms, maxPassages).HighlightFieldForDoc(content, content)
 }
 
-func (uh *UnifiedHighlighter) getFieldHighlighter(field string, query search.Query, allTerms map[*util.BytesRef]struct{}, maxPassages int) *FieldHighlighter {
+func (uh *UnifiedHighlighter) getFieldHighlighter(field string, query search.Query, allTerms map[*index.Term]struct{}, maxPassages int) *FieldHighlighter {
 	maskedFields := uh.getMaskedFields(field)
 	var fieldOffsetStrategy FieldOffsetStrategy
 	if len(maskedFields) == 0 {
@@ -503,14 +551,14 @@ func (uh *UnifiedHighlighter) getFieldHighlighter(field string, query search.Que
 	)
 }
 
-func (uh *UnifiedHighlighter) getHighlightComponents(field string, query search.Query, allTerms map[*util.BytesRef]struct{}) *UHComponents {
+func (uh *UnifiedHighlighter) getHighlightComponents(field string, query search.Query, allTerms map[*index.Term]struct{}) *UHComponents {
 	fieldMatcher := uh.getFieldMatcher(field)
 	highlightFlags := uh.getFlags(field)
 	phraseHelper := uh.getPhraseHelper(field, query, highlightFlags)
 	queryHasUnrecognizedPart := uh.hasUnrecognizedQuery(fieldMatcher, query)
 
 	var terms []*util.BytesRef
-	var automata []LabelledCharArrayMatcher
+	var automata []*LabelledCharArrayMatcher
 
 	_, hasWeightMatches := highlightFlags[HighlightFlagWeightMatches]
 	if !hasWeightMatches || !queryHasUnrecognizedPart {
@@ -518,54 +566,80 @@ func (uh *UnifiedHighlighter) getHighlightComponents(field string, query search.
 		automata = uh.getAutomata(field, query, highlightFlags)
 	}
 
-	return &UHComponents{
-		Field:                     field,
-		FieldMatcher:              fieldMatcher,
-		Query:                     query,
-		Terms:                     terms,
-		PhraseHelper:              phraseHelper,
-		Automata:                  automata,
-		QueryHasUnrecognizedQuery: queryHasUnrecognizedPart,
-		HighlightFlags:            highlightFlags,
-	}
+	return NewUHComponents(
+		field,
+		fieldMatcher,
+		query,
+		terms,
+		phraseHelper,
+		automata,
+		queryHasUnrecognizedPart,
+		highlightFlags,
+	)
 }
 
+// hasUnrecognizedQuery reports whether part of the query, other than the
+// extracted terms and automata, is a leaf the highlighter does not know.
+// Mirrors UnifiedHighlighter.hasUnrecognizedQuery(Predicate, Query).
 func (uh *UnifiedHighlighter) hasUnrecognizedQuery(fieldMatcher func(string) bool, query search.Query) bool {
-	hasUnknownLeaf := false
-	query.Visit(func(field string) bool {
-		if hasUnknownLeaf {
-			return false
-		}
-		return fieldMatcher(field)
-	}, func(q search.Query) {
-		if !CanExtractAutomataFromLeafQuery(q) {
-			if _, ok := q.(*search.MatchAllDocsQuery); !ok {
-				if _, ok := q.(*search.MatchNoDocsQuery); !ok {
-					hasUnknownLeaf = true
-				}
+	v := &unrecognizedQueryVisitor{fieldMatcher: fieldMatcher}
+	query.Visit(v)
+	return v.hasUnknownLeaf
+}
+
+// unrecognizedQueryVisitor renders the anonymous QueryVisitor Java declares
+// inside UnifiedHighlighter.hasUnrecognizedQuery.
+type unrecognizedQueryVisitor struct {
+	search.EmptyQueryVisitorBase
+	fieldMatcher   func(string) bool
+	hasUnknownLeaf bool
+}
+
+// AcceptField mirrors the anonymous visitor's acceptField: checking
+// hasUnknownLeaf is a trick to exit early.
+func (v *unrecognizedQueryVisitor) AcceptField(field string) bool {
+	return !v.hasUnknownLeaf && v.fieldMatcher(field)
+}
+
+// GetSubVisitor keeps the walk on this visitor, as QueryVisitor's default
+// body does.
+func (v *unrecognizedQueryVisitor) GetSubVisitor(occur search.Occur, parent search.Query) search.QueryVisitor {
+	return v
+}
+
+// VisitLeaf mirrors the anonymous visitor's visitLeaf.
+func (v *unrecognizedQueryVisitor) VisitLeaf(query search.Query) {
+	if !CanExtractAutomataFromLeafQuery(query) {
+		if _, ok := query.(*search.MatchAllDocsQuery); !ok {
+			if _, ok := query.(*search.MatchNoDocsQuery); !ok {
+				v.hasUnknownLeaf = true
 			}
 		}
-	})
-	return hasUnknownLeaf
+	}
 }
 
-func filterExtractedTerms(fieldMatcher func(string) bool, queryTerms map[*util.BytesRef]struct{}) []*util.BytesRef {
-	var filtered []*util.BytesRef
+// filterExtractedTerms strips the field off every matching term and sorts the
+// remaining bytes. Mirrors
+// UnifiedHighlighter.filterExtractedTerms(Predicate, Set)
+// (UnifiedHighlighter.java:1207).
+func filterExtractedTerms(fieldMatcher func(string) bool, queryTerms map[*index.Term]struct{}) []*util.BytesRef {
+	// Strip off the redundant field and sort the remaining terms
+	var filteredTerms []*util.BytesRef
 	for term := range queryTerms {
-		if fieldMatcher(term.String()) {
-			filtered = append(filtered, term)
+		if fieldMatcher(term.Field) {
+			filteredTerms = append(filteredTerms, term.Bytes)
 		}
 	}
-	sort.Slice(filtered, func(i, j int) bool {
-		return filtered[i].Compare(filtered[j]) < 0
+	sort.Slice(filteredTerms, func(i, j int) bool {
+		return util.BytesRefCompare(filteredTerms[i], filteredTerms[j]) < 0
 	})
-	return filtered
+	return filteredTerms
 }
 
 func (uh *UnifiedHighlighter) getPhraseHelper(field string, query search.Query, highlightFlags map[HighlightFlag]struct{}) *PhraseHelper {
 	_, useWeightMatchesIter := highlightFlags[HighlightFlagWeightMatches]
 	if useWeightMatchesIter {
-		return nil
+		return NONE // will be handled by Weight.matches which always considers phrases
 	}
 
 	_, highlightPhrasesStrictly := highlightFlags[HighlightFlagPhrases]
@@ -581,10 +655,10 @@ func (uh *UnifiedHighlighter) getPhraseHelper(field string, query search.Query, 
 			!handleMultiTermQuery,
 		)
 	}
-	return nil
+	return NONE
 }
 
-func (uh *UnifiedHighlighter) getAutomata(field string, query search.Query, highlightFlags map[HighlightFlag]struct{}) []LabelledCharArrayMatcher {
+func (uh *UnifiedHighlighter) getAutomata(field string, query search.Query, highlightFlags map[HighlightFlag]struct{}) []*LabelledCharArrayMatcher {
 	_, hasPhrases := highlightFlags[HighlightFlagPhrases]
 	_, hasWeightMatches := highlightFlags[HighlightFlagWeightMatches]
 
@@ -602,7 +676,7 @@ func (uh *UnifiedHighlighter) getOptimizedOffsetSource(components *UHComponents)
 
 	mtqOrRewrite := components.Automata == nil || len(components.Automata) > 0 ||
 		(components.PhraseHelper != nil && components.PhraseHelper.WillRewrite()) ||
-		components.QueryHasUnrecognizedQuery
+		components.HasUnrecognizedQueryPart
 
 	if !mtqOrRewrite && components.Terms != nil && len(components.Terms) == 0 {
 		return OffsetSourceNoneNeeded
@@ -633,7 +707,7 @@ func (uh *UnifiedHighlighter) getOffsetStrategy(offsetSource OffsetSource, compo
 		}
 		return NewMemoryIndexOffsetStrategy(components, uh.indexAnalyzer)
 	case OffsetSourceNoneNeeded:
-		return NoOpOffsetStrategy{}
+		return NoOpOffsetStrategyINSTANCE
 	case OffsetSourceTermVectors:
 		return NewTermVectorOffsetStrategy(components)
 	case OffsetSourcePostings:
@@ -644,7 +718,7 @@ func (uh *UnifiedHighlighter) getOffsetStrategy(offsetSource OffsetSource, compo
 	panic("Unrecognized offset source")
 }
 
-func (uh *UnifiedHighlighter) requiresRewrite(spanQuery search.Query) *bool {
+func (uh *UnifiedHighlighter) requiresRewrite(spanQuery spans.SpanQuery) *bool {
 	return nil
 }
 
@@ -731,7 +805,16 @@ func (v *LimitedStoredFieldVisitor) Init() {
 	v.currentField = -1
 }
 
-func (v *LimitedStoredFieldVisitor) StringField(fieldInfo index.FieldInfo, value string) {
+// StringField renders LimitedStoredFieldVisitor.stringField(FieldInfo, String).
+//
+// Java receives the FieldInfo and relies on needsField(FieldInfo) having
+// already selected the current field; Gocene's spi.StoredFieldVisitor passes
+// the field name and never calls needsField, so the selection is performed
+// here through the same body.
+func (v *LimitedStoredFieldVisitor) StringField(field string, value string) {
+	if !v.selectField(field) {
+		return
+	}
 	if v.currentField < 0 {
 		return
 	}
@@ -762,9 +845,32 @@ func (v *LimitedStoredFieldVisitor) StringField(fieldInfo index.FieldInfo, value
 	v.values[v.currentField] = curValue + sep + valToAppend
 }
 
+// BinaryField renders StoredFieldVisitor.binaryField(FieldInfo, byte[]), whose
+// body in Java is empty because LimitedStoredFieldVisitor does not override it.
+func (v *LimitedStoredFieldVisitor) BinaryField(field string, value []byte) {}
+
+// IntField renders the empty StoredFieldVisitor.intField(FieldInfo, int).
+func (v *LimitedStoredFieldVisitor) IntField(field string, value int) {}
+
+// LongField renders the empty StoredFieldVisitor.longField(FieldInfo, long).
+func (v *LimitedStoredFieldVisitor) LongField(field string, value int64) {}
+
+// FloatField renders the empty StoredFieldVisitor.floatField(FieldInfo, float).
+func (v *LimitedStoredFieldVisitor) FloatField(field string, value float32) {}
+
+// DoubleField renders the empty StoredFieldVisitor.doubleField(FieldInfo, double).
+func (v *LimitedStoredFieldVisitor) DoubleField(field string, value float64) {}
+
+// NeedsField renders LimitedStoredFieldVisitor.needsField(FieldInfo).
 func (v *LimitedStoredFieldVisitor) NeedsField(fieldInfo index.FieldInfo) bool {
-	v.currentField = sort.SearchStrings(v.fields, fieldInfo.Name())
-	if v.currentField == len(v.fields) || v.fields[v.currentField] != fieldInfo.Name() {
+	return v.selectField(fieldInfo.Name())
+}
+
+// selectField is the body of needsField keyed by field name, so that both
+// NeedsField and StringField can reach it.
+func (v *LimitedStoredFieldVisitor) selectField(fieldName string) bool {
+	v.currentField = sort.SearchStrings(v.fields, fieldName)
+	if v.currentField == len(v.fields) || v.fields[v.currentField] != fieldName {
 		return false
 	}
 	curVal := v.values[v.currentField]
@@ -778,11 +884,14 @@ func (v *LimitedStoredFieldVisitor) GetValuesByField() []string {
 	return v.values
 }
 
-func extractTerms(query search.Query) map[*util.BytesRef]struct{} {
+// extractTerms collects every index term the query exposes. Mirrors
+// UnifiedHighlighter.extractTerms(Query) (UnifiedHighlighter.java:481), which
+// returns a Set<Term>.
+func extractTerms(query search.Query) map[*index.Term]struct{} {
 	collector := search.NewTermCollectorVisitor()
 	query.Visit(collector)
 
-	terms := make(map[*util.BytesRef]struct{})
+	terms := make(map[*index.Term]struct{})
 	for _, t := range collector.Terms {
 		terms[t] = struct{}{}
 	}
@@ -813,7 +922,7 @@ func (uh *UnifiedHighlighter) getBreakIterator(field string) BreakIterator {
 	return uh.breakIterator()
 }
 
-func (uh *UnifiedHighlighter) getScorer(field string) PassageScorer {
+func (uh *UnifiedHighlighter) getScorer(field string) *PassageScorer {
 	return uh.scorer
 }
 
@@ -832,7 +941,7 @@ func (uh *UnifiedHighlighter) getMaxNoHighlightPassages(field string) int {
 func (uh *UnifiedHighlighter) getOffsetSource(field string) OffsetSource {
 	fieldInfo := uh.getFieldInfo(field)
 	if fieldInfo != nil {
-		if fieldInfo.IndexOptions == index.DocsAndFreqsAndPositionsAndOffsets {
+		if fieldInfo.IndexOptions() == index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets {
 			if fieldInfo.HasTermVectors() {
 				return OffsetSourcePostingsWithTermVectors
 			}
@@ -852,7 +961,11 @@ func (uh *UnifiedHighlighter) getFieldInfo(field string) *index.FieldInfo {
 	uh.fieldInfosMu.Lock()
 	defer uh.fieldInfosMu.Unlock()
 	if uh.fieldInfos == nil {
-		uh.fieldInfos = uh.searcher.IndexReader().GetFieldInfos()
+		fieldInfos, err := index.FieldInfosGetMergedFieldInfos(uh.searcher.GetIndexReader())
+		if err != nil {
+			return nil
+		}
+		uh.fieldInfos = fieldInfos
 	}
 	return uh.fieldInfos.FieldInfoByName(field)
 }

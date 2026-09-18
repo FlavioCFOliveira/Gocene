@@ -45,15 +45,12 @@ func NRTSuggesterDecode(output int64) int64 {
 // and a vint-encoded docID. Mirrors
 // NRTSuggester.PayLoadProcessor.make(BytesRef, int, int).
 func makePayload(surface []byte, docID int, sep int) *util.BytesRef {
-	out := store.NewByteArrayDataOutput(len(surface) + maxDocIDLenWithSep)
+	buffer := make([]byte, len(surface)+maxDocIDLenWithSep)
+	out := store.NewByteArrayDataOutput(buffer)
 	_ = out.WriteBytes(surface, 0, len(surface))
 	_ = out.WriteByte(byte(sep))
 	_ = out.WriteVInt(int32(docID))
-	pos := out.GetPosition()
-	src := out.GetBytes()
-	b := make([]byte, pos)
-	copy(b, src[:pos])
-	return &util.BytesRef{Bytes: b, Offset: 0, Length: pos}
+	return &util.BytesRef{Bytes: buffer, Offset: 0, Length: out.GetPosition()}
 }
 
 // nrtEntry is a single (payload, weight) pair queued during term processing.

@@ -3,30 +3,37 @@
 // term vectors, or re-analysis on demand.
 package uhighlight
 
-// OffsetsEnum is the iteration primitive every uhighlight FieldOffsetStrategy
-// produces: a stream of (term, startOffset, endOffset, weight) tuples in
-// document order. Mirrors org.apache.lucene.search.uhighlight.OffsetsEnum.
+// OffsetsEnum is a view over the positionally-sorted matching spans of a
+// document.
+//
+// This is the Go port of the abstract class
+// org.apache.lucene.search.uhighlight.OffsetsEnum from Apache Lucene 10.5.0;
+// its member set is that class's abstract methods plus close(). Every Java
+// member declares `throws IOException`, which Gocene renders as a trailing
+// error result.
 type OffsetsEnum interface {
-	// Next advances to the next offset; false at end-of-stream.
-	Next() bool
+	// NextPosition advances to the next position, returning false when the
+	// enum is exhausted. Mirrors OffsetsEnum.nextPosition().
+	NextPosition() (bool, error)
 
-	// Term returns the term text for the current offset.
-	Term() string
+	// Freq returns the term frequency of the current term in the document.
+	// Mirrors OffsetsEnum.freq().
+	Freq() (int, error)
 
-	// StartOffset returns the start character offset.
-	StartOffset() int
+	// GetTerm returns the term at the current position. Mirrors
+	// OffsetsEnum.getTerm().
+	GetTerm() ([]byte, error)
 
-	// EndOffset returns the end (exclusive) character offset.
-	EndOffset() int
+	// StartOffset returns the start character offset of the current position.
+	// Mirrors OffsetsEnum.startOffset().
+	StartOffset() (int, error)
 
-	// Weight returns the highlighter weight for the current offset.
-	Weight() float32
+	// EndOffset returns the end (exclusive) character offset of the current
+	// position. Mirrors OffsetsEnum.endOffset().
+	EndOffset() (int, error)
 
-	// FreqIndex returns the per-term occurrence counter for the current
-	// position (matches the Java FreqIndex contract).
-	FreqIndex() int
-
-	// Close releases resources held by the enum.
+	// Close releases resources held by the enum. Mirrors
+	// OffsetsEnum.close(), whose body in Java is empty.
 	Close() error
 }
 
@@ -36,12 +43,12 @@ type SliceOffsetsEnum struct {
 	idx     int
 }
 
-// OffsetEntry is a single (term, start, end, weight) tuple.
+// OffsetEntry is a single (term, start, end, freq) tuple.
 type OffsetEntry struct {
 	Term        string
 	StartOffset int
 	EndOffset   int
-	Weight      float32
+	Freq        int
 }
 
 // NewSliceOffsetsEnum builds an enum backed by entries.
@@ -51,43 +58,45 @@ func NewSliceOffsetsEnum(entries []OffsetEntry) *SliceOffsetsEnum {
 	return &SliceOffsetsEnum{entries: clone, idx: -1}
 }
 
-// Next advances to the next entry.
-func (e *SliceOffsetsEnum) Next() bool { e.idx++; return e.idx < len(e.entries) }
+// NextPosition advances to the next entry.
+func (e *SliceOffsetsEnum) NextPosition() (bool, error) {
+	e.idx++
+	return e.idx < len(e.entries), nil
+}
 
-// Term returns the current term.
-func (e *SliceOffsetsEnum) Term() string {
+// GetTerm returns the current term.
+func (e *SliceOffsetsEnum) GetTerm() ([]byte, error) {
 	if e.idx < 0 || e.idx >= len(e.entries) {
-		return ""
+		return nil, nil
 	}
-	return e.entries[e.idx].Term
+	return []byte(e.entries[e.idx].Term), nil
 }
 
 // StartOffset returns the current start offset.
-func (e *SliceOffsetsEnum) StartOffset() int {
+func (e *SliceOffsetsEnum) StartOffset() (int, error) {
 	if e.idx < 0 || e.idx >= len(e.entries) {
-		return -1
+		return -1, nil
 	}
-	return e.entries[e.idx].StartOffset
+	return e.entries[e.idx].StartOffset, nil
 }
 
 // EndOffset returns the current end offset.
-func (e *SliceOffsetsEnum) EndOffset() int {
+func (e *SliceOffsetsEnum) EndOffset() (int, error) {
 	if e.idx < 0 || e.idx >= len(e.entries) {
-		return -1
+		return -1, nil
 	}
-	return e.entries[e.idx].EndOffset
+	return e.entries[e.idx].EndOffset, nil
 }
 
-// Weight returns the current weight.
-func (e *SliceOffsetsEnum) Weight() float32 {
+// Freq returns the term frequency recorded for the current entry.
+func (e *SliceOffsetsEnum) Freq() (int, error) {
 	if e.idx < 0 || e.idx >= len(e.entries) {
-		return 0
+		return 0, nil
 	}
-	return e.entries[e.idx].Weight
+	return e.entries[e.idx].Freq, nil
 }
-
-// FreqIndex returns the current index within the entry list.
-func (e *SliceOffsetsEnum) FreqIndex() int { return e.idx }
 
 // Close is a no-op.
 func (e *SliceOffsetsEnum) Close() error { return nil }
+
+var _ OffsetsEnum = (*SliceOffsetsEnum)(nil)

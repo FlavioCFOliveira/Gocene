@@ -1,12 +1,15 @@
 package uhighlight
 
 import (
+	"bytes"
+	"fmt"
+	"sort"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
 	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // PhraseHelper helps the FieldOffsetStrategy with position sensitive queries.
@@ -66,19 +69,19 @@ func NewPhraseHelper(
 			if res != nil {
 				return *res
 			}
-			return extractor.MustRewriteQuery(sq)
+			return extractor.mustRewriteQuery(sq)
 		},
 		func(sq spans.SpanQuery) {
 			// If this span query isn't for this field, skip it.
 			fieldNames := make(map[string]bool)
-			extractor.CollectSpanQueryFields(sq, fieldNames)
+			extractor.collectSpanQueryFields(sq, fieldNames)
 			for fn := range fieldNames {
 				if !fieldMatcher(fn) {
 					return
 				}
 			}
 
-			mustRewrite := extractor.MustRewriteQuery(sq)
+			mustRewrite := extractor.mustRewriteQuery(sq)
 			if ignoreQueriesNeedingRewrite && mustRewrite {
 				return
 			}
@@ -115,11 +118,11 @@ func extractForPhraseHelper(
 	var extract func(search.Query, float32) error
 	extract = func(q search.Query, boost float32) error {
 		if bq, ok := q.(*search.BoostQuery); ok {
-			return extract(bq.GetQuery(), boost*bq.GetBoost())
+			return extract(bq.Query(), boost*bq.Boost())
 		}
 
 		if bq, ok := q.(*search.BooleanQuery); ok {
-			for _, clause := range bq.Clauses {
+			for _, clause := range bq.Clauses() {
 				if !clause.IsProhibited() {
 					if err := extract(clause.Query(), boost); err != nil {
 						return err
@@ -167,19 +170,11 @@ func extractForPhraseHelper(
 		}
 
 		if _, ok := q.(*search.TermQuery); ok {
-			q.Visit(search.TermCollector(func(field string, term []byte) {
-				if fieldMatcher(field) {
-					onWeightedTerm(term)
-				}
-			}))
+			q.Visit(newPositionInsensitiveTermVisitor(fieldMatcher, onWeightedTerm))
 			return nil
 		}
 		if _, ok := q.(*search.SynonymQuery); ok {
-			q.Visit(search.TermCollector(func(field string, term []byte) {
-				if fieldMatcher(field) {
-					onWeightedTerm(term)
-				}
-			}))
+			q.Visit(newPositionInsensitiveTermVisitor(fieldMatcher, onWeightedTerm))
 			return nil
 		}
 
@@ -197,16 +192,12 @@ func extractForPhraseHelper(
 		}
 
 		if ctq, ok := q.(*queries.CommonTermsQuery); ok {
-			ctq.Visit(search.TermCollector(func(field string, term []byte) {
-				if fieldMatcher(field) {
-					onWeightedTerm(term)
-				}
-			}))
+			ctq.Visit(newPositionInsensitiveTermVisitor(fieldMatcher, onWeightedTerm))
 			return nil
 		}
 
 		if dmq, ok := q.(*search.DisjunctionMaxQuery); ok {
-			for _, clause := range dmq.Clauses {
+			for _, clause := range dmq.Disjuncts() {
 				if err := extract(clause, boost); err != nil {
 					return err
 				}
@@ -275,25 +266,30 @@ func extractForPhraseHelper(
 			return extract(fsq.GetWrappedQuery(), boost)
 		}
 
-		// Handle multi-term queries if enabled.
-		if mtq, ok := q.(*search.MultiTermQuery); ok {
-			// In PhraseHelper, MTQ is processed separately (MultiTermHighlighting.java).
-			// So we return true (unsupported) here.
+		// PhraseHelper overrides isQueryUnsupported to answer true for every
+		// class (MTQ is processed separately in MultiTermHighlighting.java), so
+		// Java never reaches the rewrite fallback below from here. The fallback
+		// is kept because WeightedSpanTermExtractor.extract declares it.
+		if _, ok := q.(*search.MultiTermQuery); ok {
 			return nil
 		}
 
 		// Final fallback: rewrite and recurse.
-		reader, err := extractor.GetLeafContext()
+		leafContext, err := extractor.getLeafContext()
 		if err != nil {
 			return err
 		}
-		defer extractor.CloseInternalReader()
+		defer extractor.closeInternalReader()
+		reader := leafContext.Reader()
 
 		var rewritten search.Query
 		if mtq, ok := q.(*search.MultiTermQuery); ok {
-			rewritten = search.RewriteMultiTermQuery(search.NewIndexSearcher(reader), mtq, search.ScoringBooleanRewrite)
+			rewritten, err = search.ScoringBooleanRewrite.Rewrite(search.NewIndexSearcher(reader), mtq)
 		} else {
-			rewritten = q.Rewrite(search.NewIndexSearcher(reader))
+			rewritten, err = q.Rewrite(search.NewIndexSearcher(reader))
+		}
+		if err != nil {
+			return err
 		}
 
 		if rewritten != q {
@@ -322,53 +318,209 @@ func (p *PhraseHelper) GetAllPositionInsensitiveTerms() [][]byte {
 	for t := range p.positionInsensitiveTerms {
 		res = append(res, []byte(t))
 	}
-	util.SortBytesRefs(res)
+	sort.Slice(res, func(i, j int) bool { return bytes.Compare(res[i], res[j]) < 0 })
 	return res
 }
 
-// CreateOffsetsEnumsForSpans produces a number of OffsetsEnum into the results param.
-func (p *PhraseHelper) CreateOffsetsEnumsForSpans(leafReader index.LeafReader, docID int, results []*OffsetsEnum) error {
+// CreateOffsetsEnumsForSpans produces a number of OffsetsEnum into the results
+// param. Mirrors
+// PhraseHelper.createOffsetsEnumsForSpans(LeafReader, int, List<OffsetsEnum>)
+// (PhraseHelper.java:240). Java appends to the caller's List; Go slices are
+// values, so results is a pointer to the caller's slice.
+func (p *PhraseHelper) CreateOffsetsEnumsForSpans(leafReader index.LeafReader, docID int, results *[]OffsetsEnum) error {
 	// wrap reader to a single field.
-	reader := index.NewSingleFieldWithOffsetsFilterLeafReader(leafReader, p.fieldName)
+	reader := newSingleFieldWithOffsetsFilterLeafReader(leafReader, p.fieldName)
 	searcher := search.NewIndexSearcher(reader)
 	searcher.SetQueryCache(nil)
 
-	spansPQ := newSpansPQ(len(p.spanQueries))
+	readerContext, err := reader.GetContext()
+	if err != nil {
+		return err
+	}
+	leafContext, ok := readerContext.(*index.LeafReaderContext)
+	if !ok {
+		return fmt.Errorf("uhighlight: expected a LeafReaderContext, got %T", readerContext)
+	}
+
+	// Get the array of matching spans from the spanQueries
+	spansPriorityQueue := newSpansPQ(len(p.spanQueries))
 	for q := range p.spanQueries {
-		weight := searcher.CreateWeight(searcher.Rewrite(q), search.ScoreModeCompleteNoScores, 1.0)
-		scorer := weight.GetScorer(reader.GetContext())
+		rewritten, err := searcher.Rewrite(q)
+		if err != nil {
+			return err
+		}
+		weight, err := searcher.CreateWeight(rewritten, search.ScoreModeCompleteNoScores, 1)
+		if err != nil {
+			return err
+		}
+		scorer, err := weight.Scorer(leafContext)
+		if err != nil {
+			return err
+		}
 		if scorer == nil {
 			continue
 		}
-
-		// Use TwoPhaseIterator to check for matches.
-		if tpi, ok := scorer.TwoPhaseIterator(); ok {
-			if tpi.Approximation().Advance(docID) != docID || !tpi.Matches() {
+		if twoPhaseIterator := scorer.TwoPhaseIterator(); twoPhaseIterator != nil {
+			doc, err := twoPhaseIterator.Approximation().Advance(docID)
+			if err != nil {
+				return err
+			}
+			matches, err := twoPhaseIterator.Matches()
+			if err != nil {
+				return err
+			}
+			if doc != docID || !matches {
 				continue
 			}
-		} else if scorer.Iterator().Advance(docID) != docID {
-			continue
+		} else {
+			doc, err := scorer.Iterator().Advance(docID)
+			if err != nil {
+				return err
+			}
+			if doc != docID {
+				continue
+			}
 		}
 
-		spans := scorer.GetSpans()
-		if spans != nil && spans.NextStartPosition() != spans.NoMorePositions {
-			spansPQ.Push(spans)
+		spanScorer, ok := scorer.(*spans.SpanScorer)
+		if !ok {
+			return fmt.Errorf("uhighlight: expected a SpanScorer, got %T", scorer)
+		}
+		matchSpans := spanScorer.GetSpans()
+		start, err := matchSpans.NextStartPosition()
+		if err != nil {
+			return err
+		}
+		if start != spans.NoMorePositions {
+			spansPriorityQueue.Push(matchSpans)
 		}
 	}
 
-	collector := newOffsetSpanCollector(p.fieldMatcher)
-	for spansPQ.Len() > 0 {
-		spans := spansPQ.Pop()
-		spans.Collect(collector)
-		if spans.NextStartPosition() != spans.NoMorePositions {
-			spansPQ.Push(spans)
+	// Iterate the Spans in the PriorityQueue, collecting as we go.
+	collector := p.newOffsetSpanCollector()
+	for spansPriorityQueue.Len() > 0 {
+		matchSpans := spansPriorityQueue.Pop()
+		if err := matchSpans.Collect(collector); err != nil {
+			return err
+		}
+		start, err := matchSpans.NextStartPosition()
+		if err != nil {
+			return err
+		}
+		if start != spans.NoMorePositions {
+			spansPriorityQueue.Push(matchSpans)
 		}
 	}
 
 	for _, oe := range collector.termToOffsetsEnums {
-		results = append(results, oe)
+		*results = append(*results, oe)
 	}
 	return nil
+}
+
+// singleFieldWithOffsetsFilterLeafReader restricts a LeafReader to one field
+// and forces its postings to carry offsets. Mirrors the private static class
+// PhraseHelper.SingleFieldWithOffsetsFilterLeafReader (PhraseHelper.java:301).
+type singleFieldWithOffsetsFilterLeafReader struct {
+	*index.FilterLeafReader
+	fieldName string
+}
+
+func newSingleFieldWithOffsetsFilterLeafReader(in index.LeafReader, fieldName string) *singleFieldWithOffsetsFilterLeafReader {
+	return &singleFieldWithOffsetsFilterLeafReader{
+		FilterLeafReader: index.NewFilterLeafReader(in),
+		fieldName:        fieldName,
+	}
+}
+
+// GetFieldInfos mirrors the override that throws UnsupportedOperationException.
+func (r *singleFieldWithOffsetsFilterLeafReader) GetFieldInfos() *index.FieldInfos {
+	panic("uhighlight: SingleFieldWithOffsetsFilterLeafReader.getFieldInfos is unsupported")
+}
+
+// Terms always reads the single wrapped field and ensures the underlying
+// PostingsEnum returns offsets.
+func (r *singleFieldWithOffsetsFilterLeafReader) Terms(field string) (index.Terms, error) {
+	in, err := r.FilterLeafReader.Terms(r.fieldName)
+	if err != nil {
+		return nil, err
+	}
+	if in == nil {
+		return nil, nil
+	}
+	return &offsetForcingTerms{FilterTerms: index.NewFilterTerms(in)}, nil
+}
+
+// GetNormValues always reads the single wrapped field.
+func (r *singleFieldWithOffsetsFilterLeafReader) GetNormValues(field string) (index.NumericDocValues, error) {
+	return r.FilterLeafReader.GetNormValues(r.fieldName)
+}
+
+// GetCoreCacheHelper mirrors the override returning null.
+func (r *singleFieldWithOffsetsFilterLeafReader) GetCoreCacheHelper() index.CacheHelper { return nil }
+
+// GetReaderCacheHelper mirrors the override returning null.
+func (r *singleFieldWithOffsetsFilterLeafReader) GetReaderCacheHelper() index.CacheHelper { return nil }
+
+// offsetForcingTerms renders the anonymous FilterTerms of
+// SingleFieldWithOffsetsFilterLeafReader.terms(String).
+type offsetForcingTerms struct {
+	*index.FilterTerms
+}
+
+// Iterator wraps the delegate's TermsEnum so that every postings request asks
+// for offsets.
+func (t *offsetForcingTerms) Iterator() (index.TermsEnum, error) {
+	in, err := t.FilterTerms.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	return &offsetForcingTermsEnum{FilterTermsEnum: index.NewFilterTermsEnum(in)}, nil
+}
+
+// offsetForcingTermsEnum renders the anonymous FilterTermsEnum of
+// SingleFieldWithOffsetsFilterLeafReader.terms(String).
+type offsetForcingTermsEnum struct {
+	*index.FilterTermsEnum
+}
+
+// Postings adds PostingsEnum.OFFSETS to the requested flags. Java's override
+// takes the reuse PostingsEnum too; Gocene's index.TermsEnum.Postings does not
+// declare that parameter.
+func (e *offsetForcingTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
+	return e.FilterTermsEnum.Postings(flags | index.PostingsFlagOffsets)
+}
+
+// positionInsensitiveTermVisitor renders the anonymous QueryVisitor declared
+// inside the extractWeightedTerms override of PhraseHelper's anonymous
+// WeightedSpanTermExtractor (PhraseHelper.java:149).
+type positionInsensitiveTermVisitor struct {
+	search.EmptyQueryVisitorBase
+	fieldMatcher   func(string) bool
+	onWeightedTerm func([]byte)
+}
+
+func newPositionInsensitiveTermVisitor(fieldMatcher func(string) bool, onWeightedTerm func([]byte)) *positionInsensitiveTermVisitor {
+	return &positionInsensitiveTermVisitor{fieldMatcher: fieldMatcher, onWeightedTerm: onWeightedTerm}
+}
+
+// AcceptField mirrors the anonymous visitor's acceptField.
+func (v *positionInsensitiveTermVisitor) AcceptField(field string) bool {
+	return v.fieldMatcher(field)
+}
+
+// GetSubVisitor keeps the walk on this visitor, as QueryVisitor's default body
+// does.
+func (v *positionInsensitiveTermVisitor) GetSubVisitor(occur search.Occur, parent search.Query) search.QueryVisitor {
+	return v
+}
+
+// ConsumeTerms mirrors the anonymous visitor's consumeTerms, which adds every
+// term's bytes to positionInsensitiveTerms.
+func (v *positionInsensitiveTermVisitor) ConsumeTerms(query search.Query, terms ...*index.Term) {
+	for _, term := range terms {
+		v.onWeightedTerm(term.Bytes.Bytes[term.Bytes.Offset : term.Bytes.Offset+term.Bytes.Length])
+	}
 }
 
 // Internal priority queue for Spans.
@@ -395,32 +547,58 @@ func (pq *spansPQ) Pop() spans.Spans {
 	return res
 }
 
-// Internal collector for spans.
+// offsetSpanCollector renders the inner class PhraseHelper.OffsetSpanCollector
+// (PhraseHelper.java:347).
 type offsetSpanCollector struct {
-	fieldMatcher       func(string) bool
-	termToOffsetsEnums map[string]*OffsetsEnum
+	phraseHelper       *PhraseHelper
+	termToOffsetsEnums map[string]*SpanCollectedOffsetsEnum
 }
 
-func newOffsetSpanCollector(fm func(string) bool) *offsetSpanCollector {
+func (p *PhraseHelper) newOffsetSpanCollector() *offsetSpanCollector {
 	return &offsetSpanCollector{
-		fieldMatcher:       fm,
-		termToOffsetsEnums: make(map[string]*OffsetsEnum),
+		phraseHelper:       p,
+		termToOffsetsEnums: make(map[string]*SpanCollectedOffsetsEnum),
 	}
 }
 
+// CollectLeaf mirrors OffsetSpanCollector.collectLeaf(PostingsEnum, int, Term).
 func (c *offsetSpanCollector) CollectLeaf(postings index.PostingsEnum, position int, term index.Term) error {
-	if !c.fieldMatcher(term.Field) {
+	if !c.phraseHelper.fieldMatcher(term.Field) {
 		return nil
 	}
-	bytes := term.Text()
-	oe, ok := c.termToOffsetsEnums[string(bytes)]
+	termBytes := term.Bytes.Bytes[term.Bytes.Offset : term.Bytes.Offset+term.Bytes.Length]
+	key := string(termBytes)
+	offsetsEnum, ok := c.termToOffsetsEnums[key]
 	if !ok {
-		oe = NewSpanCollectedOffsetsEnum(bytes, postings.Freq())
-		c.termToOffsetsEnums[string(bytes)] = oe
+		// If it's pos insensitive we handle it outside of PhraseHelper.
+		// term.field() is from the Query.
+		if c.phraseHelper.positionInsensitiveTerms[key] {
+			return nil
+		}
+		freq, err := postings.Freq()
+		if err != nil {
+			return err
+		}
+		offsetsEnum = NewSpanCollectedOffsetsEnum(termBytes, freq)
+		c.termToOffsetsEnums[key] = offsetsEnum
 	}
-	oe.Add(postings.StartOffset(), postings.EndOffset())
+	startOffset, err := postings.StartOffset()
+	if err != nil {
+		return err
+	}
+	endOffset, err := postings.EndOffset()
+	if err != nil {
+		return err
+	}
+	offsetsEnum.Add(startOffset, endOffset)
 	return nil
 }
+
+// Reset mirrors OffsetSpanCollector.reset(): called when at a new position. We
+// don't care.
+func (c *offsetSpanCollector) Reset() {}
+
+var _ spans.SpanCollector = (*offsetSpanCollector)(nil)
 
 // SpanCollectedOffsetsEnum implements OffsetsEnum for spans.
 type SpanCollectedOffsetsEnum struct {
@@ -459,23 +637,29 @@ func (oe *SpanCollectedOffsetsEnum) Add(start, end int) {
 	oe.numPairs++
 }
 
-func (oe *SpanCollectedOffsetsEnum) NextPosition() bool {
+func (oe *SpanCollectedOffsetsEnum) NextPosition() (bool, error) {
 	oe.enumIdx++
-	return oe.enumIdx < oe.numPairs
+	return oe.enumIdx < oe.numPairs, nil
 }
 
-func (oe *SpanCollectedOffsetsEnum) Freq() int {
-	return oe.numPairs
+func (oe *SpanCollectedOffsetsEnum) Freq() (int, error) {
+	return oe.numPairs, nil
 }
 
-func (oe *SpanCollectedOffsetsEnum) GetTerm() []byte {
-	return oe.term
+func (oe *SpanCollectedOffsetsEnum) GetTerm() ([]byte, error) {
+	return oe.term, nil
 }
 
-func (oe *SpanCollectedOffsetsEnum) StartOffset() int {
-	return oe.startOffsets[oe.enumIdx]
+func (oe *SpanCollectedOffsetsEnum) StartOffset() (int, error) {
+	return oe.startOffsets[oe.enumIdx], nil
 }
 
-func (oe *SpanCollectedOffsetsEnum) EndOffset() int {
-	return oe.endOffsets[oe.enumIdx]
+func (oe *SpanCollectedOffsetsEnum) EndOffset() (int, error) {
+	return oe.endOffsets[oe.enumIdx], nil
 }
+
+// Close mirrors OffsetsEnum.close(), whose body is empty and which
+// SpanCollectedOffsetsEnum does not override.
+func (oe *SpanCollectedOffsetsEnum) Close() error { return nil }
+
+var _ OffsetsEnum = (*SpanCollectedOffsetsEnum)(nil)

@@ -1,6 +1,8 @@
 package uhighlight
 
-import "unicode"
+import (
+	"strings"
+)
 
 // BreakIterator is the minimal contract the uhighlight package needs from a
 // text segmenter: given a text and a starting position, return the boundary
@@ -94,38 +96,146 @@ func (b *LengthGoalBreakIterator) Preceding(text string, pos int) int {
 
 var _ BreakIterator = (*LengthGoalBreakIterator)(nil)
 
-// SplittingBreakIterator is a basic BreakIterator that breaks on any whitespace.
-// Mirrors org.apache.lucene.search.uhighlight.SplittingBreakIterator.
-type SplittingBreakIterator struct{}
-
-// Following walks forward from pos to the next whitespace boundary.
-func (SplittingBreakIterator) Following(text string, pos int) int {
-	for i, r := range text {
-		if i <= pos {
-			continue
-		}
-		if unicode.IsSpace(r) {
-			return i
-		}
-	}
-	return -1
+// SplittingBreakIterator is a BreakIterator that "sees" one or more
+// characters as the boundary of a slice of the text, and it delegates the
+// boundaries inside each slice to a wrapped BreakIterator.
+//
+// This is the Go port of
+// org.apache.lucene.search.uhighlight.SplittingBreakIterator from Apache
+// Lucene 10.5.0.
+//
+// Java's class extends java.text.BreakIterator, a stateful cursor
+// (setText/current/first/last/next/previous/isBoundary/clone) that the JVM
+// supplies and Go does not. Gocene models a BreakIterator as the stateless
+// pair Following/Preceding, which carries the text on every call, so the
+// sliceStartIdx / sliceEndIdx bookkeeping Java keeps between calls is
+// recomputed here from text and the offset, and baseIter.first() /
+// baseIter.last() inside a slice are its two ends.
+type SplittingBreakIterator struct {
+	baseIter  BreakIterator
+	sliceChar rune
 }
 
-// Preceding walks backward from pos to the previous whitespace boundary.
-func (SplittingBreakIterator) Preceding(text string, pos int) int {
-	last := 0
-	for i, r := range text {
-		if i >= pos {
-			break
-		}
-		if unicode.IsSpace(r) {
-			last = i + 1
-		}
-	}
-	return last
+// NewSplittingBreakIterator builds the iterator over baseIter, slicing the
+// text at every occurrence of sliceChar.
+func NewSplittingBreakIterator(baseIter BreakIterator, sliceChar rune) *SplittingBreakIterator {
+	return &SplittingBreakIterator{baseIter: baseIter, sliceChar: sliceChar}
 }
 
-var _ BreakIterator = SplittingBreakIterator{}
+// sliceAt returns the [start, end) slice of text that contains offset, where
+// the slice boundaries are the sliceChar occurrences around it. It renders the
+// sliceStartIdx / sliceEndIdx computation of
+// SplittingBreakIterator.following(int).
+func (b *SplittingBreakIterator) sliceAt(text string, offset int) (int, int) {
+	sliceStartIdx := lastIndexRuneBefore(text, b.sliceChar, offset) // no +1
+	if sliceStartIdx == -1 {
+		sliceStartIdx = 0
+	} else {
+		sliceStartIdx++ // move past separator
+	}
+	from := offset + 1
+	if sliceStartIdx > from {
+		from = sliceStartIdx
+	}
+	sliceEndIdx := indexRuneFrom(text, b.sliceChar, from)
+	if sliceEndIdx == -1 {
+		sliceEndIdx = len(text)
+	}
+	return sliceStartIdx, sliceEndIdx
+}
+
+// Following returns the first boundary after pos, or -1 when none exists.
+// Mirrors SplittingBreakIterator.following(int).
+func (b *SplittingBreakIterator) Following(text string, pos int) int {
+	if pos >= len(text) { // DONE condition
+		return -1
+	}
+	sliceStartIdx, sliceEndIdx := b.sliceAt(text, pos)
+
+	// lookup following() in this slice:
+	if sliceStartIdx == sliceEndIdx { // adjacent separator or separator at end
+		return pos + 1
+	}
+	// note: following() can never be first() if the first character is a
+	// boundary (it usually is). So we have to check if we should call first()
+	// instead of following():
+	if pos == sliceStartIdx-1 {
+		// the first boundary following this offset is the very first boundary
+		// in this slice
+		return sliceStartIdx
+	}
+	following := b.baseIter.Following(text[sliceStartIdx:sliceEndIdx], pos-sliceStartIdx)
+	if following == -1 {
+		return -1
+	}
+	return sliceStartIdx + following
+}
+
+// Preceding returns the last boundary before pos, or 0 when none exists.
+// Mirrors SplittingBreakIterator.preceding(int); Java reports "no boundary" as
+// BreakIterator.DONE, while the Gocene BreakIterator contract reports it as 0.
+func (b *SplittingBreakIterator) Preceding(text string, pos int) int {
+	if pos <= 0 { // DONE condition
+		return 0
+	}
+	sliceEndIdx := indexRuneFrom(text, b.sliceChar, pos) // no -1
+	if sliceEndIdx == -1 {
+		sliceEndIdx = len(text)
+	}
+	sliceStartIdx := lastIndexRuneBefore(text, b.sliceChar, pos-1)
+	if sliceStartIdx == -1 {
+		sliceStartIdx = 0
+	} else {
+		sliceStartIdx++
+		if sliceStartIdx > sliceEndIdx {
+			sliceStartIdx = sliceEndIdx
+		}
+	}
+
+	// lookup preceding() in this slice:
+	if sliceStartIdx == sliceEndIdx { // adjacent separator or separator at end
+		return pos - 1
+	}
+	// note: preceding() can never be last() if the last character is a
+	// boundary (it usually is). So we have to check if we should call last()
+	// instead of preceding():
+	if pos == sliceEndIdx+1 {
+		// the last boundary preceding this offset is the very last boundary in
+		// this slice
+		return sliceEndIdx
+	}
+	return sliceStartIdx + b.baseIter.Preceding(text[sliceStartIdx:sliceEndIdx], pos-sliceStartIdx)
+}
+
+// indexRuneFrom renders String.indexOf(char, int): the index of the first r at
+// or after from, or -1.
+func indexRuneFrom(text string, r rune, from int) int {
+	if from < 0 {
+		from = 0
+	}
+	if from >= len(text) {
+		return -1
+	}
+	i := strings.IndexRune(text[from:], r)
+	if i == -1 {
+		return -1
+	}
+	return from + i
+}
+
+// lastIndexRuneBefore renders String.lastIndexOf(char, int): the index of the
+// last r at or before to, or -1.
+func lastIndexRuneBefore(text string, r rune, to int) int {
+	if to < 0 {
+		return -1
+	}
+	if to >= len(text) {
+		to = len(text) - 1
+	}
+	return strings.LastIndex(text[:to+1], string(r))
+}
+
+var _ BreakIterator = (*SplittingBreakIterator)(nil)
 
 // WholeBreakIterator treats the entire input as a single segment.
 // Mirrors org.apache.lucene.search.uhighlight.WholeBreakIterator.

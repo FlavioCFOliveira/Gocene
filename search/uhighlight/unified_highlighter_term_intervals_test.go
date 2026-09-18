@@ -76,7 +76,7 @@ func TestUnifiedHighlighterTermIntervals_MultiFieldsStrategy(t *testing.T) {
 		t.Errorf("Field() = %q, want %q", got, "title")
 	}
 	// GetOffsetSource for a fan-out strategy returns None.
-	if got := mf.GetOffsetSource(); got != OffsetSourceNone {
+	if got := mf.GetOffsetSource(); got != OffsetSourceNoneNeeded {
 		t.Errorf("GetOffsetSource() = %d, want None", got)
 	}
 }

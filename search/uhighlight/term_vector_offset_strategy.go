@@ -41,9 +41,9 @@ type TermVectorOffsetStrategy struct {
 // field. Optional [TermVectorSelector] values configure the matcher set
 // the same way [AnalysisSelector] configures [AnalysisOffsetStrategy]
 // (see [NewAnalysisOffsetStrategy] for the back-compat rationale).
-func NewTermVectorOffsetStrategy(field string, sel ...TermVectorSelector) *TermVectorOffsetStrategy {
+func NewTermVectorOffsetStrategy(components *UHComponents, sel ...TermVectorSelector) *TermVectorOffsetStrategy {
 	s := &TermVectorOffsetStrategy{
-		BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field),
+		BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(components),
 	}
 	for _, opt := range sel {
 		opt(s)
@@ -97,13 +97,16 @@ func (s *TermVectorOffsetStrategy) GetOffsetsEnum(docContext any) (OffsetsEnum, 
 				"uhighlight: term-vector entry %q has mismatched offset arrays (starts=%d, ends=%d)",
 				e.Term, len(e.StartOffsets), len(e.EndOffsets))
 		}
-		weight := lookupFreq(ctx.TermFreqsInDoc, e.Term, float32(e.Frequency))
+		freq := e.Frequency
+		if f, ok := ctx.TermFreqsInDoc[e.Term]; ok {
+			freq = f
+		}
 		for i := range e.StartOffsets {
 			entries = append(entries, OffsetEntry{
 				Term:        e.Term,
 				StartOffset: e.StartOffsets[i],
 				EndOffset:   e.EndOffsets[i],
-				Weight:      weight,
+				Freq:        freq,
 			})
 		}
 	}

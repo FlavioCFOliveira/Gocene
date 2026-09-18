@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/analysis/miscellaneous"
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
@@ -38,10 +37,8 @@ type ContextSuggestField struct {
 // NewContextSuggestField creates a context-enabled suggest field.
 func NewContextSuggestField(name, value string, weight int, contexts ...string) *ContextSuggestField {
 	sf := NewSuggestField(name, value, weight)
-	for _, ctx := range contexts {
-		if err := validate(ctx); err != nil {
-			panic(err)
-		}
+	if err := validate(value); err != nil {
+		panic(err)
 	}
 
 	return &ContextSuggestField{
@@ -65,14 +62,21 @@ func (f *ContextSuggestField) TokenStream(analyzer analysis.Analyzer, reuse anal
 
 func (f *ContextSuggestField) wrapTokenStream(stream analysis.TokenStream) analysis.TokenStream {
 	ctxs := f.contexts()
-	prefixFilter := NewPrefixTokenFilter(stream, CONTEXT_SEPARATOR, ctxs)
-
-	return NewCompletionTokenStreamFull(
-		prefixFilter,
-		true,
-		true,
-		miscellaneous.DefaultMaxGraphExpansions,
-	)
+	for _, ctx := range ctxs {
+		if err := validate(ctx); err != nil {
+			panic(err)
+		}
+	}
+	if cts, ok := stream.(*CompletionTokenStream); ok {
+		prefixTokenFilter := NewPrefixTokenFilter(cts.inputTokenStream, CONTEXT_SEPARATOR, ctxs)
+		return NewCompletionTokenStreamFull(
+			prefixTokenFilter,
+			cts.PreserveSep,
+			cts.PreservePositionIncrements,
+			cts.MaxGraphExpansions,
+		)
+	}
+	return NewCompletionTokenStream(NewPrefixTokenFilter(stream, CONTEXT_SEPARATOR, ctxs))
 }
 
 func (f *ContextSuggestField) Type() byte {
@@ -88,46 +92,76 @@ func validate(value string) error {
 	return nil
 }
 
-// PrefixTokenFilter wraps a TokenStream and adds a set prefixes ahead.
+// PrefixTokenFilter wraps a TokenStream and adds a set prefixes ahead. The
+// position attribute will not be incremented for the prefixes.
+//
+// Mirrors ContextSuggestField.PrefixTokenFilter of Apache Lucene 10.5.0.
 type PrefixTokenFilter struct {
-	*analysis.BaseTokenStream
+	*analysis.BaseTokenFilter
 
-	input         analysis.TokenStream
-	separator     rune
-	prefixes      []string
-	currentPrefix int
+	separator byte
+	termAttr  analysis.CharTermAttribute
+	posAttr   tokenattributes.PositionIncrementAttribute
+	prefixes  []string
+
+	// currentPrefixIdx / currentPrefixSet render Java's
+	// `Iterator<CharSequence> currentPrefix`: a nil iterator is
+	// currentPrefixSet == false, and hasNext() is
+	// currentPrefixIdx < len(prefixes).
+	currentPrefixIdx int
+	currentPrefixSet bool
 }
 
-func NewPrefixTokenFilter(input analysis.TokenStream, separator rune, prefixes []string) *PrefixTokenFilter {
-	return &PrefixTokenFilter{
-		BaseTokenStream: analysis.NewBaseTokenStream(),
-		input:           input,
+// NewPrefixTokenFilter creates a new PrefixTokenFilter.
+func NewPrefixTokenFilter(input analysis.TokenStream, separator byte, prefixes []string) *PrefixTokenFilter {
+	f := &PrefixTokenFilter{
+		BaseTokenFilter: analysis.NewBaseTokenFilter(input),
 		separator:       separator,
 		prefixes:        prefixes,
-		currentPrefix:   -1,
 	}
-}
-
-func (f *PrefixTokenFilter) IncrementToken() (bool, error) {
-	if f.currentPrefix == -1 {
-		f.currentPrefix = 0
-	}
-	if f.currentPrefix < len(f.prefixes) {
-		term := f.prefixes[f.currentPrefix]
-		f.GetAttribute(analysis.CharTermAttributeType).(*analysis.CharTermAttribute).AppendString(term + string(f.separator))
-		if f.currentPrefix == 0 {
-			f.GetAttribute(tokenattributes.PositionIncrementAttributeType).(*tokenattributes.PositionIncrementAttribute).SetPositionIncrement(1)
-		} else {
-			f.GetAttribute(tokenattributes.PositionIncrementAttributeType).(*tokenattributes.PositionIncrementAttribute).SetPositionIncrement(0)
+	src := f.GetAttributeSource()
+	if src != nil {
+		if a := src.GetAttribute(analysis.CharTermAttributeType); a != nil {
+			f.termAttr = a.(analysis.CharTermAttribute)
 		}
-		f.currentPrefix++
-		return true, nil
+		if a := src.GetAttribute(tokenattributes.PositionIncrementAttributeType); a != nil {
+			f.posAttr = a.(tokenattributes.PositionIncrementAttribute)
+		}
 	}
-	return f.input.IncrementToken()
+	return f
 }
 
-func (f *PrefixTokenFilter) Reset() error {
-	f.BaseTokenStream.Reset()
-	f.currentPrefix = -1
-	return f.input.Reset()
+// IncrementToken emits every configured prefix, each followed by the
+// separator, before delegating to the wrapped stream.
+func (f *PrefixTokenFilter) IncrementToken() (bool, error) {
+	if f.currentPrefixSet {
+		if f.currentPrefixIdx >= len(f.prefixes) {
+			return f.GetInput().IncrementToken()
+		}
+		f.posAttr.SetPositionIncrement(0)
+	} else {
+		f.currentPrefixSet = true
+		f.currentPrefixIdx = 0
+		f.termAttr.SetEmpty()
+		f.posAttr.SetPositionIncrement(1)
+	}
+	f.termAttr.SetEmpty()
+	if f.currentPrefixIdx < len(f.prefixes) {
+		f.termAttr.AppendString(f.prefixes[f.currentPrefixIdx])
+		f.currentPrefixIdx++
+	}
+	f.termAttr.AppendChar(f.separator)
+	return true, nil
 }
+
+// Reset restarts the prefix enumeration.
+func (f *PrefixTokenFilter) Reset() error {
+	if err := f.BaseTokenFilter.Reset(); err != nil {
+		return err
+	}
+	f.currentPrefixIdx = 0
+	f.currentPrefixSet = false
+	return nil
+}
+
+var _ analysis.TokenFilter = (*PrefixTokenFilter)(nil)

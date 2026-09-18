@@ -38,7 +38,10 @@ func (c *CompletionsTermsReader) Suggester() (*NRTSuggester, error) {
 
 	if c.suggester == nil {
 		// slice the dictionary to the suggester's data
-		sliceIn := c.dictIn.Slice("NRTSuggester", c.offset, c.dictIn.Length()-c.offset)
+		sliceIn, err := c.dictIn.Slice("NRTSuggester", c.offset, c.dictIn.Length()-c.offset)
+		if err != nil {
+			return nil, fmt.Errorf("completions terms reader: slice dictionary: %w", err)
+		}
 		s, err := Load(sliceIn)
 		if err != nil {
 			return nil, fmt.Errorf("completions terms reader: load suggester: %w", err)

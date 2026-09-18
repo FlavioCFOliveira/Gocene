@@ -65,7 +65,7 @@ func TestUnifiedHighlighterVisibility_FieldOffsetStrategyExtensibility(t *testin
 // the fact that the Java abstract class field is protected.
 func TestUnifiedHighlighterVisibility_StrategyFieldAccessor(t *testing.T) {
 	const fieldName = "myField"
-	strat := newCustomExtensibilityStrategy(fieldName, OffsetSourceNone)
+	strat := newCustomExtensibilityStrategy(fieldName, OffsetSourceNoneNeeded)
 	if got := strat.Field(); got != fieldName {
 		t.Errorf("Field() = %q, want %q", got, fieldName)
 	}

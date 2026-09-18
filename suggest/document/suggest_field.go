@@ -5,10 +5,12 @@
 package document
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -26,7 +28,7 @@ const SuggestFieldTYPE byte = 0
 type SuggestField struct {
 	*document.Field
 
-	surfaceForm util.BytesRef
+	surfaceForm *util.BytesRef
 	weight      int
 }
 
@@ -37,7 +39,7 @@ var FIELD_TYPE = func() *document.FieldType {
 	ft.SetStored(false)
 	ft.SetStoreTermVectors(false)
 	ft.SetOmitNorms(false)
-	ft.SetIndexOptions(document.IndexOptionsDocsAndFreqsAndPositions)
+	ft.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
 	ft.Freeze()
 	return ft
 }()
@@ -56,9 +58,13 @@ func NewSuggestField(name, value string, weight int) *SuggestField {
 		}
 	}
 
+	field, err := document.NewField(name, value, FIELD_TYPE)
+	if err != nil {
+		panic(err)
+	}
 	f := &SuggestField{
-		Field:       document.NewField(name, value, FIELD_TYPE),
-		surfaceForm: util.NewBytesRef(value),
+		Field:       field,
+		surfaceForm: util.NewBytesRef([]byte(value)),
 		weight:      weight,
 	}
 	return f
@@ -80,16 +86,33 @@ func (f *SuggestField) wrapTokenStream(stream analysis.TokenStream) analysis.Tok
 }
 
 func (f *SuggestField) buildSuggestPayload() []byte {
-	out := store.NewByteArrayDataOutput(len(f.surfaceForm.Bytes) + 10)
-	_ = out.WriteVInt(int32(len(f.surfaceForm.Bytes)))
-	_ = out.WriteBytes(f.surfaceForm.Bytes, 0, len(f.surfaceForm.Bytes))
-	_ = out.WriteVInt(int32(f.weight + 1))
-	_ = out.WriteByte(f.Type())
-	return out.ToArrayCopy()
+	var byteArrayOutputStream bytes.Buffer
+	output := store.NewOutputStreamDataOutput(&byteArrayOutputStream)
+	if err := output.WriteVInt(int32(f.surfaceForm.Length)); err != nil {
+		panic(err) // not possible, it's a bytes.Buffer!
+	}
+	if err := output.WriteBytes(f.surfaceForm.Bytes, f.surfaceForm.Offset, f.surfaceForm.Length); err != nil {
+		panic(err) // not possible, it's a bytes.Buffer!
+	}
+	if err := output.WriteVInt(int32(f.weight + 1)); err != nil {
+		panic(err) // not possible, it's a bytes.Buffer!
+	}
+	if err := output.WriteByte(f.Type()); err != nil {
+		panic(err) // not possible, it's a bytes.Buffer!
+	}
+	if err := output.Close(); err != nil {
+		panic(err) // not possible, it's a bytes.Buffer!
+	}
+	return byteArrayOutputStream.Bytes()
 }
 
 func isReserved(r rune) bool {
-	return r == analysis.SepLabel || r == analysis.HOLE || r == 0 // SEP_LABEL, HOLE, END_BYTE
+	switch r {
+	case analysis.SepLabel, HOLE_CHARACTER, endByte:
+		return true
+	default:
+		return false
+	}
 }
 
 // Type returns the type of the field.

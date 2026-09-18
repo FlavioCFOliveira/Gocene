@@ -20,44 +20,38 @@ import (
 type FieldHighlighter struct {
 	field                  string
 	offsetStrategy         FieldOffsetStrategy
-	breakIterator          BreakIterator
+	breakIterator          BreakIterator // note: stateful!
 	passageScorer          *PassageScorer
 	maxPassages            int
 	maxNoHighlightPassages int
 	passageFormatter       PassageFormatter
+	passageSortComparator  func(p1, p2 *Passage) int
 }
 
 // NewFieldHighlighter builds the highlighter. maxPassages controls the
 // top-K hit selection; maxNoHighlightPassages controls how many sentences
 // to surface when no hits exist (a value of -1 means "use maxPassages").
+//
+// Mirrors the FieldHighlighter constructor (FieldHighlighter.java:45), which
+// assigns its eight parameters and validates none of them.
 func NewFieldHighlighter(
 	field string,
-	strategy FieldOffsetStrategy,
-	breakIter BreakIterator,
-	scorer *PassageScorer,
+	fieldOffsetStrategy FieldOffsetStrategy,
+	breakIterator BreakIterator,
+	passageScorer *PassageScorer,
 	maxPassages, maxNoHighlightPassages int,
-	formatter PassageFormatter,
+	passageFormatter PassageFormatter,
+	passageSortComparator func(p1, p2 *Passage) int,
 ) *FieldHighlighter {
-	if maxPassages < 1 {
-		maxPassages = 1
-	}
-	if scorer == nil {
-		scorer = NewPassageScorer()
-	}
-	if formatter == nil {
-		formatter = NewDefaultPassageFormatter()
-	}
-	if breakIter == nil {
-		breakIter = SplittingBreakIterator{}
-	}
 	return &FieldHighlighter{
 		field:                  field,
-		offsetStrategy:         strategy,
-		breakIterator:          breakIter,
-		passageScorer:          scorer,
+		offsetStrategy:         fieldOffsetStrategy,
+		breakIterator:          breakIterator,
+		passageScorer:          passageScorer,
 		maxPassages:            maxPassages,
 		maxNoHighlightPassages: maxNoHighlightPassages,
-		passageFormatter:       formatter,
+		passageFormatter:       passageFormatter,
+		passageSortComparator:  passageSortComparator,
 	}
 }
 
@@ -65,7 +59,7 @@ func NewFieldHighlighter(
 func (h *FieldHighlighter) Field() string { return h.field }
 
 // OffsetSource returns the OffsetSource used by the wrapped strategy.
-func (h *FieldHighlighter) OffsetSource() OffsetSource {
+func (h *FieldHighlighter) GetOffsetSource() OffsetSource {
 	return h.offsetStrategy.GetOffsetSource()
 }
 
@@ -135,7 +129,11 @@ func (h *FieldHighlighter) summaryPassagesNoHighlight(content string, maxPassage
 // Mirrors FieldHighlighter#highlightOffsetsEnums.
 func (h *FieldHighlighter) highlightOffsetsEnum(enum OffsetsEnum, content string) ([]*Passage, error) {
 	contentLength := len(content)
-	if !enum.Next() {
+	more, err := enum.NextPosition()
+	if err != nil {
+		return nil, err
+	}
+	if !more {
 		return nil, nil
 	}
 	pq := &passagePQ{}
@@ -145,15 +143,25 @@ func (h *FieldHighlighter) highlightOffsetsEnum(enum OffsetsEnum, content string
 	lastPassageEnd := 0
 
 	for {
-		start := enum.StartOffset()
+		start, err := enum.StartOffset()
+		if err != nil {
+			return nil, err
+		}
 		if start == -1 {
 			return nil, fmt.Errorf("uhighlight: field %q was indexed without offsets, cannot highlight", h.field)
 		}
-		end := enum.EndOffset()
+		end, err := enum.EndOffset()
+		if err != nil {
+			return nil, err
+		}
 		// Skip matches that span past the content boundary (the Lucene
 		// reference uses a `continue` here).
 		if start < contentLength && end > contentLength {
-			if !enum.Next() {
+			more, err := enum.NextPosition()
+			if err != nil {
+				return nil, err
+			}
+			if !more {
 				break
 			}
 			continue
@@ -197,9 +205,20 @@ func (h *FieldHighlighter) highlightOffsetsEnum(enum OffsetsEnum, content string
 			passage.SetEndOffset(passEnd)
 		}
 		// Append this match to the active passage.
-		term := []byte(enum.Term())
-		passage.AddMatch(start, end, term, enum.FreqIndex())
-		if !enum.Next() {
+		term, err := enum.GetTerm()
+		if err != nil {
+			return nil, err
+		}
+		freq, err := enum.Freq()
+		if err != nil {
+			return nil, err
+		}
+		passage.AddMatch(start, end, term, freq)
+		more, err := enum.NextPosition()
+		if err != nil {
+			return nil, err
+		}
+		if !more {
 			break
 		}
 	}

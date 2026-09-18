@@ -5,10 +5,9 @@
 package document
 
 import (
-	"io"
+	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/analysis/miscellaneous"
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
@@ -19,10 +18,10 @@ import (
 type CompletionTokenStream struct {
 	*analysis.BaseTokenFilter
 
-	inputTokenStream         analysis.TokenStream
-	PreserveSep              bool
+	inputTokenStream           analysis.TokenStream
+	PreserveSep                bool
 	PreservePositionIncrements bool
-	MaxGraphExpansions       int
+	MaxGraphExpansions         int
 
 	payloadAttr analysis.PayloadAttribute
 	payload     []byte
@@ -30,7 +29,12 @@ type CompletionTokenStream struct {
 
 // NewCompletionTokenStream creates a new CompletionTokenStream wrapping the given input.
 func NewCompletionTokenStream(input analysis.TokenStream) *CompletionTokenStream {
-	return NewCompletionTokenStreamFull(input, miscellaneous.DefaultSepLabel, true, miscellaneous.DefaultMaxGraphExpansions)
+	return NewCompletionTokenStreamFull(
+		input,
+		analysis.DefaultPreserveSep,
+		analysis.DefaultPreservePositionIncrements,
+		analysis.DefaultMaxGraphExpansions,
+	)
 }
 
 // NewCompletionTokenStreamFull creates a new CompletionTokenStream wrapping the given input with explicit settings.
@@ -41,12 +45,12 @@ func NewCompletionTokenStreamFull(
 	maxGraphExpansions int,
 ) *CompletionTokenStream {
 	// Wrap the input with a ConcatenateGraphFilter
-	filter := miscellaneous.NewConcatenateGraphFilterFull(input, miscellaneous.DefaultSepLabel, preservePositionIncrements, maxGraphExpansions)
+	filter := analysis.NewConcatenateGraphFilterPreserve(input, preserveSep, preservePositionIncrements, maxGraphExpansions)
 
 	ts := &CompletionTokenStream{
 		BaseTokenFilter:            analysis.NewBaseTokenFilter(filter),
 		inputTokenStream:           input,
-		PreserveSep:               preserveSep,
+		PreserveSep:                preserveSep,
 		PreservePositionIncrements: preservePositionIncrements,
 		MaxGraphExpansions:         maxGraphExpansions,
 	}
@@ -78,17 +82,24 @@ func (ts *CompletionTokenStream) IncrementToken() (bool, error) {
 	return ok, nil
 }
 
-// ToAutomaton converts the token stream to an automaton.
-// Note: This delegates to the wrapped ConcatenateGraphFilter.
-func (ts *CompletionTokenStream) ToAutomaton() (*automaton.Automaton, error) {
-	// The BaseTokenFilter.GetInput() returns the ConcatenateGraphFilter
-	if filter, ok := ts.GetInput().(*miscellaneous.ConcatenateGraphFilter); ok {
-		// We need to check if ConcatenateGraphFilter has ToAutomaton.
-		// In Lucene it does. In Gocene's miscellaneous.go, it doesn't seem to.
-		// I will have to implement it or check if it's available.
-		return nil, io.ErrUnexpectedEOF // Placeholder, will fix after checking ConcatenateGraphFilter
+// ToAutomatonDefault delegates to ConcatenateGraphFilter.toAutomaton().
+//
+// Mirrors CompletionTokenStream.toAutomaton() of Apache Lucene 10.5.0. Java
+// overloads toAutomaton(); Go cannot, so the no-argument form carries the
+// Default suffix already used by analysis.ConcatenateGraphFilter.
+func (ts *CompletionTokenStream) ToAutomatonDefault() (*automaton.Automaton, error) {
+	return ts.ToAutomaton(false)
+}
+
+// ToAutomaton delegates to ConcatenateGraphFilter.toAutomaton(boolean).
+//
+// Mirrors CompletionTokenStream.toAutomaton(boolean) of Apache Lucene 10.5.0.
+func (ts *CompletionTokenStream) ToAutomaton(unicodeAware bool) (*automaton.Automaton, error) {
+	filter, ok := ts.GetInput().(*analysis.ConcatenateGraphFilter)
+	if !ok {
+		return nil, fmt.Errorf("completion token stream: input is %T, not *analysis.ConcatenateGraphFilter", ts.GetInput())
 	}
-	return nil, io.ErrUnexpectedEOF
+	return filter.ToAutomaton(unicodeAware)
 }
 
 // Ensure CompletionTokenStream implements TokenFilter.

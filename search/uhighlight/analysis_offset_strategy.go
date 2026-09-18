@@ -2,6 +2,7 @@ package uhighlight
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
@@ -16,15 +17,45 @@ type AnalysisOffsetStrategy struct {
 	analyzer analysis.Analyzer
 }
 
-// NewAnalysisOffsetStrategy builds the strategy.
-func NewAnalysisOffsetStrategy(field string, analyzer analysis.Analyzer) *AnalysisOffsetStrategy {
-	if analyzer.GetOffsetGap(field) != 1 { // note: 1 is the default. It is RARELY changed.
-		panic(fmt.Sprintf("offset gap of the provided analyzer should be 1 (field %s)", field))
-	}
-	return &AnalysisOffsetStrategy{
-		BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field),
+// NewAnalysisOffsetStrategy builds the strategy. Mirrors
+// AnalysisOffsetStrategy(UHComponents, Analyzer)
+// (AnalysisOffsetStrategy.java:36).
+func NewAnalysisOffsetStrategy(components *UHComponents, analyzer analysis.Analyzer) *AnalysisOffsetStrategy {
+	s := &AnalysisOffsetStrategy{
+		BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(components),
 		analyzer:                analyzer,
 	}
+	if analyzerOffsetGap(analyzer, s.Field()) != 1 { // note: 1 is the default. It is RARELY changed.
+		panic(fmt.Sprintf("offset gap of the provided analyzer should be 1 (field %s)", s.Field()))
+	}
+	return s
+}
+
+// analyzerOffsetGap renders Analyzer.getOffsetGap(String)
+// (Analyzer.java), whose body returns 1 unless a subclass overrides it.
+// Gocene's analysis.Analyzer interface does not declare the method, so it is
+// reached through the optional-interface probe the analysis package itself
+// uses (analysis/delegating_analyzer_wrapper.go:67).
+func analyzerOffsetGap(analyzer analysis.Analyzer, fieldName string) int {
+	if gap, ok := analyzer.(interface {
+		GetOffsetGap(string) int
+	}); ok {
+		return gap.GetOffsetGap(fieldName)
+	}
+	return 1
+}
+
+// analyzerPositionIncrementGap renders
+// Analyzer.getPositionIncrementGap(String) (Analyzer.java), whose body returns
+// 0 unless a subclass overrides it. See analyzerOffsetGap for why it is a
+// probe.
+func analyzerPositionIncrementGap(analyzer analysis.Analyzer, fieldName string) int {
+	if gap, ok := analyzer.(interface {
+		GetPositionIncrementGap(string) int
+	}); ok {
+		return gap.GetPositionIncrementGap(fieldName)
+	}
+	return 0
 }
 
 // GetOffsetSource returns the OffsetSource that characterises how this strategy resolves document offsets.
@@ -44,10 +75,10 @@ func (s *AnalysisOffsetStrategy) TokenStream(content string) (analysis.TokenStre
 	}
 
 	if splitCharIdx == -1 {
-		return s.analyzer.TokenStream(s.Field(), content), nil
+		return s.analyzer.TokenStream(s.Field(), strings.NewReader(content))
 	}
 
-	subTokenStream, err := s.analyzer.TokenStream(s.Field(), content[:splitCharIdx])
+	subTokenStream, err := s.analyzer.TokenStream(s.Field(), strings.NewReader(content[:splitCharIdx]))
 	if err != nil {
 		return nil, err
 	}
@@ -71,8 +102,9 @@ type multiValueTokenStream struct {
 	splitChar     rune
 	input         analysis.TokenStream
 
-	posIncAtt tokenattributes.PositionIncrementAttribute
-	offsetAtt analysis.OffsetAttribute
+	attrSource *util.AttributeSource
+	posIncAtt  tokenattributes.PositionIncrementAttribute
+	offsetAtt  analysis.OffsetAttribute
 
 	startValIdx     int
 	endValIdx       int
@@ -103,10 +135,18 @@ func NewMultiValueTokenStream(
 		panic("subTokenStream must provide an AttributeSource")
 	}
 
+	ts.attrSource = src
 	ts.posIncAtt, _ = src.GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 	ts.offsetAtt, _ = src.GetAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
 
 	return ts
+}
+
+// GetAttributeSource renders the AttributeSource a Java TokenFilter inherits
+// from the TokenStream it wraps: MultiValueTokenStream extends TokenFilter, so
+// it shares the attributes of its sub-token-stream.
+func (ts *multiValueTokenStream) GetAttributeSource() *util.AttributeSource {
+	return ts.attrSource
 }
 
 func (ts *multiValueTokenStream) Reset() error {
@@ -130,8 +170,8 @@ func (ts *multiValueTokenStream) IncrementToken() (bool, error) {
 			}
 			// Offset tracking:
 			ts.offsetAtt.SetOffset(
-				ts.startValIdx+ts.offsetAtt.GetStartOffset(),
-				ts.startValIdx+ts.offsetAtt.GetEndOffset())
+				ts.startValIdx+ts.offsetAtt.StartOffset(),
+				ts.startValIdx+ts.offsetAtt.EndOffset())
 			return true, nil
 		}
 
@@ -142,7 +182,7 @@ func (ts *multiValueTokenStream) IncrementToken() (bool, error) {
 		ts.input.End()
 		ts.remainingPosInc += ts.posIncAtt.GetPositionIncrement()
 		ts.input.Close()
-		ts.remainingPosInc += ts.indexAnalyzer.GetPositionIncrementGap(ts.fieldName)
+		ts.remainingPosInc += analyzerPositionIncrementGap(ts.indexAnalyzer, ts.fieldName)
 
 		// Get new tokenStream based on next segment divided by the splitChar
 		ts.startValIdx = ts.endValIdx + 1
@@ -162,15 +202,15 @@ func (ts *multiValueTokenStream) IncrementToken() (bool, error) {
 			ts.endValIdx = nextSplitIdx
 		}
 
-		tokenStream, err := ts.indexAnalyzer.TokenStream(ts.fieldName, ts.content[ts.startValIdx:ts.endValIdx])
+		tokenStream, err := ts.indexAnalyzer.TokenStream(ts.fieldName, strings.NewReader(ts.content[ts.startValIdx:ts.endValIdx]))
 		if err != nil {
 			return false, err
 		}
 
 		if tokenStream != ts.input {
 			ts.input = tokenStream
-			src := attributeSourceFor(tokenStream)
-			if src != nil {
+			if src := attributeSourceFor(tokenStream); src != nil {
+				ts.attrSource = src
 				ts.posIncAtt, _ = src.GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 				ts.offsetAtt, _ = src.GetAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
 			}
@@ -186,8 +226,8 @@ func (ts *multiValueTokenStream) End() error {
 	err := ts.input.End()
 	// Offset tracking:
 	ts.offsetAtt.SetOffset(
-		ts.startValIdx+ts.offsetAtt.GetStartOffset(),
-		ts.startValIdx+ts.offsetAtt.GetEndOffset())
+		ts.startValIdx+ts.offsetAtt.StartOffset(),
+		ts.startValIdx+ts.offsetAtt.EndOffset())
 	return err
 }
 

@@ -22,7 +22,7 @@ func OffsetSourceName(s OffsetSource) string {
 		return "postings+tv"
 	case OffsetSourceAnalysis:
 		return "re-analysis"
-	case OffsetSourceNone:
+	case OffsetSourceNoneNeeded:
 		return "none"
 	default:
 		return "unknown"
@@ -53,7 +53,7 @@ func TestUnifiedHighlighterTestBase_OffsetSourceNames(t *testing.T) {
 		{OffsetSourceTermVectors, "tv"},
 		{OffsetSourcePostingsWithTermVectors, "postings+tv"},
 		{OffsetSourceAnalysis, "re-analysis"},
-		{OffsetSourceNone, "none"},
+		{OffsetSourceNoneNeeded, "none"},
 	}
 	for _, tc := range cases {
 		if got := OffsetSourceName(tc.source); got != tc.want {
@@ -90,7 +90,7 @@ func TestUnifiedHighlighterTestBase_StrategyMatchesSources(t *testing.T) {
 		{NewTermVectorOffsetStrategy(f), OffsetSourceTermVectors},
 		{NewPostingsWithTermVectorsOffsetStrategy(f), OffsetSourcePostingsWithTermVectors},
 		{NewAnalysisOffsetStrategy(f), OffsetSourceAnalysis},
-		{NewNoOpOffsetStrategy(f), OffsetSourceNone},
+		{NewNoOpOffsetStrategy(f), OffsetSourceNoneNeeded},
 	}
 	for _, tc := range cases {
 		if got := tc.strat.GetOffsetSource(); got != tc.source {

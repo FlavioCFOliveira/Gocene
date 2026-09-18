@@ -50,12 +50,15 @@ func (q *CompletionQuery) String() string {
 // queries. Mirrors
 // org.apache.lucene.search.suggest.document.CompletionWeight.
 type CompletionWeight struct {
-	Query search.Query
+	// Query renders CompletionWeight.completionQuery
+	// (CompletionWeight.java:41), which Java declares as a CompletionQuery and
+	// not as a plain Query.
+	Query *CompletionQuery
 	Boost float32
 }
 
 // NewCompletionWeight builds the weight.
-func NewCompletionWeight(q search.Query, boost float32) *CompletionWeight {
+func NewCompletionWeight(q *CompletionQuery, boost float32) *CompletionWeight {
 	if boost <= 0 {
 		boost = 1
 	}
@@ -173,7 +176,7 @@ func (w *ContextCompletionWeight) SetNextMatch(pathPrefix []int) {
 		if length > len(pathPrefix) {
 			continue
 		}
-		ctx := string(pathPrefix[:length])
+		ctx := contextKey(pathPrefix[:length])
 		if meta, ok := w.ContextMap[ctx]; ok {
 			w.CurrentBoost = meta.Boost
 			w.CurrentContext = ctx
@@ -182,6 +185,18 @@ func (w *ContextCompletionWeight) SetNextMatch(pathPrefix []int) {
 	}
 	w.CurrentBoost = 0
 	w.CurrentContext = ""
+}
+
+// contextKey renders the IntsRef -> BytesRef -> String conversion Java performs
+// with Util.toBytesRef(IntsRef, BytesRefBuilder).utf8ToString()
+// (ContextQuery.java, ContextCompletionWeight.setInnerWeight): the path ints
+// are FST byte labels, so each one contributes exactly one byte.
+func contextKey(pathPrefix []int) string {
+	b := make([]byte, len(pathPrefix))
+	for i, label := range pathPrefix {
+		b[i] = byte(label)
+	}
+	return string(b)
 }
 
 func (w *ContextCompletionWeight) Boost() float32 {

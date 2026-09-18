@@ -8,15 +8,15 @@ type OffsetSource int
 const (
 	// OffsetSourcePostings reads offsets from indexed postings.
 	OffsetSourcePostings OffsetSource = iota
-	// OffsetSourcePostingsWithTermVectors reads from postings and falls back
-	// to term vectors.
-	OffsetSourcePostingsWithTermVectors
 	// OffsetSourceTermVectors reads offsets from stored term vectors.
 	OffsetSourceTermVectors
 	// OffsetSourceAnalysis re-runs the field analyzer to derive offsets.
 	OffsetSourceAnalysis
-	// OffsetSourceNone signals that no offset extraction takes place.
-	OffsetSourceNone
+	// OffsetSourcePostingsWithTermVectors reads from postings and falls back
+	// to term vectors.
+	OffsetSourcePostingsWithTermVectors
+	// OffsetSourceNoneNeeded signals that no offset extraction is needed.
+	OffsetSourceNoneNeeded
 )
 
 // FieldOffsetStrategy is the contract the unified highlighter uses to build
@@ -39,17 +39,23 @@ type FieldOffsetStrategy interface {
 	GetOffsetsEnum(docContext any) (OffsetsEnum, error)
 }
 
-// BaseFieldOffsetStrategy provides the field-name plumbing shared by every
-// concrete strategy.  It mirrors the protected field and getField() accessor
-// of the Java abstract class.
+// BaseFieldOffsetStrategy carries the UHComponents shared by every concrete
+// strategy. It mirrors the protected `components` field and the getField()
+// accessor of the Java abstract class
+// (FieldOffsetStrategy.java:42 and :48).
 type BaseFieldOffsetStrategy struct {
-	field string
+	components *UHComponents
 }
 
 // NewBaseFieldOffsetStrategy builds the embed.
-func NewBaseFieldOffsetStrategy(field string) BaseFieldOffsetStrategy {
-	return BaseFieldOffsetStrategy{field: field}
+func NewBaseFieldOffsetStrategy(components *UHComponents) BaseFieldOffsetStrategy {
+	return BaseFieldOffsetStrategy{components: components}
 }
 
-// Field returns the field name.
-func (s BaseFieldOffsetStrategy) Field() string { return s.field }
+// Components returns the UHComponents this strategy was built with. It renders
+// access to the protected `components` field of the Java abstract class, which
+// subclasses read directly.
+func (s BaseFieldOffsetStrategy) Components() *UHComponents { return s.components }
+
+// Field returns the field name. Mirrors FieldOffsetStrategy.getField().
+func (s BaseFieldOffsetStrategy) Field() string { return s.components.Field }

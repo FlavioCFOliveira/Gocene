@@ -4,10 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/memory"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // errNotImplemented is the placeholder error returned by the offset
@@ -21,13 +22,31 @@ var errNotImplemented = errors.New("uhighlight: strategy needs upstream primitiv
 // Mirrors org.apache.lucene.search.uhighlight.NoOpOffsetStrategy.
 type NoOpOffsetStrategy struct{ BaseFieldOffsetStrategy }
 
-// NewNoOpOffsetStrategy builds the no-op.
-func NewNoOpOffsetStrategy(field string) *NoOpOffsetStrategy {
-	return &NoOpOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
+// NoOpOffsetStrategyINSTANCE renders the singleton
+// NoOpOffsetStrategy.INSTANCE (NoOpOffsetStrategy.java:32). Java writes it as
+// NoOpOffsetStrategy.INSTANCE at every use site; Go has no class-scoped
+// constants, so the owning class is carried in the name.
+var NoOpOffsetStrategyINSTANCE = newNoOpOffsetStrategy()
+
+// newNoOpOffsetStrategy renders the private NoOpOffsetStrategy constructor
+// (NoOpOffsetStrategy.java:34), which builds the placeholder UHComponents the
+// singleton carries.
+func newNoOpOffsetStrategy() *NoOpOffsetStrategy {
+	return &NoOpOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(
+		NewUHComponents(
+			"_ignored_",
+			func(string) bool { return false },
+			search.NewMatchNoDocsQuery(""),
+			[]*util.BytesRef{},
+			NONE,
+			[]*LabelledCharArrayMatcher{},
+			false,
+			map[HighlightFlag]struct{}{},
+		))}
 }
 
-// GetOffsetSource returns OffsetSourceNone.
-func (s *NoOpOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceNone }
+// GetOffsetSource returns OffsetSourceNoneNeeded.
+func (s *NoOpOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceNoneNeeded }
 
 // GetOffsetsEnum returns an empty SliceOffsetsEnum.
 func (s *NoOpOffsetStrategy) GetOffsetsEnum(_ any) (OffsetsEnum, error) {
@@ -45,8 +64,9 @@ type PostingsOffsetStrategy struct {
 }
 
 // NewPostingsOffsetStrategy builds the postings-based strategy.
-func NewPostingsOffsetStrategy(field string) *PostingsOffsetStrategy {
-	return &PostingsOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
+// Mirrors PostingsOffsetStrategy(UHComponents) (PostingsOffsetStrategy.java:31).
+func NewPostingsOffsetStrategy(components *UHComponents) *PostingsOffsetStrategy {
+	return &PostingsOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(components)}
 }
 
 // WithPostingsLiterals registers literals for the postings strategy.
@@ -90,13 +110,16 @@ func (s *PostingsOffsetStrategy) GetOffsetsEnum(docContext any) (OffsetsEnum, er
 		if len(pe.StartOffsets) != len(pe.EndOffsets) {
 			continue
 		}
-		weight := lookupFreq(ctx.TermFreqsInDoc, pe.Term, float32(len(pe.StartOffsets)))
+		freq := len(pe.StartOffsets)
+		if f, ok := ctx.TermFreqsInDoc[pe.Term]; ok {
+			freq = f
+		}
 		for i := range pe.StartOffsets {
 			entries = append(entries, OffsetEntry{
 				Term:        pe.Term,
 				StartOffset: pe.StartOffsets[i],
 				EndOffset:   pe.EndOffsets[i],
-				Weight:      weight,
+				Freq:        freq,
 			})
 		}
 	}
@@ -153,9 +176,11 @@ var _ FieldOffsetStrategy = (*PostingsOffsetStrategy)(nil)
 // org.apache.lucene.search.uhighlight.PostingsWithTermVectorsOffsetStrategy.
 type PostingsWithTermVectorsOffsetStrategy struct{ BaseFieldOffsetStrategy }
 
-// NewPostingsWithTermVectorsOffsetStrategy builds the strategy.
-func NewPostingsWithTermVectorsOffsetStrategy(field string) *PostingsWithTermVectorsOffsetStrategy {
-	return &PostingsWithTermVectorsOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
+// NewPostingsWithTermVectorsOffsetStrategy builds the strategy. Mirrors
+// PostingsWithTermVectorsOffsetStrategy(UHComponents)
+// (PostingsWithTermVectorsOffsetStrategy.java:31).
+func NewPostingsWithTermVectorsOffsetStrategy(components *UHComponents) *PostingsWithTermVectorsOffsetStrategy {
+	return &PostingsWithTermVectorsOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(components)}
 }
 
 // GetOffsetSource returns OffsetSourcePostingsWithTermVectors.
@@ -174,13 +199,16 @@ func (s *PostingsWithTermVectorsOffsetStrategy) GetOffsetsEnum(docContext any) (
 				if len(pe.StartOffsets) == 0 {
 					continue
 				}
-				weight := lookupFreq(ctx.TermFreqsInDoc, pe.Term, float32(len(pe.StartOffsets)))
+				freq := len(pe.StartOffsets)
+				if f, ok := ctx.TermFreqsInDoc[pe.Term]; ok {
+					freq = f
+				}
 				for i := range pe.StartOffsets {
 					entries = append(entries, OffsetEntry{
 						Term:        pe.Term,
 						StartOffset: pe.StartOffsets[i],
 						EndOffset:   pe.EndOffsets[i],
-						Weight:      weight,
+						Freq:        freq,
 					})
 				}
 			}
@@ -196,13 +224,16 @@ func (s *PostingsWithTermVectorsOffsetStrategy) GetOffsetsEnum(docContext any) (
 				if len(e.StartOffsets) == 0 || len(e.EndOffsets) == 0 {
 					continue
 				}
-				weight := lookupFreq(ctx.TermFreqsInDoc, e.Term, float32(e.Frequency))
+				freq := e.Frequency
+				if f, ok := ctx.TermFreqsInDoc[e.Term]; ok {
+					freq = f
+				}
 				for i := range e.StartOffsets {
 					entries = append(entries, OffsetEntry{
 						Term:        e.Term,
 						StartOffset: e.StartOffsets[i],
 						EndOffset:   e.EndOffsets[i],
-						Weight:      weight,
+						Freq:        freq,
 					})
 				}
 			}
@@ -226,40 +257,37 @@ var _ FieldOffsetStrategy = (*PostingsWithTermVectorsOffsetStrategy)(nil)
 // caller supplies an *AnalysisDocContext and the strategy re-tokenises the
 // content.
 type TokenStreamOffsetStrategy struct {
-	BaseFieldOffsetStrategy
+	*AnalysisOffsetStrategy
 	literals []string
 	matchers []CharArrayMatcher
 }
 
-// NewTokenStreamOffsetStrategy builds the strategy.
-func NewTokenStreamOffsetStrategy(field string) *TokenStreamOffsetStrategy {
-	return &TokenStreamOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
+// NewTokenStreamOffsetStrategy builds the strategy. Mirrors
+// TokenStreamOffsetStrategy(UHComponents, Analyzer)
+// (TokenStreamOffsetStrategy.java:39).
+func NewTokenStreamOffsetStrategy(components *UHComponents, indexAnalyzer analysis.Analyzer) *TokenStreamOffsetStrategy {
+	return &TokenStreamOffsetStrategy{
+		AnalysisOffsetStrategy: NewAnalysisOffsetStrategy(components, indexAnalyzer),
+	}
 }
 
-// GetOffsetSource returns OffsetSourceAnalysis (token-stream offsets are
-// derived from analysis).
-func (s *TokenStreamOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceAnalysis }
-
-// GetOffsetsEnum re-tokenises the content from *AnalysisDocContext and
-// matches tokens against the query term set, the same way
-// AnalysisOffsetStrategy does.
+// GetOffsetsEnum re-tokenises the content and matches tokens against the query
+// term set. docContext carries the field content, which Java passes as the
+// third parameter of getOffsetsEnum(LeafReader, int, String).
 func (s *TokenStreamOffsetStrategy) GetOffsetsEnum(docContext any) (OffsetsEnum, error) {
-	ctx, ok := docContext.(*AnalysisDocContext)
-	if !ok || ctx == nil {
-		return nil, fmt.Errorf("uhighlight: TokenStreamOffsetStrategy expects *AnalysisDocContext, got %T", docContext)
-	}
-	if ctx.Analyzer == nil {
-		return nil, fmt.Errorf("uhighlight: TokenStreamOffsetStrategy requires a non-nil Analyzer")
+	content, ok := docContext.(string)
+	if !ok {
+		return nil, fmt.Errorf("uhighlight: TokenStreamOffsetStrategy expects the field content as a string, got %T", docContext)
 	}
 	if len(s.literals) == 0 && len(s.matchers) == 0 {
 		return NewSliceOffsetsEnum(nil), nil
 	}
-	return s.tokenOffsetsEnum(ctx)
+	return s.tokenOffsetsEnum(content)
 }
 
 // tokenOffsetsEnum extracts offsets by walking the TokenStream.
-func (s *TokenStreamOffsetStrategy) tokenOffsetsEnum(ctx *AnalysisDocContext) (OffsetsEnum, error) {
-	stream, err := ctx.Analyzer.TokenStream(s.Field(), strings.NewReader(ctx.Content))
+func (s *TokenStreamOffsetStrategy) tokenOffsetsEnum(content string) (OffsetsEnum, error) {
+	stream, err := s.TokenStream(content)
 	if err != nil {
 		return nil, fmt.Errorf("uhighlight: TokenStreamOffsetStrategy TokenStream: %w", err)
 	}
@@ -292,7 +320,7 @@ func (s *TokenStreamOffsetStrategy) tokenOffsetsEnum(ctx *AnalysisDocContext) (O
 			Term:        term,
 			StartOffset: offsetAttr.StartOffset(),
 			EndOffset:   offsetAttr.EndOffset(),
-			Weight:      lookupFreq(ctx.TermFreqsInDoc, term, 1),
+			Freq:        1,
 		})
 	}
 	_ = stream.End()
@@ -337,15 +365,19 @@ var _ FieldOffsetStrategy = (*TokenStreamOffsetStrategy)(nil)
 // Without a MemoryIndex, it falls back to re-tokenising via an Analyzer
 // (the same approach used by AnalysisOffsetStrategy).
 type MemoryIndexOffsetStrategy struct {
-	BaseFieldOffsetStrategy
+	*AnalysisOffsetStrategy
 	literals    []string
 	matchers    []CharArrayMatcher
 	memoryIndex *memory.MemoryIndex
 }
 
-// NewMemoryIndexOffsetStrategy builds the strategy.
-func NewMemoryIndexOffsetStrategy(field string) *MemoryIndexOffsetStrategy {
-	return &MemoryIndexOffsetStrategy{BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(field)}
+// NewMemoryIndexOffsetStrategy builds the strategy. Mirrors
+// MemoryIndexOffsetStrategy(UHComponents, Analyzer)
+// (MemoryIndexOffsetStrategy.java:45).
+func NewMemoryIndexOffsetStrategy(components *UHComponents, analyzer analysis.Analyzer) *MemoryIndexOffsetStrategy {
+	return &MemoryIndexOffsetStrategy{
+		AnalysisOffsetStrategy: NewAnalysisOffsetStrategy(components, analyzer),
+	}
 }
 
 // WithMemoryIndexLiterals registers literals for the strategy.
@@ -372,9 +404,6 @@ func WithMemoryIndex(mi *memory.MemoryIndex) func(*MemoryIndexOffsetStrategy) {
 	}
 }
 
-// GetOffsetSource returns OffsetSourceAnalysis.
-func (s *MemoryIndexOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceAnalysis }
-
 // GetOffsetsEnum resolves offsets using the MemoryIndex when available,
 // falling back to token-stream re-analysis otherwise.
 func (s *MemoryIndexOffsetStrategy) GetOffsetsEnum(docContext any) (OffsetsEnum, error) {
@@ -390,8 +419,8 @@ func (s *MemoryIndexOffsetStrategy) GetOffsetsEnum(docContext any) (OffsetsEnum,
 // getOffsetsFromMemoryIndex indexes the content and searches for literal
 // terms, extracting offsets from the in-memory postings.
 func (s *MemoryIndexOffsetStrategy) getOffsetsFromMemoryIndex(docContext any) (OffsetsEnum, error) {
-	ctx, ok := docContext.(*AnalysisDocContext)
-	if !ok || ctx == nil || ctx.Content == "" {
+	content, ok := docContext.(string)
+	if !ok || content == "" {
 		return NewSliceOffsetsEnum(nil), nil
 	}
 	if len(s.literals) == 0 && len(s.matchers) == 0 {
@@ -400,7 +429,7 @@ func (s *MemoryIndexOffsetStrategy) getOffsetsFromMemoryIndex(docContext any) (O
 
 	// Reset and re-index the content into the MemoryIndex.
 	s.memoryIndex.Reset()
-	if err := s.memoryIndex.AddField(s.Field(), ctx.Content); err != nil {
+	if err := s.memoryIndex.AddField(s.Field(), content); err != nil {
 		return nil, fmt.Errorf("uhighlight: MemoryIndex AddField: %w", err)
 	}
 
@@ -413,7 +442,7 @@ func (s *MemoryIndexOffsetStrategy) getOffsetsFromMemoryIndex(docContext any) (O
 		if freq == 0 {
 			continue
 		}
-		weight := lookupFreq(ctx.TermFreqsInDoc, lit, float32(freq))
+
 		for j, pos := range positions {
 			startOff, endOff := -1, -1
 			if j < len(offsets) {
@@ -424,7 +453,7 @@ func (s *MemoryIndexOffsetStrategy) getOffsetsFromMemoryIndex(docContext any) (O
 				Term:        lit,
 				StartOffset: startOff,
 				EndOffset:   endOff,
-				Weight:      weight,
+				Freq:        freq,
 			})
 			_ = pos // position used for ordering (preserved by entry order)
 		}
@@ -437,13 +466,13 @@ func (s *MemoryIndexOffsetStrategy) getOffsetsFromMemoryIndex(docContext any) (O
 			if m.Match(termRunes, 0, len(termRunes)) {
 				offsets := s.memoryIndex.GetTermOffsets(s.Field(), term)
 				freq := s.memoryIndex.GetTermFrequency(s.Field(), term)
-				weight := lookupFreq(ctx.TermFreqsInDoc, term, float32(freq))
+
 				for _, off := range offsets {
 					entries = append(entries, OffsetEntry{
 						Term:        term,
 						StartOffset: off[0],
 						EndOffset:   off[1],
-						Weight:      weight,
+						Freq:        freq,
 					})
 				}
 			}
@@ -458,14 +487,14 @@ func (s *MemoryIndexOffsetStrategy) getOffsetsFromMemoryIndex(docContext any) (O
 // getOffsetsFromTokenStream re-tokenises the content via an Analyzer and
 // walks the TokenStream for offset data — the fallback approach.
 func (s *MemoryIndexOffsetStrategy) getOffsetsFromTokenStream(docContext any) (OffsetsEnum, error) {
-	ctx, ok := docContext.(*AnalysisDocContext)
-	if !ok || ctx == nil || ctx.Analyzer == nil {
+	content, ok := docContext.(string)
+	if !ok {
 		return NewSliceOffsetsEnum(nil), nil
 	}
 	if len(s.literals) == 0 && len(s.matchers) == 0 {
 		return NewSliceOffsetsEnum(nil), nil
 	}
-	stream, err := ctx.Analyzer.TokenStream(s.Field(), strings.NewReader(ctx.Content))
+	stream, err := s.TokenStream(content)
 	if err != nil {
 		return nil, fmt.Errorf("uhighlight: MemoryIndexOffsetStrategy TokenStream: %w", err)
 	}
@@ -498,7 +527,7 @@ func (s *MemoryIndexOffsetStrategy) getOffsetsFromTokenStream(docContext any) (O
 			Term:        term,
 			StartOffset: offsetAttr.StartOffset(),
 			EndOffset:   offsetAttr.EndOffset(),
-			Weight:      lookupFreq(ctx.TermFreqsInDoc, term, 1),
+			Freq:        1,
 		})
 	}
 	_ = stream.End()
@@ -533,49 +562,77 @@ var _ FieldOffsetStrategy = (*MemoryIndexOffsetStrategy)(nil)
 // several fields. Mirrors
 // org.apache.lucene.search.uhighlight.MultiFieldsOffsetStrategy.
 type MultiFieldsOffsetStrategy struct {
-	fields   []string
-	resolver func(field string) FieldOffsetStrategy
+	BaseFieldOffsetStrategy
+	fieldsOffsetStrategies []FieldOffsetStrategy
 }
 
-// NewMultiFieldsOffsetStrategy builds the fan-out strategy.
-func NewMultiFieldsOffsetStrategy(fields []string, resolver func(field string) FieldOffsetStrategy) *MultiFieldsOffsetStrategy {
-	return &MultiFieldsOffsetStrategy{fields: append([]string(nil), fields...), resolver: resolver}
+// NewMultiFieldsOffsetStrategy builds the fan-out strategy. Mirrors
+// MultiFieldsOffsetStrategy(List<FieldOffsetStrategy>)
+// (MultiFieldsOffsetStrategy.java:34), which passes null components up to
+// FieldOffsetStrategy.
+func NewMultiFieldsOffsetStrategy(fieldsOffsetStrategies []FieldOffsetStrategy) *MultiFieldsOffsetStrategy {
+	return &MultiFieldsOffsetStrategy{
+		BaseFieldOffsetStrategy: NewBaseFieldOffsetStrategy(nil),
+		fieldsOffsetStrategies:  fieldsOffsetStrategies,
+	}
 }
 
-// Field returns the primary field.
+// Field renders MultiFieldsOffsetStrategy.getField()
+// (MultiFieldsOffsetStrategy.java:39), which throws IllegalStateException
+// because this strategy spans several fields.
 func (s *MultiFieldsOffsetStrategy) Field() string {
-	if len(s.fields) == 0 {
-		return ""
-	}
-	return s.fields[0]
+	panic("MultiFieldsOffsetStrategy does not have a single field.")
 }
 
-// GetOffsetSource returns OffsetSourceNone.
-func (s *MultiFieldsOffsetStrategy) GetOffsetSource() OffsetSource { return OffsetSourceNone }
+// GetOffsetSource returns the offset source of the first wrapped strategy.
+// Mirrors MultiFieldsOffsetStrategy.getOffsetSource()
+// (MultiFieldsOffsetStrategy.java:44).
+func (s *MultiFieldsOffsetStrategy) GetOffsetSource() OffsetSource {
+	return s.fieldsOffsetStrategies[0].GetOffsetSource()
+}
 
-// GetOffsetsEnum concatenates per-field SliceOffsetsEnums into a single enum.
-// When no resolver is configured the method returns an empty enum so callers
-// degrade gracefully rather than receiving an error.
+// GetOffsetsEnum concatenates the per-strategy enums into a single enum.
+// Mirrors MultiFieldsOffsetStrategy.getOffsetsEnum(LeafReader, int, String)
+// (MultiFieldsOffsetStrategy.java:50).
 func (s *MultiFieldsOffsetStrategy) GetOffsetsEnum(docContext any) (OffsetsEnum, error) {
-	if s.resolver == nil {
-		return NewSliceOffsetsEnum(nil), nil
-	}
 	var merged []OffsetEntry
-	for _, f := range s.fields {
-		strat := s.resolver(f)
-		if strat == nil {
+	for _, fieldOffsetStrategy := range s.fieldsOffsetStrategies {
+		if fieldOffsetStrategy == nil {
 			continue
 		}
-		enum, err := strat.GetOffsetsEnum(docContext)
+		enum, err := fieldOffsetStrategy.GetOffsetsEnum(docContext)
 		if err != nil {
 			return nil, err
 		}
-		for enum.Next() {
+		for {
+			more, err := enum.NextPosition()
+			if err != nil {
+				return nil, err
+			}
+			if !more {
+				break
+			}
+			term, err := enum.GetTerm()
+			if err != nil {
+				return nil, err
+			}
+			startOffset, err := enum.StartOffset()
+			if err != nil {
+				return nil, err
+			}
+			endOffset, err := enum.EndOffset()
+			if err != nil {
+				return nil, err
+			}
+			freq, err := enum.Freq()
+			if err != nil {
+				return nil, err
+			}
 			merged = append(merged, OffsetEntry{
-				Term:        enum.Term(),
-				StartOffset: enum.StartOffset(),
-				EndOffset:   enum.EndOffset(),
-				Weight:      enum.Weight(),
+				Term:        string(term),
+				StartOffset: startOffset,
+				EndOffset:   endOffset,
+				Freq:        freq,
 			})
 		}
 		_ = enum.Close()

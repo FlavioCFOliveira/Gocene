@@ -1,6 +1,8 @@
 package uhighlight
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/highlight"
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -26,6 +28,13 @@ type WeightedSpanTermExtractor struct {
 	internalReader       index.LeafReader
 }
 
+// SetExpandMultiTermQuery sets whether MultiTermQuery instances should be
+// expanded. Mirrors
+// WeightedSpanTermExtractor.setExpandMultiTermQuery(boolean).
+func (w *WeightedSpanTermExtractor) SetExpandMultiTermQuery(expandMultiTermQuery bool) {
+	w.expandMultiTermQuery = expandMultiTermQuery
+}
+
 func NewWeightedSpanTermExtractor(defaultField string) *WeightedSpanTermExtractor {
 	return &WeightedSpanTermExtractor{
 		defaultField:         defaultField,
@@ -37,11 +46,11 @@ func NewWeightedSpanTermExtractor(defaultField string) *WeightedSpanTermExtracto
 // Extract fills a map with WeightedSpanTerms using the terms from the supplied Query.
 func (w *WeightedSpanTermExtractor) Extract(query search.Query, boost float32, terms map[string]*WeightedSpanTerm) error {
 	if bq, ok := query.(*search.BoostQuery); ok {
-		return w.Extract(bq.GetQuery(), boost*bq.GetBoost(), terms)
+		return w.Extract(bq.Query(), boost*bq.Boost(), terms)
 	}
 
 	if bq, ok := query.(*search.BooleanQuery); ok {
-		for _, clause := range bq.Clauses {
+		for _, clause := range bq.Clauses() {
 			if !clause.IsProhibited() {
 				if err := w.Extract(clause.Query(), boost, terms); err != nil {
 					return err
@@ -111,7 +120,7 @@ func (w *WeightedSpanTermExtractor) Extract(query search.Query, boost float32, t
 	}
 
 	if dmq, ok := query.(*search.DisjunctionMaxQuery); ok {
-		for _, clause := range dmq.Clauses {
+		for _, clause := range dmq.Disjuncts() {
 			if err := w.Extract(clause, boost, terms); err != nil {
 				return err
 			}
@@ -192,17 +201,24 @@ func (w *WeightedSpanTermExtractor) Extract(query search.Query, boost float32, t
 	}
 
 	// For unknown queries, we rewrite them using the temporary MemoryIndex.
-	reader, err := w.getLeafContext()
+	leafContext, err := w.getLeafContext()
 	if err != nil {
 		return err
 	}
 	defer w.closeInternalReader()
+	reader := leafContext.Reader()
 
 	var rewritten search.Query
 	if mtq, ok := query.(*search.MultiTermQuery); ok {
-		rewritten = search.RewriteMultiTermQuery(search.NewIndexSearcher(reader), mtq, search.ScoringBooleanRewrite)
+		// Java: MultiTermQuery.SCORING_BOOLEAN_REWRITE.rewrite(new
+		// IndexSearcher(reader), (MultiTermQuery) query)
+		// (WeightedSpanTermExtractor.java:251).
+		rewritten, err = search.ScoringBooleanRewrite.Rewrite(search.NewIndexSearcher(reader), mtq)
 	} else {
-		rewritten = query.Rewrite(search.NewIndexSearcher(reader))
+		rewritten, err = query.Rewrite(search.NewIndexSearcher(reader))
+	}
+	if err != nil {
+		return err
 	}
 
 	if rewritten != query {
@@ -230,39 +246,79 @@ func (w *WeightedSpanTermExtractor) extractWeightedSpanTerms(terms map[string]*W
 		return nil
 	}
 
-	searcher := search.NewIndexSearcher(w.getLeafContextMust())
+	// Java builds the searcher with the IndexSearcher(IndexReaderContext)
+	// constructor; Gocene's search.NewIndexSearcher takes the reader, which for
+	// a leaf context is the same object.
+	searcher := search.NewIndexSearcher(w.getLeafContextMust().Reader())
 	searcher.SetQueryCache(nil)
 
 	query := spanQuery
 	if w.mustRewriteQuery(spanQuery) {
-		query = searcher.Rewrite(spanQuery).(spans.SpanQuery)
+		rewritten, err := searcher.Rewrite(spanQuery)
+		if err != nil {
+			return err
+		}
+		rewrittenSpanQuery, ok := rewritten.(spans.SpanQuery)
+		if !ok {
+			return fmt.Errorf("uhighlight: rewrite of a SpanQuery produced %T", rewritten)
+		}
+		query = rewrittenSpanQuery
 	}
 
-	nonWeightedTerms := make(map[string]*index.Term)
-	query.Visit(search.TermCollector(nonWeightedTerms))
+	collector := search.NewTermCollectorVisitor()
+	query.Visit(collector)
+	nonWeightedTerms := collector.Terms
 	if len(nonWeightedTerms) == 0 {
 		return nil
 	}
 
 	spanPositions := make([]*PositionSpan, 0)
-	context, err := w.getLeafContext()
+	readerContext, err := w.getLeafContext()
 	if err != nil {
 		return err
 	}
+	leafContext, ok := readerContext.(*index.LeafReaderContext)
+	if !ok {
+		return fmt.Errorf("uhighlight: expected a LeafReaderContext, got %T", readerContext)
+	}
 
-	weight := searcher.CreateWeight(query, search.ScoreModeCompleteNoScores, 1.0)
-	spans := weight.GetSpans(context, spans.PostingsPositions)
-	if spans == nil {
+	weight, err := searcher.CreateWeight(query, search.ScoreModeCompleteNoScores, 1.0)
+	if err != nil {
+		return err
+	}
+	spanWeight, ok := weight.(*spans.SpanWeight)
+	if !ok {
+		return fmt.Errorf("uhighlight: expected a SpanWeight, got %T", weight)
+	}
+	matchSpans, err := spanWeight.GetSpans(leafContext, spans.PostingsPositions)
+	if err != nil {
+		return err
+	}
+	if matchSpans == nil {
 		return nil
 	}
 
-	acceptDocs := context.GetReader().GetLiveDocs()
-	for spans.NextDoc() != index.NO_MORE_DOCS {
-		if acceptDocs != nil && !acceptDocs.Get(spans.DocID()) {
+	acceptDocs := leafContext.LeafReader().GetLiveDocs()
+	for {
+		doc, err := matchSpans.NextDoc()
+		if err != nil {
+			return err
+		}
+		if doc == index.NO_MORE_DOCS {
+			break
+		}
+		if acceptDocs != nil && !acceptDocs.Get(matchSpans.DocID()) {
 			continue
 		}
-		for spans.NextStartPosition() != spans.NoMorePositions {
-			spanPositions = append(spanPositions, NewPositionSpan(spans.StartPosition(), spans.EndPosition()-1))
+		for {
+			start, err := matchSpans.NextStartPosition()
+			if err != nil {
+				return err
+			}
+			if start == spans.NoMorePositions {
+				break
+			}
+			spanPositions = append(spanPositions, NewPositionSpan(matchSpans.StartPosition(), matchSpans.EndPosition()-1))
 		}
 	}
 
@@ -272,12 +328,12 @@ func (w *WeightedSpanTermExtractor) extractWeightedSpanTerms(terms map[string]*W
 
 	for _, queryTerm := range nonWeightedTerms {
 		if w.fieldNameComparator(queryTerm.Field) {
-			weightedSpanTerm, ok := terms[queryTerm.Text]
+			weightedSpanTerm, ok := terms[queryTerm.Text()]
 			if !ok {
-				weightedSpanTerm = NewWeightedSpanTerm(boost, queryTerm.Text)
+				weightedSpanTerm = NewWeightedSpanTerm(boost, queryTerm.Text())
 				weightedSpanTerm.AddPositionSpans(spanPositions)
 				weightedSpanTerm.PositionSensitive = true
-				terms[queryTerm.Text] = weightedSpanTerm
+				terms[queryTerm.Text()] = weightedSpanTerm
 			} else {
 				if len(spanPositions) > 0 {
 					weightedSpanTerm.AddPositionSpans(spanPositions)
@@ -290,13 +346,18 @@ func (w *WeightedSpanTermExtractor) extractWeightedSpanTerms(terms map[string]*W
 }
 
 func (w *WeightedSpanTermExtractor) extractWeightedTerms(terms map[string]*WeightedSpanTerm, query search.Query, boost float32) error {
-	nonWeightedTerms := make(map[string]*index.Term)
-	searcher := search.NewIndexSearcher(w.getLeafContextMust())
-	searcher.Rewrite(query).Visit(search.TermCollector(nonWeightedTerms))
+	searcher := search.NewIndexSearcher(w.getLeafContextMust().Reader())
+	rewritten, err := searcher.Rewrite(query)
+	if err != nil {
+		return err
+	}
+	collector := search.NewTermCollectorVisitor()
+	rewritten.Visit(collector)
+	nonWeightedTerms := collector.Terms
 
 	for _, queryTerm := range nonWeightedTerms {
 		if w.fieldNameComparator(queryTerm.Field) {
-			terms[queryTerm.Text] = NewWeightedSpanTerm(boost, queryTerm.Text)
+			terms[queryTerm.Text()] = NewWeightedSpanTerm(boost, queryTerm.Text())
 		}
 	}
 	return nil
@@ -331,7 +392,12 @@ func (w *WeightedSpanTermExtractor) getLeafContext() (index.IndexReaderContext, 
 			if err != nil {
 				return nil, err
 			}
-			w.internalReader = searcher.GetTopReaderContext().GetReader()
+			// MEM index has only atomic ctx
+			topContext, ok := searcher.GetTopReaderContext().(*index.LeafReaderContext)
+			if !ok {
+				return nil, fmt.Errorf("uhighlight: expected a LeafReaderContext, got %T", searcher.GetTopReaderContext())
+			}
+			w.internalReader = topContext.LeafReader()
 		}
 
 		w.internalReader = index.NewDelegatingLeafReader(w.internalReader)
