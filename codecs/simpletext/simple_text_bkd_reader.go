@@ -147,9 +147,9 @@ var _ codecs.PointValues = (*SimpleTextBKDReader)(nil)
 func intersectSimpleText(tree bkd.PointTree, visitor codecs.IntersectVisitor) error {
 	rel := visitor.Compare(tree.GetMinPackedValue(), tree.GetMaxPackedValue())
 	switch rel {
-	case geo.RelationCellOutsideQuery:
+	case geo.CellOutsideQuery:
 		return nil
-	case geo.RelationCellInsideQuery:
+	case geo.CellInsideQuery:
 		return tree.VisitDocValues(bkdVisitorAdapter{visitor})
 	default: // CROSSES
 		if ok, err := tree.MoveToChild(); err != nil {
@@ -179,9 +179,9 @@ func intersectSimpleText(tree bkd.PointTree, visitor codecs.IntersectVisitor) er
 func estimateSimpleText(tree bkd.PointTree, visitor codecs.IntersectVisitor) int64 {
 	rel := visitor.Compare(tree.GetMinPackedValue(), tree.GetMaxPackedValue())
 	switch rel {
-	case geo.RelationCellOutsideQuery:
+	case geo.CellOutsideQuery:
 		return 0
-	case geo.RelationCellInsideQuery:
+	case geo.CellInsideQuery:
 		return tree.Size()
 	default: // CROSSES
 		if ok, err := tree.MoveToChild(); err != nil || !ok {

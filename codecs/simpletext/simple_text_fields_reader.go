@@ -571,6 +571,32 @@ func (te *simpleTextTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
 	return e.reset(te.docsStart, omitTF, te.docFreq, te.skipPointer)
 }
 
+// Impacts returns an ImpactsEnum for the current term.
+//
+// Port of SimpleTextFieldsReader.SimpleTextTermsEnum.impacts(int)
+// (SimpleTextFieldsReader.java:261):
+//
+//	if (docFreq <= SimpleTextSkipWriter.BLOCK_SIZE) {
+//	  // no skip data
+//	  return new SlowImpactsEnum(postings(null, flags));
+//	}
+//	return (ImpactsEnum) postings(null, flags);
+func (te *simpleTextTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	pe, err := te.Postings(flags)
+	if err != nil {
+		return nil, err
+	}
+	if te.docFreq <= skipBlockSize {
+		// no skip data
+		return index.NewSlowImpactsEnum(pe), nil
+	}
+	ie, ok := pe.(index.ImpactsEnum)
+	if !ok {
+		return nil, fmt.Errorf("simpleTextTermsEnum.Impacts: postings enum %T is not an ImpactsEnum", pe)
+	}
+	return ie, nil
+}
+
 // PostingsWithLiveDocs ignores live docs (SimpleText has no deletions).
 func (te *simpleTextTermsEnum) PostingsWithLiveDocs(_ util.Bits, flags int) (index.PostingsEnum, error) {
 	return te.Postings(flags)
@@ -748,6 +774,20 @@ func (e *simpleTextDocsEnum) GetImpacts() (index.Impacts, error) {
 }
 
 // compile-time assertion: simpleTextDocsEnum implements index.ImpactsEnum.
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// SimpleTextFieldsReader.SimpleTextDocsEnum does not override in Apache
+// Lucene 10.5.0.
+func (e *simpleTextDocsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// SimpleTextFieldsReader.SimpleTextDocsEnum does not override in Apache
+// Lucene 10.5.0.
+func (e *simpleTextDocsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
 var _ index.ImpactsEnum = (*simpleTextDocsEnum)(nil)
 
 // ---------------------------------------------------------------------------
@@ -993,4 +1033,18 @@ func (e *simpleTextPostingsEnum) GetImpacts() (index.Impacts, error) {
 }
 
 // compile-time assertion: simpleTextPostingsEnum implements index.ImpactsEnum.
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// SimpleTextFieldsReader.SimpleTextPostingsEnum does not override in Apache
+// Lucene 10.5.0.
+func (e *simpleTextPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// SimpleTextFieldsReader.SimpleTextPostingsEnum does not override in Apache
+// Lucene 10.5.0.
+func (e *simpleTextPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
 var _ index.ImpactsEnum = (*simpleTextPostingsEnum)(nil)

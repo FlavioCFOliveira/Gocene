@@ -769,6 +769,13 @@ func (it *dvSortedSetIter) parseOrds(ordList string) error {
 	return nil
 }
 
+// DocValueCount returns the number of ordinals bound to the current document.
+//
+// Port of the docValueCount() override of the SortedSetDocValues returned by
+// SimpleTextDocValuesReader.getSortedSet (SimpleTextDocValuesReader.java:816):
+// {@code return currentOrds.length;}.
+func (it *dvSortedSetIter) DocValueCount() int { return len(it.currentOrds) }
+
 func (it *dvSortedSetIter) NextOrd() (int, error) {
 	if it.currentIdx >= len(it.currentOrds) {
 		return -1, nil
@@ -901,3 +908,74 @@ func dvParsePatternInt(s, _ string) (int, error) {
 
 // compile-time assertion.
 var _ codecs.DocValuesProducer = (*SimpleTextDocValuesReader)(nil)
+
+// ---------------------------------------------------------------------------
+// DocIdSetIterator defaults
+//
+// Java gives every DocValues iterator intoBitSet(int,FixedBitSet,int) and
+// docIDRunEnd() through DocValuesIterator extends DocIdSetIterator, where both
+// are concrete-but-overridable. Go has no inherited default, so each iterator
+// declares the two-line delegation to the free functions that carry those
+// bodies (util/doc_id_set_iterator.go). None of these classes overrides either
+// method in Apache Lucene 10.5.0.
+// ---------------------------------------------------------------------------
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// the NumericDocValues returned by SimpleTextDocValuesReader.getNumeric does not override in Apache Lucene 10.5.0.
+func (it *dvNumericIter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the NumericDocValues returned by SimpleTextDocValuesReader.getNumeric does not override in Apache Lucene 10.5.0.
+func (it *dvNumericIter) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// the BinaryDocValues returned by SimpleTextDocValuesReader.getBinary does not override in Apache Lucene 10.5.0.
+func (it *dvBinaryIter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the BinaryDocValues returned by SimpleTextDocValuesReader.getBinary does not override in Apache Lucene 10.5.0.
+func (it *dvBinaryIter) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// the SortedDocValues returned by SimpleTextDocValuesReader.getSorted does not override in Apache Lucene 10.5.0.
+func (it *dvSortedIter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the SortedDocValues returned by SimpleTextDocValuesReader.getSorted does not override in Apache Lucene 10.5.0.
+func (it *dvSortedIter) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// the SortedNumericDocValues returned by SimpleTextDocValuesReader.getSortedNumeric does not override in Apache Lucene 10.5.0.
+func (it *dvSortedNumericIter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the SortedNumericDocValues returned by SimpleTextDocValuesReader.getSortedNumeric does not override in Apache Lucene 10.5.0.
+func (it *dvSortedNumericIter) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// the SortedSetDocValues returned by SimpleTextDocValuesReader.getSortedSet does not override in Apache Lucene 10.5.0.
+func (it *dvSortedSetIter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the SortedSetDocValues returned by SimpleTextDocValuesReader.getSortedSet does not override in Apache Lucene 10.5.0.
+func (it *dvSortedSetIter) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}

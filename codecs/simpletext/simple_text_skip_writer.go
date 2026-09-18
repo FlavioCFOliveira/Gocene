@@ -38,8 +38,11 @@ type SimpleTextSkipWriter struct {
 	// numberOfSkipLevels is recomputed for each term in resetSkip.
 	numberOfSkipLevels int
 
-	// skipBuffer holds the per-level text payloads.
-	skipBuffer []*store.ByteArrayDataOutput
+	// skipBuffer holds the per-level text payloads. Java declares it as
+	// ByteBuffersDataOutput[] on MultiLevelSkipListWriter
+	// (MultiLevelSkipListWriter.java:64), allocated with
+	// ByteBuffersDataOutput.newResettableInstance().
+	skipBuffer []*store.ByteBuffersDataOutput
 
 	// wroteHeaderPerLevel tracks whether the "level N" line has been emitted
 	// for each level in the current term.
@@ -69,13 +72,13 @@ func NewSimpleTextSkipWriter(maxDoc int) *SimpleTextSkipWriter {
 		skipMul:                 skipMultiplier,
 		maxLevels:               maxSkipLevels,
 		maxDoc:                  maxDoc,
-		skipBuffer:              make([]*store.ByteArrayDataOutput, maxSkipLevels),
+		skipBuffer:              make([]*store.ByteBuffersDataOutput, maxSkipLevels),
 		wroteHeaderPerLevel:     make([]bool, maxSkipLevels),
 		curCompetitiveFreqNorms: make([]*codecs.CompetitiveImpactAccumulator, maxSkipLevels),
 		scratch:                 util.NewBytesRefBuilder(),
 	}
 	for i := 0; i < maxSkipLevels; i++ {
-		w.skipBuffer[i] = store.NewByteArrayDataOutput(0)
+		w.skipBuffer[i] = store.NewByteBuffersDataOutput()
 		w.curCompetitiveFreqNorms[i] = codecs.NewCompetitiveImpactAccumulator()
 	}
 	w.resetSkip()
@@ -88,7 +91,9 @@ func NewSimpleTextSkipWriter(maxDoc int) *SimpleTextSkipWriter {
 func (w *SimpleTextSkipWriter) resetSkip() {
 	for i := 0; i < w.maxLevels; i++ {
 		w.wroteHeaderPerLevel[i] = false
-		w.skipBuffer[i] = store.NewByteArrayDataOutput(0)
+		// MultiLevelSkipListWriter.resetSkip() resets the existing buffers
+		// (MultiLevelSkipListWriter.java:104-109) rather than reallocating.
+		w.skipBuffer[i].Reset()
 		w.curCompetitiveFreqNorms[i].Clear()
 	}
 	w.curDoc = -1
@@ -154,7 +159,9 @@ func (w *SimpleTextSkipWriter) bufferSkip(
 			return fmt.Errorf("SimpleTextSkipWriter.bufferSkip: level %d: %w", level, err)
 		}
 
-		newChildPointer := int64(w.skipBuffer[level].Length())
+		// long newChildPointer = skipBuffer[level].size();
+		// (MultiLevelSkipListWriter.java:149)
+		newChildPointer := w.skipBuffer[level].Size()
 
 		if level != 0 {
 			// Append child pointer to the level's buffer (text format).
@@ -177,7 +184,7 @@ func (w *SimpleTextSkipWriter) bufferSkip(
 // writeSkipData encodes one plain-text skip entry for the given level into buf.
 //
 // Port of SimpleTextSkipWriter.writeSkipData(int, DataOutput).
-func (w *SimpleTextSkipWriter) writeSkipData(level int, buf *store.ByteArrayDataOutput) error {
+func (w *SimpleTextSkipWriter) writeSkipData(level int, buf store.DataOutput) error {
 	if !w.wroteHeaderPerLevel[level] {
 		if err := stWrite(buf, stLevel, w.scratch); err != nil {
 			return err
@@ -255,7 +262,7 @@ func (w *SimpleTextSkipWriter) writeSkipData(level int, buf *store.ByteArrayData
 // writeChildPointer appends a text-encoded child pointer to buf.
 //
 // Port of SimpleTextSkipWriter.writeChildPointer(long, DataOutput).
-func (w *SimpleTextSkipWriter) writeChildPointer(childPointer int64, buf *store.ByteArrayDataOutput) error {
+func (w *SimpleTextSkipWriter) writeChildPointer(childPointer int64, buf store.DataOutput) error {
 	if err := stWrite(buf, stChildPtr, w.scratch); err != nil {
 		return err
 	}
@@ -297,7 +304,7 @@ func (w *SimpleTextSkipWriter) WriteSkip(output store.IndexOutput) (int64, error
 	// For each level above 0, emit a text-encoded level length then that
 	// level's bytes. Level 0 is emitted without a length prefix.
 	for level := w.numberOfSkipLevels - 1; level > 0; level-- {
-		levelBytes := w.skipBuffer[level].GetBytes()
+		levelBytes := w.skipBuffer[level].ToArrayCopy()
 		length := int64(len(levelBytes))
 		if length > 0 {
 			if err := w.writeLevelLength(length, output); err != nil {
@@ -308,7 +315,7 @@ func (w *SimpleTextSkipWriter) WriteSkip(output store.IndexOutput) (int64, error
 			}
 		}
 	}
-	level0 := w.skipBuffer[0].GetBytes()
+	level0 := w.skipBuffer[0].ToArrayCopy()
 	if len(level0) > 0 {
 		if err := output.WriteBytes(level0, 0, len(level0)); err != nil {
 			return 0, fmt.Errorf("SimpleTextSkipWriter.WriteSkip: level 0 bytes: %w", err)

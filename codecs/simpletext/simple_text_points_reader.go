@@ -10,8 +10,11 @@ import (
 	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
 // SimpleTextPointsReader reads point values from the plain-text ".dim" file
@@ -269,7 +272,7 @@ func (r *SimpleTextPointsReader) initReader(fp int64) (*SimpleTextBKDReader, err
 // GetValues returns the PointValues for the given field.
 //
 // Port of SimpleTextPointsReader.getValues(String).
-func (r *SimpleTextPointsReader) GetValues(fieldName string) (codecs.PointValues, error) {
+func (r *SimpleTextPointsReader) GetValues(fieldName string) (index.PointValues, error) {
 	fi := r.readState.FieldInfos.GetByName(fieldName)
 	if fi == nil {
 		return nil, fmt.Errorf("SimpleTextPointsReader.GetValues: field %q is unrecognized", fieldName)
@@ -277,12 +280,125 @@ func (r *SimpleTextPointsReader) GetValues(fieldName string) (codecs.PointValues
 	if fi.PointDimensionCount() == 0 {
 		return nil, fmt.Errorf("SimpleTextPointsReader.GetValues: field %q did not index points", fieldName)
 	}
-	bkd, ok := r.readers[fieldName]
+	reader, ok := r.readers[fieldName]
 	if !ok {
 		return nil, nil
 	}
-	return bkd, nil
+	return newSimpleTextPointValues(reader), nil
 }
+
+// ---------------------------------------------------------------------------
+// simpleTextPointValues — index.PointValues view over a SimpleTextBKDReader.
+// ---------------------------------------------------------------------------
+
+// simpleTextPointValues projects a SimpleTextBKDReader onto the canonical
+// index.PointValues surface that spi.PointsReader.GetValues is declared to
+// return.
+//
+// In Apache Lucene 10.5.0 no projection is needed: SimpleTextBKDReader itself
+// extends org.apache.lucene.index.PointValues, and
+// SimpleTextPointsReader.getValues returns it directly. Gocene carries two
+// renderings of that Java class — codecs.PointValues (the wide
+// Intersect/EstimatePointCount surface, which SimpleTextBKDReader implements)
+// and index.PointValues (the canonical SPI surface, whose packed-value
+// accessors also return an error) — and the two cannot be satisfied by one Go
+// type because GetMinPackedValue/GetMaxPackedValue differ in arity. This view
+// is therefore the same bridge codecs/lucene90 uses for its BKD reader
+// (codecs/lucene90/lucene90_points.go:241-311).
+type simpleTextPointValues struct {
+	reader *SimpleTextBKDReader
+}
+
+// newSimpleTextPointValues wraps reader as an index.PointValues.
+func newSimpleTextPointValues(reader *SimpleTextBKDReader) *simpleTextPointValues {
+	return &simpleTextPointValues{reader: reader}
+}
+
+// Intersect walks the BKD tree, driving visitor for every matching cell and
+// point. It bridges index.PointTreeIntersectVisitor (Compare returns an int)
+// to codecs.IntersectVisitor (Compare returns a geo.Relation).
+func (pv *simpleTextPointValues) Intersect(visitor index.PointTreeIntersectVisitor) error {
+	return pv.reader.Intersect(&simpleTextVisitorBridge{v: visitor})
+}
+
+// EstimatePointCount returns the reader's estimate of how many points the
+// visitor will match.
+func (pv *simpleTextPointValues) EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64 {
+	count := pv.reader.EstimatePointCount(&simpleTextVisitorBridge{v: visitor})
+	if count < 0 {
+		return 0
+	}
+	return count
+}
+
+// GetMinPackedValue returns the per-dimension minimum packed value. The error
+// return matches index.PointValues; SimpleTextBKDReader never fails, so it is
+// always nil.
+func (pv *simpleTextPointValues) GetMinPackedValue() ([]byte, error) {
+	return pv.reader.GetMinPackedValue(), nil
+}
+
+// GetMaxPackedValue returns the per-dimension maximum packed value.
+func (pv *simpleTextPointValues) GetMaxPackedValue() ([]byte, error) {
+	return pv.reader.GetMaxPackedValue(), nil
+}
+
+// GetNumDimensions returns the number of indexed point dimensions.
+func (pv *simpleTextPointValues) GetNumDimensions() int { return pv.reader.GetNumDimensions() }
+
+// GetNumIndexDimensions returns the number of dimensions used for indexing.
+func (pv *simpleTextPointValues) GetNumIndexDimensions() int {
+	return pv.reader.GetNumIndexDimensions()
+}
+
+// GetBytesPerDimension returns the number of bytes per dimension.
+func (pv *simpleTextPointValues) GetBytesPerDimension() int {
+	return pv.reader.GetBytesPerDimension()
+}
+
+// GetDocCount returns the number of documents with at least one point value.
+// Port of PointValues.getDocCount().
+func (pv *simpleTextPointValues) GetDocCount() int { return pv.reader.GetDocCount() }
+
+// GetDocCountWithValue returns the document count (BKD tracks doc count, not
+// per-document value multiplicity), as in codecs/lucene90.
+func (pv *simpleTextPointValues) GetDocCountWithValue() int64 {
+	return int64(pv.reader.GetDocCount())
+}
+
+// GetValueCount returns the total number of indexed point values.
+// Port of PointValues.size().
+func (pv *simpleTextPointValues) GetValueCount() int64 { return pv.reader.Size() }
+
+// GetPointTree returns a cursor at the root of the field's tree.
+// Port of PointValues.getPointTree().
+func (pv *simpleTextPointValues) GetPointTree() (bkd.PointTree, error) {
+	return pv.reader.GetPointTree(), nil
+}
+
+var _ index.PointValues = (*simpleTextPointValues)(nil)
+
+// simpleTextVisitorBridge adapts an index.PointTreeIntersectVisitor (Compare
+// returns an int in {0,1,2}) to a codecs.IntersectVisitor (Compare returns a
+// geo.Relation). The int convention matches the geo.Relation enum order, so the
+// conversion is a direct cast.
+type simpleTextVisitorBridge struct {
+	v index.PointTreeIntersectVisitor
+}
+
+func (b *simpleTextVisitorBridge) Visit(docID int) error { return b.v.Visit(docID) }
+
+func (b *simpleTextVisitorBridge) VisitByPackedValue(docID int, packedValue []byte) error {
+	return b.v.VisitByPackedValue(docID, packedValue)
+}
+
+func (b *simpleTextVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+	return geo.Relation(b.v.Compare(minPackedValue, maxPackedValue))
+}
+
+func (b *simpleTextVisitorBridge) Grow(count int) { b.v.Grow(count) }
+
+var _ codecs.IntersectVisitor = (*simpleTextVisitorBridge)(nil)
 
 // CheckIntegrity validates the checksum of the data file.
 //
@@ -328,6 +444,12 @@ func (r *SimpleTextPointsReader) CheckIntegrity() error {
 	}
 	return nil
 }
+
+// GetMergeInstance returns the receiver.
+//
+// SimpleTextPointsReader does not override getMergeInstance, so it inherits the
+// PointsReader default (PointsReader.java:56), which is {@code return this;}.
+func (r *SimpleTextPointsReader) GetMergeInstance() codecs.PointsReader { return r }
 
 // Close releases the data file.
 //

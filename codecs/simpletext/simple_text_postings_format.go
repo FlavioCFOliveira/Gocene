@@ -5,16 +5,20 @@
 package simpletext
 
 import (
-	"strconv"
-
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SimpleTextPostingsFormat writes postings as text.
+//
+// Port of org.apache.lucene.codecs.simpletext.SimpleTextPostingsFormat
+// (Lucene 10.5.0): "For debugging, curiosity, transparency only!! Do not use
+// this codec in production." All postings data goes into one human-readable
+// text file (_N.pst).
 type SimpleTextPostingsFormat struct{}
 
+// NewSimpleTextPostingsFormat builds the format.
+// Port of SimpleTextPostingsFormat() (line 37), which is super("SimpleText").
 func NewSimpleTextPostingsFormat() *SimpleTextPostingsFormat {
 	return &SimpleTextPostingsFormat{}
 }
@@ -23,56 +27,26 @@ func (f *SimpleTextPostingsFormat) Name() string {
 	return "SimpleTextPostingsFormat"
 }
 
+// FieldsConsumer returns the writer for this segment.
+//
+// Port of SimpleTextPostingsFormat.fieldsConsumer(SegmentWriteState)
+// (line 42): {@code return new SimpleTextFieldsWriter(state);}.
 func (f *SimpleTextPostingsFormat) FieldsConsumer(state *index.SegmentWriteState) (spi.FieldsConsumer, error) {
-	return &simpleTextFieldsConsumer{
-		state: state,
-	}, nil
-}
-
-func (f *SimpleTextPostingsFormat) FieldsProducer(state *index.SegmentReadState) (spi.FieldsProducer, error) {
-	// SimpleTextPostingsFormat.fieldsProducer returns new SimpleTextFieldsReader(state).
-	return NewSimpleTextFieldsReader(state)
-}
-
-type simpleTextFieldsConsumer struct {
-	state *index.SegmentWriteState
-}
-
-func (c *simpleTextFieldsConsumer) Write(field string, terms spi.Terms) error {
-	fileName := stateFileName(c.state, field)
-	out, err := c.state.Directory.CreateOutput(fileName, c.state.Context)
+	w, err := NewSimpleTextFieldsWriter(state)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer out.Close()
-
-	it := terms.Iterator()
-	for {
-		term := it.Next()
-		if term == nil {
-			break
-		}
-
-		postings := it.Postings(nil, 0)
-		docID := postings.NextDoc()
-
-		// Write term and its postings in text
-		Write(out, field+": "+string(term)+" ")
-
-		for docID != util.NO_MORE_DOCS {
-			Write(out, strconv.Itoa(docID))
-			Write(out, " ")
-			docID = postings.NextDoc()
-		}
-		WriteNewline(out)
-	}
-	return nil
+	return w, nil
 }
 
-func (c *simpleTextFieldsConsumer) Close() error {
-	return nil
-}
-
-func stateFileName(state *index.SegmentWriteState, field string) string {
-	return state.SegmentInfo.Name() + "." + field + ".pst"
+// FieldsProducer returns the reader for this segment.
+//
+// Port of SimpleTextPostingsFormat.fieldsProducer(SegmentReadState)
+// (line 47): {@code return new SimpleTextFieldsReader(state);}.
+func (f *SimpleTextPostingsFormat) FieldsProducer(state *index.SegmentReadState) (spi.FieldsProducer, error) {
+	r, err := NewSimpleTextFieldsReader(state)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
 }

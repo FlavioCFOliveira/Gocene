@@ -53,6 +53,27 @@ func (io IndexOptions) String() string {
 	}
 }
 
+// ParseIndexOptions resolves the enum constant named name, mirroring the
+// implicit java.lang.Enum member org.apache.lucene.index.IndexOptions#valueOf
+// (String), which SimpleTextFieldInfosFormat.read calls to restore the index
+// options from the .inf file. It is the exact inverse of [IndexOptions.String].
+func ParseIndexOptions(name string) (IndexOptions, error) {
+	switch name {
+	case "NONE":
+		return IndexOptionsNone, nil
+	case "DOCS":
+		return IndexOptionsDocs, nil
+	case "DOCS_AND_FREQS":
+		return IndexOptionsDocsAndFreqs, nil
+	case "DOCS_AND_FREQS_AND_POSITIONS":
+		return IndexOptionsDocsAndFreqsAndPositions, nil
+	case "DOCS_AND_FREQS_AND_POSITIONS_AND_OFFSETS":
+		return IndexOptionsDocsAndFreqsAndPositionsAndOffsets, nil
+	default:
+		return 0, fmt.Errorf("no enum constant IndexOptions.%s", name)
+	}
+}
+
 // Subsumes returns true if this set of index options includes the given options.
 func (io IndexOptions) Subsumes(other IndexOptions) bool {
 	return io >= other
@@ -155,6 +176,22 @@ func (dvst DocValuesSkipIndexType) String() string {
 	}
 }
 
+// ParseDocValuesSkipIndexType resolves the enum constant named name, mirroring
+// the implicit java.lang.Enum member
+// org.apache.lucene.index.DocValuesSkipIndexType#valueOf(String), called by
+// SimpleTextFieldInfosFormat.docValuesSkipIndexType. It is the exact inverse of
+// [DocValuesSkipIndexType.String].
+func ParseDocValuesSkipIndexType(name string) (DocValuesSkipIndexType, error) {
+	switch name {
+	case "NONE":
+		return DocValuesSkipIndexTypeNone, nil
+	case "RANGE":
+		return DocValuesSkipIndexTypeRange, nil
+	default:
+		return 0, fmt.Errorf("no enum constant DocValuesSkipIndexType.%s", name)
+	}
+}
+
 // IsCompatibleWith reports whether this skip-index type is permitted for the
 // given doc-values type. Matches Lucene 10.4.0's isCompatibleWith semantics.
 func (dvst DocValuesSkipIndexType) IsCompatibleWith(dvt DocValuesType) bool {
@@ -191,6 +228,30 @@ func (dvt DocValuesType) String() string {
 	}
 }
 
+// ParseDocValuesType resolves the enum constant named name, mirroring the
+// implicit java.lang.Enum member
+// org.apache.lucene.index.DocValuesType#valueOf(String), called by
+// SimpleTextFieldInfosFormat.docValuesType. It is the exact inverse of
+// [DocValuesType.String].
+func ParseDocValuesType(name string) (DocValuesType, error) {
+	switch name {
+	case "NONE":
+		return DocValuesTypeNone, nil
+	case "NUMERIC":
+		return DocValuesTypeNumeric, nil
+	case "BINARY":
+		return DocValuesTypeBinary, nil
+	case "SORTED":
+		return DocValuesTypeSorted, nil
+	case "SORTED_NUMERIC":
+		return DocValuesTypeSortedNumeric, nil
+	case "SORTED_SET":
+		return DocValuesTypeSortedSet, nil
+	default:
+		return 0, fmt.Errorf("no enum constant DocValuesType.%s", name)
+	}
+}
+
 // HasDocValues returns true if the field has doc values.
 func (dvt DocValuesType) HasDocValues() bool {
 	return dvt != DocValuesTypeNone
@@ -205,4 +266,3 @@ func (dvt DocValuesType) IsSorted() bool {
 func (dvt DocValuesType) IsMultiValued() bool {
 	return dvt == DocValuesTypeSortedSet || dvt == DocValuesTypeSortedNumeric
 }
-

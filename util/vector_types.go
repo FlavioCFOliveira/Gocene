@@ -31,6 +31,22 @@ func (ve VectorEncoding) String() string {
 	}
 }
 
+// ParseVectorEncoding resolves the enum constant named name, mirroring the
+// implicit java.lang.Enum member
+// org.apache.lucene.index.VectorEncoding#valueOf(String), called by
+// SimpleTextFieldInfosFormat.vectorEncoding. It is the exact inverse of
+// [VectorEncoding.String].
+func ParseVectorEncoding(name string) (VectorEncoding, error) {
+	switch name {
+	case "BYTE":
+		return VectorEncodingByte, nil
+	case "FLOAT32":
+		return VectorEncodingFloat32, nil
+	default:
+		return 0, fmt.Errorf("no enum constant VectorEncoding.%s", name)
+	}
+}
+
 // VectorSimilarityID is the integer identifier for a similarity function, used for serialization.
 type VectorSimilarityID int
 
@@ -58,5 +74,27 @@ func (vsid VectorSimilarityID) String() string {
 		return "MAXIMUM_INNER_PRODUCT"
 	default:
 		return fmt.Sprintf("UNKNOWN(%d)", vsid)
+	}
+}
+
+// ParseVectorSimilarityID resolves the enum constant named name, mirroring the
+// implicit java.lang.Enum member
+// org.apache.lucene.index.VectorSimilarityFunction#valueOf(String), called by
+// SimpleTextFieldInfosFormat.distanceFunction. Gocene splits Java's enum into
+// the [VectorSimilarityFunction] behaviour interface and this ordinal, so the
+// name resolves to the ordinal; [GetSimilarityFunction] then yields the
+// function itself. It is the exact inverse of [VectorSimilarityID.String].
+func ParseVectorSimilarityID(name string) (VectorSimilarityID, error) {
+	switch name {
+	case "EUCLIDEAN":
+		return VectorSimilarityIDEuclidean, nil
+	case "DOT_PRODUCT":
+		return VectorSimilarityIDDotProduct, nil
+	case "COSINE":
+		return VectorSimilarityIDCosine, nil
+	case "MAXIMUM_INNER_PRODUCT":
+		return VectorSimilarityIDMaximumInnerProduct, nil
+	default:
+		return 0, fmt.Errorf("no enum constant VectorSimilarityFunction.%s", name)
 	}
 }
