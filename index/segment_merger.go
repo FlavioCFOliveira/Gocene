@@ -423,12 +423,9 @@ func (sm *SegmentMerger) mergeFields() (int, error) {
 			return fmt.Errorf("index: merge stored fields: start doc: %w", err)
 		}
 		if sfr != nil {
-			visitor := &storedFieldsMergeVisitor{writer: writer, fieldInfos: sm.MergeState.MergeFieldInfos}
+			visitor := &storedFieldsMergeVisitor{writer: writer, remapper: sm.MergeState.MergeFieldInfos}
 			if err := sfr.VisitDocument(docID, visitor); err != nil {
 				return fmt.Errorf("index: merge stored fields: visit doc %d of reader %d: %w", docID, i, err)
-			}
-			if visitor.err != nil {
-				return visitor.err
 			}
 		}
 		if err := writer.FinishDocument(); err != nil {
@@ -492,57 +489,67 @@ func resolveMergeCodec(segInfo *SegmentInfo) Codec {
 }
 
 // storedFieldsMergeVisitor forwards each stored field decoded from a source
-// segment straight to the merged segment's StoredFieldsWriter. The first
-// WriteField error is captured and surfaced by mergeFields.
-// The merged segment's FieldInfos supplies the field number the codec stamps
-// into each record. Java's StoredFieldsWriter.MergeVisitor receives the source
-// FieldInfo on every callback and routes it through remap(), which resolves
-// mergeState.mergeFieldInfos.fieldInfo(field.name) whenever the source and
-// merged numbering disagree (StoredFieldsWriter.java:196-203, 260-267).
-// Gocene's visitor callbacks carry only the name, so the by-name resolution
-// against the merged FieldInfos is performed unconditionally — the same
-// lookup, with the same result.
+// segment straight to the merged segment's StoredFieldsWriter.
+//
+// Mirrors the nested class org.apache.lucene.codecs.StoredFieldsWriter.MergeVisitor
+// (StoredFieldsWriter.java:196-267): every callback routes the source FieldInfo
+// through remap() before handing it to writeField.
 type storedFieldsMergeVisitor struct {
-	writer     StoredFieldsWriter
-	fieldInfos *FieldInfos
-	err        error
+	writer StoredFieldsWriter
+	// remapper is mergeState.mergeFieldInfos, consulted to resolve the source
+	// FieldInfo to the merged numbering.
+	remapper *FieldInfos
 }
 
-func (v *storedFieldsMergeVisitor) write(f *mergeStoredField) {
-	if v.err != nil {
-		return
+// remap resolves the source FieldInfo against the merged FieldInfos, so the
+// codec stamps the merged field number into the record. Mirrors the private
+// MergeVisitor.remap(FieldInfo) (StoredFieldsWriter.java:260-267); the source
+// FieldInfo passes through when no remapper was supplied.
+func (v *storedFieldsMergeVisitor) remap(field *FieldInfo) (*FieldInfo, error) {
+	if v.remapper == nil {
+		return field, nil
 	}
-	if v.fieldInfos == nil {
-		v.err = fmt.Errorf("index: merge stored fields: no merged FieldInfos to resolve field %q", f.name)
-		return
-	}
-	info := v.fieldInfos.FieldInfoByName(f.name)
+	info := v.remapper.FieldInfoByName(field.Name())
 	if info == nil {
-		v.err = fmt.Errorf("index: merge stored fields: field %q is absent from the merged FieldInfos", f.name)
-		return
+		return nil, fmt.Errorf("index: merge stored fields: field %q is absent from the merged FieldInfos", field.Name())
+	}
+	return info, nil
+}
+
+func (v *storedFieldsMergeVisitor) write(fieldInfo *FieldInfo, f *mergeStoredField) error {
+	info, err := v.remap(fieldInfo)
+	if err != nil {
+		return err
 	}
 	if err := v.writer.WriteField(info, f); err != nil {
-		v.err = fmt.Errorf("index: merge stored fields: write field %q: %w", f.name, err)
+		return fmt.Errorf("index: merge stored fields: write field %q: %w", f.name, err)
 	}
+	return nil
 }
 
-func (v *storedFieldsMergeVisitor) StringField(field string, value string) {
-	v.write(&mergeStoredField{name: field, stringValue: value})
+// NeedsField accepts every field. Mirrors MergeVisitor.needsField, which
+// returns Status.YES unconditionally (StoredFieldsWriter.java:255-258).
+func (v *storedFieldsMergeVisitor) NeedsField(*FieldInfo) (StoredFieldVisitorStatus, error) {
+	return StoredFieldVisitorStatusYes, nil
 }
-func (v *storedFieldsMergeVisitor) BinaryField(field string, value []byte) {
-	v.write(&mergeStoredField{name: field, binaryValue: value})
+
+func (v *storedFieldsMergeVisitor) StringField(fieldInfo *FieldInfo, value string) error {
+	return v.write(fieldInfo, &mergeStoredField{name: fieldInfo.Name(), stringValue: value})
 }
-func (v *storedFieldsMergeVisitor) IntField(field string, value int) {
-	v.write(&mergeStoredField{name: field, numericValue: value})
+func (v *storedFieldsMergeVisitor) BinaryField(fieldInfo *FieldInfo, value []byte) error {
+	return v.write(fieldInfo, &mergeStoredField{name: fieldInfo.Name(), binaryValue: value})
 }
-func (v *storedFieldsMergeVisitor) LongField(field string, value int64) {
-	v.write(&mergeStoredField{name: field, numericValue: value})
+func (v *storedFieldsMergeVisitor) IntField(fieldInfo *FieldInfo, value int) error {
+	return v.write(fieldInfo, &mergeStoredField{name: fieldInfo.Name(), numericValue: value})
 }
-func (v *storedFieldsMergeVisitor) FloatField(field string, value float32) {
-	v.write(&mergeStoredField{name: field, numericValue: value})
+func (v *storedFieldsMergeVisitor) LongField(fieldInfo *FieldInfo, value int64) error {
+	return v.write(fieldInfo, &mergeStoredField{name: fieldInfo.Name(), numericValue: value})
 }
-func (v *storedFieldsMergeVisitor) DoubleField(field string, value float64) {
-	v.write(&mergeStoredField{name: field, numericValue: value})
+func (v *storedFieldsMergeVisitor) FloatField(fieldInfo *FieldInfo, value float32) error {
+	return v.write(fieldInfo, &mergeStoredField{name: fieldInfo.Name(), numericValue: value})
+}
+func (v *storedFieldsMergeVisitor) DoubleField(fieldInfo *FieldInfo, value float64) error {
+	return v.write(fieldInfo, &mergeStoredField{name: fieldInfo.Name(), numericValue: value})
 }
 
 // mergeStoredField is a minimal spi.IndexableField carrying one decoded stored

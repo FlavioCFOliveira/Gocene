@@ -44,25 +44,35 @@ type namedValue[T any] struct {
 	value T
 }
 
-func (c *collectedFields) StringField(name, v string) {
-	c.strings = append(c.strings, namedValue[string]{name, v})
+// NeedsField accepts every stored field.
+func (c *collectedFields) NeedsField(*index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	return index.StoredFieldVisitorStatusYes, nil
 }
-func (c *collectedFields) BinaryField(name string, v []byte) {
+func (c *collectedFields) StringField(fi *index.FieldInfo, v string) error {
+	c.strings = append(c.strings, namedValue[string]{fi.Name(), v})
+	return nil
+}
+func (c *collectedFields) BinaryField(fi *index.FieldInfo, v []byte) error {
 	cp := make([]byte, len(v))
 	copy(cp, v)
-	c.binaries = append(c.binaries, namedValue[[]byte]{name, cp})
+	c.binaries = append(c.binaries, namedValue[[]byte]{fi.Name(), cp})
+	return nil
 }
-func (c *collectedFields) IntField(name string, v int) {
-	c.ints = append(c.ints, namedValue[int]{name, v})
+func (c *collectedFields) IntField(fi *index.FieldInfo, v int) error {
+	c.ints = append(c.ints, namedValue[int]{fi.Name(), v})
+	return nil
 }
-func (c *collectedFields) LongField(name string, v int64) {
-	c.longs = append(c.longs, namedValue[int64]{name, v})
+func (c *collectedFields) LongField(fi *index.FieldInfo, v int64) error {
+	c.longs = append(c.longs, namedValue[int64]{fi.Name(), v})
+	return nil
 }
-func (c *collectedFields) FloatField(name string, v float32) {
-	c.floats = append(c.floats, namedValue[float32]{name, v})
+func (c *collectedFields) FloatField(fi *index.FieldInfo, v float32) error {
+	c.floats = append(c.floats, namedValue[float32]{fi.Name(), v})
+	return nil
 }
-func (c *collectedFields) DoubleField(name string, v float64) {
-	c.doubles = append(c.doubles, namedValue[float64]{name, v})
+func (c *collectedFields) DoubleField(fi *index.FieldInfo, v float64) error {
+	c.doubles = append(c.doubles, namedValue[float64]{fi.Name(), v})
+	return nil
 }
 
 // makeFieldInfos builds a FieldInfos with a sequential list of stored-only

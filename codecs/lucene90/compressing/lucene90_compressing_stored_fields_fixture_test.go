@@ -251,12 +251,35 @@ type storedVisit struct {
 // visitRecorder records every callback VisitDocument makes, in order.
 type visitRecorder struct{ visits []storedVisit }
 
-func (v *visitRecorder) StringField(f string, s string)  { v.add("String", f, s) }
-func (v *visitRecorder) BinaryField(f string, b []byte)  { v.add("Binary", f, b) }
-func (v *visitRecorder) IntField(f string, i int)        { v.add("Int", f, i) }
-func (v *visitRecorder) LongField(f string, i int64)     { v.add("Long", f, i) }
-func (v *visitRecorder) FloatField(f string, x float32)  { v.add("Float", f, x) }
-func (v *visitRecorder) DoubleField(f string, x float64) { v.add("Double", f, x) }
+// NeedsField accepts every stored field.
+func (v *visitRecorder) NeedsField(*spi.FieldInfo) (spi.StoredFieldVisitorStatus, error) {
+	return spi.StoredFieldVisitorStatusYes, nil
+}
+
+func (v *visitRecorder) StringField(f *spi.FieldInfo, s string) error {
+	v.add("String", f.Name(), s)
+	return nil
+}
+func (v *visitRecorder) BinaryField(f *spi.FieldInfo, b []byte) error {
+	v.add("Binary", f.Name(), b)
+	return nil
+}
+func (v *visitRecorder) IntField(f *spi.FieldInfo, i int) error {
+	v.add("Int", f.Name(), i)
+	return nil
+}
+func (v *visitRecorder) LongField(f *spi.FieldInfo, i int64) error {
+	v.add("Long", f.Name(), i)
+	return nil
+}
+func (v *visitRecorder) FloatField(f *spi.FieldInfo, x float32) error {
+	v.add("Float", f.Name(), x)
+	return nil
+}
+func (v *visitRecorder) DoubleField(f *spi.FieldInfo, x float64) error {
+	v.add("Double", f.Name(), x)
+	return nil
+}
 
 func (v *visitRecorder) add(kind, field string, value any) {
 	v.visits = append(v.visits, storedVisit{kind: kind, field: field, value: value})

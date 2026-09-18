@@ -126,45 +126,41 @@ func (b *BaseFragmentsBuilder) CreateFragmentsWithTags(reader index.IndexReader,
 //
 // Renders the anonymous StoredFieldVisitor of
 // BaseFragmentsBuilder.getFields(IndexReader, int, String).
-//
-// PORT NOTE: Apache Lucene 10.5.0 receives the FieldInfo in
-// StoredFieldVisitor.stringField and copies fieldInfo.hasTermVectors() onto the
-// FieldType it builds. spi.StoredFieldVisitor carries only the field name, so
-// the term-vector bit cannot be reproduced here. Nothing in this class reads
-// it: getFragmentSourceMSO consults only FieldType.tokenized(), which
-// TextField.TYPE_STORED sets and setStoreTermVectors never changes.
 type getFieldsVisitor struct {
 	fieldName string
 	fields    []*document.Field
-	err       error
 }
 
-// NeedsField reports whether the visitor wishes to receive the named field.
+// NeedsField reports whether the visitor wishes to receive the given field.
 //
 // Mirrors Status needsField(FieldInfo): Status.YES for the requested field,
 // Status.NO for every other.
-func (v *getFieldsVisitor) NeedsField(name string) bool { return name == v.fieldName }
-
-func (v *getFieldsVisitor) StringField(field string, value string) {
-	if field != v.fieldName {
-		return
+func (v *getFieldsVisitor) NeedsField(fieldInfo *index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	if fieldInfo.Name() == v.fieldName {
+		return index.StoredFieldVisitorStatusYes, nil
 	}
-	ft := document.NewFieldTypeFrom(document.TextFieldTypeStored)
-	f, err := document.NewField(field, value, ft)
-	if err != nil {
-		if v.err == nil {
-			v.err = err
-		}
-		return
-	}
-	v.fields = append(v.fields, f)
+	return index.StoredFieldVisitorStatusNo, nil
 }
 
-func (v *getFieldsVisitor) BinaryField(string, []byte)  {}
-func (v *getFieldsVisitor) IntField(string, int)        {}
-func (v *getFieldsVisitor) LongField(string, int64)     {}
-func (v *getFieldsVisitor) FloatField(string, float32)  {}
-func (v *getFieldsVisitor) DoubleField(string, float64) {}
+// StringField renders the anonymous visitor's stringField(FieldInfo, String)
+// (BaseFragmentsBuilder.java:135-141): a stored TextField carrying the source
+// field's term-vector bit.
+func (v *getFieldsVisitor) StringField(fieldInfo *index.FieldInfo, value string) error {
+	ft := document.NewFieldTypeFrom(document.TextFieldTypeStored)
+	ft.SetStoreTermVectors(fieldInfo.HasTermVectors())
+	f, err := document.NewField(fieldInfo.Name(), value, ft)
+	if err != nil {
+		return err
+	}
+	v.fields = append(v.fields, f)
+	return nil
+}
+
+func (v *getFieldsVisitor) BinaryField(*index.FieldInfo, []byte) error  { return nil }
+func (v *getFieldsVisitor) IntField(*index.FieldInfo, int) error        { return nil }
+func (v *getFieldsVisitor) LongField(*index.FieldInfo, int64) error     { return nil }
+func (v *getFieldsVisitor) FloatField(*index.FieldInfo, float32) error  { return nil }
+func (v *getFieldsVisitor) DoubleField(*index.FieldInfo, float64) error { return nil }
 
 func (b *BaseFragmentsBuilder) getFields(reader index.IndexReader, docID int, fieldName string) ([]*document.Field, error) {
 	// according to javadoc, doc.getFields(fieldName) cannot be used with lazy
@@ -176,9 +172,6 @@ func (b *BaseFragmentsBuilder) getFields(reader index.IndexReader, docID int, fi
 	visitor := &getFieldsVisitor{fieldName: fieldName}
 	if err := storedFields.Document(docID, visitor); err != nil {
 		return nil, err
-	}
-	if visitor.err != nil {
-		return nil, visitor.err
 	}
 	return visitor.fields, nil
 }

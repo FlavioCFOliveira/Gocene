@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestCompressingNormsFormat_Basic tests basic format creation
@@ -255,11 +257,11 @@ func TestCompressingNormsConsumer_AddNormsField(t *testing.T) {
 		Stored:        true,
 	})
 
-	// Create a simple norms iterator
+	// Create a simple norms producer
 	normsData := []int64{10, 20, 30, 40, 50}
-	iterator := &testNormsIterator{data: normsData}
+	producer := &testNormsProducer{data: normsData}
 
-	err = consumer.AddNormsField(fieldInfo, iterator)
+	err = consumer.AddNormsField(fieldInfo, producer)
 	if err != nil {
 		t.Errorf("AddNormsField failed: %v", err)
 	}
@@ -293,53 +295,75 @@ func TestCompressingNormsConsumer_AddNormsFieldAfterClose(t *testing.T) {
 		Stored:        true,
 	})
 
-	iterator := &testNormsIterator{data: []int64{10, 20, 30}}
+	producer := &testNormsProducer{data: []int64{10, 20, 30}}
 
 	// Adding norms after close should fail
-	err = consumer.AddNormsField(fieldInfo, iterator)
+	err = consumer.AddNormsField(fieldInfo, producer)
 	if err == nil {
 		t.Error("expected AddNormsField to fail after Close, but it succeeded")
 	}
 }
 
-// testNormsIterator is a test implementation of NormsIterator
-type testNormsIterator struct {
+// testNormsProducer is a test implementation of spi.NormsProducer over a
+// dense []int64 (docID i carries data[i]).
+type testNormsProducer struct {
+	data []int64
+}
+
+func (p *testNormsProducer) GetNorms(*index.FieldInfo) (index.NumericDocValues, error) {
+	return &testNormsValues{data: p.data, docID: -1, pos: -1}, nil
+}
+
+func (p *testNormsProducer) CheckIntegrity() error               { return nil }
+func (p *testNormsProducer) GetMergeInstance() spi.NormsProducer { return p }
+func (p *testNormsProducer) Close() error                        { return nil }
+
+// testNormsValues is the NumericDocValues cursor testNormsProducer hands out.
+type testNormsValues struct {
 	data  []int64
 	pos   int
 	docID int
 }
 
-func (t *testNormsIterator) DocID() int {
-	return t.docID
-}
+func (t *testNormsValues) DocID() int { return t.docID }
 
-func (t *testNormsIterator) Next() bool {
+func (t *testNormsValues) NextDoc() (int, error) {
+	t.pos++
 	if t.pos >= len(t.data) {
-		return false
+		t.docID = index.NO_MORE_DOCS
+		return t.docID, nil
 	}
 	t.docID = t.pos
-	t.pos++
-	return true
+	return t.docID, nil
 }
 
-func (t *testNormsIterator) LongValue() int64 {
-	if t.pos > 0 && t.pos <= len(t.data) {
-		return t.data[t.pos-1]
-	}
-	return 0
-}
-
-// Advance advances to the target document
-func (t *testNormsIterator) Advance(target int) bool {
+func (t *testNormsValues) Advance(target int) (int, error) {
 	if target >= len(t.data) {
-		return false
+		t.pos = len(t.data)
+		t.docID = index.NO_MORE_DOCS
+		return t.docID, nil
 	}
-	t.pos = target + 1
+	t.pos = target
 	t.docID = target
-	return true
+	return t.docID, nil
 }
 
-// Cost returns the estimated cost
-func (t *testNormsIterator) Cost() int64 {
-	return int64(len(t.data))
+func (t *testNormsValues) AdvanceExact(target int) (bool, error) {
+	doc, err := t.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return doc == target, nil
+}
+
+func (t *testNormsValues) LongValue() (int64, error) { return t.data[t.pos], nil }
+
+func (t *testNormsValues) Cost() int64 { return int64(len(t.data)) }
+
+func (t *testNormsValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(t, upTo, bitSet, offset)
+}
+
+func (t *testNormsValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(t)
 }

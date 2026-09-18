@@ -217,8 +217,8 @@ func buildSegment(t *testing.T, segmentName string, fieldName string, opts index
 	}
 	fields := index.NewMemoryFields()
 	fields.AddField(fieldName, &fakeTerms{entries: terms})
-	if err := w.WriteFields(fields, nil); err != nil {
-		t.Fatalf("WriteFields: %v", err)
+	if err := w.Write(fields, nil); err != nil {
+		t.Fatalf("Write: %v", err)
 	}
 	if err := w.Close(); err != nil {
 		t.Fatalf("Writer.Close: %v", err)

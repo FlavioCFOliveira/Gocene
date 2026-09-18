@@ -266,19 +266,15 @@ func (c *TermVectorsConsumer) InitTermVectorsWriter() error {
 	if format == nil {
 		return errors.New("index: TermVectorsConsumer codec has no TermVectorsFormat")
 	}
-	// Lucene synthesises an IOContext from a FlushInfo(lastDocID,
-	// bytesUsed.get()); SegmentWriteState in Gocene has no Context
-	// field yet, so the value is dropped on the floor. See the
-	// type-doc deviation.
-	_ = store.NewFlushContext(&store.FlushInfo{
+	// Mirrors TermVectorsConsumer.initTermVectorsWriter
+	// (TermVectorsConsumer.java:103-110): IOContext.flush(new
+	// FlushInfo(lastDocID, bytesUsed.get())) then
+	// codec.termVectorsFormat().vectorsWriter(directory, info, context).
+	context := store.NewFlushContext(&store.FlushInfo{
 		NumDocs:              c.LastDocID,
 		EstimatedSegmentSize: c.bytesUsed.Get(),
 	})
-	state := &SegmentWriteState{
-		Directory:   c.Directory,
-		SegmentInfo: c.Info,
-	}
-	w, err := format.VectorsWriter(state)
+	w, err := format.VectorsWriter(c.Directory, c.Info, context)
 	if err != nil {
 		return fmt.Errorf("index: TermVectorsConsumer init writer: %w", err)
 	}

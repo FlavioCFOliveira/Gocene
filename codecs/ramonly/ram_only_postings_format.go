@@ -433,16 +433,40 @@ func newRAMFieldsConsumer(writeState *index.SegmentWriteState, postings *ramPost
 // (RAMOnlyPostingsFormat.java:213).
 var ErrCannotIndexOffsets = errors.New("ramonly: this codec cannot index offsets")
 
-// Write renders the body of the per-field loop in
-// RAMFieldsConsumer.write(Fields, NormsProducer)
-// (RAMOnlyPostingsFormat.java:199-301). Java receives the whole Fields and
-// iterates it; Gocene's [spi.FieldsConsumer] is called once per field, so the
-// loop header lives in the caller and this is its body.
-func (c *ramFieldsConsumer) Write(field string, terms spi.Terms) error {
-	if terms == nil {
+// Write renders RAMFieldsConsumer.write(Fields, NormsProducer)
+// (RAMOnlyPostingsFormat.java:199-301): it iterates every field the Fields
+// exposes and drives writeField for each non-nil Terms.
+func (c *ramFieldsConsumer) Write(fields spi.Fields, norms spi.NormsProducer) error {
+	if fields == nil {
 		return nil
 	}
+	it, err := fields.Iterator()
+	if err != nil {
+		return err
+	}
+	for {
+		field, err := it.Next()
+		if err != nil {
+			return err
+		}
+		if field == "" {
+			return nil
+		}
+		terms, err := fields.Terms(field)
+		if err != nil {
+			return err
+		}
+		if terms == nil {
+			continue
+		}
+		if err := c.writeField(field, terms); err != nil {
+			return err
+		}
+	}
+}
 
+// writeField carries the per-field body of the Java write loop.
+func (c *ramFieldsConsumer) writeField(field string, terms spi.Terms) error {
 	termsEnum, err := terms.Iterator()
 	if err != nil {
 		return err

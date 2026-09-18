@@ -6,6 +6,7 @@ package codecs
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // Apache Lucene 10.5.0 has no BaseStoredFieldsReader, StoredFieldsReaderImpl or
@@ -55,40 +56,71 @@ func NewDocumentStoredFieldVisitor() *DocumentStoredFieldVisitor {
 	}
 }
 
+// NeedsField accepts every stored field: this visitor rebuilds the whole
+// document. Mirrors the YES-for-everything needsField of a load-all
+// StoredFieldVisitor.
+func (v *DocumentStoredFieldVisitor) NeedsField(*spi.FieldInfo) (spi.StoredFieldVisitorStatus, error) {
+	return spi.StoredFieldVisitorStatusYes, nil
+}
+
 // StringField adds a string field to the document.
-func (v *DocumentStoredFieldVisitor) StringField(name string, value string) {
-	field, _ := document.NewTextField(name, value, true)
+func (v *DocumentStoredFieldVisitor) StringField(fieldInfo *spi.FieldInfo, value string) error {
+	field, err := document.NewTextField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(field)
+	return nil
 }
 
 // BinaryField adds a binary field to the document.
-func (v *DocumentStoredFieldVisitor) BinaryField(name string, value []byte) {
-	field, _ := document.NewStoredFieldFromBytes(name, value)
+func (v *DocumentStoredFieldVisitor) BinaryField(fieldInfo *spi.FieldInfo, value []byte) error {
+	field, err := document.NewStoredFieldFromBytes(fieldInfo.Name(), value)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(field)
+	return nil
 }
 
 // IntField adds an int field to the document.
-func (v *DocumentStoredFieldVisitor) IntField(name string, value int) {
-	field, _ := document.NewIntField(name, value, true)
+func (v *DocumentStoredFieldVisitor) IntField(fieldInfo *spi.FieldInfo, value int) error {
+	field, err := document.NewIntField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(field)
+	return nil
 }
 
 // LongField adds a long field to the document.
-func (v *DocumentStoredFieldVisitor) LongField(name string, value int64) {
-	field, _ := document.NewLongField(name, value, true)
+func (v *DocumentStoredFieldVisitor) LongField(fieldInfo *spi.FieldInfo, value int64) error {
+	field, err := document.NewLongField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(field)
+	return nil
 }
 
 // FloatField adds a float field to the document.
-func (v *DocumentStoredFieldVisitor) FloatField(name string, value float32) {
-	field, _ := document.NewFloatField(name, value, true)
+func (v *DocumentStoredFieldVisitor) FloatField(fieldInfo *spi.FieldInfo, value float32) error {
+	field, err := document.NewFloatField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(field)
+	return nil
 }
 
 // DoubleField adds a double field to the document.
-func (v *DocumentStoredFieldVisitor) DoubleField(name string, value float64) {
-	field, _ := document.NewDoubleField(name, value, true)
+func (v *DocumentStoredFieldVisitor) DoubleField(fieldInfo *spi.FieldInfo, value float64) error {
+	field, err := document.NewDoubleField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(field)
+	return nil
 }
 
 // GetDocument returns the built document.

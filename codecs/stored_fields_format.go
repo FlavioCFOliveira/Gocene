@@ -258,6 +258,18 @@ type StoredFieldsWriter = spi.StoredFieldsWriter
 // StoredFieldVisitor is an alias of spi.StoredFieldVisitor.
 type StoredFieldVisitor = spi.StoredFieldVisitor
 
+// StoredFieldVisitorStatus is an alias of spi.StoredFieldVisitorStatus, the
+// port of the nested enum org.apache.lucene.index.StoredFieldVisitor.Status.
+type StoredFieldVisitorStatus = spi.StoredFieldVisitorStatus
+
+// The StoredFieldVisitor.Status values, re-exported so that callers naming
+// the visitor through this package can name its enum too.
+const (
+	StoredFieldVisitorStatusYes  = spi.StoredFieldVisitorStatusYes
+	StoredFieldVisitorStatusNo   = spi.StoredFieldVisitorStatusNo
+	StoredFieldVisitorStatusStop = spi.StoredFieldVisitorStatusStop
+)
+
 // IndexableField is an alias of spi.IndexableField — the narrow,
 // codec-facing surface that StoredFieldsWriter.WriteField receives.
 type IndexableField = spi.IndexableField

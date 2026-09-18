@@ -192,12 +192,18 @@ func (c *SortingTermVectorsConsumer) InitTermVectorsWriter() error {
 	if c.tempFormat == nil {
 		return ErrTempTermVectorsFormatUnset
 	}
+	// Mirrors SortingTermVectorsConsumer.initTermVectorsWriter
+	// (SortingTermVectorsConsumer.java:87-94): IOContext.flush(new
+	// FlushInfo(lastDocID, bytesUsed.get())) then
+	// TEMP_TERM_VECTORS_FORMAT.vectorsWriter(tmpDirectory, info, context).
+	// bytesUsed lives on the TermsHash parent, which is not part of the
+	// Sprint 55 surface (see the type-doc deviations above); the
+	// FlushInfo therefore carries only the document count.
+	context := store.NewFlushContext(&store.FlushInfo{
+		NumDocs: c.lastDocID,
+	})
 	c.tmpDirectory = newTrackingTmpDirectoryWrapper(c.directory)
-	state := &SegmentWriteState{
-		Directory:   c.tmpDirectory,
-		SegmentInfo: c.info,
-	}
-	w, err := c.tempFormat.VectorsWriter(state)
+	w, err := c.tempFormat.VectorsWriter(c.tmpDirectory, c.info, context)
 	if err != nil {
 		c.tmpDirectory = nil
 		return fmt.Errorf("index: SortingTermVectorsConsumer init temp writer: %w", err)
@@ -245,7 +251,7 @@ func (c *SortingTermVectorsConsumer) Flush(state *SegmentWriteState, sortMap Sor
 	// Don't pull a merge instance: term vectors are consumed in random
 	// order here, not sequentially. (Mirrors the Lucene comment.)
 	// reader.checkIntegrity() goes here when GOC-3370 lands.
-	sortWriter, err := c.codec.TermVectorsFormat().VectorsWriter(state)
+	sortWriter, err := c.codec.TermVectorsFormat().VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 	if err != nil {
 		_ = reader.Close()
 		c.cleanupTempFiles()

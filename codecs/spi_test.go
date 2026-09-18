@@ -259,7 +259,7 @@ func TestPerFieldPostingsFormat_DispatchByName(t *testing.T) {
 			term:  index.NewTerm(fieldName, "hello"),
 			freq:  1,
 		}
-		if err := consumer.Write(fieldName, terms); err != nil {
+		if err := consumer.Write(index.NewSingleFieldFields(fieldName, terms), nil); err != nil {
 			t.Fatalf("consumer.Write(%q): %v", fieldName, err)
 		}
 	}

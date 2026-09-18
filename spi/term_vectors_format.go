@@ -3,6 +3,7 @@
 // that can be found in the LICENSE file.
 
 package spi
+
 // TermVectorsFormat encodes and decodes the per-segment term-vector
 // files (.tvd / .tvx / .tvm in Lucene 10.4.0).
 //
@@ -11,13 +12,19 @@ type TermVectorsFormat interface {
 	// Name returns the codec name embedded in segment metadata.
 	Name() string
 
-	// VectorsWriter opens a writer that produces the per-segment
-	// term-vector files. The caller closes the writer when done.
-	VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error)
-
 	// VectorsReader opens a reader over the per-segment term-vector
 	// files. The caller closes the reader when done.
-	VectorsReader(dir Directory, segmentInfo *SegmentInfo, fieldInfos *FieldInfos, context IOContext) (TermVectorsReader, error)
+	//
+	// Mirrors TermVectorsFormat.vectorsReader(Directory, SegmentInfo,
+	// FieldInfos, IOContext) (TermVectorsFormat.java:30-32).
+	VectorsReader(directory Directory, segmentInfo *SegmentInfo, fieldInfos *FieldInfos, context IOContext) (TermVectorsReader, error)
+
+	// VectorsWriter opens a writer that produces the per-segment
+	// term-vector files. The caller closes the writer when done.
+	//
+	// Mirrors TermVectorsFormat.vectorsWriter(Directory, SegmentInfo,
+	// IOContext) (TermVectorsFormat.java:35-36).
+	VectorsWriter(directory Directory, segmentInfo *SegmentInfo, context IOContext) (TermVectorsWriter, error)
 }
 
 // TermVectorsWriter serialises term vectors document by document,

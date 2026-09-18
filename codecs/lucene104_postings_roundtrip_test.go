@@ -250,7 +250,7 @@ func writeSegment(t *testing.T, format PostingsFormat, ws *SegmentWriteState, fi
 	hasPositions := opts >= index.IndexOptionsDocsAndFreqsAndPositions
 	hasOffsets := opts >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
 	st := buildSeedTerms(fieldName, opts, hasPositions, hasOffsets)
-	if err := consumer.Write(fieldName, st); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields(fieldName, st), nil); err != nil {
 		_ = consumer.Close()
 		t.Fatalf("Write(%s, %q): %v", ws.SegmentInfo.Name(), fieldName, err)
 	}
@@ -340,7 +340,7 @@ func TestLucene104PostingsFormat_MultiFieldSingleSegment_RoundTrip(t *testing.T)
 		hasPos := f.opts >= index.IndexOptionsDocsAndFreqsAndPositions
 		hasOff := f.opts >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
 		st := buildSeedTerms(f.name, f.opts, hasPos, hasOff)
-		if err := consumer.Write(f.name, st); err != nil {
+		if err := consumer.Write(index.NewSingleFieldFields(f.name, st), nil); err != nil {
 			_ = consumer.Close()
 			t.Fatalf("Write(%q): %v", f.name, err)
 		}
@@ -439,7 +439,7 @@ func TestLucene104PostingsFormat_MultiField_ImpactsEnum(t *testing.T) {
 		term:    freqTermEnum.term,
 		numDocs: numDocs,
 	}
-	if err := consumer.Write("freq_field", freqTerms); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields("freq_field", freqTerms), nil); err != nil {
 		_ = consumer.Close()
 		t.Fatalf("Write(freq_field): %v", err)
 	}
@@ -453,7 +453,7 @@ func TestLucene104PostingsFormat_MultiField_ImpactsEnum(t *testing.T) {
 		term:    posTermEnum.term,
 		numDocs: numDocs,
 	}
-	if err := consumer.Write("pos_field", posTerms); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields("pos_field", posTerms), nil); err != nil {
 		_ = consumer.Close()
 		t.Fatalf("Write(pos_field): %v", err)
 	}
@@ -589,7 +589,7 @@ func TestLucene104PostingsFormat_TermMatchesAfterClose(t *testing.T) {
 		st.termToDocs[pair.text] = seeds
 	}
 
-	if err := consumer.Write("body", st); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields("body", st), nil); err != nil {
 		_ = consumer.Close()
 		t.Fatalf("Write: %v", err)
 	}
@@ -698,7 +698,7 @@ func TestLucene104PostingsFormat_BlockBoundaryPositions(t *testing.T) {
 
 	term := index.NewTerm("pos", "word")
 	lt := &largePosTerms{term: term, numDocs: numDocs}
-	if err := consumer.Write("pos", lt); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields("pos", lt), nil); err != nil {
 		_ = consumer.Close()
 		t.Fatalf("Write: %v", err)
 	}

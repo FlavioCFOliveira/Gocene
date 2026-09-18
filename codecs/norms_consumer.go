@@ -5,8 +5,11 @@
 package codecs
 
 import (
+	"errors"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // BaseNormsConsumer provides a base implementation of the NormsConsumer API.
@@ -48,87 +51,133 @@ func (b *BaseNormsConsumer) Merge(mergeState *index.MergeState) error {
 }
 
 // MergeNormsField merges the norms from the readers in mergeState.
-// Mirrors org.apache.lucene.codecs.NormsConsumer.mergeNormsField in Apache Lucene 10.5.0.
+// Mirrors org.apache.lucene.codecs.NormsConsumer.mergeNormsField in Apache
+// Lucene 10.5.0 (NormsConsumer.java:97-178).
 func (b *BaseNormsConsumer) MergeNormsField(mergeFieldInfo *spi.FieldInfo, mergeState *index.MergeState) error {
-	// The default implementation calls AddNormsField, passing an iterator
+	// The default implementation calls AddNormsField, passing a NormsProducer
 	// that merges and filters deleted documents on the fly.
-	iterator := &mergeNormsIterator{
+	return b.impl.AddNormsField(mergeFieldInfo, &mergingNormsProducer{
 		mergeFieldInfo: mergeFieldInfo,
 		mergeState:     mergeState,
-	}
-
-	return b.impl.AddNormsField(mergeFieldInfo, iterator)
+	})
 }
 
-// mergeNormsIterator implements spi.NormsIterator by merging multiple NormsProducers.
-type mergeNormsIterator struct {
+// errMergingNormsAdvance renders the UnsupportedOperationException that
+// advance / advanceExact throw on the anonymous NumericDocValues built by
+// NormsConsumer.mergeNormsField (NormsConsumer.java:152-160).
+var errMergingNormsAdvance = errors.New("codecs: merging norms: Advance/AdvanceExact is not supported")
+
+// mergingNormsProducer is the Go rendering of the anonymous NormsProducer
+// NormsConsumer.mergeNormsField passes to addNormsField
+// (NormsConsumer.java:105-177).
+type mergingNormsProducer struct {
 	mergeFieldInfo *spi.FieldInfo
 	mergeState     *index.MergeState
-	merger         index.DocIDMerger
-	current        index.DocIDMergerSub
 }
 
-func (it *mergeNormsIterator) init() error {
-	if it.merger != nil {
-		return nil
+// GetNorms builds the per-sub DocIDMerger and returns a fresh merged cursor.
+// Mirrors getNorms(FieldInfo), which raises
+// IllegalArgumentException("wrong fieldInfo") for any other field.
+func (p *mergingNormsProducer) GetNorms(fieldInfo *spi.FieldInfo) (index.NumericDocValues, error) {
+	if fieldInfo != p.mergeFieldInfo {
+		return nil, errors.New("wrong fieldInfo")
 	}
 
 	var subs []index.DocIDMergerSub
-	for i, normsProducer := range it.mergeState.NormsProducers {
+	for i, normsProducer := range p.mergeState.NormsProducers {
+		var norms index.NumericDocValues
 		if normsProducer != nil {
-			readerFieldInfo := it.mergeState.FieldInfos[i].FieldInfoByName(it.mergeFieldInfo.Name())
+			readerFieldInfo := p.mergeState.FieldInfos[i].FieldInfoByName(p.mergeFieldInfo.Name())
 			if readerFieldInfo != nil && readerFieldInfo.HasNorms() {
-				norms, err := normsProducer.GetNorms(readerFieldInfo)
+				var err error
+				norms, err = normsProducer.GetNorms(readerFieldInfo)
 				if err != nil {
-					return err
+					return nil, err
 				}
-				subs = append(subs, &normsConsumerNumericDocValuesSub{
-					docMap: it.mergeState.DocMaps[i],
-					values: norms,
-				})
 			}
+		}
+		if norms != nil {
+			subs = append(subs, &normsConsumerNumericDocValuesSub{
+				docMap: p.mergeState.DocMaps[i],
+				values: norms,
+			})
 		}
 	}
 
-	var err error
-	it.merger, err = index.NewDocIDMerger(subs, 0, it.mergeState.NeedsIndexSort)
-	return err
+	merger, err := index.NewDocIDMerger(subs, 0, p.mergeState.NeedsIndexSort)
+	if err != nil {
+		return nil, err
+	}
+	return &mergingNormsValues{merger: merger, docID: -1}, nil
 }
 
-func (it *mergeNormsIterator) Next() bool {
-	if err := it.init(); err != nil {
-		return false
-	}
+func (p *mergingNormsProducer) CheckIntegrity() error { return nil }
 
+// GetMergeInstance carries the default body of
+// NormsProducer.getMergeInstance(), which the anonymous subclass does not
+// override: it returns the receiver.
+func (p *mergingNormsProducer) GetMergeInstance() spi.NormsProducer { return p }
+
+func (p *mergingNormsProducer) Close() error { return nil }
+
+// mergingNormsValues is the Go rendering of the anonymous NumericDocValues
+// returned by the merging NormsProducer (NormsConsumer.java:133-175).
+type mergingNormsValues struct {
+	merger  index.DocIDMerger
+	docID   int
+	current index.DocIDMergerSub
+}
+
+func (it *mergingNormsValues) DocID() int { return it.docID }
+
+func (it *mergingNormsValues) NextDoc() (int, error) {
 	sub, err := it.merger.Next()
-	if err != nil || sub == nil {
+	if err != nil {
+		return 0, err
+	}
+	if sub == nil {
 		it.current = nil
-		return false
+		it.docID = index.NO_MORE_DOCS
+	} else {
+		it.current = sub
+		it.docID = sub.MappedDocID()
 	}
-	it.current = sub
-	return true
+	return it.docID, nil
 }
 
-func (it *mergeNormsIterator) DocID() int {
-	if it.current == nil {
-		return -1
-	}
-	return it.current.MappedDocID()
+func (it *mergingNormsValues) Advance(int) (int, error) {
+	return 0, errMergingNormsAdvance
 }
 
-func (it *mergeNormsIterator) LongValue() int64 {
+func (it *mergingNormsValues) AdvanceExact(int) (bool, error) {
+	return false, errMergingNormsAdvance
+}
+
+// Cost mirrors the anonymous NumericDocValues, whose cost() returns 0.
+func (it *mergingNormsValues) Cost() int64 { return 0 }
+
+func (it *mergingNormsValues) LongValue() (int64, error) {
 	if it.current == nil {
-		return 0
+		return 0, errors.New("codecs: merging norms: LongValue called outside a document")
 	}
 	sub, ok := it.current.(*normsConsumerNumericDocValuesSub)
 	if !ok {
-		return 0
+		return 0, errors.New("codecs: merging norms: unexpected DocIDMerger sub type")
 	}
-	val, err := sub.values.LongValue()
-	if err != nil {
-		return 0
-	}
-	return val
+	return sub.values.LongValue()
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int), which the anonymous
+// Java subclass does not override.
+func (it *mergingNormsValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() —
+// docID() + 1 — which the anonymous Java subclass does not override.
+func (it *mergingNormsValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
 }
 
 // normsConsumerNumericDocValuesSub is the Go rendering of the private static

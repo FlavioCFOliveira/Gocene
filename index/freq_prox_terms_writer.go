@@ -190,7 +190,7 @@ func (w *FreqProxTermsWriter) Flush(
 	state *SegmentWriteState,
 	sortMap SorterDocMap,
 	postingsFormat PostingsFormat,
-	norms any, // forward-compat placeholder; the in-tree FieldsConsumer ignores it.
+	norms any, // narrowed to NormsProducer and forwarded to FieldsConsumer.Write.
 ) error {
 	if state == nil {
 		return errors.New("FreqProxTermsWriter.Flush: state must not be nil")
@@ -253,7 +253,7 @@ func (w *FreqProxTermsWriter) Flush(
 		if err != nil {
 			return fmt.Errorf("FreqProxTermsWriter.Flush: FieldsConsumer: %w", err)
 		}
-		writeErr := writeFreqProxFields(consumer, fields)
+		writeErr := consumer.Write(fields, normsProducerOrNil(norms))
 		closeErr := consumer.Close()
 		if writeErr != nil {
 			return writeErr
@@ -410,7 +410,7 @@ func (w *FreqProxTermsWriter) FlushFreqProx(
 	if err != nil {
 		return fmt.Errorf("FreqProxTermsWriter.FlushFreqProx: FieldsConsumer: %w", err)
 	}
-	writeErr := writeFreqProxFields(consumer, fields)
+	writeErr := consumer.Write(fields, normsProducerOrNil(norms))
 	closeErr := consumer.Close()
 	if writeErr != nil {
 		return writeErr
@@ -421,34 +421,18 @@ func (w *FreqProxTermsWriter) FlushFreqProx(
 	return nil
 }
 
-// writeFreqProxFields iterates fields in their natural order (already
-// field-name-sorted by FreqProxFields) and forwards each (field, terms) pair
-// to consumer.Write. The function isolates the per-field dispatch loop from
-// the surrounding flush code so the sort/cast pipeline stays linear.
-func writeFreqProxFields(consumer FieldsConsumer, fields Fields) error {
-	iter, err := fields.Iterator()
-	if err != nil {
-		return fmt.Errorf("FreqProxTermsWriter.write: field iterator: %w", err)
+// normsProducerOrNil narrows the NormsProducer the indexing chain carries.
+// Java's FreqProxTermsWriter.flush receives a NormsProducer directly; the
+// Gocene flush signature still carries it as an untyped value, so the
+// conversion is performed here. A value that is not a NormsProducer (including
+// a nil one) yields nil, exactly as Java passes null when the segment has no
+// norms.
+func normsProducerOrNil(norms any) NormsProducer {
+	np, ok := norms.(NormsProducer)
+	if !ok {
+		return nil
 	}
-	for {
-		name, err := iter.Next()
-		if err != nil {
-			return fmt.Errorf("FreqProxTermsWriter.write: field iterator advance: %w", err)
-		}
-		if name == "" {
-			return nil
-		}
-		terms, err := fields.Terms(name)
-		if err != nil {
-			return fmt.Errorf("FreqProxTermsWriter.write: terms(%q): %w", name, err)
-		}
-		if terms == nil {
-			continue
-		}
-		if err := consumer.Write(name, terms); err != nil {
-			return fmt.Errorf("FreqProxTermsWriter.write: consumer.Write(%q): %w", name, err)
-		}
-	}
+	return np
 }
 
 // sortingFilterFields is the Gocene equivalent of the anonymous

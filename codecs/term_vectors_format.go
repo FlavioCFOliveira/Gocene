@@ -83,12 +83,12 @@ func (f *deferredTermVectorsFormat) delegate() (TermVectorsFormat, error) {
 	return tv, nil
 }
 
-func (f *deferredTermVectorsFormat) VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error) {
+func (f *deferredTermVectorsFormat) VectorsWriter(directory store.Directory, segmentInfo *index.SegmentInfo, context store.IOContext) (TermVectorsWriter, error) {
 	tv, err := f.delegate()
 	if err != nil {
 		return nil, err
 	}
-	return tv.VectorsWriter(state)
+	return tv.VectorsWriter(directory, segmentInfo, context)
 }
 
 func (f *deferredTermVectorsFormat) VectorsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos, context store.IOContext) (TermVectorsReader, error) {

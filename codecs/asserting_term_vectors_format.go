@@ -34,8 +34,8 @@ func (f *AssertingTermVectorsFormat) VectorsReader(dir store.Directory, segmentI
 }
 
 // VectorsWriter opens a writer that produces the per-segment term-vector files.
-func (f *AssertingTermVectorsFormat) VectorsWriter(state *spi.SegmentWriteState) (spi.TermVectorsWriter, error) {
-	writer, err := f.in.VectorsWriter(state)
+func (f *AssertingTermVectorsFormat) VectorsWriter(dir store.Directory, segmentInfo *spi.SegmentInfo, context store.IOContext) (spi.TermVectorsWriter, error) {
+	writer, err := f.in.VectorsWriter(dir, segmentInfo, context)
 	if err != nil {
 		return nil, err
 	}

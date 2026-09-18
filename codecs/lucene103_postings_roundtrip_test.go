@@ -297,7 +297,7 @@ func l103RoundTrip(t *testing.T, opts index.IndexOptions, storePayloads bool, te
 	if err != nil {
 		t.Fatalf("FieldsConsumer: %v", err)
 	}
-	if err := consumer.Write(terms.field, terms); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields(terms.field, terms), nil); err != nil {
 		_ = consumer.Close()
 		t.Fatalf("Write: %v", err)
 	}

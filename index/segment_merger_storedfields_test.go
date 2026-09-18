@@ -25,12 +25,31 @@ type smCapture struct {
 	fields map[string]string
 }
 
-func (c *smCapture) StringField(field string, value string)  { c.fields[field] = value }
-func (c *smCapture) BinaryField(field string, value []byte)  { c.fields[field] = string(value) }
-func (c *smCapture) IntField(field string, value int)        {}
-func (c *smCapture) LongField(field string, value int64)     {}
-func (c *smCapture) FloatField(field string, value float32)  {}
-func (c *smCapture) DoubleField(field string, value float64) {}
+// NeedsField accepts every stored field.
+func (c *smCapture) NeedsField(*index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	return index.StoredFieldVisitorStatusYes, nil
+}
+
+func (c *smCapture) StringField(fieldInfo *index.FieldInfo, value string) error {
+	c.fields[fieldInfo.Name()] = value
+	return nil
+}
+func (c *smCapture) BinaryField(fieldInfo *index.FieldInfo, value []byte) error {
+	c.fields[fieldInfo.Name()] = string(value)
+	return nil
+}
+func (c *smCapture) IntField(fieldInfo *index.FieldInfo, value int) error {
+	return nil
+}
+func (c *smCapture) LongField(fieldInfo *index.FieldInfo, value int64) error {
+	return nil
+}
+func (c *smCapture) FloatField(fieldInfo *index.FieldInfo, value float32) error {
+	return nil
+}
+func (c *smCapture) DoubleField(fieldInfo *index.FieldInfo, value float64) error {
+	return nil
+}
 
 func TestSegmentMerger_StoredFieldsRoundTrip(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()

@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -98,13 +99,20 @@ func NewCompressingNormsConsumer(state *SegmentWriteState, mode CompressionMode,
 	}, nil
 }
 
-// AddNormsField writes a norms field.
-func (c *CompressingNormsConsumer) AddNormsField(field *index.FieldInfo, values NormsIterator) error {
+// AddNormsField writes a norms field. The NumericDocValues is pulled from
+// normsProducer, mirroring the pull API of
+// org.apache.lucene.codecs.NormsConsumer.addNormsField(FieldInfo, NormsProducer).
+func (c *CompressingNormsConsumer) AddNormsField(field *index.FieldInfo, normsProducer spi.NormsProducer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.closed {
 		return fmt.Errorf("consumer is closed")
+	}
+
+	values, err := normsProducer.GetNorms(field)
+	if err != nil {
+		return err
 	}
 
 	normsField := normsField{
@@ -113,10 +121,18 @@ func (c *CompressingNormsConsumer) AddNormsField(field *index.FieldInfo, values 
 	}
 
 	// Collect all values
-	for values.Next() {
-		docID := values.DocID()
-		value := values.LongValue()
-		_ = docID // docID is implicit in the array index
+	for {
+		doc, err := values.NextDoc()
+		if err != nil {
+			return err
+		}
+		if doc == index.NO_MORE_DOCS {
+			break
+		}
+		value, err := values.LongValue()
+		if err != nil {
+			return err
+		}
 		normsField.values = append(normsField.values, value)
 	}
 

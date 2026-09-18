@@ -7,6 +7,7 @@ package index
 import (
 	"bytes"
 	"fmt"
+	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -130,6 +131,7 @@ func (sm *SegmentMerger) mergeTerms() error {
 	}
 	defer consumer.Close()
 
+	merged := &mergedPostingsFields{byField: make(map[string]*mergeFieldTerms)}
 	iter := sm.MergeState.MergeFieldInfos.Iterator()
 	for iter.HasNext() {
 		info := iter.Next()
@@ -157,13 +159,65 @@ func (sm *SegmentMerger) mergeTerms() error {
 		if len(subs) == 0 {
 			continue
 		}
-		merged := &mergeFieldTerms{subs: subs, docMaps: subMaps, fieldInfo: info}
-		if err := consumer.Write(field, merged); err != nil {
-			return fmt.Errorf("index: merge postings: write field %q: %w", field, err)
-		}
+		merged.names = append(merged.names, field)
+		merged.byField[field] = &mergeFieldTerms{subs: subs, docMaps: subMaps, fieldInfo: info}
+	}
+	if len(merged.names) == 0 {
+		return nil
+	}
+	// MultiFields exposes the merged field names in ascending order (each sub
+	// Fields is sorted and MergedIterator preserves that), which is the order
+	// the block-tree writer asserts on.
+	sort.Strings(merged.names)
+
+	// Java passes the merge instance of the norms producer opened from the
+	// SegmentReadState (SegmentMerger.java:236-249). This merge path does not
+	// open one; no Gocene FieldsConsumer consumes the value today.
+	if err := consumer.Write(merged, nil); err != nil {
+		return fmt.Errorf("index: merge postings: write: %w", err)
 	}
 	return nil
 }
+
+// mergedPostingsFields is the Fields view the merge hands to the codec
+// FieldsConsumer: one mergeFieldTerms per indexed field, in ascending field
+// order. It stands in for the MappedMultiFields(MultiFields(...)) that
+// FieldsConsumer.merge builds in Java (FieldsConsumer.java:72-96).
+type mergedPostingsFields struct {
+	names   []string
+	byField map[string]*mergeFieldTerms
+}
+
+func (f *mergedPostingsFields) Iterator() (FieldIterator, error) {
+	return &mergedPostingsFieldIterator{names: f.names}, nil
+}
+
+func (f *mergedPostingsFields) Size() int { return len(f.names) }
+
+func (f *mergedPostingsFields) Terms(field string) (Terms, error) {
+	terms, ok := f.byField[field]
+	if !ok {
+		return nil, nil
+	}
+	return terms, nil
+}
+
+// mergedPostingsFieldIterator walks the merged field names.
+type mergedPostingsFieldIterator struct {
+	names []string
+	pos   int
+}
+
+func (it *mergedPostingsFieldIterator) Next() (string, error) {
+	if it.pos >= len(it.names) {
+		return "", nil
+	}
+	name := it.names[it.pos]
+	it.pos++
+	return name, nil
+}
+
+func (it *mergedPostingsFieldIterator) HasNext() bool { return it.pos < len(it.names) }
 
 // mergeFieldTerms is a Terms view over one field's per-segment Terms whose
 // postings are remapped to the merged doc space. The block-tree terms writer

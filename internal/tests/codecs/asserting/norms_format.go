@@ -65,10 +65,26 @@ type assertingNormsConsumer struct {
 	maxDoc int
 }
 
-func (c *assertingNormsConsumer) AddNormsField(field *spi.FieldInfo, values spi.NormsIterator) error {
+// AddNormsField walks the producer's NumericDocValues once to assert the
+// docID contract, then forwards the same producer to the delegate.
+//
+// Mirrors AssertingNormsFormat.AssertingNormsConsumer.addNormsField(FieldInfo,
+// NormsProducer) of Apache Lucene 10.5.0.
+func (c *assertingNormsConsumer) AddNormsField(field *spi.FieldInfo, valuesProducer spi.NormsProducer) error {
+	values, err := valuesProducer.GetNorms(field)
+	if err != nil {
+		return err
+	}
+
 	lastDocID := -1
-	for values.Next() {
-		docID := values.DocID()
+	for {
+		docID, err := values.NextDoc()
+		if err != nil {
+			return err
+		}
+		if docID == index.NO_MORE_DOCS {
+			break
+		}
 		if docID < 0 || docID >= c.maxDoc {
 			panic(fmt.Sprintf("docID %d out of bounds [0, %d)", docID, c.maxDoc))
 		}
@@ -76,10 +92,12 @@ func (c *assertingNormsConsumer) AddNormsField(field *spi.FieldInfo, values spi.
 			panic(fmt.Sprintf("docID %d must be strictly increasing (last was %d)", docID, lastDocID))
 		}
 		lastDocID = docID
-		_ = values.LongValue()
+		if _, err := values.LongValue(); err != nil {
+			return err
+		}
 	}
 
-	return c.in.AddNormsField(field, values)
+	return c.in.AddNormsField(field, valuesProducer)
 }
 
 func (c *assertingNormsConsumer) Close() error {

@@ -187,7 +187,7 @@ func TestLucene104PostingsFormat_LastPosBlockOffset_NonZero(t *testing.T) {
 		terms:     &largePosTerms{term: term, numDocs: numDocs},
 	}
 
-	if err := consumer.Write("f", fields.terms); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields("f", fields.terms), nil); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := consumer.Close(); err != nil {
@@ -430,7 +430,7 @@ func TestLucene104PostingsReader_Impacts(t *testing.T) {
 		terms:     &varyingFreqTerms{term: term, numDocs: numDocs},
 	}
 
-	if err := consumer.Write("f", fields.terms); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields("f", fields.terms), nil); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := consumer.Close(); err != nil {

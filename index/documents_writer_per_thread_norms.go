@@ -5,9 +5,11 @@
 package index
 
 import (
+	"errors"
 	"fmt"
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -225,27 +227,94 @@ func (dwpt *DocumentsWriterPerThread) flushNorms(codec Codec, state *SegmentWrit
 	defer consumer.Close()
 
 	for _, nf := range normFields {
-		iter := &bufferedNormsIter{docIDs: nf.buf.docIDs, values: nf.buf.values, pos: -1}
-		if err := consumer.AddNormsField(nf.fieldInfo, iter); err != nil {
+		// NormsConsumer.addNormsField is a pull API: the consumer may ask the
+		// producer for the NumericDocValues more than once, so the producer
+		// hands out a fresh cursor on every call. Mirrors the anonymous
+		// NormsProducer built by NormValuesWriter.flush
+		// (NormValuesWriter.java:88-106).
+		producer := &bufferedNormsProducer{
+			fieldInfo: nf.fieldInfo,
+			docIDs:    nf.buf.docIDs,
+			values:    nf.buf.values,
+		}
+		if err := consumer.AddNormsField(nf.fieldInfo, producer); err != nil {
 			return fmt.Errorf("norms AddNormsField %q: %w", nf.fieldInfo.Name(), err)
 		}
 	}
 	return nil
 }
 
-// bufferedNormsIter replays a field's buffered per-document norm values. It
-// satisfies the NormsIterator (spi.NormsIterator) contract the codec's
-// NormsConsumer.AddNormsField consumes: Next advances the single-pass cursor,
-// DocID / LongValue read the current entry. docIDs is strictly increasing.
-type bufferedNormsIter struct {
+// bufferedNormsProducer is the NormsProducer the flush hands to the codec
+// NormsConsumer. Mirrors the anonymous NormsProducer of
+// NormValuesWriter.flush: getNorms rejects a FieldInfo other than the one
+// being flushed, checkIntegrity and close are no-ops.
+type bufferedNormsProducer struct {
+	fieldInfo *FieldInfo
+	docIDs    []int
+	values    []int64
+}
+
+// GetNorms returns a fresh cursor over the buffered values. Mirrors
+// NormValuesWriter.flush's getNorms(FieldInfo), which raises
+// IllegalArgumentException("wrong fieldInfo") for any other field.
+func (p *bufferedNormsProducer) GetNorms(field *FieldInfo) (NumericDocValues, error) {
+	if field != p.fieldInfo {
+		return nil, errors.New("wrong fieldInfo")
+	}
+	return &bufferedNormsValues{docIDs: p.docIDs, values: p.values, pos: -1, doc: -1}, nil
+}
+
+func (p *bufferedNormsProducer) CheckIntegrity() error               { return nil }
+func (p *bufferedNormsProducer) GetMergeInstance() spi.NormsProducer { return p }
+func (p *bufferedNormsProducer) Close() error                        { return nil }
+
+// bufferedNormsValues replays a field's buffered per-document norm values.
+// docIDs is strictly increasing. Mirrors NormValuesWriter.BufferedNorms, whose
+// advance / advanceExact throw UnsupportedOperationException.
+type bufferedNormsValues struct {
 	docIDs []int
 	values []int64
 	pos    int
+	doc    int
 }
 
-func (it *bufferedNormsIter) Next() bool {
+func (it *bufferedNormsValues) DocID() int { return it.doc }
+
+func (it *bufferedNormsValues) NextDoc() (int, error) {
 	it.pos++
-	return it.pos < len(it.docIDs)
+	if it.pos >= len(it.docIDs) {
+		it.doc = NO_MORE_DOCS
+		return it.doc, nil
+	}
+	it.doc = it.docIDs[it.pos]
+	return it.doc, nil
 }
-func (it *bufferedNormsIter) DocID() int       { return it.docIDs[it.pos] }
-func (it *bufferedNormsIter) LongValue() int64 { return it.values[it.pos] }
+
+func (it *bufferedNormsValues) Advance(int) (int, error) {
+	return 0, errBufferedNormsAdvance
+}
+
+func (it *bufferedNormsValues) AdvanceExact(int) (bool, error) {
+	return false, errBufferedNormsAdvance
+}
+
+func (it *bufferedNormsValues) LongValue() (int64, error) {
+	return it.values[it.pos], nil
+}
+
+// Cost returns the number of value-bearing documents in the buffered stream,
+// mirroring BufferedNorms.cost().
+func (it *bufferedNormsValues) Cost() int64 { return int64(len(it.docIDs)) }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int), which
+// NormValuesWriter.BufferedNorms does not override.
+func (it *bufferedNormsValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() —
+// docID() + 1 — which NormValuesWriter.BufferedNorms does not override.
+func (it *bufferedNormsValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}

@@ -112,34 +112,68 @@ func (p *AssertingFieldsProducer) String() string {
 type AssertingFieldsConsumer struct {
 	in         FieldsConsumer
 	writeState *SegmentWriteState
-	// lastField renders the `String lastField` local of Java's write(Fields,
-	// NormsProducer): the spi FieldsConsumer receives one field per Write call,
-	// so the ordering state has to outlive a single call.
-	lastField string
 }
 
-func (c *AssertingFieldsConsumer) Write(field string, terms spi.Terms) error {
+// Write forwards to the delegate and then re-walks every field, term and
+// posting to assert the ordering and statistics contract.
+//
+// Mirrors AssertingPostingsFormat.AssertingFieldsConsumer.write(Fields,
+// NormsProducer) (AssertingPostingsFormat.java:106-231).
+func (c *AssertingFieldsConsumer) Write(fields index.Fields, norms NormsProducer) error {
 	// in.write(fields, norms);
-	if err := c.in.Write(field, terms); err != nil {
+	if err := c.in.Write(fields, norms); err != nil {
 		return err
 	}
 
-	// FieldInfo fieldInfo = writeState.fieldInfos.fieldInfo(field);
-	// assert fieldInfo != null;
-	// assert lastField == null || lastField.compareTo(field) < 0;
-	fieldInfo := c.writeState.FieldInfos.FieldInfo(field)
-	if fieldInfo == nil {
-		panic(fmt.Sprintf("AssertingFieldsConsumer: field %s not found in FieldInfos", field))
-	}
-	if c.lastField != "" && c.lastField >= field {
-		panic(fmt.Sprintf("AssertingFieldsConsumer: fields are not in sorted order: %s >= %s", c.lastField, field))
-	}
-	c.lastField = field
+	// TODO: more asserts?  can we somehow run a
+	// "limited" CheckIndex here???  Or ... can we improve
+	// AssertingFieldsProducer and us it also to wrap the
+	// incoming Fields here?
 
-	if terms == nil {
+	lastField := ""
+	if fields == nil {
 		return nil
 	}
+	it, err := fields.Iterator()
+	if err != nil {
+		return err
+	}
+	for {
+		field, err := it.Next()
+		if err != nil {
+			return err
+		}
+		if field == "" {
+			return nil
+		}
 
+		// FieldInfo fieldInfo = writeState.fieldInfos.fieldInfo(field);
+		// assert fieldInfo != null;
+		// assert lastField == null || lastField.compareTo(field) < 0;
+		fieldInfo := c.writeState.FieldInfos.FieldInfo(field)
+		if fieldInfo == nil {
+			panic(fmt.Sprintf("AssertingFieldsConsumer: field %s not found in FieldInfos", field))
+		}
+		if lastField != "" && lastField >= field {
+			panic(fmt.Sprintf("AssertingFieldsConsumer: fields are not in sorted order: %s >= %s", lastField, field))
+		}
+		lastField = field
+
+		terms, err := fields.Terms(field)
+		if err != nil {
+			return err
+		}
+		if terms == nil {
+			continue
+		}
+		if err := c.assertField(field, fieldInfo, terms); err != nil {
+			return err
+		}
+	}
+}
+
+// assertField carries the per-field body of the Java write loop.
+func (c *AssertingFieldsConsumer) assertField(field string, fieldInfo *spi.FieldInfo, terms spi.Terms) error {
 	te, err := terms.Iterator()
 	if err != nil {
 		return err

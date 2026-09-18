@@ -414,25 +414,20 @@ func segmentFileName(segmentName, segmentSuffix, ext string) string {
 	return segmentName + "." + ext
 }
 
-// Write satisfies the FieldsConsumer SPI: it drives the per-field writer
-// for a single field.
-func (w *ordsBlockTreeTermsWriter) Write(field string, terms index.Terms) error {
+// Write walks fields in the iterator's order and persists every non-nil Terms
+// via the per-field termsWriter state machine. Fields must be visited in
+// ascending order.
+//
+// Mirrors OrdsBlockTreeTermsWriter.write(Fields, NormsProducer)
+// (OrdsBlockTreeTermsWriter.java:389-414).
+//
+// PORT NOTE: Java forwards norms to TermsWriter.write(BytesRef, TermsEnum,
+// NormsProducer), which feeds the competitive-impact accumulator of the
+// postings writer. Gocene's codecs.WriteTerm / PushPostingsWriterBase carry no
+// NormsProducer parameter yet, so the value stops here.
+func (w *ordsBlockTreeTermsWriter) Write(fields index.Fields, norms codecs.NormsProducer) error {
 	if w.closed {
 		return errors.New("ordsBlockTreeTermsWriter: Write after Close")
-	}
-	fieldInfo := w.fieldInfos.GetByName(field)
-	if fieldInfo == nil {
-		return fmt.Errorf("ordsBlockTreeTermsWriter.Write: unknown field %q", field)
-	}
-	return w.writeField(fieldInfo, terms)
-}
-
-// WriteFields walks fields in the iterator's order and persists every
-// non-nil Terms via the per-field termsWriter state machine. Fields must
-// be visited in ascending order.
-func (w *ordsBlockTreeTermsWriter) WriteFields(fields index.Fields) error {
-	if w.closed {
-		return errors.New("ordsBlockTreeTermsWriter: WriteFields after Close")
 	}
 	if fields == nil {
 		return nil
@@ -452,7 +447,7 @@ func (w *ordsBlockTreeTermsWriter) WriteFields(fields index.Fields) error {
 			break
 		}
 		if !first && lastField >= field {
-			return fmt.Errorf("ordsBlockTreeTermsWriter.WriteFields: fields must be in ascending order, got %q after %q", field, lastField)
+			return fmt.Errorf("ordsBlockTreeTermsWriter.Write: fields must be in ascending order, got %q after %q", field, lastField)
 		}
 		lastField = field
 		first = false
@@ -467,7 +462,7 @@ func (w *ordsBlockTreeTermsWriter) WriteFields(fields index.Fields) error {
 
 		fieldInfo := w.fieldInfos.GetByName(field)
 		if fieldInfo == nil {
-			return fmt.Errorf("ordsBlockTreeTermsWriter.WriteFields: unknown field %q", field)
+			return fmt.Errorf("ordsBlockTreeTermsWriter.Write: unknown field %q", field)
 		}
 		if err := w.writeField(fieldInfo, terms); err != nil {
 			return err

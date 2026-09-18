@@ -59,28 +59,39 @@ func NewSeedStoredFieldVisitor() *SeedStoredFieldVisitor {
 	}
 }
 
-func (v *SeedStoredFieldVisitor) StringField(field string, value string) {
-	v.fields[field] = value
+// NeedsField accepts every stored field.
+func (v *SeedStoredFieldVisitor) NeedsField(*index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	return index.StoredFieldVisitorStatusYes, nil
 }
 
-func (v *SeedStoredFieldVisitor) BinaryField(field string, value []byte) {
-	v.fields[field] = value
+func (v *SeedStoredFieldVisitor) StringField(fieldInfo *index.FieldInfo, value string) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
 }
 
-func (v *SeedStoredFieldVisitor) IntField(field string, value int) {
-	v.fields[field] = value
+func (v *SeedStoredFieldVisitor) BinaryField(fieldInfo *index.FieldInfo, value []byte) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
 }
 
-func (v *SeedStoredFieldVisitor) LongField(field string, value int64) {
-	v.fields[field] = value
+func (v *SeedStoredFieldVisitor) IntField(fieldInfo *index.FieldInfo, value int) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
 }
 
-func (v *SeedStoredFieldVisitor) FloatField(field string, value float32) {
-	v.fields[field] = value
+func (v *SeedStoredFieldVisitor) LongField(fieldInfo *index.FieldInfo, value int64) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
 }
 
-func (v *SeedStoredFieldVisitor) DoubleField(field string, value float64) {
-	v.fields[field] = value
+func (v *SeedStoredFieldVisitor) FloatField(fieldInfo *index.FieldInfo, value float32) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
+}
+
+func (v *SeedStoredFieldVisitor) DoubleField(fieldInfo *index.FieldInfo, value float64) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
 }
 
 // TestFull performs a comprehensive test of a StoredFieldsFormat.

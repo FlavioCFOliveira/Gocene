@@ -45,18 +45,33 @@ func newStoredFieldVisitor() *storedFieldVisitor {
 	return &storedFieldVisitor{values: make(map[string]string)}
 }
 
-func (v *storedFieldVisitor) StringField(field string, value string) {
-	v.values[field] = value
+// NeedsField accepts every stored field.
+func (v *storedFieldVisitor) NeedsField(*index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	return index.StoredFieldVisitorStatusYes, nil
 }
 
-func (v *storedFieldVisitor) BinaryField(field string, value []byte) {
-	v.values[field] = string(value)
+func (v *storedFieldVisitor) StringField(fieldInfo *index.FieldInfo, value string) error {
+	v.values[fieldInfo.Name()] = value
+	return nil
 }
 
-func (v *storedFieldVisitor) IntField(field string, value int)     {}
-func (v *storedFieldVisitor) LongField(field string, value int64)  {}
-func (v *storedFieldVisitor) FloatField(field string, value float32) {}
-func (v *storedFieldVisitor) DoubleField(field string, value float64) {}
+func (v *storedFieldVisitor) BinaryField(fieldInfo *index.FieldInfo, value []byte) error {
+	v.values[fieldInfo.Name()] = string(value)
+	return nil
+}
+
+func (v *storedFieldVisitor) IntField(fieldInfo *index.FieldInfo, value int) error {
+	return nil
+}
+func (v *storedFieldVisitor) LongField(fieldInfo *index.FieldInfo, value int64) error {
+	return nil
+}
+func (v *storedFieldVisitor) FloatField(fieldInfo *index.FieldInfo, value float32) error {
+	return nil
+}
+func (v *storedFieldVisitor) DoubleField(fieldInfo *index.FieldInfo, value float64) error {
+	return nil
+}
 
 // TestDirectoryReaderReopen_Reopen ports testReopen().
 // Verifies that Reopen() returns the same reader when no changes have been

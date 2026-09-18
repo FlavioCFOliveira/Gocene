@@ -205,7 +205,7 @@ func TestPerFieldPostingsFormat_Random(t *testing.T) {
 	}
 
 	for _, name := range allFields {
-		if err := consumer.Write(name, &index.EmptyTerms{}); err != nil {
+		if err := consumer.Write(index.NewSingleFieldFields(name, &index.EmptyTerms{}), nil); err != nil {
 			t.Fatalf("Write(%q): %v", name, err)
 		}
 	}

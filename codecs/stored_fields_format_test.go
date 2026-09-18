@@ -29,12 +29,35 @@ func newStoredFieldsVisitor() *storedFieldsVisitor {
 	return &storedFieldsVisitor{fields: make(map[string]interface{})}
 }
 
-func (v *storedFieldsVisitor) StringField(name string, value string)  { v.fields[name] = value }
-func (v *storedFieldsVisitor) BinaryField(name string, value []byte)  { v.fields[name] = value }
-func (v *storedFieldsVisitor) IntField(name string, value int)        { v.fields[name] = value }
-func (v *storedFieldsVisitor) LongField(name string, value int64)     { v.fields[name] = value }
-func (v *storedFieldsVisitor) FloatField(name string, value float32)  { v.fields[name] = value }
-func (v *storedFieldsVisitor) DoubleField(name string, value float64) { v.fields[name] = value }
+// NeedsField accepts every stored field.
+func (v *storedFieldsVisitor) NeedsField(*index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	return index.StoredFieldVisitorStatusYes, nil
+}
+
+func (v *storedFieldsVisitor) StringField(fieldInfo *index.FieldInfo, value string) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
+}
+func (v *storedFieldsVisitor) BinaryField(fieldInfo *index.FieldInfo, value []byte) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
+}
+func (v *storedFieldsVisitor) IntField(fieldInfo *index.FieldInfo, value int) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
+}
+func (v *storedFieldsVisitor) LongField(fieldInfo *index.FieldInfo, value int64) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
+}
+func (v *storedFieldsVisitor) FloatField(fieldInfo *index.FieldInfo, value float32) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
+}
+func (v *storedFieldsVisitor) DoubleField(fieldInfo *index.FieldInfo, value float64) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
+}
 
 // TestLucene104StoredFieldsFormat_Basic runs the base round-trip tester.
 func TestLucene104StoredFieldsFormat_Basic(t *testing.T) {

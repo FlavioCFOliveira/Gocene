@@ -251,69 +251,132 @@ func (r *Lucene90CompressingStoredFieldsReader) VisitDocument(docID int, visitor
 	}
 
 	// Parse fields from dst.Bytes[dst.Offset : dst.Offset+dst.Length].
+	//
+	// Mirrors Lucene90CompressingStoredFieldsReader.document(int,
+	// StoredFieldVisitor) (Lucene90CompressingStoredFieldsReader.java:568-593):
+	// the field number is resolved to its FieldInfo, needsField decides
+	// whether the value is read, skipped, or the document abandoned.
 	docData := store.NewByteArrayDataInput(dst.Bytes[dst.Offset : dst.Offset+dst.Length])
 	for fieldIDX := 0; fieldIDX < numFields; fieldIDX++ {
 		infoAndBits, err := docData.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("lucene90/compressing: read infoAndBits: %w", err)
 		}
-		// The upper (infoAndBits >> typeBits) bits encode the field number
-		// (FieldInfo.number in Lucene; sequential 0-based ID in the Gocene
-		// writer). Map it back to a field name via FieldInfos when available.
 		fieldNumber := int(infoAndBits >> typeBits)
-		fieldName := ""
+		var fieldInfo *index.FieldInfo
 		if r.fieldInfos != nil {
-			if fi := r.fieldInfos.GetByNumber(fieldNumber); fi != nil {
-				fieldName = fi.Name()
-			}
+			fieldInfo = r.fieldInfos.GetByNumber(fieldNumber)
 		}
 		bits := int(infoAndBits & typeMask)
-		switch bits {
-		case int(typeString):
-			s, err := store.ReadString(docData)
-			if err != nil {
+
+		status, err := visitor.NeedsField(fieldInfo)
+		if err != nil {
+			return err
+		}
+		switch status {
+		case gcodecs.StoredFieldVisitorStatusYes:
+			if err := readStoredField(docData, visitor, fieldInfo, bits); err != nil {
 				return err
 			}
-			visitor.StringField(fieldName, s)
-		case int(typeByteArray):
-			length, err := store.ReadVInt(docData)
-			if err != nil {
+		case gcodecs.StoredFieldVisitorStatusNo:
+			// don't skipField on last field value; treat like STOP
+			if fieldIDX == numFields-1 {
+				return nil
+			}
+			if err := skipStoredField(docData, bits); err != nil {
 				return err
 			}
-			b := make([]byte, length)
-			if err := docData.ReadBytes(b, 0, len(b)); err != nil {
-				return err
-			}
-			visitor.BinaryField(fieldName, b)
-		case int(typeNumericInt):
-			v, err := readZInt(docData)
-			if err != nil {
-				return err
-			}
-			visitor.IntField(fieldName, int(v))
-		case int(typeNumericFloat):
-			v, err := readZFloat(docData)
-			if err != nil {
-				return err
-			}
-			visitor.FloatField(fieldName, v)
-		case int(typeNumericLong):
-			v, err := readTLong(docData)
-			if err != nil {
-				return err
-			}
-			visitor.LongField(fieldName, v)
-		case int(typeNumericDouble):
-			v, err := readZDouble(docData)
-			if err != nil {
-				return err
-			}
-			visitor.DoubleField(fieldName, v)
-		default:
-			return fmt.Errorf("lucene90/compressing: unknown field type %d", bits)
+		case gcodecs.StoredFieldVisitorStatusStop:
+			return nil
 		}
 	}
 	return nil
+}
+
+// readStoredField decodes one stored field value and hands it to visitor.
+//
+// Mirrors the private static
+// Lucene90CompressingStoredFieldsReader.readField(DataInput,
+// StoredFieldVisitor, FieldInfo, int)
+// (Lucene90CompressingStoredFieldsReader.java:214-237). Java's BYTE_ARR branch
+// calls visitor.binaryField(info, new StoredFieldDataInput(in, length)), whose
+// default body reads the length bytes into a fresh array and forwards to
+// binaryField(FieldInfo, byte[]); that default body is inlined here.
+func readStoredField(in store.DataInput, visitor gcodecs.StoredFieldVisitor, info *index.FieldInfo, bits int) error {
+	switch bits & int(typeMask) {
+	case int(typeByteArray):
+		length, err := store.ReadVInt(in)
+		if err != nil {
+			return err
+		}
+		b := make([]byte, length)
+		if err := in.ReadBytes(b, 0, len(b)); err != nil {
+			return err
+		}
+		return visitor.BinaryField(info, b)
+	case int(typeString):
+		s, err := store.ReadString(in)
+		if err != nil {
+			return err
+		}
+		return visitor.StringField(info, s)
+	case int(typeNumericInt):
+		v, err := readZInt(in)
+		if err != nil {
+			return err
+		}
+		return visitor.IntField(info, int(v))
+	case int(typeNumericFloat):
+		v, err := readZFloat(in)
+		if err != nil {
+			return err
+		}
+		return visitor.FloatField(info, v)
+	case int(typeNumericLong):
+		v, err := readTLong(in)
+		if err != nil {
+			return err
+		}
+		return visitor.LongField(info, v)
+	case int(typeNumericDouble):
+		v, err := readZDouble(in)
+		if err != nil {
+			return err
+		}
+		return visitor.DoubleField(info, v)
+	default:
+		return fmt.Errorf("lucene90/compressing: unknown field type %d", bits)
+	}
+}
+
+// skipStoredField consumes one stored field value without decoding it.
+//
+// Mirrors the private static
+// Lucene90CompressingStoredFieldsReader.skipField(DataInput, int)
+// (Lucene90CompressingStoredFieldsReader.java:239-261).
+func skipStoredField(in store.DataInput, bits int) error {
+	switch bits & int(typeMask) {
+	case int(typeByteArray), int(typeString):
+		length, err := store.ReadVInt(in)
+		if err != nil {
+			return err
+		}
+		return in.SkipBytes(int64(length))
+	case int(typeNumericInt):
+		_, err := readZInt(in)
+		return err
+	case int(typeNumericFloat):
+		_, err := readZFloat(in)
+		return err
+	case int(typeNumericLong):
+		_, err := readTLong(in)
+		return err
+	case int(typeNumericDouble):
+		_, err := readZDouble(in)
+		return err
+	default:
+		return fmt.Errorf("lucene90/compressing: unknown field type %d", bits)
+	}
 }
 
 // Close releases the underlying IndexInput.

@@ -1584,17 +1584,23 @@ type countingStoredFieldVisitor struct {
 	count int
 }
 
-func (v *countingStoredFieldVisitor) StringField(field string, value string) { v.count++ }
+// NeedsField accepts every stored field, mirroring the load-all
+// DocumentStoredFieldVisitor that CheckIndex.testStoredFields uses.
+func (v *countingStoredFieldVisitor) NeedsField(*FieldInfo) (StoredFieldVisitorStatus, error) {
+	return StoredFieldVisitorStatusYes, nil
+}
 
-func (v *countingStoredFieldVisitor) BinaryField(field string, value []byte) { v.count++ }
+func (v *countingStoredFieldVisitor) StringField(*FieldInfo, string) error { v.count++; return nil }
 
-func (v *countingStoredFieldVisitor) IntField(field string, value int) { v.count++ }
+func (v *countingStoredFieldVisitor) BinaryField(*FieldInfo, []byte) error { v.count++; return nil }
 
-func (v *countingStoredFieldVisitor) LongField(field string, value int64) { v.count++ }
+func (v *countingStoredFieldVisitor) IntField(*FieldInfo, int) error { v.count++; return nil }
 
-func (v *countingStoredFieldVisitor) FloatField(field string, value float32) { v.count++ }
+func (v *countingStoredFieldVisitor) LongField(*FieldInfo, int64) error { v.count++; return nil }
 
-func (v *countingStoredFieldVisitor) DoubleField(field string, value float64) { v.count++ }
+func (v *countingStoredFieldVisitor) FloatField(*FieldInfo, float32) error { v.count++; return nil }
+
+func (v *countingStoredFieldVisitor) DoubleField(*FieldInfo, float64) error { v.count++; return nil }
 
 func (ci *CheckIndex) testTermVectors(reader *SegmentReader, w io.Writer) *TermVectorStatus {
 	startNS := time.Now().UnixNano()

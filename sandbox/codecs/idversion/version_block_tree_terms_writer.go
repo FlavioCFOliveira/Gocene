@@ -192,14 +192,54 @@ func NewVersionBlockTreeTermsWriter(
 	}, nil
 }
 
-// Write serialises all terms of field from terms into the on-disk files.
+// Write serialises every field the given Fields exposes into the on-disk files.
 //
-// Mirrors VersionBlockTreeTermsWriter.write(Fields, NormsProducer).
-func (w *VersionBlockTreeTermsWriter) Write(field string, terms spi.Terms) error {
+// Mirrors VersionBlockTreeTermsWriter.write(Fields, NormsProducer)
+// (VersionBlockTreeTermsWriter.java:340-365).
+//
+// PORT NOTE: Java forwards norms to TermsWriter.write(BytesRef, TermsEnum,
+// NormsProducer); the Gocene per-term writer has no NormsProducer parameter
+// yet, so the value stops here.
+func (w *VersionBlockTreeTermsWriter) Write(fields spi.Fields, norms spi.NormsProducer) error {
 	if w.closed {
 		return fmt.Errorf("VersionBlockTreeTermsWriter.Write: writer is closed")
 	}
+	if fields == nil {
+		return nil
+	}
+	it, err := fields.Iterator()
+	if err != nil {
+		return err
+	}
+	lastField := ""
+	for {
+		field, err := it.Next()
+		if err != nil {
+			return err
+		}
+		if field == "" {
+			return nil
+		}
+		if lastField != "" && lastField >= field {
+			return fmt.Errorf("VersionBlockTreeTermsWriter.Write: fields must be visited in ascending order, got %q after %q", field, lastField)
+		}
+		lastField = field
 
+		terms, err := fields.Terms(field)
+		if err != nil {
+			return err
+		}
+		if terms == nil {
+			continue
+		}
+		if err := w.writeField(field, terms); err != nil {
+			return err
+		}
+	}
+}
+
+// writeField carries the per-field body of the Java write loop.
+func (w *VersionBlockTreeTermsWriter) writeField(field string, terms spi.Terms) error {
 	fi := w.fieldInfos.GetByName(field)
 	if fi == nil {
 		return fmt.Errorf("VersionBlockTreeTermsWriter.Write: unknown field %q", field)

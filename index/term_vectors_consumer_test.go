@@ -75,7 +75,7 @@ type recordingTVFormat struct {
 }
 
 func (f *recordingTVFormat) Name() string { return "recording" }
-func (f *recordingTVFormat) VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error) {
+func (f *recordingTVFormat) VectorsWriter(_ store.Directory, _ *SegmentInfo, _ store.IOContext) (TermVectorsWriter, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -517,7 +517,7 @@ type accountableTVFormat struct {
 }
 
 func (f *accountableTVFormat) Name() string { return "acc" }
-func (f *accountableTVFormat) VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error) {
+func (f *accountableTVFormat) VectorsWriter(_ store.Directory, _ *SegmentInfo, _ store.IOContext) (TermVectorsWriter, error) {
 	return f.writer, nil
 }
 func (f *accountableTVFormat) VectorsReader(_ store.Directory, _ *SegmentInfo, _ *FieldInfos, _ store.IOContext) (TermVectorsReader, error) {

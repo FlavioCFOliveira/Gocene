@@ -310,34 +310,42 @@ type remappingStoredFieldVisitor struct {
 	delegate StoredFieldVisitor
 }
 
-func (v *remappingStoredFieldVisitor) StringField(field string, value string) {
-	v.delegate.StringField(v.remapName(field), value)
+func (v *remappingStoredFieldVisitor) NeedsField(fieldInfo *FieldInfo) (StoredFieldVisitorStatus, error) {
+	return v.delegate.NeedsField(v.remap(fieldInfo))
 }
-func (v *remappingStoredFieldVisitor) BinaryField(field string, value []byte) {
-	v.delegate.BinaryField(v.remapName(field), value)
+func (v *remappingStoredFieldVisitor) StringField(fieldInfo *FieldInfo, value string) error {
+	return v.delegate.StringField(v.remap(fieldInfo), value)
 }
-func (v *remappingStoredFieldVisitor) IntField(field string, value int) {
-	v.delegate.IntField(v.remapName(field), value)
+func (v *remappingStoredFieldVisitor) BinaryField(fieldInfo *FieldInfo, value []byte) error {
+	return v.delegate.BinaryField(v.remap(fieldInfo), value)
 }
-func (v *remappingStoredFieldVisitor) LongField(field string, value int64) {
-	v.delegate.LongField(v.remapName(field), value)
+func (v *remappingStoredFieldVisitor) IntField(fieldInfo *FieldInfo, value int) error {
+	return v.delegate.IntField(v.remap(fieldInfo), value)
 }
-func (v *remappingStoredFieldVisitor) FloatField(field string, value float32) {
-	v.delegate.FloatField(v.remapName(field), value)
+func (v *remappingStoredFieldVisitor) LongField(fieldInfo *FieldInfo, value int64) error {
+	return v.delegate.LongField(v.remap(fieldInfo), value)
 }
-func (v *remappingStoredFieldVisitor) DoubleField(field string, value float64) {
-	v.delegate.DoubleField(v.remapName(field), value)
+func (v *remappingStoredFieldVisitor) FloatField(fieldInfo *FieldInfo, value float32) error {
+	return v.delegate.FloatField(v.remap(fieldInfo), value)
+}
+func (v *remappingStoredFieldVisitor) DoubleField(fieldInfo *FieldInfo, value float64) error {
+	return v.delegate.DoubleField(v.remap(fieldInfo), value)
 }
 
-// remapName resolves the field through the composite FieldInfos when the
-// merged view knows the field; otherwise the input name passes through. The
-// composite FieldInfos is the authoritative naming context for downstream
-// merge consumers.
-func (v *remappingStoredFieldVisitor) remapName(field string) string {
-	if fi := v.parent.fieldInfos.FieldInfoByName(field); fi != nil {
-		return fi.Name()
+// remap resolves the leaf FieldInfo through the composite FieldInfos so that
+// consumers only ever see field infos from the composite reader, never from an
+// individual leaf. Mirrors the private
+// SlowCompositeCodecReaderWrapper.remap(FieldInfo)
+// (SlowCompositeCodecReaderWrapper.java:121-123). The input passes through
+// when the composite view does not know the field.
+func (v *remappingStoredFieldVisitor) remap(info *FieldInfo) *FieldInfo {
+	if info == nil {
+		return nil
 	}
-	return field
+	if fi := v.parent.fieldInfos.FieldInfoByName(info.Name()); fi != nil {
+		return fi
+	}
+	return info
 }
 
 // -----------------------------------------------------------------------------

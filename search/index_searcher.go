@@ -958,34 +958,64 @@ func (v *DocumentVisitor) Document() *document.Document {
 	return v.doc
 }
 
-func (v *DocumentVisitor) StringField(field, value string) {
-	sf, _ := document.NewStoredField(field, value)
-	v.doc.Add(sf)
+// NeedsField accepts every stored field, mirroring the load-all
+// DocumentStoredFieldVisitor that StoredFields.document(int) uses.
+func (v *DocumentVisitor) NeedsField(*index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	return index.StoredFieldVisitorStatusYes, nil
 }
 
-func (v *DocumentVisitor) BinaryField(field string, value []byte) {
-	sf, _ := document.NewStoredFieldFromBytes(field, value)
+func (v *DocumentVisitor) StringField(fieldInfo *index.FieldInfo, value string) error {
+	sf, err := document.NewStoredField(fieldInfo.Name(), value)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(sf)
+	return nil
 }
 
-func (v *DocumentVisitor) IntField(field string, value int) {
-	sf, _ := document.NewStoredFieldFromInt(field, value)
+func (v *DocumentVisitor) BinaryField(fieldInfo *index.FieldInfo, value []byte) error {
+	sf, err := document.NewStoredFieldFromBytes(fieldInfo.Name(), value)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(sf)
+	return nil
 }
 
-func (v *DocumentVisitor) LongField(field string, value int64) {
-	sf, _ := document.NewStoredFieldFromInt64(field, value)
+func (v *DocumentVisitor) IntField(fieldInfo *index.FieldInfo, value int) error {
+	sf, err := document.NewStoredFieldFromInt(fieldInfo.Name(), value)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(sf)
+	return nil
 }
 
-func (v *DocumentVisitor) FloatField(field string, value float32) {
-	sf, _ := document.NewStoredFieldFromFloat64(field, float64(value))
+func (v *DocumentVisitor) LongField(fieldInfo *index.FieldInfo, value int64) error {
+	sf, err := document.NewStoredFieldFromInt64(fieldInfo.Name(), value)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(sf)
+	return nil
 }
 
-func (v *DocumentVisitor) DoubleField(field string, value float64) {
-	sf, _ := document.NewStoredFieldFromFloat64(field, value)
+func (v *DocumentVisitor) FloatField(fieldInfo *index.FieldInfo, value float32) error {
+	sf, err := document.NewStoredFieldFromFloat64(fieldInfo.Name(), float64(value))
+	if err != nil {
+		return err
+	}
 	v.doc.Add(sf)
+	return nil
+}
+
+func (v *DocumentVisitor) DoubleField(fieldInfo *index.FieldInfo, value float64) error {
+	sf, err := document.NewStoredFieldFromFloat64(fieldInfo.Name(), value)
+	if err != nil {
+		return err
+	}
+	v.doc.Add(sf)
+	return nil
 }
 
 func (s *IndexSearcher) String() string {

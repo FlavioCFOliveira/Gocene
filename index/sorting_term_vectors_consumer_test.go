@@ -35,10 +35,10 @@ func newFakeTermVectorsFormat(name string) *fakeTermVectorsFormat {
 
 func (f *fakeTermVectorsFormat) Name() string { return f.name }
 
-func (f *fakeTermVectorsFormat) VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error) {
-	name := fmt.Sprintf("_%s_%s_%d.tvd", f.name, state.SegmentInfo.Name(), f.writes)
+func (f *fakeTermVectorsFormat) VectorsWriter(directory store.Directory, segmentInfo *SegmentInfo, _ store.IOContext) (TermVectorsWriter, error) {
+	name := fmt.Sprintf("_%s_%s_%d.tvd", f.name, segmentInfo.Name(), f.writes)
 	f.writes++
-	out, err := state.Directory.CreateOutput(name, store.IOContextDefault)
+	out, err := directory.CreateOutput(name, store.IOContextDefault)
 	if err != nil {
 		return nil, err
 	}

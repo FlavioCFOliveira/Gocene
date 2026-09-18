@@ -4,7 +4,6 @@
 
 package spi
 
-
 // StoredFieldsFormat encodes and decodes the per-document stored field
 // pair (.fdt / .fdx) for a segment.
 //
@@ -76,23 +75,61 @@ type StoredFieldsWriter interface {
 // StoredFieldVisitor receives one callback per stored field while a
 // document is decoded.
 //
-// Mirrors org.apache.lucene.index.StoredFieldVisitor.
+// Mirrors org.apache.lucene.index.StoredFieldVisitor of Apache Lucene 10.5.0
+// (StoredFieldVisitor.java:36-91).
 type StoredFieldVisitor interface {
-	// StringField is invoked for a stored string field.
-	StringField(field string, value string)
+	// BinaryField processes a binary field.
+	//
+	// Mirrors binaryField(FieldInfo, byte[]) (StoredFieldVisitor.java:62).
+	BinaryField(fieldInfo *FieldInfo, value []byte) error
 
-	// BinaryField is invoked for a stored binary field.
-	BinaryField(field string, value []byte)
+	// StringField processes a string field.
+	//
+	// Mirrors stringField(FieldInfo, String) (StoredFieldVisitor.java:65).
+	StringField(fieldInfo *FieldInfo, value string) error
 
-	// IntField is invoked for a stored 32-bit integer field.
-	IntField(field string, value int)
+	// IntField processes an int numeric field.
+	//
+	// Mirrors intField(FieldInfo, int) (StoredFieldVisitor.java:68).
+	IntField(fieldInfo *FieldInfo, value int) error
 
-	// LongField is invoked for a stored 64-bit integer field.
-	LongField(field string, value int64)
+	// LongField processes a long numeric field.
+	//
+	// Mirrors longField(FieldInfo, long) (StoredFieldVisitor.java:71).
+	LongField(fieldInfo *FieldInfo, value int64) error
 
-	// FloatField is invoked for a stored 32-bit float field.
-	FloatField(field string, value float32)
+	// FloatField processes a float numeric field.
+	//
+	// Mirrors floatField(FieldInfo, float) (StoredFieldVisitor.java:74).
+	FloatField(fieldInfo *FieldInfo, value float32) error
 
-	// DoubleField is invoked for a stored 64-bit float field.
-	DoubleField(field string, value float64)
+	// DoubleField processes a double numeric field.
+	//
+	// Mirrors doubleField(FieldInfo, double) (StoredFieldVisitor.java:77).
+	DoubleField(fieldInfo *FieldInfo, value float64) error
+
+	// NeedsField is the hook invoked before a field is processed, so that
+	// implementations can state whether they need that particular field, or
+	// that processing should stop entirely.
+	//
+	// Mirrors the abstract needsField(FieldInfo) (StoredFieldVisitor.java:84).
+	NeedsField(fieldInfo *FieldInfo) (StoredFieldVisitorStatus, error)
 }
+
+// StoredFieldVisitorStatus enumerates the possible return values of
+// StoredFieldVisitor.NeedsField. It is the Go port of the nested enum
+// org.apache.lucene.index.StoredFieldVisitor.Status (StoredFieldVisitor.java:87-94);
+// the Go name carries the enclosing class because the Java simple name
+// (Status) is shared by several unrelated Lucene nested types.
+type StoredFieldVisitorStatus int
+
+const (
+	// StoredFieldVisitorStatusYes — the field should be visited.
+	StoredFieldVisitorStatusYes StoredFieldVisitorStatus = iota
+	// StoredFieldVisitorStatusNo — don't visit this field, but continue
+	// processing fields for this document.
+	StoredFieldVisitorStatusNo
+	// StoredFieldVisitorStatusStop — don't visit this field and stop
+	// processing any other fields for this document.
+	StoredFieldVisitorStatusStop
+)

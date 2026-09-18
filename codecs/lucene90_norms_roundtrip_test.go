@@ -21,12 +21,15 @@ package codecs_test
 
 import (
 	"crypto/rand"
+	"errors"
 	"math"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // normsDoc is a single (docID, value) norm pair.
@@ -35,29 +38,77 @@ type normsDoc struct {
 	value int64
 }
 
-// sliceNormsIterator is a single-pass codecs.NormsIterator over an ascending
-// list of (docID, value) pairs, exactly mirroring the iteration contract the
-// real flush path feeds into AddNormsField.
-type sliceNormsIterator struct {
+// sliceNormsProducer is a spi.NormsProducer over an ascending list of
+// (docID, value) pairs, exactly mirroring the pull contract the real flush
+// path feeds into AddNormsField: every GetNorms call yields a fresh cursor.
+type sliceNormsProducer struct {
+	field *index.FieldInfo
+	docs  []normsDoc
+}
+
+func newSliceNormsProducer(field *index.FieldInfo, docs []normsDoc) *sliceNormsProducer {
+	return &sliceNormsProducer{field: field, docs: docs}
+}
+
+func (p *sliceNormsProducer) GetNorms(field *index.FieldInfo) (index.NumericDocValues, error) {
+	if field != p.field {
+		return nil, errors.New("wrong fieldInfo")
+	}
+	return &sliceNormsValues{docs: p.docs, pos: -1, doc: -1}, nil
+}
+
+func (p *sliceNormsProducer) CheckIntegrity() error               { return nil }
+func (p *sliceNormsProducer) GetMergeInstance() spi.NormsProducer { return p }
+func (p *sliceNormsProducer) Close() error                        { return nil }
+
+// sliceNormsValues is the NumericDocValues cursor sliceNormsProducer hands out.
+type sliceNormsValues struct {
 	docs []normsDoc
 	pos  int
+	doc  int
 }
 
-func newSliceNormsIterator(docs []normsDoc) *sliceNormsIterator {
-	return &sliceNormsIterator{docs: docs, pos: -1}
-}
+func (it *sliceNormsValues) DocID() int { return it.doc }
 
-func (it *sliceNormsIterator) Next() bool {
+func (it *sliceNormsValues) NextDoc() (int, error) {
 	it.pos++
-	return it.pos < len(it.docs)
+	if it.pos >= len(it.docs) {
+		it.doc = index.NO_MORE_DOCS
+		return it.doc, nil
+	}
+	it.doc = it.docs[it.pos].doc
+	return it.doc, nil
 }
 
-func (it *sliceNormsIterator) DocID() int {
-	return it.docs[it.pos].doc
+func (it *sliceNormsValues) Advance(target int) (int, error) {
+	for {
+		doc, err := it.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+		if doc >= target {
+			return doc, nil
+		}
+	}
 }
 
-func (it *sliceNormsIterator) LongValue() int64 {
-	return it.docs[it.pos].value
+func (it *sliceNormsValues) AdvanceExact(target int) (bool, error) {
+	doc, err := it.Advance(target)
+	if err != nil {
+		return false, err
+	}
+	return doc == target, nil
+}
+
+func (it *sliceNormsValues) LongValue() (int64, error) { return it.docs[it.pos].value, nil }
+func (it *sliceNormsValues) Cost() int64               { return int64(len(it.docs)) }
+
+func (it *sliceNormsValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+func (it *sliceNormsValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
 }
 
 // normsRTField bundles a field's metadata with the norm values it should
@@ -125,7 +176,7 @@ func runNormsRoundTrip(t *testing.T, maxDoc int, fields []normsRTField) {
 		t.Fatalf("NormsConsumer: %v", err)
 	}
 	for _, f := range fields {
-		if err := consumer.AddNormsField(infos[f.name], newSliceNormsIterator(f.docs)); err != nil {
+		if err := consumer.AddNormsField(infos[f.name], newSliceNormsProducer(infos[f.name], f.docs)); err != nil {
 			t.Fatalf("AddNormsField(%q): %v", f.name, err)
 		}
 	}

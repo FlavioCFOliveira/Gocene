@@ -84,18 +84,19 @@ func (f *Lucene90CompressingTermVectorsFormat) VectorsReader(
 }
 
 // VectorsWriter returns a Lucene90CompressingTermVectorsWriter for the
-// segment described by state. Mirrors
+// segment. Mirrors
 // Lucene90CompressingTermVectorsFormat.vectorsWriter(Directory, SegmentInfo,
-// IOContext); the spi surface passes the three arguments inside the
-// SegmentWriteState.
+// IOContext) (Lucene90CompressingTermVectorsFormat.java:100-113).
 func (f *Lucene90CompressingTermVectorsFormat) VectorsWriter(
-	state *gcodecs.SegmentWriteState,
+	directory store.Directory,
+	segmentInfo *index.SegmentInfo,
+	context store.IOContext,
 ) (gcodecs.TermVectorsWriter, error) {
 	return newLucene90CompressingTermVectorsWriter(
-		state.Directory,
-		state.SegmentInfo,
+		directory,
+		segmentInfo,
 		f.segmentSuffix,
-		state.Context,
+		context,
 		f.formatName,
 		f.compressionMode,
 		f.chunkSize,

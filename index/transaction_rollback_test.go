@@ -133,17 +133,33 @@ type recordIDVisitor struct {
 	value string
 }
 
-func (v *recordIDVisitor) StringField(field string, value string) {
-	if field == transactionFieldRecordID {
-		v.value = value
-	}
+// NeedsField accepts every stored field.
+func (v *recordIDVisitor) NeedsField(*index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	return index.StoredFieldVisitorStatusYes, nil
 }
 
-func (v *recordIDVisitor) BinaryField(field string, value []byte) {}
-func (v *recordIDVisitor) IntField(field string, value int)        {}
-func (v *recordIDVisitor) LongField(field string, value int64)      {}
-func (v *recordIDVisitor) FloatField(field string, value float32)  {}
-func (v *recordIDVisitor) DoubleField(field string, value float64) {}
+func (v *recordIDVisitor) StringField(fieldInfo *index.FieldInfo, value string) error {
+	if fieldInfo.Name() == transactionFieldRecordID {
+		v.value = value
+	}
+	return nil
+}
+
+func (v *recordIDVisitor) BinaryField(fieldInfo *index.FieldInfo, value []byte) error {
+	return nil
+}
+func (v *recordIDVisitor) IntField(fieldInfo *index.FieldInfo, value int) error {
+	return nil
+}
+func (v *recordIDVisitor) LongField(fieldInfo *index.FieldInfo, value int64) error {
+	return nil
+}
+func (v *recordIDVisitor) FloatField(fieldInfo *index.FieldInfo, value float32) error {
+	return nil
+}
+func (v *recordIDVisitor) DoubleField(fieldInfo *index.FieldInfo, value float64) error {
+	return nil
+}
 
 // rollbackDeletionPolicy deletes every commit whose "index" user data ends
 // with a record ID larger than the rollback point.
@@ -179,7 +195,9 @@ func (p *rollbackDeletionPolicy) OnInit(commits []*index.IndexCommit) error {
 }
 
 func (p *rollbackDeletionPolicy) OnCommit(commits []*index.IndexCommit) error { return nil }
-func (p *rollbackDeletionPolicy) Clone() index.IndexDeletionPolicy            { return &rollbackDeletionPolicy{rollbackPoint: p.rollbackPoint} }
+func (p *rollbackDeletionPolicy) Clone() index.IndexDeletionPolicy {
+	return &rollbackDeletionPolicy{rollbackPoint: p.rollbackPoint}
+}
 
 // deleteLastCommitPolicy deletes the most recent commit on init, verifying
 // that reopening at the prior commit preserves all earlier documents.

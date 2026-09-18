@@ -89,48 +89,76 @@ func NewCompletionFieldsConsumer(
 	return c, nil
 }
 
-// Write processes all terms in the field, delegates to the wrapped consumer,
-// and builds the completion FST. Mirrors
-// CompletionFieldsConsumer.write(Fields, NormsProducer) — in Gocene the
-// iteration is one field at a time.
-func (c *CompletionFieldsConsumer) Write(field string, terms index.Terms) error {
-	if err := c.delegateFieldsConsumer.Write(field, terms); err != nil {
+// Write delegates to the wrapped consumer, then processes every field's terms
+// and builds the completion FST.
+//
+// Mirrors CompletionFieldsConsumer.write(Fields, NormsProducer)
+// (CompletionFieldsConsumer.java:97-122).
+func (c *CompletionFieldsConsumer) Write(fields index.Fields, norms codecs.NormsProducer) error {
+	if err := c.delegateFieldsConsumer.Write(fields, norms); err != nil {
 		return err
 	}
+	if fields == nil {
+		return nil
+	}
 
-	tw := newCompletionTermWriter()
-	termsEnum, err := terms.Iterator()
+	it, err := fields.Iterator()
 	if err != nil {
 		return err
 	}
-
 	for {
-		t, err := termsEnum.Next()
+		field, err := it.Next()
 		if err != nil {
 			return err
 		}
-		if t == nil {
-			break
+		if field == "" {
+			return nil
 		}
-		if err := tw.writeTerm([]byte(t.Text()), termsEnum); err != nil {
+
+		tw := newCompletionTermWriter()
+		terms, err := fields.Terms(field)
+		if err != nil {
 			return err
 		}
-	}
+		if terms == nil {
+			// this can happen from ghost fields, where the incoming Fields
+			// iterator claims a field exists but it does not
+			continue
+		}
+		termsEnum, err := terms.Iterator()
+		if err != nil {
+			return err
+		}
 
-	filePointer := c.dictOut.GetFilePointer()
-	stored, err := tw.finish(c.dictOut)
-	if err != nil {
-		return err
-	}
-	if stored {
-		c.seenFields[field] = &completionMetaData{
-			filePointer: filePointer,
-			minWeight:   tw.minWeight,
-			maxWeight:   tw.maxWeight,
-			fieldType:   tw.fieldType,
+		// write terms
+		for {
+			t, err := termsEnum.Next()
+			if err != nil {
+				return err
+			}
+			if t == nil {
+				break
+			}
+			if err := tw.writeTerm([]byte(t.Text()), termsEnum); err != nil {
+				return err
+			}
+		}
+
+		// store lookup, if needed
+		filePointer := c.dictOut.GetFilePointer()
+		stored, err := tw.finish(c.dictOut)
+		if err != nil {
+			return err
+		}
+		if stored {
+			c.seenFields[field] = &completionMetaData{
+				filePointer: filePointer,
+				minWeight:   tw.minWeight,
+				maxWeight:   tw.maxWeight,
+				fieldType:   tw.fieldType,
+			}
 		}
 	}
-	return nil
 }
 
 // Close writes the .cmp index file (field numbers + FST offsets) and the

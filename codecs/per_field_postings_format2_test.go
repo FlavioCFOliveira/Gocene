@@ -85,11 +85,25 @@ type recordingConsumer struct {
 	rec   *mergeRecordingPostingsFormat
 }
 
-func (c *recordingConsumer) Write(field string, terms index.Terms) error {
+func (c *recordingConsumer) Write(fields index.Fields, norms codecs.NormsProducer) error {
+	it, err := fields.Iterator()
+	if err != nil {
+		return err
+	}
 	c.rec.mu.Lock()
-	c.rec.fieldNames = append(c.rec.fieldNames, field)
+	for {
+		name, err := it.Next()
+		if err != nil {
+			c.rec.mu.Unlock()
+			return err
+		}
+		if name == "" {
+			break
+		}
+		c.rec.fieldNames = append(c.rec.fieldNames, name)
+	}
 	c.rec.mu.Unlock()
-	return c.inner.Write(field, terms)
+	return c.inner.Write(fields, norms)
 }
 
 func (c *recordingConsumer) Close() error { return c.inner.Close() }

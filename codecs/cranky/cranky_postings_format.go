@@ -57,11 +57,11 @@ type crankyFieldsConsumer struct {
 	random   *rand.Rand
 }
 
-func (c *crankyFieldsConsumer) Write(field string, terms spi.Terms) error {
+func (c *crankyFieldsConsumer) Write(fields spi.Fields, norms spi.NormsProducer) error {
 	if c.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException from FieldsConsumer.write()")
 	}
-	return c.delegate.Write(field, terms)
+	return c.delegate.Write(fields, norms)
 }
 
 func (c *crankyFieldsConsumer) Close() error {

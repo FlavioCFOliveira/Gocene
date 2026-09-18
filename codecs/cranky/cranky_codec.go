@@ -74,8 +74,11 @@ func (c *CrankyCodec) PointsFormat() codecs.PointsFormat {
 	return NewCrankyPointsFormat(c.Delegate().PointsFormat(), c.random)
 }
 
+// String mirrors CrankyCodec.toString() (CrankyCodec.java:94-97):
+// "Cranky(" + delegate + ")". Codec.toString() returns the codec name
+// (Codec.java:158-161), so the delegate renders as its name.
 func (c *CrankyCodec) String() string {
-	return fmt.Sprintf("Cranky(%s)", c.Delegate().String())
+	return fmt.Sprintf("Cranky(%s)", c.Delegate().Name())
 }
 
 // --- CrankyCompoundFormat ---
@@ -87,10 +90,6 @@ type CrankyCompoundFormat struct {
 
 func NewCrankyCompoundFormat(delegate spi.CompoundFormat, random *rand.Rand) *CrankyCompoundFormat {
 	return &CrankyCompoundFormat{delegate: delegate, random: random}
-}
-
-func (f *CrankyCompoundFormat) Name() string {
-	return f.delegate.Name()
 }
 
 func (f *CrankyCompoundFormat) GetCompoundReader(dir store.Directory, si *spi.SegmentInfo) (spi.CompoundDirectory, error) {
@@ -296,6 +295,13 @@ type CrankyPointsReader struct {
 	random   *rand.Rand
 }
 
+// GetMergeInstance carries the default body of PointsReader.getMergeInstance()
+// (PointsReader.java), which CrankyPointsReader does not override: it returns
+// the receiver.
+func (r *CrankyPointsReader) GetMergeInstance() spi.PointsReader {
+	return r
+}
+
 func (r *CrankyPointsReader) CheckIntegrity() error {
 	if r.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException")
@@ -467,10 +473,6 @@ type CrankySegmentInfoFormat struct {
 
 func NewCrankySegmentInfoFormat(delegate spi.SegmentInfoFormat, random *rand.Rand) *CrankySegmentInfoFormat {
 	return &CrankySegmentInfoFormat{delegate: delegate, random: random}
-}
-
-func (f *CrankySegmentInfoFormat) Name() string {
-	return f.delegate.Name()
 }
 
 func (f *CrankySegmentInfoFormat) Read(dir store.Directory, name string, id []byte, context store.IOContext) (*spi.SegmentInfo, error) {

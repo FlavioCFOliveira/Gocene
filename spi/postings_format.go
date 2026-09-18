@@ -28,12 +28,30 @@ type PostingsFormat interface {
 }
 
 // FieldsConsumer is the write-side surface a PostingsFormat exposes for
-// serialising postings field by field.
+// serialising postings.
 //
-// Mirrors org.apache.lucene.codecs.FieldsConsumer.
+// Mirrors org.apache.lucene.codecs.FieldsConsumer of Apache Lucene 10.5.0.
 type FieldsConsumer interface {
-	// Write serialises the postings for one field.
-	Write(field string, terms Terms) error
+	// Write serialises all fields, terms and postings. This is the "pull"
+	// API: the consumer iterates fields itself and may traverse the postings
+	// more than once.
+	//
+	// Notes (carried from the Java contract):
+	//
+	//   - The implementation must compute the index statistics, including
+	//     each term's docFreq and totalTermFreq, as well as the summary
+	//     sumTotalTermFreq, sumDocFreq and docCount.
+	//   - It must skip terms that have no docs and fields that have no terms,
+	//     even though the provided Fields exposes them; this typically
+	//     requires lazily writing the field or term until the first term or
+	//     document has actually been seen.
+	//   - The provided Fields is limited: methods that return
+	//     statistics/counts must not be called, and a non-nil live-docs set
+	//     must not be passed when pulling docs/positions enums.
+	//
+	// Mirrors FieldsConsumer.write(Fields, NormsProducer)
+	// (FieldsConsumer.java:64).
+	Write(fields Fields, norms NormsProducer) error
 
 	// Close releases any resources held by the consumer.
 	Close() error

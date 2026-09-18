@@ -805,21 +805,12 @@ func (v *LimitedStoredFieldVisitor) Init() {
 	v.currentField = -1
 }
 
-// StringField renders LimitedStoredFieldVisitor.stringField(FieldInfo, String).
-//
-// Java receives the FieldInfo and relies on needsField(FieldInfo) having
-// already selected the current field; Gocene's spi.StoredFieldVisitor passes
-// the field name and never calls needsField, so the selection is performed
-// here through the same body.
-func (v *LimitedStoredFieldVisitor) StringField(field string, value string) {
-	if !v.selectField(field) {
-		return
-	}
+// StringField renders LimitedStoredFieldVisitor.stringField(FieldInfo, String)
+// (UnifiedHighlighter.java:1439-1468). The field selection has already been
+// performed by NeedsField, which the stored-fields reader invokes first.
+func (v *LimitedStoredFieldVisitor) StringField(fieldInfo *index.FieldInfo, value string) error {
 	if v.currentField < 0 {
-		return
-	}
-	if value == "" {
-		return
+		return errors.New("uhighlight: LimitedStoredFieldVisitor.StringField called before NeedsField selected a field")
 	}
 
 	curValue := v.values[v.currentField]
@@ -829,12 +820,12 @@ func (v *LimitedStoredFieldVisitor) StringField(field string, value string) {
 			limit = len(value)
 		}
 		v.values[v.currentField] = value[:limit]
-		return
+		return nil
 	}
 
 	lengthBudget := v.maxLength - len(curValue)
 	if lengthBudget <= 0 {
-		return
+		return nil
 	}
 
 	sep := string(v.valueSeparator)
@@ -843,41 +834,44 @@ func (v *LimitedStoredFieldVisitor) StringField(field string, value string) {
 		valToAppend = value[:lengthBudget-1]
 	}
 	v.values[v.currentField] = curValue + sep + valToAppend
+	return nil
 }
 
 // BinaryField renders StoredFieldVisitor.binaryField(FieldInfo, byte[]), whose
 // body in Java is empty because LimitedStoredFieldVisitor does not override it.
-func (v *LimitedStoredFieldVisitor) BinaryField(field string, value []byte) {}
+func (v *LimitedStoredFieldVisitor) BinaryField(*index.FieldInfo, []byte) error { return nil }
 
 // IntField renders the empty StoredFieldVisitor.intField(FieldInfo, int).
-func (v *LimitedStoredFieldVisitor) IntField(field string, value int) {}
+func (v *LimitedStoredFieldVisitor) IntField(*index.FieldInfo, int) error { return nil }
 
 // LongField renders the empty StoredFieldVisitor.longField(FieldInfo, long).
-func (v *LimitedStoredFieldVisitor) LongField(field string, value int64) {}
+func (v *LimitedStoredFieldVisitor) LongField(*index.FieldInfo, int64) error { return nil }
 
 // FloatField renders the empty StoredFieldVisitor.floatField(FieldInfo, float).
-func (v *LimitedStoredFieldVisitor) FloatField(field string, value float32) {}
+func (v *LimitedStoredFieldVisitor) FloatField(*index.FieldInfo, float32) error { return nil }
 
 // DoubleField renders the empty StoredFieldVisitor.doubleField(FieldInfo, double).
-func (v *LimitedStoredFieldVisitor) DoubleField(field string, value float64) {}
+func (v *LimitedStoredFieldVisitor) DoubleField(*index.FieldInfo, float64) error { return nil }
 
-// NeedsField renders LimitedStoredFieldVisitor.needsField(FieldInfo).
-func (v *LimitedStoredFieldVisitor) NeedsField(fieldInfo index.FieldInfo) bool {
-	return v.selectField(fieldInfo.Name())
-}
-
-// selectField is the body of needsField keyed by field name, so that both
-// NeedsField and StringField can reach it.
-func (v *LimitedStoredFieldVisitor) selectField(fieldName string) bool {
-	v.currentField = sort.SearchStrings(v.fields, fieldName)
-	if v.currentField == len(v.fields) || v.fields[v.currentField] != fieldName {
-		return false
+// NeedsField renders LimitedStoredFieldVisitor.needsField(FieldInfo)
+// (UnifiedHighlighter.java:1470-1481): the field name is binary-searched in
+// the requested fields; a field already filled to maxLength yields STOP when
+// only one field was requested and NO otherwise.
+func (v *LimitedStoredFieldVisitor) NeedsField(fieldInfo *index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	name := fieldInfo.Name()
+	v.currentField = sort.SearchStrings(v.fields, name)
+	if v.currentField == len(v.fields) || v.fields[v.currentField] != name {
+		v.currentField = -1
+		return index.StoredFieldVisitorStatusNo, nil
 	}
 	curVal := v.values[v.currentField]
 	if curVal != "" && len(curVal) >= v.maxLength {
-		return false
+		if len(v.fields) == 1 {
+			return index.StoredFieldVisitorStatusStop, nil
+		}
+		return index.StoredFieldVisitorStatusNo, nil
 	}
-	return true
+	return index.StoredFieldVisitorStatusYes, nil
 }
 
 func (v *LimitedStoredFieldVisitor) GetValuesByField() []string {

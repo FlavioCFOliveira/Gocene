@@ -185,7 +185,7 @@ func writeTerms(t *testing.T, segName string, termStrs []string) store.Directory
 	}
 
 	lt := newListTerms("field", termStrs...)
-	if err := consumer.Write("field", lt); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields("field", lt), nil); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := consumer.Close(); err != nil {
@@ -243,7 +243,7 @@ func TestOrdsBlockTree_EmptyTerms(t *testing.T) {
 	}
 
 	lt := newListTerms("field")
-	if err := consumer.Write("field", lt); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields("field", lt), nil); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := consumer.Close(); err != nil {

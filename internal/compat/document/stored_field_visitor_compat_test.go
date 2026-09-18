@@ -21,6 +21,7 @@ import (
 
 	gcodecs "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -57,25 +58,35 @@ type sfvDouble struct {
 	value float64
 }
 
-func (c *sfvCollector) StringField(name, v string) {
-	c.strings = append(c.strings, sfvString{name, v})
+// NeedsField accepts every stored field.
+func (c *sfvCollector) NeedsField(*spi.FieldInfo) (spi.StoredFieldVisitorStatus, error) {
+	return spi.StoredFieldVisitorStatusYes, nil
 }
-func (c *sfvCollector) BinaryField(name string, v []byte) {
+func (c *sfvCollector) StringField(fi *spi.FieldInfo, v string) error {
+	c.strings = append(c.strings, sfvString{fi.Name(), v})
+	return nil
+}
+func (c *sfvCollector) BinaryField(fi *spi.FieldInfo, v []byte) error {
 	cp := make([]byte, len(v))
 	copy(cp, v)
-	c.binaries = append(c.binaries, sfvBinary{name, cp})
+	c.binaries = append(c.binaries, sfvBinary{fi.Name(), cp})
+	return nil
 }
-func (c *sfvCollector) IntField(name string, v int) {
-	c.ints = append(c.ints, sfvInt{name, v})
+func (c *sfvCollector) IntField(fi *spi.FieldInfo, v int) error {
+	c.ints = append(c.ints, sfvInt{fi.Name(), v})
+	return nil
 }
-func (c *sfvCollector) LongField(name string, v int64) {
-	c.longs = append(c.longs, sfvLong{name, v})
+func (c *sfvCollector) LongField(fi *spi.FieldInfo, v int64) error {
+	c.longs = append(c.longs, sfvLong{fi.Name(), v})
+	return nil
 }
-func (c *sfvCollector) FloatField(name string, v float32) {
-	c.floats = append(c.floats, sfvFloat{name, v})
+func (c *sfvCollector) FloatField(fi *spi.FieldInfo, v float32) error {
+	c.floats = append(c.floats, sfvFloat{fi.Name(), v})
+	return nil
 }
-func (c *sfvCollector) DoubleField(name string, v float64) {
-	c.doubles = append(c.doubles, sfvDouble{name, v})
+func (c *sfvCollector) DoubleField(fi *spi.FieldInfo, v float64) error {
+	c.doubles = append(c.doubles, sfvDouble{fi.Name(), v})
+	return nil
 }
 
 // openStoredFieldsReader opens the stored-fields reader for segment "_0"

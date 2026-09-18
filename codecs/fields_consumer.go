@@ -29,18 +29,40 @@ func NewBaseFieldsConsumer(state *SegmentWriteState) *BaseFieldsConsumer {
 	}
 }
 
-// Write writes a field's postings.
+// Write buffers the postings of every field the given Fields exposes.
 // This implements the FieldsConsumer interface.
-func (c *BaseFieldsConsumer) Write(field string, terms spi.Terms) error {
+func (c *BaseFieldsConsumer) Write(fields spi.Fields, norms spi.NormsProducer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.closed {
 		return fmt.Errorf("FieldsConsumer is closed")
 	}
+	if fields == nil {
+		return nil
+	}
 
-	c.fields[field] = terms
-	return nil
+	it, err := fields.Iterator()
+	if err != nil {
+		return err
+	}
+	for {
+		field, err := it.Next()
+		if err != nil {
+			return err
+		}
+		if field == "" {
+			return nil
+		}
+		terms, err := fields.Terms(field)
+		if err != nil {
+			return err
+		}
+		if terms == nil {
+			continue
+		}
+		c.fields[field] = terms
+	}
 }
 
 // Close releases resources.
@@ -132,7 +154,7 @@ func NewNoOpFieldsConsumer(state *SegmentWriteState) *NoOpFieldsConsumer {
 }
 
 // Write does nothing.
-func (c *NoOpFieldsConsumer) Write(field string, terms spi.Terms) error {
+func (c *NoOpFieldsConsumer) Write(fields spi.Fields, norms spi.NormsProducer) error {
 	return nil
 }
 

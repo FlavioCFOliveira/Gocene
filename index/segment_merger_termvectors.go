@@ -24,15 +24,9 @@ func (sm *SegmentMerger) mergeTermVectors() (int, error) {
 		}
 	}
 
-	state := &SegmentWriteState{
-		Directory:      sm.directory,
-		SegmentInfo:    sm.MergeState.SegmentInfo,
-		FieldInfos:     sm.MergeState.MergeFieldInfos,
-		SegmentSuffix:  "",
-		NeedsIndexSort: sm.MergeState.NeedsIndexSort,
-		IsMerge:        true,
-	}
-	writer, err := sm.codec.TermVectorsFormat().VectorsWriter(state)
+	// Mirrors SegmentMerger.mergeTermVectors (SegmentMerger.java:259-266):
+	// codec.termVectorsFormat().vectorsWriter(directory, mergeState.segmentInfo, context).
+	writer, err := sm.codec.TermVectorsFormat().VectorsWriter(sm.directory, sm.MergeState.SegmentInfo, sm.context)
 	if err != nil {
 		return 0, fmt.Errorf("index: merge term vectors: open writer: %w", err)
 	}

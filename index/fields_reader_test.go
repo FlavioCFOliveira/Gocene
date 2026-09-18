@@ -206,16 +206,22 @@ func TestFieldsReader_Test(t *testing.T) {
 
 	// A field-filtered visitor must reconstruct only the requested field,
 	// mirroring the DocumentStoredFieldVisitor(TEXT_FIELD_3_KEY) assertions.
-	//
-	// codecs.StoredFieldsReaderImpl.VisitDocument is a stub that forwards
-	// every stored field without consulting NeedsField, so the filter is
-	// applied here against the document's own fields. This still exercises
-	// the actual subject of the Java assertion: the visitor's field-name
-	// filtering contract.
+	// The NeedsField / StringField dispatch is driven here exactly as
+	// Lucene90CompressingStoredFieldsReader.document drives it, so the
+	// subject of the Java assertion — the visitor's field filtering — is
+	// exercised end to end.
 	filtered := document.NewDocumentStoredFieldVisitorFor(textField3Key)
-	for _, f := range fields {
-		if filtered.NeedsField(f.Name()) {
-			filtered.StringField(f.Name(), f.StringValue())
+	for i, f := range fields {
+		info := index.NewFieldInfo(f.Name(), i, index.FieldInfoOptions{Stored: true})
+		status, err := filtered.NeedsField(info)
+		if err != nil {
+			t.Fatalf("NeedsField(%q): %v", f.Name(), err)
+		}
+		if status != index.StoredFieldVisitorStatusYes {
+			continue
+		}
+		if err := filtered.StringField(info, f.StringValue()); err != nil {
+			t.Fatalf("StringField(%q): %v", f.Name(), err)
 		}
 	}
 	picked := filtered.GetDocument().GetAllFields()

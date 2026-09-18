@@ -232,7 +232,7 @@ func (c *SortingStoredFieldsConsumer) Flush(state *SegmentWriteState, sortMap So
 // copyDocuments walks the buffered reader in sorted order, copying every
 // field of every document into the codec writer.
 func (c *SortingStoredFieldsConsumer) copyDocuments(reader StoredFieldsReader, sortWriter StoredFieldsWriter, fieldInfos *FieldInfos, maxDoc int, sortMap SorterDocMap) error {
-	visitor := &copyVisitor{writer: sortWriter, fieldInfos: fieldInfos}
+	visitor := &copyVisitor{writer: sortWriter}
 	for docID := 0; docID < maxDoc; docID++ {
 		if err := sortWriter.StartDocument(); err != nil {
 			return fmt.Errorf("index: SortingStoredFieldsConsumer flush start doc %d: %w", docID, err)
@@ -243,9 +243,6 @@ func (c *SortingStoredFieldsConsumer) copyDocuments(reader StoredFieldsReader, s
 		}
 		if err := reader.VisitDocument(sourceDoc, visitor); err != nil {
 			return fmt.Errorf("index: SortingStoredFieldsConsumer flush visit doc %d (source %d): %w", docID, sourceDoc, err)
-		}
-		if visitor.err != nil {
-			return fmt.Errorf("index: SortingStoredFieldsConsumer flush copy doc %d: %w", docID, visitor.err)
 		}
 		if err := sortWriter.FinishDocument(); err != nil {
 			return fmt.Errorf("index: SortingStoredFieldsConsumer flush finish doc %d: %w", docID, err)
@@ -303,65 +300,45 @@ func closeAll(reader StoredFieldsReader, writer StoredFieldsWriter) error {
 // the copier therefore wraps each value in a minimal IndexableField on
 // the fly so it can be handed to StoredFieldsWriter.WriteField.
 //
-// Any error returned by the underlying writer is captured in copyVisitor.err
-// rather than panicked; Flush inspects err between Visit/FinishDocument.
-//
 // Java's CopyVisitor receives the FieldInfo on every callback
 // (SortingStoredFieldsConsumer.java:137-166) and hands it straight to
-// writer.writeField. Gocene's spi.StoredFieldVisitor callbacks carry only
-// the field name, so the FieldInfo — and with it the field number the codec
-// stamps into the record — is recovered by name from the segment's
-// FieldInfos, which is the same object Lucene's visitor was handed.
+// writer.writeField; so does this port.
 type copyVisitor struct {
-	writer     StoredFieldsWriter
-	fieldInfos *FieldInfos
-	err        error
+	writer StoredFieldsWriter
 }
 
-func (v *copyVisitor) write(field IndexableField) {
-	if v.err != nil {
-		return
-	}
-	if v.fieldInfos == nil {
-		v.err = fmt.Errorf("index: SortingStoredFieldsConsumer: no FieldInfos to resolve stored field %q", field.Name())
-		return
-	}
-	info := v.fieldInfos.FieldInfoByName(field.Name())
-	if info == nil {
-		v.err = fmt.Errorf("index: SortingStoredFieldsConsumer: stored field %q is absent from the segment FieldInfos", field.Name())
-		return
-	}
-	if err := v.writer.WriteField(info, field); err != nil {
-		v.err = err
-	}
+// NeedsField accepts every field. Mirrors CopyVisitor.needsField, which
+// returns Status.YES unconditionally (SortingStoredFieldsConsumer.java:168-171).
+func (v *copyVisitor) NeedsField(*FieldInfo) (StoredFieldVisitorStatus, error) {
+	return StoredFieldVisitorStatusYes, nil
 }
 
-func (v *copyVisitor) StringField(field string, value string) {
-	v.write(&copiedField{name: field, kind: copiedString, str: value})
+func (v *copyVisitor) StringField(fieldInfo *FieldInfo, value string) error {
+	return v.writer.WriteField(fieldInfo, &copiedField{name: fieldInfo.Name(), kind: copiedString, str: value})
 }
 
-func (v *copyVisitor) BinaryField(field string, value []byte) {
+func (v *copyVisitor) BinaryField(fieldInfo *FieldInfo, value []byte) error {
 	// Mirrors Lucene's TODO: avoid the copy if upstream can guarantee
 	// stable byte slices across the FinishDocument boundary.
 	buf := make([]byte, len(value))
 	copy(buf, value)
-	v.write(&copiedField{name: field, kind: copiedBinary, bin: buf})
+	return v.writer.WriteField(fieldInfo, &copiedField{name: fieldInfo.Name(), kind: copiedBinary, bin: buf})
 }
 
-func (v *copyVisitor) IntField(field string, value int) {
-	v.write(&copiedField{name: field, kind: copiedInt, num: int64(value)})
+func (v *copyVisitor) IntField(fieldInfo *FieldInfo, value int) error {
+	return v.writer.WriteField(fieldInfo, &copiedField{name: fieldInfo.Name(), kind: copiedInt, num: int64(value)})
 }
 
-func (v *copyVisitor) LongField(field string, value int64) {
-	v.write(&copiedField{name: field, kind: copiedLong, num: value})
+func (v *copyVisitor) LongField(fieldInfo *FieldInfo, value int64) error {
+	return v.writer.WriteField(fieldInfo, &copiedField{name: fieldInfo.Name(), kind: copiedLong, num: value})
 }
 
-func (v *copyVisitor) FloatField(field string, value float32) {
-	v.write(&copiedField{name: field, kind: copiedFloat, f32: value})
+func (v *copyVisitor) FloatField(fieldInfo *FieldInfo, value float32) error {
+	return v.writer.WriteField(fieldInfo, &copiedField{name: fieldInfo.Name(), kind: copiedFloat, f32: value})
 }
 
-func (v *copyVisitor) DoubleField(field string, value float64) {
-	v.write(&copiedField{name: field, kind: copiedDouble, f64: value})
+func (v *copyVisitor) DoubleField(fieldInfo *FieldInfo, value float64) error {
+	return v.writer.WriteField(fieldInfo, &copiedField{name: fieldInfo.Name(), kind: copiedDouble, f64: value})
 }
 
 // copiedField is the minimal IndexableField the copyVisitor produces. It

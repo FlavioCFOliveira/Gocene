@@ -58,7 +58,7 @@ const Lucene103DefaultMaxBlockSize = 48
 //   - .tmd (terms metadata): per-field summary (numTerms / sums / min /
 //     max term) plus the trailing indexLength / termsLength footer tail.
 //
-// The writer is single-threaded; callers must serialise WriteFields and
+// The writer is single-threaded; callers must serialise Write and
 // Close invocations themselves.
 type Lucene103BlockTreeTermsWriter struct {
 	metaOut  store.IndexOutput
@@ -214,16 +214,17 @@ func ValidateLucene103BlockTreeBlockSizes(minItemsInBlock, maxItemsInBlock int) 
 	return nil
 }
 
-// WriteFields walks fields in the iterator's order and persists every
+// Write walks fields in the iterator's order and persists every
 // non-nil Terms via the internal per-field termsWriter state machine.
-// Mirrors {@code Lucene103BlockTreeTermsWriter.write(Fields, NormsProducer)}.
+// Mirrors Lucene103BlockTreeTermsWriter.write(Fields, NormsProducer)
+// (Lucene103BlockTreeTermsWriter.java:298-327).
 //
 // The Java original asserts that field names arrive in ascending order; we
 // surface the same condition as an explicit error so callers see the bug
 // instead of getting silently-garbled output.
-func (w *Lucene103BlockTreeTermsWriter) WriteFields(fields index.Fields, norms NormsProducer) error {
+func (w *Lucene103BlockTreeTermsWriter) Write(fields index.Fields, norms NormsProducer) error {
 	if w.closed {
-		return errors.New("Lucene103BlockTreeTermsWriter: WriteFields after Close")
+		return errors.New("Lucene103BlockTreeTermsWriter: Write after Close")
 	}
 	if fields == nil {
 		return nil
@@ -243,7 +244,7 @@ func (w *Lucene103BlockTreeTermsWriter) WriteFields(fields index.Fields, norms N
 			break
 		}
 		if !first && lastField >= field {
-			return fmt.Errorf("WriteFields: fields must be visited in ascending order, got %q after %q", field, lastField)
+			return fmt.Errorf("Lucene103BlockTreeTermsWriter.Write: fields must be visited in ascending order, got %q after %q", field, lastField)
 		}
 		lastField = field
 		first = false
@@ -258,28 +259,13 @@ func (w *Lucene103BlockTreeTermsWriter) WriteFields(fields index.Fields, norms N
 
 		fieldInfo := w.fieldInfos.GetByName(field)
 		if fieldInfo == nil {
-			return fmt.Errorf("WriteFields: unknown field %q (not in FieldInfos)", field)
+			return fmt.Errorf("Lucene103BlockTreeTermsWriter.Write: unknown field %q (not in FieldInfos)", field)
 		}
 		if err := w.writeField(fieldInfo, terms, norms); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// Write satisfies the existing per-field FieldsConsumer SPI. It is a thin
-// convenience wrapper around WriteFields and exists only so existing
-// callers in Gocene that drive the writer one field at a time keep
-// compiling. New code should prefer WriteFields.
-func (w *Lucene103BlockTreeTermsWriter) Write(field string, terms index.Terms) error {
-	if w.closed {
-		return errors.New("Lucene103BlockTreeTermsWriter: Write after Close")
-	}
-	fieldInfo := w.fieldInfos.GetByName(field)
-	if fieldInfo == nil {
-		return fmt.Errorf("Lucene103BlockTreeTermsWriter.Write: unknown field %q", field)
-	}
-	return w.writeField(fieldInfo, terms, nil)
 }
 
 // Close flushes the terms-meta footer and closes all three on-disk files

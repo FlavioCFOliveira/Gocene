@@ -386,7 +386,7 @@ func (p *PostingsTester) TestFull(format PostingsFormat, options index.IndexOpti
 		seedTerms.termToDocs[termText] = postings
 	}
 
-	err = consumer.Write(fieldName, seedTerms)
+	err = consumer.Write(index.NewSingleFieldFields(fieldName, seedTerms), nil)
 	if err != nil {
 		p.t.Fatalf("Consumer.Write failed: %v", err)
 	}

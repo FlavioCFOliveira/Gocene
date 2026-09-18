@@ -13,6 +13,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -231,7 +232,7 @@ func TestIDVersionPostingsFormat_FieldsConsumer_Produces_No_Error(t *testing.T) 
 	}
 	terms := &memTerms{fi: fi, entries: entries}
 
-	if err := consumer.Write("id", terms); err != nil {
+	if err := consumer.Write(spi.NewSingleFieldFields("id", terms), nil); err != nil {
 		t.Fatalf("FieldsConsumer.Write: %v", err)
 	}
 	if err := consumer.Close(); err != nil {
@@ -283,7 +284,7 @@ func TestIDVersionPostingsFormat_RoundTrip_WriteAndRead(t *testing.T) {
 	}
 	terms := &memTerms{fi: fi, entries: entries}
 
-	if err := consumer.Write("id", terms); err != nil {
+	if err := consumer.Write(spi.NewSingleFieldFields("id", terms), nil); err != nil {
 		t.Fatalf("FieldsConsumer.Write: %v", err)
 	}
 	if err := consumer.Close(); err != nil {
@@ -375,7 +376,7 @@ func TestIDVersionPostingsFormat_FieldsProducer_UnknownField(t *testing.T) {
 	entries := []memTermsEntry{
 		{term: []byte("hello"), docID: 0, version: 1},
 	}
-	if err := consumer.Write("id", &memTerms{fi: fi, entries: entries}); err != nil {
+	if err := consumer.Write(spi.NewSingleFieldFields("id", &memTerms{fi: fi, entries: entries}), nil); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := consumer.Close(); err != nil {
