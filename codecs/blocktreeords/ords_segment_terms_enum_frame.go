@@ -98,6 +98,12 @@ type OrdsSegmentTermsEnumFrame struct {
 	// metaDataUpto is the high-water mark for lazy metadata decoding.
 	metaDataUpto int
 
+	// termStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which the codec narrows back with a type assertion. The
+	// BlockTermState field beside it is the widened view of that same object.
+	termStateRef index.TermState
+
 	// state holds the per-term postings metadata.
 	state *codecs.BlockTermState
 
@@ -137,10 +143,11 @@ func NewOrdsSegmentTermsEnumFrame(ste *OrdsSegmentTermsEnum, ord int) (*OrdsSegm
 
 	// Ask the postings reader for a fresh BlockTermState.
 	if ste.reader != nil && ste.reader.parent != nil && ste.reader.parent.postingsReader != nil {
-		f.state = ste.reader.parent.postingsReader.NewTermState()
+		f.termStateRef = ste.reader.parent.postingsReader.NewTermState()
 	} else {
-		f.state = codecs.NewBlockTermState()
+		f.termStateRef = codecs.NewBlockTermState()
 	}
+	f.state = codecs.BaseState(f.termStateRef)
 	f.state.TotalTermFreq = -1
 	return f, nil
 }

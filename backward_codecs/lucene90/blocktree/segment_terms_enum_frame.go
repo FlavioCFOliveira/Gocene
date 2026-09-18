@@ -114,6 +114,12 @@ type segmentTermsEnumFrame struct {
 	// metadata have been decoded so far.
 	metaDataUpto int
 
+	// termStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which the codec narrows back with a type assertion. The
+	// BlockTermState field beside it is the widened view of that same object.
+	termStateRef index.TermState
+
 	// state holds the decoded per-term postings state for lazy decode.
 	state *codecs.BlockTermState
 
@@ -155,10 +161,11 @@ func newSegmentTermsEnumFrame(ste *SegmentTermsEnum, ord int) *segmentTermsEnumF
 		compressionAlg:      noCompression,
 	}
 	if ste.fr != nil && ste.fr.parent != nil && ste.fr.parent.postingsReader != nil {
-		f.state = ste.fr.parent.postingsReader.NewTermState()
+		f.termStateRef = ste.fr.parent.postingsReader.NewTermState()
 	} else {
-		f.state = codecs.NewBlockTermState()
+		f.termStateRef = codecs.NewBlockTermState()
 	}
+	f.state = codecs.BaseState(f.termStateRef)
 	f.state.TotalTermFreq = -1
 	return f
 }
@@ -488,7 +495,7 @@ func (f *segmentTermsEnumFrame) decodeMetaData() error {
 		}
 		if f.ste.fr.parent != nil && f.ste.fr.parent.postingsReader != nil && f.ste.fr.fieldInfo != nil {
 			if err := f.ste.fr.parent.postingsReader.DecodeTerm(
-				f.bytesReader, f.ste.fr.fieldInfo, f.state, absolute,
+				f.bytesReader, f.ste.fr.fieldInfo, f.termStateRef, absolute,
 			); err != nil {
 				return fmt.Errorf("decodeMetaData: DecodeTerm: %w", err)
 			}

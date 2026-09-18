@@ -386,10 +386,10 @@ type pendingEntry struct {
 // metadata until the surrounding block is sealed.
 type pendingTerm struct {
 	termBytes []byte
-	state     *BlockTermState
+	state     index.TermState
 }
 
-func newPendingTerm(term *index.Term, state *BlockTermState) *pendingTerm {
+func newPendingTerm(term *index.Term, state index.TermState) *pendingTerm {
 	ref := term.BytesValue()
 	cp := make([]byte, ref.Length)
 	copy(cp, ref.Bytes[ref.Offset:ref.Offset+ref.Length])
@@ -594,7 +594,7 @@ func newTermsWriterState(parent *Lucene103BlockTreeTermsWriter, fieldInfo *index
 // The Java helper also accepts a NormsProducer and threads it into
 // StartTerm; without a fully-ported norms layer we approximate by passing
 // nil for now and rely on the postings writer's own omit-norms branch.
-func (t *termsWriterState) pushSinglePostings(termText *index.Term, termsEnum index.TermsEnum, norms NormsProducer) (*BlockTermState, error) {
+func (t *termsWriterState) pushSinglePostings(termText *index.Term, termsEnum index.TermsEnum, norms NormsProducer) (index.TermState, error) {
 	state := t.parent.postingsWriter.NewTermState()
 
 	// StartTerm: norms are wired in when the index has them. The Java
@@ -657,13 +657,14 @@ func (t *termsWriterState) pushSinglePostings(termText *index.Term, termsEnum in
 
 	// Mirrors Java's writeTerm: set both docFreq and totalTermFreq on the
 	// state before calling finishTerm, so finishTerm sees a consistent state.
-	state.DocFreq = docCount
-	state.TotalTermFreq = totalTermFreq
+	base := BaseState(state)
+	base.DocFreq = docCount
+	base.TotalTermFreq = totalTermFreq
 	if err := t.parent.postingsWriter.FinishTerm(state); err != nil {
 		return nil, err
 	}
-	if hasPositions && state.TotalTermFreq < int64(state.DocFreq) {
-		return nil, fmt.Errorf("Lucene103BlockTreeTermsWriter: term has positions but totalTermFreq (%d) < docFreq (%d)", state.TotalTermFreq, state.DocFreq)
+	if hasPositions && base.TotalTermFreq < int64(base.DocFreq) {
+		return nil, fmt.Errorf("Lucene103BlockTreeTermsWriter: term has positions but totalTermFreq (%d) < docFreq (%d)", base.TotalTermFreq, base.DocFreq)
 	}
 	return state, nil
 }
@@ -679,11 +680,12 @@ func (t *termsWriterState) write(term *index.Term, termsEnum index.TermsEnum, no
 	if state == nil {
 		return nil
 	}
-	if state.DocFreq == 0 {
+	base := BaseState(state)
+	if base.DocFreq == 0 {
 		return errors.New("termsWriterState.write: postings writer returned BlockTermState with docFreq == 0")
 	}
-	if t.fieldInfo.IndexOptions() != index.IndexOptionsDocs && state.TotalTermFreq < int64(state.DocFreq) {
-		return fmt.Errorf("termsWriterState.write: totalTermFreq %d < docFreq %d", state.TotalTermFreq, state.DocFreq)
+	if t.fieldInfo.IndexOptions() != index.IndexOptionsDocs && base.TotalTermFreq < int64(base.DocFreq) {
+		return fmt.Errorf("termsWriterState.write: totalTermFreq %d < docFreq %d", base.TotalTermFreq, base.DocFreq)
 	}
 
 	textBytes := term.BytesValue()
@@ -694,8 +696,8 @@ func (t *termsWriterState) write(term *index.Term, termsEnum index.TermsEnum, no
 	pt := newPendingTerm(term, state)
 	t.pending = append(t.pending, &pendingEntry{isTerm: true, term: pt})
 
-	t.sumDocFreq += int64(state.DocFreq)
-	t.sumTotalTermFreq += state.TotalTermFreq
+	t.sumDocFreq += int64(base.DocFreq)
+	t.sumTotalTermFreq += base.TotalTermFreq
 	t.numTerms++
 	if t.firstPendingTerm == nil {
 		t.firstPendingTerm = pt
@@ -973,7 +975,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 				return nil, fmt.Errorf("writeBlock: term lead byte 0x%02x < floorLeadLabel 0x%02x", int(term.termBytes[prefixLength])&0xFF, floorLeadLabel)
 			}
 
-			if err := stats.add(term.state.DocFreq, term.state.TotalTermFreq); err != nil {
+			if err := stats.add(BaseState(term.state).DocFreq, BaseState(term.state).TotalTermFreq); err != nil {
 				return nil, err
 			}
 			if err := t.parent.postingsWriter.EncodeTerm(t.metaWriter, t.fieldInfo, term.state, absolute); err != nil {
@@ -998,7 +1000,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 					return nil, err
 				}
 				t.suffixWriter.AppendBytes(term.termBytes, prefixLength, suffix)
-				if err := stats.add(term.state.DocFreq, term.state.TotalTermFreq); err != nil {
+				if err := stats.add(BaseState(term.state).DocFreq, BaseState(term.state).TotalTermFreq); err != nil {
 					return nil, err
 				}
 				if err := t.parent.postingsWriter.EncodeTerm(t.metaWriter, t.fieldInfo, term.state, absolute); err != nil {

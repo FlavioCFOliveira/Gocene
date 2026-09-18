@@ -464,8 +464,13 @@ type segmentTermsEnum struct {
 	// implicit outer instance, so the reference is carried explicitly.
 	fr *fieldReader
 
-	reader             *BlockTermsReader
-	in                 store.IndexInput
+	reader *BlockTermsReader
+	in     store.IndexInput
+	// termStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which the codec narrows back with a type assertion. state is
+	// the widened BlockTermState view of that very object.
+	termStateRef       index.TermState
 	state              *codecs.BlockTermState
 	doOrd              bool
 	indexEnum          TermsIndexEnum
@@ -494,7 +499,8 @@ func newSegmentTermsEnum(fr *fieldReader) (*segmentTermsEnum, error) {
 	indexEnum := fr.reader.indexReader.GetFieldEnum(fr.fieldInfo)
 	doOrd := fr.reader.indexReader.SupportsOrd()
 
-	state := fr.reader.postingsReader.NewTermState()
+	termStateRef := fr.reader.postingsReader.NewTermState()
+	state := codecs.BaseState(termStateRef)
 	state.TotalTermFreq = -1
 	state.Ord = -1
 
@@ -502,6 +508,7 @@ func newSegmentTermsEnum(fr *fieldReader) (*segmentTermsEnum, error) {
 		fr:           fr,
 		reader:       fr.reader,
 		in:           in,
+		termStateRef: termStateRef,
 		state:        state,
 		doOrd:        doOrd,
 		indexEnum:    indexEnum,
@@ -595,7 +602,7 @@ func (e *segmentTermsEnum) decodeMetaData() error {
 			e.state.TotalTermFreq = int64(docFreq) + tf
 		}
 
-		if err := e.reader.postingsReader.DecodeTerm(e.bytesReader, e.reader.fields[e.term.String()].fieldInfo, e.state, absolute); err != nil {
+		if err := e.reader.postingsReader.DecodeTerm(e.bytesReader, e.reader.fields[e.term.String()].fieldInfo, e.termStateRef, absolute); err != nil {
 			return err
 		}
 		e.metaDataUpto++
@@ -701,7 +708,7 @@ func (e *segmentTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
 	if err := e.decodeMetaData(); err != nil {
 		return nil, err
 	}
-	return e.reader.postingsReader.Postings(e.reader.fields[e.term.String()].fieldInfo, e.state, nil, flags)
+	return e.reader.postingsReader.Postings(e.reader.fields[e.term.String()].fieldInfo, e.termStateRef, nil, flags)
 }
 
 // Impacts returns an ImpactsEnum for the current term. Port of
@@ -713,7 +720,7 @@ func (e *segmentTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
 	if err := e.decodeMetaData(); err != nil {
 		return nil, err
 	}
-	return e.reader.postingsReader.Impacts(e.fr.fieldInfo, e.state, flags)
+	return e.reader.postingsReader.Impacts(e.fr.fieldInfo, e.termStateRef, flags)
 }
 
 func (e *segmentTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (index.PostingsEnum, error) {

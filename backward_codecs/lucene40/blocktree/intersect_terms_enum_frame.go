@@ -75,6 +75,13 @@ type intersectTermsEnumFrame struct {
 	arc *fst.Arc[*util.BytesRef]
 
 	// termState holds decoded per-term metadata.
+	// termStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which the codec narrows back with a type assertion. The
+	// BlockTermState field beside it is the widened view of that same object.
+	termStateRef index.TermState
+
+	// termState holds decoded per-term metadata.
 	termState *codecs.BlockTermState
 
 	// bytes holds encoded per-term metadata (lazy-decoded).
@@ -109,10 +116,11 @@ func newIntersectTermsEnumFrame(ite *IntersectTermsEnum, ord int) *intersectTerm
 		floorDataReader: store.NewByteArrayDataInput(nil),
 		bytes:           make([]byte, 32),
 		bytesReader:     store.NewByteArrayDataInput(nil),
-		termState:       ite.fr.parent.postingsReader.NewTermState(),
+		termStateRef:    ite.fr.parent.postingsReader.NewTermState(),
 		version:         ite.fr.parent.version,
 	}
-	if f.termState != nil {
+	if f.termStateRef != nil {
+		f.termState = codecs.BaseState(f.termStateRef)
 		f.termState.TotalTermFreq = -1
 	}
 
@@ -456,7 +464,7 @@ func (f *intersectTermsEnumFrame) decodeMetaData() error {
 			if err := f.ite.fr.parent.postingsReader.DecodeTerm(
 				f.bytesReader,
 				f.ite.fr.fieldInfo,
-				f.termState,
+				f.termStateRef,
 				absolute,
 			); err != nil {
 				return fmt.Errorf("blocktree intersect decodeMetaData: %w", err)

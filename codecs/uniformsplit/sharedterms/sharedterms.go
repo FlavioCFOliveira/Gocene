@@ -81,7 +81,7 @@ func NewSTMergingBlockReader(readers []*STBlockReader) *STMergingBlockReader {
 }
 
 // Postings returns a PostingsEnum for the named field and term state.
-func (r *STMergingBlockReader) Postings(fieldName string, state *codecs.BlockTermState, reuse index.PostingsEnum, flags int) (index.PostingsEnum, error) {
+func (r *STMergingBlockReader) Postings(fieldName string, state index.TermState, reuse index.PostingsEnum, flags int) (index.PostingsEnum, error) {
 	if r.FieldInfos == nil {
 		return nil, errors.New("STMergingBlockReader.Postings: FieldInfos is nil")
 	}

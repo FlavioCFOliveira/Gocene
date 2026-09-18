@@ -3,7 +3,6 @@ package sharedterms
 import (
 	"io"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/codecs/uniformsplit"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -19,14 +18,14 @@ type STBlockReader struct {
 	Decoder           uniformsplit.BlockDecoder
 	FieldInfos        *index.FieldInfos
 
-	blockHeader       *uniformsplit.BlockHeader
-	blockLine         *STBlockLine
-	termState         *codecs.BlockTermState
-	blockFirstLineFP  int64
-	blockStartFP      int64
-	
-	blockLineReader   *STBlockLineSerializer
-	termStateSerializer *uniformsplit.DeltaBaseTermStateSerializer
+	blockHeader      *uniformsplit.BlockHeader
+	blockLine        *STBlockLine
+	termState        index.TermState
+	blockFirstLineFP int64
+	blockStartFP     int64
+
+	blockLineReader      *STBlockLineSerializer
+	termStateSerializer  *uniformsplit.DeltaBaseTermStateSerializer
 	termStatesReadBuffer *store.ByteBuffersDataOutput // used as a buffer for reading
 }
 
@@ -38,16 +37,16 @@ func NewSTBlockReader(
 	fieldMetadata *uniformsplit.FieldMetadata,
 	decoder uniformsplit.BlockDecoder,
 	fieldInfos *index.FieldInfos) *STBlockReader {
-	
+
 	return &STBlockReader{
-		DictionaryBrowser:   dictionaryBrowser,
-		Input:               input,
-		PostingsReader:      postingsReader,
-		FieldMetadata:       fieldMetadata,
-		Decoder:             decoder,
-		FieldInfos:          fieldInfos,
-		blockLineReader:     &STBlockLineSerializer{},
-		termStateSerializer: uniformsplit.NewDeltaBaseTermStateSerializer(),
+		DictionaryBrowser:    dictionaryBrowser,
+		Input:                input,
+		PostingsReader:       postingsReader,
+		FieldMetadata:        fieldMetadata,
+		Decoder:              decoder,
+		FieldInfos:           fieldInfos,
+		blockLineReader:      &STBlockLineSerializer{},
+		termStateSerializer:  uniformsplit.NewDeltaBaseTermStateSerializer(),
 		termStatesReadBuffer: store.NewByteBuffersDataOutput(),
 	}
 }
@@ -82,7 +81,7 @@ func (r *STBlockReader) readTermStateIfNotRead() {
 	if r.termState != nil {
 		return
 	}
-	
+
 	// Use STBlockLineSerializer.ReadTermStateForField
 	// Read term state from the buffer
 	// ...
@@ -101,12 +100,13 @@ func (r *STBlockReader) SeekExact(searchedTerm *util.BytesRef) (bool, error) {
 }
 
 // ReadTermState reads the BlockTermState on the current line for this reader's field.
-func (r *STBlockReader) ReadTermState() (*codecs.BlockTermState, error) {
+func (r *STBlockReader) ReadTermState() (index.TermState, error) {
 	// read term state logic
 	return nil, nil // Placeholder
 }
 
 type SeekStatus int
+
 const (
 	SeekStatusFOUND SeekStatus = iota
 	SeekStatusNOTFOUND

@@ -70,9 +70,9 @@ func (lt *listTerms) GetPostingsReader(termText string, flags int) (schema.Posti
 	return nil, nil
 }
 
-func (lt *listTerms) Size() int64                      { return int64(len(lt.terms)) }
-func (lt *listTerms) GetDocCount() (int, error)         { return min(1, len(lt.terms)), nil }
-func (lt *listTerms) GetSumDocFreq() (int64, error)     { return int64(len(lt.terms)), nil }
+func (lt *listTerms) Size() int64                         { return int64(len(lt.terms)) }
+func (lt *listTerms) GetDocCount() (int, error)           { return min(1, len(lt.terms)), nil }
+func (lt *listTerms) GetSumDocFreq() (int64, error)       { return int64(len(lt.terms)), nil }
 func (lt *listTerms) GetSumTotalTermFreq() (int64, error) { return int64(len(lt.terms)), nil }
 
 // listTermsEnum iterates over a sorted list of terms.
@@ -120,8 +120,8 @@ func (e *listTermsEnum) SeekExact(term *index.Term) (bool, error) {
 	return false, nil
 }
 
-func (e *listTermsEnum) DocFreq() (int, error)            { return 1, nil }
-func (e *listTermsEnum) TotalTermFreq() (int64, error)    { return 1, nil }
+func (e *listTermsEnum) DocFreq() (int, error)         { return 1, nil }
+func (e *listTermsEnum) TotalTermFreq() (int64, error) { return 1, nil }
 func (e *listTermsEnum) Postings(int) (index.PostingsEnum, error) {
 	return &singleDocPostingsEnum{}, nil
 }
@@ -145,13 +145,13 @@ func (e *singleDocPostingsEnum) NextDoc() (int, error) {
 	return schema.NO_MORE_DOCS, nil
 }
 
-func (e *singleDocPostingsEnum) Advance(int) (int, error) { return e.NextDoc() }
-func (e *singleDocPostingsEnum) Freq() (int, error)                  { return 1, nil }
-func (e *singleDocPostingsEnum) NextPosition() (int, error)          { return schema.NO_MORE_POSITIONS, nil }
-func (e *singleDocPostingsEnum) StartOffset() (int, error)           { return -1, nil }
-func (e *singleDocPostingsEnum) EndOffset() (int, error)             { return -1, nil }
-func (e *singleDocPostingsEnum) GetPayload() ([]byte, error)         { return nil, nil }
-func (e *singleDocPostingsEnum) Cost() int64                         { return 1 }
+func (e *singleDocPostingsEnum) Advance(int) (int, error)    { return e.NextDoc() }
+func (e *singleDocPostingsEnum) Freq() (int, error)          { return 1, nil }
+func (e *singleDocPostingsEnum) NextPosition() (int, error)  { return schema.NO_MORE_POSITIONS, nil }
+func (e *singleDocPostingsEnum) StartOffset() (int, error)   { return -1, nil }
+func (e *singleDocPostingsEnum) EndOffset() (int, error)     { return -1, nil }
+func (e *singleDocPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }
+func (e *singleDocPostingsEnum) Cost() int64                 { return 1 }
 
 // writeTerms is a test helper that writes terms for a single field through
 // the BlockTreeOrds format and returns the directory.

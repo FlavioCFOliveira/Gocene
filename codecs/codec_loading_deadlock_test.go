@@ -30,7 +30,7 @@ import (
 // bounded by a context deadline that mirrors Lucene's 30-second timeout cap.
 func TestCodecLoadingDeadlock(t *testing.T) {
 	const (
-		numGoroutines = 14   // mirrors Lucene's NUM_THREADS=14
+		numGoroutines = 14 // mirrors Lucene's NUM_THREADS=14
 		deadline      = 10 * time.Second
 	)
 
@@ -51,7 +51,7 @@ func TestCodecLoadingDeadlock(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ready.Done()  // signal this goroutine is ready
+			ready.Done() // signal this goroutine is ready
 			start.Wait() // wait for the barrier to drop
 
 			for {

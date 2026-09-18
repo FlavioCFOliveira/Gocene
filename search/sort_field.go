@@ -165,10 +165,59 @@ func SortFieldGetComparator(sf *SortField, numHits int, pruning Pruning) FieldCo
 	default:
 		panic(fmt.Sprintf("Illegal sort type: %s", sf.Type))
 	}
+	installSortFieldDocValuesSource(sf, fieldComparator)
 	if !sf.GetOptimizeSortWithIndexedData() {
 		fieldComparator.DisableSkipping()
 	}
 	return fieldComparator
+}
+
+// installSortFieldDocValuesSource wires the DocValues override a SortField
+// carries into the comparator its type just selected.
+//
+// It is the Go rendering of the anonymous subclasses Apache Lucene 10.5.0
+// builds inside a SortField subclass's getComparator: the comparator is the
+// standard one for the sort type, with only its protected
+// getSortedDocValues(LeafReaderContext, String) or
+// getNumericDocValues(LeafReaderContext, String) hook overridden. Go has no
+// method overriding, so the override is a value on the SortField and this
+// function installs it. A source of the wrong shape for the sort type is a
+// programming error and panics, as the other unchecked failures of
+// SortFieldGetComparator do.
+func installSortFieldDocValuesSource(sf *SortField, fieldComparator FieldComparator) {
+	src := sf.GetDocValuesSource()
+	if src == nil {
+		return
+	}
+	switch c := fieldComparator.(type) {
+	case *termOrdValComparator:
+		sorted, ok := src.(SortedDocValuesSource)
+		if !ok {
+			panic(fmt.Sprintf("search: SortField %q of type %s needs a SortedDocValuesSource, got %T", sf.Field, sf.Type, src))
+		}
+		c.dvSource = sorted
+	case *intComparator:
+		c.dvSource = numericDocValuesSourceOf(sf, src)
+	case *longComparator:
+		c.dvSource = numericDocValuesSourceOf(sf, src)
+	case *floatComparator:
+		c.dvSource = numericDocValuesSourceOf(sf, src)
+	case *doubleComparator:
+		c.dvSource = numericDocValuesSourceOf(sf, src)
+	default:
+		panic(fmt.Sprintf("search: SortField %q of type %s cannot carry a DocValues source", sf.Field, sf.Type))
+	}
+}
+
+// numericDocValuesSourceOf narrows a SortField's DocValues override to the
+// numeric shape, panicking when it is not one. See
+// installSortFieldDocValuesSource.
+func numericDocValuesSourceOf(sf *SortField, src any) NumericDocValuesSource {
+	numeric, ok := src.(NumericDocValuesSource)
+	if !ok {
+		panic(fmt.Sprintf("search: SortField %q of type %s needs a NumericDocValuesSource, got %T", sf.Field, sf.Type, src))
+	}
+	return numeric
 }
 
 // RewriteSortField rewrites sf, returning a new SortField if a change is made.

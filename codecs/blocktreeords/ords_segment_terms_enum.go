@@ -186,7 +186,7 @@ func (e *OrdsSegmentTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
 	if err := e.currentFrame.decodeMetaData(); err != nil {
 		return nil, fmt.Errorf("OrdsSegmentTermsEnum.Impacts: decodeMetaData: %w", err)
 	}
-	return e.reader.parent.postingsReader.Impacts(e.reader.fieldInfo, e.currentFrame.state, flags)
+	return e.reader.parent.postingsReader.Impacts(e.reader.fieldInfo, e.currentFrame.termStateRef, flags)
 }
 
 // PostingsWithLiveDocs returns a PostingsEnum for the current term filtered by live docs.

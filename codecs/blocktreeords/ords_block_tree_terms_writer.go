@@ -82,10 +82,10 @@ type ordsPendingEntry struct {
 // ordsPendingTerm holds a buffered term and its postings-writer metadata.
 type ordsPendingTerm struct {
 	termBytes []byte
-	state     *codecs.BlockTermState
+	state     index.TermState
 }
 
-func newOrdsPendingTerm(term *index.Term, state *codecs.BlockTermState) *ordsPendingTerm {
+func newOrdsPendingTerm(term *index.Term, state index.TermState) *ordsPendingTerm {
 	ref := term.BytesValue()
 	cp := make([]byte, ref.Length)
 	copy(cp, ref.Bytes[ref.Offset:ref.Offset+ref.Length])
@@ -660,7 +660,7 @@ func newOrdsTermsWriter(parent *ordsBlockTreeTermsWriter, fieldInfo *index.Field
 // pushSinglePostings drives the underlying PostingsWriterBase for a single
 // term and returns the populated BlockTermState. Returns nil when the term
 // has no surviving documents.
-func (t *ordsTermsWriter) pushSinglePostings(termText *index.Term, termsEnum index.TermsEnum) (*codecs.BlockTermState, error) {
+func (t *ordsTermsWriter) pushSinglePostings(termText *index.Term, termsEnum index.TermsEnum) (index.TermState, error) {
 	state := t.parent.postingsWriter.NewTermState()
 
 	if err := t.parent.postingsWriter.StartTerm(nil); err != nil {
@@ -693,13 +693,14 @@ func (t *ordsTermsWriter) pushSinglePostings(termText *index.Term, termsEnum ind
 		return nil, nil
 	}
 
-	state.DocFreq = docCount
-	state.TotalTermFreq = totalTermFreq
+	base := codecs.BaseState(state)
+	base.DocFreq = docCount
+	base.TotalTermFreq = totalTermFreq
 	if err := t.parent.postingsWriter.FinishTerm(state); err != nil {
 		return nil, err
 	}
-	if hasPositions && state.TotalTermFreq < int64(state.DocFreq) {
-		return nil, fmt.Errorf("ordsBlockTreeTermsWriter: term has positions but totalTermFreq (%d) < docFreq (%d)", state.TotalTermFreq, state.DocFreq)
+	if hasPositions && base.TotalTermFreq < int64(base.DocFreq) {
+		return nil, fmt.Errorf("ordsBlockTreeTermsWriter: term has positions but totalTermFreq (%d) < docFreq (%d)", base.TotalTermFreq, base.DocFreq)
 	}
 	return state, nil
 }
@@ -714,11 +715,12 @@ func (t *ordsTermsWriter) write(term *index.Term, termsEnum index.TermsEnum) err
 	if state == nil {
 		return nil
 	}
-	if state.DocFreq == 0 {
+	base := codecs.BaseState(state)
+	if base.DocFreq == 0 {
 		return errors.New("ordsTermsWriter.write: postings writer returned BlockTermState with docFreq == 0")
 	}
-	if t.fieldInfo.IndexOptions() != index.IndexOptionsDocs && state.TotalTermFreq < int64(state.DocFreq) {
-		return fmt.Errorf("ordsTermsWriter.write: totalTermFreq %d < docFreq %d", state.TotalTermFreq, state.DocFreq)
+	if t.fieldInfo.IndexOptions() != index.IndexOptionsDocs && base.TotalTermFreq < int64(base.DocFreq) {
+		return fmt.Errorf("ordsTermsWriter.write: totalTermFreq %d < docFreq %d", base.TotalTermFreq, base.DocFreq)
 	}
 
 	textBytes := term.BytesValue()
@@ -729,8 +731,8 @@ func (t *ordsTermsWriter) write(term *index.Term, termsEnum index.TermsEnum) err
 	pt := newOrdsPendingTerm(term, state)
 	t.pending = append(t.pending, &ordsPendingEntry{isTerm: true, term: pt})
 
-	t.sumDocFreq += int64(state.DocFreq)
-	t.sumTotalTermFreq += state.TotalTermFreq
+	t.sumDocFreq += int64(base.DocFreq)
+	t.sumTotalTermFreq += base.TotalTermFreq
 	t.numTerms++
 	if t.firstPendingTerm == nil {
 		t.firstPendingTerm = pt
@@ -933,11 +935,11 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 			}
 
 			// Write stats directly (no singleton compression).
-			if err := t.statsWriter.WriteVInt(int32(term.state.DocFreq)); err != nil {
+			if err := t.statsWriter.WriteVInt(int32(codecs.BaseState(term.state).DocFreq)); err != nil {
 				return nil, err
 			}
 			if t.fieldInfo.IndexOptions() != index.IndexOptionsDocs {
-				if err := t.statsWriter.WriteVLong(term.state.TotalTermFreq - int64(term.state.DocFreq)); err != nil {
+				if err := t.statsWriter.WriteVLong(codecs.BaseState(term.state).TotalTermFreq - int64(codecs.BaseState(term.state).DocFreq)); err != nil {
 					return nil, err
 				}
 			}
@@ -974,11 +976,11 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 					return nil, fmt.Errorf("ordsTermsWriter.writeBlock: term lead byte < floorLeadLabel")
 				}
 
-				if err := t.statsWriter.WriteVInt(int32(term.state.DocFreq)); err != nil {
+				if err := t.statsWriter.WriteVInt(int32(codecs.BaseState(term.state).DocFreq)); err != nil {
 					return nil, err
 				}
 				if t.fieldInfo.IndexOptions() != index.IndexOptionsDocs {
-					if err := t.statsWriter.WriteVLong(term.state.TotalTermFreq - int64(term.state.DocFreq)); err != nil {
+					if err := t.statsWriter.WriteVLong(codecs.BaseState(term.state).TotalTermFreq - int64(codecs.BaseState(term.state).DocFreq)); err != nil {
 						return nil, err
 					}
 				}

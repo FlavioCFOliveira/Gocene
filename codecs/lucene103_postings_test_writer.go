@@ -106,8 +106,7 @@ type lucene103PostingsTestWriter struct {
 
 	spareBitSet *util.FixedBitSet
 
-	stateCache map[*BlockTermState]*IntBlockTermState
-	lastState  *IntBlockTermState
+	lastState *IntBlockTermState
 }
 
 func newLucene103PostingsTestWriter(state *SegmentWriteState) (*lucene103PostingsTestWriter, error) {
@@ -121,7 +120,6 @@ func newLucene103PostingsTestWriter(state *SegmentWriteState) (*lucene103Posting
 		scratchOutput:     store.NewByteBuffersDataOutput(),
 		level0Output:      store.NewByteBuffersDataOutput(),
 		level1Output:      store.NewByteBuffersDataOutput(),
-		stateCache:        make(map[*BlockTermState]*IntBlockTermState),
 		lastState:         emptyIntBlockTermState,
 		forDeltaUtil:      newLucene103ForDeltaUtil(),
 		pforUtil:          newLucene103PForUtil(),
@@ -206,10 +204,8 @@ func newLucene103PostingsTestWriter(state *SegmentWriteState) (*lucene103Posting
 	return w, nil
 }
 
-func (w *lucene103PostingsTestWriter) NewTermState() *BlockTermState {
-	its := NewIntBlockTermState()
-	w.stateCache[its.BlockTermState] = its
-	return its.BlockTermState
+func (w *lucene103PostingsTestWriter) NewTermState() index.TermState {
+	return NewIntBlockTermState()
 }
 
 func (w *lucene103PostingsTestWriter) Init(termsOut store.IndexOutput, state *SegmentWriteState) error {
@@ -362,11 +358,13 @@ func (w *lucene103PostingsTestWriter) FinishDoc() error {
 	return nil
 }
 
-func (w *lucene103PostingsTestWriter) FinishTerm(base *BlockTermState) error {
-	its, ok := w.stateCache[base]
+func (w *lucene103PostingsTestWriter) FinishTerm(state index.TermState) error {
+	// Mirrors "IntBlockTermState state = (IntBlockTermState) _state".
+	its, ok := state.(*IntBlockTermState)
 	if !ok {
-		its = &IntBlockTermState{BlockTermState: base, LastPosBlockOffset: -1, SingletonDocID: -1}
+		return fmt.Errorf("lucene103 test postings writer: finish term: term state is %T, want *IntBlockTermState", state)
 	}
+	base := its.BlockTermState
 	if base.DocFreq == 0 {
 		return fmt.Errorf("lucene103 test writer: FinishTerm called with docFreq=0")
 	}
@@ -471,10 +469,11 @@ func (w *lucene103PostingsTestWriter) writeTrailingPositions() error {
 	return nil
 }
 
-func (w *lucene103PostingsTestWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, base *BlockTermState, absolute bool) error {
-	its, ok := w.stateCache[base]
+func (w *lucene103PostingsTestWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, state index.TermState, absolute bool) error {
+	// Mirrors "IntBlockTermState state = (IntBlockTermState) _state".
+	its, ok := state.(*IntBlockTermState)
 	if !ok {
-		its = &IntBlockTermState{BlockTermState: base, LastPosBlockOffset: -1, SingletonDocID: -1}
+		return fmt.Errorf("lucene103 test postings writer: encode term: term state is %T, want *IntBlockTermState", state)
 	}
 	if absolute {
 		w.lastState = emptyIntBlockTermState

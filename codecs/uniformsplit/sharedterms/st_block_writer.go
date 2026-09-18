@@ -15,13 +15,13 @@ type STBlockWriter struct {
 	TargetBlockSize int
 	DeltaNumLines   int
 	Output          store.DataOutput
-	
-	lastTerm      *util.BytesRef
-	blockLines    []*STBlockLine
-	writeBuffer   *store.ByteBuffersDataOutput
-	encoder       *uniformsplit.DeltaBaseTermStateSerializer
+
+	lastTerm        *util.BytesRef
+	blockLines      []*STBlockLine
+	writeBuffer     *store.ByteBuffersDataOutput
+	encoder         *uniformsplit.DeltaBaseTermStateSerializer
 	blockLineWriter *STBlockLineSerializer
-	fieldsInBlock  map[*uniformsplit.FieldMetadata]struct{}
+	fieldsInBlock   map[*uniformsplit.FieldMetadata]struct{}
 }
 
 // NewSTBlockWriter builds an STBlockWriter.
@@ -29,7 +29,7 @@ func NewSTBlockWriter(
 	out store.DataOutput,
 	targetNumBlockLines, deltaNumLines int,
 	_ uniformsplit.BlockEncoder) *STBlockWriter {
-	
+
 	return &STBlockWriter{
 		Output:          out,
 		TargetBlockSize: targetNumBlockLines,
@@ -46,27 +46,27 @@ func (w *STBlockWriter) AddLine(
 	term util.BytesRef,
 	termStates []FieldMetadataTermState,
 	dictionaryBuilder any) error {
-	
+
 	if len(termStates) == 0 {
 		return nil
 	}
-	
+
 	mdpLength := uniformsplit.ComputeMdpLength(w.lastTerm, term)
-	
+
 	line := NewSTBlockLine(
-		append([]byte(nil), term.Bytes()[term.Offset : term.Offset+term.Length()]...),
+		append([]byte(nil), term.Bytes()[term.Offset:term.Offset+term.Length()]...),
 		termStates,
 	)
-	
+
 	w.blockLines = append(w.blockLines, line)
 	w.lastTerm = term
-	
-	if len(w.blockLines) >= w.TargetBlockSize + w.DeltaNumLines {
+
+	if len(w.blockLines) >= w.TargetBlockSize+w.DeltaNumLines {
 		if err := w.splitAndWriteBlock(dictionaryBuilder); err != nil {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -97,7 +97,7 @@ func (w *STBlockWriter) WriteBlockLine(
 	line *uniformsplit.BlockLine,
 	previousLine *uniformsplit.BlockLine,
 	termStateRelativeOffset int32) error {
-	
+
 	// This would be called by the internal writeBlock loop
 	return nil
 }

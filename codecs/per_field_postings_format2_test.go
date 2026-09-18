@@ -35,7 +35,7 @@ func newTestPerFieldCodec(name string, provider codecs.FieldPostingsFormatProvid
 	}
 }
 
-func (c *testPerFieldCodec) Name() string                     { return c.name }
+func (c *testPerFieldCodec) Name() string                          { return c.name }
 func (c *testPerFieldCodec) PostingsFormat() codecs.PostingsFormat { return c.pf }
 
 // mergeRecordingPostingsFormat wraps a PostingsFormat and records every field
@@ -432,7 +432,7 @@ func TestPerFieldPostingsFormat2_SameCodecDifferentInstance(t *testing.T) {
 
 	pfDefault := codecs.NewLucene104PostingsFormat()
 	pfID := codecs.NewLucene104PostingsFormat()   // separate instance
-	pfDate := codecs.NewLucene104PostingsFormat()  // separate instance
+	pfDate := codecs.NewLucene104PostingsFormat() // separate instance
 	provider := codecs.NewMapFieldPostingsFormatProvider(pfDefault)
 	provider.SetFormat("id", pfID)
 	provider.SetFormat("date", pfDate)

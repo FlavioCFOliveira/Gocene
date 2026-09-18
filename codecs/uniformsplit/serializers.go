@@ -193,14 +193,26 @@ func (s *DeltaBaseTermStateSerializer) GetBaseDocStartFP() int64 { return s.base
 func (s *DeltaBaseTermStateSerializer) GetBasePosStartFP() int64 { return s.basePosStartFP }
 func (s *DeltaBaseTermStateSerializer) GetBasePayStartFP() int64 { return s.basePayStartFP }
 
-func (s *DeltaBaseTermStateSerializer) WriteTermState(out store.DataOutput, fieldInfo *index.FieldInfo, ts *codecs.BlockTermState) error {
+// WriteTermState writes a BlockTermState to the provided output.
+//
+// Simpler variant of Lucene104PostingsWriter.encodeTerm(DataOutput, FieldInfo,
+// BlockTermState, boolean). Mirrors
+// DeltaBaseTermStateSerializer.writeTermState(DataOutput, FieldInfo,
+// BlockTermState).
+func (s *DeltaBaseTermStateSerializer) WriteTermState(out store.DataOutput, fieldInfo *index.FieldInfo, termState index.TermState) error {
 	opts := fieldInfo.IndexOptions()
 	hasFreqs := opts != index.IndexOptionsDocs
 	hasPositions := opts >= index.IndexOptionsDocsAndFreqsAndPositions
 	hasOffsets := opts >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
 	hasPayloads := fieldInfo.HasPayloads()
 
-	if err := out.WriteVInt(ts.DocFreq); err != nil {
+	// Mirrors "IntBlockTermState intTermState = (IntBlockTermState) termState".
+	ts, ok := termState.(*codecs.IntBlockTermState)
+	if !ok {
+		return fmt.Errorf("DeltaBaseTermStateSerializer.WriteTermState: term state is %T, want *codecs.IntBlockTermState", termState)
+	}
+
+	if err := out.WriteVInt(int32(ts.DocFreq)); err != nil {
 		return err
 	}
 	if hasFreqs {
@@ -209,36 +221,36 @@ func (s *DeltaBaseTermStateSerializer) WriteTermState(out store.DataOutput, fiel
 		}
 	}
 
-	if ts.singletonDocID != -1 {
-		if err := out.WriteVInt(ts.singletonDocID); err != nil {
+	if ts.SingletonDocID != -1 {
+		if err := out.WriteVInt(int32(ts.SingletonDocID)); err != nil {
 			return err
 		}
 	} else {
 		if s.baseDocStartFP == 0 {
-			s.baseDocStartFP = ts.docStartFP
+			s.baseDocStartFP = ts.DocStartFP
 		}
-		if err := out.WriteVLong(ts.docStartFP - s.baseDocStartFP); err != nil {
+		if err := out.WriteVLong(ts.DocStartFP - s.baseDocStartFP); err != nil {
 			return err
 		}
 	}
 
 	if hasPositions {
 		if s.basePosStartFP == 0 {
-			s.basePosStartFP = ts.posStartFP
+			s.basePosStartFP = ts.PosStartFP
 		}
-		if err := out.WriteVLong(ts.posStartFP - s.basePosStartFP); err != nil {
+		if err := out.WriteVLong(ts.PosStartFP - s.basePosStartFP); err != nil {
 			return err
 		}
 		if hasPayloads || hasOffsets {
 			if s.basePayStartFP == 0 {
-				s.basePayStartFP = ts.payStartFP
+				s.basePayStartFP = ts.PayStartFP
 			}
-			if err := out.WriteVLong(ts.payStartFP - s.basePayStartFP); err != nil {
+			if err := out.WriteVLong(ts.PayStartFP - s.basePayStartFP); err != nil {
 				return err
 			}
 		}
-		if ts.lastPosBlockOffset != -1 {
-			if err := out.WriteVLong(ts.lastPosBlockOffset); err != nil {
+		if ts.LastPosBlockOffset != -1 {
+			if err := out.WriteVLong(ts.LastPosBlockOffset); err != nil {
 				return err
 			}
 		}
@@ -246,32 +258,38 @@ func (s *DeltaBaseTermStateSerializer) WriteTermState(out store.DataOutput, fiel
 	return nil
 }
 
-func (s *DeltaBaseTermStateSerializer) ReadTermState(baseDocStartFP, basePosStartFP, basePayStartFP int64, in store.DataInput, fieldInfo *index.FieldInfo, reuse *codecs.BlockTermState) (*codecs.BlockTermState, error) {
+// ReadTermState reads a BlockTermState from the provided input.
+//
+// Simpler variant of Lucene104PostingsReader.decodeTerm(DataInput, FieldInfo,
+// BlockTermState, boolean). reuse is a BlockTermState to reuse, or nil to
+// create a new one. Mirrors DeltaBaseTermStateSerializer.readTermState.
+func (s *DeltaBaseTermStateSerializer) ReadTermState(
+	baseDocStartFP, basePosStartFP, basePayStartFP int64,
+	in store.DataInput,
+	fieldInfo *index.FieldInfo,
+	reuse index.TermState,
+) (index.TermState, error) {
 	opts := fieldInfo.IndexOptions()
 	hasFreqs := opts != index.IndexOptionsDocs
 	hasPositions := opts >= index.IndexOptionsDocsAndFreqsAndPositions
 
-	ts := reuse
-	if ts == nil {
-		ts = codecs.NewBlockTermState()
+	// Mirrors "reuse != null ? reset((IntBlockTermState) reuse) : new IntBlockTermState()".
+	var ts *codecs.IntBlockTermState
+	if reuse == nil {
+		ts = codecs.NewIntBlockTermState()
 	} else {
-		ts.Ord = 0
-		ts.DocFreq = 0
-		ts.TotalTermFreq = 0
-		ts.TermBlockOrd = 0
-		ts.BlockFilePointer = 0
-		ts.docStartFP = 0
-		ts.posStartFP = 0
-		ts.payStartFP = 0
-		ts.lastPosBlockOffset = -1
-		ts.singletonDocID = -1
+		r, ok := reuse.(*codecs.IntBlockTermState)
+		if !ok {
+			return nil, fmt.Errorf("DeltaBaseTermStateSerializer.ReadTermState: reuse is %T, want *codecs.IntBlockTermState", reuse)
+		}
+		ts = s.reset(r)
 	}
 
 	docFreq, err := in.ReadVInt()
 	if err != nil {
 		return nil, err
 	}
-	ts.DocFreq = docFreq
+	ts.DocFreq = int(docFreq)
 
 	if hasFreqs {
 		deltaTF, err := in.ReadVLong()
@@ -288,13 +306,13 @@ func (s *DeltaBaseTermStateSerializer) ReadTermState(baseDocStartFP, basePosStar
 		if err != nil {
 			return nil, err
 		}
-		ts.singletonDocID = singletonID
+		ts.SingletonDocID = int(singletonID)
 	} else {
 		deltaDocFP, err := in.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
-		ts.docStartFP = baseDocStartFP + deltaDocFP
+		ts.DocStartFP = baseDocStartFP + deltaDocFP
 	}
 
 	if hasPositions {
@@ -302,7 +320,7 @@ func (s *DeltaBaseTermStateSerializer) ReadTermState(baseDocStartFP, basePosStar
 		if err != nil {
 			return nil, err
 		}
-		ts.posStartFP = basePosStartFP + deltaPosFP
+		ts.PosStartFP = basePosStartFP + deltaPosFP
 
 		hasOffsets := opts >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
 		if hasOffsets || fieldInfo.HasPayloads() {
@@ -310,17 +328,41 @@ func (s *DeltaBaseTermStateSerializer) ReadTermState(baseDocStartFP, basePosStar
 			if err != nil {
 				return nil, err
 			}
-			ts.payStartFP = basePayStartFP + deltaPayFP
+			ts.PayStartFP = basePayStartFP + deltaPayFP
 		}
 
-		if ts.TotalTermFreq > 128 { // BLOCK_SIZE is 128 in Lucene 10.5.0
+		// Lucene104PostingsFormat.BLOCK_SIZE, which is ForUtil.BLOCK_SIZE.
+		if ts.TotalTermFreq > int64(codecs.ForUtilBlockSize) {
 			lastPosOff, err := in.ReadVLong()
 			if err != nil {
 				return nil, err
 			}
-			ts.lastPosBlockOffset = lastPosOff
+			ts.LastPosBlockOffset = lastPosOff
 		}
 	}
 
 	return ts, nil
+}
+
+// reset clears every field of termState back to its constructor value.
+//
+// Mirrors DeltaBaseTermStateSerializer.reset(IntBlockTermState).
+func (s *DeltaBaseTermStateSerializer) reset(termState *codecs.IntBlockTermState) *codecs.IntBlockTermState {
+	// OrdTermState.
+	termState.Ord = 0
+
+	// BlockTermState.
+	termState.DocFreq = 0
+	termState.TotalTermFreq = 0
+	termState.TermBlockOrd = 0
+	termState.BlockFilePointer = 0
+
+	// IntBlockTermState.
+	termState.DocStartFP = 0
+	termState.PosStartFP = 0
+	termState.PayStartFP = 0
+	termState.LastPosBlockOffset = -1
+	termState.SingletonDocID = -1
+
+	return termState
 }

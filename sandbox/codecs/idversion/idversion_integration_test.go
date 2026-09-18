@@ -50,14 +50,14 @@ func (m *memTerms) GetPostingsReader(_ string, _ int) (schema.PostingsEnum, erro
 	return nil, nil
 }
 
-func (m *memTerms) Size() int64                        { return int64(len(m.entries)) }
-func (m *memTerms) GetDocCount() (int, error)          { return len(m.entries), nil }
-func (m *memTerms) GetSumDocFreq() (int64, error)      { return int64(len(m.entries)), nil }
+func (m *memTerms) Size() int64                         { return int64(len(m.entries)) }
+func (m *memTerms) GetDocCount() (int, error)           { return len(m.entries), nil }
+func (m *memTerms) GetSumDocFreq() (int64, error)       { return int64(len(m.entries)), nil }
 func (m *memTerms) GetSumTotalTermFreq() (int64, error) { return int64(len(m.entries)), nil }
-func (m *memTerms) HasFreqs() bool                     { return true }
-func (m *memTerms) HasOffsets() bool                   { return false }
-func (m *memTerms) HasPositions() bool                 { return true }
-func (m *memTerms) HasPayloads() bool                  { return true }
+func (m *memTerms) HasFreqs() bool                      { return true }
+func (m *memTerms) HasOffsets() bool                    { return false }
+func (m *memTerms) HasPositions() bool                  { return true }
+func (m *memTerms) HasPayloads() bool                   { return true }
 func (m *memTerms) GetMin() (*schema.Term, error) {
 	if len(m.entries) == 0 {
 		return nil, nil
@@ -117,7 +117,7 @@ func (e *memTermsEnum) Term() *schema.Term {
 	return schema.NewTermFromBytes(e.fi.Name(), e.entries[e.pos].term)
 }
 
-func (e *memTermsEnum) DocFreq() (int, error)        { return 1, nil }
+func (e *memTermsEnum) DocFreq() (int, error)         { return 1, nil }
 func (e *memTermsEnum) TotalTermFreq() (int64, error) { return 1, nil }
 
 func (e *memTermsEnum) Postings(flags int) (schema.PostingsEnum, error) {
@@ -141,7 +141,7 @@ func (e *memTermsEnum) PostingsWithLiveDocs(_ util.Bits, flags int) (schema.Post
 type memPostingsEnum struct {
 	docID   int
 	version int64
-	pos     int    // -1: before doc; 0: at doc; 1: positions seen
+	pos     int // -1: before doc; 0: at doc; 1: positions seen
 	atDoc   bool
 	atPos   bool
 }
@@ -162,7 +162,7 @@ func (p *memPostingsEnum) Advance(target int) (int, error) {
 	return schema.NO_MORE_DOCS, nil
 }
 
-func (p *memPostingsEnum) DocID() int { return p.docID }
+func (p *memPostingsEnum) DocID() int         { return p.docID }
 func (p *memPostingsEnum) Freq() (int, error) { return 1, nil }
 func (p *memPostingsEnum) Cost() int64        { return 1 }
 

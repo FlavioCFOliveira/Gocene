@@ -3,7 +3,6 @@ package sharedterms
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/codecs/uniformsplit"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -13,7 +12,7 @@ import (
 type FieldMetadataTermState struct {
 	FieldMetadata *uniformsplit.FieldMetadata
 	FieldInfo     *index.FieldInfo
-	State         *codecs.BlockTermState
+	State         index.TermState
 }
 
 // STBlockLine represents a term and its details stored in the Shared Terms format.
@@ -85,8 +84,8 @@ func (s *STBlockLineSerializer) ReadTermStateForField(
 	serializer *uniformsplit.DeltaBaseTermStateSerializer,
 	header *uniformsplit.BlockHeader,
 	fieldInfos *index.FieldInfos,
-	reuse *codecs.BlockTermState) (*codecs.BlockTermState, error) {
-	
+	reuse index.TermState) (index.TermState, error) {
+
 	numFields, err := in.ReadZInt()
 	if err != nil {
 		return nil, err
@@ -100,7 +99,7 @@ func (s *STBlockLineSerializer) ReadTermStateForField(
 				int64(header.BasePayloadsFP),
 				in,
 				fieldInfos.FieldInfo(readFieldId),
-				reuse), nil
+				reuse)
 		}
 		return nil, nil
 	}
@@ -130,7 +129,7 @@ func (s *STBlockLineSerializer) ReadTermStateForField(
 				int64(header.BasePayloadsFP),
 				in,
 				fieldInfos.FieldInfo(id),
-				reuse), nil
+				reuse)
 			if err != nil {
 				return nil, err
 			}
@@ -148,8 +147,8 @@ func (s *STBlockLineSerializer) ReadFieldTermStatesMap(
 	serializer *uniformsplit.DeltaBaseTermStateSerializer,
 	header *uniformsplit.BlockHeader,
 	fieldInfos *index.FieldInfos,
-	fieldTermStatesMap map[string]*codecs.BlockTermState) error {
-	
+	fieldTermStatesMap map[string]index.TermState) error {
+
 	numFields, err := in.ReadZInt()
 	if err != nil {
 		return err
@@ -169,7 +168,7 @@ func (s *STBlockLineSerializer) ReadFieldTermStatesMap(
 		fieldTermStatesMap[fieldInfos.FieldInfo(fieldId).Name()] = state
 		return nil
 	}
-	
+
 	readFieldIds := make([]int, numFields)
 	for i := 0; i < numFields; i++ {
 		id, err := in.ReadVInt()
@@ -178,7 +177,7 @@ func (s *STBlockLineSerializer) ReadFieldTermStatesMap(
 		}
 		readFieldIds[i] = int(id)
 	}
-	
+
 	for _, id := range readFieldIds {
 		state, err := serializer.ReadTermState(
 			int64(header.BaseDocsFP),

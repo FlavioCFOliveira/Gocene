@@ -120,11 +120,6 @@ type Lucene99PostingsWriter struct {
 
 	// Scratch buffer for GroupVInt encoding
 	groupVIntScratch []byte
-
-	// State cache: maps *BlockTermState (the handle returned by NewTermState)
-	// back to the owning *IntBlockTermState whose extended fields are populated
-	// in FinishTerm and read in EncodeTerm.
-	stateCache map[*BlockTermState]*IntBlockTermState
 }
 
 // NewLucene99PostingsWriter creates a Lucene99PostingsWriter, opening the .doc
@@ -136,7 +131,6 @@ func NewLucene99PostingsWriter(state *SegmentWriteState) (*Lucene99PostingsWrite
 		docDeltaBuffer:         make([]int64, lucene99BlockSize),
 		freqBuffer:             make([]int64, lucene99BlockSize),
 		competitiveFreqNormAcc: NewCompetitiveImpactAccumulator(),
-		stateCache:             make(map[*BlockTermState]*IntBlockTermState),
 		lastState:              emptyIntBlockTermState,
 		groupVIntScratch:       make([]byte, util.GroupVIntMaxLengthPerGroup),
 	}
@@ -237,15 +231,12 @@ func (w *Lucene99PostingsWriter) Init(termsOut store.IndexOutput, state *Segment
 	return nil
 }
 
-// NewTermState returns a fresh *BlockTermState backed by a new *IntBlockTermState.
-// The mapping is stored in w.stateCache so that FinishTerm can recover the full
-// extended state.
+// NewTermState returns a fresh IntBlockTermState.
 //
-// Satisfies PostingsWriterBase.
-func (w *Lucene99PostingsWriter) NewTermState() *BlockTermState {
-	its := NewIntBlockTermState()
-	w.stateCache[its.BlockTermState] = its
-	return its.BlockTermState
+// Mirrors Lucene99PostingsWriter.newTermState(), which returns
+// "new IntBlockTermState()". Satisfies PostingsWriterBase.
+func (w *Lucene99PostingsWriter) NewTermState() index.TermState {
+	return NewIntBlockTermState()
 }
 
 // SetField caches the field-level index options and resets per-field state.
@@ -457,11 +448,13 @@ func (w *Lucene99PostingsWriter) FinishDoc() error {
 // have been created by a prior call to NewTermState.
 //
 // Satisfies PostingsWriterBase.
-func (w *Lucene99PostingsWriter) FinishTerm(base *BlockTermState) error {
-	its, ok := w.stateCache[base]
+func (w *Lucene99PostingsWriter) FinishTerm(state index.TermState) error {
+	// Mirrors "IntBlockTermState state = (IntBlockTermState) _state".
+	its, ok := state.(*IntBlockTermState)
 	if !ok {
-		return fmt.Errorf("lucene99 postings writer: FinishTerm called with unrecognized BlockTermState")
+		return fmt.Errorf("lucene99 postings writer: finish term: term state is %T, want *IntBlockTermState", state)
 	}
+	base := its.BlockTermState
 	if base.DocFreq == 0 {
 		return fmt.Errorf("lucene99 postings writer: FinishTerm called with docFreq=0")
 	}
@@ -534,10 +527,11 @@ func (w *Lucene99PostingsWriter) FinishTerm(base *BlockTermState) error {
 // relative to the previous term (or the empty sentinel when absolute=true).
 //
 // Satisfies PostingsWriterBase.
-func (w *Lucene99PostingsWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, base *BlockTermState, absolute bool) error {
-	its, ok := w.stateCache[base]
+func (w *Lucene99PostingsWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, state index.TermState, absolute bool) error {
+	// Mirrors "IntBlockTermState state = (IntBlockTermState) _state".
+	its, ok := state.(*IntBlockTermState)
 	if !ok {
-		return fmt.Errorf("lucene99 postings writer: EncodeTerm called with unrecognized BlockTermState")
+		return fmt.Errorf("lucene99 postings writer: encode term: term state is %T, want *IntBlockTermState", state)
 	}
 
 	if absolute {

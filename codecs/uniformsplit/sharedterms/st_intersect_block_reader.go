@@ -22,7 +22,7 @@ func NewSTIntersectBlockReader(
 	fieldMetadata *uniformsplit.FieldMetadata,
 	decoder uniformsplit.BlockDecoder,
 	fieldInfos *index.FieldInfos) *STIntersectBlockReader {
-	
+
 	return &STIntersectBlockReader{
 		STBlockReader: NewSTBlockReader(
 			dictionaryBrowser,

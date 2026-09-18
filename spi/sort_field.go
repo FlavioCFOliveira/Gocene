@@ -87,10 +87,25 @@ type SortField struct {
 	// comparatorSource holds the custom FieldComparatorSource for a
 	// SortFieldTypeCustom sort.
 	comparatorSource any // Use any to avoid importing search.FieldComparatorSource
+
+	// docValuesSource holds the per-leaf DocValues override that a SortField
+	// subclass installs on the comparator its type already selects.
+	//
+	// Apache Lucene 10.5.0 lets a SortField subclass keep a real Type
+	// (STRING, INT, LONG, FLOAT, DOUBLE) and still change where the values
+	// come from, by overriding getComparator to return the standard
+	// comparator for that type with its protected getSortedDocValues /
+	// getNumericDocValues hook overridden — that is exactly what
+	// ToParentBlockJoinSortField does. Go has no subclassing and no method
+	// overriding, so the override travels on the SortField itself and the
+	// comparator factory installs it. It is typed any because spi must not
+	// import search, which owns SortedDocValuesSource and
+	// NumericDocValuesSource; see GetDocValuesSource.
+	docValuesSource any
 }
 
-func (sf *SortField) GetField() string { return sf.Field }
-func (sf *SortField) GetReverse() bool { return sf.Reverse }
+func (sf *SortField) GetField() string              { return sf.Field }
+func (sf *SortField) GetReverse() bool              { return sf.Reverse }
 func (sf *SortField) SetMissingValue(v interface{}) { sf.MissingValue = v }
 func (sf *SortField) SetOptimizeSortWithIndexedData(v bool) {
 	sf.optimizeSortWithIndexedData = v
@@ -265,6 +280,19 @@ func (sf *SortField) GetMissingValue() any { return sf.MissingValue }
 //
 // Ported from SortField.getComparatorSource().
 func (sf *SortField) GetComparatorSource() any { return sf.comparatorSource }
+
+// SetDocValuesSource installs the per-leaf DocValues override the comparator
+// for this sort type must read through: a search.SortedDocValuesSource for
+// SortFieldTypeString and a search.NumericDocValuesSource for the numeric
+// types. It carries the getSortedDocValues / getNumericDocValues override that
+// a SortField subclass performs in Apache Lucene 10.5.0; see docValuesSource.
+func (sf *SortField) SetDocValuesSource(src any) { sf.docValuesSource = src }
+
+// GetDocValuesSource returns the DocValues override installed by
+// SetDocValuesSource, or nil when the comparator reads the field's own values.
+// The value is returned as any because spi must not import search; callers in
+// search type-assert it back to SortedDocValuesSource / NumericDocValuesSource.
+func (sf *SortField) GetDocValuesSource() any { return sf.docValuesSource }
 
 // NeedsScores reports whether the relevance score is needed to sort documents.
 //

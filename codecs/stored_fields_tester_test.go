@@ -41,12 +41,12 @@ type SeedField struct {
 	numericValue interface{}
 }
 
-func (f *SeedField) Name() string                   { return f.name }
+func (f *SeedField) Name() string                { return f.name }
 func (f *SeedField) FieldType() *index.FieldType { return f.fieldType }
-func (f *SeedField) StringValue() string            { return f.stringValue }
-func (f *SeedField) BinaryValue() []byte            { return f.binaryValue }
-func (f *SeedField) NumericValue() interface{}      { return f.numericValue }
-func (f *SeedField) ReaderValue() io.Reader         { return nil }
+func (f *SeedField) StringValue() string         { return f.stringValue }
+func (f *SeedField) BinaryValue() []byte         { return f.binaryValue }
+func (f *SeedField) NumericValue() interface{}   { return f.numericValue }
+func (f *SeedField) ReaderValue() io.Reader      { return nil }
 
 // SeedStoredFieldVisitor is a mock StoredFieldVisitor implementation for testing.
 type SeedStoredFieldVisitor struct {

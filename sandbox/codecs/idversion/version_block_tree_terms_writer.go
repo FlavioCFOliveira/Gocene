@@ -391,7 +391,7 @@ type vbtPendingEntry interface {
 // Mirrors VersionBlockTreeTermsWriter.PendingTerm.
 type vbtPendingTerm struct {
 	termBytes []byte
-	state     *codecs.BlockTermState
+	state     index.TermState
 }
 
 func (*vbtPendingTerm) isTerm() bool { return true }
@@ -594,15 +594,19 @@ func (tw *vbtTermsWriter) writeTerm(term *util.BytesRef, termsEnum spi.TermsEnum
 		return fmt.Errorf("writeTerm: WriteTerm: %w", werr)
 	}
 
-	// Retrieve the per-term sidecar to check if the doc was alive.
-	extra := globalTermStateRegistry.lookup(state)
-	if extra == nil || extra.DocID == -1 {
+	// Mirrors "(IDVersionTermState) state": the postings writer records
+	// docID == -1 when the term's only document was deleted.
+	ts, ok := state.(*IDVersionTermState)
+	if !ok {
+		return fmt.Errorf("writeTerm: term state is %T, want *IDVersionTermState", state)
+	}
+	if ts.DocID == -1 {
 		// Term had no live documents (deleted); skip it.
 		return nil
 	}
 
-	state.DocFreq = 1
-	state.TotalTermFreq = 1
+	ts.DocFreq = 1
+	ts.TotalTermFreq = 1
 	if err := pw.FinishTerm(state); err != nil {
 		return fmt.Errorf("writeTerm: FinishTerm: %w", err)
 	}
@@ -776,9 +780,9 @@ func (tw *vbtTermsWriter) writeBlock(
 		// Leaf: only terms.
 		for i := start; i < end; i++ {
 			pt := tw.pending[i].(*vbtPendingTerm)
-			extra := globalTermStateRegistry.lookup(pt.state)
-			if extra != nil && extra.IDVersion > maxVersionInBlock {
-				maxVersionInBlock = extra.IDVersion
+			// Mirrors "((IDVersionTermState) term.state).idVersion".
+			if ts, ok := pt.state.(*IDVersionTermState); ok && ts.IDVersion > maxVersionInBlock {
+				maxVersionInBlock = ts.IDVersion
 			}
 			suffix := len(pt.termBytes) - prefixLength
 			if err := tw.suffixWriter.WriteVInt(int32(suffix)); err != nil {
@@ -798,9 +802,9 @@ func (tw *vbtTermsWriter) writeBlock(
 			ent := tw.pending[i]
 			if ent.isTerm() {
 				pt := ent.(*vbtPendingTerm)
-				extra := globalTermStateRegistry.lookup(pt.state)
-				if extra != nil && extra.IDVersion > maxVersionInBlock {
-					maxVersionInBlock = extra.IDVersion
+				// Mirrors "((IDVersionTermState) term.state).idVersion".
+				if ts, ok := pt.state.(*IDVersionTermState); ok && ts.IDVersion > maxVersionInBlock {
+					maxVersionInBlock = ts.IDVersion
 				}
 				suffix := len(pt.termBytes) - prefixLength
 				// Borrow LSB=0 to signal "term".

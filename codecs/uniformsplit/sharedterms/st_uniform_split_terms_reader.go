@@ -20,7 +20,7 @@ func NewSTUniformSplitTermsReader(
 	state *index.SegmentReadState,
 	blockDecoder uniformsplit.BlockDecoder,
 	dictionaryOnHeap bool) *STUniformSplitTermsReader {
-	
+
 	return &STUniformSplitTermsReader{
 		UniformSplitTermsReader: uniformsplit.NewUniformSplitTermsReader(postingsReader, state, blockDecoder, dictionaryOnHeap),
 	}
@@ -36,7 +36,7 @@ func (r *STUniformSplitTermsReader) FillFieldMap(
 	blockInput store.DataInput,
 	fieldMetadataCollection []*uniformsplit.FieldMetadata,
 	fieldInfos *index.FieldInfos) error {
-	
+
 	// Logic to create UnionFieldMetadata and shared dictionary
 	return nil // Placeholder
 }

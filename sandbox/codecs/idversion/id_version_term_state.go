@@ -6,7 +6,10 @@
 package idversion
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // IDVersionTermState holds the codec-specific postings state for a single term
@@ -41,25 +44,32 @@ func NewIDVersionTermState() *IDVersionTermState {
 }
 
 // Clone returns a deep copy of the receiver.
-func (s *IDVersionTermState) Clone() *IDVersionTermState {
-	c := *s
-	// CopyFrom the embedded BlockTermState to reset any pointer fields.
-	c.BlockTermState = *s.BlockTermState.Clone()
-	return &c
-}
-
-// CopyFrom copies all fields from src.
-func (s *IDVersionTermState) CopyFrom(src *IDVersionTermState) {
-	s.BlockTermState.CopyFrom(&src.BlockTermState)
-	s.IDVersion = src.IDVersion
-	s.DocID = src.DocID
-}
-
-// AsBlockTermState returns a pointer to the embedded BlockTermState.
-// This is used when the codec writer/reader needs a *codecs.BlockTermState.
 //
-// NOTE: the caller must ensure the returned pointer is not used after the
-// IDVersionTermState is garbage collected.
-func (s *IDVersionTermState) AsBlockTermState() *codecs.BlockTermState {
-	return &s.BlockTermState
+// Mirrors IDVersionTermState.clone(), which allocates a fresh instance and
+// delegates to copyFrom. CopyFrom only rejects a source of another type, and
+// the source here is the receiver, so the error branch is unreachable.
+func (s *IDVersionTermState) Clone() *IDVersionTermState {
+	other := NewIDVersionTermState()
+	if err := other.CopyFrom(s); err != nil {
+		panic(err)
+	}
+	return other
+}
+
+// CopyFrom resets this state from other.
+//
+// Mirrors IDVersionTermState.copyFrom(TermState): the BlockTermState part
+// first, then the two IDVersion-specific fields. The Java cast to
+// IDVersionTermState is rendered as a type assertion.
+func (s *IDVersionTermState) CopyFrom(other index.TermState) error {
+	o, ok := other.(*IDVersionTermState)
+	if !ok {
+		return fmt.Errorf("IDVersionTermState.CopyFrom: incompatible source type %T", other)
+	}
+	if err := s.BlockTermState.CopyFrom(&o.BlockTermState); err != nil {
+		return err
+	}
+	s.IDVersion = o.IDVersion
+	s.DocID = o.DocID
+	return nil
 }

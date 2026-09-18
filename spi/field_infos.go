@@ -35,6 +35,17 @@ type FieldInfos struct {
 	// values is a slice of all FieldInfo objects, sorted by field number.
 	values []*FieldInfo
 
+	// fieldInfoOverride, when non-nil, replaces the body of FieldInfo(string).
+	//
+	// Apache Lucene 10.5.0 lets a caller subclass FieldInfos and override
+	// fieldInfo(String) — WeightedSpanTermExtractor.DelegatingLeafReader
+	// returns an anonymous subclass that resolves every field name to one
+	// shadowed field that way. Go has no subclassing, so the override travels
+	// as a function on the FieldInfos itself; it receives the un-overridden
+	// lookup as its first argument, which is how a Java override reaches
+	// super.fieldInfo(String). See SetFieldInfoOverride.
+	fieldInfoOverride func(super func(string) *FieldInfo, fieldName string) *FieldInfo
+
 	// frozen marks the end of the mutation phase. Lucene's FieldInfos is
 	// immutable: it is either built once from a FieldInfo[] or produced by
 	// FieldInfos.Builder.finish(). Gocene's FieldInfos doubles as that builder
@@ -191,7 +202,20 @@ func (fi *FieldInfos) Fields() []*FieldInfo {
 // Java overloads the name for the field-number lookup as well; Go has no
 // overloading, so that second form remains FieldInfoByNumber / GetByNumber.
 func (fi *FieldInfos) FieldInfo(name string) *FieldInfo {
+	if fi.fieldInfoOverride != nil {
+		return fi.fieldInfoOverride(fi.FieldInfoByName, name)
+	}
 	return fi.FieldInfoByName(name)
+}
+
+// SetFieldInfoOverride installs f as the body of FieldInfo(string), rendering a
+// Java subclass that overrides fieldInfo(String). f receives the un-overridden
+// lookup as its first argument — Java's super.fieldInfo(String) — and the
+// requested field name as its second. Passing nil restores the base body.
+//
+// See fieldInfoOverride.
+func (fi *FieldInfos) SetFieldInfoOverride(f func(super func(string) *FieldInfo, fieldName string) *FieldInfo) {
+	fi.fieldInfoOverride = f
 }
 
 // GetByName returns the FieldInfo with the given name, or nil when this

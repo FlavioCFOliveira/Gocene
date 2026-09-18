@@ -142,11 +142,6 @@ type Lucene104PostingsWriter struct {
 	// Maximum required size: BLOCK_SIZE * 32 bits = 8192 bits = 128 uint64 words.
 	spareBitSet *util.FixedBitSet
 
-	// stateCache maps *BlockTermState handles (allocated by NewTermState) back
-	// to the *IntBlockTermState that owns them. This is necessary because the
-	// PostingsWriterBase interface deals only in *BlockTermState.
-	stateCache map[*BlockTermState]*IntBlockTermState
-
 	// lastState is the *IntBlockTermState from the previous EncodeTerm call
 	// for delta-encoding.
 	lastState *IntBlockTermState
@@ -170,7 +165,6 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 		scratchOutput:     store.NewByteBuffersDataOutput(),
 		level0Output:      store.NewByteBuffersDataOutput(),
 		level1Output:      store.NewByteBuffersDataOutput(),
-		stateCache:        make(map[*BlockTermState]*IntBlockTermState),
 		lastState:         emptyIntBlockTermState,
 	}
 
@@ -257,16 +251,12 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 	return w, nil
 }
 
-// NewTermState returns a fresh *BlockTermState backed by a new *IntBlockTermState.
-// The returned pointer is the embedded *BlockTermState of the IntBlockTermState;
-// the mapping is stored in w.stateCache so that FinishTerm can recover the full
-// extended state.
+// NewTermState returns a fresh IntBlockTermState.
 //
-// Satisfies PostingsWriterBase.
-func (w *Lucene104PostingsWriter) NewTermState() *BlockTermState {
-	its := NewIntBlockTermState()
-	w.stateCache[its.BlockTermState] = its
-	return its.BlockTermState
+// Mirrors Lucene104PostingsWriter.newTermState(), which returns
+// "new IntBlockTermState()". Satisfies PostingsWriterBase.
+func (w *Lucene104PostingsWriter) NewTermState() index.TermState {
+	return NewIntBlockTermState()
 }
 
 // Init writes the codec header to the terms-index output and the BLOCK_SIZE
@@ -452,12 +442,13 @@ func (w *Lucene104PostingsWriter) FinishDoc() error {
 // created by a prior call to NewTermState.
 //
 // Satisfies PostingsWriterBase.
-func (w *Lucene104PostingsWriter) FinishTerm(base *BlockTermState) error {
-	its, ok := w.stateCache[base]
+func (w *Lucene104PostingsWriter) FinishTerm(state index.TermState) error {
+	// Mirrors "IntBlockTermState state = (IntBlockTermState) _state".
+	its, ok := state.(*IntBlockTermState)
 	if !ok {
-		// Fallback: treat it as a plain BlockTermState (legacy callers).
-		its = &IntBlockTermState{BlockTermState: base, LastPosBlockOffset: -1, SingletonDocID: -1}
+		return fmt.Errorf("lucene104 postings writer: finish term: term state is %T, want *IntBlockTermState", state)
 	}
+	base := its.BlockTermState
 
 	if base.DocFreq == 0 {
 		return fmt.Errorf("lucene104 postings writer: FinishTerm called with docFreq=0")
@@ -576,10 +567,11 @@ func (w *Lucene104PostingsWriter) writeTrailingPositions() error {
 // relative to the previous term (or the empty sentinel when absolute=true).
 //
 // Satisfies PostingsWriterBase.
-func (w *Lucene104PostingsWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, base *BlockTermState, absolute bool) error {
-	its, ok := w.stateCache[base]
+func (w *Lucene104PostingsWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, state index.TermState, absolute bool) error {
+	// Mirrors "IntBlockTermState state = (IntBlockTermState) _state".
+	its, ok := state.(*IntBlockTermState)
 	if !ok {
-		its = &IntBlockTermState{BlockTermState: base, LastPosBlockOffset: -1, SingletonDocID: -1}
+		return fmt.Errorf("lucene104 postings writer: encode term: term state is %T, want *IntBlockTermState", state)
 	}
 
 	if absolute {

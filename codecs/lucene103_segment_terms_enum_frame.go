@@ -106,7 +106,13 @@ type segmentTermsEnumFrame struct {
 	// metadata have been decoded. Metadata decode is lazy.
 	metaDataUpto int
 
-	state *BlockTermState
+	// termStateRef is the term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which DecodeTerm/Postings/Impacts narrow back with a type
+	// assertion. state is the BlockTermState view of that same object — the
+	// implicit widening Java performs on the single "state" field.
+	termStateRef index.TermState
+	state        *BlockTermState
 
 	// bytes / bytesReader hold the postings-side metadata blob decoded by
 	// decodeMetaData via PostingsReaderBase.DecodeTerm.
@@ -148,10 +154,11 @@ func newSegmentTermsEnumFrame(ste *Lucene103SegmentTermsEnum, ord int) (*segment
 		compressionAlg:      CompressionNoCompression,
 	}
 	if ste.fr != nil && ste.fr.parent != nil && ste.fr.parent.postingsReader != nil {
-		f.state = ste.fr.parent.postingsReader.NewTermState()
+		f.termStateRef = ste.fr.parent.postingsReader.NewTermState()
 	} else {
-		f.state = NewBlockTermState()
+		f.termStateRef = NewBlockTermState()
 	}
+	f.state = BaseState(f.termStateRef)
 	f.state.TotalTermFreq = -1
 	return f, nil
 }
@@ -518,7 +525,7 @@ func (f *segmentTermsEnumFrame) decodeMetaData() error {
 
 		// Postings metadata.
 		if err := f.ste.fr.parent.postingsReader.DecodeTerm(
-			f.bytesReader, f.ste.fr.fieldInfo, f.state, absolute,
+			f.bytesReader, f.ste.fr.fieldInfo, f.termStateRef, absolute,
 		); err != nil {
 			return fmt.Errorf("decodeMetaData: DecodeTerm: %w", err)
 		}

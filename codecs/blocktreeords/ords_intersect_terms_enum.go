@@ -126,7 +126,7 @@ func (e *OrdsIntersectTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
 	if err := e.currentFrame.decodeMetaData(); err != nil {
 		return nil, fmt.Errorf("OrdsIntersectTermsEnum.Impacts: decodeMetaData: %w", err)
 	}
-	return e.reader.parent.postingsReader.Impacts(e.reader.fieldInfo, e.currentFrame.termState, flags)
+	return e.reader.parent.postingsReader.Impacts(e.reader.fieldInfo, e.currentFrame.termStateRef, flags)
 }
 
 // PostingsWithLiveDocs returns a PostingsEnum for the current term filtered by live docs.

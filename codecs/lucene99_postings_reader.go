@@ -35,7 +35,6 @@ package codecs
 import (
 	"fmt"
 	"math"
-	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -81,26 +80,6 @@ type Lucene99PostingsReader struct {
 	payIn store.IndexInput // nil when segment has no payloads or offsets
 
 	version int32
-
-	// stateCache maps *BlockTermState handles (allocated by NewTermState) back
-	// to the *IntBlockTermState that owns them.  Same bridge pattern as the
-	// Lucene104PostingsReader.
-	stateCacheMu sync.Mutex
-	stateCache   map[*BlockTermState]*IntBlockTermState
-}
-
-// lookupOrCreateState returns the IntBlockTermState bridged to termState,
-// creating and registering one on demand. It is safe for concurrent use.
-func (r *Lucene99PostingsReader) lookupOrCreateState(termState *BlockTermState) *IntBlockTermState {
-	r.stateCacheMu.Lock()
-	defer r.stateCacheMu.Unlock()
-	its := r.stateCache[termState]
-	if its == nil {
-		its = NewIntBlockTermState()
-		its.BlockTermState = termState
-		r.stateCache[termState] = its
-	}
-	return its
 }
 
 // NewLucene99PostingsReader opens and validates the .doc file, and
@@ -173,11 +152,10 @@ func NewLucene99PostingsReader(state *SegmentReadState) (*Lucene99PostingsReader
 	}
 
 	r := &Lucene99PostingsReader{
-		docIn:      docIn,
-		posIn:      posIn,
-		payIn:      payIn,
-		version:    version,
-		stateCache: make(map[*BlockTermState]*IntBlockTermState),
+		docIn:   docIn,
+		posIn:   posIn,
+		payIn:   payIn,
+		version: version,
 	}
 	success = true
 	return r, nil
@@ -210,14 +188,10 @@ func (r *Lucene99PostingsReader) Init(termsIn store.IndexInput, state *SegmentRe
 	return nil
 }
 
-// NewTermState allocates a fresh IntBlockTermState and registers it in the
-// stateCache so that DecodeTerm/Postings can retrieve the extended state later.
-func (r *Lucene99PostingsReader) NewTermState() *BlockTermState {
-	its := NewIntBlockTermState()
-	r.stateCacheMu.Lock()
-	r.stateCache[its.BlockTermState] = its
-	r.stateCacheMu.Unlock()
-	return its.BlockTermState
+// NewTermState allocates a fresh IntBlockTermState.
+// Mirrors Lucene99PostingsReader.newTermState().
+func (r *Lucene99PostingsReader) NewTermState() index.TermState {
+	return NewIntBlockTermState()
 }
 
 // DecodeTerm reads codec-specific metadata from in into termState.
@@ -227,10 +201,14 @@ func (r *Lucene99PostingsReader) NewTermState() *BlockTermState {
 func (r *Lucene99PostingsReader) DecodeTerm(
 	in store.DataInput,
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	absolute bool,
 ) error {
-	its := r.lookupOrCreateState(termState)
+	// Mirrors "final IntBlockTermState termState = (IntBlockTermState) _termState".
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return fmt.Errorf("lucene99 decode term: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	hasPos := fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositions
 	hasOffsets := fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
@@ -249,7 +227,7 @@ func (r *Lucene99PostingsReader) DecodeTerm(
 
 	if l&0x01 == 0 {
 		its.DocStartFP += l >> 1
-		if termState.DocFreq == 1 {
+		if its.DocFreq == 1 {
 			v, err2 := store.ReadVInt(in)
 			if err2 != nil {
 				return fmt.Errorf("lucene99 decode term: read singleton docID: %w", err2)
@@ -277,7 +255,7 @@ func (r *Lucene99PostingsReader) DecodeTerm(
 			its.PayStartFP += delta2
 		}
 
-		if termState.TotalTermFreq > int64(lucene99BlockSize) {
+		if its.TotalTermFreq > int64(lucene99BlockSize) {
 			offset, err4 := in.ReadVLong()
 			if err4 != nil {
 				return fmt.Errorf("lucene99 decode term: read lastPosBlockOffset: %w", err4)
@@ -288,7 +266,7 @@ func (r *Lucene99PostingsReader) DecodeTerm(
 		}
 	}
 
-	if termState.DocFreq > lucene99BlockSize {
+	if its.DocFreq > lucene99BlockSize {
 		skipOffset, err2 := in.ReadVLong()
 		if err2 != nil {
 			return fmt.Errorf("lucene99 decode term: read skipOffset: %w", err2)
@@ -307,11 +285,14 @@ func (r *Lucene99PostingsReader) DecodeTerm(
 // PostingsEnum, int).
 func (r *Lucene99PostingsReader) Postings(
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	reuse index.PostingsEnum,
 	flags int,
 ) (index.PostingsEnum, error) {
-	its := r.lookupOrCreateState(termState)
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return nil, fmt.Errorf("lucene99 postings: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	hasPos := fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositions
 	needsPos := hasPos && (flags&index.PostingsFlagPositions) != 0
@@ -340,10 +321,13 @@ func (r *Lucene99PostingsReader) Postings(
 // Mirrors Lucene99PostingsReader.impacts(FieldInfo, BlockTermState, int).
 func (r *Lucene99PostingsReader) Impacts(
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	flags int,
 ) (index.ImpactsEnum, error) {
-	its := r.lookupOrCreateState(termState)
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return nil, fmt.Errorf("lucene99 impacts: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	if its.DocFreq <= lucene99BlockSize {
 		// No skip data, wrap in SlowImpactsEnum.

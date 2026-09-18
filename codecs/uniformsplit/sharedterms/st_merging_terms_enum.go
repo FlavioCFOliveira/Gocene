@@ -7,15 +7,15 @@ import (
 
 // STMergingTermsEnum combines PostingsEnum for the same term from multiple segments.
 type STMergingTermsEnum struct {
-	fieldName string
-	term      *util.BytesRef
+	fieldName         string
+	term              *util.BytesRef
 	multiPostingsEnum *multiSegmentsPostingsEnum
 }
 
 // NewSTMergingTermsEnum builds an STMergingTermsEnum.
 func NewSTMergingTermsEnum(fieldName string, numSegments int) *STMergingTermsEnum {
 	return &STMergingTermsEnum{
-		fieldName: fieldName,
+		fieldName:         fieldName,
 		multiPostingsEnum: newMultiSegmentsPostingsEnum(numSegments),
 	}
 }

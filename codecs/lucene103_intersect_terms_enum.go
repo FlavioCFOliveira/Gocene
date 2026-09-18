@@ -657,7 +657,7 @@ func (e *Lucene103IntersectTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, f
 	if e.fr.parent == nil || e.fr.parent.postingsReader == nil {
 		return &index.EmptyPostingsEnum{}, nil
 	}
-	return e.fr.parent.postingsReader.Postings(e.fr.fieldInfo, e.currentFrame.TermState, nil, flags)
+	return e.fr.parent.postingsReader.Postings(e.fr.fieldInfo, e.currentFrame.TermStateRef, nil, flags)
 }
 
 // TermState decodes term metadata and returns a cloned [BlockTermState].
@@ -684,7 +684,7 @@ func (e *Lucene103IntersectTermsEnum) Impacts(flags int) (index.ImpactsEnum, err
 	if err := e.currentFrame.DecodeMetaData(); err != nil {
 		return nil, fmt.Errorf("IntersectTermsEnum.Impacts: DecodeMetaData: %w", err)
 	}
-	return e.fr.parent.postingsReader.Impacts(e.fr.fieldInfo, e.currentFrame.TermState, flags)
+	return e.fr.parent.postingsReader.Impacts(e.fr.fieldInfo, e.currentFrame.TermStateRef, flags)
 }
 
 // SeekCeil is not part of IntersectTermsEnum's contract — the Java

@@ -303,20 +303,20 @@ type noopPostingsReader struct{}
 func (n *noopPostingsReader) Init(_ store.IndexInput, _ *codecs.SegmentReadState) error {
 	return nil
 }
-func (n *noopPostingsReader) NewTermState() *codecs.BlockTermState {
+func (n *noopPostingsReader) NewTermState() index.TermState {
 	return codecs.NewBlockTermState()
 }
 func (n *noopPostingsReader) DecodeTerm(
 	_ store.DataInput,
 	_ *index.FieldInfo,
-	_ *codecs.BlockTermState,
+	_ index.TermState,
 	_ bool,
 ) error {
 	return nil
 }
 func (n *noopPostingsReader) Postings(
 	_ *index.FieldInfo,
-	_ *codecs.BlockTermState,
+	_ index.TermState,
 	_ index.PostingsEnum,
 	_ int,
 ) (index.PostingsEnum, error) {
@@ -324,7 +324,7 @@ func (n *noopPostingsReader) Postings(
 }
 func (n *noopPostingsReader) Impacts(
 	_ *index.FieldInfo,
-	_ *codecs.BlockTermState,
+	_ index.TermState,
 	_ int,
 ) (index.ImpactsEnum, error) {
 	return nil, errors.New("noop")

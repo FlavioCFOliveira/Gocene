@@ -710,7 +710,7 @@ func (e *Lucene103SegmentTermsEnum) Postings(flags int) (index.PostingsEnum, err
 	if err := e.currentFrame.decodeMetaData(); err != nil {
 		return nil, fmt.Errorf("Lucene103SegmentTermsEnum.Postings: decodeMetaData: %w", err)
 	}
-	pe, err := e.fr.parent.postingsReader.Postings(e.fr.fieldInfo, e.currentFrame.state, nil, flags)
+	pe, err := e.fr.parent.postingsReader.Postings(e.fr.fieldInfo, e.currentFrame.termStateRef, nil, flags)
 	if err != nil {
 		return nil, fmt.Errorf("Lucene103SegmentTermsEnum.Postings: postingsReader.Postings: %w", err)
 	}
@@ -756,7 +756,7 @@ func (e *Lucene103SegmentTermsEnum) Impacts(flags int) (index.ImpactsEnum, error
 	if err := e.currentFrame.decodeMetaData(); err != nil {
 		return nil, fmt.Errorf("Lucene103SegmentTermsEnum.Impacts: decodeMetaData: %w", err)
 	}
-	return e.fr.parent.postingsReader.Impacts(e.fr.fieldInfo, e.currentFrame.state, flags)
+	return e.fr.parent.postingsReader.Impacts(e.fr.fieldInfo, e.currentFrame.termStateRef, flags)
 }
 
 // Ord is not supported by the block-tree codec. Port of SegmentTermsEnum.ord(),

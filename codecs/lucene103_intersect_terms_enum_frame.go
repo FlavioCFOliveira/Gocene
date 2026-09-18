@@ -157,6 +157,12 @@ type IntersectTermsEnumFrame struct {
 	// (backlog #2692) will populate it via PostingsReaderBase.
 	TermState *BlockTermState
 
+	// TermStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, narrowed back by a type assertion inside the codec. TermState
+	// is the BlockTermState view of that very object.
+	TermStateRef index.TermState
+
 	// Bytes / BytesReader hold the per-term postings metadata blob that
 	// PostingsReaderBase.DecodeTerm consumes during DecodeMetaData.
 	Bytes       []byte
@@ -208,10 +214,11 @@ func NewIntersectTermsEnumFrame(ite *Lucene103IntersectTermsEnum, ord int) (*Int
 	// 56 ships a stub Intersect path; see backlog #2692), fall back to a
 	// vanilla BlockTermState so the frame is still safe to construct.
 	if ite.fr != nil && ite.fr.parent != nil && ite.fr.parent.postingsReader != nil {
-		f.TermState = ite.fr.parent.postingsReader.NewTermState()
+		f.TermStateRef = ite.fr.parent.postingsReader.NewTermState()
 	} else {
-		f.TermState = NewBlockTermState()
+		f.TermStateRef = NewBlockTermState()
 	}
+	f.TermState = BaseState(f.TermStateRef)
 	f.TermState.TotalTermFreq = -1
 	return f, nil
 }

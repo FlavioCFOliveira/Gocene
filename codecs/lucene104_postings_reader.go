@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"math"
 	"math/bits"
-	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -79,33 +78,6 @@ type Lucene104PostingsReader struct {
 	maxImpactNumBytesAtLevel0 int
 	maxNumImpactsAtLevel1     int
 	maxImpactNumBytesAtLevel1 int
-
-	// stateCache maps *BlockTermState handles (allocated by NewTermState) back
-	// to the *IntBlockTermState that owns them.  Same bridge pattern as writer.
-	//
-	// A single Lucene104PostingsReader is shared by every concurrent search over
-	// the segment, and DecodeTerm/Postings/Impacts/NewTermState all read and
-	// mutate stateCache. stateCacheMu serialises those accesses so concurrent
-	// searches (e.g. TestSearchWithThreads / TestSameScoresWithThreads) cannot
-	// race on the map. Mirrors the thread-safety guarantee of Lucene's
-	// PostingsReaderBase, where the per-term IntBlockTermState lives on the
-	// caller's TermsEnum rather than in a shared map.
-	stateCacheMu sync.Mutex
-	stateCache   map[*BlockTermState]*IntBlockTermState
-}
-
-// lookupOrCreateState returns the IntBlockTermState bridged to termState,
-// creating and registering one on demand. It is safe for concurrent use.
-func (r *Lucene104PostingsReader) lookupOrCreateState(termState *BlockTermState) *IntBlockTermState {
-	r.stateCacheMu.Lock()
-	defer r.stateCacheMu.Unlock()
-	its := r.stateCache[termState]
-	if its == nil {
-		its = NewIntBlockTermState()
-		its.BlockTermState = termState
-		r.stateCache[termState] = its
-	}
-	return its
 }
 
 // NewLucene104PostingsReader opens and validates the .psm meta file, then
@@ -136,9 +108,7 @@ func NewLucene104PostingsReader(state *SegmentReadState) (*Lucene104PostingsRead
 		return nil, fmt.Errorf("lucene104 postings reader: check meta header: %w", err)
 	}
 
-	r := &Lucene104PostingsReader{
-		stateCache: make(map[*BlockTermState]*IntBlockTermState),
-	}
+	r := &Lucene104PostingsReader{}
 
 	var v int32
 	var readErr error
@@ -300,14 +270,12 @@ func (r *Lucene104PostingsReader) Init(termsIn store.IndexInput, state *SegmentR
 	return nil
 }
 
-// NewTermState allocates a fresh IntBlockTermState and registers it in the
-// stateCache so that DecodeTerm/Postings can retrieve the extended state later.
-func (r *Lucene104PostingsReader) NewTermState() *BlockTermState {
-	its := NewIntBlockTermState()
-	r.stateCacheMu.Lock()
-	r.stateCache[its.BlockTermState] = its
-	r.stateCacheMu.Unlock()
-	return its.BlockTermState
+// NewTermState allocates a fresh IntBlockTermState.
+//
+// Mirrors Lucene104PostingsReader.newTermState(), which returns
+// "new IntBlockTermState()" through a BlockTermState-typed reference.
+func (r *Lucene104PostingsReader) NewTermState() index.TermState {
+	return NewIntBlockTermState()
 }
 
 // DecodeTerm reads codec-specific metadata from in into termState.
@@ -317,10 +285,14 @@ func (r *Lucene104PostingsReader) NewTermState() *BlockTermState {
 func (r *Lucene104PostingsReader) DecodeTerm(
 	in store.DataInput,
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	absolute bool,
 ) error {
-	its := r.lookupOrCreateState(termState)
+	// Mirrors "final IntBlockTermState termState = (IntBlockTermState) _termState".
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return fmt.Errorf("lucene104 decode term: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	if absolute {
 		its.DocStartFP = 0
@@ -335,7 +307,7 @@ func (r *Lucene104PostingsReader) DecodeTerm(
 
 	if l&0x01 == 0 {
 		its.DocStartFP += l >> 1
-		if termState.DocFreq == 1 {
+		if its.DocFreq == 1 {
 			v, err2 := store.ReadVInt(in)
 			if err2 != nil {
 				return fmt.Errorf("lucene104 decode term: read singleton docID: %w", err2)
@@ -366,7 +338,7 @@ func (r *Lucene104PostingsReader) DecodeTerm(
 			its.PayStartFP += delta2
 		}
 
-		if termState.TotalTermFreq > int64(lucene104BlockSize) {
+		if its.TotalTermFreq > int64(lucene104BlockSize) {
 			offset, err4 := in.ReadVLong()
 			if err4 != nil {
 				return fmt.Errorf("lucene104 decode term: read lastPosBlockOffset: %w", err4)
@@ -386,11 +358,14 @@ func (r *Lucene104PostingsReader) DecodeTerm(
 // PostingsEnum, int).
 func (r *Lucene104PostingsReader) Postings(
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	reuse index.PostingsEnum,
 	flags int,
 ) (index.PostingsEnum, error) {
-	its := r.lookupOrCreateState(termState)
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return nil, fmt.Errorf("lucene104 postings: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	var bpe *blockPostingsEnum
 	if prev, ok := reuse.(*blockPostingsEnum); ok && prev.canReuse(r.docIn, fieldInfo, flags) {
@@ -411,10 +386,13 @@ func (r *Lucene104PostingsReader) Postings(
 // Mirrors Lucene104PostingsReader.impacts(FieldInfo, BlockTermState, int).
 func (r *Lucene104PostingsReader) Impacts(
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	flags int,
 ) (index.ImpactsEnum, error) {
-	its := r.lookupOrCreateState(termState)
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return nil, fmt.Errorf("lucene104 impacts: term state is %T, want *IntBlockTermState", termState)
+	}
 	bpe, err := newBlockPostingsEnum(r, fieldInfo, flags)
 	if err != nil {
 		return nil, err

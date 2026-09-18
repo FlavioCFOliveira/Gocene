@@ -80,6 +80,12 @@ type intersectTermsEnumFrame struct {
 
 	arc *fst.Arc[*util.BytesRef]
 
+	// termStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which the codec narrows back with a type assertion. The
+	// BlockTermState field beside it is the widened view of that same object.
+	termStateRef index.TermState
+
 	// termState holds lazily-decoded per-term metadata.
 	termState *codecs.BlockTermState
 
@@ -131,7 +137,8 @@ func newIntersectTermsEnumFrame(ite *IntersectTermsEnum, ord int) *intersectTerm
 	// Lucene does not, and whose parent reader is nil; termState stays nil
 	// there and decodeMetaData reports it rather than decoding.
 	if ite != nil && ite.fr != nil && ite.fr.parent != nil && ite.fr.parent.postingsReader != nil {
-		f.termState = ite.fr.parent.postingsReader.NewTermState()
+		f.termStateRef = ite.fr.parent.postingsReader.NewTermState()
+		f.termState = codecs.BaseState(f.termStateRef)
 		f.termState.TotalTermFreq = -1
 	}
 	return f
@@ -223,7 +230,7 @@ func (f *intersectTermsEnumFrame) decodeMetaData() error {
 		if err := f.ite.fr.parent.postingsReader.DecodeTerm(
 			f.bytesReader,
 			f.ite.fr.fieldInfo,
-			f.termState,
+			f.termStateRef,
 			absolute,
 		); err != nil {
 			return fmt.Errorf("lucene90 blocktree: intersect decodeMetaData: decode term: %w", err)

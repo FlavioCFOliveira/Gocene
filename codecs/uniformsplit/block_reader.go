@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -36,7 +37,7 @@ type BlockReader struct {
 	blockStartFP int64
 	blockHeader  *BlockHeader
 	blockLine    *BlockLine
-	termState    *codecs.BlockTermState
+	termState    index.TermState
 
 	blockFirstLineStart int
 	lineIndexInBlock    int
@@ -44,7 +45,7 @@ type BlockReader struct {
 	forcedTerm          *util.BytesRef
 
 	scratchBlockBytes *util.BytesRef
-	scratchTermState  *codecs.BlockTermState
+	scratchTermState  index.TermState
 	scratchBlockLine  *BlockLine
 }
 
@@ -63,7 +64,7 @@ func NewBlockReader(
 		fieldMetadata:             fieldMetadata,
 		blockDecoder:              blockDecoder,
 		blockStartFP:              -1,
-		scratchTermState:          postingsReader.NewTermState().(*codecs.BlockTermState),
+		scratchTermState:          postingsReader.NewTermState(),
 	}, nil
 }
 
@@ -291,7 +292,7 @@ func (r *BlockReader) decodeBlockBytesIfNeeded(numBlockBytes int32) (*util.Bytes
 	return r.blockDecoder.Decode(r.blockReadBuffer, int64(numBlockBytes))
 }
 
-func (r *BlockReader) readTermStateIfNotRead() (*codecs.BlockTermState, error) {
+func (r *BlockReader) readTermStateIfNotRead() (index.TermState, error) {
 	if r.termState == nil {
 		ts, err := r.readTermState()
 		if err != nil {
@@ -299,14 +300,15 @@ func (r *BlockReader) readTermStateIfNotRead() (*codecs.BlockTermState, error) {
 		}
 		r.termState = ts
 		if r.termState != nil {
-			r.termState.TermBlockOrd = r.lineIndexInBlock
-			r.termState.BlockFilePointer = r.blockStartFP
+			base := codecs.BaseState(r.termState)
+			base.TermBlockOrd = r.lineIndexInBlock
+			base.BlockFilePointer = r.blockStartFP
 		}
 	}
 	return r.termState, nil
 }
 
-func (r *BlockReader) readTermState() (*codecs.BlockTermState, error) {
+func (r *BlockReader) readTermState() (index.TermState, error) {
 	r.termStatesReadBuffer.SetPosition(
 		r.blockFirstLineStart +
 			int(r.blockHeader.termStatesBaseOffset) +
@@ -394,7 +396,7 @@ func (r *BlockReader) DocFreq() (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	return int(ts.DocFreq), nil
+	return codecs.BaseState(ts).DocFreq, nil
 }
 
 func (r *BlockReader) TotalTermFreq() (int64, error) {
@@ -402,7 +404,7 @@ func (r *BlockReader) TotalTermFreq() (int64, error) {
 	if err != nil {
 		return 0, err
 	}
-	return ts.TotalTermFreq, nil
+	return codecs.BaseState(ts).TotalTermFreq, nil
 }
 
 func (r *BlockReader) Postings(flags int) (spi.PostingsEnum, error) {

@@ -29,12 +29,12 @@ func newStoredFieldsVisitor() *storedFieldsVisitor {
 	return &storedFieldsVisitor{fields: make(map[string]interface{})}
 }
 
-func (v *storedFieldsVisitor) StringField(name string, value string)   { v.fields[name] = value }
-func (v *storedFieldsVisitor) BinaryField(name string, value []byte)   { v.fields[name] = value }
-func (v *storedFieldsVisitor) IntField(name string, value int)         { v.fields[name] = value }
-func (v *storedFieldsVisitor) LongField(name string, value int64)      { v.fields[name] = value }
-func (v *storedFieldsVisitor) FloatField(name string, value float32)   { v.fields[name] = value }
-func (v *storedFieldsVisitor) DoubleField(name string, value float64)  { v.fields[name] = value }
+func (v *storedFieldsVisitor) StringField(name string, value string)  { v.fields[name] = value }
+func (v *storedFieldsVisitor) BinaryField(name string, value []byte)  { v.fields[name] = value }
+func (v *storedFieldsVisitor) IntField(name string, value int)        { v.fields[name] = value }
+func (v *storedFieldsVisitor) LongField(name string, value int64)     { v.fields[name] = value }
+func (v *storedFieldsVisitor) FloatField(name string, value float32)  { v.fields[name] = value }
+func (v *storedFieldsVisitor) DoubleField(name string, value float64) { v.fields[name] = value }
 
 // TestLucene104StoredFieldsFormat_Basic runs the base round-trip tester.
 func TestLucene104StoredFieldsFormat_Basic(t *testing.T) {
@@ -370,7 +370,7 @@ type testStoredField struct {
 	numVal interface{}
 }
 
-func (f *testStoredField) Name() string            { return f.name }
-func (f *testStoredField) StringValue() string     { return f.strVal }
-func (f *testStoredField) BinaryValue() []byte     { return f.binVal }
+func (f *testStoredField) Name() string              { return f.name }
+func (f *testStoredField) StringValue() string       { return f.strVal }
+func (f *testStoredField) BinaryValue() []byte       { return f.binVal }
 func (f *testStoredField) NumericValue() interface{} { return f.numVal }

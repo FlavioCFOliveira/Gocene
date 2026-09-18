@@ -516,6 +516,11 @@ type fstBaseTermsEnum struct {
 	// tr renders the implicit TermsReader.this of the Java inner class.
 	tr *fstTermsReader
 
+	// termStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which the codec narrows back with a type assertion. state is
+	// the widened BlockTermState view of that very object.
+	termStateRef index.TermState
 	// state renders `final BlockTermState state` (FSTTermsReader.java:278):
 	// current term stats plus decoded metadata, customized by the PBF.
 	state *codecs.BlockTermState
@@ -535,10 +540,12 @@ type fstBaseTermsEnum struct {
 // newFSTBaseTermsEnum renders BaseTermsEnum() (FSTTermsReader.java:287).
 // NOTE: metadata will only be initialized in child class.
 func newFSTBaseTermsEnum(tr *fstTermsReader) *fstBaseTermsEnum {
+	termStateRef := tr.parent.postingsReader.NewTermState()
 	return &fstBaseTermsEnum{
-		tr:          tr,
-		state:       tr.parent.postingsReader.NewTermState(),
-		bytesReader: store.NewByteArrayDataInput(nil),
+		tr:           tr,
+		termStateRef: termStateRef,
+		state:        codecs.BaseState(termStateRef),
+		bytesReader:  store.NewByteArrayDataInput(nil),
 	}
 }
 
@@ -574,7 +581,7 @@ func (e *fstBaseTermsEnum) Postings(flags int) (spi.PostingsEnum, error) {
 	if err := e.decodeMetaData(); err != nil {
 		return nil, err
 	}
-	return e.tr.parent.postingsReader.Postings(e.tr.fieldInfo, e.state, nil, flags)
+	return e.tr.parent.postingsReader.Postings(e.tr.fieldInfo, e.termStateRef, nil, flags)
 }
 
 // PostingsWithLiveDocs returns the same postings as Postings:
@@ -590,7 +597,7 @@ func (e *fstBaseTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
 	if err := e.decodeMetaData(); err != nil {
 		return nil, err
 	}
-	return e.tr.parent.postingsReader.Impacts(e.tr.fieldInfo, e.state, flags)
+	return e.tr.parent.postingsReader.Impacts(e.tr.fieldInfo, e.termStateRef, flags)
 }
 
 // SeekExactOrd renders BaseTermsEnum.seekExact(long)
@@ -663,7 +670,7 @@ func (e *fstSegmentTermsEnum) decodeMetaDataImpl() error {
 			e.bytesReader.ResetWithSlice(e.meta.Bytes, 0, len(e.meta.Bytes))
 		}
 		if err := e.tr.parent.postingsReader.DecodeTerm(
-			e.bytesReader, e.tr.fieldInfo, e.state, true); err != nil {
+			e.bytesReader, e.tr.fieldInfo, e.termStateRef, true); err != nil {
 			return err
 		}
 		e.decoded = true
@@ -894,7 +901,7 @@ func (e *fstIntersectTermsEnum) decodeMetaDataImpl() error {
 			e.bytesReader.ResetWithSlice(e.meta.Bytes, 0, len(e.meta.Bytes))
 		}
 		if err := e.tr.parent.postingsReader.DecodeTerm(
-			e.bytesReader, e.tr.fieldInfo, e.state, true); err != nil {
+			e.bytesReader, e.tr.fieldInfo, e.termStateRef, true); err != nil {
 			return err
 		}
 		e.decoded = true

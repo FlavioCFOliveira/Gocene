@@ -4,7 +4,11 @@
 
 package codecs
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+)
 
 // IntBlockTermState holds the Lucene104-specific term state produced by
 // Lucene104PostingsWriter and consumed by Lucene104PostingsReader.
@@ -74,27 +78,40 @@ func NewIntBlockTermState() *IntBlockTermState {
 	}
 }
 
-// Clone returns a deep copy of the receiver. The embedded *BlockTermState is
-// copied field-by-field via CopyFrom to preserve any future extensions.
+// Clone returns a deep copy of the receiver.
+//
+// Mirrors IntBlockTermState.clone(), which allocates a fresh instance and
+// delegates to copyFrom. CopyFrom only rejects a source of another type, and
+// the source here is the receiver, so the error branch is unreachable.
 func (s *IntBlockTermState) Clone() *IntBlockTermState {
 	other := NewIntBlockTermState()
-	other.CopyFrom(s)
+	if err := other.CopyFrom(s); err != nil {
+		panic(err)
+	}
 	return other
 }
 
-// CopyFrom copies all fields from src into the receiver. Panics if src is nil
-// or not an *IntBlockTermState (matching the Java assertion behaviour).
-func (s *IntBlockTermState) CopyFrom(src *IntBlockTermState) {
-	if src == nil {
-		panic("IntBlockTermState.CopyFrom: nil src")
+// CopyFrom resets this state from other.
+//
+// Mirrors IntBlockTermState.copyFrom(TermState): it first copies the
+// BlockTermState part, then the five Lucene104-specific fields. The Java cast
+// to IntBlockTermState is rendered as a type assertion, and the
+// ClassCastException it would raise as an error.
+func (s *IntBlockTermState) CopyFrom(other index.TermState) error {
+	o, ok := other.(*IntBlockTermState)
+	if !ok {
+		return fmt.Errorf("IntBlockTermState.CopyFrom: incompatible source type %T", other)
 	}
-	s.BlockTermState.CopyFrom(src.BlockTermState)
-	s.DocStartFP = src.DocStartFP
-	s.PosStartFP = src.PosStartFP
-	s.PayStartFP = src.PayStartFP
-	s.LastPosBlockOffset = src.LastPosBlockOffset
-	s.SingletonDocID = src.SingletonDocID
-	s.SkipOffset = src.SkipOffset
+	if err := s.BlockTermState.CopyFrom(o.BlockTermState); err != nil {
+		return err
+	}
+	s.DocStartFP = o.DocStartFP
+	s.PosStartFP = o.PosStartFP
+	s.PayStartFP = o.PayStartFP
+	s.LastPosBlockOffset = o.LastPosBlockOffset
+	s.SingletonDocID = o.SingletonDocID
+	s.SkipOffset = o.SkipOffset
+	return nil
 }
 
 // String returns a human-readable representation for debugging.

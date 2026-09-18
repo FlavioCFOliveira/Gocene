@@ -805,7 +805,7 @@ func TestCompressingStoredFieldsFormat_ByteLevelCompatibility(t *testing.T) {
 				}
 				data := buf.GetData()
 				bits := math.Float32bits(tc.val)
-				if (bits>>31) == 0 {
+				if (bits >> 31) == 0 {
 					// Positive — should NOT have 0xFF marker
 					if len(data) > 0 && data[0] == 0xFF {
 						t.Errorf("positive float %v unexpectedly got 0xFF marker", tc.val)
@@ -903,8 +903,8 @@ func TestCompressingStoredFieldsFormat_ByteLevelCompatibility(t *testing.T) {
 		// Negative values: 9 bytes (0xFF marker + 8-byte IEEE 754 bits).
 		// Some negative values with small integer-equivalence may go to Case 1.
 		testCases := []struct {
-			val  float64
-			name string
+			val    float64
+			name   string
 			minLen int // minimum byte count expected
 		}{
 			{-0.0, "-0.0", 9},
@@ -972,8 +972,8 @@ func TestCompressingStoredFieldsFormat_ByteLevelCompatibility(t *testing.T) {
 			header byte // Expected header bits pattern
 		}{
 			{0, "zero", 0x00},
-			{1, "one", 0x02}, // zigZag(1)=2, fits in 5 bits
-			{-1, "minus one", 0x01}, // zigZag(-1)=1
+			{1, "one", 0x02},                  // zigZag(1)=2, fits in 5 bits
+			{-1, "minus one", 0x01},           // zigZag(-1)=1
 			{1000, "one second", 0x40 | 0x06}, // day=0?, actually 1000%day!=0, 1000%hour!=0, 1000%second=0 → header=1<<6|zigzag(1)=0x40|0x02=0x42. Wait, 1000/1000=1, zigZag(1)=2
 		}
 		for _, tc := range testCases {

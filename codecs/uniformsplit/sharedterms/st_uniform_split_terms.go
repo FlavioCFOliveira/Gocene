@@ -25,7 +25,7 @@ func NewSTUniformSplitTerms(
 	blockDecoder uniformsplit.BlockDecoder,
 	fieldInfos *index.FieldInfos,
 	dictionaryBrowser any) *STUniformSplitTerms {
-	
+
 	return &STUniformSplitTerms{
 		UniformSplitTerms:  uniformsplit.NewUniformSplitTerms(blockInput, fieldMetadata, postingsReader, blockDecoder),
 		unionFieldMetadata: unionFieldMetadata,

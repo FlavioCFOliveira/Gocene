@@ -32,7 +32,7 @@ func (f *fakePostingsWriter) Init(termsOut store.IndexOutput, _ *SegmentWriteSta
 	return termsOut.WriteByte(0x42)
 }
 
-func (f *fakePostingsWriter) NewTermState() *BlockTermState {
+func (f *fakePostingsWriter) NewTermState() index.TermState {
 	return NewBlockTermState()
 }
 
@@ -43,14 +43,15 @@ func (f *fakePostingsWriter) StartTerm(_ index.NumericDocValues) error {
 	return nil
 }
 
-func (f *fakePostingsWriter) FinishTerm(state *BlockTermState) error {
+func (f *fakePostingsWriter) FinishTerm(state index.TermState) error {
 	// docFreq is already populated by the BlockTreeTermsWriter from
 	// WriteTerm's docCount return; only TotalTermFreq remains.
-	state.TotalTermFreq = int64(state.DocFreq)
+	base := BaseState(state)
+	base.TotalTermFreq = int64(base.DocFreq)
 	return nil
 }
 
-func (f *fakePostingsWriter) EncodeTerm(out store.DataOutput, _ *index.FieldInfo, _ *BlockTermState, _ bool) error {
+func (f *fakePostingsWriter) EncodeTerm(out store.DataOutput, _ *index.FieldInfo, _ index.TermState, _ bool) error {
 	return out.WriteByte(byte(f.termOrd))
 }
 
@@ -82,17 +83,17 @@ func (f *fakePostingsReader) Init(termsIn store.IndexInput, _ *SegmentReadState)
 	return nil
 }
 
-func (f *fakePostingsReader) NewTermState() *BlockTermState { return NewBlockTermState() }
+func (f *fakePostingsReader) NewTermState() index.TermState { return NewBlockTermState() }
 
-func (f *fakePostingsReader) DecodeTerm(_ store.DataInput, _ *index.FieldInfo, _ *BlockTermState, _ bool) error {
+func (f *fakePostingsReader) DecodeTerm(_ store.DataInput, _ *index.FieldInfo, _ index.TermState, _ bool) error {
 	return nil
 }
 
-func (f *fakePostingsReader) Postings(_ *index.FieldInfo, _ *BlockTermState, _ index.PostingsEnum, _ int) (index.PostingsEnum, error) {
+func (f *fakePostingsReader) Postings(_ *index.FieldInfo, _ index.TermState, _ index.PostingsEnum, _ int) (index.PostingsEnum, error) {
 	return nil, nil
 }
 
-func (f *fakePostingsReader) Impacts(_ *index.FieldInfo, _ *BlockTermState, _ int) (index.ImpactsEnum, error) {
+func (f *fakePostingsReader) Impacts(_ *index.FieldInfo, _ index.TermState, _ int) (index.ImpactsEnum, error) {
 	return nil, nil
 }
 

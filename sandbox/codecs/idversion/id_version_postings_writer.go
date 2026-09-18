@@ -9,7 +9,6 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -33,44 +32,6 @@ const (
 	// MaxVersion is the maximum allowed version value (ZigZag-safe).
 	MaxVersion int64 = 0x3fffffff_ffffffff
 )
-
-// idVersionExtra holds IDVersion-specific fields that extend BlockTermState.
-// A sidecar map keyed by *BlockTermState allows the interface-mandated
-// NewTermState() return type to remain *codecs.BlockTermState while still
-// carrying codec-specific data.
-type idVersionExtra struct {
-	IDVersion int64
-	DocID     int
-}
-
-// termStateRegistry is a package-level sidecar that maps each *BlockTermState
-// allocated by IDVersionPostingsWriter/Reader to its extra codec data.
-// The map is guarded by a mutex to allow concurrent readers.
-type termStateRegistry struct {
-	mu    sync.Mutex
-	table map[*codecs.BlockTermState]*idVersionExtra
-}
-
-var globalTermStateRegistry = &termStateRegistry{
-	table: make(map[*codecs.BlockTermState]*idVersionExtra),
-}
-
-// register creates a new sidecar entry for state and returns it.
-func (r *termStateRegistry) register(state *codecs.BlockTermState) *idVersionExtra {
-	extra := &idVersionExtra{}
-	r.mu.Lock()
-	r.table[state] = extra
-	r.mu.Unlock()
-	return extra
-}
-
-// lookup retrieves the sidecar entry for state. Returns nil when not found.
-func (r *termStateRegistry) lookup(state *codecs.BlockTermState) *idVersionExtra {
-	r.mu.Lock()
-	extra := r.table[state]
-	r.mu.Unlock()
-	return extra
-}
 
 // BytesToLong decodes an 8-byte big-endian payload into a long.
 //
@@ -99,7 +60,7 @@ func LongToBytes(v int64, dst []byte) {
 //
 // Mirrors org.apache.lucene.sandbox.codecs.idversion.IDVersionPostingsWriter.
 type IDVersionPostingsWriter struct {
-	lastState *idVersionExtra
+	lastState *IDVersionTermState
 
 	lastDocID    int
 	lastPosition int
@@ -118,11 +79,12 @@ func NewIDVersionPostingsWriter(liveDocs util.Bits) *IDVersionPostingsWriter {
 	}
 }
 
-// NewTermState allocates a fresh BlockTermState with IDVersion sidecar.
-func (w *IDVersionPostingsWriter) NewTermState() *codecs.BlockTermState {
-	state := codecs.NewBlockTermState()
-	globalTermStateRegistry.register(state)
-	return state
+// NewTermState allocates a fresh IDVersionTermState.
+//
+// Mirrors IDVersionPostingsWriter.newTermState(), which returns
+// "new IDVersionTermState()" through a BlockTermState-typed reference.
+func (w *IDVersionPostingsWriter) NewTermState() index.TermState {
+	return NewIDVersionTermState()
 }
 
 // Init writes the codec header into the terms output.
@@ -213,17 +175,22 @@ func (w *IDVersionPostingsWriter) FinishDoc() error {
 }
 
 // FinishTerm populates state with the doc/version recorded for this term.
-func (w *IDVersionPostingsWriter) FinishTerm(state *codecs.BlockTermState) error {
+//
+// Mirrors IDVersionPostingsWriter.finishTerm(BlockTermState).
+func (w *IDVersionPostingsWriter) FinishTerm(state index.TermState) error {
 	if w.lastDocID == -1 {
 		return nil
 	}
-	extra := globalTermStateRegistry.lookup(state)
-	if extra == nil {
-		// State was not allocated by this writer; treat as plain BlockTermState.
-		return nil
+	// Mirrors "IDVersionTermState state = (IDVersionTermState) _state".
+	ts, ok := state.(*IDVersionTermState)
+	if !ok {
+		return fmt.Errorf("IDVersionPostingsWriter.FinishTerm: term state is %T, want *IDVersionTermState", state)
 	}
-	extra.DocID = w.lastDocID
-	extra.IDVersion = w.lastVersion
+	if ts.DocFreq <= 0 {
+		return fmt.Errorf("IDVersionPostingsWriter.FinishTerm: docFreq=%d, want > 0", ts.DocFreq)
+	}
+	ts.DocID = w.lastDocID
+	ts.IDVersion = w.lastVersion
 	return nil
 }
 
@@ -231,27 +198,28 @@ func (w *IDVersionPostingsWriter) FinishTerm(state *codecs.BlockTermState) error
 func (w *IDVersionPostingsWriter) EncodeTerm(
 	out store.DataOutput,
 	_ *index.FieldInfo,
-	state *codecs.BlockTermState,
+	state index.TermState,
 	absolute bool,
 ) error {
-	extra := globalTermStateRegistry.lookup(state)
-	if extra == nil {
-		return errors.New("EncodeTerm: state not registered with IDVersionPostingsWriter")
+	// Mirrors "IDVersionTermState state = (IDVersionTermState) _state".
+	ts, ok := state.(*IDVersionTermState)
+	if !ok {
+		return fmt.Errorf("IDVersionPostingsWriter.EncodeTerm: term state is %T, want *IDVersionTermState", state)
 	}
-	if err := out.WriteVInt(int32(extra.DocID)); err != nil {
+	if err := out.WriteVInt(int32(ts.DocID)); err != nil {
 		return err
 	}
 	if absolute {
-		if err := out.WriteVLong(extra.IDVersion); err != nil {
+		if err := out.WriteVLong(ts.IDVersion); err != nil {
 			return err
 		}
 	} else {
-		delta := extra.IDVersion - w.lastEncodedVersion
+		delta := ts.IDVersion - w.lastEncodedVersion
 		if err := out.WriteVLong(util.ZigZagEncodeInt64(delta)); err != nil {
 			return err
 		}
 	}
-	w.lastEncodedVersion = extra.IDVersion
+	w.lastEncodedVersion = ts.IDVersion
 	return nil
 }
 

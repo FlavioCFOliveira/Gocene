@@ -11,6 +11,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
 	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // WeightedSpanTermExtractor is used to extract WeightedSpanTerms from a Query
@@ -400,7 +401,7 @@ func (w *WeightedSpanTermExtractor) getLeafContext() (index.IndexReaderContext, 
 			w.internalReader = topContext.LeafReader()
 		}
 
-		w.internalReader = index.NewDelegatingLeafReader(w.internalReader)
+		w.internalReader = newDelegatingLeafReader(w.internalReader)
 	}
 	return w.internalReader.GetContext()
 }
@@ -489,3 +490,97 @@ func (w *WeightedSpanTermExtractor) isTokenStreamFromTermVector() bool {
 func (w *WeightedSpanTermExtractor) getTokenStreamFromTermVector() *highlight.TokenStreamFromTermVector {
 	return w.tokenStream.(*highlight.TokenStreamFromTermVector)
 }
+
+// delegatingLeafReaderFieldName is the single field every lookup on a
+// delegatingLeafReader is redirected to.
+//
+// Mirrors the private constant
+// WeightedSpanTermExtractor.DelegatingLeafReader.FIELD_NAME.
+const delegatingLeafReaderFieldName = "shadowed_field"
+
+// delegatingLeafReader delegates every call to a single field of the wrapped
+// LeafReader, so that field only has to be built once rather than N times.
+//
+// Mirrors the package-private static nested class
+// WeightedSpanTermExtractor.DelegatingLeafReader, which extends
+// FilterLeafReader; Go has no nested classes, so it is an unexported type in
+// the same package as its outer type.
+type delegatingLeafReader struct {
+	*index.FilterLeafReader
+}
+
+// newDelegatingLeafReader wraps in so every field lookup resolves to
+// delegatingLeafReaderFieldName.
+//
+// Mirrors DelegatingLeafReader(LeafReader).
+func newDelegatingLeafReader(in index.LeafReader) *delegatingLeafReader {
+	return &delegatingLeafReader{FilterLeafReader: index.NewFilterLeafReader(in)}
+}
+
+// GetFieldInfos returns a FieldInfos holding only the shadowed field, and
+// resolving every requested field name to it.
+//
+// Mirrors DelegatingLeafReader.getFieldInfos(), which returns an anonymous
+// FieldInfos subclass over the single shadowed FieldInfo whose
+// fieldInfo(String) override returns super.fieldInfo(FIELD_NAME). Gocene
+// renders the override with spi.FieldInfos.SetFieldInfoOverride.
+func (r *delegatingLeafReader) GetFieldInfos() *spi.FieldInfos {
+	shadowed := r.FilterLeafReader.GetFieldInfos().FieldInfo(delegatingLeafReaderFieldName)
+	infos := spi.NewFieldInfos(shadowed)
+	infos.SetFieldInfoOverride(func(super func(string) *spi.FieldInfo, _ string) *spi.FieldInfo {
+		return super(delegatingLeafReaderFieldName)
+	})
+	return infos
+}
+
+// Terms returns the terms of the shadowed field whatever field is requested.
+//
+// Mirrors DelegatingLeafReader.terms(String).
+func (r *delegatingLeafReader) Terms(_ string) (index.Terms, error) {
+	return r.FilterLeafReader.Terms(delegatingLeafReaderFieldName)
+}
+
+// GetNumericDocValues returns the numeric doc values of the shadowed field
+// whatever field is requested.
+//
+// Mirrors DelegatingLeafReader.getNumericDocValues(String).
+func (r *delegatingLeafReader) GetNumericDocValues(_ string) (index.NumericDocValues, error) {
+	return r.FilterLeafReader.GetNumericDocValues(delegatingLeafReaderFieldName)
+}
+
+// GetBinaryDocValues returns the binary doc values of the shadowed field
+// whatever field is requested.
+//
+// Mirrors DelegatingLeafReader.getBinaryDocValues(String).
+func (r *delegatingLeafReader) GetBinaryDocValues(_ string) (index.BinaryDocValues, error) {
+	return r.FilterLeafReader.GetBinaryDocValues(delegatingLeafReaderFieldName)
+}
+
+// GetSortedDocValues returns the sorted doc values of the shadowed field
+// whatever field is requested.
+//
+// Mirrors DelegatingLeafReader.getSortedDocValues(String).
+func (r *delegatingLeafReader) GetSortedDocValues(_ string) (index.SortedDocValues, error) {
+	return r.FilterLeafReader.GetSortedDocValues(delegatingLeafReaderFieldName)
+}
+
+// GetNormValues returns the norms of the shadowed field whatever field is
+// requested.
+//
+// Mirrors DelegatingLeafReader.getNormValues(String).
+func (r *delegatingLeafReader) GetNormValues(_ string) (index.NumericDocValues, error) {
+	return r.FilterLeafReader.GetNormValues(delegatingLeafReaderFieldName)
+}
+
+// GetCoreCacheHelper returns nil: this reader changes what the wrapped reader
+// exposes, so its content must not be cached under the delegate's key.
+//
+// Mirrors DelegatingLeafReader.getCoreCacheHelper().
+func (r *delegatingLeafReader) GetCoreCacheHelper() index.CacheHelper { return nil }
+
+// GetReaderCacheHelper returns nil, for the same reason as GetCoreCacheHelper.
+//
+// Mirrors DelegatingLeafReader.getReaderCacheHelper().
+func (r *delegatingLeafReader) GetReaderCacheHelper() index.CacheHelper { return nil }
+
+var _ index.LeafReader = (*delegatingLeafReader)(nil)

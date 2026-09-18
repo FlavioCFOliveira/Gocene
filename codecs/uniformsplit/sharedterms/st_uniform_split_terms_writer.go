@@ -20,7 +20,7 @@ func NewSTUniformSplitTermsWriter(
 	postingsWriter any,
 	state *index.SegmentWriteState,
 	blockEncoder uniformsplit.BlockEncoder) *STUniformSplitTermsWriter {
-	
+
 	return &STUniformSplitTermsWriter{
 		UniformSplitTermsWriter: uniformsplit.NewUniformSplitTermsWriter(postingsWriter, state, blockEncoder),
 	}

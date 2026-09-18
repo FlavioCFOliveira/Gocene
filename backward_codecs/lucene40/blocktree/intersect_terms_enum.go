@@ -173,7 +173,7 @@ func (e *IntersectTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
 	}
 	return e.fr.parent.postingsReader.Postings(
 		e.fr.fieldInfo,
-		e.currentFrame.termState,
+		e.currentFrame.termStateRef,
 		nil,
 		flags,
 	)
@@ -194,7 +194,7 @@ func (e *IntersectTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
 	}
 	return e.fr.parent.postingsReader.Impacts(
 		e.fr.fieldInfo,
-		e.currentFrame.termState,
+		e.currentFrame.termStateRef,
 		flags,
 	)
 }

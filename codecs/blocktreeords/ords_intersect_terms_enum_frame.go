@@ -82,6 +82,12 @@ type OrdsIntersectTermsEnumFrame struct {
 	// arc is the FST arc pointing to this block from the parent.
 	arc *gfst.Arc[*FSTOrdsOutput]
 
+	// termStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which the codec narrows back with a type assertion. The
+	// BlockTermState field beside it is the widened view of that same object.
+	termStateRef index.TermState
+
 	// termState holds the per-term postings metadata.
 	termState *codecs.BlockTermState
 
@@ -125,10 +131,11 @@ func NewOrdsIntersectTermsEnumFrame(ite *OrdsIntersectTermsEnum, ord int) (*Ords
 
 	// Ask the postings reader for a fresh BlockTermState.
 	if ite.reader != nil && ite.reader.parent != nil && ite.reader.parent.postingsReader != nil {
-		f.termState = ite.reader.parent.postingsReader.NewTermState()
+		f.termStateRef = ite.reader.parent.postingsReader.NewTermState()
 	} else {
-		f.termState = codecs.NewBlockTermState()
+		f.termStateRef = codecs.NewBlockTermState()
 	}
+	f.termState = codecs.BaseState(f.termStateRef)
 	f.termState.TotalTermFreq = -1
 	return f, nil
 }

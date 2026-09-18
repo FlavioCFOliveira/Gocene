@@ -272,7 +272,7 @@ func (e *IntersectTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
 	if err := e.currentFrame.decodeMetaData(); err != nil {
 		return nil, err
 	}
-	return e.fr.parent.postingsReader.Impacts(e.fr.fieldInfo, e.currentFrame.termState, flags)
+	return e.fr.parent.postingsReader.Impacts(e.fr.fieldInfo, e.currentFrame.termStateRef, flags)
 }
 
 // PostingsWithLiveDocs returns a PostingsEnum for the current term.

@@ -102,23 +102,6 @@ type Lucene103PostingsReader struct {
 	maxImpactNumBytesAtLevel0 int
 	maxNumImpactsAtLevel1     int
 	maxImpactNumBytesAtLevel1 int
-
-	// stateCache bridges *BlockTermState handles (allocated by NewTermState)
-	// back to the *IntBlockTermState that owns them. See Lucene104PostingsReader
-	// for the same pattern and the concurrency rationale.
-	stateCache map[*BlockTermState]*IntBlockTermState
-}
-
-// lookupOrCreateState returns the IntBlockTermState bridged to termState,
-// creating and registering one on demand.
-func (r *Lucene103PostingsReader) lookupOrCreateState(termState *BlockTermState) *IntBlockTermState {
-	its := r.stateCache[termState]
-	if its == nil {
-		its = NewIntBlockTermState()
-		its.BlockTermState = termState
-		r.stateCache[termState] = its
-	}
-	return its
 }
 
 // NewLucene103PostingsReader opens and validates the .psm meta file, then opens
@@ -148,9 +131,7 @@ func NewLucene103PostingsReader(state *SegmentReadState) (*Lucene103PostingsRead
 		return nil, fmt.Errorf("lucene103 postings reader: check meta header: %w", err)
 	}
 
-	r := &Lucene103PostingsReader{
-		stateCache: make(map[*BlockTermState]*IntBlockTermState),
-	}
+	r := &Lucene103PostingsReader{}
 
 	var v int32
 	var readErr error
@@ -306,11 +287,10 @@ func (r *Lucene103PostingsReader) Init(termsIn store.IndexInput, state *SegmentR
 	return nil
 }
 
-// NewTermState allocates a fresh IntBlockTermState and registers it.
-func (r *Lucene103PostingsReader) NewTermState() *BlockTermState {
-	its := NewIntBlockTermState()
-	r.stateCache[its.BlockTermState] = its
-	return its.BlockTermState
+// NewTermState allocates a fresh IntBlockTermState.
+// Mirrors Lucene103PostingsReader.newTermState().
+func (r *Lucene103PostingsReader) NewTermState() index.TermState {
+	return NewIntBlockTermState()
 }
 
 // DecodeTerm reads codec-specific metadata from in into termState.
@@ -318,10 +298,14 @@ func (r *Lucene103PostingsReader) NewTermState() *BlockTermState {
 func (r *Lucene103PostingsReader) DecodeTerm(
 	in store.DataInput,
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	absolute bool,
 ) error {
-	its := r.lookupOrCreateState(termState)
+	// Mirrors "final IntBlockTermState termState = (IntBlockTermState) _termState".
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return fmt.Errorf("lucene103 decode term: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	if absolute {
 		its.DocStartFP = 0
@@ -336,7 +320,7 @@ func (r *Lucene103PostingsReader) DecodeTerm(
 
 	if l&0x01 == 0 {
 		its.DocStartFP += l >> 1
-		if termState.DocFreq == 1 {
+		if its.DocFreq == 1 {
 			sv, err2 := store.ReadVInt(in)
 			if err2 != nil {
 				return fmt.Errorf("lucene103 decode term: read singleton docID: %w", err2)
@@ -367,7 +351,7 @@ func (r *Lucene103PostingsReader) DecodeTerm(
 			its.PayStartFP += delta2
 		}
 
-		if termState.TotalTermFreq > int64(lucene103PostingsBlockSize) {
+		if its.TotalTermFreq > int64(lucene103PostingsBlockSize) {
 			offset, err4 := in.ReadVLong()
 			if err4 != nil {
 				return fmt.Errorf("lucene103 decode term: read lastPosBlockOffset: %w", err4)
@@ -384,11 +368,14 @@ func (r *Lucene103PostingsReader) DecodeTerm(
 // termState. Mirrors Lucene103PostingsReader.postings(...).
 func (r *Lucene103PostingsReader) Postings(
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	reuse index.PostingsEnum,
 	flags int,
 ) (index.PostingsEnum, error) {
-	its := r.lookupOrCreateState(termState)
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return nil, fmt.Errorf("lucene103 postings: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	var bpe *lucene103BlockPostingsEnum
 	if prev, ok := reuse.(*lucene103BlockPostingsEnum); ok && prev.canReuse(r.docIn, fieldInfo, flags) {
@@ -407,10 +394,13 @@ func (r *Lucene103PostingsReader) Postings(
 // block skipping. Mirrors Lucene103PostingsReader.impacts(...).
 func (r *Lucene103PostingsReader) Impacts(
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	flags int,
 ) (index.ImpactsEnum, error) {
-	its := r.lookupOrCreateState(termState)
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return nil, fmt.Errorf("lucene103 impacts: term state is %T, want *IntBlockTermState", termState)
+	}
 	bpe, err := newLucene103BlockPostingsEnum(r, fieldInfo, flags)
 	if err != nil {
 		return nil, err

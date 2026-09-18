@@ -7,9 +7,9 @@ package codecs
 import (
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/geo"
 )
 
 // PointsFormat is an alias of [spi.PointsFormat]. rmp #4769 lifted the
@@ -54,7 +54,6 @@ func (f *BasePointsFormat) FieldsReader(state *SegmentReadState) (PointsReader, 
 // implementations that spell the parameter *index.FieldInfo keep matching.
 // This is the Go port of org.apache.lucene.codecs.PointsWriter.
 type PointsWriter = spi.PointsWriter
-
 
 // PointValues provides access to point values for a field.
 // This is the Go port of Lucene's org.apache.lucene.index.PointValues.

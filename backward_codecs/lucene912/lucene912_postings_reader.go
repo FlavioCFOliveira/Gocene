@@ -237,8 +237,11 @@ func (r *Lucene912PostingsReader) Init(termsIn store.IndexInput, state *codecs.S
 }
 
 // NewTermState allocates a fresh IntBlockTermState.
-func (r *Lucene912PostingsReader) NewTermState() *codecs.BlockTermState {
-	return NewIntBlockTermState().BlockTermState
+//
+// Mirrors Lucene912PostingsReader.newTermState(), which returns
+// "new IntBlockTermState()" through a BlockTermState-typed reference.
+func (r *Lucene912PostingsReader) NewTermState() index.TermState {
+	return NewIntBlockTermState()
 }
 
 // DecodeTerm decodes per-term metadata from in into termState.
@@ -248,14 +251,14 @@ func (r *Lucene912PostingsReader) NewTermState() *codecs.BlockTermState {
 func (r *Lucene912PostingsReader) DecodeTerm(
 	in store.DataInput,
 	fieldInfo *index.FieldInfo,
-	termState *codecs.BlockTermState,
+	termState index.TermState,
 	absolute bool,
 ) error {
-	// The Gocene PostingsReaderBase SPI uses *codecs.BlockTermState directly
-	// with no provision for codec-specific sub-types. We carry the extra fields
-	// in a package-level map keyed by pointer. Each BlockTermState is owned by
-	// a single goroutine per the SPI contract, so no locking is needed.
-	its := getOrCreateIntBlockTermState(termState)
+	// Mirrors "final IntBlockTermState termState = (IntBlockTermState) _termState".
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return fmt.Errorf("lucene912 decode term: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	if absolute {
 		its.DocStartFP = 0
@@ -270,7 +273,7 @@ func (r *Lucene912PostingsReader) DecodeTerm(
 
 	if l&0x01 == 0 {
 		its.DocStartFP += l >> 1
-		if termState.DocFreq == 1 {
+		if its.DocFreq == 1 {
 			v, err2 := store.ReadVInt(in)
 			if err2 != nil {
 				return fmt.Errorf("lucene912 decode term: read singleton docID: %w", err2)
@@ -301,7 +304,7 @@ func (r *Lucene912PostingsReader) DecodeTerm(
 			its.PayStartFP += delta2
 		}
 
-		if termState.TotalTermFreq > int64(BlockSize) {
+		if its.TotalTermFreq > int64(BlockSize) {
 			offset, err4 := in.ReadVLong()
 			if err4 != nil {
 				return fmt.Errorf("lucene912 decode term: read last pos block offset: %w", err4)
@@ -323,11 +326,14 @@ func (r *Lucene912PostingsReader) DecodeTerm(
 // Port of Lucene912PostingsReader.postings.
 func (r *Lucene912PostingsReader) Postings(
 	fieldInfo *index.FieldInfo,
-	termState *codecs.BlockTermState,
+	termState index.TermState,
 	reuse index.PostingsEnum,
 	flags int,
 ) (index.PostingsEnum, error) {
-	its := getOrCreateIntBlockTermState(termState)
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return nil, fmt.Errorf("lucene912 postings: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	opts := fieldInfo.IndexOptions()
 	wantsPositions := (flags & index.PostingsFlagPositions) != 0
@@ -365,14 +371,17 @@ func (r *Lucene912PostingsReader) Postings(
 // Port of Lucene912PostingsReader.impacts.
 func (r *Lucene912PostingsReader) Impacts(
 	fieldInfo *index.FieldInfo,
-	termState *codecs.BlockTermState,
+	termState index.TermState,
 	flags int,
 ) (index.ImpactsEnum, error) {
-	its := getOrCreateIntBlockTermState(termState)
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return nil, fmt.Errorf("lucene912 impacts: term state is %T, want *IntBlockTermState", termState)
+	}
 	opts := fieldInfo.IndexOptions()
 	indexHasPositions := opts >= index.IndexOptionsDocsAndFreqsAndPositions
 
-	if termState.DocFreq >= BlockSize {
+	if its.DocFreq >= BlockSize {
 		wantsPositions := (flags & index.PostingsFlagPositions) != 0
 		if opts >= index.IndexOptionsDocsAndFreqs && (!indexHasPositions || !wantsPositions) {
 			return newBlockImpactsDocsEnum(r, indexHasPositions, its)
@@ -428,21 +437,5 @@ func (r *Lucene912PostingsReader) Close() error {
 	return firstErr
 }
 
-// ─── side-channel state map ───────────────────────────────────────────────────
-// The Gocene PostingsReaderBase SPI uses *codecs.BlockTermState as the state
-// type with no provision for codec-specific sub-types. We store the extra
-// fields in a package-level map keyed by pointer until the SPI is extended.
-// This is intentionally a simple design; concurrent access is safe because
-// each BlockTermState is owned by a single goroutine (per the SPI contract).
-
-var intBlockTermStateMap = make(map[*codecs.BlockTermState]*IntBlockTermState)
-
-func getOrCreateIntBlockTermState(bts *codecs.BlockTermState) *IntBlockTermState {
-	if its, ok := intBlockTermStateMap[bts]; ok {
-		return its
-	}
-	its := NewIntBlockTermState()
-	its.BlockTermState = bts
-	intBlockTermStateMap[bts] = its
-	return its
-}
+// compile-time assertion that the reader satisfies the postings SPI.
+var _ codecs.PostingsReaderBase = (*Lucene912PostingsReader)(nil)

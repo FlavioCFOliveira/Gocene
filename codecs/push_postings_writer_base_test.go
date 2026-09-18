@@ -27,11 +27,11 @@ type fakePushWriter struct {
 func (w *fakePushWriter) Init(termsOut store.IndexOutput, state *SegmentWriteState) error {
 	return nil
 }
-func (w *fakePushWriter) NewTermState() *BlockTermState                    { return NewBlockTermState() }
+func (w *fakePushWriter) NewTermState() index.TermState                    { return NewBlockTermState() }
 func (w *fakePushWriter) SetField(fieldInfo *index.FieldInfo) (int, error) { return 0, nil }
 func (w *fakePushWriter) StartTerm(norms index.NumericDocValues) error     { return nil }
-func (w *fakePushWriter) FinishTerm(state *BlockTermState) error           { return nil }
-func (w *fakePushWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, state *BlockTermState, absolute bool) error {
+func (w *fakePushWriter) FinishTerm(state index.TermState) error           { return nil }
+func (w *fakePushWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, state index.TermState, absolute bool) error {
 	return nil
 }
 func (w *fakePushWriter) Close() error { return nil }

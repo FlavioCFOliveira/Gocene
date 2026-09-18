@@ -83,9 +83,13 @@ type idVersionSegmentTermsEnumFrame struct {
 	// isFloor is true when this frame was entered via a floor-block arc.
 	isFloor bool
 
+	// termStateRef is the term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is *IDVersionTermState, which the
+	// codec narrows back with a type assertion. state is the widened
+	// BlockTermState view of that very object.
+	termStateRef index.TermState
+
 	// state is the per-term postings metadata for the current term.
-	// It is a *codecs.BlockTermState allocated by the postings reader; the
-	// extra IDVersion / DocID fields are stored in globalTermStateRegistry.
 	state *codecs.BlockTermState
 
 	// bytes_ / bytesReader hold the raw per-term postings metadata blob.
@@ -110,7 +114,8 @@ func newIDVersionSegmentTermsEnumFrame(ste *IDVersionSegmentTermsEnum, ord int) 
 		return nil, fmt.Errorf("newIDVersionSegmentTermsEnumFrame: ste must not be nil")
 	}
 
-	bts := ste.fr.Parent.PostingsReader.NewTermState()
+	termStateRef := ste.fr.Parent.PostingsReader.NewTermState()
+	bts := codecs.BaseState(termStateRef)
 	bts.TotalTermFreq = -1
 
 	f := &idVersionSegmentTermsEnumFrame{
@@ -125,6 +130,7 @@ func newIDVersionSegmentTermsEnumFrame(ste *IDVersionSegmentTermsEnum, ord int) 
 		bytes_:          make([]byte, 32),
 		bytesReader:     store.NewByteArrayDataInput(nil),
 		ste:             ste,
+		termStateRef:    termStateRef,
 		state:           bts,
 	}
 
@@ -338,7 +344,7 @@ func (f *idVersionSegmentTermsEnumFrame) decodeMetaData() error {
 		f.state.DocFreq = 1
 		f.state.TotalTermFreq = 1
 		if err := f.ste.fr.Parent.PostingsReader.DecodeTermFromBytesReader(
-			f.bytesReader, f.state, absolute,
+			f.bytesReader, f.termStateRef, absolute,
 		); err != nil {
 			return fmt.Errorf("IDVersionSegmentTermsEnumFrame.decodeMetaData: %w", err)
 		}
