@@ -148,6 +148,16 @@ func (r *OrdsFieldReader) HasPayloads() bool {
 	return r.fieldInfo.HasPayloads()
 }
 
+// Field returns the name of the field this Terms instance represents.
+//
+// Apache Lucene 10.5.0 reads the name straight off OrdsFieldReader.fieldInfo
+// (OrdsFieldReader.java:36, `final FieldInfo fieldInfo`) wherever it needs it,
+// because org.apache.lucene.index.Terms declares no field() accessor. Gocene's
+// [spi.Terms] contract does declare one, so the accessor is spelled here over
+// the same fieldInfo, exactly as the sibling block-tree reader does
+// (codecs.Lucene103FieldReader.Field).
+func (r *OrdsFieldReader) Field() string { return r.fieldInfo.Name() }
+
 // Iterator implements index.Terms.  Returns an OrdsSegmentTermsEnum
 // positioned before the first term.
 func (r *OrdsFieldReader) Iterator() (index.TermsEnum, error) {
@@ -185,12 +195,21 @@ func (r *OrdsFieldReader) GetDocCount() (int, error) { return r.docCount, nil }
 // Intersect returns an OrdsIntersectTermsEnum accepting terms matched by
 // the given CompiledAutomaton, starting at startTerm (may be nil).
 //
-// Port of OrdsFieldReader.intersect(CompiledAutomaton, BytesRef).
-func (r *OrdsFieldReader) Intersect(compiled *automaton.CompiledAutomaton, startTerm *util.BytesRef) (index.TermsEnum, error) {
+// Port of OrdsFieldReader.intersect(CompiledAutomaton, BytesRef)
+// (OrdsFieldReader.java:175). Java's Terms.intersect takes the start term as a
+// bare BytesRef; Gocene's [spi.Terms] carries it as a *Term (field + bytes), so
+// the bytes are unwrapped here before they reach OrdsIntersectTermsEnum, whose
+// own parameter keeps Java's BytesRef shape. This is exactly what the sibling
+// block-tree reader does (codecs.Lucene103FieldReader.Intersect).
+func (r *OrdsFieldReader) Intersect(compiled *automaton.CompiledAutomaton, startTerm *index.Term) (index.TermsEnum, error) {
 	if compiled == nil {
 		return nil, errors.New("OrdsFieldReader.Intersect: compiled must not be nil")
 	}
-	return NewOrdsIntersectTermsEnum(r, compiled, startTerm)
+	var start *util.BytesRef
+	if startTerm != nil {
+		start = startTerm.BytesValue()
+	}
+	return NewOrdsIntersectTermsEnum(r, compiled, start)
 }
 
 // String implements fmt.Stringer.

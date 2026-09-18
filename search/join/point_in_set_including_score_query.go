@@ -193,6 +193,16 @@ func (q *PointInSetIncludingScoreQuery) HashCode() int {
 	return h
 }
 
+// Visit mirrors PointInSetIncludingScoreQuery.visit(QueryVisitor) of Apache
+// Lucene 10.5.0 (PointInSetIncludingScoreQuery.java:150):
+//
+//	if (visitor.acceptField(field)) { visitor.visitLeaf(this); }
+func (q *PointInSetIncludingScoreQuery) Visit(visitor search.QueryVisitor) {
+	if visitor.AcceptField(q.field) {
+		visitor.VisitLeaf(q)
+	}
+}
+
 // CreateWeight implements search.Query.
 func (q *PointInSetIncludingScoreQuery) CreateWeight(_ *search.IndexSearcher, _ search.ScoreMode, boost float32) (search.Weight, error) {
 	return &pointInSetIncludingScoreWeight{

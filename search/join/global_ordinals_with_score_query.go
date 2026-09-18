@@ -108,6 +108,13 @@ func (q *GlobalOrdinalsWithScoreQuery) HashCode() int {
 	return h
 }
 
+// Visit mirrors GlobalOrdinalsWithScoreQuery.visit(QueryVisitor) of Apache
+// Lucene 10.5.0 (GlobalOrdinalsWithScoreQuery.java:92), whose body is
+// visitor.visitLeaf(this).
+func (q *GlobalOrdinalsWithScoreQuery) Visit(visitor search.QueryVisitor) {
+	visitor.VisitLeaf(q)
+}
+
 // CreateWeight implements search.Query.
 func (q *GlobalOrdinalsWithScoreQuery) CreateWeight(_ *search.IndexSearcher, _ search.ScoreMode, boost float32) (search.Weight, error) {
 	return &globalOrdinalsWithScoreWeight{

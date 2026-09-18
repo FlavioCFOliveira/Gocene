@@ -88,6 +88,13 @@ type SegmentReadState struct {
 	// FieldInfos carries the metadata for every field in the segment.
 	FieldInfos *FieldInfos
 
+	// Context is the IOContext to pass to Directory.OpenInput(string, IOContext).
+	//
+	// Mirrors the field org.apache.lucene.index.SegmentReadState#context
+	// (SegmentReadState.java:40), which every SegmentReadState constructor
+	// stores and which every codec reader forwards to openInput.
+	Context IOContext
+
 	// SegmentSuffix is an optional per-format suffix used to look up
 	// segment files. Empty for the default codec.
 	SegmentSuffix string

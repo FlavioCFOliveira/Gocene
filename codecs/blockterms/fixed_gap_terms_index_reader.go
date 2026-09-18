@@ -91,7 +91,7 @@ type FixedGapTermsIndexReader struct {
 	blocksize         int
 
 	// termBytesReader holds the single logical byte slice shared by all fields.
-	termBytesReader *util.Reader
+	termBytesReader *store.Reader
 
 	fields map[string]*fixedGapFieldIndexData
 }
@@ -104,7 +104,7 @@ var _ TermsIndexReader = (*FixedGapTermsIndexReader)(nil)
 //
 // Port of the FixedGapTermsIndexReader(SegmentReadState) constructor.
 func NewFixedGapTermsIndexReader(state *spi.SegmentReadState) (*FixedGapTermsIndexReader, error) {
-	termBytes, err := util.NewPagedBytes(fixedGapPagedBytesBits)
+	termBytes, err := store.NewPagedBytes(fixedGapPagedBytesBits)
 	if err != nil {
 		return nil, err
 	}

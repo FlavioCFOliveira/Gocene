@@ -130,6 +130,16 @@ func (q *TermsIncludingScoreQuery) HashCode() int {
 	return h
 }
 
+// Visit mirrors TermsIncludingScoreQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (TermsIncludingScoreQuery.java:99):
+//
+//	if (visitor.acceptField(toField)) { visitor.visitLeaf(this); }
+func (q *TermsIncludingScoreQuery) Visit(visitor search.QueryVisitor) {
+	if visitor.AcceptField(q.toField) {
+		visitor.VisitLeaf(q)
+	}
+}
+
 // CreateWeight implements search.Query.
 func (q *TermsIncludingScoreQuery) CreateWeight(_ *search.IndexSearcher, _ search.ScoreMode, boost float32) (search.Weight, error) {
 	w := &termsIncludingScoreWeight{

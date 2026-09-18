@@ -91,6 +91,13 @@ func (q *ToParentBlockJoinQuery) HashCode() int {
 	return 31*(31*q.childQuery.HashCode()+17) + int(q.scoreMode)
 }
 
+// Visit mirrors ToParentBlockJoinQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (ToParentBlockJoinQuery.java:90), whose body is
+// visitor.visitLeaf(this).
+func (q *ToParentBlockJoinQuery) Visit(visitor search.QueryVisitor) {
+	visitor.VisitLeaf(q)
+}
+
 // CreateWeight mirrors
 // ToParentBlockJoinQuery.createWeight(IndexSearcher, org.apache.lucene.search.ScoreMode, float).
 //
