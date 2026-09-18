@@ -1,11 +1,15 @@
 package document
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/store"
+)
+
 // NRTSuggester executes Top N search on a weighted FST. Mirrors
 // org.apache.lucene.search.suggest.document.NRTSuggester.
 type NRTSuggester struct {
-	fst                      *utilfst.FST[*utilfst.Pair[int64, *util.BytesRef]]
+	fst                       *utilfst.FST[*utilfst.Pair[int64, *util.BytesRef]]
 	maxAnalyzedPathsPerOutput int
-	payloadSep               int
+	payloadSep                int
 }
 
 // NewNRTSuggester builds an empty NRTSuggester.
@@ -44,9 +48,9 @@ func Load(input store.IndexInput) (*NRTSuggester, error) {
 	}
 
 	return &NRTSuggester{
-		fst:                      fst,
+		fst:                       fst,
 		maxAnalyzedPathsPerOutput: int(maxAnalyzedPathsPerOutput),
-		payloadSep:               int(payloadSep),
+		payloadSep:                int(payloadSep),
 	}, nil
 }
 

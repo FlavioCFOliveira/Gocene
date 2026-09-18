@@ -28,9 +28,52 @@ import (
 	"math/bits"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// AsDocIndexIterator wraps disi as a KnnVectorValues.DocIndexIterator.
+// Mirrors the static IndexedDISI.asDocIndexIterator(IndexedDISI) of Apache
+// Lucene 10.5.0: the anonymous iterator forwards docID, index, nextDoc,
+// advance and cost to disi and inherits the remaining DocIdSetIterator
+// defaults.
+func AsDocIndexIterator(disi *IndexedDISI) spi.DocIndexIterator {
+	return &indexedDISIDocIndexIterator{disi: disi}
+}
+
+// indexedDISIDocIndexIterator is the anonymous DocIndexIterator returned by
+// IndexedDISI.asDocIndexIterator.
+type indexedDISIDocIndexIterator struct {
+	disi *IndexedDISI
+}
+
+// DocID forwards to the DISI.
+func (it *indexedDISIDocIndexIterator) DocID() int { return it.disi.DocID() }
+
+// Index forwards to the DISI.
+func (it *indexedDISIDocIndexIterator) Index() int { return it.disi.Index() }
+
+// NextDoc forwards to the DISI.
+func (it *indexedDISIDocIndexIterator) NextDoc() (int, error) { return it.disi.NextDoc() }
+
+// Advance forwards to the DISI.
+func (it *indexedDISIDocIndexIterator) Advance(target int) (int, error) {
+	return it.disi.Advance(target)
+}
+
+// Cost forwards to the DISI.
+func (it *indexedDISIDocIndexIterator) Cost() int64 { return it.disi.Cost() }
+
+// IntoBitSet carries the DocIdSetIterator.intoBitSet default.
+func (it *indexedDISIDocIndexIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the DocIdSetIterator.docIDRunEnd default.
+func (it *indexedDISIDocIndexIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
 
 // IndexedDISI is the disk-based DocIdSetIterator from
 // org.apache.lucene.codecs.lucene90.IndexedDISI. The on-disk format encodes

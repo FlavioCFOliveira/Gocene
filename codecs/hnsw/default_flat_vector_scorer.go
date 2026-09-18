@@ -21,64 +21,8 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
-// FloatVectorValues is the read-side counterpart consumed by
-// [DefaultFlatVectorScorer] for float32-encoded fields. It mirrors
-// org.apache.lucene.index.FloatVectorValues by extending
-// [hnsw.KnnVectorValues] with a typed VectorValue accessor and a
-// covariant Copy.
-//
-// Concrete implementations live in codec-specific packages. The
-// interface is declared here (rather than in index) because Gocene has
-// not yet ported the canonical org.apache.lucene.index.FloatVectorValues
-// abstract class; once that port lands the interface will be relocated
-// and this declaration retained as an alias.
-type FloatVectorValues interface {
-	hnsw.KnnVectorValues
-
-	// VectorValue returns the float32 vector at the given ordinal.
-	// The returned slice may be the implementation's own storage; the
-	// caller must copy if it intends to retain it past the next call.
-	VectorValue(ord int) ([]float32, error)
-
-	// CopyFloat returns a copy with independent iterator state and the
-	// concrete FloatVectorValues type. Mirrors Java's covariant Copy
-	// override.
-	CopyFloat() (FloatVectorValues, error)
-}
-
-// ByteVectorValues is the byte-encoded counterpart of
-// [FloatVectorValues]. Mirrors org.apache.lucene.index.ByteVectorValues
-// for the byte path consumed by [DefaultFlatVectorScorer].
-type ByteVectorValues interface {
-	hnsw.KnnVectorValues
-
-	// VectorValue returns the byte vector at the given ordinal. The
-	// returned slice may be the implementation's own storage.
-	VectorValue(ord int) ([]byte, error)
-
-	// CopyByte returns a copy with independent iterator state and the
-	// concrete ByteVectorValues type.
-	CopyByte() (ByteVectorValues, error)
-}
-
-// HasEncoding is implemented by [hnsw.KnnVectorValues] views that
-// expose their element encoding. The Java reference reads the encoding
-// directly off KnnVectorValues via `getEncoding()`; Gocene's
-// [hnsw.KnnVectorValues] interface does not carry that accessor yet,
-// so DefaultFlatVectorScorer narrows to HasEncoding when it needs to
-// branch on FLOAT32 vs BYTE.
-//
-// Implementations of [FloatVectorValues] / [ByteVectorValues] are
-// expected to also implement HasEncoding so the supplier factory can
-// dispatch correctly. The Java contract is enforced at the type-system
-// level (enum on the abstract class); the Go contract is enforced at
-// runtime via the type assertion below.
-type HasEncoding interface {
-	GetEncoding() index.VectorEncoding
-}
-
 // DefaultFlatVectorScorer is the Go port of
-// org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer (Lucene 10.4.0).
+// org.apache.lucene.codecs.hnsw.DefaultFlatVectorScorer (Lucene 10.5.0).
 // It is the default [FlatVectorsScorer] implementation: a software
 // fallback that wires the per-similarity scoring closures by
 // dispatching to [index.VectorSimilarityFunction]-aware helpers.
@@ -109,82 +53,69 @@ func (*DefaultFlatVectorScorer) String() string {
 	return "DefaultFlatVectorScorer()"
 }
 
-// GetRandomVectorScorerSupplier returns a supplier that branches on
-// the encoding reported by vectorValues. Float32 fields receive a
-// FloatScoringSupplier; byte fields receive a ByteScoringSupplier; any
-// other encoding (or a vectorValues that doesn't expose encoding)
-// surfaces an error matching the Java IllegalArgumentException
-// message.
+// GetRandomVectorScorerSupplier returns a supplier that branches on the
+// encoding reported by vectorValues, as the Java switch over
+// getEncoding() does: FLOAT32 values are cast to FloatVectorValues and BYTE
+// values to ByteVectorValues. A failed cast, which throws
+// ClassCastException in Java, is returned as an error.
 func (s *DefaultFlatVectorScorer) GetRandomVectorScorerSupplier(
 	similarityFunction index.VectorSimilarityFunction,
 	vectorValues hnsw.KnnVectorValues,
 ) (hnsw.RandomVectorScorerSupplier, error) {
-	enc, ok := vectorValues.(HasEncoding)
-	if !ok {
-		return nil, fmt.Errorf(
-			"vectorValues must be an instance of FloatVectorValues or ByteVectorValues, got a %T",
-			vectorValues,
-		)
-	}
-	switch enc.GetEncoding() {
+	switch vectorValues.GetEncoding() {
 	case index.VectorEncodingFloat32:
-		fv, ok := vectorValues.(FloatVectorValues)
+		fv, ok := vectorValues.(index.FloatVectorValues)
 		if !ok {
-			return nil, fmt.Errorf(
-				"vectorValues reports FLOAT32 encoding but does not implement FloatVectorValues; got %T",
-				vectorValues,
-			)
+			return nil, fmt.Errorf("ClassCastException: %T cannot be cast to FloatVectorValues", vectorValues)
 		}
 		return newFloatScoringSupplier(fv, similarityFunction)
 	case index.VectorEncodingByte:
-		bv, ok := vectorValues.(ByteVectorValues)
+		bv, ok := vectorValues.(index.ByteVectorValues)
 		if !ok {
-			return nil, fmt.Errorf(
-				"vectorValues reports BYTE encoding but does not implement ByteVectorValues; got %T",
-				vectorValues,
-			)
+			return nil, fmt.Errorf("ClassCastException: %T cannot be cast to ByteVectorValues", vectorValues)
 		}
 		return newByteScoringSupplier(bv, similarityFunction)
-	default:
-		return nil, fmt.Errorf(
-			"vectorValues must be an instance of FloatVectorValues or ByteVectorValues, got a %T",
-			vectorValues,
-		)
 	}
+	return nil, fmt.Errorf(
+		"vectorValues must be an instance of FloatVectorValues or ByteVectorValues, got a %T",
+		vectorValues,
+	)
 }
 
 // GetRandomVectorScorer returns a scorer over float32 vectors against
 // the supplied target. Mirrors the float[] overload in the Java
-// reference, including the dimension check.
+// reference: the dimension check comes first, then the cast.
 func (s *DefaultFlatVectorScorer) GetRandomVectorScorer(
 	similarityFunction index.VectorSimilarityFunction,
 	vectorValues hnsw.KnnVectorValues,
 	target []float32,
 ) (hnsw.RandomVectorScorer, error) {
-	fv, ok := vectorValues.(FloatVectorValues)
-	if !ok {
-		return nil, fmt.Errorf("vectorValues must be an instance of FloatVectorValues; got %T", vectorValues)
+	if len(target) != vectorValues.Dimension() {
+		return nil, fmt.Errorf("vector query dimension: %d differs from field dimension: %d",
+			len(target), vectorValues.Dimension())
 	}
-	if err := CheckDimensions(len(target), fv.Dimension()); err != nil {
-		return nil, err
+	fv, ok := vectorValues.(index.FloatVectorValues)
+	if !ok {
+		return nil, fmt.Errorf("ClassCastException: %T cannot be cast to FloatVectorValues", vectorValues)
 	}
 	return newFloatVectorScorer(fv, target, similarityFunction), nil
 }
 
 // GetRandomVectorScorerByte returns a scorer over byte vectors against
 // the supplied byte target. Mirrors the byte[] overload in the Java
-// reference, including the dimension check.
+// reference: the dimension check comes first, then the cast.
 func (s *DefaultFlatVectorScorer) GetRandomVectorScorerByte(
 	similarityFunction index.VectorSimilarityFunction,
 	vectorValues hnsw.KnnVectorValues,
 	target []byte,
 ) (hnsw.RandomVectorScorer, error) {
-	bv, ok := vectorValues.(ByteVectorValues)
-	if !ok {
-		return nil, fmt.Errorf("vectorValues must be an instance of ByteVectorValues; got %T", vectorValues)
+	if len(target) != vectorValues.Dimension() {
+		return nil, fmt.Errorf("vector query dimension: %d differs from field dimension: %d",
+			len(target), vectorValues.Dimension())
 	}
-	if err := CheckDimensions(len(target), bv.Dimension()); err != nil {
-		return nil, err
+	bv, ok := vectorValues.(index.ByteVectorValues)
+	if !ok {
+		return nil, fmt.Errorf("ClassCastException: %T cannot be cast to ByteVectorValues", vectorValues)
 	}
 	return newByteVectorScorer(bv, target, similarityFunction), nil
 }

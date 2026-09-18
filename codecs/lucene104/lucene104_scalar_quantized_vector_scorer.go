@@ -96,17 +96,17 @@ func (s *Lucene104ScalarQuantizedVectorScorer) GetRandomVectorScorer(
 
 		// for asymmetric encodings with 4-bit query, we need to transpose the nibbles for fast
 		// scoring comparisons
-		if encoding == codecs.ScalarEncodingSingleBitQueryNibble ||
-			encoding == codecs.ScalarEncodingDibitQueryNibble {
+		if encoding == quantization.ScalarEncodingSingleBitQueryNibble ||
+			encoding == quantization.ScalarEncodingDibitQueryNibble {
 			if err := quantization.TransposeHalfByte(scratch, targetQuantized); err != nil {
 				return nil, err
 			}
 		}
 
 		return &quantizedVectorScorer{
-			qv:                     qv,
-			targetQuantized:        targetQuantized,
-			targetCorrectiveTerms:  targetCorrectiveTerms,
+			qv:                    qv,
+			targetQuantized:       targetQuantized,
+			targetCorrectiveTerms: targetCorrectiveTerms,
 			similarityFunction:    similarityFunction,
 		}, nil
 	}
@@ -220,9 +220,9 @@ func (s *scalarQuantizedVectorScorerSupplier) Copy() (codecs.FlatRandomVectorSco
 }
 
 type quantizedVectorScorer struct {
-	qv                     quantization.QuantizedByteVectorValues
-	targetQuantized        []byte
-	targetCorrectiveTerms  quantization.QuantizationResult
+	qv                    quantization.QuantizedByteVectorValues
+	targetQuantized       []byte
+	targetCorrectiveTerms quantization.QuantizationResult
 	similarityFunction    codecs.VectorSimilarityFunction
 }
 
@@ -266,7 +266,7 @@ type updateableQuantizedVectorScorer struct {
 	targetVectors      quantization.QuantizedByteVectorValues
 	queryVectors       quantization.QuantizedByteVectorValues
 	similarityFunction codecs.VectorSimilarityFunction
-	vector            []byte
+	vector             []byte
 	queryCorrections   *quantization.QuantizationResult
 }
 
@@ -314,10 +314,10 @@ func (s *updateableQuantizedVectorScorer) SetScoringOrdinal(node int) error {
 }
 
 type updateableSymmetricQuantizedVectorScorer struct {
-	targetValues       quantization.QuantizedByteVectorValues
-	values             quantization.QuantizedByteVectorValues
-	similarityFunction codecs.VectorSimilarityFunction
-	targetVector       []byte
+	targetValues          quantization.QuantizedByteVectorValues
+	values                quantization.QuantizedByteVectorValues
+	similarityFunction    codecs.VectorSimilarityFunction
+	targetVector          []byte
 	targetCorrectiveTerms *quantization.QuantizationResult
 }
 
@@ -354,14 +354,14 @@ func (s *updateableSymmetricQuantizedVectorScorer) SetScoringOrdinal(node int) e
 	}
 
 	switch s.values.GetEncoding() {
-	case codecs.ScalarEncodingUnsignedByte, codecs.ScalarEncodingSevenBit:
+	case quantization.ScalarEncodingUnsignedByte, quantization.ScalarEncodingSevenBit:
 		s.targetVector = rawTargetVector
-	case codecs.ScalarEncodingPackedNibble:
+	case quantization.ScalarEncodingPackedNibble:
 		if s.targetVector == nil {
 			s.targetVector = make([]byte, quantization.Discretize(s.values.Dimension(), 2))
 		}
 		unpackNibblesPacked(rawTargetVector, s.targetVector)
-	case codecs.ScalarEncodingSingleBitQueryNibble, codecs.ScalarEncodingDibitQueryNibble:
+	case quantization.ScalarEncodingSingleBitQueryNibble, quantization.ScalarEncodingDibitQueryNibble:
 		return fmt.Errorf("%s encoding is not supported for symmetric quantization", s.values.GetEncoding())
 	}
 
@@ -386,21 +386,21 @@ func unpackNibblesPacked(packed, unpacked []byte) {
 
 var scaleLUT = [8]float32{
 	1.0,
-	1.0 / ( (1 << 2) - 1),
-	1.0 / ( (1 << 3) - 1),
-	1.0 / ( (1 << 4) - 1),
-	1.0 / ( (1 << 5) - 1),
-	1.0 / ( (1 << 6) - 1),
-	1.0 / ( (1 << 7) - 1),
-	1.0 / ( (1 << 8) - 1),
+	1.0 / ((1 << 2) - 1),
+	1.0 / ((1 << 3) - 1),
+	1.0 / ((1 << 4) - 1),
+	1.0 / ((1 << 5) - 1),
+	1.0 / ((1 << 6) - 1),
+	1.0 / ((1 << 7) - 1),
+	1.0 / ((1 << 8) - 1),
 }
 
-var queryBitsLUT = map[codecs.ScalarEncoding]int{
-	codecs.ScalarEncodingUnsignedByte:         8,
-	codecs.ScalarEncodingPackedNibble:         4,
-	codecs.ScalarEncodingSevenBit:             7,
-	codecs.ScalarEncodingSingleBitQueryNibble: 4,
-	codecs.ScalarEncodingDibitQueryNibble:     4,
+var queryBitsLUT = map[quantization.ScalarEncoding]int{
+	quantization.ScalarEncodingUnsignedByte:         8,
+	quantization.ScalarEncodingPackedNibble:         4,
+	quantization.ScalarEncodingSevenBit:             7,
+	quantization.ScalarEncodingSingleBitQueryNibble: 4,
+	quantization.ScalarEncodingDibitQueryNibble:     4,
 }
 
 func quantizedScore(
@@ -419,15 +419,15 @@ func quantizedScore(
 	utilSupport := &vectorization.VectorUtilSupport{}
 	var qcDist int32
 	switch scalarEncoding {
-	case codecs.ScalarEncodingUnsignedByte:
+	case quantization.ScalarEncodingUnsignedByte:
 		qcDist = utilSupport.Uint8DotProduct(quantizedQuery, quantizedDoc)
-	case codecs.ScalarEncodingSevenBit:
+	case quantization.ScalarEncodingSevenBit:
 		qcDist = utilSupport.DotProductBytes(quantizedQuery, quantizedDoc)
-	case codecs.ScalarEncodingPackedNibble:
+	case quantization.ScalarEncodingPackedNibble:
 		qcDist = utilSupport.Int4DotProductSinglePacked(quantizedQuery, quantizedDoc)
-	case codecs.ScalarEncodingSingleBitQueryNibble:
+	case quantization.ScalarEncodingSingleBitQueryNibble:
 		qcDist = int32(utilSupport.Int4BitDotProduct(quantizedQuery, quantizedDoc))
-	case codecs.ScalarEncodingDibitQueryNibble:
+	case quantization.ScalarEncodingDibitQueryNibble:
 		qcDist = int32(utilSupport.Int4DibitDotProduct(quantizedQuery, quantizedDoc))
 	}
 

@@ -14,7 +14,8 @@
 //	    http://www.apache.org/licenses/LICENSE-2.0
 //
 // Source: lucene/core/src/java/org/apache/lucene/codecs/lucene104/
-//         Lucene104ScalarQuantizedVectorsWriter.java (Lucene 10.4.0)
+//
+//	Lucene104ScalarQuantizedVectorsWriter.java (Lucene 10.4.0)
 //
 // Byte-faithful port of the per-vector optimized scalar-quantization writer.
 // It composes a Lucene99FlatVectorsWriter as the raw-vector delegate (which
@@ -77,7 +78,7 @@ import (
 type Lucene104ScalarQuantizedVectorsWriter struct {
 	*hnsw.BaseFlatVectorsWriter
 	state    *codecs.SegmentWriteState
-	encoding codecs.ScalarEncoding
+	encoding quantization.ScalarEncoding
 
 	meta       store.IndexOutput
 	vectorData store.IndexOutput
@@ -87,8 +88,8 @@ type Lucene104ScalarQuantizedVectorsWriter struct {
 	// flush to compute the centroid and quantize.
 	rawVectorDelegate *lucene99FlatVectorsWriter
 	fields            []*scalarQuantizedFieldWriter
-	finished         bool
-	closed           bool
+	finished          bool
+	closed            bool
 }
 
 // NewLucene104ScalarQuantizedVectorsWriter constructs the writer bound to
@@ -98,7 +99,7 @@ type Lucene104ScalarQuantizedVectorsWriter struct {
 // Mirrors the Java constructor
 // Lucene104ScalarQuantizedVectorsWriter(SegmentWriteState, ScalarEncoding,
 // FlatVectorsWriter, Lucene104ScalarQuantizedVectorScorer).
-func NewLucene104ScalarQuantizedVectorsWriter(state *codecs.SegmentWriteState, encoding codecs.ScalarEncoding) (*Lucene104ScalarQuantizedVectorsWriter, error) {
+func NewLucene104ScalarQuantizedVectorsWriter(state *codecs.SegmentWriteState, encoding quantization.ScalarEncoding) (*Lucene104ScalarQuantizedVectorsWriter, error) {
 	if state == nil {
 		return nil, errors.New("lucene104 sq: nil SegmentWriteState")
 	}
@@ -126,9 +127,9 @@ func NewLucene104ScalarQuantizedVectorsWriter(state *codecs.SegmentWriteState, e
 
 	w := &Lucene104ScalarQuantizedVectorsWriter{
 		BaseFlatVectorsWriter: hnsw.NewBaseFlatVectorsWriter(scorer),
-		state:                state,
-		encoding:             encoding,
-		meta:                 meta,
+		state:                 state,
+		encoding:              encoding,
+		meta:                  meta,
 	}
 
 	rawData, err := state.Directory.CreateOutput(dataName, store.IOContextWrite)
@@ -178,7 +179,7 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) MergeOneFieldToIndex(
 // Mirrors the Java FieldWriter inner class.
 type scalarQuantizedFieldWriter struct {
 	fieldInfo *index.FieldInfo
-	encoding  codecs.ScalarEncoding
+	encoding  quantization.ScalarEncoding
 
 	// delegate is the composed flat field writer that holds the raw vectors.
 	// The scalar writer normalizes (for COSINE) and quantizes these vectors
@@ -400,7 +401,7 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeVectors(
 	// doc-packed length. Mirrors the encoding switch in Java's writeVectors.
 	var packed []byte
 	switch w.encoding {
-	case codecs.ScalarEncodingUnsignedByte, codecs.ScalarEncodingSevenBit:
+	case quantization.ScalarEncodingUnsignedByte, quantization.ScalarEncodingSevenBit:
 		packed = scratch
 	default:
 		packed = make([]byte, w.encoding.GetDocPackedLength(dim))
@@ -423,7 +424,7 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeVectors(
 		if err := packQuantized(w.encoding, scratch, packed); err != nil {
 			return fmt.Errorf("lucene104 sq: pack quantized: %w", err)
 		}
-		if err := w.vectorData.WriteBytes(packed); err != nil {
+		if err := w.vectorData.WriteBytes(packed, 0, len(packed)); err != nil {
 			return err
 		}
 		if err := w.writeCorrections(corrections); err != nil {
@@ -467,21 +468,21 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeMeta(
 	if err := w.meta.WriteInt(simOrd); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(w.meta, int32(fieldInfo.VectorDimension())); err != nil {
+	if err := w.meta.WriteVInt(int32(fieldInfo.VectorDimension())); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorDataOffset); err != nil {
+	if err := w.meta.WriteVLong(vectorDataOffset); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorDataLength); err != nil {
+	if err := w.meta.WriteVLong(vectorDataLength); err != nil {
 		return err
 	}
 	count := len(docIDs)
-	if err := store.WriteVInt(w.meta, int32(count)); err != nil {
+	if err := w.meta.WriteVInt(int32(count)); err != nil {
 		return err
 	}
 	if count > 0 {
-		if err := store.WriteVInt(w.meta, int32(w.encoding.GetWireNumber())); err != nil {
+		if err := w.meta.WriteVInt(int32(w.encoding.GetWireNumber())); err != nil {
 			return err
 		}
 		if err := writeFloatsLE(w.meta, clusterCenter); err != nil {
@@ -585,15 +586,15 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) Close() error {
 // on-disk packed layout for the encoding. For UNSIGNED_BYTE / SEVEN_BIT the
 // scratch already aliases packed (no-op). Mirrors the encoding switch in Java's
 // writeVectors.
-func packQuantized(encoding codecs.ScalarEncoding, scratch, packed []byte) error {
+func packQuantized(encoding quantization.ScalarEncoding, scratch, packed []byte) error {
 	switch encoding {
-	case codecs.ScalarEncodingUnsignedByte, codecs.ScalarEncodingSevenBit:
+	case quantization.ScalarEncodingUnsignedByte, quantization.ScalarEncodingSevenBit:
 		return nil // packed aliases scratch
-	case codecs.ScalarEncodingPackedNibble:
+	case quantization.ScalarEncodingPackedNibble:
 		return packNibbles(scratch, packed)
-	case codecs.ScalarEncodingSingleBitQueryNibble:
+	case quantization.ScalarEncodingSingleBitQueryNibble:
 		return quantization.PackAsBinary(scratch, packed)
-	case codecs.ScalarEncodingDibitQueryNibble:
+	case quantization.ScalarEncodingDibitQueryNibble:
 		return quantization.TransposeDibit(scratch, packed)
 	default:
 		return fmt.Errorf("lucene104 sq: unsupported encoding %s", encoding)

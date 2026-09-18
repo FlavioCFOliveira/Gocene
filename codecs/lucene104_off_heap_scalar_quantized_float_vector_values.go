@@ -205,7 +205,7 @@ type OffHeapScalarQuantizedFloatVectorValues struct {
 	lastOrd                 int
 	correctiveValues        [quantizedFloatCorrectivesLen]float32
 	quantizedComponentSum   int32
-	encoding                ScalarEncoding
+	encoding                quantization.ScalarEncoding
 	centroid                []float32
 
 	// variant carries layout-specific behaviour (dense / sparse / empty)
@@ -242,7 +242,7 @@ type offHeapScalarQuantizedFloatVariant interface {
 func newOffHeapScalarQuantizedFloatVectorValues(
 	dimension, size int,
 	centroid []float32,
-	encoding ScalarEncoding,
+	encoding quantization.ScalarEncoding,
 	similarityFunction VectorSimilarityFunction,
 	vectorsScorer FlatVectorsScorer,
 	slice store.IndexInput,
@@ -311,13 +311,13 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) VectorValue(targetOrd int) ([]
 	// Unpack bytes per encoding; UNSIGNED_BYTE / SEVEN_BIT short-circuit
 	// to dequantize directly from byteValue, matching the Java switch.
 	switch v.encoding {
-	case ScalarEncodingPackedNibble:
+	case quantization.ScalarEncodingPackedNibble:
 		unpackNibblesPacked(v.byteValue, v.unpackedByteVectorValue)
-	case ScalarEncodingSingleBitQueryNibble:
+	case quantization.ScalarEncodingSingleBitQueryNibble:
 		quantization.UnpackBinary(v.byteValue, v.unpackedByteVectorValue)
-	case ScalarEncodingDibitQueryNibble:
+	case quantization.ScalarEncodingDibitQueryNibble:
 		quantization.UntransposeDibit(v.byteValue, v.unpackedByteVectorValue)
-	case ScalarEncodingUnsignedByte, ScalarEncodingSevenBit:
+	case quantization.ScalarEncodingUnsignedByte, quantization.ScalarEncodingSevenBit:
 		quantization.DeQuantize(
 			v.byteValue,
 			v.vectorValue,
@@ -390,7 +390,9 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) GetSlice() store.IndexInput { 
 
 // Encoding returns the scalar encoding used by this view. Exposed for
 // callers that need to interpret raw quantized bytes obtained via Slice.
-func (v *OffHeapScalarQuantizedFloatVectorValues) Encoding() ScalarEncoding { return v.encoding }
+func (v *OffHeapScalarQuantizedFloatVectorValues) Encoding() quantization.ScalarEncoding {
+	return v.encoding
+}
 
 // Centroid returns the centroid against which corrective values are
 // subtracted. The returned slice is owned by v; callers must not mutate.
@@ -450,7 +452,7 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) Scorer(target []float32) (Vect
 func Load(
 	configuration ordToDocDISIReaderConfig,
 	dimension, size int,
-	encoding ScalarEncoding,
+	encoding quantization.ScalarEncoding,
 	similarityFunction VectorSimilarityFunction,
 	vectorsScorer FlatVectorsScorer,
 	centroid []float32,
@@ -492,7 +494,7 @@ type denseOffHeapScalarQuantizedFloatVariant struct{}
 func newDenseOffHeapScalarQuantizedFloatVectorValues(
 	dimension, size int,
 	centroid []float32,
-	encoding ScalarEncoding,
+	encoding quantization.ScalarEncoding,
 	similarityFunction VectorSimilarityFunction,
 	vectorsScorer FlatVectorsScorer,
 	slice store.IndexInput,
@@ -554,7 +556,7 @@ func newSparseOffHeapScalarQuantizedFloatVectorValues(
 	configuration ordToDocDISIReaderConfig,
 	dimension, size int,
 	centroid []float32,
-	encoding ScalarEncoding,
+	encoding quantization.ScalarEncoding,
 	dataIn store.IndexInput,
 	similarityFunction VectorSimilarityFunction,
 	vectorsScorer FlatVectorsScorer,
@@ -642,7 +644,7 @@ func newEmptyOffHeapScalarQuantizedFloatVectorValues(
 	vectorsScorer FlatVectorsScorer,
 ) *OffHeapScalarQuantizedFloatVectorValues {
 	return newOffHeapScalarQuantizedFloatVectorValues(
-		dimension, 0, nil, ScalarEncodingUnsignedByte, similarityFunction, vectorsScorer, nil,
+		dimension, 0, nil, quantization.ScalarEncodingUnsignedByte, similarityFunction, vectorsScorer, nil,
 		emptyOffHeapScalarQuantizedFloatVariant{},
 	)
 }

@@ -66,10 +66,10 @@ func ReadLine(in store.IndexInput) ([]byte, error) {
 // WriteChecksum writes the checksum of the output to the end of the file.
 func WriteChecksum(out store.IndexOutput) error {
 	checksum := fmt.Sprintf("%020d", out.GetChecksum())
-	if err := out.WriteBytes(checksumPrefix); err != nil {
+	if err := out.WriteBytes(checksumPrefix, 0, len(checksumPrefix)); err != nil {
 		return err
 	}
-	if err := out.WriteBytes([]byte(checksum)); err != nil {
+	if err := out.WriteBytes([]byte(checksum), 0, len(checksum)); err != nil {
 		return err
 	}
 	return WriteNewline(out)

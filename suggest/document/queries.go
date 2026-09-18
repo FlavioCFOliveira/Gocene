@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
@@ -73,8 +72,8 @@ type ContextQuery struct {
 }
 
 type ContextMetaData struct {
-	Boost  float32
-	Exact  bool
+	Boost float32
+	Exact bool
 }
 
 // NewContextQuery builds the query.
@@ -108,13 +107,13 @@ func (q *ContextQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode se
 	ctxAutomaton := q.toContextAutomaton()
 
 	return &ContextCompletionWeight{
-		Query:           q,
-		Automaton:       ctxAutomaton,
-		InnerWeight:     innerWeight,
-		ContextMap:      q.Contexts,
-		ContextLengths:   q.getContextLengths(),
-		CurrentBoost:    0,
-		CurrentContext:  "",
+		Query:          q,
+		Automaton:      ctxAutomaton,
+		InnerWeight:    innerWeight,
+		ContextMap:     q.Contexts,
+		ContextLengths: q.getContextLengths(),
+		CurrentBoost:   0,
+		CurrentContext: "",
 	}, nil
 }
 
@@ -158,9 +157,9 @@ type ContextCompletionWeight struct {
 	Automaton      *automaton.Automaton
 	InnerWeight    *CompletionWeight
 	ContextMap     map[string]ContextMetaData
-	ContextLengths  []int
-	CurrentBoost    float32
-	CurrentContext  string
+	ContextLengths []int
+	CurrentBoost   float32
+	CurrentContext string
 }
 
 func (w *ContextCompletionWeight) SetNextMatch(pathPrefix []int) {

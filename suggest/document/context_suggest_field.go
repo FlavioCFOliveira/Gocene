@@ -9,7 +9,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/miscellaneous"
-	"github.com/FlavioCFOliveira/Gocene/document"
 )
 
 // CONTEXT_SEPARATOR is the separator used between context value and the suggest field value.
@@ -91,8 +90,8 @@ func NewPrefixTokenFilter(input analysis.TokenStream, separator rune, prefixes [
 		BaseTokenStream: analysis.NewBaseTokenStream(),
 		input:           input,
 		separator:       separator,
-		prefixes:         prefixes,
-		currentPrefix:    -1,
+		prefixes:        prefixes,
+		currentPrefix:   -1,
 	}
 }
 

@@ -168,7 +168,7 @@ func NewVersionBlockTreeTermsReader(
 			return nil, fmt.Errorf("NewVersionBlockTreeTermsReader: read rootCode len[%d]: %w", i, err)
 		}
 		codeBytes := make([]byte, numBytes)
-		if rerr := termsIn.ReadBytes(codeBytes); rerr != nil {
+		if rerr := termsIn.ReadBytes(codeBytes, 0, len(codeBytes)); rerr != nil {
 			return nil, fmt.Errorf("NewVersionBlockTreeTermsReader: read rootCode bytes[%d]: %w", i, rerr)
 		}
 		maxVersion, err := vli.ReadVLong()
@@ -352,7 +352,7 @@ func seekDir(input store.IndexInput) error {
 	if !ok {
 		// Fallback: read 8 bytes manually.
 		buf := make([]byte, 8)
-		if err := input.ReadBytes(buf); err != nil {
+		if err := input.ReadBytes(buf, 0, len(buf)); err != nil {
 			return fmt.Errorf("seekDir: read dirOffset bytes: %w", err)
 		}
 		dirOffset := int64(buf[0])<<56 | int64(buf[1])<<48 | int64(buf[2])<<40 | int64(buf[3])<<32 |
@@ -375,7 +375,7 @@ func readBytesRefVBT(input store.IndexInput, vli store.VariableLengthInput) (*ut
 	}
 	b := make([]byte, length)
 	if length > 0 {
-		if rerr := input.ReadBytes(b); rerr != nil {
+		if rerr := input.ReadBytes(b, 0, len(b)); rerr != nil {
 			return nil, fmt.Errorf("readBytesRefVBT: read bytes: %w", rerr)
 		}
 	}

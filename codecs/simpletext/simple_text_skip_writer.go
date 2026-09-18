@@ -303,14 +303,14 @@ func (w *SimpleTextSkipWriter) WriteSkip(output store.IndexOutput) (int64, error
 			if err := w.writeLevelLength(length, output); err != nil {
 				return 0, fmt.Errorf("SimpleTextSkipWriter.WriteSkip: level %d length: %w", level, err)
 			}
-			if err := output.WriteBytes(levelBytes); err != nil {
+			if err := output.WriteBytes(levelBytes, 0, len(levelBytes)); err != nil {
 				return 0, fmt.Errorf("SimpleTextSkipWriter.WriteSkip: level %d bytes: %w", level, err)
 			}
 		}
 	}
 	level0 := w.skipBuffer[0].GetBytes()
 	if len(level0) > 0 {
-		if err := output.WriteBytes(level0); err != nil {
+		if err := output.WriteBytes(level0, 0, len(level0)); err != nil {
 			return 0, fmt.Errorf("SimpleTextSkipWriter.WriteSkip: level 0 bytes: %w", err)
 		}
 	}

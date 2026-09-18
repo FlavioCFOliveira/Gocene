@@ -31,3 +31,48 @@ type CloseableRandomVectorScorerSupplier interface {
 	// this supplier.
 	TotalVectorCount() int
 }
+
+// CreateCloseableRandomVectorScorerSupplier mirrors the static
+// CloseableRandomVectorScorerSupplier.create(RandomVectorScorerSupplier, int,
+// Closeable) of Apache Lucene 10.5.0: the returned supplier forwards scorer()
+// and copy() to supplier, reports totalVectorCount, and runs onClose when it
+// is closed. The Closeable lambda of the Java signature is rendered as a
+// function.
+func CreateCloseableRandomVectorScorerSupplier(
+	supplier RandomVectorScorerSupplier, totalVectorCount int, onClose func() error,
+) CloseableRandomVectorScorerSupplier {
+	return &closeableRandomVectorScorerSupplier{
+		supplier:         supplier,
+		totalVectorCount: totalVectorCount,
+		onClose:          onClose,
+	}
+}
+
+// closeableRandomVectorScorerSupplier is the anonymous
+// CloseableRandomVectorScorerSupplier returned by
+// CloseableRandomVectorScorerSupplier.create.
+type closeableRandomVectorScorerSupplier struct {
+	supplier         RandomVectorScorerSupplier
+	totalVectorCount int
+	onClose          func() error
+}
+
+// TotalVectorCount returns the count given to create.
+func (s *closeableRandomVectorScorerSupplier) TotalVectorCount() int {
+	return s.totalVectorCount
+}
+
+// Close runs the onClose action given to create.
+func (s *closeableRandomVectorScorerSupplier) Close() error {
+	return s.onClose()
+}
+
+// Scorer forwards to the wrapped supplier.
+func (s *closeableRandomVectorScorerSupplier) Scorer() (UpdateableRandomVectorScorer, error) {
+	return s.supplier.Scorer()
+}
+
+// Copy forwards to the wrapped supplier.
+func (s *closeableRandomVectorScorerSupplier) Copy() (RandomVectorScorerSupplier, error) {
+	return s.supplier.Copy()
+}

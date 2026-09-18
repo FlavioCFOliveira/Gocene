@@ -190,15 +190,15 @@ func readSegmentInfo70(
 	isCompoundFile := int8(isCompoundFileByte) == 1
 
 	// Diagnostics, Files, Attributes.
-	diagnostics, err := gstore.ReadMapOfStrings(in)
+	diagnostics, err := in.ReadMapOfStrings()
 	if err != nil {
 		return nil, fmt.Errorf("lucene70 segment info: diagnostics: %w", err)
 	}
-	files, err := gstore.ReadSetOfStrings(in)
+	files, err := in.ReadSetOfStrings()
 	if err != nil {
 		return nil, fmt.Errorf("lucene70 segment info: files: %w", err)
 	}
-	attributes, err := gstore.ReadMapOfStrings(in)
+	attributes, err := in.ReadMapOfStrings()
 	if err != nil {
 		return nil, fmt.Errorf("lucene70 segment info: attributes: %w", err)
 	}

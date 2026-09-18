@@ -1,8 +1,6 @@
 package uhighlight
 
 import (
-	"io"
-
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"

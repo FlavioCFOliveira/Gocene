@@ -176,7 +176,7 @@ func (c *CompletionFieldsConsumer) Close() error {
 		return err
 	}
 	// write number of seen fields
-	if err := store.WriteVInt(indexOut, int32(len(c.seenFields))); err != nil {
+	if err := indexOut.WriteVInt(int32(len(c.seenFields))); err != nil {
 		return err
 	}
 	// write per-field entries
@@ -185,16 +185,16 @@ func (c *CompletionFieldsConsumer) Close() error {
 		if fi == nil {
 			return fmt.Errorf("completion fields consumer: unknown field %q", fieldName)
 		}
-		if err := store.WriteVInt(indexOut, int32(fi.Number())); err != nil {
+		if err := indexOut.WriteVInt(int32(fi.Number())); err != nil {
 			return err
 		}
-		if err := store.WriteVLong(indexOut, meta.filePointer); err != nil {
+		if err := indexOut.WriteVLong(meta.filePointer); err != nil {
 			return err
 		}
-		if err := store.WriteVLong(indexOut, meta.minWeight); err != nil {
+		if err := indexOut.WriteVLong(meta.minWeight); err != nil {
 			return err
 		}
-		if err := store.WriteVLong(indexOut, meta.maxWeight); err != nil {
+		if err := indexOut.WriteVLong(meta.maxWeight); err != nil {
 			return err
 		}
 		if err := indexOut.WriteByte(meta.fieldType); err != nil {

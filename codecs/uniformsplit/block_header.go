@@ -90,22 +90,22 @@ func (s *BlockHeaderSerializer) Write(output store.DataOutput, bh *BlockHeader) 
 	if bh.linesCount <= 0 {
 		return fmt.Errorf("block header is not initialized")
 	}
-	if err := store.WriteVInt(output, bh.linesCount); err != nil {
+	if err := output.WriteVInt(bh.linesCount); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(output, bh.baseDocsFP); err != nil {
+	if err := output.WriteVLong(bh.baseDocsFP); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(output, bh.basePositionsFP); err != nil {
+	if err := output.WriteVLong(bh.basePositionsFP); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(output, bh.basePayloadsFP); err != nil {
+	if err := output.WriteVLong(bh.basePayloadsFP); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(output, bh.termStatesBaseOffset); err != nil {
+	if err := output.WriteVInt(bh.termStatesBaseOffset); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(output, bh.middleLineOffset); err != nil {
+	if err := output.WriteVInt(bh.middleLineOffset); err != nil {
 		return err
 	}
 	return nil
@@ -121,15 +121,15 @@ func (s *BlockHeaderSerializer) Read(input store.DataInput, reuse *BlockHeader) 
 		return nil, fmt.Errorf("illegal number of lines in block: %d", linesCount)
 	}
 
-	baseDocsFP, err := store.ReadVLong(input)
+	baseDocsFP, err := input.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
-	basePositionsFP, err := store.ReadVLong(input)
+	basePositionsFP, err := input.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
-	basePayloadsFP, err := store.ReadVLong(input)
+	basePayloadsFP, err := input.ReadVLong()
 	if err != nil {
 		return nil, err
 	}

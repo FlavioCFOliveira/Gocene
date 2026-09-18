@@ -263,7 +263,7 @@ func (r *Lucene912PostingsReader) DecodeTerm(
 		its.PayStartFP = 0
 	}
 
-	l, err := store.ReadVLong(in)
+	l, err := in.ReadVLong()
 	if err != nil {
 		return fmt.Errorf("lucene912 decode term: read vlong: %w", err)
 	}
@@ -286,7 +286,7 @@ func (r *Lucene912PostingsReader) DecodeTerm(
 
 	opts := fieldInfo.IndexOptions()
 	if opts >= index.IndexOptionsDocsAndFreqsAndPositions {
-		delta, err2 := store.ReadVLong(in)
+		delta, err2 := in.ReadVLong()
 		if err2 != nil {
 			return fmt.Errorf("lucene912 decode term: read pos fp delta: %w", err2)
 		}
@@ -294,7 +294,7 @@ func (r *Lucene912PostingsReader) DecodeTerm(
 
 		if opts >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets ||
 			fieldInfo.HasPayloads() {
-			delta2, err3 := store.ReadVLong(in)
+			delta2, err3 := in.ReadVLong()
 			if err3 != nil {
 				return fmt.Errorf("lucene912 decode term: read pay fp delta: %w", err3)
 			}
@@ -302,7 +302,7 @@ func (r *Lucene912PostingsReader) DecodeTerm(
 		}
 
 		if termState.TotalTermFreq > int64(BlockSize) {
-			offset, err4 := store.ReadVLong(in)
+			offset, err4 := in.ReadVLong()
 			if err4 != nil {
 				return fmt.Errorf("lucene912 decode term: read last pos block offset: %w", err4)
 			}

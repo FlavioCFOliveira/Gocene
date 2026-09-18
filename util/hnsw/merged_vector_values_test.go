@@ -27,10 +27,18 @@ func (m *mergedKnnVectorValues) OrdToDoc(ord int) int { return ord }
 func (m *mergedKnnVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
 	return acceptDocs
 }
+func (m *mergedKnnVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+func (m *mergedKnnVectorValues) Copy() (KnnVectorValues, error)                   { return m, nil }
+func (m *mergedKnnVectorValues) GetVectorByteLength() int                         { return m.dim * 4 }
+func (m *mergedKnnVectorValues) GetEncoding() util.VectorEncoding {
+	return util.VectorEncodingFloat32
+}
 func (m *mergedKnnVectorValues) Iterator() DocIndexIterator {
 	return &mergedDocIndexIterator{
 		sources: m.sources,
 		docMaps: m.docMaps,
+		doc:     -1,
+		cost:    int64(m.Size()),
 	}
 }
 
@@ -41,9 +49,35 @@ type mergedDocIndexIterator struct {
 	sub     DocIndexIterator
 	base    int
 	idx     int
+	doc     int
+	cost    int64
+}
+
+func (it *mergedDocIndexIterator) DocID() int { return it.doc }
+
+func (it *mergedDocIndexIterator) Advance(target int) (int, error) {
+	return util.SlowAdvance(it, target)
+}
+
+func (it *mergedDocIndexIterator) Cost() int64 { return it.cost }
+
+func (it *mergedDocIndexIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+func (it *mergedDocIndexIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
 }
 
 func (it *mergedDocIndexIterator) NextDoc() (int, error) {
+	doc, err := it.nextDoc()
+	if err == nil {
+		it.doc = doc
+	}
+	return doc, err
+}
+
+func (it *mergedDocIndexIterator) nextDoc() (int, error) {
 	for {
 		if it.sub == nil {
 			if it.srcIdx >= len(it.sources) {

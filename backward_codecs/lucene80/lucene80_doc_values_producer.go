@@ -215,7 +215,7 @@ func NewLucene80DocValuesProducer(
 	}
 
 	// --- meta file -------------------------------------------------------
-	metaName := store.SegmentFileName(
+	metaName := gstore.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, metaExtension)
 	metaIn, err := bcstore.OpenChecksumInput(state.Directory, metaName, gstore.IOContextRead)
 	if err != nil {
@@ -250,7 +250,7 @@ func NewLucene80DocValuesProducer(
 	}
 
 	// --- data file -------------------------------------------------------
-	dataName := store.SegmentFileName(
+	dataName := gstore.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, dataExtension)
 	dataIn, err := bcstore.OpenInput(state.Directory, dataName, gstore.IOContextRead)
 	if err != nil {
@@ -690,7 +690,7 @@ func (p *Lucene80DocValuesProducer) readSortedNumericEntry(
 // Port of Lucene80DocValuesProducer.readTermDict(IndexInput, TermsDictEntry).
 func readTermsDictEntry(meta gstore.DataInput, dst *lucene80DVTermsDictEntry) error {
 	var err error
-	dst.termsDictSize, err = gstore.ReadVLong(meta)
+	dst.termsDictSize, err = meta.ReadVLong()
 	if err != nil {
 		return fmt.Errorf("lucene80 termsDict: termsDictSize: %w", err)
 	}

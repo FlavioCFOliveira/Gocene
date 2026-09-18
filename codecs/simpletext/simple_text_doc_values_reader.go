@@ -60,7 +60,7 @@ type SimpleTextDocValuesReader struct {
 //
 // Port of SimpleTextDocValuesReader(SegmentReadState, String).
 func NewSimpleTextDocValuesReader(state *codecs.SegmentReadState, ext string) (*SimpleTextDocValuesReader, error) {
-	fileName := store.SegmentFileName(
+	fileName := store2.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		ext,
@@ -449,7 +449,7 @@ func (it *dvBinaryIter) Advance(target int) (int, error) {
 		}
 		// skip raw bytes
 		rawBuf := make([]byte, length)
-		if err := it.in.ReadBytes(rawBuf); err != nil {
+		if err := it.in.ReadBytes(rawBuf, 0, len(rawBuf)); err != nil {
 			return 0, fmt.Errorf("dvBinaryIter.Advance: readBytes: %w", err)
 		}
 		// newline after raw bytes
@@ -491,7 +491,7 @@ func dvReadBinaryValue(in store2.IndexInput, f *dvFieldMeta, docID int) ([]byte,
 		return nil, fmt.Errorf("dvReadBinaryValue: parse length: %w", err)
 	}
 	rawBuf := make([]byte, length)
-	if err := in.ReadBytes(rawBuf); err != nil {
+	if err := in.ReadBytes(rawBuf, 0, len(rawBuf)); err != nil {
 		return nil, fmt.Errorf("dvReadBinaryValue: readBytes: %w", err)
 	}
 	// rawBuf is the hex-encoded BytesRef string stored by bytesRefToString
@@ -593,7 +593,7 @@ func (it *dvSortedIter) LookupOrd(ord int) ([]byte, error) {
 		return nil, fmt.Errorf("dvSortedIter.LookupOrd: parse length: %w", err)
 	}
 	buf := make([]byte, length)
-	if err := it.in.ReadBytes(buf); err != nil {
+	if err := it.in.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, fmt.Errorf("dvSortedIter.LookupOrd: readBytes: %w", err)
 	}
 	return buf, nil
@@ -800,7 +800,7 @@ func (it *dvSortedSetIter) LookupOrd(ord int) ([]byte, error) {
 		return nil, fmt.Errorf("dvSortedSetIter.LookupOrd: parse length: %w", err)
 	}
 	buf := make([]byte, length)
-	if err := it.in.ReadBytes(buf); err != nil {
+	if err := it.in.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, fmt.Errorf("dvSortedSetIter.LookupOrd: readBytes: %w", err)
 	}
 	return buf, nil

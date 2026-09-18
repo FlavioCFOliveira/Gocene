@@ -4,8 +4,6 @@
 
 package uhighlight
 
-import "strings"
-
 // PassageFormatter renders a set of top passages into a human-readable
 // snippet string. Mirrors org.apache.lucene.search.uhighlight.PassageFormatter.
 type PassageFormatter interface {

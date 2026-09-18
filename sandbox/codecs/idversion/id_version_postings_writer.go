@@ -238,16 +238,16 @@ func (w *IDVersionPostingsWriter) EncodeTerm(
 	if extra == nil {
 		return errors.New("EncodeTerm: state not registered with IDVersionPostingsWriter")
 	}
-	if err := store.WriteVInt(out, int32(extra.DocID)); err != nil {
+	if err := out.WriteVInt(int32(extra.DocID)); err != nil {
 		return err
 	}
 	if absolute {
-		if err := store.WriteVLong(out, extra.IDVersion); err != nil {
+		if err := out.WriteVLong(extra.IDVersion); err != nil {
 			return err
 		}
 	} else {
 		delta := extra.IDVersion - w.lastEncodedVersion
-		if err := store.WriteVLong(out, util.ZigZagEncodeInt64(delta)); err != nil {
+		if err := out.WriteVLong(util.ZigZagEncodeInt64(delta)); err != nil {
 			return err
 		}
 	}

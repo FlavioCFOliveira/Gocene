@@ -142,7 +142,7 @@ func (s *BlockLineSerializer) writeIncrementallyEncodedTerm(out store.DataOutput
 		if err := out.WriteVLong(int64(term.Length())); err != nil {
 			return err
 		}
-		if _, err := out.WriteBytes(term.Bytes()[term.Offset : term.Offset+term.Length()]); err != nil {
+		if err := out.WriteBytes(term.Bytes(), term.Offset, term.Length()); err != nil {
 			return err
 		}
 		return nil
@@ -173,7 +173,7 @@ func (s *BlockLineSerializer) writeIncrementallyEncodedTerm(out store.DataOutput
 
 	suffixLen := termBytes.GetSuffixLength()
 	suffixOff := termBytes.GetSuffixOffset()
-	if _, err := out.WriteBytes(term.Bytes()[term.Offset+suffixOff : term.Offset+suffixOff+suffixLen]); err != nil {
+	if err := out.WriteBytes(term.Bytes(), term.Offset+suffixOff, suffixLen); err != nil {
 		return err
 	}
 
@@ -230,7 +230,7 @@ func (s *BlockLineSerializer) readBytes(in store.DataInput, length, offset int) 
 	}
 
 	// Read bytes directly into the buffer
-	if _, err := in.ReadBytes(s.currentTerm.Bytes()[offset : offset+length]); err != nil {
+	if err := in.ReadBytes(s.currentTerm.Bytes(), offset, length); err != nil {
 		return err
 	}
 	s.currentTerm.SetLength(offset + length)
@@ -246,9 +246,9 @@ func numBitsToEncode(i int) int {
 
 // DeltaBaseTermStateSerializer encodes each file pointer as a delta relative to a base file pointer.
 type DeltaBaseTermStateSerializer struct {
-	baseDocStartFP   int64
-	basePosStartFP   int64
-	basePayStartFP   int64
+	baseDocStartFP int64
+	basePosStartFP int64
+	basePayStartFP int64
 }
 
 func NewDeltaBaseTermStateSerializer() *DeltaBaseTermStateSerializer {

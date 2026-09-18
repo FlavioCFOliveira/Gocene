@@ -6,12 +6,13 @@ package lucene102
 
 import "github.com/FlavioCFOliveira/Gocene/codecs"
 
+// init registers the KnnVectorsFormats that the backward-codecs
+// META-INF/services/org.apache.lucene.codecs.KnnVectorsFormat file of Apache
+// Lucene 10.5.0 lists for this package.
 func init() {
-	// Lucene102BinaryQuantizedVectorsFormat backward-compatibility stub.
 	// Mirrors: org.apache.lucene.backward_codecs.lucene102.Lucene102BinaryQuantizedVectorsFormat
-	codecs.RegisterKnnVectorsFormat(codecs.NewReadOnlyKnnVectorsFormat("Lucene102BinaryQuantizedVectorsFormat"))
+	codecs.RegisterKnnVectorsFormat(NewLucene102BinaryQuantizedVectorsFormat())
 
-	// Lucene102HnswBinaryQuantizedVectorsFormat backward-compatibility stub.
 	// Mirrors: org.apache.lucene.backward_codecs.lucene102.Lucene102HnswBinaryQuantizedVectorsFormat
-	codecs.RegisterKnnVectorsFormat(codecs.NewReadOnlyKnnVectorsFormat("Lucene102HnswBinaryQuantizedVectorsFormat"))
+	codecs.RegisterKnnVectorsFormat(NewLucene102HnswBinaryQuantizedVectorsFormat())
 }

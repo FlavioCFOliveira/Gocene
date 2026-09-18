@@ -5,12 +5,10 @@
 package simpletext
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -59,22 +57,22 @@ func (f *SimpleTextFieldInfosFormat) Read(dir store.Directory, segmentInfo *inde
 		num, _ := strconv.Atoi(numStr)
 		optStr := readVal()
 		// Simplified: a real implementation would parse IndexOptions
-		
+
 		tvStr := readVal()
 		tv, _ := strconv.ParseBool(tvStr)
-		
+
 		payStr := readVal()
 		pay, _ := strconv.ParseBool(payStr)
-		
+
 		normStr := readVal()
 		norm, _ := strconv.ParseBool(normStr)
 
 		dvStr := readVal()
 		// Simplified: a real implementation would parse DocValuesType
-		
+
 		skipStr := readVal()
 		// Simplified: a real implementation would parse DocValuesSkipIndexType
-		
+
 		genStr := readVal()
 		gen, _ := strconv.ParseInt(genStr, 10, 64)
 
@@ -101,7 +99,7 @@ func (f *SimpleTextFieldInfosFormat) Read(dir store.Directory, segmentInfo *inde
 
 		encodingStr := readVal()
 		// Simplified: parse VectorEncoding
-		
+
 		similarityStr := readVal()
 		// Simplified: parse VectorSimilarityFunction
 
@@ -112,7 +110,7 @@ func (f *SimpleTextFieldInfosFormat) Read(dir store.Directory, segmentInfo *inde
 		parent, _ := strconv.ParseBool(parentStr)
 
 		infos[i] = &index.FieldInfo{
-			Name: name,
+			Name:   name,
 			Number: num,
 			// ... other fields ...
 		}

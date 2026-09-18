@@ -12,7 +12,8 @@
 //	http://www.apache.org/licenses/LICENSE-2.0
 //
 // Source: lucene/core/src/java/org/apache/lucene/codecs/lucene104/
-//         Lucene104ScalarQuantizedVectorsReader.java (Lucene 10.4.0)
+//
+//	Lucene104ScalarQuantizedVectorsReader.java (Lucene 10.4.0)
 //
 // This is the Go port of Lucene's Lucene104ScalarQuantizedVectorsReader.
 // It validates the .veq / .vemq CodecUtil framing and parses the per-field
@@ -29,6 +30,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
+	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
 // Lucene104ScalarQuantizedFieldEntry holds the parsed .vemq per-field metadata.
@@ -50,7 +52,7 @@ type Lucene104ScalarQuantizedFieldEntry struct {
 	// Size is the number of vectors stored for the field.
 	Size int
 	// Encoding is the scalar encoding used for the field (present when Size>0).
-	Encoding codecs.ScalarEncoding
+	Encoding quantization.ScalarEncoding
 	// Centroid is the per-field centroid (present when Size>0).
 	Centroid []float32
 	// CentroidDP is the centroid square magnitude (present when Size>0).
@@ -78,7 +80,7 @@ type Lucene104ScalarQuantizedFieldEntry struct {
 // rather than stubbed with fabricated data.
 type Lucene104ScalarQuantizedVectorsReader struct {
 	*hnsw.BaseFlatVectorsReader
-	encoding   codecs.ScalarEncoding
+	encoding   quantization.ScalarEncoding
 	fieldInfos *index.FieldInfos
 	fields     map[int]*Lucene104ScalarQuantizedFieldEntry
 	vectorData store.IndexInput
@@ -88,14 +90,14 @@ type Lucene104ScalarQuantizedVectorsReader struct {
 // NewLucene104ScalarQuantizedVectorsReader opens the .veq data file, validates
 // both files' CodecUtil index headers (and the .veq footer checksum), and
 // parses the .vemq field records.
-func NewLucene104ScalarQuantizedVectorsReader(state *codecs.SegmentReadState, encoding codecs.ScalarEncoding) (*Lucene104ScalarQuantizedVectorsReader, error) {
+func NewLucene104ScalarQuantizedVectorsReader(state *codecs.SegmentReadState, encoding quantization.ScalarEncoding) (*Lucene104ScalarQuantizedVectorsReader, error) {
 	if state == nil || state.SegmentInfo == nil || state.Directory == nil {
 		return nil, errors.New("lucene104 sq: invalid SegmentReadState")
 	}
 	r := &Lucene104ScalarQuantizedVectorsReader{
 		BaseFlatVectorsReader: hnsw.NewBaseFlatVectorsReader(nil), // Scorer will be wired during full port
 		encoding:              encoding,
-		fieldInfos:           state.FieldInfos,
+		fieldInfos:            state.FieldInfos,
 		fields:                make(map[int]*Lucene104ScalarQuantizedFieldEntry),
 	}
 
@@ -224,11 +226,11 @@ func readScalarQuantizedFieldEntry(meta store.DataInput, info *index.FieldInfo) 
 	if err != nil {
 		return nil, err
 	}
-	vectorDataOffset, err := store.ReadVLong(meta)
+	vectorDataOffset, err := meta.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
-	vectorDataLength, err := store.ReadVLong(meta)
+	vectorDataLength, err := meta.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +246,7 @@ func readScalarQuantizedFieldEntry(meta store.DataInput, info *index.FieldInfo) 
 		VectorDataOffset:   vectorDataOffset,
 		VectorDataLength:   vectorDataLength,
 		Size:               int(size),
-		Encoding:           codecs.ScalarEncodingUnsignedByte,
+		Encoding:           quantization.ScalarEncodingUnsignedByte,
 	}
 
 	if size > 0 {
@@ -252,7 +254,7 @@ func readScalarQuantizedFieldEntry(meta store.DataInput, info *index.FieldInfo) 
 		if e != nil {
 			return nil, e
 		}
-		scalarEncoding, e := codecs.ScalarEncodingFromWireNumber(int(wireNumber))
+		scalarEncoding, e := quantization.ScalarEncodingFromWireNumber(int(wireNumber))
 		if e != nil {
 			return nil, e
 		}

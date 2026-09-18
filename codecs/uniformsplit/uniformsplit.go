@@ -3,10 +3,6 @@
 package uniformsplit
 
 import (
-	"fmt"
-	"math"
-	"math/bits"
-
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -19,16 +15,16 @@ type BlockHeader struct {
 	BaseDocsFP        int64
 	BasePositionsFP   int64
 	BasePayloadsFP    int64
-	TermStatesBaseOff  int
+	TermStatesBaseOff int
 	MiddleLineOffset  int
 }
 
 // NewBlockHeader builds a header.
 func NewBlockHeader(lines int, baseDocsFP, basePosFP, basePayFP int64, termStatesBaseOff, middleLineOff int) *BlockHeader {
 	return &BlockHeader{
-		Lines:            lines,
-		BaseDocsFP:       baseDocsFP,
-		BasePositionsFP:  basePosFP,
+		Lines:             lines,
+		BaseDocsFP:        baseDocsFP,
+		BasePositionsFP:   basePosFP,
 		BasePayloadsFP:    basePayFP,
 		TermStatesBaseOff: termStatesBaseOff,
 		MiddleLineOffset:  middleLineOff,
@@ -125,7 +121,7 @@ func NewFSTDictionary(field string, blocks int) *FSTDictionary {
 }
 
 func (d *FSTDictionary) GetField() string { return d.Field }
-func (d *FSTDictionary) NumBlocks() int { return d.Blocks }
+func (d *FSTDictionary) NumBlocks() int   { return d.Blocks }
 
 var _ IndexDictionary = (*FSTDictionary)(nil)
 
@@ -275,11 +271,11 @@ func (BlockDecoder) Decode(data []byte) []byte { return data }
 // BlockReader streams blocks from a backing byte source.
 type BlockReader struct {
 	DictionaryBrowser any
-	Input           store.DataInput
-	PostingsReader   any
-	FieldMetadata    *FieldMetadata
-	Decoder          BlockDecoder
-	
+	Input             store.DataInput
+	PostingsReader    any
+	FieldMetadata     *FieldMetadata
+	Decoder           BlockDecoder
+
 	blockHeader      *BlockHeader
 	blockLine        *BlockLine
 	termState        *codecs.BlockTermState
@@ -294,14 +290,14 @@ func (r *BlockReader) nextTerm() (*util.BytesRef, error) {
 
 // BlockWriter is the streaming-encoder counterpart.
 type BlockWriter struct {
-	Encoder       BlockEncoder
-	Output        store.DataOutput
+	Encoder         BlockEncoder
+	Output          store.DataOutput
 	TargetBlockSize int
 	DeltaNumLines   int
-	
-	lastTerm      *util.BytesRef
-	blockLines    []*BlockLine
-	writeBuffer   *store.ByteBuffersDataOutput
+
+	lastTerm    *util.BytesRef
+	blockLines  []*BlockLine
+	writeBuffer *store.ByteBuffersDataOutput
 }
 
 func NewBlockWriter(out store.DataOutput, target, delta int, enc BlockEncoder) *BlockWriter {

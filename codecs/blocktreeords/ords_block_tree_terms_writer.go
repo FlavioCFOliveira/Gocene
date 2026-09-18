@@ -103,13 +103,13 @@ type ordsSubIndex struct {
 // to the .tio output. It holds the prefix, the file pointer where the block
 // lives, the per-block FST index, floor metadata, and cumulative term counts.
 type ordsPendingBlock struct {
-	prefix        *util.BytesRef
-	fp            int64
-	index         *gfst.FST[*FSTOrdsOutput]
-	subIndices    []*ordsSubIndex
-	hasTerms      bool
-	isFloor       bool
-	floorLeadByte int
+	prefix            *util.BytesRef
+	fp                int64
+	index             *gfst.FST[*FSTOrdsOutput]
+	subIndices        []*ordsSubIndex
+	hasTerms          bool
+	isFloor           bool
+	floorLeadByte     int
 	totalTermCount    int64 // number of terms in THIS block (not including siblings in a floor group)
 	totFloorTermCount int64 // total terms across all blocks in the floor group (set in compileIndex)
 }
@@ -503,23 +503,23 @@ func (w *ordsBlockTreeTermsWriter) Close() error {
 	dirStart := w.out.GetFilePointer()
 	indexDirStart := w.indexOut.GetFilePointer()
 
-	if err := store.WriteVInt(w.out, int32(len(w.fields))); err != nil {
+	if err := w.out.WriteVInt(int32(len(w.fields))); err != nil {
 		setErr(err)
 		return firstErr
 	}
 
 	for _, field := range w.fields {
-		if err := store.WriteVInt(w.out, int32(field.fieldInfo.Number())); err != nil {
+		if err := w.out.WriteVInt(int32(field.fieldInfo.Number())); err != nil {
 			setErr(err)
 			return firstErr
 		}
-		if err := store.WriteVLong(w.out, field.numTerms); err != nil {
+		if err := w.out.WriteVLong(field.numTerms); err != nil {
 			setErr(err)
 			return firstErr
 		}
 		// Write rootCode bytes (the FST empty-output's BytesRef payload).
 		rootBytes := field.rootCode.Bytes
-		if err := store.WriteVInt(w.out, int32(rootBytes.Length)); err != nil {
+		if err := w.out.WriteVInt(int32(rootBytes.Length)); err != nil {
 			setErr(err)
 			return firstErr
 		}
@@ -530,20 +530,20 @@ func (w *ordsBlockTreeTermsWriter) Close() error {
 			}
 		}
 		if field.fieldInfo.IndexOptions() != index.IndexOptionsDocs {
-			if err := store.WriteVLong(w.out, field.sumTotalTermFreq); err != nil {
+			if err := w.out.WriteVLong(field.sumTotalTermFreq); err != nil {
 				setErr(err)
 				return firstErr
 			}
 		}
-		if err := store.WriteVLong(w.out, field.sumDocFreq); err != nil {
+		if err := w.out.WriteVLong(field.sumDocFreq); err != nil {
 			setErr(err)
 			return firstErr
 		}
-		if err := store.WriteVInt(w.out, int32(field.docCount)); err != nil {
+		if err := w.out.WriteVInt(int32(field.docCount)); err != nil {
 			setErr(err)
 			return firstErr
 		}
-		if err := store.WriteVLong(w.indexOut, field.indexStartFP); err != nil {
+		if err := w.indexOut.WriteVLong(field.indexStartFP); err != nil {
 			setErr(err)
 			return firstErr
 		}
@@ -896,7 +896,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 	if end == len(t.pending) {
 		code |= 1
 	}
-	if err := store.WriteVInt(t.parent.out, int32(code)); err != nil {
+	if err := t.parent.out.WriteVInt(int32(code)); err != nil {
 		return nil, err
 	}
 
@@ -924,7 +924,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 			if err := t.suffixWriter.WriteVInt(int32(suffix)); err != nil {
 				return nil, err
 			}
-			if err := t.suffixWriter.WriteBytes(term.termBytes[prefixLength:]); err != nil {
+			if err := t.suffixWriter.WriteBytes(term.termBytes, prefixLength, suffix); err != nil {
 				return nil, err
 			}
 
@@ -966,7 +966,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 				if err := t.suffixWriter.WriteVInt(int32(suffix << 1)); err != nil {
 					return nil, err
 				}
-				if err := t.suffixWriter.WriteBytes(term.termBytes[prefixLength:]); err != nil {
+				if err := t.suffixWriter.WriteBytes(term.termBytes, prefixLength, suffix); err != nil {
 					return nil, err
 				}
 
@@ -1005,7 +1005,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 				if err := t.suffixWriter.WriteVInt(int32((suffix << 1) | 1)); err != nil {
 					return nil, err
 				}
-				if err := t.suffixWriter.WriteBytes(block.prefix.Bytes[block.prefix.Offset+prefixLength : block.prefix.Offset+block.prefix.Length]); err != nil {
+				if err := t.suffixWriter.WriteBytes(block.prefix.Bytes, block.prefix.Offset+prefixLength, suffix); err != nil {
 					return nil, err
 				}
 
@@ -1040,7 +1040,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 	if isLeafBlock {
 		token |= 1
 	}
-	if err := store.WriteVInt(t.parent.out, int32(token)); err != nil {
+	if err := t.parent.out.WriteVInt(int32(token)); err != nil {
 		return nil, err
 	}
 	if suffixSize > 0 {
@@ -1052,7 +1052,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 
 	// Write stats blob.
 	statsSize := int(t.statsWriter.Size())
-	if err := store.WriteVInt(t.parent.out, int32(statsSize)); err != nil {
+	if err := t.parent.out.WriteVInt(int32(statsSize)); err != nil {
 		return nil, err
 	}
 	if statsSize > 0 {
@@ -1064,7 +1064,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 
 	// Write meta blob.
 	metaSize := int(t.metaWriter.Size())
-	if err := store.WriteVInt(t.parent.out, int32(metaSize)); err != nil {
+	if err := t.parent.out.WriteVInt(int32(metaSize)); err != nil {
 		return nil, err
 	}
 	if metaSize > 0 {
@@ -1080,13 +1080,13 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 	}
 
 	return &ordsPendingBlock{
-		prefix:        prefix,
-		fp:            startFP,
-		hasTerms:      hasTerms,
-		isFloor:       isFloor,
-		floorLeadByte: floorLeadLabel,
-		totalTermCount:    totalTermCount,
-		subIndices:    subIndices,
+		prefix:         prefix,
+		fp:             startFP,
+		hasTerms:       hasTerms,
+		isFloor:        isFloor,
+		floorLeadByte:  floorLeadLabel,
+		totalTermCount: totalTermCount,
+		subIndices:     subIndices,
 	}, nil
 }
 
@@ -1177,7 +1177,7 @@ func (t *ordsTermsWriter) finish() error {
 // ordsWriteBytesRef writes a BytesRef as vInt(len) + raw bytes. Mirrors
 // the private writeBytesRef helper in the Java writer.
 func ordsWriteBytesRef(out store.DataOutput, b *util.BytesRef) {
-	if err := store.WriteVInt(out, int32(b.Length)); err != nil {
+	if err := out.WriteVInt(int32(b.Length)); err != nil {
 		// Panic is acceptable here because this is only called from Close
 		// after all term-processing errors have already been checked, and
 		// a write failure at this point is fatal anyway.

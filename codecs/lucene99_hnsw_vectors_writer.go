@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"sort"
 
+	codecshnsw "github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -161,7 +162,7 @@ type Lucene99HnswVectorsWriter struct {
 	// Lucene99FlatVectorsWriter for exactly this purpose; rmp #4731 lands
 	// that composition so the graph this writer builds is backed by
 	// readable vectors. Previously this was deviation 1 (no .vec file).
-	flatWriter *Lucene99FlatVectorsWriter
+	flatWriter codecshnsw.FlatVectorsWriter
 
 	fields []*lucene99HnswFieldWriter
 
@@ -206,7 +207,7 @@ type lucene99HnswFieldWriter struct {
 	// flatField is the per-field accumulator on the composed flat writer.
 	// Every AddValue is forwarded here so the raw vectors reach the .vec
 	// file in addition to feeding the in-memory graph build.
-	flatField *lucene99FlatFieldWriter
+	flatField KnnFieldVectorsWriter
 
 	finished bool
 }
@@ -280,7 +281,8 @@ func NewLucene99HnswVectorsWriter(
 	// Compose the flat vectors writer that persists the raw per-document
 	// vectors to .vec / .vemf, mirroring the FlatVectorsWriter the Java
 	// Lucene99HnswVectorsWriter delegates to.
-	flat, err := NewLucene99FlatVectorsWriter(state)
+	// Java: Lucene99HnswVectorsFormat passes flatVectorsFormat.fieldsWriter(state).
+	flat, err := lucene99HnswFlatVectorsFormat.FlatFieldsWriter(state)
 	if err != nil {
 		_ = w.Close()
 		return nil, fmt.Errorf("hnsw99: create flat writer: %w", err)
@@ -395,7 +397,7 @@ func (fw *lucene99HnswFieldWriter) AddValueFloat32(docID int, vector []float32) 
 	// .vec file. Mirrors FlatFieldVectorsWriter.addValue in the Java
 	// FieldWriter delegate.
 	if fw.flatField != nil {
-		if err := fw.flatField.addValueFloat32(docID, vector); err != nil {
+		if err := fw.flatField.AddValue(docID, vector); err != nil {
 			return fmt.Errorf("hnsw99: forward to flat writer: %w", err)
 		}
 	}
@@ -433,7 +435,7 @@ func (fw *lucene99HnswFieldWriter) AddValueByte(docID int, vector []byte) error 
 	// Forward the raw vector to the composed flat writer (see
 	// AddValueFloat32).
 	if fw.flatField != nil {
-		if err := fw.flatField.addValueByte(docID, vector); err != nil {
+		if err := fw.flatField.AddValue(docID, vector); err != nil {
 			return fmt.Errorf("hnsw99: forward to flat writer: %w", err)
 		}
 	}
@@ -636,10 +638,10 @@ func (fw *lucene99HnswFieldWriter) finish() error {
 	var buildErr error
 	switch fw.encoding {
 	case index.VectorEncodingFloat32:
-		mv := newMemFloat32VectorValues(fw.floats)
+		mv := index.FromFloats(fw.floats, fw.fieldInfo.VectorDimension())
 		scorerSupplier, buildErr = newMemFloat32ScorerSupplier(mv, fw.fieldInfo.VectorSimilarityFunction())
 	case index.VectorEncodingByte:
-		mv := newMemByteVectorValues(fw.bytes)
+		mv := index.FromBytes(fw.bytes, fw.fieldInfo.VectorDimension())
 		scorerSupplier, buildErr = newMemByteScorerSupplier(mv, fw.fieldInfo.VectorSimilarityFunction())
 	default:
 		return fmt.Errorf("hnsw99: field %q: unsupported vector encoding %v",

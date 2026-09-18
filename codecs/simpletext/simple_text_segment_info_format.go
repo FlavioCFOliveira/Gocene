@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -53,7 +52,7 @@ func (f *SimpleTextSegmentInfoFormat) Read(dir store.Directory, segmentName stri
 	// Version
 	versionStr := readVal()
 	// Simplified: just store version as string or use a parser
-	
+
 	// Min Version
 	minVersionStr := readVal()
 

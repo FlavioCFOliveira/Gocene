@@ -1,9 +1,6 @@
 package uhighlight
 
 import (
-	"fmt"
-	"io"
-
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/memory"
@@ -11,7 +8,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
 	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // WeightedSpanTermExtractor is used to extract WeightedSpanTerms from a Query

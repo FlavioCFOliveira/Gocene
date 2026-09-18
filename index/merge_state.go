@@ -74,6 +74,12 @@ type MergeState struct {
 	// TermVectorsReader.getMergeInstance() returns this, so this is
 	// behaviour-preserving for every codec that does not override it.
 	TermVectorsReaders []TermVectorsReader
+
+	// KnnVectorsReaders is the per-sub-reader KnnVectorsReader, in the same
+	// order as Readers, with a nil entry for a sub-reader without vectors.
+	// Each non-nil entry is the reader's merge instance. Mirrors
+	// MergeState.knnVectorsReaders (MergeState.java:80, 165-168).
+	KnnVectorsReaders []KnnVectorsReader
 }
 
 // CheckAborted returns an error if the merge operation has been aborted.

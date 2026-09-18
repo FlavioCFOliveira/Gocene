@@ -27,127 +27,18 @@
 //
 // The Java equivalent is DefaultFlatVectorScorer + inner supplier classes,
 // but those live in codecs.hnsw. This package-private Go adaptation
-// re-implements only the graph-build path.
+// re-implements only the graph-build path. The vectors themselves are the
+// FloatVectorValues.fromFloats / ByteVectorValues.fromBytes views the Java
+// writer builds ([index.FromFloats], [index.FromBytes]).
 
 package codecs
 
 import (
-	"errors"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/util"
 	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
-
-// ---------------------------------------------------------------------------
-// In-memory float32 KnnVectorValues
-// ---------------------------------------------------------------------------
-
-// memFloat32VectorValues wraps a [][]float32 slice and implements
-// util/hnsw.KnnVectorValues. It is used to feed the HNSW graph builder
-// from the vectors collected in lucene99HnswFieldWriter.
-type memFloat32VectorValues struct {
-	vecs [][]float32
-}
-
-func newMemFloat32VectorValues(vecs [][]float32) *memFloat32VectorValues {
-	return &memFloat32VectorValues{vecs: vecs}
-}
-
-func (m *memFloat32VectorValues) Dimension() int       { return len(m.vecs[0]) }
-func (m *memFloat32VectorValues) Size() int            { return len(m.vecs) }
-func (m *memFloat32VectorValues) OrdToDoc(ord int) int { return ord }
-func (m *memFloat32VectorValues) GetAcceptOrds(_ util.Bits) util.Bits {
-	return nil // nil → accept all
-}
-
-// VectorValue returns the float32 vector at ordinal ord.
-func (m *memFloat32VectorValues) VectorValue(ord int) ([]float32, error) {
-	if ord < 0 || ord >= len(m.vecs) {
-		return nil, errors.New("memFloat32VectorValues: ordinal out of range")
-	}
-	return m.vecs[ord], nil
-}
-
-// CopyFloat returns an independent copy (used by the scorer supplier
-// to create a targetVectors buffer).
-func (m *memFloat32VectorValues) CopyFloat() (*memFloat32VectorValues, error) {
-	cp := make([][]float32, len(m.vecs))
-	for i, v := range m.vecs {
-		cp[i] = make([]float32, len(v))
-		copy(cp[i], v)
-	}
-	return &memFloat32VectorValues{vecs: cp}, nil
-}
-
-// Iterator returns a simple sequential iterator.
-func (m *memFloat32VectorValues) Iterator() utilhnsw.DocIndexIterator {
-	return &seqDocIndexIterator{size: len(m.vecs), cur: -1}
-}
-
-// ---------------------------------------------------------------------------
-// In-memory byte KnnVectorValues
-// ---------------------------------------------------------------------------
-
-// memByteVectorValues wraps a [][]byte slice.
-type memByteVectorValues struct {
-	vecs [][]byte
-}
-
-func newMemByteVectorValues(vecs [][]byte) *memByteVectorValues {
-	return &memByteVectorValues{vecs: vecs}
-}
-
-func (m *memByteVectorValues) Dimension() int       { return len(m.vecs[0]) }
-func (m *memByteVectorValues) Size() int            { return len(m.vecs) }
-func (m *memByteVectorValues) OrdToDoc(ord int) int { return ord }
-func (m *memByteVectorValues) GetAcceptOrds(_ util.Bits) util.Bits {
-	return nil
-}
-
-// VectorValue returns the byte vector at ordinal ord.
-func (m *memByteVectorValues) VectorValue(ord int) ([]byte, error) {
-	if ord < 0 || ord >= len(m.vecs) {
-		return nil, errors.New("memByteVectorValues: ordinal out of range")
-	}
-	return m.vecs[ord], nil
-}
-
-// CopyByte returns an independent copy.
-func (m *memByteVectorValues) CopyByte() (*memByteVectorValues, error) {
-	cp := make([][]byte, len(m.vecs))
-	for i, v := range m.vecs {
-		cp[i] = make([]byte, len(v))
-		copy(cp[i], v)
-	}
-	return &memByteVectorValues{vecs: cp}, nil
-}
-
-// Iterator returns a simple sequential iterator.
-func (m *memByteVectorValues) Iterator() utilhnsw.DocIndexIterator {
-	return &seqDocIndexIterator{size: len(m.vecs), cur: -1}
-}
-
-// ---------------------------------------------------------------------------
-// Sequential DocIndexIterator — identity ordinal → docID mapping.
-// ---------------------------------------------------------------------------
-
-type seqDocIndexIterator struct {
-	size int
-	cur  int
-}
-
-func (it *seqDocIndexIterator) NextDoc() (int, error) {
-	it.cur++
-	if it.cur >= it.size {
-		it.cur = it.size // clamp at exhaustion
-		return util.NO_MORE_DOCS, nil
-	}
-	return it.cur, nil
-}
-
-func (it *seqDocIndexIterator) Index() int { return it.cur }
 
 // ---------------------------------------------------------------------------
 // Float32 scorer supplier
@@ -156,16 +47,16 @@ func (it *seqDocIndexIterator) Index() int { return it.cur }
 // memFloat32ScorerSupplier implements util/hnsw.RandomVectorScorerSupplier
 // for in-memory float32 vectors during graph building.
 type memFloat32ScorerSupplier struct {
-	vecs   *memFloat32VectorValues
-	target *memFloat32VectorValues
+	vecs   index.FloatVectorValues
+	target index.FloatVectorValues
 	sim    index.VectorSimilarityFunction
 }
 
 func newMemFloat32ScorerSupplier(
-	vecs *memFloat32VectorValues,
+	vecs index.FloatVectorValues,
 	sim index.VectorSimilarityFunction,
 ) (utilhnsw.RandomVectorScorerSupplier, error) {
-	tgt, err := vecs.CopyFloat()
+	tgt, err := vecs.CopyFloatVectorValues()
 	if err != nil {
 		return nil, err
 	}
@@ -221,16 +112,16 @@ func (s *memFloat32Scorer) BulkScore(nodes []int, scores []float32, numNodes int
 // memByteScorerSupplier implements util/hnsw.RandomVectorScorerSupplier
 // for in-memory byte vectors during graph building.
 type memByteScorerSupplier struct {
-	vecs   *memByteVectorValues
-	target *memByteVectorValues
+	vecs   index.ByteVectorValues
+	target index.ByteVectorValues
 	sim    index.VectorSimilarityFunction
 }
 
 func newMemByteScorerSupplier(
-	vecs *memByteVectorValues,
+	vecs index.ByteVectorValues,
 	sim index.VectorSimilarityFunction,
 ) (utilhnsw.RandomVectorScorerSupplier, error) {
-	tgt, err := vecs.CopyByte()
+	tgt, err := vecs.CopyByteVectorValues()
 	if err != nil {
 		return nil, err
 	}

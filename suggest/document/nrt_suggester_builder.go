@@ -46,9 +46,9 @@ func NRTSuggesterDecode(output int64) int64 {
 // NRTSuggester.PayLoadProcessor.make(BytesRef, int, int).
 func makePayload(surface []byte, docID int, sep int) *util.BytesRef {
 	out := store.NewByteArrayDataOutput(len(surface) + maxDocIDLenWithSep)
-	_ = out.WriteBytes(surface)
+	_ = out.WriteBytes(surface, 0, len(surface))
 	_ = out.WriteByte(byte(sep))
-	_ = store.WriteVInt(out, int32(docID))
+	_ = out.WriteVInt(int32(docID))
 	pos := out.GetPosition()
 	src := out.GetBytes()
 	b := make([]byte, pos)
@@ -200,13 +200,13 @@ func (b *NRTSuggesterBuilder) Store(output store.DataOutput) (bool, error) {
 		// but guard to avoid writing invalid metadata.
 		return false, fmt.Errorf("nrtsuggester: maxAnalyzedPathsPerOutput must be > 0")
 	}
-	if err := store.WriteVInt(output, int32(b.maxAnalyzedPerOutput)); err != nil {
+	if err := output.WriteVInt(int32(b.maxAnalyzedPerOutput)); err != nil {
 		return false, err
 	}
-	if err := store.WriteVInt(output, int32(endByte)); err != nil {
+	if err := output.WriteVInt(int32(endByte)); err != nil {
 		return false, err
 	}
-	if err := store.WriteVInt(output, int32(payloadSep)); err != nil {
+	if err := output.WriteVInt(int32(payloadSep)); err != nil {
 		return false, err
 	}
 	return true, nil

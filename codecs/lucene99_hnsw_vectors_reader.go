@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"sort"
 
+	codecshnsw "github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -53,7 +54,7 @@ type Lucene99HnswVectorsReader struct {
 	fieldInfos  *index.FieldInfos
 	fields      map[int]*lucene99HnswFieldEntry // keyed by field number
 	vectorIndex store.IndexInput                // open .vex file
-	flatReader  *Lucene99FlatVectorsReader      // reads .vec / .vemf
+	flatReader  codecshnsw.FlatVectorsReader    // reads the flat vectors
 	version     int32
 	closed      bool
 }
@@ -75,17 +76,30 @@ type lucene99HnswFieldEntry struct {
 	offsetsLength      int64
 }
 
-// NewLucene99HnswVectorsReader creates a new HNSW vectors reader.
-// It reads and validates the .vem header and per-field entries, then opens
-// the .vex graph index file.
+// NewLucene99HnswVectorsReader creates a new HNSW vectors reader over the
+// supplied flat vectors reader. It reads and validates the .vem header and
+// per-field entries, then opens the .vex graph index file.
 //
-// Mirrors Lucene99HnswVectorsReader(SegmentReadState, FlatVectorsReader).
-// The flatVectorsReader parameter is omitted because the Gocene writer does
-// not emit .vec files yet.
-func NewLucene99HnswVectorsReader(state *SegmentReadState) (*Lucene99HnswVectorsReader, error) {
+// Mirrors Lucene99HnswVectorsReader(SegmentReadState, FlatVectorsReader): the
+// flat vectors reader is owned by the new reader, and is closed when the
+// constructor fails, as IOUtils.closeWhileHandlingException(this) closes it
+// in Java.
+func NewLucene99HnswVectorsReader(state *SegmentReadState, flatVectorsReader codecshnsw.FlatVectorsReader) (*Lucene99HnswVectorsReader, error) {
+	r, err := newLucene99HnswVectorsReader(state, flatVectorsReader)
+	if err != nil {
+		util.CloseAllWhileHandlingException(flatVectorsReader)
+		return nil, err
+	}
+	return r, nil
+}
+
+// newLucene99HnswVectorsReader is the body of the Java constructor's try
+// block.
+func newLucene99HnswVectorsReader(state *SegmentReadState, flatVectorsReader codecshnsw.FlatVectorsReader) (*Lucene99HnswVectorsReader, error) {
 	r := &Lucene99HnswVectorsReader{
 		fieldInfos: state.FieldInfos,
 		fields:     make(map[int]*lucene99HnswFieldEntry),
+		flatReader: flatVectorsReader,
 	}
 
 	// --- read .vem metadata ---
@@ -153,17 +167,37 @@ func NewLucene99HnswVectorsReader(state *SegmentReadState) (*Lucene99HnswVectors
 			r.version, versionIdx)
 	}
 	r.vectorIndex = vectorIndex
-
-	// Open the composed flat reader for the raw vectors (.vec / .vemf),
-	// mirroring the FlatVectorsReader the Java Lucene99HnswVectorsReader
-	// delegates to.
-	flat, err := NewLucene99FlatVectorsReader(state)
-	if err != nil {
-		_ = vectorIndex.Close()
-		return nil, fmt.Errorf("hnsw99 reader: open flat reader: %w", err)
-	}
-	r.flatReader = flat
 	return r, nil
+}
+
+// ReadSimilarityFunction reads a similarity function ordinal and resolves it
+// against the SIMILARITY_FUNCTIONS list. Mirrors the public static
+// Lucene99HnswVectorsReader.readSimilarityFunction(DataInput) of Apache Lucene
+// 10.5.0, whose IllegalArgumentException is returned as an error.
+func ReadSimilarityFunction(input store.DataInput) (index.VectorSimilarityFunction, error) {
+	i, err := input.ReadInt()
+	if err != nil {
+		return nil, err
+	}
+	if i < 0 || int(i) >= len(lucene99HnswSimilarityOrdinals) {
+		return nil, fmt.Errorf("invalid distance function: %d", i)
+	}
+	return lucene99HnswSimilarityOrdinals[i], nil
+}
+
+// ReadVectorEncoding reads a vector encoding ordinal. Mirrors the public
+// static Lucene99HnswVectorsReader.readVectorEncoding(DataInput) of Apache
+// Lucene 10.5.0, whose CorruptIndexException is returned as an error.
+func ReadVectorEncoding(input store.DataInput) (index.VectorEncoding, error) {
+	encodingID, err := input.ReadInt()
+	if err != nil {
+		return 0, err
+	}
+	// VectorEncoding.values() is {BYTE, FLOAT32}.
+	if encodingID < 0 || encodingID > int32(index.VectorEncodingFloat32) {
+		return 0, fmt.Errorf("Invalid vector encoding id: %d", encodingID)
+	}
+	return index.VectorEncoding(encodingID), nil
 }
 
 // readFields parses all per-field entries from the meta input until the -1 sentinel.
@@ -321,10 +355,11 @@ func (r *Lucene99HnswVectorsReader) GetMergeInstance() (KnnVectorsReader, error)
 		if err != nil {
 			return nil, err
 		}
-		flat, ok := mergeFlat.(*Lucene99FlatVectorsReader)
+		// Java: FlatVectorsReader.getMergeInstance() returns a FlatVectorsReader.
+		flat, ok := mergeFlat.(codecshnsw.FlatVectorsReader)
 		if !ok {
 			return nil, fmt.Errorf(
-				"lucene99 hnsw: flat reader merge instance has type %T, want *Lucene99FlatVectorsReader",
+				"lucene99 hnsw: flat reader merge instance has type %T, want a FlatVectorsReader",
 				mergeFlat)
 		}
 		clone.flatReader = flat
@@ -464,7 +499,7 @@ func (r *Lucene99HnswVectorsReader) SearchByte(_ string, _ []byte, _ any, _ util
 func (r *Lucene99HnswVectorsReader) SearchNearestFloat(
 	field string, target []float32, k int, acceptDocs util.Bits,
 ) (*spi.TopDocs, error) {
-	scorer, err := r.flatReader.randomVectorScorerFloat(field, target)
+	scorer, err := r.flatReader.GetRandomVectorScorerFloat(field, target)
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +510,7 @@ func (r *Lucene99HnswVectorsReader) SearchNearestFloat(
 func (r *Lucene99HnswVectorsReader) SearchNearestByte(
 	field string, target []byte, k int, acceptDocs util.Bits,
 ) (*spi.TopDocs, error) {
-	scorer, err := r.flatReader.randomVectorScorerByte(field, target)
+	scorer, err := r.flatReader.GetRandomVectorScorerByte(field, target)
 	if err != nil {
 		return nil, err
 	}
@@ -582,7 +617,7 @@ func (r *Lucene99HnswVectorsReader) searchCollector(
 func (r *Lucene99HnswVectorsReader) SearchNearestFloatCollector(
 	field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits,
 ) error {
-	scorer, err := r.flatReader.randomVectorScorerFloat(field, target)
+	scorer, err := r.flatReader.GetRandomVectorScorerFloat(field, target)
 	if err != nil {
 		return err
 	}
@@ -594,7 +629,7 @@ func (r *Lucene99HnswVectorsReader) SearchNearestFloatCollector(
 func (r *Lucene99HnswVectorsReader) SearchNearestByteCollector(
 	field string, target []byte, collector spi.KnnCollector, acceptDocs util.Bits,
 ) error {
-	scorer, err := r.flatReader.randomVectorScorerByte(field, target)
+	scorer, err := r.flatReader.GetRandomVectorScorerByte(field, target)
 	if err != nil {
 		return err
 	}

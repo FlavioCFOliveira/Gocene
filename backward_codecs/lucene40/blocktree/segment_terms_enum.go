@@ -131,7 +131,7 @@ func (e *SegmentTermsEnum) pushFrame(
 	length int,
 ) *segmentTermsEnumFrame {
 	e.scratchReader.Reset(frameData.Bytes[frameData.Offset : frameData.Offset+frameData.Length])
-	code, _ := store.ReadVLong(e.scratchReader)
+	code, _ := e.scratchReader.ReadVLong()
 	fpSeek := int64(uint64(code) >> OutputFlagsNumBits)
 	f := e.getFrame(1 + e.currentFrame.ord)
 	f.hasTerms = (code & OutputFlagHasTerms) != 0

@@ -274,7 +274,7 @@ func (f *OrdsIntersectTermsEnumFrame) load(output *FSTOrdsOutput) error {
 	if numBytes > len(f.suffixBytes) {
 		f.suffixBytes = make([]byte, util.Oversize(numBytes, 1))
 	}
-	if err := f.ite.in.ReadBytes(f.suffixBytes[:numBytes]); err != nil {
+	if err := f.ite.in.ReadBytes(f.suffixBytes, 0, numBytes); err != nil {
 		return fmt.Errorf("OrdsIntersectTermsEnumFrame.load: read suffix bytes: %w", err)
 	}
 	f.suffixesReader.ResetWithSlice(f.suffixBytes, 0, numBytes)
@@ -288,7 +288,7 @@ func (f *OrdsIntersectTermsEnumFrame) load(output *FSTOrdsOutput) error {
 	if numBytes > len(f.statBytes) {
 		f.statBytes = make([]byte, util.Oversize(numBytes, 1))
 	}
-	if err := f.ite.in.ReadBytes(f.statBytes[:numBytes]); err != nil {
+	if err := f.ite.in.ReadBytes(f.statBytes, 0, numBytes); err != nil {
 		return fmt.Errorf("OrdsIntersectTermsEnumFrame.load: read stats: %w", err)
 	}
 	f.statsReader.ResetWithSlice(f.statBytes, 0, numBytes)
@@ -306,7 +306,7 @@ func (f *OrdsIntersectTermsEnumFrame) load(output *FSTOrdsOutput) error {
 		f.bytes = make([]byte, util.Oversize(numBytes, 1))
 		f.bytesReader = store.NewByteArrayDataInput(nil)
 	}
-	if err := f.ite.in.ReadBytes(f.bytes[:numBytes]); err != nil {
+	if err := f.ite.in.ReadBytes(f.bytes, 0, numBytes); err != nil {
 		return fmt.Errorf("OrdsIntersectTermsEnumFrame.load: read metadata: %w", err)
 	}
 	f.bytesReader.ResetWithSlice(f.bytes, 0, numBytes)

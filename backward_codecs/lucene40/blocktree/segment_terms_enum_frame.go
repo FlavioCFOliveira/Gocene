@@ -206,7 +206,7 @@ func (f *segmentTermsEnumFrame) loadBlock() error {
 
 	// Read suffix bytes.
 	if f.version >= versionCompressedSuffixes {
-		codeL, err2 := store.ReadVLong(f.ste.in)
+		codeL, err2 := f.ste.in.ReadVLong()
 		if err2 != nil {
 			return fmt.Errorf("blocktree loadBlock read suffix codeL: %w", err2)
 		}
@@ -244,7 +244,7 @@ func (f *segmentTermsEnumFrame) loadBlock() error {
 				f.suffixLengthBytes[i] = b
 			}
 		} else {
-			if err6 := f.ste.in.ReadBytes(f.suffixLengthBytes[:numSuffixLengthBytes]); err6 != nil {
+			if err6 := f.ste.in.ReadBytes(f.suffixLengthBytes, 0, numSuffixLengthBytes); err6 != nil {
 				return fmt.Errorf("blocktree loadBlock read suffix lengths: %w", err6)
 			}
 		}
@@ -259,7 +259,7 @@ func (f *segmentTermsEnumFrame) loadBlock() error {
 		if numBytes > len(f.suffixBytes) {
 			f.suffixBytes = util.GrowExactByte(f.suffixBytes, util.Oversize(numBytes, 1))
 		}
-		if err3 := f.ste.in.ReadBytes(f.suffixBytes[:numBytes]); err3 != nil {
+		if err3 := f.ste.in.ReadBytes(f.suffixBytes, 0, numBytes); err3 != nil {
 			return fmt.Errorf("blocktree loadBlock read suffix bytes (old): %w", err3)
 		}
 		f.suffixesReader.ResetWithSlice(f.suffixBytes, 0, numBytes)
@@ -277,7 +277,7 @@ func (f *segmentTermsEnumFrame) loadBlock() error {
 	if numStatBytes > len(f.statBytes) {
 		f.statBytes = util.GrowExactByte(f.statBytes, util.Oversize(numStatBytes, 1))
 	}
-	if err2 := f.ste.in.ReadBytes(f.statBytes[:numStatBytes]); err2 != nil {
+	if err2 := f.ste.in.ReadBytes(f.statBytes, 0, numStatBytes); err2 != nil {
 		return fmt.Errorf("blocktree loadBlock read stats: %w", err2)
 	}
 	f.statsReader.ResetWithSlice(f.statBytes, 0, numStatBytes)
@@ -299,7 +299,7 @@ func (f *segmentTermsEnumFrame) loadBlock() error {
 	if numMetaBytes > len(f.bytes) {
 		f.bytes = util.GrowExactByte(f.bytes, util.Oversize(numMetaBytes, 1))
 	}
-	if err2 := f.ste.in.ReadBytes(f.bytes[:numMetaBytes]); err2 != nil {
+	if err2 := f.ste.in.ReadBytes(f.bytes, 0, numMetaBytes); err2 != nil {
 		return fmt.Errorf("blocktree loadBlock read meta: %w", err2)
 	}
 	f.bytesReader.ResetWithSlice(f.bytes, 0, numMetaBytes)
@@ -346,7 +346,7 @@ func (f *segmentTermsEnumFrame) nextLeaf() {
 	f.startBytePos = f.suffixesReader.GetPosition()
 	f.ste.term.SetLength(f.prefix + f.suffix)
 	f.ste.term.Grow(f.ste.term.Length())
-	_ = f.suffixesReader.ReadBytes(f.ste.term.Bytes()[f.prefix : f.prefix+f.suffix])
+	_ = f.suffixesReader.ReadBytes(f.ste.term.Bytes(), f.prefix, f.suffix)
 	f.ste.termExists = true
 }
 
@@ -371,7 +371,7 @@ func (f *segmentTermsEnumFrame) nextNonLeaf() (bool, error) {
 		f.startBytePos = f.suffixesReader.GetPosition()
 		f.ste.term.SetLength(f.prefix + f.suffix)
 		f.ste.term.Grow(f.ste.term.Length())
-		_ = f.suffixesReader.ReadBytes(f.ste.term.Bytes()[f.prefix : f.prefix+f.suffix])
+		_ = f.suffixesReader.ReadBytes(f.ste.term.Bytes(), f.prefix, f.suffix)
 		if (code & 1) == 0 {
 			// A normal term.
 			f.ste.termExists = true
@@ -383,7 +383,7 @@ func (f *segmentTermsEnumFrame) nextNonLeaf() (bool, error) {
 		}
 		// A sub-block.
 		f.ste.termExists = false
-		v, _ := store.ReadVLong(f.suffixLengthsReader)
+		v, _ := f.suffixLengthsReader.ReadVLong()
 		f.subCode = int64(v)
 		f.lastSubFP = f.fp - f.subCode
 		return true, nil
@@ -405,7 +405,7 @@ func (f *segmentTermsEnumFrame) scanToFloorFrame(target *util.BytesRef) {
 
 	var newFP int64 = f.fpOrig
 	for {
-		code, _ := store.ReadVLong(f.floorDataReader)
+		code, _ := f.floorDataReader.ReadVLong()
 		newFP = f.fpOrig + int64(uint64(code)>>1)
 		f.hasTerms = (code & 1) != 0
 		f.isLastInFloor = f.numFollowFloorBlocks == 1
@@ -459,7 +459,7 @@ func (f *segmentTermsEnumFrame) decodeMetaData() error {
 							f.state.TotalTermFreq = int64(f.state.DocFreq)
 						}
 					} else {
-						v, _ := store.ReadVLong(f.statsReader)
+						v, _ := f.statsReader.ReadVLong()
 						if f.state != nil {
 							f.state.TotalTermFreq = int64(f.state.DocFreq) + int64(v)
 						}
@@ -476,7 +476,7 @@ func (f *segmentTermsEnumFrame) decodeMetaData() error {
 					f.state.TotalTermFreq = int64(f.state.DocFreq)
 				}
 			} else {
-				v, _ := store.ReadVLong(f.statsReader)
+				v, _ := f.statsReader.ReadVLong()
 				if f.state != nil {
 					f.state.TotalTermFreq = int64(f.state.DocFreq) + int64(v)
 				}
@@ -521,7 +521,7 @@ func (f *segmentTermsEnumFrame) scanToSubBlock(subFP int64) {
 		// skip suffix bytes
 		f.suffixesReader.SetPosition(f.suffixesReader.GetPosition() + int(code>>1))
 		if (code & 1) != 0 {
-			subCode, _ := store.ReadVLong(f.suffixLengthsReader)
+			subCode, _ := f.suffixLengthsReader.ReadVLong()
 			if int64(subCode) == targetSubCode {
 				f.lastSubFP = subFP
 				return
@@ -622,7 +622,7 @@ func (f *segmentTermsEnumFrame) scanToTermNonLeaf(target *util.BytesRef, exactOn
 			}
 			f.subCode = 0
 		} else {
-			v, _ := store.ReadVLong(f.suffixLengthsReader)
+			v, _ := f.suffixLengthsReader.ReadVLong()
 			f.subCode = int64(v)
 			f.lastSubFP = f.fp - f.subCode
 		}

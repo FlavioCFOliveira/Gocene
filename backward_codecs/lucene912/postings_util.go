@@ -106,7 +106,7 @@ func WriteVIntBlock(
 		for i := 0; i < num; i++ {
 			freq := int32(freqBuffer[i])
 			if freq != 1 {
-				if err := store.WriteVInt(docOut, freq); err != nil {
+				if err := docOut.WriteVInt(freq); err != nil {
 					return err
 				}
 			}

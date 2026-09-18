@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -286,7 +285,7 @@ func (r *BlockReader) readHeader() (*BlockHeader, error) {
 
 func (r *BlockReader) decodeBlockBytesIfNeeded(numBlockBytes int32) (*util.BytesRef, error) {
 	buf := make([]byte, numBlockBytes)
-	if _, err := r.blockInput.ReadBytes(buf); err != nil {
+	if err := r.blockInput.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, err
 	}
 	r.scratchBlockBytes = util.NewBytesRef(buf)

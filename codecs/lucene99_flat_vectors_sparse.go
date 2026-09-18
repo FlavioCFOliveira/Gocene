@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 //
-// Portions adapted from Apache Lucene 10.4.0:
+// Portions adapted from Apache Lucene 10.5.0:
 //
 //	Licensed to the Apache Software Foundation (ASF) under one or more
 //	contributor license agreements. See the NOTICE file distributed with
@@ -18,6 +18,7 @@ package codecs
 import (
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -25,10 +26,9 @@ import (
 )
 
 // This file implements the sparse off-heap vector views for the Lucene99 flat
-// vectors format (rmp #4755). They are the Go port of the
-// SparseOffHeapVectorValues inner classes of
-// org.apache.lucene.codecs.lucene99.OffHeap{Float,Byte}VectorValues
-// (Lucene 10.4.0).
+// vectors format. They are the Go port of the SparseOffHeapVectorValues inner
+// classes of org.apache.lucene.codecs.lucene95.OffHeap{Float,Byte}VectorValues
+// (Apache Lucene 10.5.0).
 //
 // In the sparse layout the .vec file still stores the per-document vectors
 // packed by ordinal (ord 0..size-1, byte-for-byte the dense layout), so
@@ -56,11 +56,12 @@ type flatSparseFloatVectorValues struct {
 	reader *Lucene99FlatVectorsReader
 	entry  *lucene99FlatFieldEntry
 
-	dimension int
-	size      int
-	byteSize  int
-	slice     store.IndexInput
-	sim       index.VectorSimilarityFunction
+	dimension         int
+	size              int
+	byteSize          int
+	slice             store.IndexInput
+	sim               index.VectorSimilarityFunction
+	flatVectorsScorer hnsw.FlatVectorsScorer
 
 	ordToDoc *packed.DirectMonotonicReader
 	disi     *dvIndexedDISI
@@ -71,18 +72,17 @@ type flatSparseFloatVectorValues struct {
 
 func (v *flatSparseFloatVectorValues) Dimension() int { return v.dimension }
 func (v *flatSparseFloatVectorValues) Size() int      { return v.size }
-func (v *flatSparseFloatVectorValues) similarity() index.VectorSimilarityFunction {
-	return v.sim
-}
+
+// GetSlice mirrors OffHeapFloatVectorValues.getSlice().
+func (v *flatSparseFloatVectorValues) GetSlice() store.IndexInput { return v.slice }
 
 // OrdToDoc maps a vector ordinal to its document id via the
 // DirectMonotonicReader. Mirrors SparseOffHeapVectorValues.ordToDoc.
 func (v *flatSparseFloatVectorValues) OrdToDoc(ord int) int {
 	doc, err := v.ordToDoc.Get(int64(ord))
 	if err != nil {
-		// OrdToDoc satisfies the hnsw.KnnVectorValues interface which
-		// cannot return an error. I/O errors here are treated as
-		// unrecoverable, matching Lucene's RuntimeException contract.
+		// OrdToDoc satisfies the KnnVectorValues interface, which cannot
+		// return an error; Java's LongValues.get cannot throw either.
 		return 0
 	}
 	return int(doc)
@@ -153,19 +153,20 @@ func (v *flatSparseFloatVectorValues) GetVectorByteLength() int {
 	return v.Dimension() * index.VectorEncodingByteSize(v.GetEncoding())
 }
 
-// Scorer mirrors SparseOffHeapVectorValues.scorer(query): it scores a copy of
-// these values against query, reading the score of the iterator's current
-// ordinal.
+// Scorer mirrors SparseOffHeapVectorValues.scorer(query): a copy of these
+// values is scored against query by the flat vectors scorer, reading the
+// score of the iterator's current ordinal.
 func (v *flatSparseFloatVectorValues) Scorer(query []float32) (util.VectorScorer, error) {
-	cp, err := v.reader.newFlatSparseFloatVectorValues(v.entry, v.slice.Clone())
+	copied, err := v.CopyFloatVectorValues()
 	if err != nil {
 		return nil, err
 	}
-	if len(query) != cp.Dimension() {
-		return nil, fmt.Errorf("lucene99 flat: query dim %d != field dim %d", len(query), cp.Dimension())
+	iterator := copied.Iterator()
+	randomVectorScorer, err := v.flatVectorsScorer.GetRandomVectorScorer(v.sim, copied, query)
+	if err != nil {
+		return nil, err
 	}
-	iterator := cp.Iterator()
-	return &flatSparseVectorScorer{scorer: newFlatFloatQueryScorer(cp, query), iterator: iterator}, nil
+	return &flatSparseVectorScorer{scorer: randomVectorScorer, iterator: iterator}, nil
 }
 
 // Rescorer carries the FloatVectorValues.rescorer default.
@@ -183,11 +184,12 @@ type flatSparseByteVectorValues struct {
 	reader *Lucene99FlatVectorsReader
 	entry  *lucene99FlatFieldEntry
 
-	dimension int
-	size      int
-	byteSize  int
-	slice     store.IndexInput
-	sim       index.VectorSimilarityFunction
+	dimension         int
+	size              int
+	byteSize          int
+	slice             store.IndexInput
+	sim               index.VectorSimilarityFunction
+	flatVectorsScorer hnsw.FlatVectorsScorer
 
 	ordToDoc *packed.DirectMonotonicReader
 	disi     *dvIndexedDISI
@@ -198,10 +200,11 @@ type flatSparseByteVectorValues struct {
 
 func (v *flatSparseByteVectorValues) Dimension() int { return v.dimension }
 func (v *flatSparseByteVectorValues) Size() int      { return v.size }
-func (v *flatSparseByteVectorValues) similarity() index.VectorSimilarityFunction {
-	return v.sim
-}
 
+// GetSlice mirrors OffHeapByteVectorValues.getSlice().
+func (v *flatSparseByteVectorValues) GetSlice() store.IndexInput { return v.slice }
+
+// OrdToDoc mirrors SparseOffHeapVectorValues.ordToDoc.
 func (v *flatSparseByteVectorValues) OrdToDoc(ord int) int {
 	doc, err := v.ordToDoc.Get(int64(ord))
 	if err != nil {
@@ -210,6 +213,7 @@ func (v *flatSparseByteVectorValues) OrdToDoc(ord int) int {
 	return int(doc)
 }
 
+// GetAcceptOrds mirrors SparseOffHeapVectorValues.getAcceptOrds.
 func (v *flatSparseByteVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
 	if acceptDocs == nil {
 		return nil
@@ -217,6 +221,7 @@ func (v *flatSparseByteVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bi
 	return &flatSparseAcceptOrds{acceptDocs: acceptDocs, ordToDoc: v.ordToDoc, size: v.size}
 }
 
+// VectorValue returns the byte vector at ordinal ord.
 func (v *flatSparseByteVectorValues) VectorValue(ord int) ([]byte, error) {
 	if ord < 0 || ord >= v.size {
 		return nil, fmt.Errorf("lucene99 flat: sparse byte ordinal %d out of range [0,%d)", ord, v.size)
@@ -234,6 +239,8 @@ func (v *flatSparseByteVectorValues) VectorValue(ord int) ([]byte, error) {
 	return v.value, nil
 }
 
+// Iterator mirrors SparseOffHeapVectorValues.iterator():
+// IndexedDISI.asDocIndexIterator(disi).
 func (v *flatSparseByteVectorValues) Iterator() index.DocIndexIterator {
 	return dvIndexedDISIAsDocIndexIterator(v.disi)
 }
@@ -268,19 +275,20 @@ func (v *flatSparseByteVectorValues) GetVectorByteLength() int {
 	return v.Dimension() * index.VectorEncodingByteSize(v.GetEncoding())
 }
 
-// Scorer mirrors SparseOffHeapVectorValues.scorer(query): it scores a copy of
-// these values against query, reading the score of the iterator's current
-// ordinal.
+// Scorer mirrors SparseOffHeapVectorValues.scorer(query) of
+// OffHeapByteVectorValues: a copy of these values is scored against query by
+// the flat vectors scorer, reading the score of copy.disi.index().
 func (v *flatSparseByteVectorValues) Scorer(query []byte) (util.VectorScorer, error) {
-	cp, err := v.reader.newFlatSparseByteVectorValues(v.entry, v.slice.Clone())
+	copied, err := v.reader.newFlatSparseByteVectorValues(v.entry, v.slice.Clone())
 	if err != nil {
 		return nil, err
 	}
-	if len(query) != cp.Dimension() {
-		return nil, fmt.Errorf("lucene99 flat: query dim %d != field dim %d", len(query), cp.Dimension())
+	scorer, err := v.flatVectorsScorer.GetRandomVectorScorerByte(v.sim, copied, query)
+	if err != nil {
+		return nil, err
 	}
-	iterator := cp.Iterator()
-	return &flatSparseVectorScorer{scorer: newFlatByteQueryScorer(cp, query), iterator: iterator}, nil
+	iterator := copied.Iterator()
+	return &flatSparseVectorScorer{scorer: scorer, iterator: iterator}, nil
 }
 
 // Rescorer carries the ByteVectorValues.rescorer default.

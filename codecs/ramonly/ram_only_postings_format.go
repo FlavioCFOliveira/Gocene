@@ -10,16 +10,14 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // RAMOnlyPostingsFormat stores all postings data in RAM.
 type RAMOnlyPostingsFormat struct {
-	state map[int]*ramPostings
-	mu    sync.RWMutex
+	state  map[int]*ramPostings
+	mu     sync.RWMutex
 	nextID atomic.Int32
 }
 
@@ -133,9 +131,9 @@ func (f *ramField) HasPayloads() bool {
 }
 
 type ramTerm struct {
-	term       string
-	totalTF    int64
-	docs       []*ramDoc
+	term    string
+	totalTF int64
+	docs    []*ramDoc
 }
 
 type ramDoc struct {
@@ -151,11 +149,11 @@ type ramFieldsConsumer struct {
 
 func (c *ramFieldsConsumer) Write(field string, terms spi.Terms) error {
 	info := c.state.FieldInfos().FieldInfo(field)
-	
+
 	ramField := &ramField{
-		field: field,
+		field:      field,
 		termToDocs: make(map[string]*ramTerm),
-		info: info,
+		info:       info,
 	}
 
 	termsEnum := terms.Iterator()
@@ -168,7 +166,7 @@ func (c *ramFieldsConsumer) Write(field string, terms spi.Terms) error {
 			break
 		}
 		termStr := string(termBytes)
-		
+
 		postingsEnum := termsEnum.Postings(nil, 0)
 		docFreq := 0
 		var totalTF int64
@@ -210,9 +208,9 @@ func (c *ramFieldsConsumer) Write(field string, terms spi.Terms) error {
 
 			// Add to term
 			rt := &ramTerm{
-				term: termStr,
+				term:    termStr,
 				totalTF: int64(freq),
-				docs: []*ramDoc{doc},
+				docs:    []*ramDoc{doc},
 			}
 			ramField.termToDocs[termStr] = rt
 		}
@@ -223,7 +221,7 @@ func (c *ramFieldsConsumer) Write(field string, terms spi.Terms) error {
 	ramField.sumTotalTF = sumTotalTF
 	ramField.sumDocFreq = sumDocFreq
 	ramField.docCount = len(docsSeen)
-	
+
 	c.postings.mu.Lock()
 	c.postings.fieldToTerms[field] = ramField
 	c.postings.mu.Unlock()
@@ -236,10 +234,10 @@ func (c *ramFieldsConsumer) Close() error {
 }
 
 type ramTermsEnum struct {
-	field *ramField
+	field   *ramField
 	current string
-	it     []string
-	pos    int
+	it      []string
+	pos     int
 }
 
 func (e *ramTermsEnum) Next() []byte {
@@ -319,22 +317,22 @@ func (e *ramDocsEnum) GetPayload() []byte {
 
 func (f *RAMOnlyPostingsFormat) FieldsConsumer(state *index.SegmentWriteState) (spi.FieldsConsumer, error) {
 	id := int(f.nextID.Add(1))
-	
+
 	fileName := state.SegmentInfo.Name() + ".id"
 	out, err := state.Directory.CreateOutput(fileName, state.Context)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Header
-	out.WriteBytes([]byte("RAMOnly"))
+	out.WriteBytes([]byte("RAMOnly"), 0, 7)
 	out.WriteVInt(id)
 	out.Close()
 
 	postings := &ramPostings{
 		fieldToTerms: make(map[string]*ramField),
 	}
-	
+
 	f.mu.Lock()
 	f.state[id] = postings
 	f.mu.Unlock()
@@ -354,13 +352,13 @@ func (f *RAMOnlyPostingsFormat) FieldsProducer(state *index.SegmentReadState) (s
 	defer in.Close()
 
 	header := make([]byte, 7)
-	in.ReadBytes(header)
+	in.ReadBytes(header, 0, len(header))
 	if string(header) != "RAMOnly" {
 		return nil, fmt.Errorf("not a RAMOnly index")
 	}
 
 	id := in.ReadVInt()
-	
+
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	return f.state[id], nil

@@ -80,6 +80,9 @@ func RestrictFields(
 		// Java passes in.docValuesProducers through unchanged
 		// (PerFieldMergeState.java:63).
 		DocValuesProducers: in.DocValuesProducers,
+		// Java passes in.knnVectorsReaders through unchanged
+		// (PerFieldMergeState.java:68).
+		KnnVectorsReaders: in.KnnVectorsReaders,
 	}
 	return out, restrictedProducers, nil
 }

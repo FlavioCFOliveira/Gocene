@@ -231,7 +231,7 @@ func (f *OrdsSegmentTermsEnumFrame) loadBlock() error {
 	if numBytes > len(f.suffixBytes) {
 		f.suffixBytes = make([]byte, util.Oversize(numBytes, 1))
 	}
-	if err := f.ste.in.ReadBytes(f.suffixBytes[:numBytes]); err != nil {
+	if err := f.ste.in.ReadBytes(f.suffixBytes, 0, numBytes); err != nil {
 		return fmt.Errorf("OrdsSegmentTermsEnumFrame.loadBlock: read suffix bytes: %w", err)
 	}
 	f.suffixesReader.ResetWithSlice(f.suffixBytes, 0, numBytes)
@@ -245,7 +245,7 @@ func (f *OrdsSegmentTermsEnumFrame) loadBlock() error {
 	if numBytes > len(f.statBytes) {
 		f.statBytes = make([]byte, util.Oversize(numBytes, 1))
 	}
-	if err := f.ste.in.ReadBytes(f.statBytes[:numBytes]); err != nil {
+	if err := f.ste.in.ReadBytes(f.statBytes, 0, numBytes); err != nil {
 		return fmt.Errorf("OrdsSegmentTermsEnumFrame.loadBlock: read stats: %w", err)
 	}
 	f.statsReader.ResetWithSlice(f.statBytes, 0, numBytes)
@@ -264,7 +264,7 @@ func (f *OrdsSegmentTermsEnumFrame) loadBlock() error {
 		f.bytes = make([]byte, util.Oversize(numBytes, 1))
 		f.bytesReader = store.NewByteArrayDataInput(nil)
 	}
-	if err := f.ste.in.ReadBytes(f.bytes[:numBytes]); err != nil {
+	if err := f.ste.in.ReadBytes(f.bytes, 0, numBytes); err != nil {
 		return fmt.Errorf("OrdsSegmentTermsEnumFrame.loadBlock: read metadata: %w", err)
 	}
 	f.bytesReader.ResetWithSlice(f.bytes, 0, numBytes)

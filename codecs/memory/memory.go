@@ -6,8 +6,6 @@ package memory
 
 import (
 	"fmt"
-	"io"
-	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -44,17 +42,17 @@ func NewFSTPostingsFormat() *FSTPostingsFormat { return &FSTPostingsFormat{} }
 // FSTTermsReader reads FST-backed term dictionaries. Mirrors
 // org.apache.lucene.codecs.memory.FSTTermsReader.
 type FSTTermsReader struct {
-	fields           map[string]*fstTermsReader
-	postingsReader   spi.PostingsReader
-	fstTermsInput    store.IndexInput
-	segmentInfo      *index.SegmentInfo
-	segmentSuffix    string
+	fields         map[string]*fstTermsReader
+	postingsReader spi.PostingsReader
+	fstTermsInput  store.IndexInput
+	segmentInfo    *index.SegmentInfo
+	segmentSuffix  string
 }
 
 // NewFSTTermsReader builds the reader.
 func NewFSTTermsReader(state *index.SegmentReadState, postingsReader spi.PostingsReader) (*FSTTermsReader, error) {
 	termsFileName := codecs.IndexFileNamesSegment(state.SegmentInfo.Name, state.SegmentSuffix, "terms")
-	
+
 	fstTermsInput, err := state.Directory.OpenInput(termsFileName)
 	if err != nil {
 		return nil, err
@@ -95,7 +93,7 @@ func NewFSTTermsReader(state *index.SegmentReadState, postingsReader spi.Posting
 		if err != nil {
 			return nil, err
 		}
-		
+
 		var sumDocFreq int64
 		if fieldInfo.IndexOptions() == spi.IndexOptionsDocs {
 			sumDocFreq = sumTotalTermFreq
@@ -105,7 +103,7 @@ func NewFSTTermsReader(state *index.SegmentReadState, postingsReader spi.Posting
 				return nil, err
 			}
 		}
-		
+
 		docCount, err := in.ReadVInt()
 		if err != nil {
 			return nil, err
@@ -167,15 +165,15 @@ func newFstTermsReader(fieldInfo *spi.FieldInfo, in store.IndexInput, numTerms, 
 	if err != nil {
 		return nil, err
 	}
-	
+
 	store := gfst.NewOffHeapFSTStore(in, in.FilePointer(), metadata)
 	dict, err := gfst.FromFSTReader(metadata, store)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	in.SkipBytes(store.Size())
-	
+
 	return &fstTermsReader{
 		fieldInfo:        fieldInfo,
 		numTerms:         numTerms,
@@ -186,27 +184,33 @@ func newFstTermsReader(fieldInfo *spi.FieldInfo, in store.IndexInput, numTerms, 
 	}, nil
 }
 
-func (tr *fstTermsReader) Size() int64 { return tr.numTerms }
-func (tr *fstTermsReader) GetSumTotalTermFreq() int64 { return tr.sumTotalTermFreq }
+func (tr *fstTermsReader) Size() int64                   { return tr.numTerms }
+func (tr *fstTermsReader) GetSumTotalTermFreq() int64    { return tr.sumTotalTermFreq }
 func (tr *fstTermsReader) GetSumDocFreq() (int64, error) { return tr.sumDocFreq, nil }
-func (tr *fstTermsReader) GetDocCount() (int, error) { return tr.docCount, nil }
-func (tr *fstTermsReader) HasFreqs() bool { return tr.fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqs) }
-func (tr *fstTermsReader) HasOffsets() bool { return tr.fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets) }
-func (tr *fstTermsReader) HasPositions() bool { return tr.fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqsAndPositions) }
+func (tr *fstTermsReader) GetDocCount() (int, error)     { return tr.docCount, nil }
+func (tr *fstTermsReader) HasFreqs() bool {
+	return tr.fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqs)
+}
+func (tr *fstTermsReader) HasOffsets() bool {
+	return tr.fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets)
+}
+func (tr *fstTermsReader) HasPositions() bool {
+	return tr.fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqsAndPositions)
+}
 func (tr *fstTermsReader) HasPayloads() bool { return tr.fieldInfo.HasPayloads() }
 
 func (tr *fstTermsReader) Iterator() (spi.TermsEnum, error) {
 	return &fstTermsEnum{
-		tr:    tr,
-		enum:  gfst.NewBytesRefFSTEnum(tr.dict),
-		term:  nil,
+		tr:   tr,
+		enum: gfst.NewBytesRefFSTEnum(tr.dict),
+		term: nil,
 	}, nil
 }
 
 func (tr *fstTermsReader) GetIteratorWithSeek(seekTerm *spi.Term) (spi.TermsEnum, error) {
 	enum := &fstTermsEnum{
-		tr:    tr,
-		enum:  gfst.NewBytesRefFSTEnum(tr.dict),
+		tr:   tr,
+		enum: gfst.NewBytesRefFSTEnum(tr.dict),
 	}
 	if seekTerm != nil {
 		enum.seekExact(seekTerm.Bytes())
@@ -241,8 +245,8 @@ func (e *fstTermsEnum) seekExact(target []byte) {
 	e.term = e.enum.SeekExact(target)
 }
 
-func (e *fstTermsEnum) Term() []byte { return e.term }
-func (e *fstTermsEnum) DocFreq() int { return 0 } // Should use FST outputs
+func (e *fstTermsEnum) Term() []byte         { return e.term }
+func (e *fstTermsEnum) DocFreq() int         { return 0 } // Should use FST outputs
 func (e *fstTermsEnum) TotalTermFreq() int64 { return 0 } // Should use FST outputs
 
 // FSTTermsWriter writes FST-backed term dictionaries. Mirrors

@@ -14,127 +14,67 @@
 package hnsw
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
 // FlatVectorsReader is the Go port of
-// org.apache.lucene.codecs.hnsw.FlatVectorsReader (Lucene 10.4.0). The
-// reader walks every vector in the index when searched — useful for
-// small fields or when used alongside an additional indexing structure
-// (HNSW) that drives the search and only consults the flat reader to
-// retrieve raw vectors.
+// org.apache.lucene.codecs.hnsw.FlatVectorsReader (Apache Lucene 10.5.0).
+// It reads vectors from an index. When searching this reader, it iterates
+// every vector in the index and scores them. It is useful when the number of
+// vectors is small, or when used alongside some additional indexing
+// structure that can be used to better search the vectors (like HNSW).
 //
-// The Java reference is an abstract class that also implements
-// Accountable; the Go port encodes that abstract surface as an
-// interface composed of [codecs.KnnVectorsReader]. Concrete subclasses
-// embed [BaseFlatVectorsReader] to inherit the scorer accessor and
-// the no-op Search* methods, then provide GetRandomVectorScorer*
-// implementations.
+// The Java reference is an abstract class extending KnnVectorsReader and
+// implementing Accountable. Its two search overrides do nothing ("don't scan
+// stored field data. If we didn't index it, produce no search results");
+// concrete readers embed [BaseFlatVectorsReader] to inherit them. Go has no
+// overloading, so the float[] and byte[] overloads are suffixed Float and
+// Byte.
 //
-// The Java search(String, float[]/byte[], KnnCollector, AcceptDocs)
-// overrides intentionally do nothing — "don't scan stored field data;
-// if we didn't index it, produce no search results". Gocene mirrors
-// that contract: the no-op Search* methods are part of the embeddable
-// base struct so subclasses do not have to re-implement them.
-//
-// AcceptDocs and KnnCollector are not yet ported into Gocene; the
-// Search methods therefore accept any-typed parameters to keep the
-// signatures byte-for-byte aligned with the Java reference while the
-// search package matures. Concrete callers will pass typed values once
-// those types are ported (search-base sprint).
+// getMergeInstance() narrows its return type to FlatVectorsReader in Java.
+// A Go interface cannot redeclare the inherited
+// [spi.KnnVectorsReader.GetMergeInstance] with a covariant result, so
+// implementers return themselves as an spi.KnnVectorsReader and callers
+// that need the flat surface assert it.
 type FlatVectorsReader interface {
-	codecs.KnnVectorsReader
+	spi.KnnVectorsReader
+	util.Accountable
 
-	// GetFlatVectorScorer returns the scorer used by this reader to
-	// score against random vectors. Mirrors the Java accessor
-	// getFlatVectorScorer().
-	GetFlatVectorScorer() FlatVectorsScorer
+	// GetFlatVectorScorer returns a [FlatVectorsScorer] for the given field.
+	GetFlatVectorScorer(field string) (FlatVectorsScorer, error)
 
-	// SearchFloat scores all stored vectors against target and
-	// publishes results through knnCollector, filtered by acceptDocs.
-	// The default in the Java reference is a no-op; the embeddable
-	// [BaseFlatVectorsReader] preserves that no-op behaviour.
-	SearchFloat(field string, target []float32, knnCollector any, acceptDocs any) error
+	// SearchFloat is search(String, float[], KnnCollector, AcceptDocs).
+	SearchFloat(field string, target []float32, knnCollector spi.KnnCollector, acceptDocs search.AcceptDocs) error
 
-	// SearchByte scores all stored byte vectors against target and
-	// publishes results through knnCollector. Same no-op contract as
-	// SearchFloat.
-	SearchByte(field string, target []byte, knnCollector any, acceptDocs any) error
+	// SearchByte is search(String, byte[], KnnCollector, AcceptDocs).
+	SearchByte(field string, target []byte, knnCollector spi.KnnCollector, acceptDocs search.AcceptDocs) error
 
-	// GetRandomVectorScorerFloat returns a [hnsw.RandomVectorScorer]
-	// for the named field and float target vector. Mirrors the
-	// abstract method getRandomVectorScorer(String, float[]).
+	// GetRandomVectorScorerFloat returns a [hnsw.RandomVectorScorer] for the
+	// given field and target vector. Mirrors the abstract
+	// getRandomVectorScorer(String, float[]).
 	GetRandomVectorScorerFloat(field string, target []float32) (hnsw.RandomVectorScorer, error)
 
-	// GetRandomVectorScorerByte returns a [hnsw.RandomVectorScorer]
-	// for the named field and byte target vector. Mirrors the abstract
-	// method getRandomVectorScorer(String, byte[]).
+	// GetRandomVectorScorerByte returns a [hnsw.RandomVectorScorer] for the
+	// given field and target vector. Mirrors the abstract
+	// getRandomVectorScorer(String, byte[]).
 	GetRandomVectorScorerByte(field string, target []byte) (hnsw.RandomVectorScorer, error)
-
-	// GetMergeInstance is inherited from [codecs.KnnVectorsReader]. Java's
-	// FlatVectorsReader.getMergeInstance() narrows the return type to
-	// FlatVectorsReader and returns this; a Go interface cannot redeclare an
-	// embedded method with a covariant result, so implementers return
-	// themselves as a codecs.KnnVectorsReader.
 }
 
-// BaseFlatVectorsReader carries the [FlatVectorsScorer] handle and
-// supplies the default behaviour for GetFlatVectorScorer, SearchFloat,
-// SearchByte, and GetMergeInstance. Concrete subclasses embed
-// *BaseFlatVectorsReader and provide:
-//
-//   - CheckIntegrity, Close (from [codecs.KnnVectorsReader]);
-//   - GetRandomVectorScorerFloat / GetRandomVectorScorerByte (the only
-//     abstract methods on the Java original);
-//   - any reader-specific accessors their codec needs.
-//
-// BaseFlatVectorsReader does NOT implement [codecs.KnnVectorsReader]
-// itself: CheckIntegrity/Close are subclass responsibilities so each
-// reader controls its own resource lifecycle. The base supplies only
-// the surface that the Java reference makes concrete.
-//
-// The Java class also marks itself Accountable. Accountable's only
-// method is ramBytesUsed(); the Gocene equivalent is not yet ported,
-// so this base does not yet expose RAMBytesUsed. Subclasses that need
-// it should implement it directly until the Accountable port lands.
-type BaseFlatVectorsReader struct {
-	vectorScorer FlatVectorsScorer
-}
+// BaseFlatVectorsReader carries the concrete search overrides of the
+// abstract Java class. Concrete readers embed it and provide every other
+// member of [FlatVectorsReader].
+type BaseFlatVectorsReader struct{}
 
-// NewBaseFlatVectorsReader builds a base reader bound to the supplied
-// scorer. Mirrors the protected constructor FlatVectorsReader(FlatVectorsScorer).
-func NewBaseFlatVectorsReader(scorer FlatVectorsScorer) *BaseFlatVectorsReader {
-	return &BaseFlatVectorsReader{vectorScorer: scorer}
-}
-
-// GetFlatVectorScorer returns the scorer this reader was constructed
-// with.
-func (r *BaseFlatVectorsReader) GetFlatVectorScorer() FlatVectorsScorer {
-	return r.vectorScorer
-}
-
-// SearchFloat is a no-op, matching the Java reference comment "don't
-// scan stored field data. If we didn't index it, produce no search
-// results".
-func (r *BaseFlatVectorsReader) SearchFloat(_ string, _ []float32, _ any, _ any) error {
+// SearchFloat does nothing: "don't scan stored field data. If we didn't
+// index it, produce no search results".
+func (BaseFlatVectorsReader) SearchFloat(_ string, _ []float32, _ spi.KnnCollector, _ search.AcceptDocs) error {
 	return nil
 }
 
-// SearchByte is a no-op for the same reason as [SearchFloat].
-func (r *BaseFlatVectorsReader) SearchByte(_ string, _ []byte, _ any, _ any) error {
+// SearchByte does nothing, for the same reason as SearchFloat.
+func (BaseFlatVectorsReader) SearchByte(_ string, _ []byte, _ spi.KnnCollector, _ search.AcceptDocs) error {
 	return nil
-}
-
-// getMergeInstanceSelf is a helper for embedders: the Java default
-// returns `this`, and Go embedders pass their typed self to
-// GetMergeInstance so the returned interface header carries the
-// concrete subclass. See the [FlatVectorsReader.GetMergeInstance]
-// godoc for the recommended subclass implementation.
-//
-// The base struct intentionally does NOT implement GetMergeInstance
-// itself because returning a *BaseFlatVectorsReader would lose the
-// subclass identity required by callers.
-func (r *BaseFlatVectorsReader) getMergeInstanceSelf(self FlatVectorsReader) (FlatVectorsReader, error) {
-	return self, nil
 }

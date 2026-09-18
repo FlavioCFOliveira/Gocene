@@ -1,6 +1,11 @@
 package util
 
-import "math"
+import (
+	"fmt"
+	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/internal/vectorization"
+)
 
 // VectorUtil provides utilities for computations with numeric arrays.
 type VectorUtil struct{}
@@ -159,8 +164,29 @@ func DotProductBytes(v1, v2 []byte) float32 {
 	return sum
 }
 
-// ScaleMaxInnerProductScore scales the inner product to [0, 1].
-func ScaleMaxInnerProductScore(val float32) float32 {
-	return (val + 1) / 2
+// ScaleMaxInnerProductScore scales a maximum inner product similarity to a
+// positive score. Mirrors VectorUtil.scaleMaxInnerProductScore(float) of
+// Apache Lucene 10.5.0: negative similarities map to 1 / (1 + -1 * v) and
+// the others to v + 1.
+func ScaleMaxInnerProductScore(vectorDotProductSimilarity float32) float32 {
+	if vectorDotProductSimilarity < 0 {
+		return 1 / (1 + -1*vectorDotProductSimilarity)
+	}
+	return vectorDotProductSimilarity + 1
 }
 
+// vectorUtilSupport mirrors VectorUtil.IMPL,
+// VectorizationProvider.getInstance().getVectorUtilSupport().
+var vectorUtilSupport = vectorization.NewVectorizationProvider().GetVectorUtilSupport()
+
+// Int4BitDotProduct computes the dot product between a transposed int4 query
+// vector q (4 stripes, one bit plane each) and a single-bit document vector
+// d. Mirrors VectorUtil.int4BitDotProduct(byte[], byte[]) of Apache Lucene
+// 10.5.0, which throws IllegalArgumentException when q is not four times the
+// length of d.
+func Int4BitDotProduct(q, d []byte) int64 {
+	if len(q) != len(d)*4 {
+		panic(fmt.Sprintf("vector dimensions incompatible: %d!= 4 x %d", len(q), len(d)))
+	}
+	return vectorUtilSupport.Int4BitDotProduct(q, d)
+}

@@ -62,22 +62,21 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/util"
 	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
 // Wire-level constants for Lucene90 HNSW v0 format.
 const (
-	lucene90HnswMetaCodecName  = "Lucene90HnswVectorsFormatMeta"
-	lucene90HnswDataCodecName  = "Lucene90HnswVectorsFormatData"
-	lucene90HnswIndexCodecName = "Lucene90HnswVectorsFormatIndex"
-	lucene90HnswMetaExtension  = "vem"
-	lucene90HnswDataExtension  = "vec"
-	lucene90HnswIndexExtension = "vex"
-	lucene90HnswVersionStart   int32 = 0
-	lucene90HnswVersionCurrent int32 = 0
-	lucene90HnswDefaultMaxConn       = 16
-	lucene90HnswDefaultBeamWidth     = 100
+	lucene90HnswMetaCodecName          = "Lucene90HnswVectorsFormatMeta"
+	lucene90HnswDataCodecName          = "Lucene90HnswVectorsFormatData"
+	lucene90HnswIndexCodecName         = "Lucene90HnswVectorsFormatIndex"
+	lucene90HnswMetaExtension          = "vem"
+	lucene90HnswDataExtension          = "vec"
+	lucene90HnswIndexExtension         = "vex"
+	lucene90HnswVersionStart     int32 = 0
+	lucene90HnswVersionCurrent   int32 = 0
+	lucene90HnswDefaultMaxConn         = 16
+	lucene90HnswDefaultBeamWidth       = 100
 )
 
 // lucene90HnswSimilarityOrdinals fixes the on-disk ordinal ->
@@ -328,7 +327,7 @@ func (w *Lucene90HnswVectorsWriter) writeVectorData(out store.IndexOutput, fw *l
 		for j, f := range vec {
 			binary.LittleEndian.PutUint32(scratch[j*4:], math.Float32bits(f))
 		}
-		if err := out.WriteBytes(scratch); err != nil {
+		if err := out.WriteBytes(scratch, 0, len(scratch)); err != nil {
 			return err
 		}
 	}
@@ -341,7 +340,7 @@ func (w *Lucene90HnswVectorsWriter) buildGraph(fw *lucene90HnswFieldWriter) (*ut
 	if len(fw.vectors) == 0 {
 		return nil, nil
 	}
-	mv := &memFloat32VectorValues{vecs: fw.vectors}
+	mv := index.FromFloats(fw.vectors, fw.fieldInfo.VectorDimension())
 	supplier, err := newMemFloat32ScorerSupplier(mv, fw.fieldInfo.VectorSimilarityFunction())
 	if err != nil {
 		return nil, fmt.Errorf("lucene90 hnsw: scorer supplier: %w", err)
@@ -386,7 +385,7 @@ func (w *Lucene90HnswVectorsWriter) writeGraph(out store.IndexOutput, graphDataO
 			if node >= numNodes {
 				return nil, fmt.Errorf("lucene90 hnsw: node too large at ord=%d: %d >= %d", ord, node, numNodes)
 			}
-			if err := store.WriteVInt(out, int32(node-lastNode)); err != nil {
+			if err := out.WriteVInt(int32(node - lastNode)); err != nil {
 				return nil, err
 			}
 			lastNode = node
@@ -414,16 +413,16 @@ func (w *Lucene90HnswVectorsWriter) writeMeta(
 	if err := w.meta.WriteInt(simOrd); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorDataOffset); err != nil {
+	if err := w.meta.WriteVLong(vectorDataOffset); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorDataLength); err != nil {
+	if err := w.meta.WriteVLong(vectorDataLength); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorIndexOffset); err != nil {
+	if err := w.meta.WriteVLong(vectorIndexOffset); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorIndexLength); err != nil {
+	if err := w.meta.WriteVLong(vectorIndexLength); err != nil {
 		return err
 	}
 	if err := w.meta.WriteInt(int32(fieldInfo.VectorDimension())); err != nil {
@@ -433,13 +432,13 @@ func (w *Lucene90HnswVectorsWriter) writeMeta(
 		return err
 	}
 	for _, docID := range docIDs {
-		if err := store.WriteVInt(w.meta, int32(docID)); err != nil {
+		if err := w.meta.WriteVInt(int32(docID)); err != nil {
 			return err
 		}
 	}
 	last := int64(0)
 	for _, off := range offsets {
-		if err := store.WriteVLong(w.meta, off-last); err != nil {
+		if err := w.meta.WriteVLong(off - last); err != nil {
 			return err
 		}
 		last = off
@@ -534,61 +533,16 @@ var (
 // In-memory float32 vector values and scorer supplier for HNSW graph building
 // ---------------------------------------------------------------------------
 
-// memFloat32VectorValues wraps a [][]float32 slice and implements
-// util/hnsw.KnnVectorValues.
-type memFloat32VectorValues struct {
-	vecs [][]float32
-}
-
-func (m *memFloat32VectorValues) Dimension() int       { return len(m.vecs[0]) }
-func (m *memFloat32VectorValues) Size() int            { return len(m.vecs) }
-func (m *memFloat32VectorValues) OrdToDoc(ord int) int { return ord }
-func (m *memFloat32VectorValues) GetAcceptOrds(_ util.Bits) util.Bits {
-	return nil // nil == accept all
-}
-func (m *memFloat32VectorValues) VectorValue(ord int) ([]float32, error) {
-	if ord < 0 || ord >= len(m.vecs) {
-		return nil, errors.New("memFloat32VectorValues: ordinal out of range")
-	}
-	return m.vecs[ord], nil
-}
-func (m *memFloat32VectorValues) Iterator() utilhnsw.DocIndexIterator {
-	return &seqDocIndexIterator{size: len(m.vecs), cur: -1}
-}
-func (m *memFloat32VectorValues) CopyFloat() (*memFloat32VectorValues, error) {
-	cp := make([][]float32, len(m.vecs))
-	for i, v := range m.vecs {
-		cp[i] = make([]float32, len(v))
-		copy(cp[i], v)
-	}
-	return &memFloat32VectorValues{vecs: cp}, nil
-}
-
-// seqDocIndexIterator is a simple sequential DocIndexIterator.
-type seqDocIndexIterator struct {
-	size int
-	cur  int
-}
-
-func (it *seqDocIndexIterator) NextDoc() (int, error) {
-	it.cur++
-	if it.cur >= it.size {
-		it.cur = it.size
-		return util.NO_MORE_DOCS, nil
-	}
-	return it.cur, nil
-}
-func (it *seqDocIndexIterator) Index() int { return it.cur }
-
-// memFloat32ScorerSupplier implements util/hnsw.RandomVectorScorerSupplier.
+// memFloat32ScorerSupplier implements util/hnsw.RandomVectorScorerSupplier
+// over the FloatVectorValues.fromFloats view of the buffered vectors.
 type memFloat32ScorerSupplier struct {
-	vecs   *memFloat32VectorValues
-	target *memFloat32VectorValues
+	vecs   index.FloatVectorValues
+	target index.FloatVectorValues
 	sim    index.VectorSimilarityFunction
 }
 
-func newMemFloat32ScorerSupplier(vecs *memFloat32VectorValues, sim index.VectorSimilarityFunction) (utilhnsw.RandomVectorScorerSupplier, error) {
-	tgt, err := vecs.CopyFloat()
+func newMemFloat32ScorerSupplier(vecs index.FloatVectorValues, sim index.VectorSimilarityFunction) (utilhnsw.RandomVectorScorerSupplier, error) {
+	tgt, err := vecs.CopyFloatVectorValues()
 	if err != nil {
 		return nil, err
 	}

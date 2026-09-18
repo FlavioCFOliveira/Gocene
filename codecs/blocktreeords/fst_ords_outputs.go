@@ -158,7 +158,7 @@ func (*FSTOrdsOutputs) Write(v *FSTOrdsOutput, out store.DataOutput) error {
 		return err
 	}
 	if v.Bytes.Length > 0 {
-		if err := out.WriteBytes(v.Bytes.Bytes[v.Bytes.Offset : v.Bytes.Offset+v.Bytes.Length]); err != nil {
+		if err := out.WriteBytes(v.Bytes.Bytes, v.Bytes.Offset, v.Bytes.Length); err != nil {
 			return err
 		}
 	}
@@ -189,7 +189,7 @@ func (o *FSTOrdsOutputs) Read(in store.DataInput) (*FSTOrdsOutput, error) {
 		b = fstOrdsNoBytes
 	} else {
 		buf := make([]byte, n)
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 			return nil, err
 		}
 		b = &util.BytesRef{Bytes: buf, Offset: 0, Length: n}
@@ -222,7 +222,7 @@ func (*FSTOrdsOutputs) SkipOutput(in store.DataInput) error {
 	}
 	if n > 0 {
 		scratch := make([]byte, n)
-		if err := in.ReadBytes(scratch); err != nil {
+		if err := in.ReadBytes(scratch, 0, len(scratch)); err != nil {
 			return err
 		}
 	}

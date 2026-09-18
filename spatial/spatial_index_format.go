@@ -240,7 +240,7 @@ func WriteSpatialIndexMetadata(out store.IndexOutput, metadata *SpatialIndexMeta
 	}
 
 	// Write number of fields
-	if err := store.WriteVInt(out, int32(metadata.NumFields)); err != nil {
+	if err := out.WriteVInt(int32(metadata.NumFields)); err != nil {
 		return fmt.Errorf("failed to write num fields: %w", err)
 	}
 
@@ -252,7 +252,7 @@ func WriteSpatialIndexMetadata(out store.IndexOutput, metadata *SpatialIndexMeta
 	}
 
 	// Write doc count
-	if err := store.WriteVInt(out, int32(metadata.DocCount)); err != nil {
+	if err := out.WriteVInt(int32(metadata.DocCount)); err != nil {
 		return fmt.Errorf("failed to write doc count: %w", err)
 	}
 

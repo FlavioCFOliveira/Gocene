@@ -77,9 +77,9 @@ func (f *SuggestField) wrapTokenStream(stream analysis.TokenStream) analysis.Tok
 
 func (f *SuggestField) buildSuggestPayload() []byte {
 	out := store.NewByteArrayDataOutput(len(f.surfaceForm.Bytes) + 10)
-	_ = store.WriteVInt(out, int32(len(f.surfaceForm.Bytes)))
-	_ = out.WriteBytes(f.surfaceForm.Bytes)
-	_ = store.WriteVInt(out, int32(f.weight+1))
+	_ = out.WriteVInt(int32(len(f.surfaceForm.Bytes)))
+	_ = out.WriteBytes(f.surfaceForm.Bytes, 0, len(f.surfaceForm.Bytes))
+	_ = out.WriteVInt(int32(f.weight + 1))
 	_ = out.WriteByte(f.Type())
 	return out.ToArrayCopy()
 }

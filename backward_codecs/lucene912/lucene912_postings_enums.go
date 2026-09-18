@@ -97,7 +97,7 @@ func readVLong15(in store.DataInput) (int64, error) {
 	if s >= 0 {
 		return int64(s), nil
 	}
-	v, err := store.ReadVLong(in)
+	v, err := in.ReadVLong()
 	if err != nil {
 		return 0, err
 	}
@@ -114,7 +114,7 @@ func readImpacts(in *store.ByteArrayDataInput, buf *index.FreqAndNormBuffer) {
 		freqDelta, _ := store.ReadVInt(in)
 		if freqDelta&0x01 != 0 {
 			freq += 1 + int(freqDelta>>1)
-			z, _ := store.ReadVLong(in) // zigzag-encoded delta
+			z, _ := in.ReadVLong() // zigzag-encoded delta
 			norm += 1 + zigZagDecodeInt64(z)
 		} else {
 			freq += 1 + int(freqDelta>>1)
@@ -380,7 +380,7 @@ func (e *blockDocsEnum) skipLevel1To(target int) error {
 		}
 		e.level1LastDocID += int(delta)
 
-		endFPDelta, err := store.ReadVLong(e.docIn)
+		endFPDelta, err := e.docIn.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -406,7 +406,7 @@ func (e *blockDocsEnum) skipLevel0To(target int) error {
 	for {
 		e.prevDocID = int64(e.level0LastDocID)
 		if e.docFreq-e.docCountUpto >= BlockSize {
-			skip0NumBytes, err := store.ReadVLong(e.docIn)
+			skip0NumBytes, err := e.docIn.ReadVLong()
 			if err != nil {
 				return err
 			}
@@ -449,7 +449,7 @@ func (e *blockDocsEnum) moveToNextLevel0Block() error {
 
 	e.prevDocID = int64(e.level0LastDocID)
 	if e.docFreq-e.docCountUpto >= BlockSize {
-		if _, err := store.ReadVLong(e.docIn); err != nil { // skip0 num bytes
+		if _, err := e.docIn.ReadVLong(); err != nil { // skip0 num bytes
 			return err
 		}
 		if err := e.refillFullBlock(); err != nil {
@@ -820,7 +820,7 @@ func (e *everythingEnum) skipLevel1To(target int) error {
 		}
 		e.level1LastDocID += int(d)
 
-		delta, err := store.ReadVLong(e.docIn)
+		delta, err := e.docIn.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -836,7 +836,7 @@ func (e *everythingEnum) skipLevel1To(target int) error {
 			return err
 		}
 		// skip impacts bytes
-		posDelta, err := store.ReadVLong(e.docIn)
+		posDelta, err := e.docIn.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -847,7 +847,7 @@ func (e *everythingEnum) skipLevel1To(target int) error {
 		}
 		e.level1BlockPosUpto = int(byt)
 		if e.indexHasOffsetsOrPayloads {
-			payDelta, err := store.ReadVLong(e.docIn)
+			payDelta, err := e.docIn.ReadVLong()
 			if err != nil {
 				return err
 			}
@@ -890,7 +890,7 @@ func (e *everythingEnum) skipLevel0To(target int) error {
 		}
 
 		if e.docFreq-e.docCountUpto >= BlockSize {
-			_, err := store.ReadVLong(e.docIn) // skip0 num bytes
+			_, err := e.docIn.ReadVLong() // skip0 num bytes
 			if err != nil {
 				return err
 			}
@@ -906,7 +906,7 @@ func (e *everythingEnum) skipLevel0To(target int) error {
 			}
 			blockEndFP := e.docIn.GetFilePointer() + blockLength
 
-			impactsLen, err := store.ReadVLong(e.docIn)
+			impactsLen, err := e.docIn.ReadVLong()
 			if err != nil {
 				return err
 			}
@@ -914,7 +914,7 @@ func (e *everythingEnum) skipLevel0To(target int) error {
 				return err
 			}
 
-			posDelta, err := store.ReadVLong(e.docIn)
+			posDelta, err := e.docIn.ReadVLong()
 			if err != nil {
 				return err
 			}
@@ -926,7 +926,7 @@ func (e *everythingEnum) skipLevel0To(target int) error {
 			e.level0BlockPosUpto = int(byt)
 
 			if e.indexHasOffsetsOrPayloads {
-				payDelta, err := store.ReadVLong(e.docIn)
+				payDelta, err := e.docIn.ReadVLong()
 				if err != nil {
 					return err
 				}
@@ -978,7 +978,7 @@ func (e *everythingEnum) moveToNextLevel0Block() error {
 	}
 
 	if e.docFreq-e.docCountUpto >= BlockSize {
-		_, err := store.ReadVLong(e.docIn) // skip0 num bytes
+		_, err := e.docIn.ReadVLong() // skip0 num bytes
 		if err != nil {
 			return err
 		}
@@ -993,7 +993,7 @@ func (e *everythingEnum) moveToNextLevel0Block() error {
 			return err
 		}
 
-		impactsLen, err := store.ReadVLong(e.docIn)
+		impactsLen, err := e.docIn.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -1001,7 +1001,7 @@ func (e *everythingEnum) moveToNextLevel0Block() error {
 			return err
 		}
 
-		posDelta, err := store.ReadVLong(e.docIn)
+		posDelta, err := e.docIn.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -1012,7 +1012,7 @@ func (e *everythingEnum) moveToNextLevel0Block() error {
 		}
 		e.level0BlockPosUpto = int(byt)
 		if e.indexHasOffsetsOrPayloads {
-			payDelta, err := store.ReadVLong(e.docIn)
+			payDelta, err := e.docIn.ReadVLong()
 			if err != nil {
 				return err
 			}
@@ -1119,7 +1119,7 @@ func (e *everythingEnum) refillPositions() error {
 						copy(grown, e.payloadBytes)
 						e.payloadBytes = grown
 					}
-					if err := e.posIn.ReadBytes(e.payloadBytes[e.payloadByteUpto : e.payloadByteUpto+payloadLength]); err != nil {
+					if err := e.posIn.ReadBytes(e.payloadBytes, e.payloadByteUpto, payloadLength); err != nil {
 						return err
 					}
 					e.payloadByteUpto += payloadLength
@@ -1161,7 +1161,7 @@ func (e *everythingEnum) refillPositions() error {
 				if needed > len(e.payloadBytes) {
 					e.payloadBytes = make([]byte, needed*2)
 				}
-				if err := e.payIn.ReadBytes(e.payloadBytes[:needed]); err != nil {
+				if err := e.payIn.ReadBytes(e.payloadBytes, 0, needed); err != nil {
 					return err
 				}
 			} else {
@@ -1426,7 +1426,7 @@ func (e *blockImpactsDocsEnum) skipLevel1To(target int) error {
 		}
 		e.level1LastDocID += int(d)
 
-		endFPDelta, err := store.ReadVLong(e.docIn)
+		endFPDelta, err := e.docIn.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -1446,7 +1446,7 @@ func (e *blockImpactsDocsEnum) skipLevel1To(target int) error {
 			if nb > len(e.level1SerializedImpacts) {
 				e.level1SerializedImpacts = make([]byte, nb)
 			}
-			if err := e.docIn.ReadBytes(e.level1SerializedImpacts[:nb]); err != nil {
+			if err := e.docIn.ReadBytes(e.level1SerializedImpacts, 0, nb); err != nil {
 				return err
 			}
 			e.level1ImpactsLen = nb
@@ -1463,7 +1463,7 @@ func (e *blockImpactsDocsEnum) skipLevel0To(target int) error {
 	for {
 		e.prevDocID = int64(e.level0LastDocID)
 		if e.docFreq-e.docCountUpto >= BlockSize {
-			skip0NumBytes, err := store.ReadVLong(e.docIn)
+			skip0NumBytes, err := e.docIn.ReadVLong()
 			if err != nil {
 				return err
 			}
@@ -1488,7 +1488,7 @@ func (e *blockImpactsDocsEnum) skipLevel0To(target int) error {
 				if nb > len(e.level0SerializedImpacts) {
 					e.level0SerializedImpacts = make([]byte, nb)
 				}
-				if err := e.docIn.ReadBytes(e.level0SerializedImpacts[:nb]); err != nil {
+				if err := e.docIn.ReadBytes(e.level0SerializedImpacts, 0, nb); err != nil {
 					return err
 				}
 				e.level0ImpactsLen = nb
@@ -1524,7 +1524,7 @@ func (e *blockImpactsDocsEnum) moveToNextLevel0Block() error {
 
 	e.prevDocID = int64(e.level0LastDocID)
 	if e.docFreq-e.docCountUpto >= BlockSize {
-		skip0Len, err := store.ReadVLong(e.docIn)
+		skip0Len, err := e.docIn.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -1548,7 +1548,7 @@ func (e *blockImpactsDocsEnum) moveToNextLevel0Block() error {
 		if nb > len(e.level0SerializedImpacts) {
 			e.level0SerializedImpacts = make([]byte, nb)
 		}
-		if err := e.docIn.ReadBytes(e.level0SerializedImpacts[:nb]); err != nil {
+		if err := e.docIn.ReadBytes(e.level0SerializedImpacts, 0, nb); err != nil {
 			return err
 		}
 		e.level0ImpactsLen = nb
@@ -1899,7 +1899,7 @@ func (e *blockImpactsPostingsEnum) skipLevel1To(target int) error {
 		}
 		e.level1LastDocID += int(d)
 
-		endFPDelta, err := store.ReadVLong(e.docIn)
+		endFPDelta, err := e.docIn.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -1920,7 +1920,7 @@ func (e *blockImpactsPostingsEnum) skipLevel1To(target int) error {
 			if nb > len(e.level1SerializedImpacts) {
 				e.level1SerializedImpacts = make([]byte, nb)
 			}
-			if err := e.docIn.ReadBytes(e.level1SerializedImpacts[:nb]); err != nil {
+			if err := e.docIn.ReadBytes(e.level1SerializedImpacts, 0, nb); err != nil {
 				return err
 			}
 			e.level1ImpactsLen = nb
@@ -1930,7 +1930,7 @@ func (e *blockImpactsPostingsEnum) skipLevel1To(target int) error {
 			}
 		}
 
-		posDelta, err := store.ReadVLong(e.docIn)
+		posDelta, err := e.docIn.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -1966,7 +1966,7 @@ func (e *blockImpactsPostingsEnum) skipLevel0To(target int) error {
 		}
 
 		if e.docFreq-e.docCountUpto >= BlockSize {
-			_, err := store.ReadVLong(e.docIn) // skip0 num bytes
+			_, err := e.docIn.ReadVLong() // skip0 num bytes
 			if err != nil {
 				return err
 			}
@@ -1990,11 +1990,11 @@ func (e *blockImpactsPostingsEnum) skipLevel0To(target int) error {
 				if nb > len(e.level0SerializedImpacts) {
 					e.level0SerializedImpacts = make([]byte, nb)
 				}
-				if err := e.docIn.ReadBytes(e.level0SerializedImpacts[:nb]); err != nil {
+				if err := e.docIn.ReadBytes(e.level0SerializedImpacts, 0, nb); err != nil {
 					return err
 				}
 				e.level0ImpactsLen = nb
-				posDelta, err := store.ReadVLong(e.docIn)
+				posDelta, err := e.docIn.ReadVLong()
 				if err != nil {
 					return err
 				}
@@ -2005,7 +2005,7 @@ func (e *blockImpactsPostingsEnum) skipLevel0To(target int) error {
 				}
 				e.level0BlockPosUpto = int(byt)
 				if e.indexHasOffsetsOrPayloads {
-					if _, err := store.ReadVLong(e.docIn); err != nil { // pay fp delta
+					if _, err := e.docIn.ReadVLong(); err != nil { // pay fp delta
 						return err
 					}
 					if _, err := store.ReadVInt(e.docIn); err != nil { // pay upto
@@ -2015,14 +2015,14 @@ func (e *blockImpactsPostingsEnum) skipLevel0To(target int) error {
 				break
 			}
 
-			impactsLen, err := store.ReadVLong(e.docIn)
+			impactsLen, err := e.docIn.ReadVLong()
 			if err != nil {
 				return err
 			}
 			if err := e.docIn.SetPosition(e.docIn.GetFilePointer() + impactsLen); err != nil {
 				return err
 			}
-			posDelta, err := store.ReadVLong(e.docIn)
+			posDelta, err := e.docIn.ReadVLong()
 			if err != nil {
 				return err
 			}

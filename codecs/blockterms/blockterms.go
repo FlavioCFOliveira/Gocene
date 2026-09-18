@@ -23,11 +23,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -123,17 +121,17 @@ func NewBlockTermsReader(indexReader TermsIndexReader, postingsReader codecs.Pos
 		if err != nil {
 			return nil, err
 		}
-		numTerms, err := store.ReadVLong(in)
+		numTerms, err := in.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
-		termsStartPointer, err := store.ReadVLong(in)
+		termsStartPointer, err := in.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
 
 		fieldInfo := state.FieldInfos.GetByNumber(fieldNum)
-		sumTotalTermFreq, err := store.ReadVLong(in)
+		sumTotalTermFreq, err := in.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
@@ -143,7 +141,7 @@ func NewBlockTermsReader(indexReader TermsIndexReader, postingsReader codecs.Pos
 		if fieldInfo.IndexOptions() == index.IndexOptionsDocs {
 			sumDocFreq = sumTotalTermFreq
 		} else {
-			sumDocFreq, err = store.ReadVLong(in)
+			sumDocFreq, err = in.ReadVLong()
 			if err != nil {
 				return nil, err
 			}
@@ -343,7 +341,7 @@ func (e *segmentTermsEnum) nextBlock() (bool, error) {
 	if len(e.termSuffixes) < int(lenSuf) {
 		e.termSuffixes = make([]byte, int(lenSuf))
 	}
-	if _, err := e.in.ReadBytes(e.termSuffixes[:int(lenSuf)]); err != nil {
+	if err := e.in.ReadBytes(e.termSuffixes, 0, int(lenSuf)); err != nil {
 		return false, err
 	}
 	e.termSuffixesReader = store.NewByteArrayDataInput(e.termSuffixes[:int(lenSuf)])
@@ -355,7 +353,7 @@ func (e *segmentTermsEnum) nextBlock() (bool, error) {
 	if len(e.docFreqBytes) < int(lenFreq) {
 		e.docFreqBytes = make([]byte, int(lenFreq))
 	}
-	if _, err := e.in.ReadBytes(e.docFreqBytes[:int(lenFreq)]); err != nil {
+	if err := e.in.ReadBytes(e.docFreqBytes, 0, int(lenFreq)); err != nil {
 		return false, err
 	}
 	e.freqReader = store.NewByteArrayDataInput(e.docFreqBytes[:int(lenFreq)])
@@ -367,7 +365,7 @@ func (e *segmentTermsEnum) nextBlock() (bool, error) {
 	if e.bytes == nil || len(e.bytes) < int(lenMeta) {
 		e.bytes = make([]byte, int(lenMeta))
 	}
-	if _, err := e.in.ReadBytes(e.bytes[:int(lenMeta)]); err != nil {
+	if err := e.in.ReadBytes(e.bytes, 0, int(lenMeta)); err != nil {
 		return false, err
 	}
 	e.bytesReader = store.NewByteArrayDataInput(e.bytes[:int(lenMeta)])

@@ -5,13 +5,10 @@
 package simpletext
 
 import (
-	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // SimpleTextPostingsFormat writes postings as text.

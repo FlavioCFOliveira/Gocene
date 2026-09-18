@@ -12,7 +12,8 @@
 //	http://www.apache.org/licenses/LICENSE-2.0
 //
 // Source: lucene/core/src/java/org/apache/lucene/codecs/lucene104/
-//         Lucene104ScalarQuantizedVectorsFormat.java (Lucene 10.4.0)
+//
+//	Lucene104ScalarQuantizedVectorsFormat.java (Lucene 10.4.0)
 //
 // This is the Go port of Lucene's Lucene104ScalarQuantizedVectorsFormat.
 // It implements a scalar-quantized vector storage format that compresses
@@ -25,6 +26,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
+	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
 const (
@@ -55,19 +57,19 @@ const (
 // computation, byte-for-byte compatible with Apache Lucene 10.4.0.
 type Lucene104ScalarQuantizedVectorsFormat struct {
 	*hnsw.BaseFlatVectorsFormat
-	encoding codecs.ScalarEncoding
+	encoding quantization.ScalarEncoding
 }
 
 // NewLucene104ScalarQuantizedVectorsFormat creates a new
 // Lucene104ScalarQuantizedVectorsFormat with the default encoding
 // (UNSIGNED_BYTE). Mirrors the Java no-arg constructor.
 func NewLucene104ScalarQuantizedVectorsFormat() *Lucene104ScalarQuantizedVectorsFormat {
-	return NewLucene104ScalarQuantizedVectorsFormatWithEncoding(codecs.ScalarEncodingUnsignedByte)
+	return NewLucene104ScalarQuantizedVectorsFormatWithEncoding(quantization.ScalarEncodingUnsignedByte)
 }
 
 // NewLucene104ScalarQuantizedVectorsFormatWithEncoding creates a new format
 // with the specified encoding. Mirrors the Java single-argument constructor.
-func NewLucene104ScalarQuantizedVectorsFormatWithEncoding(encoding codecs.ScalarEncoding) *Lucene104ScalarQuantizedVectorsFormat {
+func NewLucene104ScalarQuantizedVectorsFormatWithEncoding(encoding quantization.ScalarEncoding) *Lucene104ScalarQuantizedVectorsFormat {
 	return &Lucene104ScalarQuantizedVectorsFormat{
 		BaseFlatVectorsFormat: hnsw.NewBaseFlatVectorsFormat(Name),
 		encoding:              encoding,
@@ -75,7 +77,7 @@ func NewLucene104ScalarQuantizedVectorsFormatWithEncoding(encoding codecs.Scalar
 }
 
 // Encoding returns the scalar encoding used by this format.
-func (f *Lucene104ScalarQuantizedVectorsFormat) Encoding() codecs.ScalarEncoding {
+func (f *Lucene104ScalarQuantizedVectorsFormat) Encoding() quantization.ScalarEncoding {
 	return f.encoding
 }
 

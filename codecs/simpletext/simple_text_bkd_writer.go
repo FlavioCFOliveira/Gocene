@@ -5,12 +5,11 @@
 package simpletext
 
 import (
-t"github.com/FlavioCFOliveira/Gocene/geo"
 	"bytes"
 	"fmt"
+	t "github.com/FlavioCFOliveira/Gocene/geo"
 	"strconv"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
@@ -983,7 +982,7 @@ type oneDimVisitor struct{ ow *oneDimensionWriter }
 
 func (v *oneDimVisitor) Visit(_ int) error                             { return fmt.Errorf("unexpected Visit without packedValue") }
 func (v *oneDimVisitor) VisitByPackedValue(docID int, pv []byte) error { return v.ow.add(pv, docID) }
-func (v *oneDimVisitor) Compare(_, _ []byte) geo.Relation           { return geo.RelationCellCrossesQuery }
+func (v *oneDimVisitor) Compare(_, _ []byte) geo.Relation              { return geo.RelationCellCrossesQuery }
 func (v *oneDimVisitor) Grow(_ int)                                    {}
 
 // rotateToTree recursively fills the BKD index array from the sorted leaf

@@ -24,7 +24,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
@@ -72,7 +71,7 @@ type vIntIndexInput struct {
 func (in vIntIndexInput) ReadVInt() (int32, error) { return store.ReadVInt(in.IndexInput) }
 
 // ReadVLong delegates to store.ReadVLong over the wrapped input.
-func (in vIntIndexInput) ReadVLong() (int64, error) { return store.ReadVLong(in.IndexInput) }
+func (in vIntIndexInput) ReadVLong() (int64, error) { return in.IndexInput.ReadVLong() }
 
 // FixedGapTermsIndexReader is a TermsIndexReader for simple every-Nth terms
 // indexes.
@@ -213,19 +212,19 @@ func (r *FixedGapTermsIndexReader) readIndex(
 		if numIndexTerms < 0 {
 			return fmt.Errorf("blockterms: invalid numIndexTerms: %d", numIndexTerms)
 		}
-		termsStart, err := store.ReadVLong(in)
+		termsStart, err := in.ReadVLong()
 		if err != nil {
 			return err
 		}
-		indexStart, err := store.ReadVLong(in)
+		indexStart, err := in.ReadVLong()
 		if err != nil {
 			return err
 		}
-		packedIndexStart, err := store.ReadVLong(in)
+		packedIndexStart, err := in.ReadVLong()
 		if err != nil {
 			return err
 		}
-		packedOffsetsStart, err := store.ReadVLong(in)
+		packedOffsetsStart, err := in.ReadVLong()
 		if err != nil {
 			return err
 		}

@@ -5,8 +5,8 @@
 package word2vec
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"encoding/base64"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"os"
 	"strings"
 	"testing"
@@ -197,30 +197,17 @@ func TestWord2VecModel_UnknownTermReturnsNil(t *testing.T) {
 	}
 }
 
-func TestWord2VecModel_IteratorCoversAllDocs(t *testing.T) {
-	n := 5
-	terms := make([]string, n)
-	vecs := make([][2]float32, n)
-	for i := range terms {
-		terms[i] = string(rune('a' + i))
-		vecs[i] = [2]float32{float32(i + 1), 1}
-	}
-	m := buildModel(t, terms, vecs)
-	it := m.Iterator()
-	count := 0
-	for {
-		doc, err := it.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
+// TestWord2VecModel_IteratorUnsupported pins Lucene's behaviour: Word2VecModel
+// does not override KnnVectorValues.iterator(), whose default body throws
+// UnsupportedOperationException.
+func TestWord2VecModel_IteratorUnsupported(t *testing.T) {
+	m := buildModel(t, []string{"a", "b"}, [][2]float32{{1, 0}, {0, 1}})
+	defer func() {
+		if recover() == nil {
+			t.Errorf("Iterator: expected UnsupportedOperationException panic")
 		}
-		if doc == util.NO_MORE_DOCS {
-			break
-		}
-		count++
-	}
-	if count != n {
-		t.Errorf("iterator count: got %d, want %d", count, n)
-	}
+	}()
+	m.Iterator()
 }
 
 func abs32(x float32) float32 {

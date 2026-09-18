@@ -122,19 +122,31 @@ type fixedByteVectorValues struct {
 	vectors [][]byte
 }
 
-func (v *fixedByteVectorValues) Dimension() int                      { return v.dim }
-func (v *fixedByteVectorValues) Size() int                           { return len(v.vectors) }
-func (v *fixedByteVectorValues) OrdToDoc(ord int) int                { return ord }
-func (v *fixedByteVectorValues) GetEncoding() index.VectorEncoding   { return index.VectorEncodingByte }
-func (v *fixedByteVectorValues) GetAcceptOrds(b util.Bits) util.Bits { return b }
-func (v *fixedByteVectorValues) Iterator() hnswutil.DocIndexIterator { return nil }
-func (v *fixedByteVectorValues) VectorValue(ord int) ([]byte, error) { return v.vectors[ord], nil }
-func (v *fixedByteVectorValues) CopyByte() (hnsw.ByteVectorValues, error) {
+func (v *fixedByteVectorValues) Dimension() int                                   { return v.dim }
+func (v *fixedByteVectorValues) Size() int                                        { return len(v.vectors) }
+func (v *fixedByteVectorValues) OrdToDoc(ord int) int                             { return ord }
+func (v *fixedByteVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+func (v *fixedByteVectorValues) GetVectorByteLength() int                         { return v.dim }
+func (v *fixedByteVectorValues) GetEncoding() index.VectorEncoding                { return index.VectorEncodingByte }
+func (v *fixedByteVectorValues) GetAcceptOrds(b util.Bits) util.Bits              { return b }
+func (v *fixedByteVectorValues) Iterator() hnswutil.DocIndexIterator              { return nil }
+func (v *fixedByteVectorValues) VectorValue(ord int) ([]byte, error)              { return v.vectors[ord], nil }
+func (v *fixedByteVectorValues) Copy() (index.KnnVectorValues, error)             { return v.copyValues(), nil }
+func (v *fixedByteVectorValues) CopyByteVectorValues() (index.ByteVectorValues, error) {
+	return v.copyValues(), nil
+}
+func (v *fixedByteVectorValues) copyValues() *fixedByteVectorValues {
 	cp := make([][]byte, len(v.vectors))
 	for i, src := range v.vectors {
 		cp[i] = append([]byte(nil), src...)
 	}
-	return &fixedByteVectorValues{dim: v.dim, vectors: cp}, nil
+	return &fixedByteVectorValues{dim: v.dim, vectors: cp}
+}
+func (v *fixedByteVectorValues) Scorer(query []byte) (util.VectorScorer, error) {
+	return nil, fmt.Errorf("UnsupportedOperationException")
+}
+func (v *fixedByteVectorValues) Rescorer(target []byte) (util.VectorScorer, error) {
+	return v.Scorer(target)
 }
 
 // fixedFloatVectorValues is the float32 counterpart of
@@ -144,9 +156,11 @@ type fixedFloatVectorValues struct {
 	vectors [][]float32
 }
 
-func (v *fixedFloatVectorValues) Dimension() int       { return v.dim }
-func (v *fixedFloatVectorValues) Size() int            { return len(v.vectors) }
-func (v *fixedFloatVectorValues) OrdToDoc(ord int) int { return ord }
+func (v *fixedFloatVectorValues) Dimension() int                                   { return v.dim }
+func (v *fixedFloatVectorValues) Size() int                                        { return len(v.vectors) }
+func (v *fixedFloatVectorValues) OrdToDoc(ord int) int                             { return ord }
+func (v *fixedFloatVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+func (v *fixedFloatVectorValues) GetVectorByteLength() int                         { return v.dim * 4 }
 func (v *fixedFloatVectorValues) GetEncoding() index.VectorEncoding {
 	return index.VectorEncodingFloat32
 }
@@ -156,12 +170,26 @@ func (v *fixedFloatVectorValues) VectorValue(ord int) ([]float32, error) {
 	return v.vectors[ord], nil
 }
 
-func (v *fixedFloatVectorValues) CopyFloat() (hnsw.FloatVectorValues, error) {
+func (v *fixedFloatVectorValues) Copy() (index.KnnVectorValues, error) { return v.copyValues(), nil }
+
+func (v *fixedFloatVectorValues) CopyFloatVectorValues() (index.FloatVectorValues, error) {
+	return v.copyValues(), nil
+}
+
+func (v *fixedFloatVectorValues) copyValues() *fixedFloatVectorValues {
 	cp := make([][]float32, len(v.vectors))
 	for i, src := range v.vectors {
 		cp[i] = append([]float32(nil), src...)
 	}
-	return &fixedFloatVectorValues{dim: v.dim, vectors: cp}, nil
+	return &fixedFloatVectorValues{dim: v.dim, vectors: cp}
+}
+
+func (v *fixedFloatVectorValues) Scorer(target []float32) (util.VectorScorer, error) {
+	return nil, fmt.Errorf("UnsupportedOperationException")
+}
+
+func (v *fixedFloatVectorValues) Rescorer(target []float32) (util.VectorScorer, error) {
+	return v.Scorer(target)
 }
 
 // scoreViaSupplier exercises API surface (1): build a supplier,

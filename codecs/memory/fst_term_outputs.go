@@ -153,7 +153,7 @@ func (o *FSTTermOutputs) Write(data *TermData, out store.DataOutput) error {
 				return err
 			}
 		}
-		if err := out.WriteBytes(data.Bytes); err != nil {
+		if err := out.WriteBytes(data.Bytes, 0, len(data.Bytes)); err != nil {
 			return err
 		}
 	} else {
@@ -217,7 +217,7 @@ func (o *FSTTermOutputs) Read(in store.DataInput) (*TermData, error) {
 	var termBytes []byte
 	if bit0 > 0 {
 		termBytes = make([]byte, bytesSize)
-		if err := in.ReadBytes(termBytes); err != nil {
+		if err := in.ReadBytes(termBytes, 0, len(termBytes)); err != nil {
 			return nil, err
 		}
 	}
@@ -275,7 +275,7 @@ func (o *FSTTermOutputs) SkipOutput(in store.DataInput) error {
 	}
 	if bit0 > 0 {
 		scratch := make([]byte, bytesSize)
-		if err := in.ReadBytes(scratch); err != nil {
+		if err := in.ReadBytes(scratch, 0, len(scratch)); err != nil {
 			return err
 		}
 	}

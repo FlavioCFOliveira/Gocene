@@ -206,7 +206,7 @@ func readOneFieldInfo(in store.IndexInput, version int32) (*index.FieldInfo, err
 		return nil, err
 	}
 
-	attrs, err := store.ReadMapOfStrings(in)
+	attrs, err := in.ReadMapOfStrings()
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +251,7 @@ func writeFieldInfosTo(out store.IndexOutput, segmentInfo *index.SegmentInfo, se
 	if err := codecs.WriteIndexHeader(out, fnmCodecName, fnmFormatCurrent, segmentInfo.GetID(), segmentSuffix); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(out, int32(infos.Size())); err != nil {
+	if err := out.WriteVInt(int32(infos.Size())); err != nil {
 		return err
 	}
 
@@ -261,7 +261,7 @@ func writeFieldInfosTo(out store.IndexOutput, segmentInfo *index.SegmentInfo, se
 		if err := store.WriteString(out, fi.Name()); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, int32(fi.Number())); err != nil {
+		if err := out.WriteVInt(int32(fi.Number())); err != nil {
 			return err
 		}
 
@@ -301,18 +301,18 @@ func writeFieldInfosTo(out store.IndexOutput, segmentInfo *index.SegmentInfo, se
 		if err := store.WriteInt64(out, fi.DocValuesGen()); err != nil {
 			return err
 		}
-		if err := store.WriteMapOfStrings(out, fi.GetAttributes()); err != nil {
+		if err := out.WriteMapOfStrings(fi.GetAttributes()); err != nil {
 			return err
 		}
 
-		if err := store.WriteVInt(out, int32(fi.PointDimensionCount())); err != nil {
+		if err := out.WriteVInt(int32(fi.PointDimensionCount())); err != nil {
 			return err
 		}
 		if fi.PointDimensionCount() != 0 {
-			if err := store.WriteVInt(out, int32(fi.PointIndexDimensionCount())); err != nil {
+			if err := out.WriteVInt(int32(fi.PointIndexDimensionCount())); err != nil {
 				return err
 			}
-			if err := store.WriteVInt(out, int32(fi.PointNumBytes())); err != nil {
+			if err := out.WriteVInt(int32(fi.PointNumBytes())); err != nil {
 				return err
 			}
 		}
@@ -472,4 +472,3 @@ func (f *Lucene60PointsFormat) FieldsWriter(_ *codecs.SegmentWriteState) (codecs
 func (f *Lucene60PointsFormat) FieldsReader(state *codecs.SegmentReadState) (codecs.PointsReader, error) {
 	return NewLucene60PointsReader(state)
 }
-

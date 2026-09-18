@@ -95,7 +95,7 @@ func TestLucene99FlatVectors_DenseFloatRoundTrip(t *testing.T) {
 
 	// --- read ---
 	rs := &SegmentReadState{Directory: dir, SegmentInfo: si, FieldInfos: fis}
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("NewLucene99HnswVectorsReader: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestLucene99FlatVectors_DenseByteRoundTrip(t *testing.T) {
 	}
 
 	rs := &SegmentReadState{Directory: dir, SegmentInfo: si, FieldInfos: fis}
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("NewLucene99HnswVectorsReader: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestLucene99FlatVectors_SparseFloatRoundTrip(t *testing.T) {
 
 	// --- read ---
 	rs := &SegmentReadState{Directory: dir, SegmentInfo: si, FieldInfos: fis}
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("NewLucene99HnswVectorsReader: %v", err)
 	}
@@ -526,7 +526,7 @@ func TestLucene99FlatVectors_SparseByteRoundTrip(t *testing.T) {
 	}
 
 	rs := &SegmentReadState{Directory: dir, SegmentInfo: si, FieldInfos: fis}
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("NewLucene99HnswVectorsReader: %v", err)
 	}
@@ -609,4 +609,17 @@ func scoreDocsString(td *utilhnsw.TopDocs) string {
 		parts[i] = fmt.Sprintf("{doc=%d score=%.4f}", sd.Doc, sd.Score)
 	}
 	return "[" + strings.Join(parts, " ") + "]"
+}
+
+// openLucene99FlatVectorsReaderForTest opens the flat vectors reader that
+// Lucene99HnswVectorsFormat.fieldsReader hands to Lucene99HnswVectorsReader:
+// new Lucene99FlatVectorsFormat(FlatVectorScorerUtil.getLucene99FlatVectorsScorer())
+// .fieldsReader(state).
+func openLucene99FlatVectorsReaderForTest(t *testing.T, rs *SegmentReadState) *Lucene99FlatVectorsReader {
+	t.Helper()
+	flat, err := NewLucene99FlatVectorsReader(rs, lucene99HnswFlatVectorsFormat.vectorsScorer)
+	if err != nil {
+		t.Fatalf("NewLucene99FlatVectorsReader: %v", err)
+	}
+	return flat
 }

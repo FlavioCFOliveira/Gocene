@@ -5,7 +5,7 @@
 // Package nrt provides Near-Real-Time replication primitives for Lucene
 // segment-level replication between a primary and one or more replica nodes.
 //
-// Architecture summary
+// # Architecture summary
 //
 // A PrimaryNode holds an IndexWriter and serves CopyState snapshots on
 // demand. Each CopyState captures the current SegmentInfos (serialised as
@@ -398,10 +398,10 @@ func (c *CopyOneFile) Copy(in store.IndexInput, out store.IndexOutput) error {
 			chunk = remaining
 		}
 		b := buf[:chunk]
-		if err := in.ReadBytes(b); err != nil {
+		if err := in.ReadBytes(b, 0, len(b)); err != nil {
 			return fmt.Errorf("CopyOneFile.Copy: reading %q: %w", c.name, err)
 		}
-		if err := out.WriteBytes(b); err != nil {
+		if err := out.WriteBytes(b, 0, len(b)); err != nil {
 			return fmt.Errorf("CopyOneFile.Copy: writing %q: %w", c.name, err)
 		}
 		c.bytesCopied += chunk
@@ -419,7 +419,7 @@ func (c *CopyOneFile) Copy(in store.IndexInput, out store.IndexOutput) error {
 	// Read and verify the big-endian checksum long that the primary appended.
 	// Java: CodecUtil.readBELong(in) → verify → CodecUtil.writeBELong(out, checksum).
 	var checksumBuf [8]byte
-	if err := in.ReadBytes(checksumBuf[:]); err != nil {
+	if err := in.ReadBytes(checksumBuf[:], 0, len(checksumBuf)); err != nil {
 		return fmt.Errorf("CopyOneFile.Copy: reading checksum long for %q: %w", c.name, err)
 	}
 	// Big-endian decode (matches Java's DataInput.readBELong via CodecUtil).
@@ -436,7 +436,7 @@ func (c *CopyOneFile) Copy(in store.IndexInput, out store.IndexOutput) error {
 		byte(checksum >> 56), byte(checksum >> 48), byte(checksum >> 40), byte(checksum >> 32),
 		byte(checksum >> 24), byte(checksum >> 16), byte(checksum >> 8), byte(checksum),
 	}
-	if err := out.WriteBytes(outBuf[:]); err != nil {
+	if err := out.WriteBytes(outBuf[:], 0, len(outBuf)); err != nil {
 		return fmt.Errorf("CopyOneFile.Copy: writing checksum for %q: %w", c.name, err)
 	}
 	c.bytesCopied += 8
@@ -730,7 +730,7 @@ func readIndexHeaderBytes(in store.IndexInput) ([]byte, error) {
 
 	// Read big-endian int32 magic (4 bytes).
 	magicBuf := make([]byte, 4)
-	if err := in.ReadBytes(magicBuf); err != nil {
+	if err := in.ReadBytes(magicBuf, 0, len(magicBuf)); err != nil {
 		return nil, fmt.Errorf("cannot read magic: %w", err)
 	}
 	magic := int32(magicBuf[0])<<24 | int32(magicBuf[1])<<16 | int32(magicBuf[2])<<8 | int32(magicBuf[3])
@@ -756,7 +756,7 @@ func readIndexHeaderBytes(in store.IndexInput) ([]byte, error) {
 
 	// Read the 1-byte suffix length.
 	suffixLenBuf := make([]byte, 1)
-	if err := in.ReadBytes(suffixLenBuf); err != nil {
+	if err := in.ReadBytes(suffixLenBuf, 0, len(suffixLenBuf)); err != nil {
 		return nil, fmt.Errorf("cannot read suffix length: %w", err)
 	}
 	suffixLen := int(suffixLenBuf[0])
@@ -772,7 +772,7 @@ func readIndexHeaderBytes(in store.IndexInput) ([]byte, error) {
 		return nil, err
 	}
 	bytes := make([]byte, headerSize)
-	if err := in.ReadBytes(bytes); err != nil {
+	if err := in.ReadBytes(bytes, 0, len(bytes)); err != nil {
 		return nil, fmt.Errorf("cannot read full index header: %w", err)
 	}
 	return bytes, nil
@@ -793,7 +793,7 @@ func readFooterBytes(in store.IndexInput) ([]byte, error) {
 
 	// Validate footer magic (big-endian int32).
 	magicBuf := make([]byte, 4)
-	if err := in.ReadBytes(magicBuf); err != nil {
+	if err := in.ReadBytes(magicBuf, 0, len(magicBuf)); err != nil {
 		return nil, fmt.Errorf("cannot read footer magic: %w", err)
 	}
 	footerMagic := int32(magicBuf[0])<<24 | int32(magicBuf[1])<<16 | int32(magicBuf[2])<<8 | int32(magicBuf[3])
@@ -806,7 +806,7 @@ func readFooterBytes(in store.IndexInput) ([]byte, error) {
 		return nil, err
 	}
 	bytes := make([]byte, footerLen)
-	if err := in.ReadBytes(bytes); err != nil {
+	if err := in.ReadBytes(bytes, 0, len(bytes)); err != nil {
 		return nil, fmt.Errorf("cannot read full footer: %w", err)
 	}
 	return bytes, nil
@@ -815,7 +815,7 @@ func readFooterBytes(in store.IndexInput) ([]byte, error) {
 // skipBytesIn advances in.GetFilePointer() by n bytes.
 func skipBytesIn(in store.IndexInput, n int) error {
 	buf := make([]byte, n)
-	return in.ReadBytes(buf)
+	return in.ReadBytes(buf, 0, len(buf))
 }
 
 // ---------------------------------------------------------------------------
@@ -1145,7 +1145,6 @@ func (s *SegmentInfosSearcherManager) Close() error {
 	}
 	return nil
 }
-
 
 // ---------------------------------------------------------------------------
 // PreCopyMergedSegmentWarmer — stub

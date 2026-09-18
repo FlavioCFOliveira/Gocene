@@ -89,6 +89,7 @@ func NewSegmentMerger(
 		TermVectorsReaders: make([]TermVectorsReader, 0, len(readers)),
 		DocValuesProducers: make([]DocValuesProducer, 0, len(readers)),
 		PointsReaders:      make([]PointsReader, 0, len(readers)),
+		KnnVectorsReaders:  make([]KnnVectorsReader, 0, len(readers)),
 	}
 	for _, reader := range readers {
 		mergeState.FieldInfos = append(mergeState.FieldInfos, reader.GetFieldInfos())
@@ -113,6 +114,17 @@ func NewSegmentMerger(
 		// Java has no counterpart on spi.TermVectorsReader; see the field's
 		// doc comment on MergeState.
 		mergeState.TermVectorsReaders = append(mergeState.TermVectorsReaders, reader.GetTermVectorsReader())
+		// Java: knnVectorsReaders[i] = reader.getVectorReader(); if non-null it
+		// is replaced by its getMergeInstance() (MergeState.java:165-168).
+		knnVectorsReader := reader.GetVectorReader()
+		if knnVectorsReader != nil {
+			mergeInstance, err := knnVectorsReader.GetMergeInstance()
+			if err != nil {
+				return nil, err
+			}
+			knnVectorsReader = mergeInstance
+		}
+		mergeState.KnnVectorsReaders = append(mergeState.KnnVectorsReaders, knnVectorsReader)
 	}
 
 	// Resolve the codec for the merged segment: use the explicit codec when

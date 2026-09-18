@@ -7,9 +7,8 @@ package lucene60
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/backward_codecs/store"
+	bcstore "github.com/FlavioCFOliveira/Gocene/backward_codecs/store"
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
@@ -56,7 +55,7 @@ func NewLucene60PointsReader(state *codecs.SegmentReadState) (*Lucene60PointsRea
 			if err != nil {
 				return err
 			}
-			fp, err := store.ReadVLong(indexIn)
+			fp, err := indexIn.ReadVLong()
 			if err != nil {
 				return err
 			}

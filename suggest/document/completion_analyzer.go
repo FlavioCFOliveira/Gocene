@@ -5,8 +5,6 @@
 package document
 
 import (
-	"io"
-
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/miscellaneous"
 )

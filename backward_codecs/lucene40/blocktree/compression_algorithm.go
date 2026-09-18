@@ -72,7 +72,7 @@ type compressInput interface {
 func (c CompressionAlgorithm) Decompress(in compressInput, out []byte, length int) error {
 	switch c {
 	case CompressionNone:
-		return in.ReadBytes(out[:length])
+		return in.ReadBytes(out, 0, length)
 	case CompressionLowercaseASCII:
 		return compress.Decompress(in, out, length)
 	case CompressionLZ4:

@@ -263,7 +263,7 @@ func readFields(
 		if err2 != nil {
 			return nil, fmt.Errorf("blocktree reader: read field number: %w", err2)
 		}
-		numTerms, err2 := store.ReadVLong(termsMetaIn)
+		numTerms, err2 := termsMetaIn.ReadVLong()
 		if err2 != nil {
 			return nil, fmt.Errorf("blocktree reader: read numTerms: %w", err2)
 		}
@@ -278,7 +278,7 @@ func readFields(
 		if fieldInfo == nil {
 			return nil, fmt.Errorf("blocktree reader: invalid field number: %d", field)
 		}
-		sumTotalTermFreq, err2 := store.ReadVLong(termsMetaIn)
+		sumTotalTermFreq, err2 := termsMetaIn.ReadVLong()
 		if err2 != nil {
 			return nil, fmt.Errorf("blocktree reader: read sumTotalTermFreq: %w", err2)
 		}
@@ -286,7 +286,7 @@ func readFields(
 		if fieldInfo.IndexOptions() == index.IndexOptionsDocs {
 			sumDocFreq = sumTotalTermFreq
 		} else {
-			sumDocFreq, err2 = store.ReadVLong(termsMetaIn)
+			sumDocFreq, err2 = termsMetaIn.ReadVLong()
 			if err2 != nil {
 				return nil, fmt.Errorf("blocktree reader: read sumDocFreq: %w", err2)
 			}
@@ -333,7 +333,7 @@ func readFields(
 				sumTotalTermFreq, sumDocFreq,
 			)
 		}
-		indexStartFP, err2 := store.ReadVLong(indexMetaIn)
+		indexStartFP, err2 := indexMetaIn.ReadVLong()
 		if err2 != nil {
 			return nil, fmt.Errorf("blocktree reader: read indexStartFP: %w", err2)
 		}
@@ -365,7 +365,7 @@ func readBytesRef(in store.IndexInput) (*util.BytesRef, error) {
 		return nil, fmt.Errorf("blocktree reader: invalid bytes length: %d", n)
 	}
 	b := make([]byte, int(n))
-	if err = in.ReadBytes(b); err != nil {
+	if err = in.ReadBytes(b, 0, len(b)); err != nil {
 		return nil, err
 	}
 	return &util.BytesRef{Bytes: b, Offset: 0, Length: int(n)}, nil

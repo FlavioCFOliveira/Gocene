@@ -201,7 +201,7 @@ func (f *idVersionSegmentTermsEnumFrame) loadBlock() error {
 	if len(f.suffixBytes) < numBytes {
 		f.suffixBytes = make([]byte, util.Oversize(numBytes, 1))
 	}
-	if err := f.ste.in.ReadBytes(f.suffixBytes[:numBytes]); err != nil {
+	if err := f.ste.in.ReadBytes(f.suffixBytes, 0, numBytes); err != nil {
 		return fmt.Errorf("IDVersionSegmentTermsEnumFrame.loadBlock: read suffixes: %w", err)
 	}
 	f.suffixesReader.ResetWithSlice(f.suffixBytes, 0, numBytes)
@@ -220,7 +220,7 @@ func (f *idVersionSegmentTermsEnumFrame) loadBlock() error {
 	if len(f.bytes_) < numBytes {
 		f.bytes_ = make([]byte, util.Oversize(numBytes, 1))
 	}
-	if err := f.ste.in.ReadBytes(f.bytes_[:numBytes]); err != nil {
+	if err := f.ste.in.ReadBytes(f.bytes_, 0, numBytes); err != nil {
 		return fmt.Errorf("IDVersionSegmentTermsEnumFrame.loadBlock: read metadata: %w", err)
 	}
 	f.bytesReader.ResetWithSlice(f.bytes_, 0, numBytes)
@@ -263,7 +263,7 @@ func (f *idVersionSegmentTermsEnumFrame) nextLeaf() bool {
 	newLen := f.prefixLength + f.suffixLength
 	f.ste.term.SetLength(newLen)
 	f.ste.term.Grow(newLen)
-	_ = f.suffixesReader.ReadBytes(f.ste.term.Bytes()[f.prefixLength : f.prefixLength+f.suffixLength])
+	_ = f.suffixesReader.ReadBytes(f.ste.term.Bytes(), f.prefixLength, f.suffixLength)
 	f.ste.termExists = true
 	return false
 }
@@ -277,7 +277,7 @@ func (f *idVersionSegmentTermsEnumFrame) nextNonLeaf() bool {
 	newLen := f.prefixLength + f.suffixLength
 	f.ste.term.SetLength(newLen)
 	f.ste.term.Grow(newLen)
-	_ = f.suffixesReader.ReadBytes(f.ste.term.Bytes()[f.prefixLength : f.prefixLength+f.suffixLength])
+	_ = f.suffixesReader.ReadBytes(f.ste.term.Bytes(), f.prefixLength, f.suffixLength)
 	if (code & 1) == 0 {
 		f.ste.termExists = true
 		f.subCode = 0

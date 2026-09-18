@@ -100,15 +100,15 @@ func NewCompletionFieldsProducer(
 		if err != nil {
 			return nil, err
 		}
-		offset, err := store.ReadVLong(index_)
+		offset, err := index_.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
-		minWeight, err := store.ReadVLong(index_)
+		minWeight, err := index_.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
-		maxWeight, err := store.ReadVLong(index_)
+		maxWeight, err := index_.ReadVLong()
 		if err != nil {
 			return nil, err
 		}

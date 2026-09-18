@@ -25,7 +25,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/fst"
@@ -167,7 +166,7 @@ func (r *VariableGapTermsIndexReader) readIndex(
 			break
 		}
 
-		indexStart, err := store.ReadVLong(metaIn)
+		indexStart, err := metaIn.ReadVLong()
 		if err != nil {
 			return err
 		}

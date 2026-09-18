@@ -7,17 +7,20 @@ package quantization
 import (
 	"errors"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
 // stubQuantizedVectorsReader is a minimal implementation that proves
 // the interface shape compiles.
 type stubQuantizedVectorsReader struct {
-	values QuantizedByteVectorValues
+	values BaseQuantizedByteVectorValues
 	state  *ScalarQuantizer
 	closed bool
 }
 
-func (s *stubQuantizedVectorsReader) GetQuantizedVectorValues(fieldName string) (QuantizedByteVectorValues, error) {
+func (s *stubQuantizedVectorsReader) GetQuantizedVectorValues(fieldName string) (BaseQuantizedByteVectorValues, error) {
 	if fieldName == "" {
 		return nil, errors.New("empty fieldName")
 	}
@@ -26,6 +29,12 @@ func (s *stubQuantizedVectorsReader) GetQuantizedVectorValues(fieldName string) 
 
 func (s *stubQuantizedVectorsReader) GetQuantizationState(fieldName string) *ScalarQuantizer {
 	return s.state
+}
+
+func (s *stubQuantizedVectorsReader) GetRandomVectorScorerSupplierForMerge(
+	fieldInfo *spi.FieldInfo, segmentWriteState *spi.SegmentWriteState,
+) (hnsw.CloseableRandomVectorScorerSupplier, error) {
+	return nil, errors.New("stub reader holds no vectors to merge")
 }
 
 func (s *stubQuantizedVectorsReader) RamBytesUsed() int64 { return 0 }
@@ -43,6 +52,9 @@ func TestQuantizedVectorsReaderInterface(t *testing.T) {
 	}
 	if got := qvr.GetQuantizationState("field"); got != nil {
 		t.Errorf("GetQuantizationState: got non-nil from nil stub")
+	}
+	if _, err := qvr.GetRandomVectorScorerSupplierForMerge(nil, nil); err == nil {
+		t.Errorf("GetRandomVectorScorerSupplierForMerge: expected error from stub")
 	}
 	if err := qvr.Close(); err != nil {
 		t.Fatalf("Close: %v", err)

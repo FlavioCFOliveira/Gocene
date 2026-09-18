@@ -21,29 +21,14 @@ type KnnVectorsFormat = spi.KnnVectorsFormat
 // #4707 alongside KnnVectorsFormat.
 type KnnVectorsWriter = spi.KnnVectorsWriter
 
-// BaseKnnVectorsFormat provides common functionality for KnnVectorsFormat implementations.
-type BaseKnnVectorsFormat struct {
-	name string
-}
+// BaseKnnVectorsFormat is an alias of [spi.BaseKnnVectorsFormat]. The type
+// lives in spi so that codecs/hnsw, which this package imports, can embed it.
+type BaseKnnVectorsFormat = spi.BaseKnnVectorsFormat
 
-// NewBaseKnnVectorsFormat creates a new BaseKnnVectorsFormat.
+// NewBaseKnnVectorsFormat creates a new BaseKnnVectorsFormat. It forwards to
+// [spi.NewBaseKnnVectorsFormat].
 func NewBaseKnnVectorsFormat(name string) *BaseKnnVectorsFormat {
-	return &BaseKnnVectorsFormat{name: name}
-}
-
-// Name returns the format name.
-func (f *BaseKnnVectorsFormat) Name() string {
-	return f.name
-}
-
-// FieldsWriter returns a fields writer (must be implemented by subclasses).
-func (f *BaseKnnVectorsFormat) FieldsWriter(state *SegmentWriteState) (KnnVectorsWriter, error) {
-	return nil, fmt.Errorf("FieldsWriter not implemented")
-}
-
-// FieldsReader returns a fields reader (must be implemented by subclasses).
-func (f *BaseKnnVectorsFormat) FieldsReader(state *SegmentReadState) (KnnVectorsReader, error) {
-	return nil, fmt.Errorf("FieldsReader not implemented")
+	return spi.NewBaseKnnVectorsFormat(name)
 }
 
 // RandomVectorScorer scores vectors randomly.

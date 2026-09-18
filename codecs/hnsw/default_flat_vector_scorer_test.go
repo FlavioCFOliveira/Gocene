@@ -14,6 +14,7 @@
 package hnsw_test
 
 import (
+	"errors"
 	"math"
 	"strings"
 	"testing"
@@ -24,6 +25,10 @@ import (
 	hnswutil "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
+// errFakeScorerUnsupported stands for the UnsupportedOperationException the
+// FloatVectorValues/ByteVectorValues scorer defaults throw.
+var errFakeScorerUnsupported = errors.New("UnsupportedOperationException")
+
 // fakeFloatVectorValues is the minimal FloatVectorValues fixture used by
 // the DefaultFlatVectorScorer tests. It mirrors the in-memory test peer
 // `OffsetFloatVectorValues` in TestFlatVectorScorer.java by exposing an
@@ -33,9 +38,11 @@ type fakeFloatVectorValues struct {
 	vectors [][]float32
 }
 
-func (v *fakeFloatVectorValues) Dimension() int       { return v.dim }
-func (v *fakeFloatVectorValues) Size() int            { return len(v.vectors) }
-func (v *fakeFloatVectorValues) OrdToDoc(ord int) int { return ord }
+func (v *fakeFloatVectorValues) Dimension() int                                   { return v.dim }
+func (v *fakeFloatVectorValues) Size() int                                        { return len(v.vectors) }
+func (v *fakeFloatVectorValues) OrdToDoc(ord int) int                             { return ord }
+func (v *fakeFloatVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+func (v *fakeFloatVectorValues) GetVectorByteLength() int                         { return v.dim * 4 }
 func (v *fakeFloatVectorValues) GetEncoding() index.VectorEncoding {
 	return index.VectorEncodingFloat32
 }
@@ -53,12 +60,26 @@ func (v *fakeFloatVectorValues) VectorValue(ord int) ([]float32, error) {
 	return v.vectors[ord], nil
 }
 
-func (v *fakeFloatVectorValues) CopyFloat() (hnsw.FloatVectorValues, error) {
+func (v *fakeFloatVectorValues) Copy() (index.KnnVectorValues, error) { return v.copyValues(), nil }
+
+func (v *fakeFloatVectorValues) CopyFloatVectorValues() (index.FloatVectorValues, error) {
+	return v.copyValues(), nil
+}
+
+func (v *fakeFloatVectorValues) copyValues() *fakeFloatVectorValues {
 	cp := make([][]float32, len(v.vectors))
 	for i, src := range v.vectors {
 		cp[i] = append([]float32(nil), src...)
 	}
-	return &fakeFloatVectorValues{dim: v.dim, vectors: cp}, nil
+	return &fakeFloatVectorValues{dim: v.dim, vectors: cp}
+}
+
+func (v *fakeFloatVectorValues) Scorer(target []float32) (util.VectorScorer, error) {
+	return nil, errFakeScorerUnsupported
+}
+
+func (v *fakeFloatVectorValues) Rescorer(target []float32) (util.VectorScorer, error) {
+	return v.Scorer(target)
 }
 
 // fakeByteVectorValues is the byte-encoded counterpart of
@@ -68,20 +89,36 @@ type fakeByteVectorValues struct {
 	vectors [][]byte
 }
 
-func (v *fakeByteVectorValues) Dimension() int                      { return v.dim }
-func (v *fakeByteVectorValues) Size() int                           { return len(v.vectors) }
-func (v *fakeByteVectorValues) OrdToDoc(ord int) int                { return ord }
-func (v *fakeByteVectorValues) GetEncoding() index.VectorEncoding   { return index.VectorEncodingByte }
-func (v *fakeByteVectorValues) GetAcceptOrds(b util.Bits) util.Bits { return b }
-func (v *fakeByteVectorValues) Iterator() hnswutil.DocIndexIterator { return nil }
-func (v *fakeByteVectorValues) VectorValue(ord int) ([]byte, error) { return v.vectors[ord], nil }
+func (v *fakeByteVectorValues) Dimension() int                                   { return v.dim }
+func (v *fakeByteVectorValues) Size() int                                        { return len(v.vectors) }
+func (v *fakeByteVectorValues) OrdToDoc(ord int) int                             { return ord }
+func (v *fakeByteVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+func (v *fakeByteVectorValues) GetVectorByteLength() int                         { return v.dim }
+func (v *fakeByteVectorValues) GetEncoding() index.VectorEncoding                { return index.VectorEncodingByte }
+func (v *fakeByteVectorValues) GetAcceptOrds(b util.Bits) util.Bits              { return b }
+func (v *fakeByteVectorValues) Iterator() hnswutil.DocIndexIterator              { return nil }
+func (v *fakeByteVectorValues) VectorValue(ord int) ([]byte, error)              { return v.vectors[ord], nil }
 
-func (v *fakeByteVectorValues) CopyByte() (hnsw.ByteVectorValues, error) {
+func (v *fakeByteVectorValues) Copy() (index.KnnVectorValues, error) { return v.copyValues(), nil }
+
+func (v *fakeByteVectorValues) CopyByteVectorValues() (index.ByteVectorValues, error) {
+	return v.copyValues(), nil
+}
+
+func (v *fakeByteVectorValues) copyValues() *fakeByteVectorValues {
 	cp := make([][]byte, len(v.vectors))
 	for i, src := range v.vectors {
 		cp[i] = append([]byte(nil), src...)
 	}
-	return &fakeByteVectorValues{dim: v.dim, vectors: cp}, nil
+	return &fakeByteVectorValues{dim: v.dim, vectors: cp}
+}
+
+func (v *fakeByteVectorValues) Scorer(query []byte) (util.VectorScorer, error) {
+	return nil, errFakeScorerUnsupported
+}
+
+func (v *fakeByteVectorValues) Rescorer(target []byte) (util.VectorScorer, error) {
+	return v.Scorer(target)
 }
 
 // TestDefaultFlatVectorScorer_String verifies the canonical toString().
@@ -213,8 +250,8 @@ func TestDefaultFlatVectorScorer_SupplierIndependence(t *testing.T) {
 }
 
 // TestDefaultFlatVectorScorer_UnknownEncodingErrors verifies the
-// fallback error path mirroring Java's IllegalArgumentException for an
-// unexpected KnnVectorValues subtype.
+// fallback error path mirroring Java's IllegalArgumentException, thrown
+// when the switch over getEncoding() matches neither FLOAT32 nor BYTE.
 func TestDefaultFlatVectorScorer_UnknownEncodingErrors(t *testing.T) {
 	rawNoEncoding := &noEncodingValues{dim: 3, size: 0}
 	scorer := hnsw.NewDefaultFlatVectorScorer()
@@ -229,18 +266,22 @@ func TestDefaultFlatVectorScorer_UnknownEncodingErrors(t *testing.T) {
 	}
 }
 
-// noEncodingValues implements hnswutil.KnnVectorValues but not
-// hnsw.HasEncoding, exercising the fallback branch.
+// noEncodingValues is a KnnVectorValues reporting an encoding that is
+// neither FLOAT32 nor BYTE, exercising the fallback branch.
 type noEncodingValues struct {
 	dim  int
 	size int
 }
 
-func (v *noEncodingValues) Dimension() int                      { return v.dim }
-func (v *noEncodingValues) Size() int                           { return v.size }
-func (v *noEncodingValues) OrdToDoc(ord int) int                { return ord }
-func (v *noEncodingValues) GetAcceptOrds(b util.Bits) util.Bits { return b }
-func (v *noEncodingValues) Iterator() hnswutil.DocIndexIterator { return nil }
+func (v *noEncodingValues) Dimension() int                                   { return v.dim }
+func (v *noEncodingValues) Size() int                                        { return v.size }
+func (v *noEncodingValues) OrdToDoc(ord int) int                             { return ord }
+func (v *noEncodingValues) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+func (v *noEncodingValues) Copy() (index.KnnVectorValues, error)             { return v, nil }
+func (v *noEncodingValues) GetVectorByteLength() int                         { return 0 }
+func (v *noEncodingValues) GetEncoding() index.VectorEncoding                { return index.VectorEncoding(99) }
+func (v *noEncodingValues) GetAcceptOrds(b util.Bits) util.Bits              { return b }
+func (v *noEncodingValues) Iterator() hnswutil.DocIndexIterator              { return nil }
 
 // TestCheckDimensions_ErrorMessage verifies the byte-for-byte text of
 // the dimension-mismatch error matches the Java reference.

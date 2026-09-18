@@ -248,7 +248,7 @@ func (f *intersectTermsEnumFrame) load(frameIndexData *util.BytesRef) error {
 
 	// Read suffix bytes.
 	if f.version >= VersionCompressedSuffixes {
-		codeL, err2 := store.ReadVLong(f.ite.in)
+		codeL, err2 := f.ite.in.ReadVLong()
 		if err2 != nil {
 			return fmt.Errorf("blocktree intersect load suffix codeL: %w", err2)
 		}
@@ -285,7 +285,7 @@ func (f *intersectTermsEnumFrame) load(frameIndexData *util.BytesRef) error {
 				f.suffixLengthBytes[i] = b
 			}
 		} else {
-			if err6 := f.ite.in.ReadBytes(f.suffixLengthBytes[:numSuffixLengthBytes]); err6 != nil {
+			if err6 := f.ite.in.ReadBytes(f.suffixLengthBytes, 0, numSuffixLengthBytes); err6 != nil {
 				return fmt.Errorf("blocktree intersect load suffix lengths: %w", err6)
 			}
 		}
@@ -300,7 +300,7 @@ func (f *intersectTermsEnumFrame) load(frameIndexData *util.BytesRef) error {
 		if numBytes > len(f.suffixBytes) {
 			f.suffixBytes = util.GrowExactByte(f.suffixBytes, util.Oversize(numBytes, 1))
 		}
-		if err3 := f.ite.in.ReadBytes(f.suffixBytes[:numBytes]); err3 != nil {
+		if err3 := f.ite.in.ReadBytes(f.suffixBytes, 0, numBytes); err3 != nil {
 			return fmt.Errorf("blocktree intersect load suffix bytes (old): %w", err3)
 		}
 		f.suffixesReader.ResetWithSlice(f.suffixBytes, 0, numBytes)
@@ -316,7 +316,7 @@ func (f *intersectTermsEnumFrame) load(frameIndexData *util.BytesRef) error {
 	if numStatBytes > len(f.statBytes) {
 		f.statBytes = util.GrowExactByte(f.statBytes, util.Oversize(numStatBytes, 1))
 	}
-	if err2 := f.ite.in.ReadBytes(f.statBytes[:numStatBytes]); err2 != nil {
+	if err2 := f.ite.in.ReadBytes(f.statBytes, 0, numStatBytes); err2 != nil {
 		return fmt.Errorf("blocktree intersect load stats: %w", err2)
 	}
 	f.statsReader.ResetWithSlice(f.statBytes, 0, numStatBytes)
@@ -337,7 +337,7 @@ func (f *intersectTermsEnumFrame) load(frameIndexData *util.BytesRef) error {
 	if numMetaBytes > len(f.bytes) {
 		f.bytes = util.GrowExactByte(f.bytes, util.Oversize(numMetaBytes, 1))
 	}
-	if err2 := f.ite.in.ReadBytes(f.bytes[:numMetaBytes]); err2 != nil {
+	if err2 := f.ite.in.ReadBytes(f.bytes, 0, numMetaBytes); err2 != nil {
 		return fmt.Errorf("blocktree intersect load meta: %w", err2)
 	}
 	f.bytesReader.ResetWithSlice(f.bytes, 0, numMetaBytes)

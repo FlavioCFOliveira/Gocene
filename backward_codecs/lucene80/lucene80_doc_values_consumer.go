@@ -58,7 +58,7 @@ func NewLucene80DocValuesConsumer(
 	c.BaseDocValuesConsumer = codecs.NewBaseDocValuesConsumer(c)
 
 	// --- data file ---
-	dataName := store.SegmentFileName(seg, suffix, dataExtension)
+	dataName := gstore.SegmentFileName(seg, suffix, dataExtension)
 	dataOut, err := bcstore.CreateOutput(state.Directory, dataName, gstore.IOContextWrite)
 	if err != nil {
 		return nil, fmt.Errorf("lucene80 dv consumer: create data %q: %w", dataName, err)
@@ -70,7 +70,7 @@ func NewLucene80DocValuesConsumer(
 	c.data = dataOut
 
 	// --- meta file ---
-	metaName := store.SegmentFileName(seg, suffix, metaExtension)
+	metaName := gstore.SegmentFileName(seg, suffix, metaExtension)
 	metaOut, err := bcstore.CreateOutput(state.Directory, metaName, gstore.IOContextWrite)
 	if err != nil {
 		_ = dataOut.Close()
@@ -157,13 +157,13 @@ func (c *Lucene80DocValuesConsumer) Close() error {
 		if err := gstore.WriteInt32(c.meta, -1); err != nil {
 			setErr(fmt.Errorf("lucene80 dv consumer: meta EOF sentinel: %w", err))
 		} else {
-			setErr(store.WriteFooter(c.meta))
+			setErr(gstore.WriteFooter(c.meta))
 		}
 		setErr(c.meta.Close())
 		c.meta = nil
 	}
 	if c.data != nil {
-		setErr(store.WriteFooter(c.data))
+		setErr(gstore.WriteFooter(c.data))
 		setErr(c.data.Close())
 		c.data = nil
 	}

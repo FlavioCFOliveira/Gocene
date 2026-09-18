@@ -255,7 +255,7 @@ func (w *Lucene90SkipWriter) writeSkipData(level int, skipBuffer *store.ByteArra
 		return fmt.Errorf("lucene90 skip: level %d: writeVInt(impactLen): %w", level, err)
 	}
 	impactBytes := w.freqNormOut.ToArrayCopy()
-	if err := skipBuffer.WriteBytes(impactBytes); err != nil {
+	if err := skipBuffer.WriteBytes(impactBytes, 0, len(impactBytes)); err != nil {
 		return fmt.Errorf("lucene90 skip: level %d: writeBytes(impacts): %w", level, err)
 	}
 	acc.Clear()

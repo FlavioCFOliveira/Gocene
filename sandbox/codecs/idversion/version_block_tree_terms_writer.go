@@ -257,37 +257,37 @@ func (w *VersionBlockTreeTermsWriter) Close() error {
 	dirStart := w.out.GetFilePointer()
 	indexDirStart := w.indexOut.GetFilePointer()
 
-	if err := store.WriteVInt(w.out, int32(len(w.fields))); err != nil {
+	if err := w.out.WriteVInt(int32(len(w.fields))); err != nil {
 		setErr(err)
 		return firstErr
 	}
 
 	for _, field := range w.fields {
-		if err := store.WriteVInt(w.out, int32(field.fieldInfo.Number())); err != nil {
+		if err := w.out.WriteVInt(int32(field.fieldInfo.Number())); err != nil {
 			setErr(err)
 			return firstErr
 		}
-		if err := store.WriteVLong(w.out, field.numTerms); err != nil {
+		if err := w.out.WriteVLong(field.numTerms); err != nil {
 			setErr(err)
 			return firstErr
 		}
 		// rootCode.output1 is the BytesRef (encoded block FP + flags).
 		rc1 := field.rootCode.Output1
-		if err := store.WriteVInt(w.out, int32(rc1.Length)); err != nil {
+		if err := w.out.WriteVInt(int32(rc1.Length)); err != nil {
 			setErr(err)
 			return firstErr
 		}
-		if err := w.out.WriteBytes(rc1.Bytes[rc1.Offset : rc1.Offset+rc1.Length]); err != nil {
+		if err := w.out.WriteBytes(rc1.Bytes, rc1.Offset, rc1.Length); err != nil {
 			setErr(err)
 			return firstErr
 		}
 		// rootCode.output2 is the maxVersion long.
-		if err := store.WriteVLong(w.out, field.rootCode.Output2); err != nil {
+		if err := w.out.WriteVLong(field.rootCode.Output2); err != nil {
 			setErr(err)
 			return firstErr
 		}
 		// indexStartFP goes into the index file.
-		if err := store.WriteVLong(w.indexOut, field.indexStartFP); err != nil {
+		if err := w.indexOut.WriteVLong(field.indexStartFP); err != nil {
 			setErr(err)
 			return firstErr
 		}
@@ -356,12 +356,12 @@ func newFixedBitSetOrPanic(numBits int) *util.FixedBitSet {
 // writeBytesRefVBT writes a BytesRef as (vint length, raw bytes).
 func writeBytesRefVBT(out store.IndexOutput, b *util.BytesRef) error {
 	if b == nil {
-		return store.WriteVInt(out, 0)
+		return out.WriteVInt(0)
 	}
-	if err := store.WriteVInt(out, int32(b.Length)); err != nil {
+	if err := out.WriteVInt(int32(b.Length)); err != nil {
 		return err
 	}
-	return out.WriteBytes(b.Bytes[b.Offset : b.Offset+b.Length])
+	return out.WriteBytes(b.Bytes, b.Offset, b.Length)
 }
 
 // vbtEncodeOutput encodes a file pointer and two flag bits into a single long
@@ -427,7 +427,7 @@ func (b *vbtPendingBlock) compileIndex(
 
 	maxVersionIndex := b.maxVersion
 	if b.isFloor {
-		if err := store.WriteVInt(scratch, int32(len(blocks)-1)); err != nil {
+		if err := scratch.WriteVInt(int32(len(blocks) - 1)); err != nil {
 			return fmt.Errorf("compileIndex: write floor count: %w", err)
 		}
 		for i := 1; i < len(blocks); i++ {
@@ -763,7 +763,7 @@ func (tw *vbtTermsWriter) writeBlock(
 	if end == len(tw.pending) {
 		code |= 1 // last block
 	}
-	if err := store.WriteVInt(out, code); err != nil {
+	if err := out.WriteVInt(code); err != nil {
 		return nil, fmt.Errorf("writeBlock: write entCount: %w", err)
 	}
 
@@ -781,10 +781,10 @@ func (tw *vbtTermsWriter) writeBlock(
 				maxVersionInBlock = extra.IDVersion
 			}
 			suffix := len(pt.termBytes) - prefixLength
-			if err := store.WriteVInt(tw.suffixWriter, int32(suffix)); err != nil {
+			if err := tw.suffixWriter.WriteVInt(int32(suffix)); err != nil {
 				return nil, fmt.Errorf("writeBlock (leaf): write suffix len: %w", err)
 			}
-			if err := tw.suffixWriter.WriteBytes(pt.termBytes[prefixLength : prefixLength+suffix]); err != nil {
+			if err := tw.suffixWriter.WriteBytes(pt.termBytes, prefixLength, suffix); err != nil {
 				return nil, fmt.Errorf("writeBlock (leaf): write suffix bytes: %w", err)
 			}
 			if err := tw.parent.postingsWriter.EncodeTerm(byteBuffersIndexOutputAdapter{tw.metaWriter}, tw.fi, pt.state, absolute); err != nil {
@@ -804,10 +804,10 @@ func (tw *vbtTermsWriter) writeBlock(
 				}
 				suffix := len(pt.termBytes) - prefixLength
 				// Borrow LSB=0 to signal "term".
-				if err := store.WriteVInt(tw.suffixWriter, int32(suffix<<1)); err != nil {
+				if err := tw.suffixWriter.WriteVInt(int32(suffix << 1)); err != nil {
 					return nil, fmt.Errorf("writeBlock (non-leaf term): write suffix: %w", err)
 				}
-				if err := tw.suffixWriter.WriteBytes(pt.termBytes[prefixLength : prefixLength+suffix]); err != nil {
+				if err := tw.suffixWriter.WriteBytes(pt.termBytes, prefixLength, suffix); err != nil {
 					return nil, fmt.Errorf("writeBlock (non-leaf term): write suffix bytes: %w", err)
 				}
 				if err := tw.parent.postingsWriter.EncodeTerm(byteBuffersIndexOutputAdapter{tw.metaWriter}, tw.fi, pt.state, absolute); err != nil {
@@ -821,10 +821,10 @@ func (tw *vbtTermsWriter) writeBlock(
 				}
 				suffix := pb.prefix.Length - prefixLength
 				// Borrow LSB=1 to signal "sub-block".
-				if err := store.WriteVInt(tw.suffixWriter, int32((suffix<<1)|1)); err != nil {
+				if err := tw.suffixWriter.WriteVInt(int32((suffix << 1) | 1)); err != nil {
 					return nil, fmt.Errorf("writeBlock (non-leaf block): write suffix: %w", err)
 				}
-				if err := tw.suffixWriter.WriteBytes(pb.prefix.Bytes[prefixLength : prefixLength+suffix]); err != nil {
+				if err := tw.suffixWriter.WriteBytes(pb.prefix.Bytes, prefixLength, suffix); err != nil {
 					return nil, fmt.Errorf("writeBlock (non-leaf block): write suffix bytes: %w", err)
 				}
 				delta := startFP - pb.fp
@@ -844,7 +844,7 @@ func (tw *vbtTermsWriter) writeBlock(
 	if isLeafBlock {
 		suffixCode |= 1
 	}
-	if err := store.WriteVInt(out, suffixCode); err != nil {
+	if err := out.WriteVInt(suffixCode); err != nil {
 		return nil, fmt.Errorf("writeBlock: write suffix code: %w", err)
 	}
 	if err := tw.suffixWriter.CopyTo(out); err != nil {
@@ -853,7 +853,7 @@ func (tw *vbtTermsWriter) writeBlock(
 	tw.suffixWriter.Reset()
 
 	// Write meta blob.
-	if err := store.WriteVInt(out, int32(tw.metaWriter.Size())); err != nil {
+	if err := out.WriteVInt(int32(tw.metaWriter.Size())); err != nil {
 		return nil, fmt.Errorf("writeBlock: write meta size: %w", err)
 	}
 	if err := tw.metaWriter.CopyTo(out); err != nil {
@@ -941,8 +941,10 @@ type byteBuffersIndexOutputAdapter struct {
 
 var _ store.IndexOutput = byteBuffersIndexOutputAdapter{}
 
-func (a byteBuffersIndexOutputAdapter) WriteByte(b byte) error    { return a.inner.WriteByte(b) }
-func (a byteBuffersIndexOutputAdapter) WriteBytes(b []byte) error { return a.inner.WriteBytes(b) }
+func (a byteBuffersIndexOutputAdapter) WriteByte(b byte) error { return a.inner.WriteByte(b) }
+func (a byteBuffersIndexOutputAdapter) WriteBytes(b []byte, offset, length int) error {
+	return a.inner.WriteBytes(b, offset, length)
+}
 func (a byteBuffersIndexOutputAdapter) WriteBytesN(b []byte, n int) error {
 	return a.inner.WriteBytesN(b, n)
 }

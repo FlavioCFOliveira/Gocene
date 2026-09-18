@@ -41,17 +41,25 @@ func NewBaseKnnVectorsWriter(writer spi.KnnVectorsWriter) *BaseKnnVectorsWriter 
 func (b *BaseKnnVectorsWriter) MergeOneField(fieldInfo *spi.FieldInfo, mergeState *index.MergeState) (func() error, error) {
 	switch fieldInfo.VectorEncoding() {
 	case index.VectorEncodingByte:
-		fieldWriter, err := b.writer.AddField(fieldInfo)
+		// Java: (KnnFieldVectorsWriter<byte[]>) addField(fieldInfo); the value is
+		// handed to the non-generic spi.KnnFieldVectorsWriter.AddValue.
+		byteWriter, err := b.writer.AddField(fieldInfo)
 		if err != nil {
 			return nil, err
 		}
-		byteWriter, ok := fieldWriter.(TypedKnnFieldVectorsWriter[byte])
-		if !ok {
-			return nil, fmt.Errorf("expected TypedKnnFieldVectorsWriter[byte] for field %s", fieldInfo.Name())
+		mergedBytes, err := MergeByteVectorValues(fieldInfo, mergeState)
+		if err != nil {
+			return nil, err
 		}
-		mergedBytes := mergeByteVectorValues(fieldInfo, mergeState)
 		iter := mergedBytes.Iterator()
-		for doc, err := iter.NextDoc(); err == nil && doc != util.NO_MORE_DOCS; doc, err = iter.NextDoc() {
+		for {
+			doc, err := iter.NextDoc()
+			if err != nil {
+				return nil, err
+			}
+			if doc == util.NO_MORE_DOCS {
+				break
+			}
 			val, err := mergedBytes.VectorValue(iter.Index())
 			if err != nil {
 				return nil, err
@@ -61,17 +69,24 @@ func (b *BaseKnnVectorsWriter) MergeOneField(fieldInfo *spi.FieldInfo, mergeStat
 			}
 		}
 	case index.VectorEncodingFloat32:
-		fieldWriter, err := b.writer.AddField(fieldInfo)
+		// Java: (KnnFieldVectorsWriter<float[]>) addField(fieldInfo).
+		floatWriter, err := b.writer.AddField(fieldInfo)
 		if err != nil {
 			return nil, err
 		}
-		floatWriter, ok := fieldWriter.(TypedKnnFieldVectorsWriter[float32])
-		if !ok {
-			return nil, fmt.Errorf("expected TypedKnnFieldVectorsWriter[float32] for field %s", fieldInfo.Name())
+		mergedFloats, err := MergeFloatVectorValues(fieldInfo, mergeState)
+		if err != nil {
+			return nil, err
 		}
-		mergedFloats := mergeFloatVectorValues(fieldInfo, mergeState)
 		iter := mergedFloats.Iterator()
-		for doc, err := iter.NextDoc(); err == nil && doc != util.NO_MORE_DOCS; doc, err = iter.NextDoc() {
+		for {
+			doc, err := iter.NextDoc()
+			if err != nil {
+				return nil, err
+			}
+			if doc == util.NO_MORE_DOCS {
+				break
+			}
 			val, err := mergedFloats.VectorValue(iter.Index())
 			if err != nil {
 				return nil, err
@@ -94,19 +109,17 @@ func (b *BaseKnnVectorsWriter) MergeOneField(fieldInfo *spi.FieldInfo, mergeStat
 // Phase 2: Execute the deferred closures (e.g., HNSW graph construction)
 // using the flat vector data written in phase 1.
 func (b *BaseKnnVectorsWriter) Merge(mergeState *index.MergeState) error {
-	for i := 0; i < len(mergeState.Readers); i++ {
-		reader, ok := mergeState.Readers[i].(KnnVectorsReader)
-		if !ok {
-			if mergeState.FieldInfos[i] != nil && mergeState.FieldInfos[i].HasVectorValues() {
-				return fmt.Errorf("reader at index %d is not a KnnVectorsReader but field has vector values", i)
+	// Java: for (int i = 0; i < mergeState.fieldInfos.length; i++) over
+	// mergeState.knnVectorsReaders[i] (KnnVectorsWriter.java:71-78).
+	for i := 0; i < len(mergeState.FieldInfos); i++ {
+		reader := mergeState.KnnVectorsReaders[i]
+		if reader != nil {
+			if err := mergeState.CheckAborted(); err != nil {
+				return err
 			}
-			continue
-		}
-		if err := mergeState.CheckAborted(); err != nil {
-			return err
-		}
-		if err := reader.CheckIntegrity(); err != nil {
-			return err
+			if err := reader.CheckIntegrity(); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -201,31 +214,48 @@ func MapOldOrdToNewOrd(
 
 // --- Merged Vector Values Implementation ---
 
-func mergeFloatVectorValues(fieldInfo *spi.FieldInfo, mergeState *index.MergeState) index.FloatVectorValues {
-	if fieldInfo.VectorEncoding() != index.VectorEncodingFloat32 {
-		panic(fmt.Sprintf("cannot merge vectors encoded as [%s] as FLOAT32", fieldInfo.VectorEncoding()))
+// validateFieldEncoding mirrors the private
+// KnnVectorsWriter.MergedVectorValues.validateFieldEncoding: merging vectors
+// of a different encoding throws UnsupportedOperationException in Java, which
+// is returned as an error here.
+func validateFieldEncoding(fieldInfo *spi.FieldInfo, expected index.VectorEncoding) error {
+	fieldEncoding := fieldInfo.VectorEncoding()
+	if fieldEncoding != expected {
+		return fmt.Errorf("UnsupportedOperationException: Cannot merge vectors encoded as [%v] as %v", fieldEncoding, expected)
+	}
+	return nil
+}
+
+// MergeFloatVectorValues returns a merged view over all the segment's
+// FloatVectorValues. Mirrors the public static
+// KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(FieldInfo,
+// MergeState) of Apache Lucene 10.5.0: every sub-reader in
+// mergeState.KnnVectorsReaders whose FieldInfos carry vectors for the field
+// contributes its FloatVectorValues, mapped through its DocMap.
+func MergeFloatVectorValues(fieldInfo *spi.FieldInfo, mergeState *index.MergeState) (index.FloatVectorValues, error) {
+	if err := validateFieldEncoding(fieldInfo, index.VectorEncodingFloat32); err != nil {
+		return nil, err
 	}
 
 	var subs []*floatVectorValuesSub
-	for i, knnReader := range mergeState.Readers {
-		reader, ok := knnReader.(KnnVectorsReader)
-		if !ok {
+	for i, knnVectorsReader := range mergeState.KnnVectorsReaders {
+		sourceFieldInfo := mergeState.FieldInfos[i]
+		if !HasVectorValues(sourceFieldInfo, fieldInfo.Name()) {
 			continue
 		}
-		sourceFieldInfos := mergeState.FieldInfos[i]
-		if sourceFieldInfos == nil || !hasVectorValues(sourceFieldInfos, fieldInfo.Name()) {
-			continue
+		if knnVectorsReader != nil {
+			values, err := knnVectorsReader.GetFloatVectorValues(fieldInfo.Name())
+			if err != nil {
+				return nil, err
+			}
+			if values != nil {
+				subs = append(subs, &floatVectorValuesSub{
+					docMap: mergeState.DocMaps[i],
+					values: values,
+					iter:   values.Iterator(),
+				})
+			}
 		}
-
-		values, err := reader.GetFloatVectorValues(fieldInfo.Name())
-		if err != nil || values == nil {
-			continue
-		}
-		subs = append(subs, &floatVectorValuesSub{
-			docMap: mergeState.DocMaps[i],
-			values: values,
-			iter:   values.Iterator(),
-		})
 	}
 
 	var mergerSubs []index.DocIDMergerSub
@@ -234,41 +264,46 @@ func mergeFloatVectorValues(fieldInfo *spi.FieldInfo, mergeState *index.MergeSta
 	}
 	merger, err := index.NewDocIDMerger(mergerSubs, 0, mergeState.NeedsIndexSort)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	return &mergedFloat32VectorValues{
 		subs:        subs,
 		docIdMerger: merger,
 		size:        calculateTotalSize(subs, func(s *floatVectorValuesSub) int { return s.values.Size() }),
-	}
+		docId:       -1,
+		lastOrd:     -1,
+	}, nil
 }
 
-func mergeByteVectorValues(fieldInfo *spi.FieldInfo, mergeState *index.MergeState) index.ByteVectorValues {
-	if fieldInfo.VectorEncoding() != index.VectorEncodingByte {
-		panic(fmt.Sprintf("cannot merge vectors encoded as [%s] as BYTE", fieldInfo.VectorEncoding()))
+// MergeByteVectorValues returns a merged view over all the segment's
+// ByteVectorValues. Mirrors the public static
+// KnnVectorsWriter.MergedVectorValues.mergeByteVectorValues(FieldInfo,
+// MergeState) of Apache Lucene 10.5.0.
+func MergeByteVectorValues(fieldInfo *spi.FieldInfo, mergeState *index.MergeState) (index.ByteVectorValues, error) {
+	if err := validateFieldEncoding(fieldInfo, index.VectorEncodingByte); err != nil {
+		return nil, err
 	}
 
 	var subs []*byteVectorValuesSub
-	for i, knnReader := range mergeState.Readers {
-		reader, ok := knnReader.(KnnVectorsReader)
-		if !ok {
+	for i, knnVectorsReader := range mergeState.KnnVectorsReaders {
+		sourceFieldInfo := mergeState.FieldInfos[i]
+		if !HasVectorValues(sourceFieldInfo, fieldInfo.Name()) {
 			continue
 		}
-		sourceFieldInfos := mergeState.FieldInfos[i]
-		if sourceFieldInfos == nil || !hasVectorValues(sourceFieldInfos, fieldInfo.Name()) {
-			continue
+		if knnVectorsReader != nil {
+			values, err := knnVectorsReader.GetByteVectorValues(fieldInfo.Name())
+			if err != nil {
+				return nil, err
+			}
+			if values != nil {
+				subs = append(subs, &byteVectorValuesSub{
+					docMap: mergeState.DocMaps[i],
+					values: values,
+					iter:   values.Iterator(),
+				})
+			}
 		}
-
-		values, err := reader.GetByteVectorValues(fieldInfo.Name())
-		if err != nil || values == nil {
-			continue
-		}
-		subs = append(subs, &byteVectorValuesSub{
-			docMap: mergeState.DocMaps[i],
-			values: values,
-			iter:   values.Iterator(),
-		})
 	}
 
 	var mergerSubs []index.DocIDMergerSub
@@ -277,18 +312,23 @@ func mergeByteVectorValues(fieldInfo *spi.FieldInfo, mergeState *index.MergeStat
 	}
 	merger, err := index.NewDocIDMerger(mergerSubs, 0, mergeState.NeedsIndexSort)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	return &mergedByteVectorValues{
 		subs:        subs,
 		docIdMerger: merger,
 		size:        calculateTotalSize(subs, func(s *byteVectorValuesSub) int { return s.values.Size() }),
-	}
+		docId:       -1,
+		lastOrd:     -1,
+	}, nil
 }
 
-func hasVectorValues(fieldInfos *index.FieldInfos, fieldName string) bool {
-	if fieldInfos == nil || !fieldInfos.HasVectorValues() {
+// HasVectorValues returns true if the fieldInfos has vector values for the
+// field. Mirrors the public static
+// KnnVectorsWriter.MergedVectorValues.hasVectorValues(FieldInfos, String).
+func HasVectorValues(fieldInfos *index.FieldInfos, fieldName string) bool {
+	if !fieldInfos.HasVectorValues() {
 		return false
 	}
 	info := fieldInfos.FieldInfo(fieldName)

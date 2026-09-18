@@ -2,7 +2,6 @@ package blocktreeords
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -12,38 +11,38 @@ import (
 )
 
 const (
-	TermsExtension       = "tio"
-	TermsCodecName       = "OrdsBlockTreeTerms"
-	VersionStart         = 1
-	VersionCurrent       = VersionStart
-	TermsIndexExtension  = "tipo"
-	TermsIndexCodecName  = "OrdsBlockTreeIndex"
-	DefaultMinBlockSize  = 25
-	DefaultMaxBlockSize  = 48
+	TermsExtension      = "tio"
+	TermsCodecName      = "OrdsBlockTreeTerms"
+	VersionStart        = 1
+	VersionCurrent      = VersionStart
+	TermsIndexExtension = "tipo"
+	TermsIndexCodecName = "OrdsBlockTreeIndex"
+	DefaultMinBlockSize = 25
+	DefaultMaxBlockSize = 48
 )
 
 // OrdsBlockTreeTermsWriter writes terms in a block-tree structure.
 type OrdsBlockTreeTermsWriter struct {
-	out            store.IndexOutput
-	indexOut       store.IndexOutput
-	maxDoc         int
+	out             store.IndexOutput
+	indexOut        store.IndexOutput
+	maxDoc          int
 	minItemsInBlock int
 	maxItemsInBlock int
-	postingsWriter codecs.PostingsWriter
-	fieldInfos     *index.FieldInfos
-	fields         []*fieldMetaData
+	postingsWriter  codecs.PostingsWriter
+	fieldInfos      *index.FieldInfos
+	fields          []*fieldMetaData
 }
 
 type fieldMetaData struct {
-	fieldInfo     *index.FieldInfo
-	rootCode      interface{} // FST Output
-	numTerms      int64
-	indexStartFP  int64
+	fieldInfo        *index.FieldInfo
+	rootCode         interface{} // FST Output
+	numTerms         int64
+	indexStartFP     int64
 	sumTotalTermFreq int64
-	sumDocFreq    int64
-	docCount      int
-	minTerm       *util.BytesRef
-	maxTerm       *util.BytesRef
+	sumDocFreq       int64
+	docCount         int
+	minTerm          *util.BytesRef
+	maxTerm          *util.BytesRef
 }
 
 func NewOrdsBlockTreeTermsWriter(state *spi.SegmentWriteState, postingsWriter codecs.PostingsWriter, minItemsInBlock, maxItemsInBlock int) (*OrdsBlockTreeTermsWriter, error) {
@@ -89,11 +88,11 @@ func NewOrdsBlockTreeTermsWriter(state *spi.SegmentWriteState, postingsWriter co
 		out:             out,
 		indexOut:        indexOut,
 		maxDoc:          state.SegmentInfo.MaxDoc(),
-		minItemsInBlock:  minItemsInBlock,
-		maxItemsInBlock:  maxItemsInBlock,
-		postingsWriter:   postingsWriter,
-		fieldInfos:       state.FieldInfos,
-		fields:           make([]*fieldMetaData, 0),
+		minItemsInBlock: minItemsInBlock,
+		maxItemsInBlock: maxItemsInBlock,
+		postingsWriter:  postingsWriter,
+		fieldInfos:      state.FieldInfos,
+		fields:          make([]*fieldMetaData, 0),
 	}, nil
 }
 

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
 // TestVectorSearchIntegration tests the complete vector search pipeline
@@ -40,12 +41,12 @@ func TestVectorSearchIntegration(t *testing.T) {
 	})
 
 	t.Run("ScalarQuantizedWithEncoding", func(t *testing.T) {
-		encodings := []codecs.ScalarEncoding{
-			codecs.ScalarEncodingUnsignedByte,
-			codecs.ScalarEncodingSevenBit,
-			codecs.ScalarEncodingPackedNibble,
-			codecs.ScalarEncodingSingleBitQueryNibble,
-			codecs.ScalarEncodingDibitQueryNibble,
+		encodings := []quantization.ScalarEncoding{
+			quantization.ScalarEncodingUnsignedByte,
+			quantization.ScalarEncodingSevenBit,
+			quantization.ScalarEncodingPackedNibble,
+			quantization.ScalarEncodingSingleBitQueryNibble,
+			quantization.ScalarEncodingDibitQueryNibble,
 		}
 
 		for _, enc := range encodings {
@@ -253,17 +254,17 @@ func TestHNSWFormatConfiguration(t *testing.T) {
 // TestVectorEncodingBits tests encoding bit calculations
 func TestVectorEncodingBits(t *testing.T) {
 	tests := []struct {
-		encoding     codecs.ScalarEncoding
-		expectedBits int
+		encoding     quantization.ScalarEncoding
+		expectedBits byte
 	}{
 		// GetBits returns the document-side bit-width (Java getBits()), not the
 		// query-side bits. For the asymmetric encodings the doc bits are 1
 		// (single-bit) and 2 (dibit); their query bits are 4.
-		{codecs.ScalarEncodingUnsignedByte, 8},
-		{codecs.ScalarEncodingSevenBit, 7},
-		{codecs.ScalarEncodingPackedNibble, 4},
-		{codecs.ScalarEncodingSingleBitQueryNibble, 1},
-		{codecs.ScalarEncodingDibitQueryNibble, 2},
+		{quantization.ScalarEncodingUnsignedByte, 8},
+		{quantization.ScalarEncodingSevenBit, 7},
+		{quantization.ScalarEncodingPackedNibble, 4},
+		{quantization.ScalarEncodingSingleBitQueryNibble, 1},
+		{quantization.ScalarEncodingDibitQueryNibble, 2},
 	}
 
 	for _, tc := range tests {
@@ -280,20 +281,20 @@ func TestVectorEncodingBits(t *testing.T) {
 func TestVectorEncodingPackedLength(t *testing.T) {
 	tests := []struct {
 		name       string
-		encoding   codecs.ScalarEncoding
+		encoding   quantization.ScalarEncoding
 		dimensions int
 		expected   int
 	}{
-		{"UnsignedByte_64", codecs.ScalarEncodingUnsignedByte, 64, 64},
-		{"PackedNibble_64", codecs.ScalarEncodingPackedNibble, 64, 32},
-		{"PackedNibble_65", codecs.ScalarEncodingPackedNibble, 65, 33},
-		{"SingleBit_64", codecs.ScalarEncodingSingleBitQueryNibble, 64, 8},
-		{"SingleBit_65", codecs.ScalarEncodingSingleBitQueryNibble, 65, 9},
-		{"Dibit_64", codecs.ScalarEncodingDibitQueryNibble, 64, 16},
+		{"UnsignedByte_64", quantization.ScalarEncodingUnsignedByte, 64, 64},
+		{"PackedNibble_64", quantization.ScalarEncodingPackedNibble, 64, 32},
+		{"PackedNibble_65", quantization.ScalarEncodingPackedNibble, 65, 33},
+		{"SingleBit_64", quantization.ScalarEncodingSingleBitQueryNibble, 64, 8},
+		{"SingleBit_65", quantization.ScalarEncodingSingleBitQueryNibble, 65, 9},
+		{"Dibit_64", quantization.ScalarEncodingDibitQueryNibble, 64, 16},
 		// 65 dims: discretized to 72 (8-byte boundary), stored as two single-bit
 		// stripes -> 2 * ceil(72/8) = 2 * 9 = 18. Mirrors Java's
 		// DIBIT_QUERY_NIBBLE.getDocPackedLength(65).
-		{"Dibit_65", codecs.ScalarEncodingDibitQueryNibble, 65, 18},
+		{"Dibit_65", quantization.ScalarEncodingDibitQueryNibble, 65, 18},
 	}
 
 	for _, tc := range tests {
