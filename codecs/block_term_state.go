@@ -56,6 +56,18 @@ func (s *BlockTermState) CopyFrom(other index.TermState) error {
 	return nil
 }
 
+// Clone returns a copy of this state.
+//
+// Mirrors org.apache.lucene.index.TermState.clone(), which BlockTermState
+// inherits unchanged through OrdTermState: it delegates to Object.clone(),
+// producing a field-by-field shallow copy of the runtime type (including the
+// inherited OrdTermState.ord). BlockTermState declares no reference-typed
+// field, so the shallow copy is also a complete copy.
+func (s *BlockTermState) Clone() *BlockTermState {
+	c := *s
+	return &c
+}
+
 // String returns the debug representation of BlockTermState.toString() in
 // Apache Lucene 10.5.0:
 //

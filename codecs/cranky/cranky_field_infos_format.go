@@ -41,7 +41,7 @@ func (f *CrankyFieldInfosFormat) Read(dir store.Directory, segmentInfo *index.Se
 // Write writes the field infos.
 func (f *CrankyFieldInfosFormat) Write(dir store.Directory, segmentInfo *index.SegmentInfo, segmentSuffix string, infos *index.FieldInfos, context store.IOContext) error {
 	if f.random.Intn(100) == 0 {
-		return fmt.Errorf("Fake IOException from FieldInfosFormat.Write()")
+		return fmt.Errorf("Fake IOException from FieldInfosFormat.getFieldInfosWriter()")
 	}
 	return f.delegate.Write(dir, segmentInfo, segmentSuffix, infos, context)
 }

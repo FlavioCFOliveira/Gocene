@@ -284,7 +284,7 @@ func (f *OrdsSegmentTermsEnumFrame) rewind() {
 	f.hasTerms = f.hasTermsOrig
 
 	if f.isFloor {
-		_ = f.floorDataReader.SetPosition(0)
+		f.floorDataReader.SetPosition(0)
 		n, _ := f.floorDataReader.ReadVInt()
 		f.numFollowFloorBlocks = int(n)
 		b, _ := f.floorDataReader.ReadByte()
@@ -314,7 +314,7 @@ func (f *OrdsSegmentTermsEnumFrame) nextLeaf() bool {
 	termLen := f.prefixLength + f.suffixLength
 	f.ste.term.SetLength(termLen)
 	f.ste.term.Grow(termLen)
-	_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
+	f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 	copy(f.ste.term.Bytes()[f.prefixLength:], f.suffixBytes[f.startBytePos:f.startBytePos+f.suffixLength])
 	f.ste.termExists = true
 	return false
@@ -330,7 +330,7 @@ func (f *OrdsSegmentTermsEnumFrame) nextNonLeaf() bool {
 	termLen := f.prefixLength + f.suffixLength
 	f.ste.term.SetLength(termLen)
 	f.ste.term.Grow(termLen)
-	_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
+	f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 	copy(f.ste.term.Bytes()[f.prefixLength:], f.suffixBytes[f.startBytePos:f.startBytePos+f.suffixLength])
 
 	if (code & 1) == 0 {
@@ -496,7 +496,7 @@ func (f *OrdsSegmentTermsEnumFrame) scanToSubBlock(subFP int64) {
 		} else {
 			skip = int(uint32(code) >> 1)
 		}
-		_ = f.suffixesReader.SetPosition(f.suffixesReader.GetPosition() + skip)
+		f.suffixesReader.SetPosition(f.suffixesReader.GetPosition() + skip)
 		if (code & 1) != 0 {
 			subCode, _ := f.suffixesReader.ReadVLong()
 			termOrdDelta, _ := f.suffixesReader.ReadVLong()
@@ -544,7 +544,7 @@ func (f *OrdsSegmentTermsEnumFrame) scanToTermLeaf(target *util.BytesRef, exactO
 		}
 		f.suffixLength = int(length)
 		f.startBytePos = f.suffixesReader.GetPosition()
-		_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 
 		cmp := bytes.Compare(
 			f.suffixBytes[f.startBytePos:f.startBytePos+f.suffixLength],
@@ -590,7 +590,7 @@ func (f *OrdsSegmentTermsEnumFrame) scanToTermNonLeaf(target *util.BytesRef, exa
 		f.suffixLength = int(uint32(code) >> 1)
 		f.ste.termExists = (code & 1) == 0
 		f.startBytePos = f.suffixesReader.GetPosition()
-		_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 
 		prevTermOrd := f.termOrd
 		if f.ste.termExists {

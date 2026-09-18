@@ -333,7 +333,7 @@ func (f *OrdsIntersectTermsEnumFrame) nextLeaf() bool {
 	length, _ := f.suffixesReader.ReadVInt()
 	f.suffix = int(length)
 	f.startBytePos = f.suffixesReader.GetPosition()
-	_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffix)
+	f.suffixesReader.SetPosition(f.startBytePos + f.suffix)
 	return false
 }
 
@@ -344,7 +344,7 @@ func (f *OrdsIntersectTermsEnumFrame) nextNonLeaf() bool {
 	code, _ := f.suffixesReader.ReadVInt()
 	f.suffix = int(uint32(code) >> 1)
 	f.startBytePos = f.suffixesReader.GetPosition()
-	_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffix)
+	f.suffixesReader.SetPosition(f.startBytePos + f.suffix)
 	if (code & 1) == 0 {
 		// A normal term.
 		f.termState.TermBlockOrd++

@@ -41,7 +41,7 @@ func (f *CrankyTermVectorsFormat) VectorsReader(dir store.Directory, segmentInfo
 // VectorsWriter returns a vectors writer.
 func (f *CrankyTermVectorsFormat) VectorsWriter(dir store.Directory, segmentInfo *index.SegmentInfo, context store.IOContext) (spi.TermVectorsWriter, error) {
 	if f.random.Intn(100) == 0 {
-		return nil, fmt.Errorf("Fake IOException from TermVectorsFormat.VectorsWriter()")
+		return nil, fmt.Errorf("Fake IOException from TermVectorsFormat.vectorsWriter()")
 	}
 	writer, err := f.delegate.VectorsWriter(dir, segmentInfo, context)
 	if err != nil {
@@ -60,56 +60,56 @@ type crankyTermVectorsWriter struct {
 
 func (w *crankyTermVectorsWriter) StartDocument(numVectorFields int) error {
 	if w.random.Intn(10000) == 0 {
-		return fmt.Errorf("Fake IOException from TermVectorsWriter.StartDocument()")
+		return fmt.Errorf("Fake IOException from TermVectorsWriter.startDocument()")
 	}
 	return w.delegate.StartDocument(numVectorFields)
 }
 
 func (w *crankyTermVectorsWriter) FinishDocument() error {
 	if w.random.Intn(10000) == 0 {
-		return fmt.Errorf("Fake IOException from TermVectorsWriter.FinishDocument()")
+		return fmt.Errorf("Fake IOException from TermVectorsWriter.finishDocument()")
 	}
 	return w.delegate.FinishDocument()
 }
 
 func (w *crankyTermVectorsWriter) StartField(info *index.FieldInfo, numTerms int, positions, offsets, payloads bool) error {
 	if w.random.Intn(10000) == 0 {
-		return fmt.Errorf("Fake IOException from TermVectorsWriter.StartField()")
+		return fmt.Errorf("Fake IOException from TermVectorsWriter.startField()")
 	}
 	return w.delegate.StartField(info, numTerms, positions, offsets, payloads)
 }
 
 func (w *crankyTermVectorsWriter) FinishField() error {
 	if w.random.Intn(10000) == 0 {
-		return fmt.Errorf("Fake IOException from TermVectorsWriter.FinishField()")
+		return fmt.Errorf("Fake IOException from TermVectorsWriter.finishField()")
 	}
 	return w.delegate.FinishField()
 }
 
 func (w *crankyTermVectorsWriter) StartTerm(term []byte, freq int) error {
 	if w.random.Intn(10000) == 0 {
-		return fmt.Errorf("Fake IOException from TermVectorsWriter.StartTerm()")
+		return fmt.Errorf("Fake IOException from TermVectorsWriter.startTerm()")
 	}
 	return w.delegate.StartTerm(term, freq)
 }
 
 func (w *crankyTermVectorsWriter) FinishTerm() error {
 	if w.random.Intn(10000) == 0 {
-		return fmt.Errorf("Fake IOException from TermVectorsWriter.FinishTerm()")
+		return fmt.Errorf("Fake IOException from TermVectorsWriter.finishTerm()")
 	}
 	return w.delegate.FinishTerm()
 }
 
 func (w *crankyTermVectorsWriter) AddPosition(position, startOffset, endOffset int, payload []byte) error {
 	if w.random.Intn(10000) == 0 {
-		return fmt.Errorf("Fake IOException from TermVectorsWriter.AddPosition()")
+		return fmt.Errorf("Fake IOException from TermVectorsWriter.addPosition()")
 	}
 	return w.delegate.AddPosition(position, startOffset, endOffset, payload)
 }
 
 func (w *crankyTermVectorsWriter) Finish(numDocs int) error {
 	if w.random.Intn(100) == 0 {
-		return fmt.Errorf("Fake IOException from TermVectorsWriter.Finish()")
+		return fmt.Errorf("Fake IOException from TermVectorsWriter.finish()")
 	}
 	return w.delegate.Finish(numDocs)
 }
@@ -117,7 +117,7 @@ func (w *crankyTermVectorsWriter) Finish(numDocs int) error {
 func (w *crankyTermVectorsWriter) Close() error {
 	err := w.delegate.Close()
 	if w.random.Intn(100) == 0 {
-		return fmt.Errorf("Fake IOException from TermVectorsWriter.Close()")
+		return fmt.Errorf("Fake IOException from TermVectorsWriter.close()")
 	}
 	return err
 }

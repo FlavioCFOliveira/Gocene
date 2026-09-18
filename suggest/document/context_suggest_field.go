@@ -15,14 +15,24 @@ import (
 // CONTEXT_SEPARATOR is the separator used between context value and the suggest field value.
 const CONTEXT_SEPARATOR = ''
 
-// TYPE is the type marker for ContextSuggestField.
-const TYPE byte = 1
+// ContextSuggestFieldTYPE is the byte marker stamped on a context-enabled
+// suggest field. Mirrors
+// org.apache.lucene.search.suggest.document.ContextSuggestField.TYPE
+// (ContextSuggestField.java:51), which Java writes as ContextSuggestField.TYPE
+// at every use site. See SuggestFieldTYPE for the naming rationale.
+const ContextSuggestFieldTYPE byte = 1
 
 // ContextSuggestField is a SuggestField which additionally takes in a set of contexts.
 type ContextSuggestField struct {
 	*SuggestField
 
-	contexts []string
+	// contextSet holds the associated contexts. Java declares this field as
+	// `private final Set<CharSequence> contexts` alongside the protected
+	// accessor `contexts()` (ContextSuggestField.java:53 and :74). Go forbids a
+	// field and a method of the same name on one type, so the private field is
+	// the one renamed and the accessor keeps the Java name, which is the member
+	// subclasses actually override.
+	contextSet []string
 }
 
 // NewContextSuggestField creates a context-enabled suggest field.
@@ -36,12 +46,14 @@ func NewContextSuggestField(name, value string, weight int, contexts ...string) 
 
 	return &ContextSuggestField{
 		SuggestField: sf,
-		contexts:     contexts,
+		contextSet:   contexts,
 	}
 }
 
+// contexts lets sub-classes inject contexts at index time. Mirrors
+// ContextSuggestField.contexts() (ContextSuggestField.java:74).
 func (f *ContextSuggestField) contexts() []string {
-	return f.contexts
+	return f.contextSet
 }
 
 func (f *ContextSuggestField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
@@ -64,7 +76,7 @@ func (f *ContextSuggestField) wrapTokenStream(stream analysis.TokenStream) analy
 }
 
 func (f *ContextSuggestField) Type() byte {
-	return TYPE
+	return ContextSuggestFieldTYPE
 }
 
 func validate(value string) error {

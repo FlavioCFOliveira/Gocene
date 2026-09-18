@@ -32,12 +32,13 @@ type BlockHeader struct {
 // NewBlockHeader creates a new BlockHeader and initializes it.
 func NewBlockHeader(linesCount int32, baseDocsFP, basePositionsFP, basePayloadsFP int64, termStatesBaseOffset, middleLineOffset int32) *BlockHeader {
 	bh := &BlockHeader{}
-	bh.Reset(linesCount, baseDocsFP, basePositionsFP, basePayloadsFP, termStatesBaseOffset, middleLineOffset)
-	return bh
+	return bh.Reset(linesCount, baseDocsFP, basePositionsFP, basePayloadsFP, termStatesBaseOffset, middleLineOffset)
 }
 
-// Reset initializes the BlockHeader fields.
-func (bh *BlockHeader) Reset(linesCount int32, baseDocsFP, basePositionsFP, basePayloadsFP int64, termStatesBaseOffset, middleLineOffset int32) {
+// Reset initializes the BlockHeader fields and returns the receiver. Mirrors
+// org.apache.lucene.codecs.uniformsplit.BlockHeader.reset (BlockHeader.java:85),
+// which ends in `return this` so that Serializer.read can return it directly.
+func (bh *BlockHeader) Reset(linesCount int32, baseDocsFP, basePositionsFP, basePayloadsFP int64, termStatesBaseOffset, middleLineOffset int32) *BlockHeader {
 	bh.baseDocsFP = baseDocsFP
 	bh.basePositionsFP = basePositionsFP
 	bh.basePayloadsFP = basePayloadsFP
@@ -45,6 +46,7 @@ func (bh *BlockHeader) Reset(linesCount int32, baseDocsFP, basePositionsFP, base
 	bh.middleLineIndex = linesCount >> 1
 	bh.termStatesBaseOffset = termStatesBaseOffset
 	bh.middleLineOffset = middleLineOffset
+	return bh
 }
 
 // LinesCount returns the number of lines in the block.
@@ -154,6 +156,5 @@ func (s *BlockHeaderSerializer) Read(input store.DataInput, reuse *BlockHeader) 
 	if bh == nil {
 		bh = &BlockHeader{}
 	}
-	bh.Reset(linesCount, baseDocsFP, basePositionsFP, basePayloadsFP, termStatesBaseOffset, middleTermOffset)
-	return bh, nil
+	return bh.Reset(linesCount, baseDocsFP, basePositionsFP, basePayloadsFP, termStatesBaseOffset, middleTermOffset), nil
 }

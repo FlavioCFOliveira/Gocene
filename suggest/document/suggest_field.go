@@ -13,8 +13,12 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// TYPE is the type marker for SuggestField.
-const TYPE byte = 0
+// SuggestFieldTYPE is the byte marker stamped on a plain suggest field.
+// Mirrors org.apache.lucene.search.suggest.document.SuggestField.TYPE
+// (SuggestField.java:64), which Java writes as SuggestField.TYPE at every use
+// site. ContextSuggestField declares a constant of the same simple name, so
+// each carries its owning class here — Go has no class-scoped constants.
+const SuggestFieldTYPE byte = 0
 
 // SuggestField indexes a string value and a weight as a weighted completion against a named suggester.
 //
@@ -90,5 +94,5 @@ func isReserved(r rune) bool {
 
 // Type returns the type of the field.
 func (f *SuggestField) Type() byte {
-	return TYPE
+	return SuggestFieldTYPE
 }

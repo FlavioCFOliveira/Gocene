@@ -237,12 +237,11 @@ func (f *idVersionSegmentTermsEnumFrame) rewind() {
 	f.nextEnt = -1
 	f.hasTerms = f.hasTermsOrig
 	if f.isFloor {
-		if err := f.floorDataReader.SetPosition(0); err == nil {
-			numFollowFloor, _ := f.floorDataReader.ReadVInt()
-			f.numFollowFloorBlocks = int(numFollowFloor)
-			nextLabel, _ := f.floorDataReader.ReadByte()
-			f.nextFloorLabel = int(nextLabel) & 0xff
-		}
+		f.floorDataReader.SetPosition(0)
+		numFollowFloor, _ := f.floorDataReader.ReadVInt()
+		f.numFollowFloorBlocks = int(numFollowFloor)
+		nextLabel, _ := f.floorDataReader.ReadByte()
+		f.nextFloorLabel = int(nextLabel) & 0xff
 	}
 }
 
@@ -379,7 +378,7 @@ func (f *idVersionSegmentTermsEnumFrame) scanToSubBlock(subFP int64) {
 		} else {
 			skipLen = int(code >> 1)
 		}
-		_ = f.suffixesReader.SetPosition(f.suffixesReader.GetPosition() + skipLen)
+		f.suffixesReader.SetPosition(f.suffixesReader.GetPosition() + skipLen)
 		if (code & 1) != 0 {
 			subCode, _ := f.suffixesReader.ReadVLong()
 			if targetSubCode == int64(subCode) {
@@ -419,7 +418,7 @@ func (f *idVersionSegmentTermsEnumFrame) scanToTermLeaf(target *util.BytesRef, e
 		suffLen, _ := f.suffixesReader.ReadVInt()
 		f.suffixLength = int(suffLen)
 		f.startBytePos = f.suffixesReader.GetPosition()
-		_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 
 		// Compare suffix vs target suffix.
 		cmp := bytes.Compare(
@@ -463,7 +462,7 @@ func (f *idVersionSegmentTermsEnumFrame) scanToTermNonLeaf(target *util.BytesRef
 		f.suffixLength = int(code >> 1)
 		f.ste.termExists = (code & 1) == 0
 		f.startBytePos = f.suffixesReader.GetPosition()
-		_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 		if f.ste.termExists {
 			f.state.TermBlockOrd++
 			f.subCode = 0

@@ -31,7 +31,7 @@ type BlockReader struct {
 	termStateSerializer *DeltaBaseTermStateSerializer
 
 	dictionaryBrowserSupplier IndexDictionaryBrowserSupplier
-	dictionaryBrowser         IndexDictionary
+	dictionaryBrowser         IndexDictionaryBrowser
 
 	blockStartFP int64
 	blockHeader  *BlockHeader
@@ -46,11 +46,6 @@ type BlockReader struct {
 	scratchBlockBytes *util.BytesRef
 	scratchTermState  *codecs.BlockTermState
 	scratchBlockLine  *BlockLine
-}
-
-// IndexDictionaryBrowserSupplier provides IndexDictionary.Browser instances.
-type IndexDictionaryBrowserSupplier interface {
-	Get() (IndexDictionary, error)
 }
 
 // NewBlockReader constructs a new BlockReader.
@@ -423,7 +418,7 @@ func (r *BlockReader) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (spi.P
 	return nil, fmt.Errorf("PostingsWithLiveDocs not implemented")
 }
 
-func (r *BlockReader) getOrCreateDictionaryBrowser() (IndexDictionary, error) {
+func (r *BlockReader) getOrCreateDictionaryBrowser() (IndexDictionaryBrowser, error) {
 	if r.dictionaryBrowser == nil {
 		browser, err := r.dictionaryBrowserSupplier.Get()
 		if err != nil {
@@ -437,16 +432,4 @@ func (r *BlockReader) getOrCreateDictionaryBrowser() (IndexDictionary, error) {
 func (r *BlockReader) clearTermState() {
 	r.termState = nil
 	r.termStateForced = false
-}
-
-type BlockDecoder interface {
-	Decode(in store.DataInput, length int64) (*util.BytesRef, error)
-}
-
-type IndexDictionary interface {
-	Get(term *util.BytesRef) (int64, error)
-}
-
-type IndexDictionaryBrowserSupplier interface {
-	Get() (IndexDictionary, error)
 }

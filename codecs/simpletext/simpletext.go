@@ -23,15 +23,6 @@ func NewSimpleTextCompoundFormat() *SimpleTextCompoundFormat {
 	return &SimpleTextCompoundFormat{}
 }
 
-// SimpleTextFieldInfosFormat writes the per-field FieldInfos as a text file.
-// Mirrors org.apache.lucene.codecs.simpletext.SimpleTextFieldInfosFormat.
-type SimpleTextFieldInfosFormat struct{}
-
-// NewSimpleTextFieldInfosFormat builds the format.
-func NewSimpleTextFieldInfosFormat() *SimpleTextFieldInfosFormat {
-	return &SimpleTextFieldInfosFormat{}
-}
-
 // SimpleTextKnnVectorsFormat is the KNN vectors variant.
 type SimpleTextKnnVectorsFormat struct{}
 
@@ -75,14 +66,6 @@ type SimpleTextPointsFormat struct{}
 
 // NewSimpleTextPointsFormat builds the format.
 func NewSimpleTextPointsFormat() *SimpleTextPointsFormat { return &SimpleTextPointsFormat{} }
-
-// SimpleTextSegmentInfoFormat writes segment metadata as text.
-type SimpleTextSegmentInfoFormat struct{}
-
-// NewSimpleTextSegmentInfoFormat builds the format.
-func NewSimpleTextSegmentInfoFormat() *SimpleTextSegmentInfoFormat {
-	return &SimpleTextSegmentInfoFormat{}
-}
 
 // SimpleTextStoredFieldsFormat is the stored-fields text format.
 type SimpleTextStoredFieldsFormat struct{}

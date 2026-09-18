@@ -49,39 +49,6 @@ func (tb *TermBytes) GetMdpLength() int32 {
 	return tb.mdpLength
 }
 
-// BlockHeader represents the header of a block in the terms dictionary.
-// Mirrors org.apache.lucene.codecs.uniformsplit.BlockHeader from Apache Lucene 10.5.0.
-type BlockHeader struct {
-	// linesCount is the number of lines in the block.
-	linesCount int32
-
-	// baseDocsFP is the base file pointer for doc lists.
-	baseDocsFP int64
-
-	// basePositionsFP is the base file pointer for position lists.
-	basePositionsFP int64
-
-	// basePayloadsFP is the base file pointer for payload lists.
-	basePayloadsFP int64
-
-	// termStatesBaseOffset is the offset to the start of term states for this block.
-	termStatesBaseOffset int32
-
-	// middleLineOffset is the offset to the middle line of the block for binary search.
-	middleLineOffset int32
-}
-
-// Reset resets the BlockHeader fields.
-func (bh *BlockHeader) Reset(linesCount int32, baseDocsFP, basePositionsFP, basePayloadsFP int64, termStatesBaseOffset, middleLineOffset int32) *BlockHeader {
-	bh.linesCount = linesCount
-	bh.baseDocsFP = baseDocsFP
-	bh.basePositionsFP = basePositionsFP
-	bh.basePayloadsFP = basePayloadsFP
-	bh.termStatesBaseOffset = termStatesBaseOffset
-	bh.middleLineOffset = middleLineOffset
-	return bh
-}
-
 // BlockLine represents one line in a block's term list.
 // Mirrors org.apache.lucene.codecs.uniformsplit.BlockLine from Apache Lucene 10.5.0.
 type BlockLine struct {

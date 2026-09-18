@@ -41,7 +41,7 @@ func (f *CrankyStoredFieldsFormat) FieldsReader(dir store.Directory, segmentInfo
 // FieldsWriter returns a fields writer.
 func (f *CrankyStoredFieldsFormat) FieldsWriter(dir store.Directory, segmentInfo *index.SegmentInfo, context store.IOContext) (spi.StoredFieldsWriter, error) {
 	if f.random.Intn(100) == 0 {
-		return nil, fmt.Errorf("Fake IOException from StoredFieldsFormat.FieldsWriter()")
+		return nil, fmt.Errorf("Fake IOException from StoredFieldsFormat.fieldsWriter()")
 	}
 	writer, err := f.delegate.FieldsWriter(dir, segmentInfo, context)
 	if err != nil {
@@ -60,28 +60,28 @@ type crankyStoredFieldsWriter struct {
 
 func (w *crankyStoredFieldsWriter) StartDocument() error {
 	if w.random.Intn(10000) == 0 {
-		return fmt.Errorf("Fake IOException from StoredFieldsWriter.StartDocument()")
+		return fmt.Errorf("Fake IOException from StoredFieldsWriter.startDocument()")
 	}
 	return w.delegate.StartDocument()
 }
 
 func (w *crankyStoredFieldsWriter) FinishDocument() error {
 	if w.random.Intn(10000) == 0 {
-		return fmt.Errorf("Fake IOException from StoredFieldsWriter.FinishDocument()")
+		return fmt.Errorf("Fake IOException from StoredFieldsWriter.finishDocument()")
 	}
 	return w.delegate.FinishDocument()
 }
 
 func (w *crankyStoredFieldsWriter) WriteField(info *spi.FieldInfo, field spi.IndexableField) error {
 	if w.random.Intn(10000) == 0 {
-		return fmt.Errorf("Fake IOException from StoredFieldsWriter.WriteField()")
+		return fmt.Errorf("Fake IOException from StoredFieldsWriter.writeField()")
 	}
 	return w.delegate.WriteField(info, field)
 }
 
 func (w *crankyStoredFieldsWriter) Finish(numDocs int) error {
 	if w.random.Intn(100) == 0 {
-		return fmt.Errorf("Fake IOException from StoredFieldsWriter.Finish()")
+		return fmt.Errorf("Fake IOException from StoredFieldsWriter.finish()")
 	}
 	return w.delegate.Finish(numDocs)
 }
@@ -89,7 +89,7 @@ func (w *crankyStoredFieldsWriter) Finish(numDocs int) error {
 func (w *crankyStoredFieldsWriter) Close() error {
 	err := w.delegate.Close()
 	if w.random.Intn(1000) == 0 {
-		return fmt.Errorf("Fake IOException from StoredFieldsWriter.Close()")
+		return fmt.Errorf("Fake IOException from StoredFieldsWriter.close()")
 	}
 	return err
 }

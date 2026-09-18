@@ -35,7 +35,7 @@ func (f *CrankyPostingsFormat) Name() string {
 // FieldsConsumer returns a fields consumer.
 func (f *CrankyPostingsFormat) FieldsConsumer(state *index.SegmentWriteState) (spi.FieldsConsumer, error) {
 	if f.random.Intn(100) == 0 {
-		return nil, fmt.Errorf("Fake IOException from PostingsFormat.FieldsConsumer()")
+		return nil, fmt.Errorf("Fake IOException from PostingsFormat.fieldsConsumer()")
 	}
 	consumer, err := f.delegate.FieldsConsumer(state)
 	if err != nil {
@@ -59,7 +59,7 @@ type crankyFieldsConsumer struct {
 
 func (c *crankyFieldsConsumer) Write(field string, terms spi.Terms) error {
 	if c.random.Intn(100) == 0 {
-		return fmt.Errorf("Fake IOException from FieldsConsumer.Write()")
+		return fmt.Errorf("Fake IOException from FieldsConsumer.write()")
 	}
 	return c.delegate.Write(field, terms)
 }
@@ -67,7 +67,7 @@ func (c *crankyFieldsConsumer) Write(field string, terms spi.Terms) error {
 func (c *crankyFieldsConsumer) Close() error {
 	err := c.delegate.Close()
 	if c.random.Intn(100) == 0 {
-		return fmt.Errorf("Fake IOException from FieldsConsumer.Close()")
+		return fmt.Errorf("Fake IOException from FieldsConsumer.close()")
 	}
 	return err
 }
