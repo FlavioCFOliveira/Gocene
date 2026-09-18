@@ -53,10 +53,12 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
@@ -194,8 +196,8 @@ const noMoreDocsView = 2147483647
 type OffHeapScalarQuantizedFloatVectorValues struct {
 	dimension          int
 	size               int
-	similarityFunction VectorSimilarityFunction
-	vectorsScorer      FlatVectorsScorer
+	similarityFunction index.VectorSimilarityFunction
+	vectorsScorer      hnsw.FlatVectorsScorer
 
 	slice                   store.IndexInput
 	vectorValue             []float32
@@ -243,8 +245,8 @@ func newOffHeapScalarQuantizedFloatVectorValues(
 	dimension, size int,
 	centroid []float32,
 	encoding quantization.ScalarEncoding,
-	similarityFunction VectorSimilarityFunction,
-	vectorsScorer FlatVectorsScorer,
+	similarityFunction index.VectorSimilarityFunction,
+	vectorsScorer hnsw.FlatVectorsScorer,
 	slice store.IndexInput,
 	variant offHeapScalarQuantizedFloatVariant,
 ) *OffHeapScalarQuantizedFloatVectorValues {
@@ -384,6 +386,12 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) GetCorrectiveTerms(targetOrd i
 // FloatVectorValues per-doc size).
 func (v *OffHeapScalarQuantizedFloatVectorValues) GetVectorByteLength() int { return v.dimension }
 
+// Prefetch carries the KnnVectorValues.prefetch(int[], int) default body of
+// Apache Lucene 10.5.0, which is empty. Neither
+// OffHeapScalarQuantizedFloatVectorValues nor
+// OffHeapScalarQuantizedVectorValues overrides it in the Java reference.
+func (v *OffHeapScalarQuantizedFloatVectorValues) Prefetch(_ []int, _ int) error { return nil }
+
 // GetSlice satisfies the HasIndexSlice contract and returns the
 // underlying packed-bytes slice. Returns nil for the empty variant.
 func (v *OffHeapScalarQuantizedFloatVectorValues) GetSlice() store.IndexInput { return v.slice }
@@ -406,7 +414,7 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) OrdToDoc(ord int) int {
 // Copy returns an independent iterator backed by a cloned slice. The
 // return type satisfies [codecs.KnnVectorValues]; callers that need the
 // concrete type should use [CopyTyped].
-func (v *OffHeapScalarQuantizedFloatVectorValues) Copy() (KnnVectorValues, error) {
+func (v *OffHeapScalarQuantizedFloatVectorValues) Copy() (spi.KnnVectorValues, error) {
 	return v.variant.copy(v)
 }
 
@@ -440,10 +448,10 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) Scorer(target []float32) (Vect
 	return v.variant.scorer(v, target)
 }
 
-// Note: the FlatVectorsScorer and FlatRandomVectorScorer contracts used
+// Note: the hnsw.FlatVectorsScorer and utilhnsw.RandomVectorScorer contracts used
 // by this file are the ones declared in codecs/flat_vector_scorer.go. The
-// Java reference's float-target overload of FlatVectorsScorer.
-// getRandomVectorScorer returns a FlatRandomVectorScorer, and only the
+// Java reference's float-target overload of hnsw.FlatVectorsScorer.
+// getRandomVectorScorer returns a utilhnsw.RandomVectorScorer, and only the
 // Score(node) method is consumed by the scorer adaptors below.
 
 // Load constructs the appropriate variant (dense, sparse or empty) based
@@ -453,8 +461,8 @@ func Load(
 	configuration ordToDocDISIReaderConfig,
 	dimension, size int,
 	encoding quantization.ScalarEncoding,
-	similarityFunction VectorSimilarityFunction,
-	vectorsScorer FlatVectorsScorer,
+	similarityFunction index.VectorSimilarityFunction,
+	vectorsScorer hnsw.FlatVectorsScorer,
 	centroid []float32,
 	quantizedVectorDataOffset, quantizedVectorDataLength int64,
 	vectorData store.IndexInput,
@@ -495,8 +503,8 @@ func newDenseOffHeapScalarQuantizedFloatVectorValues(
 	dimension, size int,
 	centroid []float32,
 	encoding quantization.ScalarEncoding,
-	similarityFunction VectorSimilarityFunction,
-	vectorsScorer FlatVectorsScorer,
+	similarityFunction index.VectorSimilarityFunction,
+	vectorsScorer hnsw.FlatVectorsScorer,
 	slice store.IndexInput,
 ) *OffHeapScalarQuantizedFloatVectorValues {
 	return newOffHeapScalarQuantizedFloatVectorValues(
@@ -558,8 +566,8 @@ func newSparseOffHeapScalarQuantizedFloatVectorValues(
 	centroid []float32,
 	encoding quantization.ScalarEncoding,
 	dataIn store.IndexInput,
-	similarityFunction VectorSimilarityFunction,
-	vectorsScorer FlatVectorsScorer,
+	similarityFunction index.VectorSimilarityFunction,
+	vectorsScorer hnsw.FlatVectorsScorer,
 	slice store.IndexInput,
 ) (*OffHeapScalarQuantizedFloatVectorValues, error) {
 	ordToDoc, err := configuration.GetDirectMonotonicReader(dataIn)
@@ -640,8 +648,8 @@ type emptyOffHeapScalarQuantizedFloatVariant struct{}
 
 func newEmptyOffHeapScalarQuantizedFloatVectorValues(
 	dimension int,
-	similarityFunction VectorSimilarityFunction,
-	vectorsScorer FlatVectorsScorer,
+	similarityFunction index.VectorSimilarityFunction,
+	vectorsScorer hnsw.FlatVectorsScorer,
 ) *OffHeapScalarQuantizedFloatVectorValues {
 	return newOffHeapScalarQuantizedFloatVectorValues(
 		dimension, 0, nil, quantization.ScalarEncodingUnsignedByte, similarityFunction, vectorsScorer, nil,
@@ -695,7 +703,7 @@ func (s *sparseAcceptOrds) Length() int { return s.size }
 // Scorer(target). The Bulk fast-path is currently not wired (see file
 // header note about VectorScorer.Bulk port).
 type quantizedFloatVectorScorer struct {
-	scorer FlatRandomVectorScorer
+	scorer utilhnsw.RandomVectorScorer
 	it     spi.DocIndexIterator
 }
 

@@ -45,12 +45,17 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
+	"github.com/FlavioCFOliveira/Gocene/codecs/lucene95"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
+
+// floatBytes renders java.lang.Float.BYTES, the wire width of one FLOAT32
+// sample. The Java reference spells it Float.BYTES at every use site.
+const floatBytes = 4
 
 // Lucene104ScalarQuantizedVectorsWriter is the Go port of
 // org.apache.lucene.codecs.lucene104.Lucene104ScalarQuantizedVectorsWriter
@@ -86,7 +91,7 @@ type Lucene104ScalarQuantizedVectorsWriter struct {
 	// rawVectorDelegate owns the raw FLOAT32 vectors (.vec / .vemf). The
 	// scalar writer reads the delegate's accumulated vectors back during
 	// flush to compute the centroid and quantize.
-	rawVectorDelegate *lucene99FlatVectorsWriter
+	rawVectorDelegate hnsw.FlatVectorsWriter
 	fields            []*scalarQuantizedFieldWriter
 	finished          bool
 	closed            bool
@@ -99,7 +104,12 @@ type Lucene104ScalarQuantizedVectorsWriter struct {
 // Mirrors the Java constructor
 // Lucene104ScalarQuantizedVectorsWriter(SegmentWriteState, ScalarEncoding,
 // FlatVectorsWriter, Lucene104ScalarQuantizedVectorScorer).
-func NewLucene104ScalarQuantizedVectorsWriter(state *codecs.SegmentWriteState, encoding quantization.ScalarEncoding) (*Lucene104ScalarQuantizedVectorsWriter, error) {
+func NewLucene104ScalarQuantizedVectorsWriter(
+	state *codecs.SegmentWriteState,
+	encoding quantization.ScalarEncoding,
+	rawVectorDelegate hnsw.FlatVectorsWriter,
+	vectorsScorer *Lucene104ScalarQuantizedVectorScorer,
+) (*Lucene104ScalarQuantizedVectorsWriter, error) {
 	if state == nil {
 		return nil, errors.New("lucene104 sq: nil SegmentWriteState")
 	}
@@ -121,15 +131,12 @@ func NewLucene104ScalarQuantizedVectorsWriter(state *codecs.SegmentWriteState, e
 	}
 	meta := store.NewChecksumIndexOutput(rawMeta)
 
-	// The Java reference provides the scorer as a constructor argument.
-	// In Go, we use the canonical Lucene104ScalarQuantizedVectorScorer.
-	scorer := hnsw.NewLucene104ScalarQuantizedVectorScorer()
-
 	w := &Lucene104ScalarQuantizedVectorsWriter{
-		BaseFlatVectorsWriter: hnsw.NewBaseFlatVectorsWriter(scorer),
+		BaseFlatVectorsWriter: hnsw.NewBaseFlatVectorsWriter(vectorsScorer),
 		state:                 state,
 		encoding:              encoding,
 		meta:                  meta,
+		rawVectorDelegate:     rawVectorDelegate,
 	}
 
 	rawData, err := state.Directory.CreateOutput(dataName, store.IOContextWrite)
@@ -153,25 +160,18 @@ func NewLucene104ScalarQuantizedVectorsWriter(state *codecs.SegmentWriteState, e
 		return nil, fmt.Errorf("lucene104 sq: write data header: %w", err)
 	}
 
-	// Compose the raw FLOAT32 delegate (writes .vec / .vemf). Mirrors
-	// rawVectorFormat.fieldsWriter(state).
-	rawDelegate, err := NewLucene99FlatVectorsWriter(state)
-	if err != nil {
-		_ = w.Close()
-		return nil, fmt.Errorf("lucene104 sq: create raw flat delegate: %w", err)
-	}
-	w.rawVectorDelegate = rawDelegate
 	return w, nil
 }
 
-// MergeOneFieldToIndex performs the actual merge for a single
-// field across the segments tracked by mergeState.
-// Mirrors the Java MergeOneFieldToIndex.
-func (w *Lucene104ScalarQuantizedVectorsWriter) MergeOneFieldToIndex(
+// MergeOneFlatVectorField mirrors the Java override
+// mergeOneFlatVectorField(FieldInfo, MergeState). The merge path is not yet
+// ported (see the type doc): it returns an explicit error rather than
+// producing a non-faithful file.
+func (w *Lucene104ScalarQuantizedVectorsWriter) MergeOneFlatVectorField(
 	fieldInfo *index.FieldInfo,
-	mergeState *hnsw.MergeState,
-) (hnsw.CloseableRandomVectorScorerSupplier, error) {
-	return nil, errors.New("lucene104 sq: MergeOneFieldToIndex not supported yet (merge path deferred)")
+	mergeState *index.MergeState,
+) error {
+	return errors.New("lucene104 sq: MergeOneFlatVectorField not supported yet (merge path deferred)")
 }
 
 // scalarQuantizedFieldWriter accumulates per-document state for one FLOAT32
@@ -183,8 +183,9 @@ type scalarQuantizedFieldWriter struct {
 
 	// delegate is the composed flat field writer that holds the raw vectors.
 	// The scalar writer normalizes (for COSINE) and quantizes these vectors
-	// during flush.
-	delegate *lucene99FlatFieldWriter
+	// during flush. Mirrors the Java field
+	// FlatFieldVectorsWriter<float[]> flatFieldVectorsWriter.
+	delegate hnsw.FlatFieldVectorsWriter[float32]
 
 	// dimensionSums accumulates the (optionally normalized) per-dimension
 	// sums across all added vectors. centroid = dimensionSums / count.
@@ -202,7 +203,7 @@ type scalarQuantizedFieldWriter struct {
 // Non-FLOAT32 fields fall through to the raw delegate (the scalar quantizer
 // only handles float vectors); such a field returns the delegate's field
 // writer so byte vectors are still persisted by the raw flat format.
-func (w *Lucene104ScalarQuantizedVectorsWriter) AddField(fieldInfo *index.FieldInfo) (hnsw.KnnFieldVectorsWriter, error) {
+func (w *Lucene104ScalarQuantizedVectorsWriter) AddField(fieldInfo *index.FieldInfo) (spi.KnnFieldVectorsWriter, error) {
 	if w.closed {
 		return nil, errors.New("lucene104 sq: writer is closed")
 	}
@@ -220,16 +221,22 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) AddField(fieldInfo *index.FieldI
 
 	if fieldInfo.VectorEncoding() != index.VectorEncodingFloat32 {
 		// BYTE fields are not scalar quantized; the raw flat field writer
-		// owns them. Wrap the delegate so the indexing chain's AddValue calls
-		// reach the flat writer. Mirrors the Java branch that returns
-		// rawVectorDelegate for non-FLOAT32 encodings.
-		return &flatDelegateFieldWriter{delegate: delegate}, nil
+		// owns them. Mirrors the Java branch that returns rawVectorDelegate
+		// for non-FLOAT32 encodings.
+		return delegate, nil
+	}
+
+	floatDelegate, ok := delegate.(hnsw.FlatFieldVectorsWriter[float32])
+	if !ok {
+		// Mirrors the unchecked cast to FlatFieldVectorsWriter<float[]> in
+		// the Java addField, which fails with ClassCastException.
+		return nil, fmt.Errorf("ClassCastException: %T cannot be cast to FlatFieldVectorsWriter<float[]>", delegate)
 	}
 
 	fw := &scalarQuantizedFieldWriter{
 		fieldInfo:     fieldInfo,
 		encoding:      w.encoding,
-		delegate:      delegate,
+		delegate:      floatDelegate,
 		dimensionSums: make([]float32, fieldInfo.VectorDimension()),
 	}
 	w.fields = append(w.fields, fw)
@@ -247,7 +254,7 @@ func (fw *scalarQuantizedFieldWriter) AddValue(docID int, vectorValue any) error
 	if !ok {
 		return fmt.Errorf("lucene104 sq: field %q expects []float32, got %T", fw.fieldInfo.Name(), vectorValue)
 	}
-	if err := fw.delegate.addValueFloat32(docID, vec); err != nil {
+	if err := fw.delegate.AddValue(docID, vec); err != nil {
 		return err
 	}
 	if fw.fieldInfo.VectorSimilarityFunction() == index.VectorSimilarityFunctionCosine {
@@ -268,11 +275,48 @@ func (fw *scalarQuantizedFieldWriter) AddValue(docID int, vectorValue any) error
 // RamBytesUsed reports the per-field in-memory footprint: the delegate's raw
 // vectors plus the magnitudes slice. Mirrors Java's FieldWriter.ramBytesUsed.
 func (fw *scalarQuantizedFieldWriter) RamBytesUsed() int64 {
-	return fw.delegate.ramBytesUsed() + int64(len(fw.magnitudes))*floatBytes
+	return fw.quantizationOverheadBytesUsed() + fw.delegate.RamBytesUsed()
 }
 
-// Finish marks the field complete. Mirrors Java's FieldWriter.finish.
+// quantizationOverheadBytesUsed reports the RAM usage of the
+// quantization-specific state only (magnitudes and dimensionSums). The
+// underlying flat vector data is tracked by the rawVectorDelegate at the
+// writer level to avoid double-counting. Mirrors Java's
+// FieldWriter.quantizationOverheadBytesUsed.
+func (fw *scalarQuantizedFieldWriter) quantizationOverheadBytesUsed() int64 {
+	return int64(len(fw.magnitudes))*floatBytes + int64(len(fw.dimensionSums))*floatBytes
+}
+
+// GetVectors mirrors FieldWriter.getVectors(): the raw vectors held by the
+// composed flat field writer.
+func (fw *scalarQuantizedFieldWriter) GetVectors() [][]float32 {
+	return fw.delegate.GetVectors()
+}
+
+// GetDocsWithFieldSet mirrors FieldWriter.getDocsWithFieldSet().
+func (fw *scalarQuantizedFieldWriter) GetDocsWithFieldSet() *index.DocsWithFieldSet {
+	return fw.delegate.GetDocsWithFieldSet()
+}
+
+// IsFinished mirrors FieldWriter.isFinished(): finished &&
+// flatFieldVectorsWriter.isFinished().
+func (fw *scalarQuantizedFieldWriter) IsFinished() bool {
+	return fw.finished && fw.delegate.IsFinished()
+}
+
+// AsKnnVectorValues carries the concrete
+// FlatFieldVectorsWriter.asKnnVectorValues(VectorEncoding, int).
+func (fw *scalarQuantizedFieldWriter) AsKnnVectorValues(encoding index.VectorEncoding, dim int) (index.KnnVectorValues, error) {
+	return hnsw.DefaultAsKnnVectorValues[float32](fw, encoding, dim)
+}
+
+// Finish marks the field complete. Mirrors Java's FieldWriter.finish, which
+// returns early when already finished and otherwise asserts that the composed
+// flat field writer is itself finished.
 func (fw *scalarQuantizedFieldWriter) Finish() error {
+	if fw.finished {
+		return nil
+	}
 	fw.finished = true
 	return nil
 }
@@ -282,40 +326,13 @@ func (fw *scalarQuantizedFieldWriter) Finish() error {
 // FieldWriter.normalizeVectors. Called only for COSINE, after the raw delegate
 // has flushed the un-normalized vectors to .vec.
 func (fw *scalarQuantizedFieldWriter) normalizeVectors() {
-	for i, vec := range fw.delegate.floats {
+	for i, vec := range fw.delegate.GetVectors() {
 		mag := fw.magnitudes[i]
 		for j := range vec {
 			vec[j] /= mag
 		}
 	}
 }
-
-// flatDelegateFieldWriter wraps the flat field writer so that non-FLOAT32
-// (BYTE) fields registered through the scalar writer still flow their values
-// to the raw flat writer. It satisfies the wide KnnFieldVectorsWriter
-// contract by dispatching on the value's concrete type.
-type flatDelegateFieldWriter struct {
-	delegate *lucene99FlatFieldWriter
-}
-
-// AddValue forwards the value to the flat field writer, dispatching on the
-// declared encoding.
-func (f *flatDelegateFieldWriter) AddValue(docID int, vectorValue any) error {
-	switch v := vectorValue.(type) {
-	case []byte:
-		return f.delegate.addValueByte(docID, v)
-	case []float32:
-		return f.delegate.addValueFloat32(docID, v)
-	default:
-		return fmt.Errorf("lucene104 sq: flat delegate expects []byte or []float32, got %T", vectorValue)
-	}
-}
-
-// RamBytesUsed reports the delegate's footprint.
-func (f *flatDelegateFieldWriter) RamBytesUsed() int64 { return f.delegate.ramBytesUsed() }
-
-// Finish marks the delegate field complete.
-func (f *flatDelegateFieldWriter) Finish() error { return nil }
 
 // Flush serialises every accumulated field. It first flushes the raw delegate
 // (writing the un-normalized vectors to .vec), then, per field, normalizes the
@@ -344,7 +361,7 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) Flush(maxDoc int, sortMap spi.So
 			field.normalizeVectors()
 		}
 
-		vectorCount := len(field.delegate.floats)
+		vectorCount := len(field.delegate.GetVectors())
 		clusterCenter := make([]float32, len(field.dimensionSums))
 		if vectorCount > 0 {
 			for i := range field.dimensionSums {
@@ -355,11 +372,13 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) Flush(maxDoc int, sortMap spi.So
 			}
 		}
 
-		quantizer := quantization.NewOptimizedScalarQuantizer(field.fieldInfo.VectorSimilarityFunction())
+		quantizer := quantization.NewDefaultOptimizedScalarQuantizer(field.fieldInfo.VectorSimilarityFunction())
 		if err := w.writeField(field, clusterCenter, maxDoc, quantizer); err != nil {
 			return err
 		}
-		field.finished = true
+		if err := field.Finish(); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -381,11 +400,11 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeField(
 	vectorDataLength := w.vectorData.GetFilePointer() - vectorDataOffset
 
 	var centroidDP float32
-	if len(field.delegate.floats) > 0 {
+	if len(field.GetVectors()) > 0 {
 		centroidDP = util.DotProduct(clusterCenter, clusterCenter)
 	}
 
-	return w.writeMeta(field.fieldInfo, maxDoc, vectorDataOffset, vectorDataLength, clusterCenter, centroidDP, field.delegate.docIDs)
+	return w.writeMeta(field.fieldInfo, maxDoc, vectorDataOffset, vectorDataLength, clusterCenter, centroidDP, field.GetDocsWithFieldSet())
 }
 
 // writeVectors quantizes and writes every stored vector for the field to .veq.
@@ -407,8 +426,8 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeVectors(
 		packed = make([]byte, w.encoding.GetDocPackedLength(dim))
 	}
 
-	bits := byte(w.encoding.GetBits())
-	for _, raw := range field.delegate.floats {
+	bits := w.encoding.GetBits()
+	for _, raw := range field.GetVectors() {
 		// scalarQuantize mutates its input in place (centres against the
 		// centroid). The flat delegate stored copies, but those copies are no
 		// longer needed once written to .vec, so quantizing them in place
@@ -417,10 +436,7 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeVectors(
 		// reader of field.delegate.floats.
 		vec := make([]float32, len(raw))
 		copy(vec, raw)
-		corrections, err := quantizer.ScalarQuantize(vec, scratch, bits, clusterCenter)
-		if err != nil {
-			return fmt.Errorf("lucene104 sq: quantize: %w", err)
-		}
+		corrections := quantizer.ScalarQuantize(vec, scratch, bits, clusterCenter)
 		if err := packQuantized(w.encoding, scratch, packed); err != nil {
 			return fmt.Errorf("lucene104 sq: pack quantized: %w", err)
 		}
@@ -447,25 +463,26 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeCorrections(c quantization.
 	if err := w.vectorData.WriteInt(int32(math.Float32bits(c.AdditionalCorrection))); err != nil {
 		return err
 	}
-	return w.vectorData.WriteInt(c.QuantizedComponentSum)
+	return w.vectorData.WriteInt(int32(c.QuantizedComponentSum))
 }
 
 // writeMeta writes one .vemq field record. Mirrors Java's private writeMeta.
 func (w *Lucene104ScalarQuantizedVectorsWriter) writeMeta(
 	fieldInfo *index.FieldInfo, maxDoc int, vectorDataOffset, vectorDataLength int64,
-	clusterCenter []float32, centroidDP float32, docIDs []int,
+	clusterCenter []float32, centroidDP float32, docsWithField *index.DocsWithFieldSet,
 ) error {
-	simOrd, err := distFuncToOrd(fieldInfo.VectorSimilarityFunction())
-	if err != nil {
-		return err
-	}
 	if err := w.meta.WriteInt(int32(fieldInfo.Number())); err != nil {
 		return err
 	}
-	if err := w.meta.WriteInt(vectorEncodingOrdinal(fieldInfo.VectorEncoding())); err != nil {
+	// field.getVectorEncoding().ordinal(): BYTE = 0, FLOAT32 = 1, which is
+	// the declaration order of index.VectorEncoding.
+	if err := w.meta.WriteInt(int32(fieldInfo.VectorEncoding())); err != nil {
 		return err
 	}
-	if err := w.meta.WriteInt(simOrd); err != nil {
+	// field.getVectorSimilarityFunction().ordinal(): EUCLIDEAN = 0,
+	// DOT_PRODUCT = 1, COSINE = 2, MAXIMUM_INNER_PRODUCT = 3, which is the
+	// declaration order of util.VectorSimilarityID.
+	if err := w.meta.WriteInt(int32(fieldInfo.VectorSimilarityFunction().ID())); err != nil {
 		return err
 	}
 	if err := w.meta.WriteVInt(int32(fieldInfo.VectorDimension())); err != nil {
@@ -477,7 +494,7 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeMeta(
 	if err := w.meta.WriteVLong(vectorDataLength); err != nil {
 		return err
 	}
-	count := len(docIDs)
+	count := docsWithField.Cardinality()
 	if err := w.meta.WriteVInt(int32(count)); err != nil {
 		return err
 	}
@@ -492,9 +509,9 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeMeta(
 			return err
 		}
 	}
-	return writeFlatOrdToDocStoredMeta(
+	return lucene95.WriteStoredMeta(
 		DirectMonotonicBlockShift,
-		w.meta, w.vectorData, count, maxDoc, docIDs)
+		w.meta, w.vectorData, count, maxDoc, docsWithField)
 }
 
 // WriteField is the single-reader merge entrypoint. The scalar quantizer
@@ -502,7 +519,7 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) writeMeta(
 // deferred (see the type doc), so this returns an explicit error rather than
 // producing a non-faithful file. Mirrors the way buffering codecs reject the
 // streaming merge entrypoint.
-func (w *Lucene104ScalarQuantizedVectorsWriter) WriteField(fieldInfo *index.FieldInfo, reader hnsw.KnnVectorsReader) error {
+func (w *Lucene104ScalarQuantizedVectorsWriter) WriteField(fieldInfo *index.FieldInfo, reader spi.KnnVectorsReader) error {
 	_ = fieldInfo
 	_ = reader
 	return errors.New("lucene104 sq: WriteField (merge path) not supported yet; use AddField/AddValue/Flush")
@@ -549,7 +566,7 @@ func (w *Lucene104ScalarQuantizedVectorsWriter) RamBytesUsed() int64 {
 		total += w.rawVectorDelegate.RamBytesUsed()
 	}
 	for _, f := range w.fields {
-		total += int64(len(f.magnitudes))*floatBytes + int64(len(f.dimensionSums))*floatBytes
+		total += f.quantizationOverheadBytesUsed()
 	}
 	return total
 }
@@ -593,9 +610,11 @@ func packQuantized(encoding quantization.ScalarEncoding, scratch, packed []byte)
 	case quantization.ScalarEncodingPackedNibble:
 		return packNibbles(scratch, packed)
 	case quantization.ScalarEncodingSingleBitQueryNibble:
-		return quantization.PackAsBinary(scratch, packed)
+		quantization.PackAsBinary(scratch, packed)
+		return nil
 	case quantization.ScalarEncodingDibitQueryNibble:
-		return quantization.TransposeDibit(scratch, packed)
+		quantization.TransposeDibit(scratch, packed)
+		return nil
 	default:
 		return fmt.Errorf("lucene104 sq: unsupported encoding %s", encoding)
 	}

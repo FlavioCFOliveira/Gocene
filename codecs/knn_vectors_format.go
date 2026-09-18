@@ -31,23 +31,6 @@ func NewBaseKnnVectorsFormat(name string) *BaseKnnVectorsFormat {
 	return spi.NewBaseKnnVectorsFormat(name)
 }
 
-// RandomVectorScorer scores vectors randomly.
-// This is the Go port of Lucene's org.apache.lucene.util.RandomVectorScorer.
-type RandomVectorScorer interface {
-	// Score returns the score for the given document.
-	Score(docID int) (float32, error)
-
-	// GetMaxScore returns the maximum possible score.
-	GetMaxScore() float32
-}
-
-// RandomVectorScorerSupplier supplies RandomVectorScorer instances.
-// This is the Go port of Lucene's org.apache.lucene.util.RandomVectorScorerSupplier.
-type RandomVectorScorerSupplier interface {
-	// GetScorer returns a RandomVectorScorer for the given query vector.
-	GetScorer(queryVector []float32) (RandomVectorScorer, error)
-}
-
 // KnnVectorsWriterHelper is a helper for writing KNN vectors.
 type KnnVectorsWriterHelper struct {
 	out    store.IndexOutput

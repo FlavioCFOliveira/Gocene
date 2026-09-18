@@ -29,6 +29,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
 	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
@@ -95,7 +96,7 @@ func NewLucene104ScalarQuantizedVectorsReader(state *codecs.SegmentReadState, en
 		return nil, errors.New("lucene104 sq: invalid SegmentReadState")
 	}
 	r := &Lucene104ScalarQuantizedVectorsReader{
-		BaseFlatVectorsReader: hnsw.NewBaseFlatVectorsReader(nil), // Scorer will be wired during full port
+		BaseFlatVectorsReader: &hnsw.BaseFlatVectorsReader{},
 		encoding:              encoding,
 		fieldInfos:            state.FieldInfos,
 		fields:                make(map[int]*Lucene104ScalarQuantizedFieldEntry),
@@ -201,26 +202,25 @@ func (r *Lucene104ScalarQuantizedVectorsReader) readFields(meta store.DataInput)
 // size>0) wire number, centroid floats and centroidDP, then the OrdToDoc
 // stored-meta block. The field number is consumed by the caller.
 func readScalarQuantizedFieldEntry(meta store.DataInput, info *index.FieldInfo) (*Lucene104ScalarQuantizedFieldEntry, error) {
-	encOrd, err := meta.ReadInt()
+	// readVectorEncoding / readSimilarityFunction are the statics of
+	// org.apache.lucene.codecs.lucene99.Lucene99HnswVectorsReader that the
+	// Java readField imports statically.
+	enc, err := codecs.ReadVectorEncoding(meta)
 	if err != nil {
 		return nil, err
 	}
-	enc := index.VectorEncoding(encOrd)
-
-	simOrd, err := meta.ReadInt()
+	sim, err := codecs.ReadSimilarityFunction(meta)
 	if err != nil {
 		return nil, err
 	}
-	// Note: lucene99HnswSimilarityOrdinals must be available in this package or imported.
-	// Since they are likely internal to hnsw or codecs, we might need to access them.
-	// For now, we use a placeholder or assume they are ported.
-	// In the previous scalar_quantized_vectors.go they were referred to as lucene99HnswSimilarityOrdinals.
-	// I will assume they are part of the codecs package for now or implement a simple lookup.
-	// Actually, I should check where lucene99HnswSimilarityOrdinals is defined.
-
-	// Temporary fix to allow compilation: assume similarity ordinal is valid.
-	// In a real port, this would be a proper lookup.
-	sim := index.VectorSimilarityFunctionEuclidean // Placeholder
+	if info != nil {
+		if sim != info.VectorSimilarityFunction() {
+			return nil, fmt.Errorf("Inconsistent vector similarity function for field=%q; %s != %s",
+				info.Name(), sim.ID(), info.VectorSimilarityFunction().ID())
+		}
+		// FieldEntry.create(input, vectorEncoding, info.getVectorSimilarityFunction())
+		sim = info.VectorSimilarityFunction()
+	}
 
 	dimV, err := store.ReadVInt(meta)
 	if err != nil {
@@ -254,9 +254,9 @@ func readScalarQuantizedFieldEntry(meta store.DataInput, info *index.FieldInfo) 
 		if e != nil {
 			return nil, e
 		}
-		scalarEncoding, e := quantization.ScalarEncodingFromWireNumber(int(wireNumber))
-		if e != nil {
-			return nil, e
+		scalarEncoding, ok := quantization.ScalarEncodingFromWireNumber(int(wireNumber))
+		if !ok {
+			return nil, fmt.Errorf("Unknown scalar encoding wire number: %d", wireNumber)
 		}
 		entry.Encoding = scalarEncoding
 		centroid := make([]float32, int(dimV))
@@ -375,16 +375,17 @@ func (r *Lucene104ScalarQuantizedVectorsReader) Close() error {
 }
 
 // GetRandomVectorScorerFloat is a stub until rmp #134.
-func (r *Lucene104ScalarQuantizedVectorsReader) GetRandomVectorScorerFloat(field string, target []float32) (hnsw.RandomVectorScorer, error) {
+func (r *Lucene104ScalarQuantizedVectorsReader) GetRandomVectorScorerFloat(field string, target []float32) (utilhnsw.RandomVectorScorer, error) {
 	return nil, errors.New("lucene104 sq: GetRandomVectorScorerFloat not implemented (rmp #134)")
 }
 
 // GetRandomVectorScorerByte is a stub until rmp #134.
-func (r *Lucene104ScalarQuantizedVectorsReader) GetRandomVectorScorerByte(field string, target []byte) (hnsw.RandomVectorScorer, error) {
+func (r *Lucene104ScalarQuantizedVectorsReader) GetRandomVectorScorerByte(field string, target []byte) (utilhnsw.RandomVectorScorer, error) {
 	return nil, errors.New("lucene104 sq: GetRandomVectorScorerByte not implemented (rmp #134)")
 }
 
-// GetMergeInstance returns the receiver as the merge instance.
-func (r *Lucene104ScalarQuantizedVectorsReader) GetMergeInstance() (hnsw.FlatVectorsReader, error) {
-	return r, nil
-}
+// Apache Lucene 10.5.0's Lucene104ScalarQuantizedVectorsReader overrides
+// neither getMergeInstance() nor finishMerge(): both are inherited defaults
+// of KnnVectorsReader (getMergeInstance returns this, finishMerge is empty).
+// Gocene therefore declares neither here; the earlier GetMergeInstance had no
+// Java counterpart in this class and has been reconciled away.

@@ -51,6 +51,16 @@ const (
 	DirectMonotonicBlockShift = 16
 )
 
+// rawVectorFormat mirrors the Java private static final field
+//
+//	new Lucene99FlatVectorsFormat(FlatVectorScorerUtil.getLucene99FlatVectorsScorer())
+var rawVectorFormat = codecs.NewLucene99FlatVectorsFormat(hnsw.GetLucene99FlatVectorsScorer())
+
+// scorer mirrors the Java private static final field
+//
+//	new Lucene104ScalarQuantizedVectorScorer(FlatVectorScorerUtil.getLucene99FlatVectorsScorer())
+var scorer = NewLucene104ScalarQuantizedVectorScorer(hnsw.GetLucene99FlatVectorsScorer())
+
 // Lucene104ScalarQuantizedVectorsFormat implements per-vector optimized scalar
 // quantization for vector storage. It compresses float vectors to quantized
 // byte representations for efficient storage and fast approximate similarity
@@ -84,13 +94,31 @@ func (f *Lucene104ScalarQuantizedVectorsFormat) Encoding() quantization.ScalarEn
 // FlatFieldsWriter returns the byte-faithful writer for quantized vectors.
 // Mirrors Java's fieldsWriter(SegmentWriteState).
 func (f *Lucene104ScalarQuantizedVectorsFormat) FlatFieldsWriter(state *codecs.SegmentWriteState) (hnsw.FlatVectorsWriter, error) {
-	return NewLucene104ScalarQuantizedVectorsWriter(state, f.encoding)
+	rawVectorDelegate, err := rawVectorFormat.FlatFieldsWriter(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewLucene104ScalarQuantizedVectorsWriter(state, f.encoding, rawVectorDelegate, scorer)
 }
 
-// FlatFieldsReader returns a reader that validates the CodecUtil framing and
-// parses the per-field metadata. Mirrors Java's fieldsReader(SegmentReadState).
+// FlatFieldsReader mirrors Java's fieldsReader(SegmentReadState), whose body
+// is
+//
+//	new Lucene104ScalarQuantizedVectorsReader(
+//	    state, rawVectorFormat.fieldsReader(state), scorer)
+//
+// This does not compile today, and deliberately so: the in-package
+// [Lucene104ScalarQuantizedVectorsReader] is an incomplete port of
+// org.apache.lucene.codecs.lucene104.Lucene104ScalarQuantizedVectorsReader —
+// it reads and validates the .vemq/.veq framing and metadata but implements
+// none of the value-access surface (getFloatVectorValues, getByteVectorValues,
+// search, getFlatVectorScorer, ramBytesUsed, getOffHeapByteSize), so it is not
+// a FlatVectorsReader. Completing it requires
+// org.apache.lucene.codecs.lucene104.OffHeapScalarQuantizedVectorValues, which
+// is not ported. Per CLAUDE.md § 2.1 and § 2.2 the resulting compile error is
+// left standing rather than suppressed or satisfied with stubbed members.
 func (f *Lucene104ScalarQuantizedVectorsFormat) FlatFieldsReader(state *codecs.SegmentReadState) (hnsw.FlatVectorsReader, error) {
-	return codecs.NewLucene104ScalarQuantizedVectorsReader(state, f.encoding)
+	return NewLucene104ScalarQuantizedVectorsReader(state, f.encoding)
 }
 
 // GetMaxDimensions returns the largest vector dimensionality this
@@ -100,8 +128,8 @@ func (f *Lucene104ScalarQuantizedVectorsFormat) GetMaxDimensions(_ string) int {
 	return 1024
 }
 
-// String returns a string representation of this format.
+// String mirrors toString().
 func (f *Lucene104ScalarQuantizedVectorsFormat) String() string {
-	return fmt.Sprintf("Lucene104ScalarQuantizedVectorsFormat(name=%s, encoding=%s)",
-		Name, f.encoding.String())
+	return fmt.Sprintf("Lucene104ScalarQuantizedVectorsFormat(name=%s, encoding=%s, flatVectorScorer=%s, rawVectorFormat=%s)",
+		Name, f.encoding, scorer, rawVectorFormat)
 }

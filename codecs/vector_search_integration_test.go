@@ -11,6 +11,8 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
@@ -63,7 +65,7 @@ func TestVectorSearchIntegration(t *testing.T) {
 
 // TestFlatVectorScorerIntegration tests the flat vector scorer
 func TestFlatVectorScorerIntegration(t *testing.T) {
-	scorer := codecs.NewDefaultFlatVectorScorer()
+	scorer := hnsw.NewDefaultFlatVectorScorer()
 	if scorer == nil {
 		t.Fatal("DefaultFlatVectorScorer should not be nil")
 	}
@@ -81,7 +83,7 @@ func TestVectorSimilarityFunctions(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		simFunc  codecs.VectorSimilarityFunction
+		simFunc  util.VectorSimilarityFunction
 		v1       []float32
 		v2       []float32
 		minScore float32
@@ -89,7 +91,7 @@ func TestVectorSimilarityFunctions(t *testing.T) {
 	}{
 		{
 			name:     "Euclidean",
-			simFunc:  codecs.VectorSimilarityFunctionEuclidean,
+			simFunc:  util.EuclideanSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -97,7 +99,7 @@ func TestVectorSimilarityFunctions(t *testing.T) {
 		},
 		{
 			name:     "DotProduct",
-			simFunc:  codecs.VectorSimilarityFunctionDotProduct,
+			simFunc:  util.DotProductSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -105,7 +107,7 @@ func TestVectorSimilarityFunctions(t *testing.T) {
 		},
 		{
 			name:     "Cosine",
-			simFunc:  codecs.VectorSimilarityFunctionCosine,
+			simFunc:  util.CosineSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -113,7 +115,7 @@ func TestVectorSimilarityFunctions(t *testing.T) {
 		},
 		{
 			name:     "MaximumInnerProduct",
-			simFunc:  codecs.VectorSimilarityFunctionMaximumInnerProduct,
+			simFunc:  util.MaximumInnerProductSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -123,7 +125,7 @@ func TestVectorSimilarityFunctions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			score := codecs.ComputeSimilarity(tc.simFunc, tc.v1, tc.v2)
+			score := tc.simFunc.CompareFloat(tc.v1, tc.v2)
 			if score < tc.minScore || score > tc.maxScore {
 				t.Errorf("Score %f out of range [%f, %f]", score, tc.minScore, tc.maxScore)
 			}
@@ -138,7 +140,7 @@ func TestByteVectorSimilarityFunctions(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		simFunc  codecs.VectorSimilarityFunction
+		simFunc  util.VectorSimilarityFunction
 		v1       []byte
 		v2       []byte
 		minScore float32
@@ -146,7 +148,7 @@ func TestByteVectorSimilarityFunctions(t *testing.T) {
 	}{
 		{
 			name:     "EuclideanByte",
-			simFunc:  codecs.VectorSimilarityFunctionEuclidean,
+			simFunc:  util.EuclideanSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -154,7 +156,7 @@ func TestByteVectorSimilarityFunctions(t *testing.T) {
 		},
 		{
 			name:     "DotProductByte",
-			simFunc:  codecs.VectorSimilarityFunctionDotProduct,
+			simFunc:  util.DotProductSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -162,7 +164,7 @@ func TestByteVectorSimilarityFunctions(t *testing.T) {
 		},
 		{
 			name:     "CosineByte",
-			simFunc:  codecs.VectorSimilarityFunctionCosine,
+			simFunc:  util.CosineSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -172,7 +174,7 @@ func TestByteVectorSimilarityFunctions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			score := codecs.ComputeSimilarityByte(tc.simFunc, tc.v1, tc.v2)
+			score := tc.simFunc.CompareBytes(tc.v1, tc.v2)
 			if score < tc.minScore || score > tc.maxScore {
 				t.Errorf("Score %f out of range [%f, %f]", score, tc.minScore, tc.maxScore)
 			}
@@ -310,19 +312,19 @@ func TestVectorEncodingPackedLength(t *testing.T) {
 // TestVectorSimilarityFunctionStrings tests similarity function string representations
 func TestVectorSimilarityFunctionStrings(t *testing.T) {
 	tests := []struct {
-		function codecs.VectorSimilarityFunction
+		function util.VectorSimilarityFunction
 		expected string
 	}{
-		{codecs.VectorSimilarityFunctionEuclidean, "EUCLIDEAN"},
-		{codecs.VectorSimilarityFunctionDotProduct, "DOT_PRODUCT"},
-		{codecs.VectorSimilarityFunctionCosine, "COSINE"},
-		{codecs.VectorSimilarityFunctionMaximumInnerProduct, "MAXIMUM_INNER_PRODUCT"},
+		{util.EuclideanSim, "EUCLIDEAN"},
+		{util.DotProductSim, "DOT_PRODUCT"},
+		{util.CosineSim, "COSINE"},
+		{util.MaximumInnerProductSim, "MAXIMUM_INNER_PRODUCT"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.expected, func(t *testing.T) {
-			if tc.function.String() != tc.expected {
-				t.Errorf("Expected %s, got %s", tc.expected, tc.function.String())
+			if tc.function.ID().String() != tc.expected {
+				t.Errorf("Expected %s, got %s", tc.expected, tc.function.ID().String())
 			}
 		})
 	}
@@ -358,6 +360,6 @@ func BenchmarkSimilarityCalculation(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		codecs.ComputeSimilarity(codecs.VectorSimilarityFunctionCosine, v1, v2)
+		util.CosineSim.CompareFloat(v1, v2)
 	}
 }
