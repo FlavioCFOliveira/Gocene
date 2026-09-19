@@ -239,6 +239,21 @@ func GrowExactFloat32(array []float32, newLength int) []float32 {
 	return copy_
 }
 
+// GrowFloat32 returns an array whose size is at least minSize, generally
+// over-allocating exponentially, and copies array into it; array itself is
+// returned when it is already large enough. Mirrors
+// ArrayUtil.grow(float[] array, int minSize) of Apache Lucene 10.5.0.
+//
+// The single-argument Java overload ArrayUtil.grow(float[] array) is
+// `grow(array, 1 + array.length)`, which callers spell out at the call site.
+func GrowFloat32(array []float32, minSize int) []float32 {
+	// assert minSize >= 0 : "size must be positive (got " + minSize + "): likely integer overflow?";
+	if len(array) < minSize {
+		return GrowExactFloat32(array, Oversize(minSize, 4))
+	}
+	return array
+}
+
 // GrowExactFloat64 returns a new float64 array of exactly newLength
 func GrowExactFloat64(array []float64, newLength int) []float64 {
 	if newLength < len(array) {

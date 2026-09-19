@@ -2,6 +2,9 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+// Ported from Apache Lucene 10.5.0:
+//   lucene/join/src/java/org/apache/lucene/search/join/DocValuesTermsCollector.java
+
 package join
 
 import (
@@ -9,83 +12,81 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// LeafReaderDocValuesFunc is a function that retrieves a doc-values iterator
-// from an index.LeafReader. It mirrors the @FunctionalInterface
-// org.apache.lucene.search.join.DocValuesTermsCollector.Function.
-type LeafReaderDocValuesFunc[DV any] func(reader index.LeafReader) (DV, error)
+// DocValuesTermsCollectorFunction mirrors the @FunctionalInterface
+// org.apache.lucene.search.join.DocValuesTermsCollector.Function<R>, whose sole
+// method is {@code R apply(LeafReader t) throws IOException}.
+//
+// Go has no nested types, so the Java nesting DocValuesTermsCollector.Function
+// is flattened into this package-level name.
+type DocValuesTermsCollectorFunction[R any] func(t index.LeafReader) (R, error)
 
-// DocValuesTermsCollector is an abstract base collector that refreshes a
-// doc-values cursor at the start of each segment.
-//
-// Mirrors org.apache.lucene.search.join.DocValuesTermsCollector.
-//
-// Gocene deviation: Java uses a SimpleCollector with doSetNextReader; here the
-// segment switch is handled by GetLeafCollector, which builds a new leaf
-// collector wrapping a fresh DV cursor.
+// DocValuesTermsCollector mirrors the abstract class
+// org.apache.lucene.search.join.DocValuesTermsCollector<DV>, which extends
+// SimpleCollector and reloads a doc-values cursor at every segment switch.
 type DocValuesTermsCollector[DV any] struct {
-	dvFunc LeafReaderDocValuesFunc[DV]
-	// collectFn is the per-document collect function injected by the concrete subtype.
-	collectFn func(dv DV, doc int) error
-	scoreMode search.ScoreMode
-}
+	// BaseSimpleCollector carries the concrete members of the Java superclass
+	// org.apache.lucene.search.SimpleCollector: the empty setScorer(Scorable)
+	// and setWeight(Weight) bodies, and Outer, which renders the `this` that
+	// getLeafCollector returns.
+	search.BaseSimpleCollector
 
-// newDocValuesTermsCollector builds the base.
-func newDocValuesTermsCollector[DV any](
-	dvFunc LeafReaderDocValuesFunc[DV],
-	collectFn func(dv DV, doc int) error,
-	mode search.ScoreMode,
-) *DocValuesTermsCollector[DV] {
-	return &DocValuesTermsCollector[DV]{
-		dvFunc:    dvFunc,
-		collectFn: collectFn,
-		scoreMode: mode,
-	}
-}
-
-// ScoreMode implements search.Collector.
-func (c *DocValuesTermsCollector[DV]) ScoreMode() search.ScoreMode { return c.scoreMode }
-
-// GetLeafCollector implements search.Collector.
-func (c *DocValuesTermsCollector[DV]) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
-	var dv DV
-	if lr := context.LeafReader(); lr != nil && c.dvFunc != nil {
-		var err error
-		dv, err = c.dvFunc(lr)
-		if err != nil {
-			return nil, err
-		}
-	}
-	fn := c.collectFn
-	return &dvTermsLeafCollector[DV]{dv: dv, collectFn: fn}, nil
-}
-
-// dvTermsLeafCollector is a leaf collector that delegates to a per-doc function.
-type dvTermsLeafCollector[DV any] struct {
-	// BaseLeafCollector carries the default bodies of
-	// LeafCollector.competitiveIterator() and finish().
+	// BaseLeafCollector carries the two LeafCollector defaults that
+	// SimpleCollector inherits without overriding: competitiveIterator() and
+	// finish().
 	search.BaseLeafCollector
 
-	dv        DV
-	collectFn func(dv DV, doc int) error
+	// docValues renders `protected DV docValues`.
+	docValues DV
+
+	// docValuesCall renders `private final Function<DV> docValuesCall`.
+	docValuesCall DocValuesTermsCollectorFunction[DV]
 }
 
-func (lc *dvTermsLeafCollector[DV]) SetScorer(_ search.Scorable) error { return nil }
+// NewDocValuesTermsCollector mirrors
+// `public DocValuesTermsCollector(Function<DV> docValuesCall)`.
+func NewDocValuesTermsCollector[DV any](docValuesCall DocValuesTermsCollectorFunction[DV]) *DocValuesTermsCollector[DV] {
+	return &DocValuesTermsCollector[DV]{docValuesCall: docValuesCall}
+}
 
-func (lc *dvTermsLeafCollector[DV]) Collect(doc int) error {
-	if lc.collectFn == nil {
-		return nil
+// GetLeafCollector mirrors
+// `public final LeafCollector getLeafCollector(LeafReaderContext context)` of
+// org.apache.lucene.search.SimpleCollector, whose body is
+// `doSetNextReader(context); return this;`.
+//
+// Go has no virtual dispatch, so search.BaseSimpleCollector.GetLeafCollector
+// would reach its own no-op DoSetNextReader rather than the override below.
+// DocValuesTermsCollector.doSetNextReader is `final` in Java, so the pairing is
+// fixed for every subclass and the Java body is reproduced here verbatim.
+func (c *DocValuesTermsCollector[DV]) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
+	if err := c.DoSetNextReader(context); err != nil {
+		return nil, err
 	}
-	return lc.collectFn(lc.dv, doc)
+	return c.Outer, nil
 }
 
-// CollectRange carries the default body of LeafCollector.collectRange(int, int)
-// in Apache Lucene 10.5.0.
-func (c *dvTermsLeafCollector[DV]) CollectRange(min, max int) error {
-	return search.DefaultCollectRange(c, min, max)
+// DoSetNextReader mirrors
+// `protected final void doSetNextReader(LeafReaderContext context)`.
+func (c *DocValuesTermsCollector[DV]) DoSetNextReader(context *index.LeafReaderContext) error {
+	dv, err := c.docValuesCall(context.LeafReader())
+	if err != nil {
+		return err
+	}
+	c.docValues = dv
+	return nil
 }
 
-// CollectStream carries the default body of LeafCollector.collect(DocIdStream)
-// in Apache Lucene 10.5.0.
-func (c *dvTermsLeafCollector[DV]) CollectStream(stream search.DocIdStream) error {
-	return search.DefaultCollectStream(c, stream)
+// SortedDocValues mirrors the static factory
+// `static Function<SortedDocValues> sortedDocValues(String field)`.
+func SortedDocValues(field string) DocValuesTermsCollectorFunction[index.SortedDocValues] {
+	return func(ctx index.LeafReader) (index.SortedDocValues, error) {
+		return index.GetSorted(ctx, field)
+	}
+}
+
+// SortedSetDocValues mirrors the static factory
+// `static Function<SortedSetDocValues> sortedSetDocValues(String field)`.
+func SortedSetDocValues(field string) DocValuesTermsCollectorFunction[index.SortedSetDocValues] {
+	return func(ctx index.LeafReader) (index.SortedSetDocValues, error) {
+		return index.GetSortedSet(ctx, field)
+	}
 }
