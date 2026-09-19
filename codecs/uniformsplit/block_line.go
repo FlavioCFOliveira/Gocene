@@ -31,6 +31,18 @@ import (
 // Mirrors org.apache.lucene.codecs.uniformsplit.BlockLine from Apache Lucene
 // 10.5.0.
 type BlockLine struct {
+	// Derived is the back-pointer to the most-derived instance when this
+	// BlockLine is the base of a subclass instance — in Apache Lucene 10.5.0
+	// the only subclass is
+	// org.apache.lucene.codecs.uniformsplit.sharedterms.STBlockLine. Java
+	// keeps a single object and recovers the subclass with a downcast,
+	// `(STBlockLine) line` (STBlockWriter.java:92, 94), from the
+	// List<BlockLine> that BlockWriter.blockLines holds
+	// (BlockWriter.java:57). Go embedding makes the base a distinct object,
+	// so the subclass constructor records itself here for the same recovery.
+	// It is nil for a plain BlockLine.
+	Derived any
+
 	termBytes               *TermBytes
 	termStateRelativeOffset int32
 

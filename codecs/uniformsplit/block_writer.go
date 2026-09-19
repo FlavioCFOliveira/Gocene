@@ -32,26 +32,62 @@ import (
 //
 // Mirrors org.apache.lucene.codecs.uniformsplit.BlockWriter from Apache Lucene
 // 10.5.0.
+// BlockWriterOverrides is the set of protected BlockWriter methods that Apache
+// Lucene 10.5.0 subclasses of BlockWriter override and that BlockWriter's own
+// bodies then invoke on `this` — the constructor calls
+// createBlockLineSerializer() (BlockWriter.java:91), writeBlock calls
+// writeBlockLine() and updateFieldMetadata() (BlockWriter.java:211, 243).
+//
+// Java resolves those calls virtually. Go embedding does not, so BlockWriter
+// keeps a back-pointer to the most-derived instance in [BlockWriter.Overrides]
+// and makes the calls through it. See [BlockReaderOverrides] for the same
+// mechanism on the read side.
+//
+// Every member is declared `protected` by
+// org.apache.lucene.codecs.uniformsplit.BlockWriter, so its exported Go
+// spelling is the rendering of `protected`: reachable by subclasses that live
+// in another package, exactly as
+// org.apache.lucene.codecs.uniformsplit.sharedterms.STBlockWriter reaches them.
+type BlockWriterOverrides interface {
+	// CreateBlockLineSerializer mirrors
+	// BlockWriter.createBlockLineSerializer (BlockWriter.java:106).
+	CreateBlockLineSerializer() *BlockLineSerializer
+
+	// UpdateFieldMetadata mirrors BlockWriter.updateFieldMetadata
+	// (BlockWriter.java:247).
+	UpdateFieldMetadata(blockStartFP int64)
+
+	// WriteBlockLine mirrors BlockWriter.writeBlockLine
+	// (BlockWriter.java:259).
+	WriteBlockLine(isIncrementalEncodingSeed bool, line *BlockLine, previousLine *BlockLine) error
+}
+
 type BlockWriter struct {
-	targetNumBlockLines int
-	deltaNumLines       int
-	blockLines          []*BlockLine
+	// Overrides is the back-pointer to the most-derived instance, through
+	// which BlockWriter makes the calls Java resolves virtually. See
+	// [BlockWriterOverrides]. NewBlockWriter sets it to the BlockWriter
+	// itself; a subclass constructor overwrites it with the subclass.
+	Overrides BlockWriterOverrides
 
-	blockOutput           store.IndexOutput
-	blockLinesWriteBuffer *store.ByteBuffersDataOutput
-	termStatesWriteBuffer *store.ByteBuffersDataOutput
+	TargetNumBlockLines int
+	DeltaNumLines       int
+	BlockLines          []*BlockLine
 
-	blockHeaderWriter   *BlockHeaderSerializer
-	blockLineWriter     *BlockLineSerializer
-	termStateSerializer *DeltaBaseTermStateSerializer
-	blockEncoder        BlockEncoder
-	blockWriteBuffer    *store.ByteBuffersDataOutput
+	BlockOutput           store.IndexOutput
+	BlockLinesWriteBuffer *store.ByteBuffersDataOutput
+	TermStatesWriteBuffer *store.ByteBuffersDataOutput
 
-	fieldMetadata *FieldMetadata
-	lastTerm      *util.BytesRef
+	BlockHeaderWriter   *BlockHeaderSerializer
+	BlockLineWriter     *BlockLineSerializer
+	TermStateSerializer *DeltaBaseTermStateSerializer
+	BlockEncoder        BlockEncoder
+	BlockWriteBuffer    *store.ByteBuffersDataOutput
 
-	reusableBlockHeader *BlockHeader
-	scratchBytesRef     *util.BytesRef
+	FieldMetadata *FieldMetadata
+	LastTerm      *util.BytesRef
+
+	ReusableBlockHeader *BlockHeader
+	ScratchBytesRef     *util.BytesRef
 }
 
 // NewBlockWriter constructs a BlockWriter.
@@ -71,40 +107,41 @@ func NewBlockWriter(
 	// assert deltaNumLines >= 0;
 	// assert deltaNumLines < targetNumBlockLines;
 	w := &BlockWriter{
-		blockOutput:         blockOutput,
-		targetNumBlockLines: targetNumBlockLines,
-		deltaNumLines:       deltaNumLines,
-		blockEncoder:        blockEncoder,
+		BlockOutput:         blockOutput,
+		TargetNumBlockLines: targetNumBlockLines,
+		DeltaNumLines:       deltaNumLines,
+		BlockEncoder:        blockEncoder,
 	}
-	w.blockLines = make([]*BlockLine, 0, targetNumBlockLines)
-	w.blockHeaderWriter = w.createBlockHeaderSerializer()
-	w.blockLineWriter = w.createBlockLineSerializer()
-	w.termStateSerializer = w.createDeltaBaseTermStateSerializer()
+	w.BlockLines = make([]*BlockLine, 0, targetNumBlockLines)
+	w.BlockHeaderWriter = w.CreateBlockHeaderSerializer()
+	w.Overrides = w
+	w.BlockLineWriter = w.Overrides.CreateBlockLineSerializer()
+	w.TermStateSerializer = w.CreateDeltaBaseTermStateSerializer()
 
-	w.blockLinesWriteBuffer = store.NewByteBuffersDataOutput()
-	w.termStatesWriteBuffer = store.NewByteBuffersDataOutput()
-	w.blockWriteBuffer = store.NewByteBuffersDataOutput()
+	w.BlockLinesWriteBuffer = store.NewByteBuffersDataOutput()
+	w.TermStatesWriteBuffer = store.NewByteBuffersDataOutput()
+	w.BlockWriteBuffer = store.NewByteBuffersDataOutput()
 
-	w.reusableBlockHeader = &BlockHeader{}
-	w.scratchBytesRef = util.NewBytesRefEmpty()
+	w.ReusableBlockHeader = &BlockHeader{}
+	w.ScratchBytesRef = util.NewBytesRefEmpty()
 	return w
 }
 
-// createBlockHeaderSerializer mirrors BlockWriter.createBlockHeaderSerializer
+// CreateBlockHeaderSerializer mirrors BlockWriter.createBlockHeaderSerializer
 // (BlockWriter.java:99).
-func (w *BlockWriter) createBlockHeaderSerializer() *BlockHeaderSerializer {
+func (w *BlockWriter) CreateBlockHeaderSerializer() *BlockHeaderSerializer {
 	return &BlockHeaderSerializer{}
 }
 
-// createBlockLineSerializer mirrors BlockWriter.createBlockLineSerializer
+// CreateBlockLineSerializer mirrors BlockWriter.createBlockLineSerializer
 // (BlockWriter.java:103).
-func (w *BlockWriter) createBlockLineSerializer() *BlockLineSerializer {
+func (w *BlockWriter) CreateBlockLineSerializer() *BlockLineSerializer {
 	return NewBlockLineSerializer()
 }
 
-// createDeltaBaseTermStateSerializer mirrors
+// CreateDeltaBaseTermStateSerializer mirrors
 // BlockWriter.createDeltaBaseTermStateSerializer (BlockWriter.java:107).
-func (w *BlockWriter) createDeltaBaseTermStateSerializer() *DeltaBaseTermStateSerializer {
+func (w *BlockWriter) CreateDeltaBaseTermStateSerializer() *DeltaBaseTermStateSerializer {
 	return NewDeltaBaseTermStateSerializer()
 }
 
@@ -127,14 +164,14 @@ func (w *BlockWriter) createDeltaBaseTermStateSerializer() *DeltaBaseTermStateSe
 func (w *BlockWriter) AddLine(term *util.BytesRef, blockTermState index.TermState, dictionaryBuilder IndexDictionaryBuilder) error {
 	// assert term != null;
 	// assert blockTermState != null;
-	mdpLength, err := ComputeMdpLength(w.lastTerm, term)
+	mdpLength, err := ComputeMdpLength(w.LastTerm, term)
 	if err != nil {
 		return err
 	}
-	w.blockLines = append(w.blockLines, NewBlockLineForWriting(NewTermBytes(mdpLength, term), blockTermState))
-	w.lastTerm = term
-	if len(w.blockLines) >= w.targetNumBlockLines+w.deltaNumLines {
-		return w.splitAndWriteBlock(dictionaryBuilder)
+	w.BlockLines = append(w.BlockLines, NewBlockLineForWriting(NewTermBytes(mdpLength, term), blockTermState))
+	w.LastTerm = term
+	if len(w.BlockLines) >= w.TargetNumBlockLines+w.DeltaNumLines {
+		return w.SplitAndWriteBlock(dictionaryBuilder)
 	}
 	return nil
 }
@@ -146,41 +183,41 @@ func (w *BlockWriter) AddLine(term *util.BytesRef, blockTermState index.TermStat
 //
 // Mirrors BlockWriter.finishLastBlock (BlockWriter.java:143).
 func (w *BlockWriter) FinishLastBlock(dictionaryBuilder IndexDictionaryBuilder) error {
-	for len(w.blockLines) != 0 {
-		if err := w.splitAndWriteBlock(dictionaryBuilder); err != nil {
+	for len(w.BlockLines) != 0 {
+		if err := w.SplitAndWriteBlock(dictionaryBuilder); err != nil {
 			return err
 		}
 	}
-	w.fieldMetadata = nil
-	w.lastTerm = nil
+	w.FieldMetadata = nil
+	w.LastTerm = nil
 	return nil
 }
 
-// splitAndWriteBlock defines the new block start according to
+// SplitAndWriteBlock defines the new block start according to
 // targetNumBlockLines and deltaNumLines. The new block is started (including
 // one or more of the lastly added lines), the current block is written to the
 // block file, and the current block key is added to the
 // IndexDictionaryBuilder.
 //
 // Mirrors BlockWriter.splitAndWriteBlock (BlockWriter.java:157).
-func (w *BlockWriter) splitAndWriteBlock(dictionaryBuilder IndexDictionaryBuilder) error {
+func (w *BlockWriter) SplitAndWriteBlock(dictionaryBuilder IndexDictionaryBuilder) error {
 	// assert !blockLines.isEmpty();
-	numLines := len(w.blockLines)
+	numLines := len(w.BlockLines)
 
-	if numLines <= w.targetNumBlockLines-w.deltaNumLines {
-		if err := w.writeBlock(w.blockLines, dictionaryBuilder); err != nil {
+	if numLines <= w.TargetNumBlockLines-w.DeltaNumLines {
+		if err := w.WriteBlock(w.BlockLines, dictionaryBuilder); err != nil {
 			return err
 		}
-		w.blockLines = w.blockLines[:0]
+		w.BlockLines = w.BlockLines[:0]
 		return nil
 	}
-	deltaStart := numLines - w.deltaNumLines*2
+	deltaStart := numLines - w.DeltaNumLines*2
 	// assert deltaStart >= 1 : "blockLines size: " + numLines;
 	minMdpLength := math.MaxInt32
 	minMdpEndIndex := 0
 
 	for i := deltaStart; i < numLines; i++ {
-		term := w.blockLines[i].GetTermBytes()
+		term := w.BlockLines[i].GetTermBytes()
 		mdpLength := term.GetMdpLength()
 		if mdpLength <= minMdpLength {
 			minMdpLength = mdpLength
@@ -188,25 +225,25 @@ func (w *BlockWriter) splitAndWriteBlock(dictionaryBuilder IndexDictionaryBuilde
 		}
 	}
 
-	subList := w.blockLines[0:minMdpEndIndex]
-	if err := w.writeBlock(subList, dictionaryBuilder); err != nil {
+	subList := w.BlockLines[0:minMdpEndIndex]
+	if err := w.WriteBlock(subList, dictionaryBuilder); err != nil {
 		return err
 	}
 	// Clear the written block lines to keep only the lines composing the next block.
 	// Java calls ArrayList.subList().clear(), which shifts the remaining
 	// elements down inside the same backing array; the append below does the
 	// same shift on the same backing array.
-	w.blockLines = append(w.blockLines[:0], w.blockLines[minMdpEndIndex:]...)
+	w.BlockLines = append(w.BlockLines[:0], w.BlockLines[minMdpEndIndex:]...)
 	return nil
 }
 
-// writeBlock writes a block and adds its block key to the dictionary builder.
+// WriteBlock writes a block and adds its block key to the dictionary builder.
 //
 // Mirrors BlockWriter.writeBlock (BlockWriter.java:188).
-func (w *BlockWriter) writeBlock(blockLines []*BlockLine, dictionaryBuilder IndexDictionaryBuilder) error {
-	blockStartFP := w.blockOutput.GetFilePointer()
+func (w *BlockWriter) WriteBlock(blockLines []*BlockLine, dictionaryBuilder IndexDictionaryBuilder) error {
+	blockStartFP := w.BlockOutput.GetFilePointer()
 
-	if err := w.addBlockKey(blockLines, dictionaryBuilder); err != nil {
+	if err := w.AddBlockKey(blockLines, dictionaryBuilder); err != nil {
 		return err
 	}
 
@@ -216,7 +253,7 @@ func (w *BlockWriter) writeBlock(blockLines []*BlockLine, dictionaryBuilder Inde
 	for i, size := 0, len(blockLines); i < size; i++ {
 		isIncrementalEncodingSeed := i == 0
 		if i == middle {
-			offset, err := blockWriterToIntExact(w.blockLinesWriteBuffer.Size())
+			offset, err := blockWriterToIntExact(w.BlockLinesWriteBuffer.Size())
 			if err != nil {
 				return err
 			}
@@ -224,47 +261,47 @@ func (w *BlockWriter) writeBlock(blockLines []*BlockLine, dictionaryBuilder Inde
 			isIncrementalEncodingSeed = true
 		}
 		line := blockLines[i]
-		if err := w.writeBlockLine(isIncrementalEncodingSeed, line, previousLine); err != nil {
+		if err := w.Overrides.WriteBlockLine(isIncrementalEncodingSeed, line, previousLine); err != nil {
 			return err
 		}
 		previousLine = line
 	}
 
-	termStatesBaseOffset, err := blockWriterToIntExact(w.blockLinesWriteBuffer.Size())
+	termStatesBaseOffset, err := blockWriterToIntExact(w.BlockLinesWriteBuffer.Size())
 	if err != nil {
 		return err
 	}
-	w.reusableBlockHeader.Reset(
+	w.ReusableBlockHeader.Reset(
 		int32(len(blockLines)),
-		w.termStateSerializer.GetBaseDocStartFP(),
-		w.termStateSerializer.GetBasePosStartFP(),
-		w.termStateSerializer.GetBasePayStartFP(),
+		w.TermStateSerializer.GetBaseDocStartFP(),
+		w.TermStateSerializer.GetBasePosStartFP(),
+		w.TermStateSerializer.GetBasePayStartFP(),
 		termStatesBaseOffset,
 		middleOffset)
-	if err := w.blockHeaderWriter.Write(w.blockWriteBuffer, w.reusableBlockHeader); err != nil {
+	if err := w.BlockHeaderWriter.Write(w.BlockWriteBuffer, w.ReusableBlockHeader); err != nil {
 		return err
 	}
 
-	if err := w.blockLinesWriteBuffer.CopyTo(w.blockWriteBuffer); err != nil {
+	if err := w.BlockLinesWriteBuffer.CopyTo(w.BlockWriteBuffer); err != nil {
 		return err
 	}
-	if err := w.termStatesWriteBuffer.CopyTo(w.blockWriteBuffer); err != nil {
+	if err := w.TermStatesWriteBuffer.CopyTo(w.BlockWriteBuffer); err != nil {
 		return err
 	}
 
-	if w.blockEncoder == nil {
-		numBytes, err := blockWriterToIntExact(w.blockWriteBuffer.Size())
+	if w.BlockEncoder == nil {
+		numBytes, err := blockWriterToIntExact(w.BlockWriteBuffer.Size())
 		if err != nil {
 			return err
 		}
-		if err := w.blockOutput.WriteVInt(numBytes); err != nil {
+		if err := w.BlockOutput.WriteVInt(numBytes); err != nil {
 			return err
 		}
-		if err := w.blockWriteBuffer.CopyTo(w.blockOutput); err != nil {
+		if err := w.BlockWriteBuffer.CopyTo(w.BlockOutput); err != nil {
 			return err
 		}
 	} else {
-		encodedBytes, err := w.blockEncoder.Encode(w.blockWriteBuffer.ToDataInput(), w.blockWriteBuffer.Size())
+		encodedBytes, err := w.BlockEncoder.Encode(w.BlockWriteBuffer.ToDataInput(), w.BlockWriteBuffer.Size())
 		if err != nil {
 			return err
 		}
@@ -272,75 +309,75 @@ func (w *BlockWriter) writeBlock(blockLines []*BlockLine, dictionaryBuilder Inde
 		if err != nil {
 			return err
 		}
-		if err := w.blockOutput.WriteVInt(numBytes); err != nil {
+		if err := w.BlockOutput.WriteVInt(numBytes); err != nil {
 			return err
 		}
-		if err := encodedBytes.WriteTo(w.blockOutput); err != nil {
+		if err := encodedBytes.WriteTo(w.BlockOutput); err != nil {
 			return err
 		}
 	}
 
-	w.blockLinesWriteBuffer.Reset()
-	w.termStatesWriteBuffer.Reset()
-	w.blockWriteBuffer.Reset()
+	w.BlockLinesWriteBuffer.Reset()
+	w.TermStatesWriteBuffer.Reset()
+	w.BlockWriteBuffer.Reset()
 
-	w.termStateSerializer.ResetBaseStartFP()
+	w.TermStateSerializer.ResetBaseStartFP()
 
-	w.updateFieldMetadata(blockStartFP)
+	w.Overrides.UpdateFieldMetadata(blockStartFP)
 	return nil
 }
 
-// updateFieldMetadata updates the field metadata after all lines were written
+// UpdateFieldMetadata updates the field metadata after all lines were written
 // for the block.
 //
 // Mirrors BlockWriter.updateFieldMetadata (BlockWriter.java:241).
-func (w *BlockWriter) updateFieldMetadata(blockStartFP int64) {
+func (w *BlockWriter) UpdateFieldMetadata(blockStartFP int64) {
 	// assert fieldMetadata != null;
-	if w.fieldMetadata.GetFirstBlockStartFP() == -1 {
-		w.fieldMetadata.SetFirstBlockStartFP(blockStartFP)
+	if w.FieldMetadata.GetFirstBlockStartFP() == -1 {
+		w.FieldMetadata.SetFirstBlockStartFP(blockStartFP)
 	}
-	w.fieldMetadata.SetLastBlockStartFP(blockStartFP)
+	w.FieldMetadata.SetLastBlockStartFP(blockStartFP)
 }
 
 // SetField sets the field metadata the following lines belong to. Mirrors the
 // package-private BlockWriter.setField (BlockWriter.java:249).
 func (w *BlockWriter) SetField(fieldMetadata *FieldMetadata) {
-	w.fieldMetadata = fieldMetadata
+	w.FieldMetadata = fieldMetadata
 }
 
-// writeBlockLine mirrors BlockWriter.writeBlockLine (BlockWriter.java:253).
-func (w *BlockWriter) writeBlockLine(isIncrementalEncodingSeed bool, line *BlockLine, previousLine *BlockLine) error {
+// WriteBlockLine mirrors BlockWriter.writeBlockLine (BlockWriter.java:253).
+func (w *BlockWriter) WriteBlockLine(isIncrementalEncodingSeed bool, line *BlockLine, previousLine *BlockLine) error {
 	// assert fieldMetadata != null;
-	termStateRelativeOffset, err := blockWriterToIntExact(w.termStatesWriteBuffer.Size())
+	termStateRelativeOffset, err := blockWriterToIntExact(w.TermStatesWriteBuffer.Size())
 	if err != nil {
 		return err
 	}
-	if err := w.blockLineWriter.WriteLine(
-		w.blockLinesWriteBuffer,
+	if err := w.BlockLineWriter.WriteLine(
+		w.BlockLinesWriteBuffer,
 		line,
 		previousLine,
 		termStateRelativeOffset,
 		isIncrementalEncodingSeed); err != nil {
 		return err
 	}
-	return w.blockLineWriter.WriteLineTermState(
-		w.termStatesWriteBuffer, line, w.fieldMetadata.GetFieldInfo(), w.termStateSerializer)
+	return w.BlockLineWriter.WriteLineTermState(
+		w.TermStatesWriteBuffer, line, w.FieldMetadata.GetFieldInfo(), w.TermStateSerializer)
 }
 
-// addBlockKey adds a new block key with its corresponding block file pointer to
+// AddBlockKey adds a new block key with its corresponding block file pointer to
 // the IndexDictionaryBuilder. The block key is the MDP (see TermBytes) of the
 // block first term.
 //
 // Mirrors BlockWriter.addBlockKey (BlockWriter.java:271).
-func (w *BlockWriter) addBlockKey(blockLines []*BlockLine, dictionaryBuilder IndexDictionaryBuilder) error {
+func (w *BlockWriter) AddBlockKey(blockLines []*BlockLine, dictionaryBuilder IndexDictionaryBuilder) error {
 	// assert !blockLines.isEmpty();
 	// assert dictionaryBuilder != null;
 	firstTerm := blockLines[0].GetTermBytes()
 	// assert firstTerm.getTerm().offset == 0;
 	// assert scratchBytesRef.offset == 0;
-	w.scratchBytesRef.Bytes = firstTerm.GetTerm().Bytes
-	w.scratchBytesRef.Length = firstTerm.GetMdpLength()
-	return dictionaryBuilder.Add(w.scratchBytesRef, w.blockOutput.GetFilePointer())
+	w.ScratchBytesRef.Bytes = firstTerm.GetTerm().Bytes
+	w.ScratchBytesRef.Length = firstTerm.GetMdpLength()
+	return dictionaryBuilder.Add(w.ScratchBytesRef, w.BlockOutput.GetFilePointer())
 }
 
 // blockWriterToIntExact renders java.lang.Math.toIntExact: it narrows a long to

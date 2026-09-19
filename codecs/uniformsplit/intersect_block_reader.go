@@ -132,6 +132,9 @@ func NewIntersectBlockReader(
 		// constructor body.
 		numConsecutivelyRejectedTermsThreshold: 4,
 	}
+	// Java's `this` inside BlockReader's bodies is the IntersectBlockReader
+	// being constructed; see [BlockReaderOverrides].
+	r.Overrides = r
 	r.byteRunnable = compiled.GetByteRunnable()
 	r.transitionAccessor = compiled.GetTransitionAccessor()
 	r.finite = compiled.Finite
@@ -195,7 +198,7 @@ func (r *IntersectBlockReader) getMinTermLength() int {
 // adapted to the Gocene SPI, which carries the field name alongside the term
 // bytes in *spi.Term where Java returns a bare BytesRef.
 func (r *IntersectBlockReader) Next() (*spi.Term, error) {
-	if r.blockHeader == nil {
+	if r.BlockHeader == nil {
 		found, err := r.seekFirstBlock()
 		if err != nil {
 			return nil, err
@@ -206,14 +209,14 @@ func (r *IntersectBlockReader) Next() (*spi.Term, error) {
 		r.states = make([]int, 32)
 		r.blockIteration = BlockIterationNext
 	}
-	r.termState = nil
+	r.CurrentTermState = nil
 	for {
 		term, err := r.nextTermInBlockMatching()
 		if err != nil {
 			return nil, err
 		}
 		if term != nil {
-			return spi.NewTermFromBytesRef(r.fieldMetadata.GetFieldInfo().Name(), term), nil
+			return spi.NewTermFromBytesRef(r.FieldMetadata.GetFieldInfo().Name(), term), nil
 		}
 		more, err := r.nextBlock()
 		if err != nil {
@@ -232,7 +235,7 @@ func (r *IntersectBlockReader) seekFirstBlock() (bool, error) {
 	if r.seekTerm == nil {
 		return false, nil
 	}
-	browser, err := r.getOrCreateDictionaryBrowser()
+	browser, err := r.GetOrCreateDictionaryBrowser()
 	if err != nil {
 		return false, err
 	}
@@ -241,14 +244,14 @@ func (r *IntersectBlockReader) seekFirstBlock() (bool, error) {
 		return false, err
 	}
 	if blockStartFP == -1 {
-		blockStartFP = r.fieldMetadata.GetFirstBlockStartFP()
-	} else if r.isBeyondLastTerm(r.seekTerm, blockStartFP) {
+		blockStartFP = r.FieldMetadata.GetFirstBlockStartFP()
+	} else if r.Overrides.IsBeyondLastTerm(r.seekTerm, blockStartFP) {
 		return false, nil
 	}
-	if err := r.initializeHeader(r.seekTerm, blockStartFP); err != nil {
+	if err := r.InitializeHeader(r.seekTerm, blockStartFP); err != nil {
 		return false, err
 	}
-	return r.blockHeader != nil, nil
+	return r.BlockHeader != nil, nil
 }
 
 // nextTermInBlockMatching finds the next block line that matches (accepted by
@@ -261,7 +264,7 @@ func (r *IntersectBlockReader) seekFirstBlock() (bool, error) {
 // (IntersectBlockReader.java:205).
 func (r *IntersectBlockReader) nextTermInBlockMatching() (*util.BytesRef, error) {
 	if r.seekTerm == nil {
-		line, err := r.readLineInBlock()
+		line, err := r.ReadLineInBlock()
 		if err != nil {
 			return nil, err
 		}
@@ -269,7 +272,7 @@ func (r *IntersectBlockReader) nextTermInBlockMatching() (*util.BytesRef, error)
 			return nil, nil
 		}
 	} else {
-		seekStatus, err := r.seekInBlock(r.seekTerm)
+		seekStatus, err := r.SeekInBlock(r.seekTerm)
 		if err != nil {
 			return nil, err
 		}
@@ -281,7 +284,7 @@ func (r *IntersectBlockReader) nextTermInBlockMatching() (*util.BytesRef, error)
 		// assert numConsecutivelyRejectedTerms == 0;
 	}
 	for {
-		lineTermBytes := r.blockLine.GetTermBytes()
+		lineTermBytes := r.BlockLine.GetTermBytes()
 		lineTerm := lineTermBytes.GetTerm()
 		// assert lineTerm.offset == 0;
 		if len(r.states) <= lineTerm.Length {
@@ -329,7 +332,7 @@ func (r *IntersectBlockReader) nextTermInBlockMatching() (*util.BytesRef, error)
 		// then determine whether it is worthwhile to jump to a block away.
 		r.numConsecutivelyRejectedTerms++
 		if r.numConsecutivelyRejectedTerms >= r.numConsecutivelyRejectedTermsThreshold &&
-			r.lineIndexInBlock < r.blockHeader.LinesCount()-1 &&
+			r.LineIndexInBlock < r.BlockHeader.LinesCount()-1 &&
 			!r.nextStringCalculator.isLinearState(lineTerm) {
 			// Compute the next term accepted by the automaton after the current
 			// term.
@@ -341,10 +344,10 @@ func (r *IntersectBlockReader) nextTermInBlockMatching() (*util.BytesRef, error)
 			// It is worthwhile to jump to a block away if the next term
 			// accepted is after the next term in the block. Actually the block
 			// away may be the current block, but this is a good heuristic.
-			if _, err := r.readLineInBlock(); err != nil {
+			if _, err := r.ReadLineInBlock(); err != nil {
 				return nil, err
 			}
-			if util.BytesRefCompare(r.seekTerm, r.blockLine.GetTermBytes().GetTerm()) > 0 {
+			if util.BytesRefCompare(r.seekTerm, r.BlockLine.GetTermBytes().GetTerm()) > 0 {
 				// Stop scanning this block terms and set the iteration order to
 				// jump to a block away by seeking seekTerm.
 				r.blockIteration = BlockIterationSeek
@@ -355,7 +358,7 @@ func (r *IntersectBlockReader) nextTermInBlockMatching() (*util.BytesRef, error)
 			// anymore for the current block.
 			r.numConsecutivelyRejectedTerms = math.MinInt32
 		} else {
-			line, err := r.readLineInBlock()
+			line, err := r.ReadLineInBlock()
 			if err != nil {
 				return nil, err
 			}
@@ -400,10 +403,10 @@ func (r *IntersectBlockReader) nextBlock() (bool, error) {
 	switch r.blockIteration {
 	case BlockIterationNext:
 		// assert seekTerm == null;
-		blockStartFP = r.blockInput.GetFilePointer()
+		blockStartFP = r.BlockInput.GetFilePointer()
 	case BlockIterationSeek:
 		// assert seekTerm != null;
-		browser, err := r.getOrCreateDictionaryBrowser()
+		browser, err := r.GetOrCreateDictionaryBrowser()
 		if err != nil {
 			return false, err
 		}
@@ -411,7 +414,7 @@ func (r *IntersectBlockReader) nextBlock() (bool, error) {
 		if err != nil {
 			return false, err
 		}
-		if r.isBeyondLastTerm(r.seekTerm, blockStartFP) {
+		if r.Overrides.IsBeyondLastTerm(r.seekTerm, blockStartFP) {
 			return false, nil
 		}
 		r.blockIteration = BlockIterationNext
@@ -422,10 +425,10 @@ func (r *IntersectBlockReader) nextBlock() (bool, error) {
 	}
 	r.numMatchedBytes = 0
 	r.numConsecutivelyRejectedTerms = 0
-	if err := r.initializeHeader(r.seekTerm, blockStartFP); err != nil {
+	if err := r.InitializeHeader(r.seekTerm, blockStartFP); err != nil {
 		return false, err
 	}
-	return r.blockHeader != nil, nil
+	return r.BlockHeader != nil, nil
 }
 
 // SeekExact mirrors IntersectBlockReader.seekExact(BytesRef)
@@ -456,7 +459,10 @@ func (r *IntersectBlockReader) SeekCeil(text *spi.Term) (*spi.Term, error) {
 	return nil, errIntersectBlockReaderUnsupported
 }
 
-var _ spi.TermsEnum = (*IntersectBlockReader)(nil)
+var (
+	_ spi.TermsEnum        = (*IntersectBlockReader)(nil)
+	_ BlockReaderOverrides = (*IntersectBlockReader)(nil)
+)
 
 // AutomatonNextTermCalculator is mostly a copy of AutomatonTermsEnum. Since
 // it's an inner class, the outer class can call methods that ATE does not
