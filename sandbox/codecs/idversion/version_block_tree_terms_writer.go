@@ -998,8 +998,35 @@ func (a byteBuffersIndexOutputAdapter) WriteLong(v int64) error  { return a.inne
 func (a byteBuffersIndexOutputAdapter) WriteString(s string) error {
 	return a.inner.WriteString(s)
 }
+
+// CopyBytes renders DataOutput.copyBytes(DataInput, long) by forwarding to the
+// wrapped ByteBuffersDataOutput, which carries the base body.
+func (a byteBuffersIndexOutputAdapter) CopyBytes(input store.DataInput, numBytes int64) error {
+	return a.inner.CopyBytes(input, numBytes)
+}
+
 func (a byteBuffersIndexOutputAdapter) WriteVInt(i int32) error  { return a.inner.WriteVInt(i) }
 func (a byteBuffersIndexOutputAdapter) WriteVLong(i int64) error { return a.inner.WriteVLong(i) }
+
+// WriteGroupVInts renders DataOutput.writeGroupVInts(long[], int) by
+// forwarding to the wrapped ByteBuffersDataOutput, which carries the base
+// body.
+func (a byteBuffersIndexOutputAdapter) WriteGroupVInts(values []int32, limit int) error {
+	return a.inner.WriteGroupVInts(values, limit)
+}
+
+// WriteZInt, WriteZLong, WriteMapOfStrings and WriteSetOfStrings complete the
+// store.DataOutput contract. Java's byteBuffersDataOutputAsIndexOutput
+// inherits these bodies from DataOutput; Go has no inheritance, so each is
+// forwarded to the wrapped ByteBuffersDataOutput, which carries them.
+func (a byteBuffersIndexOutputAdapter) WriteZInt(v int32) error  { return a.inner.WriteZInt(v) }
+func (a byteBuffersIndexOutputAdapter) WriteZLong(v int64) error { return a.inner.WriteZLong(v) }
+func (a byteBuffersIndexOutputAdapter) WriteMapOfStrings(m map[string]string) error {
+	return a.inner.WriteMapOfStrings(m)
+}
+func (a byteBuffersIndexOutputAdapter) WriteSetOfStrings(v []string) error {
+	return a.inner.WriteSetOfStrings(v)
+}
 
 // GetFilePointer returns the current size of the buffer as a proxy for the
 // write position (ByteBuffersDataOutput is append-only).

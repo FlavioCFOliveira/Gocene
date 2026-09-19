@@ -1,10 +1,11 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"bytes"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -138,16 +139,20 @@ func (w *pointInSetWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 // *pointValues) satisfies it structurally; the parameter type is the
 // index-package alias so the type assertion succeeds for the real codec reader
 // (the same reason LatLonPointDistanceQuery and PointRangeQuery alias
-// index.PointTreeIntersectVisitor).
+// index.IntersectVisitor).
 //
 // PORT NOTE. Java's cost() calls PointValues.estimateDocCount(visitor), a final
 // method that rescales estimatePointCount(visitor) by docCount/size. Gocene's
 // BKD reader exposes only EstimatePointCount, so that is what the cost uses —
 // the same treatment lat_lon_point_distance_query.go applies.
-type pointInSetPointTreeIntersect interface {
-	Intersect(visitor index.PointTreeIntersectVisitor) error
-	EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64
-}
+// pointInSetPointTreeIntersect is an alias of index.PointValues. Before the two
+// PointValues renderings were merged it was a narrow structural interface
+// carrying the visitor-driven surface (Intersect / EstimatePointCount) that
+// index.PointValues did not declare; org.apache.lucene.index.PointValues
+// declares intersect and estimatePointCount as public final members, so the
+// whole surface is now on the one interface and the narrow duplicate has no
+// Lucene counterpart.
+type pointInSetPointTreeIntersect = index.PointValues
 
 // ScorerSupplier mirrors the anonymous ConstantScoreWeight's
 // scorerSupplier(LeafReaderContext) in PointInSetQuery.createWeight.
@@ -162,13 +167,21 @@ func (w *pointInSetWeight) ScorerSupplier(ctx *index.LeafReaderContext) (ScorerS
 		return nil, nil
 	}
 
-	if values.GetNumDimensions() != w.query.numDims {
-		return nil, fmt.Errorf("field=%q was indexed with numIndexDims=%d but this query has numIndexDims=%d",
-			w.query.field, values.GetNumDimensions(), w.query.numDims)
+	numDimensions, err := values.GetNumDimensions()
+	if err != nil {
+		return nil, err
 	}
-	if values.GetBytesPerDimension() != w.query.bytesPerDim {
+	if numDimensions != w.query.numDims {
+		return nil, fmt.Errorf("field=%q was indexed with numIndexDims=%d but this query has numIndexDims=%d",
+			w.query.field, numDimensions, w.query.numDims)
+	}
+	bytesPerDimension, err := values.GetBytesPerDimension()
+	if err != nil {
+		return nil, err
+	}
+	if bytesPerDimension != w.query.bytesPerDim {
 		return nil, fmt.Errorf("field=%q was indexed with bytesPerDim=%d but this query has bytesPerDim=%d",
-			w.query.field, values.GetBytesPerDimension(), w.query.bytesPerDim)
+			w.query.field, bytesPerDimension, w.query.bytesPerDim)
 	}
 
 	if values.GetDocCount() == 0 {
@@ -236,7 +249,15 @@ type pointInSetScorerSupplier1D struct {
 func (s *pointInSetScorerSupplier1D) Cost() int64 {
 	if s.cost == -1 {
 		result := util.NewDocIdSetBuilder(s.reader.MaxDoc())
-		s.cost = s.values.EstimatePointCount(newMergePointVisitor(s.query.sortedPackedPoints, result))
+		// Java: cost = values.estimateDocCount(new MergePointVisitor(...))
+		// (PointInSetQuery.java:222). estimateDocCount wraps an IOException in
+		// an UncheckedIOException, which crosses cost()'s throws-free
+		// signature; Go renders that unchecked throw as a panic.
+		cost, err := s.values.EstimateDocCount(newMergePointVisitor(s.query.sortedPackedPoints, result))
+		if err != nil {
+			panic(err)
+		}
+		s.cost = cost
 	}
 	return s.cost
 }
@@ -288,7 +309,14 @@ func (s *pointInSetScorerSupplierND) Cost() int64 {
 		var cost int64
 		for point := iterator.Next(); point != nil; point = iterator.Next() {
 			visitor.setPoint(point)
-			cost += s.values.EstimatePointCount(visitor)
+			// Java: cost += values.estimateDocCount(visitor)
+			// (PointInSetQuery.java:263). See the 1-dimension Cost above for
+			// why the UncheckedIOException is rendered as a panic.
+			estimate, err := s.values.EstimateDocCount(visitor)
+			if err != nil {
+				panic(err)
+			}
+			cost += estimate
 		}
 		s.cost = cost
 	}
@@ -332,7 +360,7 @@ type mergePointVisitor struct {
 	adder              util.BulkAdder
 }
 
-func newMergePointVisitor(sortedPackedPoints *index.PrefixCodedTerms, result *util.DocIdSetBuilder) index.PointTreeIntersectVisitor {
+func newMergePointVisitor(sortedPackedPoints *index.PrefixCodedTerms, result *util.DocIdSetBuilder) index.IntersectVisitor {
 	it := sortedPackedPoints.Iterator()
 	var nextQueryPoint []byte
 	if p := it.Next(); p != nil {
@@ -362,7 +390,7 @@ func (v *mergePointVisitor) VisitByPackedValue(docID int, packedValue []byte) er
 	return nil
 }
 
-func (v *mergePointVisitor) Compare(minPackedValue, maxPackedValue []byte) int {
+func (v *mergePointVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
 	for v.nextQueryPoint != nil {
 		cmpMin := bytes.Compare(v.nextQueryPoint, minPackedValue)
 		if cmpMin < 0 {
@@ -424,7 +452,7 @@ func (v *singlePointVisitor) VisitByPackedValue(docID int, packedValue []byte) e
 	return nil
 }
 
-func (v *singlePointVisitor) Compare(minPackedValue, maxPackedValue []byte) int {
+func (v *singlePointVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
 	crosses := false
 	for dim := 0; dim < v.numDims; dim++ {
 		offset := dim * v.bytesPerDim
@@ -546,4 +574,44 @@ func (p *pointInSetScorerSupplierND) BulkScorer() (BulkScorer, error) {
 // whose body in Apache Lucene 10.5.0 is empty.
 func (p *pointInSetScorerSupplierND) SetTopLevelScoringClause() error {
 	return nil
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *mergePointVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *mergePointVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *mergePointVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *singlePointVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *singlePointVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *singlePointVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

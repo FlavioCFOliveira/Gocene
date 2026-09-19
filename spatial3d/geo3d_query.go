@@ -9,6 +9,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/spatial3d/geom"
@@ -304,7 +305,13 @@ func (s *pointInGeo3DShapeScorerSupplier) BulkScorer() (search.BulkScorer, error
 // Cost returns a lazy, cached estimate of the matching-document count.
 func (s *pointInGeo3DShapeScorerSupplier) Cost() int64 {
 	if s.estCost < 0 {
-		c := s.pv.EstimatePointCount(NewPointInShapeIntersectVisitor(nil, s.query.shape, s.query.planetModel))
+		// PointValues.estimatePointCount wraps an IOException in an
+		// UncheckedIOException, which crosses cost()'s throws-free signature;
+		// Go renders that unchecked throw as a panic.
+		c, err := s.pv.EstimatePointCount(NewPointInShapeIntersectVisitor(nil, s.query.shape, s.query.planetModel))
+		if err != nil {
+			panic(err)
+		}
 		if c < 0 {
 			c = 0
 		}
@@ -514,7 +521,7 @@ func (v *PointInShapeIntersectVisitor) VisitByPackedValue(docID int, packedValue
 // For non-prune-capable shapes, returns CELL_CROSSES_QUERY (full scan).
 //
 // Port of PointInShapeIntersectVisitor.compare (Lucene 10.4.0).
-func (v *PointInShapeIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) int {
+func (v *PointInShapeIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
 	if !v.pruneCapable {
 		return geo3dCellCrossesQuery
 	}
@@ -583,24 +590,23 @@ func decodeValueCeil(pm *geom.PlanetModel, packed []byte, offset int) float64 {
 // PointValues bridge
 // ---------------------------------------------------------------------------
 
-// geo3dPointValues is the narrow point-source contract PointInGeo3DShapeQuery
-// needs from a leaf. It is declared locally (mirroring pointRangePointValues in
-// search/point_range_query.go) because the canonical index.PointValues port
-// does not yet expose Intersect / EstimatePointCount, and importing codecs
-// would re-introduce a dependency cycle.
-type geo3dPointValues interface {
-	Intersect(visitor geo3dIntersectVisitor) error
-	EstimatePointCount(visitor geo3dIntersectVisitor) int64
-}
+// geo3dPointValues is an alias of index.PointValues. Before the two
+// PointValues renderings were merged it was a narrow structural interface
+// carrying the visitor-driven surface (Intersect / EstimatePointCount) that
+// index.PointValues did not declare; org.apache.lucene.index.PointValues
+// declares intersect and estimatePointCount as public final members, so the
+// whole surface is now on the one interface and the narrow duplicate has no
+// Lucene counterpart.
+type geo3dPointValues = index.PointValues
 
 // geo3dIntersectVisitor is the BKD visitor surface geo3dPointValues drives. It
-// is an alias of index.PointTreeIntersectVisitor (rmp #4769) so the on-disk
+// is an alias of index.IntersectVisitor (rmp #4769) so the on-disk
 // BKD-backed PointValues returned by LeafReader.GetPointValues — whose
-// Intersect method takes index.PointTreeIntersectVisitor — satisfies
+// Intersect method takes index.IntersectVisitor — satisfies
 // geo3dPointValues. The three hooks (Visit, VisitByPackedValue, Compare
 // returning an int) plus Grow match the codecs.IntersectVisitor surface so the
 // BKD walk drives this visitor without further adaptation.
-type geo3dIntersectVisitor = index.PointTreeIntersectVisitor
+type geo3dIntersectVisitor = index.IntersectVisitor
 
 // getGeo3DPointValues type-asserts the leaf reader to expose BKD point values
 // for field, then narrows them to geo3dPointValues. Returns (nil, false) when
@@ -656,4 +662,24 @@ var _ util.DocIdSetIterator = (*geo3dUtilDISIAdapter)(nil)
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (a *geo3dUtilDISIAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(a, upTo, bitSet, offset)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *PointInShapeIntersectVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *PointInShapeIntersectVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *PointInShapeIntersectVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

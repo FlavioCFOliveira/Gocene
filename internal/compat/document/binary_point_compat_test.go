@@ -22,8 +22,11 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90" // BKD reader hook
 	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	gindex "github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // pointValuesClient is the interface for reading point values from a
@@ -37,7 +40,7 @@ type pointValuesClient interface {
 // Intersect method that the concrete *lucene90.pointValues exposes.
 type intersectablePointValues interface {
 	gindex.PointValues
-	Intersect(visitor gindex.PointTreeIntersectVisitor) error
+	Intersect(visitor gindex.IntersectVisitor) error
 }
 
 // allPointsCollector visits every point in the BKD tree and collects
@@ -64,7 +67,7 @@ func (c *allPointsCollector) VisitByPackedValue(docID int, packedValue []byte) e
 	return nil
 }
 
-func (c *allPointsCollector) Compare(_, _ []byte) int { return 1 } // CELL_INSIDE_QUERY
+func (c *allPointsCollector) Compare(_, _ []byte) geo.Relation { return 1 } // CELL_INSIDE_QUERY
 
 func (c *allPointsCollector) Grow(int) {}
 
@@ -321,11 +324,35 @@ func TestBinaryPoint_AllSeeds(t *testing.T) {
 					t.Errorf("GetValues(%q) returned nil", fi.Name())
 					continue
 				}
-				if pv.GetNumDimensions() != fi.PointDimensionCount() {
+				numDimensions, err := pv.GetNumDimensions()
+				if err != nil {
+					t.Fatalf("GetNumDimensions(%s): %v", fi.Name(), err)
+				}
+				if numDimensions != fi.PointDimensionCount() {
 					t.Errorf("%q dims: got %d, want %d",
-						fi.Name(), pv.GetNumDimensions(), fi.PointDimensionCount())
+						fi.Name(), numDimensions, fi.PointDimensionCount())
 				}
 			}
 		})
 	}
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which c does not
+// override.
+func (c *allPointsCollector) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(c, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which c does not override.
+func (c *allPointsCollector) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(c, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which c
+// does not override.
+func (c *allPointsCollector) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(c, iterator, packedValue)
 }

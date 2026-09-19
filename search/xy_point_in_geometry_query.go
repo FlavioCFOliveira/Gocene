@@ -361,11 +361,15 @@ const (
 // reader returned by LeafReader.GetPointValues (the codec's *pointValues)
 // satisfies it structurally; the parameter type is the index-package alias so
 // the type assertion succeeds for the real codec reader (the same reason
-// search.RangeFieldQuery aliases index.PointTreeIntersectVisitor).
-type xyPointTreeIntersect interface {
-	Intersect(visitor index.PointTreeIntersectVisitor) error
-	EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64
-}
+// search.RangeFieldQuery aliases index.IntersectVisitor).
+// xyPointTreeIntersect is an alias of index.PointValues. Before the two
+// PointValues renderings were merged it was a narrow structural interface
+// carrying the visitor-driven surface (Intersect / EstimatePointCount) that
+// index.PointValues did not declare; org.apache.lucene.index.PointValues
+// declares intersect and estimatePointCount as public final members, so the
+// whole surface is now on the one interface and the narrow duplicate has no
+// Lucene counterpart.
+type xyPointTreeIntersect = index.PointValues
 
 // newXYPointSourceFromIndexPointValues adapts a BKD-backed index.PointValues to
 // the xyPointSource contract used by the scorer. When the concrete PointValues
@@ -381,7 +385,7 @@ func newXYPointSourceFromIndexPointValues(pv index.PointValues) xyPointSource {
 }
 
 // bkdXYPointSource drives a BKD-backed PointValues, translating between the
-// XY query's xyPointVisitor and the index.PointTreeIntersectVisitor the BKD
+// XY query's xyPointVisitor and the index.IntersectVisitor the BKD
 // reader expects.
 type bkdXYPointSource struct {
 	pv xyPointTreeIntersect
@@ -392,11 +396,11 @@ func (s *bkdXYPointSource) Intersect(visitor xyPointVisitor) error {
 }
 
 func (s *bkdXYPointSource) EstimateDocCount(visitor xyPointVisitor) (int64, error) {
-	return s.pv.EstimatePointCount(&xyPointVisitorBridge{v: visitor}), nil
+	return s.pv.EstimateDocCount(&xyPointVisitorBridge{v: visitor})
 }
 
 // xyPointVisitorBridge adapts an xyPointVisitor to the
-// index.PointTreeIntersectVisitor surface the BKD reader invokes. The reader
+// index.IntersectVisitor surface the BKD reader invokes. The reader
 // only drives Visit / VisitByPackedValue / Compare / Grow (the bulk-iterator
 // methods on xyPointVisitor are not part of the BKD reader's intersect path).
 type xyPointVisitorBridge struct {
@@ -409,13 +413,13 @@ func (b *xyPointVisitorBridge) VisitByPackedValue(docID int, packedValue []byte)
 	return b.v.VisitWithPackedValue(docID, packedValue)
 }
 
-func (b *xyPointVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) int {
-	return int(b.v.Compare(minPackedValue, maxPackedValue))
+func (b *xyPointVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+	return geo.Relation(b.v.Compare(minPackedValue, maxPackedValue))
 }
 
 func (b *xyPointVisitorBridge) Grow(count int) { b.v.Grow(count) }
 
-var _ index.PointTreeIntersectVisitor = (*xyPointVisitorBridge)(nil)
+var _ index.IntersectVisitor = (*xyPointVisitorBridge)(nil)
 
 // noopXYPointSource is the safe fallback when the PointValues does not expose
 // the visitor-driven Intersect surface (e.g. an in-test metadata-only stub). It
@@ -834,4 +838,24 @@ func (x *xyUtilDISIAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offse
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *xyPointInGeometryScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which b does not
+// override.
+func (b *xyPointVisitorBridge) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(b, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which b does not override.
+func (b *xyPointVisitorBridge) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(b, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which b
+// does not override.
+func (b *xyPointVisitorBridge) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(b, iterator, packedValue)
 }

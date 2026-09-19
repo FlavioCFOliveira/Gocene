@@ -19,6 +19,9 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 
 	_ "github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // collectPointsVisitor records docID -> packedValue, accepting every point
@@ -34,13 +37,13 @@ func (c *collectPointsVisitor) VisitByPackedValue(docID int, packedValue []byte)
 	c.m[docID] = cp
 	return nil
 }
-func (c *collectPointsVisitor) Compare(minPackedValue, maxPackedValue []byte) int { return 2 }
-func (c *collectPointsVisitor) Grow(count int)                                    {}
+func (c *collectPointsVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation { return 2 }
+func (c *collectPointsVisitor) Grow(count int)                                             {}
 
 func intersectPoints(t *testing.T, pv index.PointValues) map[int][]byte {
 	t.Helper()
 	iv, ok := pv.(interface {
-		Intersect(visitor index.PointTreeIntersectVisitor) error
+		Intersect(visitor index.IntersectVisitor) error
 	})
 	if !ok {
 		t.Fatalf("PointValues %T is not intersectable", pv)
@@ -165,4 +168,24 @@ func TestSegmentMerger_PointsRoundTrip(t *testing.T) {
 			t.Errorf("merged point doc %d packed = %x, want %x", d, gv, exp)
 		}
 	}
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which c does not
+// override.
+func (c *collectPointsVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(c, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which c does not override.
+func (c *collectPointsVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(c, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which c
+// does not override.
+func (c *collectPointsVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(c, iterator, packedValue)
 }

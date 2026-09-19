@@ -248,6 +248,16 @@ func (f *CrankyPointsFormat) FieldsReader(state *spi.SegmentReadState) (spi.Poin
 	return &CrankyPointsReader{delegate: reader, random: f.random}, nil
 }
 
+// pointsWriterMerger is the merge member of PointsWriter. The codec writers
+// carry it through codecs.BasePointsWriter; spi.PointsWriter cannot declare it
+// because MergeState lives in package index, which spi cannot import. This is
+// the same narrow interface index.SegmentMerger.mergePoints uses to reach it.
+type pointsWriterMerger interface {
+	Merge(mergeState *index.MergeState) error
+}
+
+// CrankyPointsWriter is the Go port of
+// org.apache.lucene.tests.codecs.cranky.CrankyPointsFormat.CrankyPointsWriter.
 type CrankyPointsWriter struct {
 	delegate spi.PointsWriter
 	random   *rand.Rand
@@ -271,11 +281,16 @@ func (w *CrankyPointsWriter) Finish() error {
 	return err
 }
 
+// Merge renders `public void merge(MergeState mergeState)`.
 func (w *CrankyPointsWriter) Merge(mergeState *index.MergeState) error {
 	if w.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException")
 	}
-	err := w.delegate.Merge(mergeState)
+	merger, ok := w.delegate.(pointsWriterMerger)
+	if !ok {
+		return fmt.Errorf("cranky: PointsWriter %T does not carry merge(MergeState)", w.delegate)
+	}
+	err := merger.Merge(mergeState)
 	if w.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException")
 	}
@@ -290,6 +305,8 @@ func (w *CrankyPointsWriter) Close() error {
 	return err
 }
 
+// CrankyPointsReader is the Go port of
+// org.apache.lucene.tests.codecs.cranky.CrankyPointsFormat.CrankyPointsReader.
 type CrankyPointsReader struct {
 	delegate spi.PointsReader
 	random   *rand.Rand
@@ -321,100 +338,100 @@ func (r *CrankyPointsReader) Close() error {
 	return err
 }
 
-func (r *CrankyPointsReader) GetValues(fieldName string) (codecs.PointValues, error) {
-	wideReader, ok := r.delegate.(interface {
-		GetValues(string) (codecs.PointValues, error)
-	})
-	if !ok {
-		return nil, fmt.Errorf("delegate does not support GetValues")
-	}
-	values, err := wideReader.GetValues(fieldName)
+// GetValues renders `public PointValues getValues(String fieldName)`, which
+// wraps the delegate's PointValues in the anonymous subclass rendered by
+// [CrankyPointValues].
+func (r *CrankyPointsReader) GetValues(fieldName string) (index.PointValues, error) {
+	delegate, err := r.delegate.GetValues(fieldName)
 	if err != nil {
 		return nil, err
 	}
-	if values == nil {
+	if delegate == nil {
 		return nil, nil
 	}
-	return &CrankyPointValues{delegate: values, random: r.random}, nil
+	return newCrankyPointValues(delegate, r.random), nil
 }
 
+// CrankyPointValues is the anonymous PointValues returned by
+// CrankyPointsReader.getValues.
 type CrankyPointValues struct {
-	delegate codecs.PointValues
+	*spi.BasePointValues
+	delegate index.PointValues
 	random   *rand.Rand
 }
 
-func (v *CrankyPointValues) Intersect(visitor codecs.IntersectVisitor) error {
-	return v.delegate.Intersect(visitor)
+func newCrankyPointValues(delegate index.PointValues, random *rand.Rand) *CrankyPointValues {
+	v := &CrankyPointValues{delegate: delegate, random: random}
+	v.BasePointValues = spi.NewBasePointValues(v)
+	return v
 }
 
-func (v *CrankyPointValues) EstimatePointCount(visitor codecs.IntersectVisitor) int64 {
-	return v.delegate.EstimatePointCount(visitor)
+// GetPointTree renders `public PointTree getPointTree()`, which wraps the
+// delegate's tree in the anonymous PointTree rendered by [CrankyPointTree].
+func (v *CrankyPointValues) GetPointTree() (index.PointTree, error) {
+	pointTree, err := v.delegate.GetPointTree()
+	if err != nil {
+		return nil, err
+	}
+	return &CrankyPointTree{delegate: pointTree, random: v.random}, nil
 }
 
-func (v *CrankyPointValues) GetMinPackedValue() []byte {
+func (v *CrankyPointValues) GetMinPackedValue() ([]byte, error) {
 	if v.random.Intn(100) == 0 {
-		return nil
+		return nil, fmt.Errorf("Fake IOException")
 	}
 	return v.delegate.GetMinPackedValue()
 }
 
-func (v *CrankyPointValues) GetMaxPackedValue() []byte {
+func (v *CrankyPointValues) GetMaxPackedValue() ([]byte, error) {
 	if v.random.Intn(100) == 0 {
-		return nil
+		return nil, fmt.Errorf("Fake IOException")
 	}
 	return v.delegate.GetMaxPackedValue()
 }
 
-func (v *CrankyPointValues) GetNumDimensions() int {
+func (v *CrankyPointValues) GetNumDimensions() (int, error) {
 	if v.random.Intn(100) == 0 {
-		return -1
+		return 0, fmt.Errorf("Fake IOException")
 	}
 	return v.delegate.GetNumDimensions()
 }
 
-func (v *CrankyPointValues) GetNumIndexDimensions() int {
+func (v *CrankyPointValues) GetNumIndexDimensions() (int, error) {
 	if v.random.Intn(100) == 0 {
-		return -1
+		return 0, fmt.Errorf("Fake IOException")
 	}
 	return v.delegate.GetNumIndexDimensions()
 }
 
-func (v *CrankyPointValues) GetBytesPerDimension() int {
+func (v *CrankyPointValues) GetBytesPerDimension() (int, error) {
 	if v.random.Intn(100) == 0 {
-		return -1
+		return 0, fmt.Errorf("Fake IOException")
 	}
 	return v.delegate.GetBytesPerDimension()
+}
+
+// Size renders `public long size()`, whose body delegates without a fake
+// failure.
+func (v *CrankyPointValues) Size() int64 {
+	return v.delegate.Size()
 }
 
 func (v *CrankyPointValues) GetDocCount() int {
 	return v.delegate.GetDocCount()
 }
 
-func (v *CrankyPointValues) GetPointTree() (codecs.PointTree, error) {
-	// We assume PointValues interface in codecs has GetPointTree
-	// Since we don't have the interface definition in front of us (it was in codecs/points_format.go),
-	// we must check if it's there.
-	// In the provided codecs/points_format.go, PointValues does NOT have GetPointTree.
-	// This is a divergence. In Java, it does.
-	// I will check the Gocene PointValues interface again.
-
-	// Actually, let's look at the laest Read output of codecs/points_format.go.
-	// It has: Intersect, EstimatePointCount, GetMinPackedValue, GetMaxPackedValue,
-	// GetNumDimensions, GetNumIndexDimensions, GetBytesPerDimension, GetDocCount.
-	// No GetPointTree.
-
-	// I will assume that if it's missing, I cannot implement it.
-	// But wait, the Java version uses it. I should check if it's in another interface.
-
-	return nil, fmt.Errorf("GetPointTree not implemented in Gocene PointValues")
-}
-
+// CrankyPointTree is the anonymous PointTree returned by the anonymous
+// PointValues' getPointTree.
 type CrankyPointTree struct {
-	delegate codecs.PointTree
+	delegate index.PointTree
 	random   *rand.Rand
 }
 
-func (t *CrankyPointTree) Clone() codecs.PointTree {
+// Clone renders `public PointTree clone()`, whose body is
+// `return pointTree.clone()` — it returns the delegate's clone unwrapped, as
+// Java does.
+func (t *CrankyPointTree) Clone() index.PointTree {
 	return t.delegate.Clone()
 }
 
@@ -442,7 +459,7 @@ func (t *CrankyPointTree) Size() int64 {
 	return t.delegate.Size()
 }
 
-func (t *CrankyPointTree) VisitDocIDs(visitor codecs.IntersectVisitor) error {
+func (t *CrankyPointTree) VisitDocIDs(visitor index.IntersectVisitor) error {
 	if t.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException")
 	}
@@ -453,7 +470,7 @@ func (t *CrankyPointTree) VisitDocIDs(visitor codecs.IntersectVisitor) error {
 	return err
 }
 
-func (t *CrankyPointTree) VisitDocValues(visitor codecs.IntersectVisitor) error {
+func (t *CrankyPointTree) VisitDocValues(visitor index.IntersectVisitor) error {
 	if t.random.Intn(100) == 0 {
 		return fmt.Errorf("Fake IOException")
 	}
@@ -463,6 +480,11 @@ func (t *CrankyPointTree) VisitDocValues(visitor codecs.IntersectVisitor) error 
 	}
 	return err
 }
+
+var (
+	_ index.PointValues = (*CrankyPointValues)(nil)
+	_ index.PointTree   = (*CrankyPointTree)(nil)
+)
 
 // --- CrankySegmentInfoFormat ---
 

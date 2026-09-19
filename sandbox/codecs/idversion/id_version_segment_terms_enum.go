@@ -731,6 +731,21 @@ func (e *IDVersionSegmentTermsEnum) Postings(flags int) (index.PostingsEnum, err
 	return e.fr.Parent.PostingsReader.Postings(e.fr.FieldInfo, e.currentFrame.state, nil, flags)
 }
 
+// Impacts returns an ImpactsEnum for the current term.
+//
+// Port of IDVersionSegmentTermsEnum.impacts(int):
+//
+//	// Only one posting, the slow impl is fine
+//	// We could make this throw UOE but then CheckIndex is angry
+//	return new SlowImpactsEnum(postings(null, flags));
+func (e *IDVersionSegmentTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	postings, err := e.Postings(flags)
+	if err != nil {
+		return nil, err
+	}
+	return index.NewSlowImpactsEnum(postings), nil
+}
+
 // PostingsWithLiveDocs returns a PostingsEnum for the current term (live docs
 // are not applied — IDVersion indexes have one doc per term).
 func (e *IDVersionSegmentTermsEnum) PostingsWithLiveDocs(_ util.Bits, flags int) (index.PostingsEnum, error) {

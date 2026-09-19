@@ -9,7 +9,6 @@ import (
 
 	bcstore "github.com/FlavioCFOliveira/Gocene/backward_codecs/store"
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
@@ -103,7 +102,7 @@ func NewLucene60PointsReader(state *codecs.SegmentReadState) (*Lucene60PointsRea
 			_ = dataIn.Close()
 			return nil, fmt.Errorf("Lucene60PointsReader: init BKDReader for field %d at fp %d: %w", fieldNumber, fp, err)
 		}
-		readers[fieldNumber] = &bkdPointValues{bkdReader: bkdReader}
+		readers[fieldNumber] = bkdReader
 	}
 
 	return &Lucene60PointsReader{
@@ -154,97 +153,13 @@ func (r *Lucene60PointsReader) Close() error {
 	return nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BKD wrapper to satisfy codecs.PointValues
-// ─────────────────────────────────────────────────────────────────────────────
-
-type bkdPointValues struct {
-	bkdReader *bkd.BKDReader
-}
-
-// Intersect walks the BKD tree, driving visitor for every matching cell and
-// point. It bridges index.PointTreeIntersectVisitor (Compare returns an int)
-// to util/bkd.IntersectVisitor (Compare returns a geo.Relation), exactly as
-// the Lucene90 points reader does.
-func (w *bkdPointValues) Intersect(visitor index.PointTreeIntersectVisitor) error {
-	return w.bkdReader.Intersect(&bkdVisitorBridge{v: visitor})
-}
-
-// EstimatePointCount returns the BKDReader's estimate of how many points the
-// visitor will match; a failing estimate is reported as 0.
-func (w *bkdPointValues) EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64 {
-	count, err := w.bkdReader.EstimatePointCount(&bkdVisitorBridge{v: visitor})
-	if err != nil || count < 0 {
-		return 0
-	}
-	return count
-}
-
-// GetMinPackedValue returns the per-dimension minimum packed value across the
-// tree. The error return matches index.PointValues; the BKDReader accessor
-// never fails, so the error is always nil.
-func (w *bkdPointValues) GetMinPackedValue() ([]byte, error) {
-	return w.bkdReader.GetMinPackedValue(), nil
-}
-
-// GetMaxPackedValue returns the per-dimension maximum packed value.
-func (w *bkdPointValues) GetMaxPackedValue() ([]byte, error) {
-	return w.bkdReader.GetMaxPackedValue(), nil
-}
-
-// GetNumDimensions returns the number of indexed point dimensions.
-func (w *bkdPointValues) GetNumDimensions() int {
-	return w.bkdReader.GetNumDimensions()
-}
-
-// GetBytesPerDimension returns the number of bytes per dimension.
-func (w *bkdPointValues) GetBytesPerDimension() int {
-	return w.bkdReader.GetBytesPerDimension()
-}
-
-// GetDocCount returns the number of documents with at least one point value.
-func (w *bkdPointValues) GetDocCount() int {
-	return w.bkdReader.GetDocCount()
-}
-
-// GetDocCountWithValue returns the document count (BKD tracks doc count, not
-// per-document value multiplicity).
-func (w *bkdPointValues) GetDocCountWithValue() int64 {
-	return int64(w.bkdReader.GetDocCount())
-}
-
-// GetValueCount returns the total number of indexed point values
-// (PointValues.size()).
-func (w *bkdPointValues) GetValueCount() int64 { return w.bkdReader.Size() }
-
-// GetPointTree returns a fresh BKD PointTree cursor positioned at the root of
-// the field's tree, rendering org.apache.lucene.index.PointValues#getPointTree().
-func (w *bkdPointValues) GetPointTree() (bkd.PointTree, error) {
-	return w.bkdReader.GetPointTree()
-}
-
-var _ index.PointValues = (*bkdPointValues)(nil)
-
-// bkdVisitorBridge adapts an index.PointTreeIntersectVisitor (Compare returns
-// an int in {0,1,2}) to a util/bkd.IntersectVisitor (Compare returns a
-// geo.Relation). The int convention matches the Relation enum order, so the
-// conversion is a direct cast.
-type bkdVisitorBridge struct {
-	v index.PointTreeIntersectVisitor
-}
-
-func (b *bkdVisitorBridge) Visit(docID int) error { return b.v.Visit(docID) }
-
-func (b *bkdVisitorBridge) VisitByPackedValue(docID int, packedValue []byte) error {
-	return b.v.VisitByPackedValue(docID, packedValue)
-}
-
-func (b *bkdVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
-	return geo.Relation(b.v.Compare(minPackedValue, maxPackedValue))
-}
-
-func (b *bkdVisitorBridge) Grow(count int) { b.v.Grow(count) }
-
-var _ bkd.IntersectVisitor = (*bkdVisitorBridge)(nil)
+// Java's Lucene60PointsReader keeps the BKDReader itself in its readers map
+// (org.apache.lucene.util.bkd.BKDReader extends
+// org.apache.lucene.index.PointValues) and getValues returns it directly, so
+// there is no wrapper type here. The `bkdPointValues` view and the
+// `bkdVisitorBridge` that used to live at this point bridged Gocene's two
+// incompatible PointValues renderings and its two IntersectVisitor renderings;
+// with one PointValues and one IntersectVisitor in the module they have no
+// Lucene counterpart and are gone.
 
 var _ codecs.PointsReader = (*Lucene60PointsReader)(nil)

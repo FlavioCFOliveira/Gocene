@@ -284,7 +284,7 @@ func (w *pointsWriter) merge1DField(mergeState *index.MergeState, fieldInfo *spi
 					return err
 				}
 				if values != nil {
-					totMaxSize += values.GetValueCount()
+					totMaxSize += values.Size()
 				}
 			}
 		}
@@ -406,3 +406,23 @@ var (
 	_ codecs.PointsWriter  = (*pointsWriter)(nil)
 	_ bkd.IntersectVisitor = (*writeFieldIntersectVisitor)(nil)
 )
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *writeFieldIntersectVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *writeFieldIntersectVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *writeFieldIntersectVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}

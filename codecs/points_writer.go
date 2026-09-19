@@ -11,7 +11,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/util/bkd"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // BasePointsWriter carries the concrete members of the abstract class
@@ -59,7 +59,7 @@ func (b *BasePointsWriter) MergeOneField(mergeState *index.MergeState, fieldInfo
 					return err
 				}
 				if values != nil {
-					maxPointCount += values.GetValueCount()
+					maxPointCount += values.Size()
 				}
 			}
 		}
@@ -115,7 +115,7 @@ func (r *mergedPointsReader) GetValues(fieldName string) (spi.PointValues, error
 	if fieldName != r.fieldInfo.Name() {
 		return nil, fmt.Errorf("field name must match the field being merged")
 	}
-	return &mergedPointValues{reader: r, fieldName: fieldName}, nil
+	return newMergedPointValues(r, fieldName), nil
 }
 
 // CheckIntegrity throws UnsupportedOperationException in Java.
@@ -131,12 +131,19 @@ func (r *mergedPointsReader) GetMergeInstance() spi.PointsReader { return r }
 // mergedPointValues is the anonymous PointValues returned by
 // mergedPointsReader.GetValues.
 type mergedPointValues struct {
+	*spi.BasePointValues
 	reader    *mergedPointsReader
 	fieldName string
 }
 
+func newMergedPointValues(reader *mergedPointsReader, fieldName string) *mergedPointValues {
+	v := &mergedPointValues{reader: reader, fieldName: fieldName}
+	v.BasePointValues = spi.NewBasePointValues(v)
+	return v
+}
+
 // GetPointTree renders `public PointTree getPointTree()`.
-func (v *mergedPointValues) GetPointTree() (bkd.PointTree, error) {
+func (v *mergedPointValues) GetPointTree() (spi.PointTree, error) {
 	return &mergedPointTree{values: v}, nil
 }
 
@@ -151,25 +158,26 @@ func (v *mergedPointValues) GetMaxPackedValue() ([]byte, error) {
 }
 
 // GetNumDimensions throws UnsupportedOperationException in Java.
-func (v *mergedPointValues) GetNumDimensions() int { panic(errMergedPointsUnsupported) }
+func (v *mergedPointValues) GetNumDimensions() (int, error) {
+	return 0, errMergedPointsUnsupported
+}
 
 // GetNumIndexDimensions throws UnsupportedOperationException in Java.
-func (v *mergedPointValues) GetNumIndexDimensions() int { panic(errMergedPointsUnsupported) }
+func (v *mergedPointValues) GetNumIndexDimensions() (int, error) {
+	return 0, errMergedPointsUnsupported
+}
 
 // GetBytesPerDimension throws UnsupportedOperationException in Java.
-func (v *mergedPointValues) GetBytesPerDimension() int { panic(errMergedPointsUnsupported) }
+func (v *mergedPointValues) GetBytesPerDimension() (int, error) {
+	return 0, errMergedPointsUnsupported
+}
 
-// GetValueCount renders `public long size()`, whose body is
+// Size renders `public long size()`, whose body is
 // `return finalMaxPointCount`.
-func (v *mergedPointValues) GetValueCount() int64 { return v.reader.finalMaxPointCount }
+func (v *mergedPointValues) Size() int64 { return v.reader.finalMaxPointCount }
 
 // GetDocCount throws UnsupportedOperationException in Java.
 func (v *mergedPointValues) GetDocCount() int { panic(errMergedPointsUnsupported) }
-
-// GetDocCountWithValue is a member of spi.PointValues with no Lucene
-// counterpart; the anonymous PointValues supports nothing beyond size() and
-// getPointTree().
-func (v *mergedPointValues) GetDocCountWithValue() int64 { panic(errMergedPointsUnsupported) }
 
 // mergedPointTree is the anonymous PointTree returned by
 // mergedPointValues.GetPointTree.
@@ -178,7 +186,7 @@ type mergedPointTree struct {
 }
 
 // Clone throws UnsupportedOperationException in Java.
-func (t *mergedPointTree) Clone() bkd.PointTree { panic(errMergedPointsUnsupported) }
+func (t *mergedPointTree) Clone() spi.PointTree { panic(errMergedPointsUnsupported) }
 
 func (t *mergedPointTree) MoveToChild() (bool, error) { return false, nil }
 
@@ -195,13 +203,13 @@ func (t *mergedPointTree) GetMaxPackedValue() []byte { panic(errMergedPointsUnsu
 func (t *mergedPointTree) Size() int64 { return t.values.reader.finalMaxPointCount }
 
 // VisitDocIDs throws UnsupportedOperationException in Java.
-func (t *mergedPointTree) VisitDocIDs(visitor bkd.IntersectVisitor) error {
+func (t *mergedPointTree) VisitDocIDs(visitor spi.IntersectVisitor) error {
 	return errMergedPointsUnsupported
 }
 
 // VisitDocValues renders `public void visitDocValues(IntersectVisitor
 // mergedVisitor)`.
-func (t *mergedPointTree) VisitDocValues(mergedVisitor bkd.IntersectVisitor) error {
+func (t *mergedPointTree) VisitDocValues(mergedVisitor spi.IntersectVisitor) error {
 	mergeState := t.values.reader.mergeState
 	fieldName := t.values.fieldName
 	for i, pointsReader := range mergeState.PointsReaders {
@@ -228,16 +236,7 @@ func (t *mergedPointTree) VisitDocValues(mergedVisitor bkd.IntersectVisitor) err
 			continue
 		}
 		docMap := mergeState.DocMaps[i]
-		// Java: values.getPointTree(). spi.PointValues does not declare
-		// getPointTree, so it is reached through the member every BKD-backed
-		// PointValues in Gocene carries.
-		treeSource, ok := values.(interface {
-			GetPointTree() (bkd.PointTree, error)
-		})
-		if !ok {
-			return fmt.Errorf("codecs: merge points: PointValues %T does not expose getPointTree", values)
-		}
-		tree, err := treeSource.GetPointTree()
+		tree, err := values.GetPointTree()
 		if err != nil {
 			return err
 		}
@@ -254,7 +253,7 @@ func (t *mergedPointTree) VisitDocValues(mergedVisitor bkd.IntersectVisitor) err
 // mergedSegmentVisitor is the anonymous IntersectVisitor that maps each source
 // segment's docIDs to the merged segment's docIDs.
 type mergedSegmentVisitor struct {
-	mergedVisitor bkd.IntersectVisitor
+	mergedVisitor spi.IntersectVisitor
 	docMap        index.DocMap
 }
 
@@ -285,6 +284,26 @@ func (v *mergedSegmentVisitor) Grow(count int) {}
 var (
 	_ PointsReader         = (*mergedPointsReader)(nil)
 	_ spi.PointValues      = (*mergedPointValues)(nil)
-	_ bkd.PointTree        = (*mergedPointTree)(nil)
-	_ bkd.IntersectVisitor = (*mergedSegmentVisitor)(nil)
+	_ spi.PointTree        = (*mergedPointTree)(nil)
+	_ spi.IntersectVisitor = (*mergedSegmentVisitor)(nil)
 )
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *mergedSegmentVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *mergedSegmentVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *mergedSegmentVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}

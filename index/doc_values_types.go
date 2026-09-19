@@ -20,11 +20,18 @@ type LeafReaderContext = spi.LeafReaderContext
 type CompositeReaderContext = spi.CompositeReaderContext
 type PointValues = spi.PointValues
 
-// PointTreeIntersectVisitor mirrors the nested interface
+// PointTree mirrors the nested interface
+// org.apache.lucene.index.PointValues.PointTree. The canonical declaration
+// lives in spi so the codec packages and org.apache.lucene.util.bkd can name
+// it without importing index; it is re-exported here because
+// org.apache.lucene.index is its home in Lucene 10.5.0.
+type PointTree = spi.PointTree
+
+// IntersectVisitor mirrors the nested interface
 // org.apache.lucene.index.PointValues.IntersectVisitor: the visitor a
-// point-values consumer drives during a BKD intersection. The canonical
+// point-values consumer drives during a point-tree walk. The canonical
 // declaration lives in spi so the codec packages can implement it without
 // importing index; it is re-exported here because org.apache.lucene.index is
 // its home in Lucene 10.5.0.
-type PointTreeIntersectVisitor = spi.PointTreeIntersectVisitor
+type IntersectVisitor = spi.IntersectVisitor
 type IndexReaderMetaData = spi.IndexReaderMetaData

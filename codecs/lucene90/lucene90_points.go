@@ -26,7 +26,6 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
@@ -169,7 +168,7 @@ func (r *pointsReader) GetValues(fieldName string) (index.PointValues, error) {
 	if !ok {
 		return nil, nil
 	}
-	return newPointValues(bkdReader), nil
+	return bkdReader, nil
 }
 
 // CheckIntegrity verifies the index and data file checksums.
@@ -227,108 +226,10 @@ var (
 )
 
 // -----------------------------------------------------------------------------
-// pointValues — index.PointValues view over a BKDReader.
-// -----------------------------------------------------------------------------
-
-// pointValues is the index.PointValues view of a single field's BKD tree,
-// returned by pointsReader.GetValues. It projects the underlying BKDReader
-// onto both the narrow canonical index.PointValues surface and the wider
-// Intersect / EstimatePointCount surface the search-side point queries consume
-// via the index.PointTreeIntersectVisitor contract.
-//
-// This is the Go counterpart of the anonymous PointValues returned by
-// org.apache.lucene.codecs.lucene90.Lucene90PointsReader.getValues (the
-// BKDReader exposed as a PointValues).
-type pointValues struct {
-	reader *bkd.BKDReader
-}
-
-func newPointValues(reader *bkd.BKDReader) *pointValues {
-	return &pointValues{reader: reader}
-}
-
-// Intersect walks the BKD tree, driving visitor for every matching cell and
-// point. It bridges the index.PointTreeIntersectVisitor (Compare returns an
-// int) to the util/bkd.IntersectVisitor (Compare returns a geo.Relation).
-func (pv *pointValues) Intersect(visitor index.PointTreeIntersectVisitor) error {
-	return pv.reader.Intersect(&bkdVisitorBridge{v: visitor})
-}
-
-// EstimatePointCount returns the BKDReader's estimate of how many points the
-// visitor will match; a failing estimate is reported as 0.
-func (pv *pointValues) EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64 {
-	count, err := pv.reader.EstimatePointCount(&bkdVisitorBridge{v: visitor})
-	if err != nil || count < 0 {
-		return 0
-	}
-	return count
-}
-
-// GetMinPackedValue returns the per-dimension minimum packed value across the
-// tree. The error return matches index.PointValues; the BKDReader accessor
-// never fails, so the error is always nil.
-func (pv *pointValues) GetMinPackedValue() ([]byte, error) {
-	return pv.reader.GetMinPackedValue(), nil
-}
-
-// GetMaxPackedValue returns the per-dimension maximum packed value.
-func (pv *pointValues) GetMaxPackedValue() ([]byte, error) {
-	return pv.reader.GetMaxPackedValue(), nil
-}
-
-// GetNumDimensions returns the number of indexed point dimensions.
-func (pv *pointValues) GetNumDimensions() int { return pv.reader.GetNumDimensions() }
-
-// GetBytesPerDimension returns the number of bytes per dimension.
-func (pv *pointValues) GetBytesPerDimension() int { return pv.reader.GetBytesPerDimension() }
-
-// GetDocCount returns the number of documents with at least one point value.
-func (pv *pointValues) GetDocCount() int { return pv.reader.GetDocCount() }
-
-// GetDocCountWithValue returns the document count (BKD tracks doc count, not
-// per-document value multiplicity).
-func (pv *pointValues) GetDocCountWithValue() int64 { return int64(pv.reader.GetDocCount()) }
-
-// GetValueCount returns the total number of indexed point values
-// (PointValues.size()).
-func (pv *pointValues) GetValueCount() int64 { return pv.reader.Size() }
-
-// GetPointTree returns a fresh BKD PointTree cursor positioned at the
-// root of the field's tree. It exposes the cursor-shaped subset of
-// org.apache.lucene.index.PointValues.PointTree (clone / moveToChild /
-// moveToSibling / packed-value accessors / visitDocValues) that the
-// nearest-neighbour KNN search walks, beyond the metadata-only and
-// Intersect surfaces.
-//
-// The return type is bkd.PointTree; search-side consumers that drive the
-// nearest-neighbour algorithm type-assert the index.PointValues to an
-// interface exposing this method (mirroring the way PointRangeQuery
-// type-asserts the Intersect surface), so they obtain the cursor without
-// the codec leaking its private *bkd.BKDReader.
-func (pv *pointValues) GetPointTree() (bkd.PointTree, error) {
-	return pv.reader.GetPointTree()
-}
-
-var _ index.PointValues = (*pointValues)(nil)
-
-// bkdVisitorBridge adapts an index.PointTreeIntersectVisitor (Compare returns
-// an int in {0,1,2}) to a util/bkd.IntersectVisitor (Compare returns a
-// geo.Relation). The int convention matches the Relation enum order, so the
-// conversion is a direct cast.
-type bkdVisitorBridge struct {
-	v index.PointTreeIntersectVisitor
-}
-
-func (b *bkdVisitorBridge) Visit(docID int) error { return b.v.Visit(docID) }
-
-func (b *bkdVisitorBridge) VisitByPackedValue(docID int, packedValue []byte) error {
-	return b.v.VisitByPackedValue(docID, packedValue)
-}
-
-func (b *bkdVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
-	return geo.Relation(b.v.Compare(minPackedValue, maxPackedValue))
-}
-
-func (b *bkdVisitorBridge) Grow(count int) { b.v.Grow(count) }
-
-var _ bkd.IntersectVisitor = (*bkdVisitorBridge)(nil)
+// Java's Lucene90PointsReader.getValues returns the BKDReader itself
+// (org.apache.lucene.util.bkd.BKDReader extends
+// org.apache.lucene.index.PointValues), so there is no wrapper type here. The
+// `pointValues` struct and the `bkdVisitorBridge` that used to live at this
+// point bridged Gocene's two incompatible PointValues renderings and its two
+// IntersectVisitor renderings; with one PointValues and one IntersectVisitor
+// in the module they have no Lucene counterpart and are gone.

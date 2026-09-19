@@ -8,10 +8,12 @@ package idversion
 import (
 	"fmt"
 
+	"errors"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 	"github.com/FlavioCFOliveira/Gocene/util/fst"
 )
 
@@ -152,6 +154,40 @@ func (f *VersionFieldReader) HasPayloads() bool {
 // (VersionFieldReader.java:150). The return type had been narrowed to
 // *IDVersionSegmentTermsEnum, which is neither Java's nor spi.Terms's, so a
 // second method (Iterator) existed only to widen it back.
+// Field returns the name of the field this Terms instance represents.
+//
+// Apache Lucene 10.5.0 reads the name straight off
+// VersionFieldReader.fieldInfo (VersionFieldReader.java, `final FieldInfo
+// fieldInfo`) wherever it needs it, because org.apache.lucene.index.Terms
+// declares no field() accessor. Gocene's [spi.Terms] contract does declare
+// one, so the accessor is spelled here over the same fieldInfo, exactly as the
+// sibling block-tree readers do (blocktreeords.OrdsFieldReader.Field,
+// blockterms fieldReader.Field).
+func (f *VersionFieldReader) Field() string { return f.FieldInfo.Name() }
+
+// Intersect is the default org.apache.lucene.index.Terms#intersect(
+// CompiledAutomaton, BytesRef) (Terms.java:64) that VersionFieldReader
+// inherits — the Java class declares no intersect of its own: iterator()
+// wrapped in an AutomatonTermsEnum, rejecting any CompiledAutomaton that is
+// not AUTOMATON_TYPE.NORMAL. Java expresses the non-null startTerm case as an
+// anonymous subclass overriding nextSeekTerm; Gocene spells the same thing
+// through AutomatonTermsEnum.SetInitialSeekTerm, exactly as the sibling
+// block-tree readers do (blockterms fieldReader.Intersect).
+func (f *VersionFieldReader) Intersect(compiled *automaton.CompiledAutomaton, startTerm *spi.Term) (spi.TermsEnum, error) {
+	termsEnum, err := f.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	if compiled.Type != automaton.AutomatonTypeNormal {
+		return nil, errors.New("please use CompiledAutomaton.getTermsEnum instead")
+	}
+	automatonTermsEnum := index.NewAutomatonTermsEnum(termsEnum, compiled)
+	if startTerm != nil {
+		automatonTermsEnum.SetInitialSeekTerm(startTerm)
+	}
+	return automatonTermsEnum, nil
+}
+
 func (f *VersionFieldReader) Iterator() (spi.TermsEnum, error) {
 	return newIDVersionSegmentTermsEnum(f)
 }

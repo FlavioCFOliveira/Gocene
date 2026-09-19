@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -2084,17 +2085,8 @@ func (ci *CheckIndex) testPoints(reader *SegmentReader, w io.Writer) *PointsStat
 				return status
 			}
 
-			// PointValues exposes the BKD walk through the wider
-			// intersectablePointValues surface the codec readers implement;
-			// spi.PointValues itself carries only the summary accessors.
-			intersectable, ok := points.(intersectablePointValues)
-			if !ok {
-				status.Error = fmt.Errorf("points for field %s (%T) cannot be intersected", info.Name(), points)
-				return status
-			}
-
 			visitor := &verifyPointsVisitor{}
-			if err := intersectable.Intersect(visitor); err != nil {
+			if err := points.Intersect(visitor); err != nil {
 				status.Error = err
 				return status
 			}
@@ -2108,13 +2100,6 @@ func (ci *CheckIndex) testPoints(reader *SegmentReader, w io.Writer) *PointsStat
 	}
 
 	return status
-}
-
-// intersectablePointValues is the wider PointValues surface the codec's on-disk
-// BKD-backed PointValues exposes (the PointTreeIntersectVisitor walk that
-// renders PointValues.intersect), used to walk every point of a field.
-type intersectablePointValues interface {
-	Intersect(visitor PointTreeIntersectVisitor) error
 }
 
 // verifyPointsVisitor counts every point a field's BKD tree holds. It mirrors
@@ -2138,9 +2123,9 @@ func (v *verifyPointsVisitor) VisitByPackedValue(docID int, packedValue []byte) 
 	return nil
 }
 
-// Compare always reports CELL_CROSSES_QUERY (2) so that the whole tree is visited.
-func (v *verifyPointsVisitor) Compare(minPackedValue, maxPackedValue []byte) int {
-	return 2
+// Compare always reports CELL_CROSSES_QUERY so that the whole tree is visited.
+func (v *verifyPointsVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+	return geo.CellCrossesQuery
 }
 
 // Grow is a no-op: the visitor only counts.
@@ -2329,4 +2314,24 @@ func bitsCardinality(bits util.Bits) (int, error) {
 		cardinality += copyBits.Cardinality()
 	}
 	return cardinality, nil
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *verifyPointsVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *verifyPointsVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *verifyPointsVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

@@ -7,6 +7,8 @@ package index
 import (
 	"fmt"
 
+	"bytes"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
@@ -671,7 +673,16 @@ func (dv *AssertingSortedSetDocValues) Cost() int64 {
 	return dv.in.Cost()
 }
 
+// AssertingPointValues is the Go port of
+// org.apache.lucene.tests.index.AssertingLeafReader.AssertingPointValues.
+//
+// Java's per-method assertThread("Points", creationThread) is not rendered:
+// goroutine identity is not observable in Go, so the whole
+// AssertingLeafReader port omits it (see also codecs/asserting.AssertThread,
+// which documents the same limitation). Every other assertion is rendered as
+// a panic, as elsewhere in this file.
 type AssertingPointValues struct {
+	*spi.BasePointValues
 	in     spi.PointValues
 	maxDoc int
 }
@@ -680,9 +691,79 @@ type AssertingPointValues struct {
 //
 // Mirrors the public constructor
 // AssertingLeafReader.AssertingPointValues(PointValues, int) of Apache
-// Lucene 10.5.0 (AssertingLeafReader.java:1487).
+// Lucene 10.5.0, whose body is `this.in = in; assertStats(maxDoc);`.
 func NewAssertingPointValues(in spi.PointValues, maxDoc int) *AssertingPointValues {
-	return &AssertingPointValues{in: in, maxDoc: maxDoc}
+	pv := &AssertingPointValues{in: in, maxDoc: maxDoc}
+	pv.BasePointValues = spi.NewBasePointValues(pv)
+	pv.assertStats(maxDoc)
+	return pv
+}
+
+// GetWrapped renders `public PointValues getWrapped()`.
+func (pv *AssertingPointValues) GetWrapped() spi.PointValues {
+	return pv.in
+}
+
+// assertStats renders `private void assertStats(int maxDoc)`.
+func (pv *AssertingPointValues) assertStats(maxDoc int) {
+	if pv.in.Size() <= 0 {
+		panic(fmt.Sprintf("AssertingPointValues: size %d must be > 0", pv.in.Size()))
+	}
+	if pv.in.GetDocCount() <= 0 {
+		panic(fmt.Sprintf("AssertingPointValues: docCount %d must be > 0", pv.in.GetDocCount()))
+	}
+	if int64(pv.in.GetDocCount()) > pv.in.Size() {
+		panic(fmt.Sprintf("AssertingPointValues: docCount %d must be <= size %d", pv.in.GetDocCount(), pv.in.Size()))
+	}
+	if pv.in.GetDocCount() > maxDoc {
+		panic(fmt.Sprintf("AssertingPointValues: docCount %d must be <= maxDoc %d", pv.in.GetDocCount(), maxDoc))
+	}
+}
+
+func (pv *AssertingPointValues) GetPointTree() (PointTree, error) {
+	tree, err := pv.in.GetPointTree()
+	if err != nil {
+		return nil, err
+	}
+	return NewAssertingPointTree(pv.in, tree), nil
+}
+
+func (pv *AssertingPointValues) GetMinPackedValue() ([]byte, error) {
+	value, err := pv.in.GetMinPackedValue()
+	if err != nil {
+		return nil, err
+	}
+	if value == nil {
+		panic("AssertingPointValues: getMinPackedValue returned null")
+	}
+	return value, nil
+}
+
+func (pv *AssertingPointValues) GetMaxPackedValue() ([]byte, error) {
+	value, err := pv.in.GetMaxPackedValue()
+	if err != nil {
+		return nil, err
+	}
+	if value == nil {
+		panic("AssertingPointValues: getMaxPackedValue returned null")
+	}
+	return value, nil
+}
+
+func (pv *AssertingPointValues) GetNumDimensions() (int, error) {
+	return pv.in.GetNumDimensions()
+}
+
+func (pv *AssertingPointValues) GetNumIndexDimensions() (int, error) {
+	return pv.in.GetNumIndexDimensions()
+}
+
+func (pv *AssertingPointValues) GetBytesPerDimension() (int, error) {
+	return pv.in.GetBytesPerDimension()
+}
+
+func (pv *AssertingPointValues) Size() int64 {
+	return pv.in.Size()
 }
 
 func (pv *AssertingPointValues) GetDocCount() int {
@@ -693,29 +774,210 @@ func (pv *AssertingPointValues) GetDocCount() int {
 	return count
 }
 
-func (pv *AssertingPointValues) GetBytesPerDimension() int {
-	return pv.in.GetBytesPerDimension()
+// AssertingPointTree is the Go port of
+// org.apache.lucene.tests.index.AssertingLeafReader.AssertingPointTree.
+type AssertingPointTree struct {
+	pointValues spi.PointValues
+	in          PointTree
 }
 
-func (pv *AssertingPointValues) GetDocCountWithValue() int64 {
-	return pv.in.GetDocCountWithValue()
+// NewAssertingPointTree mirrors the package-private constructor
+// AssertingPointTree(PointValues, PointValues.PointTree).
+func NewAssertingPointTree(pointValues spi.PointValues, in PointTree) *AssertingPointTree {
+	return &AssertingPointTree{pointValues: pointValues, in: in}
 }
 
-func (pv *AssertingPointValues) GetValueCount() int64 {
-	return pv.in.GetValueCount()
+func (t *AssertingPointTree) Clone() PointTree {
+	return NewAssertingPointTree(t.pointValues, t.in.Clone())
 }
 
-func (pv *AssertingPointValues) GetMinPackedValue() ([]byte, error) {
-	return pv.in.GetMinPackedValue()
+func (t *AssertingPointTree) MoveToChild() (bool, error) { return t.in.MoveToChild() }
+
+func (t *AssertingPointTree) MoveToSibling() (bool, error) { return t.in.MoveToSibling() }
+
+func (t *AssertingPointTree) MoveToParent() (bool, error) { return t.in.MoveToParent() }
+
+func (t *AssertingPointTree) GetMinPackedValue() []byte { return t.in.GetMinPackedValue() }
+
+func (t *AssertingPointTree) GetMaxPackedValue() []byte { return t.in.GetMaxPackedValue() }
+
+func (t *AssertingPointTree) Size() int64 {
+	size := t.in.Size()
+	if size <= 0 {
+		panic(fmt.Sprintf("AssertingPointTree: size %d must be > 0", size))
+	}
+	return size
 }
 
-func (pv *AssertingPointValues) GetMaxPackedValue() ([]byte, error) {
-	return pv.in.GetMaxPackedValue()
+func (t *AssertingPointTree) VisitDocIDs(visitor IntersectVisitor) error {
+	asserting, err := t.wrap(visitor)
+	if err != nil {
+		return err
+	}
+	return t.in.VisitDocIDs(asserting)
 }
 
-func (pv *AssertingPointValues) GetNumDimensions() int {
-	return pv.in.GetNumDimensions()
+func (t *AssertingPointTree) VisitDocValues(visitor IntersectVisitor) error {
+	asserting, err := t.wrap(visitor)
+	if err != nil {
+		return err
+	}
+	return t.in.VisitDocValues(asserting)
 }
+
+// wrap builds the AssertingIntersectVisitor that visitDocIDs and visitDocValues
+// construct inline in Java.
+func (t *AssertingPointTree) wrap(visitor IntersectVisitor) (*AssertingIntersectVisitor, error) {
+	numDataDims, err := t.pointValues.GetNumDimensions()
+	if err != nil {
+		return nil, err
+	}
+	numIndexDims, err := t.pointValues.GetNumIndexDimensions()
+	if err != nil {
+		return nil, err
+	}
+	bytesPerDim, err := t.pointValues.GetBytesPerDimension()
+	if err != nil {
+		return nil, err
+	}
+	return NewAssertingIntersectVisitor(numDataDims, numIndexDims, bytesPerDim, visitor), nil
+}
+
+// AssertingIntersectVisitor is the Go port of
+// org.apache.lucene.tests.index.AssertingLeafReader.AssertingIntersectVisitor.
+type AssertingIntersectVisitor struct {
+	in                 IntersectVisitor
+	numDataDims        int
+	numIndexDims       int
+	bytesPerDim        int
+	lastDocValue       []byte
+	lastMinPackedValue []byte
+	lastMaxPackedValue []byte
+	lastCompareResult  *geo.Relation
+	lastDocID          int
+	docBudget          int
+}
+
+// NewAssertingIntersectVisitor mirrors the package-private constructor
+// AssertingIntersectVisitor(int, int, int, IntersectVisitor).
+func NewAssertingIntersectVisitor(numDataDims, numIndexDims, bytesPerDim int, in IntersectVisitor) *AssertingIntersectVisitor {
+	v := &AssertingIntersectVisitor{
+		in:                 in,
+		numDataDims:        numDataDims,
+		numIndexDims:       numIndexDims,
+		bytesPerDim:        bytesPerDim,
+		lastMaxPackedValue: make([]byte, numDataDims*bytesPerDim),
+		lastMinPackedValue: make([]byte, numDataDims*bytesPerDim),
+		lastDocID:          -1,
+	}
+	if numDataDims == 1 {
+		v.lastDocValue = make([]byte, bytesPerDim)
+	}
+	return v
+}
+
+func (v *AssertingIntersectVisitor) Visit(docID int) error {
+	v.docBudget--
+	if v.docBudget < 0 {
+		panic("called add() more times than the last call to grow() reserved")
+	}
+	// This method, not filtering each hit, should only be invoked when the
+	// cell is inside the query shape:
+	if v.lastCompareResult != nil && *v.lastCompareResult != geo.CellInsideQuery {
+		panic("AssertingIntersectVisitor: visit(docID) outside CELL_INSIDE_QUERY")
+	}
+	return v.in.Visit(docID)
+}
+
+func (v *AssertingIntersectVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
+	v.docBudget--
+	if v.docBudget < 0 {
+		panic("called add() more times than the last call to grow() reserved")
+	}
+	// This method, to filter each doc's value, should only be invoked when the
+	// cell crosses the query shape:
+	if v.lastCompareResult != nil && *v.lastCompareResult != geo.CellCrossesQuery {
+		panic("AssertingIntersectVisitor: visit(docID, packedValue) outside CELL_CROSSES_QUERY")
+	}
+
+	if v.lastCompareResult != nil {
+		// This doc's packed value should be contained in the last cell passed
+		// to compare:
+		for dim := 0; dim < v.numIndexDims; dim++ {
+			off := dim * v.bytesPerDim
+			if bytes.Compare(v.lastMinPackedValue[off:off+v.bytesPerDim], packedValue[off:off+v.bytesPerDim]) > 0 {
+				panic(fmt.Sprintf("dim=%d of %d value=%v", dim, v.numDataDims, packedValue))
+			}
+			if bytes.Compare(v.lastMaxPackedValue[off:off+v.bytesPerDim], packedValue[off:off+v.bytesPerDim]) < 0 {
+				panic(fmt.Sprintf("dim=%d of %d value=%v", dim, v.numDataDims, packedValue))
+			}
+		}
+		v.lastCompareResult = nil
+	}
+
+	if len(packedValue) != v.numDataDims*v.bytesPerDim {
+		panic(fmt.Sprintf("AssertingIntersectVisitor: packedValue length %d != %d", len(packedValue), v.numDataDims*v.bytesPerDim))
+	}
+	if v.numDataDims == 1 {
+		cmp := bytes.Compare(v.lastDocValue[:v.bytesPerDim], packedValue[:v.bytesPerDim])
+		if cmp == 0 {
+			if v.lastDocID > docID {
+				panic("doc ids are out of order when point values are the same!")
+			}
+		} else if cmp > 0 {
+			panic("point values are out of order")
+		}
+		copy(v.lastDocValue, packedValue[:v.bytesPerDim])
+		v.lastDocID = docID
+	}
+	return v.in.VisitByPackedValue(docID, packedValue)
+}
+
+func (v *AssertingIntersectVisitor) Grow(count int) {
+	v.in.Grow(count)
+	v.docBudget = count
+}
+
+func (v *AssertingIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+	for dim := 0; dim < v.numIndexDims; dim++ {
+		off := dim * v.bytesPerDim
+		if bytes.Compare(minPackedValue[off:off+v.bytesPerDim], maxPackedValue[off:off+v.bytesPerDim]) > 0 {
+			panic(fmt.Sprintf("AssertingIntersectVisitor: min > max on dim %d", dim))
+		}
+	}
+	copy(v.lastMaxPackedValue, maxPackedValue[:v.numIndexDims*v.bytesPerDim])
+	copy(v.lastMinPackedValue, minPackedValue[:v.numIndexDims*v.bytesPerDim])
+	result := v.in.Compare(minPackedValue, maxPackedValue)
+	v.lastCompareResult = &result
+	return result
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which
+// AssertingIntersectVisitor does not override.
+func (v *AssertingIntersectVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which AssertingIntersectVisitor
+// does not override.
+func (v *AssertingIntersectVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which
+// AssertingIntersectVisitor does not override.
+func (v *AssertingIntersectVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}
+
+var (
+	_ spi.PointValues      = (*AssertingPointValues)(nil)
+	_ PointTree            = (*AssertingPointTree)(nil)
+	_ spi.IntersectVisitor = (*AssertingIntersectVisitor)(nil)
+)
 
 type AssertingBits struct {
 	in util.Bits

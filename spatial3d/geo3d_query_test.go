@@ -11,6 +11,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/spatial3d/geom"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -27,52 +28,66 @@ import (
 // index.PointValues and the unexported geo3dPointValues contract used by
 // pointInGeo3DShapeWeight.
 type stubGeo3DPV struct {
+	*spi.BasePointValues
 	packed [][]byte // one 12-byte entry per doc id (slice index == doc id)
 	minPV  []byte
 	maxPV  []byte
 }
 
-func (p *stubGeo3DPV) GetDocCount() int            { return len(p.packed) }
-func (p *stubGeo3DPV) GetDocCountWithValue() int64 { return int64(len(p.packed)) }
-func (p *stubGeo3DPV) GetValueCount() int64        { return int64(len(p.packed)) }
-func (p *stubGeo3DPV) GetNumDimensions() int       { return 3 }
-func (p *stubGeo3DPV) GetBytesPerDimension() int   { return bytesPerDim }
-func (p *stubGeo3DPV) GetMinPackedValue() ([]byte, error) {
-	return p.minPV, nil
-}
-func (p *stubGeo3DPV) GetMaxPackedValue() ([]byte, error) {
-	return p.maxPV, nil
+// newStubGeo3DPV wires the stub to spi.BasePointValues, which supplies the
+// `public final` PointValues members (intersect, estimatePointCount,
+// estimateDocCount).
+func newStubGeo3DPV(packed [][]byte) *stubGeo3DPV {
+	p := &stubGeo3DPV{packed: packed}
+	p.BasePointValues = spi.NewBasePointValues(p)
+	return p
 }
 
-// Intersect drives the visitor exactly as a real BKD reader would: it asks
-// Compare about the whole-segment cell, then either bulk-admits every doc
-// (CELL_INSIDE_QUERY), skips (CELL_OUTSIDE_QUERY), or visits each point
-// individually (CELL_CROSSES_QUERY). The visitor under test always answers
-// CELL_CROSSES_QUERY, so every point is gated by VisitByPackedValue.
-func (p *stubGeo3DPV) Intersect(visitor geo3dIntersectVisitor) error {
-	switch visitor.Compare(p.minPV, p.maxPV) {
-	case geo3dCellOutsideQuery:
-		return nil
-	case geo3dCellInsideQuery:
-		visitor.Grow(len(p.packed))
-		for docID := range p.packed {
-			if err := visitor.Visit(docID); err != nil {
-				return err
-			}
-		}
-	default: // CELL_CROSSES_QUERY
-		visitor.Grow(len(p.packed))
-		for docID, value := range p.packed {
-			if err := visitor.VisitByPackedValue(docID, value); err != nil {
-				return err
-			}
+func (p *stubGeo3DPV) GetDocCount() int                       { return len(p.packed) }
+func (p *stubGeo3DPV) Size() int64                            { return int64(len(p.packed)) }
+func (p *stubGeo3DPV) GetNumDimensions() (int, error)         { return 3, nil }
+func (p *stubGeo3DPV) GetNumIndexDimensions() (int, error)    { return 3, nil }
+func (p *stubGeo3DPV) GetBytesPerDimension() (int, error)     { return bytesPerDim, nil }
+func (p *stubGeo3DPV) GetMinPackedValue() ([]byte, error)     { return p.minPV, nil }
+func (p *stubGeo3DPV) GetMaxPackedValue() ([]byte, error)     { return p.maxPV, nil }
+func (p *stubGeo3DPV) GetPointTree() (index.PointTree, error) { return &stubGeo3DPointTree{pv: p}, nil }
+
+// stubGeo3DPointTree is the single-node PointTree over the stub's packed
+// values. Driving it through PointValues.intersect reproduces exactly what the
+// stub's hand-written Intersect used to do: ask Compare about the
+// whole-segment cell, then either bulk-admit every doc (CELL_INSIDE_QUERY),
+// skip (CELL_OUTSIDE_QUERY), or gate each point through VisitByPackedValue
+// (CELL_CROSSES_QUERY).
+type stubGeo3DPointTree struct {
+	pv *stubGeo3DPV
+}
+
+func (t *stubGeo3DPointTree) Clone() index.PointTree       { return &stubGeo3DPointTree{pv: t.pv} }
+func (t *stubGeo3DPointTree) MoveToChild() (bool, error)   { return false, nil }
+func (t *stubGeo3DPointTree) MoveToSibling() (bool, error) { return false, nil }
+func (t *stubGeo3DPointTree) MoveToParent() (bool, error)  { return false, nil }
+func (t *stubGeo3DPointTree) GetMinPackedValue() []byte    { return t.pv.minPV }
+func (t *stubGeo3DPointTree) GetMaxPackedValue() []byte    { return t.pv.maxPV }
+func (t *stubGeo3DPointTree) Size() int64                  { return int64(len(t.pv.packed)) }
+
+func (t *stubGeo3DPointTree) VisitDocIDs(visitor index.IntersectVisitor) error {
+	visitor.Grow(len(t.pv.packed))
+	for docID := range t.pv.packed {
+		if err := visitor.Visit(docID); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func (p *stubGeo3DPV) EstimatePointCount(_ geo3dIntersectVisitor) int64 {
-	return int64(len(p.packed))
+func (t *stubGeo3DPointTree) VisitDocValues(visitor index.IntersectVisitor) error {
+	visitor.Grow(len(t.pv.packed))
+	for docID, value := range t.pv.packed {
+		if err := visitor.VisitByPackedValue(docID, value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 var (
@@ -109,30 +124,40 @@ func (r *stubGeo3DLeaf) GetRefCount() int32  { return 1 }
 func (r *stubGeo3DLeaf) GetContext() (index.IndexReaderContext, error) {
 	return nil, nil
 }
-func (r *stubGeo3DLeaf) Leaves() ([]*index.LeafReaderContext, error) { return nil, nil }
-func (r *stubGeo3DLeaf) StoredFields() (index.StoredFields, error)   { return nil, nil }
-func (r *stubGeo3DLeaf) TermVectors() (index.TermVectors, error)     { return nil, nil }
-func (r *stubGeo3DLeaf) GetCoreCacheKey() interface{}               { return r }
-func (r *stubGeo3DLeaf) GetTermVectors(_ int) (index.Fields, error)   { return nil, nil }
-func (r *stubGeo3DLeaf) Terms(_ string) (index.Terms, error)          { return nil, nil }
-func (r *stubGeo3DLeaf) Postings(_ index.Term) (index.PostingsEnum, error)              { return nil, nil }
+func (r *stubGeo3DLeaf) Leaves() ([]*index.LeafReaderContext, error)       { return nil, nil }
+func (r *stubGeo3DLeaf) StoredFields() (index.StoredFields, error)         { return nil, nil }
+func (r *stubGeo3DLeaf) TermVectors() (index.TermVectors, error)           { return nil, nil }
+func (r *stubGeo3DLeaf) GetCoreCacheKey() interface{}                      { return r }
+func (r *stubGeo3DLeaf) GetTermVectors(_ int) (index.Fields, error)        { return nil, nil }
+func (r *stubGeo3DLeaf) Terms(_ string) (index.Terms, error)               { return nil, nil }
+func (r *stubGeo3DLeaf) Postings(_ index.Term) (index.PostingsEnum, error) { return nil, nil }
 func (r *stubGeo3DLeaf) PostingsWithFreqPositions(_ index.Term, _ int) (index.PostingsEnum, error) {
 	return nil, nil
 }
-func (r *stubGeo3DLeaf) GetNumericDocValues(_ string) (index.NumericDocValues, error)      { return nil, nil }
-func (r *stubGeo3DLeaf) GetBinaryDocValues(_ string) (index.BinaryDocValues, error)        { return nil, nil }
-func (r *stubGeo3DLeaf) GetSortedDocValues(_ string) (index.SortedDocValues, error)        { return nil, nil }
+func (r *stubGeo3DLeaf) GetNumericDocValues(_ string) (index.NumericDocValues, error) {
+	return nil, nil
+}
+func (r *stubGeo3DLeaf) GetBinaryDocValues(_ string) (index.BinaryDocValues, error) { return nil, nil }
+func (r *stubGeo3DLeaf) GetSortedDocValues(_ string) (index.SortedDocValues, error) { return nil, nil }
 func (r *stubGeo3DLeaf) GetSortedNumericDocValues(_ string) (index.SortedNumericDocValues, error) {
 	return nil, nil
 }
-func (r *stubGeo3DLeaf) GetSortedSetDocValues(_ string) (index.SortedSetDocValues, error)   { return nil, nil }
-func (r *stubGeo3DLeaf) GetNormValues(_ string) (index.NumericDocValues, error)           { return nil, nil }
-func (r *stubGeo3DLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues, error)    { return nil, nil }
-func (r *stubGeo3DLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error)       { return nil, nil }
-func (r *stubGeo3DLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error)        { return nil, nil }
-func (r *stubGeo3DLeaf) CheckIntegrity() error                                                { return nil }
-func (r *stubGeo3DLeaf) GetMetaData() *index.IndexReaderMetaData                               { return nil }
-func (r *stubGeo3DLeaf) GetSegmentInfo() *index.SegmentInfo                                     { return nil }
+func (r *stubGeo3DLeaf) GetSortedSetDocValues(_ string) (index.SortedSetDocValues, error) {
+	return nil, nil
+}
+func (r *stubGeo3DLeaf) GetNormValues(_ string) (index.NumericDocValues, error) { return nil, nil }
+func (r *stubGeo3DLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues, error) {
+	return nil, nil
+}
+func (r *stubGeo3DLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error) {
+	return nil, nil
+}
+func (r *stubGeo3DLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error) {
+	return nil, nil
+}
+func (r *stubGeo3DLeaf) CheckIntegrity() error                   { return nil }
+func (r *stubGeo3DLeaf) GetMetaData() *index.IndexReaderMetaData { return nil }
+func (r *stubGeo3DLeaf) GetSegmentInfo() *index.SegmentInfo      { return nil }
 func (r *stubGeo3DLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits) (index.TopDocs, error) {
 	return index.TopDocs{}, nil
 }
@@ -228,7 +253,7 @@ func intsEqual(a, b []int) bool {
 // buildStubPV encodes the supplied points into a stubGeo3DPV with correct
 // per-dimension min/max packed bounds.
 func buildStubPV(pm *geom.PlanetModel, points []*geom.GeoPoint) *stubGeo3DPV {
-	pv := &stubGeo3DPV{packed: make([][]byte, len(points))}
+	pv := newStubGeo3DPV(make([][]byte, len(points)))
 	for i, p := range points {
 		pv.packed[i] = encodeGeo3DPoint(pm, p)
 	}
@@ -399,7 +424,7 @@ func TestPointInGeo3DShapeQuery_NoPointValues(t *testing.T) {
 		t.Fatalf("CreateWeight: %v", err)
 	}
 	// Leaf exposes a different field, so getGeo3DPointValues returns no source.
-	leaf := &stubGeo3DLeaf{maxDoc: 0, pv: &stubGeo3DPV{}, field: "other"}
+	leaf := &stubGeo3DLeaf{maxDoc: 0, pv: newStubGeo3DPV(nil), field: "other"}
 	ctx := index.NewLeafReaderContext(leaf, nil, 0, 0)
 	supplier, err := weight.ScorerSupplier(ctx)
 	if err != nil {

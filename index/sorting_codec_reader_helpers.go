@@ -10,7 +10,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
 // SortingBits wraps a bitset and a doc map to provide a sorted view of live docs.
@@ -32,31 +31,22 @@ func (b *SortingBits) Length() int {
 	return b.in.Length()
 }
 
-// pointValuesWithTree is the point-tree surface Lucene exposes through
-// PointValues.getPointTree(). spi.PointValues carries only the per-field
-// statistics, so the cursor is recovered by assertion — the same technique
-// codecs/points_writer.go uses on the merge path.
-type pointValuesWithTree interface {
-	GetPointTree() (bkd.PointTree, error)
-}
-
 // SortingPointValues wraps PointValues to provide a sorted view.
 // Mirrors org.apache.lucene.index.SortingCodecReader.SortingPointValues.
 type SortingPointValues struct {
+	*spi.BasePointValues
 	in     spi.PointValues
 	docMap SorterDocMap
 }
 
 func NewSortingPointValues(in spi.PointValues, docMap SorterDocMap) spi.PointValues {
-	return &SortingPointValues{in: in, docMap: docMap}
+	p := &SortingPointValues{in: in, docMap: docMap}
+	p.BasePointValues = spi.NewBasePointValues(p)
+	return p
 }
 
-func (p *SortingPointValues) GetPointTree() (bkd.PointTree, error) {
-	withTree, ok := p.in.(pointValuesWithTree)
-	if !ok {
-		return nil, fmt.Errorf("index: SortingPointValues: %T does not expose GetPointTree", p.in)
-	}
-	tree, err := withTree.GetPointTree()
+func (p *SortingPointValues) GetPointTree() (PointTree, error) {
+	tree, err := p.in.GetPointTree()
 	if err != nil {
 		return nil, err
 	}
@@ -71,23 +61,22 @@ func (p *SortingPointValues) GetMaxPackedValue() ([]byte, error) {
 	return p.in.GetMaxPackedValue()
 }
 
-func (p *SortingPointValues) GetNumDimensions() int {
+func (p *SortingPointValues) GetNumDimensions() (int, error) {
 	return p.in.GetNumDimensions()
 }
 
-func (p *SortingPointValues) GetBytesPerDimension() int {
+func (p *SortingPointValues) GetNumIndexDimensions() (int, error) {
+	return p.in.GetNumIndexDimensions()
+}
+
+func (p *SortingPointValues) GetBytesPerDimension() (int, error) {
 	return p.in.GetBytesPerDimension()
 }
 
-// GetValueCount returns the total number of point values, mirroring
+// Size returns the total number of indexed point values, mirroring
 // PointValues.size().
-func (p *SortingPointValues) GetValueCount() int64 {
-	return p.in.GetValueCount()
-}
-
-// GetDocCountWithValue returns the number of documents carrying a value.
-func (p *SortingPointValues) GetDocCountWithValue() int64 {
-	return p.in.GetDocCountWithValue()
+func (p *SortingPointValues) Size() int64 {
+	return p.in.Size()
 }
 
 func (p *SortingPointValues) GetDocCount() int {
@@ -97,12 +86,12 @@ func (p *SortingPointValues) GetDocCount() int {
 // SortingPointTree wraps a PointTree to provide a sorted view of visited docs.
 // Mirrors org.apache.lucene.index.SortingCodecReader.SortingPointTree.
 type SortingPointTree struct {
-	indexTree bkd.PointTree
+	indexTree PointTree
 	docMap    SorterDocMap
 	visitor   *sortingIntersectVisitor
 }
 
-func NewSortingPointTree(indexTree bkd.PointTree, docMap SorterDocMap) bkd.PointTree {
+func NewSortingPointTree(indexTree PointTree, docMap SorterDocMap) PointTree {
 	return &SortingPointTree{
 		indexTree: indexTree,
 		docMap:    docMap,
@@ -110,7 +99,7 @@ func NewSortingPointTree(indexTree bkd.PointTree, docMap SorterDocMap) bkd.Point
 	}
 }
 
-func (t *SortingPointTree) Clone() bkd.PointTree {
+func (t *SortingPointTree) Clone() PointTree {
 	return NewSortingPointTree(t.indexTree.Clone(), t.docMap)
 }
 
@@ -138,12 +127,12 @@ func (t *SortingPointTree) Size() int64 {
 	return t.indexTree.Size()
 }
 
-func (t *SortingPointTree) VisitDocIDs(visitor bkd.IntersectVisitor) error {
+func (t *SortingPointTree) VisitDocIDs(visitor IntersectVisitor) error {
 	t.visitor.setIntersectVisitor(visitor)
 	return t.indexTree.VisitDocIDs(t.visitor)
 }
 
-func (t *SortingPointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
+func (t *SortingPointTree) VisitDocValues(visitor IntersectVisitor) error {
 	t.visitor.setIntersectVisitor(visitor)
 	return t.indexTree.VisitDocValues(t.visitor)
 }
@@ -153,10 +142,10 @@ func (t *SortingPointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
 // Mirrors SortingCodecReader.SortingIntersectVisitor.
 type sortingIntersectVisitor struct {
 	docMap  SorterDocMap
-	visitor bkd.IntersectVisitor
+	visitor IntersectVisitor
 }
 
-func (v *sortingIntersectVisitor) setIntersectVisitor(visitor bkd.IntersectVisitor) {
+func (v *sortingIntersectVisitor) setIntersectVisitor(visitor IntersectVisitor) {
 	v.visitor = visitor
 }
 
@@ -443,4 +432,24 @@ func (v *SortingByteVectorValues) Rescorer(target []byte) (util.VectorScorer, er
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (it *SortingValuesIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *sortingIntersectVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *sortingIntersectVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *sortingIntersectVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

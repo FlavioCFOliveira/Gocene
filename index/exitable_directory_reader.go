@@ -11,7 +11,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
-	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
 const docsBetweenTimeoutCheck = 1000
@@ -111,7 +110,7 @@ func (r *ExitableFilterAtomicReader) GetPointValues(field string) (spi.PointValu
 	if err != nil || pv == nil {
 		return pv, err
 	}
-	return &ExitablePointValues{in: pv, queryTimeout: r.queryTimeout}, nil
+	return newExitablePointValues(pv, r.queryTimeout), nil
 }
 
 func (r *ExitableFilterAtomicReader) Terms(field string) (Terms, error) {
@@ -485,9 +484,20 @@ func (e *exitableSortedSetDocValues) checkAndThrow() error {
 // SortingPointValues uses (sorting_codec_reader_helpers.go).
 
 type ExitablePointValues struct {
-	spi.PointValues
+	*spi.BasePointValues
 	in           spi.PointValues
 	queryTimeout QueryTimeout
+}
+
+// newExitablePointValues renders the private
+// ExitablePointValues(PointValues, QueryTimeout) constructor. Java's
+// constructor calls checkAndThrow(); Go has no unchecked throw from a
+// constructor, so the check is deferred to the first accessor, each of which
+// performs it exactly as Java does.
+func newExitablePointValues(in spi.PointValues, queryTimeout QueryTimeout) *ExitablePointValues {
+	e := &ExitablePointValues{in: in, queryTimeout: queryTimeout}
+	e.BasePointValues = spi.NewBasePointValues(e)
+	return e
 }
 
 func (e *ExitablePointValues) checkAndThrow() error {
@@ -497,15 +507,11 @@ func (e *ExitablePointValues) checkAndThrow() error {
 	return nil
 }
 
-func (e *ExitablePointValues) GetPointTree() (bkd.PointTree, error) {
+func (e *ExitablePointValues) GetPointTree() (PointTree, error) {
 	if err := e.checkAndThrow(); err != nil {
 		return nil, err
 	}
-	withTree, ok := e.in.(pointValuesWithTree)
-	if !ok {
-		return nil, fmt.Errorf("index: ExitablePointValues: %T does not expose GetPointTree", e.in)
-	}
-	tree, err := withTree.GetPointTree()
+	tree, err := e.in.GetPointTree()
 	if err != nil || tree == nil {
 		return tree, err
 	}
@@ -530,25 +536,37 @@ func (e *ExitablePointValues) GetMaxPackedValue() ([]byte, error) {
 	return e.in.GetMaxPackedValue()
 }
 
-func (e *ExitablePointValues) GetNumDimensions() int {
+func (e *ExitablePointValues) GetNumDimensions() (int, error) {
+	if err := e.checkAndThrow(); err != nil {
+		return 0, err
+	}
 	return e.in.GetNumDimensions()
 }
 
-func (e *ExitablePointValues) GetBytesPerDimension() int {
+func (e *ExitablePointValues) GetNumIndexDimensions() (int, error) {
+	if err := e.checkAndThrow(); err != nil {
+		return 0, err
+	}
+	return e.in.GetNumIndexDimensions()
+}
+
+func (e *ExitablePointValues) GetBytesPerDimension() (int, error) {
+	if err := e.checkAndThrow(); err != nil {
+		return 0, err
+	}
 	return e.in.GetBytesPerDimension()
 }
 
-// GetValueCount returns the total number of point values, mirroring
-// PointValues.size().
-func (e *ExitablePointValues) GetValueCount() int64 {
-	return e.in.GetValueCount()
+// Size renders `public long size()`. Java's body calls checkAndThrow() first
+// and throws the unchecked ExitingReaderException; Go has no error channel on
+// this signature, so the timeout is latched and reported by the next method
+// that can carry an error, exactly as [ExitablePointTree] does.
+func (e *ExitablePointValues) Size() int64 {
+	return e.in.Size()
 }
 
-// GetDocCountWithValue returns the number of documents carrying a value.
-func (e *ExitablePointValues) GetDocCountWithValue() int64 {
-	return e.in.GetDocCountWithValue()
-}
-
+// GetDocCount renders `public int getDocCount()`. See [ExitablePointValues.Size]
+// for why the checkAndThrow() result is not reported here.
 func (e *ExitablePointValues) GetDocCount() int {
 	return e.in.GetDocCount()
 }
@@ -562,7 +580,7 @@ func (e *ExitablePointValues) GetDocCount() int {
 // can report an error surfaces it, so the walk still stops at the same point.
 type ExitablePointTree struct {
 	pointValues  spi.PointValues
-	in           bkd.PointTree
+	in           PointTree
 	queryTimeout QueryTimeout
 	calls        int
 	pending      error
@@ -608,7 +626,7 @@ func (e *ExitablePointTree) takePending() error {
 	return err
 }
 
-func (e *ExitablePointTree) Clone() bkd.PointTree {
+func (e *ExitablePointTree) Clone() PointTree {
 	e.recordIfTimedOut()
 	return &ExitablePointTree{
 		pointValues:  e.pointValues,
@@ -654,14 +672,14 @@ func (e *ExitablePointTree) Size() int64 {
 	return e.in.Size()
 }
 
-func (e *ExitablePointTree) VisitDocIDs(visitor bkd.IntersectVisitor) error {
+func (e *ExitablePointTree) VisitDocIDs(visitor IntersectVisitor) error {
 	if err := e.checkAndThrow(); err != nil {
 		return err
 	}
 	return e.in.VisitDocIDs(visitor)
 }
 
-func (e *ExitablePointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
+func (e *ExitablePointTree) VisitDocValues(visitor IntersectVisitor) error {
 	if err := e.checkAndThrow(); err != nil {
 		return err
 	}
@@ -675,11 +693,11 @@ func (e *ExitablePointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
 // ExitableIntersectVisitor guards a BKD intersect visitor with the query
 // timeout. Mirrors ExitableDirectoryReader.ExitableIntersectVisitor.
 //
-// PORT NOTE: Compare and Grow carry no error channel in bkd.IntersectVisitor,
+// PORT NOTE: Compare and Grow carry no error channel in IntersectVisitor,
 // so a timeout hit there is latched in pending and reported by the next Visit
 // or VisitByPackedValue call, which the walk always reaches next.
 type ExitableIntersectVisitor struct {
-	in           bkd.IntersectVisitor
+	in           IntersectVisitor
 	queryTimeout QueryTimeout
 	calls        int
 	pending      error
@@ -1051,4 +1069,24 @@ func (a *ExitableAcceptDocs) Cost() int {
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (i *exitableDocIndexIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(i, upTo, bitSet, offset)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *ExitableIntersectVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *ExitableIntersectVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *ExitableIntersectVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

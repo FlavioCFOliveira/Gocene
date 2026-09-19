@@ -5,9 +5,10 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
@@ -246,14 +247,21 @@ func (s *rangeFieldScorerSupplier) Get(_ int64) (Scorer, error) {
 
 func (s *rangeFieldScorerSupplier) Cost() int64 {
 	if s.estCost < 0 {
-		// estimate: use point count from pv
-		s.estCost = s.pv.EstimatePointCount(&rangeFieldIntersectVisitor{
+		// Java: cost = values.estimateDocCount(visitor)
+		// (RangeFieldQuery.java:499). estimateDocCount wraps an IOException in
+		// an UncheckedIOException, which crosses cost()'s throws-free
+		// signature; Go renders that unchecked throw as a panic.
+		estCost, err := s.pv.EstimateDocCount(&rangeFieldIntersectVisitor{
 			ranges:      s.ranges,
 			numDims:     s.numDims,
 			bytesPerDim: s.bytesPerDim,
 			queryType:   s.queryType,
 			comparator:  s.comparator,
 		})
+		if err != nil {
+			panic(err)
+		}
+		s.estCost = estCost
 		if s.estCost < 0 {
 			s.estCost = 0
 		}
@@ -302,8 +310,8 @@ func (v *rangeFieldIntersectVisitor) VisitByPackedValue(docID int, packedValue [
 
 // Compare returns the relation for BKD pruning.  Return values match
 // geo.Relation: 0=outside, 1=inside, 2=crosses.
-func (v *rangeFieldIntersectVisitor) Compare(min, max []byte) int {
-	return int(rfqCompare(v.queryType, v.ranges, min, max, v.numDims, v.bytesPerDim, v.comparator))
+func (v *rangeFieldIntersectVisitor) Compare(min, max []byte) geo.Relation {
+	return geo.Relation(rfqCompare(v.queryType, v.ranges, min, max, v.numDims, v.bytesPerDim, v.comparator))
 }
 
 // rangeFieldPointValues is the narrow interface this package requires from
@@ -311,28 +319,27 @@ func (v *rangeFieldIntersectVisitor) Compare(min, max []byte) int {
 // the index.PointValues signatures (error-returning) so that a concrete type
 // can satisfy both index.PointValues (metadata) and this extended interface
 // (intersection) without signature conflicts.
-type rangeFieldPointValues interface {
-	Intersect(visitor intersectVisitorRFQ) error
-	EstimatePointCount(visitor intersectVisitorRFQ) int64
-	GetMinPackedValue() ([]byte, error)
-	GetMaxPackedValue() ([]byte, error)
-	GetNumDimensions() int
-	GetBytesPerDimension() int
-	GetDocCount() int
-}
+// rangeFieldPointValues is an alias of index.PointValues. Before the two
+// PointValues renderings were merged it was a narrow structural interface
+// carrying the visitor-driven surface (Intersect / EstimatePointCount) that
+// index.PointValues did not declare; org.apache.lucene.index.PointValues
+// declares intersect and estimatePointCount as public final members, so the
+// whole surface is now on the one interface and the narrow duplicate has no
+// Lucene counterpart.
+type rangeFieldPointValues = index.PointValues
 
 // intersectVisitorRFQ is the visitor shape expected by rangeFieldPointValues.
 //
-// It is a type ALIAS of index.PointTreeIntersectVisitor (rmp #4769) — NOT a
+// It is a type ALIAS of index.IntersectVisitor (rmp #4769) — NOT a
 // fresh interface declaration. The distinction is load-bearing: the on-disk
 // BKD-backed PointValues returned by LeafReader.GetPointValues has an Intersect
-// method whose parameter type is literally index.PointTreeIntersectVisitor.
+// method whose parameter type is literally index.IntersectVisitor.
 // Go type assertions require exact method-signature identity, so a structurally
 // identical but distinct interface type would make the assertion in
 // getRangeFieldPointValues fail for the real codec reader (only in-package
 // stubs declaring Intersect over the local type would match), silently
 // matching zero documents. The alias keeps the parameter type identical.
-type intersectVisitorRFQ = index.PointTreeIntersectVisitor
+type intersectVisitorRFQ = index.IntersectVisitor
 
 // getRangeFieldPointValues type-asserts reader to rangeFieldPointValues for
 // the given field.  Returns (nil, false) if the reader does not expose this
@@ -581,4 +588,24 @@ func (q *RangeFieldQuery) Visit(visitor QueryVisitor) {
 	if visitor.AcceptField(q.field) {
 		visitor.VisitLeaf(q)
 	}
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *rangeFieldIntersectVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *rangeFieldIntersectVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *rangeFieldIntersectVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

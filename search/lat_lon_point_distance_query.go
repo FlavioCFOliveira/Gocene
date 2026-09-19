@@ -378,11 +378,15 @@ const (
 // structurally; the parameter type is the index-package alias so the
 // type assertion succeeds for the real codec reader (the same reason
 // PointRangeQuery and XYPointInGeometryQuery alias
-// index.PointTreeIntersectVisitor).
-type latLonDistancePointTreeIntersect interface {
-	Intersect(visitor index.PointTreeIntersectVisitor) error
-	EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64
-}
+// index.IntersectVisitor).
+// latLonDistancePointTreeIntersect is an alias of index.PointValues. Before the two
+// PointValues renderings were merged it was a narrow structural interface
+// carrying the visitor-driven surface (Intersect / EstimatePointCount) that
+// index.PointValues did not declare; org.apache.lucene.index.PointValues
+// declares intersect and estimatePointCount as public final members, so the
+// whole surface is now on the one interface and the narrow duplicate has no
+// Lucene counterpart.
+type latLonDistancePointTreeIntersect = index.PointValues
 
 // newLatLonDistancePointSourceFromIndexPointValues adapts a BKD-backed
 // index.PointValues to the latLonDistancePointSource contract used by
@@ -401,7 +405,7 @@ func newLatLonDistancePointSourceFromIndexPointValues(pv index.PointValues) latL
 
 // bkdLatLonDistancePointSource drives a BKD-backed PointValues,
 // translating between the distance query's latLonDistancePointVisitor
-// and the index.PointTreeIntersectVisitor the BKD reader expects.
+// and the index.IntersectVisitor the BKD reader expects.
 type bkdLatLonDistancePointSource struct {
 	pv latLonDistancePointTreeIntersect
 }
@@ -411,11 +415,11 @@ func (s *bkdLatLonDistancePointSource) Intersect(visitor latLonDistancePointVisi
 }
 
 func (s *bkdLatLonDistancePointSource) EstimateDocCount(visitor latLonDistancePointVisitor) (int64, error) {
-	return s.pv.EstimatePointCount(&latLonDistanceVisitorBridge{v: visitor}), nil
+	return s.pv.EstimateDocCount(&latLonDistanceVisitorBridge{v: visitor})
 }
 
 // latLonDistanceVisitorBridge adapts a latLonDistancePointVisitor to the
-// index.PointTreeIntersectVisitor surface the BKD reader invokes. The
+// index.IntersectVisitor surface the BKD reader invokes. The
 // reader only drives Visit / VisitByPackedValue / Compare / Grow (the
 // bulk-iterator methods on latLonDistancePointVisitor are not part of
 // the BKD reader's intersect path).
@@ -429,13 +433,13 @@ func (b *latLonDistanceVisitorBridge) VisitByPackedValue(docID int, packedValue 
 	return b.v.VisitWithPackedValue(docID, packedValue)
 }
 
-func (b *latLonDistanceVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) int {
-	return int(b.v.Compare(minPackedValue, maxPackedValue))
+func (b *latLonDistanceVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+	return geo.Relation(b.v.Compare(minPackedValue, maxPackedValue))
 }
 
 func (b *latLonDistanceVisitorBridge) Grow(count int) { b.v.Grow(count) }
 
-var _ index.PointTreeIntersectVisitor = (*latLonDistanceVisitorBridge)(nil)
+var _ index.IntersectVisitor = (*latLonDistanceVisitorBridge)(nil)
 
 // noopLatLonDistancePointSource is the safe fallback when the
 // PointValues does not expose the visitor-driven Intersect surface (e.g.
@@ -1005,4 +1009,24 @@ func (l *latLonDistanceUtilDISIAdapter) IntoBitSet(upTo int, bitSet *util.FixedB
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *latLonPointDistanceScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which b does not
+// override.
+func (b *latLonDistanceVisitorBridge) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(b, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which b does not override.
+func (b *latLonDistanceVisitorBridge) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(b, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which b
+// does not override.
+func (b *latLonDistanceVisitorBridge) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(b, iterator, packedValue)
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -271,9 +272,8 @@ func (w *pointInSetIncludingScoreWeight) Scorer(ctx *index.LeafReaderContext) (s
 	}
 	v.reset()
 
-	// intersectPointValues delegates to codecs.PointValues.Intersect via
-	// a type assertion; no-op if the reader does not expose that surface.
-	if err := intersectPointValues(raw, v); err != nil {
+	// Java: values.intersect(visitor).
+	if err := raw.Intersect(v); err != nil {
 		return nil, err
 	}
 
@@ -284,37 +284,9 @@ func (w *pointInSetIncludingScoreWeight) Scorer(ctx *index.LeafReaderContext) (s
 	}, nil
 }
 
-// intersectPointValues attempts to run the merge visitor against the raw
-// index.PointValues by checking whether it implements a richer interface
-// with an Intersect method. If not, it falls through silently (no-op).
-func intersectPointValues(raw index.PointValues, v *mergePointVisitor) error {
-	// index.PointValues in Gocene (doc_values_interfaces.go) is read-only
-	// metadata; the codecs layer provides the richer surface with Intersect.
-	// Type-assert to a locally declared interface that matches
-	// codecs.PointValues.Intersect's signature, so we do not import codecs
-	// from join (would create a cycle).
-	type intersectable interface {
-		Intersect(visitor intersectVisitorShim) error
-	}
-	if iv, ok := raw.(intersectable); ok {
-		return iv.Intersect(v)
-	}
-	// No Intersect available — no matches (graceful degradation).
-	return nil
-}
-
-// intersectVisitorShim mirrors the contract of codecs.IntersectVisitor so
-// that join can call Intersect without importing codecs.
-type intersectVisitorShim interface {
-	Visit(docID int) error
-	VisitByPackedValue(docID int, packedValue []byte) error
-	Compare(minPackedValue, maxPackedValue []byte) int
-	Grow(count int)
-}
-
 // ── mergePointVisitor ────────────────────────────────────────────────────────
 
-// mergePointVisitor implements intersectVisitorShim and drives the merge
+// mergePointVisitor implements index.IntersectVisitor and drives the merge
 // between the sorted query-points list and the BKD leaf. Mirrors
 // PointInSetIncludingScoreQuery.MergePointVisitor.
 type mergePointVisitor struct {
@@ -374,7 +346,7 @@ func (v *mergePointVisitor) VisitByPackedValue(docID int, packedValue []byte) er
 
 // Compare classifies a BKD cell against the current query-point cursor.
 // Returns: 0=OUTSIDE, 1=INSIDE, 2=CROSSES.
-func (v *mergePointVisitor) Compare(minPackedValue, maxPackedValue []byte) int {
+func (v *mergePointVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
 	for v.nextQueryPoint != nil {
 		cmpMin := bytes.Compare(v.nextQueryPoint, minPackedValue)
 		if cmpMin < 0 {
@@ -588,4 +560,24 @@ func (s *pointInSetStubScorer) Iterator() search.DocIdSetIterator { return s }
 // in Apache Lucene 10.5.0, which this scorer does not override.
 func (s *pointInSetStubScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
 	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *mergePointVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *mergePointVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *mergePointVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

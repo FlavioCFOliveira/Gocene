@@ -214,27 +214,36 @@ func (v *memSortedSetDV) Cost() int64        { return 1 }
 
 // --- In-memory point values ---
 
-// memPointValues implements index.PointValues for a single-document in-memory store.
+// memPointValues implements index.PointValues for a single-document in-memory
+// store. Mirrors the private inner class
+// org.apache.lucene.index.memory.MemoryIndex.MemoryIndexReader.MemoryIndexPointValues.
 type memPointValues struct {
+	*spi.BasePointValues
 	meta *pointFieldMeta
 }
 
+// newMemPointValues mirrors the MemoryIndexPointValues(Info) constructor.
+func newMemPointValues(meta *pointFieldMeta) *memPointValues {
+	pv := &memPointValues{meta: meta}
+	pv.BasePointValues = spi.NewBasePointValues(pv)
+	return pv
+}
+
+// GetDocCount renders `public int getDocCount()`, whose body is `return 1`:
+// a MemoryIndex holds exactly one document, and memoryIndexReader.GetPointValues
+// returns nil when the field has no point values at all.
 func (pv *memPointValues) GetDocCount() int {
-	if len(pv.meta.values) > 0 {
-		return 1
-	}
-	return 0
+	return 1
 }
 
-func (pv *memPointValues) GetDocCountWithValue() int64 {
-	if len(pv.meta.values) > 0 {
-		return 1
-	}
-	return 0
-}
-
-func (pv *memPointValues) GetValueCount() int64 {
+// Size renders `public long size()`, whose body is `return info.pointValuesCount`.
+func (pv *memPointValues) Size() int64 {
 	return int64(len(pv.meta.values))
+}
+
+// GetPointTree renders `public PointTree getPointTree()`.
+func (pv *memPointValues) GetPointTree() (spi.PointTree, error) {
+	return &memPointTree{values: pv}, nil
 }
 
 func (pv *memPointValues) GetMinPackedValue() ([]byte, error) {
@@ -269,8 +278,70 @@ func (pv *memPointValues) GetMaxPackedValue() ([]byte, error) {
 	return max, nil
 }
 
-func (pv *memPointValues) GetNumDimensions() int     { return pv.meta.numDims }
-func (pv *memPointValues) GetBytesPerDimension() int { return pv.meta.bytesPerDim }
+func (pv *memPointValues) GetNumDimensions() (int, error) { return pv.meta.numDims, nil }
+
+// GetNumIndexDimensions renders `public int getNumIndexDimensions()`, whose
+// body is `return info.fieldInfo.getPointDimensionCount()` — the same value
+// getNumDimensions returns.
+func (pv *memPointValues) GetNumIndexDimensions() (int, error) { return pv.meta.numDims, nil }
+
+func (pv *memPointValues) GetBytesPerDimension() (int, error) { return pv.meta.bytesPerDim, nil }
+
+// memPointTree is the anonymous PointTree returned by
+// MemoryIndexPointValues.getPointTree.
+type memPointTree struct {
+	values *memPointValues
+}
+
+// Clone renders `public PointTree clone()`, whose body is `return this`.
+func (t *memPointTree) Clone() spi.PointTree { return t }
+
+func (t *memPointTree) MoveToChild() (bool, error) { return false, nil }
+
+func (t *memPointTree) MoveToSibling() (bool, error) { return false, nil }
+
+func (t *memPointTree) MoveToParent() (bool, error) { return false, nil }
+
+func (t *memPointTree) GetMinPackedValue() []byte {
+	min, _ := t.values.GetMinPackedValue()
+	return min
+}
+
+func (t *memPointTree) GetMaxPackedValue() []byte {
+	max, _ := t.values.GetMaxPackedValue()
+	return max
+}
+
+func (t *memPointTree) Size() int64 { return t.values.Size() }
+
+// VisitDocIDs renders `public void visitDocIDs(IntersectVisitor visitor)`.
+func (t *memPointTree) VisitDocIDs(visitor spi.IntersectVisitor) error {
+	count := len(t.values.meta.values)
+	visitor.Grow(count)
+	for i := 0; i < count; i++ {
+		if err := visitor.Visit(0); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// VisitDocValues renders `public void visitDocValues(IntersectVisitor visitor)`.
+func (t *memPointTree) VisitDocValues(visitor spi.IntersectVisitor) error {
+	values := t.values.meta.values
+	visitor.Grow(len(values))
+	for i := 0; i < len(values); i++ {
+		if err := visitor.VisitByPackedValue(0, values[i].packedValue); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+var (
+	_ spi.PointValues = (*memPointValues)(nil)
+	_ spi.PointTree   = (*memPointTree)(nil)
+)
 
 // --- memoryTermVectors ---
 
@@ -488,7 +559,7 @@ func (r *memoryIndexReader) GetPointValues(field string) (index.PointValues, err
 	if !ok || len(pfm.values) == 0 {
 		return nil, nil
 	}
-	return &memPointValues{meta: pfm}, nil
+	return newMemPointValues(pfm), nil
 }
 
 // GetLiveDocs returns nil (no deletions in a MemoryIndex).

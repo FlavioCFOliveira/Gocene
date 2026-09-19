@@ -5,9 +5,10 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
@@ -291,10 +292,18 @@ func (s *pointRangeScorerSupplier) Get(_ int64) (Scorer, error) {
 
 func (s *pointRangeScorerSupplier) Cost() int64 {
 	if s.estCost < 0 {
-		s.estCost = s.pv.EstimatePointCount(&pointRangeIntersectVisitor{
+		// Java: cost = values.estimateDocCount(visitor)
+		// (PointRangeQuery.java:330). estimateDocCount wraps an IOException in
+		// an UncheckedIOException, which crosses cost()'s throws-free
+		// signature; Go renders that unchecked throw as a panic.
+		estCost, err := s.pv.EstimateDocCount(&pointRangeIntersectVisitor{
 			query:      s.query,
 			comparator: s.comparator,
 		})
+		if err != nil {
+			panic(err)
+		}
+		s.estCost = estCost
 		if s.estCost < 0 {
 			s.estCost = 0
 		}
@@ -348,7 +357,7 @@ func (v *pointRangeIntersectVisitor) matchesPoint(packed []byte) bool {
 
 // Compare returns the BKD pruning relation for a cell.
 // Returns 0=outside, 1=inside, 2=crosses (matching geo.Relation order).
-func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) int {
+func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) geo.Relation {
 	q := v.query
 	inside := true
 	for dim := 0; dim < q.numDims; dim++ {
@@ -374,24 +383,23 @@ func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) int {
 // Declared locally to avoid importing codecs (cycle through codecs/lucene90).
 // GetMinPackedValue / GetMaxPackedValue match index.PointValues signatures
 // (error-returning) so a concrete type can implement both without conflicts.
-type pointRangePointValues interface {
-	Intersect(visitor pointRangeIntersectVisitorI) error
-	EstimatePointCount(visitor pointRangeIntersectVisitorI) int64
-	GetMinPackedValue() ([]byte, error)
-	GetMaxPackedValue() ([]byte, error)
-	GetNumDimensions() int
-	GetBytesPerDimension() int
-	GetDocCount() int
-}
+// pointRangePointValues is an alias of index.PointValues. Before the two
+// PointValues renderings were merged it was a narrow structural interface
+// carrying the visitor-driven surface (Intersect / EstimatePointCount) that
+// index.PointValues did not declare; org.apache.lucene.index.PointValues
+// declares intersect and estimatePointCount as public final members, so the
+// whole surface is now on the one interface and the narrow duplicate has no
+// Lucene counterpart.
+type pointRangePointValues = index.PointValues
 
 // pointRangeIntersectVisitorI is the visitor shape for pointRangePointValues.
-// It is an alias of index.PointTreeIntersectVisitor (rmp #4769) so the
+// It is an alias of index.IntersectVisitor (rmp #4769) so the
 // on-disk BKD-backed PointValues returned by LeafReader.GetPointValues — whose
-// Intersect method takes index.PointTreeIntersectVisitor — satisfies
+// Intersect method takes index.IntersectVisitor — satisfies
 // pointRangePointValues. Without the alias the method-parameter type identity
 // would differ and the type assertion in getPointRangePointValues would fail
 // for the real codec reader (only in-package stubs would match).
-type pointRangeIntersectVisitorI = index.PointTreeIntersectVisitor
+type pointRangeIntersectVisitorI = index.IntersectVisitor
 
 // getPointRangePointValues type-asserts the leaf reader to expose BKD point values.
 func getPointRangePointValues(reader index.LeafReaderInterface, field string) (pointRangePointValues, bool) {
@@ -481,4 +489,24 @@ func (q *PointRangeQuery) Visit(visitor QueryVisitor) {
 	if visitor.AcceptField(q.field) {
 		visitor.VisitLeaf(q)
 	}
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *pointRangeIntersectVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *pointRangeIntersectVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *pointRangeIntersectVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

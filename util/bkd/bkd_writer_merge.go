@@ -106,17 +106,16 @@ type mergeReader struct {
 // newMergeReader renders the MergeReader(PointValues, MergeState.DocMap)
 // constructor.
 func newMergeReader(pointValues spi.PointValues, docMap spi.DocMap) (*mergeReader, error) {
-	packedBytesLength := pointValues.GetBytesPerDimension() * pointValues.GetNumDimensions()
-	// Java: pointValues.getPointTree(). spi.PointValues does not declare
-	// getPointTree, so it is reached through the member every BKD-backed
-	// PointValues in Gocene carries.
-	treeSource, ok := pointValues.(interface {
-		GetPointTree() (PointTree, error)
-	})
-	if !ok {
-		return nil, fmt.Errorf("bkd: merge: PointValues %T does not expose getPointTree", pointValues)
+	bytesPerDim, err := pointValues.GetBytesPerDimension()
+	if err != nil {
+		return nil, err
 	}
-	pointTree, err := treeSource.GetPointTree()
+	numDims, err := pointValues.GetNumDimensions()
+	if err != nil {
+		return nil, err
+	}
+	packedBytesLength := bytesPerDim * numDims
+	pointTree, err := pointValues.GetPointTree()
 	if err != nil {
 		return nil, err
 	}
@@ -300,3 +299,23 @@ func (q *bkdMergeQueue) lessThan(a, b *mergeReader) bool {
 }
 
 var _ IntersectVisitor = (*mergeIntersectsVisitor)(nil)
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *mergeIntersectsVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *mergeIntersectsVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *mergeIntersectsVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}

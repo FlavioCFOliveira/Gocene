@@ -10,7 +10,9 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // This file is the behavioural test suite for BKDReader. The Java
@@ -175,14 +177,14 @@ func TestBKDReader_OpenMetadata(t *testing.T) {
 	}
 	f := buildReader(t, cfg, points, 1024)
 
-	if got := f.r.GetNumDimensions(); got != 1 {
-		t.Fatalf("numDims: got %d, want 1", got)
+	if got, err := f.r.GetNumDimensions(); err != nil || got != 1 {
+		t.Fatalf("numDims: got %d (err %v), want 1", got, err)
 	}
-	if got := f.r.GetNumIndexDimensions(); got != 1 {
-		t.Fatalf("numIndexDims: got %d, want 1", got)
+	if got, err := f.r.GetNumIndexDimensions(); err != nil || got != 1 {
+		t.Fatalf("numIndexDims: got %d (err %v), want 1", got, err)
 	}
-	if got := f.r.GetBytesPerDimension(); got != 4 {
-		t.Fatalf("bytesPerDim: got %d, want 4", got)
+	if got, err := f.r.GetBytesPerDimension(); err != nil || got != 4 {
+		t.Fatalf("bytesPerDim: got %d (err %v), want 4", got, err)
 	}
 	if got := f.r.NumLeaves(); got != 1 {
 		t.Fatalf("numLeaves: got %d, want 1 for a single leaf fixture", got)
@@ -193,10 +195,18 @@ func TestBKDReader_OpenMetadata(t *testing.T) {
 	if got := f.r.GetDocCount(); got != len(points) {
 		t.Fatalf("docCount: got %d, want %d", got, len(points))
 	}
-	if got := uint32FromBE(f.r.GetMinPackedValue()); got != 10 {
+	minPacked, err := f.r.GetMinPackedValue()
+	if err != nil {
+		t.Fatalf("GetMinPackedValue: %v", err)
+	}
+	if got := uint32FromBE(minPacked); got != 10 {
 		t.Fatalf("minPackedValue: got %d, want 10", got)
 	}
-	if got := uint32FromBE(f.r.GetMaxPackedValue()); got != 40 {
+	maxPacked, err := f.r.GetMaxPackedValue()
+	if err != nil {
+		t.Fatalf("GetMaxPackedValue: %v", err)
+	}
+	if got := uint32FromBE(maxPacked); got != 40 {
 		t.Fatalf("maxPackedValue: got %d, want 40", got)
 	}
 	if got := f.r.Version(); got != BKDVersionCurrent {
@@ -641,11 +651,11 @@ func TestBKDReader_RoundTripByteFormat(t *testing.T) {
 	if got := f.r.GetDocCount(); got != 4 {
 		t.Fatalf("docCount: got %d, want 4", got)
 	}
-	if got := f.r.GetMinPackedValue(); len(got) != 1 || got[0] != 0x10 {
-		t.Fatalf("minPackedValue: got %v, want [0x10]", got)
+	if got, err := f.r.GetMinPackedValue(); err != nil || len(got) != 1 || got[0] != 0x10 {
+		t.Fatalf("minPackedValue: got %v (err %v), want [0x10]", got, err)
 	}
-	if got := f.r.GetMaxPackedValue(); len(got) != 1 || got[0] != 0x40 {
-		t.Fatalf("maxPackedValue: got %v, want [0x40]", got)
+	if got, err := f.r.GetMaxPackedValue(); err != nil || len(got) != 1 || got[0] != 0x40 {
+		t.Fatalf("maxPackedValue: got %v (err %v), want [0x40]", got, err)
 	}
 
 	// Full-range intersection must yield all 4 docs.
@@ -827,4 +837,84 @@ func equalInts(a, b []int) bool {
 		}
 	}
 	return true
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *readerCaptureVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *readerCaptureVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *readerCaptureVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *rangeVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *rangeVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *rangeVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *rect2DVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *rect2DVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *rect2DVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *byteRangeVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *byteRangeVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *byteRangeVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

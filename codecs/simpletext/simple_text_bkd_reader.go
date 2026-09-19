@@ -11,8 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
@@ -25,6 +24,8 @@ import (
 // Port of org.apache.lucene.codecs.simpletext.SimpleTextBKDReader
 // (Lucene 10.4.0).
 type SimpleTextBKDReader struct {
+	*spi.BasePointValues
+
 	// splitPackedValues encodes the inner-node split dimension and value for
 	// every inner node in the full binary tree (1-indexed, prefix-free).
 	splitPackedValues []byte
@@ -78,7 +79,7 @@ func NewSimpleTextBKDReader(
 	if numIndexDims != 1 {
 		bpie = bytesPerDim + 1
 	}
-	return &SimpleTextBKDReader{
+	r := &SimpleTextBKDReader{
 		splitPackedValues:  splitPackedValues,
 		leafBlockFPs:       leafBlockFPs,
 		leafNodeOffset:     len(leafBlockFPs),
@@ -90,46 +91,36 @@ func NewSimpleTextBKDReader(
 		pointCount:         pointCount,
 		docCount:           docCount,
 		version:            VersionCurrent,
-	}, nil
+	}
+	r.BasePointValues = spi.NewBasePointValues(r)
+	return r, nil
 }
 
 // GetPointTree returns a new PointTree positioned at the root.
 //
 // Port of SimpleTextBKDReader.getPointTree().
-func (r *SimpleTextBKDReader) GetPointTree() bkd.PointTree {
-	return newSimpleTextPointTree(r, r.in.Clone(), 1, 1, r.minPackedValue, r.maxPackedValue)
-}
-
-// Intersect walks all points in the BKD tree and dispatches to visitor.
-//
-// Implements codecs.PointValues.
-func (r *SimpleTextBKDReader) Intersect(visitor codecs.IntersectVisitor) error {
-	tree := r.GetPointTree()
-	return intersectSimpleText(tree, visitor)
-}
-
-// EstimatePointCount estimates the number of points matching visitor.
-//
-// Implements codecs.PointValues.
-func (r *SimpleTextBKDReader) EstimatePointCount(visitor codecs.IntersectVisitor) int64 {
-	tree := r.GetPointTree()
-	return estimateSimpleText(tree, visitor)
+func (r *SimpleTextBKDReader) GetPointTree() (spi.PointTree, error) {
+	return newSimpleTextPointTree(r, r.in.Clone(), 1, 1, r.minPackedValue, r.maxPackedValue), nil
 }
 
 // GetMinPackedValue returns the global minimum packed value.
-func (r *SimpleTextBKDReader) GetMinPackedValue() []byte { return r.minPackedValue }
+func (r *SimpleTextBKDReader) GetMinPackedValue() ([]byte, error) { return r.minPackedValue, nil }
 
 // GetMaxPackedValue returns the global maximum packed value.
-func (r *SimpleTextBKDReader) GetMaxPackedValue() []byte { return r.maxPackedValue }
+func (r *SimpleTextBKDReader) GetMaxPackedValue() ([]byte, error) { return r.maxPackedValue, nil }
 
 // GetNumDimensions returns the number of data dimensions.
-func (r *SimpleTextBKDReader) GetNumDimensions() int { return r.config.NumDims() }
+func (r *SimpleTextBKDReader) GetNumDimensions() (int, error) { return r.config.NumDims(), nil }
 
 // GetNumIndexDimensions returns the number of index dimensions.
-func (r *SimpleTextBKDReader) GetNumIndexDimensions() int { return r.config.NumIndexDims() }
+func (r *SimpleTextBKDReader) GetNumIndexDimensions() (int, error) {
+	return r.config.NumIndexDims(), nil
+}
 
 // GetBytesPerDimension returns the number of bytes per dimension.
-func (r *SimpleTextBKDReader) GetBytesPerDimension() int { return r.config.BytesPerDim() }
+func (r *SimpleTextBKDReader) GetBytesPerDimension() (int, error) {
+	return r.config.BytesPerDim(), nil
+}
 
 // Size returns the total number of indexed point values.
 func (r *SimpleTextBKDReader) Size() int64 { return r.pointCount }
@@ -138,76 +129,13 @@ func (r *SimpleTextBKDReader) Size() int64 { return r.pointCount }
 func (r *SimpleTextBKDReader) GetDocCount() int { return r.docCount }
 
 // compile-time assertion.
-var _ codecs.PointValues = (*SimpleTextBKDReader)(nil)
+var _ spi.PointValues = (*SimpleTextBKDReader)(nil)
 
-// ---------------------------------------------------------------------------
-// intersect and estimate helpers
-// ---------------------------------------------------------------------------
-
-func intersectSimpleText(tree bkd.PointTree, visitor codecs.IntersectVisitor) error {
-	rel := visitor.Compare(tree.GetMinPackedValue(), tree.GetMaxPackedValue())
-	switch rel {
-	case geo.CellOutsideQuery:
-		return nil
-	case geo.CellInsideQuery:
-		return tree.VisitDocValues(bkdVisitorAdapter{visitor})
-	default: // CROSSES
-		if ok, err := tree.MoveToChild(); err != nil {
-			return err
-		} else if ok {
-			if err := intersectSimpleText(tree, visitor); err != nil {
-				return err
-			}
-			if ok2, err := tree.MoveToSibling(); err != nil {
-				return err
-			} else if ok2 {
-				if err := intersectSimpleText(tree, visitor); err != nil {
-					return err
-				}
-			}
-			if _, err := tree.MoveToParent(); err != nil {
-				return err
-			}
-		} else {
-			// leaf
-			return tree.VisitDocValues(bkdVisitorAdapter{visitor})
-		}
-	}
-	return nil
-}
-
-func estimateSimpleText(tree bkd.PointTree, visitor codecs.IntersectVisitor) int64 {
-	rel := visitor.Compare(tree.GetMinPackedValue(), tree.GetMaxPackedValue())
-	switch rel {
-	case geo.CellOutsideQuery:
-		return 0
-	case geo.CellInsideQuery:
-		return tree.Size()
-	default: // CROSSES
-		if ok, err := tree.MoveToChild(); err != nil || !ok {
-			return (tree.Size() + 1) / 2
-		}
-		left := estimateSimpleText(tree, visitor)
-		if ok2, err := tree.MoveToSibling(); err == nil && ok2 {
-			left += estimateSimpleText(tree, visitor)
-		}
-		_, _ = tree.MoveToParent()
-		return left
-	}
-}
-
-// bkdVisitorAdapter wraps a codecs.IntersectVisitor into the bkd.IntersectVisitor
-// interface expected by bkd.PointTree.
-type bkdVisitorAdapter struct{ v codecs.IntersectVisitor }
-
-func (a bkdVisitorAdapter) Visit(docID int) error { return a.v.Visit(docID) }
-func (a bkdVisitorAdapter) VisitByPackedValue(docID int, pv []byte) error {
-	return a.v.VisitByPackedValue(docID, pv)
-}
-func (a bkdVisitorAdapter) Compare(min, max []byte) geo.Relation { return a.v.Compare(min, max) }
-func (a bkdVisitorAdapter) Grow(count int)                       { a.v.Grow(count) }
-
-var _ bkd.IntersectVisitor = bkdVisitorAdapter{}
+// Java's SimpleTextBKDReader does not override PointValues.intersect or
+// PointValues.estimatePointCount: both are `public final` on PointValues. The
+// embedded [spi.BasePointValues] supplies them, replacing the package-local
+// intersectSimpleText / estimateSimpleText walks and the bkdVisitorAdapter
+// that bridged this package's IntersectVisitor rendering to util/bkd's.
 
 // ---------------------------------------------------------------------------
 // simpleTextPointTree
@@ -363,11 +291,11 @@ func (t *simpleTextPointTree) balanceTreeNodePosition(minNode, maxNode, node, po
 // VisitDocIDs visits every docID in the current subtree without values.
 //
 // Port of SimpleTextPointTree.visitDocIDs → addAll(visitor, false).
-func (t *simpleTextPointTree) VisitDocIDs(visitor bkd.IntersectVisitor) error {
+func (t *simpleTextPointTree) VisitDocIDs(visitor spi.IntersectVisitor) error {
 	return t.addAll(visitor, false)
 }
 
-func (t *simpleTextPointTree) addAll(visitor bkd.IntersectVisitor, grown bool) error {
+func (t *simpleTextPointTree) addAll(visitor spi.IntersectVisitor, grown bool) error {
 	if !grown {
 		sz := t.Size()
 		if sz <= int64(^uint(0)>>1) {
@@ -417,7 +345,7 @@ func (t *simpleTextPointTree) addAll(visitor bkd.IntersectVisitor, grown bool) e
 // VisitDocValues visits every (docID, packedValue) in the current subtree.
 //
 // Port of SimpleTextPointTree.visitDocValues().
-func (t *simpleTextPointTree) VisitDocValues(visitor bkd.IntersectVisitor) error {
+func (t *simpleTextPointTree) VisitDocValues(visitor spi.IntersectVisitor) error {
 	if t.isLeafNode() {
 		leafID := t.nodeID - t.reader.leafNodeOffset
 		count, err := t.readDocIDs(t.in, t.reader.leafBlockFPs[leafID], t.scratchDocIDs)

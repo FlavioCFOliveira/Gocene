@@ -29,26 +29,39 @@ type Stats struct {
 // Probes PointValues first; if unavailable, falls back to DocValuesSkipper.
 // Returns nil if neither PointValues nor DocValuesSkipper are available for the field.
 func GetStats(reader index.IndexReader, field string) (*Stats, error) {
-	if result := getStatsFromPoints(reader, field); result != nil {
+	result, err := getStatsFromPoints(reader, field)
+	if err != nil {
+		return nil, err
+	}
+	if result != nil {
 		return result, nil
 	}
 	return getStatsFromSkipper(reader, field)
 }
 
-func getStatsFromPoints(reader index.IndexReader, field string) *Stats {
-	minPacked := index.PointValuesGetMinPackedValue(reader, field)
-	maxPacked := index.PointValuesGetMaxPackedValue(reader, field)
-
-	if minPacked == nil || maxPacked == nil || len(minPacked) > 8 || len(maxPacked) > 8 {
-		return nil
+func getStatsFromPoints(reader index.IndexReader, field string) (*Stats, error) {
+	minPacked, err := index.PointValuesGetMinPackedValue(reader, field)
+	if err != nil {
+		return nil, err
+	}
+	maxPacked, err := index.PointValuesGetMaxPackedValue(reader, field)
+	if err != nil {
+		return nil, err
 	}
 
-	docCount := index.PointValuesGetDocCount(reader, field)
+	if minPacked == nil || maxPacked == nil || len(minPacked) > 8 || len(maxPacked) > 8 {
+		return nil, nil
+	}
+
+	docCount, err := index.PointValuesGetDocCount(reader, field)
+	if err != nil {
+		return nil, err
+	}
 	return &Stats{
 		Min:      decodeLong(minPacked),
 		Max:      decodeLong(maxPacked),
 		DocCount: docCount,
-	}
+	}, nil
 }
 
 func getStatsFromSkipper(reader index.IndexReader, field string) (*Stats, error) {

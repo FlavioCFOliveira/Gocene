@@ -14,9 +14,12 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
+	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
@@ -100,7 +103,7 @@ func packInt32BE(v int32) []byte {
 	return b
 }
 
-// rangeVisitor is a minimal index.PointTreeIntersectVisitor that collects every
+// rangeVisitor is a minimal index.IntersectVisitor that collects every
 // docID whose packed value lies within [lo, hi] (inclusive), driving the BKD
 // walk exactly as search.PointRangeQuery does.
 type rangeVisitor struct {
@@ -134,7 +137,7 @@ func (v *rangeVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
 	return nil
 }
 
-func (v *rangeVisitor) Compare(minPackedValue, maxPackedValue []byte) int {
+func (v *rangeVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
 	if cmp(v.lo, maxPackedValue) > 0 || cmp(v.hi, minPackedValue) < 0 {
 		return 0 // CELL_OUTSIDE_QUERY
 	}
@@ -252,7 +255,7 @@ func TestLucene90Points_BKDRoundTrip(t *testing.T) {
 
 	// Range intersection [10, 19] -> docs 10..19.
 	intersector, ok := pv.(interface {
-		Intersect(index.PointTreeIntersectVisitor) error
+		Intersect(index.IntersectVisitor) error
 	})
 	if !ok {
 		t.Fatalf("PointValues %T does not expose Intersect", pv)
@@ -271,4 +274,24 @@ func TestLucene90Points_BKDRoundTrip(t *testing.T) {
 			t.Fatalf("range hits = %v, want %v", v.hits, want)
 		}
 	}
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *rangeVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *rangeVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *rangeVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }
