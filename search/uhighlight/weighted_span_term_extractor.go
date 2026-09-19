@@ -372,27 +372,31 @@ func (w *WeightedSpanTermExtractor) getLeafContext() (index.IndexReaderContext, 
 	if w.internalReader == nil {
 		cacheIt := w.wrapToCaching && !w.isCachingTokenFilter()
 
+		// If it's from term vectors, simply wrap the underlying Terms in a reader
 		if w.isTokenStreamFromTermVector() {
 			cacheIt = false
 			termVectorTerms := w.getTokenStreamFromTermVector().GetTermVectorTerms()
 			if termVectorTerms.HasPositions() && termVectorTerms.HasOffsets() {
-				w.internalReader = index.NewTermVectorLeafReader("shadowed_field", termVectorTerms)
+				w.internalReader = highlight.NewTermVectorLeafReader(delegatingLeafReaderFieldName, termVectorTerms)
 			}
 		}
 
+		// Use MemoryIndex (index/invert this tokenStream now)
 		if w.internalReader == nil {
-			indexer := memory.NewMemoryIndex()
+			indexer := memory.NewMemoryIndexWithOffsetsAndPayloads(true, w.usePayloads) // offsets and payloads
 			if cacheIt {
 				w.tokenStream = analysis.NewCachingTokenFilter(highlight.NewOffsetLimitTokenFilter(w.tokenStream, w.maxDocCharsToAnalyze))
 				w.cachedTokenStream = true
-				indexer.AddField("shadowed_field", w.tokenStream)
+				if err := indexer.AddField(delegatingLeafReaderFieldName, w.tokenStream); err != nil {
+					return nil, err
+				}
 			} else {
-				indexer.AddField("shadowed_field", highlight.NewOffsetLimitTokenFilter(w.tokenStream, w.maxDocCharsToAnalyze))
+				if err := indexer.AddField(delegatingLeafReaderFieldName,
+					highlight.NewOffsetLimitTokenFilter(w.tokenStream, w.maxDocCharsToAnalyze)); err != nil {
+					return nil, err
+				}
 			}
-			searcher, err := indexer.CreateSearcher()
-			if err != nil {
-				return nil, err
-			}
+			searcher := indexer.CreateSearcher()
 			// MEM index has only atomic ctx
 			topContext, ok := searcher.GetTopReaderContext().(*index.LeafReaderContext)
 			if !ok {
@@ -401,6 +405,7 @@ func (w *WeightedSpanTermExtractor) getLeafContext() (index.IndexReaderContext, 
 			w.internalReader = topContext.LeafReader()
 		}
 
+		// Now wrap it so we always use a common field.
 		w.internalReader = newDelegatingLeafReader(w.internalReader)
 	}
 	return w.internalReader.GetContext()
