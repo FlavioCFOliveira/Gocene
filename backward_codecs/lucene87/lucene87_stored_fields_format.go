@@ -52,10 +52,16 @@ const (
 )
 
 var (
-	// BestCompressionMode mirrors org.apache.lucene.backward_codecs.lucene87.Lucene87StoredFieldsFormat.BEST_COMPRESSION_MODE.
-	BestCompressionMode = compressing.NewCompressionMode("DeflateWithPresetDictCompressionMode")
-	// BestSpeedMode mirrors org.apache.lucene.backward_codecs.lucene87.Lucene87StoredFieldsFormat.BEST_SPEED_MODE.
-	BestSpeedMode = compressing.NewCompressionMode("LZ4WithPresetDictCompressionMode")
+	// BestCompressionMode is the compression mode BEST_COMPRESSION uses.
+	//
+	// Mirrors {@code static final CompressionMode BEST_COMPRESSION_MODE =
+	// new DeflateWithPresetDictCompressionMode();}.
+	BestCompressionMode compressing.CompressionMode = NewDeflateWithPresetDictCompressionMode()
+	// BestSpeedMode is the compression mode BEST_SPEED uses.
+	//
+	// Mirrors {@code static final CompressionMode BEST_SPEED_MODE =
+	// new LZ4WithPresetDictCompressionMode();}.
+	BestSpeedMode compressing.CompressionMode = NewLZ4WithPresetDictCompressionMode()
 )
 
 // Lucene87StoredFieldsFormat mirrors org.apache.lucene.backward_codecs.lucene87.Lucene87StoredFieldsFormat.
@@ -90,7 +96,11 @@ func (f *Lucene87StoredFieldsFormat) FieldsReader(dir store.Directory, si *spi.S
 	if err != nil {
 		return nil, err
 	}
-	return f.impl(mode).FieldsReader(dir, si, fn, context)
+	format, err := f.impl(mode)
+	if err != nil {
+		return nil, err
+	}
+	return format.FieldsReader(dir, si, fn, context)
 }
 
 // FieldsWriter is not supported for old codecs.
@@ -98,17 +108,20 @@ func (f *Lucene87StoredFieldsFormat) FieldsWriter(dir store.Directory, si *spi.S
 	return nil, fmt.Errorf("old codecs may only be used for reading")
 }
 
-func (f *Lucene87StoredFieldsFormat) impl(mode Mode) spi.StoredFieldsFormat {
+// impl reproduces {@code StoredFieldsFormat impl(Mode mode)}.
+//
+// Java's switch has no checked exception; the Go constructor validates its
+// arguments and returns an error, which cannot fire for these literals but is
+// propagated rather than discarded.
+func (f *Lucene87StoredFieldsFormat) impl(mode Mode) (spi.StoredFieldsFormat, error) {
 	switch mode {
 	case BestSpeed:
-		// Java: return new Lucene50CompressingStoredFieldsFormat("Lucene87StoredFieldsFastData", BEST_SPEED_MODE, BEST_SPEED_BLOCK_LENGTH, 1024, 10);
-		// Note: Gocene stub currently only takes formatName.
-		return lucene50compressing.NewLucene50CompressingStoredFieldsFormat("Lucene87StoredFieldsFastData")
+		return lucene50compressing.NewLucene50CompressingStoredFieldsFormat(
+			"Lucene87StoredFieldsFastData", BestSpeedMode, bestSpeedBlockLength, 1024, 10)
 	case BestCompression:
-		// Java: return new Lucene50CompressingStoredFieldsFormat("Lucene87StoredFieldsHighData", BEST_COMPRESSION_MODE, BEST_COMPRESSION_BLOCK_LENGTH, 4096, 10);
-		// Note: Gocene stub currently only takes formatName.
-		return lucene50compressing.NewLucene50CompressingStoredFieldsFormat("Lucene87StoredFieldsHighData")
+		return lucene50compressing.NewLucene50CompressingStoredFieldsFormat(
+			"Lucene87StoredFieldsHighData", BestCompressionMode, bestCompressionBlockLength, 4096, 10)
 	default:
-		panic("unsupported mode")
+		return nil, fmt.Errorf("unsupported mode: %v", mode)
 	}
 }

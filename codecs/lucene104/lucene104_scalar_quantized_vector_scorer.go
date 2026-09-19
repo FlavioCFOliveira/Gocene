@@ -445,17 +445,3 @@ func quantizedScore(
 	score = min(max(score, -1), 1)
 	return (1 + score) / 2, nil
 }
-
-// unpackNibbles renders the package-private static
-// OffHeapScalarQuantizedVectorValues.unpackNibbles(byte[], byte[]) of
-// Apache Lucene 10.5.0. It lives here until
-// org.apache.lucene.codecs.lucene104.OffHeapScalarQuantizedVectorValues is
-// ported, which is the class that declares it; the body is the Java one, and
-// the Java assert unpacked.length == packed.length * 2 is a precondition of
-// the single caller, ScalarQuantizedVectorScorerSupplier.scorer().
-func unpackNibbles(packed, unpacked []byte) {
-	for i := 0; i < len(packed); i++ {
-		unpacked[i] = (packed[i] >> 4) & 0x0F
-		unpacked[len(packed)+i] = packed[i] & 0x0F
-	}
-}

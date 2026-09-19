@@ -500,7 +500,7 @@ type TopTermsScoringBooleanQueryRewrite struct {
 // instead.
 func NewTopTermsScoringBooleanQueryRewrite(size int) *TopTermsScoringBooleanQueryRewrite {
 	r := &TopTermsScoringBooleanQueryRewrite{}
-	r.TopTermsRewrite = newTopTermsRewrite[*BooleanQueryBuilder](size, r)
+	r.TopTermsRewrite = NewTopTermsRewrite[*BooleanQueryBuilder](size, r)
 	return r
 }
 
@@ -513,8 +513,8 @@ func (r *TopTermsScoringBooleanQueryRewrite) GetTopLevelBuilder() (*BooleanQuery
 }
 
 // Build returns {@code builder.build()}.
-func (r *TopTermsScoringBooleanQueryRewrite) Build(builder *BooleanQueryBuilder) Query {
-	return builder.Build()
+func (r *TopTermsScoringBooleanQueryRewrite) Build(builder *BooleanQueryBuilder) (Query, error) {
+	return builder.Build(), nil
 }
 
 // AddClause reproduces
@@ -550,7 +550,7 @@ type TopTermsBlendedFreqScoringRewrite struct {
 // instead.
 func NewTopTermsBlendedFreqScoringRewrite(size int) *TopTermsBlendedFreqScoringRewrite {
 	r := &TopTermsBlendedFreqScoringRewrite{}
-	r.TopTermsRewrite = newTopTermsRewrite[*BlendedTermQueryBuilder](size, r)
+	r.TopTermsRewrite = NewTopTermsRewrite[*BlendedTermQueryBuilder](size, r)
 	return r
 }
 
@@ -569,8 +569,8 @@ func (r *TopTermsBlendedFreqScoringRewrite) GetTopLevelBuilder() (*BlendedTermQu
 }
 
 // Build returns {@code builder.build()}.
-func (r *TopTermsBlendedFreqScoringRewrite) Build(builder *BlendedTermQueryBuilder) Query {
-	return builder.Build()
+func (r *TopTermsBlendedFreqScoringRewrite) Build(builder *BlendedTermQueryBuilder) (Query, error) {
+	return builder.Build(), nil
 }
 
 // AddClause reproduces {@code topLevel.add(term, boost, states);}.
@@ -600,7 +600,7 @@ type TopTermsBoostOnlyBooleanQueryRewrite struct {
 // instead.
 func NewTopTermsBoostOnlyBooleanQueryRewrite(size int) *TopTermsBoostOnlyBooleanQueryRewrite {
 	r := &TopTermsBoostOnlyBooleanQueryRewrite{}
-	r.TopTermsRewrite = newTopTermsRewrite[*BooleanQueryBuilder](size, r)
+	r.TopTermsRewrite = NewTopTermsRewrite[*BooleanQueryBuilder](size, r)
 	return r
 }
 
@@ -613,8 +613,8 @@ func (r *TopTermsBoostOnlyBooleanQueryRewrite) GetTopLevelBuilder() (*BooleanQue
 }
 
 // Build returns {@code builder.build()}.
-func (r *TopTermsBoostOnlyBooleanQueryRewrite) Build(builder *BooleanQueryBuilder) Query {
-	return builder.Build()
+func (r *TopTermsBoostOnlyBooleanQueryRewrite) Build(builder *BooleanQueryBuilder) (Query, error) {
+	return builder.Build(), nil
 }
 
 // AddClause reproduces

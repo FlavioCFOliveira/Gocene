@@ -13,6 +13,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/queryparser"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // ComplexPhraseQueryParser extends the classic QueryParser with phrase-level
@@ -173,10 +174,22 @@ func (p *ComplexPhraseQueryParser) buildSpan(field, phrase string, slop int) (se
 // spanClauseForToken returns the SpanQuery clause appropriate for a single
 // token. Tokens containing '*' or '?' use SpanMultiTermQueryWrapper around the
 // corresponding multi-term query; plain tokens use SpanTermQuery.
+//
+// The MultiTermQuery is a WildcardQuery, which is what
+// QueryParserBase.getWildcardQuery(String, String) builds, carrying
+// MultiTermQuery.SCORING_BOOLEAN_REWRITE, which
+// ComplexPhraseQueryParser.parse installs for the duration of the
+// phrase-resolving pass ("Temporarily force BooleanQuery rewrite so that
+// Parser will generate visible collection of terms which we can convert into
+// SpanQueries").
 func spanClauseForToken(field, tok string) spans.SpanQuery {
 	if strings.ContainsAny(tok, "*?") {
-		mt := search.NewMultiTermQuery(field, index.NewTerm(field, tok))
-		return spans.NewSpanMultiTermQueryWrapper(mt)
+		wq := search.NewWildcardQueryWithRewrite(
+			index.NewTerm(field, tok),
+			automaton.DefaultDeterminizeWorkLimit,
+			search.ScoringBooleanRewrite,
+		)
+		return spans.NewSpanMultiTermQueryWrapper(&wq.MultiTermQuery)
 	}
 	return spans.NewSpanTermQuery(index.NewTerm(field, tok))
 }

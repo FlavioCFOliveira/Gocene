@@ -48,8 +48,11 @@ type TopTermsRewriteDelegate[B any] interface {
 
 	// Build finalizes the creation of the query from the builder.
 	//
-	// Mirrors {@code protected abstract Query build(B builder)}.
-	Build(builder B) Query
+	// Mirrors {@code protected abstract Query build(B builder)}. Java's
+	// signature declares no checked exception; the Go error return carries
+	// the unchecked IllegalArgumentException a builder may raise (for
+	// example SpanOrQuery's "Clauses must have same field").
+	Build(builder B) (Query, error)
 
 	// AddClause adds a MultiTermQuery term to the top-level query builder.
 	//
@@ -69,14 +72,16 @@ type TopTermsRewrite[B any] struct {
 	delegate TopTermsRewriteDelegate[B]
 }
 
-// newTopTermsRewrite creates a TopTermsRewrite for at most size terms, backed
+// NewTopTermsRewrite creates a TopTermsRewrite for at most size terms, backed
 // by the supplied delegate.
 //
 // Mirrors {@code public TopTermsRewrite(int size)}. The delegate parameter is
-// the Go stand-in for the subclass body that Java reaches through {@code this};
-// it is unexported because a TopTermsRewrite is only ever constructed from one
-// of the three concrete rewrites MultiTermQuery declares.
-func newTopTermsRewrite[B any](size int, delegate TopTermsRewriteDelegate[B]) *TopTermsRewrite[B] {
+// the Go stand-in for the subclass body that Java reaches through {@code this}.
+// Lucene declares the class package-private but its constructor public, and
+// org.apache.lucene.queries.spans.SpanMultiTermQueryWrapper subclasses it from
+// another package (TopTermsSpanBooleanQueryRewrite), so the Go constructor is
+// exported to keep that subclass expressible.
+func NewTopTermsRewrite[B any](size int, delegate TopTermsRewriteDelegate[B]) *TopTermsRewrite[B] {
 	return &TopTermsRewrite[B]{size: size, delegate: delegate}
 }
 
@@ -146,7 +151,7 @@ func (r *TopTermsRewrite[B]) Rewrite(searcher *IndexSearcher, query *MultiTermQu
 			return nil, err
 		}
 	}
-	return r.delegate.Build(b), nil
+	return r.delegate.Build(b)
 }
 
 // HashCode reproduces {@code public int hashCode() { return 31 * size; }}.
@@ -361,4 +366,41 @@ func (c *topTermsCollector) Collect(term *index.Term) (bool, error) {
 	}
 
 	return true, nil
+}
+
+// ─── instanceof TopTermsRewrite ─────────────────────────────────────────────
+
+// topTermsRewriteMarker is the method set a value carries when, in Java, it
+// *is* a TopTermsRewrite: the public getSize() accessor plus a discriminator
+// only [TopTermsRewrite] can contribute, since the marker method is unexported
+// and therefore unimplementable outside this package.
+type topTermsRewriteMarker interface {
+	GetSize() int
+	topTermsRewrite()
+}
+
+// topTermsRewrite is the discriminator that makes [topTermsRewriteMarker]
+// identify a TopTermsRewrite and nothing else. Embedding a *TopTermsRewrite[B]
+// promotes it, exactly as extending the class does in Java.
+func (r *TopTermsRewrite[B]) topTermsRewrite() {}
+
+// AsTopTermsRewrite renders Java's
+//
+//	if (method instanceof TopTermsRewrite) {
+//	  final int pqsize = ((TopTermsRewrite<?>) method).getSize();
+//
+// which Go cannot spell directly: TopTermsRewrite is generic, and a type
+// assertion cannot bind its type parameter the way Java's wildcard does. The
+// test is therefore performed against the class's own method set. It reports
+// whether method is a TopTermsRewrite and, when it is, its priority-queue
+// size.
+//
+// Only Apache Lucene 10.5.0's SpanMultiTermQueryWrapper.selectRewriteMethod
+// performs this test.
+func AsTopTermsRewrite(method RewriteMethod) (size int, ok bool) {
+	m, ok := method.(topTermsRewriteMarker)
+	if !ok {
+		return 0, false
+	}
+	return m.GetSize(), true
 }

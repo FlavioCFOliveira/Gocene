@@ -28,19 +28,47 @@ const (
 // Mirrors org.apache.lucene.queries.spans.SpanTermQuery.
 //
 // Deviations from Java:
-//   - Java holds a TermStates that is pre-built; Gocene performs a live
-//     SeekExact + Postings call in GetSpans because TermStates is a skeleton
-//     (backlog #2709) without a Build helper.
+//   - Java's createWeight resolves the TermStates up front (building one with
+//     TermStates.build when the stored one was not built for the searcher's
+//     top context) and seeks with it; Gocene's SpanWeight performs a live
+//     SeekExact + Postings call in GetSpans instead. The termStates field is
+//     therefore carried and returned by GetTermStates, as Java declares, but
+//     is not yet consumed by the weight.
 //   - The inner SpanTermWeight is a package-level struct, not an inner class.
 type SpanTermQuery struct {
 	search.BaseQuery
-	term *index.Term
+	term       *index.Term
+	termStates *index.TermStates
 }
 
-// NewSpanTermQuery constructs a SpanTermQuery for the given term.
+// NewSpanTermQuery constructs a SpanTermQuery matching the named term's spans.
+//
+// Mirrors {@code public SpanTermQuery(Term term)}, whose body leaves
+// termStates null.
 func NewSpanTermQuery(term *index.Term) *SpanTermQuery {
+	if term == nil {
+		panic("term must not be null")
+	}
 	return &SpanTermQuery{term: term}
 }
+
+// NewSpanTermQueryWithTermStates is the expert constructor: it builds a
+// SpanTermQuery matching the named term's spans, using the provided
+// TermStates.
+//
+// Mirrors {@code public SpanTermQuery(Term term, TermStates termStates)}.
+func NewSpanTermQueryWithTermStates(term *index.Term, termStates *index.TermStates) *SpanTermQuery {
+	if term == nil {
+		panic("term must not be null")
+	}
+	return &SpanTermQuery{term: term, termStates: termStates}
+}
+
+// GetTermStates returns the TermStates passed to the constructor, or nil if it
+// was not passed.
+//
+// Mirrors {@code public TermStates getTermStates()} (@lucene.experimental).
+func (q *SpanTermQuery) GetTermStates() *index.TermStates { return q.termStates }
 
 // GetField returns the field targeted by this query.
 func (q *SpanTermQuery) GetField() string { return q.term.Field }

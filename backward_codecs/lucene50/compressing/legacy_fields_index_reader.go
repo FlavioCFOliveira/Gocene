@@ -14,24 +14,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
 
-// LegacyFieldsIndex is the minimal interface shared by
-// LegacyFieldsIndexReader and any future implementations in this package.
-// It mirrors the Java abstract class
-// org.apache.lucene.backward_codecs.lucene50.compressing.FieldsIndex.
-type LegacyFieldsIndex interface {
-	// GetStartPointer returns the file offset of the chunk that contains docID.
-	GetStartPointer(docID int) (int64, error)
-
-	// CheckIntegrity verifies the index.
-	CheckIntegrity() error
-
-	// Clone returns a snapshot of this index (may return self for immutable readers).
-	Clone() LegacyFieldsIndex
-
-	// Close releases resources.
-	Close() error
-}
-
 // LegacyFieldsIndexReader reads and queries the fields-index written by the
 // Lucene 5.0 compressing stored-fields format.
 //
@@ -255,7 +237,7 @@ func (r *LegacyFieldsIndexReader) CheckIntegrity() error { return nil }
 // Clone returns the receiver — LegacyFieldsIndexReader is immutable.
 //
 // Port of LegacyFieldsIndexReader.clone() which returns this.
-func (r *LegacyFieldsIndexReader) Clone() LegacyFieldsIndex { return r }
+func (r *LegacyFieldsIndexReader) Clone() FieldsIndex { return r }
 
 // Close is a no-op — there are no resources to release.
 //
@@ -268,7 +250,7 @@ func (r *LegacyFieldsIndexReader) String() string {
 }
 
 // compile-time assertion
-var _ LegacyFieldsIndex = (*LegacyFieldsIndexReader)(nil)
+var _ FieldsIndex = (*LegacyFieldsIndexReader)(nil)
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 

@@ -620,21 +620,6 @@ func packQuantized(encoding quantization.ScalarEncoding, scratch, packed []byte)
 	}
 }
 
-// packNibbles packs the per-dimension 4-bit values in unpacked into packed,
-// striped so packed[i] = (unpacked[i] << 4) | unpacked[len(packed)+i]. Mirrors
-// org.apache.lucene.codecs.lucene104.OffHeapScalarQuantizedVectorValues.packNibbles
-// (Lucene 10.4.0) and is the exact inverse of the read-side unpackNibblesPacked.
-func packNibbles(unpacked, packed []byte) error {
-	if len(unpacked) != len(packed)*2 {
-		return fmt.Errorf("lucene104 sq: packNibbles: unpacked len %d != 2*packed len %d", len(unpacked), len(packed))
-	}
-	n := len(packed)
-	for i := 0; i < n; i++ {
-		packed[i] = byte(int(unpacked[i])<<4 | int(unpacked[n+i]))
-	}
-	return nil
-}
-
 // writeFloatsLE writes each float32 in vals as a little-endian int32 bit
 // pattern. Mirrors Java's ByteBuffer(LITTLE_ENDIAN).asFloatBuffer().put(...)
 // followed by writeBytes, which is the centroid serialisation in writeMeta.

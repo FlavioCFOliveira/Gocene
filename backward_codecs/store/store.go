@@ -509,3 +509,75 @@ func CreateOutput(dir gstore.Directory, name string, ctx gstore.IOContext) (*End
 	}
 	return NewEndiannessReverserIndexOutput(out), nil
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EndiannessReverserIndexInput.EndiannessReverserRandomAccessInput
+// ─────────────────────────────────────────────────────────────────────────────
+
+// EndiannessReverserRandomAccessInput is a RandomAccessInput wrapper that
+// changes the endianness of the provided index input.
+//
+// Port of the public static nested class
+// org.apache.lucene.backward_codecs.store.EndiannessReverserIndexInput.EndiannessReverserRandomAccessInput
+// (Lucene 10.5.0, @lucene.internal).
+type EndiannessReverserRandomAccessInput struct {
+	in gstore.RandomAccessInput
+}
+
+// NewEndiannessReverserRandomAccessInput wraps in so that short/int/long reads
+// are byte-swapped.
+//
+// Mirrors {@code public EndiannessReverserRandomAccessInput(RandomAccessInput in)}.
+func NewEndiannessReverserRandomAccessInput(in gstore.RandomAccessInput) *EndiannessReverserRandomAccessInput {
+	return &EndiannessReverserRandomAccessInput{in: in}
+}
+
+// Length reproduces {@code return in.length();}.
+func (r *EndiannessReverserRandomAccessInput) Length() int64 { return r.in.Length() }
+
+// ReadByteAt reproduces {@code return in.readByte(pos);}.
+func (r *EndiannessReverserRandomAccessInput) ReadByteAt(pos int64) (byte, error) {
+	return r.in.ReadByteAt(pos)
+}
+
+// ReadShortAt reproduces {@code return Short.reverseBytes(in.readShort(pos));}.
+func (r *EndiannessReverserRandomAccessInput) ReadShortAt(pos int64) (int16, error) {
+	v, err := r.in.ReadShortAt(pos)
+	return int16(bits.ReverseBytes16(uint16(v))), err
+}
+
+// ReadIntAt reproduces {@code return Integer.reverseBytes(in.readInt(pos));}.
+func (r *EndiannessReverserRandomAccessInput) ReadIntAt(pos int64) (int32, error) {
+	v, err := r.in.ReadIntAt(pos)
+	return int32(bits.ReverseBytes32(uint32(v))), err
+}
+
+// ReadLongAt reproduces {@code return Long.reverseBytes(in.readLong(pos));}.
+func (r *EndiannessReverserRandomAccessInput) ReadLongAt(pos int64) (int64, error) {
+	v, err := r.in.ReadLongAt(pos)
+	return int64(bits.ReverseBytes64(uint64(v))), err
+}
+
+var _ gstore.RandomAccessInput = (*EndiannessReverserRandomAccessInput)(nil)
+
+// RandomAccessSlice reproduces
+//
+//	return new EndiannessReverserRandomAccessInput(in.randomAccessSlice(offset, length));
+//
+// org.apache.lucene.store.IndexInput declares randomAccessSlice with a default
+// body that slices the input and returns the slice itself when it already
+// supports random access; store.IndexInput does not carry the member, so this
+// renders that body here — the same spelling
+// codecs/lucene95.OrdToDocDISIReaderConfiguration uses.
+func (r *EndiannessReverserIndexInput) RandomAccessSlice(offset, length int64) (gstore.RandomAccessInput, error) {
+	slice, err := r.FilterIndexInput.GetDelegate().Slice("randomaccess", offset, length)
+	if err != nil {
+		return nil, err
+	}
+	randomAccess, ok := slice.(gstore.RandomAccessInput)
+	if !ok {
+		return nil, fmt.Errorf("backward_codecs/store: slice %T of %T does not support random access",
+			slice, r.FilterIndexInput.GetDelegate())
+	}
+	return NewEndiannessReverserRandomAccessInput(randomAccess), nil
+}

@@ -101,24 +101,16 @@ func (f *Lucene104ScalarQuantizedVectorsFormat) FlatFieldsWriter(state *codecs.S
 	return NewLucene104ScalarQuantizedVectorsWriter(state, f.encoding, rawVectorDelegate, scorer)
 }
 
-// FlatFieldsReader mirrors Java's fieldsReader(SegmentReadState), whose body
-// is
+// FlatFieldsReader mirrors fieldsReader(SegmentReadState), whose body is
 //
-//	new Lucene104ScalarQuantizedVectorsReader(
-//	    state, rawVectorFormat.fieldsReader(state), scorer)
-//
-// This does not compile today, and deliberately so: the in-package
-// [Lucene104ScalarQuantizedVectorsReader] is an incomplete port of
-// org.apache.lucene.codecs.lucene104.Lucene104ScalarQuantizedVectorsReader —
-// it reads and validates the .vemq/.veq framing and metadata but implements
-// none of the value-access surface (getFloatVectorValues, getByteVectorValues,
-// search, getFlatVectorScorer, ramBytesUsed, getOffHeapByteSize), so it is not
-// a FlatVectorsReader. Completing it requires
-// org.apache.lucene.codecs.lucene104.OffHeapScalarQuantizedVectorValues, which
-// is not ported. Per CLAUDE.md § 2.1 and § 2.2 the resulting compile error is
-// left standing rather than suppressed or satisfied with stubbed members.
+//	return new Lucene104ScalarQuantizedVectorsReader(
+//	    state, rawVectorFormat.fieldsReader(state), scorer);
 func (f *Lucene104ScalarQuantizedVectorsFormat) FlatFieldsReader(state *codecs.SegmentReadState) (hnsw.FlatVectorsReader, error) {
-	return NewLucene104ScalarQuantizedVectorsReader(state, f.encoding)
+	rawVectorsReader, err := rawVectorFormat.FlatFieldsReader(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewLucene104ScalarQuantizedVectorsReader(state, rawVectorsReader, scorer)
 }
 
 // GetMaxDimensions returns the largest vector dimensionality this

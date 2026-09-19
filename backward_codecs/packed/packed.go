@@ -5,14 +5,6 @@ package packed
 // metadata so the codec registry can resolve segments written by the
 // matching Lucene version.
 
-// LegacyDirectMonotonicReader mirrors org.apache.lucene.backward_codecs.packed.LegacyDirectMonotonicReader.
-type LegacyDirectMonotonicReader struct{ Name, Version string }
-
-// NewLegacyDirectMonotonicReader builds a LegacyDirectMonotonicReader with the supplied version.
-func NewLegacyDirectMonotonicReader(version string) *LegacyDirectMonotonicReader {
-	return &LegacyDirectMonotonicReader{Name: "LegacyDirectMonotonicReader", Version: version}
-}
-
 // LegacyDirectMonotonicMeta holds the per-block metadata loaded from the index
 // for a LegacyDirectMonotonicReader instance.
 //
@@ -51,14 +43,6 @@ type LegacyDirectMonotonicWriter struct{ Name, Version string }
 // NewLegacyDirectMonotonicWriter builds a LegacyDirectMonotonicWriter with the supplied version.
 func NewLegacyDirectMonotonicWriter(version string) *LegacyDirectMonotonicWriter {
 	return &LegacyDirectMonotonicWriter{Name: "LegacyDirectMonotonicWriter", Version: version}
-}
-
-// LegacyDirectReader mirrors org.apache.lucene.backward_codecs.packed.LegacyDirectReader.
-type LegacyDirectReader struct{ Name, Version string }
-
-// NewLegacyDirectReader builds a LegacyDirectReader with the supplied version.
-func NewLegacyDirectReader(version string) *LegacyDirectReader {
-	return &LegacyDirectReader{Name: "LegacyDirectReader", Version: version}
 }
 
 // LegacyDirectWriter mirrors org.apache.lucene.backward_codecs.packed.LegacyDirectWriter.
