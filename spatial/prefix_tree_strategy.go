@@ -188,7 +188,7 @@ func (s *PrefixTreeStrategy) makeIntersectsQuery(shape Shape) (search.Query, err
 
 	if len(cells) == 0 {
 		// No cells means no matches
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 
 	// Extract unique cell tokens
@@ -203,13 +203,13 @@ func (s *PrefixTreeStrategy) makeIntersectsQuery(shape Shape) (search.Query, err
 	}
 
 	// Create a BooleanQuery with TermQuery clauses (OR)
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, token := range tokens {
 		term := index.NewTerm(s.prefixGridFieldName, token)
 		tq := search.NewTermQuery(term)
 		bq.Add(tq, search.SHOULD)
 	}
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // makeIsWithinQuery creates a query for shapes that are within the query shape.

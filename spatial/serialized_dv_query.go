@@ -103,7 +103,7 @@ func (q *serializedDVQuery) HashCode() int {
 
 // Rewrite returns the query itself; the doc-values predicate cannot be
 // reduced to a primitive Term query.
-func (q *serializedDVQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
+func (q *serializedDVQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
 	return q, nil
 }
 
@@ -113,7 +113,7 @@ func (q *serializedDVQuery) Rewrite(reader search.IndexReader) (search.Query, er
 // document in the leaf. Without a BinaryDocValues path the weight
 // scores zero documents — see the type doc for the foundation-gap
 // rationale.
-func (q *serializedDVQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
+func (q *serializedDVQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
 	return &serializedDVWeight{
 		BaseWeight: search.NewBaseWeight(q),
 		query:      q,
@@ -134,11 +134,11 @@ type serializedDVWeight struct {
 // when the leaf reader does not yet expose binary doc values.
 func (w *serializedDVWeight) Scorer(ctx *index.LeafReaderContext) (search.Scorer, error) {
 	if ctx == nil {
-		return search.NewMatchNoDocsScorer(w), nil
+		return nil, nil
 	}
 	reader := ctx.LeafReader()
 	if reader == nil {
-		return search.NewMatchNoDocsScorer(w), nil
+		return nil, nil
 	}
 
 	type binaryDVReader interface {
@@ -146,23 +146,23 @@ func (w *serializedDVWeight) Scorer(ctx *index.LeafReaderContext) (search.Scorer
 	}
 	r, ok := reader.(binaryDVReader)
 	if !ok {
-		return search.NewMatchNoDocsScorer(w), nil
+		return nil, nil
 	}
 	bdv, err := r.GetBinaryDocValues(w.query.strategy.dvFieldName)
 	if err != nil {
 		return nil, err
 	}
 	if bdv == nil {
-		return search.NewMatchNoDocsScorer(w), nil
+		return nil, nil
 	}
 
 	maxDocReader, ok := reader.(interface{ MaxDoc() int })
 	if !ok {
-		return search.NewMatchNoDocsScorer(w), nil
+		return nil, nil
 	}
 
 	return &serializedDVScorer{
-		BaseScorer: search.NewBaseScorer(w),
+		BaseScorer: &search.BaseScorer{},
 		weight:     w,
 		bdv:        bdv,
 		maxDoc:     maxDocReader.MaxDoc(),
@@ -180,7 +180,7 @@ func (w *serializedDVWeight) ScorerSupplier(ctx *index.LeafReaderContext) (searc
 	if scorer == nil {
 		return nil, nil
 	}
-	return search.NewScorerSupplierAdapter(scorer), nil
+	return search.NewDefaultScorerSupplier(scorer), nil
 }
 
 // Explain reports a coarse explanation: matched or not matched.
@@ -192,7 +192,7 @@ func (w *serializedDVWeight) Explain(ctx *index.LeafReaderContext, doc int) (sea
 	if scorer == nil {
 		return search.NewExplanation(false, 0, w.query.String()+", no match"), nil
 	}
-	target, err := scorer.Advance(doc)
+	target, err := scorer.Iterator().Advance(doc)
 	if err != nil {
 		return nil, err
 	}
@@ -294,9 +294,26 @@ func (s *serializedDVScorer) Advance(target int) (int, error) {
 	return s.NextDoc()
 }
 
-func (s *serializedDVScorer) Score() float32            { return s.score }
+func (s *serializedDVScorer) Score() (float32, error)   { return s.score, nil }
 func (s *serializedDVScorer) Cost() int64               { return int64(s.maxDoc) }
 func (s *serializedDVScorer) DocIDRunEnd() (int, error) { return s.maxDoc, nil }
+
+// Iterator mirrors Scorer.iterator(), which returns the DocIdSetIterator view
+// of this scorer. serializedDVScorer carries the whole DocIdSetIterator member
+// set itself, so the view is the scorer.
+func (s *serializedDVScorer) Iterator() search.DocIdSetIterator { return s }
+
+// GetMaxScore mirrors ConstantScoreScorer.getMaxScore(int) of Apache Lucene
+// 10.5.0 (ConstantScoreScorer.java:126), which returns the constant score for
+// every document range.
+func (s *serializedDVScorer) GetMaxScore(upTo int) (float32, error) { return s.score, nil }
+
+// NextDocsAndScores carries the concrete body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) of Apache
+// Lucene 10.5.0, which dispatches back to iterator(), docID() and score().
+func (s *serializedDVScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
 
 // predicate decodes the BinaryDocValues payload for doc and applies
 // the configured spatial operation against the query shape. Errors

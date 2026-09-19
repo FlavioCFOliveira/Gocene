@@ -159,10 +159,10 @@ func (s *PointVectorStrategy) makeIntersectsQuery(shape Shape) (search.Query, er
 	}
 
 	// Combine with BooleanQuery (AND)
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(xRangeQuery, search.MUST)
 	bq.Add(yRangeQuery, search.MUST)
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // makeIsWithinQuery creates a query for points within the query shape.

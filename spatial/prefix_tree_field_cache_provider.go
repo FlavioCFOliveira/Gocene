@@ -104,7 +104,7 @@ func (p *SpatialPrefixTreeFieldCacheProvider) GetPrefixTree() SpatialPrefixTree 
 //   - reader: The index reader to cache values for
 //
 // Returns a FieldCacheEntry containing cached values for the reader.
-func (p *SpatialPrefixTreeFieldCacheProvider) GetCacheEntry(reader *index.IndexReader) (*FieldCacheEntry, error) {
+func (p *SpatialPrefixTreeFieldCacheProvider) GetCacheEntry(reader index.LeafReader) (*FieldCacheEntry, error) {
 	if reader == nil {
 		return nil, fmt.Errorf("reader cannot be nil")
 	}
@@ -147,7 +147,7 @@ func (p *SpatialPrefixTreeFieldCacheProvider) GetCacheEntry(reader *index.IndexR
 // postings, and records the term's token against every document the
 // postings enumerator yields. The resulting FieldCacheEntry maps docID
 // to the list of cell tokens that document was indexed under.
-func (p *SpatialPrefixTreeFieldCacheProvider) createCacheEntry(reader *index.IndexReader) (*FieldCacheEntry, error) {
+func (p *SpatialPrefixTreeFieldCacheProvider) createCacheEntry(reader index.LeafReader) (*FieldCacheEntry, error) {
 	maxDoc := reader.MaxDoc()
 	entry := &FieldCacheEntry{
 		fieldName:  p.fieldName,
@@ -231,7 +231,7 @@ func populateEntryFromTerms(entry *FieldCacheEntry, terms index.Terms) error {
 //   - reader: The index reader
 //
 // Returns the slice of cell tokens for the document.
-func (p *SpatialPrefixTreeFieldCacheProvider) GetCellTokens(docID int, reader *index.IndexReader) ([]string, error) {
+func (p *SpatialPrefixTreeFieldCacheProvider) GetCellTokens(docID int, reader index.LeafReader) ([]string, error) {
 	if docID < 0 {
 		return nil, fmt.Errorf("docID cannot be negative")
 	}
@@ -272,7 +272,7 @@ func (p *SpatialPrefixTreeFieldCacheProvider) GetCellTokens(docID int, reader *i
 // lazy load just consults the already-built table. This mirrors
 // Lucene's ShapeFieldCacheProvider, which similarly materialises the
 // cache for the whole reader on first access rather than per doc.
-func (p *SpatialPrefixTreeFieldCacheProvider) loadTokensForDoc(docID int, reader *index.IndexReader) ([]string, error) {
+func (p *SpatialPrefixTreeFieldCacheProvider) loadTokensForDoc(docID int, reader index.LeafReader) ([]string, error) {
 	entry, err := p.GetCacheEntry(reader)
 	if err != nil {
 		return nil, err
@@ -287,7 +287,7 @@ func (p *SpatialPrefixTreeFieldCacheProvider) loadTokensForDoc(docID int, reader
 }
 
 // HasValues returns true if the document has cached values.
-func (p *SpatialPrefixTreeFieldCacheProvider) HasValues(docID int, reader *index.IndexReader) bool {
+func (p *SpatialPrefixTreeFieldCacheProvider) HasValues(docID int, reader index.LeafReader) bool {
 	entry, err := p.GetCacheEntry(reader)
 	if err != nil {
 		return false
@@ -308,7 +308,7 @@ func (p *SpatialPrefixTreeFieldCacheProvider) HasValues(docID int, reader *index
 //   - reader: The index reader
 //
 // Returns the parsed Cell or an error if parsing fails.
-func (p *SpatialPrefixTreeFieldCacheProvider) GetCell(docID int, tokenIndex int, reader *index.IndexReader) (Cell, error) {
+func (p *SpatialPrefixTreeFieldCacheProvider) GetCell(docID int, tokenIndex int, reader index.LeafReader) (Cell, error) {
 	tokens, err := p.GetCellTokens(docID, reader)
 	if err != nil {
 		return nil, err
@@ -328,7 +328,7 @@ func (p *SpatialPrefixTreeFieldCacheProvider) GetCell(docID int, tokenIndex int,
 //   - reader: The index reader
 //
 // Returns a slice of parsed Cells.
-func (p *SpatialPrefixTreeFieldCacheProvider) GetAllCells(docID int, reader *index.IndexReader) ([]Cell, error) {
+func (p *SpatialPrefixTreeFieldCacheProvider) GetAllCells(docID int, reader index.LeafReader) ([]Cell, error) {
 	tokens, err := p.GetCellTokens(docID, reader)
 	if err != nil {
 		return nil, err
@@ -347,7 +347,7 @@ func (p *SpatialPrefixTreeFieldCacheProvider) GetAllCells(docID int, reader *ind
 }
 
 // Invalidate clears the cache for a specific reader.
-func (p *SpatialPrefixTreeFieldCacheProvider) Invalidate(reader *index.IndexReader) {
+func (p *SpatialPrefixTreeFieldCacheProvider) Invalidate(reader index.LeafReader) {
 	if reader == nil {
 		return
 	}
@@ -379,7 +379,7 @@ func (p *SpatialPrefixTreeFieldCacheProvider) CacheSize() int {
 
 // generateReaderKey generates a unique key for an index reader.
 // In a real implementation, this would use the reader's identity or version.
-func generateReaderKey(reader *index.IndexReader) string {
+func generateReaderKey(reader index.LeafReader) string {
 	if reader == nil {
 		return "r0_0"
 	}

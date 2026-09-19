@@ -49,7 +49,7 @@ func NewDistanceRangeQuery(fieldName string, center Point, minDistance, maxDista
 // Rewrite rewrites this query into a more primitive form.
 // For distance range queries, we create a donut-shaped search area
 // and find cells that intersect with this area.
-func (q *DistanceRangeQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
+func (q *DistanceRangeQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
 	// Create the outer search area (max distance)
 	outerMinLon := q.center.X - q.maxDistance
 	outerMaxLon := q.center.X + q.maxDistance
@@ -80,7 +80,7 @@ func (q *DistanceRangeQuery) Rewrite(reader search.IndexReader) (search.Query, e
 	}
 
 	if len(cells) == 0 {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 
 	// Extract unique cell tokens
@@ -95,7 +95,7 @@ func (q *DistanceRangeQuery) Rewrite(reader search.IndexReader) (search.Query, e
 	}
 
 	// Create a BooleanQuery with TermQuery clauses (OR)
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, token := range tokens {
 		term := index.NewTerm(q.fieldName, token)
 		tq := search.NewTermQuery(term)
@@ -103,7 +103,7 @@ func (q *DistanceRangeQuery) Rewrite(reader search.IndexReader) (search.Query, e
 	}
 	bq.SetMinimumNumberShouldMatch(1)
 
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // Clone creates a copy of this query.
@@ -133,12 +133,12 @@ func (q *DistanceRangeQuery) HashCode() int {
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *DistanceRangeQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	rewritten, err := q.Rewrite(searcher.GetIndexReader())
+func (q *DistanceRangeQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	rewritten, err := q.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
-	return rewritten.CreateWeight(searcher, needsScores, boost)
+	return rewritten.CreateWeight(searcher, scoreMode, boost)
 }
 
 // GetCenter returns the center point for this query.
@@ -165,6 +165,18 @@ func (q *DistanceRangeQuery) GetFieldName() string {
 func (q *DistanceRangeQuery) String() string {
 	return fmt.Sprintf("DistanceRangeQuery(field=%s, center=%v, min=%f, max=%f)",
 		q.fieldName, q.center, q.minDistance, q.maxDistance)
+}
+
+// Visit mirrors AbstractPrefixTreeQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (AbstractPrefixTreeQuery.java:82-86):
+//
+//	if (visitor.acceptField(fieldName)) {
+//	  visitor.visitLeaf(this);
+//	}
+func (q *DistanceRangeQuery) Visit(visitor search.QueryVisitor) {
+	if visitor.AcceptField(q.fieldName) {
+		visitor.VisitLeaf(q)
+	}
 }
 
 // Ensure DistanceRangeQuery implements Query

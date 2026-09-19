@@ -216,8 +216,8 @@ func ReadSpatialIndexFileHeader(in store.IndexInput) (*SpatialIndexFileHeader, e
 	}
 
 	return &SpatialIndexFileHeader{
-		Magic:   magic,
-		Version: version,
+		Magic:   uint32(magic),
+		Version: uint32(version),
 	}, nil
 }
 
