@@ -1,108 +1,192 @@
 package uhighlight
 
-import "fmt"
+import (
+	"fmt"
 
-// TermSource is the minimal interface over a term-indexed field that
-// TermVectorFilteredLeafReader uses as its "base" data source.  It mirrors the
-// LeafReader/Terms/TermsEnum path in the Java original at the level of
-// abstraction needed by the Go uhighlight package.
-type TermSource interface {
-	// TermEntries returns all TermVectorEntry items stored for the given field.
-	TermEntries(field string) []TermVectorEntry
-}
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
+)
 
-// TermVectorFilteredLeafReader wraps a base TermSource and exposes only the
-// terms that are also present in a filter term set (typically from a term
-// vector or MemoryIndex).  Term postings are read from the base source.
+// TermVectorFilteredLeafReader is a filtered LeafReader that only includes the
+// terms that are also in a provided set of terms. Certain methods may be
+// unimplemented or cause large operations on the underlying reader and be
+// slow.
 //
-// Mirrors org.apache.lucene.search.uhighlight.TermVectorFilteredLeafReader.
+// This is the Go port of
+// org.apache.lucene.search.uhighlight.TermVectorFilteredLeafReader from Apache
+// Lucene 10.5.0, which extends FilterLeafReader. NOTE: super ("in") is
+// baseLeafReader.
 type TermVectorFilteredLeafReader struct {
-	base        TermSource
-	filterTerms map[string]struct{} // terms present in the filter set
+	*index.FilterLeafReader
+
+	in          index.LeafReader
+	filterTerms index.Terms
 	fieldFilter string
 }
 
-// NewTermVectorFilteredLeafReader builds a reader that only exposes terms that
-// appear in filterEntries for fieldFilter; base is the authoritative source of
-// postings data.
-func NewTermVectorFilteredLeafReader(base TermSource, filterEntries []TermVectorEntry, fieldFilter string) *TermVectorFilteredLeafReader {
-	filter := make(map[string]struct{}, len(filterEntries))
-	for _, e := range filterEntries {
-		filter[e.Term] = struct{}{}
-	}
-	return &TermVectorFilteredLeafReader{
-		base:        base,
-		filterTerms: filter,
-		fieldFilter: fieldFilter,
-	}
-}
-
-// TermEntries returns TermVectorEntry items for field, filtered to those that
-// also appear in the filter term set when the requested field matches
-// fieldFilter.
-func (r *TermVectorFilteredLeafReader) TermEntries(field string) []TermVectorEntry {
-	all := r.base.TermEntries(field)
-	if field != r.fieldFilter {
-		return all
-	}
-	out := make([]TermVectorEntry, 0, len(all))
-	for _, e := range all {
-		if _, ok := r.filterTerms[e.Term]; ok {
-			out = append(out, e)
-		}
-	}
-	return out
-}
-
-// FilteredTermsIterator iterates over terms that are present in both the base
-// and filter term enumerators.  Navigation is driven by the filter; postings
-// are fetched from the base when the current filter term is confirmed to exist
-// in the base.
+// NewTermVectorFilteredLeafReader constructs a FilterLeafReader based on the
+// specified base reader. Renders
+// `TermVectorFilteredLeafReader(LeafReader baseLeafReader, Terms filterTerms,
+// String fieldFilter)` (TermVectorFilteredLeafReader.java:51).
 //
-// Mirrors the inner TermVectorFilteredTermsEnum in the Java original.
-type FilteredTermsIterator struct {
-	base    []TermVectorEntry // base term list (sorted by term)
-	filter  []TermVectorEntry // filter term list (sorted by term)
-	pos     int               // position in filter list
-	baseIdx map[string]int    // index into base by term
-}
-
-// NewFilteredTermsIterator builds an iterator.
-func NewFilteredTermsIterator(base, filter []TermVectorEntry) *FilteredTermsIterator {
-	idx := make(map[string]int, len(base))
-	for i, e := range base {
-		idx[e.Term] = i
-	}
-	return &FilteredTermsIterator{
-		base:    base,
-		filter:  filter,
-		pos:     -1,
-		baseIdx: idx,
+// Note that base reader is closed if this FilterLeafReader is closed.
+//
+// baseLeafReader is the full/original reader; filterTerms is the set of terms
+// to filter by -- probably from a TermVector or MemoryIndex; fieldFilter is
+// the field to do this on.
+func NewTermVectorFilteredLeafReader(baseLeafReader index.LeafReader, filterTerms index.Terms, fieldFilter string) *TermVectorFilteredLeafReader {
+	return &TermVectorFilteredLeafReader{
+		FilterLeafReader: index.NewFilterLeafReader(baseLeafReader),
+		in:               baseLeafReader,
+		filterTerms:      filterTerms,
+		fieldFilter:      fieldFilter,
 	}
 }
 
-// Next advances to the next term in the filter list.
-func (it *FilteredTermsIterator) Next() bool {
-	it.pos++
-	return it.pos < len(it.filter)
+// Terms renders `public Terms terms(String field)`
+// (TermVectorFilteredLeafReader.java:58).
+func (r *TermVectorFilteredLeafReader) Terms(field string) (index.Terms, error) {
+	if field != r.fieldFilter {
+		// proceed like normal for fields we're not interested in
+		return r.FilterLeafReader.Terms(field)
+	}
+	terms, err := r.in.Terms(field)
+	if err != nil {
+		return nil, err
+	}
+	if terms == nil {
+		return nil, nil
+	}
+	return newTermsFilteredTerms(terms, r.filterTerms), nil
 }
 
-// Term returns the current term text.
-func (it *FilteredTermsIterator) Term() string {
-	if it.pos < 0 || it.pos >= len(it.filter) {
-		return ""
-	}
-	return it.filter[it.pos].Term
+// GetCoreCacheHelper renders `public CacheHelper getCoreCacheHelper()`
+// (TermVectorFilteredLeafReader.java:120), which returns null.
+func (r *TermVectorFilteredLeafReader) GetCoreCacheHelper() index.CacheHelper { return nil }
+
+// GetReaderCacheHelper renders `public CacheHelper getReaderCacheHelper()`
+// (TermVectorFilteredLeafReader.java:125), which returns null.
+func (r *TermVectorFilteredLeafReader) GetReaderCacheHelper() index.CacheHelper { return nil }
+
+var _ index.LeafReader = (*TermVectorFilteredLeafReader)(nil)
+
+// termsFilteredTerms renders the private static final class
+// TermVectorFilteredLeafReader.TermsFilteredTerms
+// (TermVectorFilteredLeafReader.java:68). NOTE: super ("in") is the baseTerms.
+type termsFilteredTerms struct {
+	*index.FilterTerms
+
+	in          index.Terms
+	filterTerms index.Terms
 }
 
-// Entry returns the base TermVectorEntry for the current filter term.  An
-// error is returned when the term does not appear in the base source, which
-// mirrors the IllegalStateException thrown by the Java original.
-func (it *FilteredTermsIterator) Entry() (TermVectorEntry, error) {
-	term := it.Term()
-	i, ok := it.baseIdx[term]
-	if !ok {
-		return TermVectorEntry{}, fmt.Errorf("uhighlight: term vector term %q does not appear in full index", term)
+// newTermsFilteredTerms renders `TermsFilteredTerms(Terms baseTerms, Terms
+// filterTerms)` (TermVectorFilteredLeafReader.java:73).
+func newTermsFilteredTerms(baseTerms, filterTerms index.Terms) *termsFilteredTerms {
+	return &termsFilteredTerms{
+		FilterTerms: index.NewFilterTerms(baseTerms),
+		in:          baseTerms,
+		filterTerms: filterTerms,
 	}
-	return it.base[i], nil
 }
+
+// TODO (from Java) delegate size()
+// TODO (from Java) delegate getMin, getMax to filterTerms
+
+// Iterator renders `public TermsEnum iterator()`
+// (TermVectorFilteredLeafReader.java:83).
+func (t *termsFilteredTerms) Iterator() (index.TermsEnum, error) {
+	baseTermsEnum, err := t.in.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	filteredTermsEnum, err := t.filterTerms.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	return newTermVectorFilteredTermsEnum(baseTermsEnum, filteredTermsEnum), nil
+}
+
+// Intersect renders `public TermsEnum intersect(CompiledAutomaton compiled,
+// BytesRef startTerm)` (TermVectorFilteredLeafReader.java:88).
+func (t *termsFilteredTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *index.Term) (index.TermsEnum, error) {
+	baseTermsEnum, err := t.in.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	filteredTermsEnum, err := t.filterTerms.Intersect(compiled, startTerm)
+	if err != nil {
+		return nil, err
+	}
+	return newTermVectorFilteredTermsEnum(baseTermsEnum, filteredTermsEnum), nil
+}
+
+var _ index.Terms = (*termsFilteredTerms)(nil)
+
+// termVectorFilteredTermsEnum renders the private static final class
+// TermVectorFilteredLeafReader.TermVectorFilteredTermsEnum
+// (TermVectorFilteredLeafReader.java:95). NOTE: super ("in") is the
+// filteredTermsEnum. This is different than the wrappers above because we
+// navigate the terms using the filter.
+type termVectorFilteredTermsEnum struct {
+	*index.FilterTermsEnum
+
+	in            index.TermsEnum // the filtered terms enum
+	baseTermsEnum index.TermsEnum
+}
+
+// newTermVectorFilteredTermsEnum renders
+// `TermVectorFilteredTermsEnum(TermsEnum baseTermsEnum, TermsEnum
+// filteredTermsEnum)` (TermVectorFilteredLeafReader.java:103); note this is
+// reversed from the constructors above.
+func newTermVectorFilteredTermsEnum(baseTermsEnum, filteredTermsEnum index.TermsEnum) *termVectorFilteredTermsEnum {
+	return &termVectorFilteredTermsEnum{
+		FilterTermsEnum: index.NewFilterTermsEnum(filteredTermsEnum),
+		in:              filteredTermsEnum,
+		baseTermsEnum:   baseTermsEnum,
+	}
+}
+
+// TODO (from Java) delegate docFreq & ttf (moveToCurrentTerm() then call on full?
+
+// Postings renders `public PostingsEnum postings(PostingsEnum reuse, int
+// flags)` (TermVectorFilteredLeafReader.java:111).
+func (e *termVectorFilteredTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
+	if err := e.moveToCurrentTerm(); err != nil {
+		return nil, err
+	}
+	return e.baseTermsEnum.Postings(flags)
+}
+
+// PostingsWithLiveDocs renders TermsEnum.postings(PostingsEnum, int) reached
+// through the live-docs overload Gocene's TermsEnum interface declares; the
+// term alignment it performs first is the same.
+func (e *termVectorFilteredTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (index.PostingsEnum, error) {
+	if err := e.moveToCurrentTerm(); err != nil {
+		return nil, err
+	}
+	return e.baseTermsEnum.PostingsWithLiveDocs(liveDocs, flags)
+}
+
+// moveToCurrentTerm renders the package-private
+// TermVectorFilteredTermsEnum.moveToCurrentTerm()
+// (TermVectorFilteredLeafReader.java:117), whose IllegalStateException is
+// rendered as an error.
+func (e *termVectorFilteredTermsEnum) moveToCurrentTerm() error {
+	currentTerm := e.in.Term() // from filteredTermsEnum
+	termInBothTermsEnum, err := e.baseTermsEnum.SeekExact(currentTerm)
+	if err != nil {
+		return err
+	}
+	if !termInBothTermsEnum {
+		text := ""
+		if currentTerm != nil && currentTerm.Bytes != nil {
+			text = string(currentTerm.Bytes.ValidBytes())
+		}
+		return fmt.Errorf("uhighlight: term vector term '%s' does not appear in full index", text)
+	}
+	return nil
+}
+
+var _ index.TermsEnum = (*termVectorFilteredTermsEnum)(nil)

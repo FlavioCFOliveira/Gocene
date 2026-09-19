@@ -369,25 +369,20 @@ func (uh *UnifiedHighlighter) highlightFieldsAsObjects(fieldsIn []string, query 
 				}
 
 				var leafReader index.LeafReader
-				leaves, err := indexReader.Leaves()
-				if err != nil {
-					return nil, err
+				if asLeaf, ok := indexReader.(index.LeafReader); ok {
+					leafReader = asLeaf
+				} else {
+					leaves, err := indexReader.Leaves()
+					if err != nil {
+						return nil, err
+					}
+					leafCtx := leaves[index.ReaderUtilSubIndexLeaves(docId, leaves)]
+					leafReader = leafCtx.LeafReader()
+					docId -= leafCtx.DocBase // adjust 'doc' to be within this leaf reader
 				}
-				leafCtx := leaves[index.ReaderUtilSubIndexLeaves(docId, leaves)]
-				leafReader = leafCtx.LeafReader()
-				adjDocId := docId - leafCtx.DocBase
 
-				docInIndex := docInIndexes[docIdx]
-				var docContext any
-				switch fh.GetOffsetSource() {
-				case OffsetSourcePostings:
-					docContext = uh.buildPostingsDocContext(leafReader, adjDocId, fields[fieldIdx], queryTerms)
-				case OffsetSourcePostingsWithTermVectors:
-					docContext = uh.buildPostingsDocContext(leafReader, adjDocId, fields[fieldIdx], queryTerms)
-				default:
-					docContext = content
-				}
-				snippet, err := fh.HighlightFieldForDoc(docContext, content)
+				docInIndex := docInIndexes[docIdx] // original input order
+				snippet, err := fh.HighlightFieldForDoc(leafReader, docId, content)
 				if err != nil {
 					return nil, err
 				}
@@ -402,56 +397,6 @@ func (uh *UnifiedHighlighter) highlightFieldsAsObjects(fieldsIn []string, query 
 		resultMap[fields[f]] = highlightDocsInByField[f]
 	}
 	return resultMap, nil
-}
-
-func (uh *UnifiedHighlighter) buildPostingsDocContext(leafReader index.LeafReader, docId int, field string, terms map[*index.Term]struct{}) *PostingsDocContext {
-	ctx := &PostingsDocContext{
-		TermFreqsInDoc: make(map[string]int),
-	}
-	for term := range terms {
-		pe, err := leafReader.Postings(index.Term{Field: field, Bytes: term.Bytes}, index.PostingsFlagOffsets)
-		if err != nil || pe == nil {
-			continue
-		}
-		doc, err := pe.Advance(docId)
-		if err != nil || doc != docId {
-			continue
-		}
-		freq, err := pe.Freq()
-		if err != nil {
-			continue
-		}
-		text := term.Bytes.String()
-		ctx.TermFreqsInDoc[text] = freq
-
-		var startOffsets, endOffsets []int
-		for i := 0; i < freq; i++ {
-			if _, err := pe.NextPosition(); err != nil {
-				break
-			}
-			start, err := pe.StartOffset()
-			if err != nil {
-				break
-			}
-			end, err := pe.EndOffset()
-			if err != nil {
-				break
-			}
-			startOffsets = append(startOffsets, start)
-			endOffsets = append(endOffsets, end)
-		}
-		if len(startOffsets) == 0 || len(endOffsets) == 0 {
-			continue
-		}
-
-		entry := PostingsEntry{
-			Term:         text,
-			StartOffsets: startOffsets,
-			EndOffsets:   endOffsets,
-		}
-		ctx.Entries = append(ctx.Entries, entry)
-	}
-	return ctx
 }
 
 func (uh *UnifiedHighlighter) calculateOptimalCacheCharsThreshold(numTermVectors, numPostings int) int {
@@ -516,7 +461,7 @@ func (uh *UnifiedHighlighter) HighlightWithoutSearcher(field string, query searc
 		return nil, errors.New("content is required")
 	}
 	queryTerms := extractTerms(query)
-	return uh.getFieldHighlighter(field, query, queryTerms, maxPassages).HighlightFieldForDoc(content, content)
+	return uh.getFieldHighlighter(field, query, queryTerms, maxPassages).HighlightFieldForDoc(nil, -1, content)
 }
 
 func (uh *UnifiedHighlighter) getFieldHighlighter(field string, query search.Query, allTerms map[*index.Term]struct{}, maxPassages int) *FieldHighlighter {

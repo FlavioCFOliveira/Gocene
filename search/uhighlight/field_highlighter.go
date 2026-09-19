@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // FieldHighlighter is the per-field workhorse that walks the offsets-enum
@@ -69,14 +71,16 @@ func (h *FieldHighlighter) GetOffsetSource() OffsetSource {
 // error. If no matches are produced, returns the no-highlight summary
 // (first maxNoHighlightPassages sentences).
 //
-// docContext is opaque payload understood by the wrapped
-// FieldOffsetStrategy (e.g. an *AnalysisDocContext for the analysis
-// strategy or a *TermVectorDocContext for the term-vector strategy).
-func (h *FieldHighlighter) HighlightFieldForDoc(docContext any, content string) (string, error) {
+// Mirrors FieldHighlighter.highlightFieldForDoc(LeafReader, int, String)
+// (FieldHighlighter.java:65), whose null return is rendered as the empty
+// string.
+func (h *FieldHighlighter) HighlightFieldForDoc(reader index.LeafReader, docID int, content string) (string, error) {
+	// note: it'd be nice to accept a CharSequence for content, but we need a
+	// CharacterIterator impl for it.
 	if len(content) == 0 {
-		return "", nil
+		return "", nil // nothing to do
 	}
-	enum, err := h.offsetStrategy.GetOffsetsEnum(docContext)
+	enum, err := h.offsetStrategy.GetOffsetsEnum(reader, docID, content)
 	if err != nil {
 		return "", err
 	}

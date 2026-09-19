@@ -10,6 +10,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
 	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // PhraseHelper helps the FieldOffsetStrategy with position sensitive queries.
@@ -302,6 +303,12 @@ func extractForPhraseHelper(
 	return extract(query, 1.0)
 }
 
+// GetSpanQueries renders PhraseHelper.getSpanQueries()
+// (PhraseHelper.java:201), which returns the Set<SpanQuery> field itself.
+func (p *PhraseHelper) GetSpanQueries() map[spans.SpanQuery]bool {
+	return p.spanQueries
+}
+
 // HasPositionSensitivity reports whether any registered term comes from a phrase.
 func (p *PhraseHelper) HasPositionSensitivity() bool {
 	return len(p.spanQueries) > 0
@@ -312,14 +319,18 @@ func (p *PhraseHelper) WillRewrite() bool {
 	return p.willRewrite
 }
 
-// GetAllPositionInsensitiveTerms returns the terms that are position-insensitive (sorted).
-func (p *PhraseHelper) GetAllPositionInsensitiveTerms() [][]byte {
-	res := make([][]byte, 0, len(p.positionInsensitiveTerms))
+// GetAllPositionInsensitiveTerms renders
+// PhraseHelper.getAllPositionInsensitiveTerms() (PhraseHelper.java:220),
+// which copies the Set<BytesRef> to an array and sorts it.
+func (p *PhraseHelper) GetAllPositionInsensitiveTerms() []*util.BytesRef {
+	result := make([]*util.BytesRef, 0, len(p.positionInsensitiveTerms))
 	for t := range p.positionInsensitiveTerms {
-		res = append(res, []byte(t))
+		result = append(result, util.NewBytesRef([]byte(t)))
 	}
-	sort.Slice(res, func(i, j int) bool { return bytes.Compare(res[i], res[j]) < 0 })
-	return res
+	sort.Slice(result, func(i, j int) bool {
+		return bytes.Compare(bytesRefValue(result[i]), bytesRefValue(result[j])) < 0
+	})
+	return result
 }
 
 // CreateOffsetsEnumsForSpans produces a number of OffsetsEnum into the results
