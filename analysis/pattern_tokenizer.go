@@ -4,8 +4,6 @@
 
 package analysis
 
-	
-
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -91,15 +89,10 @@ func NewPatternTokenizerWithGroup(factory util.AttributeFactory, pattern *regexp
 	}
 
 	// Add attributes
-	t.termAttr = NewCharTermAttribute()
-	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-	t.typeAttr = NewTypeAttribute()
-
-	t.AddAttribute(CharTermAttributeType)
-	t.AddAttribute(OffsetAttributeType)
-	t.AddAttribute(tokenattributes.PositionIncrementAttributeType)
-	t.AddAttribute(TypeAttributeType)
+	t.termAttr = t.AddAttribute(CharTermAttributeType).(CharTermAttribute)
+	t.offsetAttr = t.AddAttribute(OffsetAttributeType).(OffsetAttribute)
+	t.posIncrAttr = t.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
+	t.typeAttr = t.AddAttribute(TypeAttributeType).(TypeAttribute)
 
 	return t
 }

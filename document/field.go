@@ -159,16 +159,20 @@ func (f *Field) ReaderValue() io.Reader {
 	}
 }
 
-// BinaryValue returns the binary value of the field.
-// Returns nil if the field has no binary value.
+// BinaryValue returns the binary value of the field, or nil when fieldsData
+// does not hold binary data.
+//
+// Renders `public BytesRef binaryValue()` (Field.java:428-433), whose body is
+// `fieldsData instanceof BytesRef ? (BytesRef) fieldsData : null`. A
+// String-valued field therefore yields null (nil here), never its UTF-8
+// bytes: exactly one of StringValue, ReaderValue and BinaryValue is set, and
+// consumers such as StoredFieldVisitor rely on that to classify the field.
 func (f *Field) BinaryValue() []byte {
 	if f.value == nil {
 		return nil
 	}
 	switch v := f.value.(type) {
 	case binaryValue:
-		return []byte(v)
-	case stringValue:
 		return []byte(v)
 	default:
 		return nil

@@ -273,7 +273,15 @@ func (w *Lucene104PostingsWriter) Init(termsOut store.IndexOutput, state *Segmen
 	return nil
 }
 
-// SetField caches the field-level index options and resets the per-field state.
+// SetField caches the field-level index options, resets the per-field state,
+// and returns the PostingsEnum flags the term dictionary must request when it
+// pulls postings for this field.
+//
+// Renders org.apache.lucene.codecs.PushPostingsWriterBase#setField
+// (PushPostingsWriterBase.java:86-112). Java derives the enum flags in the
+// abstract base class and stores them in the inherited `enumFlags` field;
+// Gocene models PushPostingsWriterBase as an interface, so the derivation
+// lives in the concrete writer and travels back as the return value.
 //
 // Satisfies PostingsWriterBase.
 func (w *Lucene104PostingsWriter) SetField(fieldInfo *index.FieldInfo) (int, error) {
@@ -284,7 +292,27 @@ func (w *Lucene104PostingsWriter) SetField(fieldInfo *index.FieldInfo) (int, err
 	w.writeOffsets = opts.HasOffsets()
 	w.fieldHasNorms = fieldInfo.HasNorms()
 	w.lastState = emptyIntBlockTermState
-	return 0, nil
+
+	var enumFlags int
+	switch {
+	case !w.writeFreqs:
+		enumFlags = index.PostingsFlagNone
+	case !w.writePositions:
+		enumFlags = index.PostingsFlagFreqs
+	case !w.writeOffsets:
+		if w.writePayloads {
+			enumFlags = index.PostingsFlagPayloads
+		} else {
+			enumFlags = index.PostingsFlagPositions
+		}
+	default:
+		if w.writePayloads {
+			enumFlags = index.PostingsFlagPayloads | index.PostingsFlagOffsets
+		} else {
+			enumFlags = index.PostingsFlagOffsets
+		}
+	}
+	return enumFlags, nil
 }
 
 // StartTerm resets all per-term cursors and records the starting file

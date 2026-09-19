@@ -4,12 +4,10 @@
 
 package analysis
 
-	
-
 import (
+	"bufio"
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	"bufio"
 	"io"
 	"regexp"
 )
@@ -86,13 +84,9 @@ func NewSimplePatternTokenizerWithRegexp(factory util.AttributeFactory, re *rege
 	}
 
 	// Add attributes
-	t.termAttr = NewCharTermAttribute()
-	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-
-	t.AddAttribute(CharTermAttributeType)
-	t.AddAttribute(OffsetAttributeType)
-	t.AddAttribute(tokenattributes.PositionIncrementAttributeType)
+	t.termAttr = t.AddAttribute(CharTermAttributeType).(CharTermAttribute)
+	t.offsetAttr = t.AddAttribute(OffsetAttributeType).(OffsetAttribute)
+	t.posIncrAttr = t.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 
 	return t
 }

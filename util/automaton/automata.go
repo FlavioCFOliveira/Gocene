@@ -458,38 +458,23 @@ func MakeBinaryInterval(minTerm *util.BytesRef, minInclusive bool, maxTerm *util
 	return a, nil
 }
 
-// MakeStringUnion accepts the union of UTF-8 BytesRef terms. Terms must be sorted.
+// MakeStringUnion returns a new (deterministic and minimal) Automaton that
+// accepts the union of the given BytesRef terms representing UTF-8 encoded
+// strings. The terms must be in binary-sorted order.
+//
+// Mirrors Automata.makeStringUnion(Iterable<BytesRef>), which delegates to
+// StringsToAutomaton.build(utf8Strings, false). Lucene signals malformed
+// input with an unchecked IllegalArgumentException; the Go port panics for
+// the same conditions (term longer than MaxStringUnionTermLength, or input
+// not in sorted order).
 func MakeStringUnion(terms []*util.BytesRef) *Automaton {
 	if len(terms) == 0 {
 		return MakeEmpty()
 	}
-	// Conservative implementation: build a trie automaton from the sorted terms.
-	a := NewAutomaton()
-	a.CreateState()
-	for _, term := range terms {
-		s := 0
-		for i := 0; i < term.Length; i++ {
-			b := int(term.Bytes[term.Offset+i]) & 0xFF
-			ns := -1
-			// Look for an existing transition with label b leaving s.
-			t := NewTransition()
-			count := a.InitTransition(s, t)
-			for k := 0; k < count; k++ {
-				a.GetNextTransition(t)
-				if t.Min <= b && b <= t.Max && t.Min == t.Max {
-					ns = t.Dest
-					break
-				}
-			}
-			if ns == -1 {
-				ns = a.CreateState()
-				a.AddTransition(s, ns, b, b)
-			}
-			s = ns
-		}
-		a.SetAccept(s, true)
+	a, err := BuildStringUnion(terms, false)
+	if err != nil {
+		panic(err)
 	}
-	a.FinishState()
 	return a
 }
 

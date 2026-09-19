@@ -4,8 +4,6 @@
 
 package analysis
 
-	
-
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
@@ -71,21 +69,17 @@ func newKeywordTokenizer(factory util.AttributeFactory) *KeywordTokenizer {
 			BaseTokenizer: NewBaseTokenizerWithFactory(factory),
 			done:          false,
 		}
-		t.termAttr = factory.CreateAttributeInstance(CharTermAttributeType).(CharTermAttribute)
+		t.termAttr = t.AddAttribute(CharTermAttributeType).(CharTermAttribute)
 	} else {
 		t = &KeywordTokenizer{
 			BaseTokenizer: NewBaseTokenizer(),
 			done:          false,
 		}
-		t.termAttr = NewCharTermAttribute()
+		t.termAttr = t.AddAttribute(CharTermAttributeType).(CharTermAttribute)
 	}
 
-	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-
-	t.AddAttribute(CharTermAttributeType)
-	t.AddAttribute(OffsetAttributeType)
-	t.AddAttribute(tokenattributes.PositionIncrementAttributeType)
+	t.offsetAttr = t.AddAttribute(OffsetAttributeType).(OffsetAttribute)
+	t.posIncrAttr = t.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 
 	return t
 }

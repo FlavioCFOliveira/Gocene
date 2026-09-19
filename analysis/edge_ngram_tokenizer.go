@@ -4,12 +4,10 @@
 
 package analysis
 
-	
-
 import (
+	"errors"
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	"errors"
 	"io"
 	"unicode/utf8"
 )
@@ -83,13 +81,9 @@ func NewEdgeNGramTokenizerWithFactory(factory util.AttributeFactory, minGram, ma
 	}
 
 	// Add attributes
-	t.termAttr = NewCharTermAttribute()
-	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-
-	t.AddAttribute(CharTermAttributeType)
-	t.AddAttribute(OffsetAttributeType)
-	t.AddAttribute(tokenattributes.PositionIncrementAttributeType)
+	t.termAttr = t.AddAttribute(CharTermAttributeType).(CharTermAttribute)
+	t.offsetAttr = t.AddAttribute(OffsetAttributeType).(OffsetAttribute)
+	t.posIncrAttr = t.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 
 	return t, nil
 }

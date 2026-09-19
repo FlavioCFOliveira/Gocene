@@ -43,13 +43,9 @@ func NewCannedTokenStreamWithFinalOffset(finalPosInc, finalOffset int, tokens ..
 	copy(ts.tokens, tokens)
 
 	// Initialize attributes
-	ts.offsetAtt = NewOffsetAttribute()
-	ts.posIncrAtt = tokenattributes.NewPositionIncrementAttribute()
-	ts.charTermAtt = NewCharTermAttribute()
-
-	base.AddAttribute(reflect.TypeOf((*OffsetAttribute)(nil)).Elem())
-	base.AddAttribute(reflect.TypeOf((*tokenattributes.PositionIncrementAttribute)(nil)).Elem())
-	base.AddAttribute(reflect.TypeOf((*CharTermAttribute)(nil)).Elem())
+	ts.offsetAtt = ts.AddAttribute(reflect.TypeOf((*OffsetAttribute)(nil)).Elem()).(OffsetAttribute)
+	ts.posIncrAtt = ts.AddAttribute(reflect.TypeOf((*tokenattributes.PositionIncrementAttribute)(nil)).Elem()).(tokenattributes.PositionIncrementAttribute)
+	ts.charTermAtt = ts.AddAttribute(reflect.TypeOf((*CharTermAttribute)(nil)).Elem()).(CharTermAttribute)
 
 	return ts
 }

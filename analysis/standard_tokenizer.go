@@ -8,7 +8,6 @@ package analysis
 
 import (
 	"fmt"
-	"io"
 	"reflect"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
@@ -75,15 +74,10 @@ func NewStandardTokenizerWithFactory(factory util.AttributeFactory) *StandardTok
 		maxTokenLength: DefaultMaxTokenLength,
 	}
 
-	t.termAttr = NewCharTermAttribute()
-	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-	t.typeAttr = NewTypeAttribute()
-
-	t.AddAttribute(CharTermAttributeType)
-	t.AddAttribute(OffsetAttributeType)
-	t.AddAttribute(tokenattributes.PositionIncrementAttributeType)
-	t.AddAttribute(TypeAttributeType)
+	t.termAttr = t.AddAttribute(CharTermAttributeType).(CharTermAttribute)
+	t.offsetAttr = t.AddAttribute(OffsetAttributeType).(OffsetAttribute)
+	t.posIncrAttr = t.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
+	t.typeAttr = t.AddAttribute(TypeAttributeType).(TypeAttribute)
 
 	return t
 }
@@ -113,15 +107,6 @@ func (t *StandardTokenizer) SetMaxTokenLength(length int) error {
 	}
 	t.maxTokenLength = length
 	return nil
-}
-
-// SetReader attaches the input source and resets the underlying
-// scanner. It satisfies the [Tokenizer] contract.
-func (t *StandardTokenizer) SetReader(input io.Reader) {
-	t.BaseTokenizer.SetReader(input)
-	if err := t.scanner.yyreset(input); err != nil {
-		return
-	}
 }
 
 // IncrementToken advances to the next token. Returns (false, nil) at

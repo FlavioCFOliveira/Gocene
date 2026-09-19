@@ -4,11 +4,9 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"bufio"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
 )
 
@@ -88,13 +86,9 @@ func NewNGramTokenizer(minGram, maxGram int) *NGramTokenizer {
 	}
 
 	// Add attributes
-	t.termAttr = NewCharTermAttribute()
-	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-
-	t.AddAttribute(CharTermAttributeType)
-	t.AddAttribute(OffsetAttributeType)
-	t.AddAttribute(tokenattributes.PositionIncrementAttributeType)
+	t.termAttr = t.AddAttribute(CharTermAttributeType).(CharTermAttribute)
+	t.offsetAttr = t.AddAttribute(OffsetAttributeType).(OffsetAttribute)
+	t.posIncrAttr = t.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 
 	return t
 }

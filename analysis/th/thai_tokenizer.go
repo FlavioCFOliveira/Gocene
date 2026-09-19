@@ -40,10 +40,8 @@ func NewThaiTokenizerWithFactory(factory util.AttributeFactory) *ThaiTokenizer {
 	t := &ThaiTokenizer{
 		BaseTokenizer: analysis.NewBaseTokenizerWithFactory(factory),
 	}
-	t.termAttr = analysis.NewCharTermAttribute()
-	t.offsetAttr = analysis.NewOffsetAttribute()
-	t.AddAttribute(analysis.CharTermAttributeType)
-	t.AddAttribute(analysis.OffsetAttributeType)
+	t.termAttr = t.AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	t.offsetAttr = t.AddAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
 	return t
 }
 
@@ -142,7 +140,9 @@ type ThaiTokenizerFactory struct{}
 func NewThaiTokenizerFactory() *ThaiTokenizerFactory { return &ThaiTokenizerFactory{} }
 
 // Create returns a new ThaiTokenizer.
-func (f *ThaiTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer { return NewThaiTokenizerWithFactory(factory) }
+func (f *ThaiTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer {
+	return NewThaiTokenizerWithFactory(factory)
+}
 
 // Ensure ThaiTokenizerFactory implements TokenizerFactory.
 var _ analysis.TokenizerFactory = (*ThaiTokenizerFactory)(nil)

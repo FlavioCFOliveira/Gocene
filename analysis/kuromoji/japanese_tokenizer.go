@@ -54,14 +54,14 @@ type JapaneseTokenizer struct {
 
 	viterbi *ViterbiNBest
 
-	termAttr      analysis.CharTermAttribute
-	offsetAttr    analysis.OffsetAttribute
-	posIncrAttr   attrs.PositionIncrementAttribute
-	posLenAttr    analysis.PositionLengthAttribute
-	baseFormAttr  jaattrs.BaseFormAttribute
-	posAttr       jaattrs.PartOfSpeechAttribute
-	readingAttr   jaattrs.ReadingAttribute
-	inflAttr      jaattrs.InflectionAttribute
+	termAttr     analysis.CharTermAttribute
+	offsetAttr   analysis.OffsetAttribute
+	posIncrAttr  attrs.PositionIncrementAttribute
+	posLenAttr   analysis.PositionLengthAttribute
+	baseFormAttr jaattrs.BaseFormAttribute
+	posAttr      jaattrs.PartOfSpeechAttribute
+	readingAttr  jaattrs.ReadingAttribute
+	inflAttr     jaattrs.InflectionAttribute
 
 	mode               Mode
 	discardPunctuation bool
@@ -95,31 +95,16 @@ func NewJapaneseTokenizer(
 	}
 
 	// Create and register standard attributes.
-	t.termAttr = analysis.NewCharTermAttribute()
-	t.offsetAttr = analysis.NewOffsetAttribute()
-	t.posIncrAttr = attrs.NewPositionIncrementAttribute()
-	t.posLenAttr = analysis.NewPositionLengthAttribute()
-
-	t.AddAttribute(reflect.TypeOf((*analysis.CharTermAttribute)(nil)).Elem())
-	t.AddAttribute(reflect.TypeOf((*analysis.OffsetAttribute)(nil)).Elem())
-	t.AddAttribute(reflect.TypeOf((*attrs.PositionIncrementAttribute)(nil)).Elem())
-	t.AddAttribute(reflect.TypeOf((*analysis.PositionLengthAttribute)(nil)).Elem())
+	t.termAttr = t.AddAttribute(reflect.TypeOf((*analysis.CharTermAttribute)(nil)).Elem()).(analysis.CharTermAttribute)
+	t.offsetAttr = t.AddAttribute(reflect.TypeOf((*analysis.OffsetAttribute)(nil)).Elem()).(analysis.OffsetAttribute)
+	t.posIncrAttr = t.AddAttribute(reflect.TypeOf((*attrs.PositionIncrementAttribute)(nil)).Elem()).(attrs.PositionIncrementAttribute)
+	t.posLenAttr = t.AddAttribute(reflect.TypeOf((*analysis.PositionLengthAttribute)(nil)).Elem()).(analysis.PositionLengthAttribute)
 
 	// Create and register Japanese-specific attributes.
-	baseFormImpl := jaattrs.NewBaseFormAttributeImpl()
-	posImpl := jaattrs.NewPartOfSpeechAttributeImpl()
-	readingImpl := jaattrs.NewReadingAttributeImpl()
-	inflImpl := jaattrs.NewInflectionAttributeImpl()
-
-	t.baseFormAttr = baseFormImpl
-	t.posAttr = posImpl
-	t.readingAttr = readingImpl
-	t.inflAttr = inflImpl
-
-	t.AddAttribute(reflect.TypeOf((*jaattrs.BaseFormAttribute)(nil)).Elem())
-	t.AddAttribute(reflect.TypeOf((*jaattrs.PartOfSpeechAttribute)(nil)).Elem())
-	t.AddAttribute(reflect.TypeOf((*jaattrs.ReadingAttribute)(nil)).Elem())
-	t.AddAttribute(reflect.TypeOf((*jaattrs.InflectionAttribute)(nil)).Elem())
+	t.baseFormAttr = t.AddAttribute(reflect.TypeOf((*jaattrs.BaseFormAttribute)(nil)).Elem()).(jaattrs.BaseFormAttribute)
+	t.posAttr = t.AddAttribute(reflect.TypeOf((*jaattrs.PartOfSpeechAttribute)(nil)).Elem()).(jaattrs.PartOfSpeechAttribute)
+	t.readingAttr = t.AddAttribute(reflect.TypeOf((*jaattrs.ReadingAttribute)(nil)).Elem()).(jaattrs.ReadingAttribute)
+	t.inflAttr = t.AddAttribute(reflect.TypeOf((*jaattrs.InflectionAttribute)(nil)).Elem()).(jaattrs.InflectionAttribute)
 
 	return t
 }

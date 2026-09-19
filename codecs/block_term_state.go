@@ -72,7 +72,13 @@ func (s *BlockTermState) CopyFrom(other index.TermState) error {
 		return fmt.Errorf("BlockTermState.CopyFrom: incompatible source type %T", other)
 	}
 
-	s.OrdTermState.CopyFrom(other)
+	// Java: `super.copyFrom(_other)`. OrdTermState.copyFrom casts its argument
+	// to OrdTermState, which succeeds in Java because BlockTermState extends
+	// OrdTermState. Go embedding is not subtyping, so the inherited ord is
+	// reached through the source's embedded OrdTermState.
+	if err := s.OrdTermState.CopyFrom(&o.OrdTermState); err != nil {
+		return err
+	}
 	s.DocFreq = o.DocFreq
 	s.TotalTermFreq = o.TotalTermFreq
 	s.TermBlockOrd = o.TermBlockOrd
