@@ -99,3 +99,16 @@ func ComputeMdpLength(previousTerm, currentTerm *util.BytesRef) (int, error) {
 	}
 	return min(mdpLength, currentTerm.Length), nil
 }
+
+// termBytesBaseRAMUsage renders the private static
+// BASE_RAM_USAGE = RamUsageEstimator.shallowSizeOfInstance(TermBytes.class)
+// (TermBytes.java:53).
+var termBytesBaseRAMUsage = util.ShallowSizeOf(TermBytes{})
+
+// RamBytesUsed mirrors TermBytes.ramBytesUsed (TermBytes.java:120).
+func (tb *TermBytes) RamBytesUsed() int64 {
+	return termBytesBaseRAMUsage + RamBytesUsedByBytesRef(tb.term)
+}
+
+// TermBytes implements Accountable (TermBytes.java:51).
+var _ util.Accountable = (*TermBytes)(nil)

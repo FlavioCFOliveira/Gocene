@@ -10,6 +10,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DeltaBaseTermStateSerializer is a TermState serializer which encodes each file
@@ -234,3 +235,38 @@ func (s *DeltaBaseTermStateSerializer) reset(termState *codecs.IntBlockTermState
 
 	return termState
 }
+
+// deltaBaseTermStateSerializerRAMUsage renders the private static
+// RAM_USAGE = RamUsageEstimator.shallowSizeOfInstance(
+// DeltaBaseTermStateSerializer.class) (DeltaBaseTermStateSerializer.java:48).
+var deltaBaseTermStateSerializerRAMUsage = util.ShallowSizeOf(DeltaBaseTermStateSerializer{})
+
+// intBlockTermStateRAMUsage renders the private static
+// INT_BLOCK_TERM_STATE_RAM_USAGE =
+// RamUsageEstimator.shallowSizeOfInstance(IntBlockTermState.class)
+// (DeltaBaseTermStateSerializer.java:50).
+var intBlockTermStateRAMUsage = util.ShallowSizeOf(codecs.IntBlockTermState{})
+
+// RamBytesUsed mirrors DeltaBaseTermStateSerializer.ramBytesUsed()
+// (DeltaBaseTermStateSerializer.java:213), the Accountable method.
+func (s *DeltaBaseTermStateSerializer) RamBytesUsed() int64 {
+	return deltaBaseTermStateSerializerRAMUsage
+}
+
+// DeltaBaseTermStateSerializerRamBytesUsed returns the estimated RAM usage of
+// the given TermState.
+//
+// Mirrors the static DeltaBaseTermStateSerializer.ramBytesUsed(TermState)
+// (DeltaBaseTermStateSerializer.java:221). Java scopes the two ramBytesUsed
+// overloads by receiver kind (instance versus static); Go has no static
+// members, so the static one becomes this package-level function.
+func DeltaBaseTermStateSerializerRamBytesUsed(termState index.TermState) int64 {
+	if _, ok := termState.(*codecs.IntBlockTermState); ok {
+		return intBlockTermStateRAMUsage
+	}
+	return util.ShallowSizeOf(termState)
+}
+
+// DeltaBaseTermStateSerializer implements Accountable
+// (DeltaBaseTermStateSerializer.java:46).
+var _ util.Accountable = (*DeltaBaseTermStateSerializer)(nil)

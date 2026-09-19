@@ -294,3 +294,31 @@ func (s *BlockLineSerializer) readBytes(input store.DataInput, bytes *util.Bytes
 func numBitsToEncode(i int) int {
 	return 32 - bits.LeadingZeros32(uint32(i))
 }
+
+// blockLineBaseRAMUsage renders the private static
+// BASE_RAM_USAGE = RamUsageEstimator.shallowSizeOfInstance(BlockLine.class)
+// (BlockLine.java:50).
+var blockLineBaseRAMUsage = util.ShallowSizeOf(BlockLine{})
+
+// RamBytesUsed mirrors BlockLine.ramBytesUsed (BlockLine.java:94).
+func (bl *BlockLine) RamBytesUsed() int64 {
+	return blockLineBaseRAMUsage + bl.termBytes.RamBytesUsed() + RamBytesUsedByTermState(bl.termState)
+}
+
+// blockLineSerializerBaseRAMUsage renders the private static
+// BASE_RAM_USAGE = RamUsageEstimator.shallowSizeOfInstance(Serializer.class)
+// of the nested class (BlockLine.java:105).
+var blockLineSerializerBaseRAMUsage = util.ShallowSizeOf(BlockLineSerializer{})
+
+// RamBytesUsed mirrors BlockLine.Serializer.ramBytesUsed
+// (BlockLine.java:267).
+func (s *BlockLineSerializer) RamBytesUsed() int64 {
+	return blockLineSerializerBaseRAMUsage + RamBytesUsedByBytesRef(s.currentTerm)
+}
+
+// BlockLine and BlockLine.Serializer implement Accountable (BlockLine.java:48
+// and BlockLine.java:103).
+var (
+	_ util.Accountable = (*BlockLine)(nil)
+	_ util.Accountable = (*BlockLineSerializer)(nil)
+)

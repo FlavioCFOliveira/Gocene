@@ -739,3 +739,48 @@ func (r *BlockReader) PostingsWithLiveDocs(_ util.Bits, flags int) (spi.Postings
 }
 
 var _ spi.TermsEnum = (*BlockReader)(nil)
+
+// blockReaderBaseRAMUsage renders the private static BASE_RAM_USAGE
+// (BlockReader.java:49):
+//
+//	shallowSizeOfInstance(BlockReader.class)
+//	    + shallowSizeOfInstance(IndexInput.class)
+//	    + shallowSizeOfInstance(ByteArrayDataInput.class) * 2
+//
+// Java's IndexInput is an abstract class with its own field layout. Gocene's
+// store.IndexInput is an interface, so the value standing in its place is an
+// interface header; util.ShallowSizeOf reports 0 for a nil interface, so the
+// header is measured through a one-field struct instead.
+var blockReaderBaseRAMUsage = util.ShallowSizeOf(BlockReader{}) +
+	util.ShallowSizeOf(struct{ blockInput store.IndexInput }{}) +
+	util.ShallowSizeOf(store.ByteArrayDataInput{})*2
+
+// RamBytesUsed mirrors BlockReader.ramBytesUsed (BlockReader.java:543).
+func (r *BlockReader) RamBytesUsed() int64 {
+	total := blockReaderBaseRAMUsage
+	if r.blockLineReader != nil {
+		total += r.blockLineReader.RamBytesUsed()
+	}
+	if r.blockReadBuffer != nil {
+		total += RamBytesUsedByByteArrayOfLength(r.blockReadBuffer.Length())
+	}
+	if r.termStateSerializer != nil {
+		total += r.termStateSerializer.RamBytesUsed()
+	}
+	if r.forcedTerm != nil {
+		total += RamBytesUsedByBytesRefBuilder(r.forcedTerm)
+	}
+	if r.blockHeader != nil {
+		total += r.blockHeader.RamBytesUsed()
+	}
+	if r.blockLine != nil {
+		total += r.blockLine.RamBytesUsed()
+	}
+	if r.termState != nil {
+		total += RamBytesUsedByTermState(r.termState)
+	}
+	return total
+}
+
+// BlockReader implements Accountable (BlockReader.java:47).
+var _ util.Accountable = (*BlockReader)(nil)

@@ -4,10 +4,8 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
-
-// MaxNumBlockLines is the upper limit of the block size (maximum number of terms per block).
-const MaxNumBlockLines = 1000
 
 // BlockHeader contains block metadata.
 //
@@ -158,3 +156,16 @@ func (s *BlockHeaderSerializer) Read(input store.DataInput, reuse *BlockHeader) 
 	}
 	return bh.Reset(linesCount, baseDocsFP, basePositionsFP, basePayloadsFP, termStatesBaseOffset, middleTermOffset), nil
 }
+
+// blockHeaderRAMUsage renders the private static
+// RAM_USAGE = RamUsageEstimator.shallowSizeOfInstance(BlockHeader.class)
+// (BlockHeader.java:43).
+var blockHeaderRAMUsage = util.ShallowSizeOf(BlockHeader{})
+
+// RamBytesUsed mirrors BlockHeader.ramBytesUsed (BlockHeader.java:152).
+func (bh *BlockHeader) RamBytesUsed() int64 {
+	return blockHeaderRAMUsage
+}
+
+// BlockHeader implements Accountable (BlockHeader.java:41).
+var _ util.Accountable = (*BlockHeader)(nil)
