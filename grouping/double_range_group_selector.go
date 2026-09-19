@@ -1,110 +1,113 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package grouping
 
-// DoubleRangeGroupSelector groups documents by the DoubleRange their value
-// falls into. Mirrors org.apache.lucene.search.grouping.DoubleRangeGroupSelector.
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+)
+
+// DoubleRangeGroupSelector is a GroupSelector implementation that groups
+// documents by double values.
 //
-// The Java original uses DoubleValuesSource + DoubleValues to retrieve per-document
-// float64 values. In Gocene's current stage those search-layer abstractions are not
-// yet ported, so callers supply a valuesFunc that maps doc IDs to (value, exists)
-// pairs — semantically equivalent to DoubleValues.advanceExact().
+// Mirrors org.apache.lucene.search.grouping.DoubleRangeGroupSelector, which
+// extends GroupSelector<DoubleRange>.
 type DoubleRangeGroupSelector struct {
-	factory    *DoubleRangeFactory
-	valuesFunc func(doc int) (float64, bool) // nil → no value for any doc
+	source       search.DoubleValuesSource
+	rangeFactory *DoubleRangeFactory
 
-	// second-pass state (populated by SetGroups)
-	inSecondPass map[doubleRangeKey]bool
+	inSecondPass *groupSet[*DoubleRange]
 	includeEmpty bool
+	positioned   bool
+	current      *DoubleRange
 
-	// per-document state
-	positioned bool
-	current    *DoubleRange
+	context *index.LeafReaderContext
+	values  search.DoubleValues
 }
 
-// doubleRangeKey is a comparable key for DoubleRange used in the second-pass set.
-type doubleRangeKey struct{ min, max float64 }
+// NewDoubleRangeGroupSelector creates a new DoubleRangeGroupSelector.
+//
+// source is a DoubleValuesSource to retrieve double values per document, and
+// rangeFactory is a DoubleRangeFactory that defines how to group the double
+// values into range buckets.
+//
+// Mirrors DoubleRangeGroupSelector(DoubleValuesSource, DoubleRangeFactory).
+func NewDoubleRangeGroupSelector(source search.DoubleValuesSource, rangeFactory *DoubleRangeFactory) *DoubleRangeGroupSelector {
+	return &DoubleRangeGroupSelector{source: source, rangeFactory: rangeFactory}
+}
 
-// NewDoubleRangeGroupSelector builds a selector backed by factory and the
-// supplied doc-value function.  Pass nil for valuesFunc when no documents have
-// values (every doc maps to the empty group).
-func NewDoubleRangeGroupSelector(factory *DoubleRangeFactory, valuesFunc func(doc int) (float64, bool)) *DoubleRangeGroupSelector {
-	return &DoubleRangeGroupSelector{
-		factory:    factory,
-		valuesFunc: valuesFunc,
+// SetNextReader mirrors setNextReader(LeafReaderContext).
+func (s *DoubleRangeGroupSelector) SetNextReader(readerContext *index.LeafReaderContext) error {
+	s.context = readerContext
+	return nil
+}
+
+// SetScorer mirrors setScorer(Scorable).
+func (s *DoubleRangeGroupSelector) SetScorer(scorer search.Scorable) error {
+	values, err := s.source.GetValues(s.context, search.DoubleValuesSourceFromScorer(scorer))
+	if err != nil {
+		return err
 	}
+	s.values = values
+	return nil
 }
 
-// SetGroups configures the selector for the second pass.  Only groups whose
-// *DoubleRange key appears in searchGroups will be accepted; if any group has
-// a nil key the empty group (documents without a value) is also included.
-// Mirrors DoubleRangeGroupSelector.setGroups.
+// AdvanceTo mirrors advanceTo(int).
+func (s *DoubleRangeGroupSelector) AdvanceTo(doc int) (GroupSelectorState, error) {
+	positioned, err := s.values.AdvanceExact(doc)
+	if err != nil {
+		return GroupSelectorStateSkip, err
+	}
+	s.positioned = positioned
+	if !s.positioned {
+		if s.includeEmpty {
+			return GroupSelectorStateAccept, nil
+		}
+		return GroupSelectorStateSkip, nil
+	}
+	value, err := s.values.DoubleValue()
+	if err != nil {
+		return GroupSelectorStateSkip, err
+	}
+	s.current = s.rangeFactory.GetRange(value, s.current)
+	if s.inSecondPass == nil {
+		return GroupSelectorStateAccept, nil
+	}
+	if s.inSecondPass.contains(s.current) {
+		return GroupSelectorStateAccept, nil
+	}
+	return GroupSelectorStateSkip, nil
+}
+
+// CurrentValue mirrors currentValue().
+func (s *DoubleRangeGroupSelector) CurrentValue() (*DoubleRange, error) {
+	if s.positioned {
+		return s.current, nil
+	}
+	return nil, nil
+}
+
+// CopyValue mirrors copyValue().
+func (s *DoubleRangeGroupSelector) CopyValue() (*DoubleRange, error) {
+	if s.positioned {
+		return NewDoubleRange(s.current.Min, s.current.Max), nil
+	}
+	return nil, nil
+}
+
+// SetGroups mirrors setGroups(Collection<SearchGroup<DoubleRange>>).
 func (s *DoubleRangeGroupSelector) SetGroups(searchGroups []*SearchGroup[*DoubleRange]) {
-	s.inSecondPass = make(map[doubleRangeKey]bool, len(searchGroups))
-	s.includeEmpty = false
-	for _, g := range searchGroups {
-		if g.GroupValue == nil {
+	s.inSecondPass = newGroupSet[*DoubleRange]()
+	for _, group := range searchGroups {
+		if group.GroupValue == nil {
 			s.includeEmpty = true
 		} else {
-			s.inSecondPass[doubleRangeKey{g.GroupValue.Min, g.GroupValue.Max}] = true
+			s.inSecondPass.add(group.GroupValue)
 		}
 	}
 }
 
-// AdvanceTo positions the selector on document doc.  It returns whether the
-// document should be included in the current pass.
-// Mirrors DoubleRangeGroupSelector.advanceTo.
-func (s *DoubleRangeGroupSelector) AdvanceTo(doc int) bool {
-	if s.valuesFunc == nil {
-		s.positioned = false
-		s.current = nil
-		return s.includeEmpty || s.inSecondPass == nil
-	}
-	v, ok := s.valuesFunc(doc)
-	s.positioned = ok
-	if !ok {
-		s.current = nil
-		return s.includeEmpty || s.inSecondPass == nil
-	}
-	s.current = s.factory.GetRange(v)
-	if s.inSecondPass == nil {
-		return true
-	}
-	if s.current == nil {
-		return s.includeEmpty
-	}
-	return s.inSecondPass[doubleRangeKey{s.current.Min, s.current.Max}]
-}
-
-// Select implements GroupSelector.  It returns the *DoubleRange for the given
-// doc, or nil when the doc has no value.
-func (s *DoubleRangeGroupSelector) Select(doc int) interface{} {
-	s.AdvanceTo(doc)
-	r := s.CurrentValue()
-	if r == nil {
-		return nil
-	}
-	return r
-}
-
-// CurrentValue returns the DoubleRange resolved during the last AdvanceTo call,
-// or nil when the document had no value.
-// Mirrors DoubleRangeGroupSelector.currentValue.
-func (s *DoubleRangeGroupSelector) CurrentValue() *DoubleRange {
-	if !s.positioned {
-		return nil
-	}
-	return s.current
-}
-
-// CopyValue returns a copy of the current DoubleRange (to be stored as a group
-// key independent of any reuse buffer).
-// Mirrors DoubleRangeGroupSelector.copyValue.
-func (s *DoubleRangeGroupSelector) CopyValue() *DoubleRange {
-	if !s.positioned || s.current == nil {
-		return nil
-	}
-	cp := *s.current
-	return &cp
-}
-
-// Ensure DoubleRangeGroupSelector implements GroupSelector.
-var _ GroupSelector = (*DoubleRangeGroupSelector)(nil)
+// Ensure DoubleRangeGroupSelector implements GroupSelector[*DoubleRange].
+var _ GroupSelector[*DoubleRange] = (*DoubleRangeGroupSelector)(nil)

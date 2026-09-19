@@ -7,7 +7,7 @@
 package ranges
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/search/join"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // NoMoreOrds is the sentinel value returned by IntervalTracker.NextOrd when
@@ -39,15 +39,23 @@ type IntervalTracker interface {
 //
 // Mirrors IntervalTracker.MultiIntervalTracker.
 type MultiIntervalTracker struct {
-	tracker          *join.FixedBitSet
+	tracker          *util.FixedBitSet
 	trackerState     int
 	bitFrom          int
 	intervalsWithHit int
 }
 
 // NewMultiIntervalTracker creates a MultiIntervalTracker for size intervals.
+//
+// Mirrors MultiIntervalTracker(int size), which allocates a FixedBitSet of
+// that width; a negative width fails the same way Java's
+// NegativeArraySizeException does.
 func NewMultiIntervalTracker(size int) *MultiIntervalTracker {
-	return &MultiIntervalTracker{tracker: join.NewFixedBitSet(size)}
+	tracker, err := util.NewFixedBitSet(size)
+	if err != nil {
+		panic(err)
+	}
+	return &MultiIntervalTracker{tracker: tracker}
 }
 
 // Set records that interval i was observed.
@@ -57,7 +65,7 @@ func (m *MultiIntervalTracker) Set(i int) {
 
 // Clear resets all recorded state.
 func (m *MultiIntervalTracker) Clear() {
-	m.tracker = join.NewFixedBitSet(m.tracker.Size())
+	m.tracker.ClearAll()
 	m.bitFrom = 0
 	m.trackerState = 0
 	m.intervalsWithHit = 0
