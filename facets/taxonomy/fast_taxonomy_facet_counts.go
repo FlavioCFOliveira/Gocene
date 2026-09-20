@@ -93,14 +93,12 @@ func (ftfc *FastTaxonomyFacetCounts) GetSpecificValue(dim string, path ...string
 		return nil, nil
 	}
 	count := ftfc.getCount(ord)
-	result := facets.NewFacetResultWithPath(dim, path)
-	result.Value = int64(count)
+	label := dim
 	if len(path) > 0 {
-		result.AddLabelValue(facets.NewLabelAndValue(path[len(path)-1], int64(count)))
-	} else {
-		result.AddLabelValue(facets.NewLabelAndValue(dim, int64(count)))
+		label = path[len(path)-1]
 	}
-	return result, nil
+	lv := []*facets.LabelAndValue{facets.NewLabelAndValue(label, int64(count))}
+	return facets.NewFacetResult(dim, path, float64(count), lv, 0), nil
 }
 
 // GetAllDims returns one FacetResult per dimension, sorted by count desc.

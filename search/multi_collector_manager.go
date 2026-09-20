@@ -6,15 +6,6 @@ package search
 
 import "errors"
 
-// CollectorManager creates Collectors and reduces their results.
-//
-// Mirrors org.apache.lucene.search.CollectorManager. It is generic over the
-// collector type C and the reduced result type R.
-type CollectorManager[C Collector, R any] interface {
-	NewCollector() (C, error)
-	Reduce(collectors []C) (R, error)
-}
-
 // AnyCollectorManager is the type-erased view of a CollectorManager. The
 // concrete types involved in MultiCollectorManager are heterogeneous, so this
 // shape uses Collector/any for the per-manager outputs.

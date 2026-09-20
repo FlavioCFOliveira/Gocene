@@ -41,9 +41,25 @@ type PayloadAttribute interface {
 	Set(val any)
 }
 
+// TermToBytesRefAttribute is the interface for the term-to-bytes-ref attribute.
+type TermToBytesRefAttribute interface {
+	util.Attribute
+	Get() *util.BytesRef
+	Set(val *util.BytesRef)
+}
+
 // TermFrequencyAttribute is the interface for the term frequency attribute.
 type TermFrequencyAttribute interface {
 	util.Attribute
 	Get() int
 	Set(val int)
+}
+
+// AttributeSource is the interface for providing access to attributes.
+type AttributeSource interface {
+	GetAttributeTermToBytesRef() TermToBytesRefAttribute
+	AddAttributeTermFrequency() TermFrequencyAttribute
+	AddAttributePositionIncrement() PositionIncrementAttribute
+	AddAttributeOffset() OffsetAttribute
+	GetAttributePayload() PayloadAttribute
 }

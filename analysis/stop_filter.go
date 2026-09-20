@@ -4,6 +4,10 @@
 
 package analysis
 
+import (
+	"fmt"
+)
+
 // StopFilter is a token filter that removes stop words.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.core.StopFilter.
@@ -30,6 +34,20 @@ func NewStopFilter(source TokenStream, stopWords []string) *StopFilter {
 	}
 }
 
+// NewStopFilterWithWords is an alias for NewStopFilter, but it also accepts *CharArraySet.
+func NewStopFilterWithWords(source TokenStream, stopWords any) *StopFilter {
+	var words []string
+	switch v := stopWords.(type) {
+	case []string:
+		words = v
+	case *CharArraySet:
+		words = v.Items()
+	default:
+		panic(fmt.Sprintf("NewStopFilterWithWords: unsupported stopWords type %T", stopWords))
+	}
+	return NewStopFilter(source, words)
+}
+
 func (f *StopFilter) Reset() error {
 	return f.FilteringTokenFilter.Reset()
 }
@@ -44,6 +62,7 @@ func (f *StopFilter) Close() error {
 
 // StopFilterFactory creates StopFilter instances.
 type StopFilterFactory struct {
+	BaseTokenFilterFactory
 	stopWords *CharArraySet
 }
 

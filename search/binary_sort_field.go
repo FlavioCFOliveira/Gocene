@@ -37,7 +37,7 @@ func NewBinarySortFieldCustom(field string, reverse bool, missingValue interface
 		panic("providerName must not be empty")
 	}
 
-	sf := NewSortField(field, SortFieldTypeCustom)
+	sf := NewSortField(field, spi.SortFieldTypeCustom)
 	sf.Reverse = reverse
 	sf.SetMissingValue(missingValue)
 

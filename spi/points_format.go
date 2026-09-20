@@ -4,10 +4,6 @@
 
 package spi
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
-)
-
 // PointsFormat is the canonical service-provider interface for encoding
 // and decoding per-segment point (BKD) values. Mirrors
 // org.apache.lucene.codecs.PointsFormat from Apache Lucene 10.4.0.
@@ -51,7 +47,7 @@ type PointsWriter interface {
 	// GetValues accessor (the wide read surface lives on the codecs side;
 	// the SPI keeps only the integrity/close hooks here for the same reason
 	// KnnVectorsReader does).
-	WriteField(fieldInfo *schema.FieldInfo, reader PointsReader) error
+	WriteField(fieldInfo *FieldInfo, reader PointsReader) error
 
 	// Finish finalises the writing process (sentinel, lengths, footer).
 	Finish() error
@@ -74,6 +70,18 @@ type PointsReader interface {
 	// CheckIntegrity verifies the integrity of the on-disk point data.
 	CheckIntegrity() error
 
-	// Close releases the underlying inputs. Idempotent.
+	// GetValues returns the PointValues for the given field. The behaviour is
+	// undefined if the field does not have points enabled on its FieldInfo.
+	// Renders `public abstract PointValues getValues(String field)`.
+	GetValues(field string) (PointValues, error)
+
+	// GetMergeInstance returns an instance optimised for merging. The instance
+	// may only be used in the goroutine that acquires it. Renders
+	// `public PointsReader getMergeInstance()`, whose default body returns
+	// this.
+	GetMergeInstance() PointsReader
+
+	// Close releases the underlying inputs. Idempotent. Renders the
+	// Closeable that PointsReader implements.
 	Close() error
 }

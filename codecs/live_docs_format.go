@@ -8,34 +8,24 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// LiveDocsFormat handles encoding/decoding of live docs (deleted documents).
-// This is the Go port of Lucene's org.apache.lucene.codecs.LiveDocsFormat.
-//
-// Live docs are stored in files like _X.liv and contain a bitset indicating
-// which documents are still "live" (not deleted) in the index.
-type LiveDocsFormat interface {
-	// Name returns the name of this format.
-	Name() string
+// LiveDocsFormat is an alias of [spi.LiveDocsFormat], the canonical
+// declaration of org.apache.lucene.codecs.LiveDocsFormat. The interface was
+// lifted onto the SPI so that index/ (which reaches it through
+// spi.Codec.LiveDocsFormat) and codecs/ (which implements it) share one
+// declaration site, following the pattern already used for Codec,
+// NormsFormat, DocValuesFormat and the rest of the per-component formats.
+type LiveDocsFormat = spi.LiveDocsFormat
 
-	// NewLiveDocs returns a new FixedBitSet for tracking live documents.
-	NewLiveDocs(numDocs int) (*util.FixedBitSet, error)
-
-	// ReadLiveDocs reads the live docs from the directory.
-	ReadLiveDocs(dir store.Directory, segmentInfo *schema.SegmentInfo) (util.Bits, error)
-
-	// WriteLiveDocs writes the live docs to the directory.
-	WriteLiveDocs(bits util.Bits, dir store.Directory, segmentInfo *schema.SegmentInfo) error
-
-	// Files returns the files used by this format for the given segment.
-	Files(segmentInfo *schema.SegmentInfo) []string
-}
-
-// BaseLiveDocsFormat provides common functionality for LiveDocsFormat implementations.
+// BaseLiveDocsFormat is the Go rendering of the abstract
+// org.apache.lucene.codecs.LiveDocsFormat base class: it carries the format
+// name and leaves every serialization member to the concrete format, which
+// Go expresses by reporting an explicit "not implemented" error where Java
+// simply has no method body to inherit.
 type BaseLiveDocsFormat struct {
 	name string
 }
@@ -50,24 +40,22 @@ func (f *BaseLiveDocsFormat) Name() string {
 	return f.name
 }
 
-// NewLiveDocs returns a new FixedBitSet (must be implemented by subclasses).
-func (f *BaseLiveDocsFormat) NewLiveDocs(numDocs int) (*util.FixedBitSet, error) {
-	return nil, fmt.Errorf("NewLiveDocs not implemented")
+// ReadLiveDocs reports that the concrete format did not implement the
+// abstract LiveDocsFormat.readLiveDocs member.
+func (f *BaseLiveDocsFormat) ReadLiveDocs(dir store.Directory, info *spi.SegmentCommitInfo, ctx store.IOContext) (util.Bits, error) {
+	return nil, fmt.Errorf("live docs format %q: ReadLiveDocs not implemented", f.name)
 }
 
-// ReadLiveDocs reads the live docs (must be implemented by subclasses).
-func (f *BaseLiveDocsFormat) ReadLiveDocs(dir store.Directory, segmentInfo *schema.SegmentInfo) (util.Bits, error) {
-	return nil, fmt.Errorf("ReadLiveDocs not implemented")
+// WriteLiveDocs reports that the concrete format did not implement the
+// abstract LiveDocsFormat.writeLiveDocs member.
+func (f *BaseLiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directory, info *spi.SegmentCommitInfo, newDelCount int, ctx store.IOContext) error {
+	return fmt.Errorf("live docs format %q: WriteLiveDocs not implemented", f.name)
 }
 
-// WriteLiveDocs writes the live docs (must be implemented by subclasses).
-func (f *BaseLiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directory, segmentInfo *schema.SegmentInfo) error {
-	return fmt.Errorf("WriteLiveDocs not implemented")
-}
-
-// Files returns the files used by this format (must be implemented by subclasses).
-func (f *BaseLiveDocsFormat) Files(segmentInfo *schema.SegmentInfo) []string {
-	return nil
+// Files reports that the concrete format did not implement the abstract
+// LiveDocsFormat.files member.
+func (f *BaseLiveDocsFormat) Files(info *spi.SegmentCommitInfo, files *[]string) error {
+	return fmt.Errorf("live docs format %q: Files not implemented", f.name)
 }
 
 // Lucene90LiveDocsFormat is the Lucene 9.0 live docs format. The .liv file
@@ -75,21 +63,30 @@ func (f *BaseLiveDocsFormat) Files(segmentInfo *schema.SegmentInfo) []string {
 // CodecUtil IndexHeader and Footer. The IndexHeader's suffix carries the
 // del-generation in Character.MAX_RADIX (36).
 //
-// Wire-format-faithful port of
-// org.apache.lucene.codecs.lucene90.Lucene90LiveDocsFormat.
+// Port of org.apache.lucene.codecs.lucene90.Lucene90LiveDocsFormat from
+// Apache Lucene 10.5.0
+// (lucene/core/src/java/org/apache/lucene/codecs/lucene90/Lucene90LiveDocsFormat.java).
 //
-// DEVIATIONS from the Java reference (documented):
+// The read path reproduces the Java sparse/dense split: when the segment's
+// deletion rate is at or below SPARSE_DENSE_THRESHOLD (1%) the on-disk words
+// are inverted into a SparseFixedBitSet of deleted documents and wrapped in a
+// util.SparseLiveDocs; otherwise the dense FixedBitSet is used directly. The
+// on-disk bytes are identical either way — the split only selects the
+// in-memory representation.
 //
-//   - SparseLiveDocs / DenseLiveDocs / Bits.applyMask are not yet ported;
-//     the read path always returns a util.FixedBitSet (the dense
-//     representation). The format is wire-format equivalent regardless of
-//     in-memory representation.
-//   - The simple LiveDocsFormat interface (ReadLiveDocs / WriteLiveDocs
-//     without del-gen + del-count) is kept for backward compatibility but
-//     defaults gen=0 and skips the cross-check against the expected
-//     del-count. The lucene-faithful methods Lucene90LiveDocsFormat
-//     .ReadLiveDocsLucene90 / .WriteLiveDocsLucene90 take an explicit
-//     del-gen and expectedDelCount.
+// ORGANISATIONAL DIVERGENCE (documented): the Java class lives in
+// org.apache.lucene.codecs.lucene90, which maps to the Gocene package
+// codecs/lucene90. That package imports codecs, so Go's ban on import cycles
+// prevents codecs (which needs the format for BaseCodec's concrete codecs,
+// CompressingCodec and Lucene104Codec) from importing it back. The definition
+// therefore lives here and codecs/lucene90 re-exports it under its Lucene name
+// (see codecs/lucene90/lucene90_live_docs_format.go).
+//
+// BEHAVIOURAL DIVERGENCE (documented): on the dense branch Java wraps the
+// FixedBitSet in org.apache.lucene.util.DenseLiveDocs; Gocene returns the
+// *util.FixedBitSet directly because util.DenseLiveDocs does not implement
+// util.Bits (it has no Cardinality method). Get, Length and Cardinality answer
+// identically, so the divergence is confined to the concrete type returned.
 type Lucene90LiveDocsFormat struct {
 	*BaseLiveDocsFormat
 }
@@ -113,60 +110,137 @@ const Lucene90LiveDocsVersionCurrent int32 = Lucene90LiveDocsVersionStart
 // Lucene90LiveDocsExtension is the file extension for the .liv file.
 const Lucene90LiveDocsExtension = "liv"
 
-// NewLiveDocs returns a new FixedBitSet for tracking live documents.
+// Lucene90LiveDocsSparseDenseThreshold is the deletion rate at or below which
+// the read path materialises the live docs as a SparseFixedBitSet of deleted
+// documents instead of a dense FixedBitSet. Mirrors
+// Lucene90LiveDocsFormat.SPARSE_DENSE_THRESHOLD (1%).
+const Lucene90LiveDocsSparseDenseThreshold = 0.01
+
+// NewLiveDocs returns a new FixedBitSet sized for numDocs documents. Lucene
+// dropped LiveDocsFormat.newLiveDocs in 9.0; the helper is retained here for
+// the package's own writers, which need an all-live starting point.
 func (f *Lucene90LiveDocsFormat) NewLiveDocs(numDocs int) (*util.FixedBitSet, error) {
 	return util.NewFixedBitSet(numDocs)
 }
 
-// ReadLiveDocs (backward-compat overload) reads live docs using del-gen 0
-// and no expected-del-count cross-check. Prefer ReadLiveDocsLucene90 for
-// faithful semantics.
-func (f *Lucene90LiveDocsFormat) ReadLiveDocs(dir store.Directory, si *schema.SegmentInfo) (util.Bits, error) {
-	bits, _, err := f.ReadLiveDocsLucene90(dir, si, 0, -1, si.DocCount())
+// ReadLiveDocs reads the .liv file of info from dir. Mirrors
+// Lucene90LiveDocsFormat.readLiveDocs(Directory, SegmentCommitInfo,
+// IOContext): the generation, the segment identity, the document count and
+// the expected delete count all come from the commit info, and the deletion
+// rate derived from them selects the sparse or dense representation.
+//
+// ctx is accepted for interface fidelity and deliberately unused, exactly as
+// in Java, where readLiveDocs reaches the file through
+// Directory.openChecksumInput (which always uses IOContext.READONCE) and
+// never consults its context argument.
+func (f *Lucene90LiveDocsFormat) ReadLiveDocs(dir store.Directory, info *spi.SegmentCommitInfo, ctx store.IOContext) (util.Bits, error) {
+	si := info.Info
+	gen := info.DelGen()
+	maxDoc := si.MaxDoc()
+	delCount := info.DelCount()
+	// Java: (double) delCount / maxDoc. A zero maxDoc yields NaN on both
+	// platforms, and NaN <= threshold is false, so the dense branch is taken.
+	deletionRate := float64(delCount) / float64(maxDoc)
+	name := fileNameFromGeneration(si.Name(), Lucene90LiveDocsExtension, gen)
+	bits, _, err := f.readLiveDocsFile(dir, name, si.GetID(), gen, maxDoc, deletionRate, delCount)
 	return bits, err
 }
 
 // ReadLiveDocsLucene90 reads the .liv file produced by WriteLiveDocsLucene90
 // against the given segment info and del-generation. Returns the bitset and
 // the actual delCount measured from it. When expectedDelCount >= 0, returns
-// an error if the on-disk bitset does not match it.
-func (f *Lucene90LiveDocsFormat) ReadLiveDocsLucene90(dir store.Directory, si *schema.SegmentInfo, delGen int64, expectedDelCount int, maxDoc int) (util.Bits, int, error) {
+// an error if the on-disk bitset does not match it, and the expected count
+// also feeds the sparse/dense representation choice; when it is negative no
+// deletion rate is known and the dense representation is used.
+//
+// This is the explicit-generation entry point used where no SegmentCommitInfo
+// is at hand; ReadLiveDocs is the Lucene-faithful member of the format.
+func (f *Lucene90LiveDocsFormat) ReadLiveDocsLucene90(dir store.Directory, si *spi.SegmentInfo, delGen int64, expectedDelCount int, maxDoc int) (util.Bits, int, error) {
 	name := fileNameFromGeneration(si.Name(), Lucene90LiveDocsExtension, delGen)
 	if !dir.FileExists(name) {
 		return nil, 0, nil
 	}
-	raw, err := dir.OpenInput(name, store.IOContext{Context: store.ContextRead})
+	deletionRate := 1.0
+	if expectedDelCount >= 0 && maxDoc > 0 {
+		deletionRate = float64(expectedDelCount) / float64(maxDoc)
+	}
+	return f.readLiveDocsFile(dir, name, si.GetID(), delGen, maxDoc, deletionRate, expectedDelCount)
+}
+
+// readLiveDocsFile opens name, validates the IndexHeader against the segment
+// id and the base-36 generation suffix, decodes the bits and validates the
+// footer. It is the shared body of ReadLiveDocs and ReadLiveDocsLucene90.
+func (f *Lucene90LiveDocsFormat) readLiveDocsFile(dir store.Directory, name string, segmentID []byte, delGen int64, maxDoc int, deletionRate float64, expectedDelCount int) (util.Bits, int, error) {
+	raw, err := dir.OpenInput(name, store.IOContextReadOnce)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer raw.Close()
-	in := store.NewChecksumIndexInput(raw)
+	in := spi.NewChecksumIndexInput(raw)
 
-	if _, err := CheckIndexHeader(in, Lucene90LiveDocsCodec, Lucene90LiveDocsVersionStart, Lucene90LiveDocsVersionCurrent, si.GetID(), genSuffix(delGen)); err != nil {
+	if _, err := spi.CheckIndexHeader(in, Lucene90LiveDocsCodec, Lucene90LiveDocsVersionStart, Lucene90LiveDocsVersionCurrent, segmentID, genSuffix(delGen)); err != nil {
 		return nil, 0, fmt.Errorf("lucene90 live docs: header: %w", err)
 	}
 
-	bits, err := readDenseLiveDocsBitSet(in, maxDoc)
+	bits, delCount, err := decodeLiveDocs(in, maxDoc, deletionRate, expectedDelCount)
 	if err != nil {
 		return nil, 0, err
 	}
-	delCount := maxDoc - bits.Cardinality()
-	if _, err := CheckFooter(in); err != nil {
+	if _, err := spi.CheckFooter(in); err != nil {
 		return nil, 0, fmt.Errorf("lucene90 live docs: footer: %w", err)
-	}
-	if expectedDelCount >= 0 && delCount != expectedDelCount {
-		return nil, 0, fmt.Errorf("lucene90 live docs: bits.deleted=%d expected=%d", delCount, expectedDelCount)
 	}
 	return bits, delCount, nil
 }
 
-// WriteLiveDocs (backward-compat overload) writes with delGen=0 and no
-// cross-check on the resulting del-count.
-func (f *Lucene90LiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directory, si *schema.SegmentInfo) error {
-	if bits == nil {
-		return nil
+// decodeLiveDocs reads the bit payload and chooses the sparse or dense
+// in-memory representation from the deletion rate, mirroring the private
+// Lucene90LiveDocsFormat.readLiveDocs(IndexInput, int, double, int). When
+// expectedDelCount >= 0 the measured delete count is cross-checked against it,
+// as Java does before returning.
+func decodeLiveDocs(in store.DataInput, maxDoc int, deletionRate float64, expectedDelCount int) (util.Bits, int, error) {
+	var liveDocs util.Bits
+	var actualDelCount int
+
+	if deletionRate <= Lucene90LiveDocsSparseDenseThreshold {
+		sparse, err := readSparseLiveDocsBitSet(in, maxDoc)
+		if err != nil {
+			return nil, 0, err
+		}
+		actualDelCount = sparse.Cardinality()
+		liveDocs = util.NewSparseLiveDocsBuilder(sparse, maxDoc).Build()
+	} else {
+		dense, err := readDenseLiveDocsBitSet(in, maxDoc)
+		if err != nil {
+			return nil, 0, err
+		}
+		actualDelCount = maxDoc - dense.Cardinality()
+		liveDocs = dense
 	}
-	return f.WriteLiveDocsLucene90(bits, dir, si, 0, -1, -1)
+
+	if expectedDelCount >= 0 && actualDelCount != expectedDelCount {
+		return nil, 0, fmt.Errorf("lucene90 live docs: bits.deleted=%d info.delcount=%d", actualDelCount, expectedDelCount)
+	}
+	return liveDocs, actualDelCount, nil
+}
+
+// WriteLiveDocs writes the .liv file for info at the generation reserved by
+// info.GetNextWriteDelGen. Mirrors
+// Lucene90LiveDocsFormat.writeLiveDocs(Bits, Directory, SegmentCommitInfo,
+// int, IOContext), including the final cross-check that the written bits hold
+// exactly info.DelCount() + newDelCount deletions.
+func (f *Lucene90LiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directory, info *spi.SegmentCommitInfo, newDelCount int, ctx store.IOContext) error {
+	si := info.Info
+	gen := info.GetNextWriteDelGen()
+	return f.writeLiveDocsFile(bits, dir, si, gen, info.DelCount()+newDelCount, ctx)
+}
+
+// Files appends the .liv file info keeps in use, when it has deletions.
+// Mirrors Lucene90LiveDocsFormat.files(SegmentCommitInfo, Collection<String>).
+func (f *Lucene90LiveDocsFormat) Files(info *spi.SegmentCommitInfo, files *[]string) error {
+	if info.HasDeletions() {
+		*files = append(*files, fileNameFromGeneration(info.Info.Name(), Lucene90LiveDocsExtension, info.DelGen()))
+	}
+	return nil
 }
 
 // WriteLiveDocsLucene90 writes the .liv file at the given del-generation
@@ -177,15 +251,29 @@ func (f *Lucene90LiveDocsFormat) WriteLiveDocs(bits util.Bits, dir store.Directo
 // When expectedTotalDelCount >= 0, the method verifies that the bits
 // represent exactly that many deletions and returns an error otherwise.
 // The Java reference passes info.delCount + newDelCount.
-func (f *Lucene90LiveDocsFormat) WriteLiveDocsLucene90(bits util.Bits, dir store.Directory, si *schema.SegmentInfo, delGen int64, expectedTotalDelCount int, ignoreNewDelCount int) error {
+//
+// ignoreNewDelCount is retained for call-site compatibility and is unused:
+// the Java writer derives its cross-check from the single total
+// info.getDelCount() + newDelCount, which callers pass as
+// expectedTotalDelCount.
+func (f *Lucene90LiveDocsFormat) WriteLiveDocsLucene90(bits util.Bits, dir store.Directory, si *spi.SegmentInfo, delGen int64, expectedTotalDelCount int, ignoreNewDelCount int) error {
+	return f.writeLiveDocsFile(bits, dir, si, delGen, expectedTotalDelCount, store.IOContext{Context: store.ContextWrite})
+}
+
+// writeLiveDocsFile is the shared body of WriteLiveDocs and
+// WriteLiveDocsLucene90: create the generation-suffixed .liv file, stamp the
+// IndexHeader with the segment id and the base-36 generation, emit the dense
+// bit payload, write the footer, and finally cross-check the number of
+// deletions actually written.
+func (f *Lucene90LiveDocsFormat) writeLiveDocsFile(bits util.Bits, dir store.Directory, si *spi.SegmentInfo, delGen int64, expectedTotalDelCount int, ctx store.IOContext) error {
 	name := fileNameFromGeneration(si.Name(), Lucene90LiveDocsExtension, delGen)
-	raw, err := dir.CreateOutput(name, store.IOContext{Context: store.ContextWrite})
+	raw, err := dir.CreateOutput(name, ctx)
 	if err != nil {
 		return err
 	}
-	out := store.NewChecksumIndexOutput(raw)
+	out := spi.NewChecksumIndexOutput(raw)
 
-	if err := WriteIndexHeader(out, Lucene90LiveDocsCodec, Lucene90LiveDocsVersionCurrent, si.GetID(), genSuffix(delGen)); err != nil {
+	if err := spi.WriteIndexHeader(out, Lucene90LiveDocsCodec, Lucene90LiveDocsVersionCurrent, si.GetID(), genSuffix(delGen)); err != nil {
 		_ = out.Close()
 		return fmt.Errorf("lucene90 live docs: header: %w", err)
 	}
@@ -195,7 +283,7 @@ func (f *Lucene90LiveDocsFormat) WriteLiveDocsLucene90(bits util.Bits, dir store
 		_ = out.Close()
 		return fmt.Errorf("lucene90 live docs: write bits: %w", err)
 	}
-	if err := WriteFooter(out); err != nil {
+	if err := spi.WriteFooter(out); err != nil {
 		_ = out.Close()
 		return fmt.Errorf("lucene90 live docs: footer: %w", err)
 	}
@@ -206,12 +294,6 @@ func (f *Lucene90LiveDocsFormat) WriteLiveDocsLucene90(bits util.Bits, dir store
 		return fmt.Errorf("lucene90 live docs: bits.deleted=%d expected=%d", delCount, expectedTotalDelCount)
 	}
 	return nil
-}
-
-// Files returns the files used by this format for the given segment. The
-// backward-compat overload assumes del-gen 0.
-func (f *Lucene90LiveDocsFormat) Files(si *schema.SegmentInfo) []string {
-	return []string{fileNameFromGeneration(si.Name(), Lucene90LiveDocsExtension, 0)}
 }
 
 // readDenseLiveDocsBitSet reads a dense FixedBitSet of length maxDoc, 64
@@ -227,6 +309,46 @@ func readDenseLiveDocsBitSet(in store.DataInput, maxDoc int) (*util.FixedBitSet,
 		words[i] = uint64(v)
 	}
 	return util.NewFixedBitSetOfBits(words, maxDoc)
+}
+
+// readSparseLiveDocsBitSet reads the same dense payload as
+// readDenseLiveDocsBitSet and inverts it into a SparseFixedBitSet of DELETED
+// documents, mirroring Lucene90LiveDocsFormat.readSparseFixedBitSet: the disk
+// format stores live docs (bit set = live) while SparseLiveDocs stores deleted
+// docs (bit set = deleted). Words with every bit set carry no deletions and
+// are skipped, and bits past maxDoc inside the final word are ignored.
+func readSparseLiveDocsBitSet(in store.DataInput, maxDoc int) (*util.SparseFixedBitSet, error) {
+	numLongs := (maxDoc + 63) / 64
+	words := make([]uint64, numLongs)
+	for i := 0; i < numLongs; i++ {
+		v, err := readLongLE(in)
+		if err != nil {
+			return nil, err
+		}
+		words[i] = uint64(v)
+	}
+
+	sparse, err := util.NewSparseFixedBitSet(maxDoc)
+	if err != nil {
+		return nil, err
+	}
+	for wordIndex := 0; wordIndex < numLongs; wordIndex++ {
+		word := words[wordIndex]
+		if word == ^uint64(0) {
+			continue
+		}
+		baseDocID := wordIndex << 6
+		maxDocInWord := baseDocID + 64
+		if maxDocInWord > maxDoc {
+			maxDocInWord = maxDoc
+		}
+		for docID := baseDocID; docID < maxDocInWord; docID++ {
+			if word&(uint64(1)<<uint(docID&63)) == 0 {
+				sparse.Set(docID)
+			}
+		}
+	}
+	return sparse, nil
 }
 
 // writeDenseLiveDocsBitSet writes the bits as 64-bit little-endian longs
@@ -358,22 +480,23 @@ func strconvBase36(generation int64) string {
 
 // LiveDocsReader provides read access to live docs.
 type LiveDocsReader struct {
-	format      LiveDocsFormat
-	directory   store.Directory
-	segmentInfo *schema.SegmentInfo
-	liveDocs    util.Bits
-	mu          sync.RWMutex
+	format     LiveDocsFormat
+	directory  store.Directory
+	commitInfo *spi.SegmentCommitInfo
+	liveDocs   util.Bits
+	mu         sync.RWMutex
 }
 
-// NewLiveDocsReader creates a new LiveDocsReader.
-func NewLiveDocsReader(format LiveDocsFormat, dir store.Directory, segmentInfo *schema.SegmentInfo) (*LiveDocsReader, error) {
+// NewLiveDocsReader creates a new LiveDocsReader over the live docs of
+// commitInfo, loading them eagerly through format.
+func NewLiveDocsReader(format LiveDocsFormat, dir store.Directory, commitInfo *spi.SegmentCommitInfo) (*LiveDocsReader, error) {
 	reader := &LiveDocsReader{
-		format:      format,
-		directory:   dir,
-		segmentInfo: segmentInfo,
+		format:     format,
+		directory:  dir,
+		commitInfo: commitInfo,
 	}
 
-	liveDocs, err := format.ReadLiveDocs(dir, segmentInfo)
+	liveDocs, err := format.ReadLiveDocs(dir, commitInfo, store.IOContextReadOnce)
 	if err != nil {
 		return nil, err
 	}
@@ -404,7 +527,7 @@ func (r *LiveDocsReader) NumDocs() int {
 	defer r.mu.RUnlock()
 
 	if r.liveDocs == nil {
-		return r.segmentInfo.DocCount()
+		return r.commitInfo.Info.DocCount()
 	}
 
 	return r.liveDocs.Length()
@@ -412,17 +535,19 @@ func (r *LiveDocsReader) NumDocs() int {
 
 // LiveDocsWriter provides write access to live docs.
 type LiveDocsWriter struct {
-	format      LiveDocsFormat
-	directory   store.Directory
-	segmentInfo *schema.SegmentInfo
-	liveDocs    *util.FixedBitSet
-	mu          sync.Mutex
+	format     LiveDocsFormat
+	directory  store.Directory
+	commitInfo *spi.SegmentCommitInfo
+	liveDocs   *util.FixedBitSet
+	newDeletes int
+	mu         sync.Mutex
 }
 
-// NewLiveDocsWriter creates a new LiveDocsWriter.
-func NewLiveDocsWriter(format LiveDocsFormat, dir store.Directory, segmentInfo *schema.SegmentInfo) (*LiveDocsWriter, error) {
-	numDocs := segmentInfo.DocCount()
-	liveDocs, err := format.NewLiveDocs(numDocs)
+// NewLiveDocsWriter creates a new LiveDocsWriter whose bitset starts with
+// every document of commitInfo marked live.
+func NewLiveDocsWriter(format LiveDocsFormat, dir store.Directory, commitInfo *spi.SegmentCommitInfo) (*LiveDocsWriter, error) {
+	numDocs := commitInfo.Info.DocCount()
+	liveDocs, err := util.NewFixedBitSet(numDocs)
 	if err != nil {
 		return nil, err
 	}
@@ -433,10 +558,10 @@ func NewLiveDocsWriter(format LiveDocsFormat, dir store.Directory, segmentInfo *
 	}
 
 	return &LiveDocsWriter{
-		format:      format,
-		directory:   dir,
-		segmentInfo: segmentInfo,
-		liveDocs:    liveDocs,
+		format:     format,
+		directory:  dir,
+		commitInfo: commitInfo,
+		liveDocs:   liveDocs,
 	}, nil
 }
 
@@ -449,7 +574,10 @@ func (w *LiveDocsWriter) DeleteDocument(docID int) error {
 		return fmt.Errorf("document ID %d out of range [0, %d)", docID, w.liveDocs.Length())
 	}
 
-	w.liveDocs.Clear(docID)
+	if w.liveDocs.Get(docID) {
+		w.liveDocs.Clear(docID)
+		w.newDeletes++
+	}
 	return nil
 }
 
@@ -465,12 +593,18 @@ func (w *LiveDocsWriter) IsLive(docID int) bool {
 	return w.liveDocs.Get(docID)
 }
 
-// Commit writes the live docs to disk.
+// Commit writes the live docs to disk at the segment's next delete
+// generation, reporting the deletions accumulated since the writer was
+// created as the new delete count.
 func (w *LiveDocsWriter) Commit() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	return w.format.WriteLiveDocs(w.liveDocs, w.directory, w.segmentInfo)
+	if err := w.format.WriteLiveDocs(w.liveDocs, w.directory, w.commitInfo, w.newDeletes, store.IOContextDefault); err != nil {
+		return err
+	}
+	w.newDeletes = 0
+	return nil
 }
 
 // Ensure implementations satisfy the interfaces

@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ReadOnlyDirectoryReader is a read-only variant of DirectoryReader.
@@ -176,7 +177,7 @@ func (r *ReadOnlyDirectoryReader) Terms(field string) (Terms, error) {
 }
 
 // GetLiveDocs returns the live documents bitset.
-func (r *ReadOnlyDirectoryReader) GetLiveDocs() []bool {
+func (r *ReadOnlyDirectoryReader) GetLiveDocs() util.Bits {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 

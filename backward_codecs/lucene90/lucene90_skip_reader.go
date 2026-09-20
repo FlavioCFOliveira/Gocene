@@ -217,14 +217,14 @@ func (r *Lucene90SkipReader) readSkipData(level int, skipStream store.IndexInput
 	if err != nil {
 		return 0, err
 	}
-	docDelta, err := store.ReadVLong(skipStream)
+	docDelta, err := skipStream.ReadVLong()
 	if err != nil {
 		return 0, err
 	}
 	r.docPointer[level] += docDelta
 
 	if r.posPointer != nil {
-		posDelta, err := store.ReadVLong(skipStream)
+		posDelta, err := skipStream.ReadVLong()
 		if err != nil {
 			return 0, err
 		}
@@ -245,7 +245,7 @@ func (r *Lucene90SkipReader) readSkipData(level int, skipStream store.IndexInput
 		}
 
 		if r.payPointer != nil {
-			payDelta, err := store.ReadVLong(skipStream)
+			payDelta, err := skipStream.ReadVLong()
 			if err != nil {
 				return 0, err
 			}

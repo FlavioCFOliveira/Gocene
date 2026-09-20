@@ -66,7 +66,7 @@ type SimpleTextPointsWriter struct {
 //
 // Port of SimpleTextPointsWriter(SegmentWriteState).
 func NewSimpleTextPointsWriter(state *codecs.SegmentWriteState) (*SimpleTextPointsWriter, error) {
-	fileName := index.SegmentFileName(
+	fileName := store.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		PointExtension,
@@ -208,7 +208,7 @@ func (w *SimpleTextPointsWriter) Close() error {
 	w.dataOut = nil
 
 	// Write the index file.
-	fileName := index.SegmentFileName(
+	fileName := store.SegmentFileName(
 		w.writeState.SegmentInfo.Name(),
 		w.writeState.SegmentSuffix,
 		PointIndexExtension,

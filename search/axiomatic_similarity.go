@@ -5,6 +5,8 @@
 package search
 
 import (
+	"fmt"
+
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -14,6 +16,10 @@ import (
 // This is based on the theory that a good retrieval function should satisfy
 // certain axioms about term weighting and document scoring.
 type AxiomaticSimilarity struct {
+	// BaseSimilarity carries the concrete members of the Java base class
+	// Similarity that Axiomatic inherits unchanged, getDiscountOverlaps()
+	// among them.
+	*BaseSimilarity
 	s float64 // parameter for controlling document length normalization
 	k float64 // parameter for term frequency saturation
 }
@@ -21,16 +27,18 @@ type AxiomaticSimilarity struct {
 // NewAxiomaticSimilarity creates a new AxiomaticSimilarity with default parameters.
 func NewAxiomaticSimilarity() *AxiomaticSimilarity {
 	return &AxiomaticSimilarity{
-		s: 0.5,
-		k: 1.0,
+		BaseSimilarity: NewBaseSimilarity(),
+		s:              0.5,
+		k:              1.0,
 	}
 }
 
 // NewAxiomaticSimilarityWithParams creates a new AxiomaticSimilarity with custom parameters.
 func NewAxiomaticSimilarityWithParams(s, k float64) *AxiomaticSimilarity {
 	return &AxiomaticSimilarity{
-		s: s,
-		k: k,
+		BaseSimilarity: NewBaseSimilarity(),
+		s:              s,
+		k:              k,
 	}
 }
 
@@ -109,6 +117,31 @@ func (sim *AxiomaticSimilarity) Scorer(collectionStats *CollectionStatistics, te
 	return NewAxiomaticSimScorer(sim, collectionStats, termStats)
 }
 
+// Scorer104 mirrors SimilarityBase.scorer(float, CollectionStatistics,
+// TermStatistics...), the method org.apache.lucene.search.similarities.Axiomatic
+// inherits unchanged from its superclass: one sub-scorer is built per
+// TermStatistics and either returned directly (single-term query) or wrapped
+// in MultiSimilarity.MultiSimScorer.
+//
+// The degenerate zero-term branch follows [SimilarityBase.Scorer104] in this
+// package: Lucene never produces it, and returning a zero-scoring scorer keeps
+// callers from indexing an empty slice.
+func (sim *AxiomaticSimilarity) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
+	if len(termStats) == 0 {
+		return &noopSimScorer{}
+	}
+	subScorers := make([]SimScorer, len(termStats))
+	for i, ts := range termStats {
+		subScorers[i] = NewAxiomaticSimScorerWithWeight(
+			NewAxiomaticSimWeight(sim, collectionStats, ts, boost),
+		)
+	}
+	if len(subScorers) == 1 {
+		return subScorers[0]
+	}
+	return newMultiSimScorerLucene(subScorers)
+}
+
 // AxiomaticSimWeight is the weight for AxiomaticSimilarity.
 type AxiomaticSimWeight struct {
 	sim             *AxiomaticSimilarity
@@ -172,7 +205,7 @@ func NewAxiomaticSimScorerWithWeight(weight *AxiomaticSimWeight) *AxiomaticSimSc
 // The norm argument mirrors Lucene's SimScorer.score(float, long) signature.
 // This legacy axiomatic scorer does not consult norms; it is ignored to preserve
 // the existing behaviour of in-repo tests.
-func (s *AxiomaticSimScorer) Score(doc int, freq float32, norm int64) float32 {
+func (s *AxiomaticSimScorer) Score104(freq float32, norm int64) float32 {
 	if freq == 0 {
 		return 0
 	}
@@ -207,3 +240,19 @@ var _ Similarity = (*AxiomaticSimilarity)(nil)
 
 // Ensure AxiomaticSimScorer implements SimScorer
 var _ SimScorer = (*AxiomaticSimScorer)(nil)
+
+// AsBulkSimScorer mirrors the concrete body of Similarity.SimScorer.asBulkSimScorer()
+// in Apache Lucene 10.5.0: new DefaultBulkSimScorer(this).
+func (a *AxiomaticSimScorer) AsBulkSimScorer() BulkSimScorer {
+	return NewDefaultBulkSimScorer(a)
+}
+
+// Explain104 mirrors the concrete body of Similarity.SimScorer.explain(Explanation, long)
+// in Apache Lucene 10.5.0: Explanation.match(score(freq.getValue().floatValue(), norm),
+// "score(freq=" + freq.getValue() + "), with freq of:", freq).
+func (a *AxiomaticSimScorer) Explain104(freq Explanation, norm int64) Explanation {
+	e := NewExplanation(true, a.Score104(freq.GetValue(), norm),
+		fmt.Sprintf("score(freq=%s), with freq of:", formatFloatGeneric(freq.GetValue())))
+	e.AddDetail(freq)
+	return e
+}

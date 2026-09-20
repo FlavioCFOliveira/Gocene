@@ -47,7 +47,7 @@ func TestLucene95HnswVectorsReader_ReadMetadata_LittleEndianPayload(t *testing.T
 		t.Fatalf("FieldInfos.Add: %v", err)
 	}
 
-	metaName := index.SegmentFileName(segName, "", lucene95MetaExtension)
+	metaName := store.SegmentFileName(segName, "", lucene95MetaExtension)
 	rawOut, err := dir.CreateOutput(metaName, store.IOContextWrite)
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
@@ -81,7 +81,7 @@ func TestLucene95HnswVectorsReader_ReadMetadata_LittleEndianPayload(t *testing.T
 
 	mustWriteInt(t, out, -1) // end-of-fields sentinel
 
-	if err := codecs.WriteFooter(out); err != nil {
+	if err := store.WriteFooter(out); err != nil {
 		t.Fatalf("WriteFooter: %v", err)
 	}
 	if err := out.Close(); err != nil {

@@ -1,18 +1,11 @@
 package search
 
-import (
-	"fmt"
-
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/util"
-)
-
 type BooleanScorerSupplier struct {
-	subs               map[Occur][]ScorerSupplier
-	scoreMode          ScoreMode
-	minShouldMatch     int
-	maxDoc             int
-	cost               int64
+	subs                  map[Occur][]ScorerSupplier
+	scoreMode             ScoreMode
+	minShouldMatch        int
+	maxDoc                int
+	cost                  int64
 	topLevelScoringClause bool
 }
 
@@ -118,13 +111,13 @@ func (s *BooleanScorerSupplier) Get(leadCost int64) (Scorer, error) {
 	// Pure conjunction
 	if len(shoulds) == 0 {
 		req := s.req(filters, musts, effLeadCost, s.topLevelScoringClause)
-		return s.excl(req, mustNots, effLeadCost)
+		return s.excl(req, mustNots, effLeadCost), nil
 	}
 
 	// Pure disjunction
 	if len(filters) == 0 && len(musts) == 0 {
 		opt := s.opt(shoulds, s.minShouldMatch, s.scoreMode, effLeadCost, s.topLevelScoringClause)
-		return s.excl(opt, mustNots, effLeadCost)
+		return s.excl(opt, mustNots, effLeadCost), nil
 	}
 
 	// Mix
@@ -152,7 +145,7 @@ func (s *BooleanScorerSupplier) req(filters []ScorerSupplier, musts []ScorerSupp
 		}
 		// Wrap in filter scorer if it's just a filter
 		if len(musts) == 0 {
-			return &filterScorer{scorer: scorer}
+			return &filterScorer{FilterScorer: NewFilterScorer(scorer)}
 		}
 		return scorer
 	}
@@ -205,14 +198,29 @@ func (s *BooleanScorerSupplier) excl(main Scorer, prohibited []ScorerSupplier, l
 	return NewReqExclScorer(main, prohibitedScorer)
 }
 
+// filterScorer is the anonymous FilterScorer subclass that
+// BooleanScorerSupplier creates when scores are needed but every required
+// clause is a filter (Lucene 10.5.0, BooleanScorerSupplier.java:436-446 and
+// 490-501):
+//
+//	new FilterScorer(req) {
+//	  @Override public float score() throws IOException { return 0f; }
+//	  @Override public float getMaxScore(int upTo) throws IOException { return 0f; }
+//	}
 type filterScorer struct {
-	scorer Scorer
+	*FilterScorer
 }
 
-func (f *filterScorer) NextDoc() (int, error) { return f.scorer.NextDoc() }
-func (f *filterScorer) Score() float32       { return 0 }
-func (f *filterScorer) DocID() int           { return f.scorer.DocID() }
-func (f *filterScorer) Iterator() DocIdSetIterator { return f.scorer.Iterator() }
-func (f *filterScorer) Advance(target int) (int, error) { return f.scorer.Advance(target) }
+// Score mirrors the anonymous override `return 0f;`.
+func (f *filterScorer) Score() (float32, error) { return 0, nil }
+
+// GetMaxScore mirrors the anonymous override `return 0f;`.
+func (f *filterScorer) GetMaxScore(upTo int) (float32, error) { return 0, nil }
 
 var _ ScorerSupplier = (*BooleanScorerSupplier)(nil)
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (b *BooleanScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(b)
+}

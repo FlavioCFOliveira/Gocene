@@ -4,8 +4,6 @@
 
 package analysis
 
-	
-
 import (
 	"bufio"
 	"io"
@@ -63,13 +61,9 @@ func NewLetterTokenizerWithFactory(factory util.AttributeFactory) *LetterTokeniz
 	}
 
 	// Add attributes
-	t.termAttr = NewCharTermAttribute()
-	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
+	t.termAttr = t.AddAttribute(CharTermAttributeType).(CharTermAttribute)
+	t.offsetAttr = t.AddAttribute(OffsetAttributeType).(OffsetAttribute)
+	t.posIncrAttr = t.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 
 	return t
 }
@@ -80,14 +74,13 @@ func NewLetterTokenizer() *LetterTokenizer {
 }
 
 // SetReader sets the input source for this Tokenizer.
-func (t *LetterTokenizer) SetReader(input io.Reader) error {
+func (t *LetterTokenizer) SetReader(input io.Reader) {
 	t.BaseTokenizer.SetReader(input)
 	t.scanner = bufio.NewScanner(input)
 	t.scanner.Split(bufio.ScanRunes)
 	t.currentOffset = 0
 	t.currentToken = nil
 	t.tokenStartOffset = 0
-	return nil
 }
 
 // IncrementToken advances to the next token.

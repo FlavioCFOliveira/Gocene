@@ -99,9 +99,9 @@ func collectPrefixTerms(t *testing.T, s *search.IndexSearcher, field, prefix str
 	if terms == nil {
 		t.Fatalf("Terms(%q) returned nil", field)
 	}
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	cur, err := it.SeekCeil(index.NewTerm(field, prefix))
 	if err != nil {

@@ -194,7 +194,9 @@ func (f *ScandinavianNormalizationFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*ScandinavianNormalizationFilter)(nil)
 
 // ScandinavianNormalizationFilterFactory creates instances.
-type ScandinavianNormalizationFilterFactory struct{}
+type ScandinavianNormalizationFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewScandinavianNormalizationFilterFactory returns a fresh factory.
 func NewScandinavianNormalizationFilterFactory() *ScandinavianNormalizationFilterFactory {
@@ -280,7 +282,9 @@ func (f *ScandinavianFoldingFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*ScandinavianFoldingFilter)(nil)
 
 // ScandinavianFoldingFilterFactory creates instances.
-type ScandinavianFoldingFilterFactory struct{}
+type ScandinavianFoldingFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewScandinavianFoldingFilterFactory returns a fresh factory.
 func NewScandinavianFoldingFilterFactory() *ScandinavianFoldingFilterFactory {

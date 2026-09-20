@@ -6,6 +6,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -39,7 +40,7 @@ func (s *fakeScorer) GetMaxScore(_ int) float32 { return s.maxScore }
 func (s *fakeScorer) AdvanceShallow(int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
-func (s *fakeScorer) DocIDRunEnd() int           { return s.BaseDocIdSetIterator.DocIDRunEnd() }
+func (s *fakeScorer) DocIDRunEnd() (int, error)  { return s.BaseDocIdSetIterator.DocIDRunEnd() }
 func (s *fakeScorer) NextDoc() (int, error)      { return search.NO_MORE_DOCS, nil }
 func (s *fakeScorer) Advance(_ int) (int, error) { return search.NO_MORE_DOCS, nil }
 
@@ -192,4 +193,11 @@ func TestQueryProfilerWeight_IsCacheable(t *testing.T) {
 	if pw.IsCacheable(nil) {
 		t.Error("IsCacheable() should return false")
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *fakeScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

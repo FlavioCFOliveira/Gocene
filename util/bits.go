@@ -139,6 +139,10 @@ func (m *MatchAllBits) Length() int {
 	return m.length
 }
 
+func (m *MatchAllBits) Cardinality() int {
+	return m.length
+}
+
 // MatchNoBits is the Go port of {@code Bits.MatchNoBits}: a [Bits] of
 // the specified length with no bits set.
 type MatchNoBits struct {
@@ -158,4 +162,8 @@ func (m *MatchNoBits) Get(index int) bool {
 // Length returns the number of bits in this MatchNoBits.
 func (m *MatchNoBits) Length() int {
 	return m.length
+}
+
+func (m *MatchNoBits) Cardinality() int {
+	return 0
 }

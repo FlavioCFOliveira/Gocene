@@ -58,6 +58,13 @@ func (p *SoftDeletesRetentionMergePolicy) FindForcedDeletesMerges(infos *Segment
 	return p.inner.FindForcedDeletesMerges(infos, mergeContext)
 }
 
+// FindFullFlushMerges identifies merges to execute synchronously on commit.
+// Mirrors FilterMergePolicy.findFullFlushMerges, which
+// SoftDeletesRetentionMergePolicy inherits through OneMergeWrappingMergePolicy.
+func (p *SoftDeletesRetentionMergePolicy) FindFullFlushMerges(trigger MergeTrigger, infos *SegmentInfos, mergeContext MergeContext) (*MergeSpecification, error) {
+	return p.inner.FindFullFlushMerges(trigger, infos, mergeContext)
+}
+
 // UseCompoundFile returns true if segments should use compound files.
 func (p *SoftDeletesRetentionMergePolicy) UseCompoundFile(infos *SegmentInfos, mergedInfo *SegmentCommitInfo, mergeContext MergeContext) (bool, error) {
 	return p.inner.UseCompoundFile(infos, mergedInfo, mergeContext)

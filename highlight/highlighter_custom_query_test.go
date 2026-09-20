@@ -8,6 +8,7 @@ package highlight
 // plugged in to highlight a domain-specific Query type.
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 	"testing"
 
@@ -35,7 +36,7 @@ func (q *customQuery) Rewrite(_ search.IndexReader) (search.Query, error) { retu
 func (q *customQuery) Clone() search.Query { cpy := *q; return &cpy }
 
 // Equals reports structural equality.
-func (q *customQuery) Equals(other search.Query) bool {
+func (q *customQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*customQuery)
 	if !ok {
 		return false

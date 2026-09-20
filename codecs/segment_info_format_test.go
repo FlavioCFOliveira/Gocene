@@ -154,16 +154,18 @@ func TestSegmentInfosFormat_ReadWrite(t *testing.T) {
 		sis.Add(sci)
 	}
 
-	format := codecs.NewLucene104SegmentInfosFormat()
-
-	// Write
-	err := format.Write(dir, sis, store.IOContextWrite)
-	if err != nil {
-		t.Fatalf("Write failed: %v", err)
+	// Write: Apache Lucene 10.5.0 has no per-codec segments_N format;
+	// SegmentInfos writes segments_N itself (SegmentInfos.commit is
+	// prepareCommit followed by finishCommit).
+	if err := sis.PrepareCommit(dir); err != nil {
+		t.Fatalf("PrepareCommit failed: %v", err)
+	}
+	if _, err := sis.FinishCommit(dir); err != nil {
+		t.Fatalf("FinishCommit failed: %v", err)
 	}
 
 	// Read back
-	sis2, err := format.Read(dir, store.IOContextRead)
+	sis2, err := index.ReadSegmentInfos(dir)
 	if err != nil {
 		t.Fatalf("Read failed: %v", err)
 	}

@@ -250,10 +250,10 @@ func (t *trackingIndexOutput) WriteByte(b byte) error {
 }
 
 // WriteBytes writes bytes and tracks them.
-func (t *trackingIndexOutput) WriteBytes(b []byte) error {
-	err := t.IndexOutput.WriteBytes(b)
+func (t *trackingIndexOutput) WriteBytes(b []byte, offset, length int) error {
+	err := t.IndexOutput.WriteBytes(b, offset, length)
 	if err == nil {
-		t.dir.recordWrite(t.name, int64(len(b)))
+		t.dir.recordWrite(t.name, int64(length))
 	}
 	return err
 }

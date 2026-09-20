@@ -27,12 +27,15 @@ func atLeast(min int) int {
 
 // mockQuery is a minimal Query implementation for testing purposes.
 // This avoids import cycles with the search package.
+//
+// Query is now an alias of the one shared contract [spi.Query], which declares
+// only the equals/hashCode pair Java's Query.java declares abstract; the
+// Rewrite/Clone/CreateWeight members this double used to carry belonged to the
+// second, index-local Query rendering that has been withdrawn.
 type mockQuery struct {
 	id int
 }
 
-func (q *mockQuery) Rewrite(reader *IndexReader) (Query, error) { return q, nil }
-func (q *mockQuery) Clone() Query                               { return &mockQuery{id: q.id} }
 func (q *mockQuery) Equals(other Query) bool {
 	if o, ok := other.(*mockQuery); ok {
 		return q.id == o.id
@@ -40,9 +43,6 @@ func (q *mockQuery) Equals(other Query) bool {
 	return false
 }
 func (q *mockQuery) HashCode() int { return q.id }
-func (q *mockQuery) CreateWeight(searcher IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return nil, nil
-}
 
 // TestBufferedUpdates_RamBytesUsed tests RAM usage tracking for BufferedUpdates
 func TestBufferedUpdates_RamBytesUsed(t *testing.T) {

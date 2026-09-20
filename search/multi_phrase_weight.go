@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
@@ -24,13 +25,22 @@ type MultiPhraseWeight struct {
 	*BaseWeight
 	query       *MultiPhraseQuery
 	searcher    *IndexSearcher
+	scoreMode   ScoreMode
+	boost       float32
 	needsScores bool
 	similarity  Similarity
 	simScorer   SimScorer
 }
 
 // NewMultiPhraseWeight creates a new MultiPhraseWeight.
-func NewMultiPhraseWeight(query *MultiPhraseQuery, searcher *IndexSearcher, needsScores bool) (*MultiPhraseWeight, error) {
+//
+// Lucene declares no MultiPhraseWeight class: MultiPhraseQuery.createWeight
+// returns an anonymous PhraseWeight subclass that captures searcher, scoreMode
+// and boost from the enclosing call. Go has no anonymous classes, so the
+// capture becomes explicit constructor parameters, and needsScores is derived
+// from scoreMode exactly as PhraseWeight does.
+func NewMultiPhraseWeight(query *MultiPhraseQuery, searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (*MultiPhraseWeight, error) {
+	needsScores := scoreMode.NeedsScores()
 	// Score through the searcher's Similarity (mirroring Lucene), so a custom
 	// Similarity injected via IndexSearcher.SetSimilarity drives the produced
 	// scores. Falls back to ClassicSimilarity when the searcher carries none.
@@ -42,17 +52,21 @@ func NewMultiPhraseWeight(query *MultiPhraseQuery, searcher *IndexSearcher, need
 		BaseWeight:  NewBaseWeight(query),
 		query:       query,
 		searcher:    searcher,
+		scoreMode:   scoreMode,
+		boost:       boost,
 		needsScores: needsScores,
 		similarity:  similarity,
 	}
 	if needsScores && len(query.termArrays) > 0 {
 		reader := searcher.GetIndexReader()
 		collectionStats := NewCollectionStatistics(query.field, reader.MaxDoc(), reader.NumDocs(), -1, -1)
-		var termStats *TermStatistics
+		var termStats []*TermStatistics
 		if len(query.termArrays[0]) > 0 {
-			termStats = NewTermStatistics(query.termArrays[0][0], reader.NumDocs(), -1)
+			termStats = append(termStats, NewTermStatistics(query.termArrays[0][0], reader.NumDocs(), -1))
 		}
-		w.simScorer = w.similarity.Scorer(collectionStats, termStats)
+		// Mirrors getStats's `similarity.scorer(boost,
+		// searcher.collectionStatistics(field), allTermStats)`.
+		w.simScorer = w.similarity.Scorer104(boost, collectionStats, termStats...)
 	}
 	return w, nil
 }
@@ -81,6 +95,7 @@ func (w *MultiPhraseWeight) Scorer(context *index.LeafReaderContext) (Scorer, er
 
 	n := len(w.query.termArrays)
 	postings := make([]index.PostingsEnum, n)
+	var totalMatchCost float32
 	for i, termArray := range w.query.termArrays {
 		if len(termArray) == 0 {
 			return nil, nil
@@ -89,7 +104,7 @@ func (w *MultiPhraseWeight) Scorer(context *index.LeafReaderContext) (Scorer, er
 		for _, term := range termArray {
 			// Each slot needs its own TermsEnum so duplicate terms across
 			// positions (e.g. "a (a b)") obtain independent PostingsEnums.
-			termsEnum, err := terms.GetIterator()
+			termsEnum, err := terms.Iterator()
 			if err != nil {
 				return nil, err
 			}
@@ -107,6 +122,11 @@ func (w *MultiPhraseWeight) Scorer(context *index.LeafReaderContext) (Scorer, er
 			if pe == nil {
 				continue
 			}
+			cost, err := TermPositionsCost(termsEnum)
+			if err != nil {
+				return nil, err
+			}
+			totalMatchCost += cost
 			subs = append(subs, pe)
 		}
 		if len(subs) == 0 {
@@ -131,10 +151,35 @@ func (w *MultiPhraseWeight) Scorer(context *index.LeafReaderContext) (Scorer, er
 		}
 	}
 
-	if w.query.slop == 0 {
-		return NewPhraseScorer(w, postings, queryPositions, w.simScorer, norms), nil
+	// Mirrors the anonymous PhraseWeight.getPhraseMatcher(...) of
+	// MultiPhraseQuery.createWeight: one PostingsAndFreq per phrase position,
+	// then ExactPhraseMatcher for slop 0 and SloppyPhraseMatcher otherwise.
+	scoreMode := COMPLETE_NO_SCORES
+	if w.needsScores {
+		scoreMode = COMPLETE
 	}
-	return NewSloppyPhraseScorer(w, postings, queryPositions, w.simScorer, w.query.slop, norms), nil
+	postingsFreqs := make([]*postingsAndFreq, len(postings))
+	for i := range postings {
+		var impacts index.ImpactsEnum
+		if ie, ok := postings[i].(index.ImpactsEnum); ok {
+			impacts = ie
+		} else {
+			impacts = index.NewSlowImpactsEnum(postings[i])
+		}
+		postingsFreqs[i] = NewPostingsAndFreqWithList(
+			postings[i], impacts, queryPositions[i], w.query.termArrays[i])
+	}
+
+	if w.query.slop == 0 {
+		sort.SliceStable(postingsFreqs, func(a, b int) bool {
+			return postingsFreqs[a].CompareTo(postingsFreqs[b]) < 0
+		})
+		matcher := NewExactPhraseMatcher(postingsFreqs, scoreMode, w.simScorer, totalMatchCost)
+		return newPhraseScorer(matcher, scoreMode, w.simScorer, norms), nil
+	}
+	matcher := NewSloppyPhraseMatcher(
+		postingsFreqs, w.query.slop, scoreMode, w.simScorer, totalMatchCost, false)
+	return newPhraseScorer(matcher, scoreMode, w.simScorer, norms), nil
 }
 
 // ScorerSupplier creates a scorer supplier for this weight.
@@ -146,7 +191,7 @@ func (w *MultiPhraseWeight) ScorerSupplier(context *index.LeafReaderContext) (Sc
 	if scorer == nil {
 		return nil, nil
 	}
-	return NewScorerSupplierAdapter(scorer), nil
+	return NewDefaultScorerSupplier(scorer), nil
 }
 
 // BulkScorer creates a bulk scorer for efficient bulk scoring.
@@ -169,12 +214,15 @@ func (w *MultiPhraseWeight) Explain(context *index.LeafReaderContext, doc int) (
 		return nil, err
 	}
 	if scorer != nil {
-		advanced, err := scorer.Advance(doc)
+		advanced, err := scorer.Iterator().Advance(doc)
 		if err != nil {
 			return nil, err
 		}
 		if advanced == doc {
-			score := scorer.Score()
+			score, err := scorer.Score()
+			if err != nil {
+				return nil, err
+			}
 			var freq float32
 			if pfs, ok := scorer.(phraseFreqScorer); ok {
 				freq = pfs.PhraseFreq()

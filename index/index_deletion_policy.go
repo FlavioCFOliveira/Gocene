@@ -6,7 +6,6 @@ package index
 
 import (
 	"fmt"
-	"sort"
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -54,42 +53,6 @@ func (p *BaseIndexDeletionPolicy) Clone() IndexDeletionPolicy {
 	return nil
 }
 
-// KeepOnlyLastCommitDeletionPolicy keeps only the most recent commit and
-// immediately removes all prior commits after a new commit is done.
-type KeepOnlyLastCommitDeletionPolicy struct {
-	*BaseIndexDeletionPolicy
-}
-
-func NewKeepOnlyLastCommitDeletionPolicy() *KeepOnlyLastCommitDeletionPolicy {
-	return &KeepOnlyLastCommitDeletionPolicy{
-		BaseIndexDeletionPolicy: &BaseIndexDeletionPolicy{},
-	}
-}
-
-func (p *KeepOnlyLastCommitDeletionPolicy) OnCommit(commits []Commit) error {
-	if len(commits) <= 1 {
-		return nil
-	}
-	for i := 0; i < len(commits)-1; i++ {
-		if err := commits[i].Delete(); err != nil {
-			return fmt.Errorf("failed to delete commit %d: %w", i, err)
-		}
-	}
-	return nil
-}
-
-func (p *KeepOnlyLastCommitDeletionPolicy) OnInit(commits []Commit) error {
-	return p.OnCommit(commits)
-}
-
-func (p *KeepOnlyLastCommitDeletionPolicy) Clone() IndexDeletionPolicy {
-	return NewKeepOnlyLastCommitDeletionPolicy()
-}
-
-func (p *KeepOnlyLastCommitDeletionPolicy) String() string {
-	return "KeepOnlyLastCommitDeletionPolicy"
-}
-
 // KeepAllDeletionPolicy keeps all commits and never deletes anything.
 type KeepAllDeletionPolicy struct {
 	*BaseIndexDeletionPolicy
@@ -115,45 +78,6 @@ func (p *KeepAllDeletionPolicy) Clone() IndexDeletionPolicy {
 
 func (p *KeepAllDeletionPolicy) String() string {
 	return "KeepAllDeletionPolicy"
-}
-
-// KeepLastNCommitsDeletionPolicy keeps the last N commits and removes all prior
-// commits after a new commit is done.
-type KeepLastNCommitsDeletionPolicy struct {
-	*BaseIndexDeletionPolicy
-	numCommitsToKeep int
-}
-
-func NewKeepLastNCommitsDeletionPolicy(numCommitsToKeep int) *KeepLastNCommitsDeletionPolicy {
-	if numCommitsToKeep <= 0 {
-		panic("number of recent commits to keep must be positive")
-	}
-	return &KeepLastNCommitsDeletionPolicy{
-		BaseIndexDeletionPolicy: &BaseIndexDeletionPolicy{},
-		numCommitsToKeep:        numCommitsToKeep,
-	}
-}
-
-func (p *KeepLastNCommitsDeletionPolicy) OnCommit(commits []Commit) error {
-	size := len(commits)
-	for i := 0; i < size-p.numCommitsToKeep; i++ {
-		if err := commits[i].Delete(); err != nil {
-			return fmt.Errorf("failed to delete commit %d: %w", i, err)
-		}
-	}
-	return nil
-}
-
-func (p *KeepLastNCommitsDeletionPolicy) OnInit(commits []Commit) error {
-	return p.OnCommit(commits)
-}
-
-func (p *KeepLastNCommitsDeletionPolicy) Clone() IndexDeletionPolicy {
-	return NewKeepLastNCommitsDeletionPolicy(p.numCommitsToKeep)
-}
-
-func (p *KeepLastNCommitsDeletionPolicy) String() string {
-	return fmt.Sprintf("KeepLastNCommitsDeletionPolicy(numToKeep=%d)", p.numCommitsToKeep)
 }
 
 // SnapshotDeletionPolicy wraps any other IndexDeletionPolicy and adds the
@@ -264,6 +188,15 @@ func (p *SnapshotDeletionPolicy) Release(commit Commit) error {
 	return p.releaseGen(gen)
 }
 
+// ReleaseGen releases a snapshot by generation. Mirrors the protected
+// SnapshotDeletionPolicy.releaseGen, which exists so that
+// PersistentSnapshotDeletionPolicy.release(long) can reach it.
+func (p *SnapshotDeletionPolicy) ReleaseGen(gen int64) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.releaseGen(gen)
+}
+
 func (p *SnapshotDeletionPolicy) releaseGen(gen int64) error {
 	if !p.initCalled {
 		return fmt.Errorf("this instance is not being used by IndexWriter; be sure to use the instance returned from writer.getConfig().getIndexDeletionPolicy()")
@@ -300,6 +233,20 @@ func (p *SnapshotDeletionPolicy) GetSnapshots() []Commit {
 		snapshots = append(snapshots, c)
 	}
 	return snapshots
+}
+
+// GetSnapshotCount returns the total number of snapshots currently held,
+// counting every reference taken on every snapshotted generation. Mirrors
+// SnapshotDeletionPolicy.getSnapshotCount.
+func (p *SnapshotDeletionPolicy) GetSnapshotCount() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	total := 0
+	for _, refCount := range p.refCounts {
+		total += refCount
+	}
+	return total
 }
 
 func (p *SnapshotDeletionPolicy) GetIndexCommit(gen int64) Commit {

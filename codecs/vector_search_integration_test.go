@@ -11,6 +11,9 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
+	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
 // TestVectorSearchIntegration tests the complete vector search pipeline
@@ -40,12 +43,12 @@ func TestVectorSearchIntegration(t *testing.T) {
 	})
 
 	t.Run("ScalarQuantizedWithEncoding", func(t *testing.T) {
-		encodings := []codecs.ScalarEncoding{
-			codecs.ScalarEncodingUnsignedByte,
-			codecs.ScalarEncodingSevenBit,
-			codecs.ScalarEncodingPackedNibble,
-			codecs.ScalarEncodingSingleBitQueryNibble,
-			codecs.ScalarEncodingDibitQueryNibble,
+		encodings := []quantization.ScalarEncoding{
+			quantization.ScalarEncodingUnsignedByte,
+			quantization.ScalarEncodingSevenBit,
+			quantization.ScalarEncodingPackedNibble,
+			quantization.ScalarEncodingSingleBitQueryNibble,
+			quantization.ScalarEncodingDibitQueryNibble,
 		}
 
 		for _, enc := range encodings {
@@ -62,7 +65,7 @@ func TestVectorSearchIntegration(t *testing.T) {
 
 // TestFlatVectorScorerIntegration tests the flat vector scorer
 func TestFlatVectorScorerIntegration(t *testing.T) {
-	scorer := codecs.NewDefaultFlatVectorScorer()
+	scorer := hnsw.NewDefaultFlatVectorScorer()
 	if scorer == nil {
 		t.Fatal("DefaultFlatVectorScorer should not be nil")
 	}
@@ -80,7 +83,7 @@ func TestVectorSimilarityFunctions(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		simFunc  codecs.VectorSimilarityFunction
+		simFunc  util.VectorSimilarityFunction
 		v1       []float32
 		v2       []float32
 		minScore float32
@@ -88,7 +91,7 @@ func TestVectorSimilarityFunctions(t *testing.T) {
 	}{
 		{
 			name:     "Euclidean",
-			simFunc:  codecs.VectorSimilarityFunctionEuclidean,
+			simFunc:  util.EuclideanSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -96,7 +99,7 @@ func TestVectorSimilarityFunctions(t *testing.T) {
 		},
 		{
 			name:     "DotProduct",
-			simFunc:  codecs.VectorSimilarityFunctionDotProduct,
+			simFunc:  util.DotProductSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -104,7 +107,7 @@ func TestVectorSimilarityFunctions(t *testing.T) {
 		},
 		{
 			name:     "Cosine",
-			simFunc:  codecs.VectorSimilarityFunctionCosine,
+			simFunc:  util.CosineSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -112,7 +115,7 @@ func TestVectorSimilarityFunctions(t *testing.T) {
 		},
 		{
 			name:     "MaximumInnerProduct",
-			simFunc:  codecs.VectorSimilarityFunctionMaximumInnerProduct,
+			simFunc:  util.MaximumInnerProductSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -122,7 +125,7 @@ func TestVectorSimilarityFunctions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			score := codecs.ComputeSimilarity(tc.simFunc, tc.v1, tc.v2)
+			score := tc.simFunc.CompareFloat(tc.v1, tc.v2)
 			if score < tc.minScore || score > tc.maxScore {
 				t.Errorf("Score %f out of range [%f, %f]", score, tc.minScore, tc.maxScore)
 			}
@@ -137,7 +140,7 @@ func TestByteVectorSimilarityFunctions(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		simFunc  codecs.VectorSimilarityFunction
+		simFunc  util.VectorSimilarityFunction
 		v1       []byte
 		v2       []byte
 		minScore float32
@@ -145,7 +148,7 @@ func TestByteVectorSimilarityFunctions(t *testing.T) {
 	}{
 		{
 			name:     "EuclideanByte",
-			simFunc:  codecs.VectorSimilarityFunctionEuclidean,
+			simFunc:  util.EuclideanSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -153,7 +156,7 @@ func TestByteVectorSimilarityFunctions(t *testing.T) {
 		},
 		{
 			name:     "DotProductByte",
-			simFunc:  codecs.VectorSimilarityFunctionDotProduct,
+			simFunc:  util.DotProductSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -161,7 +164,7 @@ func TestByteVectorSimilarityFunctions(t *testing.T) {
 		},
 		{
 			name:     "CosineByte",
-			simFunc:  codecs.VectorSimilarityFunctionCosine,
+			simFunc:  util.CosineSim,
 			v1:       v1,
 			v2:       v2,
 			minScore: 0.0,
@@ -171,7 +174,7 @@ func TestByteVectorSimilarityFunctions(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			score := codecs.ComputeSimilarityByte(tc.simFunc, tc.v1, tc.v2)
+			score := tc.simFunc.CompareBytes(tc.v1, tc.v2)
 			if score < tc.minScore || score > tc.maxScore {
 				t.Errorf("Score %f out of range [%f, %f]", score, tc.minScore, tc.maxScore)
 			}
@@ -253,17 +256,17 @@ func TestHNSWFormatConfiguration(t *testing.T) {
 // TestVectorEncodingBits tests encoding bit calculations
 func TestVectorEncodingBits(t *testing.T) {
 	tests := []struct {
-		encoding     codecs.ScalarEncoding
-		expectedBits int
+		encoding     quantization.ScalarEncoding
+		expectedBits byte
 	}{
 		// GetBits returns the document-side bit-width (Java getBits()), not the
 		// query-side bits. For the asymmetric encodings the doc bits are 1
 		// (single-bit) and 2 (dibit); their query bits are 4.
-		{codecs.ScalarEncodingUnsignedByte, 8},
-		{codecs.ScalarEncodingSevenBit, 7},
-		{codecs.ScalarEncodingPackedNibble, 4},
-		{codecs.ScalarEncodingSingleBitQueryNibble, 1},
-		{codecs.ScalarEncodingDibitQueryNibble, 2},
+		{quantization.ScalarEncodingUnsignedByte, 8},
+		{quantization.ScalarEncodingSevenBit, 7},
+		{quantization.ScalarEncodingPackedNibble, 4},
+		{quantization.ScalarEncodingSingleBitQueryNibble, 1},
+		{quantization.ScalarEncodingDibitQueryNibble, 2},
 	}
 
 	for _, tc := range tests {
@@ -280,20 +283,20 @@ func TestVectorEncodingBits(t *testing.T) {
 func TestVectorEncodingPackedLength(t *testing.T) {
 	tests := []struct {
 		name       string
-		encoding   codecs.ScalarEncoding
+		encoding   quantization.ScalarEncoding
 		dimensions int
 		expected   int
 	}{
-		{"UnsignedByte_64", codecs.ScalarEncodingUnsignedByte, 64, 64},
-		{"PackedNibble_64", codecs.ScalarEncodingPackedNibble, 64, 32},
-		{"PackedNibble_65", codecs.ScalarEncodingPackedNibble, 65, 33},
-		{"SingleBit_64", codecs.ScalarEncodingSingleBitQueryNibble, 64, 8},
-		{"SingleBit_65", codecs.ScalarEncodingSingleBitQueryNibble, 65, 9},
-		{"Dibit_64", codecs.ScalarEncodingDibitQueryNibble, 64, 16},
+		{"UnsignedByte_64", quantization.ScalarEncodingUnsignedByte, 64, 64},
+		{"PackedNibble_64", quantization.ScalarEncodingPackedNibble, 64, 32},
+		{"PackedNibble_65", quantization.ScalarEncodingPackedNibble, 65, 33},
+		{"SingleBit_64", quantization.ScalarEncodingSingleBitQueryNibble, 64, 8},
+		{"SingleBit_65", quantization.ScalarEncodingSingleBitQueryNibble, 65, 9},
+		{"Dibit_64", quantization.ScalarEncodingDibitQueryNibble, 64, 16},
 		// 65 dims: discretized to 72 (8-byte boundary), stored as two single-bit
 		// stripes -> 2 * ceil(72/8) = 2 * 9 = 18. Mirrors Java's
 		// DIBIT_QUERY_NIBBLE.getDocPackedLength(65).
-		{"Dibit_65", codecs.ScalarEncodingDibitQueryNibble, 65, 18},
+		{"Dibit_65", quantization.ScalarEncodingDibitQueryNibble, 65, 18},
 	}
 
 	for _, tc := range tests {
@@ -309,19 +312,19 @@ func TestVectorEncodingPackedLength(t *testing.T) {
 // TestVectorSimilarityFunctionStrings tests similarity function string representations
 func TestVectorSimilarityFunctionStrings(t *testing.T) {
 	tests := []struct {
-		function codecs.VectorSimilarityFunction
+		function util.VectorSimilarityFunction
 		expected string
 	}{
-		{codecs.VectorSimilarityFunctionEuclidean, "EUCLIDEAN"},
-		{codecs.VectorSimilarityFunctionDotProduct, "DOT_PRODUCT"},
-		{codecs.VectorSimilarityFunctionCosine, "COSINE"},
-		{codecs.VectorSimilarityFunctionMaximumInnerProduct, "MAXIMUM_INNER_PRODUCT"},
+		{util.EuclideanSim, "EUCLIDEAN"},
+		{util.DotProductSim, "DOT_PRODUCT"},
+		{util.CosineSim, "COSINE"},
+		{util.MaximumInnerProductSim, "MAXIMUM_INNER_PRODUCT"},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.expected, func(t *testing.T) {
-			if tc.function.String() != tc.expected {
-				t.Errorf("Expected %s, got %s", tc.expected, tc.function.String())
+			if tc.function.ID().String() != tc.expected {
+				t.Errorf("Expected %s, got %s", tc.expected, tc.function.ID().String())
 			}
 		})
 	}
@@ -357,6 +360,6 @@ func BenchmarkSimilarityCalculation(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		codecs.ComputeSimilarity(codecs.VectorSimilarityFunctionCosine, v1, v2)
+		util.CosineSim.CompareFloat(v1, v2)
 	}
 }

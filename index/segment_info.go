@@ -5,36 +5,33 @@
 package index
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// Used as a fallback value for the deletion, field-infos and doc-values
-// generations of a segment. Mirrors SegmentInfo.NO and SegmentInfo.YES.
+// SegmentInfo provides information about a segment such as its name,
+// directory, and files related to the segment.
+//
+// This is the Go port of Lucene's org.apache.lucene.index.SegmentInfo.
+//
+// The canonical declaration lives in package spi (rmp #4706 SPI
+// unification); this file re-exports the type via a Go alias plus the
+// NO/YES constants Lucene declares on the class, so existing callers
+// continue to compile unchanged.
+type SegmentInfo = spi.SegmentInfo
+
 const (
-	// No marks a generation that does not exist.
+	// No mirrors Lucene's SegmentInfo.NO: used by some member fields to
+	// mean not present (e.g. no norms, no deletes).
 	No = -1
 
-	// Yes marks a generation that exists.
+	// Yes mirrors Lucene's SegmentInfo.YES: used by some member fields to
+	// mean present (e.g. have norms, have deletes).
 	Yes = 1
 )
 
-// SegmentInfo is the Go port of org.apache.lucene.index.SegmentInfo from
-// Apache Lucene 10.5.0: the immutable description of a single segment — its
-// name, directory, document count, codec, compound-file flag, diagnostics,
-// attributes and index sort.
-//
-// PORT NOTE: the declaration lives in package schema, the shared vocabulary
-// layer that codecs, spi and index all sit above, so that a SegmentInfo can be
-// named without importing index. index re-exports it here under its Lucene
-// name, exactly as it does for FieldInfo, FieldInfos and SegmentInfos.
-type SegmentInfo = schema.SegmentInfo
-
-// SegmentInfoList is a slice of SegmentInfo pointers.
-type SegmentInfoList = schema.SegmentInfoList
-
-// NewSegmentInfo builds a SegmentInfo for a segment of the given name and
-// document count, living in dir.
-func NewSegmentInfo(name string, docCount int, dir store.Directory) *SegmentInfo {
-	return schema.NewSegmentInfo(name, docCount, dir)
+// NewSegmentInfo creates a new SegmentInfo with the given name, maxDoc and
+// directory. See spi.NewSegmentInfo for the version and codec defaults.
+func NewSegmentInfo(name string, maxDoc int, dir store.Directory) *SegmentInfo {
+	return spi.NewSegmentInfo(name, maxDoc, dir)
 }

@@ -600,7 +600,7 @@ func (w *BKDWriter) writeLeafBlockDocs(out store.DataOutput, docIDs []int32, sta
 	if count <= 0 {
 		return fmt.Errorf("bkd: writeLeafBlockDocs: count=%d", count)
 	}
-	if err := store.WriteVInt(out, int32(count)); err != nil {
+	if err := out.WriteVInt(int32(count)); err != nil {
 		return err
 	}
 	return w.docIdsWriter.WriteDocIds(docIDs, start, count, out)
@@ -612,11 +612,11 @@ func (w *BKDWriter) writeLeafBlockDocs(out store.DataOutput, docIDs []int32, sta
 func (w *BKDWriter) writeCommonPrefixes(out store.DataOutput, commonPrefixes []int, packedValue []byte) error {
 	bytesPerDim := w.config.BytesPerDim()
 	for dim := 0; dim < w.config.NumDims(); dim++ {
-		if err := store.WriteVInt(out, int32(commonPrefixes[dim])); err != nil {
+		if err := out.WriteVInt(int32(commonPrefixes[dim])); err != nil {
 			return err
 		}
 		if commonPrefixes[dim] > 0 {
-			if err := out.WriteBytes(packedValue[dim*bytesPerDim : dim*bytesPerDim+commonPrefixes[dim]]); err != nil {
+			if err := out.WriteBytes(packedValue, dim*bytesPerDim, commonPrefixes[dim]); err != nil {
 				return err
 			}
 		}

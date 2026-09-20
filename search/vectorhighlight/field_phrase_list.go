@@ -2,8 +2,6 @@ package vectorhighlight
 
 import (
 	"sort"
-
-	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // WeightedPhraseInfo represents the list of term offsets and boost for some text.
@@ -197,7 +195,7 @@ func NewFieldPhraseListWithLimit(fieldTermStack *FieldTermStack, fieldQuery *Fie
 			nextMap = nil
 			if ti != nil {
 				nextMap = currMap.GetTermMap(ti.Text)
-				for nextMap == null && ti.Next != first {
+				for nextMap == nil && ti.Next != first {
 					ti = ti.Next
 					nextMap = currMap.GetTermMap(ti.Text)
 				}
@@ -207,7 +205,7 @@ func NewFieldPhraseListWithLimit(fieldTermStack *FieldTermStack, fieldQuery *Fie
 				if ti != nil {
 					fieldTermStack.Push(ti)
 				}
-				if currMap.isValidTermOrPhrase(phraseCandidate) {
+				if currMap.IsValidTermOrPhrase(phraseCandidate) {
 					fpl.addIfNoOverlap(NewWeightedPhraseInfo(phraseCandidate, currMap.Boost, currMap.TermOrPhraseNumber))
 				} else {
 					for len(phraseCandidate) > 1 {

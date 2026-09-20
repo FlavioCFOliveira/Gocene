@@ -12,7 +12,8 @@
 //	http://www.apache.org/licenses/LICENSE-2.0
 //
 // Source: lucene/core/src/java/org/apache/lucene/codecs/lucene104/
-//         Lucene104ScalarQuantizedVectorsFormat.java (Lucene 10.4.0)
+//
+//	Lucene104ScalarQuantizedVectorsFormat.java (Lucene 10.4.0)
 //
 // This is the Go port of Lucene's Lucene104ScalarQuantizedVectorsFormat.
 // It implements a scalar-quantized vector storage format that compresses
@@ -25,6 +26,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
+	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
 const (
@@ -49,25 +51,35 @@ const (
 	DirectMonotonicBlockShift = 16
 )
 
+// rawVectorFormat mirrors the Java private static final field
+//
+//	new Lucene99FlatVectorsFormat(FlatVectorScorerUtil.getLucene99FlatVectorsScorer())
+var rawVectorFormat = codecs.NewLucene99FlatVectorsFormat(hnsw.GetLucene99FlatVectorsScorer())
+
+// scorer mirrors the Java private static final field
+//
+//	new Lucene104ScalarQuantizedVectorScorer(FlatVectorScorerUtil.getLucene99FlatVectorsScorer())
+var scorer = NewLucene104ScalarQuantizedVectorScorer(hnsw.GetLucene99FlatVectorsScorer())
+
 // Lucene104ScalarQuantizedVectorsFormat implements per-vector optimized scalar
 // quantization for vector storage. It compresses float vectors to quantized
 // byte representations for efficient storage and fast approximate similarity
 // computation, byte-for-byte compatible with Apache Lucene 10.4.0.
 type Lucene104ScalarQuantizedVectorsFormat struct {
 	*hnsw.BaseFlatVectorsFormat
-	encoding codecs.ScalarEncoding
+	encoding quantization.ScalarEncoding
 }
 
 // NewLucene104ScalarQuantizedVectorsFormat creates a new
 // Lucene104ScalarQuantizedVectorsFormat with the default encoding
 // (UNSIGNED_BYTE). Mirrors the Java no-arg constructor.
 func NewLucene104ScalarQuantizedVectorsFormat() *Lucene104ScalarQuantizedVectorsFormat {
-	return NewLucene104ScalarQuantizedVectorsFormatWithEncoding(codecs.ScalarEncodingUnsignedByte)
+	return NewLucene104ScalarQuantizedVectorsFormatWithEncoding(quantization.ScalarEncodingUnsignedByte)
 }
 
 // NewLucene104ScalarQuantizedVectorsFormatWithEncoding creates a new format
 // with the specified encoding. Mirrors the Java single-argument constructor.
-func NewLucene104ScalarQuantizedVectorsFormatWithEncoding(encoding codecs.ScalarEncoding) *Lucene104ScalarQuantizedVectorsFormat {
+func NewLucene104ScalarQuantizedVectorsFormatWithEncoding(encoding quantization.ScalarEncoding) *Lucene104ScalarQuantizedVectorsFormat {
 	return &Lucene104ScalarQuantizedVectorsFormat{
 		BaseFlatVectorsFormat: hnsw.NewBaseFlatVectorsFormat(Name),
 		encoding:              encoding,
@@ -75,20 +87,30 @@ func NewLucene104ScalarQuantizedVectorsFormatWithEncoding(encoding codecs.Scalar
 }
 
 // Encoding returns the scalar encoding used by this format.
-func (f *Lucene104ScalarQuantizedVectorsFormat) Encoding() codecs.ScalarEncoding {
+func (f *Lucene104ScalarQuantizedVectorsFormat) Encoding() quantization.ScalarEncoding {
 	return f.encoding
 }
 
 // FlatFieldsWriter returns the byte-faithful writer for quantized vectors.
 // Mirrors Java's fieldsWriter(SegmentWriteState).
 func (f *Lucene104ScalarQuantizedVectorsFormat) FlatFieldsWriter(state *codecs.SegmentWriteState) (hnsw.FlatVectorsWriter, error) {
-	return NewLucene104ScalarQuantizedVectorsWriter(state, f.encoding)
+	rawVectorDelegate, err := rawVectorFormat.FlatFieldsWriter(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewLucene104ScalarQuantizedVectorsWriter(state, f.encoding, rawVectorDelegate, scorer)
 }
 
-// FlatFieldsReader returns a reader that validates the CodecUtil framing and
-// parses the per-field metadata. Mirrors Java's fieldsReader(SegmentReadState).
+// FlatFieldsReader mirrors fieldsReader(SegmentReadState), whose body is
+//
+//	return new Lucene104ScalarQuantizedVectorsReader(
+//	    state, rawVectorFormat.fieldsReader(state), scorer);
 func (f *Lucene104ScalarQuantizedVectorsFormat) FlatFieldsReader(state *codecs.SegmentReadState) (hnsw.FlatVectorsReader, error) {
-	return codecs.NewLucene104ScalarQuantizedVectorsReader(state, f.encoding)
+	rawVectorsReader, err := rawVectorFormat.FlatFieldsReader(state)
+	if err != nil {
+		return nil, err
+	}
+	return NewLucene104ScalarQuantizedVectorsReader(state, rawVectorsReader, scorer)
 }
 
 // GetMaxDimensions returns the largest vector dimensionality this
@@ -98,8 +120,8 @@ func (f *Lucene104ScalarQuantizedVectorsFormat) GetMaxDimensions(_ string) int {
 	return 1024
 }
 
-// String returns a string representation of this format.
+// String mirrors toString().
 func (f *Lucene104ScalarQuantizedVectorsFormat) String() string {
-	return fmt.Sprintf("Lucene104ScalarQuantizedVectorsFormat(name=%s, encoding=%s)",
-		Name, f.encoding.String())
+	return fmt.Sprintf("Lucene104ScalarQuantizedVectorsFormat(name=%s, encoding=%s, flatVectorScorer=%s, rawVectorFormat=%s)",
+		Name, f.encoding, scorer, rawVectorFormat)
 }

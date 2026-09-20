@@ -318,7 +318,6 @@ func (failingCodec) Name() string                           { return "failing-co
 func (failingCodec) PostingsFormat() PostingsFormat         { return nil }
 func (failingCodec) StoredFieldsFormat() StoredFieldsFormat { return failingStoredFieldsFormat{} }
 func (failingCodec) FieldInfosFormat() FieldInfosFormat     { return nil }
-func (failingCodec) SegmentInfosFormat() SegmentInfosFormat { return nil }
 func (failingCodec) SegmentInfoFormat() SegmentInfoFormat   { return nil }
 func (failingCodec) TermVectorsFormat() TermVectorsFormat   { return nil }
 func (failingCodec) CompoundFormat() CompoundFormat         { return nil }

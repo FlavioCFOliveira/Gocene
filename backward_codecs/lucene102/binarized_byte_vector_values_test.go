@@ -5,10 +5,11 @@
 package lucene102
 
 import (
-	"errors"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
@@ -16,6 +17,8 @@ import (
 // stub implementation for tests
 // ─────────────────────────────────────────────────────────────────────────────
 
+// stubBinarized implements BinarizedByteVectorValues and relies on the
+// default bodies of discretizedDimensions() and getCentroidDP().
 type stubBinarized struct {
 	dim      int
 	centroid []float32
@@ -23,22 +26,37 @@ type stubBinarized struct {
 	q        *quantization.OptimizedScalarQuantizer
 }
 
-func (s *stubBinarized) Get(_ int) ([]byte, error)  { return nil, nil }
-func (s *stubBinarized) Advance(_ int) (int, error) { return 0, nil }
-func (s *stubBinarized) NextDoc() (int, error)      { return 0, nil }
-func (s *stubBinarized) DocID() int                 { return 0 }
-func (s *stubBinarized) Dimension() int             { return s.dim }
-func (s *stubBinarized) Size() int                  { return 0 }
+func (s *stubBinarized) Dimension() int                               { return s.dim }
+func (s *stubBinarized) Size() int                                    { return 0 }
+func (s *stubBinarized) OrdToDoc(ord int) int                         { return ord }
+func (s *stubBinarized) Prefetch(_ []int, _ int) error                { return nil }
+func (s *stubBinarized) Copy() (index.KnnVectorValues, error)         { return s, nil }
+func (s *stubBinarized) GetVectorByteLength() int                     { return s.dim }
+func (s *stubBinarized) GetEncoding() index.VectorEncoding            { return index.VectorEncodingByte }
+func (s *stubBinarized) GetAcceptOrds(acceptDocs util.Bits) util.Bits { return acceptDocs }
+func (s *stubBinarized) Iterator() index.DocIndexIterator             { return spi.CreateDenseIterator(s) }
+func (s *stubBinarized) VectorValue(_ int) ([]byte, error)            { return nil, nil }
+func (s *stubBinarized) CopyByteVectorValues() (index.ByteVectorValues, error) {
+	return s, nil
+}
+func (s *stubBinarized) Scorer(_ []byte) (util.VectorScorer, error) {
+	return nil, quantization.ErrUnsupportedOperation
+}
+func (s *stubBinarized) Rescorer(target []byte) (util.VectorScorer, error) { return s.Scorer(target) }
 
 func (s *stubBinarized) GetCorrectiveTerms(_ int) (quantization.QuantizationResult, error) {
 	return s.qr, nil
 }
 func (s *stubBinarized) GetQuantizer() *quantization.OptimizedScalarQuantizer { return s.q }
 func (s *stubBinarized) GetCentroid() ([]float32, error)                      { return s.centroid, nil }
-func (s *stubBinarized) Scorer(_ []float32) (search.VectorScorer, error) {
-	return nil, errors.New("not implemented")
+func (s *stubBinarized) DiscretizedDimensions() int                           { return DefaultDiscretizedDimensions(s) }
+func (s *stubBinarized) ScorerFloat(_ []float32) (util.VectorScorer, error) {
+	return nil, quantization.ErrUnsupportedOperation
 }
-func (s *stubBinarized) Copy() (BinarizedByteVectorValues, error) { return s, nil }
+func (s *stubBinarized) CopyBinarizedByteVectorValues() (BinarizedByteVectorValues, error) {
+	return s, nil
+}
+func (s *stubBinarized) GetCentroidDP() (float32, error) { return DefaultGetCentroidDP(s) }
 
 var _ BinarizedByteVectorValues = (*stubBinarized)(nil)
 
@@ -58,7 +76,7 @@ func TestDiscretizedDimensions(t *testing.T) {
 	}
 	for _, tc := range tests {
 		bvv := &stubBinarized{dim: tc.dim}
-		got := DiscretizedDimensions(bvv)
+		got := DefaultDiscretizedDimensions(bvv)
 		if got != tc.want {
 			t.Errorf("dim=%d: got %d, want %d", tc.dim, got, tc.want)
 		}
@@ -69,9 +87,9 @@ func TestCentroidDP(t *testing.T) {
 	centroid := []float32{1, 2, 3}
 	// Expect 1*1 + 2*2 + 3*3 = 14
 	bvv := &stubBinarized{centroid: centroid}
-	got, err := CentroidDP(bvv)
+	got, err := DefaultGetCentroidDP(bvv)
 	if err != nil {
-		t.Fatalf("CentroidDP: %v", err)
+		t.Fatalf("DefaultGetCentroidDP: %v", err)
 	}
 	const want = float32(14)
 	if got != want {
@@ -82,9 +100,9 @@ func TestCentroidDP(t *testing.T) {
 func TestCentroidDP_ZeroVector(t *testing.T) {
 	centroid := []float32{0, 0, 0}
 	bvv := &stubBinarized{centroid: centroid}
-	got, err := CentroidDP(bvv)
+	got, err := DefaultGetCentroidDP(bvv)
 	if err != nil {
-		t.Fatalf("CentroidDP: %v", err)
+		t.Fatalf("DefaultGetCentroidDP: %v", err)
 	}
 	if got != 0 {
 		t.Errorf("got %g, want 0", got)

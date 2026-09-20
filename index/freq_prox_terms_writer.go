@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
 
@@ -27,9 +29,10 @@ import (
 //
 // Divergences from Lucene 10.4.0:
 //
-//   - No TermsHash root: pool ownership and the BytesUsed counter are carried
-//     on the writer itself. Flush therefore does not delegate to a
-//     super.flush(); the next-in-chain writer flushes through NextTermsHash.
+//   - Go has no downcast from the embedded *TermsHashPerField back to its
+//     owning *FreqProxTermsWriterPerField, so AddField records the pairing
+//     in a registry (see wrappers) and Flush resolves it there. Lucene
+//     performs a plain Java cast.
 //
 //   - applyDeletes is omitted: Gocene's [SegmentWriteState] does not yet
 //     carry segUpdates / liveDocs / delCountOnFlush. The deletion-application
@@ -46,26 +49,13 @@ import (
 //   - Sorter.DocMap is exposed locally as the [SorterDocMap] interface
 //     (OldToNew + Size). Lucene's Sorter.DocMap subclass is not ported; the
 //     identity-mapping case (sortMap == nil) goes through unchanged.
-//
-//   - The codec lookup goes through SegmentInfo.Codec (a string), so callers
-//     must supply the PostingsFormat explicitly through Flush's
-//     postingsFormat parameter. Lucene resolves this internally via
-//     segmentInfo.getCodec().postingsFormat().
 type FreqProxTermsWriter struct {
-	// IntPool, BytePool, TermBytePool and BytesUsed are the shared pools
-	// passed down to per-field handlers; see [FreqProxTermsHash].
-	pools FreqProxTermsHash
-
-	// NextTermsHash is the next-in-chain inversion handler (typically the
-	// term-vectors writer). It may be nil when no further consumer is wired,
-	// in which case AddField produces a per-field writer with no downstream
-	// handler.
-	//
-	// The contract on NextTermsHash mirrors Lucene's TermsHash.nextTermsHash:
-	// the AddField hook is invoked with the same FieldInvertState and
-	// FieldInfo and the returned *TermsHashPerField is wired as the
-	// downstream NextPerField on the FreqProx per-field writer.
-	NextTermsHash FreqProxNextHandler
+	// TermsHashBase is the embedded TermsHash parent. Mirrors Lucene's
+	// "final class FreqProxTermsWriter extends TermsHash": it owns intPool,
+	// bytePool, termBytePool, bytesUsed and nextTermsHash (the term-vectors
+	// consumer), and supplies every TermsHash method this type does not
+	// override.
+	*TermsHashBase
 
 	// wrappers maps the embedded *TermsHashPerField of each per-field writer
 	// back to its *FreqProxTermsWriterPerField wrapper. This registry is
@@ -100,22 +90,47 @@ type FreqProxNextHandler interface {
 // The SorterDocMap consumed by Flush / SortingTerms is the package-level
 // type declared in sorter.go; passing nil represents the identity mapping.
 
-// NewFreqProxTermsWriter wires a writer over the supplied pool bundle and
-// optional next-in-chain handler. The pool bundle is forwarded to each
-// per-field writer; the bundle's IntPool, BytePool and TermBytePool must be
-// non-nil. A nil BytesUsed counter is replaced by a fresh
-// [util.NewCounter()] (this mirrors Lucene's Counter.newCounter() default).
-func NewFreqProxTermsWriter(pools FreqProxTermsHash, nextTermsHash FreqProxNextHandler) (*FreqProxTermsWriter, error) {
-	if pools.IntPool == nil || pools.BytePool == nil || pools.TermBytePool == nil {
-		return nil, errors.New("FreqProxTermsWriter: pools must not be nil")
-	}
-	if pools.BytesUsed == nil {
-		pools.BytesUsed = util.NewCounter()
+// NewFreqProxTermsWriter mirrors the Lucene constructor
+//
+//	FreqProxTermsWriter(IntBlockPool.Allocator intBlockAllocator,
+//	                    ByteBlockPool.Allocator byteBlockAllocator,
+//	                    Counter bytesUsed,
+//	                    TermsHash termVectors)
+//
+// whose whole body is the super(...) call. This writer is the primary of
+// the inversion chain, so the TermsHash constructor publishes its byte
+// pool as the chain-wide term byte pool on both this writer and
+// termVectors. A nil bytesUsed is replaced by a fresh util.NewCounter(),
+// mirroring Lucene's Counter.newCounter() default.
+func NewFreqProxTermsWriter(
+	intBlockAllocator util.IntAllocator,
+	byteBlockAllocator util.Allocator,
+	bytesUsed *util.Counter,
+	termVectors TermsHash,
+) (*FreqProxTermsWriter, error) {
+	if bytesUsed == nil {
+		bytesUsed = util.NewCounter()
 	}
 	return &FreqProxTermsWriter{
-		pools:         pools,
-		NextTermsHash: nextTermsHash,
+		TermsHashBase: NewTermsHashBase(intBlockAllocator, byteBlockAllocator, bytesUsed, termVectors),
 	}, nil
+}
+
+// Compile-time guarantee that *FreqProxTermsWriter is a TermsHash, as
+// "class FreqProxTermsWriter extends TermsHash" requires in Lucene.
+var _ TermsHash = (*FreqProxTermsWriter)(nil)
+
+// pools bundles the chain-wide pools the per-field writer consumes. In
+// Lucene FreqProxTermsWriterPerField reads termsHash.intPool /
+// .bytePool / .termBytePool / .bytesUsed straight off the TermsHash it is
+// handed; the bundle is the Go spelling of those four reads.
+func (w *FreqProxTermsWriter) pools() FreqProxTermsHash {
+	return FreqProxTermsHash{
+		IntPool:      w.IntPool,
+		BytePool:     w.BytePool,
+		TermBytePool: w.TermBytePool,
+		BytesUsed:    w.BytesUsed,
+	}
 }
 
 // AddField returns a fresh [FreqProxTermsWriterPerField] wired into this
@@ -125,37 +140,41 @@ func NewFreqProxTermsWriter(pools FreqProxTermsHash, nextTermsHash FreqProxNextH
 // invertState and fieldInfo must not be nil; the returned writer owns its
 // embedded *TermsHashPerField, so callers should hold on to the returned
 // FreqProx pointer rather than re-wrapping it.
-func (w *FreqProxTermsWriter) AddField(invertState *FieldInvertState, fieldInfo *FieldInfo) (*FreqProxTermsWriterPerField, error) {
-	if invertState == nil {
-		return nil, errors.New("FreqProxTermsWriter.AddField: invertState must not be nil")
-	}
-	if fieldInfo == nil {
-		return nil, errors.New("FreqProxTermsWriter.AddField: fieldInfo must not be nil")
-	}
-
+func (w *FreqProxTermsWriter) AddField(invertState *FieldInvertState, fieldInfo *FieldInfo) *TermsHashPerField {
+	// Mirrors Lucene:
+	//   return new FreqProxTermsWriterPerField(
+	//       invertState, this, fieldInfo, nextTermsHash.addField(invertState, fieldInfo));
 	var next *TermsHashPerField
-	if w.NextTermsHash != nil {
-		downstream, err := w.NextTermsHash.AddField(invertState, fieldInfo)
-		if err != nil {
-			return nil, fmt.Errorf("FreqProxTermsWriter.AddField: next-in-chain: %w", err)
-		}
-		next = downstream
+	if n := w.NextTermsHash(); n != nil {
+		next = n.AddField(invertState, fieldInfo)
 	}
 
 	// Attribute getters are owned by the indexing-pipeline glue; AddField
 	// surfaces a zero-valued provider so callers that have not yet wired the
 	// token-stream bridge can still construct a writer. Pipelines that index
 	// real tokens must replace the provider via the constructor.
-	pf, err := NewFreqProxTermsWriterPerField(invertState, w.pools, fieldInfo, next, FreqProxAttributeProvider{})
+	pf, err := NewFreqProxTermsWriterPerField(invertState, w.pools(), fieldInfo, next, FreqProxAttributeProvider{})
 	if err != nil {
-		return nil, err
+		// The Gocene constructor reports as errors exactly the conditions
+		// Lucene asserts (nil arguments, IndexOptions.NONE). A failed Java
+		// assertion raises AssertionError, so the port panics and keeps the
+		// TermsHash.AddField signature free of an error channel.
+		panic(fmt.Sprintf("index: FreqProxTermsWriter.AddField: %v", err))
 	}
 	// Register the wrapper so lookupFreqProxByBase can resolve it during Flush.
 	if w.wrappers == nil {
 		w.wrappers = make(map[*TermsHashPerField]*FreqProxTermsWriterPerField)
 	}
 	w.wrappers[pf.TermsHashPerField] = pf
-	return pf, nil
+	return pf.TermsHashPerField
+}
+
+// PerFieldFor recovers the FreqProxTermsWriterPerField that owns base, or
+// nil when base was not produced by this writer's AddField. Lucene reaches
+// the subtype with a cast; Go needs the registry.
+func (w *FreqProxTermsWriter) PerFieldFor(base *TermsHashPerField) *FreqProxTermsWriterPerField {
+	pf, _ := w.lookupFreqProxByBase(base)
+	return pf
 }
 
 // Flush is the segment-flush entry point. fieldsToFlush is keyed by field
@@ -179,22 +198,24 @@ func (w *FreqProxTermsWriter) AddField(invertState *FieldInvertState, fieldInfo 
 //
 // Differences from Lucene:
 //   - applyDeletes is skipped (BUFFERED_UPDATES_FLUSH_TODO).
-//   - super.flush() is not invoked (no TermsHash root). NextTermsHash's
-//     Flush is called instead with the same buffered map.
 //   - The FieldsConsumer dispatch iterates field-by-field rather than
 //     consumer.write(fields, norms).
 func (w *FreqProxTermsWriter) Flush(
 	fieldsToFlush map[string]*TermsHashPerField,
 	state *SegmentWriteState,
 	sortMap SorterDocMap,
-	postingsFormat PostingsFormat,
-	norms any, // forward-compat placeholder; the in-tree FieldsConsumer ignores it.
+	norms any, // narrowed to NormsProducer and forwarded to FieldsConsumer.Write.
 ) error {
 	if state == nil {
 		return errors.New("FreqProxTermsWriter.Flush: state must not be nil")
 	}
-	if postingsFormat == nil {
-		return errors.New("FreqProxTermsWriter.Flush: postingsFormat must not be nil")
+
+	// Mirrors Lucene's first statement, super.flush(fieldsToFlush, state,
+	// sortMap, norms): the TermsHash parent remaps every buffered per-field
+	// handler to its next-in-chain counterpart and flushes the term-vectors
+	// consumer.
+	if err := w.TermsHashBase.Flush(fieldsToFlush, state, sortMap, norms); err != nil {
+		return fmt.Errorf("FreqProxTermsWriter.Flush: next-in-chain flush: %w", err)
 	}
 
 	// Step 1: gather active fields.
@@ -247,28 +268,25 @@ func (w *FreqProxTermsWriter) Flush(
 			fields = newSortingFilterFields(fields, state.FieldInfos, sortMap)
 		}
 
+		// Mirrors state.segmentInfo.getCodec().postingsFormat().fieldsConsumer(state).
+		if state.SegmentInfo == nil || state.SegmentInfo.Codec() == nil {
+			return errors.New("FreqProxTermsWriter.Flush: state.SegmentInfo has no Codec")
+		}
+		postingsFormat := state.SegmentInfo.Codec().PostingsFormat()
+		if postingsFormat == nil {
+			return errors.New("FreqProxTermsWriter.Flush: codec has no PostingsFormat")
+		}
 		consumer, err := postingsFormat.FieldsConsumer(state)
 		if err != nil {
 			return fmt.Errorf("FreqProxTermsWriter.Flush: FieldsConsumer: %w", err)
 		}
-		writeErr := writeFreqProxFields(consumer, fields)
+		writeErr := consumer.Write(fields, normsProducerOrNil(norms))
 		closeErr := consumer.Close()
 		if writeErr != nil {
 			return writeErr
 		}
 		if closeErr != nil {
 			return fmt.Errorf("FreqProxTermsWriter.Flush: consumer close: %w", closeErr)
-		}
-	}
-
-	// Delegate to the next-in-chain handler. Lucene's super.flush() runs
-	// before applyDeletes; the ordering does not matter functionally because
-	// the next-in-chain writer (term vectors) does not consume the postings
-	// stream. We flush it last so any errors propagate after the postings
-	// have been persisted.
-	if w.NextTermsHash != nil {
-		if err := w.NextTermsHash.Flush(fieldsToFlush, state, sortMap); err != nil {
-			return fmt.Errorf("FreqProxTermsWriter.Flush: next-in-chain flush: %w", err)
 		}
 	}
 
@@ -294,7 +312,7 @@ func applyDeletes(state *SegmentWriteState, fields Fields) error {
 		return nil
 	}
 	bu, ok := state.SegUpdates.(*BufferedUpdates)
-	if !ok || bu.deleteTerms.IsEmpty() {
+	if !ok || bu.deleteTerms.isEmpty() {
 		return nil
 	}
 
@@ -408,7 +426,7 @@ func (w *FreqProxTermsWriter) FlushFreqProx(
 	if err != nil {
 		return fmt.Errorf("FreqProxTermsWriter.FlushFreqProx: FieldsConsumer: %w", err)
 	}
-	writeErr := writeFreqProxFields(consumer, fields)
+	writeErr := consumer.Write(fields, normsProducerOrNil(norms))
 	closeErr := consumer.Close()
 	if writeErr != nil {
 		return writeErr
@@ -419,34 +437,18 @@ func (w *FreqProxTermsWriter) FlushFreqProx(
 	return nil
 }
 
-// writeFreqProxFields iterates fields in their natural order (already
-// field-name-sorted by FreqProxFields) and forwards each (field, terms) pair
-// to consumer.Write. The function isolates the per-field dispatch loop from
-// the surrounding flush code so the sort/cast pipeline stays linear.
-func writeFreqProxFields(consumer FieldsConsumer, fields Fields) error {
-	iter, err := fields.Iterator()
-	if err != nil {
-		return fmt.Errorf("FreqProxTermsWriter.write: field iterator: %w", err)
+// normsProducerOrNil narrows the NormsProducer the indexing chain carries.
+// Java's FreqProxTermsWriter.flush receives a NormsProducer directly; the
+// Gocene flush signature still carries it as an untyped value, so the
+// conversion is performed here. A value that is not a NormsProducer (including
+// a nil one) yields nil, exactly as Java passes null when the segment has no
+// norms.
+func normsProducerOrNil(norms any) NormsProducer {
+	np, ok := norms.(NormsProducer)
+	if !ok {
+		return nil
 	}
-	for {
-		name, err := iter.Next()
-		if err != nil {
-			return fmt.Errorf("FreqProxTermsWriter.write: field iterator advance: %w", err)
-		}
-		if name == "" {
-			return nil
-		}
-		terms, err := fields.Terms(name)
-		if err != nil {
-			return fmt.Errorf("FreqProxTermsWriter.write: terms(%q): %w", name, err)
-		}
-		if terms == nil {
-			continue
-		}
-		if err := consumer.Write(name, terms); err != nil {
-			return fmt.Errorf("FreqProxTermsWriter.write: consumer.Write(%q): %w", name, err)
-		}
-	}
+	return np
 }
 
 // sortingFilterFields is the Gocene equivalent of the anonymous
@@ -480,11 +482,6 @@ func (f *sortingFilterFields) Terms(field string) (Terms, error) {
 // SortingTerms wraps a Terms view and yields TermsEnums whose postings are
 // re-sorted by the supplied [SorterDocMap]. It is the Go port of the nested
 // SortingTerms class in Lucene 10.4.0's FreqProxTermsWriter.
-//
-// Divergences from Lucene:
-//   - Lucene exposes a second factory (intersect) that wraps the underlying
-//     Terms.intersect. Gocene's Terms interface does not expose intersect, so
-//     SortingTerms only forwards GetIterator / GetIteratorWithSeek.
 type SortingTerms struct {
 	in           Terms
 	docMap       SorterDocMap
@@ -498,9 +495,9 @@ func NewSortingTerms(in Terms, indexOptions IndexOptions, docMap SorterDocMap) *
 	return &SortingTerms{in: in, docMap: docMap, indexOptions: indexOptions}
 }
 
-// GetIterator returns a [SortingTermsEnum] over the wrapped Terms.
-func (t *SortingTerms) GetIterator() (TermsEnum, error) {
-	delegate, err := t.in.GetIterator()
+// Iterator returns a [SortingTermsEnum] over the wrapped Terms.
+func (t *SortingTerms) Iterator() (TermsEnum, error) {
+	delegate, err := t.in.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -519,11 +516,22 @@ func (t *SortingTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error) {
 	return NewSortingTermsEnum(delegate, t.docMap, t.indexOptions), nil
 }
 
+// Intersect wraps the automaton-driven enumerator of the underlying Terms in a
+// [SortingTermsEnum], mirroring SortingTerms.intersect(CompiledAutomaton,
+// BytesRef).
+func (t *SortingTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *Term) (TermsEnum, error) {
+	delegate, err := t.in.Intersect(compiled, startTerm)
+	if err != nil || delegate == nil {
+		return delegate, err
+	}
+	return NewSortingTermsEnum(delegate, t.docMap, t.indexOptions), nil
+}
+
 // Forwarders for the Terms metadata. All but HasFreqs/HasOffsets/HasPositions
 // are pass-throughs to the wrapped Terms.
 
 func (t *SortingTerms) GetPostingsReader(termText string, flags int) (PostingsEnum, error) {
-	enum, err := t.GetIterator()
+	enum, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -537,6 +545,7 @@ func (t *SortingTerms) GetPostingsReader(termText string, flags int) (PostingsEn
 	return enum.Postings(flags)
 }
 
+func (t *SortingTerms) Field() string                       { return t.in.Field() }
 func (t *SortingTerms) Size() int64                         { return t.in.Size() }
 func (t *SortingTerms) GetDocCount() (int, error)           { return t.in.GetDocCount() }
 func (t *SortingTerms) GetSumDocFreq() (int64, error)       { return t.in.GetSumDocFreq() }
@@ -557,6 +566,14 @@ type SortingTermsEnum struct {
 	indexOptions IndexOptions
 }
 
+// Attributes returns the related attributes, reproducing
+// org.apache.lucene.index.FilterLeafReader.FilterTermsEnum#attributes() in
+// Apache Lucene 10.5.0 — {@code return in.attributes();} — so the
+// AttributeSource is shared with the wrapped enumerator.
+func (e *SortingTermsEnum) Attributes() *util.AttributeSource {
+	return e.in.Attributes()
+}
+
 // NewSortingTermsEnum wraps in with a sort-aware enumerator.
 func NewSortingTermsEnum(in TermsEnum, docMap SorterDocMap, indexOptions IndexOptions) *SortingTermsEnum {
 	return &SortingTermsEnum{in: in, docMap: docMap, indexOptions: indexOptions}
@@ -568,8 +585,16 @@ func (e *SortingTermsEnum) Next() (*Term, error)               { return e.in.Nex
 func (e *SortingTermsEnum) SeekCeil(term *Term) (*Term, error) { return e.in.SeekCeil(term) }
 func (e *SortingTermsEnum) SeekExact(term *Term) (bool, error) { return e.in.SeekExact(term) }
 func (e *SortingTermsEnum) Term() *Term                        { return e.in.Term() }
+func (e *SortingTermsEnum) Ord() int64                         { return e.in.Ord() }
 func (e *SortingTermsEnum) DocFreq() (int, error)              { return e.in.DocFreq() }
 func (e *SortingTermsEnum) TotalTermFreq() (int64, error)      { return e.in.TotalTermFreq() }
+
+// Impacts forwards to the wrapped enumerator. Lucene's SortingTermsEnum
+// extends FilterTermsEnum and does not override impacts(int), so the call
+// reaches the delegate unchanged.
+func (e *SortingTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return e.in.Impacts(flags)
+}
 
 // Postings dispatches to a [SortingPostingsEnum] when the field indexes
 // positions and the caller asks for FREQS or higher (mirroring Lucene's
@@ -1148,4 +1173,18 @@ func (r *postingScratchReader) readBytes(dst []byte) error {
 	copy(dst, r.buf[r.pos:r.pos+len(dst)])
 	r.pos += len(dst)
 	return nil
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *SortingPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *SortingDocsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

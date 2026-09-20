@@ -9,6 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // XYShapeQuery finds all previously indexed cartesian shapes that
@@ -169,19 +170,19 @@ func newXYShapeSpatialVisitor(tree geo.Component2D) *xyShapeSpatialVisitor {
 //	dim 3 → maxX              offset 3*BYTES
 //
 // dims 4–6 carry edge data that is irrelevant for cell relate.
-func (v *xyShapeSpatialVisitor) Relate(minTriangle, maxTriangle []byte) spatialRelation {
+func (v *xyShapeSpatialVisitor) Relate(minTriangle, maxTriangle []byte) index.Relation {
 	if v.tree == nil {
-		return spatialCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	const stride = document.ShapeFieldBytes / 7 // 4 bytes per int32 dim
 	if len(minTriangle) < 2*stride || len(maxTriangle) < 4*stride {
-		return spatialCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	minY := float64(geo.XYDecodeBytes(minTriangle, 0))
 	minX := float64(geo.XYDecodeBytes(minTriangle, stride))
 	maxY := float64(geo.XYDecodeBytes(maxTriangle, 2*stride))
 	maxX := float64(geo.XYDecodeBytes(maxTriangle, 3*stride))
-	return geoRelationToSpatial(v.tree.Relate(minX, maxX, minY, maxY))
+	return v.tree.Relate(minX, maxX, minY, maxY)
 }
 
 // Intersects returns the per-doc predicate the parent uses for

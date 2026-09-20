@@ -6,6 +6,8 @@ package function
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -65,7 +67,7 @@ func (q *FunctionMatchQuery) String() string {
 }
 
 // Rewrite rewrites the underlying DoubleValuesSource.
-func (q *FunctionMatchQuery) Rewrite(_ search.IndexReader) (search.Query, error) {
+func (q *FunctionMatchQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) {
 	return q, nil
 }
 
@@ -80,7 +82,7 @@ func (q *FunctionMatchQuery) Clone() search.Query {
 // closures and the comparison conservatively returns false (matching
 // Java's reference-equality semantics for arbitrary DoublePredicate
 // instances).
-func (q *FunctionMatchQuery) Equals(other search.Query) bool {
+func (q *FunctionMatchQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*FunctionMatchQuery)
 	if !ok || o == nil {
 		return false
@@ -110,7 +112,7 @@ func (q *FunctionMatchQuery) HashCode() int {
 func (q *FunctionMatchQuery) Visit(visitor search.QueryVisitor) { visitor.VisitLeaf(q) }
 
 // CreateWeight returns a constant-score Weight backed by the predicate.
-func (q *FunctionMatchQuery) CreateWeight(searcher *search.IndexSearcher, _ bool, boost float32) (search.Weight, error) {
+func (q *FunctionMatchQuery) CreateWeight(searcher *search.IndexSearcher, _ search.ScoreMode, boost float32) (search.Weight, error) {
 	rewritten, err := q.source.Rewrite(searcher)
 	if err != nil {
 		return nil, err
@@ -162,7 +164,7 @@ func (w *functionMatchWeight) ScorerSupplier(ctx *index.LeafReaderContext) (sear
 	if scorer == nil {
 		return nil, nil
 	}
-	return search.NewScorerSupplierAdapter(scorer), nil
+	return search.NewDefaultScorerSupplier(scorer), nil
 }
 
 func (w *functionMatchWeight) BulkScorer(ctx *index.LeafReaderContext) (search.BulkScorer, error) {
@@ -234,10 +236,44 @@ func (s *functionMatchScorer) Advance(target int) (int, error) {
 	return s.NextDoc()
 }
 
-func (s *functionMatchScorer) Cost() int64             { return s.cost }
-func (s *functionMatchScorer) DocIDRunEnd() int        { return s.doc + 1 }
-func (s *functionMatchScorer) Score() float32          { return s.boost }
-func (s *functionMatchScorer) GetMaxScore(int) float32 { return s.boost }
+func (s *functionMatchScorer) Cost() int64                      { return s.cost }
+func (s *functionMatchScorer) DocIDRunEnd() (int, error)        { return s.doc + 1, nil }
+func (s *functionMatchScorer) Score() (float32, error)          { return s.boost, nil }
+func (s *functionMatchScorer) GetMaxScore(int) (float32, error) { return s.boost, nil }
+
+// Iterator returns the DocIdSetIterator view of this scorer (Java: iterator()).
+func (s *functionMatchScorer) Iterator() search.DocIdSetIterator { return &functionMatchIterator{s: s} }
+
+// TwoPhaseIterator carries Scorer#twoPhaseIterator()'s default body (null).
+func (s *functionMatchScorer) TwoPhaseIterator() *search.TwoPhaseIterator { return nil }
+
+// GetChildren carries Scorable.getChildren()'s default body (empty list).
+func (s *functionMatchScorer) GetChildren() ([]search.ChildScorable, error) {
+	return []search.ChildScorable{}, nil
+}
+
+// SmoothingScore carries Scorable.smoothingScore(int)'s default body (0f).
+func (s *functionMatchScorer) SmoothingScore(docID int) (float32, error) { return 0, nil }
+
+// SetMinCompetitiveScore carries Scorable.setMinCompetitiveScore's empty default.
+func (s *functionMatchScorer) SetMinCompetitiveScore(minScore float32) error { return nil }
+
+// NextDocsAndScores carries Scorer#nextDocsAndScores's default body.
+func (s *functionMatchScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// functionMatchIterator is the DocIdSetIterator view of functionMatchScorer.
+type functionMatchIterator struct{ s *functionMatchScorer }
+
+func (it *functionMatchIterator) DocID() int                 { return it.s.DocID() }
+func (it *functionMatchIterator) Cost() int64                { return it.s.Cost() }
+func (it *functionMatchIterator) NextDoc() (int, error)      { return it.s.NextDoc() }
+func (it *functionMatchIterator) Advance(t int) (int, error) { return it.s.Advance(t) }
+func (it *functionMatchIterator) DocIDRunEnd() (int, error)  { return it.s.DocIDRunEnd() }
+func (it *functionMatchIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
@@ -263,3 +299,10 @@ var (
 	_ search.Weight = (*functionMatchWeight)(nil)
 	_ search.Scorer = (*functionMatchScorer)(nil)
 )
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *functionMatchScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

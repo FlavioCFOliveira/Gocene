@@ -8,7 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -88,7 +88,7 @@ func DecodeXY(encoded []byte) (float32, float32, error) {
 // Exported as CheckXYPointCompatible to keep the package surface stable
 // and let cross-package callers (notably the XY*-in-geometry queries in
 // search/) reuse the validation without re-implementing it.
-func CheckXYPointCompatible(fi *index.FieldInfo) error {
+func CheckXYPointCompatible(fi *spi.FieldInfo) error {
 	if fi == nil {
 		return fmt.Errorf("field info must not be nil")
 	}

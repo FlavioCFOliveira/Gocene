@@ -131,7 +131,7 @@ func (e *SegmentTermsEnum) pushFrame(
 	length int,
 ) *segmentTermsEnumFrame {
 	e.scratchReader.Reset(frameData.Bytes[frameData.Offset : frameData.Offset+frameData.Length])
-	code, _ := store.ReadVLong(e.scratchReader)
+	code, _ := e.scratchReader.ReadVLong()
 	fpSeek := int64(uint64(code) >> OutputFlagsNumBits)
 	f := e.getFrame(1 + e.currentFrame.ord)
 	f.hasTerms = (code & OutputFlagHasTerms) != 0
@@ -217,8 +217,29 @@ func (e *SegmentTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
 	}
 	return e.fr.parent.postingsReader.Postings(
 		e.fr.fieldInfo,
-		e.currentFrame.state,
+		e.currentFrame.termStateRef,
 		nil,
+		flags,
+	)
+}
+
+// Impacts decodes the current term's metadata and returns an ImpactsEnum.
+//
+// Port of SegmentTermsEnum.impacts(int):
+//
+//	assert !eof;
+//	currentFrame.decodeMetaData();
+//	return fr.parent.postingsReader.impacts(fr.fieldInfo, currentFrame.state, flags);
+func (e *SegmentTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	if err := e.currentFrame.decodeMetaData(); err != nil {
+		return nil, err
+	}
+	if e.currentFrame.state == nil {
+		return nil, fmt.Errorf("blocktree Impacts: term state is nil")
+	}
+	return e.fr.parent.postingsReader.Impacts(
+		e.fr.fieldInfo,
+		e.currentFrame.termStateRef,
 		flags,
 	)
 }
@@ -388,16 +409,16 @@ type noopPostingsReaderForCompile struct{}
 func (n *noopPostingsReaderForCompile) Init(_ store.IndexInput, _ *codecs.SegmentReadState) error {
 	return nil
 }
-func (n *noopPostingsReaderForCompile) NewTermState() *codecs.BlockTermState {
+func (n *noopPostingsReaderForCompile) NewTermState() index.TermState {
 	return codecs.NewBlockTermState()
 }
-func (n *noopPostingsReaderForCompile) DecodeTerm(_ store.DataInput, _ *index.FieldInfo, _ *codecs.BlockTermState, _ bool) error {
+func (n *noopPostingsReaderForCompile) DecodeTerm(_ store.DataInput, _ *index.FieldInfo, _ index.TermState, _ bool) error {
 	return nil
 }
-func (n *noopPostingsReaderForCompile) Postings(_ *index.FieldInfo, _ *codecs.BlockTermState, _ index.PostingsEnum, _ int) (index.PostingsEnum, error) {
+func (n *noopPostingsReaderForCompile) Postings(_ *index.FieldInfo, _ index.TermState, _ index.PostingsEnum, _ int) (index.PostingsEnum, error) {
 	return nil, nil
 }
-func (n *noopPostingsReaderForCompile) Impacts(_ *index.FieldInfo, _ *codecs.BlockTermState, _ int) (index.ImpactsEnum, error) {
+func (n *noopPostingsReaderForCompile) Impacts(_ *index.FieldInfo, _ index.TermState, _ int) (index.ImpactsEnum, error) {
 	return nil, nil
 }
 func (n *noopPostingsReaderForCompile) CheckIntegrity() error { return nil }

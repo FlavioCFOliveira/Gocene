@@ -5,9 +5,8 @@
 package analysis
 
 import (
-	"fmt"
-	"sync"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -22,12 +21,7 @@ import (
 // - Removing tokens (e.g., StopFilter)
 // - Adding/modifying attributes (e.g., SynonymFilter)
 // - Combining/splitting tokens
-type TokenFilter interface {
-	TokenStream
-
-	// GetInput returns the wrapped input TokenStream.
-	GetInput() TokenStream
-}
+type TokenFilter = api.TokenFilter
 
 // BaseTokenFilter provides a base implementation for TokenFilter.
 //
@@ -51,9 +45,9 @@ func NewBaseTokenFilter(input TokenStream) *BaseTokenFilter {
 	if hasAttrSrc, ok := input.(interface {
 		GetAttributeSource() *util.AttributeSource
 	}); ok {
-		bf.attributes = hasAttrSrc.GetAttributeSource()
+		bf.AttributeSource = hasAttrSrc.GetAttributeSource()
 	} else {
-		bf.attributes = util.NewAttributeSource()
+		bf.AttributeSource = util.NewAttributeSource()
 	}
 
 	return bf
@@ -61,6 +55,11 @@ func NewBaseTokenFilter(input TokenStream) *BaseTokenFilter {
 
 // GetInput returns the wrapped input TokenStream.
 func (f *BaseTokenFilter) GetInput() TokenStream {
+	return f.input
+}
+
+// Unwrap returns the wrapped input TokenStream.
+func (f *BaseTokenFilter) Unwrap() TokenStream {
 	return f.input
 }
 
@@ -82,39 +81,21 @@ func (f *BaseTokenFilter) Close() error {
 	return nil
 }
 
-// TokenFilterFactory creates TokenFilter instances.
-//
-// This is the Go port of Lucene's TokenFilterFactory interface.
-type TokenFilterFactory interface {
-	// Create creates a TokenFilter wrapping the given input.
-	Create(input TokenStream) TokenFilter
-}
-
-var (
-	tokenFilterRegistry = make(map[string]func(map[string]string) TokenFilterFactory)
-	tokenFilterMu       sync.RWMutex
-)
-
-// RegisterTokenFilterFactory registers a token filter factory creator.
-func RegisterTokenFilterFactory(name string, creator func(map[string]string) TokenFilterFactory) {
-	tokenFilterMu.Lock()
-	defer tokenFilterMu.Unlock()
-	tokenFilterRegistry[name] = creator
-}
-
-// TokenFilterForName looks up a token filter factory by name from the registry.
-func TokenFilterForName(name string, args map[string]string) (TokenFilterFactory, error) {
-	tokenFilterMu.RLock()
-	creator, ok := tokenFilterRegistry[name]
-	tokenFilterMu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("token filter factory not found: %s", name)
+// Reset resets the token stream to the beginning.
+// Delegates to the input TokenStream if it supports Reset.
+func (f *BaseTokenFilter) Reset() error {
+	if f.input != nil {
+		if resetter, ok := f.input.(TokenStreamWithReset); ok {
+			return resetter.Reset()
+		}
 	}
-	return creator(args), nil
+	return nil
 }
 
 // LowerCaseFilterFactory creates LowerCaseFilter instances.
-type LowerCaseFilterFactory struct{}
+type LowerCaseFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewLowerCaseFilterFactory creates a new LowerCaseFilterFactory.
 func NewLowerCaseFilterFactory() *LowerCaseFilterFactory {

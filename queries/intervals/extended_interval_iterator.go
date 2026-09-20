@@ -8,7 +8,7 @@
 package intervals
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ExtendedIntervalIterator wraps an IntervalIterator and extends the bounds of
@@ -33,7 +33,7 @@ func NewExtendedIntervalIterator(in IntervalIterator, before, after int) *Extend
 func (e *ExtendedIntervalIterator) DocID() int { return e.in.DocID() }
 
 // DocIDRunEnd returns a conservative upper bound.
-func (e *ExtendedIntervalIterator) DocIDRunEnd() int { return e.DocID() + 1 }
+func (e *ExtendedIntervalIterator) DocIDRunEnd() (int, error) { return e.DocID() + 1, nil }
 
 // Cost returns the estimated cost.
 func (e *ExtendedIntervalIterator) Cost() int64 { return e.in.Cost() }
@@ -122,3 +122,10 @@ func (e *ExtendedIntervalIterator) NextInterval() (int, error) {
 }
 
 var _ util.DocIdSetIterator = (*ExtendedIntervalIterator)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (e *ExtendedIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}

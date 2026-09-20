@@ -17,10 +17,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
@@ -105,7 +105,7 @@ func NearestLatLonPoint(
 		readers = append(readers, document.PointTreeNearestReader{
 			Tree:     &bkdPointTreeWalker{tree: tree},
 			LiveDocs: liveDocs,
-			DocBase:  leafCtx.DocBase(),
+			DocBase:  leafCtx.DocBase,
 		})
 	}
 
@@ -161,11 +161,11 @@ func leafPointValues(leaf index.LeafReaderInterface, field string) (index.PointV
 //     VisitDocValues call (the algorithm always visits a cell after
 //     descending into it), so no error is silently dropped.
 //
-//   - bkd.PointTree.VisitDocValues takes a bkd.IntersectVisitor (Compare
-//     → codecs.Relation) while document.PointTreeWalker.VisitDocValues
-//     takes a document.PointTreeNearestVisitor (Compare →
-//     document.PointTreeCellRelation). The adapter bridges the two
-//     visitor surfaces.
+//   - bkd.PointTree.VisitDocValues takes a bkd.IntersectVisitor while
+//     document.PointTreeWalker.VisitDocValues takes a
+//     document.PointTreeNearestVisitor. The adapter bridges the two
+//     visitor surfaces; both spell the cell relation index.Relation, so
+//     Compare passes straight through.
 type bkdPointTreeWalker struct {
 	tree    bkd.PointTree
 	moveErr error
@@ -240,17 +240,30 @@ func (a *nearestVisitorToBKD) VisitByPackedValue(docID int, packedValue []byte) 
 	return a.v.VisitWithPackedValue(docID, packedValue)
 }
 
-func (a *nearestVisitorToBKD) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
-	switch a.v.Compare(minPackedValue, maxPackedValue) {
-	case document.PointTreeCellInsideQuery:
-		return codecs.RelationCellInsideQuery
-	case document.PointTreeCellCrossesQuery:
-		return codecs.RelationCellCrossesQuery
-	default:
-		return codecs.RelationCellOutsideQuery
-	}
+func (a *nearestVisitorToBKD) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
+	return a.v.Compare(minPackedValue, maxPackedValue)
 }
 
 func (a *nearestVisitorToBKD) Grow(_ int) {}
 
 var _ bkd.IntersectVisitor = (*nearestVisitorToBKD)(nil)
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which a does not
+// override.
+func (a *nearestVisitorToBKD) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(a, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which a does not override.
+func (a *nearestVisitorToBKD) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(a, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which a
+// does not override.
+func (a *nearestVisitorToBKD) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(a, iterator, packedValue)
+}

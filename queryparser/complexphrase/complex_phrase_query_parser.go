@@ -10,8 +10,10 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/queryparser"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // ComplexPhraseQueryParser extends the classic QueryParser with phrase-level
@@ -27,7 +29,7 @@ type ComplexPhraseQueryParser struct {
 
 // NewComplexPhraseQueryParser builds the parser using the default field and
 // analyzer. InOrder defaults to true (clauses must appear in phrase order).
-func NewComplexPhraseQueryParser(defaultField string, analyzer *analysis.StandardAnalyzer) *ComplexPhraseQueryParser {
+func NewComplexPhraseQueryParser(defaultField string, analyzer analysis.Analyzer) *ComplexPhraseQueryParser {
 	return &ComplexPhraseQueryParser{
 		QueryParser:  queryparser.NewQueryParser(defaultField, analyzer),
 		DefaultField: defaultField,
@@ -38,7 +40,10 @@ func NewComplexPhraseQueryParser(defaultField string, analyzer *analysis.Standar
 // Parse rewrites phrases containing wildcards into SpanNearQuery clauses and
 // delegates everything else to the classic parser.
 func (p *ComplexPhraseQueryParser) Parse(query string) (search.Query, error) {
-	preprocessed, complexPhrases := p.extractComplexPhrases(query)
+	preprocessed, complexPhrases, err := p.extractComplexPhrases(query)
+	if err != nil {
+		return nil, err
+	}
 	classic, err := p.QueryParser.Parse(preprocessed)
 	if err != nil {
 		return nil, err
@@ -60,7 +65,7 @@ type complexPhrase struct {
 // extractComplexPhrases scans for `"..."` segments containing a wildcard, replaces
 // each with a unique placeholder term that the classic parser can consume,
 // and returns the modified query plus the replacement metadata.
-func (p *ComplexPhraseQueryParser) extractComplexPhrases(query string) (string, []*complexPhrase) {
+func (p *ComplexPhraseQueryParser) extractComplexPhrases(query string) (string, []*complexPhrase, error) {
 	var b strings.Builder
 	b.Grow(len(query))
 	var phrases []*complexPhrase
@@ -103,10 +108,14 @@ func (p *ComplexPhraseQueryParser) extractComplexPhrases(query string) (string, 
 				}
 			}
 			if containsWildcard(phrase) {
+				span, err := p.buildSpan(currentField, phrase, slop)
+				if err != nil {
+					return "", nil, err
+				}
 				ph := &complexPhrase{
 					Placeholder: "__complexphrase_" + itoa(len(phrases)) + "__",
 					Field:       currentField,
-					Span:        p.buildSpan(currentField, phrase, slop),
+					Span:        span,
 				}
 				phrases = append(phrases, ph)
 				b.WriteString(ph.Placeholder)
@@ -128,7 +137,7 @@ func (p *ComplexPhraseQueryParser) extractComplexPhrases(query string) (string, 
 	if inPhrase {
 		b.WriteString(query[phraseStart:])
 	}
-	return b.String(), phrases
+	return b.String(), phrases, nil
 }
 
 // substituteComplexPhrases walks the classic parser output and swaps any
@@ -137,7 +146,7 @@ func (p *ComplexPhraseQueryParser) substituteComplexPhrases(q search.Query, phra
 	idx := lookupByPlaceholder(phrases)
 	return mapQuery(q, func(inner search.Query) search.Query {
 		if tq, ok := inner.(*search.TermQuery); ok {
-			text := tq.Term().Text()
+			text := tq.GetTerm().Text()
 			if span, ok := idx[text]; ok {
 				return span
 			}
@@ -147,30 +156,42 @@ func (p *ComplexPhraseQueryParser) substituteComplexPhrases(q search.Query, phra
 }
 
 // buildSpan converts a wildcard-bearing phrase into a SpanNearQuery.
-func (p *ComplexPhraseQueryParser) buildSpan(field, phrase string, slop int) search.Query {
+func (p *ComplexPhraseQueryParser) buildSpan(field, phrase string, slop int) (search.Query, error) {
 	tokens := strings.Fields(phrase)
-	clauses := make([]search.SpanQuery, 0, len(tokens))
+	clauses := make([]spans.SpanQuery, 0, len(tokens))
 	for _, tok := range tokens {
 		clauses = append(clauses, spanClauseForToken(field, tok))
 	}
 	if len(clauses) == 0 {
-		return search.NewMatchNoDocsQuery()
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 	if len(clauses) == 1 {
-		return clauses[0]
+		return clauses[0], nil
 	}
-	return search.NewSpanNearQuery(clauses, slop, p.InOrder)
+	return spans.NewSpanNearQuery(clauses, slop, p.InOrder)
 }
 
 // spanClauseForToken returns the SpanQuery clause appropriate for a single
 // token. Tokens containing '*' or '?' use SpanMultiTermQueryWrapper around the
 // corresponding multi-term query; plain tokens use SpanTermQuery.
-func spanClauseForToken(field, tok string) search.SpanQuery {
+//
+// The MultiTermQuery is a WildcardQuery, which is what
+// QueryParserBase.getWildcardQuery(String, String) builds, carrying
+// MultiTermQuery.SCORING_BOOLEAN_REWRITE, which
+// ComplexPhraseQueryParser.parse installs for the duration of the
+// phrase-resolving pass ("Temporarily force BooleanQuery rewrite so that
+// Parser will generate visible collection of terms which we can convert into
+// SpanQueries").
+func spanClauseForToken(field, tok string) spans.SpanQuery {
 	if strings.ContainsAny(tok, "*?") {
-		mt := search.NewMultiTermQuery(field, index.NewTerm(field, tok))
-		return search.NewSpanMultiTermQueryWrapper(mt)
+		wq := search.NewWildcardQueryWithRewrite(
+			index.NewTerm(field, tok),
+			automaton.DefaultDeterminizeWorkLimit,
+			search.ScoringBooleanRewrite,
+		)
+		return spans.NewSpanMultiTermQueryWrapper(&wq.MultiTermQuery)
 	}
-	return search.NewSpanTermQuery(index.NewTerm(field, tok))
+	return spans.NewSpanTermQuery(index.NewTerm(field, tok))
 }
 
 func containsWildcard(s string) bool {
@@ -190,11 +211,11 @@ func lookupByPlaceholder(phrases []*complexPhrase) map[string]search.Query {
 func mapQuery(q search.Query, fn func(search.Query) search.Query) search.Query {
 	switch v := q.(type) {
 	case *search.BooleanQuery:
-		out := search.NewBooleanQuery()
+		out := search.NewBooleanQueryBuilder()
 		for _, c := range v.Clauses() {
-			out.Add(mapQuery(c.Query, fn), c.Occur)
+			out.Add(mapQuery(c.Query(), fn), c.Occur())
 		}
-		return out
+		return out.Build()
 	case *search.BoostQuery:
 		return search.NewBoostQuery(mapQuery(v.Query(), fn), v.Boost())
 	default:

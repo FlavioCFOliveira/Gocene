@@ -212,8 +212,8 @@ func (fr *FieldReader) GetSumTotalTermFreq() (int64, error) {
 	return fr.sumTotalTermFreq, nil
 }
 
-// GetIterator returns a TermsEnum over all terms in this field.
-func (fr *FieldReader) GetIterator() (index.TermsEnum, error) {
+// Iterator returns a TermsEnum over all terms in this field.
+func (fr *FieldReader) Iterator() (index.TermsEnum, error) {
 	return newSegmentTermsEnum(fr)
 }
 
@@ -233,7 +233,7 @@ func (fr *FieldReader) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnu
 
 // GetPostingsReader returns a PostingsEnum for the given term, or nil if not found.
 func (fr *FieldReader) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {
-	te, err := fr.GetIterator()
+	te, err := fr.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -249,12 +249,19 @@ func (fr *FieldReader) GetPostingsReader(termText string, flags int) (index.Post
 
 // Intersect returns a TermsEnum filtered by the given compiled automaton.
 //
-// Port of FieldReader.intersect(CompiledAutomaton, BytesRef).
+// Port of FieldReader.intersect(CompiledAutomaton, BytesRef). Gocene's
+// index.Terms contract carries the start term as an *index.Term rather than the
+// bare BytesRef Java passes, so the term bytes are unwrapped here before they
+// reach IntersectTermsEnum, which keeps Java's BytesRef parameter.
 func (fr *FieldReader) Intersect(
 	compiled *automaton.CompiledAutomaton,
-	startTerm *util.BytesRef,
+	startTerm *index.Term,
 ) (index.TermsEnum, error) {
-	return newIntersectTermsEnum(fr, compiled, startTerm)
+	var startBytes *util.BytesRef
+	if startTerm != nil {
+		startBytes = startTerm.BytesValue()
+	}
+	return newIntersectTermsEnum(fr, compiled, startBytes)
 }
 
 // String returns a debug representation of this FieldReader.

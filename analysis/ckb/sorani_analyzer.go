@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // SoraniStopWords contains default stop words for Sorani (Central Kurdish),
@@ -63,7 +64,7 @@ func NewSoraniAnalyzerWithStopwords(stopWords *analysis.CharArraySet) *SoraniAna
 // and are not stemmed.
 func NewSoraniAnalyzerFull(stopWords, stemExclusionSet *analysis.CharArraySet) *SoraniAnalyzer {
 	a := &SoraniAnalyzer{
-		BaseAnalyzer:     analysis.NewAnalyzer(),
+		BaseAnalyzer:     analysis.NewAnalyzer(analysis.GlobalReuseStrategy),
 		stopWords:        stopWords,
 		stemExclusionSet: stemExclusionSet,
 	}
@@ -96,4 +97,4 @@ func (a *SoraniAnalyzer) GetStemExclusionSet() *analysis.CharArraySet {
 
 // Ensure SoraniAnalyzer implements Analyzer.
 var _ analysis.Analyzer = (*SoraniAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*SoraniAnalyzer)(nil)
+var _ api.Analyzer = (*SoraniAnalyzer)(nil)

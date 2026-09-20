@@ -36,13 +36,12 @@ func (r *IDVersionPostingsReader) Init(termsIn store.IndexInput, state *codecs.S
 	return nil
 }
 
-// NewTermState allocates an IDVersionTermState and registers it in the global
-// sidecar registry so that EncodeTerm / DecodeTerm can access the IDVersion /
-// DocID fields by pointer.
-func (r *IDVersionPostingsReader) NewTermState() *codecs.BlockTermState {
-	s := NewIDVersionTermState()
-	globalTermStateRegistry.register(&s.BlockTermState)
-	return &s.BlockTermState
+// NewTermState allocates a fresh IDVersionTermState.
+//
+// Mirrors IDVersionPostingsReader.newTermState(), which returns
+// "new IDVersionTermState()" through a BlockTermState-typed reference.
+func (r *IDVersionPostingsReader) NewTermState() index.TermState {
+	return NewIDVersionTermState()
 }
 
 // DecodeTerm reads per-term metadata from in, populating the IDVersion and
@@ -57,7 +56,7 @@ func (r *IDVersionPostingsReader) NewTermState() *codecs.BlockTermState {
 func (r *IDVersionPostingsReader) DecodeTerm(
 	in store.DataInput,
 	_ *index.FieldInfo,
-	termState *codecs.BlockTermState,
+	termState index.TermState,
 	absolute bool,
 ) error {
 	vli, ok := in.(vLongReader)
@@ -74,32 +73,33 @@ func (r *IDVersionPostingsReader) DecodeTerm(
 // *store.ByteArrayDataInput to avoid the IndexInput wrapper overhead).
 func (r *IDVersionPostingsReader) decodeTermFromByteInput(
 	in vLongReader,
-	termState *codecs.BlockTermState,
+	termState index.TermState,
 	absolute bool,
 ) error {
-	extra := globalTermStateRegistry.lookup(termState)
-	if extra == nil {
-		return errors.New("IDVersionPostingsReader.DecodeTerm: unregistered BlockTermState")
+	// Mirrors "final IDVersionTermState termState = (IDVersionTermState) _termState".
+	ts, ok := termState.(*IDVersionTermState)
+	if !ok {
+		return fmt.Errorf("IDVersionPostingsReader.DecodeTerm: term state is %T, want *IDVersionTermState", termState)
 	}
 
 	docID, err := in.ReadVInt()
 	if err != nil {
 		return fmt.Errorf("IDVersionPostingsReader.DecodeTerm: read docID: %w", err)
 	}
-	extra.DocID = int(docID)
+	ts.DocID = int(docID)
 
 	if absolute {
 		ver, err := in.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("IDVersionPostingsReader.DecodeTerm: read absolute version: %w", err)
 		}
-		extra.IDVersion = ver
+		ts.IDVersion = ver
 	} else {
 		delta, err := in.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("IDVersionPostingsReader.DecodeTerm: read version delta: %w", err)
 		}
-		extra.IDVersion += util.ZigZagDecodeInt64(delta)
+		ts.IDVersion += util.ZigZagDecodeInt64(delta)
 	}
 	return nil
 }
@@ -109,7 +109,7 @@ func (r *IDVersionPostingsReader) decodeTermFromByteInput(
 // in a full store.IndexInput adapter (backlog #2692 defers that bridge).
 func (r *IDVersionPostingsReader) DecodeTermFromBytesReader(
 	in *store.ByteArrayDataInput,
-	termState *codecs.BlockTermState,
+	termState index.TermState,
 	absolute bool,
 ) error {
 	return r.decodeTermFromByteInput(in, termState, absolute)
@@ -131,13 +131,14 @@ type vLongReader interface {
 // PostingsEnum, int).
 func (r *IDVersionPostingsReader) Postings(
 	_ *index.FieldInfo,
-	termState *codecs.BlockTermState,
+	termState index.TermState,
 	reuse index.PostingsEnum,
 	flags int,
 ) (index.PostingsEnum, error) {
-	extra := globalTermStateRegistry.lookup(termState)
-	if extra == nil {
-		return nil, errors.New("IDVersionPostingsReader.Postings: unregistered BlockTermState")
+	// Mirrors "(IDVersionTermState) termState" in postings(...).
+	ts, ok := termState.(*IDVersionTermState)
+	if !ok {
+		return nil, fmt.Errorf("IDVersionPostingsReader.Postings: term state is %T, want *IDVersionTermState", termState)
 	}
 
 	const postingsFlagPositions = (1 << 3) | (1 << 4) // same as index package constants
@@ -148,7 +149,7 @@ func (r *IDVersionPostingsReader) Postings(
 		} else {
 			posEnum = &SinglePostingsEnum{}
 		}
-		posEnum.Reset(extra.DocID, extra.IDVersion)
+		posEnum.Reset(ts.DocID, ts.IDVersion)
 		return posEnum, nil
 	}
 
@@ -158,7 +159,7 @@ func (r *IDVersionPostingsReader) Postings(
 	} else {
 		docsEnum = &SingleDocsEnum{}
 	}
-	docsEnum.Reset(extra.DocID)
+	docsEnum.Reset(ts.DocID)
 	return docsEnum, nil
 }
 
@@ -166,7 +167,7 @@ func (r *IDVersionPostingsReader) Postings(
 // IDVersionSegmentTermsEnum.impacts instead.
 func (r *IDVersionPostingsReader) Impacts(
 	_ *index.FieldInfo,
-	_ *codecs.BlockTermState,
+	_ index.TermState,
 	_ int,
 ) (index.ImpactsEnum, error) {
 	return nil, errors.New("IDVersionPostingsReader.Impacts: should never be called; IDVersionSegmentTermsEnum implements impacts directly")

@@ -60,7 +60,9 @@ var _ TokenFilter = (*TokenOffsetPayloadTokenFilter)(nil)
 
 // TokenOffsetPayloadTokenFilterFactory creates
 // TokenOffsetPayloadTokenFilter instances.
-type TokenOffsetPayloadTokenFilterFactory struct{}
+type TokenOffsetPayloadTokenFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewTokenOffsetPayloadTokenFilterFactory returns a fresh factory.
 func NewTokenOffsetPayloadTokenFilterFactory() *TokenOffsetPayloadTokenFilterFactory {

@@ -16,6 +16,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
@@ -126,21 +127,14 @@ func (q *xyPointInGeometryQuery) Visit(visitor QueryVisitor) {
 
 // Rewrite returns the query unchanged. The Java reference inherits the
 // no-op rewrite from Query.
-func (q *xyPointInGeometryQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
-
-// Clone returns a shallow copy. The geometries slice is treated as
-// immutable through the API surface, so a shared header is safe.
-func (q *xyPointInGeometryQuery) Clone() Query {
-	c := *q
-	return &c
-}
+func (q *xyPointInGeometryQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // Equals mirrors the Java reference: two queries are equal iff they
 // share the same concrete type, field, and geometry sequence (in
 // order). Element equality reduces to Go == on the interface value,
 // which delegates to the underlying XYGeometry implementation's
 // equality. Mirrors Arrays.equals on XYGeometry[].
-func (q *xyPointInGeometryQuery) Equals(other Query) bool {
+func (q *xyPointInGeometryQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*xyPointInGeometryQuery)
 	if !ok {
 		return false
@@ -218,7 +212,7 @@ func (q *xyPointInGeometryQuery) toString(field string) string {
 // reference, which calls XYGeometry.create in createWeight) and returns
 // a [xyPointInGeometryWeight]. The supplier returns nil when the field
 // is unknown to the leaf, matching Lucene's null-Scorer fast path.
-func (q *xyPointInGeometryQuery) CreateWeight(searcher *IndexSearcher, _ bool, boost float32) (Weight, error) {
+func (q *xyPointInGeometryQuery) CreateWeight(searcher *IndexSearcher, _ ScoreMode, boost float32) (Weight, error) {
 	tree, err := geo.CreateXYGeometry(q.geometries...)
 	if err != nil {
 		return nil, fmt.Errorf("xy point in geometry query: build component tree: %w", err)
@@ -346,32 +340,23 @@ type xyPointVisitor interface {
 	VisitIterator(iter util.DocIdSetIterator) error
 	VisitIteratorWithPackedValue(iter util.DocIdSetIterator, packedValue []byte) error
 	Grow(count int)
-	Compare(minPackedValue, maxPackedValue []byte) xyPointCellRelation
+	Compare(minPackedValue, maxPackedValue []byte) index.Relation
 }
-
-// xyPointCellRelation classifies how a BKD cell intersects the query
-// region, mirroring org.apache.lucene.index.PointValues.Relation.
-type xyPointCellRelation int
-
-const (
-	// xyPointCellOutsideQuery indicates the cell lies fully outside the query.
-	xyPointCellOutsideQuery xyPointCellRelation = iota
-	// xyPointCellInsideQuery indicates the cell lies fully inside the query.
-	xyPointCellInsideQuery
-	// xyPointCellCrossesQuery indicates the cell partially overlaps the query.
-	xyPointCellCrossesQuery
-)
 
 // xyPointTreeIntersect is the rich, visitor-driven read surface a BKD-backed
 // PointValues exposes beyond the metadata-only index.PointValues. The on-disk
 // reader returned by LeafReader.GetPointValues (the codec's *pointValues)
 // satisfies it structurally; the parameter type is the index-package alias so
 // the type assertion succeeds for the real codec reader (the same reason
-// search.RangeFieldQuery aliases index.PointTreeIntersectVisitor).
-type xyPointTreeIntersect interface {
-	Intersect(visitor index.PointTreeIntersectVisitor) error
-	EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64
-}
+// search.RangeFieldQuery aliases index.IntersectVisitor).
+// xyPointTreeIntersect is an alias of index.PointValues. Before the two
+// PointValues renderings were merged it was a narrow structural interface
+// carrying the visitor-driven surface (Intersect / EstimatePointCount) that
+// index.PointValues did not declare; org.apache.lucene.index.PointValues
+// declares intersect and estimatePointCount as public final members, so the
+// whole surface is now on the one interface and the narrow duplicate has no
+// Lucene counterpart.
+type xyPointTreeIntersect = index.PointValues
 
 // newXYPointSourceFromIndexPointValues adapts a BKD-backed index.PointValues to
 // the xyPointSource contract used by the scorer. When the concrete PointValues
@@ -387,7 +372,7 @@ func newXYPointSourceFromIndexPointValues(pv index.PointValues) xyPointSource {
 }
 
 // bkdXYPointSource drives a BKD-backed PointValues, translating between the
-// XY query's xyPointVisitor and the index.PointTreeIntersectVisitor the BKD
+// XY query's xyPointVisitor and the index.IntersectVisitor the BKD
 // reader expects.
 type bkdXYPointSource struct {
 	pv xyPointTreeIntersect
@@ -398,11 +383,11 @@ func (s *bkdXYPointSource) Intersect(visitor xyPointVisitor) error {
 }
 
 func (s *bkdXYPointSource) EstimateDocCount(visitor xyPointVisitor) (int64, error) {
-	return s.pv.EstimatePointCount(&xyPointVisitorBridge{v: visitor}), nil
+	return s.pv.EstimateDocCount(&xyPointVisitorBridge{v: visitor})
 }
 
 // xyPointVisitorBridge adapts an xyPointVisitor to the
-// index.PointTreeIntersectVisitor surface the BKD reader invokes. The reader
+// index.IntersectVisitor surface the BKD reader invokes. The reader
 // only drives Visit / VisitByPackedValue / Compare / Grow (the bulk-iterator
 // methods on xyPointVisitor are not part of the BKD reader's intersect path).
 type xyPointVisitorBridge struct {
@@ -415,13 +400,13 @@ func (b *xyPointVisitorBridge) VisitByPackedValue(docID int, packedValue []byte)
 	return b.v.VisitWithPackedValue(docID, packedValue)
 }
 
-func (b *xyPointVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) int {
-	return int(b.v.Compare(minPackedValue, maxPackedValue))
+func (b *xyPointVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
+	return b.v.Compare(minPackedValue, maxPackedValue)
 }
 
 func (b *xyPointVisitorBridge) Grow(count int) { b.v.Grow(count) }
 
-var _ index.PointTreeIntersectVisitor = (*xyPointVisitorBridge)(nil)
+var _ index.IntersectVisitor = (*xyPointVisitorBridge)(nil)
 
 // noopXYPointSource is the safe fallback when the PointValues does not expose
 // the visitor-driven Intersect surface (e.g. an in-test metadata-only stub). It
@@ -537,20 +522,19 @@ func (s *xyPointInGeometryScorerSupplier) Get(_ int64) (Scorer, error) {
 	}
 	var disi DocIdSetIterator
 	if set == nil {
-		disi = NewEmptyDocIdSetIterator()
+		disi = Empty()
 	} else {
 		utilIter := set.Iterator()
 		if utilIter == nil {
-			disi = NewEmptyDocIdSetIterator()
+			disi = Empty()
 		} else {
 			disi = newUtilToSearchDISIAdapter(utilIter)
 		}
 	}
 	return &xyPointInGeometryScorer{
-		BaseScorer: NewBaseScorer(s.weight),
-		weight:     s.weight,
-		iter:       disi,
-		score:      s.weight.boost,
+		weight: s.weight,
+		iter:   disi,
+		score:  s.weight.boost,
 	}, nil
 }
 
@@ -568,7 +552,9 @@ func (s *xyPointInGeometryScorerSupplier) Cost() int64 {
 }
 
 // SetTopLevelScoringClause is a no-op for this constant-score supplier.
-func (s *xyPointInGeometryScorerSupplier) SetTopLevelScoringClause() {}
+func (s *xyPointInGeometryScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
 
 // Ensure xyPointInGeometryScorerSupplier implements ScorerSupplier.
 var _ ScorerSupplier = (*xyPointInGeometryScorerSupplier)(nil)
@@ -657,19 +643,19 @@ func (v *xyPointInGeometryVisitor) VisitIteratorWithPackedValue(iter util.DocIdS
 // Compare decodes the min/max packed values as (x, y) corners and asks
 // the Component2D tree to relate the bounding cell. Mirrors
 // compare(byte[], byte[]) on the Java reference.
-func (v *xyPointInGeometryVisitor) Compare(minPackedValue, maxPackedValue []byte) xyPointCellRelation {
+func (v *xyPointInGeometryVisitor) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
 	if len(minPackedValue) < 2*xyPointBytesPerDim || len(maxPackedValue) < 2*xyPointBytesPerDim {
 		// Mirrors Java's array-bounds failure: a malformed cell payload
 		// is a programmer error. The safe answer here is "crosses"
 		// (force the source to recurse and surface the bug downstream)
 		// rather than silently dropping the cell.
-		return xyPointCellCrossesQuery
+		return index.CellCrossesQuery
 	}
 	cellMinX := float64(geo.XYDecodeBytes(minPackedValue, 0))
 	cellMinY := float64(geo.XYDecodeBytes(minPackedValue, xyPointBytesPerDim))
 	cellMaxX := float64(geo.XYDecodeBytes(maxPackedValue, 0))
 	cellMaxY := float64(geo.XYDecodeBytes(maxPackedValue, xyPointBytesPerDim))
-	return xyRelationFromGeo(v.tree.Relate(cellMinX, cellMaxX, cellMinY, cellMaxY))
+	return v.tree.Relate(cellMinX, cellMaxX, cellMinY, cellMaxY)
 }
 
 // xyPointBytesPerDim mirrors Integer.BYTES (4): the byte-width of a
@@ -677,29 +663,13 @@ func (v *xyPointInGeometryVisitor) Compare(minPackedValue, maxPackedValue []byte
 // 4-byte X followed by 4-byte Y, matching XYPointField.
 const xyPointBytesPerDim = 4
 
-// xyRelationFromGeo maps geo.Relation onto the local
-// xyPointCellRelation enum. The two enums carry identical semantics;
-// the local enum exists so the query surface stays decoupled from the
-// geo package (which a future PointValues port may not want to depend
-// on transitively).
-func xyRelationFromGeo(r geo.Relation) xyPointCellRelation {
-	switch r {
-	case geo.CellInsideQuery:
-		return xyPointCellInsideQuery
-	case geo.CellCrossesQuery:
-		return xyPointCellCrossesQuery
-	default:
-		return xyPointCellOutsideQuery
-	}
-}
-
 // xyPointInGeometryScorer is the constant-score scorer returned by
 // the supplier. It mirrors the inner ConstantScoreScorer wrapping on
 // the Java reference: score() returns the boost, and the iterator
 // forwards every position/cost call to the materialized DocIdSet's
 // iterator.
 type xyPointInGeometryScorer struct {
-	*BaseScorer
+	BaseScorer
 
 	weight *xyPointInGeometryWeight
 	iter   DocIdSetIterator
@@ -721,13 +691,60 @@ func (s *xyPointInGeometryScorer) Advance(target int) (int, error) {
 func (s *xyPointInGeometryScorer) Cost() int64 { return s.iter.Cost() }
 
 // DocIDRunEnd returns the end of the current run.
-func (s *xyPointInGeometryScorer) DocIDRunEnd() int { return s.iter.DocIDRunEnd() }
+func (s *xyPointInGeometryScorer) DocIDRunEnd() (int, error) { return s.iter.DocIDRunEnd() }
 
 // Score returns the constant boost score.
-func (s *xyPointInGeometryScorer) Score() float32 { return s.score }
+//
+// Mirrors ConstantScoreScorer.score(), whose body is `return score;`.
+func (s *xyPointInGeometryScorer) Score() (float32, error) { return s.score, nil }
 
 // GetMaxScore returns the constant boost score (no per-doc variability).
-func (s *xyPointInGeometryScorer) GetMaxScore(_ int) float32 { return s.score }
+//
+// Mirrors ConstantScoreScorer.getMaxScore(int), whose body is `return score;`.
+func (s *xyPointInGeometryScorer) GetMaxScore(_ int) (float32, error) { return s.score, nil }
+
+// Iterator mirrors ConstantScoreScorer.iterator(), whose body is
+// `return disi;` — the DocIdSetIterator the Java query hands to the
+// ConstantScoreScorer constructor.
+func (s *xyPointInGeometryScorer) Iterator() DocIdSetIterator { return s.iter }
+
+// NextDocsAndScores mirrors ConstantScoreScorer.nextDocsAndScores(int, Bits,
+// DocAndFloatFeatureBuffer) (Lucene 10.5.0):
+//
+//	int batchSize = 64;
+//	buffer.growNoCopy(batchSize);
+//	int size = 0;
+//	DocIdSetIterator iterator = iterator();
+//	for (int doc = iterator.docID(); doc < upTo && size < batchSize; doc = iterator.nextDoc()) {
+//	  if (liveDocs == null || liveDocs.get(doc)) {
+//	    buffer.docs[size] = doc;
+//	    ++size;
+//	  }
+//	}
+//	Arrays.fill(buffer.features, 0, size, score);
+//	buffer.size = size;
+func (s *xyPointInGeometryScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	batchSize := 64
+	buffer.GrowNoCopy(batchSize)
+	size := 0
+	iterator := s.Iterator()
+	for doc := iterator.DocID(); doc < upTo && size < batchSize; {
+		if liveDocs == nil || liveDocs.Get(doc) {
+			buffer.Docs[size] = doc
+			size++
+		}
+		next, err := iterator.NextDoc()
+		if err != nil {
+			return err
+		}
+		doc = next
+	}
+	for i := 0; i < size; i++ {
+		buffer.Features[i] = s.score
+	}
+	buffer.Size = size
+	return nil
+}
 
 // Ensure xyPointInGeometryScorer implements Scorer.
 var _ Scorer = (*xyPointInGeometryScorer)(nil)
@@ -750,7 +767,7 @@ func (a *xyUtilDISIAdapter) DocID() int                      { return a.inner.Do
 func (a *xyUtilDISIAdapter) NextDoc() (int, error)           { return a.inner.NextDoc() }
 func (a *xyUtilDISIAdapter) Advance(target int) (int, error) { return a.inner.Advance(target) }
 func (a *xyUtilDISIAdapter) Cost() int64                     { return a.inner.Cost() }
-func (a *xyUtilDISIAdapter) DocIDRunEnd() int                { return a.inner.DocIDRunEnd() }
+func (a *xyUtilDISIAdapter) DocIDRunEnd() (int, error)       { return a.inner.DocIDRunEnd() }
 
 var _ DocIdSetIterator = (*xyUtilDISIAdapter)(nil)
 
@@ -774,3 +791,42 @@ func xyGeometriesHash(geoms []geo.XYGeometry) int {
 // constant. Distinct from other query class hashes so two different
 // query types with the same field/payload do not collide.
 const classHashXYPointInGeometryQuery = 0x7879_7069 // "xypi"
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (x *xyPointInGeometryScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(x)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (x *xyUtilDISIAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(x, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *xyPointInGeometryScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which b does not
+// override.
+func (b *xyPointVisitorBridge) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(b, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which b does not override.
+func (b *xyPointVisitorBridge) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(b, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which b
+// does not override.
+func (b *xyPointVisitorBridge) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(b, iterator, packedValue)
+}

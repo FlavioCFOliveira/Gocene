@@ -7,8 +7,6 @@ package document
 import (
 	"fmt"
 	"io"
-
-	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // This file extends Field (defined in field.go) with the Lucene 10.4.0
@@ -41,7 +39,7 @@ func (f *Field) SetBytesValue(value []byte) {
 	if _, ok := f.value.(binaryValue); !ok && f.value != nil {
 		panic(fmt.Sprintf("cannot change value type from %T to []byte", f.value))
 	}
-	if f.ft != nil && f.ft.IndexOptions != 0 {
+	if f.ft != nil && f.ft.indexOptions != 0 {
 		// Lucene rejects binary mutation on indexed fields.
 		panic("cannot change binary value of an indexed field")
 	}
@@ -106,15 +104,10 @@ func (f *Field) SetDoubleValue(value float64) {
 // be inverted during indexing. Mirrors Lucene's Field#invertableType()
 // which always returns InvertableType.TOKEN_STREAM (subclasses may override).
 //
-// Mirrors Lucene 10.4.0 default behaviour.
-func (f *Field) InvertableType() index.InvertableType {
-	return index.InvertableTypeTokenStream
+// Mirrors Lucene 10.5.0 default behaviour.
+func (f *Field) InvertableType() InvertableType {
+	return InvertableTypeTokenStream
 }
-
-// GetCharSequenceValue returns the field's string value (CharSequence in
-// Java); identical to StringValue() in the Gocene model — Go has no
-// CharSequence equivalent so the two methods share an implementation.
-func (f *Field) GetCharSequenceValue() string { return f.StringValue() }
 
 // isNumeric reports whether v is one of the numeric wrappers used by Field.
 func isNumeric(v fieldValue) bool {

@@ -43,10 +43,10 @@ func (o *RateLimitedIndexOutput) WriteByte(b byte) error {
 
 // WriteBytes writes all bytes from b, pausing first if the accumulated byte
 // count has crossed the limiter's threshold.
-func (o *RateLimitedIndexOutput) WriteBytes(b []byte) error {
-	o.bytesSinceLastPause += int64(len(b))
+func (o *RateLimitedIndexOutput) WriteBytes(b []byte, offset, length int) error {
+	o.bytesSinceLastPause += int64(length)
 	o.checkRate()
-	return o.FilterIndexOutput.WriteBytes(b)
+	return o.FilterIndexOutput.WriteBytes(b, offset, length)
 }
 
 // WriteBytesN writes the first n bytes from b.
@@ -75,6 +75,47 @@ func (o *RateLimitedIndexOutput) WriteLong(v int64) error {
 	o.bytesSinceLastPause += 8
 	o.checkRate()
 	return o.FilterIndexOutput.WriteLong(v)
+}
+
+// WriteMapOfStrings writes a map of strings.
+func (o *RateLimitedIndexOutput) WriteMapOfStrings(m map[string]string) error {
+	// This is a complex write; we let the wrapped output handle it.
+	// To be accurate, we should estimate the bytes written.
+	// For now, we just forward it.
+	return o.FilterIndexOutput.WriteMapOfStrings(m)
+}
+
+// WriteSetOfStrings writes a set of strings.
+func (o *RateLimitedIndexOutput) WriteSetOfStrings(s []string) error {
+	return o.FilterIndexOutput.WriteSetOfStrings(s)
+}
+
+// WriteVInt writes a variable-length integer.
+func (o *RateLimitedIndexOutput) WriteVInt(i int32) error {
+	o.bytesSinceLastPause += 5 // Max VInt size
+	o.checkRate()
+	return o.FilterIndexOutput.WriteVInt(i)
+}
+
+// WriteVLong writes a variable-length long.
+func (o *RateLimitedIndexOutput) WriteVLong(i int64) error {
+	o.bytesSinceLastPause += 9 // Max VLong size
+	o.checkRate()
+	return o.FilterIndexOutput.WriteVLong(i)
+}
+
+// WriteZInt writes a zig-zag encoded integer.
+func (o *RateLimitedIndexOutput) WriteZInt(i int32) error {
+	o.bytesSinceLastPause += 5
+	o.checkRate()
+	return o.FilterIndexOutput.WriteZInt(i)
+}
+
+// WriteZLong writes a zig-zag encoded long.
+func (o *RateLimitedIndexOutput) WriteZLong(i int64) error {
+	o.bytesSinceLastPause += 9
+	o.checkRate()
+	return o.FilterIndexOutput.WriteZLong(i)
 }
 
 // checkRate triggers a rate-limiter pause if enough bytes have accumulated.

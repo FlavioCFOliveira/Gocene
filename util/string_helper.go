@@ -216,6 +216,39 @@ func initIDState() {
 	idActive = new(big.Int).Or(new(big.Int).Lsh(hi, 64), lo)
 }
 
+// SetRandomIdSeed allows setting a deterministic seed for [RandomId].
+// This is a test-only helper that mirrors Lucene's "tests.seed" logic.
+func SetRandomIdSeed(seed string) {
+	idMu.Lock()
+	defer idMu.Unlock()
+
+	// Java: if (prop.length() > 8) { prop = prop.substring(prop.length() - 8); }
+	s := seed
+	if len(s) > 8 {
+		s = s[len(s)-8:]
+	}
+
+	// Java: x0 = Long.parseLong(prop, 16); x1 = x0;
+	var x0 uint64
+	fmt.Sscanf(s, "%x", &x0)
+
+	idState[0] = x0
+	idState[1] = x0
+
+	// Re-run the scatter loop to maintain consistency with Lucene's init.
+	for i := 0; i < 10; i++ {
+		s1 := idState[0]
+		s0 := idState[1]
+		idState[0] = s0
+		s1 ^= s1 << 23
+		idState[1] = s1 ^ s0 ^ (s1 >> 17) ^ (s0 >> 26)
+	}
+
+	hi := new(big.Int).SetUint64(idState[0])
+	lo := new(big.Int).SetUint64(idState[1])
+	idActive = new(big.Int).Or(new(big.Int).Lsh(hi, 64), lo)
+}
+
 // RandomId returns a non-cryptographic globally unique 16-byte id.
 // Successive calls increment the internal counter (mod 2^128) so that
 // every id in a single process is unique.

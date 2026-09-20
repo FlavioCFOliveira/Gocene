@@ -54,7 +54,7 @@ func openPostings(t *testing.T, opts index.IndexOptions, field, text string, doc
 		termToDocs: map[string][]SeedPosting{text: seeds},
 		options:    opts,
 	}
-	if err := consumer.Write(field, st); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields(field, st), nil); err != nil {
 		_ = consumer.Close()
 		t.Fatalf("Write: %v", err)
 	}
@@ -72,9 +72,9 @@ func openPostings(t *testing.T, opts index.IndexOptions, field, text string, doc
 	if err != nil {
 		t.Fatalf("Terms: %v", err)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	found, err := te.SeekExact(index.NewTerm(field, text))
 	if err != nil || !found {

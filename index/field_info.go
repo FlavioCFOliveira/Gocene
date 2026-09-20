@@ -4,7 +4,7 @@
 
 package index
 
-import "github.com/FlavioCFOliveira/Gocene/schema"
+import "github.com/FlavioCFOliveira/Gocene/spi"
 
 // This file is the index-side facade for FieldInfo + FieldInfoOptions +
 // FieldInfoBuilder + DefaultFieldInfoOptions after the SPI unification
@@ -13,26 +13,26 @@ import "github.com/FlavioCFOliveira/Gocene/schema"
 // re-exports the constructor / builder factories as thin wrappers so
 // existing callers continue to compile unchanged.
 
-// FieldInfo is an alias of schema.FieldInfo.
-type FieldInfo = schema.FieldInfo
+// FieldInfo is an alias of spi.FieldInfo.
+type FieldInfo = spi.FieldInfo
 
-// FieldInfoOptions is an alias of schema.FieldInfoOptions.
-type FieldInfoOptions = schema.FieldInfoOptions
+// FieldInfoOptions is an alias of spi.FieldInfoOptions.
+type FieldInfoOptions = spi.FieldInfoOptions
 
-// FieldInfoBuilder is an alias of schema.FieldInfoBuilder.
-type FieldInfoBuilder = schema.FieldInfoBuilder
+// FieldInfoBuilder is an alias of spi.FieldInfoBuilder.
+type FieldInfoBuilder = spi.FieldInfoBuilder
 
-// DefaultFieldInfoOptions re-exports schema.DefaultFieldInfoOptions.
+// DefaultFieldInfoOptions re-exports spi.DefaultFieldInfoOptions.
 func DefaultFieldInfoOptions() FieldInfoOptions {
-	return schema.DefaultFieldInfoOptions()
+	return spi.DefaultFieldInfoOptions()
 }
 
-// NewFieldInfo re-exports schema.NewFieldInfo.
+// NewFieldInfo re-exports spi.NewFieldInfo.
 func NewFieldInfo(name string, number int, opts FieldInfoOptions) *FieldInfo {
-	return schema.NewFieldInfo(name, number, opts)
+	return spi.NewFieldInfo(name, number, opts)
 }
 
-// NewFieldInfoBuilder re-exports schema.NewFieldInfoBuilder.
+// NewFieldInfoBuilder re-exports spi.NewFieldInfoBuilder.
 func NewFieldInfoBuilder(name string, number int) *FieldInfoBuilder {
-	return schema.NewFieldInfoBuilder(name, number)
+	return spi.NewFieldInfoBuilder(name, number)
 }

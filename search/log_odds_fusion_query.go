@@ -21,7 +21,11 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
+	"strings"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // Ported from Apache Lucene 10.5.0:
@@ -124,12 +128,13 @@ func (q *LogOddsFusionQuery) GetWeights() []float32 {
 }
 
 type logOddsFusionWeight struct {
+	BaseWeight
 	query   *LogOddsFusionQuery
 	weights []Weight
 	mode    ScoreMode
 }
 
-func (q *LogOddsFusionQuery) CreateWeight(searcher IndexSearcher, mode ScoreMode, boost float32) (Weight, error) {
+func (q *LogOddsFusionQuery) CreateWeight(searcher *IndexSearcher, mode ScoreMode, boost float32) (Weight, error) {
 	weights := make([]Weight, len(q.clauses))
 	for i, clause := range q.clauses {
 		w, err := searcher.CreateWeight(clause, mode, boost)
@@ -145,18 +150,21 @@ func (q *LogOddsFusionQuery) CreateWeight(searcher IndexSearcher, mode ScoreMode
 	}, nil
 }
 
-func (w *logOddsFusionWeight) Matches(ctx LeafReaderContext, doc int) Matches {
+func (w *logOddsFusionWeight) Matches(ctx *index.LeafReaderContext, doc int) (Matches, error) {
 	var mis []Matches
 	for _, weight := range w.weights {
-		mi := weight.Matches(ctx, doc)
+		mi, err := weight.Matches(ctx, doc)
+		if err != nil {
+			return nil, err
+		}
 		if mi != nil {
 			mis = append(mis, mi)
 		}
 	}
-	return MatchesFromSubMatches(mis)
+	return MatchesUtils.FromSubMatches(mis), nil
 }
 
-func (w *logOddsFusionWeight) ScorerSupplier(ctx LeafReaderContext) (ScorerSupplier, error) {
+func (w *logOddsFusionWeight) ScorerSupplier(ctx *index.LeafReaderContext) (ScorerSupplier, error) {
 	var suppliers []ScorerSupplier
 	var activeWeights []float32
 	var activeMin []float32
@@ -187,9 +195,9 @@ func (w *logOddsFusionWeight) ScorerSupplier(ctx LeafReaderContext) (ScorerSuppl
 	}
 
 	return &logOddsFusionSupplier{
-		suppliers:    suppliers,
-		totalClauses: len(w.query.clauses),
-		alpha:        w.query.alpha,
+		suppliers:     suppliers,
+		totalClauses:  len(w.query.clauses),
+		alpha:         w.query.alpha,
 		activeWeights: activeWeights,
 		activeMin:     activeMin,
 		activeMax:     activeMax,
@@ -198,9 +206,9 @@ func (w *logOddsFusionWeight) ScorerSupplier(ctx LeafReaderContext) (ScorerSuppl
 }
 
 type logOddsFusionSupplier struct {
-	suppliers    []ScorerSupplier
-	totalClauses int
-	alpha        float32
+	suppliers     []ScorerSupplier
+	totalClauses  int
+	alpha         float32
 	activeWeights []float32
 	activeMin     []float32
 	activeMax     []float32
@@ -236,13 +244,14 @@ func (s *logOddsFusionSupplier) Cost() int64 {
 	return total
 }
 
-func (s *logOddsFusionSupplier) SetTopLevelScoringClause() {
+func (s *logOddsFusionSupplier) SetTopLevelScoringClause() error {
 	for _, ss := range s.suppliers {
 		ss.SetTopLevelScoringClause()
 	}
+	return nil
 }
 
-func (w *logOddsFusionWeight) IsCacheable(ctx LeafReaderContext) bool {
+func (w *logOddsFusionWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 	if len(w.weights) > 1024 { // Boolean rewrite threshold
 		return false
 	}
@@ -254,7 +263,7 @@ func (w *logOddsFusionWeight) IsCacheable(ctx LeafReaderContext) bool {
 	return true
 }
 
-func (w *logOddsFusionWeight) Explain(ctx LeafReaderContext, doc int) Explanation {
+func (w *logOddsFusionWeight) Explain(ctx *index.LeafReaderContext, doc int) (Explanation, error) {
 	var match bool
 	var subsOnMatch []Explanation
 	var subsOnNoMatch []Explanation
@@ -262,11 +271,14 @@ func (w *logOddsFusionWeight) Explain(ctx LeafReaderContext, doc int) Explanatio
 	totalClauses := len(w.weights)
 
 	for i, weight := range w.weights {
-		e := weight.Explain(ctx, doc)
+		e, err := weight.Explain(ctx, doc)
+		if err != nil {
+			return nil, err
+		}
 		if e.IsMatch() {
 			match = true
 			subsOnMatch = append(subsOnMatch, e)
-			subScore := float32(e.Value())
+			subScore := e.GetValue()
 			rawLogit := logit(subScore)
 			var gated float32
 			if w.query.logitMin != nil {
@@ -305,13 +317,13 @@ func (w *logOddsFusionWeight) Explain(ctx LeafReaderContext, doc int) Explanatio
 			scaledLogit = float32((logitSum / float64(totalClauses)) * scalingFactor)
 			description = "log-odds fusion, computed as sigmoid(meanLogit * n^alpha) from:"
 		}
-		score := sigmoid(scaledLogit)
-		return NewExplanationMatch(score, description, subsOnMatch)
+		score := logOddsFusionScorerSigmoid(scaledLogit)
+		return MatchExplanationWithDetails(score, description, subsOnMatch...), nil
 	}
-	return NewExplanationNoMatch("No matching clause", subsOnNoMatch)
+	return NoMatchExplanationWithDetails("No matching clause", subsOnNoMatch...), nil
 }
 
-func (q *LogOddsFusionQuery) Rewrite(searcher IndexSearcher) (Query, error) {
+func (q *LogOddsFusionQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	if len(q.clauses) == 0 {
 		return NewMatchNoDocsQuery("empty LogOddsFusionQuery"), nil
 	}
@@ -372,29 +384,117 @@ func (q *LogOddsFusionQuery) Rewrite(searcher IndexSearcher) (Query, error) {
 	return NewLogOddsFusionQuery(rewrittenClauses, q.alpha, newWeights, newLogitMin, newLogitMax)
 }
 
+func (q *LogOddsFusionQuery) Visit(visitor QueryVisitor) {
+	v := visitor.GetSubVisitor(SHOULD, q)
+	for _, clause := range q.clauses {
+		clause.Visit(v)
+	}
+}
+
 func (q *LogOddsFusionQuery) ToString(field string) string {
 	var parts []string
 	for _, sub := range q.clauses {
-		s := sub.ToString(field)
+		s := queryToString(sub, field)
 		if _, ok := sub.(*BooleanQuery); ok {
 			s = "(" + s + ")"
 		}
 		parts = append(parts, s)
 	}
-	base := fmt.Sprintf("LogOdds(%s)^%f", joinStrings(parts, " & "), q.alpha)
+	base := fmt.Sprintf("LogOdds(%s)^%f", strings.Join(parts, " & "), q.alpha)
 	if q.signalWeights != nil {
 		return fmt.Sprintf("%s w=%v", base, q.signalWeights)
 	}
 	return base
 }
 
-func joinStrings(strs []string, sep string) string {
-	if len(strs) == 0 {
-		return ""
+func (q *LogOddsFusionQuery) Equals(other spi.Query) bool {
+	if other == nil {
+		return false
 	}
-	res := strs[0]
-	for _, s := range strs[1:] {
-		res += sep + s
+	o, ok := other.(*LogOddsFusionQuery)
+	if !ok {
+		return false
 	}
-	return res
+	if q.alpha != o.alpha {
+		return false
+	}
+	if len(q.clauses) != len(o.clauses) {
+		return false
+	}
+	for i := range q.clauses {
+		if q.clauses[i] != o.clauses[i] {
+			return false
+		}
+	}
+	if len(q.signalWeights) != len(o.signalWeights) {
+		return false
+	}
+	for i := range q.signalWeights {
+		if q.signalWeights[i] != o.signalWeights[i] {
+			return false
+		}
+	}
+	if len(q.logitMin) != len(o.logitMin) {
+		return false
+	}
+	for i := range q.logitMin {
+		if q.logitMin[i] != o.logitMin[i] {
+			return false
+		}
+	}
+	if len(q.logitMax) != len(o.logitMax) {
+		return false
+	}
+	for i := range q.logitMax {
+		if q.logitMax[i] != o.logitMax[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func (q *LogOddsFusionQuery) HashCode() int {
+	h := 17 // classHash approximation
+	h = 31*h + int(math.Float32bits(q.alpha))
+
+	// clauses hash: Objects.hashCode(clauses) on a java.util.List folds
+	// 31*h + element.hashCode() from a seed of 1.
+	cHash := 1
+	for _, c := range q.clauses {
+		e := 0
+		if c != nil {
+			e = c.HashCode()
+		}
+		cHash = 31*cHash + e
+	}
+	h = 31*h + cHash
+
+	// weights hash
+	wHash := 0
+	for _, w := range q.signalWeights {
+		wHash = 31*wHash + int(math.Float32bits(w))
+	}
+	h = 31*h + wHash
+
+	// min hash
+	minHash := 0
+	for _, m := range q.logitMin {
+		minHash = 31*minHash + int(math.Float32bits(m))
+	}
+	h = 31*h + minHash
+
+	// max hash
+	maxHash := 0
+	for _, m := range q.logitMax {
+		maxHash = 31*maxHash + int(math.Float32bits(m))
+	}
+	h = 31*h + maxHash
+
+	return h
+}
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (l *logOddsFusionSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(l)
 }

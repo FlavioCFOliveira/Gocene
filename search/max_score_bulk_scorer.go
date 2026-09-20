@@ -50,7 +50,7 @@ type MaxScoreBulkScorer struct {
 	maxDoc     int
 	allScorers []*DisiWrapper
 	// essentialQueue holds the "essential" scorers (those that can yield competitive scores).
-	essentialQueue *DisiPriorityQueue
+	essentialQueue DisiPriorityQueue
 	// firstEssentialScorer is the index into allScorers where essential scorers start.
 	firstEssentialScorer int
 	// firstRequiredScorer is the index where required scorers start.
@@ -82,24 +82,6 @@ func (s *maxScoreScorable) SetMinCompetitiveScore(v float32) error {
 
 var _ Scorable = (*maxScoreScorable)(nil)
 
-// maxScoreScorerAdapter wraps maxScoreScorable to satisfy the Scorer interface
-// so it can be passed to LeafCollector.SetScorer.
-type maxScoreScorerAdapter struct {
-	BaseScorer
-	s *maxScoreScorable
-	// disi provides iteration; not used here but required by the interface.
-}
-
-func (a *maxScoreScorerAdapter) DocID() int                 { return -1 }
-func (a *maxScoreScorerAdapter) NextDoc() (int, error)      { return NO_MORE_DOCS, nil }
-func (a *maxScoreScorerAdapter) Advance(_ int) (int, error) { return NO_MORE_DOCS, nil }
-func (a *maxScoreScorerAdapter) Cost() int64                { return 0 }
-func (a *maxScoreScorerAdapter) DocIDRunEnd() int           { return 0 }
-func (a *maxScoreScorerAdapter) Score() float32             { return a.s.score }
-func (a *maxScoreScorerAdapter) GetMaxScore(_ int) float32  { return a.BaseScorer.GetMaxScore(0) }
-
-var _ Scorer = (*maxScoreScorerAdapter)(nil)
-
 // NewMaxScoreBulkScorer constructs a MaxScoreBulkScorer.
 //
 // filter is an optional required-filter scorer (may be nil).
@@ -109,7 +91,7 @@ func NewMaxScoreBulkScorer(maxDoc int, scorers []Scorer, filter Scorer) *MaxScor
 	bs := &MaxScoreBulkScorer{
 		maxDoc:         maxDoc,
 		allScorers:     make([]*DisiWrapper, len(scorers)),
-		essentialQueue: NewDisiPriorityQueue(len(scorers)),
+		essentialQueue: OfMaxSize(len(scorers)),
 		maxScoreSums:   make([]float64, len(scorers)),
 		scorable:       &maxScoreScorable{},
 	}
@@ -134,8 +116,8 @@ func NewMaxScoreBulkScorer(maxDoc int, scorers []Scorer, filter Scorer) *MaxScor
 // Gocene's Scorer interface. acceptDocs is a util.Bits filter (nil accepts
 // all).
 func (bs *MaxScoreBulkScorer) Score(collector LeafCollector, acceptDocs util.Bits, min, max int) (int, error) {
-	scorerAdapter := &maxScoreScorerAdapter{s: bs.scorable}
-	if err := collector.SetScorer(scorerAdapter); err != nil {
+	// Mirrors MaxScoreBulkScorer.score(...): collector.setScorer(scorable).
+	if err := collector.SetScorer(bs.scorable); err != nil {
 		return 0, err
 	}
 
@@ -159,7 +141,11 @@ func (bs *MaxScoreBulkScorer) Score(collector LeafCollector, acceptDocs util.Bit
 			// Sum scores from all matching scorers at this doc.
 			var totalScore float64
 			for tl := disi.TopList(); tl != nil; tl = tl.next {
-				totalScore += float64(tl.scorable.Score())
+				sc0, err := tl.scorable.Score()
+				if err != nil {
+					return 0, err
+				}
+				totalScore += float64(sc0)
 			}
 			bs.scorable.score = float32(totalScore)
 			if err := collector.Collect(doc); err != nil {

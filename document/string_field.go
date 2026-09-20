@@ -5,7 +5,7 @@
 package document
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // StringField is a field for non-tokenized, indexed string values.
@@ -42,7 +42,7 @@ func init() {
 		SetStored(true).
 		SetTokenized(false).
 		SetOmitNorms(true).
-		SetIndexOptions(schema.IndexOptionsDocs)
+		SetIndexOptions(spi.IndexOptionsDocs)
 	StringFieldTypeStored.Freeze()
 
 	StringFieldTypeNotStored = NewFieldType().
@@ -50,7 +50,7 @@ func init() {
 		SetStored(false).
 		SetTokenized(false).
 		SetOmitNorms(true).
-		SetIndexOptions(schema.IndexOptionsDocs)
+		SetIndexOptions(spi.IndexOptionsDocs)
 	StringFieldTypeNotStored.Freeze()
 
 	StringFieldTYPESTORED = StringFieldTypeStored

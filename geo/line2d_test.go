@@ -3,7 +3,10 @@
 
 package geo
 
-import "testing"
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"testing"
+)
 
 func newDiagonalLine2D(t *testing.T) *line2D {
 	t.Helper()
@@ -30,14 +33,14 @@ func TestLine2D_ContainsAndRelate(t *testing.T) {
 	if l.Contains(1, 0) {
 		t.Fatalf("did not expect (1,0) on the diagonal")
 	}
-	if got := l.Relate(-1, -0.5, -1, -0.5); got != CellOutsideQuery {
-		t.Fatalf("disjoint relate = %v; want CellOutsideQuery", got)
+	if got := l.Relate(-1, -0.5, -1, -0.5); got != spi.CellOutsideQuery {
+		t.Fatalf("disjoint relate = %v; want spi.CellOutsideQuery", got)
 	}
-	if got := l.Relate(-1, 5, -1, 5); got != CellCrossesQuery {
-		t.Fatalf("enclosing relate = %v; want CellCrossesQuery", got)
+	if got := l.Relate(-1, 5, -1, 5); got != spi.CellCrossesQuery {
+		t.Fatalf("enclosing relate = %v; want spi.CellCrossesQuery", got)
 	}
-	if got := l.Relate(0.5, 1.5, 0.5, 1.5); got != CellCrossesQuery {
-		t.Fatalf("crossing relate = %v; want CellCrossesQuery", got)
+	if got := l.Relate(0.5, 1.5, 0.5, 1.5); got != spi.CellCrossesQuery {
+		t.Fatalf("crossing relate = %v; want spi.CellCrossesQuery", got)
 	}
 }
 

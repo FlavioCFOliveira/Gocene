@@ -7,7 +7,7 @@ package lucene60
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/backward_codecs/store"
+	bcstore "github.com/FlavioCFOliveira/Gocene/backward_codecs/store"
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -21,7 +21,7 @@ import (
 type Lucene60PointsReader struct {
 	dataIn    store.IndexInput
 	readState *codecs.SegmentReadState
-	readers   map[int]codecs.PointValues
+	readers   map[int]index.PointValues
 }
 
 // NewLucene60PointsReader opens the points data and index files, reads the
@@ -56,7 +56,7 @@ func NewLucene60PointsReader(state *codecs.SegmentReadState) (*Lucene60PointsRea
 			if err != nil {
 				return err
 			}
-			fp, err := store.ReadVLong(indexIn)
+			fp, err := indexIn.ReadVLong()
 			if err != nil {
 				return err
 			}
@@ -90,7 +90,7 @@ func NewLucene60PointsReader(state *codecs.SegmentReadState) (*Lucene60PointsRea
 	}
 
 	// Initialize BKD readers for each field.
-	readers := make(map[int]codecs.PointValues)
+	readers := make(map[int]index.PointValues)
 	for fieldNumber, fp := range fieldToFP {
 		if err := dataIn.SetPosition(fp); err != nil {
 			_ = dataIn.Close()
@@ -102,7 +102,7 @@ func NewLucene60PointsReader(state *codecs.SegmentReadState) (*Lucene60PointsRea
 			_ = dataIn.Close()
 			return nil, fmt.Errorf("Lucene60PointsReader: init BKDReader for field %d at fp %d: %w", fieldNumber, fp, err)
 		}
-		readers[fieldNumber] = &bkdPointValues{bkdReader: bkdReader}
+		readers[fieldNumber] = bkdReader
 	}
 
 	return &Lucene60PointsReader{
@@ -113,7 +113,7 @@ func NewLucene60PointsReader(state *codecs.SegmentReadState) (*Lucene60PointsRea
 }
 
 // GetValues returns the PointValues for the given field.
-func (r *Lucene60PointsReader) GetValues(fieldName string) (codecs.PointValues, error) {
+func (r *Lucene60PointsReader) GetValues(fieldName string) (index.PointValues, error) {
 	fi := r.readState.FieldInfos.GetByName(fieldName)
 	if fi == nil {
 		return nil, fmt.Errorf("Lucene60PointsReader.GetValues: field %q is unrecognized", fieldName)
@@ -130,6 +130,13 @@ func (r *Lucene60PointsReader) GetValues(fieldName string) (codecs.PointValues, 
 }
 
 // CheckIntegrity verifies the CRC32 checksum of the data file.
+// GetMergeInstance returns an instance optimised for merging.
+//
+// Port of org.apache.lucene.codecs.PointsReader#getMergeInstance(), whose
+// default body in Apache Lucene 10.5.0 is `return this;`. Lucene60PointsReader
+// does not override it.
+func (r *Lucene60PointsReader) GetMergeInstance() codecs.PointsReader { return r }
+
 func (r *Lucene60PointsReader) CheckIntegrity() error {
 	_, err := codecs.ChecksumEntireFile(r.dataIn)
 	return err
@@ -146,45 +153,13 @@ func (r *Lucene60PointsReader) Close() error {
 	return nil
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// BKD wrapper to satisfy codecs.PointValues
-// ─────────────────────────────────────────────────────────────────────────────
-
-type bkdPointValues struct {
-	bkdReader *bkd.BKDReader
-}
-
-func (w *bkdPointValues) Intersect(visitor codecs.IntersectVisitor) error {
-	return w.bkdReader.Intersect(visitor)
-}
-
-func (w *bkdPointValues) EstimatePointCount(visitor codecs.IntersectVisitor) int64 {
-	count, err := w.bkdReader.EstimatePointCount(visitor)
-	if err != nil {
-		// In a real scenario, we should log this, but the interface requires int64.
-		return 0
-	}
-	return count
-}
-
-func (w *bkdPointValues) GetMinPackedValue() []byte {
-	return w.bkdReader.GetMinPackedValue()
-}
-
-func (w *bkdPointValues) GetMaxPackedValue() []byte {
-	return w.bkdReader.GetMaxPackedValue()
-}
-
-func (w *bkdPointValues) GetNumDimensions() int {
-	return w.bkdReader.GetNumDimensions()
-}
-
-func (w *bkdPointValues) GetBytesPerDimension() int {
-	return w.bkdReader.GetBytesPerDimension()
-}
-
-func (w *bkdPointValues) GetDocCount() int {
-	return w.bkdReader.GetDocCount()
-}
+// Java's Lucene60PointsReader keeps the BKDReader itself in its readers map
+// (org.apache.lucene.util.bkd.BKDReader extends
+// org.apache.lucene.index.PointValues) and getValues returns it directly, so
+// there is no wrapper type here. The `bkdPointValues` view and the
+// `bkdVisitorBridge` that used to live at this point bridged Gocene's two
+// incompatible PointValues renderings and its two IntersectVisitor renderings;
+// with one PointValues and one IntersectVisitor in the module they have no
+// Lucene counterpart and are gone.
 
 var _ codecs.PointsReader = (*Lucene60PointsReader)(nil)

@@ -21,7 +21,7 @@ import (
 // and returns them as TopDocs when the search is complete.
 // Uses atomic operations for hot path counters to minimize lock contention.
 type TopDocsCollector struct {
-	*SimpleCollector
+	BaseSimpleCollector
 
 	// numHits is the maximum number of hits to collect
 	numHits int
@@ -59,26 +59,30 @@ func NewTopDocsCollector(numHits int) *TopDocsCollector {
 // with a non-null "after" argument, used by IndexSearcher.SearchAfter.
 func NewTopDocsCollectorAfter(numHits int, after *ScoreDoc) *TopDocsCollector {
 	c := &TopDocsCollector{
-		SimpleCollector: NewSimpleCollector(COMPLETE),
-		numHits:         numHits,
-		after:           after,
-		pq:              NewScoreDocPriorityQueue(numHits),
+		numHits: numHits,
+		after:   after,
+		pq:      NewScoreDocPriorityQueue(numHits),
 	}
 	c.totalHits.Store(0)
 	c.maxScore.Store(0) // 0 bits for float32 0.0
 	return c
 }
 
+// ScoreMode mirrors TopScoreDocCollector.scoreMode(), which returns
+// ScoreMode.COMPLETE while the total-hits threshold is unbounded - the only
+// case this port models.
+func (c *TopDocsCollector) ScoreMode() ScoreMode { return COMPLETE }
+
 // GetLeafCollector returns a LeafCollector for the given context.
 //
-// The leaf collector's docBase is taken directly from context.DocBase(), so
+// The leaf collector's docBase is taken directly from context.DocBase, so
 // collected doc ids are rebased to the global id space without the searcher
 // having to poke at the returned leaf collector afterwards (matching Lucene's
 // TopScoreDocCollector, which reads docBase from the LeafReaderContext).
 func (c *TopDocsCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
 	docBase := 0
 	if context != nil {
-		docBase = context.DocBase()
+		docBase = context.DocBase
 	}
 	return NewTopDocsLeafCollector(c, docBase), nil
 }
@@ -96,7 +100,6 @@ func (c *TopDocsCollector) TopDocs() *TopDocs {
 	return &TopDocs{
 		TotalHits: NewTotalHits(int64(c.totalHits.Load()), EQUAL_TO),
 		ScoreDocs: scoreDocs,
-		MaxScore:  math.Float32frombits(c.maxScore.Load()),
 	}
 }
 
@@ -106,15 +109,15 @@ func (c *TopDocsCollector) GetTotalHits() int {
 }
 
 // GetMaxScore returns the maximum score seen.
-func (c *TopDocsCollector) GetMaxScore() float32 {
-	return math.Float32frombits(c.maxScore.Load())
+func (c *TopDocsCollector) GetMaxScore(_ int) (float32, error) {
+	return math.Float32frombits(c.maxScore.Load()), nil
 }
 
 // TopDocsLeafCollector collects documents for a single segment.
 type TopDocsLeafCollector struct {
 	*BaseLeafCollector
 	collector *TopDocsCollector
-	scorer    Scorer
+	scorer    Scorable
 	docBase   int
 }
 
@@ -128,7 +131,7 @@ func NewTopDocsLeafCollector(collector *TopDocsCollector, docBase int) *TopDocsL
 }
 
 // SetScorer sets the scorer.
-func (c *TopDocsLeafCollector) SetScorer(scorer Scorer) error {
+func (c *TopDocsLeafCollector) SetScorer(scorer Scorable) error {
 	c.scorer = scorer
 	return nil
 }
@@ -141,7 +144,10 @@ func (c *TopDocsLeafCollector) SetDocBase(docBase int) {
 // Collect collects a document.
 // Uses atomic operations for counters to minimize lock contention.
 func (c *TopDocsLeafCollector) Collect(doc int) error {
-	score := c.scorer.Score()
+	score, err := c.scorer.Score()
+	if err != nil {
+		return err
+	}
 
 	// Atomic increment for totalHits (lock-free). Matching Lucene's
 	// TopScoreDocCollector, every matching document is counted, including
@@ -262,3 +268,15 @@ func (pq *ScoreDocPriorityQueue) Peek() *ScoreDoc {
 
 // Ensure TopDocsCollector implements Collector
 var _ Collector = (*TopDocsCollector)(nil)
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (t *TopDocsLeafCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(t, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (t *TopDocsLeafCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(t, stream)
+}

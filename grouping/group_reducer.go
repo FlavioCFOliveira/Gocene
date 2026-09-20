@@ -5,129 +5,144 @@
 package grouping
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// GroupReducer reduces hits into groups.
-// This is the base class for grouping operations.
+// GroupReducer defines what to collect for individual groups during the
+// second-pass of a grouping search.
 //
-// This is the Go port of Lucene's org.apache.lucene.search.grouping.GroupReducer.
-type GroupReducer struct {
-	// groups maps group values to their accumulated results
-	groups map[interface{}]*GroupDocs
+// Each group is assigned a Collector returned by NewCollector, and
+// search.LeafCollector.Collect is called for each document that is in a
+// group.
+//
+// Mirrors the abstract class
+// org.apache.lucene.search.grouping.GroupReducer<T, C extends Collector>.
+// Java's second type parameter C is only ever used existentially by the
+// callers (SecondPassGroupingCollector holds a GroupReducer<T, ?> and casts
+// the result of getCollector), and Go has no wildcard, so the contract is an
+// interface over T alone with the collector typed search.Collector.
+//
+// See SecondPassGroupingCollector.
+type GroupReducer[T any] interface {
+	// SetGroups defines which groups should be reduced. Called by
+	// SecondPassGroupingCollector. Java's setGroups does not throw; the error
+	// here is the one Gocene's search.CollectorManager.NewCollector may
+	// return, which the Java counterparts of the shipped reducers cannot
+	// raise.
+	SetGroups(groups []*SearchGroup[T]) error
 
-	// groupSelector selects the group for each document
-	groupSelector GroupSelector
+	// NeedsScores reports whether or not this reducer requires collected
+	// documents to be scored.
+	NeedsScores() bool
 
-	// totalHits is the total number of hits processed
-	totalHits int
+	// NewCollector creates a new Collector for each group. Mirrors the
+	// protected abstract C newCollector().
+	NewCollector() (search.Collector, error)
 
-	// maxScore tracks the maximum score seen
-	maxScore float32
+	// GetCollector gets the Collector for a given group.
+	GetCollector(value T) search.Collector
+
+	// Collect collects a given document into a given group.
+	Collect(value T, doc int) error
+
+	// SetScorer sets the Scorer on all group collectors.
+	SetScorer(scorer search.Scorable) error
+
+	// SetNextReader is called when the parent SecondPassGroupingCollector
+	// moves to a new segment.
+	SetNextReader(ctx *index.LeafReaderContext) error
 }
 
-// NewGroupReducer creates a new GroupReducer.
-func NewGroupReducer(selector GroupSelector) *GroupReducer {
-	return &GroupReducer{
-		groups:        make(map[interface{}]*GroupDocs),
-		groupSelector: selector,
+// groupReducerGroupCollector mirrors the private static final class
+// GroupReducer.GroupCollector<C>.
+type groupReducerGroupCollector struct {
+	collector     search.Collector
+	leafCollector search.LeafCollector
+}
+
+// newGroupReducerGroupCollector mirrors GroupCollector(C).
+func newGroupReducerGroupCollector(collector search.Collector) *groupReducerGroupCollector {
+	return &groupReducerGroupCollector{collector: collector}
+}
+
+// BaseGroupReducer carries the concrete (final) members of the abstract class
+// GroupReducer<T, C>; the two abstract members, needsScores() and
+// newCollector(), are supplied by the concrete reducer registered in Outer.
+type BaseGroupReducer[T any] struct {
+	// Outer is the concrete GroupReducer that embeds this base. It renders
+	// Java's dynamic dispatch to the abstract newCollector().
+	Outer GroupReducer[T]
+
+	groups *groupMap[T, *groupReducerGroupCollector]
+}
+
+// ensureGroups renders the field initialiser
+// `private final Map<T, GroupCollector<C>> groups = new HashMap<>()`.
+func (g *BaseGroupReducer[T]) ensureGroups() {
+	if g.groups == nil {
+		g.groups = newGroupMap[T, *groupReducerGroupCollector]()
 	}
 }
 
-// Collect collects a document into its group.
-func (gr *GroupReducer) Collect(doc int, score float32) error {
-	// Get the group value for this document
-	groupValue := gr.groupSelector.Select(doc)
-
-	// Get or create the group
-	group, exists := gr.groups[groupValue]
-	if !exists {
-		group = &GroupDocs{
-			GroupValue: groupValue,
-			ScoreDocs:  make([]*search.ScoreDoc, 0),
+// SetGroups defines which groups should be reduced.
+//
+// Mirrors public void setGroups(Collection<SearchGroup<T>>).
+func (g *BaseGroupReducer[T]) SetGroups(groups []*SearchGroup[T]) error {
+	g.ensureGroups()
+	for _, group := range groups {
+		collector, err := g.Outer.NewCollector()
+		if err != nil {
+			return err
 		}
-		gr.groups[groupValue] = group
-	}
-
-	// Add the document to the group
-	group.ScoreDocs = append(group.ScoreDocs, &search.ScoreDoc{
-		Doc:   doc,
-		Score: score,
-	})
-	group.TotalHits++
-
-	// Update stats
-	gr.totalHits++
-	if score > gr.maxScore {
-		gr.maxScore = score
-	}
-
-	return nil
-}
-
-// GetGroups returns all groups.
-func (gr *GroupReducer) GetGroups() []*GroupDocs {
-	result := make([]*GroupDocs, 0, len(gr.groups))
-	for _, group := range gr.groups {
-		result = append(result, group)
-	}
-	return result
-}
-
-// GetTotalHits returns the total number of hits processed.
-func (gr *GroupReducer) GetTotalHits() int {
-	return gr.totalHits
-}
-
-// GetMaxScore returns the maximum score seen.
-func (gr *GroupReducer) GetMaxScore() float32 {
-	return gr.maxScore
-}
-
-// Reset resets the reducer for reuse.
-func (gr *GroupReducer) Reset() {
-	gr.groups = make(map[interface{}]*GroupDocs)
-	gr.totalHits = 0
-	gr.maxScore = 0
-}
-
-// GroupSelector selects the group for a document.
-type GroupSelector interface {
-	// Select returns the group value for the given document.
-	Select(doc int) interface{}
-}
-
-// TermGroupSelector selects groups based on a term value.
-type TermGroupSelector struct {
-	// field is the field to group by
-	field string
-
-	// values caches the values for each document
-	values map[int]interface{}
-}
-
-// NewTermGroupSelector creates a new TermGroupSelector.
-func NewTermGroupSelector(field string) *TermGroupSelector {
-	return &TermGroupSelector{
-		field:  field,
-		values: make(map[int]interface{}),
-	}
-}
-
-// Select returns the group value for the given document.
-func (tgs *TermGroupSelector) Select(doc int) interface{} {
-	if value, ok := tgs.values[doc]; ok {
-		return value
+		g.groups.put(group.GroupValue, newGroupReducerGroupCollector(collector))
 	}
 	return nil
 }
 
-// SetValue sets the value for a document.
-func (tgs *TermGroupSelector) SetValue(doc int, value interface{}) {
-	tgs.values[doc] = value
+// GetCollector gets the Collector for a given group.
+//
+// Mirrors public final C getCollector(T value).
+func (g *BaseGroupReducer[T]) GetCollector(value T) search.Collector {
+	g.ensureGroups()
+	collector, _ := g.groups.get(value)
+	return collector.collector
 }
 
-// GetField returns the field name.
-func (tgs *TermGroupSelector) GetField() string {
-	return tgs.field
+// Collect collects a given document into a given group.
+//
+// Mirrors public final void collect(T value, int doc) throws IOException.
+func (g *BaseGroupReducer[T]) Collect(value T, doc int) error {
+	g.ensureGroups()
+	collector, _ := g.groups.get(value)
+	return collector.leafCollector.Collect(doc)
+}
+
+// SetScorer sets the Scorer on all group collectors.
+//
+// Mirrors public final void setScorer(Scorable scorer) throws IOException.
+func (g *BaseGroupReducer[T]) SetScorer(scorer search.Scorable) error {
+	g.ensureGroups()
+	for _, collector := range g.groups.values() {
+		if err := collector.leafCollector.SetScorer(scorer); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// SetNextReader is called when the parent SecondPassGroupingCollector moves
+// to a new segment.
+//
+// Mirrors public final void setNextReader(LeafReaderContext ctx) throws IOException.
+func (g *BaseGroupReducer[T]) SetNextReader(ctx *index.LeafReaderContext) error {
+	g.ensureGroups()
+	for _, collector := range g.groups.values() {
+		leafCollector, err := collector.collector.GetLeafCollector(ctx)
+		if err != nil {
+			return err
+		}
+		collector.leafCollector = leafCollector
+	}
+	return nil
 }

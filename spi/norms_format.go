@@ -4,7 +4,7 @@
 
 package spi
 
-import "github.com/FlavioCFOliveira/Gocene/schema"
+// No import needed for schema as it is now part of spi
 
 // NormsFormat encodes and decodes per-field, per-document normalization
 // factors (the .nvd / .nvm pair in the on-disk codec).
@@ -34,15 +34,20 @@ type NormsFormat interface {
 }
 
 // NormsConsumer is the per-segment write side of the norms pipeline.
-// Mirrors org.apache.lucene.codecs.NormsConsumer in Apache Lucene 10.4.0.
+// Mirrors org.apache.lucene.codecs.NormsConsumer in Apache Lucene 10.5.0.
 //
-// The flush path feeds AddNormsField a single-pass writer-side iterator
-// over the in-memory accumulator's contents; the consumer serializes the
-// values to the segment's .nvd / .nvm files.
+// The lifecycle is: the consumer is created by
+// NormsFormat.NormsConsumer(SegmentWriteState); AddNormsField is called for
+// each field with normalization values; after all fields are added the
+// consumer is closed.
 type NormsConsumer interface {
-	// AddNormsField persists the norms for a single field. The values are
-	// drawn from the iterator in strictly increasing docID order.
-	AddNormsField(field *schema.FieldInfo, values NormsIterator) error
+	// AddNormsField writes normalization values for a field. The API is a
+	// "pull" rather than a "push": the implementation is free to obtain the
+	// NumericDocValues from normsProducer as many times as it needs.
+	//
+	// Mirrors NormsConsumer.addNormsField(FieldInfo, NormsProducer)
+	// (NormsConsumer.java:56-57).
+	AddNormsField(field *FieldInfo, normsProducer NormsProducer) error
 
 	// Close flushes any pending bytes and releases the consumer's
 	// resources.
@@ -54,11 +59,20 @@ type NormsConsumer interface {
 type NormsProducer interface {
 	// GetNorms returns a NumericDocValues iterator over the norms of the
 	// given field, or nil when the field has no norms.
-	GetNorms(field *schema.FieldInfo) (NumericDocValues, error)
+	GetNorms(field *FieldInfo) (NumericDocValues, error)
 
 	// CheckIntegrity walks the per-field data and validates the checksum
 	// framing.
 	CheckIntegrity() error
+
+	// GetMergeInstance returns an instance optimized for merging. This
+	// instance may only be consumed in the thread that called
+	// GetMergeInstance.
+	//
+	// The default implementation returns the receiver itself.
+	//
+	// Mirrors NormsProducer.getMergeInstance() of Apache Lucene 10.5.0.
+	GetMergeInstance() NormsProducer
 
 	// Close releases the producer's resources.
 	Close() error

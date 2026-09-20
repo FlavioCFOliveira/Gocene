@@ -7,7 +7,9 @@ package index
 import (
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // MappedMultiFields wraps a MultiFields and applies a MergeState.DocMap chain
@@ -47,41 +49,29 @@ func (m *MappedMultiFields) Size() int {
 // Terms returns a Terms view for the given field that applies merge-time docID
 // remapping. Returns nil if the field has no indexed terms in any sub-reader.
 //
-// It collects the per-sub Terms from each sub-Fields in the MultiFields, pairs
-// them with their ReaderSlices (from the MergeState), and constructs a
-// MultiTerms from the result — mirroring Lucene's cast
-// `(MultiTerms) in.terms(field)` where MultiFields.terms() always produces a
-// MultiTerms.
+// Mirrors MappedMultiFields.terms:
+//
+//	MultiTerms terms = (MultiTerms) in.terms(field);
+//	if (terms == null) { return null; }
+//	else { return new MappedMultiTerms(field, mergeState, terms); }
+//
+// The lookup is delegated to the wrapped MultiFields, exactly as Java does, so
+// the per-sub ReaderSlices carried by MultiFields.subSlices -- which hold the
+// real Start and Length of each sub-reader's doc-ID range -- are the ones the
+// MultiTerms is built from. Recomputing the slices here would lose Start and
+// Length, which MultiTermsEnum relies on.
 func (m *MappedMultiFields) Terms(field string) (Terms, error) {
-	var subs []Terms
-	var slices []ReaderSlice
-	for i, f := range m.multi.FieldsList() {
-		if f == nil {
-			continue
-		}
-		t, err := f.Terms(field)
-		if err != nil {
-			return nil, fmt.Errorf("MappedMultiFields.Terms(%s) sub %d: %w", field, i, err)
-		}
-		if t == nil {
-			continue
-		}
-		readerIdx := i
-		if readerIdx < len(m.mergeState.DocMaps) {
-			// Use the MergeState's actual doc-ID range for this sub-reader.
-			subs = append(subs, t)
-			slices = append(slices, ReaderSlice{ReaderIndex: readerIdx})
-		} else {
-			subs = append(subs, t)
-			slices = append(slices, ReaderSlice{ReaderIndex: readerIdx})
-		}
+	t, err := m.multi.Terms(field)
+	if err != nil {
+		return nil, fmt.Errorf("MappedMultiFields.Terms(%s): %w", field, err)
 	}
-	if len(subs) == 0 {
+	if t == nil {
 		return nil, nil
 	}
-	mt, err := NewMultiTerms(subs, slices)
-	if err != nil {
-		return nil, fmt.Errorf("MappedMultiFields.Terms(%s): build MultiTerms: %w", field, err)
+	// Java casts unconditionally: MultiFields.terms always produces a MultiTerms.
+	mt, ok := t.(*MultiTerms)
+	if !ok {
+		return nil, fmt.Errorf("MappedMultiFields.Terms(%s): expected *MultiTerms, got %T", field, t)
 	}
 	return &mappedMultiTerms{
 		field:      field,
@@ -98,9 +88,11 @@ type mappedMultiTerms struct {
 	delegate   *MultiTerms
 }
 
-// GetIterator returns a MappedMultiTermsEnum positioned before the first term.
+func (t *mappedMultiTerms) Field() string { return t.field }
+
+// Iterator returns a MappedMultiTermsEnum positioned before the first term.
 // If MultiTerms.Iterator() is not yet implemented it propagates the error.
-func (t *mappedMultiTerms) GetIterator() (TermsEnum, error) {
+func (t *mappedMultiTerms) Iterator() (TermsEnum, error) {
 	it, err := t.delegate.Iterator()
 	if err != nil {
 		return nil, err
@@ -122,7 +114,7 @@ func (t *mappedMultiTerms) GetIterator() (TermsEnum, error) {
 
 // GetIteratorWithSeek positions the enum at the given term and wraps the result.
 func (t *mappedMultiTerms) GetIteratorWithSeek(seek *Term) (TermsEnum, error) {
-	it, err := t.GetIterator()
+	it, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -135,8 +127,29 @@ func (t *mappedMultiTerms) GetIteratorWithSeek(seek *Term) (TermsEnum, error) {
 	return it, nil
 }
 
+// Intersect runs the Terms.intersect base implementation that
+// MappedMultiFields.MappedMultiTerms inherits from FilterTerms: an
+// AutomatonTermsEnum over this Terms' own (mapped) iterator, restricted to
+// NORMAL automata. A non-nil startTerm is honoured through
+// FilteredTermsEnum.setInitialSeekTerm, which is where Lucene's anonymous
+// nextSeekTerm override routes it.
+func (t *mappedMultiTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *Term) (TermsEnum, error) {
+	it, err := t.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	if compiled == nil || compiled.Type != automaton.AutomatonTypeNormal {
+		return nil, fmt.Errorf("mappedMultiTerms.Intersect: please use CompiledAutomaton.GetTermsEnum instead")
+	}
+	enum := NewAutomatonTermsEnum(it, compiled)
+	if startTerm != nil {
+		enum.SetInitialSeekTerm(startTerm)
+	}
+	return enum, nil
+}
+
 // GetPostingsReader is not supported on mapped multi-terms (UnsupportedOperationException
-// in Lucene). Callers must iterate via GetIterator().
+// in Lucene). Callers must iterate via Iterator().
 func (t *mappedMultiTerms) GetPostingsReader(termText string, flags int) (PostingsEnum, error) {
 	return nil, fmt.Errorf("mappedMultiTerms.GetPostingsReader: unsupported operation")
 }
@@ -182,14 +195,26 @@ func (t *mappedMultiTerms) GetMax() (*Term, error) { return nil, nil }
 // through MappingMultiPostingsEnum for merge-time docID translation. Mirrors
 // MappedMultiFields.MappedMultiTermsEnum (private static class in Lucene).
 type mappedMultiTermsEnum struct {
-	field      string
-	mergeState *MergeState
-	delegate   *MultiTermsEnum
-
-	// cachedMappingEnum is reused across Postings calls for the same field to
-	// avoid re-allocation of the per-sub MappingPostingsSubs. Mirrors Lucene's
-	// reuse pattern via the PostingsEnum argument.
+	field             string
+	mergeState        *MergeState
+	delegate          spi.TermsEnum
 	cachedMappingEnum *MappingMultiPostingsEnum
+}
+
+// Attributes returns the related attributes, reproducing
+// org.apache.lucene.index.FilterLeafReader.FilterTermsEnum#attributes() in
+// Apache Lucene 10.5.0 — {@code return in.attributes();} — so the
+// AttributeSource is shared with the wrapped enumerator.
+func (te *mappedMultiTermsEnum) Attributes() *util.AttributeSource {
+	return te.delegate.Attributes()
+}
+
+func (te *mappedMultiTermsEnum) Ord() int64 {
+	return -1
+}
+
+func (te *mappedMultiTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, nil
 }
 
 // Next advances to the next term. Delegates to the underlying MultiTermsEnum.

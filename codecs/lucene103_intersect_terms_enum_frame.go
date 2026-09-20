@@ -157,6 +157,12 @@ type IntersectTermsEnumFrame struct {
 	// (backlog #2692) will populate it via PostingsReaderBase.
 	TermState *BlockTermState
 
+	// TermStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, narrowed back by a type assertion inside the codec. TermState
+	// is the BlockTermState view of that very object.
+	TermStateRef index.TermState
+
 	// Bytes / BytesReader hold the per-term postings metadata blob that
 	// PostingsReaderBase.DecodeTerm consumes during DecodeMetaData.
 	Bytes       []byte
@@ -208,10 +214,11 @@ func NewIntersectTermsEnumFrame(ite *Lucene103IntersectTermsEnum, ord int) (*Int
 	// 56 ships a stub Intersect path; see backlog #2692), fall back to a
 	// vanilla BlockTermState so the frame is still safe to construct.
 	if ite.fr != nil && ite.fr.parent != nil && ite.fr.parent.postingsReader != nil {
-		f.TermState = ite.fr.parent.postingsReader.NewTermState()
+		f.TermStateRef = ite.fr.parent.postingsReader.NewTermState()
 	} else {
-		f.TermState = NewBlockTermState()
+		f.TermStateRef = NewBlockTermState()
 	}
+	f.TermState = BaseState(f.TermStateRef)
 	f.TermState.TotalTermFreq = -1
 	return f, nil
 }
@@ -229,11 +236,9 @@ func (f *IntersectTermsEnumFrame) LoadNextFloorBlock() error {
 	if f.FloorDataReader == nil {
 		return errors.New("IntersectTermsEnumFrame.LoadNextFloorBlock: floorDataReader is nil")
 	}
-	if err := f.FloorDataReader.SetPosition(f.FloorDataPos); err != nil {
-		return fmt.Errorf("IntersectTermsEnumFrame.LoadNextFloorBlock: seek floor data: %w", err)
-	}
+	f.FloorDataReader.SetPosition(f.FloorDataPos)
 	for {
-		delta, err := store.ReadVLong(f.FloorDataReader)
+		delta, err := f.FloorDataReader.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("IntersectTermsEnumFrame.LoadNextFloorBlock: read sub-block delta: %w", err)
 		}
@@ -335,7 +340,7 @@ func (f *IntersectTermsEnumFrame) Load(node *TrieNode) error {
 				return fmt.Errorf("IntersectTermsEnumFrame.Load: transitionIndex=%d", f.TransitionIndex)
 			}
 			for f.NumFollowFloorBlocks != 0 && f.NextFloorLabel <= f.Transition.Min {
-				delta, err := store.ReadVLong(reader)
+				delta, err := reader.ReadVLong()
 				if err != nil {
 					return fmt.Errorf("IntersectTermsEnumFrame.Load: read sub-block delta: %w", err)
 				}
@@ -369,7 +374,7 @@ func (f *IntersectTermsEnumFrame) Load(node *TrieNode) error {
 	f.IsLastInFloor = (code & 1) != 0
 
 	// Term suffixes: a VLong header packs (numSuffixBytes << 3) | (isLeaf << 2) | compressionAlgCode.
-	codeL, err := store.ReadVLong(f.ite.in)
+	codeL, err := f.ite.in.ReadVLong()
 	if err != nil {
 		return fmt.Errorf("IntersectTermsEnumFrame.Load: read suffix code: %w", err)
 	}
@@ -417,7 +422,7 @@ func (f *IntersectTermsEnumFrame) Load(node *TrieNode) error {
 			buf[i] = b
 		}
 	} else {
-		if err := f.ite.in.ReadBytes(f.SuffixLengthBytes[:numLenBytes]); err != nil {
+		if err := f.ite.in.ReadBytes(f.SuffixLengthBytes[:numLenBytes], 0, len(f.SuffixLengthBytes[:numLenBytes])); err != nil {
 			return fmt.Errorf("IntersectTermsEnumFrame.Load: read suffix lengths: %w", err)
 		}
 	}
@@ -431,7 +436,7 @@ func (f *IntersectTermsEnumFrame) Load(node *TrieNode) error {
 	if cap(f.StatBytes) < int(numBytes) {
 		f.StatBytes = make([]byte, util.Oversize(int(numBytes), 1))
 	}
-	if err := f.ite.in.ReadBytes(f.StatBytes[:numBytes]); err != nil {
+	if err := f.ite.in.ReadBytes(f.StatBytes[:numBytes], 0, len(f.StatBytes[:numBytes])); err != nil {
 		return fmt.Errorf("IntersectTermsEnumFrame.Load: read stats: %w", err)
 	}
 	f.StatsReader.ResetWithSlice(f.StatBytes, 0, int(numBytes))
@@ -451,7 +456,7 @@ func (f *IntersectTermsEnumFrame) Load(node *TrieNode) error {
 	if cap(f.Bytes) < int(numBytes) {
 		f.Bytes = make([]byte, util.Oversize(int(numBytes), 1))
 	}
-	if err := f.ite.in.ReadBytes(f.Bytes[:numBytes]); err != nil {
+	if err := f.ite.in.ReadBytes(f.Bytes[:numBytes], 0, len(f.Bytes[:numBytes])); err != nil {
 		return fmt.Errorf("IntersectTermsEnumFrame.Load: read metadata: %w", err)
 	}
 	f.BytesReader.ResetWithSlice(f.Bytes, 0, int(numBytes))
@@ -492,9 +497,7 @@ func (f *IntersectTermsEnumFrame) NextLeaf() error {
 	}
 	f.Suffix = int(suffix)
 	f.StartBytePos = f.SuffixesReader.GetPosition()
-	if err := f.SuffixesReader.SetPosition(f.StartBytePos + f.Suffix); err != nil {
-		return fmt.Errorf("IntersectTermsEnumFrame.NextLeaf: skip suffix bytes: %w", err)
-	}
+	f.SuffixesReader.SetPosition(f.StartBytePos + f.Suffix)
 	return nil
 }
 
@@ -516,9 +519,7 @@ func (f *IntersectTermsEnumFrame) NextNonLeaf() (bool, error) {
 	}
 	f.Suffix = int(uint32(code) >> 1)
 	f.StartBytePos = f.SuffixesReader.GetPosition()
-	if err := f.SuffixesReader.SetPosition(f.StartBytePos + f.Suffix); err != nil {
-		return false, fmt.Errorf("IntersectTermsEnumFrame.NextNonLeaf: skip suffix bytes: %w", err)
-	}
+	f.SuffixesReader.SetPosition(f.StartBytePos + f.Suffix)
 	if code&1 == 0 {
 		// A normal term.
 		if f.TermState != nil {

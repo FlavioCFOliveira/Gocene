@@ -5,338 +5,448 @@
 package index
 
 import (
+	"bytes"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// StandardDirectoryReader is the standard implementation of DirectoryReader.
+// StandardDirectoryReader is the default implementation of DirectoryReader.
 // This is the Go port of Lucene's org.apache.lucene.index.StandardDirectoryReader.
-//
-// StandardDirectoryReader provides a complete implementation for reading indexes
-// from a Directory, managing multiple SegmentReaders and providing a unified
-// view of the index.
 type StandardDirectoryReader struct {
-	*BaseCompositeReader
+	*DirectoryReader
 
-	// directory is the source directory
-	directory store.Directory
+	// writer is the IndexWriter that opened this reader (if any).
+	writer *IndexWriter
 
-	// segmentInfos contains information about all segments
+	// segmentInfos contains information about all segments in this reader.
 	segmentInfos *SegmentInfos
 
-	// readers holds readers for each segment
-	readers []*SegmentReader
+	// applyAllDeletes controls whether all buffered deletes are applied.
+	applyAllDeletes bool
 
-	// lastCommittedInfos holds the last committed segment infos
-	lastCommittedInfos *SegmentInfos
-
-	// isCurrent indicates if this reader is up to date
-	isCurrent bool
-
-	// mu protects mutable fields
-	mu sync.RWMutex
-
-	// readerContext is the context for this reader
-	readerContext IndexReaderContext
+	// writeAllDeletes controls whether all buffered deletes are written to disk.
+	writeAllDeletes bool
 }
 
-// NewStandardDirectoryReader creates a new StandardDirectoryReader.
-func NewStandardDirectoryReader(directory store.Directory, readers []*SegmentReader, segmentInfos *SegmentInfos, lastCommittedInfos *SegmentInfos, isCurrent bool) (*StandardDirectoryReader, error) {
-	if len(readers) == 0 {
-		return nil, fmt.Errorf("readers array must be non-empty")
+// Open opens a StandardDirectoryReader for the given directory.
+// This is the Go equivalent of Lucene's StandardDirectoryReader.open(Directory, IndexCommit, Comparator, ExecutorService).
+func OpenStandardDirectoryReader(directory store.Directory, commit *IndexCommit) (*StandardDirectoryReader, error) {
+	return OpenStandardDirectoryReaderWithMinVersion(directory, 0, commit)
+}
+
+// OpenStandardDirectoryReaderWithMinVersion opens a StandardDirectoryReader for the given directory, ensuring it meets the minimum supported major version.
+func OpenStandardDirectoryReaderWithMinVersion(directory store.Directory, minSupportedMajorVersion int, commit *IndexCommit) (*StandardDirectoryReader, error) {
+	if minSupportedMajorVersion < 0 {
+		return nil, fmt.Errorf("minSupportedMajorVersion must be positive but was: %d", minSupportedMajorVersion)
 	}
 
-	// Convert SegmentReaders to IndexReaderInterface
-	subReaders := make([]IndexReaderInterface, len(readers))
-	for i, reader := range readers {
-		subReaders[i] = reader
+	// In Lucene, this uses SegmentInfos.FindSegmentsFile.
+	// In Gocene, we use ReadCommit or ReadLatestCommit.
+	var segmentFileName string
+	if commit != nil {
+		segmentFileName = commit.GetSegmentsFileName()
+	} else {
+		files, err := directory.ListAll()
+		if err != nil {
+			return nil, fmt.Errorf("failed to list directory: %w", err)
+		}
+		segmentFileName = spi.GetLastCommitSegmentsFileName(files)
 	}
 
-	baseReader, err := NewBaseCompositeReader(subReaders)
+	if segmentFileName == "" {
+		return nil, fmt.Errorf("no segments file found in index")
+	}
+
+	sis, err := spi.ReadCommit(directory, segmentFileName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read segment infos: %w", err)
+	}
+
+	readers, err := createSegmentReaders(sis, nil)
+	if err != nil {
+		// Close already opened readers on error
+		for _, r := range readers {
+			if r != nil {
+				_ = r.Close()
+			}
+		}
+		return nil, err
+	}
+
+	compReader, err := newCompositeReaderFromSegments(readers)
+	if err != nil {
+		for _, r := range readers {
+			if r != nil {
+				_ = r.Close()
+			}
+		}
+		return nil, err
+	}
+
+	return &StandardDirectoryReader{
+		DirectoryReader: &DirectoryReader{
+			CompositeReader: compReader,
+			directory:       directory,
+			segmentInfos:    sis,
+			readers:         readers,
+		},
+		writer:          nil,
+		segmentInfos:    sis,
+		applyAllDeletes: false,
+		writeAllDeletes: false,
+	}, nil
+}
+
+// OpenNRT opens a StandardDirectoryReader used by near-real-time search.
+// This is the Go port of Lucene's StandardDirectoryReader.open(IndexWriter, IOFunction, SegmentInfos, boolean, boolean).
+func OpenNRT(
+	writer *IndexWriter,
+	readerFunction func(*SegmentCommitInfo) (*SegmentReader, error),
+	infos *SegmentInfos,
+	applyAllDeletes bool,
+	writeAllDeletes bool,
+) (*StandardDirectoryReader, error) {
+	numSegments := infos.Size()
+	readers := make([]*SegmentReader, 0, numSegments)
+	dir := writer.GetDirectory()
+
+	segmentInfos := infos.Clone()
+	infosUpto := 0
+
+	for i := 0; i < numSegments; i++ {
+		info := infos.Get(i)
+		reader, err := readerFunction(info)
+		if err != nil {
+			// Close readers on error
+			for _, r := range readers {
+				_ = r.DecRef()
+			}
+			return nil, err
+		}
+
+		if reader.NumDocs() > 0 || writer.GetConfig().GetMergePolicy().KeepFullyDeletedSegment(info) {
+			readers = append(readers, reader)
+			infosUpto++
+		} else {
+			_ = reader.DecRef()
+			segmentInfos.Remove(infosUpto)
+		}
+	}
+
+	// In Lucene, writer.incRefDeleter(segmentInfos) is called here.
+	// We assume the IndexWriter handles this internally or it's implemented in IndexFileDeleter.
+
+	compReader, err := newCompositeReaderFromSegments(readers)
+	if err != nil {
+		for _, r := range readers {
+			_ = r.DecRef()
+		}
+		return nil, err
+	}
+
+	return &StandardDirectoryReader{
+		DirectoryReader: &DirectoryReader{
+			CompositeReader: compReader,
+			directory:       dir,
+			segmentInfos:    segmentInfos,
+			readers:         readers,
+			nrtGen:          writer.GetNRTGeneration(),
+			writer:          writer,
+		},
+		writer:          writer,
+		segmentInfos:    segmentInfos,
+		applyAllDeletes: applyAllDeletes,
+		writeAllDeletes: writeAllDeletes,
+	}, nil
+}
+
+// OpenWithInfos opens a StandardDirectoryReader for the given directory and SegmentInfos.
+func OpenWithInfos(directory store.Directory, infos *SegmentInfos, oldReaders []*SegmentReader) (*StandardDirectoryReader, error) {
+	newReaders, err := createSegmentReaders(infos, oldReaders)
 	if err != nil {
 		return nil, err
 	}
 
-	reader := &StandardDirectoryReader{
-		BaseCompositeReader: baseReader,
-		directory:           directory,
-		segmentInfos:        segmentInfos,
-		readers:             readers,
-		lastCommittedInfos:  lastCommittedInfos,
-		isCurrent:           isCurrent,
+	compReader, err := newCompositeReaderFromSegments(newReaders)
+	if err != nil {
+		for _, r := range newReaders {
+			if r != nil {
+				_ = r.Close()
+			}
+		}
+		return nil, err
+	}
+
+	return &StandardDirectoryReader{
+		DirectoryReader: &DirectoryReader{
+			CompositeReader: compReader,
+			directory:       directory,
+			segmentInfos:    infos,
+			readers:         newReaders,
+		},
+		writer:          nil,
+		segmentInfos:    infos,
+		applyAllDeletes: false,
+		writeAllDeletes: false,
+	}, nil
+}
+
+// createSegmentReaders creates segment readers, preferring to reuse existing ones.
+func createSegmentReaders(sis *SegmentInfos, oldReaders []*SegmentReader) ([]*SegmentReader, error) {
+	previousSegmentReaders := mapPreviousReaders(oldReaders)
+	readers := make([]*SegmentReader, sis.Size())
+
+	// Go implementation: process segments in parallel using goroutines.
+	var wg sync.WaitGroup
+	errs := make(chan error, sis.Size())
+
+	for i := 0; i < sis.Size(); i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			commitInfo := sis.Get(idx)
+			oldReader := getOldSegmentReader(oldReaders, previousSegmentReaders[commitInfo.SegmentInfo().Name()], commitInfo)
+			reader, err := createOrReuseSegmentReader(commitInfo, oldReader, int(sis.IndexCreatedVersionMajor()))
+			if err != nil {
+				errs <- err
+				return
+			}
+			readers[idx] = reader
+		}(i)
+	}
+
+	wg.Wait()
+	close(errs)
+
+	if err := <-errs; err != nil {
+		// Close all opened readers on error
+		for _, r := range readers {
+			if r != nil {
+				_ = r.DecRef()
+			}
+		}
+		return nil, err
+	}
+
+	return readers, nil
+}
+
+func mapPreviousReaders(oldReaders []*SegmentReader) map[string]int {
+	if oldReaders == nil {
+		return nil
+	}
+	m := make(map[string]int, len(oldReaders))
+	for i, sr := range oldReaders {
+		m[sr.GetSegmentName()] = i
+	}
+	return m
+}
+
+func getOldSegmentReader(oldReaders []*SegmentReader, oldReaderIndex int, commitInfo *SegmentCommitInfo) *SegmentReader {
+	if oldReaders == nil || oldReaderIndex < 0 || oldReaderIndex >= len(oldReaders) {
+		return nil
+	}
+	oldReader := oldReaders[oldReaderIndex]
+
+	// Detect illegal index removal and replacement.
+	if oldReader != nil && !bytes.Equal(commitInfo.SegmentInfo().GetID(), oldReader.GetSegmentInfo().GetID()) {
+		panic(fmt.Sprintf("same segment %s has invalid doc count change; likely you are re-opening a reader after illegally removing index files yourself", commitInfo.SegmentInfo().Name()))
+	}
+	return oldReader
+}
+
+func createOrReuseSegmentReader(commitInfo *SegmentCommitInfo, oldReader *SegmentReader, indexCreatedVersionMajor int) (*SegmentReader, error) {
+	var newReader *SegmentReader
+
+	// Condition for creating a brand new reader.
+	if oldReader == nil || commitInfo.SegmentInfo().IsCompoundFile() != oldReader.GetSegmentInfo().IsCompoundFile() {
+		newReader = NewSegmentReader(commitInfo)
+	} else {
+		if oldReader.IsNRT() {
+			// NRT reader: must load liveDocs/DV updates from disk.
+			liveDocs, err := commitLiveDocs(commitInfo.SegmentInfo().Directory(), commitInfo)
+			if err != nil {
+				return nil, err
+			}
+			newReader = NewSegmentReaderClone(commitInfo, oldReader, liveDocs, liveDocs, commitInfo.SegmentInfo().MaxDoc()-commitInfo.DelCount(), false)
+		} else {
+			oldInfo := oldReader.GetSegmentCommitInfo()
+			if oldInfo.DelGen() == commitInfo.DelGen() && oldInfo.FieldInfosGen() == commitInfo.FieldInfosGen() {
+				// No change; reuse the reader.
+				_ = oldReader.IncRef()
+				newReader = oldReader
+			} else {
+				if oldInfo.DelGen() == commitInfo.DelGen() {
+					// Only DV updates.
+					newReader = NewSegmentReaderClone(commitInfo, oldReader, oldReader.GetLiveDocs(), oldReader.GetHardLiveDocs(), oldReader.NumDocs(), false)
+				} else {
+					// Both DV and liveDocs changed.
+					liveDocs, err := commitLiveDocs(commitInfo.SegmentInfo().Directory(), commitInfo)
+					if err != nil {
+						return nil, err
+					}
+					newReader = NewSegmentReaderClone(commitInfo, oldReader, liveDocs, liveDocs, commitInfo.SegmentInfo().MaxDoc()-commitInfo.DelCount(), false)
+				}
+			}
+		}
+	}
+	return newReader, nil
+}
+
+// doOpenIfChanged implements the reopen logic from Lucene.
+func (r *StandardDirectoryReader) doOpenIfChanged(commit *IndexCommit, executor interface{}) (*StandardDirectoryReader, error) {
+	if err := r.EnsureOpen(); err != nil {
+		return nil, err
+	}
+
+	if r.writer != nil {
+		return r.doOpenFromWriter(commit, executor)
+	}
+	return r.doOpenNoWriter(commit, executor)
+}
+
+func (r *StandardDirectoryReader) doOpenFromWriter(commit *IndexCommit, executor interface{}) (*StandardDirectoryReader, error) {
+	if commit != nil {
+		return r.doOpenFromCommit(commit, executor)
+	}
+
+	if r.writer.NrtIsCurrent(r.segmentInfos) {
+		return nil, nil
+	}
+
+	reader, err := r.writer.GetReader(r.applyAllDeletes, r.writeAllDeletes)
+	if err != nil {
+		return nil, err
+	}
+
+	if reader.GetVersion() == r.segmentInfos.Version() {
+		_ = reader.DecRef()
+		return nil, nil
 	}
 
 	return reader, nil
 }
 
-// Open opens a StandardDirectoryReader for the given directory.
-func OpenStandardDirectoryReader(directory store.Directory) (*StandardDirectoryReader, error) {
-	// Read segment infos
-	segmentInfos, err := ReadSegmentInfos(directory)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read segment infos: %w", err)
-	}
-
-	return OpenStandardDirectoryReaderWithInfos(directory, segmentInfos)
-}
-
-// Open opens a StandardDirectoryReader with NRT support.
-// This is called by IndexWriter.GetReader() to create a reader over flushed segments.
-// The readerFactory is used to obtain pooled SegmentReaders with applied deletes.
-func Open(
-	iw *IndexWriter,
-	readerFactory func(*SegmentCommitInfo) (*ReadersAndUpdates, error),
-	segmentInfos *SegmentInfos,
-	applyAllDeletes bool,
-	writeAllDeletes bool,
-) (*StandardDirectoryReader, error) {
-	readers := make([]*SegmentReader, 0, segmentInfos.Size())
-	for i := 0; i < segmentInfos.Size(); i++ {
-		segmentCommitInfo := segmentInfos.Get(i)
-		var segmentReader *SegmentReader
-		var err error
-		if applyAllDeletes {
-			rau, err := readerFactory(segmentCommitInfo)
-			if err != nil {
-				for _, opened := range readers {
-					opened.Close()
-				}
-				return nil, fmt.Errorf("failed to get reader factory for %s: %w", segmentCommitInfo.SegmentInfo().Name(), err)
-			}
-			segmentReader, err = rau.GetReadOnlyClone()
-			if err != nil {
-				for _, opened := range readers {
-					opened.Close()
-				}
-				return nil, fmt.Errorf("failed to get read-only clone for %s: %w", segmentCommitInfo.SegmentInfo().Name(), err)
-			}
-		} else {
-			segmentReader, err = openSegmentReader(iw.dir, segmentCommitInfo)
-			if err != nil {
-				for _, opened := range readers {
-					opened.Close()
-				}
-				return nil, fmt.Errorf("opening segment reader for %s: %w", segmentCommitInfo.SegmentInfo().Name(), err)
-			}
+func (r *StandardDirectoryReader) doOpenNoWriter(commit *IndexCommit, executor interface{}) (*StandardDirectoryReader, error) {
+	if commit == nil {
+		if r.IsCurrentInternal() {
+			return nil, nil
 		}
-		readers = append(readers, segmentReader)
+	} else {
+		if r.directory != commit.GetDirectory() {
+			return nil, fmt.Errorf("the specified commit does not match the specified Directory")
+		}
+		if r.segmentInfos != nil && commit.GetSegmentsFileName() == r.segmentInfos.GetFileName() {
+			return nil, nil
+		}
 	}
 
-	return NewStandardDirectoryReader(iw.dir, readers, segmentInfos, segmentInfos, true)
+	return r.doOpenFromCommit(commit, executor)
 }
 
-// OpenIfChanged reopens the index if there have been changes.
-// Returns the new reader if changed, or the same reader if unchanged.
-func (r *StandardDirectoryReader) OpenIfChanged() (*StandardDirectoryReader, error) {
-	r.mu.RLock()
-	if r.isCurrent {
-		r.mu.RUnlock()
-		return r, nil
-	}
-	r.mu.RUnlock()
+func (r *StandardDirectoryReader) doOpenFromCommit(commit *IndexCommit, executor interface{}) (*StandardDirectoryReader, error) {
+	sis := commit.GetSegmentInfos()
+	return OpenWithInfos(r.directory, sis, r.GetSequentialSubReaders())
+}
 
-	// Check for changes
-	current, err := r.IsCurrent()
+func (r *StandardDirectoryReader) IsCurrentInternal() bool {
+	sis, err := spi.ReadLatestCommit(r.directory)
 	if err != nil {
-		return nil, err
+		return true
 	}
-	if current {
-		return r, nil
-	}
-
-	// Open new reader
-	return OpenStandardDirectoryReader(r.directory)
+	return sis.Version() == r.segmentInfos.Version()
 }
 
-// GetDirectory returns the directory being read.
-func (r *StandardDirectoryReader) GetDirectory() store.Directory {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.directory
+// GetVersion returns the version of the segment infos.
+func (r *StandardDirectoryReader) GetVersion() int64 {
+	return r.segmentInfos.Version()
 }
 
 // GetSegmentInfos returns the SegmentInfos for this reader.
 func (r *StandardDirectoryReader) GetSegmentInfos() *SegmentInfos {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
 	return r.segmentInfos
 }
 
-// GetIndexCommit returns the IndexCommit that this reader is reading from.
-func (r *StandardDirectoryReader) GetIndexCommit() *IndexCommit {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if r.segmentInfos == nil {
-		return nil
-	}
-
-	commit := NewIndexCommit(r.segmentInfos)
-	commit.SetDirectory(r.directory)
-	return commit
-}
-
-// GetSegmentReaders returns the SegmentReaders.
-func (r *StandardDirectoryReader) GetSegmentReaders() []*SegmentReader {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.readers
-}
-
-// IsCurrent returns true if the reader is still up to date with the index.
+// IsCurrent returns true if the reader is still up to date.
 func (r *StandardDirectoryReader) IsCurrent() (bool, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	// Read current segment infos
-	segmentInfos, err := ReadSegmentInfos(r.directory)
-	if err != nil {
+	if err := r.EnsureOpen(); err != nil {
 		return false, err
 	}
-
-	return segmentInfos.Generation() == r.segmentInfos.Generation(), nil
-}
-
-// NumDocs returns the total number of live documents across all segments.
-func (r *StandardDirectoryReader) NumDocs() int {
-	total := 0
-	for _, reader := range r.readers {
-		total += reader.NumDocs()
+	if r.writer == nil {
+		return r.IsCurrentInternal(), nil
 	}
-	return total
+	return r.writer.NrtIsCurrent(r.segmentInfos), nil
 }
 
-// MaxDoc returns the maximum document ID across all segments.
-func (r *StandardDirectoryReader) MaxDoc() int {
-	total := 0
-	for _, reader := range r.readers {
-		total += reader.MaxDoc()
+func (r *StandardDirectoryReader) doClose() error {
+	if r.writer != nil {
+		// In Lucene, this calls writer.decRefDeleter(segmentInfos).
+		// We assume this is handled by the IndexWriter's internal reference counting.
 	}
-	return total
-}
 
-// DocCount returns the total document count across all segments.
-func (r *StandardDirectoryReader) DocCount() int {
-	return r.NumDocs()
-}
-
-// HasDeletions returns true if any segment has deleted documents.
-func (r *StandardDirectoryReader) HasDeletions() bool {
-	for _, reader := range r.readers {
-		if reader.HasDeletions() {
-			return true
-		}
-	}
-	return false
-}
-
-// NumDeletedDocs returns the total number of deleted documents across all segments.
-func (r *StandardDirectoryReader) NumDeletedDocs() int {
-	total := 0
-	for _, reader := range r.readers {
-		total += reader.NumDeletedDocs()
-	}
-	return total
-}
-
-// GetTermVectors returns term vectors for the given document across all segments.
-func (r *StandardDirectoryReader) GetTermVectors(docID int) (Fields, error) {
-	// Find the correct segment for this document ID
-	remainingDocID := docID
-	for _, reader := range r.readers {
-		maxDoc := reader.MaxDoc()
-		if remainingDocID < maxDoc {
-			return reader.GetTermVectors(remainingDocID)
-		}
-		remainingDocID -= maxDoc
-	}
-	return nil, fmt.Errorf("document ID %d out of range", docID)
-}
-
-// Terms returns the Terms for a field, merging across all segments.
-func (r *StandardDirectoryReader) Terms(field string) (Terms, error) {
-	return compositeTermsForField(r.readers, field)
-}
-
-// closeInternal closes the reader and all segment readers.
-func (r *StandardDirectoryReader) closeInternal() error {
 	var lastErr error
 	for _, reader := range r.readers {
-		if err := reader.Close(); err != nil {
+		if err := reader.DecRef(); err != nil {
 			lastErr = err
 		}
 	}
-	r.readers = nil
 	return lastErr
 }
 
-// Close closes the StandardDirectoryReader and all segment readers.
-func (r *StandardDirectoryReader) Close() error {
-	if err := r.closeInternal(); err != nil {
-		return err
+// GetIndexCommit returns the IndexCommit for this reader.
+func (r *StandardDirectoryReader) GetIndexCommit() *IndexCommit {
+	if r.segmentInfos == nil {
+		return nil
 	}
-	return r.BaseCompositeReader.closeInternal()
+	commit := NewIndexCommit(r.segmentInfos)
+	commit.SetDirectory(r.directory)
+	commit.SetReader(r.DirectoryReader)
+	return commit
 }
 
-// GetSequentialSubReaders returns the sub-readers in sequential order.
-func (r *StandardDirectoryReader) GetSequentialSubReaders() []IndexReaderInterface {
-	subReaders := make([]IndexReaderInterface, len(r.readers))
-	for i, reader := range r.readers {
-		subReaders[i] = reader
-	}
-	return subReaders
+// ReaderCommit is a specialized IndexCommit that refers back to a StandardDirectoryReader.
+type ReaderCommit struct {
+	*IndexCommit
+	reader *StandardDirectoryReader
 }
 
-// GetContext returns the reader context for this directory reader.
-func (r *StandardDirectoryReader) GetContext() (IndexReaderContext, error) {
-	if err := r.EnsureOpen(); err != nil {
-		return nil, err
+func NewReaderCommit(reader *StandardDirectoryReader, infos *SegmentInfos, dir store.Directory) *ReaderCommit {
+	commit := NewIndexCommit(infos)
+	commit.SetDirectory(dir)
+	return &ReaderCommit{
+		IndexCommit: commit,
+		reader:      reader,
 	}
-
-	// Build context if not already built
-	if r.readerContext == nil {
-		ctx, err := r.buildContext()
-		if err != nil {
-			return nil, err
-		}
-		r.readerContext = ctx.(IndexReaderContext)
-	}
-
-	return r.readerContext, nil
 }
 
-// buildContext builds the context hierarchy for this reader.
-func (r *StandardDirectoryReader) buildContext() (IndexReaderContext, error) {
-	// Create leaf contexts for each segment
-	leaves := make([]*LeafReaderContext, len(r.readers))
-	docBase := 0
-	for i, segmentReader := range r.readers {
-		leaves[i] = NewLeafReaderContext(segmentReader.LeafReader, nil, i, docBase)
-		docBase += segmentReader.MaxDoc()
-	}
-
-	// Create composite context
-	return NewCompositeReaderContextWithChildren(r, nil, nil, leaves), nil
+func (rc *ReaderCommit) GetReader() *StandardDirectoryReader {
+	return rc.reader
 }
 
-// Leaves returns all leaf reader contexts from all segments.
-func (r *StandardDirectoryReader) Leaves() ([]*LeafReaderContext, error) {
-	ctx, err := r.GetContext()
-	if err != nil {
-		return nil, err
-	}
-	compCtx, ok := ctx.(*CompositeReaderContext)
-	if !ok {
-		return nil, fmt.Errorf("context is not a CompositeReaderContext")
-	}
-	leaves, err := compCtx.Leaves()
-	if err != nil {
-		return nil, err
-	}
-	return leaves, nil
+func (rc *ReaderCommit) Delete() {
+	panic("ReaderCommit does not support deletions")
 }
 
-// Ensure StandardDirectoryReader implements IndexReaderInterface
-var _ IndexReaderInterface = (*StandardDirectoryReader)(nil)
+func (r *StandardDirectoryReader) String() string {
+	var sb strings.Builder
+	sb.WriteString("StandardDirectoryReader(")
+	if r.segmentInfos != nil {
+		sb.WriteString(r.segmentInfos.GetFileName())
+		sb.WriteByte(':')
+		sb.WriteString(strconv.FormatInt(r.segmentInfos.Version(), 10))
+	}
+	if r.writer != nil {
+		sb.WriteString(":nrt")
+	}
+	for _, reader := range r.readers {
+		sb.WriteByte(' ')
+		sb.WriteString(fmt.Sprintf("%v", reader))
+	}
+	sb.WriteByte(')')
+	return sb.String()
+}

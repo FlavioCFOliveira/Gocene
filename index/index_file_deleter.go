@@ -405,13 +405,15 @@ func inflateGens(infos *SegmentInfos, files []string, infoStream util.InfoStream
 // EnsureOpen asserts the underlying writer is still usable, mirroring
 // Lucene's ensureOpen.
 func (d *IndexFileDeleter) EnsureOpen() error {
-	if err := d.writer.ensureOpen(); err != nil {
+	if err := d.writer.ensureOpen(false); err != nil {
 		return err
 	}
-	if perr := d.writer.tragicError.Load(); perr != nil {
+	// Since 'closing' state is allowed, the tragic exception must still be
+	// checked here: the writer could be closing precisely because it hit one.
+	if tragedy, ok := d.writer.tragedy.Load().(error); ok && tragedy != nil {
 		return NewAlreadyClosedException(
 			"refusing to delete any files: this IndexWriter hit an unrecoverable exception",
-			*perr,
+			tragedy,
 		)
 	}
 	return nil
@@ -824,7 +826,9 @@ func readSegmentInfosByFileName(directory store.Directory, fileName string) (*Se
 		return nil, err
 	}
 
-	magic, err := store.ReadInt32(in)
+	// The codec magic is the BIG-endian CODEC_MAGIC of CodecUtil.writeHeader
+	// (CodecUtil.java:83), not a little-endian DataInput.readInt.
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		_ = in.Close()
 		return nil, err
@@ -895,7 +899,10 @@ func readSegmentInfosByFileNameLegacy(in store.IndexInput, directory store.Direc
 		}
 		segInfo := NewSegmentInfo(name, int(docCount), directory)
 		segInfo.SetID(id)
-		sci := NewSegmentCommitInfo(segInfo, 0, -1)
+		// The legacy format carries no deletion or per-generation state, so
+		// the commit info is reconstructed with Lucene's defaults:
+		// delCount=0, softDelCount=0, delGen/fieldInfosGen/docValuesGen=-1.
+		sci := NewSegmentCommitInfo(segInfo, 0, 0, -1, -1, -1, nil)
 		si.Add(sci)
 	}
 	return si, nil

@@ -206,7 +206,7 @@ func TestLucene90TermVectorsFormat_Basic(t *testing.T) {
 		SegmentInfo: si,
 		FieldInfos:  fi,
 	}
-	w, err := format.VectorsWriter(state)
+	w, err := format.VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 	if err != nil {
 		t.Fatalf("VectorsWriter: %v", err)
 	}
@@ -251,9 +251,9 @@ func checkTVField(t *testing.T, r codecs.TermVectorsReader, docID int, fieldName
 	if terms == nil {
 		t.Fatalf("Get(%d).Terms(%q): nil", docID, fieldName)
 	}
-	iter, err := terms.GetIterator()
+	iter, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	var got []string
 	for {
@@ -296,7 +296,7 @@ func TestLucene90TermVectorsFormat_Positions(t *testing.T) {
 		tvFieldOpt("body", true, false, false),
 	)
 	state := &codecs.SegmentWriteState{Directory: dir, SegmentInfo: si, FieldInfos: fi}
-	w, err := format.VectorsWriter(state)
+	w, err := format.VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 	if err != nil {
 		t.Fatalf("VectorsWriter: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestLucene90TermVectorsFormat_Offsets(t *testing.T) {
 	format := codecs.NewLucene104TermVectorsFormat()
 	si, fi := newTVSegment(dir, "_0", 1, tvFieldOpt("text", false, true, false))
 	state := &codecs.SegmentWriteState{Directory: dir, SegmentInfo: si, FieldInfos: fi}
-	w, err := format.VectorsWriter(state)
+	w, err := format.VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 	if err != nil {
 		t.Fatalf("VectorsWriter: %v", err)
 	}
@@ -421,7 +421,7 @@ func TestLucene90TermVectorsFormat_Payloads(t *testing.T) {
 	format := codecs.NewLucene104TermVectorsFormat()
 	si, fi := newTVSegment(dir, "_0", 1, tvFieldOpt("pay", true, false, true))
 	state := &codecs.SegmentWriteState{Directory: dir, SegmentInfo: si, FieldInfos: fi}
-	w, err := format.VectorsWriter(state)
+	w, err := format.VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 	if err != nil {
 		t.Fatalf("VectorsWriter: %v", err)
 	}
@@ -495,7 +495,7 @@ func TestLucene90TermVectorsFormat_MixedOptions(t *testing.T) {
 		tvFieldOpt("withall", true, true, true),
 	)
 	state := &codecs.SegmentWriteState{Directory: dir, SegmentInfo: si, FieldInfos: fi}
-	w, err := format.VectorsWriter(state)
+	w, err := format.VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 	if err != nil {
 		t.Fatalf("VectorsWriter: %v", err)
 	}
@@ -536,7 +536,7 @@ func TestLucene90TermVectorsFormat_HighFreqs(t *testing.T) {
 	format := codecs.NewLucene104TermVectorsFormat()
 	si, fi := newTVSegment(dir, "_0", 1, tvFieldOpt("body", true, false, false))
 	state := &codecs.SegmentWriteState{Directory: dir, SegmentInfo: si, FieldInfos: fi}
-	w, err := format.VectorsWriter(state)
+	w, err := format.VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 	if err != nil {
 		t.Fatalf("VectorsWriter: %v", err)
 	}
@@ -617,7 +617,7 @@ func TestLucene90TermVectorsFormat_LotsOfFields(t *testing.T) {
 	}
 	si, fi := newTVSegment(dir, "_0", 1, specs...)
 	state := &codecs.SegmentWriteState{Directory: dir, SegmentInfo: si, FieldInfos: fi}
-	w, err := format.VectorsWriter(state)
+	w, err := format.VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 	if err != nil {
 		t.Fatalf("VectorsWriter: %v", err)
 	}
@@ -661,7 +661,7 @@ func TestLucene90TermVectorsFormat_Merge(t *testing.T) {
 			tvFieldOpt("body", false, false, false),
 		)
 		state := &codecs.SegmentWriteState{Directory: dir, SegmentInfo: si, FieldInfos: fi}
-		w, err := format.VectorsWriter(state)
+		w, err := format.VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 		if err != nil {
 			t.Fatalf("%s VectorsWriter: %v", segName, err)
 		}
@@ -707,7 +707,7 @@ func TestLucene90TermVectorsFormat_Random(t *testing.T) {
 		tvFieldOpt("f1", false, false, false),
 	)
 	state := &codecs.SegmentWriteState{Directory: dir, SegmentInfo: si, FieldInfos: fi}
-	w, err := format.VectorsWriter(state)
+	w, err := format.VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 	if err != nil {
 		t.Fatalf("VectorsWriter: %v", err)
 	}
@@ -758,7 +758,7 @@ func TestLucene90TermVectorsFormat_PostingsEnum(t *testing.T) {
 	format := codecs.NewLucene104TermVectorsFormat()
 	si, fi := newTVSegment(dir, "_0", 1, tvFieldOpt("body", true, false, false))
 	state := &codecs.SegmentWriteState{Directory: dir, SegmentInfo: si, FieldInfos: fi}
-	w, err := format.VectorsWriter(state)
+	w, err := format.VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 	if err != nil {
 		t.Fatalf("VectorsWriter: %v", err)
 	}
@@ -785,9 +785,9 @@ func TestLucene90TermVectorsFormat_PostingsEnum(t *testing.T) {
 	}
 
 	// SeekExact for a known term.
-	iter, err := terms.GetIterator()
+	iter, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	targetTerm := index.NewTerm("body", "hello")
 	found, err := iter.SeekExact(targetTerm)
@@ -825,7 +825,7 @@ func TestLucene90TermVectorsFormat_ByteLevelCompatibility(t *testing.T) {
 		tvFieldOpt("body", true, true, false),
 	)
 	state := &codecs.SegmentWriteState{Directory: dir, SegmentInfo: si, FieldInfos: fi}
-	w, err := format.VectorsWriter(state)
+	w, err := format.VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 	if err != nil {
 		t.Fatalf("VectorsWriter: %v", err)
 	}

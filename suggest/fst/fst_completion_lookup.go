@@ -72,7 +72,7 @@ func (l *FSTCompletionLookup) GetCount() int64 { return l.count }
 //	  writeString(key)
 //	  writeVInt(bucket)
 func (l *FSTCompletionLookup) Store(output store.DataOutput) (bool, error) {
-	if err := store.WriteVLong(output, l.count); err != nil {
+	if err := output.WriteVLong(l.count); err != nil {
 		return false, err
 	}
 	if l.completion == nil || l.count == 0 {
@@ -82,7 +82,7 @@ func (l *FSTCompletionLookup) Store(output store.DataOutput) (bool, error) {
 		if err := output.WriteString(entry.key); err != nil {
 			return false, err
 		}
-		if err := store.WriteVInt(output, int32(entry.bucket)); err != nil {
+		if err := output.WriteVInt(int32(entry.bucket)); err != nil {
 			return false, err
 		}
 	}
@@ -92,7 +92,7 @@ func (l *FSTCompletionLookup) Store(output store.DataOutput) (bool, error) {
 // Load reads a serialised FSTCompletion produced by Store (or Lucene's store()).
 // Returns true on success. Mirrors FSTCompletionLookup.load(DataInput).
 func (l *FSTCompletionLookup) Load(input store.DataInput) (bool, error) {
-	cnt, err := store.ReadVLong(input)
+	cnt, err := input.ReadVLong()
 	if err != nil {
 		return false, err
 	}

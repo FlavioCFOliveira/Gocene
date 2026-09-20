@@ -25,7 +25,7 @@ const DefaultMaxExpansions = 128
 // Mirrors org.apache.lucene.queries.intervals.MultiTermIntervalsSource.
 //
 // Deviations from Java:
-//   - Uses Terms.GetIterator() + CompiledAutomaton.Run([]byte) for term matching
+//   - Uses Terms.Iterator() + CompiledAutomaton.Run([]byte) for term matching
 //     instead of automaton.getTermsEnum(terms), since Gocene's CompiledAutomaton
 //     does not expose a filtered TermsEnum.
 //   - automaton.Visit (QueryVisitor) not delegated; VisitLeaf is used instead.
@@ -50,7 +50,7 @@ func (s *MultiTermIntervalsSource) Intervals(field string, ctx *index.LeafReader
 		return nil, nil
 	}
 	var subIters []IntervalIterator
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +63,7 @@ func (s *MultiTermIntervalsSource) Intervals(field string, ctx *index.LeafReader
 		if t == nil {
 			break
 		}
-		if !s.compiled.Run([]byte(t.Text())) {
+		if !s.compiled.Run(t.BytesValue()) {
 			continue
 		}
 		it, err := termIntervals([]byte(t.Text()), te)
@@ -94,7 +94,7 @@ func (s *MultiTermIntervalsSource) Matches(field string, ctx *index.LeafReaderCo
 	if terms == nil {
 		return nil, nil
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (s *MultiTermIntervalsSource) Matches(field string, ctx *index.LeafReaderCo
 		if t == nil {
 			break
 		}
-		if !s.compiled.Run([]byte(t.Text())) {
+		if !s.compiled.Run(t.BytesValue()) {
 			continue
 		}
 		mi, err := termMatches(te, doc, field)
@@ -123,7 +123,10 @@ func (s *MultiTermIntervalsSource) Matches(field string, ctx *index.LeafReaderCo
 			}
 		}
 	}
-	mi := search.DisjunctionMatchesIterator(subMatches)
+	mi, err := search.MatchesUtils.Disjunction(subMatches)
+	if err != nil {
+		return nil, err
+	}
 	if mi == nil {
 		return nil, nil
 	}
@@ -135,11 +138,11 @@ type multiTermMatchesIterator struct {
 	inner search.MatchesIterator
 }
 
-func (m *multiTermMatchesIterator) Gaps() int  { return 0 }
-func (m *multiTermMatchesIterator) Width() int { return 1 }
-func (m *multiTermMatchesIterator) Next() (bool, error) { return m.inner.Next() }
-func (m *multiTermMatchesIterator) StartPosition() int  { return m.inner.StartPosition() }
-func (m *multiTermMatchesIterator) EndPosition() int    { return m.inner.EndPosition() }
+func (m *multiTermMatchesIterator) Gaps() int                 { return 0 }
+func (m *multiTermMatchesIterator) Width() int                { return 1 }
+func (m *multiTermMatchesIterator) Next() (bool, error)       { return m.inner.Next() }
+func (m *multiTermMatchesIterator) StartPosition() int        { return m.inner.StartPosition() }
+func (m *multiTermMatchesIterator) EndPosition() int          { return m.inner.EndPosition() }
 func (m *multiTermMatchesIterator) StartOffset() (int, error) { return m.inner.StartOffset() }
 func (m *multiTermMatchesIterator) EndOffset() (int, error)   { return m.inner.EndOffset() }
 func (m *multiTermMatchesIterator) GetSubMatches() (search.MatchesIterator, error) {

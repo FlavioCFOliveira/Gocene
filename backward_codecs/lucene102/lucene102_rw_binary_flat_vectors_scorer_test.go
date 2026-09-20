@@ -6,16 +6,16 @@ package lucene102
 
 import (
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
 )
 
-// TestLucene102RWBinaryFlatVectorsScorer_Constructor verifies the format
-// constructor fields.
+// TestLucene102RWBinaryFlatVectorsScorer_Constructor verifies the scorer's
+// toString over the default flat vector scorer.
 func TestLucene102RWBinaryFlatVectorsScorer_Constructor(t *testing.T) {
-	s := NewLucene102BinaryFlatVectorsScorer("10.2")
-	if s.Name != "Lucene102BinaryFlatVectorsScorer" {
-		t.Errorf("Name = %q, want %q", s.Name, "Lucene102BinaryFlatVectorsScorer")
-	}
-	if s.Version != "10.2" {
-		t.Errorf("Version = %q, want %q", s.Version, "10.2")
+	s := NewLucene102BinaryFlatVectorsScorer(hnsw.DefaultFlatVectorScorerInstance)
+	want := "Lucene102BinaryFlatVectorsScorer(nonQuantizedDelegate=DefaultFlatVectorScorer())"
+	if got := s.String(); got != want {
+		t.Errorf("String = %q, want %q", got, want)
 	}
 }

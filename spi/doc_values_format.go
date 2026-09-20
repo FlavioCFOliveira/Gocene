@@ -4,7 +4,7 @@
 
 package spi
 
-import "github.com/FlavioCFOliveira/Gocene/schema"
+// No import needed for schema as it is now part of spi
 
 // DocValuesFormat encodes and decodes per-document column-stride values
 // (the .dvd / .dvm pair in the on-disk codec).
@@ -28,31 +28,41 @@ type DocValuesFormat interface {
 	FieldsProducer(state *SegmentReadState) (DocValuesProducer, error)
 }
 
-// DocValuesConsumer is the per-segment write side of the doc-values
-// pipeline. Mirrors org.apache.lucene.codecs.DocValuesConsumer in
-// Apache Lucene 10.4.0.
+// DocValuesConsumer is the abstract API that consumes numeric, binary and
+// sorted doc values. Mirrors the abstract members of
+// org.apache.lucene.codecs.DocValuesConsumer in Apache Lucene 10.5.0.
 //
-// The flush path feeds each Add*Field call with a writer-side
-// iterator over the in-memory accumulator's contents; the consumer
-// serializes the values to the segment's .dvd / .dvm files.
+// The lifecycle is: the consumer is created by
+// DocValuesFormat.FieldsConsumer; AddNumericField, AddBinaryField,
+// AddSortedField, AddSortedSetField or AddSortedNumericField is called for
+// each Numeric, Binary, Sorted, SortedSet or SortedNumeric doc-values field;
+// after all fields are added, the consumer is closed. The API is a "pull"
+// rather than a "push": every Add*Field receives a DocValuesProducer and the
+// implementation is free to obtain the values from it more than once.
+//
+// The concrete members of the Java abstract class (merge, mergeNumericField,
+// mergeBinaryField, mergeSortedField, mergeSortedSetField,
+// mergeSortedNumericField and their helpers) take a MergeState, which lives
+// in package index; they are carried by codecs.BaseDocValuesConsumer, which
+// every concrete consumer embeds.
 type DocValuesConsumer interface {
-	// AddNumericField persists a numeric doc-values field.
-	AddNumericField(field *schema.FieldInfo, values NumericDocValuesIterator) error
+	// AddNumericField writes numeric doc values for a field.
+	AddNumericField(field *FieldInfo, valuesProducer DocValuesProducer) error
 
-	// AddBinaryField persists a binary doc-values field.
-	AddBinaryField(field *schema.FieldInfo, values BinaryDocValuesIterator) error
+	// AddBinaryField writes binary doc values for a field.
+	AddBinaryField(field *FieldInfo, valuesProducer DocValuesProducer) error
 
-	// AddSortedField persists a sorted doc-values field.
-	AddSortedField(field *schema.FieldInfo, values SortedDocValuesIterator) error
+	// AddSortedField writes pre-sorted binary doc values for a field.
+	AddSortedField(field *FieldInfo, valuesProducer DocValuesProducer) error
 
-	// AddSortedSetField persists a sorted-set doc-values field.
-	AddSortedSetField(field *schema.FieldInfo, values SortedSetDocValuesIterator) error
+	// AddSortedNumericField writes pre-sorted numeric doc values for a
+	// field.
+	AddSortedNumericField(field *FieldInfo, valuesProducer DocValuesProducer) error
 
-	// AddSortedNumericField persists a sorted-numeric doc-values field.
-	AddSortedNumericField(field *schema.FieldInfo, values SortedNumericDocValuesIterator) error
+	// AddSortedSetField writes pre-sorted set doc values for a field.
+	AddSortedSetField(field *FieldInfo, valuesProducer DocValuesProducer) error
 
-	// Close flushes any pending bytes and releases the consumer's
-	// resources.
+	// Close releases the consumer's resources (Closeable.close()).
 	Close() error
 }
 
@@ -67,34 +77,43 @@ type DocValuesConsumer interface {
 type DocValuesProducer interface {
 	// GetNumeric returns a NumericDocValues iterator for the given
 	// field, or nil when the field has no numeric values.
-	GetNumeric(field *schema.FieldInfo) (NumericDocValues, error)
+	GetNumeric(field *FieldInfo) (NumericDocValues, error)
 
 	// GetBinary returns a BinaryDocValues iterator for the given
 	// field, or nil when the field has no binary values.
-	GetBinary(field *schema.FieldInfo) (BinaryDocValues, error)
+	GetBinary(field *FieldInfo) (BinaryDocValues, error)
 
 	// GetSorted returns a SortedDocValues iterator for the given
 	// field, or nil when the field has no sorted values.
-	GetSorted(field *schema.FieldInfo) (SortedDocValues, error)
+	GetSorted(field *FieldInfo) (SortedDocValues, error)
 
 	// GetSortedSet returns a SortedSetDocValues iterator for the given
 	// field, or nil when the field has no sorted-set values.
-	GetSortedSet(field *schema.FieldInfo) (SortedSetDocValues, error)
+	GetSortedSet(field *FieldInfo) (SortedSetDocValues, error)
 
 	// GetSortedNumeric returns a SortedNumericDocValues iterator for
 	// the given field, or nil when the field has no sorted-numeric
 	// values.
-	GetSortedNumeric(field *schema.FieldInfo) (SortedNumericDocValues, error)
+	GetSortedNumeric(field *FieldInfo) (SortedNumericDocValues, error)
 
 	// GetSkipper returns the DocValuesSkipper for the given field, or
 	// nil when the codec did not write a skipper companion for that
 	// field. Mirrors the GetSkipper(FieldInfo) addition in Apache
 	// Lucene 10.4.0's DocValuesProducer.
-	GetSkipper(field *schema.FieldInfo) (DocValuesSkipper, error)
+	GetSkipper(field *FieldInfo) (DocValuesSkipper, error)
 
 	// CheckIntegrity walks the per-field data and validates the
 	// checksum framing.
 	CheckIntegrity() error
+
+	// GetMergeInstance returns an instance optimized for merging. This
+	// instance may only be consumed in the thread that called
+	// GetMergeInstance.
+	//
+	// The default implementation returns the receiver itself.
+	//
+	// Mirrors DocValuesProducer.getMergeInstance() of Apache Lucene 10.5.0.
+	GetMergeInstance() DocValuesProducer
 
 	// Close releases the producer's resources.
 	Close() error

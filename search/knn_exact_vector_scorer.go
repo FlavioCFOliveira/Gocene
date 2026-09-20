@@ -19,6 +19,9 @@ package search
 // pre-filter narrows the candidate set below the per-leaf k.
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -44,6 +47,7 @@ type floatExactVectorScorer struct {
 	target  []float32
 	maxDoc  int
 	iter    *vectorValuesIterator
+	vit     spi.DocIndexIterator
 }
 
 // newFloatExactVectorScorer builds a scorer over values for target. maxDoc
@@ -64,30 +68,53 @@ func newFloatExactVectorScorer(
 	return s
 }
 
+// vectorAt returns the vector stored for docID, or nil when that document
+// carries none.
+//
+// PORT NOTE. Lucene 10.5.0 addresses KnnVectorValues by vector ordinal, so the
+// document is resolved through the values' own KnnVectorValues.DocIndexIterator
+// before FloatVectorValues.vectorValue(ord) is read. The iterator only moves
+// forward, so a request for an already-passed document restarts it — the same
+// arrangement index.SegmentReader uses to expose document-addressed vectors.
+func (s *floatExactVectorScorer) vectorAt(docID int) ([]float32, error) {
+	if s.vit == nil || s.vit.DocID() > docID {
+		s.vit = s.values.Iterator()
+	}
+	if s.vit.DocID() < docID {
+		if _, err := s.vit.Advance(docID); err != nil {
+			return nil, err
+		}
+	}
+	if s.vit.DocID() != docID {
+		return nil, nil
+	}
+	return s.values.VectorValue(s.vit.Index())
+}
+
 // hasVector reports whether docID carries a vector in this leaf.
 func (s *floatExactVectorScorer) hasVector(docID int) bool {
-	v, err := s.values.Get(docID)
+	v, err := s.vectorAt(docID)
 	return err == nil && len(v) != 0
 }
 
 // Score returns the similarity between the query target and the vector of the
 // iterator's current document.
 func (s *floatExactVectorScorer) Score() (float32, error) {
-	v, err := s.values.Get(s.iter.DocID())
+	v, err := s.vectorAt(s.iter.DocID())
 	if err != nil {
 		return 0, err
 	}
 	if len(v) == 0 {
 		return 0, nil
 	}
-	return s.simFunc.Compare(s.target, v), nil
+	return s.simFunc.CompareFloat(s.target, v), nil
 }
 
 // Iterator returns the DocIdSetIterator over documents with a vector.
 func (s *floatExactVectorScorer) Iterator() DocIdSetIterator { return s.iter }
 
 // Bulk reports no bulk-scoring support.
-func (s *floatExactVectorScorer) Bulk() VectorScorerBulk { return nil }
+func (s *floatExactVectorScorer) Bulk() Bulk { return nil }
 
 // byteExactVectorScorer is the byte-vector analogue of
 // [floatExactVectorScorer].
@@ -97,6 +124,7 @@ type byteExactVectorScorer struct {
 	target  []byte
 	maxDoc  int
 	iter    *vectorValuesIterator
+	vit     spi.DocIndexIterator
 }
 
 // newByteExactVectorScorer builds a byte scorer over values for target.
@@ -116,16 +144,33 @@ func newByteExactVectorScorer(
 	return s
 }
 
+// vectorAt returns the vector stored for docID, or nil when that document
+// carries none. See the PORT NOTE on [floatExactVectorScorer.vectorAt].
+func (s *byteExactVectorScorer) vectorAt(docID int) ([]byte, error) {
+	if s.vit == nil || s.vit.DocID() > docID {
+		s.vit = s.values.Iterator()
+	}
+	if s.vit.DocID() < docID {
+		if _, err := s.vit.Advance(docID); err != nil {
+			return nil, err
+		}
+	}
+	if s.vit.DocID() != docID {
+		return nil, nil
+	}
+	return s.values.VectorValue(s.vit.Index())
+}
+
 // hasVector reports whether docID carries a vector in this leaf.
 func (s *byteExactVectorScorer) hasVector(docID int) bool {
-	v, err := s.values.Get(docID)
+	v, err := s.vectorAt(docID)
 	return err == nil && len(v) != 0
 }
 
 // Score returns the similarity between the query target and the vector of the
 // iterator's current document.
 func (s *byteExactVectorScorer) Score() (float32, error) {
-	v, err := s.values.Get(s.iter.DocID())
+	v, err := s.vectorAt(s.iter.DocID())
 	if err != nil {
 		return 0, err
 	}
@@ -139,7 +184,7 @@ func (s *byteExactVectorScorer) Score() (float32, error) {
 func (s *byteExactVectorScorer) Iterator() DocIdSetIterator { return s.iter }
 
 // Bulk reports no bulk-scoring support.
-func (s *byteExactVectorScorer) Bulk() VectorScorerBulk { return nil }
+func (s *byteExactVectorScorer) Bulk() Bulk { return nil }
 
 // vectorValuesIterator is a sparse DocIdSetIterator that visits only the
 // documents for which a predicate (has-vector) holds, within [0, maxDoc).
@@ -191,7 +236,7 @@ func (it *vectorValuesIterator) Advance(target int) (int, error) {
 func (it *vectorValuesIterator) Cost() int64 { return int64(it.maxDoc) }
 
 // DocIDRunEnd returns one past the current document (runs are single docs).
-func (it *vectorValuesIterator) DocIDRunEnd() int { return it.doc + 1 }
+func (it *vectorValuesIterator) DocIDRunEnd() (int, error) { return it.doc + 1, nil }
 
 // Compile-time guards.
 var (
@@ -199,3 +244,9 @@ var (
 	_ VectorScorer     = (*byteExactVectorScorer)(nil)
 	_ DocIdSetIterator = (*vectorValuesIterator)(nil)
 )
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (v *vectorValuesIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(v, upTo, bitSet, offset)
+}

@@ -204,28 +204,39 @@ func NewMockStoredFieldVisitor() *MockStoredFieldVisitor {
 	}
 }
 
-func (v *MockStoredFieldVisitor) StringField(field string, value string) {
-	v.fields[field] = value
+// NeedsField accepts every stored field.
+func (v *MockStoredFieldVisitor) NeedsField(*index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	return index.StoredFieldVisitorStatusYes, nil
 }
 
-func (v *MockStoredFieldVisitor) BinaryField(field string, value []byte) {
-	v.fields[field] = value
+func (v *MockStoredFieldVisitor) StringField(fieldInfo *index.FieldInfo, value string) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
 }
 
-func (v *MockStoredFieldVisitor) IntField(field string, value int) {
-	v.fields[field] = value
+func (v *MockStoredFieldVisitor) BinaryField(fieldInfo *index.FieldInfo, value []byte) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
 }
 
-func (v *MockStoredFieldVisitor) LongField(field string, value int64) {
-	v.fields[field] = value
+func (v *MockStoredFieldVisitor) IntField(fieldInfo *index.FieldInfo, value int) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
 }
 
-func (v *MockStoredFieldVisitor) FloatField(field string, value float32) {
-	v.fields[field] = value
+func (v *MockStoredFieldVisitor) LongField(fieldInfo *index.FieldInfo, value int64) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
 }
 
-func (v *MockStoredFieldVisitor) DoubleField(field string, value float64) {
-	v.fields[field] = value
+func (v *MockStoredFieldVisitor) FloatField(fieldInfo *index.FieldInfo, value float32) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
+}
+
+func (v *MockStoredFieldVisitor) DoubleField(fieldInfo *index.FieldInfo, value float64) error {
+	v.fields[fieldInfo.Name()] = value
+	return nil
 }
 
 // TestCompressingStoredFieldsReader_VisitDocument tests reading documents

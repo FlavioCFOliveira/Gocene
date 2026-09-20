@@ -4,12 +4,16 @@
 
 package search
 
-import "fmt"
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
 
-// NGramPhraseQuery wraps a PhraseQuery whose terms come from an n-gram
-// tokenizer, allowing the query to be optimised by dropping intermediate terms
-// at rewrite time when slop is 0, n >= 2, the query has 3+ consecutive terms,
-// and all positions are sequential.
+// NGramPhraseQuery is a PhraseQuery which is optimized for n-gram phrase query.
+// For example, when you query "ABCD" on a 2-gram field, you may want to use
+// NGramPhraseQuery rather than PhraseQuery, because NGramPhraseQuery will
+// rewrite the query to "AB/0 CD/2", while PhraseQuery will query
+// "AB/0 BC/1 CD/2" (where term/position).
 //
 // Mirrors org.apache.lucene.search.NGramPhraseQuery.
 type NGramPhraseQuery struct {
@@ -24,22 +28,50 @@ func NewNGramPhraseQuery(n int, phraseQuery *PhraseQuery) *NGramPhraseQuery {
 	if phraseQuery == nil {
 		panic("NGramPhraseQuery: phraseQuery must not be nil")
 	}
-	return &NGramPhraseQuery{n: n, phraseQuery: phraseQuery}
+	return &NGramPhraseQuery{
+		n:           n,
+		phraseQuery: phraseQuery,
+	}
 }
 
-// N returns the gram size.
-func (q *NGramPhraseQuery) N() int { return q.n }
+// Rewrite rewrites the query to a simpler form.
+func (q *NGramPhraseQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	terms := q.phraseQuery.GetTerms()
+	positions := q.phraseQuery.GetPositions()
 
-// PhraseQuery returns the underlying PhraseQuery.
-func (q *NGramPhraseQuery) PhraseQuery() *PhraseQuery { return q.phraseQuery }
+	isOptimizable := q.phraseQuery.GetSlop() == 0 &&
+		q.n >= 2 && // non-overlap n-gram cannot be optimized
+		len(terms) >= 3 // short ones can't be optimized
 
-// String returns a debug representation.
-func (q *NGramPhraseQuery) String() string {
-	return fmt.Sprintf("NGramPhraseQuery(n=%d, phrase=%v)", q.n, sprintQuery(q.phraseQuery))
+	if isOptimizable {
+		for i := 1; i < len(positions); i++ {
+			if positions[i] != positions[i-1]+1 {
+				isOptimizable = false
+				break
+			}
+		}
+	}
+
+	if !isOptimizable {
+		return q.phraseQuery.Rewrite(searcher)
+	}
+
+	builder := NewPhraseQueryBuilder()
+	for i := 0; i < len(terms); i++ {
+		if i%q.n == 0 || i == len(terms)-1 {
+			builder.AddWithPosition(terms[i], i)
+		}
+	}
+	return builder.Build(), nil
+}
+
+// Visit walks the query tree.
+func (q *NGramPhraseQuery) Visit(visitor QueryVisitor) {
+	q.phraseQuery.Visit(visitor.GetSubVisitor(MUST, q))
 }
 
 // Equals checks structural equality.
-func (q *NGramPhraseQuery) Equals(other Query) bool {
+func (q *NGramPhraseQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*NGramPhraseQuery)
 	if !ok {
 		return false
@@ -49,27 +81,38 @@ func (q *NGramPhraseQuery) Equals(other Query) bool {
 
 // HashCode returns a stable hash.
 func (q *NGramPhraseQuery) HashCode() int {
-	h := 17
-	h = 31*h + q.n
+	h := 1 // Simplified classHash()
 	h = 31*h + q.phraseQuery.HashCode()
+	h = 31*h + q.n
 	return h
 }
 
-// Clone returns an independent copy.
-func (q *NGramPhraseQuery) Clone() Query {
-	clone := *q.phraseQuery
-	return &NGramPhraseQuery{n: q.n, phraseQuery: &clone}
+// N returns the n in n-gram.
+func (q *NGramPhraseQuery) N() int {
+	return q.n
 }
 
-// Rewrite returns the underlying PhraseQuery directly. In Lucene the rewrite
-// also drops every Nth term to compact the n-gram phrase; that optimisation
-// requires position-level access on PhraseQuery and is left to a follow-up
-// task once the necessary accessors are exposed.
-func (q *NGramPhraseQuery) Rewrite(reader IndexReader) (Query, error) {
-	return q.phraseQuery, nil
+// GetTerms returns the list of terms.
+func (q *NGramPhraseQuery) GetTerms() []*index.Term {
+	return q.phraseQuery.GetTerms()
+}
+
+// GetPositions returns the list of relative positions that each term should appear at.
+func (q *NGramPhraseQuery) GetPositions() []int {
+	return q.phraseQuery.GetPositions()
+}
+
+// ToString prints a user-readable version of this query.
+func (q *NGramPhraseQuery) ToString(f string) string {
+	return q.phraseQuery.ToString(f)
+}
+
+// String returns a debug representation.
+func (q *NGramPhraseQuery) String() string {
+	return q.ToString("")
 }
 
 // CreateWeight delegates to the underlying PhraseQuery.
-func (q *NGramPhraseQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return q.phraseQuery.CreateWeight(searcher, needsScores, boost)
+func (q *NGramPhraseQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return q.phraseQuery.CreateWeight(searcher, scoreMode, boost)
 }

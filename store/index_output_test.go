@@ -136,7 +136,7 @@ func TestBaseIndexOutput(t *testing.T) {
 		{
 			name: "new base index output has correct initial state",
 			fn: func(t *testing.T) {
-				out := NewBaseIndexOutput("test.txt")
+				out := spi.NewBaseIndexOutput("test.txt")
 
 				if out.GetName() != "test.txt" {
 					t.Errorf("expected name 'test.txt', got '%s'", out.GetName())
@@ -150,7 +150,7 @@ func TestBaseIndexOutput(t *testing.T) {
 		{
 			name: "set file pointer",
 			fn: func(t *testing.T) {
-				out := NewBaseIndexOutput("test.txt")
+				out := spi.NewBaseIndexOutput("test.txt")
 				out.SetFilePointer(50)
 
 				if out.GetFilePointer() != 50 {
@@ -161,7 +161,7 @@ func TestBaseIndexOutput(t *testing.T) {
 		{
 			name: "increment file pointer",
 			fn: func(t *testing.T) {
-				out := NewBaseIndexOutput("test.txt")
+				out := spi.NewBaseIndexOutput("test.txt")
 				out.IncrementFilePointer(25)
 
 				if out.GetFilePointer() != 25 {

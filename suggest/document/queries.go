@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
@@ -51,12 +50,15 @@ func (q *CompletionQuery) String() string {
 // queries. Mirrors
 // org.apache.lucene.search.suggest.document.CompletionWeight.
 type CompletionWeight struct {
-	Query search.Query
+	// Query renders CompletionWeight.completionQuery
+	// (CompletionWeight.java:41), which Java declares as a CompletionQuery and
+	// not as a plain Query.
+	Query *CompletionQuery
 	Boost float32
 }
 
 // NewCompletionWeight builds the weight.
-func NewCompletionWeight(q search.Query, boost float32) *CompletionWeight {
+func NewCompletionWeight(q *CompletionQuery, boost float32) *CompletionWeight {
 	if boost <= 0 {
 		boost = 1
 	}
@@ -73,8 +75,8 @@ type ContextQuery struct {
 }
 
 type ContextMetaData struct {
-	Boost  float32
-	Exact  bool
+	Boost float32
+	Exact bool
 }
 
 // NewContextQuery builds the query.
@@ -108,33 +110,39 @@ func (q *ContextQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode se
 	ctxAutomaton := q.toContextAutomaton()
 
 	return &ContextCompletionWeight{
-		Query:           q,
-		Automaton:       ctxAutomaton,
-		InnerWeight:     innerWeight,
-		ContextMap:      q.Contexts,
-		ContextLengths:   q.getContextLengths(),
-		CurrentBoost:    0,
-		CurrentContext:  "",
+		Query:          q,
+		Automaton:      ctxAutomaton,
+		InnerWeight:    innerWeight,
+		ContextMap:     q.Contexts,
+		ContextLengths: q.getContextLengths(),
+		CurrentBoost:   0,
+		CurrentContext: "",
 	}, nil
 }
 
+// toContextAutomaton is the port of the private static
+// ContextQuery.toContextAutomaton(Map<IntsRef, ContextMetaData>, boolean) in
+// Apache Lucene 10.5.0. Java reaches the Operations / Automata statics through
+// their class names; in Gocene those statics are plain package-level functions
+// in util/automaton, so they are spelled automaton.Repeat, automaton.MakeChar
+// and so on.
 func (q *ContextQuery) toContextAutomaton() *automaton.Automaton {
+	matchAllAutomaton := automaton.Repeat(automaton.MakeAnyString())
+	sep := automaton.MakeChar(CONTEXT_SEPARATOR)
 	if q.MatchAll || len(q.Contexts) == 0 {
-		return automaton.Operations.Concatenate(
-			automaton.Operations.Repeat(automaton.Automata.MakeAnyString()),
-			automaton.Automata.MakeChar(0x1F), // SEP_LABEL
-		)
+		return automaton.Concatenate([]*automaton.Automaton{matchAllAutomaton, sep})
 	}
 
 	var automataList []*automaton.Automaton
 	for ctx, meta := range q.Contexts {
-		ctxAuto := automaton.Automata.MakeString(ctx)
+		contextAutomaton := []*automaton.Automaton{automaton.MakeString(ctx)}
 		if !meta.Exact {
-			ctxAuto = automaton.Operations.Union(ctxAuto, automaton.Operations.Repeat(automaton.Automata.MakeAnyString()))
+			contextAutomaton = append(contextAutomaton, matchAllAutomaton)
 		}
-		automataList = append(automataList, automaton.Operations.Concatenate(ctxAuto, automaton.Automata.MakeChar(0x1F)))
+		contextAutomaton = append(contextAutomaton, sep)
+		automataList = append(automataList, automaton.Concatenate(contextAutomaton))
 	}
-	return automaton.Operations.Determinize(automaton.Operations.Union(automataList), 1000)
+	return automaton.Union(automataList)
 }
 
 func (q *ContextQuery) getContextLengths() []int {
@@ -158,9 +166,9 @@ type ContextCompletionWeight struct {
 	Automaton      *automaton.Automaton
 	InnerWeight    *CompletionWeight
 	ContextMap     map[string]ContextMetaData
-	ContextLengths  []int
-	CurrentBoost    float32
-	CurrentContext  string
+	ContextLengths []int
+	CurrentBoost   float32
+	CurrentContext string
 }
 
 func (w *ContextCompletionWeight) SetNextMatch(pathPrefix []int) {
@@ -168,7 +176,7 @@ func (w *ContextCompletionWeight) SetNextMatch(pathPrefix []int) {
 		if length > len(pathPrefix) {
 			continue
 		}
-		ctx := string(pathPrefix[:length])
+		ctx := contextKey(pathPrefix[:length])
 		if meta, ok := w.ContextMap[ctx]; ok {
 			w.CurrentBoost = meta.Boost
 			w.CurrentContext = ctx
@@ -177,6 +185,18 @@ func (w *ContextCompletionWeight) SetNextMatch(pathPrefix []int) {
 	}
 	w.CurrentBoost = 0
 	w.CurrentContext = ""
+}
+
+// contextKey renders the IntsRef -> BytesRef -> String conversion Java performs
+// with Util.toBytesRef(IntsRef, BytesRefBuilder).utf8ToString()
+// (ContextQuery.java, ContextCompletionWeight.setInnerWeight): the path ints
+// are FST byte labels, so each one contributes exactly one byte.
+func contextKey(pathPrefix []int) string {
+	b := make([]byte, len(pathPrefix))
+	for i, label := range pathPrefix {
+		b[i] = byte(label)
+	}
+	return string(b)
 }
 
 func (w *ContextCompletionWeight) Boost() float32 {

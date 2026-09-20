@@ -165,6 +165,7 @@ var _ analysis.TokenFilter = (*PhoneticFilter)(nil)
 // to support arbitrary org.apache.commons.codec.Encoder implementations. The
 // Go factory supports only the built-in encoders listed above.
 type PhoneticFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	inject        bool
 	encoderName   string
 	maxCodeLength *int
@@ -173,12 +174,19 @@ type PhoneticFilterFactory struct {
 // NewPhoneticFilterFactory creates a factory for the given encoder name with
 // inject=true and no maxCodeLength restriction.
 func NewPhoneticFilterFactory(encoderName string) *PhoneticFilterFactory {
-	return &PhoneticFilterFactory{inject: true, encoderName: encoderName}
+	return &PhoneticFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		inject:                 true,
+		encoderName:            encoderName,
+	}
 }
 
 // NewPhoneticFilterFactoryWithArgs creates a factory from a string argument map.
 func NewPhoneticFilterFactoryWithArgs(args map[string]string) (*PhoneticFilterFactory, error) {
-	f := &PhoneticFilterFactory{inject: true}
+	f := &PhoneticFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		inject:                 true,
+	}
 	name, ok := args["encoder"]
 	if !ok {
 		return nil, fmt.Errorf("required parameter 'encoder' is missing")

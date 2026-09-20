@@ -108,6 +108,7 @@ var _ TokenFilter = (*ReverseStringFilter)(nil)
 // When marker is noMarker (the default), reversed tokens are emitted
 // without a prefix.
 type ReverseStringFilterFactory struct {
+	BaseTokenFilterFactory
 	marker rune
 }
 

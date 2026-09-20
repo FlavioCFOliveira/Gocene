@@ -16,6 +16,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -115,17 +116,11 @@ func (q *LongDistanceFeatureQuery) PivotDistance() int64 { return q.pivotDistanc
 
 // Rewrite returns this query unchanged; LongDistanceFeatureQuery does
 // not rewrite to a simpler form.
-func (q *LongDistanceFeatureQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
-
-// Clone returns a shallow copy of this query.
-func (q *LongDistanceFeatureQuery) Clone() Query {
-	c := *q
-	return &c
-}
+func (q *LongDistanceFeatureQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // Equals returns true when other is a LongDistanceFeatureQuery with the
 // same field, origin, and pivotDistance.
-func (q *LongDistanceFeatureQuery) Equals(other Query) bool {
+func (q *LongDistanceFeatureQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*LongDistanceFeatureQuery)
 	if !ok || o == nil {
 		return false
@@ -168,7 +163,7 @@ func (q *LongDistanceFeatureQuery) Visit(visitor QueryVisitor) {
 // index.LeafReaderInterface; tests can override it for in-memory
 // fixtures via the package-internal [WithLongDistanceFeatureLeafLookup]
 // helper.
-func (q *LongDistanceFeatureQuery) CreateWeight(searcher *IndexSearcher, _ bool, boost float32) (Weight, error) {
+func (q *LongDistanceFeatureQuery) CreateWeight(searcher *IndexSearcher, _ ScoreMode, boost float32) (Weight, error) {
 	return &longDistanceFeatureWeight{
 		query:      q,
 		boost:      boost,
@@ -300,21 +295,8 @@ type longPointVisitor interface {
 	Visit(docID int) error
 	VisitWithPackedValue(docID int, packedValue []byte) error
 	Grow(count int)
-	Compare(minPackedValue, maxPackedValue []byte) longPointCellRelation
+	Compare(minPackedValue, maxPackedValue []byte) index.Relation
 }
-
-// longPointCellRelation classifies how a BKD cell intersects the query
-// range, mirroring org.apache.lucene.index.PointValues.Relation.
-type longPointCellRelation int
-
-const (
-	// longPointCellOutsideQuery means the cell lies fully outside the query.
-	longPointCellOutsideQuery longPointCellRelation = iota
-	// longPointCellInsideQuery means the cell lies fully inside the query.
-	longPointCellInsideQuery
-	// longPointCellCrossesQuery means the cell partially overlaps the query.
-	longPointCellCrossesQuery
-)
 
 // longDistanceFeatureWeight is the Weight returned by
 // [LongDistanceFeatureQuery.CreateWeight]. It produces a ScorerSupplier
@@ -458,7 +440,9 @@ func (s *longDistanceFeatureScorerSupplier) Cost() int64 {
 }
 
 // SetTopLevelScoringClause is a no-op.
-func (s *longDistanceFeatureScorerSupplier) SetTopLevelScoringClause() {}
+func (s *longDistanceFeatureScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
 
 // Ensure longDistanceFeatureScorerSupplier implements ScorerSupplier.
 var _ ScorerSupplier = (*longDistanceFeatureScorerSupplier)(nil)
@@ -467,6 +451,7 @@ var _ ScorerSupplier = (*longDistanceFeatureScorerSupplier)(nil)
 // dynamically tightens the underlying iterator when setMinCompetitiveScore
 // is called. Mirrors the Java DistanceScorer inner class.
 type longDistanceFeatureScorer struct {
+	BaseScorer
 	weight        *longDistanceFeatureWeight
 	dv            longDocValues
 	pts           longPointSource
@@ -516,22 +501,24 @@ func (s *longDistanceFeatureScorer) DocID() int { return s.doc }
 // Score returns the per-doc score computed from the current value.
 // Mirrors Java's score(): zero when the doc has no value, otherwise
 // boost * pivot / (pivot + unsignedDistance(value, origin)).
-func (s *longDistanceFeatureScorer) Score() float32 {
+func (s *longDistanceFeatureScorer) Score() (float32, error) {
 	ok, err := s.dv.AdvanceExact(s.doc)
 	if err != nil || !ok {
-		return 0
+		return 0, nil
 	}
 	value, err := s.dv.LongValue()
 	if err != nil {
-		return 0
+		return 0, nil
 	}
 	distance := unsignedDistance(value, s.origin)
-	return computeLongDistanceScore(s.boost, s.pivotDistance, distance)
+	return computeLongDistanceScore(s.boost, s.pivotDistance, distance), nil
 }
 
 // GetMaxScore returns boost: the score reaches its maximum when
 // distance is zero, which evaluates to boost * pivot / pivot = boost.
-func (s *longDistanceFeatureScorer) GetMaxScore(_ int) float32 { return s.boost }
+func (s *longDistanceFeatureScorer) GetMaxScore(_ int) (float32, error) {
+	return s.boost, nil
+}
 
 // AdvanceShallow returns NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. Lucene's distance-feature
@@ -545,7 +532,7 @@ func (s *longDistanceFeatureScorer) AdvanceShallow(target int) (int, error) {
 func (s *longDistanceFeatureScorer) Cost() int64 { return s.it.Cost() }
 
 // DocIDRunEnd defers to the underlying iterator.
-func (s *longDistanceFeatureScorer) DocIDRunEnd() int { return s.it.DocIDRunEnd() }
+func (s *longDistanceFeatureScorer) DocIDRunEnd() (int, error) { return s.it.DocIDRunEnd() }
 
 // NextDoc and Advance go through the iterator wrapper so that the
 // scorer always observes the latest skip iterator after
@@ -573,7 +560,7 @@ func (s *longDistanceFeatureScorer) Iterator() DocIdSetIterator {
 // it intersects the point values to materialize a fresh iterator.
 func (s *longDistanceFeatureScorer) SetMinCompetitiveScore(minScore float32) error {
 	if minScore > s.boost {
-		s.it = NewEmptyDocIdSetIterator()
+		s.it = Empty()
 		return nil
 	}
 
@@ -727,7 +714,9 @@ func (w *longDistanceFeatureIteratorWrapper) Advance(target int) (int, error) {
 func (w *longDistanceFeatureIteratorWrapper) Cost() int64 { return w.owner.it.Cost() }
 
 // DocIDRunEnd defers to the wrapped iterator.
-func (w *longDistanceFeatureIteratorWrapper) DocIDRunEnd() int { return w.owner.it.DocIDRunEnd() }
+func (w *longDistanceFeatureIteratorWrapper) DocIDRunEnd() (int, error) {
+	return w.owner.it.DocIDRunEnd()
+}
 
 // Ensure longDistanceFeatureIteratorWrapper implements DocIdSetIterator.
 var _ DocIdSetIterator = (*longDistanceFeatureIteratorWrapper)(nil)
@@ -782,16 +771,16 @@ func (v *longDistancePointVisitor) VisitWithPackedValue(docID int, packedValue [
 
 // Compare classifies how the cell [minPackedValue, maxPackedValue]
 // intersects [min, max]. Mirrors the Java compare(byte[], byte[]).
-func (v *longDistancePointVisitor) Compare(minPackedValue, maxPackedValue []byte) longPointCellRelation {
+func (v *longDistancePointVisitor) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
 	minDocValue := util.SortableBytesToLong(minPackedValue, 0)
 	maxDocValue := util.SortableBytesToLong(maxPackedValue, 0)
 	if minDocValue > v.max || maxDocValue < v.min {
-		return longPointCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	if minDocValue < v.min || maxDocValue > v.max {
-		return longPointCellCrossesQuery
+		return index.CellCrossesQuery
 	}
-	return longPointCellInsideQuery
+	return index.CellInsideQuery
 }
 
 // Ensure longDistancePointVisitor implements longPointVisitor.
@@ -859,8 +848,10 @@ func (a *longDocValuesIteratorAdapter) NextDoc() (int, error) { return a.dv.Next
 func (a *longDocValuesIteratorAdapter) Advance(target int) (int, error) {
 	return a.dv.Advance(target)
 }
-func (a *longDocValuesIteratorAdapter) Cost() int64      { return a.dv.Cost() }
-func (a *longDocValuesIteratorAdapter) DocIDRunEnd() int { return a.dv.DocID() + 1 }
+func (a *longDocValuesIteratorAdapter) Cost() int64 { return a.dv.Cost() }
+func (a *longDocValuesIteratorAdapter) DocIDRunEnd() (int, error) {
+	return a.dv.DocID() + 1, nil
+}
 
 var _ DocIdSetIterator = (*longDocValuesIteratorAdapter)(nil)
 
@@ -881,8 +872,8 @@ func (a *utilDocIdSetIteratorAdapter) NextDoc() (int, error) { return a.inner.Ne
 func (a *utilDocIdSetIteratorAdapter) Advance(target int) (int, error) {
 	return a.inner.Advance(target)
 }
-func (a *utilDocIdSetIteratorAdapter) Cost() int64      { return a.inner.Cost() }
-func (a *utilDocIdSetIteratorAdapter) DocIDRunEnd() int { return a.inner.DocIDRunEnd() }
+func (a *utilDocIdSetIteratorAdapter) Cost() int64               { return a.inner.Cost() }
+func (a *utilDocIdSetIteratorAdapter) DocIDRunEnd() (int, error) { return a.inner.DocIDRunEnd() }
 
 var _ DocIdSetIterator = (*utilDocIdSetIteratorAdapter)(nil)
 
@@ -1016,4 +1007,42 @@ type noopLongPointSource struct{}
 func (noopLongPointSource) Intersect(_ longPointVisitor) error { return nil }
 func (noopLongPointSource) EstimatePointCountGreaterThanOrEqualTo(_ longPointVisitor, _ int64) bool {
 	return false
+}
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (l *longDistanceFeatureScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(l)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (l *longDistanceFeatureIteratorWrapper) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(l, upTo, bitSet, offset)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (l *longDocValuesIteratorAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(l, upTo, bitSet, offset)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (u *utilDocIdSetIteratorAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(u, upTo, bitSet, offset)
+}
+
+// NextDocsAndScores mirrors the concrete body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) in Apache
+// Lucene 10.5.0.
+func (l *longDistanceFeatureScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(l, upTo, liveDocs, buffer)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *longDistanceFeatureScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

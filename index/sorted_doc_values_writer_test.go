@@ -121,7 +121,7 @@ func TestSortedDocValuesWriter_RejectInvalid(t *testing.T) {
 		if err := w.AddValue(0, bref("v")); err != nil {
 			t.Fatal(err)
 		}
-		if err := w.Flush(1, nil, nil); err == nil {
+		if err := w.Flush(flushTestState(1), nil, nil); err == nil {
 			t.Fatal("expected error for nil consumer")
 		}
 	})
@@ -137,7 +137,7 @@ func TestSortedDocValuesWriter_FlushUnsorted(t *testing.T) {
 		}
 	}
 	var got SortedDocValues
-	err := w.Flush(3, nil, func(fi *FieldInfo, v SortedDocValues) error {
+	err := w.flushToCallback(3, nil, func(fi *FieldInfo, v SortedDocValues) error {
 		if fi.Name() != "f" {
 			t.Errorf("consumer field=%q, want %q", fi.Name(), "f")
 		}
@@ -190,7 +190,7 @@ func TestSortedDocValuesWriter_FlushSorted(t *testing.T) {
 		term string
 	}
 	var got []docTerm
-	err := w.Flush(maxDoc, sortMap, func(_ *FieldInfo, v SortedDocValues) error {
+	err := w.flushToCallback(maxDoc, sortMap, func(_ *FieldInfo, v SortedDocValues) error {
 		for {
 			d, err := v.NextDoc()
 			if err != nil {

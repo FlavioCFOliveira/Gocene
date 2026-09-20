@@ -5,56 +5,162 @@
 package uniformsplit
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// BlockReader seeks the block corresponding to a given term, reads the block bytes, and scans the block terms.
-// Mirrors org.apache.lucene.codecs.uniformsplit.BlockReader from Apache Lucene 10.5.0.
+// BlockReader seeks the block corresponding to a given term, reads the block
+// bytes, and scans the block terms.
+//
+// Reads fully the block in blockReadBuffer. Then scans the block terms in
+// memory. The details region is lazily decoded with termStatesReadBuffer which
+// shares the same byte array with blockReadBuffer. See BlockLine for the block
+// format.
+//
+// BlockReaderOverrides is the set of protected BlockReader methods that Apache
+// Lucene 10.5.0 subclasses of BlockReader override and that BlockReader's own
+// bodies then invoke on `this` — BlockReader.next calls nextTerm()
+// (BlockReader.java:347), seekCeil calls isBeyondLastTerm() and nextTerm()
+// (BlockReader.java:161, 169), seekInBlock calls isBeyondLastTerm()
+// (BlockReader.java:181), initializeBlockReadLazily calls
+// createBlockLineSerializer() (BlockReader.java:416), readTermStateIfNotRead
+// calls readTermState() (BlockReader.java:467), and docFreq, totalTermFreq,
+// termState, postings and impacts call readTermStateIfNotRead()
+// (BlockReader.java:515-539).
+//
+// Java resolves those calls virtually. Go embedding does not, so BlockReader
+// keeps a back-pointer to the most-derived instance in [BlockReader.Overrides]
+// and makes the calls through it. This is the mechanism spi.BaseDataInput
+// already uses for the same purpose.
+//
+// Every member is declared `protected` by
+// org.apache.lucene.codecs.uniformsplit.BlockReader, so its exported Go
+// spelling is the rendering of `protected`: reachable by subclasses that live
+// in another package, exactly as
+// org.apache.lucene.codecs.uniformsplit.sharedterms.STBlockReader reaches them.
+type BlockReaderOverrides interface {
+	// CreateBlockLineSerializer mirrors
+	// BlockReader.createBlockLineSerializer (BlockReader.java:429).
+	CreateBlockLineSerializer() *BlockLineSerializer
+
+	// IsBeyondLastTerm mirrors BlockReader.isBeyondLastTerm
+	// (BlockReader.java:199).
+	IsBeyondLastTerm(searchedTerm *util.BytesRef, blockStartFP int64) bool
+
+	// NextTerm mirrors BlockReader.nextTerm (BlockReader.java:356).
+	NextTerm() (*util.BytesRef, error)
+
+	// ReadTermState mirrors BlockReader.readTermState
+	// (BlockReader.java:484).
+	ReadTermState() (index.TermState, error)
+
+	// ReadTermStateIfNotRead mirrors BlockReader.readTermStateIfNotRead
+	// (BlockReader.java:465).
+	ReadTermStateIfNotRead() (index.TermState, error)
+
+	// SeekCeilBytes mirrors the public BlockReader.seekCeil(BytesRef)
+	// (BlockReader.java:153). It is reached virtually because the Gocene
+	// spi.TermsEnum contract is answered by SeekCeil(*spi.Term), which
+	// delegates to it.
+	SeekCeilBytes(searchedTerm *util.BytesRef) (spi.SeekStatus, error)
+
+	// SeekExactBytes mirrors the public BlockReader.seekExact(BytesRef)
+	// (BlockReader.java:173). It is reached virtually because the Gocene
+	// spi.TermsEnum contract is answered by SeekExact(*spi.Term), which
+	// delegates to it.
+	SeekExactBytes(searchedTerm *util.BytesRef) (bool, error)
+}
+
+// Mirrors org.apache.lucene.codecs.uniformsplit.BlockReader from Apache Lucene
+// 10.5.0.
 type BlockReader struct {
-	blockInput store.IndexInput
+	index.BaseTermsEnum
 
-	postingsReader codecs.PostingsReaderBase
-	fieldMetadata  *FieldMetadata
-	blockDecoder   BlockDecoder
+	// Overrides is the back-pointer to the most-derived instance, through
+	// which BlockReader makes the calls Java resolves virtually. See
+	// [BlockReaderOverrides]. NewBlockReader sets it to the BlockReader
+	// itself; a subclass constructor overwrites it with the subclass.
+	Overrides BlockReaderOverrides
 
-	blockHeaderReader *BlockHeaderSerializer
-	blockLineReader   *BlockLineSerializer
+	// blockInput is the IndexInput on the block file.
+	BlockInput store.IndexInput
 
-	blockReadBuffer     *store.ByteArrayDataInput
-	termStatesReadBuffer *store.ByteArrayDataInput
+	PostingsReader codecs.PostingsReaderBase
+	FieldMetadata  *FieldMetadata
+	BlockDecoder   BlockDecoder
 
-	termStateSerializer *DeltaBaseTermStateSerializer
+	BlockHeaderReader *BlockHeaderSerializer
+	BlockLineReader   *BlockLineSerializer
 
-	dictionaryBrowserSupplier IndexDictionaryBrowserSupplier
-	dictionaryBrowser        IndexDictionary
+	// blockReadBuffer is the in-memory read buffer for the current block.
+	BlockReadBuffer *store.ByteArrayDataInput
 
-	blockStartFP int64
-	blockHeader  *BlockHeader
-	blockLine    *BlockLine
-	termState    *codecs.BlockTermState
+	// termStatesReadBuffer is the in-memory read buffer for the details region
+	// of the current block. It shares the same byte array as blockReadBuffer,
+	// with a different position.
+	TermStatesReadBuffer *store.ByteArrayDataInput
 
-	blockFirstLineStart int
-	lineIndexInBlock    int
-	termStateForced     bool
-	forcedTerm          *util.BytesRef
+	TermStateSerializer *DeltaBaseTermStateSerializer
 
-	scratchBlockBytes *util.BytesRef
-	scratchTermState   *codecs.BlockTermState
-	scratchBlockLine    *BlockLine
+	// dictionaryBrowserSupplier is the IndexDictionaryBrowser supplier for lazy
+	// loading.
+	DictionaryBrowserSupplier IndexDictionaryBrowserSupplier
+
+	// dictionaryBrowser holds the IndexDictionaryBrowser once loaded.
+	DictionaryBrowser IndexDictionaryBrowser
+
+	// blockStartFP is the current block start file pointer, absolute in the
+	// block file.
+	BlockStartFP int64
+
+	// blockHeader is the current block header.
+	BlockHeader *BlockHeader
+
+	// blockLine is the current block line.
+	BlockLine *BlockLine
+
+	// termState holds the current block line details.
+	CurrentTermState index.TermState
+
+	// blockFirstLineStart is the offset of the start of the first line of the
+	// current block (just after the header), relative to the block start.
+	BlockFirstLineStart int
+
+	// lineIndexInBlock is the current line index in the block.
+	LineIndexInBlock int32
+
+	// termStateForced tells whether the current TermState has been forced with
+	// a call to SeekExactWithState.
+	TermStateForced bool
+
+	// forcedTerm is set when SeekExactWithState is called.
+	//
+	// This optimizes the use-case when the caller calls first
+	// SeekExactWithState and then Postings. In this case we don't access the
+	// terms block file (we don't seek) but directly the postings file because
+	// we already have the TermState with the file pointers to the postings
+	// file.
+	ForcedTerm *util.BytesRefBuilder
+
+	// Scratch objects to avoid object reallocation.
+	ScratchBlockBytes *util.BytesRef
+	ScratchTermState  index.TermState
+	ScratchBlockLine  *BlockLine
 }
 
-// IndexDictionaryBrowserSupplier provides IndexDictionary.Browser instances.
-type IndexDictionaryBrowserSupplier interface {
-	Get() (IndexDictionary, error)
-}
-
-// NewBlockReader constructs a new BlockReader.
+// NewBlockReader constructs a BlockReader.
+//
+// dictionaryBrowserSupplier loads the IndexDictionaryBrowser lazily in
+// SeekCeil. blockDecoder is an optional block decoder, may be nil if none; it
+// can be used for decompression or decryption.
+//
+// Mirrors the protected BlockReader constructor (BlockReader.java:131).
 func NewBlockReader(
 	dictionaryBrowserSupplier IndexDictionaryBrowserSupplier,
 	blockInput store.IndexInput,
@@ -62,390 +168,684 @@ func NewBlockReader(
 	fieldMetadata *FieldMetadata,
 	blockDecoder BlockDecoder,
 ) (*BlockReader, error) {
-	return &BlockReader{
-		dictionaryBrowserSupplier: dictionaryBrowserSupplier,
-		blockInput:                blockInput,
-		postingsReader:            postingsReader,
-		fieldMetadata:             fieldMetadata,
-		blockDecoder:              blockDecoder,
-		blockStartFP:              -1,
-		scratchTermState:          postingsReader.NewTermState().(*codecs.BlockTermState),
-	}, nil
+	r := &BlockReader{
+		DictionaryBrowserSupplier: dictionaryBrowserSupplier,
+		BlockInput:                blockInput,
+		PostingsReader:            postingsReader,
+		FieldMetadata:             fieldMetadata,
+		BlockDecoder:              blockDecoder,
+		BlockStartFP:              -1,
+		ScratchTermState:          postingsReader.NewTermState(),
+	}
+	r.Overrides = r
+	return r, nil
 }
 
-func (r *BlockReader) seekCeil(searchedTerm *util.BytesRef) (schema.SeekStatus, error) {
-	if r.isCurrentTerm(searchedTerm) {
-		return schema.SeekStatusFound, nil
+// SeekCeilBytes mirrors BlockReader.seekCeil(BytesRef) (BlockReader.java:150).
+func (r *BlockReader) SeekCeilBytes(searchedTerm *util.BytesRef) (spi.SeekStatus, error) {
+	if r.IsCurrentTerm(searchedTerm) {
+		return spi.SeekStatusFound, nil
 	}
-	r.clearTermState()
+	r.ClearTermState()
 
-	browser, err := r.getOrCreateDictionaryBrowser()
+	browser, err := r.GetOrCreateDictionaryBrowser()
 	if err != nil {
-		return schema.SeekStatusNotFound, err
+		return spi.SeekStatusEnd, err
 	}
-	blockStartFP, err := browser.Get(searchedTerm)
+	blockStartFP, err := browser.SeekBlock(searchedTerm)
 	if err != nil {
-		return schema.SeekStatusNotFound, err
+		return spi.SeekStatusEnd, err
 	}
-	if blockStartFP < r.fieldMetadata.firstBlockStartFP {
-		blockStartFP = r.fieldMetadata.firstBlockStartFP
+	blockStartFP = max(blockStartFP, r.FieldMetadata.GetFirstBlockStartFP())
+	if r.Overrides.IsBeyondLastTerm(searchedTerm, blockStartFP) {
+		return spi.SeekStatusEnd, nil
 	}
-
-	if r.isBeyondLastTerm(searchedTerm, blockStartFP) {
-		return schema.SeekStatusEnd, nil
-	}
-
-	seekStatus, err := r.seekInBlock(searchedTerm, blockStartFP)
+	seekStatus, err := r.SeekInBlockAt(searchedTerm, blockStartFP)
 	if err != nil {
-		return schema.SeekStatusNotFound, err
+		return spi.SeekStatusEnd, err
 	}
-	if seekStatus != schema.SeekStatusEnd {
+	if seekStatus != spi.SeekStatusEnd {
 		return seekStatus, nil
 	}
-
 	// Go to next block.
-	if r.nextTerm() == nil {
-		return schema.SeekStatusEnd, nil
+	nextTerm, err := r.Overrides.NextTerm()
+	if err != nil {
+		return spi.SeekStatusEnd, err
 	}
-	return schema.SeekStatusNotFound, nil
+	if nextTerm == nil {
+		return spi.SeekStatusEnd, nil
+	}
+	return spi.SeekStatusNotFound, nil
 }
 
-func (r *BlockReader) seekExact(searchedTerm *util.BytesRef) (bool, error) {
-	if r.isCurrentTerm(searchedTerm) {
+// SeekExactBytes mirrors BlockReader.seekExact(BytesRef) (BlockReader.java:168).
+func (r *BlockReader) SeekExactBytes(searchedTerm *util.BytesRef) (bool, error) {
+	if r.IsCurrentTerm(searchedTerm) {
 		return true, nil
 	}
-	r.clearTermState()
+	r.ClearTermState()
 
-	browser, err := r.getOrCreateDictionaryBrowser()
+	browser, err := r.GetOrCreateDictionaryBrowser()
 	if err != nil {
 		return false, err
 	}
-	blockStartFP, err := browser.Get(searchedTerm)
+	blockStartFP, err := browser.SeekBlock(searchedTerm)
 	if err != nil {
 		return false, err
 	}
-	if blockStartFP < r.fieldMetadata.firstBlockStartFP || r.isBeyondLastTerm(searchedTerm, blockStartFP) {
+	if blockStartFP < r.FieldMetadata.GetFirstBlockStartFP() || r.Overrides.IsBeyondLastTerm(searchedTerm, blockStartFP) {
 		return false, nil
 	}
-
-	seekStatus, err := r.seekInBlock(searchedTerm, blockStartFP)
+	seekStatus, err := r.SeekInBlockAt(searchedTerm, blockStartFP)
 	if err != nil {
 		return false, err
 	}
-	return seekStatus == schema.SeekStatusFound, nil
+	return seekStatus == spi.SeekStatusFound, nil
 }
 
-func (r *BlockReader) isCurrentTerm(searchedTerm *util.BytesRef) bool {
-	if r.blockLine == nil {
-		return false
-	}
-	return util.BytesRefEquals(searchedTerm, r.blockLine.term.GetTerm())
+// IsCurrentTerm mirrors BlockReader.isCurrentTerm (BlockReader.java:182).
+func (r *BlockReader) IsCurrentTerm(searchedTerm *util.BytesRef) bool {
+	// Optimization and also required to not search with the same BytesRef
+	// instance as the BytesRef used to read the block line (BlockLineSerializer).
+	// Indeed term() is allowed to return the same BytesRef instance.
+	return util.BytesRefEquals(searchedTerm, r.TermBytes())
 }
 
-func (r *BlockReader) isBeyondLastTerm(searchedTerm *util.BytesRef, blockStartFP int64) bool {
-	return blockStartFP == r.fieldMetadata.lastBlockStartFP &&
-		util.BytesRefCompare(searchedTerm, r.fieldMetadata.lastTerm) > 0
+// IsBeyondLastTerm indicates whether the searched term is beyond the last term
+// of the field. blockStartFP is the current block start file pointer.
+//
+// Mirrors BlockReader.isBeyondLastTerm (BlockReader.java:193).
+func (r *BlockReader) IsBeyondLastTerm(searchedTerm *util.BytesRef, blockStartFP int64) bool {
+	return blockStartFP == r.FieldMetadata.GetLastBlockStartFP() &&
+		util.BytesRefCompare(searchedTerm, r.FieldMetadata.GetLastTerm()) > 0
 }
 
-func (r *BlockReader) seekInBlock(searchedTerm *util.BytesRef, blockStartFP int64) (schema.SeekStatus, error) {
-	if err := r.initializeHeader(searchedTerm, blockStartFP); err != nil {
-		return schema.SeekStatusNotFound, err
+// SeekInBlockAt seeks to the provided term in the block starting at the
+// provided file pointer. Does not exceed the block.
+//
+// Mirrors the overload BlockReader.seekInBlock(BytesRef, long)
+// (BlockReader.java:202).
+func (r *BlockReader) SeekInBlockAt(searchedTerm *util.BytesRef, blockStartFP int64) (spi.SeekStatus, error) {
+	if err := r.InitializeHeader(searchedTerm, blockStartFP); err != nil {
+		return spi.SeekStatusEnd, err
 	}
-	if r.blockHeader == nil {
-		return schema.SeekStatusEnd, nil
+	if r.BlockHeader == nil {
+		return spi.SeekStatusEnd, r.NewCorruptIndexError("Illegal absence of block", &blockStartFP)
 	}
-	return r.seekInBlockInternal(searchedTerm)
+	return r.SeekInBlock(searchedTerm)
 }
 
-func (r *BlockReader) seekInBlockInternal(searchedTerm *util.BytesRef) (schema.SeekStatus, error) {
-	if r.compareToMiddleAndJump(searchedTerm) == 0 {
-		return schema.SeekStatusFound, nil
+// SeekInBlock seeks to the provided term in this block.
+//
+// Does not exceed this block; SeekStatusEnd is returned if it follows the
+// block.
+//
+// Compares the line terms with searchedTerm, taking advantage of the
+// incremental encoding properties.
+//
+// Scans linearly the terms. Updates the current block line with the current
+// term.
+//
+// Mirrors the overload BlockReader.seekInBlock(BytesRef)
+// (BlockReader.java:222).
+func (r *BlockReader) SeekInBlock(searchedTerm *util.BytesRef) (spi.SeekStatus, error) {
+	compare, err := r.CompareToMiddleAndJump(searchedTerm)
+	if err != nil {
+		return spi.SeekStatusEnd, err
 	}
-
+	if compare == 0 {
+		return spi.SeekStatusFound, nil
+	}
 	comparisonOffset := 0
 	for {
-		line := r.readLineInBlock()
+		line, err := r.ReadLineInBlock()
+		if err != nil {
+			return spi.SeekStatusEnd, err
+		}
 		if line == nil {
-			return schema.SeekStatusEnd, nil
+			// No more terms for the block.
+			return spi.SeekStatusEnd, nil
 		}
-
-		lineTermBytes := line.term
+		lineTermBytes := r.BlockLine.GetTermBytes()
 		lineTerm := lineTermBytes.GetTerm()
+		// assert lineTerm.offset == 0;
+
+		// Equivalent to comparing with BytesRef.compareTo(),
+		// but faster since we start comparing from min(comparisonOffset, suffixOffset).
 		suffixOffset := lineTermBytes.GetSuffixOffset()
-
-		start := comparisonOffset
-		if suffixOffset > start {
-			start = suffixOffset
-		}
-		end := lineTerm.Length()
-		if searchedTerm.Length() < end {
-			end = searchedTerm.Length()
-		}
-
-		comparison := searchedTerm.Length() - lineTerm.Length()
+		start := min(comparisonOffset, suffixOffset)
+		end := min(searchedTerm.Length, lineTerm.Length)
+		comparison := searchedTerm.Length - lineTerm.Length
 		for i := start; i < end; i++ {
-			byteDiff := int(searchedTerm.Bytes()[searchedTerm.Offset+i]) - int(lineTerm.Bytes()[lineTerm.Offset+i])
+			// Compare unsigned bytes.
+			byteDiff := int(searchedTerm.Bytes[i+searchedTerm.Offset]) - int(lineTerm.Bytes[i])
 			if byteDiff != 0 {
 				comparison = byteDiff
 				break
 			}
 			comparisonOffset = i + 1
 		}
-
 		if comparison == 0 {
-			return schema.SeekStatusFound, nil
+			return spi.SeekStatusFound, nil
 		} else if comparison < 0 {
-			return schema.SeekStatusNotFound, nil
+			return spi.SeekStatusNotFound, nil
 		}
 	}
 }
 
-func (r *BlockReader) compareToMiddleAndJump(searchedTerm *util.BytesRef) int {
-	if r.lineIndexInBlock != 0 {
-		return -1
+// CompareToMiddleAndJump compares the searched term to the middle term of the
+// block. If the searched term is lexicographically equal or after the middle
+// term then jumps to the second half of the block directly.
+//
+// Returns the comparison between the searched term and the middle term.
+//
+// Mirrors BlockReader.compareToMiddleAndJump (BlockReader.java:272).
+func (r *BlockReader) CompareToMiddleAndJump(searchedTerm *util.BytesRef) (int, error) {
+	if r.LineIndexInBlock != 0 {
+		// Don't try to compare and jump if we are not positioned at the first line.
+		// This can happen if we seek in the same current block and we continue
+		// scanning from the current line (see initializeHeader()).
+		return -1, nil
 	}
-	r.blockReadBuffer.SetPosition(r.blockHeader.middleLineOffset)
-	r.lineIndexInBlock = int(r.blockHeader.linesCount >> 1)
-	r.readLineInBlock()
-	if r.blockLine == nil {
-		return -1
+	if err := r.BlockReadBuffer.SkipBytes(int64(r.BlockHeader.MiddleLineOffset())); err != nil {
+		return 0, err
 	}
-	return util.BytesRefCompare(searchedTerm, r.blockLine.term.GetTerm())
+	r.LineIndexInBlock = r.BlockHeader.MiddleLineIndex()
+	if _, err := r.ReadLineInBlock(); err != nil {
+		return 0, err
+	}
+	if r.BlockLine == nil {
+		return 0, r.NewCorruptIndexError("Illegal absence of line at the middle of the block", nil)
+	}
+	compare := util.BytesRefCompare(searchedTerm, r.TermBytes())
+	if compare < 0 {
+		r.BlockReadBuffer.SetPosition(r.BlockFirstLineStart)
+		r.LineIndexInBlock = 0
+	}
+	return compare, nil
 }
 
-func (r *BlockReader) readLineInBlock() *BlockLine {
-	if r.lineIndexInBlock >= int(r.blockHeader.linesCount) {
-		return r.blockLine = nil
+// ReadLineInBlock reads the current block line. Sets blockLine and increments
+// lineIndexInBlock. Returns the BlockLine; or nil if there is no more line in
+// the block.
+//
+// Mirrors BlockReader.readLineInBlock (BlockReader.java:297).
+func (r *BlockReader) ReadLineInBlock() (*BlockLine, error) {
+	if r.LineIndexInBlock >= r.BlockHeader.LinesCount() {
+		r.BlockLine = nil
+		return nil, nil
 	}
-
-	isIncrementalEncodingSeed := r.lineIndexInBlock == 0 || r.lineIndexInBlock == int(r.blockHeader.linesCount>>1)
-	r.lineIndexInBlock++
-
-	return r.blockLine = r.blockLineReader.ReadLine(r.blockReadBuffer, isIncrementalEncodingSeed, r.scratchBlockLine)
+	isIncrementalEncodingSeed := r.LineIndexInBlock == 0 || r.LineIndexInBlock == r.BlockHeader.MiddleLineIndex()
+	r.LineIndexInBlock++
+	blockLine, err := r.BlockLineReader.ReadLine(r.BlockReadBuffer, isIncrementalEncodingSeed, r.ScratchBlockLine)
+	if err != nil {
+		return nil, err
+	}
+	r.BlockLine = blockLine
+	return r.BlockLine, nil
 }
 
-func (r *BlockReader) initializeHeader(searchedTerm *util.BytesRef, targetBlockStartFP int64) error {
-	if err := r.initializeBlockReadLazily(); err != nil {
+// NextTerm moves to the next term line and reads it, it may be in the next
+// block. The term details are not read yet. They will be read only when needed
+// with readTermStateIfNotRead.
+//
+// Returns the read term bytes; or nil if there is no more term for the field.
+//
+// Mirrors BlockReader.nextTerm (BlockReader.java:350).
+func (r *BlockReader) NextTerm() (*util.BytesRef, error) {
+	if r.BlockHeader == nil {
+		// Read the first block for the field.
+		if err := r.InitializeHeader(nil, r.FieldMetadata.GetFirstBlockStartFP()); err != nil {
+			return nil, err
+		}
+		if r.BlockHeader == nil {
+			firstBlockStartFP := r.FieldMetadata.GetFirstBlockStartFP()
+			return nil, r.NewCorruptIndexError("Illegal absence of first block", &firstBlockStartFP)
+		}
+	}
+	line, err := r.ReadLineInBlock()
+	if err != nil {
+		return nil, err
+	}
+	if line == nil {
+		// No more line in the current block.
+		// Read the next block starting at the current file pointer in the block file.
+		if err := r.InitializeHeader(nil, r.BlockInput.GetFilePointer()); err != nil {
+			return nil, err
+		}
+		if r.BlockHeader == nil {
+			// No more block for the field.
+			return nil, nil
+		}
+		if _, err := r.ReadLineInBlock(); err != nil {
+			return nil, err
+		}
+	}
+	return r.TermBytes(), nil
+}
+
+// InitializeHeader reads and sets blockHeader. Sets nil if there is no block
+// for the field anymore.
+//
+// searchedTerm is the searched term, or nil if none. targetBlockStartFP is the
+// file pointer of the block to read.
+//
+// Mirrors BlockReader.initializeHeader (BlockReader.java:376).
+func (r *BlockReader) InitializeHeader(searchedTerm *util.BytesRef, targetBlockStartFP int64) error {
+	if err := r.InitializeBlockReadLazily(); err != nil {
 		return err
 	}
-
-	if r.blockStartFP == targetBlockStartFP {
-		if r.blockHeader == nil {
-			return fmt.Errorf("illegal absence of block at FP %d", blockStartFP)
+	if r.BlockStartFP == targetBlockStartFP {
+		// Optimization: If the block to read is already the current block, then
+		// reuse it directly without reading nor decoding the block bytes.
+		if r.BlockHeader == nil {
+			return r.NewCorruptIndexError("Illegal absence of block", &r.BlockStartFP)
 		}
-		if searchedTerm == nil || r.blockLine == nil || util.BytesRefCompare(searchedTerm, r.blockLine.term.GetTerm()) <= 0 {
-			r.blockReadBuffer.SetPosition(r.blockFirstLineStart)
-			r.lineIndexInBlock = 0
+		if searchedTerm == nil || r.BlockLine == nil ||
+			util.BytesRefCompare(searchedTerm, r.BlockLine.GetTermBytes().GetTerm()) <= 0 {
+			// If the searched term precedes lexicographically the current term,
+			// then reset the position to the first term line of the block.
+			// If the searched term equals the current term, we also need to reset
+			// to scan again the current line.
+			r.BlockReadBuffer.SetPosition(r.BlockFirstLineStart)
+			r.LineIndexInBlock = 0
 		}
 	} else {
-		if _, err := r.blockInput.Seek(targetBlockStartFP); err != nil {
+		if err := r.BlockInput.SetPosition(targetBlockStartFP); err != nil {
 			return err
 		}
-		r.blockStartFP = targetBlockStartFP
-		header, err := r.readHeader()
-		if err != nil {
+		r.BlockStartFP = targetBlockStartFP
+		if _, err := r.ReadHeader(); err != nil {
 			return err
 		}
-		r.blockHeader = header
-		r.blockFirstLineStart = r.blockReadBuffer.GetPosition()
-		r.lineIndexInBlock = 0
+		r.BlockFirstLineStart = r.BlockReadBuffer.GetPosition()
+		r.LineIndexInBlock = 0
 	}
 	return nil
 }
 
-func (r *BlockReader) initializeBlockReadLazily() error {
-	if r.blockStartFP != -1 && r.blockHeader != nil {
-		return nil
+// InitializeBlockReadLazily mirrors BlockReader.initializeBlockReadLazily
+// (BlockReader.java:403).
+func (r *BlockReader) InitializeBlockReadLazily() error {
+	if r.BlockStartFP == -1 {
+		r.BlockInput = r.BlockInput.Clone()
+		r.BlockHeaderReader = r.CreateBlockHeaderSerializer()
+		r.BlockLineReader = r.Overrides.CreateBlockLineSerializer()
+		r.BlockReadBuffer = store.NewByteArrayDataInput(nil)
+		r.TermStatesReadBuffer = store.NewByteArrayDataInput(nil)
+		r.TermStateSerializer = r.CreateDeltaBaseTermStateSerializer()
+		r.ScratchBlockBytes = util.NewBytesRefEmpty()
+		r.ScratchBlockLine = NewBlockLine(NewTermBytes(0, r.ScratchBlockBytes), 0)
 	}
-	// In a real implementation, we might clone the input here.
-	r.blockHeaderReader = DefaultBlockHeaderSerializer
-	r.blockLineReader = NewBlockLineSerializer()
-	r.blockReadBuffer = store.NewByteArrayDataInput()
-	r.termStatesReadBuffer = store.NewByteArrayDataInput()
-	r.termStateSerializer = NewDeltaBaseTermStateSerializer()
-	r.scratchBlockBytes = util.NewBytesRef()
-	r.scratchBlockLine = &BlockLine{}
 	return nil
 }
 
-func (r *BlockReader) readHeader() (*BlockHeader, error) {
-	numBlockBytes, err := r.blockInput.ReadVInt()
+// CreateBlockHeaderSerializer mirrors
+// BlockReader.createBlockHeaderSerializer (BlockReader.java:415).
+func (r *BlockReader) CreateBlockHeaderSerializer() *BlockHeaderSerializer {
+	return &BlockHeaderSerializer{}
+}
+
+// CreateBlockLineSerializer mirrors BlockReader.createBlockLineSerializer
+// (BlockReader.java:419).
+func (r *BlockReader) CreateBlockLineSerializer() *BlockLineSerializer {
+	return NewBlockLineSerializer()
+}
+
+// CreateDeltaBaseTermStateSerializer mirrors
+// BlockReader.createDeltaBaseTermStateSerializer (BlockReader.java:423).
+func (r *BlockReader) CreateDeltaBaseTermStateSerializer() *DeltaBaseTermStateSerializer {
+	return NewDeltaBaseTermStateSerializer()
+}
+
+// ReadHeader reads the block header and sets blockHeader. Returns the block
+// header; or nil if there is no block for the field anymore.
+//
+// Mirrors BlockReader.readHeader (BlockReader.java:432).
+func (r *BlockReader) ReadHeader() (*BlockHeader, error) {
+	if r.BlockInput.GetFilePointer() > r.FieldMetadata.GetLastBlockStartFP() {
+		r.BlockHeader = nil
+		return nil, nil
+	}
+	numBlockBytes, err := r.BlockInput.ReadVInt()
 	if err != nil {
 		return nil, err
 	}
-	blockBytesRef, err := r.decodeBlockBytesIfNeeded(int32(numBlockBytes))
+	blockBytesRef, err := r.DecodeBlockBytesIfNeeded(int(numBlockBytes))
 	if err != nil {
 		return nil, err
 	}
-	r.blockReadBuffer.Reset(blockBytesRef.Bytes(), blockBytesRef.Offset, blockBytesRef.Length)
-	r.termStatesReadBuffer.Reset(blockBytesRef.Bytes(), blockBytesRef.Offset, blockBytesRef.Length)
-	return r.blockHeaderReader.Read(r.blockReadBuffer, r.blockHeader)
-}
-
-func (r *BlockReader) decodeBlockBytesIfNeeded(numBlockBytes int32) (*util.BytesRef, error) {
-	buf := make([]byte, numBlockBytes)
-	if _, err := r.blockInput.ReadBytes(buf); err != nil {
+	r.BlockReadBuffer.ResetWithSlice(blockBytesRef.Bytes, blockBytesRef.Offset, blockBytesRef.Length)
+	r.TermStatesReadBuffer.ResetWithSlice(blockBytesRef.Bytes, blockBytesRef.Offset, blockBytesRef.Length)
+	blockHeader, err := r.BlockHeaderReader.Read(r.BlockReadBuffer, r.BlockHeader)
+	if err != nil {
 		return nil, err
 	}
-	r.scratchBlockBytes = util.NewBytesRef(buf)
-	if r.blockDecoder == nil {
-		return r.scratchBlockBytes, nil
-	}
-	// Assume blockDecoder.Decode returns *util.BytesRef
-	return r.blockDecoder.Decode(r.blockReadBuffer, int64(numBlockBytes))
+	r.BlockHeader = blockHeader
+	return r.BlockHeader, nil
 }
 
-func (r *BlockReader) readTermStateIfNotRead() (*codecs.BlockTermState, error) {
-	if r.termState == nil {
-		ts, err := r.readTermState()
+// DecodeBlockBytesIfNeeded mirrors BlockReader.decodeBlockBytesIfNeeded
+// (BlockReader.java:444).
+func (r *BlockReader) DecodeBlockBytesIfNeeded(numBlockBytes int) (*util.BytesRef, error) {
+	r.ScratchBlockBytes.Bytes = util.GrowByte(r.ScratchBlockBytes.Bytes, numBlockBytes)
+	if err := r.BlockInput.ReadBytes(r.ScratchBlockBytes.Bytes, 0, numBlockBytes); err != nil {
+		return nil, err
+	}
+	r.ScratchBlockBytes.Length = numBlockBytes
+	if r.BlockDecoder == nil {
+		return r.ScratchBlockBytes, nil
+	}
+	r.BlockReadBuffer.ResetWithSlice(r.ScratchBlockBytes.Bytes, 0, numBlockBytes)
+	return r.BlockDecoder.Decode(r.BlockReadBuffer, int64(numBlockBytes))
+}
+
+// ReadTermStateIfNotRead reads the BlockTermState if it is not already set.
+// Sets termState.
+//
+// Mirrors BlockReader.readTermStateIfNotRead (BlockReader.java:455).
+func (r *BlockReader) ReadTermStateIfNotRead() (index.TermState, error) {
+	if r.CurrentTermState == nil {
+		ts, err := r.Overrides.ReadTermState()
 		if err != nil {
 			return nil, err
 		}
-		r.termState = ts
-		if r.termState != nil {
-			r.termState.TermBlockOrd = r.lineIndexInBlock
-			r.termState.BlockFilePointer = r.blockStartFP
+		r.CurrentTermState = ts
+		if r.CurrentTermState != nil {
+			base := codecs.BaseState(r.CurrentTermState)
+			base.TermBlockOrd = int(r.LineIndexInBlock)
+			base.BlockFilePointer = r.BlockStartFP
 		}
 	}
-	return r.termState, nil
+	return r.CurrentTermState, nil
 }
 
-func (r *BlockReader) readTermState() (*codecs.BlockTermState, error) {
-	r.termStatesReadBuffer.SetPosition(
-		r.blockFirstLineStart +
-			int(r.blockHeader.termStatesBaseOffset) +
-			int(r.blockLine.termStateRelativeOffset))
+// ReadTermState reads the BlockTermState on the current line. Sets termState.
+//
+// Mirrors BlockReader.readTermState (BlockReader.java:474).
+func (r *BlockReader) ReadTermState() (index.TermState, error) {
+	// We reuse scratchTermState safely as the read TermState is cloned in the TermState method.
+	r.TermStatesReadBuffer.SetPosition(
+		r.BlockFirstLineStart +
+			int(r.BlockHeader.TermStatesBaseOffset()) +
+			int(r.BlockLine.GetTermStateRelativeOffset()))
 
-	return r.termStateSerializer.ReadTermState(
-		r.blockHeader.baseDocsFP,
-		r.blockHeader.basePositionsFP,
-		r.blockHeader.basePayloadsFP,
-		r.termStatesReadBuffer,
-		r.fieldMetadata.fieldInfo,
-		r.scratchTermState,
+	termState, err := r.TermStateSerializer.ReadTermState(
+		r.BlockHeader.BaseDocsFP(),
+		r.BlockHeader.BasePositionsFP(),
+		r.BlockHeader.BasePayloadsFP(),
+		r.TermStatesReadBuffer,
+		r.FieldMetadata.GetFieldInfo(),
+		r.ScratchTermState,
 	)
-}
-
-func (r *BlockReader) nextTerm() *util.BytesRef {
-	if r.blockHeader == nil {
-		if err := r.initializeHeader(nil, r.fieldMetadata.firstBlockStartFP); err != nil {
-			return nil
-		}
-		if r.blockHeader == nil {
-			return nil
-		}
-	}
-
-	if r.readLineInBlock() == nil {
-		if err := r.initializeHeader(nil, r.blockInput.GetFilePointer()); err != nil {
-			return nil
-		}
-		if r.blockHeader == nil {
-			return nil
-		}
-		r.readLineInBlock()
-	}
-	if r.blockLine == nil {
-		return nil
-	}
-	return r.blockLine.term.GetTerm()
-}
-
-// TermsEnum implementation
-
-func (r *BlockReader) Next() (*schema.Term, error) {
-	termBytes := r.nextTerm()
-	if termBytes == nil {
-		return nil, nil
-	}
-	return schema.NewTermFromBytesRef(r.fieldMetadata.fieldInfo.Name(), termBytes), nil
-}
-
-func (r *BlockReader) SeekCeil(term *schema.Term) (*schema.Term, error) {
-	status, err := r.seekCeil(term.BytesValue())
 	if err != nil {
 		return nil, err
 	}
-	if status == schema.SeekStatusEnd {
+	r.CurrentTermState = termState
+	return r.CurrentTermState, nil
+}
+
+// TermBytes mirrors BlockReader.term() (BlockReader.java:488), which returns the
+// raw term bytes of the current line.
+func (r *BlockReader) TermBytes() *util.BytesRef {
+	if r.TermStateForced {
+		return r.ForcedTerm.Get()
+	}
+	if r.BlockLine == nil {
+		return nil
+	}
+	return r.BlockLine.GetTermBytes().GetTerm()
+}
+
+// GetOrCreateDictionaryBrowser mirrors
+// BlockReader.getOrCreateDictionaryBrowser (BlockReader.java:556).
+func (r *BlockReader) GetOrCreateDictionaryBrowser() (IndexDictionaryBrowser, error) {
+	if r.DictionaryBrowser == nil {
+		browser, err := r.DictionaryBrowserSupplier.Get()
+		if err != nil {
+			return nil, err
+		}
+		r.DictionaryBrowser = browser
+	}
+	return r.DictionaryBrowser, nil
+}
+
+// ClearTermState is called by the primary TermsEnum methods to clear the
+// previous TermState.
+//
+// Mirrors BlockReader.clearTermState (BlockReader.java:564).
+func (r *BlockReader) ClearTermState() {
+	r.CurrentTermState = nil
+	r.TermStateForced = false
+}
+
+// NewCorruptIndexError mirrors BlockReader.newCorruptIndexException
+// (BlockReader.java:570).
+func (r *BlockReader) NewCorruptIndexError(msg string, fp *int64) error {
+	at := ""
+	if fp != nil {
+		at = fmt.Sprintf(" at FP %d", *fp)
+	}
+	return index.NewCorruptIndexException(
+		fmt.Sprintf("%s%s for field \"%s\"", msg, at, r.FieldMetadata.GetFieldInfo().Name()),
+		fmt.Sprint(r.BlockInput))
+}
+
+// --- TermsEnum surface ---
+//
+// Gocene's spi.TermsEnum carries the field name alongside the term bytes in
+// *spi.Term, where Java's org.apache.lucene.index.TermsEnum exchanges a bare
+// BytesRef. The methods below are the Java methods of the same name, adapted to
+// that signature; the term bytes they read and return are unchanged.
+
+// Next advances to the next term. Mirrors BlockReader.next
+// (BlockReader.java:333).
+func (r *BlockReader) Next() (*spi.Term, error) {
+	if r.TermStateForced {
+		blockFilePointer := codecs.BaseState(r.CurrentTermState).BlockFilePointer
+		if err := r.InitializeHeader(r.ForcedTerm.Get(), blockFilePointer); err != nil {
+			return nil, err
+		}
+		if r.BlockHeader == nil {
+			return nil, r.NewCorruptIndexError("Illegal absence of block for TermState", &blockFilePointer)
+		}
+		for i := r.LineIndexInBlock; i < int32(codecs.BaseState(r.CurrentTermState).TermBlockOrd); i++ {
+			if _, err := r.ReadLineInBlock(); err != nil {
+				return nil, err
+			}
+		}
+		// assert blockLine.getTermBytes().getTerm().equals(forcedTerm.get());
+	}
+	r.ClearTermState()
+	termBytes, err := r.Overrides.NextTerm()
+	if err != nil {
+		return nil, err
+	}
+	if termBytes == nil {
 		return nil, nil
 	}
-	if status == schema.SeekStatusNotFound {
+	return spi.NewTermFromBytesRef(r.FieldMetadata.GetFieldInfo().Name(), termBytes), nil
+}
+
+// SeekCeil seeks to term or to the next term after it. Mirrors
+// BlockReader.seekCeil (BlockReader.java:150), adapted to the Gocene SPI, which
+// returns the positioned term rather than a SeekStatus.
+func (r *BlockReader) SeekCeil(term *spi.Term) (*spi.Term, error) {
+	status, err := r.Overrides.SeekCeilBytes(term.BytesValue())
+	if err != nil {
+		return nil, err
+	}
+	if status == spi.SeekStatusEnd {
+		return nil, nil
+	}
+	if status == spi.SeekStatusNotFound {
 		// Go to next term.
-		termBytes := r.nextTerm()
+		termBytes, err := r.Overrides.NextTerm()
+		if err != nil {
+			return nil, err
+		}
 		if termBytes == nil {
 			return nil, nil
 		}
-		return schema.NewTermFromBytesRef(r.fieldMetadata.fieldInfo.Name(), termBytes), nil
+		return spi.NewTermFromBytesRef(r.FieldMetadata.GetFieldInfo().Name(), termBytes), nil
 	}
-	return schema.NewTermFromBytesRef(r.fieldMetadata.fieldInfo.Name(), r.term()), nil
+	return spi.NewTermFromBytesRef(r.FieldMetadata.GetFieldInfo().Name(), r.TermBytes()), nil
 }
 
-func (r *BlockReader) SeekExact(term *schema.Term) (bool, error) {
-	found, err := r.seekExact(term.BytesValue())
-	return found, err
+// SeekExact seeks to term. Mirrors BlockReader.seekExact(BytesRef)
+// (BlockReader.java:168).
+func (r *BlockReader) SeekExact(term *spi.Term) (bool, error) {
+	return r.Overrides.SeekExactBytes(term.BytesValue())
 }
 
-func (r *BlockReader) Term() *schema.Term {
-	termBytes := r.term()
+// SeekExactWithState positions this BlockReader without re-seeking the term
+// dictionary.
+//
+// The block containing the term is not read by this method. It will be read
+// lazily only if needed, for example if Next is called. Calling Postings after
+// this method does require the block to be read.
+//
+// Mirrors BlockReader.seekExact(BytesRef, TermState)
+// (BlockReader.java:318).
+func (r *BlockReader) SeekExactWithState(term *spi.Term, state index.TermState) error {
+	r.TermStateForced = true
+	r.CurrentTermState = r.ScratchTermState
+	if err := r.CurrentTermState.CopyFrom(state); err != nil {
+		return err
+	}
+	if r.ForcedTerm == nil {
+		r.ForcedTerm = util.NewBytesRefBuilder()
+	}
+	// Java calls forcedTerm.copyBytes(term). util.BytesRefBuilder carries no
+	// CopyBytes, so its body — ref.length = len; growNoCopy(len);
+	// arraycopy(b, off, ref.bytes, 0, len) — is inlined here.
+	forcedBytes := term.BytesValue()
+	r.ForcedTerm.SetLength(forcedBytes.Length)
+	r.ForcedTerm.GrowNoCopy(forcedBytes.Length)
+	copy(r.ForcedTerm.Bytes(), forcedBytes.ValidBytes())
+	return nil
+}
+
+// Term returns the current term. Mirrors BlockReader.term
+// (BlockReader.java:488).
+func (r *BlockReader) Term() *spi.Term {
+	termBytes := r.TermBytes()
 	if termBytes == nil {
 		return nil
 	}
-	return schema.NewTermFromBytesRef(r.fieldMetadata.fieldInfo.Name(), termBytes)
+	return spi.NewTermFromBytesRef(r.FieldMetadata.GetFieldInfo().Name(), termBytes)
 }
 
+// Ord is not supported. Mirrors BlockReader.ord (BlockReader.java:496), whose
+// body is `throw new UnsupportedOperationException()`. Ord carries no error in
+// the TermsEnum contract (Java's ord() declares no checked exception), so the
+// unsupported call panics, mirroring the unchecked Java exception.
+func (r *BlockReader) Ord() int64 {
+	panic(errBlockReaderOrdUnsupported)
+}
+
+var errBlockReaderOrdUnsupported = errors.New("BlockReader: ord is not supported")
+
+// DocFreq mirrors BlockReader.docFreq (BlockReader.java:501).
 func (r *BlockReader) DocFreq() (int, error) {
-	ts, err := r.readTermStateIfNotRead()
+	ts, err := r.Overrides.ReadTermStateIfNotRead()
 	if err != nil {
 		return 0, err
 	}
-	return int(ts.docFreq), nil
+	return codecs.BaseState(ts).DocFreq, nil
 }
 
+// TotalTermFreq mirrors BlockReader.totalTermFreq (BlockReader.java:507).
 func (r *BlockReader) TotalTermFreq() (int64, error) {
-	ts, err := r.readTermStateIfNotRead()
+	ts, err := r.Overrides.ReadTermStateIfNotRead()
 	if err != nil {
 		return 0, err
 	}
-	return ts.totalTermFreq, nil
+	return codecs.BaseState(ts).TotalTermFreq, nil
 }
 
-func (r *BlockReader) Postings(flags int) (schema.PostingsEnum, error) {
-	ts, err := r.readTermStateIfNotRead()
+// TermState mirrors BlockReader.termState (BlockReader.java:513), which
+// returns a clone of the read state.
+func (r *BlockReader) TermState() (index.TermState, error) {
+	ts, err := r.Overrides.ReadTermStateIfNotRead()
 	if err != nil {
 		return nil, err
 	}
-	return r.postingsReader.Postings(r.fieldMetadata.fieldInfo, ts, nil, flags)
+	return codecs.BaseState(ts).Clone(), nil
 }
 
-func (r *BlockReader) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (schema.PostingsEnum, error) {
-	// Not implemented in this port yet.
-	return nil, fmt.Errorf("PostingsWithLiveDocs not implemented")
-}
-
-func (r *BlockReader) getOrCreateDictionaryBrowser() (IndexDictionary, error) {
-	if r.dictionaryBrowser == nil {
-		browser, err := r.dictionaryBrowserSupplier.Get()
-		if err != nil {
-			return nil, err
-		}
-		r.dictionaryBrowser = browser
+// Postings mirrors BlockReader.postings (BlockReader.java:519).
+func (r *BlockReader) Postings(flags int) (spi.PostingsEnum, error) {
+	ts, err := r.Overrides.ReadTermStateIfNotRead()
+	if err != nil {
+		return nil, err
 	}
-	return r.dictionaryBrowser, nil
+	return r.PostingsReader.Postings(r.FieldMetadata.GetFieldInfo(), ts, nil, flags)
 }
 
-func (r *BlockReader) clearTermState() {
-	r.termState = nil
-	r.termStateForced = false
+// Impacts mirrors BlockReader.impacts (BlockReader.java:525).
+func (r *BlockReader) Impacts(flags int) (spi.ImpactsEnum, error) {
+	ts, err := r.Overrides.ReadTermStateIfNotRead()
+	if err != nil {
+		return nil, err
+	}
+	return r.PostingsReader.Impacts(r.FieldMetadata.GetFieldInfo(), ts, flags)
 }
 
-type BlockDecoder interface {
-	Decode(in store.DataInput, length int64) (*util.BytesRef, error)
+// PostingsWithLiveDocs forwards to Postings; live-docs filtering is applied by
+// callers at a higher layer, matching how Lucene threads liveDocs through the
+// leaf reader. Java's BlockReader.postings (BlockReader.java:519) takes no live
+// docs.
+func (r *BlockReader) PostingsWithLiveDocs(_ util.Bits, flags int) (spi.PostingsEnum, error) {
+	return r.Postings(flags)
 }
 
-type IndexDictionary interface {
-	Get(term *util.BytesRef) (int64, error)
+var (
+	_ spi.TermsEnum        = (*BlockReader)(nil)
+	_ BlockReaderOverrides = (*BlockReader)(nil)
+)
+
+// blockReaderBaseRAMUsage renders the private static BASE_RAM_USAGE
+// (BlockReader.java:49):
+//
+//	shallowSizeOfInstance(BlockReader.class)
+//	    + shallowSizeOfInstance(IndexInput.class)
+//	    + shallowSizeOfInstance(ByteArrayDataInput.class) * 2
+//
+// Java's IndexInput is an abstract class with its own field layout. Gocene's
+// store.IndexInput is an interface, so the value standing in its place is an
+// interface header; util.ShallowSizeOf reports 0 for a nil interface, so the
+// header is measured through a one-field struct instead.
+var blockReaderBaseRAMUsage = util.ShallowSizeOf(BlockReader{}) +
+	util.ShallowSizeOf(struct{ blockInput store.IndexInput }{}) +
+	util.ShallowSizeOf(store.ByteArrayDataInput{})*2
+
+// RamBytesUsed mirrors BlockReader.ramBytesUsed (BlockReader.java:543).
+func (r *BlockReader) RamBytesUsed() int64 {
+	total := blockReaderBaseRAMUsage
+	if r.BlockLineReader != nil {
+		total += r.BlockLineReader.RamBytesUsed()
+	}
+	if r.BlockReadBuffer != nil {
+		total += RamBytesUsedByByteArrayOfLength(r.BlockReadBuffer.Length())
+	}
+	if r.TermStateSerializer != nil {
+		total += r.TermStateSerializer.RamBytesUsed()
+	}
+	if r.ForcedTerm != nil {
+		total += RamBytesUsedByBytesRefBuilder(r.ForcedTerm)
+	}
+	if r.BlockHeader != nil {
+		total += r.BlockHeader.RamBytesUsed()
+	}
+	if r.BlockLine != nil {
+		total += r.BlockLine.RamBytesUsed()
+	}
+	if r.CurrentTermState != nil {
+		total += RamBytesUsedByTermState(r.CurrentTermState)
+	}
+	return total
 }
 
-type IndexDictionaryBrowserSupplier interface {
-	Get() (IndexDictionary, error)
-}
+// BlockReader implements Accountable (BlockReader.java:47).
+var _ util.Accountable = (*BlockReader)(nil)

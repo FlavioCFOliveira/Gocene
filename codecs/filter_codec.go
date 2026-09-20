@@ -68,11 +68,6 @@ func (c *FilterCodec) FieldInfosFormat() FieldInfosFormat {
 	return c.delegate.FieldInfosFormat()
 }
 
-// SegmentInfosFormat returns the delegate's segment infos format.
-func (c *FilterCodec) SegmentInfosFormat() SegmentInfosFormat {
-	return c.delegate.SegmentInfosFormat()
-}
-
 // SegmentInfoFormat returns the delegate's singular .si format.
 func (c *FilterCodec) SegmentInfoFormat() SegmentInfoFormat {
 	return c.delegate.SegmentInfoFormat()
@@ -109,6 +104,15 @@ func (c *FilterCodec) PointsFormat() PointsFormat {
 // delegate's real format.
 func (c *FilterCodec) NormsFormat() NormsFormat {
 	return c.delegate.NormsFormat()
+}
+
+// LiveDocsFormat returns the delegate's live docs format. Mirrors
+// org.apache.lucene.codecs.FilterCodec.liveDocsFormat() which forwards to
+// the wrapped delegate. Without this explicit forwarder FilterCodec would
+// inherit BaseCodec.LiveDocsFormat() (which returns nil) instead of the
+// delegate's real format.
+func (c *FilterCodec) LiveDocsFormat() LiveDocsFormat {
+	return c.delegate.LiveDocsFormat()
 }
 
 // Ensure FilterCodec satisfies the Codec interface.

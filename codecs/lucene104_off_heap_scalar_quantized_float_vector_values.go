@@ -53,9 +53,12 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
@@ -171,7 +174,10 @@ type DocIDSetIteratorView interface {
 	// Cost returns the estimated cost.
 	Cost() int64
 	// DocIDRunEnd returns one plus the last doc ID of the current run.
-	DocIDRunEnd() int
+	// It mirrors DocIdSetIterator.docIDRunEnd(), which throws IOException in
+	// Java, so the Go rendering returns an error alongside the doc ID exactly
+	// as util.DocIdSetIterator does.
+	DocIDRunEnd() (int, error)
 }
 
 // noMoreDocsView mirrors search.NO_MORE_DOCS as a local constant. The
@@ -190,8 +196,8 @@ const noMoreDocsView = 2147483647
 type OffHeapScalarQuantizedFloatVectorValues struct {
 	dimension          int
 	size               int
-	similarityFunction VectorSimilarityFunction
-	vectorsScorer      FlatVectorsScorer
+	similarityFunction index.VectorSimilarityFunction
+	vectorsScorer      hnsw.FlatVectorsScorer
 
 	slice                   store.IndexInput
 	vectorValue             []float32
@@ -201,7 +207,7 @@ type OffHeapScalarQuantizedFloatVectorValues struct {
 	lastOrd                 int
 	correctiveValues        [quantizedFloatCorrectivesLen]float32
 	quantizedComponentSum   int32
-	encoding                ScalarEncoding
+	encoding                quantization.ScalarEncoding
 	centroid                []float32
 
 	// variant carries layout-specific behaviour (dense / sparse / empty)
@@ -216,7 +222,7 @@ type OffHeapScalarQuantizedFloatVectorValues struct {
 // types when no per-variant fields are needed.
 type offHeapScalarQuantizedFloatVariant interface {
 	// iterator returns a DocIndexIterator over the values owned by parent.
-	iterator(parent *OffHeapScalarQuantizedFloatVectorValues) util.DocIndexIterator
+	iterator(parent *OffHeapScalarQuantizedFloatVectorValues) spi.DocIndexIterator
 
 	// ordToDoc maps a vector ordinal to its docID.
 	ordToDoc(parent *OffHeapScalarQuantizedFloatVectorValues, ord int) int
@@ -238,9 +244,9 @@ type offHeapScalarQuantizedFloatVariant interface {
 func newOffHeapScalarQuantizedFloatVectorValues(
 	dimension, size int,
 	centroid []float32,
-	encoding ScalarEncoding,
-	similarityFunction VectorSimilarityFunction,
-	vectorsScorer FlatVectorsScorer,
+	encoding quantization.ScalarEncoding,
+	similarityFunction index.VectorSimilarityFunction,
+	vectorsScorer hnsw.FlatVectorsScorer,
 	slice store.IndexInput,
 	variant offHeapScalarQuantizedFloatVariant,
 ) *OffHeapScalarQuantizedFloatVectorValues {
@@ -292,7 +298,7 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) VectorValue(targetOrd int) ([]
 	if err := v.slice.SetPosition(int64(targetOrd) * int64(v.byteSize)); err != nil {
 		return nil, fmt.Errorf("lucene104: OffHeapScalarQuantizedFloatVectorValues: seek ord=%d: %w", targetOrd, err)
 	}
-	if err := v.slice.ReadBytes(v.byteValue); err != nil {
+	if err := v.slice.ReadBytes(v.byteValue, 0, len(v.byteValue)); err != nil {
 		return nil, fmt.Errorf("lucene104: OffHeapScalarQuantizedFloatVectorValues: read packed bytes: %w", err)
 	}
 	if err := readFloatsLE(v.slice, v.correctiveValues[:]); err != nil {
@@ -307,39 +313,35 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) VectorValue(targetOrd int) ([]
 	// Unpack bytes per encoding; UNSIGNED_BYTE / SEVEN_BIT short-circuit
 	// to dequantize directly from byteValue, matching the Java switch.
 	switch v.encoding {
-	case ScalarEncodingPackedNibble:
+	case quantization.ScalarEncodingPackedNibble:
 		unpackNibblesPacked(v.byteValue, v.unpackedByteVectorValue)
-	case ScalarEncodingSingleBitQueryNibble:
+	case quantization.ScalarEncodingSingleBitQueryNibble:
 		quantization.UnpackBinary(v.byteValue, v.unpackedByteVectorValue)
-	case ScalarEncodingDibitQueryNibble:
+	case quantization.ScalarEncodingDibitQueryNibble:
 		quantization.UntransposeDibit(v.byteValue, v.unpackedByteVectorValue)
-	case ScalarEncodingUnsignedByte, ScalarEncodingSevenBit:
-		if _, err := quantization.DeQuantize(
+	case quantization.ScalarEncodingUnsignedByte, quantization.ScalarEncodingSevenBit:
+		quantization.DeQuantize(
 			v.byteValue,
 			v.vectorValue,
 			byte(v.encoding.GetBits()),
 			v.correctiveValues[0],
 			v.correctiveValues[1],
 			v.centroid,
-		); err != nil {
-			return nil, fmt.Errorf("lucene104: OffHeapScalarQuantizedFloatVectorValues: dequantize: %w", err)
-		}
+		)
 		v.lastOrd = targetOrd
 		return v.vectorValue, nil
 	default:
 		return nil, fmt.Errorf("lucene104: OffHeapScalarQuantizedFloatVectorValues: unsupported encoding %s", v.encoding)
 	}
 
-	if _, err := quantization.DeQuantize(
+	quantization.DeQuantize(
 		v.unpackedByteVectorValue,
 		v.vectorValue,
 		byte(v.encoding.GetBits()),
 		v.correctiveValues[0],
 		v.correctiveValues[1],
 		v.centroid,
-	); err != nil {
-		return nil, fmt.Errorf("lucene104: OffHeapScalarQuantizedFloatVectorValues: dequantize: %w", err)
-	}
+	)
 	v.lastOrd = targetOrd
 	return v.vectorValue, nil
 }
@@ -353,7 +355,7 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) GetCorrectiveTerms(targetOrd i
 			LowerInterval:         v.correctiveValues[0],
 			UpperInterval:         v.correctiveValues[1],
 			AdditionalCorrection:  v.correctiveValues[2],
-			QuantizedComponentSum: v.quantizedComponentSum,
+			QuantizedComponentSum: int(v.quantizedComponentSum),
 		}, nil
 	}
 	if v.slice == nil {
@@ -374,7 +376,7 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) GetCorrectiveTerms(targetOrd i
 		LowerInterval:         v.correctiveValues[0],
 		UpperInterval:         v.correctiveValues[1],
 		AdditionalCorrection:  v.correctiveValues[2],
-		QuantizedComponentSum: v.quantizedComponentSum,
+		QuantizedComponentSum: int(v.quantizedComponentSum),
 	}, nil
 }
 
@@ -384,13 +386,21 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) GetCorrectiveTerms(targetOrd i
 // FloatVectorValues per-doc size).
 func (v *OffHeapScalarQuantizedFloatVectorValues) GetVectorByteLength() int { return v.dimension }
 
+// Prefetch carries the KnnVectorValues.prefetch(int[], int) default body of
+// Apache Lucene 10.5.0, which is empty. Neither
+// OffHeapScalarQuantizedFloatVectorValues nor
+// OffHeapScalarQuantizedVectorValues overrides it in the Java reference.
+func (v *OffHeapScalarQuantizedFloatVectorValues) Prefetch(_ []int, _ int) error { return nil }
+
 // GetSlice satisfies the HasIndexSlice contract and returns the
 // underlying packed-bytes slice. Returns nil for the empty variant.
 func (v *OffHeapScalarQuantizedFloatVectorValues) GetSlice() store.IndexInput { return v.slice }
 
 // Encoding returns the scalar encoding used by this view. Exposed for
 // callers that need to interpret raw quantized bytes obtained via Slice.
-func (v *OffHeapScalarQuantizedFloatVectorValues) Encoding() ScalarEncoding { return v.encoding }
+func (v *OffHeapScalarQuantizedFloatVectorValues) Encoding() quantization.ScalarEncoding {
+	return v.encoding
+}
 
 // Centroid returns the centroid against which corrective values are
 // subtracted. The returned slice is owned by v; callers must not mutate.
@@ -404,7 +414,7 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) OrdToDoc(ord int) int {
 // Copy returns an independent iterator backed by a cloned slice. The
 // return type satisfies [codecs.KnnVectorValues]; callers that need the
 // concrete type should use [CopyTyped].
-func (v *OffHeapScalarQuantizedFloatVectorValues) Copy() (KnnVectorValues, error) {
+func (v *OffHeapScalarQuantizedFloatVectorValues) Copy() (spi.KnnVectorValues, error) {
 	return v.variant.copy(v)
 }
 
@@ -429,7 +439,7 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) GetAcceptOrds(acceptDocs util.
 }
 
 // Iterator returns a DocIndexIterator over the available ordinals.
-func (v *OffHeapScalarQuantizedFloatVectorValues) Iterator() util.DocIndexIterator {
+func (v *OffHeapScalarQuantizedFloatVectorValues) Iterator() spi.DocIndexIterator {
 	return v.variant.iterator(v)
 }
 
@@ -438,10 +448,10 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) Scorer(target []float32) (Vect
 	return v.variant.scorer(v, target)
 }
 
-// Note: the FlatVectorsScorer and FlatRandomVectorScorer contracts used
+// Note: the hnsw.FlatVectorsScorer and utilhnsw.RandomVectorScorer contracts used
 // by this file are the ones declared in codecs/flat_vector_scorer.go. The
-// Java reference's float-target overload of FlatVectorsScorer.
-// getRandomVectorScorer returns a FlatRandomVectorScorer, and only the
+// Java reference's float-target overload of hnsw.FlatVectorsScorer.
+// getRandomVectorScorer returns a utilhnsw.RandomVectorScorer, and only the
 // Score(node) method is consumed by the scorer adaptors below.
 
 // Load constructs the appropriate variant (dense, sparse or empty) based
@@ -450,9 +460,9 @@ func (v *OffHeapScalarQuantizedFloatVectorValues) Scorer(target []float32) (Vect
 func Load(
 	configuration ordToDocDISIReaderConfig,
 	dimension, size int,
-	encoding ScalarEncoding,
-	similarityFunction VectorSimilarityFunction,
-	vectorsScorer FlatVectorsScorer,
+	encoding quantization.ScalarEncoding,
+	similarityFunction index.VectorSimilarityFunction,
+	vectorsScorer hnsw.FlatVectorsScorer,
 	centroid []float32,
 	quantizedVectorDataOffset, quantizedVectorDataLength int64,
 	vectorData store.IndexInput,
@@ -492,9 +502,9 @@ type denseOffHeapScalarQuantizedFloatVariant struct{}
 func newDenseOffHeapScalarQuantizedFloatVectorValues(
 	dimension, size int,
 	centroid []float32,
-	encoding ScalarEncoding,
-	similarityFunction VectorSimilarityFunction,
-	vectorsScorer FlatVectorsScorer,
+	encoding quantization.ScalarEncoding,
+	similarityFunction index.VectorSimilarityFunction,
+	vectorsScorer hnsw.FlatVectorsScorer,
 	slice store.IndexInput,
 ) *OffHeapScalarQuantizedFloatVectorValues {
 	return newOffHeapScalarQuantizedFloatVectorValues(
@@ -503,7 +513,7 @@ func newDenseOffHeapScalarQuantizedFloatVectorValues(
 	)
 }
 
-func (denseOffHeapScalarQuantizedFloatVariant) iterator(parent *OffHeapScalarQuantizedFloatVectorValues) util.DocIndexIterator {
+func (denseOffHeapScalarQuantizedFloatVariant) iterator(parent *OffHeapScalarQuantizedFloatVectorValues) spi.DocIndexIterator {
 	return newDenseDocIndexIterator(parent.size)
 }
 
@@ -554,10 +564,10 @@ func newSparseOffHeapScalarQuantizedFloatVectorValues(
 	configuration ordToDocDISIReaderConfig,
 	dimension, size int,
 	centroid []float32,
-	encoding ScalarEncoding,
+	encoding quantization.ScalarEncoding,
 	dataIn store.IndexInput,
-	similarityFunction VectorSimilarityFunction,
-	vectorsScorer FlatVectorsScorer,
+	similarityFunction index.VectorSimilarityFunction,
+	vectorsScorer hnsw.FlatVectorsScorer,
 	slice store.IndexInput,
 ) (*OffHeapScalarQuantizedFloatVectorValues, error) {
 	ordToDoc, err := configuration.GetDirectMonotonicReader(dataIn)
@@ -579,7 +589,7 @@ func newSparseOffHeapScalarQuantizedFloatVectorValues(
 	), nil
 }
 
-func (s *sparseOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuantizedFloatVectorValues) util.DocIndexIterator {
+func (s *sparseOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuantizedFloatVectorValues) spi.DocIndexIterator {
 	return &indexedDISIDocIndexIterator{disi: s.disi}
 }
 
@@ -638,16 +648,16 @@ type emptyOffHeapScalarQuantizedFloatVariant struct{}
 
 func newEmptyOffHeapScalarQuantizedFloatVectorValues(
 	dimension int,
-	similarityFunction VectorSimilarityFunction,
-	vectorsScorer FlatVectorsScorer,
+	similarityFunction index.VectorSimilarityFunction,
+	vectorsScorer hnsw.FlatVectorsScorer,
 ) *OffHeapScalarQuantizedFloatVectorValues {
 	return newOffHeapScalarQuantizedFloatVectorValues(
-		dimension, 0, nil, ScalarEncodingUnsignedByte, similarityFunction, vectorsScorer, nil,
+		dimension, 0, nil, quantization.ScalarEncodingUnsignedByte, similarityFunction, vectorsScorer, nil,
 		emptyOffHeapScalarQuantizedFloatVariant{},
 	)
 }
 
-func (emptyOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuantizedFloatVectorValues) util.DocIndexIterator {
+func (emptyOffHeapScalarQuantizedFloatVariant) iterator(_ *OffHeapScalarQuantizedFloatVectorValues) spi.DocIndexIterator {
 	return newDenseDocIndexIterator(0)
 }
 
@@ -693,8 +703,8 @@ func (s *sparseAcceptOrds) Length() int { return s.size }
 // Scorer(target). The Bulk fast-path is currently not wired (see file
 // header note about VectorScorer.Bulk port).
 type quantizedFloatVectorScorer struct {
-	scorer FlatRandomVectorScorer
-	it     util.DocIndexIterator
+	scorer utilhnsw.RandomVectorScorer
+	it     spi.DocIndexIterator
 }
 
 // Score scores the current ordinal.
@@ -714,7 +724,7 @@ func (q *quantizedFloatVectorScorer) Bulk() VectorScorerBulkView { return nil }
 // docIndexIteratorAsDocIDSet narrows a DocIndexIterator to the
 // util.DocIdSetIterator surface required by VectorScorerView.
 type docIndexIteratorAsDocIDSet struct {
-	it util.DocIndexIterator
+	it spi.DocIndexIterator
 }
 
 func (d *docIndexIteratorAsDocIDSet) DocID() int                      { return d.it.DocID() }
@@ -725,7 +735,7 @@ func (d *docIndexIteratorAsDocIDSet) Cost() int64                     { return d
 // DocIDRunEnd returns the end of the current run. Defaults to docID + 1,
 // matching the search.BaseDocIdSetIterator default; the wrapped iterator
 // does not expose a richer run accessor today.
-func (d *docIndexIteratorAsDocIDSet) DocIDRunEnd() int { return d.it.DocID() + 1 }
+func (d *docIndexIteratorAsDocIDSet) DocIDRunEnd() (int, error) { return d.it.DocID() + 1, nil }
 
 // denseDocIndexIterator mirrors KnnVectorValues#createDenseIterator(): it
 // iterates ord = 0..size-1 with docID == ord.
@@ -795,7 +805,7 @@ func unpackNibblesPacked(packed, unpacked []byte) {
 // the Lucene wire-format (little-endian since Lucene 10).
 func readFloatsLE(in store.IndexInput, out []float32) error {
 	buf := make([]byte, 4*len(out))
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 		return err
 	}
 	for i := range out {
@@ -806,4 +816,39 @@ func readFloatsLE(in store.IndexInput, out []float32) error {
 		out[i] = math.Float32frombits(bits)
 	}
 	return nil
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *docIndexIteratorAsDocIDSet) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (d *denseDocIndexIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(d)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (i *indexedDISIDocIndexIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(i)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (d *denseDocIndexIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (i *indexedDISIDocIndexIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(i, upTo, bitSet, offset)
 }

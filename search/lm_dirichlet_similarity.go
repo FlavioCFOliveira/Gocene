@@ -67,6 +67,32 @@ func (s *LMDirichletSimilarity) ComputeWeight(boost float32, collectionStats *Co
 }
 
 // Scorer creates a SimScorer for this similarity.
+// Scorer104 mirrors SimilarityBase.scorer(float, CollectionStatistics,
+// TermStatistics...) (Lucene 10.5.0), which LMDirichletSimilarity inherits
+// unchanged — the method is final in Java:
+//
+//	SimScorer[] scorers = new SimScorer[termStats.length];
+//	for (int i = 0; i < termStats.length; i++) {
+//	  BasicStats basicStats = newStats(collectionStats.field(), boost);
+//	  fillBasicStats(basicStats, collectionStats, termStats[i]);
+//	  scorers[i] = new BasicSimScorer(basicStats);
+//	}
+//	if (scorers.length == 1) { return scorers[0]; }
+//	return new MultiSimilarity.MultiSimScorer(scorers);
+func (s *LMDirichletSimilarity) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
+	if len(termStats) == 0 {
+		return &noopSimScorer{}
+	}
+	scorers := make([]SimScorer, len(termStats))
+	for i, ts := range termStats {
+		scorers[i] = NewLMDirichletSimScorerWithWeight(NewLMDirichletSimWeight(s, collectionStats, ts, boost))
+	}
+	if len(scorers) == 1 {
+		return scorers[0]
+	}
+	return newMultiSimScorerLucene(scorers)
+}
+
 func (s *LMDirichletSimilarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
 	return NewLMDirichletSimScorer(s, collectionStats, termStats)
 }
@@ -155,7 +181,7 @@ func NewLMDirichletSimScorerWithWeight(weight *LMDirichletSimWeight) *LMDirichle
 // Score calculates the LM Dirichlet score.
 //
 // The formula: score = boost * (log(1 + freq / (mu * P)) + log(mu / (dl + mu)))
-func (s *LMDirichletSimScorer) Score(doc int, freq float32, norm int64) float32 {
+func (s *LMDirichletSimScorer) Score104(freq float32, norm int64) float32 {
 	if freq == 0 {
 		return 0
 	}
@@ -212,7 +238,7 @@ func (s *LMDirichletSimScorer) Explain(freq Explanation, norm int64) Explanation
 	subs = append(subs, NewExplanation(true, float32(docNorm), "document norm, computed as log(mu / (dl + mu))"))
 	subs = append(subs, NewExplanation(true, float32(docLen), "dl, length of field"))
 
-	score := s.Score(0, tf, norm)
+	score := s.Score104(tf, norm)
 	root := NewExplanation(true, score,
 		fmt.Sprintf("score(LMDirichletSimilarity, freq=%v), computed as boost * (term weight + document norm) from:", tf))
 
@@ -228,3 +254,19 @@ var _ Similarity = (*LMDirichletSimilarity)(nil)
 
 // Ensure LMDirichletSimScorer implements SimScorer
 var _ SimScorer = (*LMDirichletSimScorer)(nil)
+
+// AsBulkSimScorer mirrors the concrete body of Similarity.SimScorer.asBulkSimScorer()
+// in Apache Lucene 10.5.0: new DefaultBulkSimScorer(this).
+func (l *LMDirichletSimScorer) AsBulkSimScorer() BulkSimScorer {
+	return NewDefaultBulkSimScorer(l)
+}
+
+// Explain104 mirrors the concrete body of Similarity.SimScorer.explain(Explanation, long)
+// in Apache Lucene 10.5.0: Explanation.match(score(freq.getValue().floatValue(), norm),
+// "score(freq=" + freq.getValue() + "), with freq of:", freq).
+func (l *LMDirichletSimScorer) Explain104(freq Explanation, norm int64) Explanation {
+	e := NewExplanation(true, l.Score104(freq.GetValue(), norm),
+		fmt.Sprintf("score(freq=%s), with freq of:", formatFloatGeneric(freq.GetValue())))
+	e.AddDetail(freq)
+	return e
+}

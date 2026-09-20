@@ -24,9 +24,11 @@
 // abstractions defined here in codecs/hnsw delegate the heavy lifting
 // (graph search, raw scorer arithmetic, scalar-quantized similarity)
 // to util/hnsw and util/quantization. This package therefore depends
-// on the parent codecs package (for KnnVectorsFormat/Reader/Writer,
-// SegmentWriteState, SegmentReadState, KnnFieldVectorsWriter) and on
-// util/hnsw + util/quantization for the random-vector-scorer plumbing.
+// on spi (for KnnVectorsFormat/Reader/Writer, SegmentWriteState,
+// SegmentReadState, KnnFieldVectorsWriter), index, search (AcceptDocs) and
+// util/hnsw + util/quantization for the random-vector-scorer plumbing. It
+// does not import the parent codecs package, which imports this package
+// for the Lucene99 flat vectors format.
 //
 // Concrete codec implementations live elsewhere (Lucene99HnswVectorsFormat,
 // Lucene99FlatVectorsFormat, Lucene104ScalarQuantizedVectorsFormat); this

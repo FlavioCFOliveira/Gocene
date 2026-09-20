@@ -10,6 +10,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -119,7 +120,7 @@ func assertExplainNoMatch(t *testing.T, exp search.Explanation, err error) {
 			exp.GetValue(), exp.GetDescription())
 	}
 
-// floatsClose reports whether a and b are within a small absolute tolerance.
+	// floatsClose reports whether a and b are within a small absolute tolerance.
 }
 func floatsClose(a, b float32) bool {
 	const eps = 1e-4
@@ -305,8 +306,8 @@ func TestSpanWeight_Explain(t *testing.T) {
 	// Docs: 0:"apple" 1:"banana" 2:"apple apple"
 	searcher, leaf := explainTestIndex(t, []string{"apple", "banana", "apple apple"})
 
-	query := search.NewSpanTermQuery(index.NewTerm("field", "apple"))
-	weight, err := query.CreateWeight(searcher, true, 1.0)
+	query := spans.NewSpanTermQuery(index.NewTerm("field", "apple"))
+	weight, err := query.CreateWeight(searcher, search.COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}

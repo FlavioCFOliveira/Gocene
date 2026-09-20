@@ -14,74 +14,51 @@
 package hnsw
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // FlatVectorsFormatMaxDimensions is the upper bound the abstract base
 // returns from [FlatVectorsFormat.GetMaxDimensions]. Mirrors the constant
 // 1024 hard-coded in
 // org.apache.lucene.codecs.hnsw.FlatVectorsFormat#getMaxDimensions
-// (Lucene 10.4.0).
+// (Apache Lucene 10.5.0).
 const FlatVectorsFormatMaxDimensions = 1024
 
 // FlatVectorsFormat is the Go port of
-// org.apache.lucene.codecs.hnsw.FlatVectorsFormat (Lucene 10.4.0). It
-// encodes/decodes per-document vectors and exposes a scoring interface
-// for flat (sequential, graph-less) stored vectors.
+// org.apache.lucene.codecs.hnsw.FlatVectorsFormat (Apache Lucene 10.5.0).
+// It encodes/decodes per-document vectors and provides a scoring interface
+// for the flat stored vectors.
 //
-// The Java reference is an abstract class extending KnnVectorsFormat
-// with two abstract methods (fieldsWriter / fieldsReader) and a
-// concrete getMaxDimensions returning the constant 1024. In Go the
-// class is encoded as an interface plus a struct base:
-//   - FlatVectorsFormat (interface) captures the abstract surface:
-//     callers receive [FlatVectorsWriter] / [FlatVectorsReader] back
-//     from the field factories, narrower than the parent
-//     KnnVectorsFormat which returns the wider KnnVectorsWriter /
-//     KnnVectorsReader contracts.
-//   - [BaseFlatVectorsFormat] embeds the parent codec base and
-//     supplies the concrete GetMaxDimensions default. Concrete formats
-//     embed *BaseFlatVectorsFormat to inherit Name + GetMaxDimensions
-//     and then implement FieldsWriter / FieldsReader themselves.
-//
-// The interface intentionally also satisfies
-// [codecs.KnnVectorsFormat]: an HNSW codec can store a FlatVectorsFormat
-// wherever it expects a KnnVectorsFormat and still construct
-// FlatVectorsReader/Writer instances through the narrower methods when
-// it needs flat-vector-specific operations.
+// The Java reference is an abstract class extending KnnVectorsFormat whose
+// fieldsWriter and fieldsReader narrow their return types to
+// FlatVectorsWriter and FlatVectorsReader. A Go interface cannot redeclare
+// the inherited [spi.KnnVectorsFormat] methods with covariant results, so the
+// narrowed factories are rendered as FlatFieldsWriter and FlatFieldsReader;
+// concrete formats implement FieldsWriter and FieldsReader by returning the
+// same instances.
 type FlatVectorsFormat interface {
-	codecs.KnnVectorsFormat
+	spi.KnnVectorsFormat
 
-	// FlatFieldsWriter returns a [FlatVectorsWriter] for the segment
-	// described by state. The narrower return type lets HNSW codecs
-	// recover the flat-vector-only contract from a FlatVectorsFormat
-	// instance.
-	FlatFieldsWriter(state *codecs.SegmentWriteState) (FlatVectorsWriter, error)
+	// FlatFieldsWriter returns a [FlatVectorsWriter] to write the vectors to
+	// the index. It is the covariant fieldsWriter(SegmentWriteState).
+	FlatFieldsWriter(state *spi.SegmentWriteState) (FlatVectorsWriter, error)
 
-	// FlatFieldsReader returns a [FlatVectorsReader] for the segment
-	// described by state, mirroring FlatFieldsWriter on the read path.
-	FlatFieldsReader(state *codecs.SegmentReadState) (FlatVectorsReader, error)
+	// FlatFieldsReader returns a [FlatVectorsReader] to read the vectors from
+	// the index. It is the covariant fieldsReader(SegmentReadState).
+	FlatFieldsReader(state *spi.SegmentReadState) (FlatVectorsReader, error)
 
-	// GetMaxDimensions returns the largest vector dimensionality this
-	// format supports for the given field name. The
-	// [BaseFlatVectorsFormat] default returns
-	// [FlatVectorsFormatMaxDimensions] regardless of fieldName, matching
-	// the Java reference.
+	// GetMaxDimensions returns the maximum number of vector dimensions
+	// supported for the given field name.
 	GetMaxDimensions(fieldName string) int
 }
 
-// BaseFlatVectorsFormat is the canonical zero-state of a
-// [FlatVectorsFormat]. Concrete formats embed *BaseFlatVectorsFormat
-// to inherit the Name + GetMaxDimensions defaults expected by the
-// abstract Java base, then provide their own FieldsWriter /
-// FieldsReader / FlatFieldsWriter / FlatFieldsReader implementations.
-//
-// BaseFlatVectorsFormat composes [codecs.BaseKnnVectorsFormat] so the
-// parent codec interface is satisfied for free. The two narrower
-// FlatFields* methods are not implemented here because the abstract
-// class promises no default behavior for them; concrete embedders
-// must override them.
+// BaseFlatVectorsFormat carries the concrete members of the abstract Java
+// class: the name handed to the protected constructor
+// FlatVectorsFormat(String name) and getMaxDimensions, which returns 1024.
+// Concrete formats embed *BaseFlatVectorsFormat and implement the field
+// factories themselves.
 type BaseFlatVectorsFormat struct {
-	*codecs.BaseKnnVectorsFormat
+	*spi.BaseKnnVectorsFormat
 }
 
 // NewBaseFlatVectorsFormat constructs a BaseFlatVectorsFormat with the
@@ -89,13 +66,12 @@ type BaseFlatVectorsFormat struct {
 // FlatVectorsFormat(String name).
 func NewBaseFlatVectorsFormat(name string) *BaseFlatVectorsFormat {
 	return &BaseFlatVectorsFormat{
-		BaseKnnVectorsFormat: codecs.NewBaseKnnVectorsFormat(name),
+		BaseKnnVectorsFormat: spi.NewBaseKnnVectorsFormat(name),
 	}
 }
 
-// GetMaxDimensions returns [FlatVectorsFormatMaxDimensions] regardless
-// of the field name. Concrete formats may override; the Java base
-// itself returns 1024 unconditionally.
+// GetMaxDimensions returns [FlatVectorsFormatMaxDimensions] regardless of
+// the field name, as FlatVectorsFormat.getMaxDimensions does.
 func (*BaseFlatVectorsFormat) GetMaxDimensions(_ string) int {
 	return FlatVectorsFormatMaxDimensions
 }

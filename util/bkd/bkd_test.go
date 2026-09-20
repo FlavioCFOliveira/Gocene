@@ -8,7 +8,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -82,7 +82,7 @@ func TestBKD_OneDimEqual(t *testing.T) {
 	}
 	f := buildReader(t, cfg, points, numDocs)
 
-	vis := &readerCaptureVisitor{relation: codecs.RelationCellInsideQuery}
+	vis := &readerCaptureVisitor{relation: spi.CellInsideQuery}
 	if err := f.r.Intersect(vis); err != nil {
 		t.Fatalf("Intersect: %v", err)
 	}
@@ -130,7 +130,7 @@ func TestBKD_TooLittleHeap(t *testing.T) {
 // that wraps the second temp output with a corruptingIndexOutput.
 func TestBKD_WithExceptions(t *testing.T) {
 	rng := verifyRNG(t)
-	numDocs := 1000 + rng.Intn(9001) // ~1000-10000
+	numDocs := 1000 + rng.Intn(9001)  // ~1000-10000
 	numBytesPerDim := 2 + rng.Intn(9) // [2, 10]
 	numDataDims := 1 + rng.Intn(MaxDims)
 	numIndexDims := 1 + rng.Intn(numDataDims)
@@ -154,8 +154,8 @@ func TestBKD_WithExceptions(t *testing.T) {
 
 	dir := &nthOutputCorruptingDir{
 		ByteBuffersDirectory: baseDir,
-		corruptAt:           2,
-		byteToCorrupt:       12,
+		corruptAt:            2,
+		byteToCorrupt:        12,
 	}
 
 	err := captureVerifyError(t, rng, dir, docValues, nil, numDataDims, numIndexDims, numBytesPerDim)
@@ -198,18 +198,18 @@ func (v *sortableIntRangeVisitor) VisitByPackedValue(docID int, packedValue []by
 	return nil
 }
 
-func (v *sortableIntRangeVisitor) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
+func (v *sortableIntRangeVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	if compareUnsigned(maxPackedValue, v.queryMin) < 0 {
-		return codecs.RelationCellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if compareUnsigned(minPackedValue, v.queryMax) > 0 {
-		return codecs.RelationCellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if compareUnsigned(minPackedValue, v.queryMin) >= 0 &&
 		compareUnsigned(maxPackedValue, v.queryMax) <= 0 {
-		return codecs.RelationCellInsideQuery
+		return spi.CellInsideQuery
 	}
-	return codecs.RelationCellCrossesQuery
+	return spi.CellCrossesQuery
 }
 
 func (v *sortableIntRangeVisitor) Grow(count int) {}
@@ -250,4 +250,24 @@ func containsStr(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *sortableIntRangeVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *sortableIntRangeVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *sortableIntRangeVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

@@ -7,7 +7,7 @@ package document
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // This file extends StoredField (defined in stored_field.go) with the
@@ -107,7 +107,7 @@ func (s *StoredField) StoredValue() *StoredValue {
 // NewStoredFieldFromDataInput creates a StoredField from a StoredFieldDataInput by
 // materialising all bytes from the stream into a binary stored field.
 // Mirrors Lucene's StoredField(String, StoredValue) with StoredValue(StoredFieldDataInput).
-func NewStoredFieldFromDataInput(name string, dataInput *index.StoredFieldDataInput) (*StoredField, error) {
+func NewStoredFieldFromDataInput(name string, dataInput *spi.StoredFieldDataInput) (*StoredField, error) {
 	if dataInput == nil {
 		return nil, fmt.Errorf("StoredFieldDataInput cannot be nil")
 	}
@@ -115,7 +115,7 @@ func NewStoredFieldFromDataInput(name string, dataInput *index.StoredFieldDataIn
 		return nil, fmt.Errorf("StoredFieldDataInput.In cannot be nil")
 	}
 	buf := make([]byte, dataInput.Length)
-	if err := dataInput.In.ReadBytes(buf); err != nil {
+	if err := dataInput.In.ReadBytes(buf, 0, dataInput.Length); err != nil {
 		return nil, fmt.Errorf("NewStoredFieldFromDataInput: read bytes: %w", err)
 	}
 	return NewStoredFieldFromBytes(name, buf)

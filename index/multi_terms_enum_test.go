@@ -46,7 +46,7 @@ func newMemTerms(field string, data map[string][]int) *memTerms {
 	return mt
 }
 
-func (m *memTerms) GetIterator() (TermsEnum, error) {
+func (m *memTerms) Iterator() (TermsEnum, error) {
 	return &memTermsEnum{owner: m, pos: -1}, nil
 }
 func (m *memTerms) GetIteratorWithSeek(seek *Term) (TermsEnum, error) {

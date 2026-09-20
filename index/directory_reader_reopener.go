@@ -166,16 +166,25 @@ func (dr *DirectoryReaderReopener) checkForChanges() (bool, error) {
 
 	// In NRT mode, check with the writer
 	if dr.writer != nil {
-		// Check if the writer has changes
-		// This is a simplified check - in reality we'd check version/generation
-		// For now, we assume no changes
-		return false, nil
+		// OpenIfChangedFromWriter returns nil if no changes
+		newReader, err := OpenIfChangedFromWriter(dr.current, dr.writer)
+		if err != nil {
+			return false, err
+		}
+		if newReader == nil {
+			return false, nil
+		}
+		// We don't want to update dr.current here, just check if changes exist
+		// Since NewReader is returned, changes exist.
+		return true, nil
 	}
 
 	// Non-NRT mode: check if segment infos have changed
-	// This would typically involve checking commit metadata
-	// For now, we assume no changes in non-NRT mode
-	return false, nil
+	isCurrent, err := dr.current.IsCurrent()
+	if err != nil {
+		return false, err
+	}
+	return !isCurrent, nil
 }
 
 // doReopen performs the actual reopen operation.
@@ -191,11 +200,14 @@ func (dr *DirectoryReaderReopener) doReopen() (*DirectoryReader, int64, error) {
 
 // reopenFromWriter performs an NRT reopen from the IndexWriter.
 func (dr *DirectoryReaderReopener) reopenFromWriter() (*DirectoryReader, int64, error) {
-	// In a real implementation, this would get the latest NRT reader from the writer
-	// For now, we return the current reader
-	generation := int64(1)
-
-	return dr.current, generation, nil
+	// Use the writer's GetReader to get a fresh NRT snapshot
+	// Lucene's DirectoryReader.openIfChanged(oldReader, writer) reopens with
+	// applyAllDeletes=true and writeAllDeletes=false.
+	newReader, err := dr.writer.GetReader(true, false)
+	if err != nil {
+		return nil, 0, err
+	}
+	return newReader.DirectoryReader, newReader.GetSegmentInfos().Generation(), nil
 }
 
 // reopenFromDirectory performs a reopen by reading from the directory.
@@ -205,11 +217,11 @@ func (dr *DirectoryReaderReopener) reopenFromDirectory() (*DirectoryReader, int6
 	}
 
 	// Open a new reader from the directory
-	// This would typically involve checking for new commits
-	// For now, we return the current reader
-	generation := int64(1)
-
-	return dr.current, generation, nil
+	newReader, err := OpenDirectoryReader(dr.current.directory)
+	if err != nil {
+		return nil, 0, err
+	}
+	return newReader, newReader.GetSegmentInfos().Generation(), nil
 }
 
 // GetCurrent returns the current DirectoryReader.

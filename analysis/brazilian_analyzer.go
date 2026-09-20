@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // BrazilianPortugueseStopWords contains common Brazilian Portuguese stop words.
@@ -88,21 +90,31 @@ func NewBrazilianAnalyzer() *BrazilianAnalyzer {
 // NewBrazilianAnalyzerWithWords creates a BrazilianAnalyzer with custom stop words.
 func NewBrazilianAnalyzerWithWords(stopWords *CharArraySet) *BrazilianAnalyzer {
 	a := &BrazilianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewBrazilianStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewBrazilianStemFilter(tok)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 
 	return a
 }
 
 // TokenStream creates a TokenStream for analyzing text.
-func (a *BrazilianAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (a *BrazilianAnalyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	return a.BaseAnalyzer.TokenStream(fieldName, reader)
 }
 
@@ -116,9 +128,8 @@ func (a *BrazilianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-// Ensure BrazilianAnalyzer implements Analyzer
-var _ Analyzer = (*BrazilianAnalyzer)(nil)
-var _ AnalyzerInterface = (*BrazilianAnalyzer)(nil)
+// Ensure BrazilianAnalyzer implements api.Analyzer
+var _ api.Analyzer = (*BrazilianAnalyzer)(nil)
 
 // BrazilianStemFilter implements light stemming for Brazilian Portuguese.
 type BrazilianStemFilter struct {
@@ -126,7 +137,7 @@ type BrazilianStemFilter struct {
 }
 
 // NewBrazilianStemFilter creates a new BrazilianStemFilter.
-func NewBrazilianStemFilter(input TokenStream) *BrazilianStemFilter {
+func NewBrazilianStemFilter(input api.TokenStream) *BrazilianStemFilter {
 	return &BrazilianStemFilter{
 		BaseTokenFilter: NewBaseTokenFilter(input),
 	}
@@ -219,7 +230,9 @@ func brazilianLightStem(term string) string {
 }
 
 // BrazilianStemFilterFactory creates BrazilianStemFilter instances.
-type BrazilianStemFilterFactory struct{}
+type BrazilianStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewBrazilianStemFilterFactory creates a new BrazilianStemFilterFactory.
 func NewBrazilianStemFilterFactory() *BrazilianStemFilterFactory {
@@ -227,9 +240,9 @@ func NewBrazilianStemFilterFactory() *BrazilianStemFilterFactory {
 }
 
 // Create creates a new BrazilianStemFilter.
-func (f *BrazilianStemFilterFactory) Create(input TokenStream) TokenFilter {
+func (f *BrazilianStemFilterFactory) Create(input api.TokenStream) api.TokenFilter {
 	return NewBrazilianStemFilter(input)
 }
 
 // Ensure BrazilianStemFilterFactory implements TokenFilterFactory
-var _ TokenFilterFactory = (*BrazilianStemFilterFactory)(nil)
+var _ api.TokenFilterFactory = (*BrazilianStemFilterFactory)(nil)

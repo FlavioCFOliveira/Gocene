@@ -75,7 +75,7 @@ type recordingTVFormat struct {
 }
 
 func (f *recordingTVFormat) Name() string { return "recording" }
-func (f *recordingTVFormat) VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error) {
+func (f *recordingTVFormat) VectorsWriter(_ store.Directory, _ *SegmentInfo, _ store.IOContext) (TermVectorsWriter, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -95,7 +95,6 @@ func (c *recordingCodec) Name() string                           { return "recor
 func (c *recordingCodec) PostingsFormat() PostingsFormat         { return nil }
 func (c *recordingCodec) StoredFieldsFormat() StoredFieldsFormat { return nil }
 func (c *recordingCodec) FieldInfosFormat() FieldInfosFormat     { return nil }
-func (c *recordingCodec) SegmentInfosFormat() SegmentInfosFormat { return nil }
 func (c *recordingCodec) SegmentInfoFormat() SegmentInfoFormat   { return nil }
 func (c *recordingCodec) TermVectorsFormat() TermVectorsFormat {
 	if c.tv == nil {
@@ -518,7 +517,7 @@ type accountableTVFormat struct {
 }
 
 func (f *accountableTVFormat) Name() string { return "acc" }
-func (f *accountableTVFormat) VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error) {
+func (f *accountableTVFormat) VectorsWriter(_ store.Directory, _ *SegmentInfo, _ store.IOContext) (TermVectorsWriter, error) {
 	return f.writer, nil
 }
 func (f *accountableTVFormat) VectorsReader(_ store.Directory, _ *SegmentInfo, _ *FieldInfos, _ store.IOContext) (TermVectorsReader, error) {
@@ -549,7 +548,6 @@ func (c *accountableCodec) Name() string                           { return "acc
 func (c *accountableCodec) PostingsFormat() PostingsFormat         { return nil }
 func (c *accountableCodec) StoredFieldsFormat() StoredFieldsFormat { return nil }
 func (c *accountableCodec) FieldInfosFormat() FieldInfosFormat     { return nil }
-func (c *accountableCodec) SegmentInfosFormat() SegmentInfosFormat { return nil }
 func (c *accountableCodec) SegmentInfoFormat() SegmentInfoFormat   { return nil }
 func (c *accountableCodec) TermVectorsFormat() TermVectorsFormat   { return c.tv }
 func (c *accountableCodec) CompoundFormat() CompoundFormat         { return nil }

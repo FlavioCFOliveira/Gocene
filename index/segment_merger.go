@@ -10,7 +10,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -85,11 +85,54 @@ func NewSegmentMerger(
 		MaxDocs:     make([]int, 0, len(readers)),
 		LiveDocs:    make([]util.Bits, 0, len(readers)),
 		Readers:     readers,
+
+		TermVectorsReaders: make([]TermVectorsReader, 0, len(readers)),
+		DocValuesProducers: make([]DocValuesProducer, 0, len(readers)),
+		FieldsProducers:    make([]FieldsProducer, 0, len(readers)),
+		PointsReaders:      make([]PointsReader, 0, len(readers)),
+		KnnVectorsReaders:  make([]KnnVectorsReader, 0, len(readers)),
 	}
 	for _, reader := range readers {
 		mergeState.FieldInfos = append(mergeState.FieldInfos, reader.GetFieldInfos())
 		mergeState.MaxDocs = append(mergeState.MaxDocs, reader.MaxDoc())
 		mergeState.LiveDocs = append(mergeState.LiveDocs, reader.GetLiveDocs())
+		// Java: docValuesProducers[i] = reader.getDocValuesReader(); if non-null
+		// it is replaced by its getMergeInstance() (MergeState.java:140-143).
+		docValuesProducer := reader.GetDocValuesReader()
+		if docValuesProducer != nil {
+			docValuesProducer = docValuesProducer.GetMergeInstance()
+		}
+		mergeState.DocValuesProducers = append(mergeState.DocValuesProducers, docValuesProducer)
+		// Java: pointsReaders[i] = reader.getPointsReader(); if non-null it is
+		// replaced by its getMergeInstance() (MergeState.java:160-163).
+		pointsReader := reader.GetPointsReader()
+		if pointsReader != nil {
+			pointsReader = pointsReader.GetMergeInstance()
+		}
+		mergeState.PointsReaders = append(mergeState.PointsReaders, pointsReader)
+		// Java: termVectorsReaders[i] = reader.getTermVectorsReader()
+		// (MergeState.java:150). The getMergeInstance() wrap that follows it in
+		// Java has no counterpart on spi.TermVectorsReader; see the field's
+		// doc comment on MergeState.
+		mergeState.TermVectorsReaders = append(mergeState.TermVectorsReaders, reader.GetTermVectorsReader())
+		// Java: fieldsProducers[i] = reader.getPostingsReader(); if non-null it
+		// is replaced by its getMergeInstance() (MergeState.java:155-157).
+		fieldsProducer := reader.GetPostingsReader()
+		if fieldsProducer != nil {
+			fieldsProducer = fieldsProducer.GetMergeInstance()
+		}
+		mergeState.FieldsProducers = append(mergeState.FieldsProducers, fieldsProducer)
+		// Java: knnVectorsReaders[i] = reader.getVectorReader(); if non-null it
+		// is replaced by its getMergeInstance() (MergeState.java:165-168).
+		knnVectorsReader := reader.GetVectorReader()
+		if knnVectorsReader != nil {
+			mergeInstance, err := knnVectorsReader.GetMergeInstance()
+			if err != nil {
+				return nil, err
+			}
+			knnVectorsReader = mergeInstance
+		}
+		mergeState.KnnVectorsReaders = append(mergeState.KnnVectorsReaders, knnVectorsReader)
 	}
 
 	// Resolve the codec for the merged segment: use the explicit codec when
@@ -111,7 +154,33 @@ func NewSegmentMerger(
 	// leaf's SegmentInfo.minVersion; Gocene's SegmentInfo does not yet expose
 	// a per-leaf minVersion, so the merged segment conservatively adopts the
 	// latest known version. Refined when SegmentInfo.minVersion lands.
-	_ = util.Latest
+	// Compute the minimum index version across all leaves.
+	minVersion := util.Latest
+	for _, reader := range readers {
+		si := reader.GetSegmentInfo()
+		if si == nil {
+			minVersion = nil
+			break
+		}
+		v, ok := si.MinVersion()
+		if !ok {
+			minVersion = nil
+			break
+		}
+		leafMinVersion, err := util.Parse(v)
+		if err != nil {
+			minVersion = nil
+			break
+		}
+		if minVersion == nil || minVersion.OnOrAfter(leafMinVersion) {
+			minVersion = leafMinVersion
+		}
+	}
+	if minVersion != nil {
+		segmentInfo.SetMinVersion(minVersion.String())
+	} else {
+		segmentInfo.SetMinVersion("")
+	}
 
 	if sm.infoStream.IsEnabled("SM") && segmentInfo.IndexSort() != nil {
 		sm.infoStream.Message("SM", "index sort during merge: "+segmentInfo.GetIndexSortDescription())
@@ -233,7 +302,7 @@ func (sm *SegmentMerger) mergeFieldInfos() error {
 			// different field names. Remap on collision so the merged FieldInfos
 			// remains valid; consumers resolve values by field name, not number.
 			if builder.FieldInfoByNumber(mergedFI.Number()) != nil {
-				mergedFI = schema.NewFieldInfo(mergedFI.Name(), builder.GetNextFieldNumber(), mergeFieldInfoOptions(mergedFI))
+				mergedFI = spi.NewFieldInfo(mergedFI.Name(), nextFreeFieldNumber(builder), mergeFieldInfoOptions(mergedFI))
 			}
 			if err := builder.Add(mergedFI); err != nil {
 				return fmt.Errorf("index: merge field infos: %w", err)
@@ -271,12 +340,31 @@ func mergeFieldInfoOptions(fi *FieldInfo) FieldInfoOptions {
 	}
 }
 
+// nextFreeFieldNumber returns the lowest field number that no FieldInfo in
+// builder occupies yet, i.e. one past the highest assigned number (or 0 when
+// builder is empty).
+//
+// PORT NOTE: Lucene draws merged field numbers from the writer-wide
+// FieldInfos.FieldNumbers registry, which Gocene does not share across the
+// index yet; this local allocator keeps the merged FieldInfos internally
+// consistent when two source segments assigned the same number to different
+// field names (see the call site in mergeFieldInfos).
+func nextFreeFieldNumber(builder *FieldInfos) int {
+	next := 0
+	for _, fi := range builder.Fields() {
+		if fi.Number() >= next {
+			next = fi.Number() + 1
+		}
+	}
+	return next
+}
+
 // cloneFieldInfoForMerge returns a FieldInfo suitable for the merged segment:
 // doc-values generation is reset to -1 and the per-field doc-values format
 // attributes that bind a field to a specific delegate file suffix are
 // removed so the merge writes fresh doc-values files.
 func cloneFieldInfoForMerge(fi *FieldInfo) *FieldInfo {
-	clone := schema.NewFieldInfo(fi.Name(), fi.Number(), mergeFieldInfoOptions(fi))
+	clone := spi.NewFieldInfo(fi.Name(), fi.Number(), mergeFieldInfoOptions(fi))
 	for k, v := range fi.GetAttributes() {
 		// Per-field doc-values format attributes bind a FieldInfo to the
 		// delegate file suffix used in its source segment. The merged segment
@@ -338,17 +426,14 @@ func (sm *SegmentMerger) mergeFields() (int, error) {
 
 	writeDoc := func(i, docID int) error {
 		reader := sm.MergeState.Readers[i]
-		sfr := reader.GetStoredFieldsReader()
+		sfr := reader.GetFieldsReader()
 		if err := writer.StartDocument(); err != nil {
 			return fmt.Errorf("index: merge stored fields: start doc: %w", err)
 		}
 		if sfr != nil {
-			visitor := &storedFieldsMergeVisitor{writer: writer}
+			visitor := &storedFieldsMergeVisitor{writer: writer, remapper: sm.MergeState.MergeFieldInfos}
 			if err := sfr.VisitDocument(docID, visitor); err != nil {
 				return fmt.Errorf("index: merge stored fields: visit doc %d of reader %d: %w", docID, i, err)
-			}
-			if visitor.err != nil {
-				return visitor.err
 			}
 		}
 		if err := writer.FinishDocument(); err != nil {
@@ -376,7 +461,7 @@ func (sm *SegmentMerger) mergeFields() (int, error) {
 			if reader == nil {
 				continue
 			}
-			if reader.GetStoredFieldsReader() == nil {
+			if reader.GetFieldsReader() == nil {
 				continue
 			}
 			maxDoc := sm.MergeState.MaxDocs[i]
@@ -402,7 +487,7 @@ func (sm *SegmentMerger) mergeFields() (int, error) {
 // stamped codec name if registered, else the process default.
 func resolveMergeCodec(segInfo *SegmentInfo) Codec {
 	if segInfo != nil {
-		if name := segInfo.Codec(); name != "" {
+		if name := segInfo.CodecName(); name != "" {
 			if c := LookupCodecByName(name); c != nil {
 				return c
 			}
@@ -412,39 +497,67 @@ func resolveMergeCodec(segInfo *SegmentInfo) Codec {
 }
 
 // storedFieldsMergeVisitor forwards each stored field decoded from a source
-// segment straight to the merged segment's StoredFieldsWriter. The first
-// WriteField error is captured and surfaced by mergeFields.
+// segment straight to the merged segment's StoredFieldsWriter.
+//
+// Mirrors the nested class org.apache.lucene.codecs.StoredFieldsWriter.MergeVisitor
+// (StoredFieldsWriter.java:196-267): every callback routes the source FieldInfo
+// through remap() before handing it to writeField.
 type storedFieldsMergeVisitor struct {
 	writer StoredFieldsWriter
-	err    error
+	// remapper is mergeState.mergeFieldInfos, consulted to resolve the source
+	// FieldInfo to the merged numbering.
+	remapper *FieldInfos
 }
 
-func (v *storedFieldsMergeVisitor) write(f *mergeStoredField) {
-	if v.err != nil {
-		return
+// remap resolves the source FieldInfo against the merged FieldInfos, so the
+// codec stamps the merged field number into the record. Mirrors the private
+// MergeVisitor.remap(FieldInfo) (StoredFieldsWriter.java:260-267); the source
+// FieldInfo passes through when no remapper was supplied.
+func (v *storedFieldsMergeVisitor) remap(field *FieldInfo) (*FieldInfo, error) {
+	if v.remapper == nil {
+		return field, nil
 	}
-	if err := v.writer.WriteField(f); err != nil {
-		v.err = fmt.Errorf("index: merge stored fields: write field %q: %w", f.name, err)
+	info := v.remapper.FieldInfoByName(field.Name())
+	if info == nil {
+		return nil, fmt.Errorf("index: merge stored fields: field %q is absent from the merged FieldInfos", field.Name())
 	}
+	return info, nil
 }
 
-func (v *storedFieldsMergeVisitor) StringField(field string, value string) {
-	v.write(&mergeStoredField{name: field, stringValue: value})
+func (v *storedFieldsMergeVisitor) write(fieldInfo *FieldInfo, f *mergeStoredField) error {
+	info, err := v.remap(fieldInfo)
+	if err != nil {
+		return err
+	}
+	if err := v.writer.WriteField(info, f); err != nil {
+		return fmt.Errorf("index: merge stored fields: write field %q: %w", f.name, err)
+	}
+	return nil
 }
-func (v *storedFieldsMergeVisitor) BinaryField(field string, value []byte) {
-	v.write(&mergeStoredField{name: field, binaryValue: value})
+
+// NeedsField accepts every field. Mirrors MergeVisitor.needsField, which
+// returns Status.YES unconditionally (StoredFieldsWriter.java:255-258).
+func (v *storedFieldsMergeVisitor) NeedsField(*FieldInfo) (StoredFieldVisitorStatus, error) {
+	return StoredFieldVisitorStatusYes, nil
 }
-func (v *storedFieldsMergeVisitor) IntField(field string, value int) {
-	v.write(&mergeStoredField{name: field, numericValue: value})
+
+func (v *storedFieldsMergeVisitor) StringField(fieldInfo *FieldInfo, value string) error {
+	return v.write(fieldInfo, &mergeStoredField{name: fieldInfo.Name(), stringValue: value})
 }
-func (v *storedFieldsMergeVisitor) LongField(field string, value int64) {
-	v.write(&mergeStoredField{name: field, numericValue: value})
+func (v *storedFieldsMergeVisitor) BinaryField(fieldInfo *FieldInfo, value []byte) error {
+	return v.write(fieldInfo, &mergeStoredField{name: fieldInfo.Name(), binaryValue: value})
 }
-func (v *storedFieldsMergeVisitor) FloatField(field string, value float32) {
-	v.write(&mergeStoredField{name: field, numericValue: value})
+func (v *storedFieldsMergeVisitor) IntField(fieldInfo *FieldInfo, value int) error {
+	return v.write(fieldInfo, &mergeStoredField{name: fieldInfo.Name(), numericValue: value})
 }
-func (v *storedFieldsMergeVisitor) DoubleField(field string, value float64) {
-	v.write(&mergeStoredField{name: field, numericValue: value})
+func (v *storedFieldsMergeVisitor) LongField(fieldInfo *FieldInfo, value int64) error {
+	return v.write(fieldInfo, &mergeStoredField{name: fieldInfo.Name(), numericValue: value})
+}
+func (v *storedFieldsMergeVisitor) FloatField(fieldInfo *FieldInfo, value float32) error {
+	return v.write(fieldInfo, &mergeStoredField{name: fieldInfo.Name(), numericValue: value})
+}
+func (v *storedFieldsMergeVisitor) DoubleField(fieldInfo *FieldInfo, value float64) error {
+	return v.write(fieldInfo, &mergeStoredField{name: fieldInfo.Name(), numericValue: value})
 }
 
 // mergeStoredField is a minimal spi.IndexableField carrying one decoded stored

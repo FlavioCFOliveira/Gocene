@@ -4,7 +4,11 @@
 
 package search
 
-import "math"
+import (
+	"fmt"
+
+	"math"
+)
 
 // ClassicSimWeight holds the weight for ClassicSimilarity.
 type ClassicSimWeight struct {
@@ -19,7 +23,7 @@ type ClassicSimWeight struct {
 func NewClassicSimWeight(sim *ClassicSimilarity, collectionStats *CollectionStatistics, termStats *TermStatistics, boost float32) *ClassicSimWeight {
 	idf := 1.0
 	if termStats != nil && collectionStats != nil && termStats.DocFreq() > 0 {
-		idf = sim.Idf(collectionStats.DocCount(), termStats.DocFreq())
+		idf = float64(sim.provider.Idf(int64(termStats.DocFreq()), int64(collectionStats.DocCount())))
 	}
 	return &ClassicSimWeight{
 		sim:             sim,
@@ -63,7 +67,7 @@ func NewClassicSimScorer(similarity *ClassicSimilarity, collectionStats *Collect
 		// ClassicSimilarity.idfExplain which derives IDF from
 		// CollectionStatistics.docCount(), not maxDoc(). This prevents
 		// field-less documents from skewing the score.
-		idf = similarity.Idf(collectionStats.DocCount(), termStats.DocFreq())
+		idf = float64(similarity.provider.Idf(int64(termStats.DocFreq()), int64(collectionStats.DocCount())))
 	}
 	return &ClassicSimScorer{
 		BaseSimScorer: NewBaseSimScorer(),
@@ -88,8 +92,8 @@ func NewClassicSimScorerWithWeight(weight *ClassicSimWeight) *ClassicSimScorer {
 // The norm argument mirrors Lucene's SimScorer.score(float, long) signature.
 // ClassicSimilarity's legacy Gocene scorer does not consult norms, so it is
 // intentionally ignored to preserve the existing behaviour of in-repo tests.
-func (s *ClassicSimScorer) Score(doc int, freq float32, norm int64) float32 {
-	tf := s.similarity.Tf(float64(freq))
+func (s *ClassicSimScorer) Score104(freq float32, norm int64) float32 {
+	tf := float64(s.similarity.provider.Tf(freq))
 	score := tf * s.idf
 	if s.weight != nil {
 		score *= float64(s.weight.boost)
@@ -122,4 +126,20 @@ func idf(totalDocs, docFreq int) float64 {
 		return 0
 	}
 	return math.Log(float64(totalDocs) / float64(docFreq))
+}
+
+// AsBulkSimScorer mirrors the concrete body of Similarity.SimScorer.asBulkSimScorer()
+// in Apache Lucene 10.5.0: new DefaultBulkSimScorer(this).
+func (c *ClassicSimScorer) AsBulkSimScorer() BulkSimScorer {
+	return NewDefaultBulkSimScorer(c)
+}
+
+// Explain104 mirrors the concrete body of Similarity.SimScorer.explain(Explanation, long)
+// in Apache Lucene 10.5.0: Explanation.match(score(freq.getValue().floatValue(), norm),
+// "score(freq=" + freq.getValue() + "), with freq of:", freq).
+func (c *ClassicSimScorer) Explain104(freq Explanation, norm int64) Explanation {
+	e := NewExplanation(true, c.Score104(freq.GetValue(), norm),
+		fmt.Sprintf("score(freq=%s), with freq of:", formatFloatGeneric(freq.GetValue())))
+	e.AddDetail(freq)
+	return e
 }

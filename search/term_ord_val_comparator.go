@@ -31,6 +31,8 @@ type sortedDocValuesReader interface {
 //
 // Mirrors org.apache.lucene.search.comparators.TermOrdValComparator.
 type termOrdValComparator struct {
+	BaseFieldComparator
+
 	field string
 
 	// ords[slot] is the term ordinal cached for the slot, valid only for the
@@ -57,6 +59,14 @@ type termOrdValComparator struct {
 	bottomOrd        int
 	bottomValue      []byte
 	bottomSameReader bool
+
+	// topValue is the term recorded by SetTopValue (nil means the last doc of
+	// the prior search was missing this value). topOrd / topSameReader are its
+	// per-leaf resolution, recomputed by setReader exactly as Lucene's
+	// TermOrdValLeafComparator constructor does.
+	topValue      []byte
+	topOrd        int
+	topSameReader bool
 
 	termsIndex index.SortedDocValues
 
@@ -88,7 +98,7 @@ func newTermOrdValComparator(numHits int, field string, sortMissingLast bool) *t
 // cross-segment slots compare by cached term bytes with the missing sentinel.
 //
 // Mirrors TermOrdValComparator.compare.
-func (c *termOrdValComparator) compare(slot1, slot2 int) int {
+func (c *termOrdValComparator) Compare(slot1, slot2 int) int {
 	if c.readerGen[slot1] == c.readerGen[slot2] {
 		return c.ords[slot1] - c.ords[slot2]
 	}
@@ -104,7 +114,7 @@ func (c *termOrdValComparator) compare(slot1, slot2 int) int {
 	return bytes.Compare(v1, v2)
 }
 
-func (c *termOrdValComparator) value(slot int) any {
+func (c *termOrdValComparator) Value(slot int) any {
 	v := c.values[slot]
 	if v == nil {
 		return nil
@@ -140,11 +150,67 @@ func (c *termOrdValComparator) setReader(reader IndexReader) error {
 	} else {
 		c.missingOrd = -1
 	}
+	// Recompute topOrd / topSameReader for the new segment.
+	if c.topValue != nil {
+		ord, err := c.lookupTerm(c.topValue)
+		if err != nil {
+			return err
+		}
+		if ord >= 0 {
+			c.topSameReader = true
+			c.topOrd = ord
+		} else {
+			c.topSameReader = false
+			c.topOrd = -ord - 2
+		}
+	} else {
+		c.topOrd = c.missingOrd
+		c.topSameReader = true
+	}
 	// If a bottom was set on a previous leaf, recompute its per-leaf ord.
 	if c.bottomSlot != -1 {
 		return c.SetBottom(c.bottomSlot)
 	}
 	return nil
+}
+
+// GetLeafComparator binds this comparator to the segment and returns itself as
+// its own per-leaf view.
+//
+// Mirrors TermOrdValComparator.getLeafComparator(LeafReaderContext), which
+// increments currentReaderGen and builds a TermOrdValLeafComparator; this port
+// carries no per-leaf skipping state, so the single instance is the leaf
+// comparator.
+func (c *termOrdValComparator) GetLeafComparator(context *index.LeafReaderContext) (LeafFieldComparator, error) {
+	if err := c.setReader(leafReaderOf(context)); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// SetTopValue records the top term for CompareTop. A nil value is meaningful:
+// it means the last doc of the prior search was missing this value.
+//
+// Mirrors TermOrdValComparator.setTopValue(BytesRef).
+func (c *termOrdValComparator) SetTopValue(value any) { c.topValue = topValueBytes(value) }
+
+// CompareValues orders two cached term values, with missing sorting according
+// to the comparator's missing-value placement.
+//
+// Mirrors TermOrdValComparator.compareValues(BytesRef, BytesRef), which
+// overrides the FieldComparator default.
+func (c *termOrdValComparator) CompareValues(first, second any) int {
+	val1 := bytesRefValue(first, "CompareValues")
+	val2 := bytesRefValue(second, "CompareValues")
+	if val1 == nil {
+		if val2 == nil {
+			return 0
+		}
+		return c.missingSortCmp
+	} else if val2 == nil {
+		return -c.missingSortCmp
+	}
+	return bytes.Compare(val1, val2)
 }
 
 // getOrdForDoc returns the term ordinal of doc, or -1 when the document has no
@@ -226,7 +292,29 @@ func (c *termOrdValComparator) CompareBottom(doc int) (int, error) {
 	return -1, nil
 }
 
-func (c *termOrdValComparator) CompareTop(doc int) (int, error) { return 0, nil }
+// CompareTop compares the top term recorded by SetTopValue with doc's term.
+// Same-reader compares by ordinal; otherwise the insertion point stored in
+// topOrd is a lower bound, so the equal case means doc sorts before the top.
+//
+// Mirrors TermOrdValComparator.TermOrdValLeafComparator.compareTop.
+func (c *termOrdValComparator) CompareTop(doc int) (int, error) {
+	ord, err := c.getOrdForDoc(doc)
+	if err != nil {
+		return 0, err
+	}
+	if ord == -1 {
+		ord = c.missingOrd
+	}
+	if c.topSameReader {
+		// ord is precisely comparable, even in the equal case.
+		return c.topOrd - ord, nil
+	} else if ord <= c.topOrd {
+		// The equals case always means doc is < value (because topOrd was set
+		// to the lower bound).
+		return 1, nil
+	}
+	return -1, nil
+}
 
 // Copy resolves and caches doc's ordinal and term bytes into the slot.
 //
@@ -255,34 +343,17 @@ func (c *termOrdValComparator) Copy(slot, doc int) error {
 
 func (c *termOrdValComparator) SetScorer(Scorable) error                       { return nil }
 func (c *termOrdValComparator) CompetitiveIterator() (DocIdSetIterator, error) { return nil, nil }
-func (c *termOrdValComparator) SetHitsThresholdReached()                       {}
+func (c *termOrdValComparator) SetHitsThresholdReached() error                 { return nil }
 
 // lookupTerm performs a binary search over the segment's ordinals for the given
 // term bytes. It returns the matching ordinal, or a negative insertion point
 // (-(insertionPoint)-1) when the term is absent — the same contract as Lucene's
-// SortedDocValues.lookupTerm, which the SPI surface does not expose directly.
+// SortedDocValues.lookupTerm, ported as index.SortedDocValuesLookupTerm.
 func (c *termOrdValComparator) lookupTerm(target []byte) (int, error) {
 	if c.termsIndex == nil {
 		return -1, nil
 	}
-	low, high := 0, c.termsIndex.GetValueCount()-1
-	for low <= high {
-		mid := int(uint(low+high) >> 1)
-		term, err := c.termsIndex.LookupOrd(mid)
-		if err != nil {
-			return 0, err
-		}
-		cmp := bytes.Compare(term, target)
-		switch {
-		case cmp < 0:
-			low = mid + 1
-		case cmp > 0:
-			high = mid - 1
-		default:
-			return mid, nil
-		}
-	}
-	return -(low + 1), nil
+	return index.SortedDocValuesLookupTerm(c.termsIndex, target)
 }
 
 // maxInt is the platform-independent maximum int used as the missing-last

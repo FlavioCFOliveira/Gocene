@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // LazyDocument defers actually loading a field's value until you ask for it.
@@ -18,7 +18,7 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.misc.document.LazyDocument.
 type LazyDocument struct {
-	reader     index.IndexReaderInterface
+	reader     spi.IndexReaderInterface
 	docID      int
 	doc        *Document
 	fields     map[int][]*LazyField
@@ -27,7 +27,7 @@ type LazyDocument struct {
 }
 
 // NewLazyDocument creates a new LazyDocument for the given reader and document ID.
-func NewLazyDocument(reader index.IndexReaderInterface, docID int) *LazyDocument {
+func NewLazyDocument(reader spi.IndexReaderInterface, docID int) *LazyDocument {
 	return &LazyDocument{
 		reader:     reader,
 		docID:      docID,
@@ -44,7 +44,7 @@ func NewLazyDocument(reader index.IndexReaderInterface, docID int) *LazyDocument
 //
 // The lazy loading of field values from all instances of field objects returned by
 // this method are all backed by a single Document per LazyDocument instance.
-func (ld *LazyDocument) GetField(fieldInfo *index.FieldInfo) *LazyField {
+func (ld *LazyDocument) GetField(fieldInfo *spi.FieldInfo) *LazyField {
 	ld.fieldNames[fieldInfo.Name()] = struct{}{}
 
 	values, exists := ld.fields[fieldInfo.Number()]
@@ -219,7 +219,7 @@ func (lf *LazyField) NumericValue() interface{} {
 }
 
 // FieldType returns the field type.
-func (lf *LazyField) FieldType() *FieldType {
+func (lf *LazyField) FieldType() spi.IndexableFieldType {
 	real, err := lf.getRealValue()
 	if err != nil {
 		return nil
@@ -244,7 +244,9 @@ func (lf *LazyField) ReaderValue() io.Reader {
 
 // TokenStream returns the TokenStream for the field value, or nil if the
 // underlying field has no TokenStream.
-func (lf *LazyField) TokenStream() analysis.TokenStream {
+//
+// Mirrors LazyDocument.LazyField#tokenStream(Analyzer, TokenStream).
+func (lf *LazyField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
 	real, err := lf.getRealValue()
 	if err != nil {
 		return nil
@@ -252,7 +254,47 @@ func (lf *LazyField) TokenStream() analysis.TokenStream {
 	if real == nil {
 		return nil
 	}
-	return real.TokenStream()
+	return real.TokenStream(analyzer, reuse)
+}
+
+// GetCharSequenceValue returns the field value as a character sequence.
+func (lf *LazyField) GetCharSequenceValue() string {
+	real, err := lf.getRealValue()
+	if err != nil {
+		return ""
+	}
+	if real == nil {
+		return ""
+	}
+	return real.GetCharSequenceValue()
+}
+
+// StoredValue returns the stored value of the underlying field.
+//
+// Mirrors LazyDocument.LazyField#storedValue().
+func (lf *LazyField) StoredValue() *StoredValue {
+	real, err := lf.getRealValue()
+	if err != nil {
+		return nil
+	}
+	if real == nil {
+		return nil
+	}
+	return real.StoredValue()
+}
+
+// InvertableType describes how the underlying field should be inverted.
+//
+// Mirrors LazyDocument.LazyField#invertableType().
+func (lf *LazyField) InvertableType() InvertableType {
+	real, err := lf.getRealValue()
+	if err != nil {
+		return InvertableTypeTokenStream
+	}
+	if real == nil {
+		return InvertableTypeTokenStream
+	}
+	return real.InvertableType()
 }
 
 // documentCollector is a StoredFieldVisitor that collects fields into a Document.
@@ -261,72 +303,103 @@ type documentCollector struct {
 }
 
 // Ensure documentCollector implements StoredFieldVisitor
-var _ index.StoredFieldVisitor = (*documentCollector)(nil)
+var _ spi.StoredFieldVisitor = (*documentCollector)(nil)
+
+// NeedsField accepts every stored field: documentCollector rebuilds the whole
+// document. Mirrors the YES-for-everything needsField of a load-all
+// StoredFieldVisitor.
+func (dc *documentCollector) NeedsField(*spi.FieldInfo) (spi.StoredFieldVisitorStatus, error) {
+	return spi.StoredFieldVisitorStatusYes, nil
+}
 
 // StringField is called for a stored string field.
-func (dc *documentCollector) StringField(field string, value string) {
+func (dc *documentCollector) StringField(fieldInfo *spi.FieldInfo, value string) error {
 	if dc.doc == nil {
 		dc.doc = NewDocument()
 	}
 	ft := NewFieldType()
 	ft.SetStored(true)
-	f, _ := NewField(field, value, ft)
+	f, err := NewField(fieldInfo.Name(), value, ft)
+	if err != nil {
+		return err
+	}
 	dc.doc.Add(f)
+	return nil
 }
 
 // BinaryField is called for a stored binary field.
-func (dc *documentCollector) BinaryField(field string, value []byte) {
+func (dc *documentCollector) BinaryField(fieldInfo *spi.FieldInfo, value []byte) error {
 	if dc.doc == nil {
 		dc.doc = NewDocument()
 	}
 	ft := NewFieldType()
 	ft.SetStored(true)
-	f, _ := NewField(field, value, ft)
+	f, err := NewField(fieldInfo.Name(), value, ft)
+	if err != nil {
+		return err
+	}
 	dc.doc.Add(f)
+	return nil
 }
 
 // IntField is called for a stored int field.
-func (dc *documentCollector) IntField(field string, value int) {
+func (dc *documentCollector) IntField(fieldInfo *spi.FieldInfo, value int) error {
 	if dc.doc == nil {
 		dc.doc = NewDocument()
 	}
 	ft := NewFieldType()
 	ft.SetStored(true)
-	f, _ := NewField(field, value, ft)
+	f, err := NewField(fieldInfo.Name(), value, ft)
+	if err != nil {
+		return err
+	}
 	dc.doc.Add(f)
+	return nil
 }
 
 // LongField is called for a stored long field.
-func (dc *documentCollector) LongField(field string, value int64) {
+func (dc *documentCollector) LongField(fieldInfo *spi.FieldInfo, value int64) error {
 	if dc.doc == nil {
 		dc.doc = NewDocument()
 	}
 	ft := NewFieldType()
 	ft.SetStored(true)
-	f, _ := NewField(field, value, ft)
+	f, err := NewField(fieldInfo.Name(), value, ft)
+	if err != nil {
+		return err
+	}
 	dc.doc.Add(f)
+	return nil
 }
 
 // FloatField is called for a stored float field.
-func (dc *documentCollector) FloatField(field string, value float32) {
+func (dc *documentCollector) FloatField(fieldInfo *spi.FieldInfo, value float32) error {
 	if dc.doc == nil {
 		dc.doc = NewDocument()
 	}
 	ft := NewFieldType()
 	ft.SetStored(true)
-	f, _ := NewField(field, value, ft)
+	f, err := NewField(fieldInfo.Name(), value, ft)
+	if err != nil {
+		return err
+	}
 	dc.doc.Add(f)
+	return nil
 }
 
 // DoubleField is called for a stored double field.
-func (dc *documentCollector) DoubleField(field string, value float64) {
+func (dc *documentCollector) DoubleField(fieldInfo *spi.FieldInfo, value float64) error {
 	if dc.doc == nil {
 		dc.doc = NewDocument()
 	}
 	ft := NewFieldType()
 	ft.SetStored(true)
-	f, _ := NewField(field, value, ft)
+	f, err := NewField(fieldInfo.Name(), value, ft)
+	if err != nil {
+		return err
+	}
 	dc.doc.Add(f)
+	return nil
 }
 
 // Ensure LazyField implements IndexableField

@@ -6,6 +6,8 @@ package function
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -33,13 +35,13 @@ func NewFunctionQuery(function ValueSource) *FunctionQuery {
 func (q *FunctionQuery) GetValueSource() ValueSource { return q.function }
 
 // Rewrite returns the query itself; FunctionQuery does not simplify further.
-func (q *FunctionQuery) Rewrite(_ search.IndexReader) (search.Query, error) { return q, nil }
+func (q *FunctionQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) { return q, nil }
 
 // Clone returns a defensive copy of the query.
 func (q *FunctionQuery) Clone() search.Query { return &FunctionQuery{function: q.function} }
 
 // Equals checks structural equality with another query.
-func (q *FunctionQuery) Equals(other search.Query) bool {
+func (q *FunctionQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*FunctionQuery)
 	if !ok || o == nil {
 		return false
@@ -57,7 +59,7 @@ func (q *FunctionQuery) HashCode() int {
 
 // CreateWeight returns a search.Weight that scores documents via the
 // wrapped ValueSource.
-func (q *FunctionQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
+func (q *FunctionQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
 	w := &functionWeight{
 		BaseWeight: search.NewBaseWeight(q),
 		query:      q,
@@ -109,7 +111,7 @@ func (w *functionWeight) ScorerSupplier(ctx *index.LeafReaderContext) (search.Sc
 	if scorer == nil {
 		return nil, nil
 	}
-	return search.NewScorerSupplierAdapter(scorer), nil
+	return search.NewDefaultScorerSupplier(scorer), nil
 }
 
 // BulkScorer delegates to the default per-doc bulk scorer.
@@ -193,12 +195,12 @@ func newFunctionAllScorer(w *functionWeight, leaf *index.LeafReaderContext, vals
 	}
 }
 
-func (s *functionAllScorer) DocID() int                      { return s.iter.DocID() }
-func (s *functionAllScorer) NextDoc() (int, error)           { return s.iter.NextDoc() }
-func (s *functionAllScorer) Advance(target int) (int, error) { return s.iter.Advance(target) }
-func (s *functionAllScorer) Cost() int64                     { return s.iter.Cost() }
-func (s *functionAllScorer) DocIDRunEnd() int                { return s.iter.DocIDRunEnd() }
-func (s *functionAllScorer) GetMaxScore(_ int) float32       { return float32(math.Inf(1)) }
+func (s *functionAllScorer) DocID() int                         { return s.iter.DocID() }
+func (s *functionAllScorer) NextDoc() (int, error)              { return s.iter.NextDoc() }
+func (s *functionAllScorer) Advance(target int) (int, error)    { return s.iter.Advance(target) }
+func (s *functionAllScorer) Cost() int64                        { return s.iter.Cost() }
+func (s *functionAllScorer) DocIDRunEnd() (int, error)          { return s.iter.DocIDRunEnd() }
+func (s *functionAllScorer) GetMaxScore(_ int) (float32, error) { return float32(math.Inf(1)), nil }
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. This scorer does not expose
@@ -208,12 +210,46 @@ func (s *functionAllScorer) AdvanceShallow(target int) (int, error) {
 }
 
 // Score returns boost * floatVal(docID), with negatives/NaN collapsed to 0.
-func (s *functionAllScorer) Score() float32 {
+func (s *functionAllScorer) Score() (float32, error) {
 	val, err := s.vals.FloatVal(s.iter.DocID())
 	if err != nil {
-		return 0
+		return 0, err
 	}
-	return s.boost * normaliseScore(val)
+	return s.boost * normaliseScore(val), nil
+}
+
+// Iterator returns the DocIdSetIterator view of this scorer (Java: iterator()).
+func (s *functionAllScorer) Iterator() search.DocIdSetIterator { return &functionAllIterator{s: s} }
+
+// TwoPhaseIterator carries Scorer#twoPhaseIterator()'s default body (null).
+func (s *functionAllScorer) TwoPhaseIterator() *search.TwoPhaseIterator { return nil }
+
+// GetChildren carries Scorable.getChildren()'s default body (empty list).
+func (s *functionAllScorer) GetChildren() ([]search.ChildScorable, error) {
+	return []search.ChildScorable{}, nil
+}
+
+// SmoothingScore carries Scorable.smoothingScore(int)'s default body (0f).
+func (s *functionAllScorer) SmoothingScore(docID int) (float32, error) { return 0, nil }
+
+// SetMinCompetitiveScore carries Scorable.setMinCompetitiveScore's empty default.
+func (s *functionAllScorer) SetMinCompetitiveScore(minScore float32) error { return nil }
+
+// NextDocsAndScores carries Scorer#nextDocsAndScores's default body.
+func (s *functionAllScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// functionAllIterator is the DocIdSetIterator view of functionAllScorer.
+type functionAllIterator struct{ s *functionAllScorer }
+
+func (it *functionAllIterator) DocID() int                 { return it.s.DocID() }
+func (it *functionAllIterator) Cost() int64                { return it.s.Cost() }
+func (it *functionAllIterator) NextDoc() (int, error)      { return it.s.NextDoc() }
+func (it *functionAllIterator) Advance(t int) (int, error) { return it.s.Advance(t) }
+func (it *functionAllIterator) DocIDRunEnd() (int, error)  { return it.s.DocIDRunEnd() }
+func (it *functionAllIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
 }
 
 // Ensure interface conformance.
@@ -222,3 +258,10 @@ var (
 	_ search.Weight = (*functionWeight)(nil)
 	_ search.Scorer = (*functionAllScorer)(nil)
 )
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *functionAllScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

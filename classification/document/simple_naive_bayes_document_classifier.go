@@ -159,7 +159,7 @@ func (c *SimpleNaiveBayesDocumentClassifier) assignNormClasses(inputDocument *do
 		return nil, err
 	}
 
-	it, err := classes.GetIterator()
+	it, err := classes.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -262,15 +262,15 @@ func (c *SimpleNaiveBayesDocumentClassifier) getTextTermFreqForClass(term *index
 
 // getWordFreqForClass counts docs labelled term that contain word in fieldName.
 func (c *SimpleNaiveBayesDocumentClassifier) getWordFreqForClass(word, fieldName string, term *index.Term) (int, error) {
-	subQ := search.NewBooleanQuery()
+	subQ := search.NewBooleanQueryBuilder()
 	subQ.Add(search.NewTermQuery(index.NewTerm(fieldName, word)), search.SHOULD)
-	bq := search.NewBooleanQuery()
-	bq.Add(subQ, search.MUST)
+	bq := search.NewBooleanQueryBuilder()
+	bq.Add(subQ.Build(), search.MUST)
 	bq.Add(search.NewTermQuery(term), search.MUST)
 	if c.query != nil {
 		bq.Add(c.query, search.MUST)
 	}
-	return countQuery(c.searcher, bq)
+	return countQuery(c.searcher, bq.Build())
 }
 
 // ---- local helpers ----------------------------------------------------------
@@ -293,7 +293,7 @@ func docFreqForTerm(reader termsProvider, term *index.Term) (int, error) {
 	if terms == nil {
 		return 0, nil
 	}
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
 		return 0, err
 	}
@@ -322,12 +322,12 @@ func countDocsWithClass(reader termsProvider, searcher *search.IndexSearcher, cl
 	}
 	if cnt == -1 {
 		wq := search.NewWildcardQuery(index.NewTerm(classFieldName, "*"))
-		bq := search.NewBooleanQuery()
+		bq := search.NewBooleanQueryBuilder()
 		bq.Add(wq, search.MUST)
 		if filterQuery != nil {
 			bq.Add(filterQuery, search.MUST)
 		}
-		return countQuery(searcher, bq)
+		return countQuery(searcher, bq.Build())
 	}
 	if cnt == 0 {
 		// Use sumDocFreq as proxy for a single-valued class field.
@@ -339,7 +339,7 @@ func countDocsWithClass(reader termsProvider, searcher *search.IndexSearcher, cl
 			return int(sumDocFreq), nil
 		}
 		// Last resort: sum per-class docFreq.
-		it, err := classTerms.GetIterator()
+		it, err := classTerms.Iterator()
 		if err != nil {
 			return 0, err
 		}

@@ -116,7 +116,7 @@ func TestChecksumIndexInput_ReadBytes(t *testing.T) {
 	defer checksumInput.Close()
 
 	buf := make([]byte, len(testData))
-	if err := checksumInput.ReadBytes(buf); err != nil {
+	if err := checksumInput.ReadBytes(buf, 0, len(buf)); err != nil {
 		t.Fatalf("Failed to read bytes: %v", err)
 	}
 
@@ -154,7 +154,7 @@ func TestChecksumIndexInput_Seek(t *testing.T) {
 	defer checksumInput.Close()
 
 	buf := make([]byte, 5)
-	if err := checksumInput.ReadBytes(buf); err != nil {
+	if err := checksumInput.ReadBytes(buf, 0, len(buf)); err != nil {
 		t.Fatalf("Failed to read: %v", err)
 	}
 	oldChecksum := checksumInput.GetChecksum()
@@ -184,7 +184,7 @@ func TestChecksumIndexInput_Clone(t *testing.T) {
 	defer checksumInput.Close()
 
 	buf := make([]byte, 5)
-	if err := checksumInput.ReadBytes(buf); err != nil {
+	if err := checksumInput.ReadBytes(buf, 0, len(buf)); err != nil {
 		t.Fatalf("Failed to read: %v", err)
 	}
 
@@ -228,7 +228,7 @@ func TestChecksumIndexInput_VerifyChecksum(t *testing.T) {
 	defer checksumInput.Close()
 
 	buf := make([]byte, len(testData))
-	if err := checksumInput.ReadBytes(buf); err != nil {
+	if err := checksumInput.ReadBytes(buf, 0, len(buf)); err != nil {
 		t.Fatalf("Failed to read: %v", err)
 	}
 

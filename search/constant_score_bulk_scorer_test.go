@@ -48,11 +48,11 @@ func (it *mockDocIdSetIterator) Advance(target int) (int, error) {
 	return it.DocID(), nil
 }
 
-func (it *mockDocIdSetIterator) DocIDRunEnd() int {
+func (it *mockDocIdSetIterator) DocIDRunEnd() (int, error) {
 	if it.pos < 0 || it.pos >= len(it.docs) {
-		return search.NO_MORE_DOCS
+		return search.NO_MORE_DOCS, nil
 	}
-	return it.DocID() + 1
+	return it.DocID() + 1, nil
 }
 
 func (it *mockDocIdSetIterator) Cost() int64 {
@@ -60,7 +60,7 @@ func (it *mockDocIdSetIterator) Cost() int64 {
 }
 
 type mockTwoPhaseIterator struct {
-	approx   util.DocIdSetIterator
+	approx  util.DocIdSetIterator
 	matches map[int]bool
 }
 
@@ -132,7 +132,8 @@ func (c *mockLeafCollector) CompetitiveIterator() (util.DocIdSetIterator, error)
 	return c.compIter, nil
 }
 
-func (c *mockLeafCollector) Finish() error { return nil
+func (c *mockLeafCollector) Finish() error {
+	return nil
 }
 
 func TestConstantScoreBulkScorer_Constructor(t *testing.T) {
@@ -157,58 +158,58 @@ func TestConstantScoreBulkScorer_Constructor(t *testing.T) {
 
 func TestConstantScoreBulkScorer_Score_NonCompetitive(t *testing.T) {
 	tests := []struct {
-		name           string
-		docs           []int
+		name            string
+		docs            []int
 		twoPhaseMatches []int
-		acceptDocs     []int
-		min            int
-		max            int
-		expected       []int
+		acceptDocs      []int
+		min             int
+		max             int
+		expected        []int
 	}{
 		{
-			name:           "Simple",
-			docs:           []int{10, 20, 30},
+			name:            "Simple",
+			docs:            []int{10, 20, 30},
 			twoPhaseMatches: nil,
-			acceptDocs:     nil,
-			min:            0,
-			max:            100,
-			expected:       []int{10, 20, 30},
+			acceptDocs:      nil,
+			min:             0,
+			max:             100,
+			expected:        []int{10, 20, 30},
 		},
 		{
-			name:           "WithMinMax",
-			docs:           []int{10, 20, 30, 40},
+			name:            "WithMinMax",
+			docs:            []int{10, 20, 30, 40},
 			twoPhaseMatches: nil,
-			acceptDocs:     nil,
-			min:            15,
-			max:            35,
-			expected:       []int{20, 30},
+			acceptDocs:      nil,
+			min:             15,
+			max:             35,
+			expected:        []int{20, 30},
 		},
 		{
-			name:           "WithTwoPhase",
-			docs:           []int{10, 20, 30},
+			name:            "WithTwoPhase",
+			docs:            []int{10, 20, 30},
 			twoPhaseMatches: []int{10, 30},
-			acceptDocs:     nil,
-			min:            0,
-			max:            100,
-			expected:       []int{10, 30},
+			acceptDocs:      nil,
+			min:             0,
+			max:             100,
+			expected:        []int{10, 30},
 		},
 		{
-			name:           "WithAcceptDocs",
-			docs:           []int{10, 20, 30},
+			name:            "WithAcceptDocs",
+			docs:            []int{10, 20, 30},
 			twoPhaseMatches: nil,
-			acceptDocs:     []int{10, 30},
-			min:            0,
-			max:            100,
-			expected:       []int{10, 30},
+			acceptDocs:      []int{10, 30},
+			min:             0,
+			max:             100,
+			expected:        []int{10, 30},
 		},
 		{
-			name:           "TwoPhaseAndAcceptDocs",
-			docs:           []int{10, 20, 30},
+			name:            "TwoPhaseAndAcceptDocs",
+			docs:            []int{10, 20, 30},
 			twoPhaseMatches: []int{10, 20},
-			acceptDocs:     []int{20, 30},
-			min:            0,
-			max:            100,
-			expected:       []int{20},
+			acceptDocs:      []int{20, 30},
+			min:             0,
+			max:             100,
+			expected:        []int{20},
 		},
 	}
 
@@ -261,44 +262,44 @@ func TestConstantScoreBulkScorer_Score_NonCompetitive(t *testing.T) {
 
 func TestConstantScoreBulkScorer_Score_Competitive(t *testing.T) {
 	tests := []struct {
-		name           string
-		docs           []int
-		compDocs       []int
+		name            string
+		docs            []int
+		compDocs        []int
 		twoPhaseMatches []int
-		acceptDocs     []int
-		min            int
-		max            int
-		expected       []int
+		acceptDocs      []int
+		min             int
+		max             int
+		expected        []int
 	}{
 		{
-			name:           "SimpleCompetitive",
-			docs:           []int{10, 20, 30},
-			compDocs:       []int{15, 25, 35},
+			name:            "SimpleCompetitive",
+			docs:            []int{10, 20, 30},
+			compDocs:        []int{15, 25, 35},
 			twoPhaseMatches: nil,
-			acceptDocs:     nil,
-			min:            0,
-			max:            100,
-			expected:       []int{}, // No overlap
+			acceptDocs:      nil,
+			min:             0,
+			max:             100,
+			expected:        []int{}, // No overlap
 		},
 		{
-			name:           "OverlapCompetitive",
-			docs:           []int{10, 20, 30},
-			compDocs:       []int{10, 25, 30},
+			name:            "OverlapCompetitive",
+			docs:            []int{10, 20, 30},
+			compDocs:        []int{10, 25, 30},
 			twoPhaseMatches: nil,
-			acceptDocs:     nil,
-			min:            0,
-			max:            100,
-			expected:       []int{10, 30},
+			acceptDocs:      nil,
+			min:             0,
+			max:             100,
+			expected:        []int{10, 30},
 		},
 		{
-			name:           "CompetitiveWithTwoPhase",
-			docs:           []int{10, 20, 30},
-			compDocs:       []int{10, 20, 30},
+			name:            "CompetitiveWithTwoPhase",
+			docs:            []int{10, 20, 30},
+			compDocs:        []int{10, 20, 30},
 			twoPhaseMatches: []int{10, 30},
-			acceptDocs:     nil,
-			min:            0,
-			max:            100,
-			expected:       []int{10, 30},
+			acceptDocs:      nil,
+			min:             0,
+			max:             100,
+			expected:        []int{10, 30},
 		},
 	}
 
@@ -365,4 +366,11 @@ func TestConstantScoreBulkScorer_Windowing(t *testing.T) {
 	if len(collector.collected) != len(expected) {
 		t.Errorf("expected %v, got %v", expected, collector.collected)
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *mockDocIdSetIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
 }

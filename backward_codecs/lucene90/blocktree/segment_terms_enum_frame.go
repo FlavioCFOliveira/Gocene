@@ -24,7 +24,7 @@ type compressionInputAdapter struct {
 }
 
 func (a compressionInputAdapter) ReadVInt() (int32, error)  { return store.ReadVInt(a.DataInput) }
-func (a compressionInputAdapter) ReadVLong() (int64, error) { return store.ReadVLong(a.DataInput) }
+func (a compressionInputAdapter) ReadVLong() (int64, error) { return a.DataInput.ReadVLong() }
 
 // asCompressionInput returns in as a [codecs.CompressionInput], wrapping it
 // in an adapter when it doesn't already satisfy the interface natively
@@ -114,6 +114,12 @@ type segmentTermsEnumFrame struct {
 	// metadata have been decoded so far.
 	metaDataUpto int
 
+	// termStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which the codec narrows back with a type assertion. The
+	// BlockTermState field beside it is the widened view of that same object.
+	termStateRef index.TermState
+
 	// state holds the decoded per-term postings state for lazy decode.
 	state *codecs.BlockTermState
 
@@ -155,10 +161,11 @@ func newSegmentTermsEnumFrame(ste *SegmentTermsEnum, ord int) *segmentTermsEnumF
 		compressionAlg:      noCompression,
 	}
 	if ste.fr != nil && ste.fr.parent != nil && ste.fr.parent.postingsReader != nil {
-		f.state = ste.fr.parent.postingsReader.NewTermState()
+		f.termStateRef = ste.fr.parent.postingsReader.NewTermState()
 	} else {
-		f.state = codecs.NewBlockTermState()
+		f.termStateRef = codecs.NewBlockTermState()
 	}
+	f.state = codecs.BaseState(f.termStateRef)
 	f.state.TotalTermFreq = -1
 	return f
 }
@@ -227,7 +234,7 @@ func (f *segmentTermsEnumFrame) loadBlock() error {
 	startSuffixFP := in.GetFilePointer()
 
 	// Suffix encoding: VLong = (numSuffixBytes << 3) | (isLeaf << 2) | comprAlgCode.
-	codeL, err := store.ReadVLong(in)
+	codeL, err := in.ReadVLong()
 	if err != nil {
 		return fmt.Errorf("loadBlock: read suffix code: %w", err)
 	}
@@ -265,7 +272,7 @@ func (f *segmentTermsEnumFrame) loadBlock() error {
 			f.suffixLengthBytes[i] = b
 		}
 	} else {
-		if err := in.ReadBytes(f.suffixLengthBytes[:numSuffixLengthBytes]); err != nil {
+		if err := in.ReadBytes(f.suffixLengthBytes, 0, numSuffixLengthBytes); err != nil {
 			return fmt.Errorf("loadBlock: read suffix lengths: %w", err)
 		}
 	}
@@ -282,7 +289,7 @@ func (f *segmentTermsEnumFrame) loadBlock() error {
 	if len(f.statBytes) < nb {
 		f.statBytes = make([]byte, util.Oversize(nb, 1))
 	}
-	if err := in.ReadBytes(f.statBytes[:nb]); err != nil {
+	if err := in.ReadBytes(f.statBytes, 0, nb); err != nil {
 		return fmt.Errorf("loadBlock: read statBytes: %w", err)
 	}
 	f.statsReader.ResetWithSlice(f.statBytes, 0, nb)
@@ -302,7 +309,7 @@ func (f *segmentTermsEnumFrame) loadBlock() error {
 	if len(f.bytes) < nm {
 		f.bytes = make([]byte, util.Oversize(nm, 1))
 	}
-	if err := in.ReadBytes(f.bytes[:nm]); err != nil {
+	if err := in.ReadBytes(f.bytes, 0, nm); err != nil {
 		return fmt.Errorf("loadBlock: read metaBytes: %w", err)
 	}
 	f.bytesReader.ResetWithSlice(f.bytes, 0, nm)
@@ -321,7 +328,7 @@ func (f *segmentTermsEnumFrame) rewind() {
 		// rewindPos is always a valid position — it was captured from
 		// GetPosition() after SetFloorData. Ignore the error (out-of-range
 		// would be a programming error, not a runtime condition).
-		_ = f.floorDataReader.SetPosition(f.rewindPos)
+		f.floorDataReader.SetPosition(f.rewindPos)
 		numFollow, _ := f.floorDataReader.ReadVInt()
 		f.numFollowFloorBlocks = int(numFollow)
 		b, _ := f.floorDataReader.ReadByte()
@@ -354,7 +361,7 @@ func (f *segmentTermsEnumFrame) nextLeaf() error {
 	f.startBytePos = f.suffixesReader.GetPosition()
 	newLen := f.prefixLength + f.suffixLength
 	f.ste.growTerm(newLen)
-	if err := f.suffixesReader.ReadBytes(f.ste.term.Bytes()[f.prefixLength:newLen]); err != nil {
+	if err := f.suffixesReader.ReadBytes(f.ste.term.Bytes(), f.prefixLength, f.suffixLength); err != nil {
 		return fmt.Errorf("nextLeaf: read suffix bytes: %w", err)
 	}
 	f.ste.termExists = true
@@ -387,7 +394,7 @@ func (f *segmentTermsEnumFrame) nextNonLeaf() (bool, error) {
 		f.startBytePos = f.suffixesReader.GetPosition()
 		newLen := f.prefixLength + f.suffixLength
 		f.ste.growTerm(newLen)
-		if err := f.suffixesReader.ReadBytes(f.ste.term.Bytes()[f.prefixLength:newLen]); err != nil {
+		if err := f.suffixesReader.ReadBytes(f.ste.term.Bytes(), f.prefixLength, f.suffixLength); err != nil {
 			return false, fmt.Errorf("nextNonLeaf: read suffix bytes: %w", err)
 		}
 		if code&1 == 0 {
@@ -488,7 +495,7 @@ func (f *segmentTermsEnumFrame) decodeMetaData() error {
 		}
 		if f.ste.fr.parent != nil && f.ste.fr.parent.postingsReader != nil && f.ste.fr.fieldInfo != nil {
 			if err := f.ste.fr.parent.postingsReader.DecodeTerm(
-				f.bytesReader, f.ste.fr.fieldInfo, f.state, absolute,
+				f.bytesReader, f.ste.fr.fieldInfo, f.termStateRef, absolute,
 			); err != nil {
 				return fmt.Errorf("decodeMetaData: DecodeTerm: %w", err)
 			}
@@ -517,9 +524,7 @@ func (f *segmentTermsEnumFrame) scanToSubBlock(subFP int64) error {
 		}
 		suffLen := int(uint32(code) >> 1)
 		curPos := f.suffixesReader.GetPosition()
-		if err := f.suffixesReader.SetPosition(curPos + suffLen); err != nil {
-			return fmt.Errorf("scanToSubBlock: skip suffix: %w", err)
-		}
+		f.suffixesReader.SetPosition(curPos + suffLen)
 		if code&1 != 0 {
 			subCode, err := f.suffixLengthsReader.ReadVLong()
 			if err != nil {
@@ -566,9 +571,7 @@ func (f *segmentTermsEnumFrame) scanToTermLeaf(target *util.BytesRef, exactOnly 
 		}
 		f.suffixLength = int(suffLen)
 		f.startBytePos = f.suffixesReader.GetPosition()
-		if err := f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength); err != nil {
-			return 0, fmt.Errorf("scanToTermLeaf: skip suffix: %w", err)
-		}
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 		cmp := bytes.Compare(
 			f.suffixBytes[f.startBytePos:f.startBytePos+f.suffixLength],
 			target.Bytes[target.Offset+f.prefixLength:target.Offset+target.Length],
@@ -624,9 +627,7 @@ func (f *segmentTermsEnumFrame) binarySearchTermLeaf(target *util.BytesRef, exac
 		} else if cmp > 0 {
 			end = mid - 1
 		} else {
-			if err := f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength); err != nil {
-				return 0, fmt.Errorf("binarySearchTermLeaf: set position: %w", err)
-			}
+			f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 			f.fillTerm()
 			return index.SeekStatusFound, nil
 		}
@@ -637,15 +638,11 @@ func (f *segmentTermsEnumFrame) binarySearchTermLeaf(target *util.BytesRef, exac
 			f.startBytePos += f.suffixLength
 			f.nextEnt++
 		}
-		if err := f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength); err != nil {
-			return 0, fmt.Errorf("binarySearchTermLeaf: set position after not-found: %w", err)
-		}
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 		f.fillTerm()
 		return index.SeekStatusNotFound, nil
 	}
-	if err := f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength); err != nil {
-		return 0, fmt.Errorf("binarySearchTermLeaf: set position at end: %w", err)
-	}
+	f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 	if exactOnly {
 		f.fillTerm()
 	}
@@ -670,9 +667,7 @@ func (f *segmentTermsEnumFrame) scanToTermNonLeaf(target *util.BytesRef, exactOn
 		}
 		f.suffixLength = int(uint32(code) >> 1)
 		f.startBytePos = f.suffixesReader.GetPosition()
-		if err := f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength); err != nil {
-			return 0, fmt.Errorf("scanToTermNonLeaf: skip suffix: %w", err)
-		}
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 		f.ste.termExists = (code & 1) == 0
 		if f.ste.termExists {
 			f.state.TermBlockOrd++

@@ -375,8 +375,8 @@ func (w *FreqProxTermsWriterPerField) newTerm(termID, docID int) error {
 	postings.LastDocIDs[termID] = docID
 	if !w.hasFreq {
 		postings.LastDocCodes[termID] = docID
-		if w.fieldState.MaxTermFrequency < 1 {
-			w.fieldState.SetMaxTermFrequency(1)
+		if w.fieldState.maxTermFrequency < 1 {
+			w.fieldState.maxTermFrequency = 1
 		}
 	} else {
 		postings.LastDocCodes[termID] = docID << 1
@@ -388,11 +388,11 @@ func (w *FreqProxTermsWriterPerField) newTerm(termID, docID int) error {
 				w.writeOffsets(termID, w.fieldState.Offset())
 			}
 		}
-		if freq > w.fieldState.MaxTermFrequency {
-			w.fieldState.SetMaxTermFrequency(freq)
+		if freq > w.fieldState.maxTermFrequency {
+			w.fieldState.maxTermFrequency = freq
 		}
 	}
-	w.fieldState.SetUniqueTermCount(w.fieldState.UniqueTermCount + 1)
+	w.fieldState.uniqueTermCount++
 	return nil
 }
 
@@ -413,7 +413,7 @@ func (w *FreqProxTermsWriterPerField) addTerm(termID, docID int) error {
 			w.WriteStreamVInt(0, int32(postings.LastDocCodes[termID]))
 			postings.LastDocCodes[termID] = docID - postings.LastDocIDs[termID]
 			postings.LastDocIDs[termID] = docID
-			w.fieldState.SetUniqueTermCount(w.fieldState.UniqueTermCount + 1)
+			w.fieldState.uniqueTermCount++
 		}
 		return nil
 	}
@@ -426,8 +426,8 @@ func (w *FreqProxTermsWriterPerField) addTerm(termID, docID int) error {
 		}
 		freq := w.getTermFreq()
 		postings.TermFreqs[termID] = freq
-		if freq > w.fieldState.MaxTermFrequency {
-			w.fieldState.SetMaxTermFrequency(freq)
+		if freq > w.fieldState.maxTermFrequency {
+			w.fieldState.maxTermFrequency = freq
 		}
 		postings.LastDocCodes[termID] = (docID - postings.LastDocIDs[termID]) << 1
 		postings.LastDocIDs[termID] = docID
@@ -438,7 +438,7 @@ func (w *FreqProxTermsWriterPerField) addTerm(termID, docID int) error {
 				w.writeOffsets(termID, w.fieldState.Offset())
 			}
 		}
-		w.fieldState.SetUniqueTermCount(w.fieldState.UniqueTermCount + 1)
+		w.fieldState.uniqueTermCount++
 		return nil
 	}
 	freq := w.getTermFreq()
@@ -447,8 +447,8 @@ func (w *FreqProxTermsWriterPerField) addTerm(termID, docID int) error {
 		return fmt.Errorf("field %q: %w", w.GetFieldName(), err)
 	}
 	postings.TermFreqs[termID] = sum
-	if sum > w.fieldState.MaxTermFrequency {
-		w.fieldState.SetMaxTermFrequency(sum)
+	if sum > w.fieldState.maxTermFrequency {
+		w.fieldState.maxTermFrequency = sum
 	}
 	if w.hasProx {
 		w.writeProx(termID, w.fieldState.Position()-postings.LastPositions[termID])

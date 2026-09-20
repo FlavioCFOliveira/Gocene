@@ -12,7 +12,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
 // PerFieldKnnVectorsFormat name and FieldInfo attribute keys.
@@ -449,18 +448,16 @@ func (r *PerFieldKnnVectorsReader) GetFieldReader(field string) KnnVectorsReader
 // (currently *Lucene99HnswVectorsReader) implements it; the PerField
 // reader forwards to the delegate that owns the requested field.
 //
-// It is declared here (rather than in spi/) because the per-encoding read
-// methods deliberately live in the codecs package — see the
-// [KnnVectorsReader] alias doc.
+// It is declared here (rather than in spi/) because the search methods are
+// not yet part of spi.KnnVectorsReader — see the [KnnVectorsReader] alias
+// doc.
 type knnVectorSearchReader interface {
-	GetFloatVectorValues(field string) (FloatVectorValues, error)
-	GetByteVectorValues(field string) (ByteVectorValues, error)
-	FloatVectorValues(field string) (index.FloatVectorValues, error)
-	ByteVectorValues(field string) (index.ByteVectorValues, error)
-	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
-	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*utilhnsw.TopDocs, error)
-	SearchNearestFloatCollector(field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
-	SearchNearestByteCollector(field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits) error
+	GetFloatVectorValues(field string) (index.FloatVectorValues, error)
+	GetByteVectorValues(field string) (index.ByteVectorValues, error)
+	SearchNearestFloat(field string, target []float32, k int, acceptDocs util.Bits) (*spi.TopDocs, error)
+	SearchNearestByte(field string, target []byte, k int, acceptDocs util.Bits) (*spi.TopDocs, error)
+	SearchNearestFloatCollector(field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits) error
+	SearchNearestByteCollector(field string, target []byte, collector spi.KnnCollector, acceptDocs util.Bits) error
 }
 
 // fieldSearchReader resolves the delegate that owns field and narrows it to
@@ -485,7 +482,7 @@ func (r *PerFieldKnnVectorsReader) fieldSearchReader(field string) (knnVectorSea
 // GetFloatVectorValues returns the float vectors for field by delegating
 // to the per-field reader. Returns (nil, nil) when no delegate owns the
 // field. Mirrors Java's PerFieldKnnVectorsFormat.FieldsReader.getFloatVectorValues.
-func (r *PerFieldKnnVectorsReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+func (r *PerFieldKnnVectorsReader) GetFloatVectorValues(field string) (index.FloatVectorValues, error) {
 	sr, err := r.fieldSearchReader(field)
 	if err != nil || sr == nil {
 		return nil, err
@@ -495,7 +492,7 @@ func (r *PerFieldKnnVectorsReader) GetFloatVectorValues(field string) (FloatVect
 
 // GetByteVectorValues returns the byte vectors for field by delegating to
 // the per-field reader. Returns (nil, nil) when no delegate owns the field.
-func (r *PerFieldKnnVectorsReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+func (r *PerFieldKnnVectorsReader) GetByteVectorValues(field string) (index.ByteVectorValues, error) {
 	sr, err := r.fieldSearchReader(field)
 	if err != nil || sr == nil {
 		return nil, err
@@ -503,38 +500,18 @@ func (r *PerFieldKnnVectorsReader) GetByteVectorValues(field string) (ByteVector
 	return sr.GetByteVectorValues(field)
 }
 
-// FloatVectorValues returns the field's float vectors typed as
-// index.FloatVectorValues (the index-facing surface). Returns (nil, nil)
-// when no delegate owns the field.
-func (r *PerFieldKnnVectorsReader) FloatVectorValues(field string) (index.FloatVectorValues, error) {
-	sr, err := r.fieldSearchReader(field)
-	if err != nil || sr == nil {
-		return nil, err
-	}
-	return sr.FloatVectorValues(field)
-}
-
-// ByteVectorValues is the byte analogue of [FloatVectorValues].
-func (r *PerFieldKnnVectorsReader) ByteVectorValues(field string) (index.ByteVectorValues, error) {
-	sr, err := r.fieldSearchReader(field)
-	if err != nil || sr == nil {
-		return nil, err
-	}
-	return sr.ByteVectorValues(field)
-}
-
 // SearchNearestFloat runs nearest-neighbour search for the float32 target
 // against field, delegating to the per-field reader. Returns an empty
 // TopDocs when no delegate owns the field.
 func (r *PerFieldKnnVectorsReader) SearchNearestFloat(
 	field string, target []float32, k int, acceptDocs util.Bits,
-) (*utilhnsw.TopDocs, error) {
+) (*spi.TopDocs, error) {
 	sr, err := r.fieldSearchReader(field)
 	if err != nil {
 		return nil, err
 	}
 	if sr == nil {
-		return utilhnsw.NewTopDocs(utilhnsw.NewTotalHits(0, utilhnsw.EqualTo), nil), nil
+		return spi.NewTopDocs(spi.NewTotalHits(0, spi.EQUAL_TO), nil), nil
 	}
 	return sr.SearchNearestFloat(field, target, k, acceptDocs)
 }
@@ -544,13 +521,13 @@ func (r *PerFieldKnnVectorsReader) SearchNearestFloat(
 // TopDocs when no delegate owns the field.
 func (r *PerFieldKnnVectorsReader) SearchNearestByte(
 	field string, target []byte, k int, acceptDocs util.Bits,
-) (*utilhnsw.TopDocs, error) {
+) (*spi.TopDocs, error) {
 	sr, err := r.fieldSearchReader(field)
 	if err != nil {
 		return nil, err
 	}
 	if sr == nil {
-		return utilhnsw.NewTopDocs(utilhnsw.NewTotalHits(0, utilhnsw.EqualTo), nil), nil
+		return spi.NewTopDocs(spi.NewTotalHits(0, spi.EQUAL_TO), nil), nil
 	}
 	return sr.SearchNearestByte(field, target, k, acceptDocs)
 }
@@ -560,7 +537,7 @@ func (r *PerFieldKnnVectorsReader) SearchNearestByte(
 // It is a no-op (returns nil, leaving collector empty) when no delegate owns
 // the field.
 func (r *PerFieldKnnVectorsReader) SearchNearestFloatCollector(
-	field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+	field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits,
 ) error {
 	sr, err := r.fieldSearchReader(field)
 	if err != nil || sr == nil {
@@ -572,7 +549,7 @@ func (r *PerFieldKnnVectorsReader) SearchNearestFloatCollector(
 // SearchNearestByteCollector is the byte analogue of
 // [SearchNearestFloatCollector].
 func (r *PerFieldKnnVectorsReader) SearchNearestByteCollector(
-	field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+	field string, target []byte, collector spi.KnnCollector, acceptDocs util.Bits,
 ) error {
 	sr, err := r.fieldSearchReader(field)
 	if err != nil || sr == nil {
@@ -583,6 +560,74 @@ func (r *PerFieldKnnVectorsReader) SearchNearestByteCollector(
 
 // CheckIntegrity runs an integrity check on every underlying delegate
 // reader.
+// GetMergeInstance returns a reader whose delegates are each delegate's own
+// merge instance, with the per-field map rebuilt so that fields which shared a
+// delegate still share the same merge instance.
+//
+// Mirrors PerFieldKnnVectorsFormat.FieldsReader.getMergeInstance() of Apache
+// Lucene 10.5.0, which calls the FieldsReader(FieldsReader) copy constructor:
+// that constructor fills `fields` with
+// fieldsReader.fields.get(fi.number).getMergeInstance().
+func (r *PerFieldKnnVectorsReader) GetMergeInstance() (KnnVectorsReader, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	oldToNew := make(map[KnnVectorsReader]KnnVectorsReader, len(r.readersBySuffix))
+	bySuffix := make(map[string]KnnVectorsReader, len(r.readersBySuffix))
+	for suffix, reader := range r.readersBySuffix {
+		merged, err := reader.GetMergeInstance()
+		if err != nil {
+			return nil, err
+		}
+		bySuffix[suffix] = merged
+		oldToNew[reader] = merged
+	}
+
+	byField := make(map[int]KnnVectorsReader, len(r.readersByField))
+	for fieldNumber, reader := range r.readersByField {
+		byField[fieldNumber] = oldToNew[reader]
+	}
+
+	return &PerFieldKnnVectorsReader{
+		state:           r.state,
+		readersByField:  byField,
+		readersBySuffix: bySuffix,
+	}, nil
+}
+
+// FinishMerge forwards to every delegate.
+//
+// Mirrors PerFieldKnnVectorsFormat.FieldsReader.finishMerge() of Apache
+// Lucene 10.5.0, which iterates fields.values() calling finishMerge().
+func (r *PerFieldKnnVectorsReader) FinishMerge() error {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, reader := range r.readersByField {
+		if err := reader.FinishMerge(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// GetOffHeapByteSize forwards to the delegate that owns the field.
+//
+// Mirrors PerFieldKnnVectorsFormat.FieldsReader.getOffHeapByteSize(FieldInfo)
+// of Apache Lucene 10.5.0: fields.get(fieldInfo.number).getOffHeapByteSize(fieldInfo).
+func (r *PerFieldKnnVectorsReader) GetOffHeapByteSize(fieldInfo *index.FieldInfo) map[string]int64 {
+	if fieldInfo == nil {
+		return map[string]int64{}
+	}
+	r.mu.RLock()
+	reader, ok := r.readersByField[fieldInfo.Number()]
+	r.mu.RUnlock()
+	if !ok || reader == nil {
+		return map[string]int64{}
+	}
+	return reader.GetOffHeapByteSize(fieldInfo)
+}
+
 func (r *PerFieldKnnVectorsReader) CheckIntegrity() error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

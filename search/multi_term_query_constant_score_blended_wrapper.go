@@ -7,7 +7,10 @@ package search
 // Ported from Apache Lucene 10.4.0:
 //   lucene/core/src/java/org/apache/lucene/search/MultiTermQueryConstantScoreBlendedWrapper.java
 
-import "github.com/FlavioCFOliveira/Gocene/index"
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
 
 // multiTermQueryConstantScoreBlendedWrapper provides the functionality
 // behind MultiTermQuery.CONSTANT_SCORE_BLENDED_REWRITE.  It maintains
@@ -49,25 +52,28 @@ func (w *multiTermQueryConstantScoreBlendedWrapper) GetField() string {
 	return w.query.GetField()
 }
 
-// String returns a human-readable representation, delegating to the wrapped query.
+// ToString mirrors
+// AbstractMultiTermQueryConstantScoreWrapper.toString(String), whose body
+// delegates to the wrapped query's toString(String).
+func (w *multiTermQueryConstantScoreBlendedWrapper) ToString(field string) string {
+	return queryToString(w.query, field)
+}
+
+// String renders Query.toString(), the no-argument form that delegates to
+// toString(String) with the empty default field.
 func (w *multiTermQueryConstantScoreBlendedWrapper) String() string {
-	return w.query.String(w.query.GetField())
+	return w.ToString("")
 }
 
 // Rewrite returns the receiver unchanged; the weight's scorerSupplier is
 // responsible for the per-segment rewriting logic.
-func (w *multiTermQueryConstantScoreBlendedWrapper) Rewrite(_ IndexReader) (Query, error) {
+func (w *multiTermQueryConstantScoreBlendedWrapper) Rewrite(_ *IndexSearcher) (Query, error) {
 	return w, nil
-}
-
-// Clone returns a shallow copy of the wrapper.
-func (w *multiTermQueryConstantScoreBlendedWrapper) Clone() Query {
-	return &multiTermQueryConstantScoreBlendedWrapper{query: w.query}
 }
 
 // Equals reports whether other is a multiTermQueryConstantScoreBlendedWrapper
 // over the same underlying MultiTermQuery.
-func (w *multiTermQueryConstantScoreBlendedWrapper) Equals(other Query) bool {
+func (w *multiTermQueryConstantScoreBlendedWrapper) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}
@@ -99,7 +105,7 @@ const classHashBlended = 0x_6d74_7163 // 'mtqc'
 // compiles and integrates cleanly with the rest of the search pipeline.
 func (w *multiTermQueryConstantScoreBlendedWrapper) CreateWeight(
 	searcher *IndexSearcher,
-	needsScores bool,
+	scoreMode ScoreMode,
 	boost float32,
 ) (Weight, error) {
 	return NewConstantScoreWeight(
@@ -109,7 +115,7 @@ func (w *multiTermQueryConstantScoreBlendedWrapper) CreateWeight(
 			return NewConstantScoreScorerSupplierFromIterator(
 				boost,
 				COMPLETE_NO_SCORES,
-				NewEmptyDocIdSetIterator(),
+				Empty(),
 			), nil
 		},
 		nil,
@@ -118,3 +124,12 @@ func (w *multiTermQueryConstantScoreBlendedWrapper) CreateWeight(
 
 // Ensure multiTermQueryConstantScoreBlendedWrapper implements Query.
 var _ Query = (*multiTermQueryConstantScoreBlendedWrapper)(nil)
+
+// Visit mirrors AbstractMultiTermQueryConstantScoreWrapper.visit(QueryVisitor)
+// of Apache Lucene 10.5.0. MultiTermQueryConstantScoreBlendedWrapper.java
+// declares no override and inherits this body.
+func (w *multiTermQueryConstantScoreBlendedWrapper) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(w.GetField()) {
+		w.query.Visit(visitor.GetSubVisitor(FILTER, w))
+	}
+}

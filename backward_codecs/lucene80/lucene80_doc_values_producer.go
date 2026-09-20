@@ -42,10 +42,27 @@ const (
 
 	// Block-size constants for the various sub-encodings.
 	lucene80DirectMonotonicBlockShift = 16
-	lucene80NumericBlockShift         = 14
-	lucene80TermsDictBlockShift       = 4
-	lucene80TermsDictBlockLZ4Shift    = 6
-	lucene80TermsDictBlockLZ4Code     = (lucene80TermsDictBlockLZ4Shift << 16) | 1
+
+	lucene80NumericBlockShift = 14
+	lucene80NumericBlockSize  = 1 << lucene80NumericBlockShift
+
+	lucene80BinaryBlockShift             = 5
+	lucene80BinaryDocsPerCompressedBlock = 1 << lucene80BinaryBlockShift
+
+	lucene80TermsDictBlockShift = 4
+	lucene80TermsDictBlockSize  = 1 << lucene80TermsDictBlockShift
+	lucene80TermsDictBlockMask  = lucene80TermsDictBlockSize - 1
+
+	lucene80TermsDictBlockCompressionThreshold = 32
+	lucene80TermsDictBlockLZ4Shift             = 6
+	lucene80TermsDictBlockLZ4Size              = 1 << lucene80TermsDictBlockLZ4Shift
+	lucene80TermsDictBlockLZ4Mask              = lucene80TermsDictBlockLZ4Size - 1
+	lucene80TermsDictCompressorLZ4Code         = 1
+	lucene80TermsDictBlockLZ4Code              = lucene80TermsDictBlockLZ4Shift<<16 | lucene80TermsDictCompressorLZ4Code
+
+	lucene80TermsDictReverseIndexShift = 10
+	lucene80TermsDictReverseIndexSize  = 1 << lucene80TermsDictReverseIndexShift
+	lucene80TermsDictReverseIndexMask  = lucene80TermsDictReverseIndexSize - 1
 )
 
 // lucene80DVNumericEntry holds the per-field metadata for a NUMERIC field.
@@ -198,7 +215,7 @@ func NewLucene80DocValuesProducer(
 	}
 
 	// --- meta file -------------------------------------------------------
-	metaName := index.SegmentFileName(
+	metaName := gstore.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, metaExtension)
 	metaIn, err := bcstore.OpenChecksumInput(state.Directory, metaName, gstore.IOContextRead)
 	if err != nil {
@@ -233,7 +250,7 @@ func NewLucene80DocValuesProducer(
 	}
 
 	// --- data file -------------------------------------------------------
-	dataName := index.SegmentFileName(
+	dataName := gstore.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, dataExtension)
 	dataIn, err := bcstore.OpenInput(state.Directory, dataName, gstore.IOContextRead)
 	if err != nil {
@@ -673,7 +690,7 @@ func (p *Lucene80DocValuesProducer) readSortedNumericEntry(
 // Port of Lucene80DocValuesProducer.readTermDict(IndexInput, TermsDictEntry).
 func readTermsDictEntry(meta gstore.DataInput, dst *lucene80DVTermsDictEntry) error {
 	var err error
-	dst.termsDictSize, err = gstore.ReadVLong(meta)
+	dst.termsDictSize, err = meta.ReadVLong()
 	if err != nil {
 		return fmt.Errorf("lucene80 termsDict: termsDictSize: %w", err)
 	}
@@ -859,6 +876,11 @@ func (p *Lucene80DocValuesProducer) GetSkipper(field *index.FieldInfo) (codecs.D
 	return nil, nil
 }
 
+// GetMergeInstance returns the receiver. Lucene80DocValuesProducer does not
+// override getMergeInstance in Apache Lucene 10.5.0, so it inherits the
+// DocValuesProducer default, which returns this.
+func (p *Lucene80DocValuesProducer) GetMergeInstance() codecs.DocValuesProducer { return p }
+
 // CheckIntegrity verifies the checksum on the data file.
 //
 // Port of Lucene80DocValuesProducer.checkIntegrity().
@@ -887,7 +909,7 @@ func (p *Lucene80DocValuesProducer) Close() error {
 // checkLucene80DVFooter validates the codec footer written by
 // EndiannessReverserChecksumIndexInput for a big-endian legacy format.
 //
-// codecs.CheckFooter requires *store.ChecksumIndexInput; we use the same
+// store.CheckFooter requires *store.ChecksumIndexInput; we use the same
 // logic but accept *bcstore.EndiannessReverserChecksumIndexInput directly,
 // following the pattern established in backward_codecs/lucene94.
 func checkLucene80DVFooter(in *bcstore.EndiannessReverserChecksumIndexInput) error {
@@ -899,7 +921,7 @@ func checkLucene80DVFooter(in *bcstore.EndiannessReverserChecksumIndexInput) err
 	if remaining > footerLen {
 		return fmt.Errorf("lucene80 doc values: misplaced codec footer (too long): remaining=%d", remaining)
 	}
-	magic, err := gstore.ReadInt32(in)
+	magic, err := gstore.ReadBEInt(in)
 	if err != nil {
 		return fmt.Errorf("lucene80 doc values: footer magic: %w", err)
 	}
@@ -907,7 +929,7 @@ func checkLucene80DVFooter(in *bcstore.EndiannessReverserChecksumIndexInput) err
 	if magic != footerMagic {
 		return fmt.Errorf("lucene80 doc values: footer magic mismatch: got %x want %x", magic, footerMagic)
 	}
-	algID, err := gstore.ReadInt32(in)
+	algID, err := gstore.ReadBEInt(in)
 	if err != nil {
 		return fmt.Errorf("lucene80 doc values: footer algorithmID: %w", err)
 	}
@@ -915,7 +937,7 @@ func checkLucene80DVFooter(in *bcstore.EndiannessReverserChecksumIndexInput) err
 		return fmt.Errorf("lucene80 doc values: unknown algorithmID: %d", algID)
 	}
 	actualChecksum := int64(in.GetChecksum())
-	expected, err := gstore.ReadInt64(in)
+	expected, err := gstore.ReadBELong(in)
 	if err != nil {
 		return fmt.Errorf("lucene80 doc values: footer checksum: %w", err)
 	}

@@ -44,11 +44,15 @@ func NewRegexpAutomatonBuilder(pattern string) (*RegexpAutomatonBuilder, error) 
 //
 // Mirrors RegexpAutomatonBuilder.buildAutomaton (Lucene 10.4.0).
 func (b *RegexpAutomatonBuilder) BuildAutomaton() (*automaton.CompiledAutomaton, error) {
-	a, err := automaton.NewRegexpAutomaton(b.pattern)
+	re, err := automaton.NewRegExp(b.pattern)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build regexp automaton: %w", err)
 	}
-	return automaton.CompileFull(a, true, false, false), nil
+	a, err := re.ToAutomaton()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build regexp automaton: %w", err)
+	}
+	return automaton.NewCompiledAutomaton(a, true, false, false), nil
 }
 
 // GetPattern returns the original regular expression pattern.

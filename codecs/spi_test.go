@@ -259,7 +259,7 @@ func TestPerFieldPostingsFormat_DispatchByName(t *testing.T) {
 			term:  index.NewTerm(fieldName, "hello"),
 			freq:  1,
 		}
-		if err := consumer.Write(fieldName, terms); err != nil {
+		if err := consumer.Write(index.NewSingleFieldFields(fieldName, terms), nil); err != nil {
 			t.Fatalf("consumer.Write(%q): %v", fieldName, err)
 		}
 	}
@@ -301,12 +301,12 @@ type singleTermTerms struct {
 	freq  int
 }
 
-func (t *singleTermTerms) GetIterator() (index.TermsEnum, error) {
+func (t *singleTermTerms) Iterator() (index.TermsEnum, error) {
 	return &singleTermEnum{term: t.term, freq: t.freq}, nil
 }
 
 func (t *singleTermTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
-	return t.GetIterator()
+	return t.Iterator()
 }
 
 func (t *singleTermTerms) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {

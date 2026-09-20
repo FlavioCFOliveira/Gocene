@@ -12,8 +12,8 @@ package spi
 // # Currently unified members
 //
 //   - Name, PostingsFormat, StoredFieldsFormat, FieldInfosFormat,
-//     SegmentInfoFormat (singular .si), SegmentInfosFormat (plural
-//     segments_N), TermVectorsFormat, CompoundFormat, KnnVectorsFormat,
+//     SegmentInfoFormat (singular .si),
+//     TermVectorsFormat, CompoundFormat, KnnVectorsFormat,
 //     DocValuesFormat.
 //
 // DocValuesFormat joined the SPI in rmp #4708, completing the lift of
@@ -42,11 +42,6 @@ type Codec interface {
 	// SegmentInfoFormat returns the format used for the per-segment
 	// metadata file (.si).
 	SegmentInfoFormat() SegmentInfoFormat
-
-	// SegmentInfosFormat returns the format used for the plural
-	// segments_N file. Lifted onto the SPI by rmp #4706 once
-	// *SegmentInfos and *SegmentCommitInfo moved into package spi.
-	SegmentInfosFormat() SegmentInfosFormat
 
 	// TermVectorsFormat returns the format used for per-document term
 	// vectors.
@@ -85,4 +80,13 @@ type Codec interface {
 	// into package spi. Codec implementations that do not support norms
 	// may return nil.
 	NormsFormat() NormsFormat
+
+	// LiveDocsFormat returns the format used for the per-segment
+	// live/deleted documents bitset (.liv). Mirrors the abstract
+	// org.apache.lucene.codecs.Codec.liveDocsFormat() of Apache Lucene
+	// 10.5.0. The index read path (SegmentReader, DirectoryReader) and
+	// the index write path (DocumentsWriterPerThread, PendingDeletes)
+	// both reach the .liv encoder exclusively through this accessor.
+	// Codec implementations that cannot carry deletions may return nil.
+	LiveDocsFormat() LiveDocsFormat
 }

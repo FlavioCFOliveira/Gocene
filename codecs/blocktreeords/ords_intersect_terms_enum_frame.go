@@ -82,6 +82,12 @@ type OrdsIntersectTermsEnumFrame struct {
 	// arc is the FST arc pointing to this block from the parent.
 	arc *gfst.Arc[*FSTOrdsOutput]
 
+	// termStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which the codec narrows back with a type assertion. The
+	// BlockTermState field beside it is the widened view of that same object.
+	termStateRef index.TermState
+
 	// termState holds the per-term postings metadata.
 	termState *codecs.BlockTermState
 
@@ -125,10 +131,11 @@ func NewOrdsIntersectTermsEnumFrame(ite *OrdsIntersectTermsEnum, ord int) (*Ords
 
 	// Ask the postings reader for a fresh BlockTermState.
 	if ite.reader != nil && ite.reader.parent != nil && ite.reader.parent.postingsReader != nil {
-		f.termState = ite.reader.parent.postingsReader.NewTermState()
+		f.termStateRef = ite.reader.parent.postingsReader.NewTermState()
 	} else {
-		f.termState = codecs.NewBlockTermState()
+		f.termStateRef = codecs.NewBlockTermState()
 	}
+	f.termState = codecs.BaseState(f.termStateRef)
 	f.termState.TotalTermFreq = -1
 	return f, nil
 }
@@ -274,7 +281,7 @@ func (f *OrdsIntersectTermsEnumFrame) load(output *FSTOrdsOutput) error {
 	if numBytes > len(f.suffixBytes) {
 		f.suffixBytes = make([]byte, util.Oversize(numBytes, 1))
 	}
-	if err := f.ite.in.ReadBytes(f.suffixBytes[:numBytes]); err != nil {
+	if err := f.ite.in.ReadBytes(f.suffixBytes, 0, numBytes); err != nil {
 		return fmt.Errorf("OrdsIntersectTermsEnumFrame.load: read suffix bytes: %w", err)
 	}
 	f.suffixesReader.ResetWithSlice(f.suffixBytes, 0, numBytes)
@@ -288,7 +295,7 @@ func (f *OrdsIntersectTermsEnumFrame) load(output *FSTOrdsOutput) error {
 	if numBytes > len(f.statBytes) {
 		f.statBytes = make([]byte, util.Oversize(numBytes, 1))
 	}
-	if err := f.ite.in.ReadBytes(f.statBytes[:numBytes]); err != nil {
+	if err := f.ite.in.ReadBytes(f.statBytes, 0, numBytes); err != nil {
 		return fmt.Errorf("OrdsIntersectTermsEnumFrame.load: read stats: %w", err)
 	}
 	f.statsReader.ResetWithSlice(f.statBytes, 0, numBytes)
@@ -306,7 +313,7 @@ func (f *OrdsIntersectTermsEnumFrame) load(output *FSTOrdsOutput) error {
 		f.bytes = make([]byte, util.Oversize(numBytes, 1))
 		f.bytesReader = store.NewByteArrayDataInput(nil)
 	}
-	if err := f.ite.in.ReadBytes(f.bytes[:numBytes]); err != nil {
+	if err := f.ite.in.ReadBytes(f.bytes, 0, numBytes); err != nil {
 		return fmt.Errorf("OrdsIntersectTermsEnumFrame.load: read metadata: %w", err)
 	}
 	f.bytesReader.ResetWithSlice(f.bytes, 0, numBytes)
@@ -333,7 +340,7 @@ func (f *OrdsIntersectTermsEnumFrame) nextLeaf() bool {
 	length, _ := f.suffixesReader.ReadVInt()
 	f.suffix = int(length)
 	f.startBytePos = f.suffixesReader.GetPosition()
-	_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffix)
+	f.suffixesReader.SetPosition(f.startBytePos + f.suffix)
 	return false
 }
 
@@ -344,7 +351,7 @@ func (f *OrdsIntersectTermsEnumFrame) nextNonLeaf() bool {
 	code, _ := f.suffixesReader.ReadVInt()
 	f.suffix = int(uint32(code) >> 1)
 	f.startBytePos = f.suffixesReader.GetPosition()
-	_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffix)
+	f.suffixesReader.SetPosition(f.startBytePos + f.suffix)
 	if (code & 1) == 0 {
 		// A normal term.
 		f.termState.TermBlockOrd++

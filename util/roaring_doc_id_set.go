@@ -262,7 +262,7 @@ func (it *shortArrayIterator) Advance(target int) (int, error) {
 
 func (it *shortArrayIterator) Cost() int64 { return int64(len(it.set.docIDs)) }
 
-func (it *shortArrayIterator) DocIDRunEnd() int { return it.doc + 1 }
+func (it *shortArrayIterator) DocIDRunEnd() (int, error) { return it.doc + 1, nil }
 
 // roaringIterator stitches the per-block iterators together.
 type roaringIterator struct {
@@ -344,7 +344,7 @@ func (it *roaringIterator) firstDocFromNextBlock() (int, error) {
 
 func (it *roaringIterator) Cost() int64 { return int64(it.owner.cardinality) }
 
-func (it *roaringIterator) DocIDRunEnd() int { return it.doc + 1 }
+func (it *roaringIterator) DocIDRunEnd() (int, error) { return it.doc + 1, nil }
 
 var (
 	_ DocIdSet         = (*RoaringDocIdSet)(nil)
@@ -352,3 +352,17 @@ var (
 	_ DocIdSetIterator = (*shortArrayIterator)(nil)
 	_ DocIdSetIterator = (*roaringIterator)(nil)
 )
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *shortArrayIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *roaringIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(it, upTo, bitSet, offset)
+}

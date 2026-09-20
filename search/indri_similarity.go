@@ -4,7 +4,11 @@
 
 package search
 
-import "math"
+import (
+	"fmt"
+
+	"math"
+)
 
 // IndriSimilarity implements the Indri retrieval model.
 // Indri is a language modeling approach used in the Lemur toolkit,
@@ -65,6 +69,32 @@ func (s *IndriSimilarity) ComputeWeight(boost float32, collectionStats *Collecti
 }
 
 // Scorer creates a scorer for this similarity.
+// Scorer104 mirrors SimilarityBase.scorer(float, CollectionStatistics,
+// TermStatistics...) (Lucene 10.5.0), which IndriSimilarity inherits
+// unchanged — the method is final in Java:
+//
+//	SimScorer[] scorers = new SimScorer[termStats.length];
+//	for (int i = 0; i < termStats.length; i++) {
+//	  BasicStats basicStats = newStats(collectionStats.field(), boost);
+//	  fillBasicStats(basicStats, collectionStats, termStats[i]);
+//	  scorers[i] = new BasicSimScorer(basicStats);
+//	}
+//	if (scorers.length == 1) { return scorers[0]; }
+//	return new MultiSimilarity.MultiSimScorer(scorers);
+func (s *IndriSimilarity) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
+	if len(termStats) == 0 {
+		return &noopSimScorer{}
+	}
+	scorers := make([]SimScorer, len(termStats))
+	for i, ts := range termStats {
+		scorers[i] = NewIndriSimScorerWithWeight(NewIndriSimWeight(s, collectionStats, ts, boost))
+	}
+	if len(scorers) == 1 {
+		return scorers[0]
+	}
+	return newMultiSimScorerLucene(scorers)
+}
+
 func (s *IndriSimilarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
 	return NewIndriSimScorer(s, collectionStats, termStats)
 }
@@ -158,7 +188,7 @@ func NewIndriSimScorerWithWeight(weight *IndriSimWeight) *IndriSimScorer {
 // The norm argument mirrors Lucene's SimScorer.score(float, long) signature.
 // This legacy Indri scorer does not consult norms; it is ignored to preserve the
 // existing behaviour of in-repo tests.
-func (s *IndriSimScorer) Score(doc int, freq float32, norm int64) float32 {
+func (s *IndriSimScorer) Score104(freq float32, norm int64) float32 {
 	if freq == 0 {
 		return 0
 	}
@@ -198,3 +228,19 @@ var _ Similarity = (*IndriSimilarity)(nil)
 
 // Ensure IndriSimScorer implements SimScorer
 var _ SimScorer = (*IndriSimScorer)(nil)
+
+// AsBulkSimScorer mirrors the concrete body of Similarity.SimScorer.asBulkSimScorer()
+// in Apache Lucene 10.5.0: new DefaultBulkSimScorer(this).
+func (i *IndriSimScorer) AsBulkSimScorer() BulkSimScorer {
+	return NewDefaultBulkSimScorer(i)
+}
+
+// Explain104 mirrors the concrete body of Similarity.SimScorer.explain(Explanation, long)
+// in Apache Lucene 10.5.0: Explanation.match(score(freq.getValue().floatValue(), norm),
+// "score(freq=" + freq.getValue() + "), with freq of:", freq).
+func (i *IndriSimScorer) Explain104(freq Explanation, norm int64) Explanation {
+	e := NewExplanation(true, i.Score104(freq.GetValue(), norm),
+		fmt.Sprintf("score(freq=%s), with freq of:", formatFloatGeneric(freq.GetValue())))
+	e.AddDetail(freq)
+	return e
+}

@@ -34,24 +34,24 @@ type KnnVectorDict struct {
 func NewKnnVectorDict(directory store.Directory, dictName string) (*KnnVectorDict, error) {
 	var fstIn store.IndexInput
 	var err error
-	if fstIn, err = directory.OpenInput(dictName+".fst", store.DefaultIOContext); err != nil {
+	if fstIn, err = directory.OpenInput(dictName+".fst", store.NewDefaultIOContext()); err != nil {
 		return nil, err
 	}
 
 	// Lucene: fst = new FST<>(readMetadata(fstIn, PositiveIntOutputs.getSingleton()), fstIn);
-	metadata, err := fst.ReadMetadata(fstIn, fst.PositiveIntOutputs)
+	metadata, err := fst.ReadMetadata[int64](fstIn, fst.PositiveIntOutputs())
 	if err != nil {
 		fstIn.Close()
 		return nil, err
 	}
 
-	f, err := fst.NewFST(metadata, fstIn)
+	f, err := fst.NewFSTFromDataInput(metadata, fstIn)
 	fstIn.Close()
 	if err != nil {
 		return nil, err
 	}
 
-	vectors, err := directory.OpenInput(dictName+".bin", store.DefaultIOContext)
+	vectors, err := directory.OpenInput(dictName+".bin", store.NewDefaultIOContext())
 	if err != nil {
 		return nil, err
 	}
@@ -62,7 +62,7 @@ func NewKnnVectorDict(directory store.Directory, dictName string) (*KnnVectorDic
 		return nil, errors.New("knn vector bin file too small")
 	}
 
-	vectors.Seek(size - 4)
+	vectors.SetPosition(size - 4)
 	dimension, err := vectors.ReadInt()
 	if err != nil {
 		vectors.Close()
@@ -77,7 +77,7 @@ func NewKnnVectorDict(directory store.Directory, dictName string) (*KnnVectorDic
 	return &KnnVectorDict{
 		fst:       f,
 		vectors:   vectors,
-		dimension: dimension,
+		dimension: int(dimension),
 	}, nil
 }
 
@@ -103,8 +103,8 @@ func (k *KnnVectorDict) Get(token *util.BytesRef, output []byte) error {
 			output[i] = 0
 		}
 	} else {
-		k.vectors.Seek(ord * int64(k.dimension) * 4)
-		if _, err := k.vectors.ReadBytes(output); err != nil {
+		k.vectors.SetPosition(ord * int64(k.dimension) * 4)
+		if err := k.vectors.ReadBytes(output, 0, len(output)); err != nil {
 			return err
 		}
 	}
@@ -123,7 +123,7 @@ func (k *KnnVectorDict) Close() error {
 
 // RamBytesUsed returns the size of the dictionary in bytes.
 func (k *KnnVectorDict) RamBytesUsed() int64 {
-	return k.fst.RamBytesUsed() + k.vectors.Length()
+	return k.fst.RAMBytesUsed() + k.vectors.Length()
 }
 
 // Build converts from a GloVe-formatted dictionary file to a KnnVectorDict file pair.
@@ -135,7 +135,7 @@ func (k *KnnVectorDict) RamBytesUsed() int64 {
 func Build(gloveInput string, directory store.Directory, dictName string) error {
 	b := &builder{
 		intsRefBuilder: util.NewIntsRefBuilder(),
-		fstCompiler:    fst.NewFSTCompiler(fst.InputTypeByte1, fst.PositiveIntOutputs),
+		fstCompiler:    fst.NewFSTCompilerBuilder[int64](fst.InputTypeByte1, fst.PositiveIntOutputs()).Build(),
 	}
 	return b.build(gloveInput, directory, dictName)
 }
@@ -156,13 +156,13 @@ func (b *builder) build(gloveInput string, directory store.Directory, dictName s
 	defer f.Close()
 
 	reader := bufio.NewReader(f)
-	binOut, err := directory.CreateOutput(dictName+".bin", store.DefaultIOContext)
+	binOut, err := directory.CreateOutput(dictName+".bin", store.NewDefaultIOContext())
 	if err != nil {
 		return err
 	}
 	defer binOut.Close()
 
-	fstOut, err := directory.CreateOutput(dictName+".fst", store.DefaultIOContext)
+	fstOut, err := directory.CreateOutput(dictName+".fst", store.NewDefaultIOContext())
 	if err != nil {
 		return err
 	}
@@ -182,16 +182,19 @@ func (b *builder) build(gloveInput string, directory store.Directory, dictName s
 	}
 
 	// FST.fromFSTReader(fstCompiler.compile(), fstCompiler.getFSTReader()).save(fstOut, fstOut);
-	compiledFST := b.fstCompiler.Compile()
-	f, err := fst.NewFST(compiledFST.Metadata(), compiledFST.Reader())
-	if err != nil {
-		return err
-	}
-	if err := f.Save(fstOut, fstOut); err != nil {
+									compiledFST, err := b.fstCompiler.Compile()
+		if err != nil {
+			return err
+		}
+							finalFst, err := fst.NewFSTFromReader[int64](compiledFST, b.fstCompiler.GetFSTReader())
+		if err != nil {
+			return err
+		}
+	if err := finalFst.Save(fstOut, fstOut); err != nil {
 		return err
 	}
 
-	return binOut.WriteInt(b.numFields - 1)
+	return binOut.WriteInt(int32(b.numFields - 1))
 }
 
 func (b *builder) writeFirstLine(in *bufio.Reader, out store.IndexOutput) error {
@@ -262,6 +265,6 @@ func (b *builder) writeVector(fields []string, out store.IndexOutput) error {
 		binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(v))
 	}
 
-	_, err := out.WriteBytes(buf)
+	err := out.WriteBytes(buf, 0, len(buf))
 	return err
 }

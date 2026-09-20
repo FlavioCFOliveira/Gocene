@@ -137,7 +137,7 @@ func (sci *SegmentCommitInfo) SizeInBytes() (int64, error) {
 
 	// GetFiles takes the read lock itself, so it must be called unlocked.
 	files := sci.GetFiles()
-	dir := sci.segmentInfo.Directory()
+	dir := sci.Info.Directory()
 
 	var sum int64
 	for _, name := range files {

@@ -6,206 +6,286 @@ package grouping
 
 import (
 	"fmt"
-	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// SearchGroup represents a single group encountered by the first-pass
-// grouping collector. Mirrors org.apache.lucene.search.grouping.SearchGroup.
+// SearchGroup represents a group that is found during the first pass search.
 //
-// GroupValue is the group's key (string for term-based groupings; for the
-// other typed group selectors it is the value cast to interface{}).
-// SortValues hold the comparator state used by the first-pass collector to
-// order groups for top-N selection.
-type SearchGroup[T comparable] struct {
+// Mirrors org.apache.lucene.search.grouping.SearchGroup<T>.
+type SearchGroup[T any] struct {
+	// GroupValue is the value that defines this group.
 	GroupValue T
+
+	// SortValues holds the sort values used during sorting. These are the
+	// groupSort field values of the highest rank document (by the groupSort)
+	// within the group. Can be nil if fillFields=false had been passed to
+	// FirstPassGroupingCollector.GetTopGroups.
 	SortValues []any
 }
 
-// NewSearchGroup builds a SearchGroup with the supplied value and sort state.
-func NewSearchGroup[T comparable](value T, sortValues []any) *SearchGroup[T] {
-	cloned := make([]any, len(sortValues))
-	copy(cloned, sortValues)
-	return &SearchGroup[T]{GroupValue: value, SortValues: cloned}
-}
-
-// String returns a human-readable representation of the group, matching
-// the Java toString() contract.
+// String mirrors SearchGroup.toString().
 func (g *SearchGroup[T]) String() string {
-	return fmt.Sprintf("SearchGroup(groupValue=%v sortValues=%v)", g.GroupValue, g.SortValues)
+	return "SearchGroup(groupValue=" + fmt.Sprint(g.GroupValue) +
+		" sortValues=" + javaArraysToString(g.SortValues) + ")"
 }
 
-// Equal reports whether g and other represent the same group.  Equality is
-// defined solely by GroupValue, mirroring the Java equals() implementation.
-func (g *SearchGroup[T]) Equal(other *SearchGroup[T]) bool {
-	if other == nil {
+// Equals mirrors SearchGroup.equals(Object): two groups are equal when their
+// group values are.
+func (g *SearchGroup[T]) Equals(o *SearchGroup[T]) bool {
+	if g == o {
+		return true
+	}
+	if o == nil {
 		return false
 	}
-	return g.GroupValue == other.GroupValue
+	return groupKey(any(g.GroupValue)) == groupKey(any(o.GroupValue))
 }
 
-// mergedGroup is the internal representation of a group being assembled
-// from multiple shards during MergeSearchGroups.
-type mergedGroup[T comparable] struct {
-	groupValue    T
-	topValues     []any
-	minShardIndex int
-	shardIters    []*shardIter[T]
-	processed     bool
-	inQueue       bool
+// HashCode mirrors SearchGroup.hashCode().
+func (g *SearchGroup[T]) HashCode() int {
+	return javaHashCode(any(g.GroupValue))
 }
 
-// shardIter iterates over one shard's search groups.
-type shardIter[T comparable] struct {
+// searchGroupShardIter mirrors the private static class
+// SearchGroup.ShardIter<T>.
+type searchGroupShardIter[T any] struct {
 	groups     []*SearchGroup[T]
 	pos        int
 	shardIndex int
 }
 
-func (si *shardIter[T]) hasNext() bool { return si.pos < len(si.groups) }
-
-func (si *shardIter[T]) next() *SearchGroup[T] {
-	g := si.groups[si.pos]
-	si.pos++
-	return g
+// newSearchGroupShardIter mirrors ShardIter(Collection, int).
+func newSearchGroupShardIter[T any](shard []*SearchGroup[T], shardIndex int) *searchGroupShardIter[T] {
+	return &searchGroupShardIter[T]{groups: shard, shardIndex: shardIndex}
 }
 
-// MergeSearchGroups merges multiple collections of top groups from separate
-// shards and returns at most topN groups starting at offset.  compare must
-// be consistent with the sort used to produce each shard's groups (negative
-// means "a before b").  Returns nil when no groups survive.
-//
-// Mirrors org.apache.lucene.search.grouping.SearchGroup.merge.
-func MergeSearchGroups[T comparable](
-	shards [][](*SearchGroup[T]),
-	offset, topN int,
-	compare func(a, b []any) int,
-) []*SearchGroup[T] {
-	if len(shards) == 0 {
-		return nil
+// hasNext mirrors iter.hasNext().
+func (s *searchGroupShardIter[T]) hasNext() bool { return s.pos < len(s.groups) }
+
+// next mirrors ShardIter.next(). It fails the same way Java does when the
+// first pass was run with fillFields=false.
+func (s *searchGroupShardIter[T]) next() *SearchGroup[T] {
+	group := s.groups[s.pos]
+	s.pos++
+	if group.SortValues == nil {
+		panic("group.sortValues is null; you must pass fillFields=true to the first pass collector")
 	}
+	return group
+}
 
-	maxQueueSize := offset + topN
-	seen := make(map[T]*mergedGroup[T])
+// String mirrors ShardIter.toString().
+func (s *searchGroupShardIter[T]) String() string {
+	return fmt.Sprintf("ShardIter(shard=%d)", s.shardIndex)
+}
 
-	// queue ordered by compare; we use a slice and sort after mutations.
-	var queue []*mergedGroup[T]
+// searchGroupMergedGroup mirrors the private static class
+// SearchGroup.MergedGroup<T>: it holds all shards currently on the same group.
+type searchGroupMergedGroup[T any] struct {
+	// groupValue may be null!
+	groupValue T
 
-	var updateNextGroup func(iter *shardIter[T])
-	updateNextGroup = func(iter *shardIter[T]) {
-		for iter.hasNext() {
-			sg := iter.next()
-			if sg.SortValues == nil {
-				panic("SearchGroup.SortValues is nil; fillFields=true must have been passed to the first-pass collector")
-			}
-			mg, exists := seen[sg.GroupValue]
-			if !exists {
-				mg = &mergedGroup[T]{
-					groupValue:    sg.GroupValue,
-					topValues:     sg.SortValues,
-					minShardIndex: iter.shardIndex,
-				}
-				seen[sg.GroupValue] = mg
-				mg.inQueue = true
-				queue = append(queue, mg)
-				sortQueue(queue, compare)
-			} else if mg.processed {
-				continue
-			} else {
-				competes := false
-				for i, v := range sg.SortValues {
-					var prev any
-					if i < len(mg.topValues) {
-						prev = mg.topValues[i]
-					}
-					c := compare([]any{v}, []any{prev})
-					if c < 0 {
-						competes = true
-						break
-					} else if c > 0 {
-						break
-					} else if i == len(sg.SortValues)-1 {
-						if iter.shardIndex < mg.minShardIndex {
-							competes = true
-						}
-					}
-				}
-				if competes {
-					if mg.inQueue {
-						removeFromQueue(&queue, mg)
-					}
-					mg.topValues = sg.SortValues
-					mg.minShardIndex = iter.shardIndex
-					queue = append(queue, mg)
-					sortQueue(queue, compare)
-					mg.inQueue = true
-				}
-			}
-			mg.shardIters = append(mg.shardIters, iter)
-			break
-		}
+	topValues     []any
+	shards        []*searchGroupShardIter[T]
+	minShardIndex int
+	processed     bool
+	inQueue       bool
+}
 
-		// Prune queue to maxQueueSize.
-		for len(queue) > maxQueueSize {
-			tail := queue[len(queue)-1]
-			queue = queue[:len(queue)-1]
-			tail.inQueue = false
+// newSearchGroupMergedGroup mirrors MergedGroup(T).
+func newSearchGroupMergedGroup[T any](groupValue T) *searchGroupMergedGroup[T] {
+	return &searchGroupMergedGroup[T]{groupValue: groupValue}
+}
+
+// equals mirrors MergedGroup.equals(Object).
+func (m *searchGroupMergedGroup[T]) equals(other *searchGroupMergedGroup[T]) bool {
+	if other == nil {
+		return false
+	}
+	return groupKey(any(m.groupValue)) == groupKey(any(other.groupValue))
+}
+
+// hashCode mirrors MergedGroup.hashCode().
+func (m *searchGroupMergedGroup[T]) hashCode() int {
+	return javaHashCode(any(m.groupValue))
+}
+
+// searchGroupComparator mirrors the private static class
+// SearchGroup.GroupComparator<T>.
+type searchGroupComparator[T any] struct {
+	comparators []search.FieldComparator
+	reversed    []int
+}
+
+// newSearchGroupComparator mirrors GroupComparator(Sort).
+func newSearchGroupComparator[T any](groupSort *search.Sort) *searchGroupComparator[T] {
+	sortFields := groupSort.GetSort()
+	c := &searchGroupComparator[T]{
+		comparators: make([]search.FieldComparator, len(sortFields)),
+		reversed:    make([]int, len(sortFields)),
+	}
+	for compIDX := 0; compIDX < len(sortFields); compIDX++ {
+		sortField := sortFields[compIDX]
+		c.comparators[compIDX] = search.SortFieldGetComparator(sortField, 1, search.PruningNone)
+		if sortField.GetReverse() {
+			c.reversed[compIDX] = -1
+		} else {
+			c.reversed[compIDX] = 1
 		}
 	}
+	return c
+}
 
-	// Initialise: seed queue from every shard.
-	for i, shard := range shards {
-		if len(shard) == 0 {
+// compare mirrors GroupComparator.compare(MergedGroup, MergedGroup).
+func (c *searchGroupComparator[T]) compare(group, other *searchGroupMergedGroup[T]) int {
+	if group == other {
+		return 0
+	}
+	groupValues := group.topValues
+	otherValues := other.topValues
+	for compIDX := 0; compIDX < len(c.comparators); compIDX++ {
+		cmp := c.reversed[compIDX] * c.comparators[compIDX].CompareValues(groupValues[compIDX], otherValues[compIDX])
+		if cmp != 0 {
+			return cmp
+		}
+	}
+
+	// Tie break by min shard index:
+	return group.minShardIndex - other.minShardIndex
+}
+
+// searchGroupMerger mirrors the private static class
+// SearchGroup.GroupMerger<T>.
+type searchGroupMerger[T any] struct {
+	groupComp  *searchGroupComparator[T]
+	queue      *treeSet[*searchGroupMergedGroup[T]]
+	groupsSeen *groupMap[T, *searchGroupMergedGroup[T]]
+}
+
+// newSearchGroupMerger mirrors GroupMerger(Sort).
+func newSearchGroupMerger[T any](groupSort *search.Sort) *searchGroupMerger[T] {
+	groupComp := newSearchGroupComparator[T](groupSort)
+	return &searchGroupMerger[T]{
+		groupComp:  groupComp,
+		queue:      newTreeSet(groupComp.compare),
+		groupsSeen: newGroupMap[T, *searchGroupMergedGroup[T]](),
+	}
+}
+
+// updateNextGroup mirrors GroupMerger.updateNextGroup(int, ShardIter).
+func (g *searchGroupMerger[T]) updateNextGroup(topN int, shard *searchGroupShardIter[T]) {
+	for shard.hasNext() {
+		group := shard.next()
+		mergedGroup, found := g.groupsSeen.get(group.GroupValue)
+		isNew := !found
+
+		if isNew {
+			// Start a new group:
+			mergedGroup = newSearchGroupMergedGroup(group.GroupValue)
+			mergedGroup.minShardIndex = shard.shardIndex
+			mergedGroup.topValues = group.SortValues
+			g.groupsSeen.put(group.GroupValue, mergedGroup)
+			mergedGroup.inQueue = true
+			g.queue.add(mergedGroup)
+		} else if mergedGroup.processed {
+			// This shard produced a group that we already
+			// processed; move on to next group...
 			continue
+		} else {
+			competes := false
+			for compIDX := 0; compIDX < len(g.groupComp.comparators); compIDX++ {
+				cmp := g.groupComp.reversed[compIDX] *
+					g.groupComp.comparators[compIDX].CompareValues(
+						group.SortValues[compIDX], mergedGroup.topValues[compIDX])
+				if cmp < 0 {
+					// Definitely competes
+					competes = true
+					break
+				} else if cmp > 0 {
+					// Definitely does not compete
+					break
+				} else if compIDX == len(g.groupComp.comparators)-1 {
+					if shard.shardIndex < mergedGroup.minShardIndex {
+						competes = true
+					}
+				}
+			}
+
+			if competes {
+				// Group's sort changed -- remove & re-insert, update first group in place for
+				// efficiency
+				skipHeavyOps := g.queue.first() == mergedGroup
+				if mergedGroup.inQueue && !skipHeavyOps {
+					g.queue.remove(mergedGroup)
+				}
+				mergedGroup.topValues = group.SortValues
+				mergedGroup.minShardIndex = shard.shardIndex
+				if !skipHeavyOps {
+					g.queue.add(mergedGroup)
+				}
+				mergedGroup.inQueue = true
+			}
 		}
-		iter := &shardIter[T]{groups: shard, shardIndex: i}
-		updateNextGroup(iter)
+
+		mergedGroup.shards = append(mergedGroup.shards, shard)
+		break
 	}
 
-	// Pull merged top-N groups in order.
-	var result []*SearchGroup[T]
+	// Prune un-competitive groups:
+	for g.queue.size() > topN {
+		group, _ := g.queue.pollLast()
+		group.inQueue = false
+	}
+}
+
+// merge mirrors GroupMerger.merge(List, int, int).
+func (g *searchGroupMerger[T]) merge(shards [][]*SearchGroup[T], offset, topN int) []*SearchGroup[T] {
+	maxQueueSize := offset + topN
+
+	// Init queue:
+	for shardIDX := 0; shardIDX < len(shards); shardIDX++ {
+		shard := shards[shardIDX]
+		if len(shard) != 0 {
+			g.updateNextGroup(maxQueueSize, newSearchGroupShardIter(shard, shardIDX))
+		}
+	}
+
+	// Pull merged topN groups:
+	newTopGroups := make([]*SearchGroup[T], 0, topN)
+
 	count := 0
-	for len(queue) > 0 {
-		mg := queue[0]
-		queue = queue[1:]
-		mg.processed = true
+
+	for !g.queue.isEmpty() {
+		group, _ := g.queue.pollFirst()
+		group.processed = true
 		if count >= offset {
-			result = append(result, &SearchGroup[T]{
-				GroupValue: mg.groupValue,
-				SortValues: mg.topValues,
-			})
-			if len(result) == topN {
+			newGroup := &SearchGroup[T]{}
+			newGroup.GroupValue = group.groupValue
+			newGroup.SortValues = group.topValues
+			newTopGroups = append(newTopGroups, newGroup)
+			if len(newTopGroups) == topN {
 				break
 			}
 		}
 		count++
-		for _, iter := range mg.shardIters {
-			updateNextGroup(iter)
+
+		// Advance all iters in this group:
+		for _, shardIter := range group.shards {
+			g.updateNextGroup(maxQueueSize, shardIter)
 		}
 	}
-	if len(result) == 0 {
-		return nil
-	}
-	return result
+
+	return newTopGroups
 }
 
-// sortQueue sorts the merged-group queue so that the best (lowest by compare)
-// group is at index 0.  Ties break on minShardIndex.
-func sortQueue[T comparable](q []*mergedGroup[T], compare func(a, b []any) int) {
-	sort.SliceStable(q, func(i, j int) bool {
-		c := compare(q[i].topValues, q[j].topValues)
-		if c != 0 {
-			return c < 0
-		}
-		return q[i].minShardIndex < q[j].minShardIndex
-	})
-}
-
-// removeFromQueue removes mg from q by value.
-func removeFromQueue[T comparable](q *[]*mergedGroup[T], mg *mergedGroup[T]) {
-	for i, m := range *q {
-		if m == mg {
-			*q = append((*q)[:i], (*q)[i+1:]...)
-			return
-		}
-	}
+// MergeSearchGroups merges multiple collections of top groups, for example
+// obtained from separate index shards. The provided groupSort must match how
+// the groups were sorted, and the provided SearchGroups must have been
+// computed with fillFields=true passed to
+// FirstPassGroupingCollector.GetTopGroups.
+//
+// Mirrors the static method
+// org.apache.lucene.search.grouping.SearchGroup.merge.
+func MergeSearchGroups[T any](topGroups [][]*SearchGroup[T], offset, topN int, groupSort *search.Sort) []*SearchGroup[T] {
+	return newSearchGroupMerger[T](groupSort).merge(topGroups, offset, topN)
 }

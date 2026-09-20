@@ -9,6 +9,7 @@ package intervals
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"sort"
 	"strings"
 
@@ -166,17 +167,17 @@ func (s *MinimumShouldMatchIntervalsSource) String() string {
 //
 // Mirrors MinimumShouldMatchIntervalsSource.MinimumShouldMatchIntervalIterator.
 type minimumShouldMatchIntervalIterator struct {
-	approximation  util.DocIdSetIterator
-	disiQueue      *DisiPriorityQueue
-	proximityQueue []IntervalIterator // min-heap by start
+	approximation   util.DocIdSetIterator
+	disiQueue       *DisiPriorityQueue
+	proximityQueue  []IntervalIterator // min-heap by start
 	backgroundQueue []IntervalIterator // min-heap by end
-	minShouldMatch int
-	matchCostVal   float32
-	onMatch        MatchCallback
-	start          int
-	end            int
-	queueEnd       int
-	slop           int
+	minShouldMatch  int
+	matchCostVal    float32
+	onMatch         MatchCallback
+	start           int
+	end             int
+	queueEnd        int
+	slop            int
 }
 
 func newMinimumShouldMatchIntervalIterator(subs []IntervalIterator, minShouldMatch int, onMatch MatchCallback) *minimumShouldMatchIntervalIterator {
@@ -198,13 +199,13 @@ func newMinimumShouldMatchIntervalIterator(subs []IntervalIterator, minShouldMat
 	}
 }
 
-func (it *minimumShouldMatchIntervalIterator) DocID() int        { return it.approximation.DocID() }
-func (it *minimumShouldMatchIntervalIterator) DocIDRunEnd() int   { return it.DocID() + 1 }
-func (it *minimumShouldMatchIntervalIterator) Cost() int64       { return it.approximation.Cost() }
-func (it *minimumShouldMatchIntervalIterator) MatchCost() float32 { return it.matchCostVal }
-func (it *minimumShouldMatchIntervalIterator) Start() int        { return it.start }
-func (it *minimumShouldMatchIntervalIterator) End() int          { return it.end }
-func (it *minimumShouldMatchIntervalIterator) Gaps() int         { return it.slop }
+func (it *minimumShouldMatchIntervalIterator) DocID() int                { return it.approximation.DocID() }
+func (it *minimumShouldMatchIntervalIterator) DocIDRunEnd() (int, error) { return it.DocID() + 1, nil }
+func (it *minimumShouldMatchIntervalIterator) Cost() int64               { return it.approximation.Cost() }
+func (it *minimumShouldMatchIntervalIterator) MatchCost() float32        { return it.matchCostVal }
+func (it *minimumShouldMatchIntervalIterator) Start() int                { return it.start }
+func (it *minimumShouldMatchIntervalIterator) End() int                  { return it.end }
+func (it *minimumShouldMatchIntervalIterator) Gaps() int                 { return it.slop }
 func (it *minimumShouldMatchIntervalIterator) Width() int {
 	if it.end == NoMoreIntervals {
 		return NoMoreIntervals
@@ -417,10 +418,10 @@ var _ util.DocIdSetIterator = (*minimumShouldMatchIntervalIterator)(nil)
 // minimumMatchesIterator wraps a minimumShouldMatchIntervalIterator and provides
 // sub-match information from the proximity queue's CachingMatchesIterators.
 type minimumMatchesIterator struct {
-	iterator    *minimumShouldMatchIntervalIterator
-	allWraps    []IntervalIterator
-	cacheSubs   []*CachingMatchesIterator
-	cached      bool
+	iterator  *minimumShouldMatchIntervalIterator
+	allWraps  []IntervalIterator
+	cacheSubs []*CachingMatchesIterator
+	cached    bool
 }
 
 func newMinimumMatchesIterator(it *minimumShouldMatchIntervalIterator, wraps []IntervalIterator, cacheSubs []*CachingMatchesIterator) *minimumMatchesIterator {
@@ -489,7 +490,7 @@ func (m *minimumMatchesIterator) GetSubMatches() (search.MatchesIterator, error)
 			mis = append(mis, cmi)
 		}
 	}
-	return search.DisjunctionMatchesIterator(mis), nil
+	return search.MatchesUtils.Disjunction(mis)
 }
 
 func (m *minimumMatchesIterator) GetQuery() search.Query { return nil }
@@ -503,4 +504,11 @@ func (m *minimumMatchesIterator) activeCacheSubs() []*CachingMatchesIterator {
 		}
 	}
 	return active
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *minimumShouldMatchIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
 }

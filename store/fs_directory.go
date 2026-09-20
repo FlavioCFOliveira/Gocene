@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"unsafe"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // validFileNamePattern matches allowed filename characters
@@ -525,13 +527,15 @@ func (d *SimpleFSDirectory) OpenInput(name string, ctx IOContext) (IndexInput, e
 
 	d.AddOpenFile(name)
 
-	return &SimpleFSIndexInput{
+	in := &SimpleFSIndexInput{
 		file:           file,
 		path:           path,
 		name:           name,
 		directory:      d,
 		BaseIndexInput: NewBaseIndexInput(fmt.Sprintf("SimpleFSIndexInput(path=\"%s\")", path), info.Size()),
-	}, nil
+	}
+	in.Core = in
+	return in, nil
 }
 
 // CreateOutput returns an IndexOutput for writing a new file.
@@ -558,13 +562,19 @@ func (d *SimpleFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutpu
 
 	d.AddOpenFile(name)
 
-	return &SimpleFSIndexOutput{
+	out := &SimpleFSIndexOutput{
 		file:            file,
 		path:            path,
 		name:            name,
 		directory:       d,
-		BaseIndexOutput: NewBaseIndexOutput(name),
-	}, nil
+		BaseIndexOutput: spi.NewBaseIndexOutput(name),
+	}
+	// The embedded BaseDataOutput supplies every derived writer Java inherits
+	// from DataOutput (writeVInt, writeString, writeMapOfStrings, ...). Those
+	// bodies reach the file through this type's own WriteByte/WriteBytes, which
+	// is exactly how Java's FSIndexOutput -> OutputStreamIndexOutput dispatches.
+	out.BaseDataOutput = *NewBaseDataOutput(out)
+	return out, nil
 }
 
 // SimpleFSIndexInput is an IndexInput implementation for SimpleFSDirectory.
@@ -575,6 +585,7 @@ func (d *SimpleFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutpu
 // and only the root input closes the shared file descriptor.
 type SimpleFSIndexInput struct {
 	*BaseIndexInput
+	spi.BaseDataInput
 	file        *os.File
 	path        string
 	name        string
@@ -617,23 +628,23 @@ func (in *SimpleFSIndexInput) ReadByte() (byte, error) {
 // ReadBytes reads len(b) bytes into b.
 // Returns io.ErrUnexpectedEOF when the request would exceed the slice boundary,
 // matching Lucene's FSIndexInput.readInternal bounds enforcement.
-func (in *SimpleFSIndexInput) ReadBytes(b []byte) error {
+func (in *SimpleFSIndexInput) ReadBytes(b []byte, offset, length int) error {
 	if err := in.ensureFileOpen(); err != nil {
 		return err
 	}
 	if !in.directory.IsOpen() {
 		return ErrIllegalState
 	}
-	if int64(len(b)) > in.Length()-in.GetFilePointer() {
+	if int64(length) > in.Length()-in.GetFilePointer() {
 		return io.ErrUnexpectedEOF
 	}
 
 	pos := in.sliceOffset + in.GetFilePointer()
-	n, err := in.file.ReadAt(b, pos)
+	n, err := in.file.ReadAt(b[offset:offset+length], pos)
 	if err != nil && err != io.EOF {
 		return err
 	}
-	if n != len(b) {
+	if n != length {
 		return io.ErrUnexpectedEOF
 	}
 
@@ -644,7 +655,7 @@ func (in *SimpleFSIndexInput) ReadBytes(b []byte) error {
 // ReadBytesN reads exactly n bytes and returns them.
 func (in *SimpleFSIndexInput) ReadBytesN(n int) ([]byte, error) {
 	b := make([]byte, n)
-	if err := in.ReadBytes(b); err != nil {
+	if err := in.ReadBytes(b, 0, n); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -681,11 +692,6 @@ func (in *SimpleFSIndexInput) ReadLong() (int64, error) {
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56), nil
 }
 
-// ReadString reads a string.
-func (in *SimpleFSIndexInput) ReadString() (string, error) {
-	return ReadString(in)
-}
-
 // SetPosition changes the current logical position in the input.
 // No OS seek is needed because ReadAt reads from an absolute offset.
 func (in *SimpleFSIndexInput) SetPosition(pos int64) error {
@@ -701,7 +707,7 @@ func (in *SimpleFSIndexInput) SetPosition(pos int64) error {
 // matching Lucene's NIOFSIndexInput.clone() semantics. Only the root input
 // owns the file descriptor and closes it.
 func (in *SimpleFSIndexInput) Clone() IndexInput {
-	return &SimpleFSIndexInput{
+	clone := &SimpleFSIndexInput{
 		BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 		file:           in.file,
 		path:           in.path,
@@ -710,6 +716,11 @@ func (in *SimpleFSIndexInput) Clone() IndexInput {
 		sliceOffset:    in.sliceOffset,
 		isClone:        true,
 	}
+	// Every DataInput-derived reader (readVInt, readString, ...) dispatches
+	// through Core; a clone whose Core is unset would nil-panic on the first
+	// one. Java gets this for free because the clone is the same object type.
+	clone.Core = clone
+	return clone
 }
 
 // Slice returns a subset of this IndexInput.
@@ -727,7 +738,7 @@ func (in *SimpleFSIndexInput) Slice(desc string, offset int64, length int64) (In
 	// dictionary and postings headers (rmp #4747).
 	absOffset := in.sliceOffset + offset
 
-	return &SimpleFSIndexInput{
+	slice := &SimpleFSIndexInput{
 		BaseIndexInput: NewBaseIndexInput(desc, length),
 		file:           in.file,
 		path:           in.path,
@@ -735,7 +746,9 @@ func (in *SimpleFSIndexInput) Slice(desc string, offset int64, length int64) (In
 		directory:      in.directory,
 		sliceOffset:    absOffset,
 		isClone:        true,
-	}, nil
+	}
+	slice.Core = slice
+	return slice, nil
 }
 
 // ensureFileOpen returns an error if the underlying file handle is nil,
@@ -747,6 +760,10 @@ func (in *SimpleFSIndexInput) ensureFileOpen() error {
 		return fmt.Errorf("SimpleFSIndexInput: file handle is nil (clone of %q failed to open): %w", in.name, ErrIllegalState)
 	}
 	return nil
+}
+
+func (in *SimpleFSIndexInput) SkipBytes(n int64) error {
+	return in.BaseIndexInput.SkipBytes(n)
 }
 
 // Close closes this IndexInput.
@@ -762,7 +779,8 @@ func (in *SimpleFSIndexInput) Close() error {
 
 // SimpleFSIndexOutput is an IndexOutput implementation for SimpleFSDirectory.
 type SimpleFSIndexOutput struct {
-	*BaseIndexOutput
+	*spi.BaseIndexOutput
+	BaseDataOutput
 	file      *os.File
 	path      string
 	name      string
@@ -784,16 +802,17 @@ func (out *SimpleFSIndexOutput) WriteByte(b byte) error {
 }
 
 // WriteBytes writes all bytes from b.
-func (out *SimpleFSIndexOutput) WriteBytes(b []byte) error {
+func (out *SimpleFSIndexOutput) WriteBytes(b []byte, offset, length int) error {
 	if !out.directory.IsOpen() {
 		return ErrIllegalState
 	}
 
-	if _, err := out.file.Write(b); err != nil {
+	n, err := out.file.Write(b[offset : offset+length])
+	if err != nil {
 		return err
 	}
 
-	out.IncrementFilePointer(int64(len(b)))
+	out.IncrementFilePointer(int64(n))
 	return nil
 }
 
@@ -802,21 +821,21 @@ func (out *SimpleFSIndexOutput) WriteBytesN(b []byte, n int) error {
 	if n > len(b) {
 		return fmt.Errorf("n exceeds buffer length")
 	}
-	return out.WriteBytes(b[:n])
+	return out.WriteBytes(b, 0, n)
 }
 
 // WriteShort writes a 16-bit value as little-endian to match Lucene 10.x
 // DataOutput.writeShort (low byte first). See rmp #4786.
 func (out *SimpleFSIndexOutput) WriteShort(i int16) error {
 	b := []byte{byte(i), byte(i >> 8)}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // WriteInt writes a 32-bit value as little-endian to match Lucene 10.x
 // DataOutput.writeInt (low byte first). See rmp #4786.
 func (out *SimpleFSIndexOutput) WriteInt(i int32) error {
 	b := []byte{byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24)}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // WriteLong writes a 64-bit value as little-endian to match Lucene 10.x
@@ -826,12 +845,7 @@ func (out *SimpleFSIndexOutput) WriteLong(i int64) error {
 		byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24),
 		byte(i >> 32), byte(i >> 40), byte(i >> 48), byte(i >> 56),
 	}
-	return out.WriteBytes(b)
-}
-
-// WriteString writes a string.
-func (out *SimpleFSIndexOutput) WriteString(s string) error {
-	return WriteString(out, s)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // Length returns the total length of the file written so far.

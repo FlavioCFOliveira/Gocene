@@ -31,21 +31,21 @@ func GetTermsFromQueryWithProhibited(query search.Query, fieldName string) []*We
 func collectTerms(query search.Query, fieldName string, includeProhibited bool, weight float32, out *[]*WeightedTerm) {
 	switch q := query.(type) {
 	case *search.TermQuery:
-		term := q.Term()
+		term := q.GetTerm()
 		if fieldName == "" || term.Field == fieldName {
 			*out = append(*out, NewWeightedTerm(weight, term.Text()))
 		}
 	case *search.BooleanQuery:
 		for _, c := range q.Clauses() {
-			if !includeProhibited && c.Occur == search.MUST_NOT {
+			if !includeProhibited && c.Occur() == search.MUST_NOT {
 				continue
 			}
-			collectTerms(c.Query, fieldName, includeProhibited, weight, out)
+			collectTerms(c.Query(), fieldName, includeProhibited, weight, out)
 		}
 	case *search.BoostQuery:
 		collectTerms(q.Query(), fieldName, includeProhibited, weight*q.Boost(), out)
 	case *search.PhraseQuery:
-		for _, t := range q.Terms() {
+		for _, t := range q.GetTerms() {
 			if fieldName == "" || t.Field == fieldName {
 				*out = append(*out, NewWeightedTerm(weight, t.Text()))
 			}

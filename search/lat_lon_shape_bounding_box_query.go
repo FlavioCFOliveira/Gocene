@@ -7,10 +7,12 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -152,7 +154,7 @@ func (q *LatLonShapeBoundingBoxQuery) GetRectangle() geo.Rectangle { return q.re
 // the same field, relation, and rectangle. Mirrors the Java
 // reference's equalsTo override (parent's equalsTo plus a Rectangle
 // comparison).
-func (q *LatLonShapeBoundingBoxQuery) Equals(other Query) bool {
+func (q *LatLonShapeBoundingBoxQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*LatLonShapeBoundingBoxQuery)
 	if !ok {
 		return false
@@ -248,9 +250,9 @@ func newLatLonShapeBoundingBoxSpatialVisitor(rect *encodedLatLonRectangle) *latL
 // path) are classified as CELL_CROSSES_QUERY, forcing a per-leaf
 // visit. The leaf predicate is then consulted, and the result is
 // identical to the Java reference.
-func (v *latLonShapeBoundingBoxSpatialVisitor) Relate(minTriangle, maxTriangle []byte) spatialRelation {
+func (v *latLonShapeBoundingBoxSpatialVisitor) Relate(minTriangle, maxTriangle []byte) index.Relation {
 	if v.rect == nil {
-		return spatialCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	// Triangle byte layout: dim 0 = minY (offset 0), dim 1 = minX
 	// (offset BYTES=4), dim 2 = maxY (offset 2*BYTES=8), dim 3 =
@@ -264,7 +266,7 @@ func (v *latLonShapeBoundingBoxSpatialVisitor) Relate(minTriangle, maxTriangle [
 		2*shapeFieldDimBytes, // maxYOffset
 		maxTriangle,
 	)
-	return relationToSpatial(rel)
+	return rel
 }
 
 // Intersects returns the per-doc predicate for INTERSECTS /
@@ -428,7 +430,7 @@ func (r *encodedLatLonRectangle) crossesDateline() bool {
 }
 
 // relateRangeBBox compares the rectangle to the (min, max) cell
-// bbox of a triangle range and returns the matching pointRelation.
+// bbox of a triangle range and returns the matching index.Relation.
 // When the rectangle wraps the dateline and the eastern half misses,
 // the western half is consulted before returning OUTSIDE.
 //
@@ -438,11 +440,11 @@ func (r *encodedLatLonRectangle) relateRangeBBox(
 	minTriangle []byte,
 	maxXOffset, maxYOffset int,
 	maxTriangle []byte,
-) pointRelation {
+) index.Relation {
 	east := compareBBoxToRangeBBox(
 		r.bbox, minXOffset, minYOffset, minTriangle, maxXOffset, maxYOffset, maxTriangle,
 	)
-	if r.crossesDateline() && east == pointCellOutsideQuery {
+	if r.crossesDateline() && east == index.CellOutsideQuery {
 		return compareBBoxToRangeBBox(
 			r.west, minXOffset, minYOffset, minTriangle, maxXOffset, maxYOffset, maxTriangle,
 		)
@@ -465,43 +467,16 @@ func (r *encodedLatLonRectangle) intersectRangeBBox(
 	minTriangle []byte,
 	maxXOffset, maxYOffset int,
 	maxTriangle []byte,
-) pointRelation {
+) index.Relation {
 	east := intersectBBoxWithRangeBBox(
 		r.bbox, minXOffset, minYOffset, minTriangle, maxXOffset, maxYOffset, maxTriangle,
 	)
-	if r.crossesDateline() && east == pointCellOutsideQuery {
+	if r.crossesDateline() && east == index.CellOutsideQuery {
 		return intersectBBoxWithRangeBBox(
 			r.west, minXOffset, minYOffset, minTriangle, maxXOffset, maxYOffset, maxTriangle,
 		)
 	}
 	return east
-}
-
-// pointRelation is a private alias for the three-valued
-// PointValues.Relation enum the Java reference uses. It is
-// deliberately a separate type from spatialRelation so the helpers
-// can be tested directly with the same semantics as
-// org.apache.lucene.index.PointValues.Relation.
-type pointRelation int
-
-const (
-	pointCellInsideQuery pointRelation = iota
-	pointCellOutsideQuery
-	pointCellCrossesQuery
-)
-
-// relationToSpatial converts a pointRelation into the
-// spatialRelation the SpatialQuery pipeline consumes. The three
-// values are stable across both enums; the switch is exhaustive.
-func relationToSpatial(r pointRelation) spatialRelation {
-	switch r {
-	case pointCellInsideQuery:
-		return spatialCellInsideQuery
-	case pointCellOutsideQuery:
-		return spatialCellOutsideQuery
-	default:
-		return spatialCellCrossesQuery
-	}
 }
 
 // compareBBoxToRangeBBox classifies a triangle-range cell against a
@@ -517,9 +492,9 @@ func compareBBoxToRangeBBox(
 	minTriangle []byte,
 	maxXOffset, maxYOffset int,
 	maxTriangle []byte,
-) pointRelation {
+) index.Relation {
 	if rangeBBoxDisjoint(bbox, minXOffset, minYOffset, minTriangle, maxXOffset, maxYOffset, maxTriangle) {
-		return pointCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	// Cell-inside-query when every cell dim falls within the bbox
 	// dim. The X and Y bounds use the bbox layout offsets (X at
@@ -528,9 +503,9 @@ func compareBBoxToRangeBBox(
 		util.CompareUnsigned4(maxTriangle, maxXOffset, bbox, 3*shapeFieldDimBytes) <= 0 &&
 		util.CompareUnsigned4(minTriangle, minYOffset, bbox, 0) >= 0 &&
 		util.CompareUnsigned4(maxTriangle, maxYOffset, bbox, 2*shapeFieldDimBytes) <= 0 {
-		return pointCellInsideQuery
+		return index.CellInsideQuery
 	}
-	return pointCellCrossesQuery
+	return index.CellCrossesQuery
 }
 
 // intersectBBoxWithRangeBBox is the looser INTERSECTS variant of
@@ -545,20 +520,20 @@ func intersectBBoxWithRangeBBox(
 	minTriangle []byte,
 	maxXOffset, maxYOffset int,
 	maxTriangle []byte,
-) pointRelation {
+) index.Relation {
 	if rangeBBoxDisjoint(bbox, minXOffset, minYOffset, minTriangle, maxXOffset, maxYOffset, maxTriangle) {
-		return pointCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 
 	if util.CompareUnsigned4(minTriangle, minXOffset, bbox, shapeFieldDimBytes) >= 0 &&
 		util.CompareUnsigned4(minTriangle, minYOffset, bbox, 0) >= 0 {
 		if util.CompareUnsigned4(maxTriangle, minXOffset, bbox, 3*shapeFieldDimBytes) <= 0 &&
 			util.CompareUnsigned4(maxTriangle, maxYOffset, bbox, 2*shapeFieldDimBytes) <= 0 {
-			return pointCellInsideQuery
+			return index.CellInsideQuery
 		}
 		if util.CompareUnsigned4(maxTriangle, maxXOffset, bbox, 3*shapeFieldDimBytes) <= 0 &&
 			util.CompareUnsigned4(maxTriangle, minYOffset, bbox, 2*shapeFieldDimBytes) <= 0 {
-			return pointCellInsideQuery
+			return index.CellInsideQuery
 		}
 	}
 
@@ -566,15 +541,15 @@ func intersectBBoxWithRangeBBox(
 		util.CompareUnsigned4(maxTriangle, maxYOffset, bbox, 2*shapeFieldDimBytes) <= 0 {
 		if util.CompareUnsigned4(minTriangle, minXOffset, bbox, shapeFieldDimBytes) >= 0 &&
 			util.CompareUnsigned4(minTriangle, maxYOffset, bbox, 0) >= 0 {
-			return pointCellInsideQuery
+			return index.CellInsideQuery
 		}
 		if util.CompareUnsigned4(minTriangle, maxXOffset, bbox, shapeFieldDimBytes) >= 0 &&
 			util.CompareUnsigned4(minTriangle, minYOffset, bbox, 0) >= 0 {
-			return pointCellInsideQuery
+			return index.CellInsideQuery
 		}
 	}
 
-	return pointCellCrossesQuery
+	return index.CellCrossesQuery
 }
 
 // rangeBBoxDisjoint reports whether the triangle range cell is
@@ -612,7 +587,7 @@ func NewBoxQuery(
 ) (Query, error) {
 	// Handle dateline crossing for CONTAINS.
 	if queryRelation == document.QueryRelationContains && minLon > maxLon {
-		bq := NewBooleanQuery()
+		bq := NewBooleanQueryBuilder()
 		must1, err := NewBoxQuery(
 			field, queryRelation, minLat, maxLat, minLon, geo.MaxLonIncl)
 		if err != nil {
@@ -625,7 +600,7 @@ func NewBoxQuery(
 			return nil, err
 		}
 		bq.Add(must2, MUST)
-		return bq, nil
+		return bq.Build(), nil
 	}
 	rect, err := geo.NewRectangle(minLat, maxLat, minLon, maxLon)
 	if err != nil {

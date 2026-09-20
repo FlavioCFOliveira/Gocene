@@ -4,6 +4,10 @@
 
 package document
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 // DocumentStoredFieldVisitor is a StoredFieldVisitor that reconstructs a
 // Document from visited stored-field callbacks.
 //
@@ -16,10 +20,6 @@ package document
 // fieldsToAdd filtering missing from the codecs/ variant.
 //
 // Divergences from Java:
-//   - The visitor methods take a field name (string) rather than a
-//     FieldInfo, mirroring the Gocene index.StoredFieldVisitor interface.
-//     NeedsField therefore also takes a string. When the FieldInfo type
-//     gains a richer public surface this can be revisited.
 //   - Adds StoredField-equivalent fields built via the existing NewXxxField
 //     constructors to avoid coupling to a still-evolving StoredField API.
 type DocumentStoredFieldVisitor struct {
@@ -51,62 +51,79 @@ func NewDocumentStoredFieldVisitorFor(fields ...string) *DocumentStoredFieldVisi
 	return v
 }
 
-// NeedsField reports whether the visitor wishes to receive the named field.
-// Mirrors Lucene's needsField(FieldInfo) returning YES/NO.
-func (v *DocumentStoredFieldVisitor) NeedsField(name string) bool {
+// NeedsField reports whether the visitor wishes to receive the given field.
+//
+// Mirrors DocumentStoredFieldVisitor.needsField(FieldInfo)
+// (DocumentStoredFieldVisitor.java:97-100): YES when no field filter was
+// supplied or the filter contains the field name, NO otherwise.
+func (v *DocumentStoredFieldVisitor) NeedsField(fieldInfo *spi.FieldInfo) (spi.StoredFieldVisitorStatus, error) {
 	if v.loadAllField {
-		return true
+		return spi.StoredFieldVisitorStatusYes, nil
 	}
-	_, ok := v.fieldsToAdd[name]
-	return ok
+	if _, ok := v.fieldsToAdd[fieldInfo.Name()]; ok {
+		return spi.StoredFieldVisitorStatusYes, nil
+	}
+	return spi.StoredFieldVisitorStatusNo, nil
 }
 
 // StringField is invoked for each visited stored string field.
-func (v *DocumentStoredFieldVisitor) StringField(name string, value string) {
-	f, err := NewStoredField(name, value)
-	if err == nil {
-		v.doc.Add(f)
+func (v *DocumentStoredFieldVisitor) StringField(fieldInfo *spi.FieldInfo, value string) error {
+	f, err := NewStoredField(fieldInfo.Name(), value)
+	if err != nil {
+		return err
 	}
+	v.doc.Add(f)
+	return nil
 }
 
 // BinaryField is invoked for each visited stored binary field.
-func (v *DocumentStoredFieldVisitor) BinaryField(name string, value []byte) {
-	f, err := NewStoredFieldFromBytes(name, value)
-	if err == nil {
-		v.doc.Add(f)
+func (v *DocumentStoredFieldVisitor) BinaryField(fieldInfo *spi.FieldInfo, value []byte) error {
+	f, err := NewStoredFieldFromBytes(fieldInfo.Name(), value)
+	if err != nil {
+		return err
 	}
+	v.doc.Add(f)
+	return nil
 }
 
 // IntField is invoked for each visited stored int field.
-func (v *DocumentStoredFieldVisitor) IntField(name string, value int) {
-	f, err := NewIntField(name, value, true)
-	if err == nil {
-		v.doc.Add(f)
+func (v *DocumentStoredFieldVisitor) IntField(fieldInfo *spi.FieldInfo, value int) error {
+	f, err := NewIntField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
 	}
+	v.doc.Add(f)
+	return nil
 }
 
 // LongField is invoked for each visited stored long field.
-func (v *DocumentStoredFieldVisitor) LongField(name string, value int64) {
-	f, err := NewLongField(name, value, true)
-	if err == nil {
-		v.doc.Add(f)
+func (v *DocumentStoredFieldVisitor) LongField(fieldInfo *spi.FieldInfo, value int64) error {
+	f, err := NewLongField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
 	}
+	v.doc.Add(f)
+	return nil
 }
 
 // FloatField is invoked for each visited stored float field.
-func (v *DocumentStoredFieldVisitor) FloatField(name string, value float32) {
-	f, err := NewFloatField(name, value, true)
-	if err == nil {
-		v.doc.Add(f)
+func (v *DocumentStoredFieldVisitor) FloatField(fieldInfo *spi.FieldInfo, value float32) error {
+	f, err := NewFloatField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
 	}
+	v.doc.Add(f)
+	return nil
 }
 
 // DoubleField is invoked for each visited stored double field.
-func (v *DocumentStoredFieldVisitor) DoubleField(name string, value float64) {
-	f, err := NewDoubleField(name, value, true)
-	if err == nil {
-		v.doc.Add(f)
+func (v *DocumentStoredFieldVisitor) DoubleField(fieldInfo *spi.FieldInfo, value float64) error {
+	f, err := NewDoubleField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
 	}
+	v.doc.Add(f)
+	return nil
 }
 
 // GetDocument returns the reconstructed Document.

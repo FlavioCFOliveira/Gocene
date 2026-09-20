@@ -29,8 +29,11 @@ func TestSpanSearchEquivalence_SpanOrSingleton(t *testing.T) {
 
 	t.Run("single_clause_rewrites_to_span_term", func(t *testing.T) {
 		t.Parallel()
-		stq := search.NewSpanTermQuery(index.NewTerm("f", "a"))
-		orQ := search.NewSpanOrQuery(stq)
+		stq := NewSpanTermQuery(index.NewTerm("f", "a"))
+		orQ, err := NewSpanOrQuery(stq)
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
 		if orQ == nil {
 			t.Fatal("expected non-nil SpanOrQuery")
 		}
@@ -39,7 +42,7 @@ func TestSpanSearchEquivalence_SpanOrSingleton(t *testing.T) {
 			t.Fatalf("Rewrite: %v", err)
 		}
 		// Single-clause rewrite should return the clause itself.
-		_, isSTQ := rewritten.(*search.SpanTermQuery)
+		_, isSTQ := rewritten.(*SpanTermQuery)
 		if !isSTQ {
 			t.Errorf("rewritten type = %T; want *SpanTermQuery", rewritten)
 		}
@@ -54,7 +57,7 @@ func TestSpanSearchEquivalence_BooleanComposition(t *testing.T) {
 
 	t.Run("span_term_as_boolean_should", func(t *testing.T) {
 		t.Parallel()
-		stq := search.NewSpanTermQuery(index.NewTerm("f", "a"))
+		stq := NewSpanTermQuery(index.NewTerm("f", "a"))
 		bq := search.NewBooleanQuery()
 		bq.Add(stq, search.SHOULD)
 		if bq == nil {
@@ -64,8 +67,8 @@ func TestSpanSearchEquivalence_BooleanComposition(t *testing.T) {
 
 	t.Run("two_span_terms_as_should", func(t *testing.T) {
 		t.Parallel()
-		stq1 := search.NewSpanTermQuery(index.NewTerm("f", "a"))
-		stq2 := search.NewSpanTermQuery(index.NewTerm("f", "b"))
+		stq1 := NewSpanTermQuery(index.NewTerm("f", "a"))
+		stq2 := NewSpanTermQuery(index.NewTerm("f", "b"))
 		bq := search.NewBooleanQuery()
 		bq.Add(stq1, search.SHOULD)
 		bq.Add(stq2, search.SHOULD)
@@ -76,10 +79,13 @@ func TestSpanSearchEquivalence_BooleanComposition(t *testing.T) {
 
 	t.Run("span_or_as_boolean_must", func(t *testing.T) {
 		t.Parallel()
-		orQ := search.NewSpanOrQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "a")),
-			search.NewSpanTermQuery(index.NewTerm("f", "b")),
+		orQ, err := NewSpanOrQuery(
+			NewSpanTermQuery(index.NewTerm("f", "a")),
+			NewSpanTermQuery(index.NewTerm("f", "b")),
 		)
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
 		bq := search.NewBooleanQuery()
 		bq.Add(orQ, search.MUST)
 		if bq == nil {
@@ -89,10 +95,13 @@ func TestSpanSearchEquivalence_BooleanComposition(t *testing.T) {
 
 	t.Run("span_not_as_boolean_filter", func(t *testing.T) {
 		t.Parallel()
-		snQ := search.NewSpanNotQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "a")),
-			search.NewSpanTermQuery(index.NewTerm("f", "b")),
+		snQ, err := NewSpanNotQuery(
+			NewSpanTermQuery(index.NewTerm("f", "a")),
+			NewSpanTermQuery(index.NewTerm("f", "b")),
 		)
+		if err != nil {
+			t.Fatalf("NewSpanNotQuery: %v", err)
+		}
 		bq := search.NewBooleanQuery()
 		bq.Add(snQ, search.FILTER)
 		if bq == nil {
@@ -104,8 +113,8 @@ func TestSpanSearchEquivalence_BooleanComposition(t *testing.T) {
 		t.Parallel()
 		dmq := search.NewDisjunctionMaxQueryWithTieBreaker(
 			[]search.Query{
-				search.NewSpanTermQuery(index.NewTerm("f", "a")),
-				search.NewSpanTermQuery(index.NewTerm("f", "b")),
+				NewSpanTermQuery(index.NewTerm("f", "a")),
+				NewSpanTermQuery(index.NewTerm("f", "b")),
 			},
 			1.0,
 		)
@@ -122,9 +131,12 @@ func TestSpanSearchEquivalence_Rewrite(t *testing.T) {
 
 	t.Run("span_or_single_rewrites_to_span_term", func(t *testing.T) {
 		t.Parallel()
-		orQ := search.NewSpanOrQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "x")),
+		orQ, err := NewSpanOrQuery(
+			NewSpanTermQuery(index.NewTerm("f", "x")),
 		)
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
 		if orQ == nil {
 			t.Fatal("expected non-nil")
 		}
@@ -132,7 +144,7 @@ func TestSpanSearchEquivalence_Rewrite(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Rewrite: %v", err)
 		}
-		_, isSTQ := rewritten.(*search.SpanTermQuery)
+		_, isSTQ := rewritten.(*SpanTermQuery)
 		if !isSTQ {
 			t.Errorf("type = %T; want *SpanTermQuery", rewritten)
 		}

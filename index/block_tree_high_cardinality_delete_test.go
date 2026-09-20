@@ -35,10 +35,10 @@ func TestBlockTreeHighCardinality_DeleteByIDReopen(t *testing.T) {
 		_ = sdr0.Close()
 		t.Fatalf("baseline NumDocs = %d, want %d", got, highCardinalityTermCount)
 	}
-	en0, err := terms0.GetIterator()
+	en0, err := terms0.Iterator()
 	if err != nil {
 		_ = sdr0.Close()
-		t.Fatalf("GetIterator (baseline): %v", err)
+		t.Fatalf("Iterator (baseline): %v", err)
 	}
 	const victim = "id_0500" // mid-tree, lives in a sub-block
 	if found, err := en0.SeekExact(index.NewTerm("id", victim)); err != nil || !found {
@@ -78,9 +78,9 @@ func TestBlockTreeHighCardinality_DeleteByIDReopen(t *testing.T) {
 	// The victim's docID must be cleared in live docs. We confirm this by
 	// resolving the term, fetching its single posting, and checking that doc
 	// against the segment's live-docs view.
-	en1, err := terms1.GetIterator()
+	en1, err := terms1.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator (post-delete): %v", err)
+		t.Fatalf("Iterator (post-delete): %v", err)
 	}
 	found, err := en1.SeekExact(index.NewTerm("id", victim))
 	if err != nil {
@@ -117,9 +117,9 @@ func TestBlockTreeHighCardinality_DeleteByIDReopen(t *testing.T) {
 	}
 
 	// Every other id must still resolve to a live document.
-	checkEnum, err := terms1.GetIterator()
+	checkEnum, err := terms1.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator (survivors): %v", err)
+		t.Fatalf("Iterator (survivors): %v", err)
 	}
 	survivors := 0
 	for i := 0; i < highCardinalityTermCount; i++ {

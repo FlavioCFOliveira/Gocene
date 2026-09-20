@@ -44,7 +44,7 @@ func (p PostingsUtil) ReadVIntBlock(
 	indexHasFreq bool,
 	decodeFreq bool,
 ) error {
-	if err := util.ReadGroupVInts(docIn, docBuffer, num); err != nil {
+	if err := store.ReadGroupVInts(docIn, docBuffer, num); err != nil {
 		return err
 	}
 

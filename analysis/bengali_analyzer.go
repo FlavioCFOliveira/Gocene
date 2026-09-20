@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // BengaliStopWords contains common Bengali stop words.
@@ -56,20 +58,30 @@ func NewBengaliAnalyzer() *BengaliAnalyzer {
 // NewBengaliAnalyzerWithWords creates a BengaliAnalyzer with custom stop words.
 func NewBengaliAnalyzerWithWords(stopWords *CharArraySet) *BengaliAnalyzer {
 	a := &BengaliAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 
 	return a
 }
 
 // TokenStream creates a TokenStream for analyzing text.
-func (a *BengaliAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (a *BengaliAnalyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	return a.BaseAnalyzer.TokenStream(fieldName, reader)
 }
 
@@ -83,6 +95,5 @@ func (a *BengaliAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-// Ensure BengaliAnalyzer implements Analyzer
-var _ Analyzer = (*BengaliAnalyzer)(nil)
-var _ AnalyzerInterface = (*BengaliAnalyzer)(nil)
+// Ensure BengaliAnalyzer implements api.Analyzer
+var _ api.Analyzer = (*BengaliAnalyzer)(nil)

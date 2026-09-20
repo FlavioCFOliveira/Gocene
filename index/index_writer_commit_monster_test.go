@@ -151,9 +151,9 @@ func TestCommitThreadSafety(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Terms %d: %v", i, err)
 			}
-			it, err := terms.GetIterator()
+			it, err := terms.Iterator()
 			if err != nil {
-				t.Fatalf("GetIterator %d: %v", i, err)
+				t.Fatalf("Iterator %d: %v", i, err)
 			}
 			found := false
 			for {

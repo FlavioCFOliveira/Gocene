@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // LatvianStopWords contains common Latvian stop words.
@@ -48,12 +49,22 @@ func NewLatvianAnalyzer() *LatvianAnalyzer {
 // NewLatvianAnalyzerWithWords creates a LatvianAnalyzer with custom stop words.
 func NewLatvianAnalyzerWithWords(stopWords *CharArraySet) *LatvianAnalyzer {
 	a := &LatvianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 	return a
 }
 
@@ -72,5 +83,4 @@ func (a *LatvianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*LatvianAnalyzer)(nil)
-var _ AnalyzerInterface = (*LatvianAnalyzer)(nil)
+var _ api.Analyzer = (*LatvianAnalyzer)(nil)

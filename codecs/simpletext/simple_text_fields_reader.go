@@ -7,6 +7,7 @@ package simpletext
 import (
 	"bytes"
 	"fmt"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -77,7 +78,7 @@ type SimpleTextFieldsReader struct {
 //
 // Port of SimpleTextFieldsReader(SegmentReadState).
 func NewSimpleTextFieldsReader(state *codecs.SegmentReadState) (*SimpleTextFieldsReader, error) {
-	fileName := index.SegmentFileName(
+	fileName := store.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		postingsExtension,
@@ -134,6 +135,28 @@ func (r *SimpleTextFieldsReader) readFields(raw store.IndexInput) (map[string]in
 // present.
 //
 // Port of SimpleTextFieldsReader.terms(String).
+// Iterator returns the field names in sorted order. Mirrors
+// SimpleTextFieldsReader.iterator(), which walks the key set of a TreeMap.
+func (r *SimpleTextFieldsReader) Iterator() (index.FieldIterator, error) {
+	names := make([]string, 0, len(r.fields))
+	for name := range r.fields {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return index.NewMemoryFieldIterator(names), nil
+}
+
+// Size returns -1, exactly as SimpleTextFieldsReader.size() does.
+func (r *SimpleTextFieldsReader) Size() int {
+	return -1
+}
+
+// GetMergeInstance returns the receiver: SimpleTextFieldsReader does not
+// override FieldsProducer.getMergeInstance(), whose default returns this.
+func (r *SimpleTextFieldsReader) GetMergeInstance() codecs.FieldsProducer {
+	return r
+}
+
 func (r *SimpleTextFieldsReader) Terms(field string) (index.Terms, error) {
 	r.termsMu.Lock()
 	defer r.termsMu.Unlock()
@@ -337,8 +360,8 @@ func (t *simpleTextTerms) loadTerms() error {
 	return nil
 }
 
-// GetIterator returns a TermsEnum for this field.
-func (t *simpleTextTerms) GetIterator() (index.TermsEnum, error) {
+// Iterator returns a TermsEnum for this field.
+func (t *simpleTextTerms) Iterator() (index.TermsEnum, error) {
 	if t.fst == nil {
 		return emptyTermsEnum, nil
 	}
@@ -351,7 +374,7 @@ func (t *simpleTextTerms) GetIterator() (index.TermsEnum, error) {
 
 // GetIteratorWithSeek positions the returned TermsEnum at or after seekTerm.
 func (t *simpleTextTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
-	te, err := t.GetIterator()
+	te, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -370,7 +393,7 @@ func (t *simpleTextTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.Terms
 
 // GetPostingsReader returns a PostingsEnum for the named term.
 func (t *simpleTextTerms) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {
-	te, err := t.GetIterator()
+	te, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -546,6 +569,32 @@ func (te *simpleTextTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
 	e := newSimpleTextDocsEnum(te.reader)
 	omitTF := te.indexOptions == index.IndexOptionsDocs
 	return e.reset(te.docsStart, omitTF, te.docFreq, te.skipPointer)
+}
+
+// Impacts returns an ImpactsEnum for the current term.
+//
+// Port of SimpleTextFieldsReader.SimpleTextTermsEnum.impacts(int)
+// (SimpleTextFieldsReader.java:261):
+//
+//	if (docFreq <= SimpleTextSkipWriter.BLOCK_SIZE) {
+//	  // no skip data
+//	  return new SlowImpactsEnum(postings(null, flags));
+//	}
+//	return (ImpactsEnum) postings(null, flags);
+func (te *simpleTextTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	pe, err := te.Postings(flags)
+	if err != nil {
+		return nil, err
+	}
+	if te.docFreq <= skipBlockSize {
+		// no skip data
+		return index.NewSlowImpactsEnum(pe), nil
+	}
+	ie, ok := pe.(index.ImpactsEnum)
+	if !ok {
+		return nil, fmt.Errorf("simpleTextTermsEnum.Impacts: postings enum %T is not an ImpactsEnum", pe)
+	}
+	return ie, nil
 }
 
 // PostingsWithLiveDocs ignores live docs (SimpleText has no deletions).
@@ -725,6 +774,20 @@ func (e *simpleTextDocsEnum) GetImpacts() (index.Impacts, error) {
 }
 
 // compile-time assertion: simpleTextDocsEnum implements index.ImpactsEnum.
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// SimpleTextFieldsReader.SimpleTextDocsEnum does not override in Apache
+// Lucene 10.5.0.
+func (e *simpleTextDocsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// SimpleTextFieldsReader.SimpleTextDocsEnum does not override in Apache
+// Lucene 10.5.0.
+func (e *simpleTextDocsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
 var _ index.ImpactsEnum = (*simpleTextDocsEnum)(nil)
 
 // ---------------------------------------------------------------------------
@@ -970,4 +1033,18 @@ func (e *simpleTextPostingsEnum) GetImpacts() (index.Impacts, error) {
 }
 
 // compile-time assertion: simpleTextPostingsEnum implements index.ImpactsEnum.
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// SimpleTextFieldsReader.SimpleTextPostingsEnum does not override in Apache
+// Lucene 10.5.0.
+func (e *simpleTextPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// SimpleTextFieldsReader.SimpleTextPostingsEnum does not override in Apache
+// Lucene 10.5.0.
+func (e *simpleTextPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
 var _ index.ImpactsEnum = (*simpleTextPostingsEnum)(nil)

@@ -9,46 +9,47 @@ package index
 // preserve the historical index.* names for source-level callers.
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// PostingsEnum is an alias of schema.PostingsEnum.
-type PostingsEnum = schema.PostingsEnum
+// PostingsEnum is an alias of spi.PostingsEnum.
+type PostingsEnum = spi.PostingsEnum
 
-// PostingsEnumBase is an alias of schema.PostingsEnumBase.
-type PostingsEnumBase = schema.PostingsEnumBase
+// PostingsEnumBase is an alias of spi.PostingsEnumBase.
+type PostingsEnumBase = spi.PostingsEnumBase
 
-// EmptyPostingsEnum is an alias of schema.EmptyPostingsEnum.
-type EmptyPostingsEnum = schema.EmptyPostingsEnum
+// EmptyPostingsEnum is an alias of spi.EmptyPostingsEnum.
+type EmptyPostingsEnum = spi.EmptyPostingsEnum
 
-// SingleDocPostingsEnum is an alias of schema.SingleDocPostingsEnum.
-type SingleDocPostingsEnum = schema.SingleDocPostingsEnum
+// SingleDocPostingsEnum is an alias of spi.SingleDocPostingsEnum.
+type SingleDocPostingsEnum = spi.SingleDocPostingsEnum
 
-// SinglePostingsEnum is an alias of schema.SinglePostingsEnum.
-type SinglePostingsEnum = schema.SinglePostingsEnum
+// SinglePostingsEnum is an alias of spi.SinglePostingsEnum.
+type SinglePostingsEnum = spi.SinglePostingsEnum
 
 // NewSingleDocPostingsEnum creates a new SingleDocPostingsEnum.
 func NewSingleDocPostingsEnum(docID, freq int) *SingleDocPostingsEnum {
-	return schema.NewSingleDocPostingsEnum(docID, freq)
+	return spi.NewSingleDocPostingsEnum(docID, freq)
 }
 
 // NewSinglePostingsEnum creates a new SinglePostingsEnum.
 func NewSinglePostingsEnum(docFreq, freq int) *SinglePostingsEnum {
-	return schema.NewSinglePostingsEnum(docFreq, freq)
+	return spi.NewSinglePostingsEnum(docFreq, freq)
 }
 
 // NewPostingsEnumBase builds a PostingsEnumBase positioned at initialDocID.
 func NewPostingsEnumBase(initialDocID int) PostingsEnumBase {
-	return schema.NewPostingsEnumBase(initialDocID)
+	return spi.NewPostingsEnumBase(initialDocID)
 }
 
-// Postings sentinels and flag constants re-exported from schema.
+// Postings sentinels and flag constants re-exported from spi.
 const (
-	NO_MORE_DOCS          = schema.NO_MORE_DOCS
-	NO_MORE_POSITIONS     = schema.NO_MORE_POSITIONS
-	PostingsFlagFreqs     = schema.PostingsFlagFreqs
-	PostingsFlagPositions = schema.PostingsFlagPositions
-	PostingsFlagOffsets   = schema.PostingsFlagOffsets
-	PostingsFlagPayloads  = schema.PostingsFlagPayloads
-	PostingsFlagAll       = schema.PostingsFlagAll
+	NO_MORE_DOCS          = spi.NO_MORE_DOCS
+	NO_MORE_POSITIONS     = spi.NO_MORE_POSITIONS
+	PostingsFlagNone      = spi.PostingsFlagNone
+	PostingsFlagFreqs     = spi.PostingsFlagFreqs
+	PostingsFlagPositions = spi.PostingsFlagPositions
+	PostingsFlagOffsets   = spi.PostingsFlagOffsets
+	PostingsFlagPayloads  = spi.PostingsFlagPayloads
+	PostingsFlagAll       = spi.PostingsFlagAll
 )

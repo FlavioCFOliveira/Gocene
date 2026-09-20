@@ -39,7 +39,7 @@ func ReadVIntBlock(
 	}
 
 	//lint:ignore SA1019 intentional: backward-compat codec must use the deprecated GroupVInt variant.
-	if err := util.ReadGroupVIntsInt64(docIn, docBuffer, num); err != nil {
+	if err := store.ReadGroupVIntsInt64(docIn, docBuffer, num); err != nil {
 		return err
 	}
 
@@ -106,7 +106,7 @@ func WriteVIntBlock(
 		for i := 0; i < num; i++ {
 			freq := int32(freqBuffer[i])
 			if freq != 1 {
-				if err := store.WriteVInt(docOut, freq); err != nil {
+				if err := docOut.WriteVInt(freq); err != nil {
 					return err
 				}
 			}

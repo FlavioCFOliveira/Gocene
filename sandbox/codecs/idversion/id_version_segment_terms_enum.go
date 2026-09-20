@@ -255,11 +255,12 @@ func (e *IDVersionSegmentTermsEnum) SeekExact(term *index.Term) (bool, error) {
 // GetVersion returns the version of the currently seek'd term. Only valid
 // after a successful SeekExact / SeekExactWithVersion call.
 func (e *IDVersionSegmentTermsEnum) GetVersion() int64 {
-	extra := globalTermStateRegistry.lookup(e.currentFrame.state)
-	if extra == nil {
+	// Mirrors "((IDVersionTermState) currentFrame.state).idVersion".
+	ts, ok := e.currentFrame.termStateRef.(*IDVersionTermState)
+	if !ok {
 		return 0
 	}
-	return extra.IDVersion
+	return ts.IDVersion
 }
 
 // SeekExactWithVersion is the optimised seekExact that can fast-fail if the
@@ -334,8 +335,8 @@ func (e *IDVersionSegmentTermsEnum) SeekExactWithVersion(target *util.BytesRef, 
 				if err := e.currentFrame.decodeMetaData(); err != nil {
 					return false, err
 				}
-				extra := globalTermStateRegistry.lookup(e.currentFrame.state)
-				if extra != nil && extra.IDVersion < minIDVersion {
+				// Mirrors "((IDVersionTermState) currentFrame.state).idVersion".
+				if ts, ok := e.currentFrame.termStateRef.(*IDVersionTermState); ok && ts.IDVersion < minIDVersion {
 					return false, nil
 				}
 				return true, nil
@@ -398,8 +399,8 @@ func (e *IDVersionSegmentTermsEnum) SeekExactWithVersion(target *util.BytesRef, 
 				if err := e.currentFrame.decodeMetaData(); err != nil {
 					return false, err
 				}
-				extra := globalTermStateRegistry.lookup(e.currentFrame.state)
-				if extra != nil && extra.IDVersion < minIDVersion {
+				// Mirrors "((IDVersionTermState) currentFrame.state).idVersion".
+				if ts, ok := e.currentFrame.termStateRef.(*IDVersionTermState); ok && ts.IDVersion < minIDVersion {
 					return false, nil
 				}
 				return true, nil
@@ -457,8 +458,8 @@ func (e *IDVersionSegmentTermsEnum) SeekExactWithVersion(target *util.BytesRef, 
 		if err := e.currentFrame.decodeMetaData(); err != nil {
 			return false, err
 		}
-		extra := globalTermStateRegistry.lookup(e.currentFrame.state)
-		if extra != nil && extra.IDVersion < minIDVersion {
+		// Mirrors "((IDVersionTermState) currentFrame.state).idVersion".
+		if ts, ok := e.currentFrame.termStateRef.(*IDVersionTermState); ok && ts.IDVersion < minIDVersion {
 			return false, nil
 		}
 		return true, nil
@@ -728,6 +729,21 @@ func (e *IDVersionSegmentTermsEnum) Postings(flags int) (index.PostingsEnum, err
 		return nil, err
 	}
 	return e.fr.Parent.PostingsReader.Postings(e.fr.FieldInfo, e.currentFrame.state, nil, flags)
+}
+
+// Impacts returns an ImpactsEnum for the current term.
+//
+// Port of IDVersionSegmentTermsEnum.impacts(int):
+//
+//	// Only one posting, the slow impl is fine
+//	// We could make this throw UOE but then CheckIndex is angry
+//	return new SlowImpactsEnum(postings(null, flags));
+func (e *IDVersionSegmentTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	postings, err := e.Postings(flags)
+	if err != nil {
+		return nil, err
+	}
+	return index.NewSlowImpactsEnum(postings), nil
 }
 
 // PostingsWithLiveDocs returns a PostingsEnum for the current term (live docs

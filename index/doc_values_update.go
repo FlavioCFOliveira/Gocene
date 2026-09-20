@@ -14,7 +14,7 @@ import (
 // DocValuesUpdate represents an in-place update to a DocValues field.
 type DocValuesUpdate interface {
 	Type() DocValuesType
-	Term() Term
+	Term() *Term
 	Field() string
 	DocIDUpTo() int
 	HasValue() bool
@@ -25,16 +25,16 @@ type DocValuesUpdate interface {
 
 type docValuesUpdateBase struct {
 	dvType    DocValuesType
-	term      Term
+	term      *Term
 	field     string
 	docIDUpTo int
 	hasValue  bool
 }
 
 func (b *docValuesUpdateBase) Type() DocValuesType { return b.dvType }
-func (b *docValuesUpdateBase) Term() Term         { return b.term }
+func (b *docValuesUpdateBase) Term() *Term         { return b.term }
 func (b *docValuesUpdateBase) Field() string       { return b.field }
-func (b *docValuesUpdateBase) DocIDUpTo() int     { return b.docIDUpTo }
+func (b *docValuesUpdateBase) DocIDUpTo() int      { return b.docIDUpTo }
 func (b *docValuesUpdateBase) HasValue() bool      { return b.hasValue }
 
 // BinaryDocValuesUpdate is an in-place update to a binary DocValues field.
@@ -43,7 +43,7 @@ type BinaryDocValuesUpdate struct {
 	value []byte
 }
 
-func NewBinaryDocValuesUpdate(term Term, field string, value []byte) *BinaryDocValuesUpdate {
+func NewBinaryDocValuesUpdate(term *Term, field string, value []byte) *BinaryDocValuesUpdate {
 	// Default docIDUpTo is MAX_INT (2147483647)
 	return &BinaryDocValuesUpdate{
 		docValuesUpdateBase: docValuesUpdateBase{
@@ -67,7 +67,7 @@ func (u *BinaryDocValuesUpdate) PrepareForApply(docIDUpTo int) *BinaryDocValuesU
 			term:      u.term,
 			field:     u.field,
 			docIDUpTo: docIDUpTo,
-			hasValue:   u.hasValue,
+			hasValue:  u.hasValue,
 		},
 		value: u.value,
 	}
@@ -92,10 +92,10 @@ func (u *BinaryDocValuesUpdate) WriteTo(w store.DataOutput) error {
 	if !u.hasValue {
 		return fmt.Errorf("cannot write DocValuesUpdate without value")
 	}
-	if err := w.WriteVInt(len(u.value)); err != nil {
+	if err := w.WriteVInt(int32(len(u.value))); err != nil {
 		return err
 	}
-	return w.WriteBytes(u.value)
+	return w.WriteBytes(u.value, 0, len(u.value))
 }
 
 func ReadBinaryDocValuesUpdate(r store.DataInput, scratch []byte) ([]byte, error) {
@@ -106,8 +106,8 @@ func ReadBinaryDocValuesUpdate(r store.DataInput, scratch []byte) ([]byte, error
 
 	// In Java: scratch.bytes = ArrayUtil.grow(scratch.bytes, scratch.length);
 	// Since we return a new slice or use a buffer, we'll just read.
-	buf := make([]byte, length)
-	if _, err := r.ReadBytes(buf); err != nil {
+	buf := make([]byte, int(length))
+	if err := r.ReadBytes(buf, 0, int(length)); err != nil {
 		return nil, err
 	}
 	return buf, nil
@@ -119,7 +119,7 @@ type NumericDocValuesUpdate struct {
 	value int64
 }
 
-func NewNumericDocValuesUpdate(term Term, field string, value *int64) *NumericDocValuesUpdate {
+func NewNumericDocValuesUpdate(term *Term, field string, value *int64) *NumericDocValuesUpdate {
 	var val int64 = -1
 	hasValue := false
 	if value != nil {
@@ -148,7 +148,7 @@ func (u *NumericDocValuesUpdate) PrepareForApply(docIDUpTo int) *NumericDocValue
 			term:      u.term,
 			field:     u.field,
 			docIDUpTo: docIDUpTo,
-			hasValue:   u.hasValue,
+			hasValue:  u.hasValue,
 		},
 		value: u.value,
 	}

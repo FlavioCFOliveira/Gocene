@@ -104,7 +104,7 @@ func NewBooleanPerceptronClassifier(
 		return c
 	}
 	weights := make(map[string]int64)
-	termsIt, err := textTerms.GetIterator()
+	termsIt, err := textTerms.Iterator()
 	if err != nil {
 		return c
 	}
@@ -127,12 +127,12 @@ func NewBooleanPerceptronClassifier(
 	}
 	searcher := search.NewIndexSearcher(ri)
 
-	trainingBQ := search.NewBooleanQuery()
+	trainingBQ := search.NewBooleanQueryBuilder()
 	trainingBQ.Add(search.NewWildcardQuery(index.NewTerm(classFieldName, "*")), search.MUST)
 	if filterQuery != nil {
 		trainingBQ.Add(filterQuery, search.MUST)
 	}
-	topDocs, err := searcher.Search(trainingBQ, ri.MaxDoc())
+	topDocs, err := searcher.Search(trainingBQ.Build(), ri.MaxDoc())
 	if err != nil {
 		return c
 	}
@@ -174,7 +174,7 @@ func NewBooleanPerceptronClassifier(
 		if modifier != 0 && tvs != nil {
 			docTermVectors, err := tvs.GetField(sd.Doc, textFieldName)
 			if err == nil && docTermVectors != nil {
-				docIt, err := docTermVectors.GetIterator()
+				docIt, err := docTermVectors.Iterator()
 				if err == nil {
 					for {
 						t, err := docIt.Next()

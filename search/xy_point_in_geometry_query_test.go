@@ -5,6 +5,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 	"testing"
 
@@ -337,7 +338,7 @@ type fakeQueryForXYPoint struct{ BaseQuery }
 
 func (f *fakeQueryForXYPoint) Rewrite(IndexReader) (Query, error) { return f, nil }
 func (f *fakeQueryForXYPoint) Clone() Query                       { return f }
-func (f *fakeQueryForXYPoint) Equals(Query) bool                  { return false }
+func (f *fakeQueryForXYPoint) Equals(spi.Query) bool                  { return false }
 func (f *fakeQueryForXYPoint) HashCode() int                      { return 0 }
 func (f *fakeQueryForXYPoint) CreateWeight(*IndexSearcher, bool, float32) (Weight, error) {
 	return nil, nil

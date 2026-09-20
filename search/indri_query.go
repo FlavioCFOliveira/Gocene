@@ -4,105 +4,98 @@
 
 package search
 
-// IndriQuery is the abstract base for IndriAndQuery and its peers. It holds a
-// list of BooleanClauses and provides string/equality/visit helpers.
-//
-// Mirrors org.apache.lucene.search.IndriQuery. Concrete subclasses override
-// CreateWeight to produce the IndriAnd/Indri scorers.
+import (
+	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"strings"
+)
+
+// IndriQuery is a basic abstract query that all IndriQueries can extend to implement ToString, Equals,
+// GetClauses, and iterator.
 type IndriQuery struct {
 	BaseQuery
 	clauses []*BooleanClause
 }
 
-// NewIndriQuery builds an IndriQuery from clauses. The slice is copied so the
-// caller cannot mutate the query after construction.
+// NewIndriQuery constructs an IndriQuery.
 func NewIndriQuery(clauses []*BooleanClause) *IndriQuery {
-	cp := append([]*BooleanClause(nil), clauses...)
-	return &IndriQuery{clauses: cp}
-}
-
-// Clauses returns the list of clauses (do not mutate).
-func (q *IndriQuery) Clauses() []*BooleanClause { return q.clauses }
-
-// Iterator returns a callback-style iterator over clauses.
-func (q *IndriQuery) Iterator(fn func(*BooleanClause) bool) {
-	for _, c := range q.clauses {
-		if !fn(c) {
-			return
-		}
+	return &IndriQuery{
+		clauses: clauses,
 	}
 }
 
-// String returns the canonical Indri "(clause...)" rendering.
-func (q *IndriQuery) String() string {
-	out := "("
+// ToString returns a user-readable version of this query.
+func (q *IndriQuery) ToString(field string) string {
+	var sb strings.Builder
+
 	for i, c := range q.clauses {
-		if i > 0 {
-			out += " "
+		sb.WriteString(c.Occur().String())
+
+		subQuery := c.Query()
+		if bq, ok := subQuery.(*BooleanQuery); ok {
+			sb.WriteString("(")
+			sb.WriteString(bq.ToString(field))
+			sb.WriteString(")")
+		} else {
+			// We use a type assertion here because ToString is not in the Query interface
+			// but is implemented by most query types in Gocene.
+			if ts, ok := subQuery.(interface{ ToString(string) string }); ok {
+				sb.WriteString(ts.ToString(field))
+			} else {
+				sb.WriteString(fmt.Sprintf("%v", subQuery))
+			}
 		}
-		out += sprintQuery(c.Query)
+
+		if i != len(q.clauses)-1 {
+			sb.WriteString(" ")
+		}
 	}
-	out += ")"
-	return out
+
+	return sb.String()
 }
 
-// Equals checks structural equality across the clause list.
-func (q *IndriQuery) Equals(other Query) bool {
-	o, ok := other.(*IndriQuery)
+// Equals checks if this query equals another.
+func (q *IndriQuery) Equals(other spi.Query) bool {
+	otherQuery, ok := other.(*IndriQuery)
 	if !ok {
 		return false
 	}
-	if len(q.clauses) != len(o.clauses) {
+	return q.equalsTo(otherQuery)
+}
+
+func (q *IndriQuery) equalsTo(other *IndriQuery) bool {
+	if len(q.clauses) != len(other.clauses) {
 		return false
 	}
-	for i, c := range q.clauses {
-		if !c.Query.Equals(o.clauses[i].Query) || c.Occur != o.clauses[i].Occur {
+	for i := range q.clauses {
+		if q.clauses[i].Query() != other.clauses[i].Query() || q.clauses[i].Occur() != other.clauses[i].Occur() {
 			return false
 		}
 	}
 	return true
 }
 
-// HashCode hashes the clauses by query+occur.
+// HashCode returns a hash code for this query.
 func (q *IndriQuery) HashCode() int {
-	h := 17
+	h := 1
 	for _, c := range q.clauses {
-		h = 31*h + c.Query.HashCode() + int(c.Occur)
+		// Mirroring the effect of Objects.hash(clauses) by combining
+		// the hash codes of the clauses' components.
+		h = 31*h + c.Query().HashCode()
+		h = 31*h + int(c.Occur())
+	}
+	if h == 0 {
+		h = 1
 	}
 	return h
 }
 
-// Clone returns a deep copy.
-func (q *IndriQuery) Clone() Query {
-	cp := make([]*BooleanClause, len(q.clauses))
-	for i, c := range q.clauses {
-		cp[i] = &BooleanClause{Query: c.Query.Clone(), Occur: c.Occur}
-	}
-	return &IndriQuery{clauses: cp}
+// Visit implements the Query visitor pattern.
+func (q *IndriQuery) Visit(visitor QueryVisitor) {
+	visitor.VisitLeaf(q)
 }
 
-// Rewrite rewrites each clause's inner query.
-func (q *IndriQuery) Rewrite(reader IndexReader) (Query, error) {
-	changed := false
-	out := make([]*BooleanClause, len(q.clauses))
-	for i, c := range q.clauses {
-		rw, err := c.Query.Rewrite(reader)
-		if err != nil {
-			return nil, err
-		}
-		out[i] = &BooleanClause{Query: rw, Occur: c.Occur}
-		if rw != c.Query {
-			changed = true
-		}
-	}
-	if !changed {
-		return q, nil
-	}
-	return &IndriQuery{clauses: out}, nil
-}
-
-// CreateWeight returns nil by default; concrete subclasses (IndriAndQuery)
-// override this to produce a real Weight.
-func (q *IndriQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return nil, nil
+// GetClauses returns the clauses of this query.
+func (q *IndriQuery) GetClauses() []*BooleanClause {
+	return q.clauses
 }

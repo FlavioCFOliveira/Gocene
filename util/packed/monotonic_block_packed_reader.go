@@ -88,7 +88,7 @@ func NewMonotonicBlockPackedReader(in monotonicReaderDataInput, packedIntsVersio
 		byteCount := FormatPacked.ByteCount(packedIntsVersion, int(size), bitsPerValue)
 		r.totalBytes += byteCount
 		buf := make([]byte, byteCount)
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 			return nil, err
 		}
 		bpv := bitsPerValue

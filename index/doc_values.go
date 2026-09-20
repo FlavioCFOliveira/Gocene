@@ -4,6 +4,14 @@
 
 package index
 
+import (
+	"bytes"
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
 // This file ports the static helper methods of
 // org.apache.lucene.index.DocValues from Apache Lucene 10.4.0:
 //
@@ -71,6 +79,156 @@ func UnwrapSingletonSortedNumeric(dv SortedNumericDocValues) NumericDocValues {
 
 // UnwrapSingletonSortedSet returns the underlying SortedDocValues if dv was
 // produced by SingletonSortedSet(SortedDocValues), otherwise nil.
+// checkField reports a field that carries a different doc-values type from the
+// one the caller expected. Mirrors org.apache.lucene.index.DocValues#checkField,
+// whose IllegalStateException becomes an error here.
+func checkField(in LeafReader, field string, expected ...spi.DocValuesType) error {
+	fi := in.GetFieldInfos().FieldInfo(field)
+	if fi != nil {
+		actual := fi.DocValuesType()
+		if len(expected) == 1 {
+			return fmt.Errorf("unexpected docvalues type %v for field '%s' (expected=%v). Re-index with correct docvalues type.",
+				actual, field, expected[0])
+		}
+		return fmt.Errorf("unexpected docvalues type %v for field '%s' (expected one of %v). Re-index with correct docvalues type.",
+			actual, field, expected)
+	}
+	return nil
+}
+
+// GetNumeric returns NumericDocValues for the field, or an empty instance when
+// the field has none.
+//
+// Mirrors org.apache.lucene.index.DocValues#getNumeric (Apache Lucene 10.5.0).
+func GetNumeric(reader LeafReader, field string) (NumericDocValues, error) {
+	dv, err := reader.GetNumericDocValues(field)
+	if err != nil {
+		return nil, err
+	}
+	if dv == nil {
+		if err := checkField(reader, field, spi.DocValuesTypeNumeric); err != nil {
+			return nil, err
+		}
+		return EmptyNumeric(), nil
+	}
+	return dv, nil
+}
+
+// GetSortedNumeric returns SortedNumericDocValues for the field, or an empty
+// instance when the field has none. A single-valued NUMERIC field is adapted
+// with Singleton, exactly as Java does.
+//
+// Mirrors org.apache.lucene.index.DocValues#getSortedNumeric (Apache Lucene 10.5.0).
+func GetSortedNumeric(reader LeafReader, field string) (SortedNumericDocValues, error) {
+	dv, err := reader.GetSortedNumericDocValues(field)
+	if err != nil {
+		return nil, err
+	}
+	if dv == nil {
+		single, err := reader.GetNumericDocValues(field)
+		if err != nil {
+			return nil, err
+		}
+		if single == nil {
+			if err := checkField(reader, field, spi.DocValuesTypeSortedNumeric, spi.DocValuesTypeNumeric); err != nil {
+				return nil, err
+			}
+			return EmptySortedNumeric(), nil
+		}
+		return Singleton(single), nil
+	}
+	return dv, nil
+}
+
+// IsCacheable reports whether results computed from the given fields' doc
+// values are safe to cache against ctx. A field whose doc-values generation has
+// advanced past -1 has been updated, so its values are not stable.
+//
+// Mirrors org.apache.lucene.index.DocValues#isCacheable (Apache Lucene 10.5.0).
+func IsCacheable(ctx *LeafReaderContext, fields ...string) bool {
+	for _, field := range fields {
+		fi := ctx.LeafReader().GetFieldInfos().FieldInfo(field)
+		if fi != nil && fi.DocValuesGen() > -1 {
+			return false
+		}
+	}
+	return true
+}
+
+// GetSorted returns SortedDocValues for the field, or an empty instance when
+// the field has none.
+//
+// Mirrors org.apache.lucene.index.DocValues#getSorted (Apache Lucene 10.5.0).
+func GetSorted(reader LeafReader, field string) (SortedDocValues, error) {
+	dv, err := reader.GetSortedDocValues(field)
+	if err != nil {
+		return nil, err
+	}
+	if dv == nil {
+		if err := checkField(reader, field, spi.DocValuesTypeSorted); err != nil {
+			return nil, err
+		}
+		return EmptySorted(), nil
+	}
+	return dv, nil
+}
+
+// SortedDocValuesLookupTerm returns the ordinal of key in dv, or a negative
+// insertion point -(insertionPoint + 1) when the term is absent.
+//
+// Mirrors the concrete org.apache.lucene.index.SortedDocValues#lookupTerm
+// (Apache Lucene 10.5.0), whose body is a binary search over lookupOrd. Gocene
+// renders SortedDocValues as an interface, so a concrete member of Java's
+// abstract class becomes a free function rather than forcing every
+// implementation to write it.
+func SortedDocValuesLookupTerm(dv SortedDocValues, key []byte) (int, error) {
+	low := 0
+	high := dv.GetValueCount() - 1
+	for low <= high {
+		mid := int(uint(low+high) >> 1)
+		term, err := dv.LookupOrd(mid)
+		if err != nil {
+			return 0, err
+		}
+		cmp := bytes.Compare(term, key)
+		switch {
+		case cmp < 0:
+			low = mid + 1
+		case cmp > 0:
+			high = mid - 1
+		default:
+			return mid, nil
+		}
+	}
+	return -(low + 1), nil
+}
+
+// GetSortedSet returns SortedSetDocValues for the field, or an empty instance
+// when the field has none. A single-valued SORTED field is wrapped as a
+// singleton set.
+//
+// Mirrors org.apache.lucene.index.DocValues#getSortedSet.
+func GetSortedSet(reader LeafReader, field string) (SortedSetDocValues, error) {
+	dv, err := reader.GetSortedSetDocValues(field)
+	if err != nil {
+		return nil, err
+	}
+	if dv == nil {
+		sorted, err := reader.GetSortedDocValues(field)
+		if err != nil {
+			return nil, err
+		}
+		if sorted == nil {
+			if err := checkField(reader, field, spi.DocValuesTypeSorted, spi.DocValuesTypeSortedSet); err != nil {
+				return nil, err
+			}
+			return EmptySortedSet(), nil
+		}
+		dv = SingletonSortedSet(sorted)
+	}
+	return dv, nil
+}
+
 func UnwrapSingletonSortedSet(dv SortedSetDocValues) SortedDocValues {
 	if s, ok := dv.(*singletonSortedSet); ok {
 		return s.wrapped
@@ -127,8 +285,8 @@ func (e *emptySortedNumericDV) NextDoc() (int, error) {
 	e.docID = NO_MORE_DOCS
 	return NO_MORE_DOCS, nil
 }
-func (e *emptySortedNumericDV) DocID() int   { return e.docID }
-func (e *emptySortedNumericDV) Cost() int64  { return 0 }
+func (e *emptySortedNumericDV) DocID() int  { return e.docID }
+func (e *emptySortedNumericDV) Cost() int64 { return 0 }
 
 type emptySortedSetDV struct{ docID int }
 
@@ -366,10 +524,87 @@ func IsDocValuesCacheable(ctx *LeafReaderContext, fields ...string) bool {
 		return true
 	}
 	for _, name := range fields {
-		fi := infos.GetByName(name)
+		fi := infos.FieldInfoByName(name)
 		if fi != nil && fi.DocValuesGen() > -1 {
 			return false
 		}
 	}
 	return true
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which assumes runs of a single doc ID and returns
+// docID() + 1; every subclass inherits it unless it overrides it.
+func (e *emptySortedSetDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (e *emptySortedSetDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocValueCount returns the number of ordinals bound to the current document.
+// Mirrors DocValues#emptySortedSet, which is singleton(emptySorted()) and therefore reports the SingletonSortedSetDocValues count of 1
+// (Apache Lucene 10.5.0).
+func (e *emptySortedSetDV) DocValueCount() int {
+	return 1
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *emptyBinaryDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *emptyBinaryDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *emptyNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *emptyNumericDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *emptySortedDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *emptySortedDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *emptySortedNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *emptySortedNumericDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
 }

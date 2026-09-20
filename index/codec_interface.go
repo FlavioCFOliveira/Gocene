@@ -47,6 +47,9 @@ type DocValuesFormat = spi.DocValuesFormat
 // canonical KNN vectors format the codec exposes via Codec.KnnVectorsFormat().
 type KnnVectorsFormat = spi.KnnVectorsFormat
 
+// KnnVectorsReader is an alias of spi.KnnVectorsReader.
+type KnnVectorsReader = spi.KnnVectorsReader
+
 // KnnVectorsWriter is an alias of [spi.KnnVectorsWriter].
 type KnnVectorsWriter = spi.KnnVectorsWriter
 
@@ -105,6 +108,18 @@ type StoredFieldsWriter = spi.StoredFieldsWriter
 // StoredFieldVisitor is an alias of spi.StoredFieldVisitor.
 type StoredFieldVisitor = spi.StoredFieldVisitor
 
+// StoredFieldVisitorStatus is an alias of spi.StoredFieldVisitorStatus, the
+// port of the nested enum org.apache.lucene.index.StoredFieldVisitor.Status.
+type StoredFieldVisitorStatus = spi.StoredFieldVisitorStatus
+
+// The StoredFieldVisitor.Status values, re-exported so that callers naming
+// the visitor through this package can name its enum too.
+const (
+	StoredFieldVisitorStatusYes  = spi.StoredFieldVisitorStatusYes
+	StoredFieldVisitorStatusNo   = spi.StoredFieldVisitorStatusNo
+	StoredFieldVisitorStatusStop = spi.StoredFieldVisitorStatusStop
+)
+
 // FieldInfosFormat is an alias of spi.FieldInfosFormat. The Read/Write
 // signatures carry a segmentSuffix string parameter to match the
 // codecs-side Lucene-faithful shape.
@@ -112,10 +127,6 @@ type FieldInfosFormat = spi.FieldInfosFormat
 
 // SegmentInfoFormat is an alias of spi.SegmentInfoFormat.
 type SegmentInfoFormat = spi.SegmentInfoFormat
-
-// SegmentInfosFormat is an alias of spi.SegmentInfosFormat. The plural
-// segments_N format was lifted onto the SPI by rmp #4706.
-type SegmentInfosFormat = spi.SegmentInfosFormat
 
 // TermVectorsFormat is an alias of spi.TermVectorsFormat.
 type TermVectorsFormat = spi.TermVectorsFormat

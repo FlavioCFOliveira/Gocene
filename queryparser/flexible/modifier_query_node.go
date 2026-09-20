@@ -172,83 +172,6 @@ func (n *BoostQueryNode) String() string {
 	return fmt.Sprintf("<boost value=%f>", n.value)
 }
 
-// FuzzyQueryNode represents a fuzzy query node.
-type FuzzyQueryNode struct {
-	*FieldQueryNode
-	minSimilarity float64
-	prefixLength  int
-}
-
-// NewFuzzyQueryNode creates a new FuzzyQueryNode.
-func NewFuzzyQueryNode(field, text string, minSimilarity float64, prefixLength int, begin, end int) *FuzzyQueryNode {
-	return &FuzzyQueryNode{
-		FieldQueryNode: NewFieldQueryNode(field, text, begin, end),
-		minSimilarity:  minSimilarity,
-		prefixLength:   prefixLength,
-	}
-}
-
-// GetMinSimilarity returns the minimum similarity.
-func (n *FuzzyQueryNode) GetMinSimilarity() float64 {
-	return n.minSimilarity
-}
-
-// SetMinSimilarity sets the minimum similarity.
-func (n *FuzzyQueryNode) SetMinSimilarity(minSimilarity float64) {
-	n.minSimilarity = minSimilarity
-}
-
-// GetPrefixLength returns the prefix length.
-func (n *FuzzyQueryNode) GetPrefixLength() int {
-	return n.prefixLength
-}
-
-// SetPrefixLength sets the prefix length.
-func (n *FuzzyQueryNode) SetPrefixLength(prefixLength int) {
-	n.prefixLength = prefixLength
-}
-
-// ToQueryString returns the query string representation.
-func (n *FuzzyQueryNode) ToQueryString(escapeSyntax EscapeQuerySyntax) string {
-	var sb strings.Builder
-
-	if n.GetField() != "" {
-		sb.WriteString(n.GetField())
-		sb.WriteString(":")
-	}
-
-	sb.WriteString(escapeSyntax.Escape(n.GetText(), "en", EscapeNormal))
-
-	sb.WriteString("~")
-	if n.minSimilarity != 0.5 {
-		sb.WriteString(strconv.FormatFloat(n.minSimilarity, 'f', -1, 64))
-	}
-
-	return sb.String()
-}
-
-// CloneTree creates a deep copy of this node.
-func (n *FuzzyQueryNode) CloneTree() QueryNode {
-	cloned := &FuzzyQueryNode{
-		FieldQueryNode: NewFieldQueryNode(n.GetField(), n.GetText(), n.GetBegin(), n.GetEnd()),
-		minSimilarity:  n.minSimilarity,
-		prefixLength:   n.prefixLength,
-	}
-
-	// Copy tags
-	for _, key := range n.GetTagKeys() {
-		cloned.SetTag(key, n.GetTag(key))
-	}
-
-	return cloned
-}
-
-// String returns a string representation of this node.
-func (n *FuzzyQueryNode) String() string {
-	return fmt.Sprintf("<fuzzy field=%s text=%s minSim=%f prefixLen=%d>",
-		n.GetField(), n.GetText(), n.minSimilarity, n.prefixLength)
-}
-
 // RangeQueryNode represents a range query node.
 type RangeQueryNode struct {
 	*QueryNodeImpl
@@ -271,7 +194,7 @@ const (
 
 // NewRangeQueryNode creates a new RangeQueryNode.
 func NewRangeQueryNode(field, lower, upper string, lowerBound, upperBound BoundType) *RangeQueryNode {
-	return &RangeQueryNode{
+	n := &RangeQueryNode{
 		QueryNodeImpl: NewQueryNodeImpl(nil),
 		field:         field,
 		lower:         lower,
@@ -279,6 +202,8 @@ func NewRangeQueryNode(field, lower, upper string, lowerBound, upperBound BoundT
 		lowerBound:    lowerBound,
 		upperBound:    upperBound,
 	}
+	n.SetLeaf(true)
+	return n
 }
 
 // GetField returns the field name.
@@ -543,9 +468,12 @@ type MatchAllDocsQueryNode struct {
 
 // NewMatchAllDocsQueryNode creates a new MatchAllDocsQueryNode.
 func NewMatchAllDocsQueryNode() *MatchAllDocsQueryNode {
-	return &MatchAllDocsQueryNode{
+	n := &MatchAllDocsQueryNode{
 		QueryNodeImpl: NewQueryNodeImpl(nil),
 	}
+	// MatchAllDocsQueryNode is a leaf in Lucene: it never calls setLeaf(false).
+	n.SetLeaf(true)
+	return n
 }
 
 // ToQueryString returns the query string representation.
@@ -579,9 +507,12 @@ type MatchNoDocsQueryNode struct {
 
 // NewMatchNoDocsQueryNode creates a new MatchNoDocsQueryNode.
 func NewMatchNoDocsQueryNode() *MatchNoDocsQueryNode {
-	return &MatchNoDocsQueryNode{
+	n := &MatchNoDocsQueryNode{
 		QueryNodeImpl: NewQueryNodeImpl(nil),
 	}
+	// MatchNoDocsQueryNode extends DeletedQueryNode in Lucene, which is a leaf.
+	n.SetLeaf(true)
+	return n
 }
 
 // ToQueryString returns the query string representation.

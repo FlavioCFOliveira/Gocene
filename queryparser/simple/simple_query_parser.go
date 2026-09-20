@@ -63,18 +63,18 @@ func NewSimpleQueryParserWithFlags(analyzer analysis.Analyzer, fields []string, 
 func (p *SimpleQueryParser) Parse(queryText string) search.Query {
 	queryText = strings.TrimSpace(queryText)
 	if queryText == "" {
-		return search.NewMatchNoDocsQuery()
+		return search.NewMatchNoDocsQuery("empty string passed to query parser")
 	}
 	pos := 0
 	q := p.parseExpr(queryText, &pos, 0)
 	if q == nil {
-		return search.NewMatchNoDocsQuery()
+		return search.NewMatchNoDocsQuery("empty string passed to query parser")
 	}
 	return q
 }
 
 func (p *SimpleQueryParser) parseExpr(s string, pos *int, depth int) search.Query {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for *pos < len(s) {
 		p.skipWhitespace(s, pos)
 		if *pos >= len(s) {
@@ -116,17 +116,18 @@ func (p *SimpleQueryParser) parseExpr(s string, pos *int, depth int) search.Quer
 		}
 		bq.Add(clause, occur)
 	}
-	clauses := bq.Clauses()
+	built := bq.Build()
+	clauses := built.Clauses()
 	switch len(clauses) {
 	case 0:
 		return nil
 	case 1:
-		if clauses[0].Occur == search.MUST_NOT {
-			return bq
+		if clauses[0].Occur() == search.MUST_NOT {
+			return built
 		}
-		return clauses[0].Query
+		return clauses[0].Query()
 	default:
-		return bq
+		return built
 	}
 }
 
@@ -255,12 +256,12 @@ func (p *SimpleQueryParser) buildTermAcrossFields(text string) search.Query {
 		q := search.NewTermQuery(index.NewTerm(p.Fields[0], text))
 		return p.applyFieldBoost(p.Fields[0], q)
 	}
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, f := range p.Fields {
 		q := search.NewTermQuery(index.NewTerm(f, text))
 		bq.Add(p.applyFieldBoost(f, q), search.SHOULD)
 	}
-	return bq
+	return bq.Build()
 }
 
 func (p *SimpleQueryParser) buildPrefixAcrossFields(text string) search.Query {
@@ -271,12 +272,12 @@ func (p *SimpleQueryParser) buildPrefixAcrossFields(text string) search.Query {
 		q := search.NewPrefixQuery(index.NewTerm(p.Fields[0], text))
 		return p.applyFieldBoost(p.Fields[0], q)
 	}
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, f := range p.Fields {
 		q := search.NewPrefixQuery(index.NewTerm(f, text))
 		bq.Add(p.applyFieldBoost(f, q), search.SHOULD)
 	}
-	return bq
+	return bq.Build()
 }
 
 func (p *SimpleQueryParser) buildFuzzyAcrossFields(text string, maxEdits int) search.Query {
@@ -287,12 +288,12 @@ func (p *SimpleQueryParser) buildFuzzyAcrossFields(text string, maxEdits int) se
 		q := search.NewFuzzyQueryWithParams(index.NewTerm(p.Fields[0], text), maxEdits, 0, 50)
 		return p.applyFieldBoost(p.Fields[0], q)
 	}
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, f := range p.Fields {
 		q := search.NewFuzzyQueryWithParams(index.NewTerm(f, text), maxEdits, 0, 50)
 		bq.Add(p.applyFieldBoost(f, q), search.SHOULD)
 	}
-	return bq
+	return bq.Build()
 }
 
 func (p *SimpleQueryParser) buildPhraseAcrossFields(tokens []string, slop int) search.Query {
@@ -304,17 +305,17 @@ func (p *SimpleQueryParser) buildPhraseAcrossFields(tokens []string, slop int) s
 		for i, tok := range tokens {
 			terms[i] = index.NewTerm(field, tok)
 		}
-		pq := search.NewPhraseQueryWithSlop(slop, field, terms...)
+		pq := search.NewPhraseQueryWithTerms(slop, field, terms...)
 		return p.applyFieldBoost(field, pq)
 	}
 	if len(p.Fields) == 1 {
 		return build(p.Fields[0])
 	}
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, f := range p.Fields {
 		bq.Add(build(f), search.SHOULD)
 	}
-	return bq
+	return bq.Build()
 }
 
 func (p *SimpleQueryParser) applyFieldBoost(field string, q search.Query) search.Query {

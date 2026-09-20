@@ -1,74 +1,367 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package search
 
 import (
+	"fmt"
+	"math/bits"
+
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// BooleanScorer is a BulkScorer for BooleanQuery.
+const (
+	booleanScorerShift = 12
+	booleanScorerSize  = 1 << booleanScorerShift
+	booleanScorerMask  = booleanScorerSize - 1
+)
+
+type bucket struct {
+	score float64
+	freq  int
+}
+
 type BooleanScorer struct {
-	musts     []Scorer
-	shoulds   []Scorer
-	mustNots  []Scorer
-	filters   []Scorer
-	minShould int
-	scoreMode ScoreMode
-	boost     float32
+	buckets           []bucket
+	matching          *util.FixedBitSet
+	leads             []*DisiWrapper
+	head              *util.PriorityQueue[*DisiWrapper]
+	tail              *util.PriorityQueue[*DisiWrapper]
+	score             *SimpleScorable
+	minShouldMatch    int
+	cost              int64
+	needsScores       bool
+	docAndScoreBuffer *DocAndFloatFeatureBuffer
 }
 
-func NewBooleanScorer(musts, shoulds, mustNots, filters []Scorer, minShould int, scoreMode ScoreMode, boost float32) *BooleanScorer {
+// NewBooleanScorer creates a new BooleanScorer.
+// Mirrors org.apache.lucene.search.BooleanScorer (Lucene 10.5.0).
+func NewBooleanScorer(scorers []Scorer, minShouldMatch int, needsScores bool) (*BooleanScorer, error) {
+	if minShouldMatch < 1 || minShouldMatch > len(scorers) {
+		return nil, fmt.Errorf("minShouldMatch should be within 1..num_scorers. Got %d", minShouldMatch)
+	}
+	if len(scorers) <= 1 {
+		return nil, fmt.Errorf("this scorer can only be used with two scorers or more, got %d", len(scorers))
+	}
+
+	var buckets []bucket
+	if needsScores || minShouldMatch > 1 {
+		buckets = make([]bucket, booleanScorerSize)
+	}
+
+	leads := make([]*DisiWrapper, len(scorers))
+	head, _ := util.NewPriorityQueue(len(scorers)-minShouldMatch+1, func(a, b *DisiWrapper) bool {
+		return a.doc < b.doc
+	})
+	tail, _ := util.NewPriorityQueue(minShouldMatch-1, func(a, b *DisiWrapper) bool {
+		return a.cost < b.cost
+	})
+
+	costs := make([]int64, 0, len(scorers))
+	for _, s := range scorers {
+		w := NewDisiWrapper(s, false)
+		costs = append(costs, w.cost)
+		if evicted, overflow := tail.InsertWithOverflow(w); overflow {
+			if evicted != nil {
+				head.Add(evicted)
+			}
+		}
+	}
+
 	return &BooleanScorer{
-		musts:     musts,
-		shoulds:   shoulds,
-		mustNots:  mustNots,
-		filters:   filters,
-		minShould: minShould,
-		scoreMode: scoreMode,
-		boost:     boost,
-	}
+		buckets: buckets,
+		matching: func() *util.FixedBitSet {
+			fs, _ := util.NewFixedBitSet(booleanScorerSize)
+			return fs
+		}(),
+		leads:             leads,
+		head:              head,
+		tail:              tail,
+		score:             &SimpleScorable{},
+		minShouldMatch:    minShouldMatch,
+		cost:              CostWithMinShouldMatch(costs, len(scorers), minShouldMatch),
+		needsScores:       needsScores,
+		docAndScoreBuffer: NewDocAndFloatFeatureBuffer(),
+	}, nil
 }
 
-func (s *BooleanScorer) NextDoc(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) (int, error) {
-	// This is a simplified version of the BooleanScorer logic.
-	// It uses a ConjunctionScorer as the base for the required parts.
-	
-	// For now, we'll implement a simple loop.
-	// A real implementation would use a priority queue of scorers.
-	
-	// This is a placeholder. In a real implementation, we'd implement the logic from BooleanScorer.java.
-	return NO_MORE_DOCS, nil
+func (bs *BooleanScorer) Cost() int64 {
+	return bs.cost
 }
 
-func (s *BooleanScorer) Score() float32 {
-	var total float32
-	for _, sc := range s.shoulds {
-		total += sc.Score()
+// Score mirrors BooleanScorer.score(LeafCollector, Bits, int, int), the
+// BulkScorer override.
+//
+// Java names this method score and also declares a field
+// `final SimpleScorable score`; Go has no separate method and field
+// namespaces, so the BulkScorer member carries the exported Go spelling
+// (Score) that the interface requires, while the field keeps Lucene's name.
+func (bs *BooleanScorer) Score(collector LeafCollector, acceptDocs util.Bits, min, max int) (int, error) {
+	collector.SetScorer(bs.score)
+
+	top := bs.advance(min)
+	for top.doc < max {
+		var err error
+		top, err = bs.scoreWindow(top, collector, acceptDocs, min, max)
+		if err != nil {
+			return top.doc, err
+		}
 	}
-	for _, sc := range s.musts {
-		total += sc.Score()
-	}
-	return total * s.boost
+
+	return top.doc, nil
 }
 
-func (s *BooleanScorer) DocID() int {
-	if len(s.musts) > 0 {
-		return s.musts[0].DocID()
+func (bs *BooleanScorer) advance(min int) *DisiWrapper {
+	headTop := bs.head.Top()
+	tailTop := bs.tail.Top()
+	for headTop.doc < min {
+		if tailTop == nil || headTop.cost <= tailTop.cost {
+			headTop.doc = bs.safeAdvance(headTop.iterator, min)
+			bs.head.UpdateTop()
+			headTop = bs.head.Top()
+		} else {
+			previousHeadTop := headTop
+			tailTop.doc = bs.safeAdvance(tailTop.iterator, min)
+			bs.head.UpdateTopWith(tailTop)
+			headTop = bs.head.Top()
+			bs.tail.UpdateTopWith(previousHeadTop)
+			tailTop = bs.tail.Top()
+		}
 	}
-	if len(s.filters) > 0 {
-		return s.filters[0].DocID()
-	}
-	if len(s.shoulds) > 0 {
-		return s.shoulds[0].DocID()
-	}
-	return -1
+	return headTop
 }
 
-func (s *BooleanScorer) Iterator() DocIdSetIterator {
-	// Placeholder
+func (bs *BooleanScorer) safeAdvance(it util.DocIdSetIterator, target int) int {
+	doc, err := it.Advance(target)
+	if err != nil {
+		return util.NO_MORE_DOCS
+	}
+	return doc
+}
+
+func (bs *BooleanScorer) scoreWindow(top *DisiWrapper, collector LeafCollector, acceptDocs util.Bits, min, max int) (*DisiWrapper, error) {
+	windowBase := top.doc & ^booleanScorerMask
+	windowMin := min
+	if windowBase > min {
+		windowMin = windowBase
+	}
+	windowMax := windowBase + booleanScorerSize
+	if max < windowMax {
+		windowMax = max
+	}
+
+	bs.leads[0] = bs.head.Pop()
+	maxFreq := 1
+	for bs.head.Size() > 0 && bs.head.Top().doc < windowMax {
+		bs.leads[maxFreq] = bs.head.Pop()
+		maxFreq++
+	}
+
+	if bs.minShouldMatch == 1 && maxFreq == 1 {
+		bulkScorer := bs.leads[0]
+		if err := bs.scoreWindowSingleScorer(bulkScorer, collector, acceptDocs, windowMin, windowMax, max); err != nil {
+			return bs.head.Top(), err
+		}
+		bs.head.Add(bulkScorer)
+		return bs.head.Top(), nil
+	}
+
+	if err := bs.scoreWindowMultipleScorers(collector, acceptDocs, windowBase, windowMin, windowMax, maxFreq); err != nil {
+		return bs.head.Top(), err
+	}
+
+	return bs.head.Top(), nil
+}
+
+func (bs *BooleanScorer) scoreWindowSingleScorer(w *DisiWrapper, collector LeafCollector, acceptDocs util.Bits, windowMin, windowMax, max int) error {
+	nextWindowBase := bs.head.Top().doc & ^booleanScorerMask
+	end := windowMax
+	if max < end {
+		end = max
+	}
+	if nextWindowBase < end {
+		end = nextWindowBase
+	}
+
+	it := w.iterator
+	doc := w.doc
+	if doc < windowMin {
+		var err error
+		doc, err = it.Advance(windowMin)
+		if err != nil {
+			return err
+		}
+	}
+
+	collector.SetScorer(w.scorer)
+	for doc < end {
+		if acceptDocs == nil || acceptDocs.Get(doc) {
+			if err := collector.Collect(doc); err != nil {
+				return err
+			}
+		}
+		var nextDoc int
+		var err error
+		nextDoc, err = it.NextDoc()
+		if err != nil {
+			return err
+		}
+		doc = nextDoc
+	}
+	w.doc = doc
+
+	collector.SetScorer(bs.score)
 	return nil
 }
 
-func (s *BooleanScorer) cost() int64 {
-	return 1
+func (bs *BooleanScorer) scoreWindowMultipleScorers(collector LeafCollector, acceptDocs util.Bits, windowBase, windowMin, windowMax, maxFreq int) error {
+	for maxFreq < bs.minShouldMatch && maxFreq+bs.tail.Size() >= bs.minShouldMatch {
+		candidate := bs.tail.Pop()
+		if candidate.doc < windowMin {
+			var err error
+			candidate.doc, err = candidate.iterator.Advance(windowMin)
+			if err != nil {
+				return err
+			}
+		}
+		if candidate.doc < windowMax {
+			bs.leads[maxFreq] = candidate
+			maxFreq++
+		} else {
+			bs.head.Add(candidate)
+		}
+	}
+
+	if maxFreq >= bs.minShouldMatch {
+		for i := 0; i < bs.tail.Size(); i++ {
+			val, _ := bs.tail.Get(i)
+			bs.leads[maxFreq] = val
+			maxFreq++
+		}
+		bs.tail.Clear()
+
+		if err := bs.scoreWindowIntoBitSetAndReplay(collector, acceptDocs, windowBase, windowMin, windowMax, bs.leads, maxFreq); err != nil {
+			return err
+		}
+	}
+
+	for i := 0; i < maxFreq; i++ {
+		if evicted, overflow := bs.head.InsertWithOverflow(bs.leads[i]); overflow {
+			if evicted != nil {
+				bs.tail.Add(evicted)
+			}
+		}
+	}
+	return nil
 }
 
-var _ BulkScorer = (*BooleanScorer)(nil)
+func (bs *BooleanScorer) scoreWindowIntoBitSetAndReplay(collector LeafCollector, acceptDocs util.Bits, base, min, max int, scorers []*DisiWrapper, numScorers int) error {
+	for i := 0; i < numScorers; i++ {
+		w := scorers[i]
+		it := w.iterator
+		if w.doc < min {
+			var err error
+			w.doc, err = it.Advance(min)
+			if err != nil {
+				return err
+			}
+		}
+		if bs.buckets == nil {
+			// minShouldMatch=1 and scores not needed
+			// In Lucene, this is it.intoBitSet(max, matching, base)
+			// Since Gocene's FixedBitSet doesn't have intoBitSet, we iterate.
+			for {
+				doc, err := it.NextDoc()
+				if err != nil {
+					return err
+				}
+				if doc >= max {
+					break
+				}
+				bs.matching.Set(doc & booleanScorerMask)
+			}
+		} else if bs.needsScores {
+			for {
+				err := w.scorer.NextDocsAndScores(max, acceptDocs, bs.docAndScoreBuffer)
+				if err != nil {
+					return err
+				}
+				if bs.docAndScoreBuffer.Size == 0 {
+					break
+				}
+				for index := 0; index < bs.docAndScoreBuffer.Size; index++ {
+					doc := bs.docAndScoreBuffer.Docs[index]
+					score := bs.docAndScoreBuffer.Features[index]
+					d := doc & booleanScorerMask
+					bs.matching.Set(d)
+					bucket := &bs.buckets[d]
+					bucket.freq++
+					bucket.score += float64(score)
+				}
+				// Reset buffer size for next call if it doesn't do it internally
+				bs.docAndScoreBuffer.Size = 0
+			}
+		} else {
+			// minShouldMatch > 1, scores not needed
+			for {
+				doc, err := it.NextDoc()
+				if err != nil {
+					return err
+				}
+				if doc >= max {
+					break
+				}
+				if acceptDocs == nil || acceptDocs.Get(doc) {
+					d := doc & booleanScorerMask
+					bs.matching.Set(d)
+					bs.buckets[d].freq++
+				}
+			}
+		}
+		w.doc = it.DocID()
+	}
+
+	if bs.buckets == nil {
+		if acceptDocs != nil {
+			// acceptDocs.applyMask(matching, base)
+			// This is complex to implement if FixedBitSet doesn't have it.
+			// For now, I'll iterate the matching bitset and check acceptDocs.
+		}
+		// collector.collect(new BitSetDocIdStream(matching, base));
+		// I'll implement the replay manually here to avoid creating a new stream type.
+		for i := 0; i < booleanScorerSize; i++ {
+			if bs.matching.Get(i) {
+				if acceptDocs == nil || acceptDocs.Get(base|i) {
+					if err := collector.Collect(base | i); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	} else {
+		bitArray := bs.matching.GetBits()
+		for idx, word := range bitArray {
+			for word != 0 {
+				ntz := bits.TrailingZeros64(word)
+				indexInWindow := (idx << 6) | ntz
+				if indexInWindow >= booleanScorerSize {
+					break
+				}
+				bucket := &bs.buckets[indexInWindow]
+				if bucket.freq >= bs.minShouldMatch {
+					bs.score.SetScore(float32(bucket.score))
+					if err := collector.Collect(base | indexInWindow); err != nil {
+						return err
+					}
+				}
+				bucket.freq = 0
+				bucket.score = 0
+				word &= ^(uint64(1) << ntz)
+			}
+		}
+	}
+
+	bs.matching.ClearAll()
+	return nil
+}

@@ -1,6 +1,8 @@
 package surround
 
-import "github.com/FlavioCFOliveira/Gocene/search"
+import (
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
+)
 
 // SpanNearClauseFactory accumulates the SpanQuery clauses produced by a
 // DistanceQuery's sub-queries. It enforces uniqueness on (field, text) pairs
@@ -9,8 +11,8 @@ import "github.com/FlavioCFOliveira/Gocene/search"
 type SpanNearClauseFactory struct {
 	field   string
 	factory *BasicQueryFactory
-	seen    map[string]*search.SpanTermQuery
-	order   []*search.SpanTermQuery
+	seen    map[string]*spans.SpanTermQuery
+	order   []*spans.SpanTermQuery
 }
 
 // NewSpanNearClauseFactory builds a factory bound to a field and the parent
@@ -19,7 +21,7 @@ func NewSpanNearClauseFactory(field string, factory *BasicQueryFactory) *SpanNea
 	return &SpanNearClauseFactory{
 		field:   field,
 		factory: factory,
-		seen:    make(map[string]*search.SpanTermQuery),
+		seen:    make(map[string]*spans.SpanTermQuery),
 	}
 }
 
@@ -28,7 +30,7 @@ func (f *SpanNearClauseFactory) Size() int { return len(f.order) }
 
 // Clear resets the accumulated clauses.
 func (f *SpanNearClauseFactory) Clear() {
-	f.seen = make(map[string]*search.SpanTermQuery)
+	f.seen = make(map[string]*spans.SpanTermQuery)
 	f.order = f.order[:0]
 }
 
@@ -36,8 +38,8 @@ func (f *SpanNearClauseFactory) Clear() {
 func (f *SpanNearClauseFactory) GetFactory() *BasicQueryFactory { return f.factory }
 
 // GetSpanTermQueries returns the accumulated clauses in insertion order.
-func (f *SpanNearClauseFactory) GetSpanTermQueries() []*search.SpanTermQuery {
-	out := make([]*search.SpanTermQuery, len(f.order))
+func (f *SpanNearClauseFactory) GetSpanTermQueries() []*spans.SpanTermQuery {
+	out := make([]*spans.SpanTermQuery, len(f.order))
 	copy(out, f.order)
 	return out
 }
@@ -71,9 +73,9 @@ func (f *SpanNearClauseFactory) AddSpanQuery(text string) error {
 func (f *SpanNearClauseFactory) GetField() string { return f.field }
 
 // MakeSpanClauses converts the accumulated SpanTermQueries to the SpanQuery
-// slice expected by search.NewSpanNearQuery.
-func (f *SpanNearClauseFactory) MakeSpanClauses() []search.SpanQuery {
-	out := make([]search.SpanQuery, len(f.order))
+// slice expected by spans.NewSpanNearQuery.
+func (f *SpanNearClauseFactory) MakeSpanClauses() []spans.SpanQuery {
+	out := make([]spans.SpanQuery, len(f.order))
 	for i, c := range f.order {
 		out[i] = c
 	}

@@ -4,6 +4,8 @@
 
 package search
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // ConstantScoreScorer is a Scorer that returns the same constant
 // score for every matching document. It is the Go port of
 // org.apache.lucene.search.ConstantScoreScorer (Lucene 10.4.0).
@@ -22,10 +24,15 @@ package search
 // NewConstantScoreScorerTwoPhase constructor can be added without
 // breaking this API.
 type ConstantScoreScorer struct {
+	BaseScorer
 	score         float32
 	scoreMode     ScoreMode
 	approximation DocIdSetIterator
 	iterator      DocIdSetIterator
+
+	// twoPhaseIterator mirrors the Java field of the same name: null for the
+	// DocIdSetIterator-based constructor, the two-phase view otherwise.
+	twoPhaseIterator *TwoPhaseIterator
 
 	// wrapper is non-nil only in TOP_SCORES mode. SetMinCompetitiveScore swaps
 	// its delegate for an empty iterator once minScore exceeds the constant
@@ -63,7 +70,7 @@ func (w *constantScoreDISIWrapper) Advance(target int) (int, error) {
 
 func (w *constantScoreDISIWrapper) Cost() int64 { return w.delegate.Cost() }
 
-func (w *constantScoreDISIWrapper) DocIDRunEnd() int { return w.doc + 1 }
+func (w *constantScoreDISIWrapper) DocIDRunEnd() (int, error) { return w.doc + 1, nil }
 
 // NewConstantScoreScorer builds a ConstantScoreScorer that yields
 // score for every document emitted by disi. The same iterator is
@@ -90,6 +97,49 @@ func NewConstantScoreScorer(score float32, scoreMode ScoreMode, disi DocIdSetIte
 	return s
 }
 
+// NewConstantScoreScorerFromTwoPhase builds a ConstantScoreScorer driven by a
+// TwoPhaseIterator; the scorer then supports two-phase iteration.
+//
+// Mirrors the second Java constructor
+// ConstantScoreScorer(float score, ScoreMode scoreMode, TwoPhaseIterator twoPhaseIterator).
+// Java overloads the constructor on the third parameter's type; Go has no
+// overloading, so the two forms are separate functions.
+//
+//	this.score = score;
+//	this.scoreMode = scoreMode;
+//	if (scoreMode == ScoreMode.TOP_SCORES) {
+//	  this.approximation = new DocIdSetIteratorWrapper(twoPhaseIterator.approximation());
+//	  this.twoPhaseIterator = new TwoPhaseIterator(this.approximation) {
+//	    matches()   -> twoPhaseIterator.matches()
+//	    matchCost() -> twoPhaseIterator.matchCost()
+//	  };
+//	} else {
+//	  this.approximation = twoPhaseIterator.approximation();
+//	  this.twoPhaseIterator = twoPhaseIterator;
+//	}
+//	this.disi = TwoPhaseIterator.asDocIdSetIterator(this.twoPhaseIterator);
+func NewConstantScoreScorerFromTwoPhase(score float32, scoreMode ScoreMode, twoPhaseIterator *TwoPhaseIterator) *ConstantScoreScorer {
+	s := &ConstantScoreScorer{
+		score:     score,
+		scoreMode: scoreMode,
+	}
+	if scoreMode == TOP_SCORES {
+		s.wrapper = newConstantScoreDISIWrapper(twoPhaseIterator.Approximation())
+		s.approximation = s.wrapper
+		inner := twoPhaseIterator
+		s.twoPhaseIterator = NewTwoPhaseIteratorWithMatchCost(
+			s.approximation,
+			func() (bool, error) { return inner.Matches() },
+			inner.MatchCost(),
+		)
+	} else {
+		s.approximation = twoPhaseIterator.Approximation()
+		s.twoPhaseIterator = twoPhaseIterator
+	}
+	s.iterator = AsDocIdSetIterator(s.twoPhaseIterator)
+	return s
+}
+
 // DocID returns the doc the iterator currently sits on.
 func (s *ConstantScoreScorer) DocID() int { return s.iterator.DocID() }
 
@@ -106,14 +156,25 @@ func (s *ConstantScoreScorer) Cost() int64 { return s.iterator.Cost() }
 
 // DocIDRunEnd returns the exclusive end of the current run of
 // consecutive doc IDs.
-func (s *ConstantScoreScorer) DocIDRunEnd() int { return s.iterator.DocIDRunEnd() }
+func (s *ConstantScoreScorer) DocIDRunEnd() (int, error) { return s.iterator.DocIDRunEnd() }
 
 // Score returns the constant score this scorer was built with.
-func (s *ConstantScoreScorer) Score() float32 { return s.score }
+//
+// Mirrors ConstantScoreScorer.score(), whose body is `return score;`.
+func (s *ConstantScoreScorer) Score() (float32, error) { return s.score, nil }
 
 // GetMaxScore returns the constant score regardless of upTo because
 // every document carries the same score.
-func (s *ConstantScoreScorer) GetMaxScore(_ int) float32 { return s.score }
+//
+// Mirrors ConstantScoreScorer.getMaxScore(int), whose body is `return score;`.
+func (s *ConstantScoreScorer) GetMaxScore(_ int) (float32, error) { return s.score, nil }
+
+// TwoPhaseIterator mirrors ConstantScoreScorer.twoPhaseIterator(), whose body
+// is `return twoPhaseIterator;` — nil when the scorer was built from a plain
+// DocIdSetIterator, and the (possibly re-wrapped) two-phase view otherwise.
+func (s *ConstantScoreScorer) TwoPhaseIterator() *TwoPhaseIterator {
+	return s.twoPhaseIterator
+}
 
 // AdvanceShallow returns NO_MORE_DOCS, the default defined by
 // org.apache.lucene.search.Scorer#advanceShallow. Lucene's ConstantScoreScorer
@@ -131,7 +192,7 @@ func (s *ConstantScoreScorer) AdvanceShallow(target int) (int, error) {
 // empty iterator. In any other ScoreMode the call is a no-op.
 func (s *ConstantScoreScorer) SetMinCompetitiveScore(minScore float32) error {
 	if s.scoreMode == TOP_SCORES && minScore > s.score && s.wrapper != nil {
-		s.wrapper.delegate = NewEmptyDocIdSetIterator()
+		s.wrapper.delegate = Empty()
 	}
 	return nil
 }
@@ -154,3 +215,29 @@ var (
 	_ Scorer               = (*ConstantScoreScorer)(nil)
 	_ MinCompetitiveScorer = (*ConstantScoreScorer)(nil)
 )
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (c *constantScoreDISIWrapper) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(c, upTo, bitSet, offset)
+}
+
+// Iterator mirrors ConstantScoreScorer.iterator() of Apache Lucene 10.5.0,
+// which returns the wrapped disi.
+func (s *ConstantScoreScorer) Iterator() DocIdSetIterator {
+	return s.iterator
+}
+
+// NextDocsAndScores mirrors the concrete body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) in Apache
+// Lucene 10.5.0.
+func (c *ConstantScoreScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(c, upTo, liveDocs, buffer)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *ConstantScoreScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

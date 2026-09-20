@@ -75,7 +75,7 @@ func (l *TSTLookup) GetCount() int64 { return l.count }
 //	  if HAS_VALUE: writeLong(val)
 //	  recurse into loKid, eqKid, hiKid (if present per mask)
 func (l *TSTLookup) Store(output store.DataOutput) (bool, error) {
-	if err := store.WriteVLong(output, l.count); err != nil {
+	if err := output.WriteVLong(l.count); err != nil {
 		return false, err
 	}
 	if l.tree.root != nil {
@@ -89,7 +89,7 @@ func (l *TSTLookup) Store(output store.DataOutput) (bool, error) {
 // Load reads a serialised TST produced by Store (or Lucene's store()).
 // Returns true on success. Mirrors TSTLookup.load(DataInput).
 func (l *TSTLookup) Load(input store.DataInput) (bool, error) {
-	cnt, err := store.ReadVLong(input)
+	cnt, err := input.ReadVLong()
 	if err != nil {
 		return false, err
 	}

@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // SerbianStopWords contains common Serbian stop words.
@@ -74,12 +75,22 @@ func NewSerbianAnalyzer() *SerbianAnalyzer {
 // NewSerbianAnalyzerWithWords creates a SerbianAnalyzer with custom stop words.
 func NewSerbianAnalyzerWithWords(stopWords *CharArraySet) *SerbianAnalyzer {
 	a := &SerbianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 	return a
 }
 
@@ -98,5 +109,4 @@ func (a *SerbianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*SerbianAnalyzer)(nil)
-var _ AnalyzerInterface = (*SerbianAnalyzer)(nil)
+var _ api.Analyzer = (*SerbianAnalyzer)(nil)

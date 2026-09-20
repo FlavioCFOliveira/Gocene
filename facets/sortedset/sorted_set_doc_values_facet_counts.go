@@ -155,15 +155,12 @@ func (ssdvfc *SortedSetDocValuesFacetCounts) GetTopChildren(topN int, dim string
 	}
 
 	// Build result
-	result := facets.NewFacetResult(dim)
-	result.Path = path
-	result.Value = totalCount
-	result.ChildCount = len(labelCounts)
+	lv := make([]*facets.LabelAndValue, 0, len(labelCounts))
 	for _, lc := range labelCounts {
-		result.AddLabelValue(facets.NewLabelAndValue(lc.label, int64(lc.count)))
+		lv = append(lv, facets.NewLabelAndValue(lc.label, int64(lc.count)))
 	}
 
-	return result, nil
+	return facets.NewFacetResult(dim, path, float64(totalCount), lv, len(labelCounts)), nil
 }
 
 // GetAllDims returns all dimensions available.
@@ -199,14 +196,12 @@ func (ssdvfc *SortedSetDocValuesFacetCounts) GetSpecificValue(dim string, path .
 	ord := ssdvfc.labelToOrd[fullPath]
 	count := ssdvfc.counts[ord]
 
-	result := facets.NewFacetResult(dim)
-	result.Path = path
-	result.Value = int64(count)
+	var lv []*facets.LabelAndValue
 	if len(path) > 0 {
-		result.AddLabelValue(facets.NewLabelAndValue(path[len(path)-1], int64(count)))
+		lv = []*facets.LabelAndValue{facets.NewLabelAndValue(path[len(path)-1], int64(count))}
 	}
 
-	return result, nil
+	return facets.NewFacetResult(dim, path, float64(count), lv, 0), nil
 }
 
 // SortedSetDocValues is an interface for accessing SortedSetDocValues.

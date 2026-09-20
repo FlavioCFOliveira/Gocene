@@ -27,7 +27,9 @@ import (
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // Lucene 9.0 norms format constants. Per Lucene 10.4.0 source, the format
@@ -163,32 +165,41 @@ func normsSegmentFileName(state *SegmentWriteState, extension string) string {
 
 // AddNormsField writes one norms field to the .nvd/.nvm pair.
 //
-// Mirrors Lucene90NormsConsumer.addNormsField (Lucene 10.4.0, lines 90-138).
-// The Java reference re-iterates the NumericDocValues three times (once for
-// min/max, once for the IndexedDISI bitset, once for the values) by calling
-// normsProducer.getNorms(field) each time. Gocene's NormsIterator is a
-// single-pass cursor, so we materialise the (docID, value) pairs once and
-// drive all three phases from the buffered slices. The on-disk bytes are
-// identical regardless of how many times the source is scanned.
-func (c *Lucene90NormsConsumer) AddNormsField(field *index.FieldInfo, values NormsIterator) error {
+// Mirrors Lucene90NormsConsumer.addNormsField(FieldInfo, NormsProducer)
+// (Lucene90NormsConsumer.java:90-138). As in Java the NumericDocValues is
+// pulled from the producer up to three times — once for min/max, once for
+// the IndexedDISI bitset, once for the values — so no intermediate buffer
+// is materialised.
+func (c *Lucene90NormsConsumer) AddNormsField(field *index.FieldInfo, normsProducer spi.NormsProducer) error {
 	if c.closed {
 		return errors.New("lucene90 norms: consumer closed")
 	}
 
-	// Phase 0: materialise the value-bearing documents and compute min/max.
+	// NumericDocValues values = normsProducer.getNorms(field) — line 91.
+	values, err := normsProducer.GetNorms(field)
+	if err != nil {
+		return err
+	}
+	numDocsWithValue := 0
 	// Lucene initialises min=Long.MAX_VALUE, max=Long.MIN_VALUE so that the
 	// empty-field case (numDocsWithValue==0) yields min>max => bytesPerValue
 	// 0, written as a constant min=Long.MAX_VALUE that the reader never
-	// consults (docsWithFieldOffset==-2). We mirror that exactly.
-	var docs []int
-	var vals []int64
+	// consults (docsWithFieldOffset==-2).
 	var min int64 = math.MaxInt64
 	var max int64 = math.MinInt64
-	for values.Next() {
-		doc := values.DocID()
-		v := values.LongValue()
-		docs = append(docs, doc)
-		vals = append(vals, v)
+	for {
+		doc, err := values.NextDoc()
+		if err != nil {
+			return err
+		}
+		if doc == dvNoMoreDocs {
+			break
+		}
+		numDocsWithValue++
+		v, err := values.LongValue()
+		if err != nil {
+			return err
+		}
 		if v < min {
 			min = v
 		}
@@ -196,17 +207,17 @@ func (c *Lucene90NormsConsumer) AddNormsField(field *index.FieldInfo, values Nor
 			max = v
 		}
 	}
-	numDocsWithValue := len(docs)
+	// assert numDocsWithValue <= maxDoc — line 102.
 	if numDocsWithValue > c.maxDoc {
 		return fmt.Errorf("lucene90 norms: numDocsWithValue=%d exceeds maxDoc=%d", numDocsWithValue, c.maxDoc)
 	}
 
-	// meta.writeInt(field.number) — Lucene90NormsConsumer line 104.
+	// meta.writeInt(field.number) — line 104.
 	if err := c.meta.WriteInt(int32(field.Number())); err != nil {
 		return err
 	}
 
-	// docsWithField handling — Lucene90NormsConsumer lines 106-125.
+	// docsWithField handling — lines 106-125.
 	switch {
 	case numDocsWithValue == 0:
 		if err := c.meta.WriteLong(-2); err != nil { // docsWithFieldOffset
@@ -239,7 +250,12 @@ func (c *Lucene90NormsConsumer) AddNormsField(field *index.FieldInfo, values Nor
 		if err := c.meta.WriteLong(offset); err != nil { // docsWithFieldOffset
 			return err
 		}
-		jumpTableEntryCount, err := writeDVBitSet(newNormsDocsIterator(docs, c.maxDoc), c.data)
+		// values = normsProducer.getNorms(field) — line 128.
+		values, err = normsProducer.GetNorms(field)
+		if err != nil {
+			return err
+		}
+		jumpTableEntryCount, err := writeDVBitSet(values, c.data)
 		if err != nil {
 			return err
 		}
@@ -254,12 +270,12 @@ func (c *Lucene90NormsConsumer) AddNormsField(field *index.FieldInfo, values Nor
 		}
 	}
 
-	// meta.writeInt(numDocsWithValue) — line 127.
+	// meta.writeInt(numDocsWithValue) — line 136.
 	if err := c.meta.WriteInt(int32(numDocsWithValue)); err != nil {
 		return err
 	}
 
-	// numBytesPerValue and the values block — lines 128-137.
+	// numBytesPerValue and the values block — lines 137-146.
 	numBytesPerValue := normsNumBytesPerValue(min, max)
 	if err := c.meta.WriteByte(byte(numBytesPerValue)); err != nil {
 		return err
@@ -269,11 +285,16 @@ func (c *Lucene90NormsConsumer) AddNormsField(field *index.FieldInfo, values Nor
 		// the normsOffset; no bytes are written to the data file.
 		return c.meta.WriteLong(min)
 	}
-	// meta.writeLong(data.getFilePointer()) — normsOffset (line 134).
+	// meta.writeLong(data.getFilePointer()) — normsOffset (line 143).
 	if err := c.meta.WriteLong(c.data.GetFilePointer()); err != nil {
 		return err
 	}
-	return writeNormsValues(vals, numBytesPerValue, c.data)
+	// values = normsProducer.getNorms(field) — line 144.
+	values, err = normsProducer.GetNorms(field)
+	if err != nil {
+		return err
+	}
+	return writeNormsValues(values, numBytesPerValue, c.data)
 }
 
 // normsNumBytesPerValue picks the per-value width from the value range,
@@ -295,41 +316,40 @@ func normsNumBytesPerValue(min, max int64) int {
 	}
 }
 
-// writeNormsValues writes each per-document norm at the chosen fixed width,
-// big-endian-free (Gocene's IndexOutput is little-endian on the wire, like
-// Lucene 10.x DataOutput). Mirrors Lucene90NormsConsumer.writeValues
-// (lines 154-175). Note that Lucene writes the raw value, NOT a delta from
-// min; the min is only used to size the field, never subtracted.
-func writeNormsValues(vals []int64, numBytesPerValue int, out store.IndexOutput) error {
-	switch numBytesPerValue {
-	case 1:
-		for _, v := range vals {
-			if err := out.WriteByte(byte(v)); err != nil {
-				return err
-			}
+// writeNormsValues writes each per-document norm at the chosen fixed width.
+// Mirrors Lucene90NormsConsumer.writeValues(NumericDocValues, int, IndexOutput)
+// (Lucene90NormsConsumer.java:163-183). Note that Lucene writes the raw value,
+// NOT a delta from min; the min is only used to size the field, never
+// subtracted.
+func writeNormsValues(values spi.NumericDocValues, numBytesPerValue int, out store.IndexOutput) error {
+	for {
+		doc, err := values.NextDoc()
+		if err != nil {
+			return err
 		}
-	case 2:
-		for _, v := range vals {
-			if err := out.WriteShort(int16(v)); err != nil {
-				return err
-			}
+		if doc == dvNoMoreDocs {
+			return nil
 		}
-	case 4:
-		for _, v := range vals {
-			if err := out.WriteInt(int32(v)); err != nil {
-				return err
-			}
+		value, err := values.LongValue()
+		if err != nil {
+			return err
 		}
-	case 8:
-		for _, v := range vals {
-			if err := out.WriteLong(v); err != nil {
-				return err
-			}
+		switch numBytesPerValue {
+		case 1:
+			err = out.WriteByte(byte(value))
+		case 2:
+			err = out.WriteShort(int16(value))
+		case 4:
+			err = out.WriteInt(int32(value))
+		case 8:
+			err = out.WriteLong(value)
+		default:
+			return fmt.Errorf("lucene90 norms: invalid numBytesPerValue=%d", numBytesPerValue)
 		}
-	default:
-		return fmt.Errorf("lucene90 norms: invalid numBytesPerValue=%d", numBytesPerValue)
+		if err != nil {
+			return err
+		}
 	}
-	return nil
 }
 
 // Close writes the -1 EOF marker into .nvm and the CodecUtil footer into both
@@ -359,32 +379,6 @@ func (c *Lucene90NormsConsumer) Close() error {
 	c.meta = nil
 	c.data = nil
 	return firstErr
-}
-
-// normsDocsIterator adapts the buffered, ascending docID slice into the
-// dvDocIDIterator surface consumed by writeDVBitSet (which only ever calls
-// DocID and NextDoc). The norms source visits documents in ascending docID
-// order, so the slice is already sorted.
-type normsDocsIterator struct {
-	docs []int
-	pos  int
-	doc  int
-}
-
-func newNormsDocsIterator(docs []int, _ int) *normsDocsIterator {
-	return &normsDocsIterator{docs: docs, pos: 0, doc: -1}
-}
-
-func (it *normsDocsIterator) DocID() int { return it.doc }
-
-func (it *normsDocsIterator) NextDoc() (int, error) {
-	if it.pos >= len(it.docs) {
-		it.doc = math.MaxInt32
-		return it.doc, nil
-	}
-	it.doc = it.docs[it.pos]
-	it.pos++
-	return it.doc, nil
 }
 
 // -----------------------------------------------------------------------------
@@ -601,10 +595,25 @@ func normsDataSlice(data store.IndexInput, entry *normsEntry) (store.RandomAcces
 		return ra, nil
 	}
 	buf := make([]byte, length)
-	if err := sub.ReadBytes(buf); err != nil {
+	if err := sub.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, fmt.Errorf("lucene90 norms: read %d data bytes at %d: %w", length, entry.normsOffset, err)
 	}
 	return store.NewByteArrayRandomAccessInput(buf), nil
+}
+
+// GetMergeInstance returns an instance optimized for merging: a clone of this
+// producer over a cloned .nvd input, so the merge thread reads through its own
+// file pointer.
+//
+// Mirrors Lucene90NormsProducer.getMergeInstance() of Apache Lucene 10.5.0,
+// which clones the producer, replaces data with data.clone() and resets the
+// per-field input caches.
+func (p *Lucene90NormsProducer) GetMergeInstance() NormsProducer {
+	clone := *p
+	if p.data != nil {
+		clone.data = p.data.Clone()
+	}
+	return &clone
 }
 
 // CheckIntegrity verifies the .nvd checksum over the entire file. Mirrors
@@ -762,3 +771,45 @@ func (s *sparseNormsIterator) AdvanceExact(target int) (bool, error) {
 func (s *sparseNormsIterator) LongValue() (int64, error) { return s.values.valueAt(s.disi.Index()) }
 
 func (s *sparseNormsIterator) Cost() int64 { return s.disi.Cost() }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (d *denseNormsIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (d *denseNormsIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(d)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (s *sparseNormsIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (s *sparseNormsIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(s)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *emptyNormsIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *emptyNormsIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}

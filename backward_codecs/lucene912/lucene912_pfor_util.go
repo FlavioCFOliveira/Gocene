@@ -95,7 +95,7 @@ func (p *pforUtil) encode(longs []int64, out store.DataOutput) error {
 		if err := out.WriteByte(byte(numExceptions << 5)); err != nil {
 			return err
 		}
-		if err2 := store.WriteVLong(out, longs[0]); err2 != nil {
+		if err2 := out.WriteVLong(longs[0]); err2 != nil {
 			return err2
 		}
 	} else {
@@ -107,7 +107,7 @@ func (p *pforUtil) encode(longs []int64, out store.DataOutput) error {
 			return err
 		}
 	}
-	return out.WriteBytes(exceptions)
+	return out.WriteBytes(exceptions, 0, len(exceptions))
 }
 
 // decode decodes 128 integers into longs.
@@ -119,7 +119,7 @@ func (p *pforUtil) decode(in store.IndexInput, longs []int64) error {
 	token := int(tokenByte) & 0xFF
 	bitsPerValue := token & 0x1f
 	if bitsPerValue == 0 {
-		v, err := store.ReadVLong(in)
+		v, err := in.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -156,7 +156,7 @@ func pforUtilSkip(in store.IndexInput) error {
 	bitsPerValue := token & 0x1f
 	numExceptions := token >> 5
 	if bitsPerValue == 0 {
-		if _, err := store.ReadVLong(in); err != nil {
+		if _, err := in.ReadVLong(); err != nil {
 			return err
 		}
 		return in.SetPosition(in.GetFilePointer() + int64(numExceptions*2))

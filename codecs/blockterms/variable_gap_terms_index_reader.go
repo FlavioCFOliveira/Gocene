@@ -24,7 +24,6 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -113,8 +112,8 @@ func NewVariableGapTermsIndexReader(state *spi.SegmentReadState) (*VariableGapTe
 	// prior exception so that a checksum failure is reported as its
 	// suppressed cause. Gocene's CheckFooter takes no prior error, so the
 	// prior error is kept and returned in preference to a footer error.
-	_, metaFooterErr := codecs.CheckFooter(metaIn)
-	_, indexFooterErr := codecs.CheckFooter(indexIn)
+	_, metaFooterErr := store.CheckFooter(metaIn)
+	_, indexFooterErr := store.CheckFooter(indexIn)
 
 	if priorErr != nil {
 		return nil, priorErr
@@ -167,7 +166,7 @@ func (r *VariableGapTermsIndexReader) readIndex(
 			break
 		}
 
-		indexStart, err := store.ReadVLong(metaIn)
+		indexStart, err := metaIn.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -280,7 +279,7 @@ func (r *VariableGapTermsIndexReader) SupportsOrd() bool {
 // when the field has no terms index.
 //
 // Port of VariableGapTermsIndexReader.getFieldEnum(FieldInfo).
-func (r *VariableGapTermsIndexReader) GetFieldEnum(fieldInfo *schema.FieldInfo) TermsIndexEnum {
+func (r *VariableGapTermsIndexReader) GetFieldEnum(fieldInfo *spi.FieldInfo) TermsIndexEnum {
 	fieldData, ok := r.fields[fieldInfo.Name()]
 	if !ok {
 		return nil

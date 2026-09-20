@@ -62,7 +62,7 @@ func (c *conjunctionDISI) Advance(target int) (int, error) {
 
 func (c *conjunctionDISI) Cost() int64 { return c.lead1.Cost() }
 
-func (c *conjunctionDISI) DocIDRunEnd() int { return c.lead1.DocID() + 1 }
+func (c *conjunctionDISI) DocIDRunEnd() (int, error) { return c.lead1.DocID() + 1, nil }
 
 // doNext advances all iterators until they agree on the same document.
 func (c *conjunctionDISI) doNext(doc int) (int, error) {
@@ -166,7 +166,7 @@ func (b *bitSetConjunctionDISI) Advance(target int) (int, error) {
 
 func (b *bitSetConjunctionDISI) Cost() int64 { return b.lead.Cost() }
 
-func (b *bitSetConjunctionDISI) DocIDRunEnd() int { return b.lead.DocID() + 1 }
+func (b *bitSetConjunctionDISI) DocIDRunEnd() (int, error) { return b.lead.DocID() + 1, nil }
 
 func (b *bitSetConjunctionDISI) doNext(doc int) (int, error) {
 	for {
@@ -223,12 +223,13 @@ func addScorer(
 	if p, ok := scorer.(scorerTwoPhaseProvider); ok {
 		twoPhase = p.TwoPhaseIterator()
 	} else {
-		twoPhase = AsTwoPhaseIterator(scorer)
+		twoPhase = scorer.TwoPhaseIterator()
 	}
 	if twoPhase != nil {
 		addTwoPhaseIteratorToConjunction(twoPhase, allIterators, twoPhaseIterators)
 	} else {
-		addIteratorToConjunction(scorer, allIterators, twoPhaseIterators)
+		// Java: addIterator(scorer.iterator(), allIterators, twoPhaseIterators)
+		addIteratorToConjunction(scorer.Iterator(), allIterators, twoPhaseIterators)
 	}
 }
 
@@ -241,7 +242,7 @@ func addIteratorToConjunction(
 	allIterators *[]DocIdSetIterator,
 	twoPhaseIterators *[]*TwoPhaseIterator,
 ) {
-	twoPhase := AsTwoPhaseIterator(disi)
+	twoPhase := Unwrap(disi)
 	if twoPhase != nil {
 		addTwoPhaseIteratorToConjunction(twoPhase, allIterators, twoPhaseIterators)
 		return
@@ -374,85 +375,10 @@ func createConjunction(
 			}
 			return true, nil
 		}, totalMatchCost)
-		disi = NewTwoPhaseIteratorAsDocIdSetIterator(twoPhase)
+		disi = AsDocIdSetIterator(twoPhase)
 	}
 
 	return disi
-}
-
-// ─── ConjunctionUtils (public API) ───────────────────────────────────────────
-
-// IntersectScorers creates a conjunction over the provided Scorers.
-// The returned DocIdSetIterator may leverage two-phase iteration; use
-// [AsTwoPhaseIterator] to retrieve the TwoPhaseIterator if available.
-//
-// Panics when len(scorers) < 2, mirroring Java's IllegalArgumentException.
-//
-// Mirrors ConjunctionUtils.intersectScorers.
-func IntersectScorers(scorers []Scorer) DocIdSetIterator {
-	if len(scorers) < 2 {
-		panic("search: cannot make a ConjunctionDISI of fewer than 2 iterators")
-	}
-	var allIters []DocIdSetIterator
-	var twoPhaseIters []*TwoPhaseIterator
-	for _, s := range scorers {
-		addScorer(s, &allIters, &twoPhaseIters)
-	}
-	return createConjunction(allIters, twoPhaseIters)
-}
-
-// IntersectIterators creates a conjunction over the provided
-// DocIdSetIterators. The returned iterator may leverage two-phase
-// iteration; use [AsTwoPhaseIterator] to retrieve the TwoPhaseIterator
-// if available.
-//
-// Panics when len(iterators) < 2, mirroring Java's
-// IllegalArgumentException.
-//
-// Mirrors ConjunctionUtils.intersectIterators.
-func IntersectIterators(iterators []DocIdSetIterator) DocIdSetIterator {
-	if len(iterators) < 2 {
-		panic("search: cannot make a ConjunctionDISI of fewer than 2 iterators")
-	}
-	var allIters []DocIdSetIterator
-	var twoPhaseIters []*TwoPhaseIterator
-	for _, it := range iterators {
-		addIteratorToConjunction(it, &allIters, &twoPhaseIters)
-	}
-	return createConjunction(allIters, twoPhaseIters)
-}
-
-// CreateConjunctionFromLists builds a conjunction from already-separated
-// DISI and TwoPhaseIterator lists. Useful when the caller has already
-// split scorers into approximations and confirmations.
-//
-// Mirrors ConjunctionUtils.createConjunction.
-func CreateConjunctionFromLists(allIterators []DocIdSetIterator, twoPhaseIterators []*TwoPhaseIterator) DocIdSetIterator {
-	return createConjunction(allIterators, twoPhaseIterators)
-}
-
-// AddTwoPhaseIteratorToConjunctionLists decomposes a TwoPhaseIterator
-// and appends to the accumulator slices.
-//
-// Mirrors ConjunctionUtils.addTwoPhaseIterator.
-func AddTwoPhaseIteratorToConjunctionLists(
-	twoPhaseIter *TwoPhaseIterator,
-	allIterators *[]DocIdSetIterator,
-	twoPhaseIterators *[]*TwoPhaseIterator,
-) {
-	addTwoPhaseIteratorToConjunction(twoPhaseIter, allIterators, twoPhaseIterators)
-}
-
-// AddIteratorToConjunctionLists decomposes a DocIdSetIterator and
-// appends to the accumulator slices.
-//
-// Mirrors ConjunctionUtils.addIterator.
-func AddIteratorToConjunctionLists(
-	disi DocIdSetIterator,
-	allIterators *[]DocIdSetIterator,
-	twoPhaseIterators *[]*TwoPhaseIterator,
-) {
-	addIteratorToConjunction(disi, allIterators, twoPhaseIterators)
 }
 
 // Compile-time checks.
@@ -460,3 +386,15 @@ var (
 	_ DocIdSetIterator = (*conjunctionDISI)(nil)
 	_ DocIdSetIterator = (*bitSetConjunctionDISI)(nil)
 )
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (b *bitSetConjunctionDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(b, upTo, bitSet, offset)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (c *conjunctionDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(c, upTo, bitSet, offset)
+}

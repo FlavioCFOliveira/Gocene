@@ -109,7 +109,7 @@ type largePosTerms struct {
 	numDocs int
 }
 
-func (t *largePosTerms) GetIterator() (index.TermsEnum, error) {
+func (t *largePosTerms) Iterator() (index.TermsEnum, error) {
 	return &largePosTermsEnum{term: t.term, numDocs: t.numDocs, pos: -1}, nil
 }
 
@@ -119,7 +119,7 @@ func (t *largePosTerms) HasOffsets() bool   { return false }
 func (t *largePosTerms) HasPayloads() bool  { return false }
 
 func (t *largePosTerms) GetIteratorWithSeek(_ *index.Term) (index.TermsEnum, error) {
-	return t.GetIterator()
+	return t.Iterator()
 }
 
 func (t *largePosTerms) GetMin() (*index.Term, error) { return t.term, nil }
@@ -187,7 +187,7 @@ func TestLucene104PostingsFormat_LastPosBlockOffset_NonZero(t *testing.T) {
 		terms:     &largePosTerms{term: term, numDocs: numDocs},
 	}
 
-	if err := consumer.Write("f", fields.terms); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields("f", fields.terms), nil); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := consumer.Close(); err != nil {
@@ -215,9 +215,9 @@ func TestLucene104PostingsFormat_LastPosBlockOffset_NonZero(t *testing.T) {
 		t.Fatal("Terms is nil")
 	}
 
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	term2, err := te.Next()
 	if err != nil || term2 == nil {
@@ -347,7 +347,7 @@ type varyingFreqTerms struct {
 	numDocs int
 }
 
-func (t *varyingFreqTerms) GetIterator() (index.TermsEnum, error) {
+func (t *varyingFreqTerms) Iterator() (index.TermsEnum, error) {
 	return &varyingFreqTermsEnum{term: t.term, numDocs: t.numDocs, pos: -1}, nil
 }
 
@@ -357,7 +357,7 @@ func (t *varyingFreqTerms) HasOffsets() bool   { return false }
 func (t *varyingFreqTerms) HasPayloads() bool  { return false }
 
 func (t *varyingFreqTerms) GetIteratorWithSeek(_ *index.Term) (index.TermsEnum, error) {
-	return t.GetIterator()
+	return t.Iterator()
 }
 
 func (t *varyingFreqTerms) GetMin() (*index.Term, error) { return t.term, nil }
@@ -430,7 +430,7 @@ func TestLucene104PostingsReader_Impacts(t *testing.T) {
 		terms:     &varyingFreqTerms{term: term, numDocs: numDocs},
 	}
 
-	if err := consumer.Write("f", fields.terms); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields("f", fields.terms), nil); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := consumer.Close(); err != nil {
@@ -459,9 +459,9 @@ func TestLucene104PostingsReader_Impacts(t *testing.T) {
 		t.Fatal("Terms is nil")
 	}
 
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	term2, err := te.Next()
 	if err != nil || term2 == nil {

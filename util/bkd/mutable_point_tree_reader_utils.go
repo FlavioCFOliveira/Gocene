@@ -96,7 +96,7 @@ func SortMutablePointTree(config BKDConfig, maxDoc int, reader MutablePointTree,
 		packedBytesLen: packedBytesLen,
 		bitsPerDocID:   bitsPerDocID,
 	}
-	util.NewStableMSBRadixSorter(adapter, maxLength).Sort(from, to)
+	util.NewStableMSBRadixSorter(adapter, maxLength).Sort(adapter, from, to)
 }
 
 // SortMutablePointTreeByDim sorts points on the given dimension. Port of
@@ -211,6 +211,18 @@ func (a *mptSortAdapter) ByteAt(i, k int) int {
 		shift = 0
 	}
 	return (a.reader.GetDocID(i) >> uint(shift)) & 0xFF
+}
+
+func (a *mptSortAdapter) Compare(i, j int) int {
+	maxLength := a.packedBytesLen + (a.bitsPerDocID+7)/8
+	for k := 0; k < maxLength; k++ {
+		b1 := a.ByteAt(i, k)
+		b2 := a.ByteAt(j, k)
+		if b1 != b2 {
+			return b1 - b2
+		}
+	}
+	return 0
 }
 
 // Swap delegates to the underlying reader.

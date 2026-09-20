@@ -146,6 +146,51 @@ func (fs *FixedBitSet) Cardinality() int {
 	return count
 }
 
+// CardinalityRange returns the number of set bits in the range
+// [from, to). It is the Go rendering of the two-argument overload
+// {@code FixedBitSet#cardinality(int, int)}; Go has no overloading, so
+// the range form carries the Range suffix already used by SetRange and
+// FlipRange. It panics on an invalid range, mirroring the
+// IndexOutOfBoundsException thrown by Lucene's Objects.checkFromToIndex.
+//
+// Lucene 10.5.0 reference:
+//
+//	lucene/core/src/java/org/apache/lucene/util/FixedBitSet.java
+func (fs *FixedBitSet) CardinalityRange(from, to int) int {
+	if from < 0 || from > to || to > fs.Length() {
+		panic(fmt.Sprintf("FixedBitSet.cardinality: from=%d to=%d out of bounds (length: %d)",
+			from, to, fs.Length()))
+	}
+
+	cardinality := 0
+
+	// First, align `from` with a word start, ie. a multiple of uint64 (64)
+	if (from & wordMask) != 0 {
+		// Java's `>>> from` masks the shift count to 63 bits.
+		bits := fs.bits[from>>log2BitsPerWord] >> (from & wordMask)
+		numBitsTilNextWord := -from & wordMask
+		if to-from < numBitsTilNextWord {
+			bits &= (uint64(1) << (to - from)) - 1
+			return popcount(bits)
+		}
+		cardinality += popcount(bits)
+		from += numBitsTilNextWord
+	}
+
+	for i, end := from>>log2BitsPerWord, to>>log2BitsPerWord; i < end; i++ {
+		cardinality += popcount(fs.bits[i])
+	}
+
+	// Now handle bits between the last complete word and to
+	if (to & wordMask) != 0 {
+		// Java's `<< -to` masks the shift count to 63 bits.
+		bits := fs.bits[to>>log2BitsPerWord] << (-to & wordMask)
+		cardinality += popcount(bits)
+	}
+
+	return cardinality
+}
+
 // popcount returns the number of set bits in a uint64.
 func popcount(x uint64) int {
 	// Using the SWAR (SIMD Within A Register) algorithm
@@ -462,3 +507,141 @@ func (fs *FixedBitSet) NumWords() int {
 
 // Ensure that FixedBitSet implements Bits
 var _ Bits = (*FixedBitSet)(nil)
+
+// FixedBitSetBits2Words returns the number of 64-bit words it would
+// take to hold numBits. It is the exported Go rendering of the public
+// static {@code FixedBitSet#bits2words(int)}, which callers outside
+// this package need; the unexported bits2words below carries the body.
+// (Named FixedBitSetBits2Words to avoid clashing with LongBitSet's
+// Bits2Words, exactly as FixedBitSetOrRange and
+// FixedBitSetEnsureCapacity do.)
+func FixedBitSetBits2Words(numBits int) int {
+	return bits2words(numBits)
+}
+
+// bits2words returns the number of 64-bit words it would take to hold
+// numBits. Mirrors Lucene's FixedBitSet.bits2words: get the
+// word-offset of the last bit and add one (use >> so 0 returns 0!).
+func bits2words(numBits int) int {
+	return ((numBits - 1) >> log2BitsPerWord) + 1
+}
+
+// FixedBitSetEnsureCapacity returns a FixedBitSet able to store a
+// value at the desiredBit index. If the current length is sufficient,
+// bits is simply returned. Otherwise, a new, larger bitset is
+// allocated, with contents of bits copied. Mirrors Lucene's static
+// FixedBitSet.ensureCapacity. (Named FixedBitSetEnsureCapacity to
+// avoid clashing with LongBitSet's EnsureCapacity.)
+func FixedBitSetEnsureCapacity(bits *FixedBitSet, desiredBit int) *FixedBitSet {
+	return ensureCapacityInternal(bits, desiredBit, true)
+}
+
+// EnsureCapacityAndClear clears the given bits and ensures it can
+// store a value at the desiredBit index. If the current length is
+// sufficient, bits is simply cleared and returned. Otherwise, a new,
+// larger bitset is allocated. Mirrors Lucene's static
+// FixedBitSet.ensureCapacityAndClear.
+func EnsureCapacityAndClear(bits *FixedBitSet, desiredBit int) *FixedBitSet {
+	return ensureCapacityInternal(bits, desiredBit, false)
+}
+
+func ensureCapacityInternal(bits *FixedBitSet, desiredBit int, preserveData bool) *FixedBitSet {
+	if desiredBit < bits.size {
+		if !preserveData {
+			bits.ClearAll()
+		}
+		return bits
+	}
+	// Depends on the ghost bits being clear!
+	// (Otherwise, they may become visible in the new instance)
+	numWords := bits2words(desiredBit)
+	arr := bits.bits
+	if numWords >= len(arr) {
+		if preserveData {
+			arr = GrowExact(arr, numWords+1)
+		} else {
+			arr = make([]uint64, Oversize(numWords+1, 8))
+		}
+	}
+	return &FixedBitSet{bits: arr, size: len(arr) << log2BitsPerWord}
+}
+
+// readNBits reads numBits (0 < numBits < 64) bits starting at bit
+// index from from the given word array. Mirrors Lucene's private
+// FixedBitSet.readNBits.
+func readNBits(bitSet []uint64, from int, numBits int) uint64 {
+	bits := bitSet[from>>log2BitsPerWord] >> (from & wordMask)
+	numBitsSoFar := bitsPerWord - (from & wordMask)
+	if numBitsSoFar < numBits {
+		// Java's `<< -from` masks the shift count to 63 bits; Go does
+		// not, so compute the equivalent positive shift explicitly.
+		bits |= bitSet[(from>>log2BitsPerWord)+1] << (bitsPerWord - (from & wordMask))
+	}
+	return bits & ((uint64(1) << numBits) - 1)
+}
+
+// FixedBitSetOrRange ors `length` bits starting at sourceFrom from
+// source into dest starting at destFrom. Mirrors Lucene's static
+// FixedBitSet.orRange. It panics on an invalid index, mirroring the
+// IndexOutOfBoundsException thrown by Lucene's
+// Objects.checkFromIndexSize.
+func FixedBitSetOrRange(source *FixedBitSet, sourceFrom int, dest *FixedBitSet, destFrom int, length int) {
+	if length < 0 || sourceFrom < 0 || destFrom < 0 ||
+		sourceFrom > source.Length()-length || destFrom > dest.Length()-length {
+		panic(fmt.Sprintf("FixedBitSet.orRange: sourceFrom=%d destFrom=%d length=%d out of bounds",
+			sourceFrom, destFrom, length))
+	}
+
+	if length == 0 {
+		return
+	}
+
+	sourceBits := source.bits
+	destBits := dest.bits
+
+	// First, align `destFrom` with a word start, ie. a multiple of uint64 (64)
+	if (destFrom & wordMask) != 0 {
+		numBitsNeeded := min(bitsPerWord-(destFrom&wordMask), length)
+		// Java's `<< destFrom` masks the shift count to 63 bits.
+		bits := readNBits(sourceBits, sourceFrom, numBitsNeeded) << (destFrom & wordMask)
+		destBits[destFrom>>log2BitsPerWord] |= bits
+
+		sourceFrom += numBitsNeeded
+		destFrom += numBitsNeeded
+		length -= numBitsNeeded
+	}
+
+	if length == 0 {
+		return
+	}
+
+	// Now OR at the word level
+	numFullWords := length >> log2BitsPerWord
+	sourceWordFrom := sourceFrom >> log2BitsPerWord
+	destWordFrom := destFrom >> log2BitsPerWord
+
+	// Note: these two for loops auto-vectorize
+	if (sourceFrom & wordMask) == 0 {
+		// sourceFrom and destFrom are both aligned with a uint64
+		for i := 0; i < numFullWords; i++ {
+			destBits[destWordFrom+i] |= sourceBits[sourceWordFrom+i]
+		}
+	} else {
+		for i := 0; i < numFullWords; i++ {
+			// Java's `<< -sourceFrom` masks the shift count to 63 bits.
+			destBits[destWordFrom+i] |=
+				(sourceBits[sourceWordFrom+i] >> (sourceFrom & wordMask)) |
+					(sourceBits[sourceWordFrom+i+1] << (bitsPerWord - (sourceFrom & wordMask)))
+		}
+	}
+
+	sourceFrom += numFullWords << log2BitsPerWord
+	destFrom += numFullWords << log2BitsPerWord
+	length -= numFullWords << log2BitsPerWord
+
+	// Finally handle tail bits
+	if length > 0 {
+		bits := readNBits(sourceBits, sourceFrom, length)
+		destBits[destFrom>>log2BitsPerWord] |= bits
+	}
+}

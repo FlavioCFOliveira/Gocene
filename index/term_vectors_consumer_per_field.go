@@ -225,13 +225,15 @@ func NewTermVectorsConsumerPerField(
 	}
 
 	// Lucene passes streamCount 2: stream 0 carries positions+payloads,
-	// stream 1 carries offsets. termBytePool is shared with the parent.
+	// stream 1 carries offsets. termBytePool is the chain-wide term byte
+	// pool published by the primary TermsHash (FreqProxTermsWriter), not
+	// this consumer's own byte pool -- see TermsHash's constructor.
 	base, err := NewTermsHashPerField(
 		2,
-		termsHash.intPool,
-		termsHash.bytePool,
-		termsHash.bytePool,
-		termsHash.bytesUsed,
+		termsHash.IntPool,
+		termsHash.BytePool,
+		termsHash.TermBytePool,
+		termsHash.BytesUsed,
 		nil,
 		fieldInfo.Name(),
 		indexOpts,
@@ -327,7 +329,7 @@ func (w *TermVectorsConsumerPerField) FinishDocument() error {
 		freq := postings.Freqs[termID]
 
 		w.fillFlushTerm(flushTerm, termID)
-		if err := tv.StartTerm(flushTerm.Bytes[flushTerm.Offset : flushTerm.Offset+flushTerm.Length]); err != nil {
+		if err := tv.StartTerm(flushTerm.Bytes[flushTerm.Offset:flushTerm.Offset+flushTerm.Length], freq); err != nil {
 			return fmt.Errorf("TermVectorsConsumerPerField: start term in field %q: %w", w.fieldInfo.Name(), err)
 		}
 
@@ -399,7 +401,7 @@ func (w *TermVectorsConsumerPerField) replayProx(tv TermVectorsWriter, termID, f
 					return fmt.Errorf("TermVectorsConsumerPerField: read payload length: %w", err)
 				}
 				payload = make([]byte, payloadLen)
-				if err := posReader.ReadBytes(payload); err != nil {
+				if err := posReader.ReadBytes(payload, 0, int(payloadLen)); err != nil {
 					return fmt.Errorf("TermVectorsConsumerPerField: read payload bytes: %w", err)
 				}
 			}

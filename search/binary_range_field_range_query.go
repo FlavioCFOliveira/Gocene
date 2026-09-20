@@ -14,6 +14,9 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+
 	"bytes"
 	"fmt"
 
@@ -123,7 +126,7 @@ func (q *binaryRangeFieldRangeQuery) QueryType() document.RangeFieldQueryType { 
 // Equals reports whether two binaryRangeFieldRangeQuery share field and
 // packed payload. Mirrors the Java reference, which compares only those two
 // fields (numDims / numBytesPerDimension are implied by the payload length).
-func (q *binaryRangeFieldRangeQuery) Equals(other Query) bool {
+func (q *binaryRangeFieldRangeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*binaryRangeFieldRangeQuery)
 	if !ok {
 		return false
@@ -156,7 +159,7 @@ func (q *binaryRangeFieldRangeQuery) Visit(visitor QueryVisitor) {
 
 // Rewrite returns the query unchanged. The Java reference invokes
 // super.rewrite(IndexSearcher) which is a no-op for leaf queries.
-func (q *binaryRangeFieldRangeQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
+func (q *binaryRangeFieldRangeQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // String prints the field, dimensions and packed payload size. The shared
 // base type intentionally yields a generic representation; concrete leaves
@@ -172,7 +175,7 @@ func (q *binaryRangeFieldRangeQuery) String(field string) string {
 // CreateWeight builds a ConstantScoreWeight equivalent over the binary
 // doc-values for the target field. The supplier returns nil when the field
 // is unknown to the leaf, matching Lucene's null-Scorer fast path.
-func (q *binaryRangeFieldRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *binaryRangeFieldRangeQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	w := &binaryRangeFieldRangeWeight{
 		query: q,
 		boost: boost,
@@ -180,11 +183,6 @@ func (q *binaryRangeFieldRangeQuery) CreateWeight(searcher *IndexSearcher, needs
 	w.BaseWeight = NewBaseWeight(q)
 	return w, nil
 }
-
-// Clone returns the query unchanged. The packed payload is treated as
-// immutable: the struct is shared by value semantics, and the byte slice is
-// not exposed as mutable through the API surface.
-func (q *binaryRangeFieldRangeQuery) Clone() Query { return q }
 
 // Matches evaluates the INTERSECTS predicate across every dimension for the
 // supplied packed candidate. Mirrors Lucene's
@@ -255,7 +253,7 @@ func (w *binaryRangeFieldRangeWeight) ScorerSupplier(ctx *index.LeafReaderContex
 		return nil, nil
 	}
 	scorer := newBinaryRangeFieldRangeScorer(w, dv)
-	return NewScorerSupplierAdapter(scorer), nil
+	return NewDefaultScorerSupplier(scorer), nil
 }
 
 // binaryDocValuesProvider is the narrow capability surface this query
@@ -293,7 +291,7 @@ func (w *binaryRangeFieldRangeWeight) IsCacheable(_ *index.LeafReaderContext) bo
 // iterator, and the match phase decodes the packed value and runs the
 // INTERSECTS predicate. Constant score equals the supplied boost.
 type binaryRangeFieldRangeScorer struct {
-	*BaseScorer
+	BaseScorer
 
 	weight  *binaryRangeFieldRangeWeight
 	dv      index.BinaryDocValues
@@ -304,12 +302,14 @@ type binaryRangeFieldRangeScorer struct {
 
 func newBinaryRangeFieldRangeScorer(weight *binaryRangeFieldRangeWeight, dv index.BinaryDocValues) *binaryRangeFieldRangeScorer {
 	s := &binaryRangeFieldRangeScorer{
-		BaseScorer: NewBaseScorer(weight),
-		weight:     weight,
-		dv:         dv,
+		weight: weight,
+		dv:     dv,
 	}
 	approx := &binaryRangeDocValuesIterator{dv: dv}
-	s.twoPh = NewTwoPhaseIterator(approx, func() (bool, error) {
+	// Mirrors the anonymous TwoPhaseIterator in
+	// BinaryRangeFieldRangeQuery.createWeight(...).scorerSupplier(...):
+	// matchCost() returns queryPackedValue.length.
+	s.twoPh = NewTwoPhaseIteratorWithMatchCost(approx, func() (bool, error) {
 		// approx positions dv on the target doc via NextDoc/Advance, so
 		// BinaryValue is the iterator-shaped equivalent of the legacy
 		// Get(docID) accessor.
@@ -321,8 +321,8 @@ func newBinaryRangeFieldRangeScorer(weight *binaryRangeFieldRangeWeight, dv inde
 			return false, nil
 		}
 		return weight.query.Match(value), nil
-	})
-	s.iter = s.twoPh.AsDocIdSetIterator()
+	}, float32(len(weight.query.queryPackedValue)))
+	s.iter = AsDocIdSetIterator(s.twoPh)
 	return s
 }
 
@@ -341,17 +341,63 @@ func (s *binaryRangeFieldRangeScorer) Advance(target int) (int, error) {
 func (s *binaryRangeFieldRangeScorer) Cost() int64 { return s.iter.Cost() }
 
 // DocIDRunEnd returns the end of the current run.
-func (s *binaryRangeFieldRangeScorer) DocIDRunEnd() int { return s.iter.DocIDRunEnd() }
+func (s *binaryRangeFieldRangeScorer) DocIDRunEnd() (int, error) { return s.iter.DocIDRunEnd() }
+
+// Iterator mirrors ConstantScoreScorer.iterator(), which returns the
+// DocIdSetIterator view built over the TwoPhaseIterator the Java
+// scorerSupplier hands to the ConstantScoreScorer constructor.
+func (s *binaryRangeFieldRangeScorer) Iterator() DocIdSetIterator { return s.iter }
 
 // Score returns the constant boost score.
-func (s *binaryRangeFieldRangeScorer) Score() float32 { return s.weight.boost }
+func (s *binaryRangeFieldRangeScorer) Score() (float32, error) { return s.weight.boost, nil }
 
 // GetMaxScore returns the constant boost score (no per-doc variability).
-func (s *binaryRangeFieldRangeScorer) GetMaxScore(_ int) float32 { return s.weight.boost }
+func (s *binaryRangeFieldRangeScorer) GetMaxScore(_ int) (float32, error) {
+	return s.weight.boost, nil
+}
 
 // AsTwoPhase exposes the underlying TwoPhaseIterator so a BulkScorer can
 // optimise around it. Mirrors Scorer.asTwoPhaseIterator in Lucene.
 func (s *binaryRangeFieldRangeScorer) AsTwoPhase() *TwoPhaseIterator { return s.twoPh }
+
+// NextDocsAndScores mirrors ConstantScoreScorer.nextDocsAndScores(int, Bits,
+// DocAndFloatFeatureBuffer) (Lucene 10.5.0), the override that applies because
+// the Java query hands its TwoPhaseIterator to a ConstantScoreScorer:
+//
+//	int batchSize = 64;
+//	buffer.growNoCopy(batchSize);
+//	int size = 0;
+//	DocIdSetIterator iterator = iterator();
+//	for (int doc = iterator.docID(); doc < upTo && size < batchSize; doc = iterator.nextDoc()) {
+//	  if (liveDocs == null || liveDocs.get(doc)) {
+//	    buffer.docs[size] = doc;
+//	    ++size;
+//	  }
+//	}
+//	Arrays.fill(buffer.features, 0, size, score);
+//	buffer.size = size;
+func (s *binaryRangeFieldRangeScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	batchSize := 64
+	buffer.GrowNoCopy(batchSize)
+	size := 0
+	iterator := s.Iterator()
+	for doc := iterator.DocID(); doc < upTo && size < batchSize; {
+		if liveDocs == nil || liveDocs.Get(doc) {
+			buffer.Docs[size] = doc
+			size++
+		}
+		next, err := iterator.NextDoc()
+		if err != nil {
+			return err
+		}
+		doc = next
+	}
+	for i := 0; i < size; i++ {
+		buffer.Features[i] = s.weight.boost
+	}
+	buffer.Size = size
+	return nil
+}
 
 // Ensure the scorer satisfies the Scorer interface.
 var _ Scorer = (*binaryRangeFieldRangeScorer)(nil)
@@ -382,7 +428,9 @@ func (it *binaryRangeDocValuesIterator) Cost() int64 { return 0 }
 
 // DocIDRunEnd returns the current doc + 1, mirroring the default
 // AbstractDocIdSetIterator behaviour for sparse iterators.
-func (it *binaryRangeDocValuesIterator) DocIDRunEnd() int { return it.dv.DocID() + 1 }
+func (it *binaryRangeDocValuesIterator) DocIDRunEnd() (int, error) {
+	return it.dv.DocID() + 1, nil
+}
 
 var _ DocIdSetIterator = (*binaryRangeDocValuesIterator)(nil)
 
@@ -424,3 +472,16 @@ func bytesHash(b []byte) int {
 
 // Ensure binaryRangeFieldRangeQuery implements Query.
 var _ Query = (*binaryRangeFieldRangeQuery)(nil)
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (b *binaryRangeDocValuesIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(b, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *binaryRangeFieldRangeScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

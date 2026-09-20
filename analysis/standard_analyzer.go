@@ -8,48 +8,38 @@ import (
 	"io"
 )
 
-// StandardAnalyzer is a general-purpose analyzer.
+// NewStandardAnalyzer creates a new StandardAnalyzer with no stop words.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.standard.StandardAnalyzer.
-type StandardAnalyzer struct {
-	stopWords []string
-}
-
-func NewStandardAnalyzer() *StandardAnalyzer {
+func NewStandardAnalyzer() Analyzer {
 	return NewStandardAnalyzerWithStopWords(nil)
 }
 
-func NewStandardAnalyzerWithStopWords(stopWords []string) *StandardAnalyzer {
-	return &StandardAnalyzer{
-		stopWords: stopWords,
+// NewStandardAnalyzerWithStopWords creates a new StandardAnalyzer with the given stop words.
+func NewStandardAnalyzerWithStopWords(stopWords []string) Analyzer {
+	a := NewAnalyzer(GlobalReuseStrategy)
+
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		// StandardAnalyzer.DEFAULT_MAX_TOKEN_LENGTH is used by default.
+
+		var tok TokenStream = NewLowerCaseFilter(src)
+		if stopWords != nil {
+			tok = NewStopFilter(tok, stopWords)
+		}
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+return nil
+			},
+			Sink: tok,
+		}
 	}
-}
 
-func (a *StandardAnalyzer) NewTokenizer(reader io.Reader) TokenStream {
-	// In a full implementation, this would be StandardTokenizer.
-	// For now, we use WhitespaceTokenizer.
-	tokenizer := NewWhitespaceTokenizer()
-	_ = tokenizer.SetReader(reader)
-	return tokenizer
-}
-
-func (a *StandardAnalyzer) NewTokenFilter(stream TokenStream) TokenStream {
-	stream = NewLowerCaseFilter(stream)
-	if a.stopWords != nil {
-		stream = NewStopFilter(stream, a.stopWords)
+	a.normalizeFilter = func(fieldName string, in TokenStream) TokenStream {
+		return NewLowerCaseFilter(in)
 	}
-	return stream
-}
 
-// TokenStream creates a TokenStream for analyzing text.
-// Implements the Analyzer interface.
-func (a *StandardAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
-	tokenizer := a.NewTokenizer(reader)
-	return a.NewTokenFilter(tokenizer), nil
-}
-
-// Close releases resources held by this Analyzer.
-// Implements the Analyzer interface.
-func (a *StandardAnalyzer) Close() error {
-	return nil
+	return a
 }

@@ -6,6 +6,7 @@ package search
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // synonymSub pairs a term's PostingsEnum with its per-term boost. It is the
@@ -27,12 +28,8 @@ type synonymSub struct {
 // sum(boost_i * freq_i) over every sub-iterator positioned on the document
 // (SynonymScorer.freq()), and the document score is simScorer.score(freq, norm)
 // (SynonymScorer.score()).
-//
-// Sentinel translation: index.PostingsEnum exhausts with index.NO_MORE_DOCS
-// (-1); search.Scorer uses NO_MORE_DOCS (math.MaxInt32). SynonymScorer maps
-// between the two via postingsDocToSearchDoc.
 type SynonymScorer struct {
-	*BaseScorer
+	BaseScorer
 	subs      []synonymSub
 	simScorer SimScorer
 	doc       int
@@ -43,11 +40,20 @@ type SynonymScorer struct {
 // the weight as a nil scorer rather than constructed here.
 func NewSynonymScorer(weight Weight, subs []synonymSub, simScorer SimScorer) *SynonymScorer {
 	return &SynonymScorer{
-		BaseScorer: NewBaseScorer(weight),
-		subs:       subs,
-		simScorer:  simScorer,
-		doc:        -1,
+		subs:      subs,
+		simScorer: simScorer,
+		doc:       -1,
 	}
+}
+
+// Iterator mirrors SynonymScorer.iterator(), whose body is `return iterator;`.
+//
+// Apache Lucene 10.5.0 holds that DocIdSetIterator as a separate field, built
+// by SynonymWeight.scorerSupplier from a DisjunctionDISIApproximation wrapped
+// in an ImpactsDISI. This port walks the sub-postings itself (see the type
+// comment), so the scorer is its own iterator and returns itself here.
+func (s *SynonymScorer) Iterator() DocIdSetIterator {
+	return s
 }
 
 // DocID returns the current document ID in search-space.
@@ -93,7 +99,7 @@ func (s *SynonymScorer) advanceInternal(target int) (int, error) {
 			minDoc = cur
 		}
 	}
-	s.doc = postingsDocToSearchDoc(minDoc)
+	s.doc = minDoc
 	return s.doc, nil
 }
 
@@ -107,7 +113,7 @@ func (s *SynonymScorer) Freq() float32 {
 	var freq float32
 	for i := range s.subs {
 		pe := s.subs[i].postings
-		if postingsDocToSearchDoc(pe.DocID()) != s.doc {
+		if pe.DocID() != s.doc {
 			continue
 		}
 		f, err := pe.Freq()
@@ -123,17 +129,17 @@ func (s *SynonymScorer) Freq() float32 {
 // single time over the combined synonym frequency, matching
 // SynonymQuery.SynonymScorer.score(). Without a SimScorer (scores not needed)
 // it falls back to the raw combined frequency.
-func (s *SynonymScorer) Score() float32 {
+func (s *SynonymScorer) Score() (float32, error) {
 	freq := s.Freq()
 	if s.simScorer != nil {
-		return s.simScorer.Score(s.doc, freq, 1)
+		return s.simScorer.Score104(freq, 1), nil
 	}
-	return freq
+	return freq, nil
 }
 
 // GetMaxScore returns the maximum score for documents up to the given doc.
-func (s *SynonymScorer) GetMaxScore(upTo int) float32 {
-	return 1.0
+func (s *SynonymScorer) GetMaxScore(upTo int) (float32, error) {
+	return 1.0, nil
 }
 
 // Cost returns the estimated cost of iterating the disjunction: the sum of the
@@ -147,9 +153,23 @@ func (s *SynonymScorer) Cost() int64 {
 }
 
 // DocIDRunEnd returns the end of the current run of consecutive doc IDs.
-func (s *SynonymScorer) DocIDRunEnd() int {
-	return s.doc + 1
+func (s *SynonymScorer) DocIDRunEnd() (int, error) {
+	return s.doc + 1, nil
+}
+
+// NextDocsAndScores mirrors the concrete body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) in Apache
+// Lucene 10.5.0, which SynonymScorer inherits unchanged.
+func (s *SynonymScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
 }
 
 // Ensure SynonymScorer implements Scorer.
 var _ Scorer = (*SynonymScorer)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *SynonymScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

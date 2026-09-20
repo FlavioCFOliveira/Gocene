@@ -4,10 +4,8 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
-
-// MaxNumBlockLines is the upper limit of the block size (maximum number of terms per block).
-const MaxNumBlockLines = 1000
 
 // BlockHeader contains block metadata.
 //
@@ -32,12 +30,13 @@ type BlockHeader struct {
 // NewBlockHeader creates a new BlockHeader and initializes it.
 func NewBlockHeader(linesCount int32, baseDocsFP, basePositionsFP, basePayloadsFP int64, termStatesBaseOffset, middleLineOffset int32) *BlockHeader {
 	bh := &BlockHeader{}
-	bh.Reset(linesCount, baseDocsFP, basePositionsFP, basePayloadsFP, termStatesBaseOffset, middleLineOffset)
-	return bh
+	return bh.Reset(linesCount, baseDocsFP, basePositionsFP, basePayloadsFP, termStatesBaseOffset, middleLineOffset)
 }
 
-// Reset initializes the BlockHeader fields.
-func (bh *BlockHeader) Reset(linesCount int32, baseDocsFP, basePositionsFP, basePayloadsFP int64, termStatesBaseOffset, middleLineOffset int32) {
+// Reset initializes the BlockHeader fields and returns the receiver. Mirrors
+// org.apache.lucene.codecs.uniformsplit.BlockHeader.reset (BlockHeader.java:85),
+// which ends in `return this` so that Serializer.read can return it directly.
+func (bh *BlockHeader) Reset(linesCount int32, baseDocsFP, basePositionsFP, basePayloadsFP int64, termStatesBaseOffset, middleLineOffset int32) *BlockHeader {
 	bh.baseDocsFP = baseDocsFP
 	bh.basePositionsFP = basePositionsFP
 	bh.basePayloadsFP = basePayloadsFP
@@ -45,6 +44,7 @@ func (bh *BlockHeader) Reset(linesCount int32, baseDocsFP, basePositionsFP, base
 	bh.middleLineIndex = linesCount >> 1
 	bh.termStatesBaseOffset = termStatesBaseOffset
 	bh.middleLineOffset = middleLineOffset
+	return bh
 }
 
 // LinesCount returns the number of lines in the block.
@@ -90,22 +90,22 @@ func (s *BlockHeaderSerializer) Write(output store.DataOutput, bh *BlockHeader) 
 	if bh.linesCount <= 0 {
 		return fmt.Errorf("block header is not initialized")
 	}
-	if err := store.WriteVInt(output, bh.linesCount); err != nil {
+	if err := output.WriteVInt(bh.linesCount); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(output, bh.baseDocsFP); err != nil {
+	if err := output.WriteVLong(bh.baseDocsFP); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(output, bh.basePositionsFP); err != nil {
+	if err := output.WriteVLong(bh.basePositionsFP); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(output, bh.basePayloadsFP); err != nil {
+	if err := output.WriteVLong(bh.basePayloadsFP); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(output, bh.termStatesBaseOffset); err != nil {
+	if err := output.WriteVInt(bh.termStatesBaseOffset); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(output, bh.middleLineOffset); err != nil {
+	if err := output.WriteVInt(bh.middleLineOffset); err != nil {
 		return err
 	}
 	return nil
@@ -121,15 +121,15 @@ func (s *BlockHeaderSerializer) Read(input store.DataInput, reuse *BlockHeader) 
 		return nil, fmt.Errorf("illegal number of lines in block: %d", linesCount)
 	}
 
-	baseDocsFP, err := store.ReadVLong(input)
+	baseDocsFP, err := input.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
-	basePositionsFP, err := store.ReadVLong(input)
+	basePositionsFP, err := input.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
-	basePayloadsFP, err := store.ReadVLong(input)
+	basePayloadsFP, err := input.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
@@ -154,6 +154,18 @@ func (s *BlockHeaderSerializer) Read(input store.DataInput, reuse *BlockHeader) 
 	if bh == nil {
 		bh = &BlockHeader{}
 	}
-	bh.Reset(linesCount, baseDocsFP, basePositionsFP, basePayloadsFP, termStatesBaseOffset, middleTermOffset)
-	return bh, nil
+	return bh.Reset(linesCount, baseDocsFP, basePositionsFP, basePayloadsFP, termStatesBaseOffset, middleTermOffset), nil
 }
+
+// blockHeaderRAMUsage renders the private static
+// RAM_USAGE = RamUsageEstimator.shallowSizeOfInstance(BlockHeader.class)
+// (BlockHeader.java:43).
+var blockHeaderRAMUsage = util.ShallowSizeOf(BlockHeader{})
+
+// RamBytesUsed mirrors BlockHeader.ramBytesUsed (BlockHeader.java:152).
+func (bh *BlockHeader) RamBytesUsed() int64 {
+	return blockHeaderRAMUsage
+}
+
+// BlockHeader implements Accountable (BlockHeader.java:41).
+var _ util.Accountable = (*BlockHeader)(nil)

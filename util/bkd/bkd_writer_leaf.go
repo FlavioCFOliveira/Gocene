@@ -107,12 +107,12 @@ func (w *BKDWriter) writeLowCardinalityLeafBlockPackedValues(
 		for dim := 0; dim < w.config.NumDims(); dim++ {
 			start := dim * bytesPerDim
 			if !w.equalsPredicate(value.Bytes, value.Offset+start, w.scratch, start) {
-				if err := store.WriteVInt(out, int32(cardinality)); err != nil {
+				if err := out.WriteVInt(int32(cardinality)); err != nil {
 					return err
 				}
 				for j := 0; j < w.config.NumDims(); j++ {
 					off := j*bytesPerDim + commonPrefixLengths[j]
-					if err := out.WriteBytes(w.scratch[off : off+bytesPerDim-commonPrefixLengths[j]]); err != nil {
+					if err := out.WriteBytes(w.scratch, off, bytesPerDim-commonPrefixLengths[j]); err != nil {
 						return err
 					}
 				}
@@ -127,12 +127,12 @@ func (w *BKDWriter) writeLowCardinalityLeafBlockPackedValues(
 		}
 		_ = broken // suppress lint warnings; control already broke out of inner loop.
 	}
-	if err := store.WriteVInt(out, int32(cardinality)); err != nil {
+	if err := out.WriteVInt(int32(cardinality)); err != nil {
 		return err
 	}
 	for i := 0; i < w.config.NumDims(); i++ {
 		off := i*bytesPerDim + commonPrefixLengths[i]
-		if err := out.WriteBytes(w.scratch[off : off+bytesPerDim-commonPrefixLengths[i]]); err != nil {
+		if err := out.WriteBytes(w.scratch, off, bytesPerDim-commonPrefixLengths[i]); err != nil {
 			return err
 		}
 	}
@@ -200,7 +200,7 @@ func (w *BKDWriter) writeLeafBlockPackedValuesRange(
 			begin := ref.Offset + dim*bytesPerDim + prefix
 			tail := bytesPerDim - prefix
 			if tail > 0 {
-				if err := out.WriteBytes(ref.Bytes[begin : begin+tail]); err != nil {
+				if err := out.WriteBytes(ref.Bytes, begin, tail); err != nil {
 					return err
 				}
 			}
@@ -225,10 +225,10 @@ func (w *BKDWriter) writeActualBounds(
 		if suffixLength > 0 {
 			minBytes, maxBytes := computeMinMax(count, packedValues,
 				dim*bytesPerDim+commonPrefixLength, suffixLength)
-			if err := out.WriteBytes(minBytes); err != nil {
+			if err := out.WriteBytes(minBytes, 0, len(minBytes)); err != nil {
 				return err
 			}
-			if err := out.WriteBytes(maxBytes); err != nil {
+			if err := out.WriteBytes(maxBytes, 0, len(maxBytes)); err != nil {
 				return err
 			}
 		}

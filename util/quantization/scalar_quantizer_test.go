@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -51,15 +52,51 @@ func newTestSimpleFloatVectorValues(floats [][]float32, deleted map[int]struct{}
 
 func (t *testSimpleFloatVectorValues) Dimension() int { return len(t.floats[0]) }
 
+// Size mirrors TestSimpleFloatVectorValues.size(), which returns
+// floats.length.
+func (t *testSimpleFloatVectorValues) Size() int { return len(t.floats) }
+
 func (t *testSimpleFloatVectorValues) VectorValue(ord int) ([]float32, error) {
 	if ord < 0 || ord >= t.numLiveVectors {
 		return nil, errors.New("ordinal out of range")
 	}
-	return t.floats[t.ordToDoc[ord]], nil
+	return t.floats[t.OrdToDoc(ord)], nil
 }
+
+// OrdToDoc mirrors TestSimpleFloatVectorValues.ordToDoc(int).
+func (t *testSimpleFloatVectorValues) OrdToDoc(ord int) int { return t.ordToDoc[ord] }
 
 func (t *testSimpleFloatVectorValues) Iterator() DocIndexIterator {
 	return &testSimpleIterator{values: t, ord: -1, doc: -1}
+}
+
+// Copy mirrors TestSimpleFloatVectorValues.copy(), which returns this.
+func (t *testSimpleFloatVectorValues) Copy() (KnnVectorValues, error) { return t, nil }
+
+func (t *testSimpleFloatVectorValues) CopyFloatVectorValues() (FloatVectorValues, error) {
+	return t, nil
+}
+
+func (t *testSimpleFloatVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+
+func (t *testSimpleFloatVectorValues) GetVectorByteLength() int { return t.Dimension() * 4 }
+
+func (t *testSimpleFloatVectorValues) GetEncoding() util.VectorEncoding {
+	return util.VectorEncodingFloat32
+}
+
+func (t *testSimpleFloatVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
+	return spi.DefaultGetAcceptOrds(t, acceptDocs)
+}
+
+// Scorer mirrors TestSimpleFloatVectorValues.scorer(float[]), which throws
+// UnsupportedOperationException.
+func (t *testSimpleFloatVectorValues) Scorer(target []float32) (VectorScorer, error) {
+	return nil, ErrUnsupportedOperation
+}
+
+func (t *testSimpleFloatVectorValues) Rescorer(target []float32) (VectorScorer, error) {
+	return t.Scorer(target)
 }
 
 type testSimpleIterator struct {
@@ -67,6 +104,8 @@ type testSimpleIterator struct {
 	ord    int
 	doc    int
 }
+
+func (it *testSimpleIterator) DocID() int { return it.doc }
 
 func (it *testSimpleIterator) NextDoc() (int, error) {
 	for it.doc < len(it.values.floats)-1 {
@@ -85,6 +124,24 @@ func (it *testSimpleIterator) NextDoc() (int, error) {
 }
 
 func (it *testSimpleIterator) Index() int { return it.ord }
+
+// Cost mirrors the anonymous iterator's cost(): floats.length minus the
+// number of deleted vectors.
+func (it *testSimpleIterator) Cost() int64 {
+	return int64(len(it.values.floats) - len(it.values.deletedVectors))
+}
+
+// Advance mirrors the anonymous iterator's advance(int), which throws
+// UnsupportedOperationException.
+func (it *testSimpleIterator) Advance(target int) (int, error) {
+	return 0, ErrUnsupportedOperation
+}
+
+func (it *testSimpleIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+func (it *testSimpleIterator) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(it) }
 
 // Deterministic per-test PRNG. We pin the seed to keep results stable
 // across runs without depending on Lucene's java.util.Random.

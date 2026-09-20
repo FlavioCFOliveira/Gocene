@@ -692,3 +692,31 @@ func (a *updatesAsNumericDV) DocID() int { return a.it.DocID() }
 // match the conservative estimate Lucene returns from the equivalent
 // helper.
 func (a *updatesAsNumericDV) Cost() int64 { return 0 }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (a *updatesAsBinaryDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(a, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (a *updatesAsBinaryDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(a)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (a *updatesAsNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(a, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (a *updatesAsNumericDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(a)
+}

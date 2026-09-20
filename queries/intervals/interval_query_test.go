@@ -5,6 +5,7 @@
 package intervals
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -85,10 +86,10 @@ func newMemIntervalIterator(intervals map[int][][2]int) *memIntervalIterator {
 	}
 }
 
-func (it *memIntervalIterator) DocID() int         { return it.curDoc }
-func (it *memIntervalIterator) DocIDRunEnd() int   { return it.curDoc + 1 }
-func (it *memIntervalIterator) Cost() int64        { return int64(len(it.docIDs)) }
-func (it *memIntervalIterator) MatchCost() float32 { return float32(len(it.docIDs)) }
+func (it *memIntervalIterator) DocID() int                { return it.curDoc }
+func (it *memIntervalIterator) DocIDRunEnd() (int, error) { return it.curDoc + 1, nil }
+func (it *memIntervalIterator) Cost() int64               { return int64(len(it.docIDs)) }
+func (it *memIntervalIterator) MatchCost() float32        { return float32(len(it.docIDs)) }
 func (it *memIntervalIterator) Start() int {
 	if it.docPos < 0 || it.docPos >= len(it.docIDs) || it.iPos < 0 {
 		return -1
@@ -568,4 +569,11 @@ func (tv *trackingVisitor) ConsumeTermsMatching(_ search.Query, _ string, _ func
 }
 func (tv *trackingVisitor) GetSubVisitor(_ search.Occur, _ search.Query) search.QueryVisitor {
 	return tv
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *memIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
 }

@@ -136,7 +136,7 @@ func (r *Lucene50ScoreSkipReader) readImpacts(level int, skipStream store.IndexI
 		r.impactData[level] = make([]byte, oversize(length))
 	}
 	r.impactData[level] = r.impactData[level][:length]
-	if err := skipStream.ReadBytes(r.impactData[level]); err != nil {
+	if err := skipStream.ReadBytes(r.impactData[level], 0, length); err != nil {
 		return err
 	}
 	r.impactDataLength[level] = length
@@ -185,7 +185,7 @@ func decodeImpactsFromReader(
 		fd := int(freqDelta)
 		freq += 1 + (fd >> 1)
 		if fd&0x01 != 0 {
-			normDelta, _ := store.ReadVLong(in)
+			normDelta, _ := in.ReadVLong()
 			norm += 1 + zigzagDecodeLong(normDelta)
 		} else {
 			norm++

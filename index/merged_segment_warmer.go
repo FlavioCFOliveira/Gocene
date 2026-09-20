@@ -4,6 +4,10 @@
 
 package index
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 // MergedSegmentWarmer is called on each newly merged segment before it becomes
 // visible to readers. Implementations typically touch terms, doc values, stored
 // fields, etc., to page the underlying files into the OS cache. Mirrors
@@ -21,7 +25,7 @@ type MergedSegmentWarmer interface {
 // SegmentWarmerLeafReader is the minimal leaf-reader surface needed by
 // MergedSegmentWarmer. It is implemented by LeafReader and *SegmentReader.
 // This interface is kept narrow to avoid coupling warmers to the full
-// index.LeafReaderInterface.
+// index.LeafReader.
 type SegmentWarmerLeafReader interface {
 	GetFieldInfos() *FieldInfos
 	Terms(field string) (Terms, error)
@@ -31,6 +35,6 @@ type SegmentWarmerLeafReader interface {
 	GetSortedDocValues(field string) (SortedDocValues, error)
 	GetSortedNumericDocValues(field string) (SortedNumericDocValues, error)
 	GetSortedSetDocValues(field string) (SortedSetDocValues, error)
-	StoredFields() (StoredFields, error)
-	TermVectors() (TermVectors, error)
+	StoredFields() (spi.StoredFields, error)
+	TermVectors() (spi.TermVectors, error)
 }

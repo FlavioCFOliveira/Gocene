@@ -27,7 +27,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/search/testutil"
+	testsearch "github.com/FlavioCFOliveira/Gocene/tests/search"
 )
 
 // buildMultiSliceIndex builds a 100-document index where each document carries a
@@ -76,7 +76,7 @@ func TestMultiSliceMerge_MultipleSlicesOfSameIndexSearcher(t *testing.T) {
 		t.Fatalf("searcher2.Search: %v", err)
 	}
 
-	testutil.CheckEqual(t, query, topDocs1.ScoreDocs, topDocs2.ScoreDocs)
+	testsearch.CheckEqual(t, query, topDocs1.ScoreDocs, topDocs2.ScoreDocs)
 }
 
 // TestMultiSliceMerge_MultipleSlicesOfMultipleIndexSearchers mirrors
@@ -118,5 +118,5 @@ func TestMultiSliceMerge_MultipleSlicesOfMultipleIndexSearchers(t *testing.T) {
 		t.Fatalf("MergeWithStart(2): %v", err)
 	}
 
-	testutil.CheckEqual(t, query, mergedHits1.ScoreDocs, mergedHits2.ScoreDocs)
+	testsearch.CheckEqual(t, query, mergedHits1.ScoreDocs, mergedHits2.ScoreDocs)
 }

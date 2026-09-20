@@ -44,8 +44,8 @@ func (it *intsDocIdSetIter) Advance(target int) (int, error) {
 		}
 	}
 }
-func (it *intsDocIdSetIter) Cost() int64      { return int64(len(it.docs)) }
-func (it *intsDocIdSetIter) DocIDRunEnd() int { return it.doc + 1 }
+func (it *intsDocIdSetIter) Cost() int64               { return int64(len(it.docs)) }
+func (it *intsDocIdSetIter) DocIDRunEnd() (int, error) { return it.doc + 1, nil }
 
 // TestNotDocIdSet_Complement walks the negated iterator and verifies
 // it yields exactly the doc ids missing from the wrapped set.
@@ -192,3 +192,10 @@ type accountableSet struct {
 
 func (a *accountableSet) Iterator() DocIdSetIterator { return a.base.Iterator() }
 func (a *accountableSet) RamBytesUsed() int64        { return a.ram }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *intsDocIdSetIter) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(it, upTo, bitSet, offset)
+}

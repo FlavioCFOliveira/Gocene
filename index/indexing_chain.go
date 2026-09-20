@@ -9,6 +9,10 @@ import (
 	"math"
 	"sort"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index/column"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -16,28 +20,29 @@ import (
 // indexing all types of fields. It is the Go port of Apache Lucene 10.4.0's
 // org.apache.lucene.index.IndexingChain.
 //
-// PORTING NOTE (Sprint 55, option c — large gaps expected):
+// PORTING NOTE:
 //
-// Lucene's IndexingChain depends on a cluster of types that are not yet ported
-// to Gocene, several of which cannot be imported here at all because they
-// would form an import cycle (package document and package search both import
-// package index). To keep this port self-contained and compilable, the
-// following collaborators are modelled as narrow interfaces declared in this
-// file rather than concrete types. When the real implementations land, swap
-// the interface for the concrete type; the orchestration logic does not change.
+// The constructor builds every consumer the chain owns, exactly as Lucene's
+// does; see NewIndexingChain. The remaining collaborators below are modelled
+// as narrow interfaces declared in this file rather than as concrete types,
+// because package search imports package index and so cannot be imported
+// back. When the real implementations land, swap the interface for the
+// concrete type; the orchestration logic does not change.
 //
-//   - StoredFieldsConsumer  -> StoredFieldsConsumerHandle
-//   - VectorValuesConsumer  -> VectorValuesConsumerHandle
-//   - LiveIndexWriterConfig -> IndexingChainConfig
+//   - StoredFieldsConsumer  -> StoredFieldsConsumerHandle (the interface is
+//     the Go rendering of Lucene's StoredFieldsConsumer-typed field, which
+//     holds either a StoredFieldsConsumer or a SortingStoredFieldsConsumer;
+//     both concrete Gocene types satisfy it).
+//   - VectorValuesConsumer  -> VectorValuesConsumerHandle (satisfied by the
+//     package-private vectorValuesConsumer).
 //   - FieldInfos.Builder    -> FieldInfosBuilderHandle (Gocene's existing
 //     FieldInfosBuilder is a simple fluent builder lacking add()-with-global-
 //     consistency-check, finish(), getSoftDeletesFieldName(),
 //     getParentFieldName()).
 //   - org.apache.lucene.search.similarities.Similarity -> SimilarityHandle
 //     (the real Similarity lives in package search, which imports index).
-//   - IndexableField     -> IndexingChainField (Gocene's index.IndexableField
-//     is intentionally minimal and omits invertableType()/binaryValue()/the
-//     rich fieldType()).
+//   - IndexableField     -> IndexingChainField (a readability alias; the
+//     underlying document.IndexableField already carries the full surface).
 //
 // DEFERRED (gaps left for later sprints, each marked GAP in the code):
 //   - maybeSortSegment / validateIndexSortDVType: index sorting needs the
@@ -62,10 +67,19 @@ type IndexingChain struct {
 	termsHash TermsHash
 	// docValuesBytePool is the shared pool for doc-value terms.
 	docValuesBytePool *util.ByteBlockPool
+	// sharedIndexingScratch holds the lazily-allocated scratch buffers
+	// handed to per-field writers during indexing.
+	sharedIndexingScratch *sharedIndexingScratch
 	// storedFieldsConsumer writes stored fields.
 	storedFieldsConsumer StoredFieldsConsumerHandle
 	vectorValuesConsumer VectorValuesConsumerHandle
-	termVectorsWriter    *TermVectorsConsumer
+	// termVectorsWriter is the term-vectors consumer. When the segment is
+	// sorted it is the TermVectorsConsumer embedded in the
+	// SortingTermVectorsConsumer -- the same object Java's
+	// TermVectorsConsumer-typed field holds, reached through the base
+	// pointer because Go has no upcast. The chain link that carries the
+	// polymorphic calls is the nextTermsHash inside termsHash.
+	termVectorsWriter *TermVectorsConsumer
 
 	// fieldHash is an open-addressed chained hash of PerField, keyed by name.
 	// Lucene benchmarked this to be ~2% faster than a HashMap.
@@ -80,33 +94,42 @@ type IndexingChain struct {
 	// docFields holds one slot per field instance in the current document.
 	docFields []*indexingPerField
 
-	indexWriterConfig         IndexingChainConfig
+	indexWriterConfig         *LiveIndexWriterConfig
 	indexCreatedVersionMajor  int
 	abortingExceptionConsumer func(error)
-	hasHitAbortingException   bool
+
+	// parentPf and parentField carry the configured parent field, which
+	// the constructor pre-registers. Mirrors IndexingChain's final
+	// PerField parentPf / NumericDocValuesField parentField.
+	parentPf    *indexingPerField
+	parentField *document.NumericDocValuesField
+
+	hasHitAbortingException bool
 }
 
 // IndexingChainConfig is the subset of Lucene's LiveIndexWriterConfig that the
 // indexing chain consumes. See the PORTING NOTE on IndexingChain.
 type IndexingChainConfig interface {
-	// HasIndexSort reports whether an index sort is configured.
-	HasIndexSort() bool
-	// Similarity returns the similarity used to compute norms.
-	Similarity() SimilarityHandle
+	// GetIndexSort returns the configured index sort, or nil when the index
+	// is unsorted. Lucene: LiveIndexWriterConfig.getIndexSort().
+	GetIndexSort() any
+	// GetSimilarity returns the similarity used to compute norms.
+	// Lucene: LiveIndexWriterConfig.getSimilarity().
+	GetSimilarity() Similarity
+	// GetSoftDeletesField returns the configured soft-deletes field name, or
+	// "" when soft deletes are disabled.
+	// Lucene: LiveIndexWriterConfig.getSoftDeletesField().
+	GetSoftDeletesField() string
+	// GetParentField returns the configured parent field name, or "" when no
+	// parent field is configured.
+	// Lucene: LiveIndexWriterConfig.getParentField().
+	GetParentField() string
 }
 
-// SimilarityHandle is the subset of Lucene's Similarity consumed by the
-// indexing chain: it computes the per-field norm from the inversion state.
-//
-// GAP: the real Similarity lives in package search, which imports package
-// index; it cannot be imported here. search.LucenePerFieldSimilarityWrapper
-// already exposes ComputeNormFromInvertState(*FieldInvertState) int64 with a
-// matching shape, so a thin adapter in package search will satisfy this.
-type SimilarityHandle interface {
-	// ComputeNorm returns the norm value for a field given its inversion
-	// state. Must return a non-zero value for a non-empty field.
-	ComputeNorm(state *FieldInvertState) int64
-}
+// SimilarityHandle is the similarity contract the indexing chain consumes to
+// compute per-field norms. index.Similarity already exposes exactly
+// Similarity.computeNorm(FieldInvertState), so this is a readability alias.
+type SimilarityHandle = Similarity
 
 // FieldInfosBuilderHandle is the subset of Lucene's FieldInfos.Builder that the
 // indexing chain consumes. Gocene's existing FieldInfosBuilder does not expose
@@ -114,20 +137,18 @@ type SimilarityHandle interface {
 type FieldInfosBuilderHandle interface {
 	// Add registers (or merges) a FieldInfo and returns the canonical
 	// FieldInfo for the segment, after global-consistency checks.
-	Add(fi *FieldInfo) (*FieldInfo, error)
-	// Finish materialises the final FieldInfos for the segment.
-	Finish() *FieldInfos
-	// SoftDeletesFieldName returns the configured soft-deletes field name.
-	SoftDeletesFieldName() string
-	// ParentFieldName returns the configured parent field name.
-	ParentFieldName() string
+	// Lucene: FieldInfos.Builder.add(FieldInfo).
+	Add(fi *FieldInfo) *FieldInfo
+	// Build materialises the final FieldInfos for the segment.
+	// Lucene: FieldInfos.Builder.finish().
+	Build() *FieldInfos
 }
 
 // StoredFieldsConsumerHandle is the subset of Lucene's StoredFieldsConsumer
 // consumed by the indexing chain.
 type StoredFieldsConsumerHandle interface {
 	StartDocument(docID int) error
-	WriteField(fi *FieldInfo, field IndexingChainField) error
+	WriteField(fi *FieldInfo, value *StoredValue) error
 	FinishDocument() error
 	Finish(maxDoc int) error
 	Flush(state *SegmentWriteState, sortMap SorterDocMap) error
@@ -153,50 +174,49 @@ type KnnFieldVectorsWriterHandle interface {
 	AddValue(docID int, value any) error
 }
 
-// IndexingChainField is the field contract consumed by the indexing chain. It
-// is the Go port of the surface Lucene's IndexingChain uses on
-// org.apache.lucene.index.IndexableField.
+// IndexingChainField is the field contract consumed by the indexing chain.
 //
-// PORTING NOTE: Gocene's index.IndexableField is intentionally minimal and
-// omits InvertableType(), BinaryValue() and the rich IndexableFieldType. The
-// indexing chain needs all of those, so it depends on this wider interface.
-// It embeds IndexableField so a concrete field still flows into
-// TermsHashPerField.Start, which expects the narrow type.
-type IndexingChainField interface {
-	IndexableField
+// Lucene's IndexingChain consumes org.apache.lucene.index.IndexableField
+// directly. index.IndexableField already carries the full upstream surface
+// (FieldType, BinaryValue, InvertableType, TokenStream, StoredValue), so the
+// name is kept only as a readability alias for the chain's own signatures.
+type IndexingChainField = IndexableField
 
-	// IndexableFieldType returns the rich field-type contract used to drive
-	// FieldInfo construction. (Named to avoid colliding with the embedded
-	// IndexableField.FieldType, which returns the minimal FieldTypeInterface.)
-	IndexableFieldType() IndexableFieldType
-
-	// BinaryValueBytes returns the binary value of the field, or nil.
-	// (BinaryValue is already provided by the embedded IndexableField as
-	// []byte; this alias keeps the porting intent explicit.)
-	BinaryValueBytes() []byte
-
-	// InvertableType describes how the field is inverted: as a single binary
-	// term or through a token stream.
-	InvertableType() InvertableType
-}
-
-// NewIndexingChain constructs an IndexingChain.
+// NewIndexingChain constructs an IndexingChain and, with it, every consumer
+// the chain owns. It is the Go port of
 //
-// GAP: Lucene wires the concrete StoredFieldsConsumer / TermVectorsConsumer /
-// VectorValuesConsumer (and their sorting variants) here from the codec and
-// directory. Gocene cannot construct those generically yet, so they are
-// injected by the caller (DocumentsWriterPerThread, once ported). termsHash is
-// likewise injected because FreqProxTermsWriter's Gocene constructor has a
-// divergent signature (see freq_prox_terms_writer.go).
+//	IndexingChain(int indexCreatedVersionMajor,
+//	              SegmentInfo segmentInfo,
+//	              Directory directory,
+//	              FieldInfos.Builder fieldInfos,
+//	              LiveIndexWriterConfig indexWriterConfig,
+//	              Consumer<Throwable> abortingExceptionConsumer)
+//
+// and follows its body statement for statement:
+//
+//   - the byte blocks come from a ByteBlockPool.DirectTrackingAllocator and
+//     the int blocks from the nested IntBlockAllocator, both charged to the
+//     chain's own bytesUsed counter;
+//   - the vector consumer is always the plain VectorValuesConsumer;
+//   - when segmentInfo.getIndexSort() is null the chain takes the plain
+//     StoredFieldsConsumer and TermVectorsConsumer; otherwise it takes
+//     SortingStoredFieldsConsumer and SortingTermVectorsConsumer;
+//   - the terms hash is always a FreqProxTermsWriter wrapping the chosen
+//     term-vectors consumer;
+//   - docValuesBytePool shares the tracking byte allocator;
+//   - sharedIndexingScratch is charged to the same counter;
+//   - when a parent field is configured the chain pre-registers its PerField
+//     and schema.
+//
+// Lucene asserts segmentInfo.getIndexSort() == indexWriterConfig.getIndexSort();
+// the port returns that as an error instead, since Go has no assertions.
 func NewIndexingChain(
 	indexCreatedVersionMajor int,
+	segmentInfo *SegmentInfo,
+	directory store.Directory,
 	fieldInfos FieldInfosBuilderHandle,
-	indexWriterConfig IndexingChainConfig,
+	indexWriterConfig *LiveIndexWriterConfig,
 	abortingExceptionConsumer func(error),
-	termsHash TermsHash,
-	storedFieldsConsumer StoredFieldsConsumerHandle,
-	vectorValuesConsumer VectorValuesConsumerHandle,
-	termVectorsWriter *TermVectorsConsumer,
 ) (*IndexingChain, error) {
 	if abortingExceptionConsumer == nil {
 		return nil, fmt.Errorf("indexing chain: abortingExceptionConsumer must not be nil")
@@ -204,31 +224,130 @@ func NewIndexingChain(
 	if fieldInfos == nil {
 		return nil, fmt.Errorf("indexing chain: fieldInfos must not be nil")
 	}
-	if termsHash == nil {
-		return nil, fmt.Errorf("indexing chain: termsHash must not be nil")
+	if segmentInfo == nil {
+		return nil, fmt.Errorf("indexing chain: segmentInfo must not be nil")
 	}
-	if storedFieldsConsumer == nil {
-		return nil, fmt.Errorf("indexing chain: storedFieldsConsumer must not be nil")
+	if indexWriterConfig == nil {
+		return nil, fmt.Errorf("indexing chain: indexWriterConfig must not be nil")
 	}
-	if vectorValuesConsumer == nil {
-		return nil, fmt.Errorf("indexing chain: vectorValuesConsumer must not be nil")
-	}
-	return &IndexingChain{
+
+	c := &IndexingChain{
 		bytesUsed:                 util.NewCounter(),
 		fieldInfos:                fieldInfos,
 		indexWriterConfig:         indexWriterConfig,
 		indexCreatedVersionMajor:  indexCreatedVersionMajor,
 		abortingExceptionConsumer: abortingExceptionConsumer,
-		termsHash:                 termsHash,
-		storedFieldsConsumer:      storedFieldsConsumer,
-		vectorValuesConsumer:      vectorValuesConsumer,
-		termVectorsWriter:         termVectorsWriter,
 		fieldHash:                 make([]*indexingPerField, 2),
 		hashMask:                  1,
 		fields:                    make([]*indexingPerField, 1),
 		docFields:                 make([]*indexingPerField, 2),
-		docValuesBytePool:         util.NewByteBlockPool(util.NewDirectAllocator()),
-	}, nil
+	}
+
+	byteBlockAllocator := util.NewDirectTrackingAllocator(c.bytesUsed)
+	intBlockAllocator := newIntBlockAllocator(c.bytesUsed)
+
+	// assert segmentInfo.getIndexSort() == indexWriterConfig.getIndexSort();
+	//
+	// LiveIndexWriterConfig.GetIndexSort returns any (search.Sort lives in a
+	// package that imports index), so the configured value is narrowed to
+	// *spi.Sort first: comparing a typed nil *spi.Sort against a nil any
+	// directly is never equal in Go and would reject every unsorted segment.
+	configuredSort, _ := indexWriterConfig.GetIndexSort().(*spi.Sort)
+	if segmentInfo.IndexSort() != configuredSort {
+		return nil, fmt.Errorf("indexing chain: segment index sort differs from the configured index sort")
+	}
+
+	c.vectorValuesConsumer = newVectorValuesConsumer(
+		indexWriterConfig.GetCodec(), directory, segmentInfo, indexWriterConfig.GetInfoStream())
+
+	// termVectors is the chain link Java passes to FreqProxTermsWriter; it
+	// carries the dynamic type so flush/abort/addField dispatch to the
+	// sorting override when there is one.
+	var termVectors TermsHash
+	codec := indexWriterConfig.GetCodec()
+	if segmentInfo.IndexSort() == nil {
+		c.storedFieldsConsumer = NewStoredFieldsConsumer(codec, directory, segmentInfo)
+		plain := NewTermVectorsConsumer(
+			intBlockAllocator, byteBlockAllocator, directory, segmentInfo, codec)
+		c.termVectorsWriter = plain
+		termVectors = plain
+	} else {
+		c.storedFieldsConsumer = NewSortingStoredFieldsConsumer(codec, directory, segmentInfo)
+		sorting := NewSortingTermVectorsConsumer(
+			intBlockAllocator, byteBlockAllocator, directory, segmentInfo, codec)
+		c.termVectorsWriter = sorting.TermVectorsConsumer
+		termVectors = sorting
+	}
+
+	termsHash, err := NewFreqProxTermsWriter(
+		intBlockAllocator, byteBlockAllocator, c.bytesUsed, termVectors)
+	if err != nil {
+		return nil, err
+	}
+	c.termsHash = termsHash
+
+	c.docValuesBytePool = util.NewByteBlockPool(byteBlockAllocator)
+	c.sharedIndexingScratch = newSharedIndexingScratch(c.bytesUsed)
+
+	if indexWriterConfig.GetParentField() != "" {
+		parentField, err := document.NewNumericDocValuesField(indexWriterConfig.GetParentField(), -1)
+		if err != nil {
+			return nil, fmt.Errorf("indexing chain: parent field: %w", err)
+		}
+		c.parentField = parentField
+		c.parentPf = c.getOrAddPerField(parentField.Name())
+		if err := updateDocFieldSchema(parentField.Name(), c.parentPf.schema, parentField.FieldType()); err != nil {
+			return nil, fmt.Errorf("indexing chain: parent field schema: %w", err)
+		}
+	}
+
+	// The nil checks below hold by construction; they stay because they are
+	// the contract every caller of this constructor relies on.
+	if c.termsHash == nil {
+		return nil, fmt.Errorf("indexing chain: termsHash must not be nil")
+	}
+	if c.storedFieldsConsumer == nil {
+		return nil, fmt.Errorf("indexing chain: storedFieldsConsumer must not be nil")
+	}
+	if c.vectorValuesConsumer == nil {
+		return nil, fmt.Errorf("indexing chain: vectorValuesConsumer must not be nil")
+	}
+	return c, nil
+}
+
+// intBlockAllocator is the Go port of the private static nested class
+// IndexingChain.IntBlockAllocator: an IntBlockPool allocator that charges
+// every block it hands out, and credits every block it takes back, to the
+// chain's shared bytes counter.
+type intBlockAllocator struct {
+	bytesUsed *util.Counter
+}
+
+// newIntBlockAllocator mirrors IntBlockAllocator(Counter bytesUsed), whose
+// super call fixes the block size at IntBlockPool.INT_BLOCK_SIZE.
+func newIntBlockAllocator(bytesUsed *util.Counter) *intBlockAllocator {
+	return &intBlockAllocator{bytesUsed: bytesUsed}
+}
+
+// GetIntBlock allocates another int block from the shared pool. Mirrors
+// IntBlockAllocator.getIntBlock().
+func (a *intBlockAllocator) GetIntBlock() []int32 {
+	b := make([]int32, util.IntBlockSize)
+	a.bytesUsed.AddAndGet(int64(util.IntBlockSize) * 4)
+	return b
+}
+
+// RecycleIntBlocks credits the recycled blocks back to the counter.
+//
+// Mirrors IntBlockAllocator.recycleIntBlocks literally, including its
+// quirk: the abstract contract is recycleIntBlocks(blocks, start, end) --
+// IntBlockPool.reset calls it with (offset, 1 + bufferUpto) -- but the
+// override names the second bound "length" and credits
+// -(length * INT_BLOCK_SIZE * Integer.BYTES), i.e. it charges back the
+// END bound, not the count of recycled blocks. Lucene's arithmetic is
+// reproduced as written; "fixing" it here would be a divergence.
+func (a *intBlockAllocator) RecycleIntBlocks(blocks [][]int32, start, end int) {
+	a.bytesUsed.AddAndGet(-(int64(end) * int64(util.IntBlockSize) * 4))
 }
 
 func (c *IndexingChain) onAbortingException(err error) {
@@ -300,7 +419,7 @@ func (c *IndexingChain) Flush(state *SegmentWriteState) (SorterDocMap, error) {
 // (package search) which is not ported. This returns nil (unsorted), failing
 // loudly only if a sort is configured so the gap cannot pass silently.
 func (c *IndexingChain) maybeSortSegment(_ *SegmentWriteState) (SorterDocMap, error) {
-	if c.indexWriterConfig == nil || !c.indexWriterConfig.HasIndexSort() {
+	if c.indexWriterConfig == nil || c.indexWriterConfig.GetIndexSort() == nil {
 		return nil, nil
 	}
 	return nil, fmt.Errorf("indexing chain: index sorting not yet supported (GAP: IndexSorter cluster unported)")
@@ -462,7 +581,7 @@ func (c *IndexingChain) ProcessDocument(docID int, doc []IndexingChainField) (er
 	// 1st pass: verify the doc schema matches the index schema and build the
 	// per-field schema for every unique field in the document.
 	for _, field := range doc {
-		fieldType := field.IndexableFieldType()
+		fieldType := field.FieldType()
 		pf := c.getOrAddPerField(field.Name())
 		if pf.fieldGen != fieldGen { // first time we see this field in this document
 			c.fields[fieldCount] = pf
@@ -480,17 +599,8 @@ func (c *IndexingChain) ProcessDocument(docID int, doc []IndexingChainField) (er
 		}
 	}
 
-	// For each field, initialize its FieldInfo on first sight in the segment,
-	// otherwise verify the in-doc schema matches the segment schema.
-	for i := 0; i < fieldCount; i++ {
-		pf := c.fields[i]
-		if pf.fieldInfo == nil {
-			if ierr := c.initializeFieldInfo(pf); ierr != nil {
-				return ierr
-			}
-		} else if serr := pf.schema.assertSameSchema(pf.fieldInfo); serr != nil {
-			return serr
-		}
+	if ierr := c.initAndValidateFields(fieldCount); ierr != nil {
+		return ierr
 	}
 
 	// 2nd pass: index each field, counting unique fields indexed with postings.
@@ -505,6 +615,150 @@ func (c *IndexingChain) ProcessDocument(docID int, doc []IndexingChainField) (er
 			indexedFieldCount++
 		}
 		docFieldIdx++
+	}
+	return nil
+}
+
+// initAndValidateFields initialises the FieldInfo of every field seen for the
+// first time in this segment and, for fields already known, verifies that the
+// schema accumulated for the current document (or batch) matches the schema
+// recorded in the index. Mirrors IndexingChain.initAndValidateFields(int).
+func (c *IndexingChain) initAndValidateFields(fieldCount int) error {
+	for i := 0; i < fieldCount; i++ {
+		pf := c.fields[i]
+		if pf.fieldInfo == nil {
+			if err := c.initializeFieldInfo(pf); err != nil {
+				return err
+			}
+		} else if err := pf.schema.assertSameSchema(pf.fieldInfo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ProcessBatch processes a column-oriented batch of documents: it iterates the
+// batch's columns, validates each column against its field type, accumulates
+// each field's schema and initialises or verifies the corresponding FieldInfo.
+//
+// baseDocID is the segment-level doc id of the first document in the batch, so
+// batch-local doc 0 maps to baseDocID.
+//
+// Port of IndexingChain.processBatch(int, ColumnBatch) from Apache Lucene
+// 10.5.0.
+//
+// GAP: the two value-bearing passes of the Java original — the row-oriented
+// pass (stored fields and term inversion, driven by ColumnFieldAdapter) and the
+// column-oriented pass (doc values, points and vectors, driven by the per-column
+// cursors) — cannot be ported yet: Gocene's index/column package declares the
+// Column hierarchy but none of the value accessors Lucene reads through
+// (LongColumn.tuples/values, BinaryColumn.values, DictionaryColumn.ordinals,
+// VectorColumn.vectors, TokenStreamColumn.tokenStreams) nor the
+// ColumnFieldAdapter / LongValuesCursor / BytesRefValuesCursor /
+// ObjectTupleCursor / OrdinalsTupleCursor types they return. Until those land,
+// a batch that carries any indexing feature is refused with an explicit error
+// rather than silently indexing nothing.
+func (c *IndexingChain) ProcessBatch(baseDocID int, columnBatch *column.ColumnBatch) error {
+	if columnBatch == nil {
+		return fmt.Errorf("indexing chain: columnBatch must not be nil")
+	}
+	hasRowColumns := false
+	batchGen := c.nextFieldGen
+	c.nextFieldGen++
+
+	// Iterate the columns in field-name order. Lucene iterates
+	// ColumnBatch.columns() in insertion order; Gocene's ColumnBatch keys its
+	// columns by field name in a map, whose iteration order is randomised, so
+	// the names are sorted to keep the pass deterministic. That keying also
+	// makes a batch structurally incapable of carrying two columns for the same
+	// field name, so the per-field feature-overlap check below can only ever
+	// fire for a field that repeats across calls within the same batch
+	// generation; it is kept to mirror the Java contract exactly.
+	fieldNames := make([]string, 0, len(columnBatch.Columns))
+	for fieldName := range columnBatch.Columns {
+		fieldNames = append(fieldNames, fieldName)
+	}
+	sort.Strings(fieldNames)
+
+	columnIdx := 0
+	uniqueFieldCount := 0
+	for _, fieldName := range fieldNames {
+		col := columnBatch.Columns[fieldName]
+		fieldType := col.FieldType()
+
+		column.ValidateColumnHasIndexingFeature(col.Name(), fieldType)
+
+		switch typed := col.(type) {
+		case column.BinaryColumn:
+			column.ValidateBinaryColumn(typed, fieldType)
+		case column.LongColumn:
+			column.ValidateLongColumn(typed, fieldType)
+		case column.DictionaryColumn:
+			column.ValidateDictionaryColumn(typed, fieldType)
+		case column.VectorColumn:
+			column.ValidateVectorColumn(typed, fieldType)
+		case column.TokenStreamColumn:
+			column.ValidateTokenStreamColumn(typed, fieldType)
+		default:
+			return fmt.Errorf("indexing chain: unknown column type: %T", col)
+		}
+
+		if fieldType.Stored() || fieldType.IndexOptions() != IndexOptionsNone {
+			hasRowColumns = true
+		}
+
+		pf := c.getOrAddPerField(col.Name())
+		if columnIdx >= len(c.docFields) {
+			c.oversizeDocFields()
+		}
+		c.docFields[columnIdx] = pf
+		columnIdx++
+
+		columnFeatures := column.FeatureMask(fieldType)
+		if pf.fieldGen != batchGen {
+			// First column for this field name in this batch: start a fresh
+			// schema and feature set, and collect the field once so its
+			// FieldInfo is initialised/validated after the loop.
+			pf.fieldGen = batchGen
+			pf.columnFeatures = columnFeatures
+			pf.schema.reset(baseDocID)
+			// getOrAddPerField already grows c.fields to hold totalFieldCount
+			// entries, so the slot is guaranteed to exist — the same
+			// invariant Lucene relies on.
+			c.fields[uniqueFieldCount] = pf
+			uniqueFieldCount++
+		} else {
+			// Each indexing feature must come from a single column for a given
+			// field name.
+			overlap := pf.columnFeatures & columnFeatures
+			if overlap != 0 {
+				return fmt.Errorf(
+					"indexing chain: ColumnBatch has multiple columns for field %q claiming the same indexing feature %s; each feature may appear in at most one column",
+					col.Name(), column.FeatureNames(overlap))
+			}
+			pf.columnFeatures |= columnFeatures
+		}
+
+		if err := updateDocFieldSchema(col.Name(), pf.schema, fieldType); err != nil {
+			return err
+		}
+	}
+
+	// Initialise field infos / validate schemas once per unique field name in
+	// the batch.
+	if uniqueFieldCount > 0 {
+		if err := c.initAndValidateFields(uniqueFieldCount); err != nil {
+			return err
+		}
+	}
+
+	// GAP (see the doc comment): the row-oriented and column-oriented value
+	// passes need the unported index/column cursor and adapter cluster. Refuse
+	// loudly instead of dropping the batch's values on the floor.
+	if uniqueFieldCount > 0 {
+		return fmt.Errorf(
+			"indexing chain: column batch of %d docs at baseDocID=%d carries %d field(s) (rowOriented=%v) but batch value indexing is not yet supported (GAP: index/column value cursors and ColumnFieldAdapter unported)",
+			columnBatch.NumDocs, baseDocID, uniqueFieldCount, hasRowColumns)
 	}
 	return nil
 }
@@ -531,7 +785,11 @@ func (c *IndexingChain) initializeFieldInfo(pf *indexingPerField) error {
 	opts := DefaultFieldInfoOptions()
 	opts.IndexOptions = s.indexOptions
 	opts.DocValuesType = s.docValuesType
-	opts.DocValuesSkipIndexType = s.docValuesSkipIndex
+	// index.DocValuesSkipIndexType and schema.DocValuesSkipIndexType are two
+	// declarations of the same Lucene enum (identical ordinals NONE=0,
+	// RANGE=1, both pinned to org.apache.lucene.index.DocValuesSkipIndexType),
+	// so the ordinal-preserving conversion is exact.
+	opts.DocValuesSkipIndexType = spi.DocValuesSkipIndexType(s.docValuesSkipIndex)
 	opts.DocValuesGen = -1
 	opts.OmitNorms = s.omitNorms
 	opts.StoreTermVectors = s.storeTermVector
@@ -542,17 +800,23 @@ func (c *IndexingChain) initializeFieldInfo(pf *indexingPerField) error {
 	opts.VectorDimension = s.vectorDimension
 	opts.VectorEncoding = s.vectorEncoding
 	opts.VectorSimilarityFunction = s.vectorSimilarityFunction
-	opts.IsSoftDeletesField = pf.fieldName == c.fieldInfos.SoftDeletesFieldName()
-	opts.IsParentField = pf.fieldName == c.fieldInfos.ParentFieldName()
+	// Lucene reads these off FieldInfos.Builder (getSoftDeletesFieldName /
+	// getParentFieldName), which simply forwards the two names the
+	// FieldNumbers registry was constructed with — namely
+	// LiveIndexWriterConfig.getSoftDeletesField() and getParentField() (see
+	// IndexWriter.getFieldNumberMap). Gocene's spi.FieldInfosBuilder does not
+	// expose those forwarders yet, so the chain reads the same two values
+	// straight off the live config it already holds.
+	if c.indexWriterConfig != nil {
+		opts.IsSoftDeletesField = pf.fieldName != "" && pf.fieldName == c.indexWriterConfig.GetSoftDeletesField()
+		opts.IsParentField = pf.fieldName != "" && pf.fieldName == c.indexWriterConfig.GetParentField()
+	}
 
 	fi := NewFieldInfo(pf.fieldName, -1, opts)
 	for k, v := range s.attributes {
 		fi.PutAttribute(k, v)
 	}
-	registered, err := c.fieldInfos.Add(fi)
-	if err != nil {
-		return err
-	}
+	registered := c.fieldInfos.Add(fi)
 	pf.setFieldInfo(registered)
 
 	if registered.IndexOptions() != IndexOptionsNone {
@@ -603,7 +867,7 @@ func (c *IndexingChain) initializeFieldInfo(pf *indexingPerField) error {
 // processField indexes one field instance and reports whether it is the first
 // (postings-indexed) instance of a unique field within the current document.
 func (c *IndexingChain) processField(docID int, field IndexingChainField, pf *indexingPerField) (bool, error) {
-	fieldType := field.IndexableFieldType()
+	fieldType := field.FieldType()
 	indexedField := false
 
 	// Invert indexed fields.
@@ -621,7 +885,8 @@ func (c *IndexingChain) processField(docID int, field IndexingChainField, pf *in
 
 	// Add stored fields.
 	if fieldType.Stored() {
-		if err := c.storedFieldsConsumer.WriteField(pf.fieldInfo, field); err != nil {
+		// Mirrors Lucene: StoredValue storedValue = field.storedValue().
+		if err := c.storedFieldsConsumer.WriteField(pf.fieldInfo, field.StoredValue()); err != nil {
 			c.onAbortingException(err)
 			return false, err
 		}
@@ -634,7 +899,7 @@ func (c *IndexingChain) processField(docID int, field IndexingChainField, pf *in
 		}
 	}
 	if fieldType.PointDimensionCount() != 0 {
-		if err := pf.pointValuesWriter.AddPackedValue(docID, util.NewBytesRef(field.BinaryValueBytes())); err != nil {
+		if err := pf.pointValuesWriter.AddPackedValue(docID, util.NewBytesRef(field.BinaryValue())); err != nil {
 			return false, err
 		}
 	}
@@ -677,14 +942,27 @@ func (c *IndexingChain) getOrAddPerField(fieldName string) *indexingPerField {
 	return pf
 }
 
-// getPerField returns the PerField for name, or nil if unseen.
+// getPerField returns the PerField for name, or nil if this field has not been
+// seen in the current segment. Mirrors IndexingChain.getPerField(String).
 func (c *IndexingChain) getPerField(name string) *indexingPerField {
 	hashPos := stringHashCode(name) & c.hashMask
-	fp := c.fieldHash[hashPos]
-	for fp != nil && fp.fieldName != name {
-		fp = fp.next
+	for fp := c.fieldHash[hashPos]; fp != nil; fp = fp.next {
+		if fp.fieldName == name {
+			return fp
+		}
 	}
-	return fp
+	return nil
+}
+
+// GetHasDocValues returns the doc-values iterator for name, or nil.
+func (c *IndexingChain) GetHasDocValues(fieldName string) util.DocIdSetIterator {
+	pf := c.getPerField(fieldName)
+	if pf == nil || pf.docValuesWriter == nil {
+		return nil
+	}
+	// GAP: The docValuesWriter should provide a DocIdSetIterator of docs that have values.
+	// For now, we return nil or a dummy, as the real implementation is deferred.
+	return nil
 }
 
 // indexDocValue indexes one field's doc value.
@@ -697,7 +975,7 @@ func (c *IndexingChain) indexDocValue(docID int, fp *indexingPerField, dvType Do
 		}
 		return fp.docValuesWriter.addNumeric(docID, toInt64(nv))
 	case DocValuesTypeBinary, DocValuesTypeSorted, DocValuesTypeSortedSet:
-		return fp.docValuesWriter.addBinary(docID, util.NewBytesRef(field.BinaryValueBytes()))
+		return fp.docValuesWriter.addBinary(docID, util.NewBytesRef(field.BinaryValue()))
 	default:
 		return fmt.Errorf("indexing chain: unrecognized DocValues type: %v", dvType)
 	}
@@ -714,7 +992,7 @@ func (c *IndexingChain) indexDocValue(docID int, fp *indexingPerField, dvType Do
 // binary value accordingly, mirroring the BYTE/FLOAT32 split in Lucene's
 // IndexingChain.PerField.indexVectorValue.
 func (c *IndexingChain) indexVectorValue(docID int, pf *indexingPerField, field IndexingChainField) error {
-	raw := field.BinaryValueBytes()
+	raw := field.BinaryValue()
 	switch pf.fieldInfo.VectorEncoding() {
 	case VectorEncodingFloat32:
 		vec, err := decodeFloat32Vector(raw)
@@ -796,6 +1074,12 @@ type indexingPerField struct {
 	// fieldGen tracks when a PerField was first seen in the current document.
 	fieldGen int64
 
+	// columnFeatures is the union of the indexing features already claimed for
+	// this field by the columns of the batch currently being processed. Mirrors
+	// IndexingChain.PerField.columnFeatures; only meaningful while fieldGen
+	// equals the current batch generation.
+	columnFeatures int
+
 	// next chains PerField within a fieldHash bucket.
 	next *indexingPerField
 
@@ -818,7 +1102,7 @@ func newIndexingPerField(
 		fieldGen:                 -1,
 	}
 	if cfg != nil {
-		pf.similarity = cfg.Similarity()
+		pf.similarity = cfg.GetSimilarity()
 	}
 	return pf
 }
@@ -855,14 +1139,14 @@ func (pf *indexingPerField) setInvertState(c *IndexingChain) error {
 func (pf *indexingPerField) finish(docID int) error {
 	if !pf.fieldInfo.OmitNorms() {
 		var normValue int64
-		if pf.invertState.Length == 0 {
+		if pf.invertState.length == 0 {
 			// Field present in the doc but with no indexed tokens: norm is 0.
 			normValue = 0
 		} else {
 			if pf.similarity == nil {
 				return fmt.Errorf("indexing chain: no similarity configured for non-empty field %q", pf.fieldName)
 			}
-			normValue = pf.similarity.ComputeNorm(pf.invertState)
+			normValue = pf.similarity.ComputeNormFromInvertState(pf.invertState)
 			if normValue == 0 {
 				return fmt.Errorf("indexing chain: similarity returned 0 for non-empty field %q", pf.fieldName)
 			}
@@ -887,7 +1171,7 @@ func (pf *indexingPerField) invert(docID int, field IndexingChainField, first bo
 		// lastPosition / lastStartOffset / attributeSource fields (the
 		// token-stream accounting that invertTokenStream needs). The subset
 		// that the ported binary path touches is reset here.
-		resetFieldInvertState(pf.invertState)
+		pf.invertState.reset()
 	}
 	// Non-tokenized fields (e.g. StringField) report InvertableTypeTokenStream
 	// through the base Field.InvertableType() but must be indexed as a single
@@ -896,7 +1180,7 @@ func (pf *indexingPerField) invert(docID int, field IndexingChainField, first bo
 	// This mirrors Lucene where a non-tokenized field whose value is a string
 	// produces a single-token TokenStream internally; Gocene routes it through
 	// the binary path instead.
-	if field.IndexableFieldType().Tokenized() {
+	if field.FieldType().Tokenized() {
 		return pf.invertTokenStream(docID, field, first)
 	}
 	return pf.invertTerm(docID, field, first)
@@ -916,12 +1200,12 @@ func (pf *indexingPerField) invertTokenStream(_ int, _ IndexingChainField, _ boo
 
 // invertTerm inverts a single-valued binary field (InvertableType BINARY).
 func (pf *indexingPerField) invertTerm(docID int, field IndexingChainField, first bool) error {
-	binaryValue := field.BinaryValueBytes()
+	binaryValue := field.BinaryValue()
 	if binaryValue == nil {
 		return fmt.Errorf("indexing chain: field %s returns BINARY for invertableType and nil for binaryValue, which is illegal",
 			field.Name())
 	}
-	ft := field.IndexableFieldType()
+	ft := field.FieldType()
 	if ft.Tokenized() ||
 		ft.IndexOptions() > IndexOptionsDocsAndFreqs ||
 		ft.StoreTermVectorPositions() ||
@@ -930,10 +1214,10 @@ func (pf *indexingPerField) invertTerm(docID int, field IndexingChainField, firs
 		return fmt.Errorf("indexing chain: fields that are tokenized or index proximity data must produce a non-null TokenStream, but %s did not",
 			field.Name())
 	}
-	pf.invertState.SetPosition(pf.invertState.Position() + 1)
-	pf.invertState.SetLength(pf.invertState.Length + 1)
+	pf.invertState.position++
+	pf.invertState.length++
 	pf.termsHashPerField.Start(field, first)
-	newLen, err := addExact(pf.invertState.Length, 1)
+	newLen, err := addExact(pf.invertState.length, 1)
 	if err != nil {
 		return fmt.Errorf("indexing chain: too many tokens for field %q: %w", field.Name(), err)
 	}
@@ -968,7 +1252,7 @@ type fieldSchema struct {
 	storeTermVector          bool
 	indexOptions             IndexOptions
 	docValuesType            DocValuesType
-	docValuesSkipIndex       DocValuesSkipIndexType
+	docValuesSkipIndex       spi.DocValuesSkipIndexType
 	pointDimensionCount      int
 	pointIndexDimensionCount int
 	pointNumBytes            int
@@ -985,7 +1269,7 @@ func newFieldSchema(name string) *fieldSchema {
 		attributes:               make(map[string]string),
 		indexOptions:             IndexOptionsNone,
 		docValuesType:            DocValuesTypeNone,
-		docValuesSkipIndex:       DocValuesSkipIndexTypeNone,
+		docValuesSkipIndex:       spi.DocValuesSkipIndexTypeNone,
 		vectorEncoding:           VectorEncodingFloat32,
 		vectorSimilarityFunction: VectorSimilarityFunctionEuclidean,
 	}
@@ -1032,7 +1316,7 @@ func (s *fieldSchema) setIndexOptions(newIndexOptions IndexOptions, newOmitNorms
 	return s.assertSameBool("store term vector", s.storeTermVector, newStoreTermVector)
 }
 
-func (s *fieldSchema) setDocValues(newDocValuesType DocValuesType, newDocValuesSkipIndex DocValuesSkipIndexType) error {
+func (s *fieldSchema) setDocValues(newDocValuesType DocValuesType, newDocValuesSkipIndex spi.DocValuesSkipIndexType) error {
 	if s.docValuesType == DocValuesTypeNone {
 		s.docValuesType = newDocValuesType
 		s.docValuesSkipIndex = newDocValuesSkipIndex
@@ -1106,7 +1390,7 @@ func (s *fieldSchema) assertSameSchema(fi *FieldInfo) error {
 	if fi.DocValuesType() != s.docValuesType {
 		return s.raiseNotSame("doc values type", fi.DocValuesType(), s.docValuesType)
 	}
-	if fi.DocValuesSkipIndexType() != s.docValuesSkipIndex {
+	if fi.DocValuesSkipIndexType() != spi.DocValuesSkipIndexType(s.docValuesSkipIndex) {
 		return s.raiseNotSame("doc values skip index type", fi.DocValuesSkipIndexType(), s.docValuesSkipIndex)
 	}
 	if fi.VectorSimilarityFunction() != s.vectorSimilarityFunction {
@@ -1129,7 +1413,7 @@ func (s *fieldSchema) assertSameSchema(fi *FieldInfo) error {
 
 // updateDocFieldSchema updates a field schema with the options seen in one
 // document's instance of the field.
-func updateDocFieldSchema(fieldName string, schema *fieldSchema, fieldType IndexableFieldType) error {
+func updateDocFieldSchema(fieldName string, schema *fieldSchema, fieldType spi.IndexableFieldType) error {
 	if fieldType.IndexOptions() != IndexOptionsNone {
 		if err := schema.setIndexOptions(
 			fieldType.IndexOptions(), fieldType.OmitNorms(), fieldType.StoreTermVectors()); err != nil {
@@ -1143,7 +1427,7 @@ func updateDocFieldSchema(fieldName string, schema *fieldSchema, fieldType Index
 			fieldType.DocValuesType(), fieldType.DocValuesSkipIndexType()); err != nil {
 			return err
 		}
-	} else if fieldType.DocValuesSkipIndexType() != DocValuesSkipIndexTypeNone {
+	} else if fieldType.DocValuesSkipIndexType() != spi.DocValuesSkipIndexTypeNone {
 		return fmt.Errorf("indexing chain: field '%s' cannot have docValuesSkipIndexType=%v without doc values",
 			schema.name, fieldType.DocValuesSkipIndexType())
 	}
@@ -1170,7 +1454,7 @@ func updateDocFieldSchema(fieldName string, schema *fieldSchema, fieldType Index
 }
 
 // verifyUnIndexedFieldType rejects term-vector options on an unindexed field.
-func verifyUnIndexedFieldType(name string, ft IndexableFieldType) error {
+func verifyUnIndexedFieldType(name string, ft spi.IndexableFieldType) error {
 	if ft.StoreTermVectors() {
 		return fmt.Errorf("indexing chain: cannot store term vectors for a field that is not indexed (field=%q)", name)
 	}
@@ -1247,21 +1531,6 @@ func stringHashCode(s string) int {
 		h = 31*h + int32(r)
 	}
 	return int(h)
-}
-
-// resetFieldInvertState zeroes the inversion counters of a FieldInvertState,
-// mirroring FieldInvertState.reset() for the subset of fields Gocene exposes.
-//
-// GAP: Lucene's reset() also clears lastPosition, lastStartOffset and the
-// attributeSource. Gocene's FieldInvertState does not model those yet, so they
-// are not reset; they are only needed by invertTokenStream, which is deferred.
-func resetFieldInvertState(s *FieldInvertState) {
-	s.SetPosition(0)
-	s.SetLength(0)
-	s.SetNumOverlap(0)
-	s.SetOffset(0)
-	s.SetMaxTermFrequency(0)
-	s.SetUniqueTermCount(0)
 }
 
 // toInt64 converts a numeric IndexableField value to int64, mirroring

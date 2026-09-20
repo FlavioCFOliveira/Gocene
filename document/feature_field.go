@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // FeatureField stores a single (featureName, featureValue) entry in a
@@ -44,7 +44,7 @@ func init() {
 	FeatureFieldType.SetIndexed(true)
 	FeatureFieldType.SetTokenized(false)
 	FeatureFieldType.SetOmitNorms(true)
-	FeatureFieldType.SetIndexOptions(schema.IndexOptionsDocsAndFreqs)
+	FeatureFieldType.SetIndexOptions(spi.IndexOptionsDocsAndFreqs)
 	FeatureFieldType.Freeze()
 	FeatureFieldTYPE = FeatureFieldType
 }

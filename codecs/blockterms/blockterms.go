@@ -23,13 +23,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // Format constants, ported from
@@ -62,7 +61,7 @@ type BlockTermsReader struct {
 func NewBlockTermsReader(indexReader TermsIndexReader, postingsReader codecs.PostingsReaderBase, state *index.SegmentReadState) (*BlockTermsReader, error) {
 	postingsReader = postingsReader
 
-	filename := index.GetSegmentFileName(
+	filename := index.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, TermsExtension)
 	in, err := state.Directory.OpenInput(filename, store.IOContext{Context: store.ContextRead})
 	if err != nil {
@@ -118,22 +117,31 @@ func NewBlockTermsReader(indexReader TermsIndexReader, postingsReader codecs.Pos
 	}
 
 	fields := make(map[string]*fieldReader)
-	for i := 0; i < numFields; i++ {
+	// Java counts the fields in an int (`final int numFields = in.readVInt()`,
+	// BlockTermsReader.java:132) and indexes the loop with one too
+	// (BlockTermsReader.java:136); readVInt yields exactly that 32-bit value,
+	// so the loop variable is int32 and nothing read from .tib changes.
+	for i := int32(0); i < numFields; i++ {
 		fieldNum, err := store.ReadVInt(in)
 		if err != nil {
 			return nil, err
 		}
-		numTerms, err := store.ReadVLong(in)
+		numTerms, err := in.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
-		termsStartPointer, err := store.ReadVLong(in)
+		termsStartPointer, err := in.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
 
-		fieldInfo := state.FieldInfos.GetByNumber(fieldNum)
-		sumTotalTermFreq, err := store.ReadVLong(in)
+		// Java reads the field number into an int
+		// (`final int field = in.readVInt()`, BlockTermsReader.java:137) and
+		// hands it to fieldInfos.fieldInfo(int) (BlockTermsReader.java:141);
+		// GetByNumber takes Go's int, so the 32-bit value is widened, never
+		// truncated.
+		fieldInfo := state.FieldInfos.GetByNumber(int(fieldNum))
+		sumTotalTermFreq, err := in.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
@@ -143,16 +151,21 @@ func NewBlockTermsReader(indexReader TermsIndexReader, postingsReader codecs.Pos
 		if fieldInfo.IndexOptions() == index.IndexOptionsDocs {
 			sumDocFreq = sumTotalTermFreq
 		} else {
-			sumDocFreq, err = store.ReadVLong(in)
+			sumDocFreq, err = in.ReadVLong()
 			if err != nil {
 				return nil, err
 			}
 		}
 
-		docCount, err := store.ReadVInt(in)
+		docCount32, err := store.ReadVInt(in)
 		if err != nil {
 			return nil, err
 		}
+		// Java holds docCount in an int (BlockTermsReader.java:146), which is
+		// 32-bit and is exactly what readVInt yields; it is widened to Go's int
+		// here because FieldReader.docCount and SegmentInfo.maxDoc() are both
+		// Java ints too. Nothing about the bytes read from .tib changes.
+		docCount := int(docCount32)
 
 		if docCount < 0 || docCount > state.SegmentInfo.MaxDoc() {
 			return nil, fmt.Errorf("invalid docCount: %d maxDoc: %d", docCount, state.SegmentInfo.MaxDoc())
@@ -184,7 +197,7 @@ func NewBlockTermsReader(indexReader TermsIndexReader, postingsReader codecs.Pos
 }
 
 func seekDir(input store.IndexInput) error {
-	footerLen := codecs.FooterLength()
+	footerLen := store.FooterLength()
 	if input.Length() < int64(footerLen+8) {
 		return errors.New("file too short to contain directory offset")
 	}
@@ -238,8 +251,55 @@ type fieldReader struct {
 	docCount          int
 }
 
+// Field returns the name of the field this Terms instance represents.
+//
+// org.apache.lucene.index.Terms declares no field() accessor, so Apache Lucene
+// 10.5.0 reads the name straight off FieldReader.fieldInfo
+// (BlockTermsReader.java:228, `final FieldInfo fieldInfo`). Gocene's
+// [spi.Terms] contract does declare one, so the accessor is spelled here over
+// the same fieldInfo.
+func (fr *fieldReader) Field() string { return fr.fieldInfo.Name() }
+
 func (fr *fieldReader) Iterator() (index.TermsEnum, error) {
 	return newSegmentTermsEnum(fr)
+}
+
+// GetIteratorWithSeek returns an iterator positioned at or after seekTerm.
+//
+// org.apache.lucene.index.Terms declares no such member, so there is nothing to
+// override in BlockTermsReader.FieldReader (BlockTermsReader.java:226); the
+// Gocene [spi.Terms] contract does declare it, and it is satisfied here by the
+// two Lucene operations a Java caller would spell out itself —
+// Terms.iterator() followed by TermsEnum.seekCeil(BytesRef).
+func (fr *fieldReader) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
+	te, err := fr.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	if seekTerm != nil {
+		if _, err := te.SeekCeil(seekTerm); err != nil {
+			return nil, err
+		}
+	}
+	return te, nil
+}
+
+// GetPostingsReader returns the postings of termText, or nil when the term is
+// absent.
+//
+// Like GetIteratorWithSeek this is a Gocene [spi.Terms] member with no
+// counterpart on org.apache.lucene.index.Terms; it is satisfied by the Lucene
+// sequence iterator() -> seekExact(BytesRef) -> postings(int).
+func (fr *fieldReader) GetPostingsReader(termText string, flags int) (index.PostingsEnum, error) {
+	te, err := fr.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	found, err := te.SeekExact(index.NewTerm(fr.fieldInfo.Name(), termText))
+	if err != nil || !found {
+		return nil, err
+	}
+	return te.Postings(flags)
 }
 
 func (fr *fieldReader) HasFreqs() bool {
@@ -262,8 +322,126 @@ func (fr *fieldReader) Size() int64 {
 	return fr.numTerms
 }
 
-func (fr *fieldReader) GetSumTotalTermFreq() int64 {
-	return fr.sumTotalTermFreq
+// Intersect is the default org.apache.lucene.index.Terms#intersect(
+// CompiledAutomaton, BytesRef) (Terms.java:64) that FieldReader inherits:
+// iterator() wrapped in an AutomatonTermsEnum, rejecting any CompiledAutomaton
+// that is not AUTOMATON_TYPE.NORMAL. Java expresses the non-null startTerm case
+// as an anonymous subclass overriding nextSeekTerm; Gocene spells the same
+// thing through AutomatonTermsEnum.SetInitialSeekTerm, exactly as the sibling
+// term-vectors reader does.
+func (fr *fieldReader) Intersect(compiled *automaton.CompiledAutomaton, startTerm *index.Term) (index.TermsEnum, error) {
+	termsEnum, err := fr.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	if compiled.Type != automaton.AutomatonTypeNormal {
+		return nil, errors.New("please use CompiledAutomaton.getTermsEnum instead")
+	}
+	automatonTermsEnum := index.NewAutomatonTermsEnum(termsEnum, compiled)
+	if startTerm != nil {
+		automatonTermsEnum.SetInitialSeekTerm(startTerm)
+	}
+	return automatonTermsEnum, nil
+}
+
+// GetMin is the default org.apache.lucene.index.Terms#getMin()
+// (Terms.java:143) that FieldReader inherits: `return iterator().next()`.
+func (fr *fieldReader) GetMin() (*index.Term, error) {
+	te, err := fr.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	return te.Next()
+}
+
+// GetMax is the default org.apache.lucene.index.Terms#getMax()
+// (Terms.java:153) that FieldReader inherits: seek-by-ord when size() is known,
+// otherwise a digit-by-digit binary search over seekCeil. Java's
+// `catch (UnsupportedOperationException)` around the seek-by-ord attempt cannot
+// fire for this class — SegmentTermsEnum.seekExact(long)
+// (BlockTermsReader.java:711) throws IllegalStateException, never
+// UnsupportedOperationException — so a failure of the ord seek is propagated
+// here rather than swallowed.
+func (fr *fieldReader) GetMax() (*index.Term, error) {
+	size := fr.Size()
+
+	if size == 0 {
+		// empty: only possible from a FilteredTermsEnum...
+		return nil, nil
+	} else if size >= 0 {
+		// try to seek-by-ord
+		te, err := fr.Iterator()
+		if err != nil {
+			return nil, err
+		}
+		ste, ok := te.(*segmentTermsEnum)
+		if !ok {
+			return nil, fmt.Errorf("blockterms: fieldReader.GetMax: unexpected TermsEnum %T", te)
+		}
+		if err := ste.SeekExactOrd(size - 1); err != nil {
+			return nil, err
+		}
+		return ste.Term(), nil
+	}
+
+	// otherwise: binary search
+	te, err := fr.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	v, err := te.Next()
+	if err != nil {
+		return nil, err
+	}
+	if v == nil {
+		// empty: only possible from a FilteredTermsEnum...
+		return nil, nil
+	}
+
+	scratch := []byte{0}
+
+	// Iterates over digits:
+	for {
+		low := 0
+		high := 256
+
+		// Binary search current digit to find the highest
+		// digit before END:
+		for low != high {
+			mid := int(uint(low+high) >> 1)
+			scratch[len(scratch)-1] = byte(mid)
+			term, err := te.SeekCeil(index.NewTermFromBytes(fr.fieldInfo.Name(), scratch))
+			if err != nil {
+				return nil, err
+			}
+			if term == nil {
+				// Scratch was too high
+				if mid == 0 {
+					scratch = scratch[:len(scratch)-1]
+					return index.NewTermFromBytes(fr.fieldInfo.Name(), scratch), nil
+				}
+				high = mid
+			} else {
+				// Scratch was too low; there is at least one term
+				// still after it:
+				if low == mid {
+					break
+				}
+				low = mid
+			}
+		}
+
+		// Recurse to next digit:
+		scratch = append(scratch, 0)
+	}
+}
+
+// GetSumTotalTermFreq mirrors FieldReader.getSumTotalTermFreq()
+// (BlockTermsReader.java:288), whose body is `return sumTotalTermFreq`. Java
+// declares no checked exception on it; Gocene's [spi.Terms] carries the error
+// return on every statistic, so a nil error is always reported here.
+func (fr *fieldReader) GetSumTotalTermFreq() (int64, error) {
+	return fr.sumTotalTermFreq, nil
 }
 
 func (fr *fieldReader) GetSumDocFreq() (int64, error) {
@@ -275,8 +453,24 @@ func (fr *fieldReader) GetDocCount() (int, error) {
 }
 
 type segmentTermsEnum struct {
-	reader             *BlockTermsReader
-	in                 store.IndexInput
+	// TermsEnumBase renders `extends BaseTermsEnum`
+	// (BlockTermsReader.java:303): it carries the lazily created
+	// AttributeSource behind BaseTermsEnum.attributes().
+	index.TermsEnumBase
+
+	// fr is the enclosing FieldReader. Java spells SegmentTermsEnum as a
+	// private inner class of FieldReader (BlockTermsReader.java:303), so every
+	// bare `fieldInfo` in its bodies is FieldReader.this.fieldInfo; Go has no
+	// implicit outer instance, so the reference is carried explicitly.
+	fr *fieldReader
+
+	reader *BlockTermsReader
+	in     store.IndexInput
+	// termStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which the codec narrows back with a type assertion. state is
+	// the widened BlockTermState view of that very object.
+	termStateRef       index.TermState
 	state              *codecs.BlockTermState
 	doOrd              bool
 	indexEnum          TermsIndexEnum
@@ -293,7 +487,9 @@ type segmentTermsEnum struct {
 	metaDataUpto       int
 	bytes              []byte
 	bytesReader        *store.ByteArrayDataInput
-	term               *util.BytesRef
+	// term mirrors `private final BytesRefBuilder term`
+	// (BlockTermsReader.java:309).
+	term *util.BytesRefBuilder
 }
 
 func newSegmentTermsEnum(fr *fieldReader) (*segmentTermsEnum, error) {
@@ -303,19 +499,22 @@ func newSegmentTermsEnum(fr *fieldReader) (*segmentTermsEnum, error) {
 	indexEnum := fr.reader.indexReader.GetFieldEnum(fr.fieldInfo)
 	doOrd := fr.reader.indexReader.SupportsOrd()
 
-	state := fr.reader.postingsReader.NewTermState()
+	termStateRef := fr.reader.postingsReader.NewTermState()
+	state := codecs.BaseState(termStateRef)
 	state.TotalTermFreq = -1
 	state.Ord = -1
 
 	return &segmentTermsEnum{
+		fr:           fr,
 		reader:       fr.reader,
 		in:           in,
+		termStateRef: termStateRef,
 		state:        state,
 		doOrd:        doOrd,
 		indexEnum:    indexEnum,
 		termSuffixes: make([]byte, 128),
 		docFreqBytes: make([]byte, 64),
-		term:         util.NewBytesRefEmpty(),
+		term:         util.NewBytesRefBuilder(),
 	}, nil
 }
 
@@ -343,7 +542,7 @@ func (e *segmentTermsEnum) nextBlock() (bool, error) {
 	if len(e.termSuffixes) < int(lenSuf) {
 		e.termSuffixes = make([]byte, int(lenSuf))
 	}
-	if _, err := e.in.ReadBytes(e.termSuffixes[:int(lenSuf)]); err != nil {
+	if err := e.in.ReadBytes(e.termSuffixes, 0, int(lenSuf)); err != nil {
 		return false, err
 	}
 	e.termSuffixesReader = store.NewByteArrayDataInput(e.termSuffixes[:int(lenSuf)])
@@ -355,7 +554,7 @@ func (e *segmentTermsEnum) nextBlock() (bool, error) {
 	if len(e.docFreqBytes) < int(lenFreq) {
 		e.docFreqBytes = make([]byte, int(lenFreq))
 	}
-	if _, err := e.in.ReadBytes(e.docFreqBytes[:int(lenFreq)]); err != nil {
+	if err := e.in.ReadBytes(e.docFreqBytes, 0, int(lenFreq)); err != nil {
 		return false, err
 	}
 	e.freqReader = store.NewByteArrayDataInput(e.docFreqBytes[:int(lenFreq)])
@@ -367,7 +566,7 @@ func (e *segmentTermsEnum) nextBlock() (bool, error) {
 	if e.bytes == nil || len(e.bytes) < int(lenMeta) {
 		e.bytes = make([]byte, int(lenMeta))
 	}
-	if _, err := e.in.ReadBytes(e.bytes[:int(lenMeta)]); err != nil {
+	if err := e.in.ReadBytes(e.bytes, 0, int(lenMeta)); err != nil {
 		return false, err
 	}
 	e.bytesReader = store.NewByteArrayDataInput(e.bytes[:int(lenMeta)])
@@ -403,7 +602,7 @@ func (e *segmentTermsEnum) decodeMetaData() error {
 			e.state.TotalTermFreq = int64(docFreq) + tf
 		}
 
-		if err := e.reader.postingsReader.DecodeTerm(e.bytesReader, e.reader.fields[e.term.String()].fieldInfo, e.state, absolute); err != nil {
+		if err := e.reader.postingsReader.DecodeTerm(e.bytesReader, e.reader.fields[e.term.String()].fieldInfo, e.termStateRef, absolute); err != nil {
 			return err
 		}
 		e.metaDataUpto++
@@ -424,15 +623,30 @@ func (e *segmentTermsEnum) _next() (*util.BytesRef, error) {
 		}
 	}
 
-	suffixLen, err := e.termSuffixesReader.ReadVInt()
+	// TODO: cutover to something better for these ints!  simple64?
+	suffix, err := e.termSuffixesReader.ReadVInt()
 	if err != nil {
 		return nil, err
 	}
 
+	// term.setLength(termBlockPrefix + suffix);
+	// term.grow(term.length());
+	// termSuffixesReader.readBytes(term.bytes(), termBlockPrefix, suffix);
+	//
+	// (BlockTermsReader.java:643-645). Java holds suffix in an int, which is
+	// what readVInt yields; it is widened to Go's int only to index the term
+	// buffer, so nothing read from .tib changes.
+	e.term.SetLength(e.termBlockPrefix + int(suffix))
+	e.term.Grow(e.term.Length())
+	if err := e.termSuffixesReader.ReadBytes(e.term.Bytes(), e.termBlockPrefix, int(suffix)); err != nil {
+		return nil, err
+	}
 	e.state.TermBlockOrd++
+
+	// NOTE: meaningless in the non-ord case
 	e.state.Ord++
 
-	return e.term, nil
+	return e.term.Get(), nil
 }
 
 func (e *segmentTermsEnum) Next() (*index.Term, error) {
@@ -463,14 +677,17 @@ func (e *segmentTermsEnum) Next() (*index.Term, error) {
 	if t == nil {
 		return nil, nil
 	}
-	return index.NewTerm(t), nil
+	return index.NewTermFromBytesRef(e.fr.fieldInfo.Name(), t), nil
 }
 
+// Term returns the current term. Port of SegmentTermsEnum.term()
+// (BlockTermsReader.java), whose body is `return term.get()`; the field name
+// comes from the enclosing FieldReader because Gocene's [spi.Term] carries it.
 func (e *segmentTermsEnum) Term() *index.Term {
 	if e.term == nil {
 		return nil
 	}
-	return index.NewTerm(e.term)
+	return index.NewTermFromBytesRef(e.fr.fieldInfo.Name(), e.term.Get())
 }
 
 func (e *segmentTermsEnum) DocFreq() (int, error) {
@@ -491,7 +708,19 @@ func (e *segmentTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
 	if err := e.decodeMetaData(); err != nil {
 		return nil, err
 	}
-	return e.reader.postingsReader.Postings(e.reader.fields[e.term.String()].fieldInfo, e.state, nil, flags)
+	return e.reader.postingsReader.Postings(e.reader.fields[e.term.String()].fieldInfo, e.termStateRef, nil, flags)
+}
+
+// Impacts returns an ImpactsEnum for the current term. Port of
+// SegmentTermsEnum.impacts(int) (BlockTermsReader.java:684):
+//
+//	decodeMetaData();
+//	return postingsReader.impacts(fieldInfo, state, flags);
+func (e *segmentTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	if err := e.decodeMetaData(); err != nil {
+		return nil, err
+	}
+	return e.reader.postingsReader.Impacts(e.fr.fieldInfo, e.termStateRef, flags)
 }
 
 func (e *segmentTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (index.PostingsEnum, error) {
@@ -503,10 +732,10 @@ func (e *segmentTermsEnum) SeekCeil(target *index.Term) (*index.Term, error) {
 		return nil, errors.New("terms index was not loaded")
 	}
 
-	targetRef := target.Bytes()
+	targetRef := target.Bytes
 	doSeek := true
 	if e.indexIsCurrent {
-		cmp := util.BytesRefCompare(e.term, targetRef)
+		cmp := util.BytesRefCompare(e.term.Get(), targetRef)
 		if cmp == 0 {
 			return e.Term(), nil
 		} else if cmp < 0 {
@@ -546,7 +775,7 @@ func (e *segmentTermsEnum) SeekCeil(target *index.Term) (*index.Term, error) {
 		if e.doOrd {
 			e.state.Ord = e.indexEnum.Ord() - 1
 		}
-		e.term.Copy(e.indexEnum.Term())
+		e.term.CopyBytesRef(e.indexEnum.Term())
 	} else {
 		if e.state.TermBlockOrd == e.blockTermCount {
 			if ok, err := e.nextBlock(); !ok || err != nil {
@@ -562,7 +791,7 @@ func (e *segmentTermsEnum) SeekCeil(target *index.Term) (*index.Term, error) {
 	e.seekPending = false
 
 	for {
-		if e.term == nil || util.BytesRefCompare(e.term, targetRef) >= 0 {
+		if e.term == nil || util.BytesRefCompare(e.term.Get(), targetRef) >= 0 {
 			return e.Term(), nil
 		}
 		t, err := e._next()
@@ -609,7 +838,7 @@ func (e *segmentTermsEnum) SeekExactOrd(ord int64) error {
 	e.didIndexNext = false
 	e.seekPending = false
 	e.state.Ord = e.indexEnum.Ord() - 1
-	e.term.Copy(e.indexEnum.Term())
+	e.term.CopyBytesRef(e.indexEnum.Term())
 
 	left := int(ord - e.state.Ord)
 	for left > 0 {

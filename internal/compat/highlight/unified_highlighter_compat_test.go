@@ -9,8 +9,8 @@
 //
 //	highlight\tUnifiedHighlighter offset retrieval\t
 //	  org.apache.lucene.search.uhighlight.UnifiedHighlighter\t
-//	  highlight/uhighlight/\t
-//	  partial:highlight/uhighlight/unified_highlighter_test_base_test.go\t
+//	  search/uhighlight/\t
+//	  partial:search/uhighlight/unified_highlighter_test_base_test.go\t
 //	  no\tno\t
 //	  No Lucene-side parity test for offset retrieval.
 //

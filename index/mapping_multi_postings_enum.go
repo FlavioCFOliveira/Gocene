@@ -6,13 +6,8 @@ package index
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
-
-// MaxPosition is the largest position that can be stored in a posting list.
-// Mirrors org.apache.lucene.index.IndexWriter.MAX_POSITION from Apache
-// Lucene 10.4.0 (Integer.MAX_VALUE - 128). Defined here because IndexWriter
-// in Gocene does not yet expose this constant.
-const MaxPosition = int(^uint32(0)>>1) - 128
 
 // MappingMultiPostingsEnum exposes the flex API merged from the flex APIs of
 // sub-segments, remapping docIDs (this is used for segment merging). Mirrors
@@ -167,6 +162,11 @@ func (m *MappingMultiPostingsEnum) DocID() int {
 	return m.current.mappedDocID
 }
 
+// DocIDRunEnd returns the end of the current run of documents.
+func (m *MappingMultiPostingsEnum) DocIDRunEnd() (int, error) {
+	return m.DocID(), nil
+}
+
 // Advance is unsupported — mirrors Lucene which throws
 // UnsupportedOperationException.
 func (m *MappingMultiPostingsEnum) Advance(target int) (int, error) {
@@ -242,3 +242,10 @@ func (m *MappingMultiPostingsEnum) Cost() int64 {
 // PostingsEnum surface. Kept at file scope so an accidental signature drift
 // breaks the build rather than a runtime call site.
 var _ PostingsEnum = (*MappingMultiPostingsEnum)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (m *MappingMultiPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(m, upTo, bitSet, offset)
+}

@@ -24,6 +24,7 @@ const SPINameOpenNLPLemmatizer = "openNlpLemmatizer"
 //
 // At least one of DictionaryName and LemmatizerModelName must be set.
 type OpenNLPLemmatizerFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	DictionaryName      string
 	LemmatizerModelName string
 }
@@ -35,8 +36,9 @@ func NewOpenNLPLemmatizerFilterFactory(dictionaryName, lemmatizerModelName strin
 		panic("OpenNLPLemmatizerFilterFactory: at least one of DictionaryName and LemmatizerModelName must be set")
 	}
 	return &OpenNLPLemmatizerFilterFactory{
-		DictionaryName:      dictionaryName,
-		LemmatizerModelName: lemmatizerModelName,
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		DictionaryName:         dictionaryName,
+		LemmatizerModelName:    lemmatizerModelName,
 	}
 }
 

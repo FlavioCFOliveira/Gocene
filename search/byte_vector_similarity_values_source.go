@@ -79,7 +79,7 @@ func (s *ByteVectorSimilarityValuesSource) QueryVector() []byte {
 //
 // Mirrors ByteVectorSimilarityValuesSource.getScorer.
 func (s *ByteVectorSimilarityValuesSource) GetScorer(ctx *index.LeafReaderContext) (VectorScorer, error) {
-	lr, ok := ctx.Reader().(*index.LeafReader)
+	lr, ok := ctx.Reader().(index.LeafReader)
 	if !ok {
 		return nil, nil
 	}

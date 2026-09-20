@@ -16,6 +16,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"strings"
 
@@ -148,20 +149,13 @@ func (q *latLonPointDistanceQuery) Visit(visitor QueryVisitor) {
 
 // Rewrite returns the query unchanged. The Java reference inherits
 // the no-op rewrite from Query.
-func (q *latLonPointDistanceQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
-
-// Clone returns a shallow copy. The query holds only value-type
-// fields, so a structural copy is safe.
-func (q *latLonPointDistanceQuery) Clone() Query {
-	c := *q
-	return &c
-}
+func (q *latLonPointDistanceQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // Equals mirrors the Java reference: two queries are equal iff they
 // share the same concrete type, field, and (latitude, longitude,
 // radiusMeters) triple compared by IEEE-754 long bits (so NaN ==
 // NaN and +0 != -0, matching Double.doubleToLongBits).
-func (q *latLonPointDistanceQuery) Equals(other Query) bool {
+func (q *latLonPointDistanceQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*latLonPointDistanceQuery)
 	if !ok {
 		return false
@@ -232,7 +226,7 @@ func (q *latLonPointDistanceQuery) toString(field string) string {
 // when the field is unknown to the leaf, matching Lucene's null-
 // Scorer fast path.
 func (q *latLonPointDistanceQuery) CreateWeight(
-	_ *IndexSearcher, _ bool, boost float32,
+	_ *IndexSearcher, _ ScoreMode, boost float32,
 ) (Weight, error) {
 	box, err := geo.FromPointDistance(q.latitude, q.longitude, q.radiusMeters)
 	if err != nil {
@@ -361,21 +355,8 @@ type latLonDistancePointVisitor interface {
 	VisitIterator(iter util.DocIdSetIterator) error
 	VisitIteratorWithPackedValue(iter util.DocIdSetIterator, packedValue []byte) error
 	Grow(count int)
-	Compare(minPackedValue, maxPackedValue []byte) latLonDistanceCellRelation
+	Compare(minPackedValue, maxPackedValue []byte) index.Relation
 }
-
-// latLonDistanceCellRelation classifies how a BKD cell intersects
-// the disk, mirroring org.apache.lucene.index.PointValues.Relation.
-type latLonDistanceCellRelation int
-
-const (
-	// latLonDistanceCellOutsideQuery indicates the cell lies fully outside the disk.
-	latLonDistanceCellOutsideQuery latLonDistanceCellRelation = iota
-	// latLonDistanceCellInsideQuery indicates the cell lies fully inside the disk.
-	latLonDistanceCellInsideQuery
-	// latLonDistanceCellCrossesQuery indicates the cell partially overlaps the disk.
-	latLonDistanceCellCrossesQuery
-)
 
 // latLonDistancePointTreeIntersect is the rich, visitor-driven read
 // surface a BKD-backed PointValues exposes beyond the metadata-only
@@ -384,11 +365,15 @@ const (
 // structurally; the parameter type is the index-package alias so the
 // type assertion succeeds for the real codec reader (the same reason
 // PointRangeQuery and XYPointInGeometryQuery alias
-// index.PointTreeIntersectVisitor).
-type latLonDistancePointTreeIntersect interface {
-	Intersect(visitor index.PointTreeIntersectVisitor) error
-	EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64
-}
+// index.IntersectVisitor).
+// latLonDistancePointTreeIntersect is an alias of index.PointValues. Before the two
+// PointValues renderings were merged it was a narrow structural interface
+// carrying the visitor-driven surface (Intersect / EstimatePointCount) that
+// index.PointValues did not declare; org.apache.lucene.index.PointValues
+// declares intersect and estimatePointCount as public final members, so the
+// whole surface is now on the one interface and the narrow duplicate has no
+// Lucene counterpart.
+type latLonDistancePointTreeIntersect = index.PointValues
 
 // newLatLonDistancePointSourceFromIndexPointValues adapts a BKD-backed
 // index.PointValues to the latLonDistancePointSource contract used by
@@ -407,7 +392,7 @@ func newLatLonDistancePointSourceFromIndexPointValues(pv index.PointValues) latL
 
 // bkdLatLonDistancePointSource drives a BKD-backed PointValues,
 // translating between the distance query's latLonDistancePointVisitor
-// and the index.PointTreeIntersectVisitor the BKD reader expects.
+// and the index.IntersectVisitor the BKD reader expects.
 type bkdLatLonDistancePointSource struct {
 	pv latLonDistancePointTreeIntersect
 }
@@ -417,11 +402,11 @@ func (s *bkdLatLonDistancePointSource) Intersect(visitor latLonDistancePointVisi
 }
 
 func (s *bkdLatLonDistancePointSource) EstimateDocCount(visitor latLonDistancePointVisitor) (int64, error) {
-	return s.pv.EstimatePointCount(&latLonDistanceVisitorBridge{v: visitor}), nil
+	return s.pv.EstimateDocCount(&latLonDistanceVisitorBridge{v: visitor})
 }
 
 // latLonDistanceVisitorBridge adapts a latLonDistancePointVisitor to the
-// index.PointTreeIntersectVisitor surface the BKD reader invokes. The
+// index.IntersectVisitor surface the BKD reader invokes. The
 // reader only drives Visit / VisitByPackedValue / Compare / Grow (the
 // bulk-iterator methods on latLonDistancePointVisitor are not part of
 // the BKD reader's intersect path).
@@ -435,13 +420,13 @@ func (b *latLonDistanceVisitorBridge) VisitByPackedValue(docID int, packedValue 
 	return b.v.VisitWithPackedValue(docID, packedValue)
 }
 
-func (b *latLonDistanceVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) int {
-	return int(b.v.Compare(minPackedValue, maxPackedValue))
+func (b *latLonDistanceVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
+	return b.v.Compare(minPackedValue, maxPackedValue)
 }
 
 func (b *latLonDistanceVisitorBridge) Grow(count int) { b.v.Grow(count) }
 
-var _ index.PointTreeIntersectVisitor = (*latLonDistanceVisitorBridge)(nil)
+var _ index.IntersectVisitor = (*latLonDistanceVisitorBridge)(nil)
 
 // noopLatLonDistancePointSource is the safe fallback when the
 // PointValues does not expose the visitor-driven Intersect surface (e.g.
@@ -606,20 +591,19 @@ func (s *latLonPointDistanceScorerSupplier) Get(_ int64) (Scorer, error) {
 	}
 	var disi DocIdSetIterator
 	if set == nil {
-		disi = NewEmptyDocIdSetIterator()
+		disi = Empty()
 	} else {
 		utilIter := set.Iterator()
 		if utilIter == nil {
-			disi = NewEmptyDocIdSetIterator()
+			disi = Empty()
 		} else {
 			disi = newLatLonDistanceUtilDISIAdapter(utilIter)
 		}
 	}
 	return &latLonPointDistanceScorer{
-		BaseScorer: NewBaseScorer(s.weight),
-		weight:     s.weight,
-		iter:       disi,
-		score:      s.weight.boost,
+		weight: s.weight,
+		iter:   disi,
+		score:  s.weight.boost,
 	}, nil
 }
 
@@ -640,7 +624,9 @@ func (s *latLonPointDistanceScorerSupplier) Cost() int64 {
 }
 
 // SetTopLevelScoringClause is a no-op for this constant-score supplier.
-func (s *latLonPointDistanceScorerSupplier) SetTopLevelScoringClause() {}
+func (s *latLonPointDistanceScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
 
 // Ensure latLonPointDistanceScorerSupplier implements ScorerSupplier.
 var _ ScorerSupplier = (*latLonPointDistanceScorerSupplier)(nil)
@@ -756,14 +742,14 @@ func (v *latLonPointDistanceVisitor) VisitIteratorWithPackedValue(
 // the Java reference.
 func (v *latLonPointDistanceVisitor) Compare(
 	minPackedValue, maxPackedValue []byte,
-) latLonDistanceCellRelation {
+) index.Relation {
 	if len(minPackedValue) < 2*latLonPointBytesPerDim ||
 		len(maxPackedValue) < 2*latLonPointBytesPerDim {
 		// Mirrors Java's array-bounds failure: a malformed cell
 		// payload is a programmer error. The safe answer here is
 		// "crosses" (force the source to recurse and surface the
 		// bug downstream) rather than silently dropping the cell.
-		return latLonDistanceCellCrossesQuery
+		return index.CellCrossesQuery
 	}
 	return v.relate(minPackedValue, maxPackedValue)
 }
@@ -792,44 +778,26 @@ func (v *latLonPointDistanceVisitor) matches(packedValue []byte) bool {
 // degree call into geo.Relate for the disk-vs-cell classification.
 func (v *latLonPointDistanceVisitor) relate(
 	minPackedValue, maxPackedValue []byte,
-) latLonDistanceCellRelation {
+) index.Relation {
 	latLowerBound := util.SortableBytesToInt(minPackedValue, 0)
 	latUpperBound := util.SortableBytesToInt(maxPackedValue, 0)
 	if latLowerBound > v.bbox.maxLat || latUpperBound < v.bbox.minLat {
 		// Latitude out of bounding-box range.
-		return latLonDistanceCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	lonLowerBound := util.SortableBytesToInt(minPackedValue, latLonPointBytesPerDim)
 	lonUpperBound := util.SortableBytesToInt(maxPackedValue, latLonPointBytesPerDim)
 	if (lonLowerBound > v.bbox.maxLon || lonUpperBound < v.bbox.minLon) &&
 		lonUpperBound < v.bbox.minLon2 {
 		// Longitude out of bounding-box range.
-		return latLonDistanceCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	latMin := geo.DecodeLatitude(latLowerBound)
 	lonMin := geo.DecodeLongitude(lonLowerBound)
 	latMax := geo.DecodeLatitude(latUpperBound)
 	lonMax := geo.DecodeLongitude(lonUpperBound)
-	return latLonDistanceRelationFromGeo(
-		geo.Relate(latMin, latMax, lonMin, lonMax,
-			v.lat, v.lon, v.sortKey, v.axisLat),
-	)
-}
-
-// latLonDistanceRelationFromGeo maps geo.Relation onto the local
-// latLonDistanceCellRelation enum. The two enums carry identical
-// semantics; the local enum exists so the query surface stays
-// decoupled from the geo package (a future PointValues port may not
-// want to depend on it transitively).
-func latLonDistanceRelationFromGeo(r geo.Relation) latLonDistanceCellRelation {
-	switch r {
-	case geo.CellInsideQuery:
-		return latLonDistanceCellInsideQuery
-	case geo.CellCrossesQuery:
-		return latLonDistanceCellCrossesQuery
-	default:
-		return latLonDistanceCellOutsideQuery
-	}
+	return geo.Relate(latMin, latMax, lonMin, lonMax,
+		v.lat, v.lon, v.sortKey, v.axisLat)
 }
 
 // latLonPointDistanceScorer is the constant-score scorer returned by
@@ -838,7 +806,7 @@ func latLonDistanceRelationFromGeo(r geo.Relation) latLonDistanceCellRelation {
 // forwards every position/cost call to the materialized DocIdSet's
 // iterator.
 type latLonPointDistanceScorer struct {
-	*BaseScorer
+	BaseScorer
 
 	weight *latLonPointDistanceWeight
 	iter   DocIdSetIterator
@@ -860,13 +828,60 @@ func (s *latLonPointDistanceScorer) Advance(target int) (int, error) {
 func (s *latLonPointDistanceScorer) Cost() int64 { return s.iter.Cost() }
 
 // DocIDRunEnd returns the end of the current run.
-func (s *latLonPointDistanceScorer) DocIDRunEnd() int { return s.iter.DocIDRunEnd() }
+func (s *latLonPointDistanceScorer) DocIDRunEnd() (int, error) { return s.iter.DocIDRunEnd() }
 
 // Score returns the constant boost score.
-func (s *latLonPointDistanceScorer) Score() float32 { return s.score }
+//
+// Mirrors ConstantScoreScorer.score(), whose body is `return score;`.
+func (s *latLonPointDistanceScorer) Score() (float32, error) { return s.score, nil }
 
 // GetMaxScore returns the constant boost score (no per-doc variability).
-func (s *latLonPointDistanceScorer) GetMaxScore(_ int) float32 { return s.score }
+//
+// Mirrors ConstantScoreScorer.getMaxScore(int), whose body is `return score;`.
+func (s *latLonPointDistanceScorer) GetMaxScore(_ int) (float32, error) { return s.score, nil }
+
+// Iterator mirrors ConstantScoreScorer.iterator(), whose body is
+// `return disi;` — the DocIdSetIterator the Java query hands to the
+// ConstantScoreScorer constructor.
+func (s *latLonPointDistanceScorer) Iterator() DocIdSetIterator { return s.iter }
+
+// NextDocsAndScores mirrors ConstantScoreScorer.nextDocsAndScores(int, Bits,
+// DocAndFloatFeatureBuffer) (Lucene 10.5.0):
+//
+//	int batchSize = 64;
+//	buffer.growNoCopy(batchSize);
+//	int size = 0;
+//	DocIdSetIterator iterator = iterator();
+//	for (int doc = iterator.docID(); doc < upTo && size < batchSize; doc = iterator.nextDoc()) {
+//	  if (liveDocs == null || liveDocs.get(doc)) {
+//	    buffer.docs[size] = doc;
+//	    ++size;
+//	  }
+//	}
+//	Arrays.fill(buffer.features, 0, size, score);
+//	buffer.size = size;
+func (s *latLonPointDistanceScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	batchSize := 64
+	buffer.GrowNoCopy(batchSize)
+	size := 0
+	iterator := s.Iterator()
+	for doc := iterator.DocID(); doc < upTo && size < batchSize; {
+		if liveDocs == nil || liveDocs.Get(doc) {
+			buffer.Docs[size] = doc
+			size++
+		}
+		next, err := iterator.NextDoc()
+		if err != nil {
+			return err
+		}
+		doc = next
+	}
+	for i := 0; i < size; i++ {
+		buffer.Features[i] = s.score
+	}
+	buffer.Size = size
+	return nil
+}
 
 // Ensure latLonPointDistanceScorer implements Scorer.
 var _ Scorer = (*latLonPointDistanceScorer)(nil)
@@ -890,8 +905,10 @@ func (a *latLonDistanceUtilDISIAdapter) NextDoc() (int, error) { return a.inner.
 func (a *latLonDistanceUtilDISIAdapter) Advance(target int) (int, error) {
 	return a.inner.Advance(target)
 }
-func (a *latLonDistanceUtilDISIAdapter) Cost() int64      { return a.inner.Cost() }
-func (a *latLonDistanceUtilDISIAdapter) DocIDRunEnd() int { return a.inner.DocIDRunEnd() }
+func (a *latLonDistanceUtilDISIAdapter) Cost() int64 { return a.inner.Cost() }
+func (a *latLonDistanceUtilDISIAdapter) DocIDRunEnd() (int, error) {
+	return a.inner.DocIDRunEnd()
+}
 
 var _ DocIdSetIterator = (*latLonDistanceUtilDISIAdapter)(nil)
 
@@ -943,3 +960,42 @@ func foldLongBits(bits uint64) int {
 // constant. Distinct from other query class hashes so two different
 // query types with the same field/payload do not collide.
 const classHashLatLonPointDistanceQuery = 0x4c4c_5044 // "LLPD"
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (l *latLonPointDistanceScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(l)
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (l *latLonDistanceUtilDISIAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(l, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *latLonPointDistanceScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which b does not
+// override.
+func (b *latLonDistanceVisitorBridge) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(b, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which b does not override.
+func (b *latLonDistanceVisitorBridge) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(b, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which b
+// does not override.
+func (b *latLonDistanceVisitorBridge) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(b, iterator, packedValue)
+}

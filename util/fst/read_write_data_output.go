@@ -35,6 +35,7 @@ import (
 // that motivated paging in the JVM, and reusing the existing
 // ReverseBytesReader keeps the rest of the FST package unchanged.
 type ReadWriteDataOutput struct {
+	*store.BaseDataOutput
 	bytes  []byte
 	pos    int
 	frozen bool
@@ -48,7 +49,9 @@ func NewReadWriteDataOutput(blockBits int) *ReadWriteDataOutput {
 	if blockBits < 1 || blockBits > 30 {
 		panic(fmt.Sprintf("ReadWriteDataOutput: blockBits must be 1..30 (got %d)", blockBits))
 	}
-	return &ReadWriteDataOutput{bytes: make([]byte, 0, 1<<blockBits)}
+	rw := &ReadWriteDataOutput{bytes: make([]byte, 0, 1<<blockBits)}
+	rw.BaseDataOutput = store.NewBaseDataOutput(rw)
+	return rw
 }
 
 // WriteByte implements store.DataOutput.
@@ -64,7 +67,9 @@ func (rw *ReadWriteDataOutput) WriteByte(b byte) error {
 }
 
 // WriteBytes implements store.DataOutput.
-func (rw *ReadWriteDataOutput) WriteBytes(b []byte) error { return rw.WriteBytesN(b, len(b)) }
+func (rw *ReadWriteDataOutput) WriteBytes(b []byte, offset, length int) error {
+	return rw.WriteBytesN(b[offset:offset+length], length)
+}
 
 // WriteBytesN implements store.DataOutput.
 func (rw *ReadWriteDataOutput) WriteBytesN(b []byte, n int) error {
@@ -83,38 +88,6 @@ func (rw *ReadWriteDataOutput) WriteBytesN(b []byte, n int) error {
 	rw.pos += n
 	return nil
 }
-
-// WriteShort emits a little-endian int16, matching the canonical
-// post-versionLittleEndian layout used elsewhere in the package.
-func (rw *ReadWriteDataOutput) WriteShort(v int16) error {
-	if err := rw.WriteByte(byte(v)); err != nil {
-		return err
-	}
-	return rw.WriteByte(byte(v >> 8))
-}
-
-// WriteInt emits a little-endian int32.
-func (rw *ReadWriteDataOutput) WriteInt(v int32) error {
-	for i := 0; i < 4; i++ {
-		if err := rw.WriteByte(byte(v >> (8 * i))); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// WriteLong emits a little-endian int64.
-func (rw *ReadWriteDataOutput) WriteLong(v int64) error {
-	for i := 0; i < 8; i++ {
-		if err := rw.WriteByte(byte(v >> (8 * i))); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// WriteString implements store.DataOutput.
-func (rw *ReadWriteDataOutput) WriteString(s string) error { return store.WriteString(rw, s) }
 
 // WriteVInt implements store.VariableLengthOutput.
 func (rw *ReadWriteDataOutput) WriteVInt(v int32) error {

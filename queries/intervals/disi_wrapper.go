@@ -8,7 +8,7 @@
 package intervals
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DisiWrapper wraps an IntervalIterator for use in DisiPriorityQueue.

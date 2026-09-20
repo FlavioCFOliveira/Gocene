@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // DelegatingAnalyzerWrapper is an AnalyzerWrapper that does not allow
@@ -21,12 +22,12 @@ import (
 type DelegatingAnalyzerWrapper struct {
 	// GetWrappedAnalyzer returns the wrapped Analyzer for the given field
 	// name. Must be non-nil. The returned Analyzer is assumed to be non-nil.
-	GetWrappedAnalyzer func(fieldName string) Analyzer
+	GetWrappedAnalyzer func(fieldName string) api.Analyzer
 }
 
 // NewDelegatingAnalyzerWrapper creates a new DelegatingAnalyzerWrapper that
 // delegates to the Analyzer returned by getWrappedAnalyzer for every field.
-func NewDelegatingAnalyzerWrapper(getWrappedAnalyzer func(fieldName string) Analyzer) *DelegatingAnalyzerWrapper {
+func NewDelegatingAnalyzerWrapper(getWrappedAnalyzer func(fieldName string) api.Analyzer) *DelegatingAnalyzerWrapper {
 	return &DelegatingAnalyzerWrapper{
 		GetWrappedAnalyzer: getWrappedAnalyzer,
 	}
@@ -36,6 +37,11 @@ func NewDelegatingAnalyzerWrapper(getWrappedAnalyzer func(fieldName string) Anal
 // reader or the resulting TokenStream.
 func (d *DelegatingAnalyzerWrapper) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
 	return d.GetWrappedAnalyzer(fieldName).TokenStream(fieldName, reader)
+}
+
+// Normalize delegates to the wrapped Analyzer.
+func (d *DelegatingAnalyzerWrapper) Normalize(fieldName string) TokenStream {
+	return d.GetWrappedAnalyzer(fieldName).Normalize(fieldName)
 }
 
 // Close releases resources held by this DelegatingAnalyzerWrapper. The
@@ -68,4 +74,4 @@ func (d *DelegatingAnalyzerWrapper) GetOffsetGap(fieldName string) int {
 }
 
 // Ensure DelegatingAnalyzerWrapper implements Analyzer.
-var _ Analyzer = (*DelegatingAnalyzerWrapper)(nil)
+var _ api.Analyzer = (*DelegatingAnalyzerWrapper)(nil)

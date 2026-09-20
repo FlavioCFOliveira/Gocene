@@ -216,7 +216,7 @@ func findSegmentsFile(t *testing.T, dir string) string {
 }
 
 // parseGeneration extracts the trailing base-36 generation from a
-// segments_N filename. Mirrors index.ParseGeneration's semantics for
+// segments_N filename. Mirrors store.ParseGeneration's semantics for
 // the commit pointer specifically (segments file has no extension).
 func parseGeneration(t *testing.T, name string) int64 {
 	t.Helper()

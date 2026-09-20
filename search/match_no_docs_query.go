@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
@@ -30,26 +31,24 @@ func NewMatchNoDocsQuery(reason string) *MatchNoDocsQuery {
 	}
 }
 
-// NewMatchNoDocsQueryWithReason creates a new MatchNoDocsQuery with a reason.
-// This is an alias for NewMatchNoDocsQuery.
-func NewMatchNoDocsQueryWithReason(reason string) *MatchNoDocsQuery {
-	return NewMatchNoDocsQuery(reason)
-}
-
-func (q *MatchNoDocsQuery) Equals(other Query) bool {
+func (q *MatchNoDocsQuery) Equals(other spi.Query) bool {
 	_, ok := other.(*MatchNoDocsQuery)
 	return ok
 }
 
 func (q *MatchNoDocsQuery) HashCode() int {
 	// Return a constant hash code for this class, mirroring Java's classHash().
-	return 12345
+	return 0
 }
 
-func (q *MatchNoDocsQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *MatchNoDocsQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return &matchNoDocsWeight{
 		BaseWeight: NewBaseWeight(q),
 	}, nil
+}
+
+func (q *MatchNoDocsQuery) Visit(visitor QueryVisitor) {
+	visitor.VisitLeaf(q)
 }
 
 func (q *MatchNoDocsQuery) String() string {

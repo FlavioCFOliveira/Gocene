@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -50,8 +51,8 @@ import (
 //     FreqProxTermsEnum so callers performing flush-time iteration can mirror
 //     Lucene's three-way branching exactly.
 //
-//   - ImpactsEnum is not yet ported in Gocene, so Impacts returns
-//     ErrFreqProxFieldsUnsupported.
+//   - Impacts follows Lucene's BaseTermsEnum default and wraps the postings
+//     in a SlowImpactsEnum: the in-RAM buffer carries no impact index.
 //
 //   - TermState is a placeholder OrdTermState (Gocene's package default)
 //     whose CopyFrom rejects any copy, mirroring Lucene's anonymous TermState
@@ -141,16 +142,16 @@ func newFreqProxTerms(terms *FreqProxTermsWriterPerField) *FreqProxTerms {
 	return &FreqProxTerms{terms: terms}
 }
 
-// GetIterator returns a FreqProxTermsEnum pre-positioned before the first
+// Iterator returns a FreqProxTermsEnum pre-positioned before the first
 // term. The returned enumerator is independent of any prior iterator over
 // the same FreqProxTerms.
-func (t *FreqProxTerms) GetIterator() (TermsEnum, error) {
+func (t *FreqProxTerms) Iterator() (TermsEnum, error) {
 	return newFreqProxTermsEnum(t.terms), nil
 }
 
 // GetIteratorWithSeek returns a FreqProxTermsEnum positioned at the seek
 // term (or after it). If seekTerm is nil, the enumerator is positioned
-// before the first term, mirroring GetIterator.
+// before the first term, mirroring Iterator.
 func (t *FreqProxTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error) {
 	enum := newFreqProxTermsEnum(t.terms)
 	if seekTerm == nil {
@@ -448,8 +449,16 @@ func (e *FreqProxTermsEnum) TermState() (TermState, error) {
 
 // Impacts is not supported on the in-RAM buffer; mirrors Lucene's
 // UnsupportedOperationException.
-func (e *FreqProxTermsEnum) Impacts(flags int) error {
-	return ErrFreqProxFieldsUnsupported
+// Impacts returns an ImpactsEnum over the current term's postings. Lucene's
+// FreqProxTermsEnum does not override impacts, so it inherits
+// BaseTermsEnum.impacts, which wraps postings(null, flags) in a
+// SlowImpactsEnum: the in-RAM buffer carries no impact index.
+func (e *FreqProxTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	postings, err := e.Postings(flags)
+	if err != nil {
+		return nil, err
+	}
+	return spiImpactsEnum{ImpactsEnum: NewSlowImpactsEnum(postings)}, nil
 }
 
 // freqProxTermState mirrors the anonymous TermState returned by Lucene's
@@ -556,7 +565,7 @@ func (d *freqProxDocsEnum) NextDoc() (int, error) {
 		return d.CurrentDoc, nil
 	}
 
-	code, err := d.reader.readVInt()
+	code, err := d.reader.ReadVInt()
 	if err != nil {
 		return 0, fmt.Errorf("freqProxDocsEnum.NextDoc: %w", err)
 	}
@@ -567,7 +576,7 @@ func (d *freqProxDocsEnum) NextDoc() (int, error) {
 		if (code & 1) != 0 {
 			d.freq = 1
 		} else {
-			f, err := d.reader.readVInt()
+			f, err := d.reader.ReadVInt()
 			if err != nil {
 				return 0, fmt.Errorf("freqProxDocsEnum.NextDoc: %w", err)
 			}
@@ -666,7 +675,7 @@ func (p *freqProxPostingsEnum) NextDoc() (int, error) {
 		p.CurrentDoc = p.postingsArray.LastDocIDs[p.termID]
 		p.freq = p.postingsArray.TermFreqs[p.termID]
 	} else {
-		code, err := p.reader.readVInt()
+		code, err := p.reader.ReadVInt()
 		if err != nil {
 			return 0, fmt.Errorf("freqProxPostingsEnum.NextDoc: %w", err)
 		}
@@ -674,7 +683,7 @@ func (p *freqProxPostingsEnum) NextDoc() (int, error) {
 		if (code & 1) != 0 {
 			p.freq = 1
 		} else {
-			f, err := p.reader.readVInt()
+			f, err := p.reader.ReadVInt()
 			if err != nil {
 				return 0, fmt.Errorf("freqProxPostingsEnum.NextDoc: %w", err)
 			}
@@ -704,14 +713,14 @@ func (p *freqProxPostingsEnum) NextPosition() (int, error) {
 		return NO_MORE_POSITIONS, nil
 	}
 	p.posLeft--
-	code, err := p.posReader.readVInt()
+	code, err := p.posReader.ReadVInt()
 	if err != nil {
 		return 0, fmt.Errorf("freqProxPostingsEnum.NextPosition: %w", err)
 	}
 	p.pos += int(uint32(code) >> 1)
 	if (code & 1) != 0 {
 		p.hasPayload = true
-		plen, err := p.posReader.readVInt()
+		plen, err := p.posReader.ReadVInt()
 		if err != nil {
 			return 0, fmt.Errorf("freqProxPostingsEnum.NextPosition payload length: %w", err)
 		}
@@ -719,7 +728,7 @@ func (p *freqProxPostingsEnum) NextPosition() (int, error) {
 		p.payload.GrowNoCopy(int(plen))
 		if int(plen) > 0 {
 			buf := p.payload.Bytes()[:int(plen)]
-			if err := p.posReader.ReadBytes(buf); err != nil {
+			if err := p.posReader.ReadBytes(buf, 0, len(buf)); err != nil {
 				return 0, fmt.Errorf("freqProxPostingsEnum.NextPosition payload bytes: %w", err)
 			}
 		}
@@ -728,11 +737,11 @@ func (p *freqProxPostingsEnum) NextPosition() (int, error) {
 	}
 
 	if p.readOffsets {
-		so, err := p.posReader.readVInt()
+		so, err := p.posReader.ReadVInt()
 		if err != nil {
 			return 0, fmt.Errorf("freqProxPostingsEnum.NextPosition start offset: %w", err)
 		}
-		eo, err := p.posReader.readVInt()
+		eo, err := p.posReader.ReadVInt()
 		if err != nil {
 			return 0, fmt.Errorf("freqProxPostingsEnum.NextPosition end offset: %w", err)
 		}
@@ -768,4 +777,18 @@ func (p *freqProxPostingsEnum) GetPayload() ([]byte, error) {
 	// further NextPosition calls must copy the slice; that mirrors Lucene
 	// where BytesRefBuilder.get() returns a BytesRef over the live buffer.
 	return ref.Bytes[ref.Offset : ref.Offset+ref.Length], nil
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (f *freqProxPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (f *freqProxDocsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
 }

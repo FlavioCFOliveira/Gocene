@@ -92,9 +92,9 @@ func TestOmitPositions_Basic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Terms: %v", err)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	found, err := te.SeekExact(schema.NewTerm("foo", "test"))
 	if err != nil {

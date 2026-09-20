@@ -51,8 +51,8 @@ type MultiLevelSkipListWriter struct {
 	df int
 
 	// skipBuffer holds the per-level skip data accumulated by BufferSkip.
-	// Each entry is a RAMOutputStream-equivalent; here a growing byte slice.
-	skipBuffer []*store.ByteArrayDataOutput
+	// Mirrors the Java field `private ByteBuffersDataOutput[] skipBuffer`.
+	skipBuffer []*store.ByteBuffersDataOutput
 
 	// writeSkipData is the codec-specific hook that writes the per-level skip
 	// payload for the most recently buffered document. level is 0..numLevels-1
@@ -62,8 +62,9 @@ type MultiLevelSkipListWriter struct {
 
 // WriteSkipDataFunc is the codec hook invoked once per level for each
 // BufferSkip call. The implementation appends its per-level skip payload to
-// the provided buffer. Returning an error aborts the skip flush.
-type WriteSkipDataFunc func(level int, skipBuffer *store.ByteArrayDataOutput) error
+// the provided buffer. Returning an error aborts the skip flush. Mirrors the
+// abstract `writeSkipData(int level, DataOutput skipBuffer)`.
+type WriteSkipDataFunc func(level int, skipBuffer store.DataOutput) error
 
 // NewMultiLevelSkipListWriter creates a writer that will eventually emit a
 // skip list for a posting list of df documents. skipInterval and
@@ -113,9 +114,11 @@ func computeNumberOfSkipLevels(df, skipInterval, skipMultiplier, maxSkipLevels i
 // Init resets the per-level buffers so the writer can be reused across terms.
 // Must be called before BufferSkip on a freshly constructed or reused writer.
 func (w *MultiLevelSkipListWriter) Init() {
-	w.skipBuffer = make([]*store.ByteArrayDataOutput, w.numberOfSkipLevels)
+	// skipBuffer = new ByteBuffersDataOutput[numberOfSkipLevels];
+	// skipBuffer[i] = ByteBuffersDataOutput.newResettableInstance();
+	w.skipBuffer = make([]*store.ByteBuffersDataOutput, w.numberOfSkipLevels)
 	for i := range w.skipBuffer {
-		w.skipBuffer[i] = store.NewByteArrayDataOutput(0)
+		w.skipBuffer[i] = store.NewByteBuffersDataOutput()
 	}
 }
 
@@ -161,7 +164,7 @@ func (w *MultiLevelSkipListWriter) BufferSkip(df int) error {
 			return fmt.Errorf("MultiLevelSkipListWriter: writeSkipData(level=%d): %w", level, err)
 		}
 
-		newChildPointer := int64(w.skipBuffer[level].Length())
+		newChildPointer := w.skipBuffer[level].Size()
 
 		if level != 0 {
 			// Append the child pointer that tells the reader where in the
@@ -180,44 +183,44 @@ func (w *MultiLevelSkipListWriter) BufferSkip(df int) error {
 // writeChildPointer writes a child pointer in the default VLong format.
 // Codecs that need a different encoding (e.g. text formats) must use their
 // own writer rather than the base MultiLevelSkipListWriter.
-func writeChildPointer(childPointer int64, buf *store.ByteArrayDataOutput) error {
+func writeChildPointer(childPointer int64, buf store.DataOutput) error {
 	return buf.WriteVLong(childPointer)
 }
 
 // WriteSkip flushes the buffered skip list to output and returns the file
-// pointer where the skip data starts. The on-disk layout is top-down: for
-// each level above 0, the writer emits a VLong giving the byte length of that
-// level's payload followed by the level's own payload. The bottommost
-// level (level 0) is emitted without a length prefix because the reader
-// reaches it by skipping over the upper levels.
+// pointer where the skip data starts. Mirrors writeSkip(IndexOutput):
+//
+//	long skipPointer = output.getFilePointer();
+//	if (skipBuffer == null || skipBuffer.length == 0) return skipPointer;
+//	for (int level = numberOfSkipLevels - 1; level > 0; level--) {
+//	  long length = skipBuffer[level].size();
+//	  if (length > 0) {
+//	    writeLevelLength(length, output);
+//	    skipBuffer[level].copyTo(output);
+//	  }
+//	}
+//	skipBuffer[0].copyTo(output);
+//	return skipPointer;
 func (w *MultiLevelSkipListWriter) WriteSkip(output store.IndexOutput) (int64, error) {
-	if w.skipBuffer == nil {
-		return 0, fmt.Errorf("MultiLevelSkipListWriter: Init() not called")
-	}
-
 	skipPointer := output.GetFilePointer()
-	if w.numberOfSkipLevels == 0 {
+	if len(w.skipBuffer) == 0 {
 		return skipPointer, nil
 	}
 
-	// Walk levels top-down. Each level above 0 is prefixed with its own byte
-	// length so the reader can seek past the upper levels in one pass.
 	for level := w.numberOfSkipLevels - 1; level > 0; level-- {
-		levelBytes := w.skipBuffer[level].GetBytes()
-		if err := store.WriteVLong(output, int64(len(levelBytes))); err != nil {
-			return 0, fmt.Errorf("MultiLevelSkipListWriter: writeLevelLength(level=%d): %w", level, err)
-		}
-		if len(levelBytes) > 0 {
-			if err := output.WriteBytes(levelBytes); err != nil {
-				return 0, fmt.Errorf("MultiLevelSkipListWriter: writeBytes(level=%d): %w", level, err)
+		length := w.skipBuffer[level].Size()
+		if length > 0 {
+			// writeLevelLength(length, output) -> output.writeVLong(levelLength)
+			if err := output.WriteVLong(length); err != nil {
+				return 0, fmt.Errorf("MultiLevelSkipListWriter: writeLevelLength(level=%d): %w", level, err)
+			}
+			if err := w.skipBuffer[level].CopyTo(output); err != nil {
+				return 0, fmt.Errorf("MultiLevelSkipListWriter: copyTo(level=%d): %w", level, err)
 			}
 		}
 	}
-	level0 := w.skipBuffer[0].GetBytes()
-	if len(level0) > 0 {
-		if err := output.WriteBytes(level0); err != nil {
-			return 0, fmt.Errorf("MultiLevelSkipListWriter: writeBytes(level=0): %w", err)
-		}
+	if err := w.skipBuffer[0].CopyTo(output); err != nil {
+		return 0, fmt.Errorf("MultiLevelSkipListWriter: copyTo(level=0): %w", err)
 	}
 
 	return skipPointer, nil

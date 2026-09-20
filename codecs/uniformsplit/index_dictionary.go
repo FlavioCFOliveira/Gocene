@@ -76,5 +76,8 @@ type IndexDictionaryBrowser interface {
 // org.apache.lucene.index.TermsEnum.SeekExact are called (it is not loaded for a
 // direct all-terms enumeration).
 type IndexDictionaryBrowserSupplier interface {
-	GetBrowser() (IndexDictionaryBrowser, error)
+	// Get returns a new stateful IndexDictionaryBrowser. Mirrors the sole
+	// method of IndexDictionary.BrowserSupplier, which Java inherits from
+	// IOSupplier<Browser> (IndexDictionary.java:105).
+	Get() (IndexDictionaryBrowser, error)
 }

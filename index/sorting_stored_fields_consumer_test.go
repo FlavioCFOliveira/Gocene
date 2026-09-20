@@ -99,23 +99,43 @@ func (r *fakeStoredFieldsReader) VisitDocument(docID int, visitor StoredFieldVis
 	if docID < 0 || docID >= len(r.docs) {
 		return fmt.Errorf("fakeReader: docID %d out of range [0,%d)", docID, len(r.docs))
 	}
-	for _, f := range r.docs[docID] {
+	for i, f := range r.docs[docID] {
+		info := testStoredFieldInfo(f.name, i)
+		status, err := visitor.NeedsField(info)
+		if err != nil {
+			return err
+		}
+		if status == StoredFieldVisitorStatusStop {
+			return nil
+		}
+		if status == StoredFieldVisitorStatusNo {
+			continue
+		}
 		switch f.kind {
 		case copiedString:
-			visitor.StringField(f.name, f.str)
+			err = visitor.StringField(info, f.str)
 		case copiedBinary:
-			visitor.BinaryField(f.name, f.bin)
+			err = visitor.BinaryField(info, f.bin)
 		case copiedInt:
-			visitor.IntField(f.name, int(f.num))
+			err = visitor.IntField(info, int(f.num))
 		case copiedLong:
-			visitor.LongField(f.name, f.num)
+			err = visitor.LongField(info, f.num)
 		case copiedFloat:
-			visitor.FloatField(f.name, f.f32)
+			err = visitor.FloatField(info, f.f32)
 		case copiedDouble:
-			visitor.DoubleField(f.name, f.f64)
+			err = visitor.DoubleField(info, f.f64)
+		}
+		if err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// testStoredFieldInfo builds the stored-only FieldInfo a codec reader would
+// resolve from the segment FieldInfos before invoking the visitor.
+func testStoredFieldInfo(name string, number int) *FieldInfo {
+	return NewFieldInfo(name, number, FieldInfoOptions{Stored: true})
 }
 
 func (r *fakeStoredFieldsReader) Close() error { return nil }
@@ -130,7 +150,6 @@ func (c *fakeCodec) Name() string                           { return "fake-codec
 func (c *fakeCodec) PostingsFormat() PostingsFormat         { return nil }
 func (c *fakeCodec) StoredFieldsFormat() StoredFieldsFormat { return c.stored }
 func (c *fakeCodec) FieldInfosFormat() FieldInfosFormat     { return nil }
-func (c *fakeCodec) SegmentInfosFormat() SegmentInfosFormat { return nil }
 func (c *fakeCodec) SegmentInfoFormat() SegmentInfoFormat   { return nil }
 func (c *fakeCodec) TermVectorsFormat() TermVectorsFormat   { return nil }
 func (c *fakeCodec) CompoundFormat() CompoundFormat         { return nil }
@@ -341,16 +360,19 @@ func TestCopyVisitor_DispatchesAllTypes(t *testing.T) {
 	w := &recordingWriter{}
 	v := &copyVisitor{writer: w}
 
-	v.StringField("s", "hello")
-	v.BinaryField("b", []byte{1, 2, 3})
-	v.IntField("i", 42)
-	v.LongField("l", 1<<40)
-	v.FloatField("f", 1.5)
-	v.DoubleField("d", 2.5)
-
-	if v.err != nil {
-		t.Fatalf("copyVisitor.err: %v", v.err)
+	for _, call := range []func() error{
+		func() error { return v.StringField(testStoredFieldInfo("s", 0), "hello") },
+		func() error { return v.BinaryField(testStoredFieldInfo("b", 1), []byte{1, 2, 3}) },
+		func() error { return v.IntField(testStoredFieldInfo("i", 2), 42) },
+		func() error { return v.LongField(testStoredFieldInfo("l", 3), 1<<40) },
+		func() error { return v.FloatField(testStoredFieldInfo("f", 4), 1.5) },
+		func() error { return v.DoubleField(testStoredFieldInfo("d", 5), 2.5) },
+	} {
+		if err := call(); err != nil {
+			t.Fatalf("copyVisitor callback: %v", err)
+		}
 	}
+
 	if len(w.received) != 6 {
 		t.Fatalf("expected 6 fields, got %d", len(w.received))
 	}
@@ -384,15 +406,17 @@ func TestCopyVisitor_DispatchesAllTypes(t *testing.T) {
 }
 
 func TestCopyVisitor_StopsAfterWriteError(t *testing.T) {
-	w := &recordingWriter{returnErr: errors.New("disk full")}
+	boom := errors.New("disk full")
+	w := &recordingWriter{returnErr: boom}
 	v := &copyVisitor{writer: w}
-	v.StringField("s", "first")
-	v.StringField("s", "second")
-	if v.err == nil {
-		t.Fatalf("expected copyVisitor.err to capture the writer error")
+	// Java's CopyVisitor lets the writer's IOException escape stringField,
+	// which aborts StoredFieldsReader.document() before any further callback
+	// is made; the Go rendering returns that error instead.
+	if err := v.StringField(testStoredFieldInfo("s", 0), "first"); !errors.Is(err, boom) {
+		t.Fatalf("StringField err = %v, want %v", err, boom)
 	}
 	if len(w.received) != 1 {
-		t.Fatalf("expected exactly 1 write attempt after error, got %d", len(w.received))
+		t.Fatalf("expected exactly 1 write attempt, got %d", len(w.received))
 	}
 }
 

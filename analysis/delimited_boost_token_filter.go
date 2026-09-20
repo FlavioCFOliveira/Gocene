@@ -79,6 +79,7 @@ var _ TokenFilter = (*DelimitedBoostTokenFilter)(nil)
 
 // DelimitedBoostTokenFilterFactory creates instances.
 type DelimitedBoostTokenFilterFactory struct {
+	BaseTokenFilterFactory
 	delimiter byte
 }
 

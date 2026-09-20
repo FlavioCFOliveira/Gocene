@@ -10,6 +10,7 @@ package intervals
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // FilteredIntervalsSource is an IntervalsSource that filters intervals from a sub-source
@@ -84,14 +85,14 @@ func newFilteringIntervalIterator(inner IntervalIterator, accept func(IntervalIt
 	return &filteringIntervalIterator{inner: inner, acceptFn: accept}
 }
 
-func (f *filteringIntervalIterator) DocID() int        { return f.inner.DocID() }
-func (f *filteringIntervalIterator) DocIDRunEnd() int   { return f.DocID() + 1 }
-func (f *filteringIntervalIterator) Cost() int64       { return f.inner.Cost() }
-func (f *filteringIntervalIterator) MatchCost() float32 { return f.inner.MatchCost() }
-func (f *filteringIntervalIterator) Start() int        { return f.inner.Start() }
-func (f *filteringIntervalIterator) End() int          { return f.inner.End() }
-func (f *filteringIntervalIterator) Gaps() int         { return f.inner.Gaps() }
-func (f *filteringIntervalIterator) Width() int        { return f.inner.Width() }
+func (f *filteringIntervalIterator) DocID() int                { return f.inner.DocID() }
+func (f *filteringIntervalIterator) DocIDRunEnd() (int, error) { return f.DocID() + 1, nil }
+func (f *filteringIntervalIterator) Cost() int64               { return f.inner.Cost() }
+func (f *filteringIntervalIterator) MatchCost() float32        { return f.inner.MatchCost() }
+func (f *filteringIntervalIterator) Start() int                { return f.inner.Start() }
+func (f *filteringIntervalIterator) End() int                  { return f.inner.End() }
+func (f *filteringIntervalIterator) Gaps() int                 { return f.inner.Gaps() }
+func (f *filteringIntervalIterator) Width() int                { return f.inner.Width() }
 
 func (f *filteringIntervalIterator) NextDoc() (int, error) { return f.inner.NextDoc() }
 func (f *filteringIntervalIterator) Advance(target int) (int, error) {
@@ -128,10 +129,10 @@ type filteredMatchesIterator struct {
 	acceptFn func(IntervalIterator) bool
 }
 
-func (m *filteredMatchesIterator) Gaps() int  { return m.inner.Gaps() }
-func (m *filteredMatchesIterator) Width() int { return m.inner.Width() }
-func (m *filteredMatchesIterator) StartPosition() int { return m.inner.StartPosition() }
-func (m *filteredMatchesIterator) EndPosition() int   { return m.inner.EndPosition() }
+func (m *filteredMatchesIterator) Gaps() int                 { return m.inner.Gaps() }
+func (m *filteredMatchesIterator) Width() int                { return m.inner.Width() }
+func (m *filteredMatchesIterator) StartPosition() int        { return m.inner.StartPosition() }
+func (m *filteredMatchesIterator) EndPosition() int          { return m.inner.EndPosition() }
 func (m *filteredMatchesIterator) StartOffset() (int, error) { return m.inner.StartOffset() }
 func (m *filteredMatchesIterator) EndOffset() (int, error)   { return m.inner.EndOffset() }
 func (m *filteredMatchesIterator) GetSubMatches() (search.MatchesIterator, error) {
@@ -157,16 +158,16 @@ type matchesAsIntervalIterator struct {
 	mi IntervalMatchesIterator
 }
 
-func (w matchesAsIntervalIterator) DocID() int            { return 0 }
-func (w matchesAsIntervalIterator) DocIDRunEnd() int      { return 1 }
-func (w matchesAsIntervalIterator) NextDoc() (int, error) { return 0, nil }
+func (w matchesAsIntervalIterator) DocID() int                 { return 0 }
+func (w matchesAsIntervalIterator) DocIDRunEnd() (int, error)  { return 1, nil }
+func (w matchesAsIntervalIterator) NextDoc() (int, error)      { return 0, nil }
 func (w matchesAsIntervalIterator) Advance(_ int) (int, error) { return 0, nil }
-func (w matchesAsIntervalIterator) Cost() int64           { return 0 }
-func (w matchesAsIntervalIterator) MatchCost() float32    { return 0 }
-func (w matchesAsIntervalIterator) Start() int            { return w.mi.StartPosition() }
-func (w matchesAsIntervalIterator) End() int              { return w.mi.EndPosition() }
-func (w matchesAsIntervalIterator) Gaps() int             { return w.mi.Gaps() }
-func (w matchesAsIntervalIterator) Width() int            { return w.mi.Width() }
+func (w matchesAsIntervalIterator) Cost() int64                { return 0 }
+func (w matchesAsIntervalIterator) MatchCost() float32         { return 0 }
+func (w matchesAsIntervalIterator) Start() int                 { return w.mi.StartPosition() }
+func (w matchesAsIntervalIterator) End() int                   { return w.mi.EndPosition() }
+func (w matchesAsIntervalIterator) Gaps() int                  { return w.mi.Gaps() }
+func (w matchesAsIntervalIterator) Width() int                 { return w.mi.Width() }
 func (w matchesAsIntervalIterator) NextInterval() (int, error) { return NoMoreIntervals, nil }
 
 // MinExtent delegates to the sub-source.
@@ -229,4 +230,18 @@ func intToStr(n int) string {
 		buf[pos] = '-'
 	}
 	return string(buf[pos:])
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (f *filteringIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (w matchesAsIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(w, upTo, bitSet, offset)
 }

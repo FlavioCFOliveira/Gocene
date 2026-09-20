@@ -6,6 +6,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -16,6 +17,10 @@ import (
 //
 // Mirrors org.apache.lucene.sandbox.search.CoveringScorer (package-private).
 type coveringScorer struct {
+	// Java's CoveringScorer extends Scorer, which extends Scorable; it does not
+	// override smoothingScore or setMinCompetitiveScore.
+	search.BaseScorable
+
 	numScorers     int
 	maxDoc         int
 	minMatchValues search.LongValues
@@ -26,7 +31,7 @@ type coveringScorer struct {
 	freq     int                 // number of sub-scorers on the current doc
 	minMatch int64               // required match count for the current doc
 
-	subScorers *search.DisiPriorityQueue
+	subScorers search.DisiPriorityQueue
 	cost       int64
 
 	approximation util.DocIdSetIterator
@@ -40,13 +45,13 @@ func newCoveringScorer(scorers []search.Scorer, minMatchValues search.LongValues
 		maxDoc:         maxDoc,
 		minMatchValues: minMatchValues,
 		doc:            -1,
-		subScorers:     search.NewDisiPriorityQueue(len(scorers)),
+		subScorers:     search.OfMaxSize(len(scorers)),
 	}
 
 	var totalCost int64
 	for _, sc := range scorers {
 		s.subScorers.Add(search.NewDisiWrapper(sc, false))
-		totalCost += sc.Cost()
+		totalCost += sc.Iterator().Cost()
 	}
 	s.cost = totalCost
 
@@ -83,36 +88,48 @@ func (s *coveringScorer) twoPhaseMatches() (bool, error) {
 func (s *coveringScorer) DocID() int { return s.doc }
 
 // DocIDRunEnd returns doc+1 as the run never spans more than one document.
-func (s *coveringScorer) DocIDRunEnd() int { return s.doc + 1 }
+func (s *coveringScorer) DocIDRunEnd() (int, error) { return s.doc + 1, nil }
 
 // NextDoc advances to the next document via the TwoPhaseIterator DISI.
 func (s *coveringScorer) NextDoc() (int, error) {
-	return s.twoPhase.AsDocIdSetIterator().NextDoc()
+	return search.AsDocIdSetIterator(s.twoPhase).NextDoc()
 }
 
 // Advance advances to the first document at or beyond target via the TwoPhaseIterator DISI.
 func (s *coveringScorer) Advance(target int) (int, error) {
-	return s.twoPhase.AsDocIdSetIterator().Advance(target)
+	return search.AsDocIdSetIterator(s.twoPhase).Advance(target)
 }
 
 // Cost returns the total cost of all sub-scorers.
 func (s *coveringScorer) Cost() int64 { return s.cost }
 
+// Iterator returns the DocIdSetIterator view of this scorer.
+//
+// Java: CoveringScorer#iterator() returns
+// TwoPhaseIterator.asDocIdSetIterator(twoPhaseIterator()).
+func (s *coveringScorer) Iterator() search.DocIdSetIterator {
+	return search.AsDocIdSetIterator(s.twoPhase)
+}
+
 // Score sums the scores of all sub-scorers on the current document.
-func (s *coveringScorer) Score() float32 {
+func (s *coveringScorer) Score() (float32, error) {
 	if err := s.setTopListAndFreqIfNecessary(); err != nil {
-		return 0
+		return 0, err
 	}
 	var total float64
 	for w := s.topList; w != nil; w = w.Next() {
-		total += float64(w.Scorable().Score())
+		sub, err := w.Scorable().Score()
+		if err != nil {
+			return 0, err
+		}
+		total += float64(sub)
 	}
-	return float32(total)
+	return float32(total), nil
 }
 
 // GetMaxScore returns +Inf; an upper bound cannot be computed cheaply.
-func (s *coveringScorer) GetMaxScore(_ int) float32 {
-	return float32(math.Inf(1))
+func (s *coveringScorer) GetMaxScore(_ int) (float32, error) {
+	return float32(math.Inf(1)), nil
 }
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
@@ -138,6 +155,13 @@ func (s *coveringScorer) GetChildren() ([]search.ChildScorable, error) {
 // TwoPhaseIterator exposes the two-phase iterator for external use.
 func (s *coveringScorer) TwoPhaseIterator() *search.TwoPhaseIterator {
 	return s.twoPhase
+}
+
+// NextDocsAndScores carries the default body of
+// org.apache.lucene.search.Scorer#nextDocsAndScores, which every subclass
+// inherits unless it overrides it.
+func (s *coveringScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
 }
 
 var _ search.Scorer = (*coveringScorer)(nil)
@@ -269,6 +293,20 @@ func (a *coveringApproximation) Advance(target int) (int, error) {
 
 func (a *coveringApproximation) Cost() int64 { return int64(a.s.maxDoc) }
 
-func (a *coveringApproximation) DocIDRunEnd() int { return a.s.doc + 1 }
+func (a *coveringApproximation) DocIDRunEnd() (int, error) { return a.s.doc + 1, nil }
 
 var _ util.DocIdSetIterator = (*coveringApproximation)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *coveringScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (a *coveringApproximation) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(a, upTo, bitSet, offset)
+}

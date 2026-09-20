@@ -14,103 +14,31 @@
 package quantization
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// This file defines the ordinal-keyed vector-value abstractions from
-// Apache Lucene 10.4.0 that the quantization subsystem depends on.
-// These types mirror the Lucene 10.4.0 surface where vectors are
-// accessed by ordinal (not by doc ID), matching the modern KnnVectorValues
-// API shape introduced in Lucene 10.
-//
-// The existing index package exposes a per-doc iterator pattern
-// (Get(docID), Advance, NextDoc, DocID) inherited from earlier Lucene
-// versions. The ordinal-keyed types defined here represent the Lucene
-// 10.4.0 contract and will coexist with the index-package per-doc
-// types until the index package is upgraded to the 10.4.0 shape.
-//
-// Each type matches Lucene 10.4.0's surface that is actually needed by
-// QuantizedByteVectorValues; non-essential members of the originals
-// (e.g. the default ByteVectorValues.scorer(byte[]) overload, the
-// Bulk inner API on VectorScorer) are intentionally omitted and will
-// be added when consumers require them.
+// The org.apache.lucene.util.quantization classes of Apache Lucene 10.5.0 name
+// org.apache.lucene.index.KnnVectorValues, ByteVectorValues and
+// FloatVectorValues in their signatures. Gocene declares those classes once,
+// in spi (see [spi.KnnVectorValues]); the aliases below let the quantization
+// spelling resolve to that single declaration and member set.
 
-// KnnVectorValues mirrors org.apache.lucene.index.KnnVectorValues
-// (Lucene 10.4.0) ordinal-keyed access pattern.
-//
-// This is the canonical KnnVectorValues for the quantization and HNSW
-// subsystems. The index.KnnVectorValues type exposes a different
-// (pre-10.x) surface; unification will occur when index is upgraded.
-type KnnVectorValues interface {
-	// Dimension returns the dimensionality of the vectors.
-	Dimension() int
+// KnnVectorValues is org.apache.lucene.index.KnnVectorValues.
+type KnnVectorValues = spi.KnnVectorValues
 
-	// Size returns the number of vectors for the field.
-	Size() int
+// DocIndexIterator is org.apache.lucene.index.KnnVectorValues.DocIndexIterator.
+type DocIndexIterator = spi.DocIndexIterator
 
-	// OrdToDoc translates a vector ordinal to a document id; the
-	// default implementation in Lucene is the identity function for
-	// dense values.
-	OrdToDoc(ord int) int
+// ByteVectorValues is org.apache.lucene.index.ByteVectorValues.
+type ByteVectorValues = spi.ByteVectorValues
 
-	// GetAcceptOrds returns the Bits view of live ordinals restricted
-	// to the supplied acceptDocs; the default in Lucene mirrors the
-	// argument when non-nil and returns nil otherwise.
-	GetAcceptOrds(acceptDocs util.Bits) util.Bits
-
-	// Iterator returns a fresh [DocIndexIterator] over the (docId,
-	// ordinal) pairs of this view. Implementations must return a new
-	// iterator per call; the returned iterator is not safe for
-	// concurrent use.
-	Iterator() DocIndexIterator
-}
-
-// DocIndexIterator iterates the (docId, ordinal) pairs of a
-// [KnnVectorValues] view in document order. This is the Go counterpart
-// of org.apache.lucene.index.KnnVectorValues.DocIndexIterator
-// (Lucene 10.4.0).
-//
-// This is the minimal surface required by quantization consumers.
-// The util.DocIndexIterator exposes additional methods (DocID,
-// Advance, Cost) for use by codec-level iterators; quantization
-// callers only need NextDoc and Index.
-type DocIndexIterator interface {
-	// NextDoc advances the iterator and returns the next document id,
-	// or util.NO_MORE_DOCS when exhausted.
-	NextDoc() (int, error)
-
-	// Index returns the ordinal paired with the most recent NextDoc
-	// result.
-	Index() int
-}
-
-// ByteVectorValues mirrors org.apache.lucene.index.ByteVectorValues
-// (Lucene 10.4.0) ordinal-keyed access pattern. The index.ByteVectorValues
-// type exposes a per-doc iterator API from earlier Lucene versions.
-//
-// Only the contract relied upon by QuantizedByteVectorValues is
-// exposed: ordinal-keyed access to vector bytes, copy semantics, and
-// the inherited KnnVectorValues surface. The default `scorer(byte[])`
-// overload from Java is omitted; it will be added when consumers require it.
-type ByteVectorValues interface {
-	KnnVectorValues
-
-	// VectorValue returns the vector bytes for the given ordinal,
-	// which must lie in [0, Size()). The returned slice may be shared
-	// across calls on the same view; callers must not mutate it and
-	// must copy it before retaining beyond the next call.
-	VectorValue(ord int) ([]byte, error)
-
-	// CopyByteVectorValues returns a fresh ByteVectorValues sharing
-	// the same backing data but with independent iterator state. The
-	// distinct method name avoids clashing with the more specific
-	// QuantizedByteVectorValues.Copy on concrete embedders.
-	CopyByteVectorValues() (ByteVectorValues, error)
-}
+// FloatVectorValues is org.apache.lucene.index.FloatVectorValues.
+type FloatVectorValues = spi.FloatVectorValues
 
 // VectorScorer mirrors org.apache.lucene.search.VectorScorer
-// (Lucene 10.4.0).
+// (Lucene 10.5.0).
 type VectorScorer = util.VectorScorer
 
 // DocIdSetIterator is an opaque handle for a util.DocIdSetIterator
@@ -118,7 +46,7 @@ type VectorScorer = util.VectorScorer
 type DocIdSetIterator = util.DocIdSetIterator
 
 // HasIndexSlice mirrors org.apache.lucene.codecs.lucene95.HasIndexSlice
-// (Lucene 10.4.0). Implementors expose the [store.IndexInput] backing
+// (Lucene 10.5.0). Implementors expose the [store.IndexInput] backing
 // their values for use by vector quantizers. The interface mirrors the
 // Java original exactly: a single method returning an IndexInput or nil.
 //
@@ -128,28 +56,4 @@ type HasIndexSlice interface {
 	// GetSlice returns the [store.IndexInput] from which this
 	// instance's values are read, or nil if not available.
 	GetSlice() store.IndexInput
-}
-
-// FloatVectorValues mirrors org.apache.lucene.index.FloatVectorValues
-// (Lucene 10.4.0) ordinal-keyed access pattern. The index.FloatVectorValues
-// type exposes a per-doc iterator API from earlier Lucene versions.
-//
-// Only the surface consumed by ScalarQuantizer is exposed: dimension
-// reporting, ordinal-keyed vectorValue lookup, and a DocIndexIterator
-// that yields (docId, ordinal) pairs.
-type FloatVectorValues interface {
-	// Dimension returns the dimensionality of the vectors.
-	Dimension() int
-
-	// VectorValue returns the float vector for the given ordinal,
-	// which must lie in [0, live-vector-count). The returned slice may
-	// be shared across calls on the same view; callers must not mutate
-	// it and must copy it before retaining beyond the next call.
-	VectorValue(ord int) ([]float32, error)
-
-	// Iterator returns a fresh [DocIndexIterator] over the (docId,
-	// ordinal) pairs of this view. Implementations must return a new
-	// iterator per call; the returned iterator is not safe for
-	// concurrent use.
-	Iterator() DocIndexIterator
 }

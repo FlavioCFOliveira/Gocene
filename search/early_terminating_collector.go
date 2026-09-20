@@ -9,6 +9,8 @@ import "github.com/FlavioCFOliveira/Gocene/index"
 // EarlyTerminatingCollector terminates collection after a specified number of documents.
 // This is the Go port of Lucene's org.apache.lucene.search.EarlyTerminatingCollector.
 type EarlyTerminatingCollector struct {
+	BaseCollector
+	BaseLeafCollector
 	delegate  Collector
 	maxDocs   int
 	collected int
@@ -48,10 +50,22 @@ func (c *EarlyTerminatingCollector) ScoreMode() ScoreMode {
 }
 
 // SetScorer sets the scorer for this collector.
-func (c *EarlyTerminatingCollector) SetScorer(scorer Scorer) error {
+func (c *EarlyTerminatingCollector) SetScorer(scorer Scorable) error {
 	return nil
 }
 
 // Ensure EarlyTerminatingCollector implements Collector and LeafCollector
 var _ Collector = (*EarlyTerminatingCollector)(nil)
 var _ LeafCollector = (*EarlyTerminatingCollector)(nil)
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (e *EarlyTerminatingCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(e, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (e *EarlyTerminatingCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(e, stream)
+}

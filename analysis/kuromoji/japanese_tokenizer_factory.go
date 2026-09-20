@@ -46,6 +46,6 @@ func NewJapaneseTokenizerFactoryDefault() *JapaneseTokenizerFactory {
 // Create returns a new JapaneseTokenizer and sets its input to r.
 func (f *JapaneseTokenizerFactory) Create(r io.Reader) *JapaneseTokenizer {
 	t := NewJapaneseTokenizer(f.userDictionary, f.discardPunctuation, f.discardCompound, f.mode)
-	_ = t.SetReader(r)
+	t.SetReader(r)
 	return t
 }

@@ -36,3 +36,29 @@ func ReaderUtilGetTopLevelContext(ctx IndexReaderContext) IndexReaderContext {
 	}
 	return ctx
 }
+
+// ReaderUtilSubIndexLeaves returns the index of the leaf whose docBase is the
+// greatest value <= n. Equivalent to Lucene's
+// ReaderUtil.subIndex(int n, List<LeafReaderContext> leaves), the overload that
+// binary-searches the leaf contexts themselves rather than a starts array.
+func ReaderUtilSubIndexLeaves(n int, leaves []*LeafReaderContext) int {
+	// find searcher/reader for doc n:
+	size := len(leaves)
+	lo := 0        // search starts array
+	hi := size - 1 // for first element less than n, return its index
+	for hi >= lo {
+		mid := int(uint(lo+hi) >> 1)
+		midValue := leaves[mid].DocBase
+		if n < midValue {
+			hi = mid - 1
+		} else if n > midValue {
+			lo = mid + 1
+		} else { // found a match
+			for mid+1 < size && leaves[mid+1].DocBase == midValue {
+				mid++ // scan to last match
+			}
+			return mid
+		}
+	}
+	return hi
+}

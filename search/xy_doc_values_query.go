@@ -16,6 +16,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -97,13 +98,10 @@ func (q *xyDocValuesQuery) Visit(visitor QueryVisitor) {
 // BaseQuery.Rewrite would return the inner *BaseQuery receiver, erasing
 // this query's CreateWeight override so the rewritten query would silently
 // match zero documents.
-func (q *xyDocValuesQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
-
-// Clone returns the query itself (logically immutable after construction).
-func (q *xyDocValuesQuery) Clone() Query { return q }
+func (q *xyDocValuesQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // Equals reports structural equality: same field and same geometry slice.
-func (q *xyDocValuesQuery) Equals(other Query) bool {
+func (q *xyDocValuesQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*xyDocValuesQuery)
 	if !ok {
 		return false
@@ -137,9 +135,9 @@ func (q *xyDocValuesQuery) String() string {
 // CreateWeight builds a ConstantScoreWeight whose per-leaf supplier
 // resolves the SortedNumericDocValues stream and wraps a TwoPhaseIterator
 // that tests each indexed (x, y) point against the Component2D tree.
-func (q *xyDocValuesQuery) CreateWeight(_ *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *xyDocValuesQuery) CreateWeight(_ *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	mode := COMPLETE_NO_SCORES
-	if needsScores {
+	if scoreMode.NeedsScores() {
 		mode = COMPLETE
 	}
 
@@ -156,15 +154,19 @@ func (q *xyDocValuesQuery) CreateWeight(_ *IndexSearcher, needsScores bool, boos
 			maxDoc = r.MaxDoc()
 		}
 		approx := newSortedNumericApproximation(values, maxDoc)
-		tpi := NewTwoPhaseIterator(approx, func() (bool, error) {
+		// Mirrors the anonymous TwoPhaseIterator of
+		// XYDocValuesPointInGeometryQuery.createWeight(...).scorerSupplier(...)
+		// (Lucene 10.5.0, XYDocValuesPointInGeometryQuery.java:129-131):
+		// matchCost() returns `1000f; // TODO: what should it be?`.
+		tpi := NewTwoPhaseIteratorWithMatchCost(approx, func() (bool, error) {
 			return q.matches(values, approx.DocID())
-		})
+		}, 1000)
 		return NewConstantScoreScorerSupplier(
 			boost,
 			mode,
 			approx.Cost(),
 			func(_ int64) (DocIdSetIterator, error) {
-				return tpi.AsDocIdSetIterator(), nil
+				return AsDocIdSetIterator(tpi), nil
 			},
 		), nil
 	}

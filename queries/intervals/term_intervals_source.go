@@ -9,6 +9,7 @@ package intervals
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/util"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -67,7 +68,7 @@ func (s *TermIntervalsSource) Intervals(field string, ctx *index.LeafReaderConte
 	if !terms.HasPositions() {
 		return nil, fmt.Errorf("cannot create an IntervalIterator over field %s because it has no indexed positions", field)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -103,14 +104,14 @@ type termIntervalIterator struct {
 	upto         int
 }
 
-func (t *termIntervalIterator) DocID() int        { return t.pe.DocID() }
-func (t *termIntervalIterator) DocIDRunEnd() int   { return t.DocID() + 1 }
-func (t *termIntervalIterator) Cost() int64       { return t.pe.Cost() }
-func (t *termIntervalIterator) MatchCost() float32 { return t.matchCostVal }
-func (t *termIntervalIterator) Start() int        { return t.pos }
-func (t *termIntervalIterator) End() int          { return t.pos }
-func (t *termIntervalIterator) Gaps() int         { return 0 }
-func (t *termIntervalIterator) Width() int        { return 1 }
+func (t *termIntervalIterator) DocID() int                { return t.pe.DocID() }
+func (t *termIntervalIterator) DocIDRunEnd() (int, error) { return t.DocID() + 1, nil }
+func (t *termIntervalIterator) Cost() int64               { return t.pe.Cost() }
+func (t *termIntervalIterator) MatchCost() float32        { return t.matchCostVal }
+func (t *termIntervalIterator) Start() int                { return t.pos }
+func (t *termIntervalIterator) End() int                  { return t.pos }
+func (t *termIntervalIterator) Gaps() int                 { return 0 }
+func (t *termIntervalIterator) Width() int                { return 1 }
 
 func (t *termIntervalIterator) NextDoc() (int, error) {
 	doc, err := t.pe.NextDoc()
@@ -177,7 +178,7 @@ func (s *TermIntervalsSource) Matches(field string, ctx *index.LeafReaderContext
 	if !terms.HasPositions() {
 		return nil, fmt.Errorf("cannot create an IntervalIterator over field %s because it has no indexed positions", field)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +247,7 @@ func (m *termMatchesIterator) EndOffset() (int, error) {
 	return m.pe.EndOffset()
 }
 func (m *termMatchesIterator) GetSubMatches() (search.MatchesIterator, error) { return nil, nil }
-func (m *termMatchesIterator) GetQuery() search.Query                          { return m.query }
+func (m *termMatchesIterator) GetQuery() search.Query                         { return m.query }
 
 // Visit visits with the given QueryVisitor.
 func (s *TermIntervalsSource) Visit(field string, visitor search.QueryVisitor) {
@@ -310,4 +311,11 @@ func hashBytes(b []byte) int {
 		h = h*31 + int(c)
 	}
 	return h
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (t *termIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(t, upTo, bitSet, offset)
 }

@@ -1,20 +1,8 @@
 // Copyright 2026 Gocene. All rights reserved.
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
-//
-// Licensed to the Apache Software Foundation (ASF) under one or more
-// contributor license agreements.  See the NOTICE file distributed with
-// this work for additional information regarding copyright ownership.
-// The ASF licenses this file to You under the Apache License, Version 2.0
-// (the "License"); you may not use this file except in compliance with
-// the License.  You may obtain a copy of the License at
-//
-//	http://www.apache.org/licenses/LICENSE-2.0
 
 package analysis
-
-// Ported from Apache Lucene 10.4.0:
-//   lucene/core/src/java/org/apache/lucene/analysis/AnalysisSPILoader.java
 
 import (
 	"fmt"
@@ -23,140 +11,130 @@ import (
 	"sync"
 )
 
-// serviceNamePattern validates that SPI names start with an ASCII letter and
-// contain only ASCII letters, digits, and underscores.
-//
-// Mirrors AnalysisSPILoader.SERVICE_NAME_PATTERN (Lucene 10.4.0).
 var serviceNamePattern = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_]+$`)
 
-// FactoryFunc is the constructor signature for all analysis factories. It
-// receives the args map (which the factory may consume during construction)
-// and returns the created factory value or an error.
-type FactoryFunc func(args map[string]string) (any, error)
-
-// AnalysisSPILoader is a name-keyed registry of analysis factories. It is the
-// Go replacement for Java's AnalysisSPILoader, which discovers implementations
-// via ServiceLoader reflection. In Go, factories are registered explicitly
-// (typically in package init functions) using Register.
-//
-// All lookups are case-insensitive on the ASCII range, matching Java's
-// name.toLowerCase(Locale.ROOT) behaviour.
-//
-// Mirrors org.apache.lucene.analysis.AnalysisSPILoader (Lucene 10.4.0).
-//
-// Deviations from Java:
-//   - ServiceLoader / classpath scanning is replaced by explicit registration.
-//   - lookupSPIName (reflection on a static NAME field) is replaced by the
-//     registered name supplied at registration time.
-//   - lookupClass returns a string name rather than a reflect.Type, since Go
-//     does not expose a usable class-token equivalent.
-//   - newFactoryClassInstance (constructor reflection) is replaced by the
-//     FactoryFunc callback.
-type AnalysisSPILoader struct {
+// GenericAnalysisSPILoader is a generic loader for SPIs.
+type GenericAnalysisSPILoader[S any] struct {
 	mu            sync.RWMutex
-	services      map[string]FactoryFunc // lowercase-name → constructor
-	originalNames map[string]string      // lowercase-name → original-case name
+	services      map[string]func(map[string]string) S
+	originalNames []string
 }
 
-// NewAnalysisSPILoader creates an empty AnalysisSPILoader.
-func NewAnalysisSPILoader() *AnalysisSPILoader {
-	return &AnalysisSPILoader{
-		services:      make(map[string]FactoryFunc),
-		originalNames: make(map[string]string),
+// NewGenericAnalysisSPILoader creates a new GenericAnalysisSPILoader.
+func NewGenericAnalysisSPILoader[S any]() *GenericAnalysisSPILoader[S] {
+	return &GenericAnalysisSPILoader[S]{
+		services: make(map[string]func(map[string]string) S),
 	}
 }
 
-// Register adds a factory to the registry under the given name. The name must
-// start with an ASCII letter and contain only ASCII letters, digits, and
-// underscores. Duplicate registrations are silently ignored (first-wins,
-// matching Java's "only add the first one for each name" behaviour).
-// Returns an error if the name is syntactically invalid.
-//
-// Mirrors AnalysisSPILoader.reload / ServiceLoader discovery (Lucene 10.4.0).
-func (l *AnalysisSPILoader) Register(name string, fn FactoryFunc) error {
-	if !serviceNamePattern.MatchString(name) {
+// Reload reloads the internal SPI list.
+func (l *GenericAnalysisSPILoader[S]) Reload() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+}
+
+// NewInstance creates a new instance of the given SPI by invoking its creator.
+func (l *GenericAnalysisSPILoader[S]) NewInstance(name string, args map[string]string) S {
+	creator, err := l.Lookup(name)
+	if err != nil {
+		panic(err)
+	}
+	return creator(args)
+}
+
+// Lookup finds the creator for the given SPI name.
+func (l *GenericAnalysisSPILoader[S]) Lookup(name string) (func(map[string]string) S, error) {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+
+	creator, ok := l.services[strings.ToLower(name)]
+	if !ok {
+		return nil, fmt.Errorf(
+			"a SPI class with name '%s' does not exist. The current registry supports the following names: %v",
+			name,
+			l.AvailableServices(),
+		)
+	}
+	return creator, nil
+}
+
+// AvailableServices returns the list of all registered SPI names.
+func (l *GenericAnalysisSPILoader[S]) AvailableServices() []string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.originalNames
+}
+
+// Register adds a new SPI creator to the loader.
+func (l *GenericAnalysisSPILoader[S]) Register(name string, creator func(map[string]string) S) error {
+	if !isValidName(name) {
 		return fmt.Errorf(
-			"SPI name %q is invalid: must start with a letter and contain only letters, digits, or underscore",
+			"the name %s is invalid: Allowed characters are (English) alphabet, digits, and underscore. It should be started with an alphabet",
 			name,
 		)
 	}
-	key := strings.ToLower(name)
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if _, exists := l.services[key]; !exists {
-		l.services[key] = fn
-		l.originalNames[key] = name
+
+	lowerName := strings.ToLower(name)
+	if _, exists := l.services[lowerName]; !exists {
+		l.services[lowerName] = creator
+		l.originalNames = append(l.originalNames, name)
 	}
 	return nil
 }
 
-// NewInstance constructs and returns the factory registered under name (case-
-// insensitive). args is forwarded to the factory constructor. Returns an error
-// if no factory is registered for the given name.
-//
-// Mirrors AnalysisSPILoader.newInstance (Lucene 10.4.0).
-func (l *AnalysisSPILoader) NewInstance(name string, args map[string]string) (any, error) {
-	fn, err := l.lookupFunc(name)
-	if err != nil {
-		return nil, err
-	}
-	return fn(args)
+func isValidName(name string) bool {
+	return serviceNamePattern.MatchString(name)
 }
 
-// LookupName returns the original-case registered name for the given name
-// (case-insensitive). Returns an error if the name is not registered.
-//
-// Mirrors AnalysisSPILoader.lookupClass (Lucene 10.4.0) — returns the
-// registered name string instead of a reflect.Type.
-func (l *AnalysisSPILoader) LookupName(name string) (string, error) {
-	key := strings.ToLower(name)
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	orig, ok := l.originalNames[key]
-	if !ok {
-		return "", l.lookupError(name)
-	}
-	return orig, nil
+// AnalysisSPILoader is a loader for analysis services (Tokenizers, CharFilters, TokenFilters).
+type AnalysisSPILoader struct {
+	mu sync.RWMutex
 }
 
-// AvailableServices returns the set of original-case registered names.
-//
-// Mirrors AnalysisSPILoader.availableServices (Lucene 10.4.0).
+// NewAnalysisSPILoader creates a new AnalysisSPILoader.
+func NewAnalysisSPILoader() *AnalysisSPILoader {
+	return &AnalysisSPILoader{}
+}
+
+// AvailableServices returns a list of all available service names across all registries.
 func (l *AnalysisSPILoader) AvailableServices() []string {
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	names := make([]string, 0, len(l.originalNames))
-	for _, orig := range l.originalNames {
-		names = append(names, orig)
+	tokenizerNames := AvailableTokenizers()
+	charFilterNames := AvailableCharFilters()
+	tokenFilterNames := AvailableTokenFilters()
+
+	all := make(map[string]struct{})
+	for _, n := range tokenizerNames {
+		all[n] = struct{}{}
 	}
-	return names
-}
-
-// lookupFunc returns the registered FactoryFunc for the given name.
-func (l *AnalysisSPILoader) lookupFunc(name string) (FactoryFunc, error) {
-	key := strings.ToLower(name)
-	l.mu.RLock()
-	defer l.mu.RUnlock()
-	fn, ok := l.services[key]
-	if !ok {
-		return nil, l.lookupError(name)
+	for _, n := range charFilterNames {
+		all[n] = struct{}{}
 	}
-	return fn, nil
+	for _, n := range tokenFilterNames {
+		all[n] = struct{}{}
+	}
+
+	res := make([]string, 0, len(all))
+	for n := range all {
+		res = append(res, n)
+	}
+	return res
 }
 
-func (l *AnalysisSPILoader) lookupError(name string) error {
-	return fmt.Errorf(
-		"a factory with SPI name %q does not exist; available: %v",
-		name, l.AvailableServices(),
-	)
+// NewInstance creates a new instance of the specified service.
+func (l *AnalysisSPILoader) NewInstance(name string, params map[string]string) (any, error) {
+	if tf, err := TokenizerForName(name, params); err == nil {
+		return tf, nil
+	}
+	if cf, err := CharFilterForName(name, params); err == nil {
+		return cf, nil
+	}
+	if tff, err := TokenFilterForName(name, params); err == nil {
+		return tff, nil
+	}
+
+	return nil, fmt.Errorf("no analysis service found with name: %s", name)
 }
 
-// LookupSPIName returns the registered SPI name for the given original name.
-// This is the Go analogue of the Java static method
-// AnalysisSPILoader.lookupSPIName(Class), which used reflection to read the
-// static NAME field. In Go, the name is simply the key supplied at registration.
-//
-// Mirrors AnalysisSPILoader.lookupSPIName (Lucene 10.4.0).
-func LookupSPIName(originalName string) string {
-	return originalName
-}

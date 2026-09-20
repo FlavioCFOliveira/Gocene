@@ -127,7 +127,7 @@ func (*ByteSequenceOutputsImpl) Write(prefix *util.BytesRef, out store.DataOutpu
 	if prefix.Length == 0 {
 		return nil
 	}
-	return out.WriteBytesN(prefix.Bytes[prefix.Offset:prefix.Offset+prefix.Length], prefix.Length)
+	return out.WriteBytes(prefix.Bytes, prefix.Offset, prefix.Length)
 }
 
 // WriteFinalOutput implements Outputs (default behaviour).
@@ -152,7 +152,7 @@ func (*ByteSequenceOutputsImpl) Read(in store.DataInput) (*util.BytesRef, error)
 		return byteSequenceNoOutput, nil
 	}
 	buf := make([]byte, n)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, int(n)); err != nil {
 		return nil, err
 	}
 	return &util.BytesRef{Bytes: buf, Offset: 0, Length: int(n)}, nil
@@ -175,7 +175,7 @@ func (*ByteSequenceOutputsImpl) SkipOutput(in store.DataInput) error {
 	// ReadBytes into a discard buffer because the DataInput interface
 	// does not expose a SkipBytes method.
 	scratch := make([]byte, n)
-	return in.ReadBytes(scratch)
+	return in.ReadBytes(scratch, 0, int(n))
 }
 
 // ReadFinalOutput implements Outputs.

@@ -88,7 +88,7 @@ type FunctionValues interface {
 	// GetValueFiller returns a reusable [ValueFiller] for doc-by-doc reads.
 	GetValueFiller() ValueFiller
 	// ByteValMulti fills vals with the doc's multi-byte payload.
-	ByteValMulti(doc int, vals []byte) error
+	ByteValMulti(doc int, vals []int8) error
 	// ShortValMulti fills vals with the doc's multi-short payload.
 	ShortValMulti(doc int, vals []int16) error
 	// FloatValMulti fills vals with the doc's multi-float payload.
@@ -233,7 +233,7 @@ func (b *BaseFunctionValues) GetValueFiller() ValueFiller {
 }
 
 // ByteValMulti is unsupported by default.
-func (b *BaseFunctionValues) ByteValMulti(_ int, _ []byte) error { return ErrUnsupportedValue }
+func (b *BaseFunctionValues) ByteValMulti(_ int, _ []int8) error { return ErrUnsupportedValue }
 
 // ShortValMulti is unsupported by default.
 func (b *BaseFunctionValues) ShortValMulti(_ int, _ []int16) error { return ErrUnsupportedValue }

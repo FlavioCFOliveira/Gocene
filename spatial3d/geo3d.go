@@ -46,13 +46,15 @@ import (
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/spatial3d/geom"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // geo3dPointType is the FieldType for a Geo3DPoint: 3 dimensions × 4 bytes.
 // Mirrors Lucene's static Geo3DPoint.TYPE = new FieldType(); setDimensions(3,4); freeze().
-var geo3dPointType *index.FieldType
+var geo3dPointType *document.FieldType
 
 func init() {
 	geo3dPointType = document.NewFieldType()
@@ -280,14 +282,16 @@ func (s *Geo3DPointOutsideSortFieldSource) NewComparator(fieldname string, numHi
 //
 // Port of org.apache.lucene.spatial3d.Geo3DPointDistanceComparator.
 type Geo3DPointDistanceComparator struct {
-	field         string
-	planetModel   *geom.PlanetModel
-	distanceShape geom.GeoDistanceShape
-	values        []float64
-	bottomDist    float64
-	topValue      float64
-	currentDocs   index.SortedNumericDocValues
-	pqBounds      *geom.XYZBounds
+	search.BaseFieldComparator
+
+	field          string
+	planetModel    *geom.PlanetModel
+	distanceShape  geom.GeoDistanceShape
+	values         []float64
+	bottomDist     float64
+	topValue       float64
+	currentDocs    index.SortedNumericDocValues
+	pqBounds       *geom.XYZBounds
 	setBottomCount int
 }
 
@@ -309,23 +313,28 @@ func (c *Geo3DPointDistanceComparator) Compare(slot1, slot2 int) int {
 	return 0
 }
 
-func (c *Geo3DPointDistanceComparator) SetBottom(slot int) {
+func (c *Geo3DPointDistanceComparator) SetBottom(slot int) error {
 	c.bottomDist = c.values[slot]
 	if c.setBottomCount < 1024 || (c.setBottomCount&0x3F) == 0x3F {
 		bounds := &geom.XYZBounds{}
-		c.distanceShape.GetDistanceBounds(bounds, geom.Arc, c.bottomDist)
+		c.distanceShape.GetDistanceBounds(bounds, geom.ARC, c.bottomDist)
 		c.pqBounds = bounds
 	}
 	c.setBottomCount++
+	return nil
 }
 
-func (c *Geo3DPointDistanceComparator) SetTopValue(value float64) {
-	c.topValue = value
+func (c *Geo3DPointDistanceComparator) SetTopValue(value any) {
+	// Java's setTopValue(Double) unboxes with value.doubleValue(); a value of
+	// another type raises ClassCastException, which the assertion reproduces.
+	c.topValue = value.(float64)
 }
 
 func (c *Geo3DPointDistanceComparator) CompareBottom(doc int) (int, error) {
 	if doc > c.currentDocs.DocID() {
-		c.currentDocs.Advance(doc)
+		if _, err := c.currentDocs.Advance(doc); err != nil {
+			return 0, err
+		}
 	}
 	if doc < c.currentDocs.DocID() {
 		if c.bottomDist < math.Inf(1) {
@@ -334,25 +343,31 @@ func (c *Geo3DPointDistanceComparator) CompareBottom(doc int) (int, error) {
 		return 0, nil
 	}
 
-	numValues := c.currentDocs.DocValueCount()
+	numValues, err := c.currentDocs.DocValueCount()
+	if err != nil {
+		return 0, err
+	}
 	cmp := -1
 	encoder := geom.NewDocValueEncoder(c.planetModel)
 
 	for i := 0; i < numValues; i++ {
-		encoded := c.currentDocs.NextValue()
+		encoded, err := c.currentDocs.NextValue()
+		if err != nil {
+			return 0, err
+		}
 		x := encoder.DecodeXValue(encoded)
 		y := encoder.DecodeYValue(encoded)
 		z := encoder.DecodeZValue(encoded)
 
 		if c.pqBounds != nil {
-			if x > c.pqBounds.MaximumX() || x < c.pqBounds.MinimumX() ||
-				y > c.pqBounds.MaximumY() || y < c.pqBounds.MinimumY() ||
-				z > c.pqBounds.MaximumZ() || z < c.pqBounds.MinimumZ() {
+			if x > c.pqBounds.MaximumX || x < c.pqBounds.MinimumX ||
+				y > c.pqBounds.MaximumY || y < c.pqBounds.MinimumY ||
+				z > c.pqBounds.MaximumZ || z < c.pqBounds.MinimumZ {
 				continue
 			}
 		}
 
-		dist := c.distanceShape.ComputeDistance(geom.Arc, x, y, z)
+		dist := c.distanceShape.ComputeDistance(geom.ARC, x, y, z)
 		if c.bottomDist < dist {
 			cmp = 1
 		} else if c.bottomDist > dist {
@@ -365,12 +380,16 @@ func (c *Geo3DPointDistanceComparator) CompareBottom(doc int) (int, error) {
 }
 
 func (c *Geo3DPointDistanceComparator) Copy(slot, doc int) error {
-	c.values[slot] = c.computeMinimumDistance(doc)
+	dist, err := c.computeMinimumDistance(doc)
+	if err != nil {
+		return err
+	}
+	c.values[slot] = dist
 	return nil
 }
 
-func (c *Geo3DPointDistanceComparator) SetReader(reader index.IndexReader) error {
-	dv, err := reader.SortedNumericDocValues(c.field)
+func (c *Geo3DPointDistanceComparator) SetReader(reader index.LeafReader) error {
+	dv, err := reader.GetSortedNumericDocValues(c.field)
 	if err != nil {
 		return fmt.Errorf("geo3d: SetReader: %w", err)
 	}
@@ -378,12 +397,47 @@ func (c *Geo3DPointDistanceComparator) SetReader(reader index.IndexReader) error
 	return nil
 }
 
+// GetLeafComparator binds the comparator to the segment's SortedNumericDocValues
+// and returns itself, as Geo3DPointDistanceComparator does (it implements
+// LeafFieldComparator).
+//
+// Mirrors Geo3DPointDistanceComparator.getLeafComparator(LeafReaderContext).
+func (c *Geo3DPointDistanceComparator) GetLeafComparator(context *index.LeafReaderContext) (search.LeafFieldComparator, error) {
+	if context == nil {
+		return nil, fmt.Errorf("geo3d: GetLeafComparator: leaf reader context must not be nil")
+	}
+	leaf := context.LeafReader()
+	if leaf == nil {
+		return nil, fmt.Errorf("geo3d: GetLeafComparator: leaf reader context has no reader")
+	}
+	if err := c.SetReader(leaf); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// SetScorer is empty, as Geo3DPointDistanceComparator.setScorer is.
+func (c *Geo3DPointDistanceComparator) SetScorer(search.Scorable) error { return nil }
+
+// CompetitiveIterator returns nil: Geo3DPointDistanceComparator does not override
+// the LeafFieldComparator default, which returns null.
+func (c *Geo3DPointDistanceComparator) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// SetHitsThresholdReached is empty: Geo3DPointDistanceComparator does not override
+// the LeafFieldComparator default, whose body is empty.
+func (c *Geo3DPointDistanceComparator) SetHitsThresholdReached() error { return nil }
+
 func (c *Geo3DPointDistanceComparator) Value(slot int) any {
 	return c.values[slot] * c.planetModel.MeanRadius
 }
 
 func (c *Geo3DPointDistanceComparator) CompareTop(doc int) (int, error) {
-	dist := c.computeMinimumDistance(doc)
+	dist, err := c.computeMinimumDistance(doc)
+	if err != nil {
+		return 0, err
+	}
 	if c.topValue < dist {
 		return -1, nil
 	} else if c.topValue > dist {
@@ -392,18 +446,26 @@ func (c *Geo3DPointDistanceComparator) CompareTop(doc int) (int, error) {
 	return 0, nil
 }
 
-func (c *Geo3DPointDistanceComparator) computeMinimumDistance(doc int) float64 {
+func (c *Geo3DPointDistanceComparator) computeMinimumDistance(doc int) (float64, error) {
 	if doc > c.currentDocs.DocID() {
-		c.currentDocs.Advance(doc)
+		if _, err := c.currentDocs.Advance(doc); err != nil {
+			return 0, err
+		}
 	}
 	minValue := math.Inf(1)
 	if doc == c.currentDocs.DocID() {
-		numValues := c.currentDocs.DocValueCount()
+		numValues, err := c.currentDocs.DocValueCount()
+		if err != nil {
+			return 0, err
+		}
 		encoder := geom.NewDocValueEncoder(c.planetModel)
 		for i := 0; i < numValues; i++ {
-			encoded := c.currentDocs.NextValue()
+			encoded, err := c.currentDocs.NextValue()
+			if err != nil {
+				return 0, err
+			}
 			dist := c.distanceShape.ComputeDistance(
-				geom.Arc,
+				geom.ARC,
 				encoder.DecodeXValue(encoded),
 				encoder.DecodeYValue(encoded),
 				encoder.DecodeZValue(encoded))
@@ -412,13 +474,13 @@ func (c *Geo3DPointDistanceComparator) computeMinimumDistance(doc int) float64 {
 			}
 		}
 	}
-	return minValue
+	return minValue, nil
 }
 
 func (c *Geo3DPointDistanceComparator) ComputeMinimumDistanceMock(encoded int64) float64 {
 	encoder := geom.NewDocValueEncoder(c.planetModel)
 	return c.distanceShape.ComputeDistance(
-		geom.Arc,
+		geom.ARC,
 		encoder.DecodeXValue(encoded),
 		encoder.DecodeYValue(encoded),
 		encoder.DecodeZValue(encoded))
@@ -428,6 +490,8 @@ func (c *Geo3DPointDistanceComparator) ComputeMinimumDistanceMock(encoded int64)
 //
 // Port of org.apache.lucene.spatial3d.Geo3DPointOutsideDistanceComparator.
 type Geo3DPointOutsideDistanceComparator struct {
+	search.BaseFieldComparator
+
 	field         string
 	planetModel   *geom.PlanetModel
 	distanceShape geom.GeoOutsideDistance
@@ -455,17 +519,22 @@ func (c *Geo3DPointOutsideDistanceComparator) Compare(slot1, slot2 int) int {
 	return 0
 }
 
-func (c *Geo3DPointOutsideDistanceComparator) SetBottom(slot int) {
+func (c *Geo3DPointOutsideDistanceComparator) SetBottom(slot int) error {
 	c.bottomDist = c.values[slot]
+	return nil
 }
 
-func (c *Geo3DPointOutsideDistanceComparator) SetTopValue(value float64) {
-	c.topValue = value
+func (c *Geo3DPointOutsideDistanceComparator) SetTopValue(value any) {
+	// Java's setTopValue(Double) unboxes with value.doubleValue(); a value of
+	// another type raises ClassCastException, which the assertion reproduces.
+	c.topValue = value.(float64)
 }
 
 func (c *Geo3DPointOutsideDistanceComparator) CompareBottom(doc int) (int, error) {
 	if doc > c.currentDocs.DocID() {
-		c.currentDocs.Advance(doc)
+		if _, err := c.currentDocs.Advance(doc); err != nil {
+			return 0, err
+		}
 	}
 	if doc < c.currentDocs.DocID() {
 		if c.bottomDist < math.Inf(1) {
@@ -474,17 +543,23 @@ func (c *Geo3DPointOutsideDistanceComparator) CompareBottom(doc int) (int, error
 		return 0, nil
 	}
 
-	numValues := c.currentDocs.DocValueCount()
+	numValues, err := c.currentDocs.DocValueCount()
+	if err != nil {
+		return 0, err
+	}
 	cmp := -1
 	encoder := geom.NewDocValueEncoder(c.planetModel)
 
 	for i := 0; i < numValues; i++ {
-		encoded := c.currentDocs.NextValue()
+		encoded, err := c.currentDocs.NextValue()
+		if err != nil {
+			return 0, err
+		}
 		x := encoder.DecodeXValue(encoded)
 		y := encoder.DecodeYValue(encoded)
 		z := encoder.DecodeZValue(encoded)
 
-		dist := c.distanceShape.ComputeOutsideDistance(geom.Arc, x, y, z)
+		dist := c.distanceShape.ComputeOutsideDistance(geom.ARC, x, y, z)
 		if c.bottomDist < dist {
 			cmp = 1
 		} else if c.bottomDist > dist {
@@ -497,12 +572,16 @@ func (c *Geo3DPointOutsideDistanceComparator) CompareBottom(doc int) (int, error
 }
 
 func (c *Geo3DPointOutsideDistanceComparator) Copy(slot, doc int) error {
-	c.values[slot] = c.computeMinimumDistance(doc)
+	dist, err := c.computeMinimumDistance(doc)
+	if err != nil {
+		return err
+	}
+	c.values[slot] = dist
 	return nil
 }
 
-func (c *Geo3DPointOutsideDistanceComparator) SetReader(reader index.IndexReader) error {
-	dv, err := reader.SortedNumericDocValues(c.field)
+func (c *Geo3DPointOutsideDistanceComparator) SetReader(reader index.LeafReader) error {
+	dv, err := reader.GetSortedNumericDocValues(c.field)
 	if err != nil {
 		return fmt.Errorf("geo3d: SetReader: %w", err)
 	}
@@ -510,12 +589,47 @@ func (c *Geo3DPointOutsideDistanceComparator) SetReader(reader index.IndexReader
 	return nil
 }
 
+// GetLeafComparator binds the comparator to the segment's SortedNumericDocValues
+// and returns itself, as Geo3DPointOutsideDistanceComparator does (it implements
+// LeafFieldComparator).
+//
+// Mirrors Geo3DPointOutsideDistanceComparator.getLeafComparator(LeafReaderContext).
+func (c *Geo3DPointOutsideDistanceComparator) GetLeafComparator(context *index.LeafReaderContext) (search.LeafFieldComparator, error) {
+	if context == nil {
+		return nil, fmt.Errorf("geo3d: GetLeafComparator: leaf reader context must not be nil")
+	}
+	leaf := context.LeafReader()
+	if leaf == nil {
+		return nil, fmt.Errorf("geo3d: GetLeafComparator: leaf reader context has no reader")
+	}
+	if err := c.SetReader(leaf); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// SetScorer is empty, as Geo3DPointOutsideDistanceComparator.setScorer is.
+func (c *Geo3DPointOutsideDistanceComparator) SetScorer(search.Scorable) error { return nil }
+
+// CompetitiveIterator returns nil: Geo3DPointOutsideDistanceComparator does not override
+// the LeafFieldComparator default, which returns null.
+func (c *Geo3DPointOutsideDistanceComparator) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// SetHitsThresholdReached is empty: Geo3DPointOutsideDistanceComparator does not override
+// the LeafFieldComparator default, whose body is empty.
+func (c *Geo3DPointOutsideDistanceComparator) SetHitsThresholdReached() error { return nil }
+
 func (c *Geo3DPointOutsideDistanceComparator) Value(slot int) any {
 	return c.values[slot] * c.planetModel.MeanRadius
 }
 
 func (c *Geo3DPointOutsideDistanceComparator) CompareTop(doc int) (int, error) {
-	dist := c.computeMinimumDistance(doc)
+	dist, err := c.computeMinimumDistance(doc)
+	if err != nil {
+		return 0, err
+	}
 	if c.topValue < dist {
 		return -1, nil
 	} else if c.topValue > dist {
@@ -524,18 +638,26 @@ func (c *Geo3DPointOutsideDistanceComparator) CompareTop(doc int) (int, error) {
 	return 0, nil
 }
 
-func (c *Geo3DPointOutsideDistanceComparator) computeMinimumDistance(doc int) float64 {
+func (c *Geo3DPointOutsideDistanceComparator) computeMinimumDistance(doc int) (float64, error) {
 	if doc > c.currentDocs.DocID() {
-		c.currentDocs.Advance(doc)
+		if _, err := c.currentDocs.Advance(doc); err != nil {
+			return 0, err
+		}
 	}
 	minValue := math.Inf(1)
 	if doc == c.currentDocs.DocID() {
-		numValues := c.currentDocs.DocValueCount()
+		numValues, err := c.currentDocs.DocValueCount()
+		if err != nil {
+			return 0, err
+		}
 		encoder := geom.NewDocValueEncoder(c.planetModel)
 		for i := 0; i < numValues; i++ {
-			encoded := c.currentDocs.NextValue()
+			encoded, err := c.currentDocs.NextValue()
+			if err != nil {
+				return 0, err
+			}
 			dist := c.distanceShape.ComputeOutsideDistance(
-				geom.Arc,
+				geom.ARC,
 				encoder.DecodeXValue(encoded),
 				encoder.DecodeYValue(encoded),
 				encoder.DecodeZValue(encoded))
@@ -544,14 +666,21 @@ func (c *Geo3DPointOutsideDistanceComparator) computeMinimumDistance(doc int) fl
 			}
 		}
 	}
-	return minValue
+	return minValue, nil
 }
 
 func (c *Geo3DPointOutsideDistanceComparator) ComputeMinimumDistanceMock(encoded int64) float64 {
 	encoder := geom.NewDocValueEncoder(c.planetModel)
 	return c.distanceShape.ComputeOutsideDistance(
-		geom.Arc,
+		geom.ARC,
 		encoder.DecodeXValue(encoded),
 		encoder.DecodeYValue(encoded),
 		encoder.DecodeZValue(encoded))
 }
+
+var (
+	_ search.FieldComparator     = (*Geo3DPointDistanceComparator)(nil)
+	_ search.LeafFieldComparator = (*Geo3DPointDistanceComparator)(nil)
+	_ search.FieldComparator     = (*Geo3DPointOutsideDistanceComparator)(nil)
+	_ search.LeafFieldComparator = (*Geo3DPointOutsideDistanceComparator)(nil)
+)

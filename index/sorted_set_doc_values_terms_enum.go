@@ -42,6 +42,20 @@ type SortedSetDocValuesTermsEnum struct {
 	field      string
 	currentOrd int64
 	scratch    *util.BytesRefBuilder
+	// atts mirrors the private AttributeSource field of
+	// org.apache.lucene.index.BaseTermsEnum: nil until the first
+	// Attributes() call, reused for every call thereafter.
+	atts *util.AttributeSource
+}
+
+// Attributes returns the related attributes, reproducing the body of
+// org.apache.lucene.index.BaseTermsEnum#attributes() in Apache Lucene 10.5.0:
+// the AttributeSource is created on first use and reused thereafter.
+func (s *SortedSetDocValuesTermsEnum) Attributes() *util.AttributeSource {
+	if s.atts == nil {
+		s.atts = util.NewAttributeSource()
+	}
+	return s.atts
 }
 
 // ErrUnsupportedSortedSetDVOp is returned by operations on

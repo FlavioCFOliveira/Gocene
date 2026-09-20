@@ -7,6 +7,8 @@
 
 package geo
 
+import "github.com/FlavioCFOliveira/Gocene/spi"
+
 // multiComponent2D answers Component2D queries as the set-union over
 // a fixed list of child components.
 type multiComponent2D struct {
@@ -66,20 +68,20 @@ func (m *multiComponent2D) Contains(x, y float64) bool {
 // Relate aggregates per-child relations: INSIDE on any child wins;
 // otherwise CROSSES if any child crosses; OUTSIDE only when every
 // child is OUTSIDE.
-func (m *multiComponent2D) Relate(minX, maxX, minY, maxY float64) Relation {
+func (m *multiComponent2D) Relate(minX, maxX, minY, maxY float64) spi.Relation {
 	hasCrosses := false
 	for _, c := range m.components {
 		switch c.Relate(minX, maxX, minY, maxY) {
-		case CellInsideQuery:
-			return CellInsideQuery
-		case CellCrossesQuery:
+		case spi.CellInsideQuery:
+			return spi.CellInsideQuery
+		case spi.CellCrossesQuery:
 			hasCrosses = true
 		}
 	}
 	if hasCrosses {
-		return CellCrossesQuery
+		return spi.CellCrossesQuery
 	}
-	return CellOutsideQuery
+	return spi.CellOutsideQuery
 }
 
 // IntersectsLine returns true if any child intersects the segment.

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -155,7 +156,7 @@ func NewNotQuery(children []SrndQuery, infix bool, operatorName string) *NotQuer
 // and the rest as MUST_NOT.
 func (q *NotQuery) MakeLuceneQueryField(field string, factory *BasicQueryFactory) (search.Query, error) {
 	if len(q.children) == 0 {
-		return search.NewBooleanQuery(), nil
+		return search.NewBooleanQueryBuilder().Build(), nil
 	}
 	clauses := make([]*search.BooleanClause, 0, len(q.children))
 	first, err := q.children[0].MakeLuceneQueryField(field, factory)
@@ -222,13 +223,13 @@ func (q *DistanceQuery) MakeLuceneQueryField(field string, factory *BasicQueryFa
 	}
 	clauses := clauseFactory.MakeSpanClauses()
 	if len(clauses) == 0 {
-		return search.NewBooleanQuery(), nil
+		return search.NewBooleanQueryBuilder().Build(), nil
 	}
 	slop := q.opDistance - 1
 	if slop < 0 {
 		slop = 0
 	}
-	return search.NewSpanNearQuery(clauses, slop, q.ordered), nil
+	return spans.NewSpanNearQuery(clauses, slop, q.ordered)
 }
 
 // AddSpanQueries makes DistanceQuery itself a DistanceSubQuery so it can be
@@ -295,21 +296,41 @@ func (q *FieldsQuery) MakeLuceneQueryField(_ string, factory *BasicQueryFactory)
 	return newBooleanQueryFromClauses(clauses), nil
 }
 
+// String returns the string representation of the fields query. Mirrors
+// org.apache.lucene.queryparser.surround.query.FieldsQuery#toString.
+func (q *FieldsQuery) String() string {
+	var sb strings.Builder
+	sb.WriteByte('(')
+	q.fieldNamesToString(&sb)
+	sb.WriteString(q.sub.String())
+	sb.WriteByte(')')
+	return sb.String()
+}
+
+// fieldNamesToString appends each field name followed by the field operator.
+// Mirrors FieldsQuery#fieldNamesToString.
+func (q *FieldsQuery) fieldNamesToString(sb *strings.Builder) {
+	for _, fn := range q.fieldNames {
+		sb.WriteString(fn)
+		sb.WriteRune(q.delim)
+	}
+}
+
 func (q *FieldsQuery) fieldOperatorString() string {
 	return string(q.delim) + strings.Join(q.fieldNames, string(q.delim))
 }
 
 func newBooleanQueryFromClauses(clauses []*search.BooleanClause) *search.BooleanQuery {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, c := range clauses {
-		bq.Add(c.Query, c.Occur)
+		bq.AddClause(c)
 	}
-	return bq
+	return bq.Build()
 }
 
 func makeBooleanQuery(children []SrndQuery, field string, factory *BasicQueryFactory, occur search.Occur) (search.Query, error) {
 	if len(children) == 0 {
-		return search.NewBooleanQuery(), nil
+		return search.NewBooleanQueryBuilder().Build(), nil
 	}
 	if len(children) == 1 {
 		return children[0].MakeLuceneQueryField(field, factory)

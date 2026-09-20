@@ -123,15 +123,15 @@ func NewDirectoryTaxonomyWriterWithOptions(dir store.Directory, opts *DirectoryT
 	var iwcOpenMode index.OpenMode
 	switch mode {
 	case CREATE:
-		iwcOpenMode = index.CREATE
+		iwcOpenMode = index.Create
 	case APPEND:
-		iwcOpenMode = index.APPEND
+		iwcOpenMode = index.Append
 	case CREATE_OR_APPEND:
-		iwcOpenMode = index.CREATE_OR_APPEND
+		iwcOpenMode = index.CreateOrAppend
 	}
 
 	// Use LogByteSizeMergePolicy to preserve docID order across merges.
-	config := index.NewIndexWriterConfig(nil)
+	config := index.NewIndexWriterConfigWithAnalyzer(nil)
 	config.SetOpenMode(iwcOpenMode)
 	config.SetMergePolicy(index.NewLogByteSizeMergePolicy())
 
@@ -155,7 +155,14 @@ func NewDirectoryTaxonomyWriterWithOptions(dir store.Directory, opts *DirectoryT
 	// The taxonomy must always contain the root category at ordinal 0.
 	// If the index is empty (freshly created), add the root document now.
 	// If the index already has documents, load existing categories from disk.
-	maxDoc := iw.GetDocStats().MaxDoc
+	docStats, err := iw.GetDocStats()
+	if err != nil {
+		if closeErr := iw.Close(); closeErr != nil {
+			return nil, fmt.Errorf("reading taxonomy index doc stats: %w (closing writer: %v)", err, closeErr)
+		}
+		return nil, fmt.Errorf("reading taxonomy index doc stats: %w", err)
+	}
+	maxDoc := docStats.MaxDoc
 	if maxDoc == 0 {
 		// New index: insert root.
 		w.indexEpoch = 1
@@ -215,7 +222,7 @@ func (w *DirectoryTaxonomyWriter) loadFromDisk() error {
 			continue
 		}
 		maxDoc := lr.MaxDoc()
-		base := lrc.DocBase()
+		base := lrc.DocBase
 
 		// Read BinaryDocValues for path (ordinal→path).
 		bdv, err := lr.GetBinaryDocValues(taxoFieldFull)
@@ -485,7 +492,7 @@ func (w *DirectoryTaxonomyWriter) Commit() error {
 	if !w.isOpen {
 		return fmt.Errorf("taxonomy writer is closed")
 	}
-	if err := w.indexWriter.Commit(); err != nil {
+	if _, err := w.indexWriter.Commit(); err != nil {
 		return err
 	}
 	w.uncommittedChanges = false
@@ -499,7 +506,7 @@ func (w *DirectoryTaxonomyWriter) Close() error {
 	if !w.isOpen {
 		return nil
 	}
-	if err := w.indexWriter.Commit(); err != nil {
+	if _, err := w.indexWriter.Commit(); err != nil {
 		_ = w.indexWriter.Close()
 		w.isOpen = false
 		return fmt.Errorf("commit on close: %w", err)
@@ -666,7 +673,7 @@ func (w *DirectoryTaxonomyWriter) AddTaxonomy(srcDir store.Directory, ordMap Ord
 		if !ok {
 			continue
 		}
-		base := lrc.DocBase()
+		base := lrc.DocBase
 
 		terms, err := tr.Terms(taxoFieldFull)
 		if err != nil {
@@ -675,7 +682,7 @@ func (w *DirectoryTaxonomyWriter) AddTaxonomy(srcDir store.Directory, ordMap Ord
 		if terms == nil {
 			continue
 		}
-		te, err := terms.GetIterator()
+		te, err := terms.Iterator()
 		if err != nil {
 			return fmt.Errorf("getting terms iterator: %w", err)
 		}

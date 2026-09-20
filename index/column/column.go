@@ -2,7 +2,7 @@ package column
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // Density describes whether a column has a value for every document in the batch.
@@ -15,12 +15,25 @@ const (
 	DensitySparse
 )
 
+// ColumnBatch is a collection of columns for a batch of documents.
+type ColumnBatch struct {
+	NumDocs int
+	Columns map[string]Column
+}
+
+func NewColumnBatch(numDocs int) *ColumnBatch {
+	return &ColumnBatch{
+		NumDocs: numDocs,
+		Columns: make(map[string]Column),
+	}
+}
+
 // Column is a single field's values across multiple documents in a ColumnBatch.
 type Column interface {
 	// Name returns the field name.
 	Name() string
 	// FieldType returns the field type describing how this field is indexed.
-	FieldType() index.IndexableFieldType
+	FieldType() spi.IndexableFieldType
 	// Density returns the density of this column (whether every doc has a value).
 	Density() Density
 }

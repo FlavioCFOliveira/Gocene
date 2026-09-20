@@ -63,7 +63,9 @@ func (f *EnglishPossessiveFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*EnglishPossessiveFilter)(nil)
 
 // EnglishPossessiveFilterFactory creates instances.
-type EnglishPossessiveFilterFactory struct{}
+type EnglishPossessiveFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewEnglishPossessiveFilterFactory returns a fresh factory.
 func NewEnglishPossessiveFilterFactory() *EnglishPossessiveFilterFactory {

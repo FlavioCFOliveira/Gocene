@@ -9,6 +9,7 @@
 package search_test
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -56,8 +57,8 @@ func (s *bmcFixedScorer) Advance(target int) (int, error) {
 	}
 	return s.DocID(), nil
 }
-func (s *bmcFixedScorer) Cost() int64      { return int64(len(s.docs)) }
-func (s *bmcFixedScorer) DocIDRunEnd() int { return s.DocID() + 1 }
+func (s *bmcFixedScorer) Cost() int64               { return int64(len(s.docs)) }
+func (s *bmcFixedScorer) DocIDRunEnd() (int, error) { return s.DocID() + 1, nil }
 
 var _ search.Scorer = (*bmcFixedScorer)(nil)
 
@@ -188,4 +189,11 @@ func TestBlockMaxConjunctionBulkScorer_ImplementsBulkScorer(t *testing.T) {
 		t.Fatal(err)
 	}
 	var _ search.BulkScorer = bs
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *bmcFixedScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

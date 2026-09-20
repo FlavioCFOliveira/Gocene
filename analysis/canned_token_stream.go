@@ -5,6 +5,8 @@
 package analysis
 
 import (
+	"reflect"
+
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
@@ -41,13 +43,9 @@ func NewCannedTokenStreamWithFinalOffset(finalPosInc, finalOffset int, tokens ..
 	copy(ts.tokens, tokens)
 
 	// Initialize attributes
-	ts.offsetAtt = NewOffsetAttribute()
-	ts.posIncrAtt = tokenattributes.NewPositionIncrementAttribute()
-	ts.charTermAtt = NewCharTermAttribute()
-
-	base.AddAttribute(ts.offsetAtt)
-	base.AddAttribute(ts.posIncrAtt)
-	base.AddAttribute(ts.charTermAtt)
+	ts.offsetAtt = ts.AddAttribute(reflect.TypeOf((*OffsetAttribute)(nil)).Elem()).(OffsetAttribute)
+	ts.posIncrAtt = ts.AddAttribute(reflect.TypeOf((*tokenattributes.PositionIncrementAttribute)(nil)).Elem()).(tokenattributes.PositionIncrementAttribute)
+	ts.charTermAtt = ts.AddAttribute(reflect.TypeOf((*CharTermAttribute)(nil)).Elem()).(CharTermAttribute)
 
 	return ts
 }

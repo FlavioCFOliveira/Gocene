@@ -10,7 +10,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// fakeFieldType is a minimal IndexableFieldType for exercising the indexing
+// fakeFieldType is a minimal schema.IndexableFieldType for exercising the indexing
 // chain's schema-building logic without depending on package document.
 type fakeFieldType struct {
 	stored                   bool
@@ -54,7 +54,7 @@ func (f *fakeFieldType) VectorSimilarityFunction() VectorSimilarityFunction {
 }
 func (f *fakeFieldType) GetAttributes() map[string]string { return f.attributes }
 
-var _ IndexableFieldType = (*fakeFieldType)(nil)
+var _ schema.IndexableFieldType = (*fakeFieldType)(nil)
 
 // ---------------------------------------------------------------------------
 // stringHashCode

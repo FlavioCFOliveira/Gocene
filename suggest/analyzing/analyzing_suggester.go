@@ -37,7 +37,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"sort"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
@@ -229,11 +228,7 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 			wc.Close()
 			return err
 		}
-		finiteIt, err := automaton.NewLimitedFiniteStringsIterator(a, s.maxGraphExpansions)
-		if err != nil {
-			wc.Close()
-			return err
-		}
+		finiteIt := automaton.NewLimitedFiniteStringsIterator(a, s.maxGraphExpansions)
 		pathCount := 0
 		scratchBytesBuilder := util.NewBytesRefBuilder()
 		for {
@@ -273,16 +268,16 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 				requiredLen += 2 + len(payload)
 			}
 			entry := make([]byte, requiredLen)
-			out := store.NewByteArrayDataOutputAt(entry, 0)
+			out := store.NewByteArrayDataOutput(entry)
 			out.WriteShort(int16(analyzedLen))
-			out.WriteBytes(analyzedBytes.Bytes[analyzedBytes.Offset : analyzedBytes.Offset+analyzedLen])
+			out.WriteBytesN(analyzedBytes.Bytes[analyzedBytes.Offset:analyzedBytes.Offset+analyzedLen], analyzedLen)
 			out.WriteInt(int32(encodeWeight(weight)))
 			if s.hasPayloads {
 				out.WriteShort(int16(surfaceLen))
-				out.WriteBytes(surface)
-				out.WriteBytes(payload)
+				out.WriteBytesN(surface, len(surface))
+				out.WriteBytesN(payload, len(payload))
 			} else {
-				out.WriteBytes(surface)
+				out.WriteBytesN(surface, len(surface))
 			}
 
 			// Write length prefix (2 bytes big-endian) + entry.
@@ -352,7 +347,7 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 		analyzedLenI, _ := in.ReadShort()
 		analyzedLen := int(uint16(analyzedLenI))
 		analyzed := make([]byte, analyzedLen)
-		in.ReadBytes(analyzed)
+		in.ReadBytes(analyzed, 0, analyzedLen)
 		costI, _ := in.ReadInt()
 		cost := int64(uint32(costI))
 
@@ -362,7 +357,7 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 			sfLenI, _ := in.ReadShort()
 			sfLen := int(uint16(sfLenI))
 			surfaceBytes = make([]byte, sfLen)
-			in.ReadBytes(surfaceBytes)
+			in.ReadBytes(surfaceBytes, 0, sfLen)
 			payloadStartPos = in.GetPosition()
 		} else {
 			surfaceBytes = entry[in.GetPosition():]
@@ -437,7 +432,7 @@ func (s *AnalyzingSuggester) Build(it suggest.InputIterator) error {
 //	writeVInt(maxAnalyzedPathsForOneInput)
 //	writeByte(hasPayloads ? 1 : 0)
 func (s *AnalyzingSuggester) Store(output store.DataOutput) (bool, error) {
-	if err := store.WriteVLong(output, s.count); err != nil {
+	if err := output.WriteVLong(s.count); err != nil {
 		return false, err
 	}
 	if s.fst == nil {
@@ -446,7 +441,7 @@ func (s *AnalyzingSuggester) Store(output store.DataOutput) (bool, error) {
 	if err := s.fst.Save(output, output); err != nil {
 		return false, err
 	}
-	if err := store.WriteVInt(output, int32(s.maxAnalyzedPathsForOneInput)); err != nil {
+	if err := output.WriteVInt(int32(s.maxAnalyzedPathsForOneInput)); err != nil {
 		return false, err
 	}
 	var hasPay byte
@@ -462,7 +457,7 @@ func (s *AnalyzingSuggester) Store(output store.DataOutput) (bool, error) {
 // Load reads a serialised FST produced by Store (or Lucene's store()).
 // Returns true on success. Mirrors AnalyzingSuggester.load(DataInput).
 func (s *AnalyzingSuggester) Load(input store.DataInput) (bool, error) {
-	cnt, err := store.ReadVLong(input)
+	cnt, err := input.ReadVLong()
 	if err != nil {
 		return false, err
 	}
@@ -689,8 +684,8 @@ func analyzingComparator(a, b []byte, hasPayloads bool) int {
 	if c != 0 {
 		return c
 	}
-	_ = inA.SetPosition(inA.GetPosition() + aLen)
-	_ = inB.SetPosition(inB.GetPosition() + bLen)
+	inA.SetPosition(inA.GetPosition() + aLen)
+	inB.SetPosition(inB.GetPosition() + bLen)
 
 	// Compare costs (int32, little-endian).
 	aCostI, _ := inA.ReadInt()
@@ -788,13 +783,13 @@ func (s *AnalyzingSuggester) replaceSep(a *automaton.Automaton) *automaton.Autom
 		for j := 0; j < count; j++ {
 			a.GetNextTransition(&t)
 			switch t.Min {
-			case analysis.PosSep:
+			case analysis.POS_SEP:
 				if s.preserveSep {
 					b.AddTransitionSingle(state, t.Dest, sepLabel)
 				} else {
 					b.AddEpsilon(state, t.Dest)
 				}
-			case analysis.Hole:
+			case analysis.HOLE:
 				b.AddEpsilon(state, t.Dest)
 			default:
 				b.AddTransition(state, t.Dest, t.Min, t.Max)

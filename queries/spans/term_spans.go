@@ -10,6 +10,7 @@ package spans
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TermSpans iterates over span positions for a single term.
@@ -48,7 +49,7 @@ func NewTermSpans(postings index.PostingsEnum, term index.Term, positionsCost fl
 func (s *TermSpans) DocID() int { return s.doc }
 
 // DocIDRunEnd returns the exclusive upper bound of the current doc-ID run.
-func (s *TermSpans) DocIDRunEnd() int { return s.doc + 1 }
+func (s *TermSpans) DocIDRunEnd() (int, error) { return s.doc + 1, nil }
 
 // Cost returns the estimated iteration cost.
 func (s *TermSpans) Cost() int64 { return s.postings.Cost() }
@@ -151,3 +152,10 @@ func (s *TermSpans) AsTwoPhaseIterator() *search.TwoPhaseIterator { return nil }
 func (s *TermSpans) GetPostings() index.PostingsEnum { return s.postings }
 
 var _ Spans = (*TermSpans)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *TermSpans) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

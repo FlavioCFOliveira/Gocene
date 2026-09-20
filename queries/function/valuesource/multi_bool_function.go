@@ -5,7 +5,6 @@
 package valuesource
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"

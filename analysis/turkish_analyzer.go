@@ -8,6 +8,7 @@ import (
 	"io"
 	"strings"
 	"unicode"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // TurkishStopWords contains common Turkish stop words.
@@ -65,13 +66,22 @@ func NewTurkishAnalyzer() *TurkishAnalyzer {
 // NewTurkishAnalyzerWithWords creates a TurkishAnalyzer with custom stop words.
 func NewTurkishAnalyzerWithWords(stopWords *CharArraySet) *TurkishAnalyzer {
 	a := &TurkishAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	// Turkish requires special lowercasing - use TurkishLowerCaseFilter
-	a.AddTokenFilter(NewTurkishLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewTurkishLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 	return a
 }
 
@@ -90,8 +100,7 @@ func (a *TurkishAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*TurkishAnalyzer)(nil)
-var _ AnalyzerInterface = (*TurkishAnalyzer)(nil)
+var _ api.Analyzer = (*TurkishAnalyzer)(nil)
 
 // TurkishLowerCaseFilter implements Turkish-specific lowercasing.
 //
@@ -154,7 +163,9 @@ func turkishToLower(s string) string {
 }
 
 // TurkishLowerCaseFilterFactory creates TurkishLowerCaseFilter instances.
-type TurkishLowerCaseFilterFactory struct{}
+type TurkishLowerCaseFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewTurkishLowerCaseFilterFactory creates a new TurkishLowerCaseFilterFactory.
 func NewTurkishLowerCaseFilterFactory() *TurkishLowerCaseFilterFactory {

@@ -729,11 +729,10 @@ func (b *StandardRegexpQueryNodeBuilder) Build(queryNode QueryNode) (search.Quer
 	if !ok {
 		return nil, fmt.Errorf("expected RegexpQueryNode, got %T", queryNode)
 	}
-	q, err := search.NewRegexpQuery(n.GetField(), n.GetText())
-	if err != nil {
-		return nil, err
-	}
-	return q, nil
+	// Mirrors RegexpQueryNodeBuilder#build: new RegexpQuery(new Term(
+	// regexpNode.getFieldAsString(), regexpNode.textToBytesRef())).
+	return search.NewRegexpQuery(
+		index.NewTermFromBytesRef(n.GetFieldAsString(), n.TextToBytesRef())), nil
 }
 
 // Ensure compile-time interface satisfaction.
@@ -750,7 +749,7 @@ func (b *StandardFuzzyQueryNodeBuilder) Build(queryNode QueryNode) (search.Query
 	if !ok {
 		return nil, fmt.Errorf("expected FuzzyQueryNode, got %T", queryNode)
 	}
-	minSim := n.GetMinSimilarity()
+	minSim := float64(n.GetSimilarity())
 	prefixLen := n.GetPrefixLength()
 
 	// Convert similarity to maxEdits (Lucene convention: float < 1 = ratio, >= 1 = integer edits)

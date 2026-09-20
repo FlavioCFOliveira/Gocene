@@ -83,9 +83,13 @@ type idVersionSegmentTermsEnumFrame struct {
 	// isFloor is true when this frame was entered via a floor-block arc.
 	isFloor bool
 
+	// termStateRef is the term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is *IDVersionTermState, which the
+	// codec narrows back with a type assertion. state is the widened
+	// BlockTermState view of that very object.
+	termStateRef index.TermState
+
 	// state is the per-term postings metadata for the current term.
-	// It is a *codecs.BlockTermState allocated by the postings reader; the
-	// extra IDVersion / DocID fields are stored in globalTermStateRegistry.
 	state *codecs.BlockTermState
 
 	// bytes_ / bytesReader hold the raw per-term postings metadata blob.
@@ -110,7 +114,8 @@ func newIDVersionSegmentTermsEnumFrame(ste *IDVersionSegmentTermsEnum, ord int) 
 		return nil, fmt.Errorf("newIDVersionSegmentTermsEnumFrame: ste must not be nil")
 	}
 
-	bts := ste.fr.Parent.PostingsReader.NewTermState()
+	termStateRef := ste.fr.Parent.PostingsReader.NewTermState()
+	bts := codecs.BaseState(termStateRef)
 	bts.TotalTermFreq = -1
 
 	f := &idVersionSegmentTermsEnumFrame{
@@ -125,6 +130,7 @@ func newIDVersionSegmentTermsEnumFrame(ste *IDVersionSegmentTermsEnum, ord int) 
 		bytes_:          make([]byte, 32),
 		bytesReader:     store.NewByteArrayDataInput(nil),
 		ste:             ste,
+		termStateRef:    termStateRef,
 		state:           bts,
 	}
 
@@ -201,7 +207,7 @@ func (f *idVersionSegmentTermsEnumFrame) loadBlock() error {
 	if len(f.suffixBytes) < numBytes {
 		f.suffixBytes = make([]byte, util.Oversize(numBytes, 1))
 	}
-	if err := f.ste.in.ReadBytes(f.suffixBytes[:numBytes]); err != nil {
+	if err := f.ste.in.ReadBytes(f.suffixBytes, 0, numBytes); err != nil {
 		return fmt.Errorf("IDVersionSegmentTermsEnumFrame.loadBlock: read suffixes: %w", err)
 	}
 	f.suffixesReader.ResetWithSlice(f.suffixBytes, 0, numBytes)
@@ -220,7 +226,7 @@ func (f *idVersionSegmentTermsEnumFrame) loadBlock() error {
 	if len(f.bytes_) < numBytes {
 		f.bytes_ = make([]byte, util.Oversize(numBytes, 1))
 	}
-	if err := f.ste.in.ReadBytes(f.bytes_[:numBytes]); err != nil {
+	if err := f.ste.in.ReadBytes(f.bytes_, 0, numBytes); err != nil {
 		return fmt.Errorf("IDVersionSegmentTermsEnumFrame.loadBlock: read metadata: %w", err)
 	}
 	f.bytesReader.ResetWithSlice(f.bytes_, 0, numBytes)
@@ -237,12 +243,11 @@ func (f *idVersionSegmentTermsEnumFrame) rewind() {
 	f.nextEnt = -1
 	f.hasTerms = f.hasTermsOrig
 	if f.isFloor {
-		if err := f.floorDataReader.SetPosition(0); err == nil {
-			numFollowFloor, _ := f.floorDataReader.ReadVInt()
-			f.numFollowFloorBlocks = int(numFollowFloor)
-			nextLabel, _ := f.floorDataReader.ReadByte()
-			f.nextFloorLabel = int(nextLabel) & 0xff
-		}
+		f.floorDataReader.SetPosition(0)
+		numFollowFloor, _ := f.floorDataReader.ReadVInt()
+		f.numFollowFloorBlocks = int(numFollowFloor)
+		nextLabel, _ := f.floorDataReader.ReadByte()
+		f.nextFloorLabel = int(nextLabel) & 0xff
 	}
 }
 
@@ -263,7 +268,7 @@ func (f *idVersionSegmentTermsEnumFrame) nextLeaf() bool {
 	newLen := f.prefixLength + f.suffixLength
 	f.ste.term.SetLength(newLen)
 	f.ste.term.Grow(newLen)
-	_ = f.suffixesReader.ReadBytes(f.ste.term.Bytes()[f.prefixLength : f.prefixLength+f.suffixLength])
+	_ = f.suffixesReader.ReadBytes(f.ste.term.Bytes(), f.prefixLength, f.suffixLength)
 	f.ste.termExists = true
 	return false
 }
@@ -277,7 +282,7 @@ func (f *idVersionSegmentTermsEnumFrame) nextNonLeaf() bool {
 	newLen := f.prefixLength + f.suffixLength
 	f.ste.term.SetLength(newLen)
 	f.ste.term.Grow(newLen)
-	_ = f.suffixesReader.ReadBytes(f.ste.term.Bytes()[f.prefixLength : f.prefixLength+f.suffixLength])
+	_ = f.suffixesReader.ReadBytes(f.ste.term.Bytes(), f.prefixLength, f.suffixLength)
 	if (code & 1) == 0 {
 		f.ste.termExists = true
 		f.subCode = 0
@@ -339,7 +344,7 @@ func (f *idVersionSegmentTermsEnumFrame) decodeMetaData() error {
 		f.state.DocFreq = 1
 		f.state.TotalTermFreq = 1
 		if err := f.ste.fr.Parent.PostingsReader.DecodeTermFromBytesReader(
-			f.bytesReader, f.state, absolute,
+			f.bytesReader, f.termStateRef, absolute,
 		); err != nil {
 			return fmt.Errorf("IDVersionSegmentTermsEnumFrame.decodeMetaData: %w", err)
 		}
@@ -379,7 +384,7 @@ func (f *idVersionSegmentTermsEnumFrame) scanToSubBlock(subFP int64) {
 		} else {
 			skipLen = int(code >> 1)
 		}
-		_ = f.suffixesReader.SetPosition(f.suffixesReader.GetPosition() + skipLen)
+		f.suffixesReader.SetPosition(f.suffixesReader.GetPosition() + skipLen)
 		if (code & 1) != 0 {
 			subCode, _ := f.suffixesReader.ReadVLong()
 			if targetSubCode == int64(subCode) {
@@ -419,7 +424,7 @@ func (f *idVersionSegmentTermsEnumFrame) scanToTermLeaf(target *util.BytesRef, e
 		suffLen, _ := f.suffixesReader.ReadVInt()
 		f.suffixLength = int(suffLen)
 		f.startBytePos = f.suffixesReader.GetPosition()
-		_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 
 		// Compare suffix vs target suffix.
 		cmp := bytes.Compare(
@@ -463,7 +468,7 @@ func (f *idVersionSegmentTermsEnumFrame) scanToTermNonLeaf(target *util.BytesRef
 		f.suffixLength = int(code >> 1)
 		f.ste.termExists = (code & 1) == 0
 		f.startBytePos = f.suffixesReader.GetPosition()
-		_ = f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
+		f.suffixesReader.SetPosition(f.startBytePos + f.suffixLength)
 		if f.ste.termExists {
 			f.state.TermBlockOrd++
 			f.subCode = 0

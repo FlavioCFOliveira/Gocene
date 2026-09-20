@@ -5,39 +5,41 @@
 package facets
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// MultiFacetQuery is a BooleanQuery of SHOULD-clause TermQueries, one per
-// (dimension, path) tuple. Mirrors org.apache.lucene.facet.MultiFacetQuery.
+// MultiFacetQuery is a multi-terms Query over a FacetField.
+//
+// NOTE: this helper is an alternative to DrillDownQuery, especially where
+// DrillSideways is not intended to be used.
+//
+// This is the Go port of org.apache.lucene.facet.MultiFacetQuery, which extends
+// org.apache.lucene.search.TermInSetQuery.
 type MultiFacetQuery struct {
-	*search.BooleanQuery
-	dim   string
-	paths [][]string
+	*search.TermInSetQuery
 }
 
-// NewMultiFacetQuery builds a SHOULD-of-TermQueries on the supplied
-// dimension and paths.
-func NewMultiFacetQuery(config *FacetsConfig, dim string, paths ...[]string) *MultiFacetQuery {
-	bq := search.NewBooleanQuery()
-	field := DrillDownFieldName(config, dim)
-	for _, path := range paths {
-		bq.Add(search.NewTermQuery(index.NewTerm(field, PathToString(dim, path))), search.SHOULD)
-	}
-	clonedPaths := make([][]string, len(paths))
-	for i, p := range paths {
-		clonedPaths[i] = append([]string(nil), p...)
-	}
+// NewMultiFacetQuery creates a MultiFacetQuery filtering the query on the given
+// dimension. When config is nil the default dimension configuration is used,
+// mirroring the FacetsConfig.DEFAULT_DIM_CONFIG constructor.
+//
+// Mirrors MultiFacetQuery(FacetsConfig, String, String[]...).
+func NewMultiFacetQuery(config *FacetsConfig, dimension string, paths ...[]string) *MultiFacetQuery {
 	return &MultiFacetQuery{
-		BooleanQuery: bq,
-		dim:          dim,
-		paths:        clonedPaths,
+		TermInSetQuery: search.NewTermInSetQuery(
+			DrillDownFieldName(config, dimension),
+			multiFacetQueryToTerms(dimension, paths...),
+		),
 	}
 }
 
-// GetDim returns the dimension.
-func (q *MultiFacetQuery) GetDim() string { return q.dim }
-
-// GetPaths returns the paths queried.
-func (q *MultiFacetQuery) GetPaths() [][]string { return q.paths }
+// multiFacetQueryToTerms mirrors MultiFacetQuery.toTerms(String, String[]...):
+// each path is encoded with FacetsConfig.pathToString and wrapped in a BytesRef.
+func multiFacetQueryToTerms(dimension string, paths ...[]string) []*util.BytesRef {
+	terms := make([]*util.BytesRef, 0, len(paths))
+	for _, path := range paths {
+		terms = append(terms, util.NewBytesRef([]byte(PathToString(dimension, path))))
+	}
+	return terms
+}

@@ -76,8 +76,16 @@ func (c *LRUQueryCache) DoCache(weight Weight, policy QueryCachingPolicy) Weight
 		return weight
 	}
 
-	// Check if this query should be cached
-	if !policy.ShouldCache(query) {
+	// Check if this query should be cached.
+	// QueryCachingPolicy.ShouldCache mirrors Java's
+	// QueryCachingPolicy#shouldCache, which declares "throws IOException".
+	// QueryCache#doCache does not throw, so the error cannot be propagated
+	// from here; a failing policy decision means "do not cache".
+	shouldCache, err := policy.ShouldCache(query)
+	if err != nil {
+		return weight
+	}
+	if !shouldCache {
 		return weight
 	}
 

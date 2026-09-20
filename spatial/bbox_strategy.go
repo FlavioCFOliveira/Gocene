@@ -214,13 +214,13 @@ func (s *BBoxStrategy) makeIntersectsQuery(shape Shape) (search.Query, error) {
 	}
 
 	// Combine with BooleanQuery (AND)
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(minXQuery, search.MUST)
 	bq.Add(maxXQuery, search.MUST)
 	bq.Add(minYQuery, search.MUST)
 	bq.Add(maxYQuery, search.MUST)
 
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // makeIsWithinQuery creates a query for shapes that are within the query shape's bounding box.
@@ -272,13 +272,13 @@ func (s *BBoxStrategy) makeIsWithinQuery(shape Shape) (search.Query, error) {
 	}
 
 	// Combine with BooleanQuery (AND)
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(minXQuery, search.MUST)
 	bq.Add(maxXQuery, search.MUST)
 	bq.Add(minYQuery, search.MUST)
 	bq.Add(maxYQuery, search.MUST)
 
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // makeContainsQuery creates a query for shapes that contain the query shape's bounding box.
@@ -330,13 +330,13 @@ func (s *BBoxStrategy) makeContainsQuery(shape Shape) (search.Query, error) {
 	}
 
 	// Combine with BooleanQuery (AND)
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(minXQuery, search.MUST)
 	bq.Add(maxXQuery, search.MUST)
 	bq.Add(minYQuery, search.MUST)
 	bq.Add(maxYQuery, search.MUST)
 
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // MakeDistanceValueSource creates a ValueSource that returns the distance

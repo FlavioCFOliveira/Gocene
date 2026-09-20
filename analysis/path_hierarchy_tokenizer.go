@@ -4,8 +4,6 @@
 
 package analysis
 
-	
-
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -132,13 +130,9 @@ func NewPathHierarchyTokenizerWithFactory(factory util.AttributeFactory, options
 	}
 
 	// Add attributes
-	t.termAttr = NewCharTermAttribute()
-	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
+	t.termAttr = t.AddAttribute(CharTermAttributeType).(CharTermAttribute)
+	t.offsetAttr = t.AddAttribute(OffsetAttributeType).(OffsetAttribute)
+	t.posIncrAttr = t.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 
 	return t
 }
@@ -149,10 +143,8 @@ func NewPathHierarchyTokenizer(options ...PathHierarchyTokenizerOption) *PathHie
 }
 
 // SetReader sets the input source for this Tokenizer.
-func (t *PathHierarchyTokenizer) SetReader(input io.Reader) error {
-	if err := t.BaseTokenizer.SetReader(input); err != nil {
-		return err
-	}
+func (t *PathHierarchyTokenizer) SetReader(input io.Reader) {
+	t.BaseTokenizer.SetReader(input)
 
 	// Read entire input
 	buf := make([]byte, 0, 1024)
@@ -167,7 +159,7 @@ func (t *PathHierarchyTokenizer) SetReader(input io.Reader) error {
 			break
 		}
 		if err != nil {
-			return err
+			break
 		}
 	}
 
@@ -186,7 +178,6 @@ func (t *PathHierarchyTokenizer) SetReader(input io.Reader) error {
 	// Calculate token count based on delimiter positions and skip
 	t.calculateTokenCount()
 
-	return nil
 }
 
 // calculateTokenCount calculates the number of tokens to generate.

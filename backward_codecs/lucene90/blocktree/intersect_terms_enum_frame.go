@@ -5,7 +5,10 @@
 package blocktree
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
@@ -77,6 +80,12 @@ type intersectTermsEnumFrame struct {
 
 	arc *fst.Arc[*util.BytesRef]
 
+	// termStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which the codec narrows back with a type assertion. The
+	// BlockTermState field beside it is the widened view of that same object.
+	termStateRef index.TermState
+
 	// termState holds lazily-decoded per-term metadata.
 	termState *codecs.BlockTermState
 
@@ -119,9 +128,19 @@ func newIntersectTermsEnumFrame(ite *IntersectTermsEnum, ord int) *intersectTerm
 		bytesReader:         store.NewByteArrayDataInput(nil),
 		nextEnt:             -1,
 	}
-	// termState is intentionally nil when FieldReader is a stub (parent and
-	// postingsReader not yet wired).  Callers that need termState must defer
-	// until the FieldReader is fully ported.
+	// Java's IntersectTermsEnumFrame(IntersectTermsEnum, int) does:
+	//
+	//	this.termState = ite.fr.parent.postingsReader.newTermState();
+	//	this.termState.totalTermFreq = -1;
+	//
+	// Gocene additionally has a stub FieldReader path (NewFieldReader), which
+	// Lucene does not, and whose parent reader is nil; termState stays nil
+	// there and decodeMetaData reports it rather than decoding.
+	if ite != nil && ite.fr != nil && ite.fr.parent != nil && ite.fr.parent.postingsReader != nil {
+		f.termStateRef = ite.fr.parent.postingsReader.NewTermState()
+		f.termState = codecs.BaseState(f.termStateRef)
+		f.termState.TotalTermFreq = -1
+	}
 	return f
 }
 
@@ -162,4 +181,64 @@ func (f *intersectTermsEnumFrame) setState(state int) {
 		// then pop this frame.
 		f.transition.Max = -1
 	}
+}
+
+// decodeMetaData lazily decodes per-term statistics and postings metadata for
+// every term up to getTermBlockOrd().
+//
+// Port of
+// org.apache.lucene.backward_codecs.lucene90.blocktree.IntersectTermsEnumFrame#decodeMetaData()
+// in Apache Lucene 10.5.0.
+func (f *intersectTermsEnumFrame) decodeMetaData() error {
+	if f.termState == nil {
+		return fmt.Errorf("lucene90 blocktree: intersect frame has no term state (FieldReader is not wired)")
+	}
+
+	limit := f.getTermBlockOrd()
+	absolute := f.metaDataUpto == 0
+
+	for f.metaDataUpto < limit {
+		// stats
+		if f.statsSingletonRunLength > 0 {
+			f.termState.DocFreq = 1
+			f.termState.TotalTermFreq = 1
+			f.statsSingletonRunLength--
+		} else {
+			token, err := f.statsReader.ReadVInt()
+			if err != nil {
+				return fmt.Errorf("lucene90 blocktree: intersect decodeMetaData: read stats token: %w", err)
+			}
+			if token&1 == 1 {
+				f.termState.DocFreq = 1
+				f.termState.TotalTermFreq = 1
+				f.statsSingletonRunLength = int(uint32(token) >> 1)
+			} else {
+				f.termState.DocFreq = int(uint32(token) >> 1)
+				if f.ite.fr.fieldInfo.IndexOptions() == index.IndexOptionsDocs {
+					f.termState.TotalTermFreq = int64(f.termState.DocFreq)
+				} else {
+					delta, err := f.statsReader.ReadVLong()
+					if err != nil {
+						return fmt.Errorf("lucene90 blocktree: intersect decodeMetaData: read total term freq: %w", err)
+					}
+					f.termState.TotalTermFreq = int64(f.termState.DocFreq) + delta
+				}
+			}
+		}
+
+		// metadata
+		if err := f.ite.fr.parent.postingsReader.DecodeTerm(
+			f.bytesReader,
+			f.ite.fr.fieldInfo,
+			f.termStateRef,
+			absolute,
+		); err != nil {
+			return fmt.Errorf("lucene90 blocktree: intersect decodeMetaData: decode term: %w", err)
+		}
+
+		f.metaDataUpto++
+		absolute = false
+	}
+	f.termState.TermBlockOrd = f.metaDataUpto
+	return nil
 }

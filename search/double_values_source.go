@@ -5,6 +5,7 @@
 package search
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -31,6 +32,48 @@ type DoubleValuesSource interface {
 	IsCacheable(ctx *index.LeafReaderContext) bool
 	// Rewrite returns the rewritten source.
 	Rewrite(searcher *IndexSearcher) DoubleValuesSource
+}
+
+// numericProvider is the narrow capability required from a context argument:
+// the ability to obtain a NumericDocValues iterator for a field.
+//
+// PORT NOTE: Gocene-only. Apache Lucene 10.5.0 calls
+// DocValues.getNumeric(ctx.reader(), field) directly; this indirection exists
+// only because basicDoubleValuesSource accepts context shapes that do not
+// implement spi.LeafReader.
+type numericProvider interface {
+	GetNumericDocValues(field string) (index.NumericDocValues, error)
+}
+
+// numericProviderFromContext extracts a NumericDocValues iterator from a
+// context argument. Accepted shapes:
+//
+//   - *index.LeafReaderContext (unwraps via LeafReader())
+//   - any type exposing GetNumericDocValues(field string)
+//
+// Returns a nil iterator and no error when no provider can be located.
+func numericProviderFromContext(ctx interface{}, field string) (index.NumericDocValues, error) {
+	if ctx == nil {
+		return nil, nil
+	}
+	switch v := ctx.(type) {
+	case *index.LeafReaderContext:
+		if v == nil {
+			return nil, nil
+		}
+		reader := v.LeafReader()
+		if reader == nil {
+			return nil, nil
+		}
+		if np, ok := interface{}(reader).(numericProvider); ok {
+			return np.GetNumericDocValues(field)
+		}
+		return nil, nil
+	case numericProvider:
+		return v.GetNumericDocValues(field)
+	default:
+		return nil, nil
+	}
 }
 
 // basicDoubleValuesSource is the default implementation of DoubleValuesSource.
@@ -101,3 +144,35 @@ func (v *basicDoubleValues) AdvanceExact(doc int) (bool, error) {
 	return next == doc, nil
 }
 
+// DoubleValuesSourceFromScorer returns a DoubleValues instance that wraps
+// scores returned by a Scorer.
+//
+// Mirrors the static org.apache.lucene.search.DoubleValuesSource#fromScorer
+// (Apache Lucene 10.5.0). It is a free function because Go has no static
+// methods on an interface type.
+func DoubleValuesSourceFromScorer(scorer Scorable) DoubleValues {
+	return &fromScorerDoubleValues{scorer: scorer}
+}
+
+// fromScorerDoubleValues renders the anonymous DoubleValues returned by
+// DoubleValuesSource.fromScorer(Scorable), whose advanceExact always returns
+// true.
+//
+// PORT NOTE: search/rescore_top_n_query.go carries an unrelated local
+// scorerDoubleValues whose AdvanceExact instead reports scorer.DocID() == doc;
+// it is not this Lucene member and is left untouched.
+type fromScorerDoubleValues struct {
+	scorer Scorable
+}
+
+func (v *fromScorerDoubleValues) DoubleValue() (float64, error) {
+	score, err := v.scorer.Score()
+	if err != nil {
+		return 0, err
+	}
+	return float64(score), nil
+}
+
+func (v *fromScorerDoubleValues) AdvanceExact(doc int) (bool, error) {
+	return true, nil
+}

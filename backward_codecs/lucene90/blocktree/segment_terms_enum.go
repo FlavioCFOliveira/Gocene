@@ -638,11 +638,28 @@ func (e *SegmentTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
 	if err := e.currentFrame.decodeMetaData(); err != nil {
 		return nil, fmt.Errorf("SegmentTermsEnum.Postings: decodeMetaData: %w", err)
 	}
-	pe, err := e.fr.parent.postingsReader.Postings(e.fr.fieldInfo, e.currentFrame.state, nil, flags)
+	pe, err := e.fr.parent.postingsReader.Postings(e.fr.fieldInfo, e.currentFrame.termStateRef, nil, flags)
 	if err != nil {
 		return nil, fmt.Errorf("SegmentTermsEnum.Postings: postingsReader.Postings: %w", err)
 	}
 	return pe, nil
+}
+
+// Impacts decodes the current term's metadata and returns an ImpactsEnum.
+//
+// Port of SegmentTermsEnum.impacts(int):
+//
+//	assert !eof;
+//	currentFrame.decodeMetaData();
+//	return fr.parent.postingsReader.impacts(fr.fieldInfo, currentFrame.state, flags);
+func (e *SegmentTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	if e.eof {
+		return nil, fmt.Errorf("SegmentTermsEnum.Impacts: enum is exhausted (assert !eof)")
+	}
+	if err := e.currentFrame.decodeMetaData(); err != nil {
+		return nil, fmt.Errorf("SegmentTermsEnum.Impacts: decodeMetaData: %w", err)
+	}
+	return e.fr.parent.postingsReader.Impacts(e.fr.fieldInfo, e.currentFrame.termStateRef, flags)
 }
 
 // PostingsWithLiveDocs forwards to Postings; live-docs filtering is applied

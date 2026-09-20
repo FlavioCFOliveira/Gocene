@@ -11,7 +11,10 @@
 
 package geo
 
-import "testing"
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"testing"
+)
 
 // testTreeRectangles builds a stable set of overlapping and
 // disjoint rectangles used as Component2D leaves for the parity
@@ -130,18 +133,18 @@ func TestComponentTree_RelateConsistency(t *testing.T) {
 	scan := cloneComponents(leaves)
 	tree := newComponentTree(cloneComponents(leaves))
 	for _, r := range relateCases() {
-		perLeaf := make([]Relation, 0, len(scan))
+		perLeaf := make([]spi.Relation, 0, len(scan))
 		allOutside := true
 		for _, c := range scan {
 			rel := c.Relate(r.minX, r.maxX, r.minY, r.maxY)
 			perLeaf = append(perLeaf, rel)
-			if rel != CellOutsideQuery {
+			if rel != spi.CellOutsideQuery {
 				allOutside = false
 			}
 		}
 		got := tree.Relate(r.minX, r.maxX, r.minY, r.maxY)
 		if allOutside {
-			if got != CellOutsideQuery {
+			if got != spi.CellOutsideQuery {
 				t.Errorf("Relate(%v,%v,%v,%v) tree=%v; all leaves OUTSIDE, want OUTSIDE",
 					r.minX, r.maxX, r.minY, r.maxY, got)
 			}

@@ -315,7 +315,6 @@ func (c *fakeCodecWithKnn) Name() string                           { return "fak
 func (c *fakeCodecWithKnn) PostingsFormat() PostingsFormat         { return nil }
 func (c *fakeCodecWithKnn) StoredFieldsFormat() StoredFieldsFormat { return nil }
 func (c *fakeCodecWithKnn) FieldInfosFormat() FieldInfosFormat     { return nil }
-func (c *fakeCodecWithKnn) SegmentInfosFormat() SegmentInfosFormat { return nil }
 func (c *fakeCodecWithKnn) SegmentInfoFormat() SegmentInfoFormat   { return nil }
 func (c *fakeCodecWithKnn) TermVectorsFormat() TermVectorsFormat   { return nil }
 func (c *fakeCodecWithKnn) CompoundFormat() CompoundFormat         { return nil }

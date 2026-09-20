@@ -5,63 +5,17 @@
 package codecs
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// This file exposes an indexing-chain-facing entry point onto the
-// Lucene90 doc-values consumer for the SORTED and SORTED_SET value
-// types.
-//
-// The generic codecs.DocValuesConsumer interface (spi.DocValuesConsumer)
-// models the SORTED / SORTED_SET write path with the writer-side
-// SortedDocValuesIterator / SortedSetDocValuesIterator, which carry only
-// ordinals and cannot recover the per-ordinal term bytes the codec needs
-// to build the terms dictionary. Lucene resolves this by passing the
-// read-side SortedDocValues (with lookupOrd / getValueCount) into the
-// consumer; the Gocene index-side accumulators
-// (index.SortedDocValuesWriter / SortedSetDocValuesWriter) expose exactly
-// that read-side surface via GetDocValues.
-//
-// The Lucene90DocValuesConsumer.AddSortedField / AddSortedSetField
-// methods that take the writer-side iterator therefore return an error
-// (the ordinal-only path is unsupported). These FromReader variants are
-// the supported bridge: they accept the read-side SPI iterators plus a
-// reset closure that re-materialises a fresh forward iterator (the
-// consumer makes several passes over the values), wrap them in the
-// internal dvSortedValues / dvSortedSetValues contracts, and drive the
-// byte-faithful Real() consumer.
-
-// AddSortedFieldFromReader writes a SORTED doc-values field from the
-// read-side SortedDocValues produced by the index-side accumulator.
-//
-// reset must return a fresh forward iterator positioned before the first
-// document each time it is called; the consumer iterates the values more
-// than once (skip index, ordinals, terms dict).
-func (c *Lucene90DocValuesConsumer) AddSortedFieldFromReader(
-	field *index.FieldInfo,
-	reset func() (spi.SortedDocValues, error),
-) error {
-	a := &sortedReaderAsDV{reset: reset}
-	if err := a.Reset(); err != nil {
-		return err
-	}
-	return c.real.AddSortedField(field, a)
-}
-
-// AddSortedSetFieldFromReader writes a SORTED_SET doc-values field from
-// the read-side SortedSetDocValues produced by the index-side
-// accumulator. reset behaves as in AddSortedFieldFromReader.
-func (c *Lucene90DocValuesConsumer) AddSortedSetFieldFromReader(
-	field *index.FieldInfo,
-	reset func() (spi.SortedSetDocValues, error),
-) error {
-	a := &sortedSetReaderAsDV{reset: reset}
-	if err := a.Reset(); err != nil {
-		return err
-	}
-	return c.real.AddSortedSetField(field, a)
-}
+// This file holds the adapters that present the read-side SortedDocValues /
+// SortedSetDocValues obtained from the DocValuesProducer handed to
+// Lucene90DocValuesConsumer.AddSortedField / AddSortedSetField as the
+// internal dvSortedValues / dvSortedSetValues contracts the byte-faithful
+// lucene90DVConsumer iterates. The reset closure obtains a fresh forward
+// iterator from the producer on every pass (the consumer makes several
+// passes over the values), where the Java consumer calls
+// valuesProducer.getSorted(field) / getSortedSet(field) again.
 
 // sortedReaderAsDV adapts a read-side spi.SortedDocValues to the internal
 // dvSortedValues contract. Reset re-materialises a fresh forward iterator

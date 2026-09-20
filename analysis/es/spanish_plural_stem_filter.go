@@ -75,11 +75,15 @@ func (f *SpanishPluralStemFilter) Reset() error {
 // This is the Go port of
 // org.apache.lucene.analysis.es.SpanishPluralStemFilterFactory from Apache
 // Lucene 10.4.0.
-type SpanishPluralStemFilterFactory struct{}
+type SpanishPluralStemFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewSpanishPluralStemFilterFactory creates a new SpanishPluralStemFilterFactory.
 func NewSpanishPluralStemFilterFactory() *SpanishPluralStemFilterFactory {
-	return &SpanishPluralStemFilterFactory{}
+	return &SpanishPluralStemFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+	}
 }
 
 // Create returns a new SpanishPluralStemFilter wrapping input.

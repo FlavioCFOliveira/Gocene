@@ -7,6 +7,8 @@ package index
 import (
 	"fmt"
 	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // ParallelLeafReader is a LeafReader that aggregates several parallel sub-readers
@@ -62,7 +64,15 @@ func NewParallelLeafReaderFull(closeSubReaders bool, readers, storedFieldsReader
 				baseMaxDoc, r.MaxDoc())
 		}
 		if fi := r.GetFieldInfos(); fi != nil {
-			for _, name := range fi.Names() {
+			// FieldInfos is Iterable<FieldInfo> in Lucene; the Gocene port
+			// exposes the same traversal through Iterator().
+			it := fi.Iterator()
+			for it.HasNext() {
+				info := it.Next()
+				if info == nil {
+					continue
+				}
+				name := info.Name()
 				if _, dup := fieldMap[name]; dup {
 					return nil, fmt.Errorf("duplicate field %q across parallel sub-readers", name)
 				}
@@ -70,11 +80,12 @@ func NewParallelLeafReaderFull(closeSubReaders bool, readers, storedFieldsReader
 			}
 		}
 	}
-	// Construct the embedded LeafReader from the first sub-reader's segmentInfo
-	// as a placeholder; per-field dispatch routes through fieldToReader.
-	base := NewLeafReader(readers[0].GetSegmentInfo())
+	// The embedded LeafReader supplies the doc-space-wide behaviour (maxDoc,
+	// numDocs, liveDocs, ref counting). Every parallel sub-reader shares the
+	// same doc space — the loop above enforces it — so the first one is the
+	// base; the per-field accessors below override it through fieldToReader.
 	return &ParallelLeafReader{
-		LeafReader:          base,
+		LeafReader:          readers[0],
 		closeSubReaders:     closeSubReaders,
 		parallelReaders:     readers,
 		storedFieldsReaders: storedFieldsReaders,
@@ -150,7 +161,7 @@ func (p *ParallelLeafReader) GetPointValues(field string) (PointValues, error) {
 }
 
 // GetFloatVectorValues dispatches to the sub-reader that owns the field.
-func (p *ParallelLeafReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+func (p *ParallelLeafReader) GetFloatVectorValues(field string) (spi.FloatVectorValues, error) {
 	if r := p.readerFor(field); r != nil {
 		return r.GetFloatVectorValues(field)
 	}
@@ -158,7 +169,7 @@ func (p *ParallelLeafReader) GetFloatVectorValues(field string) (FloatVectorValu
 }
 
 // GetByteVectorValues dispatches to the sub-reader that owns the field.
-func (p *ParallelLeafReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+func (p *ParallelLeafReader) GetByteVectorValues(field string) (spi.ByteVectorValues, error) {
 	if r := p.readerFor(field); r != nil {
 		return r.GetByteVectorValues(field)
 	}

@@ -82,10 +82,10 @@ type ordsPendingEntry struct {
 // ordsPendingTerm holds a buffered term and its postings-writer metadata.
 type ordsPendingTerm struct {
 	termBytes []byte
-	state     *codecs.BlockTermState
+	state     index.TermState
 }
 
-func newOrdsPendingTerm(term *index.Term, state *codecs.BlockTermState) *ordsPendingTerm {
+func newOrdsPendingTerm(term *index.Term, state index.TermState) *ordsPendingTerm {
 	ref := term.BytesValue()
 	cp := make([]byte, ref.Length)
 	copy(cp, ref.Bytes[ref.Offset:ref.Offset+ref.Length])
@@ -103,13 +103,13 @@ type ordsSubIndex struct {
 // to the .tio output. It holds the prefix, the file pointer where the block
 // lives, the per-block FST index, floor metadata, and cumulative term counts.
 type ordsPendingBlock struct {
-	prefix        *util.BytesRef
-	fp            int64
-	index         *gfst.FST[*FSTOrdsOutput]
-	subIndices    []*ordsSubIndex
-	hasTerms      bool
-	isFloor       bool
-	floorLeadByte int
+	prefix            *util.BytesRef
+	fp                int64
+	index             *gfst.FST[*FSTOrdsOutput]
+	subIndices        []*ordsSubIndex
+	hasTerms          bool
+	isFloor           bool
+	floorLeadByte     int
 	totalTermCount    int64 // number of terms in THIS block (not including siblings in a floor group)
 	totFloorTermCount int64 // total terms across all blocks in the floor group (set in compileIndex)
 }
@@ -414,25 +414,20 @@ func segmentFileName(segmentName, segmentSuffix, ext string) string {
 	return segmentName + "." + ext
 }
 
-// Write satisfies the FieldsConsumer SPI: it drives the per-field writer
-// for a single field.
-func (w *ordsBlockTreeTermsWriter) Write(field string, terms index.Terms) error {
+// Write walks fields in the iterator's order and persists every non-nil Terms
+// via the per-field termsWriter state machine. Fields must be visited in
+// ascending order.
+//
+// Mirrors OrdsBlockTreeTermsWriter.write(Fields, NormsProducer)
+// (OrdsBlockTreeTermsWriter.java:389-414).
+//
+// PORT NOTE: Java forwards norms to TermsWriter.write(BytesRef, TermsEnum,
+// NormsProducer), which feeds the competitive-impact accumulator of the
+// postings writer. Gocene's codecs.WriteTerm / PushPostingsWriterBase carry no
+// NormsProducer parameter yet, so the value stops here.
+func (w *ordsBlockTreeTermsWriter) Write(fields index.Fields, norms codecs.NormsProducer) error {
 	if w.closed {
 		return errors.New("ordsBlockTreeTermsWriter: Write after Close")
-	}
-	fieldInfo := w.fieldInfos.GetByName(field)
-	if fieldInfo == nil {
-		return fmt.Errorf("ordsBlockTreeTermsWriter.Write: unknown field %q", field)
-	}
-	return w.writeField(fieldInfo, terms)
-}
-
-// WriteFields walks fields in the iterator's order and persists every
-// non-nil Terms via the per-field termsWriter state machine. Fields must
-// be visited in ascending order.
-func (w *ordsBlockTreeTermsWriter) WriteFields(fields index.Fields) error {
-	if w.closed {
-		return errors.New("ordsBlockTreeTermsWriter: WriteFields after Close")
 	}
 	if fields == nil {
 		return nil
@@ -452,7 +447,7 @@ func (w *ordsBlockTreeTermsWriter) WriteFields(fields index.Fields) error {
 			break
 		}
 		if !first && lastField >= field {
-			return fmt.Errorf("ordsBlockTreeTermsWriter.WriteFields: fields must be in ascending order, got %q after %q", field, lastField)
+			return fmt.Errorf("ordsBlockTreeTermsWriter.Write: fields must be in ascending order, got %q after %q", field, lastField)
 		}
 		lastField = field
 		first = false
@@ -467,7 +462,7 @@ func (w *ordsBlockTreeTermsWriter) WriteFields(fields index.Fields) error {
 
 		fieldInfo := w.fieldInfos.GetByName(field)
 		if fieldInfo == nil {
-			return fmt.Errorf("ordsBlockTreeTermsWriter.WriteFields: unknown field %q", field)
+			return fmt.Errorf("ordsBlockTreeTermsWriter.Write: unknown field %q", field)
 		}
 		if err := w.writeField(fieldInfo, terms); err != nil {
 			return err
@@ -503,23 +498,23 @@ func (w *ordsBlockTreeTermsWriter) Close() error {
 	dirStart := w.out.GetFilePointer()
 	indexDirStart := w.indexOut.GetFilePointer()
 
-	if err := store.WriteVInt(w.out, int32(len(w.fields))); err != nil {
+	if err := w.out.WriteVInt(int32(len(w.fields))); err != nil {
 		setErr(err)
 		return firstErr
 	}
 
 	for _, field := range w.fields {
-		if err := store.WriteVInt(w.out, int32(field.fieldInfo.Number())); err != nil {
+		if err := w.out.WriteVInt(int32(field.fieldInfo.Number())); err != nil {
 			setErr(err)
 			return firstErr
 		}
-		if err := store.WriteVLong(w.out, field.numTerms); err != nil {
+		if err := w.out.WriteVLong(field.numTerms); err != nil {
 			setErr(err)
 			return firstErr
 		}
 		// Write rootCode bytes (the FST empty-output's BytesRef payload).
 		rootBytes := field.rootCode.Bytes
-		if err := store.WriteVInt(w.out, int32(rootBytes.Length)); err != nil {
+		if err := w.out.WriteVInt(int32(rootBytes.Length)); err != nil {
 			setErr(err)
 			return firstErr
 		}
@@ -530,20 +525,20 @@ func (w *ordsBlockTreeTermsWriter) Close() error {
 			}
 		}
 		if field.fieldInfo.IndexOptions() != index.IndexOptionsDocs {
-			if err := store.WriteVLong(w.out, field.sumTotalTermFreq); err != nil {
+			if err := w.out.WriteVLong(field.sumTotalTermFreq); err != nil {
 				setErr(err)
 				return firstErr
 			}
 		}
-		if err := store.WriteVLong(w.out, field.sumDocFreq); err != nil {
+		if err := w.out.WriteVLong(field.sumDocFreq); err != nil {
 			setErr(err)
 			return firstErr
 		}
-		if err := store.WriteVInt(w.out, int32(field.docCount)); err != nil {
+		if err := w.out.WriteVInt(int32(field.docCount)); err != nil {
 			setErr(err)
 			return firstErr
 		}
-		if err := store.WriteVLong(w.indexOut, field.indexStartFP); err != nil {
+		if err := w.indexOut.WriteVLong(field.indexStartFP); err != nil {
 			setErr(err)
 			return firstErr
 		}
@@ -555,7 +550,7 @@ func (w *ordsBlockTreeTermsWriter) Close() error {
 		setErr(err)
 		return firstErr
 	}
-	if err := codecs.WriteFooter(w.out); err != nil {
+	if err := store.WriteFooter(w.out); err != nil {
 		setErr(err)
 		return firstErr
 	}
@@ -563,7 +558,7 @@ func (w *ordsBlockTreeTermsWriter) Close() error {
 		setErr(err)
 		return firstErr
 	}
-	if err := codecs.WriteFooter(w.indexOut); err != nil {
+	if err := store.WriteFooter(w.indexOut); err != nil {
 		setErr(err)
 		return firstErr
 	}
@@ -580,7 +575,7 @@ func (w *ordsBlockTreeTermsWriter) writeField(fieldInfo *index.FieldInfo, terms 
 		return err
 	}
 
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
 		return err
 	}
@@ -660,7 +655,7 @@ func newOrdsTermsWriter(parent *ordsBlockTreeTermsWriter, fieldInfo *index.Field
 // pushSinglePostings drives the underlying PostingsWriterBase for a single
 // term and returns the populated BlockTermState. Returns nil when the term
 // has no surviving documents.
-func (t *ordsTermsWriter) pushSinglePostings(termText *index.Term, termsEnum index.TermsEnum) (*codecs.BlockTermState, error) {
+func (t *ordsTermsWriter) pushSinglePostings(termText *index.Term, termsEnum index.TermsEnum) (index.TermState, error) {
 	state := t.parent.postingsWriter.NewTermState()
 
 	if err := t.parent.postingsWriter.StartTerm(nil); err != nil {
@@ -693,13 +688,14 @@ func (t *ordsTermsWriter) pushSinglePostings(termText *index.Term, termsEnum ind
 		return nil, nil
 	}
 
-	state.DocFreq = docCount
-	state.TotalTermFreq = totalTermFreq
+	base := codecs.BaseState(state)
+	base.DocFreq = docCount
+	base.TotalTermFreq = totalTermFreq
 	if err := t.parent.postingsWriter.FinishTerm(state); err != nil {
 		return nil, err
 	}
-	if hasPositions && state.TotalTermFreq < int64(state.DocFreq) {
-		return nil, fmt.Errorf("ordsBlockTreeTermsWriter: term has positions but totalTermFreq (%d) < docFreq (%d)", state.TotalTermFreq, state.DocFreq)
+	if hasPositions && base.TotalTermFreq < int64(base.DocFreq) {
+		return nil, fmt.Errorf("ordsBlockTreeTermsWriter: term has positions but totalTermFreq (%d) < docFreq (%d)", base.TotalTermFreq, base.DocFreq)
 	}
 	return state, nil
 }
@@ -714,11 +710,12 @@ func (t *ordsTermsWriter) write(term *index.Term, termsEnum index.TermsEnum) err
 	if state == nil {
 		return nil
 	}
-	if state.DocFreq == 0 {
+	base := codecs.BaseState(state)
+	if base.DocFreq == 0 {
 		return errors.New("ordsTermsWriter.write: postings writer returned BlockTermState with docFreq == 0")
 	}
-	if t.fieldInfo.IndexOptions() != index.IndexOptionsDocs && state.TotalTermFreq < int64(state.DocFreq) {
-		return fmt.Errorf("ordsTermsWriter.write: totalTermFreq %d < docFreq %d", state.TotalTermFreq, state.DocFreq)
+	if t.fieldInfo.IndexOptions() != index.IndexOptionsDocs && base.TotalTermFreq < int64(base.DocFreq) {
+		return fmt.Errorf("ordsTermsWriter.write: totalTermFreq %d < docFreq %d", base.TotalTermFreq, base.DocFreq)
 	}
 
 	textBytes := term.BytesValue()
@@ -729,8 +726,8 @@ func (t *ordsTermsWriter) write(term *index.Term, termsEnum index.TermsEnum) err
 	pt := newOrdsPendingTerm(term, state)
 	t.pending = append(t.pending, &ordsPendingEntry{isTerm: true, term: pt})
 
-	t.sumDocFreq += int64(state.DocFreq)
-	t.sumTotalTermFreq += state.TotalTermFreq
+	t.sumDocFreq += int64(base.DocFreq)
+	t.sumTotalTermFreq += base.TotalTermFreq
 	t.numTerms++
 	if t.firstPendingTerm == nil {
 		t.firstPendingTerm = pt
@@ -896,7 +893,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 	if end == len(t.pending) {
 		code |= 1
 	}
-	if err := store.WriteVInt(t.parent.out, int32(code)); err != nil {
+	if err := t.parent.out.WriteVInt(int32(code)); err != nil {
 		return nil, err
 	}
 
@@ -924,7 +921,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 			if err := t.suffixWriter.WriteVInt(int32(suffix)); err != nil {
 				return nil, err
 			}
-			if err := t.suffixWriter.WriteBytes(term.termBytes[prefixLength:]); err != nil {
+			if err := t.suffixWriter.WriteBytes(term.termBytes, prefixLength, suffix); err != nil {
 				return nil, err
 			}
 
@@ -933,11 +930,11 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 			}
 
 			// Write stats directly (no singleton compression).
-			if err := t.statsWriter.WriteVInt(int32(term.state.DocFreq)); err != nil {
+			if err := t.statsWriter.WriteVInt(int32(codecs.BaseState(term.state).DocFreq)); err != nil {
 				return nil, err
 			}
 			if t.fieldInfo.IndexOptions() != index.IndexOptionsDocs {
-				if err := t.statsWriter.WriteVLong(term.state.TotalTermFreq - int64(term.state.DocFreq)); err != nil {
+				if err := t.statsWriter.WriteVLong(codecs.BaseState(term.state).TotalTermFreq - int64(codecs.BaseState(term.state).DocFreq)); err != nil {
 					return nil, err
 				}
 			}
@@ -966,7 +963,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 				if err := t.suffixWriter.WriteVInt(int32(suffix << 1)); err != nil {
 					return nil, err
 				}
-				if err := t.suffixWriter.WriteBytes(term.termBytes[prefixLength:]); err != nil {
+				if err := t.suffixWriter.WriteBytes(term.termBytes, prefixLength, suffix); err != nil {
 					return nil, err
 				}
 
@@ -974,11 +971,11 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 					return nil, fmt.Errorf("ordsTermsWriter.writeBlock: term lead byte < floorLeadLabel")
 				}
 
-				if err := t.statsWriter.WriteVInt(int32(term.state.DocFreq)); err != nil {
+				if err := t.statsWriter.WriteVInt(int32(codecs.BaseState(term.state).DocFreq)); err != nil {
 					return nil, err
 				}
 				if t.fieldInfo.IndexOptions() != index.IndexOptionsDocs {
-					if err := t.statsWriter.WriteVLong(term.state.TotalTermFreq - int64(term.state.DocFreq)); err != nil {
+					if err := t.statsWriter.WriteVLong(codecs.BaseState(term.state).TotalTermFreq - int64(codecs.BaseState(term.state).DocFreq)); err != nil {
 						return nil, err
 					}
 				}
@@ -1005,7 +1002,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 				if err := t.suffixWriter.WriteVInt(int32((suffix << 1) | 1)); err != nil {
 					return nil, err
 				}
-				if err := t.suffixWriter.WriteBytes(block.prefix.Bytes[block.prefix.Offset+prefixLength : block.prefix.Offset+block.prefix.Length]); err != nil {
+				if err := t.suffixWriter.WriteBytes(block.prefix.Bytes, block.prefix.Offset+prefixLength, suffix); err != nil {
 					return nil, err
 				}
 
@@ -1040,7 +1037,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 	if isLeafBlock {
 		token |= 1
 	}
-	if err := store.WriteVInt(t.parent.out, int32(token)); err != nil {
+	if err := t.parent.out.WriteVInt(int32(token)); err != nil {
 		return nil, err
 	}
 	if suffixSize > 0 {
@@ -1052,7 +1049,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 
 	// Write stats blob.
 	statsSize := int(t.statsWriter.Size())
-	if err := store.WriteVInt(t.parent.out, int32(statsSize)); err != nil {
+	if err := t.parent.out.WriteVInt(int32(statsSize)); err != nil {
 		return nil, err
 	}
 	if statsSize > 0 {
@@ -1064,7 +1061,7 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 
 	// Write meta blob.
 	metaSize := int(t.metaWriter.Size())
-	if err := store.WriteVInt(t.parent.out, int32(metaSize)); err != nil {
+	if err := t.parent.out.WriteVInt(int32(metaSize)); err != nil {
 		return nil, err
 	}
 	if metaSize > 0 {
@@ -1080,13 +1077,13 @@ func (t *ordsTermsWriter) writeBlock(prefixLength int, isFloor bool, floorLeadLa
 	}
 
 	return &ordsPendingBlock{
-		prefix:        prefix,
-		fp:            startFP,
-		hasTerms:      hasTerms,
-		isFloor:       isFloor,
-		floorLeadByte: floorLeadLabel,
-		totalTermCount:    totalTermCount,
-		subIndices:    subIndices,
+		prefix:         prefix,
+		fp:             startFP,
+		hasTerms:       hasTerms,
+		isFloor:        isFloor,
+		floorLeadByte:  floorLeadLabel,
+		totalTermCount: totalTermCount,
+		subIndices:     subIndices,
 	}, nil
 }
 
@@ -1177,7 +1174,7 @@ func (t *ordsTermsWriter) finish() error {
 // ordsWriteBytesRef writes a BytesRef as vInt(len) + raw bytes. Mirrors
 // the private writeBytesRef helper in the Java writer.
 func ordsWriteBytesRef(out store.DataOutput, b *util.BytesRef) {
-	if err := store.WriteVInt(out, int32(b.Length)); err != nil {
+	if err := out.WriteVInt(int32(b.Length)); err != nil {
 		// Panic is acceptable here because this is only called from Close
 		// after all term-processing errors have already been checked, and
 		// a write failure at this point is fatal anyway.

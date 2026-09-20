@@ -4,7 +4,10 @@
 
 package search
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
 
 // PatienceKnnVectorQuery wraps a KNN query with a patience-based early-termination
 // strategy that stops the search once additional iterations are unlikely to
@@ -43,7 +46,7 @@ func (q *PatienceKnnVectorQuery) String() string {
 }
 
 // Equals checks structural equality.
-func (q *PatienceKnnVectorQuery) Equals(other Query) bool {
+func (q *PatienceKnnVectorQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*PatienceKnnVectorQuery)
 	if !ok {
 		return false
@@ -59,11 +62,6 @@ func (q *PatienceKnnVectorQuery) HashCode() int {
 	return h
 }
 
-// Clone returns an independent copy.
-func (q *PatienceKnnVectorQuery) Clone() Query {
-	return &PatienceKnnVectorQuery{inner: q.inner.Clone(), patience: q.patience}
-}
-
 // Rewrite delegates to the inner KNN query's rewrite, which runs the full
 // AbstractKnnVectorQuery search across all segments and returns a
 // DocAndScoreQuery (or MatchNoDocsQuery).
@@ -77,11 +75,18 @@ func (q *PatienceKnnVectorQuery) Clone() Query {
 // short-circuit. Without this override the embedded BaseQuery.Rewrite would
 // return the bare BaseQuery receiver, erasing the KNN algorithm and silently
 // matching zero documents.
-func (q *PatienceKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
-	return q.inner.Rewrite(reader)
+func (q *PatienceKnnVectorQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	return q.inner.Rewrite(searcher)
 }
 
 // CreateWeight delegates to the inner query.
-func (q *PatienceKnnVectorQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return q.inner.CreateWeight(searcher, needsScores, boost)
+func (q *PatienceKnnVectorQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return q.inner.CreateWeight(searcher, scoreMode, boost)
+}
+
+// Visit mirrors PatienceKnnVectorQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (PatienceKnnVectorQuery.java). inner is this port's spelling of Java's
+// delegate field.
+func (q *PatienceKnnVectorQuery) Visit(visitor QueryVisitor) {
+	q.inner.Visit(visitor)
 }

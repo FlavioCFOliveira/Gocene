@@ -6,6 +6,7 @@ package codecs
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -154,95 +155,171 @@ func (f *PerFieldPostingsFormat) FieldsProducer(state *SegmentReadState) (Fields
 // PerFieldFieldsConsumer writes each field's postings through the delegate
 // PostingsFormat returned by the FieldPostingsFormatProvider, recording the
 // format/suffix metadata on every FieldInfo it touches.
+//
+// Mirrors the inner class PerFieldPostingsFormat.FieldsWriter
+// (PerFieldPostingsFormat.java:130-269).
 type PerFieldFieldsConsumer struct {
 	formatProvider FieldPostingsFormatProvider
 	state          *SegmentWriteState
 
-	// consumersByFormat caches one delegate FieldsConsumer per delegate
-	// PostingsFormat instance and pins the integer suffix assigned to it.
-	consumersByFormat map[PostingsFormat]*postingsConsumerAndSuffix
-
-	// suffixesByFormatName tracks, for each delegate format name, the highest
-	// integer suffix already assigned. Mirrors Java's "suffixes" HashMap.
-	suffixesByFormatName map[string]int
+	// toClose holds every delegate FieldsConsumer opened by Write, in the
+	// order they were opened. Mirrors FieldsWriter.toClose.
+	toClose []FieldsConsumer
 
 	mu     sync.Mutex
 	closed bool
 }
 
-// postingsConsumerAndSuffix pairs a delegate FieldsConsumer with the integer
-// suffix assigned to its delegate format. The pair is reused for every field
-// that resolves to the same delegate instance.
-type postingsConsumerAndSuffix struct {
-	consumer FieldsConsumer
-	suffix   int
+// perFieldsGroup is the Go rendering of the record
+// PerFieldPostingsFormat.FieldsGroup (PerFieldPostingsFormat.java:87): the set
+// of fields assigned to one delegate format, the integer suffix that
+// uniquifies that delegate, and the SegmentWriteState the delegate writes with.
+type perFieldsGroup struct {
+	fields []string
+	suffix int
+	state  *SegmentWriteState
 }
+
+// perFieldsGroupBuilder is the Go rendering of the nested class
+// PerFieldPostingsFormat.FieldsGroup.Builder.
+type perFieldsGroupBuilder struct {
+	suffix int
+	state  *SegmentWriteState
+	fields map[string]struct{}
+}
+
+func newPerFieldsGroupBuilder(suffix int, state *SegmentWriteState) *perFieldsGroupBuilder {
+	return &perFieldsGroupBuilder{suffix: suffix, state: state, fields: make(map[string]struct{})}
+}
+
+func (b *perFieldsGroupBuilder) addField(field string) {
+	b.fields[field] = struct{}{}
+}
+
+func (b *perFieldsGroupBuilder) build() perFieldsGroup {
+	fieldList := make([]string, 0, len(b.fields))
+	for f := range b.fields {
+		fieldList = append(fieldList, f)
+	}
+	sort.Strings(fieldList)
+	return perFieldsGroup{fields: fieldList, suffix: b.suffix, state: b.state}
+}
+
+// maskedFields exposes only the fields of one FieldsGroup while delegating
+// Terms and Size to the underlying Fields. Mirrors the anonymous FilterFields
+// subclass PerFieldPostingsFormat.FieldsWriter.write builds
+// (PerFieldPostingsFormat.java:151-157), which overrides iterator() alone.
+type maskedFields struct {
+	in     index.Fields
+	fields []string
+}
+
+func (m *maskedFields) Iterator() (index.FieldIterator, error) {
+	return &maskedFieldIterator{fields: m.fields}, nil
+}
+
+func (m *maskedFields) Terms(field string) (index.Terms, error) { return m.in.Terms(field) }
+
+func (m *maskedFields) Size() int { return m.in.Size() }
+
+// maskedFieldIterator walks the group's field names.
+type maskedFieldIterator struct {
+	fields []string
+	pos    int
+}
+
+func (it *maskedFieldIterator) Next() (string, error) {
+	if it.pos >= len(it.fields) {
+		return "", nil
+	}
+	name := it.fields[it.pos]
+	it.pos++
+	return name, nil
+}
+
+func (it *maskedFieldIterator) HasNext() bool { return it.pos < len(it.fields) }
 
 // NewPerFieldFieldsConsumer creates a new PerFieldFieldsConsumer.
 func NewPerFieldFieldsConsumer(provider FieldPostingsFormatProvider, state *SegmentWriteState) *PerFieldFieldsConsumer {
 	return &PerFieldFieldsConsumer{
-		formatProvider:       provider,
-		state:                state,
-		consumersByFormat:    make(map[PostingsFormat]*postingsConsumerAndSuffix),
-		suffixesByFormatName: make(map[string]int),
+		formatProvider: provider,
+		state:          state,
 	}
 }
 
-// getInstance returns the delegate FieldsConsumer for fieldName, allocating a
-// new one and bumping the format-name suffix counter on first use. It also
-// stamps the per-field codec attributes onto the field's FieldInfo.
-func (c *PerFieldFieldsConsumer) getInstance(fieldName string) (FieldsConsumer, error) {
-	format := c.formatProvider.GetPostingsFormat(fieldName)
-	if format == nil {
-		return nil, fmt.Errorf("invalid null PostingsFormat for field=%q", fieldName)
+// buildFieldsGroupMapping assigns every indexed field name to its delegate
+// PostingsFormat, allocating one FieldsGroup (and its segment suffix) per
+// distinct format instance and stamping the per-field codec attributes on the
+// matching FieldInfo.
+//
+// Mirrors the private
+// PerFieldPostingsFormat.FieldsWriter.buildFieldsGroupMapping(Iterable<String>)
+// (PerFieldPostingsFormat.java:204-254).
+func (c *PerFieldFieldsConsumer) buildFieldsGroupMapping(indexedFieldNames []string) ([]PostingsFormat, map[PostingsFormat]perFieldsGroup, error) {
+	// Maps a PostingsFormat instance to the suffix it should use.
+	formatToGroupBuilders := make(map[PostingsFormat]*perFieldsGroupBuilder)
+	// Preserves the order in which formats were first seen, so the delegates
+	// are opened deterministically.
+	var formatOrder []PostingsFormat
+	// Holds the last suffix of each PostingsFormat name.
+	suffixes := make(map[string]int)
+
+	for _, field := range indexedFieldNames {
+		fieldInfo := c.state.FieldInfos.GetByName(field)
+		if fieldInfo == nil {
+			return nil, nil, fmt.Errorf("no FieldInfo for field %q", field)
+		}
+		format := c.formatProvider.GetPostingsFormat(field)
+		if format == nil {
+			return nil, nil, fmt.Errorf("invalid null PostingsFormat for field=%q", field)
+		}
+		formatName := format.Name()
+
+		groupBuilder, seen := formatToGroupBuilders[format]
+		if !seen {
+			// First time we are seeing this format; create a new instance.
+			suffix := 0
+			if prev, ok := suffixes[formatName]; ok {
+				suffix = prev + 1
+			}
+			suffixes[formatName] = suffix
+
+			segmentSuffix, err := perFieldPostingsFullSegmentSuffix(
+				field, c.state.SegmentSuffix, perFieldPostingsSuffix(formatName, strconv.Itoa(suffix)))
+			if err != nil {
+				return nil, nil, err
+			}
+			groupBuilder = newPerFieldsGroupBuilder(suffix, &SegmentWriteState{
+				Directory:     c.state.Directory,
+				SegmentInfo:   c.state.SegmentInfo,
+				FieldInfos:    c.state.FieldInfos,
+				SegmentSuffix: segmentSuffix,
+			})
+			formatToGroupBuilders[format] = groupBuilder
+			formatOrder = append(formatOrder, format)
+		} else if _, ok := suffixes[formatName]; !ok {
+			return nil, nil, fmt.Errorf("no suffix for format name: %s, expected: %d", formatName, groupBuilder.suffix)
+		}
+
+		groupBuilder.addField(field)
+
+		fieldInfo.PutCodecAttribute(PER_FIELD_POSTINGS_FORMAT_KEY, formatName)
+		fieldInfo.PutCodecAttribute(PER_FIELD_POSTINGS_SUFFIX_KEY, strconv.Itoa(groupBuilder.suffix))
 	}
-	formatName := format.Name()
 
-	fieldInfo := c.state.FieldInfos.GetByName(fieldName)
-	if fieldInfo == nil {
-		return nil, fmt.Errorf("no FieldInfo for field %q", fieldName)
+	formatToGroups := make(map[PostingsFormat]perFieldsGroup, len(formatToGroupBuilders))
+	for format, builder := range formatToGroupBuilders {
+		formatToGroups[format] = builder.build()
 	}
-
-	cas, ok := c.consumersByFormat[format]
-	if !ok {
-		// First time seeing this delegate format instance; assign a new
-		// integer suffix scoped to formatName and open the delegate.
-		suffix := 0
-		if prev, seen := c.suffixesByFormatName[formatName]; seen {
-			suffix = prev + 1
-		}
-		c.suffixesByFormatName[formatName] = suffix
-
-		innerSuffix := perFieldPostingsSuffix(formatName, strconv.Itoa(suffix))
-		segmentSuffix, err := perFieldPostingsFullSegmentSuffix(fieldName, c.state.SegmentSuffix, innerSuffix)
-		if err != nil {
-			return nil, err
-		}
-
-		delegateState := &SegmentWriteState{
-			Directory:     c.state.Directory,
-			SegmentInfo:   c.state.SegmentInfo,
-			FieldInfos:    c.state.FieldInfos,
-			SegmentSuffix: segmentSuffix,
-		}
-
-		consumer, err := format.FieldsConsumer(delegateState)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create FieldsConsumer for field %q: %w", fieldName, err)
-		}
-		cas = &postingsConsumerAndSuffix{consumer: consumer, suffix: suffix}
-		c.consumersByFormat[format] = cas
-	}
-
-	fieldInfo.PutCodecAttribute(PER_FIELD_POSTINGS_FORMAT_KEY, formatName)
-	fieldInfo.PutCodecAttribute(PER_FIELD_POSTINGS_SUFFIX_KEY, strconv.Itoa(cas.suffix))
-
-	return cas.consumer, nil
+	return formatOrder, formatToGroups, nil
 }
 
-// Write delegates to the FieldsConsumer chosen for field, recording the
-// per-field codec attributes on the matching FieldInfo.
-func (c *PerFieldFieldsConsumer) Write(field string, terms index.Terms) error {
+// Write groups the fields by delegate PostingsFormat and drives one delegate
+// FieldsConsumer per group over a Fields view masked to that group.
+//
+// Mirrors PerFieldPostingsFormat.FieldsWriter.write(Fields, NormsProducer)
+// (PerFieldPostingsFormat.java:140-169).
+func (c *PerFieldFieldsConsumer) Write(fields index.Fields, norms NormsProducer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -250,11 +327,62 @@ func (c *PerFieldFieldsConsumer) Write(field string, terms index.Terms) error {
 		return fmt.Errorf("PerFieldFieldsConsumer is closed")
 	}
 
-	consumer, err := c.getInstance(field)
+	names, err := perFieldIndexedFieldNames(fields)
 	if err != nil {
 		return err
 	}
-	return consumer.Write(field, terms)
+	formatOrder, formatToGroups, err := c.buildFieldsGroupMapping(names)
+	if err != nil {
+		return err
+	}
+
+	// Write postings.
+	success := false
+	defer func() {
+		if !success {
+			for _, consumer := range c.toClose {
+				_ = consumer.Close()
+			}
+			c.toClose = nil
+		}
+	}()
+	for _, format := range formatOrder {
+		group := formatToGroups[format]
+		consumer, err := format.FieldsConsumer(group.state)
+		if err != nil {
+			return fmt.Errorf("failed to create FieldsConsumer for format %q: %w", format.Name(), err)
+		}
+		c.toClose = append(c.toClose, consumer)
+		// Exposes only the fields from this group.
+		if err := consumer.Write(&maskedFields{in: fields, fields: group.fields}, norms); err != nil {
+			return err
+		}
+	}
+	success = true
+	return nil
+}
+
+// perFieldIndexedFieldNames drains a Fields iterator into a slice, preserving
+// its order. Java iterates the Iterable<String> directly.
+func perFieldIndexedFieldNames(fields index.Fields) ([]string, error) {
+	if fields == nil {
+		return nil, nil
+	}
+	it, err := fields.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for {
+		name, err := it.Next()
+		if err != nil {
+			return nil, err
+		}
+		if name == "" {
+			return names, nil
+		}
+		names = append(names, name)
+	}
 }
 
 // Close closes every delegate FieldsConsumer that was opened. It returns the
@@ -270,12 +398,12 @@ func (c *PerFieldFieldsConsumer) Close() error {
 	c.closed = true
 
 	var lastErr error
-	for format, cas := range c.consumersByFormat {
-		if err := cas.consumer.Close(); err != nil {
-			lastErr = fmt.Errorf("failed to close consumer for format %q: %w", format.Name(), err)
+	for _, consumer := range c.toClose {
+		if err := consumer.Close(); err != nil {
+			lastErr = fmt.Errorf("failed to close delegate FieldsConsumer: %w", err)
 		}
 	}
-	c.consumersByFormat = nil
+	c.toClose = nil
 	return lastErr
 }
 
@@ -451,3 +579,83 @@ var (
 	_ FieldPostingsFormatProvider = (*MapFieldPostingsFormatProvider)(nil)
 	_ FieldPostingsFormatProvider = (FieldPostingsFormatProviderFunc)(nil)
 )
+
+// CheckIntegrity walks every delegate FieldsProducer and validates its
+// checksums.
+//
+// Port of
+// org.apache.lucene.codecs.perfield.PerFieldPostingsFormat.FieldsReader#checkIntegrity
+// (Lucene 10.5.0):
+//
+//	for (FieldsProducer producer : formats.values()) { producer.checkIntegrity(); }
+//
+// formats is keyed by format suffix in Java, so the Go loop walks
+// producersBySuffix — the map that likewise holds one entry per open delegate.
+func (p *PerFieldFieldsProducer) CheckIntegrity() error {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	for _, producer := range p.producersBySuffix {
+		if err := producer.CheckIntegrity(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Iterator returns the names of the fields that carry postings, in sorted
+// order. Mirrors PerFieldPostingsFormat.FieldsReader.iterator(), which walks
+// the key set of a TreeMap.
+func (p *PerFieldFieldsProducer) Iterator() (index.FieldIterator, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	names := make([]string, 0, len(p.producersByField))
+	for name := range p.producersByField {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return index.NewMemoryFieldIterator(names), nil
+}
+
+// Size returns the number of fields that carry postings. Mirrors
+// PerFieldPostingsFormat.FieldsReader.size().
+func (p *PerFieldFieldsProducer) Size() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.producersByField)
+}
+
+// GetMergeInstance returns a new producer holding the merge instance of every
+// delegate. Mirrors PerFieldPostingsFormat.FieldsReader.getMergeInstance(),
+// which returns new FieldsReader(this).
+func (p *PerFieldFieldsProducer) GetMergeInstance() FieldsProducer {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return newPerFieldFieldsProducerForMerge(p)
+}
+
+// newPerFieldFieldsProducerForMerge is the "clone for merge" constructor
+// FieldsReader(FieldsReader other) of PerFieldPostingsFormat.
+func newPerFieldFieldsProducerForMerge(other *PerFieldFieldsProducer) *PerFieldFieldsProducer {
+	p := &PerFieldFieldsProducer{
+		state:             other.state,
+		producersByField:  make(map[string]FieldsProducer, len(other.producersByField)),
+		producersBySuffix: make(map[string]FieldsProducer, len(other.producersBySuffix)),
+	}
+	oldToNew := make(map[FieldsProducer]FieldsProducer, len(other.producersBySuffix))
+	// First clone all formats
+	for suffix, producer := range other.producersBySuffix {
+		values := producer.GetMergeInstance()
+		p.producersBySuffix[suffix] = values
+		oldToNew[producer] = values
+	}
+	// Then rebuild fields:
+	for field, producer := range other.producersByField {
+		newProducer, ok := oldToNew[producer]
+		// assert producer != null;
+		if !ok {
+			panic(fmt.Sprintf("PerFieldFieldsProducer: no merge instance for the producer of field %q", field))
+		}
+		p.producersByField[field] = newProducer
+	}
+	return p
+}

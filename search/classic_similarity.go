@@ -128,7 +128,7 @@ type classicScorer struct {
 	normTable   [256]float32
 }
 
-func (s *classicScorer) Score(doc int, freq float32, norm int64) float32 {
+func (s *classicScorer) Score104(freq float32, norm int64) float32 {
 	raw := s.sim.provider.Tf(freq) * s.queryWeight
 	return raw * s.normTable[byte(norm)]
 }
@@ -150,4 +150,20 @@ func (s *classicScorer) Explain(freq Explanation, norm int64) Explanation {
 		exp.AddDetail(NewExplanation(true, normVal, fmt.Sprintf("fieldNorm(doc=%d)", norm&0xFF)))
 	}
 	return exp
+}
+
+// AsBulkSimScorer mirrors the concrete body of Similarity.SimScorer.asBulkSimScorer()
+// in Apache Lucene 10.5.0: new DefaultBulkSimScorer(this).
+func (c *classicScorer) AsBulkSimScorer() BulkSimScorer {
+	return NewDefaultBulkSimScorer(c)
+}
+
+// Explain104 mirrors the concrete body of Similarity.SimScorer.explain(Explanation, long)
+// in Apache Lucene 10.5.0: Explanation.match(score(freq.getValue().floatValue(), norm),
+// "score(freq=" + freq.getValue() + "), with freq of:", freq).
+func (c *classicScorer) Explain104(freq Explanation, norm int64) Explanation {
+	e := NewExplanation(true, c.Score104(freq.GetValue(), norm),
+		fmt.Sprintf("score(freq=%s), with freq of:", formatFloatGeneric(freq.GetValue())))
+	e.AddDetail(freq)
+	return e
 }

@@ -1,8 +1,6 @@
 package facets
 
 import (
-	"fmt"
-
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -19,6 +17,9 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.facet.FacetsCollector.
 type FacetsCollector struct {
+	// BaseCollector carries the default body of Collector.setWeight(Weight).
+	*search.BaseCollector
+
 	// matchingDocs holds the matching documents per segment
 	matchingDocs []*MatchingDocs
 
@@ -32,7 +33,7 @@ type FacetsCollector struct {
 	keepScores bool
 
 	// scores holds scores per document if keepScores is true
-	scores map[int]float32
+	scores []float32
 
 	// leafCollectors tracks per-segment leaf collectors so that Finish()
 	// can finalize them after the search completes.
@@ -42,8 +43,9 @@ type FacetsCollector struct {
 // NewFacetsCollector creates a new FacetsCollector.
 func NewFacetsCollector() *FacetsCollector {
 	return &FacetsCollector{
-		matchingDocs:  make([]*MatchingDocs, 0),
-		scores:        make(map[int]float32),
+		BaseCollector:  &search.BaseCollector{},
+		matchingDocs:   make([]*MatchingDocs, 0),
+		scores:         nil,
 		leafCollectors: make([]*facetsLeafCollector, 0),
 	}
 }
@@ -52,6 +54,7 @@ func NewFacetsCollector() *FacetsCollector {
 func NewFacetsCollectorWithScores() *FacetsCollector {
 	fc := NewFacetsCollector()
 	fc.keepScores = true
+	fc.scores = make([]float32, 0)
 	return fc
 }
 
@@ -69,13 +72,10 @@ func (fc *FacetsCollector) GetTotalHits() int {
 // GetScore returns the score for a document if scores are being kept.
 // Returns 0 if scores are not being kept or document not found.
 func (fc *FacetsCollector) GetScore(doc int) float32 {
-	if !fc.keepScores {
+	if !fc.keepScores || doc < 0 || doc >= len(fc.scores) {
 		return 0
 	}
-	if score, ok := fc.scores[doc]; ok {
-		return score
-	}
-	return 0
+	return fc.scores[doc]
 }
 
 // GetLeafCollector returns a LeafCollector for the given context.
@@ -91,7 +91,7 @@ func (fc *FacetsCollector) GetLeafCollector(context *index.LeafReaderContext) (s
 		parent:  fc,
 		context: context,
 		docs:    make([]int, 0),
-		scores:  make(map[int]float32),
+		scores:  make([]float32, 0),
 	}
 	fc.leafCollectors = append(fc.leafCollectors, flc)
 	return flc, nil
@@ -123,7 +123,7 @@ func (fc *FacetsCollector) Finish() error {
 func (fc *FacetsCollector) Reset() {
 	fc.matchingDocs = fc.matchingDocs[:0]
 	fc.totalHits = 0
-	fc.scores = make(map[int]float32)
+	fc.scores = nil
 	fc.leafCollectors = nil
 }
 
@@ -132,12 +132,12 @@ type facetsLeafCollector struct {
 	parent  *FacetsCollector
 	context *index.LeafReaderContext
 	docs    []int
-	scores  map[int]float32
-	scorer  search.Scorer
+	scores  []float32
+	scorer  search.Scorable
 }
 
 // SetScorer sets the scorer for this leaf collector.
-func (flc *facetsLeafCollector) SetScorer(scorer search.Scorer) error {
+func (flc *facetsLeafCollector) SetScorer(scorer search.Scorable) error {
 	flc.scorer = scorer
 	return nil
 }
@@ -149,11 +149,34 @@ func (flc *facetsLeafCollector) Collect(doc int) error {
 
 	// Store score if keeping scores
 	if flc.parent.keepScores && flc.scorer != nil {
-		score := flc.scorer.Score()
+		score, err := flc.scorer.Score()
+		if err != nil {
+			return err
+		}
+		// Ensure scores slice is large enough for this docID
+		for len(flc.scores) <= doc {
+			flc.scores = append(flc.scores, 0)
+		}
 		flc.scores[doc] = score
 	}
 
 	return nil
+}
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int).
+func (flc *facetsLeafCollector) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(flc, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream).
+func (flc *facetsLeafCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(flc, stream)
+}
+
+// CompetitiveIterator mirrors the default body of
+// LeafCollector.competitiveIterator(), which returns null.
+func (flc *facetsLeafCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
 }
 
 // Finish finalizes collection for this leaf and creates the MatchingDocs.
@@ -162,12 +185,24 @@ func (flc *facetsLeafCollector) Finish() error {
 		// Create a FixedBitSet for the matching documents
 		maxDoc := flc.context.Reader().MaxDoc()
 		bits := NewDocIdSetBits(maxDoc, flc.docs)
-		md := NewMatchingDocs(flc.context, bits, len(flc.docs))
+
+		var scores []float32
+		if flc.parent.keepScores {
+			scores = flc.scores
+		}
+
+		md := NewMatchingDocs(flc.context, bits, len(flc.docs), scores)
 		flc.parent.matchingDocs = append(flc.parent.matchingDocs, md)
 
 		// Copy scores to parent if keeping scores
-		if flc.parent.keepScores {
-			for doc, score := range flc.scores {
+		if flc.parent.keepScores && scores != nil {
+			for doc, score := range scores {
+				if doc >= len(flc.parent.scores) {
+					// Grow parent scores slice
+					newScores := make([]float32, doc+1)
+					copy(newScores, flc.parent.scores)
+					flc.parent.scores = newScores
+				}
 				flc.parent.scores[doc] = score
 			}
 		}
@@ -207,149 +242,4 @@ func (dsb *DocIdSetBits) Length() int {
 // Count returns the number of set bits.
 func (dsb *DocIdSetBits) Count() int {
 	return len(dsb.docs)
-}
-
-// SearchManagerWithFacets wraps a search with facet collection.
-type SearchManagerWithFacets struct {
-	// FacetsCollector collects matching documents
-	FacetsCollector *FacetsCollector
-}
-
-// NewSearchManagerWithFacets creates a new SearchManagerWithFacets.
-func NewSearchManagerWithFacets() *SearchManagerWithFacets {
-	return &SearchManagerWithFacets{
-		FacetsCollector: NewFacetsCollector(),
-	}
-}
-
-// Search performs a search and collects facet information.
-func (smwf *SearchManagerWithFacets) Search(searcher *search.IndexSearcher, query search.Query, collector search.Collector) (*FacetsCollector, error) {
-	// Create a multi-collector that collects both the original collector and facets
-	multiCollector := NewMultiCollector(collector, smwf.FacetsCollector)
-	err := searcher.SearchWithCollector(query, multiCollector)
-	if err != nil {
-		return nil, err
-	}
-	return smwf.FacetsCollector, nil
-}
-
-// MultiCollector wraps multiple collectors into one.
-type MultiCollector struct {
-	collectors []search.Collector
-}
-
-// NewMultiCollector creates a new MultiCollector wrapping the given collectors.
-func NewMultiCollector(collectors ...search.Collector) *MultiCollector {
-	mc := &MultiCollector{
-		collectors: make([]search.Collector, 0, len(collectors)),
-	}
-	for _, c := range collectors {
-		if c != nil {
-			mc.collectors = append(mc.collectors, c)
-		}
-	}
-	return mc
-}
-
-// GetLeafCollector returns a LeafCollector that wraps all child collectors.
-func (mc *MultiCollector) GetLeafCollector(context *index.LeafReaderContext) (search.LeafCollector, error) {
-	leafCollectors := make([]search.LeafCollector, 0, len(mc.collectors))
-	for _, collector := range mc.collectors {
-		lc, err := collector.GetLeafCollector(context)
-		if err != nil {
-			return nil, err
-		}
-		if lc != nil {
-			leafCollectors = append(leafCollectors, lc)
-		}
-	}
-	return &multiLeafCollector{collectors: leafCollectors}, nil
-}
-
-// ScoreMode returns the score mode for this collector.
-func (mc *MultiCollector) ScoreMode() search.ScoreMode {
-	// Return the most restrictive score mode
-	mode := search.COMPLETE_NO_SCORES
-	for _, c := range mc.collectors {
-		if c.ScoreMode() == search.COMPLETE {
-			mode = search.COMPLETE
-			break
-		}
-	}
-	return mode
-}
-
-// multiLeafCollector wraps multiple LeafCollectors.
-type multiLeafCollector struct {
-	collectors []search.LeafCollector
-}
-
-// SetScorer sets the scorer for all child collectors.
-func (mlc *multiLeafCollector) SetScorer(scorer search.Scorer) error {
-	for _, lc := range mlc.collectors {
-		if err := lc.SetScorer(scorer); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// Collect collects a document in all child collectors.
-func (mlc *multiLeafCollector) Collect(doc int) error {
-	for _, lc := range mlc.collectors {
-		if err := lc.Collect(doc); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// FacetsCollectorManager manages FacetsCollector instances for search.
-// This provides a convenient way to perform searches with facet collection.
-type FacetsCollectorManager struct {
-	// keepScores indicates whether to keep scores
-	keepScores bool
-}
-
-// NewFacetsCollectorManager creates a new FacetsCollectorManager.
-func NewFacetsCollectorManager() *FacetsCollectorManager {
-	return &FacetsCollectorManager{
-		keepScores: false,
-	}
-}
-
-// NewFacetsCollectorManagerWithScores creates a manager that keeps scores.
-func NewFacetsCollectorManagerWithScores() *FacetsCollectorManager {
-	return &FacetsCollectorManager{
-		keepScores: true,
-	}
-}
-
-// NewCollector creates a new FacetsCollector.
-func (fcm *FacetsCollectorManager) NewCollector() *FacetsCollector {
-	if fcm.keepScores {
-		return NewFacetsCollectorWithScores()
-	}
-	return NewFacetsCollector()
-}
-
-// Search performs a search with facet collection and returns the FacetsCollector.
-func (fcm *FacetsCollectorManager) Search(searcher *search.IndexSearcher, query search.Query) (*FacetsCollector, error) {
-	fc := fcm.NewCollector()
-	err := searcher.SearchWithCollector(query, fc)
-	if err != nil {
-		return nil, fmt.Errorf("search with facets failed: %w", err)
-	}
-	return fc, nil
-}
-
-// SearchWithCollector performs a search with both a result collector and facet collection.
-func (fcm *FacetsCollectorManager) SearchWithCollector(searcher *search.IndexSearcher, query search.Query, collector search.Collector) (*FacetsCollector, error) {
-	fc := fcm.NewCollector()
-	multiCollector := NewMultiCollector(collector, fc)
-	err := searcher.SearchWithCollector(query, multiCollector)
-	if err != nil {
-		return nil, fmt.Errorf("search with facets and collector failed: %w", err)
-	}
-	return fc, nil
 }

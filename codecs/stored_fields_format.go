@@ -65,6 +65,148 @@ func RegisterLucene90StoredFieldsFormat(factory func() StoredFieldsFormat) {
 	lucene90StoredFieldsFormatFactory = factory
 }
 
+// ---------------------------------------------------------------------------
+// Deferred construction of the Lucene90 stored-fields formats
+// ---------------------------------------------------------------------------
+//
+// In Apache Lucene these formats are simply constructed at their use sites:
+// Lucene104Codec(Mode) does
+//
+//	this.storedFieldsFormat = new Lucene90StoredFieldsFormat(mode.storedMode);
+//
+// (Lucene104Codec.java:118-124) and the test-framework CompressingCodec does
+//
+//	this.storedFieldsFormat = new Lucene90CompressingStoredFieldsFormat(
+//	    name, segmentSuffix, compressionMode, chunkSize, maxDocsPerChunk, blockShift);
+//
+// (CompressingCodec.java:119-121). Neither constructor is reachable from this
+// package: both formats live under codecs/lucene90[/compressing], and those
+// packages import codecs, so a direct import would close an import cycle. The
+// port therefore resolves the seam the same way it already resolves the
+// Lucene90 reader above — with an init()-time registration performed by the
+// defining package, and construction deferred to first use. Importing
+// codecs/lucene90 (directly or through a codec package) arms both factories.
+
+// StoredFieldsMode is the canonical Java name of a
+// Lucene90StoredFieldsFormat.Mode constant: "BEST_SPEED" or
+// "BEST_COMPRESSION". It is the same textual form Lucene persists in the
+// segment attribute Lucene90StoredFieldsFormat.MODE_KEY
+// ("Lucene90StoredFieldsFormat.mode"), so no new vocabulary is introduced.
+type StoredFieldsMode string
+
+const (
+	// StoredFieldsBestSpeed is Lucene90StoredFieldsFormat.Mode.BEST_SPEED.
+	StoredFieldsBestSpeed StoredFieldsMode = "BEST_SPEED"
+	// StoredFieldsBestCompression is
+	// Lucene90StoredFieldsFormat.Mode.BEST_COMPRESSION.
+	StoredFieldsBestCompression StoredFieldsMode = "BEST_COMPRESSION"
+)
+
+// lucene90StoredFieldsFormatByMode is populated by codecs/lucene90 via init().
+var lucene90StoredFieldsFormatByMode func(mode StoredFieldsMode) (StoredFieldsFormat, error)
+
+// RegisterLucene90StoredFieldsFormatByMode sets the factory that builds
+// org.apache.lucene.codecs.lucene90.Lucene90StoredFieldsFormat for a given
+// Mode. Called from codecs/lucene90's init().
+func RegisterLucene90StoredFieldsFormatByMode(factory func(mode StoredFieldsMode) (StoredFieldsFormat, error)) {
+	lucene90StoredFieldsFormatByMode = factory
+}
+
+// Lucene90CompressingStoredFieldsFormatOptions is the argument tuple of the
+// org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingStoredFieldsFormat
+// constructor (Lucene90CompressingStoredFieldsFormat.java:63-77), minus the
+// segment suffix, which the Gocene port of that format does not yet carry.
+type Lucene90CompressingStoredFieldsFormatOptions struct {
+	FormatName      string
+	CompressionMode CompressionMode
+	ChunkSize       int
+	MaxDocsPerChunk int
+	BlockShift      int
+}
+
+// lucene90CompressingStoredFieldsFormatFactory is populated by
+// codecs/lucene90/compressing via init().
+var lucene90CompressingStoredFieldsFormatFactory func(Lucene90CompressingStoredFieldsFormatOptions) (StoredFieldsFormat, error)
+
+// RegisterLucene90CompressingStoredFieldsFormat sets the factory that builds
+// Lucene90CompressingStoredFieldsFormat from its constructor tuple. Called
+// from codecs/lucene90/compressing's init().
+func RegisterLucene90CompressingStoredFieldsFormat(factory func(Lucene90CompressingStoredFieldsFormatOptions) (StoredFieldsFormat, error)) {
+	lucene90CompressingStoredFieldsFormatFactory = factory
+}
+
+// deferredStoredFieldsFormat is a StoredFieldsFormat that resolves its
+// delegate on first use through one of the factories above. It exists purely
+// to break the import cycle: every call it receives is forwarded unchanged to
+// the real Lucene90 format, and an unarmed factory surfaces as an explicit
+// error rather than a silently different format.
+type deferredStoredFieldsFormat struct {
+	name    string
+	resolve func() (StoredFieldsFormat, error)
+}
+
+func (f *deferredStoredFieldsFormat) Name() string { return f.name }
+
+func (f *deferredStoredFieldsFormat) delegate() (StoredFieldsFormat, error) {
+	sf, err := f.resolve()
+	if err != nil {
+		return nil, err
+	}
+	if sf == nil {
+		return nil, fmt.Errorf("codecs: the registered factory produced no stored-fields format for %q", f.name)
+	}
+	return sf, nil
+}
+
+func (f *deferredStoredFieldsFormat) FieldsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos, context store.IOContext) (StoredFieldsReader, error) {
+	sf, err := f.delegate()
+	if err != nil {
+		return nil, err
+	}
+	return sf.FieldsReader(dir, segmentInfo, fieldInfos, context)
+}
+
+func (f *deferredStoredFieldsFormat) FieldsWriter(dir store.Directory, segmentInfo *index.SegmentInfo, context store.IOContext) (StoredFieldsWriter, error) {
+	sf, err := f.delegate()
+	if err != nil {
+		return nil, err
+	}
+	return sf.FieldsWriter(dir, segmentInfo, context)
+}
+
+var _ StoredFieldsFormat = (*deferredStoredFieldsFormat)(nil)
+
+// Lucene90StoredFieldsFormatForMode returns the Lucene90StoredFieldsFormat for
+// mode, resolved through the factory codecs/lucene90 registers. It is the
+// package-local spelling of `new Lucene90StoredFieldsFormat(mode)`.
+func Lucene90StoredFieldsFormatForMode(mode StoredFieldsMode) StoredFieldsFormat {
+	return &deferredStoredFieldsFormat{
+		name: "Lucene90StoredFieldsFormat(" + string(mode) + ")",
+		resolve: func() (StoredFieldsFormat, error) {
+			if lucene90StoredFieldsFormatByMode == nil {
+				return nil, fmt.Errorf("codecs: no Lucene90 stored-fields format registered for mode %s; import codecs/lucene90", mode)
+			}
+			return lucene90StoredFieldsFormatByMode(mode)
+		},
+	}
+}
+
+// NewLucene90CompressingStoredFieldsFormat returns the
+// Lucene90CompressingStoredFieldsFormat described by opts, resolved through
+// the factory codecs/lucene90/compressing registers. It is the package-local
+// spelling of that format's constructor.
+func NewLucene90CompressingStoredFieldsFormat(opts Lucene90CompressingStoredFieldsFormatOptions) StoredFieldsFormat {
+	return &deferredStoredFieldsFormat{
+		name: opts.FormatName,
+		resolve: func() (StoredFieldsFormat, error) {
+			if lucene90CompressingStoredFieldsFormatFactory == nil {
+				return nil, fmt.Errorf("codecs: no Lucene90CompressingStoredFieldsFormat factory registered; import codecs/lucene90/compressing")
+			}
+			return lucene90CompressingStoredFieldsFormatFactory(opts)
+		},
+	}
+}
+
 // Lucene104StoredFieldsFormat is the Lucene 10.4 stored fields format.
 type Lucene104StoredFieldsFormat struct {
 	*BaseStoredFieldsFormat
@@ -78,24 +220,25 @@ func NewLucene104StoredFieldsFormat() *Lucene104StoredFieldsFormat {
 }
 
 // FieldsReader returns a stored fields reader.
-// When the Lucene90 stored-fields factory has been registered (by importing
-// codecs/lucene90), this method attempts to open the segment with the
-// Lucene90 format first.  If that fails with a header-mismatch or missing-file
-// error, it falls back to the legacy Gocene104 simple format so that both
-// Lucene-compatible and older Gocene indexes remain readable.
+//
+// Apache Lucene's Lucene104Codec.storedFieldsFormat() returns a
+// Lucene90StoredFieldsFormat (Lucene104Codec.java:120) — there is no
+// Lucene104StoredFieldsFormat and no Lucene104 stored-fields reader in Lucene
+// 10.5.0 — so the only faithful reader is the Lucene90 one, opened through the
+// factory registered by importing codecs/lucene90. The invented
+// "Gocene104" fallback reader that used to sit here read a file format Apache
+// Lucene never writes, and it was reached by swallowing the real reader's
+// error, so a genuinely corrupt or unreadable segment was reported as an
+// unrelated parse failure instead.
 func (f *Lucene104StoredFieldsFormat) FieldsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos, context store.IOContext) (StoredFieldsReader, error) {
-	if lucene90StoredFieldsFormatFactory != nil {
-		lucene90Format := lucene90StoredFieldsFormatFactory()
-		if lucene90Format != nil {
-			reader, err := lucene90Format.FieldsReader(dir, segmentInfo, fieldInfos, context)
-			if err == nil {
-				return reader, nil
-			}
-			// Silently fall back on header mismatch or missing files.
-			// Any other error is also swallowed to keep the fallback safe.
-		}
+	if lucene90StoredFieldsFormatFactory == nil {
+		return nil, fmt.Errorf("codecs: no Lucene90 stored-fields format registered; import codecs/lucene90")
 	}
-	return NewLucene104StoredFieldsReader(dir, segmentInfo, fieldInfos)
+	lucene90Format := lucene90StoredFieldsFormatFactory()
+	if lucene90Format == nil {
+		return nil, fmt.Errorf("codecs: the registered Lucene90 stored-fields factory produced no format")
+	}
+	return lucene90Format.FieldsReader(dir, segmentInfo, fieldInfos, context)
 }
 
 // FieldsWriter returns a stored fields writer.
@@ -114,6 +257,18 @@ type StoredFieldsWriter = spi.StoredFieldsWriter
 
 // StoredFieldVisitor is an alias of spi.StoredFieldVisitor.
 type StoredFieldVisitor = spi.StoredFieldVisitor
+
+// StoredFieldVisitorStatus is an alias of spi.StoredFieldVisitorStatus, the
+// port of the nested enum org.apache.lucene.index.StoredFieldVisitor.Status.
+type StoredFieldVisitorStatus = spi.StoredFieldVisitorStatus
+
+// The StoredFieldVisitor.Status values, re-exported so that callers naming
+// the visitor through this package can name its enum too.
+const (
+	StoredFieldVisitorStatusYes  = spi.StoredFieldVisitorStatusYes
+	StoredFieldVisitorStatusNo   = spi.StoredFieldVisitorStatusNo
+	StoredFieldVisitorStatusStop = spi.StoredFieldVisitorStatusStop
+)
 
 // IndexableField is an alias of spi.IndexableField — the narrow,
 // codec-facing surface that StoredFieldsWriter.WriteField receives.
@@ -139,206 +294,6 @@ type storedField struct {
 	name      string
 	fieldType byte
 	value     interface{}
-}
-
-// Lucene104StoredFieldsReader is a StoredFieldsReader implementation for Lucene 10.4.
-type Lucene104StoredFieldsReader struct {
-	directory   store.Directory
-	segmentInfo *index.SegmentInfo
-	fieldInfos  *index.FieldInfos
-	docs        []storedDoc
-	mu          sync.RWMutex
-}
-
-// NewLucene104StoredFieldsReader creates a new Lucene104StoredFieldsReader.
-func NewLucene104StoredFieldsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos) (*Lucene104StoredFieldsReader, error) {
-	reader := &Lucene104StoredFieldsReader{
-		directory:   dir,
-		segmentInfo: segmentInfo,
-		fieldInfos:  fieldInfos,
-		docs:        make([]storedDoc, 0),
-	}
-	if err := reader.load(); err != nil {
-		return nil, err
-	}
-	return reader, nil
-}
-
-// load reads stored fields from disk.
-func (r *Lucene104StoredFieldsReader) load() error {
-	fileName := r.segmentInfo.Name() + ".fdt"
-
-	if !r.directory.FileExists(fileName) {
-		// No stored fields file — return empty reader.
-		return nil
-	}
-
-	rawIn, err := r.directory.OpenInput(fileName, store.IOContext{Context: store.ContextRead})
-	if err != nil {
-		return fmt.Errorf("failed to open stored fields file: %w", err)
-	}
-	defer rawIn.Close()
-
-	in := store.NewChecksumIndexInput(rawIn)
-
-	// Validate standard CodecUtil index header.
-	segID := r.segmentInfo.GetID()
-	if _, err := CheckIndexHeader(in, lucene104SFDataCodec,
-		lucene104SFDataVersion, lucene104SFDataVersion, segID, ""); err != nil {
-		return fmt.Errorf("stored fields header mismatch for %s: %w", fileName, err)
-	}
-
-	// Read number of documents
-	numDocs, err := store.ReadVInt(in)
-	if err != nil {
-		return fmt.Errorf("failed to read doc count: %w", err)
-	}
-
-	// Read each document
-	for i := int32(0); i < numDocs; i++ {
-		doc, err := r.readDocument(in)
-		if err != nil {
-			return fmt.Errorf("failed to read document %d: %w", i, err)
-		}
-		r.docs = append(r.docs, doc)
-	}
-
-	return nil
-}
-
-// readDocument reads a single document from the input.
-func (r *Lucene104StoredFieldsReader) readDocument(in store.IndexInput) (storedDoc, error) {
-	doc := storedDoc{}
-
-	// Read number of fields
-	numFields, err := store.ReadVInt(in)
-	if err != nil {
-		return doc, fmt.Errorf("failed to read field count: %w", err)
-	}
-
-	doc.fields = make([]storedField, numFields)
-
-	// Read each field
-	for i := int32(0); i < numFields; i++ {
-		field, err := r.readField(in)
-		if err != nil {
-			return doc, fmt.Errorf("failed to read field: %w", err)
-		}
-		doc.fields[i] = field
-	}
-
-	return doc, nil
-}
-
-// readField reads a single field from the input.
-func (r *Lucene104StoredFieldsReader) readField(in store.IndexInput) (storedField, error) {
-	field := storedField{}
-
-	// Read field name
-	name, err := store.ReadString(in)
-	if err != nil {
-		return field, fmt.Errorf("failed to read field name: %w", err)
-	}
-	field.name = name
-
-	// Read field type
-	ft, err := in.ReadByte()
-	if err != nil {
-		return field, fmt.Errorf("failed to read field type: %w", err)
-	}
-	field.fieldType = ft
-
-	// Read value based on type
-	switch ft {
-	case fieldTypeString:
-		val, err := store.ReadString(in)
-		if err != nil {
-			return field, fmt.Errorf("failed to read string value: %w", err)
-		}
-		field.value = val
-
-	case fieldTypeBinary:
-		length, err := store.ReadVInt(in)
-		if err != nil {
-			return field, fmt.Errorf("failed to read binary length: %w", err)
-		}
-		data := make([]byte, length)
-		if err := in.ReadBytes(data); err != nil {
-			return field, fmt.Errorf("failed to read binary value: %w", err)
-		}
-		field.value = data
-
-	case fieldTypeInt:
-		val, err := store.ReadVInt(in)
-		if err != nil {
-			return field, fmt.Errorf("failed to read int value: %w", err)
-		}
-		field.value = int(val)
-
-	case fieldTypeLong:
-		val, err := store.ReadVLong(in)
-		if err != nil {
-			return field, fmt.Errorf("failed to read long value: %w", err)
-		}
-		field.value = val
-
-	case fieldTypeFloat:
-		var val float32
-		if err := binaryReadFloat(in, &val); err != nil {
-			return field, fmt.Errorf("failed to read float value: %w", err)
-		}
-		field.value = val
-
-	case fieldTypeDouble:
-		var val float64
-		if err := binaryReadDouble(in, &val); err != nil {
-			return field, fmt.Errorf("failed to read double value: %w", err)
-		}
-		field.value = val
-
-	default:
-		return field, fmt.Errorf("unknown field type: %d", ft)
-	}
-
-	return field, nil
-}
-
-// VisitDocument visits the stored fields for a document.
-func (r *Lucene104StoredFieldsReader) VisitDocument(docID int, visitor StoredFieldVisitor) error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if docID < 0 || docID >= len(r.docs) {
-		return fmt.Errorf("document ID %d out of range [0, %d)", docID, len(r.docs))
-	}
-
-	doc := r.docs[docID]
-	for _, field := range doc.fields {
-		switch field.fieldType {
-		case fieldTypeString:
-			visitor.StringField(field.name, field.value.(string))
-		case fieldTypeBinary:
-			visitor.BinaryField(field.name, field.value.([]byte))
-		case fieldTypeInt:
-			visitor.IntField(field.name, field.value.(int))
-		case fieldTypeLong:
-			visitor.LongField(field.name, field.value.(int64))
-		case fieldTypeFloat:
-			visitor.FloatField(field.name, field.value.(float32))
-		case fieldTypeDouble:
-			visitor.DoubleField(field.name, field.value.(float64))
-		}
-	}
-
-	return nil
-}
-
-// Close releases resources.
-func (r *Lucene104StoredFieldsReader) Close() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.docs = nil
-	return nil
 }
 
 // Lucene104StoredFieldsWriter is a StoredFieldsWriter implementation for Lucene 10.4.
@@ -385,7 +340,7 @@ func (w *Lucene104StoredFieldsWriter) FinishDocument() error {
 }
 
 // WriteField writes a field.
-func (w *Lucene104StoredFieldsWriter) WriteField(field spi.IndexableField) error {
+func (w *Lucene104StoredFieldsWriter) WriteField(info *spi.FieldInfo, field spi.IndexableField) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -468,7 +423,7 @@ func (w *Lucene104StoredFieldsWriter) Close() error {
 	}
 
 	// Write number of documents
-	if err := store.WriteVInt(out, int32(len(w.docs))); err != nil {
+	if err := out.WriteVInt(int32(len(w.docs))); err != nil {
 		return fmt.Errorf("failed to write doc count: %w", err)
 	}
 
@@ -489,7 +444,7 @@ func (w *Lucene104StoredFieldsWriter) Close() error {
 // writeDocument writes a single document to the output.
 func (w *Lucene104StoredFieldsWriter) writeDocument(out store.IndexOutput, doc storedDoc) error {
 	// Write number of fields
-	if err := store.WriteVInt(out, int32(len(doc.fields))); err != nil {
+	if err := out.WriteVInt(int32(len(doc.fields))); err != nil {
 		return fmt.Errorf("failed to write field count: %w", err)
 	}
 
@@ -524,20 +479,20 @@ func (w *Lucene104StoredFieldsWriter) writeField(out store.IndexOutput, field st
 
 	case fieldTypeBinary:
 		data := field.value.([]byte)
-		if err := store.WriteVInt(out, int32(len(data))); err != nil {
+		if err := out.WriteVInt(int32(len(data))); err != nil {
 			return fmt.Errorf("failed to write binary length: %w", err)
 		}
-		if err := out.WriteBytes(data); err != nil {
+		if err := out.WriteBytes(data, 0, len(data)); err != nil {
 			return fmt.Errorf("failed to write binary value: %w", err)
 		}
 
 	case fieldTypeInt:
-		if err := store.WriteVInt(out, int32(field.value.(int))); err != nil {
+		if err := out.WriteVInt(int32(field.value.(int))); err != nil {
 			return fmt.Errorf("failed to write int value: %w", err)
 		}
 
 	case fieldTypeLong:
-		if err := store.WriteVLong(out, field.value.(int64)); err != nil {
+		if err := out.WriteVLong(field.value.(int64)); err != nil {
 			return fmt.Errorf("failed to write long value: %w", err)
 		}
 
@@ -575,7 +530,7 @@ func binaryWriteFloat(out store.IndexOutput, v float32) error {
 		byte(val >> 8),
 		byte(val),
 	}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 func binaryReadDouble(in store.IndexInput, v *float64) error {
@@ -602,7 +557,7 @@ func binaryWriteDouble(out store.IndexOutput, v float64) error {
 		byte(val >> 8),
 		byte(val),
 	}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 func float32bits(f float32) uint32 {

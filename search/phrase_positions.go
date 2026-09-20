@@ -13,7 +13,7 @@
 
 package search
 
-// Ported from Apache Lucene 10.4.0:
+// Ported from Apache Lucene 10.5.0:
 //   lucene/core/src/java/org/apache/lucene/search/PhrasePositions.java
 
 import (
@@ -22,38 +22,37 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
-// PhrasePositions tracks the position of a term in a document relative
-// to its phrase offset. It is used by phrase scorers to detect when all
-// constituent terms appear at the positions required by the phrase.
+// PhrasePositions is the position of a term in a document that takes into
+// account the term offset within the phrase.
 //
-// Mirrors org.apache.lucene.search.PhrasePositions (Lucene 10.4.0).
-//
-// In Java this class is package-private (final). The Go port keeps it
-// unexported-field but exposes only what phrase scorers need.
+// Mirrors org.apache.lucene.search.PhrasePositions (Lucene 10.5.0), a
+// package-private final class. The Go port keeps the exact field and method
+// set of the Java original.
 type PhrasePositions struct {
-	// Position is the current position in the document, adjusted for the
-	// phrase offset: position = postings.nextPosition() - offset.
+	// Position is the position in the doc.
 	Position int
-	// Count is the number of remaining positions in the current document.
+	// Count is the remaining pos in this doc.
 	Count int
-	// Offset is the position of this term within the phrase (0-based).
+	// Offset is the position in the phrase.
 	Offset int
-	// Ord is a unique ordinal across all PhrasePositions in a query.
+	// Ord is unique across all PhrasePositions instances.
 	Ord int
-	// Postings is the PostingsEnum providing doc and position data.
+	// Postings is the stream of docs and positions.
 	Postings index.PostingsEnum
-	// Next links PhrasePositions in a linked list (used internally).
+	// Next is used to make lists.
 	Next *PhrasePositions
-	// RptGroup is ≥ 0 when this is a repeating term group member, or -1.
+	// RptGroup is >= 0 to indicate that this is a repeating PP.
 	RptGroup int
-	// RptInd is the index within RptGroup.
+	// RptInd is the index in the RptGroup.
 	RptInd int
-	// Terms are the Term values for repetition initialisation.
+	// Terms are the terms, for repetitions initialization.
 	Terms []*index.Term
+	// Freq is the cached frequency for the current document.
+	Freq int
 }
 
-// NewPhrasePositions constructs a PhrasePositions for the given
-// PostingsEnum, phrase offset o, ordinal ord, and terms slice.
+// NewPhrasePositions constructs a PhrasePositions for the given PostingsEnum,
+// phrase offset o, ordinal ord, and terms slice.
 //
 // Mirrors PhrasePositions(PostingsEnum, int, int, Term[]).
 func NewPhrasePositions(postings index.PostingsEnum, o, ord int, terms []*index.Term) *PhrasePositions {
@@ -66,36 +65,33 @@ func NewPhrasePositions(postings index.PostingsEnum, o, ord int, terms []*index.
 	}
 }
 
-// FirstPosition reads the frequency of the current document and advances
-// to the first position.
+// FirstPosition seeds the remaining-position count from the cached frequency
+// and advances to the first position.
 //
 // Mirrors PhrasePositions.firstPosition().
 func (pp *PhrasePositions) FirstPosition() error {
-	freq, err := pp.Postings.Freq()
-	if err != nil {
-		return err
-	}
-	pp.Count = freq
-	_, err = pp.NextPosition()
+	pp.Count = pp.Freq // use cached frequency
+	_, err := pp.NextPosition()
 	return err
 }
 
-// NextPosition advances to the next position of this term in the current
-// document and sets Position = nextPosition() - Offset.
-// Returns true when a position was consumed, false when exhausted.
+// NextPosition goes to the next location of this term in the current document,
+// and sets Position as location - Offset, so that a matching exact phrase is
+// easily identified when all PhrasePositions have exactly the same Position.
 //
 // Mirrors PhrasePositions.nextPosition().
 func (pp *PhrasePositions) NextPosition() (bool, error) {
-	if pp.Count <= 0 {
-		return false, nil
+	if pp.Count > 0 { // read subsequent pos's
+		pp.Count--
+		pos, err := pp.Postings.NextPosition()
+		if err != nil {
+			return false, err
+		}
+		pp.Position = pos - pp.Offset
+		return true, nil
 	}
 	pp.Count--
-	pos, err := pp.Postings.NextPosition()
-	if err != nil {
-		return false, err
-	}
-	pp.Position = pos - pp.Offset
-	return true, nil
+	return false, nil
 }
 
 // String returns a debug representation.

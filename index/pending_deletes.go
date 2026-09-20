@@ -6,7 +6,6 @@ package index
 
 import (
 	"fmt"
-	"sync/atomic"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -126,7 +125,7 @@ func (p *PendingDeletes) WriteLiveDocs(dir store.Directory) (bool, error) {
 		}
 	}()
 
-	codec := LookupCodecByName(p.info.SegmentInfo().Codec())
+	codec := p.info.SegmentInfo().Codec()
 	err := codec.LiveDocsFormat().WriteLiveDocs(liveDocs, dir, p.info, p.pendingDeleteCount, store.IOContextDefault)
 	if err != nil {
 		return false, err
@@ -144,7 +143,7 @@ func (p *PendingDeletes) IsFullyDeleted(readerIOSupplier func() (CodecReader, er
 }
 
 func (p *PendingDeletes) NumDeletesToMerge(policy MergePolicy, readerIOSupplier func() (CodecReader, error)) (int, error) {
-	return policy.NumDeletesToMerge(p.info, p.GetDelCount(), readerIOSupplier)
+	return policy.NumDeletesToMerge(p.info, p.GetDelCount()), nil
 }
 
 func (p *PendingDeletes) NeedsRefresh(reader CodecReader) bool {

@@ -1,0 +1,558 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+package spi
+
+import (
+	"encoding/binary"
+	"fmt"
+	"hash"
+	"hash/adler32"
+	"hash/crc32"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// ChecksumType represents the type of checksum algorithm to use.
+type ChecksumType int
+
+const (
+	// ChecksumAdler32 uses Adler32 checksum algorithm (faster, less robust)
+	ChecksumAdler32 ChecksumType = iota
+	// ChecksumCRC32 uses CRC32 checksum algorithm (slower, more robust)
+	ChecksumCRC32
+	// ChecksumXXHash32 uses XXHash32 algorithm (very fast, good distribution)
+	ChecksumXXHash32
+	// ChecksumXXHash64 uses XXHash64 algorithm (very fast, good distribution, 64-bit)
+	ChecksumXXHash64
+)
+
+// String returns the string representation of the checksum type.
+func (c ChecksumType) String() string {
+	switch c {
+	case ChecksumAdler32:
+		return "Adler32"
+	case ChecksumCRC32:
+		return "CRC32"
+	case ChecksumXXHash32:
+		return "XXHash32"
+	case ChecksumXXHash64:
+		return "XXHash64"
+	default:
+		return "Unknown"
+	}
+}
+
+// ChecksumIndexInput wraps another IndexInput and computes a checksum
+// of the data as it is read. This is useful for verifying data integrity.
+//
+// This is the Go port of Lucene's org.apache.lucene.store.ChecksumIndexInput.
+type ChecksumIndexInput struct {
+	*BaseIndexInput
+	BaseDataInput
+	input    IndexInput
+	digest   hash.Hash32
+	checksum ChecksumType
+}
+
+// NewChecksumIndexInput creates a new ChecksumIndexInput wrapping the given input.
+// By default, uses CRC32 for checksum calculation.
+func NewChecksumIndexInput(input IndexInput) *ChecksumIndexInput {
+	return NewChecksumIndexInputWithType(input, ChecksumCRC32)
+}
+
+// NewChecksumIndexInputWithType creates a new ChecksumIndexInput with the specified checksum type.
+func NewChecksumIndexInputWithType(input IndexInput, checksumType ChecksumType) *ChecksumIndexInput {
+	var digest hash.Hash32
+	switch checksumType {
+	case ChecksumAdler32:
+		digest = adler32.New()
+	case ChecksumCRC32:
+		digest = crc32.NewIEEE()
+	case ChecksumXXHash32:
+		digest = NewXXHash32()
+	default:
+		digest = crc32.NewIEEE()
+	}
+
+	in := &ChecksumIndexInput{
+		BaseIndexInput: NewBaseIndexInput("ChecksumIndexInput", input.Length()),
+		input:          input,
+		digest:         digest,
+		checksum:       checksumType,
+	}
+	in.Core = in
+	return in
+}
+
+// ReadByte reads a single byte and updates the checksum.
+func (in *ChecksumIndexInput) ReadByte() (byte, error) {
+	b, err := in.input.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+
+	// Update checksum
+	in.digest.Write([]byte{b})
+
+	// Update file pointer
+	in.SetFilePointer(in.GetFilePointer() + 1)
+
+	return b, nil
+}
+
+// ReadBytes reads len(b) bytes and updates the checksum.
+func (in *ChecksumIndexInput) ReadBytes(b []byte, offset, length int) error {
+	err := in.input.ReadBytes(b, offset, length)
+	if err != nil {
+		return err
+	}
+
+	// Update checksum
+	in.digest.Write(b[offset : offset+length])
+
+	// Update file pointer
+	in.SetFilePointer(in.GetFilePointer() + int64(length))
+
+	return nil
+}
+
+// ReadBytesN reads exactly n bytes and returns them, updating the checksum.
+func (in *ChecksumIndexInput) ReadBytesN(n int) ([]byte, error) {
+	b := make([]byte, n)
+	if err := in.ReadBytes(b, 0, len(b)); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// ReadShort reads a 16-bit little-endian value to match Lucene 10.x
+// DataInput.readShort (low byte first). See rmp #4786.
+func (in *ChecksumIndexInput) ReadShort() (int16, error) {
+	b, err := in.ReadBytesN(2)
+	if err != nil {
+		return 0, err
+	}
+	return int16(binary.LittleEndian.Uint16(b)), nil
+}
+
+// ReadInt reads a 32-bit little-endian value to match Lucene 10.x
+// DataInput.readInt (low byte first). See rmp #4786.
+func (in *ChecksumIndexInput) ReadInt() (int32, error) {
+	b, err := in.ReadBytesN(4)
+	if err != nil {
+		return 0, err
+	}
+	return int32(binary.LittleEndian.Uint32(b)), nil
+}
+
+// ReadLong reads a 64-bit little-endian value to match Lucene 10.x
+// DataInput.readLong (low byte first). See rmp #4786.
+func (in *ChecksumIndexInput) ReadLong() (int64, error) {
+	b, err := in.ReadBytesN(8)
+	if err != nil {
+		return 0, err
+	}
+	return int64(binary.LittleEndian.Uint64(b)), nil
+}
+
+// SetPosition changes the current position in the file.
+//
+// A ChecksumIndexInput can only seek forward, and forward seeks are expensive
+// since they imply reading the bytes between the current position and the
+// target position in order to update the checksum. A backward seek is refused:
+// it would invalidate the running digest, and Lucene's contract is that the
+// digest of a ChecksumIndexInput always covers every byte from position zero.
+//
+// Port of ChecksumIndexInput.seek (ChecksumIndexInput.java:56-64), whose
+// IllegalStateException is rendered here as an error.
+func (in *ChecksumIndexInput) SetPosition(pos int64) error {
+	curFP := in.GetFilePointer()
+	skip := pos - curFP
+	if skip < 0 {
+		return NewChecksumError(fmt.Sprintf(
+			"*spi.ChecksumIndexInput cannot seek backwards (pos=%d getFilePointer()=%d)", pos, curFP))
+	}
+	return in.SkipBytes(skip)
+}
+
+// SkipBytes skips n bytes forward in the input and updates the checksum.
+func (in *ChecksumIndexInput) SkipBytes(n int64) error {
+	if n < 0 {
+		return NewChecksumError("cannot skip negative bytes")
+	}
+	if n == 0 {
+		return nil
+	}
+
+	// We must read the bytes to update the checksum
+	buffer := make([]byte, 1024)
+	for n > 0 {
+		toRead := n
+		if toRead > int64(len(buffer)) {
+			toRead = int64(len(buffer))
+		}
+		if err := in.ReadBytes(buffer, 0, int(toRead)); err != nil {
+			return err
+		}
+		n -= toRead
+	}
+	return nil
+}
+
+// GetChecksum returns the current checksum value.
+func (in *ChecksumIndexInput) GetChecksum() uint32 {
+	return in.digest.Sum32()
+}
+
+// GetChecksumType returns the type of checksum being used.
+func (in *ChecksumIndexInput) GetChecksumType() ChecksumType {
+	return in.checksum
+}
+
+// VerifyChecksum compares the computed checksum against the expected value.
+// Returns nil if the checksums match, otherwise returns an error.
+func (in *ChecksumIndexInput) VerifyChecksum(expected uint32) error {
+	if in.GetChecksum() != expected {
+		return NewChecksumException(in.GetChecksum(), expected)
+	}
+	return nil
+}
+
+// Clone returns a clone of this ChecksumIndexInput.
+// Note: The cloned input will have a fresh checksum digest.
+func (in *ChecksumIndexInput) Clone() IndexInput {
+	clonedInput := in.input.Clone()
+	clone := &ChecksumIndexInput{
+		BaseIndexInput: NewBaseIndexInput("ChecksumIndexInput", in.Length()),
+		input:          clonedInput,
+		digest:         in.cloneDigest(),
+		checksum:       in.checksum,
+	}
+	// Every DataInput-derived reader dispatches through Core; without this the
+	// clone would nil-panic on its first ReadVInt/ReadString.
+	clone.Core = clone
+	clone.SetFilePointer(in.GetFilePointer())
+	return clone
+}
+
+// cloneDigest creates a new digest of the same type.
+func (in *ChecksumIndexInput) cloneDigest() hash.Hash32 {
+	switch in.checksum {
+	case ChecksumAdler32:
+		return adler32.New()
+	case ChecksumCRC32:
+		return crc32.NewIEEE()
+	case ChecksumXXHash32:
+		return NewXXHash32()
+	default:
+		return crc32.NewIEEE()
+	}
+}
+
+// Slice returns a subset of this IndexInput.
+// Note: The sliced input will have a fresh checksum digest.
+func (in *ChecksumIndexInput) Slice(desc string, offset int64, length int64) (IndexInput, error) {
+	slicedInput, err := in.input.Slice(desc, offset, length)
+	if err != nil {
+		return nil, err
+	}
+
+	slice := &ChecksumIndexInput{
+		BaseIndexInput: NewBaseIndexInput(desc, length),
+		input:          slicedInput,
+		digest:         in.cloneDigest(),
+		checksum:       in.checksum,
+	}
+	slice.Core = slice
+	return slice, nil
+}
+
+// Close closes this ChecksumIndexInput and the underlying input.
+func (in *ChecksumIndexInput) Close() error {
+	return in.input.Close()
+}
+
+// Length returns the total length of the file.
+func (in *ChecksumIndexInput) Length() int64 {
+	return in.input.Length()
+}
+
+// GetWrappedInput returns the underlying IndexInput.
+func (in *ChecksumIndexInput) GetWrappedInput() IndexInput {
+	return in.input
+}
+
+// ChecksumException is returned when checksum verification fails.
+type ChecksumException struct {
+	Computed uint32
+	Expected uint32
+}
+
+// NewChecksumException creates a new ChecksumException.
+func NewChecksumException(computed, expected uint32) *ChecksumException {
+	return &ChecksumException{
+		Computed: computed,
+		Expected: expected,
+	}
+}
+
+// Error returns the error message.
+func (e *ChecksumException) Error() string {
+	return "checksum verification failed"
+}
+
+// ChecksumIndexOutput wraps another IndexOutput and computes a checksum
+// of the data as it is written. This is useful for verifying data integrity on read.
+//
+// This is the Go port of Lucene's org.apache.lucene.store.ChecksumIndexOutput.
+type ChecksumIndexOutput struct {
+	*BaseIndexOutput
+	output     IndexOutput
+	digest     hash.Hash32
+	checksum   ChecksumType
+	copyBuffer []byte
+}
+
+// checksumCopyBufferSize mirrors DataOutput.COPY_BUFFER_SIZE (DataOutput.java:277).
+const checksumCopyBufferSize = 16384
+
+// NewChecksumIndexOutput creates a new ChecksumIndexOutput wrapping the given output.
+// By default, uses CRC32 for checksum calculation.
+func NewChecksumIndexOutput(output IndexOutput) *ChecksumIndexOutput {
+	return NewChecksumIndexOutputWithType(output, ChecksumCRC32)
+}
+
+// NewChecksumIndexOutputWithType creates a new ChecksumIndexOutput with the specified checksum type.
+func NewChecksumIndexOutputWithType(output IndexOutput, checksumType ChecksumType) *ChecksumIndexOutput {
+	var digest hash.Hash32
+	switch checksumType {
+	case ChecksumAdler32:
+		digest = adler32.New()
+	case ChecksumCRC32:
+		digest = crc32.NewIEEE()
+	case ChecksumXXHash32:
+		digest = NewXXHash32()
+	default:
+		digest = crc32.NewIEEE()
+	}
+
+	return &ChecksumIndexOutput{
+		BaseIndexOutput: NewBaseIndexOutput(output.GetName()),
+		output:          output,
+		digest:          digest,
+		checksum:        checksumType,
+	}
+}
+
+// WriteByte writes a single byte and updates the checksum.
+func (out *ChecksumIndexOutput) WriteByte(b byte) error {
+	if err := out.output.WriteByte(b); err != nil {
+		return err
+	}
+
+	// Update checksum
+	out.digest.Write([]byte{b})
+
+	out.IncrementFilePointer(1)
+	return nil
+}
+
+// WriteBytes writes all bytes from b and updates the checksum.
+func (out *ChecksumIndexOutput) WriteBytes(b []byte, offset, length int) error {
+	if err := out.output.WriteBytes(b, offset, length); err != nil {
+		return err
+	}
+
+	// Update checksum
+	out.digest.Write(b[offset : offset+length])
+
+	out.IncrementFilePointer(int64(length))
+	return nil
+}
+
+// WriteBytesN writes exactly n bytes from b and updates the checksum.
+func (out *ChecksumIndexOutput) WriteBytesN(b []byte, n int) error {
+	if n > len(b) {
+		return ErrInvalidBuffer
+	}
+	return out.WriteBytes(b, 0, n)
+}
+
+// WriteShort writes a 16-bit value as little-endian to match Lucene 10.x
+// DataOutput.writeShort (low byte first). See rmp #4786.
+func (out *ChecksumIndexOutput) WriteShort(i int16) error {
+	b := []byte{byte(i), byte(i >> 8)}
+	return out.WriteBytes(b, 0, len(b))
+}
+
+// WriteInt writes a 32-bit value as little-endian to match Lucene 10.x
+// DataOutput.writeInt (low byte first). See rmp #4786.
+func (out *ChecksumIndexOutput) WriteInt(i int32) error {
+	b := []byte{byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24)}
+	return out.WriteBytes(b, 0, len(b))
+}
+
+// WriteLong writes a 64-bit value as little-endian to match Lucene 10.x
+// DataOutput.writeLong (low byte first). See rmp #4786.
+func (out *ChecksumIndexOutput) WriteLong(i int64) error {
+	b := []byte{
+		byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24),
+		byte(i >> 32), byte(i >> 40), byte(i >> 48), byte(i >> 56),
+	}
+	return out.WriteBytes(b, 0, len(b))
+}
+
+// WriteString writes a string as a vInt length followed by its UTF-8 bytes,
+// through this output's own WriteVInt and WriteBytes so that every byte enters
+// the digest and advances the file pointer.
+//
+// Port of DataOutput.writeString (DataOutput.java:271-275). It must not be
+// delegated to the wrapped output: that would keep the string's bytes out of
+// the checksum, and the footer this type writes would then be rejected by
+// Apache Lucene.
+func (out *ChecksumIndexOutput) WriteString(s string) error {
+	utf8Result := util.NewBytesRef([]byte(s))
+	if err := out.WriteVInt(int32(utf8Result.Length)); err != nil {
+		return err
+	}
+	return out.WriteBytes(utf8Result.Bytes, utf8Result.Offset, utf8Result.Length)
+}
+
+// WriteVInt writes a variable-length integer and updates the checksum.
+func (out *ChecksumIndexOutput) WriteVInt(i int32) error {
+	b := make([]byte, 5)
+	n := writeVInt(b, i)
+	return out.WriteBytes(b, 0, n)
+}
+
+// WriteVLong writes a variable-length long and updates the checksum.
+func (out *ChecksumIndexOutput) WriteVLong(i int64) error {
+	b := make([]byte, 9)
+	n := writeVLong(b, i)
+	return out.WriteBytes(b, 0, n)
+}
+
+// WriteGroupVInts writes a group of variable-length integers and updates the checksum.
+func (out *ChecksumIndexOutput) WriteGroupVInts(values []int32, limit int) error {
+	scratch := make([]byte, util.GroupVIntMaxLengthPerGroup)
+	return util.WriteGroupVInts(out, scratch, values, limit)
+}
+
+// WriteZInt writes a zig-zag encoded integer and updates the checksum.
+func (out *ChecksumIndexOutput) WriteZInt(i int32) error {
+	return out.WriteVInt(int32(util.ZigZagEncodeInt(int(i))))
+}
+
+// WriteZLong writes a zig-zag encoded long and updates the checksum.
+func (out *ChecksumIndexOutput) WriteZLong(i int64) error {
+	return out.WriteVLong(util.ZigZagEncodeInt64(i))
+}
+
+// WriteMapOfStrings writes a map of strings and updates the checksum.
+func (out *ChecksumIndexOutput) WriteMapOfStrings(m map[string]string) error {
+	if err := out.WriteVInt(int32(len(m))); err != nil {
+		return err
+	}
+	for k, v := range m {
+		if err := out.WriteString(k); err != nil {
+			return err
+		}
+		if err := out.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteSetOfStrings writes a set of strings and updates the checksum.
+func (out *ChecksumIndexOutput) WriteSetOfStrings(s []string) error {
+	if err := out.WriteVInt(int32(len(s))); err != nil {
+		return err
+	}
+	for _, v := range s {
+		if err := out.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CopyBytes copies numBytes bytes from the input into this output, through
+// this output's own WriteBytes so that the copied bytes enter the digest and
+// advance the file pointer.
+//
+// Port of DataOutput.copyBytes (DataOutput.java:281-294). Like WriteString it
+// must not be delegated to the wrapped output.
+func (out *ChecksumIndexOutput) CopyBytes(input DataInput, numBytes int64) error {
+	if numBytes < 0 {
+		return NewChecksumError(fmt.Sprintf("numBytes must be non-negative, got %d", numBytes))
+	}
+	left := numBytes
+	if out.copyBuffer == nil {
+		out.copyBuffer = make([]byte, checksumCopyBufferSize)
+	}
+	for left > 0 {
+		toCopy := int(left)
+		if left > checksumCopyBufferSize {
+			toCopy = checksumCopyBufferSize
+		}
+		if err := input.ReadBytes(out.copyBuffer, 0, toCopy); err != nil {
+			return err
+		}
+		if err := out.WriteBytes(out.copyBuffer, 0, toCopy); err != nil {
+			return err
+		}
+		left -= int64(toCopy)
+	}
+	return nil
+}
+
+// Length returns the current length of the file.
+func (out *ChecksumIndexOutput) Length() int64 {
+	return out.output.Length()
+}
+
+// SetPosition sets the current position for writing by delegating to the underlying output.
+func (out *ChecksumIndexOutput) SetPosition(pos int64) error {
+	return out.output.SetPosition(pos)
+}
+
+// GetChecksum returns the current checksum value.
+func (out *ChecksumIndexOutput) GetChecksum() uint32 {
+	return out.digest.Sum32()
+}
+
+// GetChecksumType returns the type of checksum being used.
+func (out *ChecksumIndexOutput) GetChecksumType() ChecksumType {
+	return out.checksum
+}
+
+// Close closes this ChecksumIndexOutput and the underlying output.
+func (out *ChecksumIndexOutput) Close() error {
+	return out.output.Close()
+}
+
+// GetWrappedOutput returns the underlying IndexOutput.
+func (out *ChecksumIndexOutput) GetWrappedOutput() IndexOutput {
+	return out.output
+}
+
+// ErrInvalidBuffer is returned when buffer operations fail.
+var ErrInvalidBuffer = NewChecksumError("invalid buffer")
+
+// ChecksumError represents a checksum-related error.
+type ChecksumError struct {
+	msg string
+}
+
+// NewChecksumError creates a new ChecksumError.
+func NewChecksumError(msg string) error {
+	return &ChecksumError{msg: msg}
+}
+
+// Error returns the error message.
+func (e *ChecksumError) Error() string {
+	return e.msg
+}

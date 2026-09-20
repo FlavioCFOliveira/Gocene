@@ -40,10 +40,8 @@ func NewThaiTokenizerWithFactory(factory util.AttributeFactory) *ThaiTokenizer {
 	t := &ThaiTokenizer{
 		BaseTokenizer: analysis.NewBaseTokenizerWithFactory(factory),
 	}
-	t.termAttr = factory.NewCharTermAttribute()
-	t.offsetAttr = factory.NewOffsetAttribute()
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
+	t.termAttr = t.AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	t.offsetAttr = t.AddAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
 	return t
 }
 
@@ -53,17 +51,15 @@ func NewThaiTokenizer() *ThaiTokenizer {
 }
 
 // SetReader sets the input reader and eagerly reads all runes.
-func (t *ThaiTokenizer) SetReader(r io.Reader) error {
-	if err := t.BaseTokenizer.SetReader(r); err != nil {
-		return err
-	}
+func (t *ThaiTokenizer) SetReader(r io.Reader) {
+	t.BaseTokenizer.SetReader(r)
 	data, err := io.ReadAll(r)
 	if err != nil {
-		return err
+		t.buf = nil
+		return
 	}
 	t.buf = []rune(string(data))
 	t.pos = 0
-	return nil
 }
 
 // Reset resets internal state for a new tokenisation session.
@@ -144,7 +140,9 @@ type ThaiTokenizerFactory struct{}
 func NewThaiTokenizerFactory() *ThaiTokenizerFactory { return &ThaiTokenizerFactory{} }
 
 // Create returns a new ThaiTokenizer.
-func (f *ThaiTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer { return NewThaiTokenizerWithFactory(factory) }
+func (f *ThaiTokenizerFactory) Create(factory util.AttributeFactory) analysis.Tokenizer {
+	return NewThaiTokenizerWithFactory(factory)
+}
 
 // Ensure ThaiTokenizerFactory implements TokenizerFactory.
 var _ analysis.TokenizerFactory = (*ThaiTokenizerFactory)(nil)

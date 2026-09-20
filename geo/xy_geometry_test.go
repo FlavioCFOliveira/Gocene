@@ -9,6 +9,7 @@ package geo
 
 import (
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 	"testing"
 )
@@ -95,10 +96,10 @@ func TestCreateXYGeometry_MultipleUnion(t *testing.T) {
 	if c.Contains(15, 15) {
 		t.Error("composite should not contain a point disjoint from both children")
 	}
-	if got := c.Relate(1, 2, 1, 2); got != CellInsideQuery {
+	if got := c.Relate(1, 2, 1, 2); got != spi.CellInsideQuery {
 		t.Errorf("Relate inside-of-a = %v, want CELL_INSIDE_QUERY", got)
 	}
-	if got := c.Relate(100, 200, 100, 200); got != CellOutsideQuery {
+	if got := c.Relate(100, 200, 100, 200); got != spi.CellOutsideQuery {
 		t.Errorf("Relate fully-outside = %v, want CELL_OUTSIDE_QUERY", got)
 	}
 }

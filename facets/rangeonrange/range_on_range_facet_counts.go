@@ -66,13 +66,7 @@ func (r *RangeOnRangeFacetCounts) GetAllChildren(dim string, path ...string) (*f
 	for i, c := range r.Counts {
 		lv[i] = facets.NewLabelAndValue(r.Labels[i], int64(c))
 	}
-	result := facets.NewFacetResultWithPath(dim, path)
-	result.Value = int64(r.TotCount)
-	result.ChildCount = len(lv)
-	for _, l := range lv {
-		result.AddLabelValue(l)
-	}
-	return result, nil
+	return facets.NewFacetResult(dim, path, float64(r.TotCount), lv, len(lv)), nil
 }
 
 // rangeEntry is used internally by GetTopChildren.
@@ -115,13 +109,11 @@ func (r *RangeOnRangeFacetCounts) GetTopChildren(topN int, dim string, path ...s
 		entries = entries[:topN]
 	}
 
-	result := facets.NewFacetResultWithPath(dim, path)
-	result.Value = int64(r.TotCount)
-	result.ChildCount = childCount
+	lv := make([]*facets.LabelAndValue, 0, len(entries))
 	for _, e := range entries {
-		result.AddLabelValue(facets.NewLabelAndValue(e.label, int64(e.count)))
+		lv = append(lv, facets.NewLabelAndValue(e.label, int64(e.count)))
 	}
-	return result, nil
+	return facets.NewFacetResult(dim, path, float64(r.TotCount), lv, childCount), nil
 }
 
 // GetSpecificValue is not supported for range-on-range facets.

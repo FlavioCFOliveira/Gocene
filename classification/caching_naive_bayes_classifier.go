@@ -121,7 +121,7 @@ func (c *CachingNaiveBayesClassifier) reInitCache(minTermOccurrenceInCache int, 
 		if err != nil || terms == nil {
 			continue
 		}
-		it, err := terms.GetIterator()
+		it, err := terms.Iterator()
 		if err != nil {
 			return err
 		}
@@ -147,7 +147,7 @@ func (c *CachingNaiveBayesClassifier) reInitCache(minTermOccurrenceInCache int, 
 	}
 
 	// Enumerate all class values.
-	classIt, err := classesTerms.GetIterator()
+	classIt, err := classesTerms.Iterator()
 	if err != nil {
 		return err
 	}
@@ -312,17 +312,17 @@ func (c *CachingNaiveBayesClassifier) getWordFreqForClasses(word string) (map[st
 	searched := make(map[string]int)
 	for _, cclass := range cclasses {
 		classTerm := index.NewTerm(c.classFieldName, cclass.String())
-		subQuery := search.NewBooleanQuery()
+		subQuery := search.NewBooleanQueryBuilder()
 		for _, fieldName := range c.textFieldNames {
 			subQuery.Add(search.NewTermQuery(index.NewTerm(fieldName, word)), search.SHOULD)
 		}
-		bq := search.NewBooleanQuery()
-		bq.Add(subQuery, search.MUST)
+		bq := search.NewBooleanQueryBuilder()
+		bq.Add(subQuery.Build(), search.MUST)
 		bq.Add(search.NewTermQuery(classTerm), search.MUST)
 		if c.query != nil {
 			bq.Add(c.query, search.MUST)
 		}
-		cnt, err := countQuery(c.searcher, bq)
+		cnt, err := countQuery(c.searcher, bq.Build())
 		if err != nil {
 			return nil, err
 		}

@@ -15,6 +15,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"strings"
 
@@ -23,12 +24,10 @@ import (
 
 // floatRangeSizeBytes mirrors org.apache.lucene.document.FloatRange.BYTES,
 // the byte-width of a single packed float dimension value (4 bytes /
-// Float.BYTES). Kept as a package-private constant so the encoding helper
-// and the slow-range-query constructor agree on the layout without pulling
-// FloatRange details into search/.
+// Float.BYTES).
 const floatRangeSizeBytes = 4
 
-// FloatRangeSlowRangeQuery is the Go port of Apache Lucene 10.4.0
+// floatRangeSlowRangeQuery is the Go port of Apache Lucene 10.5.0
 // org.apache.lucene.document.FloatRangeSlowRangeQuery
 // (lucene/core/src/java/org/apache/lucene/document/FloatRangeSlowRangeQuery.java).
 //
@@ -41,14 +40,13 @@ const floatRangeSizeBytes = 4
 //  1. Package: the Java type is package-private in org.apache.lucene.document.
 //     In Gocene queries live in search/ to avoid the search<->document
 //     import cycle. search/ imports document/ for the encoder
-//     ([document.EncodeFloatRangeLucene]) and the QueryType enum.
+//     ([document.Encode], the Go rendering of FloatRange.verifyAndEncode)
+//     and the QueryType enum.
 //
 //  2. Exposure: the Java class is package-private. In Gocene the type is
 //     unexported (floatRangeSlowRangeQuery) but the factory
 //     [NewFloatRangeSlowRangeQuery] is exported so external callers
-//     (typically the future FloatRange.newSlowIntersectsQuery factory) can
-//     construct it. This matches the pattern established by GOC-3206
-//     (LongDistanceFeatureQuery).
+//     (typically FloatRange.newSlowIntersectsQuery) can construct it.
 //
 //  3. Inheritance: the Java type extends BinaryRangeFieldRangeQuery. Go uses
 //     composition: floatRangeSlowRangeQuery embeds *binaryRangeFieldRangeQuery
@@ -64,9 +62,9 @@ type floatRangeSlowRangeQuery struct {
 
 // NewFloatRangeSlowRangeQuery constructs a FloatRangeSlowRangeQuery for the
 // given field. The two arrays must have the same length (one entry per
-// dimension), and each min[d] <= max[d] (Lucene rejects the inverse with
-// IllegalArgumentException inside FloatRange.verifyAndEncode, mirrored
-// here by [document.EncodeFloatRangeLucene]).
+// dimension), each min[d] <= max[d], and neither may contain NaN (Lucene
+// rejects both inside FloatRange.verifyAndEncode, mirrored here by
+// [document.Encode]).
 //
 // queryType must be [document.RangeFieldQueryTypeIntersects]; the binary
 // base rejects every other variant, matching the Java reference.
@@ -118,12 +116,8 @@ func (q *floatRangeSlowRangeQuery) Max() []float32 {
 }
 
 // Equals mirrors the Java reference: two FloatRangeSlowRangeQuery are equal
-// iff they share field, min, and max arrays. Note this is stricter than the
-// base binary equality (which only compares field + packed payload): two
-// queries that differ in NaN handling could share the same packed payload
-// but differ in min/max bit-pattern; the Java reference compares the
-// original arrays, so we do too.
-func (q *floatRangeSlowRangeQuery) Equals(other Query) bool {
+// iff they share field, min, and max arrays.
+func (q *floatRangeSlowRangeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*floatRangeSlowRangeQuery)
 	if !ok {
 		return false
@@ -134,18 +128,16 @@ func (q *floatRangeSlowRangeQuery) Equals(other Query) bool {
 	if q.field != o.field {
 		return false
 	}
-	return floatSliceEquals(q.min, o.min) && floatSliceEquals(q.max, o.max)
+	return float32SliceEquals(q.min, o.min) && float32SliceEquals(q.max, o.max)
 }
 
 // HashCode mirrors Java's Objects/Arrays-based hash: a per-type constant
 // rolled through (31*h + field-hash + Arrays.hashCode(min) + Arrays.hashCode(max)).
-// Arrays.hashCode on float[] hashes each float via Float.floatToIntBits, so
-// we mirror that with math.Float32bits.
 func (q *floatRangeSlowRangeQuery) HashCode() int {
 	h := classHashFloatRangeSlowRangeQuery
 	h = 31*h + stringHash(q.field)
-	h = 31*h + floatSliceHash(q.min)
-	h = 31*h + floatSliceHash(q.max)
+	h = 31*h + float32SliceHash(q.min)
+	h = 31*h + float32SliceHash(q.max)
 	return h
 }
 
@@ -169,26 +161,22 @@ func (q *floatRangeSlowRangeQuery) String(field string) string {
 		b.WriteByte(':')
 	}
 	b.WriteByte('[')
-	b.WriteString(formatFloatSlice(q.min))
+	b.WriteString(formatFloat32Slice(q.min))
 	b.WriteString(" TO ")
-	b.WriteString(formatFloatSlice(q.max))
+	b.WriteString(formatFloat32Slice(q.max))
 	b.WriteByte(']')
 	return b.String()
 }
 
 // Rewrite mirrors the Java reference, which simply forwards to
 // super.rewrite(IndexSearcher) — i.e. returns the query unchanged.
-func (q *floatRangeSlowRangeQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
-
-// Clone returns the query unchanged. The encoded payload and float arrays
-// are owned by the query and never mutated through its API.
-func (q *floatRangeSlowRangeQuery) Clone() Query { return q }
+func (q *floatRangeSlowRangeQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // CreateWeight delegates to the binary base so the doc-values plumbing is
 // reused verbatim. The float wrapper contributes only equality/visit and
 // the public min/max accessors.
-func (q *floatRangeSlowRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	w, err := q.binaryRangeFieldRangeQuery.CreateWeight(searcher, needsScores, boost)
+func (q *floatRangeSlowRangeQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	w, err := q.binaryRangeFieldRangeQuery.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
 	}
@@ -200,17 +188,17 @@ func (q *floatRangeSlowRangeQuery) CreateWeight(searcher *IndexSearcher, needsSc
 	return w, nil
 }
 
-// encodeFloatRanges packs an N-dimensional [min, max] payload via the
-// existing Lucene-compatible encoder so the byte stream is identical to the
-// Java reference (FloatRange.verifyAndEncode + IntToSortableBytes).
+// encodeFloatRanges packs an N-dimensional [min, max] payload via the existing
+// Lucene-compatible encoder so the byte stream is identical to the Java
+// reference (FloatRange.verifyAndEncode + FloatToSortableInt +
+// IntToSortableBytes).
 func encodeFloatRanges(min, max []float32) ([]byte, error) {
-	return document.EncodeFloatRangeLucene(min, max)
+	return document.Encode(min, max)
 }
 
-// floatSliceEquals mirrors java.util.Arrays.equals(float[], float[]) which
-// uses Float.floatToIntBits for the comparison (so NaN==NaN, -0f != +0f).
-// We do the same via math.Float32bits.
-func floatSliceEquals(a, b []float32) bool {
+// float32SliceEquals mirrors java.util.Arrays.equals(float[], float[]), which
+// compares Float.floatToIntBits so that NaN equals NaN and -0.0 differs from 0.0.
+func float32SliceEquals(a, b []float32) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -222,61 +210,60 @@ func floatSliceEquals(a, b []float32) bool {
 	return true
 }
 
-// floatSliceHash mirrors java.util.Arrays.hashCode(float[]).
-// The Java reference seeds at 1 and folds each Float.floatToIntBits value
-// via 31*h + element. We reproduce that integer arithmetic exactly so the
-// hash matches the Java reference for the same input arrays.
-func floatSliceHash(a []float32) int {
+// float32SliceHash mirrors java.util.Arrays.hashCode(float[]).
+// The Java reference seeds at 1 and folds each element via
+// 31*h + Float.floatToIntBits(element).
+func float32SliceHash(a []float32) int {
 	h := int32(1)
-	for _, f := range a {
-		h = 31*h + int32(math.Float32bits(f))
+	for _, v := range a {
+		h = 31*h + int32(math.Float32bits(v))
 	}
 	return int(h)
 }
 
-// formatFloatSlice formats a float slice as java.util.Arrays.toString
-// does: "[v0, v1, v2]" with the default Float.toString rendering. The Go
-// 'g' verb matches Java's Float.toString for finite values; the special
-// cases (NaN / Infinity) are reproduced explicitly.
-func formatFloatSlice(a []float32) string {
+// formatFloat32Slice formats a float slice as java.util.Arrays.toString does:
+// "[v0, v1, v2]" with the default Float.toString rendering.
+func formatFloat32Slice(a []float32) string {
 	if len(a) == 0 {
 		return "[]"
 	}
 	var b strings.Builder
 	b.WriteByte('[')
-	for i, f := range a {
+	for i, v := range a {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		b.WriteString(formatFloat(f))
+		b.WriteString(formatFloat32(v))
 	}
 	b.WriteByte(']')
 	return b.String()
 }
 
-// formatFloat renders a float32 the way java.lang.Float.toString does for
+// formatFloat32 renders a float32 the way java.lang.Float.toString does for
 // the common finite-value range. Special values match Java's literal names.
-func formatFloat(f float32) string {
+func formatFloat32(v float32) string {
+	d := float64(v)
 	switch {
-	case math.IsNaN(float64(f)):
+	case math.IsNaN(d):
 		return "NaN"
-	case math.IsInf(float64(f), 1):
+	case math.IsInf(d, 1):
 		return "Infinity"
-	case math.IsInf(float64(f), -1):
+	case math.IsInf(d, -1):
 		return "-Infinity"
 	default:
-		// Use the shortest-roundtrip representation. Java's Float.toString
-		// uses Ryu-style shortest output; Go's strconv.FormatFloat with -1
-		// precision produces a similar (round-trip safe) decimal.
-		// Direct fmt with %g is fine for the toString contract: callers
-		// compare strings only in tests, not as a wire format.
-		return fmt.Sprintf("%g", f)
+		// Shortest round-trip representation at float32 precision. Go's %g
+		// with bitSize 32 matches Java's Float.toString for the common
+		// finite-value range; callers compare strings only in tests, not as
+		// a wire format.
+		return fmt.Sprintf("%g", v)
 	}
 }
 
-// classHashFloatRangeSlowRangeQuery seeds the float query hash. Distinct
-// from classHashBinaryRangeFieldRangeQuery so a float query and a binary-
-// base query with the same packed payload do not collide.
+// classHashFloatRangeSlowRangeQuery seeds the float query hash. Distinct from
+// classHashBinaryRangeFieldRangeQuery, classHashIntRangeSlowRangeQuery,
+// classHashLongRangeSlowRangeQuery and classHashDoubleRangeSlowRangeQuery so
+// a float query and a binary-base, int, long or double query with the same
+// packed payload do not collide.
 const classHashFloatRangeSlowRangeQuery = 0x6672_7372 // "frsr"
 
 // Ensure floatRangeSlowRangeQuery implements Query.

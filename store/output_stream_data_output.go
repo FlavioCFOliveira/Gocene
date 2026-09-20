@@ -5,7 +5,6 @@
 package store
 
 import (
-	"encoding/binary"
 	"io"
 )
 
@@ -18,13 +17,16 @@ import (
 // can use this type as a drop-in replacement for the Java wrapper around an
 // OutputStream.
 type OutputStreamDataOutput struct {
+	*BaseDataOutput
 	w   io.Writer
 	buf [8]byte // scratch buffer for fixed-width writes (no heap allocations).
 }
 
 // NewOutputStreamDataOutput wraps the given io.Writer.
 func NewOutputStreamDataOutput(w io.Writer) *OutputStreamDataOutput {
-	return &OutputStreamDataOutput{w: w}
+	out := &OutputStreamDataOutput{w: w}
+	out.BaseDataOutput = NewBaseDataOutput(out)
+	return out
 }
 
 // WriteByte writes a single byte.
@@ -34,9 +36,12 @@ func (o *OutputStreamDataOutput) WriteByte(b byte) error {
 	return err
 }
 
-// WriteBytes writes all bytes from b.
-func (o *OutputStreamDataOutput) WriteBytes(b []byte) error {
-	_, err := o.w.Write(b)
+// WriteBytes writes all bytes from b, starting at the given offset.
+func (o *OutputStreamDataOutput) WriteBytes(b []byte, offset, length int) error {
+	if length <= 0 {
+		return nil
+	}
+	_, err := o.w.Write(b[offset : offset+length])
 	return err
 }
 
@@ -47,57 +52,6 @@ func (o *OutputStreamDataOutput) WriteBytesN(b []byte, n int) error {
 	}
 	_, err := o.w.Write(b[:n])
 	return err
-}
-
-// WriteShort writes a 16-bit little-endian value.
-func (o *OutputStreamDataOutput) WriteShort(v int16) error {
-	binary.LittleEndian.PutUint16(o.buf[:2], uint16(v))
-	_, err := o.w.Write(o.buf[:2])
-	return err
-}
-
-// WriteInt writes a 32-bit little-endian value.
-func (o *OutputStreamDataOutput) WriteInt(v int32) error {
-	binary.LittleEndian.PutUint32(o.buf[:4], uint32(v))
-	_, err := o.w.Write(o.buf[:4])
-	return err
-}
-
-// WriteLong writes a 64-bit little-endian value.
-func (o *OutputStreamDataOutput) WriteLong(v int64) error {
-	binary.LittleEndian.PutUint64(o.buf[:8], uint64(v))
-	_, err := o.w.Write(o.buf[:8])
-	return err
-}
-
-// WriteVInt writes a Lucene variable-length integer.
-func (o *OutputStreamDataOutput) WriteVInt(v int32) error {
-	u := uint32(v)
-	for u&^0x7F != 0 {
-		if err := o.WriteByte(byte(u&0x7F | 0x80)); err != nil {
-			return err
-		}
-		u >>= 7
-	}
-	return o.WriteByte(byte(u))
-}
-
-// WriteVLong writes a Lucene variable-length long.
-func (o *OutputStreamDataOutput) WriteVLong(v int64) error {
-	u := uint64(v)
-	for u&^0x7F != 0 {
-		if err := o.WriteByte(byte(u&0x7F | 0x80)); err != nil {
-			return err
-		}
-		u >>= 7
-	}
-	return o.WriteByte(byte(u))
-}
-
-// WriteString writes a length-prefixed UTF-8 string using the package
-// WriteString helper.
-func (o *OutputStreamDataOutput) WriteString(s string) error {
-	return WriteString(o, s)
 }
 
 // Close forwards to the wrapped writer's Close method when it implements

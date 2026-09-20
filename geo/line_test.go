@@ -9,6 +9,7 @@ package geo
 
 import (
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 	"testing"
 )
@@ -160,7 +161,7 @@ func TestLine_ToComponent2D_RelateOutside(t *testing.T) {
 	t.Parallel()
 	l := MustNewLine([]float64{0, 1}, []float64{0, 1})
 	c := l.toComponent2D()
-	if got := c.Relate(100, 200, 100, 200); got != CellOutsideQuery {
+	if got := c.Relate(100, 200, 100, 200); got != spi.CellOutsideQuery {
 		t.Errorf("disjoint relate = %v, want OUTSIDE", got)
 	}
 }
@@ -169,7 +170,7 @@ func TestLine_ToComponent2D_RelateCrossesWhenBoxEnclosesLine(t *testing.T) {
 	t.Parallel()
 	l := MustNewLine([]float64{1, 2}, []float64{1, 2})
 	c := l.toComponent2D()
-	if got := c.Relate(0, 10, 0, 10); got != CellCrossesQuery {
+	if got := c.Relate(0, 10, 0, 10); got != spi.CellCrossesQuery {
 		t.Errorf("enclosing-box relate = %v, want CROSSES", got)
 	}
 }
@@ -179,7 +180,7 @@ func TestLine_ToComponent2D_RelateCrossesWhenSegmentEntersBox(t *testing.T) {
 	// A horizontal segment from (-5,0) to (5,0) and a box around (0,0).
 	l := MustNewLine([]float64{0, 0}, []float64{-5, 5})
 	c := l.toComponent2D()
-	if got := c.Relate(-1, 1, -1, 1); got != CellCrossesQuery {
+	if got := c.Relate(-1, 1, -1, 1); got != spi.CellCrossesQuery {
 		t.Errorf("segment-crosses relate = %v, want CROSSES", got)
 	}
 }

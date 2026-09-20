@@ -4,6 +4,8 @@
 
 package geo
 
+import "github.com/FlavioCFOliveira/Gocene/spi"
+
 // rectangle2D is the cartesian Component2D for an axis-aligned
 // bounding box defined by its inclusive bounds.
 type rectangle2D struct {
@@ -39,14 +41,14 @@ func (r *rectangle2D) Contains(x, y float64) bool {
 
 // Relate returns the spatial relationship between the rectangle and
 // the supplied query bounding box.
-func (r *rectangle2D) Relate(minX, maxX, minY, maxY float64) Relation {
+func (r *rectangle2D) Relate(minX, maxX, minY, maxY float64) spi.Relation {
 	if Disjoint(r.minX, r.maxX, r.minY, r.maxY, minX, maxX, minY, maxY) {
-		return CellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if WithinBBox(minX, maxX, minY, maxY, r.minX, r.maxX, r.minY, r.maxY) {
-		return CellInsideQuery
+		return spi.CellInsideQuery
 	}
-	return CellCrossesQuery
+	return spi.CellCrossesQuery
 }
 
 // IntersectsLine reports whether the segment (a, b) crosses the

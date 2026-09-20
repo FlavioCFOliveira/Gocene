@@ -10,8 +10,9 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // This file ports the verify() and assertSize() infrastructure from
@@ -240,8 +241,8 @@ func assertSize(t *testing.T, rng *rand.Rand, tree PointTree) {
 	var visitDocValuesCount int64
 
 	visitor := &countingVisitor{
-		compareFn: func(minPackedValue, maxPackedValue []byte) codecs.Relation {
-			return codecs.RelationCellCrossesQuery
+		compareFn: func(minPackedValue, maxPackedValue []byte) spi.Relation {
+			return spi.CellCrossesQuery
 		},
 		visitFn: func(docID int) {
 			visitDocIDCount++
@@ -394,23 +395,23 @@ func (v *verifyIntersectVisitor) VisitByPackedValue(docID int, packedValue []byt
 	return nil
 }
 
-func (v *verifyIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
+func (v *verifyIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	crosses := false
 	for dim := 0; dim < v.config.NumIndexDims(); dim++ {
 		offset := dim * v.numBytes
 		minPV := minPackedValue[offset : offset+v.numBytes]
 		maxPV := maxPackedValue[offset : offset+v.numBytes]
 		if bytes.Compare(maxPV, v.queryMin[dim]) < 0 || bytes.Compare(minPV, v.queryMax[dim]) > 0 {
-			return codecs.RelationCellOutsideQuery
+			return spi.CellOutsideQuery
 		}
 		if bytes.Compare(minPV, v.queryMin[dim]) < 0 || bytes.Compare(maxPV, v.queryMax[dim]) > 0 {
 			crosses = true
 		}
 	}
 	if crosses {
-		return codecs.RelationCellCrossesQuery
+		return spi.CellCrossesQuery
 	}
-	return codecs.RelationCellInsideQuery
+	return spi.CellInsideQuery
 }
 
 func (v *verifyIntersectVisitor) Grow(count int) {}
@@ -418,7 +419,7 @@ func (v *verifyIntersectVisitor) Grow(count int) {}
 // countingVisitor collects visit/docValues counts with a configurable
 // compare function. Used by assertSize.
 type countingVisitor struct {
-	compareFn func(min, max []byte) codecs.Relation
+	compareFn func(min, max []byte) spi.Relation
 	visitFn   func(docID int)
 	visitPVFn func(docID int, packedValue []byte)
 }
@@ -431,7 +432,7 @@ func (v *countingVisitor) VisitByPackedValue(docID int, packedValue []byte) erro
 	v.visitPVFn(docID, packedValue)
 	return nil
 }
-func (v *countingVisitor) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
+func (v *countingVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	return v.compareFn(minPackedValue, maxPackedValue)
 }
 func (v *countingVisitor) Grow(count int) {}
@@ -461,4 +462,44 @@ func intSetToSortedSlice(s map[int]struct{}) []int {
 	}
 	sort.Ints(out)
 	return out
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *verifyIntersectVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *verifyIntersectVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *verifyIntersectVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *countingVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *countingVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *countingVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

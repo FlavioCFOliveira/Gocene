@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // ArmenianStopWords contains common Armenian stop words.
@@ -52,21 +54,31 @@ func NewArmenianAnalyzer() *ArmenianAnalyzer {
 // NewArmenianAnalyzerWithWords creates an ArmenianAnalyzer with custom stop words.
 func NewArmenianAnalyzerWithWords(stopWords *CharArraySet) *ArmenianAnalyzer {
 	a := &ArmenianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
 	// Tokenizer -> LowerCase -> StopWords
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 
 	return a
 }
 
 // TokenStream creates a TokenStream for analyzing text.
-func (a *ArmenianAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (a *ArmenianAnalyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	return a.BaseAnalyzer.TokenStream(fieldName, reader)
 }
 
@@ -81,5 +93,4 @@ func (a *ArmenianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure ArmenianAnalyzer implements Analyzer
-var _ Analyzer = (*ArmenianAnalyzer)(nil)
-var _ AnalyzerInterface = (*ArmenianAnalyzer)(nil)
+var _ api.Analyzer = (*ArmenianAnalyzer)(nil)

@@ -87,7 +87,11 @@ func (acceptOnlyA) NextSeekTerm(_ *Term) (*Term, error) { return nil, nil }
 func TestFilteredTermsEnum_AcceptOnlyA(t *testing.T) {
 	// Build a delegate over three terms.
 	delegate := newFakeTermsEnum([]string{"a", "b", "c"})
-	fe := NewFilteredTermsEnum(delegate, acceptOnlyA{})
+	// acceptOnlyA sets no initial seek term and its NextSeekTerm always returns
+	// nil, which is Java's `FilteredTermsEnum(tenum, false)` — a plain filtered
+	// scan. The one-argument constructor is `this(tenum, true)` and, with no
+	// seek term to hand out, Lucene documents that enum as empty.
+	fe := NewFilteredTermsEnumWithSeek(delegate, acceptOnlyA{}, false)
 	got, err := fe.Next()
 	if err != nil {
 		t.Fatalf("Next: %v", err)

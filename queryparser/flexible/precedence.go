@@ -96,7 +96,7 @@ func (p *PrecedenceQueryParser) Parse(query string) (search.Query, error) {
 	}
 
 	if processedTree == nil {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 
 	return p.builder.Build(processedTree)

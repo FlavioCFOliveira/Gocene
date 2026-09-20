@@ -202,7 +202,7 @@ func l103encodeInternal(ints []int32, bitsPerValue, primitiveSize int, out store
 	var buf [4]byte
 	for i := 0; i < numIntsPerShift; i++ {
 		binary.BigEndian.PutUint32(buf[:], uint32(scratch[i]))
-		if err := out.WriteBytes(buf[:]); err != nil {
+		if err := out.WriteBytes(buf[:], 0, len(buf[:])); err != nil {
 			return err
 		}
 	}
@@ -222,7 +222,7 @@ func l103splitInts(
 ) error {
 	var buf [4]byte
 	for i := 0; i < count; i++ {
-		if err := in.ReadBytes(buf[:]); err != nil {
+		if err := in.ReadBytes(buf[:], 0, len(buf[:])); err != nil {
 			return err
 		}
 		c[cIdx+i] = int32(binary.BigEndian.Uint32(buf[:]))
@@ -479,7 +479,7 @@ func l103decode8(in store.IndexInput, ints []int32) error {
 	// pdu.in.readInts(ints, 0, 32)
 	var buf [4]byte
 	for i := 0; i < 32; i++ {
-		if err := in.ReadBytes(buf[:]); err != nil {
+		if err := in.ReadBytes(buf[:], 0, len(buf[:])); err != nil {
 			return err
 		}
 		ints[i] = int32(binary.BigEndian.Uint32(buf[:]))
@@ -659,7 +659,7 @@ func l103decode16(in store.IndexInput, ints []int32) error {
 	// pdu.in.readInts(ints, 0, 64)
 	var buf [4]byte
 	for i := 0; i < 64; i++ {
-		if err := in.ReadBytes(buf[:]); err != nil {
+		if err := in.ReadBytes(buf[:], 0, len(buf[:])); err != nil {
 			return err
 		}
 		ints[i] = int32(binary.BigEndian.Uint32(buf[:]))

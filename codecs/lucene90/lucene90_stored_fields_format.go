@@ -275,6 +275,17 @@ func init() {
 	codecs.RegisterLucene90StoredFieldsFormat(func() codecs.StoredFieldsFormat {
 		return NewLucene90StoredFieldsFormat()
 	})
+
+	// Arms codecs.Lucene90StoredFieldsFormatForMode, the package-local
+	// spelling of `new Lucene90StoredFieldsFormat(mode)` that Lucene104Codec
+	// needs but cannot reach directly (codecs cannot import this package).
+	codecs.RegisterLucene90StoredFieldsFormatByMode(func(mode codecs.StoredFieldsMode) (codecs.StoredFieldsFormat, error) {
+		m, err := parseLucene90StoredFieldsMode(string(mode))
+		if err != nil {
+			return nil, err
+		}
+		return NewLucene90StoredFieldsFormatWithMode(m), nil
+	})
 }
 
 // Compile-time guarantee that the format satisfies

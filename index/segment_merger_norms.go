@@ -5,10 +5,12 @@
 package index
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // mergeNorms merges the per-document norms of every field with norms across the
@@ -34,12 +36,12 @@ func (sm *SegmentMerger) mergeNorms() error {
 	}
 
 	state := &SegmentWriteState{
-		Directory:     sm.directory,
-		SegmentInfo:   sm.MergeState.SegmentInfo,
-		FieldInfos:    sm.MergeState.MergeFieldInfos,
+		Directory:      sm.directory,
+		SegmentInfo:    sm.MergeState.SegmentInfo,
+		FieldInfos:     sm.MergeState.MergeFieldInfos,
 		SegmentSuffix:  "",
-			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
-			IsMerge:        true,
+		NeedsIndexSort: sm.MergeState.NeedsIndexSort,
+		IsMerge:        true,
 	}
 	consumer, err := sm.codec.NormsFormat().NormsConsumer(state)
 	if err != nil {
@@ -122,21 +124,92 @@ func (sm *SegmentMerger) mergeNormsField(consumer NormsConsumer, info *FieldInfo
 		// NormsConsumer requires strictly increasing docIDs.
 		sort.Stable(numericByDoc{docIDs: docIDs, values: values})
 	}
-	return consumer.AddNormsField(info, &mergedNormsIter{docIDs: docIDs, values: values, pos: -1})
+	// NormsConsumer.addNormsField is a pull API: the consumer may ask the
+	// producer for the NumericDocValues more than once, so the producer hands
+	// out a fresh cursor on every call. Mirrors the anonymous NormsProducer
+	// NormsConsumer.mergeNormsField builds (NormsConsumer.java:104-176).
+	return consumer.AddNormsField(info, &mergedNormsProducer{
+		fieldInfo: info,
+		docIDs:    docIDs,
+		values:    values,
+	})
 }
 
-// mergedNormsIter replays the merged per-document norm values to the codec
-// NormsConsumer. It satisfies the NormsIterator contract: docIDs is strictly
-// increasing in the merged doc space.
-type mergedNormsIter struct {
+// errMergedNormsAdvance renders the UnsupportedOperationException that
+// advance / advanceExact throw on the anonymous NumericDocValues built by
+// NormsConsumer.mergeNormsField (NormsConsumer.java:152-160).
+var errMergedNormsAdvance = errors.New("index: merged norms: Advance/AdvanceExact is not supported")
+
+// mergedNormsProducer is the NormsProducer the merge hands to the codec
+// NormsConsumer. Mirrors the anonymous NormsProducer of
+// NormsConsumer.mergeNormsField: getNorms rejects a FieldInfo other than the
+// one being merged, checkIntegrity and close are no-ops.
+type mergedNormsProducer struct {
+	fieldInfo *FieldInfo
+	docIDs    []int
+	values    []int64
+}
+
+// GetNorms returns a fresh cursor over the merged values. Mirrors
+// NormsConsumer.mergeNormsField's getNorms(FieldInfo), which raises
+// IllegalArgumentException("wrong fieldInfo") for any other field.
+func (p *mergedNormsProducer) GetNorms(field *FieldInfo) (NumericDocValues, error) {
+	if field != p.fieldInfo {
+		return nil, errors.New("wrong fieldInfo")
+	}
+	return &mergedNormsValues{docIDs: p.docIDs, values: p.values, pos: -1, doc: -1}, nil
+}
+
+func (p *mergedNormsProducer) CheckIntegrity() error               { return nil }
+func (p *mergedNormsProducer) GetMergeInstance() spi.NormsProducer { return p }
+func (p *mergedNormsProducer) Close() error                        { return nil }
+
+// mergedNormsValues replays the merged per-document norm values. docIDs is
+// strictly increasing in the merged doc space.
+type mergedNormsValues struct {
 	docIDs []int
 	values []int64
 	pos    int
+	doc    int
 }
 
-func (it *mergedNormsIter) Next() bool {
+func (it *mergedNormsValues) DocID() int { return it.doc }
+
+func (it *mergedNormsValues) NextDoc() (int, error) {
 	it.pos++
-	return it.pos < len(it.docIDs)
+	if it.pos >= len(it.docIDs) {
+		it.doc = NO_MORE_DOCS
+		return it.doc, nil
+	}
+	it.doc = it.docIDs[it.pos]
+	return it.doc, nil
 }
-func (it *mergedNormsIter) DocID() int       { return it.docIDs[it.pos] }
-func (it *mergedNormsIter) LongValue() int64 { return it.values[it.pos] }
+
+func (it *mergedNormsValues) Advance(int) (int, error) {
+	return 0, errMergedNormsAdvance
+}
+
+func (it *mergedNormsValues) AdvanceExact(int) (bool, error) {
+	return false, errMergedNormsAdvance
+}
+
+func (it *mergedNormsValues) LongValue() (int64, error) {
+	return it.values[it.pos], nil
+}
+
+// Cost mirrors the anonymous NumericDocValues of
+// NormsConsumer.mergeNormsField, whose cost() returns 0.
+func (it *mergedNormsValues) Cost() int64 { return 0 }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int), which the Java
+// counterpart of this type does not override.
+func (it *mergedNormsValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() —
+// docID() + 1 — which the Java counterpart of this type does not override.
+func (it *mergedNormsValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}

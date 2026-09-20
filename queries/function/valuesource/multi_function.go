@@ -48,6 +48,48 @@ func (m *MultiFunction) CreateWeight(ctx function.Context, searcher any) error {
 	return nil
 }
 
+// HashCode mirrors hashCode(): sources.hashCode() + name().hashCode().
+func (m *MultiFunction) HashCode() int32 {
+	// java.util.List.hashCode(): h = 31*h + e.hashCode(), seeded at 1.
+	var h int32 = 1
+	for _, src := range m.Sources {
+		h = 31*h + src.HashCode()
+	}
+	return h + hashString(m.name)
+}
+
+// GetSources returns the wrapped sources. It exposes the protected field
+// `sources` so that Equals and HashCode can read it through an embedding
+// concrete type.
+func (m *MultiFunction) GetSources() []function.ValueSource { return m.Sources }
+
+// multiFunctionOperands is the accessor pair MultiFunction.equals reads. Java
+// tests `this.getClass() != o.getClass()` and then compares `sources`; a Go
+// type that embeds MultiFunction is never assertable to the embedded struct, so
+// the class test becomes the name() test (each concrete subclass declares a
+// distinct name) and the sources are read through the promoted accessor.
+type multiFunctionOperands interface {
+	Name() string
+	GetSources() []function.ValueSource
+}
+
+// Equals mirrors equals(Object): same class and equal sources.
+func (m *MultiFunction) Equals(other function.ValueSource) bool {
+	o, ok := other.(multiFunctionOperands)
+	if !ok || m.name != o.Name() {
+		return false
+	}
+	if len(m.Sources) != len(o.GetSources()) {
+		return false
+	}
+	for i := range m.Sources {
+		if !m.Sources[i].Equals(o.GetSources()[i]) {
+			return false
+		}
+	}
+	return true
+}
+
 // AllExists reports whether all values exist for doc.
 func AllExists(doc int, values []function.FunctionValues) (bool, error) {
 	for _, v := range values {

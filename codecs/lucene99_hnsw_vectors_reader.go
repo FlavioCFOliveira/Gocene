@@ -26,7 +26,9 @@ import (
 	"fmt"
 	"sort"
 
+	codecshnsw "github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	utilhnsw "github.com/FlavioCFOliveira/Gocene/util/hnsw"
@@ -52,7 +54,7 @@ type Lucene99HnswVectorsReader struct {
 	fieldInfos  *index.FieldInfos
 	fields      map[int]*lucene99HnswFieldEntry // keyed by field number
 	vectorIndex store.IndexInput                // open .vex file
-	flatReader  *Lucene99FlatVectorsReader      // reads .vec / .vemf
+	flatReader  codecshnsw.FlatVectorsReader    // reads the flat vectors
 	version     int32
 	closed      bool
 }
@@ -74,17 +76,30 @@ type lucene99HnswFieldEntry struct {
 	offsetsLength      int64
 }
 
-// NewLucene99HnswVectorsReader creates a new HNSW vectors reader.
-// It reads and validates the .vem header and per-field entries, then opens
-// the .vex graph index file.
+// NewLucene99HnswVectorsReader creates a new HNSW vectors reader over the
+// supplied flat vectors reader. It reads and validates the .vem header and
+// per-field entries, then opens the .vex graph index file.
 //
-// Mirrors Lucene99HnswVectorsReader(SegmentReadState, FlatVectorsReader).
-// The flatVectorsReader parameter is omitted because the Gocene writer does
-// not emit .vec files yet.
-func NewLucene99HnswVectorsReader(state *SegmentReadState) (*Lucene99HnswVectorsReader, error) {
+// Mirrors Lucene99HnswVectorsReader(SegmentReadState, FlatVectorsReader): the
+// flat vectors reader is owned by the new reader, and is closed when the
+// constructor fails, as IOUtils.closeWhileHandlingException(this) closes it
+// in Java.
+func NewLucene99HnswVectorsReader(state *SegmentReadState, flatVectorsReader codecshnsw.FlatVectorsReader) (*Lucene99HnswVectorsReader, error) {
+	r, err := newLucene99HnswVectorsReader(state, flatVectorsReader)
+	if err != nil {
+		util.CloseAllWhileHandlingException(flatVectorsReader)
+		return nil, err
+	}
+	return r, nil
+}
+
+// newLucene99HnswVectorsReader is the body of the Java constructor's try
+// block.
+func newLucene99HnswVectorsReader(state *SegmentReadState, flatVectorsReader codecshnsw.FlatVectorsReader) (*Lucene99HnswVectorsReader, error) {
 	r := &Lucene99HnswVectorsReader{
 		fieldInfos: state.FieldInfos,
 		fields:     make(map[int]*lucene99HnswFieldEntry),
+		flatReader: flatVectorsReader,
 	}
 
 	// --- read .vem metadata ---
@@ -152,17 +167,37 @@ func NewLucene99HnswVectorsReader(state *SegmentReadState) (*Lucene99HnswVectors
 			r.version, versionIdx)
 	}
 	r.vectorIndex = vectorIndex
-
-	// Open the composed flat reader for the raw vectors (.vec / .vemf),
-	// mirroring the FlatVectorsReader the Java Lucene99HnswVectorsReader
-	// delegates to.
-	flat, err := NewLucene99FlatVectorsReader(state)
-	if err != nil {
-		_ = vectorIndex.Close()
-		return nil, fmt.Errorf("hnsw99 reader: open flat reader: %w", err)
-	}
-	r.flatReader = flat
 	return r, nil
+}
+
+// ReadSimilarityFunction reads a similarity function ordinal and resolves it
+// against the SIMILARITY_FUNCTIONS list. Mirrors the public static
+// Lucene99HnswVectorsReader.readSimilarityFunction(DataInput) of Apache Lucene
+// 10.5.0, whose IllegalArgumentException is returned as an error.
+func ReadSimilarityFunction(input store.DataInput) (index.VectorSimilarityFunction, error) {
+	i, err := input.ReadInt()
+	if err != nil {
+		return nil, err
+	}
+	if i < 0 || int(i) >= len(lucene99HnswSimilarityOrdinals) {
+		return nil, fmt.Errorf("invalid distance function: %d", i)
+	}
+	return lucene99HnswSimilarityOrdinals[i], nil
+}
+
+// ReadVectorEncoding reads a vector encoding ordinal. Mirrors the public
+// static Lucene99HnswVectorsReader.readVectorEncoding(DataInput) of Apache
+// Lucene 10.5.0, whose CorruptIndexException is returned as an error.
+func ReadVectorEncoding(input store.DataInput) (index.VectorEncoding, error) {
+	encodingID, err := input.ReadInt()
+	if err != nil {
+		return 0, err
+	}
+	// VectorEncoding.values() is {BYTE, FLOAT32}.
+	if encodingID < 0 || encodingID > int32(index.VectorEncodingFloat32) {
+		return 0, fmt.Errorf("Invalid vector encoding id: %d", encodingID)
+	}
+	return index.VectorEncoding(encodingID), nil
 }
 
 // readFields parses all per-field entries from the meta input until the -1 sentinel.
@@ -208,11 +243,11 @@ func (r *Lucene99HnswVectorsReader) readFieldEntry(meta store.DataInput, info *i
 	}
 	sim := lucene99HnswSimilarityOrdinals[simOrd]
 
-	vectorIndexOffset, err := store.ReadVLong(meta)
+	vectorIndexOffset, err := meta.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
-	vectorIndexLength, err := store.ReadVLong(meta)
+	vectorIndexLength, err := meta.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
@@ -309,6 +344,62 @@ func (r *Lucene99HnswVectorsReader) readFieldEntry(meta store.DataInput, info *i
 }
 
 // CheckIntegrity verifies the checksums of the .vex and .vec files.
+// GetMergeInstance returns a reader wrapping the flat reader's merge instance.
+//
+// Mirrors Lucene99HnswVectorsReader.getMergeInstance() of Apache Lucene 10.5.0:
+// new Lucene99HnswVectorsReader(this, this.flatVectorsReader.getMergeInstance()).
+func (r *Lucene99HnswVectorsReader) GetMergeInstance() (KnnVectorsReader, error) {
+	clone := *r
+	if r.flatReader != nil {
+		mergeFlat, err := r.flatReader.GetMergeInstance()
+		if err != nil {
+			return nil, err
+		}
+		// Java: FlatVectorsReader.getMergeInstance() returns a FlatVectorsReader.
+		flat, ok := mergeFlat.(codecshnsw.FlatVectorsReader)
+		if !ok {
+			return nil, fmt.Errorf(
+				"lucene99 hnsw: flat reader merge instance has type %T, want a FlatVectorsReader",
+				mergeFlat)
+		}
+		clone.flatReader = flat
+	}
+	return &clone, nil
+}
+
+// FinishMerge forwards to the flat reader.
+//
+// Mirrors Lucene99HnswVectorsReader.finishMerge() of Apache Lucene 10.5.0:
+// flatVectorsReader.finishMerge().
+func (r *Lucene99HnswVectorsReader) FinishMerge() error {
+	if r.flatReader == nil {
+		return nil
+	}
+	return r.flatReader.FinishMerge()
+}
+
+// GetOffHeapByteSize merges the flat reader's accounting with the .vex graph
+// bytes for the given field.
+//
+// Mirrors Lucene99HnswVectorsReader.getOffHeapByteSize(FieldInfo) of Apache
+// Lucene 10.5.0, which merges flatVectorsReader.getOffHeapByteSize(fieldInfo)
+// with Map.of(VECTOR_INDEX_EXTENSION, entry.vectorIndexLength).
+func (r *Lucene99HnswVectorsReader) GetOffHeapByteSize(fieldInfo *index.FieldInfo) map[string]int64 {
+	if fieldInfo == nil {
+		return map[string]int64{}
+	}
+	var flat map[string]int64
+	if r.flatReader != nil {
+		flat = r.flatReader.GetOffHeapByteSize(fieldInfo)
+	}
+	entry, ok := r.fields[fieldInfo.Number()]
+	if !ok {
+		return MergeOffHeapByteSizeMaps(flat, nil)
+	}
+	graph := map[string]int64{lucene99HnswIndexExtension: entry.vectorIndexLength}
+	return MergeOffHeapByteSizeMaps(flat, graph)
+}
+
 func (r *Lucene99HnswVectorsReader) CheckIntegrity() error {
 	if r.closed {
 		return errors.New("hnsw99 reader: closed")
@@ -344,61 +435,25 @@ func (r *Lucene99HnswVectorsReader) Close() error {
 }
 
 // GetFloatVectorValues returns the float vectors for the named field,
-// reading them from the composed flat reader (.vec). Dense fields only
-// (rmp #4731); a sparse field surfaces the flat reader's typed error
-// (rmp #4755). Mirrors Lucene99HnswVectorsReader.getFloatVectorValues,
-// which forwards to flatVectorsReader.getFloatVectorValues.
-func (r *Lucene99HnswVectorsReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
+// reading them from the composed flat reader (.vec). Mirrors
+// Lucene99HnswVectorsReader.getFloatVectorValues, which forwards to
+// flatVectorsReader.getFloatVectorValues.
+func (r *Lucene99HnswVectorsReader) GetFloatVectorValues(field string) (index.FloatVectorValues, error) {
 	if r.flatReader == nil {
 		return nil, errors.New("hnsw99 reader: flat reader not initialised")
 	}
-	values, err := r.flatReader.floatVectorValues(field)
-	if err != nil {
-		return nil, err
-	}
-	return &denseFloatVectorValuesAdapter{values: values, doc: -1}, nil
+	return r.flatReader.GetFloatVectorValues(field)
 }
 
 // GetByteVectorValues returns the byte vectors for the named field,
-// reading them from the composed flat reader (.vec). Dense fields only
-// (rmp #4731). Mirrors Lucene99HnswVectorsReader.getByteVectorValues.
-func (r *Lucene99HnswVectorsReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
+// reading them from the composed flat reader (.vec). Mirrors
+// Lucene99HnswVectorsReader.getByteVectorValues, which forwards to
+// flatVectorsReader.getByteVectorValues.
+func (r *Lucene99HnswVectorsReader) GetByteVectorValues(field string) (index.ByteVectorValues, error) {
 	if r.flatReader == nil {
 		return nil, errors.New("hnsw99 reader: flat reader not initialised")
 	}
-	values, err := r.flatReader.byteVectorValues(field)
-	if err != nil {
-		return nil, err
-	}
-	return &denseByteVectorValuesAdapter{values: values, doc: -1}, nil
-}
-
-// FloatVectorValues returns the field's float vectors typed as the
-// index-package [index.FloatVectorValues] surface (Get(docID)). It is the
-// entry point the index layer (LeafReader / SegmentReader) consumes through
-// a structural delegate interface; the returned adapter is the same one
-// [GetFloatVectorValues] yields, which satisfies both surfaces.
-func (r *Lucene99HnswVectorsReader) FloatVectorValues(field string) (index.FloatVectorValues, error) {
-	if r.flatReader == nil {
-		return nil, errors.New("hnsw99 reader: flat reader not initialised")
-	}
-	values, err := r.flatReader.floatVectorValues(field)
-	if err != nil {
-		return nil, err
-	}
-	return &denseFloatVectorValuesAdapter{values: values, doc: -1}, nil
-}
-
-// ByteVectorValues is the byte analogue of [FloatVectorValues].
-func (r *Lucene99HnswVectorsReader) ByteVectorValues(field string) (index.ByteVectorValues, error) {
-	if r.flatReader == nil {
-		return nil, errors.New("hnsw99 reader: flat reader not initialised")
-	}
-	values, err := r.flatReader.byteVectorValues(field)
-	if err != nil {
-		return nil, err
-	}
-	return &denseByteVectorValuesAdapter{values: values, doc: -1}, nil
+	return r.flatReader.GetByteVectorValues(field)
 }
 
 // GetGraph returns the off-heap HNSW graph for the named field.
@@ -443,8 +498,8 @@ func (r *Lucene99HnswVectorsReader) SearchByte(_ string, _ []byte, _ any, _ util
 // large relative to the graph, score every accepted ordinal exhaustively.
 func (r *Lucene99HnswVectorsReader) SearchNearestFloat(
 	field string, target []float32, k int, acceptDocs util.Bits,
-) (*utilhnsw.TopDocs, error) {
-	scorer, err := r.flatReader.randomVectorScorerFloat(field, target)
+) (*spi.TopDocs, error) {
+	scorer, err := r.flatReader.GetRandomVectorScorerFloat(field, target)
 	if err != nil {
 		return nil, err
 	}
@@ -454,8 +509,8 @@ func (r *Lucene99HnswVectorsReader) SearchNearestFloat(
 // SearchNearestByte is the byte analogue of [SearchNearestFloat].
 func (r *Lucene99HnswVectorsReader) SearchNearestByte(
 	field string, target []byte, k int, acceptDocs util.Bits,
-) (*utilhnsw.TopDocs, error) {
-	scorer, err := r.flatReader.randomVectorScorerByte(field, target)
+) (*spi.TopDocs, error) {
+	scorer, err := r.flatReader.GetRandomVectorScorerByte(field, target)
 	if err != nil {
 		return nil, err
 	}
@@ -470,7 +525,7 @@ func (r *Lucene99HnswVectorsReader) SearchNearestByte(
 // for one segment.
 func (r *Lucene99HnswVectorsReader) search(
 	field string, scorer utilhnsw.RandomVectorScorer, k int, acceptDocs util.Bits,
-) (*utilhnsw.TopDocs, error) {
+) (*spi.TopDocs, error) {
 	collector := utilhnsw.NewTopKnnCollector(k, int(^uint(0)>>1), nil)
 	if err := r.searchCollector(field, scorer, collector, acceptDocs); err != nil {
 		return nil, err
@@ -494,7 +549,7 @@ func (r *Lucene99HnswVectorsReader) search(
 // AcceptDocs), which passes the caller-owned collector straight through to
 // HnswGraphSearcher / the exhaustive fallback.
 func (r *Lucene99HnswVectorsReader) searchCollector(
-	field string, scorer utilhnsw.RandomVectorScorer, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+	field string, scorer utilhnsw.RandomVectorScorer, collector spi.KnnCollector, acceptDocs util.Bits,
 ) error {
 	info := r.fieldInfos.GetByName(field)
 	if info == nil {
@@ -560,9 +615,9 @@ func (r *Lucene99HnswVectorsReader) searchCollector(
 // graph search itself diversifies by parent block. Mirrors the body of
 // Lucene99HnswVectorsReader.search(String, float[], KnnCollector, AcceptDocs).
 func (r *Lucene99HnswVectorsReader) SearchNearestFloatCollector(
-	field string, target []float32, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+	field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits,
 ) error {
-	scorer, err := r.flatReader.randomVectorScorerFloat(field, target)
+	scorer, err := r.flatReader.GetRandomVectorScorerFloat(field, target)
 	if err != nil {
 		return err
 	}
@@ -572,9 +627,9 @@ func (r *Lucene99HnswVectorsReader) SearchNearestFloatCollector(
 // SearchNearestByteCollector is the byte analogue of
 // [SearchNearestFloatCollector].
 func (r *Lucene99HnswVectorsReader) SearchNearestByteCollector(
-	field string, target []byte, collector utilhnsw.KnnCollector, acceptDocs util.Bits,
+	field string, target []byte, collector spi.KnnCollector, acceptDocs util.Bits,
 ) error {
-	scorer, err := r.flatReader.randomVectorScorerByte(field, target)
+	scorer, err := r.flatReader.GetRandomVectorScorerByte(field, target)
 	if err != nil {
 		return err
 	}
@@ -623,7 +678,7 @@ func newOffHeapHnswGraph(entry *lucene99HnswFieldEntry, vectorIndex store.IndexI
 		addrRA = ra
 	} else {
 		buf := make([]byte, entry.offsetsLength)
-		if e := addrSlice.ReadBytes(buf); e != nil {
+		if e := addrSlice.ReadBytes(buf, 0, len(buf)); e != nil {
 			return nil, fmt.Errorf("hnsw99 offHeap: read addrs: %w", e)
 		}
 		addrRA = newByteArrayRandomAccess(buf)
@@ -702,7 +757,7 @@ func (g *offHeapHnswGraph) SeekLevel(level, targetOrd int) error {
 	if g.arcCount > 0 {
 		if g.version >= lucene99HnswVersionGroupVInt {
 			scratch := make([]int32, g.arcCount)
-			if err := util.ReadGroupVInts(g.dataIn, scratch, g.arcCount); err != nil {
+			if err := store.ReadGroupVInts(g.dataIn, scratch, g.arcCount); err != nil {
 				return fmt.Errorf("hnsw99 offHeap: ReadGroupVInts: %w", err)
 			}
 			g.currentNeighbors[0] = int(scratch[0])
@@ -802,228 +857,3 @@ func (r *byteArrayRandomAccess) ReadLongAt(pos int64) (int64, error) {
 	hi, _ := r.ReadIntAt(pos)
 	return int64(hi)<<32 | int64(uint32(lo)), nil
 }
-
-// ---------------------------------------------------------------------------
-// doc-keyed vector-values adapters
-//
-// The flat reader's values are ordinal-keyed (VectorValue(ord)); the codecs
-// [FloatVectorValues] / [ByteVectorValues] interfaces and their index-package
-// peers are doc-keyed (Get(docID)/GetVector(docID) + NextDoc/Advance/DocID).
-//
-// For the dense case ord == doc, so the adapter walks the ordinal space as
-// the document space. For the sparse case the adapter drives the value's
-// DocIndexIterator (an IndexedDISI), whose Index() yields the ordinal for the
-// current docID; Get(docID) returns nil for documents that carry no vector,
-// matching the index.FloatVectorValues contract.
-//
-// Both consumers of the doc-keyed Get(docID) accessor (CheckIndex and the
-// KNN graph test) scan docIDs strictly ascending, so Get advances the
-// internal cursor forward to the requested docID; a request for an earlier
-// docID rebuilds the iterator.
-// ---------------------------------------------------------------------------
-
-type denseFloatVectorValuesAdapter struct {
-	values flatFloatVectorValues
-	doc    int
-
-	// iter / iterDoc / iterOrd drive a single forward cursor over the
-	// underlying value's DocIndexIterator. For a dense field the iterator
-	// yields ord==doc; for a sparse field it yields the true (set) docIDs and
-	// iter.Index() yields the matching ordinal. The cursor backs both the
-	// iteration surface (NextDoc/Advance/DocID) and the random-access
-	// Get(docID) accessor; iter is created lazily on first use.
-	iter    utilhnsw.DocIndexIterator
-	iterDoc int
-	iterOrd int
-}
-
-func (a *denseFloatVectorValuesAdapter) Dimension() int { return a.values.Dimension() }
-func (a *denseFloatVectorValuesAdapter) Size() int      { return a.values.Size() }
-func (a *denseFloatVectorValuesAdapter) DocID() int     { return a.doc }
-
-// GetVector returns the vector for docID, or nil when docID carries no vector
-// (sparse). A fresh copy is returned because the underlying buffer is reused
-// across calls and callers of the codecs surface may retain the result.
-func (a *denseFloatVectorValuesAdapter) GetVector(docID int) ([]float32, error) {
-	ord, ok, err := a.ordForDoc(docID)
-	if err != nil || !ok {
-		return nil, err
-	}
-	v, err := a.values.VectorValue(ord)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]float32, len(v))
-	copy(out, v)
-	return out, nil
-}
-
-// ordForDoc resolves the ordinal of docID, returning ok=false when docID has
-// no vector. It advances (or rebuilds) the internal iterator forward to docID.
-func (a *denseFloatVectorValuesAdapter) ordForDoc(docID int) (int, bool, error) {
-	if a.iter == nil || a.iterDoc > docID {
-		a.iter = a.values.Iterator()
-		a.iterDoc, a.iterOrd = -1, -1
-	}
-	for a.iterDoc < docID {
-		d, err := a.iter.NextDoc()
-		if err != nil {
-			return 0, false, err
-		}
-		if d == util.NO_MORE_DOCS {
-			a.iterDoc = util.NO_MORE_DOCS
-			return 0, false, nil
-		}
-		a.iterDoc = d
-		a.iterOrd = a.iter.Index()
-	}
-	if a.iterDoc == docID {
-		return a.iterOrd, true, nil
-	}
-	return 0, false, nil
-}
-
-// Get is the index.FloatVectorValues accessor name; it aliases GetVector so
-// the adapter satisfies both the codecs and index FloatVectorValues
-// interfaces (they differ only in this method's name).
-func (a *denseFloatVectorValuesAdapter) Get(docID int) ([]float32, error) {
-	return a.GetVector(docID)
-}
-
-// NextDoc advances the iteration cursor to the next document that carries a
-// vector and returns its true docID (or NO_MORE_DOCS). It drives the
-// underlying value's DocIndexIterator, so it is correct for both the dense
-// (ord==doc) and sparse (DISI-backed) layouts. Mirrors the docID-yielding
-// contract of KnnVectorValues.iterator() in Lucene 10.4.0.
-func (a *denseFloatVectorValuesAdapter) NextDoc() (int, error) {
-	return a.Advance(a.doc + 1)
-}
-
-// Advance positions the iteration cursor on the first document >= target that
-// carries a vector and returns that docID (or NO_MORE_DOCS). It drives the
-// underlying DocIndexIterator so sparse documents are skipped, matching the
-// index.FloatVectorValues contract.
-func (a *denseFloatVectorValuesAdapter) Advance(target int) (int, error) {
-	if target < 0 {
-		target = 0
-	}
-	if a.iter == nil || a.iterDoc >= target {
-		a.iter = a.values.Iterator()
-		a.iterDoc, a.iterOrd = -1, -1
-	}
-	for a.iterDoc < target {
-		d, err := a.iter.NextDoc()
-		if err != nil {
-			return 0, err
-		}
-		if d == util.NO_MORE_DOCS {
-			a.iterDoc = util.NO_MORE_DOCS
-			a.doc = util.NO_MORE_DOCS
-			return util.NO_MORE_DOCS, nil
-		}
-		a.iterDoc = d
-		a.iterOrd = a.iter.Index()
-	}
-	a.doc = a.iterDoc
-	return a.doc, nil
-}
-
-type denseByteVectorValuesAdapter struct {
-	values flatByteVectorValues
-	doc    int
-
-	// See denseFloatVectorValuesAdapter: a single forward cursor over the
-	// underlying value's DocIndexIterator backs both the iteration surface
-	// and the random-access Get(docID) accessor.
-	iter    utilhnsw.DocIndexIterator
-	iterDoc int
-	iterOrd int
-}
-
-func (a *denseByteVectorValuesAdapter) Dimension() int { return a.values.Dimension() }
-func (a *denseByteVectorValuesAdapter) Size() int      { return a.values.Size() }
-func (a *denseByteVectorValuesAdapter) DocID() int     { return a.doc }
-
-func (a *denseByteVectorValuesAdapter) GetVector(docID int) ([]byte, error) {
-	ord, ok, err := a.ordForDoc(docID)
-	if err != nil || !ok {
-		return nil, err
-	}
-	v, err := a.values.VectorValue(ord)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]byte, len(v))
-	copy(out, v)
-	return out, nil
-}
-
-func (a *denseByteVectorValuesAdapter) ordForDoc(docID int) (int, bool, error) {
-	if a.iter == nil || a.iterDoc > docID {
-		a.iter = a.values.Iterator()
-		a.iterDoc, a.iterOrd = -1, -1
-	}
-	for a.iterDoc < docID {
-		d, err := a.iter.NextDoc()
-		if err != nil {
-			return 0, false, err
-		}
-		if d == util.NO_MORE_DOCS {
-			a.iterDoc = util.NO_MORE_DOCS
-			return 0, false, nil
-		}
-		a.iterDoc = d
-		a.iterOrd = a.iter.Index()
-	}
-	if a.iterDoc == docID {
-		return a.iterOrd, true, nil
-	}
-	return 0, false, nil
-}
-
-// Get aliases GetVector so the adapter satisfies index.ByteVectorValues.
-func (a *denseByteVectorValuesAdapter) Get(docID int) ([]byte, error) {
-	return a.GetVector(docID)
-}
-
-// NextDoc advances to the next document carrying a vector and returns its true
-// docID (or NO_MORE_DOCS). See denseFloatVectorValuesAdapter.NextDoc.
-func (a *denseByteVectorValuesAdapter) NextDoc() (int, error) {
-	return a.Advance(a.doc + 1)
-}
-
-// Advance positions the cursor on the first document >= target carrying a
-// vector. See denseFloatVectorValuesAdapter.Advance.
-func (a *denseByteVectorValuesAdapter) Advance(target int) (int, error) {
-	if target < 0 {
-		target = 0
-	}
-	if a.iter == nil || a.iterDoc >= target {
-		a.iter = a.values.Iterator()
-		a.iterDoc, a.iterOrd = -1, -1
-	}
-	for a.iterDoc < target {
-		d, err := a.iter.NextDoc()
-		if err != nil {
-			return 0, err
-		}
-		if d == util.NO_MORE_DOCS {
-			a.iterDoc = util.NO_MORE_DOCS
-			a.doc = util.NO_MORE_DOCS
-			return util.NO_MORE_DOCS, nil
-		}
-		a.iterDoc = d
-		a.iterOrd = a.iter.Index()
-	}
-	a.doc = a.iterDoc
-	return a.doc, nil
-}
-
-// Compile-time guards that the adapters satisfy both the codecs and index
-// vector-value interfaces (they differ only in Get vs GetVector).
-var (
-	_ FloatVectorValues       = (*denseFloatVectorValuesAdapter)(nil)
-	_ ByteVectorValues        = (*denseByteVectorValuesAdapter)(nil)
-	_ index.FloatVectorValues = (*denseFloatVectorValuesAdapter)(nil)
-	_ index.ByteVectorValues  = (*denseByteVectorValuesAdapter)(nil)
-)

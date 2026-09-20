@@ -132,8 +132,8 @@ func (it *IntArrayDocIdSetIterator) Cost() int64 {
 }
 
 // DocIDRunEnd returns the end of the current run of consecutive doc IDs.
-func (it *IntArrayDocIdSetIterator) DocIDRunEnd() int {
-	return it.doc + 1
+func (it *IntArrayDocIdSetIterator) DocIDRunEnd() (int, error) {
+	return it.doc + 1, nil
 }
 
 // Ensure IntArrayDocIdSet implements DocIdSet
@@ -141,3 +141,10 @@ var _ DocIdSet = (*IntArrayDocIdSet)(nil)
 
 // Ensure IntArrayDocIdSetIterator implements DocIdSetIterator
 var _ DocIdSetIterator = (*IntArrayDocIdSetIterator)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (it *IntArrayDocIdSetIterator) IntoBitSet(upTo int, bitSet *FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(it, upTo, bitSet, offset)
+}

@@ -59,7 +59,9 @@ var _ TokenFilter = (*TypeAsPayloadTokenFilter)(nil)
 
 // TypeAsPayloadTokenFilterFactory creates TypeAsPayloadTokenFilter
 // instances.
-type TypeAsPayloadTokenFilterFactory struct{}
+type TypeAsPayloadTokenFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewTypeAsPayloadTokenFilterFactory returns a fresh factory.
 func NewTypeAsPayloadTokenFilterFactory() *TypeAsPayloadTokenFilterFactory {

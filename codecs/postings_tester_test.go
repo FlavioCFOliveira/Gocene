@@ -58,12 +58,12 @@ type SeedTerms struct {
 	options    index.IndexOptions
 }
 
-func (t *SeedTerms) GetIterator() (index.TermsEnum, error) {
+func (t *SeedTerms) Iterator() (index.TermsEnum, error) {
 	return &SeedTermsEnum{terms: t.terms, termToDocs: t.termToDocs, pos: -1}, nil
 }
 
 func (t *SeedTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
-	te, _ := t.GetIterator()
+	te, _ := t.Iterator()
 	_, err := te.SeekCeil(seekTerm)
 	return te, err
 }
@@ -386,7 +386,7 @@ func (p *PostingsTester) TestFull(format PostingsFormat, options index.IndexOpti
 		seedTerms.termToDocs[termText] = postings
 	}
 
-	err = consumer.Write(fieldName, seedTerms)
+	err = consumer.Write(index.NewSingleFieldFields(fieldName, seedTerms), nil)
 	if err != nil {
 		p.t.Fatalf("Consumer.Write failed: %v", err)
 	}
@@ -419,9 +419,9 @@ func (p *PostingsTester) TestFull(format PostingsFormat, options index.IndexOpti
 		p.t.Fatal("Producer.Terms returned nil")
 	}
 
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		p.t.Fatalf("Terms.GetIterator failed: %v", err)
+		p.t.Fatalf("Terms.Iterator failed: %v", err)
 	}
 
 	for _, expectedTerm := range seedTerms.terms {

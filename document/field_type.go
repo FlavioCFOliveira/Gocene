@@ -8,19 +8,28 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
+// FieldType implements spi.IndexableFieldType, mirroring Java's
+// "public class FieldType implements IndexableFieldType".
+var _ spi.IndexableFieldType = (*FieldType)(nil)
+
 // DocValuesSkipIndexType defines options for skip indexes on doc values.
-// This is a local definition to avoid circular imports with the index package.
-// Mirrors org.apache.lucene.index.DocValuesSkipIndexType from Apache Lucene 10.5.0.
-type DocValuesSkipIndexType int
+//
+// Mirrors org.apache.lucene.index.DocValuesSkipIndexType from Apache Lucene
+// 10.5.0. Java declares the enum once; Gocene declares it once in package spi
+// (the leaf package both document and index can import) and aliases it here
+// and in package index, so that every package-qualified spelling names the
+// one type.
+type DocValuesSkipIndexType = spi.DocValuesSkipIndexType
 
 const (
 	// DocValuesSkipIndexTypeNone: No skip index should be created.
-	DocValuesSkipIndexTypeNone DocValuesSkipIndexType = iota
+	DocValuesSkipIndexTypeNone = spi.DocValuesSkipIndexTypeNone
 	// DocValuesSkipIndexTypeRange: Record range of values.
-	DocValuesSkipIndexTypeRange
+	DocValuesSkipIndexTypeRange = spi.DocValuesSkipIndexTypeRange
 )
 
 // Re-export vector types from schema to avoid circular imports.
@@ -28,42 +37,42 @@ const (
 // Mirrors org.apache.lucene.index.VectorEncoding and VectorSimilarityFunction.
 
 // VectorEncodingByte stores vector values as signed bytes.
-const VectorEncodingByte = schema.VectorEncodingByte
+const VectorEncodingByte = util.VectorEncodingByte
 
 // VectorEncodingFloat32 stores vector values as IEEE 32-bit floating point.
-const VectorEncodingFloat32 = schema.VectorEncodingFloat32
+const VectorEncodingFloat32 = util.VectorEncodingFloat32
 
 // VectorSimilarityFunctionEuclidean uses squared Euclidean distance.
-const VectorSimilarityFunctionEuclidean = schema.VectorSimilarityFunctionEuclidean
+var VectorSimilarityFunctionEuclidean = util.EuclideanSim
 
 // VectorSimilarityFunctionDotProduct uses dot product similarity.
-const VectorSimilarityFunctionDotProduct = schema.VectorSimilarityFunctionDotProduct
+var VectorSimilarityFunctionDotProduct = util.DotProductSim
 
 // VectorSimilarityFunctionCosine uses cosine similarity.
-const VectorSimilarityFunctionCosine = schema.VectorSimilarityFunctionCosine
+var VectorSimilarityFunctionCosine = util.CosineSim
 
 // VectorSimilarityFunctionMaximumInnerProduct uses maximum inner product similarity.
-const VectorSimilarityFunctionMaximumInnerProduct = schema.VectorSimilarityFunctionMaximumInnerProduct
+var VectorSimilarityFunctionMaximumInnerProduct = util.MaximumInnerProductSim
 
 // FieldType describes the properties of a field.
 //
 // This is the Go port of Lucene's org.apache.lucene.document.FieldType.
 type FieldType struct {
 	// Public fields for backward compatibility
-	Stored                      bool
-	Tokenized                   bool
-	StoreTermVectors            bool
-	StoreTermVectorOffsets      bool
-	StoreTermVectorPositions    bool
-	StoreTermVectorPayloads     bool
-	OmitNorms                   bool
-	Indexed                     bool // Mirrors whether IndexOptions != NONE
-	IndexOptions                schema.IndexOptions
-	DocValuesType               schema.DocValuesType
-	VectorDimension             int
-	VectorEncoding              schema.VectorEncoding
-	VectorSimilarityFunction    schema.VectorSimilarityFunction
-	DocValuesSkipIndex          DocValuesSkipIndexType
+	stored                   bool
+	tokenized                bool
+	storeTermVectors         bool
+	storeTermVectorOffsets   bool
+	storeTermVectorPositions bool
+	storeTermVectorPayloads  bool
+	omitNorms                bool
+	indexed                  bool // Mirrors whether IndexOptions != NONE
+	indexOptions             spi.IndexOptions
+	docValuesType            spi.DocValuesType
+	vectorDimension          int
+	vectorEncoding           spi.VectorEncoding
+	vectorSimilarityFunction spi.VectorSimilarityFunction
+	docValuesSkipIndex       DocValuesSkipIndexType
 
 	// Private fields with getter methods
 	pointDimensionCount      int
@@ -76,22 +85,22 @@ type FieldType struct {
 // NewFieldType creates a new mutable FieldType with default properties.
 func NewFieldType() *FieldType {
 	return &FieldType{
-		Stored:                   false,
-		Tokenized:                false,
-		StoreTermVectors:         false,
-		StoreTermVectorOffsets:   false,
-		StoreTermVectorPositions: false,
-		StoreTermVectorPayloads:  false,
-		OmitNorms:                false,
-		IndexOptions:             schema.IndexOptionsNone,
-		DocValuesType:            schema.DocValuesTypeNone,
+		stored:                   false,
+		tokenized:                false,
+		storeTermVectors:         false,
+		storeTermVectorOffsets:   false,
+		storeTermVectorPositions: false,
+		storeTermVectorPayloads:  false,
+		omitNorms:                false,
+		indexOptions:             spi.IndexOptionsNone,
+		docValuesType:            spi.DocValuesTypeNone,
 		pointDimensionCount:      0,
 		pointIndexDimensionCount: 0,
 		pointNumBytes:            0,
-		VectorDimension:          0,
-		VectorEncoding:           schema.VectorEncodingFloat32,
-		VectorSimilarityFunction: schema.VectorSimilarityFunctionEuclidean,
-		DocValuesSkipIndex:       DocValuesSkipIndexTypeNone,
+		vectorDimension:          0,
+		vectorEncoding:           util.VectorEncodingFloat32,
+		vectorSimilarityFunction: util.EuclideanSim,
+		docValuesSkipIndex:       DocValuesSkipIndexTypeNone,
 		frozen:                   false,
 		attributes:               make(map[string]string),
 	}
@@ -101,7 +110,7 @@ func NewFieldType() *FieldType {
 // (Tokenized=true instead of false).
 func NewLuceneFieldType() *FieldType {
 	ft := NewFieldType()
-	ft.Tokenized = true
+	ft.tokenized = true
 	return ft
 }
 
@@ -109,24 +118,24 @@ func NewLuceneFieldType() *FieldType {
 // The frozen state is not copied.
 func NewFieldTypeFrom(src *FieldType) *FieldType {
 	ft := &FieldType{
-		Stored:                      src.Stored,
-		Tokenized:                   src.Tokenized,
-		StoreTermVectors:            src.StoreTermVectors,
-		StoreTermVectorOffsets:      src.StoreTermVectorOffsets,
-		StoreTermVectorPositions:    src.StoreTermVectorPositions,
-		StoreTermVectorPayloads:     src.StoreTermVectorPayloads,
-		OmitNorms:                   src.OmitNorms,
-		IndexOptions:                src.IndexOptions,
-		DocValuesType:               src.DocValuesType,
-		pointDimensionCount:         src.pointDimensionCount,
-		pointIndexDimensionCount:    src.pointIndexDimensionCount,
-		pointNumBytes:               src.pointNumBytes,
-		VectorDimension:             src.VectorDimension,
-		VectorEncoding:              src.VectorEncoding,
-		VectorSimilarityFunction:    src.VectorSimilarityFunction,
-		DocValuesSkipIndex:          src.DocValuesSkipIndex,
-		frozen:                      false,
-		attributes:                  make(map[string]string),
+		stored:                   src.stored,
+		tokenized:                src.tokenized,
+		storeTermVectors:         src.storeTermVectors,
+		storeTermVectorOffsets:   src.storeTermVectorOffsets,
+		storeTermVectorPositions: src.storeTermVectorPositions,
+		storeTermVectorPayloads:  src.storeTermVectorPayloads,
+		omitNorms:                src.omitNorms,
+		indexOptions:             src.indexOptions,
+		docValuesType:            src.docValuesType,
+		pointDimensionCount:      src.pointDimensionCount,
+		pointIndexDimensionCount: src.pointIndexDimensionCount,
+		pointNumBytes:            src.pointNumBytes,
+		vectorDimension:          src.vectorDimension,
+		vectorEncoding:           src.vectorEncoding,
+		vectorSimilarityFunction: src.vectorSimilarityFunction,
+		docValuesSkipIndex:       src.docValuesSkipIndex,
+		frozen:                   false,
+		attributes:               make(map[string]string),
 	}
 	// Copy attributes
 	for k, v := range src.attributes {
@@ -155,127 +164,127 @@ func (ft *FieldType) IsFrozen() bool {
 // SetStored sets whether this field should be stored.
 func (ft *FieldType) SetStored(value bool) *FieldType {
 	ft.checkIfFrozen()
-	ft.Stored = value
+	ft.stored = value
 	return ft
 }
 
-// IsStored returns whether this field is stored.
-func (ft *FieldType) IsStored() bool {
-	return ft.Stored
+// Stored returns whether this field is stored.
+func (ft *FieldType) Stored() bool {
+	return ft.stored
 }
 
 // SetTokenized sets whether this field is tokenized.
 func (ft *FieldType) SetTokenized(value bool) *FieldType {
 	ft.checkIfFrozen()
-	ft.Tokenized = value
+	ft.tokenized = value
 	return ft
 }
 
-// IsTokenized returns whether this field is tokenized.
-func (ft *FieldType) IsTokenized() bool {
-	return ft.Tokenized
+// Tokenized returns whether this field is tokenized.
+func (ft *FieldType) Tokenized() bool {
+	return ft.tokenized
 }
 
 // SetStoreTermVectors sets whether term vectors should be stored.
 func (ft *FieldType) SetStoreTermVectors(value bool) *FieldType {
 	ft.checkIfFrozen()
-	ft.StoreTermVectors = value
+	ft.storeTermVectors = value
 	return ft
 }
 
-// StoresTermVectors returns whether term vectors are stored.
-func (ft *FieldType) StoresTermVectors() bool {
-	return ft.StoreTermVectors
+// StoreTermVectors returns whether term vectors are stored.
+func (ft *FieldType) StoreTermVectors() bool {
+	return ft.storeTermVectors
 }
 
 // SetStoreTermVectorOffsets sets whether term vector offsets should be stored.
 func (ft *FieldType) SetStoreTermVectorOffsets(value bool) *FieldType {
 	ft.checkIfFrozen()
-	ft.StoreTermVectorOffsets = value
+	ft.storeTermVectorOffsets = value
 	return ft
 }
 
-// StoresTermVectorOffsets returns whether term vector offsets are stored.
-func (ft *FieldType) StoresTermVectorOffsets() bool {
-	return ft.StoreTermVectorOffsets
+// StoreTermVectorOffsets returns whether term vector offsets are stored.
+func (ft *FieldType) StoreTermVectorOffsets() bool {
+	return ft.storeTermVectorOffsets
 }
 
 // SetStoreTermVectorPositions sets whether term vector positions should be stored.
 func (ft *FieldType) SetStoreTermVectorPositions(value bool) *FieldType {
 	ft.checkIfFrozen()
-	ft.StoreTermVectorPositions = value
+	ft.storeTermVectorPositions = value
 	return ft
 }
 
-// StoresTermVectorPositions returns whether term vector positions are stored.
-func (ft *FieldType) StoresTermVectorPositions() bool {
-	return ft.StoreTermVectorPositions
+// StoreTermVectorPositions returns whether term vector positions are stored.
+func (ft *FieldType) StoreTermVectorPositions() bool {
+	return ft.storeTermVectorPositions
 }
 
 // SetStoreTermVectorPayloads sets whether term vector payloads should be stored.
 func (ft *FieldType) SetStoreTermVectorPayloads(value bool) *FieldType {
 	ft.checkIfFrozen()
-	ft.StoreTermVectorPayloads = value
+	ft.storeTermVectorPayloads = value
 	return ft
 }
 
-// StoresTermVectorPayloads returns whether term vector payloads are stored.
-func (ft *FieldType) StoresTermVectorPayloads() bool {
-	return ft.StoreTermVectorPayloads
+// StoreTermVectorPayloads returns whether term vector payloads are stored.
+func (ft *FieldType) StoreTermVectorPayloads() bool {
+	return ft.storeTermVectorPayloads
 }
 
 // SetOmitNorms sets whether norms should be omitted.
 func (ft *FieldType) SetOmitNorms(value bool) *FieldType {
 	ft.checkIfFrozen()
-	ft.OmitNorms = value
+	ft.omitNorms = value
 	return ft
 }
 
-// OmitsNorms returns whether norms are omitted.
-func (ft *FieldType) OmitsNorms() bool {
-	return ft.OmitNorms
+// OmitNorms returns whether norms are omitted.
+func (ft *FieldType) OmitNorms() bool {
+	return ft.omitNorms
 }
 
 // SetIndexOptions sets the indexing options.
-func (ft *FieldType) SetIndexOptions(value schema.IndexOptions) *FieldType {
+func (ft *FieldType) SetIndexOptions(value spi.IndexOptions) *FieldType {
 	ft.checkIfFrozen()
-	ft.IndexOptions = value
-	ft.Indexed = (value != schema.IndexOptionsNone)
+	ft.indexOptions = value
+	ft.indexed = (value != spi.IndexOptionsNone)
 	return ft
 }
 
-// GetIndexOptions returns the indexing options.
-func (ft *FieldType) GetIndexOptions() schema.IndexOptions {
-	return ft.IndexOptions
+// IndexOptions returns the indexing options.
+func (ft *FieldType) IndexOptions() spi.IndexOptions {
+	return ft.indexOptions
 }
 
 // SetIndexed is a convenience method that sets IndexOptions based on whether indexed is true/false.
 func (ft *FieldType) SetIndexed(indexed bool) *FieldType {
 	ft.checkIfFrozen()
-	ft.Indexed = indexed
+	ft.indexed = indexed
 	if indexed {
-		ft.IndexOptions = schema.IndexOptionsDocsAndFreqsAndPositions
+		ft.indexOptions = spi.IndexOptionsDocsAndFreqsAndPositions
 	} else {
-		ft.IndexOptions = schema.IndexOptionsNone
+		ft.indexOptions = spi.IndexOptionsNone
 	}
 	return ft
 }
 
 // IsIndexed returns whether this field is indexed.
 func (ft *FieldType) IsIndexed() bool {
-	return ft.IndexOptions != schema.IndexOptionsNone
+	return ft.indexOptions != spi.IndexOptionsNone
 }
 
 // SetDocValuesType sets the doc values type.
-func (ft *FieldType) SetDocValuesType(value schema.DocValuesType) *FieldType {
+func (ft *FieldType) SetDocValuesType(value spi.DocValuesType) *FieldType {
 	ft.checkIfFrozen()
-	ft.DocValuesType = value
+	ft.docValuesType = value
 	return ft
 }
 
-// GetDocValuesType returns the doc values type.
-func (ft *FieldType) GetDocValuesType() schema.DocValuesType {
-	return ft.DocValuesType
+// DocValuesType returns the doc values type.
+func (ft *FieldType) DocValuesType() spi.DocValuesType {
+	return ft.docValuesType
 }
 
 // SetDimensions enables points indexing with the same dimension count for storage and indexing.
@@ -335,61 +344,42 @@ func (ft *FieldType) PointNumBytes() int {
 	return ft.pointNumBytes
 }
 
-// GetPointDimensionCount returns the point dimension count.
-func (ft *FieldType) GetPointDimensionCount() int {
-	return ft.pointDimensionCount
-}
-
-// GetPointIndexDimensionCount returns the point index dimension count.
-func (ft *FieldType) GetPointIndexDimensionCount() int {
-	return ft.pointIndexDimensionCount
-}
-
-// GetPointNumBytes returns the number of bytes per point dimension.
-func (ft *FieldType) GetPointNumBytes() int {
-	return ft.pointNumBytes
-}
-
-// DimensionNumBytes is an alias for PointNumBytes (for backward compatibility).
-func (ft *FieldType) DimensionNumBytes() int {
-	return ft.pointNumBytes
-}
-
 // SetVectorAttributes sets vector attributes.
-func (ft *FieldType) SetVectorAttributes(vectorDimension int, vectorEncoding schema.VectorEncoding, vectorSimilarityFunction schema.VectorSimilarityFunction) {
+func (ft *FieldType) SetVectorAttributes(vectorDimension int, vectorEncoding spi.VectorEncoding, vectorSimilarityFunction spi.VectorSimilarityFunction) {
 	ft.checkIfFrozen()
 	if vectorDimension <= 0 {
 		panic(fmt.Sprintf("vectorDimension must be > 0; got %d", vectorDimension))
 	}
-	ft.VectorDimension = vectorDimension
-	ft.VectorEncoding = vectorEncoding
-	ft.VectorSimilarityFunction = vectorSimilarityFunction
+	ft.vectorDimension = vectorDimension
+	ft.vectorEncoding = vectorEncoding
+	ft.vectorSimilarityFunction = vectorSimilarityFunction
 }
 
-// GetVectorDimension returns the vector dimension.
-func (ft *FieldType) GetVectorDimension() int {
-	return ft.VectorDimension
+// VectorDimension returns the vector dimension.
+func (ft *FieldType) VectorDimension() int {
+	return ft.vectorDimension
 }
 
-// GetVectorEncoding returns the vector encoding.
-func (ft *FieldType) GetVectorEncoding() schema.VectorEncoding {
-	return ft.VectorEncoding
+// VectorEncoding returns the vector encoding.
+func (ft *FieldType) VectorEncoding() spi.VectorEncoding {
+	return ft.vectorEncoding
 }
 
-// GetVectorSimilarityFunction returns the vector similarity function.
-func (ft *FieldType) GetVectorSimilarityFunction() schema.VectorSimilarityFunction {
-	return ft.VectorSimilarityFunction
+// VectorSimilarityFunction returns the vector similarity function.
+func (ft *FieldType) VectorSimilarityFunction() spi.VectorSimilarityFunction {
+	return ft.vectorSimilarityFunction
 }
 
 // SetDocValuesSkipIndexType sets the doc values skip index type.
-func (ft *FieldType) SetDocValuesSkipIndexType(value DocValuesSkipIndexType) {
+func (ft *FieldType) SetDocValuesSkipIndexType(value DocValuesSkipIndexType) *FieldType {
 	ft.checkIfFrozen()
-	ft.DocValuesSkipIndex = value
+	ft.docValuesSkipIndex = value
+	return ft
 }
 
 // DocValuesSkipIndexType returns the doc values skip index type.
 func (ft *FieldType) DocValuesSkipIndexType() DocValuesSkipIndexType {
-	return ft.DocValuesSkipIndex
+	return ft.docValuesSkipIndex
 }
 
 // PutAttribute stores an attribute key-value pair.
@@ -415,22 +405,22 @@ func (ft *FieldType) Equals(other *FieldType) bool {
 	if other == nil {
 		return false
 	}
-	return ft.Stored == other.Stored &&
-		ft.Tokenized == other.Tokenized &&
-		ft.StoreTermVectors == other.StoreTermVectors &&
-		ft.StoreTermVectorOffsets == other.StoreTermVectorOffsets &&
-		ft.StoreTermVectorPositions == other.StoreTermVectorPositions &&
-		ft.StoreTermVectorPayloads == other.StoreTermVectorPayloads &&
-		ft.OmitNorms == other.OmitNorms &&
-		ft.IndexOptions == other.IndexOptions &&
-		ft.DocValuesType == other.DocValuesType &&
+	return ft.stored == other.stored &&
+		ft.tokenized == other.tokenized &&
+		ft.storeTermVectors == other.storeTermVectors &&
+		ft.storeTermVectorOffsets == other.storeTermVectorOffsets &&
+		ft.storeTermVectorPositions == other.storeTermVectorPositions &&
+		ft.storeTermVectorPayloads == other.storeTermVectorPayloads &&
+		ft.omitNorms == other.omitNorms &&
+		ft.indexOptions == other.indexOptions &&
+		ft.docValuesType == other.docValuesType &&
 		ft.PointDimensionCount() == other.PointDimensionCount() &&
 		ft.PointIndexDimensionCount() == other.PointIndexDimensionCount() &&
 		ft.PointNumBytes() == other.PointNumBytes() &&
-		ft.VectorDimension == other.VectorDimension &&
-		ft.VectorEncoding == other.VectorEncoding &&
-		ft.VectorSimilarityFunction == other.VectorSimilarityFunction &&
-		ft.DocValuesSkipIndex == other.DocValuesSkipIndex &&
+		ft.vectorDimension == other.vectorDimension &&
+		ft.vectorEncoding == other.vectorEncoding &&
+		ft.vectorSimilarityFunction == other.vectorSimilarityFunction &&
+		ft.docValuesSkipIndex == other.docValuesSkipIndex &&
 		ft.attributesEqual(other.attributes)
 }
 
@@ -450,11 +440,11 @@ func (ft *FieldType) attributesEqual(other map[string]string) bool {
 // Validate checks if the FieldType configuration is valid.
 func (ft *FieldType) Validate() error {
 	// If Indexed is true, IndexOptions must not be NONE
-	if ft.Indexed && ft.IndexOptions == schema.IndexOptionsNone {
+	if ft.indexed && ft.indexOptions == spi.IndexOptionsNone {
 		return fmt.Errorf("if Indexed is true, IndexOptions must not be NONE")
 	}
 	// If Tokenized is true, field must be indexed
-	if ft.Tokenized && !ft.Indexed {
+	if ft.tokenized && !ft.indexed {
 		return fmt.Errorf("if Tokenized is true, field must be indexed")
 	}
 	return nil
@@ -464,39 +454,39 @@ func (ft *FieldType) Validate() error {
 func (ft *FieldType) String() string {
 	var parts []string
 
-	if ft.Stored {
+	if ft.stored {
 		parts = append(parts, "stored")
 	}
 	if ft.IsIndexed() {
 		parts = append(parts, "indexed")
-		if ft.Tokenized {
+		if ft.tokenized {
 			parts = append(parts, "tokenized")
 		}
-		parts = append(parts, "indexOptions="+ft.IndexOptions.String())
+		parts = append(parts, "indexOptions="+ft.indexOptions.String())
 	}
-	if ft.StoreTermVectors {
+	if ft.storeTermVectors {
 		parts = append(parts, "termVectors")
 	}
-	if ft.StoreTermVectorOffsets {
+	if ft.storeTermVectorOffsets {
 		parts = append(parts, "termVectorOffsets")
 	}
-	if ft.StoreTermVectorPositions {
+	if ft.storeTermVectorPositions {
 		parts = append(parts, "termVectorPositions")
 	}
-	if ft.StoreTermVectorPayloads {
+	if ft.storeTermVectorPayloads {
 		parts = append(parts, "termVectorPayloads")
 	}
-	if ft.OmitNorms {
+	if ft.omitNorms {
 		parts = append(parts, "omitNorms")
 	}
-	if ft.DocValuesType != schema.DocValuesTypeNone {
-		parts = append(parts, "docValuesType="+ft.DocValuesType.String())
+	if ft.docValuesType != spi.DocValuesTypeNone {
+		parts = append(parts, "docValuesType="+ft.docValuesType.String())
 	}
 	if ft.PointDimensionCount() > 0 {
 		parts = append(parts, fmt.Sprintf("pointDimensions=%d/%d/%d", ft.PointDimensionCount(), ft.PointIndexDimensionCount(), ft.PointNumBytes()))
 	}
-	if ft.VectorDimension > 0 {
-		parts = append(parts, fmt.Sprintf("vectorDimension=%d", ft.VectorDimension))
+	if ft.vectorDimension > 0 {
+		parts = append(parts, fmt.Sprintf("vectorDimension=%d", ft.vectorDimension))
 	}
 
 	return fmt.Sprintf("FieldType(%s)", strings.Join(parts, ", "))

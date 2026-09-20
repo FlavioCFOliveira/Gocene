@@ -5,6 +5,7 @@
 package highlight
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -56,30 +57,30 @@ func extractQueryTerms(query search.Query, field string, boost float32, terms []
 	switch q := query.(type) {
 
 	case *search.TermQuery:
-		t := q.Term()
+		t := q.GetTerm()
 		if t != nil {
 			add(t.Field, t.Text(), boost)
 		}
 
 	case *search.PhraseQuery:
-		for _, t := range q.Terms() {
+		for _, t := range q.GetTerms() {
 			if t != nil {
 				add(t.Field, t.Text(), boost)
 			}
 		}
 
-	case *search.SpanTermQuery:
-		t := q.Term()
+	case *spans.SpanTermQuery:
+		t := q.GetTerm()
 		if t != nil {
 			add(t.Field, t.Text(), boost)
 		}
 
 	case *search.BooleanQuery:
 		for _, clause := range q.Clauses() {
-			if clause == nil || clause.Occur == search.MUST_NOT {
+			if clause == nil || clause.Occur() == search.MUST_NOT {
 				continue
 			}
-			terms = extractQueryTerms(clause.Query, field, boost, terms, weights)
+			terms = extractQueryTerms(clause.Query(), field, boost, terms, weights)
 		}
 
 	case *search.BoostQuery:
@@ -91,7 +92,7 @@ func extractQueryTerms(query search.Query, field string, boost float32, terms []
 		}
 
 	case *search.ConstantScoreQuery:
-		terms = extractQueryTerms(q.Query(), field, boost, terms, weights)
+		terms = extractQueryTerms(q.GetQuery(), field, boost, terms, weights)
 
 	default:
 		// Best-effort fallback: query types without a structural Terms()

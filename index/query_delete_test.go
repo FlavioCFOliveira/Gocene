@@ -2,11 +2,19 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Coverage for IndexWriter.DeleteDocumentsQuery wired to the default
-// QueryDeleteExecutor registered by the search package (rmp #13): query-based
+// Coverage for IndexWriter.DeleteDocumentsQuery against the real mechanism:
+// FrozenBufferedUpdates.applyQueryDeletes evaluates each query per segment
+// through the spi.QueryScorerSource that package search registers (the port of
+// `new IndexSearcher(readerContext.reader())` in
+// org.apache.lucene.index.FrozenBufferedUpdates#applyQueryDeletes). Query-based
 // deletes are applied to committed segments and become visible after commit,
-// and an unsupported query value surfaces a clear error rather than being
-// silently dropped.
+// and a Query that is not an org.apache.lucene.search.Query surfaces a clear
+// error rather than being silently dropped.
+//
+// This file replaces the coverage of the removed QueryDeleteExecutor registry,
+// whose producer no longer existed and whose design — one DirectoryReader over
+// every committed segment, a global search, and a global-to-segment docID
+// remap — is not Lucene's.
 
 package index_test
 
@@ -18,9 +26,11 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 
-	// Registers the default QueryDeleteExecutor and the production codec.
+	// Registers the production codec and, through package search, the
+	// spi.QueryScorerSource factory applyQueryDeletes constructs per segment.
 	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
@@ -53,7 +63,8 @@ func TestQueryDelete_AppliedAfterCommit(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	if _, err := w.DeleteDocumentsQuery(search.NewTermQuery(index.NewTerm("id", "aaa"))); err != nil {
+	query := search.NewTermQuery(index.NewTerm("id", "aaa"))
+	if _, err := w.DeleteDocumentsQuery([]index.Query{query}); err != nil {
 		t.Fatalf("DeleteDocumentsQuery: %v", err)
 	}
 	if err := w.Commit(); err != nil {
@@ -84,8 +95,17 @@ func TestQueryDelete_AppliedAfterCommit(t *testing.T) {
 	}
 }
 
-// TestQueryDelete_UnsupportedTypeErrors verifies that buffering a non-Query
-// value yields a clear error at commit instead of a silent no-op.
+// foreignQuery satisfies the shared spi.Query contract but is not an
+// org.apache.lucene.search.Query, so it can be buffered as a delete but cannot
+// be rewritten or scored.
+type foreignQuery struct{}
+
+func (foreignQuery) Equals(other spi.Query) bool { _, ok := other.(foreignQuery); return ok }
+func (foreignQuery) HashCode() int               { return 0 }
+
+// TestQueryDelete_UnsupportedTypeErrors verifies that a query which is not an
+// org.apache.lucene.search.Query yields a clear error at commit instead of a
+// silent no-op. Silently dropping it would under-delete.
 func TestQueryDelete_UnsupportedTypeErrors(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
@@ -98,8 +118,7 @@ func TestQueryDelete_UnsupportedTypeErrors(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	// A plain string is not a search.Query.
-	if _, err := w.DeleteDocumentsQuery("not-a-query"); err != nil {
+	if _, err := w.DeleteDocumentsQuery([]index.Query{foreignQuery{}}); err != nil {
 		t.Fatalf("DeleteDocumentsQuery (buffering) should not error: %v", err)
 	}
 	err = w.Commit()

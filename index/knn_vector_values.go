@@ -1,31 +1,21 @@
 package index
 
 import (
-	"io"
-
-	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// KnnVectorValues abstracts addressing of document vector values.
-type KnnVectorValues interface {
-	// Dimension returns the dimension of the vectors.
-	Dimension() int
+// KnnVectorValues abstracts addressing of document vector values. It is the
+// Go port of org.apache.lucene.index.KnnVectorValues from Apache Lucene
+// 10.5.0.
+//
+// Lucene declares the class once; spi carries the declaration because
+// spi.LeafReader and spi.KnnVectorsReader must name it, so the index spelling
+// is an alias.
+type KnnVectorValues = spi.KnnVectorValues
 
-	// Size returns the number of vectors for this field.
-	Size() int
-
-	// OrdToDoc returns the docid of the document indexed with the given vector ordinal.
-	OrdToDoc(ord int) int
-
-	// Prefetch prefetches the provided ordinals.
-	Prefetch(ordsToPrefetch []int, numOrds int) error
-
-	// Copy creates a new copy of this KnnVectorValues.
-	Copy() (KnnVectorValues, error)
-
-	// GetEncoding returns the vector encoding of these values.
-	GetEncoding() VectorEncoding
-
-	// Iterator creates an iterator for this instance.
-	Iterator() util.DocIndexIterator
-}
+// DocIndexIterator is a DocIdSetIterator that also provides an Index method
+// tracking a distinct ordinal for a vector associated with each doc. It is the
+// Go port of the nested class
+// org.apache.lucene.index.KnnVectorValues.DocIndexIterator, declared in spi
+// alongside [KnnVectorValues].
+type DocIndexIterator = spi.DocIndexIterator

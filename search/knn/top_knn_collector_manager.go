@@ -15,6 +15,7 @@ package knn
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
 )
 
@@ -56,13 +57,13 @@ func (m *TopKnnCollectorManager) Searcher() any { return m.searcher }
 // configured k, the supplied visited limit, and the optional search
 // strategy. The leaf context parameter is ignored, matching the Java
 // reference.
-func (m *TopKnnCollectorManager) NewCollector(visitedLimit int, searchStrategy KnnSearchStrategy, _ *index.LeafReaderContext) (hnsw.KnnCollector, error) {
+func (m *TopKnnCollectorManager) NewCollector(visitedLimit int, searchStrategy KnnSearchStrategy, _ *index.LeafReaderContext) (spi.KnnCollector, error) {
 	return hnsw.NewTopKnnCollector(m.k, visitedLimit, asHnswStrategy(searchStrategy)), nil
 }
 
 // NewOptimisticCollector returns a fresh [hnsw.TopKnnCollector]
 // scaled to the supplied k. Mirrors the Java override.
-func (m *TopKnnCollectorManager) NewOptimisticCollector(visitedLimit int, searchStrategy KnnSearchStrategy, _ *index.LeafReaderContext, k int) (hnsw.KnnCollector, error) {
+func (m *TopKnnCollectorManager) NewOptimisticCollector(visitedLimit int, searchStrategy KnnSearchStrategy, _ *index.LeafReaderContext, k int) (spi.KnnCollector, error) {
 	return hnsw.NewTopKnnCollector(k, visitedLimit, asHnswStrategy(searchStrategy)), nil
 }
 
@@ -71,31 +72,31 @@ func (m *TopKnnCollectorManager) NewOptimisticCollector(visitedLimit int, search
 func (m *TopKnnCollectorManager) IsOptimistic() bool { return true }
 
 // asHnswStrategy adapts a knn.KnnSearchStrategy to the narrower
-// hnsw.KnnSearchStrategy interface accepted by the hnsw collector
+// spi.KnnSearchStrategy interface accepted by the hnsw collector
 // constructors. Returns nil for a nil input.
 //
-// Because Hnsw and Seeded both satisfy hnsw.KnnSearchStrategy (the
+// Because Hnsw and Seeded both satisfy spi.KnnSearchStrategy (the
 // compile-time guards in knn_search_strategy.go assert this), this
 // is a straightforward interface narrowing. The branch on nil keeps
 // the typed-nil pitfall at bay: passing a nil knn.KnnSearchStrategy
-// must produce a nil hnsw.KnnSearchStrategy.
-func asHnswStrategy(s KnnSearchStrategy) hnsw.KnnSearchStrategy {
+// must produce a nil spi.KnnSearchStrategy.
+func asHnswStrategy(s KnnSearchStrategy) spi.KnnSearchStrategy {
 	if s == nil {
 		return nil
 	}
-	if h, ok := s.(hnsw.KnnSearchStrategy); ok {
+	if h, ok := s.(spi.KnnSearchStrategy); ok {
 		return h
 	}
 	// Should be unreachable: KnnSearchStrategy implementations in
 	// this package are required by var-guards to also satisfy
-	// hnsw.KnnSearchStrategy. Fall back to a thin wrapper.
+	// spi.KnnSearchStrategy. Fall back to a thin wrapper.
 	return strategyAdapter{wrapped: s}
 }
 
 // strategyAdapter narrows an arbitrary knn.KnnSearchStrategy down to
-// the hnsw.KnnSearchStrategy interface. Only ever instantiated when
+// the spi.KnnSearchStrategy interface. Only ever instantiated when
 // asHnswStrategy receives a strategy implemented outside this package
-// that does not directly satisfy hnsw.KnnSearchStrategy.
+// that does not directly satisfy spi.KnnSearchStrategy.
 type strategyAdapter struct{ wrapped KnnSearchStrategy }
 
 // NextVectorsBlock forwards to the wrapped strategy.

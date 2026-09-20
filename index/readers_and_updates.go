@@ -67,9 +67,7 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
-	"time"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -128,13 +126,65 @@ var ErrReadersAndUpdatesUpdateNotFinished = errors.New(
 // RamBytesUsed mirrors Lucene's {@code DocValuesFieldUpdates#ramBytesUsed()}.
 // BinaryDocValuesFieldUpdates already overrides it with auxiliary-array
 // awareness; the orchestrator only needs the polymorphic dispatch.
-type dvUpdatePacket interface {
+type DocValuesFieldUpdates interface {
 	Field() string
 	Type() DocValuesType
 	DelGen() int64
 	GetFinished() bool
 	Any() bool
 	RamBytesUsed() int64
+}
+
+// dvUpdatePacket is the internal spelling of [DocValuesFieldUpdates], kept for
+// the call sites that predate the exported name.
+type dvUpdatePacket = DocValuesFieldUpdates
+
+// dvUpdatesIterable is the iterator factory the concrete numeric and binary
+// packets add on top of the shared [BaseDocValuesFieldUpdates] bookkeeping.
+// Mirrors the abstract {@code DocValuesFieldUpdates#iterator()}, which Lucene
+// declares on the base class and implements in each subclass.
+type dvUpdatesIterable interface {
+	Iterator() DocValuesFieldUpdatesIterator
+}
+
+// dvIterator is the doc-values iteration surface [mergedDocValues] needs from
+// both the on-disk and the update-side instance. Both [NumericDocValues] and
+// [BinaryDocValues] — the two instantiations — satisfy it, mirroring the
+// {@code DocValuesInstance extends DocValuesIterator} bound Lucene puts on
+// MergedDocValues.
+type dvIterator interface {
+	DocID() int
+	NextDoc() (int, error)
+	Cost() int64
+}
+
+// ErrMergedDocValuesUnsupported is returned by the random-access entry points
+// of the merged doc-values view. Mirrors the UnsupportedOperationException
+// MergedDocValues.advance / advanceExact throw: the merged view is strictly
+// forward-only.
+var ErrMergedDocValuesUnsupported = errors.New(
+	"readers and updates: merged doc values support forward iteration only",
+)
+
+// dvIntoBitSet fills bitSet with the documents it iterates up to upTo. It
+// forwards to the iterator's own bulk primitive when the implementation
+// provides one (Lucene declares intoBitSet on DocIdSetIterator) and otherwise
+// runs the per-document loop of Lucene's default implementation.
+func dvIntoBitSet(it dvIterator, upTo int, bitSet *util.FixedBitSet, offset int) error {
+	if bulk, ok := any(it).(interface {
+		IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error
+	}); ok {
+		return bulk.IntoBitSet(upTo, bitSet, offset)
+	}
+	for doc := it.DocID(); doc < upTo; {
+		bitSet.Set(doc - offset)
+		next, err := it.NextDoc()
+		if err != nil {
+			return err
+		}
+		doc = next
+	}
+	return nil
 }
 
 // readersAndUpdatesPacket is the concrete adapter Gocene uses today.
@@ -149,7 +199,7 @@ type readersAndUpdatesPacket struct {
 // instance and merges the two instances giving the incoming update precedence
 // in terms of values, in other words the values of the update always win
 // over the on-disk version.
-type mergedDocValues[T any] struct {
+type mergedDocValues[T dvIterator] struct {
 	updateIterator DocValuesFieldUpdatesIterator
 	docIDOut       int
 	docIDOnDisk    int
@@ -160,7 +210,7 @@ type mergedDocValues[T any] struct {
 	scratch        *util.FixedBitSet
 }
 
-func newMergedDocValues[T any](onDisk T, update T, updateIterator DocValuesFieldUpdatesIterator) *mergedDocValues[T] {
+func newMergedDocValues[T dvIterator](onDisk T, update T, updateIterator DocValuesFieldUpdatesIterator) *mergedDocValues[T] {
 	return &mergedDocValues[T]{
 		onDisk:         onDisk,
 		update:         update,
@@ -171,14 +221,22 @@ func newMergedDocValues[T any](onDisk T, update T, updateIterator DocValuesField
 	}
 }
 
-func (m *mergedDocValues[T]) nextDoc(onDiskNext func() int, updateNext func() int) int {
+func (m *mergedDocValues[T]) nextDoc(onDiskNext func() (int, error), updateNext func() (int, error)) (int, error) {
 	hasValue := false
 	for {
 		if m.docIDOnDisk == m.docIDOut {
-			m.docIDOnDisk = onDiskNext()
+			doc, err := onDiskNext()
+			if err != nil {
+				return 0, err
+			}
+			m.docIDOnDisk = doc
 		}
 		if m.updateDocID == m.docIDOut {
-			m.updateDocID = updateNext()
+			doc, err := updateNext()
+			if err != nil {
+				return 0, err
+			}
+			m.updateDocID = doc
 		}
 		if m.docIDOnDisk < m.updateDocID {
 			m.docIDOut = m.docIDOnDisk
@@ -197,48 +255,70 @@ func (m *mergedDocValues[T]) nextDoc(onDiskNext func() int, updateNext func() in
 			break
 		}
 	}
-	return m.docIDOut
+	return m.docIDOut, nil
 }
 
-func (m *mergedDocValues[T]) intoBitSet(upTo int, bitSet *util.FixedBitSet, offset int, onDiskIntoBitSet func(*util.FixedBitSet, int, int)) {
-	if m.onDisk == nil {
-		for doc := m.update.DocID(); doc < upTo; doc = m.update.NextDoc() {
+func (m *mergedDocValues[T]) intoBitSet(upTo int, bitSet *util.FixedBitSet, offset int, onDiskIntoBitSet func(*util.FixedBitSet, int, int) error) error {
+	if any(m.onDisk) == nil {
+		for doc := m.update.DocID(); doc < upTo; {
 			if m.updateIterator.HasValue() {
 				bitSet.Set(doc - offset)
 			} else {
 				bitSet.Clear(doc - offset)
 			}
+			next, err := m.update.NextDoc()
+			if err != nil {
+				return err
+			}
+			doc = next
 		}
-		return
+		return nil
 	}
 
 	if m.scratch == nil {
-		m.scratch = util.NewFixedBitSet(bitSet.Length())
+		scratch, err := util.NewFixedBitSet(bitSet.Length())
+		if err != nil {
+			return err
+		}
+		m.scratch = scratch
 	} else {
 		m.scratch = util.EnsureCapacityAndClear(m.scratch, bitSet.Length()-1)
 	}
 
-	onDiskIntoBitSet(m.scratch, offset, upTo)
+	if err := onDiskIntoBitSet(m.scratch, offset, upTo); err != nil {
+		return err
+	}
 	m.docIDOnDisk = m.onDisk.DocID()
 
-	for doc := m.update.DocID(); doc < upTo; doc = m.update.NextDoc() {
+	for doc := m.update.DocID(); doc < upTo; {
 		if m.updateIterator.HasValue() {
 			m.scratch.Set(doc - offset)
 		} else {
 			m.scratch.Clear(doc - offset)
 		}
+		next, err := m.update.NextDoc()
+		if err != nil {
+			return err
+		}
+		doc = next
 	}
 
 	util.FixedBitSetOrRange(m.scratch, 0, bitSet, 0, bitSet.Length())
 
 	for {
 		for m.update.DocID() < m.docIDOnDisk && !m.updateIterator.HasValue() {
-			m.update.NextDoc()
+			if _, err := m.update.NextDoc(); err != nil {
+				return err
+			}
 		}
 		if m.docIDOnDisk != util.NO_MORE_DOCS &&
 			m.update.DocID() == m.docIDOnDisk &&
 			!m.updateIterator.HasValue() {
-			m.docIDOnDisk = m.onDisk.NextDoc()
+			next, err := m.onDisk.NextDoc()
+			if err != nil {
+				return err
+			}
+			m.docIDOnDisk = next
 		} else {
 			break
 		}
@@ -252,8 +332,12 @@ func (m *mergedDocValues[T]) intoBitSet(upTo int, bitSet *util.FixedBitSet, offs
 		m.docIDOut = m.updateDocID
 		m.current = m.update
 	}
+	return nil
 }
 
+// numericMergedDocValues is the anonymous NumericDocValues the producer
+// handed to DocValuesConsumer.addNumericField returns: the merge sort of the
+// original doc values with the updated doc values.
 type numericMergedDocValues struct {
 	merged *mergedDocValues[NumericDocValues]
 }
@@ -262,12 +346,15 @@ func (n *numericMergedDocValues) LongValue() (int64, error) {
 	return n.merged.current.LongValue()
 }
 
+// Advance is unsupported: the merged view is forward-only. Mirrors
+// MergedDocValues.advance, which throws UnsupportedOperationException.
 func (n *numericMergedDocValues) Advance(target int) (int, error) {
-	return n.merged.nextDoc(n.merged.onDisk.NextDoc, n.merged.update.NextDoc), nil
+	return 0, ErrMergedDocValuesUnsupported
 }
 
+// AdvanceExact is unsupported, mirroring MergedDocValues.advanceExact.
 func (n *numericMergedDocValues) AdvanceExact(target int) (bool, error) {
-	panic("unsupported")
+	return false, ErrMergedDocValuesUnsupported
 }
 
 func (n *numericMergedDocValues) DocID() int {
@@ -275,20 +362,28 @@ func (n *numericMergedDocValues) DocID() int {
 }
 
 func (n *numericMergedDocValues) NextDoc() (int, error) {
-	return n.merged.nextDoc(n.merged.onDisk.NextDoc, n.merged.update.NextDoc), nil
+	return n.merged.nextDoc(n.merged.onDisk.NextDoc, n.merged.update.NextDoc)
 }
 
 func (n *numericMergedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
-	n.merged.intoBitSet(upTo, bitSet, offset, func(s *util.FixedBitSet, off, u int) {
-		n.merged.onDisk.IntoBitSet(u, s, off)
+	return n.merged.intoBitSet(upTo, bitSet, offset, func(s *util.FixedBitSet, off, u int) error {
+		return dvIntoBitSet(n.merged.onDisk, u, s, off)
 	})
-	return nil
 }
 
 func (n *numericMergedDocValues) Cost() int64 {
 	return n.merged.onDisk.Cost()
 }
 
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd(),
+// which the Java anonymous NumericDocValues does not override.
+func (n *numericMergedDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(n)
+}
+
+// binaryMergedDocValues is the anonymous BinaryDocValues the producer handed
+// to DocValuesConsumer.addBinaryField returns: the merge sort of the original
+// doc values with the updated doc values.
 type binaryMergedDocValues struct {
 	merged *mergedDocValues[BinaryDocValues]
 }
@@ -297,12 +392,15 @@ func (b *binaryMergedDocValues) BinaryValue() ([]byte, error) {
 	return b.merged.current.BinaryValue()
 }
 
+// Advance is unsupported: the merged view is forward-only. Mirrors
+// MergedDocValues.advance, which throws UnsupportedOperationException.
 func (b *binaryMergedDocValues) Advance(target int) (int, error) {
-	return b.merged.nextDoc(b.merged.onDisk.NextDoc, b.merged.update.NextDoc), nil
+	return 0, ErrMergedDocValuesUnsupported
 }
 
+// AdvanceExact is unsupported, mirroring MergedDocValues.advanceExact.
 func (b *binaryMergedDocValues) AdvanceExact(target int) (bool, error) {
-	panic("unsupported")
+	return false, ErrMergedDocValuesUnsupported
 }
 
 func (b *binaryMergedDocValues) DocID() int {
@@ -310,19 +408,96 @@ func (b *binaryMergedDocValues) DocID() int {
 }
 
 func (b *binaryMergedDocValues) NextDoc() (int, error) {
-	return b.merged.nextDoc(b.merged.onDisk.NextDoc, b.merged.update.NextDoc), nil
+	return b.merged.nextDoc(b.merged.onDisk.NextDoc, b.merged.update.NextDoc)
 }
 
 func (b *binaryMergedDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
-	b.merged.intoBitSet(upTo, bitSet, offset, func(s *util.FixedBitSet, off, u int) {
-		b.merged.onDisk.IntoBitSet(u, s, off)
+	return b.merged.intoBitSet(upTo, bitSet, offset, func(s *util.FixedBitSet, off, u int) error {
+		return dvIntoBitSet(b.merged.onDisk, u, s, off)
 	})
-	return nil
 }
 
 func (b *binaryMergedDocValues) Cost() int64 {
 	return b.merged.onDisk.Cost()
 }
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd(),
+// which the Java anonymous BinaryDocValues does not override.
+func (b *binaryMergedDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(b)
+}
+
+// dvUpdateSupplier renders the DocValuesFieldUpdates::iterator supplier
+// handleDVUpdates hands to the doc values producers.
+type dvUpdateSupplier func(fi *spi.FieldInfo) (DocValuesFieldUpdatesIterator, error)
+
+// readersAndUpdatesBinaryDocValuesProducer is the anonymous
+// EmptyDocValuesProducer subclass handleDVUpdates hands to
+// DocValuesConsumer.addBinaryField: every call merges the on-disk values with
+// a fresh iterator over the updates.
+type readersAndUpdatesBinaryDocValuesProducer struct {
+	EmptyDocValuesProducer
+	fieldInfo      *spi.FieldInfo
+	reader         *SegmentReader
+	field          string
+	updateSupplier dvUpdateSupplier
+}
+
+// GetBinary merge-sorts the original doc values with the updated doc values.
+func (p *readersAndUpdatesBinaryDocValuesProducer) GetBinary(*spi.FieldInfo) (BinaryDocValues, error) {
+	valuesIterator, err := p.updateSupplier(p.fieldInfo)
+	if err != nil {
+		return nil, err
+	}
+	docsIterator, err := p.updateSupplier(p.fieldInfo)
+	if err != nil {
+		return nil, err
+	}
+	onDisk, err := p.reader.GetBinaryDocValues(p.field)
+	if err != nil {
+		return nil, err
+	}
+	return &binaryMergedDocValues{
+		merged: newMergedDocValues(onDisk, AsBinaryDocValues(valuesIterator), docsIterator),
+	}, nil
+}
+
+// GetMergeInstance returns the receiver (DocValuesProducer default).
+func (p *readersAndUpdatesBinaryDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
+
+// readersAndUpdatesNumericDocValuesProducer is the anonymous
+// EmptyDocValuesProducer subclass handleDVUpdates hands to
+// DocValuesConsumer.addNumericField: every call merges the on-disk values with
+// a fresh iterator over the updates.
+type readersAndUpdatesNumericDocValuesProducer struct {
+	EmptyDocValuesProducer
+	fieldInfo      *spi.FieldInfo
+	reader         *SegmentReader
+	field          string
+	updateSupplier dvUpdateSupplier
+}
+
+// GetNumeric merge-sorts the original doc values with the updated doc values.
+func (p *readersAndUpdatesNumericDocValuesProducer) GetNumeric(*spi.FieldInfo) (NumericDocValues, error) {
+	valuesIterator, err := p.updateSupplier(p.fieldInfo)
+	if err != nil {
+		return nil, err
+	}
+	docsIterator, err := p.updateSupplier(p.fieldInfo)
+	if err != nil {
+		return nil, err
+	}
+	onDisk, err := p.reader.GetNumericDocValues(p.field)
+	if err != nil {
+		return nil, err
+	}
+	return &numericMergedDocValues{
+		merged: newMergedDocValues(onDisk, AsNumericDocValues(valuesIterator), docsIterator),
+	}, nil
+}
+
+// GetMergeInstance returns the receiver (DocValuesProducer default).
+func (p *readersAndUpdatesNumericDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
 
 // ReadersAndUpdates holds an open [SegmentReader] (for searching or
 // merging), plus pending deletes and resolved doc-values updates, for a
@@ -379,7 +554,7 @@ type ReadersAndUpdates struct {
 	// sortMap is set only when there are DV updates against this
 	// segment AND the index is sorted. Mirrors Lucene's package-private
 	// {@code Sorter.DocMap}.
-	sortMap sortDocMap
+	sortMap SorterDocMap
 
 	// ramBytesUsed accumulates the RAM footprint of the pending DV
 	// updates held by this entry. Decremented by PruneAppliedDVUpdates.
@@ -506,7 +681,7 @@ func (r *ReadersAndUpdates) GetDelCount() int {
 //
 // When [ReadersAndUpdates.IsMerging] is true the packet is mirrored
 // into mergingDVUpdates for end-of-merge carry-over.
-func (r *ReadersAndUpdates) AddDVUpdate(update *BaseDocValuesFieldUpdates) error {
+func (r *ReadersAndUpdates) AddDVUpdate(update DocValuesFieldUpdates) error {
 	if update == nil {
 		return fmt.Errorf("readers and updates: update must not be nil")
 	}
@@ -726,16 +901,26 @@ func (r *ReadersAndUpdates) WriteLiveDocs(dir store.Directory) (bool, error) {
 	return r.pendingDeletes.WriteLiveDocs(dir)
 }
 
+// fileNameSet projects the TrackingDirectoryWrapper's name -> length map onto
+// the plain name set SegmentCommitInfo stores for its generational files.
+func fileNameSet(files map[string]int64) map[string]struct{} {
+	out := make(map[string]struct{}, len(files))
+	for name := range files {
+		out[name] = struct{}{}
+	}
+	return out
+}
+
 func (r *ReadersAndUpdates) writeFieldInfosGen(
-	fieldInfos *schema.FieldInfos,
+	fieldInfos *spi.FieldInfos,
 	dir store.Directory,
 	infosFormat spi.FieldInfosFormat,
-) (map[string]int64, error) {
+) (map[string]struct{}, error) {
 	nextFieldInfosGen := r.info.NextFieldInfosGen()
 	segmentSuffix := strconv.FormatInt(nextFieldInfosGen, 36)
 
 	estInfosSize := int64(40 + 90*fieldInfos.Size())
-	infosContext := store.NewFlushIOContext(r.info.SegmentInfo().DocCount(), estInfosSize)
+	infosContext := store.NewFlushContext(store.NewFlushInfo(r.info.SegmentInfo().DocCount(), estInfosSize))
 
 	trackingDir := store.NewTrackingDirectoryWrapper(dir)
 	err := infosFormat.Write(trackingDir, r.info.SegmentInfo(), segmentSuffix, fieldInfos, infosContext)
@@ -743,15 +928,15 @@ func (r *ReadersAndUpdates) writeFieldInfosGen(
 		return nil, err
 	}
 	r.info.AdvanceFieldInfosGen()
-	return trackingDir.GetCreatedFiles(), nil
+	return fileNameSet(trackingDir.GetCreatedFiles()), nil
 }
 
 func (r *ReadersAndUpdates) handleDVUpdates(
-	infos *schema.FieldInfos,
+	infos *spi.FieldInfos,
 	dir store.Directory,
 	dvFormat spi.DocValuesFormat,
 	reader *SegmentReader,
-	fieldFiles map[int]map[string]int64,
+	fieldFiles map[int]map[string]struct{},
 	maxDelGen int64,
 	infoStream util.InfoStream,
 ) error {
@@ -783,7 +968,7 @@ func (r *ReadersAndUpdates) handleDVUpdates(
 
 		nextDocValuesGen := r.info.NextDocValuesGen()
 		segmentSuffix := strconv.FormatInt(nextDocValuesGen, 36)
-		updatesContext := store.NewFlushIOContext(r.info.SegmentInfo().DocCount(), bytes)
+		updatesContext := store.NewFlushContext(store.NewFlushInfo(r.info.SegmentInfo().DocCount(), bytes))
 
 		fieldInfo := infos.FieldInfoByName(field)
 		if fieldInfo == nil {
@@ -791,59 +976,73 @@ func (r *ReadersAndUpdates) handleDVUpdates(
 		}
 		fieldInfo.SetDocValuesGen(nextDocValuesGen)
 
-		fieldInfos := schema.NewFieldInfos([]*schema.FieldInfo{fieldInfo})
+		fieldInfos := spi.NewFieldInfos(fieldInfo)
 		trackingDir := store.NewTrackingDirectoryWrapper(dir)
-		state := NewSegmentWriteStateWithSuffix(infoStream, trackingDir, r.info.SegmentInfo(), fieldInfos, nil, updatesContext, segmentSuffix)
+		state := NewSegmentWriteStateWithSuffix(nil, trackingDir, r.info.SegmentInfo(), fieldInfos, nil, updatesContext, segmentSuffix)
 
 		fieldsConsumer, err := dvFormat.FieldsConsumer(state)
 		if err != nil {
 			return err
 		}
 
-		updateSupplier := func(fi *schema.FieldInfo) DocValuesFieldUpdatesIterator {
+		// Mirrors the DocValuesFieldUpdates::iterator supplier Lucene hands to
+		// the consumer. The concrete numeric/binary packet supplies the
+		// iterator; the shared base does not, so a packet that only carries the
+		// base bookkeeping is reported rather than silently skipped.
+		updateSupplier := dvUpdateSupplier(func(fi *spi.FieldInfo) (DocValuesFieldUpdatesIterator, error) {
 			if fi.Name() != fieldInfo.Name() {
-				panic(fmt.Sprintf("expected field info for field: %s but got: %s", fieldInfo.Name(), fi.Name()))
+				return nil, fmt.Errorf("expected field info for field: %s but got: %s", fieldInfo.Name(), fi.Name())
 			}
 			subs := make([]DocValuesFieldUpdatesIterator, len(updatesToApply))
 			for i, u := range updatesToApply {
-				subs[i] = u.inner.(*BaseDocValuesFieldUpdates).Iterator()
+				iterable, ok := u.inner.(dvUpdatesIterable)
+				if !ok {
+					return nil, fmt.Errorf("doc values update packet for field %s (%T) exposes no iterator", field, u.inner)
+				}
+				subs[i] = iterable.Iterator()
 			}
-			return MergedDocValuesFieldUpdatesIterator(subs)
-		}
+			return MergedDocValuesFieldUpdatesIterator(subs), nil
+		})
 
 		if dvType == DocValuesTypeBinary {
-			err = fieldsConsumer.AddBinaryField(fieldInfo, &binaryMergedDocValues{
-				merged: newMergedDocValues(reader.GetBinaryDocValues(field),
-					AsBinaryDocValues(updateSupplier(fieldInfo)),
-					updateSupplier(fieldInfo)),
+			// write the binary updates to a new gen'd docvalues file
+			err = fieldsConsumer.AddBinaryField(fieldInfo, &readersAndUpdatesBinaryDocValuesProducer{
+				fieldInfo:      fieldInfo,
+				reader:         reader,
+				field:          field,
+				updateSupplier: updateSupplier,
 			})
 		} else {
-			err = fieldsConsumer.AddNumericField(fieldInfo, &numericMergedDocValues{
-				merged: newMergedDocValues(reader.GetNumericDocValues(field),
-					AsNumericDocValues(updateSupplier(fieldInfo)),
-					updateSupplier(fieldInfo)),
+			// write the numeric updates to a new gen'd docvalues file
+			err = fieldsConsumer.AddNumericField(fieldInfo, &readersAndUpdatesNumericDocValuesProducer{
+				fieldInfo:      fieldInfo,
+				reader:         reader,
+				field:          field,
+				updateSupplier: updateSupplier,
 			})
 		}
-		fieldsConsumer.Close()
+		if closeErr := fieldsConsumer.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
 		if err != nil {
 			return err
 		}
 
-		fieldFiles[fieldInfo.Number()] = trackingDir.GetCreatedFiles()
+		fieldFiles[fieldInfo.Number()] = fileNameSet(trackingDir.GetCreatedFiles())
 	}
 	return nil
 }
 
 func (r *ReadersAndUpdates) WriteFieldUpdates(
 	dir store.Directory,
-	fieldNumbers *schema.FieldNumbers,
+	fieldNumbers *spi.FieldNumbers,
 	maxDelGen int64,
 	infoStream util.InfoStream,
 ) (bool, error) {
 	startTime := util.Now()
-	newDVFiles := make(map[int]map[string]int64)
-	var fieldInfosFiles map[string]int64
-	var fieldInfos *schema.FieldInfos
+	newDVFiles := make(map[int]map[string]struct{})
+	var fieldInfosFiles map[string]struct{}
+	var fieldInfos *spi.FieldInfos
 	any := false
 	for _, updates := range r.pendingDVUpdates {
 		for _, update := range updates {
@@ -880,9 +1079,16 @@ func (r *ReadersAndUpdates) WriteFieldUpdates(
 		reader = r.reader
 	}
 
-	byName := make(map[string]*schema.FieldInfo)
+	byName := make(map[string]*spi.FieldInfo)
 	maxFieldNumber := -1
-	for _, fi := range reader.GetFieldInfos().Iterator() {
+	// FieldInfos is Iterable<FieldInfo> in Lucene; the Gocene port exposes the
+	// same traversal through Iterator().
+	it := reader.GetFieldInfos().Iterator()
+	for it.HasNext() {
+		fi := it.Next()
+		if fi == nil {
+			continue
+		}
 		byName[fi.Name()] = fi.Clone(fi.Number())
 		if fi.Number() > maxFieldNumber {
 			maxFieldNumber = fi.Number()
@@ -895,17 +1101,21 @@ func (r *ReadersAndUpdates) WriteFieldUpdates(
 		}
 		update := updates[0]
 		field := update.inner.Field()
-		if fi, ok := byName[field]; ok {
-			// field already exists
-		} else {
+		if _, ok := byName[field]; !ok {
 			fi := fieldNumbers.ConstructFieldInfo(field, update.inner.Type(), maxFieldNumber+1)
 			maxFieldNumber++
 			byName[fi.Name()] = fi
 		}
 	}
-	fieldInfos = schema.NewFieldInfos(mapToSlice(byName))
+	fieldInfos = spi.NewFieldInfos(mapToSlice(byName)...)
 
-	codec := LookupCodecByName(r.info.SegmentInfo().Codec())
+	codec := r.info.SegmentInfo().Codec()
+	if codec == nil {
+		codec = GetDefaultCodec()
+	}
+	if codec == nil {
+		return false, fmt.Errorf("readers and updates: no codec for segment %s", r.info.SegmentInfo().Name())
+	}
 	err := r.handleDVUpdates(fieldInfos, trackingDir, codec.DocValuesFormat(), reader, newDVFiles, maxDelGen, infoStream)
 	if err != nil {
 		return false, err
@@ -930,7 +1140,9 @@ func (r *ReadersAndUpdates) WriteFieldUpdates(
 	r.info.SetDocValuesUpdatesFiles(newDVFiles)
 
 	if r.reader != nil {
-		r.swapNewReaderWithLatestLiveDocs()
+		if err := r.swapNewReaderWithLatestLiveDocs(); err != nil {
+			return false, err
+		}
 	}
 
 	if infoStream != nil && infoStream.IsEnabled("BD") {
@@ -941,8 +1153,8 @@ func (r *ReadersAndUpdates) WriteFieldUpdates(
 	return true, nil
 }
 
-func mapToSlice(m map[string]*schema.FieldInfo) []*schema.FieldInfo {
-	s := make([]*schema.FieldInfo, 0, len(m))
+func mapToSlice(m map[string]*spi.FieldInfo) []*spi.FieldInfo {
+	s := make([]*spi.FieldInfo, 0, len(m))
 	for _, v := range m {
 		s = append(s, v)
 	}
@@ -1045,6 +1257,44 @@ func (r *ReadersAndUpdates) DropMergingUpdates() {
 	r.isMerging = false
 }
 
+// swapNewReaderWithLatestLiveDocs replaces the open reader with a fresh one
+// that sees the latest live docs. Mirrors
+// {@code ReadersAndUpdates#swapNewReaderWithLatestLiveDocs()}. The caller must
+// hold r.mu.
+func (r *ReadersAndUpdates) swapNewReaderWithLatestLiveDocs() error {
+	newReader, err := r.createNewReaderWithLatestLiveDocs(r.reader)
+	if err != nil {
+		return err
+	}
+	r.reader = newReader
+	return nil
+}
+
+// createNewReaderWithLatestLiveDocs opens a reader over the same segment core
+// as reader but bound to the pending deletes' current live docs, then releases
+// the reference the old reader held. Mirrors
+// {@code ReadersAndUpdates#createNewReaderWithLatestLiveDocs(SegmentReader)}.
+func (r *ReadersAndUpdates) createNewReaderWithLatestLiveDocs(reader *SegmentReader) (*SegmentReader, error) {
+	if reader == nil {
+		return nil, fmt.Errorf("readers and updates: no open reader to refresh")
+	}
+	newReader := NewSegmentReaderClone(
+		r.info,
+		reader,
+		r.pendingDeletes.GetLiveDocs(),
+		r.pendingDeletes.GetHardLiveDocs(),
+		r.pendingDeletes.NumDocs(),
+		true,
+	)
+	if err := r.pendingDeletes.OnNewReader(newReader, r.info); err != nil {
+		return nil, err
+	}
+	if err := reader.DecRef(); err != nil {
+		return nil, err
+	}
+	return newReader, nil
+}
+
 // GetMergingDVUpdates returns the per-field list of DV update packets
 // gathered while this segment was being merged. Mirrors
 // {@code ReadersAndUpdates#getMergingDVUpdates()} — the call atomically
@@ -1054,16 +1304,16 @@ func (r *ReadersAndUpdates) DropMergingUpdates() {
 // The returned map is a shallow copy; mutating it does not affect the
 // internal state, but the per-field slices are shared with future
 // callers until those callers detach them.
-func (r *ReadersAndUpdates) GetMergingDVUpdates() map[string][]*BaseDocValuesFieldUpdates {
+func (r *ReadersAndUpdates) GetMergingDVUpdates() map[string][]DocValuesFieldUpdates {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.isMerging = false
-	out := make(map[string][]*BaseDocValuesFieldUpdates, len(r.mergingDVUpdates))
+	out := make(map[string][]DocValuesFieldUpdates, len(r.mergingDVUpdates))
 	for field, packets := range r.mergingDVUpdates {
-		typed := make([]*BaseDocValuesFieldUpdates, 0, len(packets))
+		typed := make([]DocValuesFieldUpdates, 0, len(packets))
 		for _, packet := range packets {
-			if base, ok := packet.inner.(*BaseDocValuesFieldUpdates); ok {
-				typed = append(typed, base)
+			if packet.inner != nil {
+				typed = append(typed, packet.inner)
 			}
 		}
 		out[field] = typed
@@ -1078,9 +1328,8 @@ func (r *ReadersAndUpdates) IsFullyDeleted() (bool, error) {
 	defer r.mu.Unlock()
 
 	if r.reader != nil {
-		if nrtr, ok := r.reader.(*NRTSegmentReader); ok {
-			return nrtr.NumDocs() == 0, nil
-		}
+		// An open reader already accounts for the deletions applied to it.
+		return r.reader.NumDocs() == 0, nil
 	}
 
 	return r.pendingDeletes.NumPendingDeletes() == r.info.SegmentInfo().DocCount(), nil
@@ -1096,7 +1345,7 @@ func (r *ReadersAndUpdates) KeepFullyDeletedSegment(_ MergePolicy) (bool, error)
 // SortMap returns the per-segment sort doc-map, or nil when the index
 // is not sorted. The setter is package-internal and reserved for the
 // future sort-aware DV writer path.
-func (r *ReadersAndUpdates) SortMap() sortDocMap {
+func (r *ReadersAndUpdates) SortMap() SorterDocMap {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.sortMap
@@ -1104,7 +1353,7 @@ func (r *ReadersAndUpdates) SortMap() sortDocMap {
 
 // SetSortMap installs the per-segment sort doc-map. Visible for the
 // (currently stubbed) DV-update writer.
-func (r *ReadersAndUpdates) SetSortMap(m sortDocMap) {
+func (r *ReadersAndUpdates) SetSortMap(m SorterDocMap) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sortMap = m

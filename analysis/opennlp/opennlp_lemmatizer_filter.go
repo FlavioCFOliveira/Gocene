@@ -8,6 +8,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/opennlp/tools"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"reflect"
 )
 
 // OpenNLPLemmatizerFilter runs dictionary-based and/or MaxEnt lemmatizers
@@ -43,9 +44,9 @@ func NewOpenNLPLemmatizerFilter(input analysis.TokenStream, lemmatizerOp *tools.
 	termImpl := analysis.NewCharTermAttributeImpl()
 	keywordImpl := analysis.NewKeywordAttributeImpl()
 	sentImpl := analysis.NewSentenceAttributeImpl()
-	base.AddAttribute(termImpl)
-	base.AddAttribute(keywordImpl)
-	base.AddAttribute(sentImpl)
+	base.AddAttribute(reflect.TypeOf((*analysis.CharTermAttribute)(nil)).Elem())
+	base.AddAttribute(reflect.TypeOf((*analysis.KeywordAttribute)(nil)).Elem())
+	base.AddAttribute(reflect.TypeOf((*analysis.SentenceAttribute)(nil)).Elem())
 
 	f.termAtt = termImpl
 	f.keywordAtt = keywordImpl

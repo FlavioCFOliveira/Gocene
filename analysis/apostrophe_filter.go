@@ -76,7 +76,9 @@ func (f *ApostropheFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*ApostropheFilter)(nil)
 
 // ApostropheFilterFactory creates ApostropheFilter instances.
-type ApostropheFilterFactory struct{}
+type ApostropheFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewApostropheFilterFactory returns a fresh factory.
 func NewApostropheFilterFactory() *ApostropheFilterFactory {

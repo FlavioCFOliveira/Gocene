@@ -23,7 +23,7 @@ type UnicodeWhitespaceAnalyzer struct {
 // NewUnicodeWhitespaceAnalyzer creates a new UnicodeWhitespaceAnalyzer.
 func NewUnicodeWhitespaceAnalyzer() *UnicodeWhitespaceAnalyzer {
 	a := &UnicodeWhitespaceAnalyzer{
-		BaseAnalyzer: analysis.NewAnalyzer(),
+		BaseAnalyzer: analysis.NewAnalyzer(analysis.GlobalReuseStrategy),
 	}
 	a.TokenizerFactory = &unicodeWhitespaceTokenizerFactory{}
 	return a

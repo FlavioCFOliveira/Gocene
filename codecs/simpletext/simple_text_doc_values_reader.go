@@ -60,7 +60,7 @@ type SimpleTextDocValuesReader struct {
 //
 // Port of SimpleTextDocValuesReader(SegmentReadState, String).
 func NewSimpleTextDocValuesReader(state *codecs.SegmentReadState, ext string) (*SimpleTextDocValuesReader, error) {
-	fileName := index.SegmentFileName(
+	fileName := store2.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		ext,
@@ -449,7 +449,7 @@ func (it *dvBinaryIter) Advance(target int) (int, error) {
 		}
 		// skip raw bytes
 		rawBuf := make([]byte, length)
-		if err := it.in.ReadBytes(rawBuf); err != nil {
+		if err := it.in.ReadBytes(rawBuf, 0, len(rawBuf)); err != nil {
 			return 0, fmt.Errorf("dvBinaryIter.Advance: readBytes: %w", err)
 		}
 		// newline after raw bytes
@@ -491,7 +491,7 @@ func dvReadBinaryValue(in store2.IndexInput, f *dvFieldMeta, docID int) ([]byte,
 		return nil, fmt.Errorf("dvReadBinaryValue: parse length: %w", err)
 	}
 	rawBuf := make([]byte, length)
-	if err := in.ReadBytes(rawBuf); err != nil {
+	if err := in.ReadBytes(rawBuf, 0, len(rawBuf)); err != nil {
 		return nil, fmt.Errorf("dvReadBinaryValue: readBytes: %w", err)
 	}
 	// rawBuf is the hex-encoded BytesRef string stored by bytesRefToString
@@ -593,7 +593,7 @@ func (it *dvSortedIter) LookupOrd(ord int) ([]byte, error) {
 		return nil, fmt.Errorf("dvSortedIter.LookupOrd: parse length: %w", err)
 	}
 	buf := make([]byte, length)
-	if err := it.in.ReadBytes(buf); err != nil {
+	if err := it.in.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, fmt.Errorf("dvSortedIter.LookupOrd: readBytes: %w", err)
 	}
 	return buf, nil
@@ -769,6 +769,13 @@ func (it *dvSortedSetIter) parseOrds(ordList string) error {
 	return nil
 }
 
+// DocValueCount returns the number of ordinals bound to the current document.
+//
+// Port of the docValueCount() override of the SortedSetDocValues returned by
+// SimpleTextDocValuesReader.getSortedSet (SimpleTextDocValuesReader.java:816):
+// {@code return currentOrds.length;}.
+func (it *dvSortedSetIter) DocValueCount() int { return len(it.currentOrds) }
+
 func (it *dvSortedSetIter) NextOrd() (int, error) {
 	if it.currentIdx >= len(it.currentOrds) {
 		return -1, nil
@@ -800,7 +807,7 @@ func (it *dvSortedSetIter) LookupOrd(ord int) ([]byte, error) {
 		return nil, fmt.Errorf("dvSortedSetIter.LookupOrd: parse length: %w", err)
 	}
 	buf := make([]byte, length)
-	if err := it.in.ReadBytes(buf); err != nil {
+	if err := it.in.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, fmt.Errorf("dvSortedSetIter.LookupOrd: readBytes: %w", err)
 	}
 	return buf, nil
@@ -823,6 +830,11 @@ func (r *SimpleTextDocValuesReader) GetSkipper(field *index.FieldInfo) (codecs.D
 // CheckIntegrity validates the checksum of the data file.
 //
 // Port of SimpleTextDocValuesReader.checkIntegrity().
+// GetMergeInstance returns the receiver. The corresponding class in Apache
+// Lucene 10.5.0 does not override getMergeInstance, so it inherits the
+// DocValuesProducer default, which returns this.
+func (r *SimpleTextDocValuesReader) GetMergeInstance() codecs.DocValuesProducer { return r }
+
 func (r *SimpleTextDocValuesReader) CheckIntegrity() error {
 	clone := r.data.Clone()
 	if err := clone.SetPosition(0); err != nil {
@@ -896,3 +908,74 @@ func dvParsePatternInt(s, _ string) (int, error) {
 
 // compile-time assertion.
 var _ codecs.DocValuesProducer = (*SimpleTextDocValuesReader)(nil)
+
+// ---------------------------------------------------------------------------
+// DocIdSetIterator defaults
+//
+// Java gives every DocValues iterator intoBitSet(int,FixedBitSet,int) and
+// docIDRunEnd() through DocValuesIterator extends DocIdSetIterator, where both
+// are concrete-but-overridable. Go has no inherited default, so each iterator
+// declares the two-line delegation to the free functions that carry those
+// bodies (util/doc_id_set_iterator.go). None of these classes overrides either
+// method in Apache Lucene 10.5.0.
+// ---------------------------------------------------------------------------
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// the NumericDocValues returned by SimpleTextDocValuesReader.getNumeric does not override in Apache Lucene 10.5.0.
+func (it *dvNumericIter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the NumericDocValues returned by SimpleTextDocValuesReader.getNumeric does not override in Apache Lucene 10.5.0.
+func (it *dvNumericIter) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// the BinaryDocValues returned by SimpleTextDocValuesReader.getBinary does not override in Apache Lucene 10.5.0.
+func (it *dvBinaryIter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the BinaryDocValues returned by SimpleTextDocValuesReader.getBinary does not override in Apache Lucene 10.5.0.
+func (it *dvBinaryIter) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// the SortedDocValues returned by SimpleTextDocValuesReader.getSorted does not override in Apache Lucene 10.5.0.
+func (it *dvSortedIter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the SortedDocValues returned by SimpleTextDocValuesReader.getSorted does not override in Apache Lucene 10.5.0.
+func (it *dvSortedIter) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// the SortedNumericDocValues returned by SimpleTextDocValuesReader.getSortedNumeric does not override in Apache Lucene 10.5.0.
+func (it *dvSortedNumericIter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the SortedNumericDocValues returned by SimpleTextDocValuesReader.getSortedNumeric does not override in Apache Lucene 10.5.0.
+func (it *dvSortedNumericIter) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// the SortedSetDocValues returned by SimpleTextDocValuesReader.getSortedSet does not override in Apache Lucene 10.5.0.
+func (it *dvSortedSetIter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the SortedSetDocValues returned by SimpleTextDocValuesReader.getSortedSet does not override in Apache Lucene 10.5.0.
+func (it *dvSortedSetIter) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}

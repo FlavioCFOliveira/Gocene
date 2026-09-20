@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -78,7 +78,7 @@ func (w *IndexWriter) applyDocValuesUpdatesLocked(segs []*SegmentCommitInfo) err
 		return nil
 	}
 
-	codec := w.config.Codec()
+	codec := w.config.GetCodec()
 	if codec == nil {
 		return fmt.Errorf("commit: cannot apply doc-values updates: no codec configured")
 	}
@@ -122,14 +122,18 @@ func (w *IndexWriter) applyDocValuesUpdatesForSegmentLocked(
 	sci *SegmentCommitInfo,
 	updates []pendingDocValuesUpdate,
 	codec Codec,
-) error {
+) (err error) {
 	// Open a fully wired SegmentReader so term resolution and current DV reads
 	// go through the codec (including CFS handling and per-generation overlays).
-	sr, err := openSegmentReader(w.directory, sci)
+	sr, err := openSegmentReader(w.dir, sci)
 	if err != nil {
 		return fmt.Errorf("open segment reader: %w", err)
 	}
-	defer func() { _ = sr.Close() }()
+	defer func() {
+		if closeErr := sr.Close(); closeErr != nil && err == nil {
+			err = fmt.Errorf("close segment reader: %w", closeErr)
+		}
+	}()
 
 	fieldUpdates := make(map[string]map[int]docValuesFieldUpdate)
 	hasMatch := false
@@ -191,7 +195,7 @@ func resolveDocsForTerm(sr *SegmentReader, term *Term) ([]int, error) {
 	if terms == nil {
 		return nil, nil
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -274,7 +278,10 @@ func (w *IndexWriter) writeMergedDocValues(
 			addedFields[fieldName] = global
 		}
 	}
-	newInfos := cloneFieldInfosUpdatingDVGen(currentInfos, fieldGens, addedFields)
+	newInfos, err := cloneFieldInfosUpdatingDVGen(currentInfos, fieldGens, addedFields)
+	if err != nil {
+		return err
+	}
 
 	// Read current values through the existing overlay so prior generations are
 	// visible during the merge.
@@ -284,7 +291,7 @@ func (w *IndexWriter) writeMergedDocValues(
 	// this update generation can be registered for the deleter, even when the
 	// per-field doc-values format writes files with a composite suffix that the
 	// caller cannot predict.
-	beforeFiles, err := w.directory.ListAll()
+	beforeFiles, err := w.dir.ListAll()
 	if err != nil {
 		return fmt.Errorf("list directory before writing DV update: %w", err)
 	}
@@ -314,7 +321,7 @@ func (w *IndexWriter) writeMergedDocValues(
 		dvInfos.Freeze()
 
 		writeState := &SegmentWriteState{
-			Directory:     w.directory,
+			Directory:     w.dir,
 			SegmentInfo:   segInfo,
 			FieldInfos:    dvInfos,
 			SegmentSuffix: suffix,
@@ -327,27 +334,25 @@ func (w *IndexWriter) writeMergedDocValues(
 		writeErr := func() error {
 			switch newFI.DocValuesType() {
 			case DocValuesTypeNumeric:
-				var old NumericDocValues
-				if dvp != nil && oldFI != nil {
-					old, err = dvp.GetNumeric(oldFI)
-					if err != nil {
-						return fmt.Errorf("read old numeric values for %q: %w", fieldName, err)
-					}
+				producer := &mergedNumericDocValuesProducer{
+					maxDoc:    sr.MaxDoc(),
+					dvp:       dvp,
+					oldFI:     oldFI,
+					updates:   updates,
+					fieldName: fieldName,
 				}
-				it := newMergedNumericIterator(sr.MaxDoc(), old, updates)
-				if err := consumer.AddNumericField(newFI, it); err != nil {
+				if err := consumer.AddNumericField(newFI, producer); err != nil {
 					return fmt.Errorf("write merged numeric field %q: %w", fieldName, err)
 				}
 			case DocValuesTypeBinary:
-				var old BinaryDocValues
-				if dvp != nil && oldFI != nil {
-					old, err = dvp.GetBinary(oldFI)
-					if err != nil {
-						return fmt.Errorf("read old binary values for %q: %w", fieldName, err)
-					}
+				producer := &mergedBinaryDocValuesProducer{
+					maxDoc:    sr.MaxDoc(),
+					dvp:       dvp,
+					oldFI:     oldFI,
+					updates:   updates,
+					fieldName: fieldName,
 				}
-				it := newMergedBinaryIterator(sr.MaxDoc(), old, updates)
-				if err := consumer.AddBinaryField(newFI, it); err != nil {
+				if err := consumer.AddBinaryField(newFI, producer); err != nil {
 					return fmt.Errorf("write merged binary field %q: %w", fieldName, err)
 				}
 			default:
@@ -367,14 +372,14 @@ func (w *IndexWriter) writeMergedDocValues(
 
 	// Write a single new .fnm containing all fields with their per-gen values.
 	fiSuffix := strconv.FormatInt(newFIGen, 36)
-	if err := codec.FieldInfosFormat().Write(w.directory, segInfo, fiSuffix, newInfos, store.IOContextWrite); err != nil {
+	if err := codec.FieldInfosFormat().Write(w.dir, segInfo, fiSuffix, newInfos, store.IOContextWrite); err != nil {
 		return fmt.Errorf("write updated FieldInfos: %w", err)
 	}
 
 	// Discover every file this update generation produced, including composite
 	// names such as _N_G_<formatName>_<suffix>.{dvd,dvm} emitted by
 	// PerFieldDocValuesFormat.
-	afterFiles, err := w.directory.ListAll()
+	afterFiles, err := w.dir.ListAll()
 	if err != nil {
 		return fmt.Errorf("list directory after writing DV update: %w", err)
 	}
@@ -439,7 +444,7 @@ func cloneFieldInfosUpdatingDVGen(
 	src *FieldInfos,
 	gens map[string]int64,
 	added map[string]*FieldInfo,
-) *FieldInfos {
+) (*FieldInfos, error) {
 	out := NewFieldInfos()
 	seen := make(map[string]struct{})
 	it := src.Iterator()
@@ -470,11 +475,13 @@ func cloneFieldInfosUpdatingDVGen(
 		if gen, ok := gens[fi.Name()]; ok {
 			opts.DocValuesGen = gen
 		}
-		clone := schema.NewFieldInfo(fi.Name(), fi.Number(), opts)
+		clone := spi.NewFieldInfo(fi.Name(), fi.Number(), opts)
 		for k, v := range fi.GetAttributes() {
 			clone.PutCodecAttribute(k, v)
 		}
-		_ = out.Add(clone)
+		if err := out.Add(clone); err != nil {
+			return nil, fmt.Errorf("clone field %q: %w", fi.Name(), err)
+		}
 	}
 	for name, fi := range added {
 		if _, ok := seen[name]; ok {
@@ -512,18 +519,77 @@ func cloneFieldInfosUpdatingDVGen(
 			// field can coexist in this segment's FieldInfos.
 			fieldNumber = out.GetNextFieldNumber()
 		}
-		clone := schema.NewFieldInfo(fi.Name(), fieldNumber, opts)
+		clone := spi.NewFieldInfo(fi.Name(), fieldNumber, opts)
 		for k, v := range fi.GetAttributes() {
 			clone.PutCodecAttribute(k, v)
 		}
-		_ = out.Add(clone)
+		if err := out.Add(clone); err != nil {
+			return nil, fmt.Errorf("add field %q: %w", fi.Name(), err)
+		}
 	}
 	out.Freeze()
-	return out
+	return out, nil
 }
 
+// mergedNumericDocValuesProducer is the DocValuesProducer writeMergedDocValues
+// hands to DocValuesConsumer.AddNumericField: every call overlays the updates
+// onto a fresh read of the existing values.
+type mergedNumericDocValuesProducer struct {
+	EmptyDocValuesProducer
+	maxDoc    int
+	dvp       docValuesProducerDelegate
+	oldFI     *FieldInfo
+	updates   map[int]docValuesFieldUpdate
+	fieldName string
+}
+
+// GetNumeric returns the merged numeric values.
+func (p *mergedNumericDocValuesProducer) GetNumeric(*FieldInfo) (NumericDocValues, error) {
+	var old NumericDocValues
+	if p.dvp != nil && p.oldFI != nil {
+		v, err := p.dvp.GetNumeric(p.oldFI)
+		if err != nil {
+			return nil, fmt.Errorf("read old numeric values for %q: %w", p.fieldName, err)
+		}
+		old = v
+	}
+	return newMergedNumericIterator(p.maxDoc, old, p.updates)
+}
+
+// GetMergeInstance returns the receiver (DocValuesProducer default).
+func (p *mergedNumericDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
+
+// mergedBinaryDocValuesProducer is the DocValuesProducer writeMergedDocValues
+// hands to DocValuesConsumer.AddBinaryField: every call overlays the updates
+// onto a fresh read of the existing values.
+type mergedBinaryDocValuesProducer struct {
+	EmptyDocValuesProducer
+	maxDoc    int
+	dvp       docValuesProducerDelegate
+	oldFI     *FieldInfo
+	updates   map[int]docValuesFieldUpdate
+	fieldName string
+}
+
+// GetBinary returns the merged binary values.
+func (p *mergedBinaryDocValuesProducer) GetBinary(*FieldInfo) (BinaryDocValues, error) {
+	var old BinaryDocValues
+	if p.dvp != nil && p.oldFI != nil {
+		v, err := p.dvp.GetBinary(p.oldFI)
+		if err != nil {
+			return nil, fmt.Errorf("read old binary values for %q: %w", p.fieldName, err)
+		}
+		old = v
+	}
+	return newMergedBinaryIterator(p.maxDoc, old, p.updates)
+}
+
+// GetMergeInstance returns the receiver (DocValuesProducer default).
+func (p *mergedBinaryDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
+
 // mergedNumericIterator merges an existing NumericDocValues source with a set
-// of per-document updates. Reset updates suppress the document entirely.
+// of per-document updates. Reset updates suppress the document entirely. It is
+// a forward-only NumericDocValues.
 type mergedNumericIterator struct {
 	maxDoc     int
 	oldValues  NumericDocValues
@@ -535,10 +601,10 @@ type mergedNumericIterator struct {
 	oldDoc     int // cached old value doc, util.NO_MORE_DOCS when exhausted
 }
 
-// newMergedNumericIterator creates a writer-side iterator that overlays updates
+// newMergedNumericIterator creates a NumericDocValues that overlays updates
 // onto oldValues. The updates map is owned by the caller; the iterator reads it
 // only.
-func newMergedNumericIterator(maxDoc int, oldValues NumericDocValues, updates map[int]docValuesFieldUpdate) *mergedNumericIterator {
+func newMergedNumericIterator(maxDoc int, oldValues NumericDocValues, updates map[int]docValuesFieldUpdate) (*mergedNumericIterator, error) {
 	docIDs := make([]int, 0, len(updates))
 	for d := range updates {
 		docIDs = append(docIDs, d)
@@ -550,22 +616,24 @@ func newMergedNumericIterator(maxDoc int, oldValues NumericDocValues, updates ma
 		oldValues: oldValues,
 		updates:   updates,
 		docIDs:    docIDs,
+		docID:     -1,
 		oldDoc:    -1,
 	}
 	if oldValues != nil {
-		// Prime the old-values stream. Errors are ignored here; the stream will
-		// simply appear empty if reading fails.
-		d, _ := oldValues.NextDoc()
+		// Prime the old-values stream.
+		d, err := oldValues.NextDoc()
+		if err != nil {
+			return nil, err
+		}
 		it.oldDoc = d
 	} else {
 		it.oldDoc = util.NO_MORE_DOCS
 	}
-	return it
+	return it, nil
 }
 
-// Next advances to the next document that has a merged value and reports
-// whether one exists.
-func (it *mergedNumericIterator) Next() bool {
+// NextDoc advances to the next document that has a merged value.
+func (it *mergedNumericIterator) NextDoc() (int, error) {
 	for {
 		var updDoc int
 		if it.nextUpdate < len(it.docIDs) {
@@ -583,7 +651,8 @@ func (it *mergedNumericIterator) Next() bool {
 		}
 
 		if oldDoc == math.MaxInt32 && updDoc == math.MaxInt32 {
-			return false
+			it.docID = util.NO_MORE_DOCS
+			return it.docID, nil
 		}
 
 		switch {
@@ -600,7 +669,7 @@ func (it *mergedNumericIterator) Next() bool {
 			}
 			it.docID = updDoc
 			it.value = v
-			return true
+			return it.docID, nil
 
 		case updDoc == oldDoc:
 			// Both streams have a value at the same document. The update wins;
@@ -608,7 +677,10 @@ func (it *mergedNumericIterator) Next() bool {
 			upd := it.updates[updDoc]
 			it.nextUpdate++
 			// Advance oldValues past this document as well.
-			d, _ := it.oldValues.NextDoc()
+			d, err := it.oldValues.NextDoc()
+			if err != nil {
+				return 0, err
+			}
 			it.oldDoc = d
 			if upd.isReset() {
 				continue
@@ -619,21 +691,25 @@ func (it *mergedNumericIterator) Next() bool {
 			}
 			it.docID = updDoc
 			it.value = v
-			return true
+			return it.docID, nil
 
 		default: // oldDoc < updDoc
 			if oldDoc >= it.maxDoc {
-				return false
+				it.docID = util.NO_MORE_DOCS
+				return it.docID, nil
 			}
 			v, err := it.oldValues.LongValue()
 			if err != nil {
-				return false
+				return 0, err
 			}
 			it.docID = oldDoc
 			it.value = v
-			d, _ := it.oldValues.NextDoc()
+			d, err := it.oldValues.NextDoc()
+			if err != nil {
+				return 0, err
+			}
 			it.oldDoc = d
-			return true
+			return it.docID, nil
 		}
 	}
 }
@@ -641,11 +717,41 @@ func (it *mergedNumericIterator) Next() bool {
 // DocID returns the current document ID.
 func (it *mergedNumericIterator) DocID() int { return it.docID }
 
-// Value returns the current numeric value.
-func (it *mergedNumericIterator) Value() int64 { return it.value }
+// LongValue returns the current numeric value.
+func (it *mergedNumericIterator) LongValue() (int64, error) { return it.value, nil }
+
+// Advance is unsupported: the merged view is forward-only.
+func (it *mergedNumericIterator) Advance(int) (int, error) {
+	return 0, ErrMergedDocValuesUnsupported
+}
+
+// AdvanceExact is unsupported: the merged view is forward-only.
+func (it *mergedNumericIterator) AdvanceExact(int) (bool, error) {
+	return false, ErrMergedDocValuesUnsupported
+}
+
+// Cost estimates the number of documents the merged view iterates.
+func (it *mergedNumericIterator) Cost() int64 {
+	cost := int64(len(it.docIDs))
+	if it.oldValues != nil {
+		cost += it.oldValues.Cost()
+	}
+	return cost
+}
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet.
+func (it *mergedNumericIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd.
+func (it *mergedNumericIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
 
 // mergedBinaryIterator merges an existing BinaryDocValues source with a set of
-// per-document updates. Reset updates suppress the document entirely.
+// per-document updates. Reset updates suppress the document entirely. It is a
+// forward-only BinaryDocValues.
 type mergedBinaryIterator struct {
 	maxDoc     int
 	oldValues  BinaryDocValues
@@ -657,9 +763,9 @@ type mergedBinaryIterator struct {
 	oldDoc     int
 }
 
-// newMergedBinaryIterator creates a writer-side iterator that overlays updates
-// onto oldValues.
-func newMergedBinaryIterator(maxDoc int, oldValues BinaryDocValues, updates map[int]docValuesFieldUpdate) *mergedBinaryIterator {
+// newMergedBinaryIterator creates a BinaryDocValues that overlays updates onto
+// oldValues.
+func newMergedBinaryIterator(maxDoc int, oldValues BinaryDocValues, updates map[int]docValuesFieldUpdate) (*mergedBinaryIterator, error) {
 	docIDs := make([]int, 0, len(updates))
 	for d := range updates {
 		docIDs = append(docIDs, d)
@@ -671,19 +777,23 @@ func newMergedBinaryIterator(maxDoc int, oldValues BinaryDocValues, updates map[
 		oldValues: oldValues,
 		updates:   updates,
 		docIDs:    docIDs,
+		docID:     -1,
 		oldDoc:    -1,
 	}
 	if oldValues != nil {
-		d, _ := oldValues.NextDoc()
+		d, err := oldValues.NextDoc()
+		if err != nil {
+			return nil, err
+		}
 		it.oldDoc = d
 	} else {
 		it.oldDoc = util.NO_MORE_DOCS
 	}
-	return it
+	return it, nil
 }
 
-// Next advances to the next document that has a merged binary value.
-func (it *mergedBinaryIterator) Next() bool {
+// NextDoc advances to the next document that has a merged binary value.
+func (it *mergedBinaryIterator) NextDoc() (int, error) {
 	for {
 		var updDoc int
 		if it.nextUpdate < len(it.docIDs) {
@@ -701,7 +811,8 @@ func (it *mergedBinaryIterator) Next() bool {
 		}
 
 		if oldDoc == math.MaxInt32 && updDoc == math.MaxInt32 {
-			return false
+			it.docID = util.NO_MORE_DOCS
+			return it.docID, nil
 		}
 
 		switch {
@@ -717,12 +828,15 @@ func (it *mergedBinaryIterator) Next() bool {
 			}
 			it.docID = updDoc
 			it.value = v
-			return true
+			return it.docID, nil
 
 		case updDoc == oldDoc:
 			upd := it.updates[updDoc]
 			it.nextUpdate++
-			d, _ := it.oldValues.NextDoc()
+			d, err := it.oldValues.NextDoc()
+			if err != nil {
+				return 0, err
+			}
 			it.oldDoc = d
 			if upd.isReset() {
 				continue
@@ -733,21 +847,25 @@ func (it *mergedBinaryIterator) Next() bool {
 			}
 			it.docID = updDoc
 			it.value = v
-			return true
+			return it.docID, nil
 
 		default:
 			if oldDoc >= it.maxDoc {
-				return false
+				it.docID = util.NO_MORE_DOCS
+				return it.docID, nil
 			}
 			v, err := it.oldValues.BinaryValue()
 			if err != nil {
-				return false
+				return 0, err
 			}
 			it.docID = oldDoc
 			it.value = v
-			d, _ := it.oldValues.NextDoc()
+			d, err := it.oldValues.NextDoc()
+			if err != nil {
+				return 0, err
+			}
 			it.oldDoc = d
-			return true
+			return it.docID, nil
 		}
 	}
 }
@@ -755,8 +873,37 @@ func (it *mergedBinaryIterator) Next() bool {
 // DocID returns the current document ID.
 func (it *mergedBinaryIterator) DocID() int { return it.docID }
 
-// Value returns the current binary value.
-func (it *mergedBinaryIterator) Value() []byte { return it.value }
+// BinaryValue returns the current binary value.
+func (it *mergedBinaryIterator) BinaryValue() ([]byte, error) { return it.value, nil }
+
+// Advance is unsupported: the merged view is forward-only.
+func (it *mergedBinaryIterator) Advance(int) (int, error) {
+	return 0, ErrMergedDocValuesUnsupported
+}
+
+// AdvanceExact is unsupported: the merged view is forward-only.
+func (it *mergedBinaryIterator) AdvanceExact(int) (bool, error) {
+	return false, ErrMergedDocValuesUnsupported
+}
+
+// Cost estimates the number of documents the merged view iterates.
+func (it *mergedBinaryIterator) Cost() int64 {
+	cost := int64(len(it.docIDs))
+	if it.oldValues != nil {
+		cost += it.oldValues.Cost()
+	}
+	return cost
+}
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet.
+func (it *mergedBinaryIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd.
+func (it *mergedBinaryIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
 
 // TryUpdateDocValue updates a single document's DocValues column without
 // re-indexing. The reader must be a LeafReader obtained from this writer (the
@@ -768,7 +915,7 @@ func (it *mergedBinaryIterator) Value() []byte { return it.value }
 // This mirrors Lucene's IndexWriter.tryUpdateDocValue(IndexReader, int, String,
 // ...).
 func (w *IndexWriter) TryUpdateDocValue(reader IndexReaderInterface, docID int, field string, value interface{}) (int64, error) {
-	if err := w.ensureOpen(); err != nil {
+	if err := w.ensureOpen(true); err != nil {
 		return -1, err
 	}
 
@@ -776,9 +923,9 @@ func (w *IndexWriter) TryUpdateDocValue(reader IndexReaderInterface, docID int, 
 	defer w.mu.Unlock()
 
 	// Reject index-sort fields, mirroring UpdateDocValues.
-	if sort := w.config.IndexSort(); sort != nil {
+	if sort, ok := w.config.GetIndexSort().(*spi.Sort); ok && sort != nil {
 		for _, sf := range sort.Fields() {
-			if sf.Field() == field {
+			if sf.Field == field {
 				return -1, fmt.Errorf(
 					"cannot update doc values for field %q because it participates in the index sort",
 					field)
@@ -814,7 +961,7 @@ func (w *IndexWriter) TryUpdateDocValue(reader IndexReaderInterface, docID int, 
 		value:       value,
 	})
 
-	return w.nextSequenceNumber(), nil
+	return w.docWriter.GetNextSequenceNumber(), nil
 }
 
 // validateDVValueType checks that value is compatible with the field's
@@ -837,4 +984,43 @@ func validateDVValueType(fi *FieldInfo, value interface{}) error {
 		return fmt.Errorf("field %q has unsupported doc values type %v for updates", fi.Name(), fi.DocValuesType())
 	}
 	return nil
+}
+
+// dvUpdateFieldTypes lists the DocValues types a field may carry, in the order
+// fieldInfoLocked probes the writer's global field-number registry. It mirrors
+// the ordinal order of org.apache.lucene.index.DocValuesType.
+var dvUpdateFieldTypes = []DocValuesType{
+	DocValuesTypeNumeric,
+	DocValuesTypeBinary,
+	DocValuesTypeSorted,
+	DocValuesTypeSortedNumeric,
+	DocValuesTypeSortedSet,
+}
+
+// fieldInfoLocked returns the FieldInfo the writer knows index-wide for field,
+// or nil when the field is unknown or carries no DocValues. The field number is
+// a placeholder; the caller re-assigns it against the target segment's
+// FieldInfos, the way Lucene's ReadersAndUpdates.writeFieldUpdates does when it
+// calls FieldInfos.FieldNumbers#constructFieldInfo with the builder's next
+// field number. It must be called with w.mu held.
+func (w *IndexWriter) fieldInfoLocked(field string) *FieldInfo {
+	if w.globalFieldNumberMap == nil {
+		return nil
+	}
+	for _, dvType := range dvUpdateFieldTypes {
+		if fi := w.globalFieldNumberMap.ConstructFieldInfo(field, dvType, 0); fi != nil {
+			return fi
+		}
+	}
+	return nil
+}
+
+// fieldDocValuesTypeLocked returns the DocValues type the writer knows
+// index-wide for field, or DocValuesTypeNone when the field is unknown or
+// carries no DocValues. It must be called with w.mu held.
+func (w *IndexWriter) fieldDocValuesTypeLocked(field string) DocValuesType {
+	if fi := w.fieldInfoLocked(field); fi != nil {
+		return fi.DocValuesType()
+	}
+	return DocValuesTypeNone
 }

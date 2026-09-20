@@ -47,8 +47,8 @@ func (m *mockDocIdSetIterator) Advance(target int) (int, error) {
 	return m.current, nil
 }
 
-func (m *mockDocIdSetIterator) DocIDRunEnd() int {
-	return m.current
+func (m *mockDocIdSetIterator) DocIDRunEnd() (int, error) {
+	return m.current, nil
 }
 
 func (m *mockDocIdSetIterator) Cost() int64 {

@@ -6,338 +6,14 @@ package codecs
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// SegmentInfosFormat is an alias of spi.SegmentInfosFormat.
-//
-// Lifted onto the SPI by rmp #4706. Both Read and Write now carry an
-// IOContext to mirror the rest of the codec SPI; codecs implementations
-// forward it to the underlying Directory I/O calls.
-type SegmentInfosFormat = spi.SegmentInfosFormat
-
 // SegmentInfoFormat is an alias of spi.SegmentInfoFormat.
 type SegmentInfoFormat = spi.SegmentInfoFormat
-
-// Lucene104SegmentInfosFormat implements the Lucene 10.4 segment infos format (segments_N).
-type Lucene104SegmentInfosFormat struct{}
-
-const (
-	sisCodecName = "segments"
-	sisVersion   = 10 // Lucene 10.x
-)
-
-func NewLucene104SegmentInfosFormat() *Lucene104SegmentInfosFormat {
-	return &Lucene104SegmentInfosFormat{}
-}
-
-func (f *Lucene104SegmentInfosFormat) Name() string {
-	return "Lucene104SegmentInfosFormat"
-}
-
-func (f *Lucene104SegmentInfosFormat) Read(dir store.Directory, ctx store.IOContext) (*spi.SegmentInfos, error) {
-	files, err := dir.ListAll()
-	if err != nil {
-		return nil, err
-	}
-
-	var maxGen int64 = -1
-	var segmentsFile string
-	for _, file := range files {
-		if len(file) > 9 && file[:9] == "segments_" {
-			// Generation numbers are base-36 encoded, matching Lucene's
-			// Long.toString(gen, Character.MAX_RADIX).
-			if gen, err2 := strconv.ParseInt(file[9:], 36, 64); err2 == nil {
-				if gen > maxGen {
-					maxGen = gen
-					segmentsFile = file
-				}
-			}
-		}
-	}
-
-	if maxGen < 0 {
-		return nil, fmt.Errorf("no segments file found in directory")
-	}
-
-	in, err := dir.OpenInput(segmentsFile, ctx)
-	if err != nil {
-		return nil, err
-	}
-	checksumIn := store.NewChecksumIndexInput(in)
-	defer checksumIn.Close()
-
-	// Check header
-	_, err = CheckIndexHeader(checksumIn, sisCodecName, sisVersion, sisVersion, nil, strconv.FormatInt(maxGen, 36))
-	if err != nil {
-		return nil, err
-	}
-
-	// Read Lucene version
-	major, err := store.ReadVInt(checksumIn)
-	if err != nil {
-		return nil, err
-	}
-	minor, err := store.ReadVInt(checksumIn)
-	if err != nil {
-		return nil, err
-	}
-	bugfix, err := store.ReadVInt(checksumIn)
-	if err != nil {
-		return nil, err
-	}
-
-	// Read created major
-	createdMajor, err := store.ReadVInt(checksumIn)
-	if err != nil {
-		return nil, err
-	}
-
-	// Read version
-	version, err := store.ReadInt64(checksumIn)
-	if err != nil {
-		return nil, err
-	}
-
-	// Read counter
-	counter, err := store.ReadVLong(checksumIn)
-	if err != nil {
-		return nil, err
-	}
-
-	// Read segment count
-	numSegments, err := store.ReadInt32(checksumIn)
-	if err != nil {
-		return nil, err
-	}
-
-	if numSegments < 0 {
-		return nil, fmt.Errorf("invalid number of segments: %d", numSegments)
-	}
-
-	// Read min segment version if any
-	if numSegments > 0 {
-		_, _ = store.ReadVInt(checksumIn) // major
-		_, _ = store.ReadVInt(checksumIn) // minor
-		_, _ = store.ReadVInt(checksumIn) // bugfix
-	}
-
-	sis := spi.NewSegmentInfos()
-	sis.SetLuceneVersion(fmt.Sprintf("%d.%d.%d", major, minor, bugfix))
-	sis.SetIndexCreatedVersionMajor(createdMajor)
-	sis.SetVersion(version)
-	sis.SetCounter(counter)
-	sis.SetGeneration(maxGen)
-	sis.SetLastGeneration(maxGen)
-
-	for i := int32(0); i < numSegments; i++ {
-		sci, err := f.readSegmentCommitInfo(checksumIn, dir)
-		if err != nil {
-			return nil, err
-		}
-		sis.Add(sci)
-	}
-
-	userData, err := store.ReadMapOfStrings(checksumIn)
-	if err != nil {
-		return nil, err
-	}
-	sis.SetUserData(userData)
-
-	_, err = CheckFooter(checksumIn)
-	if err != nil {
-		return nil, err
-	}
-
-	return sis, nil
-}
-
-func (f *Lucene104SegmentInfosFormat) readSegmentCommitInfo(in store.IndexInput, dir store.Directory) (*spi.SegmentCommitInfo, error) {
-	name, err := store.ReadString(in)
-	if err != nil {
-		return nil, err
-	}
-
-	id, err := in.ReadBytesN(16)
-	if err != nil {
-		return nil, err
-	}
-
-	codecName, err := store.ReadString(in)
-	if err != nil {
-		return nil, err
-	}
-
-	delGen, err := store.ReadInt64(in)
-	if err != nil {
-		return nil, err
-	}
-
-	delCount, err := store.ReadInt32(in)
-	if err != nil {
-		return nil, err
-	}
-
-	fieldInfosGen, err := store.ReadInt64(in)
-	if err != nil {
-		return nil, err
-	}
-
-	docValuesGen, err := store.ReadInt64(in)
-	if err != nil {
-		return nil, err
-	}
-
-	softDelCount, err := store.ReadInt32(in)
-	if err != nil {
-		return nil, err
-	}
-
-	hasSciID, err := in.ReadByte()
-	if err != nil {
-		return nil, err
-	}
-	var sciID []byte
-	if hasSciID == 1 {
-		sciID, err = in.ReadBytesN(16)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	fieldInfosFiles, err := store.ReadSetOfStrings(in)
-	if err != nil {
-		return nil, err
-	}
-
-	docValuesUpdatesFiles, err := store.ReadMapOfIntToSetOfStrings(in)
-	if err != nil {
-		return nil, err
-	}
-
-	// For now, we don't have SegmentInfo fully populated from .si file here
-	// In Lucene, it's loaded lazily or passed in.
-	// We'll create a placeholder SegmentInfo.
-	si := schema.NewSegmentInfo(name, 0, dir)
-	si.SetID(id)
-	si.SetCodec(codecName)
-
-	sci := spi.NewSegmentCommitInfo(si, int(delCount), delGen)
-	sci.SetFieldInfosGen(fieldInfosGen)
-	sci.SetDocValuesGen(docValuesGen)
-	sci.SetSoftDelCount(int(softDelCount))
-	sci.SetID(sciID)
-	sci.SetFieldInfosFiles(fieldInfosFiles)
-	sci.SetDocValuesUpdatesFiles(docValuesUpdatesFiles)
-
-	return sci, nil
-}
-
-func (f *Lucene104SegmentInfosFormat) Write(dir store.Directory, infos *spi.SegmentInfos, ctx store.IOContext) error {
-	generation := infos.NextGeneration()
-	fileName := spi.GetSegmentFileName(generation)
-	tempFileName := "pending_" + fileName
-
-	err := func() error {
-		out, err := dir.CreateOutput(tempFileName, ctx)
-		if err != nil {
-			return err
-		}
-		checksumOut := store.NewChecksumIndexOutput(out)
-		defer checksumOut.Close()
-
-		// Random ID for segments_N header
-		id := make([]byte, 16)
-		// In a real implementation, we should probably use a proper random source
-
-		if err := WriteIndexHeader(checksumOut, sisCodecName, sisVersion, id, strconv.FormatInt(generation, 36)); err != nil {
-			return err
-		}
-
-		// Write Lucene version
-		var major, minor, bugfix int32
-		fmt.Sscanf(infos.LuceneVersion(), "%d.%d.%d", &major, &minor, &bugfix)
-		store.WriteVInt(checksumOut, major)
-		store.WriteVInt(checksumOut, minor)
-		store.WriteVInt(checksumOut, bugfix)
-
-		// Write created major
-		store.WriteVInt(checksumOut, infos.IndexCreatedVersionMajor())
-
-		// Write version
-		store.WriteInt64(checksumOut, infos.Version())
-
-		// Write counter
-		store.WriteVLong(checksumOut, infos.Counter())
-
-		// Write segment count
-		segments := infos.List()
-		store.WriteInt32(checksumOut, int32(len(segments)))
-
-		// Write min segment version if any
-		if len(segments) > 0 {
-			// Just write current version as min version for now
-			store.WriteVInt(checksumOut, major)
-			store.WriteVInt(checksumOut, minor)
-			store.WriteVInt(checksumOut, bugfix)
-		}
-
-		for _, sci := range segments {
-			if err := f.writeSegmentCommitInfo(checksumOut, sci); err != nil {
-				return err
-			}
-		}
-
-		store.WriteMapOfStrings(checksumOut, infos.GetUserData())
-
-		if err := WriteFooter(checksumOut); err != nil {
-			return err
-		}
-		return nil
-	}()
-
-	if err != nil {
-		_ = dir.DeleteFile(tempFileName)
-		return err
-	}
-
-	if err := dir.Rename(tempFileName, fileName); err != nil {
-		_ = dir.DeleteFile(tempFileName)
-		return err
-	}
-
-	infos.SetLastGeneration(generation)
-	return nil
-}
-
-func (f *Lucene104SegmentInfosFormat) writeSegmentCommitInfo(out store.IndexOutput, sci *spi.SegmentCommitInfo) error {
-	store.WriteString(out, sci.Name())
-	out.WriteBytes(sci.SegmentInfo().GetID())
-	store.WriteString(out, sci.SegmentInfo().Codec())
-	store.WriteInt64(out, sci.DelGen())
-	store.WriteInt32(out, int32(sci.DelCount()))
-	store.WriteInt64(out, sci.FieldInfosGen())
-	store.WriteInt64(out, sci.DocValuesGen())
-	store.WriteInt32(out, int32(sci.SoftDelCount()))
-
-	sciID := sci.GetID()
-	if len(sciID) == 16 {
-		out.WriteByte(1)
-		out.WriteBytes(sciID)
-	} else {
-		out.WriteByte(0)
-	}
-
-	store.WriteSetOfStrings(out, sci.FieldInfosFiles())
-	store.WriteMapOfIntToSetOfStrings(out, sci.DocValuesUpdatesFiles())
-
-	return nil
-}
 
 // Lucene99SegmentInfoFormat implements Lucene 9.9/10.4 segment info format (.si).
 type Lucene99SegmentInfoFormat struct{}
@@ -366,15 +42,15 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	}
 
 	// Version fields use Java's DataOutput.writeInt (little-endian), not CodecUtil.writeBEInt.
-	major, err := store.ReadInt32LE(checksumIn)
+	major, err := checksumIn.ReadInt()
 	if err != nil {
 		return nil, err
 	}
-	minor, err := store.ReadInt32LE(checksumIn)
+	minor, err := checksumIn.ReadInt()
 	if err != nil {
 		return nil, err
 	}
-	bugfix, err := store.ReadInt32LE(checksumIn)
+	bugfix, err := checksumIn.ReadInt()
 	if err != nil {
 		return nil, err
 	}
@@ -389,15 +65,15 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	case 0:
 		// no minVersion
 	case 1:
-		minMajor, err := store.ReadInt32LE(checksumIn)
+		minMajor, err := checksumIn.ReadInt()
 		if err != nil {
 			return nil, err
 		}
-		minMinor, err := store.ReadInt32LE(checksumIn)
+		minMinor, err := checksumIn.ReadInt()
 		if err != nil {
 			return nil, err
 		}
-		minBugfix, err := store.ReadInt32LE(checksumIn)
+		minBugfix, err := checksumIn.ReadInt()
 		if err != nil {
 			return nil, err
 		}
@@ -407,7 +83,7 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 		return nil, fmt.Errorf("illegal hasMinVersion byte value: %d", hasMinVersion)
 	}
 
-	docCount, err := store.ReadInt32LE(checksumIn)
+	docCount, err := checksumIn.ReadInt()
 	if err != nil {
 		return nil, err
 	}
@@ -430,29 +106,60 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	}
 	hasBlocks := hasBlocksByte == 1
 
-	diagnostics, err := store.ReadMapOfStrings(checksumIn)
+	diagnostics, err := checksumIn.ReadMapOfStrings()
 	if err != nil {
 		return nil, err
 	}
 
-	files, err := store.ReadSetOfStrings(checksumIn)
+	files, err := checksumIn.ReadSetOfStrings()
 	if err != nil {
 		return nil, err
 	}
 
-	attributes, err := store.ReadMapOfStrings(checksumIn)
+	attributes, err := checksumIn.ReadMapOfStrings()
 	if err != nil {
 		return nil, err
 	}
 
-	// Index sort (numSortFields + per-field SortField), decoded in lock-step
-	// with the index-package .si writer via index.ReadSegmentInfoSort (rmp
-	// #4789). Keeping the two .si readers byte-aligned is what lets a segment
-	// written by IndexWriter.writeSegmentInfo be reopened through the codec
-	// SegmentInfoFormat at directory_reader.go.
-	indexSort, err := index.ReadSegmentInfoSort(checksumIn)
+	// Index sort. Mirrors Lucene99SegmentInfoFormat.parseSegmentInfo:
+	//
+	//	int numSortFields = input.readVInt();
+	//	if (numSortFields > 0) {
+	//	  for (...) { String name = input.readString();
+	//	              sortFields[i] = SortFieldProvider.forName(name).readSortField(input); }
+	//	  indexSort = new Sort(sortFields);
+	//	} else if (numSortFields < 0) {
+	//	  throw new CorruptIndexException("invalid index sort field count: " + numSortFields, input);
+	//	} else { indexSort = null; }
+	numSortFields, err := checksumIn.ReadVInt()
 	if err != nil {
-		return nil, fmt.Errorf("index sort: %w", err)
+		return nil, err
+	}
+	var indexSort *index.Sort
+	if numSortFields > 0 {
+		sortFields := make([]*index.SortField, numSortFields)
+		for i := range sortFields {
+			providerName, err := checksumIn.ReadString()
+			if err != nil {
+				return nil, err
+			}
+			provider, err := index.LookupSortFieldProvider(providerName)
+			if err != nil {
+				return nil, err
+			}
+			value, err := provider.ReadSortField(checksumIn)
+			if err != nil {
+				return nil, err
+			}
+			sortField, ok := value.(*index.SortField)
+			if !ok {
+				return nil, fmt.Errorf("sort field provider %q returned %T, not a SortField", providerName, value)
+			}
+			sortFields[i] = sortField
+		}
+		indexSort = index.NewSort(sortFields...)
+	} else if numSortFields < 0 {
+		return nil, fmt.Errorf("invalid index sort field count: %d", numSortFields)
 	}
 
 	_, err = CheckFooter(checksumIn)
@@ -469,11 +176,7 @@ func (f *Lucene99SegmentInfoFormat) Read(dir store.Directory, segmentName string
 	si.SetHasBlocks(hasBlocks)
 	si.SetCompoundFile(isCompoundFile)
 	si.SetDiagnostics(diagnostics)
-	fileList := make([]string, 0, len(files))
-	for f := range files {
-		fileList = append(fileList, f)
-	}
-	si.SetFiles(fileList)
+	si.SetFiles(files)
 	for k, v := range attributes {
 		si.SetAttribute(k, v)
 	}
@@ -501,13 +204,13 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 	// uses DataOutput.writeInt (little-endian). Only the CodecUtil header/footer
 	// framing is big-endian, so payload ints must use the LE helpers.
 	major, minor, bugfix := parseVersion(info.Version())
-	if err := store.WriteInt32LE(checksumOut, major); err != nil {
+	if err := checksumOut.WriteInt(major); err != nil {
 		return err
 	}
-	if err := store.WriteInt32LE(checksumOut, minor); err != nil {
+	if err := checksumOut.WriteInt(minor); err != nil {
 		return err
 	}
-	if err := store.WriteInt32LE(checksumOut, bugfix); err != nil {
+	if err := checksumOut.WriteInt(bugfix); err != nil {
 		return err
 	}
 
@@ -519,13 +222,13 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 			return err
 		}
 		minMajor, minMinor, minBugfix := parseVersion(minVer)
-		if err := store.WriteInt32LE(checksumOut, minMajor); err != nil {
+		if err := checksumOut.WriteInt(minMajor); err != nil {
 			return err
 		}
-		if err := store.WriteInt32LE(checksumOut, minMinor); err != nil {
+		if err := checksumOut.WriteInt(minMinor); err != nil {
 			return err
 		}
-		if err := store.WriteInt32LE(checksumOut, minBugfix); err != nil {
+		if err := checksumOut.WriteInt(minBugfix); err != nil {
 			return err
 		}
 	} else {
@@ -534,7 +237,7 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 		}
 	}
 
-	if err := store.WriteInt32LE(checksumOut, int32(info.DocCount())); err != nil {
+	if err := checksumOut.WriteInt(int32(info.DocCount())); err != nil {
 		return err
 	}
 
@@ -553,33 +256,57 @@ func (f *Lucene99SegmentInfoFormat) Write(dir store.Directory, info *index.Segme
 	// so false serialises to 0xFF == 255 (matching the isCompoundFile sentinel),
 	// not literal 0. The reader compares the byte against YES. (rmp #4784)
 	hasBlocks := byte(255)
-	if info.HasBlocks() {
+	if info.GetHasBlocks() {
 		hasBlocks = 1
 	}
 	if err := checksumOut.WriteByte(hasBlocks); err != nil {
 		return err
 	}
 
-	if err := store.WriteMapOfStrings(checksumOut, info.GetDiagnostics()); err != nil {
+	if err := checksumOut.WriteMapOfStrings(info.GetDiagnostics()); err != nil {
 		return err
 	}
 
-	files := make(map[string]struct{}, len(info.Files()))
-	for _, f := range info.Files() {
-		files[f] = struct{}{}
-	}
-	if err := store.WriteSetOfStrings(checksumOut, files); err != nil {
+	if err := checksumOut.WriteSetOfStrings(info.Files()); err != nil {
 		return err
 	}
 
-	if err := store.WriteMapOfStrings(checksumOut, info.GetAttributes()); err != nil {
+	if err := checksumOut.WriteMapOfStrings(info.GetAttributes()); err != nil {
 		return err
 	}
 
-	// Index sort: numSortFields followed by each SortField, byte-faithful to
-	// Lucene90SegmentInfoFormat.write (rmp #4789).
-	if err := index.WriteSegmentInfoSort(checksumOut, info.IndexSort()); err != nil {
-		return fmt.Errorf("write index sort: %w", err)
+	// Index sort. Mirrors Lucene99SegmentInfoFormat.writeSegmentInfo:
+	//
+	//	int numSortFields = indexSort == null ? 0 : indexSort.getSort().length;
+	//	output.writeVInt(numSortFields);
+	//	for (...) {
+	//	  IndexSorter sorter = sortField.getIndexSorter();
+	//	  if (sorter == null) throw new IllegalArgumentException("cannot serialize SortField " + sortField);
+	//	  output.writeString(sorter.getProviderName());
+	//	  SortFieldProvider.write(sortField, output);
+	//	}
+	//
+	// sortField.getIndexSorter().getProviderName() is rendered by the
+	// index.SortFieldNamer view (see index/sort_field_provider.go).
+	var sortFields []*index.SortField
+	if indexSort := info.IndexSort(); indexSort != nil {
+		sortFields = indexSort.Fields()
+	}
+	if err := checksumOut.WriteVInt(int32(len(sortFields))); err != nil {
+		return err
+	}
+	for _, sortField := range sortFields {
+		var namer any = sortField
+		sorter, ok := namer.(index.SortFieldNamer)
+		if !ok || sorter.ProviderName() == "" {
+			return fmt.Errorf("%w: %v", index.ErrSortFieldNotSerializable, sortField)
+		}
+		if err := checksumOut.WriteString(sorter.ProviderName()); err != nil {
+			return err
+		}
+		if err := index.WriteSortField(sortField, checksumOut); err != nil {
+			return err
+		}
 	}
 
 	return WriteFooter(checksumOut)

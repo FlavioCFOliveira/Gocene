@@ -18,7 +18,7 @@ package grouping
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/join"
+	"github.com/FlavioCFOliveira/Gocene/search/join"
 )
 
 // chapter is a simple in-memory representation of a book chapter.

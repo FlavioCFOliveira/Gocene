@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // ChineseStopWords contains common Chinese stop words.
@@ -45,21 +47,30 @@ func NewChineseAnalyzer() *ChineseAnalyzer {
 // NewChineseAnalyzerWithWords creates a ChineseAnalyzer with custom stop words.
 func NewChineseAnalyzerWithWords(stopWords *CharArraySet) *ChineseAnalyzer {
 	a := &ChineseAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	// Note: For proper Chinese, a specialized tokenizer should be used
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 
 	return a
 }
 
 // TokenStream creates a TokenStream for analyzing text.
-func (a *ChineseAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (a *ChineseAnalyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	return a.BaseAnalyzer.TokenStream(fieldName, reader)
 }
 
@@ -74,8 +85,7 @@ func (a *ChineseAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure ChineseAnalyzer implements Analyzer
-var _ Analyzer = (*ChineseAnalyzer)(nil)
-var _ AnalyzerInterface = (*ChineseAnalyzer)(nil)
+var _ api.Analyzer = (*ChineseAnalyzer)(nil)
 
 // ChineseAnalyzerFactory creates ChineseAnalyzer instances.
 type ChineseAnalyzerFactory struct {
@@ -97,7 +107,7 @@ func NewChineseAnalyzerFactoryWithWords(stopWords *CharArraySet) *ChineseAnalyze
 }
 
 // Create creates a new ChineseAnalyzer.
-func (f *ChineseAnalyzerFactory) Create() AnalyzerInterface {
+func (f *ChineseAnalyzerFactory) Create() api.Analyzer {
 	return NewChineseAnalyzerWithWords(f.stopWords)
 }
 

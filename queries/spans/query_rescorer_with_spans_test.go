@@ -25,7 +25,7 @@ func TestQueryRescorerWithSpans_Basic(t *testing.T) {
 
 	t.Run("new_rescorer_with_span_term", func(t *testing.T) {
 		t.Parallel()
-		spanQ := search.NewSpanTermQuery(index.NewTerm("f", "hello"))
+		spanQ := NewSpanTermQuery(index.NewTerm("f", "hello"))
 		rescorer := search.NewQueryRescorer(spanQ)
 		if rescorer == nil {
 			t.Fatal("expected non-nil Rescorer")
@@ -37,14 +37,17 @@ func TestQueryRescorerWithSpans_Basic(t *testing.T) {
 
 	t.Run("new_rescorer_with_span_near", func(t *testing.T) {
 		t.Parallel()
-		spanQ := search.NewSpanNearQuery(
-			[]search.SpanQuery{
-				search.NewSpanTermQuery(index.NewTerm("f", "a")),
-				search.NewSpanTermQuery(index.NewTerm("f", "b")),
+		spanQ, err := NewSpanNearQuery(
+			[]SpanQuery{
+				NewSpanTermQuery(index.NewTerm("f", "a")),
+				NewSpanTermQuery(index.NewTerm("f", "b")),
 			},
 			1,
 			true,
 		)
+		if err != nil {
+			t.Fatalf("NewSpanNearQuery: %v", err)
+		}
 		rescorer := search.NewQueryRescorer(spanQ)
 		if rescorer == nil {
 			t.Fatal("expected non-nil Rescorer")
@@ -53,7 +56,7 @@ func TestQueryRescorerWithSpans_Basic(t *testing.T) {
 
 	t.Run("rescore_nil_topdocs_returns_nil", func(t *testing.T) {
 		t.Parallel()
-		spanQ := search.NewSpanTermQuery(index.NewTerm("f", "x"))
+		spanQ := NewSpanTermQuery(index.NewTerm("f", "x"))
 		rescorer := search.NewQueryRescorer(spanQ)
 		result, err := rescorer.Rescore(nil, nil)
 		if err != nil {
@@ -66,7 +69,7 @@ func TestQueryRescorerWithSpans_Basic(t *testing.T) {
 
 	t.Run("rescore_empty_topdocs", func(t *testing.T) {
 		t.Parallel()
-		spanQ := search.NewSpanTermQuery(index.NewTerm("f", "x"))
+		spanQ := NewSpanTermQuery(index.NewTerm("f", "x"))
 		rescorer := search.NewQueryRescorer(spanQ)
 		topDocs := &search.TopDocs{
 			TotalHits: search.NewTotalHits(0, search.EQUAL_TO),
@@ -86,7 +89,7 @@ func TestQueryRescorerWithSpans_Basic(t *testing.T) {
 
 	t.Run("rescore_with_custom_combine", func(t *testing.T) {
 		t.Parallel()
-		spanQ := search.NewSpanTermQuery(index.NewTerm("f", "x"))
+		spanQ := NewSpanTermQuery(index.NewTerm("f", "x"))
 		combine := func(first float32, matched bool, second float32) float32 {
 			if matched {
 				return first + second*2.0
@@ -101,7 +104,7 @@ func TestQueryRescorerWithSpans_Basic(t *testing.T) {
 
 	t.Run("rescore_preserves_single_hit", func(t *testing.T) {
 		t.Parallel()
-		spanQ := search.NewSpanTermQuery(index.NewTerm("f", "x"))
+		spanQ := NewSpanTermQuery(index.NewTerm("f", "x"))
 		rescorer := search.NewQueryRescorer(spanQ)
 		hits := []*search.ScoreDoc{{Doc: 5, Score: 1.0}}
 		topDocs := &search.TopDocs{

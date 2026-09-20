@@ -26,6 +26,7 @@ import (
 
 	gcodecs "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -47,20 +48,27 @@ type fieldNamedLong struct {
 	value int64
 }
 
-func (c *storedFieldsCollector) StringField(name, v string) {
-	c.strings = append(c.strings, fieldNamedString{name, v})
+// NeedsField accepts every stored field.
+func (c *storedFieldsCollector) NeedsField(*spi.FieldInfo) (spi.StoredFieldVisitorStatus, error) {
+	return spi.StoredFieldVisitorStatusYes, nil
 }
-func (c *storedFieldsCollector) BinaryField(name string, v []byte) {
+func (c *storedFieldsCollector) StringField(fi *spi.FieldInfo, v string) error {
+	c.strings = append(c.strings, fieldNamedString{fi.Name(), v})
+	return nil
+}
+func (c *storedFieldsCollector) BinaryField(fi *spi.FieldInfo, v []byte) error {
 	cp := make([]byte, len(v))
 	copy(cp, v)
-	c.binaries = append(c.binaries, fieldNamedBytes{name, cp})
+	c.binaries = append(c.binaries, fieldNamedBytes{fi.Name(), cp})
+	return nil
 }
-func (c *storedFieldsCollector) IntField(name string, _ int) {}
-func (c *storedFieldsCollector) LongField(name string, v int64) {
-	c.longs = append(c.longs, fieldNamedLong{name, v})
+func (c *storedFieldsCollector) IntField(*spi.FieldInfo, int) error { return nil }
+func (c *storedFieldsCollector) LongField(fi *spi.FieldInfo, v int64) error {
+	c.longs = append(c.longs, fieldNamedLong{fi.Name(), v})
+	return nil
 }
-func (c *storedFieldsCollector) FloatField(name string, _ float32)  {}
-func (c *storedFieldsCollector) DoubleField(name string, _ float64) {}
+func (c *storedFieldsCollector) FloatField(*spi.FieldInfo, float32) error  { return nil }
+func (c *storedFieldsCollector) DoubleField(*spi.FieldInfo, float64) error { return nil }
 
 // openStoredFieldsReader opens the stored-fields reader for the "_0" segment
 // in dir by reading the .si and .fnm from the fixture, then delegating to

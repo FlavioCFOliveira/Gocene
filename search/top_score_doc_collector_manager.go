@@ -52,10 +52,7 @@ func (m *TopScoreDocCollectorManager) Reduce(collectors []*TopScoreDocCollector)
 			parts = append(parts, td)
 		}
 	}
-	merged, err := MergeWithStart(0, m.numHits, parts)
-	if err != nil {
-		return nil, err
-	}
+	merged := Merge(0, m.numHits, parts, nil)
 	if merged == nil {
 		return NewTopDocs(NewTotalHits(0, EQUAL_TO), nil), nil
 	}

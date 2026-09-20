@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -30,12 +31,7 @@ func TestPointRangeWeight_Explain(t *testing.T) {
 		packed[i] = encodePoint4(v)
 	}
 
-	pv := &stubPointRangePV{
-		minPV:  encodePoint4(5),
-		maxPV:  encodePoint4(25),
-		docCnt: len(docVals),
-		packed: packed,
-	}
+	pv := newStubPointRangePV(encodePoint4(5), encodePoint4(25), len(docVals), packed)
 
 	// Range [10, 20] inclusive -> matches docs 1 (12), 3 (10), 4 (17).
 	query, err := NewPointRangeQuery("f", encodePoint4(10), encodePoint4(20))
@@ -99,54 +95,80 @@ func floatsCloseWB(a, b float32) bool {
 // index.PointValues and the unexported pointRangePointValues contract used by
 // PointRangeWeight.
 type stubPointRangePV struct {
+	*spi.BasePointValues
 	minPV  []byte
 	maxPV  []byte
 	docCnt int
 	packed [][]byte // one entry per doc id (index == doc id)
 }
 
-func (p *stubPointRangePV) GetDocCount() int           { return p.docCnt }
-func (p *stubPointRangePV) GetDocCountWithValue() int64 { return int64(p.docCnt) }
-func (p *stubPointRangePV) GetValueCount() int64        { return int64(len(p.packed)) }
-func (p *stubPointRangePV) GetNumDimensions() int       { return 1 }
-func (p *stubPointRangePV) GetBytesPerDimension() int {
+// newStubPointRangePV wires the stub to spi.BasePointValues, which supplies
+// the `public final` PointValues members (intersect, estimatePointCount,
+// estimateDocCount).
+func newStubPointRangePV(minPV, maxPV []byte, docCnt int, packed [][]byte) *stubPointRangePV {
+	p := &stubPointRangePV{minPV: minPV, maxPV: maxPV, docCnt: docCnt, packed: packed}
+	p.BasePointValues = spi.NewBasePointValues(p)
+	return p
+}
+
+func (p *stubPointRangePV) GetDocCount() int                    { return p.docCnt }
+func (p *stubPointRangePV) Size() int64                         { return int64(len(p.packed)) }
+func (p *stubPointRangePV) GetNumDimensions() (int, error)      { return 1, nil }
+func (p *stubPointRangePV) GetNumIndexDimensions() (int, error) { return 1, nil }
+func (p *stubPointRangePV) GetBytesPerDimension() (int, error) {
 	if len(p.packed) > 0 {
-		return len(p.packed[0])
+		return len(p.packed[0]), nil
 	}
-	return 4
+	return 4, nil
 }
 func (p *stubPointRangePV) GetMinPackedValue() ([]byte, error) { return p.minPV, nil }
 func (p *stubPointRangePV) GetMaxPackedValue() ([]byte, error) { return p.maxPV, nil }
 
-func (p *stubPointRangePV) Intersect(visitor pointRangeIntersectVisitorI) error {
-	switch visitor.Compare(p.minPV, p.maxPV) {
-	case 0: // outside
-		return nil
-	case 1: // inside
-		visitor.Grow(len(p.packed))
-		for docID := range p.packed {
-			if err := visitor.Visit(docID); err != nil {
-				return err
-			}
+// GetPointTree returns the single-node tree over every stored document.
+func (p *stubPointRangePV) GetPointTree() (index.PointTree, error) {
+	return &stubPointRangePointTree{pv: p}, nil
+}
+
+// stubPointRangePointTree is the single-node PointTree over the stub's
+// documents. Driving it through PointValues.intersect reproduces exactly what
+// the stub's hand-written Intersect used to do.
+type stubPointRangePointTree struct {
+	pv *stubPointRangePV
+}
+
+func (t *stubPointRangePointTree) Clone() index.PointTree       { return &stubPointRangePointTree{pv: t.pv} }
+func (t *stubPointRangePointTree) MoveToChild() (bool, error)   { return false, nil }
+func (t *stubPointRangePointTree) MoveToSibling() (bool, error) { return false, nil }
+func (t *stubPointRangePointTree) MoveToParent() (bool, error)  { return false, nil }
+func (t *stubPointRangePointTree) GetMinPackedValue() []byte    { return t.pv.minPV }
+func (t *stubPointRangePointTree) GetMaxPackedValue() []byte    { return t.pv.maxPV }
+func (t *stubPointRangePointTree) Size() int64                  { return int64(len(t.pv.packed)) }
+
+func (t *stubPointRangePointTree) VisitDocIDs(visitor index.IntersectVisitor) error {
+	visitor.Grow(len(t.pv.packed))
+	for docID := range t.pv.packed {
+		if err := visitor.Visit(docID); err != nil {
+			return err
 		}
-		return nil
-	default: // crosses
-		visitor.Grow(len(p.packed))
-		for docID, value := range p.packed {
-			if err := visitor.VisitByPackedValue(docID, value); err != nil {
-				return err
-			}
-		}
-		return nil
 	}
+	return nil
 }
 
-func (p *stubPointRangePV) EstimatePointCount(_ pointRangeIntersectVisitorI) int64 {
-	return int64(len(p.packed))
+func (t *stubPointRangePointTree) VisitDocValues(visitor index.IntersectVisitor) error {
+	visitor.Grow(len(t.pv.packed))
+	for docID, value := range t.pv.packed {
+		if err := visitor.VisitByPackedValue(docID, value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-var _ index.PointValues = (*stubPointRangePV)(nil)
-var _ pointRangePointValues = (*stubPointRangePV)(nil)
+var (
+	_ index.PointValues     = (*stubPointRangePV)(nil)
+	_ pointRangePointValues = (*stubPointRangePV)(nil)
+	_ index.PointTree       = (*stubPointRangePointTree)(nil)
+)
 
 // stubPointRangeLeaf is a minimal LeafReaderInterface exposing GetPointValues
 // for a single field.
@@ -180,8 +202,8 @@ func (r *stubPointRangeLeaf) GetContext() (index.IndexReaderContext, error) {
 func (r *stubPointRangeLeaf) Leaves() ([]*index.LeafReaderContext, error) { return nil, nil }
 func (r *stubPointRangeLeaf) StoredFields() (index.StoredFields, error)   { return nil, nil }
 func (r *stubPointRangeLeaf) TermVectors() (index.TermVectors, error)     { return nil, nil }
-func (r *stubPointRangeLeaf) GetCoreCacheKey() interface{}               { return r }
-func (r *stubPointRangeLeaf) GetTermVectors(_ int) (index.Fields, error)   { return nil, nil }
+func (r *stubPointRangeLeaf) GetCoreCacheKey() interface{}                { return r }
+func (r *stubPointRangeLeaf) GetTermVectors(_ int) (index.Fields, error)  { return nil, nil }
 func (r *stubPointRangeLeaf) Terms(_ string) (index.Terms, error)         { return nil, nil }
 func (r *stubPointRangeLeaf) Postings(_ index.Term) (index.PostingsEnum, error) {
 	return nil, nil
@@ -189,20 +211,34 @@ func (r *stubPointRangeLeaf) Postings(_ index.Term) (index.PostingsEnum, error) 
 func (r *stubPointRangeLeaf) PostingsWithFreqPositions(_ index.Term, _ int) (index.PostingsEnum, error) {
 	return nil, nil
 }
-func (r *stubPointRangeLeaf) GetNumericDocValues(_ string) (index.NumericDocValues, error)       { return nil, nil }
-func (r *stubPointRangeLeaf) GetBinaryDocValues(_ string) (index.BinaryDocValues, error)         { return nil, nil }
-func (r *stubPointRangeLeaf) GetSortedDocValues(_ string) (index.SortedDocValues, error)         { return nil, nil }
+func (r *stubPointRangeLeaf) GetNumericDocValues(_ string) (index.NumericDocValues, error) {
+	return nil, nil
+}
+func (r *stubPointRangeLeaf) GetBinaryDocValues(_ string) (index.BinaryDocValues, error) {
+	return nil, nil
+}
+func (r *stubPointRangeLeaf) GetSortedDocValues(_ string) (index.SortedDocValues, error) {
+	return nil, nil
+}
 func (r *stubPointRangeLeaf) GetSortedNumericDocValues(_ string) (index.SortedNumericDocValues, error) {
 	return nil, nil
 }
-func (r *stubPointRangeLeaf) GetSortedSetDocValues(_ string) (index.SortedSetDocValues, error)    { return nil, nil }
-func (r *stubPointRangeLeaf) GetNormValues(_ string) (index.NumericDocValues, error)               { return nil, nil }
-func (r *stubPointRangeLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues, error)      { return nil, nil }
-func (r *stubPointRangeLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error)        { return nil, nil }
-func (r *stubPointRangeLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error)         { return nil, nil }
-func (r *stubPointRangeLeaf) CheckIntegrity() error                                                 { return nil }
-func (r *stubPointRangeLeaf) GetMetaData() *index.IndexReaderMetaData                                { return nil }
-func (r *stubPointRangeLeaf) GetSegmentInfo() *index.SegmentInfo                                      { return nil }
+func (r *stubPointRangeLeaf) GetSortedSetDocValues(_ string) (index.SortedSetDocValues, error) {
+	return nil, nil
+}
+func (r *stubPointRangeLeaf) GetNormValues(_ string) (index.NumericDocValues, error) { return nil, nil }
+func (r *stubPointRangeLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues, error) {
+	return nil, nil
+}
+func (r *stubPointRangeLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error) {
+	return nil, nil
+}
+func (r *stubPointRangeLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error) {
+	return nil, nil
+}
+func (r *stubPointRangeLeaf) CheckIntegrity() error                   { return nil }
+func (r *stubPointRangeLeaf) GetMetaData() *index.IndexReaderMetaData { return nil }
+func (r *stubPointRangeLeaf) GetSegmentInfo() *index.SegmentInfo      { return nil }
 func (r *stubPointRangeLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits) (index.TopDocs, error) {
 	return index.TopDocs{}, nil
 }

@@ -8,6 +8,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // ByteBuffersDataInput is the Go port of
@@ -44,6 +46,7 @@ type ByteBuffersDataInput interface {
 // implementation backed by a single byte slice. It is unexported because all
 // access is through the ByteBuffersDataInput interface.
 type byteBuffersDataInputImpl struct {
+	spi.BaseDataInput
 	data   []byte
 	pos    int64
 	offset int64
@@ -59,7 +62,9 @@ func NewByteBuffersDataInput(data []byte) ByteBuffersDataInput {
 // newByteBuffersDataInput is the package-private constructor used by tests and
 // helper functions.
 func newByteBuffersDataInput(data []byte) *byteBuffersDataInputImpl {
-	return &byteBuffersDataInputImpl{data: data}
+	in := &byteBuffersDataInputImpl{data: data}
+	in.Core = in
+	return in
 }
 
 // ReadByte implements DataInput.
@@ -73,12 +78,12 @@ func (in *byteBuffersDataInputImpl) ReadByte() (byte, error) {
 }
 
 // ReadBytes implements DataInput.
-func (in *byteBuffersDataInputImpl) ReadBytes(b []byte) error {
-	if in.pos+int64(len(b)) > int64(len(in.data)) {
+func (in *byteBuffersDataInputImpl) ReadBytes(b []byte, offset, length int) error {
+	if in.pos+int64(length) > int64(len(in.data)) {
 		return io.EOF
 	}
-	copy(b, in.data[in.pos:in.pos+int64(len(b))])
-	in.pos += int64(len(b))
+	copy(b[offset:], in.data[in.pos:in.pos+int64(length)])
+	in.pos += int64(length)
 	return nil
 }
 
@@ -98,7 +103,7 @@ func (in *byteBuffersDataInputImpl) ReadBytesN(n int) ([]byte, error) {
 // low byte first. See rmp #4786.
 func (in *byteBuffersDataInputImpl) ReadShort() (int16, error) {
 	buf := make([]byte, 2)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, 2); err != nil {
 		return 0, err
 	}
 	return int16(binary.LittleEndian.Uint16(buf)), nil
@@ -107,7 +112,7 @@ func (in *byteBuffersDataInputImpl) ReadShort() (int16, error) {
 // ReadInt implements DataInput (little-endian; see ReadShort comment).
 func (in *byteBuffersDataInputImpl) ReadInt() (int32, error) {
 	buf := make([]byte, 4)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, 4); err != nil {
 		return 0, err
 	}
 	return int32(binary.LittleEndian.Uint32(buf)), nil
@@ -116,7 +121,7 @@ func (in *byteBuffersDataInputImpl) ReadInt() (int32, error) {
 // ReadLong implements DataInput (little-endian; see ReadShort comment).
 func (in *byteBuffersDataInputImpl) ReadLong() (int64, error) {
 	buf := make([]byte, 8)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, 8); err != nil {
 		return 0, err
 	}
 	return int64(binary.LittleEndian.Uint64(buf)), nil
@@ -133,7 +138,7 @@ func (in *byteBuffersDataInputImpl) ReadString() (string, error) {
 		return "", nil
 	}
 	buf := make([]byte, length)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, int(length)); err != nil {
 		return "", err
 	}
 	return string(buf), nil
@@ -219,7 +224,6 @@ func (in *byteBuffersDataInputImpl) RamBytesUsed() int64 {
 func toByteBuffersDataInput(di DataInput) ByteBuffersDataInput {
 	if badi, ok := di.(*ByteArrayDataInput); ok {
 		data := make([]byte, badi.Length())
-		_ = badi.SetPosition(0)
 		for i := 0; i < len(data); i++ {
 			b, _ := badi.ReadByte()
 			data[i] = b

@@ -102,7 +102,7 @@ func TestBasics_SpanTermQuery(t *testing.T) {
 	t.Run("nil_context_getspans", func(t *testing.T) {
 		t.Parallel()
 		q := NewSpanTermQuery(index.NewTerm("f", "t"))
-		sw, err := q.CreateSpanWeight(nil, false, 1.0)
+		sw, err := q.CreateSpanWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 		if err != nil {
 			t.Fatalf("CreateSpanWeight: %v", err)
 		}
@@ -272,27 +272,33 @@ func TestBasics_SpanNearQuery(t *testing.T) {
 func TestBasics_SpanOrQuery(t *testing.T) {
 	t.Parallel()
 
-	stq := func(field, text string) search.SpanQuery {
-		return search.NewSpanTermQuery(index.NewTerm(field, text))
+	stq := func(field, text string) SpanQuery {
+		return NewSpanTermQuery(index.NewTerm(field, text))
 	}
 
 	t.Run("construction_two_clauses", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(stq("f", "a"), stq("f", "b"))
+		q, err := NewSpanOrQuery(stq("f", "a"), stq("f", "b"))
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
 		if q == nil {
 			t.Fatal("expected non-nil SpanOrQuery")
 		}
 		if q.GetField() != "f" {
 			t.Errorf("GetField = %q; want %q", q.GetField(), "f")
 		}
-		if len(q.Clauses()) != 2 {
-			t.Errorf("got %d clauses; want 2", len(q.Clauses()))
+		if len(q.GetClauses()) != 2 {
+			t.Errorf("got %d clauses; want 2", len(q.GetClauses()))
 		}
 	})
 
 	t.Run("construction_single_clause", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(stq("f", "a"))
+		q, err := NewSpanOrQuery(stq("f", "a"))
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
 		if q == nil {
 			t.Fatal("expected non-nil for single clause")
 		}
@@ -300,7 +306,10 @@ func TestBasics_SpanOrQuery(t *testing.T) {
 
 	t.Run("field_mismatch_returns_nil", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(stq("f", "a"), stq("g", "b"))
+		q, err := NewSpanOrQuery(stq("f", "a"), stq("g", "b"))
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
 		if q != nil {
 			t.Error("expected nil for different fields")
 		}
@@ -308,7 +317,10 @@ func TestBasics_SpanOrQuery(t *testing.T) {
 
 	t.Run("empty_clauses_nil", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery()
+		q, err := NewSpanOrQuery()
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
 		if q != nil {
 			t.Error("expected nil for empty clauses")
 		}
@@ -316,8 +328,12 @@ func TestBasics_SpanOrQuery(t *testing.T) {
 
 	t.Run("equals/hash", func(t *testing.T) {
 		t.Parallel()
-		makeQ := func() *search.SpanOrQuery {
-			return search.NewSpanOrQuery(stq("f", "x"), stq("f", "y"))
+		makeQ := func() *SpanOrQuery {
+			q, err := NewSpanOrQuery(stq("f", "x"), stq("f", "y"))
+			if err != nil {
+				t.Fatalf("NewSpanOrQuery: %v", err)
+			}
+			return q
 		}
 		q1 := makeQ()
 		q2 := makeQ()
@@ -327,7 +343,10 @@ func TestBasics_SpanOrQuery(t *testing.T) {
 		if q1.HashCode() != q2.HashCode() {
 			t.Error("equal queries different hash")
 		}
-		q3 := search.NewSpanOrQuery(stq("f", "x"), stq("f", "z"))
+		q3, err := NewSpanOrQuery(stq("f", "x"), stq("f", "z"))
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
 		if q1.Equals(q3) {
 			t.Error("different queries reported equal")
 		}
@@ -335,8 +354,11 @@ func TestBasics_SpanOrQuery(t *testing.T) {
 
 	t.Run("string", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(stq("f", "a"), stq("f", "b"))
-		s := q.String("")
+		q, err := NewSpanOrQuery(stq("f", "a"), stq("f", "b"))
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
+		s := q.ToString("")
 		if s == "" {
 			t.Error("expected non-empty string")
 		}
@@ -344,8 +366,11 @@ func TestBasics_SpanOrQuery(t *testing.T) {
 
 	t.Run("clone", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanOrQuery(stq("f", "a"), stq("f", "b"))
-		c := q.Clone().(*search.SpanOrQuery)
+		q, err := NewSpanOrQuery(stq("f", "a"), stq("f", "b"))
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
+		c := q.Clone().(*SpanOrQuery)
 		if !q.Equals(c) {
 			t.Error("clone not equal")
 		}
@@ -362,15 +387,18 @@ func TestBasics_SpanOrQuery(t *testing.T) {
 func TestBasics_SpanNotQuery(t *testing.T) {
 	t.Parallel()
 
-	stq := func(field, text string) search.SpanQuery {
-		return search.NewSpanTermQuery(index.NewTerm(field, text))
+	stq := func(field, text string) SpanQuery {
+		return NewSpanTermQuery(index.NewTerm(field, text))
 	}
 
 	t.Run("construction", func(t *testing.T) {
 		t.Parallel()
 		include := stq("f", "include")
 		exclude := stq("f", "exclude")
-		q := search.NewSpanNotQuery(include, exclude)
+		q, err := NewSpanNotQuery(include, exclude)
+		if err != nil {
+			t.Fatalf("NewSpanNotQuery: %v", err)
+		}
 		if q == nil {
 			t.Fatal("expected non-nil")
 		}
@@ -381,7 +409,10 @@ func TestBasics_SpanNotQuery(t *testing.T) {
 
 	t.Run("field_mismatch_returns_nil", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanNotQuery(stq("f", "a"), stq("g", "b"))
+		q, err := NewSpanNotQuery(stq("f", "a"), stq("g", "b"))
+		if err != nil {
+			t.Fatalf("NewSpanNotQuery: %v", err)
+		}
 		if q != nil {
 			t.Error("expected nil for different fields")
 		}
@@ -391,29 +422,41 @@ func TestBasics_SpanNotQuery(t *testing.T) {
 		t.Parallel()
 		inc := stq("f", "foo")
 		exc := stq("f", "bar")
-		q := search.NewSpanNotQuery(inc, exc)
+		q, err := NewSpanNotQuery(inc, exc)
+		if err != nil {
+			t.Fatalf("NewSpanNotQuery: %v", err)
+		}
 		if q == nil {
 			t.Fatal("expected non-nil")
 		}
-		if !q.Include().Equals(inc) {
+		if !q.GetInclude().Equals(inc) {
 			t.Error("Include() mismatch")
 		}
-		if !q.Exclude().Equals(exc) {
+		if !q.GetExclude().Equals(exc) {
 			t.Error("Exclude() mismatch")
 		}
 	})
 
 	t.Run("equals/hash", func(t *testing.T) {
 		t.Parallel()
-		q1 := search.NewSpanNotQuery(stq("f", "x"), stq("f", "y"))
-		q2 := search.NewSpanNotQuery(stq("f", "x"), stq("f", "y"))
+		q1, err := NewSpanNotQuery(stq("f", "x"), stq("f", "y"))
+		if err != nil {
+			t.Fatalf("NewSpanNotQuery: %v", err)
+		}
+		q2, err := NewSpanNotQuery(stq("f", "x"), stq("f", "y"))
+		if err != nil {
+			t.Fatalf("NewSpanNotQuery: %v", err)
+		}
 		if !q1.Equals(q2) {
 			t.Error("equal queries not equal")
 		}
 		if q1.HashCode() != q2.HashCode() {
 			t.Error("equal queries different hash")
 		}
-		q3 := search.NewSpanNotQuery(stq("f", "x"), stq("f", "z"))
+		q3, err := NewSpanNotQuery(stq("f", "x"), stq("f", "z"))
+		if err != nil {
+			t.Fatalf("NewSpanNotQuery: %v", err)
+		}
 		if q1.Equals(q3) {
 			t.Error("different queries reported equal")
 		}
@@ -421,8 +464,11 @@ func TestBasics_SpanNotQuery(t *testing.T) {
 
 	t.Run("string", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanNotQuery(stq("f", "good"), stq("f", "bad"))
-		s := q.String("")
+		q, err := NewSpanNotQuery(stq("f", "good"), stq("f", "bad"))
+		if err != nil {
+			t.Fatalf("NewSpanNotQuery: %v", err)
+		}
+		s := q.ToString("")
 		if s == "" {
 			t.Error("expected non-empty string")
 		}
@@ -430,8 +476,11 @@ func TestBasics_SpanNotQuery(t *testing.T) {
 
 	t.Run("clone", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanNotQuery(stq("f", "a"), stq("f", "b"))
-		c := q.Clone().(*search.SpanNotQuery)
+		q, err := NewSpanNotQuery(stq("f", "a"), stq("f", "b"))
+		if err != nil {
+			t.Fatalf("NewSpanNotQuery: %v", err)
+		}
+		c := q.Clone().(*SpanNotQuery)
 		if !q.Equals(c) {
 			t.Error("clone not equal")
 		}
@@ -448,13 +497,16 @@ func TestBasics_SpanNotQuery(t *testing.T) {
 func TestBasics_SpanFirstQuery(t *testing.T) {
 	t.Parallel()
 
-	stq := func(field, text string) search.SpanQuery {
-		return search.NewSpanTermQuery(index.NewTerm(field, text))
+	stq := func(field, text string) SpanQuery {
+		return NewSpanTermQuery(index.NewTerm(field, text))
 	}
 
 	t.Run("construction", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanFirstQuery(stq("f", "term"), 5)
+		q, err := NewSpanFirstQuery(stq("f", "term"), 5)
+		if err != nil {
+			t.Fatalf("NewSpanFirstQuery: %v", err)
+		}
 		if q == nil {
 			t.Fatal("expected non-nil")
 		}
@@ -466,30 +518,45 @@ func TestBasics_SpanFirstQuery(t *testing.T) {
 	t.Run("accessors", func(t *testing.T) {
 		t.Parallel()
 		match := stq("f", "foo")
-		q := search.NewSpanFirstQuery(match, 3)
-		if !q.Match().Equals(match) {
+		q, err := NewSpanFirstQuery(match, 3)
+		if err != nil {
+			t.Fatalf("NewSpanFirstQuery: %v", err)
+		}
+		if !q.GetMatch().Equals(match) {
 			t.Error("Match() mismatch")
 		}
-		if q.End() != 3 {
-			t.Errorf("End() = %d; want 3", q.End())
+		if q.GetEnd() != 3 {
+			t.Errorf("End() = %d; want 3", q.GetEnd())
 		}
 	})
 
 	t.Run("equals/hash", func(t *testing.T) {
 		t.Parallel()
-		q1 := search.NewSpanFirstQuery(stq("f", "x"), 3)
-		q2 := search.NewSpanFirstQuery(stq("f", "x"), 3)
+		q1, err := NewSpanFirstQuery(stq("f", "x"), 3)
+		if err != nil {
+			t.Fatalf("NewSpanFirstQuery: %v", err)
+		}
+		q2, err := NewSpanFirstQuery(stq("f", "x"), 3)
+		if err != nil {
+			t.Fatalf("NewSpanFirstQuery: %v", err)
+		}
 		if !q1.Equals(q2) {
 			t.Error("equal queries not equal")
 		}
 		if q1.HashCode() != q2.HashCode() {
 			t.Error("equal queries different hash")
 		}
-		q3 := search.NewSpanFirstQuery(stq("f", "x"), 5)
+		q3, err := NewSpanFirstQuery(stq("f", "x"), 5)
+		if err != nil {
+			t.Fatalf("NewSpanFirstQuery: %v", err)
+		}
 		if q1.Equals(q3) {
 			t.Error("different end reported equal")
 		}
-		q4 := search.NewSpanFirstQuery(stq("f", "y"), 3)
+		q4, err := NewSpanFirstQuery(stq("f", "y"), 3)
+		if err != nil {
+			t.Fatalf("NewSpanFirstQuery: %v", err)
+		}
 		if q1.Equals(q4) {
 			t.Error("different match reported equal")
 		}
@@ -497,8 +564,11 @@ func TestBasics_SpanFirstQuery(t *testing.T) {
 
 	t.Run("string", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanFirstQuery(stq("f", "hello"), 2)
-		s := q.String("")
+		q, err := NewSpanFirstQuery(stq("f", "hello"), 2)
+		if err != nil {
+			t.Fatalf("NewSpanFirstQuery: %v", err)
+		}
+		s := q.ToString("")
 		if s == "" {
 			t.Error("expected non-empty string")
 		}
@@ -506,8 +576,11 @@ func TestBasics_SpanFirstQuery(t *testing.T) {
 
 	t.Run("clone", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanFirstQuery(stq("f", "val"), 7)
-		c := q.Clone().(*search.SpanFirstQuery)
+		q, err := NewSpanFirstQuery(stq("f", "val"), 7)
+		if err != nil {
+			t.Fatalf("NewSpanFirstQuery: %v", err)
+		}
+		c := q.Clone().(*SpanFirstQuery)
 		if !q.Equals(c) {
 			t.Error("clone not equal")
 		}
@@ -518,9 +591,12 @@ func TestBasics_SpanFirstQuery(t *testing.T) {
 
 	t.Run("end_zero", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanFirstQuery(stq("f", "x"), 0)
-		if q.End() != 0 {
-			t.Errorf("End() = %d; want 0", q.End())
+		q, err := NewSpanFirstQuery(stq("f", "x"), 0)
+		if err != nil {
+			t.Fatalf("NewSpanFirstQuery: %v", err)
+		}
+		if q.GetEnd() != 0 {
+			t.Errorf("End() = %d; want 0", q.GetEnd())
 		}
 	})
 }
@@ -532,13 +608,16 @@ func TestBasics_SpanFirstQuery(t *testing.T) {
 func TestBasics_SpanPositionRangeQuery(t *testing.T) {
 	t.Parallel()
 
-	stq := func(field, text string) search.SpanQuery {
-		return search.NewSpanTermQuery(index.NewTerm(field, text))
+	stq := func(field, text string) SpanQuery {
+		return NewSpanTermQuery(index.NewTerm(field, text))
 	}
 
 	t.Run("construction", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanPositionRangeQuery(stq("f", "term"), 1, 5)
+		q, err := NewSpanPositionRangeQuery(stq("f", "term"), 1, 5)
+		if err != nil {
+			t.Fatalf("NewSpanPositionRangeQuery: %v", err)
+		}
 		if q == nil {
 			t.Fatal("expected non-nil")
 		}
@@ -550,33 +629,48 @@ func TestBasics_SpanPositionRangeQuery(t *testing.T) {
 	t.Run("accessors", func(t *testing.T) {
 		t.Parallel()
 		match := stq("f", "foo")
-		q := search.NewSpanPositionRangeQuery(match, 2, 6)
-		if !q.Match().Equals(match) {
+		q, err := NewSpanPositionRangeQuery(match, 2, 6)
+		if err != nil {
+			t.Fatalf("NewSpanPositionRangeQuery: %v", err)
+		}
+		if !q.GetMatch().Equals(match) {
 			t.Error("Match() mismatch")
 		}
-		if q.Start() != 2 {
-			t.Errorf("Start() = %d; want 2", q.Start())
+		if q.GetStart() != 2 {
+			t.Errorf("Start() = %d; want 2", q.GetStart())
 		}
-		if q.End() != 6 {
-			t.Errorf("End() = %d; want 6", q.End())
+		if q.GetEnd() != 6 {
+			t.Errorf("End() = %d; want 6", q.GetEnd())
 		}
 	})
 
 	t.Run("equals/hash", func(t *testing.T) {
 		t.Parallel()
-		q1 := search.NewSpanPositionRangeQuery(stq("f", "x"), 1, 5)
-		q2 := search.NewSpanPositionRangeQuery(stq("f", "x"), 1, 5)
+		q1, err := NewSpanPositionRangeQuery(stq("f", "x"), 1, 5)
+		if err != nil {
+			t.Fatalf("NewSpanPositionRangeQuery: %v", err)
+		}
+		q2, err := NewSpanPositionRangeQuery(stq("f", "x"), 1, 5)
+		if err != nil {
+			t.Fatalf("NewSpanPositionRangeQuery: %v", err)
+		}
 		if !q1.Equals(q2) {
 			t.Error("equal queries not equal")
 		}
 		if q1.HashCode() != q2.HashCode() {
 			t.Error("equal queries different hash")
 		}
-		q3 := search.NewSpanPositionRangeQuery(stq("f", "x"), 1, 6)
+		q3, err := NewSpanPositionRangeQuery(stq("f", "x"), 1, 6)
+		if err != nil {
+			t.Fatalf("NewSpanPositionRangeQuery: %v", err)
+		}
 		if q1.Equals(q3) {
 			t.Error("different end reported equal")
 		}
-		q4 := search.NewSpanPositionRangeQuery(stq("f", "x"), 2, 5)
+		q4, err := NewSpanPositionRangeQuery(stq("f", "x"), 2, 5)
+		if err != nil {
+			t.Fatalf("NewSpanPositionRangeQuery: %v", err)
+		}
 		if q1.Equals(q4) {
 			t.Error("different start reported equal")
 		}
@@ -584,8 +678,11 @@ func TestBasics_SpanPositionRangeQuery(t *testing.T) {
 
 	t.Run("string", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanPositionRangeQuery(stq("f", "hello"), 0, 10)
-		s := q.String("")
+		q, err := NewSpanPositionRangeQuery(stq("f", "hello"), 0, 10)
+		if err != nil {
+			t.Fatalf("NewSpanPositionRangeQuery: %v", err)
+		}
+		s := q.ToString("")
 		if s == "" {
 			t.Error("expected non-empty string")
 		}
@@ -593,8 +690,11 @@ func TestBasics_SpanPositionRangeQuery(t *testing.T) {
 
 	t.Run("clone", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanPositionRangeQuery(stq("f", "val"), 2, 8)
-		c := q.Clone().(*search.SpanPositionRangeQuery)
+		q, err := NewSpanPositionRangeQuery(stq("f", "val"), 2, 8)
+		if err != nil {
+			t.Fatalf("NewSpanPositionRangeQuery: %v", err)
+		}
+		c := q.Clone().(*SpanPositionRangeQuery)
 		if !q.Equals(c) {
 			t.Error("clone not equal")
 		}
@@ -605,9 +705,12 @@ func TestBasics_SpanPositionRangeQuery(t *testing.T) {
 
 	t.Run("zero_range", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanPositionRangeQuery(stq("f", "x"), 0, 0)
-		if q.Start() != 0 || q.End() != 0 {
-			t.Errorf("zero range: got start=%d end=%d", q.Start(), q.End())
+		q, err := NewSpanPositionRangeQuery(stq("f", "x"), 0, 0)
+		if err != nil {
+			t.Fatalf("NewSpanPositionRangeQuery: %v", err)
+		}
+		if q.GetStart() != 0 || q.GetEnd() != 0 {
+			t.Errorf("zero range: got start=%d end=%d", q.GetStart(), q.GetEnd())
 		}
 	})
 }
@@ -619,15 +722,18 @@ func TestBasics_SpanPositionRangeQuery(t *testing.T) {
 func TestBasics_SpanContainingQuery(t *testing.T) {
 	t.Parallel()
 
-	stq := func(field, text string) search.SpanQuery {
-		return search.NewSpanTermQuery(index.NewTerm(field, text))
+	stq := func(field, text string) SpanQuery {
+		return NewSpanTermQuery(index.NewTerm(field, text))
 	}
 
 	t.Run("construction", func(t *testing.T) {
 		t.Parallel()
 		big := stq("f", "big")
 		small := stq("f", "small")
-		q := search.NewSpanContainingQuery(big, small)
+		q, err := NewSpanContainingQuery(big, small)
+		if err != nil {
+			t.Fatalf("NewSpanContainingQuery: %v", err)
+		}
 		if q == nil {
 			t.Fatal("expected non-nil")
 		}
@@ -638,7 +744,10 @@ func TestBasics_SpanContainingQuery(t *testing.T) {
 
 	t.Run("field_mismatch_returns_nil", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanContainingQuery(stq("f", "x"), stq("g", "y"))
+		q, err := NewSpanContainingQuery(stq("f", "x"), stq("g", "y"))
+		if err != nil {
+			t.Fatalf("NewSpanContainingQuery: %v", err)
+		}
 		if q != nil {
 			t.Error("expected nil for different fields")
 		}
@@ -648,26 +757,38 @@ func TestBasics_SpanContainingQuery(t *testing.T) {
 		t.Parallel()
 		big := stq("f", "biggy")
 		small := stq("f", "smally")
-		q := search.NewSpanContainingQuery(big, small)
-		if !q.Big().Equals(big) {
+		q, err := NewSpanContainingQuery(big, small)
+		if err != nil {
+			t.Fatalf("NewSpanContainingQuery: %v", err)
+		}
+		if !q.GetBig().Equals(big) {
 			t.Error("Big() mismatch")
 		}
-		if !q.Small().Equals(small) {
+		if !q.GetLittle().Equals(small) {
 			t.Error("Small() mismatch")
 		}
 	})
 
 	t.Run("equals/hash", func(t *testing.T) {
 		t.Parallel()
-		q1 := search.NewSpanContainingQuery(stq("f", "x"), stq("f", "y"))
-		q2 := search.NewSpanContainingQuery(stq("f", "x"), stq("f", "y"))
+		q1, err := NewSpanContainingQuery(stq("f", "x"), stq("f", "y"))
+		if err != nil {
+			t.Fatalf("NewSpanContainingQuery: %v", err)
+		}
+		q2, err := NewSpanContainingQuery(stq("f", "x"), stq("f", "y"))
+		if err != nil {
+			t.Fatalf("NewSpanContainingQuery: %v", err)
+		}
 		if !q1.Equals(q2) {
 			t.Error("equal queries not equal")
 		}
 		if q1.HashCode() != q2.HashCode() {
 			t.Error("equal queries different hash")
 		}
-		q3 := search.NewSpanContainingQuery(stq("f", "x"), stq("f", "z"))
+		q3, err := NewSpanContainingQuery(stq("f", "x"), stq("f", "z"))
+		if err != nil {
+			t.Fatalf("NewSpanContainingQuery: %v", err)
+		}
 		if q1.Equals(q3) {
 			t.Error("different small reported equal")
 		}
@@ -675,8 +796,11 @@ func TestBasics_SpanContainingQuery(t *testing.T) {
 
 	t.Run("string", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanContainingQuery(stq("f", "outer"), stq("f", "inner"))
-		s := q.String("")
+		q, err := NewSpanContainingQuery(stq("f", "outer"), stq("f", "inner"))
+		if err != nil {
+			t.Fatalf("NewSpanContainingQuery: %v", err)
+		}
+		s := q.ToString("")
 		if s == "" {
 			t.Error("expected non-empty string")
 		}
@@ -684,8 +808,11 @@ func TestBasics_SpanContainingQuery(t *testing.T) {
 
 	t.Run("clone", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanContainingQuery(stq("f", "a"), stq("f", "b"))
-		c := q.Clone().(*search.SpanContainingQuery)
+		q, err := NewSpanContainingQuery(stq("f", "a"), stq("f", "b"))
+		if err != nil {
+			t.Fatalf("NewSpanContainingQuery: %v", err)
+		}
+		c := q.Clone().(*SpanContainingQuery)
 		if !q.Equals(c) {
 			t.Error("clone not equal")
 		}
@@ -702,15 +829,18 @@ func TestBasics_SpanContainingQuery(t *testing.T) {
 func TestBasics_SpanWithinQuery(t *testing.T) {
 	t.Parallel()
 
-	stq := func(field, text string) search.SpanQuery {
-		return search.NewSpanTermQuery(index.NewTerm(field, text))
+	stq := func(field, text string) SpanQuery {
+		return NewSpanTermQuery(index.NewTerm(field, text))
 	}
 
 	t.Run("construction", func(t *testing.T) {
 		t.Parallel()
 		big := stq("f", "container")
 		small := stq("f", "contained")
-		q := search.NewSpanWithinQuery(big, small)
+		q, err := NewSpanWithinQuery(big, small)
+		if err != nil {
+			t.Fatalf("NewSpanWithinQuery: %v", err)
+		}
 		if q == nil {
 			t.Fatal("expected non-nil")
 		}
@@ -721,7 +851,10 @@ func TestBasics_SpanWithinQuery(t *testing.T) {
 
 	t.Run("field_mismatch_returns_nil", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanWithinQuery(stq("f", "x"), stq("g", "y"))
+		q, err := NewSpanWithinQuery(stq("f", "x"), stq("g", "y"))
+		if err != nil {
+			t.Fatalf("NewSpanWithinQuery: %v", err)
+		}
 		if q != nil {
 			t.Error("expected nil for different fields")
 		}
@@ -731,26 +864,38 @@ func TestBasics_SpanWithinQuery(t *testing.T) {
 		t.Parallel()
 		big := stq("f", "biggy")
 		small := stq("f", "smally")
-		q := search.NewSpanWithinQuery(big, small)
-		if !q.Big().Equals(big) {
+		q, err := NewSpanWithinQuery(big, small)
+		if err != nil {
+			t.Fatalf("NewSpanWithinQuery: %v", err)
+		}
+		if !q.GetBig().Equals(big) {
 			t.Error("Big() mismatch")
 		}
-		if !q.Small().Equals(small) {
+		if !q.GetLittle().Equals(small) {
 			t.Error("Small() mismatch")
 		}
 	})
 
 	t.Run("equals/hash", func(t *testing.T) {
 		t.Parallel()
-		q1 := search.NewSpanWithinQuery(stq("f", "x"), stq("f", "y"))
-		q2 := search.NewSpanWithinQuery(stq("f", "x"), stq("f", "y"))
+		q1, err := NewSpanWithinQuery(stq("f", "x"), stq("f", "y"))
+		if err != nil {
+			t.Fatalf("NewSpanWithinQuery: %v", err)
+		}
+		q2, err := NewSpanWithinQuery(stq("f", "x"), stq("f", "y"))
+		if err != nil {
+			t.Fatalf("NewSpanWithinQuery: %v", err)
+		}
 		if !q1.Equals(q2) {
 			t.Error("equal queries not equal")
 		}
 		if q1.HashCode() != q2.HashCode() {
 			t.Error("equal queries different hash")
 		}
-		q3 := search.NewSpanWithinQuery(stq("f", "x"), stq("f", "z"))
+		q3, err := NewSpanWithinQuery(stq("f", "x"), stq("f", "z"))
+		if err != nil {
+			t.Fatalf("NewSpanWithinQuery: %v", err)
+		}
 		if q1.Equals(q3) {
 			t.Error("different small reported equal")
 		}
@@ -758,8 +903,11 @@ func TestBasics_SpanWithinQuery(t *testing.T) {
 
 	t.Run("string", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanWithinQuery(stq("f", "outer"), stq("f", "inner"))
-		s := q.String("")
+		q, err := NewSpanWithinQuery(stq("f", "outer"), stq("f", "inner"))
+		if err != nil {
+			t.Fatalf("NewSpanWithinQuery: %v", err)
+		}
+		s := q.ToString("")
 		if s == "" {
 			t.Error("expected non-empty string")
 		}
@@ -767,8 +915,11 @@ func TestBasics_SpanWithinQuery(t *testing.T) {
 
 	t.Run("clone", func(t *testing.T) {
 		t.Parallel()
-		q := search.NewSpanWithinQuery(stq("f", "a"), stq("f", "b"))
-		c := q.Clone().(*search.SpanWithinQuery)
+		q, err := NewSpanWithinQuery(stq("f", "a"), stq("f", "b"))
+		if err != nil {
+			t.Fatalf("NewSpanWithinQuery: %v", err)
+		}
+		c := q.Clone().(*SpanWithinQuery)
 		if !q.Equals(c) {
 			t.Error("clone not equal")
 		}
@@ -785,10 +936,10 @@ func TestBasics_SpanWithinQuery(t *testing.T) {
 func TestBasics_SpanContainQuery(t *testing.T) {
 	t.Parallel()
 
-	// Use search.SpanTermQuery for SpanContainQuery arguments since
-	// *queries/spans.SpanTermQuery does not implement search.SpanQuery.
-	sstq := func(field, text string) search.SpanQuery {
-		return search.NewSpanTermQuery(index.NewTerm(field, text))
+	// Use SpanTermQuery for SpanContainQuery arguments since
+	// *queries/spans.SpanTermQuery does not implement SpanQuery.
+	sstq := func(field, text string) SpanQuery {
+		return NewSpanTermQuery(index.NewTerm(field, text))
 	}
 
 	// Test NewSpanContainQuery with same fields → success.
@@ -857,7 +1008,7 @@ func TestBasics_BooleanQueryComposition(t *testing.T) {
 
 	t.Run("span_term_in_boolean_should", func(t *testing.T) {
 		t.Parallel()
-		spanQ := search.NewSpanTermQuery(index.NewTerm("f", "hello"))
+		spanQ := NewSpanTermQuery(index.NewTerm("f", "hello"))
 		bq := search.NewBooleanQuery()
 		bq.Add(spanQ, search.SHOULD)
 		if bq == nil {
@@ -867,10 +1018,13 @@ func TestBasics_BooleanQueryComposition(t *testing.T) {
 
 	t.Run("span_or_in_boolean_must", func(t *testing.T) {
 		t.Parallel()
-		spanQ := search.NewSpanOrQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "a")),
-			search.NewSpanTermQuery(index.NewTerm("f", "b")),
+		spanQ, err := NewSpanOrQuery(
+			NewSpanTermQuery(index.NewTerm("f", "a")),
+			NewSpanTermQuery(index.NewTerm("f", "b")),
 		)
+		if err != nil {
+			t.Fatalf("NewSpanOrQuery: %v", err)
+		}
 		bq := search.NewBooleanQuery()
 		bq.Add(spanQ, search.MUST)
 		if bq == nil {
@@ -880,9 +1034,12 @@ func TestBasics_BooleanQueryComposition(t *testing.T) {
 
 	t.Run("span_first_in_boolean_filter", func(t *testing.T) {
 		t.Parallel()
-		sf := search.NewSpanFirstQuery(
-			search.NewSpanTermQuery(index.NewTerm("f", "term")), 3,
+		sf, err := NewSpanFirstQuery(
+			NewSpanTermQuery(index.NewTerm("f", "term")), 3,
 		)
+		if err != nil {
+			t.Fatalf("NewSpanFirstQuery: %v", err)
+		}
 		bq := search.NewBooleanQuery()
 		bq.Add(sf, search.FILTER)
 		if bq == nil {

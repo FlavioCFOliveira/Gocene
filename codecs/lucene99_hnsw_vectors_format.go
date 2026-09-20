@@ -6,7 +6,15 @@ package codecs
 
 import (
 	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
 )
+
+// lucene99HnswFlatVectorsFormat mirrors the private static final
+// Lucene99HnswVectorsFormat.flatVectorsFormat, the format for storing,
+// reading, and merging vectors on disk:
+// new Lucene99FlatVectorsFormat(FlatVectorScorerUtil.getLucene99FlatVectorsScorer()).
+var lucene99HnswFlatVectorsFormat = NewLucene99FlatVectorsFormat(hnsw.GetLucene99FlatVectorsScorer())
 
 // Lucene99HnswVectorsFormat constants
 const (
@@ -105,7 +113,16 @@ func (f *Lucene99HnswVectorsFormat) FieldsWriter(state *SegmentWriteState) (KnnV
 
 // FieldsReader returns a reader for reading KNN vectors.
 func (f *Lucene99HnswVectorsFormat) FieldsReader(state *SegmentReadState) (KnnVectorsReader, error) {
-	return NewLucene99HnswVectorsReader(state)
+	// Java: new Lucene99HnswVectorsReader(state, flatVectorsFormat.fieldsReader(state)).
+	flatVectorsReader, err := lucene99HnswFlatVectorsFormat.FlatFieldsReader(state)
+	if err != nil {
+		return nil, err
+	}
+	reader, err := NewLucene99HnswVectorsReader(state, flatVectorsReader)
+	if err != nil {
+		return nil, err
+	}
+	return reader, nil
 }
 
 // SupportsFloatVectorFallback returns false as this format does not support float vector fallback.

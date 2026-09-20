@@ -7,7 +7,7 @@ import (
 // LogsPanel provides access to system logs.
 type LogsPanel struct {
 	logBuffer *util.CircularLogBufferHandler
-	filterLevel int // simplified Level representation
+	filterLevel util.LogLevel // simplified Level representation
 }
 
 func NewLogsPanel() *LogsPanel {
@@ -16,7 +16,7 @@ func NewLogsPanel() *LogsPanel {
 	}
 }
 
-func (p *LogsPanel) SetFilterLevel(level int) {
+func (p *LogsPanel) SetFilterLevel(level util.LogLevel) {
 	p.filterLevel = level
 }
 

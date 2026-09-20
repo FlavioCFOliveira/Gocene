@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DefaultStopwordFileComment is the line-comment prefix used in stopwords.txt.
@@ -105,13 +106,11 @@ func NewSmartChineseAnalyzerWithStopWords(stopWords *analysis.CharArraySet) *Sma
 // LowerCaseFilter is applied only in the normalize path (not modelled here).
 func (a *SmartChineseAnalyzer) TokenStream(fieldName string, reader io.Reader) (analysis.TokenStream, error) {
 	_ = fieldName
-	tok, err := NewHMMChineseTokenizer()
+	tok, err := NewHMMChineseTokenizer(util.DefaultAttributeFactoryInstance)
 	if err != nil {
 		return nil, err
 	}
-	if err := tok.SetReader(reader); err != nil {
-		return nil, err
-	}
+	tok.SetReader(reader)
 
 	var stream analysis.TokenStream = analysis.NewPorterStemFilter(tok)
 
@@ -133,6 +132,12 @@ func (a *SmartChineseAnalyzer) GetStopWords() []string {
 // SmartChineseAnalyzer holds no persistent resources; this is a no-op.
 func (a *SmartChineseAnalyzer) Close() error {
 	return nil
+}
+
+// Normalize returns a TokenStream that normalizes text for the given field.
+func (a *SmartChineseAnalyzer) Normalize(fieldName string) analysis.TokenStream {
+	ts, _ := a.TokenStream(fieldName, nil)
+	return ts
 }
 
 // Ensure SmartChineseAnalyzer implements analysis.Analyzer.

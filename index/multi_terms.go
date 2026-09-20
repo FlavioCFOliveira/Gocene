@@ -9,6 +9,7 @@ import (
 	"fmt"
 )
 
+// ReaderSlice is declared in reader_slice.go and shared across the package.
 // MultiTerms aggregates Terms from several sub-segments into one virtual
 // Terms instance. Mirrors org.apache.lucene.index.MultiTerms (Apache Lucene
 // 10.4.0).
@@ -58,7 +59,7 @@ func (m *MultiTerms) Iterator() (TermsEnum, error) {
 	enum := NewMultiTermsEnum(m.subSlices)
 	subEnums := make([]TermsEnum, len(m.subs))
 	for i, sub := range m.subs {
-		te, err := sub.GetIterator()
+		te, err := sub.Iterator()
 		if err != nil {
 			return nil, fmt.Errorf("MultiTerms.Iterator: sub %d: %w", i, err)
 		}
@@ -74,10 +75,6 @@ func (m *MultiTerms) Iterator() (TermsEnum, error) {
 	}
 	return bound, nil
 }
-
-// GetIterator returns the merged TermsEnum (Terms-interface alias for
-// Iterator), so a MultiTerms can stand in for any single-segment Terms.
-func (m *MultiTerms) GetIterator() (TermsEnum, error) { return m.Iterator() }
 
 // GetIteratorWithSeek returns the merged TermsEnum positioned on the smallest
 // term >= seekTerm, or nil when no such term exists.
@@ -238,4 +235,41 @@ func (m *MultiTerms) HasPayloads() bool {
 		}
 	}
 	return true
+}
+
+// MultiTermsGetTerms exposes a merged view of the Terms for one field across
+// every leaf of the supplied reader, or nil when no leaf indexes that field.
+//
+// Mirrors org.apache.lucene.index.MultiTerms#getTerms(IndexReader, String) of
+// Apache Lucene 10.5.0. The name carries the declaring class because Java
+// distinguishes this static from Terms#getTerms(LeafReader, String) — ported
+// as GetTerms in terms.go — by its class, which Go package scope cannot do.
+// The same convention is used for TermCompare and TermEquals.
+func MultiTermsGetTerms(r IndexReader, field string) (Terms, error) {
+	leaves, err := r.Leaves()
+	if err != nil {
+		return nil, err
+	}
+	if len(leaves) == 1 {
+		return leaves[0].LeafReader().Terms(field)
+	}
+
+	termsPerLeaf := make([]Terms, 0, len(leaves))
+	slicePerLeaf := make([]ReaderSlice, 0, len(leaves))
+
+	for leafIdx, ctx := range leaves {
+		subTerms, err := ctx.LeafReader().Terms(field)
+		if err != nil {
+			return nil, err
+		}
+		if subTerms != nil {
+			termsPerLeaf = append(termsPerLeaf, subTerms)
+			slicePerLeaf = append(slicePerLeaf, NewReaderSlice(ctx.DocBase, r.MaxDoc(), leafIdx))
+		}
+	}
+
+	if len(termsPerLeaf) == 0 {
+		return nil, nil
+	}
+	return NewMultiTerms(termsPerLeaf, slicePerLeaf)
 }

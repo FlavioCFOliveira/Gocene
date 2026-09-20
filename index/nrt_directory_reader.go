@@ -121,9 +121,9 @@ func (r *NRTDirectoryReader) IsCurrent() (bool, error) {
 		return true, nil
 	}
 
-	// If the writer has buffered documents that haven't been committed,
-	// the reader is stale. Otherwise consider it current.
-	return r.writer.GetNumBufferedDocuments() == 0, nil
+	// Mirrors StandardDirectoryReader.doIsCurrent(), which delegates to
+	// IndexWriter.nrtIsCurrent(segmentInfos) whenever a live writer is attached.
+	return r.writer.NrtIsCurrent(r.segmentInfos), nil
 }
 
 // NumDocs returns the number of live documents in the index.

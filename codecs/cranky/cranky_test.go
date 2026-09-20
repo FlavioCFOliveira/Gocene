@@ -13,11 +13,11 @@ type mockStoredFieldsWriter struct {
 	spi.BaseStoredFieldsWriter
 }
 
-func (w *mockStoredFieldsWriter) StartDocument() error { return nil }
-func (w *mockStoredFieldsWriter) FinishDocument() error { return nil }
+func (w *mockStoredFieldsWriter) StartDocument() error                  { return nil }
+func (w *mockStoredFieldsWriter) FinishDocument() error                 { return nil }
 func (w *mockStoredFieldsWriter) WriteField(f spi.IndexableField) error { return nil }
-func (w *mockStoredFieldsWriter) Finish(n int) error { return nil }
-func (w *mockStoredFieldsWriter) Close() error { return nil }
+func (w *mockStoredFieldsWriter) Finish(n int) error                    { return nil }
+func (w *mockStoredFieldsWriter) Close() error                          { return nil }
 
 type mockStoredFieldsFormat struct {
 	spi.BaseStoredFieldsFormat
@@ -80,8 +80,8 @@ type mockFieldsConsumer struct {
 	spi.BaseFieldsConsumer
 }
 
-func (c *mockFieldsConsumer) Write(field string, terms spi.Terms) error { return nil }
-func (c *mockFieldsConsumer) Close() error { return nil }
+func (c *mockFieldsConsumer) Write(fields spi.Fields, norms spi.NormsProducer) error { return nil }
+func (c *mockFieldsConsumer) Close() error                                           { return nil }
 
 func TestCrankyNormsFormat(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))
@@ -117,7 +117,7 @@ type mockNormsConsumer struct {
 }
 
 func (c *mockNormsConsumer) AddNormsField(f *index.FieldInfo, p spi.NormsProducer) error { return nil }
-func (c *mockNormsConsumer) Close() error { return nil }
+func (c *mockNormsConsumer) Close() error                                                { return nil }
 
 func TestCrankyFieldInfosFormat(t *testing.T) {
 	rng := rand.New(rand.NewSource(42))

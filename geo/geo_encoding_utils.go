@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -189,7 +190,7 @@ func CreateDistancePredicate(lat, lon, radiusMeters float64) DistancePredicate {
 	axis := AxisLat(lat, radiusMeters)
 	key := DistanceQuerySortKey(radiusMeters)
 
-	boxToRelation := func(b Rectangle) Relation {
+	boxToRelation := func(b Rectangle) spi.Relation {
 		return Relate(b.MinLat(), b.MaxLat(), b.MinLon(), b.MaxLon(),
 			lat, lon, key, axis)
 	}
@@ -216,11 +217,11 @@ func (p *DistancePredicate) Test(lat, lon int32) bool {
 	if lon2-p.lonBase >= p.maxLonDelta {
 		return false
 	}
-	relation := Relation(p.relations[(lat2-p.latBase)*p.maxLonDelta+(lon2-p.lonBase)])
-	if relation == CellCrossesQuery {
+	relation := spi.Relation(p.relations[(lat2-p.latBase)*p.maxLonDelta+(lon2-p.lonBase)])
+	if relation == spi.CellCrossesQuery {
 		return util.HaversinSortKey(DecodeLatitude(lat), DecodeLongitude(lon), p.lat, p.lon) <= p.distanceKey
 	}
-	return relation == CellInsideQuery
+	return relation == spi.CellInsideQuery
 }
 
 // Component2DPredicate is a fast point-in-shape test for an arbitrary
@@ -234,7 +235,7 @@ type Component2DPredicate struct {
 // CreateComponentPredicate builds the sub-box grid for a query
 // shaped by an arbitrary Component2D.
 func CreateComponentPredicate(tree Component2D) Component2DPredicate {
-	boxToRelation := func(b Rectangle) Relation {
+	boxToRelation := func(b Rectangle) spi.Relation {
 		return tree.Relate(b.MinLon(), b.MaxLon(), b.MinLat(), b.MaxLat())
 	}
 	g := createSubBoxes(tree.MinY(), tree.MaxY(), tree.MinX(), tree.MaxX(), boxToRelation)
@@ -258,18 +259,18 @@ func (p *Component2DPredicate) Test(lat, lon int32) bool {
 	if lon2-p.lonBase >= p.maxLonDelta {
 		return false
 	}
-	relation := Relation(p.relations[(lat2-p.latBase)*p.maxLonDelta+(lon2-p.lonBase)])
-	if relation == CellCrossesQuery {
+	relation := spi.Relation(p.relations[(lat2-p.latBase)*p.maxLonDelta+(lon2-p.lonBase)])
+	if relation == spi.CellCrossesQuery {
 		return p.tree.Contains(DecodeLongitude(lon), DecodeLatitude(lat))
 	}
-	return relation == CellInsideQuery
+	return relation == spi.CellInsideQuery
 }
 
 // createSubBoxes builds the per-shape grid of sub-boxes and their
 // pre-computed relations to the query. Mirrors the Java private
 // helper of the same name.
 func createSubBoxes(shapeMinLat, shapeMaxLat, shapeMinLon, shapeMaxLon float64,
-	boxToRelation func(Rectangle) Relation) grid {
+	boxToRelation func(Rectangle) spi.Relation) grid {
 
 	minLat := EncodeLatitudeCeil(shapeMinLat)
 	maxLat := EncodeLatitude(shapeMaxLat)

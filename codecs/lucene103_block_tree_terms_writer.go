@@ -58,7 +58,7 @@ const Lucene103DefaultMaxBlockSize = 48
 //   - .tmd (terms metadata): per-field summary (numTerms / sums / min /
 //     max term) plus the trailing indexLength / termsLength footer tail.
 //
-// The writer is single-threaded; callers must serialise WriteFields and
+// The writer is single-threaded; callers must serialise Write and
 // Close invocations themselves.
 type Lucene103BlockTreeTermsWriter struct {
 	metaOut  store.IndexOutput
@@ -214,16 +214,17 @@ func ValidateLucene103BlockTreeBlockSizes(minItemsInBlock, maxItemsInBlock int) 
 	return nil
 }
 
-// WriteFields walks fields in the iterator's order and persists every
+// Write walks fields in the iterator's order and persists every
 // non-nil Terms via the internal per-field termsWriter state machine.
-// Mirrors {@code Lucene103BlockTreeTermsWriter.write(Fields, NormsProducer)}.
+// Mirrors Lucene103BlockTreeTermsWriter.write(Fields, NormsProducer)
+// (Lucene103BlockTreeTermsWriter.java:298-327).
 //
 // The Java original asserts that field names arrive in ascending order; we
 // surface the same condition as an explicit error so callers see the bug
 // instead of getting silently-garbled output.
-func (w *Lucene103BlockTreeTermsWriter) WriteFields(fields index.Fields, norms NormsProducer) error {
+func (w *Lucene103BlockTreeTermsWriter) Write(fields index.Fields, norms NormsProducer) error {
 	if w.closed {
-		return errors.New("Lucene103BlockTreeTermsWriter: WriteFields after Close")
+		return errors.New("Lucene103BlockTreeTermsWriter: Write after Close")
 	}
 	if fields == nil {
 		return nil
@@ -243,7 +244,7 @@ func (w *Lucene103BlockTreeTermsWriter) WriteFields(fields index.Fields, norms N
 			break
 		}
 		if !first && lastField >= field {
-			return fmt.Errorf("WriteFields: fields must be visited in ascending order, got %q after %q", field, lastField)
+			return fmt.Errorf("Lucene103BlockTreeTermsWriter.Write: fields must be visited in ascending order, got %q after %q", field, lastField)
 		}
 		lastField = field
 		first = false
@@ -258,28 +259,13 @@ func (w *Lucene103BlockTreeTermsWriter) WriteFields(fields index.Fields, norms N
 
 		fieldInfo := w.fieldInfos.GetByName(field)
 		if fieldInfo == nil {
-			return fmt.Errorf("WriteFields: unknown field %q (not in FieldInfos)", field)
+			return fmt.Errorf("Lucene103BlockTreeTermsWriter.Write: unknown field %q (not in FieldInfos)", field)
 		}
 		if err := w.writeField(fieldInfo, terms, norms); err != nil {
 			return err
 		}
 	}
 	return nil
-}
-
-// Write satisfies the existing per-field FieldsConsumer SPI. It is a thin
-// convenience wrapper around WriteFields and exists only so existing
-// callers in Gocene that drive the writer one field at a time keep
-// compiling. New code should prefer WriteFields.
-func (w *Lucene103BlockTreeTermsWriter) Write(field string, terms index.Terms) error {
-	if w.closed {
-		return errors.New("Lucene103BlockTreeTermsWriter: Write after Close")
-	}
-	fieldInfo := w.fieldInfos.GetByName(field)
-	if fieldInfo == nil {
-		return fmt.Errorf("Lucene103BlockTreeTermsWriter.Write: unknown field %q", field)
-	}
-	return w.writeField(fieldInfo, terms, nil)
 }
 
 // Close flushes the terms-meta footer and closes all three on-disk files
@@ -308,7 +294,7 @@ func (w *Lucene103BlockTreeTermsWriter) Close() error {
 		}
 	}()
 
-	if err := store.WriteVInt(w.metaOut, int32(len(w.fields))); err != nil {
+	if err := w.metaOut.WriteVInt(int32(len(w.fields))); err != nil {
 		setErr(err)
 		return firstErr
 	}
@@ -351,7 +337,7 @@ func (w *Lucene103BlockTreeTermsWriter) writeField(fieldInfo *index.FieldInfo, t
 		return err
 	}
 
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
 		return err
 	}
@@ -386,10 +372,10 @@ type pendingEntry struct {
 // metadata until the surrounding block is sealed.
 type pendingTerm struct {
 	termBytes []byte
-	state     *BlockTermState
+	state     index.TermState
 }
 
-func newPendingTerm(term *index.Term, state *BlockTermState) *pendingTerm {
+func newPendingTerm(term *index.Term, state index.TermState) *pendingTerm {
 	ref := term.BytesValue()
 	cp := make([]byte, ref.Length)
 	copy(cp, ref.Bytes[ref.Offset:ref.Offset+ref.Length])
@@ -503,11 +489,11 @@ func (s *statsWriter) add(df int, ttf int64) error {
 	if err := s.finish(); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(s.out, int32(df<<1)); err != nil {
+	if err := s.out.WriteVInt(int32(df << 1)); err != nil {
 		return err
 	}
 	if s.hasFreqs {
-		if err := store.WriteVLong(s.out, ttf-int64(df)); err != nil {
+		if err := s.out.WriteVLong(ttf - int64(df)); err != nil {
 			return err
 		}
 	}
@@ -518,7 +504,7 @@ func (s *statsWriter) finish() error {
 	if s.singletonCount <= 0 {
 		return nil
 	}
-	if err := store.WriteVInt(s.out, int32(((s.singletonCount-1)<<1)|1)); err != nil {
+	if err := s.out.WriteVInt(int32(((s.singletonCount - 1) << 1) | 1)); err != nil {
 		return err
 	}
 	s.singletonCount = 0
@@ -594,7 +580,7 @@ func newTermsWriterState(parent *Lucene103BlockTreeTermsWriter, fieldInfo *index
 // The Java helper also accepts a NormsProducer and threads it into
 // StartTerm; without a fully-ported norms layer we approximate by passing
 // nil for now and rely on the postings writer's own omit-norms branch.
-func (t *termsWriterState) pushSinglePostings(termText *index.Term, termsEnum index.TermsEnum, norms NormsProducer) (*BlockTermState, error) {
+func (t *termsWriterState) pushSinglePostings(termText *index.Term, termsEnum index.TermsEnum, norms NormsProducer) (index.TermState, error) {
 	state := t.parent.postingsWriter.NewTermState()
 
 	// StartTerm: norms are wired in when the index has them. The Java
@@ -657,13 +643,14 @@ func (t *termsWriterState) pushSinglePostings(termText *index.Term, termsEnum in
 
 	// Mirrors Java's writeTerm: set both docFreq and totalTermFreq on the
 	// state before calling finishTerm, so finishTerm sees a consistent state.
-	state.DocFreq = docCount
-	state.TotalTermFreq = totalTermFreq
+	base := BaseState(state)
+	base.DocFreq = docCount
+	base.TotalTermFreq = totalTermFreq
 	if err := t.parent.postingsWriter.FinishTerm(state); err != nil {
 		return nil, err
 	}
-	if hasPositions && state.TotalTermFreq < int64(state.DocFreq) {
-		return nil, fmt.Errorf("Lucene103BlockTreeTermsWriter: term has positions but totalTermFreq (%d) < docFreq (%d)", state.TotalTermFreq, state.DocFreq)
+	if hasPositions && base.TotalTermFreq < int64(base.DocFreq) {
+		return nil, fmt.Errorf("Lucene103BlockTreeTermsWriter: term has positions but totalTermFreq (%d) < docFreq (%d)", base.TotalTermFreq, base.DocFreq)
 	}
 	return state, nil
 }
@@ -679,11 +666,12 @@ func (t *termsWriterState) write(term *index.Term, termsEnum index.TermsEnum, no
 	if state == nil {
 		return nil
 	}
-	if state.DocFreq == 0 {
+	base := BaseState(state)
+	if base.DocFreq == 0 {
 		return errors.New("termsWriterState.write: postings writer returned BlockTermState with docFreq == 0")
 	}
-	if t.fieldInfo.IndexOptions() != index.IndexOptionsDocs && state.TotalTermFreq < int64(state.DocFreq) {
-		return fmt.Errorf("termsWriterState.write: totalTermFreq %d < docFreq %d", state.TotalTermFreq, state.DocFreq)
+	if t.fieldInfo.IndexOptions() != index.IndexOptionsDocs && base.TotalTermFreq < int64(base.DocFreq) {
+		return fmt.Errorf("termsWriterState.write: totalTermFreq %d < docFreq %d", base.TotalTermFreq, base.DocFreq)
 	}
 
 	textBytes := term.BytesValue()
@@ -694,8 +682,8 @@ func (t *termsWriterState) write(term *index.Term, termsEnum index.TermsEnum, no
 	pt := newPendingTerm(term, state)
 	t.pending = append(t.pending, &pendingEntry{isTerm: true, term: pt})
 
-	t.sumDocFreq += int64(state.DocFreq)
-	t.sumTotalTermFreq += state.TotalTermFreq
+	t.sumDocFreq += int64(base.DocFreq)
+	t.sumTotalTermFreq += base.TotalTermFreq
 	t.numTerms++
 	if t.firstPendingTerm == nil {
 		t.firstPendingTerm = pt
@@ -938,7 +926,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 	if end == len(t.pending) {
 		code |= 1
 	}
-	if err := store.WriteVInt(t.parent.termsOut, int32(code)); err != nil {
+	if err := t.parent.termsOut.WriteVInt(int32(code)); err != nil {
 		return nil, err
 	}
 
@@ -973,10 +961,10 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 				return nil, fmt.Errorf("writeBlock: term lead byte 0x%02x < floorLeadLabel 0x%02x", int(term.termBytes[prefixLength])&0xFF, floorLeadLabel)
 			}
 
-			if err := stats.add(term.state.DocFreq, term.state.TotalTermFreq); err != nil {
+			if err := stats.add(BaseState(term.state).DocFreq, BaseState(term.state).TotalTermFreq); err != nil {
 				return nil, err
 			}
-			if err := t.parent.postingsWriter.EncodeTerm(byteBuffersDataOutputAsIndexOutput{t.metaWriter}, t.fieldInfo, term.state, absolute); err != nil {
+			if err := t.parent.postingsWriter.EncodeTerm(t.metaWriter, t.fieldInfo, term.state, absolute); err != nil {
 				return nil, err
 			}
 			absolute = false
@@ -998,10 +986,10 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 					return nil, err
 				}
 				t.suffixWriter.AppendBytes(term.termBytes, prefixLength, suffix)
-				if err := stats.add(term.state.DocFreq, term.state.TotalTermFreq); err != nil {
+				if err := stats.add(BaseState(term.state).DocFreq, BaseState(term.state).TotalTermFreq); err != nil {
 					return nil, err
 				}
-				if err := t.parent.postingsWriter.EncodeTerm(byteBuffersDataOutputAsIndexOutput{t.metaWriter}, t.fieldInfo, term.state, absolute); err != nil {
+				if err := t.parent.postingsWriter.EncodeTerm(t.metaWriter, t.fieldInfo, term.state, absolute); err != nil {
 					return nil, err
 				}
 				absolute = false
@@ -1053,7 +1041,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 		token |= 0x04
 	}
 	token |= int64(compressionAlg.Code())
-	if err := store.WriteVLong(t.parent.termsOut, token); err != nil {
+	if err := t.parent.termsOut.WriteVLong(token); err != nil {
 		return nil, err
 	}
 	if err := t.parent.termsOut.WriteBytesN(t.suffixWriter.Bytes()[:suffixLen], suffixLen); err != nil {
@@ -1071,24 +1059,21 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 		t.spareBytes = t.spareBytes[:numSuffixBytes]
 	}
 	if numSuffixBytes > 0 {
-		// Drain the suffix-lengths buffer through a ByteArrayDataOutput
-		// so we can inspect the bytes and decide on the all-equal path.
-		tmp := store.NewByteArrayDataOutput(numSuffixBytes)
-		if err := t.suffixLengthsWriter.CopyTo(tmp); err != nil {
+		// suffixLengthsWriter.copyTo(new ByteArrayDataOutput(spareBytes));
+		if err := t.suffixLengthsWriter.CopyTo(store.NewByteArrayDataOutput(t.spareBytes)); err != nil {
 			return nil, err
 		}
-		copy(t.spareBytes, tmp.GetBytes()[:numSuffixBytes])
 	}
 	t.suffixLengthsWriter.Reset()
 	if numSuffixBytes > 0 && bytesAllEqual(t.spareBytes[1:numSuffixBytes], t.spareBytes[0]) {
-		if err := store.WriteVInt(t.parent.termsOut, int32((numSuffixBytes<<1)|1)); err != nil {
+		if err := t.parent.termsOut.WriteVInt(int32((numSuffixBytes << 1) | 1)); err != nil {
 			return nil, err
 		}
 		if err := t.parent.termsOut.WriteByte(t.spareBytes[0]); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := store.WriteVInt(t.parent.termsOut, int32(numSuffixBytes<<1)); err != nil {
+		if err := t.parent.termsOut.WriteVInt(int32(numSuffixBytes << 1)); err != nil {
 			return nil, err
 		}
 		if numSuffixBytes > 0 {
@@ -1100,7 +1085,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 
 	// Stats blob.
 	numStatsBytes := int(t.statsWriter.Size())
-	if err := store.WriteVInt(t.parent.termsOut, int32(numStatsBytes)); err != nil {
+	if err := t.parent.termsOut.WriteVInt(int32(numStatsBytes)); err != nil {
 		return nil, err
 	}
 	if numStatsBytes > 0 {
@@ -1112,7 +1097,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 
 	// Term metadata blob (PostingsWriterBase output).
 	numMetaBytes := int(t.metaWriter.Size())
-	if err := store.WriteVInt(t.parent.termsOut, int32(numMetaBytes)); err != nil {
+	if err := t.parent.termsOut.WriteVInt(int32(numMetaBytes)); err != nil {
 		return nil, err
 	}
 	if numMetaBytes > 0 {
@@ -1141,7 +1126,7 @@ func (t *termsWriterState) writeBlock(prefixLength int, isFloor bool, floorLeadL
 // writeBytesRefVInt emits vInt(len) followed by the raw bytes; mirrors
 // the private writeBytesRef helper in the Java writer.
 func writeBytesRefVInt(out store.DataOutput, b []byte) error {
-	if err := store.WriteVInt(out, int32(len(b))); err != nil {
+	if err := out.WriteVInt(int32(len(b))); err != nil {
 		return err
 	}
 	if len(b) == 0 {
@@ -1193,40 +1178,6 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
-
-// byteBuffersDataOutputAsIndexOutput is a thin adapter that lets the
-// PostingsWriterBase.EncodeTerm hook (which insists on store.IndexOutput
-// for symmetry with the Java signature) accept a ByteBuffersDataOutput.
-// Only DataOutput methods are forwarded; RandomAccess / file-pointer
-// methods are stubbed because EncodeTerm is supposed to be a streaming
-// writer and the upstream caller drains the buffer separately.
-type byteBuffersDataOutputAsIndexOutput struct {
-	inner *store.ByteBuffersDataOutput
-}
-
-var _ store.IndexOutput = byteBuffersDataOutputAsIndexOutput{}
-
-func (a byteBuffersDataOutputAsIndexOutput) WriteByte(b byte) error    { return a.inner.WriteByte(b) }
-func (a byteBuffersDataOutputAsIndexOutput) WriteBytes(b []byte) error { return a.inner.WriteBytes(b) }
-func (a byteBuffersDataOutputAsIndexOutput) WriteBytesN(b []byte, n int) error {
-	return a.inner.WriteBytesN(b, n)
-}
-func (a byteBuffersDataOutputAsIndexOutput) WriteShort(v int16) error { return a.inner.WriteShort(v) }
-func (a byteBuffersDataOutputAsIndexOutput) WriteInt(v int32) error   { return a.inner.WriteInt(v) }
-func (a byteBuffersDataOutputAsIndexOutput) WriteLong(v int64) error  { return a.inner.WriteLong(v) }
-func (a byteBuffersDataOutputAsIndexOutput) WriteString(s string) error {
-	return a.inner.WriteString(s)
-}
-func (a byteBuffersDataOutputAsIndexOutput) GetName() string       { return "ByteBuffersDataOutput" }
-func (a byteBuffersDataOutputAsIndexOutput) GetFilePointer() int64 { return a.inner.Size() }
-func (a byteBuffersDataOutputAsIndexOutput) SetPosition(pos int64) error {
-	// PostingsWriterBase.EncodeTerm is a forward-only writer; positional
-	// rewinds are not part of the protocol. Refuse them rather than
-	// silently producing a corrupt term blob.
-	return fmt.Errorf("byteBuffersDataOutputAsIndexOutput.SetPosition(%d): adapter does not support seek", pos)
-}
-func (a byteBuffersDataOutputAsIndexOutput) Length() int64 { return a.inner.Size() }
-func (a byteBuffersDataOutputAsIndexOutput) Close() error  { return nil }
 
 // closeQuietly closes every Closer in order, swallowing every error. Used
 // on the unwind path mirroring IOUtils.closeWhileHandlingException.

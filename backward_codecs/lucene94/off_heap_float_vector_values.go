@@ -11,6 +11,7 @@ import (
 
 	codecs_lucene90 "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
@@ -65,7 +66,7 @@ type OffHeapFloatVectorValues struct {
 
 // offHeap94FloatVariant captures layout-specific behaviour.
 type offHeap94FloatVariant interface {
-	iterator(parent *OffHeapFloatVectorValues) util.DocIndexIterator
+	iterator(parent *OffHeapFloatVectorValues) spi.DocIndexIterator
 	ordToDoc(parent *OffHeapFloatVectorValues, ord int) int
 	getAcceptOrds(parent *OffHeapFloatVectorValues, acceptDocs util.Bits) util.Bits
 	copy(parent *OffHeapFloatVectorValues) (*OffHeapFloatVectorValues, error)
@@ -118,7 +119,7 @@ func (v *OffHeapFloatVectorValues) VectorValue(targetOrd int) ([]float32, error)
 	switch v.encoding {
 	case index.VectorEncodingFloat32:
 		buf := make([]byte, v.byteSize)
-		if err := v.slice.ReadBytes(buf); err != nil {
+		if err := v.slice.ReadBytes(buf, 0, len(buf)); err != nil {
 			return nil, fmt.Errorf("lucene94 off-heap float: read float bytes: %w", err)
 		}
 		for i := range v.floatValue {
@@ -128,7 +129,7 @@ func (v *OffHeapFloatVectorValues) VectorValue(targetOrd int) ([]float32, error)
 		}
 	case index.VectorEncodingByte:
 		buf := make([]byte, v.byteSize)
-		if err := v.slice.ReadBytes(buf); err != nil {
+		if err := v.slice.ReadBytes(buf, 0, len(buf)); err != nil {
 			return nil, fmt.Errorf("lucene94 off-heap float: read byte data: %w", err)
 		}
 		for i, b := range buf {
@@ -142,7 +143,7 @@ func (v *OffHeapFloatVectorValues) VectorValue(targetOrd int) ([]float32, error)
 }
 
 // Iterator returns a DocIndexIterator over this vector set.
-func (v *OffHeapFloatVectorValues) Iterator() util.DocIndexIterator {
+func (v *OffHeapFloatVectorValues) Iterator() spi.DocIndexIterator {
 	return v.variant.iterator(v)
 }
 
@@ -205,7 +206,7 @@ func LoadFloat(
 
 type denseOffHeap94FloatVariant struct{}
 
-func (denseOffHeap94FloatVariant) iterator(parent *OffHeapFloatVectorValues) util.DocIndexIterator {
+func (denseOffHeap94FloatVariant) iterator(parent *OffHeapFloatVectorValues) spi.DocIndexIterator {
 	return newDenseDocIter94(parent.size)
 }
 
@@ -286,7 +287,7 @@ func newSparseOffHeap94Float(
 	), nil
 }
 
-func (s *sparseOffHeap94FloatVariant) iterator(_ *OffHeapFloatVectorValues) util.DocIndexIterator {
+func (s *sparseOffHeap94FloatVariant) iterator(_ *OffHeapFloatVectorValues) spi.DocIndexIterator {
 	return &indexedDISIIter94{disi: s.disi}
 }
 
@@ -345,7 +346,7 @@ func newEmptyOffHeap94Float(dimension int) *OffHeapFloatVectorValues {
 	)
 }
 
-func (emptyOffHeap94FloatVariant) iterator(_ *OffHeapFloatVectorValues) util.DocIndexIterator {
+func (emptyOffHeap94FloatVariant) iterator(_ *OffHeapFloatVectorValues) spi.DocIndexIterator {
 	return newDenseDocIter94(0)
 }
 
@@ -408,6 +409,16 @@ func (d *denseDocIter94) Cost() int64 { return int64(d.size) }
 
 func (d *denseDocIter94) Index() int { return d.doc }
 
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which the
+// iterator returned by KnnVectorValues.createDenseIterator() inherits.
+func (d *denseDocIter94) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the iterator returned by KnnVectorValues.createDenseIterator() inherits.
+func (d *denseDocIter94) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(d) }
+
 // ---------------------------------------------------------------------------
 // IndexedDISI DocIndexIterator wrapper
 // ---------------------------------------------------------------------------
@@ -425,6 +436,17 @@ func (i *indexedDISIIter94) Advance(target int) (int, error) { return i.disi.Adv
 func (i *indexedDISIIter94) Cost() int64 { return i.disi.Cost() }
 
 func (i *indexedDISIIter94) Index() int { return i.disi.Index() }
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which the
+// iterator returned by IndexedDISI.asDocIndexIterator(IndexedDISI) inherits.
+func (i *indexedDISIIter94) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(i, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// the iterator returned by IndexedDISI.asDocIndexIterator(IndexedDISI)
+// inherits; that anonymous class does not delegate to IndexedDISI.docIDRunEnd.
+func (i *indexedDISIIter94) DocIDRunEnd() (int, error) { return util.DefaultDocIDRunEnd(i) }
 
 // ---------------------------------------------------------------------------
 // Ordinal-keyed Bits (sparse variant's getAcceptOrds)
@@ -462,11 +484,11 @@ type codec94DocIDSetIteratorView interface {
 	NextDoc() (int, error)
 	Advance(target int) (int, error)
 	Cost() int64
-	DocIDRunEnd() int
+	DocIDRunEnd() (int, error)
 }
 
 type float94ScorerView struct {
-	it     util.DocIndexIterator
+	it     spi.DocIndexIterator
 	fvv    *OffHeapFloatVectorValues
 	target []float32
 }
@@ -485,14 +507,14 @@ func (s *float94ScorerView) Iterator() codec94DocIDSetIteratorView {
 
 func (s *float94ScorerView) Bulk() codec94VectorScorerBulkView { return nil }
 
-// docIndexIterToView94 adapts util.DocIndexIterator to codec94DocIDSetIteratorView.
-type docIndexIterToView94 struct{ it util.DocIndexIterator }
+// docIndexIterToView94 adapts spi.DocIndexIterator to codec94DocIDSetIteratorView.
+type docIndexIterToView94 struct{ it spi.DocIndexIterator }
 
 func (d *docIndexIterToView94) DocID() int                 { return d.it.DocID() }
 func (d *docIndexIterToView94) NextDoc() (int, error)      { return d.it.NextDoc() }
 func (d *docIndexIterToView94) Advance(t int) (int, error) { return d.it.Advance(t) }
 func (d *docIndexIterToView94) Cost() int64                { return d.it.Cost() }
-func (d *docIndexIterToView94) DocIDRunEnd() int           { return noMoreDocs94 }
+func (d *docIndexIterToView94) DocIDRunEnd() (int, error)  { return d.it.DocIDRunEnd() }
 
 // similarityCompare94 mirrors VectorSimilarityFunction.compare.
 func similarityCompare94(sim index.VectorSimilarityFunction, v1, v2 []float32) float32 {
@@ -544,7 +566,7 @@ func cosineSimilarity94(v1, v2 []float32) float32 {
 	if norm1 == 0 || norm2 == 0 {
 		return 0
 	}
-	return (dot/(float32(math.Sqrt(float64(norm1)))*float32(math.Sqrt(float64(norm2))))+1.0)/2.0
+	return (dot/(float32(math.Sqrt(float64(norm1)))*float32(math.Sqrt(float64(norm2)))) + 1.0) / 2.0
 }
 
 func maxInnerProductSimilarity94(v1, v2 []float32) float32 {
@@ -556,4 +578,11 @@ func maxInnerProductSimilarity94(v1, v2 []float32) float32 {
 		return 1.0 / (1.0 - dot)
 	}
 	return dot + 1.0
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *docIndexIterToView94) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
 }

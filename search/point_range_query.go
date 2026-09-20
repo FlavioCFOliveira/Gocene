@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -101,25 +102,8 @@ func (q *PointRangeQuery) BytesPerDim() int {
 	return q.bytesPerDim
 }
 
-// Clone creates a copy of this query.
-func (q *PointRangeQuery) Clone() Query {
-	lowerCopy := make([]byte, len(q.lowerValue))
-	copy(lowerCopy, q.lowerValue)
-	upperCopy := make([]byte, len(q.upperValue))
-	copy(upperCopy, q.upperValue)
-
-	return &PointRangeQuery{
-		BaseQuery:   &BaseQuery{},
-		field:       q.field,
-		lowerValue:  lowerCopy,
-		upperValue:  upperCopy,
-		numDims:     q.numDims,
-		bytesPerDim: q.bytesPerDim,
-	}
-}
-
 // Equals checks if this query equals another.
-func (q *PointRangeQuery) Equals(other Query) bool {
+func (q *PointRangeQuery) Equals(other spi.Query) bool {
 	if o, ok := other.(*PointRangeQuery); ok {
 		if q.field != o.field || q.numDims != o.numDims || q.bytesPerDim != o.bytesPerDim {
 			return false
@@ -160,7 +144,7 @@ func (q *PointRangeQuery) HashCode() int {
 }
 
 // Rewrite rewrites the query to a simpler form.
-func (q *PointRangeQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *PointRangeQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	// For now, return itself
 	// A full implementation would potentially rewrite to MatchAllDocsQuery
 	// if the range covers all possible values
@@ -168,8 +152,8 @@ func (q *PointRangeQuery) Rewrite(reader IndexReader) (Query, error) {
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *PointRangeQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return NewPointRangeWeight(q, searcher, needsScores), nil
+func (q *PointRangeQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return NewPointRangeWeight(q, searcher, scoreMode.NeedsScores()), nil
 }
 
 // String returns a string representation of this query.
@@ -252,7 +236,7 @@ func (w *PointRangeWeight) ScorerSupplier(context *index.LeafReaderContext) (Sco
 		}
 		if allMatch {
 			disi := newRangeDocIdSetIterator(maxDoc)
-			return NewScorerSupplierAdapter(NewConstantScoreScorer(float32(1.0), COMPLETE, disi)), nil
+			return NewDefaultScorerSupplier(NewConstantScoreScorer(float32(1.0), COMPLETE, disi)), nil
 		}
 	}
 
@@ -307,10 +291,18 @@ func (s *pointRangeScorerSupplier) Get(_ int64) (Scorer, error) {
 
 func (s *pointRangeScorerSupplier) Cost() int64 {
 	if s.estCost < 0 {
-		s.estCost = s.pv.EstimatePointCount(&pointRangeIntersectVisitor{
+		// Java: cost = values.estimateDocCount(visitor)
+		// (PointRangeQuery.java:330). estimateDocCount wraps an IOException in
+		// an UncheckedIOException, which crosses cost()'s throws-free
+		// signature; Go renders that unchecked throw as a panic.
+		estCost, err := s.pv.EstimateDocCount(&pointRangeIntersectVisitor{
 			query:      s.query,
 			comparator: s.comparator,
 		})
+		if err != nil {
+			panic(err)
+		}
+		s.estCost = estCost
 		if s.estCost < 0 {
 			s.estCost = 0
 		}
@@ -363,8 +355,7 @@ func (v *pointRangeIntersectVisitor) matchesPoint(packed []byte) bool {
 }
 
 // Compare returns the BKD pruning relation for a cell.
-// Returns 0=outside, 1=inside, 2=crosses (matching codecs.Relation order).
-func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) int {
+func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) index.Relation {
 	q := v.query
 	inside := true
 	for dim := 0; dim < q.numDims; dim++ {
@@ -372,7 +363,7 @@ func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) int {
 		// outside: lower > cellMax OR upper < cellMin
 		if v.comparator(q.lowerValue, off, maxPV, off) > 0 ||
 			v.comparator(q.upperValue, off, minPV, off) < 0 {
-			return 0 // CELL_OUTSIDE_QUERY
+			return index.CellOutsideQuery
 		}
 		// partially outside: lower <= cellMin AND upper >= cellMax?
 		if v.comparator(q.lowerValue, off, minPV, off) > 0 ||
@@ -381,33 +372,32 @@ func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) int {
 		}
 	}
 	if inside {
-		return 1 // CELL_INSIDE_QUERY
+		return index.CellInsideQuery
 	}
-	return 2 // CELL_CROSSES_QUERY
+	return index.CellCrossesQuery
 }
 
 // pointRangePointValues is the narrow interface required by PointRangeWeight.
 // Declared locally to avoid importing codecs (cycle through codecs/lucene90).
 // GetMinPackedValue / GetMaxPackedValue match index.PointValues signatures
 // (error-returning) so a concrete type can implement both without conflicts.
-type pointRangePointValues interface {
-	Intersect(visitor pointRangeIntersectVisitorI) error
-	EstimatePointCount(visitor pointRangeIntersectVisitorI) int64
-	GetMinPackedValue() ([]byte, error)
-	GetMaxPackedValue() ([]byte, error)
-	GetNumDimensions() int
-	GetBytesPerDimension() int
-	GetDocCount() int
-}
+// pointRangePointValues is an alias of index.PointValues. Before the two
+// PointValues renderings were merged it was a narrow structural interface
+// carrying the visitor-driven surface (Intersect / EstimatePointCount) that
+// index.PointValues did not declare; org.apache.lucene.index.PointValues
+// declares intersect and estimatePointCount as public final members, so the
+// whole surface is now on the one interface and the narrow duplicate has no
+// Lucene counterpart.
+type pointRangePointValues = index.PointValues
 
 // pointRangeIntersectVisitorI is the visitor shape for pointRangePointValues.
-// It is an alias of index.PointTreeIntersectVisitor (rmp #4769) so the
+// It is an alias of index.IntersectVisitor (rmp #4769) so the
 // on-disk BKD-backed PointValues returned by LeafReader.GetPointValues — whose
-// Intersect method takes index.PointTreeIntersectVisitor — satisfies
+// Intersect method takes index.IntersectVisitor — satisfies
 // pointRangePointValues. Without the alias the method-parameter type identity
 // would differ and the type assertion in getPointRangePointValues would fail
 // for the real codec reader (only in-package stubs would match).
-type pointRangeIntersectVisitorI = index.PointTreeIntersectVisitor
+type pointRangeIntersectVisitorI = index.IntersectVisitor
 
 // getPointRangePointValues type-asserts the leaf reader to expose BKD point values.
 func getPointRangePointValues(reader index.LeafReaderInterface, field string) (pointRangePointValues, bool) {
@@ -479,66 +469,42 @@ func (w *PointRangeWeight) Matches(context *index.LeafReaderContext, doc int) (M
 // Ensure PointRangeWeight implements Weight
 var _ Weight = (*PointRangeWeight)(nil)
 
-// PointRangeScorer is a scorer for point range queries.
-type PointRangeScorer struct {
-	*BaseScorer
-	maxDoc int
-	doc    int
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (p *pointRangeScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(p)
 }
 
-// NewPointRangeScorer creates a new PointRangeScorer.
-func NewPointRangeScorer(weight Weight, maxDoc int) *PointRangeScorer {
-	return &PointRangeScorer{
-		BaseScorer: NewBaseScorer(weight),
-		maxDoc:     maxDoc,
-		doc:        -1,
+// SetTopLevelScoringClause mirrors ScorerSupplier.setTopLevelScoringClause(),
+// whose body in Apache Lucene 10.5.0 is empty.
+func (p *pointRangeScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
+
+// Visit mirrors PointRangeQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (PointRangeQuery.java).
+func (q *PointRangeQuery) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(q.field) {
+		visitor.VisitLeaf(q)
 	}
 }
 
-// DocID returns the current document ID.
-func (s *PointRangeScorer) DocID() int {
-	return s.doc
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *pointRangeIntersectVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
 }
 
-// NextDoc advances to the next document.
-func (s *PointRangeScorer) NextDoc() (int, error) {
-	s.doc++
-	if s.doc >= s.maxDoc {
-		s.doc = NO_MORE_DOCS
-		return NO_MORE_DOCS, nil
-	}
-	return s.doc, nil
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *pointRangeIntersectVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
 }
 
-// Advance advances to the target document.
-func (s *PointRangeScorer) Advance(target int) (int, error) {
-	if target >= s.maxDoc {
-		s.doc = NO_MORE_DOCS
-		return NO_MORE_DOCS, nil
-	}
-	s.doc = target
-	return s.doc, nil
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *pointRangeIntersectVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }
-
-// Cost returns the estimated cost.
-func (s *PointRangeScorer) Cost() int64 {
-	return int64(s.maxDoc)
-}
-
-// DocIDRunEnd returns the end of the current run.
-func (s *PointRangeScorer) DocIDRunEnd() int {
-	return s.doc + 1
-}
-
-// Score returns the score for the current document.
-func (s *PointRangeScorer) Score() float32 {
-	return 1.0
-}
-
-// GetMaxScore returns the maximum score for documents up to the given doc.
-func (s *PointRangeScorer) GetMaxScore(upTo int) float32 {
-	return 1.0
-}
-
-// Ensure PointRangeScorer implements Scorer
-var _ Scorer = (*PointRangeScorer)(nil)

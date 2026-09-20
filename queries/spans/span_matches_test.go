@@ -107,7 +107,7 @@ func (p *memPostingsEnum) Cost() int64 { return int64(len(p.docIDs)) }
 
 // DocIDRunEnd satisfies util.DocIdSetIterator — memPostingsEnum is only used
 // inside TermSpans which wraps it; not called directly in these tests.
-func (p *memPostingsEnum) DocIDRunEnd() int { return p.curDoc + 1 }
+func (p *memPostingsEnum) DocIDRunEnd() (int, error) { return p.curDoc + 1, nil }
 
 var _ index.PostingsEnum = (*memPostingsEnum)(nil)
 
@@ -397,7 +397,7 @@ func TestSpanMatches_SpanWeight_IsCacheable(t *testing.T) {
 	t.Parallel()
 	term := newTerm("body", "w1")
 	q := NewSpanTermQuery(term)
-	w, err := q.CreateWeight(nil, false, 1.0)
+	w, err := q.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -412,7 +412,7 @@ func TestSpanMatches_SpanTermQuery_NilContext(t *testing.T) {
 	t.Parallel()
 	term := newTerm("body", "w1")
 	q := NewSpanTermQuery(term)
-	sw, err := q.CreateSpanWeight(nil, false, 1.0)
+	sw, err := q.CreateSpanWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateSpanWeight: %v", err)
 	}
@@ -423,4 +423,11 @@ func TestSpanMatches_SpanTermQuery_NilContext(t *testing.T) {
 	if sp != nil {
 		t.Fatalf("GetSpans(nil) = %v; want nil", sp)
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (p *memPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
 }

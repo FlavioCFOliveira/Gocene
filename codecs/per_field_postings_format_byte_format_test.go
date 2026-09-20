@@ -64,9 +64,21 @@ type recordingFieldsConsumer struct {
 	closed       bool
 }
 
-func (c *recordingFieldsConsumer) Write(field string, terms index.Terms) error {
-	c.writtenField = append(c.writtenField, field)
-	return nil
+func (c *recordingFieldsConsumer) Write(fields index.Fields, norms NormsProducer) error {
+	it, err := fields.Iterator()
+	if err != nil {
+		return err
+	}
+	for {
+		name, err := it.Next()
+		if err != nil {
+			return err
+		}
+		if name == "" {
+			return nil
+		}
+		c.writtenField = append(c.writtenField, name)
+	}
 }
 
 func (c *recordingFieldsConsumer) Close() error {
@@ -148,7 +160,7 @@ func TestPerFieldPostingsFormat_SuffixAssignment(t *testing.T) {
 	}
 
 	for _, name := range []string{"a", "b"} {
-		if err := consumer.Write(name, &emptyTerms{}); err != nil {
+		if err := consumer.Write(index.NewSingleFieldFields(name, &emptyTerms{}), nil); err != nil {
 			t.Fatalf("Write(%q): %v", name, err)
 		}
 	}
@@ -212,7 +224,7 @@ func TestPerFieldPostingsFormat_DistinctFormatsBumpSuffix(t *testing.T) {
 		t.Fatalf("FieldsConsumer: %v", err)
 	}
 	for _, name := range []string{"a", "b", "c"} {
-		if err := consumer.Write(name, &emptyTerms{}); err != nil {
+		if err := consumer.Write(index.NewSingleFieldFields(name, &emptyTerms{}), nil); err != nil {
 			t.Fatalf("Write(%q): %v", name, err)
 		}
 	}
@@ -286,7 +298,7 @@ func TestPerFieldPostingsFormat_BumpSuffixPerFormatName(t *testing.T) {
 		t.Fatalf("FieldsConsumer: %v", err)
 	}
 	for _, fname := range []string{"a", "b"} {
-		if err := consumer.Write(fname, &emptyTerms{}); err != nil {
+		if err := consumer.Write(index.NewSingleFieldFields(fname, &emptyTerms{}), nil); err != nil {
 			t.Fatalf("Write(%q): %v", fname, err)
 		}
 	}

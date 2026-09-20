@@ -146,7 +146,7 @@ func (noCompressionCompressor) Compress(buffersInput store.ByteBuffersDataInput,
 	if len(data) == 0 {
 		return nil
 	}
-	return out.WriteBytes(data)
+	return out.WriteBytes(data, 0, len(data))
 }
 
 // Close is a no-op: the compressor holds no resources.
@@ -185,7 +185,7 @@ func (noCompressionDecompressor) Decompress(in store.DataInput, originalLength, 
 		return err
 	}
 	if length > 0 {
-		if err := in.ReadBytes(dst.Bytes); err != nil {
+		if err := in.ReadBytes(dst.Bytes, 0, length); err != nil {
 			return err
 		}
 	}
@@ -375,7 +375,7 @@ func (c *deflateCompressor) Compress(buffersInput store.ByteBuffersDataInput, ou
 	if err := writeVInt(out, int32(len(c.scratch))); err != nil {
 		return err
 	}
-	return out.WriteBytes(c.scratch)
+	return out.WriteBytesN(c.scratch, len(c.scratch))
 }
 
 // Close releases the underlying flate writer. Subsequent Compress calls
@@ -443,7 +443,7 @@ func (d *deflateDecompressor) Decompress(in store.DataInput, originalLength, off
 		d.compressed = d.compressed[:compressedLength]
 	}
 	if compressedLength > 0 {
-		if err := in.ReadBytes(d.compressed); err != nil {
+		if err := in.ReadBytes(d.compressed, 0, int(compressedLength)); err != nil {
 			return err
 		}
 	}
@@ -492,7 +492,7 @@ func readAllBuffersInput(buffersInput store.ByteBuffersDataInput) ([]byte, error
 		return nil, nil
 	}
 	data := make([]byte, length)
-	if err := buffersInput.ReadBytes(data); err != nil {
+	if err := buffersInput.ReadBytes(data, 0, length); err != nil {
 		return nil, err
 	}
 	return data, nil
@@ -513,7 +513,7 @@ func discardBytes(in store.DataInput, n int) error {
 		if size > chunk {
 			size = chunk
 		}
-		if err := in.ReadBytes(buf[:size]); err != nil {
+		if err := in.ReadBytes(buf, 0, size); err != nil {
 			return err
 		}
 		n -= size

@@ -12,6 +12,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // Ensure QueryParserBase implements the base functionality for query parsers
@@ -65,7 +66,7 @@ func (qpb *QueryParserBase) GetFieldQuery(field, term string) (search.Query, err
 
 // GetRangeQuery creates a range query for the specified field.
 func (qpb *QueryParserBase) GetRangeQuery(field, lower, upper string, includeLower, includeUpper bool) (search.Query, error) {
-	return search.NewTermRangeQuery(field, []byte(lower), []byte(upper), includeLower, includeUpper), nil
+	return search.NewTermRangeQuery(field, util.NewBytesRef([]byte(lower)), util.NewBytesRef([]byte(upper)), includeLower, includeUpper), nil
 }
 
 // GetWildcardQuery creates a wildcard query for the specified field and pattern.
@@ -108,11 +109,11 @@ func (qpb *QueryParserBase) GetBooleanQuery(clauses []*search.BooleanClause) (se
 		return nil, fmt.Errorf("empty boolean query")
 	}
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, clause := range clauses {
-		bq.Add(clause.Query, clause.Occur)
+		bq.AddClause(clause)
 	}
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // GetPhraseQuery creates a phrase query for the specified field and terms.
@@ -126,7 +127,7 @@ func (qpb *QueryParserBase) GetPhraseQuery(field string, terms []string) (search
 		termPtrs[i] = index.NewTerm(field, text)
 	}
 
-	return search.NewPhraseQueryWithSlop(qpb.phraseSlop, field, termPtrs...), nil
+	return search.NewPhraseQueryWithTerms(qpb.phraseSlop, field, termPtrs...), nil
 }
 
 // GetMatchAllDocsQuery returns a query that matches all documents.
@@ -136,7 +137,7 @@ func (qpb *QueryParserBase) GetMatchAllDocsQuery() search.Query {
 
 // GetMatchNoDocsQuery returns a query that matches no documents.
 func (qpb *QueryParserBase) GetMatchNoDocsQuery() search.Query {
-	return search.NewMatchNoDocsQuery()
+	return search.NewMatchNoDocsQuery("")
 }
 
 // Analyze analyzes the given text using the configured analyzer.

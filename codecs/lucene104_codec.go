@@ -22,8 +22,7 @@ const (
 //   - Lucene104PostingsFormat for postings (term -> document mappings)
 //   - Lucene104StoredFieldsFormat for stored fields (or CompressingStoredFieldsFormat when Mode is specified)
 //   - Lucene104FieldInfosFormat for field metadata
-//   - Lucene104SegmentInfosFormat for segment metadata
-//   - Lucene104TermVectorsFormat for term vectors
+//   - Lucene90TermVectorsFormat for term vectors
 //   - Lucene90DocValuesFormat for doc values (Lucene 10.x uses the same format as 9.x)
 //   - Lucene99HnswVectorsFormat (via PerFieldKnnVectorsFormat) for KNN vectors
 //
@@ -34,7 +33,6 @@ type Lucene104Codec struct {
 	postingsFormat     PostingsFormat
 	storedFieldsFormat StoredFieldsFormat
 	fieldInfosFormat   FieldInfosFormat
-	segmentInfosFormat SegmentInfosFormat
 	segmentInfoFormat  SegmentInfoFormat
 	termVectorsFormat  TermVectorsFormat
 	docValuesFormat    DocValuesFormat
@@ -42,6 +40,7 @@ type Lucene104Codec struct {
 	knnVectorsFormat   KnnVectorsFormat // PerFieldKnnVectorsFormat wrapping Lucene99HnswVectorsFormat
 	pointsFormat       PointsFormat     // Lucene90PointsFormat (BKD)
 	normsFormat        NormsFormat      // Lucene90NormsFormat (.nvd / .nvm)
+	liveDocsFormat     LiveDocsFormat   // Lucene90LiveDocsFormat (.liv)
 }
 
 // newLucene104CodecDefaults constructs a *Lucene104Codec with all format fields
@@ -57,14 +56,14 @@ func newLucene104CodecDefaults(mode Lucene104CodecMode, sf StoredFieldsFormat) *
 		postingsFormat:     NewPerFieldPostingsFormatWithDefault(NewLucene104PostingsFormat()),
 		storedFieldsFormat: sf,
 		fieldInfosFormat:   NewLucene104FieldInfosFormat(),
-		segmentInfosFormat: NewLucene104SegmentInfosFormat(),
 		segmentInfoFormat:  NewLucene99SegmentInfoFormat(),
-		termVectorsFormat:  NewLucene104TermVectorsFormat(),
+		termVectorsFormat:  NewLucene90TermVectorsFormat(),
 		docValuesFormat:    NewPerFieldDocValuesFormatWithDefault(NewLucene90DocValuesFormat()),
 		compoundFormat:     NewLucene90CompoundFormat(),
 		knnVectorsFormat:   NewPerFieldKnnVectorsFormatWithDefault(defaultKnn),
 		pointsFormat:       NewLucene90PointsFormat(),
 		normsFormat:        NewLucene90NormsFormat(),
+		liveDocsFormat:     NewLucene90LiveDocsFormat(),
 	}
 }
 
@@ -80,12 +79,19 @@ func NewLucene104Codec() *Lucene104Codec {
 //
 // Mirrors org.apache.lucene.codecs.lucene104.Lucene104Codec(Mode).
 func NewLucene104CodecWithMode(mode Lucene104CodecMode) *Lucene104Codec {
+	// Java: this.storedFieldsFormat =
+	//           new Lucene90StoredFieldsFormat(Objects.requireNonNull(mode).storedMode);
+	// with Mode.BEST_SPEED -> Lucene90StoredFieldsFormat.Mode.BEST_SPEED and
+	// Mode.BEST_COMPRESSION -> Lucene90StoredFieldsFormat.Mode.BEST_COMPRESSION
+	// (Lucene104Codec.java:87-99, 118-124). The format itself lives in
+	// codecs/lucene90, which imports this package, so it is reached through
+	// the init()-time registration described in stored_fields_format.go.
 	var sf StoredFieldsFormat
 	switch mode {
 	case Lucene104CodecBestSpeed:
-		sf = NewCompressingStoredFieldsFormat(CompressionModeLZ4Fast, 16*1024, 128)
+		sf = Lucene90StoredFieldsFormatForMode(StoredFieldsBestSpeed)
 	case Lucene104CodecBestCompression:
-		sf = NewCompressingStoredFieldsFormat(CompressionModeDeflate, 64*1024, 256)
+		sf = Lucene90StoredFieldsFormatForMode(StoredFieldsBestCompression)
 	default:
 		sf = NewLucene104StoredFieldsFormat()
 	}
@@ -119,11 +125,6 @@ func (c *Lucene104Codec) StoredFieldsFormat() StoredFieldsFormat {
 // FieldInfosFormat returns the field infos format.
 func (c *Lucene104Codec) FieldInfosFormat() FieldInfosFormat {
 	return c.fieldInfosFormat
-}
-
-// SegmentInfosFormat returns the segment infos format.
-func (c *Lucene104Codec) SegmentInfosFormat() SegmentInfosFormat {
-	return c.segmentInfosFormat
 }
 
 // TermVectorsFormat returns the term vectors format.
@@ -162,6 +163,14 @@ func (c *Lucene104Codec) PointsFormat() PointsFormat {
 // returns Lucene90NormsFormat in Lucene 10.4.0.
 func (c *Lucene104Codec) NormsFormat() NormsFormat {
 	return c.normsFormat
+}
+
+// LiveDocsFormat returns the Lucene90LiveDocsFormat used for the per-segment
+// live/deleted documents bitset, mirroring
+// org.apache.lucene.codecs.lucene104.Lucene104Codec.liveDocsFormat(), which
+// holds a single `new Lucene90LiveDocsFormat()` in a final field.
+func (c *Lucene104Codec) LiveDocsFormat() LiveDocsFormat {
+	return c.liveDocsFormat
 }
 
 // NewLucene99Codec creates a codec that is functionally identical to Lucene104Codec.

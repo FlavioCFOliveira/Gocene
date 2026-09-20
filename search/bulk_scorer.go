@@ -41,8 +41,23 @@ type DefaultBulkScorer struct {
 }
 
 // NewDefaultBulkScorer creates a new DefaultBulkScorer over scorer.
+//
+// Mirrors Weight.DefaultBulkScorer(Scorer):
+//
+//	this.scorer = Objects.requireNonNull(scorer);
+//	this.twoPhase = scorer.twoPhaseIterator();
+//	if (twoPhase == null) {
+//	  this.iterator = scorer.iterator();
+//	} else {
+//	  this.iterator = twoPhase.approximation();
+//	}
 func NewDefaultBulkScorer(scorer Scorer) *DefaultBulkScorer {
-	return &DefaultBulkScorer{scorer: scorer, iterator: scorer}
+	twoPhase := scorer.TwoPhaseIterator()
+	iterator := scorer.Iterator()
+	if twoPhase != nil {
+		iterator = twoPhase.Approximation()
+	}
+	return &DefaultBulkScorer{scorer: scorer, iterator: iterator}
 }
 
 // Score scores documents in [min, max), passing each matching document that is
@@ -91,9 +106,11 @@ func (bs *DefaultBulkScorer) Score(collector LeafCollector, acceptDocs util.Bits
 	return doc, nil
 }
 
-// Cost returns the underlying scorer's iteration cost.
+// Cost mirrors Weight.DefaultBulkScorer.cost(), whose body is
+// `return iterator.cost();` — the iterator the constructor took from
+// scorer.iterator() (or the two-phase approximation).
 func (bs *DefaultBulkScorer) Cost() int64 {
-	return bs.scorer.Cost()
+	return bs.scorer.Iterator().Cost()
 }
 
 var _ BulkScorer = (*DefaultBulkScorer)(nil)

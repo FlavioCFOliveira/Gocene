@@ -8,10 +8,12 @@ package idversion
 import (
 	"fmt"
 
+	"errors"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 	"github.com/FlavioCFOliveira/Gocene/util/fst"
 )
 
@@ -108,22 +110,22 @@ func NewVersionFieldReader(
 
 // GetMin returns the minimum term for this field.
 //
-// Implements schema.Terms. Returns (*schema.Term, error).
-func (f *VersionFieldReader) GetMin() (*schema.Term, error) {
+// Implements spi.Terms. Returns (*spi.Term, error).
+func (f *VersionFieldReader) GetMin() (*spi.Term, error) {
 	if f.MinTerm == nil {
 		return nil, nil // Caller falls back to scanning.
 	}
-	return schema.NewTermFromBytesRef(f.FieldInfo.Name(), f.MinTerm), nil
+	return spi.NewTermFromBytesRef(f.FieldInfo.Name(), f.MinTerm), nil
 }
 
 // GetMax returns the maximum term for this field.
 //
-// Implements schema.Terms. Returns (*schema.Term, error).
-func (f *VersionFieldReader) GetMax() (*schema.Term, error) {
+// Implements spi.Terms. Returns (*spi.Term, error).
+func (f *VersionFieldReader) GetMax() (*spi.Term, error) {
 	if f.MaxTerm == nil {
 		return nil, nil
 	}
-	return schema.NewTermFromBytesRef(f.FieldInfo.Name(), f.MaxTerm), nil
+	return spi.NewTermFromBytesRef(f.FieldInfo.Name(), f.MaxTerm), nil
 }
 
 // HasFreqs reports whether this field has term frequencies.
@@ -147,7 +149,46 @@ func (f *VersionFieldReader) HasPayloads() bool {
 }
 
 // Iterator returns a TermsEnum over this field.
-func (f *VersionFieldReader) Iterator() (*IDVersionSegmentTermsEnum, error) {
+//
+// Mirrors `public TermsEnum iterator()` of Apache Lucene 10.5.0
+// (VersionFieldReader.java:150). The return type had been narrowed to
+// *IDVersionSegmentTermsEnum, which is neither Java's nor spi.Terms's, so a
+// second method (Iterator) existed only to widen it back.
+// Field returns the name of the field this Terms instance represents.
+//
+// Apache Lucene 10.5.0 reads the name straight off
+// VersionFieldReader.fieldInfo (VersionFieldReader.java, `final FieldInfo
+// fieldInfo`) wherever it needs it, because org.apache.lucene.index.Terms
+// declares no field() accessor. Gocene's [spi.Terms] contract does declare
+// one, so the accessor is spelled here over the same fieldInfo, exactly as the
+// sibling block-tree readers do (blocktreeords.OrdsFieldReader.Field,
+// blockterms fieldReader.Field).
+func (f *VersionFieldReader) Field() string { return f.FieldInfo.Name() }
+
+// Intersect is the default org.apache.lucene.index.Terms#intersect(
+// CompiledAutomaton, BytesRef) (Terms.java:64) that VersionFieldReader
+// inherits — the Java class declares no intersect of its own: iterator()
+// wrapped in an AutomatonTermsEnum, rejecting any CompiledAutomaton that is
+// not AUTOMATON_TYPE.NORMAL. Java expresses the non-null startTerm case as an
+// anonymous subclass overriding nextSeekTerm; Gocene spells the same thing
+// through AutomatonTermsEnum.SetInitialSeekTerm, exactly as the sibling
+// block-tree readers do (blockterms fieldReader.Intersect).
+func (f *VersionFieldReader) Intersect(compiled *automaton.CompiledAutomaton, startTerm *spi.Term) (spi.TermsEnum, error) {
+	termsEnum, err := f.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	if compiled.Type != automaton.AutomatonTypeNormal {
+		return nil, errors.New("please use CompiledAutomaton.getTermsEnum instead")
+	}
+	automatonTermsEnum := index.NewAutomatonTermsEnum(termsEnum, compiled)
+	if startTerm != nil {
+		automatonTermsEnum.SetInitialSeekTerm(startTerm)
+	}
+	return automatonTermsEnum, nil
+}
+
+func (f *VersionFieldReader) Iterator() (spi.TermsEnum, error) {
 	return newIDVersionSegmentTermsEnum(f)
 }
 
@@ -156,34 +197,27 @@ func (f *VersionFieldReader) Size() int64 { return f.NumTerms }
 
 // GetSumTotalTermFreq returns the sum of all term frequencies.
 //
-// Implements schema.Terms.
+// Implements spi.Terms.
 func (f *VersionFieldReader) GetSumTotalTermFreq() (int64, error) {
 	return f.SumTotalTermFreq, nil
 }
 
 // GetSumDocFreq returns the sum of document frequencies.
 //
-// Implements schema.Terms.
+// Implements spi.Terms.
 func (f *VersionFieldReader) GetSumDocFreq() (int64, error) {
 	return f.SumDocFreq, nil
 }
 
 // GetDocCount returns the number of documents with at least one term.
 //
-// Implements schema.Terms.
+// Implements spi.Terms.
 func (f *VersionFieldReader) GetDocCount() (int, error) { return f.DocCount, nil }
-
-// GetIterator returns a TermsEnum positioned before the first term.
-//
-// Implements schema.Terms.
-func (f *VersionFieldReader) GetIterator() (schema.TermsEnum, error) {
-	return f.Iterator()
-}
 
 // GetIteratorWithSeek returns a TermsEnum positioned at or after seekTerm.
 //
-// Implements schema.Terms.
-func (f *VersionFieldReader) GetIteratorWithSeek(seekTerm *schema.Term) (schema.TermsEnum, error) {
+// Implements spi.Terms.
+func (f *VersionFieldReader) GetIteratorWithSeek(seekTerm *spi.Term) (spi.TermsEnum, error) {
 	te, err := f.Iterator()
 	if err != nil {
 		return nil, err
@@ -198,13 +232,13 @@ func (f *VersionFieldReader) GetIteratorWithSeek(seekTerm *schema.Term) (schema.
 
 // GetPostingsReader returns a PostingsEnum for the given term text.
 //
-// Implements schema.Terms.
-func (f *VersionFieldReader) GetPostingsReader(termText string, flags int) (schema.PostingsEnum, error) {
+// Implements spi.Terms.
+func (f *VersionFieldReader) GetPostingsReader(termText string, flags int) (spi.PostingsEnum, error) {
 	te, err := f.Iterator()
 	if err != nil {
 		return nil, err
 	}
-	t := schema.NewTerm(f.FieldInfo.Name(), termText)
+	t := spi.NewTerm(f.FieldInfo.Name(), termText)
 	found, err := te.SeekExact(t)
 	if err != nil {
 		return nil, err

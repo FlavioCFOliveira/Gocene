@@ -6,6 +6,8 @@ package function
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -103,7 +105,7 @@ func (q *FunctionRangeQuery) String() string {
 }
 
 // Equals checks value-equality with another query.
-func (q *FunctionRangeQuery) Equals(other search.Query) bool {
+func (q *FunctionRangeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*FunctionRangeQuery)
 	if !ok || o == nil {
 		return false
@@ -134,14 +136,14 @@ func (q *FunctionRangeQuery) Clone() search.Query {
 }
 
 // Rewrite returns the query itself.
-func (q *FunctionRangeQuery) Rewrite(_ search.IndexReader) (search.Query, error) { return q, nil }
+func (q *FunctionRangeQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) { return q, nil }
 
 // Visit invokes the leaf hook on the visitor.
 func (q *FunctionRangeQuery) Visit(visitor search.QueryVisitor) { visitor.VisitLeaf(q) }
 
 // CreateWeight returns a Weight that scores documents via the wrapped
 // ValueSource and gates them through the configured range.
-func (q *FunctionRangeQuery) CreateWeight(searcher *search.IndexSearcher, _ bool, _ float32) (search.Weight, error) {
+func (q *FunctionRangeQuery) CreateWeight(searcher *search.IndexSearcher, _ search.ScoreMode, _ float32) (search.Weight, error) {
 	w := &functionRangeWeight{
 		BaseWeight: search.NewBaseWeight(q),
 		query:      q,
@@ -220,7 +222,7 @@ func (w *functionRangeWeight) ScorerSupplier(ctx *index.LeafReaderContext) (sear
 	if scorer == nil {
 		return nil, nil
 	}
-	return search.NewScorerSupplierAdapter(scorer), nil
+	return search.NewDefaultScorerSupplier(scorer), nil
 }
 
 func (w *functionRangeWeight) BulkScorer(ctx *index.LeafReaderContext) (search.BulkScorer, error) {
@@ -317,10 +319,10 @@ func (a *rangeScorerAdapter) Advance(target int) (int, error) {
 	return a.NextDoc()
 }
 
-func (a *rangeScorerAdapter) Cost() int64      { return a.iter.Cost() }
-func (a *rangeScorerAdapter) DocIDRunEnd() int { return a.doc + 1 }
-func (a *rangeScorerAdapter) GetMaxScore(_ int) float32 {
-	return a.scorer.MaxScore(0)
+func (a *rangeScorerAdapter) Cost() int64               { return a.iter.Cost() }
+func (a *rangeScorerAdapter) DocIDRunEnd() (int, error) { return a.doc + 1, nil }
+func (a *rangeScorerAdapter) GetMaxScore(_ int) (float32, error) {
+	return a.scorer.MaxScore(0), nil
 }
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
@@ -330,15 +332,56 @@ func (a *rangeScorerAdapter) AdvanceShallow(target int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
 
-func (a *rangeScorerAdapter) Score() float32 {
+func (a *rangeScorerAdapter) Score() (float32, error) {
 	score, err := a.scorer.Score(a.doc)
 	if err != nil {
-		return 0
+		return 0, err
 	}
 	a.cached = score
-	return score
+	return score, nil
+}
+
+// Iterator returns the DocIdSetIterator view of this scorer (Java: iterator()).
+func (a *rangeScorerAdapter) Iterator() search.DocIdSetIterator { return &rangeScorerIterator{s: a} }
+
+// TwoPhaseIterator carries Scorer#twoPhaseIterator()'s default body (null).
+func (a *rangeScorerAdapter) TwoPhaseIterator() *search.TwoPhaseIterator { return nil }
+
+// GetChildren carries Scorable.getChildren()'s default body (empty list).
+func (a *rangeScorerAdapter) GetChildren() ([]search.ChildScorable, error) {
+	return []search.ChildScorable{}, nil
+}
+
+// SmoothingScore carries Scorable.smoothingScore(int)'s default body (0f).
+func (a *rangeScorerAdapter) SmoothingScore(docID int) (float32, error) { return 0, nil }
+
+// SetMinCompetitiveScore carries Scorable.setMinCompetitiveScore's empty default.
+func (a *rangeScorerAdapter) SetMinCompetitiveScore(minScore float32) error { return nil }
+
+// NextDocsAndScores carries Scorer#nextDocsAndScores's default body.
+func (a *rangeScorerAdapter) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(a, upTo, liveDocs, buffer)
+}
+
+// rangeScorerIterator is the DocIdSetIterator view of rangeScorerAdapter.
+type rangeScorerIterator struct{ s *rangeScorerAdapter }
+
+func (it *rangeScorerIterator) DocID() int                 { return it.s.DocID() }
+func (it *rangeScorerIterator) Cost() int64                { return it.s.Cost() }
+func (it *rangeScorerIterator) NextDoc() (int, error)      { return it.s.NextDoc() }
+func (it *rangeScorerIterator) Advance(t int) (int, error) { return it.s.Advance(t) }
+func (it *rangeScorerIterator) DocIDRunEnd() (int, error)  { return it.s.DocIDRunEnd() }
+func (it *rangeScorerIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
 }
 
 var _ search.Query = (*FunctionRangeQuery)(nil)
 var _ search.Weight = (*functionRangeWeight)(nil)
 var _ search.Scorer = (*rangeScorerAdapter)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (a *rangeScorerAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(a, upTo, bitSet, offset)
+}

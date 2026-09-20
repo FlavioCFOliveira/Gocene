@@ -19,13 +19,16 @@ type FieldQueryNode struct {
 
 // NewFieldQueryNode creates a new FieldQueryNode.
 func NewFieldQueryNode(field, text string, begin, end int) *FieldQueryNode {
-	return &FieldQueryNode{
+	n := &FieldQueryNode{
 		QueryNodeImpl: NewQueryNodeImpl(nil),
 		field:         field,
 		text:          text,
 		begin:         begin,
 		end:           end,
 	}
+	// Lucene's FieldQueryNode constructor ends with setLeaf(true).
+	n.SetLeaf(true)
+	return n
 }
 
 // GetField returns the field name.
@@ -36,6 +39,24 @@ func (n *FieldQueryNode) GetField() string {
 // SetField sets the field name.
 func (n *FieldQueryNode) SetField(field string) {
 	n.field = field
+}
+
+// GetValue returns the value part of the field:value pair, which for a
+// FieldQueryNode is its text.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.FieldQueryNode#getValue().
+func (n *FieldQueryNode) GetValue() interface{} { return n.GetText() }
+
+// SetValue sets the value part of the field:value pair, which for a
+// FieldQueryNode is its text.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.FieldQueryNode#setValue(CharSequence).
+func (n *FieldQueryNode) SetValue(value interface{}) {
+	if s, ok := value.(string); ok {
+		n.SetText(s)
+		return
+	}
+	n.SetText(fmt.Sprintf("%v", value))
 }
 
 // GetText returns the text value.

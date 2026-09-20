@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -88,7 +87,7 @@ func NewOfflinePointReader(
 		return nil, err
 	}
 
-	requiredBytes := (start+length)*int64(config.BytesPerDoc()) + int64(codecs.FooterLength())
+	requiredBytes := (start+length)*int64(config.BytesPerDoc()) + int64(store.FooterLength())
 	if requiredBytes > fileLength {
 		return nil, fmt.Errorf(
 			"bkd: requested slice is beyond the length of this file: start=%d length=%d bytesPerDoc=%d fileLength=%d tempFileName=%s",
@@ -108,7 +107,7 @@ func NewOfflinePointReader(
 		readerIn   store.IndexInput
 		checksumIn *store.ChecksumIndexInput
 	)
-	if start == 0 && length*int64(config.BytesPerDoc()) == fileLength-int64(codecs.FooterLength()) {
+	if start == 0 && length*int64(config.BytesPerDoc()) == fileLength-int64(store.FooterLength()) {
 		checksumIn = store.NewChecksumIndexInput(rawIn)
 		readerIn = checksumIn
 	} else {
@@ -155,7 +154,7 @@ func (r *OfflinePointReader) Next() (bool, error) {
 			toRead = int(r.countLeft)
 		}
 		readBytes := toRead * r.config.BytesPerDoc()
-		if err := r.in.ReadBytes(r.onHeapBuffer[:readBytes]); err != nil {
+		if err := r.in.ReadBytes(r.onHeapBuffer, 0, readBytes); err != nil {
 			return false, err
 		}
 		r.pointsInBuffer = toRead - 1
@@ -189,7 +188,7 @@ func (r *OfflinePointReader) Close() error {
 	var verifyErr error
 	if r.checksumIn != nil && r.countLeft == 0 && !r.checked {
 		r.checked = true
-		if _, err := codecs.CheckFooter(r.checksumIn); err != nil {
+		if _, err := store.CheckFooter(r.checksumIn); err != nil {
 			verifyErr = err
 		}
 	}

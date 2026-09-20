@@ -122,7 +122,7 @@ func newSlowCompositeCodecReaderWrapper(codecReaders []CodecReader) (*SlowCompos
 	if allNilBits(subs) {
 		w.liveDocs = nil
 	} else {
-		w.liveDocs = NewMultiBits(subs, w.docStarts)
+		w.liveDocs = countedBits{NewMultiBits(subs, w.docStarts)}
 	}
 	return w, nil
 }
@@ -135,25 +135,21 @@ func mergeFieldInfosByName(readers []CodecReader) *FieldInfos {
 	merged := NewFieldInfos()
 	for _, r := range readers {
 		fi := r.GetFieldInfos()
-		if fi == nil && r.LeafReader != nil && r.LeafReader.IndexReader != nil {
-			// Fallback: pre-segment-bound CodecReader stubs (and any tests)
-			// publish FieldInfos through the embedded IndexReader rather
-			// than via coreReaders. The Lucene path always has a populated
-			// coreReaders, so this branch only matters for the in-test
-			// construction path.
-			fi = r.LeafReader.IndexReader.GetFieldInfos()
-		}
 		if fi == nil {
 			continue
 		}
-		for _, name := range fi.Names() {
-			if merged.FieldInfoByName(name) != nil {
+		// FieldInfos is Iterable<FieldInfo> in Lucene; the Gocene port exposes
+		// the same traversal through Iterator().
+		it := fi.Iterator()
+		for it.HasNext() {
+			leaf := it.Next()
+			if leaf == nil || merged.FieldInfoByName(leaf.Name()) != nil {
 				continue
 			}
-			if leaf := fi.FieldInfoByName(name); leaf != nil {
-				// Add ignores errors only when the collection is frozen; ours is not.
-				_ = merged.Add(leaf)
-			}
+			// Add reports the stored FieldInfo; the returned value is the
+			// existing entry when the name is already present, which the
+			// guard above has ruled out.
+			_ = merged.Add(leaf)
 		}
 	}
 	return merged
@@ -273,7 +269,7 @@ type SlowCompositeStoredFieldsReader struct {
 func (w *SlowCompositeCodecReaderWrapper) GetFieldsReader() *SlowCompositeStoredFieldsReader {
 	readers := make([]StoredFieldsReader, len(w.codecReaders))
 	for i, r := range w.codecReaders {
-		readers[i] = r.GetStoredFieldsReader()
+		readers[i] = r.GetFieldsReader()
 	}
 	return &SlowCompositeStoredFieldsReader{readers: readers, docStarts: w.docStarts, parent: w}
 }
@@ -314,34 +310,42 @@ type remappingStoredFieldVisitor struct {
 	delegate StoredFieldVisitor
 }
 
-func (v *remappingStoredFieldVisitor) StringField(field string, value string) {
-	v.delegate.StringField(v.remapName(field), value)
+func (v *remappingStoredFieldVisitor) NeedsField(fieldInfo *FieldInfo) (StoredFieldVisitorStatus, error) {
+	return v.delegate.NeedsField(v.remap(fieldInfo))
 }
-func (v *remappingStoredFieldVisitor) BinaryField(field string, value []byte) {
-	v.delegate.BinaryField(v.remapName(field), value)
+func (v *remappingStoredFieldVisitor) StringField(fieldInfo *FieldInfo, value string) error {
+	return v.delegate.StringField(v.remap(fieldInfo), value)
 }
-func (v *remappingStoredFieldVisitor) IntField(field string, value int) {
-	v.delegate.IntField(v.remapName(field), value)
+func (v *remappingStoredFieldVisitor) BinaryField(fieldInfo *FieldInfo, value []byte) error {
+	return v.delegate.BinaryField(v.remap(fieldInfo), value)
 }
-func (v *remappingStoredFieldVisitor) LongField(field string, value int64) {
-	v.delegate.LongField(v.remapName(field), value)
+func (v *remappingStoredFieldVisitor) IntField(fieldInfo *FieldInfo, value int) error {
+	return v.delegate.IntField(v.remap(fieldInfo), value)
 }
-func (v *remappingStoredFieldVisitor) FloatField(field string, value float32) {
-	v.delegate.FloatField(v.remapName(field), value)
+func (v *remappingStoredFieldVisitor) LongField(fieldInfo *FieldInfo, value int64) error {
+	return v.delegate.LongField(v.remap(fieldInfo), value)
 }
-func (v *remappingStoredFieldVisitor) DoubleField(field string, value float64) {
-	v.delegate.DoubleField(v.remapName(field), value)
+func (v *remappingStoredFieldVisitor) FloatField(fieldInfo *FieldInfo, value float32) error {
+	return v.delegate.FloatField(v.remap(fieldInfo), value)
+}
+func (v *remappingStoredFieldVisitor) DoubleField(fieldInfo *FieldInfo, value float64) error {
+	return v.delegate.DoubleField(v.remap(fieldInfo), value)
 }
 
-// remapName resolves the field through the composite FieldInfos when the
-// merged view knows the field; otherwise the input name passes through. The
-// composite FieldInfos is the authoritative naming context for downstream
-// merge consumers.
-func (v *remappingStoredFieldVisitor) remapName(field string) string {
-	if fi := v.parent.fieldInfos.FieldInfoByName(field); fi != nil {
-		return fi.Name()
+// remap resolves the leaf FieldInfo through the composite FieldInfos so that
+// consumers only ever see field infos from the composite reader, never from an
+// individual leaf. Mirrors the private
+// SlowCompositeCodecReaderWrapper.remap(FieldInfo)
+// (SlowCompositeCodecReaderWrapper.java:121-123). The input passes through
+// when the composite view does not know the field.
+func (v *remappingStoredFieldVisitor) remap(info *FieldInfo) *FieldInfo {
+	if info == nil {
+		return nil
 	}
-	return field
+	if fi := v.parent.fieldInfos.FieldInfoByName(info.Name()); fi != nil {
+		return fi
+	}
+	return info
 }
 
 // -----------------------------------------------------------------------------
@@ -448,19 +452,37 @@ func (w *SlowCompositeCodecReaderWrapper) GetPostingsReader() *SlowCompositeFiel
 }
 
 // fieldsProducerAsFields adapts FieldsProducer to the Fields interface that
-// MultiFields expects, since the two share Terms()/Iterator() semantics but
-// differ at the type level.
+// MultiFields expects. In Lucene org.apache.lucene.codecs.FieldsProducer
+// extends Fields, so every concrete producer also enumerates its field names;
+// the Gocene SPI narrows FieldsProducer to Terms/CheckIntegrity/Close, and this
+// adapter recovers the wider contract from the concrete producer.
 type fieldsProducerAsFields struct{ FieldsProducer }
 
+// asFields exposes a FieldsProducer through the Fields contract, returning the
+// producer unchanged when it already satisfies it.
+func asFields(fp FieldsProducer) Fields {
+	if fp == nil {
+		return nil
+	}
+	if f, ok := fp.(Fields); ok {
+		return f
+	}
+	return fieldsProducerAsFields{fp}
+}
+
 func (a fieldsProducerAsFields) Iterator() (FieldIterator, error) {
-	// Deviation: Gocene's FieldsProducer does not yet expose an iterator over
-	// field names. Once exposed, this adapter will forward; for now the
-	// MultiFields aggregate iterator falls back to combining per-segment views
-	// at the SegmentReader boundary.
+	if f, ok := a.FieldsProducer.(Fields); ok {
+		return f.Iterator()
+	}
 	return nil, ErrSlowCompositeNotPorted
 }
 
-func (a fieldsProducerAsFields) Size() int { return -1 }
+func (a fieldsProducerAsFields) Size() int {
+	if f, ok := a.FieldsProducer.(Fields); ok {
+		return f.Size()
+	}
+	return -1
+}
 
 // Close releases each underlying producer.
 func (p *SlowCompositeFieldsProducer) Close() error {

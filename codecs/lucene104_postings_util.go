@@ -54,7 +54,7 @@ func readLucene104VIntBlock(
 	if indexHasFreq && decodeFreq && num > len(freqBuffer) {
 		return fmt.Errorf("lucene104 postings: freqBuffer length %d shorter than num %d", len(freqBuffer), num)
 	}
-	if err := util.ReadGroupVInts(docIn, docBuffer, num); err != nil {
+	if err := store.ReadGroupVInts(docIn, docBuffer, num); err != nil {
 		return err
 	}
 	if indexHasFreq && decodeFreq {

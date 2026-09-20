@@ -6,7 +6,6 @@ package testutil
 
 import (
 	"fmt"
-	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -29,7 +28,7 @@ func NewTokenStreamFactoryTestCase(t TestingT) *TokenStreamFactoryTestCase {
 // name and key-value arguments.
 func (tc *TokenStreamFactoryTestCase) tokenizerFactory(name string, keysAndValues ...string) analysis.TokenizerFactory {
 	args := tc.parseArgs(keysAndValues...)
-	factory, err := analysis.ForName(name, args)
+	factory, err := analysis.TokenizerForName(name, args)
 	if err != nil {
 		tc.T.Fatalf("tokenizerFactory(%q) failed: %v", name, err)
 	}
@@ -43,7 +42,7 @@ func (tc *TokenStreamFactoryTestCase) tokenizerFactoryWithVersion(name string, v
 	if version != nil {
 		args["luceneMatchVersion"] = version.String()
 	}
-	factory, err := analysis.ForName(name, args)
+	factory, err := analysis.TokenizerForName(name, args)
 	if err != nil {
 		tc.T.Fatalf("tokenizerFactory(%q, version=%v) failed: %v", name, version, err)
 	}
@@ -54,7 +53,7 @@ func (tc *TokenStreamFactoryTestCase) tokenizerFactoryWithVersion(name string, v
 // name and key-value arguments.
 func (tc *TokenStreamFactoryTestCase) tokenFilterFactory(name string, keysAndValues ...string) analysis.TokenFilterFactory {
 	args := tc.parseArgs(keysAndValues...)
-	factory, err := analysis.ForName(name, args)
+	factory, err := analysis.TokenFilterForName(name, args)
 	if err != nil {
 		tc.T.Fatalf("tokenFilterFactory(%q) failed: %v", name, err)
 	}
@@ -68,7 +67,7 @@ func (tc *TokenStreamFactoryTestCase) tokenFilterFactoryWithVersion(name string,
 	if version != nil {
 		args["luceneMatchVersion"] = version.String()
 	}
-	factory, err := analysis.ForName(name, args)
+	factory, err := analysis.TokenFilterForName(name, args)
 	if err != nil {
 		tc.T.Fatalf("tokenFilterFactory(%q, version=%v) failed: %v", name, version, err)
 	}
@@ -79,7 +78,7 @@ func (tc *TokenStreamFactoryTestCase) tokenFilterFactoryWithVersion(name string,
 // name and key-value arguments.
 func (tc *TokenStreamFactoryTestCase) charFilterFactory(name string, keysAndValues ...string) analysis.CharFilterFactory {
 	args := tc.parseArgs(keysAndValues...)
-	factory, err := analysis.ForName(name, args)
+	factory, err := analysis.CharFilterForName(name, args)
 	if err != nil {
 		tc.T.Fatalf("charFilterFactory(%q) failed: %v", name, err)
 	}
@@ -93,7 +92,7 @@ func (tc *TokenStreamFactoryTestCase) charFilterFactoryWithVersion(name string, 
 	if version != nil {
 		args["luceneMatchVersion"] = version.String()
 	}
-	factory, err := analysis.ForName(name, args)
+	factory, err := analysis.CharFilterForName(name, args)
 	if err != nil {
 		tc.T.Fatalf("charFilterFactory(%q, version=%v) failed: %v", name, version, err)
 	}

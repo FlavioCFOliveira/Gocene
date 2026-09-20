@@ -42,6 +42,95 @@ func drainNumeric(t *testing.T, dv NumericDocValues) map[int]int64 {
 	}
 }
 
+// flushTestConsumer is a DocValuesConsumer that hands the values each
+// Add*Field producer serves for the field to the matching callback. The
+// doc-values writer tests use it to observe what Flush hands the codec.
+type flushTestConsumer struct {
+	numeric       func(*FieldInfo, NumericDocValues) error
+	binary        func(*FieldInfo, BinaryDocValues) error
+	sorted        func(*FieldInfo, SortedDocValues) error
+	sortedNumeric func(*FieldInfo, SortedNumericDocValues) error
+	sortedSet     func(*FieldInfo, SortedSetDocValues) error
+}
+
+func (c *flushTestConsumer) AddNumericField(field *FieldInfo, valuesProducer DocValuesProducer) error {
+	values, err := valuesProducer.GetNumeric(field)
+	if err != nil {
+		return err
+	}
+	return c.numeric(field, values)
+}
+
+func (c *flushTestConsumer) AddBinaryField(field *FieldInfo, valuesProducer DocValuesProducer) error {
+	values, err := valuesProducer.GetBinary(field)
+	if err != nil {
+		return err
+	}
+	return c.binary(field, values)
+}
+
+func (c *flushTestConsumer) AddSortedField(field *FieldInfo, valuesProducer DocValuesProducer) error {
+	values, err := valuesProducer.GetSorted(field)
+	if err != nil {
+		return err
+	}
+	return c.sorted(field, values)
+}
+
+func (c *flushTestConsumer) AddSortedNumericField(field *FieldInfo, valuesProducer DocValuesProducer) error {
+	values, err := valuesProducer.GetSortedNumeric(field)
+	if err != nil {
+		return err
+	}
+	return c.sortedNumeric(field, values)
+}
+
+func (c *flushTestConsumer) AddSortedSetField(field *FieldInfo, valuesProducer DocValuesProducer) error {
+	values, err := valuesProducer.GetSortedSet(field)
+	if err != nil {
+		return err
+	}
+	return c.sortedSet(field, values)
+}
+
+func (c *flushTestConsumer) Close() error { return nil }
+
+// flushTestState returns the SegmentWriteState of a segment with maxDoc
+// documents.
+func flushTestState(maxDoc int) *SegmentWriteState {
+	return &SegmentWriteState{SegmentInfo: NewSegmentInfo("_0", maxDoc, nil)}
+}
+
+// flushToCallback flushes w into a segment of maxDoc documents, handing the
+// numeric values the flush producer serves to consumer.
+func (w *NumericDocValuesWriter) flushToCallback(maxDoc int, sortMap SorterDocMap, consumer func(*FieldInfo, NumericDocValues) error) error {
+	return w.Flush(flushTestState(maxDoc), sortMap, &flushTestConsumer{numeric: consumer})
+}
+
+// flushToCallback flushes w into a segment of maxDoc documents, handing the
+// binary values the flush producer serves to consumer.
+func (w *BinaryDocValuesWriter) flushToCallback(maxDoc int, sortMap SorterDocMap, consumer func(*FieldInfo, BinaryDocValues) error) error {
+	return w.Flush(flushTestState(maxDoc), sortMap, &flushTestConsumer{binary: consumer})
+}
+
+// flushToCallback flushes w into a segment of maxDoc documents, handing the
+// sorted values the flush producer serves to consumer.
+func (w *SortedDocValuesWriter) flushToCallback(maxDoc int, sortMap SorterDocMap, consumer func(*FieldInfo, SortedDocValues) error) error {
+	return w.Flush(flushTestState(maxDoc), sortMap, &flushTestConsumer{sorted: consumer})
+}
+
+// flushToCallback flushes w into a segment of maxDoc documents, handing the
+// sorted numeric values the flush producer serves to consumer.
+func (w *SortedNumericDocValuesWriter) flushToCallback(maxDoc int, sortMap SorterDocMap, consumer func(*FieldInfo, SortedNumericDocValues) error) error {
+	return w.Flush(flushTestState(maxDoc), sortMap, &flushTestConsumer{sortedNumeric: consumer})
+}
+
+// flushToCallback flushes w into a segment of maxDoc documents, handing the
+// sorted set values the flush producer serves to consumer.
+func (w *SortedSetDocValuesWriter) flushToCallback(maxDoc int, sortMap SorterDocMap, consumer func(*FieldInfo, SortedSetDocValues) error) error {
+	return w.Flush(flushTestState(maxDoc), sortMap, &flushTestConsumer{sortedSet: consumer})
+}
+
 // TestNumericDocValuesWriter_DensePath asserts the contiguous-doc case where
 // no sparse bitset is needed.
 func TestNumericDocValuesWriter_DensePath(t *testing.T) {
@@ -139,7 +228,7 @@ func TestNumericDocValuesWriter_BytesUsedTracked(t *testing.T) {
 // consumer rather than panicking.
 func TestNumericDocValuesWriter_FlushNilConsumer(t *testing.T) {
 	w, _ := newNumericTestWriter(t, "f")
-	if err := w.Flush(0, nil, nil); err == nil {
+	if err := w.Flush(flushTestState(0), nil, nil); err == nil {
 		t.Fatalf("Flush with nil consumer: expected error, got nil")
 	}
 }
@@ -155,7 +244,7 @@ func TestNumericDocValuesWriter_FlushNoSortMap(t *testing.T) {
 		}
 	}
 	var got map[int]int64
-	err := w.Flush(5, nil, func(field *FieldInfo, values NumericDocValues) error {
+	err := w.flushToCallback(5, nil, func(field *FieldInfo, values NumericDocValues) error {
 		if field.Name() != "f" {
 			t.Errorf("consumer got field %q, want %q", field.Name(), "f")
 		}
@@ -187,7 +276,7 @@ func TestNumericDocValuesWriter_FlushWithSortMapDense(t *testing.T) {
 		}
 	}
 	var got map[int]int64
-	err := w.Flush(4, &reverseSortMap{n: 4}, func(_ *FieldInfo, values NumericDocValues) error {
+	err := w.flushToCallback(4, &reverseSortMap{n: 4}, func(_ *FieldInfo, values NumericDocValues) error {
 		got = drainNumeric(t, values)
 		return nil
 	})
@@ -221,7 +310,7 @@ func TestNumericDocValuesWriter_FlushWithSortMapSparse(t *testing.T) {
 		}
 	}
 	var got map[int]int64
-	err := w.Flush(6, &reverseSortMap{n: 6}, func(_ *FieldInfo, values NumericDocValues) error {
+	err := w.flushToCallback(6, &reverseSortMap{n: 6}, func(_ *FieldInfo, values NumericDocValues) error {
 		got = drainNumeric(t, values)
 		return nil
 	})
@@ -248,9 +337,13 @@ func TestSortingNumericDocValues_AdvanceUnsupported(t *testing.T) {
 		t.Fatalf("AddValue: %v", err)
 	}
 	w.finish()
-	dv, err := w.getNumeric(1, &reverseSortMap{n: 1})
+	producer, err := numericDocValuesWriterGetDocValuesProducer(w.fieldInfo, w.finalValues, w.docsWithField, &reverseSortMap{n: 1})
 	if err != nil {
-		t.Fatalf("getNumeric: %v", err)
+		t.Fatalf("getDocValuesProducer: %v", err)
+	}
+	dv, err := producer.GetNumeric(w.fieldInfo)
+	if err != nil {
+		t.Fatalf("GetNumeric: %v", err)
 	}
 	if _, err := dv.Advance(0); err == nil {
 		t.Fatalf("Advance on sorting view: expected error, got nil")
@@ -267,13 +360,17 @@ func TestSortingNumericDocValues_AdvanceExactAndCost(t *testing.T) {
 		}
 	}
 	w.finish()
-	dv, err := w.getNumeric(3, &reverseSortMap{n: 3})
+	producer, err := numericDocValuesWriterGetDocValuesProducer(w.fieldInfo, w.finalValues, w.docsWithField, &reverseSortMap{n: 3})
 	if err != nil {
-		t.Fatalf("getNumeric: %v", err)
+		t.Fatalf("getDocValuesProducer: %v", err)
+	}
+	dv, err := producer.GetNumeric(w.fieldInfo)
+	if err != nil {
+		t.Fatalf("GetNumeric: %v", err)
 	}
 	s, ok := dv.(*sortingNumericDocValues)
 	if !ok {
-		t.Fatalf("getNumeric returned %T, want *sortingNumericDocValues", dv)
+		t.Fatalf("GetNumeric returned %T, want *sortingNumericDocValues", dv)
 	}
 	if s.Cost() != 2 {
 		t.Errorf("Cost()=%d, want 2", s.Cost())

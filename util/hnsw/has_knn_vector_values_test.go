@@ -7,6 +7,7 @@ package hnsw
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -15,39 +16,23 @@ type stubKnnVectorValues struct {
 	n   int
 }
 
-func (s *stubKnnVectorValues) Dimension() int                               { return s.dim }
-func (s *stubKnnVectorValues) Size() int                                    { return s.n }
-func (s *stubKnnVectorValues) OrdToDoc(ord int) int                         { return ord }
-func (s *stubKnnVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits { return acceptDocs }
+func (s *stubKnnVectorValues) Dimension() int                                   { return s.dim }
+func (s *stubKnnVectorValues) Size() int                                        { return s.n }
+func (s *stubKnnVectorValues) OrdToDoc(ord int) int                             { return ord }
+func (s *stubKnnVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+func (s *stubKnnVectorValues) Copy() (KnnVectorValues, error)                   { return s, nil }
+func (s *stubKnnVectorValues) GetVectorByteLength() int                         { return s.dim * 4 }
+func (s *stubKnnVectorValues) GetEncoding() util.VectorEncoding                 { return util.VectorEncodingFloat32 }
+func (s *stubKnnVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits     { return acceptDocs }
 
-// Iterator returns a DocIndexIterator over the dense identity
-// [0, n) mapping: doc id == ordinal == iteration position. Used by
-// every hnsw test that needs a KnnVectorValues stub; tests that
-// require sparse doc ids must wrap the iterator with a separate
-// DocMap on the merger side rather than re-mapping inside the
+// Iterator returns the dense identity iterator of
+// KnnVectorValues.createDenseIterator(): doc id == ordinal == iteration
+// position over [0, n). Tests that require sparse doc ids wrap the iterator
+// with a separate DocMap on the merger side rather than re-mapping inside the
 // values themselves.
 func (s *stubKnnVectorValues) Iterator() DocIndexIterator {
-	return &stubDocIndexIterator{n: s.n, idx: -1}
+	return spi.CreateDenseIterator(s)
 }
-
-// stubDocIndexIterator is the minimal DocIndexIterator returned by
-// stubKnnVectorValues.Iterator. It walks the dense ordinal range
-// [0, Size()) and reports each ordinal as both the doc id (identity
-// mapping) and the iterator index.
-type stubDocIndexIterator struct {
-	n   int
-	idx int
-}
-
-func (it *stubDocIndexIterator) NextDoc() (int, error) {
-	it.idx++
-	if it.idx >= it.n {
-		return util.NO_MORE_DOCS, nil
-	}
-	return it.idx, nil
-}
-
-func (it *stubDocIndexIterator) Index() int { return it.idx }
 
 type stubHasKnnVectorValues struct {
 	values KnnVectorValues

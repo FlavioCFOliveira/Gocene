@@ -165,7 +165,7 @@ func (c *lz4WithPresetDictCompressor) Compress(buffersInput store.ByteBuffersDat
 
 	// Compress the dictionary first (no preset dict — dictLen=0).
 	if dictLength > 0 {
-		if err := buffersInput.ReadBytes(c.buffer[:dictLength]); err != nil {
+		if err := buffersInput.ReadBytes(c.buffer, 0, dictLength); err != nil {
 			return err
 		}
 	}
@@ -180,7 +180,7 @@ func (c *lz4WithPresetDictCompressor) Compress(buffersInput store.ByteBuffersDat
 			l = length - start
 		}
 		if l > 0 {
-			if err := buffersInput.ReadBytes(c.buffer[dictLength : dictLength+l]); err != nil {
+			if err := buffersInput.ReadBytes(c.buffer, dictLength, l); err != nil {
 				return err
 			}
 		}

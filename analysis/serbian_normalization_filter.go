@@ -126,7 +126,9 @@ var _ TokenFilter = (*SerbianNormalizationFilter)(nil)
 type SerbianNormalizationRegularFilter = SerbianNormalizationFilter
 
 // SerbianNormalizationFilterFactory creates instances.
-type SerbianNormalizationFilterFactory struct{}
+type SerbianNormalizationFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewSerbianNormalizationFilterFactory returns a fresh factory.
 func NewSerbianNormalizationFilterFactory() *SerbianNormalizationFilterFactory {

@@ -63,7 +63,9 @@ func (f *TrimFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*TrimFilter)(nil)
 
 // TrimFilterFactory creates TrimFilter instances.
-type TrimFilterFactory struct{}
+type TrimFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewTrimFilterFactory creates a new TrimFilterFactory.
 func NewTrimFilterFactory() *TrimFilterFactory {

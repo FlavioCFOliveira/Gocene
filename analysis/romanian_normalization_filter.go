@@ -95,7 +95,9 @@ func (f *RomanianNormalizationFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*RomanianNormalizationFilter)(nil)
 
 // RomanianNormalizationFilterFactory creates instances.
-type RomanianNormalizationFilterFactory struct{}
+type RomanianNormalizationFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewRomanianNormalizationFilterFactory returns a fresh factory.
 func NewRomanianNormalizationFilterFactory() *RomanianNormalizationFilterFactory {

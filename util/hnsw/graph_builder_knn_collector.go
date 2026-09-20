@@ -15,9 +15,11 @@ package hnsw
 
 import (
 	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// GraphBuilderKnnCollector is a restricted, specialised [KnnCollector]
+// GraphBuilderKnnCollector is a restricted, specialised [spi.KnnCollector]
 // used while building an HNSW graph. It is the Go port of
 // org.apache.lucene.util.hnsw.HnswGraphBuilder.GraphBuilderKnnCollector
 // (a public static final inner class of HnswGraphBuilder in Lucene
@@ -26,7 +28,7 @@ import (
 // The collector wraps a min-heap [NeighborQueue] (descending order is
 // false because the queue keeps the smallest score at the top, evicting
 // the worst-of-the-kept entries during overflow). It does not produce
-// TopDocs — calling [GraphBuilderKnnCollector.TopDocs] panics, matching
+// spi.TopDocs — calling [GraphBuilderKnnCollector.TopDocs] panics, matching
 // Java's IllegalArgumentException.
 //
 // The collector exposes a few extra operations the builder uses to
@@ -139,16 +141,16 @@ func (c *GraphBuilderKnnCollector) MinCompetitiveSimilarity() float32 {
 	return float32(math.Inf(-1))
 }
 
-// TopDocs panics: the builder collector does not support TopDocs,
+// TopDocs panics: the builder collector does not support spi.TopDocs,
 // matching Java's @Override that throws IllegalArgumentException.
-func (c *GraphBuilderKnnCollector) TopDocs() *TopDocs {
+func (c *GraphBuilderKnnCollector) TopDocs() *spi.TopDocs {
 	panic("hnsw: GraphBuilderKnnCollector.TopDocs is not supported")
 }
 
 // GetSearchStrategy returns nil for the builder collector.
-func (c *GraphBuilderKnnCollector) GetSearchStrategy() KnnSearchStrategy {
+func (c *GraphBuilderKnnCollector) GetSearchStrategy() spi.KnnSearchStrategy {
 	return nil
 }
 
-// Compile-time guard: GraphBuilderKnnCollector satisfies KnnCollector.
-var _ KnnCollector = (*GraphBuilderKnnCollector)(nil)
+// Compile-time guard: GraphBuilderKnnCollector satisfies spi.KnnCollector.
+var _ spi.KnnCollector = (*GraphBuilderKnnCollector)(nil)

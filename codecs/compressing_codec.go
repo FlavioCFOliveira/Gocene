@@ -9,10 +9,20 @@ import (
 	"sync"
 )
 
+// compressingCodecName is the codec name, which Java's CompressingCodec also
+// passes as the stored-fields and term-vectors format name
+// (CompressingCodec.java:113-124).
+const compressingCodecName = "CompressingCodec"
+
+// compressingCodecBlockShift is the fields-index block shift. Java takes it as
+// a constructor argument; this Gocene constructor does not carry one, so it
+// uses 10, the value Lucene90StoredFieldsFormat.impl(Mode) passes.
+const compressingCodecBlockShift = 10
+
 // CompressingCodec is a codec that compresses stored fields and term vectors.
 //
 // This is the Go port of Lucene's CompressingCodec.
-// It uses CompressingStoredFieldsFormat and CompressingTermVectorsFormat
+// It uses Lucene90CompressingStoredFieldsFormat and Lucene90CompressingTermVectorsFormat
 // to compress data using configurable compression modes.
 //
 // The codec is byte-compatible with Apache Lucene's implementation.
@@ -21,7 +31,6 @@ type CompressingCodec struct {
 	storedFieldsFormat StoredFieldsFormat
 	termVectorsFormat  TermVectorsFormat
 	fieldInfosFormat   FieldInfosFormat
-	segmentInfosFormat SegmentInfosFormat
 	postingsFormat     PostingsFormat
 	docValuesFormat    DocValuesFormat
 	normsFormat        NormsFormat
@@ -52,15 +61,47 @@ func NewCompressingCodec(mode CompressionMode, chunkSize, maxDocsPerChunk int) *
 		maxDocsPerChunk = 1
 	}
 
-	storedFieldsFormat := NewCompressingStoredFieldsFormat(mode, chunkSize, maxDocsPerChunk)
-	termVectorsFormat := NewCompressingTermVectorsFormat(mode, chunkSize, maxDocsPerChunk)
+	// Java: this.storedFieldsFormat = new Lucene90CompressingStoredFieldsFormat(
+	//           name, segmentSuffix, compressionMode, chunkSize, maxDocsPerChunk, blockShift)
+	// (CompressingCodec.java:113-121) — the codec's own name doubles as the
+	// format name. That constructor lives in codecs/lucene90/compressing,
+	// which imports this package, so it is reached through the init()-time
+	// registration described in stored_fields_format.go.
+	//
+	// DIVERGENCE, pre-existing: Java's CompressingCodec constructor takes
+	// segmentSuffix and blockShift; this Gocene constructor carries neither.
+	// The suffix is empty (the ported format has no suffix support) and the
+	// block shift is 10, the value Lucene90StoredFieldsFormat.impl(Mode)
+	// passes (Lucene90StoredFieldsFormat.java:157-170).
+	storedFieldsFormat := NewLucene90CompressingStoredFieldsFormat(
+		Lucene90CompressingStoredFieldsFormatOptions{
+			FormatName:      compressingCodecName,
+			CompressionMode: mode,
+			ChunkSize:       chunkSize,
+			MaxDocsPerChunk: maxDocsPerChunk,
+			BlockShift:      compressingCodecBlockShift,
+		})
+	// Java: this.termVectorsFormat = new Lucene90CompressingTermVectorsFormat(
+	//           name, segmentSuffix, compressionMode, chunkSize, maxDocsPerChunk, blockShift)
+	// (CompressingCodec.java). The constructor lives in
+	// codecs/lucene90/compressing, reached through the init()-time registration
+	// described in term_vectors_format.go; segmentSuffix and blockShift follow
+	// the stored-fields divergence noted above.
+	termVectorsFormat := NewLucene90CompressingTermVectorsFormat(
+		Lucene90CompressingTermVectorsFormatOptions{
+			FormatName:      compressingCodecName,
+			SegmentSuffix:   "",
+			CompressionMode: mode,
+			ChunkSize:       chunkSize,
+			MaxDocsPerChunk: maxDocsPerChunk,
+			BlockSize:       compressingCodecBlockShift,
+		})
 
 	return &CompressingCodec{
-		BaseCodec:          NewBaseCodec("CompressingCodec"),
+		BaseCodec:          NewBaseCodec(compressingCodecName),
 		storedFieldsFormat: storedFieldsFormat,
 		termVectorsFormat:  termVectorsFormat,
 		fieldInfosFormat:   NewLucene104FieldInfosFormat(),
-		segmentInfosFormat: NewLucene104SegmentInfosFormat(),
 		postingsFormat:     NewLucene104PostingsFormat(),
 		docValuesFormat:    NewLucene90DocValuesFormat(),
 		normsFormat:        NewLucene90NormsFormat(),
@@ -117,11 +158,6 @@ func (c *CompressingCodec) TermVectorsFormat() TermVectorsFormat {
 // FieldInfosFormat returns the field infos format.
 func (c *CompressingCodec) FieldInfosFormat() FieldInfosFormat {
 	return c.fieldInfosFormat
-}
-
-// SegmentInfosFormat returns the segment infos format.
-func (c *CompressingCodec) SegmentInfosFormat() SegmentInfosFormat {
-	return c.segmentInfosFormat
 }
 
 // PostingsFormat returns the postings format.

@@ -27,6 +27,10 @@ import (
 // LegacyDirectWriter, IndexedDISI, LegacyDirectMonotonicWriter, and LZ4
 // compression, none of which are fully ported yet.
 type Lucene80DocValuesConsumer struct {
+	// BaseDocValuesConsumer carries the members inherited from
+	// DocValuesConsumer (merge and its helpers).
+	*codecs.BaseDocValuesConsumer
+
 	mode   Lucene80DVMode
 	data   gstore.IndexOutput
 	meta   gstore.IndexOutput
@@ -51,9 +55,10 @@ func NewLucene80DocValuesConsumer(
 		mode:   mode,
 		maxDoc: state.SegmentInfo.DocCount(),
 	}
+	c.BaseDocValuesConsumer = codecs.NewBaseDocValuesConsumer(c)
 
 	// --- data file ---
-	dataName := index.SegmentFileName(seg, suffix, dataExtension)
+	dataName := gstore.SegmentFileName(seg, suffix, dataExtension)
 	dataOut, err := bcstore.CreateOutput(state.Directory, dataName, gstore.IOContextWrite)
 	if err != nil {
 		return nil, fmt.Errorf("lucene80 dv consumer: create data %q: %w", dataName, err)
@@ -65,7 +70,7 @@ func NewLucene80DocValuesConsumer(
 	c.data = dataOut
 
 	// --- meta file ---
-	metaName := index.SegmentFileName(seg, suffix, metaExtension)
+	metaName := gstore.SegmentFileName(seg, suffix, metaExtension)
 	metaOut, err := bcstore.CreateOutput(state.Directory, metaName, gstore.IOContextWrite)
 	if err != nil {
 		_ = dataOut.Close()
@@ -84,7 +89,7 @@ func NewLucene80DocValuesConsumer(
 // AddNumericField writes a numeric doc values field.
 //
 // DEFERRED: requires LegacyDirectWriter and IndexedDISI.
-func (c *Lucene80DocValuesConsumer) AddNumericField(_ *index.FieldInfo, _ codecs.NumericDocValuesIterator) error {
+func (c *Lucene80DocValuesConsumer) AddNumericField(_ *index.FieldInfo, _ codecs.DocValuesProducer) error {
 	if c.closed {
 		return fmt.Errorf("lucene80 dv consumer: closed")
 	}
@@ -94,7 +99,7 @@ func (c *Lucene80DocValuesConsumer) AddNumericField(_ *index.FieldInfo, _ codecs
 // AddBinaryField writes a binary doc values field.
 //
 // DEFERRED: requires LZ4 compression and monotonic writer.
-func (c *Lucene80DocValuesConsumer) AddBinaryField(_ *index.FieldInfo, _ codecs.BinaryDocValuesIterator) error {
+func (c *Lucene80DocValuesConsumer) AddBinaryField(_ *index.FieldInfo, _ codecs.DocValuesProducer) error {
 	if c.closed {
 		return fmt.Errorf("lucene80 dv consumer: closed")
 	}
@@ -104,7 +109,7 @@ func (c *Lucene80DocValuesConsumer) AddBinaryField(_ *index.FieldInfo, _ codecs.
 // AddSortedField writes a sorted doc values field.
 //
 // DEFERRED: requires terms dict, monotonic writer, and IndexedDISI.
-func (c *Lucene80DocValuesConsumer) AddSortedField(_ *index.FieldInfo, _ codecs.SortedDocValuesIterator) error {
+func (c *Lucene80DocValuesConsumer) AddSortedField(_ *index.FieldInfo, _ codecs.DocValuesProducer) error {
 	if c.closed {
 		return fmt.Errorf("lucene80 dv consumer: closed")
 	}
@@ -114,7 +119,7 @@ func (c *Lucene80DocValuesConsumer) AddSortedField(_ *index.FieldInfo, _ codecs.
 // AddSortedSetField writes a sorted-set doc values field.
 //
 // DEFERRED: requires terms dict, monotonic writer, and IndexedDISI.
-func (c *Lucene80DocValuesConsumer) AddSortedSetField(_ *index.FieldInfo, _ codecs.SortedSetDocValuesIterator) error {
+func (c *Lucene80DocValuesConsumer) AddSortedSetField(_ *index.FieldInfo, _ codecs.DocValuesProducer) error {
 	if c.closed {
 		return fmt.Errorf("lucene80 dv consumer: closed")
 	}
@@ -124,7 +129,7 @@ func (c *Lucene80DocValuesConsumer) AddSortedSetField(_ *index.FieldInfo, _ code
 // AddSortedNumericField writes a sorted-numeric doc values field.
 //
 // DEFERRED: requires LegacyDirectWriter and IndexedDISI.
-func (c *Lucene80DocValuesConsumer) AddSortedNumericField(_ *index.FieldInfo, _ codecs.SortedNumericDocValuesIterator) error {
+func (c *Lucene80DocValuesConsumer) AddSortedNumericField(_ *index.FieldInfo, _ codecs.DocValuesProducer) error {
 	if c.closed {
 		return fmt.Errorf("lucene80 dv consumer: closed")
 	}
@@ -152,13 +157,13 @@ func (c *Lucene80DocValuesConsumer) Close() error {
 		if err := gstore.WriteInt32(c.meta, -1); err != nil {
 			setErr(fmt.Errorf("lucene80 dv consumer: meta EOF sentinel: %w", err))
 		} else {
-			setErr(codecs.WriteFooter(c.meta))
+			setErr(gstore.WriteFooter(c.meta))
 		}
 		setErr(c.meta.Close())
 		c.meta = nil
 	}
 	if c.data != nil {
-		setErr(codecs.WriteFooter(c.data))
+		setErr(gstore.WriteFooter(c.data))
 		setErr(c.data.Close())
 		c.data = nil
 	}

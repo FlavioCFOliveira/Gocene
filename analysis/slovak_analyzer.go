@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // SlovakStopWords contains common Slovak stop words.
@@ -74,12 +75,22 @@ func NewSlovakAnalyzer() *SlovakAnalyzer {
 // NewSlovakAnalyzerWithWords creates a SlovakAnalyzer with custom stop words.
 func NewSlovakAnalyzerWithWords(stopWords *CharArraySet) *SlovakAnalyzer {
 	a := &SlovakAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 	return a
 }
 
@@ -98,5 +109,4 @@ func (a *SlovakAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*SlovakAnalyzer)(nil)
-var _ AnalyzerInterface = (*SlovakAnalyzer)(nil)
+var _ api.Analyzer = (*SlovakAnalyzer)(nil)

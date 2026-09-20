@@ -102,23 +102,6 @@ type Lucene103PostingsReader struct {
 	maxImpactNumBytesAtLevel0 int
 	maxNumImpactsAtLevel1     int
 	maxImpactNumBytesAtLevel1 int
-
-	// stateCache bridges *BlockTermState handles (allocated by NewTermState)
-	// back to the *IntBlockTermState that owns them. See Lucene104PostingsReader
-	// for the same pattern and the concurrency rationale.
-	stateCache map[*BlockTermState]*IntBlockTermState
-}
-
-// lookupOrCreateState returns the IntBlockTermState bridged to termState,
-// creating and registering one on demand.
-func (r *Lucene103PostingsReader) lookupOrCreateState(termState *BlockTermState) *IntBlockTermState {
-	its := r.stateCache[termState]
-	if its == nil {
-		its = NewIntBlockTermState()
-		its.BlockTermState = termState
-		r.stateCache[termState] = its
-	}
-	return its
 }
 
 // NewLucene103PostingsReader opens and validates the .psm meta file, then opens
@@ -148,9 +131,7 @@ func NewLucene103PostingsReader(state *SegmentReadState) (*Lucene103PostingsRead
 		return nil, fmt.Errorf("lucene103 postings reader: check meta header: %w", err)
 	}
 
-	r := &Lucene103PostingsReader{
-		stateCache: make(map[*BlockTermState]*IntBlockTermState),
-	}
+	r := &Lucene103PostingsReader{}
 
 	var v int32
 	var readErr error
@@ -306,11 +287,10 @@ func (r *Lucene103PostingsReader) Init(termsIn store.IndexInput, state *SegmentR
 	return nil
 }
 
-// NewTermState allocates a fresh IntBlockTermState and registers it.
-func (r *Lucene103PostingsReader) NewTermState() *BlockTermState {
-	its := NewIntBlockTermState()
-	r.stateCache[its.BlockTermState] = its
-	return its.BlockTermState
+// NewTermState allocates a fresh IntBlockTermState.
+// Mirrors Lucene103PostingsReader.newTermState().
+func (r *Lucene103PostingsReader) NewTermState() index.TermState {
+	return NewIntBlockTermState()
 }
 
 // DecodeTerm reads codec-specific metadata from in into termState.
@@ -318,10 +298,14 @@ func (r *Lucene103PostingsReader) NewTermState() *BlockTermState {
 func (r *Lucene103PostingsReader) DecodeTerm(
 	in store.DataInput,
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	absolute bool,
 ) error {
-	its := r.lookupOrCreateState(termState)
+	// Mirrors "final IntBlockTermState termState = (IntBlockTermState) _termState".
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return fmt.Errorf("lucene103 decode term: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	if absolute {
 		its.DocStartFP = 0
@@ -329,14 +313,14 @@ func (r *Lucene103PostingsReader) DecodeTerm(
 		its.PayStartFP = 0
 	}
 
-	l, err := store.ReadVLong(in)
+	l, err := in.ReadVLong()
 	if err != nil {
 		return fmt.Errorf("lucene103 decode term: read vlong l: %w", err)
 	}
 
 	if l&0x01 == 0 {
 		its.DocStartFP += l >> 1
-		if termState.DocFreq == 1 {
+		if its.DocFreq == 1 {
 			sv, err2 := store.ReadVInt(in)
 			if err2 != nil {
 				return fmt.Errorf("lucene103 decode term: read singleton docID: %w", err2)
@@ -352,7 +336,7 @@ func (r *Lucene103PostingsReader) DecodeTerm(
 
 	opts := fieldInfo.IndexOptions()
 	if opts >= index.IndexOptionsDocsAndFreqsAndPositions {
-		delta, err2 := store.ReadVLong(in)
+		delta, err2 := in.ReadVLong()
 		if err2 != nil {
 			return fmt.Errorf("lucene103 decode term: read pos fp delta: %w", err2)
 		}
@@ -360,15 +344,15 @@ func (r *Lucene103PostingsReader) DecodeTerm(
 
 		if opts >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets ||
 			fieldInfo.HasPayloads() {
-			delta2, err3 := store.ReadVLong(in)
+			delta2, err3 := in.ReadVLong()
 			if err3 != nil {
 				return fmt.Errorf("lucene103 decode term: read pay fp delta: %w", err3)
 			}
 			its.PayStartFP += delta2
 		}
 
-		if termState.TotalTermFreq > int64(lucene103PostingsBlockSize) {
-			offset, err4 := store.ReadVLong(in)
+		if its.TotalTermFreq > int64(lucene103PostingsBlockSize) {
+			offset, err4 := in.ReadVLong()
 			if err4 != nil {
 				return fmt.Errorf("lucene103 decode term: read lastPosBlockOffset: %w", err4)
 			}
@@ -384,11 +368,14 @@ func (r *Lucene103PostingsReader) DecodeTerm(
 // termState. Mirrors Lucene103PostingsReader.postings(...).
 func (r *Lucene103PostingsReader) Postings(
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	reuse index.PostingsEnum,
 	flags int,
 ) (index.PostingsEnum, error) {
-	its := r.lookupOrCreateState(termState)
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return nil, fmt.Errorf("lucene103 postings: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	var bpe *lucene103BlockPostingsEnum
 	if prev, ok := reuse.(*lucene103BlockPostingsEnum); ok && prev.canReuse(r.docIn, fieldInfo, flags) {
@@ -407,10 +394,13 @@ func (r *Lucene103PostingsReader) Postings(
 // block skipping. Mirrors Lucene103PostingsReader.impacts(...).
 func (r *Lucene103PostingsReader) Impacts(
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	flags int,
 ) (index.ImpactsEnum, error) {
-	its := r.lookupOrCreateState(termState)
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return nil, fmt.Errorf("lucene103 impacts: term state is %T, want *IntBlockTermState", termState)
+	}
 	bpe, err := newLucene103BlockPostingsEnum(r, fieldInfo, flags)
 	if err != nil {
 		return nil, err
@@ -923,7 +913,7 @@ func (e *lucene103BlockPostingsEnum) skipLevel1To(target int) error {
 		}
 		e.level1LastDocID += int(delta1)
 
-		delta2, err := store.ReadVLong(e.docIn)
+		delta2, err := e.docIn.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("lucene103 skipLevel1To: read level1DocEndFP delta: %w", err)
 		}
@@ -942,7 +932,7 @@ func (e *lucene103BlockPostingsEnum) skipLevel1To(target int) error {
 			}
 
 			if e.needsImpacts && e.level1LastDocID >= target {
-				if err4 := e.docIn.ReadBytes(e.level1SerializedImpacts[:numImpactBytes]); err4 != nil {
+				if err4 := e.docIn.ReadBytes(e.level1SerializedImpacts[:numImpactBytes], 0, len(e.level1SerializedImpacts[:numImpactBytes])); err4 != nil {
 					return fmt.Errorf("lucene103 skipLevel1To: read impact bytes: %w", err4)
 				}
 				e.level1ImpactLen = int(numImpactBytes)
@@ -953,7 +943,7 @@ func (e *lucene103BlockPostingsEnum) skipLevel1To(target int) error {
 			}
 
 			if e.indexHasPos {
-				posEndFPDelta, err5 := store.ReadVLong(e.docIn)
+				posEndFPDelta, err5 := e.docIn.ReadVLong()
 				if err5 != nil {
 					return fmt.Errorf("lucene103 skipLevel1To: read posEndFP delta: %w", err5)
 				}
@@ -966,7 +956,7 @@ func (e *lucene103BlockPostingsEnum) skipLevel1To(target int) error {
 				e.level1BlockPosUpto = int(posUpto)
 
 				if e.indexHasOffsetsOrPayloads {
-					payEndFPDelta, err7 := store.ReadVLong(e.docIn)
+					payEndFPDelta, err7 := e.docIn.ReadVLong()
 					if err7 != nil {
 						return fmt.Errorf("lucene103 skipLevel1To: read payEndFP delta: %w", err7)
 					}
@@ -994,7 +984,7 @@ func (e *lucene103BlockPostingsEnum) skipLevel1To(target int) error {
 // readLevel0PosData reads pos/pay skip data for a level-0 block.
 // Mirrors BlockPostingsEnum.readLevel0PosData().
 func (e *lucene103BlockPostingsEnum) readLevel0PosData() error {
-	posEndFPDelta, err := store.ReadVLong(e.docIn)
+	posEndFPDelta, err := e.docIn.ReadVLong()
 	if err != nil {
 		return err
 	}
@@ -1007,7 +997,7 @@ func (e *lucene103BlockPostingsEnum) readLevel0PosData() error {
 	e.level0BlockPosUpto = int(posUpto)
 
 	if e.indexHasOffsetsOrPayloads {
-		payEndFPDelta, err3 := store.ReadVLong(e.docIn)
+		payEndFPDelta, err3 := e.docIn.ReadVLong()
 		if err3 != nil {
 			return err3
 		}
@@ -1067,7 +1057,7 @@ func (e *lucene103BlockPostingsEnum) skipLevel0To(target int) error {
 			break
 		}
 
-		numSkipBytes, err := store.ReadVLong(e.docIn)
+		numSkipBytes, err := e.docIn.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("lucene103 skipLevel0To: read numSkipBytes: %w", err)
 		}
@@ -1097,7 +1087,7 @@ func (e *lucene103BlockPostingsEnum) skipLevel0To(target int) error {
 					return fmt.Errorf("lucene103 skipLevel0To: read numImpactBytes: %w", err5)
 				}
 				if e.needsImpacts && found {
-					if err6 := e.docIn.ReadBytes(e.level0SerializedImpacts[:numImpactBytes]); err6 != nil {
+					if err6 := e.docIn.ReadBytes(e.level0SerializedImpacts[:numImpactBytes], 0, len(e.level0SerializedImpacts[:numImpactBytes])); err6 != nil {
 						return fmt.Errorf("lucene103 skipLevel0To: read impact bytes: %w", err6)
 					}
 					e.level0ImpactLen = int(numImpactBytes)
@@ -1170,7 +1160,7 @@ func (e *lucene103BlockPostingsEnum) doMoveToNextLevel0Block() error {
 	}
 
 	if e.docCountLeft >= lucene103PostingsBlockSize {
-		level0NumBytes, err := store.ReadVLong(e.docIn)
+		level0NumBytes, err := e.docIn.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("lucene103 doMoveToNextLevel0Block: read level0NumBytes: %w", err)
 		}
@@ -1194,7 +1184,7 @@ func (e *lucene103BlockPostingsEnum) doMoveToNextLevel0Block() error {
 				return fmt.Errorf("lucene103 doMoveToNextLevel0Block: read numImpactBytes: %w", err4)
 			}
 			if e.needsImpacts {
-				if err5 := e.docIn.ReadBytes(e.level0SerializedImpacts[:numImpactBytes]); err5 != nil {
+				if err5 := e.docIn.ReadBytes(e.level0SerializedImpacts[:numImpactBytes], 0, len(e.level0SerializedImpacts[:numImpactBytes])); err5 != nil {
 					return err5
 				}
 				e.level0ImpactLen = int(numImpactBytes)
@@ -1229,7 +1219,7 @@ func (e *lucene103BlockPostingsEnum) moveToNextLevel0Block() error {
 	e.prevDocID = e.level0LastDocID
 
 	if e.needsDocsAndFreqsOnly && e.docCountLeft >= lucene103PostingsBlockSize {
-		level0NumBytes, err := store.ReadVLong(e.docIn)
+		level0NumBytes, err := e.docIn.ReadVLong()
 		if err != nil {
 			return fmt.Errorf("lucene103 moveToNextLevel0Block: read level0NumBytes: %w", err)
 		}
@@ -1403,7 +1393,7 @@ func (e *lucene103BlockPostingsEnum) refillLastPositionBlock() error {
 						copy(newBytes, e.payloadBytes)
 						e.payloadBytes = newBytes
 					}
-					if err2 := e.posIn.ReadBytes(e.payloadBytes[e.payloadByteUpto : e.payloadByteUpto+payloadLength]); err2 != nil {
+					if err2 := e.posIn.ReadBytes(e.payloadBytes[e.payloadByteUpto:e.payloadByteUpto+payloadLength], 0, len(e.payloadBytes[e.payloadByteUpto:e.payloadByteUpto+payloadLength])); err2 != nil {
 						return err2
 					}
 					e.payloadByteUpto += payloadLength
@@ -1454,7 +1444,7 @@ func (e *lucene103BlockPostingsEnum) refillOffsetsOrPayloads() error {
 			if n > len(e.payloadBytes) {
 				e.payloadBytes = make([]byte, n*2)
 			}
-			if err3 := e.payIn.ReadBytes(e.payloadBytes[:n]); err3 != nil {
+			if err3 := e.payIn.ReadBytes(e.payloadBytes[:n], 0, len(e.payloadBytes[:n])); err3 != nil {
 				return err3
 			}
 		} else if e.payIn != nil {
@@ -1657,3 +1647,127 @@ var (
 	_ index.ImpactsEnum  = (*lucene103BlockPostingsEnum)(nil)
 	_ index.Impacts      = (*lucene103BlockImpacts)(nil)
 )
+
+// DocIDRunEnd returns the end of the run of consecutive doc IDs containing the
+// current docID.
+//
+// Port of the docIDRunEnd() override on
+// org.apache.lucene.backward_codecs.lucene103.Lucene103PostingsReader.BlockPostingsEnum
+// (Lucene 10.5.0). The body assumes BLOCK_SIZE == 128, i.e. two 64-bit words:
+// when both words of the level-0 bit set are all-ones the whole level-0 block
+// is a run, and when the level-1 doc count matches the level-1 doc-ID span the
+// run reaches to the end of the level-1 block.
+func (e *lucene103BlockPostingsEnum) DocIDRunEnd() (int, error) {
+	bits := e.docBitSet.GetBits()
+	level0IsDense := e.encoding == deltaEncodingUnary &&
+		bits[0] == ^uint64(0) &&
+		bits[1] == ^uint64(0)
+	if level0IsDense {
+		level0DocCountUpto := e.docFreq - e.docCountLeft
+		level1IsDense := e.level1LastDocID-e.level0LastDocID == e.level1DocCountUpto-level0DocCountUpto
+		if level1IsDense {
+			return e.level1LastDocID + 1, nil
+		}
+		return e.level0LastDocID + 1, nil
+	}
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// IntoBitSet loads the doc IDs of this postings enum into bitSet, shifted down
+// by offset, up to but excluding upTo.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// org.apache.lucene.backward_codecs.lucene103.Lucene103PostingsReader.BlockPostingsEnum
+// (Lucene 10.5.0). The PACKED branch copies the decoded doc buffer doc by doc;
+// the UNARY branch ORs the level-0 bit set straight into the destination with
+// FixedBitSet.orRange, which is why this override exists at all.
+func (e *lucene103BlockPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	if e.doc >= upTo {
+		return nil
+	}
+
+	// Handle the current doc separately, it may be on the previous docBuffer.
+	bitSet.Set(e.doc - offset)
+
+	for {
+		if e.doc == e.level0LastDocID {
+			if err := e.moveToNextLevel0Block(); err != nil {
+				return err
+			}
+		}
+
+		switch e.encoding {
+		case deltaEncodingPacked:
+			start := e.docBufferUpto
+			end := e.computeBufferEndBoundary(upTo)
+			if end != 0 {
+				e.bufferIntoBitSet(start, end, bitSet, offset)
+				e.doc = int(e.docBuffer[end-1])
+			}
+			e.docBufferUpto = end
+			if end != lucene103PostingsBlockSize {
+				// Either the block is a tail block, or the block did not fully
+				// match, we're done.
+				if _, err := e.NextDoc(); err != nil {
+					return err
+				}
+				return nil
+			}
+
+		case deltaEncodingUnary:
+			var sourceFrom int
+			if e.docBufferUpto == 0 {
+				// start from beginning
+				sourceFrom = 0
+			} else {
+				// start after the current doc
+				sourceFrom = e.doc - e.docBitSetBase + 1
+			}
+
+			destFrom := e.docBitSetBase - offset + sourceFrom
+
+			sourceTo := min(upTo, e.level0LastDocID+1) - e.docBitSetBase
+
+			if sourceTo > sourceFrom {
+				util.FixedBitSetOrRange(e.docBitSet, sourceFrom, bitSet, destFrom, sourceTo-sourceFrom)
+			}
+			if e.docBitSetBase+sourceTo <= e.level0LastDocID {
+				// We stopped before the end of the current bit set, which means
+				// that we're done. Set the current doc before returning.
+				if _, err := e.Advance(e.docBitSetBase + sourceTo); err != nil {
+					return err
+				}
+				return nil
+			}
+			e.doc = e.level0LastDocID
+			e.docBufferUpto = lucene103PostingsBlockSize
+		}
+	}
+}
+
+// computeBufferEndBoundary returns the exclusive end index in docBuffer of the
+// docs that are below upTo.
+//
+// Port of the private computeBufferEndBoundary(int) on
+// org.apache.lucene.backward_codecs.lucene103.Lucene103PostingsReader.BlockPostingsEnum.
+func (e *lucene103BlockPostingsEnum) computeBufferEndBoundary(upTo int) int {
+	if e.docBufferSize != 0 && e.docBuffer[e.docBufferSize-1] < int64(upTo) {
+		// All docs in the buffer are under upTo
+		return e.docBufferSize
+	}
+	// Find the index of the first doc that is greater than or equal to upTo
+	return findNextGEQ64(e.docBuffer[:], upTo, e.docBufferUpto, e.docBufferSize)
+}
+
+// bufferIntoBitSet sets docBuffer[start:end], shifted down by offset, in
+// bitSet.
+//
+// Port of the private bufferIntoBitSet(int, int, FixedBitSet, int) on
+// org.apache.lucene.backward_codecs.lucene103.Lucene103PostingsReader.BlockPostingsEnum.
+func (e *lucene103BlockPostingsEnum) bufferIntoBitSet(start, end int, bitSet *util.FixedBitSet, offset int) {
+	// bitSet#set and `doc - offset` get auto-vectorized
+	for i := start; i < end; i++ {
+		doc := int(e.docBuffer[i])
+		bitSet.Set(doc - offset)
+	}
+}

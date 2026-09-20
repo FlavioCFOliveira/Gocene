@@ -167,79 +167,9 @@ func (lvv *longValueSourceValues) Exists(doc int) bool {
 	return ok
 }
 
-// ValueSourceGroupSelector selects groups based on a ValueSource.
-//
-// This is the Go port of Lucene's org.apache.lucene.search.grouping.ValueSourceGroupSelector.
-type ValueSourceGroupSelector struct {
-	// valueSource provides the values for grouping
-	valueSource ValueSource
-
-	// context is the leaf reader context
-	context *index.LeafReaderContext
-
-	// values caches the values for each document
-	values map[int]interface{}
-}
-
-// NewValueSourceGroupSelector creates a new ValueSourceGroupSelector.
-func NewValueSourceGroupSelector(valueSource ValueSource, context *index.LeafReaderContext) *ValueSourceGroupSelector {
-	return &ValueSourceGroupSelector{
-		valueSource: valueSource,
-		context:     context,
-		values:      make(map[int]interface{}),
-	}
-}
-
-// Select returns the group value for the given document.
-func (vsgs *ValueSourceGroupSelector) Select(doc int) interface{} {
-	// Check cache first
-	if value, ok := vsgs.values[doc]; ok {
-		return value
-	}
-
-	// Get values from value source
-	values, err := vsgs.valueSource.GetValues(vsgs.context)
-	if err != nil {
-		return nil
-	}
-
-	// Get the value for this document
-	var value interface{}
-
-	// Try different value types
-	if strVal, err := values.StrVal(doc); err == nil && values.Exists(doc) {
-		value = strVal
-	} else if longVal, err := values.LongVal(doc); err == nil && values.Exists(doc) {
-		value = longVal
-	} else if doubleVal, err := values.DoubleVal(doc); err == nil && values.Exists(doc) {
-		value = doubleVal
-	}
-
-	// Cache the value
-	vsgs.values[doc] = value
-
-	return value
-}
-
-// SetValue sets the value for a document (for caching/testing).
-func (vsgs *ValueSourceGroupSelector) SetValue(doc int, value interface{}) {
-	vsgs.values[doc] = value
-}
-
-// GetValueSource returns the value source.
-func (vsgs *ValueSourceGroupSelector) GetValueSource() ValueSource {
-	return vsgs.valueSource
-}
-
-// GetContext returns the leaf reader context.
-func (vsgs *ValueSourceGroupSelector) GetContext() *index.LeafReaderContext {
-	return vsgs.context
-}
-
-// Reset clears the value cache.
-func (vsgs *ValueSourceGroupSelector) Reset() {
-	vsgs.values = make(map[int]interface{})
-}
-
-// Ensure ValueSourceGroupSelector implements GroupSelector
-var _ GroupSelector = (*ValueSourceGroupSelector)(nil)
+// NOTE: org.apache.lucene.search.grouping.ValueSourceGroupSelector is ported
+// in value_source_group_selector.go, against the Lucene contract
+// (queries/function.ValueSource plus util/mutable.MutableValue). The
+// ValueSource and ValueSourceValues declared above have no counterpart in
+// Apache Lucene 10.5.0 and are retained only because the spatial package
+// depends on them; removing them is out of the scope of this change.

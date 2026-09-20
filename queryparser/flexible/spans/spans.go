@@ -18,6 +18,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/queryparser/flexible"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -96,7 +97,7 @@ func (b *SpanTermQueryNodeBuilder) Build(node flexible.QueryNode) (search.Query,
 		return nil, fmt.Errorf("SpanTermQueryNodeBuilder expects FieldQueryNode, got %T", node)
 	}
 	term := index.NewTerm(fqn.GetField(), fqn.GetText())
-	return search.NewSpanTermQuery(term), nil
+	return spans.NewSpanTermQuery(term), nil
 }
 
 // SpanOrQueryNodeBuilder builds a SpanOrQuery from an OrQueryNode.
@@ -116,19 +117,19 @@ func (b *SpanOrQueryNodeBuilder) Build(node flexible.QueryNode) (search.Query, e
 	}
 
 	builder := NewSpansQueryTreeBuilder()
-	clauses := make([]search.SpanQuery, 0, len(children))
+	clauses := make([]spans.SpanQuery, 0, len(children))
 	for _, child := range children {
 		q, err := builder.Build(child)
 		if err != nil {
 			return nil, err
 		}
-		sq, ok := q.(search.SpanQuery)
+		sq, ok := q.(spans.SpanQuery)
 		if !ok {
 			return nil, fmt.Errorf("child query %T is not a SpanQuery", q)
 		}
 		clauses = append(clauses, sq)
 	}
-	return search.NewSpanOrQuery(clauses...), nil
+	return spans.NewSpanOrQuery(clauses...)
 }
 
 // SpansQueryTreeBuilder assembles the builder registry for the span query pipeline.

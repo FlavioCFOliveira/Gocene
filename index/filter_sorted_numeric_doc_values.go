@@ -18,11 +18,13 @@ func NewFilterSortedNumericDocValues(in SortedNumericDocValues) *FilterSortedNum
 	return &FilterSortedNumericDocValues{in: in}
 }
 
-func (f *FilterSortedNumericDocValues) AdvanceExact(target int) (bool, error) { return f.in.AdvanceExact(target) }
-func (f *FilterSortedNumericDocValues) NextValue() (int64, error)             { return f.in.NextValue() }
-func (f *FilterSortedNumericDocValues) GetDocValueCount() int                  { return f.in.GetDocValueCount() }
-func (f *FilterSortedNumericDocValues) DocID() int                                { return f.in.DocID() }
-func (f *FilterSortedNumericDocValues) NextDoc() (int, error)                      { return f.in.NextDoc() }
-func (f *FilterSortedNumericDocValues) Advance(target int) (int, error)            { return f.in.Advance(target) }
-func (f *FilterSortedNumericDocValues) Cost() int64                                { return f.in.Cost() }
-func (f *FilterSortedNumericDocValues) GetDelegate() SortedNumericDocValues         { return f.in }
+func (f *FilterSortedNumericDocValues) AdvanceExact(target int) (bool, error) {
+	return f.in.AdvanceExact(target)
+}
+func (f *FilterSortedNumericDocValues) NextValue() (int64, error)           { return f.in.NextValue() }
+func (f *FilterSortedNumericDocValues) DocValueCount() (int, error)         { return f.in.DocValueCount() }
+func (f *FilterSortedNumericDocValues) DocID() int                          { return f.in.DocID() }
+func (f *FilterSortedNumericDocValues) NextDoc() (int, error)               { return f.in.NextDoc() }
+func (f *FilterSortedNumericDocValues) Advance(target int) (int, error)     { return f.in.Advance(target) }
+func (f *FilterSortedNumericDocValues) Cost() int64                         { return f.in.Cost() }
+func (f *FilterSortedNumericDocValues) GetDelegate() SortedNumericDocValues { return f.in }

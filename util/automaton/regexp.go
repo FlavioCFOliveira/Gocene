@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 //
-// Port of org.apache.lucene.util.automaton.RegExp from Apache Lucene 10.4.0
+// Port of org.apache.lucene.util.automaton.RegExp from Apache Lucene 10.5.0
 // (Apache License 2.0, derived from dk.brics.automaton).
 //
 // Differences from Lucene's RegExp:

@@ -520,6 +520,7 @@ var _ TokenFilter = (*SynonymGraphFilter)(nil)
 
 // SynonymGraphFilterFactory creates SynonymGraphFilter instances.
 type SynonymGraphFilterFactory struct {
+	BaseTokenFilterFactory
 	synonymMap *SynonymMap
 	ignoreCase bool
 }

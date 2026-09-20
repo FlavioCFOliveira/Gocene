@@ -8,6 +8,7 @@ import (
 	"regexp"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SimplePatternSplitTokenizerFactory creates [analysis.SimplePatternSplitTokenizer]

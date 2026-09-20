@@ -505,6 +505,7 @@ var _ TokenFilter = (*ShingleMatrixFilter)(nil)
 
 // ShingleMatrixFilterFactory creates ShingleMatrixFilter instances.
 type ShingleMatrixFilterFactory struct {
+	BaseTokenFilterFactory
 	minShingleSize int
 	maxShingleSize int
 	tokenSeparator string

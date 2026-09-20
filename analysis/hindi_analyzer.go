@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // HindiStopWords contains common Hindi stop words.
@@ -47,14 +48,24 @@ func NewHindiAnalyzer() *HindiAnalyzer {
 // NewHindiAnalyzerWithWords creates a HindiAnalyzer with custom stop words.
 func NewHindiAnalyzerWithWords(stopWords *CharArraySet) *HindiAnalyzer {
 	a := &HindiAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewHindiNormalizationFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewHindiStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewHindiNormalizationFilter(tok)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewHindiStemFilter(tok)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 	return a
 }
 
@@ -73,8 +84,7 @@ func (a *HindiAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*HindiAnalyzer)(nil)
-var _ AnalyzerInterface = (*HindiAnalyzer)(nil)
+var _ api.Analyzer = (*HindiAnalyzer)(nil)
 
 // HindiNormalizer normalizes Hindi text.
 //
@@ -252,7 +262,9 @@ func (f *HindiNormalizationFilter) IncrementToken() (bool, error) {
 }
 
 // HindiNormalizationFilterFactory creates HindiNormalizationFilter instances.
-type HindiNormalizationFilterFactory struct{}
+type HindiNormalizationFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewHindiNormalizationFilterFactory creates a new HindiNormalizationFilterFactory.
 func NewHindiNormalizationFilterFactory() *HindiNormalizationFilterFactory {
@@ -341,7 +353,9 @@ func (f *HindiStemFilter) IncrementToken() (bool, error) {
 }
 
 // HindiStemFilterFactory creates HindiStemFilter instances.
-type HindiStemFilterFactory struct{}
+type HindiStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewHindiStemFilterFactory creates a new HindiStemFilterFactory.
 func NewHindiStemFilterFactory() *HindiStemFilterFactory {

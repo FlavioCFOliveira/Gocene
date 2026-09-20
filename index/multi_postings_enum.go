@@ -4,6 +4,8 @@
 
 package index
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 import "fmt"
 
 // EnumWithSlice pairs a PostingsEnum with the ReaderSlice that describes how
@@ -105,6 +107,8 @@ func (m *MultiPostingsEnum) Freq() (int, error) {
 
 // DocID returns the current composite doc ID, or -1 before the first call.
 func (m *MultiPostingsEnum) DocID() int { return m.doc }
+
+func (m *MultiPostingsEnum) DocIDRunEnd() (int, error) { return m.doc, nil }
 
 // Advance advances to the first document at or beyond target. Mirrors the
 // Lucene advance() implementation: if the current sub-enum has the target in
@@ -214,3 +218,10 @@ func (m *MultiPostingsEnum) Cost() int64 {
 
 // Compile-time assertion that MultiPostingsEnum satisfies PostingsEnum.
 var _ PostingsEnum = (*MultiPostingsEnum)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (m *MultiPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(m, upTo, bitSet, offset)
+}

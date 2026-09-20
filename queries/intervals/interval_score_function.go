@@ -10,6 +10,7 @@ package intervals
 import (
 	"fmt"
 	"math"
+	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -19,7 +20,8 @@ import (
 // Mirrors org.apache.lucene.queries.intervals.IntervalScoreFunction (abstract).
 //
 // Deviations from Java:
-//   - scorer(float weight) returns a simScorer closure rather than a Similarity.SimScorer.
+//   - scorer(float weight) returns a named search.SimScorer implementation rather
+//     than a Java anonymous Similarity.SimScorer subclass.
 type IntervalScoreFunction interface {
 	// Scorer returns a SimScorer for the given weight.
 	Scorer(weight float32) search.SimScorer
@@ -51,14 +53,34 @@ type saturationSimScorer struct {
 	pivot  float32
 }
 
-func (s *saturationSimScorer) Score(doc int, freq float32, norm int64) float32 {
-	_ = norm
+// Score104 mirrors the anonymous Similarity.SimScorer.score(float, long)
+// returned by SaturationFunction.scorer(float).
+//
+// Java writes f / (f + k) as 1 - k / (f + k) so that the result cannot
+// decrease with f in spite of rounding.
+func (s *saturationSimScorer) Score104(freq float32, norm int64) float32 {
 	return s.weight * (1.0 - s.pivot/(s.pivot+freq))
+}
+
+// AsBulkSimScorer mirrors the concrete body of Similarity.SimScorer.asBulkSimScorer()
+// in Apache Lucene 10.5.0: new DefaultBulkSimScorer(this).
+func (s *saturationSimScorer) AsBulkSimScorer() search.BulkSimScorer {
+	return search.NewDefaultBulkSimScorer(s)
+}
+
+// Explain104 mirrors the concrete body of Similarity.SimScorer.explain(Explanation, long)
+// in Apache Lucene 10.5.0: Explanation.match(score(freq.getValue().floatValue(), norm),
+// "score(freq=" + freq.getValue() + "), with freq of:", freq).
+func (s *saturationSimScorer) Explain104(freq search.Explanation, norm int64) search.Explanation {
+	e := search.NewExplanation(true, s.Score104(freq.GetValue(), norm),
+		"score(freq="+formatFloatGeneric(freq.GetValue())+"), with freq of:")
+	e.AddDetail(freq)
+	return e
 }
 
 // Explain returns an Explanation.
 func (f *SaturationFunction) Explain(interval string, weight, sloppyFreq float32) search.Explanation {
-	score := f.Scorer(weight).Score(0, sloppyFreq, 1)
+	score := f.Scorer(weight).Score104(sloppyFreq, 1)
 	exp := search.MatchExplanation(score, "Saturation function on interval frequency, computed as w * S / (S + k) from:")
 	exp.AddDetail(search.MatchExplanation(weight, "w, weight of this function"))
 	exp.AddDetail(search.MatchExplanation(f.pivot, "k, pivot feature value that would give a score contribution equal to w/2"))
@@ -99,14 +121,34 @@ type sigmoidSimScorer struct {
 	pivotPow float64
 }
 
-func (s *sigmoidSimScorer) Score(doc int, freq float32, norm int64) float32 {
-	_ = norm
+// Score104 mirrors the anonymous Similarity.SimScorer.score(float, long)
+// returned by SigmoidFunction.scorer(float).
+//
+// Java writes f^a / (f^a + k^a) as 1 - k^a / (f^a + k^a) so that the result
+// cannot decrease with f in spite of rounding.
+func (s *sigmoidSimScorer) Score104(freq float32, norm int64) float32 {
 	return float32(float64(s.weight) * (1.0 - s.pivotPow/(math.Pow(float64(freq), s.exp)+s.pivotPow)))
+}
+
+// AsBulkSimScorer mirrors the concrete body of Similarity.SimScorer.asBulkSimScorer()
+// in Apache Lucene 10.5.0: new DefaultBulkSimScorer(this).
+func (s *sigmoidSimScorer) AsBulkSimScorer() search.BulkSimScorer {
+	return search.NewDefaultBulkSimScorer(s)
+}
+
+// Explain104 mirrors the concrete body of Similarity.SimScorer.explain(Explanation, long)
+// in Apache Lucene 10.5.0: Explanation.match(score(freq.getValue().floatValue(), norm),
+// "score(freq=" + freq.getValue() + "), with freq of:", freq).
+func (s *sigmoidSimScorer) Explain104(freq search.Explanation, norm int64) search.Explanation {
+	e := search.NewExplanation(true, s.Score104(freq.GetValue(), norm),
+		"score(freq="+formatFloatGeneric(freq.GetValue())+"), with freq of:")
+	e.AddDetail(freq)
+	return e
 }
 
 // Explain returns an Explanation.
 func (f *SigmoidFunction) Explain(interval string, weight, sloppyFreq float32) search.Explanation {
-	score := f.Scorer(weight).Score(0, sloppyFreq, 1)
+	score := f.Scorer(weight).Score104(sloppyFreq, 1)
 	exp := search.MatchExplanation(score, "Sigmoid function on interval frequency, computed as w * S^a / (S^a + k^a) from:")
 	exp.AddDetail(search.MatchExplanation(weight, "w, weight of this function"))
 	exp.AddDetail(search.MatchExplanation(f.pivot, "k, pivot feature value that would give a score contribution equal to w/2"))
@@ -114,3 +156,17 @@ func (f *SigmoidFunction) Explain(interval string, weight, sloppyFreq float32) s
 	exp.AddDetail(search.MatchExplanation(sloppyFreq, "S, the sloppy frequency of the interval query "+interval))
 	return exp
 }
+
+// formatFloatGeneric renders a float32 the way Java's Float.toString does for
+// Explanation strings. Java's Float.toString uses the shortest decimal
+// representation that round-trips; Go's 'g' verb is the closest equivalent
+// without writing a full shortest-decimal implementation.
+func formatFloatGeneric(f float32) string {
+	return strconv.FormatFloat(float64(f), 'g', -1, 32)
+}
+
+// Compile-time guarantees.
+var (
+	_ search.SimScorer = (*saturationSimScorer)(nil)
+	_ search.SimScorer = (*sigmoidSimScorer)(nil)
+)

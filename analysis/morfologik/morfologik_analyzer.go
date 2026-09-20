@@ -11,6 +11,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // Dictionary is the Go equivalent of morfologik.stemming.Dictionary.
@@ -56,10 +57,13 @@ func NewMorfologikAnalyzer(dict Dictionary) *MorfologikAnalyzer {
 // call (no component reuse), matching the Java reference.
 func (a *MorfologikAnalyzer) TokenStream(fieldName string, reader io.Reader) (analysis.TokenStream, error) {
 	src := analysis.NewStandardTokenizer()
-	if err := src.SetReader(reader); err != nil {
-		return nil, err
-	}
+	src.SetReader(reader)
 	return NewMorfologikFilter(src, a.dictionary.NewStemmer()), nil
+}
+
+func (a *MorfologikAnalyzer) Normalize(fieldName string) analysis.TokenStream {
+	ts, _ := a.TokenStream(fieldName, nil)
+	return ts
 }
 
 // Close is a no-op; MorfologikAnalyzer holds no closeable resources.
@@ -67,3 +71,4 @@ func (a *MorfologikAnalyzer) Close() error { return nil }
 
 // Ensure MorfologikAnalyzer satisfies analysis.Analyzer.
 var _ analysis.Analyzer = (*MorfologikAnalyzer)(nil)
+var _ api.Analyzer = (*MorfologikAnalyzer)(nil)

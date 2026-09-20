@@ -75,6 +75,13 @@ type intersectTermsEnumFrame struct {
 	arc *fst.Arc[*util.BytesRef]
 
 	// termState holds decoded per-term metadata.
+	// termStateRef is the same term state as PostingsReaderBase sees it: the
+	// interface value whose dynamic type is the codec's own BlockTermState
+	// subclass, which the codec narrows back with a type assertion. The
+	// BlockTermState field beside it is the widened view of that same object.
+	termStateRef index.TermState
+
+	// termState holds decoded per-term metadata.
 	termState *codecs.BlockTermState
 
 	// bytes holds encoded per-term metadata (lazy-decoded).
@@ -109,10 +116,11 @@ func newIntersectTermsEnumFrame(ite *IntersectTermsEnum, ord int) *intersectTerm
 		floorDataReader: store.NewByteArrayDataInput(nil),
 		bytes:           make([]byte, 32),
 		bytesReader:     store.NewByteArrayDataInput(nil),
-		termState:       ite.fr.parent.postingsReader.NewTermState(),
+		termStateRef:    ite.fr.parent.postingsReader.NewTermState(),
 		version:         ite.fr.parent.version,
 	}
-	if f.termState != nil {
+	if f.termStateRef != nil {
+		f.termState = codecs.BaseState(f.termStateRef)
 		f.termState.TotalTermFreq = -1
 	}
 
@@ -248,7 +256,7 @@ func (f *intersectTermsEnumFrame) load(frameIndexData *util.BytesRef) error {
 
 	// Read suffix bytes.
 	if f.version >= VersionCompressedSuffixes {
-		codeL, err2 := store.ReadVLong(f.ite.in)
+		codeL, err2 := f.ite.in.ReadVLong()
 		if err2 != nil {
 			return fmt.Errorf("blocktree intersect load suffix codeL: %w", err2)
 		}
@@ -285,7 +293,7 @@ func (f *intersectTermsEnumFrame) load(frameIndexData *util.BytesRef) error {
 				f.suffixLengthBytes[i] = b
 			}
 		} else {
-			if err6 := f.ite.in.ReadBytes(f.suffixLengthBytes[:numSuffixLengthBytes]); err6 != nil {
+			if err6 := f.ite.in.ReadBytes(f.suffixLengthBytes, 0, numSuffixLengthBytes); err6 != nil {
 				return fmt.Errorf("blocktree intersect load suffix lengths: %w", err6)
 			}
 		}
@@ -300,7 +308,7 @@ func (f *intersectTermsEnumFrame) load(frameIndexData *util.BytesRef) error {
 		if numBytes > len(f.suffixBytes) {
 			f.suffixBytes = util.GrowExactByte(f.suffixBytes, util.Oversize(numBytes, 1))
 		}
-		if err3 := f.ite.in.ReadBytes(f.suffixBytes[:numBytes]); err3 != nil {
+		if err3 := f.ite.in.ReadBytes(f.suffixBytes, 0, numBytes); err3 != nil {
 			return fmt.Errorf("blocktree intersect load suffix bytes (old): %w", err3)
 		}
 		f.suffixesReader.ResetWithSlice(f.suffixBytes, 0, numBytes)
@@ -316,7 +324,7 @@ func (f *intersectTermsEnumFrame) load(frameIndexData *util.BytesRef) error {
 	if numStatBytes > len(f.statBytes) {
 		f.statBytes = util.GrowExactByte(f.statBytes, util.Oversize(numStatBytes, 1))
 	}
-	if err2 := f.ite.in.ReadBytes(f.statBytes[:numStatBytes]); err2 != nil {
+	if err2 := f.ite.in.ReadBytes(f.statBytes, 0, numStatBytes); err2 != nil {
 		return fmt.Errorf("blocktree intersect load stats: %w", err2)
 	}
 	f.statsReader.ResetWithSlice(f.statBytes, 0, numStatBytes)
@@ -337,7 +345,7 @@ func (f *intersectTermsEnumFrame) load(frameIndexData *util.BytesRef) error {
 	if numMetaBytes > len(f.bytes) {
 		f.bytes = util.GrowExactByte(f.bytes, util.Oversize(numMetaBytes, 1))
 	}
-	if err2 := f.ite.in.ReadBytes(f.bytes[:numMetaBytes]); err2 != nil {
+	if err2 := f.ite.in.ReadBytes(f.bytes, 0, numMetaBytes); err2 != nil {
 		return fmt.Errorf("blocktree intersect load meta: %w", err2)
 	}
 	f.bytesReader.ResetWithSlice(f.bytes, 0, numMetaBytes)
@@ -456,7 +464,7 @@ func (f *intersectTermsEnumFrame) decodeMetaData() error {
 			if err := f.ite.fr.parent.postingsReader.DecodeTerm(
 				f.bytesReader,
 				f.ite.fr.fieldInfo,
-				f.termState,
+				f.termStateRef,
 				absolute,
 			); err != nil {
 				return fmt.Errorf("blocktree intersect decodeMetaData: %w", err)

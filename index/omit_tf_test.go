@@ -236,9 +236,9 @@ func TestOmitTf_Stats(t *testing.T) {
 		t.Fatal("Terms(f1) returned nil")
 	}
 
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	var termEnum index.TermsEnum
 	for {

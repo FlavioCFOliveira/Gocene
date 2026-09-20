@@ -140,7 +140,9 @@ func unicodeDigitValue(r rune) int {
 var _ TokenFilter = (*DecimalDigitFilter)(nil)
 
 // DecimalDigitFilterFactory creates DecimalDigitFilter instances.
-type DecimalDigitFilterFactory struct{}
+type DecimalDigitFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewDecimalDigitFilterFactory returns a fresh factory.
 func NewDecimalDigitFilterFactory() *DecimalDigitFilterFactory {

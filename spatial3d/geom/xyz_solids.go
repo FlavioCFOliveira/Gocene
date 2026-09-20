@@ -374,315 +374,6 @@ func (s *StandardXYZSolid) String() string {
 }
 
 // ---------------------------------------------------------------------------
-// Degenerate XYZ solids — one or more dimensions collapsed to a single value.
-// ---------------------------------------------------------------------------
-
-// DXDYDZSolid is a point solid (all three dimensions degenerate).
-//
-// Port of org.apache.lucene.spatial3d.geom.dXdYdZSolid.
-type DXDYDZSolid struct {
-	BaseXYZSolid
-	x, y, z      float64
-	thePoint     *GeoPoint
-	edgePoints   []*GeoPoint
-	isOnSurface  bool
-}
-
-// NewDXDYDZSolid constructs a point solid.
-func NewDXDYDZSolid(pm *PlanetModel, x, y, z float64) *DXDYDZSolid {
-	s := &DXDYDZSolid{
-		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{planetModel: pm}},
-		x: x, y: y, z: z,
-	}
-	s.isOnSurface = pm.PointOnSurfaceXYZ(x, y, z)
-	if s.isOnSurface {
-		s.thePoint = NewGeoPoint(x, y, z)
-		s.edgePoints = []*GeoPoint{s.thePoint}
-	} else {
-		s.thePoint = nil
-		s.edgePoints = []*GeoPoint{}
-	}
-	return s
-}
-
-// IsWithin reports whether (x,y,z) is at this exact point on the surface.
-func (s *DXDYDZSolid) IsWithin(x, y, z float64) bool {
-	if !s.isOnSurface {
-		return false
-	}
-	return s.thePoint.IsNumericallyIdentical(x, y, z)
-}
-
-// GetEdgePoints returns the edge points of this solid.
-func (s *DXDYDZSolid) GetEdgePoints() []*GeoPoint {
-	return s.edgePoints
-}
-
-// GetRelationship computes the spatial relationship with the given shape.
-//
-// Port of dXdYdZSolid.getRelationship.
-func (s *DXDYDZSolid) GetRelationship(path GeoShape) int {
-	if !s.isOnSurface {
-		return RelDisjoint
-	}
-	insideRectangle := isShapeInsideArea(path, s)
-	if insideRectangle == solidSomeInside {
-		return RelOverlaps
-	}
-	insideShape := isAreaInsideShape(path, s.edgePoints)
-	if insideShape == solidSomeInside {
-		return RelOverlaps
-	}
-	if insideRectangle == solidAllInside && insideShape == solidAllInside {
-		return RelOverlaps
-	}
-	if insideRectangle == solidAllInside {
-		return RelWithin
-	}
-	if insideShape == solidAllInside {
-		return RelContains
-	}
-	return RelDisjoint
-}
-
-// ---------------------------------------------------------------------------
-// DXDYZSolid — line solid (X and Y degenerate, Z ranges)
-//
-// Port of org.apache.lucene.spatial3d.geom.dXdYZSolid.
-// ---------------------------------------------------------------------------
-
-// DXDYZSolid is a line solid (X and Y degenerate).
-type DXDYZSolid struct {
-	BaseXYZSolid
-	x, y, minZ, maxZ float64
-	surfacePoints    []*GeoPoint
-}
-
-// NewDXDYZSolid constructs a DXDYZSolid.
-func NewDXDYZSolid(pm *PlanetModel, x, y, minZ, maxZ float64) *DXDYZSolid {
-	s := &DXDYZSolid{
-		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{planetModel: pm}},
-		x: x, y: y, minZ: minZ, maxZ: maxZ,
-	}
-	xPlane := NewPlaneFromVectorD(xUnitVector, -x)
-	yPlane := NewPlaneFromVectorD(yUnitVector, -y)
-	minZPlane := NewSidedPlaneFromPointAndUnit(0, 0, maxZ, zUnitVector, -minZ)
-	maxZPlane := NewSidedPlaneFromPointAndUnit(0, 0, minZ, zUnitVector, -maxZ)
-	s.surfacePoints = xPlane.FindIntersections(pm, yPlane, minZPlane, maxZPlane)
-	return s
-}
-
-// IsWithin reports whether (x,y,z) is on this line.
-func (s *DXDYZSolid) IsWithin(x, y, z float64) bool {
-	for _, p := range s.surfacePoints {
-		if p.IsNumericallyIdentical(x, y, z) {
-			return true
-		}
-	}
-	return false
-}
-
-// GetEdgePoints returns the edge points of this solid.
-func (s *DXDYZSolid) GetEdgePoints() []*GeoPoint {
-	return s.surfacePoints
-}
-
-// GetRelationship computes the spatial relationship with the given shape.
-//
-// Port of dXdYZSolid.getRelationship.
-func (s *DXDYZSolid) GetRelationship(path GeoShape) int {
-	insideRectangle := isShapeInsideArea(path, s)
-	if insideRectangle == solidSomeInside {
-		return RelOverlaps
-	}
-	insideShape := isAreaInsideShape(path, s.surfacePoints)
-	if insideShape == solidSomeInside {
-		return RelOverlaps
-	}
-	if insideRectangle == solidAllInside && insideShape == solidAllInside {
-		return RelOverlaps
-	}
-	if insideRectangle == solidAllInside {
-		return RelWithin
-	}
-	if insideShape == solidAllInside {
-		return RelContains
-	}
-	return RelDisjoint
-}
-
-// ---------------------------------------------------------------------------
-// DXYDZSolid — line solid (X and Z degenerate, Y ranges)
-//
-// Port of org.apache.lucene.spatial3d.geom.dXYdZSolid.
-// ---------------------------------------------------------------------------
-
-// DXYDZSolid is a line solid (X and Z degenerate).
-type DXYDZSolid struct {
-	BaseXYZSolid
-	x, minY, maxY, z float64
-	surfacePoints    []*GeoPoint
-}
-
-// NewDXYDZSolid constructs a DXYDZSolid.
-func NewDXYDZSolid(pm *PlanetModel, x, minY, maxY, z float64) *DXYDZSolid {
-	s := &DXYDZSolid{
-		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{planetModel: pm}},
-		x: x, minY: minY, maxY: maxY, z: z,
-	}
-	xPlane := NewPlaneFromVectorD(xUnitVector, -x)
-	zPlane := NewPlaneFromVectorD(zUnitVector, -z)
-	minYPlane := NewSidedPlaneFromPointAndUnit(0, maxY, 0, yUnitVector, -minY)
-	maxYPlane := NewSidedPlaneFromPointAndUnit(0, minY, 0, yUnitVector, -maxY)
-	s.surfacePoints = xPlane.FindIntersections(pm, zPlane, minYPlane, maxYPlane)
-	return s
-}
-
-// IsWithin reports whether (x,y,z) is on this line.
-func (s *DXYDZSolid) IsWithin(x, y, z float64) bool {
-	for _, p := range s.surfacePoints {
-		if p.IsNumericallyIdentical(x, y, z) {
-			return true
-		}
-	}
-	return false
-}
-
-// GetEdgePoints returns the edge points of this solid.
-func (s *DXYDZSolid) GetEdgePoints() []*GeoPoint {
-	return s.surfacePoints
-}
-
-// GetRelationship computes the spatial relationship with the given shape.
-//
-// Port of dXYdZSolid.getRelationship.
-func (s *DXYDZSolid) GetRelationship(path GeoShape) int {
-	insideRectangle := isShapeInsideArea(path, s)
-	if insideRectangle == solidSomeInside {
-		return RelOverlaps
-	}
-	insideShape := isAreaInsideShape(path, s.surfacePoints)
-	if insideShape == solidSomeInside {
-		return RelOverlaps
-	}
-	if insideRectangle == solidAllInside && insideShape == solidAllInside {
-		return RelOverlaps
-	}
-	if insideRectangle == solidAllInside {
-		return RelWithin
-	}
-	if insideShape == solidAllInside {
-		return RelContains
-	}
-	return RelDisjoint
-}
-
-// ---------------------------------------------------------------------------
-// DXYZSolid — planar solid (X degenerate, Y and Z range)
-//
-// Port of org.apache.lucene.spatial3d.geom.dXYZSolid.
-// ---------------------------------------------------------------------------
-
-// DXYZSolid is a planar solid (X degenerate).
-type DXYZSolid struct {
-	BaseXYZSolid
-	x, minY, maxY, minZ, maxZ float64
-	xPlane                    *Plane
-	minYPlane, maxYPlane      *SidedPlane
-	minZPlane, maxZPlane      *SidedPlane
-	edgePoints                []*GeoPoint
-	notableXPoints            []*GeoPoint
-}
-
-// NewDXYZSolid constructs a DXYZSolid.
-func NewDXYZSolid(pm *PlanetModel, x, minY, maxY, minZ, maxZ float64) *DXYZSolid {
-	s := &DXYZSolid{
-		BaseXYZSolid: BaseXYZSolid{BasePlanetObject: BasePlanetObject{planetModel: pm}},
-		x: x, minY: minY, maxY: maxY, minZ: minZ, maxZ: maxZ,
-	}
-	worldMinX := pm.GetMinimumXValue()
-	worldMaxX := pm.GetMaximumXValue()
-
-	s.xPlane = NewPlaneFromVectorD(xUnitVector, -x)
-	s.minYPlane = NewSidedPlaneFromPointAndUnit(0, maxY, 0, yUnitVector, -minY)
-	s.maxYPlane = NewSidedPlaneFromPointAndUnit(0, minY, 0, yUnitVector, -maxY)
-	s.minZPlane = NewSidedPlaneFromPointAndUnit(0, 0, maxZ, zUnitVector, -minZ)
-	s.maxZPlane = NewSidedPlaneFromPointAndUnit(0, 0, minZ, zUnitVector, -maxZ)
-
-	spPlane := func(sp *SidedPlane) *Plane { return &sp.Plane }
-
-	XminY := s.xPlane.FindIntersections(pm, spPlane(s.minYPlane), s.maxYPlane, s.minZPlane, s.maxZPlane)
-	XmaxY := s.xPlane.FindIntersections(pm, spPlane(s.maxYPlane), s.minYPlane, s.minZPlane, s.maxZPlane)
-	XminZ := s.xPlane.FindIntersections(pm, spPlane(s.minZPlane), s.maxZPlane, s.minYPlane, s.maxYPlane)
-	XmaxZ := s.xPlane.FindIntersections(pm, spPlane(s.maxZPlane), s.minZPlane, s.minYPlane, s.maxYPlane)
-
-	s.notableXPoints = glueTogether(XminY, XmaxY, XminZ, XmaxZ)
-
-	XminYminZ := pm.PointOutside(x, minY, minZ)
-	XminYmaxZ := pm.PointOutside(x, minY, maxZ)
-	XmaxYminZ := pm.PointOutside(x, maxY, minZ)
-	XmaxYmaxZ := pm.PointOutside(x, maxY, maxZ)
-
-	var xEdges []*GeoPoint
-	if x-worldMinX >= -MinimumResolution &&
-		x-worldMaxX <= MinimumResolution &&
-		minY < 0.0 && maxY > 0.0 &&
-		minZ < 0.0 && maxZ > 0.0 &&
-		XminYminZ && XminYmaxZ && XmaxYminZ && XmaxYmaxZ {
-		if pt := s.xPlane.GetSampleIntersectionPoint(pm, xVerticalPlane); pt != nil {
-			xEdges = []*GeoPoint{pt}
-		} else {
-			xEdges = []*GeoPoint{}
-		}
-	} else {
-		xEdges = []*GeoPoint{}
-	}
-	s.edgePoints = glueTogether(XminY, XmaxY, XminZ, XmaxZ, xEdges)
-	return s
-}
-
-// IsWithin reports whether (x,y,z) is inside this planar solid.
-func (s *DXYZSolid) IsWithin(x, y, z float64) bool {
-	return s.xPlane.EvaluateIsZeroXYZ(x, y, z) &&
-		s.minYPlane.IsWithin(x, y, z) &&
-		s.maxYPlane.IsWithin(x, y, z) &&
-		s.minZPlane.IsWithin(x, y, z) &&
-		s.maxZPlane.IsWithin(x, y, z)
-}
-
-// GetEdgePoints returns the edge points of this solid.
-func (s *DXYZSolid) GetEdgePoints() []*GeoPoint {
-	return s.edgePoints
-}
-
-// GetRelationship computes the spatial relationship with the given shape.
-//
-// Port of dXYZSolid.getRelationship.
-func (s *DXYZSolid) GetRelationship(path GeoShape) int {
-	insideRectangle := isShapeInsideArea(path, s)
-	if insideRectangle == solidSomeInside {
-		return RelOverlaps
-	}
-	insideShape := isAreaInsideShape(path, s.edgePoints)
-	if insideShape == solidSomeInside {
-		return RelOverlaps
-	}
-	if insideRectangle == solidAllInside && insideShape == solidAllInside {
-		return RelOverlaps
-	}
-	if path.Intersects(s.xPlane, s.notableXPoints, s.minYPlane, s.maxYPlane, s.minZPlane, s.maxZPlane) {
-		return RelOverlaps
-	}
-	if insideRectangle == solidAllInside {
-		return RelWithin
-	}
-	if insideShape == solidAllInside {
-		return RelContains
-	}
-	return RelDisjoint
-}
-
-// ---------------------------------------------------------------------------
 // XDYDZSolid — line solid (Y and Z degenerate, X ranges)
 //
 // Port of org.apache.lucene.spatial3d.geom.XdYdZSolid.
@@ -980,7 +671,8 @@ func MakeXYZSolid(pm *PlanetModel, minX, maxX, minY, maxY, minZ, maxZ float64) X
 	case dX && dZ:
 		return NewDXYDZSolid(pm, midX, minY, maxY, midZ)
 	case dX:
-		return NewDXYZSolid(pm, midX, minY, maxY, minZ, maxZ)
+		s, _ := NewDXYZSolid(pm, midX, minY, maxY, minZ, maxZ)
+		return s
 	case dY && dZ:
 		return NewXDYDZSolid(pm, minX, maxX, midY, midZ)
 	case dY:
@@ -1011,3 +703,18 @@ func errorf(msg string) error {
 type solidError struct{ msg string }
 
 func (e *solidError) Error() string { return e.msg }
+
+// NewDXDYDZSolid constructs a DXDYDZ solid (deferred to #2693).
+func NewDXDYDZSolid(pm *PlanetModel, x, y, z float64) XYZSolid {
+	return nil
+}
+
+// NewDXDYZSolid constructs a DXDYZ solid (deferred to #2693).
+func NewDXDYZSolid(pm *PlanetModel, x, y, minZ, maxZ float64) XYZSolid {
+	return nil
+}
+
+// NewDXYDZSolid constructs a DXYDZ solid (deferred to #2693).
+func NewDXYDZSolid(pm *PlanetModel, x, minY, maxY, z float64) XYZSolid {
+	return nil
+}

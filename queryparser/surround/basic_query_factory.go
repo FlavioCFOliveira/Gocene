@@ -2,6 +2,7 @@ package surround
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -43,13 +44,13 @@ func (f *BasicQueryFactory) MakeBasicTermQuery(field, text string) (search.Query
 	return search.NewTermQuery(index.NewTerm(field, text)), nil
 }
 
-// MakeSpanTermQuery returns a search.SpanTermQuery for the given field/text,
+// MakeSpanTermQuery returns a spans.SpanTermQuery for the given field/text,
 // counting against the basic-query budget.
-func (f *BasicQueryFactory) MakeSpanTermQuery(field, text string) (*search.SpanTermQuery, error) {
+func (f *BasicQueryFactory) MakeSpanTermQuery(field, text string) (*spans.SpanTermQuery, error) {
 	if err := f.tickBasicQueryBudget(); err != nil {
 		return nil, err
 	}
-	return search.NewSpanTermQuery(index.NewTerm(field, text)), nil
+	return spans.NewSpanTermQuery(index.NewTerm(field, text)), nil
 }
 
 func (f *BasicQueryFactory) tickBasicQueryBudget() error {

@@ -374,3 +374,13 @@ func (p Polygon) ToGeoJSON() string {
 	b = append(b, ']')
 	return string(b)
 }
+
+// FromGeoJSON parses a standard GeoJSON polygon string. The type of the
+// incoming GeoJSON object must be a Polygon or MultiPolygon, optionally
+// embedded under a "type: Feature". A Polygon will return as a length 1
+// array, while a MultiPolygon will be 1 or more in length.
+//
+// See <a href="http://geojson.org/geojson-spec.html">the GeoJSON specification</a>.
+func FromGeoJSON(geojson string) ([]Polygon, error) {
+	return ParseGeoJSONPolygons(geojson)
+}

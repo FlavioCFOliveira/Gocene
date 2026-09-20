@@ -190,15 +190,15 @@ func readSegmentInfo70(
 	isCompoundFile := int8(isCompoundFileByte) == 1
 
 	// Diagnostics, Files, Attributes.
-	diagnostics, err := gstore.ReadMapOfStrings(in)
+	diagnostics, err := in.ReadMapOfStrings()
 	if err != nil {
 		return nil, fmt.Errorf("lucene70 segment info: diagnostics: %w", err)
 	}
-	files, err := gstore.ReadSetOfStrings(in)
+	files, err := in.ReadSetOfStrings()
 	if err != nil {
 		return nil, fmt.Errorf("lucene70 segment info: files: %w", err)
 	}
-	attributes, err := gstore.ReadMapOfStrings(in)
+	attributes, err := in.ReadMapOfStrings()
 	if err != nil {
 		return nil, fmt.Errorf("lucene70 segment info: attributes: %w", err)
 	}
@@ -219,11 +219,7 @@ func readSegmentInfo70(
 	for k, v := range attributes {
 		si.SetAttribute(k, v)
 	}
-	fileList := make([]string, 0, len(files))
-	for f := range files {
-		fileList = append(fileList, f)
-	}
-	si.SetFiles(fileList)
+	si.SetFiles(files)
 	if indexSort != nil {
 		si.SetIndexSort(indexSort)
 	}
@@ -244,7 +240,7 @@ func readIndexSort70(in *bcstore.EndiannessReverserChecksumIndexInput) (*index.S
 		return nil, nil
 	}
 
-	sortFields := make([]index.SortField, numSortFields)
+	sortFields := make([]*index.SortField, numSortFields)
 	for i := 0; i < numSortFields; i++ {
 		sf, err := readSortField70(in)
 		if err != nil {
@@ -264,14 +260,14 @@ func readIndexSort70(in *bcstore.EndiannessReverserChecksumIndexInput) (*index.S
 //	                   5=SortedSet 6=SortedNumeric
 //	reverse (Int8): 0=reversed, 1=natural
 //	missingValue (Int8 flag, then type-specific value)
-func readSortField70(in *bcstore.EndiannessReverserChecksumIndexInput) (index.SortField, error) {
+func readSortField70(in *bcstore.EndiannessReverserChecksumIndexInput) (*index.SortField, error) {
 	fieldName, err := in.ReadString()
 	if err != nil {
-		return index.SortField{}, fmt.Errorf("field name: %w", err)
+		return nil, fmt.Errorf("field name: %w", err)
 	}
 	sortTypeIDI32, err := gstore.ReadVInt(in)
 	if err != nil {
-		return index.SortField{}, fmt.Errorf("sortTypeID: %w", err)
+		return nil, fmt.Errorf("sortTypeID: %w", err)
 	}
 	sortTypeID := int(sortTypeIDI32)
 
@@ -294,7 +290,7 @@ func readSortField70(in *bcstore.EndiannessReverserChecksumIndexInput) (index.So
 		sortType = index.SortTypeString
 		sel, err := in.ReadByte()
 		if err != nil {
-			return index.SortField{}, fmt.Errorf("SortedSet selector: %w", err)
+			return nil, fmt.Errorf("SortedSet selector: %w", err)
 		}
 		switch sel {
 		case 0:
@@ -306,13 +302,13 @@ func readSortField70(in *bcstore.EndiannessReverserChecksumIndexInput) (index.So
 		case 3:
 			selector = "middle_max"
 		default:
-			return index.SortField{}, fmt.Errorf("invalid SortedSetSelector ID: %d", sel)
+			return nil, fmt.Errorf("invalid SortedSetSelector ID: %d", sel)
 		}
 	case 6:
 		// SortedNumericSortField: numeric type + selector follow.
 		numType, err := in.ReadByte()
 		if err != nil {
-			return index.SortField{}, fmt.Errorf("SortedNumeric type: %w", err)
+			return nil, fmt.Errorf("SortedNumeric type: %w", err)
 		}
 		switch numType {
 		case 0:
@@ -324,11 +320,11 @@ func readSortField70(in *bcstore.EndiannessReverserChecksumIndexInput) (index.So
 		case 3:
 			sortType = index.SortTypeFloat
 		default:
-			return index.SortField{}, fmt.Errorf("invalid SortedNumericSortField type ID: %d", numType)
+			return nil, fmt.Errorf("invalid SortedNumericSortField type ID: %d", numType)
 		}
 		numSel, err := in.ReadByte()
 		if err != nil {
-			return index.SortField{}, fmt.Errorf("SortedNumeric selector: %w", err)
+			return nil, fmt.Errorf("SortedNumeric selector: %w", err)
 		}
 		switch numSel {
 		case 0:
@@ -336,16 +332,16 @@ func readSortField70(in *bcstore.EndiannessReverserChecksumIndexInput) (index.So
 		case 1:
 			selector = "max"
 		default:
-			return index.SortField{}, fmt.Errorf("invalid SortedNumericSelector ID: %d", numSel)
+			return nil, fmt.Errorf("invalid SortedNumericSelector ID: %d", numSel)
 		}
 	default:
-		return index.SortField{}, fmt.Errorf("invalid index sort field type ID: %d", sortTypeID)
+		return nil, fmt.Errorf("invalid index sort field type ID: %d", sortTypeID)
 	}
 
 	// reverse byte: 0=descending, 1=ascending.
 	reverseByte, err := in.ReadByte()
 	if err != nil {
-		return index.SortField{}, fmt.Errorf("reverse: %w", err)
+		return nil, fmt.Errorf("reverse: %w", err)
 	}
 	var reverse bool
 	switch reverseByte {
@@ -354,13 +350,13 @@ func readSortField70(in *bcstore.EndiannessReverserChecksumIndexInput) (index.So
 	case 1:
 		reverse = false
 	default:
-		return index.SortField{}, fmt.Errorf("invalid index sort reverse: %d", reverseByte)
+		return nil, fmt.Errorf("invalid index sort reverse: %d", reverseByte)
 	}
 
 	// missingValue flag.
 	missingFlag, err := in.ReadByte()
 	if err != nil {
-		return index.SortField{}, fmt.Errorf("missingValue flag: %w", err)
+		return nil, fmt.Errorf("missingValue flag: %w", err)
 	}
 	var missingValue interface{}
 	if missingFlag != 0 {
@@ -372,42 +368,42 @@ func readSortField70(in *bcstore.EndiannessReverserChecksumIndexInput) (index.So
 			case 2:
 				missingValue = "FIRST"
 			default:
-				return index.SortField{}, fmt.Errorf("invalid STRING missing value flag: %d", missingFlag)
+				return nil, fmt.Errorf("invalid STRING missing value flag: %d", missingFlag)
 			}
 		case index.SortTypeLong:
 			if missingFlag != 1 {
-				return index.SortField{}, fmt.Errorf("invalid LONG missing value flag: %d", missingFlag)
+				return nil, fmt.Errorf("invalid LONG missing value flag: %d", missingFlag)
 			}
 			v, err := in.ReadLong()
 			if err != nil {
-				return index.SortField{}, fmt.Errorf("LONG missing value: %w", err)
+				return nil, fmt.Errorf("LONG missing value: %w", err)
 			}
 			missingValue = v
 		case index.SortTypeInt:
 			if missingFlag != 1 {
-				return index.SortField{}, fmt.Errorf("invalid INT missing value flag: %d", missingFlag)
+				return nil, fmt.Errorf("invalid INT missing value flag: %d", missingFlag)
 			}
 			v, err := in.ReadInt()
 			if err != nil {
-				return index.SortField{}, fmt.Errorf("INT missing value: %w", err)
+				return nil, fmt.Errorf("INT missing value: %w", err)
 			}
 			missingValue = v
 		case index.SortTypeDouble:
 			if missingFlag != 1 {
-				return index.SortField{}, fmt.Errorf("invalid DOUBLE missing value flag: %d", missingFlag)
+				return nil, fmt.Errorf("invalid DOUBLE missing value flag: %d", missingFlag)
 			}
 			v, err := in.ReadLong()
 			if err != nil {
-				return index.SortField{}, fmt.Errorf("DOUBLE missing value: %w", err)
+				return nil, fmt.Errorf("DOUBLE missing value: %w", err)
 			}
 			missingValue = math.Float64frombits(uint64(v))
 		case index.SortTypeFloat:
 			if missingFlag != 1 {
-				return index.SortField{}, fmt.Errorf("invalid FLOAT missing value flag: %d", missingFlag)
+				return nil, fmt.Errorf("invalid FLOAT missing value flag: %d", missingFlag)
 			}
 			v, err := in.ReadInt()
 			if err != nil {
-				return index.SortField{}, fmt.Errorf("FLOAT missing value: %w", err)
+				return nil, fmt.Errorf("FLOAT missing value: %w", err)
 			}
 			missingValue = math.Float32frombits(uint32(v))
 		}
@@ -436,14 +432,14 @@ func checkLucene70SIFooter(in *bcstore.EndiannessReverserChecksumIndexInput) err
 	if remaining > footerLen {
 		return fmt.Errorf("lucene70 segment info: misplaced footer (too long): remaining=%d", remaining)
 	}
-	magic, err := gstore.ReadInt32(in)
+	magic, err := gstore.ReadBEInt(in)
 	if err != nil {
 		return fmt.Errorf("lucene70 segment info: footer magic: %w", err)
 	}
 	if magic != lucene70FooterMagic {
 		return fmt.Errorf("lucene70 segment info: footer magic mismatch: got %x want %x", magic, lucene70FooterMagic)
 	}
-	algID, err := gstore.ReadInt32(in)
+	algID, err := gstore.ReadBEInt(in)
 	if err != nil {
 		return fmt.Errorf("lucene70 segment info: footer algorithmID: %w", err)
 	}
@@ -451,7 +447,7 @@ func checkLucene70SIFooter(in *bcstore.EndiannessReverserChecksumIndexInput) err
 		return fmt.Errorf("lucene70 segment info: unknown algorithmID: %d", algID)
 	}
 	actualChecksum := int64(in.GetChecksum())
-	expected, err := gstore.ReadInt64(in)
+	expected, err := gstore.ReadBELong(in)
 	if err != nil {
 		return fmt.Errorf("lucene70 segment info: footer checksum: %w", err)
 	}

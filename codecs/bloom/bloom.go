@@ -6,7 +6,7 @@ package bloom
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // HashFunction is the contract every bloom-filter hash satisfies. Mirrors
@@ -143,24 +143,24 @@ func (s *FuzzySet) Downsize(targetMaxSaturation float32) *FuzzySet {
 // BloomFilterFactory is the contract that builds FuzzySet instances per
 // field. Mirrors org.apache.lucene.codecs.bloom.BloomFilterFactory.
 type BloomFilterFactory interface {
-	GetSetForField(state *index.SegmentWriteState, info *schema.FieldInfo) *FuzzySet
-	IsSaturated(bloomFilter *FuzzySet, fieldInfo *schema.FieldInfo) bool
+	GetSetForField(state *index.SegmentWriteState, info *spi.FieldInfo) *FuzzySet
+	IsSaturated(bloomFilter *FuzzySet, fieldInfo *spi.FieldInfo) bool
 }
 
 // DefaultBloomFilterFactory sizes the bit-array based on numDocs * 10 bits.
 // Mirrors org.apache.lucene.codecs.bloom.DefaultBloomFilterFactory.
 type DefaultBloomFilterFactory struct{}
 
-func (DefaultBloomFilterFactory) GetSetForField(state *index.SegmentWriteState, info *schema.FieldInfo) *FuzzySet {
+func (DefaultBloomFilterFactory) GetSetForField(state *index.SegmentWriteState, info *spi.FieldInfo) *FuzzySet {
 	return CreateOptimalSet(state.SegmentInfo.MaxDoc(), 0.1023)
 }
 
-func (DefaultBloomFilterFactory) IsSaturated(bloomFilter *FuzzySet, fieldInfo *schema.FieldInfo) bool {
+func (DefaultBloomFilterFactory) IsSaturated(bloomFilter *FuzzySet, fieldInfo *spi.FieldInfo) bool {
 	return bloomFilter.GetSaturation() > 0.9
 }
 
 // Downsize is a default implementation provided by the factory.
-func Downsize(fieldInfo *schema.FieldInfo, initialSet *FuzzySet) *FuzzySet {
+func Downsize(fieldInfo *spi.FieldInfo, initialSet *FuzzySet) *FuzzySet {
 	return initialSet.Downsize(initialSet.GetTargetMaxSaturation())
 }
 

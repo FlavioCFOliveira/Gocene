@@ -7,7 +7,7 @@ package document
 import "fmt"
 
 // InvertableType describes how an IndexableField is processed when inverted
-// (indexed). This is the Go port of Lucene 10.4.0's
+// (indexed). This is the Go port of Lucene 10.5.0's
 // org.apache.lucene.document.InvertableType.
 //
 // Implemented as a typed int constant set rather than a Java enum; each value

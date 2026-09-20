@@ -15,9 +15,9 @@ package knn
 
 import (
 	"fmt"
-	"math"
-
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
+	"math"
 )
 
 // defaultMultiLeafGreediness is the default greediness of globally
@@ -31,12 +31,12 @@ const defaultMultiLeafGreediness float32 = 0.9
 const defaultMultiLeafInterval = 0xff
 
 // AbstractCollector is the structural interface a [MultiLeafKnnCollector]
-// sub-collector must satisfy: the regular [hnsw.KnnCollector] surface
+// sub-collector must satisfy: the regular [spi.KnnCollector] surface
 // plus NumCollected, which the Java reference reads from
 // AbstractKnnCollector. The bundled [hnsw.TopKnnCollector] already
 // satisfies this interface.
 type AbstractCollector interface {
-	hnsw.KnnCollector
+	spi.KnnCollector
 
 	// NumCollected returns the number of (docID, score) pairs the
 	// collector has retained so far. Mirrors
@@ -44,7 +44,7 @@ type AbstractCollector interface {
 	NumCollected() int
 }
 
-// MultiLeafKnnCollector is a [hnsw.KnnCollector] that exchanges the
+// MultiLeafKnnCollector is a [spi.KnnCollector] that exchanges the
 // top collected results across segments through a shared global
 // queue. It is the Go port of
 // org.apache.lucene.search.knn.MultiLeafKnnCollector (Lucene 10.4.0).
@@ -219,4 +219,4 @@ func (c *MultiLeafKnnCollector) String() string {
 }
 
 // Compile-time guard.
-var _ hnsw.KnnCollector = (*MultiLeafKnnCollector)(nil)
+var _ spi.KnnCollector = (*MultiLeafKnnCollector)(nil)

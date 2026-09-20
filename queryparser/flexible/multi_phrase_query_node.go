@@ -5,7 +5,6 @@
 package flexible
 
 import (
-	"fmt"
 	"strings"
 )
 

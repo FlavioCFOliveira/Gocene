@@ -7,8 +7,12 @@ package index
 import (
 	"bytes"
 	"fmt"
+	"sort"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // buildDocMaps computes, for every sub-reader, the mapping from its local
@@ -100,10 +104,23 @@ func (m sliceDocMap) Get(oldDocID int) int {
 	return m[oldDocID]
 }
 
+// fieldsConsumerMerger is the merge surface of Lucene's abstract class
+// org.apache.lucene.codecs.FieldsConsumer, whose merge(MergeState,
+// NormsProducer) is concrete and therefore inherited by every consumer. The
+// Gocene spi.FieldsConsumer interface declares only the abstract members
+// (write, close); consumers that carry the concrete one embed
+// codecs.FieldsConsumerBase, which cannot be named here because package codecs
+// imports package index. This local interface is how mergeTerms reaches it,
+// exactly as mergeDocValues reaches DocValuesConsumer.merge through
+// docValuesConsumerMerger.
+type fieldsConsumerMerger interface {
+	Merge(mergeState *MergeState, norms spi.NormsProducer) error
+}
+
 // mergeTerms merges the term dictionaries and postings of every indexed field
 // across the source segments into the new segment, remapping each posting's
-// docID through the merge DocMaps. It mirrors the net effect of Lucene's
-// FieldsConsumer.merge(MergeState) (rmp #14/#114).
+// docID through the merge DocMaps. It mirrors SegmentMerger.mergeTerms
+// (SegmentMerger.java:210-227).
 func (sm *SegmentMerger) mergeTerms() error {
 	if sm.codec == nil || sm.codec.PostingsFormat() == nil {
 		return nil
@@ -115,19 +132,58 @@ func (sm *SegmentMerger) mergeTerms() error {
 	}
 
 	state := &SegmentWriteState{
-		Directory:     sm.directory,
-		SegmentInfo:   sm.MergeState.SegmentInfo,
-		FieldInfos:    sm.MergeState.MergeFieldInfos,
+		Directory:      sm.directory,
+		SegmentInfo:    sm.MergeState.SegmentInfo,
+		FieldInfos:     sm.MergeState.MergeFieldInfos,
 		SegmentSuffix:  "",
-			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
-			IsMerge:        true,
+		NeedsIndexSort: sm.MergeState.NeedsIndexSort,
+		IsMerge:        true,
 	}
+
+	// Java: try (NormsProducer norms = mergeState.mergeFieldInfos.hasNorms()
+	// ? codec.normsFormat().normsProducer(segmentReadState) : null)
+	// (SegmentMerger.java:213-216). The SegmentReadState reads back the norms
+	// this same merge has just written (mergeNorms runs first, both here and
+	// in SegmentMerger.merge), so the postings writer sees the merged
+	// segment's norms.
+	var normsMergeInstance spi.NormsProducer
+	if sm.MergeState.MergeFieldInfos.HasNorms() && sm.codec.NormsFormat() != nil {
+		readState := NewSegmentReadStateWithSuffix(
+			sm.directory,
+			sm.MergeState.SegmentInfo,
+			sm.MergeState.MergeFieldInfos,
+			store.IOContextDefault,
+			state.SegmentSuffix,
+		)
+		norms, err := sm.codec.NormsFormat().NormsProducer(readState)
+		if err != nil {
+			return fmt.Errorf("index: merge postings: open norms producer: %w", err)
+		}
+		if norms != nil {
+			defer norms.Close()
+			// Use the merge instance in order to reuse the same IndexInput
+			// for all terms (SegmentMerger.java:219-221).
+			normsMergeInstance = norms.GetMergeInstance()
+		}
+	}
+
 	consumer, err := sm.codec.PostingsFormat().FieldsConsumer(state)
 	if err != nil {
 		return fmt.Errorf("index: merge postings: open consumer: %w", err)
 	}
 	defer consumer.Close()
 
+	// Java: consumer.merge(mergeState, normsMergeInstance)
+	// (SegmentMerger.java:224). Consumers that carry the concrete
+	// FieldsConsumer.merge — either inherited from codecs.FieldsConsumerBase
+	// or overridden, as STUniformSplitTermsWriter does — are driven through
+	// it. The block below is the stand-in for the same default body, kept for
+	// the consumers that do not yet carry it.
+	if merger, ok := consumer.(fieldsConsumerMerger); ok {
+		return merger.Merge(sm.MergeState, normsMergeInstance)
+	}
+
+	merged := &mergedPostingsFields{byField: make(map[string]*mergeFieldTerms)}
 	iter := sm.MergeState.MergeFieldInfos.Iterator()
 	for iter.HasNext() {
 		info := iter.Next()
@@ -155,17 +211,66 @@ func (sm *SegmentMerger) mergeTerms() error {
 		if len(subs) == 0 {
 			continue
 		}
-		merged := &mergeFieldTerms{subs: subs, docMaps: subMaps, fieldInfo: info}
-		if err := consumer.Write(field, merged); err != nil {
-			return fmt.Errorf("index: merge postings: write field %q: %w", field, err)
-		}
+		merged.names = append(merged.names, field)
+		merged.byField[field] = &mergeFieldTerms{subs: subs, docMaps: subMaps, fieldInfo: info}
+	}
+	if len(merged.names) == 0 {
+		return nil
+	}
+	// MultiFields exposes the merged field names in ascending order (each sub
+	// Fields is sorted and MergedIterator preserves that), which is the order
+	// the block-tree writer asserts on.
+	sort.Strings(merged.names)
+
+	if err := consumer.Write(merged, normsMergeInstance); err != nil {
+		return fmt.Errorf("index: merge postings: write: %w", err)
 	}
 	return nil
 }
 
+// mergedPostingsFields is the Fields view the merge hands to the codec
+// FieldsConsumer: one mergeFieldTerms per indexed field, in ascending field
+// order. It stands in for the MappedMultiFields(MultiFields(...)) that
+// FieldsConsumer.merge builds in Java (FieldsConsumer.java:72-96).
+type mergedPostingsFields struct {
+	names   []string
+	byField map[string]*mergeFieldTerms
+}
+
+func (f *mergedPostingsFields) Iterator() (FieldIterator, error) {
+	return &mergedPostingsFieldIterator{names: f.names}, nil
+}
+
+func (f *mergedPostingsFields) Size() int { return len(f.names) }
+
+func (f *mergedPostingsFields) Terms(field string) (Terms, error) {
+	terms, ok := f.byField[field]
+	if !ok {
+		return nil, nil
+	}
+	return terms, nil
+}
+
+// mergedPostingsFieldIterator walks the merged field names.
+type mergedPostingsFieldIterator struct {
+	names []string
+	pos   int
+}
+
+func (it *mergedPostingsFieldIterator) Next() (string, error) {
+	if it.pos >= len(it.names) {
+		return "", nil
+	}
+	name := it.names[it.pos]
+	it.pos++
+	return name, nil
+}
+
+func (it *mergedPostingsFieldIterator) HasNext() bool { return it.pos < len(it.names) }
+
 // mergeFieldTerms is a Terms view over one field's per-segment Terms whose
 // postings are remapped to the merged doc space. The block-tree terms writer
-// only calls GetIterator and reads the per-field flags from FieldInfo, so the
+// only calls Iterator and reads the per-field flags from FieldInfo, so the
 // statistical accessors return best-effort values.
 type mergeFieldTerms struct {
 	subs      []Terms
@@ -173,11 +278,34 @@ type mergeFieldTerms struct {
 	fieldInfo *FieldInfo
 }
 
-func (t *mergeFieldTerms) GetIterator() (TermsEnum, error) {
+// Field returns the name of the field this Terms view covers.
+func (t *mergeFieldTerms) Field() string { return t.fieldInfo.Name() }
+
+// Intersect runs the Terms.intersect base implementation: an
+// AutomatonTermsEnum over this Terms' own (merged) iterator, restricted to
+// NORMAL automata. A non-nil startTerm is honoured through
+// FilteredTermsEnum.setInitialSeekTerm, which is where Lucene's anonymous
+// nextSeekTerm override routes it.
+func (t *mergeFieldTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *Term) (TermsEnum, error) {
+	it, err := t.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	if compiled == nil || compiled.Type != automaton.AutomatonTypeNormal {
+		return nil, fmt.Errorf("mergeFieldTerms.Intersect: please use CompiledAutomaton.GetTermsEnum instead")
+	}
+	enum := NewAutomatonTermsEnum(it, compiled)
+	if startTerm != nil {
+		enum.SetInitialSeekTerm(startTerm)
+	}
+	return enum, nil
+}
+
+func (t *mergeFieldTerms) Iterator() (TermsEnum, error) {
 	enums := make([]TermsEnum, len(t.subs))
 	curr := make([]*Term, len(t.subs))
 	for i, s := range t.subs {
-		te, err := s.GetIterator()
+		te, err := s.Iterator()
 		if err != nil {
 			return nil, err
 		}
@@ -187,7 +315,7 @@ func (t *mergeFieldTerms) GetIterator() (TermsEnum, error) {
 }
 
 func (t *mergeFieldTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error) {
-	te, err := t.GetIterator()
+	te, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +328,7 @@ func (t *mergeFieldTerms) GetIteratorWithSeek(seekTerm *Term) (TermsEnum, error)
 }
 
 func (t *mergeFieldTerms) GetPostingsReader(termText string, flags int) (PostingsEnum, error) {
-	te, err := t.GetIterator()
+	te, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +356,7 @@ func (t *mergeFieldTerms) HasPositions() bool {
 }
 func (t *mergeFieldTerms) HasPayloads() bool { return t.fieldInfo.HasPayloads() }
 func (t *mergeFieldTerms) GetMin() (*Term, error) {
-	te, err := t.GetIterator()
+	te, err := t.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -246,6 +374,20 @@ type mergeTermsEnum struct {
 	docMaps []DocMap
 	primed  bool
 	current *Term
+	// atts mirrors the private AttributeSource field of
+	// org.apache.lucene.index.BaseTermsEnum: nil until the first
+	// Attributes() call, reused for every call thereafter.
+	atts *util.AttributeSource
+}
+
+// Attributes returns the related attributes, reproducing the body of
+// org.apache.lucene.index.BaseTermsEnum#attributes() in Apache Lucene 10.5.0:
+// the AttributeSource is created on first use and reused thereafter.
+func (e *mergeTermsEnum) Attributes() *util.AttributeSource {
+	if e.atts == nil {
+		e.atts = util.NewAttributeSource()
+	}
+	return e.atts
 }
 
 func (e *mergeTermsEnum) Next() (*Term, error) {
@@ -309,6 +451,56 @@ func (e *mergeTermsEnum) Postings(flags int) (PostingsEnum, error) {
 	return &mergeMappingPostings{parts: parts, idx: -1}, nil
 }
 
+// Impacts returns an ImpactsEnum with no skip data over the merged postings,
+// mirroring MultiTermsEnum.impacts: implemented so CheckIndex passes, but the
+// impacts carry no skip information (freq=MaxInt32, norm=1) so that no
+// impact-based early termination fires on a merge-time terms enum.
+func (e *mergeTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	pe, err := e.Postings(flags)
+	if err != nil {
+		return nil, err
+	}
+	if pe == nil {
+		return nil, nil
+	}
+	return spiImpactsEnum{ImpactsEnum: NewSlowImpactsEnum(pe)}, nil
+}
+
+// spiImpactsEnum adapts an index-side ImpactsEnum to spi.ImpactsEnum.
+//
+// PORT NOTE: package index still declares its own Impacts, ImpactsEnum and
+// FreqAndNormBuffer (index/impacts.go, index/impacts_enum.go,
+// index/freq_and_norm_buffer.go) alongside the SPI/util declarations they
+// were lifted to. The two ImpactsSource surfaces therefore differ only in the
+// buffer type they name, even though the buffer structs are identical. This
+// adapter bridges the two without copying; it becomes redundant — and should
+// be removed — once those three declarations are turned into aliases of
+// spi.Impacts, spi.ImpactsEnum and util.FreqAndNormBuffer.
+type spiImpactsEnum struct {
+	ImpactsEnum
+}
+
+// GetImpacts re-types the index-side Impacts as spi.Impacts.
+func (a spiImpactsEnum) GetImpacts() (spi.Impacts, error) {
+	imp, err := a.ImpactsEnum.GetImpacts()
+	if err != nil || imp == nil {
+		return nil, err
+	}
+	return spiImpacts{Impacts: imp}, nil
+}
+
+// spiImpacts adapts an index-side Impacts to spi.Impacts. See spiImpactsEnum.
+type spiImpacts struct {
+	Impacts
+}
+
+// GetImpacts re-types the index-side FreqAndNormBuffer as the util one. The
+// two structs have identical underlying types, so the pointer conversion is
+// exact and allocation-free.
+func (a spiImpacts) GetImpacts(level int) *util.FreqAndNormBuffer {
+	return (*util.FreqAndNormBuffer)(a.Impacts.GetImpacts(level))
+}
+
 func (e *mergeTermsEnum) PostingsWithLiveDocs(_ util.Bits, flags int) (PostingsEnum, error) {
 	// Source readers already exclude deleted docs via the DocMaps (deleted ->
 	// -1), so live-docs filtering is folded into the mapping.
@@ -350,6 +542,10 @@ func (e *mergeTermsEnum) SeekExact(target *Term) (bool, error) {
 }
 
 func (e *mergeTermsEnum) Term() *Term { return e.current }
+
+// Ord returns -1: a merge-time terms enum exposes no term ordinals, which is
+// how Lucene's MultiTermsEnum behaves (it leaves TermsEnum.ord unsupported).
+func (e *mergeTermsEnum) Ord() int64 { return -1 }
 
 func (e *mergeTermsEnum) DocFreq() (int, error) {
 	if e.current == nil {
@@ -448,6 +644,10 @@ func (p *mergeMappingPostings) Advance(target int) (int, error) {
 
 func (p *mergeMappingPostings) DocID() int { return p.doc }
 
+// DocIDRunEnd assumes runs of a single doc ID and returns DocID()+1, the
+// default of org.apache.lucene.search.DocIdSetIterator.docIDRunEnd.
+func (p *mergeMappingPostings) DocIDRunEnd() (int, error) { return p.doc + 1, nil }
+
 func (p *mergeMappingPostings) current() PostingsEnum {
 	if p.idx < 0 || p.idx >= len(p.parts) {
 		return nil
@@ -508,4 +708,11 @@ func termBytesOf(t *Term) []byte {
 		return bv.ValidBytes()
 	}
 	return []byte(t.Text())
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (p *mergeMappingPostings) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
 }

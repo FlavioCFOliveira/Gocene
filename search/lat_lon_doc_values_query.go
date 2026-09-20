@@ -5,6 +5,9 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+
 	"errors"
 	"fmt"
 	"strings"
@@ -157,7 +160,7 @@ func (q *latLonDocValuesQuery) String(field string) string {
 
 // Equals mirrors LatLonDocValuesQuery.equals: same class, same field,
 // same relation, element-wise equal geometry slice.
-func (q *latLonDocValuesQuery) Equals(other Query) bool {
+func (q *latLonDocValuesQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*latLonDocValuesQuery)
 	if !ok {
 		return false
@@ -225,19 +228,13 @@ func (q *latLonDocValuesQuery) GetGeometries() []geo.LatLonGeometry {
 	return out
 }
 
-// Clone returns the query itself. The struct is logically immutable
-// (geometries are captured by reference and the contract documents
-// that callers must not mutate them), so a shallow clone preserves
-// query identity and equals semantics.
-func (q *latLonDocValuesQuery) Clone() Query { return q }
-
 // Rewrite returns the query unchanged (it has no rewrite rules in the
 // Java reference). The explicit override is required because the type
 // embeds *BaseQuery: relying on the promoted BaseQuery.Rewrite would
 // return the inner *BaseQuery receiver, erasing this query's
 // CreateWeight override so the rewritten query would silently match
 // zero documents.
-func (q *latLonDocValuesQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
+func (q *latLonDocValuesQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // CreateWeight builds a [ConstantScoreWeight] that resolves the
 // per-leaf [index.SortedNumericDocValues] iterator and wraps a
@@ -248,9 +245,9 @@ func (q *latLonDocValuesQuery) Rewrite(_ IndexReader) (Query, error) { return q,
 // signature uses a needsScores bool, so the supplier infers the mode
 // (true => COMPLETE, false => COMPLETE_NO_SCORES) and propagates it
 // to the ConstantScoreScorer.
-func (q *latLonDocValuesQuery) CreateWeight(_ *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *latLonDocValuesQuery) CreateWeight(_ *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	mode := COMPLETE_NO_SCORES
-	if needsScores {
+	if scoreMode.NeedsScores() {
 		mode = COMPLETE
 	}
 	// Pre-compute the predicate once. CONTAINS does not use the
@@ -313,15 +310,19 @@ func (q *latLonDocValuesQuery) CreateWeight(_ *IndexSearcher, needsScores bool, 
 				"search: LatLonDocValuesQuery invalid query relationship: [%s]",
 				q.queryRelation)
 		}
-		tpi := NewTwoPhaseIterator(approx, func() (bool, error) {
+		// Mirrors the anonymous TwoPhaseIterators of
+		// LatLonDocValuesQuery.intersects/within/disjoint/contains
+		// (Lucene 10.5.0, LatLonDocValuesQuery.java:189, 212, 235 and 267):
+		// every relation returns `1000f; // TODO: what should it be?`.
+		tpi := NewTwoPhaseIteratorWithMatchCost(approx, func() (bool, error) {
 			return matchFn(approx.DocID())
-		})
+		}, 1000)
 		return NewConstantScoreScorerSupplier(
 			boost,
 			mode,
 			approx.Cost(),
 			func(_ int64) (DocIdSetIterator, error) {
-				return tpi.AsDocIdSetIterator(), nil
+				return AsDocIdSetIterator(tpi), nil
 			},
 		), nil
 	}
@@ -571,12 +572,18 @@ func (s *sortedNumericApproximation) Cost() int64 { return s.cost }
 // DocIdSetIterator default contract (no consecutive-run optimisation
 // because doc-values iterators are sparse and unordered with respect
 // to runs).
-func (s *sortedNumericApproximation) DocIDRunEnd() int {
+func (s *sortedNumericApproximation) DocIDRunEnd() (int, error) {
 	if s.docID < 0 || s.docID == NO_MORE_DOCS {
-		return s.docID
+		return s.docID, nil
 	}
-	return s.docID + 1
+	return s.docID + 1, nil
 }
 
 // Ensure sortedNumericApproximation satisfies DocIdSetIterator.
 var _ DocIdSetIterator = (*sortedNumericApproximation)(nil)
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (s *sortedNumericApproximation) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

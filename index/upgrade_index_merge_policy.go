@@ -52,9 +52,20 @@ func (p *UpgradeIndexMergePolicy) shouldUpgradeSegment(sci *SegmentCommitInfo) b
 
 // FindMerges delegates to the wrapped policy for background merges.
 // Mirrors UpgradeIndexMergePolicy.findMerges which calls
-// in.findMerges(null, segmentInfos, mergeContext).
+// in.findMerges(null, segmentInfos, mergeContext) — the incoming trigger is
+// deliberately discarded.
+//
+// PORT NOTE: Java passes a null MergeTrigger. Gocene's MergeTrigger is a
+// non-nullable int enum, so the zero value (MergeTriggerSegmentFlush) stands
+// in for "unspecified". No shipped MergePolicy consults the trigger in
+// FindMerges, so the substitution is behaviourally equivalent.
 func (p *UpgradeIndexMergePolicy) FindMerges(trigger MergeTrigger, infos *SegmentInfos, mc MergeContext) (*MergeSpecification, error) {
-	return p.delegate.FindMerges(SEGMENT_FLUSH, infos, mc)
+	return p.delegate.FindMerges(MergeTriggerSegmentFlush, infos, mc)
+}
+
+// FindFullFlushMerges delegates to the wrapped policy.
+func (p *UpgradeIndexMergePolicy) FindFullFlushMerges(trigger MergeTrigger, infos *SegmentInfos, mc MergeContext) (*MergeSpecification, error) {
+	return p.delegate.FindFullFlushMerges(trigger, infos, mc)
 }
 
 // FindForcedMerges implements the upgrade logic: only segments that need
@@ -121,8 +132,8 @@ func (p *UpgradeIndexMergePolicy) FindForcedDeletesMerges(
 }
 
 // UseCompoundFile delegates to the wrapped policy.
-func (p *UpgradeIndexMergePolicy) UseCompoundFile(infos *SegmentInfos, mergedSegmentInfo *SegmentInfo) bool {
-	return p.delegate.UseCompoundFile(infos, mergedSegmentInfo)
+func (p *UpgradeIndexMergePolicy) UseCompoundFile(infos *SegmentInfos, mergedInfo *SegmentCommitInfo, mergeContext MergeContext) (bool, error) {
+	return p.delegate.UseCompoundFile(infos, mergedInfo, mergeContext)
 }
 
 // GetMaxMergeDocs delegates to the wrapped policy.

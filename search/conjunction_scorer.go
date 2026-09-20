@@ -4,117 +4,146 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// ConjunctionScorer is a scorer that matches documents that match all of its required clauses.
+// ConjunctionScorer is the Scorer for conjunctions, sets of queries, all of
+// which are required.
+//
+// Mirrors org.apache.lucene.search.ConjunctionScorer (Lucene 10.5.0,
+// lucene/core/src/java/org/apache/lucene/search/ConjunctionScorer.java).
 type ConjunctionScorer struct {
-	scorers     []Scorer
-	scoringOnly []Scorer
+	BaseScorer
+	disi     DocIdSetIterator
+	scorers  []Scorer
+	required []Scorer
 }
 
-func NewConjunctionScorer(allScorers []Scorer, scoringScorers []Scorer) *ConjunctionScorer {
+// NewConjunctionScorer creates a new ConjunctionScorer; scorers must be a
+// subset of required.
+//
+// Mirrors ConjunctionScorer(Collection<Scorer> required, Collection<Scorer> scorers):
+//
+//	this.disi = ConjunctionUtils.intersectScorers(required);
+//	this.scorers = scorers.toArray(Scorer[]::new);
+//	this.required = required;
+func NewConjunctionScorer(required []Scorer, scorers []Scorer) *ConjunctionScorer {
 	return &ConjunctionScorer{
-		scorers:     allScorers,
-		scoringOnly: scoringScorers,
+		disi:     IntersectScorers(required),
+		scorers:  scorers,
+		required: required,
 	}
 }
 
-func (s *ConjunctionScorer) NextDoc() (int, error) {
-	if len(s.scorers) == 0 {
-		return NO_MORE_DOCS, nil
-	}
-
-	// Start with the first scorer
-	doc, err := s.scorers[0].NextDoc()
-	if err != nil {
-		return NO_MORE_DOCS, err
-	}
-
-	for doc != NO_MORE_DOCS {
-		matched := true
-		for i := 1; i < len(s.scorers); i++ {
-			advanced, err := s.scorers[i].Advance(doc)
-			if err != nil {
-				return NO_MORE_DOCS, err
-			}
-			if advanced != doc {
-				doc = advanced
-				// Reset first scorer to this new doc
-				doc, err = s.scorers[0].Advance(doc)
-				if err != nil {
-					return NO_MORE_DOCS, err
-				}
-				matched = false
-				break
-			}
-		}
-		if matched {
-			return doc, nil
-		}
-		if doc == NO_MORE_DOCS {
-			break
-		}
-	}
-
-	return NO_MORE_DOCS, nil
+// TwoPhaseIterator mirrors ConjunctionScorer.twoPhaseIterator(), whose body is
+// `return TwoPhaseIterator.unwrap(disi);`.
+func (s *ConjunctionScorer) TwoPhaseIterator() *TwoPhaseIterator {
+	return Unwrap(s.disi)
 }
 
-func (s *ConjunctionScorer) Score() float32 {
-	var total float32
-	for _, sc := range s.scoringOnly {
-		total += sc.Score()
-	}
-	return total
-}
-
-func (s *ConjunctionScorer) DocID() int {
-	if len(s.scorers) == 0 {
-		return -1
-	}
-	return s.scorers[0].DocID()
-}
-
+// Iterator mirrors ConjunctionScorer.iterator(), whose body is `return disi;`.
 func (s *ConjunctionScorer) Iterator() DocIdSetIterator {
-	if len(s.scorers) == 0 {
-		return nil
-	}
-	// Lucene's ConjunctionScorer returns a specialized iterator.
-	// For now, we return the first one as a placeholder.
-	return s.scorers[0].Iterator()
+	return s.disi
 }
 
-func (s *ConjunctionScorer) Advance(target int) (int, error) {
-	if len(s.scorers) == 0 {
-		return NO_MORE_DOCS, nil
-	}
+// DocID mirrors ConjunctionScorer.docID(), whose body is `return disi.docID();`.
+func (s *ConjunctionScorer) DocID() int {
+	return s.disi.DocID()
+}
 
-	doc, err := s.scorers[0].Advance(target)
-	if err != nil {
-		return NO_MORE_DOCS, err
+// Score mirrors ConjunctionScorer.score():
+//
+//	double sum = 0.0d;
+//	for (Scorer scorer : scorers) {
+//	  sum += scorer.score();
+//	}
+//	return (float) sum;
+func (s *ConjunctionScorer) Score() (float32, error) {
+	var sum float64
+	for _, scorer := range s.scorers {
+		v, err := scorer.Score()
+		if err != nil {
+			return 0, err
+		}
+		sum += float64(v)
 	}
+	return float32(sum), nil
+}
 
-	for doc != NO_MORE_DOCS {
-		matched := true
-		for i := 1; i < len(s.scorers); i++ {
-			advanced, err := s.scorers[i].Advance(doc)
+// GetMaxScore mirrors ConjunctionScorer.getMaxScore(int):
+//
+//	double maxScore = 0;
+//	for (Scorer s : scorers) {
+//	  if (s.docID() <= upTo) {
+//	    maxScore += s.getMaxScore(upTo);
+//	  }
+//	}
+//	return (float) maxScore;
+func (s *ConjunctionScorer) GetMaxScore(upTo int) (float32, error) {
+	var maxScore float64
+	for _, scorer := range s.scorers {
+		if scorer.DocID() <= upTo {
+			m, err := scorer.GetMaxScore(upTo)
 			if err != nil {
-				return NO_MORE_DOCS, err
+				return 0, err
 			}
-			if advanced != doc {
-				doc = advanced
-				doc, err = s.scorers[0].Advance(doc)
-				if err != nil {
-					return NO_MORE_DOCS, err
-				}
-				matched = false
-				break
-			}
-		}
-		if matched {
-			return doc, nil
-		}
-		if doc == NO_MORE_DOCS {
-			break
+			maxScore += float64(m)
 		}
 	}
-
-	return NO_MORE_DOCS, nil
+	return float32(maxScore), nil
 }
+
+// AdvanceShallow mirrors ConjunctionScorer.advanceShallow(int):
+//
+//	if (scorers.length == 1) {
+//	  return scorers[0].advanceShallow(target);
+//	}
+//	for (Scorer scorer : scorers) {
+//	  scorer.advanceShallow(target);
+//	}
+//	return super.advanceShallow(target);
+func (s *ConjunctionScorer) AdvanceShallow(target int) (int, error) {
+	if len(s.scorers) == 1 {
+		return s.scorers[0].AdvanceShallow(target)
+	}
+	for _, scorer := range s.scorers {
+		if _, err := scorer.AdvanceShallow(target); err != nil {
+			return 0, err
+		}
+	}
+	return s.BaseScorer.AdvanceShallow(target)
+}
+
+// SetMinCompetitiveScore mirrors ConjunctionScorer.setMinCompetitiveScore(float):
+//
+//	// This scorer is only used for TOP_SCORES when there is a single scoring clause
+//	if (scorers.length == 1) {
+//	  scorers[0].setMinCompetitiveScore(minScore);
+//	}
+func (s *ConjunctionScorer) SetMinCompetitiveScore(minScore float32) error {
+	if len(s.scorers) == 1 {
+		return s.scorers[0].SetMinCompetitiveScore(minScore)
+	}
+	return nil
+}
+
+// GetChildren mirrors ConjunctionScorer.getChildren():
+//
+//	ArrayList<ChildScorable> children = new ArrayList<>();
+//	for (Scorer scorer : required) {
+//	  children.add(new ChildScorable(scorer, "MUST"));
+//	}
+//	return children;
+func (s *ConjunctionScorer) GetChildren() ([]ChildScorable, error) {
+	children := make([]ChildScorable, 0, len(s.required))
+	for _, scorer := range s.required {
+		children = append(children, ChildScorable{Child: scorer, Relationship: "MUST"})
+	}
+	return children, nil
+}
+
+// NextDocsAndScores mirrors the concrete body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) in Apache
+// Lucene 10.5.0, which ConjunctionScorer inherits unchanged.
+func (s *ConjunctionScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+var _ Scorer = (*ConjunctionScorer)(nil)

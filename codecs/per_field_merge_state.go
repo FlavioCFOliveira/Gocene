@@ -77,6 +77,15 @@ func RestrictFields(
 		LiveDocs:        in.LiveDocs,
 		Directory:       in.Directory,
 		NeedsIndexSort:  in.NeedsIndexSort,
+		// Java passes in.docValuesProducers through unchanged
+		// (PerFieldMergeState.java:63).
+		DocValuesProducers: in.DocValuesProducers,
+		// Java stores the restricted (FilterFieldsProducer-wrapped) array in
+		// the returned MergeState (PerFieldMergeState.java:48-54, 66).
+		FieldsProducers: restrictedProducers,
+		// Java passes in.knnVectorsReaders through unchanged
+		// (PerFieldMergeState.java:68).
+		KnnVectorsReaders: in.KnnVectorsReaders,
 	}
 	return out, restrictedProducers, nil
 }
@@ -168,8 +177,35 @@ func (f *filterFieldsProducer) Terms(field string) (index.Terms, error) {
 	return f.inner.Terms(field)
 }
 
+// Iterator returns the filtered field names. Mirrors
+// PerFieldMergeState.FilterFieldsProducer.iterator().
+func (f *filterFieldsProducer) Iterator() (index.FieldIterator, error) {
+	return index.NewMemoryFieldIterator(f.allow.ordered), nil
+}
+
+// Size returns the number of filtered fields. Mirrors
+// PerFieldMergeState.FilterFieldsProducer.size().
+func (f *filterFieldsProducer) Size() int {
+	return len(f.allow.ordered)
+}
+
+// GetMergeInstance returns the receiver: FilterFieldsProducer does not override
+// FieldsProducer.getMergeInstance(), whose default returns this.
+func (f *filterFieldsProducer) GetMergeInstance() FieldsProducer {
+	return f
+}
+
 // Close releases the wrapped producer. The filter holds no resources of
 // its own beyond the allow set.
 func (f *filterFieldsProducer) Close() error {
 	return f.inner.Close()
+}
+
+// CheckIntegrity delegates to the wrapped FieldsProducer.
+//
+// Port of
+// org.apache.lucene.codecs.perfield.PerFieldMergeState.FilterFieldsProducer#checkIntegrity
+// (Lucene 10.5.0): in.checkIntegrity().
+func (f *filterFieldsProducer) CheckIntegrity() error {
+	return f.inner.CheckIntegrity()
 }

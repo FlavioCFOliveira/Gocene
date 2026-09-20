@@ -84,8 +84,8 @@ func (v *capturingVisitor) VisitByPackedValue(docID int, packedValue []byte) err
 	v.pairs = append(v.pairs, capturedPair{docID: docID, packed: cp})
 	return nil
 }
-func (v *capturingVisitor) Compare(_, _ []byte) BufferedPointRelation {
-	return BufferedPointCellInsideQuery
+func (v *capturingVisitor) Compare(_, _ []byte) Relation {
+	return CellInsideQuery
 }
 func (v *capturingVisitor) Grow(int) {}
 

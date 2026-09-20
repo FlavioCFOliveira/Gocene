@@ -48,10 +48,6 @@ func (c *minimalTestCodec) FieldInfosFormat() FieldInfosFormat {
 	return c.wrapped.FieldInfosFormat()
 }
 
-func (c *minimalTestCodec) SegmentInfosFormat() SegmentInfosFormat {
-	return c.wrapped.SegmentInfosFormat()
-}
-
 func (c *minimalTestCodec) StoredFieldsFormat() StoredFieldsFormat {
 	// TODO: avoid calling this when no stored fields are written or read
 	return c.wrapped.StoredFieldsFormat()
@@ -114,9 +110,6 @@ func runMinimalCodecTest(t *testing.T, useCompoundFile bool) {
 	// therefore return non-nil values.
 	if codec.FieldInfosFormat() == nil {
 		t.Fatalf("FieldInfosFormat() returned nil; expected delegated value")
-	}
-	if codec.SegmentInfosFormat() == nil {
-		t.Fatalf("SegmentInfosFormat() returned nil; expected delegated value")
 	}
 	if codec.StoredFieldsFormat() == nil {
 		t.Fatalf("StoredFieldsFormat() returned nil; expected delegated value")

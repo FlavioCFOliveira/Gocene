@@ -22,8 +22,8 @@ func TestCompletionAnalyzer(t *testing.T) {
 
 func TestSuggestField(t *testing.T) {
 	field := NewSuggestField("name", "suggestion", 4)
-	if field.Type() != TYPE {
-		t.Errorf("Expected type %v, got %v", TYPE, field.Type())
+	if field.Type() != SuggestFieldTYPE {
+		t.Errorf("Expected type %v, got %v", SuggestFieldTYPE, field.Type())
 	}
 
 	payload := field.buildSuggestPayload()

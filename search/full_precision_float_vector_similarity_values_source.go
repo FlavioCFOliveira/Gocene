@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // FullPrecisionFloatVectorSimilarityValuesSource provides double values that compute vector
@@ -59,8 +60,11 @@ func (s *FullPrecisionFloatVectorSimilarityValuesSource) GetValues(ctx *index.Le
 		return nil, fmt.Errorf("leaf reader must not be nil")
 	}
 
-	vectorValues := reader.GetFloatVectorValues(s.fieldName)
-	if vectorValues == nil {
+	rawVectorValues, err := reader.GetFloatVectorValues(s.fieldName)
+	if err != nil {
+		return nil, err
+	}
+	if rawVectorValues == nil {
 		// Lucene calls FloatVectorValues.checkField(ctx.reader(), fieldName)
 		// which throws if the field doesn't exist as a vector field.
 		// In Gocene, we follow this by checking field info.
@@ -82,10 +86,32 @@ func (s *FullPrecisionFloatVectorSimilarityValuesSource) GetValues(ctx *index.Le
 			}())
 	}
 
+	// Java's LeafReader.getFloatVectorValues returns the full
+	// org.apache.lucene.index.FloatVectorValues, which carries rescorer(),
+	// iterator() and vectorValue(ord). Gocene splits that contract in two:
+	// spi.FloatVectorValues (what LeafReader returns) is a narrow doc-walking
+	// surface, while index.FloatVectorValues carries the KnnVectorValues
+	// members this method needs. The reader's concrete values are recovered
+	// with a narrow assertion until the two contracts are reconciled.
+	vectorValues, ok := rawVectorValues.(index.FloatVectorValues)
+	if !ok {
+		return nil, fmt.Errorf(
+			"field %q: float vector values do not expose the KnnVectorValues surface (%T)",
+			s.fieldName, rawVectorValues)
+	}
+
 	if s.vectorSimilarityFunction == nil {
-		scorer := vectorValues.Rescorer(s.queryVector)
-		if scorer == nil {
+		rescorer, err := vectorValues.Rescorer(s.queryVector)
+		if err != nil {
+			return nil, err
+		}
+		if rescorer == nil {
 			return nil, nil // Corresponds to DoubleValues.EMPTY
+		}
+		scorer, ok := rescorer.(VectorScorer)
+		if !ok {
+			return nil, fmt.Errorf(
+				"field %q: rescorer is not a VectorScorer (%T)", s.fieldName, rescorer)
 		}
 		return &floatVectorSimilarityValues{
 			scorer:   scorer,
@@ -100,6 +126,15 @@ func (s *FullPrecisionFloatVectorSimilarityValuesSource) GetValues(ctx *index.Le
 		simFunc:          s.vectorSimilarityFunction,
 		queryVector:      s.queryVector,
 	}, nil
+}
+
+// Field returns the name of the KnnFloatVectorField this source reads.
+//
+// Apache Lucene 10.5.0 declares no field() on DoubleValuesSource; the accessor
+// exists because Gocene's search.DoubleValuesSource carries one, and it returns
+// the fieldName the Java class holds privately.
+func (s *FullPrecisionFloatVectorSimilarityValuesSource) Field() string {
+	return s.fieldName
 }
 
 // NeedsScores reports whether the source consumes the underlying query's scores.
@@ -123,7 +158,7 @@ type floatVectorSimilarityValues struct {
 	iterator DocIdSetIterator
 
 	vectorValues     index.FloatVectorValues
-	docIndexIterator util.DocIndexIterator
+	docIndexIterator spi.DocIndexIterator
 	simFunc          index.VectorSimilarityFunction
 	queryVector      []float32
 }
@@ -135,7 +170,11 @@ func (v *floatVectorSimilarityValues) DoubleValue() (float64, error) {
 		return float64(score), err
 	}
 	if v.vectorValues != nil && v.docIndexIterator != nil {
-		score := v.simFunc.Compare(v.queryVector, v.vectorValues.VectorValue(v.docIndexIterator.Index()))
+		vector, err := v.vectorValues.VectorValue(v.docIndexIterator.Index())
+		if err != nil {
+			return 0, err
+		}
+		score := v.simFunc.CompareFloat(v.queryVector, vector)
 		return float64(score), nil
 	}
 	return 0, fmt.Errorf("invalid state: neither scorer nor vector values provided")

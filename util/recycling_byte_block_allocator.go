@@ -120,6 +120,15 @@ func (r *RecyclingByteBlockAllocator) MaxBufferedBlocks() int { return r.maxBuff
 // BlockSize returns the per-block byte count this allocator hands out.
 func (r *RecyclingByteBlockAllocator) BlockSize() int { return r.blockSize }
 
+// GetBlockSize returns the size of the blocks allocated by this allocator.
+//
+// It renders `public int getBlockSize()`, which
+// org.apache.lucene.util.RecyclingByteBlockAllocator inherits from the
+// abstract org.apache.lucene.util.ByteBlockPool.Allocator; it is the member
+// that makes this allocator satisfy [Allocator], exactly as the Java subclass
+// satisfies its Java base class.
+func (r *RecyclingByteBlockAllocator) GetBlockSize() int { return r.blockSize }
+
 // FreeBlocks drops up to num recycled blocks. Returns the count actually
 // freed. Each freed block subtracts blockSize bytes from the running total.
 func (r *RecyclingByteBlockAllocator) FreeBlocks(num int) int {

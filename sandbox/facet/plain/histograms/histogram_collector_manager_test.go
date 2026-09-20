@@ -8,6 +8,7 @@
 package histograms
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/internal/hppc"
@@ -270,4 +271,11 @@ func (s *stubNumericDV) LongValues(n int, docBuffer []int, dst []int64, missing 
 		}
 	}
 	return nil
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *stubNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

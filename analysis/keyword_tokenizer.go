@@ -4,8 +4,6 @@
 
 package analysis
 
-	
-
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
@@ -71,30 +69,25 @@ func newKeywordTokenizer(factory util.AttributeFactory) *KeywordTokenizer {
 			BaseTokenizer: NewBaseTokenizerWithFactory(factory),
 			done:          false,
 		}
-		t.termAttr = factory.CreateAttributeInstance(CharTermAttributeType).(CharTermAttribute)
+		t.termAttr = t.AddAttribute(CharTermAttributeType).(CharTermAttribute)
 	} else {
 		t = &KeywordTokenizer{
 			BaseTokenizer: NewBaseTokenizer(),
 			done:          false,
 		}
-		t.termAttr = NewCharTermAttribute()
+		t.termAttr = t.AddAttribute(CharTermAttributeType).(CharTermAttribute)
 	}
 
-	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
+	t.offsetAttr = t.AddAttribute(OffsetAttributeType).(OffsetAttribute)
+	t.posIncrAttr = t.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 
 	return t
 }
 
 // SetReader sets the input source for this Tokenizer.
-func (t *KeywordTokenizer) SetReader(input io.Reader) error {
+func (t *KeywordTokenizer) SetReader(input io.Reader) {
 	t.BaseTokenizer.SetReader(input)
 	t.done = false
-	return nil
 }
 
 // IncrementToken advances to the next token.

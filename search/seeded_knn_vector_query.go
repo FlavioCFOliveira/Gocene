@@ -4,7 +4,10 @@
 
 package search
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
 
 // SeededKnnVectorQuery seeds an HNSW-driven KNN search with an initial set of
 // candidate ordinals coming from a seed query.
@@ -44,7 +47,7 @@ func (q *SeededKnnVectorQuery) String() string {
 }
 
 // Equals checks structural equality.
-func (q *SeededKnnVectorQuery) Equals(other Query) bool {
+func (q *SeededKnnVectorQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*SeededKnnVectorQuery)
 	if !ok {
 		return false
@@ -64,13 +67,6 @@ func (q *SeededKnnVectorQuery) HashCode() int {
 	return h
 }
 
-// Clone returns an independent copy.
-func (q *SeededKnnVectorQuery) Clone() Query {
-	return &SeededKnnVectorQuery{
-		field: q.field, inner: q.inner.Clone(), seed: q.seed.Clone(), maxK: q.maxK,
-	}
-}
-
 // Rewrite delegates to the inner KNN query's rewrite, which runs the full
 // AbstractKnnVectorQuery search algorithm across all segments and returns a
 // DocAndScoreQuery (or MatchNoDocsQuery).
@@ -83,12 +79,19 @@ func (q *SeededKnnVectorQuery) Clone() Query {
 // when the seed query matches no documents. Without this override the embedded
 // BaseQuery.Rewrite would return the bare BaseQuery receiver, erasing the KNN
 // algorithm and silently matching zero documents.
-func (q *SeededKnnVectorQuery) Rewrite(reader IndexReader) (Query, error) {
-	return q.inner.Rewrite(reader)
+func (q *SeededKnnVectorQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
+	return q.inner.Rewrite(searcher)
 }
 
 // CreateWeight delegates to the inner KNN query. The seed wiring is applied at
 // scorer-construction time by the strategy carried by KnnSearchStrategy.
-func (q *SeededKnnVectorQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	return q.inner.CreateWeight(searcher, needsScores, boost)
+func (q *SeededKnnVectorQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	return q.inner.CreateWeight(searcher, scoreMode, boost)
+}
+
+// Visit mirrors SeededKnnVectorQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (SeededKnnVectorQuery.java). inner is this port's spelling of Java's
+// delegate field.
+func (q *SeededKnnVectorQuery) Visit(visitor QueryVisitor) {
+	q.inner.Visit(visitor)
 }

@@ -5,6 +5,7 @@
 package index
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -48,115 +49,186 @@ type FilteredTermsEnumAcceptor interface {
 type FilteredTermsEnum struct {
 	TermsEnumBase
 
-	delegate      TermsEnum
-	acceptor      FilteredTermsEnumAcceptor
-	initialSeek   *Term
-	startWithSeek bool
+	delegate TermsEnum
+	acceptor FilteredTermsEnumAcceptor
+
+	// initialSeek mirrors the private BytesRef initialSeekTerm of the Java
+	// class: the term the default nextSeekTerm hands out exactly once.
+	initialSeek *Term
+	// doSeek mirrors the private boolean doSeek of the Java class.
+	doSeek bool
+	// actualTerm mirrors the protected BytesRef actualTerm of the Java class:
+	// which term the enum is currently positioned to.
+	actualTerm *Term
 }
 
-// NewFilteredTermsEnum wraps delegate with the given acceptor (default:
-// no initial seek).
+// NewFilteredTermsEnum wraps delegate with the given acceptor, reproducing
+// the one-argument constructor of org.apache.lucene.index.FilteredTermsEnum:
+//
+//	protected FilteredTermsEnum(final TermsEnum tenum) { this(tenum, true); }
+//
+// The enumeration therefore starts with a seek, so a subclass must either set
+// an initial seek term or override NextSeekTerm; with neither, Lucene
+// documents the enum as empty.
 func NewFilteredTermsEnum(delegate TermsEnum, acceptor FilteredTermsEnumAcceptor) *FilteredTermsEnum {
-	return NewFilteredTermsEnumWithSeek(delegate, acceptor, false)
+	return NewFilteredTermsEnumWithSeek(delegate, acceptor, true)
 }
 
-// NewFilteredTermsEnumWithSeek wraps delegate with the given acceptor.
-// If startWithSeek is true, the first Next() will call NextSeekTerm(nil)
-// to obtain a starting term and seek to it.
+// NewFilteredTermsEnumWithSeek wraps delegate with the given acceptor,
+// reproducing the two-argument constructor of
+// org.apache.lucene.index.FilteredTermsEnum:
+//
+//	protected FilteredTermsEnum(final TermsEnum tenum, final boolean startWithSeek) {
+//	  this.tenum = tenum;
+//	  doSeek = startWithSeek;
+//	}
 func NewFilteredTermsEnumWithSeek(delegate TermsEnum, acceptor FilteredTermsEnumAcceptor, startWithSeek bool) *FilteredTermsEnum {
 	return &FilteredTermsEnum{
-		delegate:      delegate,
-		acceptor:      acceptor,
-		startWithSeek: startWithSeek,
+		delegate: delegate,
+		acceptor: acceptor,
+		doSeek:   startWithSeek,
 	}
 }
 
 // SetInitialSeekTerm sets the initial seek term. Equivalent to Lucene's
-// setInitialSeekTerm.
+// setInitialSeekTerm(BytesRef). Gocene's TermsEnum is keyed on *Term rather
+// than a bare BytesRef, so the seek key carries its field alongside the bytes.
 func (f *FilteredTermsEnum) SetInitialSeekTerm(term *Term) {
 	f.initialSeek = term
 }
 
+// nextSeekTerm reproduces org.apache.lucene.index.FilteredTermsEnum#nextSeekTerm
+// together with the way a Java subclass overrides it.
+//
+// The Java default body is:
+//
+//	protected BytesRef nextSeekTerm(final BytesRef currentTerm) throws IOException {
+//	  final BytesRef t = initialSeekTerm;
+//	  initialSeekTerm = null;
+//	  return t;
+//	}
+//
+// A subclass that overrides the method (AutomatonTermsEnum, TermInSetQuery's
+// SetEnum) replaces that default entirely and never observes initialSeekTerm.
+// Gocene renders the override as FilteredTermsEnumAcceptor.NextSeekTerm, so an
+// acceptor that produces a term wins and the Java default runs otherwise —
+// which is exactly the Java arrangement, because a subclass that keeps the
+// default is the only one that may call SetInitialSeekTerm.
+func (f *FilteredTermsEnum) nextSeekTerm(current *Term) (*Term, error) {
+	t, err := f.acceptor.NextSeekTerm(current)
+	if err != nil {
+		return nil, err
+	}
+	if t != nil {
+		return t, nil
+	}
+	t = f.initialSeek
+	f.initialSeek = nil
+	return t, nil
+}
+
+// setActualTerm assigns the Java field `actualTerm` and keeps the term cached
+// by TermsEnumBase in step with it, so that Term() reports what Java's
+// term() — which forwards to tenum.term() — would report.
+func (f *FilteredTermsEnum) setActualTerm(t *Term) {
+	f.actualTerm = t
+	f.SetCurrentTerm(t)
+}
+
 // Next advances to the next accepted term. Returns nil when the enumeration
 // is exhausted.
+//
+// This is the body of org.apache.lucene.index.FilteredTermsEnum#next() in
+// Apache Lucene 10.5.0:
+//
+//	for (;;) {
+//	  // Seek or forward the iterator
+//	  if (doSeek) {
+//	    doSeek = false;
+//	    final BytesRef t = nextSeekTerm(actualTerm);
+//	    if (t == null || tenum.seekCeil(t) == SeekStatus.END) {
+//	      return null;                       // no more terms to seek to or enum exhausted
+//	    }
+//	    actualTerm = tenum.term();
+//	  } else {
+//	    actualTerm = tenum.next();
+//	    if (actualTerm == null) {
+//	      return null;                       // enum exhausted
+//	    }
+//	  }
+//	  switch (accept(actualTerm)) {
+//	    case YES_AND_SEEK: doSeek = true;    // falls through
+//	    case YES:          return actualTerm;
+//	    case NO_AND_SEEK:  doSeek = true; break;
+//	    case END:          return null;
+//	    case NO:           break;
+//	  }
+//	}
+//
+// Note in particular that on the seek branch Java accepts the term it landed
+// on (`actualTerm = tenum.term()`), and that YES_AND_SEEK only *arms* the seek
+// for the following call — the delegate stays parked on the term just
+// returned, so term(), docFreq() and postings() still describe it.
 func (f *FilteredTermsEnum) Next() (*Term, error) {
-	// Honour an explicit initial seek if one is set.
-	if f.initialSeek != nil {
-		seek, err := f.delegate.SeekCeil(f.initialSeek)
-		f.initialSeek = nil
-		if err != nil {
-			return nil, err
-		}
-		if seek == nil {
-			f.SetCurrentTerm(nil)
-			return nil, nil
-		}
-	} else if f.startWithSeek {
-		// Honour startWithSeek by asking the acceptor for an initial seek term.
-		seek, err := f.acceptor.NextSeekTerm(nil)
-		f.startWithSeek = false
-		if err != nil {
-			return nil, err
-		}
-		if seek != nil {
-			if _, err := f.delegate.SeekCeil(seek); err != nil {
-				return nil, err
-			}
-		}
-	}
-
 	for {
-		var term *Term
-		if f.Term() == nil && f.initialSeek == nil {
-			t, err := f.delegate.Next()
+		// Seek or forward the iterator.
+		if f.doSeek {
+			f.doSeek = false
+			t, err := f.nextSeekTerm(f.actualTerm)
 			if err != nil {
 				return nil, err
 			}
-			term = t
+			if t == nil {
+				// no more terms to seek to
+				f.setActualTerm(nil)
+				return nil, nil
+			}
+			got, err := f.delegate.SeekCeil(t)
+			if err != nil {
+				return nil, err
+			}
+			if got == nil {
+				// SeekStatus.END: enum exhausted
+				f.setActualTerm(nil)
+				return nil, nil
+			}
+			// actualTerm = tenum.term(): SeekCeil hands back exactly the term
+			// the delegate is now positioned on.
+			f.setActualTerm(got)
 		} else {
 			t, err := f.delegate.Next()
 			if err != nil {
 				return nil, err
 			}
-			term = t
+			f.setActualTerm(t)
+			if t == nil {
+				// enum exhausted
+				return nil, nil
+			}
 		}
-		if term == nil {
-			f.SetCurrentTerm(nil)
-			return nil, nil
-		}
-		status, err := f.acceptor.Accept(term)
+
+		// check if term is accepted
+		status, err := f.acceptor.Accept(f.actualTerm)
 		if err != nil {
 			return nil, err
 		}
 		switch status {
-		case AcceptYes, AcceptYesAndSeek:
-			f.SetCurrentTerm(term)
-			if status == AcceptYesAndSeek {
-				if seek, serr := f.acceptor.NextSeekTerm(term); serr != nil {
-					return term, serr
-				} else if seek != nil {
-					if _, derr := f.delegate.SeekCeil(seek); derr != nil {
-						return term, derr
-					}
-				}
-			}
-			return term, nil
-		case AcceptNo:
-			continue
+		case AcceptYesAndSeek:
+			// term accepted, but we need to seek next time (Java falls through
+			// to the YES arm without seeking now)
+			f.doSeek = true
+			return f.actualTerm, nil
+		case AcceptYes:
+			// term accepted
+			return f.actualTerm, nil
 		case AcceptNoAndSeek:
-			seek, serr := f.acceptor.NextSeekTerm(term)
-			if serr != nil {
-				return nil, serr
-			}
-			if seek != nil {
-				if _, derr := f.delegate.SeekCeil(seek); derr != nil {
-					return nil, derr
-				}
-			}
-			continue
+			// invalid term, seek next time
+			f.doSeek = true
 		case AcceptEnd:
-			f.SetCurrentTerm(nil)
+			// we are supposed to end the enum
 			return nil, nil
+		case AcceptNo:
+			// we just iterate again
 		}
 	}
 }
@@ -202,6 +274,16 @@ func (f *FilteredTermsEnum) SeekExact(term *Term) (bool, error) {
 		return true, nil
 	}
 	return false, nil
+}
+
+// Ord passes through, mirroring FilteredTermsEnum.ord() which delegates to
+// the wrapped enumerator.
+func (f *FilteredTermsEnum) Ord() int64 { return f.delegate.Ord() }
+
+// Impacts passes through, mirroring FilteredTermsEnum.impacts(int) which
+// delegates to the wrapped enumerator.
+func (f *FilteredTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return f.delegate.Impacts(flags)
 }
 
 // DocFreq passes through.

@@ -4,11 +4,6 @@
 
 package spi
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
-	"github.com/FlavioCFOliveira/Gocene/store"
-)
-
 // StoredFieldsFormat encodes and decodes the per-document stored field
 // pair (.fdt / .fdx) for a segment.
 //
@@ -20,11 +15,11 @@ type StoredFieldsFormat interface {
 
 	// FieldsReader opens a reader over the .fdt / .fdx pair. The caller
 	// closes the returned reader when done.
-	FieldsReader(dir store.Directory, segmentInfo *schema.SegmentInfo, fieldInfos *schema.FieldInfos, context store.IOContext) (StoredFieldsReader, error)
+	FieldsReader(dir Directory, segmentInfo *SegmentInfo, fieldInfos *FieldInfos, context IOContext) (StoredFieldsReader, error)
 
 	// FieldsWriter opens a writer that produces the .fdt / .fdx pair.
 	// The caller closes the returned writer when done.
-	FieldsWriter(dir store.Directory, segmentInfo *schema.SegmentInfo, context store.IOContext) (StoredFieldsWriter, error)
+	FieldsWriter(dir Directory, segmentInfo *SegmentInfo, context IOContext) (StoredFieldsWriter, error)
 }
 
 // StoredFieldsReader iterates over the stored fields of one segment
@@ -35,6 +30,10 @@ type StoredFieldsReader interface {
 	// VisitDocument invokes the visitor for every stored field of the
 	// document at docID.
 	VisitDocument(docID int, visitor StoredFieldVisitor) error
+
+	// CheckIntegrity walks the stored-field data and validates the checksum
+	// framing.
+	CheckIntegrity() error
 
 	// Close releases any resources held by the reader.
 	Close() error
@@ -52,10 +51,18 @@ type StoredFieldsWriter interface {
 	FinishDocument() error
 
 	// WriteField serialises one stored field of the current document.
-	// The field is exposed via the narrow spi.IndexableField interface;
-	// every concrete field type implemented by package document
-	// satisfies it implicitly.
-	WriteField(field IndexableField) error
+	// info carries the field number the codec stamps into the serialized
+	// record; the value is exposed via the narrow spi.IndexableField
+	// interface, which every concrete field type implemented by package
+	// document satisfies implicitly.
+	//
+	// Mirrors the org.apache.lucene.codecs.StoredFieldsWriter.writeField
+	// overload family (StoredFieldsWriter.java:63-87), every member of
+	// which takes the FieldInfo as its first argument. Java dispatches on
+	// the static type of the value; Go has no overloading, so the port
+	// carries the value behind IndexableField and dispatches on its
+	// StoredValue.
+	WriteField(info *FieldInfo, field IndexableField) error
 
 	// Finish finalises the segment after numDocs documents have been
 	// written. Mirrors codecs.StoredFieldsWriter.finish.
@@ -68,23 +75,61 @@ type StoredFieldsWriter interface {
 // StoredFieldVisitor receives one callback per stored field while a
 // document is decoded.
 //
-// Mirrors org.apache.lucene.index.StoredFieldVisitor.
+// Mirrors org.apache.lucene.index.StoredFieldVisitor of Apache Lucene 10.5.0
+// (StoredFieldVisitor.java:36-91).
 type StoredFieldVisitor interface {
-	// StringField is invoked for a stored string field.
-	StringField(field string, value string)
+	// BinaryField processes a binary field.
+	//
+	// Mirrors binaryField(FieldInfo, byte[]) (StoredFieldVisitor.java:62).
+	BinaryField(fieldInfo *FieldInfo, value []byte) error
 
-	// BinaryField is invoked for a stored binary field.
-	BinaryField(field string, value []byte)
+	// StringField processes a string field.
+	//
+	// Mirrors stringField(FieldInfo, String) (StoredFieldVisitor.java:65).
+	StringField(fieldInfo *FieldInfo, value string) error
 
-	// IntField is invoked for a stored 32-bit integer field.
-	IntField(field string, value int)
+	// IntField processes an int numeric field.
+	//
+	// Mirrors intField(FieldInfo, int) (StoredFieldVisitor.java:68).
+	IntField(fieldInfo *FieldInfo, value int) error
 
-	// LongField is invoked for a stored 64-bit integer field.
-	LongField(field string, value int64)
+	// LongField processes a long numeric field.
+	//
+	// Mirrors longField(FieldInfo, long) (StoredFieldVisitor.java:71).
+	LongField(fieldInfo *FieldInfo, value int64) error
 
-	// FloatField is invoked for a stored 32-bit float field.
-	FloatField(field string, value float32)
+	// FloatField processes a float numeric field.
+	//
+	// Mirrors floatField(FieldInfo, float) (StoredFieldVisitor.java:74).
+	FloatField(fieldInfo *FieldInfo, value float32) error
 
-	// DoubleField is invoked for a stored 64-bit float field.
-	DoubleField(field string, value float64)
+	// DoubleField processes a double numeric field.
+	//
+	// Mirrors doubleField(FieldInfo, double) (StoredFieldVisitor.java:77).
+	DoubleField(fieldInfo *FieldInfo, value float64) error
+
+	// NeedsField is the hook invoked before a field is processed, so that
+	// implementations can state whether they need that particular field, or
+	// that processing should stop entirely.
+	//
+	// Mirrors the abstract needsField(FieldInfo) (StoredFieldVisitor.java:84).
+	NeedsField(fieldInfo *FieldInfo) (StoredFieldVisitorStatus, error)
 }
+
+// StoredFieldVisitorStatus enumerates the possible return values of
+// StoredFieldVisitor.NeedsField. It is the Go port of the nested enum
+// org.apache.lucene.index.StoredFieldVisitor.Status (StoredFieldVisitor.java:87-94);
+// the Go name carries the enclosing class because the Java simple name
+// (Status) is shared by several unrelated Lucene nested types.
+type StoredFieldVisitorStatus int
+
+const (
+	// StoredFieldVisitorStatusYes — the field should be visited.
+	StoredFieldVisitorStatusYes StoredFieldVisitorStatus = iota
+	// StoredFieldVisitorStatusNo — don't visit this field, but continue
+	// processing fields for this document.
+	StoredFieldVisitorStatusNo
+	// StoredFieldVisitorStatusStop — don't visit this field and stop
+	// processing any other fields for this document.
+	StoredFieldVisitorStatusStop
+)

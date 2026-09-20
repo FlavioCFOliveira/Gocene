@@ -202,7 +202,7 @@ func TestBinaryDocValuesWriter_FlushUnsorted(t *testing.T) {
 		delivered = values
 		return nil
 	}
-	if err := w.Flush(len(inputs), nil, consumer); err != nil {
+	if err := w.flushToCallback(len(inputs), nil, consumer); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
 	got := drainBinary(t, delivered)
@@ -229,7 +229,7 @@ func TestBinaryDocValuesWriter_FlushSorted(t *testing.T) {
 		delivered = values
 		return nil
 	}
-	if err := w.Flush(len(inputs), &reverseSortMap{n: len(inputs)}, consumer); err != nil {
+	if err := w.flushToCallback(len(inputs), &reverseSortMap{n: len(inputs)}, consumer); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
 	got := drainBinary(t, delivered)
@@ -261,7 +261,7 @@ func TestBinaryDocValuesWriter_FlushSortedSparse(t *testing.T) {
 		delivered = values
 		return nil
 	}
-	if err := w.Flush(4, &reverseSortMap{n: 4}, consumer); err != nil {
+	if err := w.flushToCallback(4, &reverseSortMap{n: 4}, consumer); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
 	got := drainBinary(t, delivered)
@@ -291,7 +291,7 @@ func TestBinaryDocValuesWriter_FlushNilConsumer(t *testing.T) {
 	if err := w.AddValue(0, bref("x")); err != nil {
 		t.Fatalf("AddValue: %v", err)
 	}
-	if err := w.Flush(1, nil, nil); err == nil {
+	if err := w.Flush(flushTestState(1), nil, nil); err == nil {
 		t.Fatal("expected error for nil consumer, got nil")
 	}
 }

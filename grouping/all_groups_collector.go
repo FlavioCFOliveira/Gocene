@@ -4,139 +4,101 @@
 
 package grouping
 
-// AllGroupsCollector collects all distinct group values.
-// This is useful when you need to know all possible groups without
-// retrieving all documents.
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+)
+
+// AllGroupsCollector collects all groups that match the query. Only the group
+// value is collected, and the order is undefined. This collector does not
+// determine the most relevant document of a group.
 //
-// This is the Go port of Lucene's org.apache.lucene.search.grouping.AllGroupsCollector.
-type AllGroupsCollector struct {
-	// groupSelector selects the group for each document
-	groupSelector GroupSelector
+// Mirrors org.apache.lucene.search.grouping.AllGroupsCollector<T>, which
+// extends SimpleCollector.
+//
+// lucene.experimental
+type AllGroupsCollector[T any] struct {
+	search.BaseSimpleCollector
+	search.BaseLeafCollector
 
-	// groups stores the unique group values
-	groups map[interface{}]bool
+	groupSelector GroupSelector[T]
 
-	// totalHits is the total number of hits processed
-	totalHits int
+	groups *groupSet[T]
 }
 
-// NewAllGroupsCollector creates a new AllGroupsCollector.
-func NewAllGroupsCollector(selector GroupSelector) *AllGroupsCollector {
-	return &AllGroupsCollector{
-		groupSelector: selector,
-		groups:        make(map[interface{}]bool),
+// NewAllGroupsCollector creates a new AllGroupsCollector using groupSelector
+// to determine groups.
+//
+// Mirrors AllGroupsCollector(GroupSelector<T>).
+func NewAllGroupsCollector[T any](groupSelector GroupSelector[T]) *AllGroupsCollector[T] {
+	c := &AllGroupsCollector[T]{
+		groupSelector: groupSelector,
+		groups:        newGroupSet[T](),
 	}
+	c.Outer = c
+	return c
 }
 
-// Collect collects a document and its group.
-func (agc *AllGroupsCollector) Collect(doc int) error {
-	groupValue := agc.groupSelector.Select(doc)
-	agc.groups[groupValue] = true
-	agc.totalHits++
+// GetGroupCount returns the total number of groups for the executed search.
+// This is a convenience method; the following has the same effect:
+//
+//	len(c.GetGroups())
+//
+// Mirrors int getGroupCount().
+func (c *AllGroupsCollector[T]) GetGroupCount() int {
+	return len(c.GetGroups())
+}
+
+// GetGroups returns the group values.
+//
+// This is an unordered collection of group values.
+//
+// Mirrors Collection<T> getGroups().
+func (c *AllGroupsCollector[T]) GetGroups() []T {
+	return c.groups.values()
+}
+
+// SetScorer mirrors setScorer(Scorable), whose body is empty.
+func (c *AllGroupsCollector[T]) SetScorer(scorer search.Scorable) error {
 	return nil
 }
 
-// CollectWithScore collects a document with its score.
-func (agc *AllGroupsCollector) CollectWithScore(doc int, score float32) error {
-	return agc.Collect(doc)
+// DoSetNextReader mirrors doSetNextReader(LeafReaderContext).
+func (c *AllGroupsCollector[T]) DoSetNextReader(context *index.LeafReaderContext) error {
+	return c.groupSelector.SetNextReader(context)
 }
 
-// GetGroups returns all unique group values.
-func (agc *AllGroupsCollector) GetGroups() []interface{} {
-	result := make([]interface{}, 0, len(agc.groups))
-	for group := range agc.groups {
-		result = append(result, group)
+// Collect mirrors collect(int).
+func (c *AllGroupsCollector[T]) Collect(doc int) error {
+	if _, err := c.groupSelector.AdvanceTo(doc); err != nil {
+		return err
 	}
-	return result
-}
-
-// GetGroupCount returns the number of unique groups.
-func (agc *AllGroupsCollector) GetGroupCount() int {
-	return len(agc.groups)
-}
-
-// GetTotalHits returns the total number of hits processed.
-func (agc *AllGroupsCollector) GetTotalHits() int {
-	return agc.totalHits
-}
-
-// Reset resets the collector for reuse.
-func (agc *AllGroupsCollector) Reset() {
-	agc.groups = make(map[interface{}]bool)
-	agc.totalHits = 0
-}
-
-// AllGroupHeadsCollector collects the "head" document of each group.
-// The head document is the first document encountered for each group.
-//
-// This is the Go port of Lucene's org.apache.lucene.search.grouping.AllGroupHeadsCollector.
-type AllGroupHeadsCollector struct {
-	// groupSelector selects the group for each document
-	groupSelector GroupSelector
-
-	// heads maps group values to their head document
-	heads map[interface{}]int
-
-	// totalHits is the total number of hits processed
-	totalHits int
-}
-
-// NewAllGroupHeadsCollector creates a new AllGroupHeadsCollector.
-func NewAllGroupHeadsCollector(selector GroupSelector) *AllGroupHeadsCollector {
-	return &AllGroupHeadsCollector{
-		groupSelector: selector,
-		heads:         make(map[interface{}]int),
+	current, err := c.groupSelector.CurrentValue()
+	if err != nil {
+		return err
 	}
-}
-
-// Collect collects a document.
-func (aghc *AllGroupHeadsCollector) Collect(doc int) error {
-	groupValue := aghc.groupSelector.Select(doc)
-
-	// Only store the first document for each group
-	if _, exists := aghc.heads[groupValue]; !exists {
-		aghc.heads[groupValue] = doc
+	if c.groups.contains(current) {
+		return nil
 	}
-
-	aghc.totalHits++
+	value, err := c.groupSelector.CopyValue()
+	if err != nil {
+		return err
+	}
+	c.groups.add(value)
 	return nil
 }
 
-// CollectWithScore collects a document with its score.
-func (aghc *AllGroupHeadsCollector) CollectWithScore(doc int, score float32) error {
-	return aghc.Collect(doc)
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int).
+func (c *AllGroupsCollector[T]) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(c, min, max)
 }
 
-// GetHeads returns the head document for each group.
-func (aghc *AllGroupHeadsCollector) GetHeads() map[interface{}]int {
-	result := make(map[interface{}]int)
-	for k, v := range aghc.heads {
-		result[k] = v
-	}
-	return result
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream).
+func (c *AllGroupsCollector[T]) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
 }
 
-// GetHeadDocs returns just the head document IDs.
-func (aghc *AllGroupHeadsCollector) GetHeadDocs() []int {
-	result := make([]int, 0, len(aghc.heads))
-	for _, doc := range aghc.heads {
-		result = append(result, doc)
-	}
-	return result
-}
-
-// GetGroupCount returns the number of groups.
-func (aghc *AllGroupHeadsCollector) GetGroupCount() int {
-	return len(aghc.heads)
-}
-
-// GetTotalHits returns the total number of hits processed.
-func (aghc *AllGroupHeadsCollector) GetTotalHits() int {
-	return aghc.totalHits
-}
-
-// Reset resets the collector for reuse.
-func (aghc *AllGroupHeadsCollector) Reset() {
-	aghc.heads = make(map[interface{}]int)
-	aghc.totalHits = 0
+// ScoreMode mirrors scoreMode(): the result is unaffected by relevancy.
+func (c *AllGroupsCollector[T]) ScoreMode() search.ScoreMode {
+	return search.COMPLETE_NO_SCORES
 }

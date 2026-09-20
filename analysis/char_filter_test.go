@@ -10,15 +10,26 @@ import (
 	"testing"
 )
 
+// mockCharFilter is a simple implementation of CharFilter for testing.
+type mockCharFilter struct {
+	BaseCharFilter
+	delta int
+}
+
+func (m *mockCharFilter) Correct(currentOff int) int {
+	return currentOff + m.delta
+}
+
+func (m *mockCharFilter) CorrectOffset(currentOff int) int {
+	return CorrectOffsetLogic(m, currentOff)
+}
+
 func TestNewCharFilter(t *testing.T) {
 	input := strings.NewReader("hello")
 	cf := NewCharFilter(input)
 
 	if cf == nil {
 		t.Fatal("Expected non-nil CharFilter")
-	}
-	if cf.GetCumulativeDelta() != 0 {
-		t.Error("Expected initial delta to be 0")
 	}
 }
 
@@ -41,40 +52,36 @@ func TestCharFilterRead(t *testing.T) {
 
 func TestCharFilterCorrectOffset(t *testing.T) {
 	input := strings.NewReader("hello")
-	cf := NewCharFilter(input)
-
-	// Initially, offset should be unchanged
-	if cf.CorrectOffset(10) != 10 {
-		t.Error("Expected offset to be unchanged when delta is 0")
+	// Use mockCharFilter to provide a specific delta
+	cf := &mockCharFilter{
+		BaseCharFilter: BaseCharFilter{Input: input},
+		delta:          5,
 	}
 
-	// Add delta
-	cf.AddOffsetDelta(5)
-	if cf.CorrectOffset(10) != 15 {
-		t.Errorf("Expected offset 15, got %d", cf.CorrectOffset(10))
+	// 10 + 5 = 15
+	if got := cf.CorrectOffset(10); got != 15 {
+		t.Errorf("Expected offset 15, got %d", got)
 	}
 }
 
-func TestCharFilterAddOffsetDelta(t *testing.T) {
-	cf := NewCharFilter(nil)
+func TestCharFilterCorrectOffsetChaining(t *testing.T) {
+	input := strings.NewReader("hello")
 
-	cf.AddOffsetDelta(5)
-	if cf.GetCumulativeDelta() != 5 {
-		t.Errorf("Expected delta 5, got %d", cf.GetCumulativeDelta())
+	// Chain: Inner (delta 10) -> Outer (delta 5)
+	inner := &mockCharFilter{
+		BaseCharFilter: BaseCharFilter{Input: input},
+		delta:          10,
+	}
+	outer := &mockCharFilter{
+		BaseCharFilter: BaseCharFilter{Input: inner},
+		delta:          5,
 	}
 
-	cf.AddOffsetDelta(-2)
-	if cf.GetCumulativeDelta() != 3 {
-		t.Errorf("Expected delta 3, got %d", cf.GetCumulativeDelta())
-	}
-}
-
-func TestCharFilterSetCumulativeDelta(t *testing.T) {
-	cf := NewCharFilter(nil)
-
-	cf.SetCumulativeDelta(10)
-	if cf.GetCumulativeDelta() != 10 {
-		t.Errorf("Expected delta 10, got %d", cf.GetCumulativeDelta())
+	// Outer.Correct(10) = 15
+	// Inner.Correct(15) = 25
+	// Result: 25
+	if got := outer.CorrectOffset(10); got != 25 {
+		t.Errorf("Expected chained offset 25, got %d", got)
 	}
 }
 
@@ -112,30 +119,4 @@ type testReadCloser struct {
 func (trc *testReadCloser) Close() error {
 	trc.closed = true
 	return nil
-}
-
-func TestBaseCharFilterFactory(t *testing.T) {
-	factory := NewBaseCharFilterFactory("testFactory")
-
-	if factory.GetName() != "testFactory" {
-		t.Errorf("Expected name 'testFactory', got '%s'", factory.GetName())
-	}
-
-	input := strings.NewReader("hello")
-	cf := factory.Create(input)
-
-	if cf == nil {
-		t.Error("Expected non-nil CharFilter from factory")
-	}
-}
-
-func TestCharFilterFactoryInterface(t *testing.T) {
-	var factory CharFilterFactory = NewBaseCharFilterFactory("interfaceTest")
-
-	input := strings.NewReader("test")
-	cf := factory.Create(input)
-
-	if cf == nil {
-		t.Error("Factory should create CharFilter")
-	}
 }

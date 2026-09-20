@@ -13,6 +13,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -38,26 +39,26 @@ type memTerms struct {
 	entries []memTermsEntry
 }
 
-func (m *memTerms) GetIterator() (schema.TermsEnum, error) {
+func (m *memTerms) Iterator() (schema.TermsEnum, error) {
 	return &memTermsEnum{fi: m.fi, entries: m.entries, pos: -1}, nil
 }
 
 func (m *memTerms) GetIteratorWithSeek(_ *schema.Term) (schema.TermsEnum, error) {
-	return m.GetIterator()
+	return m.Iterator()
 }
 
 func (m *memTerms) GetPostingsReader(_ string, _ int) (schema.PostingsEnum, error) {
 	return nil, nil
 }
 
-func (m *memTerms) Size() int64                        { return int64(len(m.entries)) }
-func (m *memTerms) GetDocCount() (int, error)          { return len(m.entries), nil }
-func (m *memTerms) GetSumDocFreq() (int64, error)      { return int64(len(m.entries)), nil }
+func (m *memTerms) Size() int64                         { return int64(len(m.entries)) }
+func (m *memTerms) GetDocCount() (int, error)           { return len(m.entries), nil }
+func (m *memTerms) GetSumDocFreq() (int64, error)       { return int64(len(m.entries)), nil }
 func (m *memTerms) GetSumTotalTermFreq() (int64, error) { return int64(len(m.entries)), nil }
-func (m *memTerms) HasFreqs() bool                     { return true }
-func (m *memTerms) HasOffsets() bool                   { return false }
-func (m *memTerms) HasPositions() bool                 { return true }
-func (m *memTerms) HasPayloads() bool                  { return true }
+func (m *memTerms) HasFreqs() bool                      { return true }
+func (m *memTerms) HasOffsets() bool                    { return false }
+func (m *memTerms) HasPositions() bool                  { return true }
+func (m *memTerms) HasPayloads() bool                   { return true }
 func (m *memTerms) GetMin() (*schema.Term, error) {
 	if len(m.entries) == 0 {
 		return nil, nil
@@ -117,7 +118,7 @@ func (e *memTermsEnum) Term() *schema.Term {
 	return schema.NewTermFromBytes(e.fi.Name(), e.entries[e.pos].term)
 }
 
-func (e *memTermsEnum) DocFreq() (int, error)        { return 1, nil }
+func (e *memTermsEnum) DocFreq() (int, error)         { return 1, nil }
 func (e *memTermsEnum) TotalTermFreq() (int64, error) { return 1, nil }
 
 func (e *memTermsEnum) Postings(flags int) (schema.PostingsEnum, error) {
@@ -141,7 +142,7 @@ func (e *memTermsEnum) PostingsWithLiveDocs(_ util.Bits, flags int) (schema.Post
 type memPostingsEnum struct {
 	docID   int
 	version int64
-	pos     int    // -1: before doc; 0: at doc; 1: positions seen
+	pos     int // -1: before doc; 0: at doc; 1: positions seen
 	atDoc   bool
 	atPos   bool
 }
@@ -162,7 +163,7 @@ func (p *memPostingsEnum) Advance(target int) (int, error) {
 	return schema.NO_MORE_DOCS, nil
 }
 
-func (p *memPostingsEnum) DocID() int { return p.docID }
+func (p *memPostingsEnum) DocID() int         { return p.docID }
 func (p *memPostingsEnum) Freq() (int, error) { return 1, nil }
 func (p *memPostingsEnum) Cost() int64        { return 1 }
 
@@ -231,7 +232,7 @@ func TestIDVersionPostingsFormat_FieldsConsumer_Produces_No_Error(t *testing.T) 
 	}
 	terms := &memTerms{fi: fi, entries: entries}
 
-	if err := consumer.Write("id", terms); err != nil {
+	if err := consumer.Write(spi.NewSingleFieldFields("id", terms), nil); err != nil {
 		t.Fatalf("FieldsConsumer.Write: %v", err)
 	}
 	if err := consumer.Close(); err != nil {
@@ -283,7 +284,7 @@ func TestIDVersionPostingsFormat_RoundTrip_WriteAndRead(t *testing.T) {
 	}
 	terms := &memTerms{fi: fi, entries: entries}
 
-	if err := consumer.Write("id", terms); err != nil {
+	if err := consumer.Write(spi.NewSingleFieldFields("id", terms), nil); err != nil {
 		t.Fatalf("FieldsConsumer.Write: %v", err)
 	}
 	if err := consumer.Close(); err != nil {
@@ -314,9 +315,9 @@ func TestIDVersionPostingsFormat_RoundTrip_WriteAndRead(t *testing.T) {
 	}
 
 	// Verify the iterator returns all three terms.
-	te, err := schemaTerms.GetIterator()
+	te, err := schemaTerms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 
 	var gotTerms []string
@@ -375,7 +376,7 @@ func TestIDVersionPostingsFormat_FieldsProducer_UnknownField(t *testing.T) {
 	entries := []memTermsEntry{
 		{term: []byte("hello"), docID: 0, version: 1},
 	}
-	if err := consumer.Write("id", &memTerms{fi: fi, entries: entries}); err != nil {
+	if err := consumer.Write(spi.NewSingleFieldFields("id", &memTerms{fi: fi, entries: entries}), nil); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := consumer.Close(); err != nil {

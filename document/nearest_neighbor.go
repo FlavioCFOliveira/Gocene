@@ -20,6 +20,7 @@ import (
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -221,40 +222,6 @@ func (h *nearestHitHeap) Pop() any {
 	return x
 }
 
-// PointTreeCellRelation classifies how a BKD cell intersects the
-// query, mirroring org.apache.lucene.index.PointValues.Relation. The
-// document-local copy avoids a dependency on the not-yet-ported index
-// SPI; see the package overview for details.
-type PointTreeCellRelation int
-
-const (
-	// PointTreeCellOutsideQuery means the cell lies fully outside the
-	// query and can be pruned.
-	PointTreeCellOutsideQuery PointTreeCellRelation = iota
-	// PointTreeCellInsideQuery means the cell lies fully inside the
-	// query. [NearestNeighbor] never returns this value (it does not
-	// distinguish "inside" from "crosses") but the enum is defined for
-	// completeness with PointValues.Relation.
-	PointTreeCellInsideQuery
-	// PointTreeCellCrossesQuery means the cell partially overlaps the
-	// query and must be explored further.
-	PointTreeCellCrossesQuery
-)
-
-// String mirrors Relation.name() for diagnostic output.
-func (r PointTreeCellRelation) String() string {
-	switch r {
-	case PointTreeCellOutsideQuery:
-		return "CELL_OUTSIDE_QUERY"
-	case PointTreeCellInsideQuery:
-		return "CELL_INSIDE_QUERY"
-	case PointTreeCellCrossesQuery:
-		return "CELL_CROSSES_QUERY"
-	default:
-		return fmt.Sprintf("UNKNOWN(%d)", int(r))
-	}
-}
-
 // PointTreeNearestVisitor is the per-cell visitor surface
 // [PointTreeWalker.VisitDocValues] receives. It mirrors the subset of
 // org.apache.lucene.index.PointValues.IntersectVisitor exercised by
@@ -271,7 +238,7 @@ type PointTreeNearestVisitor interface {
 
 	// Compare classifies how the cell [minPackedValue, maxPackedValue]
 	// intersects the visitor's current bbox.
-	Compare(minPackedValue, maxPackedValue []byte) PointTreeCellRelation
+	Compare(minPackedValue, maxPackedValue []byte) spi.Relation
 }
 
 // PointTreeWalker is the cursor-shaped subset of
@@ -391,7 +358,7 @@ func Nearest(pointLat, pointLon float64, readers []PointTreeNearestReader, n int
 		cell := heap.Pop(cellQueue).(*nearestCell)
 
 		// Prune cells that fall entirely outside the visitor's bbox.
-		if visitor.Compare(cell.minPacked, cell.maxPacked) == PointTreeCellOutsideQuery {
+		if visitor.Compare(cell.minPacked, cell.maxPacked) == spi.CellOutsideQuery {
 			continue
 		}
 
@@ -591,7 +558,7 @@ func (v *nearestVisitor) VisitWithPackedValue(docID int, packedValue []byte) err
 // two-range Java compare: a cell falls outside the query when its
 // latitudes do not overlap [minLat,maxLat] OR when both longitude
 // ranges miss the cell's longitude span.
-func (v *nearestVisitor) Compare(minPackedValue, maxPackedValue []byte) PointTreeCellRelation {
+func (v *nearestVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	cellMinLat := geo.DecodeLatitudeBytes(minPackedValue, 0)
 	cellMinLon := geo.DecodeLongitudeBytes(minPackedValue, 4)
 	cellMaxLat := geo.DecodeLatitudeBytes(maxPackedValue, 0)
@@ -600,9 +567,9 @@ func (v *nearestVisitor) Compare(minPackedValue, maxPackedValue []byte) PointTre
 	if cellMaxLat < v.minLat ||
 		v.maxLat < cellMinLat ||
 		((cellMaxLon < v.minLon || v.maxLon < cellMinLon) && cellMaxLon < v.minLon2) {
-		return PointTreeCellOutsideQuery
+		return spi.CellOutsideQuery
 	}
-	return PointTreeCellCrossesQuery
+	return spi.CellCrossesQuery
 }
 
 // approxBestDistancePacked computes the approximate best (i.e.

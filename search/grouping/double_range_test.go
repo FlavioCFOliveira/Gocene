@@ -9,10 +9,10 @@ func TestDoubleRangeFactory_GetRange(t *testing.T) {
 	factory := NewDoubleRangeFactory(0.0, 10.0, 100.0)
 
 	tests := []struct {
-		name     string
-		value    float64
-		wantMin  float64
-		wantMax  float64
+		name    string
+		value   float64
+		wantMin float64
+		wantMax float64
 	}{
 		{
 			name:    "below min",

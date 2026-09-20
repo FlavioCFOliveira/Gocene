@@ -35,7 +35,7 @@ func (f *CrankyNormsFormat) Name() string {
 // NormsConsumer returns a norms consumer.
 func (f *CrankyNormsFormat) NormsConsumer(state *index.SegmentWriteState) (spi.NormsConsumer, error) {
 	if f.random.Intn(100) == 0 {
-		return nil, fmt.Errorf("Fake IOException from NormsFormat.NormsConsumer()")
+		return nil, fmt.Errorf("Fake IOException from NormsFormat.normsConsumer()")
 	}
 	consumer, err := f.delegate.NormsConsumer(state)
 	if err != nil {
@@ -59,7 +59,7 @@ type crankyNormsConsumer struct {
 
 func (c *crankyNormsConsumer) AddNormsField(field *index.FieldInfo, valuesProducer spi.NormsProducer) error {
 	if c.random.Intn(100) == 0 {
-		return fmt.Errorf("Fake IOException from NormsConsumer.AddNormsField()")
+		return fmt.Errorf("Fake IOException from NormsConsumer.addNormsField()")
 	}
 	return c.delegate.AddNormsField(field, valuesProducer)
 }
@@ -67,7 +67,7 @@ func (c *crankyNormsConsumer) AddNormsField(field *index.FieldInfo, valuesProduc
 func (c *crankyNormsConsumer) Close() error {
 	err := c.delegate.Close()
 	if c.random.Intn(100) == 0 {
-		return fmt.Errorf("Fake IOException from NormsConsumer.Close()")
+		return fmt.Errorf("Fake IOException from NormsConsumer.close()")
 	}
 	return err
 }

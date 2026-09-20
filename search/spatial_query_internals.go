@@ -11,6 +11,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -41,7 +42,7 @@ type SpatialVisitor interface {
 	// Relate returns the relation between the supplied cell
 	// [minPackedValue, maxPackedValue] and the query geometry.
 	// Mirrors abstract SpatialVisitor.relate.
-	Relate(minPackedValue, maxPackedValue []byte) spatialRelation
+	Relate(minPackedValue, maxPackedValue []byte) index.Relation
 
 	// Intersects returns the per-doc predicate that decides whether
 	// a packed value contributes to an INTERSECTS / DISJOINT query.
@@ -63,7 +64,7 @@ type SpatialVisitor interface {
 	// returned closure transposes the Relate result for DISJOINT
 	// queries and forwards as-is for the other relations.
 	// Mirrors private SpatialVisitor.getInnerFunction.
-	GetInnerFunction(queryRelation document.QueryRelation) func(min, max []byte) spatialRelation
+	GetInnerFunction(queryRelation document.QueryRelation) func(min, max []byte) index.Relation
 
 	// GetLeafPredicate returns the per-doc predicate the pipeline
 	// uses on packed values. The predicate routes INTERSECTS to
@@ -97,9 +98,9 @@ func NewBaseSpatialVisitor(self SpatialVisitor) *BaseSpatialVisitor {
 
 // GetInnerFunction routes Relate calls through self so subclass
 // overrides win, and transposes the result for DISJOINT queries.
-func (b *BaseSpatialVisitor) GetInnerFunction(queryRelation document.QueryRelation) func(min, max []byte) spatialRelation {
+func (b *BaseSpatialVisitor) GetInnerFunction(queryRelation document.QueryRelation) func(min, max []byte) index.Relation {
 	if queryRelation == document.QueryRelationDisjoint {
-		return func(min, max []byte) spatialRelation {
+		return func(min, max []byte) index.Relation {
 			return transposeSpatialRelation(b.self.Relate(min, max))
 		}
 	}
@@ -133,38 +134,6 @@ func (b *BaseSpatialVisitor) GetLeafPredicate(queryRelation document.QueryRelati
 	}
 }
 
-// spatialRelation classifies a BKD cell against the query region.
-// It mirrors org.apache.lucene.index.PointValues.Relation; it lives
-// in the search package as a private alias so SpatialQuery does not
-// have to import codecs/ (which would re-introduce the
-// document → search cycle via codecs → document → search).
-//
-// The three values are deliberately stable across
-// codecs.Relation, geo.Relation and this one — adapters between the
-// three are pure switches with no semantic difference.
-type spatialRelation int
-
-const (
-	spatialCellInsideQuery spatialRelation = iota
-	spatialCellOutsideQuery
-	spatialCellCrossesQuery
-)
-
-// String returns a human-readable label, useful for tests and
-// diagnostics.
-func (r spatialRelation) String() string {
-	switch r {
-	case spatialCellInsideQuery:
-		return "CELL_INSIDE_QUERY"
-	case spatialCellOutsideQuery:
-		return "CELL_OUTSIDE_QUERY"
-	case spatialCellCrossesQuery:
-		return "CELL_CROSSES_QUERY"
-	default:
-		return fmt.Sprintf("spatialRelation(%d)", int(r))
-	}
-}
-
 // spatialIntersectVisitor is the visitor SpatialQuery hands to a
 // spatialPointSource. It mirrors the subset of
 // org.apache.lucene.index.PointValues.IntersectVisitor that
@@ -191,7 +160,7 @@ type spatialIntersectVisitor interface {
 	VisitIterator(iter util.DocIdSetIterator) error
 	VisitIteratorWithPackedValue(iter util.DocIdSetIterator, packedValue []byte) error
 	Grow(count int)
-	Compare(minPackedValue, maxPackedValue []byte) spatialRelation
+	Compare(minPackedValue, maxPackedValue []byte) index.Relation
 }
 
 // spatialPointSource is the visitor-driven point source SpatialQuery
@@ -324,14 +293,14 @@ func defaultSpatialLeafLookup(ctx *index.LeafReaderContext, field string) (
 // LeafReader.GetPointValues (the codec's *pointValues) satisfies it
 // structurally; the parameter type is the index-package alias so the
 // type assertion succeeds for the real codec reader.
-type spatialPointTreeIntersect interface {
-	Intersect(visitor index.PointTreeIntersectVisitor) error
-	EstimatePointCount(visitor index.PointTreeIntersectVisitor) int64
-	GetMinPackedValue() ([]byte, error)
-	GetMaxPackedValue() ([]byte, error)
-	GetDocCount() int
-	GetValueCount() int64
-}
+// spatialPointTreeIntersect is an alias of index.PointValues. Before the two
+// PointValues renderings were merged it was a narrow structural interface
+// carrying the visitor-driven surface (Intersect / EstimatePointCount) that
+// index.PointValues did not declare; org.apache.lucene.index.PointValues
+// declares intersect and estimatePointCount as public final members, so the
+// whole surface is now on the one interface and the narrow duplicate has no
+// Lucene counterpart.
+type spatialPointTreeIntersect = index.PointValues
 
 // newSpatialPointSourceFromIndexPointValues adapts a BKD-backed
 // index.PointValues to the spatialPointSource contract used by the
@@ -349,7 +318,7 @@ func newSpatialPointSourceFromIndexPointValues(pv index.PointValues) spatialPoin
 
 // bkdSpatialPointSource drives a BKD-backed PointValues, translating
 // between the SpatialQuery pipeline's spatialIntersectVisitor and the
-// index.PointTreeIntersectVisitor the BKD reader expects.
+// index.IntersectVisitor the BKD reader expects.
 type bkdSpatialPointSource struct {
 	pv spatialPointTreeIntersect
 }
@@ -375,7 +344,7 @@ func (s *bkdSpatialPointSource) GetDocCount() int { return s.pv.GetDocCount() }
 // SizeAsInt returns the total number of indexed values, capped at
 // math.MaxInt, mirroring PointValues.size() folded into int arithmetic.
 func (s *bkdSpatialPointSource) SizeAsInt() int {
-	n := s.pv.GetValueCount()
+	n := s.pv.Size()
 	if n > int64(maxIntForSpatialSize) {
 		return maxIntForSpatialSize
 	}
@@ -390,7 +359,7 @@ func (s *bkdSpatialPointSource) Intersect(visitor spatialIntersectVisitor) error
 }
 
 func (s *bkdSpatialPointSource) EstimateDocCount(visitor spatialIntersectVisitor) (int64, error) {
-	return s.pv.EstimatePointCount(&spatialVisitorBridge{v: visitor}), nil
+	return s.pv.EstimateDocCount(&spatialVisitorBridge{v: visitor})
 }
 
 // maxIntForSpatialSize is math.MaxInt expressed without importing math
@@ -398,15 +367,10 @@ func (s *bkdSpatialPointSource) EstimateDocCount(visitor spatialIntersectVisitor
 const maxIntForSpatialSize = int(^uint(0) >> 1)
 
 // spatialVisitorBridge adapts a spatialIntersectVisitor to the
-// index.PointTreeIntersectVisitor surface the BKD reader invokes. The
+// index.IntersectVisitor surface the BKD reader invokes. The
 // reader only drives Visit / VisitByPackedValue / Compare / Grow (the
 // bulk-iterator methods on spatialIntersectVisitor are not part of the
 // BKD reader's intersect path).
-//
-// Compare must translate between the two enum orderings: the BKD reader
-// uses the codecs.Relation order (0=outside, 1=inside, 2=crosses) while
-// search.spatialRelation uses (0=inside, 1=outside, 2=crosses), so the
-// conversion is an explicit switch rather than a raw cast.
 type spatialVisitorBridge struct {
 	v spatialIntersectVisitor
 }
@@ -417,20 +381,13 @@ func (b *spatialVisitorBridge) VisitByPackedValue(docID int, packedValue []byte)
 	return b.v.VisitWithPackedValue(docID, packedValue)
 }
 
-func (b *spatialVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) int {
-	switch b.v.Compare(minPackedValue, maxPackedValue) {
-	case spatialCellOutsideQuery:
-		return 0 // codecs.RelationCellOutsideQuery
-	case spatialCellInsideQuery:
-		return 1 // codecs.RelationCellInsideQuery
-	default:
-		return 2 // codecs.RelationCellCrossesQuery
-	}
+func (b *spatialVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
+	return b.v.Compare(minPackedValue, maxPackedValue)
 }
 
 func (b *spatialVisitorBridge) Grow(count int) { b.v.Grow(count) }
 
-var _ index.PointTreeIntersectVisitor = (*spatialVisitorBridge)(nil)
+var _ index.IntersectVisitor = (*spatialVisitorBridge)(nil)
 
 // relationScorerSupplier is the ScorerSupplier returned by the
 // fall-through branch of SpatialQuery.getScorerSupplier. It owns
@@ -479,7 +436,7 @@ func (s *relationScorerSupplier) Get(_ int64) (Scorer, error) {
 		return nil, err
 	}
 	if iter == nil {
-		iter = NewEmptyDocIdSetIterator()
+		iter = Empty()
 	}
 	return NewConstantScoreScorer(s.score, s.scoreMode, iter), nil
 }
@@ -501,8 +458,9 @@ func (s *relationScorerSupplier) Cost() int64 {
 
 // SetTopLevelScoringClause is a no-op for this supplier today;
 // recorded so callers can inspect it if needed in tests.
-func (s *relationScorerSupplier) SetTopLevelScoringClause() {
+func (s *relationScorerSupplier) SetTopLevelScoringClause() error {
 	s.topLevelScoring = true
+	return nil
 }
 
 // getSparseIterator mirrors RelationScorerSupplier.getSparseScorer.
@@ -537,7 +495,7 @@ func (s *relationScorerSupplier) getSparseIterator() (DocIdSetIterator, error) {
 			return nil, err
 		}
 		if cost[0] == 0 {
-			return NewEmptyDocIdSetIterator(), nil
+			return Empty(), nil
 		}
 		return newUtilToSearchDISIAdapter(util.NewBitSetIterator(result, cost[0])), nil
 	}
@@ -551,11 +509,11 @@ func (s *relationScorerSupplier) getSparseIterator() (DocIdSetIterator, error) {
 		return nil, err
 	}
 	if set == nil {
-		return NewEmptyDocIdSetIterator(), nil
+		return Empty(), nil
 	}
 	utilIter := set.Iterator()
 	if utilIter == nil {
-		return NewEmptyDocIdSetIterator(), nil
+		return Empty(), nil
 	}
 	return newUtilToSearchDISIAdapter(utilIter), nil
 }
@@ -598,7 +556,7 @@ func (s *relationScorerSupplier) getDenseIterator() (DocIdSetIterator, error) {
 		}
 	}
 	if cost[0] == 0 {
-		return NewEmptyDocIdSetIterator(), nil
+		return Empty(), nil
 	}
 	return newUtilToSearchDISIAdapter(util.NewBitSetIterator(result, cost[0])), nil
 }
@@ -625,7 +583,7 @@ func (s *relationScorerSupplier) getContainsDenseIterator() (DocIdSetIterator, e
 		return nil, err
 	}
 	if cost[0] == 0 {
-		return NewEmptyDocIdSetIterator(), nil
+		return Empty(), nil
 	}
 	return newUtilToSearchDISIAdapter(util.NewBitSetIterator(result, cost[0])), nil
 }
@@ -648,3 +606,29 @@ func setAllBits(fbs *util.FixedBitSet, maxDoc int) {
 // relations. Surfaced as an error (not a panic) because the value
 // can flow from user input on some shape queries.
 var errSpatialUnsupportedRelation = errors.New("search: unsupported spatial query relation")
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (r *relationScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(r)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which b does not
+// override.
+func (b *spatialVisitorBridge) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(b, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which b does not override.
+func (b *spatialVisitorBridge) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(b, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which b
+// does not override.
+func (b *spatialVisitorBridge) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(b, iterator, packedValue)
+}

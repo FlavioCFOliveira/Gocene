@@ -66,20 +66,20 @@ func (s *stubIterator) NextDoc() (int, error) {
 	s.pos++
 	return v, nil
 }
-func (s *stubIterator) Advance(int) (int, error) { panic("unused") }
-func (s *stubIterator) Cost() int64              { return int64(len(s.docs)) }
-func (s *stubIterator) DocIDRunEnd() int         { panic("unused") }
+func (s *stubIterator) Advance(int) (int, error)  { panic("unused") }
+func (s *stubIterator) Cost() int64               { return int64(len(s.docs)) }
+func (s *stubIterator) DocIDRunEnd() (int, error) { panic("unused") }
 
 // errIterator is a DocIdSetIterator whose NextDoc always errors;
 // used to confirm seededFromEntryPoints surfaces iterator failures
 // wrapped, not swallowed.
 type errIterator struct{ err error }
 
-func (e *errIterator) DocID() int               { panic("unused") }
-func (e *errIterator) NextDoc() (int, error)    { return 0, e.err }
-func (e *errIterator) Advance(int) (int, error) { panic("unused") }
-func (e *errIterator) Cost() int64              { return 0 }
-func (e *errIterator) DocIDRunEnd() int         { panic("unused") }
+func (e *errIterator) DocID() int                { panic("unused") }
+func (e *errIterator) NextDoc() (int, error)     { return 0, e.err }
+func (e *errIterator) Advance(int) (int, error)  { panic("unused") }
+func (e *errIterator) Cost() int64               { return 0 }
+func (e *errIterator) DocIDRunEnd() (int, error) { panic("unused") }
 
 // TestSeededHnswGraphSearcher_FromEntryPointsDrainsIterator asserts
 // the factory consumes exactly numEps ordinals and preserves their
@@ -226,4 +226,18 @@ func TestSeededHnswGraphSearcher_SearchUsesSeeds(t *testing.T) {
 			t.Errorf("eps[%d]=%d, want %d", i, delegate.lastEps[i], v)
 		}
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *stubIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (e *errIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
 }

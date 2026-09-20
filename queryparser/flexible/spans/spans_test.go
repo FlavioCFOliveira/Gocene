@@ -7,6 +7,7 @@ package spans_test
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/queryparser/flexible"
 	spanparser "github.com/FlavioCFOliveira/Gocene/queryparser/flexible/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -52,7 +53,7 @@ func TestSpanTermQueryNodeBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build error: %v", err)
 	}
-	stq, ok := q.(*search.SpanTermQuery)
+	stq, ok := q.(*spans.SpanTermQuery)
 	if !ok {
 		t.Fatalf("expected SpanTermQuery, got %T", q)
 	}
@@ -74,7 +75,7 @@ func TestSpanOrQueryNodeBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build error: %v", err)
 	}
-	soq, ok := q.(*search.SpanOrQuery)
+	soq, ok := q.(*spans.SpanOrQuery)
 	if !ok {
 		t.Fatalf("expected SpanOrQuery, got %T", q)
 	}
@@ -94,7 +95,7 @@ func TestSpansQueryTreeBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build field node error: %v", err)
 	}
-	if _, ok := q.(*search.SpanTermQuery); !ok {
+	if _, ok := q.(*spans.SpanTermQuery); !ok {
 		t.Fatalf("expected SpanTermQuery, got %T", q)
 	}
 
@@ -106,7 +107,7 @@ func TestSpansQueryTreeBuilder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build or node error: %v", err)
 	}
-	if _, ok := q.(*search.SpanOrQuery); !ok {
+	if _, ok := q.(*spans.SpanOrQuery); !ok {
 		t.Fatalf("expected SpanOrQuery, got %T", q)
 	}
 }

@@ -28,9 +28,52 @@ import (
 	"math/bits"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
+
+// AsDocIndexIterator wraps disi as a KnnVectorValues.DocIndexIterator.
+// Mirrors the static IndexedDISI.asDocIndexIterator(IndexedDISI) of Apache
+// Lucene 10.5.0: the anonymous iterator forwards docID, index, nextDoc,
+// advance and cost to disi and inherits the remaining DocIdSetIterator
+// defaults.
+func AsDocIndexIterator(disi *IndexedDISI) spi.DocIndexIterator {
+	return &indexedDISIDocIndexIterator{disi: disi}
+}
+
+// indexedDISIDocIndexIterator is the anonymous DocIndexIterator returned by
+// IndexedDISI.asDocIndexIterator.
+type indexedDISIDocIndexIterator struct {
+	disi *IndexedDISI
+}
+
+// DocID forwards to the DISI.
+func (it *indexedDISIDocIndexIterator) DocID() int { return it.disi.DocID() }
+
+// Index forwards to the DISI.
+func (it *indexedDISIDocIndexIterator) Index() int { return it.disi.Index() }
+
+// NextDoc forwards to the DISI.
+func (it *indexedDISIDocIndexIterator) NextDoc() (int, error) { return it.disi.NextDoc() }
+
+// Advance forwards to the DISI.
+func (it *indexedDISIDocIndexIterator) Advance(target int) (int, error) {
+	return it.disi.Advance(target)
+}
+
+// Cost forwards to the DISI.
+func (it *indexedDISIDocIndexIterator) Cost() int64 { return it.disi.Cost() }
+
+// IntoBitSet carries the DocIdSetIterator.intoBitSet default.
+func (it *indexedDISIDocIndexIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the DocIdSetIterator.docIDRunEnd default.
+func (it *indexedDISIDocIndexIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
 
 // IndexedDISI is the disk-based DocIdSetIterator from
 // org.apache.lucene.codecs.lucene90.IndexedDISI. The on-disk format encodes
@@ -280,7 +323,7 @@ func flushIndexedDISIBlock(block int, buffer *util.FixedBitSet, cardinality int,
 		if cardinality != blockSize { // not ALL
 			if denseRankPower != 0xFF {
 				rank := createDenseRank(buffer, denseRankPower)
-				if err := out.WriteBytes(rank); err != nil {
+				if err := out.WriteBytes(rank, 0, len(rank)); err != nil {
 					return err
 				}
 			}
@@ -462,7 +505,7 @@ func CreateJumpTable(slice store.IndexInput, offset, length int64, jumpTableEntr
 		return nil, err
 	}
 	buf := make([]byte, jumpTableBytes)
-	if err := slice.ReadBytes(buf); err != nil {
+	if err := slice.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, err
 	}
 	_ = slice.SetPosition(saved)
@@ -545,17 +588,17 @@ func (d *IndexedDISI) AdvanceExact(target int) (bool, error) {
 
 // DocIDRunEnd returns one past the end of the current run of consecutive
 // doc IDs.
-func (d *IndexedDISI) DocIDRunEnd() int {
+func (d *IndexedDISI) DocIDRunEnd() (int, error) {
 	switch d.method {
 	case methodAll:
-		return (d.doc | 0xFFFF) + 1
+		return (d.doc | 0xFFFF) + 1, nil
 	case methodDense:
 		if d.word == ^uint64(0) {
-			return (d.doc | 0x3F) + 1
+			return (d.doc | 0x3F) + 1, nil
 		}
-		return d.doc + 1
+		return d.doc + 1, nil
 	default: // SPARSE
-		return d.doc + 1
+		return d.doc + 1, nil
 	}
 }
 
@@ -657,7 +700,7 @@ func (d *IndexedDISI) readBlockHeader() error {
 		}
 		d.blockEnd = d.denseBitmapOff + (1 << 13) // 1024 longs = 8192 bytes
 		if d.denseRankPower != 0xFF {
-			if err := d.slice.ReadBytes(d.denseRankTable); err != nil {
+			if err := d.slice.ReadBytes(d.denseRankTable, 0, len(d.denseRankTable)); err != nil {
 				return err
 			}
 		}

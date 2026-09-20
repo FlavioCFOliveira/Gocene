@@ -41,7 +41,7 @@ func expectCodecName(t *testing.T, dir, name, wantCodec string, minVer, maxVer i
 		t.Fatalf("open %s/%s: %v", dir, name, err)
 	}
 	defer in.Close()
-	version, err := codecs.CheckHeader(in, wantCodec, minVer, maxVer)
+	version, err := store.CheckHeader(in, wantCodec, minVer, maxVer)
 	if err != nil {
 		t.Fatalf("%s: CheckHeader(%q): %v", name, wantCodec, err)
 	}
@@ -133,7 +133,7 @@ func mustNonEmpty(t *testing.T, dir, name string, minHeader int64) {
 	}
 	defer in.Close()
 	got := in.Length()
-	want := minHeader + int64(codecs.FooterLength())
+	want := minHeader + int64(store.FooterLength())
 	if got <= want {
 		t.Errorf("%s: file is %d bytes (header+footer ≈ %d) — empty payload",
 			name, got, want)

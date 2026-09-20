@@ -7,7 +7,7 @@ package index
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -36,20 +36,20 @@ func (p *BinarySortFieldProvider) ReadSortField(in store.DataInput) (SortFieldVa
 	var missingValue interface{}
 	switch missingInt {
 	case 1:
-		missingValue = schema.STRING_FIRST
+		missingValue = spi.STRING_FIRST
 	case 2:
-		missingValue = schema.STRING_LAST
+		missingValue = spi.STRING_LAST
 	default:
 		missingValue = nil
 	}
 
-	return schema.NewBinarySortFieldWithMissing(field, reverse, missingValue), nil
+	return spi.NewBinarySortFieldWithMissing(field, reverse, missingValue), nil
 }
 
 func (p *BinarySortFieldProvider) WriteSortField(sf SortFieldValue, out store.DataOutput) error {
-	bsf, ok := sf.(*schema.BinarySortField)
+	bsf, ok := sf.(*spi.BinarySortField)
 	if !ok {
-		return fmt.Errorf("sort field is not a *schema.BinarySortField")
+		return fmt.Errorf("sort field is not a *spi.BinarySortField")
 	}
 
 	if err := out.WriteString(bsf.GetField()); err != nil {
@@ -60,20 +60,20 @@ func (p *BinarySortFieldProvider) WriteSortField(sf SortFieldValue, out store.Da
 	if bsf.GetReverse() {
 		reverseInt = 1
 	}
-	if err := out.WriteInt(reverseInt); err != nil {
+	if err := out.WriteInt(int32(reverseInt)); err != nil {
 		return err
 	}
 
 	var missingInt int
 	switch bsf.MissingValue {
-	case schema.STRING_FIRST:
+	case spi.STRING_FIRST:
 		missingInt = 1
-	case schema.STRING_LAST:
+	case spi.STRING_LAST:
 		missingInt = 2
 	default:
 		missingInt = 0
 	}
-	if err := out.WriteInt(missingInt); err != nil {
+	if err := out.WriteInt(int32(missingInt)); err != nil {
 		return err
 	}
 

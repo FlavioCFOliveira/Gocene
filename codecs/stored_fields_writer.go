@@ -77,7 +77,7 @@ func (w *BaseStoredFieldsWriter) FinishDocument() error {
 
 // WriteField writes a field.
 // This must be implemented by subclasses.
-func (w *BaseStoredFieldsWriter) WriteField(field spi.IndexableField) error {
+func (w *BaseStoredFieldsWriter) WriteField(info *spi.FieldInfo, field spi.IndexableField) error {
 	return fmt.Errorf("WriteField not implemented")
 }
 
@@ -158,7 +158,7 @@ func (w *StoredFieldsWriterImpl) FinishDocument() error {
 }
 
 // WriteField writes a field.
-func (w *StoredFieldsWriterImpl) WriteField(field spi.IndexableField) error {
+func (w *StoredFieldsWriterImpl) WriteField(info *spi.FieldInfo, field spi.IndexableField) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
@@ -242,7 +242,7 @@ func (w *NoOpStoredFieldsWriter) FinishDocument() error {
 }
 
 // WriteField does nothing.
-func (w *NoOpStoredFieldsWriter) WriteField(field spi.IndexableField) error {
+func (w *NoOpStoredFieldsWriter) WriteField(info *spi.FieldInfo, field spi.IndexableField) error {
 	return nil
 }
 

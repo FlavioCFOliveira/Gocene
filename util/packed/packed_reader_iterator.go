@@ -93,7 +93,7 @@ func (it *packedReaderIterator) NextN(count int) (*util.LongsRef, error) {
 			blocksToRead = len(it.nextBlocks)
 		}
 		if blocksToRead > 0 {
-			if err := it.in.ReadBytes(it.nextBlocks[:blocksToRead]); err != nil {
+			if err := it.in.ReadBytes(it.nextBlocks, 0, blocksToRead); err != nil {
 				return nil, err
 			}
 		}

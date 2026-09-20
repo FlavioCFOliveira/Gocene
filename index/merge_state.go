@@ -5,6 +5,7 @@
 package index
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -47,14 +48,53 @@ type MergeState struct {
 	// order as FieldInfos/MaxDocs/LiveDocs. The payload merge steps read their
 	// stored fields / postings / doc values from these (rmp #14/#114).
 	Readers []CodecReader
+
+	// NormsProducers is the per-sub-reader norms producer.
+	NormsProducers []spi.NormsProducer
+
+	// FieldsProducers is the per-sub-reader postings producer, in the same
+	// order as Readers, with a nil entry for a sub-reader without postings.
+	// Each non-nil entry is the producer's merge instance. Mirrors
+	// MergeState.fieldsProducers (MergeState.java:74, 155-157).
+	FieldsProducers []FieldsProducer
+
+	// DocValuesProducers is the per-sub-reader doc values producer, in the
+	// same order as Readers, with a nil entry for a sub-reader without doc
+	// values. Each non-nil entry is the producer's merge instance. Mirrors
+	// MergeState.docValuesProducers (MergeState.java:65, 140-143).
+	DocValuesProducers []DocValuesProducer
+
+	// PointsReaders is the per-sub-reader PointsReader, in the same order as
+	// Readers, with a nil entry for a sub-reader without points. Each non-nil
+	// entry is the reader's merge instance. Mirrors MergeState.pointsReaders
+	// (MergeState.java:77, 160-163).
+	PointsReaders []PointsReader
+
+	// TermVectorsReaders is the per-sub-reader TermVectorsReader, in the same
+	// order as Readers, with a nil entry for a sub-reader that stores no term
+	// vectors. Mirrors MergeState.termVectorsReaders (MergeState.java:59).
+	//
+	// DIVERGENCE, reported: Java wraps each non-null entry in
+	// getMergeInstance() (MergeState.java:150-153). spi.TermVectorsReader
+	// declares no such member, so the reader itself is carried. Java's default
+	// TermVectorsReader.getMergeInstance() returns this, so this is
+	// behaviour-preserving for every codec that does not override it.
+	TermVectorsReaders []TermVectorsReader
+
+	// KnnVectorsReaders is the per-sub-reader KnnVectorsReader, in the same
+	// order as Readers, with a nil entry for a sub-reader without vectors.
+	// Each non-nil entry is the reader's merge instance. Mirrors
+	// MergeState.knnVectorsReaders (MergeState.java:80, 165-168).
+	KnnVectorsReaders []KnnVectorsReader
+}
+
+// CheckAborted returns an error if the merge operation has been aborted.
+func (m *MergeState) CheckAborted() error {
+	return nil
 }
 
 // DocMap maps old doc IDs to new doc IDs during a merge. Mirrors
-// org.apache.lucene.index.MergeState.DocMap from Lucene 10.4.0. A docID is
-// mapped to the sentinel -1 when the corresponding document was deleted in
-// the source segment.
-type DocMap interface {
-	// Get returns the new docID for the given old docID, or -1 if the
-	// document was deleted.
-	Get(oldDocID int) int
-}
+// org.apache.lucene.index.MergeState.DocMap from Lucene 10.5.0. The contract
+// is declared in spi (see [spi.DocMap]) because util/bkd, which index imports,
+// takes it in BKDWriter.merge.
+type DocMap = spi.DocMap

@@ -1,39 +1,12 @@
-// Copyright 2026 Gocene. All rights reserved.
-// Use of this source code is governed by the Apache License 2.0
-// that can be found in the LICENSE file.
-
 package store
 
 import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
-
-// Lock represents a lock obtained by a LockFactory.
-//
-// This is the Go port of Lucene's org.apache.lucene.store.Lock.
-type Lock interface {
-	// Close releases the lock. If the lock is already released, this returns nil.
-	Close() error
-
-	// EnsureValid returns an error if the lock is no longer valid.
-	// This should be called periodically to verify the lock is still held.
-	EnsureValid() error
-
-	// IsLocked returns true if the lock is still held.
-	IsLocked() bool
-}
-
-// LockFactory is a factory for creating locks.
-//
-// This is the Go port of Lucene's org.apache.lucene.store.LockFactory.
-type LockFactory interface {
-	// ObtainLock attempts to obtain a lock for the specified name.
-	// Returns the Lock instance if successful, or an error if the lock
-	// could not be obtained.
-	ObtainLock(dir Directory, lockName string) (Lock, error)
-}
 
 // BaseLock provides common functionality for Lock implementations.
 type BaseLock struct {
@@ -67,18 +40,18 @@ func (l *BaseLock) VerifyLocked() error {
 // in the same JVM (or process) from accessing the same directory.
 type SingleInstanceLockFactory struct {
 	mu    sync.Mutex
-	locks map[string]Lock
+	locks map[string]spi.Lock
 }
 
 // NewSingleInstanceLockFactory creates a new SingleInstanceLockFactory.
 func NewSingleInstanceLockFactory() *SingleInstanceLockFactory {
 	return &SingleInstanceLockFactory{
-		locks: make(map[string]Lock),
+		locks: make(map[string]spi.Lock),
 	}
 }
 
 // ObtainLock obtains a lock.
-func (f *SingleInstanceLockFactory) ObtainLock(dir Directory, lockName string) (Lock, error) {
+func (f *SingleInstanceLockFactory) ObtainLock(dir spi.Directory, lockName string) (spi.Lock, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
@@ -136,7 +109,7 @@ func NewNoLockFactory() *NoLockFactory {
 }
 
 // ObtainLock returns a no-op lock.
-func (f *NoLockFactory) ObtainLock(dir Directory, lockName string) (Lock, error) {
+func (f *NoLockFactory) ObtainLock(dir spi.Directory, lockName string) (spi.Lock, error) {
 	return &NoOpLock{}, nil
 }
 

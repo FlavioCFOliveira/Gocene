@@ -38,7 +38,8 @@ func ParseWithFields(queries, fields []string, occurs []search.Occur, analyzer a
 	if len(queries) != len(fields) || len(queries) != len(occurs) {
 		return nil, NewQueryNodeError(NewMessageImpl(MsgInvalidSyntax, "queries, fields and occurs must have identical lengths"))
 	}
-	bq := search.NewBooleanQuery()
+	// Lucene builds this through BooleanQuery.Builder.
+	bq := search.NewBooleanQueryBuilder()
 	for i, q := range queries {
 		parser := NewStandardQueryParser()
 		parser.SetDefaultField(fields[i])
@@ -53,7 +54,7 @@ func ParseWithFields(queries, fields []string, occurs []search.Occur, analyzer a
 			bq.Add(sub, occurs[i])
 		}
 	}
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // ParseAcrossFields mirrors QueryParserUtil.parse(String query, String[] fields, BooleanClause.Occur[] flags, Analyzer analyzer):
@@ -63,7 +64,8 @@ func ParseAcrossFields(query string, fields []string, occurs []search.Occur, ana
 	if len(fields) != len(occurs) {
 		return nil, NewQueryNodeError(NewMessageImpl(MsgInvalidSyntax, "fields and occurs must have identical lengths"))
 	}
-	bq := search.NewBooleanQuery()
+	// Lucene builds this through BooleanQuery.Builder.
+	bq := search.NewBooleanQueryBuilder()
 	for i, f := range fields {
 		parser := NewStandardQueryParser()
 		parser.SetDefaultField(f)
@@ -78,5 +80,5 @@ func ParseAcrossFields(query string, fields []string, occurs []search.Occur, ana
 			bq.Add(sub, occurs[i])
 		}
 	}
-	return bq, nil
+	return bq.Build(), nil
 }

@@ -174,7 +174,9 @@ func (f *BulgarianStemFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*BulgarianStemFilter)(nil)
 
 // BulgarianStemFilterFactory creates BulgarianStemFilter instances.
-type BulgarianStemFilterFactory struct{}
+type BulgarianStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewBulgarianStemFilterFactory returns a fresh factory.
 func NewBulgarianStemFilterFactory() *BulgarianStemFilterFactory {

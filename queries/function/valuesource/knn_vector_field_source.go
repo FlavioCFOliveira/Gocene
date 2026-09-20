@@ -10,6 +10,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // ByteKnnVectorFieldSource is an implementation for retrieving FunctionValues
@@ -28,8 +29,11 @@ func NewByteKnnVectorFieldSource(fieldName string) *ByteKnnVectorFieldSource {
 
 // GetValues returns the FunctionValues for the given context and reader.
 func (v *ByteKnnVectorFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	reader := readerContext.Reader()
-	vectorValues := reader.GetByteVectorValues(v.fieldName)
+	reader := readerContext.LeafReader()
+	vectorValues, err := reader.GetByteVectorValues(v.fieldName)
+	if err != nil {
+		return nil, err
+	}
 
 	if vectorValues == nil {
 		if err := CheckField(reader, v.fieldName, index.VectorEncodingByte); err != nil {
@@ -37,12 +41,12 @@ func (v *ByteKnnVectorFieldSource) GetValues(ctx function.Context, readerContext
 		}
 
 		return &byteKnnVectorFieldFunctionEmpty{
-			VectorFieldFunction: *NewVectorFieldFunction(v),
+			VectorFieldFunction: NewVectorFieldFunction(v),
 		}, nil
 	}
 
 	return &byteKnnVectorFieldFunction{
-		VectorFieldFunction: *NewVectorFieldFunction(v),
+		VectorFieldFunction: NewVectorFieldFunction(v),
 		vectorValues:        vectorValues,
 		iterator:            vectorValues.Iterator(),
 	}, nil
@@ -70,7 +74,7 @@ func (v *ByteKnnVectorFieldSource) Description() string {
 type byteKnnVectorFieldFunction struct {
 	*VectorFieldFunction
 	vectorValues index.ByteVectorValues
-	iterator     util.DocIdSetIterator
+	iterator     spi.DocIndexIterator
 }
 
 func (v *byteKnnVectorFieldFunction) ByteVectorVal(doc int) ([]byte, error) {
@@ -79,12 +83,12 @@ func (v *byteKnnVectorFieldFunction) ByteVectorVal(doc int) ([]byte, error) {
 		return nil, err
 	}
 	if exists {
-		return v.vectorValues.VectorValue(v.iterator.Index()), nil
+		return v.vectorValues.VectorValue(v.iterator.Index())
 	}
 	return nil, nil
 }
 
-func (v *byteKnnVectorFieldFunction) getVectorIterator() util.DocIdSetIterator {
+func (v *byteKnnVectorFieldFunction) getVectorIterator() search.DocIdSetIterator {
 	return v.iterator
 }
 
@@ -96,8 +100,8 @@ func (v *byteKnnVectorFieldFunctionEmpty) ByteVectorVal(_ int) ([]byte, error) {
 	return nil, nil
 }
 
-func (v *byteKnnVectorFieldFunctionEmpty) getVectorIterator() util.DocIdSetIterator {
-	return search.NewEmptyDocIdSetIterator()
+func (v *byteKnnVectorFieldFunctionEmpty) getVectorIterator() search.DocIdSetIterator {
+	return search.Empty()
 }
 
 // FloatKnnVectorFieldSource is an implementation for retrieving FunctionValues
@@ -116,8 +120,11 @@ func NewFloatKnnVectorFieldSource(fieldName string) *FloatKnnVectorFieldSource {
 
 // GetValues returns the FunctionValues for the given context and reader.
 func (v *FloatKnnVectorFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	reader := readerContext.Reader()
-	vectorValues := reader.GetFloatVectorValues(v.fieldName)
+	reader := readerContext.LeafReader()
+	vectorValues, err := reader.GetFloatVectorValues(v.fieldName)
+	if err != nil {
+		return nil, err
+	}
 
 	if vectorValues == nil {
 		if err := CheckField(reader, v.fieldName, index.VectorEncodingFloat32); err != nil {
@@ -125,12 +132,12 @@ func (v *FloatKnnVectorFieldSource) GetValues(ctx function.Context, readerContex
 		}
 
 		return &floatKnnVectorFieldFunctionEmpty{
-			VectorFieldFunction: *NewVectorFieldFunction(v),
+			VectorFieldFunction: NewVectorFieldFunction(v),
 		}, nil
 	}
 
 	return &floatKnnVectorFieldFunction{
-		VectorFieldFunction: *NewVectorFieldFunction(v),
+		VectorFieldFunction: NewVectorFieldFunction(v),
 		vectorValues:        vectorValues,
 		iterator:            vectorValues.Iterator(),
 	}, nil
@@ -158,7 +165,7 @@ func (v *FloatKnnVectorFieldSource) Description() string {
 type floatKnnVectorFieldFunction struct {
 	*VectorFieldFunction
 	vectorValues index.FloatVectorValues
-	iterator     util.DocIdSetIterator
+	iterator     spi.DocIndexIterator
 }
 
 func (v *floatKnnVectorFieldFunction) FloatVectorVal(doc int) ([]float32, error) {
@@ -167,12 +174,12 @@ func (v *floatKnnVectorFieldFunction) FloatVectorVal(doc int) ([]float32, error)
 		return nil, err
 	}
 	if exists {
-		return v.vectorValues.VectorValue(v.iterator.Index()), nil
+		return v.vectorValues.VectorValue(v.iterator.Index())
 	}
 	return nil, nil
 }
 
-func (v *floatKnnVectorFieldFunction) getVectorIterator() util.DocIdSetIterator {
+func (v *floatKnnVectorFieldFunction) getVectorIterator() search.DocIdSetIterator {
 	return v.iterator
 }
 
@@ -184,6 +191,6 @@ func (v *floatKnnVectorFieldFunctionEmpty) FloatVectorVal(_ int) ([]float32, err
 	return nil, nil
 }
 
-func (v *floatKnnVectorFieldFunctionEmpty) getVectorIterator() util.DocIdSetIterator {
-	return search.NewEmptyDocIdSetIterator()
+func (v *floatKnnVectorFieldFunctionEmpty) getVectorIterator() search.DocIdSetIterator {
+	return search.Empty()
 }

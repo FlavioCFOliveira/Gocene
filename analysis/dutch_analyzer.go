@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // DutchStopWords contains common Dutch stop words.
@@ -44,15 +45,25 @@ func NewDutchAnalyzer() *DutchAnalyzer {
 // NewDutchAnalyzerWithWords creates a DutchAnalyzer with custom stop words.
 func NewDutchAnalyzerWithWords(stopWords *CharArraySet) *DutchAnalyzer {
 	a := &DutchAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewDutchLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewDutchLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 
 	return a
 }
@@ -72,9 +83,8 @@ func (a *DutchAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-// Ensure DutchAnalyzer implements Analyzer
-var _ Analyzer = (*DutchAnalyzer)(nil)
-var _ AnalyzerInterface = (*DutchAnalyzer)(nil)
+// Ensure DutchAnalyzer implements api.Analyzer
+var _ api.Analyzer = (*DutchAnalyzer)(nil)
 
 // DutchLightStemFilter implements light stemming for Dutch.
 type DutchLightStemFilter struct {
@@ -144,7 +154,9 @@ func dutchLightStem(term string) string {
 }
 
 // DutchLightStemFilterFactory creates DutchLightStemFilter instances.
-type DutchLightStemFilterFactory struct{}
+type DutchLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewDutchLightStemFilterFactory creates a new DutchLightStemFilterFactory.
 func NewDutchLightStemFilterFactory() *DutchLightStemFilterFactory {

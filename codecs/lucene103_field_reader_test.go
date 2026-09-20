@@ -230,15 +230,15 @@ func TestLucene103FieldReader_NewTrieReaderSlicesIndexIn(t *testing.T) {
 	// Drain the three VLongs the trie just wrote into scratchMeta.
 	scratchBytes := scratchMeta.ToArrayCopy()
 	bin := store.NewByteArrayDataInput(scratchBytes)
-	indexStart, err := store.ReadVLong(bin)
+	indexStart, err := bin.ReadVLong()
 	if err != nil {
 		t.Fatalf("ReadVLong indexStart: %v", err)
 	}
-	rootFP, err := store.ReadVLong(bin)
+	rootFP, err := bin.ReadVLong()
 	if err != nil {
 		t.Fatalf("ReadVLong rootFP: %v", err)
 	}
-	indexEnd, err := store.ReadVLong(bin)
+	indexEnd, err := bin.ReadVLong()
 	if err != nil {
 		t.Fatalf("ReadVLong indexEnd: %v", err)
 	}

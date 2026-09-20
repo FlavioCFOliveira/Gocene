@@ -105,7 +105,7 @@ Key rules of the graph:
 |---|---|---|
 | `store.Directory` | `store` | A flat namespace of named files with atomic rename and lock support. Backed by `MMapDirectory`, `NIOFSDirectory`, `SimpleFSDirectory`, or the in-memory `ByteBuffersDirectory`. |
 | `spi.Codec` | `spi` | The format contract. Exposes nine per-component format accessors (postings, stored fields, field infos, segment info, segment infos, term vectors, compound, KNN vectors, doc values). |
-| `schema.SegmentInfo` | `schema` | Immutable per-segment metadata: name, doc count, codec name, files, sort, compound-file flag. |
+| `spi.SegmentInfo` | `schema` | Immutable per-segment metadata: name, doc count, codec name, files, sort, compound-file flag. |
 | `index.SegmentInfos` (alias of `spi.SegmentInfos`) | `index`/`spi` | The list of `SegmentCommitInfo`s that make up a commit point; persisted as `segments_N`. |
 | `index.IndexWriter` | `index` | Buffers documents, flushes segments through codec writers, and commits. |
 | `index.DirectoryReader` | `index` | A point-in-time, read-only view over all segments in a directory; a composite of per-segment `SegmentReader`s. |

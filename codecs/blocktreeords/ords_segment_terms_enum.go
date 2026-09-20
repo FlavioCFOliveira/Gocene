@@ -21,6 +21,11 @@ import (
 // logic is deferred to a later sprint; the struct carries all fields required
 // by OrdsSegmentTermsEnumFrame so that the frame compiles cleanly.
 type OrdsSegmentTermsEnum struct {
+	// TermsEnumBase renders `extends BaseTermsEnum`
+	// (OrdsSegmentTermsEnum.java:41): it carries the lazily created
+	// AttributeSource behind BaseTermsEnum.attributes().
+	index.TermsEnumBase
+
 	reader *OrdsFieldReader
 
 	// term is the current term built up by frame traversal.
@@ -150,9 +155,38 @@ func (e *OrdsSegmentTermsEnum) DocFreq() (int, error) { return 0, nil }
 // TotalTermFreq returns the total term frequency of the current term.
 func (e *OrdsSegmentTermsEnum) TotalTermFreq() (int64, error) { return 0, nil }
 
+// Ord returns the ordinal of the current term. Port of
+// OrdsSegmentTermsEnum.ord() (OrdsSegmentTermsEnum.java:1009):
+//
+//	assert !eof;
+//	assert currentFrame.termOrd > 0;
+//	return currentFrame.termOrd - 1;
+//
+// The two statements Java guards with `assert` are disabled at runtime unless
+// the JVM is started with -ea, so only the return is behaviour.
+func (e *OrdsSegmentTermsEnum) Ord() int64 {
+	return e.currentFrame.termOrd - 1
+}
+
 // Postings returns a PostingsEnum for the current term.
 func (e *OrdsSegmentTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
 	return &index.EmptyPostingsEnum{}, nil
+}
+
+// Impacts returns an ImpactsEnum for the current term. Port of
+// OrdsSegmentTermsEnum.impacts(int) (OrdsSegmentTermsEnum.java:1045):
+//
+//	assert !eof;
+//	currentFrame.decodeMetaData();
+//	return fr.parent.postingsReader.impacts(fr.fieldInfo, currentFrame.state, flags);
+//
+// The `assert !eof` statement is disabled at runtime unless the JVM is started
+// with -ea, so only the two remaining statements are behaviour.
+func (e *OrdsSegmentTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	if err := e.currentFrame.decodeMetaData(); err != nil {
+		return nil, fmt.Errorf("OrdsSegmentTermsEnum.Impacts: decodeMetaData: %w", err)
+	}
+	return e.reader.parent.postingsReader.Impacts(e.reader.fieldInfo, e.currentFrame.termStateRef, flags)
 }
 
 // PostingsWithLiveDocs returns a PostingsEnum for the current term filtered by live docs.

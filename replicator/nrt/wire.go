@@ -46,22 +46,22 @@ import (
 //
 // Port of org.apache.lucene.replicator.nrt.SimplePrimaryNode#writeCopyState.
 func WriteCopyState(state *CopyState, out store.DataOutput) error {
-	if err := store.WriteVInt(out, int32(len(state.InfosBytes))); err != nil {
+	if err := out.WriteVInt(int32(len(state.InfosBytes))); err != nil {
 		return err
 	}
-	if err := out.WriteBytes(state.InfosBytes); err != nil {
+	if err := out.WriteBytes(state.InfosBytes, 0, len(state.InfosBytes)); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(out, state.Gen); err != nil {
+	if err := out.WriteVLong(state.Gen); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(out, state.Version); err != nil {
+	if err := out.WriteVLong(state.Version); err != nil {
 		return err
 	}
 	if err := WriteFilesMetaData(state.Files, out); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(out, int32(len(state.CompletedMergeFiles))); err != nil {
+	if err := out.WriteVInt(int32(len(state.CompletedMergeFiles))); err != nil {
 		return err
 	}
 	for name := range state.CompletedMergeFiles {
@@ -69,7 +69,7 @@ func WriteCopyState(state *CopyState, out store.DataOutput) error {
 			return err
 		}
 	}
-	return store.WriteVLong(out, state.PrimaryGen)
+	return out.WriteVLong(state.PrimaryGen)
 }
 
 // ReadCopyState decodes a CopyState from in using the Lucene 10.4.0
@@ -82,14 +82,14 @@ func ReadCopyState(in store.DataInput) (*CopyState, error) {
 		return nil, err
 	}
 	infosBytes := make([]byte, infosLen)
-	if err := in.ReadBytes(infosBytes); err != nil {
+	if err := in.ReadBytes(infosBytes, 0, len(infosBytes)); err != nil {
 		return nil, err
 	}
-	gen, err := store.ReadVLong(in)
+	gen, err := in.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
-	version, err := store.ReadVLong(in)
+	version, err := in.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +109,7 @@ func ReadCopyState(in store.DataInput) (*CopyState, error) {
 		}
 		completedMergeFiles[name] = struct{}{}
 	}
-	primaryGen, err := store.ReadVLong(in)
+	primaryGen, err := in.ReadVLong()
 	if err != nil {
 		return nil, err
 	}
@@ -131,10 +131,10 @@ func ReadCopyState(in store.DataInput) (*CopyState, error) {
 //
 // Port of org.apache.lucene.replicator.nrt.TestSimpleServer#writeFilesMetaData.
 func WriteFilesMetaData(files map[string]*FileMetaData, out store.DataOutput) error {
-	if err := store.WriteVInt(out, int32(len(files))); err != nil {
+	if err := out.WriteVInt(int32(len(files))); err != nil {
 		return err
 	}
-		// Sort file names for deterministic output (Go map iteration is non-deterministic).
+	// Sort file names for deterministic output (Go map iteration is non-deterministic).
 	sortedNames := make([]string, 0, len(files))
 	for name := range files {
 		sortedNames = append(sortedNames, name)
@@ -145,22 +145,22 @@ func WriteFilesMetaData(files map[string]*FileMetaData, out store.DataOutput) er
 		if err := store.WriteString(out, name); err != nil {
 			return err
 		}
-		if err := store.WriteVLong(out, fmd.Length); err != nil {
+		if err := out.WriteVLong(fmd.Length); err != nil {
 			return err
 		}
-		if err := store.WriteVLong(out, fmd.Checksum); err != nil {
+		if err := out.WriteVLong(fmd.Checksum); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, int32(len(fmd.Header))); err != nil {
+		if err := out.WriteVInt(int32(len(fmd.Header))); err != nil {
 			return err
 		}
-		if err := out.WriteBytes(fmd.Header); err != nil {
+		if err := out.WriteBytes(fmd.Header, 0, len(fmd.Header)); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, int32(len(fmd.Footer))); err != nil {
+		if err := out.WriteVInt(int32(len(fmd.Footer))); err != nil {
 			return err
 		}
-		if err := out.WriteBytes(fmd.Footer); err != nil {
+		if err := out.WriteBytes(fmd.Footer, 0, len(fmd.Footer)); err != nil {
 			return err
 		}
 	}
@@ -182,11 +182,11 @@ func ReadFilesMetaData(in store.DataInput) (map[string]*FileMetaData, error) {
 		if err != nil {
 			return nil, err
 		}
-		length, err := store.ReadVLong(in)
+		length, err := in.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
-		checksum, err := store.ReadVLong(in)
+		checksum, err := in.ReadVLong()
 		if err != nil {
 			return nil, err
 		}
@@ -195,7 +195,7 @@ func ReadFilesMetaData(in store.DataInput) (map[string]*FileMetaData, error) {
 			return nil, err
 		}
 		header := make([]byte, headerLen)
-		if err := in.ReadBytes(header); err != nil {
+		if err := in.ReadBytes(header, 0, len(header)); err != nil {
 			return nil, err
 		}
 		footerLen, err := store.ReadVInt(in)
@@ -203,7 +203,7 @@ func ReadFilesMetaData(in store.DataInput) (map[string]*FileMetaData, error) {
 			return nil, err
 		}
 		footer := make([]byte, footerLen)
-		if err := in.ReadBytes(footer); err != nil {
+		if err := in.ReadBytes(footer, 0, len(footer)); err != nil {
 			return nil, err
 		}
 		files[name] = &FileMetaData{Header: header, Footer: footer, Length: length, Checksum: checksum}
@@ -291,7 +291,7 @@ func (f *orderedFiles) Get(name string) (*FileMetaData, bool) {
 
 // WriteFilesMetaDataOrdered encodes an orderedFiles onto out in insertion order.
 func writeFilesMetaDataOrdered(files *orderedFiles, out store.DataOutput) error {
-	if err := store.WriteVInt(out, int32(files.Len())); err != nil {
+	if err := out.WriteVInt(int32(files.Len())); err != nil {
 		return err
 	}
 	for _, name := range files.names {
@@ -299,22 +299,22 @@ func writeFilesMetaDataOrdered(files *orderedFiles, out store.DataOutput) error 
 		if err := store.WriteString(out, name); err != nil {
 			return err
 		}
-		if err := store.WriteVLong(out, fmd.Length); err != nil {
+		if err := out.WriteVLong(fmd.Length); err != nil {
 			return err
 		}
-		if err := store.WriteVLong(out, fmd.Checksum); err != nil {
+		if err := out.WriteVLong(fmd.Checksum); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, int32(len(fmd.Header))); err != nil {
+		if err := out.WriteVInt(int32(len(fmd.Header))); err != nil {
 			return err
 		}
-		if err := out.WriteBytes(fmd.Header); err != nil {
+		if err := out.WriteBytes(fmd.Header, 0, len(fmd.Header)); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, int32(len(fmd.Footer))); err != nil {
+		if err := out.WriteVInt(int32(len(fmd.Footer))); err != nil {
 			return err
 		}
-		if err := out.WriteBytes(fmd.Footer); err != nil {
+		if err := out.WriteBytes(fmd.Footer, 0, len(fmd.Footer)); err != nil {
 			return err
 		}
 	}
@@ -356,22 +356,22 @@ type CopyStateOrdered struct {
 // This is the variant used by the Gocene-write leg to produce byte-identical
 // output to the Java harness (which uses LinkedHashMap / LinkedHashSet).
 func WriteCopyStateOrdered(state *CopyStateOrdered, out store.DataOutput) error {
-	if err := store.WriteVInt(out, int32(len(state.InfosBytes))); err != nil {
+	if err := out.WriteVInt(int32(len(state.InfosBytes))); err != nil {
 		return err
 	}
-	if err := out.WriteBytes(state.InfosBytes); err != nil {
+	if err := out.WriteBytes(state.InfosBytes, 0, len(state.InfosBytes)); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(out, state.Gen); err != nil {
+	if err := out.WriteVLong(state.Gen); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(out, state.Version); err != nil {
+	if err := out.WriteVLong(state.Version); err != nil {
 		return err
 	}
 	if err := writeFilesMetaDataOrdered(state.Files, out); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(out, int32(state.CompletedMergeFiles.Len())); err != nil {
+	if err := out.WriteVInt(int32(state.CompletedMergeFiles.Len())); err != nil {
 		return err
 	}
 	for _, name := range state.CompletedMergeFiles.names {
@@ -379,7 +379,7 @@ func WriteCopyStateOrdered(state *CopyStateOrdered, out store.DataOutput) error 
 			return err
 		}
 	}
-	return store.WriteVLong(out, state.PrimaryGen)
+	return out.WriteVLong(state.PrimaryGen)
 }
 
 // BuildCopyStateOrdered replicates ReplicatorNrtCopyStateScenario.buildCopyState(seed).

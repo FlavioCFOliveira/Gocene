@@ -66,10 +66,7 @@ func (m *TopFieldCollectorManager) Reduce(collectors []*TopFieldCollector) (*Top
 			parts = append(parts, td)
 		}
 	}
-	merged, err := MergeWithStart(0, m.numHits, parts)
-	if err != nil {
-		return nil, err
-	}
+	merged := Merge(0, m.numHits, parts, nil)
 	if merged == nil {
 		empty := NewTotalHits(0, EQUAL_TO)
 		return NewTopFieldDocs(empty, nil, m.sort.Fields), nil

@@ -8,6 +8,7 @@ package spans
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // NoMorePositions is the sentinel value returned by NextStartPosition when
@@ -84,7 +85,6 @@ func (*BaseSpans) DoCurrentSpans() error { return nil }
 // Former stub types resolved:
 //   - FieldMaskingSpanQuery → removed (unused; real impl. in search/ package).
 //   - FilterSpans → removed (unused; filtering done at call sites).
-//   - SpanMultiTermQueryWrapper → removed (unused; real impl. in search/span_multi_term_query_wrapper.go).
 //   - SpanNotQuery → removed (unused; real impl. in search/span_not_query.go).
 //   - SpanOrQuery → removed (unused; real impl. in search/span_or_query.go).
 //   - SpanWithinQuery → removed (unused; real impl. in search/span_within_query.go).

@@ -6,6 +6,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // QueryBuilder is the interface for building Lucene Query objects from QueryNodes.
@@ -116,8 +117,8 @@ func (b *BooleanQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 		return nil, fmt.Errorf("expected BooleanQueryNode, AndQueryNode, or OrQueryNode, got %T", node)
 	}
 
-	// Build boolean query
-	booleanQuery := search.NewBooleanQuery()
+	// Build boolean query; Lucene builds this through BooleanQuery.Builder.
+	booleanQuery := search.NewBooleanQueryBuilder()
 
 	// Process children
 	for _, child := range children {
@@ -142,7 +143,7 @@ func (b *BooleanQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 		}
 	}
 
-	return booleanQuery, nil
+	return booleanQuery.Build(), nil
 }
 
 // FieldQueryNodeBuilder builds TermQuery from FieldQueryNode.
@@ -220,7 +221,7 @@ func (b *FuzzyQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 	// Create fuzzy query
 	// Convert minSimilarity (0.0-1.0) to maxEdits (integer)
 	// This is a simplified conversion - in practice, this would use Levenshtein distance calculation
-	maxEdits := calculateMaxEdits(fuzzyNode.GetMinSimilarity(), len(fuzzyNode.GetText()))
+	maxEdits := calculateMaxEdits(float64(fuzzyNode.GetSimilarity()), len(fuzzyNode.GetText()))
 
 	term := index.NewTerm(fuzzyNode.GetField(), fuzzyNode.GetText())
 	fuzzyQuery := search.NewFuzzyQueryWithParams(term, maxEdits, fuzzyNode.GetPrefixLength(), 50)
@@ -255,13 +256,14 @@ func (b *RangeQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 		return nil, fmt.Errorf("expected RangeQueryNode, got %T", node)
 	}
 
-	// Convert string bounds to bytes
-	var lowerBytes, upperBytes []byte
+	// Convert string bounds to BytesRef; an open bound stays nil, which is how
+	// Lucene signals "unbounded" to TermRangeQuery.
+	var lowerBytes, upperBytes *util.BytesRef
 	if rangeNode.GetLower() != "*" {
-		lowerBytes = []byte(rangeNode.GetLower())
+		lowerBytes = util.NewBytesRef([]byte(rangeNode.GetLower()))
 	}
 	if rangeNode.GetUpper() != "*" {
-		upperBytes = []byte(rangeNode.GetUpper())
+		upperBytes = util.NewBytesRef([]byte(rangeNode.GetUpper()))
 	}
 
 	// Create range query
@@ -301,7 +303,7 @@ func (b *PhraseQueryNodeBuilder) Build(node QueryNode) (search.Query, error) {
 	}
 
 	// Create phrase query with slop
-	phraseQuery := search.NewPhraseQueryWithSlop(phraseNode.GetSlop(), phraseNode.GetField(), indexTerms...)
+	phraseQuery := search.NewPhraseQueryWithTerms(phraseNode.GetSlop(), phraseNode.GetField(), indexTerms...)
 
 	return phraseQuery, nil
 }
@@ -422,5 +424,5 @@ func (b *MatchNoDocsQueryNodeBuilder) Build(node QueryNode) (search.Query, error
 		return nil, fmt.Errorf("expected MatchNoDocsQueryNode, got %T", node)
 	}
 
-	return search.NewMatchNoDocsQuery(), nil
+	return search.NewMatchNoDocsQuery(""), nil
 }

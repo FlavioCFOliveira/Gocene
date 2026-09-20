@@ -9,6 +9,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // TeluguAnalyzer is an analyzer for Telugu language text.
@@ -34,7 +35,7 @@ func NewTeluguAnalyzer() *TeluguAnalyzer {
 // NewTeluguAnalyzerWithWords creates a TeluguAnalyzer with custom stop words.
 func NewTeluguAnalyzerWithWords(stopWords *analysis.CharArraySet) *TeluguAnalyzer {
 	a := &TeluguAnalyzer{
-		BaseAnalyzer: analysis.NewAnalyzer(),
+		BaseAnalyzer: analysis.NewAnalyzer(analysis.GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
@@ -60,4 +61,4 @@ func (a *TeluguAnalyzer) GetStopWords() *analysis.CharArraySet {
 }
 
 var _ analysis.Analyzer = (*TeluguAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*TeluguAnalyzer)(nil)
+var _ api.Analyzer = (*TeluguAnalyzer)(nil)

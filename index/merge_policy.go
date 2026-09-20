@@ -333,6 +333,14 @@ type OneMerge struct {
 	// exactly once, when the merge finishes, and success records the outcome.
 	completed chan struct{}
 	success   bool
+
+	// OnMergeFinished is an optional hook called when the merge finishes.
+	// It mirrors the custom logic used in point-in-time merges.
+	OnMergeFinished func(m *OneMerge, success bool, segmentDropped bool) error
+
+	// OnMergeComplete is an optional hook called when the merge completes
+	// and the merged segment is available.
+	OnMergeComplete func(m *OneMerge)
 }
 
 // NewOneMerge creates a OneMerge over the given segments. Mirrors
@@ -438,8 +446,8 @@ func (m *OneMerge) TotalBytesSize() int64 { return m.TotalMergeBytes.Load() }
 func (m *OneMerge) TotalNumDocs() int { return m.TotalMaxDoc }
 
 // GetStoreMergeInfo returns the store.MergeInfo describing this merge.
-func (m *OneMerge) GetStoreMergeInfo() store.MergeInfo {
-	return store.MergeInfo{
+func (m *OneMerge) GetStoreMergeInfo() *store.MergeInfo {
+	return &store.MergeInfo{
 		TotalMaxDoc:         m.TotalMaxDoc,
 		EstimatedMergeBytes: m.EstimatedMergeBytes.Load(),
 		IsExternal:          m.IsExternal,
@@ -517,7 +525,12 @@ func (m *OneMerge) Close(success bool, segmentDropped bool, readerConsumer func(
 	m.mergeReaders = nil
 	m.mu.Unlock()
 
-	finishedErr := m.MergeFinished(success, segmentDropped)
+	var finishedErr error
+	if m.OnMergeFinished != nil {
+		finishedErr = m.OnMergeFinished(m, success, segmentDropped)
+	} else {
+		finishedErr = m.MergeFinished(success, segmentDropped)
+	}
 
 	var consumerErr error
 	if readerConsumer != nil {

@@ -35,7 +35,7 @@ func NewSimpleTextPointsReader(state *codecs.SegmentReadState) (*SimpleTextPoint
 	// -----------------------------------------------------------------------
 	// 1. Read the index file (.dii) to build field → data-file-offset map.
 	// -----------------------------------------------------------------------
-	indexFileName := index.SegmentFileName(
+	indexFileName := store.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		PointIndexExtension,
@@ -94,7 +94,7 @@ func NewSimpleTextPointsReader(state *codecs.SegmentReadState) (*SimpleTextPoint
 	// -----------------------------------------------------------------------
 	// 2. Open the data file (.dim) and build a BKD reader per field.
 	// -----------------------------------------------------------------------
-	dataFileName := index.SegmentFileName(
+	dataFileName := store.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		PointExtension,
@@ -270,7 +270,7 @@ func (r *SimpleTextPointsReader) initReader(fp int64) (*SimpleTextBKDReader, err
 // GetValues returns the PointValues for the given field.
 //
 // Port of SimpleTextPointsReader.getValues(String).
-func (r *SimpleTextPointsReader) GetValues(fieldName string) (codecs.PointValues, error) {
+func (r *SimpleTextPointsReader) GetValues(fieldName string) (index.PointValues, error) {
 	fi := r.readState.FieldInfos.GetByName(fieldName)
 	if fi == nil {
 		return nil, fmt.Errorf("SimpleTextPointsReader.GetValues: field %q is unrecognized", fieldName)
@@ -278,12 +278,20 @@ func (r *SimpleTextPointsReader) GetValues(fieldName string) (codecs.PointValues
 	if fi.PointDimensionCount() == 0 {
 		return nil, fmt.Errorf("SimpleTextPointsReader.GetValues: field %q did not index points", fieldName)
 	}
-	bkd, ok := r.readers[fieldName]
+	reader, ok := r.readers[fieldName]
 	if !ok {
 		return nil, nil
 	}
-	return bkd, nil
+	return reader, nil
 }
+
+// Java's SimpleTextPointsReader.getValues returns the SimpleTextBKDReader
+// itself (SimpleTextBKDReader extends org.apache.lucene.index.PointValues), so
+// there is no wrapper type here. The `simpleTextPointValues` view and the
+// `simpleTextVisitorBridge` that used to live at this point bridged Gocene's
+// two incompatible PointValues renderings and its two IntersectVisitor
+// renderings; with one PointValues and one IntersectVisitor in the module they
+// have no Lucene counterpart and are gone.
 
 // CheckIntegrity validates the checksum of the data file.
 //
@@ -329,6 +337,12 @@ func (r *SimpleTextPointsReader) CheckIntegrity() error {
 	}
 	return nil
 }
+
+// GetMergeInstance returns the receiver.
+//
+// SimpleTextPointsReader does not override getMergeInstance, so it inherits the
+// PointsReader default (PointsReader.java:56), which is {@code return this;}.
+func (r *SimpleTextPointsReader) GetMergeInstance() codecs.PointsReader { return r }
 
 // Close releases the data file.
 //

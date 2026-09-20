@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // WhitespaceAnalyzer is an analyzer that tokenizes text at whitespace.
@@ -34,7 +35,7 @@ type WhitespaceAnalyzer struct {
 // NewWhitespaceAnalyzer creates a new WhitespaceAnalyzer.
 func NewWhitespaceAnalyzer() *WhitespaceAnalyzer {
 	return &WhitespaceAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 	}
 }
 
@@ -43,15 +44,13 @@ func NewWhitespaceAnalyzer() *WhitespaceAnalyzer {
 func (a *WhitespaceAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
 	// Create the tokenizer - no filters applied
 	tokenizer := NewWhitespaceTokenizer()
-	if err := tokenizer.SetReader(reader); err != nil {
-		return nil, err
-	}
+	tokenizer.SetReader(reader)
 
 	return tokenizer, nil
 }
 
 // Ensure WhitespaceAnalyzer implements Analyzer
-var _ Analyzer = (*WhitespaceAnalyzer)(nil)
+var _ api.Analyzer = (*WhitespaceAnalyzer)(nil)
 
 // LowerCaseWhitespaceAnalyzer is an analyzer that tokenizes at whitespace
 // and converts tokens to lowercase.
@@ -70,7 +69,7 @@ type LowerCaseWhitespaceAnalyzer struct {
 // NewLowerCaseWhitespaceAnalyzer creates a new LowerCaseWhitespaceAnalyzer.
 func NewLowerCaseWhitespaceAnalyzer() *LowerCaseWhitespaceAnalyzer {
 	return &LowerCaseWhitespaceAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 	}
 }
 
@@ -79,9 +78,7 @@ func NewLowerCaseWhitespaceAnalyzer() *LowerCaseWhitespaceAnalyzer {
 func (a *LowerCaseWhitespaceAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
 	// Create the tokenizer
 	tokenizer := NewWhitespaceTokenizer()
-	if err := tokenizer.SetReader(reader); err != nil {
-		return nil, err
-	}
+	tokenizer.SetReader(reader)
 
 	// Apply lowercase filter
 	lowerCaseFilter := NewLowerCaseFilter(tokenizer)
@@ -90,4 +87,4 @@ func (a *LowerCaseWhitespaceAnalyzer) TokenStream(fieldName string, reader io.Re
 }
 
 // Ensure LowerCaseWhitespaceAnalyzer implements Analyzer
-var _ Analyzer = (*LowerCaseWhitespaceAnalyzer)(nil)
+var _ api.Analyzer = (*LowerCaseWhitespaceAnalyzer)(nil)

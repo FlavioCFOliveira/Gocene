@@ -9,10 +9,11 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	bcstore "github.com/FlavioCFOliveira/Gocene/backward_codecs/store"
+	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
 
@@ -45,9 +46,9 @@ type lucene92FieldEntry struct {
 	addressesLength int64
 
 	// HNSW graph topology
-	maxConn  int // M parameter
-	numLevels int
-	nodesByLevel        [][]int32
+	maxConn      int // M parameter
+	numLevels    int
+	nodesByLevel [][]int32
 	// graphOffsetsByLevel[l] is the byte offset in .vex where level l begins
 	graphOffsetsByLevel []int64
 }
@@ -105,7 +106,7 @@ func NewLucene92HnswVectorsReader(state *index.SegmentReadState) (*Lucene92HnswV
 
 // readMetadata reads the .vem file and populates r.fields.
 func (r *Lucene92HnswVectorsReader) readMetadata(state *index.SegmentReadState) (int32, error) {
-	metaName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene92MetaExtension)
+	metaName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene92MetaExtension)
 
 	meta, err := bcstore.OpenChecksumInput(state.Directory, metaName,
 		store.IOContext{Context: store.ContextReadOnce})
@@ -138,7 +139,7 @@ func (r *Lucene92HnswVectorsReader) readMetadata(state *index.SegmentReadState) 
 
 // checkLucene92Footer validates the codec footer of an
 // EndiannessReverserChecksumIndexInput (which is not a *store.ChecksumIndexInput,
-// so it cannot be passed to codecs.CheckFooter directly).
+// so it cannot be passed to store.CheckFooter directly).
 func checkLucene92Footer(in *bcstore.EndiannessReverserChecksumIndexInput) error {
 	remaining := in.Length() - in.GetFilePointer()
 	const footerLen = 16
@@ -149,7 +150,7 @@ func checkLucene92Footer(in *bcstore.EndiannessReverserChecksumIndexInput) error
 		return fmt.Errorf("misplaced codec footer: remaining=%d (too long)", remaining)
 	}
 
-	magic, err := store.ReadInt32(in)
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -158,7 +159,7 @@ func checkLucene92Footer(in *bcstore.EndiannessReverserChecksumIndexInput) error
 		return fmt.Errorf("codec footer magic mismatch: got %x", magic)
 	}
 
-	algID, err := store.ReadInt32(in)
+	algID, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -167,7 +168,7 @@ func checkLucene92Footer(in *bcstore.EndiannessReverserChecksumIndexInput) error
 	}
 
 	actualChecksum := int64(in.GetChecksum())
-	expectedChecksum, err := store.ReadInt64(in)
+	expectedChecksum, err := store.ReadBELong(in)
 	if err != nil {
 		return err
 	}
@@ -209,7 +210,13 @@ func readLucene92FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene92F
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q similarity: %w", fi.Name(), err)
 	}
-	simFn := index.VectorSimilarityFunction(simID)
+	// Java: readSimilarityFunction(input), which rejects an id outside
+	// VectorSimilarityFunction.values() and returns values()[id].
+	if simID < 0 || int(simID) > int(util.VectorSimilarityIDMaximumInnerProduct) {
+		return nil, index.NewCorruptIndexException(
+			fmt.Sprintf("Invalid similarity function id: %d", simID), fmt.Sprint(in))
+	}
+	simFn := util.GetSimilarityFunction(util.VectorSimilarityID(simID))
 	if simFn != fi.VectorSimilarityFunction() {
 		return nil, fmt.Errorf("readFieldEntry %q: similarity mismatch %v != %v",
 			fi.Name(), simFn, fi.VectorSimilarityFunction())
@@ -217,16 +224,16 @@ func readLucene92FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene92F
 
 	e := &lucene92FieldEntry{similarityFunction: simFn}
 
-	if e.vectorDataOffset, err = store.ReadVLong(in); err != nil {
+	if e.vectorDataOffset, err = in.ReadVLong(); err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q vectorDataOffset: %w", fi.Name(), err)
 	}
-	if e.vectorDataLength, err = store.ReadVLong(in); err != nil {
+	if e.vectorDataLength, err = in.ReadVLong(); err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q vectorDataLength: %w", fi.Name(), err)
 	}
-	if e.vectorIndexOffset, err = store.ReadVLong(in); err != nil {
+	if e.vectorIndexOffset, err = in.ReadVLong(); err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q vectorIndexOffset: %w", fi.Name(), err)
 	}
-	if e.vectorIndexLength, err = store.ReadVLong(in); err != nil {
+	if e.vectorIndexLength, err = in.ReadVLong(); err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q vectorIndexLength: %w", fi.Name(), err)
 	}
 
@@ -254,7 +261,7 @@ func readLucene92FieldEntry(in store.DataInput, fi *index.FieldInfo) (*lucene92F
 	}
 	e.docsWithFieldLength = docsLen
 
-	jt, err := store.ReadInt16(in)
+	jt, err := in.ReadShort()
 	if err != nil {
 		return nil, fmt.Errorf("readFieldEntry %q jumpTableEntryCount: %w", fi.Name(), err)
 	}
@@ -368,7 +375,7 @@ func openLucene92DataInput(
 	versionMeta int32,
 	ext, codecName string,
 ) (store.IndexInput, error) {
-	name := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, ext)
+	name := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, ext)
 	in, err := state.Directory.OpenInput(name, store.IOContextRead)
 	if err != nil {
 		return nil, fmt.Errorf("lucene92 vectors: open %q: %w", name, err)

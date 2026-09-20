@@ -4,6 +4,11 @@
 
 package search
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
 // NamedMatches wraps a Matches with a name, used to identify which sub-query
 // inside a larger compound query produced the match.
 //
@@ -21,29 +26,20 @@ func NewNamedMatches(name string, inner Matches) *NamedMatches {
 // Name returns the assigned name.
 func (n *NamedMatches) Name() string { return n.name }
 
-// GetQuery delegates to the wrapped Matches.
-func (n *NamedMatches) GetQuery() Query {
-	if n.inner == nil {
-		return nil
-	}
-	return n.inner.GetQuery()
+// GetMatches delegates to the wrapped Matches.
+func (n *NamedMatches) GetMatches(field string) (MatchesIterator, error) {
+	return n.inner.GetMatches(field)
 }
 
-// GetDocID delegates to the wrapped Matches.
-func (n *NamedMatches) GetDocID() int {
-	if n.inner == nil {
-		return -1
-	}
-	return n.inner.GetDocID()
-}
-
-// GetSubMatches returns the inner Matches wrapped in a slice so the caller can
-// continue traversing.
+// GetSubMatches returns the wrapped Matches as a one-element collection,
+// mirroring Collections.singleton(in).
 func (n *NamedMatches) GetSubMatches() []Matches {
-	if n.inner == nil {
-		return nil
-	}
 	return []Matches{n.inner}
+}
+
+// Iterator delegates to the wrapped Matches.
+func (n *NamedMatches) Iterator() util.Iterator[string] {
+	return n.inner.Iterator()
 }
 
 // WrapQuery wraps a Query so that any Matches it produces are tagged with the
@@ -62,7 +58,7 @@ func (q *namedQuery) Name() string   { return q.name }
 func (q *namedQuery) Inner() Query   { return q.inner }
 func (q *namedQuery) String() string { return "NamedQuery(" + q.name + ")" }
 
-func (q *namedQuery) Equals(other Query) bool {
+func (q *namedQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*namedQuery)
 	if !ok {
 		return false
@@ -84,18 +80,11 @@ func (q *namedQuery) HashCode() int {
 	return h
 }
 
-func (q *namedQuery) Clone() Query {
-	if q.inner == nil {
-		return &namedQuery{name: q.name}
-	}
-	return &namedQuery{name: q.name, inner: q.inner.Clone()}
-}
-
-func (q *namedQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *namedQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	if q.inner == nil {
 		return q, nil
 	}
-	rw, err := q.inner.Rewrite(reader)
+	rw, err := q.inner.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
@@ -105,11 +94,11 @@ func (q *namedQuery) Rewrite(reader IndexReader) (Query, error) {
 	return &namedQuery{name: q.name, inner: rw}, nil
 }
 
-func (q *namedQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *namedQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	if q.inner == nil {
 		return nil, nil
 	}
-	return q.inner.CreateWeight(searcher, needsScores, boost)
+	return q.inner.CreateWeight(searcher, scoreMode, boost)
 }
 
 // sprintQuery is a tiny helper that calls Stringer if available, otherwise
@@ -144,4 +133,11 @@ func FindNamedMatches(m Matches) []*NamedMatches {
 		queue = append(queue, head.GetSubMatches()...)
 	}
 	return out
+}
+
+// Visit mirrors NamedMatches.NamedQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (NamedMatches.java). inner is this port's spelling of Java's in field.
+func (q *namedQuery) Visit(visitor QueryVisitor) {
+	sub := visitor.GetSubVisitor(MUST, q)
+	q.inner.Visit(sub)
 }

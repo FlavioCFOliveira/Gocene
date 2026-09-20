@@ -8,37 +8,18 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// stubDocIndexIterator walks the dense identity ordinal range
-// [0, n); used only to satisfy the inherited KnnVectorValues surface
-// in the test-only fakeQuantizedValues below.
-type stubDocIndexIterator struct {
-	n   int
-	idx int
-}
-
-func (it *stubDocIndexIterator) NextDoc() (int, error) {
-	it.idx++
-	if it.idx >= it.n {
-		return util.NO_MORE_DOCS, nil
-	}
-	return it.idx, nil
-}
-
-func (it *stubDocIndexIterator) Index() int { return it.idx }
-
-// fakeQuantizedValues is the minimal concrete embedder used by the
-// contract tests. It supplies the abstract surface
-// (KnnVectorValues, ByteVectorValues, GetScoreCorrectionConstant,
-// Copy) and inherits the three default-method implementations
-// (GetScalarQuantizer, Scorer, GetSlice) from
-// AbstractQuantizedByteVectorValues.
+// fakeQuantizedValues is the minimal LegacyQuantizedByteVectorValues used by
+// the contract tests. Like a Java subclass that overrides only the abstract
+// members (dimension, size, vectorValue, iterator, getScoreCorrectionConstant),
+// it carries the inherited default bodies of LegacyQuantizedByteVectorValues
+// (getScalarQuantizer throws, copy returns this), BaseQuantizedByteVectorValues
+// (scorer(float[]) throws, getSlice returns null) and ByteVectorValues.
 type fakeQuantizedValues struct {
-	*AbstractQuantizedByteVectorValues
-
 	dim     int
 	vectors [][]byte
 	// corrections has the same length as vectors; corrections[i] is
@@ -48,23 +29,26 @@ type fakeQuantizedValues struct {
 
 func newFakeQuantizedValues(dim int, vectors [][]byte, corrections []float32) *fakeQuantizedValues {
 	return &fakeQuantizedValues{
-		AbstractQuantizedByteVectorValues: &AbstractQuantizedByteVectorValues{},
-		dim:                               dim,
-		vectors:                           vectors,
-		corrections:                       corrections,
+		dim:         dim,
+		vectors:     vectors,
+		corrections: corrections,
 	}
 }
 
 // KnnVectorValues surface ----------------------------------------------------
 
-func (v *fakeQuantizedValues) Dimension() int       { return v.dim }
-func (v *fakeQuantizedValues) Size() int            { return len(v.vectors) }
-func (v *fakeQuantizedValues) OrdToDoc(ord int) int { return ord }
+func (v *fakeQuantizedValues) Dimension() int                                   { return v.dim }
+func (v *fakeQuantizedValues) Size() int                                        { return len(v.vectors) }
+func (v *fakeQuantizedValues) OrdToDoc(ord int) int                             { return ord }
+func (v *fakeQuantizedValues) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+func (v *fakeQuantizedValues) Copy() (KnnVectorValues, error)                   { return v, nil }
+func (v *fakeQuantizedValues) GetVectorByteLength() int                         { return v.dim }
+func (v *fakeQuantizedValues) GetEncoding() util.VectorEncoding                 { return util.VectorEncodingByte }
 func (v *fakeQuantizedValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
-	return acceptDocs
+	return spi.DefaultGetAcceptOrds(v, acceptDocs)
 }
 func (v *fakeQuantizedValues) Iterator() DocIndexIterator {
-	return &stubDocIndexIterator{n: len(v.vectors), idx: -1}
+	return spi.CreateDenseIterator(v)
 }
 
 // ByteVectorValues surface --------------------------------------------------
@@ -80,7 +64,27 @@ func (v *fakeQuantizedValues) CopyByteVectorValues() (ByteVectorValues, error) {
 	return v, nil
 }
 
-// QuantizedByteVectorValues surface -----------------------------------------
+func (v *fakeQuantizedValues) Scorer(query []byte) (VectorScorer, error) {
+	return nil, ErrUnsupportedOperation
+}
+
+func (v *fakeQuantizedValues) Rescorer(target []byte) (VectorScorer, error) {
+	return v.Scorer(target)
+}
+
+// BaseQuantizedByteVectorValues surface -------------------------------------
+
+func (v *fakeQuantizedValues) ScorerFloat(query []float32) (VectorScorer, error) {
+	return nil, ErrUnsupportedOperation
+}
+
+func (v *fakeQuantizedValues) GetSlice() store.IndexInput { return nil }
+
+// LegacyQuantizedByteVectorValues surface -----------------------------------
+
+func (v *fakeQuantizedValues) GetScalarQuantizer() *ScalarQuantizer {
+	panic("UnsupportedOperationException")
+}
 
 func (v *fakeQuantizedValues) GetScoreCorrectionConstant(ord int) (float32, error) {
 	if ord < 0 || ord >= len(v.corrections) {
@@ -89,19 +93,16 @@ func (v *fakeQuantizedValues) GetScoreCorrectionConstant(ord int) (float32, erro
 	return v.corrections[ord], nil
 }
 
-func (v *fakeQuantizedValues) Copy() (QuantizedByteVectorValues, error) {
-	return DefaultCopySelf(v)
+func (v *fakeQuantizedValues) CopyLegacyQuantizedByteVectorValues() (LegacyQuantizedByteVectorValues, error) {
+	return v, nil
 }
 
 // Contract assertions -------------------------------------------------------
 
 // staticInterfaceCheck verifies at compile time that
-// *fakeQuantizedValues satisfies QuantizedByteVectorValues. It is the
-// most load-bearing assertion in this file: it locks the interface
-// shape and the AbstractQuantizedByteVectorValues default-method
-// surface together so that a future refactor of either side breaks
-// the build immediately.
-var _ QuantizedByteVectorValues = (*fakeQuantizedValues)(nil)
+// *fakeQuantizedValues satisfies LegacyQuantizedByteVectorValues, locking the
+// interface shape.
+var _ LegacyQuantizedByteVectorValues = (*fakeQuantizedValues)(nil)
 
 // staticHasIndexSliceCheck mirrors the above for the HasIndexSlice
 // facet, which Java pulls in via the abstract class's
@@ -120,29 +121,28 @@ func newPopulatedFake() *fakeQuantizedValues {
 	)
 }
 
-func TestAbstractDefaultsScalarQuantizerUnsupported(t *testing.T) {
+func TestLegacyDefaultsScalarQuantizerUnsupported(t *testing.T) {
 	v := newPopulatedFake()
-	got, err := v.GetScalarQuantizer()
-	if got != nil {
-		t.Errorf("GetScalarQuantizer: got %v, want nil", got)
-	}
-	if !errors.Is(err, ErrUnsupportedOperation) {
-		t.Errorf("GetScalarQuantizer: err = %v, want %v", err, ErrUnsupportedOperation)
-	}
+	defer func() {
+		if recover() == nil {
+			t.Errorf("GetScalarQuantizer: expected UnsupportedOperationException panic")
+		}
+	}()
+	v.GetScalarQuantizer()
 }
 
-func TestAbstractDefaultsScorerUnsupported(t *testing.T) {
+func TestBaseDefaultsScorerFloatUnsupported(t *testing.T) {
 	v := newPopulatedFake()
-	sc, err := v.Scorer([]float32{0.1, 0.2, 0.3})
+	sc, err := v.ScorerFloat([]float32{0.1, 0.2, 0.3})
 	if sc != nil {
-		t.Errorf("Scorer: got %v, want nil", sc)
+		t.Errorf("ScorerFloat: got %v, want nil", sc)
 	}
 	if !errors.Is(err, ErrUnsupportedOperation) {
-		t.Errorf("Scorer: err = %v, want %v", err, ErrUnsupportedOperation)
+		t.Errorf("ScorerFloat: err = %v, want %v", err, ErrUnsupportedOperation)
 	}
 }
 
-func TestAbstractDefaultsGetSliceNil(t *testing.T) {
+func TestBaseDefaultsGetSliceNil(t *testing.T) {
 	v := newPopulatedFake()
 	var got store.IndexInput = v.GetSlice()
 	if got != nil {
@@ -172,16 +172,15 @@ func TestGetScoreCorrectionConstantOutOfRange(t *testing.T) {
 	}
 }
 
-func TestCopyReturnsSelf(t *testing.T) {
+func TestLegacyCopyReturnsSelf(t *testing.T) {
 	v := newPopulatedFake()
-	got, err := v.Copy()
+	got, err := v.CopyLegacyQuantizedByteVectorValues()
 	if err != nil {
-		t.Fatalf("Copy: unexpected err: %v", err)
+		t.Fatalf("CopyLegacyQuantizedByteVectorValues: unexpected err: %v", err)
 	}
-	// Java's default returns `this`; the Go canonical equivalent is to
-	// return the same instance via DefaultCopySelf.
-	if got != QuantizedByteVectorValues(v) {
-		t.Errorf("Copy: returned value is not the receiver")
+	// Java's LegacyQuantizedByteVectorValues.copy() default returns `this`.
+	if got != LegacyQuantizedByteVectorValues(v) {
+		t.Errorf("CopyLegacyQuantizedByteVectorValues: returned value is not the receiver")
 	}
 }
 

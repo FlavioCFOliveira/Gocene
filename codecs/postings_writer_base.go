@@ -37,7 +37,11 @@ type PostingsWriterBase interface {
 
 	// NewTermState allocates a fresh BlockTermState (or codec subclass)
 	// suitable for the writer. Each call returns an independent instance.
-	NewTermState() *BlockTermState
+	//
+	// As on the read side, the term state travels as an index.TermState
+	// interface value so that the codec's own subclass survives the round trip
+	// through the terms dictionary and can be recovered by a type assertion.
+	NewTermState() index.TermState
 
 	// SetField is called once before the writer is asked to handle any term
 	// of the field. Implementations may cache field-level configuration
@@ -54,14 +58,16 @@ type PostingsWriterBase interface {
 	// writer. The state argument is the BlockTermState the writer should
 	// populate with the codec-specific metadata it intends to round-trip
 	// through EncodeTerm.
-	FinishTerm(state *BlockTermState) error
+	FinishTerm(state index.TermState) error
 
 	// EncodeTerm serializes the codec-specific portion of state into out.
 	// absolute indicates whether the term is the first term in a block (and
 	// therefore stored absolutely) or a delta against the previous term in
 	// the same block. The encoded bytes must round-trip through the matching
-	// PostingsReaderBase.DecodeTerm.
-	EncodeTerm(out store.IndexOutput, fieldInfo *index.FieldInfo, state *BlockTermState, absolute bool) error
+	// PostingsReaderBase.DecodeTerm. out is a DataOutput, as in Java's
+	// encodeTerm(DataOutput out, FieldInfo, BlockTermState, boolean): the
+	// block-tree writer passes its in-memory metaWriter.
+	EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, state index.TermState, absolute bool) error
 
 	// Close releases file handles and writes any tail metadata (footers).
 	Close() error

@@ -4,8 +4,6 @@
 package index
 
 import (
-	"fmt"
-
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -18,34 +16,6 @@ import (
 //
 // Returns the sequence number of the last document added, or an error if the
 // operation fails. This implements GC-629: updateDocuments.
-func (w *IndexWriter) UpdateDocuments(delTerm *Term, docs []Document) (int64, error) {
-	if err := w.ensureOpen(); err != nil {
-		return 0, err
-	}
-
-	if len(docs) == 0 {
-		return 0, fmt.Errorf("no documents to add")
-	}
-
-	// Delete documents matching the term if provided
-	if delTerm != nil {
-		if _, err := w.DeleteDocuments(delTerm); err != nil {
-			return 0, fmt.Errorf("failed to delete documents: %w", err)
-		}
-	}
-
-	// Add all documents in the block
-	var lastSeqNo int64
-	for _, doc := range docs {
-		seqNo, err := w.AddDocument(doc)
-		if err != nil {
-			return 0, fmt.Errorf("failed to add document: %w", err)
-		}
-		lastSeqNo = seqNo
-	}
-
-	return lastSeqNo, nil
-}
 
 // UpdateDocumentsQuery atomically deletes documents matching the deletion query and
 // adds a block of documents.
@@ -56,34 +26,6 @@ func (w *IndexWriter) UpdateDocuments(delTerm *Term, docs []Document) (int64, er
 //
 // Returns the sequence number of the last document added, or an error if the
 // operation fails.
-func (w *IndexWriter) UpdateDocumentsQuery(delQuery interface{}, docs []Document) (int64, error) {
-	if err := w.ensureOpen(); err != nil {
-		return 0, err
-	}
-
-	if len(docs) == 0 {
-		return 0, fmt.Errorf("no documents to add")
-	}
-
-	// Delete documents matching the query if provided
-	if delQuery != nil {
-		if _, err := w.DeleteDocumentsQuery(delQuery); err != nil {
-			return 0, fmt.Errorf("failed to delete documents: %w", err)
-		}
-	}
-
-	// Add all documents in the block
-	var lastSeqNo int64
-	for _, doc := range docs {
-		seqNo, err := w.AddDocument(doc)
-		if err != nil {
-			return 0, fmt.Errorf("failed to add document: %w", err)
-		}
-		lastSeqNo = seqNo
-	}
-
-	return lastSeqNo, nil
-}
 
 // UpdateNumericDocValue updates a single numeric doc value for all documents
 // matching the given term. This allows updating doc values without reindexing.
@@ -96,17 +38,6 @@ func (w *IndexWriter) UpdateDocumentsQuery(delQuery interface{}, docs []Document
 // Returns the sequence number of the operation, or an error if it fails.
 //
 // This implements GC-630: updateNumericDocValue
-func (w *IndexWriter) UpdateNumericDocValue(term *Term, field string, value int64) (int64, error) {
-	if err := w.ensureOpen(); err != nil {
-		return -1, err
-	}
-
-	if term == nil {
-		return -1, fmt.Errorf("term cannot be nil")
-	}
-
-	return w.UpdateDocValues(term, field, value)
-}
 
 // UpdateBinaryDocValue updates a single binary doc value for all documents
 // matching the given term.
@@ -119,17 +50,6 @@ func (w *IndexWriter) UpdateNumericDocValue(term *Term, field string, value int6
 // Returns the sequence number of the operation, or an error if it fails.
 //
 // This implements GC-631: updateBinaryDocValue
-func (w *IndexWriter) UpdateBinaryDocValue(term *Term, field string, value []byte) (int64, error) {
-	if err := w.ensureOpen(); err != nil {
-		return -1, err
-	}
-
-	if term == nil {
-		return -1, fmt.Errorf("term cannot be nil")
-	}
-
-	return w.UpdateDocValues(term, field, value)
-}
 
 // AddIndexesSlowly adds all segments from the provided directories to this index.
 // This is a slower variant that may be useful for debugging or special cases.
@@ -141,7 +61,7 @@ func (w *IndexWriter) UpdateBinaryDocValue(term *Term, field string, value []byt
 //
 // This implements GC-632: addIndexesSlowly
 func (w *IndexWriter) AddIndexesSlowly(dirs ...store.Directory) error {
-	if err := w.ensureOpen(); err != nil {
+	if err := w.ensureOpen(true); err != nil {
 		return err
 	}
 
@@ -150,17 +70,17 @@ func (w *IndexWriter) AddIndexesSlowly(dirs ...store.Directory) error {
 	}
 
 	// Use the existing AddIndexes method
-	return w.AddIndexes(dirs...)
+	_, err := w.AddIndexes(dirs...)
+	return err
 }
-
 
 // FlushOnUpdate returns whether to flush on every update operation.
 //
 // This implements GC-634: flushOnUpdate (getter)
 func (w *IndexWriter) FlushOnUpdate() bool {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return w.config.flushOnUpdate
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.config.IsCheckPendingFlushOnUpdate()
 }
 
 // SetFlushOnUpdate sets whether to flush on every update operation.
@@ -169,21 +89,12 @@ func (w *IndexWriter) FlushOnUpdate() bool {
 func (w *IndexWriter) SetFlushOnUpdate(flush bool) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.config.flushOnUpdate = flush
+	w.config.SetCheckPendingFlushUpdate(flush)
 }
 
 // GetPendingNumDocs returns the number of documents currently pending (buffered).
 //
 // This implements GC-635: getPendingNumDocs
 func (w *IndexWriter) GetPendingNumDocs() int {
-	w.mu.RLock()
-	defer w.mu.RUnlock()
-
-	if w.documentsWriter == nil {
-		return 0
-	}
-
-	// Return the number of buffered documents
-	return w.documentsWriter.GetNumDocsInRAM()
+	return int(w.pendingNumDocs.Load())
 }
-

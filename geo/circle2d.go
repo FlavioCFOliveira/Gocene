@@ -3,7 +3,10 @@
 
 package geo
 
-import "github.com/FlavioCFOliveira/Gocene/util"
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // distanceCalculator abstracts the per-coordinate-system distance
 // engine consumed by circle2D. The two implementations are
@@ -20,7 +23,7 @@ type distanceCalculator interface {
 
 	// Relate returns the relationship between the calculator's
 	// bounding box and the supplied query bounding box.
-	Relate(minX, maxX, minY, maxY float64) Relation
+	Relate(minX, maxX, minY, maxY float64) spi.Relation
 
 	// Disjoint reports whether the supplied bounding box is disjoint
 	// from the calculator's bounding box.
@@ -70,12 +73,12 @@ func (c *circle2D) Contains(x, y float64) bool {
 	return c.calculator.Contains(x, y)
 }
 
-func (c *circle2D) Relate(minX, maxX, minY, maxY float64) Relation {
+func (c *circle2D) Relate(minX, maxX, minY, maxY float64) spi.Relation {
 	if c.calculator.Disjoint(minX, maxX, minY, maxY) {
-		return CellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if c.calculator.Within(minX, maxX, minY, maxY) {
-		return CellCrossesQuery
+		return spi.CellCrossesQuery
 	}
 	return c.calculator.Relate(minX, maxX, minY, maxY)
 }
@@ -246,11 +249,11 @@ func (c *cartesianCalculator) IntersectsLine(aX, aY, bX, bY float64) bool {
 	return circle2DIntersectsLine(c.centerX, c.centerY, aX, aY, bX, bY, c)
 }
 
-func (c *cartesianCalculator) Relate(minX, maxX, minY, maxY float64) Relation {
+func (c *cartesianCalculator) Relate(minX, maxX, minY, maxY float64) spi.Relation {
 	if BoxContainsPoint(c.centerX, c.centerY, minX, maxX, minY, maxY) {
 		if c.Contains(minX, minY) && c.Contains(maxX, minY) &&
 			c.Contains(maxX, maxY) && c.Contains(minX, maxY) {
-			return CellInsideQuery
+			return spi.CellInsideQuery
 		}
 	} else {
 		sumSq := 0.0
@@ -269,10 +272,10 @@ func (c *cartesianCalculator) Relate(minX, maxX, minY, maxY float64) Relation {
 			sumSq += d * d
 		}
 		if sumSq > c.radiusSquared {
-			return CellOutsideQuery
+			return spi.CellOutsideQuery
 		}
 	}
-	return CellCrossesQuery
+	return spi.CellCrossesQuery
 }
 
 func (c *cartesianCalculator) Disjoint(minX, maxX, minY, maxY float64) bool {
@@ -325,7 +328,7 @@ func newHaversinCalculator(centerLon, centerLat, radius float64) *haversinCalcul
 	}
 }
 
-func (h *haversinCalculator) Relate(minX, maxX, minY, maxY float64) Relation {
+func (h *haversinCalculator) Relate(minX, maxX, minY, maxY float64) spi.Relation {
 	return Relate(minY, maxY, minX, maxX, h.centerLat, h.centerLon, h.sortKey, h.axisLat)
 }
 

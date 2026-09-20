@@ -5,6 +5,7 @@
 package search
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -79,52 +80,30 @@ func (r *QueryRescorer) Rescore(searcher *IndexSearcher, topDocs *TopDocs) (*Top
 	}
 
 	// Clone the hits so we can rearrange / rescore without mutating the
-	// caller's slice.
+	// caller's slice. Java sorts firstPassTopDocs.scoreDocs in place.
 	hits := make([]*ScoreDoc, len(topDocs.ScoreDocs))
 	for i, h := range topDocs.ScoreDocs {
 		clone := *h
 		hits[i] = &clone
 	}
 
-	// Sort by docID ascending so we can walk leaves in order.
 	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Doc < hits[j].Doc })
 
-	rewritten, err := r.query.Rewrite(searcher.GetIndexReader())
-	if err != nil {
-		return nil, err
-	}
-	weight, err := rewritten.CreateWeight(searcher, true, 1.0)
+	leaves, err := searcher.GetIndexReader().Leaves()
 	if err != nil {
 		return nil, err
 	}
 
-	// Build the leaf list. A *index.DirectoryReader exposes per-segment
-	// readers; for anything else we treat the reader itself as a single
-	// leaf so non-directory readers still rescore correctly.
-	type rescoreLeaf struct {
-		reader  index.IndexReaderInterface
-		docBase int
-		maxDoc  int
+	rewritten, err := searcher.Rewrite(r.query)
+	if err != nil {
+		return nil, err
 	}
-	var leaves []rescoreLeaf
-	if dr, ok := interface{}(searcher.reader).(*index.DirectoryReader); ok {
-		docBase := 0
-		for _, sr := range dr.GetSegmentReaders() {
-			leaves = append(leaves, rescoreLeaf{reader: sr, docBase: docBase, maxDoc: sr.MaxDoc()})
-			docBase += sr.MaxDoc()
-		}
-	} else {
-		// Single-leaf fallback: try MaxDoc accessor; default to a high
-		// sentinel so all hits land in this leaf.
-		maxDoc := 1 << 30
-		type maxDocer interface{ MaxDoc() int }
-		if md, ok := interface{}(searcher.reader).(maxDocer); ok {
-			maxDoc = md.MaxDoc()
-		}
-		leaves = []rescoreLeaf{{reader: searcher.reader, docBase: 0, maxDoc: maxDoc}}
+	weight, err := searcher.CreateWeight(rewritten, ScoreModeComplete, 1)
+	if err != nil {
+		return nil, err
 	}
 
-	// Walk hits in docID order, advancing the scorer per leaf.
+	// Now merge sort docIDs from hits, with reader's leaves:
 	hitUpto := 0
 	readerUpto := -1
 	endDoc := 0
@@ -134,54 +113,55 @@ func (r *QueryRescorer) Rescore(searcher *IndexSearcher, topDocs *TopDocs) (*Top
 	for hitUpto < len(hits) {
 		hit := hits[hitUpto]
 		docID := hit.Doc
-
-		// Advance leaf as needed.
+		var readerContext *index.LeafReaderContext
 		for docID >= endDoc {
 			readerUpto++
 			if readerUpto >= len(leaves) {
-				// Out of leaves; remaining hits cannot match.
-				break
+				return nil, fmt.Errorf("doc id %d is out of bounds", docID)
 			}
-			leaf := leaves[readerUpto]
-			endDoc = leaf.docBase + leaf.maxDoc
-			docBase = leaf.docBase
-			ctx := index.NewLeafReaderContext(leaf.reader, nil, 0, leaf.docBase)
-			scorer, err = weight.Scorer(ctx)
+			readerContext = leaves[readerUpto]
+			endDoc = readerContext.DocBase + readerContext.LeafReader().MaxDoc()
+		}
+
+		if readerContext != nil {
+			// We advanced to another segment:
+			docBase = readerContext.DocBase
+			scorer, err = weight.Scorer(readerContext)
 			if err != nil {
 				return nil, err
 			}
 		}
 
-		if readerUpto >= len(leaves) {
-			hit.Score = r.combine(hit.Score, false, 0)
-			hitUpto++
-			continue
-		}
-
-		if scorer == nil {
-			hit.Score = r.combine(hit.Score, false, 0)
-			hitUpto++
-			continue
-		}
-
-		targetDoc := docID - docBase
-		actualDoc := scorer.DocID()
-		if actualDoc < targetDoc {
-			actualDoc, err = scorer.Advance(targetDoc)
-			if err != nil {
-				return nil, err
+		if scorer != nil {
+			targetDoc := docID - docBase
+			actualDoc := scorer.DocID()
+			if actualDoc < targetDoc {
+				actualDoc, err = scorer.Iterator().Advance(targetDoc)
+				if err != nil {
+					return nil, err
+				}
 			}
-		}
 
-		if actualDoc == targetDoc {
-			hit.Score = r.combine(hit.Score, true, scorer.Score())
+			if actualDoc == targetDoc {
+				// Query did match this doc:
+				score, err := scorer.Score()
+				if err != nil {
+					return nil, err
+				}
+				hit.Score = r.combine(hit.Score, true, score)
+			} else {
+				// Query did not match this doc:
+				hit.Score = r.combine(hit.Score, false, 0.0)
+			}
 		} else {
-			hit.Score = r.combine(hit.Score, false, 0)
+			// Query did not match this doc:
+			hit.Score = r.combine(hit.Score, false, 0.0)
 		}
+
 		hitUpto++
 	}
 
-	// Sort by combined score descending; docID ascending on ties.
+	// Sort by score descending, then docID ascending.
 	sort.SliceStable(hits, func(i, j int) bool {
 		if hits[i].Score != hits[j].Score {
 			return hits[i].Score > hits[j].Score
@@ -189,12 +169,7 @@ func (r *QueryRescorer) Rescore(searcher *IndexSearcher, topDocs *TopDocs) (*Top
 		return hits[i].Doc < hits[j].Doc
 	})
 
-	// Track the new max score.
-	var maxScore float32
-	if len(hits) > 0 {
-		maxScore = hits[0].Score
-	}
-	return &TopDocs{TotalHits: topDocs.TotalHits, ScoreDocs: hits, MaxScore: maxScore}, nil
+	return &TopDocs{TotalHits: topDocs.TotalHits, ScoreDocs: hits}, nil
 }
 
 // Ensure QueryRescorer implements Rescorer

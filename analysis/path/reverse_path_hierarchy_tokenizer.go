@@ -8,6 +8,7 @@ package path
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
+	"reflect"
 	"strings"
 	"unicode/utf8"
 
@@ -53,9 +54,9 @@ type ReversePathHierarchyTokenizer struct {
 	resultTokenBuffer []rune
 	delimPositions    []int // rune-index fences at each delimiter position
 	delimitersCount   int
-	endPosition       int // rune index up to which tokens are emitted
-	finalOffset       int // byte length of full input (for End())
-	skipped           int // how many tokens have been emitted so far
+	endPosition       int   // rune index up to which tokens are emitted
+	finalOffset       int   // byte length of full input (for End())
+	skipped           int   // how many tokens have been emitted so far
 	byteOff           []int // maps rune index → byte offset in original input
 }
 
@@ -91,13 +92,9 @@ func NewReversePathHierarchyTokenizerFull(delimiter, replacement rune, skip int)
 	}
 	t.resultToken.Grow(defaultBufferSize)
 
-	t.termAttr = analysis.NewCharTermAttribute()
-	t.offsetAttr = analysis.NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
+	t.termAttr = t.AddAttribute(reflect.TypeOf((*analysis.CharTermAttribute)(nil)).Elem()).(analysis.CharTermAttribute)
+	t.offsetAttr = t.AddAttribute(reflect.TypeOf((*analysis.OffsetAttribute)(nil)).Elem()).(analysis.OffsetAttribute)
+	t.posIncrAttr = t.AddAttribute(reflect.TypeOf((*tokenattributes.PositionIncrementAttribute)(nil)).Elem()).(tokenattributes.PositionIncrementAttribute)
 
 	return t
 }

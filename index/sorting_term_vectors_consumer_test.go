@@ -35,10 +35,10 @@ func newFakeTermVectorsFormat(name string) *fakeTermVectorsFormat {
 
 func (f *fakeTermVectorsFormat) Name() string { return f.name }
 
-func (f *fakeTermVectorsFormat) VectorsWriter(state *SegmentWriteState) (TermVectorsWriter, error) {
-	name := fmt.Sprintf("_%s_%s_%d.tvd", f.name, state.SegmentInfo.Name(), f.writes)
+func (f *fakeTermVectorsFormat) VectorsWriter(directory store.Directory, segmentInfo *SegmentInfo, _ store.IOContext) (TermVectorsWriter, error) {
+	name := fmt.Sprintf("_%s_%s_%d.tvd", f.name, segmentInfo.Name(), f.writes)
 	f.writes++
-	out, err := state.Directory.CreateOutput(name, store.IOContextDefault)
+	out, err := directory.CreateOutput(name, store.IOContextDefault)
 	if err != nil {
 		return nil, err
 	}
@@ -193,11 +193,11 @@ type fakeVectorTerms struct {
 
 func newFakeVectorTerms(f *fakeVectorField) *fakeVectorTerms { return &fakeVectorTerms{f: f} }
 
-func (t *fakeVectorTerms) GetIterator() (TermsEnum, error) {
+func (t *fakeVectorTerms) Iterator() (TermsEnum, error) {
 	return &fakeVectorTermsEnum{f: t.f, idx: -1}, nil
 }
 func (t *fakeVectorTerms) GetIteratorWithSeek(seek *Term) (TermsEnum, error) {
-	return t.GetIterator()
+	return t.Iterator()
 }
 func (t *fakeVectorTerms) Size() int64                         { return int64(len(t.f.terms)) }
 func (t *fakeVectorTerms) GetDocCount() (int, error)           { return 1, nil }
@@ -309,7 +309,6 @@ func (c *fakeCodecTV) Name() string                           { return "fake-cod
 func (c *fakeCodecTV) PostingsFormat() PostingsFormat         { return nil }
 func (c *fakeCodecTV) StoredFieldsFormat() StoredFieldsFormat { return nil }
 func (c *fakeCodecTV) FieldInfosFormat() FieldInfosFormat     { return nil }
-func (c *fakeCodecTV) SegmentInfosFormat() SegmentInfosFormat { return nil }
 func (c *fakeCodecTV) SegmentInfoFormat() SegmentInfoFormat   { return nil }
 func (c *fakeCodecTV) TermVectorsFormat() TermVectorsFormat   { return c.tv }
 func (c *fakeCodecTV) CompoundFormat() CompoundFormat         { return nil }
@@ -358,7 +357,7 @@ func writeDoc(t *testing.T, w TermVectorsWriter, field, term string, positions [
 	if err := w.FinishDocument(); err != nil {
 		t.Fatal(err)
 	}
-	// The reader-side fakeVectorTerms.GetIterator uses the writer's
+	// The reader-side fakeVectorTerms.Iterator uses the writer's
 	// recorded name; since StartField got a nil FieldInfo above, set
 	// the field name on the most recently buffered field record.
 	store := w.(*fakeTermVectorsWriter).store

@@ -9,6 +9,8 @@ import (
 	"math"
 	"sync"
 	"unsafe"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // copyBuffersPool is a sync.Pool for reusable byte buffers used in CopyBytes.
@@ -44,6 +46,12 @@ type ByteBuffersDataOutput struct {
 	recycler        func([]byte)
 	// recycled holds buffers returned by recycler, keyed by capacity, for reuse.
 	recycled map[int][][]byte
+
+	// groupVIntBytes is the lazily allocated scratch buffer used by
+	// WriteGroupVInts. Port of the private field DataOutput.groupVIntBytes,
+	// which ByteBuffersDataOutput inherits in Java; Go has no inheritance, so
+	// the field lives on the type that carries the method.
+	groupVIntBytes []byte
 }
 
 // NewByteBuffersDataOutput creates a new output with default settings.
@@ -155,18 +163,19 @@ func (o *ByteBuffersDataOutput) WriteByte(b byte) error {
 	return nil
 }
 
-// WriteBytes writes all bytes from b.
-func (o *ByteBuffersDataOutput) WriteBytes(b []byte) error {
-	for len(b) > 0 {
+// WriteBytes writes all bytes from b, starting at the given offset.
+func (o *ByteBuffersDataOutput) WriteBytes(b []byte, offset, length int) error {
+	bSlice := b[offset : offset+length]
+	for len(bSlice) > 0 {
 		if o.currentBlock == nil || len(o.currentBlock) >= o.blockSize() {
 			o.appendBlock()
 		}
 		space := o.blockSize() - len(o.currentBlock)
-		if space > len(b) {
-			space = len(b)
+		if space > len(bSlice) {
+			space = len(bSlice)
 		}
-		o.currentBlock = append(o.currentBlock, b[:space]...)
-		b = b[space:]
+		o.currentBlock = append(o.currentBlock, bSlice[:space]...)
+		bSlice = bSlice[space:]
 	}
 	return nil
 }
@@ -215,7 +224,7 @@ func (o *ByteBuffersDataOutput) WriteBytesN(b []byte, length int) error {
 	if length > len(b) {
 		return fmt.Errorf("length %d exceeds buffer size %d", length, len(b))
 	}
-	return o.WriteBytes(b[:length])
+	return o.WriteBytes(b[:length], 0, length)
 }
 
 // WriteVInt writes a variable-length integer.
@@ -255,6 +264,49 @@ func (o *ByteBuffersDataOutput) WriteZLong(v int64) error {
 // WriteString writes a string.
 // Uses unsafe conversion to avoid heap allocation when converting string to bytes.
 // Safe because WriteBytes only reads the data and does not modify it.
+// WriteMapOfStrings writes a String map.
+//
+// First the size is written as a vInt, followed by each key-value pair written
+// as two consecutive Strings.
+//
+// Port of org.apache.lucene.store.DataOutput#writeMapOfStrings, which
+// ByteBuffersDataOutput inherits in Java; Go has no inheritance, so the
+// inherited body is rendered on the type itself.
+func (o *ByteBuffersDataOutput) WriteMapOfStrings(m map[string]string) error {
+	if err := o.WriteVInt(int32(len(m))); err != nil {
+		return err
+	}
+	for k, v := range m {
+		if err := o.WriteString(k); err != nil {
+			return err
+		}
+		if err := o.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteSetOfStrings writes a String set.
+//
+// First the size is written as a vInt, followed by each value written as a
+// String.
+//
+// Port of org.apache.lucene.store.DataOutput#writeSetOfStrings, which
+// ByteBuffersDataOutput inherits in Java; Go has no inheritance, so the
+// inherited body is rendered on the type itself.
+func (o *ByteBuffersDataOutput) WriteSetOfStrings(s []string) error {
+	if err := o.WriteVInt(int32(len(s))); err != nil {
+		return err
+	}
+	for _, v := range s {
+		if err := o.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (o *ByteBuffersDataOutput) WriteString(s string) error {
 	if err := o.WriteVInt(int32(len(s))); err != nil {
 		return err
@@ -263,13 +315,31 @@ func (o *ByteBuffersDataOutput) WriteString(s string) error {
 	// Safe because WriteBytes only reads the data
 	if len(s) > 0 {
 		data := unsafe.Slice(unsafe.StringData(s), len(s))
-		return o.WriteBytes(data)
+		return o.WriteBytes(data, 0, len(data))
 	}
 	return nil
 }
 
 // CopyBytes copies bytes from a DataInput.
 // Uses a pooled buffer to avoid heap allocations for copies up to 8KB.
+// WriteGroupVInts encodes the first limit values of values using the
+// group-varint format and appends the result to this output.
+//
+// Java's ByteBuffersDataOutput does not override writeGroupVInts; it inherits
+// the DataOutput default, which lazily allocates a
+// GroupVIntUtil.MAX_LENGTH_PER_GROUP scratch buffer and delegates to
+// GroupVIntUtil.writeGroupVInts(DataOutput, byte[], int[], int). This is that
+// default, reproduced verbatim.
+//
+// Port of org.apache.lucene.store.DataOutput.writeGroupVInts(int[], int)
+// (Lucene 10.5.0).
+func (o *ByteBuffersDataOutput) WriteGroupVInts(values []int32, limit int) error {
+	if o.groupVIntBytes == nil {
+		o.groupVIntBytes = make([]byte, util.GroupVIntMaxLengthPerGroup)
+	}
+	return util.WriteGroupVInts(o, o.groupVIntBytes, values, limit)
+}
+
 func (o *ByteBuffersDataOutput) CopyBytes(input DataInput, numBytes int64) error {
 	remaining := numBytes
 
@@ -285,13 +355,13 @@ func (o *ByteBuffersDataOutput) CopyBytes(input DataInput, numBytes int64) error
 		}
 
 		// Read the data
-		if err := input.ReadBytes(buf[:toRead]); err != nil {
+		if err := input.ReadBytes(buf, 0, int(toRead)); err != nil {
 			copyBuffersPool.Put(buf)
 			return err
 		}
 
 		// Write the data
-		if err := o.WriteBytes(buf[:toRead]); err != nil {
+		if err := o.WriteBytes(buf, 0, int(toRead)); err != nil {
 			copyBuffersPool.Put(buf)
 			return err
 		}
@@ -308,12 +378,12 @@ func (o *ByteBuffersDataOutput) CopyBytes(input DataInput, numBytes int64) error
 // CopyTo copies the current content to another DataOutput.
 func (o *ByteBuffersDataOutput) CopyTo(output DataOutput) error {
 	for _, block := range o.blocks {
-		if err := output.WriteBytes(block); err != nil {
+		if err := output.WriteBytes(block, 0, len(block)); err != nil {
 			return err
 		}
 	}
 	if o.currentBlock != nil {
-		if err := output.WriteBytes(o.currentBlock); err != nil {
+		if err := output.WriteBytes(o.currentBlock, 0, len(o.currentBlock)); err != nil {
 			return err
 		}
 	}
@@ -507,13 +577,13 @@ func (o *ByteBuffersDataOutput) rewriteToBlockSize(targetBlockBits int) {
 	)
 
 	for _, block := range o.blocks {
-		cloned.WriteBytes(block)
+		cloned.WriteBytes(block, 0, len(block))
 		if o.recycler != nil {
 			o.recycler(block)
 		}
 	}
 	if o.currentBlock != nil {
-		cloned.WriteBytes(o.currentBlock)
+		cloned.WriteBytes(o.currentBlock, 0, len(o.currentBlock))
 	}
 
 	o.blocks = cloned.blocks

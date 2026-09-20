@@ -24,27 +24,20 @@ import (
 
 // ScalarQuantizedVectorScorer is the Go port of
 // org.apache.lucene.codecs.hnsw.ScalarQuantizedVectorScorer (Lucene
-// 10.4.0). It is a [FlatVectorsScorer] decorator that intercepts
-// scoring requests against [quantization.QuantizedByteVectorValues]
-// and routes them through the scalar-quantized similarity pipeline;
-// requests against non-quantized vector views are delegated to the
-// wrapped non-quantized scorer.
-//
-// The decorator pattern mirrors the Java reference exactly: the
-// constructor takes a FlatVectorsScorer (typically
-// [DefaultFlatVectorScorerInstance]) which becomes the fallback when
-// the supplied vector values are not quantized. The "during initial
-// indexing and flush" path that the Java reference comments out lands
-// here too — the delegate's getRandomVectorScorerSupplier is called
-// whenever the values are still floats.
+// 10.5.0), the default scalar quantized implementation of
+// [FlatVectorsScorer]. Scoring requests against
+// [quantization.LegacyQuantizedByteVectorValues] are routed through the
+// scalar-quantized similarity; requests against any other vector values are
+// delegated to the wrapped non-quantized scorer ("it is possible to get to
+// this branch during initial indexing and flush").
 type ScalarQuantizedVectorScorer struct {
 	nonQuantizedDelegate FlatVectorsScorer
 }
 
-// NewScalarQuantizedVectorScorer wraps the supplied FlatVectorsScorer
-// with the scalar-quantized scoring decorator.
-func NewScalarQuantizedVectorScorer(delegate FlatVectorsScorer) *ScalarQuantizedVectorScorer {
-	return &ScalarQuantizedVectorScorer{nonQuantizedDelegate: delegate}
+// NewScalarQuantizedVectorScorer mirrors
+// ScalarQuantizedVectorScorer(FlatVectorsScorer).
+func NewScalarQuantizedVectorScorer(flatVectorsScorer FlatVectorsScorer) *ScalarQuantizedVectorScorer {
+	return &ScalarQuantizedVectorScorer{nonQuantizedDelegate: flatVectorsScorer}
 }
 
 // String returns the canonical Java toString() output.
@@ -52,70 +45,60 @@ func (s *ScalarQuantizedVectorScorer) String() string {
 	return fmt.Sprintf("ScalarQuantizedVectorScorer(nonQuantizedDelegate=%v)", s.nonQuantizedDelegate)
 }
 
-// GetRandomVectorScorerSupplier returns a supplier specialised for
-// QuantizedByteVectorValues when the supplied vectorValues is
-// quantized; otherwise it delegates to the wrapped scorer. The
-// quantized branch is taken when vectorValues was produced by
-// [AsHnswKnnVectorValues] — see [AsQuantizedByteVectorValues] for the
-// recovery rules.
+// GetRandomVectorScorerSupplier mirrors
+// getRandomVectorScorerSupplier(VectorSimilarityFunction, KnnVectorValues).
 func (s *ScalarQuantizedVectorScorer) GetRandomVectorScorerSupplier(
 	similarityFunction index.VectorSimilarityFunction,
 	vectorValues hnsw.KnnVectorValues,
 ) (hnsw.RandomVectorScorerSupplier, error) {
-	if q, ok := AsQuantizedByteVectorValues(vectorValues); ok {
-		quantizer, err := q.GetScalarQuantizer()
-		if err != nil {
-			return nil, fmt.Errorf("ScalarQuantizedVectorScorer: GetScalarQuantizer: %w", err)
-		}
-		return NewScalarQuantizedRandomVectorScorerSupplier(similarityFunction, quantizer, q)
+	if quantizedByteVectorValues, ok := vectorValues.(quantization.LegacyQuantizedByteVectorValues); ok {
+		return NewScalarQuantizedRandomVectorScorerSupplier(
+			similarityFunction,
+			quantizedByteVectorValues.GetScalarQuantizer(),
+			quantizedByteVectorValues,
+		)
 	}
+	// It is possible to get to this branch during initial indexing and flush
 	return s.nonQuantizedDelegate.GetRandomVectorScorerSupplier(similarityFunction, vectorValues)
 }
 
-// GetRandomVectorScorer returns a scorer that quantizes the supplied
-// float32 target on the fly and then scores against the quantized
-// byte vectors. When vectorValues is not quantized the request is
-// delegated to the wrapped scorer, matching the Java fallback used
-// during initial indexing and flush. The quantized branch is taken
-// when vectorValues was produced by [AsHnswKnnVectorValues].
+// GetRandomVectorScorer mirrors the float[] overload of
+// getRandomVectorScorer: the target is quantized with the values' scalar
+// quantizer and scored against the stored quantized vectors.
 func (s *ScalarQuantizedVectorScorer) GetRandomVectorScorer(
 	similarityFunction index.VectorSimilarityFunction,
 	vectorValues hnsw.KnnVectorValues,
 	target []float32,
 ) (hnsw.RandomVectorScorer, error) {
-	q, ok := AsQuantizedByteVectorValues(vectorValues)
-	if !ok {
-		return s.nonQuantizedDelegate.GetRandomVectorScorer(similarityFunction, vectorValues, target)
+	if quantizedByteVectorValues, ok := vectorValues.(quantization.LegacyQuantizedByteVectorValues); ok {
+		scalarQuantizer := quantizedByteVectorValues.GetScalarQuantizer()
+		targetBytes := make([]byte, len(target))
+		offsetCorrection, err := QuantizeQuery(target, targetBytes, similarityFunction, scalarQuantizer)
+		if err != nil {
+			return nil, err
+		}
+		scalarQuantizedVectorSimilarity, err := quantization.FromVectorSimilarity(
+			similarityFunction,
+			scalarQuantizer.GetConstantMultiplier(),
+			scalarQuantizer.GetBits(),
+		)
+		if err != nil {
+			return nil, err
+		}
+		return &scalarQuantizedFloatScorer{
+			AbstractRandomVectorScorer: hnsw.NewAbstractRandomVectorScorer(quantizedByteVectorValues),
+			values:                     quantizedByteVectorValues,
+			similarity:                 scalarQuantizedVectorSimilarity,
+			targetBytes:                targetBytes,
+			offsetCorrection:           offsetCorrection,
+		}, nil
 	}
-	quantizer, err := q.GetScalarQuantizer()
-	if err != nil {
-		return nil, fmt.Errorf("ScalarQuantizedVectorScorer: GetScalarQuantizer: %w", err)
-	}
-	targetBytes := make([]byte, len(target))
-	offsetCorrection, err := QuantizeQuery(target, targetBytes, similarityFunction, quantizer)
-	if err != nil {
-		return nil, fmt.Errorf("ScalarQuantizedVectorScorer: QuantizeQuery: %w", err)
-	}
-	sim, err := quantization.FromVectorSimilarity(similarityFunction, quantizer.GetConstantMultiplier(), quantizer.GetBits())
-	if err != nil {
-		return nil, fmt.Errorf("ScalarQuantizedVectorScorer: FromVectorSimilarity: %w", err)
-	}
-	base := hnsw.NewAbstractRandomVectorScorer(AsHnswKnnVectorValues(q))
-	return &scalarQuantizedFloatScorer{
-		AbstractRandomVectorScorer: base,
-		values:                     q,
-		similarity:                 sim,
-		targetBytes:                targetBytes,
-		offsetCorrection:           offsetCorrection,
-	}, nil
+	// It is possible to get to this branch during initial indexing and flush
+	return s.nonQuantizedDelegate.GetRandomVectorScorer(similarityFunction, vectorValues, target)
 }
 
-// GetRandomVectorScorerByte mirrors the Java reference: byte targets
-// are always delegated to the non-quantized scorer (the Java method
-// implementation is `return nonQuantizedDelegate.getRandomVectorScorer(...)`,
-// which dispatches to the byte[] overload through Java's method
-// overloading; Go's method-name distinction routes the call to
-// [FlatVectorsScorer.GetRandomVectorScorerByte] explicitly).
+// GetRandomVectorScorerByte mirrors the byte[] overload of
+// getRandomVectorScorer, which always delegates to the non-quantized scorer.
 func (s *ScalarQuantizedVectorScorer) GetRandomVectorScorerByte(
 	similarityFunction index.VectorSimilarityFunction,
 	vectorValues hnsw.KnnVectorValues,
@@ -124,16 +107,11 @@ func (s *ScalarQuantizedVectorScorer) GetRandomVectorScorerByte(
 	return s.nonQuantizedDelegate.GetRandomVectorScorerByte(similarityFunction, vectorValues, target)
 }
 
-// QuantizeQuery is the Go port of
-// ScalarQuantizedVectorScorer.quantizeQuery in the Java reference. It
-// quantizes the supplied float32 query into quantizedQuery using
-// scalarQuantizer, l2-normalizing the query first when the similarity
-// function is COSINE (the Java reference makes a defensive copy via
-// ArrayUtil.copyArray before normalising; Gocene does the same so the
-// caller's slice is never mutated).
-//
-// Returns the offset correction the caller adds when scoring against
-// other quantized vectors, matching the Java return value.
+// QuantizeQuery is the Go port of the static
+// ScalarQuantizedVectorScorer.quantizeQuery. For COSINE the query is copied
+// (ArrayUtil.copyArray) and l2-normalized before quantization; the other
+// similarities quantize the query as is. Returns the offset correction the
+// caller adds when scoring against quantized vectors.
 func QuantizeQuery(
 	query []float32,
 	quantizedQuery []byte,
@@ -148,8 +126,6 @@ func QuantizeQuery(
 	}
 	processed := query
 	if similarityFunction == index.VectorSimilarityFunctionCosine {
-		// Defensive copy so the caller's slice is never mutated;
-		// mirrors `ArrayUtil.copyArray(query)` in the Java reference.
 		copied := make([]float32, len(query))
 		copy(copied, query)
 		util.L2Normalize(copied)
@@ -158,23 +134,21 @@ func QuantizeQuery(
 	return scalarQuantizer.Quantize(processed, quantizedQuery, similarityFunction), nil
 }
 
-// scalarQuantizedFloatScorer is the Go counterpart of the anonymous
-// inner RandomVectorScorer.AbstractRandomVectorScorer subclass
-// returned by getRandomVectorScorer(float[]) in the Java reference.
+// scalarQuantizedFloatScorer is the anonymous
+// RandomVectorScorer.AbstractRandomVectorScorer returned by the float[]
+// overload of getRandomVectorScorer.
 type scalarQuantizedFloatScorer struct {
 	*hnsw.AbstractRandomVectorScorer
-	values           quantization.QuantizedByteVectorValues
+	values           quantization.LegacyQuantizedByteVectorValues
 	similarity       quantization.ScalarQuantizedVectorSimilarity
 	targetBytes      []byte
 	offsetCorrection float32
 }
 
-// Score evaluates the scalar-quantized similarity between the
-// pre-quantized target and the stored byte vector at node, applying
-// the per-vector score correction stored alongside the quantized
-// bytes.
+// Score scores the quantized target against the stored vector at node,
+// applying the stored score correction constant.
 func (s *scalarQuantizedFloatScorer) Score(node int) (float32, error) {
-	nodeVec, err := s.values.VectorValue(node)
+	nodeVector, err := s.values.VectorValue(node)
 	if err != nil {
 		return 0, err
 	}
@@ -182,53 +156,52 @@ func (s *scalarQuantizedFloatScorer) Score(node int) (float32, error) {
 	if err != nil {
 		return 0, err
 	}
-	return s.similarity.Score(s.targetBytes, s.offsetCorrection, nodeVec, nodeOffset), nil
+	return s.similarity.Score(s.targetBytes, s.offsetCorrection, nodeVector, nodeOffset), nil
 }
 
-// BulkScore delegates to the package-default implementation.
+// BulkScore carries the RandomVectorScorer.bulkScore default.
 func (s *scalarQuantizedFloatScorer) BulkScore(nodes []int, scores []float32, numNodes int) (float32, error) {
 	return hnsw.BulkScoreDefault(s, nodes, scores, numNodes)
 }
 
-// ScalarQuantizedRandomVectorScorerSupplier is the Go port of the
-// public inner class
-// ScalarQuantizedVectorScorer.ScalarQuantizedRandomVectorScorerSupplier
-// in the Java reference. It supplies UpdateableRandomVectorScorer
-// instances that score against a per-scorer copy of the quantized
-// vector view.
+// ScalarQuantizedRandomVectorScorerSupplier is the Go port of the public
+// nested class
+// ScalarQuantizedVectorScorer.ScalarQuantizedRandomVectorScorerSupplier.
 type ScalarQuantizedRandomVectorScorerSupplier struct {
-	values                   quantization.QuantizedByteVectorValues
+	values                   quantization.LegacyQuantizedByteVectorValues
 	similarity               quantization.ScalarQuantizedVectorSimilarity
 	vectorSimilarityFunction index.VectorSimilarityFunction
 }
 
-// NewScalarQuantizedRandomVectorScorerSupplier mirrors the primary
-// public constructor in the Java reference, deriving the
-// scalar-quantized similarity from the supplied quantizer.
+// NewScalarQuantizedRandomVectorScorerSupplier mirrors the public
+// constructor ScalarQuantizedRandomVectorScorerSupplier(
+// VectorSimilarityFunction, ScalarQuantizer, LegacyQuantizedByteVectorValues).
 func NewScalarQuantizedRandomVectorScorerSupplier(
 	similarityFunction index.VectorSimilarityFunction,
 	scalarQuantizer *quantization.ScalarQuantizer,
-	values quantization.QuantizedByteVectorValues,
+	values quantization.LegacyQuantizedByteVectorValues,
 ) (*ScalarQuantizedRandomVectorScorerSupplier, error) {
-	sim, err := quantization.FromVectorSimilarity(similarityFunction, scalarQuantizer.GetConstantMultiplier(), scalarQuantizer.GetBits())
+	similarity, err := quantization.FromVectorSimilarity(
+		similarityFunction,
+		scalarQuantizer.GetConstantMultiplier(),
+		scalarQuantizer.GetBits(),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("ScalarQuantizedRandomVectorScorerSupplier: FromVectorSimilarity: %w", err)
+		return nil, err
 	}
 	return &ScalarQuantizedRandomVectorScorerSupplier{
 		values:                   values,
-		similarity:               sim,
+		similarity:               similarity,
 		vectorSimilarityFunction: similarityFunction,
 	}, nil
 }
 
-// newScalarQuantizedRandomVectorScorerSupplierShallow mirrors the
-// private constructor used by Copy() in the Java reference, which
-// reuses an already-built similarity instance instead of rebuilding
-// it from the quantizer.
+// newScalarQuantizedRandomVectorScorerSupplierShallow mirrors the private
+// constructor used by copy(), which reuses the similarity.
 func newScalarQuantizedRandomVectorScorerSupplierShallow(
 	similarity quantization.ScalarQuantizedVectorSimilarity,
 	vectorSimilarityFunction index.VectorSimilarityFunction,
-	values quantization.QuantizedByteVectorValues,
+	values quantization.LegacyQuantizedByteVectorValues,
 ) *ScalarQuantizedRandomVectorScorerSupplier {
 	return &ScalarQuantizedRandomVectorScorerSupplier{
 		values:                   values,
@@ -237,60 +210,56 @@ func newScalarQuantizedRandomVectorScorerSupplierShallow(
 	}
 }
 
-// Scorer returns an UpdateableRandomVectorScorer whose target buffer
-// is owned per-scorer. The Java reference copies the vector view via
-// `values.copy()` and allocates a fresh `byte[] queryVector =
-// new byte[values.dimension()]`; Gocene mirrors both allocations.
+// Scorer mirrors scorer(): the scorer reads a copy of the values and owns
+// its query vector buffer.
 func (s *ScalarQuantizedRandomVectorScorerSupplier) Scorer() (hnsw.UpdateableRandomVectorScorer, error) {
-	vectorsCopy, err := s.values.Copy()
+	vectorsCopy, err := s.values.CopyLegacyQuantizedByteVectorValues()
 	if err != nil {
-		return nil, fmt.Errorf("ScalarQuantizedRandomVectorScorerSupplier: copy values: %w", err)
+		return nil, err
 	}
 	queryVector := make([]byte, s.values.Dimension())
-	base := hnsw.NewAbstractUpdateableRandomVectorScorer(AsHnswKnnVectorValues(vectorsCopy))
 	return &scalarQuantizedSupplierScorer{
-		AbstractUpdateableRandomVectorScorer: base,
-		values:                               vectorsCopy,
+		AbstractUpdateableRandomVectorScorer: hnsw.NewAbstractUpdateableRandomVectorScorer(vectorsCopy),
+		vectorsCopy:                          vectorsCopy,
 		similarity:                           s.similarity,
 		queryVector:                          queryVector,
 	}, nil
 }
 
-// Copy mirrors the Java reference: produce a new supplier sharing the
-// similarity instance but with an independent quantized view.
+// Copy mirrors copy().
 func (s *ScalarQuantizedRandomVectorScorerSupplier) Copy() (hnsw.RandomVectorScorerSupplier, error) {
-	vectorsCopy, err := s.values.Copy()
+	valuesCopy, err := s.values.CopyLegacyQuantizedByteVectorValues()
 	if err != nil {
-		return nil, fmt.Errorf("ScalarQuantizedRandomVectorScorerSupplier: copy values: %w", err)
+		return nil, err
 	}
-	return newScalarQuantizedRandomVectorScorerSupplierShallow(s.similarity, s.vectorSimilarityFunction, vectorsCopy), nil
+	return newScalarQuantizedRandomVectorScorerSupplierShallow(s.similarity, s.vectorSimilarityFunction, valuesCopy), nil
 }
 
 // String returns the canonical Java toString() output.
 func (s *ScalarQuantizedRandomVectorScorerSupplier) String() string {
-	return fmt.Sprintf("ScalarQuantizedRandomVectorScorerSupplier(vectorSimilarityFunction=%s)", s.vectorSimilarityFunction.String())
+	return fmt.Sprintf("ScalarQuantizedRandomVectorScorerSupplier(vectorSimilarityFunction=%s)", s.vectorSimilarityFunction.ID().String())
 }
 
-// scalarQuantizedSupplierScorer is the per-Scorer() closure for the
-// supplier, mirroring the anonymous inner subclass in the Java
-// reference.
+// scalarQuantizedSupplierScorer is the anonymous
+// UpdateableRandomVectorScorer.AbstractUpdateableRandomVectorScorer returned
+// by ScalarQuantizedRandomVectorScorerSupplier.scorer().
 type scalarQuantizedSupplierScorer struct {
 	*hnsw.AbstractUpdateableRandomVectorScorer
-	values      quantization.QuantizedByteVectorValues
+	vectorsCopy quantization.LegacyQuantizedByteVectorValues
 	similarity  quantization.ScalarQuantizedVectorSimilarity
 	queryVector []byte
 	queryOffset float32
 }
 
-// SetScoringOrdinal copies the target vector at node and the
-// matching score-correction constant.
+// SetScoringOrdinal copies the vector at node into the query buffer and
+// records its score correction constant.
 func (s *scalarQuantizedSupplierScorer) SetScoringOrdinal(node int) error {
-	v, err := s.values.VectorValue(node)
+	v, err := s.vectorsCopy.VectorValue(node)
 	if err != nil {
 		return err
 	}
 	copy(s.queryVector, v)
-	offset, err := s.values.GetScoreCorrectionConstant(node)
+	offset, err := s.vectorsCopy.GetScoreCorrectionConstant(node)
 	if err != nil {
 		return err
 	}
@@ -298,21 +267,20 @@ func (s *scalarQuantizedSupplierScorer) SetScoringOrdinal(node int) error {
 	return nil
 }
 
-// Score evaluates the scalar-quantized similarity between the
-// buffered target/offset pair and the stored vector at node.
+// Score scores the buffered query against the stored vector at node.
 func (s *scalarQuantizedSupplierScorer) Score(node int) (float32, error) {
-	nodeVec, err := s.values.VectorValue(node)
+	nodeVector, err := s.vectorsCopy.VectorValue(node)
 	if err != nil {
 		return 0, err
 	}
-	nodeOffset, err := s.values.GetScoreCorrectionConstant(node)
+	nodeOffset, err := s.vectorsCopy.GetScoreCorrectionConstant(node)
 	if err != nil {
 		return 0, err
 	}
-	return s.similarity.Score(s.queryVector, s.queryOffset, nodeVec, nodeOffset), nil
+	return s.similarity.Score(s.queryVector, s.queryOffset, nodeVector, nodeOffset), nil
 }
 
-// BulkScore delegates to the package-default implementation.
+// BulkScore carries the RandomVectorScorer.bulkScore default.
 func (s *scalarQuantizedSupplierScorer) BulkScore(nodes []int, scores []float32, numNodes int) (float32, error) {
 	return hnsw.BulkScoreDefault(s, nodes, scores, numNodes)
 }

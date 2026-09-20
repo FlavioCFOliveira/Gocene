@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // FieldType describes the properties of a field.
@@ -146,7 +148,7 @@ func NewLuceneFieldType() *FieldType {
 
 // NewFieldTypeFrom creates a new FieldType copying every property from the
 // provided reference (excluding the frozen flag — the returned FieldType is
-// always mutable). Mirrors Lucene's `FieldType(IndexableFieldType ref)`.
+// always mutable). Mirrors Lucene's `FieldType(spi.IndexableFieldType ref)`.
 func NewFieldTypeFrom(ref *FieldType) *FieldType {
 	if ref == nil {
 		return NewFieldType()
@@ -500,7 +502,7 @@ func (ft *FieldType) String() string {
 		writeSep(&b)
 		fmt.Fprintf(&b, "vectorEncoding=%s", ft.VectorEncoding.String())
 		writeSep(&b)
-		fmt.Fprintf(&b, "vectorSimilarityFunction=%s", ft.VectorSimilarityFunction.String())
+		fmt.Fprintf(&b, "vectorSimilarityFunction=%s", ft.VectorSimilarityFunction.ID().String())
 	}
 	if ft.DocValuesType != DocValuesTypeNone {
 		writeSep(&b)
@@ -508,9 +510,23 @@ func (ft *FieldType) String() string {
 	}
 	if ft.DocValuesSkipIndex != DocValuesSkipIndexTypeNone {
 		writeSep(&b)
-		fmt.Fprintf(&b, "docValuesSkipIndexType=%s", ft.DocValuesSkipIndexType().String())
+		fmt.Fprintf(&b, "docValuesSkipIndexType=%s", docValuesSkipIndexTypeName(ft.DocValuesSkipIndexType()))
 	}
 	return b.String()
+}
+
+// docValuesSkipIndexTypeName renders a DocValuesSkipIndexType with the enum
+// constant name Java's implicit Enum#toString produces for
+// org.apache.lucene.index.DocValuesSkipIndexType ("NONE" / "RANGE").
+func docValuesSkipIndexTypeName(t DocValuesSkipIndexType) string {
+	switch t {
+	case DocValuesSkipIndexTypeNone:
+		return "NONE"
+	case DocValuesSkipIndexTypeRange:
+		return "RANGE"
+	default:
+		return "UNKNOWN"
+	}
 }
 
 func writeSep(b *strings.Builder) {
@@ -558,15 +574,15 @@ func (e *FieldTypeValidationError) Error() string {
 }
 
 // fieldTypeAsIndexInterface wraps *FieldType so that it satisfies
-// IndexableFieldType. The wrapper bridges the naming mismatch between
+// spi.IndexableFieldType. The wrapper bridges the naming mismatch between
 // index.FieldType's Get-prefixed term-vector methods
 // (GetStoreTermVectors/…) and the un-prefixed names required by
-// IndexableFieldType (StoreTermVectors/…).
+// spi.IndexableFieldType (StoreTermVectors/…).
 type fieldTypeAsIndexInterface struct{ ft *FieldType }
 
-func (w fieldTypeAsIndexInterface) Stored() bool                                { return w.ft.Stored }
-func (w fieldTypeAsIndexInterface) Tokenized() bool                            { return w.ft.Tokenized }
-func (w fieldTypeAsIndexInterface) StoreTermVectors() bool                     { return w.ft.StoreTermVectors }
+func (w fieldTypeAsIndexInterface) Stored() bool           { return w.ft.Stored }
+func (w fieldTypeAsIndexInterface) Tokenized() bool        { return w.ft.Tokenized }
+func (w fieldTypeAsIndexInterface) StoreTermVectors() bool { return w.ft.StoreTermVectors }
 func (w fieldTypeAsIndexInterface) StoreTermVectorPositions() bool {
 	return w.ft.StoreTermVectorPositions
 }
@@ -574,17 +590,20 @@ func (w fieldTypeAsIndexInterface) StoreTermVectorOffsets() bool { return w.ft.S
 func (w fieldTypeAsIndexInterface) StoreTermVectorPayloads() bool {
 	return w.ft.StoreTermVectorPayloads
 }
-func (w fieldTypeAsIndexInterface) OmitNorms() bool                            { return w.ft.OmitNorms }
-func (w fieldTypeAsIndexInterface) IndexOptions() IndexOptions            { return w.ft.IndexOptions }
-func (w fieldTypeAsIndexInterface) DocValuesType() DocValuesType           { return w.ft.DocValuesType }
-func (w fieldTypeAsIndexInterface) DocValuesSkipIndexType() DocValuesSkipIndexType {
-	return w.ft.DocValuesSkipIndex
+func (w fieldTypeAsIndexInterface) OmitNorms() bool              { return w.ft.OmitNorms }
+func (w fieldTypeAsIndexInterface) IndexOptions() IndexOptions   { return w.ft.IndexOptions }
+func (w fieldTypeAsIndexInterface) DocValuesType() DocValuesType { return w.ft.DocValuesType }
+func (w fieldTypeAsIndexInterface) DocValuesSkipIndexType() spi.DocValuesSkipIndexType {
+	// index.DocValuesSkipIndexType and spi.DocValuesSkipIndexType declare the
+	// same ordinals (NONE=0, RANGE=1), so the numeric conversion preserves the
+	// serialized value.
+	return spi.DocValuesSkipIndexType(w.ft.DocValuesSkipIndex)
 }
-func (w fieldTypeAsIndexInterface) PointDimensionCount() int                    { return w.ft.DimensionCount }
-func (w fieldTypeAsIndexInterface) PointIndexDimensionCount() int               { return w.ft.IndexDimensionCount }
-func (w fieldTypeAsIndexInterface) PointNumBytes() int                          { return w.ft.DimensionNumBytes }
-func (w fieldTypeAsIndexInterface) VectorDimension() int                         { return w.ft.VectorDimension }
-func (w fieldTypeAsIndexInterface) VectorEncoding() VectorEncoding       { return w.ft.VectorEncoding }
+func (w fieldTypeAsIndexInterface) PointDimensionCount() int       { return w.ft.DimensionCount }
+func (w fieldTypeAsIndexInterface) PointIndexDimensionCount() int  { return w.ft.IndexDimensionCount }
+func (w fieldTypeAsIndexInterface) PointNumBytes() int             { return w.ft.DimensionNumBytes }
+func (w fieldTypeAsIndexInterface) VectorDimension() int           { return w.ft.VectorDimension }
+func (w fieldTypeAsIndexInterface) VectorEncoding() VectorEncoding { return w.ft.VectorEncoding }
 func (w fieldTypeAsIndexInterface) VectorSimilarityFunction() VectorSimilarityFunction {
 	return w.ft.VectorSimilarityFunction
 }
@@ -592,7 +611,7 @@ func (w fieldTypeAsIndexInterface) GetAttributes() map[string]string {
 	return w.ft.GetAttributes()
 }
 
-func (ft *FieldType) AsIndexFieldTypeInterface() IndexableFieldType {
+func (ft *FieldType) AsIndexFieldTypeInterface() spi.IndexableFieldType {
 	return fieldTypeAsIndexInterface{ft: ft}
 }
 
@@ -604,7 +623,7 @@ func (w fieldAsIndexableField) StringValue() string       { return w.f.StringVal
 func (w fieldAsIndexableField) BinaryValue() []byte       { return w.f.BinaryValue() }
 func (w fieldAsIndexableField) ReaderValue() io.Reader    { return w.f.ReaderValue() }
 func (w fieldAsIndexableField) NumericValue() interface{} { return w.f.NumericValue() }
-func (w fieldAsIndexableField) FieldType() IndexableFieldType {
+func (w fieldAsIndexableField) FieldType() spi.IndexableFieldType {
 	return w.f.ft.AsIndexFieldTypeInterface()
 }
 func (w fieldAsIndexableField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
@@ -616,89 +635,43 @@ func (w fieldAsIndexableField) InvertableType() InvertableType {
 	}
 	return InvertableTypeBinary
 }
-func (w fieldAsIndexableField) StoredValue() StoredValue {
-	return fieldStoredValue{f: w.f}
+func (w fieldAsIndexableField) StoredValue() *StoredValue {
+	return fieldStoredValue(w.f)
 }
 
-type fieldStoredValue struct{ f *Field }
-
-func (v fieldStoredValue) Type() StoredValueType {
-	switch val := v.f.value.(type) {
+// fieldStoredValue builds the StoredValue for one Field, mirroring
+// org.apache.lucene.document.Field#storedValue() from Apache Lucene 10.5.0:
+// it returns nil when the field is not stored, and otherwise dispatches on
+// the concrete type of the field's value.
+func fieldStoredValue(f *Field) *StoredValue {
+	if !f.ft.Stored {
+		return nil
+	}
+	switch val := f.value.(type) {
 	case stringValue:
-		return StoredValueTypeString
+		return document.NewStoredValueString(string(val))
 	case binaryValue:
-		return StoredValueTypeBinary
+		return document.NewStoredValueBinary([]byte(val))
 	case numericValue:
-		switch val.n.(type) {
+		switch n := val.n.(type) {
 		case int32:
-			return StoredValueTypeInteger
+			return document.NewStoredValueInt(n)
 		case int64:
-			return StoredValueTypeLong
+			return document.NewStoredValueLong(n)
 		case float32:
-			return StoredValueTypeFloat
+			return document.NewStoredValueFloat(n)
 		case float64:
-			return StoredValueTypeDouble
+			return document.NewStoredValueDouble(n)
 		}
 	}
-	return StoredValueTypeBinary
+	return nil
 }
 
-func (v fieldStoredValue) IntValue() int32 {
-	if v.f.value == nil {
-		return 0
-	}
-	if nv, ok := v.f.value.(numericValue); ok {
-		if n, ok := nv.n.(int32); ok {
-			return n
-		}
-	}
-	return 0
-}
-
-func (v fieldStoredValue) LongValue() int64 {
-	if v.f.value == nil {
-		return 0
-	}
-	if nv, ok := v.f.value.(numericValue); ok {
-		if n, ok := nv.n.(int64); ok {
-			return n
-		}
-	}
-	return 0
-}
-
-func (v fieldStoredValue) FloatValue() float32 {
-	if v.f.value == nil {
-		return 0
-	}
-	if nv, ok := v.f.value.(numericValue); ok {
-		if n, ok := nv.n.(float32); ok {
-			return n
-		}
-	}
-	return 0
-}
-
-func (v fieldStoredValue) DoubleValue() float64 {
-	if v.f.value == nil {
-		return 0
-	}
-	if nv, ok := v.f.value.(numericValue); ok {
-		if n, ok := nv.n.(float64); ok {
-			return n
-		}
-	}
-	return 0
-}
-
-func (v fieldStoredValue) BinaryValue() []byte {
-	return v.f.BinaryValue()
-}
-
-func (v fieldStoredValue) StringValue() string {
-	return v.f.StringValue()
-}
+// GetCharSequenceValue returns the field value as a character sequence.
+// Mirrors the default body of IndexableField#getCharSequenceValue(), which
+// returns stringValue().
+func (w fieldAsIndexableField) GetCharSequenceValue() string { return w.f.StringValue() }
 
 // compile-time checks
-var _ IndexableFieldType = fieldTypeAsIndexInterface{}
+var _ spi.IndexableFieldType = fieldTypeAsIndexInterface{}
 var _ IndexableField = fieldAsIndexableField{}

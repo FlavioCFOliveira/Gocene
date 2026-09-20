@@ -338,3 +338,17 @@ func (m *multiFieldNormValues) Cost() int64 { return 0 }
 
 // Ensure multiFieldNormValues satisfies index.NumericDocValues.
 var _ index.NumericDocValues = (*multiFieldNormValues)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which MultiNormsLeafSimScorer.MultiFieldNormValues does not override.
+func (m *multiFieldNormValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(m, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which
+// MultiNormsLeafSimScorer.MultiFieldNormValues does not override.
+func (m *multiFieldNormValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(m)
+}

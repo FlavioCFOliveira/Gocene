@@ -22,14 +22,14 @@ import (
 type TemporalMergePolicy struct {
 	*BaseMergePolicy
 
-	temporalField              string
-	baseTimeSeconds            int64
-	minThreshold               int
-	useExponentialBuckets      bool
-	maxWindowSizeSeconds       int64
-	maxAgeSeconds              int64
-	maxThreshold               int
-	compactionRatio            float64
+	temporalField               string
+	baseTimeSeconds             int64
+	minThreshold                int
+	useExponentialBuckets       bool
+	maxWindowSizeSeconds        int64
+	maxAgeSeconds               int64
+	maxThreshold                int
+	compactionRatio             float64
 	forceMergeDeletesPctAllowed float64
 
 	// segmentDateRangeOverrides allows providing date ranges for segments manually (mostly for testing).
@@ -44,15 +44,15 @@ type segmentDateRange struct {
 // NewTemporalMergePolicy constructs a TemporalMergePolicy with default settings.
 func NewTemporalMergePolicy() *TemporalMergePolicy {
 	return &TemporalMergePolicy{
-		BaseMergePolicy: NewBaseMergePolicy(),
-		temporalField:    "",
-		baseTimeSeconds:  3600,
-		minThreshold:     4,
-		useExponentialBuckets: true,
-		maxWindowSizeSeconds:  int64(24 * 60 * 60 * 365),
-		maxAgeSeconds:        math.MaxInt64,
-		maxThreshold:        8,
-		compactionRatio:      1.2,
+		BaseMergePolicy:             NewBaseMergePolicy(),
+		temporalField:               "",
+		baseTimeSeconds:             3600,
+		minThreshold:                4,
+		useExponentialBuckets:       true,
+		maxWindowSizeSeconds:        int64(24 * 60 * 60 * 365),
+		maxAgeSeconds:               math.MaxInt64,
+		maxThreshold:                8,
+		compactionRatio:             1.2,
 		forceMergeDeletesPctAllowed: 10.0,
 	}
 }
@@ -295,7 +295,7 @@ func (p *TemporalMergePolicy) FindForcedDeletesMerges(segmentInfos *SegmentInfos
 			continue
 		}
 
-		delCount := mergeContext.NumDeletesToMerge(sci, 0)
+		delCount := mergeContext.NumDeletesToMerge(sci)
 		if delCount <= 0 {
 			continue
 		}
@@ -369,19 +369,19 @@ func (p *TemporalMergePolicy) extractSegmentDateRanges(segments *SegmentInfos) m
 }
 
 func (p *TemporalMergePolicy) extractDateRangeFromSegment(sci *SegmentCommitInfo) (*segmentDateRange, error) {
-	si := sci.SegmentInfo()
+	si := sci.Info
 	var compoundDir store.Directory
 	var readerDir store.Directory
 
-	if si.IsCompoundFile() {
+	if si.GetUseCompoundFile() {
 		var err error
-		compoundDir, err = LookupCodecByName(si.Codec()).CompoundFormat().GetCompoundReader(si.Directory(), si)
+		compoundDir, err = si.GetCodec().CompoundFormat().GetCompoundReader(si.Dir, si)
 		if err != nil {
 			return nil, err
 		}
 		readerDir = compoundDir
 	} else {
-		readerDir = si.Directory()
+		readerDir = si.Dir
 	}
 
 	defer func() {
@@ -390,37 +390,61 @@ func (p *TemporalMergePolicy) extractDateRangeFromSegment(sci *SegmentCommitInfo
 		}
 	}()
 
-	fieldInfos := LookupCodecByName(si.Codec()).FieldInfosFormat().Read(readerDir, si, "", spi.IOContextReadOnce)
-	fieldInfo := fieldInfos.FieldInfo(p.temporalField)
+	fieldInfos, err := si.GetCodec().FieldInfosFormat().Read(readerDir, si, "", spi.IOContextReadOnce)
+	if err != nil {
+		return nil, err
+	}
+	fieldInfo := fieldInfos.FieldInfoByName(p.temporalField)
 	if fieldInfo == nil {
 		return nil, nil
 	}
 
-	if fieldInfo.GetPointDimensionCount() == 0 {
+	if fieldInfo.PointDimensionCount() == 0 {
 		return nil, nil
 	}
 
-	pointsFormat := LookupCodecByName(si.Codec()).PointsFormat()
-	pointsReader, err := pointsFormat.FieldsReader(readerDir, si, fieldInfos)
+	pointsFormat := si.GetCodec().PointsFormat()
+	pointsReader, err := pointsFormat.FieldsReader(&spi.SegmentReadState{
+		Directory:     readerDir,
+		SegmentInfo:   si,
+		FieldInfos:    fieldInfos,
+		SegmentSuffix: "",
+	})
 	if err != nil {
 		return nil, err
 	}
 	defer pointsReader.Close()
 
-	pointValues := pointsReader.GetValues(p.temporalField)
+	// spi.PointsReader carries only the integrity/close hooks; the per-field
+	// getValues surface of org.apache.lucene.codecs.PointsReader is recovered
+	// by assertion (see pointsReaderWithValues in codec_reader.go).
+	valuesReader, ok := pointsReader.(pointsReaderWithValues)
+	if !ok {
+		return nil, nil
+	}
+	pointValues, err := valuesReader.GetValues(p.temporalField)
+	if err != nil {
+		return nil, err
+	}
 	if pointValues == nil {
 		return nil, nil
 	}
 
-	minPacked := pointValues.GetMinPackedValue()
-	maxPacked := pointValues.GetMaxPackedValue()
+	minPacked, err := pointValues.GetMinPackedValue()
+	if err != nil {
+		return nil, err
+	}
+	maxPacked, err := pointValues.GetMaxPackedValue()
+	if err != nil {
+		return nil, err
+	}
 	if minPacked == nil || maxPacked == nil {
 		return nil, nil
 	}
 
-	// LongPoint.decodeDimension logic
-	minDate := spi.DecodeDimension(minPacked, 0)
-	maxDate := spi.DecodeDimension(maxPacked, 0)
+	// LongPoint.decodeDimension delegates to NumericUtils.sortableBytesToLong.
+	minDate := util.SortableBytesToLong(minPacked, 0)
+	maxDate := util.SortableBytesToLong(maxPacked, 0)
 
 	divisor := p.getTemporalFieldDivisor(maxDate)
 	var minDateMillis, maxDateMillis int64
@@ -544,7 +568,7 @@ func (p *TemporalMergePolicy) planWindowMerges(windowStart int64, segmentsInWind
 
 		for end < len(ordered) && end-cursor < p.maxThreshold {
 			candidate := ordered[end]
-			docCount := int64(candidate.SegmentInfo().DocCount())
+			docCount := int64(candidate.Info.MaxDoc())
 			totalDocs += docCount
 			if docCount > largestDocs {
 				largestDocs = docCount

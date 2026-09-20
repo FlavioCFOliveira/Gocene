@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/analysis/in"
 	"github.com/FlavioCFOliveira/Gocene/analysis/snowball"
 	snowballext "github.com/FlavioCFOliveira/Gocene/snowball/ext"
@@ -31,7 +32,7 @@ func defaultTamilStopSet() *analysis.CharArraySet {
 			panic("ta: failed to open stopwords.txt: " + err.Error())
 		}
 		defer f.Close()
-		set, err := analysis.GetWordSetWithComment(f, "#", analysis.NewCharArraySet(64, false))
+		set, err := analysis.GetWordSetWithComment(f, "#")
 		if err != nil {
 			panic("ta: failed to load stopwords.txt: " + err.Error())
 		}
@@ -81,7 +82,7 @@ func NewTamilAnalyzerFull(stopWords *analysis.CharArraySet, stemExclusionSet *an
 		stemExclusionSet = analysis.NewCharArraySet(0, false)
 	}
 	a := &TamilAnalyzer{
-		BaseAnalyzer:     analysis.NewAnalyzer(),
+		BaseAnalyzer:     analysis.NewAnalyzer(analysis.GlobalReuseStrategy),
 		stopWords:        stopWords,
 		stemExclusionSet: stemExclusionSet,
 	}
@@ -111,4 +112,4 @@ func (a *TamilAnalyzer) GetStopWords() *analysis.CharArraySet {
 
 // Ensure TamilAnalyzer implements analysis.Analyzer.
 var _ analysis.Analyzer = (*TamilAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*TamilAnalyzer)(nil)
+var _ api.Analyzer = (*TamilAnalyzer)(nil)

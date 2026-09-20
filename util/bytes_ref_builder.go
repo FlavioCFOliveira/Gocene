@@ -63,6 +63,17 @@ func (b *BytesRefBuilder) Grow(minSize int) {
 	b.bytes = newBytes
 }
 
+// Append appends the given BytesRef to the builder.
+func (b *BytesRefBuilder) Append(br *BytesRef) {
+	if br == nil || br.Length == 0 {
+		return
+	}
+	newLen := b.length + br.Length
+	b.Grow(newLen)
+	copy(b.bytes[b.length:], br.ValidBytes())
+	b.length = newLen
+}
+
 // SetLength sets the length of the builder.
 func (b *BytesRefBuilder) SetLength(length int) {
 	b.length = length

@@ -27,9 +27,6 @@ func TestFilterCodec_DelegatesToWrapped(t *testing.T) {
 	if fc.FieldInfosFormat() != delegate.FieldInfosFormat() {
 		t.Errorf("FieldInfosFormat() did not forward to delegate")
 	}
-	if fc.SegmentInfosFormat() != delegate.SegmentInfosFormat() {
-		t.Errorf("SegmentInfosFormat() did not forward to delegate")
-	}
 	if fc.TermVectorsFormat() != delegate.TermVectorsFormat() {
 		t.Errorf("TermVectorsFormat() did not forward to delegate")
 	}

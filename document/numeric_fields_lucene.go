@@ -5,7 +5,7 @@
 package document
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -62,7 +62,7 @@ func newNumericPointDocValuesType(stored bool, numBytes int) *FieldType {
 	ft.SetTokenized(false)
 	ft.SetStored(stored)
 	ft.SetDimensions(1, numBytes)
-	ft.SetDocValuesType(schema.DocValuesTypeSortedNumeric)
+	ft.SetDocValuesType(spi.DocValuesTypeSortedNumeric)
 	ft.Freeze()
 	return ft
 }

@@ -16,7 +16,7 @@ import (
 type FreeTextSuggester struct {
 	GramSize int
 	// counts maps "prev_word current_word" to weight.
-	counts map[string]int64
+	counts     map[string]int64
 	totalCount int64
 }
 
@@ -56,7 +56,7 @@ func (s *FreeTextSuggester) LookupResults(key string, _ [][]byte, _ bool, num in
 		num = 10
 	}
 	type cand struct {
-		text string
+		text  string
 		score int64
 	}
 	var pool []cand

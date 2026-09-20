@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
+// Ported from Apache Lucene 10.5.0:
 //   lucene/queries/src/java/org/apache/lucene/queries/intervals/IntervalScorer.java
 
 package intervals
@@ -11,16 +11,16 @@ import (
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // IntervalScorer scores documents by computing a sloppy frequency over all
 // matching intervals and applying an IntervalScoreFunction.
 //
 // Mirrors org.apache.lucene.queries.intervals.IntervalScorer.
-//
-// Deviations from Java:
-//   - Extends search.BaseScorer (Go port of Scorer); no abstract Weight reference.
 type IntervalScorer struct {
+	search.BaseScorer
+
 	intervals     IntervalIterator
 	simScorer     search.SimScorer
 	boost         float32
@@ -30,6 +30,8 @@ type IntervalScorer struct {
 }
 
 // NewIntervalScorer creates an IntervalScorer.
+//
+// Mirrors IntervalScorer(IntervalIterator, int, float, IntervalScoreFunction).
 func NewIntervalScorer(intervals IntervalIterator, minExtent int, boost float32, scoreFunction IntervalScoreFunction) *IntervalScorer {
 	return &IntervalScorer{
 		intervals:     intervals,
@@ -40,44 +42,26 @@ func NewIntervalScorer(intervals IntervalIterator, minExtent int, boost float32,
 	}
 }
 
-// DocID returns the current document ID.
+// DocID mirrors IntervalScorer.docID(): intervals.docID().
 func (s *IntervalScorer) DocID() int { return s.intervals.DocID() }
 
-// DocIDRunEnd returns a conservative upper bound.
-func (s *IntervalScorer) DocIDRunEnd() int { return s.DocID() + 1 }
-
-// Cost returns the estimated cost.
-func (s *IntervalScorer) Cost() int64 { return s.intervals.Cost() }
-
-// NextDoc advances to the next document.
-func (s *IntervalScorer) NextDoc() (int, error) { return s.intervals.NextDoc() }
-
-// Advance advances to at least the given target.
-func (s *IntervalScorer) Advance(target int) (int, error) { return s.intervals.Advance(target) }
-
-// Score returns the score for the current document.
-// Implements search.Scorer.
-func (s *IntervalScorer) Score() float32 {
-	_ = s.ensureFreq() // errors stored internally
-	return s.simScorer.Score(s.DocID(), s.freq, 1)
+// Score mirrors IntervalScorer.score(): ensureFreq(); simScorer.score(freq, 1).
+func (s *IntervalScorer) Score() (float32, error) {
+	if err := s.ensureFreq(); err != nil {
+		return 0, err
+	}
+	return s.simScorer.Score104(s.freq, 1), nil
 }
 
-// GetMaxScore returns the maximum possible score up to the given document.
-func (s *IntervalScorer) GetMaxScore(upTo int) float32 { return s.boost }
-
-// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
-// org.apache.lucene.search.Scorer#advanceShallow. Interval scorers do not
-// expose per-block impact information.
-func (s *IntervalScorer) AdvanceShallow(target int) (int, error) {
-	return search.NO_MORE_DOCS, nil
-}
-
-// Freq returns the sloppy frequency for the current document and any error.
+// Freq mirrors the package-private IntervalScorer.freq().
 func (s *IntervalScorer) Freq() (float32, error) {
-	err := s.ensureFreq()
-	return s.freq, err
+	if err := s.ensureFreq(); err != nil {
+		return 0, err
+	}
+	return s.freq, nil
 }
 
+// ensureFreq mirrors IntervalScorer.ensureFreq().
 func (s *IntervalScorer) ensureFreq() error {
 	if s.lastScoredDoc == s.DocID() {
 		return nil
@@ -86,20 +70,60 @@ func (s *IntervalScorer) ensureFreq() error {
 	s.freq = 0
 	for {
 		length := s.intervals.End() - s.intervals.Start() + 1
-		denom := length - s.minExtent + 1
-		if denom < 1 {
-			denom = 1
-		}
-		s.freq += float32(1.0 / math.Max(float64(denom), 1.0))
+		s.freq += float32(1.0 / math.Max(float64(length-s.minExtent+1), 1))
 		next, err := s.intervals.NextInterval()
 		if err != nil {
 			return err
 		}
 		if next == NoMoreIntervals {
-			break
+			return nil
 		}
 	}
-	return nil
 }
 
-var _ search.Scorer = (*IntervalScorer)(nil)
+// Iterator mirrors IntervalScorer.iterator():
+// TwoPhaseIterator.asDocIdSetIterator(twoPhaseIterator()).
+func (s *IntervalScorer) Iterator() search.DocIdSetIterator {
+	return search.AsDocIdSetIterator(s.TwoPhaseIterator())
+}
+
+// TwoPhaseIterator mirrors IntervalScorer.twoPhaseIterator(), which returns an
+// anonymous TwoPhaseIterator over the interval iterator whose matches() advances
+// to the next interval and whose matchCost() is the iterator's match cost.
+func (s *IntervalScorer) TwoPhaseIterator() *search.TwoPhaseIterator {
+	return search.NewTwoPhaseIterator(s.intervals, (*intervalScorerVerifier)(s))
+}
+
+// intervalScorerVerifier carries the body of the anonymous TwoPhaseIterator
+// subclass returned by IntervalScorer.twoPhaseIterator().
+type intervalScorerVerifier IntervalScorer
+
+// Matches mirrors the anonymous TwoPhaseIterator.matches():
+// intervals.nextInterval() != IntervalIterator.NO_MORE_INTERVALS.
+func (v *intervalScorerVerifier) Matches() (bool, error) {
+	next, err := v.intervals.NextInterval()
+	if err != nil {
+		return false, err
+	}
+	return next != NoMoreIntervals, nil
+}
+
+// MatchCost mirrors the anonymous TwoPhaseIterator.matchCost():
+// intervals.matchCost().
+func (v *intervalScorerVerifier) MatchCost() float32 {
+	return v.intervals.MatchCost()
+}
+
+// GetMaxScore mirrors IntervalScorer.getMaxScore(int): boost.
+func (s *IntervalScorer) GetMaxScore(upTo int) (float32, error) { return s.boost, nil }
+
+// NextDocsAndScores carries the concrete body of Scorer.nextDocsAndScores in
+// Apache Lucene 10.5.0, which IntervalScorer does not override.
+func (s *IntervalScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+var (
+	_ search.Scorer           = (*IntervalScorer)(nil)
+	_ search.TwoPhaseVerifier = (*intervalScorerVerifier)(nil)
+)

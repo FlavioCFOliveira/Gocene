@@ -56,7 +56,9 @@ func (f *UpperCaseFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*UpperCaseFilter)(nil)
 
 // UpperCaseFilterFactory creates UpperCaseFilter instances.
-type UpperCaseFilterFactory struct{}
+type UpperCaseFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewUpperCaseFilterFactory returns a fresh factory.
 func NewUpperCaseFilterFactory() *UpperCaseFilterFactory {

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // SlowCodecReaderWrapper adapts an arbitrary LeafReader to the CodecReader
@@ -65,7 +67,7 @@ func (s *SlowLeafCodecReader) GetDelegate() LeafReader { return s.delegate }
 
 // GetFieldInfos returns the FieldInfos from the delegate.
 func (s *SlowLeafCodecReader) GetFieldInfos() *FieldInfos {
-	return s.delegate.IndexReader.GetFieldInfos()
+	return s.delegate.GetFieldInfos()
 }
 
 // GetLiveDocs returns the live docs from the delegate. Returns nil when all
@@ -154,7 +156,7 @@ func (s *SlowLeafCodecReader) GetPointsReader() interface{} {
 // slowTermVectorsReader delegates TermVectorsReader to the LeafReader's
 // TermVectors surface. Mirrors readerToTermVectorsReader() in Lucene.
 type slowTermVectorsReader struct {
-	tv       TermVectors
+	tv       spi.TermVectors
 	delegate LeafReader
 }
 
@@ -168,10 +170,12 @@ func (r *slowTermVectorsReader) GetField(docID int, field string) (Terms, error)
 
 func (r *slowTermVectorsReader) Close() error { return nil }
 
+func (r *slowTermVectorsReader) CheckIntegrity() error { return nil }
+
 // slowStoredFieldsReader delegates StoredFieldsReader to the LeafReader's
 // StoredFields surface. Mirrors readerToStoredFieldsReader() in Lucene.
 type slowStoredFieldsReader struct {
-	sf       StoredFields
+	sf       spi.StoredFields
 	delegate LeafReader
 }
 
@@ -180,6 +184,8 @@ func (r *slowStoredFieldsReader) VisitDocument(docID int, visitor StoredFieldVis
 }
 
 func (r *slowStoredFieldsReader) Close() error { return nil }
+
+func (r *slowStoredFieldsReader) CheckIntegrity() error { return nil }
 
 // slowFieldsProducer delegates FieldsProducer to the LeafReader's Terms
 // accessors. Mirrors readerToFieldsProducer() in Lucene.
@@ -192,7 +198,27 @@ func (p *slowFieldsProducer) Terms(field string) (Terms, error) {
 	return p.delegate.Terms(field)
 }
 
+// Iterator returns the indexed field names. Mirrors the iterator() of the
+// anonymous FieldsProducer built by SlowCodecReaderWrapper.readerToFieldsProducer.
+func (p *slowFieldsProducer) Iterator() (FieldIterator, error) {
+	return NewMemoryFieldIterator(p.fields), nil
+}
+
+// Size returns the number of indexed fields. Mirrors the size() of the
+// anonymous FieldsProducer built by SlowCodecReaderWrapper.readerToFieldsProducer.
+func (p *slowFieldsProducer) Size() int {
+	return len(p.fields)
+}
+
+// GetMergeInstance returns the receiver: the anonymous FieldsProducer does not
+// override FieldsProducer.getMergeInstance(), whose default returns this.
+func (p *slowFieldsProducer) GetMergeInstance() FieldsProducer {
+	return p
+}
+
 func (p *slowFieldsProducer) Close() error { return nil }
+
+func (p *slowFieldsProducer) CheckIntegrity() error { return nil }
 
 // slowDocValuesProducer delegates DocValuesProducer to the LeafReader's
 // GetXxxDocValues accessors. Mirrors readerToDocValuesProducer() in Lucene.
@@ -220,9 +246,19 @@ func (p *slowDocValuesProducer) GetSortedSet(field *FieldInfo) (SortedSetDocValu
 	return p.delegate.GetSortedSetDocValues(field.Name())
 }
 
-func (p *slowDocValuesProducer) GetSkipper(field *FieldInfo) (DocValuesSkipper, error) {
+// GetSkipper hands back the leaf's own skipper. Mirrors the anonymous
+// DocValuesProducer in SlowCodecReaderWrapper.wrap(), whose getSkipper returns
+// reader.getDocValuesSkipper(field.name) unchanged: LeafReader already speaks
+// the DocValuesSkipper contract the codec surface expects, so no adaptation is
+// required.
+func (p *slowDocValuesProducer) GetSkipper(field *FieldInfo) (spi.DocValuesSkipper, error) {
 	return p.delegate.GetDocValuesSkipper(field.Name())
 }
+
+// GetMergeInstance returns the receiver. The corresponding class in Apache
+// Lucene 10.5.0 does not override getMergeInstance, so it inherits the
+// DocValuesProducer default, which returns this.
+func (p *slowDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
 
 func (p *slowDocValuesProducer) CheckIntegrity() error { return nil }
 
@@ -242,6 +278,11 @@ func (p *slowNormsProducer) GetNorms(field *FieldInfo) (NumericDocValues, error)
 
 // CheckIntegrity is a no-op (the slow wrapper already called CheckIntegrity on
 // construction, matching Lucene's comment).
+// GetMergeInstance returns the receiver. SlowCodecReaderWrapper's norms
+// producer does not override getMergeInstance in Apache Lucene 10.5.0, so it
+// inherits the NormsProducer default, which returns this.
+func (p *slowNormsProducer) GetMergeInstance() NormsProducer { return p }
+
 func (p *slowNormsProducer) CheckIntegrity() error { return nil }
 
 // Close is a no-op.
@@ -255,7 +296,7 @@ type slowPointsReader struct {
 }
 
 // GetValues returns the PointValues for the given field.
-func (p *slowPointsReader) GetValues(field string) (PointValues, error) {
+func (p *slowPointsReader) GetValues(field string) (spi.PointValues, error) {
 	return p.delegate.GetPointValues(field)
 }
 

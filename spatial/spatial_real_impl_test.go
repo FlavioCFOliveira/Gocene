@@ -385,7 +385,7 @@ type stubTerms struct {
 	postings map[string][]int
 }
 
-func (s *stubTerms) GetIterator() (schema.TermsEnum, error) {
+func (s *stubTerms) Iterator() (schema.TermsEnum, error) {
 	tokens := make([]string, 0, len(s.postings))
 	for t := range s.postings {
 		tokens = append(tokens, t)
@@ -395,7 +395,7 @@ func (s *stubTerms) GetIterator() (schema.TermsEnum, error) {
 }
 
 func (s *stubTerms) GetIteratorWithSeek(seekTerm *schema.Term) (schema.TermsEnum, error) {
-	return s.GetIterator()
+	return s.Iterator()
 }
 
 func (s *stubTerms) GetPostingsReader(termText string, flags int) (schema.PostingsEnum, error) {

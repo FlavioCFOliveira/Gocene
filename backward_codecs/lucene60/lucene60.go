@@ -101,7 +101,7 @@ func (f *Lucene60FieldInfosFormat) Write(
 
 	// Stack: rawOutput → checksumOutput → reverserOutput
 	// The reverserOutput.GetChecksum() delegates to checksumOutput so that
-	// codecs.WriteFooter can record the running CRC32.
+	// store.WriteFooter can record the running CRC32.
 	rawOut, err := dir.CreateOutput(fileName, context)
 	if err != nil {
 		return err
@@ -206,7 +206,7 @@ func readOneFieldInfo(in store.IndexInput, version int32) (*index.FieldInfo, err
 		return nil, err
 	}
 
-	attrs, err := store.ReadMapOfStrings(in)
+	attrs, err := in.ReadMapOfStrings()
 	if err != nil {
 		return nil, err
 	}
@@ -251,7 +251,7 @@ func writeFieldInfosTo(out store.IndexOutput, segmentInfo *index.SegmentInfo, se
 	if err := codecs.WriteIndexHeader(out, fnmCodecName, fnmFormatCurrent, segmentInfo.GetID(), segmentSuffix); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(out, int32(infos.Size())); err != nil {
+	if err := out.WriteVInt(int32(infos.Size())); err != nil {
 		return err
 	}
 
@@ -261,7 +261,7 @@ func writeFieldInfosTo(out store.IndexOutput, segmentInfo *index.SegmentInfo, se
 		if err := store.WriteString(out, fi.Name()); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, int32(fi.Number())); err != nil {
+		if err := out.WriteVInt(int32(fi.Number())); err != nil {
 			return err
 		}
 
@@ -301,26 +301,26 @@ func writeFieldInfosTo(out store.IndexOutput, segmentInfo *index.SegmentInfo, se
 		if err := store.WriteInt64(out, fi.DocValuesGen()); err != nil {
 			return err
 		}
-		if err := store.WriteMapOfStrings(out, fi.GetAttributes()); err != nil {
+		if err := out.WriteMapOfStrings(fi.GetAttributes()); err != nil {
 			return err
 		}
 
-		if err := store.WriteVInt(out, int32(fi.PointDimensionCount())); err != nil {
+		if err := out.WriteVInt(int32(fi.PointDimensionCount())); err != nil {
 			return err
 		}
 		if fi.PointDimensionCount() != 0 {
-			if err := store.WriteVInt(out, int32(fi.PointIndexDimensionCount())); err != nil {
+			if err := out.WriteVInt(int32(fi.PointIndexDimensionCount())); err != nil {
 				return err
 			}
-			if err := store.WriteVInt(out, int32(fi.PointNumBytes())); err != nil {
+			if err := out.WriteVInt(int32(fi.PointNumBytes())); err != nil {
 				return err
 			}
 		}
 	}
-	return codecs.WriteFooter(out)
+	return store.WriteFooter(out)
 }
 
-// checkFooterWithChecksum is a variant of codecs.CheckFooter that works with
+// checkFooterWithChecksum is a variant of store.CheckFooter that works with
 // our checksumIndexInputLike interface instead of the concrete
 // *store.ChecksumIndexInput type.
 func checkFooterWithChecksum(in checksumIndexInputLike) error {
@@ -334,7 +334,7 @@ func checkFooterWithChecksum(in checksumIndexInputLike) error {
 		return fmt.Errorf("misplaced codec footer (extended?): remaining=%d", remaining)
 	}
 
-	magic, err := store.ReadInt32(in)
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -342,7 +342,7 @@ func checkFooterWithChecksum(in checksumIndexInputLike) error {
 	if magic != footerMagic {
 		return fmt.Errorf("codec footer mismatch: actual=%x expected=%x", magic, footerMagic)
 	}
-	alg, err := store.ReadInt32(in)
+	alg, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -351,7 +351,7 @@ func checkFooterWithChecksum(in checksumIndexInputLike) error {
 	}
 
 	actualChecksum := int64(in.GetChecksum())
-	expectedChecksum, err := store.ReadInt64(in)
+	expectedChecksum, err := store.ReadBELong(in)
 	if err != nil {
 		return err
 	}
@@ -472,4 +472,3 @@ func (f *Lucene60PointsFormat) FieldsWriter(_ *codecs.SegmentWriteState) (codecs
 func (f *Lucene60PointsFormat) FieldsReader(state *codecs.SegmentReadState) (codecs.PointsReader, error) {
 	return NewLucene60PointsReader(state)
 }
-

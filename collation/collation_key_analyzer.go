@@ -11,6 +11,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/collation/tokenattributes"
 )
 
@@ -33,17 +34,27 @@ type CollationKeyAnalyzer struct {
 }
 
 // Compile-time assertion: CollationKeyAnalyzer must satisfy Analyzer.
-var _ analysis.Analyzer = (*CollationKeyAnalyzer)(nil)
+var _ api.Analyzer = (*CollationKeyAnalyzer)(nil)
 
 // NewCollationKeyAnalyzer creates a CollationKeyAnalyzer that encodes
 // every token via the supplied Collator.
 func NewCollationKeyAnalyzer(collator tokenattributes.Collator) *CollationKeyAnalyzer {
 	factory := NewCollationAttributeFactory(collator)
 	a := &CollationKeyAnalyzer{
-		BaseAnalyzer: *analysis.NewAnalyzer(),
+		BaseAnalyzer: *analysis.NewAnalyzer(analysis.GlobalReuseStrategy),
 		factory:      factory,
 	}
-	a.TokenizerFactory = analysis.NewKeywordTokenizerFactoryWithFactory(factory)
+	a.CreateComponents = func(fieldName string) *analysis.TokenStreamComponents {
+		src := analysis.NewKeywordTokenizerWithFactory(factory)
+		var tok analysis.TokenStream = src
+		return &analysis.TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 	return a
 }
 

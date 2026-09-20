@@ -24,16 +24,6 @@ type QueryCache interface {
 	DoCache(weight Weight, policy QueryCachingPolicy) Weight
 }
 
-// QueryCachingPolicy determines which queries should be cached.
-// This is the Go port of Lucene's org.apache.lucene.search.QueryCachingPolicy.
-type QueryCachingPolicy interface {
-	// ShouldCache returns true if the given query should be cached.
-	ShouldCache(query Query) bool
-
-	// OnUse is called when a query is used.
-	OnUse(query Query)
-}
-
 // BaseQueryCache provides common functionality for query caches.
 type BaseQueryCache struct{}
 
@@ -59,8 +49,8 @@ func NewBaseQueryCachingPolicy() *BaseQueryCachingPolicy {
 
 // ShouldCache returns true if the given query should be cached.
 // Default implementation: cache nothing.
-func (p *BaseQueryCachingPolicy) ShouldCache(query Query) bool {
-	return false
+func (p *BaseQueryCachingPolicy) ShouldCache(query Query) (bool, error) {
+	return false, nil
 }
 
 // OnUse is called when a query is used.
@@ -222,11 +212,11 @@ func (p *UsageTrackingQueryCachingPolicy) frequency(query Query) int {
 
 // ShouldCache reports whether query should be cached. Mirrors
 // UsageTrackingQueryCachingPolicy.shouldCache.
-func (p *UsageTrackingQueryCachingPolicy) ShouldCache(query Query) bool {
+func (p *UsageTrackingQueryCachingPolicy) ShouldCache(query Query) (bool, error) {
 	if usageTrackingShouldNeverCache(query) {
-		return false
+		return false, nil
 	}
-	return p.frequency(query) >= usageTrackingMinFrequencyToCache(query)
+	return p.frequency(query) >= usageTrackingMinFrequencyToCache(query), nil
 }
 
 // Ensure UsageTrackingQueryCachingPolicy implements QueryCachingPolicy

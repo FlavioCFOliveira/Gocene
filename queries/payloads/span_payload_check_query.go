@@ -9,6 +9,7 @@ package payloads
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/spans"
@@ -21,8 +22,8 @@ import (
 //
 // Mirrors org.apache.lucene.queries.payloads.SpanPayloadCheckQuery.
 type SpanPayloadCheckQuery struct {
-	search.BaseSpanQuery
-	match          search.SpanQuery
+	search.BaseQuery
+	match          spans.SpanQuery
 	payloadToMatch []*util.BytesRef
 	payloadType    PayloadType
 	operation      MatchOperation
@@ -30,16 +31,15 @@ type SpanPayloadCheckQuery struct {
 
 // NewSpanPayloadCheckQuery creates a SpanPayloadCheckQuery with STRING type
 // and EQ operation (default).
-func NewSpanPayloadCheckQuery(match search.SpanQuery, payloadToMatch []*util.BytesRef) *SpanPayloadCheckQuery {
+func NewSpanPayloadCheckQuery(match spans.SpanQuery, payloadToMatch []*util.BytesRef) *SpanPayloadCheckQuery {
 	return NewSpanPayloadCheckQueryWithType(match, payloadToMatch, PayloadTypeSTRING, MatchOperationEQ)
 }
 
 // NewSpanPayloadCheckQueryWithType creates a SpanPayloadCheckQuery with the
 // given payload type and match operation.
-func NewSpanPayloadCheckQueryWithType(match search.SpanQuery, payloadToMatch []*util.BytesRef,
+func NewSpanPayloadCheckQueryWithType(match spans.SpanQuery, payloadToMatch []*util.BytesRef,
 	payloadType PayloadType, operation MatchOperation) *SpanPayloadCheckQuery {
 	return &SpanPayloadCheckQuery{
-		BaseSpanQuery:  *search.NewBaseSpanQuery(match.GetField()),
 		match:          match,
 		payloadToMatch: payloadToMatch,
 		payloadType:    payloadType,
@@ -52,13 +52,13 @@ func (q *SpanPayloadCheckQuery) GetField() string { return q.match.GetField() }
 
 // Rewrite rewrites the inner query and returns a new SpanPayloadCheckQuery if
 // the inner query changed.
-func (q *SpanPayloadCheckQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
-	rewritten, err := q.match.Rewrite(reader)
+func (q *SpanPayloadCheckQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
+	rewritten, err := q.match.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
 	if rewritten != q.match {
-		sp, ok := rewritten.(search.SpanQuery)
+		sp, ok := rewritten.(spans.SpanQuery)
 		if !ok {
 			return nil, fmt.Errorf("SpanPayloadCheckQuery.Rewrite: inner rewrite returned non-SpanQuery %T", rewritten)
 		}
@@ -78,12 +78,12 @@ func (q *SpanPayloadCheckQuery) Visit(visitor search.QueryVisitor) {
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *SpanPayloadCheckQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	matchWeight, err := q.match.CreateWeight(searcher, needsScores, boost)
+func (q *SpanPayloadCheckQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	matchWeight, err := q.match.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
 	}
-	if !needsScores {
+	if !scoreMode.NeedsScores() {
 		return matchWeight, nil
 	}
 	return &spanPayloadCheckWeight{
@@ -96,19 +96,14 @@ func (q *SpanPayloadCheckQuery) CreateWeight(searcher *search.IndexSearcher, nee
 	}, nil
 }
 
-// Clone returns a copy of this query.
-func (q *SpanPayloadCheckQuery) Clone() search.Query {
-	return &SpanPayloadCheckQuery{
-		BaseSpanQuery:  *search.NewBaseSpanQuery(q.GetField()),
-		match:          q.match.Clone().(search.SpanQuery),
-		payloadToMatch: cloneBytesRefSlice(q.payloadToMatch),
-		payloadType:    q.payloadType,
-		operation:      q.operation,
-	}
+// CreateSpanWeight delegates to the inner span query, which is what the
+// payload-check weight filters.
+func (q *SpanPayloadCheckQuery) CreateSpanWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (*spans.SpanWeight, error) {
+	return q.match.CreateSpanWeight(searcher, scoreMode, boost)
 }
 
 // Equals returns true if other is equal to this.
-func (q *SpanPayloadCheckQuery) Equals(other search.Query) bool {
+func (q *SpanPayloadCheckQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*SpanPayloadCheckQuery)
 	if !ok {
 		return false
@@ -146,9 +141,13 @@ func (q *SpanPayloadCheckQuery) HashCode() int {
 }
 
 // String returns a string representation.
+// ToString prints this query, with field assumed to be the default field and
+// omitted.
+func (q *SpanPayloadCheckQuery) ToString(field string) string { return q.String(field) }
+
 func (q *SpanPayloadCheckQuery) String(field string) string {
 	buf := "SpanPayloadCheckQuery("
-	buf += q.match.String(field)
+	buf += q.match.ToString(field)
 	buf += ", payloadRef: "
 	for _, br := range q.payloadToMatch {
 		buf += util.ToStringBytesRef(br)
@@ -160,8 +159,8 @@ func (q *SpanPayloadCheckQuery) String(field string) string {
 	return buf
 }
 
-// Ensure SpanPayloadCheckQuery implements search.SpanQuery.
-var _ search.SpanQuery = (*SpanPayloadCheckQuery)(nil)
+// Ensure SpanPayloadCheckQuery implements spans.SpanQuery.
+var _ spans.SpanQuery = (*SpanPayloadCheckQuery)(nil)
 
 // --- Weight implementation ---
 
@@ -216,13 +215,13 @@ func (w *spanPayloadCheckWeight) ScorerSupplier(ctx *index.LeafReaderContext) (s
 	// Get norms.
 	var norms index.NumericDocValues
 	if ctx != nil {
-		if lr, ok := ctx.LeafReader().(*index.LeafReader); ok && lr != nil {
+		if lr := ctx.LeafReader(); lr != nil {
 			norms, _ = lr.GetNormValues(w.field)
 		}
 	}
 
 	sc := newPayloadCheckScorer(filtered, nil, norms)
-	return search.NewScorerSupplierAdapter(sc), nil
+	return search.NewDefaultScorerSupplier(sc), nil
 }
 
 // Explain returns an explanation for the given document.
@@ -234,14 +233,18 @@ func (w *spanPayloadCheckWeight) Explain(ctx *index.LeafReaderContext, doc int) 
 	if sc == nil {
 		return search.NoMatchExplanation("no matching spans"), nil
 	}
-	advanced, err := sc.Advance(doc)
+	advanced, err := sc.Iterator().Advance(doc)
 	if err != nil {
 		return nil, err
 	}
 	if advanced != doc {
 		return search.NoMatchExplanation("no matching spans"), nil
 	}
-	return search.MatchExplanation(sc.Score(), "SpanPayloadCheckQuery match"), nil
+	score, err := sc.Score()
+	if err != nil {
+		return nil, err
+	}
+	return search.MatchExplanation(score, "SpanPayloadCheckQuery match"), nil
 }
 
 // IsCacheable returns true if the inner weight is cacheable.
@@ -280,13 +283,13 @@ type payloadCheckFilterSpans struct {
 	checker *payloadChecker
 }
 
-func (fs *payloadCheckFilterSpans) DocID() int            { return fs.inner.DocID() }
-func (fs *payloadCheckFilterSpans) Cost() int64           { return fs.inner.Cost() }
-func (fs *payloadCheckFilterSpans) DocIDRunEnd() int      { return fs.inner.DocIDRunEnd() }
-func (fs *payloadCheckFilterSpans) StartPosition() int    { return fs.inner.StartPosition() }
-func (fs *payloadCheckFilterSpans) EndPosition() int      { return fs.inner.EndPosition() }
-func (fs *payloadCheckFilterSpans) Width() int            { return fs.inner.Width() }
-func (fs *payloadCheckFilterSpans) PositionsCost() float32 { return fs.inner.PositionsCost() }
+func (fs *payloadCheckFilterSpans) DocID() int                { return fs.inner.DocID() }
+func (fs *payloadCheckFilterSpans) Cost() int64               { return fs.inner.Cost() }
+func (fs *payloadCheckFilterSpans) DocIDRunEnd() (int, error) { return fs.inner.DocIDRunEnd() }
+func (fs *payloadCheckFilterSpans) StartPosition() int        { return fs.inner.StartPosition() }
+func (fs *payloadCheckFilterSpans) EndPosition() int          { return fs.inner.EndPosition() }
+func (fs *payloadCheckFilterSpans) Width() int                { return fs.inner.Width() }
+func (fs *payloadCheckFilterSpans) PositionsCost() float32    { return fs.inner.PositionsCost() }
 func (fs *payloadCheckFilterSpans) AsTwoPhaseIterator() *search.TwoPhaseIterator {
 	return fs.inner.AsTwoPhaseIterator()
 }
@@ -417,8 +420,8 @@ func (s *payloadCheckScorer) Advance(target int) (int, error) {
 	return doc, nil
 }
 
-func (s *payloadCheckScorer) Cost() int64      { return s.spans.Cost() }
-func (s *payloadCheckScorer) DocIDRunEnd() int { return s.spans.DocIDRunEnd() }
+func (s *payloadCheckScorer) Cost() int64               { return s.spans.Cost() }
+func (s *payloadCheckScorer) DocIDRunEnd() (int, error) { return s.spans.DocIDRunEnd() }
 
 func (s *payloadCheckScorer) setFreqCurrentDoc() error {
 	s.freq = 0
@@ -461,17 +464,55 @@ func (s *payloadCheckScorer) ensureFreq() error {
 	return nil
 }
 
-func (s *payloadCheckScorer) Score() float32 {
+func (s *payloadCheckScorer) Score() (float32, error) {
 	if err := s.ensureFreq(); err != nil {
-		return 0
+		return 0, err
 	}
 	if s.simScorer == nil {
-		return 0
+		return 0, nil
 	}
-	return s.simScorer.Score(s.DocID(), s.freq, 1)
+	return s.simScorer.Score104(s.freq, 1), nil
 }
 
-func (s *payloadCheckScorer) GetMaxScore(_ int) float32 { return 1<<24 - 1 }
+func (s *payloadCheckScorer) GetMaxScore(_ int) (float32, error) { return 1<<24 - 1, nil }
+
+// Iterator returns the DocIdSetIterator view of this scorer.
+func (s *payloadCheckScorer) Iterator() search.DocIdSetIterator {
+	return &payloadCheckIterator{s: s}
+}
+
+// TwoPhaseIterator carries Scorer#twoPhaseIterator()'s default body (null).
+func (s *payloadCheckScorer) TwoPhaseIterator() *search.TwoPhaseIterator { return nil }
+
+// GetChildren carries Scorable.getChildren()'s default body (empty list).
+func (s *payloadCheckScorer) GetChildren() ([]search.ChildScorable, error) {
+	return []search.ChildScorable{}, nil
+}
+
+// SmoothingScore carries Scorable.smoothingScore(int)'s default body (0f).
+func (s *payloadCheckScorer) SmoothingScore(docID int) (float32, error) { return 0, nil }
+
+// SetMinCompetitiveScore carries Scorable.setMinCompetitiveScore's empty default.
+func (s *payloadCheckScorer) SetMinCompetitiveScore(minScore float32) error { return nil }
+
+// NextDocsAndScores carries Scorer#nextDocsAndScores's default body.
+func (s *payloadCheckScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// payloadCheckIterator is the DocIdSetIterator view of payloadCheckScorer.
+type payloadCheckIterator struct {
+	s *payloadCheckScorer
+}
+
+func (it *payloadCheckIterator) DocID() int                 { return it.s.DocID() }
+func (it *payloadCheckIterator) Cost() int64                { return it.s.Cost() }
+func (it *payloadCheckIterator) NextDoc() (int, error)      { return it.s.NextDoc() }
+func (it *payloadCheckIterator) Advance(t int) (int, error) { return it.s.Advance(t) }
+func (it *payloadCheckIterator) DocIDRunEnd() (int, error)  { return it.s.DocIDRunEnd() }
+func (it *payloadCheckIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}
 
 func (s *payloadCheckScorer) AdvanceShallow(target int) (int, error) {
 	return search.NO_MORE_DOCS, nil
@@ -492,4 +533,18 @@ func cloneBytesRefSlice(src []*util.BytesRef) []*util.BytesRef {
 		}
 	}
 	return dst
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (fs *payloadCheckFilterSpans) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(fs, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *payloadCheckScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

@@ -4,47 +4,42 @@
 
 package search
 
-import "container/heap"
+// Ported from Apache Lucene 10.5.0:
+//   lucene/core/src/java/org/apache/lucene/search/PhraseQueue.java
 
-// PhraseQueue is a priority queue for advancing the min position among PhrasePositions.
-type PhraseQueue []*PhrasePositions
+import "github.com/FlavioCFOliveira/Gocene/util"
 
-func (pq PhraseQueue) Len() int { return len(pq) }
-func (pq PhraseQueue) Less(i, j int) bool {
-	if pq[i].position != pq[j].position {
-		return pq[i].position < pq[j].position
+// PhraseQueue is the priority queue over PhrasePositions used to advance the
+// least PhrasePosition.
+//
+// Mirrors org.apache.lucene.search.PhraseQueue, a package-private final class
+// extending org.apache.lucene.util.PriorityQueue<PhrasePositions>.
+type PhraseQueue struct {
+	*util.PriorityQueue[*PhrasePositions]
+}
+
+// NewPhraseQueue creates a PhraseQueue holding at most size elements.
+//
+// Mirrors PhraseQueue(int size), which delegates to PriorityQueue(int) and
+// throws IllegalArgumentException for a negative size.
+func NewPhraseQueue(size int) *PhraseQueue {
+	pq, err := util.NewPriorityQueue(size, phraseQueueLessThan)
+	if err != nil {
+		panic(err)
 	}
-	return pq[i].offset < pq[j].offset
-}
-func (pq PhraseQueue) Swap(i, j int) { pq[i], pq[j] = pq[j], pq[i] }
-
-func (pq *PhraseQueue) Push(x interface{}) {
-	*pq = append(*pq, x.(*PhrasePositions))
+	return &PhraseQueue{PriorityQueue: pq}
 }
 
-func (pq *PhraseQueue) Pop() interface{} {
-	old := *pq
-	n := len(old)
-	item := old[n-1]
-	*pq = old[0 : n-1]
-	return item
-}
-
-func (pq *PhraseQueue) Clear() {
-	*pq = (*pq)[:0]
-}
-
-func (pq *PhraseQueue) Add(pp *PhrasePositions) {
-	heap.Push(pq, pp)
-}
-
-func (pq *PhraseQueue) PopMin() *PhrasePositions {
-	return heap.Pop(pq).(*PhrasePositions)
-}
-
-func (pq *PhraseQueue) Top() *PhrasePositions {
-	if len(*pq) == 0 {
-		return nil
+// phraseQueueLessThan mirrors PhraseQueue.lessThan(PhrasePositions,
+// PhrasePositions).
+func phraseQueueLessThan(pp1, pp2 *PhrasePositions) bool {
+	if pp1.Position == pp2.Position {
+		// same doc and pp.position, so decide by actual term positions.
+		// rely on: pp.position == tp.position - offset.
+		if pp1.Offset == pp2.Offset {
+			return pp1.Ord < pp2.Ord
+		}
+		return pp1.Offset < pp2.Offset
 	}
-	return (*pq)[0]
+	return pp1.Position < pp2.Position
 }

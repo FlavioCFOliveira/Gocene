@@ -246,7 +246,7 @@ func writeSegmentWithFiles(t *testing.T, dir store.Directory, files map[string][
 		if err := out.WriteBytes(body); err != nil {
 			t.Fatalf("WriteBytes %s: %v", name, err)
 		}
-		if err := codecs.WriteFooter(out); err != nil {
+		if err := store.WriteFooter(out); err != nil {
 			t.Fatalf("WriteFooter %s: %v", name, err)
 		}
 		if err := out.Close(); err != nil {
@@ -275,7 +275,7 @@ func readFileFromCompound(dir codecs.CompoundDirectory, name string) ([]byte, er
 	// footer (16 bytes) so the caller can compare against the original
 	// payload bytes only.
 	header := int64(codecs.IndexHeaderLength("Test", ""))
-	footer := int64(codecs.FooterLength())
+	footer := int64(store.FooterLength())
 	if n < header+footer {
 		return nil, nil
 	}

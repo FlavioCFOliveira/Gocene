@@ -28,11 +28,13 @@ import (
 //     The parent-block branch and the LUCENE_10 corruption check are
 //     skipped when GetParentField is empty, matching Lucene's "field is
 //     null" path.
-//   - CodecReader.GetLeafMetaData returns nil here (no per-leaf metadata
-//     pipeline yet). The parent-block / created-version branches are
-//     skipped when leaf metadata is nil; this is observationally
-//     equivalent to a segment that has no blocks and never opts into the
-//     LUCENE_10 corruption check.
+//   - Lucene reads per-leaf metadata through LeafReader.getMetaData();
+//     spi.LeafReader.GetMetaData() carries IndexReaderMetaData instead, so
+//     LeafMetaData is recovered by assertion on the optional
+//     GetLeafMetaData accessor (leafMetaDataOf). Readers that do not expose
+//     it yield nil, and the parent-block / created-version branches are
+//     then skipped; this is observationally equivalent to a segment that
+//     has no blocks and never opts into the LUCENE_10 corruption check.
 //   - PackedLongValues.monotonicBuilder(PackedInts.COMPACT) is replaced by
 //     packed.DeltaPackedBuilder with the page size = 256 and the COMPACT
 //     overhead ratio. The mapped doc-ID sequence per reader is
@@ -79,7 +81,7 @@ func (s *IndexSorter) GetComparableProviders(readers []CodecReader) []Comparable
 		}
 		return providers
 	}
-	providers, err := buildComparableProviders(s.sort.Fields()[0], readers)
+	providers, err := buildComparableProviders(*s.sort.Fields()[0], readers)
 	if err != nil {
 		// GetComparableProviders cannot return an error; surface it lazily
 		// through every provider call so multiSorterSort reports it.
@@ -114,13 +116,26 @@ func sortFieldIndexSorter(sf *SortField) *IndexSorter {
 // keeps the method documented inline for historical reference; the
 // implementation moved verbatim.
 
-// GetLeafMetaData returns the per-leaf metadata (created-version, sort,
-// has-blocks). Until the leaf-metadata pipeline is wired through the
-// codec readers, this returns nil; MultiSorter treats nil as "no blocks,
-// no parent-field bookkeeping". Mirrors
-// org.apache.lucene.index.LeafReader.getMetaData restricted to the
-// LeafMetaData payload used by MultiSorter.
-func (r CodecReader) GetLeafMetaData() *LeafMetaData {
+// leafMetaDataProvider is the per-leaf metadata surface Lucene exposes via
+// LeafReader.getMetaData().
+//
+// PORT NOTE: spi.LeafReader.GetMetaData() carries IndexReaderMetaData
+// (deletions and document counts), not Lucene's LeafMetaData, so the
+// created-version / sort / has-blocks payload is reached through a separate
+// accessor and recovered by assertion — the same technique codec_reader.go
+// uses for the wide points and vectors surfaces.
+type leafMetaDataProvider interface {
+	GetLeafMetaData() *LeafMetaData
+}
+
+// leafMetaDataOf returns the per-leaf metadata (created-version, sort,
+// has-blocks) of reader, or nil when the reader does not expose it.
+// MultiSorter treats nil as "no blocks, no parent-field bookkeeping",
+// matching Lucene's behaviour for a segment that recorded no blocks.
+func leafMetaDataOf(reader CodecReader) *LeafMetaData {
+	if p, ok := reader.(leafMetaDataProvider); ok {
+		return p.GetLeafMetaData()
+	}
 	return nil
 }
 
@@ -142,7 +157,7 @@ func multiSorterSort(sort *Sort, readers []CodecReader) ([]DocMap, error) {
 	reverseMuls := make([]int, len(fields))
 
 	for i := range fields {
-		field := &fields[i]
+		field := fields[i]
 		sorter := sortFieldIndexSorter(field)
 		if sorter == nil {
 			return nil, fmt.Errorf("cannot use sort field %v for index sorting", field)
@@ -150,12 +165,12 @@ func multiSorterSort(sort *Sort, readers []CodecReader) ([]DocMap, error) {
 		comparables[i] = sorter.GetComparableProviders(readers)
 		for j, codecReader := range readers {
 			fieldInfos := codecReader.GetFieldInfos()
-			metaData := codecReader.GetLeafMetaData()
+			metaData := leafMetaDataOf(codecReader)
 			parentField := ""
 			if fieldInfos != nil {
 				parentField = fieldInfos.GetParentField()
 			}
-			if metaData != nil && metaData.HasBlocks() && parentField != "" {
+			if metaData != nil && metaData.HasBlocks && parentField != "" {
 				parentDocs, err := codecReader.GetNumericDocValues(parentField)
 				if err != nil {
 					return nil, fmt.Errorf("MultiSorter: reading parent docs of %q: %w", parentField, err)
@@ -174,11 +189,11 @@ func multiSorterSort(sort *Sort, readers []CodecReader) ([]DocMap, error) {
 					return inner(next)
 				}
 			}
-			if metaData != nil && metaData.HasBlocks() && parentField == "" &&
-				metaData.CreatedVersionMajor() >= util.LuceneVersionMajor {
+			if metaData != nil && metaData.HasBlocks && parentField == "" &&
+				metaData.CreatedVersionMajor >= util.LuceneVersionMajor {
 				return nil, NewCorruptIndexException(
 					fmt.Sprintf("parent field is not set but the index has blocks and uses index sorting. indexCreatedVersionMajor: %d",
-						metaData.CreatedVersionMajor()),
+						metaData.CreatedVersionMajor),
 					"IndexingChain",
 				)
 			}

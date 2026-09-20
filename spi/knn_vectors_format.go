@@ -5,7 +5,7 @@
 package spi
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+// No import needed for schema as it is now part of spi
 )
 
 // KnnVectorsFormat is the canonical wide service-provider interface for
@@ -72,7 +72,7 @@ type KnnVectorsWriter interface {
 	// implementations typically back it with a strongly-typed (FLOAT32 or
 	// BYTE) sub-writer; the non-generic interface mirrors Java's
 	// KnnFieldVectorsWriter<?> wildcard.
-	AddField(fieldInfo *schema.FieldInfo) (KnnFieldVectorsWriter, error)
+	AddField(fieldInfo *FieldInfo) (KnnFieldVectorsWriter, error)
 
 	// Flush serialises every buffered field for maxDoc documents,
 	// optionally remapping doc IDs through sortMap when the segment is
@@ -83,7 +83,7 @@ type KnnVectorsWriter interface {
 	// fieldInfo are streamed in from reader instead of from per-document
 	// AddValue calls. Implementations that buffer vectors in memory
 	// typically return an error here and rely on a separate merge path.
-	WriteField(fieldInfo *schema.FieldInfo, reader KnnVectorsReader) error
+	WriteField(fieldInfo *FieldInfo, reader KnnVectorsReader) error
 
 	// Finish is invoked once after Flush (or the last WriteField) to
 	// stamp any trailing metadata (sentinel, footer).
@@ -98,13 +98,55 @@ type KnnVectorsWriter interface {
 // exposes for KNN vectors. Mirrors
 // org.apache.lucene.codecs.KnnVectorsReader from Apache Lucene 10.4.0.
 //
-// Only the integrity-check and close hooks are part of the SPI surface;
-// the per-encoding read methods (getFloatVectorValues, getByteVectorValues,
-// search, …) live on the codecs-side wider interface because they
-// reference iterator types that have not yet been lifted into the SPI.
+// The two search(String, float[]/byte[], KnnCollector, AcceptDocs) overloads
+// are not part of this interface yet: AcceptDocs is declared in the search
+// package, which imports spi.
 type KnnVectorsReader interface {
 	// CheckIntegrity verifies the integrity of the on-disk vector data.
 	CheckIntegrity() error
+
+	// GetFloatVectorValues returns the FloatVectorValues for the given field.
+	// The behavior is undefined if the given field doesn't have KNN vectors
+	// enabled on its FieldInfo. The return value is never nil.
+	//
+	// Mirrors KnnVectorsReader.getFloatVectorValues(String) of Apache Lucene
+	// 10.5.0.
+	GetFloatVectorValues(field string) (FloatVectorValues, error)
+
+	// GetByteVectorValues returns the ByteVectorValues for the given field.
+	// The behavior is undefined if the given field doesn't have KNN vectors
+	// enabled on its FieldInfo. The return value is never nil.
+	//
+	// Mirrors KnnVectorsReader.getByteVectorValues(String) of Apache Lucene
+	// 10.5.0.
+	GetByteVectorValues(field string) (ByteVectorValues, error)
+
+	// GetMergeInstance returns an instance optimized for merging. This
+	// instance may only be used from the thread that called
+	// GetMergeInstance.
+	//
+	// The default implementation returns the receiver itself.
+	//
+	// Mirrors KnnVectorsReader.getMergeInstance() of Apache Lucene 10.5.0.
+	GetMergeInstance() (KnnVectorsReader, error)
+
+	// FinishMerge cleans up any state that was built for merging, once the
+	// merge instance is no longer needed.
+	//
+	// The default implementation does nothing.
+	//
+	// Mirrors KnnVectorsReader.finishMerge() of Apache Lucene 10.5.0.
+	FinishMerge() error
+
+	// GetOffHeapByteSize reports the desired off-heap memory, keyed by file
+	// extension, for the given field. An empty or absent entry means the
+	// reader keeps nothing off-heap for that category.
+	//
+	// The default implementation returns an empty map.
+	//
+	// Mirrors KnnVectorsReader.getOffHeapByteSize(FieldInfo) of Apache
+	// Lucene 10.5.0, whose default body is "return Map.of()".
+	GetOffHeapByteSize(fieldInfo *FieldInfo) map[string]int64
 
 	// Close releases the underlying inputs. Idempotent.
 	Close() error

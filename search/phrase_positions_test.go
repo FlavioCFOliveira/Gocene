@@ -9,6 +9,7 @@
 package search_test
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"strings"
 	"testing"
 
@@ -33,7 +34,7 @@ func (p *ppStubPostings) DocID() int                 { return 0 }
 func (p *ppStubPostings) NextDoc() (int, error)      { return 0, nil }
 func (p *ppStubPostings) Advance(_ int) (int, error) { return 0, nil }
 func (p *ppStubPostings) Cost() int64                { return 1 }
-func (p *ppStubPostings) DocIDRunEnd() int           { return 1 }
+func (p *ppStubPostings) DocIDRunEnd() (int, error)  { return 1, nil }
 func (p *ppStubPostings) Freq() (int, error)         { return p.freq, nil }
 func (p *ppStubPostings) NextPosition() (int, error) {
 	p.posIdx++
@@ -151,4 +152,11 @@ func TestPhrasePositions_StringWithRptGroup(t *testing.T) {
 	if !strings.Contains(s, "rpt:3,i7") {
 		t.Errorf("String() = %q, missing rpt info", s)
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (p *ppStubPostings) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
 }

@@ -7,6 +7,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
@@ -157,7 +158,7 @@ func (q *latLonDocValuesBoxQuery) String(field string) string {
 // Equals mirrors LatLonDocValuesBoxQuery.equals: same class, same
 // field, same dateline-crossing flag, and all four encoded bounds
 // equal.
-func (q *latLonDocValuesBoxQuery) Equals(other Query) bool {
+func (q *latLonDocValuesBoxQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*latLonDocValuesBoxQuery)
 	if !ok {
 		return false
@@ -216,18 +217,13 @@ func (q *latLonDocValuesBoxQuery) EncodedBounds() (int32, int32, int32, int32) {
 	return q.minLatitude, q.maxLatitude, q.minLongitude, q.maxLongitude
 }
 
-// Clone returns the query itself. The struct is logically immutable
-// (all fields are primitives captured at construction), so a shallow
-// clone preserves query identity and equals semantics.
-func (q *latLonDocValuesBoxQuery) Clone() Query { return q }
-
 // Rewrite returns the query unchanged (it has no rewrite rules in the
 // Java reference). The explicit override is required because the type
 // embeds *BaseQuery: relying on the promoted BaseQuery.Rewrite would
 // return the inner *BaseQuery receiver, erasing this query's
 // CreateWeight override so the rewritten query would silently match
 // zero documents.
-func (q *latLonDocValuesBoxQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
+func (q *latLonDocValuesBoxQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // CreateWeight builds a [ConstantScoreWeight] that resolves the
 // per-leaf [index.SortedNumericDocValues] iterator and wraps a
@@ -238,9 +234,9 @@ func (q *latLonDocValuesBoxQuery) Rewrite(_ IndexReader) (Query, error) { return
 // signature uses a needsScores bool, so the supplier infers the mode
 // (true => COMPLETE, false => COMPLETE_NO_SCORES) and propagates it
 // to the ConstantScoreScorer.
-func (q *latLonDocValuesBoxQuery) CreateWeight(_ *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *latLonDocValuesBoxQuery) CreateWeight(_ *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	mode := COMPLETE_NO_SCORES
-	if needsScores {
+	if scoreMode.NeedsScores() {
 		mode = COMPLETE
 	}
 
@@ -257,7 +253,11 @@ func (q *latLonDocValuesBoxQuery) CreateWeight(_ *IndexSearcher, needsScores boo
 			maxDoc = r.MaxDoc()
 		}
 		approx := newSortedNumericApproximation(values, maxDoc)
-		tpi := NewTwoPhaseIterator(approx, func() (bool, error) {
+		// Mirrors the anonymous TwoPhaseIterator of
+		// LatLonDocValuesBoxQuery.createWeight(...).scorerSupplier(...)
+		// (Lucene 10.5.0, LatLonDocValuesBoxQuery.java:152-154):
+		// matchCost() returns 5 ("5 comparisons").
+		tpi := NewTwoPhaseIteratorWithMatchCost(approx, func() (bool, error) {
 			return boxMatches(
 				values,
 				approx.DocID(),
@@ -265,13 +265,13 @@ func (q *latLonDocValuesBoxQuery) CreateWeight(_ *IndexSearcher, needsScores boo
 				q.minLongitude, q.maxLongitude,
 				q.crossesDateline,
 			)
-		})
+		}, 5)
 		return NewConstantScoreScorerSupplier(
 			boost,
 			mode,
 			approx.Cost(),
 			func(_ int64) (DocIdSetIterator, error) {
-				return tpi.AsDocIdSetIterator(), nil
+				return AsDocIdSetIterator(tpi), nil
 			},
 		), nil
 	}

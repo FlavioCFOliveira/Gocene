@@ -4,7 +4,7 @@
 package document
 import (
 	"strconv"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 // DoubleField is a field for indexing float64 values.
 type DoubleField struct {
@@ -15,7 +15,7 @@ func NewDoubleField(name string, value float64, store bool) (*DoubleField, error
 	ft := NewFieldType()
 	ft.SetStored(store)
 	ft.SetIndexed(true)
-	ft.SetIndexOptions(schema.IndexOptionsDocs)
+	ft.SetIndexOptions(spi.IndexOptionsDocs)
 	ft.Freeze()
 	field, err := NewField(name, strconv.FormatFloat(value, 'f', -1, 64), ft)
 	if err != nil {
@@ -36,48 +36,8 @@ func encodeFloat64Legacy(f float64) []byte {
 func decodeFloat64Legacy(buf []byte) float64 {
 	return UnpackDouble(buf)
 }
-// DoublePoint is an indexed float64 point field for range queries using the Point API.
-type DoublePoint struct {
-	Point
-}
-// NewDoublePoint creates a new DoublePoint with a single value.
-func NewDoublePoint(name string, value float64) *DoublePoint {
-	return NewDoublePoints(name, value)
-}
-// NewDoublePoints creates a new DoublePoint with multiple values.
-func NewDoublePoints(name string, values ...float64) *DoublePoint {
-	if len(values) == 0 {
-		return nil
-	}
-	// Encode with Lucene's two-stage sortable encoding
-	// (NumericUtils.doubleToSortableLong then longToSortableBytes), the on-disk
-	// BKD point format Apache Lucene 10.4.0 produces and consumes. A raw IEEE
-	// big-endian layout would mis-order negative doubles and break binary
-	// compatibility with Lucene's DoublePoint.
-	encoded := PackDoublesLucene(values...)
-	ft := PointFieldType()
-	ft.DimensionNumBytes = 8
-	point, _ := NewPoint(name, ft, encoded, 1, 8)
-	return &DoublePoint{Point: *point}
-}
-// DoubleValue returns the first double value.
-func (dp *DoublePoint) DoubleValue() float64 {
-	values := dp.DoubleValues()
-	if len(values) > 0 {
-		return values[0]
-	}
-	return 0
-}
-// DoubleValues returns all double values, decoding the Lucene sortable
-// encoding used by NewDoublePoints.
-func (dp *DoublePoint) DoubleValues() []float64 {
-	packed := dp.PointValues()
-	if len(packed)%8 != 0 {
-		return nil
-	}
-	out := make([]float64, len(packed)/8)
-	for i := range out {
-		out[i] = DecodeDimensionDoubleLucene(packed, i*8)
-	}
-	return out
-}
+// DoublePoint is now defined in double_point.go
+// NewDoublePoint is now defined in double_point.go
+// NewDoublePoints is now defined in double_point.go
+// DoubleValue is now defined in double_point.go
+// DoubleValues is now defined in double_point.go

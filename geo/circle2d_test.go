@@ -3,7 +3,10 @@
 
 package geo
 
-import "testing"
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"testing"
+)
 
 // helpers ---------------------------------------------------------
 
@@ -231,41 +234,41 @@ func TestCircle2D_RandomTriangles(t *testing.T) {
 			tMaxY := maxFloat3(tr.ay, tr.by, tr.cy)
 			r := circle.Relate(tMinX, tMaxX, tMinY, tMaxY)
 			switch r {
-			case CellOutsideQuery:
+			case spi.CellOutsideQuery:
 				if IntersectsTriangleDefault(circle, tr.ax, tr.ay, tr.bx, tr.by, tr.cx, tr.cy) {
-					t.Errorf("CellOutsideQuery but intersectsTriangle returned true: %+v", tr)
+					t.Errorf("spi.CellOutsideQuery but intersectsTriangle returned true: %+v", tr)
 				}
 				if IntersectsLineDefault(circle, tr.ax, tr.ay, tr.bx, tr.by) {
-					t.Errorf("CellOutsideQuery but intersectsLine returned true: %+v", tr)
+					t.Errorf("spi.CellOutsideQuery but intersectsLine returned true: %+v", tr)
 				}
 				if ContainsTriangleDefault(circle, tr.ax, tr.ay, tr.bx, tr.by, tr.cx, tr.cy) {
-					t.Errorf("CellOutsideQuery but containsTriangle returned true: %+v", tr)
+					t.Errorf("spi.CellOutsideQuery but containsTriangle returned true: %+v", tr)
 				}
 				if ContainsLineDefault(circle, tr.ax, tr.ay, tr.bx, tr.by) {
-					t.Errorf("CellOutsideQuery but containsLine returned true: %+v", tr)
+					t.Errorf("spi.CellOutsideQuery but containsLine returned true: %+v", tr)
 				}
 				if got := WithinTriangleDefault(circle,
 					tr.ax, tr.ay, true, tr.bx, tr.by, true, tr.cx, tr.cy, true); got != WithinDisjoint {
-					t.Errorf("CellOutsideQuery but withinTriangle = %v: %+v", got, tr)
+					t.Errorf("spi.CellOutsideQuery but withinTriangle = %v: %+v", got, tr)
 				}
-			case CellInsideQuery:
+			case spi.CellInsideQuery:
 				if !IntersectsTriangleDefault(circle, tr.ax, tr.ay, tr.bx, tr.by, tr.cx, tr.cy) {
-					t.Errorf("CellInsideQuery but intersectsTriangle = false: %+v", tr)
+					t.Errorf("spi.CellInsideQuery but intersectsTriangle = false: %+v", tr)
 				}
 				if !IntersectsLineDefault(circle, tr.ax, tr.ay, tr.bx, tr.by) {
-					t.Errorf("CellInsideQuery but intersectsLine = false: %+v", tr)
+					t.Errorf("spi.CellInsideQuery but intersectsLine = false: %+v", tr)
 				}
 				if !ContainsTriangleDefault(circle, tr.ax, tr.ay, tr.bx, tr.by, tr.cx, tr.cy) {
-					t.Errorf("CellInsideQuery but containsTriangle = false: %+v", tr)
+					t.Errorf("spi.CellInsideQuery but containsTriangle = false: %+v", tr)
 				}
 				if !ContainsLineDefault(circle, tr.ax, tr.ay, tr.bx, tr.by) {
-					t.Errorf("CellInsideQuery but containsLine = false: %+v", tr)
+					t.Errorf("spi.CellInsideQuery but containsLine = false: %+v", tr)
 				}
 				if got := WithinTriangleDefault(circle,
 					tr.ax, tr.ay, true, tr.bx, tr.by, true, tr.cx, tr.cy, true); got == WithinCandidate {
-					t.Errorf("CellInsideQuery but withinTriangle = CANDIDATE: %+v", tr)
+					t.Errorf("spi.CellInsideQuery but withinTriangle = CANDIDATE: %+v", tr)
 				}
-			case CellCrossesQuery:
+			case spi.CellCrossesQuery:
 				// No assertion: predicates may go either way.
 			}
 		}

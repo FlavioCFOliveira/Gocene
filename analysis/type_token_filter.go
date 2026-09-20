@@ -103,6 +103,7 @@ var _ TokenFilter = (*TypeTokenFilter)(nil)
 
 // TypeTokenFilterFactory creates TypeTokenFilter instances.
 type TypeTokenFilterFactory struct {
+	BaseTokenFilterFactory
 	types        map[string]bool
 	useWhitelist bool
 }

@@ -4,98 +4,87 @@
 
 package valuesource
 
+// Ported from Apache Lucene 10.5.0:
+//   lucene/queries/src/java/org/apache/lucene/queries/function/valuesource/MultiValuedFloatFieldSource.java
+
 import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
-	"github.com/FlavioCFOliveira/Gocene/queries/function/docvalues"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// MultiValuedFloatFieldSource obtains float field values from
-// SortedNumericDocValues, selecting a single value per document via the
-// configured selector.
+// MultiValuedFloatFieldSource obtains float field values from SortedNumericDocValues,
+// selecting a single value per document with the configured selector.
 //
-// Go port of org.apache.lucene.queries.function.valuesource.MultiValuedFloatFieldSource.
+// Java subclasses FloatFieldSource and overrides only getSortField, description,
+// getNumericDocValues, equals and hashCode; the Go port embeds FloatFieldSource
+// and installs the doc-values override, so every other behaviour — including
+// the per-document exists/advance contract — is inherited unchanged.
+//
+// Port of org.apache.lucene.queries.function.valuesource.MultiValuedFloatFieldSource.
 type MultiValuedFloatFieldSource struct {
-	function.BaseValueSource
-	field    string
+	FloatFieldSource
 	selector search.SortedNumericSelectorType
 }
 
 // NewMultiValuedFloatFieldSource creates a MultiValuedFloatFieldSource.
+//
+// Mirrors MultiValuedFloatFieldSource(String, SortedNumericSelector.Type).
 func NewMultiValuedFloatFieldSource(field string, selector search.SortedNumericSelectorType) *MultiValuedFloatFieldSource {
-	return &MultiValuedFloatFieldSource{field: field, selector: selector}
+	s := &MultiValuedFloatFieldSource{
+		FloatFieldSource: *NewFloatFieldSource(field),
+		selector:         selector,
+	}
+	s.self = s
+	s.numericDocValues = s.selectedNumericDocValues
+	return s
 }
 
 // Description returns "float(<field>,<selector>)".
+//
+// Mirrors MultiValuedFloatFieldSource.description().
 func (s *MultiValuedFloatFieldSource) Description() string {
-	return fmt.Sprintf("float(%s,%s)", s.field, s.selector)
+	return fmt.Sprintf("float(%s,%s)", s.Field, s.selector)
 }
 
-// GetField returns the field name.
-func (s *MultiValuedFloatFieldSource) GetField() string { return s.field }
-
-// GetValues returns FunctionValues backed by SortedNumericDocValues.
-func (s *MultiValuedFloatFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	sndv, err := getSortedNumericDocValues(s.field, readerContext)
+// selectedNumericDocValues renders the overridden protected
+// MultiValuedFloatFieldSource.getNumericDocValues(Map, LeafReaderContext): it reads the
+// field's SortedNumericDocValues and reduces them to a single value per
+// document with SortedNumericSelector.wrap.
+//
+// DocValues.getSortedNumeric never returns null in Java — it substitutes an
+// empty instance — so there is no missing-values branch here.
+func (s *MultiValuedFloatFieldSource) selectedNumericDocValues(_ function.Context, readerContext *index.LeafReaderContext) (index.NumericDocValues, error) {
+	sortedDv, err := index.GetSortedNumeric(readerContext.LeafReader(), s.Field)
 	if err != nil {
 		return nil, err
 	}
-	if sndv == nil {
-		return &multiFloatMissingValues{description: s.Description()}, nil
-	}
-
-	wrapped := wrapSortedNumericDocValues(sndv, s.selector, search.SortFieldTypeFloat)
-	v := &multiValuedFloatFunctionValues{
-		FloatDocValues: *docvalues.NewFloatDocValues(s, func(doc int) (float32, error) {
-			if docFieldExists(wrapped, doc) {
-				raw, err := wrapped.LongValue()
-				if err != nil {
-					return 0, err
-				}
-				return floatBitsToFloat(raw), nil
-			}
-			return 0, nil
-		}),
-		arr: wrapped,
-	}
-	v.SetSelf(v)
-	return v, nil
+	return search.WrapSortedNumeric(sortedDv, s.selector, spi.SortFieldTypeFloat)
 }
 
 // Equals reports value equality.
+//
+// Mirrors MultiValuedFloatFieldSource.equals(Object), whose getClass() test becomes the
+// Go type assertion.
 func (s *MultiValuedFloatFieldSource) Equals(other function.ValueSource) bool {
 	o, ok := other.(*MultiValuedFloatFieldSource)
 	if !ok || o == nil {
 		return false
 	}
-	return s.field == o.field && s.selector == o.selector
+	if s.selector != o.selector {
+		return false
+	}
+	return s.Field == o.Field
 }
 
 // HashCode returns a stable hash.
+//
+// Mirrors MultiValuedFloatFieldSource.hashCode(): super.hashCode() plus the selector.
 func (s *MultiValuedFloatFieldSource) HashCode() int32 {
-	return hashString("mfloat") + hashString(s.field) + int32(s.selector)
-}
-
-type multiValuedFloatFunctionValues struct {
-	docvalues.FloatDocValues
-	arr index.NumericDocValues
-}
-
-func (v *multiValuedFloatFunctionValues) Exists(doc int) (bool, error) {
-	return docFieldExists(v.arr, doc), nil
-}
-
-type multiFloatMissingValues struct {
-	missingValuesBase
-	description string
-}
-
-func (v *multiFloatMissingValues) ToString(doc int) (string, error) { return v.description + "=0", nil }
-func (v *multiFloatMissingValues) GetScorer(readerContext *index.LeafReaderContext) function.ValueSourceScorer {
-	return newAllValueSourceScorer(readerContext, v)
+	return s.FloatFieldSource.HashCode() + int32(s.selector)
 }
 
 var _ function.ValueSource = (*MultiValuedFloatFieldSource)(nil)

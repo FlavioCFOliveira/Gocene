@@ -537,6 +537,7 @@ var _ TokenFilter = (*SynonymFilter)(nil)
 
 // SynonymFilterFactory creates SynonymFilter instances.
 type SynonymFilterFactory struct {
+	BaseTokenFilterFactory
 	synonymMap *SynonymMap
 	ignoreCase bool
 }

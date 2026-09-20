@@ -9,6 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // StandardQueryParser is a query parser that supports Lucene's standard query syntax.
@@ -151,7 +152,7 @@ func (p *StandardQueryParser) SetDateResolution(dr *DateResolution) {
 type DateResolution int
 
 const (
-	ResolutionYear  DateResolution = iota
+	ResolutionYear DateResolution = iota
 	ResolutionMonth
 	ResolutionDay
 	ResolutionHour
@@ -165,10 +166,10 @@ var datePatterns = []string{
 	"2006-01-02T15:04:05.000Z07:00", // ISO 8601 with milliseconds
 	"2006-01-02T15:04:05Z07:00",     // ISO 8601
 	"2006-01-02T15:04Z07:00",        // ISO 8601 minute precision
-	"2006-01-02",                     // Date only
-	"20060102",                       // Compact date (yyyyMMdd)
-	"2006-01",                        // Year-month
-	"2006",                           // Year only
+	"2006-01-02",                    // Date only
+	"20060102",                      // Compact date (yyyyMMdd)
+	"2006-01",                       // Year-month
+	"2006",                          // Year only
 }
 
 // dateTermRE matches ISO 8601 dates and compact yyyyMMdd format.
@@ -302,10 +303,10 @@ func (s *parserState) parseQuery() (search.Query, error) {
 				return nil, err
 			}
 			// Create a boolean query with MUST_NOT
-			boolQuery := search.NewBooleanQuery()
+			boolQuery := search.NewBooleanQueryBuilder()
 			boolQuery.Add(query, search.MUST)
 			boolQuery.Add(clause, search.MUST_NOT)
-			query = boolQuery
+			query = boolQuery.Build()
 			continue
 		}
 
@@ -316,15 +317,15 @@ func (s *parserState) parseQuery() (search.Query, error) {
 
 		// Combine queries based on operator
 		if op == AND {
-			boolQuery := search.NewBooleanQuery()
+			boolQuery := search.NewBooleanQueryBuilder()
 			boolQuery.Add(query, search.MUST)
 			boolQuery.Add(clause, search.MUST)
-			query = boolQuery
+			query = boolQuery.Build()
 		} else {
-			boolQuery := search.NewBooleanQuery()
+			boolQuery := search.NewBooleanQueryBuilder()
 			boolQuery.Add(query, search.SHOULD)
 			boolQuery.Add(clause, search.SHOULD)
-			query = boolQuery
+			query = boolQuery.Build()
 		}
 	}
 
@@ -388,9 +389,9 @@ func (s *parserState) parseClause() (search.Query, error) {
 
 	// Apply occurrence modifier
 	if occur != search.SHOULD {
-		boolQuery := search.NewBooleanQuery()
+		boolQuery := search.NewBooleanQueryBuilder()
 		boolQuery.Add(query, occur)
-		query = boolQuery
+		query = boolQuery.Build()
 	}
 
 	return query, nil
@@ -475,7 +476,7 @@ func (s *parserState) parsePhrase(field string) (search.Query, error) {
 		for i, word := range words {
 			terms[i] = index.NewTerm(field, word)
 		}
-		return search.NewPhraseQueryWithSlop(slop, field, terms...), nil
+		return search.NewPhraseQueryWithTerms(slop, field, terms...), nil
 	}
 
 	// Multi-phrase: build positional groups.
@@ -563,7 +564,7 @@ func (s *parserState) parseRange(field string) (search.Query, error) {
 		}
 	}
 
-	return search.NewTermRangeQuery(field, lowerBytes, upperBytes, includeLower, includeUpper), nil
+	return search.NewTermRangeQuery(field, util.NewBytesRef(lowerBytes), util.NewBytesRef(upperBytes), includeLower, includeUpper), nil
 }
 
 // parseRangeBound consumes a single range bound (lower or upper). A bound

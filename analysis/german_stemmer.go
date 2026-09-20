@@ -252,7 +252,9 @@ func (f *GermanStemFilter) IncrementToken() (bool, error) {
 var _ TokenFilter = (*GermanStemFilter)(nil)
 
 // GermanStemFilterFactory creates GermanStemFilter instances.
-type GermanStemFilterFactory struct{}
+type GermanStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewGermanStemFilterFactory returns a fresh factory.
 func NewGermanStemFilterFactory() *GermanStemFilterFactory {

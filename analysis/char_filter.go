@@ -5,119 +5,76 @@
 package analysis
 
 import (
-	"fmt"
 	"io"
-	"sync"
 )
 
-// CharFilter is the base class for character filters.
-// CharFilters are used to preprocess text before tokenization.
-// They can add, remove, or modify characters in the input stream.
+// CharFilter is the interface for character filters.
+// Subclasses of CharFilter can be chained to filter a Reader.
+// They can be used as io.Reader with additional offset correction.
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.CharFilter.
-type CharFilter struct {
-	// input is the underlying reader
-	input io.Reader
-
-	// cumulativeDelta tracks the offset difference between input and output
-	cumulativeDelta int
+type CharFilter interface {
+	io.Reader
+	io.Closer
+	// Correct adjusts the current offset.
+	Correct(currentOff int) int
+	// CorrectOffset chains the corrected offset through the input CharFilter(s).
+	CorrectOffset(currentOff int) int
+	// GetInput returns the underlying input stream.
+	GetInput() io.Reader
 }
 
-// NewCharFilter creates a new CharFilter wrapping the given reader.
-func NewCharFilter(input io.Reader) *CharFilter {
-	return &CharFilter{
-		input:           input,
-		cumulativeDelta: 0,
-	}
+// BaseCharFilter provides a basic implementation of the non-abstract
+// parts of the Lucene CharFilter class, specifically the Reader and Closer.
+type BaseCharFilter struct {
+	Input io.Reader
 }
 
-// Read reads characters into the provided buffer.
-// This implements the io.Reader interface.
-func (cf *CharFilter) Read(p []byte) (n int, err error) {
-	return cf.input.Read(p)
+// Read implements the io.Reader interface.
+func (b *BaseCharFilter) Read(p []byte) (n int, err error) {
+	return b.Input.Read(p)
 }
 
-// CorrectOffset adjusts the offset to account for character filtering.
-// This is called to map positions in the filtered text back to positions
-// in the original text.
-func (cf *CharFilter) CorrectOffset(currentOff int) int {
-	return currentOff + cf.cumulativeDelta
-}
-
-// GetInput returns the underlying io.Reader.
-func (cf *CharFilter) GetInput() io.Reader {
-	return cf.input
-}
-
-// AddOffsetDelta adds to the cumulative offset delta.
-// This should be called when characters are added or removed.
-func (cf *CharFilter) AddOffsetDelta(delta int) {
-	cf.cumulativeDelta += delta
-}
-
-// GetCumulativeDelta returns the current cumulative offset delta.
-func (cf *CharFilter) GetCumulativeDelta() int {
-	return cf.cumulativeDelta
-}
-
-// SetCumulativeDelta sets the cumulative offset delta.
-func (cf *CharFilter) SetCumulativeDelta(delta int) {
-	cf.cumulativeDelta = delta
-}
-
-// Close closes the underlying reader.
-func (cf *CharFilter) Close() error {
-	if closer, ok := cf.input.(io.Closer); ok {
+// Close closes the underlying input stream.
+func (b *BaseCharFilter) Close() error {
+	if closer, ok := b.Input.(io.Closer); ok {
 		return closer.Close()
 	}
 	return nil
 }
 
-// CharFilterFactory creates CharFilter instances.
-type CharFilterFactory interface {
-	// Create creates a new CharFilter wrapping the given reader.
-	Create(input io.Reader) *CharFilter
+// GetInput returns the underlying input stream.
+func (b *BaseCharFilter) GetInput() io.Reader {
+	return b.Input
 }
 
-var (
-	charFilterRegistry = make(map[string]func(map[string]string) CharFilterFactory)
-	charFilterMu       sync.RWMutex
-)
-
-// RegisterCharFilterFactory registers a char filter factory creator.
-func RegisterCharFilterFactory(name string, creator func(map[string]string) CharFilterFactory) {
-	charFilterMu.Lock()
-	defer charFilterMu.Unlock()
-	charFilterRegistry[name] = creator
-}
-
-// CharFilterForName looks up a char filter factory by name from the registry.
-func CharFilterForName(name string, args map[string]string) (CharFilterFactory, error) {
-	charFilterMu.RLock()
-	creator, ok := charFilterRegistry[name]
-	charFilterMu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("char filter factory not found: %s", name)
+// CorrectOffsetLogic implements the recursive offset correction logic from Lucene.
+// In Java, this is a final method in the abstract class. In Go, concrete
+// CharFilter implementations should call this helper within their CorrectOffset method.
+func CorrectOffsetLogic(cf CharFilter, currentOff int) int {
+	corrected := cf.Correct(currentOff)
+	if inputCF, ok := cf.GetInput().(CharFilter); ok {
+		return inputCF.CorrectOffset(corrected)
 	}
-	return creator(args), nil
+	return corrected
 }
 
-// BaseCharFilterFactory is a base implementation of CharFilterFactory.
-type BaseCharFilterFactory struct {
-	name string
+type defaultCharFilter struct {
+	BaseCharFilter
 }
 
-// NewBaseCharFilterFactory creates a new BaseCharFilterFactory.
-func NewBaseCharFilterFactory(name string) *BaseCharFilterFactory {
-	return &BaseCharFilterFactory{name: name}
+func (d *defaultCharFilter) Correct(currentOff int) int {
+	return currentOff
 }
 
-// Create creates a new CharFilter.
-func (f *BaseCharFilterFactory) Create(input io.Reader) *CharFilter {
-	return NewCharFilter(input)
+func (d *defaultCharFilter) CorrectOffset(currentOff int) int {
+	return CorrectOffsetLogic(d, currentOff)
 }
 
-// GetName returns the name of this factory.
-func (f *BaseCharFilterFactory) GetName() string {
-	return f.name
+// NewCharFilter creates a new CharFilter wrapping the given reader.
+// This returns a default implementation that performs no correction.
+func NewCharFilter(input io.Reader) CharFilter {
+	return &defaultCharFilter{
+		BaseCharFilter: BaseCharFilter{Input: input},
+	}
 }

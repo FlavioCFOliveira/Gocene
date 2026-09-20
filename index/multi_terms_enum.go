@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -147,6 +148,13 @@ func (m *MultiTermsEnum) Reset(termsEnums []TermsEnum) (*MultiTermsEnum, error) 
 // the same (current) term. Mirrors MultiTermsEnum.getMatchCount semantics by
 // returning numTop.
 func (m *MultiTermsEnum) GetMatchCount() int { return m.numTop }
+
+func (m *MultiTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	if m.numTop == 0 {
+		return nil, nil
+	}
+	return m.top[0].terms.Impacts(flags)
+}
 
 // GetSlices returns the underlying ReaderSlice list.
 func (m *MultiTermsEnum) GetSlices() []ReaderSlice { return m.slices }

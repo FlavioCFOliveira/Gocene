@@ -11,6 +11,9 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // CompressingNormsFormat is a NormsFormat that compresses norms data
@@ -96,13 +99,20 @@ func NewCompressingNormsConsumer(state *SegmentWriteState, mode CompressionMode,
 	}, nil
 }
 
-// AddNormsField writes a norms field.
-func (c *CompressingNormsConsumer) AddNormsField(field *index.FieldInfo, values NormsIterator) error {
+// AddNormsField writes a norms field. The NumericDocValues is pulled from
+// normsProducer, mirroring the pull API of
+// org.apache.lucene.codecs.NormsConsumer.addNormsField(FieldInfo, NormsProducer).
+func (c *CompressingNormsConsumer) AddNormsField(field *index.FieldInfo, normsProducer spi.NormsProducer) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
 	if c.closed {
 		return fmt.Errorf("consumer is closed")
+	}
+
+	values, err := normsProducer.GetNorms(field)
+	if err != nil {
+		return err
 	}
 
 	normsField := normsField{
@@ -111,10 +121,18 @@ func (c *CompressingNormsConsumer) AddNormsField(field *index.FieldInfo, values 
 	}
 
 	// Collect all values
-	for values.Next() {
-		docID := values.DocID()
-		value := values.LongValue()
-		_ = docID // docID is implicit in the array index
+	for {
+		doc, err := values.NextDoc()
+		if err != nil {
+			return err
+		}
+		if doc == index.NO_MORE_DOCS {
+			break
+		}
+		value, err := values.LongValue()
+		if err != nil {
+			return err
+		}
 		normsField.values = append(normsField.values, value)
 	}
 
@@ -165,11 +183,13 @@ func (c *CompressingNormsConsumer) writeData() error {
 	}
 
 	// Compress the data
-	compressor := c.compressionMode.compressor()
-	compressed, err := compressor(buf.Bytes())
-	if err != nil {
+	compressor := c.compressionMode.NewCompressor()
+	defer compressor.Close()
+	compressedOut := store.NewByteBuffersDataOutput()
+	if err := compressor.Compress(store.NewByteBuffersDataInput(buf.Bytes()), compressedOut); err != nil {
 		return fmt.Errorf("failed to compress norms: %w", err)
 	}
+	compressed := compressedOut.ToArrayCopy()
 
 	// Write to file (simplified - would write to actual file in full implementation)
 	_ = compressed
@@ -221,6 +241,10 @@ func (p *CompressingNormsProducer) GetNorms(field *index.FieldInfo) (NumericDocV
 	return &emptyNormsDocValues{}, nil
 }
 
+// GetMergeInstance returns the receiver, the NormsProducer default of Apache
+// Lucene 10.5.0 ("The default implementation returns this").
+func (p *CompressingNormsProducer) GetMergeInstance() NormsProducer { return p }
+
 // CheckIntegrity checks the integrity of the norms.
 func (p *CompressingNormsProducer) CheckIntegrity() error {
 	p.mu.RLock()
@@ -256,3 +280,17 @@ func (e *emptyNormsDocValues) Advance(target int) (int, error) { return -1, nil 
 func (e *emptyNormsDocValues) AdvanceExact(int) (bool, error)  { return false, nil }
 func (e *emptyNormsDocValues) LongValue() (int64, error)       { return 0, nil }
 func (e *emptyNormsDocValues) Cost() int64                     { return 0 }
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *emptyNormsDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *emptyNormsDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}

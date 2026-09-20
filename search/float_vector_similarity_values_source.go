@@ -86,11 +86,11 @@ func (s *FloatVectorSimilarityValuesSource) QueryVector() []float32 {
 //
 // Mirrors FloatVectorSimilarityValuesSource.getScorer.
 func (s *FloatVectorSimilarityValuesSource) GetScorer(ctx *index.LeafReaderContext) (VectorScorer, error) {
-	lr, ok := ctx.Reader().(*index.LeafReader)
-	if !ok {
+	leaf := ctx.LeafReader()
+	if leaf == nil {
 		return nil, nil
 	}
-	vectorValues, err := lr.GetFloatVectorValues(s.fieldName)
+	vectorValues, err := leaf.GetFloatVectorValues(s.fieldName)
 	if err != nil {
 		return nil, err
 	}

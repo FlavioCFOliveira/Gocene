@@ -14,121 +14,63 @@
 package hnsw
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // FlatFieldVectorsWriter is the Go port of
-// org.apache.lucene.codecs.hnsw.FlatFieldVectorsWriter<T> (Lucene 10.4.0).
-// It is the per-field writer surface that a concrete
-// [FlatVectorsWriter] returns from [FlatVectorsWriter.AddField]; the
-// caller accumulates per-document vectors through the inherited
-// AddValue (declared on [codecs.TypedKnnFieldVectorsWriter]) and the
-// FlatField-specific accessors defined here.
+// org.apache.lucene.codecs.hnsw.FlatFieldVectorsWriter<T> (Apache Lucene
+// 10.5.0): the vectors writer for a field.
 //
-// The Java reference is a generic abstract class parameterized over
-// the vector element type (Float or Byte). Gocene preserves the
-// generic surface via the Go type parameter T (float32 | byte).
-// Concrete subclasses live in codec-specific packages (e.g. the
-// Lucene99FlatVectorsWriter port to land in a later sprint) and embed
-// [codecs.TypedKnnFieldVectorsWriter[T]] plus the additional surface
-// declared here.
+// The Java type parameter T is the vector array type (float[] or byte[]);
+// the Go type parameter is its element type (float32 or byte), so Java's
+// List<T> is rendered as [][]T. The inherited addValue(int, T) is
+// [spi.KnnFieldVectorsWriter.AddValue], which receives the vector boxed in
+// an any, because the indexing chain drives every per-field writer through
+// that non-generic surface.
 //
-// Lifecycle (per field, single-threaded):
-//  1. The owning FlatVectorsWriter creates an instance via its AddField
-//     factory.
-//  2. AddValue (inherited from TypedKnnFieldVectorsWriter[T]) is invoked
-//     once per document with the field's vector, in strictly
-//     increasing docID order.
-//  3. Finish is called once at the end of the segment, marking the
-//     writer as immutable; subsequent AddValue calls must return an
-//     error (the Java reference throws).
-//  4. GetVectors and GetDocsWithFieldSet are consulted by the parent
-//     writer to flush the field to disk.
-//
-// The Sprint 19 placeholder [DocsWithFieldSet] used by
-// GetDocsWithFieldSet is documented in forward_deps.go; the API shape
-// matches the Java reference but the underlying bitset is not yet
-// implemented.
+// asKnnVectorValues is a concrete method of the Java class; implementers
+// that do not override it forward to [DefaultAsKnnVectorValues].
 type FlatFieldVectorsWriter[T any] interface {
-	codecs.TypedKnnFieldVectorsWriter[T]
+	spi.KnnFieldVectorsWriter
 
-	// GetVectors returns the per-document vectors accumulated so far,
-	// in docID order. The returned slice is the writer's own storage:
-	// callers must not retain it past the next AddValue / Finish call.
+	// GetVectors returns the list of vectors to be written.
 	GetVectors() [][]T
 
-	// GetDocsWithFieldSet returns the [DocsWithFieldSet] describing
-	// which docIDs have a value for this field. The parent
-	// FlatVectorsWriter consults the set to skip empty docs when
-	// flushing.
-	GetDocsWithFieldSet() *DocsWithFieldSet
+	// AsKnnVectorValues returns a KnnVectorValues view over the vectors to be
+	// written, for the given vector encoding and declared dimension.
+	AsKnnVectorValues(encoding index.VectorEncoding, dim int) (index.KnnVectorValues, error)
 
-	// IsFinished reports whether [codecs.TypedKnnFieldVectorsWriter.Finish]
-	// has been invoked. Once true, AddValue must return an error.
+	// GetDocsWithFieldSet returns the docsWithFieldSet for the field writer.
+	GetDocsWithFieldSet() *index.DocsWithFieldSet
+
+	// IsFinished reports whether the writer is done and no new vectors are
+	// allowed to be added.
 	IsFinished() bool
 }
 
-// BaseFlatFieldVectorsWriter captures the trivial state shared by
-// every concrete FlatFieldVectorsWriter: the in-memory vector buffer,
-// the docs-with-field bitset, and the finished flag. Concrete
-// subclasses embed *BaseFlatFieldVectorsWriter[T] to inherit the
-// non-controversial defaults and supply only the codec-specific
-// AddValue + RAMBytesUsed (which depend on the element-size invariant
-// the subclass enforces).
-//
-// The struct holds no synchronization: per-field writers are single
-// threaded by contract in both Lucene and Gocene.
-type BaseFlatFieldVectorsWriter[T any] struct {
-	vectors  [][]T
-	docs     *DocsWithFieldSet
-	finished bool
-}
-
-// NewBaseFlatFieldVectorsWriter constructs an empty base writer.
-// Mirrors the implicit zero-state of the Java abstract class.
-func NewBaseFlatFieldVectorsWriter[T any]() *BaseFlatFieldVectorsWriter[T] {
-	return &BaseFlatFieldVectorsWriter[T]{
-		docs: NewDocsWithFieldSet(),
+// DefaultAsKnnVectorValues carries the body of
+// FlatFieldVectorsWriter.asKnnVectorValues(VectorEncoding, int): the vectors
+// returned by GetVectors are wrapped with FloatVectorValues.fromFloats for
+// FLOAT32 and ByteVectorValues.fromBytes for BYTE. The unchecked Java cast of
+// the vector list, which fails with ClassCastException when T does not match
+// the encoding, is returned as an error.
+func DefaultAsKnnVectorValues[T any](w FlatFieldVectorsWriter[T], encoding index.VectorEncoding, dim int) (index.KnnVectorValues, error) {
+	switch encoding {
+	case index.VectorEncodingFloat32:
+		vectors, ok := any(w.GetVectors()).([][]float32)
+		if !ok {
+			return nil, fmt.Errorf("ClassCastException: %T cannot be cast to List<float[]>", w.GetVectors())
+		}
+		return index.FromFloats(vectors, dim), nil
+	case index.VectorEncodingByte:
+		vectors, ok := any(w.GetVectors()).([][]byte)
+		if !ok {
+			return nil, fmt.Errorf("ClassCastException: %T cannot be cast to List<byte[]>", w.GetVectors())
+		}
+		return index.FromBytes(vectors, dim), nil
 	}
-}
-
-// GetVectors returns the accumulated per-document vectors.
-func (b *BaseFlatFieldVectorsWriter[T]) GetVectors() [][]T {
-	return b.vectors
-}
-
-// GetDocsWithFieldSet returns the docs-with-field bitset.
-func (b *BaseFlatFieldVectorsWriter[T]) GetDocsWithFieldSet() *DocsWithFieldSet {
-	return b.docs
-}
-
-// IsFinished reports whether Finish has been called.
-func (b *BaseFlatFieldVectorsWriter[T]) IsFinished() bool {
-	return b.finished
-}
-
-// MarkFinished flips the finished flag. Concrete subclasses call this
-// from their [codecs.TypedKnnFieldVectorsWriter.Finish] implementation
-// after performing any per-format finalization (e.g. flushing trailing
-// quantization corrections). The Java reference exposes the same
-// invariant via the protected `finished = true` assignment inside
-// concrete subclasses; the Go counterpart promotes it to a tiny
-// method so the field stays unexported.
-func (b *BaseFlatFieldVectorsWriter[T]) MarkFinished() {
-	b.finished = true
-}
-
-// AppendVector records a per-document vector by docID. The base does
-// no validation beyond ordering — concrete subclasses are expected to
-// enforce element-count invariants (matching the Java reference, which
-// trusts the caller for the same reason).
-//
-// Callers are responsible for invoking AppendVector in strictly
-// increasing docID order; the Java reference assumes the same
-// invariant and consumers blow up at flush time if it is violated.
-func (b *BaseFlatFieldVectorsWriter[T]) AppendVector(docID int, value []T) {
-	cp := make([]T, len(value))
-	copy(cp, value)
-	b.vectors = append(b.vectors, cp)
-	b.docs.Add(docID)
+	return nil, fmt.Errorf("unknown vector encoding: %v", encoding)
 }

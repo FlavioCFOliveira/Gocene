@@ -114,13 +114,13 @@ type ReadChildPointerFunc func(skipStream store.IndexInput) (int64, error)
 // defaultReadChildPointer is the VLong reader used when the codec does not
 // supply its own hook.
 func defaultReadChildPointer(skipStream store.IndexInput) (int64, error) {
-	return store.ReadVLong(skipStream)
+	return skipStream.ReadVLong()
 }
 
 // defaultReadLevelLength is the VLong reader used when the codec does not
 // supply its own hook.
 func defaultReadLevelLength(skipStream store.IndexInput) (int64, error) {
-	return store.ReadVLong(skipStream)
+	return skipStream.ReadVLong()
 }
 
 // SetOnSetLastSkipData registers an optional callback invoked immediately

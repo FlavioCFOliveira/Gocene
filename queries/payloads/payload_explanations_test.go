@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -22,7 +23,7 @@ import (
 // The Lucene original requires a full index with payloads.
 func TestPayloadExplanations(t *testing.T) {
 	// Build a PayloadScoreQuery with a SpanTermQuery.
-	spanTerm := search.NewSpanTermQuery(index.NewTerm("field", "term"))
+	spanTerm := spans.NewSpanTermQuery(index.NewTerm("field", "term"))
 	fn := &AveragePayloadFunction{}
 	q := NewPayloadScoreQuery(spanTerm, fn, FloatDecoder)
 	if q.String("field") == "" {

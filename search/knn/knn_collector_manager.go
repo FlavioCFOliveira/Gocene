@@ -15,10 +15,10 @@ package knn
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// KnnCollectorManager creates [hnsw.KnnCollector] instances. Useful
+// KnnCollectorManager creates [spi.KnnCollector] instances. Useful
 // to create collectors that share global state across leaves, such
 // as a global queue of results collected so far.
 //
@@ -39,7 +39,7 @@ type KnnCollectorManager interface {
 	// visitedLimit is the maximum number of nodes the search is
 	// allowed to visit. searchStrategy may be nil. context is the
 	// leaf reader context the collector will be wired to.
-	NewCollector(visitedLimit int, searchStrategy KnnSearchStrategy, context *index.LeafReaderContext) (hnsw.KnnCollector, error)
+	NewCollector(visitedLimit int, searchStrategy KnnSearchStrategy, context *index.LeafReaderContext) (spi.KnnCollector, error)
 }
 
 // OptimisticKnnCollectorManager extends [KnnCollectorManager] with
@@ -56,7 +56,7 @@ type OptimisticKnnCollectorManager interface {
 	// NewOptimisticCollector returns a collector scaled to the
 	// per-leaf k value supplied. May return nil to signal the
 	// caller should fall back to the regular NewCollector path.
-	NewOptimisticCollector(visitedLimit int, searchStrategy KnnSearchStrategy, context *index.LeafReaderContext, k int) (hnsw.KnnCollector, error)
+	NewOptimisticCollector(visitedLimit int, searchStrategy KnnSearchStrategy, context *index.LeafReaderContext, k int) (spi.KnnCollector, error)
 
 	// IsOptimistic reports whether this manager exposes an
 	// optimistic path.
@@ -67,7 +67,7 @@ type OptimisticKnnCollectorManager interface {
 // when manager implements [OptimisticKnnCollectorManager] and
 // otherwise returns (nil, nil), matching the Java default of
 // KnnCollectorManager#newOptimisticCollector.
-func NewOptimisticCollector(manager KnnCollectorManager, visitedLimit int, searchStrategy KnnSearchStrategy, context *index.LeafReaderContext, k int) (hnsw.KnnCollector, error) {
+func NewOptimisticCollector(manager KnnCollectorManager, visitedLimit int, searchStrategy KnnSearchStrategy, context *index.LeafReaderContext, k int) (spi.KnnCollector, error) {
 	if opt, ok := manager.(OptimisticKnnCollectorManager); ok {
 		return opt.NewOptimisticCollector(visitedLimit, searchStrategy, context, k)
 	}

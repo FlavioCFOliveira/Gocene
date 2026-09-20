@@ -58,6 +58,10 @@ type MatchingDocs struct {
 
 	// TotalHits is the total number of matching documents
 	TotalHits int
+
+	// Scores holds the scores for the matching documents.
+	// It may be nil if scores are not being kept.
+	Scores []float32
 }
 
 // Bits is a simple bitset interface for matching documents.
@@ -70,11 +74,12 @@ type Bits interface {
 }
 
 // NewMatchingDocs creates a new MatchingDocs for the given context.
-func NewMatchingDocs(context *index.LeafReaderContext, bits Bits, totalHits int) *MatchingDocs {
+func NewMatchingDocs(context *index.LeafReaderContext, bits Bits, totalHits int, scores []float32) *MatchingDocs {
 	return &MatchingDocs{
 		Context:   context,
 		Bits:      bits,
 		TotalHits: totalHits,
+		Scores:    scores,
 	}
 }
 

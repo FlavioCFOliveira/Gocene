@@ -6,7 +6,6 @@ package valuesource
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/function"
@@ -26,17 +25,18 @@ func NewBytesRefFieldSource(field string) *BytesRefFieldSource {
 }
 
 func (f *BytesRefFieldSource) GetValues(ctx function.Context, readerContext *index.LeafReaderContext) (function.FunctionValues, error) {
-	fieldInfo := readerContext.Reader().GetFieldInfos().GetByName(f.Field)
+	fieldInfo := readerContext.LeafReader().GetFieldInfos().GetByName(f.Field)
 
 	// To be sorted or not to be sorted, that is the question
 	if fieldInfo != nil && fieldInfo.DocValuesType() == index.DocValuesTypeBinary {
-		ndv, err := readerContext.Reader().GetBinaryDocValues(f.Field)
+		ndv, err := readerContext.LeafReader().GetBinaryDocValues(f.Field)
 		if err != nil {
 			return nil, err
 		}
 
 		fv := &bytesRefDocValues{
-			ndv: ndv,
+			source: f,
+			ndv:    ndv,
 		}
 		fv.SetSelf(fv)
 		return fv, nil
@@ -55,6 +55,10 @@ func (f *BytesRefFieldSource) GetValues(ctx function.Context, readerContext *ind
 
 type bytesRefDocValues struct {
 	function.BaseFunctionValues
+	// source is the enclosing BytesRefFieldSource, standing in for the Java
+	// anonymous class's reference to its outer instance; toString(int) calls
+	// description() on it.
+	source    function.ValueSource
 	ndv       index.BinaryDocValues
 	lastDocID int
 }
@@ -125,7 +129,7 @@ func (f *bytesRefDocValues) ToString(doc int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("bytesref(%s)=%s", f.Field, s), nil
+	return fmt.Sprintf("%s=%s", f.source.Description(), s), nil
 }
 
 type bytesRefFallback struct {
@@ -141,5 +145,5 @@ func (f *bytesRefFallback) ToString(doc int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return fmt.Sprintf("bytesref(%s)=%s", f.Field, s), nil
+	return fmt.Sprintf("%s=%s", f.VS.Description(), s), nil
 }

@@ -92,7 +92,11 @@ func (v *constKnnByteVectorValues) StrVal(doc int) (string, error) {
 }
 
 func (v *constKnnByteVectorValues) ToString(doc int) (string, error) {
-	return fmt.Sprintf("%s=%s", v.desc, v.StrVal(doc)), nil
+	s, err := v.StrVal(doc)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s=%s", v.desc, s), nil
 }
 
 // ConstKnnFloatValueSource is a function that returns a constant float vector value for every document.
@@ -175,5 +179,9 @@ func (v *constKnnFloatVectorValues) StrVal(doc int) (string, error) {
 }
 
 func (v *constKnnFloatVectorValues) ToString(doc int) (string, error) {
-	return fmt.Sprintf("%s=%s", v.desc, v.StrVal(doc)), nil
+	s, err := v.StrVal(doc)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s=%s", v.desc, s), nil
 }

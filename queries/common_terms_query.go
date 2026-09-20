@@ -8,6 +8,7 @@
 package queries
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"fmt"
 	"math"
 
@@ -141,7 +142,7 @@ func (q *CommonTermsQuery) Clone() search.Query {
 }
 
 // Equals reports structural equality.
-func (q *CommonTermsQuery) Equals(other search.Query) bool {
+func (q *CommonTermsQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*CommonTermsQuery)
 	if !ok {
 		return false
@@ -203,7 +204,7 @@ func (q *CommonTermsQuery) String() string {
 		buf += "("
 	}
 	for i, t := range q.terms {
-		buf += search.NewTermQuery(t).String()
+		buf += search.NewTermQuery(t).ToString("")
 		if i != len(q.terms)-1 {
 			buf += ", "
 		}
@@ -222,13 +223,16 @@ func (q *CommonTermsQuery) String() string {
 
 // Rewrite rewrites the query by classifying terms as high/low frequency and building
 // the appropriate boolean query.
-func (q *CommonTermsQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
+func (q *CommonTermsQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
 	if len(q.terms) == 0 {
-		return search.NewMatchNoDocsQueryWithReason("CommonTermsQuery with no terms"), nil
+		return search.NewMatchNoDocsQuery("CommonTermsQuery with no terms"), nil
 	}
 	if len(q.terms) == 1 {
 		return search.NewTermQuery(q.terms[0]), nil
 	}
+
+	// Java: IndexReader reader = indexSearcher.getIndexReader();
+	reader := searcher.GetIndexReader()
 
 	// Collect doc frequencies per term via the leaf readers.
 	ireader, ok := reader.(interface {
@@ -254,7 +258,7 @@ func (q *CommonTermsQuery) Rewrite(reader search.IndexReader) (search.Query, err
 			if terms == nil {
 				continue
 			}
-			te, err := terms.GetIterator()
+			te, err := terms.Iterator()
 			if err != nil {
 				return nil, err
 			}
@@ -277,12 +281,12 @@ func (q *CommonTermsQuery) Rewrite(reader search.IndexReader) (search.Query, err
 }
 
 // CreateWeight delegates to the rewritten query for weight creation.
-func (q *CommonTermsQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	rewritten, err := q.Rewrite(searcher.GetIndexReader())
+func (q *CommonTermsQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	rewritten, err := q.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
-	return rewritten.CreateWeight(searcher, needsScores, boost)
+	return rewritten.CreateWeight(searcher, scoreMode, boost)
 }
 
 // buildQuery constructs the final BooleanQuery from classified term lists.
@@ -327,26 +331,26 @@ func (q *CommonTermsQuery) buildQuery(maxDoc int, docFreqs []int) (search.Query,
 		}
 	}
 
-	builder := search.NewBooleanQuery()
+	builder := search.NewBooleanQueryBuilder()
 
 	if len(lowFreqQueries) > 0 {
-		lowFreq := search.NewBooleanQuery()
+		lowFreq := search.NewBooleanQueryBuilder()
 		for _, query := range lowFreqQueries {
 			lowFreq.Add(query, lowFreqOccur)
 		}
 		lowFreq.SetMinimumNumberShouldMatch(lowFreqMinShouldMatch)
-		builder.Add(search.NewBoostQuery(lowFreq, q.lowFreqBoost), search.MUST)
+		builder.Add(search.NewBoostQuery(lowFreq.Build(), q.lowFreqBoost), search.MUST)
 	}
 	if len(highFreqQueries) > 0 {
-		highFreq := search.NewBooleanQuery()
+		highFreq := search.NewBooleanQueryBuilder()
 		for _, query := range highFreqQueries {
 			highFreq.Add(query, highFreqOccur)
 		}
 		highFreq.SetMinimumNumberShouldMatch(highFreqMinShouldMatch)
-		builder.Add(search.NewBoostQuery(highFreq, q.highFreqBoost), search.SHOULD)
+		builder.Add(search.NewBoostQuery(highFreq.Build(), q.highFreqBoost), search.SHOULD)
 	}
 
-	return builder, nil
+	return builder.Build(), nil
 }
 
 func (q *CommonTermsQuery) calcLowFreqMinimumNumberShouldMatch(numOptional int) int {
@@ -362,4 +366,19 @@ func minNrShouldMatch(minNrShouldMatch float32, numOptional int) int {
 		return int(minNrShouldMatch)
 	}
 	return int(math.Round(float64(minNrShouldMatch) * float64(numOptional)))
+}
+
+// Visit mirrors CommonTermsQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (org.apache.lucene.queries.CommonTermsQuery).
+func (q *CommonTermsQuery) Visit(visitor search.QueryVisitor) {
+	var selectedTerms []*index.Term
+	for _, t := range q.terms {
+		if visitor.AcceptField(t.Field) {
+			selectedTerms = append(selectedTerms, t)
+		}
+	}
+	if len(selectedTerms) > 0 {
+		v := visitor.GetSubVisitor(search.SHOULD, q)
+		v.ConsumeTerms(q, selectedTerms...)
+	}
 }

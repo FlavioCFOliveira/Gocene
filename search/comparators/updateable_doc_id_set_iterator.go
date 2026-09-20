@@ -48,7 +48,7 @@ type UpdateableDocIdSetIterator struct {
 // starting at doc = -1 with an empty inner iterator.
 func NewUpdateableDocIdSetIterator() *UpdateableDocIdSetIterator {
 	return &UpdateableDocIdSetIterator{
-		in:  search.NewEmptyDocIdSetIterator(),
+		in:  util.EmptyDocIdSetIterator(),
 		doc: -1,
 	}
 }
@@ -109,19 +109,19 @@ func (it *UpdateableDocIdSetIterator) Cost() int64 {
 //   - If after advancement the inner iterator is at the current doc, return
 //     its docIDRunEnd (potentially a larger run).
 //   - Otherwise fall back to doc+1 (mirrors AbstractDocIdSetIterator.docIDRunEnd()).
-func (it *UpdateableDocIdSetIterator) DocIDRunEnd() int {
+func (it *UpdateableDocIdSetIterator) DocIDRunEnd() (int, error) {
 	// Re-sync inner iterator in case Update was called.
 	if it.in.DocID() < it.doc {
 		_, err := it.in.Advance(it.doc)
 		if err != nil {
-			return it.doc + 1
+			return it.doc + 1, nil
 		}
 	}
 	if it.in.DocID() == it.doc {
 		return it.in.DocIDRunEnd()
 	}
 	// Inner iterator has moved past doc (or doc is NO_MORE_DOCS).
-	return it.doc + 1
+	return it.doc + 1, nil
 }
 
 // IntoBitSet copies document IDs from the current position up to (but not

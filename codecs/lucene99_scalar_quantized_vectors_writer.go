@@ -52,6 +52,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -63,15 +64,15 @@ import (
 // definitions in org.apache.lucene.backward_codecs.lucene99.
 // Lucene99ScalarQuantizedVectorsFormat (Lucene 10.4.0).
 const (
-	lucene99SQMetaCodecName     = "Lucene99ScalarQuantizedVectorsFormatMeta"
-	lucene99SQDataCodecName     = "Lucene99ScalarQuantizedVectorsFormatData"
-	lucene99SQMetaExtension     = "vemq"
-	lucene99SQDataExtension     = "veq"
-	lucene99SQVersionStart      int32 = 0
-	lucene99SQVersionAddBits    int32 = 1
-	lucene99SQVersionCurrent    int32 = lucene99SQVersionAddBits
-	lucene99SQDirectMonotonicBlockShift = 16
-	lucene99SQMinimumConfidenceInterval = 0.9
+	lucene99SQMetaCodecName                   = "Lucene99ScalarQuantizedVectorsFormatMeta"
+	lucene99SQDataCodecName                   = "Lucene99ScalarQuantizedVectorsFormatData"
+	lucene99SQMetaExtension                   = "vemq"
+	lucene99SQDataExtension                   = "veq"
+	lucene99SQVersionStart              int32 = 0
+	lucene99SQVersionAddBits            int32 = 1
+	lucene99SQVersionCurrent            int32 = lucene99SQVersionAddBits
+	lucene99SQDirectMonotonicBlockShift       = 16
+	lucene99SQMinimumConfidenceInterval       = 0.9
 )
 
 // Lucene99ScalarQuantizedVectorsWriter is the Go port of the Java test-only
@@ -82,7 +83,7 @@ const (
 type Lucene99ScalarQuantizedVectorsWriter struct {
 	state *SegmentWriteState
 
-	meta              store.IndexOutput
+	meta                store.IndexOutput
 	quantizedVectorData store.IndexOutput
 
 	// rawVectorDelegate owns the raw FLOAT32 vectors (.vec / .vemf).
@@ -125,9 +126,9 @@ func NewLucene99ScalarQuantizedVectorsWriterWithBits(
 		return nil, errors.New("lucene99 sq: nil Directory")
 	}
 
-	metaName := index.SegmentFileName(
+	metaName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, lucene99SQMetaExtension)
-	dataName := index.SegmentFileName(
+	dataName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, lucene99SQDataExtension)
 
 	rawMeta, err := state.Directory.CreateOutput(metaName, store.IOContextWrite)
@@ -167,7 +168,7 @@ func NewLucene99ScalarQuantizedVectorsWriterWithBits(
 	}
 
 	// Compose the raw FLOAT32 delegate (writes .vec / .vemf).
-	rawDelegate, err := NewLucene99FlatVectorsWriter(state)
+	rawDelegate, err := NewLucene99FlatVectorsWriter(state, hnsw.GetLucene99FlatVectorsScorer())
 	if err != nil {
 		_ = w.Close()
 		return nil, fmt.Errorf("lucene99 sq: create raw flat delegate: %w", err)
@@ -204,13 +205,18 @@ func (w *Lucene99ScalarQuantizedVectorsWriter) AddField(fieldInfo *index.FieldIn
 		return nil, fmt.Errorf("lucene99 sq: bits=%d is not supported for odd vector dimensions; vector dimension=%d", w.bits, fieldInfo.VectorDimension())
 	}
 
+	// Java: (FlatFieldVectorsWriter<float[]>) rawVectorDelegate.addField(fieldInfo).
+	floatDelegate, err := asFlatFieldVectorsWriter[float32](delegate)
+	if err != nil {
+		return nil, err
+	}
 	fw := &lucene99ScalarQuantizedFieldWriter{
 		fieldInfo:          fieldInfo,
 		confidenceInterval: w.confidenceInterval,
 		bits:               w.bits,
 		compress:           w.compress,
 		normalize:          fieldInfo.VectorSimilarityFunction() == index.VectorSimilarityFunctionCosine,
-		delegate:           delegate,
+		delegate:           floatDelegate,
 	}
 	w.fields = append(w.fields, fw)
 	return fw, nil
@@ -224,7 +230,7 @@ type lucene99ScalarQuantizedFieldWriter struct {
 	bits               byte
 	compress           bool
 	normalize          bool
-	delegate           *lucene99FlatFieldWriter
+	delegate           hnsw.FlatFieldVectorsWriter[float32]
 	finished           bool
 }
 
@@ -238,13 +244,13 @@ func (fw *lucene99ScalarQuantizedFieldWriter) AddValue(docID int, vectorValue an
 	if !ok {
 		return fmt.Errorf("lucene99 sq: field %q expects []float32, got %T", fw.fieldInfo.Name(), vectorValue)
 	}
-	return fw.delegate.addValueFloat32(docID, vec)
+	return fw.delegate.AddValue(docID, vec)
 }
 
 // RamBytesUsed reports the per-field in-memory footprint. Mirrors Java's
 // FieldWriter.ramBytesUsed.
 func (fw *lucene99ScalarQuantizedFieldWriter) RamBytesUsed() int64 {
-	return fw.delegate.ramBytesUsed()
+	return fw.delegate.RamBytesUsed()
 }
 
 // Finish marks the field complete. Mirrors Java's FieldWriter.finish.
@@ -301,7 +307,7 @@ func (w *Lucene99ScalarQuantizedVectorsWriter) writeField(
 	}
 	vectorDataLength := w.quantizedVectorData.GetFilePointer() - vectorDataOffset
 
-	return w.writeMeta(field.fieldInfo, maxDoc, vectorDataOffset, vectorDataLength, quantizer, field.delegate.docIDs)
+	return w.writeMeta(field.fieldInfo, maxDoc, vectorDataOffset, vectorDataLength, quantizer, field.delegate.GetDocsWithFieldSet())
 }
 
 // writeVectors quantizes and writes every stored vector for the field to .veq.
@@ -319,7 +325,7 @@ func (w *Lucene99ScalarQuantizedVectorsWriter) writeVectors(
 
 	copyBuf := make([]float32, dim)
 
-	for _, v := range field.delegate.floats {
+	for _, v := range field.delegate.GetVectors() {
 		vec := v
 		if field.normalize {
 			copy(copyBuf, vec)
@@ -333,11 +339,11 @@ func (w *Lucene99ScalarQuantizedVectorsWriter) writeVectors(
 			if err := PackNibbles(quantizedScratch, compressedScratch); err != nil {
 				return fmt.Errorf("lucene99 sq: pack nibbles: %w", err)
 			}
-			if err := w.quantizedVectorData.WriteBytes(compressedScratch); err != nil {
+			if err := w.quantizedVectorData.WriteBytes(compressedScratch, 0, len(compressedScratch)); err != nil {
 				return err
 			}
 		} else {
-			if err := w.quantizedVectorData.WriteBytes(quantizedScratch); err != nil {
+			if err := w.quantizedVectorData.WriteBytes(quantizedScratch, 0, len(quantizedScratch)); err != nil {
 				return err
 			}
 		}
@@ -354,7 +360,7 @@ func (w *Lucene99ScalarQuantizedVectorsWriter) writeMeta(
 	fieldInfo *index.FieldInfo, maxDoc int,
 	vectorDataOffset, vectorDataLength int64,
 	quantizer *quantization.ScalarQuantizer,
-	docIDs []int,
+	docsWithField *index.DocsWithFieldSet,
 ) error {
 	simOrd, err := distFuncToOrd(fieldInfo.VectorSimilarityFunction())
 	if err != nil {
@@ -369,17 +375,17 @@ func (w *Lucene99ScalarQuantizedVectorsWriter) writeMeta(
 	if err := w.meta.WriteInt(simOrd); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorDataOffset); err != nil {
+	if err := w.meta.WriteVLong(vectorDataOffset); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorDataLength); err != nil {
+	if err := w.meta.WriteVLong(vectorDataLength); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(w.meta, int32(fieldInfo.VectorDimension())); err != nil {
+	if err := w.meta.WriteVInt(int32(fieldInfo.VectorDimension())); err != nil {
 		return err
 	}
-	count := len(docIDs)
-	if err := store.WriteVInt(w.meta, int32(count)); err != nil {
+	count := docsWithField.Cardinality()
+	if err := w.meta.WriteVInt(int32(count)); err != nil {
 		return err
 	}
 	if count > 0 {
@@ -419,7 +425,7 @@ func (w *Lucene99ScalarQuantizedVectorsWriter) writeMeta(
 	return writeFlatOrdToDocStoredMeta(
 		lucene99SQDirectMonotonicBlockShift,
 		w.meta, w.quantizedVectorData,
-		count, maxDoc, docIDs)
+		count, maxDoc, docsWithField)
 }
 
 // WriteField is the single-reader merge entrypoint. The scalar quantizer
@@ -509,7 +515,7 @@ func (w *Lucene99ScalarQuantizedVectorsWriter) Close() error {
 func (w *Lucene99ScalarQuantizedVectorsWriter) buildScalarQuantizer(
 	field *lucene99ScalarQuantizedFieldWriter,
 ) (*quantization.ScalarQuantizer, error) {
-	vectors := field.delegate.floats
+	vectors := field.delegate.GetVectors()
 	if len(vectors) == 0 {
 		return quantization.NewScalarQuantizer(0, 0, field.bits)
 	}
@@ -546,38 +552,62 @@ func calculateDefaultConfidenceInterval(vectorDimension int) float32 {
 	return float32(ci)
 }
 
-// floatVectorList is a simple quantization.FloatVectorValues backed by an
+// floatVectorList is a quantization.FloatVectorValues backed by an
 // in-memory slice of float vectors. Mirrors Java's FloatVectorWrapper.
 type floatVectorList struct {
 	vectors [][]float32
 	dim     int
 }
 
-func (f *floatVectorList) Dimension() int                          { return f.dim }
-func (f *floatVectorList) VectorValue(ord int) ([]float32, error) { return f.vectors[ord], nil }
-func (f *floatVectorList) Iterator() quantization.DocIndexIterator {
-	return &floatVectorListIterator{vectors: f.vectors, docID: -1}
-}
+func (f *floatVectorList) Dimension() int { return f.dim }
+func (f *floatVectorList) Size() int      { return len(f.vectors) }
 
-type floatVectorListIterator struct {
-	vectors [][]float32
-	docID   int
-}
-
-func (it *floatVectorListIterator) NextDoc() (int, error) {
-	it.docID++
-	if it.docID >= len(it.vectors) {
-		it.docID = util.NO_MORE_DOCS
-		return util.NO_MORE_DOCS, nil
+// VectorValue mirrors FloatVectorWrapper.vectorValue(int), which throws
+// IOException for an ordinal out of bounds.
+func (f *floatVectorList) VectorValue(ord int) ([]float32, error) {
+	if ord < 0 || ord >= len(f.vectors) {
+		return nil, fmt.Errorf("vector ord %d out of bounds", ord)
 	}
-	return it.docID, nil
+	return f.vectors[ord], nil
 }
 
-func (it *floatVectorListIterator) Index() int {
-	if it.docID == util.NO_MORE_DOCS || it.docID < 0 {
-		return -1
-	}
-	return it.docID
+// Copy mirrors FloatVectorWrapper.copy(), which returns this.
+func (f *floatVectorList) Copy() (spi.KnnVectorValues, error) { return f, nil }
+
+// CopyFloatVectorValues is the covariant FloatVectorValues view of Copy.
+func (f *floatVectorList) CopyFloatVectorValues() (spi.FloatVectorValues, error) { return f, nil }
+
+// Iterator mirrors FloatVectorWrapper.iterator(): createDenseIterator().
+func (f *floatVectorList) Iterator() spi.DocIndexIterator { return spi.CreateDenseIterator(f) }
+
+// OrdToDoc carries the KnnVectorValues.ordToDoc default.
+func (f *floatVectorList) OrdToDoc(ord int) int { return ord }
+
+// Prefetch carries the KnnVectorValues.prefetch default.
+func (f *floatVectorList) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+
+// GetVectorByteLength carries the KnnVectorValues.getVectorByteLength default.
+func (f *floatVectorList) GetVectorByteLength() int {
+	return f.Dimension() * index.VectorEncodingByteSize(f.GetEncoding())
+}
+
+// GetEncoding carries the FloatVectorValues.getEncoding override.
+func (f *floatVectorList) GetEncoding() index.VectorEncoding { return index.VectorEncodingFloat32 }
+
+// GetAcceptOrds carries the KnnVectorValues.getAcceptOrds default.
+func (f *floatVectorList) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
+	return spi.DefaultGetAcceptOrds(f, acceptDocs)
+}
+
+// Scorer carries the FloatVectorValues.scorer default, which throws
+// UnsupportedOperationException.
+func (f *floatVectorList) Scorer(target []float32) (util.VectorScorer, error) {
+	return nil, quantization.ErrUnsupportedOperation
+}
+
+// Rescorer carries the FloatVectorValues.rescorer default.
+func (f *floatVectorList) Rescorer(target []float32) (util.VectorScorer, error) {
+	return f.Scorer(target)
 }
 
 // normalizedFloatVectorValues wraps a FloatVectorValues and L2-normalizes each
@@ -587,7 +617,9 @@ type normalizedFloatVectorValues struct {
 	copy   []float32
 }
 
-func (n *normalizedFloatVectorValues) Dimension() int                          { return n.values.Dimension() }
+func (n *normalizedFloatVectorValues) Dimension() int       { return n.values.Dimension() }
+func (n *normalizedFloatVectorValues) Size() int            { return n.values.Size() }
+func (n *normalizedFloatVectorValues) OrdToDoc(ord int) int { return n.values.OrdToDoc(ord) }
 func (n *normalizedFloatVectorValues) VectorValue(ord int) ([]float32, error) {
 	vec, err := n.values.VectorValue(ord)
 	if err != nil {
@@ -597,7 +629,57 @@ func (n *normalizedFloatVectorValues) VectorValue(ord int) ([]float32, error) {
 	util.L2Normalize(n.copy)
 	return n.copy, nil
 }
-func (n *normalizedFloatVectorValues) Iterator() quantization.DocIndexIterator { return n.values.Iterator() }
+func (n *normalizedFloatVectorValues) Iterator() spi.DocIndexIterator {
+	return n.values.Iterator()
+}
+
+// Copy mirrors NormalizedFloatVectorValues.copy(): a new instance over
+// values.copy() with its own normalization buffer.
+func (n *normalizedFloatVectorValues) Copy() (spi.KnnVectorValues, error) {
+	return n.copyNormalized()
+}
+
+// CopyFloatVectorValues is the covariant FloatVectorValues view of Copy.
+func (n *normalizedFloatVectorValues) CopyFloatVectorValues() (spi.FloatVectorValues, error) {
+	return n.copyNormalized()
+}
+
+func (n *normalizedFloatVectorValues) copyNormalized() (*normalizedFloatVectorValues, error) {
+	values, err := n.values.CopyFloatVectorValues()
+	if err != nil {
+		return nil, err
+	}
+	return &normalizedFloatVectorValues{values: values, copy: make([]float32, values.Dimension())}, nil
+}
+
+// Prefetch carries the KnnVectorValues.prefetch default.
+func (n *normalizedFloatVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error { return nil }
+
+// GetVectorByteLength carries the KnnVectorValues.getVectorByteLength default.
+func (n *normalizedFloatVectorValues) GetVectorByteLength() int {
+	return n.Dimension() * index.VectorEncodingByteSize(n.GetEncoding())
+}
+
+// GetEncoding carries the FloatVectorValues.getEncoding override.
+func (n *normalizedFloatVectorValues) GetEncoding() index.VectorEncoding {
+	return index.VectorEncodingFloat32
+}
+
+// GetAcceptOrds carries the KnnVectorValues.getAcceptOrds default.
+func (n *normalizedFloatVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
+	return spi.DefaultGetAcceptOrds(n, acceptDocs)
+}
+
+// Scorer carries the FloatVectorValues.scorer default, which throws
+// UnsupportedOperationException.
+func (n *normalizedFloatVectorValues) Scorer(target []float32) (util.VectorScorer, error) {
+	return nil, quantization.ErrUnsupportedOperation
+}
+
+// Rescorer carries the FloatVectorValues.rescorer default.
+func (n *normalizedFloatVectorValues) Rescorer(target []float32) (util.VectorScorer, error) {
+	return n.Scorer(target)
+}
 
 // boolToByte returns 1 if b is true, 0 otherwise.
 func boolToByte(b bool) byte {

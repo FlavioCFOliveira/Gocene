@@ -104,33 +104,50 @@ func (psdp *PersistentSnapshotDeletionPolicy) msgf(format string, args ...interf
 	}
 }
 
-func (psdp *PersistentSnapshotDeletionPolicy) Snapshot(commit Commit) (int64, error) {
-	gen, err := psdp.SnapshotDeletionPolicy.Snapshot(commit)
+// Snapshot snapshots the last commit and persists the snapshot information to
+// the directory before returning. Mirrors
+// PersistentSnapshotDeletionPolicy.snapshot.
+func (psdp *PersistentSnapshotDeletionPolicy) Snapshot() (Commit, error) {
+	ic, err := psdp.SnapshotDeletionPolicy.Snapshot()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 
-	// Persist the snapshot
+	// Persist the snapshot. On failure roll the reference back, mirroring the
+	// finally block in Java, which releases the commit again so the original
+	// exception is the one that propagates.
 	if err := psdp.saveSnapshots(); err != nil {
-		// Try to release the snapshot we just created
-		psdp.SnapshotDeletionPolicy.Release(gen)
-		return 0, fmt.Errorf("cannot persist snapshot: %w", err)
+		if relErr := psdp.SnapshotDeletionPolicy.Release(ic); relErr != nil {
+			psdp.msgf("Warning: cannot roll back snapshot %d after failed persist: %v",
+				ic.GetGeneration(), relErr)
+		}
+		return nil, fmt.Errorf("cannot persist snapshot: %w", err)
 	}
 
-	psdp.msgf("Snapshot %d persisted to disk", gen)
-	return gen, nil
+	psdp.msgf("Snapshot %d persisted to disk", ic.GetGeneration())
+	return ic, nil
 }
 
-// SnapshotGeneration creates a snapshot by generation and persists it.
+// SnapshotGeneration snapshots the commit carrying the given generation and
+// persists the snapshot information to the directory.
+//
+// PORT NOTE: Java has no such method. It restores snapshots read back from
+// disk by repopulating refCounts inside loadPriorSnapshots, and lets
+// SnapshotDeletionPolicy.onInit re-associate each generation with its commit.
+// Gocene keeps the generations aside until OnInit hands it the commit list,
+// which is what this method consumes.
 func (psdp *PersistentSnapshotDeletionPolicy) SnapshotGeneration(commits []Commit, generation int64) error {
-	if err := psdp.SnapshotDeletionPolicy.SnapshotGeneration(commits, generation); err != nil {
+	if err := psdp.pinGeneration(commits, generation); err != nil {
 		return err
 	}
 
 	// Persist the snapshot
 	if err := psdp.saveSnapshots(); err != nil {
 		// Try to release the snapshot we just created
-		psdp.SnapshotDeletionPolicy.Release(generation)
+		if relErr := psdp.SnapshotDeletionPolicy.ReleaseGen(generation); relErr != nil {
+			psdp.msgf("Warning: cannot roll back snapshot %d after failed persist: %v",
+				generation, relErr)
+		}
 		return fmt.Errorf("cannot persist snapshot: %w", err)
 	}
 
@@ -138,23 +155,80 @@ func (psdp *PersistentSnapshotDeletionPolicy) SnapshotGeneration(commits []Commi
 	return nil
 }
 
-// Release releases a snapshot by generation and persists the change.
-func (psdp *PersistentSnapshotDeletionPolicy) Release(generation int64) bool {
-	released := psdp.SnapshotDeletionPolicy.Release(generation)
-	if released {
-		// Persist the change
-		if err := psdp.saveSnapshots(); err != nil {
-			psdp.msgf("Warning: cannot persist release of snapshot %d: %v", generation, err)
-		} else {
-			psdp.msgf("Released snapshot %d persisted to disk", generation)
+// pinGeneration takes a reference on the commit whose generation matches,
+// which is how a snapshot read back from disk is re-established.
+func (psdp *PersistentSnapshotDeletionPolicy) pinGeneration(commits []Commit, generation int64) error {
+	sdp := psdp.SnapshotDeletionPolicy
+	sdp.mu.Lock()
+	defer sdp.mu.Unlock()
+
+	for _, commit := range commits {
+		if commit.GetGeneration() != generation {
+			continue
 		}
+		sdp.refCounts[generation]++
+		sdp.indexCommits[generation] = commit
+		return nil
 	}
-	return released
+	return fmt.Errorf("commit gen=%d is not present in this index", generation)
 }
 
-// ReleaseAll releases all snapshots and persists the change.
+// Release releases a snapshotted commit and persists the change. Mirrors
+// PersistentSnapshotDeletionPolicy.release(IndexCommit).
+func (psdp *PersistentSnapshotDeletionPolicy) Release(commit Commit) error {
+	if err := psdp.SnapshotDeletionPolicy.Release(commit); err != nil {
+		return err
+	}
+
+	// Persist the change. On failure re-take the reference, mirroring the
+	// finally block in Java, which calls incRef again.
+	if err := psdp.saveSnapshots(); err != nil {
+		psdp.reIncRef(commit)
+		return fmt.Errorf("cannot persist release of snapshot %d: %w", commit.GetGeneration(), err)
+	}
+
+	psdp.msgf("Released snapshot %d persisted to disk", commit.GetGeneration())
+	return nil
+}
+
+// ReleaseGen releases a snapshotted commit by generation and persists the
+// change. Mirrors PersistentSnapshotDeletionPolicy.release(long).
+func (psdp *PersistentSnapshotDeletionPolicy) ReleaseGen(generation int64) error {
+	if err := psdp.SnapshotDeletionPolicy.ReleaseGen(generation); err != nil {
+		return err
+	}
+	if err := psdp.saveSnapshots(); err != nil {
+		return fmt.Errorf("cannot persist release of snapshot %d: %w", generation, err)
+	}
+	psdp.msgf("Released snapshot %d persisted to disk", generation)
+	return nil
+}
+
+// reIncRef re-takes the reference dropped by a release whose persist failed.
+// Mirrors the incRef call in the finally block of
+// PersistentSnapshotDeletionPolicy.release.
+func (psdp *PersistentSnapshotDeletionPolicy) reIncRef(commit Commit) {
+	sdp := psdp.SnapshotDeletionPolicy
+	sdp.mu.Lock()
+	defer sdp.mu.Unlock()
+	sdp.incRef(commit)
+}
+
+// ReleaseAll releases every snapshot this policy holds and persists the change.
+//
+// PORT NOTE: Java has no releaseAll; it is a Gocene convenience built out of
+// the released-one-at-a-time primitives.
 func (psdp *PersistentSnapshotDeletionPolicy) ReleaseAll() {
-	psdp.SnapshotDeletionPolicy.ReleaseAll()
+	for _, commit := range psdp.SnapshotDeletionPolicy.GetSnapshots() {
+		// A generation may hold more than one reference; drop them all.
+		gen := commit.GetGeneration()
+		for psdp.SnapshotDeletionPolicy.GetIndexCommit(gen) != nil {
+			if err := psdp.SnapshotDeletionPolicy.ReleaseGen(gen); err != nil {
+				psdp.msgf("Warning: cannot release snapshot %d: %v", gen, err)
+				break
+			}
+		}
+	}
 
 	// Persist the change
 	if err := psdp.saveSnapshots(); err != nil {
@@ -193,13 +267,13 @@ func (psdp *PersistentSnapshotDeletionPolicy) saveSnapshots() error {
 
 	// Build content
 	var content strings.Builder
-	for _, gen := range snapshots {
-		fmt.Fprintf(&content, "%d\n", gen)
+	for _, snapshot := range snapshots {
+		fmt.Fprintf(&content, "%d\n", snapshot.GetGeneration())
 	}
 
 	// Write content
 	data := []byte(content.String())
-	if err := out.WriteBytes(data); err != nil {
+	if err := out.WriteBytes(data, 0, len(data)); err != nil {
 		return fmt.Errorf("cannot write snapshots: %w", err)
 	}
 
@@ -265,7 +339,7 @@ func (psdp *PersistentSnapshotDeletionPolicy) loadSnapshots() error {
 
 	// Read all data
 	data := make([]byte, in.Length())
-	if err := in.ReadBytes(data); err != nil {
+	if err := in.ReadBytes(data, 0, len(data)); err != nil {
 		return fmt.Errorf("cannot read snapshots file: %w", err)
 	}
 	in.Close()
@@ -312,7 +386,7 @@ func (psdp *PersistentSnapshotDeletionPolicy) OnInit(commits []Commit) error {
 	if len(psdp.pendingSnapshots) > 0 && len(commits) > 0 {
 		psdp.msgf("Applying %d pending snapshots", len(psdp.pendingSnapshots))
 		for _, gen := range psdp.pendingSnapshots {
-			if err := psdp.SnapshotDeletionPolicy.SnapshotGeneration(commits, gen); err != nil {
+			if err := psdp.pinGeneration(commits, gen); err != nil {
 				psdp.msgf("Warning: cannot apply pending snapshot %d: %v", gen, err)
 			}
 		}
@@ -326,8 +400,10 @@ func (psdp *PersistentSnapshotDeletionPolicy) OnInit(commits []Commit) error {
 // Note: The clone will share the same directory but will have its own
 // snapshot tracking. This should be used with caution.
 func (psdp *PersistentSnapshotDeletionPolicy) Clone() IndexDeletionPolicy {
-	// Clone the primary policy
-	primaryClone := psdp.SnapshotDeletionPolicy.GetPrimary().Clone()
+	// Clone the primary policy. SnapshotDeletionPolicy.primary is assigned
+	// once at construction and never mutated, so it is read directly here
+	// (the two types live in the same package).
+	primaryClone := psdp.SnapshotDeletionPolicy.primary.Clone()
 
 	// Create a new instance
 	clone := &PersistentSnapshotDeletionPolicy{
@@ -344,7 +420,7 @@ func (psdp *PersistentSnapshotDeletionPolicy) Clone() IndexDeletionPolicy {
 // String returns a string representation of this policy.
 func (psdp *PersistentSnapshotDeletionPolicy) String() string {
 	return fmt.Sprintf("PersistentSnapshotDeletionPolicy(primary=%v, snapshotCount=%d, dir=%v)",
-		psdp.SnapshotDeletionPolicy.GetPrimary(),
-		psdp.SnapshotDeletionPolicy.SnapshotCount(),
+		psdp.SnapshotDeletionPolicy.primary,
+		psdp.SnapshotDeletionPolicy.GetSnapshotCount(),
 		psdp.dir)
 }

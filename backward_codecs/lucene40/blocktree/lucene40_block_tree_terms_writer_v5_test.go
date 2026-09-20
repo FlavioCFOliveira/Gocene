@@ -23,9 +23,9 @@ func TestVersionCompressedSuffixes(t *testing.T) {
 // TestFieldReader_HasFreqs verifies HasFreqs depends on IndexOptions.
 func TestFieldReader_HasFreqs(t *testing.T) {
 	tests := []struct {
-		name  string
-		opts  index.IndexOptions
-		want  bool
+		name string
+		opts index.IndexOptions
+		want bool
 	}{
 		{"docs only", index.IndexOptionsDocs, false},
 		{"docs and freqs", index.IndexOptionsDocsAndFreqs, true},
@@ -47,9 +47,9 @@ func TestFieldReader_HasFreqs(t *testing.T) {
 // TestFieldReader_HasPositions verifies HasPositions depends on IndexOptions.
 func TestFieldReader_HasPositions(t *testing.T) {
 	tests := []struct {
-		name  string
-		opts  index.IndexOptions
-		want  bool
+		name string
+		opts index.IndexOptions
+		want bool
 	}{
 		{"docs only", index.IndexOptionsDocs, false},
 		{"docs and freqs", index.IndexOptionsDocsAndFreqs, false},
@@ -70,9 +70,9 @@ func TestFieldReader_HasPositions(t *testing.T) {
 // TestFieldReader_HasOffsets verifies HasOffsets depends on IndexOptions.
 func TestFieldReader_HasOffsets(t *testing.T) {
 	tests := []struct {
-		name  string
-		opts  index.IndexOptions
-		want  bool
+		name string
+		opts index.IndexOptions
+		want bool
 	}{
 		{"docs only", index.IndexOptionsDocs, false},
 		{"docs freqs positions", index.IndexOptionsDocsAndFreqsAndPositions, false},
@@ -154,18 +154,18 @@ func TestFieldReader_ZeroSums(t *testing.T) {
 	}
 }
 
-// TestFieldReader_GetIterator verifies GetIterator returns a non-nil
+// TestFieldReader_GetIterator verifies Iterator returns a non-nil
 // SegmentTermsEnum even on a bare-bones FieldReader.
 func TestFieldReader_GetIterator(t *testing.T) {
 	fr := &FieldReader{
 		fieldInfo: index.NewFieldInfo("f", 0, index.FieldInfoOptions{}),
 	}
-	te, err := fr.GetIterator()
+	te, err := fr.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	if te == nil {
-		t.Fatal("GetIterator returned nil")
+		t.Fatal("Iterator returned nil")
 	}
 }
 

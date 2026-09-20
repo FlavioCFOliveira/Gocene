@@ -8,10 +8,8 @@ import (
 	"bytes"
 	"container/heap"
 	"fmt"
-	"io"
 	"sort"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -24,9 +22,9 @@ type GroupFacetCollector interface {
 
 // BaseGroupFacetCollector provides the common logic for grouped facet collectors.
 type BaseGroupFacetCollector struct {
-	groupField    string
-	facetField   string
-	facetPrefix   []byte
+	groupField     string
+	facetField     string
+	facetPrefix    []byte
 	segmentResults []*segmentResult
 }
 
@@ -41,11 +39,11 @@ func NewBaseGroupFacetCollector(groupField, facetField string, facetPrefix []byt
 
 // GroupedFacetResult contains grouped facet entries, total count and total missing count.
 type GroupedFacetResult struct {
-	facetEntries    []*FacetEntry
+	facetEntries      []*FacetEntry
 	totalMissingCount int
-	totalCount      int
-	maxSize         int
-	currentMin      int
+	totalCount        int
+	maxSize           int
+	currentMin        int
 }
 
 type FacetEntry struct {

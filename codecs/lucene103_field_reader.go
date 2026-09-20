@@ -89,15 +89,15 @@ func NewLucene103FieldReader(
 		return nil, errors.New("Lucene103FieldReader: minTerm and maxTerm must not be nil")
 	}
 
-	indexStart, err := store.ReadVLong(metaIn)
+	indexStart, err := metaIn.ReadVLong()
 	if err != nil {
 		return nil, fmt.Errorf("Lucene103FieldReader: read indexStart: %w", err)
 	}
-	rootFP, err := store.ReadVLong(metaIn)
+	rootFP, err := metaIn.ReadVLong()
 	if err != nil {
 		return nil, fmt.Errorf("Lucene103FieldReader: read rootFP: %w", err)
 	}
-	indexEnd, err := store.ReadVLong(metaIn)
+	indexEnd, err := metaIn.ReadVLong()
 	if err != nil {
 		return nil, fmt.Errorf("Lucene103FieldReader: read indexEnd: %w", err)
 	}
@@ -120,6 +120,11 @@ func NewLucene103FieldReader(
 
 // FieldInfo exposes the wrapped FieldInfo to downstream consumers.
 func (r *Lucene103FieldReader) FieldInfo() *index.FieldInfo { return r.fieldInfo }
+
+// Field returns the name of the field this reader enumerates. Java's Terms has
+// no field() accessor; the Gocene spi.Terms contract declares one, and the name
+// is the one FieldReader carries through its fieldInfo (fieldInfo.name).
+func (r *Lucene103FieldReader) Field() string { return r.fieldInfo.Name() }
 
 // NumTerms returns the number of unique terms in this field.
 func (r *Lucene103FieldReader) NumTerms() int64 { return r.numTerms }
@@ -193,11 +198,11 @@ func (r *Lucene103FieldReader) HasPayloads() bool {
 	return r.fieldInfo.HasPayloads()
 }
 
-// GetIterator returns a SegmentTermsEnum positioned before the first
+// Iterator returns a SegmentTermsEnum positioned before the first
 // term. Mirrors FieldReader.iterator() in Java. The byte-level FST
 // traversal is the deferred deep port; the typed stub returned here
 // satisfies index.TermsEnum and terminates at the first Next() call.
-func (r *Lucene103FieldReader) GetIterator() (index.TermsEnum, error) {
+func (r *Lucene103FieldReader) Iterator() (index.TermsEnum, error) {
 	return NewLucene103SegmentTermsEnum(r, nil), nil
 }
 

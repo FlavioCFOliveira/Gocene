@@ -4,7 +4,10 @@
 
 package index
 
-import "sort"
+import (
+	"bytes"
+	"sort"
+)
 
 // PrefixCodedTerms compactly stores a sorted list of (field, term) pairs
 // using shared-prefix encoding. Mirrors
@@ -28,6 +31,32 @@ type prefixCodedEntry struct {
 
 // Size returns the number of (field, term) pairs.
 func (p *PrefixCodedTerms) Size() int64 { return int64(len(p.terms)) }
+
+// Equals reports whether p and other hold the same deletion generation and the
+// same sequence of (field, term) pairs.
+//
+// Mirrors PrefixCodedTerms.equals(Object), which compares delGen, size() and
+// the encoded content. Gocene stores the pairs in the terms slice rather than
+// in a single encoded BytesRef, so the content comparison is performed
+// pair-by-pair.
+func (p *PrefixCodedTerms) Equals(other *PrefixCodedTerms) bool {
+	if p == other {
+		return true
+	}
+	if other == nil {
+		return false
+	}
+	if p.delGen != other.delGen || p.Size() != other.Size() {
+		return false
+	}
+	for i := range p.terms {
+		if p.terms[i].field != other.terms[i].field ||
+			!bytes.Equal(p.terms[i].bytes, other.terms[i].bytes) {
+			return false
+		}
+	}
+	return true
+}
 
 // SetDelGen records the deletion generation that downstream iterators will
 // expose via TermIterator.DelGen.

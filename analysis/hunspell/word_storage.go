@@ -76,9 +76,7 @@ func (ws *WordStorage) LookupWord(word []rune, offset, length int) *util.IntsRef
 
 	in := store.NewByteArrayDataInput(ws.wordData)
 	for {
-		if err := in.SetPosition(pos); err != nil {
-			return nil
-		}
+		in.SetPosition(pos)
 		cv, err := in.ReadVInt()
 		if err != nil {
 			return nil
@@ -128,9 +126,7 @@ func (ws *WordStorage) LookupWord(word []rune, offset, length int) *util.IntsRef
 		if mightMatch {
 			beforeForms := in.GetPosition()
 			if ws.isSameString(word, offset, length-1, prevPos) {
-				if err := in.SetPosition(beforeForms); err != nil {
-					return nil
-				}
+				in.SetPosition(beforeForms)
 				flen, err := in.ReadVInt()
 				if err != nil {
 					return nil
@@ -169,9 +165,7 @@ func (ws *WordStorage) lookupWordFull(word []rune, offset, length int, hash int3
 	in := store.NewByteArrayDataInput(ws.wordData)
 
 	for {
-		if err := in.SetPosition(pos); err != nil {
-			return nil
-		}
+		in.SetPosition(pos)
 		cv, err := in.ReadVInt()
 		if err != nil {
 			return nil
@@ -204,9 +198,7 @@ func (ws *WordStorage) lookupWordFull(word []rune, offset, length int, hash int3
 		if mightMatch {
 			beforeForms := in.GetPosition()
 			if ws.isSameString(word, offset, length-1, prevPos) {
-				if err := in.SetPosition(beforeForms); err != nil {
-					return nil
-				}
+				in.SetPosition(beforeForms)
 				flen, err := in.ReadVInt()
 				if err != nil {
 					return nil
@@ -254,9 +246,7 @@ func wsHasSuggestible(mask int) bool { return (mask & wsSuggestible) != 0 }
 func (ws *WordStorage) isSameString(word []rune, offset, length, dataPos int) bool {
 	in := store.NewByteArrayDataInput(ws.wordData)
 	for i := length - 1; i >= 0; i-- {
-		if err := in.SetPosition(dataPos); err != nil {
-			return false
-		}
+		in.SetPosition(dataPos)
 		cv, err := in.ReadVInt()
 		if err != nil {
 			return false
@@ -305,9 +295,7 @@ func (ws *WordStorage) processAllWords(minLength, maxLength int, suggestibleOnly
 		for pos != 0 {
 			wordStart := maxLength - 1
 
-			if err := in.SetPosition(pos); err != nil {
-				break
-			}
+			in.SetPosition(pos)
 			cv, err := in.ReadVInt()
 			if err != nil {
 				break
@@ -343,9 +331,7 @@ func (ws *WordStorage) processAllWords(minLength, maxLength int, suggestibleOnly
 				p := prevPos
 				ws2 := wordStart
 				for p != 0 && ws2 > 0 {
-					if err := in.SetPosition(p); err != nil {
-						break
-					}
+					in.SetPosition(p)
 					cv2, err := in.ReadVInt()
 					if err != nil {
 						break
@@ -414,9 +400,7 @@ func (e *FlyweightEntry) LowerCaseRoot(caseFold func(rune) rune) string {
 // Forms reads and returns the form data for this entry.  The returned IntsRef
 // is freshly allocated.
 func (e *FlyweightEntry) Forms() *util.IntsRef {
-	if err := e.in.SetPosition(e.dataPos); err != nil {
-		return util.NewIntsRefEmpty()
-	}
+	e.in.SetPosition(e.dataPos)
 	n, err := e.in.ReadVInt()
 	if err != nil {
 		return util.NewIntsRefEmpty()
@@ -484,7 +468,7 @@ func newWordStorageBuilder(
 		wordCount:          wordCount,
 		hashFactor:         hashFactor,
 	}
-	wb.dataWriter = store.NewByteArrayDataOutput(wordCount * 6)
+	wb.dataWriter = store.NewByteArrayDataOutput(make([]byte, wordCount*6))
 	// position 0 is reserved as "null" root
 	if err := wb.dataWriter.WriteByte(0); err != nil {
 		panic(err)
@@ -514,9 +498,7 @@ func (wb *wordStorageBuilder) add(entry string, flags []rune, morphDataID int) e
 			in := store.NewByteArrayDataInput(wb.dataWriter.GetBytes())
 			prevRunes := []rune(wb.currentEntry)
 			for i := len(prevRunes) - 1; i >= wb.commonPrefixLen; i-- {
-				if err := in.SetPosition(pos); err != nil {
-					return err
-				}
+				in.SetPosition(pos)
 				cv, err := in.ReadVInt()
 				if err != nil {
 					return err

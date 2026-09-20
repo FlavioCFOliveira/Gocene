@@ -11,8 +11,7 @@ import (
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/fst"
@@ -51,7 +50,7 @@ func NewVersionBlockTreeTermsReader(
 	state *codecs.SegmentReadState,
 ) (*VersionBlockTreeTermsReader, error) {
 
-	termsFile := index.SegmentFileName(
+	termsFile := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, vbtTermsExtension,
 	)
 	termsIn, err := state.Directory.OpenInput(termsFile, store.IOContext{})
@@ -85,7 +84,7 @@ func NewVersionBlockTreeTermsReader(
 		return nil, fmt.Errorf("NewVersionBlockTreeTermsReader: check terms header: %w", err)
 	}
 
-	indexFile := index.SegmentFileName(
+	indexFile := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, vbtTermsIndexExtension,
 	)
 	indexIn, err = state.Directory.OpenInput(indexFile, store.IOContext{})
@@ -169,7 +168,7 @@ func NewVersionBlockTreeTermsReader(
 			return nil, fmt.Errorf("NewVersionBlockTreeTermsReader: read rootCode len[%d]: %w", i, err)
 		}
 		codeBytes := make([]byte, numBytes)
-		if rerr := termsIn.ReadBytes(codeBytes); rerr != nil {
+		if rerr := termsIn.ReadBytes(codeBytes, 0, len(codeBytes)); rerr != nil {
 			return nil, fmt.Errorf("NewVersionBlockTreeTermsReader: read rootCode bytes[%d]: %w", i, rerr)
 		}
 		maxVersion, err := vli.ReadVLong()
@@ -261,7 +260,24 @@ func NewVersionBlockTreeTermsReader(
 // field has no terms in this segment.
 //
 // Mirrors VersionBlockTreeTermsReader.terms(String).
-func (r *VersionBlockTreeTermsReader) Terms(field string) (schema.Terms, error) {
+// Iterator returns the field names in sorted order. Mirrors
+// VersionBlockTreeTermsReader.iterator(), which walks the key set of a TreeMap.
+func (r *VersionBlockTreeTermsReader) Iterator() (spi.FieldIterator, error) {
+	return spi.NewMemoryFieldIterator(r.fieldOrder), nil
+}
+
+// Size returns the number of fields. Mirrors VersionBlockTreeTermsReader.size().
+func (r *VersionBlockTreeTermsReader) Size() int {
+	return len(r.Fields)
+}
+
+// GetMergeInstance returns the receiver: VersionBlockTreeTermsReader does not
+// override FieldsProducer.getMergeInstance(), whose default returns this.
+func (r *VersionBlockTreeTermsReader) GetMergeInstance() spi.FieldsProducer {
+	return r
+}
+
+func (r *VersionBlockTreeTermsReader) Terms(field string) (spi.Terms, error) {
 	fr, ok := r.Fields[field]
 	if !ok {
 		return nil, nil
@@ -319,7 +335,7 @@ func (r *VersionBlockTreeTermsReader) String() string {
 func seekDir(input store.IndexInput) error {
 	// Position just before the trailing dirOffset long (8 bytes) that precedes
 	// the codec footer.
-	dirPtrPos := input.Length() - int64(codecs.FooterLength()) - 8
+	dirPtrPos := input.Length() - int64(store.FooterLength()) - 8
 	if err := input.SetPosition(dirPtrPos); err != nil {
 		return fmt.Errorf("seekDir: seek to dirPtr position %d: %w", dirPtrPos, err)
 	}
@@ -336,7 +352,7 @@ func seekDir(input store.IndexInput) error {
 	if !ok {
 		// Fallback: read 8 bytes manually.
 		buf := make([]byte, 8)
-		if err := input.ReadBytes(buf); err != nil {
+		if err := input.ReadBytes(buf, 0, len(buf)); err != nil {
 			return fmt.Errorf("seekDir: read dirOffset bytes: %w", err)
 		}
 		dirOffset := int64(buf[0])<<56 | int64(buf[1])<<48 | int64(buf[2])<<40 | int64(buf[3])<<32 |
@@ -359,7 +375,7 @@ func readBytesRefVBT(input store.IndexInput, vli store.VariableLengthInput) (*ut
 	}
 	b := make([]byte, length)
 	if length > 0 {
-		if rerr := input.ReadBytes(b); rerr != nil {
+		if rerr := input.ReadBytes(b, 0, len(b)); rerr != nil {
 			return nil, fmt.Errorf("readBytesRefVBT: read bytes: %w", rerr)
 		}
 	}
@@ -370,8 +386,8 @@ func readBytesRefVBT(input store.IndexInput, vli store.VariableLengthInput) (*ut
 
 var _ codecs.FieldsProducer = (*VersionBlockTreeTermsReader)(nil)
 
-// VersionFieldReader also needs to satisfy schema.Terms for r.Terms to return it.
-var _ schema.Terms = (*VersionFieldReader)(nil)
+// VersionFieldReader also needs to satisfy spi.Terms for r.Terms to return it.
+var _ spi.Terms = (*VersionFieldReader)(nil)
 
 // Ensure FST outputs type matches what VersionFieldReader expects.
 var _ fst.Outputs[*fst.Pair[*util.BytesRef, int64]] = vbtFSTOutputsW

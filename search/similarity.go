@@ -103,6 +103,10 @@ var _ BulkSimScorer = (*DefaultBulkSimScorer)(nil)
 // passed through. Errors from IntToByte4 are impossible here — Lucene
 // guarantees the input is non-negative — but we coerce a negative count to
 // zero to mirror Lucene's promotion of the encoded byte.
+// DefaultComputeNormFromInvertState is the canonical implementation of
+// Similarity.computeNorm(FieldInvertState) from Lucene 10.4.0. It returns
+// the normalization encoded by SmallFloat.IntToByte4 in the low 8 bits of
+// the result.
 func DefaultComputeNormFromInvertState(state *index.FieldInvertState, discountOverlaps bool) int64 {
 	if state == nil {
 		return 1
@@ -126,4 +130,53 @@ func DefaultComputeNormFromInvertState(state *index.FieldInvertState, discountOv
 		return 0
 	}
 	return int64(b)
+}
+
+// SimilarityConfig is a configuration for Similarity.
+type SimilarityConfig struct {
+	UseClassicSimilarity bool
+	DiscountOverlaps     bool
+	K1                   float32
+	B                    float32
+}
+
+// BaseSimilarity carries the concrete members of the abstract class
+// org.apache.lucene.search.similarities.Similarity (Lucene 10.5.0): the
+// private final discountOverlaps field, the final getDiscountOverlaps()
+// accessor and the default computeNorm(FieldInvertState) body.
+//
+// Go has no class inheritance, so a type that ports a Similarity subclass
+// embeds BaseSimilarity and overrides only what the Java subclass overrides.
+// Java's scorer(float, CollectionStatistics, TermStatistics...) is abstract and
+// is therefore not provided here: the embedder must supply Scorer104.
+type BaseSimilarity struct {
+	// discountOverlaps mirrors Similarity.discountOverlaps: true when overlap
+	// tokens (a position increment of zero) are discounted from a document's
+	// length when computing norms.
+	discountOverlaps bool
+}
+
+// NewBaseSimilarity mirrors the default constructor Similarity(), which in
+// Java delegates to Similarity(true).
+func NewBaseSimilarity() *BaseSimilarity {
+	return NewBaseSimilarityWithDiscountOverlaps(true)
+}
+
+// NewBaseSimilarityWithDiscountOverlaps mirrors the expert constructor
+// Similarity(boolean discountOverlaps).
+func NewBaseSimilarityWithDiscountOverlaps(discountOverlaps bool) *BaseSimilarity {
+	return &BaseSimilarity{discountOverlaps: discountOverlaps}
+}
+
+// GetDiscountOverlaps mirrors the final accessor
+// Similarity.getDiscountOverlaps().
+func (s *BaseSimilarity) GetDiscountOverlaps() bool {
+	return s.discountOverlaps
+}
+
+// ComputeNormFromInvertState mirrors the default body of
+// Similarity.computeNorm(FieldInvertState), which encodes the term count with
+// SmallFloat.intToByte4.
+func (s *BaseSimilarity) ComputeNormFromInvertState(state *index.FieldInvertState) int64 {
+	return DefaultComputeNormFromInvertState(state, s.discountOverlaps)
 }

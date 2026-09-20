@@ -6,6 +6,7 @@ package index
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // MultiReader is a CompositeReader that reads from multiple indexes.
@@ -18,7 +19,7 @@ type MultiReader struct {
 	*BaseCompositeReader
 
 	// readers are the sub-readers
-	readers []IndexReaderInterface
+	readers []spi.IndexReaderInterface
 
 	// closed indicates if this reader has been closed
 	closed bool
@@ -28,7 +29,7 @@ type MultiReader struct {
 //
 // The subReaders must all be IndexReader instances from different indexes.
 // If closeAllSubReaders is true, closing this MultiReader will close all sub-readers.
-func NewMultiReader(subReaders []IndexReaderInterface) (*MultiReader, error) {
+func NewMultiReader(subReaders []spi.IndexReaderInterface) (*MultiReader, error) {
 	if len(subReaders) == 0 {
 		return nil, fmt.Errorf("subReaders array must be non-empty")
 	}
@@ -41,7 +42,7 @@ func NewMultiReader(subReaders []IndexReaderInterface) (*MultiReader, error) {
 
 	reader := &MultiReader{
 		BaseCompositeReader: baseReader,
-		readers:             make([]IndexReaderInterface, len(subReaders)),
+		readers:             make([]spi.IndexReaderInterface, len(subReaders)),
 	}
 
 	// Copy sub-readers
@@ -51,7 +52,7 @@ func NewMultiReader(subReaders []IndexReaderInterface) (*MultiReader, error) {
 }
 
 // GetSequentialSubReaders returns the sub-readers in sequential order.
-func (r *MultiReader) GetSequentialSubReaders() []IndexReaderInterface {
+func (r *MultiReader) GetSequentialSubReaders() []spi.IndexReaderInterface {
 	return r.readers
 }
 
@@ -105,19 +106,23 @@ func (r *MultiReader) GetTermVectors(docID int) (Fields, error) {
 	// Calculate local doc ID
 	localDocID := docID - r.ReaderBase(readerIndex)
 
-	// Get term vectors from sub-reader
-	if leafReader, ok := r.readers[readerIndex].(LeafReaderInterface); ok {
-		return leafReader.GetTermVectors(localDocID)
+	// Get term vectors from the sub-reader. Mirrors Lucene's
+	// IndexReader.termVectors().get(docID) convenience.
+	tv, err := r.readers[readerIndex].TermVectors()
+	if err != nil {
+		return nil, err
 	}
-
-	return nil, fmt.Errorf("sub-reader %d does not support term vectors", readerIndex)
+	if tv == nil {
+		return nil, fmt.Errorf("sub-reader %d does not support term vectors", readerIndex)
+	}
+	return tv.Get(localDocID)
 }
 
 // Terms returns the Terms for a field across all sub-readers.
 // Note: This returns terms from the first sub-reader that has the field.
 func (r *MultiReader) Terms(field string) (Terms, error) {
 	for _, reader := range r.readers {
-		if leafReader, ok := reader.(LeafReaderInterface); ok {
+		if leafReader, ok := reader.(LeafReader); ok {
 			terms, err := leafReader.Terms(field)
 			if err != nil {
 				return nil, err
@@ -207,5 +212,5 @@ func (mtv *multiReaderTermVectors) GetField(docID int, field string) (Terms, err
 	return fields.Terms(field)
 }
 
-// Ensure MultiReader implements IndexReaderInterface
-var _ IndexReaderInterface = (*MultiReader)(nil)
+// Ensure MultiReader implements spi.IndexReaderInterface
+var _ spi.IndexReaderInterface = (*MultiReader)(nil)

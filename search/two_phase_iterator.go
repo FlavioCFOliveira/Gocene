@@ -46,8 +46,8 @@ func (t *TwoPhaseIterator) MatchCost() float32 {
 
 // DocIDRunEnd returns the end of the run of consecutive doc IDs that match this TwoPhaseIterator
 // and that contains the current doc ID of the approximation.
-func (t *TwoPhaseIterator) DocIDRunEnd() int {
-	return t.approximation.DocID()
+func (t *TwoPhaseIterator) DocIDRunEnd() (int, error) {
+	return t.approximation.DocID(), nil
 }
 
 // IntoBitSet loads the doc IDs that both belong to the Approximation() and Matches() match,
@@ -107,7 +107,7 @@ func (i *twoPhaseIteratorAsDocIdSetIterator) Advance(target int) (int, error) {
 	return i.doNext(doc)
 }
 
-func (i *twoPhaseIteratorAsDocIdSetIterator) DocIDRunEnd() int {
+func (i *twoPhaseIteratorAsDocIdSetIterator) DocIDRunEnd() (int, error) {
 	return i.t.approximation.DocIDRunEnd()
 }
 
@@ -132,4 +132,45 @@ func (i *twoPhaseIteratorAsDocIdSetIterator) doNext(doc int) (int, error) {
 			return 0, err
 		}
 	}
+}
+
+// NewTwoPhaseIteratorWithMatchCost builds a TwoPhaseIterator over approx whose
+// Matches() calls matches and whose MatchCost() returns matchCost.
+//
+// It is the Go rendering of the anonymous TwoPhaseIterator subclass that
+// Lucene creates wherever a query needs a one-off verification step:
+//
+//	new TwoPhaseIterator(approximation) {
+//	  @Override public boolean matches() throws IOException { ... }
+//	  @Override public float matchCost() { return matchCost; }
+//	}
+//
+// Java's TwoPhaseIterator declares matches() and matchCost() abstract; this
+// port renders that pair as the TwoPhaseVerifier interface, so a one-off
+// subclass becomes a verifier built from a function and a constant cost.
+func NewTwoPhaseIteratorWithMatchCost(
+	approx DocIdSetIterator,
+	matches func() (bool, error),
+	matchCost float32,
+) *TwoPhaseIterator {
+	return NewTwoPhaseIterator(approx, funcTwoPhaseVerifier{matches: matches, matchCost: matchCost})
+}
+
+// funcTwoPhaseVerifier adapts a matches function and a constant match cost to
+// TwoPhaseVerifier.
+type funcTwoPhaseVerifier struct {
+	matches   func() (bool, error)
+	matchCost float32
+}
+
+// Matches calls the wrapped matches function.
+func (v funcTwoPhaseVerifier) Matches() (bool, error) { return v.matches() }
+
+// MatchCost returns the constant match cost supplied at construction time.
+func (v funcTwoPhaseVerifier) MatchCost() float32 { return v.matchCost }
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (t *twoPhaseIteratorAsDocIdSetIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(t, upTo, bitSet, offset)
 }

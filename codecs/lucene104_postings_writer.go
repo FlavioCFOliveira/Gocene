@@ -142,11 +142,6 @@ type Lucene104PostingsWriter struct {
 	// Maximum required size: BLOCK_SIZE * 32 bits = 8192 bits = 128 uint64 words.
 	spareBitSet *util.FixedBitSet
 
-	// stateCache maps *BlockTermState handles (allocated by NewTermState) back
-	// to the *IntBlockTermState that owns them. This is necessary because the
-	// PostingsWriterBase interface deals only in *BlockTermState.
-	stateCache map[*BlockTermState]*IntBlockTermState
-
 	// lastState is the *IntBlockTermState from the previous EncodeTerm call
 	// for delta-encoding.
 	lastState *IntBlockTermState
@@ -170,7 +165,6 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 		scratchOutput:     store.NewByteBuffersDataOutput(),
 		level0Output:      store.NewByteBuffersDataOutput(),
 		level1Output:      store.NewByteBuffersDataOutput(),
-		stateCache:        make(map[*BlockTermState]*IntBlockTermState),
 		lastState:         emptyIntBlockTermState,
 	}
 
@@ -181,8 +175,8 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 	}
 	w.spareBitSet = spareBitSet
 
-	metaFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104MetaExtension)
-	docFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104DocExtension)
+	metaFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104MetaExtension)
+	docFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104DocExtension)
 
 	var posOut, payOut store.IndexOutput
 	success := false
@@ -218,7 +212,7 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 
 	if state.FieldInfos.HasProx() {
 		w.posDeltaBuffer = make([]int32, lucene104BlockSize)
-		posFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104PosExtension)
+		posFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104PosExtension)
 		rawPosOut, posErr := state.Directory.CreateOutput(posFileName, store.IOContext{Context: store.ContextWrite})
 		if posErr != nil {
 			return nil, fmt.Errorf("lucene104 postings writer: create %s: %w", posFileName, posErr)
@@ -239,7 +233,7 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 		}
 
 		if state.FieldInfos.HasPayloads() || state.FieldInfos.HasOffsets() {
-			payFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104PayExtension)
+			payFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene104PayExtension)
 			rawPayOut, payErr := state.Directory.CreateOutput(payFileName, store.IOContext{Context: store.ContextWrite})
 			if payErr != nil {
 				return nil, fmt.Errorf("lucene104 postings writer: create %s: %w", payFileName, payErr)
@@ -257,16 +251,12 @@ func newLucene104PostingsWriterWithVersion(state *SegmentWriteState, version int
 	return w, nil
 }
 
-// NewTermState returns a fresh *BlockTermState backed by a new *IntBlockTermState.
-// The returned pointer is the embedded *BlockTermState of the IntBlockTermState;
-// the mapping is stored in w.stateCache so that FinishTerm can recover the full
-// extended state.
+// NewTermState returns a fresh IntBlockTermState.
 //
-// Satisfies PostingsWriterBase.
-func (w *Lucene104PostingsWriter) NewTermState() *BlockTermState {
-	its := NewIntBlockTermState()
-	w.stateCache[its.BlockTermState] = its
-	return its.BlockTermState
+// Mirrors Lucene104PostingsWriter.newTermState(), which returns
+// "new IntBlockTermState()". Satisfies PostingsWriterBase.
+func (w *Lucene104PostingsWriter) NewTermState() index.TermState {
+	return NewIntBlockTermState()
 }
 
 // Init writes the codec header to the terms-index output and the BLOCK_SIZE
@@ -277,13 +267,21 @@ func (w *Lucene104PostingsWriter) Init(termsOut store.IndexOutput, state *Segmen
 	if err := WriteIndexHeader(termsOut, lucene104TermsCodec, int32(w.version), state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
 		return fmt.Errorf("lucene104 postings writer Init: write terms header: %w", err)
 	}
-	if err := store.WriteVInt(termsOut, lucene104BlockSize); err != nil {
+	if err := termsOut.WriteVInt(lucene104BlockSize); err != nil {
 		return fmt.Errorf("lucene104 postings writer Init: write block size: %w", err)
 	}
 	return nil
 }
 
-// SetField caches the field-level index options and resets the per-field state.
+// SetField caches the field-level index options, resets the per-field state,
+// and returns the PostingsEnum flags the term dictionary must request when it
+// pulls postings for this field.
+//
+// Renders org.apache.lucene.codecs.PushPostingsWriterBase#setField
+// (PushPostingsWriterBase.java:86-112). Java derives the enum flags in the
+// abstract base class and stores them in the inherited `enumFlags` field;
+// Gocene models PushPostingsWriterBase as an interface, so the derivation
+// lives in the concrete writer and travels back as the return value.
 //
 // Satisfies PostingsWriterBase.
 func (w *Lucene104PostingsWriter) SetField(fieldInfo *index.FieldInfo) (int, error) {
@@ -294,7 +292,27 @@ func (w *Lucene104PostingsWriter) SetField(fieldInfo *index.FieldInfo) (int, err
 	w.writeOffsets = opts.HasOffsets()
 	w.fieldHasNorms = fieldInfo.HasNorms()
 	w.lastState = emptyIntBlockTermState
-	return 0, nil
+
+	var enumFlags int
+	switch {
+	case !w.writeFreqs:
+		enumFlags = index.PostingsFlagNone
+	case !w.writePositions:
+		enumFlags = index.PostingsFlagFreqs
+	case !w.writeOffsets:
+		if w.writePayloads {
+			enumFlags = index.PostingsFlagPayloads
+		} else {
+			enumFlags = index.PostingsFlagPositions
+		}
+	default:
+		if w.writePayloads {
+			enumFlags = index.PostingsFlagPayloads | index.PostingsFlagOffsets
+		} else {
+			enumFlags = index.PostingsFlagOffsets
+		}
+	}
+	return enumFlags, nil
 }
 
 // StartTerm resets all per-term cursors and records the starting file
@@ -414,10 +432,10 @@ func (w *Lucene104PostingsWriter) AddPosition(position int, payload []byte, star
 			if err := w.pforUtil.Encode(w.payloadLengthBuffer, w.payOut); err != nil {
 				return fmt.Errorf("lucene104 postings writer: encode payload lengths: %w", err)
 			}
-			if err := store.WriteVInt(w.payOut, int32(w.payloadByteUpto)); err != nil {
+			if err := w.payOut.WriteVInt(int32(w.payloadByteUpto)); err != nil {
 				return err
 			}
-			if err := w.payOut.WriteBytes(w.payloadBytes[:w.payloadByteUpto]); err != nil {
+			if err := w.payOut.WriteBytes(w.payloadBytes[:w.payloadByteUpto], 0, len(w.payloadBytes[:w.payloadByteUpto])); err != nil {
 				return err
 			}
 			w.payloadByteUpto = 0
@@ -452,12 +470,13 @@ func (w *Lucene104PostingsWriter) FinishDoc() error {
 // created by a prior call to NewTermState.
 //
 // Satisfies PostingsWriterBase.
-func (w *Lucene104PostingsWriter) FinishTerm(base *BlockTermState) error {
-	its, ok := w.stateCache[base]
+func (w *Lucene104PostingsWriter) FinishTerm(state index.TermState) error {
+	// Mirrors "IntBlockTermState state = (IntBlockTermState) _state".
+	its, ok := state.(*IntBlockTermState)
 	if !ok {
-		// Fallback: treat it as a plain BlockTermState (legacy callers).
-		its = &IntBlockTermState{BlockTermState: base, LastPosBlockOffset: -1, SingletonDocID: -1}
+		return fmt.Errorf("lucene104 postings writer: finish term: term state is %T, want *IntBlockTermState", state)
 	}
+	base := its.BlockTermState
 
 	if base.DocFreq == 0 {
 		return fmt.Errorf("lucene104 postings writer: FinishTerm called with docFreq=0")
@@ -524,25 +543,25 @@ func (w *Lucene104PostingsWriter) writeTrailingPositions() error {
 			}
 			if payloadLength != lastPayloadLength {
 				lastPayloadLength = payloadLength
-				if err := store.WriteVInt(w.posOut, (posDelta<<1)|1); err != nil {
+				if err := w.posOut.WriteVInt((posDelta << 1) | 1); err != nil {
 					return err
 				}
-				if err := store.WriteVInt(w.posOut, payloadLength); err != nil {
+				if err := w.posOut.WriteVInt(payloadLength); err != nil {
 					return err
 				}
 			} else {
-				if err := store.WriteVInt(w.posOut, posDelta<<1); err != nil {
+				if err := w.posOut.WriteVInt(posDelta << 1); err != nil {
 					return err
 				}
 			}
 			if payloadLength != 0 {
-				if err := w.posOut.WriteBytes(w.payloadBytes[payloadBytesReadUpto : payloadBytesReadUpto+int(payloadLength)]); err != nil {
+				if err := w.posOut.WriteBytes(w.payloadBytes[payloadBytesReadUpto:payloadBytesReadUpto+int(payloadLength)], 0, len(w.payloadBytes[payloadBytesReadUpto:payloadBytesReadUpto+int(payloadLength)])); err != nil {
 					return err
 				}
 				payloadBytesReadUpto += int(payloadLength)
 			}
 		} else {
-			if err := store.WriteVInt(w.posOut, posDelta); err != nil {
+			if err := w.posOut.WriteVInt(posDelta); err != nil {
 				return err
 			}
 		}
@@ -551,14 +570,14 @@ func (w *Lucene104PostingsWriter) writeTrailingPositions() error {
 			delta := w.offsetStartDeltaBuffer[i]
 			length := w.offsetLengthBuffer[i]
 			if length == lastOffsetLength {
-				if err := store.WriteVInt(w.posOut, delta<<1); err != nil {
+				if err := w.posOut.WriteVInt(delta << 1); err != nil {
 					return err
 				}
 			} else {
-				if err := store.WriteVInt(w.posOut, delta<<1|1); err != nil {
+				if err := w.posOut.WriteVInt(delta<<1 | 1); err != nil {
 					return err
 				}
-				if err := store.WriteVInt(w.posOut, length); err != nil {
+				if err := w.posOut.WriteVInt(length); err != nil {
 					return err
 				}
 				lastOffsetLength = length
@@ -576,10 +595,11 @@ func (w *Lucene104PostingsWriter) writeTrailingPositions() error {
 // relative to the previous term (or the empty sentinel when absolute=true).
 //
 // Satisfies PostingsWriterBase.
-func (w *Lucene104PostingsWriter) EncodeTerm(out store.IndexOutput, fieldInfo *index.FieldInfo, base *BlockTermState, absolute bool) error {
-	its, ok := w.stateCache[base]
+func (w *Lucene104PostingsWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, state index.TermState, absolute bool) error {
+	// Mirrors "IntBlockTermState state = (IntBlockTermState) _state".
+	its, ok := state.(*IntBlockTermState)
 	if !ok {
-		its = &IntBlockTermState{BlockTermState: base, LastPosBlockOffset: -1, SingletonDocID: -1}
+		return fmt.Errorf("lucene104 postings writer: encode term: term state is %T, want *IntBlockTermState", state)
 	}
 
 	if absolute {
@@ -592,32 +612,32 @@ func (w *Lucene104PostingsWriter) EncodeTerm(out store.IndexOutput, fieldInfo *i
 		its.DocStartFP == last.DocStartFP {
 		// Runs of rare terms (e.g. ID fields) encode as doc-ID deltas.
 		delta := int64(its.SingletonDocID) - int64(last.SingletonDocID)
-		if err := store.WriteVLong(out, (util.ZigZagEncodeInt64(delta)<<1)|0x01); err != nil {
+		if err := out.WriteVLong((util.ZigZagEncodeInt64(delta) << 1) | 0x01); err != nil {
 			return err
 		}
 	} else {
-		if err := store.WriteVLong(out, (its.DocStartFP-last.DocStartFP)<<1); err != nil {
+		if err := out.WriteVLong((its.DocStartFP - last.DocStartFP) << 1); err != nil {
 			return err
 		}
 		if its.SingletonDocID != -1 {
-			if err := store.WriteVInt(out, int32(its.SingletonDocID)); err != nil {
+			if err := out.WriteVInt(int32(its.SingletonDocID)); err != nil {
 				return err
 			}
 		}
 	}
 
 	if w.writePositions {
-		if err := store.WriteVLong(out, its.PosStartFP-last.PosStartFP); err != nil {
+		if err := out.WriteVLong(its.PosStartFP - last.PosStartFP); err != nil {
 			return err
 		}
 		if w.writePayloads || w.writeOffsets {
-			if err := store.WriteVLong(out, its.PayStartFP-last.PayStartFP); err != nil {
+			if err := out.WriteVLong(its.PayStartFP - last.PayStartFP); err != nil {
 				return err
 			}
 		}
 	}
 	if w.writePositions && its.LastPosBlockOffset != -1 {
-		if err := store.WriteVLong(out, its.LastPosBlockOffset); err != nil {
+		if err := out.WriteVLong(its.LastPosBlockOffset); err != nil {
 			return err
 		}
 	}
@@ -870,7 +890,7 @@ func (w *Lucene104PostingsWriter) encodeDocBlock() error {
 // writeLevel1SkipData flushes the accumulated level-1 output (one group of 32
 // blocks = 8192 docs) to docOut, prefixed by skip metadata.
 func (w *Lucene104PostingsWriter) writeLevel1SkipData() error {
-	if err := store.WriteVInt(w.docOut, int32(w.docID-w.level1LastDocID)); err != nil {
+	if err := w.docOut.WriteVInt(int32(w.docID - w.level1LastDocID)); err != nil {
 		return err
 	}
 
@@ -918,7 +938,7 @@ func (w *Lucene104PostingsWriter) writeLevel1SkipData() error {
 
 		// level1Len = 2*Short.BYTES + scratchOutput.size() + level1Output.size()
 		level1Len := int64(4) + w.scratchOutput.Size() + w.level1Output.Size()
-		if err := store.WriteVLong(w.docOut, level1Len); err != nil {
+		if err := w.docOut.WriteVLong(level1Len); err != nil {
 			return err
 		}
 		level1End = w.docOut.GetFilePointer() + level1Len
@@ -937,7 +957,7 @@ func (w *Lucene104PostingsWriter) writeLevel1SkipData() error {
 		}
 		w.scratchOutput.Reset()
 	} else {
-		if err := store.WriteVLong(w.docOut, w.level1Output.Size()); err != nil {
+		if err := w.docOut.WriteVLong(w.level1Output.Size()); err != nil {
 			return err
 		}
 		level1End = w.docOut.GetFilePointer() + w.level1Output.Size()
@@ -976,7 +996,7 @@ func writeVLong15(out store.DataOutput, v int64) error {
 	if err := out.WriteShort(int16(0x8000 | (v & 0x7FFF))); err != nil {
 		return err
 	}
-	return store.WriteVLong(out, v>>15)
+	return out.WriteVLong(v >> 15)
 }
 
 // writeImpacts encodes a sorted slice of Impact values into out using
@@ -991,16 +1011,16 @@ func writeImpacts(impacts []Impact, out store.DataOutput) error {
 		freqDelta := int32(imp.Freq - prev.Freq - 1)
 		normDelta := imp.Norm - prev.Norm - 1
 		if normDelta == 0 {
-			if err := store.WriteVInt(out, freqDelta<<1); err != nil {
+			if err := out.WriteVInt(freqDelta << 1); err != nil {
 				return err
 			}
 		} else {
-			if err := store.WriteVInt(out, (freqDelta<<1)|1); err != nil {
+			if err := out.WriteVInt((freqDelta << 1) | 1); err != nil {
 				return err
 			}
 			// zig-zag encode normDelta then write as VLong
 			zigzag := (normDelta << 1) ^ (normDelta >> 63)
-			if err := store.WriteVLong(out, zigzag); err != nil {
+			if err := out.WriteVLong(zigzag); err != nil {
 				return err
 			}
 		}

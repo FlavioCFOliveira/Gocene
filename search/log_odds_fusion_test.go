@@ -1,6 +1,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 	"testing"
 
@@ -68,8 +69,8 @@ func (i *mockIterator) Cost() int64 {
 	return 1
 }
 
-func (i *mockIterator) DocIDRunEnd() int {
-	return -1
+func (i *mockIterator) DocIDRunEnd() (int, error) {
+	return -1, nil
 }
 
 func TestLogOddsFusionNumericalUtils(t *testing.T) {
@@ -90,9 +91,9 @@ func TestLogOddsFusionNumericalUtils(t *testing.T) {
 
 	t.Run("sigmoid", func(t *testing.T) {
 		// sigmoid(0) = 1/(1+1) = 0.5
-		assert.InDelta(t, 0.5, sigmoid(0), 1e-6)
+		assert.InDelta(t, 0.5, logOddsFusionScorerSigmoid(0), 1e-6)
 		// sigmoid(1.0986) approx 0.75
-		assert.InDelta(t, 0.75, sigmoid(1.0986), 1e-4)
+		assert.InDelta(t, 0.75, logOddsFusionScorerSigmoid(1.0986), 1e-4)
 	})
 
 	t.Run("softplus", func(t *testing.T) {
@@ -216,7 +217,7 @@ func (m *mockQuery) Rewrite(s *IndexSearcher) (Query, error) {
 	return m, nil
 }
 
-func (m *mockQuery) Visit(v QueryVisitor) {}
+func (m *mockQuery) Visit(v QueryVisitor)     {}
 func (m *mockQuery) ToString(f string) string { return "mock" }
 
 type mockWeight struct{}
@@ -255,4 +256,11 @@ type mockSearcher struct {
 
 func (m *mockSearcher) CreateWeight(q Query, sm ScoreMode, b float32) (Weight, error) {
 	return q.CreateWeight(m, sm, b)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (i *mockIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(i, upTo, bitSet, offset)
 }

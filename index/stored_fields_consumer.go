@@ -10,97 +10,51 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // StoredValueType discriminates the variant carried by a StoredValue.
 //
-// It mirrors org.apache.lucene.document.StoredValue.Type from Apache
-// Lucene 10.4.0, restricted to the variants StoredFieldsConsumer can
-// dispatch. The DATA_INPUT variant is intentionally absent: the
-// StoredFieldDataInput type it wraps is not yet ported (see the
-// divergence note on StoredFieldsConsumer).
-type StoredValueType int
+// Mirrors org.apache.lucene.document.StoredValue.Type from Apache Lucene
+// 10.5.0. Java declares the enum once, nested in
+// org.apache.lucene.document.StoredValue; Gocene declares it once in package
+// document and aliases it here.
+type StoredValueType = document.StoredValueType
 
 const (
 	// StoredValueTypeInteger is a 32-bit signed integer.
-	StoredValueTypeInteger StoredValueType = iota
+	StoredValueTypeInteger = document.StoredValueTypeInteger
 
 	// StoredValueTypeLong is a 64-bit signed integer.
-	StoredValueTypeLong
+	StoredValueTypeLong = document.StoredValueTypeLong
 
 	// StoredValueTypeFloat is a 32-bit floating-point value.
-	StoredValueTypeFloat
+	StoredValueTypeFloat = document.StoredValueTypeFloat
 
 	// StoredValueTypeDouble is a 64-bit floating-point value.
-	StoredValueTypeDouble
+	StoredValueTypeDouble = document.StoredValueTypeDouble
 
 	// StoredValueTypeBinary is a raw byte sequence (BytesRef in Java).
-	StoredValueTypeBinary
+	StoredValueTypeBinary = document.StoredValueTypeBinary
+
+	// StoredValueTypeDataInput is a streamed value backed by a
+	// StoredFieldDataInput.
+	StoredValueTypeDataInput = document.StoredValueTypeDataInput
 
 	// StoredValueTypeString is a UTF-8 string.
-	StoredValueTypeString
+	StoredValueTypeString = document.StoredValueTypeString
 )
 
-// String renders the variant name for diagnostics.
-func (t StoredValueType) String() string {
-	switch t {
-	case StoredValueTypeInteger:
-		return "INTEGER"
-	case StoredValueTypeLong:
-		return "LONG"
-	case StoredValueTypeFloat:
-		return "FLOAT"
-	case StoredValueTypeDouble:
-		return "DOUBLE"
-	case StoredValueTypeBinary:
-		return "BINARY"
-	case StoredValueTypeString:
-		return "STRING"
-	default:
-		return fmt.Sprintf("StoredValueType(%d)", int(t))
-	}
-}
-
-// StoredValue is the minimal contract StoredFieldsConsumer needs to
-// dispatch one stored field to the codec writer. It is the index-package
-// view of a stored value: a discriminated union exposing the single typed
-// payload selected by Type.
+// StoredValue is an abstraction around a stored value.
 //
-// It deliberately does not depend on document.StoredValue. Lucene's
-// StoredFieldsConsumer consumes org.apache.lucene.document.StoredValue
-// directly, but wiring that concrete type through here would couple the
-// index package to document for one switch statement. The local interface
-// keeps the dependency direction clean while preserving the observable
-// contract: callers (DocumentsWriterPerThread / the indexing chain) supply
-// a value that satisfies this interface. Any concrete StoredValue type --
-// including a future adapter over document.StoredValue -- implements it.
-//
-// Only the accessor matching Type is required to return a meaningful
-// value; the others may return their zero value, exactly as Lucene's
-// per-variant getters assert before returning.
-type StoredValue interface {
-	// Type reports which variant this value carries.
-	Type() StoredValueType
-
-	// IntValue returns the payload for the INTEGER variant.
-	IntValue() int32
-
-	// LongValue returns the payload for the LONG variant.
-	LongValue() int64
-
-	// FloatValue returns the payload for the FLOAT variant.
-	FloatValue() float32
-
-	// DoubleValue returns the payload for the DOUBLE variant.
-	DoubleValue() float64
-
-	// BinaryValue returns the payload for the BINARY variant.
-	BinaryValue() []byte
-
-	// StringValue returns the payload for the STRING variant.
-	StringValue() string
-}
+// Mirrors org.apache.lucene.document.StoredValue from Apache Lucene 10.5.0.
+// Java declares the class once, in org.apache.lucene.document; Gocene declares
+// it once in package document and aliases it here, so that index-side code
+// keeps Lucene's spelling while naming the one type.
+type StoredValue = document.StoredValue
 
 // StoredFieldsConsumer is the Go port of Apache Lucene 10.4.0's
 // org.apache.lucene.index.StoredFieldsConsumer.
@@ -149,9 +103,24 @@ type StoredFieldsConsumer struct {
 	// call to InitStoredFieldsWriter (mirrors Lucene's lazy allocation).
 	writer StoredFieldsWriter
 
+	// accountable holds the active writer once it is installed. Mirrors
+	// Lucene's "Accountable accountable = Accountable.NULL_ACCOUNTABLE"
+	// field, which IndexingChain.ramBytesUsed reads directly. Gocene has
+	// no NULL_ACCOUNTABLE singleton, so the zero value is nil and
+	// RamBytesUsed reports 0 for it.
+	accountable util.Accountable
+
 	// lastDoc tracks the highest docID for which a document has been
 	// started. It begins at -1 so the first started document is docID 0.
 	lastDoc int
+
+	// initStoredFieldsWriterOverride renders the @Override of
+	// initStoredFieldsWriter() in SortingStoredFieldsConsumer. Java
+	// resolves the call inside startDocument() virtually; Go embedding
+	// does not, so the subclass installs its body here and the base
+	// dispatches through initStoredFieldsWriter(). nil means "no
+	// subclass override".
+	initStoredFieldsWriterOverride func() error
 }
 
 // NewStoredFieldsConsumer constructs the consumer for one segment.
@@ -185,7 +154,33 @@ func (c *StoredFieldsConsumer) InitStoredFieldsWriter() error {
 		return fmt.Errorf("index: StoredFieldsConsumer init writer: %w", err)
 	}
 	c.writer = w
+	if a, ok := w.(util.Accountable); ok {
+		c.accountable = a
+	} else {
+		c.accountable = nil
+	}
 	return nil
+}
+
+// initStoredFieldsWriter performs the virtual dispatch Java gets for
+// free: it runs the subclass override when one is installed, otherwise
+// the base InitStoredFieldsWriter body. Every in-class call site of
+// initStoredFieldsWriter() in Lucene goes through this.
+func (c *StoredFieldsConsumer) initStoredFieldsWriter() error {
+	if c.initStoredFieldsWriterOverride != nil {
+		return c.initStoredFieldsWriterOverride()
+	}
+	return c.InitStoredFieldsWriter()
+}
+
+// RamBytesUsed reports the active writer's footprint, or 0 before one is
+// installed. Mirrors the accountable field IndexingChain.ramBytesUsed
+// reads (Lucene's Accountable.NULL_ACCOUNTABLE reports 0 as well).
+func (c *StoredFieldsConsumer) RamBytesUsed() int64 {
+	if c.accountable == nil {
+		return 0
+	}
+	return c.accountable.RamBytesUsed()
 }
 
 // StartDocument prepares the writer for the document with the given
@@ -201,7 +196,7 @@ func (c *StoredFieldsConsumer) StartDocument(docID int) error {
 	if c.lastDoc >= docID {
 		return fmt.Errorf("index: StoredFieldsConsumer.StartDocument: docID %d is not greater than last started doc %d", docID, c.lastDoc)
 	}
-	if err := c.InitStoredFieldsWriter(); err != nil {
+	if err := c.initStoredFieldsWriter(); err != nil {
 		return err
 	}
 	for {
@@ -227,9 +222,7 @@ func (c *StoredFieldsConsumer) StartDocument(docID int) error {
 //
 // Mirrors org.apache.lucene.index.StoredFieldsConsumer.writeField. Lucene
 // throws AssertionError on an unknown variant; the port returns an error.
-// There is no DATA_INPUT variant: StoredFieldDataInput is not yet ported
-// (see the type-level divergence note).
-func (c *StoredFieldsConsumer) WriteField(fi *FieldInfo, value StoredValue) error {
+func (c *StoredFieldsConsumer) WriteField(fi *FieldInfo, value *StoredValue) error {
 	if value == nil {
 		return errors.New("index: StoredFieldsConsumer.WriteField: value is nil")
 	}
@@ -237,7 +230,7 @@ func (c *StoredFieldsConsumer) WriteField(fi *FieldInfo, value StoredValue) erro
 	if err != nil {
 		return err
 	}
-	if err := c.writer.WriteField(field); err != nil {
+	if err := c.writer.WriteField(fi, field); err != nil {
 		return fmt.Errorf("index: StoredFieldsConsumer.WriteField: %w", err)
 	}
 	return nil
@@ -330,13 +323,13 @@ type storedValueField struct {
 	i64     int64
 	f32     float32
 	f64     float64
-	val     StoredValue
+	val     *StoredValue
 }
 
 // newStoredValueField builds the adapter for one stored field, copying
 // the typed value out of the StoredValue. It rejects an unknown variant,
 // mirroring the AssertionError default in Lucene's writeField.
-func newStoredValueField(info *FieldInfo, value StoredValue) (*storedValueField, error) {
+func newStoredValueField(info *FieldInfo, value *StoredValue) (*storedValueField, error) {
 	if info == nil {
 		return nil, errors.New("index: StoredFieldsConsumer.WriteField: FieldInfo is nil")
 	}
@@ -354,25 +347,18 @@ func newStoredValueField(info *FieldInfo, value StoredValue) (*storedValueField,
 		f.bin = value.BinaryValue()
 	case StoredValueTypeString:
 		f.str = value.StringValue()
+	case StoredValueTypeDataInput:
+		dsi := value.DataInputValue()
+		if dsi == nil || dsi.In == nil {
+			return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: StoredFieldDataInput has nil In")
+		}
+		buf := make([]byte, dsi.Length)
+		if err := dsi.In.ReadBytes(buf, 0, dsi.Length); err != nil {
+			return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: read DataInput bytes: %w", err)
+		}
+		f.bin = buf
+		f.variant = StoredValueTypeBinary
 	default:
-		// Handle DATA_INPUT variant via type assertion: if the value provides
-		// a streamed DataInput (StoredFieldDataInput), materialise the bytes as binary.
-		type dataInputProvider interface {
-			GetDataInputValue() *StoredFieldDataInput
-		}
-		if dip, ok := value.(dataInputProvider); ok {
-			dsi := dip.GetDataInputValue()
-			if dsi == nil || dsi.In == nil {
-				return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: StoredFieldDataInput has nil In")
-			}
-			buf := make([]byte, dsi.Length)
-			if err := dsi.In.ReadBytes(buf); err != nil {
-				return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: read DataInput bytes: %w", err)
-			}
-			f.bin = buf
-			f.variant = StoredValueTypeBinary
-			return f, nil
-		}
 		return nil, fmt.Errorf("index: StoredFieldsConsumer.WriteField: unknown StoredValue type %s", value.Type())
 	}
 	return f, nil
@@ -382,7 +368,7 @@ func newStoredValueField(info *FieldInfo, value StoredValue) (*storedValueField,
 func (f *storedValueField) Name() string { return f.name }
 
 // FieldType implements IndexableField.
-func (f *storedValueField) FieldType() IndexableFieldType { return storedValueFieldType{} }
+func (f *storedValueField) FieldType() spi.IndexableFieldType { return storedValueFieldType{} }
 
 // StringValue implements IndexableField. Returns the payload only for the
 // STRING variant; "" otherwise.
@@ -431,30 +417,42 @@ func (f *storedValueField) NumericValue() interface{} {
 func (f *storedValueField) InvertableType() InvertableType { return InvertableTypeBinary }
 
 // StoredValue implements IndexableField.
-func (f *storedValueField) StoredValue() StoredValue { return f.val }
+func (f *storedValueField) StoredValue() *StoredValue { return f.val }
 
 // storedValueFieldType marks the adapted field as stored-only. Every other
 // indexing property is false because the adapter only ever feeds a stored-fields
 // writer.
 type storedValueFieldType struct{}
 
-func (storedValueFieldType) Stored() bool                                   { return true }
-func (storedValueFieldType) Tokenized() bool                                 { return false }
-func (storedValueFieldType) StoreTermVectors() bool                          { return false }
-func (storedValueFieldType) StoreTermVectorPositions() bool                  { return false }
-func (storedValueFieldType) StoreTermVectorOffsets() bool                    { return false }
-func (storedValueFieldType) StoreTermVectorPayloads() bool                   { return false }
-func (storedValueFieldType) OmitNorms() bool                                 { return false }
-func (storedValueFieldType) IndexOptions() IndexOptions                       { return IndexOptionsNone }
-func (storedValueFieldType) DocValuesType() DocValuesType                     { return DocValuesTypeNone }
-func (storedValueFieldType) DocValuesSkipIndexType() DocValuesSkipIndexType   { return DocValuesSkipIndexTypeNone }
-func (storedValueFieldType) PointDimensionCount() int                          { return 0 }
-func (storedValueFieldType) PointIndexDimensionCount() int                     { return 0 }
-func (storedValueFieldType) PointNumBytes() int                                { return 0 }
-func (storedValueFieldType) VectorDimension() int                              { return 0 }
-func (storedValueFieldType) VectorEncoding() VectorEncoding                    { return 0 }
-func (storedValueFieldType) VectorSimilarityFunction() VectorSimilarityFunction { return 0 }
-func (storedValueFieldType) GetAttributes() map[string]string                { return nil }
+func (storedValueFieldType) Stored() bool                   { return true }
+func (storedValueFieldType) Tokenized() bool                { return false }
+func (storedValueFieldType) StoreTermVectors() bool         { return false }
+func (storedValueFieldType) StoreTermVectorPositions() bool { return false }
+func (storedValueFieldType) StoreTermVectorOffsets() bool   { return false }
+func (storedValueFieldType) StoreTermVectorPayloads() bool  { return false }
+func (storedValueFieldType) OmitNorms() bool                { return false }
+func (storedValueFieldType) IndexOptions() IndexOptions     { return IndexOptionsNone }
+func (storedValueFieldType) DocValuesType() DocValuesType   { return DocValuesTypeNone }
+func (storedValueFieldType) DocValuesSkipIndexType() spi.DocValuesSkipIndexType {
+	return spi.DocValuesSkipIndexTypeNone
+}
+func (storedValueFieldType) PointDimensionCount() int       { return 0 }
+func (storedValueFieldType) PointIndexDimensionCount() int  { return 0 }
+func (storedValueFieldType) PointNumBytes() int             { return 0 }
+func (storedValueFieldType) VectorDimension() int           { return 0 }
+func (storedValueFieldType) VectorEncoding() VectorEncoding { return 0 }
+
+// VectorSimilarityFunction mirrors Lucene's FieldType default of
+// VectorSimilarityFunction.EUCLIDEAN for a field that carries no vector.
+func (storedValueFieldType) VectorSimilarityFunction() VectorSimilarityFunction {
+	return VectorSimilarityFunctionEuclidean
+}
+func (storedValueFieldType) GetAttributes() map[string]string { return nil }
+
+// GetCharSequenceValue returns the field value as a character sequence.
+// Mirrors the default body of IndexableField#getCharSequenceValue(), which
+// returns stringValue().
+func (f *storedValueField) GetCharSequenceValue() string { return f.StringValue() }
 
 // Compile-time assertion that the adapter satisfies IndexableField.
 var _ IndexableField = (*storedValueField)(nil)

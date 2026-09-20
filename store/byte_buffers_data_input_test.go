@@ -108,7 +108,7 @@ func TestByteBuffersDataInput_RandomReads(t *testing.T) {
 
 	src := toByteBuffersDataInput(out.ToDataInput())
 	readBuf := make([]byte, max)
-	err := src.ReadBytes(readBuf)
+	err := src.ReadBytes(readBuf, 0, len(readBuf))
 	if err != nil {
 		t.Fatalf("unexpected error reading bytes: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestByteBuffersDataInput_SeekAndSkip(t *testing.T) {
 		}
 
 		readBuf := make([]byte, sliceLen)
-		err = in.ReadBytes(readBuf)
+		err = in.ReadBytes(readBuf, 0, len(readBuf))
 		if err != nil {
 			t.Fatalf("unexpected error reading bytes: %v", err)
 		}
@@ -598,7 +598,7 @@ func TestByteBuffersDataInput_SliceBounds(t *testing.T) {
 
 	// Read from slice
 	buf := make([]byte, 5)
-	err = slice.ReadBytes(buf)
+	err = slice.ReadBytes(buf, 0, len(buf))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

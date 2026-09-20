@@ -87,6 +87,7 @@ var _ TokenFilter = (*LengthFilter)(nil)
 
 // LengthFilterFactory creates LengthFilter instances.
 type LengthFilterFactory struct {
+	BaseTokenFilterFactory
 	minLength int
 	maxLength int
 }

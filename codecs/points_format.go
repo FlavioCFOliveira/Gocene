@@ -7,9 +7,9 @@ package codecs
 import (
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/geo"
 )
 
 // PointsFormat is an alias of [spi.PointsFormat]. rmp #4769 lifted the
@@ -55,12 +55,6 @@ func (f *BasePointsFormat) FieldsReader(state *SegmentReadState) (PointsReader, 
 // This is the Go port of org.apache.lucene.codecs.PointsWriter.
 type PointsWriter = spi.PointsWriter
 
-// PointsReader is an alias of [spi.PointsReader]. The narrow SPI surface
-// carries only CheckIntegrity / Close; the per-field getValues accessor
-// lives on the concrete codecs-side reader. This is the Go port of
-// org.apache.lucene.codecs.PointsReader.
-type PointsReader = spi.PointsReader
-
 // PointValues provides access to point values for a field.
 // This is the Go port of Lucene's org.apache.lucene.index.PointValues.
 type PointValues interface {
@@ -97,7 +91,7 @@ type IntersectVisitor interface {
 
 	// Compare compares the given range with the query.
 	// Returns the relation between the range and the query.
-	Compare(minPackedValue, maxPackedValue []byte) geo.Relation
+	Compare(minPackedValue, maxPackedValue []byte) index.Relation
 
 	// Grow is called to grow the visitor's internal data structures.
 	Grow(count int)
@@ -117,11 +111,11 @@ func NewPointsWriterHelper(out store.IndexOutput) *PointsWriterHelper {
 // WriteHeader writes the points file header.
 func (w *PointsWriterHelper) WriteHeader() error {
 	// Write magic number (PT = Points)
-	if err := store.WriteUint32(w.out, 0x50540000); err != nil {
+	if err := store.WriteBEInt(w.out, 0x50540000); err != nil {
 		return fmt.Errorf("failed to write magic number: %w", err)
 	}
 	// Write version
-	if err := store.WriteUint32(w.out, 1); err != nil {
+	if err := store.WriteBEInt(w.out, 1); err != nil {
 		return fmt.Errorf("failed to write version: %w", err)
 	}
 	return nil
@@ -150,7 +144,7 @@ func NewPointsReaderHelper(in store.IndexInput) *PointsReaderHelper {
 // ReadHeader reads and validates the points file header.
 func (r *PointsReaderHelper) ReadHeader() error {
 	// Read magic number
-	magic, err := store.ReadUint32(r.in)
+	magic, err := store.ReadBEInt(r.in)
 	if err != nil {
 		return fmt.Errorf("failed to read magic number: %w", err)
 	}
@@ -159,7 +153,7 @@ func (r *PointsReaderHelper) ReadHeader() error {
 	}
 
 	// Read version
-	version, err := store.ReadUint32(r.in)
+	version, err := store.ReadBEInt(r.in)
 	if err != nil {
 		return fmt.Errorf("failed to read version: %w", err)
 	}

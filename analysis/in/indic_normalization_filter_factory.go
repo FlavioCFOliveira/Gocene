@@ -14,11 +14,15 @@ import (
 // (Apache Lucene 10.4.0).
 //
 // SPI name: "indicNormalization"
-type IndicNormalizationFilterFactory struct{}
+type IndicNormalizationFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewIndicNormalizationFilterFactory creates a new IndicNormalizationFilterFactory.
 func NewIndicNormalizationFilterFactory() *IndicNormalizationFilterFactory {
-	return &IndicNormalizationFilterFactory{}
+	return &IndicNormalizationFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+	}
 }
 
 // Create wraps the given input stream with an IndicNormalizationFilter.

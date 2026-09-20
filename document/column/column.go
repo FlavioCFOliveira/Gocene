@@ -5,7 +5,7 @@
 package column
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // Density describes whether a column has a value for every document in the batch.
@@ -29,7 +29,7 @@ type Column interface {
 	// Name returns the field name.
 	Name() string
 	// FieldType returns the field type describing how this field is indexed.
-	FieldType() index.IndexableFieldType
+	FieldType() spi.IndexableFieldType
 	// Density returns the density of this column (whether every doc has a value).
 	Density() Density
 }
@@ -37,12 +37,12 @@ type Column interface {
 // BaseColumn provides a basic implementation of the Column interface.
 type BaseColumn struct {
 	name      string
-	fieldType index.IndexableFieldType
+	fieldType spi.IndexableFieldType
 	density   Density
 }
 
 // NewBaseColumn creates a new BaseColumn with the given metadata.
-func NewBaseColumn(name string, fieldType index.IndexableFieldType, density Density) BaseColumn {
+func NewBaseColumn(name string, fieldType spi.IndexableFieldType, density Density) BaseColumn {
 	return BaseColumn{
 		name:      name,
 		fieldType: fieldType,
@@ -54,7 +54,7 @@ func (c BaseColumn) Name() string {
 	return c.name
 }
 
-func (c BaseColumn) FieldType() index.IndexableFieldType {
+func (c BaseColumn) FieldType() spi.IndexableFieldType {
 	return c.fieldType
 }
 

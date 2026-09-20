@@ -50,7 +50,7 @@ func TestLucene94HnswVectorsReader_ReadMetadata_LittleEndianPayload(t *testing.T
 	// Write the .vem exactly like Lucene94HnswVectorsWriter: BE framing via
 	// CodecUtil, LE payload via the IndexOutput.WriteInt/WriteLong/WriteShort
 	// methods (which are little-endian per rmp #4786).
-	metaName := index.SegmentFileName(segName, "", lucene94MetaExtension)
+	metaName := store.SegmentFileName(segName, "", lucene94MetaExtension)
 	rawOut, err := dir.CreateOutput(metaName, store.IOContextWrite)
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
@@ -85,7 +85,7 @@ func TestLucene94HnswVectorsReader_ReadMetadata_LittleEndianPayload(t *testing.T
 
 	mustWriteInt(t, out, -1) // end-of-fields sentinel
 
-	if err := codecs.WriteFooter(out); err != nil {
+	if err := store.WriteFooter(out); err != nil {
 		t.Fatalf("WriteFooter: %v", err)
 	}
 	if err := out.Close(); err != nil {

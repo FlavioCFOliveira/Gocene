@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -22,7 +23,7 @@ import (
 func TestPayloadTermQuery(t *testing.T) {
 	// SpanPayloadCheckQuery — the closest Gocene equivalent to
 	// Lucene's PayloadTermQuery.
-	spanTerm := search.NewSpanTermQuery(index.NewTerm("field", "term"))
+	spanTerm := spans.NewSpanTermQuery(index.NewTerm("field", "term"))
 	q := NewSpanPayloadCheckQuery(spanTerm, nil)
 	if q.String("field") == "" {
 		t.Error("SpanPayloadCheckQuery.String() returned empty")

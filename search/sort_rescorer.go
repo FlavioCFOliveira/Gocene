@@ -4,7 +4,11 @@
 
 package search
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
 
 // SortRescorer rescores top hits by re-sorting them using a Sort instance.
 // It is the Lucene-canonical implementation used when the second-pass ranking
@@ -46,7 +50,7 @@ func (r *SortRescorer) Rescore(searcher *IndexSearcher, topDocs *TopDocs) (*TopD
 		}
 		return false
 	})
-	return &TopDocs{TotalHits: topDocs.TotalHits, ScoreDocs: docs, MaxScore: topDocs.MaxScore}, nil
+	return &TopDocs{TotalHits: topDocs.TotalHits, ScoreDocs: docs}, nil
 }
 
 // Explain returns an explanation for the rescored doc id. Without per-doc
@@ -60,7 +64,7 @@ func (r *SortRescorer) Explain(searcher *IndexSearcher, firstPass Explanation, d
 
 func compareForSortField(a, b *ScoreDoc, f *SortField) int {
 	switch f.Type {
-	case SortFieldTypeScore:
+	case spi.SortFieldTypeScore:
 		if a.Score == b.Score {
 			return 0
 		}
@@ -68,7 +72,7 @@ func compareForSortField(a, b *ScoreDoc, f *SortField) int {
 			return -1
 		}
 		return 1
-	case SortFieldTypeDoc:
+	case spi.SortFieldTypeDoc:
 		if a.Doc == b.Doc {
 			return 0
 		}

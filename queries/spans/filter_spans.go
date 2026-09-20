@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // AcceptStatus is the status returned from a FilterSpans filter that indicates
@@ -63,14 +64,14 @@ func (fs *FilterSpans) NextDoc() (int, error) {
 	for {
 		doc, err := fs.in.NextDoc()
 		if err != nil {
-			return search.NoMoreDocs, err
+			return search.NO_MORE_DOCS, err
 		}
-		if doc == search.NoMoreDocs {
-			return search.NoMoreDocs, nil
+		if doc == search.NO_MORE_DOCS {
+			return search.NO_MORE_DOCS, nil
 		}
 		matches, err := fs.twoPhaseCurrentDocMatches()
 		if err != nil {
-			return search.NoMoreDocs, err
+			return search.NO_MORE_DOCS, err
 		}
 		if matches {
 			return doc, nil
@@ -82,22 +83,22 @@ func (fs *FilterSpans) NextDoc() (int, error) {
 func (fs *FilterSpans) Advance(target int) (int, error) {
 	doc, err := fs.in.Advance(target)
 	if err != nil {
-		return search.NoMoreDocs, err
+		return search.NO_MORE_DOCS, err
 	}
-	for doc != search.NoMoreDocs {
+	for doc != search.NO_MORE_DOCS {
 		matches, err := fs.twoPhaseCurrentDocMatches()
 		if err != nil {
-			return search.NoMoreDocs, err
+			return search.NO_MORE_DOCS, err
 		}
 		if matches {
 			return doc, nil
 		}
 		doc, err = fs.in.NextDoc()
 		if err != nil {
-			return search.NoMoreDocs, err
+			return search.NO_MORE_DOCS, err
 		}
 	}
-	return search.NoMoreDocs, nil
+	return search.NO_MORE_DOCS, nil
 }
 
 // DocID returns the current document ID.
@@ -178,22 +179,31 @@ func (fs *FilterSpans) AsTwoPhaseIterator() *search.TwoPhaseIterator {
 	inner := fs.in.AsTwoPhaseIterator()
 	if inner != nil {
 		// wrapped instance has an approximation
-		return search.NewTwoPhaseIterator(inner.Approximation(), func() (bool, error) {
-			matches, err := inner.Matches()
-			if err != nil {
-				return false, err
-			}
-			if !matches {
-				return false, nil
-			}
-			return fs.twoPhaseCurrentDocMatches()
-		})
+		return search.NewTwoPhaseIteratorWithMatchCost(
+			inner.Approximation(),
+			func() (bool, error) {
+				matches, err := inner.Matches()
+				if err != nil {
+					return false, err
+				}
+				if !matches {
+					return false, nil
+				}
+				return fs.twoPhaseCurrentDocMatches()
+			},
+			inner.MatchCost(), // underestimate
+		)
 	}
 
-	// wrapped instance has no approximation, but we can still defer matching
-	return search.NewTwoPhaseIterator(fs.in, func() (bool, error) {
-		return fs.twoPhaseCurrentDocMatches()
-	})
+	// wrapped instance has no approximation, but
+	// we can still defer matching until absolutely needed.
+	return search.NewTwoPhaseIteratorWithMatchCost(
+		fs.in,
+		func() (bool, error) {
+			return fs.twoPhaseCurrentDocMatches()
+		},
+		fs.in.PositionsCost(), // overestimate
+	)
 }
 
 // PositionsCost returns an estimation of the cost of using positions of this
@@ -242,7 +252,20 @@ noMore:
 }
 
 func (fs *FilterSpans) String() string {
-	return fmt.Sprintf("Filter(%s)", fs.in.String())
+	return fmt.Sprintf("Filter(%v)", fs.in)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which FilterSpans inherits without overriding.
+func (fs *FilterSpans) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(fs)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which FilterSpans inherits without overriding.
+func (fs *FilterSpans) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(fs, upTo, bitSet, offset)
 }
 
 // Ensure FilterSpans implements Spans

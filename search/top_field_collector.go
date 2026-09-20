@@ -22,9 +22,11 @@ package search
 // Lucene produces the identical ordering, so the omission is not observable.
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // fieldEntry is one slot in the field-value priority queue. slot indexes the
@@ -43,11 +45,11 @@ type fieldEntry struct {
 // Mirrors org.apache.lucene.search.FieldValueHitQueue.
 type fieldValueHitQueue struct {
 	heap        []*fieldEntry
-	comparators []sortFieldComparator
+	comparators []FieldComparator
 	reverseMul  []int
 }
 
-func newFieldValueHitQueue(comparators []sortFieldComparator, reverseMul []int, capacity int) *fieldValueHitQueue {
+func newFieldValueHitQueue(comparators []FieldComparator, reverseMul []int, capacity int) *fieldValueHitQueue {
 	return &fieldValueHitQueue{
 		heap:        make([]*fieldEntry, 0, capacity),
 		comparators: comparators,
@@ -57,6 +59,22 @@ func newFieldValueHitQueue(comparators []sortFieldComparator, reverseMul []int, 
 
 func (q *fieldValueHitQueue) size() int { return len(q.heap) }
 
+// getComparators returns the per-leaf view of every comparator for the given
+// segment.
+//
+// Mirrors FieldValueHitQueue.getComparators(LeafReaderContext).
+func (q *fieldValueHitQueue) getComparators(context *index.LeafReaderContext) ([]LeafFieldComparator, error) {
+	comparators := make([]LeafFieldComparator, len(q.comparators))
+	for i := range q.comparators {
+		leaf, err := q.comparators[i].GetLeafComparator(context)
+		if err != nil {
+			return nil, err
+		}
+		comparators[i] = leaf
+	}
+	return comparators, nil
+}
+
 // lessThan reports whether a should sort after b — i.e. a is weaker than b and
 // belongs closer to the top of the min-heap. The first non-zero comparator
 // result wins; ties break on higher doc id (so equal-value hits keep ascending
@@ -65,7 +83,7 @@ func (q *fieldValueHitQueue) size() int { return len(q.heap) }
 // Mirrors FieldValueHitQueue.lessThan (single- and multi-comparator variants).
 func (q *fieldValueHitQueue) lessThan(a, b *fieldEntry) bool {
 	for i, cmp := range q.comparators {
-		c := q.reverseMul[i] * cmp.compare(a.slot, b.slot)
+		c := q.reverseMul[i] * cmp.Compare(a.slot, b.slot)
 		if c != 0 {
 			return c > 0
 		}
@@ -130,12 +148,16 @@ func (q *fieldValueHitQueue) updateTop() *fieldEntry {
 // TopFieldCollector collects the top-N documents sorted by the sort fields'
 // DocValues. It is the Go port of org.apache.lucene.search.TopFieldCollector.
 type TopFieldCollector struct {
-	*SimpleCollector
+	BaseSimpleCollector
+
+	// scoreMode mirrors the TopFieldCollector.scoreMode field, returned
+	// verbatim by ScoreMode.
+	scoreMode ScoreMode
 
 	numHits int
 	sort    *Sort
 
-	comparators []sortFieldComparator
+	comparators []FieldComparator
 	reverseMul  []int
 	queue       *fieldValueHitQueue
 
@@ -162,26 +184,25 @@ func NewTopFieldCollector(numHits int, sort *Sort) *TopFieldCollector {
 		scoreMode = COMPLETE
 	}
 
-	comparators := make([]sortFieldComparator, 0, len(sort.Fields))
+	// Mirrors FieldValueHitQueue.create(SortField[], int, Pruning), which calls
+	// SortField.getComparator(numHits, pruning) for every sort key. No
+	// comparator in this package implements competitive-document skipping, so
+	// the collector asks for Pruning.NONE, which is the setting under which
+	// Lucene's comparators produce the same ordering by the same code path.
+	comparators := make([]FieldComparator, 0, len(sort.Fields))
 	reverseMuls := make([]int, 0, len(sort.Fields))
 	for _, sf := range sort.Fields {
-		cmp, err := newSortFieldComparator(sf, numHits)
-		if err != nil {
-			// SCORE/DOC sort fields have no DocValues comparator; substitute a
-			// score/doc comparator so the collector still orders correctly.
-			cmp = newBuiltinComparator(numHits, sf)
-		}
-		comparators = append(comparators, cmp)
+		comparators = append(comparators, SortFieldGetComparator(sf, numHits, PruningNone))
 		reverseMuls = append(reverseMuls, reverseMul(sf))
 	}
 
 	return &TopFieldCollector{
-		SimpleCollector: NewSimpleCollector(scoreMode),
-		numHits:         numHits,
-		sort:            sort,
-		comparators:     comparators,
-		reverseMul:      reverseMuls,
-		queue:           newFieldValueHitQueue(comparators, reverseMuls, numHits),
+		scoreMode:   scoreMode,
+		numHits:     numHits,
+		sort:        sort,
+		comparators: comparators,
+		reverseMul:  reverseMuls,
+		queue:       newFieldValueHitQueue(comparators, reverseMuls, numHits),
 	}
 }
 
@@ -201,37 +222,57 @@ func NewTopFieldCollectorAfter(numHits int, sort *Sort, after *FieldDoc) *TopFie
 	return c
 }
 
+// ScoreMode mirrors TopFieldCollector.scoreMode(), which returns the
+// scoreMode field computed at construction time.
+func (c *TopFieldCollector) ScoreMode() ScoreMode { return c.scoreMode }
+
 // GetLeafCollector binds every comparator to the new leaf and returns a
 // LeafCollector. The context's reader carries the segment's DocValues, which
 // the comparators resolve in setReader, and its docBase rebases collected doc
 // ids (and DOC-comparator values) to the global id space.
 func (c *TopFieldCollector) GetLeafCollector(context *index.LeafReaderContext) (LeafCollector, error) {
 	docBase := 0
-	var reader IndexReader
 	if context != nil {
-		docBase = context.DocBase()
-		// context.Reader() is an index.IndexReaderInterface, which exposes the
-		// DocCount/NumDocs/MaxDoc subset that the minimal search.IndexReader
-		// requires, so it satisfies the comparator setReader contract.
-		reader = context.Reader()
+		docBase = context.DocBase
 	}
-	for _, cmp := range c.comparators {
-		if err := cmp.setReader(reader); err != nil {
-			return nil, err
-		}
-	}
-	return NewTopFieldLeafCollector(c, docBase), nil
+	return NewTopFieldLeafCollector(c, context, docBase)
 }
 
 // TopDocs returns the collected hits as a TopFieldDocs, ordered best-first, with
 // each ScoreDoc upgraded to a FieldDoc carrying its per-field sort values.
 func (c *TopFieldCollector) TopDocs() *TopDocs {
-	return c.topFieldDocs().TopDocs
+	return c.TopFieldDocs().TopDocs
 }
 
-// topFieldDocs is the typed accessor used by the manager's Reduce so the per-hit
+// TopDocsRange returns the hits in the range [start, start+howMany) of the
+// collected results, best-first.
+//
+// Mirrors TopDocsCollector.topDocs(int start, int howMany); Go cannot overload,
+// so the two-argument form carries the longer name. An out-of-range start or a
+// non-positive howMany yields an empty result with the collected total, exactly
+// as Java's guard does.
+func (c *TopFieldCollector) TopDocsRange(start, howMany int) *TopDocs {
+	all := c.TopFieldDocs()
+	size := len(all.ScoreDocs)
+	if start < 0 || start >= size || howMany <= 0 {
+		return NewTopDocs(all.TotalHits, []*ScoreDoc{})
+	}
+	if howMany > size-start {
+		howMany = size - start
+	}
+	results := make([]*ScoreDoc, howMany)
+	copy(results, all.ScoreDocs[start:start+howMany])
+	return NewTopDocs(all.TotalHits, results)
+}
+
+// TopFieldDocs returns the collected hits as a TopFieldDocs, so the per-hit
 // FieldDoc sort values survive the merge.
-func (c *TopFieldCollector) topFieldDocs() *TopFieldDocs {
+//
+// Mirrors TopFieldCollector.topDocs(), whose declared return type is the
+// covariant TopFieldDocs; Gocene's TopDocs() returns the erased *TopDocs that
+// TopDocsCollector.topDocs() declares, so the covariant override needs its own
+// Go name.
+func (c *TopFieldCollector) TopFieldDocs() *TopFieldDocs {
 	n := c.queue.size()
 	entries := make([]*fieldEntry, n)
 	copy(entries, c.queue.heap)
@@ -247,7 +288,7 @@ func (c *TopFieldCollector) topFieldDocs() *TopFieldDocs {
 	for i, e := range entries {
 		fields := make([]any, len(c.comparators))
 		for k, cmp := range c.comparators {
-			fields[k] = cmp.value(e.slot)
+			fields[k] = cmp.Value(e.slot)
 		}
 		fieldDocs[i] = NewFieldDocWithFields(e.doc, float32(0), fields)
 	}
@@ -307,7 +348,7 @@ func canEarlyTerminateOnPrefix(searchSort, indexSort *Sort) bool {
 // DOC sort over the (empty) field name with no missing-value override.
 func sortFieldEqualsFieldDoc(sf *SortField) bool {
 	return sf != nil &&
-		sf.Type == SortFieldTypeDoc &&
+		sf.Type == spi.SortFieldTypeDoc &&
 		sf.Field == "" &&
 		!sf.Reverse &&
 		sf.MissingValue == nil
@@ -333,7 +374,7 @@ func sortFieldEquals(a, b *SortField) bool {
 func (c *TopFieldCollector) GetTotalHits() int { return c.totalHits }
 
 // GetMaxScore returns the maximum score seen (0 unless the sort needs scores).
-func (c *TopFieldCollector) GetMaxScore() float32 { return c.maxScore }
+func (c *TopFieldCollector) GetMaxScore(_ int) (float32, error) { return c.maxScore, nil }
 
 // TopFieldLeafCollector drives one segment. It composes the per-leaf comparators
 // into a single multiLeafFieldComparator (so a multi-key sort short-circuits on
@@ -342,17 +383,23 @@ type TopFieldLeafCollector struct {
 	*BaseLeafCollector
 	collector  *TopFieldCollector
 	comparator LeafFieldComparator
-	scorer     Scorer
+	scorer     Scorable
 	docBase    int
 }
 
-// NewTopFieldLeafCollector creates a leaf collector. The composite leaf
-// comparator is built from the collector's comparators with their reverse
+// NewTopFieldLeafCollector creates a leaf collector for context. The per-leaf
+// comparators are obtained from the queue (FieldComparator.GetLeafComparator
+// for every sort key) and composed into a single comparator with their reverse
 // multipliers.
-func NewTopFieldLeafCollector(collector *TopFieldCollector, docBase int) *TopFieldLeafCollector {
-	leafComparators := make([]LeafFieldComparator, len(collector.comparators))
-	for i, cmp := range collector.comparators {
-		leafComparators[i] = cmp
+//
+// Mirrors TopFieldCollector.TopFieldLeafCollector(FieldValueHitQueue, Sort,
+// LeafReaderContext), whose body starts with queue.getComparators(context) and
+// which declares `throws IOException`. docBase is passed separately because
+// Gocene's collector tolerates a nil context, which Lucene's does not.
+func NewTopFieldLeafCollector(collector *TopFieldCollector, context *index.LeafReaderContext, docBase int) (*TopFieldLeafCollector, error) {
+	leafComparators, err := collector.queue.getComparators(context)
+	if err != nil {
+		return nil, err
 	}
 	var comparator LeafFieldComparator
 	if len(leafComparators) == 1 {
@@ -365,6 +412,7 @@ func NewTopFieldLeafCollector(collector *TopFieldCollector, docBase int) *TopFie
 		collector:         collector,
 		comparator:        comparator,
 	}
+
 	// Propagate the segment docBase to the DOC comparator(s) so their cached
 	// sort values are global (docBase-rebased) doc ids, matching the global doc
 	// ids the queue stores. Without this the DOC comparator compares and reports
@@ -372,17 +420,14 @@ func NewTopFieldLeafCollector(collector *TopFieldCollector, docBase int) *TopFie
 	// FieldDoc.Fields disagree with ScoreDoc.Doc. SetDocBase is the single place
 	// that does this propagation.
 	lc.SetDocBase(docBase)
-	return lc
+	return lc, nil
 }
 
 // SetScorer records the scorer and forwards it to the comparators (only a
 // score-typed comparator consumes it).
-func (c *TopFieldLeafCollector) SetScorer(scorer Scorer) error {
+func (c *TopFieldLeafCollector) SetScorer(scorer Scorable) error {
 	c.scorer = scorer
-	if sc, ok := scorerAsScorable(scorer); ok {
-		return c.comparator.SetScorer(sc)
-	}
-	return nil
+	return c.comparator.SetScorer(scorer)
 }
 
 // SetDocBase sets the document base offset for the segment and propagates it to
@@ -403,7 +448,11 @@ func (c *TopFieldLeafCollector) Collect(doc int) error {
 	col := c.collector
 	col.totalHits++
 	if c.scorer != nil {
-		if s := c.scorer.Score(); s > col.maxScore {
+		s, err := c.scorer.Score()
+		if err != nil {
+			return err
+		}
+		if s > col.maxScore {
 			col.maxScore = s
 		}
 	}
@@ -463,7 +512,7 @@ type scorerScorableAdapter struct {
 	s Scorer
 }
 
-func (a *scorerScorableAdapter) Score() (float32, error) { return a.s.Score(), nil }
+func (a *scorerScorableAdapter) Score() (float32, error) { return a.s.Score() }
 
 // Ensure TopFieldCollector implements Collector and the leaf type satisfies
 // LeafCollector.
@@ -475,3 +524,82 @@ var (
 // reader-type assertion helper: the search loop hands GetLeafCollector the
 // concrete leaf reader; the comparators type-assert it to the DocValues views.
 var _ = index.NumericDocValues(nil)
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (t *TopFieldLeafCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(t, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (t *TopFieldLeafCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(t, stream)
+}
+
+// PopulateScores populates the scores of the given topDocs.
+//
+// topDocs is the top docs to populate, searcher the index searcher that has
+// been used to compute topDocs, and query the query that has been used to
+// compute them. An error is returned if there is evidence that topDocs have
+// been computed against a different searcher or a different query.
+//
+// Mirrors the static TopFieldCollector.populateScores(ScoreDoc[], IndexSearcher, Query)
+// of Apache Lucene 10.5.0.
+func PopulateScores(topDocs []*ScoreDoc, searcher *IndexSearcher, query Query) error {
+	// Get the score docs sorted in doc id order
+	sorted := make([]*ScoreDoc, len(topDocs))
+	copy(sorted, topDocs)
+	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].Doc < sorted[j].Doc })
+
+	rewritten, err := searcher.Rewrite(query)
+	if err != nil {
+		return err
+	}
+	weight, err := searcher.CreateWeight(rewritten, COMPLETE, 1)
+	if err != nil {
+		return err
+	}
+	contexts, err := searcher.GetIndexReader().Leaves()
+	if err != nil {
+		return err
+	}
+
+	var currentContext *index.LeafReaderContext
+	var currentScorer Scorer
+	for _, scoreDoc := range sorted {
+		if currentContext == nil ||
+			scoreDoc.Doc >= currentContext.DocBase+currentContext.LeafReader().MaxDoc() {
+			if scoreDoc.Doc < 0 || scoreDoc.Doc >= searcher.GetIndexReader().MaxDoc() {
+				return fmt.Errorf("doc id %d is out of bounds", scoreDoc.Doc)
+			}
+			newContextIndex := index.ReaderUtilSubIndexLeaves(scoreDoc.Doc, contexts)
+			currentContext = contexts[newContextIndex]
+			scorerSupplier, err := weight.ScorerSupplier(currentContext)
+			if err != nil {
+				return err
+			}
+			if scorerSupplier == nil {
+				return fmt.Errorf("doc id %d doesn't match the query", scoreDoc.Doc)
+			}
+			currentScorer, err = scorerSupplier.Get(1) // random-access
+			if err != nil {
+				return err
+			}
+		}
+		leafDoc := scoreDoc.Doc - currentContext.DocBase
+		advanced, err := currentScorer.Iterator().Advance(leafDoc)
+		if err != nil {
+			return err
+		}
+		if leafDoc != advanced {
+			return fmt.Errorf("doc id %d doesn't match the query", scoreDoc.Doc)
+		}
+		score, err := currentScorer.Score()
+		if err != nil {
+			return err
+		}
+		scoreDoc.Score = score
+	}
+	return nil
+}

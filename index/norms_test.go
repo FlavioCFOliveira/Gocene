@@ -488,51 +488,62 @@ type testStoredFieldVisitor struct {
 }
 
 // BinaryField implements StoredFieldVisitor for binary fields.
-func (v *testStoredFieldVisitor) BinaryField(field string, value []byte) {
+// NeedsField accepts every stored field.
+func (v *testStoredFieldVisitor) NeedsField(*index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	return index.StoredFieldVisitorStatusYes, nil
+}
+
+func (v *testStoredFieldVisitor) BinaryField(fieldInfo *index.FieldInfo, value []byte) error {
 	if v.fields == nil {
 		v.fields = make(map[string]string)
 	}
-	v.fields[field] = string(value)
+	v.fields[fieldInfo.Name()] = string(value)
+	return nil
 }
 
 // StringField implements StoredFieldVisitor for string fields.
-func (v *testStoredFieldVisitor) StringField(field string, value string) {
+func (v *testStoredFieldVisitor) StringField(fieldInfo *index.FieldInfo, value string) error {
 	if v.fields == nil {
 		v.fields = make(map[string]string)
 	}
-	v.fields[field] = value
+	v.fields[fieldInfo.Name()] = value
+	return nil
 }
 
 // IntField implements StoredFieldVisitor for int fields.
-func (v *testStoredFieldVisitor) IntField(field string, value int) {
+func (v *testStoredFieldVisitor) IntField(fieldInfo *index.FieldInfo, value int) error {
 	if v.fields == nil {
 		v.fields = make(map[string]string)
 	}
-	v.fields[field] = fmt.Sprintf("%d", value)
+	v.fields[fieldInfo.Name()] = fmt.Sprintf("%d", value)
+	return nil
 }
 
 // LongField implements StoredFieldVisitor for long fields.
-func (v *testStoredFieldVisitor) LongField(field string, value int64) {
+func (v *testStoredFieldVisitor) LongField(fieldInfo *index.FieldInfo, value int64) error {
 	if v.fields == nil {
 		v.fields = make(map[string]string)
 	}
-	v.fields[field] = fmt.Sprintf("%d", value)
+	v.fields[fieldInfo.Name()] = fmt.Sprintf("%d", value)
+	return nil
 }
 
 // FloatField implements StoredFieldVisitor for float fields.
-func (v *testStoredFieldVisitor) FloatField(field string, value float32) {
+func (v *testStoredFieldVisitor) FloatField(fieldInfo *index.FieldInfo, value float32) error {
 	if v.fields == nil {
 		v.fields = make(map[string]string)
 	}
-	v.fields[field] = fmt.Sprintf("%f", value)
+	v.fields[fieldInfo.Name()] = fmt.Sprintf("%f", value)
+	return nil
 }
 
 // DoubleField implements StoredFieldVisitor for double fields.
-func (v *testStoredFieldVisitor) DoubleField(field string, value float64) {
+func (v *testStoredFieldVisitor) DoubleField(fieldInfo *index.FieldInfo, value float64) error {
 	if v.fields == nil {
 		v.fields = make(map[string]string)
 	}
-	v.fields[field] = fmt.Sprintf("%f", value)
+	v.fields[fieldInfo.Name()] = fmt.Sprintf("%f", value)
+	return nil
 }
 
 // GetFieldValue returns the value of a visited field.

@@ -49,7 +49,7 @@ func NewConstantScoreScorerSupplier(
 		// empty(), which is what every concrete subclass does when
 		// the cell has no matches.
 		iteratorFactory = func(_ int64) (DocIdSetIterator, error) {
-			return NewEmptyDocIdSetIterator(), nil
+			return Empty(), nil
 		}
 	}
 	if cost < 0 {
@@ -77,7 +77,7 @@ func NewConstantScoreScorerSupplierFromIterator(
 	iter DocIdSetIterator,
 ) *ConstantScoreScorerSupplier {
 	if iter == nil {
-		iter = NewEmptyDocIdSetIterator()
+		iter = Empty()
 	}
 	return NewConstantScoreScorerSupplier(
 		score,
@@ -97,7 +97,7 @@ func (s *ConstantScoreScorerSupplier) Get(leadCost int64) (Scorer, error) {
 		return nil, err
 	}
 	if iter == nil {
-		iter = NewEmptyDocIdSetIterator()
+		iter = Empty()
 	}
 	return NewConstantScoreScorer(s.score, s.scoreMode, iter), nil
 }
@@ -113,8 +113,9 @@ func (s *ConstantScoreScorerSupplier) Cost() int64 { return s.cost }
 // surfaced as IsTopLevelScoringClause for tests and for the
 // upcoming MaxScoreSumPropagator wiring; it has no behavioural
 // effect today.
-func (s *ConstantScoreScorerSupplier) SetTopLevelScoringClause() {
+func (s *ConstantScoreScorerSupplier) SetTopLevelScoringClause() error {
 	s.topLevelScoring = true
+	return nil
 }
 
 // IsTopLevelScoringClause reports whether SetTopLevelScoringClause
@@ -133,3 +134,9 @@ func (s *ConstantScoreScorerSupplier) GetScoreMode() ScoreMode { return s.scoreM
 
 // Ensure ConstantScoreScorerSupplier implements ScorerSupplier.
 var _ ScorerSupplier = (*ConstantScoreScorerSupplier)(nil)
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (c *ConstantScoreScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(c)
+}

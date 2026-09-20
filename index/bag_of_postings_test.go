@@ -136,7 +136,7 @@ func TestBagOfPostings(t *testing.T) {
 		t.Fatalf("terms.Size() = %d, want %d", got, numTerms-1)
 	}
 
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
 		t.Fatalf("Failed to get terms iterator: %v", err)
 	}

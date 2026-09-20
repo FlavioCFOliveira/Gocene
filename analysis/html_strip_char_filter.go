@@ -17,7 +17,7 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.charfilter.HTMLStripCharFilter.
 type HTMLStripCharFilter struct {
-	*CharFilter
+	CharFilter
 	buffer      []byte
 	position    int
 	htmlRegex   *regexp.Regexp
@@ -149,7 +149,7 @@ type HTMLStripCharFilterFactory struct {
 // NewHTMLStripCharFilterFactory creates a new HTMLStripCharFilterFactory.
 func NewHTMLStripCharFilterFactory() *HTMLStripCharFilterFactory {
 	return &HTMLStripCharFilterFactory{
-		BaseCharFilterFactory: NewBaseCharFilterFactory("htmlStrip"),
+		BaseCharFilterFactory: NewBaseCharFilterFactory(map[string]string{}),
 	}
 }
 

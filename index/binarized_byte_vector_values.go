@@ -1,8 +1,6 @@
 package index
 
 import (
-	"io"
-
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )

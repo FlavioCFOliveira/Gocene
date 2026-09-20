@@ -263,7 +263,7 @@ func readFields(
 		if err2 != nil {
 			return nil, fmt.Errorf("blocktree reader: read field number: %w", err2)
 		}
-		numTerms, err2 := store.ReadVLong(termsMetaIn)
+		numTerms, err2 := termsMetaIn.ReadVLong()
 		if err2 != nil {
 			return nil, fmt.Errorf("blocktree reader: read numTerms: %w", err2)
 		}
@@ -278,7 +278,7 @@ func readFields(
 		if fieldInfo == nil {
 			return nil, fmt.Errorf("blocktree reader: invalid field number: %d", field)
 		}
-		sumTotalTermFreq, err2 := store.ReadVLong(termsMetaIn)
+		sumTotalTermFreq, err2 := termsMetaIn.ReadVLong()
 		if err2 != nil {
 			return nil, fmt.Errorf("blocktree reader: read sumTotalTermFreq: %w", err2)
 		}
@@ -286,7 +286,7 @@ func readFields(
 		if fieldInfo.IndexOptions() == index.IndexOptionsDocs {
 			sumDocFreq = sumTotalTermFreq
 		} else {
-			sumDocFreq, err2 = store.ReadVLong(termsMetaIn)
+			sumDocFreq, err2 = termsMetaIn.ReadVLong()
 			if err2 != nil {
 				return nil, fmt.Errorf("blocktree reader: read sumDocFreq: %w", err2)
 			}
@@ -333,7 +333,7 @@ func readFields(
 				sumTotalTermFreq, sumDocFreq,
 			)
 		}
-		indexStartFP, err2 := store.ReadVLong(indexMetaIn)
+		indexStartFP, err2 := indexMetaIn.ReadVLong()
 		if err2 != nil {
 			return nil, fmt.Errorf("blocktree reader: read indexStartFP: %w", err2)
 		}
@@ -365,7 +365,7 @@ func readBytesRef(in store.IndexInput) (*util.BytesRef, error) {
 		return nil, fmt.Errorf("blocktree reader: invalid bytes length: %d", n)
 	}
 	b := make([]byte, int(n))
-	if err = in.ReadBytes(b); err != nil {
+	if err = in.ReadBytes(b, 0, len(b)); err != nil {
 		return nil, err
 	}
 	return &util.BytesRef{Bytes: b, Offset: 0, Length: int(n)}, nil
@@ -373,7 +373,7 @@ func readBytesRef(in store.IndexInput) (*util.BytesRef, error) {
 
 // seekDir positions input at the directory-entries offset stored near end of file.
 func seekDir(in store.IndexInput) error {
-	footerLen := int64(codecs.FooterLength())
+	footerLen := int64(store.FooterLength())
 	if err := in.SetPosition(in.Length() - footerLen - 8); err != nil {
 		return fmt.Errorf("blocktree reader: seekDir seek1: %w", err)
 	}
@@ -423,8 +423,14 @@ func (r *Lucene40BlockTreeTermsReader) Close() error {
 }
 
 // Iterator returns a channel-based iterator over sorted field names.
-func (r *Lucene40BlockTreeTermsReader) Iterator() []string {
-	return r.fieldList
+func (r *Lucene40BlockTreeTermsReader) Iterator() (index.FieldIterator, error) {
+	return index.NewMemoryFieldIterator(r.fieldList), nil
+}
+
+// GetMergeInstance returns the receiver: Lucene40BlockTreeTermsReader does not
+// override FieldsProducer.getMergeInstance(), whose default returns this.
+func (r *Lucene40BlockTreeTermsReader) GetMergeInstance() codecs.FieldsProducer {
+	return r
 }
 
 // Size returns the number of indexed fields.
@@ -452,14 +458,14 @@ func (r *Lucene40BlockTreeTermsReader) String() string {
 
 // checksumLike is the minimal surface of EndiannessReverserChecksumIndexInput
 // needed for footer validation.  We cannot pass the concrete type to
-// codecs.CheckFooter because that function requires *store.ChecksumIndexInput.
+// store.CheckFooter because that function requires *store.ChecksumIndexInput.
 type checksumLike interface {
 	store.IndexInput
 	GetChecksum() uint32
 }
 
 // checkFooter validates the codec footer and checksum for a checksumLike
-// input.  Mirrors the logic of codecs.CheckFooter.
+// input.  Mirrors the logic of store.CheckFooter.
 func checkFooter(in checksumLike) error {
 	remaining := in.Length() - in.GetFilePointer()
 	const footerLen = 16 // 4 magic + 4 algID + 8 checksum
@@ -469,7 +475,7 @@ func checkFooter(in checksumLike) error {
 	if remaining > footerLen {
 		return fmt.Errorf("blocktree: misplaced codec footer (extended?): remaining=%d", remaining)
 	}
-	magic, err := store.ReadInt32(in)
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -477,7 +483,7 @@ func checkFooter(in checksumLike) error {
 	if magic != footerMagic {
 		return fmt.Errorf("blocktree: codec footer mismatch: actual=%#x expected=%#x", magic, footerMagic)
 	}
-	alg, err := store.ReadInt32(in)
+	alg, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -485,7 +491,7 @@ func checkFooter(in checksumLike) error {
 		return fmt.Errorf("blocktree: codec footer unknown algorithmID: %d", alg)
 	}
 	actualChecksum := int64(in.GetChecksum())
-	expectedChecksum, err := store.ReadInt64(in)
+	expectedChecksum, err := store.ReadBELong(in)
 	if err != nil {
 		return err
 	}

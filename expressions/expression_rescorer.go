@@ -2,58 +2,61 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+// Port of org.apache.lucene.expressions.ExpressionRescorer.
 package expressions
 
 import (
-	"fmt"
-
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// ExpressionRescorer is a rescorer that uses an expression to compute scores.
+// ExpressionRescorer is a Rescorer that uses an Expression to re-score first
+// pass hits. It composes a search.SortRescorer and delegates Rescore to it.
 //
-// This is the Go port of Lucene's org.apache.lucene.expressions.ExpressionRescorer.
+// Mirrors org.apache.lucene.expressions.ExpressionRescorer which extends
+// SortRescorer and overrides explain(). The explain override requires full
+// index infrastructure (LeafReaderContext, per-doc DocValues) that is not yet
+// wired in Gocene; Explain therefore delegates to SortRescorer.Explain until
+// that infrastructure is available.
 type ExpressionRescorer struct {
-	search.SortRescorer
-	expression Expression
-	bindings   Bindings
+	sortRescorer *search.SortRescorer
+	expression   *Expression
+	bindings     DoubleValuesBindings
 }
 
-// NewExpressionRescorer constructs an ExpressionRescorer.
-// It mirrors the Java constructor: super(new Sort(expression.getSortField(bindings, true))).
-func NewExpressionRescorer(expression Expression, bindings Bindings) *ExpressionRescorer {
-	// In Gocene, we need to translate the expression's sort field to a search.SortField.
-	// Assuming expression.getSortField is implemented as GetSortField.
-	sortField := expression.GetSortField(bindings, true)
-	sort := search.NewSort([]*search.SortField{sortField})
-
+// NewExpressionRescorer creates an ExpressionRescorer that re-scores using the
+// given expression and bindings. The Sort used by the underlying SortRescorer
+// is built from expression's sort field with reverse=true (descending score),
+// matching Java's constructor: `new Sort(expression.getSortField(bindings, true))`.
+//
+// sortField must be a pre-built search.SortField that represents the expression
+// score (typically SCORE type). Callers construct it once and pass it here.
+func NewExpressionRescorer(sortField *search.SortField, expression *Expression, bindings DoubleValuesBindings) *ExpressionRescorer {
+	s := search.NewSort(sortField)
 	return &ExpressionRescorer{
-		SortRescorer: search.NewSortRescorer(sort),
+		sortRescorer: search.NewSortRescorer(s),
 		expression:   expression,
 		bindings:     bindings,
 	}
 }
 
-// Rescore re-scores the top documents. Since it embeds SortRescorer,
-// it uses SortRescorer.Rescore by default.
-func (er *ExpressionRescorer) Rescore(searcher *search.IndexSearcher, topDocs *search.TopDocs) (*search.TopDocs, error) {
-	return er.SortRescorer.Rescore(searcher, topDocs)
+// Rescore re-sorts topDocs using the expression-derived sort order by
+// delegating to the embedded SortRescorer.
+func (r *ExpressionRescorer) Rescore(searcher *search.IndexSearcher, topDocs *search.TopDocs) (*search.TopDocs, error) {
+	return r.sortRescorer.Rescore(searcher, topDocs)
 }
 
-// Explain provides a detailed explanation of the rescoring step, including
-// the value of each variable in the expression.
-func (er *ExpressionRescorer) Explain(searcher *search.IndexSearcher, firstPass search.Explanation, docID int) (search.Explanation, error) {
-	superExpl, err := er.SortRescorer.Explain(searcher, firstPass, docID)
-	if err != nil {
-		return nil, err
-	}
-
-	leaves := searcher.GetIndexReader().Leaves()
-	subReader := search.ReaderUtilSubIndex(docID, leaves)
-	readerContext := leaves[subReader]
-	docIDInSegment := docID - readerContext.DocBase
-
-	// Delegate to the double value source for detailed variable explanation.
-	return er.expression.GetDoubleValuesSource(er.bindings).Explain(readerContext, docIDInSegment, superExpl)
+// Explain returns an explanation for the rescored document. Delegates to
+// SortRescorer.Explain; the per-variable breakdown (available in the Java
+// original via ExpressionValueSource.explain) requires per-segment DocValues
+// access not yet wired in Gocene.
+func (r *ExpressionRescorer) Explain(searcher *search.IndexSearcher, firstPass search.Explanation, docID int) (search.Explanation, error) {
+	return r.sortRescorer.Explain(searcher, firstPass, docID)
 }
+
+// Expression returns the expression used for rescoring.
+func (r *ExpressionRescorer) Expression() *Expression { return r.expression }
+
+// Bindings returns the variable bindings used for rescoring.
+func (r *ExpressionRescorer) Bindings() DoubleValuesBindings { return r.bindings }
+
+var _ search.Rescorer = (*ExpressionRescorer)(nil)

@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // NIOFSBufferSize is the size of the buffered I/O buffer.
@@ -71,16 +73,19 @@ func (d *NIOFSDirectory) OpenInput(name string, ctx IOContext) (IndexInput, erro
 
 	d.AddOpenFile(name)
 
-	return &NIOFSIndexInput{
-		file:           file,
-		bufReader:      bufio.NewReaderSize(file, NIOFSBufferSize), // Configurable buffer size
-		path:           path,
-		name:           name,
-		directory:      d,
-		off:            0,
-		BaseIndexInput: NewBaseIndexInput(fmt.Sprintf("NIOFSIndexInput(path=\"%s\")", path), info.Size()),
-	}, nil
-}
+		in := &NIOFSIndexInput{
+			file:           file,
+			bufReader:      bufio.NewReaderSize(file, NIOFSBufferSize), // Configurable buffer size
+			path:           path,
+			name:           name,
+			directory:      d,
+			off:            0,
+			BaseIndexInput: NewBaseIndexInput(fmt.Sprintf("NIOFSIndexInput(path=\"%s\")", path), info.Size()),
+		}
+		in.BaseDataInput.Core = in
+		in.Core = in
+		return in, nil
+	}
 
 // CreateOutput returns an IndexOutput for writing a new file.
 // This implementation uses buffered I/O for efficient writing.
@@ -106,20 +111,23 @@ func (d *NIOFSDirectory) CreateOutput(name string, ctx IOContext) (IndexOutput, 
 
 	d.AddOpenFile(name)
 
-	return &NIOFSIndexOutput{
+	out := &NIOFSIndexOutput{
 		file:            file,
 		bufWriter:       bufio.NewWriterSize(file, NIOFSBufferSize), // Buffered output
 		path:            path,
 		name:            name,
 		directory:       d,
-		BaseIndexOutput: NewBaseIndexOutput(name),
-	}, nil
+		BaseIndexOutput: spi.NewBaseIndexOutput(name),
+	}
+	out.BaseDataOutput = *NewBaseDataOutput(out)
+	return out, nil
 }
 
 // NIOFSIndexInput is an IndexInput implementation for NIOFSDirectory.
 // It uses buffered reading for improved I/O performance.
 type NIOFSIndexInput struct {
 	*BaseIndexInput
+	spi.BaseDataInput
 	file      *os.File
 	bufReader *bufio.Reader
 	path      string
@@ -153,7 +161,7 @@ func (in *NIOFSIndexInput) ReadByte() (byte, error) {
 }
 
 // ReadBytes reads len(b) bytes into b from the buffered reader.
-func (in *NIOFSIndexInput) ReadBytes(b []byte) error {
+func (in *NIOFSIndexInput) ReadBytes(b []byte, offset, length int) error {
 	if err := in.ensureFileOpen(); err != nil {
 		return err
 	}
@@ -161,7 +169,10 @@ func (in *NIOFSIndexInput) ReadBytes(b []byte) error {
 		return ErrIllegalState
 	}
 
-	n, err := io.ReadFull(in.bufReader, b)
+	// Read from the buffered reader if we are at the current buffer position.
+	// Otherwise, read directly from the file.
+	// To simplify, we use io.ReadFull.
+	n, err := io.ReadFull(in.bufReader, b[offset:offset+length])
 	if err != nil {
 		return err
 	}
@@ -173,7 +184,7 @@ func (in *NIOFSIndexInput) ReadBytes(b []byte) error {
 // ReadBytesN reads exactly n bytes and returns them.
 func (in *NIOFSIndexInput) ReadBytesN(n int) ([]byte, error) {
 	b := make([]byte, n)
-	if err := in.ReadBytes(b); err != nil {
+	if err := in.ReadBytes(b, 0, n); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -182,7 +193,8 @@ func (in *NIOFSIndexInput) ReadBytesN(n int) ([]byte, error) {
 // ReadShort reads a 16-bit little-endian value to match Lucene 10.x
 // DataInput.readShort (low byte first). See rmp #4786.
 func (in *NIOFSIndexInput) ReadShort() (int16, error) {
-	b, err := in.ReadBytesN(2)
+	b := make([]byte, 2)
+	err := in.ReadBytes(b, 0, 2)
 	if err != nil {
 		return 0, err
 	}
@@ -192,7 +204,8 @@ func (in *NIOFSIndexInput) ReadShort() (int16, error) {
 // ReadInt reads a 32-bit little-endian value to match Lucene 10.x
 // DataInput.readInt (low byte first). See rmp #4786.
 func (in *NIOFSIndexInput) ReadInt() (int32, error) {
-	b, err := in.ReadBytesN(4)
+	b := make([]byte, 4)
+	err := in.ReadBytes(b, 0, 4)
 	if err != nil {
 		return 0, err
 	}
@@ -202,17 +215,13 @@ func (in *NIOFSIndexInput) ReadInt() (int32, error) {
 // ReadLong reads a 64-bit little-endian value to match Lucene 10.x
 // DataInput.readLong (low byte first). See rmp #4786.
 func (in *NIOFSIndexInput) ReadLong() (int64, error) {
-	b, err := in.ReadBytesN(8)
+	b := make([]byte, 8)
+	err := in.ReadBytes(b, 0, 8)
 	if err != nil {
 		return 0, err
 	}
 	return int64(uint64(b[0]) | uint64(b[1])<<8 | uint64(b[2])<<16 | uint64(b[3])<<24 |
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56), nil
-}
-
-// ReadString reads a string.
-func (in *NIOFSIndexInput) ReadString() (string, error) {
-	return ReadString(in)
 }
 
 // SetPosition changes the current position in the file.
@@ -241,7 +250,7 @@ func (in *NIOFSIndexInput) Clone() IndexInput {
 	file, err := os.Open(in.path)
 	if err != nil {
 		// Return a clone that will fail on read
-		return &NIOFSIndexInput{
+		broken := &NIOFSIndexInput{
 			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 			file:           nil,
 			bufReader:      nil,
@@ -250,13 +259,15 @@ func (in *NIOFSIndexInput) Clone() IndexInput {
 			directory:      in.directory,
 			off:            in.off,
 		}
+		broken.Core = broken
+		return broken
 	}
 
 	// Position the new file at the current absolute position.
 	currentPos := in.GetFilePointer()
 	if _, err := file.Seek(in.off+currentPos, io.SeekStart); err != nil {
 		file.Close()
-		return &NIOFSIndexInput{
+		broken := &NIOFSIndexInput{
 			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 			file:           nil,
 			bufReader:      nil,
@@ -265,6 +276,8 @@ func (in *NIOFSIndexInput) Clone() IndexInput {
 			directory:      in.directory,
 			off:            in.off,
 		}
+		broken.Core = broken
+		return broken
 	}
 
 	in.directory.AddOpenFile(in.name)
@@ -278,6 +291,9 @@ func (in *NIOFSIndexInput) Clone() IndexInput {
 		directory:      in.directory,
 		off:            in.off,
 	}
+	// Every DataInput-derived reader (readVInt, readString, ...) dispatches
+	// through Core; a clone whose Core is unset would nil-panic on the first one.
+	clone.Core = clone
 	// Set the file pointer to match the original (logical, within the slice).
 	clone.SetFilePointer(currentPos)
 	return clone
@@ -304,7 +320,7 @@ func (in *NIOFSIndexInput) Slice(desc string, offset int64, length int64) (Index
 
 	in.directory.AddOpenFile(in.name)
 
-	return &NIOFSIndexInput{
+	slice := &NIOFSIndexInput{
 		BaseIndexInput: NewBaseIndexInput(desc, length),
 		file:           file,
 		bufReader:      bufio.NewReaderSize(file, NIOFSBufferSize),
@@ -312,7 +328,9 @@ func (in *NIOFSIndexInput) Slice(desc string, offset int64, length int64) (Index
 		name:           in.name,
 		directory:      in.directory,
 		off:            sliceOff,
-	}, nil
+	}
+	slice.Core = slice
+	return slice, nil
 }
 
 // ensureFileOpen returns an error if the underlying file handle is nil,
@@ -324,6 +342,11 @@ func (in *NIOFSIndexInput) ensureFileOpen() error {
 		return fmt.Errorf("NIOFSIndexInput: file handle is nil (clone of %q failed to open): %w", in.name, ErrIllegalState)
 	}
 	return nil
+}
+
+// SkipBytes skips n bytes forward in the input.
+func (in *NIOFSIndexInput) SkipBytes(n int64) error {
+	return in.SetPosition(in.GetFilePointer() + n)
 }
 
 // Close closes this IndexInput and releases resources.
@@ -338,7 +361,8 @@ func (in *NIOFSIndexInput) Close() error {
 // NIOFSIndexOutput is an IndexOutput implementation for NIOFSDirectory.
 // It uses buffered writing for improved I/O performance.
 type NIOFSIndexOutput struct {
-	*BaseIndexOutput
+	*spi.BaseIndexOutput
+	BaseDataOutput
 	file      *os.File
 	bufWriter *bufio.Writer
 	path      string
@@ -361,16 +385,16 @@ func (out *NIOFSIndexOutput) WriteByte(b byte) error {
 }
 
 // WriteBytes writes all bytes from b to the buffered writer.
-func (out *NIOFSIndexOutput) WriteBytes(b []byte) error {
+func (out *NIOFSIndexOutput) WriteBytes(b []byte, offset, length int) error {
 	if !out.directory.IsOpen() {
 		return ErrIllegalState
 	}
 
-	if _, err := out.bufWriter.Write(b); err != nil {
+	if _, err := out.bufWriter.Write(b[offset : offset+length]); err != nil {
 		return err
 	}
 
-	out.IncrementFilePointer(int64(len(b)))
+	out.IncrementFilePointer(int64(length))
 	return nil
 }
 
@@ -379,21 +403,42 @@ func (out *NIOFSIndexOutput) WriteBytesN(b []byte, n int) error {
 	if n > len(b) {
 		return fmt.Errorf("n exceeds buffer length")
 	}
-	return out.WriteBytes(b[:n])
+	return out.WriteBytes(b, 0, n)
+}
+
+// CopyBytes copies numBytes from the input to this output.
+func (out *NIOFSIndexOutput) CopyBytes(input DataInput, numBytes int64) error {
+	// Use a buffer for copying
+	buf := make([]byte, 4096)
+	var total int64
+	for total < numBytes {
+		toRead := int64(len(buf))
+		if numBytes-total < toRead {
+			toRead = numBytes - total
+		}
+		if err := input.ReadBytes(buf, 0, int(toRead)); err != nil {
+			return err
+		}
+		if err := out.WriteBytes(buf, 0, int(toRead)); err != nil {
+			return err
+		}
+		total += toRead
+	}
+	return nil
 }
 
 // WriteShort writes a 16-bit value as little-endian to match Lucene 10.x
 // DataOutput.writeShort (low byte first). See rmp #4786.
 func (out *NIOFSIndexOutput) WriteShort(i int16) error {
 	b := []byte{byte(i), byte(i >> 8)}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // WriteInt writes a 32-bit value as little-endian to match Lucene 10.x
 // DataOutput.writeInt (low byte first). See rmp #4786.
 func (out *NIOFSIndexOutput) WriteInt(i int32) error {
 	b := []byte{byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24)}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // WriteLong writes a 64-bit value as little-endian to match Lucene 10.x
@@ -403,12 +448,7 @@ func (out *NIOFSIndexOutput) WriteLong(i int64) error {
 		byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24),
 		byte(i >> 32), byte(i >> 40), byte(i >> 48), byte(i >> 56),
 	}
-	return out.WriteBytes(b)
-}
-
-// WriteString writes a string.
-func (out *NIOFSIndexOutput) WriteString(s string) error {
-	return WriteString(out, s)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // Length returns the total length of the file written so far.

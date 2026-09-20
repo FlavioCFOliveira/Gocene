@@ -119,9 +119,15 @@ func (w *SimpleMergedSegmentWarmer) Warm(reader SegmentWarmerLeafReader) error {
 // Used by Warm to page-in stored fields without allocating result storage.
 type discardVisitor struct{}
 
-func (discardVisitor) StringField(_ string, _ string)  {}
-func (discardVisitor) BinaryField(_ string, _ []byte)  {}
-func (discardVisitor) IntField(_ string, _ int)        {}
-func (discardVisitor) LongField(_ string, _ int64)     {}
-func (discardVisitor) FloatField(_ string, _ float32)  {}
-func (discardVisitor) DoubleField(_ string, _ float64) {}
+// NeedsField accepts every stored field so that the whole document is paged
+// in, mirroring the load-all DocumentStoredFieldVisitor Lucene's warmer uses.
+func (discardVisitor) NeedsField(*FieldInfo) (StoredFieldVisitorStatus, error) {
+	return StoredFieldVisitorStatusYes, nil
+}
+
+func (discardVisitor) StringField(*FieldInfo, string) error  { return nil }
+func (discardVisitor) BinaryField(*FieldInfo, []byte) error  { return nil }
+func (discardVisitor) IntField(*FieldInfo, int) error        { return nil }
+func (discardVisitor) LongField(*FieldInfo, int64) error     { return nil }
+func (discardVisitor) FloatField(*FieldInfo, float32) error  { return nil }
+func (discardVisitor) DoubleField(*FieldInfo, float64) error { return nil }

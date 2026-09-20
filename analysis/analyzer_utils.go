@@ -9,11 +9,21 @@ package analysis
 import (
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
+	"reflect"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
+var canonicalAttributeInterfaces = map[string]reflect.Type{
+	"CharTermAttribute":             CharTermAttributeType,
+	"OffsetAttribute":               OffsetAttributeType,
+	"TermToBytesRefAttribute":        TermToBytesRefAttributeType,
+	"PositionIncrementAttribute":     tokenattributes.PositionIncrementAttributeType,
+	"TypeAttribute":                  TypeAttributeType,
+}
+
 // AnalyzerUtils provides utility methods for analysis operations.
+
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.AnalyzerUtil.
 //
@@ -168,7 +178,13 @@ func GetTokenOffsets(tokenStream TokenStream) ([][2]int, error) {
 	return offsets, nil
 }
 
+// inputSetter allows setting the input of a TokenFilter.
+type inputSetter interface {
+	SetInput(TokenStream)
+}
+
 // CreateTokenStream creates a TokenStream from text using the given components.
+
 func CreateTokenStream(tokenizer Tokenizer, filters []TokenFilter, text string) (TokenStream, error) {
 	tokenizer.SetReader(strings.NewReader(text))
 
@@ -176,7 +192,7 @@ func CreateTokenStream(tokenizer Tokenizer, filters []TokenFilter, text string) 
 	var stream TokenStream = tokenizer
 	for _, filter := range filters {
 		// Re-wrap the filter with the current stream
-		if baseFilter, ok := filter.(*BaseTokenFilter); ok {
+		if baseFilter, ok := filter.(inputSetter); ok {
 			baseFilter.SetInput(stream)
 		}
 		stream = filter
@@ -187,8 +203,8 @@ func CreateTokenStream(tokenizer Tokenizer, filters []TokenFilter, text string) 
 
 // SetInput sets the input for a TokenStream (helper for filter chaining).
 func SetInput(filter TokenFilter, input TokenStream) {
-	if baseFilter, ok := filter.(*BaseTokenFilter); ok {
-		baseFilter.input = input
+	if baseFilter, ok := filter.(inputSetter); ok {
+		baseFilter.SetInput(input)
 	}
 }
 
@@ -238,6 +254,6 @@ func (f *BaseTokenFilter) SetInput(input TokenStream) {
 	if hasAttrSrc, ok := input.(interface {
 		GetAttributeSource() *util.AttributeSource
 	}); ok {
-		f.attributes = hasAttrSrc.GetAttributeSource()
+		f.AttributeSource = hasAttrSrc.GetAttributeSource()
 	}
 }

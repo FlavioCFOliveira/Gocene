@@ -3,7 +3,10 @@
 // variables.
 package expressions
 
-import "github.com/FlavioCFOliveira/Gocene/search"
+import (
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
 
 // Expression represents a parsed JavaScript expression that can be evaluated
 // against a set of Bindings. Mirrors org.apache.lucene.expressions.Expression.
@@ -101,9 +104,9 @@ func (e *Expression) GetSortField(bindings DoubleValuesBindings, reverse bool) (
 		return nil, err
 	}
 	if reverse {
-		return search.NewSortFieldReverse(e.SourceText, search.SortFieldTypeScore), nil
+		return search.NewSortFieldWithReverse(e.SourceText, spi.SortFieldTypeScore, true), nil
 	}
-	return search.NewSortField(e.SourceText, search.SortFieldTypeScore), nil
+	return search.NewSortField(e.SourceText, spi.SortFieldTypeScore), nil
 }
 
 // GetRescorer returns a search.Rescorer that re-scores first-pass hits using

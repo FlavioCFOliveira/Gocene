@@ -20,39 +20,46 @@ type postingsAndPosition struct {
 // ExactPhraseMatcher finds exact phrases.
 // Mirrors org.apache.lucene.search.ExactPhraseMatcher.
 type ExactPhraseMatcher struct {
-	postings            []*postingsAndPosition
-	approximation       DocIdSetIterator
-	impactsApproximation ImpactsDISI
-	freqsLoaded         bool
-	matchCost           float32
+	postings             []*postingsAndPosition
+	approximation        DocIdSetIterator
+	impactsApproximation *ImpactsDISI
+	freqsLoaded          bool
+	matchCost            float32
 }
 
+// NewExactPhraseMatcher builds an ExactPhraseMatcher over the supplied
+// postings.
+//
+// Mirrors ExactPhraseMatcher(PhraseQuery.PostingsAndFreq[], ScoreMode,
+// SimScorer, float).
 func NewExactPhraseMatcher(
-	postings []struct {
-		postings index.PostingsEnum
-		offset   int
-	},
+	postings []*postingsAndFreq,
 	scoreMode ScoreMode,
 	scorer SimScorer,
 	matchCost float32,
 ) *ExactPhraseMatcher {
-	var iters []DocIdSetIterator
-	var impactsEnums []index.ImpactsEnum
-	for _, p := range postings {
-		iters = append(iters, p.postings)
-		if ie, ok := p.postings.(index.ImpactsEnum); ok {
-			impactsEnums = append(impactsEnums, ie)
+	iters := make([]DocIdSetIterator, len(postings))
+	impactsEnums := make([]index.ImpactsEnum, len(postings))
+	for i, p := range postings {
+		iters[i] = p.postings
+		if p.impacts != nil {
+			impactsEnums[i] = p.impacts
 		} else {
-			impactsEnums = append(impactsEnums, &dummyImpactsEnum{postings: p.postings})
+			// PhraseQuery always stores a SlowImpactsEnum in PostingsAndFreq when
+			// the score mode is not TOP_SCORES, so Java never sees a null here.
+			impactsEnums[i] = index.NewSlowImpactsEnum(p.postings)
 		}
 	}
-	approx := intersectIterators(iters)
+	approx := IntersectIterators(iters)
 
 	impactsSource := mergeImpacts(impactsEnums, scorer)
-	impactsApprox := NewImpactsDISI(approx, NewMaxScoreCache(impactsSource, scorer))
+	impactsApprox := NewImpactsDISI(approx, NewMaxScoreCache(newLazyIndexImpactsSource(impactsSource), newSimImpactScorer(scorer)))
 
 	var finalApprox DocIdSetIterator = approx
 	if scoreMode == ScoreModeTopScores {
+		// TODO: only do this when this is the top-level scoring clause
+		// (ScorerSupplier#setTopLevelScoringClause) to save the overhead of
+		// wrapping with ImpactsDISI when it would not help
 		finalApprox = impactsApprox
 	}
 
@@ -60,15 +67,15 @@ func NewExactPhraseMatcher(
 	for i, p := range postings {
 		pAndP[i] = &postingsAndPosition{
 			postings: p.postings,
-			offset:   p.offset,
+			offset:   p.position,
 		}
 	}
 
 	return &ExactPhraseMatcher{
-		postings:            pAndP,
-		approximation:       finalApprox,
+		postings:             pAndP,
+		approximation:        finalApprox,
 		impactsApproximation: impactsApprox,
-		matchCost:           matchCost,
+		matchCost:            matchCost,
 	}
 }
 
@@ -76,7 +83,7 @@ func (e *ExactPhraseMatcher) Approximation() DocIdSetIterator {
 	return e.approximation
 }
 
-func (e *ExactPhraseMatcher) ImpactsApproximation() ImpactsDISI {
+func (e *ExactPhraseMatcher) ImpactsApproximation() *ImpactsDISI {
 	return e.impactsApproximation
 }
 
@@ -84,10 +91,16 @@ func (e *ExactPhraseMatcher) MaxFreq() (float32, error) {
 	if len(e.postings) == 0 {
 		return 0, nil
 	}
-	minFreq := e.postings[0].postings.Freq()
+	minFreq, err := e.postings[0].postings.Freq()
+	if err != nil {
+		return 0, err
+	}
 	e.postings[0].freq = minFreq
 	for i := 1; i < len(e.postings); i++ {
-		f := e.postings[i].postings.Freq()
+		f, err := e.postings[i].postings.Freq()
+		if err != nil {
+			return 0, err
+		}
 		e.postings[i].freq = f
 		if f < minFreq {
 			minFreq = f
@@ -226,36 +239,29 @@ func (d *dummyImpactsEnum) AdvanceShallow(target int) error {
 }
 
 func (d *dummyImpactsEnum) GetImpacts() (index.Impacts, error) {
-	return &dummyImpacts{}, nil
+	return &slowImpactsEnumImpacts{}, nil
 }
 
-func (d *dummyImpactsEnum) NextDoc() (int, error) { return d.postings.NextDoc() }
+func (d *dummyImpactsEnum) NextDoc() (int, error)           { return d.postings.NextDoc() }
 func (d *dummyImpactsEnum) Advance(target int) (int, error) { return d.postings.Advance(target) }
-func (d *dummyImpactsEnum) DocID() int { return d.postings.DocID() }
-func (d *dummyImpactsEnum) Freq() (int, error) { return d.postings.Freq() }
-func (d *dummyImpactsEnum) NextPosition() (int, error) { return d.postings.NextPosition() }
-func (d *dummyImpactsEnum) StartOffset() (int, error) { return d.postings.StartOffset() }
-func (d *dummyImpactsEnum) EndOffset() (int, error) { return d.postings.EndOffset() }
-func (d *dummyImpactsEnum) GetPayload() ([]byte, error) { return d.postings.GetPayload() }
-func (d *dummyImpactsEnum) Cost() int64 { return d.postings.Cost() }
+func (d *dummyImpactsEnum) DocID() int                      { return d.postings.DocID() }
+func (d *dummyImpactsEnum) Freq() (int, error)              { return d.postings.Freq() }
+func (d *dummyImpactsEnum) NextPosition() (int, error)      { return d.postings.NextPosition() }
+func (d *dummyImpactsEnum) StartOffset() (int, error)       { return d.postings.StartOffset() }
+func (d *dummyImpactsEnum) EndOffset() (int, error)         { return d.postings.EndOffset() }
+func (d *dummyImpactsEnum) GetPayload() ([]byte, error)     { return d.postings.GetPayload() }
+func (d *dummyImpactsEnum) Cost() int64                     { return d.postings.Cost() }
 
-type dummyImpacts struct{}
+// slowImpactsEnumImpacts is the anonymous Impacts returned by
+// org.apache.lucene.index.SlowImpactsEnum#getImpacts (Lucene 10.5.0).
+type slowImpactsEnumImpacts struct{}
 
-func (d *dummyImpacts) NumLevels() int { return 1 }
-func (d *dummyImpacts) GetDocIDUpTo(level int) int { return 0 }
-func (d *dummyImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
+func (d *slowImpactsEnumImpacts) NumLevels() int             { return 1 }
+func (d *slowImpactsEnumImpacts) GetDocIDUpTo(level int) int { return 0 }
+func (d *slowImpactsEnumImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
 	buf := index.NewFreqAndNormBuffer()
 	buf.Add(2147483647, 1)
 	return buf
-}
-
-type dummyImpactsSource struct {
-	simScorer SimScorer
-}
-
-func (d *dummyImpactsSource) AdvanceShallow(target int) error { return nil }
-func (d *dummyImpactsSource) GetImpacts() (index.Impacts, error) {
-	return &dummyImpacts{}, nil
 }
 
 func compareUnsigned(a, b int64) int {
@@ -271,10 +277,10 @@ func compareUnsigned(a, b int64) int {
 }
 
 type mergeSubIterator struct {
-	buffer *index.FreqAndNormBuffer
-	index  int
-	freq   int
-	norm   int64
+	buffer    *index.FreqAndNormBuffer
+	index     int
+	freq      int
+	norm      int64
 	exhausted bool
 }
 
@@ -318,28 +324,31 @@ func (s *mergeImpactsSource) GetImpacts() (index.Impacts, error) {
 		impacts[i] = imp
 	}
 	lead := impacts[s.leadIndex]
-	return &mergeImpacts{
-		impacts:    impacts,
+	return &mergedImpacts{
+		impacts:     impacts,
 		leadIndex:   s.leadIndex,
 		leadImpacts: lead,
 	}, nil
 }
 
-type mergeImpacts struct {
-	impacts    []index.Impacts
-	leadIndex  int
+// mergedImpacts is the anonymous Impacts implementation returned by
+// mergeImpacts(...).GetImpacts() in
+// org.apache.lucene.search.ExactPhraseMatcher (Lucene 10.5.0).
+type mergedImpacts struct {
+	impacts     []index.Impacts
+	leadIndex   int
 	leadImpacts index.Impacts
 }
 
-func (m *mergeImpacts) NumLevels() int {
+func (m *mergedImpacts) NumLevels() int {
 	return m.leadImpacts.NumLevels()
 }
 
-func (m *mergeImpacts) GetDocIDUpTo(level int) int {
+func (m *mergedImpacts) GetDocIDUpTo(level int) int {
 	return m.leadImpacts.GetDocIDUpTo(level)
 }
 
-func (m *mergeImpacts) getLevel(impacts index.Impacts, docIDUpTo int) int {
+func (m *mergedImpacts) getLevel(impacts index.Impacts, docIDUpTo int) int {
 	for level := 0; level < impacts.NumLevels(); level++ {
 		if impacts.GetDocIDUpTo(level) >= docIDUpTo {
 			return level
@@ -348,7 +357,7 @@ func (m *mergeImpacts) getLevel(impacts index.Impacts, docIDUpTo int) int {
 	return -1
 }
 
-func (m *mergeImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
+func (m *mergedImpacts) GetImpacts(level int) *index.FreqAndNormBuffer {
 	docIDUpTo := m.leadImpacts.GetDocIDUpTo(level)
 
 	pq, _ := util.NewPriorityQueue(len(m.impacts), func(a, b *mergeSubIterator) bool {
@@ -438,4 +447,18 @@ func mergeImpacts(impactsEnums []index.ImpactsEnum, scorer SimScorer) index.Impa
 		impactsEnums: impactsEnums,
 		leadIndex:    tmpLeadIndex,
 	}
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which assumes runs of a single doc ID and returns
+// docID() + 1; every subclass inherits it unless it overrides it.
+func (d *dummyImpactsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(d)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *dummyImpactsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
 }

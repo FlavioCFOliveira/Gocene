@@ -151,7 +151,7 @@ func Decompress(in lowercaseAsciiInput, out []byte, len_ int) error {
 	compressedLen := len_ - saved
 
 	// 1. Copy the packed bytes back.
-	if err := in.ReadBytes(out[:compressedLen]); err != nil {
+	if err := in.ReadBytes(out, 0, compressedLen); err != nil {
 		return err
 	}
 

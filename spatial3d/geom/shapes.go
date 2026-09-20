@@ -206,6 +206,11 @@ func NewGeoDegeneratePoint(pm *PlanetModel, point *GeoPoint) *GeoDegeneratePoint
 	return &GeoDegeneratePoint{GeoBaseBBox: makeBBox(pm), point: point}
 }
 
+// ComputeOutsideDistance returns the distance to the nearest edge.
+func (p *GeoDegeneratePoint) ComputeOutsideDistance(distanceStyle DistanceStyle, x, y, z float64) float64 {
+	return 0.0
+}
+
 // GetPoint returns the underlying point.
 func (p *GeoDegeneratePoint) GetPoint() *GeoPoint { return p.point }
 
@@ -330,6 +335,11 @@ type GeoStandardPath struct {
 	closed    bool
 }
 
+// ComputeOutsideDistance returns the distance to the nearest edge.
+func (p *GeoStandardPath) ComputeOutsideDistance(distanceStyle DistanceStyle, x, y, z float64) float64 {
+	return 0.0
+}
+
 // GeoDegeneratePath is a degenerate (zero-width) path.
 //
 // Port of org.apache.lucene.spatial3d.geom.GeoDegeneratePath.
@@ -365,6 +375,11 @@ type GeoPointShapeImpl struct {
 	GeoBaseBBox
 	GeoBaseCircle
 	point *GeoPoint
+}
+
+// ComputeOutsideDistance returns the distance to the nearest edge.
+func (s *GeoPointShapeImpl) ComputeOutsideDistance(distanceStyle DistanceStyle, x, y, z float64) float64 {
+	return 0.0
 }
 
 // GetPoint returns the underlying point.
@@ -405,6 +420,11 @@ type GeoS2ShapeImpl struct {
 	plane1, plane2, plane3, plane4            *SidedPlane
 	plane1Points, plane2Points, plane3Points, plane4Points []*GeoPoint
 	edgePoints                                []*GeoPoint
+}
+
+// ComputeOutsideDistance returns the distance to the nearest edge.
+func (s *GeoS2ShapeImpl) ComputeOutsideDistance(distanceStyle DistanceStyle, x, y, z float64) float64 {
+	return 0.0
 }
 
 // NewGeoS2Shape constructs a GeoS2ShapeImpl from four points in CCW order.

@@ -95,12 +95,12 @@ func TestIndexFileNames_ParseGenerationOnGenerationalLiv(t *testing.T) {
 			if seg != "_0" {
 				t.Errorf("ParseSegmentName(%q) = %q, want %q", liv, seg, "_0")
 			}
-			gen := gindex.ParseGeneration(liv)
+			gen := gstore.ParseGeneration(liv)
 			if gen != 1 {
 				t.Errorf("ParseGeneration(%q) = %d, want 1", liv, gen)
 			}
 			// Round-trip: FileNameFromGeneration reconstructs the name.
-			roundTrip := gindex.FileNameFromGeneration("_0", "liv", gen)
+			roundTrip := gstore.FileNameFromGeneration("_0", "liv", gen)
 			if roundTrip != liv {
 				t.Errorf("FileNameFromGeneration round-trip = %q, want %q",
 					roundTrip, liv)
@@ -132,8 +132,8 @@ func TestIndexFileNames_StripExtensionOnPerCodecInfix(t *testing.T) {
 					t.Errorf("ParseSegmentName(%q) = %q, want %q",
 						name, seg, "_0")
 				}
-				stripped := gindex.StripExtension(name)
-				ext := gindex.GetExtension(name)
+				stripped := gstore.StripExtension(name)
+				ext := gstore.GetExtension(name)
 				if stripped == name || ext == "" {
 					t.Errorf("StripExtension/GetExtension failed on %q (stripped=%q ext=%q)",
 						name, stripped, ext)

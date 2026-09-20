@@ -21,16 +21,16 @@ func buildPayload(v int64) []byte {
 	return b
 }
 
-// TestIDVersionPostingsWriter_NewTermState verifies a fresh state is registered.
+// TestIDVersionPostingsWriter_NewTermState verifies that a fresh state of the
+// codec's own type is returned.
 func TestIDVersionPostingsWriter_NewTermState(t *testing.T) {
 	w := NewIDVersionPostingsWriter(nil)
 	state := w.NewTermState()
 	if state == nil {
-		t.Fatal("expected non-nil *BlockTermState")
+		t.Fatal("expected non-nil TermState")
 	}
-	extra := globalTermStateRegistry.lookup(state)
-	if extra == nil {
-		t.Fatal("expected sidecar entry to be registered")
+	if _, ok := state.(*IDVersionTermState); !ok {
+		t.Fatalf("NewTermState returned %T; want *IDVersionTermState", state)
 	}
 }
 
@@ -57,12 +57,12 @@ func TestIDVersionPostingsWriter_RoundTripDocAndVersion(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	extra := globalTermStateRegistry.lookup(state)
-	if extra.DocID != 7 {
-		t.Errorf("DocID = %d; want 7", extra.DocID)
+	ts := state.(*IDVersionTermState)
+	if ts.DocID != 7 {
+		t.Errorf("DocID = %d; want 7", ts.DocID)
 	}
-	if extra.IDVersion != version {
-		t.Errorf("IDVersion = %d; want %d", extra.IDVersion, version)
+	if ts.IDVersion != version {
+		t.Errorf("IDVersion = %d; want %d", ts.IDVersion, version)
 	}
 }
 
@@ -159,10 +159,10 @@ func TestIDVersionPostingsWriter_DeletedDocSkipped(t *testing.T) {
 		t.Fatal(err)
 	}
 	// lastDocID stays -1 from StartTerm, so FinishTerm is a no-op.
-	extra := globalTermStateRegistry.lookup(state)
-	if extra.DocID != 0 && extra.IDVersion != 0 {
+	ts := state.(*IDVersionTermState)
+	if ts.DocID != 0 && ts.IDVersion != 0 {
 		// Both stay at zero (unset), confirming the doc was skipped.
-		t.Errorf("expected zero extra after deleted-doc skip, got DocID=%d IDVersion=%d", extra.DocID, extra.IDVersion)
+		t.Errorf("expected zero state after deleted-doc skip, got DocID=%d IDVersion=%d", ts.DocID, ts.IDVersion)
 	}
 }
 

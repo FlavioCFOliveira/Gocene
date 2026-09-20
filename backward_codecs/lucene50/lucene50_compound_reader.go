@@ -62,7 +62,7 @@ type Lucene50CompoundReader struct {
 }
 
 // checksumLike50 is the minimal interface needed to validate the codec footer
-// of an EndiannessReverserChecksumIndexInput. codecs.CheckFooter requires
+// of an EndiannessReverserChecksumIndexInput. store.CheckFooter requires
 // *store.ChecksumIndexInput, which is incompatible with the BE-swapping
 // wrapper, so we duplicate the validation locally (same pattern as
 // backward_codecs/lucene40/blocktree).
@@ -72,7 +72,7 @@ type checksumLike50 interface {
 }
 
 // checkFooter50 validates the codec footer and checksum for a checksumLike50
-// input. Mirrors the logic of codecs.CheckFooter.
+// input. Mirrors the logic of store.CheckFooter.
 func checkFooter50(in checksumLike50) error {
 	remaining := in.Length() - in.GetFilePointer()
 	const footerLen = 16 // 4 magic + 4 algID + 8 checksum
@@ -82,7 +82,7 @@ func checkFooter50(in checksumLike50) error {
 	if remaining > footerLen {
 		return fmt.Errorf("lucene50 compound: misplaced codec footer (extended?): remaining=%d", remaining)
 	}
-	magic, err := store.ReadInt32(in)
+	magic, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -90,7 +90,7 @@ func checkFooter50(in checksumLike50) error {
 	if magic != footerMagic {
 		return fmt.Errorf("lucene50 compound: codec footer mismatch: actual=%#x expected=%#x", magic, footerMagic)
 	}
-	alg, err := store.ReadInt32(in)
+	alg, err := store.ReadBEInt(in)
 	if err != nil {
 		return err
 	}
@@ -98,7 +98,7 @@ func checkFooter50(in checksumLike50) error {
 		return fmt.Errorf("lucene50 compound: codec footer unknown algorithmID: %d", alg)
 	}
 	actualChecksum := int64(in.GetChecksum())
-	expectedChecksum, err := store.ReadInt64(in)
+	expectedChecksum, err := store.ReadBELong(in)
 	if err != nil {
 		return err
 	}
@@ -129,7 +129,7 @@ func NewLucene50CompoundReader(dir store.Directory, si *index.SegmentInfo) (*Luc
 	for _, e := range entries {
 		expectedLength += e.length
 	}
-	expectedLength += int64(codecs.FooterLength())
+	expectedLength += int64(store.FooterLength())
 
 	handle, err := bcstore.OpenInput(dir, dataFileName, store.IOContext{Context: store.ContextRead})
 	if err != nil {
@@ -267,7 +267,7 @@ func (r *Lucene50CompoundReader) OpenInput(name string, _ store.IOContext) (stor
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	id := index.StripSegmentName(name)
+	id := store.StripSegmentName(name)
 	e, ok := r.entries[id]
 	if !ok {
 		dataFileName := codecs.GetSegmentFileName(r.segmentName, "", compoundDataExtension)
@@ -309,7 +309,7 @@ func (r *Lucene50CompoundReader) FileLength(name string) (int64, error) {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	id := index.StripSegmentName(name)
+	id := store.StripSegmentName(name)
 	e, ok := r.entries[id]
 	if !ok {
 		return 0, fmt.Errorf("lucene50 compound: %q not found", name)
@@ -348,7 +348,7 @@ func (r *Lucene50CompoundReader) FileExists(name string) bool {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	_, ok := r.entries[index.StripSegmentName(name)]
+	_, ok := r.entries[store.StripSegmentName(name)]
 	return ok
 }
 
@@ -362,6 +362,14 @@ func (r *Lucene50CompoundReader) CreateOutput(_ string, _ store.IOContext) (stor
 
 // DeleteFile is not supported on a compound reader.
 func (r *Lucene50CompoundReader) DeleteFile(_ string) error {
+	return errReadOnlyCompound50
+}
+
+// Rename is not supported on a compound reader.
+//
+// Port of org.apache.lucene.codecs.CompoundDirectory#rename(String, String),
+// which throws UnsupportedOperationException in Apache Lucene 10.5.0.
+func (r *Lucene50CompoundReader) Rename(_, _ string) error {
 	return errReadOnlyCompound50
 }
 

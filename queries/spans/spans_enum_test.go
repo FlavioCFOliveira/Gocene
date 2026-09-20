@@ -72,7 +72,10 @@ func TestSpansEnum_NextDoc(t *testing.T) {
 		if err != nil || doc != 0 {
 			t.Fatalf("NextDoc: %v", err)
 		}
-		end := sp.DocIDRunEnd()
+		end, err := sp.DocIDRunEnd()
+		if err != nil {
+			t.Fatalf("DocIDRunEnd: %v", err)
+		}
 		if end != 1 {
 			t.Errorf("DocIDRunEnd = %d; want 1", end)
 		}

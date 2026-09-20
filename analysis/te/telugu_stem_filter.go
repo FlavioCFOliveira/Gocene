@@ -74,5 +74,9 @@ func (f *TeluguStemFilterFactory) Create(input analysis.TokenStream) analysis.To
 	return NewTeluguStemFilter(input)
 }
 
+func (f *TeluguStemFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
+}
+
 // Ensure interface compliance.
 var _ analysis.TokenFilterFactory = (*TeluguStemFilterFactory)(nil)

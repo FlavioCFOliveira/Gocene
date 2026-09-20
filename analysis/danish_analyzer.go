@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // DanishStopWords contains common Danish stop words.
@@ -45,15 +46,25 @@ func NewDanishAnalyzer() *DanishAnalyzer {
 // NewDanishAnalyzerWithWords creates a DanishAnalyzer with custom stop words.
 func NewDanishAnalyzerWithWords(stopWords *CharArraySet) *DanishAnalyzer {
 	a := &DanishAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewDanishLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewDanishLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 
 	return a
 }
@@ -74,8 +85,8 @@ func (a *DanishAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure DanishAnalyzer implements Analyzer
-var _ Analyzer = (*DanishAnalyzer)(nil)
-var _ AnalyzerInterface = (*DanishAnalyzer)(nil)
+var _ api.Analyzer = (*DanishAnalyzer)(nil)
+var _ api.Analyzer = (*DanishAnalyzer)(nil)
 
 // DanishLightStemFilter implements light stemming for Danish.
 type DanishLightStemFilter struct {
@@ -150,7 +161,9 @@ func danishLightStem(term string) string {
 }
 
 // DanishLightStemFilterFactory creates DanishLightStemFilter instances.
-type DanishLightStemFilterFactory struct{}
+type DanishLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewDanishLightStemFilterFactory creates a new DanishLightStemFilterFactory.
 func NewDanishLightStemFilterFactory() *DanishLightStemFilterFactory {

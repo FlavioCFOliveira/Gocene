@@ -1,9 +1,6 @@
 package search
 
 import (
-	"errors"
-	"fmt"
-
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -37,10 +34,10 @@ func (b *bitsAcceptDocs) Bits() (util.Bits, error) {
 }
 
 func (b *bitsAcceptDocs) Iterator() (DocIdSetIterator, error) {
-	if bs, ok := b.bits.(*util.FixedBitSet); ok {
-		return NewBitSetIterator(bs, b.maxDoc), nil
+	if bs, ok := b.bits.(util.BitSet); ok {
+		return util.NewBitSetIterator(bs, int64(b.maxDoc)), nil
 	}
-	return getFilteredDocIdSetIterator(NewRangeDocIdSetIterator(0, b.maxDoc), b.bits), nil
+	return getFilteredDocIdSetIterator(Range(0, b.maxDoc), b.bits), nil
 }
 
 func (b *bitsAcceptDocs) Cost() (int, error) {
@@ -74,20 +71,39 @@ func (d *docIdSetIteratorAcceptDocs) createBitSet() error {
 		return err
 	}
 
-	// Heuristic for BitSet creation
-	threshold := d.maxDoc >> 7
+	// If we already have a BitSet and no deletions, reuse the BitSet.
+	if d.liveDocs == nil {
+		// Gocene's BitSetIterator stores the narrower util.Bits, so Java's
+		// bitSetIterator.getBitSet() is rendered as an assertion back to BitSet.
+		if bsi, ok := it.(*util.BitSetIterator); ok {
+			if bs, isBitSet := bsi.GetBitSet().(util.BitSet); isBitSet {
+				d.acceptBitSet = bs
+				d.cardinality = bs.Cardinality()
+				return nil
+			}
+		}
+	}
+
+	threshold := d.maxDoc >> 7 // same as BitSet#of
 	if it.Cost() >= int64(threshold) {
-		bitSet := util.NewFixedBitSet(d.maxDoc)
-		bitSet.Or(it)
+		// take advantage of Disi#intoBitset and Bits#applyMask
+		bitSet, err := util.NewFixedBitSet(d.maxDoc)
+		if err != nil {
+			return err
+		}
+		if err := bitSet.OrIterator(it); err != nil {
+			return err
+		}
 		if d.liveDocs != nil {
 			util.ApplyMask(d.liveDocs, bitSet, 0)
 		}
 		d.acceptBitSet = bitSet
 	} else {
-		// Create a sparse bitset (implementation assumed in util.BitSet)
-		// For now, we'll implement a basic version or use FixedBitSet
-		bitSet := util.NewFixedBitSet(d.maxDoc)
-		// ... logic to populate sparse bitset ...
+		// create a sparse bitset
+		bitSet, err := util.OfDocIdSetIterator(getFilteredDocIdSetIterator(it, d.liveDocs), d.maxDoc)
+		if err != nil {
+			return err
+		}
 		d.acceptBitSet = bitSet
 	}
 	d.cardinality = d.acceptBitSet.Cardinality()
@@ -103,7 +119,7 @@ func (d *docIdSetIteratorAcceptDocs) Bits() (util.Bits, error) {
 
 func (d *docIdSetIteratorAcceptDocs) Iterator() (DocIdSetIterator, error) {
 	if d.acceptBitSet != nil {
-		return NewBitSetIterator(d.acceptBitSet, d.cardinality), nil
+		return util.NewBitSetIterator(d.acceptBitSet, int64(d.cardinality)), nil
 	}
 	it, err := d.iteratorSupplier()
 	if err != nil {
@@ -173,16 +189,22 @@ func (f *filteredDocIdSetIterator) Cost() int64 {
 	return f.it.Cost()
 }
 
-func (f *filteredDocIdSetIterator) IntoBitSet(upTo int, bitSet util.BitSet, offset int) error {
-	// implementation similar to original
-	return nil
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0
+// (DocIdSetIterator.java:205-210):
+//
+//	for (int doc = docID(); doc < upTo; doc = nextDoc()) bitSet.set(doc - offset);
+//
+// The walk must go through this iterator's own NextDoc so that the liveDocs
+// filter is applied, which is why it is driven off f rather than f.it.
+func (f *filteredDocIdSetIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(f, upTo, bitSet, offset)
 }
 
 func (f *filteredDocIdSetIterator) DocIDRunEnd() (int, error) {
 	return f.it.DocIDRunEnd()
 }
 
-func NewBitSetIterator(bs util.BitSet, maxDoc int) DocIdSetIterator {
-	// Assumed implementation in util or search
-	return nil // Placeholder
-}
+// BitSetIterator is declared by org.apache.lucene.util.BitSetIterator and lives
+// in util/bit_set_iterator.go; the stub that used to sit here had no Lucene
+// counterpart and returned nil.

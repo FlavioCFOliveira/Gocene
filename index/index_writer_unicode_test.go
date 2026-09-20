@@ -291,9 +291,9 @@ func TestIndexWriterUnicode_EmbeddedFFFF(t *testing.T) {
 	if terms == nil {
 		t.Fatal("Terms(field) returned nil")
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	found, err := te.SeekExact(schema.NewTerm("field", "a￿b"))
 	if err != nil {
@@ -394,9 +394,9 @@ func TestIndexWriterUnicode_TermUTF16SortOrder(t *testing.T) {
 		t.Fatal("Terms(f) returned nil")
 	}
 
-	it, err := terms.GetIterator()
+	it, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	var prev string
 	seen := make(map[string]struct{})

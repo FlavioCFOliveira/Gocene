@@ -5,35 +5,36 @@
 package grouping
 
 import (
-	"fmt"
-
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// AllGroupHeadsCollectorManager manages AllGroupHeadsCollector instances for search.
+// AllGroupHeadsCollectorManager builds and reduces [AllGroupHeadsCollector]
+// instances for a concurrent search.
+//
 // Mirrors org.apache.lucene.search.grouping.AllGroupHeadsCollectorManager.
-type AllGroupHeadsCollectorManager struct {
-	selector GroupSelector
-	sort     search.Sort
+type AllGroupHeadsCollectorManager[T any] struct {
+	selector GroupSelector[T]
+	sort     *search.Sort
 }
 
-func NewAllGroupHeadsCollectorManager(selector GroupSelector, sort search.Sort) *AllGroupHeadsCollectorManager {
-	return &AllGroupHeadsCollectorManager{
-		selector: selector,
-		sort:     sort,
-	}
+// NewAllGroupHeadsCollectorManager builds the manager for the given group
+// selector and within-group sort.
+func NewAllGroupHeadsCollectorManager[T any](selector GroupSelector[T], sort *search.Sort) *AllGroupHeadsCollectorManager[T] {
+	return &AllGroupHeadsCollectorManager[T]{selector: selector, sort: sort}
 }
 
-func (m *AllGroupHeadsCollectorManager) NewCollector() *AllGroupHeadsCollector {
+// NewCollector creates a fresh collector.
+//
+// Mirrors CollectorManager.newCollector().
+func (m *AllGroupHeadsCollectorManager[T]) NewCollector() *AllGroupHeadsCollector[T] {
 	return NewAllGroupHeadsCollector(m.selector, m.sort)
 }
 
-func (m *AllGroupHeadsCollectorManager) Search(searcher *search.IndexSearcher, query search.Query) (*AllGroupHeadsCollector, error) {
+// Search runs query against searcher with a fresh collector and returns it.
+func (m *AllGroupHeadsCollectorManager[T]) Search(searcher *search.IndexSearcher, query search.Query) (*AllGroupHeadsCollector[T], error) {
 	fc := m.NewCollector()
-	err := searcher.SearchWithCollector(query, fc)
-	if err != nil {
-		return nil, fmt.Errorf("group search failed: %w", err)
+	if err := searcher.SearchWithCollector(query, fc); err != nil {
+		return nil, err
 	}
 	return fc, nil
 }

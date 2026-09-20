@@ -289,9 +289,7 @@ func (tf *TaxonomyFacets) createFacetResult(
 		entries[l], entries[r] = entries[r], entries[l]
 	}
 
-	result := facets.NewFacetResultWithPath(dim, path)
-	result.Value = int64(top.pathValue)
-	result.ChildCount = top.childCount
+	lv := make([]*facets.LabelAndValue, 0, len(entries))
 	for _, e := range entries {
 		parts := tf.TaxoReader.GetPath(e.ord)
 		childIdx := len(path) + 1 // +1 for the dim component
@@ -301,9 +299,9 @@ func (tf *TaxonomyFacets) createFacetResult(
 		} else if len(parts) > 0 {
 			label = parts[len(parts)-1]
 		}
-		result.AddLabelValue(facets.NewLabelAndValue(label, int64(e.count)))
+		lv = append(lv, facets.NewLabelAndValue(label, int64(e.count)))
 	}
-	return result, nil
+	return facets.NewFacetResult(dim, path, float64(top.pathValue), lv, top.childCount), nil
 }
 
 // GetTopChildren returns the top N children for dim+path.
@@ -377,13 +375,7 @@ func (tf *TaxonomyFacets) GetAllChildren(dim string, path ...string) (*facets.Fa
 		}
 	}
 
-	result := facets.NewFacetResultWithPath(dim, path)
-	result.Value = int64(aggValue)
-	result.ChildCount = len(lv)
-	for _, l := range lv {
-		result.AddLabelValue(l)
-	}
-	return result, nil
+	return facets.NewFacetResult(dim, path, float64(aggValue), lv, len(lv)), nil
 }
 
 // GetSpecificValue returns the aggregation value for the exact path dim+path.

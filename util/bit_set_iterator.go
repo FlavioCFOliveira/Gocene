@@ -152,16 +152,16 @@ func (b *BitSetIterator) IntoBitSet(upTo int, dest *FixedBitSet, offset int) err
 
 // DocIDRunEnd returns the exclusive end of the current run of consecutive
 // doc IDs and advances the iterator to the last set bit in the run.
-func (b *BitSetIterator) DocIDRunEnd() int {
+func (b *BitSetIterator) DocIDRunEnd() (int, error) {
 	if b.doc < 0 || b.doc >= b.length {
-		return b.doc + 1
+		return b.doc + 1, nil
 	}
 	runEnd := b.doc + 1
 	for runEnd < b.length && b.bits.Get(runEnd) {
 		runEnd++
 	}
 	b.doc = runEnd - 1
-	return runEnd
+	return runEnd, nil
 }
 
 // GetBitSet returns the wrapped Bits. Mirrors {@code getBitSet()} but

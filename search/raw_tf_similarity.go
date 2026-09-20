@@ -5,6 +5,8 @@
 package search
 
 import (
+	"fmt"
+
 	"strconv"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -40,7 +42,7 @@ func NewRawTFSimilarityWithDiscount(discountOverlaps bool) *RawTFSimilarity {
 // score == freq. This complements the Lucene-faithful [RawTFSimilarity.Scorer104]
 // surface used by the block-max scoring path.
 func (s *RawTFSimilarity) Scorer(_ *CollectionStatistics, _ *TermStatistics) SimScorer {
-	return rawTFLegacySimScorer{}
+	return &rawTFLegacySimScorer{}
 }
 
 // rawTFLegacySimScorer is the legacy SimScorer whose Score returns the raw
@@ -49,7 +51,7 @@ type rawTFLegacySimScorer struct{}
 
 // Score returns the raw term frequency. The norm argument is accepted for API
 // parity with Lucene's SimScorer.score(float, long) but ignored.
-func (rawTFLegacySimScorer) Score(_ int, freq float32, _ int64) float32 { return freq }
+func (rawTFLegacySimScorer) Score104(freq float32, _ int64) float32 { return freq }
 
 // GetDiscountOverlaps satisfies Similarity.
 func (s *RawTFSimilarity) GetDiscountOverlaps() bool { return s.discountOverlaps }
@@ -104,3 +106,19 @@ var (
 	_ Similarity = (*RawTFSimilarity)(nil)
 	_ SimScorer  = (*rawTFSimScorer)(nil)
 )
+
+// AsBulkSimScorer mirrors the concrete body of Similarity.SimScorer.asBulkSimScorer()
+// in Apache Lucene 10.5.0: new DefaultBulkSimScorer(this).
+func (r *rawTFLegacySimScorer) AsBulkSimScorer() BulkSimScorer {
+	return NewDefaultBulkSimScorer(r)
+}
+
+// Explain104 mirrors the concrete body of Similarity.SimScorer.explain(Explanation, long)
+// in Apache Lucene 10.5.0: Explanation.match(score(freq.getValue().floatValue(), norm),
+// "score(freq=" + freq.getValue() + "), with freq of:", freq).
+func (r *rawTFLegacySimScorer) Explain104(freq Explanation, norm int64) Explanation {
+	e := NewExplanation(true, r.Score104(freq.GetValue(), norm),
+		fmt.Sprintf("score(freq=%s), with freq of:", formatFloatGeneric(freq.GetValue())))
+	e.AddDetail(freq)
+	return e
+}

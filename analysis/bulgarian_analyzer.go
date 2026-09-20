@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // BulgarianStopWords contains common Bulgarian stop words.
@@ -62,17 +64,27 @@ func NewBulgarianAnalyzer() *BulgarianAnalyzer {
 // NewBulgarianAnalyzerWithWords creates a BulgarianAnalyzer with custom stop words.
 func NewBulgarianAnalyzerWithWords(stopWords *CharArraySet) *BulgarianAnalyzer {
 	a := &BulgarianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 	return a
 }
 
 // TokenStream creates a TokenStream for analyzing text.
-func (a *BulgarianAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (a *BulgarianAnalyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	return a.BaseAnalyzer.TokenStream(fieldName, reader)
 }
 
@@ -86,5 +98,4 @@ func (a *BulgarianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*BulgarianAnalyzer)(nil)
-var _ AnalyzerInterface = (*BulgarianAnalyzer)(nil)
+var _ api.Analyzer = (*BulgarianAnalyzer)(nil)

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"hash/crc32"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // BufferedChecksumIndexInput is a simple ChecksumIndexInput implementation
@@ -15,11 +17,20 @@ import (
 // read.
 //
 // This is the Go port of org.apache.lucene.store.BufferedChecksumIndexInput
-// (Apache Lucene 10.4.0). Per the Lucene contract:
+// (Apache Lucene 10.5.0). Per the Lucene contract:
 //   - Clone and Slice are not supported and return an error.
 //   - The checksum is computed using BufferedChecksum wrapping a CRC32.
 //   - GetFilePointer and Length delegate to the wrapped IndexInput.
+//
+// Java overrides exactly readByte, readBytes, readShort, readInt, readLong and
+// readLongs. Everything else — readVInt, readVLong, readString, readInts,
+// readFloats, readMapOfStrings, readSetOfStrings — is inherited from DataInput
+// and is therefore built on the overridden primitives, so the digest sees every
+// byte. The embedded spi.BaseDataInput (whose Core is this input) supplies the
+// same inherited bodies here. Re-declaring any of them to delegate to the
+// wrapped input would carry those bytes past the digest.
 type BufferedChecksumIndexInput struct {
+	spi.BaseDataInput
 	main   IndexInput
 	digest *BufferedChecksum
 }
@@ -31,10 +42,12 @@ var ErrBufferedChecksumNotSupported = errors.New("BufferedChecksumIndexInput doe
 // NewBufferedChecksumIndexInput wraps the given IndexInput so that every byte
 // read updates a CRC32 checksum exposed via GetChecksum.
 func NewBufferedChecksumIndexInput(main IndexInput) *BufferedChecksumIndexInput {
-	return &BufferedChecksumIndexInput{
+	in := &BufferedChecksumIndexInput{
 		main:   main,
 		digest: NewBufferedChecksum(crc32.NewIEEE()),
 	}
+	in.Core = in // Self-implementation of DataInputCore
+	return in
 }
 
 // ReadByte reads a single byte from the underlying input and updates the
@@ -48,19 +61,25 @@ func (in *BufferedChecksumIndexInput) ReadByte() (byte, error) {
 	return b, nil
 }
 
-// ReadBytes reads len(b) bytes into b and updates the checksum.
-func (in *BufferedChecksumIndexInput) ReadBytes(b []byte) error {
-	if err := in.main.ReadBytes(b); err != nil {
+// ReadBytes reads len(b) bytes into b, starting at the given offset, and updates the
+// checksum.
+func (in *BufferedChecksumIndexInput) ReadBytes(b []byte, offset, len int) error {
+	if len <= 0 {
+		return nil
+	}
+	buf := make([]byte, len)
+	if err := in.main.ReadBytes(buf, 0, len); err != nil {
 		return err
 	}
-	in.digest.UpdateBytes(b)
+	copy(b[offset:], buf)
+	in.digest.UpdateBytes(buf)
 	return nil
 }
 
 // ReadBytesN reads exactly n bytes and returns them; updates the checksum.
 func (in *BufferedChecksumIndexInput) ReadBytesN(n int) ([]byte, error) {
 	b := make([]byte, n)
-	if err := in.ReadBytes(b); err != nil {
+	if err := in.ReadBytes(b, 0, n); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -97,11 +116,6 @@ func (in *BufferedChecksumIndexInput) ReadLong() (int64, error) {
 	}
 	in.digest.UpdateLong(v)
 	return v, nil
-}
-
-// ReadString reads a length-prefixed UTF-8 string and updates the checksum.
-func (in *BufferedChecksumIndexInput) ReadString() (string, error) {
-	return ReadString(in)
 }
 
 // GetChecksum returns the CRC32 checksum computed over every byte read so
@@ -152,11 +166,21 @@ func (in *BufferedChecksumIndexInput) SkipBytes(n int64) error {
 		if n < step {
 			step = n
 		}
-		if err := in.ReadBytes(buf[:step]); err != nil {
+		if err := in.ReadBytes(buf, 0, int(step)); err != nil {
 			return err
 		}
 		n -= step
 	}
+	return nil
+}
+
+// ReadLongs reads a specified number of longs into an array at the specified offset,
+// and updates the checksum.
+func (in *BufferedChecksumIndexInput) ReadLongs(dst []int64, offset, length int) error {
+	if err := in.main.ReadLongs(dst, offset, length); err != nil {
+		return err
+	}
+	in.digest.UpdateLongs(dst, offset, length)
 	return nil
 }
 

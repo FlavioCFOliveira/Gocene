@@ -7,7 +7,6 @@ package bkd
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -107,43 +106,43 @@ func (w *BKDWriter) writeIndexFinal(
 	packedIndex []byte,
 	dataStartFP int64,
 ) error {
-	if err := codecs.WriteHeader(metaOut, BKDCodecName, int32(w.version)); err != nil {
+	if err := store.WriteHeader(metaOut, BKDCodecName, int32(w.version)); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(metaOut, int32(w.config.NumDims())); err != nil {
+	if err := metaOut.WriteVInt(int32(w.config.NumDims())); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(metaOut, int32(w.config.NumIndexDims())); err != nil {
+	if err := metaOut.WriteVInt(int32(w.config.NumIndexDims())); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(metaOut, int32(countPerLeaf)); err != nil {
+	if err := metaOut.WriteVInt(int32(countPerLeaf)); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(metaOut, int32(w.config.BytesPerDim())); err != nil {
+	if err := metaOut.WriteVInt(int32(w.config.BytesPerDim())); err != nil {
 		return err
 	}
 	if numLeaves <= 0 {
 		return fmt.Errorf("bkd: writeIndex numLeaves=%d", numLeaves)
 	}
-	if err := store.WriteVInt(metaOut, int32(numLeaves)); err != nil {
+	if err := metaOut.WriteVInt(int32(numLeaves)); err != nil {
 		return err
 	}
-	if err := metaOut.WriteBytes(w.minPackedValue[:w.config.PackedIndexBytesLength()]); err != nil {
+	if err := metaOut.WriteBytes(w.minPackedValue, 0, w.config.PackedIndexBytesLength()); err != nil {
 		return err
 	}
-	if err := metaOut.WriteBytes(w.maxPackedValue[:w.config.PackedIndexBytesLength()]); err != nil {
+	if err := metaOut.WriteBytes(w.maxPackedValue, 0, w.config.PackedIndexBytesLength()); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(metaOut, w.pointCount); err != nil {
+	if err := metaOut.WriteVLong(w.pointCount); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(metaOut, int32(w.docsSeen.Cardinality())); err != nil {
+	if err := metaOut.WriteVInt(int32(w.docsSeen.Cardinality())); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(metaOut, int32(len(packedIndex))); err != nil {
+	if err := metaOut.WriteVInt(int32(len(packedIndex))); err != nil {
 		return err
 	}
-	if err := store.WriteInt64(metaOut, dataStartFP); err != nil {
+	if err := metaOut.WriteLong(dataStartFP); err != nil {
 		return err
 	}
 	// If metaOut and indexOut are the same file, we account for the
@@ -152,10 +151,10 @@ func (w *BKDWriter) writeIndexFinal(
 	if metaOut == indexOut {
 		bias = 8
 	}
-	if err := store.WriteInt64(metaOut, indexOut.GetFilePointer()+bias); err != nil {
+	if err := metaOut.WriteLong(indexOut.GetFilePointer()+bias); err != nil {
 		return err
 	}
-	return indexOut.WriteBytes(packedIndex)
+	return indexOut.WriteBytes(packedIndex, 0, len(packedIndex))
 }
 
 // packIndex serialises the BKD tree's flat representation into a
@@ -288,7 +287,7 @@ func (w *BKDWriter) recursePackIndex(
 	suffix := w.config.BytesPerDim() - prefix
 	savSplitValue := make([]byte, suffix)
 	if suffix > 1 {
-		if err := writeBuffer.WriteBytes(splitValue.Bytes[address+prefix+1 : address+prefix+suffix]); err != nil {
+		if err := writeBuffer.WriteBytes(splitValue.Bytes, address+prefix+1, suffix-1); err != nil {
 			return 0, err
 		}
 	}

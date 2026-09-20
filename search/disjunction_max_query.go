@@ -4,9 +4,16 @@
 
 package search
 
+import (
+	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"strings"
+)
+
 // DisjunctionMaxQuery is a query that generates the union of documents produced by its subqueries,
-// and that scores each document with the maximum score for that document produced by any subquery,
+// and that scores each document with the maximum score for that document as produced by any subquery,
 // plus a tie breaking increment for any additional matching subqueries.
+// Mirrors org.apache.lucene.search.DisjunctionMaxQuery.
 type DisjunctionMaxQuery struct {
 	*BaseQuery
 	disjuncts            []Query
@@ -14,22 +21,14 @@ type DisjunctionMaxQuery struct {
 }
 
 // NewDisjunctionMaxQuery creates a new DisjunctionMaxQuery.
-// A nil disjuncts slice is normalised to an empty (non-nil) slice.
-func NewDisjunctionMaxQuery(disjuncts []Query) *DisjunctionMaxQuery {
+// tieBreakerMultiplier must be in [0, 1].
+func NewDisjunctionMaxQuery(disjuncts []Query, tieBreakerMultiplier float32) *DisjunctionMaxQuery {
+	if tieBreakerMultiplier < 0 || tieBreakerMultiplier > 1 {
+		panic("tieBreakerMultiplier must be in [0, 1]")
+	}
 	if disjuncts == nil {
 		disjuncts = []Query{}
 	}
-	return &DisjunctionMaxQuery{
-		BaseQuery:            &BaseQuery{},
-		disjuncts:            disjuncts,
-		tieBreakerMultiplier: 0.0,
-	}
-}
-
-// NewDisjunctionMaxQueryWithTieBreaker creates a DisjunctionMaxQuery with a tie breaker multiplier.
-// The tieBreakerMultiplier allows documents with multiple matching subqueries to be scored
-// higher than documents with only a single matching subquery.
-func NewDisjunctionMaxQueryWithTieBreaker(disjuncts []Query, tieBreakerMultiplier float32) *DisjunctionMaxQuery {
 	return &DisjunctionMaxQuery{
 		BaseQuery:            &BaseQuery{},
 		disjuncts:            disjuncts,
@@ -42,120 +41,134 @@ func (q *DisjunctionMaxQuery) Disjuncts() []Query {
 	return q.disjuncts
 }
 
-// Add adds a subquery to this disjunction.
-func (q *DisjunctionMaxQuery) Add(query Query) {
-	q.disjuncts = append(q.disjuncts, query)
-}
-
-// TieBreakerMultiplier returns the tie breaker multiplier.
+// TieBreakerMultiplier returns the tie breaker value for multiple matches.
 func (q *DisjunctionMaxQuery) TieBreakerMultiplier() float32 {
 	return q.tieBreakerMultiplier
 }
 
-// SetTieBreakerMultiplier sets the tie breaker multiplier.
-func (q *DisjunctionMaxQuery) SetTieBreakerMultiplier(tieBreakerMultiplier float32) {
-	q.tieBreakerMultiplier = tieBreakerMultiplier
-}
-
-// Clone creates a copy of this query.
-func (q *DisjunctionMaxQuery) Clone() Query {
-	clonedDisjuncts := make([]Query, len(q.disjuncts))
-	for i, disjunct := range q.disjuncts {
-		if disjunct != nil {
-			clonedDisjuncts[i] = disjunct.Clone()
+// ToString returns a user-readable version of this query.
+// Mirrors DisjunctionMaxQuery.toString.
+func (q *DisjunctionMaxQuery) ToString(field string) string {
+	var sb strings.Builder
+	sb.WriteString("(")
+	for i, sub := range q.disjuncts {
+		if bq, ok := sub.(*BooleanQuery); ok {
+			sb.WriteString("(")
+			sb.WriteString(bq.ToString(field))
+			sb.WriteString(")")
+		} else {
+			sb.WriteString(queryToString(sub, field))
+		}
+		if i < len(q.disjuncts)-1 {
+			sb.WriteString(" | ")
 		}
 	}
-	return &DisjunctionMaxQuery{
-		BaseQuery:            &BaseQuery{},
-		disjuncts:            clonedDisjuncts,
-		tieBreakerMultiplier: q.tieBreakerMultiplier,
+	sb.WriteString(")")
+	if q.tieBreakerMultiplier != 0.0 {
+		sb.WriteString(fmt.Sprintf("~%g", q.tieBreakerMultiplier))
+	}
+	return sb.String()
+}
+
+// Visit implements the Query visitor pattern.
+// Mirrors DisjunctionMaxQuery.visit.
+func (q *DisjunctionMaxQuery) Visit(visitor QueryVisitor) {
+	v := visitor.GetSubVisitor(SHOULD, q)
+	for _, sub := range q.disjuncts {
+		sub.Visit(v)
 	}
 }
 
 // Equals checks if this query equals another.
-func (q *DisjunctionMaxQuery) Equals(other Query) bool {
-	if o, ok := other.(*DisjunctionMaxQuery); ok {
-		if q.tieBreakerMultiplier != o.tieBreakerMultiplier || len(q.disjuncts) != len(o.disjuncts) {
+// Mirrors DisjunctionMaxQuery.equals.
+func (q *DisjunctionMaxQuery) Equals(other spi.Query) bool {
+	o, ok := other.(*DisjunctionMaxQuery)
+	if !ok {
+		return false
+	}
+	if q.tieBreakerMultiplier != o.tieBreakerMultiplier || len(q.disjuncts) != len(o.disjuncts) {
+		return false
+	}
+	for i, disjunct := range q.disjuncts {
+		if !disjunct.Equals(o.disjuncts[i]) {
 			return false
 		}
-		for i, disjunct := range q.disjuncts {
-			if disjunct == nil || o.disjuncts[i] == nil {
-				if disjunct != nil || o.disjuncts[i] != nil {
-					return false
-				}
-				continue
-			}
-			if !disjunct.Equals(o.disjuncts[i]) {
-				return false
-			}
-		}
-		return true
 	}
-	return false
+	return true
 }
 
 // HashCode returns a hash code for this query.
+// Mirrors DisjunctionMaxQuery.hashCode.
 func (q *DisjunctionMaxQuery) HashCode() int {
-	hash := 0
-	for _, disjunct := range q.disjuncts {
-		if disjunct != nil {
-			hash = hash*31 + disjunct.HashCode()
-		}
+	h := 31 * 12345 // classHash approximation
+	h = 31*h + int(q.tieBreakerMultiplier*1000)
+
+	sliceHash := 0
+	for _, d := range q.disjuncts {
+		sliceHash = 31*sliceHash + d.HashCode()
 	}
-	return hash*31 + int(q.tieBreakerMultiplier*1000)
+	h = 31*h + sliceHash
+
+	return h
 }
 
-// Rewrite optimizes this query and its sub-queries. An empty disjunction
-// becomes a MatchNoDocsQuery; a single disjunct unwraps to that disjunct; a
-// tie-breaker of 1.0 collapses to a SHOULD BooleanQuery (the sum of the
-// disjuncts); otherwise each sub-query is rewritten and, if any changed, a new
-// DisjunctionMaxQuery is returned. Mirrors DisjunctionMaxQuery.rewrite.
-func (q *DisjunctionMaxQuery) Rewrite(reader IndexReader) (Query, error) {
+// Rewrite optimizes this query and its sub-queries.
+// Mirrors DisjunctionMaxQuery.rewrite.
+func (q *DisjunctionMaxQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	if len(q.disjuncts) == 0 {
-		return NewMatchNoDocsQueryWithReason("empty DisjunctionMaxQuery"), nil
+		return NewMatchNoDocsQuery("empty DisjunctionMaxQuery"), nil
 	}
 	if len(q.disjuncts) == 1 {
 		return q.disjuncts[0], nil
 	}
 	if q.tieBreakerMultiplier == 1.0 {
-		bq := NewBooleanQuery()
+		bq := NewBooleanQueryBuilder()
 		for _, sub := range q.disjuncts {
 			bq.Add(sub, SHOULD)
 		}
-		return bq, nil
+		return bq.Build(), nil
 	}
 
 	actuallyRewritten := false
 	rewrittenDisjuncts := make([]Query, 0, len(q.disjuncts))
 	for _, sub := range q.disjuncts {
-		rewrittenSub, err := sub.Rewrite(reader)
+		rewrittenSub, err := sub.Rewrite(searcher)
 		if err != nil {
 			return nil, err
 		}
-		if rewrittenSub != sub {
+		if rewrittenSub != sub || isMatchNoDocs(rewrittenSub) {
 			actuallyRewritten = true
 		}
-		rewrittenDisjuncts = append(rewrittenDisjuncts, rewrittenSub)
+		if !isMatchNoDocs(rewrittenSub) {
+			rewrittenDisjuncts = append(rewrittenDisjuncts, rewrittenSub)
+		}
 	}
-	if actuallyRewritten {
-		return NewDisjunctionMaxQueryWithTieBreaker(rewrittenDisjuncts, q.tieBreakerMultiplier), nil
+
+	if !actuallyRewritten {
+		return q, nil
 	}
-	return q, nil
+
+	if len(rewrittenDisjuncts) == 0 {
+		return NewMatchNoDocsQuery("empty DisjunctionMaxQuery"), nil
+	}
+	if len(rewrittenDisjuncts) == 1 {
+		return rewrittenDisjuncts[0], nil
+	}
+
+	return NewDisjunctionMaxQuery(rewrittenDisjuncts, q.tieBreakerMultiplier), nil
 }
 
-// CreateWeight builds the Weight for this query. The bool-based entry point maps
-// needsScores to a ScoreMode and delegates to CreateWeightScoreMode, so the
-// full ScoreMode flows to the sub-weights.
-func (q *DisjunctionMaxQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+// CreateWeight builds the Weight for this query.
+func (q *DisjunctionMaxQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	mode := COMPLETE
-	if !needsScores {
+	if !scoreMode.NeedsScores() {
 		mode = COMPLETE_NO_SCORES
 	}
 	return q.CreateWeightScoreMode(searcher, mode, boost)
 }
 
 // CreateWeightScoreMode builds the DisjunctionMaxWeight, threading the full
-// ScoreMode down to each disjunct's weight. Implements scoreModeWeightCreator.
+// ScoreMode down to each disjunct's weight.
 func (q *DisjunctionMaxQuery) CreateWeightScoreMode(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return NewDisjunctionMaxWeight(searcher, q, scoreMode, boost)
 }

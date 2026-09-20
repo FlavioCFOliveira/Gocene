@@ -95,7 +95,7 @@ func TestLucene99FlatVectors_DenseFloatRoundTrip(t *testing.T) {
 
 	// --- read ---
 	rs := &SegmentReadState{Directory: dir, SegmentInfo: si, FieldInfos: fis}
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("NewLucene99HnswVectorsReader: %v", err)
 	}
@@ -116,13 +116,26 @@ func TestLucene99FlatVectors_DenseFloatRoundTrip(t *testing.T) {
 	if fvv.Dimension() != dim {
 		t.Fatalf("Dimension = %d, want %d", fvv.Dimension(), dim)
 	}
-	for doc := range vectors {
-		got, err := fvv.GetVector(doc)
+	gotByDoc := map[int][]float32{}
+	it := fvv.Iterator()
+	for {
+		doc, err := it.NextDoc()
 		if err != nil {
-			t.Fatalf("GetVector(%d): %v", doc, err)
+			t.Fatalf("NextDoc: %v", err)
 		}
+		if doc >= maxDoc {
+			break
+		}
+		v, err := fvv.VectorValue(it.Index())
+		if err != nil {
+			t.Fatalf("VectorValue(%d) of doc %d: %v", it.Index(), doc, err)
+		}
+		gotByDoc[doc] = append([]float32(nil), v...)
+	}
+	for doc := range vectors {
+		got := gotByDoc[doc]
 		if !float32SlicesEqual(got, vectors[doc]) {
-			t.Errorf("GetVector(%d) = %v, want %v", doc, got, vectors[doc])
+			t.Errorf("vector of doc %d = %v, want %v", doc, got, vectors[doc])
 		}
 	}
 
@@ -236,7 +249,7 @@ func TestLucene99FlatVectors_DenseByteRoundTrip(t *testing.T) {
 	}
 
 	rs := &SegmentReadState{Directory: dir, SegmentInfo: si, FieldInfos: fis}
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("NewLucene99HnswVectorsReader: %v", err)
 	}
@@ -249,13 +262,26 @@ func TestLucene99FlatVectors_DenseByteRoundTrip(t *testing.T) {
 	if bvv.Size() != maxDoc {
 		t.Fatalf("Size = %d, want %d", bvv.Size(), maxDoc)
 	}
-	for doc := range vectors {
-		got, err := bvv.GetVector(doc)
+	gotByDoc := map[int][]byte{}
+	it := bvv.Iterator()
+	for {
+		doc, err := it.NextDoc()
 		if err != nil {
-			t.Fatalf("GetVector(%d): %v", doc, err)
+			t.Fatalf("NextDoc: %v", err)
 		}
+		if doc >= maxDoc {
+			break
+		}
+		v, err := bvv.VectorValue(it.Index())
+		if err != nil {
+			t.Fatalf("VectorValue(%d) of doc %d: %v", it.Index(), doc, err)
+		}
+		gotByDoc[doc] = append([]byte(nil), v...)
+	}
+	for doc := range vectors {
+		got := gotByDoc[doc]
 		if string(got) != string(vectors[doc]) {
-			t.Errorf("GetVector(%d) = %v, want %v", doc, got, vectors[doc])
+			t.Errorf("vector of doc %d = %v, want %v", doc, got, vectors[doc])
 		}
 	}
 
@@ -337,7 +363,7 @@ func TestLucene99FlatVectors_SparseFloatRoundTrip(t *testing.T) {
 
 	// --- read ---
 	rs := &SegmentReadState{Directory: dir, SegmentInfo: si, FieldInfos: fis}
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("NewLucene99HnswVectorsReader: %v", err)
 	}
@@ -347,7 +373,8 @@ func TestLucene99FlatVectors_SparseFloatRoundTrip(t *testing.T) {
 		t.Fatalf("CheckIntegrity: %v", err)
 	}
 
-	// (a) Get(docID): vector for docs that have one, nil otherwise.
+	// (a) iterator + vectorValue(ord): vector for docs that have one, none
+	// otherwise.
 	fvv, err := r.GetFloatVectorValues(field)
 	if err != nil {
 		t.Fatalf("GetFloatVectorValues: %v", err)
@@ -358,17 +385,30 @@ func TestLucene99FlatVectors_SparseFloatRoundTrip(t *testing.T) {
 	if fvv.Dimension() != dim {
 		t.Fatalf("Dimension = %d, want %d", fvv.Dimension(), dim)
 	}
-	for doc := 0; doc < maxDoc; doc++ {
-		got, err := fvv.GetVector(doc)
+	gotByDoc := map[int][]float32{}
+	it := fvv.Iterator()
+	for {
+		doc, err := it.NextDoc()
 		if err != nil {
-			t.Fatalf("GetVector(%d): %v", doc, err)
+			t.Fatalf("NextDoc: %v", err)
 		}
+		if doc >= maxDoc {
+			break
+		}
+		v, err := fvv.VectorValue(it.Index())
+		if err != nil {
+			t.Fatalf("VectorValue(%d) of doc %d: %v", it.Index(), doc, err)
+		}
+		gotByDoc[doc] = append([]float32(nil), v...)
+	}
+	for doc := 0; doc < maxDoc; doc++ {
+		got := gotByDoc[doc]
 		if want, ok := vecByDoc[doc]; ok {
 			if !float32SlicesEqual(got, want) {
-				t.Errorf("GetVector(%d) = %v, want %v", doc, got, want)
+				t.Errorf("vector of doc %d = %v, want %v", doc, got, want)
 			}
 		} else if got != nil {
-			t.Errorf("GetVector(%d) = %v, want nil (no vector for this doc)", doc, got)
+			t.Errorf("vector of doc %d = %v, want none (no vector for this doc)", doc, got)
 		}
 	}
 
@@ -486,7 +526,7 @@ func TestLucene99FlatVectors_SparseByteRoundTrip(t *testing.T) {
 	}
 
 	rs := &SegmentReadState{Directory: dir, SegmentInfo: si, FieldInfos: fis}
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("NewLucene99HnswVectorsReader: %v", err)
 	}
@@ -499,17 +539,30 @@ func TestLucene99FlatVectors_SparseByteRoundTrip(t *testing.T) {
 	if bvv.Size() != len(docsWith) {
 		t.Fatalf("Size = %d, want %d", bvv.Size(), len(docsWith))
 	}
-	for doc := 0; doc < maxDoc; doc++ {
-		got, err := bvv.GetVector(doc)
+	gotByDoc := map[int][]byte{}
+	it := bvv.Iterator()
+	for {
+		doc, err := it.NextDoc()
 		if err != nil {
-			t.Fatalf("GetVector(%d): %v", doc, err)
+			t.Fatalf("NextDoc: %v", err)
 		}
+		if doc >= maxDoc {
+			break
+		}
+		v, err := bvv.VectorValue(it.Index())
+		if err != nil {
+			t.Fatalf("VectorValue(%d) of doc %d: %v", it.Index(), doc, err)
+		}
+		gotByDoc[doc] = append([]byte(nil), v...)
+	}
+	for doc := 0; doc < maxDoc; doc++ {
+		got := gotByDoc[doc]
 		if want, ok := vecByDoc[doc]; ok {
 			if string(got) != string(want) {
-				t.Errorf("GetVector(%d) = %v, want %v", doc, got, want)
+				t.Errorf("vector of doc %d = %v, want %v", doc, got, want)
 			}
 		} else if got != nil {
-			t.Errorf("GetVector(%d) = %v, want nil (no vector for this doc)", doc, got)
+			t.Errorf("vector of doc %d = %v, want none (no vector for this doc)", doc, got)
 		}
 	}
 
@@ -556,4 +609,17 @@ func scoreDocsString(td *utilhnsw.TopDocs) string {
 		parts[i] = fmt.Sprintf("{doc=%d score=%.4f}", sd.Doc, sd.Score)
 	}
 	return "[" + strings.Join(parts, " ") + "]"
+}
+
+// openLucene99FlatVectorsReaderForTest opens the flat vectors reader that
+// Lucene99HnswVectorsFormat.fieldsReader hands to Lucene99HnswVectorsReader:
+// new Lucene99FlatVectorsFormat(FlatVectorScorerUtil.getLucene99FlatVectorsScorer())
+// .fieldsReader(state).
+func openLucene99FlatVectorsReaderForTest(t *testing.T, rs *SegmentReadState) *Lucene99FlatVectorsReader {
+	t.Helper()
+	flat, err := NewLucene99FlatVectorsReader(rs, lucene99HnswFlatVectorsFormat.vectorsScorer)
+	if err != nil {
+		t.Fatalf("NewLucene99FlatVectorsReader: %v", err)
+	}
+	return flat
 }

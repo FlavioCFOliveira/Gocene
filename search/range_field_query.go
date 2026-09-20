@@ -6,6 +6,7 @@ package search
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -128,7 +129,7 @@ func (q *RangeFieldQuery) BytesPerDim() int { return q.bytesPerDim }
 func (q *RangeFieldQuery) QueryType() RangeFieldQueryType { return q.queryType }
 
 // Rewrite returns q unchanged.
-func (q *RangeFieldQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
+func (q *RangeFieldQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // CreateWeight builds a ConstantScoreWeight that uses BKD-tree intersection.
 //
@@ -136,7 +137,7 @@ func (q *RangeFieldQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil 
 // back to matching no documents rather than panicking.
 //
 // Port of RangeFieldQuery.createWeight (Lucene 10.4.0).
-func (q *RangeFieldQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *RangeFieldQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	if q.numDims == 0 || q.bytesPerDim == 0 {
 		// No dimension metadata → return empty weight.
 		return NewConstantScoreWeight(q, boost, func(_ *index.LeafReaderContext) (ScorerSupplier, error) {
@@ -175,7 +176,7 @@ func (q *RangeFieldQuery) CreateWeight(searcher *IndexSearcher, needsScores bool
 			if err1 == nil && err2 == nil {
 				rel := rfqCompare(queryType, ranges, minPV, maxPV,
 					numDims, bytesPerDim, comparator)
-				if rel == rfqRelCellInside {
+				if rel == index.CellInsideQuery {
 					allDocsMatch = true
 				}
 			}
@@ -183,7 +184,7 @@ func (q *RangeFieldQuery) CreateWeight(searcher *IndexSearcher, needsScores bool
 
 		if allDocsMatch {
 			disi := newRangeDocIdSetIterator(maxDoc)
-			return NewScorerSupplierAdapter(NewConstantScoreScorer(boost, COMPLETE, disi)), nil
+			return NewDefaultScorerSupplier(NewConstantScoreScorer(boost, COMPLETE, disi)), nil
 		}
 
 		// Full intersection via BKD tree.
@@ -245,14 +246,21 @@ func (s *rangeFieldScorerSupplier) Get(_ int64) (Scorer, error) {
 
 func (s *rangeFieldScorerSupplier) Cost() int64 {
 	if s.estCost < 0 {
-		// estimate: use point count from pv
-		s.estCost = s.pv.EstimatePointCount(&rangeFieldIntersectVisitor{
+		// Java: cost = values.estimateDocCount(visitor)
+		// (RangeFieldQuery.java:499). estimateDocCount wraps an IOException in
+		// an UncheckedIOException, which crosses cost()'s throws-free
+		// signature; Go renders that unchecked throw as a panic.
+		estCost, err := s.pv.EstimateDocCount(&rangeFieldIntersectVisitor{
 			ranges:      s.ranges,
 			numDims:     s.numDims,
 			bytesPerDim: s.bytesPerDim,
 			queryType:   s.queryType,
 			comparator:  s.comparator,
 		})
+		if err != nil {
+			panic(err)
+		}
+		s.estCost = estCost
 		if s.estCost < 0 {
 			s.estCost = 0
 		}
@@ -299,10 +307,12 @@ func (v *rangeFieldIntersectVisitor) VisitByPackedValue(docID int, packedValue [
 	return nil
 }
 
-// Compare returns the relation for BKD pruning.  Return values match
-// codecs.Relation: 0=outside, 1=inside, 2=crosses.
-func (v *rangeFieldIntersectVisitor) Compare(min, max []byte) int {
-	return int(rfqCompare(v.queryType, v.ranges, min, max, v.numDims, v.bytesPerDim, v.comparator))
+// Compare returns the relation for BKD pruning. Renders the anonymous
+// IntersectVisitor.compare built by RangeFieldQuery.getIntersectVisitor
+// (RangeFieldQuery.java:434-436), which delegates to QueryType.compare
+// (RangeFieldQuery.java:281).
+func (v *rangeFieldIntersectVisitor) Compare(min, max []byte) index.Relation {
+	return rfqCompare(v.queryType, v.ranges, min, max, v.numDims, v.bytesPerDim, v.comparator)
 }
 
 // rangeFieldPointValues is the narrow interface this package requires from
@@ -310,28 +320,27 @@ func (v *rangeFieldIntersectVisitor) Compare(min, max []byte) int {
 // the index.PointValues signatures (error-returning) so that a concrete type
 // can satisfy both index.PointValues (metadata) and this extended interface
 // (intersection) without signature conflicts.
-type rangeFieldPointValues interface {
-	Intersect(visitor intersectVisitorRFQ) error
-	EstimatePointCount(visitor intersectVisitorRFQ) int64
-	GetMinPackedValue() ([]byte, error)
-	GetMaxPackedValue() ([]byte, error)
-	GetNumDimensions() int
-	GetBytesPerDimension() int
-	GetDocCount() int
-}
+// rangeFieldPointValues is an alias of index.PointValues. Before the two
+// PointValues renderings were merged it was a narrow structural interface
+// carrying the visitor-driven surface (Intersect / EstimatePointCount) that
+// index.PointValues did not declare; org.apache.lucene.index.PointValues
+// declares intersect and estimatePointCount as public final members, so the
+// whole surface is now on the one interface and the narrow duplicate has no
+// Lucene counterpart.
+type rangeFieldPointValues = index.PointValues
 
 // intersectVisitorRFQ is the visitor shape expected by rangeFieldPointValues.
 //
-// It is a type ALIAS of index.PointTreeIntersectVisitor (rmp #4769) — NOT a
+// It is a type ALIAS of index.IntersectVisitor (rmp #4769) — NOT a
 // fresh interface declaration. The distinction is load-bearing: the on-disk
 // BKD-backed PointValues returned by LeafReader.GetPointValues has an Intersect
-// method whose parameter type is literally index.PointTreeIntersectVisitor.
+// method whose parameter type is literally index.IntersectVisitor.
 // Go type assertions require exact method-signature identity, so a structurally
 // identical but distinct interface type would make the assertion in
 // getRangeFieldPointValues fail for the real codec reader (only in-package
 // stubs declaring Intersect over the local type would match), silently
 // matching zero documents. The alias keeps the parameter type identical.
-type intersectVisitorRFQ = index.PointTreeIntersectVisitor
+type intersectVisitorRFQ = index.IntersectVisitor
 
 // getRangeFieldPointValues type-asserts reader to rangeFieldPointValues for
 // the given field.  Returns (nil, false) if the reader does not expose this
@@ -356,48 +365,40 @@ func getRangeFieldPointValues(reader index.LeafReaderInterface, field string) (r
 	return pv, ok
 }
 
-// ── range relation constants ─────────────────────────────────────────────────
-
-const (
-	rfqRelCellOutside = 0
-	rfqRelCellInside  = 1
-	rfqRelCellCrosses = 2
-)
-
 // rfqCompare computes the BKD-pruning relation for a cell [minPV, maxPV]
 // against the query ranges payload.  Mirrors QueryType.compare (per-dim loop)
 // in Lucene 10.4.0.
-func rfqCompare(qType RangeFieldQueryType, ranges, minPV, maxPV []byte, numDims, bytesPerDim int, cmp bkd.ByteArrayComparator) int {
+func rfqCompare(qType RangeFieldQueryType, ranges, minPV, maxPV []byte, numDims, bytesPerDim int, cmp bkd.ByteArrayComparator) index.Relation {
 	if qType == RangeFieldQueryTypeCrosses {
 		// CROSSES = INTERSECTS AND NOT WITHIN
 		iRel := rfqCompare(RangeFieldQueryTypeIntersects, ranges, minPV, maxPV, numDims, bytesPerDim, cmp)
-		if iRel == rfqRelCellOutside {
-			return rfqRelCellOutside
+		if iRel == index.CellOutsideQuery {
+			return index.CellOutsideQuery
 		}
 		wRel := rfqCompare(RangeFieldQueryTypeWithin, ranges, minPV, maxPV, numDims, bytesPerDim, cmp)
-		if wRel == rfqRelCellInside {
-			return rfqRelCellOutside
+		if wRel == index.CellInsideQuery {
+			return index.CellOutsideQuery
 		}
-		if iRel == rfqRelCellInside && wRel == rfqRelCellOutside {
-			return rfqRelCellInside
+		if iRel == index.CellInsideQuery && wRel == index.CellOutsideQuery {
+			return index.CellInsideQuery
 		}
-		return rfqRelCellCrosses
+		return index.CellCrossesQuery
 	}
 
 	inside := true
 	for dim := 0; dim < numDims; dim++ {
 		rel := rfqCompareDim(qType, ranges, minPV, maxPV, numDims, bytesPerDim, dim, cmp)
-		if rel == rfqRelCellOutside {
-			return rfqRelCellOutside
+		if rel == index.CellOutsideQuery {
+			return index.CellOutsideQuery
 		}
-		if rel != rfqRelCellInside {
+		if rel != index.CellInsideQuery {
 			inside = false
 		}
 	}
 	if inside {
-		return rfqRelCellInside
+		return index.CellInsideQuery
 	}
-	return rfqRelCellCrosses
+	return index.CellCrossesQuery
 }
 
 // rfqCompareDim computes the single-dimension BKD relation.
@@ -408,7 +409,7 @@ func rfqCompare(qType RangeFieldQueryType, ranges, minPV, maxPV []byte, numDims,
 //
 //	minOffset = dim * bytesPerDim   (into ranges)
 //	maxOffset = (dim + numDims) * bytesPerDim
-func rfqCompareDim(qType RangeFieldQueryType, ranges, minPV, maxPV []byte, numDims, bytesPerDim, dim int, cmp bkd.ByteArrayComparator) int {
+func rfqCompareDim(qType RangeFieldQueryType, ranges, minPV, maxPV []byte, numDims, bytesPerDim, dim int, cmp bkd.ByteArrayComparator) index.Relation {
 	minOffset := dim * bytesPerDim
 	maxOffset := (dim + numDims) * bytesPerDim
 
@@ -417,43 +418,43 @@ func rfqCompareDim(qType RangeFieldQueryType, ranges, minPV, maxPV []byte, numDi
 		// cell is outside if qMax < cellMin OR qMin > cellMax
 		if cmp(ranges, maxOffset, minPV, minOffset) < 0 ||
 			cmp(ranges, minOffset, maxPV, maxOffset) > 0 {
-			return rfqRelCellOutside
+			return index.CellOutsideQuery
 		}
 		// cell is inside if qMax >= cellMax AND qMin <= cellMin
 		if cmp(ranges, maxOffset, maxPV, minOffset) >= 0 &&
 			cmp(ranges, minOffset, minPV, maxOffset) <= 0 {
-			return rfqRelCellInside
+			return index.CellInsideQuery
 		}
-		return rfqRelCellCrosses
+		return index.CellCrossesQuery
 
 	case RangeFieldQueryTypeWithin:
 		// all ranges must be at least one point outside: qMax < cellMax OR qMin > cellMin
 		if cmp(ranges, maxOffset, minPV, maxOffset) < 0 ||
 			cmp(ranges, minOffset, maxPV, minOffset) > 0 {
-			return rfqRelCellOutside
+			return index.CellOutsideQuery
 		}
 		// all ranges are within: qMax >= cellMax AND qMin <= cellMin
 		if cmp(ranges, maxOffset, maxPV, maxOffset) >= 0 &&
 			cmp(ranges, minOffset, minPV, minOffset) <= 0 {
-			return rfqRelCellInside
+			return index.CellInsideQuery
 		}
-		return rfqRelCellCrosses
+		return index.CellCrossesQuery
 
 	case RangeFieldQueryTypeContains:
 		// all ranges are either < qMax or > qMin
 		if cmp(ranges, maxOffset, maxPV, maxOffset) > 0 ||
 			cmp(ranges, minOffset, minPV, minOffset) < 0 {
-			return rfqRelCellOutside
+			return index.CellOutsideQuery
 		}
 		// all ranges contain: qMax <= cellMax AND qMin >= cellMin
 		if cmp(ranges, maxOffset, minPV, maxOffset) <= 0 &&
 			cmp(ranges, minOffset, maxPV, minOffset) >= 0 {
-			return rfqRelCellInside
+			return index.CellInsideQuery
 		}
-		return rfqRelCellCrosses
+		return index.CellCrossesQuery
 
 	default:
-		return rfqRelCellCrosses
+		return index.CellCrossesQuery
 	}
 }
 
@@ -506,24 +507,8 @@ func newRangeDocIdSetIterator(maxDoc int) DocIdSetIterator {
 	return NewRangeDocIdSetIterator(0, maxDoc)
 }
 
-// Clone returns a copy of the query.
-func (q *RangeFieldQuery) Clone() Query {
-	minCopy := make([]byte, len(q.queryMin))
-	copy(minCopy, q.queryMin)
-	maxCopy := make([]byte, len(q.queryMax))
-	copy(maxCopy, q.queryMax)
-	return &RangeFieldQuery{
-		field:       q.field,
-		queryMin:    minCopy,
-		queryMax:    maxCopy,
-		numDims:     q.numDims,
-		bytesPerDim: q.bytesPerDim,
-		queryType:   q.queryType,
-	}
-}
-
 // Equals reports structural equality.
-func (q *RangeFieldQuery) Equals(other Query) bool {
+func (q *RangeFieldQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*RangeFieldQuery)
 	if !ok {
 		return false
@@ -577,3 +562,43 @@ func (q *RangeFieldQuery) String(field string) string {
 
 // Ensure RangeFieldQuery implements Query.
 var _ Query = (*RangeFieldQuery)(nil)
+
+// BulkScorer mirrors the concrete body of ScorerSupplier.bulkScorer() in Apache
+// Lucene 10.5.0: new DefaultBulkScorer(get(Long.MAX_VALUE)).
+func (r *rangeFieldScorerSupplier) BulkScorer() (BulkScorer, error) {
+	return DefaultScorerSupplierBulkScorer(r)
+}
+
+// SetTopLevelScoringClause mirrors ScorerSupplier.setTopLevelScoringClause(),
+// whose body in Apache Lucene 10.5.0 is empty.
+func (r *rangeFieldScorerSupplier) SetTopLevelScoringClause() error {
+	return nil
+}
+
+// Visit mirrors RangeFieldQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (org.apache.lucene.document.RangeFieldQuery).
+func (q *RangeFieldQuery) Visit(visitor QueryVisitor) {
+	if visitor.AcceptField(q.field) {
+		visitor.VisitLeaf(q)
+	}
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *rangeFieldIntersectVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *rangeFieldIntersectVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *rangeFieldIntersectVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}

@@ -13,6 +13,8 @@
 
 package search
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // Ported from Apache Lucene 10.4.0:
 //   lucene/core/src/java/org/apache/lucene/search/DisjunctionScorer.java
 
@@ -122,7 +124,7 @@ func (s *DisjunctionScorer) Cost() int64 {
 }
 
 // DocIDRunEnd returns the end of the current run.
-func (s *DisjunctionScorer) DocIDRunEnd() int {
+func (s *DisjunctionScorer) DocIDRunEnd() (int, error) {
 	return s.approximation.DocIDRunEnd()
 }
 
@@ -132,9 +134,9 @@ func (s *DisjunctionScorer) DocIDRunEnd() int {
 // scoreTopList which concrete subclasses must shadow.
 // Errors from scoreTopList are silently dropped to satisfy the Scorer
 // interface; use ScoreWithError when error propagation matters.
-func (s *DisjunctionScorer) Score() float32 {
+func (s *DisjunctionScorer) Score() (float32, error) {
 	v, _ := s.ScoreWithError()
-	return v
+	return v, nil
 }
 
 // ScoreWithError is the error-returning variant used internally.
@@ -154,17 +156,21 @@ func (s *DisjunctionScorer) scoreTopList(_ *DisiWrapper) (float32, error) {
 
 // GetMaxScore returns an upper bound on the score for any document ≤ upTo.
 // The default sums all sub-scorer max scores; subclasses may tighten this.
-func (s *DisjunctionScorer) GetMaxScore(upTo int) float32 {
+func (s *DisjunctionScorer) GetMaxScore(upTo int) (float32, error) {
 	var max float64
 	for _, sc := range s.scorers {
 		if sc.DocID() <= upTo {
-			max += float64(sc.GetMaxScore(upTo))
+			m, err := sc.GetMaxScore(upTo)
+			if err != nil {
+				return 0, err
+			}
+			max += float64(m)
 		}
 	}
 	if max > float64(maxFloat32) {
-		return maxFloat32
+		return maxFloat32, nil
 	}
-	return float32(max)
+	return float32(max), nil
 }
 
 // getSubMatches returns the linked list of matching DisiWrappers for the
@@ -174,6 +180,21 @@ func (s *DisjunctionScorer) getSubMatches() (*DisiWrapper, error) {
 		return s.approximation.topList(), nil
 	}
 	return s.twoPhase.getSubMatches()
+}
+
+// Iterator mirrors DisjunctionScorer.iterator() (Lucene 10.5.0,
+// DisjunctionScorer.java:65-72):
+//
+//	if (twoPhase != null) {
+//	  return TwoPhaseIterator.asDocIdSetIterator(twoPhase);
+//	} else {
+//	  return approximation;
+//	}
+func (s *DisjunctionScorer) Iterator() DocIdSetIterator {
+	if s.twoPhase != nil {
+		return AsDocIdSetIterator(s.twoPhase.tpi)
+	}
+	return s.approximation
 }
 
 // TwoPhaseIterator returns the TwoPhaseIterator for this scorer, or nil
@@ -348,4 +369,11 @@ func tpAdvance(tp *disjunctionTwoPhase, target int) (int, error) {
 		doc, err = approx.NextDoc()
 	}
 	return NO_MORE_DOCS, err
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *DisjunctionScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

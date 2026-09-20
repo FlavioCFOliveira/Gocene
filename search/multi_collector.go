@@ -23,6 +23,7 @@ import (
 // faster to run the query twice, once per collector, rather than using this
 // wrapper on a single search.
 type MultiCollector struct {
+	BaseCollector
 	cacheScores bool
 	collectors  []Collector
 }
@@ -88,7 +89,7 @@ func NewMultiCollector(collectors ...Collector) *MultiCollector {
 func newMultiCollector(collectors []Collector) *MultiCollector {
 	numNeedsScores := 0
 	for _, c := range collectors {
-		if c.ScoreMode().needsScores() {
+		if c.ScoreMode().NeedsScores() {
 			numNeedsScores++
 		}
 	}
@@ -114,7 +115,7 @@ func (c *MultiCollector) ScoreMode() ScoreMode {
 		} else if scoreMode != cm {
 			// If score modes disagree, do not try to be smart: use one of the
 			// COMPLETE modes depending on whether scores are needed or not.
-			if scoreMode.needsScores() || cm.needsScores() {
+			if scoreMode.NeedsScores() || cm.NeedsScores() {
 				scoreMode = COMPLETE
 			} else {
 				scoreMode = COMPLETE_NO_SCORES
@@ -199,6 +200,7 @@ var _ Collector = (*MultiCollector)(nil)
 //
 // This is the Go port of MultiCollector.MultiLeafCollector.
 type multiLeafCollector struct {
+	BaseLeafCollector
 	collectors               []LeafCollector
 	minScores                []float32
 	skipNonCompetitiveScores bool
@@ -227,7 +229,7 @@ func newMultiLeafCollector(collectors []LeafCollector, skipNonCompetitive bool) 
 // wrapped so setMinCompetitiveScore is ignored — that way, if one wrapped
 // collector wants to skip low-scoring hits, the others still see all hits
 // (port of the FilterScorable used in Lucene's else branch).
-func (m *multiLeafCollector) SetScorer(scorer Scorer) error {
+func (m *multiLeafCollector) SetScorer(scorer Scorable) error {
 	if m.skipNonCompetitiveScores {
 		for i, c := range m.collectors {
 			if c != nil {
@@ -324,16 +326,21 @@ var (
 	_ leafCollectorFinisher = (*multiLeafCollector)(nil)
 )
 
-// ignoreMinCompetitiveScorer wraps a Scorer so that setMinCompetitiveScore is
-// ignored while every other Scorer/MinCompetitiveScorer call delegates to the
-// inner scorer. It is the Scorer-model equivalent of Lucene's anonymous
-// FilterScorable subclass used in MultiLeafCollector.setScorer.
+// ignoreMinCompetitiveScorer wraps a Scorable so that setMinCompetitiveScore is
+// ignored while every other Scorable call delegates to the inner scorable.
+//
+// Mirrors the anonymous FilterScorable subclass Lucene creates in
+// MultiCollector.MultiLeafCollector.setScorer:
+//
+//	scorer = new FilterScorable(scorer) {
+//	  @Override public void setMinCompetitiveScore(float minScore) { /* ignored */ }
+//	};
 type ignoreMinCompetitiveScorer struct {
-	Scorer
+	Scorable
 }
 
-func newIgnoreMinCompetitiveScorer(inner Scorer) *ignoreMinCompetitiveScorer {
-	return &ignoreMinCompetitiveScorer{Scorer: inner}
+func newIgnoreMinCompetitiveScorer(inner Scorable) *ignoreMinCompetitiveScorer {
+	return &ignoreMinCompetitiveScorer{Scorable: inner}
 }
 
 // SetMinCompetitiveScore deliberately does nothing, so wrapping two collectors
@@ -350,13 +357,13 @@ func (s *ignoreMinCompetitiveScorer) SetMinCompetitiveScore(minScore float32) er
 //
 // This is the Go port of MultiCollector.MinCompetitiveScoreAwareScorable.
 type minCompetitiveScoreAwareScorer struct {
-	Scorer
+	Scorable
 	idx       int
 	minScores []float32
 }
 
-func newMinCompetitiveScoreAwareScorer(inner Scorer, idx int, minScores []float32) *minCompetitiveScoreAwareScorer {
-	return &minCompetitiveScoreAwareScorer{Scorer: inner, idx: idx, minScores: minScores}
+func newMinCompetitiveScoreAwareScorer(inner Scorable, idx int, minScores []float32) *minCompetitiveScoreAwareScorer {
+	return &minCompetitiveScoreAwareScorer{Scorable: inner, idx: idx, minScores: minScores}
 }
 
 // SetMinCompetitiveScore records this child's minimum and forwards the shared
@@ -364,9 +371,7 @@ func newMinCompetitiveScoreAwareScorer(inner Scorer, idx int, minScores []float3
 func (s *minCompetitiveScoreAwareScorer) SetMinCompetitiveScore(minScore float32) error {
 	if minScore > s.minScores[s.idx] {
 		s.minScores[s.idx] = minScore
-		if mc, ok := s.Scorer.(MinCompetitiveScorer); ok {
-			return mc.SetMinCompetitiveScore(s.minScore())
-		}
+		return s.Scorable.SetMinCompetitiveScore(s.minScore())
 	}
 	return nil
 }
@@ -385,8 +390,18 @@ func (s *minCompetitiveScoreAwareScorer) minScore() float32 {
 
 // Ensure the scorer wrappers satisfy Scorer and MinCompetitiveScorer.
 var (
-	_ Scorer               = (*ignoreMinCompetitiveScorer)(nil)
-	_ MinCompetitiveScorer = (*ignoreMinCompetitiveScorer)(nil)
-	_ Scorer               = (*minCompetitiveScoreAwareScorer)(nil)
-	_ MinCompetitiveScorer = (*minCompetitiveScoreAwareScorer)(nil)
+	_ Scorable = (*ignoreMinCompetitiveScorer)(nil)
+	_ Scorable = (*minCompetitiveScoreAwareScorer)(nil)
 )
+
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int)
+// in Apache Lucene 10.5.0.
+func (m *multiLeafCollector) CollectRange(min, max int) error {
+	return DefaultCollectRange(m, min, max)
+}
+
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream)
+// in Apache Lucene 10.5.0.
+func (m *multiLeafCollector) CollectStream(stream DocIdStream) error {
+	return DefaultCollectStream(m, stream)
+}

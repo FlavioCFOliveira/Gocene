@@ -7,370 +7,249 @@ package index
 import (
 	"fmt"
 	"math"
-	"sort"
 )
 
-// LogMergePolicy is a merge policy that merges segments of approximately equal size
-// using a logarithmic tiering approach.
+const (
+	// LevelLogSpan defines the allowed range of log(size) for each level.
+	// Mirrors LogMergePolicy.LEVEL_LOG_SPAN.
+	LevelLogSpan = 0.75
+
+	// DefaultMergeFactor is the default number of segments merged at a time.
+	// Mirrors LogMergePolicy.DEFAULT_MERGE_FACTOR.
+	DefaultMergeFactor = 10
+
+	// DefaultMaxMergeDocs is the default maximum segment size in documents.
+	// Mirrors LogMergePolicy.DEFAULT_MAX_MERGE_DOCS.
+	DefaultMaxMergeDocs = math.MaxInt32
+
+	// DefaultLogMergeNoCFSRatio is the default ratio for disabling compound files.
+	// Mirrors LogMergePolicy.DEFAULT_NO_CFS_RATIO.
+	DefaultLogMergeNoCFSRatio = 0.1
+)
+
+// LogMergePolicy implements a MergePolicy that tries to merge segments into levels of
+// exponentially increasing size, where each level has fewer segments than the value of the
+// merge factor.
 //
-// This is the Go port of Lucene's org.apache.lucene.index.LogMergePolicy.
+// This is a faithful port of org.apache.lucene.index.LogMergePolicy from Apache Lucene 10.5.0.
 type LogMergePolicy struct {
 	*BaseMergePolicy
 
-	// minMergeSize is the minimum segment size to consider for merging (in bytes).
-	// Segments smaller than this are treated as this size.
-	// Default is 1.6 MB.
-	minMergeSize int64
-
-	// maxMergeSize is the maximum segment size to consider for merging (in bytes).
-	// Segments larger than this are not merged unless forced.
-	// Default is 2048 MB (2 GB).
-	maxMergeSize int64
-
-	// maxMergeSizeForForcedMerge is the maximum segment size for forced merges.
-	// Default is 0 (unlimited).
-	maxMergeSizeForForcedMerge int64
-
-	// mergeFactor is the number of segments to merge at once.
-	// Default is 10.
+	// mergeFactor is how many segments are merged at a time.
 	mergeFactor int
 
-	// noCFSRatio is the ratio for using compound files.
-	// If merged segment size / total index size < this ratio, use CFS.
-	// Default is 0.0 (always use CFS).
-	noCFSRatio float64
+	// minMergeSize is the size below which segments are candidates for full-flush merges.
+	minMergeSize int64
 
-	// maxMergeDocs is the maximum number of documents to merge at once.
-	// Default is max int.
+	// maxMergeSize is the size above which a segment will never be merged.
+	maxMergeSize int64
+
+	// maxMergeSizeForForcedMerge is the size above which a segment will never be merged during ForceMerge.
+	maxMergeSizeForForcedMerge int64
+
+	// maxMergeDocs is the document count above which a segment will never be merged.
 	maxMergeDocs int
 
-	// calibrateSizeByDeletes controls whether to calibrate segment size by deletes.
-	// Default is true.
+	// calibrateSizeByDeletes controls whether to pro-rate a segment's size by the percentage of non-deleted docs.
 	calibrateSizeByDeletes bool
 
-	// levelSize is the size multiplier between levels.
-	// Default is mergeFactor.
-	levelSize int64
+	// targetSearchConcurrency prevents creating segments bigger than maxDoc / targetSearchConcurrency.
+	targetSearchConcurrency int
 
-	// sizeCalculator returns the size of a segment for merge selection.
-	// It is set by concrete policies: LogDocMergePolicy uses document count
-	// while LogMergePolicy defaults to byte size. This indirection is needed
-	// because FindMerges is defined on the base *LogMergePolicy receiver and
-	// Go does not dispatch to promoted methods on embedded concrete types.
+	// sizeCalculator is used to implement the abstract 'size' method from Java.
+	// It is set by concrete subclasses (e.g., LogDocMergePolicy, LogByteSizeMergePolicy).
 	sizeCalculator func(*SegmentCommitInfo, MergeContext) int64
 }
 
 // NewLogMergePolicy creates a new LogMergePolicy with default settings.
 func NewLogMergePolicy() *LogMergePolicy {
 	return &LogMergePolicy{
-		BaseMergePolicy:            NewBaseMergePolicy(),
-		minMergeSize:               1677721,            // 1.6 MB
-		maxMergeSize:               2048 * 1024 * 1024, // 2 GB
-		maxMergeSizeForForcedMerge: math.MaxInt64,      // unlimited
-		mergeFactor:                10,
-		noCFSRatio:                 0.0,
-		maxMergeDocs:               math.MaxInt32,
+		BaseMergePolicy:            NewBaseMergePolicyWithDefaults(DefaultLogMergeNoCFSRatio, DefaultMaxCFSSegmentSize),
+		mergeFactor:                DefaultMergeFactor,
+		maxMergeSizeForForcedMerge: math.MaxInt64,
+		maxMergeDocs:               DefaultMaxMergeDocs,
 		calibrateSizeByDeletes:     true,
-		levelSize:                  10,
+		targetSearchConcurrency:    1,
 	}
 }
 
-// GetMinMergeMB returns the minimum merge size in MB.
-func (p *LogMergePolicy) GetMinMergeMB() float64 {
-	return float64(p.minMergeSize) / 1024.0 / 1024.0
-}
-
-// SetMinMergeMB sets the minimum merge size in MB.
-func (p *LogMergePolicy) SetMinMergeMB(v float64) {
-	p.minMergeSize = int64(v * 1024 * 1024)
-}
-
-// GetMaxMergeMB returns the maximum merge size in MB.
-func (p *LogMergePolicy) GetMaxMergeMB() float64 {
-	return float64(p.maxMergeSize) / 1024.0 / 1024.0
-}
-
-// SetMaxMergeMB sets the maximum merge size in MB.
-func (p *LogMergePolicy) SetMaxMergeMB(v float64) {
-	p.maxMergeSize = int64(v * 1024 * 1024)
-}
-
-// GetMaxMergeMBForForcedMerge returns the maximum merge size for forced merges in MB.
-func (p *LogMergePolicy) GetMaxMergeMBForForcedMerge() float64 {
-	return float64(p.maxMergeSizeForForcedMerge) / 1024.0 / 1024.0
-}
-
-// SetMaxMergeMBForForcedMerge sets the maximum merge size for forced merges in MB.
-func (p *LogMergePolicy) SetMaxMergeMBForForcedMerge(v float64) {
-	p.maxMergeSizeForForcedMerge = int64(v * 1024 * 1024)
-}
-
-// GetMergeFactor returns the merge factor.
+// GetMergeFactor returns the number of segments that are merged at once.
 func (p *LogMergePolicy) GetMergeFactor() int {
 	return p.mergeFactor
 }
 
-// SetMergeFactor sets the merge factor.
-func (p *LogMergePolicy) SetMergeFactor(v int) {
-	if v < 2 {
-		v = 2
+// SetMergeFactor sets the number of segments that are merged at once.
+func (p *LogMergePolicy) SetMergeFactor(mergeFactor int) {
+	if mergeFactor < 2 {
+		panic("mergeFactor cannot be less than 2")
 	}
-	p.mergeFactor = v
-	p.levelSize = int64(v)
+	p.mergeFactor = mergeFactor
 }
 
-// GetMaxMergeDocs returns the maximum number of documents to merge.
-func (p *LogMergePolicy) GetMaxMergeDocs() int {
-	return p.maxMergeDocs
-}
-
-// SetMaxMergeDocs sets the maximum number of documents to merge.
-func (p *LogMergePolicy) SetMaxMergeDocs(v int) {
-	p.maxMergeDocs = v
-}
-
-// GetCalibrateSizeByDeletes returns whether to calibrate size by deletes.
+// GetCalibrateSizeByDeletes returns whether segment size is calibrated by deletes.
 func (p *LogMergePolicy) GetCalibrateSizeByDeletes() bool {
 	return p.calibrateSizeByDeletes
 }
 
-// SetCalibrateSizeByDeletes sets whether to calibrate size by deletes.
-func (p *LogMergePolicy) SetCalibrateSizeByDeletes(v bool) {
-	p.calibrateSizeByDeletes = v
+// SetCalibrateSizeByDeletes sets whether segment size is calibrated by deletes.
+func (p *LogMergePolicy) SetCalibrateSizeByDeletes(calibrateSizeByDeletes bool) {
+	p.calibrateSizeByDeletes = calibrateSizeByDeletes
 }
 
-// GetNoCFSRatio returns the compound file ratio.
-func (p *LogMergePolicy) GetNoCFSRatio() float64 {
-	return p.noCFSRatio
+// GetTargetSearchConcurrency returns the target search concurrency.
+func (p *LogMergePolicy) GetTargetSearchConcurrency() int {
+	return p.targetSearchConcurrency
 }
 
-// SetNoCFSRatio sets the compound file ratio.
-func (p *LogMergePolicy) SetNoCFSRatio(v float64) {
-	p.noCFSRatio = v
+// SetTargetSearchConcurrency sets the target search concurrency.
+func (p *LogMergePolicy) SetTargetSearchConcurrency(targetSearchConcurrency int) {
+	if targetSearchConcurrency < 1 {
+		panic(fmt.Sprintf("targetSearchConcurrency must be >= 1 (got %d)", targetSearchConcurrency))
+	}
+	p.targetSearchConcurrency = targetSearchConcurrency
 }
 
-// Size returns the size of a segment for merge policy purposes.
-// This may be calibrated by deletes if calibrateSizeByDeletes is true.
+// sizeDocs returns the number of documents in the provided SegmentCommitInfo,
+// pro-rated by percentage of non-deleted documents if calibrateSizeByDeletes is set.
+func (p *LogMergePolicy) sizeDocs(info *SegmentCommitInfo, mergeContext MergeContext) int64 {
+	if p.calibrateSizeByDeletes {
+		delCount := mergeContext.NumDeletesToMerge(info)
+		return int64(info.SegmentInfo().MaxDoc() - delCount)
+	}
+	return int64(info.SegmentInfo().MaxDoc())
+}
+
+// sizeBytes returns the byte size of the provided SegmentCommitInfo,
+// pro-rated by percentage of non-deleted documents if calibrateSizeByDeletes is set.
+func (p *LogMergePolicy) sizeBytes(info *SegmentCommitInfo, mergeContext MergeContext) int64 {
+	if p.calibrateSizeByDeletes {
+		size, err := p.BaseMergePolicy.Size(info, mergeContext)
+		if err != nil {
+			return 0 // In a real implementation, we'd handle the error
+		}
+		return size
+	}
+	return info.SegmentInfo().SizeInBytes()
+}
+
+// Size implements the 'abstract' size method. It uses the sizeCalculator if provided,
+// otherwise it defaults to byte size.
 func (p *LogMergePolicy) Size(info *SegmentCommitInfo, mergeContext MergeContext) int64 {
 	if p.sizeCalculator != nil {
 		return p.sizeCalculator(info, mergeContext)
 	}
-
-	byteSize := info.SegmentInfo().SizeInBytes()
-
-	if p.calibrateSizeByDeletes && mergeContext != nil {
-		delCount := mergeContext.NumDeletesToMerge(info)
-		maxDoc := info.SegmentInfo().DocCount()
-
-		if maxDoc > 0 && delCount > 0 {
-			delRatio := float64(delCount) / float64(maxDoc)
-			if delRatio > 1.0 {
-				delRatio = 1.0
-			}
-			byteSize = int64(float64(byteSize) * (1.0 - delRatio))
-		}
-	}
-
-	return byteSize
+	return p.sizeBytes(info, mergeContext)
 }
 
-// logSegInfo holds segment info with size for level grouping.
-type logSegInfo struct {
-	info *SegmentCommitInfo
-	size int64
+// isMerged reports whether the segment is already fully merged.
+func (p *LogMergePolicy) isMerged(infos *SegmentInfos, info *SegmentCommitInfo, mergeContext MergeContext) (bool, error) {
+	return p.BaseMergePolicy.IsMerged(infos, info, mergeContext)
 }
 
-// FindMerges finds merges based on the log policy.
-// This implements GC-636: LogMergePolicy.FindMerges
-func (p *LogMergePolicy) FindMerges(trigger MergeTrigger, infos *SegmentInfos, mergeContext MergeContext) (*MergeSpecification, error) {
-	if mergeContext == nil {
-		return nil, nil
-	}
+func (p *LogMergePolicy) MaxFullFlushMergeSize() int64 {
+	return p.minMergeSize
+}
 
-	merging := mergeContext.GetMergingSegments()
-
-	// Collect eligible segments (not currently merging)
-	eligible := make([]logSegInfo, 0, infos.Size())
-
-	for sci := range infos.Iterator() {
-		if !merging[sci] {
-			size := p.Size(sci, mergeContext)
-			eligible = append(eligible, logSegInfo{info: sci, size: size})
-		}
-	}
-
-	if len(eligible) == 0 {
-		return nil, nil
-	}
-
-	// Sort by size (smallest first)
-	sort.Slice(eligible, func(i, j int) bool {
-		return eligible[i].size < eligible[j].size
-	})
-
-	// Find merges
+// findForcedMergesSizeLimit returns merges necessary to merge the index when some
+// segments exceed the size or doc limits.
+func (p *LogMergePolicy) findForcedMergesSizeLimit(infos *SegmentInfos, last int, mergeContext MergeContext) (*MergeSpecification, error) {
 	spec := NewMergeSpecification()
+	segments := infos.List()
 
-	// Group segments by level
-	levels := p.getLevelSizes(eligible)
-
-	for _, level := range levels {
-		// Find merges within this level
-		for i := 0; i+p.mergeFactor <= len(level); {
-			// Check if we have mergeFactor segments of similar size
-			candidate := make([]*SegmentCommitInfo, 0, p.mergeFactor)
-			var totalSize int64
-
-			for j := i; j < len(level) && len(candidate) < p.mergeFactor; j++ {
-				size := level[j].size
-				if totalSize+size > p.maxMergeSize && len(candidate) >= 2 {
-					// Would exceed max merge size
-					break
-				}
-				candidate = append(candidate, level[j].info)
-				totalSize += size
+	start := last - 1
+	for start >= 0 {
+		info := infos.Get(start)
+		if p.Size(info, mergeContext) > p.maxMergeSizeForForcedMerge ||
+			p.sizeDocs(info, mergeContext) > int64(p.maxMergeDocs) {
+			if p.Verbose(mergeContext) {
+				p.Message(fmt.Sprintf("findForcedMergesSizeLimit: skip segment=%s: size is > maxMergeSize (%d) or sizeDocs is > maxMergeDocs (%d)",
+					info.String(), p.maxMergeSizeForForcedMerge, p.maxMergeDocs), mergeContext)
 			}
-
-			if len(candidate) >= p.mergeFactor {
-				// Check max merge docs
-				totalDocs := 0
-				for _, seg := range candidate {
-					totalDocs += seg.SegmentInfo().DocCount()
+			if last-start-1 > 1 {
+				merged := make([]*SegmentCommitInfo, 0, last-start-1)
+				for i := start + 1; i < last; i++ {
+					merged = append(merged, segments[i])
 				}
-				if totalDocs <= p.maxMergeDocs {
-					merge := NewOneMerge(candidate)
-					spec.Add(merge)
-					i += len(candidate)
-					continue
+				spec.Add(NewOneMerge(merged))
+			} else if last-start-1 == 1 {
+				infoNext := infos.Get(start + 1)
+				merged, err := p.isMerged(infos, infoNext, mergeContext)
+				if err != nil {
+					return nil, err
+				}
+				if !merged {
+					spec.Add(NewOneMerge([]*SegmentCommitInfo{infoNext}))
 				}
 			}
-			i++
+			last = start
+		} else if last-start == p.mergeFactor {
+			merged := make([]*SegmentCommitInfo, 0, p.mergeFactor)
+			for i := start; i < last; i++ {
+				merged = append(merged, segments[i])
+			}
+			spec.Add(NewOneMerge(merged))
+			last = start
+		}
+		start--
+	}
+
+	if last > 0 {
+		start = last - 1
+		if last > 1 || func() bool {
+			merged, err := p.isMerged(infos, infos.Get(start), mergeContext)
+			if err != nil {
+				return false
+			}
+			return !merged
+		}() {
+			merged := make([]*SegmentCommitInfo, 0, last)
+			for i := 0; i < last; i++ {
+				merged = append(merged, segments[i])
+			}
+			spec.Add(NewOneMerge(merged))
 		}
 	}
 
 	if spec.Size() == 0 {
 		return nil, nil
 	}
-
 	return spec, nil
 }
 
-// getLevelSizes groups segments by level based on their sizes.
-// Implements the logarithmic tiering scale: level = floor(log(size / minMergeSize) / log(mergeFactor))
-func (p *LogMergePolicy) getLevelSizes(segments []logSegInfo) [][]logSegInfo {
-	if len(segments) == 0 {
-		return nil
-	}
-
-	levelsMap := make(map[int][]logSegInfo)
-	maxLevel := 0
-
-	for _, seg := range segments {
-		size := seg.size
-		if size < p.minMergeSize {
-			size = p.minMergeSize
-		}
-
-		level := int(math.Floor(math.Log(float64(size)/float64(p.minMergeSize)) / math.Log(float64(p.mergeFactor))))
-		levelsMap[level] = append(levelsMap[level], seg)
-		if level > maxLevel {
-			maxLevel = level
-		}
-	}
-
-	levels := make([][]logSegInfo, 0, len(levelsMap))
-	// Process levels in ascending order
-	for i := 0; i <= maxLevel; i++ {
-		if level, ok := levelsMap[i]; ok {
-			levels = append(levels, level)
-		}
-	}
-
-	return levels
-}
-
-// FindForcedMerges finds forced merges to reduce segment count.
-//
-// Ported from Lucene's LogMergePolicy.findForcedMerges (Java).
-func (p *LogMergePolicy) FindForcedMerges(
-	infos *SegmentInfos,
-	maxSegmentCount int,
-	segmentsToMerge map[*SegmentCommitInfo]bool,
-	mergeContext MergeContext,
-) (*MergeSpecification, error) {
-
-	if mergeContext == nil {
-		return nil, nil
-	}
-
-	// Find the rightmost (newest) segment that needs merging.
-	last := infos.Size()
-	for last > 0 {
-		if _, needsMerge := segmentsToMerge[infos.Get(last-1)]; needsMerge {
-			break
-		}
-		last--
-	}
-	if last == 0 {
-		return nil, nil
-	}
-
-	// Early exit if the index is already at or below the target segment count.
-	if infos.Size() <= maxSegmentCount {
-		return nil, nil
-	}
-
-	// Check whether any segment in [0, last) exceeds the size or doc caps.
-	anyTooLarge := false
-	for i := 0; i < last; i++ {
-		sci := infos.Get(i)
-		if p.Size(sci, mergeContext) > p.maxMergeSizeForForcedMerge ||
-			int64(sci.SegmentInfo().DocCount()) > int64(p.maxMergeDocs) {
-			anyTooLarge = true
-			break
-		}
-	}
-
-	if anyTooLarge {
-		return p.findForcedMergesSizeLimit(infos, last, mergeContext)
-	}
-	return p.findForcedMergesMaxNumSegments(infos, maxSegmentCount, last, mergeContext)
-}
-
-// findForcedMergesMaxNumSegments returns merges to reach exactly
-// maxSegmentCount when no segment exceeds the size/doc caps.
-func (p *LogMergePolicy) findForcedMergesMaxNumSegments(
-	infos *SegmentInfos,
-	maxSegmentCount int,
-	last int,
-	mergeContext MergeContext,
-) (*MergeSpecification, error) {
-
+// findForcedMergesMaxNumSegments returns merges to reach exactly maxNumSegments.
+func (p *LogMergePolicy) findForcedMergesMaxNumSegments(infos *SegmentInfos, maxNumSegments, last int, mergeContext MergeContext) (*MergeSpecification, error) {
 	spec := NewMergeSpecification()
 	segments := infos.List()
 
-	for last-maxSegmentCount+1 >= p.mergeFactor {
-		from := last - p.mergeFactor
-		candidates := make([]*SegmentCommitInfo, p.mergeFactor)
-		for j := 0; j < p.mergeFactor; j++ {
-			candidates[j] = segments[from+j]
+	for last-maxNumSegments+1 >= p.mergeFactor {
+		merged := make([]*SegmentCommitInfo, 0, p.mergeFactor)
+		for i := last - p.mergeFactor; i < last; i++ {
+			merged = append(merged, segments[i])
 		}
-		spec.Add(NewOneMerge(candidates))
+		spec.Add(NewOneMerge(merged))
 		last -= p.mergeFactor
 	}
 
 	if spec.Size() == 0 {
-		if maxSegmentCount == 1 {
-			if last > 1 || !p.IsMerged(infos, infos.Get(0), mergeContext) {
-				candidates := make([]*SegmentCommitInfo, last)
-				for j := 0; j < last; j++ {
-					candidates[j] = segments[j]
+		if maxNumSegments == 1 {
+			if last > 1 {
+				merged := make([]*SegmentCommitInfo, 0, last)
+				for i := 0; i < last; i++ {
+					merged = append(merged, segments[i])
 				}
-				spec.Add(NewOneMerge(candidates))
+				spec.Add(NewOneMerge(merged))
+			} else if last == 1 {
+				merged, err := p.isMerged(infos, infos.Get(0), mergeContext)
+				if err != nil {
+					return nil, err
+				}
+				if !merged {
+					spec.Add(NewOneMerge([]*SegmentCommitInfo{infos.Get(0)}))
+				}
 			}
-		} else if last > maxSegmentCount {
-			finalMergeSize := last - maxSegmentCount + 1
-			bestSize := int64(0)
+		} else if last > maxNumSegments {
+			finalMergeSize := last - maxNumSegments + 1
+			var bestSize int64
 			bestStart := 0
 
 			for i := 0; i < last-finalMergeSize+1; i++ {
@@ -383,12 +262,11 @@ func (p *LogMergePolicy) findForcedMergesMaxNumSegments(
 					bestSize = sumSize
 				}
 			}
-
-			candidates := make([]*SegmentCommitInfo, finalMergeSize)
-			for j := 0; j < finalMergeSize; j++ {
-				candidates[j] = segments[bestStart+j]
+			merged := make([]*SegmentCommitInfo, 0, finalMergeSize)
+			for i := bestStart; i < bestStart+finalMergeSize; i++ {
+				merged = append(merged, segments[i])
 			}
-			spec.Add(NewOneMerge(candidates))
+			spec.Add(NewOneMerge(merged))
 		}
 	}
 
@@ -398,92 +276,140 @@ func (p *LogMergePolicy) findForcedMergesMaxNumSegments(
 	return spec, nil
 }
 
-// findForcedMergesSizeLimit returns merges for segments when some segments
-// exceed the maxMergeSizeForForcedMerge or maxMergeDocs caps.
-func (p *LogMergePolicy) findForcedMergesSizeLimit(
-	infos *SegmentInfos,
-	last int,
-	mergeContext MergeContext,
-) (*MergeSpecification, error) {
-
-	spec := NewMergeSpecification()
-	segments := infos.List()
-
-	start := last - 1
-	for start >= 0 {
-		sci := infos.Get(start)
-		size := p.Size(sci, mergeContext)
-		tooLarge := size > p.maxMergeSizeForForcedMerge ||
-			int64(sci.SegmentInfo().DocCount()) > int64(p.maxMergeDocs)
-
-		if tooLarge {
-			rightCount := last - start - 1
-			if rightCount > 1 || (rightCount == 1 && !p.IsMerged(infos, infos.Get(start+1), mergeContext)) {
-				candidates := make([]*SegmentCommitInfo, rightCount)
-				for j := 0; j < rightCount; j++ {
-					candidates[j] = segments[start+1+j]
-				}
-				spec.Add(NewOneMerge(candidates))
-			}
-			last = start
-		} else if last-start == p.mergeFactor {
-			candidates := make([]*SegmentCommitInfo, p.mergeFactor)
-			for j := 0; j < p.mergeFactor; j++ {
-				candidates[j] = segments[start+j]
-			}
-			spec.Add(NewOneMerge(candidates))
-			last = start
-		}
-		start--
+// FindForcedMerges implements the forced merge logic.
+func (p *LogMergePolicy) FindForcedMerges(infos *SegmentInfos, maxNumSegments int, segmentsToMerge map[*SegmentCommitInfo]bool, mergeContext MergeContext) (*MergeSpecification, error) {
+	if maxNumSegments <= 0 {
+		panic("maxNumSegments must be > 0")
+	}
+	if p.Verbose(mergeContext) {
+		p.Message(fmt.Sprintf("findForcedMerges: maxNumSegs=%d segsToMerge=%v", maxNumSegments, segmentsToMerge), mergeContext)
 	}
 
-	leftCount := last
-	if leftCount > 0 {
-		first := 0
-		if leftCount > 1 || !p.IsMerged(infos, infos.Get(first), mergeContext) {
-			candidates := make([]*SegmentCommitInfo, leftCount)
-			for j := 0; j < leftCount; j++ {
-				candidates[j] = segments[j]
-			}
-			spec.Add(NewOneMerge(candidates))
-		}
+	alreadyMerged, err := p.isMergedForced(infos, maxNumSegments, segmentsToMerge, mergeContext)
+	if err != nil {
+		return nil, err
 	}
-
-	if spec.Size() == 0 {
+	if alreadyMerged {
+		if p.Verbose(mergeContext) {
+			p.Message("already merged; skip", mergeContext)
+		}
 		return nil, nil
 	}
-	return spec, nil
+
+	last := infos.Size()
+	for last > 0 {
+		info := infos.Get(last - 1)
+		if segmentsToMerge[info] {
+			last++
+			break
+		}
+		last--
+	}
+
+	if last == 0 {
+		if p.Verbose(mergeContext) {
+			p.Message("last == 0; skip", mergeContext)
+		}
+		return nil, nil
+	}
+
+	if maxNumSegments == 1 && last == 1 {
+		merged, err := p.isMerged(infos, infos.Get(0), mergeContext)
+		if err != nil {
+			return nil, err
+		}
+		if merged {
+			if p.Verbose(mergeContext) {
+				p.Message("already 1 seg; skip", mergeContext)
+			}
+			return nil, nil
+		}
+	}
+
+	anyTooLarge := false
+	for i := 0; i < last; i++ {
+		info := infos.Get(i)
+		if p.Size(info, mergeContext) > p.maxMergeSizeForForcedMerge ||
+			p.sizeDocs(info, mergeContext) > int64(p.maxMergeDocs) {
+			anyTooLarge = true
+			break
+		}
+	}
+
+	if anyTooLarge {
+		return p.findForcedMergesSizeLimit(infos, last, mergeContext)
+	}
+	return p.findForcedMergesMaxNumSegments(infos, maxNumSegments, last, mergeContext)
 }
 
-// FindForcedDeletesMerges finds merges to expunge deleted documents.
-func (p *LogMergePolicy) FindForcedDeletesMerges(
-	infos *SegmentInfos,
-	mergeContext MergeContext,
-) (*MergeSpecification, error) {
+func (p *LogMergePolicy) isMergedForced(infos *SegmentInfos, maxNumSegments int, segmentsToMerge map[*SegmentCommitInfo]bool, mergeContext MergeContext) (bool, error) {
+	numSegments := infos.Size()
+	numToMerge := 0
+	var mergeInfo *SegmentCommitInfo
+	var segmentIsOriginal bool
 
+	for i := 0; i < numSegments && numToMerge <= maxNumSegments; i++ {
+		info := infos.Get(i)
+		if isOriginal, ok := segmentsToMerge[info]; ok {
+			segmentIsOriginal = isOriginal
+			numToMerge++
+			mergeInfo = info
+		}
+	}
+
+	if numToMerge > maxNumSegments {
+		return false, nil
+	}
+	if numToMerge == 1 && segmentIsOriginal {
+		return p.isMerged(infos, mergeInfo, mergeContext)
+	}
+	return true, nil
+}
+
+// FindForcedDeletesMerges finds merges to expunge all deletes from the index.
+func (p *LogMergePolicy) FindForcedDeletesMerges(segmentInfos *SegmentInfos, mergeContext MergeContext) (*MergeSpecification, error) {
 	if mergeContext == nil {
 		return nil, nil
 	}
+	if p.Verbose(mergeContext) {
+		p.Message(fmt.Sprintf("findForcedDeleteMerges: %d segments", segmentInfos.Size()), mergeContext)
+	}
 
 	spec := NewMergeSpecification()
-	first := -1
-	segments := infos.List()
-	for i, info := range segments {
+	segments := segmentInfos.List()
+	numSegments := len(segments)
+	firstSegmentWithDeletions := -1
+
+	for i := 0; i < numSegments; i++ {
+		info := segments[i]
 		delCount := mergeContext.NumDeletesToMerge(info)
 		if delCount > 0 {
-			if first == -1 {
-				first = i
-			} else if i-first == p.mergeFactor {
-				spec.Add(NewOneMerge(segments[first:i]))
-				first = i
+			if p.Verbose(mergeContext) {
+				p.Message(fmt.Sprintf("  segment %s has deletions", info.SegmentInfo().Name()), mergeContext)
 			}
-		} else if first != -1 {
-			spec.Add(NewOneMerge(segments[first:i]))
-			first = -1
+			if firstSegmentWithDeletions == -1 {
+				firstSegmentWithDeletions = i
+			} else if i-firstSegmentWithDeletions == p.mergeFactor {
+				if p.Verbose(mergeContext) {
+					p.Message(fmt.Sprintf("  add merge %d to %d inclusive", firstSegmentWithDeletions, i-1), mergeContext)
+				}
+				spec.Add(NewOneMerge(segments[firstSegmentWithDeletions:i]))
+				firstSegmentWithDeletions = i
+			}
+		} else if firstSegmentWithDeletions != -1 {
+			if p.Verbose(mergeContext) {
+				p.Message(fmt.Sprintf("  add merge %d to %d inclusive", firstSegmentWithDeletions, i-1), mergeContext)
+			}
+			spec.Add(NewOneMerge(segments[firstSegmentWithDeletions:i]))
+			firstSegmentWithDeletions = -1
 		}
 	}
-	if first != -1 {
-		spec.Add(NewOneMerge(segments[first:]))
+
+	if firstSegmentWithDeletions != -1 {
+		if p.Verbose(mergeContext) {
+			p.Message(fmt.Sprintf("  add merge %d to %d inclusive", firstSegmentWithDeletions, numSegments-1), mergeContext)
+		}
+		spec.Add(NewOneMerge(segments[firstSegmentWithDeletions:]))
 	}
 
 	if spec.Size() == 0 {
@@ -492,42 +418,177 @@ func (p *LogMergePolicy) FindForcedDeletesMerges(
 	return spec, nil
 }
 
-// UseCompoundFile returns true if the merged segment should use compound file.
-
-// NumDeletesToMerge returns the number of deletes for a segment.
-func (p *LogMergePolicy) NumDeletesToMerge(info *SegmentCommitInfo, delCount int) int {
-	return delCount
+type segmentInfoAndLevel struct {
+	info  *SegmentCommitInfo
+	level float32
 }
 
-// KeepFullyDeletedSegment returns false by default.
-func (p *LogMergePolicy) KeepFullyDeletedSegment(info *SegmentCommitInfo) bool {
-	return false
-}
-
-// String returns a string representation of the policy.
-func (p *LogMergePolicy) String() string {
-	return fmt.Sprintf("[LogMergePolicy: minMergeMB=%.1f, maxMergeMB=%.1f, mergeFactor=%d, maxMergeDocs=%d]",
-		p.GetMinMergeMB(), p.GetMaxMergeMB(), p.mergeFactor, p.maxMergeDocs)
-}
-
-// LogByteSizeMergePolicy merges segments based on their byte size.
-type LogByteSizeMergePolicy struct {
-	*LogMergePolicy
-}
-
-// NewLogByteSizeMergePolicy creates a new LogByteSizeMergePolicy.
-func NewLogByteSizeMergePolicy() *LogByteSizeMergePolicy {
-	return &LogByteSizeMergePolicy{
-		LogMergePolicy: NewLogMergePolicy(),
+// FindMerges identifies merges necessary to merge the index.
+func (p *LogMergePolicy) FindMerges(mergeTrigger MergeTrigger, infos *SegmentInfos, mergeContext MergeContext) (*MergeSpecification, error) {
+	if mergeContext == nil {
+		return nil, nil
 	}
+	numSegments := infos.Size()
+	if p.Verbose(mergeContext) {
+		p.Message(fmt.Sprintf("findMerges: %d segments", numSegments), mergeContext)
+	}
+
+	norm := math.Log(float64(p.mergeFactor))
+	mergingSegments := mergeContext.GetMergingSegments()
+
+	levels := make([]segmentInfoAndLevel, 0, numSegments)
+	totalDocCount := 0
+	for i := 0; i < numSegments; i++ {
+		info := infos.Get(i)
+		totalDocCount += int(p.sizeDocs(info, mergeContext))
+		size := p.Size(info, mergeContext)
+		if size < 1 {
+			size = 1
+		}
+		levels = append(levels, segmentInfoAndLevel{
+			info:  info,
+			level: float32(math.Log(float64(size)) / norm),
+		})
+
+		if p.Verbose(mergeContext) {
+			segBytes := p.sizeBytes(info, mergeContext)
+			extra := ""
+			if mergingSegments[info] {
+				extra += " [merging]"
+			}
+			if size >= p.maxMergeSize {
+				extra += " [skip: too large]"
+			}
+			p.Message(fmt.Sprintf("seg=%s level=%.3f size=%.3f MB%s",
+				p.SegString(mergeContext, []*SegmentCommitInfo{info}),
+				levels[len(levels)-1].level,
+				float64(segBytes)/1024.0/1024.0,
+				extra), mergeContext)
+		}
+	}
+
+	var levelFloor float32
+	if p.minMergeSize <= 0 {
+		levelFloor = 0.0
+	} else {
+		levelFloor = float32(math.Log(float64(p.minMergeSize)) / norm)
+	}
+
+	maxLevels := make([]float32, numSegments+1)
+	maxLevels[numSegments] = -1.0
+	for i := numSegments - 1; i >= 0; i-- {
+		maxLevels[i] = float32(math.Max(float64(levels[i].level), float64(maxLevels[i+1])))
+	}
+
+	var spec *MergeSpecification
+	start := 0
+	for start < numSegments {
+		maxLevel := maxLevels[start]
+		var levelBottom float32
+		if maxLevel > levelFloor {
+			levelBottom = maxLevel - LevelLogSpan
+		} else {
+			levelBottom = maxLevel - 2*LevelLogSpan
+		}
+
+		upto := numSegments - 1
+		for upto >= start {
+			if levels[upto].level >= levelBottom {
+				break
+			}
+			upto--
+		}
+		if p.Verbose(mergeContext) {
+			p.Message(fmt.Sprintf("  level %.3f to %.3f: %d segments",
+				levelBottom, maxLevel, 1+upto-start), mergeContext)
+		}
+
+		maxMergeDocs := int(math.Min(float64(p.maxMergeDocs), math.Ceil(float64(totalDocCount)/float64(p.targetSearchConcurrency))))
+
+		end := start + p.mergeFactor
+		for end <= 1+upto {
+			anyMerging := false
+			var mergeSize int64
+			var mergeDocs int
+			for i := start; i < end; i++ {
+				info := levels[i].info
+				if mergingSegments[info] {
+					anyMerging = true
+					break
+				}
+				s := p.Size(info, mergeContext)
+				d := int(p.sizeDocs(info, mergeContext))
+				if mergeSize+s > p.maxMergeSize || mergeDocs+d > maxMergeDocs {
+					if i == start {
+						if p.Verbose(mergeContext) {
+							p.Message(fmt.Sprintf("    %d is larger than the max merge size/docs; ignoring", i), mergeContext)
+						}
+						end = i + 1
+					} else {
+						end = i
+					}
+					break
+				}
+				mergeSize += s
+				mergeDocs += d
+			}
+
+			if end-start >= p.mergeFactor && p.minMergeSize < p.maxMergeSize && mergeSize < p.minMergeSize && !anyMerging {
+				for end < 1+upto {
+					info := levels[end].info
+					if mergingSegments[info] {
+						anyMerging = true
+						break
+					}
+					s := p.Size(info, mergeContext)
+					d := int(p.sizeDocs(info, mergeContext))
+					if mergeSize+s > p.minMergeSize || mergeDocs+d > maxMergeDocs {
+						break
+					}
+					mergeSize += s
+					mergeDocs += d
+					end++
+				}
+			}
+
+			if anyMerging || end-start <= 1 {
+				// skip
+			} else {
+				if spec == nil {
+					spec = NewMergeSpecification()
+				}
+				merged := make([]*SegmentCommitInfo, 0, end-start)
+				for i := start; i < end; i++ {
+					merged = append(merged, levels[i].info)
+				}
+				if p.Verbose(mergeContext) {
+					p.Message(fmt.Sprintf("  add merge=%s start=%d end=%d",
+						p.SegString(mergeContext, merged), start, end), mergeContext)
+				}
+				spec.Add(NewOneMerge(merged))
+			}
+			start = end
+			end = start + p.mergeFactor
+		}
+		start = 1 + upto
+	}
+
+	return spec, nil
 }
 
-// String returns a string representation of the policy.
-func (p *LogByteSizeMergePolicy) String() string {
-	return fmt.Sprintf("[LogByteSizeMergePolicy: minMergeMB=%.1f, maxMergeMB=%.1f, mergeFactor=%d, maxMergeDocs=%d]",
-		p.GetMinMergeMB(), p.GetMaxMergeMB(), p.GetMergeFactor(), p.GetMaxMergeDocs())
+// SetMaxMergeDocs sets the maximum number of documents that may be merged.
+func (p *LogMergePolicy) SetMaxMergeDocs(maxMergeDocs int) {
+	p.maxMergeDocs = maxMergeDocs
 }
 
-// Ensure interfaces are implemented
+// GetMaxMergeDocs returns the maximum number of documents that may be merged.
+func (p *LogMergePolicy) GetMaxMergeDocs() int {
+	return p.maxMergeDocs
+}
+
+func (p *LogMergePolicy) String() string {
+	return fmt.Sprintf("[LogMergePolicy: minMergeSize=%d, mergeFactor=%d, maxMergeSize=%d, maxMergeSizeForForcedMerge=%d, calibrateSizeByDeletes=%v, maxMergeDocs=%d, maxCFSSegmentSizeMB=%.2f, noCFSRatio=%.2f]",
+		p.minMergeSize, p.mergeFactor, p.maxMergeSize, p.maxMergeSizeForForcedMerge, p.calibrateSizeByDeletes, p.maxMergeDocs, p.GetMaxCFSSegmentSizeMB(), p.GetNoCFSRatio())
+}
+
 var _ MergePolicy = (*LogMergePolicy)(nil)
-var _ MergePolicy = (*LogByteSizeMergePolicy)(nil)

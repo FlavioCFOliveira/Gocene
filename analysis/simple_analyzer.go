@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // SimpleAnalyzer is an analyzer that tokenizes text at non-letters
@@ -35,7 +36,7 @@ type SimpleAnalyzer struct {
 // NewSimpleAnalyzer creates a new SimpleAnalyzer.
 func NewSimpleAnalyzer() *SimpleAnalyzer {
 	return &SimpleAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 	}
 }
 
@@ -45,9 +46,7 @@ func NewSimpleAnalyzer() *SimpleAnalyzer {
 func (a *SimpleAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
 	// Create the tokenizer
 	tokenizer := NewLetterTokenizer()
-	if err := tokenizer.SetReader(reader); err != nil {
-		return nil, err
-	}
+	tokenizer.SetReader(reader)
 
 	// Create the filter chain: Tokenizer -> LowerCaseFilter
 	lowerCaseFilter := NewLowerCaseFilter(tokenizer)
@@ -56,4 +55,4 @@ func (a *SimpleAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenS
 }
 
 // Ensure SimpleAnalyzer implements Analyzer
-var _ Analyzer = (*SimpleAnalyzer)(nil)
+var _ api.Analyzer = (*SimpleAnalyzer)(nil)

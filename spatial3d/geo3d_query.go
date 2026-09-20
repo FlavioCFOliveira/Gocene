@@ -6,6 +6,7 @@ package spatial3d
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -81,7 +82,7 @@ func (q *PointInGeo3DShapeQuery) GetShape() geom.GeoShape { return q.shape }
 // PointInGeo3DShapeQuery operates on an inverted (BKD) structure and never
 // rewrites to a different query form, mirroring the Java reference which does
 // not override rewrite.
-func (q *PointInGeo3DShapeQuery) Rewrite(_ search.IndexReader) (search.Query, error) {
+func (q *PointInGeo3DShapeQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) {
 	return q, nil
 }
 
@@ -98,7 +99,7 @@ func (q *PointInGeo3DShapeQuery) Clone() search.Query {
 // and shape.
 //
 // Port of PointInGeo3DShapeQuery.equalsTo.
-func (q *PointInGeo3DShapeQuery) Equals(other search.Query) bool {
+func (q *PointInGeo3DShapeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*PointInGeo3DShapeQuery)
 	if !ok {
 		return false
@@ -140,16 +141,12 @@ func stringHashGeo3D(s string) int {
 // scorerSupplier pulls the leaf's PointValues, walks the BKD tree with
 // PointInShapeIntersectVisitor into a DocIdSetBuilder, and wraps the resulting
 // iterator in a ConstantScoreScorer.
-func (q *PointInGeo3DShapeQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	mode := search.COMPLETE
-	if !needsScores {
-		mode = search.COMPLETE_NO_SCORES
-	}
+func (q *PointInGeo3DShapeQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
 	return &pointInGeo3DShapeWeight{
 		BaseWeight: search.NewBaseWeight(q),
 		query:      q,
 		score:      boost,
-		scoreMode:  mode,
+		scoreMode:  scoreMode,
 	}, nil
 }
 
@@ -239,12 +236,16 @@ func (w *pointInGeo3DShapeWeight) Explain(context *index.LeafReaderContext, doc 
 		return nil, err
 	}
 	if scorer != nil {
-		advanced, err := scorer.Advance(doc)
+		advanced, err := scorer.Iterator().Advance(doc)
 		if err != nil {
 			return nil, err
 		}
 		if advanced == doc {
-			return search.MatchExplanation(scorer.Score(), w.query.String()), nil
+			score, err := scorer.Score()
+			if err != nil {
+				return nil, err
+			}
+			return search.MatchExplanation(score, w.query.String()), nil
 		}
 	}
 	return search.NoMatchExplanation(fmt.Sprintf("%s doesn't match id %d", w.query, doc)), nil
@@ -286,19 +287,30 @@ func (s *pointInGeo3DShapeScorerSupplier) Get(_ int64) (search.Scorer, error) {
 		return nil, err
 	}
 	if docSet == nil {
-		return search.NewConstantScoreScorer(s.score, s.scoreMode, search.NewEmptyDocIdSetIterator()), nil
+		return search.NewConstantScoreScorer(s.score, s.scoreMode, util.EmptyDocIdSetIterator()), nil
 	}
 	iter := docSet.Iterator()
 	if iter == nil {
-		return search.NewConstantScoreScorer(s.score, s.scoreMode, search.NewEmptyDocIdSetIterator()), nil
+		return search.NewConstantScoreScorer(s.score, s.scoreMode, util.EmptyDocIdSetIterator()), nil
 	}
 	return search.NewConstantScoreScorer(s.score, s.scoreMode, newGeo3DUtilDISIAdapter(iter)), nil
+}
+
+// BulkScorer carries ScorerSupplier#bulkScorer()'s default body.
+func (s *pointInGeo3DShapeScorerSupplier) BulkScorer() (search.BulkScorer, error) {
+	return search.DefaultScorerSupplierBulkScorer(s)
 }
 
 // Cost returns a lazy, cached estimate of the matching-document count.
 func (s *pointInGeo3DShapeScorerSupplier) Cost() int64 {
 	if s.estCost < 0 {
-		c := s.pv.EstimatePointCount(NewPointInShapeIntersectVisitor(nil, s.query.shape, s.query.planetModel))
+		// PointValues.estimatePointCount wraps an IOException in an
+		// UncheckedIOException, which crosses cost()'s throws-free signature;
+		// Go renders that unchecked throw as a panic.
+		c, err := s.pv.EstimatePointCount(NewPointInShapeIntersectVisitor(nil, s.query.shape, s.query.planetModel))
+		if err != nil {
+			panic(err)
+		}
 		if c < 0 {
 			c = 0
 		}
@@ -315,17 +327,6 @@ var _ search.ScorerSupplier = (*pointInGeo3DShapeScorerSupplier)(nil)
 //
 // Port of org.apache.lucene.spatial3d.PointInShapeIntersectVisitor.
 // ---------------------------------------------------------------------------
-
-// Cell-relation constants matching the order of codecs.Relation /
-// index.PointValues.Relation. They are declared locally so this package does
-// not import codecs (which would draw in the codecs → document → search
-// dependency chain). Adapters between this enum and codecs.Relation are pure
-// switches with no semantic difference.
-const (
-	geo3dCellInsideQuery  = 1 // CELL_INSIDE_QUERY
-	geo3dCellOutsideQuery = 0 // CELL_OUTSIDE_QUERY
-	geo3dCellCrossesQuery = 2 // CELL_CROSSES_QUERY
-)
 
 // PointInShapeIntersectVisitor walks BKD nodes, admitting each visited point to
 // the DocIdSetBuilder iff the GeoShape contains the decoded XYZ coordinate.
@@ -508,13 +509,13 @@ func (v *PointInShapeIntersectVisitor) VisitByPackedValue(docID int, packedValue
 // For non-prune-capable shapes, returns CELL_CROSSES_QUERY (full scan).
 //
 // Port of PointInShapeIntersectVisitor.compare (Lucene 10.4.0).
-func (v *PointInShapeIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) int {
+func (v *PointInShapeIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
 	if !v.pruneCapable {
-		return geo3dCellCrossesQuery
+		return index.CellCrossesQuery
 	}
 	if len(minPackedValue) != 3*bytesPerDim || len(maxPackedValue) != 3*bytesPerDim {
 		// Malformed cell: never prune.
-		return geo3dCellCrossesQuery
+		return index.CellCrossesQuery
 	}
 	xMin := decodeValueFloor(v.planetModel, minPackedValue, 0)
 	xMax := decodeValueCeil(v.planetModel, maxPackedValue, 0)
@@ -527,7 +528,7 @@ func (v *PointInShapeIntersectVisitor) Compare(minPackedValue, maxPackedValue []
 	if v.maximumX < xMin || v.minimumX > xMax ||
 		v.maximumY < yMin || v.minimumY > yMax ||
 		v.maximumZ < zMin || v.minimumZ > zMax {
-		return geo3dCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 
 	// Build the XYZSolid for the cell and consult GetRelationship.
@@ -535,16 +536,16 @@ func (v *PointInShapeIntersectVisitor) Compare(minPackedValue, maxPackedValue []
 	rel := solid.GetRelationship(v.shape)
 	switch rel {
 	case geom.RelDisjoint:
-		return geo3dCellOutsideQuery
+		return index.CellOutsideQuery
 	case geom.RelContains:
 		// The shape CONTAINS the solid (all points in the cell are inside the
 		// shape). Lucene's XYZSolid.getRelationship returns CONTAINS when
 		// "isAreaInsideShape == ALL_INSIDE" (all solid edge points inside path),
 		// meaning the solid is WITHIN the shape. Every cell point matches.
-		return geo3dCellInsideQuery
+		return index.CellInsideQuery
 	default:
 		// RelWithin (solid contains shape) or RelOverlaps: some points may match.
-		return geo3dCellCrossesQuery
+		return index.CellCrossesQuery
 	}
 }
 
@@ -577,24 +578,23 @@ func decodeValueCeil(pm *geom.PlanetModel, packed []byte, offset int) float64 {
 // PointValues bridge
 // ---------------------------------------------------------------------------
 
-// geo3dPointValues is the narrow point-source contract PointInGeo3DShapeQuery
-// needs from a leaf. It is declared locally (mirroring pointRangePointValues in
-// search/point_range_query.go) because the canonical index.PointValues port
-// does not yet expose Intersect / EstimatePointCount, and importing codecs
-// would re-introduce a dependency cycle.
-type geo3dPointValues interface {
-	Intersect(visitor geo3dIntersectVisitor) error
-	EstimatePointCount(visitor geo3dIntersectVisitor) int64
-}
+// geo3dPointValues is an alias of index.PointValues. Before the two
+// PointValues renderings were merged it was a narrow structural interface
+// carrying the visitor-driven surface (Intersect / EstimatePointCount) that
+// index.PointValues did not declare; org.apache.lucene.index.PointValues
+// declares intersect and estimatePointCount as public final members, so the
+// whole surface is now on the one interface and the narrow duplicate has no
+// Lucene counterpart.
+type geo3dPointValues = index.PointValues
 
 // geo3dIntersectVisitor is the BKD visitor surface geo3dPointValues drives. It
-// is an alias of index.PointTreeIntersectVisitor (rmp #4769) so the on-disk
+// is an alias of index.IntersectVisitor (rmp #4769) so the on-disk
 // BKD-backed PointValues returned by LeafReader.GetPointValues — whose
-// Intersect method takes index.PointTreeIntersectVisitor — satisfies
+// Intersect method takes index.IntersectVisitor — satisfies
 // geo3dPointValues. The three hooks (Visit, VisitByPackedValue, Compare
 // returning an int) plus Grow match the codecs.IntersectVisitor surface so the
 // BKD walk drives this visitor without further adaptation.
-type geo3dIntersectVisitor = index.PointTreeIntersectVisitor
+type geo3dIntersectVisitor = index.IntersectVisitor
 
 // getGeo3DPointValues type-asserts the leaf reader to expose BKD point values
 // for field, then narrows them to geo3dPointValues. Returns (nil, false) when
@@ -641,6 +641,33 @@ func (a *geo3dUtilDISIAdapter) DocID() int                      { return a.inner
 func (a *geo3dUtilDISIAdapter) NextDoc() (int, error)           { return a.inner.NextDoc() }
 func (a *geo3dUtilDISIAdapter) Advance(target int) (int, error) { return a.inner.Advance(target) }
 func (a *geo3dUtilDISIAdapter) Cost() int64                     { return a.inner.Cost() }
-func (a *geo3dUtilDISIAdapter) DocIDRunEnd() int                { return a.inner.DocIDRunEnd() }
+func (a *geo3dUtilDISIAdapter) DocIDRunEnd() (int, error)       { return a.inner.DocIDRunEnd() }
 
 var _ util.DocIdSetIterator = (*geo3dUtilDISIAdapter)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (a *geo3dUtilDISIAdapter) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(a, upTo, bitSet, offset)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *PointInShapeIntersectVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *PointInShapeIntersectVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *PointInShapeIntersectVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}

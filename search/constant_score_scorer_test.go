@@ -6,6 +6,7 @@ package search
 
 import (
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 )
 
@@ -69,7 +70,7 @@ func TestConstantScoreScorer_DocID_ForwardsIterator(t *testing.T) {
 // and approximation iterator).
 func TestConstantScoreScorer_GettersExposeFields(t *testing.T) {
 	t.Parallel()
-	iter := NewEmptyDocIdSetIterator()
+	iter := Empty()
 	s := NewConstantScoreScorer(0.5, TOP_SCORES, iter)
 	if got, want := s.GetScoreMode(), TOP_SCORES; got != want {
 		t.Fatalf("GetScoreMode: got %v, want %v", got, want)
@@ -85,7 +86,7 @@ func TestConstantScoreScorer_GettersExposeFields(t *testing.T) {
 // breaks the interface surfaces here as well).
 func TestConstantScoreScorer_SatisfiesInterface(t *testing.T) {
 	t.Parallel()
-	var _ Scorer = NewConstantScoreScorer(1.0, COMPLETE, NewEmptyDocIdSetIterator())
+	var _ Scorer = NewConstantScoreScorer(1.0, COMPLETE, Empty())
 }
 
 // errIterator is a test helper: every method returns target as the
@@ -98,7 +99,7 @@ func (e *errIterator) DocID() int                 { return -1 }
 func (e *errIterator) NextDoc() (int, error)      { return -1, e.err }
 func (e *errIterator) Advance(_ int) (int, error) { return -1, e.err }
 func (e *errIterator) Cost() int64                { return 0 }
-func (e *errIterator) DocIDRunEnd() int           { return -1 }
+func (e *errIterator) DocIDRunEnd() (int, error)  { return -1, nil }
 
 // TestConstantScoreScorer_NextDocPropagatesError fails the test if
 // the iterator's NextDoc error is swallowed.
@@ -112,4 +113,11 @@ func TestConstantScoreScorer_NextDocPropagatesError(t *testing.T) {
 	if _, err := s.Advance(0); !errors.Is(err, target) {
 		t.Fatalf("Advance: got err %v, want wrapped %v", err, target)
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (e *errIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
 }

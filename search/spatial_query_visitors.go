@@ -7,6 +7,7 @@ package search
 import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -44,7 +45,7 @@ func newEstimateVisitor(visitor SpatialVisitor, queryRelation document.QueryRela
 }
 
 type estimateVisitor struct {
-	innerFn func(min, max []byte) spatialRelation
+	innerFn func(min, max []byte) index.Relation
 }
 
 func (v *estimateVisitor) Visit(_ int) error                          { return errSpatialNotApplicable }
@@ -56,7 +57,7 @@ func (v *estimateVisitor) VisitIteratorWithPackedValue(_ util.DocIdSetIterator, 
 	return errSpatialNotApplicable
 }
 func (v *estimateVisitor) Grow(_ int) {}
-func (v *estimateVisitor) Compare(min, max []byte) spatialRelation {
+func (v *estimateVisitor) Compare(min, max []byte) index.Relation {
 	return v.innerFn(min, max)
 }
 
@@ -83,7 +84,7 @@ func newSparseVisitor(
 }
 
 type sparseVisitor struct {
-	innerFn       func(min, max []byte) spatialRelation
+	innerFn       func(min, max []byte) index.Relation
 	leafPredicate func(packed []byte) bool
 	result        *util.DocIdSetBuilder
 	adder         util.BulkAdder
@@ -122,7 +123,7 @@ func (v *sparseVisitor) VisitIteratorWithPackedValue(iter util.DocIdSetIterator,
 	return nil
 }
 
-func (v *sparseVisitor) Compare(min, max []byte) spatialRelation {
+func (v *sparseVisitor) Compare(min, max []byte) index.Relation {
 	return v.innerFn(min, max)
 }
 
@@ -146,7 +147,7 @@ func newIntersectsDenseVisitor(
 }
 
 type intersectsDenseVisitor struct {
-	innerFn       func(min, max []byte) spatialRelation
+	innerFn       func(min, max []byte) index.Relation
 	leafPredicate func(packed []byte) bool
 	result        *util.FixedBitSet
 	cost          []int64
@@ -197,7 +198,7 @@ func (v *intersectsDenseVisitor) VisitIteratorWithPackedValue(iter util.DocIdSet
 	return v.VisitIterator(iter)
 }
 
-func (v *intersectsDenseVisitor) Compare(min, max []byte) spatialRelation {
+func (v *intersectsDenseVisitor) Compare(min, max []byte) index.Relation {
 	return v.innerFn(min, max)
 }
 
@@ -222,7 +223,7 @@ func newDenseVisitor(
 }
 
 type denseVisitor struct {
-	innerFn       func(min, max []byte) spatialRelation
+	innerFn       func(min, max []byte) index.Relation
 	leafPredicate func(packed []byte) bool
 	result        *util.FixedBitSet
 	excluded      *util.FixedBitSet
@@ -280,7 +281,7 @@ func (v *denseVisitor) VisitIteratorWithPackedValue(iter util.DocIdSetIterator, 
 	}
 }
 
-func (v *denseVisitor) Compare(min, max []byte) spatialRelation {
+func (v *denseVisitor) Compare(min, max []byte) index.Relation {
 	return v.innerFn(min, max)
 }
 
@@ -305,7 +306,7 @@ func newContainsDenseVisitor(
 }
 
 type containsDenseVisitor struct {
-	innerFn      func(min, max []byte) spatialRelation
+	innerFn      func(min, max []byte) index.Relation
 	leafFunction func(packed []byte) geo.WithinRelation
 	result       *util.FixedBitSet
 	excluded     *util.FixedBitSet
@@ -366,7 +367,7 @@ func (v *containsDenseVisitor) VisitIteratorWithPackedValue(iter util.DocIdSetIt
 	}
 }
 
-func (v *containsDenseVisitor) Compare(min, max []byte) spatialRelation {
+func (v *containsDenseVisitor) Compare(min, max []byte) index.Relation {
 	return v.innerFn(min, max)
 }
 
@@ -390,7 +391,7 @@ func newInverseDenseVisitor(
 }
 
 type inverseDenseVisitor struct {
-	innerFn       func(min, max []byte) spatialRelation
+	innerFn       func(min, max []byte) index.Relation
 	leafPredicate func(packed []byte) bool
 	result        *util.FixedBitSet
 	cost          []int64
@@ -436,7 +437,7 @@ func (v *inverseDenseVisitor) VisitIteratorWithPackedValue(iter util.DocIdSetIte
 	return drainDocIDs(iter)
 }
 
-func (v *inverseDenseVisitor) Compare(min, max []byte) spatialRelation {
+func (v *inverseDenseVisitor) Compare(min, max []byte) index.Relation {
 	// Transpose: this visitor's compare is invoked with the
 	// already-transposed relation by callers that own the
 	// QueryRelation transposition; the Java reference applies the
@@ -461,7 +462,7 @@ func newShallowInverseDenseVisitor(
 }
 
 type shallowInverseDenseVisitor struct {
-	innerFn func(min, max []byte) spatialRelation
+	innerFn func(min, max []byte) index.Relation
 	result  *util.FixedBitSet
 }
 
@@ -495,7 +496,7 @@ func (v *shallowInverseDenseVisitor) VisitIteratorWithPackedValue(_ util.DocIdSe
 	return nil
 }
 
-func (v *shallowInverseDenseVisitor) Compare(min, max []byte) spatialRelation {
+func (v *shallowInverseDenseVisitor) Compare(min, max []byte) index.Relation {
 	return transposeSpatialRelation(v.innerFn(min, max))
 }
 

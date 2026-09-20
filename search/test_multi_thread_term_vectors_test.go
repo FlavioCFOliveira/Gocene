@@ -173,9 +173,9 @@ func buildMultiThreadTermVectorsIndex(t *testing.T) store.Directory {
 // mirroring TestMultiThreadTermVectors.verifyVector.
 func mttvVerifyVector(t *testing.T, vector index.Terms, num int) {
 	t.Helper()
-	it, err := vector.GetIterator()
+	it, err := vector.Iterator()
 	if err != nil {
-		t.Errorf("doc %d: term-vector GetIterator: %v", num, err)
+		t.Errorf("doc %d: term-vector Iterator: %v", num, err)
 		return
 	}
 	var temp strings.Builder

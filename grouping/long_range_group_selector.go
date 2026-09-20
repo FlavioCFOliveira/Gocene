@@ -1,110 +1,113 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
 package grouping
 
-// LongRangeGroupSelector is the int64 counterpart of DoubleRangeGroupSelector.
-// Mirrors org.apache.lucene.search.grouping.LongRangeGroupSelector.
+import (
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+)
+
+// LongRangeGroupSelector is a GroupSelector implementation that groups
+// documents by long values.
 //
-// The Java original uses LongValuesSource + LongValues to retrieve per-document
-// int64 values. In Gocene's current stage those abstractions are not yet ported,
-// so callers supply a valuesFunc that maps doc IDs to (value, exists) pairs —
-// semantically equivalent to LongValues.advanceExact().
+// Mirrors org.apache.lucene.search.grouping.LongRangeGroupSelector, which
+// extends GroupSelector<LongRange>.
 type LongRangeGroupSelector struct {
-	factory    *LongRangeFactory
-	valuesFunc func(doc int) (int64, bool) // nil → no value for any doc
+	source       search.LongValuesSource
+	rangeFactory *LongRangeFactory
 
-	// second-pass state (populated by SetGroups)
-	inSecondPass map[longRangeKey]bool
+	inSecondPass *groupSet[*LongRange]
 	includeEmpty bool
+	positioned   bool
+	current      *LongRange
 
-	// per-document state
-	positioned bool
-	current    *LongRange
+	context *index.LeafReaderContext
+	values  search.LongValues
 }
 
-// longRangeKey is a comparable key for LongRange used in the second-pass set.
-type longRangeKey struct{ min, max int64 }
+// NewLongRangeGroupSelector creates a new LongRangeGroupSelector.
+//
+// source is a LongValuesSource to retrieve long values per document, and
+// rangeFactory is a LongRangeFactory that defines how to group the long
+// values into range buckets.
+//
+// Mirrors LongRangeGroupSelector(LongValuesSource, LongRangeFactory).
+func NewLongRangeGroupSelector(source search.LongValuesSource, rangeFactory *LongRangeFactory) *LongRangeGroupSelector {
+	return &LongRangeGroupSelector{source: source, rangeFactory: rangeFactory}
+}
 
-// NewLongRangeGroupSelector builds a selector backed by factory and the
-// supplied doc-value function.  Pass nil for valuesFunc when no documents have
-// values (every doc maps to the empty group).
-func NewLongRangeGroupSelector(factory *LongRangeFactory, valuesFunc func(doc int) (int64, bool)) *LongRangeGroupSelector {
-	return &LongRangeGroupSelector{
-		factory:    factory,
-		valuesFunc: valuesFunc,
+// SetNextReader mirrors setNextReader(LeafReaderContext).
+func (s *LongRangeGroupSelector) SetNextReader(readerContext *index.LeafReaderContext) error {
+	s.context = readerContext
+	return nil
+}
+
+// SetScorer mirrors setScorer(Scorable).
+func (s *LongRangeGroupSelector) SetScorer(scorer search.Scorable) error {
+	values, err := s.source.GetValues(s.context, search.DoubleValuesSourceFromScorer(scorer))
+	if err != nil {
+		return err
 	}
+	s.values = values
+	return nil
 }
 
-// SetGroups configures the selector for the second pass.  Only groups whose
-// *LongRange key appears in searchGroups will be accepted; if any group has
-// a nil key the empty group (documents without a value) is also included.
-// Mirrors LongRangeGroupSelector.setGroups.
+// AdvanceTo mirrors advanceTo(int).
+func (s *LongRangeGroupSelector) AdvanceTo(doc int) (GroupSelectorState, error) {
+	positioned, err := s.values.AdvanceExact(doc)
+	if err != nil {
+		return GroupSelectorStateSkip, err
+	}
+	s.positioned = positioned
+	if !s.positioned {
+		if s.includeEmpty {
+			return GroupSelectorStateAccept, nil
+		}
+		return GroupSelectorStateSkip, nil
+	}
+	value, err := s.values.LongValue()
+	if err != nil {
+		return GroupSelectorStateSkip, err
+	}
+	s.current = s.rangeFactory.GetRange(value, s.current)
+	if s.inSecondPass == nil {
+		return GroupSelectorStateAccept, nil
+	}
+	if s.inSecondPass.contains(s.current) {
+		return GroupSelectorStateAccept, nil
+	}
+	return GroupSelectorStateSkip, nil
+}
+
+// CurrentValue mirrors currentValue().
+func (s *LongRangeGroupSelector) CurrentValue() (*LongRange, error) {
+	if s.positioned {
+		return s.current, nil
+	}
+	return nil, nil
+}
+
+// CopyValue mirrors copyValue().
+func (s *LongRangeGroupSelector) CopyValue() (*LongRange, error) {
+	if s.positioned {
+		return NewLongRange(s.current.Min, s.current.Max), nil
+	}
+	return nil, nil
+}
+
+// SetGroups mirrors setGroups(Collection<SearchGroup<LongRange>>).
 func (s *LongRangeGroupSelector) SetGroups(searchGroups []*SearchGroup[*LongRange]) {
-	s.inSecondPass = make(map[longRangeKey]bool, len(searchGroups))
-	s.includeEmpty = false
-	for _, g := range searchGroups {
-		if g.GroupValue == nil {
+	s.inSecondPass = newGroupSet[*LongRange]()
+	for _, group := range searchGroups {
+		if group.GroupValue == nil {
 			s.includeEmpty = true
 		} else {
-			s.inSecondPass[longRangeKey{g.GroupValue.Min, g.GroupValue.Max}] = true
+			s.inSecondPass.add(group.GroupValue)
 		}
 	}
 }
 
-// AdvanceTo positions the selector on document doc.  It returns whether the
-// document should be included in the current pass.
-// Mirrors LongRangeGroupSelector.advanceTo.
-func (s *LongRangeGroupSelector) AdvanceTo(doc int) bool {
-	if s.valuesFunc == nil {
-		s.positioned = false
-		s.current = nil
-		return s.includeEmpty || s.inSecondPass == nil
-	}
-	v, ok := s.valuesFunc(doc)
-	s.positioned = ok
-	if !ok {
-		s.current = nil
-		return s.includeEmpty || s.inSecondPass == nil
-	}
-	s.current = s.factory.GetRange(v)
-	if s.inSecondPass == nil {
-		return true
-	}
-	if s.current == nil {
-		return s.includeEmpty
-	}
-	return s.inSecondPass[longRangeKey{s.current.Min, s.current.Max}]
-}
-
-// Select implements GroupSelector.  It returns the *LongRange for the given
-// doc, or nil when the doc has no value.
-func (s *LongRangeGroupSelector) Select(doc int) interface{} {
-	s.AdvanceTo(doc)
-	r := s.CurrentValue()
-	if r == nil {
-		return nil
-	}
-	return r
-}
-
-// CurrentValue returns the LongRange resolved during the last AdvanceTo call,
-// or nil when the document had no value.
-// Mirrors LongRangeGroupSelector.currentValue.
-func (s *LongRangeGroupSelector) CurrentValue() *LongRange {
-	if !s.positioned {
-		return nil
-	}
-	return s.current
-}
-
-// CopyValue returns a copy of the current LongRange (to be stored as a group
-// key independent of any reuse buffer).
-// Mirrors LongRangeGroupSelector.copyValue.
-func (s *LongRangeGroupSelector) CopyValue() *LongRange {
-	if !s.positioned || s.current == nil {
-		return nil
-	}
-	cp := *s.current
-	return &cp
-}
-
-// Ensure LongRangeGroupSelector implements GroupSelector.
-var _ GroupSelector = (*LongRangeGroupSelector)(nil)
+// Ensure LongRangeGroupSelector implements GroupSelector[*LongRange].
+var _ GroupSelector[*LongRange] = (*LongRangeGroupSelector)(nil)

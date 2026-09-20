@@ -11,6 +11,7 @@ import (
 
 	codecs_lucene90 "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
@@ -56,7 +57,7 @@ type OffHeapByteVectorValues struct {
 
 // offHeap94ByteVariant captures layout-specific behaviour.
 type offHeap94ByteVariant interface {
-	iterator(parent *OffHeapByteVectorValues) util.DocIndexIterator
+	iterator(parent *OffHeapByteVectorValues) spi.DocIndexIterator
 	ordToDoc(parent *OffHeapByteVectorValues, ord int) int
 	getAcceptOrds(parent *OffHeapByteVectorValues, acceptDocs util.Bits) util.Bits
 	copy(parent *OffHeapByteVectorValues) (*OffHeapByteVectorValues, error)
@@ -102,7 +103,7 @@ func (v *OffHeapByteVectorValues) VectorValue(targetOrd int) ([]byte, error) {
 	if err := v.slice.SetPosition(int64(targetOrd) * int64(v.byteSize)); err != nil {
 		return nil, fmt.Errorf("lucene94 off-heap byte: seek to ord %d: %w", targetOrd, err)
 	}
-	if err := v.slice.ReadBytes(v.binaryValue); err != nil {
+	if err := v.slice.ReadBytes(v.binaryValue, 0, len(v.binaryValue)); err != nil {
 		return nil, fmt.Errorf("lucene94 off-heap byte: read bytes: %w", err)
 	}
 	v.curOrd = targetOrd
@@ -110,7 +111,7 @@ func (v *OffHeapByteVectorValues) VectorValue(targetOrd int) ([]byte, error) {
 }
 
 // Iterator returns a DocIndexIterator over this vector set.
-func (v *OffHeapByteVectorValues) Iterator() util.DocIndexIterator {
+func (v *OffHeapByteVectorValues) Iterator() spi.DocIndexIterator {
 	return v.variant.iterator(v)
 }
 
@@ -173,7 +174,7 @@ func LoadByte(
 
 type denseOffHeap94ByteVariant struct{}
 
-func (denseOffHeap94ByteVariant) iterator(parent *OffHeapByteVectorValues) util.DocIndexIterator {
+func (denseOffHeap94ByteVariant) iterator(parent *OffHeapByteVectorValues) spi.DocIndexIterator {
 	return newDenseDocIter94(parent.size)
 }
 
@@ -253,7 +254,7 @@ func newSparseOffHeap94Byte(
 	), nil
 }
 
-func (s *sparseOffHeap94ByteVariant) iterator(_ *OffHeapByteVectorValues) util.DocIndexIterator {
+func (s *sparseOffHeap94ByteVariant) iterator(_ *OffHeapByteVectorValues) spi.DocIndexIterator {
 	return &indexedDISIIter94{disi: s.disi}
 }
 
@@ -312,7 +313,7 @@ func newEmptyOffHeap94Byte(dimension int) *OffHeapByteVectorValues {
 	)
 }
 
-func (emptyOffHeap94ByteVariant) iterator(_ *OffHeapByteVectorValues) util.DocIndexIterator {
+func (emptyOffHeap94ByteVariant) iterator(_ *OffHeapByteVectorValues) spi.DocIndexIterator {
 	return newDenseDocIter94(0)
 }
 
@@ -361,7 +362,7 @@ type codec94ByteVectorScorerView interface {
 
 // byte94ScorerView is the VectorScorerView for byte vector values.
 type byte94ScorerView struct {
-	it     util.DocIndexIterator
+	it     spi.DocIndexIterator
 	bvv    *OffHeapByteVectorValues
 	target []byte
 }

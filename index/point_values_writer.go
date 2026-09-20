@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -35,8 +36,8 @@ import (
 //     package without creating an import cycle (codecs imports index).
 //     This file therefore declares the minimal codec-facing interfaces
 //     ([BufferedPointsCodecWriter], [BufferedPointsCodecReader],
-//     [BufferedPointValues], [PointTreeBuffer], [BufferedPointVisitor]
-//     and [BufferedPointRelation]) inside the index package. They are
+//     [BufferedPointValues], [PointTreeBuffer] and
+//     [BufferedPointVisitor]) inside the index package. They are
 //     structurally compatible with the codec-side counterparts so any
 //     concrete codec writer that satisfies codecs.PointsWriter also
 //     satisfies BufferedPointsCodecWriter once the codec adapter wraps
@@ -50,8 +51,8 @@ import (
 //     ([ErrPointValuesUnsupported]) or a zero value.
 type PointValuesWriter struct {
 	fieldInfo         *FieldInfo
-	bytes             *util.PagedBytes
-	bytesOut          *util.PagedBytesDataOutput
+	bytes             *store.PagedBytes
+	bytesOut          *store.PagedBytesDataOutput
 	iwBytesUsed       util.CounterAPI
 	docIDs            []int
 	numPoints         int
@@ -66,27 +67,13 @@ type PointValuesWriter struct {
 // PointValues implementation.
 var ErrPointValuesUnsupported = errors.New("point values: operation not supported on in-RAM buffer")
 
-// BufferedPointRelation mirrors codecs.Relation by integer value so the
-// in-RAM visitor callback contract can be expressed without importing
-// the codecs package. Values match codecs.RelationCell* one-for-one.
-type BufferedPointRelation int
-
-const (
-	// BufferedPointCellOutsideQuery matches codecs.RelationCellOutsideQuery.
-	BufferedPointCellOutsideQuery BufferedPointRelation = iota
-	// BufferedPointCellInsideQuery matches codecs.RelationCellInsideQuery.
-	BufferedPointCellInsideQuery
-	// BufferedPointCellCrossesQuery matches codecs.RelationCellCrossesQuery.
-	BufferedPointCellCrossesQuery
-)
-
 // BufferedPointVisitor is the index-local counterpart of
 // codecs.IntersectVisitor. Methods are wired in the order Lucene
 // invokes them on the in-RAM flush path.
 type BufferedPointVisitor interface {
 	Visit(docID int) error
 	VisitByPackedValue(docID int, packedValue []byte) error
-	Compare(minPackedValue, maxPackedValue []byte) BufferedPointRelation
+	Compare(minPackedValue, maxPackedValue []byte) Relation
 	Grow(count int)
 }
 
@@ -94,6 +81,7 @@ type BufferedPointVisitor interface {
 // codecs.MutablePointTree. Implementations may alias their underlying
 // storage when filling BytesRef receivers.
 type PointTreeBuffer interface {
+	Size() int64
 	Swap(i, j int)
 	GetValue(i int, dst *util.BytesRef)
 	GetByteAt(i, k int) byte
@@ -158,7 +146,7 @@ func NewPointsWriter(bytesUsed util.CounterAPI, fieldInfo *FieldInfo) (*PointVal
 	if fieldInfo == nil {
 		return nil, errors.New("point values writer: fieldInfo must not be nil")
 	}
-	bytes, err := util.NewPagedBytes(12)
+	bytes, err := store.NewPagedBytes(12)
 	if err != nil {
 		return nil, fmt.Errorf("point values writer: alloc paged bytes: %w", err)
 	}
@@ -204,7 +192,7 @@ func (w *PointValuesWriter) AddPackedValue(docID int, value *util.BytesRef) erro
 	}
 
 	before := w.bytes.RamBytesUsed()
-	if err := w.bytesOut.WriteBytes(value.Bytes[value.Offset : value.Offset+value.Length]); err != nil {
+	if err := w.bytesOut.WriteBytes(value.Bytes, value.Offset, value.Length); err != nil {
 		return fmt.Errorf("field=%s: write packed value: %w", w.fieldInfo.Name(), err)
 	}
 	w.iwBytesUsed.AddAndGet(w.bytes.RamBytesUsed() - before)
@@ -272,7 +260,7 @@ func (w *PointValuesWriter) Flush(_ *SegmentWriteState, sortMap SorterDocMap, wr
 // permutation so the StableMSBRadixSorter inside the BKD writer can
 // reorder slots without touching the underlying byte storage.
 type bufferedMutablePointTree struct {
-	bytesReader       *util.Reader
+	bytesReader       *store.Reader
 	docIDs            []int
 	numPoints         int
 	packedBytesLength int
@@ -280,7 +268,7 @@ type bufferedMutablePointTree struct {
 	temp              []int
 }
 
-func newBufferedMutablePointTree(bytesReader *util.Reader, docIDs []int, numPoints, packedBytesLength int) *bufferedMutablePointTree {
+func newBufferedMutablePointTree(bytesReader *store.Reader, docIDs []int, numPoints, packedBytesLength int) *bufferedMutablePointTree {
 	ords := make([]int, numPoints)
 	for i := 0; i < numPoints; i++ {
 		ords[i] = i
@@ -361,6 +349,11 @@ func NewMutableSortingPointValues(in PointTreeBuffer, docMap SorterDocMap) *Muta
 	return &MutableSortingPointValues{in: in, docMap: docMap}
 }
 
+// Size delegates to the wrapped tree.
+func (m *MutableSortingPointValues) Size() int64 {
+	return m.in.Size()
+}
+
 // GetValue delegates straight to the wrapped tree.
 func (m *MutableSortingPointValues) GetValue(i int, dst *util.BytesRef) {
 	m.in.GetValue(i, dst)
@@ -427,13 +420,14 @@ func (r *bufferedPointsReader) Close() error {
 // spill path), matching Apache Lucene 10.4.0's buffered-points behaviour.
 type MutablePointTreeSource interface {
 	// MutablePointTree returns the in-memory tree and its point count.
-	MutablePointTree() (PointTreeBuffer, int)
+	MutablePointTree() (PointTreeBuffer, int64)
 }
 
 // MutablePointTree exposes the in-memory buffered points as a [PointTreeBuffer]
 // so that codecs can drive BKDWriter.WriteField directly in RAM.
-func (r *bufferedPointsReader) MutablePointTree() (PointTreeBuffer, int) {
-	return r.values.Tree(), sizeOfTree(r.values.Tree())
+func (r *bufferedPointsReader) MutablePointTree() (PointTreeBuffer, int64) {
+	tree := r.values.Tree()
+	return tree, tree.Size()
 }
 
 // bufferedPointValues is the codec-facing [BufferedPointValues] view of
@@ -463,8 +457,8 @@ func (p *bufferedPointValues) Intersect(visitor BufferedPointVisitor) error {
 	}
 	scratch := util.NewBytesRefEmpty()
 	packed := make([]byte, p.packedBytesLength)
-	size := sizeOfTree(p.tree)
-	for i := 0; i < size; i++ {
+	size := p.tree.Size()
+	for i := 0; i < int(size); i++ {
 		p.tree.GetValue(i, scratch)
 		if scratch.Length != p.packedBytesLength {
 			return fmt.Errorf("buffered point values: scratch length %d != packed %d", scratch.Length, p.packedBytesLength)
@@ -481,21 +475,7 @@ func (p *bufferedPointValues) Intersect(visitor BufferedPointVisitor) error {
 // trivial in RAM. Mirrors the "unsupported on the anonymous accessor,
 // but trivially derivable from the tree" behaviour of the reference.
 func (p *bufferedPointValues) EstimatePointCount(_ BufferedPointVisitor) int64 {
-	return int64(sizeOfTree(p.tree))
-}
-
-// sizeOfTree extracts the buffered point count from either the
-// bufferedMutablePointTree or its sorted wrapper without leaking those
-// concrete types into the BufferedPointValues interface.
-func sizeOfTree(t PointTreeBuffer) int {
-	switch v := t.(type) {
-	case *bufferedMutablePointTree:
-		return v.numPoints
-	case *MutableSortingPointValues:
-		return sizeOfTree(v.in)
-	default:
-		return 0
-	}
+	return p.tree.Size()
 }
 
 // GetMinPackedValue mirrors the unsupported accessor on Lucene's

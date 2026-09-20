@@ -39,7 +39,14 @@ type PostingsReaderBase interface {
 	// NewTermState allocates a fresh BlockTermState (or a codec subclass)
 	// suitable for the calling reader. Each call returns an independent
 	// instance; callers must not share BlockTermStates across goroutines.
-	NewTermState() *BlockTermState
+	//
+	// Java returns BlockTermState and the codec narrows the value back to its
+	// own subclass with a cast. Go has no subclassing, so the term state
+	// travels as an index.TermState interface value: the dynamic type is the
+	// codec's own state (for example *IntBlockTermState) and the cast becomes a
+	// type assertion. Terms dictionaries reach the BlockTermState fields
+	// through BaseState.
+	NewTermState() index.TermState
 
 	// DecodeTerm reads codec-specific term metadata from in, populating
 	// termState. absolute indicates whether the term is the first term in a
@@ -49,18 +56,18 @@ type PostingsReaderBase interface {
 	// in is typed as DataInput (not IndexInput) because the term-dictionary
 	// reader passes a ByteArrayDataInput backed by an in-memory stats blob —
 	// not the raw .tim file handle. Mirrors Java's DataInput parameter.
-	DecodeTerm(in store.DataInput, fieldInfo *index.FieldInfo, termState *BlockTermState, absolute bool) error
+	DecodeTerm(in store.DataInput, fieldInfo *index.FieldInfo, termState index.TermState, absolute bool) error
 
 	// Postings returns a PostingsEnum over the term identified by termState.
 	// reuse may be the previous PostingsEnum returned for the same field;
 	// implementations may reuse it to avoid allocations, or may allocate a new
 	// one when the requested flags require richer enumeration capabilities.
 	// flags is a bitmask of index.PostingsEnum FLAG_* values.
-	Postings(fieldInfo *index.FieldInfo, termState *BlockTermState, reuse index.PostingsEnum, flags int) (index.PostingsEnum, error)
+	Postings(fieldInfo *index.FieldInfo, termState index.TermState, reuse index.PostingsEnum, flags int) (index.PostingsEnum, error)
 
 	// Impacts returns an ImpactsEnum for impact-aware scoring (BMW/MAXSCORE).
 	// flags is a bitmask of index.PostingsEnum FLAG_* values.
-	Impacts(fieldInfo *index.FieldInfo, termState *BlockTermState, flags int) (index.ImpactsEnum, error)
+	Impacts(fieldInfo *index.FieldInfo, termState index.TermState, flags int) (index.ImpactsEnum, error)
 
 	// CheckIntegrity validates the CRC footers of every file this reader
 	// owns. Returns the first CRC mismatch as an error.

@@ -1,7 +1,6 @@
 package documents
 
 import (
-	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
@@ -17,7 +16,19 @@ func NewTermVectorsAdapter(reader index.IndexReader) *TermVectorsAdapter {
 }
 
 func (tva *TermVectorsAdapter) GetTermVector(docid int, field string) ([]*TermVectorEntry, error) {
-	termVector, err := tva.reader.TermVectors().Get(docid, field)
+	termVectors, err := tva.reader.TermVectors()
+	if err != nil {
+		return nil, err
+	}
+	// Java: reader.termVectors().get(docid, field) == get(docid).terms(field).
+	fields, err := termVectors.Get(docid)
+	if err != nil {
+		return nil, err
+	}
+	if fields == nil {
+		return []*TermVectorEntry{}, nil
+	}
+	termVector, err := fields.Terms(field)
 	if err != nil {
 		return nil, err
 	}
@@ -26,8 +37,18 @@ func (tva *TermVectorsAdapter) GetTermVector(docid int, field string) ([]*TermVe
 	}
 
 	var res []*TermVectorEntry
-	te := termVector.Iterator()
-	for te.Next() != nil {
+	te, err := termVector.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	for {
+		next, err := te.Next()
+		if err != nil {
+			return nil, err
+		}
+		if next == nil {
+			break
+		}
 		entry, err := NewTermVectorEntry(te)
 		if err != nil {
 			return nil, err

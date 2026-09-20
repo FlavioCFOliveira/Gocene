@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -115,7 +116,7 @@ func newSeededHnswGraphSearcher(
 // wrapper only customises the entry-point selection; the per-level
 // beam search itself is unchanged.
 func (s *seededHnswGraphSearcher) SearchLevel(
-	results KnnCollector,
+	results spi.KnnCollector,
 	scorer RandomVectorScorer,
 	level int,
 	eps []int,
@@ -133,7 +134,7 @@ func (s *seededHnswGraphSearcher) SearchLevel(
 func (s *seededHnswGraphSearcher) FindBestEntryPoint(
 	scorer RandomVectorScorer,
 	graph HnswGraph,
-	collector KnnCollector,
+	collector spi.KnnCollector,
 ) ([]int, error) {
 	return s.seedOrds, nil
 }

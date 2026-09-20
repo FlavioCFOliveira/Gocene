@@ -83,10 +83,16 @@ var _ analysis.TokenFilter = (*ClassicFilter)(nil)
 // This is the Go port of
 // org.apache.lucene.analysis.classic.ClassicFilterFactory from
 // Apache Lucene 10.4.0.
-type ClassicFilterFactory struct{}
+type ClassicFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewClassicFilterFactory creates a ClassicFilterFactory.
-func NewClassicFilterFactory() *ClassicFilterFactory { return &ClassicFilterFactory{} }
+func NewClassicFilterFactory() *ClassicFilterFactory {
+	return &ClassicFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+	}
+}
 
 // Create creates a ClassicFilter wrapping input.
 func (f *ClassicFilterFactory) Create(input analysis.TokenStream) analysis.TokenFilter {

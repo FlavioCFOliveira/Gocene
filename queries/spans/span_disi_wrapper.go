@@ -9,6 +9,7 @@ package spans
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SpanDisiWrapper wraps a Spans for use in SpanDisiPriorityQueue.

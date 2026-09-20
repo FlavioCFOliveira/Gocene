@@ -5,6 +5,7 @@
 package analysis
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
@@ -39,6 +40,10 @@ func (t *topoTokenStream) Reset() error {
 	t.currentPos = 0
 	t.currentEdgeIndex = 0
 	return nil
+}
+
+func (t *topoTokenStream) GetAttributeSource() *util.AttributeSource {
+	return util.NewAttributeSource()
 }
 
 func (t *topoTokenStream) Next() (Token, bool) {

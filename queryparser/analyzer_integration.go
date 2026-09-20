@@ -135,7 +135,7 @@ func (ai *AnalyzerIntegration) Tokenize(field, text string) ([]TokenInfo, error)
 // CreateQuery creates a query from analyzed tokens.
 func (ai *AnalyzerIntegration) CreateQuery(field string, tokens []TokenInfo) search.Query {
 	if len(tokens) == 0 {
-		return search.NewMatchNoDocsQuery()
+		return search.NewMatchNoDocsQuery("")
 	}
 
 	if len(tokens) == 1 {
@@ -148,7 +148,7 @@ func (ai *AnalyzerIntegration) CreateQuery(field string, tokens []TokenInfo) sea
 		terms[i] = index.NewTerm(field, token.Term)
 	}
 
-	return search.NewPhraseQuery(field, terms...)
+	return search.NewPhraseQueryWithTerms(0, field, terms...)
 }
 
 // AnalyzeText analyzes text and creates appropriate queries.

@@ -212,7 +212,16 @@ func (br *BytesRef) DeepCopyEquals(other *BytesRef) bool {
 	return BytesRefEquals(br, other)
 }
 
+// DeepCopyOfBytesRef creates a deep copy of the provided BytesRef.
+func DeepCopyOfBytesRef(br *BytesRef) *BytesRef {
+	if br == nil {
+		return nil
+	}
+	return br.Clone()
+}
+
 // HashCode returns the MurmurHash3_x86_32 hash of this BytesRef's
+
 // valid bytes, using [GoodFastHashSeed] as the seed. Mirrors
 // {@code BytesRef#hashCode()} which Lucene documents as MurmurHash3
 // with GOOD_FAST_HASH_SEED.

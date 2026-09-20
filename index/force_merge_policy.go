@@ -20,6 +20,6 @@ func NewForceMergePolicy(in MergePolicy) *ForceMergePolicy {
 }
 
 // FindMerges returns nil to disallow any background merges.
-func (f *ForceMergePolicy) FindMerges(trigger MergeTrigger, infos *spi.SegmentInfos, mc MergeContext) (*MergeSpecification, error) {
+func (f *ForceMergePolicy) FindMerges(trigger MergeTrigger, infos *SegmentInfos, mc MergeContext) (*MergeSpecification, error) {
 	return nil, nil
 }

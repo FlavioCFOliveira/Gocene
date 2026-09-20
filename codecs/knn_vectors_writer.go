@@ -1,0 +1,632 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+package codecs
+
+import (
+	"fmt"
+	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
+// BaseKnnVectorsWriter provides a default implementation of the merge logic
+// for KNN vector writers. It is the Go port of org.apache.lucene.codecs.KnnVectorsWriter
+// from Apache Lucene 10.5.0.
+//
+// Concrete codec writers embed this struct to inherit the standard two-phase
+// merge strategy.
+type BaseKnnVectorsWriter struct {
+	// writer is a reference to the concrete implementation of spi.KnnVectorsWriter.
+	// It is used to call AddField during merge.
+	writer spi.KnnVectorsWriter
+}
+
+// NewBaseKnnVectorsWriter constructs a BaseKnnVectorsWriter.
+func NewBaseKnnVectorsWriter(writer spi.KnnVectorsWriter) *BaseKnnVectorsWriter {
+	return &BaseKnnVectorsWriter{
+		writer: writer,
+	}
+}
+
+// MergeOneField merges vectors for a single field.
+//
+// This is the Go port of KnnVectorsWriter.mergeOneField.
+// It implements a naive merge by default, returning nil for deferred work.
+// Subclasses (via embedding) can override this to implement a two-phase merge strategy
+// (e.g., for HNSW graph construction).
+func (b *BaseKnnVectorsWriter) MergeOneField(fieldInfo *spi.FieldInfo, mergeState *index.MergeState) (func() error, error) {
+	switch fieldInfo.VectorEncoding() {
+	case index.VectorEncodingByte:
+		// Java: (KnnFieldVectorsWriter<byte[]>) addField(fieldInfo); the value is
+		// handed to the non-generic spi.KnnFieldVectorsWriter.AddValue.
+		byteWriter, err := b.writer.AddField(fieldInfo)
+		if err != nil {
+			return nil, err
+		}
+		mergedBytes, err := MergeByteVectorValues(fieldInfo, mergeState)
+		if err != nil {
+			return nil, err
+		}
+		iter := mergedBytes.Iterator()
+		for {
+			doc, err := iter.NextDoc()
+			if err != nil {
+				return nil, err
+			}
+			if doc == util.NO_MORE_DOCS {
+				break
+			}
+			val, err := mergedBytes.VectorValue(iter.Index())
+			if err != nil {
+				return nil, err
+			}
+			if err := byteWriter.AddValue(doc, val); err != nil {
+				return nil, err
+			}
+		}
+	case index.VectorEncodingFloat32:
+		// Java: (KnnFieldVectorsWriter<float[]>) addField(fieldInfo).
+		floatWriter, err := b.writer.AddField(fieldInfo)
+		if err != nil {
+			return nil, err
+		}
+		mergedFloats, err := MergeFloatVectorValues(fieldInfo, mergeState)
+		if err != nil {
+			return nil, err
+		}
+		iter := mergedFloats.Iterator()
+		for {
+			doc, err := iter.NextDoc()
+			if err != nil {
+				return nil, err
+			}
+			if doc == util.NO_MORE_DOCS {
+				break
+			}
+			val, err := mergedFloats.VectorValue(iter.Index())
+			if err != nil {
+				return nil, err
+			}
+			if err := floatWriter.AddValue(doc, val); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return nil, nil
+}
+
+// Merge merges the segment vectors for all fields using a two-phase strategy.
+//
+// This is the Go port of KnnVectorsWriter.merge.
+//
+// Phase 1: Merge flat vectors for all fields by calling MergeOneField,
+// collecting deferred work (closures) for each field.
+//
+// Phase 2: Execute the deferred closures (e.g., HNSW graph construction)
+// using the flat vector data written in phase 1.
+func (b *BaseKnnVectorsWriter) Merge(mergeState *index.MergeState) error {
+	// Java: for (int i = 0; i < mergeState.fieldInfos.length; i++) over
+	// mergeState.knnVectorsReaders[i] (KnnVectorsWriter.java:71-78).
+	for i := 0; i < len(mergeState.FieldInfos); i++ {
+		reader := mergeState.KnnVectorsReaders[i]
+		if reader != nil {
+			if err := mergeState.CheckAborted(); err != nil {
+				return err
+			}
+			if err := reader.CheckIntegrity(); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Phase 1: merge flat vectors for all fields, collecting deferred work
+	var deferredWork []func() error
+	// Java: for (FieldInfo fieldInfo : mergeState.mergeFieldInfos)
+	// (KnnVectorsWriter.java:123).
+	for _, fieldInfo := range mergeState.MergeFieldInfos.Infos() {
+		if fieldInfo.HasVectorValues() {
+			deferred, err := b.MergeOneField(fieldInfo, mergeState)
+			if err != nil {
+				return err
+			}
+			if deferred != nil {
+				deferredWork = append(deferredWork, deferred)
+			}
+		}
+	}
+
+	// Phase 2: execute deferred work (e.g., graph construction using the written flat vectors)
+	for _, runnable := range deferredWork {
+		if err := runnable(); err != nil {
+			return err
+		}
+	}
+
+	return b.writer.Finish()
+}
+
+// MapOldOrdToNewOrd maps old ordinals to new ordinals given old doc IDs and an ID mapping.
+//
+// This is the Go port of KnnVectorsWriter.mapOldOrdToNewOrd.
+func MapOldOrdToNewOrd(
+	oldDocIds *index.DocsWithFieldSet,
+	sortMap index.SorterDocMap,
+	old2NewOrd []int,
+	new2OldOrd []int,
+	newDocsWithField *index.DocsWithFieldSet,
+) error {
+	if oldDocIds == nil {
+		return fmt.Errorf("oldDocIds must not be nil")
+	}
+	if sortMap == nil {
+		return fmt.Errorf("sortMap must not be nil")
+	}
+
+	newIdToOldOrd := make(map[int]int)
+	// int[] newDocIds = new int[oldDocIds.cardinality()];
+	newDocIds := make([]int, oldDocIds.Cardinality())
+
+	iter := oldDocIds.Iterator()
+	oldOrd := 0
+	for {
+		oldDocID, err := iter.NextDoc()
+		if err != nil {
+			return err
+		}
+		if oldDocID == util.NO_MORE_DOCS {
+			break
+		}
+		newID := sortMap.OldToNew(oldDocID)
+		newIdToOldOrd[newID] = oldOrd
+		newDocIds[oldOrd] = newID
+		oldOrd++
+	}
+
+	// Arrays.sort(newDocIds);
+	sort.Ints(newDocIds)
+
+	newOrd := 0
+	for _, newDocID := range newDocIds {
+		currOldOrd, ok := newIdToOldOrd[newDocID]
+		if !ok {
+			return fmt.Errorf("mapping failed for newDocID %d", newDocID)
+		}
+		if old2NewOrd != nil {
+			old2NewOrd[currOldOrd] = newOrd
+		}
+		if new2OldOrd != nil {
+			new2OldOrd[newOrd] = currOldOrd
+		}
+		if newDocsWithField != nil {
+			if err := newDocsWithField.Add(newDocID); err != nil {
+				return err
+			}
+		}
+		newOrd++
+	}
+
+	return nil
+}
+
+// --- Merged Vector Values Implementation ---
+
+// validateFieldEncoding mirrors the private
+// KnnVectorsWriter.MergedVectorValues.validateFieldEncoding: merging vectors
+// of a different encoding throws UnsupportedOperationException in Java, which
+// is returned as an error here.
+func validateFieldEncoding(fieldInfo *spi.FieldInfo, expected index.VectorEncoding) error {
+	fieldEncoding := fieldInfo.VectorEncoding()
+	if fieldEncoding != expected {
+		return fmt.Errorf("UnsupportedOperationException: Cannot merge vectors encoded as [%v] as %v", fieldEncoding, expected)
+	}
+	return nil
+}
+
+// MergeFloatVectorValues returns a merged view over all the segment's
+// FloatVectorValues. Mirrors the public static
+// KnnVectorsWriter.MergedVectorValues.mergeFloatVectorValues(FieldInfo,
+// MergeState) of Apache Lucene 10.5.0: every sub-reader in
+// mergeState.KnnVectorsReaders whose FieldInfos carry vectors for the field
+// contributes its FloatVectorValues, mapped through its DocMap.
+func MergeFloatVectorValues(fieldInfo *spi.FieldInfo, mergeState *index.MergeState) (index.FloatVectorValues, error) {
+	if err := validateFieldEncoding(fieldInfo, index.VectorEncodingFloat32); err != nil {
+		return nil, err
+	}
+
+	var subs []*floatVectorValuesSub
+	for i, knnVectorsReader := range mergeState.KnnVectorsReaders {
+		sourceFieldInfo := mergeState.FieldInfos[i]
+		if !HasVectorValues(sourceFieldInfo, fieldInfo.Name()) {
+			continue
+		}
+		if knnVectorsReader != nil {
+			values, err := knnVectorsReader.GetFloatVectorValues(fieldInfo.Name())
+			if err != nil {
+				return nil, err
+			}
+			if values != nil {
+				subs = append(subs, &floatVectorValuesSub{
+					docMap: mergeState.DocMaps[i],
+					values: values,
+					iter:   values.Iterator(),
+				})
+			}
+		}
+	}
+
+	var mergerSubs []index.DocIDMergerSub
+	for _, sub := range subs {
+		mergerSubs = append(mergerSubs, sub)
+	}
+	merger, err := index.NewDocIDMerger(mergerSubs, 0, mergeState.NeedsIndexSort)
+	if err != nil {
+		return nil, err
+	}
+
+	return &mergedFloat32VectorValues{
+		subs:        subs,
+		docIdMerger: merger,
+		size:        calculateTotalSize(subs, func(s *floatVectorValuesSub) int { return s.values.Size() }),
+		docId:       -1,
+		lastOrd:     -1,
+	}, nil
+}
+
+// MergeByteVectorValues returns a merged view over all the segment's
+// ByteVectorValues. Mirrors the public static
+// KnnVectorsWriter.MergedVectorValues.mergeByteVectorValues(FieldInfo,
+// MergeState) of Apache Lucene 10.5.0.
+func MergeByteVectorValues(fieldInfo *spi.FieldInfo, mergeState *index.MergeState) (index.ByteVectorValues, error) {
+	if err := validateFieldEncoding(fieldInfo, index.VectorEncodingByte); err != nil {
+		return nil, err
+	}
+
+	var subs []*byteVectorValuesSub
+	for i, knnVectorsReader := range mergeState.KnnVectorsReaders {
+		sourceFieldInfo := mergeState.FieldInfos[i]
+		if !HasVectorValues(sourceFieldInfo, fieldInfo.Name()) {
+			continue
+		}
+		if knnVectorsReader != nil {
+			values, err := knnVectorsReader.GetByteVectorValues(fieldInfo.Name())
+			if err != nil {
+				return nil, err
+			}
+			if values != nil {
+				subs = append(subs, &byteVectorValuesSub{
+					docMap: mergeState.DocMaps[i],
+					values: values,
+					iter:   values.Iterator(),
+				})
+			}
+		}
+	}
+
+	var mergerSubs []index.DocIDMergerSub
+	for _, sub := range subs {
+		mergerSubs = append(mergerSubs, sub)
+	}
+	merger, err := index.NewDocIDMerger(mergerSubs, 0, mergeState.NeedsIndexSort)
+	if err != nil {
+		return nil, err
+	}
+
+	return &mergedByteVectorValues{
+		subs:        subs,
+		docIdMerger: merger,
+		size:        calculateTotalSize(subs, func(s *byteVectorValuesSub) int { return s.values.Size() }),
+		docId:       -1,
+		lastOrd:     -1,
+	}, nil
+}
+
+// HasVectorValues returns true if the fieldInfos has vector values for the
+// field. Mirrors the public static
+// KnnVectorsWriter.MergedVectorValues.hasVectorValues(FieldInfos, String).
+func HasVectorValues(fieldInfos *index.FieldInfos, fieldName string) bool {
+	if !fieldInfos.HasVectorValues() {
+		return false
+	}
+	info := fieldInfos.FieldInfo(fieldName)
+	return info != nil && info.HasVectorValues()
+}
+
+func calculateTotalSize[T any](subs []*T, sizeFn func(*T) int) int {
+	total := 0
+	for _, sub := range subs {
+		total += sizeFn(sub)
+	}
+	return total
+}
+
+type floatVectorValuesSub struct {
+	docMap index.DocMap
+	values index.FloatVectorValues
+	iter   spi.DocIndexIterator
+}
+
+func (s *floatVectorValuesSub) MappedDocID() int {
+	return s.docMap.Get(s.iter.DocID())
+}
+
+func (s *floatVectorValuesSub) NextDoc() (int, error) {
+	return s.iter.NextDoc()
+}
+
+func (s *floatVectorValuesSub) NextMappedDoc() (int, error) {
+	for {
+		doc, err := s.iter.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+		if doc == util.NO_MORE_DOCS {
+			return util.NO_MORE_DOCS, nil
+		}
+		mapped := s.docMap.Get(doc)
+		if mapped != -1 {
+			return mapped, nil
+		}
+	}
+}
+
+type byteVectorValuesSub struct {
+	docMap index.DocMap
+	values index.ByteVectorValues
+	iter   spi.DocIndexIterator
+}
+
+func (s *byteVectorValuesSub) MappedDocID() int {
+	return s.docMap.Get(s.iter.DocID())
+}
+
+func (s *byteVectorValuesSub) NextDoc() (int, error) {
+	return s.iter.NextDoc()
+}
+
+func (s *byteVectorValuesSub) NextMappedDoc() (int, error) {
+	for {
+		doc, err := s.iter.NextDoc()
+		if err != nil {
+			return 0, err
+		}
+		if doc == util.NO_MORE_DOCS {
+			return util.NO_MORE_DOCS, nil
+		}
+		mapped := s.docMap.Get(doc)
+		if mapped != -1 {
+			return mapped, nil
+		}
+	}
+}
+
+type mergedFloat32VectorValues struct {
+	subs        []*floatVectorValuesSub
+	docIdMerger index.DocIDMerger
+	size        int
+	docId       int
+	lastOrd     int
+	current     *floatVectorValuesSub
+}
+
+func (m *mergedFloat32VectorValues) Dimension() int {
+	if len(m.subs) == 0 {
+		return 0
+	}
+	return m.subs[0].values.Dimension()
+}
+
+func (m *mergedFloat32VectorValues) Size() int {
+	return m.size
+}
+
+func (m *mergedFloat32VectorValues) OrdToDoc(ord int) int {
+	panic("not implemented")
+}
+
+func (m *mergedFloat32VectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error {
+	panic("not implemented")
+}
+
+func (m *mergedFloat32VectorValues) Copy() (index.KnnVectorValues, error) {
+	panic("not implemented")
+}
+
+func (m *mergedFloat32VectorValues) GetEncoding() index.VectorEncoding {
+	return index.VectorEncodingFloat32
+}
+
+func (m *mergedFloat32VectorValues) GetVectorByteLength() int {
+	return m.Dimension() * index.VectorEncodingByteSize(m.GetEncoding())
+}
+
+func (m *mergedFloat32VectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
+	panic("not implemented")
+}
+
+func (m *mergedFloat32VectorValues) Iterator() spi.DocIndexIterator {
+	return &mergedVectorIterator{
+		parent: m,
+	}
+}
+
+func (m *mergedFloat32VectorValues) VectorValue(ord int) ([]float32, error) {
+	if ord != m.lastOrd {
+		return nil, fmt.Errorf("only supports forward iteration: ord=%d, lastOrd=%d", ord, m.lastOrd)
+	}
+	return m.current.values.VectorValue(m.current.iter.Index())
+}
+
+func (m *mergedFloat32VectorValues) CopyFloatVectorValues() (index.FloatVectorValues, error) {
+	panic("not implemented")
+}
+
+func (m *mergedFloat32VectorValues) Scorer(target []float32) (util.VectorScorer, error) {
+	panic("not implemented")
+}
+
+func (m *mergedFloat32VectorValues) Rescorer(target []float32) (util.VectorScorer, error) {
+	panic("not implemented")
+}
+
+type mergedByteVectorValues struct {
+	subs        []*byteVectorValuesSub
+	docIdMerger index.DocIDMerger
+	size        int
+	docId       int
+	lastOrd     int
+	current     *byteVectorValuesSub
+}
+
+func (m *mergedByteVectorValues) Dimension() int {
+	if len(m.subs) == 0 {
+		return 0
+	}
+	return m.subs[0].values.Dimension()
+}
+
+func (m *mergedByteVectorValues) Size() int {
+	return m.size
+}
+
+func (m *mergedByteVectorValues) OrdToDoc(ord int) int {
+	panic("not implemented")
+}
+
+func (m *mergedByteVectorValues) Prefetch(ordsToPrefetch []int, numOrds int) error {
+	panic("not implemented")
+}
+
+func (m *mergedByteVectorValues) Copy() (index.KnnVectorValues, error) {
+	panic("not implemented")
+}
+
+func (m *mergedByteVectorValues) GetEncoding() index.VectorEncoding {
+	return index.VectorEncodingByte
+}
+
+func (m *mergedByteVectorValues) GetVectorByteLength() int {
+	return m.Dimension() * index.VectorEncodingByteSize(m.GetEncoding())
+}
+
+func (m *mergedByteVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.Bits {
+	panic("not implemented")
+}
+
+func (m *mergedByteVectorValues) Iterator() spi.DocIndexIterator {
+	return &mergedVectorIterator{
+		parent: m,
+	}
+}
+
+func (m *mergedByteVectorValues) VectorValue(ord int) ([]byte, error) {
+	if ord != m.lastOrd {
+		return nil, fmt.Errorf("only supports forward iteration: ord=%d, lastOrd=%d", ord, m.lastOrd)
+	}
+	return m.current.values.VectorValue(m.current.iter.Index())
+}
+
+func (m *mergedByteVectorValues) CopyByteVectorValues() (index.ByteVectorValues, error) {
+	panic("not implemented")
+}
+
+func (m *mergedByteVectorValues) Scorer(target []byte) (util.VectorScorer, error) {
+	panic("not implemented")
+}
+
+func (m *mergedByteVectorValues) Rescorer(target []byte) (util.VectorScorer, error) {
+	panic("not implemented")
+}
+
+type mergedVectorIterator struct {
+	parent any
+}
+
+func (it *mergedVectorIterator) DocID() int {
+	if m, ok := it.parent.(*mergedFloat32VectorValues); ok {
+		return m.docId
+	}
+	if m, ok := it.parent.(*mergedByteVectorValues); ok {
+		return m.docId
+	}
+	return util.NO_MORE_DOCS
+}
+
+func (it *mergedVectorIterator) Index() int {
+	if m, ok := it.parent.(*mergedFloat32VectorValues); ok {
+		return m.lastOrd
+	}
+	if m, ok := it.parent.(*mergedByteVectorValues); ok {
+		return m.lastOrd
+	}
+	return util.NO_MORE_DOCS
+}
+
+func (it *mergedVectorIterator) NextDoc() (int, error) {
+	if m, ok := it.parent.(*mergedFloat32VectorValues); ok {
+		// Java: DocIDMerger.next() throws IOException; the Go port returns it,
+		// so it is propagated rather than dropped (KnnVectorsWriter.java).
+		sub, err := m.docIdMerger.Next()
+		if err != nil {
+			return 0, err
+		}
+		if sub == nil {
+			m.docId = util.NO_MORE_DOCS
+			m.lastOrd = util.NO_MORE_DOCS
+		} else {
+			m.current = sub.(*floatVectorValuesSub)
+			m.docId = m.current.MappedDocID()
+			m.lastOrd++
+		}
+		return m.docId, nil
+	}
+	if m, ok := it.parent.(*mergedByteVectorValues); ok {
+		// Java: DocIDMerger.next() throws IOException; the Go port returns it,
+		// so it is propagated rather than dropped (KnnVectorsWriter.java).
+		sub, err := m.docIdMerger.Next()
+		if err != nil {
+			return 0, err
+		}
+		if sub == nil {
+			m.docId = util.NO_MORE_DOCS
+			m.lastOrd = util.NO_MORE_DOCS
+		} else {
+			m.current = sub.(*byteVectorValuesSub)
+			m.docId = m.current.MappedDocID()
+			m.lastOrd++
+		}
+		return m.docId, nil
+	}
+	return util.NO_MORE_DOCS, nil
+}
+
+func (it *mergedVectorIterator) Advance(target int) (int, error) {
+	panic("not implemented")
+}
+
+func (it *mergedVectorIterator) Cost() int64 {
+	if m, ok := it.parent.(*mergedFloat32VectorValues); ok {
+		return int64(m.size)
+	}
+	if m, ok := it.parent.(*mergedByteVectorValues); ok {
+		return int64(m.size)
+	}
+	return 0
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (it *mergedVectorIterator) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(it)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (it *mergedVectorIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
+}

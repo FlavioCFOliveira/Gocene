@@ -55,7 +55,7 @@ type SimpleTextFieldsWriter struct {
 //
 // Port of SimpleTextFieldsWriter(SegmentWriteState).
 func NewSimpleTextFieldsWriter(state *codecs.SegmentWriteState) (*SimpleTextFieldsWriter, error) {
-	fileName := index.SegmentFileName(
+	fileName := store.SegmentFileName(
 		state.SegmentInfo.Name(),
 		state.SegmentSuffix,
 		postingsExtension,
@@ -73,16 +73,56 @@ func NewSimpleTextFieldsWriter(state *codecs.SegmentWriteState) (*SimpleTextFiel
 	}, nil
 }
 
-// Write encodes all postings for the given field.
+// Write encodes all postings for every field the given Fields exposes.
 //
-// Port of SimpleTextFieldsWriter.write(Fields, NormsProducer) adapted to the
-// Go FieldsConsumer.Write(field string, terms index.Terms) contract.
-func (w *SimpleTextFieldsWriter) Write(field string, terms index.Terms) error {
+// Mirrors SimpleTextFieldsWriter.write(Fields, NormsProducer)
+// (SimpleTextFieldsWriter.java:64-66), which forwards to
+// write(FieldInfos, Fields, NormsProducer).
+func (w *SimpleTextFieldsWriter) Write(fields index.Fields, norms codecs.NormsProducer) error {
+	return w.WriteFieldInfos(w.writeState.FieldInfos, fields, norms)
+}
+
+// WriteFieldInfos mirrors the public
+// SimpleTextFieldsWriter.write(FieldInfos, Fields, NormsProducer)
+// (SimpleTextFieldsWriter.java:68-193): for each field it resolves the
+// FieldInfo, pulls the norms when the field has them, and writes every term.
+func (w *SimpleTextFieldsWriter) WriteFieldInfos(fieldInfos *index.FieldInfos, fields index.Fields, normsProducer codecs.NormsProducer) error {
 	if w.closed {
 		return fmt.Errorf("SimpleTextFieldsWriter: already closed")
 	}
+	if fields == nil {
+		return nil
+	}
+	it, err := fields.Iterator()
+	if err != nil {
+		return err
+	}
+	// For each field.
+	for {
+		field, err := it.Next()
+		if err != nil {
+			return err
+		}
+		if field == "" {
+			return nil
+		}
+		terms, err := fields.Terms(field)
+		if err != nil {
+			return err
+		}
+		if terms == nil {
+			// Annoyingly, this can happen!
+			continue
+		}
+		if err := w.writeField(fieldInfos, field, terms, normsProducer); err != nil {
+			return err
+		}
+	}
+}
 
-	fi := w.writeState.FieldInfos.GetByName(field)
+// writeField carries the per-field body of the Java write loop.
+func (w *SimpleTextFieldsWriter) writeField(fieldInfos *index.FieldInfos, field string, terms index.Terms, normsProducer codecs.NormsProducer) error {
+	fi := fieldInfos.GetByName(field)
 	// fi may be nil if the field has no FieldInfo registered; treat norms as
 	// absent in that case.
 	var fieldHasNorms bool
@@ -90,6 +130,17 @@ func (w *SimpleTextFieldsWriter) Write(field string, terms index.Terms) error {
 	if fi != nil {
 		fieldHasNorms = fi.HasNorms()
 		hasPayloads = fi.HasPayloads()
+	}
+
+	// NumericDocValues norms = null;
+	// if (fieldHasNorms && normsProducer != null) norms = normsProducer.getNorms(fieldInfo);
+	var norms index.NumericDocValues
+	if fieldHasNorms && normsProducer != nil {
+		var err error
+		norms, err = normsProducer.GetNorms(fi)
+		if err != nil {
+			return err
+		}
 	}
 
 	hasPositions := terms.HasPositions()
@@ -110,9 +161,9 @@ func (w *SimpleTextFieldsWriter) Write(field string, terms index.Terms) error {
 		flags |= pfFreqs
 	}
 
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
-		return fmt.Errorf("SimpleTextFieldsWriter.Write(%q): GetIterator: %w", field, err)
+		return fmt.Errorf("SimpleTextFieldsWriter.Write(%q): Iterator: %w", field, err)
 	}
 
 	wroteField := false
@@ -272,10 +323,16 @@ func (w *SimpleTextFieldsWriter) Write(field string, terms index.Terms) error {
 					}
 				}
 
-				norm := w.getNorm(fieldHasNorms)
+				norm, err := getNorm(doc, norms)
+				if err != nil {
+					return err
+				}
 				w.accumulator.Add(freq, norm)
 			} else {
-				norm := w.getNorm(fieldHasNorms)
+				norm, err := getNorm(doc, norms)
+				if err != nil {
+					return err
+				}
 				w.accumulator.Add(1, norm)
 			}
 
@@ -304,13 +361,23 @@ func (w *SimpleTextFieldsWriter) Write(field string, terms index.Terms) error {
 	return nil
 }
 
-// getNorm returns the norm value for a document. Since Go's FieldsConsumer
-// does not receive a NormsProducer, norms are not available here and the
-// default value 1 is returned, matching Java's getNorm when norms == null.
-func (w *SimpleTextFieldsWriter) getNorm(fieldHasNorms bool) int64 {
-	// Deviation from Java: NormsProducer is not accessible through Go's
-	// FieldsConsumer.Write API. Always return 1 (the identity norm).
-	return 1
+// getNorm returns the norm value bound to doc, or 1 when the field has no
+// norms or the document carries none.
+//
+// Mirrors the private SimpleTextFieldsWriter.getNorm(int, NumericDocValues)
+// (SimpleTextFieldsWriter.java:195-203).
+func getNorm(doc int, norms index.NumericDocValues) (int64, error) {
+	if norms == nil {
+		return 1, nil
+	}
+	found, err := norms.AdvanceExact(doc)
+	if err != nil {
+		return 0, err
+	}
+	if !found {
+		return 1, nil
+	}
+	return norms.LongValue()
 }
 
 // Close writes the END marker and checksum, then closes the output.

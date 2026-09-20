@@ -147,7 +147,7 @@ func TestMMapDirectory_OpenInput(t *testing.T) {
 
 		// Read all content
 		buf := make([]byte, len(content))
-		if err := in.ReadBytes(buf); err != nil {
+		if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 			t.Errorf("ReadBytes() error = %v", err)
 			return
 		}

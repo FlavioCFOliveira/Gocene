@@ -12,7 +12,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/fst"
@@ -107,7 +107,7 @@ type VersionBlockTreeTermsWriter struct {
 	maxItemsInBlock int
 
 	postingsWriter codecs.PushPostingsWriterBase
-	fieldInfos     *schema.FieldInfos
+	fieldInfos     *spi.FieldInfos
 
 	fields []*vbtFieldMetaData
 	closed bool
@@ -131,7 +131,7 @@ func NewVersionBlockTreeTermsWriter(
 		return nil, fmt.Errorf("NewVersionBlockTreeTermsWriter: %w", err)
 	}
 
-	termsFileName := index.SegmentFileName(
+	termsFileName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, vbtTermsExtension,
 	)
 	rawOut, err := state.Directory.CreateOutput(termsFileName, store.IOContext{})
@@ -158,7 +158,7 @@ func NewVersionBlockTreeTermsWriter(
 		return nil, fmt.Errorf("NewVersionBlockTreeTermsWriter: write terms header: %w", err)
 	}
 
-	indexFileName := index.SegmentFileName(
+	indexFileName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, vbtTermsIndexExtension,
 	)
 	rawIndexOut, err = state.Directory.CreateOutput(indexFileName, store.IOContext{})
@@ -192,22 +192,62 @@ func NewVersionBlockTreeTermsWriter(
 	}, nil
 }
 
-// Write serialises all terms of field from terms into the on-disk files.
+// Write serialises every field the given Fields exposes into the on-disk files.
 //
-// Mirrors VersionBlockTreeTermsWriter.write(Fields, NormsProducer).
-func (w *VersionBlockTreeTermsWriter) Write(field string, terms schema.Terms) error {
+// Mirrors VersionBlockTreeTermsWriter.write(Fields, NormsProducer)
+// (VersionBlockTreeTermsWriter.java:340-365).
+//
+// PORT NOTE: Java forwards norms to TermsWriter.write(BytesRef, TermsEnum,
+// NormsProducer); the Gocene per-term writer has no NormsProducer parameter
+// yet, so the value stops here.
+func (w *VersionBlockTreeTermsWriter) Write(fields spi.Fields, norms spi.NormsProducer) error {
 	if w.closed {
 		return fmt.Errorf("VersionBlockTreeTermsWriter.Write: writer is closed")
 	}
+	if fields == nil {
+		return nil
+	}
+	it, err := fields.Iterator()
+	if err != nil {
+		return err
+	}
+	lastField := ""
+	for {
+		field, err := it.Next()
+		if err != nil {
+			return err
+		}
+		if field == "" {
+			return nil
+		}
+		if lastField != "" && lastField >= field {
+			return fmt.Errorf("VersionBlockTreeTermsWriter.Write: fields must be visited in ascending order, got %q after %q", field, lastField)
+		}
+		lastField = field
 
+		terms, err := fields.Terms(field)
+		if err != nil {
+			return err
+		}
+		if terms == nil {
+			continue
+		}
+		if err := w.writeField(field, terms); err != nil {
+			return err
+		}
+	}
+}
+
+// writeField carries the per-field body of the Java write loop.
+func (w *VersionBlockTreeTermsWriter) writeField(field string, terms spi.Terms) error {
 	fi := w.fieldInfos.GetByName(field)
 	if fi == nil {
 		return fmt.Errorf("VersionBlockTreeTermsWriter.Write: unknown field %q", field)
 	}
 
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		return fmt.Errorf("VersionBlockTreeTermsWriter.Write: field %q GetIterator: %w", field, err)
+		return fmt.Errorf("VersionBlockTreeTermsWriter.Write: field %q Iterator: %w", field, err)
 	}
 
 	tw := newVBTTermsWriter(w, fi)
@@ -257,37 +297,37 @@ func (w *VersionBlockTreeTermsWriter) Close() error {
 	dirStart := w.out.GetFilePointer()
 	indexDirStart := w.indexOut.GetFilePointer()
 
-	if err := store.WriteVInt(w.out, int32(len(w.fields))); err != nil {
+	if err := w.out.WriteVInt(int32(len(w.fields))); err != nil {
 		setErr(err)
 		return firstErr
 	}
 
 	for _, field := range w.fields {
-		if err := store.WriteVInt(w.out, int32(field.fieldInfo.Number())); err != nil {
+		if err := w.out.WriteVInt(int32(field.fieldInfo.Number())); err != nil {
 			setErr(err)
 			return firstErr
 		}
-		if err := store.WriteVLong(w.out, field.numTerms); err != nil {
+		if err := w.out.WriteVLong(field.numTerms); err != nil {
 			setErr(err)
 			return firstErr
 		}
 		// rootCode.output1 is the BytesRef (encoded block FP + flags).
 		rc1 := field.rootCode.Output1
-		if err := store.WriteVInt(w.out, int32(rc1.Length)); err != nil {
+		if err := w.out.WriteVInt(int32(rc1.Length)); err != nil {
 			setErr(err)
 			return firstErr
 		}
-		if err := w.out.WriteBytes(rc1.Bytes[rc1.Offset : rc1.Offset+rc1.Length]); err != nil {
+		if err := w.out.WriteBytes(rc1.Bytes, rc1.Offset, rc1.Length); err != nil {
 			setErr(err)
 			return firstErr
 		}
 		// rootCode.output2 is the maxVersion long.
-		if err := store.WriteVLong(w.out, field.rootCode.Output2); err != nil {
+		if err := w.out.WriteVLong(field.rootCode.Output2); err != nil {
 			setErr(err)
 			return firstErr
 		}
 		// indexStartFP goes into the index file.
-		if err := store.WriteVLong(w.indexOut, field.indexStartFP); err != nil {
+		if err := w.indexOut.WriteVLong(field.indexStartFP); err != nil {
 			setErr(err)
 			return firstErr
 		}
@@ -307,7 +347,7 @@ func (w *VersionBlockTreeTermsWriter) Close() error {
 		setErr(err)
 		return firstErr
 	}
-	if err := codecs.WriteFooter(w.out); err != nil {
+	if err := store.WriteFooter(w.out); err != nil {
 		setErr(err)
 		return firstErr
 	}
@@ -316,7 +356,7 @@ func (w *VersionBlockTreeTermsWriter) Close() error {
 		setErr(err)
 		return firstErr
 	}
-	if err := codecs.WriteFooter(w.indexOut); err != nil {
+	if err := store.WriteFooter(w.indexOut); err != nil {
 		setErr(err)
 		return firstErr
 	}
@@ -356,12 +396,12 @@ func newFixedBitSetOrPanic(numBits int) *util.FixedBitSet {
 // writeBytesRefVBT writes a BytesRef as (vint length, raw bytes).
 func writeBytesRefVBT(out store.IndexOutput, b *util.BytesRef) error {
 	if b == nil {
-		return store.WriteVInt(out, 0)
+		return out.WriteVInt(0)
 	}
-	if err := store.WriteVInt(out, int32(b.Length)); err != nil {
+	if err := out.WriteVInt(int32(b.Length)); err != nil {
 		return err
 	}
-	return out.WriteBytes(b.Bytes[b.Offset : b.Offset+b.Length])
+	return out.WriteBytes(b.Bytes, b.Offset, b.Length)
 }
 
 // vbtEncodeOutput encodes a file pointer and two flag bits into a single long
@@ -391,7 +431,7 @@ type vbtPendingEntry interface {
 // Mirrors VersionBlockTreeTermsWriter.PendingTerm.
 type vbtPendingTerm struct {
 	termBytes []byte
-	state     *codecs.BlockTermState
+	state     index.TermState
 }
 
 func (*vbtPendingTerm) isTerm() bool { return true }
@@ -427,7 +467,7 @@ func (b *vbtPendingBlock) compileIndex(
 
 	maxVersionIndex := b.maxVersion
 	if b.isFloor {
-		if err := store.WriteVInt(scratch, int32(len(blocks)-1)); err != nil {
+		if err := scratch.WriteVInt(int32(len(blocks) - 1)); err != nil {
 			return fmt.Errorf("compileIndex: write floor count: %w", err)
 		}
 		for i := 1; i < len(blocks); i++ {
@@ -569,7 +609,7 @@ func newVBTTermsWriter(parent *VersionBlockTreeTermsWriter, fi *index.FieldInfo)
 
 // writeTerm processes one term from the TermsEnum.
 // Mirrors VersionBlockTreeTermsWriter.TermsWriter.write(BytesRef, TermsEnum, NormsProducer).
-func (tw *vbtTermsWriter) writeTerm(term *util.BytesRef, termsEnum schema.TermsEnum) error {
+func (tw *vbtTermsWriter) writeTerm(term *util.BytesRef, termsEnum spi.TermsEnum) error {
 	pw := tw.parent.postingsWriter
 
 	state := pw.NewTermState()
@@ -584,9 +624,9 @@ func (tw *vbtTermsWriter) writeTerm(term *util.BytesRef, termsEnum schema.TermsE
 	}
 
 	fi := tw.fi
-	hasFreqs := fi.IndexOptions() >= schema.IndexOptionsDocsAndFreqs
-	hasPositions := fi.IndexOptions() >= schema.IndexOptionsDocsAndFreqsAndPositions
-	hasOffsets := fi.IndexOptions() >= schema.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
+	hasFreqs := fi.IndexOptions() >= spi.IndexOptionsDocsAndFreqs
+	hasPositions := fi.IndexOptions() >= spi.IndexOptionsDocsAndFreqsAndPositions
+	hasOffsets := fi.IndexOptions() >= spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
 	hasPayloads := fi.HasPayloads()
 
 	_, _, werr := codecs.WriteTerm(pw, postingsEnum, hasFreqs, hasPositions, hasOffsets, hasPayloads, nil)
@@ -594,15 +634,19 @@ func (tw *vbtTermsWriter) writeTerm(term *util.BytesRef, termsEnum schema.TermsE
 		return fmt.Errorf("writeTerm: WriteTerm: %w", werr)
 	}
 
-	// Retrieve the per-term sidecar to check if the doc was alive.
-	extra := globalTermStateRegistry.lookup(state)
-	if extra == nil || extra.DocID == -1 {
+	// Mirrors "(IDVersionTermState) state": the postings writer records
+	// docID == -1 when the term's only document was deleted.
+	ts, ok := state.(*IDVersionTermState)
+	if !ok {
+		return fmt.Errorf("writeTerm: term state is %T, want *IDVersionTermState", state)
+	}
+	if ts.DocID == -1 {
 		// Term had no live documents (deleted); skip it.
 		return nil
 	}
 
-	state.DocFreq = 1
-	state.TotalTermFreq = 1
+	ts.DocFreq = 1
+	ts.TotalTermFreq = 1
 	if err := pw.FinishTerm(state); err != nil {
 		return fmt.Errorf("writeTerm: FinishTerm: %w", err)
 	}
@@ -763,7 +807,7 @@ func (tw *vbtTermsWriter) writeBlock(
 	if end == len(tw.pending) {
 		code |= 1 // last block
 	}
-	if err := store.WriteVInt(out, code); err != nil {
+	if err := out.WriteVInt(code); err != nil {
 		return nil, fmt.Errorf("writeBlock: write entCount: %w", err)
 	}
 
@@ -776,15 +820,15 @@ func (tw *vbtTermsWriter) writeBlock(
 		// Leaf: only terms.
 		for i := start; i < end; i++ {
 			pt := tw.pending[i].(*vbtPendingTerm)
-			extra := globalTermStateRegistry.lookup(pt.state)
-			if extra != nil && extra.IDVersion > maxVersionInBlock {
-				maxVersionInBlock = extra.IDVersion
+			// Mirrors "((IDVersionTermState) term.state).idVersion".
+			if ts, ok := pt.state.(*IDVersionTermState); ok && ts.IDVersion > maxVersionInBlock {
+				maxVersionInBlock = ts.IDVersion
 			}
 			suffix := len(pt.termBytes) - prefixLength
-			if err := store.WriteVInt(tw.suffixWriter, int32(suffix)); err != nil {
+			if err := tw.suffixWriter.WriteVInt(int32(suffix)); err != nil {
 				return nil, fmt.Errorf("writeBlock (leaf): write suffix len: %w", err)
 			}
-			if err := tw.suffixWriter.WriteBytes(pt.termBytes[prefixLength : prefixLength+suffix]); err != nil {
+			if err := tw.suffixWriter.WriteBytes(pt.termBytes, prefixLength, suffix); err != nil {
 				return nil, fmt.Errorf("writeBlock (leaf): write suffix bytes: %w", err)
 			}
 			if err := tw.parent.postingsWriter.EncodeTerm(byteBuffersIndexOutputAdapter{tw.metaWriter}, tw.fi, pt.state, absolute); err != nil {
@@ -798,16 +842,16 @@ func (tw *vbtTermsWriter) writeBlock(
 			ent := tw.pending[i]
 			if ent.isTerm() {
 				pt := ent.(*vbtPendingTerm)
-				extra := globalTermStateRegistry.lookup(pt.state)
-				if extra != nil && extra.IDVersion > maxVersionInBlock {
-					maxVersionInBlock = extra.IDVersion
+				// Mirrors "((IDVersionTermState) term.state).idVersion".
+				if ts, ok := pt.state.(*IDVersionTermState); ok && ts.IDVersion > maxVersionInBlock {
+					maxVersionInBlock = ts.IDVersion
 				}
 				suffix := len(pt.termBytes) - prefixLength
 				// Borrow LSB=0 to signal "term".
-				if err := store.WriteVInt(tw.suffixWriter, int32(suffix<<1)); err != nil {
+				if err := tw.suffixWriter.WriteVInt(int32(suffix << 1)); err != nil {
 					return nil, fmt.Errorf("writeBlock (non-leaf term): write suffix: %w", err)
 				}
-				if err := tw.suffixWriter.WriteBytes(pt.termBytes[prefixLength : prefixLength+suffix]); err != nil {
+				if err := tw.suffixWriter.WriteBytes(pt.termBytes, prefixLength, suffix); err != nil {
 					return nil, fmt.Errorf("writeBlock (non-leaf term): write suffix bytes: %w", err)
 				}
 				if err := tw.parent.postingsWriter.EncodeTerm(byteBuffersIndexOutputAdapter{tw.metaWriter}, tw.fi, pt.state, absolute); err != nil {
@@ -821,10 +865,10 @@ func (tw *vbtTermsWriter) writeBlock(
 				}
 				suffix := pb.prefix.Length - prefixLength
 				// Borrow LSB=1 to signal "sub-block".
-				if err := store.WriteVInt(tw.suffixWriter, int32((suffix<<1)|1)); err != nil {
+				if err := tw.suffixWriter.WriteVInt(int32((suffix << 1) | 1)); err != nil {
 					return nil, fmt.Errorf("writeBlock (non-leaf block): write suffix: %w", err)
 				}
-				if err := tw.suffixWriter.WriteBytes(pb.prefix.Bytes[prefixLength : prefixLength+suffix]); err != nil {
+				if err := tw.suffixWriter.WriteBytes(pb.prefix.Bytes, prefixLength, suffix); err != nil {
 					return nil, fmt.Errorf("writeBlock (non-leaf block): write suffix bytes: %w", err)
 				}
 				delta := startFP - pb.fp
@@ -844,7 +888,7 @@ func (tw *vbtTermsWriter) writeBlock(
 	if isLeafBlock {
 		suffixCode |= 1
 	}
-	if err := store.WriteVInt(out, suffixCode); err != nil {
+	if err := out.WriteVInt(suffixCode); err != nil {
 		return nil, fmt.Errorf("writeBlock: write suffix code: %w", err)
 	}
 	if err := tw.suffixWriter.CopyTo(out); err != nil {
@@ -853,7 +897,7 @@ func (tw *vbtTermsWriter) writeBlock(
 	tw.suffixWriter.Reset()
 
 	// Write meta blob.
-	if err := store.WriteVInt(out, int32(tw.metaWriter.Size())); err != nil {
+	if err := out.WriteVInt(int32(tw.metaWriter.Size())); err != nil {
 		return nil, fmt.Errorf("writeBlock: write meta size: %w", err)
 	}
 	if err := tw.metaWriter.CopyTo(out); err != nil {
@@ -941,8 +985,10 @@ type byteBuffersIndexOutputAdapter struct {
 
 var _ store.IndexOutput = byteBuffersIndexOutputAdapter{}
 
-func (a byteBuffersIndexOutputAdapter) WriteByte(b byte) error    { return a.inner.WriteByte(b) }
-func (a byteBuffersIndexOutputAdapter) WriteBytes(b []byte) error { return a.inner.WriteBytes(b) }
+func (a byteBuffersIndexOutputAdapter) WriteByte(b byte) error { return a.inner.WriteByte(b) }
+func (a byteBuffersIndexOutputAdapter) WriteBytes(b []byte, offset, length int) error {
+	return a.inner.WriteBytes(b, offset, length)
+}
 func (a byteBuffersIndexOutputAdapter) WriteBytesN(b []byte, n int) error {
 	return a.inner.WriteBytesN(b, n)
 }
@@ -952,8 +998,35 @@ func (a byteBuffersIndexOutputAdapter) WriteLong(v int64) error  { return a.inne
 func (a byteBuffersIndexOutputAdapter) WriteString(s string) error {
 	return a.inner.WriteString(s)
 }
+
+// CopyBytes renders DataOutput.copyBytes(DataInput, long) by forwarding to the
+// wrapped ByteBuffersDataOutput, which carries the base body.
+func (a byteBuffersIndexOutputAdapter) CopyBytes(input store.DataInput, numBytes int64) error {
+	return a.inner.CopyBytes(input, numBytes)
+}
+
 func (a byteBuffersIndexOutputAdapter) WriteVInt(i int32) error  { return a.inner.WriteVInt(i) }
 func (a byteBuffersIndexOutputAdapter) WriteVLong(i int64) error { return a.inner.WriteVLong(i) }
+
+// WriteGroupVInts renders DataOutput.writeGroupVInts(long[], int) by
+// forwarding to the wrapped ByteBuffersDataOutput, which carries the base
+// body.
+func (a byteBuffersIndexOutputAdapter) WriteGroupVInts(values []int32, limit int) error {
+	return a.inner.WriteGroupVInts(values, limit)
+}
+
+// WriteZInt, WriteZLong, WriteMapOfStrings and WriteSetOfStrings complete the
+// store.DataOutput contract. Java's byteBuffersDataOutputAsIndexOutput
+// inherits these bodies from DataOutput; Go has no inheritance, so each is
+// forwarded to the wrapped ByteBuffersDataOutput, which carries them.
+func (a byteBuffersIndexOutputAdapter) WriteZInt(v int32) error  { return a.inner.WriteZInt(v) }
+func (a byteBuffersIndexOutputAdapter) WriteZLong(v int64) error { return a.inner.WriteZLong(v) }
+func (a byteBuffersIndexOutputAdapter) WriteMapOfStrings(m map[string]string) error {
+	return a.inner.WriteMapOfStrings(m)
+}
+func (a byteBuffersIndexOutputAdapter) WriteSetOfStrings(v []string) error {
+	return a.inner.WriteSetOfStrings(v)
+}
 
 // GetFilePointer returns the current size of the buffer as a proxy for the
 // write position (ByteBuffersDataOutput is append-only).

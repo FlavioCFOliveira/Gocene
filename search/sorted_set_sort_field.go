@@ -19,6 +19,7 @@ package search
 import (
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -68,7 +69,7 @@ func NewSortedSetSortFieldFull(field string, reverse bool, selector SortedSetSel
 func newSortedSetSortField(field string, reverse bool, selector SortedSetSelectorType, missingValue interface{}) *SortedSetSortField {
 	sf := &SortField{
 		Field:        field,
-		Type:         SortFieldTypeCustom,
+		Type:         spi.SortFieldTypeCustom,
 		Reverse:      reverse,
 		MissingValue: missingValue,
 	}

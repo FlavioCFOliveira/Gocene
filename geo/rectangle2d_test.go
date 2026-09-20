@@ -8,7 +8,10 @@
 
 package geo
 
-import "testing"
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"testing"
+)
 
 func TestRectangle2D_Bounds(t *testing.T) {
 	r := newRectangle2D(-1, 2, -3, 4)
@@ -46,14 +49,14 @@ func TestRectangle2D_Relate(t *testing.T) {
 	cases := []struct {
 		name                   string
 		minX, maxX, minY, maxY float64
-		want                   Relation
+		want                   spi.Relation
 	}{
 		// The rectangle IS the query; the four arguments are the cell.
-		{"disjoint right", 20, 30, 0, 10, CellOutsideQuery},
-		{"disjoint above", 0, 10, 20, 30, CellOutsideQuery},
-		{"cell inside rect", 2, 4, 2, 4, CellInsideQuery},
-		{"cell encloses rect", -5, 15, -5, 15, CellCrossesQuery},
-		{"touch corner", 10, 20, 10, 20, CellCrossesQuery},
+		{"disjoint right", 20, 30, 0, 10, spi.CellOutsideQuery},
+		{"disjoint above", 0, 10, 20, 30, spi.CellOutsideQuery},
+		{"cell inside rect", 2, 4, 2, 4, spi.CellInsideQuery},
+		{"cell encloses rect", -5, 15, -5, 15, spi.CellCrossesQuery},
+		{"touch corner", 10, 20, 10, 20, spi.CellCrossesQuery},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

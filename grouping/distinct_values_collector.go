@@ -5,198 +5,169 @@
 package grouping
 
 import (
-	"fmt"
+	"errors"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// DistinctValuesCollector collects distinct values per group.
-// This is useful for getting unique values within each group.
+// DistinctValuesCollector is a second pass grouping collector that keeps
+// track of distinct values for a specified field for the top N group.
 //
-// This is the Go port of Lucene's org.apache.lucene.search.grouping.DistinctValuesCollector.
-type DistinctValuesCollector struct {
-	// groupSelector selects the group for each document
-	groupSelector GroupSelector
-
-	// valueSelector selects the distinct value for each document
-	valueSelector GroupSelector
-
-	// topGroups stores the top groups with their distinct values
-	topGroups *TopGroups
-
-	// groupSort is the sort for groups
-	groupSort search.Sort
-
-	// topN is the maximum number of groups to collect
-	topN int
-
-	// maxValuesPerGroup is the maximum number of distinct values per group
-	maxValuesPerGroup int
-
-	// collectedGroups tracks groups and their distinct values
-	collectedGroups map[interface{}]*GroupDistinctValues
-
-	// totalHits is the total number of hits processed
-	totalHits int
+// Mirrors org.apache.lucene.search.grouping.DistinctValuesCollector<T, R>,
+// which extends SecondPassGroupingCollector<T>.
+//
+// lucene.experimental
+type DistinctValuesCollector[T any, R any] struct {
+	*SecondPassGroupingCollector[T]
 }
 
-// GroupDistinctValues stores distinct values for a group.
-type GroupDistinctValues struct {
-	// GroupValue is the group identifier
-	GroupValue interface{}
-
-	// DistinctValues is the set of distinct values
-	DistinctValues map[interface{}]bool
-
-	// OrderedValues maintains the order of distinct values
-	OrderedValues []interface{}
-
-	// Score is the group score
-	Score float32
-}
-
-// NewDistinctValuesCollector creates a new DistinctValuesCollector.
+// NewDistinctValuesCollector creates a DistinctValuesCollector.
 //
-// Parameters:
-//   - groupSelector: selects the group for each document
-//   - valueSelector: selects the distinct value for each document
-//   - groupSort: the sort for groups
-//   - topN: the maximum number of groups to collect
-//   - maxValuesPerGroup: the maximum number of distinct values per group (0 = unlimited)
+// groupSelector is the group selector to determine the top-level groups,
+// groups the top-level groups to collect for, and valueSelector a group
+// selector to determine which values to collect per-group.
 //
-// Returns:
-//   - a new DistinctValuesCollector instance
-func NewDistinctValuesCollector(groupSelector GroupSelector, valueSelector GroupSelector, groupSort search.Sort, topN int, maxValuesPerGroup int) *DistinctValuesCollector {
-	return &DistinctValuesCollector{
-		groupSelector:     groupSelector,
-		valueSelector:     valueSelector,
-		groupSort:         groupSort,
-		topN:              topN,
-		maxValuesPerGroup: maxValuesPerGroup,
-		topGroups:         NewTopGroups(groupSort, search.Sort{}, 0, topN),
-		collectedGroups:   make(map[interface{}]*GroupDistinctValues),
+// Mirrors DistinctValuesCollector(GroupSelector, Collection, GroupSelector).
+func NewDistinctValuesCollector[T any, R any](
+	groupSelector GroupSelector[T],
+	groups []*SearchGroup[T],
+	valueSelector GroupSelector[R],
+) (*DistinctValuesCollector[T, R], error) {
+	second, err := NewSecondPassGroupingCollector(
+		groupSelector, groups, newDistinctValuesReducer[T, R](valueSelector))
+	if err != nil {
+		return nil, err
 	}
+	return &DistinctValuesCollector[T, R]{SecondPassGroupingCollector: second}, nil
 }
 
-// Collect collects a document and its distinct value.
-//
-// Parameters:
-//   - doc: the document ID
-//   - score: the document score
-//
-// Returns:
-//   - error if collection fails
-func (dvc *DistinctValuesCollector) Collect(doc int, score float32) error {
-	groupValue := dvc.groupSelector.Select(doc)
-	if groupValue == nil {
+// distinctValuesValuesCollector mirrors the private static class
+// DistinctValuesCollector.ValuesCollector<R>, which extends SimpleCollector.
+type distinctValuesValuesCollector[R any] struct {
+	search.BaseSimpleCollector
+	search.BaseLeafCollector
+
+	valueSelector GroupSelector[R]
+	values        *groupSet[R]
+}
+
+// newDistinctValuesValuesCollector mirrors ValuesCollector(GroupSelector<R>).
+func newDistinctValuesValuesCollector[R any](valueSelector GroupSelector[R]) *distinctValuesValuesCollector[R] {
+	c := &distinctValuesValuesCollector[R]{
+		valueSelector: valueSelector,
+		values:        newGroupSet[R](),
+	}
+	c.Outer = c
+	return c
+}
+
+// Collect mirrors ValuesCollector.collect(int).
+func (c *distinctValuesValuesCollector[R]) Collect(doc int) error {
+	state, err := c.valueSelector.AdvanceTo(doc)
+	if err != nil {
+		return err
+	}
+	if state == GroupSelectorStateAccept {
+		value, err := c.valueSelector.CurrentValue()
+		if err != nil {
+			return err
+		}
+		if !c.values.contains(value) {
+			copied, err := c.valueSelector.CopyValue()
+			if err != nil {
+				return err
+			}
+			c.values.add(copied)
+		}
 		return nil
 	}
-
-	distinctValue := dvc.valueSelector.Select(doc)
-
-	// Get or create the group distinct values
-	groupDistinctValues, exists := dvc.collectedGroups[groupValue]
-	if !exists {
-		groupDistinctValues = &GroupDistinctValues{
-			GroupValue:     groupValue,
-			DistinctValues: make(map[interface{}]bool),
-			OrderedValues:  make([]interface{}, 0),
-			Score:          score,
-		}
-		dvc.collectedGroups[groupValue] = groupDistinctValues
-
-		// Add to top groups
-		groupDocs := NewGroupDocs(groupValue, score)
-		groupDocs.AddScoreDoc(&search.ScoreDoc{Doc: doc, Score: score})
-		dvc.topGroups.AddGroup(groupDocs)
+	var null R
+	if !c.values.contains(null) {
+		c.values.add(null)
 	}
-
-	// Add distinct value if not already present and within limit
-	if !groupDistinctValues.DistinctValues[distinctValue] {
-		if dvc.maxValuesPerGroup == 0 || len(groupDistinctValues.OrderedValues) < dvc.maxValuesPerGroup {
-			groupDistinctValues.DistinctValues[distinctValue] = true
-			groupDistinctValues.OrderedValues = append(groupDistinctValues.OrderedValues, distinctValue)
-		}
-	}
-
-	dvc.totalHits++
 	return nil
 }
 
-// GetGroupDistinctValues returns the distinct values for a specific group.
-//
-// Parameters:
-//   - groupValue: the group value
-//
-// Returns:
-//   - the GroupDistinctValues for the group, or nil if not found
-func (dvc *DistinctValuesCollector) GetGroupDistinctValues(groupValue interface{}) *GroupDistinctValues {
-	return dvc.collectedGroups[groupValue]
+// CollectRange mirrors the default body of LeafCollector.collectRange(int, int).
+func (c *distinctValuesValuesCollector[R]) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(c, min, max)
 }
 
-// GetDistinctValueCount returns the number of distinct values for a group.
+// CollectStream mirrors the default body of LeafCollector.collect(DocIdStream).
+func (c *distinctValuesValuesCollector[R]) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// SetScorer mirrors the inherited SimpleCollector.setScorer(Scorable).
+func (c *distinctValuesValuesCollector[R]) SetScorer(scorer search.Scorable) error {
+	return nil
+}
+
+// DoSetNextReader mirrors ValuesCollector.doSetNextReader(LeafReaderContext).
+func (c *distinctValuesValuesCollector[R]) DoSetNextReader(context *index.LeafReaderContext) error {
+	return c.valueSelector.SetNextReader(context)
+}
+
+// ScoreMode mirrors ValuesCollector.scoreMode().
+func (c *distinctValuesValuesCollector[R]) ScoreMode() search.ScoreMode {
+	return search.COMPLETE_NO_SCORES
+}
+
+// distinctValuesReducer mirrors the private static class
+// DistinctValuesCollector.DistinctValuesReducer<T, R>, which extends
+// GroupReducer<T, ValuesCollector<R>>.
+type distinctValuesReducer[T any, R any] struct {
+	BaseGroupReducer[T]
+
+	valueSelector GroupSelector[R]
+}
+
+// newDistinctValuesReducer mirrors DistinctValuesReducer(GroupSelector<R>).
+func newDistinctValuesReducer[T any, R any](valueSelector GroupSelector[R]) *distinctValuesReducer[T, R] {
+	r := &distinctValuesReducer[T, R]{valueSelector: valueSelector}
+	r.Outer = r
+	return r
+}
+
+// NeedsScores mirrors DistinctValuesReducer.needsScores().
+func (r *distinctValuesReducer[T, R]) NeedsScores() bool {
+	return false
+}
+
+// NewCollector mirrors DistinctValuesReducer.newCollector().
+func (r *distinctValuesReducer[T, R]) NewCollector() (search.Collector, error) {
+	return newDistinctValuesValuesCollector(r.valueSelector), nil
+}
+
+// GetGroups returns all unique values for each top N group.
 //
-// Parameters:
-//   - groupValue: the group value
-//
-// Returns:
-//   - the number of distinct values, or 0 if group not found
-func (dvc *DistinctValuesCollector) GetDistinctValueCount(groupValue interface{}) int {
-	if groupDistinctValues, exists := dvc.collectedGroups[groupValue]; exists {
-		return len(groupDistinctValues.OrderedValues)
+// Mirrors List<GroupCount<T, R>> getGroups().
+func (c *DistinctValuesCollector[T, R]) GetGroups() ([]*DistinctValuesGroupCount[T, R], error) {
+	counts := make([]*DistinctValuesGroupCount[T, R], 0)
+	for _, group := range c.groups {
+		vc, ok := c.groupReducer.GetCollector(group.GroupValue).(*distinctValuesValuesCollector[R])
+		if !ok {
+			return nil, errors.New("group collector is not a ValuesCollector")
+		}
+		counts = append(counts, NewDistinctValuesGroupCount(group.GroupValue, vc.values.values()))
 	}
-	return 0
+	return counts, nil
 }
 
-// GetTopGroups returns the top groups with distinct values.
+// DistinctValuesGroupCount is returned by DistinctValuesCollector.GetGroups,
+// representing the value and set of distinct values for the group.
 //
-// Returns:
-//   - slice of GroupDistinctValues for the top groups
-func (dvc *DistinctValuesCollector) GetTopGroups() []*GroupDistinctValues {
-	groups := make([]*GroupDistinctValues, 0, len(dvc.collectedGroups))
-	for _, groupDistinctValues := range dvc.collectedGroups {
-		groups = append(groups, groupDistinctValues)
-	}
-	return groups
+// Mirrors the public static class DistinctValuesCollector.GroupCount<T, R>.
+type DistinctValuesGroupCount[T any, R any] struct {
+	// GroupValue is the value of the group.
+	GroupValue T
+
+	// UniqueValues holds the distinct values collected for the group.
+	UniqueValues []R
 }
 
-// GetTotalHits returns the total number of hits processed.
-//
-// Returns:
-//   - the total number of hits
-func (dvc *DistinctValuesCollector) GetTotalHits() int {
-	return dvc.totalHits
-}
-
-// GetGroupCount returns the number of unique groups collected.
-//
-// Returns:
-//   - the number of groups
-func (dvc *DistinctValuesCollector) GetGroupCount() int {
-	return len(dvc.collectedGroups)
-}
-
-// GetTotalDistinctValues returns the total number of distinct values across all groups.
-//
-// Returns:
-//   - the total number of distinct values
-func (dvc *DistinctValuesCollector) GetTotalDistinctValues() int {
-	total := 0
-	for _, groupDistinctValues := range dvc.collectedGroups {
-		total += len(groupDistinctValues.OrderedValues)
-	}
-	return total
-}
-
-// Reset resets the collector for reuse.
-func (dvc *DistinctValuesCollector) Reset() {
-	dvc.collectedGroups = make(map[interface{}]*GroupDistinctValues)
-	dvc.topGroups = NewTopGroups(dvc.groupSort, search.Sort{}, 0, dvc.topN)
-	dvc.totalHits = 0
-}
-
-// String returns a string representation of this collector.
-func (dvc *DistinctValuesCollector) String() string {
-	return fmt.Sprintf("DistinctValuesCollector{groups=%d, totalHits=%d, totalDistinctValues=%d}",
-		dvc.GetGroupCount(), dvc.totalHits, dvc.GetTotalDistinctValues())
+// NewDistinctValuesGroupCount mirrors GroupCount(T groupValue, Set<R> values).
+func NewDistinctValuesGroupCount[T any, R any](groupValue T, values []R) *DistinctValuesGroupCount[T, R] {
+	return &DistinctValuesGroupCount[T, R]{GroupValue: groupValue, UniqueValues: values}
 }

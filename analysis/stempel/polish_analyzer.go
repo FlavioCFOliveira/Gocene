@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"github.com/FlavioCFOliveira/Gocene/analysis/egothor"
 )
 
@@ -29,7 +30,6 @@ func loadPolishDefaults() {
 		var err error
 		polishDefaultStopSet, err = analysis.GetWordSetWithComment(
 			bytes.NewReader(polishStopwordsData), "#",
-			analysis.NewCharArraySet(64, true),
 		)
 		if err != nil {
 			panic("unable to load Polish stop words: " + err.Error())
@@ -88,7 +88,7 @@ func NewPolishAnalyzerWithStopwords(stopwords *analysis.CharArraySet) *PolishAna
 func NewPolishAnalyzerFull(stopwords, stemExclusionSet *analysis.CharArraySet) *PolishAnalyzer {
 	loadPolishDefaults()
 	a := &PolishAnalyzer{
-		BaseAnalyzer:     analysis.NewAnalyzer(),
+		BaseAnalyzer:     analysis.NewAnalyzer(analysis.GlobalReuseStrategy),
 		stopWords:        stopwords,
 		stemExclusionSet: stemExclusionSet,
 		stemTable:        polishDefaultTable,
@@ -120,7 +120,7 @@ func (a *PolishAnalyzer) TokenStream(fieldName string, reader io.Reader) (analys
 
 // Ensure PolishAnalyzer implements Analyzer.
 var _ analysis.Analyzer = (*PolishAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*PolishAnalyzer)(nil)
+var _ api.Analyzer = (*PolishAnalyzer)(nil)
 
 // stempelFilterFactory is an internal TokenFilterFactory that creates a
 // StempelFilter with a fixed pre-loaded trie.
@@ -138,6 +138,10 @@ func (f *stempelFilterFactory) Create(input analysis.TokenStream) analysis.Token
 		_ = trie // satisfy use
 	}
 	return NewStempelFilter(input, NewStempelStemmer(f.stemTable))
+}
+
+func (f *stempelFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
 }
 
 // Ensure stempelFilterFactory implements TokenFilterFactory.

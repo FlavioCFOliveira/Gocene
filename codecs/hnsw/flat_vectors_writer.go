@@ -14,81 +14,60 @@
 package hnsw
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // FlatVectorsWriter is the Go port of
-// org.apache.lucene.codecs.hnsw.FlatVectorsWriter (Lucene 10.4.0). It
-// extends the [codecs.KnnVectorsWriter] surface with one additional
-// hook that allows callers (typically HNSW codec writers) to
-// participate in the flat-vector merge pipeline:
+// org.apache.lucene.codecs.hnsw.FlatVectorsWriter (Apache Lucene 10.5.0):
+// a vectors writer for a field that allows additional indexing logic to be
+// implemented by the caller.
 //
-//   - AddField is inherited from [codecs.KnnVectorsWriter]; it returns
-//     the wide non-generic [codecs.KnnFieldVectorsWriter] (=
-//     [spi.KnnFieldVectorsWriter]). Concrete callers type-assert the
-//     returned value to FlatFieldVectorsWriter[float32] or
-//     FlatFieldVectorsWriter[byte] based on the field's VectorEncoding,
-//     mirroring how the Java reference recovers the parameterised
-//     wildcard `FlatFieldVectorsWriter<?>` at the call site.
-//   - MergeOneFieldToIndex performs the actual merge for a single
-//     field across the segments tracked by mergeState and returns a
-//     [hnsw.CloseableRandomVectorScorerSupplier] that scores against
-//     the newly-merged vectors. The HNSW codec writer wires that
-//     supplier into its graph builder to assemble the merged HNSW
-//     index without re-reading the flat vectors from disk.
+// The Java reference is an abstract class extending KnnVectorsWriter and
+// holding the protected final FlatVectorsScorer handed to its constructor.
+// Its addField narrows the return type to FlatFieldVectorsWriter<?>; the Go
+// rendering inherits [spi.KnnVectorsWriter.AddField] and callers assert the
+// result to FlatFieldVectorsWriter[float32] or FlatFieldVectorsWriter[byte]
+// by the field's vector encoding, as the Java callers cast it.
 //
-// The Java reference is an abstract class holding a protected final
-// FlatVectorsScorer field; the Go port encodes that surface as an
-// interface (this type) plus an embeddable [BaseFlatVectorsWriter]
-// struct that owns the scorer reference and supplies the
-// GetFlatVectorScorer accessor.
+// The final mergeOneField of the Java class is rendered by the package
+// function [MergeOneField].
 type FlatVectorsWriter interface {
-	codecs.KnnVectorsWriter
+	spi.KnnVectorsWriter
 
-	// GetFlatVectorScorer returns the scorer this writer was
-	// constructed with.
+	// GetFlatVectorScorer returns the [FlatVectorsScorer] for this writer.
 	GetFlatVectorScorer() FlatVectorsScorer
 
-	// MergeOneFieldToIndex merges the named field across all segments
-	// tracked by mergeState and returns a
-	// [hnsw.CloseableRandomVectorScorerSupplier] that scores against
-	// the newly-merged vectors. The returned supplier owns a temporary
-	// file handle and must be closed by the caller.
-	//
-	// mergeState is the placeholder [MergeState] documented in
-	// forward_deps.go; the canonical type lives in the (not-yet-ported)
-	// index/merge package and will be swapped in by a later sprint.
-	MergeOneFieldToIndex(
-		fieldInfo *index.FieldInfo,
-		mergeState *MergeState,
-	) (hnsw.CloseableRandomVectorScorerSupplier, error)
+	// MergeOneFlatVectorField merges the flat vectors of one field across the
+	// segments tracked by mergeState. Mirrors the abstract
+	// mergeOneFlatVectorField(FieldInfo, MergeState).
+	MergeOneFlatVectorField(fieldInfo *index.FieldInfo, mergeState *index.MergeState) error
 }
 
-// BaseFlatVectorsWriter owns the [FlatVectorsScorer] handle a concrete
-// FlatVectorsWriter is constructed with and supplies the
-// GetFlatVectorScorer accessor. Concrete subclasses embed
-// *BaseFlatVectorsWriter and implement:
-//
-//   - [codecs.KnnVectorsWriter] (WriteField, Finish, Close);
-//   - [FlatVectorsWriter] (AddField, MergeOneFieldToIndex).
-//
-// The struct holds no synchronization: writers are single-threaded by
-// contract in both Lucene and Gocene.
+// BaseFlatVectorsWriter owns the [FlatVectorsScorer] a concrete
+// FlatVectorsWriter is constructed with and supplies GetFlatVectorScorer.
 type BaseFlatVectorsWriter struct {
 	vectorsScorer FlatVectorsScorer
 }
 
-// NewBaseFlatVectorsWriter constructs a base writer bound to the
-// supplied scorer. Mirrors the protected constructor
+// NewBaseFlatVectorsWriter constructs a base writer bound to the supplied
+// scorer. Mirrors the protected constructor
 // FlatVectorsWriter(FlatVectorsScorer).
 func NewBaseFlatVectorsWriter(scorer FlatVectorsScorer) *BaseFlatVectorsWriter {
 	return &BaseFlatVectorsWriter{vectorsScorer: scorer}
 }
 
-// GetFlatVectorScorer returns the scorer this writer was constructed
-// with.
+// GetFlatVectorScorer returns the scorer this writer was constructed with.
 func (w *BaseFlatVectorsWriter) GetFlatVectorScorer() FlatVectorsScorer {
 	return w.vectorsScorer
+}
+
+// MergeOneField renders the final FlatVectorsWriter.mergeOneField(FieldInfo,
+// MergeState): it merges the flat vectors of the field through
+// MergeOneFlatVectorField and returns no deferred work.
+func MergeOneField(w FlatVectorsWriter, fieldInfo *index.FieldInfo, mergeState *index.MergeState) (func() error, error) {
+	if err := w.MergeOneFlatVectorField(fieldInfo, mergeState); err != nil {
+		return nil, err
+	}
+	return nil, nil
 }

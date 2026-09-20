@@ -17,6 +17,7 @@ import (
 // org.apache.lucene.analysis.ja.JapaneseKatakanaStemFilterFactory from Apache
 // Lucene 10.4.0.
 type JapaneseKatakanaStemFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	minimumLength int
 }
 
@@ -26,7 +27,10 @@ func NewJapaneseKatakanaStemFilterFactory(minimumLength int) *JapaneseKatakanaSt
 	if minimumLength < 2 {
 		panic("kuromoji: JapaneseKatakanaStemFilterFactory minimumLength must be >= 2")
 	}
-	return &JapaneseKatakanaStemFilterFactory{minimumLength: minimumLength}
+	return &JapaneseKatakanaStemFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		minimumLength:          minimumLength,
+	}
 }
 
 // NewJapaneseKatakanaStemFilterFactoryDefault creates a factory with the
@@ -40,6 +44,10 @@ func (f *JapaneseKatakanaStemFilterFactory) Create(input analysis.TokenStream) a
 	return NewJapaneseKatakanaStemFilter(input, f.minimumLength)
 }
 
+func (f *JapaneseKatakanaStemFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
+}
+
 // Ensure JapaneseKatakanaStemFilterFactory implements analysis.TokenFilterFactory.
 var _ analysis.TokenFilterFactory = (*JapaneseKatakanaStemFilterFactory)(nil)
 
@@ -49,17 +57,25 @@ var _ analysis.TokenFilterFactory = (*JapaneseKatakanaStemFilterFactory)(nil)
 // This is the Go port of
 // org.apache.lucene.analysis.ja.JapaneseHiraganaUppercaseFilterFactory from
 // Apache Lucene 10.4.0.
-type JapaneseHiraganaUppercaseFilterFactory struct{}
+type JapaneseHiraganaUppercaseFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewJapaneseHiraganaUppercaseFilterFactory creates a
 // JapaneseHiraganaUppercaseFilterFactory.
 func NewJapaneseHiraganaUppercaseFilterFactory() *JapaneseHiraganaUppercaseFilterFactory {
-	return &JapaneseHiraganaUppercaseFilterFactory{}
+	return &JapaneseHiraganaUppercaseFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+	}
 }
 
 // Create returns a new JapaneseHiraganaUppercaseFilter wrapping input.
 func (f *JapaneseHiraganaUppercaseFilterFactory) Create(input analysis.TokenStream) analysis.TokenFilter {
 	return NewJapaneseHiraganaUppercaseFilter(input)
+}
+
+func (f *JapaneseHiraganaUppercaseFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
 }
 
 // Ensure JapaneseHiraganaUppercaseFilterFactory implements analysis.TokenFilterFactory.
@@ -71,17 +87,25 @@ var _ analysis.TokenFilterFactory = (*JapaneseHiraganaUppercaseFilterFactory)(ni
 // This is the Go port of
 // org.apache.lucene.analysis.ja.JapaneseKatakanaUppercaseFilterFactory from
 // Apache Lucene 10.4.0.
-type JapaneseKatakanaUppercaseFilterFactory struct{}
+type JapaneseKatakanaUppercaseFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewJapaneseKatakanaUppercaseFilterFactory creates a
 // JapaneseKatakanaUppercaseFilterFactory.
 func NewJapaneseKatakanaUppercaseFilterFactory() *JapaneseKatakanaUppercaseFilterFactory {
-	return &JapaneseKatakanaUppercaseFilterFactory{}
+	return &JapaneseKatakanaUppercaseFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+	}
 }
 
 // Create returns a new JapaneseKatakanaUppercaseFilter wrapping input.
 func (f *JapaneseKatakanaUppercaseFilterFactory) Create(input analysis.TokenStream) analysis.TokenFilter {
 	return NewJapaneseKatakanaUppercaseFilter(input)
+}
+
+func (f *JapaneseKatakanaUppercaseFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
 }
 
 // Ensure JapaneseKatakanaUppercaseFilterFactory implements analysis.TokenFilterFactory.
@@ -92,16 +116,24 @@ var _ analysis.TokenFilterFactory = (*JapaneseKatakanaUppercaseFilterFactory)(ni
 // This is the Go port of
 // org.apache.lucene.analysis.ja.JapaneseNumberFilterFactory from Apache
 // Lucene 10.4.0.
-type JapaneseNumberFilterFactory struct{}
+type JapaneseNumberFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewJapaneseNumberFilterFactory creates a JapaneseNumberFilterFactory.
 func NewJapaneseNumberFilterFactory() *JapaneseNumberFilterFactory {
-	return &JapaneseNumberFilterFactory{}
+	return &JapaneseNumberFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+	}
 }
 
 // Create returns a new JapaneseNumberFilter wrapping input.
 func (f *JapaneseNumberFilterFactory) Create(input analysis.TokenStream) analysis.TokenFilter {
 	return NewJapaneseNumberFilter(input)
+}
+
+func (f *JapaneseNumberFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
 }
 
 // Ensure JapaneseNumberFilterFactory implements analysis.TokenFilterFactory.
@@ -112,16 +144,24 @@ var _ analysis.TokenFilterFactory = (*JapaneseNumberFilterFactory)(nil)
 // This is the Go port of
 // org.apache.lucene.analysis.ja.JapaneseBaseFormFilterFactory from Apache
 // Lucene 10.4.0.
-type JapaneseBaseFormFilterFactory struct{}
+type JapaneseBaseFormFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewJapaneseBaseFormFilterFactory creates a JapaneseBaseFormFilterFactory.
 func NewJapaneseBaseFormFilterFactory() *JapaneseBaseFormFilterFactory {
-	return &JapaneseBaseFormFilterFactory{}
+	return &JapaneseBaseFormFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+	}
 }
 
 // Create returns a new JapaneseBaseFormFilter wrapping input.
 func (f *JapaneseBaseFormFilterFactory) Create(input analysis.TokenStream) analysis.TokenFilter {
 	return NewJapaneseBaseFormFilter(input)
+}
+
+func (f *JapaneseBaseFormFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
 }
 
 // Ensure JapaneseBaseFormFilterFactory implements analysis.TokenFilterFactory.
@@ -154,6 +194,10 @@ func (f *JapanesePartOfSpeechStopFilterFactory) Create(stream analysis.TokenStre
 	return NewJapanesePartOfSpeechStopFilter(stream, f.stopTags)
 }
 
+func (f *JapanesePartOfSpeechStopFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
+}
+
 // Ensure JapanesePartOfSpeechStopFilterFactory implements analysis.TokenFilterFactory.
 var _ analysis.TokenFilterFactory = (*JapanesePartOfSpeechStopFilterFactory)(nil)
 
@@ -176,6 +220,10 @@ func NewJapaneseReadingFormFilterFactory(useRomaji bool) *JapaneseReadingFormFil
 // Create returns a new JapaneseReadingFormFilter wrapping input.
 func (f *JapaneseReadingFormFilterFactory) Create(input analysis.TokenStream) analysis.TokenFilter {
 	return NewJapaneseReadingFormFilter(input, f.useRomaji)
+}
+
+func (f *JapaneseReadingFormFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
 }
 
 // Ensure JapaneseReadingFormFilterFactory implements analysis.TokenFilterFactory.
@@ -205,6 +253,10 @@ func (f *JapaneseCompletionFilterFactory) Create(input analysis.TokenStream) ana
 	return NewJapaneseCompletionFilter(input, f.mode)
 }
 
+func (f *JapaneseCompletionFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
+}
+
 // Ensure JapaneseCompletionFilterFactory implements analysis.TokenFilterFactory.
 var _ analysis.TokenFilterFactory = (*JapaneseCompletionFilterFactory)(nil)
 
@@ -229,7 +281,7 @@ func NewJapaneseIterationMarkCharFilterFactory(normalizeKanji, normalizeKana boo
 }
 
 // Create returns a new JapaneseIterationMarkCharFilter wrapping r.
-func (f *JapaneseIterationMarkCharFilterFactory) Create(r io.Reader) *analysis.CharFilter {
+func (f *JapaneseIterationMarkCharFilterFactory) Create(r io.Reader) analysis.CharFilter {
 	filt := NewJapaneseIterationMarkCharFilter(r, f.normalizeKanji, f.normalizeKana)
 	return filt.CharFilter
 }

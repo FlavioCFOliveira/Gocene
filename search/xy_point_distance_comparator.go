@@ -34,6 +34,8 @@ import (
 // Concurrency: not safe for concurrent use; TopFieldCollector owns one
 // instance per slice.
 type XYPointDistanceComparator struct {
+	BaseFieldComparator
+
 	field string
 	x     float64
 	y     float64
@@ -118,14 +120,14 @@ func (c *XYPointDistanceComparator) SetBottom(slot int) error {
 }
 
 // SetTopValue stores the top reference distance used by CompareTop.
-func (c *XYPointDistanceComparator) SetTopValue(value float64) {
-	c.topValue = value
+func (c *XYPointDistanceComparator) SetTopValue(value any) {
+	c.topValue = topValueFloat64(value)
 }
 
 // Value returns the Euclidean distance stored in slot. Unlike the LatLon
 // sibling, no sort-key → metres conversion is required: the stored value is
 // already the distance.
-func (c *XYPointDistanceComparator) Value(slot int) float64 {
+func (c *XYPointDistanceComparator) Value(slot int) any {
 	return c.values[slot]
 }
 
@@ -203,7 +205,7 @@ func (c *XYPointDistanceComparator) CompetitiveIterator() (DocIdSetIterator, err
 }
 
 // SetHitsThresholdReached is a no-op for this comparator.
-func (c *XYPointDistanceComparator) SetHitsThresholdReached() {}
+func (c *XYPointDistanceComparator) SetHitsThresholdReached() error { return nil }
 
 // GetLeafComparator binds the comparator to ctx by resolving the
 // SortedNumericDocValues stream for the configured field. The Java reference
@@ -212,7 +214,7 @@ func (c *XYPointDistanceComparator) SetHitsThresholdReached() {}
 // and defer field-type validation to the leaf reader. A reader that does not
 // expose the doc-values surface falls back to an empty stream, mirroring
 // Lucene's DocValues.getSortedNumeric null-defence path.
-func (c *XYPointDistanceComparator) GetLeafComparator(ctx *index.LeafReaderContext) (*XYPointDistanceComparator, error) {
+func (c *XYPointDistanceComparator) GetLeafComparator(ctx *index.LeafReaderContext) (LeafFieldComparator, error) {
 	if ctx == nil {
 		return nil, errors.New("leaf reader context must not be nil")
 	}
@@ -332,3 +334,8 @@ func (c *XYPointDistanceComparator) sortKey(doc int) (float64, error) {
 	}
 	return minValue, nil
 }
+
+var (
+	_ FieldComparator     = (*XYPointDistanceComparator)(nil)
+	_ LeafFieldComparator = (*XYPointDistanceComparator)(nil)
+)

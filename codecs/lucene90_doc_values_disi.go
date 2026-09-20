@@ -44,6 +44,7 @@ import (
 	"math/bits"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // dvIndexedDISI is the package-local doc-values DISI reader.
@@ -77,6 +78,11 @@ type dvIndexedDISI struct {
 
 	// ALL state
 	gap int
+
+	// bitSet is the lazily allocated scratch block bitmap used by the DENSE
+	// branch of intoBitSetWithinBlock. Mirrors IndexedDISI's private
+	// FixedBitSet bitSet field.
+	bitSet *util.FixedBitSet
 }
 
 type dvDISIMethod int
@@ -106,7 +112,7 @@ func newDVIndexedDISI(data store.IndexInput, offset, length int64, jumpTableEntr
 			return nil, err
 		}
 		buf := make([]byte, jumpTableBytes)
-		if err := data.ReadBytes(buf); err != nil {
+		if err := data.ReadBytes(buf, 0, len(buf)); err != nil {
 			return nil, err
 		}
 		_ = data.SetPosition(saved)
@@ -268,7 +274,7 @@ func (d *dvIndexedDISI) readBlockHeader() error {
 		}
 		d.blockEnd = d.denseBitmapOff + (1 << 13) // 1024 longs × 8 bytes
 		if d.denseRankPower != 0xFF {
-			if err := d.slice.ReadBytes(d.denseRankTable); err != nil {
+			if err := d.slice.ReadBytes(d.denseRankTable, 0, len(d.denseRankTable)); err != nil {
 				return err
 			}
 		}
@@ -456,10 +462,167 @@ func dvReadShortLE(in store.IndexInput) (int16, error) {
 // dvReadLongLE reads 8 bytes LE from an IndexInput.
 func dvReadLongLE(in store.IndexInput) (int64, error) {
 	buf := make([]byte, 8)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 		return 0, err
 	}
 	v := uint64(buf[0]) | uint64(buf[1])<<8 | uint64(buf[2])<<16 | uint64(buf[3])<<24 |
 		uint64(buf[4])<<32 | uint64(buf[5])<<40 | uint64(buf[6])<<48 | uint64(buf[7])<<56
 	return int64(v), nil
+}
+
+// DocIDRunEnd returns the end of the run of consecutive doc IDs containing the
+// current docID.
+//
+// Port of org.apache.lucene.codecs.lucene90.IndexedDISI#docIDRunEnd, which
+// dispatches to the per-Method body (Lucene 10.5.0):
+//
+//	SPARSE: disi.doc + 1
+//	DENSE:  disi.word == -1L ? (disi.doc | 0x3F) + 1 : disi.doc + 1
+//	ALL:    (disi.doc | 0xFFFF) + 1
+func (d *dvIndexedDISI) DocIDRunEnd() (int, error) {
+	switch d.method {
+	case dvMethodDense:
+		if d.word == ^uint64(0) {
+			return (d.doc | 0x3F) + 1, nil
+		}
+		return d.doc + 1, nil
+	case dvMethodAll:
+		return (d.doc | 0xFFFF) + 1, nil
+	default:
+		return d.doc + 1, nil
+	}
+}
+
+// IntoBitSet loads the doc IDs of this iterator into bitSet, shifted down by
+// offset, up to but excluding upTo.
+//
+// Port of org.apache.lucene.codecs.lucene90.IndexedDISI#intoBitSet
+// (Lucene 10.5.0):
+//
+//	while (doc < upTo && method.intoBitSetWithinBlock(this, upTo, bitSet, offset) == false) {
+//	  readBlockHeader();
+//	  boolean found = method.advanceWithinBlock(this, block);
+//	  assert found;
+//	}
+func (d *dvIndexedDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	for d.doc < upTo {
+		done, err := d.intoBitSetWithinBlock(upTo, bitSet, offset)
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		if err := d.readBlockHeader(); err != nil {
+			return err
+		}
+		if _, err := d.advanceWithinBlock(d.block); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// intoBitSetWithinBlock loads the docs of the current block into bitSet. It
+// returns true when there are remaining docs (>= upTo) in the block, false
+// otherwise. On a false return the slice file pointer is at blockEnd and index
+// is correct but the other status vars are undefined, so the caller must decode
+// the next block header.
+//
+// Port of the per-Method bodies of
+// org.apache.lucene.codecs.lucene90.IndexedDISI.Method#intoBitSetWithinBlock
+// (Lucene 10.5.0). As everywhere in this file, the in-block multi-byte reads go
+// through the little-endian helpers rather than ReadShort/ReadLong.
+func (d *dvIndexedDISI) intoBitSetWithinBlock(upTo int, bitSet *util.FixedBitSet, offset int) (bool, error) {
+	switch d.method {
+	case dvMethodAll:
+		blockEnd := d.block | 0xFFFF
+		if upTo <= blockEnd {
+			bitSet.SetRange(d.doc-offset, upTo-offset)
+			if _, err := d.advanceWithinBlock(upTo); err != nil {
+				return false, err
+			}
+			return true, nil
+		}
+		bitSet.SetRange(d.doc-offset, blockEnd-offset+1)
+		return false, nil
+
+	case dvMethodSparse:
+		bitSet.Set(d.doc - offset)
+		for d.index < d.nextBlockIndex {
+			docShort, err := dvReadShortLE(d.slice)
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					return false, nil
+				}
+				return false, err
+			}
+			docInBlock := int(uint16(docShort))
+			doc := d.block | docInBlock
+			d.index++
+			if doc >= upTo {
+				d.doc = doc
+				d.exists = true
+				d.nextExistDocInBlock = docInBlock
+				return true, nil
+			}
+			bitSet.Set(doc - offset)
+		}
+		return false, nil
+
+	case dvMethodDense:
+		if d.bitSet == nil {
+			fbs, err := util.NewFixedBitSet(dvBlockSize)
+			if err != nil {
+				return false, err
+			}
+			d.bitSet = fbs
+		}
+		destFrom := d.doc - offset
+		// Java computes `offset + bitSet.length()` in 32-bit arithmetic and
+		// compares unsigned, so that an overflowed sum reads as a very large
+		// bound rather than a negative one. Reproduce the 32-bit wrap exactly.
+		destTo := int(util.MathUnsignedMin(int32(upTo), int32(offset)+int32(bitSet.Length())))
+		sourceFrom := d.doc & 0xFFFF
+		sourceTo := min(destTo-d.block, dvBlockSize)
+
+		fp := d.slice.GetFilePointer()
+		// Seek back a long to include the current word (d.word).
+		if err := d.slice.SetPosition(fp - 8); err != nil {
+			return false, err
+		}
+		numWords := util.FixedBitSetBits2Words(sourceTo) - d.wordIndex
+		words := d.bitSet.GetBits()
+		for i := 0; i < numWords; i++ {
+			w, err := dvReadLongLE(d.slice)
+			if err != nil {
+				return false, err
+			}
+			words[d.wordIndex+i] = uint64(w)
+		}
+		util.FixedBitSetOrRange(d.bitSet, sourceFrom, bitSet, destFrom, sourceTo-sourceFrom)
+
+		blockEnd := d.block | 0xFFFF
+		if destTo > blockEnd {
+			if err := d.slice.SetPosition(d.blockEnd); err != nil {
+				return false, err
+			}
+			d.index += d.bitSet.CardinalityRange(sourceFrom, sourceTo)
+			return false, nil
+		}
+		if err := d.slice.SetPosition(fp); err != nil {
+			return false, err
+		}
+		found, err := d.advanceWithinBlock(destTo)
+		if err != nil {
+			return false, err
+		}
+		if found && d.doc < upTo {
+			return false, fmt.Errorf(
+				"lucene90 dv disi: there are bits set in the source bitset that are not accounted for. doc=%d upTo=%d block=%d",
+				d.doc, upTo, d.block)
+		}
+		return found, nil
+	}
+	return false, nil
 }

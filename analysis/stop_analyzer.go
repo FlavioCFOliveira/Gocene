@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // StopAnalyzer is an analyzer that filters LetterTokenizer with LowerCaseFilter and StopFilter.
@@ -44,13 +45,23 @@ func NewStopAnalyzer() *StopAnalyzer {
 // NewStopAnalyzerWithWords creates a new StopAnalyzer with custom stop words.
 func NewStopAnalyzerWithWords(stopWords *CharArraySet) *StopAnalyzer {
 	a := &StopAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 	// Set up the analysis chain: LetterTokenizer -> LowerCaseFilter -> StopFilter
-	a.TokenizerFactory = NewLetterTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewLetterTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 	return a
 }
 
@@ -70,8 +81,7 @@ func (a *StopAnalyzer) GetStopWords() *CharArraySet {
 }
 
 // Ensure StopAnalyzer implements Analyzer
-var _ Analyzer = (*StopAnalyzer)(nil)
-var _ AnalyzerInterface = (*StopAnalyzer)(nil)
+var _ api.Analyzer = (*StopAnalyzer)(nil)
 
 // StopAnalyzerFactory creates StopAnalyzer instances.
 type StopAnalyzerFactory struct {
@@ -93,7 +103,7 @@ func NewStopAnalyzerFactoryWithWords(stopWords *CharArraySet) *StopAnalyzerFacto
 }
 
 // Create creates a new StopAnalyzer.
-func (f *StopAnalyzerFactory) Create() AnalyzerInterface {
+func (f *StopAnalyzerFactory) Create() api.Analyzer {
 	return NewStopAnalyzerWithWords(f.stopWords)
 }
 

@@ -132,7 +132,7 @@ func TestLucene99HnswVectorsReader_EmptySegment(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("reader: %v", err)
 	}
@@ -187,7 +187,7 @@ func TestLucene99HnswVectorsReader_SingleFieldRoundTrip(t *testing.T) {
 	}
 
 	// --- read ---
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("reader: %v", err)
 	}
@@ -278,7 +278,7 @@ func TestLucene99HnswVectorsReader_MultipleFields(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("reader: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestLucene99HnswVectorsReader_NeighbourTraversal(t *testing.T) {
 	}
 	_ = w.Close()
 
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("reader: %v", err)
 	}
@@ -367,7 +367,7 @@ func TestLucene99HnswVectorsReader_FieldNotFound(t *testing.T) {
 	_ = w.Finish()
 	_ = w.Close()
 
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("reader: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestLucene99HnswVectorsReader_UnimplementedMethods(t *testing.T) {
 	_ = w.Finish()
 	_ = w.Close()
 
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("reader: %v", err)
 	}
@@ -461,7 +461,7 @@ func TestLucene99HnswVectorsReader_GraphProperties(t *testing.T) {
 			}
 			_ = w.Close()
 
-			r, err := NewLucene99HnswVectorsReader(rs)
+			r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 			if err != nil {
 				t.Fatalf("reader: %v", err)
 			}
@@ -537,7 +537,7 @@ func TestLucene99HnswVectorsReader_LevelConsistency(t *testing.T) {
 	}
 	_ = w.Close()
 
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("reader: %v", err)
 	}
@@ -628,7 +628,7 @@ func TestLucene99HnswVectorsReader_ByteVectors(t *testing.T) {
 	}
 	_ = w.Close()
 
-	r, err := NewLucene99HnswVectorsReader(rs)
+	r, err := NewLucene99HnswVectorsReader(rs, openLucene99FlatVectorsReaderForTest(t, rs))
 	if err != nil {
 		t.Fatalf("reader: %v", err)
 	}

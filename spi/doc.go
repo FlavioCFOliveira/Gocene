@@ -19,8 +19,8 @@
 // The two copies were structurally similar but not identical, so a
 // dedicated bridge package (internal/codecbridge) had to translate
 // between them whenever index/ called into a codec implementation. The
-// bridge added overhead, masked subtle signature drift, and inflated the
-// build graph.
+// bridge added overhead, masked subtle signature drift, and inflated
+// the build graph.
 //
 // spi/ resolves the asymmetry by lifting the shared interfaces and
 // state structs into a leaf package that depends only on schema/,
@@ -77,3 +77,150 @@
 // Get(docID) / GetOrd(docID) projection from every production
 // implementation.
 package spi
+
+import "fmt"
+
+// ScoreDoc represents a scored document.
+type ScoreDoc struct {
+	Doc        int
+	Score      float32
+	ShardIndex int
+}
+
+// NewScoreDoc creates a new ScoreDoc.
+func NewScoreDoc(doc int, score float32, shardIndex int) *ScoreDoc {
+	return &ScoreDoc{
+		Doc:        doc,
+		Score:      score,
+		ShardIndex: shardIndex,
+	}
+}
+
+// FieldDoc is a ScoreDoc which also contains information about how to sort the referenced document.
+type FieldDoc struct {
+	ScoreDoc
+	Fields []any
+}
+
+// NewFieldDoc creates a FieldDoc with empty sort information.
+func NewFieldDoc(doc int, score float32) *FieldDoc {
+	return &FieldDoc{
+		ScoreDoc: ScoreDoc{
+			Doc:        doc,
+			Score:      score,
+			ShardIndex: -1,
+		},
+	}
+}
+
+// NewFieldDocWithFields creates a FieldDoc with the given sort information.
+func NewFieldDocWithFields(doc int, score float32, fields []any) *FieldDoc {
+	return &FieldDoc{
+		ScoreDoc: ScoreDoc{
+			Doc:        doc,
+			Score:      score,
+			ShardIndex: -1,
+		},
+		Fields: fields,
+	}
+}
+
+// NewFieldDocWithShard creates a FieldDoc with the given sort information and shard index.
+func NewFieldDocWithShard(doc int, score float32, fields []any, shardIndex int) *FieldDoc {
+	return &FieldDoc{
+		ScoreDoc: ScoreDoc{
+			Doc:        doc,
+			Score:      score,
+			ShardIndex: shardIndex,
+		},
+		Fields: fields,
+	}
+}
+
+// Equals checks for equality between two FieldDocs.
+func (fd *FieldDoc) Equals(other *FieldDoc) bool {
+	if fd == other {
+		return true
+	}
+	if other == nil {
+		return false
+	}
+	if fd.Doc != other.Doc || fd.Score != other.Score || fd.ShardIndex != other.ShardIndex {
+		return false
+	}
+	if len(fd.Fields) != len(other.Fields) {
+		return false
+	}
+	for i := range fd.Fields {
+		if fd.Fields[i] != other.Fields[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// HashCode computes a hash value for the FieldDoc.
+func (fd *FieldDoc) HashCode() int {
+	h := 17
+	h = 31*h + fd.Doc
+	return h
+}
+
+// String returns a string representation of the FieldDoc.
+func (fd *FieldDoc) String() string {
+	return fmt.Sprintf("doc=%d score=%f shardIndex=%d fields=%v",
+		fd.Doc, fd.Score, fd.ShardIndex, fd.Fields)
+}
+
+// TotalHitsRelation says how the total hit count should be interpreted. It is
+// the Go port of the nested enum org.apache.lucene.search.TotalHits.Relation
+// from Apache Lucene 10.5.0 (TotalHits.java:37-42).
+//
+// Java nests the enum inside the TotalHits record, so its simple name is
+// Relation. Go has no nested types, so the enclosing type's name is folded
+// into it; the plain name Relation renders the other nested enum Lucene
+// declares, org.apache.lucene.index.PointValues.Relation (see
+// [Relation] in point_values.go). search.TotalHitsRelation is an alias of this
+// type, so the name stays available in the package Lucene declares it in.
+type TotalHitsRelation int
+
+const (
+	// EQUAL_TO means the total hit count is equal to TotalHits.Value.
+	EQUAL_TO TotalHitsRelation = iota
+	// GREATER_THAN_OR_EQUAL_TO means the total hit count is greater than or
+	// equal to TotalHits.Value.
+	GREATER_THAN_OR_EQUAL_TO
+)
+
+// TotalHits represents the total number of hits.
+type TotalHits struct {
+	Value    int64
+	Relation TotalHitsRelation
+}
+
+// NewTotalHits creates a new TotalHits.
+func NewTotalHits(value int64, relation TotalHitsRelation) *TotalHits {
+	return &TotalHits{
+		Value:    value,
+		Relation: relation,
+	}
+}
+
+// IsExact returns true if the hit count is exact.
+func (t *TotalHits) IsExact() bool {
+	return t.Relation == EQUAL_TO
+}
+
+// TopDocs represents hits returned by IndexSearcher.Search.
+type TopDocs struct {
+	TotalHits *TotalHits
+	ScoreDocs []*ScoreDoc
+}
+
+// NewTopDocs creates a new TopDocs.
+func NewTopDocs(totalHits *TotalHits, scoreDocs []*ScoreDoc) *TopDocs {
+	return &TopDocs{
+		TotalHits: totalHits,
+		ScoreDocs: scoreDocs,
+	}
+}

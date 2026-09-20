@@ -23,7 +23,6 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -72,7 +71,7 @@ type vIntIndexInput struct {
 func (in vIntIndexInput) ReadVInt() (int32, error) { return store.ReadVInt(in.IndexInput) }
 
 // ReadVLong delegates to store.ReadVLong over the wrapped input.
-func (in vIntIndexInput) ReadVLong() (int64, error) { return store.ReadVLong(in.IndexInput) }
+func (in vIntIndexInput) ReadVLong() (int64, error) { return in.IndexInput.ReadVLong() }
 
 // FixedGapTermsIndexReader is a TermsIndexReader for simple every-Nth terms
 // indexes.
@@ -92,7 +91,7 @@ type FixedGapTermsIndexReader struct {
 	blocksize         int
 
 	// termBytesReader holds the single logical byte slice shared by all fields.
-	termBytesReader *util.Reader
+	termBytesReader *store.Reader
 
 	fields map[string]*fixedGapFieldIndexData
 }
@@ -105,7 +104,7 @@ var _ TermsIndexReader = (*FixedGapTermsIndexReader)(nil)
 //
 // Port of the FixedGapTermsIndexReader(SegmentReadState) constructor.
 func NewFixedGapTermsIndexReader(state *spi.SegmentReadState) (*FixedGapTermsIndexReader, error) {
-	termBytes, err := util.NewPagedBytes(fixedGapPagedBytesBits)
+	termBytes, err := store.NewPagedBytes(fixedGapPagedBytesBits)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +147,7 @@ func NewFixedGapTermsIndexReader(state *spi.SegmentReadState) (*FixedGapTermsInd
 // directory of the .tii file. It is the body of the Java constructor's try
 // block.
 func (r *FixedGapTermsIndexReader) readIndex(
-	in store.IndexInput, termBytes *util.PagedBytes, state *spi.SegmentReadState) error {
+	in store.IndexInput, termBytes *store.PagedBytes, state *spi.SegmentReadState) error {
 
 	if _, err := codecs.CheckIndexHeader(
 		in,
@@ -213,19 +212,19 @@ func (r *FixedGapTermsIndexReader) readIndex(
 		if numIndexTerms < 0 {
 			return fmt.Errorf("blockterms: invalid numIndexTerms: %d", numIndexTerms)
 		}
-		termsStart, err := store.ReadVLong(in)
+		termsStart, err := in.ReadVLong()
 		if err != nil {
 			return err
 		}
-		indexStart, err := store.ReadVLong(in)
+		indexStart, err := in.ReadVLong()
 		if err != nil {
 			return err
 		}
-		packedIndexStart, err := store.ReadVLong(in)
+		packedIndexStart, err := in.ReadVLong()
 		if err != nil {
 			return err
 		}
-		packedOffsetsStart, err := store.ReadVLong(in)
+		packedOffsetsStart, err := in.ReadVLong()
 		if err != nil {
 			return err
 		}
@@ -395,7 +394,7 @@ type fixedGapFieldIndexData struct {
 // long) constructor.
 func (r *FixedGapTermsIndexReader) newFieldIndexData(
 	in store.IndexInput,
-	termBytes *util.PagedBytes,
+	termBytes *store.PagedBytes,
 	indexStart, termsStart, packedIndexStart, packedOffsetsStart, numIndexTerms int64,
 ) (*fixedGapFieldIndexData, error) {
 
@@ -455,7 +454,7 @@ func (d *fixedGapFieldIndexData) String() string {
 // GetFieldEnum returns an enumerator over fieldInfo's indexed terms.
 //
 // Port of FixedGapTermsIndexReader.getFieldEnum(FieldInfo).
-func (r *FixedGapTermsIndexReader) GetFieldEnum(fieldInfo *schema.FieldInfo) TermsIndexEnum {
+func (r *FixedGapTermsIndexReader) GetFieldEnum(fieldInfo *spi.FieldInfo) TermsIndexEnum {
 	return &fixedGapIndexEnum{
 		reader:     r,
 		fieldIndex: r.fields[fieldInfo.Name()],

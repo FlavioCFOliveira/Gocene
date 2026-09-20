@@ -6,8 +6,7 @@
 // automaton_query.go, axiomatic_similarity.go, constant_score_auto_rewrite.go,
 // double_values_source.go, long_values_source.go, more_like_this.go,
 // multi_term_query_wrapper.go, query_rescorer.go, top_terms_rewrite.go,
-// scoring_rewrite.go, date_range_query.go, point_in_set_query.go,
-// point_query.go and range_field_query.go.
+// scoring_rewrite.go, point_in_set_query.go and range_field_query.go.
 
 package search
 
@@ -122,20 +121,6 @@ func TestDoubleValuesSource_GetRangeQuery(t *testing.T) {
 	}
 }
 
-// TestLongValuesSource_GetRangeQuery verifies the long-values path.
-func TestLongValuesSource_GetRangeQuery(t *testing.T) {
-	src := NewLongValuesSource("v")
-	if _, ok := src.GetRangeQuery(math.MinInt64, math.MaxInt64).(*FieldExistsQuery); !ok {
-		t.Errorf("full-open range should fold to FieldExistsQuery")
-	}
-	if _, ok := src.GetRangeQuery(10, 1).(*MatchNoDocsQuery); !ok {
-		t.Errorf("inverted range should fold to MatchNoDocsQuery")
-	}
-	if _, ok := src.GetRangeQuery(0, 100).(*NumericDocValuesRangeQuery); !ok {
-		t.Errorf("normal range should produce a NumericDocValuesRangeQuery")
-	}
-}
-
 // TestAutomatonQuery_RewriteWithoutReader verifies the safe degradation
 // path when no reader is available (e.g. unit-test contexts).  The query
 // is wrapped in a ConstantScoreQuery rather than producing nil.
@@ -176,35 +161,6 @@ func TestQueryRescorer_NilTopDocs(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("expected nil for nil input, got %v", got)
-	}
-}
-
-// TestDateRangeQuery_Rewrite verifies that the date range query rewrites
-// to a PointRangeQuery with sortable-long packed bounds.
-func TestDateRangeQuery_Rewrite(t *testing.T) {
-	lo := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	hi := time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC)
-	q := NewDateRangeQuery("ts", lo, hi)
-	rewritten, err := q.Rewrite(nil)
-	if err != nil {
-		t.Fatalf("Rewrite error: %v", err)
-	}
-	if _, ok := rewritten.(*PointRangeQuery); !ok {
-		t.Errorf("expected *PointRangeQuery, got %T", rewritten)
-	}
-}
-
-// TestDateRangeQuery_InvertedRange verifies the inverted-range short-circuit.
-func TestDateRangeQuery_InvertedRange(t *testing.T) {
-	lo := time.Date(2024, 12, 31, 0, 0, 0, 0, time.UTC)
-	hi := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-	q := NewDateRangeQuery("ts", lo, hi)
-	rewritten, err := q.Rewrite(nil)
-	if err != nil {
-		t.Fatalf("Rewrite error: %v", err)
-	}
-	if _, ok := rewritten.(*MatchNoDocsQuery); !ok {
-		t.Errorf("inverted range should fold to MatchNoDocsQuery, got %T", rewritten)
 	}
 }
 

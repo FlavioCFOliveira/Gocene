@@ -68,7 +68,7 @@ func WriteStoredFieldsInts(values []int32, start, count int, out store.DataOutpu
 		}
 		// Mirrors Java's `out.writeVInt(values[0])` — note that the
 		// reference unconditionally writes values[0], not values[start].
-		if err := store.WriteVInt(out, values[0]); err != nil {
+		if err := out.WriteVInt(values[0]); err != nil {
 			return fmt.Errorf("stored fields ints: write all-equal vint: %w", err)
 		}
 		return nil

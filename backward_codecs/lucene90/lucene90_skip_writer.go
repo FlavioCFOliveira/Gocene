@@ -198,7 +198,7 @@ func (w *Lucene90SkipWriter) BufferSkip(
 // for each level. It appends the per-level skip payload to skipBuffer.
 //
 // Port of Lucene90SkipWriter.writeSkipData(int, DataOutput).
-func (w *Lucene90SkipWriter) writeSkipData(level int, skipBuffer *store.ByteArrayDataOutput) error {
+func (w *Lucene90SkipWriter) writeSkipData(level int, skipBuffer store.DataOutput) error {
 	delta := int32(w.curDoc - w.lastSkipDoc[level])
 	if err := skipBuffer.WriteVInt(delta); err != nil {
 		return fmt.Errorf("lucene90 skip: level %d: writeVInt(docDelta): %w", level, err)
@@ -255,7 +255,7 @@ func (w *Lucene90SkipWriter) writeSkipData(level int, skipBuffer *store.ByteArra
 		return fmt.Errorf("lucene90 skip: level %d: writeVInt(impactLen): %w", level, err)
 	}
 	impactBytes := w.freqNormOut.ToArrayCopy()
-	if err := skipBuffer.WriteBytes(impactBytes); err != nil {
+	if err := skipBuffer.WriteBytes(impactBytes, 0, len(impactBytes)); err != nil {
 		return fmt.Errorf("lucene90 skip: level %d: writeBytes(impacts): %w", level, err)
 	}
 	acc.Clear()

@@ -32,7 +32,6 @@ import (
 	"testing"
 
 	gcodecs "github.com/FlavioCFOliveira/Gocene/codecs"
-	gcodecs94 "github.com/FlavioCFOliveira/Gocene/codecs/lucene94"
 	gindex "github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -151,7 +150,7 @@ func openFieldInfos(t *testing.T, dir string, seg *gindex.SegmentInfo, suffix st
 		t.Fatalf("open dir: %v", err)
 	}
 	t.Cleanup(func() { _ = d.Close() })
-	fformat := gcodecs94.NewLucene94FieldInfosFormat()
+	fformat := gcodecs.NewLucene94FieldInfosFormat()
 	fi, err := fformat.Read(d, seg, suffix, store.IOContextRead)
 	if err != nil {
 		t.Fatalf("Lucene94FieldInfosFormat.Read(suffix=%q): %v", suffix, err)

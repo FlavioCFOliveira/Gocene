@@ -5,17 +5,17 @@
 package index
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SortedDocValuesTermsEnum is a TermsEnum that exposes the unique values of
 // a SortedDocValues field as a sorted, ordinal-addressable term iterator.
 // Mirrors org.apache.lucene.index.SortedDocValuesTermsEnum from Apache
-// Lucene 10.4.0.
+// Lucene 10.5.0.
 //
 // Gocene deviations from the Java original (justification in tracking task
 // summary, not in code comments):
@@ -23,9 +23,6 @@ import (
 //   - Lucene's TermsEnum returns a raw BytesRef from seek/next; Gocene's
 //     TermsEnum is field-aware and returns *Term. The field name is supplied
 //     to the constructor and stamped on every returned Term.
-//   - Lucene's SortedDocValues.lookupTerm performs the binary search internally;
-//     Gocene's SortedDocValues interface does not expose lookupTerm, so the
-//     binary search is implemented here against LookupOrd + GetValueCount.
 //   - DocFreq, TotalTermFreq, Postings, PostingsWithLiveDocs return
 //     ErrUnsupportedSortedDVOp (matching Java's UnsupportedOperationException).
 //
@@ -33,6 +30,7 @@ import (
 // translations of Java's seekExact(long) and ord(), surfaced on the concrete
 // type because Gocene's TermsEnum interface does not declare them.
 type SortedDocValuesTermsEnum struct {
+	spi.TermsEnumBase
 	values     SortedDocValues
 	field      string
 	currentOrd int
@@ -61,39 +59,15 @@ func NewSortedDocValuesTermsEnum(field string, values SortedDocValues) *SortedDo
 	}
 }
 
-// lookupTerm performs a binary search for key over the sorted values.
-// Mirrors SortedDocValues.lookupTerm from Apache Lucene 10.4.0: returns the
-// matching ordinal on hit, else -(insertionPoint + 1).
-func (s *SortedDocValuesTermsEnum) lookupTerm(key []byte) (int, error) {
-	low := 0
-	high := s.values.GetValueCount() - 1
-	for low <= high {
-		mid := int(uint(low+high) >> 1)
-		term, err := s.values.LookupOrd(mid)
-		if err != nil {
-			return 0, fmt.Errorf("SortedDocValuesTermsEnum.lookupTerm: LookupOrd(%d): %w", mid, err)
-		}
-		switch cmp := bytes.Compare(term, key); {
-		case cmp < 0:
-			low = mid + 1
-		case cmp > 0:
-			high = mid - 1
-		default:
-			return mid, nil
-		}
-	}
-	return -(low + 1), nil
-}
-
 // SeekCeil seeks to term or, if absent, to the smallest term > term.
 // The returned *Term carries the field name supplied at construction.
 // On end-of-enumeration this returns nil.
-func (s *SortedDocValuesTermsEnum) SeekCeil(term *Term) (*Term, error) {
+func (s *SortedDocValuesTermsEnum) SeekCeil(term *spi.Term) (*spi.Term, error) {
 	if term == nil || term.Bytes == nil {
 		return nil, nil
 	}
 	key := term.Bytes.ValidBytes()
-	ord, err := s.lookupTerm(key)
+	ord, err := LookupTerm(s.values, term.Bytes)
 	if err != nil {
 		return nil, err
 	}
@@ -115,12 +89,11 @@ func (s *SortedDocValuesTermsEnum) SeekCeil(term *Term) (*Term, error) {
 }
 
 // SeekExact seeks to term and returns whether it exists.
-func (s *SortedDocValuesTermsEnum) SeekExact(term *Term) (bool, error) {
+func (s *SortedDocValuesTermsEnum) SeekExact(term *spi.Term) (bool, error) {
 	if term == nil || term.Bytes == nil {
 		return false, nil
 	}
-	key := term.Bytes.ValidBytes()
-	ord, err := s.lookupTerm(key)
+	ord, err := LookupTerm(s.values, term.Bytes)
 	if err != nil {
 		return false, err
 	}
@@ -128,17 +101,17 @@ func (s *SortedDocValuesTermsEnum) SeekExact(term *Term) (bool, error) {
 		return false, nil
 	}
 	s.currentOrd = ord
-	s.scratch.CopyBytes(key, 0, len(key))
+	s.scratch.CopyBytes(term.Bytes.ValidBytes(), 0, term.Bytes.Length)
 	return true, nil
 }
 
 // SeekExactOrd positions the enumerator at the term whose ordinal is ord.
 // Mirrors Java's seekExact(long). Returns an error if ord is out of range.
-func (s *SortedDocValuesTermsEnum) SeekExactOrd(ord int64) error {
-	if ord < 0 || ord >= int64(s.values.GetValueCount()) {
+func (s *SortedDocValuesTermsEnum) SeekExactOrd(ord int) error {
+	if ord < 0 || ord >= s.values.GetValueCount() {
 		return fmt.Errorf("SortedDocValuesTermsEnum.SeekExactOrd: ord %d out of range [0, %d)", ord, s.values.GetValueCount())
 	}
-	s.currentOrd = int(ord)
+	s.currentOrd = ord
 	bytesRef, err := s.values.LookupOrd(s.currentOrd)
 	if err != nil {
 		return fmt.Errorf("SortedDocValuesTermsEnum.SeekExactOrd: LookupOrd(%d): %w", s.currentOrd, err)
@@ -149,7 +122,7 @@ func (s *SortedDocValuesTermsEnum) SeekExactOrd(ord int64) error {
 
 // SeekExactWithTermState mirrors Java's seekExact(BytesRef, TermState):
 // trusts the supplied OrdTermState and seeks directly by ordinal.
-func (s *SortedDocValuesTermsEnum) SeekExactWithTermState(_ *Term, state TermState) error {
+func (s *SortedDocValuesTermsEnum) SeekExactWithTermState(_ *spi.Term, state TermState) error {
 	if state == nil {
 		return errOrdTermStateRequired
 	}
@@ -157,11 +130,11 @@ func (s *SortedDocValuesTermsEnum) SeekExactWithTermState(_ *Term, state TermSta
 	if !ok {
 		return errOrdTermStateRequired
 	}
-	return s.SeekExactOrd(ots.Ord)
+	return s.SeekExactOrd(int(ots.Ord))
 }
 
 // Next advances to the next term in the enumeration. Returns nil at the end.
-func (s *SortedDocValuesTermsEnum) Next() (*Term, error) {
+func (s *SortedDocValuesTermsEnum) Next() (*spi.Term, error) {
 	s.currentOrd++
 	if s.currentOrd >= s.values.GetValueCount() {
 		return nil, nil
@@ -175,7 +148,7 @@ func (s *SortedDocValuesTermsEnum) Next() (*Term, error) {
 }
 
 // Term returns the current term (or nil if not positioned).
-func (s *SortedDocValuesTermsEnum) Term() *Term {
+func (s *SortedDocValuesTermsEnum) Term() *spi.Term {
 	if s.currentOrd < 0 || s.currentOrd >= s.values.GetValueCount() {
 		return nil
 	}
@@ -183,8 +156,8 @@ func (s *SortedDocValuesTermsEnum) Term() *Term {
 }
 
 // Ord returns the ordinal of the current term. Mirrors Java's ord().
-func (s *SortedDocValuesTermsEnum) Ord() int64 {
-	return int64(s.currentOrd)
+func (s *SortedDocValuesTermsEnum) Ord() int {
+	return s.currentOrd
 }
 
 // TermState snapshots the current ordinal into a fresh OrdTermState.
@@ -215,12 +188,11 @@ func (s *SortedDocValuesTermsEnum) PostingsWithLiveDocs(_ util.Bits, _ int) (Pos
 // currentTerm builds a fresh *Term carrying the configured field and the
 // current scratch bytes. A fresh Term is allocated each call to match the
 // "callers may retain the result" contract used elsewhere in Gocene.
-func (s *SortedDocValuesTermsEnum) currentTerm() *Term {
+func (s *SortedDocValuesTermsEnum) currentTerm() *spi.Term {
 	bytes := s.scratch.Get()
-	// Copy bytes so the returned Term does not alias scratch's buffer.
 	buf := make([]byte, bytes.Length)
 	copy(buf, bytes.ValidBytes())
-	return &Term{
+	return &spi.Term{
 		Field: s.field,
 		Bytes: util.NewBytesRef(buf),
 	}

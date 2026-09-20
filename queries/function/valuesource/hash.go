@@ -35,3 +35,19 @@ func hashString(s string) int32 {
 	}
 	return int32(h)
 }
+
+// hashBytes returns the same FNV-1a hash as hashString over a byte slice. It
+// renders BytesRef.hashCode() under the 32-bit stable-hash convention this
+// package already uses for ValueSource.HashCode.
+func hashBytes(b []byte) int32 {
+	const (
+		offset32 uint32 = 2166136261
+		prime32  uint32 = 16777619
+	)
+	h := offset32
+	for i := 0; i < len(b); i++ {
+		h ^= uint32(b[i])
+		h *= prime32
+	}
+	return int32(h)
+}

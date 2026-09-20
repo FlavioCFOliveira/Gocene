@@ -6,7 +6,10 @@
 
 package geo
 
-import "math"
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"math"
+)
 
 // line2D is the Component2D for a poly-line.
 type line2D struct {
@@ -89,17 +92,17 @@ func (l *line2D) Contains(x, y float64) bool {
 // so INSIDE never appears; OUTSIDE on disjoint bbox; CROSSES when
 // the line bbox is fully enclosed by the query or any segment
 // crosses the query box.
-func (l *line2D) Relate(minX, maxX, minY, maxY float64) Relation {
+func (l *line2D) Relate(minX, maxX, minY, maxY float64) spi.Relation {
 	if Disjoint(l.minX, l.maxX, l.minY, l.maxY, minX, maxX, minY, maxY) {
-		return CellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if WithinBBox(l.minX, l.maxX, l.minY, l.maxY, minX, maxX, minY, maxY) {
-		return CellCrossesQuery
+		return spi.CellCrossesQuery
 	}
 	if l.crossesBox(minX, maxX, minY, maxY) {
-		return CellCrossesQuery
+		return spi.CellCrossesQuery
 	}
-	return CellOutsideQuery
+	return spi.CellOutsideQuery
 }
 
 // IntersectsLine reports whether any of the line's segments crosses

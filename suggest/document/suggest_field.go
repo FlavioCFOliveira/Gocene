@@ -5,15 +5,22 @@
 package document
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// TYPE is the type marker for SuggestField.
-const TYPE byte = 0
+// SuggestFieldTYPE is the byte marker stamped on a plain suggest field.
+// Mirrors org.apache.lucene.search.suggest.document.SuggestField.TYPE
+// (SuggestField.java:64), which Java writes as SuggestField.TYPE at every use
+// site. ContextSuggestField declares a constant of the same simple name, so
+// each carries its owning class here — Go has no class-scoped constants.
+const SuggestFieldTYPE byte = 0
 
 // SuggestField indexes a string value and a weight as a weighted completion against a named suggester.
 //
@@ -21,7 +28,7 @@ const TYPE byte = 0
 type SuggestField struct {
 	*document.Field
 
-	surfaceForm BytesRef
+	surfaceForm *util.BytesRef
 	weight      int
 }
 
@@ -32,7 +39,7 @@ var FIELD_TYPE = func() *document.FieldType {
 	ft.SetStored(false)
 	ft.SetStoreTermVectors(false)
 	ft.SetOmitNorms(false)
-	ft.SetIndexOptions(document.IndexOptionsDocsAndFreqsAndPositions)
+	ft.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
 	ft.Freeze()
 	return ft
 }()
@@ -51,9 +58,13 @@ func NewSuggestField(name, value string, weight int) *SuggestField {
 		}
 	}
 
+	field, err := document.NewField(name, value, FIELD_TYPE)
+	if err != nil {
+		panic(err)
+	}
 	f := &SuggestField{
-		Field:       document.NewField(name, value, FIELD_TYPE),
-		surfaceForm: util.NewBytesRef(value),
+		Field:       field,
+		surfaceForm: util.NewBytesRef([]byte(value)),
 		weight:      weight,
 	}
 	return f
@@ -62,7 +73,8 @@ func NewSuggestField(name, value string, weight int) *SuggestField {
 // TokenStream wraps the base token stream with a CompletionTokenStream and sets the payload.
 func (f *SuggestField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
 	ts := f.wrapTokenStream(f.Field.TokenStream(analyzer, reuse))
-	ts.(*CompletionTokenStream).SetPayload(f.buildSuggestPayload())
+	cts := ts.(*CompletionTokenStream)
+	cts.SetPayload(f.buildSuggestPayload())
 	return ts
 }
 
@@ -74,28 +86,36 @@ func (f *SuggestField) wrapTokenStream(stream analysis.TokenStream) analysis.Tok
 }
 
 func (f *SuggestField) buildSuggestPayload() []byte {
-	// In Lucene:
-	// output.writeVInt(surfaceForm.length);
-	// output.writeBytes(surfaceForm.bytes, surfaceForm.offset, surfaceForm.length);
-	// output.writeVInt(weight + 1);
-	// output.writeByte(type());
-
-	// We'll use a simple buffer and manual encoding for VInts if not available in a helper.
-	// Actually, let's see if there is a VInt writer in Gocene.
-	// I'll check for a VInt helper.
-	out := store.NewByteBuffersDataOutput()
-	out.WriteVInt(int32(len(f.surfaceForm)))
-	out.WriteBytes(f.surfaceForm)
-	out.WriteVInt(int32(f.weight + 1))
-	out.WriteByte(f.type())
-	return out.ToArrayCopy()
+	var byteArrayOutputStream bytes.Buffer
+	output := store.NewOutputStreamDataOutput(&byteArrayOutputStream)
+	if err := output.WriteVInt(int32(f.surfaceForm.Length)); err != nil {
+		panic(err) // not possible, it's a bytes.Buffer!
+	}
+	if err := output.WriteBytes(f.surfaceForm.Bytes, f.surfaceForm.Offset, f.surfaceForm.Length); err != nil {
+		panic(err) // not possible, it's a bytes.Buffer!
+	}
+	if err := output.WriteVInt(int32(f.weight + 1)); err != nil {
+		panic(err) // not possible, it's a bytes.Buffer!
+	}
+	if err := output.WriteByte(f.Type()); err != nil {
+		panic(err) // not possible, it's a bytes.Buffer!
+	}
+	if err := output.Close(); err != nil {
+		panic(err) // not possible, it's a bytes.Buffer!
+	}
+	return byteArrayOutputStream.Bytes()
 }
 
 func isReserved(r rune) bool {
-	return r == '\x1f' || r == '\x1e' || r == 0 // SEP_LABEL, HOLE, END_BYTE
+	switch r {
+	case analysis.SepLabel, HOLE_CHARACTER, endByte:
+		return true
+	default:
+		return false
+	}
 }
 
 // Type returns the type of the field.
 func (f *SuggestField) Type() byte {
-	return TYPE
+	return SuggestFieldTYPE
 }

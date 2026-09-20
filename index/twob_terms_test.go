@@ -86,9 +86,9 @@ func Test2BTerms(t *testing.T) {
 		t.Errorf("Size = %d, want %d", got, wantTermCount)
 	}
 
-	termsEnum, err := terms.GetIterator()
+	termsEnum, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 
 	seen := 0

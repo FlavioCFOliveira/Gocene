@@ -96,7 +96,10 @@ func (s *reqExclBulkScorer) ScoreWindow(
 				// Note: Gocene's DocIDRunEnd() may advance the underlying iterator
 				// to runEnd-1 as a side effect.  After calling it we re-read the
 				// iterator position so nextDoc() starts from the correct place.
-				runEnd := s.exclApprox.DocIDRunEnd()
+				runEnd, err := s.exclApprox.DocIDRunEnd()
+				if err != nil {
+					return 0, err
+				}
 				// Do NOT clamp to max here: if the run extends past the window
 				// boundary, we advance upTo past max so the caller knows where
 				// to resume.  This avoids re-processing excluded docs that fall

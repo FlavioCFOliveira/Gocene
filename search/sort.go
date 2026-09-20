@@ -1,32 +1,75 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-type SortFieldType = schema.SortFieldType
-type MissingValueStrategy = schema.MissingValueStrategy
-var STRING_FIRST = schema.STRING_FIRST
-var STRING_LAST = schema.STRING_LAST
-type SortField = schema.SortField
+type SortFieldType = spi.SortFieldType
+type MissingValueStrategy = spi.MissingValueStrategy
 
-func (sf *SortField) GetField() string { return sf.Field }
-func (sf *SortField) GetReverse() bool { return sf.Reverse }
-func (sf *SortField) SetMissingValue(v interface{}) { sf.MissingValue = v }
-func (sf *SortField) SetOptimizeSortWithIndexedData(v bool) {
-	sf.optimizeSortWithIndexedData = v
-	sf.optimizeSet = true
-}
-func (sf *SortField) GetOptimizeSortWithIndexedData() bool {
-	if !sf.optimizeSet {
-		return true
-	}
-	return sf.optimizeSortWithIndexedData
-}
+var STRING_FIRST = spi.STRING_FIRST
+var STRING_LAST = spi.STRING_LAST
+
+// SortField is declared in sort_field.go, the file named for SortField.java.
+// The five accessors that used to be re-declared here are already provided by
+// spi.SortField itself, and Go does not allow a package to add methods to a
+// type it does not define.
 
 // Sort defines the sort order for search results.
 type Sort struct {
 	Fields []*SortField
+}
+
+var (
+	// RELEVANCE represents sorting by computed relevance. Using this sort
+	// criteria returns the same results as calling IndexSearcher.Search
+	// without a sort criteria, only with slightly more overhead.
+	//
+	// Mirrors the static field Sort.RELEVANCE, which Java builds with the
+	// no-argument constructor, whose body is this(SortField.FIELD_SCORE).
+	RELEVANCE = NewSort(FieldScore)
+
+	// INDEXORDER represents sorting by index order.
+	//
+	// Mirrors the static field Sort.INDEXORDER, built as
+	// new Sort(SortField.FIELD_DOC).
+	INDEXORDER = NewSort(FIELD_DOC)
+)
+
+// GetSort returns the representation of the sort criteria: the SortField
+// values used in this sort criteria.
+//
+// Mirrors Sort.getSort().
+func (s *Sort) GetSort() []*SortField { return s.Fields }
+
+// Equals reports whether o is equal to this Sort, which holds when both carry
+// the same sort fields in the same order.
+//
+// Mirrors Sort.equals(Object), whose body is Arrays.equals(this.fields,
+// other.fields) — an element-wise SortField.equals comparison.
+func (s *Sort) Equals(o *Sort) bool {
+	if s == o {
+		return true
+	}
+	if s == nil || o == nil {
+		return false
+	}
+	if len(s.Fields) != len(o.Fields) {
+		return false
+	}
+	for i := range s.Fields {
+		a, b := s.Fields[i], o.Fields[i]
+		if a == b {
+			continue
+		}
+		if a == nil || b == nil {
+			return false
+		}
+		if !a.Equals(b) {
+			return false
+		}
+	}
+	return true
 }
 
 // NewSort creates a new Sort with the given fields.
@@ -38,7 +81,7 @@ func NewSort(fields ...*SortField) *Sort {
 func NewSortByScore() *Sort {
 	return &Sort{
 		Fields: []*SortField{
-			{Type: SortFieldTypeScore, Reverse: true},
+			{Type: spi.SortFieldTypeScore, Reverse: true},
 		},
 	}
 }
@@ -47,7 +90,7 @@ func NewSortByScore() *Sort {
 func NewSortByDoc() *Sort {
 	return &Sort{
 		Fields: []*SortField{
-			{Type: SortFieldTypeDoc},
+			{Type: spi.SortFieldTypeDoc},
 		},
 	}
 }
@@ -55,27 +98,37 @@ func NewSortByDoc() *Sort {
 // NeedsScores returns true if any sort field needs scores.
 func (s *Sort) NeedsScores() bool {
 	for _, field := range s.Fields {
-		if field.Type == SortFieldTypeScore {
+		if field.Type == spi.SortFieldTypeScore {
 			return true
 		}
 	}
 	return false
 }
 
-// FieldComparator compares two documents based on a sort field.
-type FieldComparator interface {
-	// Compare compares doc1 and doc2.
-	Compare(doc1, doc2 int) int
+// FieldComparator is declared in field_comparator.go, the file named for
+// FieldComparator.java, and LeafFieldComparator in leaf_field_comparator.go.
+// Sort.java declares neither.
 
-	// SetBottom sets the bottom document for the priority queue.
-	SetBottom(doc int)
+// Rewrite rewrites this Sort, returning a new Sort if any of the sort fields
+// changed during their rewriting, or this Sort otherwise.
+//
+// Mirrors Sort.rewrite(IndexSearcher) of Apache Lucene 10.5.0.
+func (s *Sort) Rewrite(searcher *IndexSearcher) (*Sort, error) {
+	changed := false
+	rewrittenSortFields := make([]*SortField, len(s.Fields))
+	for i := 0; i < len(s.Fields); i++ {
+		rewritten, err := RewriteSortField(s.Fields[i], searcher)
+		if err != nil {
+			return nil, err
+		}
+		rewrittenSortFields[i] = rewritten
+		if s.Fields[i] != rewrittenSortFields[i] {
+			changed = true
+		}
+	}
 
-	// CompareBottom compares the given doc with the bottom doc.
-	CompareBottom(doc int) int
-
-	// Copy copies the value from the given doc to the slot.
-	Copy(slot int, doc int)
-
-	// SetScorer sets the scorer.
-	SetScorer(scorer Scorer)
+	if changed {
+		return NewSort(rewrittenSortFields...), nil
+	}
+	return s, nil
 }

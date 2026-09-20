@@ -8,6 +8,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/opennlp/tools"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"reflect"
 )
 
 // OpenNLPPOSFilter runs an OpenNLP POS tagger over the token stream, storing
@@ -28,9 +29,8 @@ type OpenNLPPOSFilter struct {
 func NewOpenNLPPOSFilter(input analysis.TokenStream, posTaggerOp *tools.NLPPOSTaggerOp) *OpenNLPPOSFilter {
 	base := analysis.NewBaseTokenFilter(input)
 	sentImpl := analysis.NewSentenceAttributeImpl()
-	typeImpl := analysis.NewTypeAttributeImpl()
-	base.AddAttribute(sentImpl)
-	base.AddAttribute(typeImpl)
+	base.AddAttribute(reflect.TypeOf((*analysis.SentenceAttribute)(nil)).Elem())
+	base.AddAttribute(reflect.TypeOf((*analysis.TypeAttribute)(nil)).Elem())
 
 	f := &OpenNLPPOSFilter{
 		BaseTokenFilter:            base,

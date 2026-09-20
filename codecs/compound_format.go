@@ -33,9 +33,6 @@ import (
 // CompoundFormat is an alias of spi.CompoundFormat.
 type CompoundFormat = spi.CompoundFormat
 
-// CompoundDirectory is an alias of spi.CompoundDirectory.
-type CompoundDirectory = spi.CompoundDirectory
-
 // BaseCompoundFormat provides common functionality for CompoundFormat implementations.
 type BaseCompoundFormat struct {
 	name string
@@ -220,7 +217,7 @@ func (f *Lucene90CompoundFormat) writeCompoundFile(entriesOut store.IndexOutput,
 		return sized[i].name < sized[j].name
 	})
 
-	if err := store.WriteVInt(entriesOut, int32(len(sized))); err != nil {
+	if err := entriesOut.WriteVInt(int32(len(sized))); err != nil {
 		return fmt.Errorf("lucene90 compound: write numFiles: %w", err)
 	}
 
@@ -242,10 +239,10 @@ func (f *Lucene90CompoundFormat) writeCompoundFile(entriesOut store.IndexOutput,
 		if err := store.WriteString(entriesOut, stripSegmentNamePrefix(sf.name)); err != nil {
 			return fmt.Errorf("lucene90 compound: write entry name: %w", err)
 		}
-		if err := store.WriteInt64LE(entriesOut, startOffset); err != nil {
+		if err := entriesOut.WriteLong(startOffset); err != nil {
 			return fmt.Errorf("lucene90 compound: write entry offset: %w", err)
 		}
-		if err := store.WriteInt64LE(entriesOut, length); err != nil {
+		if err := entriesOut.WriteLong(length); err != nil {
 			return fmt.Errorf("lucene90 compound: write entry length: %w", err)
 		}
 	}
@@ -298,13 +295,15 @@ func (f *Lucene90CompoundFormat) copyFileBody(dataOut store.IndexOutput, dir sto
 	// Stamp a footer onto the data stream that carries the SOURCE file's
 	// original checksum (NOT dataOut's running checksum). Mirrors Java's
 	// "this is poached from CodecUtil.writeFooter" block.
-	if err := store.WriteInt32(dataOut, FOOTER_MAGIC); err != nil {
+	// Lucene90CompoundFormat.java:153-155 uses CodecUtil.writeBEInt /
+	// writeBELong here, i.e. big-endian, exactly like CodecUtil.writeFooter.
+	if err := store.WriteBEInt(dataOut, FOOTER_MAGIC); err != nil {
 		return err
 	}
-	if err := store.WriteInt32(dataOut, 0); err != nil {
+	if err := store.WriteBEInt(dataOut, 0); err != nil {
 		return err
 	}
-	if err := store.WriteInt64(dataOut, checksum); err != nil {
+	if err := store.WriteBELong(dataOut, checksum); err != nil {
 		return err
 	}
 	return nil
@@ -323,10 +322,10 @@ func copyDataInputToOutput(in store.DataInput, n int64, out store.IndexOutput) e
 		if take > n {
 			take = n
 		}
-		if err := in.ReadBytes(scratch[:take]); err != nil {
+		if err := in.ReadBytes(scratch[:take], 0, len(scratch[:take])); err != nil {
 			return err
 		}
-		if err := out.WriteBytes(scratch[:take]); err != nil {
+		if err := out.WriteBytes(scratch[:take], 0, len(scratch[:take])); err != nil {
 			return err
 		}
 		n -= take

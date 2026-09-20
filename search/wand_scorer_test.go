@@ -8,6 +8,7 @@
 package search_test
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"math"
 	"testing"
 
@@ -66,7 +67,7 @@ func (s *constantScorer) Advance(target int) (int, error) {
 
 func (s *constantScorer) Cost() int64 { return int64(len(s.docs)) }
 
-func (s *constantScorer) DocIDRunEnd() int { return s.DocID() + 1 }
+func (s *constantScorer) DocIDRunEnd() (int, error) { return s.DocID() + 1, nil }
 
 func (s *constantScorer) Score() float32 { return s.score }
 
@@ -285,4 +286,11 @@ func TestWANDScorer_EmptyResult(t *testing.T) {
 	if doc != search.NO_MORE_DOCS {
 		t.Errorf("NextDoc()=%d, want NO_MORE_DOCS", doc)
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *constantScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

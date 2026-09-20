@@ -4,26 +4,20 @@
 
 package grouping
 
-// CollectedSearchGroup extends SearchGroup with the bookkeeping the
-// first-pass grouping collector keeps internally — the position of the most
-// recently seen document in the segment and the order in which the group
-// joined the priority queue. Mirrors
-// org.apache.lucene.search.grouping.CollectedSearchGroup.
-type CollectedSearchGroup[T comparable] struct {
-	*SearchGroup[T]
+// CollectedSearchGroup is the expert representation of a group in
+// FirstPassGroupingCollector, tracking the top doc and the
+// search.FieldComparator slot.
+//
+// Mirrors org.apache.lucene.search.grouping.CollectedSearchGroup<T>, which
+// extends SearchGroup<T> and adds two package-private fields.
+//
+// lucene.internal
+type CollectedSearchGroup[T any] struct {
+	SearchGroup[T]
 
-	// TopDoc is the docID of the most recent hit observed for this group.
-	TopDoc int
+	// topDoc mirrors the package-private field int topDoc.
+	topDoc int
 
-	// ComparatorSlot is the slot the FieldComparator owns for this group.
-	ComparatorSlot int
-}
-
-// NewCollectedSearchGroup builds the collector-side view of a SearchGroup.
-func NewCollectedSearchGroup[T comparable](value T, sortValues []any, topDoc, comparatorSlot int) *CollectedSearchGroup[T] {
-	return &CollectedSearchGroup[T]{
-		SearchGroup:    NewSearchGroup(value, sortValues),
-		TopDoc:         topDoc,
-		ComparatorSlot: comparatorSlot,
-	}
+	// comparatorSlot mirrors the package-private field int comparatorSlot.
+	comparatorSlot int
 }

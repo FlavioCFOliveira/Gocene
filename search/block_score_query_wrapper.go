@@ -1,8 +1,9 @@
 package search
 
 import (
-	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // BlockScoreQueryWrapper is a query wrapper that reduces the size of max-score blocks
@@ -21,10 +22,10 @@ func NewBlockScoreQueryWrapper(query Query, blockLength int) *BlockScoreQueryWra
 }
 
 func (q *BlockScoreQueryWrapper) ToString(field string) string {
-	return q.query.ToString(field)
+	return queryToString(q.query, field)
 }
 
-func (q *BlockScoreQueryWrapper) Equals(other Query) bool {
+func (q *BlockScoreQueryWrapper) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}
@@ -35,6 +36,19 @@ func (q *BlockScoreQueryWrapper) Equals(other Query) bool {
 	return q.query == o.query && q.blockLength == o.blockLength
 }
 
+// Rewrite mirrors BlockScoreQueryWrapper.rewrite(IndexSearcher).
+func (q *BlockScoreQueryWrapper) Rewrite(indexSearcher *IndexSearcher) (Query, error) {
+	rewritten, err := q.query.Rewrite(indexSearcher)
+	if err != nil {
+		return nil, err
+	}
+	if rewritten != q.query {
+		return NewBlockScoreQueryWrapper(rewritten, q.blockLength), nil
+	}
+	// super.rewrite(indexSearcher) — Query.rewrite returns this.
+	return q, nil
+}
+
 func (q *BlockScoreQueryWrapper) HashCode() int {
 	return 0
 }
@@ -43,7 +57,7 @@ func (q *BlockScoreQueryWrapper) Visit(visitor QueryVisitor) {
 	q.query.Visit(visitor)
 }
 
-func (q *BlockScoreQueryWrapper) CreateWeight(searcher IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+func (q *BlockScoreQueryWrapper) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	weight, err := q.query.CreateWeight(searcher, scoreMode, boost)
 	if err != nil {
 		return nil, err
@@ -55,6 +69,7 @@ func (q *BlockScoreQueryWrapper) CreateWeight(searcher IndexSearcher, scoreMode 
 }
 
 type blockScoreQueryWeight struct {
+	BaseWeight
 	weight      Weight
 	blockLength int
 }
@@ -64,18 +79,16 @@ func (w *blockScoreQueryWeight) Explain(context *index.LeafReaderContext, doc in
 }
 
 func (w *blockScoreQueryWeight) ScorerSupplier(context *index.LeafReaderContext) (ScorerSupplier, error) {
-	supplier, err := w.weight.ScorerSupplier(context)
-	if err != nil || supplier == nil {
-		return supplier, err
-	}
-
-	scorer, err := supplier.GetScorer()
+	inScorer, err := w.weight.Scorer(context)
 	if err != nil {
 		return nil, err
 	}
+	if inScorer == nil {
+		return nil, nil
+	}
 
 	return NewDefaultScorerSupplier(&blockScoreScorer{
-		scorer:      scorer,
+		scorer:      inScorer,
 		blockLength: w.blockLength,
 	}), nil
 }
@@ -85,6 +98,7 @@ func (w *blockScoreQueryWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 }
 
 type blockScoreScorer struct {
+	BaseScorer
 	scorer      Scorer
 	blockLength int
 }
@@ -111,7 +125,13 @@ func (s *blockScoreScorer) Iterator() DocIdSetIterator {
 	return s.scorer.Iterator()
 }
 
-func (s *blockScoreScorer) TwoPhaseIterator() TwoPhaseIterator {
+// TwoPhaseIterator returns the two-phase view of the wrapped Scorer.
+//
+// Apache Lucene 10.5.0 declares `public TwoPhaseIterator twoPhaseIterator()`
+// on Scorer (Scorer.java:58), returning a nullable reference; the Go rendering
+// of a nullable Java reference is the pointer type *TwoPhaseIterator, which is
+// what the Scorer interface requires.
+func (s *blockScoreScorer) TwoPhaseIterator() *TwoPhaseIterator {
 	return s.scorer.TwoPhaseIterator()
 }
 

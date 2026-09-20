@@ -4,21 +4,9 @@
 
 package search
 
-// SimilarityBase is the base class for Similarity implementations.
-// This is the Go port of Lucene's org.apache.lucene.search.similarities.SimilarityBase.
-type SimilarityBase struct {
-	*BaseSimilarity
-	// DiscountOverlaps indicates whether to discount overlaps
-	DiscountOverlaps bool
-}
-
-// NewSimilarityBase creates a new SimilarityBase.
-func NewSimilarityBase() *SimilarityBase {
-	return &SimilarityBase{
-		BaseSimilarity:   NewBaseSimilarity(),
-		DiscountOverlaps: true,
-	}
-}
-
-// Ensure SimilarityBase implements Similarity
-var _ Similarity = (*SimilarityBase)(nil)
+// SimilarityBase ports
+// lucene/core/src/java/org/apache/lucene/search/similarities/SimilarityBase.java.
+// The declaration that used to sit here carried none of that class's surface
+// (no score, explain, scorer, computeNorm or fillBasicStats); the port with
+// those members is in similarity_base_lucene.go, which is where SimilarityBase
+// and NewSimilarityBase are declared.

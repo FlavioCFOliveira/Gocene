@@ -35,7 +35,6 @@ package codecs
 import (
 	"fmt"
 	"math"
-	"sync"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -81,26 +80,6 @@ type Lucene99PostingsReader struct {
 	payIn store.IndexInput // nil when segment has no payloads or offsets
 
 	version int32
-
-	// stateCache maps *BlockTermState handles (allocated by NewTermState) back
-	// to the *IntBlockTermState that owns them.  Same bridge pattern as the
-	// Lucene104PostingsReader.
-	stateCacheMu sync.Mutex
-	stateCache   map[*BlockTermState]*IntBlockTermState
-}
-
-// lookupOrCreateState returns the IntBlockTermState bridged to termState,
-// creating and registering one on demand. It is safe for concurrent use.
-func (r *Lucene99PostingsReader) lookupOrCreateState(termState *BlockTermState) *IntBlockTermState {
-	r.stateCacheMu.Lock()
-	defer r.stateCacheMu.Unlock()
-	its := r.stateCache[termState]
-	if its == nil {
-		its = NewIntBlockTermState()
-		its.BlockTermState = termState
-		r.stateCache[termState] = its
-	}
-	return its
 }
 
 // NewLucene99PostingsReader opens and validates the .doc file, and
@@ -173,11 +152,10 @@ func NewLucene99PostingsReader(state *SegmentReadState) (*Lucene99PostingsReader
 	}
 
 	r := &Lucene99PostingsReader{
-		docIn:      docIn,
-		posIn:      posIn,
-		payIn:      payIn,
-		version:    version,
-		stateCache: make(map[*BlockTermState]*IntBlockTermState),
+		docIn:   docIn,
+		posIn:   posIn,
+		payIn:   payIn,
+		version: version,
 	}
 	success = true
 	return r, nil
@@ -210,14 +188,10 @@ func (r *Lucene99PostingsReader) Init(termsIn store.IndexInput, state *SegmentRe
 	return nil
 }
 
-// NewTermState allocates a fresh IntBlockTermState and registers it in the
-// stateCache so that DecodeTerm/Postings can retrieve the extended state later.
-func (r *Lucene99PostingsReader) NewTermState() *BlockTermState {
-	its := NewIntBlockTermState()
-	r.stateCacheMu.Lock()
-	r.stateCache[its.BlockTermState] = its
-	r.stateCacheMu.Unlock()
-	return its.BlockTermState
+// NewTermState allocates a fresh IntBlockTermState.
+// Mirrors Lucene99PostingsReader.newTermState().
+func (r *Lucene99PostingsReader) NewTermState() index.TermState {
+	return NewIntBlockTermState()
 }
 
 // DecodeTerm reads codec-specific metadata from in into termState.
@@ -227,10 +201,14 @@ func (r *Lucene99PostingsReader) NewTermState() *BlockTermState {
 func (r *Lucene99PostingsReader) DecodeTerm(
 	in store.DataInput,
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	absolute bool,
 ) error {
-	its := r.lookupOrCreateState(termState)
+	// Mirrors "final IntBlockTermState termState = (IntBlockTermState) _termState".
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return fmt.Errorf("lucene99 decode term: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	hasPos := fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositions
 	hasOffsets := fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets
@@ -242,14 +220,14 @@ func (r *Lucene99PostingsReader) DecodeTerm(
 		its.PayStartFP = 0
 	}
 
-	l, err := store.ReadVLong(in)
+	l, err := in.ReadVLong()
 	if err != nil {
 		return fmt.Errorf("lucene99 decode term: read vlong: %w", err)
 	}
 
 	if l&0x01 == 0 {
 		its.DocStartFP += l >> 1
-		if termState.DocFreq == 1 {
+		if its.DocFreq == 1 {
 			v, err2 := store.ReadVInt(in)
 			if err2 != nil {
 				return fmt.Errorf("lucene99 decode term: read singleton docID: %w", err2)
@@ -263,22 +241,22 @@ func (r *Lucene99PostingsReader) DecodeTerm(
 	}
 
 	if hasPos {
-		delta, err2 := store.ReadVLong(in)
+		delta, err2 := in.ReadVLong()
 		if err2 != nil {
 			return fmt.Errorf("lucene99 decode term: read pos fp delta: %w", err2)
 		}
 		its.PosStartFP += delta
 
 		if hasOffsets || hasPayloads {
-			delta2, err3 := store.ReadVLong(in)
+			delta2, err3 := in.ReadVLong()
 			if err3 != nil {
 				return fmt.Errorf("lucene99 decode term: read pay fp delta: %w", err3)
 			}
 			its.PayStartFP += delta2
 		}
 
-		if termState.TotalTermFreq > int64(lucene99BlockSize) {
-			offset, err4 := store.ReadVLong(in)
+		if its.TotalTermFreq > int64(lucene99BlockSize) {
+			offset, err4 := in.ReadVLong()
 			if err4 != nil {
 				return fmt.Errorf("lucene99 decode term: read lastPosBlockOffset: %w", err4)
 			}
@@ -288,8 +266,8 @@ func (r *Lucene99PostingsReader) DecodeTerm(
 		}
 	}
 
-	if termState.DocFreq > lucene99BlockSize {
-		skipOffset, err2 := store.ReadVLong(in)
+	if its.DocFreq > lucene99BlockSize {
+		skipOffset, err2 := in.ReadVLong()
 		if err2 != nil {
 			return fmt.Errorf("lucene99 decode term: read skipOffset: %w", err2)
 		}
@@ -307,11 +285,14 @@ func (r *Lucene99PostingsReader) DecodeTerm(
 // PostingsEnum, int).
 func (r *Lucene99PostingsReader) Postings(
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	reuse index.PostingsEnum,
 	flags int,
 ) (index.PostingsEnum, error) {
-	its := r.lookupOrCreateState(termState)
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return nil, fmt.Errorf("lucene99 postings: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	hasPos := fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositions
 	needsPos := hasPos && (flags&index.PostingsFlagPositions) != 0
@@ -340,10 +321,13 @@ func (r *Lucene99PostingsReader) Postings(
 // Mirrors Lucene99PostingsReader.impacts(FieldInfo, BlockTermState, int).
 func (r *Lucene99PostingsReader) Impacts(
 	fieldInfo *index.FieldInfo,
-	termState *BlockTermState,
+	termState index.TermState,
 	flags int,
 ) (index.ImpactsEnum, error) {
-	its := r.lookupOrCreateState(termState)
+	its, ok := termState.(*IntBlockTermState)
+	if !ok {
+		return nil, fmt.Errorf("lucene99 impacts: term state is %T, want *IntBlockTermState", termState)
+	}
 
 	if its.DocFreq <= lucene99BlockSize {
 		// No skip data, wrap in SlowImpactsEnum.
@@ -468,7 +452,7 @@ func readLucene99VIntBlock(
 	indexHasFreq bool,
 	decodeFreq bool,
 ) error {
-	if err := util.ReadGroupVIntsInt64(docIn, docBuffer, num); err != nil {
+	if err := store.ReadGroupVIntsInt64(docIn, docBuffer, num); err != nil {
 		return err
 	}
 	if indexHasFreq && decodeFreq {
@@ -500,21 +484,21 @@ func readLucene99VIntBlock(
 //
 // Mirrors backward_codecs.lucene99.Lucene99SkipReader.
 type lucene99SkipReader struct {
-	base              *MultiLevelSkipListReader
-	docPointer        []int64
-	posPointer        []int64 // nil when hasPos is false
-	payPointer        []int64 // nil when !(hasOffsets || hasPayloads)
-	posBufferUpto     []int   // nil when hasPos is false
-	payloadByteUpto   []int   // nil when hasPayloads is false
-	hasPos            bool
-	hasOffsetsOrPay   bool
+	base            *MultiLevelSkipListReader
+	docPointer      []int64
+	posPointer      []int64 // nil when hasPos is false
+	payPointer      []int64 // nil when !(hasOffsets || hasPayloads)
+	posBufferUpto   []int   // nil when hasPos is false
+	payloadByteUpto []int   // nil when hasPayloads is false
+	hasPos          bool
+	hasOffsetsOrPay bool
 
 	// "Last accepted" fields snapshot by onSetLastSkipData.
-	lastDocPointer       int64
-	lastPosPointer       int64
-	lastPayPointer       int64
-	lastPosBufferUpto    int
-	lastPayloadByteUpto  int
+	lastDocPointer      int64
+	lastPosPointer      int64
+	lastPayPointer      int64
+	lastPosBufferUpto   int
+	lastPayloadByteUpto int
 }
 
 // newLucene99SkipReader creates a skip reader for the lucene99 format.
@@ -545,14 +529,14 @@ func newLucene99SkipReader(
 			return 0, err
 		}
 
-		docPtrDelta, err := store.ReadVLong(skipStream)
+		docPtrDelta, err := skipStream.ReadVLong()
 		if err != nil {
 			return 0, err
 		}
 		r.docPointer[level] += docPtrDelta
 
 		if r.posPointer != nil {
-			posPtrDelta, err2 := store.ReadVLong(skipStream)
+			posPtrDelta, err2 := skipStream.ReadVLong()
 			if err2 != nil {
 				return 0, err2
 			}
@@ -573,7 +557,7 @@ func newLucene99SkipReader(
 			}
 
 			if r.payPointer != nil {
-				payPtrDelta, err5 := store.ReadVLong(skipStream)
+				payPtrDelta, err5 := skipStream.ReadVLong()
 				if err5 != nil {
 					return 0, err5
 				}
@@ -672,10 +656,10 @@ func (r *lucene99SkipReader) skipTo(target int) (int, error) {
 	return r.base.SkipTo(target)
 }
 
-func (r *lucene99SkipReader) getDocPointer() int64  { return r.lastDocPointer }
-func (r *lucene99SkipReader) getPosPointer() int64   { return r.lastPosPointer }
-func (r *lucene99SkipReader) getPayPointer() int64   { return r.lastPayPointer }
-func (r *lucene99SkipReader) getPosBufferUpto() int  { return r.lastPosBufferUpto }
+func (r *lucene99SkipReader) getDocPointer() int64    { return r.lastDocPointer }
+func (r *lucene99SkipReader) getPosPointer() int64    { return r.lastPosPointer }
+func (r *lucene99SkipReader) getPayPointer() int64    { return r.lastPayPointer }
+func (r *lucene99SkipReader) getPosBufferUpto() int   { return r.lastPosBufferUpto }
 func (r *lucene99SkipReader) getPayloadByteUpto() int { return r.lastPayloadByteUpto }
 
 // getNextSkipDoc returns the doc id of the next skip entry on level 0.
@@ -747,14 +731,14 @@ func newLucene99ScoreSkipReader(
 			return 0, err
 		}
 
-		docPtrDelta, err := store.ReadVLong(skipStream)
+		docPtrDelta, err := skipStream.ReadVLong()
 		if err != nil {
 			return 0, err
 		}
 		baseR.docPointer[level] += docPtrDelta
 
 		if baseR.posPointer != nil {
-			posPtrDelta, err2 := store.ReadVLong(skipStream)
+			posPtrDelta, err2 := skipStream.ReadVLong()
 			if err2 != nil {
 				return 0, err2
 			}
@@ -775,7 +759,7 @@ func newLucene99ScoreSkipReader(
 			}
 
 			if baseR.payPointer != nil {
-				payPtrDelta, err5 := store.ReadVLong(skipStream)
+				payPtrDelta, err5 := skipStream.ReadVLong()
 				if err5 != nil {
 					return 0, err5
 				}
@@ -793,7 +777,7 @@ func newLucene99ScoreSkipReader(
 				r.impactData[level] = make([]byte, impactLen)
 			}
 			r.impactDataLength[level] = int(impactLen)
-			if err7 := skipStream.ReadBytes(r.impactData[level][:impactLen]); err7 != nil {
+			if err7 := skipStream.ReadBytes(r.impactData[level][:impactLen], 0, len(r.impactData[level][:impactLen])); err7 != nil {
 				return 0, err7
 			}
 		} else {
@@ -913,7 +897,7 @@ func decodeImpacts99(in *store.ByteArrayDataInput, reuse *index.FreqAndNormBuffe
 		freq += 1 + int(raw>>1)
 		if raw&1 != 0 {
 			// Norm delta is encoded as ZLong (zig-zag VLong).
-			zigzag, _ := store.ReadVLong(in)
+			zigzag, _ := in.ReadVLong()
 			normDelta := int64(zigzag>>1) ^ -(int64(zigzag) & 1)
 			norm += 1 + normDelta
 		} else {
@@ -937,10 +921,10 @@ func decodeImpacts99(in *store.ByteArrayDataInput, reuse *index.FreqAndNormBuffe
 //
 // Mirrors Lucene99PostingsReader.BlockDocsEnum.
 type blockDocsEnum99 struct {
-	reader      *Lucene99PostingsReader
-	forUtil     *lucene99ForUtil
+	reader       *Lucene99PostingsReader
+	forUtil      *lucene99ForUtil
 	forDeltaUtil *lucene99ForDeltaUtil
-	pforUtil    *lucene99PForUtil
+	pforUtil     *lucene99PForUtil
 
 	docBuffer  [lucene99BlockSize + 1]int64
 	freqBuffer [lucene99BlockSize]int64
@@ -969,18 +953,18 @@ type blockDocsEnum99 struct {
 	skipOffset     int64
 	nextSkipDoc    int
 
-	needsFreq     bool
-	isFreqsRead   bool
+	needsFreq      bool
+	isFreqsRead    bool
 	singletonDocID int
 }
 
 func newBlockDocsEnum99(fieldInfo *index.FieldInfo, reader *Lucene99PostingsReader) *blockDocsEnum99 {
 	e := &blockDocsEnum99{
-		reader:     reader,
-		startDocIn: reader.docIn,
-		indexHasFreq:   fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqs,
-		indexHasPos:    fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositions,
-		indexHasOffsets: fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets,
+		reader:           reader,
+		startDocIn:       reader.docIn,
+		indexHasFreq:     fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqs,
+		indexHasPos:      fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositions,
+		indexHasOffsets:  fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets,
 		indexHasPayloads: fieldInfo.HasPayloads(),
 	}
 	e.docBuffer[lucene99BlockSize] = lucene99NoMoreDocs
@@ -1050,9 +1034,9 @@ func (e *blockDocsEnum99) Freq() (int, error) {
 	return int(e.freqBuffer[e.docBufferUpto-1]), nil
 }
 
-func (e *blockDocsEnum99) NextPosition() (int, error) { return -1, nil }
-func (e *blockDocsEnum99) StartOffset() (int, error)  { return -1, nil }
-func (e *blockDocsEnum99) EndOffset() (int, error)    { return -1, nil }
+func (e *blockDocsEnum99) NextPosition() (int, error)  { return -1, nil }
+func (e *blockDocsEnum99) StartOffset() (int, error)   { return -1, nil }
+func (e *blockDocsEnum99) EndOffset() (int, error)     { return -1, nil }
 func (e *blockDocsEnum99) GetPayload() ([]byte, error) { return nil, nil }
 
 func (e *blockDocsEnum99) refillDocs() error {
@@ -1194,8 +1178,8 @@ type everythingEnum99 struct {
 	forDeltaUtil *lucene99ForDeltaUtil
 	pforUtil     *lucene99PForUtil
 
-	docBuffer  [lucene99BlockSize + 1]int64
-	freqBuffer [lucene99BlockSize]int64
+	docBuffer      [lucene99BlockSize + 1]int64
+	freqBuffer     [lucene99BlockSize]int64
 	posDeltaBuffer [lucene99BlockSize]int64
 
 	payloadLengthBuffer    []int64
@@ -1226,13 +1210,13 @@ type everythingEnum99 struct {
 	indexHasOffsets  bool
 	indexHasPayloads bool
 
-	docFreq        int
-	totalTermFreq  int64
-	blockUpto      int
-	doc            int
-	accum          int64
-	freq           int
-	position       int
+	docFreq       int
+	totalTermFreq int64
+	blockUpto     int
+	doc           int
+	accum         int64
+	freq          int
+	position      int
 
 	posPendingCount int
 	posPendingFP    int64
@@ -1243,17 +1227,17 @@ type everythingEnum99 struct {
 	payTermStartFP int64
 	lastPosBlockFP int64
 	skipOffset     int64
-	nextSkipDoc     int
+	nextSkipDoc    int
 
-	needsOffsets  bool
-	needsPayloads bool
+	needsOffsets   bool
+	needsPayloads  bool
 	singletonDocID int
 }
 
 func newEverythingEnum99(fieldInfo *index.FieldInfo, reader *Lucene99PostingsReader) *everythingEnum99 {
 	e := &everythingEnum99{
-		reader:     reader,
-		startDocIn: reader.docIn,
+		reader:           reader,
+		startDocIn:       reader.docIn,
 		indexHasOffsets:  fieldInfo.IndexOptions() >= index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets,
 		indexHasPayloads: fieldInfo.HasPayloads(),
 	}
@@ -1331,8 +1315,8 @@ func (e *everythingEnum99) reset(termState *IntBlockTermState, flags int) (index
 
 // ─── PostingsEnum methods for everythingEnum99 ────────────────────────────────────
 
-func (e *everythingEnum99) DocID() int { return e.doc }
-func (e *everythingEnum99) Cost() int64 { return int64(e.docFreq) }
+func (e *everythingEnum99) DocID() int         { return e.doc }
+func (e *everythingEnum99) Cost() int64        { return int64(e.docFreq) }
 func (e *everythingEnum99) Freq() (int, error) { return e.freq, nil }
 
 func (e *everythingEnum99) refillDocs() error {
@@ -1404,7 +1388,7 @@ func (e *everythingEnum99) refillPositions() error {
 						copy(newBytes, e.payloadBytes)
 						e.payloadBytes = newBytes
 					}
-					if err2 := e.posIn.ReadBytes(e.payloadBytes[e.payloadByteUpto : e.payloadByteUpto+payloadLength]); err2 != nil {
+					if err2 := e.posIn.ReadBytes(e.payloadBytes[e.payloadByteUpto:e.payloadByteUpto+payloadLength], 0, len(e.payloadBytes[e.payloadByteUpto:e.payloadByteUpto+payloadLength])); err2 != nil {
 						return err2
 					}
 					e.payloadByteUpto += payloadLength
@@ -1448,7 +1432,7 @@ func (e *everythingEnum99) refillPositions() error {
 				if n > len(e.payloadBytes) {
 					e.payloadBytes = make([]byte, n*2)
 				}
-				if err3 := e.payIn.ReadBytes(e.payloadBytes[:n]); err3 != nil {
+				if err3 := e.payIn.ReadBytes(e.payloadBytes[:n], 0, len(e.payloadBytes[:n])); err3 != nil {
 					return err3
 				}
 			} else {
@@ -1692,9 +1676,9 @@ func (e *everythingEnum99) GetPayload() ([]byte, error) {
 // BlockImpactsDocsEnum99 provides impact-aware iteration over docs (no positions).
 // Mirrors Lucene99PostingsReader.BlockImpactsDocsEnum.
 type blockImpactsDocsEnum99 struct {
-	forUtil     *lucene99ForUtil
+	forUtil      *lucene99ForUtil
 	forDeltaUtil *lucene99ForDeltaUtil
-	pforUtil    *lucene99PForUtil
+	pforUtil     *lucene99PForUtil
 
 	docBuffer  [lucene99BlockSize + 1]int64
 	freqBuffer [lucene99BlockSize]int64
@@ -1707,10 +1691,10 @@ type blockImpactsDocsEnum99 struct {
 
 	indexHasFreq bool
 
-	docFreq    int
-	blockUpto  int
-	doc        int
-	accum      int64
+	docFreq     int
+	blockUpto   int
+	doc         int
+	accum       int64
 	nextSkipDoc int
 
 	isFreqsRead bool
@@ -1761,12 +1745,12 @@ func newBlockImpactsDocsEnum99(
 	return e, nil
 }
 
-func (e *blockImpactsDocsEnum99) DocID() int                         { return e.doc }
-func (e *blockImpactsDocsEnum99) Cost() int64                        { return int64(e.docFreq) }
-func (e *blockImpactsDocsEnum99) NextPosition() (int, error)         { return -1, nil }
-func (e *blockImpactsDocsEnum99) StartOffset() (int, error)          { return -1, nil }
-func (e *blockImpactsDocsEnum99) EndOffset() (int, error)            { return -1, nil }
-func (e *blockImpactsDocsEnum99) GetPayload() ([]byte, error)        { return nil, nil }
+func (e *blockImpactsDocsEnum99) DocID() int                  { return e.doc }
+func (e *blockImpactsDocsEnum99) Cost() int64                 { return int64(e.docFreq) }
+func (e *blockImpactsDocsEnum99) NextPosition() (int, error)  { return -1, nil }
+func (e *blockImpactsDocsEnum99) StartOffset() (int, error)   { return -1, nil }
+func (e *blockImpactsDocsEnum99) EndOffset() (int, error)     { return -1, nil }
+func (e *blockImpactsDocsEnum99) GetPayload() ([]byte, error) { return nil, nil }
 
 func (e *blockImpactsDocsEnum99) Freq() (int, error) {
 	if !e.isFreqsRead {
@@ -2209,9 +2193,9 @@ type blockImpactsEverythingEnum99 struct {
 
 	skipper *lucene99ScoreSkipReader
 
-	docIn store.IndexInput
-	posIn store.IndexInput
-	payIn store.IndexInput
+	docIn   store.IndexInput
+	posIn   store.IndexInput
+	payIn   store.IndexInput
 	payload *util.BytesRef
 
 	indexHasFreq     bool
@@ -2428,7 +2412,7 @@ func (e *blockImpactsEverythingEnum99) refillPositions() error {
 					if need > len(e.payloadBytes) {
 						e.payloadBytes = make([]byte, need*2)
 					}
-					if err2 := e.posIn.ReadBytes(e.payloadBytes[e.payloadByteUpto : e.payloadByteUpto+payloadLength]); err2 != nil {
+					if err2 := e.posIn.ReadBytes(e.payloadBytes[e.payloadByteUpto:e.payloadByteUpto+payloadLength], 0, len(e.payloadBytes[e.payloadByteUpto:e.payloadByteUpto+payloadLength])); err2 != nil {
 						return err2
 					}
 					e.payloadByteUpto += payloadLength
@@ -2471,7 +2455,7 @@ func (e *blockImpactsEverythingEnum99) refillPositions() error {
 				if n > len(e.payloadBytes) {
 					e.payloadBytes = make([]byte, n*2)
 				}
-				if err3 := e.payIn.ReadBytes(e.payloadBytes[:n]); err3 != nil {
+				if err3 := e.payIn.ReadBytes(e.payloadBytes[:n], 0, len(e.payloadBytes[:n])); err3 != nil {
 					return err3
 				}
 			} else {
@@ -2728,3 +2712,73 @@ var _ index.PostingsEnum = (*everythingEnum99)(nil)
 var _ index.ImpactsEnum = (*blockImpactsDocsEnum99)(nil)
 var _ index.ImpactsEnum = (*blockImpactsPostingsEnum99)(nil)
 var _ index.ImpactsEnum = (*blockImpactsEverythingEnum99)(nil)
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *blockDocsEnum99) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *everythingEnum99) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *blockImpactsDocsEnum99) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *blockImpactsPostingsEnum99) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e *blockImpactsEverythingEnum99) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *blockDocsEnum99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *everythingEnum99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *blockImpactsDocsEnum99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *blockImpactsPostingsEnum99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e *blockImpactsEverythingEnum99) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}

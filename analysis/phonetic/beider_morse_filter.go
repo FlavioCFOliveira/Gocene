@@ -226,5 +226,9 @@ func (f *BeiderMorseFilterFactory) Create(input analysis.TokenStream) analysis.T
 	return NewBeiderMorseFilterWithLanguages(input, f.engine, f.languageSet)
 }
 
+func (f *BeiderMorseFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
+}
+
 // Ensure BeiderMorseFilterFactory implements TokenFilterFactory.
 var _ analysis.TokenFilterFactory = (*BeiderMorseFilterFactory)(nil)

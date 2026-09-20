@@ -10,6 +10,7 @@ import (
 	"errors"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SingleDocsEnum is a PostingsEnum that returns a single document.
@@ -68,6 +69,18 @@ func (e *SingleDocsEnum) EndOffset() (int, error) { return -1, nil }
 // GetPayload returns an error (not supported in docs-only enum).
 func (e *SingleDocsEnum) GetPayload() ([]byte, error) {
 	return nil, errors.New("SingleDocsEnum: GetPayload not supported")
+}
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// SingleDocsEnum does not override in Apache Lucene 10.5.0.
+func (e *SingleDocsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// SingleDocsEnum does not override in Apache Lucene 10.5.0.
+func (e *SingleDocsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
 }
 
 var _ index.PostingsEnum = (*SingleDocsEnum)(nil)
@@ -141,5 +154,17 @@ func (e *SinglePostingsEnum) StartOffset() (int, error) { return -1, nil }
 
 // EndOffset returns -1.
 func (e *SinglePostingsEnum) EndOffset() (int, error) { return -1, nil }
+
+// IntoBitSet carries the default body of DocIdSetIterator.intoBitSet, which
+// SinglePostingsEnum does not override in Apache Lucene 10.5.0.
+func (e *SinglePostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd, which
+// SinglePostingsEnum does not override in Apache Lucene 10.5.0.
+func (e *SinglePostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
 
 var _ index.PostingsEnum = (*SinglePostingsEnum)(nil)

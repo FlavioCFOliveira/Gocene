@@ -52,10 +52,7 @@ func newDenseConjWrapperFromTwoPhase(tp *TwoPhaseIterator) *denseConjWrapperItem
 
 func (w *denseConjWrapperItem) docID() int { return w.approximation.DocID() }
 
-func (w *denseConjWrapperItem) docIDRunEnd() int {
-	if w.twoPhase == nil {
-		return w.approximation.DocIDRunEnd()
-	}
+func (w *denseConjWrapperItem) docIDRunEnd() (int, error) {
 	return w.approximation.DocIDRunEnd()
 }
 
@@ -79,29 +76,6 @@ func (s *denseConjScorable) SetMinCompetitiveScore(v float32) error {
 }
 
 var _ Scorable = (*denseConjScorable)(nil)
-
-// denseConjScorerAdapter wraps denseConjScorable to satisfy Scorer so it
-// can be passed to LeafCollector.SetScorer.
-type denseConjScorerAdapter struct {
-	BaseScorer
-	s *denseConjScorable
-}
-
-func (a *denseConjScorerAdapter) DocID() int                 { return -1 }
-func (a *denseConjScorerAdapter) NextDoc() (int, error)      { return NO_MORE_DOCS, nil }
-func (a *denseConjScorerAdapter) Advance(_ int) (int, error) { return NO_MORE_DOCS, nil }
-func (a *denseConjScorerAdapter) Cost() int64                { return 0 }
-func (a *denseConjScorerAdapter) DocIDRunEnd() int           { return NO_MORE_DOCS }
-func (a *denseConjScorerAdapter) Score() float32             { return a.s.score }
-func (a *denseConjScorerAdapter) GetMaxScore(_ int) float32  { return a.BaseScorer.GetMaxScore(0) }
-
-// SetMinCompetitiveScore forwards the call to the underlying denseConjScorable
-// so that the collector can signal early termination.
-func (a *denseConjScorerAdapter) SetMinCompetitiveScore(v float32) error {
-	return a.s.SetMinCompetitiveScore(v)
-}
-
-var _ Scorer = (*denseConjScorerAdapter)(nil)
 
 // DenseConjunctionBulkScorer implements BulkScorer for conjunctions of
 // dense clauses.  When clauses are dense enough, it intersects them using
@@ -196,7 +170,7 @@ func NewDenseConjunctionBulkScorerFromScorers(
 				continue
 			}
 		}
-		iters = append(iters, sc)
+		iters = append(iters, sc.Iterator())
 	}
 	return NewDenseConjunctionBulkScorer(iters, twoPhases, maxDoc, constantScore)
 }
@@ -215,8 +189,8 @@ func (bs *DenseConjunctionBulkScorer) Score(collector LeafCollector, acceptDocs 
 		max = bs.maxDoc
 	}
 
-	scorerAdapter := &denseConjScorerAdapter{s: bs.scorable}
-	if err := collector.SetScorer(scorerAdapter); err != nil {
+	// Mirrors DenseConjunctionBulkScorer.score(...): collector.setScorer(scorable).
+	if err := collector.SetScorer(bs.scorable); err != nil {
 		return 0, err
 	}
 

@@ -6,8 +6,8 @@ package index
 
 import (
 	"fmt"
-	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -40,6 +40,40 @@ type CodecReader interface {
 
 	// GetVectorReader retrieves the underlying KnnVectorsReader.
 	GetVectorReader() KnnVectorsReader
+
+	// GetSegmentInfo retrieves the SegmentInfo backing this reader.
+	//
+	// PORT NOTE: Lucene declares getSegmentInfo() on SegmentReader rather than on
+	// CodecReader. Gocene lifts it onto the codec-reader contract because the merge
+	// and wrapper paths (SlowCodecReaderWrapper, FilterCodecReader, SegmentMerger)
+	// consume it through this interface.
+	GetSegmentInfo() *SegmentInfo
+}
+
+// pointsReaderWithValues is the wide read surface Lucene's
+// org.apache.lucene.codecs.PointsReader exposes via getValues(String).
+// spi.PointsReader deliberately carries only the integrity/close hooks because
+// spi.PointValues lives in package index and cannot be lifted into the SPI without
+// an import cycle (see the note on spi.PointsReader), so the wide surface is
+// recovered here by assertion.
+type pointsReaderWithValues interface {
+	GetValues(field string) (spi.PointValues, error)
+}
+
+// knnVectorsReaderWithSearch is the nearest-neighbour search half of the wide
+// KnnVectorsReader surface.
+type knnVectorsReaderWithSearch interface {
+	Search(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error)
+	SearchByte(field string, target []byte, k int, acceptDocs util.Bits) (TopDocs, error)
+}
+
+// knnVectorsReaderWithCollectorSearch is the collector-driven half of the wide
+// KnnVectorsReader surface: the Go rendering of
+// KnnVectorsReader.search(String, float[], KnnCollector, AcceptDocs) and its
+// byte overload.
+type knnVectorsReaderWithCollectorSearch interface {
+	SearchNearestFloatCollector(field string, target []float32, collector spi.KnnCollector, acceptDocs util.Bits) error
+	SearchNearestByteCollector(field string, target []byte, collector spi.KnnCollector, acceptDocs util.Bits) error
 }
 
 // baseCodecReader provides the common implementation of LeafReader methods
@@ -69,18 +103,31 @@ type storedFieldsWrapper struct {
 	maxDoc int
 }
 
-func (w *storedFieldsWrapper) Prefetch(docID int) error {
-	if docID < 0 || docID >= w.maxDoc {
-		return fmt.Errorf("docID %d out of range [0, %d)", docID, w.maxDoc)
+// Prefetch hints that the stored fields of the given documents will be read
+// soon. Lucene's StoredFields.prefetch takes a single docID and is a no-op
+// unless the codec reader overrides it; spi.StoredFields batches the hint, so
+// the wrapper forwards one call per document to the reader's override.
+func (w *storedFieldsWrapper) Prefetch(docIDs []int) error {
+	pf, ok := w.reader.(interface{ Prefetch(docID int) error })
+	for _, docID := range docIDs {
+		if docID < 0 || docID >= w.maxDoc {
+			return fmt.Errorf("docID %d out of range [0, %d)", docID, w.maxDoc)
+		}
+		if !ok {
+			continue
+		}
+		if err := pf.Prefetch(docID); err != nil {
+			return err
+		}
 	}
-	return w.reader.Prefetch(docID)
+	return nil
 }
 
 func (w *storedFieldsWrapper) Document(docID int, visitor StoredFieldVisitor) error {
 	if docID < 0 || docID >= w.maxDoc {
 		return fmt.Errorf("docID %d out of range [0, %d)", docID, w.maxDoc)
 	}
-	return w.reader.Document(docID, visitor)
+	return w.reader.VisitDocument(docID, visitor)
 }
 
 func (b *baseCodecReader) TermVectors() (TermVectors, error) {
@@ -88,12 +135,45 @@ func (b *baseCodecReader) TermVectors() (TermVectors, error) {
 	if reader == nil {
 		return NewEmptyTermVectors(), nil
 	}
-	return reader, nil
+	return &termVectorsWrapper{reader: reader}, nil
+}
+
+// termVectorsWrapper adapts a codec TermVectorsReader to the TermVectors surface.
+// Lucene returns the reader directly because TermVectorsReader extends TermVectors;
+// spi.TermVectorsReader omits the prefetch hook (a no-op by default in Lucene), so
+// the wrapper supplies it and forwards to the reader when the codec overrides it.
+type termVectorsWrapper struct {
+	reader TermVectorsReader
+}
+
+// Prefetch hints that the term vectors of the given documents will be read
+// soon. Lucene's TermVectors.prefetch takes a single docID and is a no-op
+// unless the codec reader overrides it; spi.TermVectors batches the hint, so
+// the wrapper forwards one call per document to the reader's override.
+func (w *termVectorsWrapper) Prefetch(docIDs []int) error {
+	pf, ok := w.reader.(interface{ Prefetch(docID int) error })
+	if !ok {
+		return nil
+	}
+	for _, docID := range docIDs {
+		if err := pf.Prefetch(docID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (w *termVectorsWrapper) Get(docID int) (Fields, error) {
+	return w.reader.Get(docID)
+}
+
+func (w *termVectorsWrapper) GetField(docID int, field string) (Terms, error) {
+	return w.reader.GetField(docID, field)
 }
 
 func (b *baseCodecReader) Terms(field string) (Terms, error) {
 	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
-	if fi == nil || fi.IndexOptions == IndexOptionsNone {
+	if fi == nil || fi.IndexOptions() == IndexOptionsNone {
 		// Field does not exist or does not index postings
 		return nil, nil
 	}
@@ -105,7 +185,7 @@ func (b *baseCodecReader) GetNumericDocValues(field string) (NumericDocValues, e
 	if fi == nil {
 		return nil, nil
 	}
-	return b.impl.GetDocValuesReader().GetNumeric(fi), nil
+	return b.impl.GetDocValuesReader().GetNumeric(fi)
 }
 
 func (b *baseCodecReader) GetBinaryDocValues(field string) (BinaryDocValues, error) {
@@ -113,7 +193,7 @@ func (b *baseCodecReader) GetBinaryDocValues(field string) (BinaryDocValues, err
 	if fi == nil {
 		return nil, nil
 	}
-	return b.impl.GetDocValuesReader().GetBinary(fi), nil
+	return b.impl.GetDocValuesReader().GetBinary(fi)
 }
 
 func (b *baseCodecReader) GetSortedDocValues(field string) (SortedDocValues, error) {
@@ -121,7 +201,7 @@ func (b *baseCodecReader) GetSortedDocValues(field string) (SortedDocValues, err
 	if fi == nil {
 		return nil, nil
 	}
-	return b.impl.GetDocValuesReader().GetSorted(fi), nil
+	return b.impl.GetDocValuesReader().GetSorted(fi)
 }
 
 func (b *baseCodecReader) GetSortedNumericDocValues(field string) (SortedNumericDocValues, error) {
@@ -129,7 +209,7 @@ func (b *baseCodecReader) GetSortedNumericDocValues(field string) (SortedNumeric
 	if fi == nil {
 		return nil, nil
 	}
-	return b.impl.GetDocValuesReader().GetSortedNumeric(fi), nil
+	return b.impl.GetDocValuesReader().GetSortedNumeric(fi)
 }
 
 func (b *baseCodecReader) GetSortedSetDocValues(field string) (SortedSetDocValues, error) {
@@ -137,15 +217,15 @@ func (b *baseCodecReader) GetSortedSetDocValues(field string) (SortedSetDocValue
 	if fi == nil {
 		return nil, nil
 	}
-	return b.impl.GetDocValuesReader().GetSortedSet(fi), nil
+	return b.impl.GetDocValuesReader().GetSortedSet(fi)
 }
 
-func (b *baseCodecReader) GetDocValuesSkipper(field string) (DocValuesSkipper, error) {
+func (b *baseCodecReader) GetDocValuesSkipper(field string) (spi.DocValuesSkipper, error) {
 	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
-	if fi == nil || fi.DocValuesSkipIndexType == DocValuesSkipIndexTypeNone {
+	if fi == nil || fi.DocValuesSkipIndexType() == spi.DocValuesSkipIndexTypeNone {
 		return nil, nil
 	}
-	return b.impl.GetDocValuesReader().GetSkipper(fi), nil
+	return b.impl.GetDocValuesReader().GetSkipper(fi)
 }
 
 func (b *baseCodecReader) GetNormValues(field string) (NumericDocValues, error) {
@@ -154,52 +234,101 @@ func (b *baseCodecReader) GetNormValues(field string) (NumericDocValues, error) 
 		// Field does not exist or does not index norms
 		return nil, nil
 	}
-	return b.impl.GetNormsReader().GetNorms(fi), nil
+	return b.impl.GetNormsReader().GetNorms(fi)
 }
 
-func (b *baseCodecReader) GetPointValues(field string) (PointValues, error) {
+func (b *baseCodecReader) GetPointValues(field string) (spi.PointValues, error) {
 	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
-	if fi == nil || fi.PointDimensionCount == 0 {
+	if fi == nil || fi.PointDimensionCount() == 0 {
 		// Field does not exist or does not index points
 		return nil, nil
 	}
-	return b.impl.GetPointsReader().GetValues(field), nil
+	reader, ok := b.impl.GetPointsReader().(pointsReaderWithValues)
+	if !ok {
+		return nil, fmt.Errorf("points reader %T does not expose GetValues", b.impl.GetPointsReader())
+	}
+	return reader.GetValues(field)
 }
 
 func (b *baseCodecReader) GetFloatVectorValues(field string) (FloatVectorValues, error) {
 	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
-	if fi == nil || fi.VectorDimension == 0 || fi.VectorEncoding != VectorEncodingFloat32 {
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != VectorEncodingFloat32 {
 		// Field does not exist or does not index vectors
 		return nil, nil
 	}
-	return b.impl.GetVectorReader().GetFloatVectorValues(field), nil
+	return b.impl.GetVectorReader().GetFloatVectorValues(field)
 }
 
 func (b *baseCodecReader) GetByteVectorValues(field string) (ByteVectorValues, error) {
 	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
-	if fi == nil || fi.VectorDimension == 0 || fi.VectorEncoding != VectorEncodingByte {
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != VectorEncodingByte {
 		// Field does not exist or does not index vectors
 		return nil, nil
 	}
-	return b.impl.GetVectorReader().GetByteVectorValues(field), nil
+	return b.impl.GetVectorReader().GetByteVectorValues(field)
 }
 
 func (b *baseCodecReader) SearchNearestVectors(field string, target []float32, k int, acceptDocs util.Bits) (TopDocs, error) {
 	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
-	if fi == nil || fi.VectorDimension == 0 || fi.VectorEncoding != VectorEncodingFloat32 {
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != VectorEncodingFloat32 {
 		// Field does not exist or does not index vectors
 		return TopDocs{}, nil
 	}
-	return b.impl.GetVectorReader().Search(field, target, k, acceptDocs)
+	reader, ok := b.impl.GetVectorReader().(knnVectorsReaderWithSearch)
+	if !ok {
+		return TopDocs{}, fmt.Errorf("vector reader %T does not expose Search", b.impl.GetVectorReader())
+	}
+	return reader.Search(field, target, k, acceptDocs)
 }
 
 func (b *baseCodecReader) SearchNearestVectorsByte(field string, target []byte, k int, acceptDocs util.Bits) (TopDocs, error) {
 	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
-	if fi == nil || fi.VectorDimension == 0 || fi.VectorEncoding != VectorEncodingByte {
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != VectorEncodingByte {
 		// Field does not exist or does not index vectors
 		return TopDocs{}, nil
 	}
-	return b.impl.GetVectorReader().SearchByte(field, target, k, acceptDocs)
+	reader, ok := b.impl.GetVectorReader().(knnVectorsReaderWithSearch)
+	if !ok {
+		return TopDocs{}, fmt.Errorf("vector reader %T does not expose SearchByte", b.impl.GetVectorReader())
+	}
+	return reader.SearchByte(field, target, k, acceptDocs)
+}
+
+// SearchNearestVectorsCollector gathers the nearest neighbours of the
+// float-valued target in field into knnCollector.
+//
+// Mirrors the final method CodecReader.searchNearestVectors(String, float[],
+// KnnCollector, AcceptDocs), which returns without touching the collector when
+// the field does not exist or does not index FLOAT32 vectors.
+func (b *baseCodecReader) SearchNearestVectorsCollector(field string, target []float32, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != VectorEncodingFloat32 {
+		// Field does not exist or does not index vectors
+		return nil
+	}
+	reader, ok := b.impl.GetVectorReader().(knnVectorsReaderWithCollectorSearch)
+	if !ok {
+		return fmt.Errorf("vector reader %T does not expose the collector-driven Search", b.impl.GetVectorReader())
+	}
+	return reader.SearchNearestFloatCollector(field, target, knnCollector, acceptDocs)
+}
+
+// SearchNearestVectorsByteCollector gathers the nearest neighbours of the
+// byte-valued target in field into knnCollector.
+//
+// Mirrors the final method CodecReader.searchNearestVectors(String, byte[],
+// KnnCollector, AcceptDocs).
+func (b *baseCodecReader) SearchNearestVectorsByteCollector(field string, target []byte, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	fi := b.impl.GetFieldInfos().FieldInfoByName(field)
+	if fi == nil || fi.VectorDimension() == 0 || fi.VectorEncoding() != VectorEncodingByte {
+		// Field does not exist or does not index vectors
+		return nil
+	}
+	reader, ok := b.impl.GetVectorReader().(knnVectorsReaderWithCollectorSearch)
+	if !ok {
+		return fmt.Errorf("vector reader %T does not expose the collector-driven Search", b.impl.GetVectorReader())
+	}
+	return reader.SearchNearestByteCollector(field, target, knnCollector, acceptDocs)
 }
 
 func (b *baseCodecReader) CheckIntegrity() error {
@@ -246,10 +375,10 @@ func (b *baseCodecReader) getDVField(field string, dvType DocValuesType) *FieldI
 	if fi == nil {
 		return nil
 	}
-	if fi.DocValuesType == DocValuesTypeNone {
+	if fi.DocValuesType() == DocValuesTypeNone {
 		return nil
 	}
-	if fi.DocValuesType != dvType {
+	if fi.DocValuesType() != dvType {
 		return nil
 	}
 	return fi

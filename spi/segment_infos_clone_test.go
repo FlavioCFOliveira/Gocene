@@ -7,7 +7,6 @@ package spi_test
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
@@ -20,7 +19,7 @@ import (
 func TestSegmentInfosCloneIsolation(t *testing.T) {
 	infos := spi.NewSegmentInfos()
 	for i, name := range []string{"_0", "_1"} {
-		si := schema.NewSegmentInfo(name, 10*(i+1), nil)
+		si := spi.NewSegmentInfo(name, 10*(i+1), nil)
 		sci := spi.NewSegmentCommitInfo(si, 0, 0)
 		infos.Add(sci)
 	}
@@ -57,9 +56,9 @@ func TestSegmentInfosCloneIsolation(t *testing.T) {
 // carry the read-only Gocene-specific in-memory references into the clone so a
 // cloned SegmentInfos stays reader-equivalent to the original.
 func TestSegmentInfosCloneCarriesInMemoryRefs(t *testing.T) {
-	si := schema.NewSegmentInfo("_0", 1, nil)
+	si := spi.NewSegmentInfo("_0", 1, nil)
 	sci := spi.NewSegmentCommitInfo(si, 0, 0)
-	fi := schema.NewFieldInfos()
+	fi := spi.NewFieldInfos()
 	sci.SetInMemoryFieldInfos(fi)
 
 	infos := spi.NewSegmentInfos()

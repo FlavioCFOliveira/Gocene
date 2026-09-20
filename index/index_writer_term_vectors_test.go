@@ -126,9 +126,9 @@ func checkFieldTerms(t *testing.T, tvFields index.Fields, fieldName string, want
 		t.Errorf("tvFields.Terms(%q): nil (field not in term vectors)", fieldName)
 		return
 	}
-	iter, err := terms.GetIterator()
+	iter, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator for %q: %v", fieldName, err)
+		t.Fatalf("Iterator for %q: %v", fieldName, err)
 	}
 	var got []string
 	for {

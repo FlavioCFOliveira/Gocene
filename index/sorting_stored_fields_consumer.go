@@ -10,6 +10,8 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -61,20 +63,6 @@ import (
 // its init() registers the canonical Lucene 10.4.0 temp format.
 var ErrTempFormatUnset = errors.New("index: SortingStoredFieldsConsumer requires a temporary StoredFieldsFormat; blank-import the codecs/lucene90/compressing package or call SetTempStoredFieldsFormat")
 
-// storedFieldsConsumerBase is the Sprint 55 placeholder for the parent
-// type ported in GOC-3394. It carries the fields the parent owns in
-// Lucene: codec, directory, segment info, and the active writer.
-//
-// When GOC-3394 lands, this struct disappears: SortingStoredFieldsConsumer
-// embeds the canonical *StoredFieldsConsumer and the field-access paths
-// here switch to the embedded receiver. The migration is mechanical.
-type storedFieldsConsumerBase struct {
-	codec     Codec
-	directory store.Directory
-	info      *SegmentInfo
-	writer    StoredFieldsWriter
-}
-
 // SortingStoredFieldsConsumer specializes the stored-fields consumer for
 // segments that are sorted at flush time. Documents are first buffered in
 // document-write order to a temporary uncompressed segment, then
@@ -83,7 +71,11 @@ type storedFieldsConsumerBase struct {
 //
 // Mirrors org.apache.lucene.index.SortingStoredFieldsConsumer.
 type SortingStoredFieldsConsumer struct {
-	storedFieldsConsumerBase
+	// StoredFieldsConsumer is the embedded parent. Mirrors Lucene's
+	// "final class SortingStoredFieldsConsumer extends StoredFieldsConsumer":
+	// codec, directory, info, writer, accountable, lastDoc and every
+	// non-overridden method come from it.
+	*StoredFieldsConsumer
 
 	// tmpDirectory is the tracking wrapper around the segment directory
 	// where the buffered (pre-sort) stored fields live. nil until
@@ -117,14 +109,16 @@ func NewSortingStoredFieldsConsumer(codec Codec, directory store.Directory, info
 		// no useful behaviour the consumer can perform without it.
 		return nil
 	}
-	return &SortingStoredFieldsConsumer{
-		storedFieldsConsumerBase: storedFieldsConsumerBase{
-			codec:     codec,
-			directory: directory,
-			info:      info,
-		},
-		tempFormat: DefaultTempStoredFieldsFormat(),
+	parent := NewStoredFieldsConsumer(codec, directory, info)
+	c := &SortingStoredFieldsConsumer{
+		StoredFieldsConsumer: parent,
+		tempFormat:           DefaultTempStoredFieldsFormat(),
 	}
+	// Install the @Override of initStoredFieldsWriter() so the inherited
+	// startDocument() path opens the temporary writer, exactly as the
+	// virtual call does in Java.
+	parent.initStoredFieldsWriterOverride = c.InitStoredFieldsWriter
+	return c
 }
 
 // SetTempStoredFieldsFormat overrides the StoredFieldsFormat used for
@@ -190,12 +184,11 @@ func (c *SortingStoredFieldsConsumer) Flush(state *SegmentWriteState, sortMap So
 		return nil
 	}
 
-	// Close the temporary writer (super.flush() in Lucene flushes the
-	// buffered writer; in the port we just close it before reopening
-	// for read since FieldsWriter does not expose a Flush method).
-	if err := c.writer.Close(); err != nil {
+	// Mirrors super.flush(state, sortMap): the parent finishes and closes
+	// the buffered writer before it is reopened for reading.
+	if err := c.StoredFieldsConsumer.Flush(state, sortMap); err != nil {
 		c.cleanupTempFiles()
-		return fmt.Errorf("index: SortingStoredFieldsConsumer flush close temp writer: %w", err)
+		return err
 	}
 	c.writer = nil
 
@@ -214,7 +207,7 @@ func (c *SortingStoredFieldsConsumer) Flush(state *SegmentWriteState, sortMap So
 		return fmt.Errorf("index: SortingStoredFieldsConsumer flush open sort writer: %w", err)
 	}
 
-	flushErr := c.copyDocuments(reader, sortWriter, state.SegmentInfo.DocCount(), sortMap)
+	flushErr := c.copyDocuments(reader, sortWriter, state.FieldInfos, state.SegmentInfo.DocCount(), sortMap)
 	closeErr := closeAll(reader, sortWriter)
 	c.cleanupTempFiles()
 
@@ -229,7 +222,7 @@ func (c *SortingStoredFieldsConsumer) Flush(state *SegmentWriteState, sortMap So
 
 // copyDocuments walks the buffered reader in sorted order, copying every
 // field of every document into the codec writer.
-func (c *SortingStoredFieldsConsumer) copyDocuments(reader StoredFieldsReader, sortWriter StoredFieldsWriter, maxDoc int, sortMap SorterDocMap) error {
+func (c *SortingStoredFieldsConsumer) copyDocuments(reader StoredFieldsReader, sortWriter StoredFieldsWriter, fieldInfos *FieldInfos, maxDoc int, sortMap SorterDocMap) error {
 	visitor := &copyVisitor{writer: sortWriter}
 	for docID := 0; docID < maxDoc; docID++ {
 		if err := sortWriter.StartDocument(); err != nil {
@@ -241,9 +234,6 @@ func (c *SortingStoredFieldsConsumer) copyDocuments(reader StoredFieldsReader, s
 		}
 		if err := reader.VisitDocument(sourceDoc, visitor); err != nil {
 			return fmt.Errorf("index: SortingStoredFieldsConsumer flush visit doc %d (source %d): %w", docID, sourceDoc, err)
-		}
-		if visitor.err != nil {
-			return fmt.Errorf("index: SortingStoredFieldsConsumer flush copy doc %d: %w", docID, visitor.err)
 		}
 		if err := sortWriter.FinishDocument(); err != nil {
 			return fmt.Errorf("index: SortingStoredFieldsConsumer flush finish doc %d: %w", docID, err)
@@ -257,10 +247,9 @@ func (c *SortingStoredFieldsConsumer) copyDocuments(reader StoredFieldsReader, s
 //
 // Mirrors org.apache.lucene.index.SortingStoredFieldsConsumer.abort.
 func (c *SortingStoredFieldsConsumer) Abort() {
-	if c.writer != nil {
-		_ = c.writer.Close()
-		c.writer = nil
-	}
+	// Mirrors the try { super.abort(); } finally { delete temp files }.
+	c.StoredFieldsConsumer.Abort()
+	c.writer = nil
 	if c.tmpDirectory != nil {
 		for _, name := range c.tmpDirectory.TemporaryFiles() {
 			_ = c.directory.DeleteFile(name)
@@ -301,48 +290,45 @@ func closeAll(reader StoredFieldsReader, writer StoredFieldsWriter) error {
 // the copier therefore wraps each value in a minimal IndexableField on
 // the fly so it can be handed to StoredFieldsWriter.WriteField.
 //
-// Any error returned by the underlying writer is captured in copyVisitor.err
-// rather than panicked; Flush inspects err between Visit/FinishDocument.
+// Java's CopyVisitor receives the FieldInfo on every callback
+// (SortingStoredFieldsConsumer.java:137-166) and hands it straight to
+// writer.writeField; so does this port.
 type copyVisitor struct {
 	writer StoredFieldsWriter
-	err    error
 }
 
-func (v *copyVisitor) write(field IndexableField) {
-	if v.err != nil {
-		return
-	}
-	if err := v.writer.WriteField(field); err != nil {
-		v.err = err
-	}
+// NeedsField accepts every field. Mirrors CopyVisitor.needsField, which
+// returns Status.YES unconditionally (SortingStoredFieldsConsumer.java:168-171).
+func (v *copyVisitor) NeedsField(*FieldInfo) (StoredFieldVisitorStatus, error) {
+	return StoredFieldVisitorStatusYes, nil
 }
 
-func (v *copyVisitor) StringField(field string, value string) {
-	v.write(&copiedField{name: field, kind: copiedString, str: value})
+func (v *copyVisitor) StringField(fieldInfo *FieldInfo, value string) error {
+	return v.writer.WriteField(fieldInfo, &copiedField{name: fieldInfo.Name(), kind: copiedString, str: value})
 }
 
-func (v *copyVisitor) BinaryField(field string, value []byte) {
+func (v *copyVisitor) BinaryField(fieldInfo *FieldInfo, value []byte) error {
 	// Mirrors Lucene's TODO: avoid the copy if upstream can guarantee
 	// stable byte slices across the FinishDocument boundary.
 	buf := make([]byte, len(value))
 	copy(buf, value)
-	v.write(&copiedField{name: field, kind: copiedBinary, bin: buf})
+	return v.writer.WriteField(fieldInfo, &copiedField{name: fieldInfo.Name(), kind: copiedBinary, bin: buf})
 }
 
-func (v *copyVisitor) IntField(field string, value int) {
-	v.write(&copiedField{name: field, kind: copiedInt, num: int64(value)})
+func (v *copyVisitor) IntField(fieldInfo *FieldInfo, value int) error {
+	return v.writer.WriteField(fieldInfo, &copiedField{name: fieldInfo.Name(), kind: copiedInt, num: int64(value)})
 }
 
-func (v *copyVisitor) LongField(field string, value int64) {
-	v.write(&copiedField{name: field, kind: copiedLong, num: value})
+func (v *copyVisitor) LongField(fieldInfo *FieldInfo, value int64) error {
+	return v.writer.WriteField(fieldInfo, &copiedField{name: fieldInfo.Name(), kind: copiedLong, num: value})
 }
 
-func (v *copyVisitor) FloatField(field string, value float32) {
-	v.write(&copiedField{name: field, kind: copiedFloat, f32: value})
+func (v *copyVisitor) FloatField(fieldInfo *FieldInfo, value float32) error {
+	return v.writer.WriteField(fieldInfo, &copiedField{name: fieldInfo.Name(), kind: copiedFloat, f32: value})
 }
 
-func (v *copyVisitor) DoubleField(field string, value float64) {
-	v.write(&copiedField{name: field, kind: copiedDouble, f64: value})
+func (v *copyVisitor) DoubleField(fieldInfo *FieldInfo, value float64) error {
+	return v.writer.WriteField(fieldInfo, &copiedField{name: fieldInfo.Name(), kind: copiedDouble, f64: value})
 }
 
 // copiedField is the minimal IndexableField the copyVisitor produces. It
@@ -374,7 +360,7 @@ const (
 func (f *copiedField) Name() string { return f.name }
 
 // FieldType implements IndexableField.
-func (f *copiedField) FieldType() IndexableFieldType { return copiedFieldType{} }
+func (f *copiedField) FieldType() spi.IndexableFieldType { return copiedFieldType{} }
 
 // StringValue implements IndexableField.
 func (f *copiedField) StringValue() string {
@@ -416,88 +402,65 @@ func (f *copiedField) NumericValue() interface{} {
 // InvertableType implements IndexableField.
 func (f *copiedField) InvertableType() InvertableType { return InvertableTypeBinary }
 
-// StoredValue implements IndexableField.
-func (f *copiedField) StoredValue() StoredValue { return f }
+// StoredValue implements IndexableField, mirroring Field#storedValue().
+func (f *copiedField) StoredValue() *StoredValue {
+	switch f.kind {
+	case copiedString:
+		return document.NewStoredValueString(f.str)
+	case copiedBinary:
+		return document.NewStoredValueBinary(f.bin)
+	case copiedInt:
+		return document.NewStoredValueInt(int32(f.num))
+	case copiedLong:
+		return document.NewStoredValueLong(f.num)
+	case copiedFloat:
+		return document.NewStoredValueFloat(f.f32)
+	case copiedDouble:
+		return document.NewStoredValueDouble(f.f64)
+	default:
+		return nil
+	}
+}
 
 // TokenStream implements IndexableField.
 func (f *copiedField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
 	return nil
 }
 
-// Type implements index.StoredValue.
-func (f *copiedField) Type() StoredValueType {
-	switch f.kind {
-	case copiedString:
-		return StoredValueTypeString
-	case copiedBinary:
-		return StoredValueTypeBinary
-	case copiedInt:
-		return StoredValueTypeInteger
-	case copiedLong:
-		return StoredValueTypeLong
-	case copiedFloat:
-		return StoredValueTypeFloat
-	case copiedDouble:
-		return StoredValueTypeDouble
-	default:
-		return 0
-	}
-}
-
-// IntValue implements index.StoredValue.
-func (f *copiedField) IntValue() int32 {
-	if f.kind == copiedInt {
-		return int32(f.num)
-	}
-	return 0
-}
-
-// LongValue implements index.StoredValue.
-func (f *copiedField) LongValue() int64 {
-	if f.kind == copiedLong {
-		return f.num
-	}
-	return 0
-}
-
-// FloatValue implements index.StoredValue.
-func (f *copiedField) FloatValue() float32 {
-	if f.kind == copiedFloat {
-		return f.f32
-	}
-	return 0
-}
-
-// DoubleValue implements index.StoredValue.
-func (f *copiedField) DoubleValue() float64 {
-	if f.kind == copiedDouble {
-		return f.f64
-	}
-	return 0
-}
+// GetCharSequenceValue returns the field value as a character sequence.
+// Mirrors the default body of IndexableField#getCharSequenceValue(), which
+// returns stringValue().
+func (f *copiedField) GetCharSequenceValue() string { return f.StringValue() }
 
 // copiedFieldType marks the copied field as stored-only. Every other
 // indexing property is false because the copier is feeding a stored-only
 // writer.
 type copiedFieldType struct{}
 
-func (copiedFieldType) Stored() bool                                   { return true }
-func (copiedFieldType) Tokenized() bool                                 { return false }
-func (copiedFieldType) StoreTermVectors() bool                          { return false }
-func (copiedFieldType) StoreTermVectorPositions() bool                  { return false }
-func (copiedFieldType) StoreTermVectorOffsets() bool                    { return false }
-func (copiedFieldType) StoreTermVectorPayloads() bool                   { return false }
-func (copiedFieldType) OmitNorms() bool                                 { return false }
-func (copiedFieldType) IndexOptions() IndexOptions                       { return IndexOptionsNone }
-func (copiedFieldType) DocValuesType() DocValuesType                     { return DocValuesTypeNone }
-func (copiedFieldType) DocValuesSkipIndexType() DocValuesSkipIndexType   { return DocValuesSkipIndexTypeNone }
-func (copiedFieldType) PointDimensionCount() int                          { return 0 }
-func (copiedFieldType) PointIndexDimensionCount() int                     { return 0 }
-func (copiedFieldType) PointNumBytes() int                                { return 0 }
-func (copiedFieldType) VectorDimension() int                              { return 0 }
-func (copiedFieldType) VectorEncoding() VectorEncoding                    { return 0 }
-func (copiedFieldType) VectorSimilarityFunction() VectorSimilarityFunction { return 0 }
-func (copiedFieldType) GetAttributes() map[string]string                { return nil }
+func (copiedFieldType) Stored() bool                   { return true }
+func (copiedFieldType) Tokenized() bool                { return false }
+func (copiedFieldType) StoreTermVectors() bool         { return false }
+func (copiedFieldType) StoreTermVectorPositions() bool { return false }
+func (copiedFieldType) StoreTermVectorOffsets() bool   { return false }
+func (copiedFieldType) StoreTermVectorPayloads() bool  { return false }
+func (copiedFieldType) OmitNorms() bool                { return false }
+func (copiedFieldType) IndexOptions() IndexOptions     { return IndexOptionsNone }
+func (copiedFieldType) DocValuesType() DocValuesType   { return DocValuesTypeNone }
+func (copiedFieldType) DocValuesSkipIndexType() spi.DocValuesSkipIndexType {
+	return spi.DocValuesSkipIndexTypeNone
+}
+func (copiedFieldType) PointDimensionCount() int       { return 0 }
+func (copiedFieldType) PointIndexDimensionCount() int  { return 0 }
+func (copiedFieldType) PointNumBytes() int             { return 0 }
+func (copiedFieldType) VectorDimension() int           { return 0 }
+func (copiedFieldType) VectorEncoding() VectorEncoding { return 0 }
+
+// VectorSimilarityFunction mirrors Lucene's FieldType default of
+// VectorSimilarityFunction.EUCLIDEAN for a field that carries no vector.
+func (copiedFieldType) VectorSimilarityFunction() VectorSimilarityFunction {
+	return VectorSimilarityFunctionEuclidean
+}
+func (copiedFieldType) GetAttributes() map[string]string { return nil }
 
 // trackingTmpDirectoryWrapper is the Sprint 55 stand-in for
 // org.apache.lucene.index.TrackingTmpOutputDirectoryWrapper. It records

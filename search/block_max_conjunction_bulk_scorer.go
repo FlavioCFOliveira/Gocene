@@ -84,12 +84,12 @@ func NewBlockMaxConjunctionBulkScorer(maxDoc int, scorers []Scorer) (*BlockMaxCo
 	s := make([]Scorer, len(scorers))
 	copy(s, scorers)
 	sort.Slice(s, func(i, j int) bool {
-		return s[i].Cost() < s[j].Cost()
+		return s[i].Iterator().Cost() < s[j].Iterator().Cost()
 	})
 
 	iterators := make([]DocIdSetIterator, len(s))
 	for i, sc := range s {
-		iterators[i] = sc
+		iterators[i] = sc.Iterator()
 	}
 
 	return &BlockMaxConjunctionBulkScorer{
@@ -110,11 +110,8 @@ func NewBlockMaxConjunctionBulkScorer(maxDoc int, scorers []Scorer) (*BlockMaxCo
 // nextDocsAndScores are not on Gocene's Scorer interface. acceptDocs is a
 // util.Bits filter (nil accepts all).
 func (bs *BlockMaxConjunctionBulkScorer) Score(collector LeafCollector, acceptDocs util.Bits, min, max int) (int, error) {
-	// Inject a mutable scorable so the collector can read scores. Gocene's
-	// LeafCollector.SetScorer takes a Scorer, not a Scorable, so we wrap
-	// blockMaxSimpleScorable in a blockMaxScorerAdapter.
-	adapter := &blockMaxScorerAdapter{s: bs.scorable}
-	if err := collector.SetScorer(adapter); err != nil {
+	// Mirrors BlockMaxConjunctionBulkScorer.score(...): collector.setScorer(scorable).
+	if err := collector.SetScorer(bs.scorable); err != nil {
 		return 0, err
 	}
 
@@ -164,7 +161,11 @@ outer:
 		// All iterators agree on doc — compute score.
 		var total float64
 		for _, sc := range bs.scorers {
-			total += float64(sc.Score())
+			sc0, err := sc.Score()
+			if err != nil {
+				return 0, err
+			}
+			total += float64(sc0)
 		}
 		bs.scorable.score = float32(total)
 		if err := collector.Collect(doc); err != nil {
@@ -188,23 +189,4 @@ func (bs *BlockMaxConjunctionBulkScorer) Cost() int64 {
 	return bs.lead.Cost()
 }
 
-// blockMaxScorerAdapter wraps a blockMaxSimpleScorable so it satisfies
-// the Scorer interface, allowing injection into LeafCollector.SetScorer.
-//
-// DocIdSetIterator methods are no-ops — this adapter is only used as a
-// score source, not for iteration.
-type blockMaxScorerAdapter struct {
-	BaseScorer
-	s *blockMaxSimpleScorable
-}
-
-func (a *blockMaxScorerAdapter) Score() float32             { return a.s.score }
-func (a *blockMaxScorerAdapter) GetMaxScore(_ int) float32  { return a.s.score }
-func (a *blockMaxScorerAdapter) DocID() int                 { return -1 }
-func (a *blockMaxScorerAdapter) NextDoc() (int, error)      { return NO_MORE_DOCS, nil }
-func (a *blockMaxScorerAdapter) Advance(_ int) (int, error) { return NO_MORE_DOCS, nil }
-func (a *blockMaxScorerAdapter) Cost() int64                { return 0 }
-func (a *blockMaxScorerAdapter) DocIDRunEnd() int           { return NO_MORE_DOCS }
-
-var _ Scorer = (*blockMaxScorerAdapter)(nil)
 var _ BulkScorer = (*BlockMaxConjunctionBulkScorer)(nil)

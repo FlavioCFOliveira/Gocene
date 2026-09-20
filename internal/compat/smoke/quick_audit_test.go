@@ -127,14 +127,14 @@ func testPostingsTerms(t *testing.T, seed int64) scenarioResult {
 		return r
 	}
 
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		r.component = "Terms.GetIterator"
+		r.component = "Terms.Iterator"
 		r.errMsg = err.Error()
 		return r
 	}
 	if te == nil {
-		r.component = "Terms.GetIterator"
+		r.component = "Terms.Iterator"
 		r.errMsg = "term enum is nil"
 		return r
 	}
@@ -163,12 +163,19 @@ type auditStoredFieldVisitor struct {
 	fields int
 }
 
-func (v *auditStoredFieldVisitor) StringField(field string, value string)   { v.fields++ }
-func (v *auditStoredFieldVisitor) BinaryField(field string, value []byte)    { v.fields++ }
-func (v *auditStoredFieldVisitor) IntField(field string, value int)         { v.fields++ }
-func (v *auditStoredFieldVisitor) LongField(field string, value int64)      { v.fields++ }
-func (v *auditStoredFieldVisitor) FloatField(field string, value float32)   { v.fields++ }
-func (v *auditStoredFieldVisitor) DoubleField(field string, value float64)  { v.fields++ }
+// NeedsField accepts every stored field.
+func (v *auditStoredFieldVisitor) NeedsField(*index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	return index.StoredFieldVisitorStatusYes, nil
+}
+func (v *auditStoredFieldVisitor) StringField(*index.FieldInfo, string) error { v.fields++; return nil }
+func (v *auditStoredFieldVisitor) BinaryField(*index.FieldInfo, []byte) error { v.fields++; return nil }
+func (v *auditStoredFieldVisitor) IntField(*index.FieldInfo, int) error       { v.fields++; return nil }
+func (v *auditStoredFieldVisitor) LongField(*index.FieldInfo, int64) error    { v.fields++; return nil }
+func (v *auditStoredFieldVisitor) FloatField(*index.FieldInfo, float32) error { v.fields++; return nil }
+func (v *auditStoredFieldVisitor) DoubleField(*index.FieldInfo, float64) error {
+	v.fields++
+	return nil
+}
 
 func testStoredFields(t *testing.T, seed int64) scenarioResult {
 	var r scenarioResult

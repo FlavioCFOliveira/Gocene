@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // SpatialQuery is the base data carrier for every spatial query in the
@@ -25,9 +26,9 @@ import (
 // using those same parameters. This keeps the document → search import
 // direction unidirectional.
 type SpatialQuery struct {
-	field          string
-	queryRelation  QueryRelation
-	geometries     []geo.LatLonGeometry
+	field         string
+	queryRelation QueryRelation
+	geometries    []geo.LatLonGeometry
 }
 
 // NewSpatialQuery constructs a SpatialQuery data carrier.
@@ -102,13 +103,13 @@ func (q *SpatialQuery) Equals(other *SpatialQuery) bool {
 // TransposeRelation mirrors the Java helper: CELL_INSIDE_QUERY becomes
 // CELL_OUTSIDE_QUERY, CELL_OUTSIDE_QUERY becomes CELL_INSIDE_QUERY,
 // and CELL_CROSSES_QUERY stays unchanged. It is used by DISJOINT queries.
-func TransposeRelation(r geo.Relation) geo.Relation {
+func TransposeRelation(r spi.Relation) spi.Relation {
 	switch r {
-	case geo.CellInsideQuery:
-		return geo.CellOutsideQuery
-	case geo.CellOutsideQuery:
-		return geo.CellInsideQuery
+	case spi.CellInsideQuery:
+		return spi.CellOutsideQuery
+	case spi.CellOutsideQuery:
+		return spi.CellInsideQuery
 	default:
-		return geo.CellCrossesQuery
+		return spi.CellCrossesQuery
 	}
 }

@@ -14,7 +14,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/FlavioCFOliveira/Gocene/internal/hppc"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	gfst "github.com/FlavioCFOliveira/Gocene/util/fst"
 )
@@ -559,8 +558,8 @@ func DecodeISO8859_1(b []byte) string {
 type affixParseContext struct {
 	prefixes        map[string][]int32 // string → list of affix ids
 	suffixes        map[string][]int32
-	prefixConts     hppc.CharHashSet
-	suffixConts     hppc.CharHashSet
+	prefixConts     map[rune]struct{}
+	suffixConts     map[rune]struct{}
 	seenPatterns    map[string]int
 	seenStrips      map[string]int // insertion-ordered
 	seenStripsOrder []string
@@ -571,8 +570,8 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 	ctx := &affixParseContext{
 		prefixes:        make(map[string][]int32),
 		suffixes:        make(map[string][]int32),
-		prefixConts:     make(hppc.CharHashSet),
-		suffixConts:     make(hppc.CharHashSet),
+		prefixConts:     make(map[rune]struct{}),
+		suffixConts:     make(map[rune]struct{}),
 		seenPatterns:    map[string]int{alwaysTrueKey: 0},
 		seenStrips:      map[string]int{"": 0},
 		seenStripsOrder: []string{""},
@@ -895,7 +894,7 @@ func (d *Dictionary) readAffixFile(raw []byte, encoding string, flags *FlagEnume
 	return nil
 }
 
-func setToSortedRunes(set hppc.CharHashSet) []rune {
+func setToSortedRunes(set map[rune]struct{}) []rune {
 	runes := make([]rune, 0, len(set))
 	for r := range set {
 		runes = append(runes, r)

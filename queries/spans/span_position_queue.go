@@ -54,6 +54,17 @@ func (pq *SpanPositionQueue) Pop() Spans {
 	return result
 }
 
+// Clear removes all entries from the queue.
+//
+// Mirrors org.apache.lucene.util.PriorityQueue.clear(), which SpanPositionQueue
+// inherits and SpanOrQuery's disjunction Spans calls at each new document.
+func (pq *SpanPositionQueue) Clear() {
+	for i := 0; i < pq.size; i++ {
+		pq.heap[i] = nil
+	}
+	pq.size = 0
+}
+
 // UpdateTop re-heapifies after the top has been mutated.
 func (pq *SpanPositionQueue) UpdateTop() Spans {
 	pq.downHeap(pq.size)

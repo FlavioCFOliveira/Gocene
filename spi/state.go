@@ -5,8 +5,6 @@
 package spi
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
-	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -18,13 +16,16 @@ import (
 // to follow-up tasks under rmp #4669.
 type SegmentWriteState struct {
 	// Directory is where the segment files are written.
-	Directory store.Directory
+	Directory Directory
+
+	// Context is the IO context used for writing the segment.
+	Context IOContext
 
 	// SegmentInfo carries the metadata for the segment being flushed.
-	SegmentInfo *schema.SegmentInfo
+	SegmentInfo *SegmentInfo
 
 	// FieldInfos carries the metadata for every field in the segment.
-	FieldInfos *schema.FieldInfos
+	FieldInfos *FieldInfos
 
 	// SegmentSuffix is an optional per-format suffix appended to the
 	// segment file names. Empty for the default codec; PerField formats
@@ -79,13 +80,20 @@ type SegmentWriteState struct {
 // 10.4.0.
 type SegmentReadState struct {
 	// Directory is where the segment files are read from.
-	Directory store.Directory
+	Directory Directory
 
 	// SegmentInfo carries the metadata for the segment being read.
-	SegmentInfo *schema.SegmentInfo
+	SegmentInfo *SegmentInfo
 
 	// FieldInfos carries the metadata for every field in the segment.
-	FieldInfos *schema.FieldInfos
+	FieldInfos *FieldInfos
+
+	// Context is the IOContext to pass to Directory.OpenInput(string, IOContext).
+	//
+	// Mirrors the field org.apache.lucene.index.SegmentReadState#context
+	// (SegmentReadState.java:40), which every SegmentReadState constructor
+	// stores and which every codec reader forwards to openInput.
+	Context IOContext
 
 	// SegmentSuffix is an optional per-format suffix used to look up
 	// segment files. Empty for the default codec.

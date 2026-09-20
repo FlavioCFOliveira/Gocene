@@ -6,6 +6,8 @@ package automaton
 
 import (
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 func TestAutomaton_Basic(t *testing.T) {
@@ -147,20 +149,25 @@ func TestOperations_Repeat(t *testing.T) {
 
 func TestCompiledAutomaton(t *testing.T) {
 	a := MakeString("test")
-	c := Compile(a)
+	// CompiledAutomaton(Automaton) in Java is this(automaton, false, true), i.e.
+	// simplify=true, which is what turns a single-string automaton into SINGLE.
+	c := NewCompiledAutomatonSimplified(a)
 	if c == nil {
 		t.Fatal("compile returned nil")
 	}
-	if !c.RunString("test") {
+	if !c.Run(util.NewBytesRef([]byte("test"))) {
 		t.Error("expected compiled('test') to accept 'test'")
 	}
-	if c.RunString("testing") {
+	if c.Run(util.NewBytesRef([]byte("testing"))) {
 		t.Error("expected compiled('test') not to accept 'testing'")
 	}
-	if c.TypeName() != "SINGLE" {
-		t.Errorf("expected SINGLE type, got %s", c.TypeName())
+	if c.Type != AutomatonTypeSingle {
+		t.Errorf("expected SINGLE type, got %s", c.Type)
 	}
-	if got := c.GetTerm(); got != "test" {
+	if c.Term == nil {
+		t.Fatal("expected a singleton term, got nil")
+	}
+	if got := string(c.Term.Bytes[c.Term.Offset : c.Term.Offset+c.Term.Length]); got != "test" {
 		t.Errorf("expected term 'test', got %q", got)
 	}
 }
@@ -221,10 +228,7 @@ func TestFiniteStringsIterator(t *testing.T) {
 
 func TestLimitedFiniteStringsIterator(t *testing.T) {
 	a := mustDeterminize(t, Union([]*Automaton{MakeString("a"), MakeString("b"), MakeString("c")}))
-	it, err := NewLimitedFiniteStringsIterator(a, 2)
-	if err != nil {
-		t.Fatalf("limited iterator: %v", err)
-	}
+	it := NewLimitedFiniteStringsIterator(a, 2)
 	count := 0
 	for {
 		ints, err := it.Next()

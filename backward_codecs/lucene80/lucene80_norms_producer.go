@@ -70,7 +70,7 @@ func NewLucene80NormsProducer(
 	}
 
 	// --- meta file -------------------------------------------------------
-	metaName := index.SegmentFileName(
+	metaName := gstore.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, metaExtension)
 	metaIn, err := bcstore.OpenChecksumInput(state.Directory, metaName, gstore.IOContextRead)
 	if err != nil {
@@ -101,7 +101,7 @@ func NewLucene80NormsProducer(
 	}
 
 	// --- data file -------------------------------------------------------
-	dataName := index.SegmentFileName(
+	dataName := gstore.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, dataExtension)
 	dataIn, err := bcstore.OpenInput(state.Directory, dataName, gstore.IOContextRead)
 	if err != nil {
@@ -213,6 +213,19 @@ func (p *Lucene80NormsProducer) GetNorms(field *index.FieldInfo) (codecs.Numeric
 	return nil, nil
 }
 
+// GetMergeInstance returns an instance optimized for merging: a clone of this
+// producer over a cloned .nvd input, so the merge thread reads through its own
+// file pointer.
+//
+// Mirrors Lucene80NormsProducer.getMergeInstance() of Apache Lucene 10.5.0.
+func (p *Lucene80NormsProducer) GetMergeInstance() codecs.NormsProducer {
+	clone := *p
+	if p.data != nil {
+		clone.data = p.data.Clone()
+	}
+	return &clone
+}
+
 // CheckIntegrity verifies the norms data file.
 //
 // DEFERRED: full checksum verification requires cloning the data input.
@@ -247,7 +260,7 @@ func checkLucene80NormsFooter(in *bcstore.EndiannessReverserChecksumIndexInput) 
 	if remaining > footerLen {
 		return fmt.Errorf("lucene80 norms: misplaced codec footer (too long): remaining=%d", remaining)
 	}
-	magic, err := gstore.ReadInt32(in)
+	magic, err := gstore.ReadBEInt(in)
 	if err != nil {
 		return fmt.Errorf("lucene80 norms: footer magic: %w", err)
 	}
@@ -255,7 +268,7 @@ func checkLucene80NormsFooter(in *bcstore.EndiannessReverserChecksumIndexInput) 
 	if magic != footerMagic {
 		return fmt.Errorf("lucene80 norms: footer magic mismatch: got %x want %x", magic, footerMagic)
 	}
-	algID, err := gstore.ReadInt32(in)
+	algID, err := gstore.ReadBEInt(in)
 	if err != nil {
 		return fmt.Errorf("lucene80 norms: footer algorithmID: %w", err)
 	}
@@ -263,7 +276,7 @@ func checkLucene80NormsFooter(in *bcstore.EndiannessReverserChecksumIndexInput) 
 		return fmt.Errorf("lucene80 norms: unknown algorithmID: %d", algID)
 	}
 	actualChecksum := int64(in.GetChecksum())
-	expected, err := gstore.ReadInt64(in)
+	expected, err := gstore.ReadBELong(in)
 	if err != nil {
 		return fmt.Errorf("lucene80 norms: footer checksum: %w", err)
 	}

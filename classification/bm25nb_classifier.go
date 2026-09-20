@@ -55,7 +55,7 @@ func NewBM25NBClassifier(
 	}
 	if ri, ok := reader.(index.IndexReaderInterface); ok {
 		searcher := search.NewIndexSearcher(ri)
-		searcher.SetSimilarity(search.NewBM25Similarity())
+		searcher.SetSimilarity(search.NewLuceneBM25Similarity())
 		c.searcher = searcher
 	}
 	if q, ok := query.(search.Query); ok {
@@ -115,7 +115,7 @@ func (c *BM25NBClassifier) assignClassNormalizedList(inputDocument string) ([]*C
 		return nil, err
 	}
 
-	it, err := classes.GetIterator()
+	it, err := classes.Iterator()
 	if err != nil {
 		return nil, err
 	}
@@ -207,17 +207,17 @@ func (c *BM25NBClassifier) calculateLogLikelihoodBM25(tokens []string, classTerm
 // as a probability estimate.  Returns 1.0 (neutral log contribution) when no
 // document matches, mirroring Lucene's BM25NBClassifier.getTermProbForClass.
 func (c *BM25NBClassifier) getTermProbForClass(classTerm *index.Term, word string) (float64, error) {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(classTerm), search.MUST)
-	subQ := search.NewBooleanQuery()
+	subQ := search.NewBooleanQueryBuilder()
 	for _, fieldName := range c.textFieldNames {
 		subQ.Add(search.NewTermQuery(index.NewTerm(fieldName, word)), search.SHOULD)
 	}
-	bq.Add(subQ, search.SHOULD)
+	bq.Add(subQ.Build(), search.SHOULD)
 	if c.query != nil {
 		bq.Add(c.query, search.MUST)
 	}
-	topDocs, err := c.searcher.Search(bq, 1)
+	topDocs, err := c.searcher.Search(bq.Build(), 1)
 	if err != nil {
 		return 0, err
 	}
@@ -230,12 +230,12 @@ func (c *BM25NBClassifier) getTermProbForClass(classTerm *index.Term, word strin
 // calculateLogPriorBM25 computes log P(c) from the BM25 score of the class
 // term query.  Falls back to 0 (log 1) when the class term has no hits.
 func (c *BM25NBClassifier) calculateLogPriorBM25(classTerm *index.Term) (float64, error) {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(classTerm), search.MUST)
 	if c.query != nil {
 		bq.Add(c.query, search.MUST)
 	}
-	topDocs, err := c.searcher.Search(bq, 1)
+	topDocs, err := c.searcher.Search(bq.Build(), 1)
 	if err != nil {
 		return 0, err
 	}

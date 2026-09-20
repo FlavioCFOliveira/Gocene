@@ -9,11 +9,11 @@ import (
 )
 
 type oneGroup struct {
-	readerContext *index.LeafReaderContext
-	topGroupDoc   int
-	docs          []int
-	scores        []float32
-	count         int
+	readerContext  *index.LeafReaderContext
+	topGroupDoc    int
+	docs           []int
+	scores         []float32
+	count          int
 	comparatorSlot int
 }
 
@@ -36,7 +36,7 @@ func (pq groupQueue) Less(i, j int) bool {
 	return g1.topGroupDoc > g2.topGroupDoc
 }
 func (pq groupQueue) Swap(i, j int) { pq.items[i], pq.items[j] = pq.items[j], pq.items[i] }
-func (pq *groupQueue) Push(x any) { pq.items = append(pq.items, x.(*oneGroup)) }
+func (pq *groupQueue) Push(x any)   { pq.items = append(pq.items, x.(*oneGroup)) }
 func (pq *groupQueue) Pop() any {
 	old := pq.items
 	n := len(old)
@@ -47,28 +47,29 @@ func (pq *groupQueue) Pop() any {
 
 type BlockGroupingCollector struct {
 	search.BaseSimpleCollector
-	pendingSubDocs   []int
-	pendingSubScores  []float32
-	subDocUpto       int
-	groupSort         *search.Sort
-	topNGroups        int
-	needsScores       bool
-	comparators       []search.FieldComparator
-	leafComparators    []search.LeafFieldComparator
-	reversed          []int
-	compIDXEnd        int
-	bottomSlot        int
-	queueFull         bool
+	pendingSubDocs       []int
+	pendingSubScores     []float32
+	subDocUpto           int
+	groupSort            *search.Sort
+	topNGroups           int
+	needsScores          bool
+	comparators          []search.FieldComparator
+	leafComparators      []search.LeafFieldComparator
+	reversed             []int
+	compIDXEnd           int
+	bottomSlot           int
+	queueFull            bool
 	currentReaderContext *index.LeafReaderContext
-	topGroupDoc       int
-	totalHitCount     int
-	totalGroupCount   int
-	docBase           int
-	groupEndDocID     int
-	lastDocPerGroupBits util.DocIdSetIterator
-	scorer            search.Scorable
-	groupQueue        *groupQueue
-	groupCompetes     bool
+	topGroupDoc          int
+	totalHitCount        int
+	totalGroupCount      int
+	docBase              int
+	groupEndDocID        int
+	lastDocPerGroup      search.Weight
+	lastDocPerGroupBits  search.DocIdSetIterator
+	scorer               search.Scorable
+	groupQueue           *groupQueue
+	groupCompetes        bool
 }
 
 func NewBlockGroupingCollector(groupSort *search.Sort, topNGroups int, needsScores bool, lastDocPerGroup search.Weight) *BlockGroupingCollector {
@@ -80,7 +81,7 @@ func NewBlockGroupingCollector(groupSort *search.Sort, topNGroups int, needsScor
 	comparators := make([]search.FieldComparator, len(sortFields))
 	reversed := make([]int, len(sortFields))
 	for i, sf := range sortFields {
-		comparators[i] = sf.GetComparator(topNGroups, search.PruningNone)
+		comparators[i] = search.SortFieldGetComparator(sf, topNGroups, search.PruningNone)
 		if sf.Reverse {
 			reversed[i] = -1
 		} else {
@@ -88,18 +89,21 @@ func NewBlockGroupingCollector(groupSort *search.Sort, topNGroups int, needsScor
 		}
 	}
 
-	return &BlockGroupingCollector{
-		pendingSubDocs:  make([]int, 10),
+	c := &BlockGroupingCollector{
+		lastDocPerGroup:  lastDocPerGroup,
+		pendingSubDocs:   make([]int, 10),
 		pendingSubScores: make([]float32, 10),
-		groupSort:       groupSort,
-		topNGroups:      topNGroups,
-		needsScores:     needsScores,
-		comparators:     comparators,
+		groupSort:        groupSort,
+		topNGroups:       topNGroups,
+		needsScores:      needsScores,
+		comparators:      comparators,
 		leafComparators:  make([]search.LeafFieldComparator, len(sortFields)),
-		reversed:        reversed,
-		compIDXEnd:      len(comparators) - 1,
-		groupQueue:      &groupQueue{comparators: comparators, reversed: reversed},
+		reversed:         reversed,
+		compIDXEnd:       len(comparators) - 1,
+		groupQueue:       &groupQueue{comparators: comparators, reversed: reversed},
 	}
+	c.BaseSimpleCollector.Outer = c
+	return c
 }
 
 func (c *BlockGroupingCollector) processGroup() error {
@@ -163,7 +167,11 @@ func (c *BlockGroupingCollector) Collect(doc int) error {
 				return err
 			}
 		}
-		c.groupEndDocID = c.lastDocPerGroupBits.Advance(doc)
+		groupEndDocID, err := c.lastDocPerGroupBits.Advance(doc)
+		if err != nil {
+			return err
+		}
+		c.groupEndDocID = groupEndDocID
 		c.subDocUpto = 0
 		c.groupCompetes = !c.queueFull
 	}
@@ -182,20 +190,32 @@ func (c *BlockGroupingCollector) Collect(doc int) error {
 	}
 	c.pendingSubDocs[c.subDocUpto] = doc
 	if c.needsScores {
-		c.pendingSubScores[c.subDocUpto] = c.scorer.Score()
+		score, err := c.scorer.Score()
+		if err != nil {
+			return err
+		}
+		c.pendingSubScores[c.subDocUpto] = score
 	}
 	c.subDocUpto++
 
 	if c.groupCompetes {
 		if c.subDocUpto == 1 {
 			for _, fc := range c.leafComparators {
-				fc.Copy(c.bottomSlot, doc)
-				fc.SetBottom(c.bottomSlot)
+				if err := fc.Copy(c.bottomSlot, doc); err != nil {
+					return err
+				}
+				if err := fc.SetBottom(c.bottomSlot); err != nil {
+					return err
+				}
 			}
 			c.topGroupDoc = doc
 		} else {
 			for compIDX := 0; ; compIDX++ {
-				cmp := c.reversed[compIDX] * c.leafComparators[compIDX].CompareBottom(doc)
+				raw, err := c.leafComparators[compIDX].CompareBottom(doc)
+				if err != nil {
+					return err
+				}
+				cmp := c.reversed[compIDX] * raw
 				if cmp < 0 {
 					return nil
 				} else if cmp > 0 {
@@ -205,14 +225,22 @@ func (c *BlockGroupingCollector) Collect(doc int) error {
 				}
 			}
 			for _, fc := range c.leafComparators {
-				fc.Copy(c.bottomSlot, doc)
-				fc.SetBottom(c.bottomSlot)
+				if err := fc.Copy(c.bottomSlot, doc); err != nil {
+					return err
+				}
+				if err := fc.SetBottom(c.bottomSlot); err != nil {
+					return err
+				}
 			}
 			c.topGroupDoc = doc
 		}
 	} else {
 		for compIDX := 0; ; compIDX++ {
-			cmp := c.reversed[compIDX] * c.leafComparators[compIDX].CompareBottom(doc)
+			raw, err := c.leafComparators[compIDX].CompareBottom(doc)
+			if err != nil {
+				return err
+			}
+			cmp := c.reversed[compIDX] * raw
 			if cmp < 0 {
 				return nil
 			} else if cmp > 0 {
@@ -223,8 +251,12 @@ func (c *BlockGroupingCollector) Collect(doc int) error {
 		}
 		c.groupCompetes = true
 		for _, fc := range c.leafComparators {
-			fc.Copy(c.bottomSlot, doc)
-			fc.SetBottom(c.bottomSlot)
+			if err := fc.Copy(c.bottomSlot, doc); err != nil {
+				return err
+			}
+			if err := fc.SetBottom(c.bottomSlot); err != nil {
+				return err
+			}
 		}
 		c.topGroupDoc = doc
 	}
@@ -233,7 +265,7 @@ func (c *BlockGroupingCollector) Collect(doc int) error {
 
 func (c *BlockGroupingCollector) DoSetNextReader(readerContext *index.LeafReaderContext) error {
 	c.subDocUpto = 0
-	c.docBase = readerContext.docBase
+	c.docBase = readerContext.DocBase
 
 	scorer, err := c.lastDocPerGroup.Scorer(readerContext)
 	if err != nil {
@@ -247,27 +279,36 @@ func (c *BlockGroupingCollector) DoSetNextReader(readerContext *index.LeafReader
 
 	c.currentReaderContext = readerContext
 	for i := 0; i < len(c.comparators); i++ {
-		c.leafComparators[i] = c.comparators[i].GetLeafComparator(readerContext)
+		leaf, err := c.comparators[i].GetLeafComparator(readerContext)
+		if err != nil {
+			return err
+		}
+		c.leafComparators[i] = leaf
 	}
 	return nil
 }
 
+// score renders the private static nested class BlockGroupingCollector.Score,
+// a Scorable whose score() returns the recorded field.
 type score struct {
+	search.BaseScorable
+
 	val float32
 }
 
-func (s *score) Score() float32 {
-	return s.val
+func (s *score) Score() (float32, error) {
+	return s.val, nil
 }
 
-func (c *BlockGroupingCollector) GetTopGroups(withinGroupSort *search.Sort, groupOffset, withinGroupOffset, maxDocsPerGroup int) *TopGroups[any] {
+func (c *BlockGroupingCollector) GetTopGroups(withinGroupSort *search.Sort, groupOffset, withinGroupOffset, maxDocsPerGroup int) (*TopGroups[any], error) {
 	if groupOffset >= c.groupQueue.Len() {
-		return nil
+		return nil, nil
 	}
 
 	totalGroupedHitCount := 0
-	maxScore := float32(-math.MaxFloat32)
-	groupSortByRelevance := c.groupSort.IsRelevance()
+	// Java seeds maxScore with Float.MIN_VALUE, the smallest positive float.
+	maxScore := float32(math.SmallestNonzeroFloat32)
+	groupSortByRelevance := c.groupSort.Equals(search.RELEVANCE)
 
 	numGroups := c.groupQueue.Len() - groupOffset
 	groups := make([]*GroupDocs[any], numGroups)
@@ -276,21 +317,29 @@ func (c *BlockGroupingCollector) GetTopGroups(withinGroupSort *search.Sort, grou
 		og := heap.Pop(c.groupQueue).(*oneGroup)
 
 		var collector search.Collector
-		withinGroupSortByRelevance := withinGroupSort.IsRelevance()
+		withinGroupSortByRelevance := withinGroupSort.Equals(search.RELEVANCE)
 
 		if withinGroupSortByRelevance {
 			if !c.needsScores {
 				panic("cannot sort by relevance within group: needsScores=false")
 			}
-			collector = search.NewTopScoreDocCollector(maxDocsPerGroup, nil)
+			collector = search.NewTopScoreDocCollector(maxDocsPerGroup)
 		} else {
-			collector = search.NewTopFieldCollector(withinGroupSort, maxDocsPerGroup)
+			collector = search.NewTopFieldCollector(maxDocsPerGroup, withinGroupSort)
 		}
 
 		fakeScorer := &score{}
 		groupMaxScore := float32(math.NaN())
-		leafCollector := collector.GetLeafCollector(og.readerContext)
-		leafCollector.SetScorer(fakeScorer)
+		if c.needsScores {
+			groupMaxScore = float32(math.Inf(-1))
+		}
+		leafCollector, err := collector.GetLeafCollector(og.readerContext)
+		if err != nil {
+			return nil, err
+		}
+		if err := leafCollector.SetScorer(fakeScorer); err != nil {
+			return nil, err
+		}
 
 		for docIDX := 0; docIDX < og.count; docIDX++ {
 			doc := og.docs[docIDX]
@@ -300,7 +349,9 @@ func (c *BlockGroupingCollector) GetTopGroups(withinGroupSort *search.Sort, grou
 					groupMaxScore = nonNANmax(groupMaxScore, fakeScorer.val)
 				}
 			}
-			leafCollector.Collect(doc)
+			if err := leafCollector.Collect(doc); err != nil {
+				return nil, err
+			}
 		}
 		totalGroupedHitCount += og.count
 
@@ -309,16 +360,27 @@ func (c *BlockGroupingCollector) GetTopGroups(withinGroupSort *search.Sort, grou
 			groupSortValues[sortFieldIDX] = c.comparators[sortFieldIDX].Value(og.comparatorSlot)
 		}
 
-		topDocs := collector.TopDocs(withinGroupOffset, maxDocsPerGroup)
+		var topDocs *search.TopDocs
+		var fieldDocs []*search.FieldDoc
+		if withinGroupSortByRelevance {
+			topDocs = topScoreDocsRange(collector.(*search.TopScoreDocCollector), withinGroupOffset, maxDocsPerGroup)
+		} else {
+			fieldCollector := collector.(*search.TopFieldCollector)
+			topDocs = fieldCollector.TopDocsRange(withinGroupOffset, maxDocsPerGroup)
+			fieldDocs = topFieldDocsSlice(fieldCollector, withinGroupOffset, len(topDocs.ScoreDocs))
+		}
 		if withinGroupSortByRelevance && len(topDocs.ScoreDocs) > 0 {
 			groupMaxScore = topDocs.ScoreDocs[0].Score
 		}
 
+		// TODO (Lucene): scores could be aggregated across children by
+		// Sum/Avg instead of passing NaN.
 		groups[downTo] = &GroupDocs[any]{
 			Score:           float32(math.NaN()),
-			MaxScore:       groupMaxScore,
-			TotalHits:       search.TotalHits{Value: topDocs.TotalHits, Relation: search.TotalHitsEqual},
+			MaxScore:        groupMaxScore,
+			TotalHits:       search.NewTotalHits(int64(og.count), search.EQUAL_TO),
 			ScoreDocs:       topDocs.ScoreDocs,
+			FieldDocs:       fieldDocs,
 			GroupValue:      nil, // BlockGroupingCollector cannot compute groupValue
 			GroupSortValues: groupSortValues,
 		}
@@ -327,11 +389,42 @@ func (c *BlockGroupingCollector) GetTopGroups(withinGroupSort *search.Sort, grou
 		}
 	}
 
-	if groupSortByRelevance && len(groups) > 0 {
+	if groupSortByRelevance {
 		maxScore = groups[0].MaxScore
 	}
 
-	return NewTopGroups(c.groupSort.Fields, withinGroupSort.Fields, c.totalHitCount, totalGroupedHitCount, groups, maxScore)
+	totalGroupCount := c.totalGroupCount
+	return NewTopGroupsWithCount(
+		NewTopGroups(
+			c.groupSort.GetSort(),
+			withinGroupSort.GetSort(),
+			c.totalHitCount,
+			totalGroupedHitCount,
+			groups,
+			maxScore,
+		),
+		&totalGroupCount,
+	), nil
+}
+
+// topScoreDocsRange returns the hits in [start, start+howMany) of a
+// TopScoreDocCollector.
+//
+// Mirrors TopDocsCollector.topDocs(int, int) for the score-sorted collector,
+// which Gocene exposes on TopFieldCollector as TopDocsRange but not yet on
+// TopScoreDocCollector.
+func topScoreDocsRange(collector *search.TopScoreDocCollector, start, howMany int) *search.TopDocs {
+	all := collector.TopDocs()
+	size := len(all.ScoreDocs)
+	if start < 0 || start >= size || howMany <= 0 {
+		return search.NewTopDocs(all.TotalHits, []*search.ScoreDoc{})
+	}
+	if howMany > size-start {
+		howMany = size - start
+	}
+	results := make([]*search.ScoreDoc, howMany)
+	copy(results, all.ScoreDocs[start:start+howMany])
+	return search.NewTopDocs(all.TotalHits, results)
 }
 
 func (c *BlockGroupingCollector) Finish() error {
@@ -343,15 +436,33 @@ func (c *BlockGroupingCollector) Finish() error {
 
 func (c *BlockGroupingCollector) ScoreMode() search.ScoreMode {
 	if c.needsScores {
-		return search.ScoreModeComplete
+		return search.COMPLETE
 	}
-	return search.ScoreModeCompleteNoScores
+	return search.COMPLETE_NO_SCORES
 }
 
+// SetScorer mirrors BlockGroupingCollector.setScorer(Scorable).
 func (c *BlockGroupingCollector) SetScorer(scorer search.Scorable) error {
 	c.scorer = scorer
 	for _, fc := range c.leafComparators {
-		fc.SetScorer(scorer)
+		if err := fc.SetScorer(scorer); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+
+// CollectRange mirrors the LeafCollector default collectRange(int, int).
+func (c *BlockGroupingCollector) CollectRange(min, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream mirrors the LeafCollector default collect(DocIdStream).
+func (c *BlockGroupingCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator mirrors the LeafCollector default, which returns null.
+func (c *BlockGroupingCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
 }

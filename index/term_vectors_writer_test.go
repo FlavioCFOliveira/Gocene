@@ -149,10 +149,10 @@ func firstDocFieldTermsEnum(t *testing.T, dir store.Directory, fieldName string)
 		reader.Close()
 		t.Fatalf("Terms(%q) returned nil", fieldName)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		reader.Close()
-		t.Fatalf("GetIterator failed: %v", err)
+		t.Fatalf("Iterator failed: %v", err)
 	}
 	return te, func() {
 		reader.Close()

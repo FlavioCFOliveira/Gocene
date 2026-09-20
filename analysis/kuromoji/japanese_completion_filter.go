@@ -188,7 +188,7 @@ func NewJapaneseCompletionFilter(input analysis.TokenStream, mode CompletionMode
 			f.offsetAttr = a.(analysis.OffsetAttribute)
 		}
 		if a := src.GetAttribute(tokenattr.PositionIncrementAttributeType); a != nil {
-			f.posIncrAttr = a.(tokenattributes.PositionIncrementAttribute)
+			f.posIncrAttr = a.(tokenattr.PositionIncrementAttribute)
 		}
 		if a := src.GetAttribute(tokenattributes.ReadingAttributeType); a != nil {
 			f.readingAttr = a.(tokenattributes.ReadingAttribute)

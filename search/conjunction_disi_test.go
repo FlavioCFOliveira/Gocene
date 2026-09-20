@@ -62,9 +62,9 @@ func newCdjBitSetDISI(bs *util.FixedBitSet) *cdjBitSetDISI {
 	return &cdjBitSetDISI{inner: util.NewBitSetIterator(bs, int64(bs.Cardinality()))}
 }
 
-func (d *cdjBitSetDISI) DocID() int       { return d.inner.DocID() }
-func (d *cdjBitSetDISI) Cost() int64      { return d.inner.Cost() }
-func (d *cdjBitSetDISI) DocIDRunEnd() int { return d.inner.DocID() + 1 }
+func (d *cdjBitSetDISI) DocID() int                { return d.inner.DocID() }
+func (d *cdjBitSetDISI) Cost() int64               { return d.inner.Cost() }
+func (d *cdjBitSetDISI) DocIDRunEnd() (int, error) { return d.inner.DocID() + 1, nil }
 func (d *cdjBitSetDISI) NextDoc() (int, error) {
 	return d.inner.NextDoc()
 }
@@ -75,9 +75,9 @@ func (d *cdjBitSetDISI) Advance(target int) (int, error) {
 // cdjAnonDISI wraps a DISI preventing type-switch optimisations.
 type cdjAnonDISI struct{ inner util.DocIdSetIterator }
 
-func (d *cdjAnonDISI) DocID() int       { return d.inner.DocID() }
-func (d *cdjAnonDISI) Cost() int64      { return d.inner.Cost() }
-func (d *cdjAnonDISI) DocIDRunEnd() int { return d.inner.DocID() + 1 }
+func (d *cdjAnonDISI) DocID() int                { return d.inner.DocID() }
+func (d *cdjAnonDISI) Cost() int64               { return d.inner.Cost() }
+func (d *cdjAnonDISI) DocIDRunEnd() (int, error) { return d.inner.DocID() + 1, nil }
 func (d *cdjAnonDISI) NextDoc() (int, error) {
 	return d.inner.NextDoc()
 }
@@ -97,7 +97,7 @@ type cdjTwoPhaseScorer struct {
 func newCdjTwoPhaseScorer(tpi *search.TwoPhaseIterator) *cdjTwoPhaseScorer {
 	return &cdjTwoPhaseScorer{
 		tpi:  tpi,
-		disi: search.NewTwoPhaseIteratorAsDocIdSetIterator(tpi),
+		disi: search.AsDocIdSetIterator(tpi),
 	}
 }
 
@@ -107,7 +107,7 @@ func (s *cdjTwoPhaseScorer) TwoPhaseIterator() *search.TwoPhaseIterator { return
 
 func (s *cdjTwoPhaseScorer) DocID() int                   { return s.disi.DocID() }
 func (s *cdjTwoPhaseScorer) Cost() int64                  { return s.disi.Cost() }
-func (s *cdjTwoPhaseScorer) DocIDRunEnd() int             { return s.disi.DocID() + 1 }
+func (s *cdjTwoPhaseScorer) DocIDRunEnd() (int, error)    { return s.disi.DocID() + 1, nil }
 func (s *cdjTwoPhaseScorer) Score() float32               { return 1 }
 func (s *cdjTwoPhaseScorer) GetMaxScore(upTo int) float32 { return 1 }
 func (s *cdjTwoPhaseScorer) AdvanceShallow(int) (int, error) {
@@ -125,7 +125,7 @@ type cdjPlainScorer struct{ inner util.DocIdSetIterator }
 
 func (s *cdjPlainScorer) DocID() int                   { return s.inner.DocID() }
 func (s *cdjPlainScorer) Cost() int64                  { return s.inner.Cost() }
-func (s *cdjPlainScorer) DocIDRunEnd() int             { return s.inner.DocID() + 1 }
+func (s *cdjPlainScorer) DocIDRunEnd() (int, error)    { return s.inner.DocID() + 1, nil }
 func (s *cdjPlainScorer) Score() float32               { return 1 }
 func (s *cdjPlainScorer) GetMaxScore(upTo int) float32 { return 1 }
 func (s *cdjPlainScorer) AdvanceShallow(int) (int, error) {
@@ -238,12 +238,12 @@ func TestConjunctionDISI_ConjunctionApproximation(t *testing.T) {
 			}
 		}
 		conj := search.IntersectScorers(scorers)
-		tpi := search.AsTwoPhaseIterator(conj)
+		tpi := search.Unwrap(conj)
 		if hasApproximation != (tpi != nil) {
 			t.Fatalf("iter %d: hasApproximation=%v but TwoPhaseIterator=%v", i, hasApproximation, tpi)
 		}
 		if hasApproximation {
-			approxDISI := search.NewTwoPhaseIteratorAsDocIdSetIterator(tpi)
+			approxDISI := search.AsDocIdSetIterator(tpi)
 			got := cdjCollect(t, maxDoc, approxDISI)
 			want := cdjIntersect(sets)
 			if !cdjEqual(got, want) {
@@ -380,7 +380,7 @@ func TestConjunctionDISI_BitSetConjunctionDISIDocIDOnExhaust(t *testing.T) {
 		t.Errorf("DocID() = %d after exhaustion, want NO_MORE_DOCS", conjunction.DocID())
 	}
 
-// TestIntersectScorers_PanicsOnFewInputs checks the guard for < 2 scorers.
+	// TestIntersectScorers_PanicsOnFewInputs checks the guard for < 2 scorers.
 }
 func TestIntersectScorers_PanicsOnFewInputs(t *testing.T) {
 	defer func() {
@@ -401,4 +401,32 @@ func TestIntersectIterators_PanicsOnFewInputs(t *testing.T) {
 	}()
 	bs, _ := util.NewFixedBitSet(10)
 	search.IntersectIterators([]util.DocIdSetIterator{newCdjBitSetDISI(bs)})
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *cdjBitSetDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *cdjAnonDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *cdjTwoPhaseScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *cdjPlainScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
 }

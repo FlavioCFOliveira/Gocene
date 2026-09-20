@@ -7,6 +7,7 @@ package search
 import (
 	"container/heap"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"sort"
 	"strings"
@@ -277,7 +278,7 @@ func (mlt *MoreLikeThis) retrieveTerms(reader IndexReader, docID int, fieldName 
 		if terms == nil {
 			return nil
 		}
-		it, err := terms.GetIterator()
+		it, err := terms.Iterator()
 		if err != nil || it == nil {
 			return err
 		}
@@ -364,7 +365,7 @@ func (mlt *MoreLikeThis) retrieveTerms(reader IndexReader, docID int, fieldName 
 
 // selectInterestingTerms selects the most interesting terms based on TF/IDF scoring.
 //
-// docFreq is read from the index via Terms.GetIterator when the reader
+// docFreq is read from the index via Terms.Iterator when the reader
 // exposes a Terms(field) accessor; otherwise we fall back to the raw
 // term-vector frequency.  This matches the Lucene behaviour where the
 // stop-list / min-doc-freq filter is applied against the *index* and
@@ -395,7 +396,7 @@ func (mlt *MoreLikeThis) selectInterestingTerms(reader IndexReader, termFreqs ma
 		docFreq := tf.freq
 		if tp != nil && tf.field != "" {
 			if terms, err := tp.Terms(tf.field); err == nil && terms != nil {
-				if it, err := terms.GetIterator(); err == nil && it != nil {
+				if it, err := terms.Iterator(); err == nil && it != nil {
 					target := index.NewTerm(tf.field, tf.term)
 					if found, err := it.SeekExact(target); err == nil && found {
 						if df, err := it.DocFreq(); err == nil && df > 0 {
@@ -463,8 +464,13 @@ func (mlt *MoreLikeThis) createQuery(terms []*interestingTerm) Query {
 		queries = append(queries, NewTermQuery(termObj))
 	}
 
-	// Combine with OR (BooleanQuery with should clauses)
-	return NewBooleanQueryOrWithQueries(queries...)
+	// Combine with OR (BooleanQuery with should clauses), mirroring the
+	// BooleanQuery.Builder chain Lucene's MoreLikeThis.createQuery uses.
+	builder := NewBooleanQueryBuilder()
+	for _, sub := range queries {
+		builder.Add(sub, SHOULD)
+	}
+	return builder.Build()
 }
 
 // MoreLikeThisQuery is a query that wraps the MoreLikeThis functionality.
@@ -495,35 +501,24 @@ func NewMoreLikeThisQueryFromText(mlt *MoreLikeThis, text string) *MoreLikeThisQ
 }
 
 // Rewrite rewrites this query into a boolean query.
-func (q *MoreLikeThisQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *MoreLikeThisQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	if q.isText {
 		return q.mlt.LikeText(q.text)
 	}
-	return q.mlt.Like(reader, q.docID)
+	return q.mlt.Like(searcher.GetIndexReader(), q.docID)
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *MoreLikeThisQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
-	rewritten, err := q.Rewrite(searcher.GetIndexReader())
+func (q *MoreLikeThisQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
+	rewritten, err := q.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
-	return rewritten.CreateWeight(searcher, needsScores, boost)
-}
-
-// Clone creates a copy of this query.
-func (q *MoreLikeThisQuery) Clone() Query {
-	clone := &MoreLikeThisQuery{
-		mlt:    q.mlt,
-		docID:  q.docID,
-		text:   q.text,
-		isText: q.isText,
-	}
-	return clone
+	return rewritten.CreateWeight(searcher, scoreMode, boost)
 }
 
 // Equals checks if this query equals another.
-func (q *MoreLikeThisQuery) Equals(other Query) bool {
+func (q *MoreLikeThisQuery) Equals(other spi.Query) bool {
 	if other == nil {
 		return false
 	}
@@ -560,3 +555,9 @@ func (q *MoreLikeThisQuery) String() string {
 
 // Ensure MoreLikeThisQuery implements Query
 var _ Query = (*MoreLikeThisQuery)(nil)
+
+// Visit mirrors MoreLikeThisQuery.visit(QueryVisitor) of Apache Lucene 10.5.0
+// (org.apache.lucene.queries.mlt.MoreLikeThisQuery).
+func (q *MoreLikeThisQuery) Visit(visitor QueryVisitor) {
+	visitor.VisitLeaf(q)
+}

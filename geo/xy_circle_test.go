@@ -4,6 +4,7 @@ package geo
 
 import (
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"testing"
 )
@@ -96,10 +97,10 @@ func TestXYCircle_ToComponent2DRelate(t *testing.T) {
 	t.Parallel()
 	c := MustNewXYCircle(0, 0, 10)
 	comp := c.toComponent2D()
-	if got := comp.Relate(-1, 1, -1, 1); got != CellInsideQuery {
+	if got := comp.Relate(-1, 1, -1, 1); got != spi.CellInsideQuery {
 		t.Errorf("Relate inside = %v; want INSIDE", got)
 	}
-	if got := comp.Relate(50, 60, 50, 60); got != CellOutsideQuery {
+	if got := comp.Relate(50, 60, 50, 60); got != spi.CellOutsideQuery {
 		t.Errorf("Relate outside = %v; want OUTSIDE", got)
 	}
 }

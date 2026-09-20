@@ -8,6 +8,8 @@
 package spans
 
 import (
+	"fmt"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
@@ -134,7 +136,45 @@ func (w *SpanWeight) IsCacheable(ctx *index.LeafReaderContext) bool {
 	return true
 }
 
-// ScorerSupplier overrides BaseWeight to delegate through GetSpans.
+// getNormValues reads the norms of this weight's field from the leaf reader of
+// ctx, mirroring Java's context.reader().getNormValues(field).
+func (w *SpanWeight) getNormValues(ctx *index.LeafReaderContext) (index.NumericDocValues, error) {
+	if ctx == nil {
+		return nil, nil
+	}
+	reader := ctx.LeafReader()
+	if reader == nil {
+		return nil, nil
+	}
+	return reader.GetNormValues(w.field)
+}
+
+// spanScorerSupplier renders the anonymous ScorerSupplier that Java's
+// SpanWeight.scorerSupplier(LeafReaderContext) returns: get(long) hands back
+// the single pre-built SpanScorer and cost() reports its iterator's cost.
+type spanScorerSupplier struct {
+	search.BaseScorerSupplier
+	scorer *SpanScorer
+}
+
+// Get returns the pre-built SpanScorer, mirroring the anonymous class's
+// get(long leadCost).
+func (s *spanScorerSupplier) Get(leadCost int64) (search.Scorer, error) {
+	return s.scorer, nil
+}
+
+// Cost returns scorer.iterator().cost(), mirroring the anonymous class's cost().
+func (s *spanScorerSupplier) Cost() int64 {
+	return s.scorer.Iterator().Cost()
+}
+
+// BulkScorer carries the concrete body of ScorerSupplier.bulkScorer(), which
+// the anonymous class inherits without overriding.
+func (s *spanScorerSupplier) BulkScorer() (search.BulkScorer, error) {
+	return search.DefaultScorerSupplierBulkScorer(s)
+}
+
+// ScorerSupplier mirrors SpanWeight.scorerSupplier(LeafReaderContext).
 func (w *SpanWeight) ScorerSupplier(ctx *index.LeafReaderContext) (search.ScorerSupplier, error) {
 	spans, err := w.GetSpans(ctx, PostingsPositions)
 	if err != nil {
@@ -143,47 +183,66 @@ func (w *SpanWeight) ScorerSupplier(ctx *index.LeafReaderContext) (search.Scorer
 	if spans == nil {
 		return nil, nil
 	}
-	// Norm values require a concrete *LeafReader; skip if not available.
-	var norms index.NumericDocValues
-	if ctx != nil {
-		if lr, ok := ctx.LeafReader().(*index.LeafReader); ok && lr != nil {
-			norms, _ = lr.GetNormValues(w.field)
-		}
+	norms, err := w.getNormValues(ctx)
+	if err != nil {
+		return nil, err
 	}
-	sc := newSpanScorer(spans, w.SimScorer, norms)
-	return search.NewScorerSupplierAdapter(sc), nil
+	scorer := newSpanScorer(spans, w.SimScorer, norms)
+	return &spanScorerSupplier{scorer: scorer}, nil
 }
 
-// Explain returns an explanation for the given document.
+// GetSimScorer returns the SimScorer.
+//
+// Mirrors SpanWeight.getSimScorer().
+func (w *SpanWeight) GetSimScorer() search.SimScorer { return w.SimScorer }
+
+// Explain mirrors SpanWeight.explain(LeafReaderContext, int).
 func (w *SpanWeight) Explain(ctx *index.LeafReaderContext, doc int) (search.Explanation, error) {
-	supplier, err := w.ScorerSupplier(ctx)
-	if err != nil || supplier == nil {
-		return search.NoMatchExplanation("no matching spans"), nil
-	}
-	sc, err := supplier.Get(0)
-	if err != nil || sc == nil {
-		return search.NoMatchExplanation("no matching spans"), nil
-	}
-	advanced, err := sc.Advance(doc)
+	sc, err := w.Scorer(ctx)
 	if err != nil {
 		return nil, err
 	}
-	if advanced != doc {
-		return search.NoMatchExplanation("no matching spans"), nil
+	if scorer, ok := sc.(*SpanScorer); ok && scorer != nil {
+		newDoc, err := scorer.Iterator().Advance(doc)
+		if err != nil {
+			return nil, err
+		}
+		if newDoc == doc {
+			if w.SimScorer != nil {
+				freq, err := scorer.sloppyFreq()
+				if err != nil {
+					return nil, err
+				}
+				freqExplanation := search.MatchExplanation(freq, fmt.Sprintf("phraseFreq=%v", freq))
+				norms, err := w.getNormValues(ctx)
+				if err != nil {
+					return nil, err
+				}
+				norm := int64(1)
+				if norms != nil {
+					exact, err := norms.AdvanceExact(doc)
+					if err != nil {
+						return nil, err
+					}
+					if exact {
+						norm, err = norms.LongValue()
+						if err != nil {
+							return nil, err
+						}
+					}
+				}
+				scoreExplanation := w.SimScorer.Explain104(freqExplanation, norm)
+				return search.MatchExplanationWithDetails(
+					scoreExplanation.GetValue(),
+					fmt.Sprintf("weight(%v in %d), result of:", w.GetQuery(), doc),
+					scoreExplanation,
+				), nil
+			}
+			// simScorer won't be set when scoring isn't needed
+			return search.MatchExplanation(0, fmt.Sprintf("match %v in %d without score", w.GetQuery(), doc)), nil
+		}
 	}
-	ss, ok := sc.(*SpanScorer)
-	if !ok {
-		return search.NoMatchExplanation("no matching spans"), nil
-	}
-	freq, err := ss.sloppyFreq()
-	if err != nil {
-		return nil, err
-	}
-	if w.SimScorer == nil {
-		return search.MatchExplanation(0, "match without score"), nil
-	}
-	score := w.SimScorer.Score(doc, freq, 1)
-	return search.MatchExplanation(score, "weight("+itoa(doc)+")"), nil
+	return search.NoMatchExplanation("no matching term"), nil
 }
 
 // Count returns -1 (no sub-linear count available).

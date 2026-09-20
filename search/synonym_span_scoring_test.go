@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -144,7 +145,7 @@ func TestSpanTermQuery_MatchesRightDocs(t *testing.T) {
 	// Docs: 0:"the quick brown fox"  1:"lazy dog"  2:"the quick cat"
 	searcher, _ := explainTestIndex(t, []string{"the quick brown fox", "lazy dog", "the quick cat"})
 
-	query := search.NewSpanTermQuery(index.NewTerm("field", "quick"))
+	query := spans.NewSpanTermQuery(index.NewTerm("field", "quick"))
 
 	got := docSet(t, searcher, query)
 	if _, ok := got[0]; !ok {
@@ -167,25 +168,21 @@ func TestSpanTermQuery_Positions(t *testing.T) {
 	// Doc 0: "a quick brown quick fox" -> "quick" at positions 1 and 3.
 	searcher, leaf := explainTestIndex(t, []string{"a quick brown quick fox"})
 
-	query := search.NewSpanTermQuery(index.NewTerm("field", "quick"))
-	weight, err := query.CreateWeight(searcher, true, 1.0)
+	query := spans.NewSpanTermQuery(index.NewTerm("field", "quick"))
+	stw, err := query.CreateSpanWeight(searcher, search.COMPLETE, 1.0)
 	if err != nil {
-		t.Fatalf("CreateWeight: %v", err)
-	}
-	stw, ok := weight.(*search.SpanTermWeight)
-	if !ok {
-		t.Fatalf("expected *search.SpanTermWeight, got %T", weight)
+		t.Fatalf("CreateSpanWeight: %v", err)
 	}
 
-	spans, err := stw.GetSpans(leaf, index.PostingsFlagPositions)
+	sp, err := stw.GetSpans(leaf, spans.PostingsPositions)
 	if err != nil {
 		t.Fatalf("GetSpans: %v", err)
 	}
-	if spans == nil {
+	if sp == nil {
 		t.Fatal("expected non-nil Spans for an existing term")
 	}
 
-	doc, err := spans.NextDoc()
+	doc, err := sp.NextDoc()
 	if err != nil {
 		t.Fatalf("NextDoc: %v", err)
 	}
@@ -195,7 +192,7 @@ func TestSpanTermQuery_Positions(t *testing.T) {
 
 	var positions []int
 	for {
-		pos, err := spans.NextStartPosition()
+		pos, err := sp.NextStartPosition()
 		if err != nil {
 			t.Fatalf("NextStartPosition: %v", err)
 		}
@@ -203,10 +200,10 @@ func TestSpanTermQuery_Positions(t *testing.T) {
 			break
 		}
 		// endPosition must be startPosition + 1 (zero-width term span).
-		if got := spans.EndPosition(); got != pos+1 {
+		if got := sp.EndPosition(); got != pos+1 {
 			t.Errorf("at start %d: endPosition = %d, want %d", pos, got, pos+1)
 		}
-		if got := spans.Width(); got != 0 {
+		if got := sp.Width(); got != 0 {
 			t.Errorf("at start %d: width = %d, want 0", pos, got)
 		}
 		positions = append(positions, pos)
@@ -232,7 +229,7 @@ func TestSpanTermQuery_ScoresByFreq(t *testing.T) {
 	// Doc 1: "quick quick quick" -> freq 3
 	searcher, _ := explainTestIndex(t, []string{"quick", "quick quick quick"})
 
-	query := search.NewSpanTermQuery(index.NewTerm("field", "quick"))
+	query := spans.NewSpanTermQuery(index.NewTerm("field", "quick"))
 
 	got := docSet(t, searcher, query)
 	if _, ok := got[0]; !ok {

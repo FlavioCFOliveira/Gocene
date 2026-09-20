@@ -30,20 +30,8 @@ type IntersectVisitor interface {
 	// Visit is called for documents with deleted points
 	VisitDoc(docID int)
 	// Compare returns the relation between the query range and cell bounds
-	Compare(minPackedValue, maxPackedValue []byte) Relation
+	Compare(minPackedValue, maxPackedValue []byte) index.Relation
 }
-
-// Relation represents the relationship between a query and a cell
-type Relation int
-
-const (
-	// CELL_INSIDE_QUERY means the cell is fully contained in the query
-	CELL_INSIDE_QUERY Relation = iota
-	// CELL_OUTSIDE_QUERY means the cell is fully outside the query
-	CELL_OUTSIDE_QUERY
-	// CELL_CROSSES_QUERY means the cell partially overlaps the query
-	CELL_CROSSES_QUERY
-)
 
 // PointValuesStats holds statistics for point values
 type PointValuesStats struct {
@@ -1091,11 +1079,11 @@ func decodeInt32Sortable(buf []byte) int {
 func estimatePointCount(totalPoints int64, visitor IntersectVisitor, minPacked, maxPacked []byte) int64 {
 	relation := visitor.Compare(minPacked, maxPacked)
 	switch relation {
-	case CELL_INSIDE_QUERY:
+	case index.CellInsideQuery:
 		return totalPoints
-	case CELL_OUTSIDE_QUERY:
+	case index.CellOutsideQuery:
 		return 0
-	case CELL_CROSSES_QUERY:
+	case index.CellCrossesQuery:
 		// Estimate: half the points might match
 		return (totalPoints + 1) / 2
 	}

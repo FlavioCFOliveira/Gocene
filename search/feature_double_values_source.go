@@ -94,7 +94,7 @@ func (s *FeatureDoubleValuesSource) GetValues(ctx *index.LeafReaderContext, scor
 	if terms == nil {
 		return newEmptyFeatureDoubleValues(), nil
 	}
-	iterator, err := terms.GetIterator()
+	iterator, err := terms.Iterator()
 	if err != nil {
 		return nil, fmt.Errorf("feature double values: iterator for %q: %w", s.field, err)
 	}

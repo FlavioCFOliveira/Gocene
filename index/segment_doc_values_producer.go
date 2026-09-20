@@ -17,7 +17,7 @@ import (
 // can be read as if it carried only one producer.
 //
 // This is the Go port of Lucene's package-private
-// org.apache.lucene.index.SegmentDocValuesProducer from Apache Lucene 10.4.0.
+// org.apache.lucene.index.SegmentDocValuesProducer from Apache Lucene 10.5.0.
 //
 // Divergences from the Java reference:
 //   - The Lucene class extends DocValuesProducer (an abstract class). Gocene
@@ -264,7 +264,7 @@ func (p *SegmentDocValuesProducer) GetSortedSet(field *FieldInfo) (SortedSetDocV
 }
 
 // GetSkipper returns the DocValuesSkipper for the given field.
-func (p *SegmentDocValuesProducer) GetSkipper(field *FieldInfo) (DocValuesSkipper, error) {
+func (p *SegmentDocValuesProducer) GetSkipper(field *FieldInfo) (spi.DocValuesSkipper, error) {
 	dvp, err := p.producerFor(field)
 	if err != nil {
 		return nil, err
@@ -275,6 +275,11 @@ func (p *SegmentDocValuesProducer) GetSkipper(field *FieldInfo) (DocValuesSkippe
 // CheckIntegrity calls CheckIntegrity on every unique underlying producer.
 // It returns the first non-nil error, joined with any subsequent failures so
 // callers see the complete picture.
+// GetMergeInstance returns the receiver. The corresponding class in Apache
+// Lucene 10.5.0 does not override getMergeInstance, so it inherits the
+// DocValuesProducer default, which returns this.
+func (p *SegmentDocValuesProducer) GetMergeInstance() DocValuesProducer { return p }
+
 func (p *SegmentDocValuesProducer) CheckIntegrity() error {
 	var joined error
 	for _, dvp := range p.dvProducers {

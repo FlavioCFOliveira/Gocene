@@ -62,25 +62,82 @@ type QueryNode interface {
 	GetTagMap() map[string]interface{}
 }
 
+// PlaintextFieldName is the index default field name.
+//
+// Mirrors the constant PLAINTEXT_FIELD_NAME of
+// org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl.
+const PlaintextFieldName = "_plain"
+
 // QueryNodeImpl is the base implementation of QueryNode.
 // It provides common functionality for all query node types.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl.
 type QueryNodeImpl struct {
-	parent   QueryNode
+	parent QueryNode
+	// children mirrors the Java field `clauses`. A nil slice means the node
+	// has not been allocated (Java: `clauses == null`); Allocate makes it
+	// non-nil.
 	children []QueryNode
 	tags     map[string]interface{}
+	// isLeaf mirrors the Java field `private boolean isLeaf = true`: a node is
+	// a leaf until SetLeaf(false) is called by a composite node's constructor.
+	isLeaf bool
+	// toQueryStringIgnoreFields mirrors the Java protected field of the same
+	// name: when true, IsDefaultField reports every field as the default one
+	// so ToQueryString omits field names.
+	toQueryStringIgnoreFields bool
 }
 
-// NewQueryNodeImpl creates a new QueryNodeImpl with the given children.
+// NewQueryNodeImpl creates a new composite QueryNodeImpl holding the given
+// children. It reproduces the `setLeaf(false); allocate(); add(children);`
+// preamble that every composite node's constructor runs in Lucene.
 func NewQueryNodeImpl(children []QueryNode) *QueryNodeImpl {
-	node := &QueryNodeImpl{
-		children: make([]QueryNode, 0, len(children)),
-		tags:     make(map[string]interface{}),
-	}
-	for _, child := range children {
-		node.AddChild(child)
-	}
+	node := &QueryNodeImpl{tags: make(map[string]interface{})}
+	node.SetLeaf(false)
+	node.Allocate()
+	node.AddChildren(children)
 	return node
 }
+
+// Allocate creates the children list if it does not exist yet, or clears it if
+// it does.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#allocate().
+func (n *QueryNodeImpl) Allocate() {
+	if n.children == nil {
+		n.children = make([]QueryNode, 0)
+	} else {
+		n.children = n.children[:0]
+	}
+}
+
+// SetLeaf marks this node as a leaf or as a composite node.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#setLeaf(boolean).
+func (n *QueryNodeImpl) SetLeaf(isLeaf bool) { n.isLeaf = isLeaf }
+
+// IsDefaultField reports whether fld is the default field, in which case
+// ToQueryString omits the field prefix.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#isDefaultField(CharSequence).
+func (n *QueryNodeImpl) IsDefaultField(fld string) bool {
+	if n.toQueryStringIgnoreFields {
+		return true
+	}
+	return isDefaultField(fld)
+}
+
+// SetToQueryStringIgnoreFields sets the flag that makes ToQueryString omit
+// field names.
+//
+// Mirrors assignment to the protected field
+// org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#toQueryStringIgnoreFields.
+func (n *QueryNodeImpl) SetToQueryStringIgnoreFields(v bool) { n.toQueryStringIgnoreFields = v }
+
+// IsRoot reports whether this node has no parent.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#isRoot().
+func (n *QueryNodeImpl) IsRoot() bool { return n.GetParent() == nil }
 
 // GetTag returns the value associated with the given tag key.
 func (n *QueryNodeImpl) GetTag(key string) interface{} {
@@ -149,40 +206,71 @@ func (n *QueryNodeImpl) GetParent() QueryNode {
 	return n.parent
 }
 
-// SetParent sets the parent node.
+// SetParent sets the parent node, detaching this node from its previous parent
+// first.
+//
+// Mirrors the private org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#setParent(QueryNode).
 func (n *QueryNodeImpl) SetParent(parent QueryNode) {
-	n.parent = parent
+	if n.parent != parent {
+		n.RemoveFromParent()
+		n.parent = parent
+	}
 }
 
-// IsLeaf returns true if this node has no children.
+// IsLeaf returns true if this node is a leaf node.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#isLeaf():
+// the value is the stored isLeaf flag, not a function of the child count.
 func (n *QueryNodeImpl) IsLeaf() bool {
-	return len(n.children) == 0
+	return n.isLeaf
 }
 
-// GetChildren returns the child nodes.
+// GetChildren returns a copy of the child nodes, or nil for a leaf node or a
+// node whose children list was never allocated.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#getChildren().
 func (n *QueryNodeImpl) GetChildren() []QueryNode {
-	return n.children
+	if n.IsLeaf() || n.children == nil {
+		return nil
+	}
+	out := make([]QueryNode, len(n.children))
+	copy(out, n.children)
+	return out
 }
 
-// SetChildren replaces all children with the given slice.
+// SetChildren resets the children of a non-leaf node.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#set(List).
 func (n *QueryNodeImpl) SetChildren(children []QueryNode) {
-	// Clear existing parent references
-	for _, child := range n.children {
-		if impl, ok := child.(*QueryNodeImpl); ok {
-			impl.SetParent(nil)
-		}
+	if n.IsLeaf() || n.children == nil {
+		panic("queryparser/flexible: " + MsgNodeActionNotSupported)
 	}
 
-	n.children = make([]QueryNode, 0, len(children))
+	// reset parent value
 	for _, child := range children {
-		n.AddChild(child)
+		child.RemoveFromParent()
 	}
+
+	existingChildren := n.GetChildren()
+	for _, existingChild := range existingChildren {
+		existingChild.RemoveFromParent()
+	}
+
+	// allocate new children list
+	n.Allocate()
+
+	// add new children and set parent
+	n.AddChildren(children)
 }
 
-// AddChild adds a child node.
+// AddChild adds a child node to a non-leaf node.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#add(QueryNode),
+// which throws IllegalArgumentException when the node is a leaf, has no
+// allocated children list, or the child is null.
 func (n *QueryNodeImpl) AddChild(child QueryNode) {
-	if child == nil {
-		return
+	if n.IsLeaf() || n.children == nil || child == nil {
+		panic("queryparser/flexible: " + MsgNodeActionNotSupported)
 	}
 
 	// Remove from old parent if exists
@@ -191,39 +279,52 @@ func (n *QueryNodeImpl) AddChild(child QueryNode) {
 	}
 
 	n.children = append(n.children, child)
-	if impl, ok := child.(*QueryNodeImpl); ok {
-		impl.SetParent(n)
-	}
+	child.SetParent(n)
 }
 
-// AddChildren adds multiple child nodes.
+// AddChildren adds multiple child nodes to a non-leaf node.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#add(List).
 func (n *QueryNodeImpl) AddChildren(children []QueryNode) {
+	if n.IsLeaf() || n.children == nil {
+		panic("queryparser/flexible: " + MsgNodeActionNotSupported)
+	}
 	for _, child := range children {
 		n.AddChild(child)
 	}
 }
 
-// RemoveChild removes a child node.
-// Returns true if the child was found and removed.
+// RemoveChild removes every occurrence of child from this node's children and
+// then detaches child from its parent.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#removeChildren(QueryNode).
+// Lucene's method returns void; the bool reported here is a Gocene addition
+// that says whether anything was removed.
 func (n *QueryNodeImpl) RemoveChild(child QueryNode) bool {
-	for i, c := range n.children {
+	removed := false
+	kept := n.children[:0]
+	for _, c := range n.children {
 		if c == child {
-			// Remove from slice
-			n.children = append(n.children[:i], n.children[i+1:]...)
-			// Clear parent reference
-			if impl, ok := c.(*QueryNodeImpl); ok {
-				impl.SetParent(nil)
-			}
-			return true
+			removed = true
+			continue
 		}
+		kept = append(kept, c)
 	}
-	return false
+	n.children = kept
+	child.RemoveFromParent()
+	return removed
 }
 
 // RemoveFromParent removes this query node from its parent.
+//
+// Mirrors org.apache.lucene.queryparser.flexible.core.nodes.QueryNodeImpl#removeFromParent():
+// the parent reference is cleared before the parent is asked to drop the child,
+// so the two calls cannot recurse into each other.
 func (n *QueryNodeImpl) RemoveFromParent() {
 	if n.parent != nil {
-		n.parent.RemoveChild(n)
+		parent := n.parent
+		n.parent = nil
+		parent.RemoveChild(n)
 	}
 }
 

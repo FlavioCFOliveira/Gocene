@@ -9,6 +9,7 @@ package spans
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -27,19 +28,47 @@ const (
 // Mirrors org.apache.lucene.queries.spans.SpanTermQuery.
 //
 // Deviations from Java:
-//   - Java holds a TermStates that is pre-built; Gocene performs a live
-//     SeekExact + Postings call in GetSpans because TermStates is a skeleton
-//     (backlog #2709) without a Build helper.
+//   - Java's createWeight resolves the TermStates up front (building one with
+//     TermStates.build when the stored one was not built for the searcher's
+//     top context) and seeks with it; Gocene's SpanWeight performs a live
+//     SeekExact + Postings call in GetSpans instead. The termStates field is
+//     therefore carried and returned by GetTermStates, as Java declares, but
+//     is not yet consumed by the weight.
 //   - The inner SpanTermWeight is a package-level struct, not an inner class.
 type SpanTermQuery struct {
 	search.BaseQuery
-	term *index.Term
+	term       *index.Term
+	termStates *index.TermStates
 }
 
-// NewSpanTermQuery constructs a SpanTermQuery for the given term.
+// NewSpanTermQuery constructs a SpanTermQuery matching the named term's spans.
+//
+// Mirrors {@code public SpanTermQuery(Term term)}, whose body leaves
+// termStates null.
 func NewSpanTermQuery(term *index.Term) *SpanTermQuery {
+	if term == nil {
+		panic("term must not be null")
+	}
 	return &SpanTermQuery{term: term}
 }
+
+// NewSpanTermQueryWithTermStates is the expert constructor: it builds a
+// SpanTermQuery matching the named term's spans, using the provided
+// TermStates.
+//
+// Mirrors {@code public SpanTermQuery(Term term, TermStates termStates)}.
+func NewSpanTermQueryWithTermStates(term *index.Term, termStates *index.TermStates) *SpanTermQuery {
+	if term == nil {
+		panic("term must not be null")
+	}
+	return &SpanTermQuery{term: term, termStates: termStates}
+}
+
+// GetTermStates returns the TermStates passed to the constructor, or nil if it
+// was not passed.
+//
+// Mirrors {@code public TermStates getTermStates()} (@lucene.experimental).
+func (q *SpanTermQuery) GetTermStates() *index.TermStates { return q.termStates }
 
 // GetField returns the field targeted by this query.
 func (q *SpanTermQuery) GetField() string { return q.term.Field }
@@ -61,7 +90,7 @@ func (q *SpanTermQuery) Clone() search.Query {
 }
 
 // Equals reports structural equality.
-func (q *SpanTermQuery) Equals(other search.Query) bool {
+func (q *SpanTermQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*SpanTermQuery)
 	if !ok {
 		return false
@@ -83,26 +112,33 @@ func (q *SpanTermQuery) HashCode() int {
 	return h
 }
 
-// String returns the canonical Lucene rendering.
-func (q *SpanTermQuery) String() string {
+// ToString mirrors SpanTermQuery.toString(String field): the term's text alone
+// when it belongs to the default field, and the whole Term otherwise.
+func (q *SpanTermQuery) ToString(field string) string {
 	text := ""
 	if q.term.Bytes != nil {
 		text = q.term.Bytes.String()
 	}
+	if q.term.Field == field {
+		return text
+	}
 	return fmt.Sprintf("%s:%s", q.term.Field, text)
 }
 
+// String renders Query.toString(), whose Java body is toString("").
+func (q *SpanTermQuery) String() string { return q.ToString("") }
+
 // CreateWeight creates a Weight for this query (non-span path, used by IndexSearcher).
-func (q *SpanTermQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	return q.createSpanWeight(searcher, needsScores, boost)
+func (q *SpanTermQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	return q.createSpanWeight(searcher, scoreMode, boost)
 }
 
 // CreateSpanWeight creates a SpanWeight for this query.
-func (q *SpanTermQuery) CreateSpanWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (*SpanWeight, error) {
-	return q.createSpanWeight(searcher, needsScores, boost)
+func (q *SpanTermQuery) CreateSpanWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (*SpanWeight, error) {
+	return q.createSpanWeight(searcher, scoreMode, boost)
 }
 
-func (q *SpanTermQuery) createSpanWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (*SpanWeight, error) {
+func (q *SpanTermQuery) createSpanWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (*SpanWeight, error) {
 	term := q.term
 	return NewSpanWeight(q, SpanWeightConfig{
 		Field:     term.Field,
@@ -142,7 +178,7 @@ func getSpansForTerm(ctx *index.LeafReaderContext, term *index.Term, postingsLev
 		return nil, fmt.Errorf("field %q was indexed without position data; cannot run SpanTermQuery (term=%q)",
 			term.Field, text)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, err
 	}

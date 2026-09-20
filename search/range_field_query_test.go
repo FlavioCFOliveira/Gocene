@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
@@ -56,14 +57,14 @@ func TestRfqCompare_INTERSECTS(t *testing.T) {
 		name    string
 		cellLo  int
 		cellHi  int
-		wantRel int
+		wantRel index.Relation
 	}{
-		{"outside_low", 1, 5, rfqRelCellOutside},
-		{"outside_high", 25, 30, rfqRelCellOutside},
-		{"inside", 12, 18, rfqRelCellInside},
+		{"outside_low", 1, 5, index.CellOutsideQuery},
+		{"outside_high", 25, 30, index.CellOutsideQuery},
+		{"inside", 12, 18, index.CellInsideQuery},
 		// Single-doc cells that intersect the query: BKD prunes them as CELL_INSIDE.
-		{"intersects_low", 5, 15, rfqRelCellInside},
-		{"intersects_high", 15, 25, rfqRelCellInside},
+		{"intersects_low", 5, 15, index.CellInsideQuery},
+		{"intersects_high", 15, 25, index.CellInsideQuery},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -100,8 +101,8 @@ func TestRfqCompare_INTERSECTS_MultiDoc(t *testing.T) {
 	cellMin := packRange(1, 5)
 	cellMax := packRange(25, 30)
 	got := rfqCompare(RangeFieldQueryTypeIntersects, ranges, cellMin, cellMax, 1, 4, cmp)
-	if got != rfqRelCellCrosses {
-		t.Fatalf("multi-doc mixed cell: got=%d want=%d (CELL_CROSSES)", got, rfqRelCellCrosses)
+	if got != index.CellCrossesQuery {
+		t.Fatalf("multi-doc mixed cell: got=%d want=%d (CELL_CROSSES)", got, index.CellCrossesQuery)
 	}
 }
 
@@ -129,14 +130,14 @@ func TestRfqCompare_WITHIN(t *testing.T) {
 	// BKD cell containing a single doc [12,18]; cell min/max are both packRange(12,18).
 	got := rfqCompare(RangeFieldQueryTypeWithin, ranges,
 		packRange(12, 18), packRange(12, 18), 1, 4, cmp)
-	if got != rfqRelCellInside {
-		t.Fatalf("within inside: got %d want %d", got, rfqRelCellInside)
+	if got != index.CellInsideQuery {
+		t.Fatalf("within inside: got %d want %d", got, index.CellInsideQuery)
 	}
 
 	// BKD cell spanning docs from [5,8] to [25,30]; clearly not all within [10,20].
 	got = rfqCompare(RangeFieldQueryTypeWithin, ranges,
 		packRange(5, 8), packRange(25, 30), 1, 4, cmp)
-	if got == rfqRelCellInside {
+	if got == index.CellInsideQuery {
 		t.Fatalf("within outside should not be CELL_INSIDE; got %d", got)
 	}
 }
@@ -163,14 +164,14 @@ func TestRfqCompare_CONTAINS(t *testing.T) {
 	// Cell with only doc [5,25]; qMin(10)>=docMin(5) and qMax(20)<=docMax(25).
 	got := rfqCompare(RangeFieldQueryTypeContains, ranges,
 		packRange(5, 25), packRange(5, 25), 1, 4, cmp)
-	if got != rfqRelCellInside {
-		t.Fatalf("contains inside: got %d want %d", got, rfqRelCellInside)
+	if got != index.CellInsideQuery {
+		t.Fatalf("contains inside: got %d want %d", got, index.CellInsideQuery)
 	}
 
 	// Cell with only doc [12,18]: doc range does not contain query [10,20].
 	got = rfqCompare(RangeFieldQueryTypeContains, ranges,
 		packRange(12, 18), packRange(12, 18), 1, 4, cmp)
-	if got == rfqRelCellInside {
+	if got == index.CellInsideQuery {
 		t.Fatalf("contains non-match should not be CELL_INSIDE; got %d", got)
 	}
 }
@@ -192,15 +193,15 @@ func TestRfqCompare_CROSSES(t *testing.T) {
 	// Cell with doc [5,15]: intersects [10,20] but is not within it → not CELL_OUTSIDE.
 	got := rfqCompare(RangeFieldQueryTypeCrosses, ranges,
 		packRange(5, 15), packRange(5, 15), 1, 4, cmp)
-	if got == rfqRelCellOutside {
+	if got == index.CellOutsideQuery {
 		t.Fatalf("crosses should not be CELL_OUTSIDE; got %d", got)
 	}
 
 	// Cell with doc [1,5]: completely outside [10,20] → CELL_OUTSIDE_QUERY.
 	got = rfqCompare(RangeFieldQueryTypeCrosses, ranges,
 		packRange(1, 5), packRange(1, 5), 1, 4, cmp)
-	if got != rfqRelCellOutside {
-		t.Fatalf("crosses disjoint: got %d want %d", got, rfqRelCellOutside)
+	if got != index.CellOutsideQuery {
+		t.Fatalf("crosses disjoint: got %d want %d", got, index.CellOutsideQuery)
 	}
 }
 
@@ -354,13 +355,13 @@ func TestRangeFieldQuery_CreateWeight_WithPointValues(t *testing.T) {
 	// Docs: [5,8],[12,18],[25,30],[10,20],[15,22]
 	//   field min = packRange( min(5,12,25,10,15), min(8,18,30,20,22) ) = packRange(5,8)
 	//   field max = packRange( max(5,12,25,10,15), max(8,18,30,20,22) ) = packRange(25,30)
-	mock := &stubRangeFieldPointValues{
-		minPV:  append(encode(5), encode(8)...),   // packRange(5,8)
-		maxPV:  append(encode(25), encode(30)...), // packRange(25,30)
-		docCnt: 5,
-		packed: packed,
-		docIDs: []int{0, 1, 2, 3, 4},
-	}
+	mock := newStubRangeFieldPointValues(
+		append(encode(5), encode(8)...),   // packRange(5,8)
+		append(encode(25), encode(30)...), // packRange(25,30)
+		5,
+		packed,
+		[]int{0, 1, 2, 3, 4},
+	)
 
 	q, _ := NewRangeFieldQueryFull("f",
 		encode(10), encode(20),
@@ -441,30 +442,46 @@ func (r *stubNoPointValuesLeaf) GetRefCount() int32  { return 1 }
 func (r *stubNoPointValuesLeaf) GetContext() (index.IndexReaderContext, error) {
 	return nil, nil
 }
-func (r *stubNoPointValuesLeaf) Leaves() ([]*index.LeafReaderContext, error) { return nil, nil }
-func (r *stubNoPointValuesLeaf) StoredFields() (index.StoredFields, error)   { return nil, nil }
-func (r *stubNoPointValuesLeaf) TermVectors() (index.TermVectors, error)     { return nil, nil }
-func (r *stubNoPointValuesLeaf) GetCoreCacheKey() interface{}               { return r }
-func (r *stubNoPointValuesLeaf) GetTermVectors(_ int) (index.Fields, error)   { return nil, nil }
-func (r *stubNoPointValuesLeaf) Terms(_ string) (index.Terms, error)          { return nil, nil }
-func (r *stubNoPointValuesLeaf) Postings(_ index.Term) (index.PostingsEnum, error)              { return nil, nil }
+func (r *stubNoPointValuesLeaf) Leaves() ([]*index.LeafReaderContext, error)       { return nil, nil }
+func (r *stubNoPointValuesLeaf) StoredFields() (index.StoredFields, error)         { return nil, nil }
+func (r *stubNoPointValuesLeaf) TermVectors() (index.TermVectors, error)           { return nil, nil }
+func (r *stubNoPointValuesLeaf) GetCoreCacheKey() interface{}                      { return r }
+func (r *stubNoPointValuesLeaf) GetTermVectors(_ int) (index.Fields, error)        { return nil, nil }
+func (r *stubNoPointValuesLeaf) Terms(_ string) (index.Terms, error)               { return nil, nil }
+func (r *stubNoPointValuesLeaf) Postings(_ index.Term) (index.PostingsEnum, error) { return nil, nil }
 func (r *stubNoPointValuesLeaf) PostingsWithFreqPositions(_ index.Term, _ int) (index.PostingsEnum, error) {
 	return nil, nil
 }
-func (r *stubNoPointValuesLeaf) GetNumericDocValues(_ string) (index.NumericDocValues, error)      { return nil, nil }
-func (r *stubNoPointValuesLeaf) GetBinaryDocValues(_ string) (index.BinaryDocValues, error)        { return nil, nil }
-func (r *stubNoPointValuesLeaf) GetSortedDocValues(_ string) (index.SortedDocValues, error)        { return nil, nil }
+func (r *stubNoPointValuesLeaf) GetNumericDocValues(_ string) (index.NumericDocValues, error) {
+	return nil, nil
+}
+func (r *stubNoPointValuesLeaf) GetBinaryDocValues(_ string) (index.BinaryDocValues, error) {
+	return nil, nil
+}
+func (r *stubNoPointValuesLeaf) GetSortedDocValues(_ string) (index.SortedDocValues, error) {
+	return nil, nil
+}
 func (r *stubNoPointValuesLeaf) GetSortedNumericDocValues(_ string) (index.SortedNumericDocValues, error) {
 	return nil, nil
 }
-func (r *stubNoPointValuesLeaf) GetSortedSetDocValues(_ string) (index.SortedSetDocValues, error)   { return nil, nil }
-func (r *stubNoPointValuesLeaf) GetNormValues(_ string) (index.NumericDocValues, error)           { return nil, nil }
-func (r *stubNoPointValuesLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues, error)    { return nil, nil }
-func (r *stubNoPointValuesLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error)       { return nil, nil }
-func (r *stubNoPointValuesLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error)        { return nil, nil }
-func (r *stubNoPointValuesLeaf) CheckIntegrity() error                                                { return nil }
-func (r *stubNoPointValuesLeaf) GetMetaData() *index.IndexReaderMetaData                               { return nil }
-func (r *stubNoPointValuesLeaf) GetSegmentInfo() *index.SegmentInfo                                     { return nil }
+func (r *stubNoPointValuesLeaf) GetSortedSetDocValues(_ string) (index.SortedSetDocValues, error) {
+	return nil, nil
+}
+func (r *stubNoPointValuesLeaf) GetNormValues(_ string) (index.NumericDocValues, error) {
+	return nil, nil
+}
+func (r *stubNoPointValuesLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues, error) {
+	return nil, nil
+}
+func (r *stubNoPointValuesLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error) {
+	return nil, nil
+}
+func (r *stubNoPointValuesLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error) {
+	return nil, nil
+}
+func (r *stubNoPointValuesLeaf) CheckIntegrity() error                              { return nil }
+func (r *stubNoPointValuesLeaf) GetMetaData() *index.IndexReaderMetaData            { return nil }
+func (r *stubNoPointValuesLeaf) GetSegmentInfo() *index.SegmentInfo                 { return nil }
 func (r *stubNoPointValuesLeaf) GetPointValues(_ string) (index.PointValues, error) { return nil, nil }
 func (r *stubNoPointValuesLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits) (index.TopDocs, error) {
 	return index.TopDocs{}, nil
@@ -479,20 +496,19 @@ type stubPointValuesLeaf struct {
 	field string
 }
 
-// GetPointValues returns the stub point values wrapped in an indexPointValuesShim
-// so it satisfies index.PointValues and can also be cast to rangeFieldPointValues.
+// GetPointValues returns the stub point values, which are an index.PointValues.
 func (r *stubPointValuesLeaf) GetPointValues(field string) (index.PointValues, error) {
 	if field == r.field {
-		return &indexPointValuesShim{inner: r.pv}, nil
+		return r.pv, nil
 	}
 	return nil, nil
 }
 
-// stubRangeFieldPointValues is an in-memory implementation that satisfies the
-// rangeFieldPointValues interface.  It is NOT an index.PointValues (they have
-// conflicting method signatures); the test leaf adapter wraps it behind a thin
-// index.PointValues shim so GetPointValues can return it.
+// stubRangeFieldPointValues is an in-memory index.PointValues. Before the two
+// PointValues renderings were merged it could not be one (their signatures
+// conflicted) and a separate indexPointValuesShim wrapped it; the shim is gone.
 type stubRangeFieldPointValues struct {
+	*spi.BasePointValues
 	minPV  []byte
 	maxPV  []byte
 	docCnt int
@@ -500,81 +516,74 @@ type stubRangeFieldPointValues struct {
 	docIDs []int
 }
 
-func (p *stubRangeFieldPointValues) GetDocCount() int      { return p.docCnt }
-func (p *stubRangeFieldPointValues) GetNumDimensions() int { return 1 }
-func (p *stubRangeFieldPointValues) GetBytesPerDimension() int {
-	if len(p.packed) > 0 {
-		return len(p.packed[0]) / 2
-	}
-	return 4
+// newStubRangeFieldPointValues wires the stub to spi.BasePointValues, which
+// supplies the `public final` PointValues members (intersect,
+// estimatePointCount, estimateDocCount).
+func newStubRangeFieldPointValues(minPV, maxPV []byte, docCnt int, packed [][]byte, docIDs []int) *stubRangeFieldPointValues {
+	p := &stubRangeFieldPointValues{minPV: minPV, maxPV: maxPV, docCnt: docCnt, packed: packed, docIDs: docIDs}
+	p.BasePointValues = spi.NewBasePointValues(p)
+	return p
 }
 
-// GetMinPackedValue satisfies rangeFieldPointValues.
+func (p *stubRangeFieldPointValues) GetDocCount() int                    { return p.docCnt }
+func (p *stubRangeFieldPointValues) Size() int64                         { return int64(len(p.docIDs)) }
+func (p *stubRangeFieldPointValues) GetNumDimensions() (int, error)      { return 1, nil }
+func (p *stubRangeFieldPointValues) GetNumIndexDimensions() (int, error) { return 1, nil }
+func (p *stubRangeFieldPointValues) GetBytesPerDimension() (int, error) {
+	if len(p.packed) > 0 {
+		return len(p.packed[0]) / 2, nil
+	}
+	return 4, nil
+}
+
+// GetMinPackedValue satisfies index.PointValues.
 func (p *stubRangeFieldPointValues) GetMinPackedValue() ([]byte, error) { return p.minPV, nil }
 
-// GetMaxPackedValue satisfies rangeFieldPointValues.
+// GetMaxPackedValue satisfies index.PointValues.
 func (p *stubRangeFieldPointValues) GetMaxPackedValue() ([]byte, error) { return p.maxPV, nil }
 
-// Intersect walks all documents and calls the visitor for each.
-func (p *stubRangeFieldPointValues) Intersect(visitor intersectVisitorRFQ) error {
-	rel := visitor.Compare(p.minPV, p.maxPV)
-	switch rel {
-	case rfqRelCellOutside:
-		return nil
-	case rfqRelCellInside:
-		visitor.Grow(len(p.docIDs))
-		for _, docID := range p.docIDs {
-			if err := visitor.Visit(docID); err != nil {
-				return err
-			}
+// GetPointTree returns the single-node tree over every stored document.
+func (p *stubRangeFieldPointValues) GetPointTree() (index.PointTree, error) {
+	return &stubRangeFieldPointTree{pv: p}, nil
+}
+
+// stubRangeFieldPointTree is the single-node PointTree over the stub's
+// documents. Driving it through PointValues.intersect reproduces exactly what
+// the stub's hand-written Intersect used to do.
+type stubRangeFieldPointTree struct {
+	pv *stubRangeFieldPointValues
+}
+
+func (t *stubRangeFieldPointTree) Clone() index.PointTree       { return &stubRangeFieldPointTree{pv: t.pv} }
+func (t *stubRangeFieldPointTree) MoveToChild() (bool, error)   { return false, nil }
+func (t *stubRangeFieldPointTree) MoveToSibling() (bool, error) { return false, nil }
+func (t *stubRangeFieldPointTree) MoveToParent() (bool, error)  { return false, nil }
+func (t *stubRangeFieldPointTree) GetMinPackedValue() []byte    { return t.pv.minPV }
+func (t *stubRangeFieldPointTree) GetMaxPackedValue() []byte    { return t.pv.maxPV }
+func (t *stubRangeFieldPointTree) Size() int64                  { return int64(len(t.pv.docIDs)) }
+
+func (t *stubRangeFieldPointTree) VisitDocIDs(visitor index.IntersectVisitor) error {
+	visitor.Grow(len(t.pv.docIDs))
+	for _, docID := range t.pv.docIDs {
+		if err := visitor.Visit(docID); err != nil {
+			return err
 		}
-		return nil
-	default: // crosses
-		visitor.Grow(len(p.docIDs))
-		for i, docID := range p.docIDs {
-			if err := visitor.VisitByPackedValue(docID, p.packed[i]); err != nil {
-				return err
-			}
-		}
-		return nil
 	}
+	return nil
 }
 
-// EstimatePointCount returns a rough estimate.
-func (p *stubRangeFieldPointValues) EstimatePointCount(_ intersectVisitorRFQ) int64 {
-	return int64(len(p.docIDs))
+func (t *stubRangeFieldPointTree) VisitDocValues(visitor index.IntersectVisitor) error {
+	visitor.Grow(len(t.pv.docIDs))
+	for i, docID := range t.pv.docIDs {
+		if err := visitor.VisitByPackedValue(docID, t.pv.packed[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-var _ rangeFieldPointValues = (*stubRangeFieldPointValues)(nil)
-
-// indexPointValuesShim wraps stubRangeFieldPointValues and satisfies both
-// index.PointValues (which adds GetDocCountWithValue / GetValueCount) and
-// rangeFieldPointValues (which adds Intersect / EstimatePointCount).
-// Since stubRangeFieldPointValues now has error-returning GetMin/GetMax, the
-// shim only needs to add the two extra index.PointValues methods.
-type indexPointValuesShim struct {
-	inner *stubRangeFieldPointValues
-}
-
-func (s *indexPointValuesShim) GetDocCount() int { return s.inner.GetDocCount() }
-func (s *indexPointValuesShim) GetDocCountWithValue() int64 {
-	return int64(s.inner.GetDocCount())
-}
-func (s *indexPointValuesShim) GetValueCount() int64 { return int64(len(s.inner.docIDs)) }
-func (s *indexPointValuesShim) GetMinPackedValue() ([]byte, error) {
-	return s.inner.GetMinPackedValue()
-}
-func (s *indexPointValuesShim) GetMaxPackedValue() ([]byte, error) {
-	return s.inner.GetMaxPackedValue()
-}
-func (s *indexPointValuesShim) GetNumDimensions() int     { return s.inner.GetNumDimensions() }
-func (s *indexPointValuesShim) GetBytesPerDimension() int { return s.inner.GetBytesPerDimension() }
-func (s *indexPointValuesShim) Intersect(visitor intersectVisitorRFQ) error {
-	return s.inner.Intersect(visitor)
-}
-func (s *indexPointValuesShim) EstimatePointCount(visitor intersectVisitorRFQ) int64 {
-	return s.inner.EstimatePointCount(visitor)
-}
-
-var _ index.PointValues = (*indexPointValuesShim)(nil)
-var _ rangeFieldPointValues = (*indexPointValuesShim)(nil)
+var (
+	_ index.PointValues     = (*stubRangeFieldPointValues)(nil)
+	_ rangeFieldPointValues = (*stubRangeFieldPointValues)(nil)
+	_ index.PointTree       = (*stubRangeFieldPointTree)(nil)
+)

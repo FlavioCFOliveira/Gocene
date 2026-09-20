@@ -20,20 +20,21 @@
 package index
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // liveDocsPostingsEnum wraps a PostingsEnum to skip documents that are not live.
 type liveDocsPostingsEnum struct {
-	delegate schema.PostingsEnum
+	delegate spi.PostingsEnum
 	liveDocs util.Bits
 }
 
 func (e *liveDocsPostingsEnum) NextDoc() (int, error) {
 	for {
 		doc, err := e.delegate.NextDoc()
-		if err != nil || doc == schema.NO_MORE_DOCS {
+		if err != nil || doc == spi.NO_MORE_DOCS {
 			return doc, err
 		}
 		if e.liveDocs == nil || e.liveDocs.Get(doc) {
@@ -45,7 +46,7 @@ func (e *liveDocsPostingsEnum) NextDoc() (int, error) {
 func (e *liveDocsPostingsEnum) Advance(target int) (int, error) {
 	for {
 		doc, err := e.delegate.Advance(target)
-		if err != nil || doc == schema.NO_MORE_DOCS {
+		if err != nil || doc == spi.NO_MORE_DOCS {
 			return doc, err
 		}
 		if e.liveDocs == nil || e.liveDocs.Get(doc) {
@@ -57,6 +58,29 @@ func (e *liveDocsPostingsEnum) Advance(target int) (int, error) {
 
 func (e *liveDocsPostingsEnum) DocID() int {
 	return e.delegate.DocID()
+}
+
+// DocIDRunEnd returns the exclusive end of the current run of consecutive
+// matching documents. The delegate's run may span deleted documents, so it is
+// truncated at the first one this enumerator would skip.
+func (e *liveDocsPostingsEnum) DocIDRunEnd() (int, error) {
+	end, err := e.delegate.DocIDRunEnd()
+	if err != nil {
+		return 0, err
+	}
+	if e.liveDocs == nil {
+		return end, nil
+	}
+	doc := e.delegate.DocID()
+	if doc < 0 || end > e.liveDocs.Length() {
+		return end, nil
+	}
+	for d := doc; d < end; d++ {
+		if !e.liveDocs.Get(d) {
+			return d, nil
+		}
+	}
+	return end, nil
 }
 
 func (e *liveDocsPostingsEnum) Freq() (int, error) {
@@ -85,24 +109,44 @@ func (e *liveDocsPostingsEnum) Cost() int64 {
 
 // liveDocsTermsEnum wraps a TermsEnum to ensure its Postings are filtered by liveDocs.
 type liveDocsTermsEnum struct {
-	delegate schema.TermsEnum
+	delegate spi.TermsEnum
 	liveDocs util.Bits
 }
 
-func (e *liveDocsTermsEnum) Next() (*schema.Term, error) {
+// Attributes returns the related attributes, reproducing
+// org.apache.lucene.index.FilterLeafReader.FilterTermsEnum#attributes() in
+// Apache Lucene 10.5.0 — {@code return in.attributes();} — so the
+// AttributeSource is shared with the wrapped enumerator.
+func (e *liveDocsTermsEnum) Attributes() *util.AttributeSource {
+	return e.delegate.Attributes()
+}
+
+func (e *liveDocsTermsEnum) Next() (*spi.Term, error) {
 	return e.delegate.Next()
 }
 
-func (e *liveDocsTermsEnum) SeekCeil(term *schema.Term) (*schema.Term, error) {
+func (e *liveDocsTermsEnum) SeekCeil(term *spi.Term) (*spi.Term, error) {
 	return e.delegate.SeekCeil(term)
 }
 
-func (e *liveDocsTermsEnum) SeekExact(term *schema.Term) (bool, error) {
+func (e *liveDocsTermsEnum) SeekExact(term *spi.Term) (bool, error) {
 	return e.delegate.SeekExact(term)
 }
 
-func (e *liveDocsTermsEnum) Term() *schema.Term {
+func (e *liveDocsTermsEnum) Term() *spi.Term {
 	return e.delegate.Term()
+}
+
+func (e *liveDocsTermsEnum) Ord() int64 {
+	return e.delegate.Ord()
+}
+
+// Impacts delegates straight through, mirroring
+// org.apache.lucene.index.FilterLeafReader.FilterTermsEnum.impacts(int):
+// impact summaries describe the postings list itself and are not filtered by
+// live documents.
+func (e *liveDocsTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return e.delegate.Impacts(flags)
 }
 
 func (e *liveDocsTermsEnum) DocFreq() (int, error) {
@@ -113,7 +157,7 @@ func (e *liveDocsTermsEnum) TotalTermFreq() (int64, error) {
 	return e.delegate.TotalTermFreq()
 }
 
-func (e *liveDocsTermsEnum) Postings(flags int) (schema.PostingsEnum, error) {
+func (e *liveDocsTermsEnum) Postings(flags int) (spi.PostingsEnum, error) {
 	pe, err := e.delegate.Postings(flags)
 	if err != nil || pe == nil {
 		return pe, err
@@ -124,7 +168,7 @@ func (e *liveDocsTermsEnum) Postings(flags int) (schema.PostingsEnum, error) {
 	}, nil
 }
 
-func (e *liveDocsTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (schema.PostingsEnum, error) {
+func (e *liveDocsTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (spi.PostingsEnum, error) {
 	if liveDocs != e.liveDocs {
 		pe, err := e.delegate.PostingsWithLiveDocs(liveDocs, flags)
 		if err != nil || pe == nil {
@@ -140,12 +184,19 @@ func (e *liveDocsTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) 
 
 // liveDocsTerms wraps a Terms object to ensure all its iterators and postings are filtered.
 type liveDocsTerms struct {
-	delegate schema.Terms
+	delegate spi.Terms
 	liveDocs util.Bits
 }
 
-func (t *liveDocsTerms) GetIterator() (schema.TermsEnum, error) {
-	te, err := t.delegate.GetIterator()
+func (t *liveDocsTerms) Field() string {
+	return t.delegate.Field()
+}
+
+// Intersect returns the automaton-filtered enumeration of the wrapped Terms,
+// with its postings filtered by live documents like every other enumeration
+// this wrapper hands out.
+func (t *liveDocsTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *spi.Term) (spi.TermsEnum, error) {
+	te, err := t.delegate.Intersect(compiled, startTerm)
 	if err != nil || te == nil {
 		return te, err
 	}
@@ -155,7 +206,18 @@ func (t *liveDocsTerms) GetIterator() (schema.TermsEnum, error) {
 	}, nil
 }
 
-func (t *liveDocsTerms) GetIteratorWithSeek(seekTerm *schema.Term) (schema.TermsEnum, error) {
+func (t *liveDocsTerms) Iterator() (spi.TermsEnum, error) {
+	te, err := t.delegate.Iterator()
+	if err != nil || te == nil {
+		return te, err
+	}
+	return &liveDocsTermsEnum{
+		delegate: te,
+		liveDocs: t.liveDocs,
+	}, nil
+}
+
+func (t *liveDocsTerms) GetIteratorWithSeek(seekTerm *spi.Term) (spi.TermsEnum, error) {
 	te, err := t.delegate.GetIteratorWithSeek(seekTerm)
 	if err != nil || te == nil {
 		return te, err
@@ -166,7 +228,7 @@ func (t *liveDocsTerms) GetIteratorWithSeek(seekTerm *schema.Term) (schema.Terms
 	}, nil
 }
 
-func (t *liveDocsTerms) GetPostingsReader(termText string, flags int) (schema.PostingsEnum, error) {
+func (t *liveDocsTerms) GetPostingsReader(termText string, flags int) (spi.PostingsEnum, error) {
 	pe, err := t.delegate.GetPostingsReader(termText, flags)
 	if err != nil || pe == nil {
 		return pe, err
@@ -209,16 +271,16 @@ func (t *liveDocsTerms) HasPayloads() bool {
 	return t.delegate.HasPayloads()
 }
 
-func (t *liveDocsTerms) GetMin() (*schema.Term, error) {
+func (t *liveDocsTerms) GetMin() (*spi.Term, error) {
 	return t.delegate.GetMin()
 }
 
-func (t *liveDocsTerms) GetMax() (*schema.Term, error) {
+func (t *liveDocsTerms) GetMax() (*spi.Term, error) {
 	return t.delegate.GetMax()
 }
 
 // WrapTerms creates a Terms object that filters postings by the given liveDocs.
-func WrapTerms(t schema.Terms, liveDocs util.Bits) schema.Terms {
+func WrapTerms(t spi.Terms, liveDocs util.Bits) spi.Terms {
 	if liveDocs == nil {
 		return t
 	}
@@ -226,4 +288,11 @@ func WrapTerms(t schema.Terms, liveDocs util.Bits) schema.Terms {
 		delegate: t,
 		liveDocs: liveDocs,
 	}
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (e *liveDocsPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
 }

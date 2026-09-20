@@ -173,8 +173,28 @@ func (e *IntersectTermsEnum) Postings(flags int) (index.PostingsEnum, error) {
 	}
 	return e.fr.parent.postingsReader.Postings(
 		e.fr.fieldInfo,
-		e.currentFrame.termState,
+		e.currentFrame.termStateRef,
 		nil,
+		flags,
+	)
+}
+
+// Impacts decodes the current term's metadata and returns an ImpactsEnum.
+//
+// Port of IntersectTermsEnum.impacts(int):
+//
+//	currentFrame.decodeMetaData();
+//	return fr.parent.postingsReader.impacts(fr.fieldInfo, currentFrame.termState, flags);
+func (e *IntersectTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	if err := e.currentFrame.decodeMetaData(); err != nil {
+		return nil, err
+	}
+	if e.currentFrame.termState == nil {
+		return nil, fmt.Errorf("blocktree IntersectTermsEnum Impacts: term state is nil")
+	}
+	return e.fr.parent.postingsReader.Impacts(
+		e.fr.fieldInfo,
+		e.currentFrame.termStateRef,
 		flags,
 	)
 }

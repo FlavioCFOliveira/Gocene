@@ -110,8 +110,16 @@ func TestTermStates_Aggregation(t *testing.T) {
 	if ts.TotalTermFreq() != 150 {
 		t.Errorf("TotalTermFreq=%d", ts.TotalTermFreq())
 	}
-	if ts.Get(1) != nil {
-		t.Errorf("Get(1) should be nil (unregistered)")
+	// TermStates.get(LeafReaderContext) returns no supplier for a leaf whose
+	// TermState was never registered. The leaf reader is never consulted for a
+	// TermStates built with needsStats=true (term == nil), so a bare context
+	// carrying the ord is all this check needs.
+	supplier, err := ts.Get(NewLeafReaderContext(nil, nil, 1, 0))
+	if err != nil {
+		t.Fatalf("Get(ord 1): %v", err)
+	}
+	if supplier != nil {
+		t.Errorf("Get(ord 1) should be nil (unregistered)")
 	}
 }
 

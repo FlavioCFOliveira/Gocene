@@ -58,7 +58,9 @@ func TestIDVersionTermState_CopyFrom(t *testing.T) {
 	src.Ord = 99
 
 	dst := NewIDVersionTermState()
-	dst.CopyFrom(src)
+	if err := dst.CopyFrom(src); err != nil {
+		t.Fatal(err)
+	}
 
 	if dst.IDVersion != 1000 {
 		t.Errorf("IDVersion = %d; want 1000", dst.IDVersion)
@@ -74,13 +76,13 @@ func TestIDVersionTermState_CopyFrom(t *testing.T) {
 	}
 }
 
-// TestIDVersionTermState_AsBlockTermState verifies that AsBlockTermState
-// returns the embedded block state pointer.
-func TestIDVersionTermState_AsBlockTermState(t *testing.T) {
+// TestIDVersionTermState_Base verifies that Base returns the embedded block
+// state pointer.
+func TestIDVersionTermState_Base(t *testing.T) {
 	s := NewIDVersionTermState()
 	s.DocFreq = 3
 
-	bts := s.AsBlockTermState()
+	bts := s.Base()
 	if bts == nil {
 		t.Fatal("expected non-nil *BlockTermState")
 	}
@@ -91,6 +93,6 @@ func TestIDVersionTermState_AsBlockTermState(t *testing.T) {
 	// Mutations through bts are visible in s.
 	bts.DocFreq = 7
 	if s.DocFreq != 7 {
-		t.Errorf("s.DocFreq = %d; want 7 after mutating via AsBlockTermState", s.DocFreq)
+		t.Errorf("s.DocFreq = %d; want 7 after mutating via Base", s.DocFreq)
 	}
 }

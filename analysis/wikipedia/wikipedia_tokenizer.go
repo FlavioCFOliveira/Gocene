@@ -5,10 +5,12 @@
 package wikipedia
 
 import (
+	"io"
+	"reflect"
+
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	"io"
 )
 
 // Output mode constants — mirror WikipediaTokenizer.TOKENS_ONLY etc.
@@ -51,15 +53,15 @@ func NewWikipediaTokenizerWithMode(factory util.AttributeFactory, tokenOutput in
 		first:         true,
 	}
 
-	t.termAttr = factory.NewCharTermAttribute()
-	t.offsetAttr = factory.NewOffsetAttribute()
-	t.posIncrAttr = factory.NewPositionIncrementAttribute()
-	t.typeAttr = factory.NewTypeAttribute()
+	t.termAttr = factory.CreateAttributeInstance(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	t.offsetAttr = factory.CreateAttributeInstance(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
+	t.posIncrAttr = factory.CreateAttributeInstance(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
+	t.typeAttr = factory.CreateAttributeInstance(analysis.TypeAttributeType).(analysis.TypeAttribute)
 
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
-	t.AddAttribute(t.typeAttr)
+	t.AddAttribute(reflect.TypeOf((*analysis.CharTermAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*analysis.OffsetAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*tokenattributes.PositionIncrementAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*analysis.TypeAttribute)(nil)).Elem())
 
 	return t
 }
@@ -71,12 +73,9 @@ func NewWikipediaTokenizer() *WikipediaTokenizer {
 }
 
 // SetReader attaches a new input reader to this tokenizer.
-func (t *WikipediaTokenizer) SetReader(r io.Reader) error {
-	if err := t.BaseTokenizer.SetReader(r); err != nil {
-		return err
-	}
+func (t *WikipediaTokenizer) SetReader(r io.Reader) {
+	t.BaseTokenizer.SetReader(r)
 	t.scanner.Reset(r)
-	return nil
 }
 
 // Reset resets the tokenizer for a new tokenization session.

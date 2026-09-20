@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DefaultDeterminizeWorkLimit matches Lucene's default work limit for
@@ -781,11 +783,19 @@ func GetCommonPrefix(a *Automaton) (string, error) {
 
 // GetSingleton returns the single accepted code-point sequence if any, else nil.
 // Requires the automaton to be deterministic.
+//
+// Mirrors Operations.getSingleton, which returns an IntsRef (possibly of
+// length 0, for the automaton that accepts only the empty string) when the
+// language is a singleton and null otherwise. The Go rendering therefore has
+// to keep those two cases apart: out is a non-nil empty slice from the start,
+// so a nil return means "not a singleton" and a zero-length return means "the
+// singleton is the empty string". CompiledAutomaton depends on the
+// distinction to classify such an automaton as SINGLE rather than NORMAL.
 func GetSingleton(a *Automaton) []int {
 	if !a.IsDeterministic() {
 		return nil
 	}
-	var out []int
+	out := []int{}
 	visited := make(map[int]bool)
 	s := 0
 	t := NewTransition()
@@ -1138,4 +1148,65 @@ func (r *refCountSet) reset() {
 	}
 	r.cache = nil
 	r.dirty = false
+}
+
+// GetCommonPrefixBytesRef returns the longest BytesRef that is a prefix of all
+// accepted strings, visiting each state at most once.
+//
+// Mirrors Operations.getCommonPrefixBytesRef(Automaton). The returned
+// BytesRef can be empty (length 0) but is never nil, and it may include a
+// UTF-8 fragment of a full Unicode character.
+//
+// PORT NOTE. Java walks the common prefix with String.charAt, i.e. over
+// UTF-16 code units; GetCommonPrefix returns a Go string, whose natural
+// iteration is over runes. The two agree here because every label that
+// survives the ch > 255 guard is a code point below 256, which is a single
+// UTF-16 unit and a single rune alike.
+func GetCommonPrefixBytesRef(a *Automaton) (*util.BytesRef, error) {
+	prefix, err := GetCommonPrefix(a)
+	if err != nil {
+		return nil, err
+	}
+	builder := util.NewBytesRefBuilder()
+	for _, ch := range prefix {
+		if ch > 255 {
+			return nil, errors.New("automaton: automaton is not binary")
+		}
+		builder.AppendByte(byte(ch))
+	}
+	return builder.Get(), nil
+}
+
+// reverseBytes reverses the valid bytes of ref in place.
+//
+// Mirrors the private Operations.reverseBytes(BytesRef), offset arithmetic
+// included.
+func reverseBytes(ref *util.BytesRef) {
+	if ref.Length <= 1 {
+		return
+	}
+	num := ref.Length >> 1
+	for i := ref.Offset; i < ref.Offset+num; i++ {
+		b := ref.Bytes[i]
+		ref.Bytes[i] = ref.Bytes[ref.Offset*2+ref.Length-i-1]
+		ref.Bytes[ref.Offset*2+ref.Length-i-1] = b
+	}
+}
+
+// GetCommonSuffixBytesRef returns the longest BytesRef that is a suffix of all
+// accepted strings. Worst case complexity: quadratic with the number of
+// states plus transitions.
+//
+// Mirrors Operations.getCommonSuffixBytesRef(Automaton): reverse the language
+// of the automaton, take the common prefix of the reversal, and reverse that.
+// The returned BytesRef can be empty (length 0) but is never nil.
+func GetCommonSuffixBytesRef(a *Automaton) (*util.BytesRef, error) {
+	// reverse the language of the automaton, then reverse its common prefix.
+	r := Reverse(a)
+	ref, err := GetCommonPrefixBytesRef(r)
+	if err != nil {
+		return nil, err
+	}
+	reverseBytes(ref)
+	return ref, nil
 }

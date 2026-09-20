@@ -4,6 +4,8 @@
 
 package index
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // This file ports org.apache.lucene.index.SingletonSortedSetDocValues from
 // Apache Lucene 10.4.0.
 //
@@ -115,3 +117,24 @@ func (s *singletonSortedSet) GetValueCount() int {
 
 // Cost delegates to the wrapped iterator.
 func (s *singletonSortedSet) Cost() int64 { return s.wrapped.Cost() }
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0, which assumes runs of a single doc ID and returns
+// docID() + 1; every subclass inherits it unless it overrides it.
+func (s *singletonSortedSet) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(s)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *singletonSortedSet) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// DocValueCount returns the number of ordinals bound to the current document.
+// Mirrors SingletonSortedSetDocValues#docValueCount, which is always 1: the singleton view exposes exactly one ordinal per positioned document
+// (Apache Lucene 10.5.0).
+func (s *singletonSortedSet) DocValueCount() int {
+	return 1
+}

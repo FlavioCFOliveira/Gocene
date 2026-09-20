@@ -5,82 +5,22 @@
 package codecs
 
 import (
-	"fmt"
-	"sync"
-
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// BaseStoredFieldsReader provides a base implementation of StoredFieldsReader.
-// This can be embedded in custom StoredFieldsReader implementations to get
-// default implementations for common methods.
-type BaseStoredFieldsReader struct {
-	mu          sync.RWMutex
-	closed      bool
-	directory   store.Directory
-	segmentInfo *index.SegmentInfo
-	fieldInfos  *index.FieldInfos
-}
-
-// NewBaseStoredFieldsReader creates a new BaseStoredFieldsReader.
-func NewBaseStoredFieldsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos) *BaseStoredFieldsReader {
-	return &BaseStoredFieldsReader{
-		directory:   dir,
-		segmentInfo: segmentInfo,
-		fieldInfos:  fieldInfos,
-	}
-}
-
-// GetDirectory returns the directory.
-func (r *BaseStoredFieldsReader) GetDirectory() store.Directory {
-	return r.directory
-}
-
-// GetSegmentInfo returns the segment info.
-func (r *BaseStoredFieldsReader) GetSegmentInfo() *index.SegmentInfo {
-	return r.segmentInfo
-}
-
-// GetFieldInfos returns the field infos.
-func (r *BaseStoredFieldsReader) GetFieldInfos() *index.FieldInfos {
-	return r.fieldInfos
-}
-
-// IsClosed returns true if this reader has been closed.
-func (r *BaseStoredFieldsReader) IsClosed() bool {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	return r.closed
-}
-
-// Close releases resources.
-// This implements the StoredFieldsReader interface.
-func (r *BaseStoredFieldsReader) Close() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.closed {
-		return nil
-	}
-
-	r.closed = true
-	return nil
-}
-
-// VisitDocument visits the stored fields for a document.
-// This must be implemented by subclasses.
-func (r *BaseStoredFieldsReader) VisitDocument(docID int, visitor StoredFieldVisitor) error {
-	return fmt.Errorf("VisitDocument not implemented")
-}
-
-// StoredFieldsReaderImpl is a concrete implementation of StoredFieldsReader
-// that reads stored fields from memory.
-type StoredFieldsReaderImpl struct {
-	*BaseStoredFieldsReader
-	docs []StoredDocument
-}
+// Apache Lucene 10.5.0 has no BaseStoredFieldsReader, StoredFieldsReaderImpl or
+// EmptyStoredFieldsReader; the three types that used to live here were invented
+// by this port. org.apache.lucene.codecs.StoredFieldsReader is abstract in
+// document(int, StoredFieldVisitor), clone(), checkIntegrity() and close(), so
+// there is no default body for a base type to carry, and giving one a
+// checkIntegrity() that does nothing let an invented type satisfy the real
+// interface while hiding that the port of the reader is missing. The reader
+// Lucene actually uses is
+// org.apache.lucene.codecs.lucene90.compressing.Lucene90CompressingStoredFieldsReader
+// (reached through Lucene90StoredFieldsFormat, which is what Lucene104Codec
+// returns from storedFieldsFormat()); Gocene's counterpart lives in
+// codecs/lucene90/compressing.
 
 // StoredDocument represents a document with its stored fields.
 type StoredDocument struct {
@@ -94,70 +34,6 @@ type StoredField struct {
 	Value interface{}
 }
 
-// NewStoredFieldsReaderImpl creates a new StoredFieldsReaderImpl.
-func NewStoredFieldsReaderImpl(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos) *StoredFieldsReaderImpl {
-	return &StoredFieldsReaderImpl{
-		BaseStoredFieldsReader: NewBaseStoredFieldsReader(dir, segmentInfo, fieldInfos),
-		docs:                   make([]StoredDocument, 0),
-	}
-}
-
-// AddDocument adds a document to the reader.
-func (r *StoredFieldsReaderImpl) AddDocument(doc StoredDocument) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if !r.closed {
-		r.docs = append(r.docs, doc)
-	}
-}
-
-// VisitDocument visits the stored fields for a document.
-func (r *StoredFieldsReaderImpl) VisitDocument(docID int, visitor StoredFieldVisitor) error {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	if r.closed {
-		return fmt.Errorf("StoredFieldsReader is closed")
-	}
-
-	if docID < 0 || docID >= len(r.docs) {
-		return fmt.Errorf("document ID %d out of range [0, %d)", docID, len(r.docs))
-	}
-
-	doc := r.docs[docID]
-	for _, field := range doc.Fields {
-		switch field.Type {
-		case FieldTypeString:
-			if v, ok := field.Value.(string); ok {
-				visitor.StringField(field.Name, v)
-			}
-		case FieldTypeBinary:
-			if v, ok := field.Value.([]byte); ok {
-				visitor.BinaryField(field.Name, v)
-			}
-		case FieldTypeInt:
-			if v, ok := field.Value.(int); ok {
-				visitor.IntField(field.Name, v)
-			}
-		case FieldTypeLong:
-			if v, ok := field.Value.(int64); ok {
-				visitor.LongField(field.Name, v)
-			}
-		case FieldTypeFloat:
-			if v, ok := field.Value.(float32); ok {
-				visitor.FloatField(field.Name, v)
-			}
-		case FieldTypeDouble:
-			if v, ok := field.Value.(float64); ok {
-				visitor.DoubleField(field.Name, v)
-			}
-		}
-	}
-
-	return nil
-}
-
 // Field type constants for serialization
 const (
 	FieldTypeString = 1
@@ -167,24 +43,6 @@ const (
 	FieldTypeFloat  = 5
 	FieldTypeDouble = 6
 )
-
-// EmptyStoredFieldsReader is a StoredFieldsReader with no documents.
-// This is useful for segments that have no stored fields.
-type EmptyStoredFieldsReader struct {
-	*BaseStoredFieldsReader
-}
-
-// NewEmptyStoredFieldsReader creates a new EmptyStoredFieldsReader.
-func NewEmptyStoredFieldsReader(dir store.Directory, segmentInfo *index.SegmentInfo, fieldInfos *index.FieldInfos) *EmptyStoredFieldsReader {
-	return &EmptyStoredFieldsReader{
-		BaseStoredFieldsReader: NewBaseStoredFieldsReader(dir, segmentInfo, fieldInfos),
-	}
-}
-
-// VisitDocument does nothing.
-func (r *EmptyStoredFieldsReader) VisitDocument(docID int, visitor StoredFieldVisitor) error {
-	return nil
-}
 
 // DocumentStoredFieldVisitor is a StoredFieldVisitor that builds a document.
 type DocumentStoredFieldVisitor struct {
@@ -198,40 +56,71 @@ func NewDocumentStoredFieldVisitor() *DocumentStoredFieldVisitor {
 	}
 }
 
+// NeedsField accepts every stored field: this visitor rebuilds the whole
+// document. Mirrors the YES-for-everything needsField of a load-all
+// StoredFieldVisitor.
+func (v *DocumentStoredFieldVisitor) NeedsField(*spi.FieldInfo) (spi.StoredFieldVisitorStatus, error) {
+	return spi.StoredFieldVisitorStatusYes, nil
+}
+
 // StringField adds a string field to the document.
-func (v *DocumentStoredFieldVisitor) StringField(name string, value string) {
-	field, _ := document.NewTextField(name, value, true)
+func (v *DocumentStoredFieldVisitor) StringField(fieldInfo *spi.FieldInfo, value string) error {
+	field, err := document.NewTextField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(field)
+	return nil
 }
 
 // BinaryField adds a binary field to the document.
-func (v *DocumentStoredFieldVisitor) BinaryField(name string, value []byte) {
-	field, _ := document.NewStoredFieldFromBytes(name, value)
+func (v *DocumentStoredFieldVisitor) BinaryField(fieldInfo *spi.FieldInfo, value []byte) error {
+	field, err := document.NewStoredFieldFromBytes(fieldInfo.Name(), value)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(field)
+	return nil
 }
 
 // IntField adds an int field to the document.
-func (v *DocumentStoredFieldVisitor) IntField(name string, value int) {
-	field, _ := document.NewIntField(name, value, true)
+func (v *DocumentStoredFieldVisitor) IntField(fieldInfo *spi.FieldInfo, value int) error {
+	field, err := document.NewIntField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(field)
+	return nil
 }
 
 // LongField adds a long field to the document.
-func (v *DocumentStoredFieldVisitor) LongField(name string, value int64) {
-	field, _ := document.NewLongField(name, value, true)
+func (v *DocumentStoredFieldVisitor) LongField(fieldInfo *spi.FieldInfo, value int64) error {
+	field, err := document.NewLongField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(field)
+	return nil
 }
 
 // FloatField adds a float field to the document.
-func (v *DocumentStoredFieldVisitor) FloatField(name string, value float32) {
-	field, _ := document.NewFloatField(name, value, true)
+func (v *DocumentStoredFieldVisitor) FloatField(fieldInfo *spi.FieldInfo, value float32) error {
+	field, err := document.NewFloatField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(field)
+	return nil
 }
 
 // DoubleField adds a double field to the document.
-func (v *DocumentStoredFieldVisitor) DoubleField(name string, value float64) {
-	field, _ := document.NewDoubleField(name, value, true)
+func (v *DocumentStoredFieldVisitor) DoubleField(fieldInfo *spi.FieldInfo, value float64) error {
+	field, err := document.NewDoubleField(fieldInfo.Name(), value, true)
+	if err != nil {
+		return err
+	}
 	v.doc.Add(field)
+	return nil
 }
 
 // GetDocument returns the built document.
@@ -240,7 +129,4 @@ func (v *DocumentStoredFieldVisitor) GetDocument() *document.Document {
 }
 
 // Ensure implementations satisfy the interface
-var _ StoredFieldsReader = (*BaseStoredFieldsReader)(nil)
-var _ StoredFieldsReader = (*StoredFieldsReaderImpl)(nil)
-var _ StoredFieldsReader = (*EmptyStoredFieldsReader)(nil)
 var _ StoredFieldVisitor = (*DocumentStoredFieldVisitor)(nil)

@@ -19,7 +19,7 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.charfilter.NormalizeCharFilter.
 type NormalizeCharFilter struct {
-	*CharFilter
+	CharFilter
 	buffer   []rune
 	position int
 	options  *NormalizationOptions
@@ -204,7 +204,7 @@ type NormalizeCharFilterFactory struct {
 // NewNormalizeCharFilterFactory creates a new NormalizeCharFilterFactory.
 func NewNormalizeCharFilterFactory() *NormalizeCharFilterFactory {
 	return &NormalizeCharFilterFactory{
-		BaseCharFilterFactory: NewBaseCharFilterFactory("normalize"),
+		BaseCharFilterFactory: NewBaseCharFilterFactory(map[string]string{}),
 		options:               NewNormalizationOptions(),
 	}
 }
@@ -212,7 +212,7 @@ func NewNormalizeCharFilterFactory() *NormalizeCharFilterFactory {
 // NewNormalizeCharFilterFactoryWithOptions creates a new factory with custom options.
 func NewNormalizeCharFilterFactoryWithOptions(options *NormalizationOptions) *NormalizeCharFilterFactory {
 	return &NormalizeCharFilterFactory{
-		BaseCharFilterFactory: NewBaseCharFilterFactory("normalize"),
+		BaseCharFilterFactory: NewBaseCharFilterFactory(map[string]string{}),
 		options:               options,
 	}
 }

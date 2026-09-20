@@ -259,7 +259,7 @@ func writeVLong15(out *store.ByteArrayDataOutput, value int64) error {
 		return err
 	}
 	// Encode the remaining bits with standard VLong.
-	return store.WriteVLong(out, value>>15)
+	return out.WriteVLong(value >> 15)
 }
 
 // readVLong15 decodes a value written by writeVLong15.
@@ -276,7 +276,7 @@ func readVLong15(in *store.ByteArrayDataInput) (int64, error) {
 	}
 	// High bit set: low 15 bits of the short are the low 15 bits of the value;
 	// a standard VLong holds the remaining high bits.
-	rest, err := store.ReadVLong(in)
+	rest, err := in.ReadVLong()
 	if err != nil {
 		return 0, err
 	}

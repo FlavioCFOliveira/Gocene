@@ -9,8 +9,8 @@ import (
 type State int
 
 const (
-	Skip State = iota
-	Accept
+	StateSkip State = iota
+	StateAccept
 )
 
 // GroupSelector defines a group, for use by grouping collectors.
@@ -35,6 +35,6 @@ type GroupSelector[T any] interface {
 
 	// SetGroups sets a restriction on the group values returned by this selector.
 	// If the selector is positioned on a document whose group value is not contained within this
-	// set, then AdvanceTo will return Skip.
+	// set, then AdvanceTo will return StateSkip.
 	SetGroups(groups []SearchGroup[T])
 }

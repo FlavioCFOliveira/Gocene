@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 	"io"
 
 )
@@ -59,7 +60,7 @@ func NewCustomAnalyzer(
 	}
 
 	return &CustomAnalyzer{
-		BaseAnalyzer:         NewAnalyzer(),
+		BaseAnalyzer:         NewAnalyzer(GlobalReuseStrategy),
 		tokenizerFactory:     tokenizerFactory,
 		charFilterFactories:  charFilterFactories,
 		tokenFilterFactories: tokenFilterFactories,
@@ -78,9 +79,7 @@ func (a *CustomAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenS
 
 	// Create the tokenizer
 	tokenizer := CreateDefaultTokenizer(a.tokenizerFactory)
-	if err := tokenizer.SetReader(charReader); err != nil {
-		return nil, err
-	}
+		tokenizer.SetReader(charReader)
 
 	// Build filter chain
 	var stream TokenStream = tokenizer
@@ -126,9 +125,8 @@ func (a *CustomAnalyzer) GetCharFilterFactories() []CharFilterFactory {
 	return a.charFilterFactories
 }
 
-// Ensure CustomAnalyzer implements Analyzer
-var _ Analyzer = (*CustomAnalyzer)(nil)
-var _ AnalyzerInterface = (*CustomAnalyzer)(nil)
+// Ensure CustomAnalyzer implements api.Analyzer
+var _ api.Analyzer = (*CustomAnalyzer)(nil)
 
 // CustomAnalyzerBuilder builds CustomAnalyzer instances.
 //
@@ -188,7 +186,7 @@ func (b *CustomAnalyzerBuilder) Build() (*CustomAnalyzer, error) {
 	}
 
 	analyzer := &CustomAnalyzer{
-		BaseAnalyzer:         NewAnalyzer(),
+		BaseAnalyzer:         NewAnalyzer(GlobalReuseStrategy),
 		tokenizerFactory:     b.tokenizerFactory,
 		charFilterFactories:  b.charFilterFactories,
 		tokenFilterFactories: b.tokenFilterFactories,
@@ -217,7 +215,7 @@ func (f *CustomAnalyzerFactory) GetBuilder() *CustomAnalyzerBuilder {
 }
 
 // Create creates a new CustomAnalyzer.
-func (f *CustomAnalyzerFactory) Create() AnalyzerInterface {
+func (f *CustomAnalyzerFactory) Create() api.Analyzer {
 	analyzer, err := f.builder.Build()
 	if err != nil {
 		// In production, this should be handled better

@@ -4,6 +4,8 @@
 
 package geo
 
+import "github.com/FlavioCFOliveira/Gocene/spi"
+
 // point2D is a Component2D representing a single (x, y) point.
 // Coordinates are exact; the bounding box collapses to a single
 // point.
@@ -34,12 +36,12 @@ func (p *point2D) Contains(x, y float64) bool { return x == p.x && y == p.y }
 
 // Relate returns the spatial relationship between the point and the
 // query bounding box. A single point can never report
-// CellInsideQuery because it has zero area.
-func (p *point2D) Relate(minX, maxX, minY, maxY float64) Relation {
+// spi.CellInsideQuery because it has zero area.
+func (p *point2D) Relate(minX, maxX, minY, maxY float64) spi.Relation {
 	if BoxContainsPoint(p.x, p.y, minX, maxX, minY, maxY) {
-		return CellCrossesQuery
+		return spi.CellCrossesQuery
 	}
-	return CellOutsideQuery
+	return spi.CellOutsideQuery
 }
 
 // IntersectsLine reports whether the segment passes through the

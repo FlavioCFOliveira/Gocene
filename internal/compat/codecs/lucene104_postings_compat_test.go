@@ -75,9 +75,9 @@ func collectDocs(t *testing.T, producer gcodecs.FieldsProducer, field, text stri
 		t.Fatalf("Terms(%q) returned nil", field)
 	}
 
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator(%q): %v", field, err)
+		t.Fatalf("Iterator(%q): %v", field, err)
 	}
 
 	key := index.NewTerm(field, text)
@@ -117,9 +117,9 @@ func collectPositions(t *testing.T, producer gcodecs.FieldsProducer, field, text
 	if err != nil {
 		t.Fatalf("Terms(%q): %v", field, err)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 	key := index.NewTerm(field, text)
 	found, err := te.SeekExact(key)

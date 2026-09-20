@@ -5,7 +5,7 @@
 package index
 
 import (
-	"io"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // AssertingDirectoryReader is a DirectoryReader that wraps all its subreaders with AssertingLeafReader.
@@ -23,18 +23,16 @@ func NewAssertingDirectoryReader(in *DirectoryReader) *AssertingDirectoryReader 
 }
 
 // Leaves returns the leaf reader contexts, but with the readers wrapped in AssertingLeafReader.
-func (r *AssertingDirectoryReader) Leaves() ([]*LeafReaderContext, error) {
+func (r *AssertingDirectoryReader) Leaves() ([]*spi.LeafReaderContext, error) {
 	leaves, err := r.DirectoryReader.Leaves()
 	if err != nil {
 		return nil, err
 	}
 
-	wrappedLeaves := make([]*LeafReaderContext, len(leaves))
+	wrappedLeaves := make([]*spi.LeafReaderContext, len(leaves))
 	for i, lrc := range leaves {
 		// Copy the context and wrap the reader to avoid mutating the original
-		newLrc := *lrc
-		newLrc.reader = NewAssertingLeafReader(lrc.reader)
-		wrappedLeaves[i] = &newLrc
+		wrappedLeaves[i] = lrc.WithReader(NewAssertingLeafReader(lrc.LeafReader()))
 	}
 
 	return wrappedLeaves, nil
@@ -46,4 +44,4 @@ func (r *AssertingDirectoryReader) Close() error {
 }
 
 // Ensure AssertingDirectoryReader implements IndexReaderInterface
-var _ IndexReaderInterface = (*AssertingDirectoryReader)(nil)
+var _ spi.IndexReaderInterface = (*AssertingDirectoryReader)(nil)

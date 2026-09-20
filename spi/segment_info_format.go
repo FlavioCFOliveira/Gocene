@@ -4,10 +4,6 @@
 
 package spi
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
-	"github.com/FlavioCFOliveira/Gocene/store"
-)
 
 // SegmentInfoFormat encodes and decodes the per-segment .si metadata
 // file.
@@ -20,10 +16,10 @@ import (
 // part of the SPI — see rmp #4706.
 type SegmentInfoFormat interface {
 	// Write serialises a single segment's metadata into a .si file.
-	Write(dir store.Directory, info *schema.SegmentInfo, context store.IOContext) error
+	Write(dir Directory, info *SegmentInfo, context IOContext) error
 
 	// Read deserialises a single segment's .si file. segmentID is the
 	// 16-byte identifier from segments_N and is cross-checked against
 	// the .si header.
-	Read(dir store.Directory, segmentName string, segmentID []byte, context store.IOContext) (*schema.SegmentInfo, error)
+	Read(dir Directory, segmentName string, segmentID []byte, context IOContext) (*SegmentInfo, error)
 }

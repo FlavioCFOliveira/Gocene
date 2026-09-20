@@ -14,13 +14,13 @@ import (
 func TestEmptyTerms(t *testing.T) {
 	empty := &EmptyTerms{}
 
-	// Test GetIterator
-	te, err := empty.GetIterator()
+	// Test Iterator
+	te, err := empty.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator error: %v", err)
+		t.Fatalf("Iterator error: %v", err)
 	}
 	if te == nil {
-		t.Fatal("GetIterator should return non-nil TermsEnum")
+		t.Fatal("Iterator should return non-nil TermsEnum")
 	}
 
 	// Test iterator returns nil immediately
@@ -84,10 +84,10 @@ func TestSingleTermTerms(t *testing.T) {
 		t.Errorf("Expected Size=1, got %d", st.Size())
 	}
 
-	// Test GetIterator
-	te, err := st.GetIterator()
+	// Test Iterator
+	te, err := st.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator error: %v", err)
+		t.Fatalf("Iterator error: %v", err)
 	}
 
 	// First Next should return the term
@@ -203,7 +203,7 @@ type mockMultiTermTerms struct {
 	terms []*Term
 }
 
-func (m *mockMultiTermTerms) GetIterator() (TermsEnum, error) {
+func (m *mockMultiTermTerms) Iterator() (TermsEnum, error) {
 	return &mockMultiTermsEnum{terms: m.terms, pos: -1}, nil
 }
 
@@ -274,7 +274,7 @@ func TestTermsEnum_MultiTerm(t *testing.T) {
 	}
 
 	m := &mockMultiTermTerms{terms: terms}
-	te, _ := m.GetIterator()
+	te, _ := m.Iterator()
 
 	// Test sequential iteration
 	for i, expected := range terms {
@@ -289,7 +289,7 @@ func TestTermsEnum_MultiTerm(t *testing.T) {
 	}
 
 	// Test SeekCeil
-	te2, _ := m.GetIterator()
+	te2, _ := m.Iterator()
 	found, _ := te2.SeekCeil(NewTerm("f", "b"))
 	if found == nil || !found.Equals(terms[1]) {
 		t.Errorf("SeekCeil('b') expected 'banana', got %v", found)

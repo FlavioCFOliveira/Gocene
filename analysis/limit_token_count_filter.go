@@ -72,6 +72,7 @@ var _ TokenFilter = (*LimitTokenCountFilter)(nil)
 
 // LimitTokenCountFilterFactory creates LimitTokenCountFilter instances.
 type LimitTokenCountFilterFactory struct {
+	BaseTokenFilterFactory
 	maxTokenCount int
 }
 

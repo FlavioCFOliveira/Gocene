@@ -6,6 +6,8 @@ package index
 
 import (
 	"fmt"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SoftDeletesDirectoryReaderWrapper wraps a DirectoryReader to filter soft-deleted documents.
@@ -56,48 +58,18 @@ func (r *SoftDeletesDirectoryReaderWrapper) GetInner() *DirectoryReader {
 	return r.inner
 }
 
-// NumDocs returns the number of live documents (excluding soft-deleted).
-func (r *SoftDeletesDirectoryReaderWrapper) NumDocs() int {
-	// Get the live docs with soft deletes applied
-	liveDocs := r.GetLiveDocs()
-	if liveDocs == nil {
-		return r.inner.NumDocs()
-	}
-
-	// Count live documents
-	count := 0
-	for _, live := range liveDocs {
-		if live {
-			count++
-		}
-	}
-	return count
-}
-
-// HasDeletions returns true if there are deletions (including soft-deletes).
-func (r *SoftDeletesDirectoryReaderWrapper) HasDeletions() bool {
-	// Check if the original reader has deletions
-	if r.inner.HasDeletions() {
-		return true
-	}
-
-	// Check if there are soft-deleted documents
-	liveDocs := r.GetLiveDocs()
-	if liveDocs == nil {
-		return false
-	}
-
-	// Check if any document is marked as deleted
-	for _, live := range liveDocs {
-		if !live {
-			return true
-		}
-	}
-	return false
-}
+// NumDocs and HasDeletions are deliberately not defined here. Apache Lucene's
+// org.apache.lucene.index.SoftDeletesDirectoryReaderWrapper overrides only
+// doWrapDirectoryReader and getReaderCacheHelper; numDocs() and hasDeletions()
+// reach it through the filter chain (BaseCompositeReader.numDocs and
+// IndexReader.hasDeletions). The embedded *FilterDirectoryReader promotes both
+// from the wrapped reader here for the same reason. The counts Java keeps per
+// leaf live on SoftDeletesFilterLeafReader/SoftDeletesFilterCodecReader, as
+// precomputed ints (maxDoc - numDeletes) — never as a cardinality taken off a
+// Bits, which Lucene's Bits cannot report.
 
 // GetLiveDocs returns a Bits instance where soft-deleted documents are marked as deleted.
-func (r *SoftDeletesDirectoryReaderWrapper) GetLiveDocs() []bool {
+func (r *SoftDeletesDirectoryReaderWrapper) GetLiveDocs() util.Bits {
 	// Get the original live docs
 	originalLiveDocs := r.inner.GetLiveDocs()
 

@@ -7,6 +7,7 @@ package search
 import (
 	"errors"
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
@@ -215,7 +216,7 @@ func (q *SpatialQuery) Visit(visitor QueryVisitor) {
 // rewritten query would lose its CreateWeight override and silently
 // match zero documents. Returning the *SpatialQuery receiver keeps the
 // concrete query type through the IndexSearcher rewrite step.
-func (q *SpatialQuery) Rewrite(_ IndexReader) (Query, error) { return q, nil }
+func (q *SpatialQuery) Rewrite(_ *IndexSearcher) (Query, error) { return q, nil }
 
 // QueryIsCacheable forwards to the per-leaf hook (defaulting to
 // "true" when the hook is nil), mirroring Java's protected
@@ -240,9 +241,9 @@ func (q *SpatialQuery) QueryIsCacheable(ctx *index.LeafReaderContext) bool {
 // propagates that mode to the spatial scorers. Subclasses that
 // need the full ScoreMode enum can call CreateWeightWithScoreMode
 // directly.
-func (q *SpatialQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *SpatialQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	mode := COMPLETE_NO_SCORES
-	if needsScores {
+	if scoreMode.NeedsScores() {
 		mode = COMPLETE
 	}
 	return q.CreateWeightWithScoreMode(searcher, mode, boost), nil
@@ -303,9 +304,9 @@ func (q *SpatialQuery) getScorerSupplier(
 	rel := visitor.GetInnerFunction(q.queryRelation)(minPacked, maxPacked)
 
 	switch rel {
-	case spatialCellOutsideQuery:
+	case index.CellOutsideQuery:
 		return nil, nil
-	case spatialCellInsideQuery:
+	case index.CellInsideQuery:
 		if q.queryRelation == document.QueryRelationContains {
 			return nil, nil
 		}
@@ -350,7 +351,7 @@ func (q *SpatialQuery) getScorerSupplier(
 // Equals reports whether o is a SpatialQuery with the same field,
 // relation and geometry slice (element-wise).
 // Mirrors SpatialQuery.equalsTo on the Java reference.
-func (q *SpatialQuery) Equals(other Query) bool {
+func (q *SpatialQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*SpatialQuery)
 	if !ok {
 		return false
@@ -444,14 +445,14 @@ func geometriesHashCode(geoms []geo.Geometry) int {
 // relate result so the rest of the pipeline can treat DISJOINT
 // symmetrically with INTERSECTS. Mirrors
 // SpatialQuery.transposeRelation.
-func transposeSpatialRelation(r spatialRelation) spatialRelation {
+func transposeSpatialRelation(r index.Relation) index.Relation {
 	switch r {
-	case spatialCellInsideQuery:
-		return spatialCellOutsideQuery
-	case spatialCellOutsideQuery:
-		return spatialCellInsideQuery
+	case index.CellInsideQuery:
+		return index.CellOutsideQuery
+	case index.CellOutsideQuery:
+		return index.CellInsideQuery
 	default:
-		return spatialCellCrossesQuery
+		return index.CellCrossesQuery
 	}
 }
 
@@ -488,7 +489,7 @@ func hasAnyHits(visitor SpatialVisitor, queryRelation document.QueryRelation, so
 // spatialHasAnyHitsVisitor returns errCollectionTerminated on the
 // first observed match; every other hook is a passive forwarder.
 type spatialHasAnyHitsVisitor struct {
-	innerFn       func(min, max []byte) spatialRelation
+	innerFn       func(min, max []byte) index.Relation
 	leafPredicate func(packed []byte) bool
 }
 
@@ -514,13 +515,13 @@ func (v *spatialHasAnyHitsVisitor) VisitIteratorWithPackedValue(_ util.DocIdSetI
 
 func (v *spatialHasAnyHitsVisitor) Grow(_ int) {}
 
-func (v *spatialHasAnyHitsVisitor) Compare(minPacked, maxPacked []byte) spatialRelation {
+func (v *spatialHasAnyHitsVisitor) Compare(minPacked, maxPacked []byte) index.Relation {
 	r := v.innerFn(minPacked, maxPacked)
-	if r == spatialCellInsideQuery {
+	if r == index.CellInsideQuery {
 		// Surface the early-exit via the next Visit call; we cannot
 		// return the sentinel from Compare itself because the
-		// visitor contract requires a valid spatialRelation.
-		return spatialCellInsideQuery
+		// visitor contract requires a valid index.Relation.
+		return index.CellInsideQuery
 	}
 	return r
 }

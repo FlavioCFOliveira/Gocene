@@ -4,6 +4,10 @@
 
 package store
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 // FilterIndexOutput is an IndexOutput implementation that delegates calls to
 // another IndexOutput. This is the decorator pattern applied to IndexOutput.
 //
@@ -16,17 +20,17 @@ package store
 // All methods forward to the wrapped delegate. The delegate is accessible
 // via GetDelegate.
 type FilterIndexOutput struct {
-	*BaseIndexOutput
+	*spi.BaseIndexOutput
 	out IndexOutput
 }
 
 // NewFilterIndexOutput creates a FilterIndexOutput wrapping the given
 // delegate. resourceDescription mirrors Lucene's super(resourceDescription,
-// name) call and is stored on the embedded BaseIndexOutput.
+// name) call and is stored on the embedded spi.BaseIndexOutput.
 func NewFilterIndexOutput(resourceDescription, name string, out IndexOutput) *FilterIndexOutput {
-	_ = resourceDescription // BaseIndexOutput only tracks name; description is informational
+	_ = resourceDescription // spi.BaseIndexOutput only tracks name; description is informational
 	return &FilterIndexOutput{
-		BaseIndexOutput: NewBaseIndexOutput(name),
+		BaseIndexOutput: spi.NewBaseIndexOutput(name),
 		out:             out,
 	}
 }
@@ -62,7 +66,7 @@ func (f *FilterIndexOutput) Length() int64 { return f.out.Length() }
 func (f *FilterIndexOutput) WriteByte(b byte) error { return f.out.WriteByte(b) }
 
 // WriteBytes forwards to the wrapped output.
-func (f *FilterIndexOutput) WriteBytes(b []byte) error { return f.out.WriteBytes(b) }
+func (f *FilterIndexOutput) WriteBytes(b []byte, offset, length int) error { return f.out.WriteBytes(b, offset, length) }
 
 // WriteBytesN forwards to the wrapped output.
 func (f *FilterIndexOutput) WriteBytesN(b []byte, n int) error { return f.out.WriteBytesN(b, n) }
@@ -78,6 +82,30 @@ func (f *FilterIndexOutput) WriteLong(v int64) error { return f.out.WriteLong(v)
 
 // WriteString forwards to the wrapped output.
 func (f *FilterIndexOutput) WriteString(s string) error { return f.out.WriteString(s) }
+
+// CopyBytes forwards to the wrapped output.
+func (f *FilterIndexOutput) CopyBytes(input DataInput, numBytes int64) error { return f.out.CopyBytes(input, numBytes) }
+
+// WriteGroupVInts forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteGroupVInts(values []int32, limit int) error { return f.out.WriteGroupVInts(values, limit) }
+
+// WriteSetOfStrings forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteSetOfStrings(s []string) error { return f.out.WriteSetOfStrings(s) }
+
+// WriteMapOfStrings forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteMapOfStrings(m map[string]string) error { return f.out.WriteMapOfStrings(m) }
+
+// WriteVInt forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteVInt(i int32) error { return f.out.WriteVInt(i) }
+
+// WriteVLong forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteVLong(i int64) error { return f.out.WriteVLong(i) }
+
+// WriteZInt forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteZInt(i int32) error { return f.out.WriteZInt(i) }
+
+// WriteZLong forwards to the wrapped output.
+func (f *FilterIndexOutput) WriteZLong(i int64) error { return f.out.WriteZLong(i) }
 
 // Compile-time assertion that FilterIndexOutput satisfies IndexOutput.
 var _ IndexOutput = (*FilterIndexOutput)(nil)

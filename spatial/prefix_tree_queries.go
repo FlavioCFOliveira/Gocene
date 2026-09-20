@@ -6,6 +6,7 @@ package spatial
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -67,7 +68,7 @@ func NewIntersectsPrefixTreeQuery(fieldName string, queryShape Shape, prefixTree
 // Rewrite rewrites this query into a more primitive form (TermsQuery).
 // This finds all cells that intersect with the query shape and creates
 // a Boolean OR query over those cell terms.
-func (q *IntersectsPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
+func (q *IntersectsPrefixTreeQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
 	// Get cells that intersect with the query shape
 	cells, err := q.prefixTree.GetCellsForShape(q.queryShape, q.detailLevel)
 	if err != nil {
@@ -75,7 +76,7 @@ func (q *IntersectsPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Q
 	}
 
 	if len(cells) == 0 {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 
 	// Extract unique cell tokens
@@ -90,7 +91,7 @@ func (q *IntersectsPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Q
 	}
 
 	// Create a BooleanQuery with TermQuery clauses (OR)
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, token := range tokens {
 		term := index.NewTerm(q.fieldName, token)
 		tq := search.NewTermQuery(term)
@@ -100,7 +101,7 @@ func (q *IntersectsPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Q
 	// The minimum should match is 1 (at least one cell must match)
 	bq.SetMinimumNumberShouldMatch(1)
 
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // Clone creates a copy of this query.
@@ -109,7 +110,7 @@ func (q *IntersectsPrefixTreeQuery) Clone() search.Query {
 }
 
 // Equals checks if this query equals another.
-func (q *IntersectsPrefixTreeQuery) Equals(other search.Query) bool {
+func (q *IntersectsPrefixTreeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*IntersectsPrefixTreeQuery)
 	if !ok {
 		return false
@@ -128,19 +129,31 @@ func (q *IntersectsPrefixTreeQuery) HashCode() int {
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *IntersectsPrefixTreeQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
+func (q *IntersectsPrefixTreeQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
 	// Rewrite and then create weight
-	rewritten, err := q.Rewrite(searcher.GetIndexReader())
+	rewritten, err := q.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
-	return rewritten.CreateWeight(searcher, needsScores, boost)
+	return rewritten.CreateWeight(searcher, scoreMode, boost)
 }
 
 // String returns a string representation of this query.
 func (q *IntersectsPrefixTreeQuery) String() string {
 	return fmt.Sprintf("IntersectsPrefixTreeQuery(field=%s, shape=%v, level=%d)",
 		q.fieldName, q.queryShape, q.detailLevel)
+}
+
+// Visit mirrors AbstractPrefixTreeQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (AbstractPrefixTreeQuery.java:82-86):
+//
+//	if (visitor.acceptField(fieldName)) {
+//	  visitor.visitLeaf(this);
+//	}
+func (q *IntersectsPrefixTreeQuery) Visit(visitor search.QueryVisitor) {
+	if visitor.AcceptField(q.fieldName) {
+		visitor.VisitLeaf(q)
+	}
 }
 
 // Ensure IntersectsPrefixTreeQuery implements Query
@@ -177,14 +190,14 @@ func NewIsWithinPrefixTreeQuery(fieldName string, queryShape Shape, prefixTree S
 // behaviour of Lucene's WithinPrefixTreeQuery where partial-boundary
 // cells require precise post-filtering and are not included in the
 // fast Boolean-OR rewrite.
-func (q *IsWithinPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
+func (q *IsWithinPrefixTreeQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
 	cells, err := q.prefixTree.GetCellsForShape(q.queryShape, q.detailLevel)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cells for query shape: %w", err)
 	}
 
 	if len(cells) == 0 {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 
 	// Filter the intersecting cells down to those wholly contained
@@ -211,10 +224,10 @@ func (q *IsWithinPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Que
 	}
 
 	if len(tokens) == 0 {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, token := range tokens {
 		term := index.NewTerm(q.fieldName, token)
 		tq := search.NewTermQuery(term)
@@ -222,7 +235,7 @@ func (q *IsWithinPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Que
 	}
 	bq.SetMinimumNumberShouldMatch(1)
 
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // Clone creates a copy of this query.
@@ -231,7 +244,7 @@ func (q *IsWithinPrefixTreeQuery) Clone() search.Query {
 }
 
 // Equals checks if this query equals another.
-func (q *IsWithinPrefixTreeQuery) Equals(other search.Query) bool {
+func (q *IsWithinPrefixTreeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*IsWithinPrefixTreeQuery)
 	if !ok {
 		return false
@@ -250,18 +263,30 @@ func (q *IsWithinPrefixTreeQuery) HashCode() int {
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *IsWithinPrefixTreeQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	rewritten, err := q.Rewrite(searcher.GetIndexReader())
+func (q *IsWithinPrefixTreeQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	rewritten, err := q.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
-	return rewritten.CreateWeight(searcher, needsScores, boost)
+	return rewritten.CreateWeight(searcher, scoreMode, boost)
 }
 
 // String returns a string representation of this query.
 func (q *IsWithinPrefixTreeQuery) String() string {
 	return fmt.Sprintf("IsWithinPrefixTreeQuery(field=%s, shape=%v, level=%d)",
 		q.fieldName, q.queryShape, q.detailLevel)
+}
+
+// Visit mirrors AbstractPrefixTreeQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (AbstractPrefixTreeQuery.java:82-86):
+//
+//	if (visitor.acceptField(fieldName)) {
+//	  visitor.visitLeaf(this);
+//	}
+func (q *IsWithinPrefixTreeQuery) Visit(visitor search.QueryVisitor) {
+	if visitor.AcceptField(q.fieldName) {
+		visitor.VisitLeaf(q)
+	}
 }
 
 // Ensure IsWithinPrefixTreeQuery implements Query
@@ -291,7 +316,7 @@ func NewContainsPrefixTreeQuery(fieldName string, queryShape Shape, prefixTree S
 // Rewrite rewrites this query into a more primitive form.
 // For "contains" queries, we look for indexed shapes whose cells
 // completely surround the query shape.
-func (q *ContainsPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
+func (q *ContainsPrefixTreeQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
 	// For contains, we need indexed shapes that fully contain the query shape
 	// This requires the indexed shape's cells to cover all of the query shape's cells
 	// plus potentially more. This is complex and requires post-filtering.
@@ -301,7 +326,7 @@ func (q *ContainsPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Que
 	}
 
 	if len(cells) == 0 {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 
 	// Get parent cells that might contain the query shape
@@ -324,7 +349,7 @@ func (q *ContainsPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Que
 	}
 
 	// Create a BooleanQuery with TermQuery clauses (OR)
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, token := range tokens {
 		term := index.NewTerm(q.fieldName, token)
 		tq := search.NewTermQuery(term)
@@ -332,7 +357,7 @@ func (q *ContainsPrefixTreeQuery) Rewrite(reader search.IndexReader) (search.Que
 	}
 	bq.SetMinimumNumberShouldMatch(1)
 
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // Clone creates a copy of this query.
@@ -341,7 +366,7 @@ func (q *ContainsPrefixTreeQuery) Clone() search.Query {
 }
 
 // Equals checks if this query equals another.
-func (q *ContainsPrefixTreeQuery) Equals(other search.Query) bool {
+func (q *ContainsPrefixTreeQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*ContainsPrefixTreeQuery)
 	if !ok {
 		return false
@@ -360,18 +385,30 @@ func (q *ContainsPrefixTreeQuery) HashCode() int {
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *ContainsPrefixTreeQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	rewritten, err := q.Rewrite(searcher.GetIndexReader())
+func (q *ContainsPrefixTreeQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	rewritten, err := q.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
-	return rewritten.CreateWeight(searcher, needsScores, boost)
+	return rewritten.CreateWeight(searcher, scoreMode, boost)
 }
 
 // String returns a string representation of this query.
 func (q *ContainsPrefixTreeQuery) String() string {
 	return fmt.Sprintf("ContainsPrefixTreeQuery(field=%s, shape=%v, level=%d)",
 		q.fieldName, q.queryShape, q.detailLevel)
+}
+
+// Visit mirrors AbstractPrefixTreeQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (AbstractPrefixTreeQuery.java:82-86):
+//
+//	if (visitor.acceptField(fieldName)) {
+//	  visitor.visitLeaf(this);
+//	}
+func (q *ContainsPrefixTreeQuery) Visit(visitor search.QueryVisitor) {
+	if visitor.AcceptField(q.fieldName) {
+		visitor.VisitLeaf(q)
+	}
 }
 
 // Ensure ContainsPrefixTreeQuery implements Query
@@ -410,7 +447,7 @@ func NewDistanceQuery(fieldName string, center Point, distance float64, prefixTr
 // Rewrite rewrites this query into a more primitive form.
 // For distance queries, we create a circle/buffer around the center point
 // and find cells that intersect with this buffer area.
-func (q *DistanceQuery) Rewrite(reader search.IndexReader) (search.Query, error) {
+func (q *DistanceQuery) Rewrite(searcher *search.IndexSearcher) (search.Query, error) {
 	// Create a circle/buffer shape around the center point
 	// The buffer extends q.distance in all directions
 	minLon := q.center.X - q.distance
@@ -443,7 +480,7 @@ func (q *DistanceQuery) Rewrite(reader search.IndexReader) (search.Query, error)
 	}
 
 	if len(cells) == 0 {
-		return search.NewMatchNoDocsQuery(), nil
+		return search.NewMatchNoDocsQuery(""), nil
 	}
 
 	// Extract unique cell tokens
@@ -458,7 +495,7 @@ func (q *DistanceQuery) Rewrite(reader search.IndexReader) (search.Query, error)
 	}
 
 	// Create a BooleanQuery with TermQuery clauses (OR)
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	for _, token := range tokens {
 		term := index.NewTerm(q.fieldName, token)
 		tq := search.NewTermQuery(term)
@@ -466,7 +503,7 @@ func (q *DistanceQuery) Rewrite(reader search.IndexReader) (search.Query, error)
 	}
 	bq.SetMinimumNumberShouldMatch(1)
 
-	return bq, nil
+	return bq.Build(), nil
 }
 
 // Clone creates a copy of this query.
@@ -475,7 +512,7 @@ func (q *DistanceQuery) Clone() search.Query {
 }
 
 // Equals checks if this query equals another.
-func (q *DistanceQuery) Equals(other search.Query) bool {
+func (q *DistanceQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*DistanceQuery)
 	if !ok {
 		return false
@@ -494,12 +531,12 @@ func (q *DistanceQuery) HashCode() int {
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *DistanceQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
-	rewritten, err := q.Rewrite(searcher.GetIndexReader())
+func (q *DistanceQuery) CreateWeight(searcher *search.IndexSearcher, scoreMode search.ScoreMode, boost float32) (search.Weight, error) {
+	rewritten, err := q.Rewrite(searcher)
 	if err != nil {
 		return nil, err
 	}
-	return rewritten.CreateWeight(searcher, needsScores, boost)
+	return rewritten.CreateWeight(searcher, scoreMode, boost)
 }
 
 // GetCenter returns the center point for this distance query.
@@ -521,6 +558,18 @@ func (q *DistanceQuery) GetFieldName() string {
 func (q *DistanceQuery) String() string {
 	return fmt.Sprintf("DistanceQuery(field=%s, center=%v, distance=%f)",
 		q.fieldName, q.center, q.distance)
+}
+
+// Visit mirrors AbstractPrefixTreeQuery.visit(QueryVisitor) of Apache Lucene
+// 10.5.0 (AbstractPrefixTreeQuery.java:82-86):
+//
+//	if (visitor.acceptField(fieldName)) {
+//	  visitor.visitLeaf(this);
+//	}
+func (q *DistanceQuery) Visit(visitor search.QueryVisitor) {
+	if visitor.AcceptField(q.fieldName) {
+		visitor.VisitLeaf(q)
+	}
 }
 
 // Ensure DistanceQuery implements Query

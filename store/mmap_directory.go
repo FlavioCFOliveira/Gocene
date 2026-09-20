@@ -10,89 +10,89 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// MMapDirectory is a Directory implementation that uses memory-mapped
-// files for reading. This provides very fast read access for large files
-// by leveraging the operating system's virtual memory system.
+// DefaultMaxChunkSize is the default maximum chunk size for memory mapping.
+// For 64-bit platforms, this is typically 16 GiB.
+const DefaultMaxChunkSize int64 = 1 << 34
+
+// MMapDirectory is a Directory implementation that uses mmap for reading,
+// and SimpleFSDirectory for writing.
 //
 // This is the Go port of Lucene's org.apache.lucene.store.MMapDirectory.
-//
-// Memory-mapped files have several advantages:
-//   - No explicit read() system calls - the OS handles paging
-//   - Data is cached in the OS page cache automatically
-//   - Multiple processes can share the same physical memory
-//   - No heap memory is used for file contents
-//
-// However, there are some limitations:
-//   - Files must be opened read-only
-//   - Maximum file size is limited by available virtual address space
-//   - May not work on all platforms (e.g., 32-bit systems with large files)
 type MMapDirectory struct {
 	*FSDirectory
 
-	// chunkSizePower is the power of 2 for chunk size (default 30 = 1GB)
+	// readAdvice configures the read advice based on the filename and IOContext.
+	readAdvice func(string, IOContext) *ReadAdvice
+
+	// preload configures whether files should be preloaded upon opening.
+	preload func(string, IOContext) bool
+
+	// groupingFunction configures the grouping of files.
+	groupingFunction func(string) (string, bool)
+
+	// chunkSizePower is the power of 2 for the maximum chunk size.
 	chunkSizePower int
-
-	// preload specifies whether to preload files into the OS page cache
-	preload bool
-
-	// writeMu guards lazy creation of writeDelegate.
-	writeMu sync.Mutex
-
-	// writeDelegate is a single SimpleFSDirectory created lazily on the first
-	// CreateOutput call and reused for every subsequent write. Memory mapping
-	// is read-only in Lucene's MMapDirectory, so writes are delegated to a
-	// plain file-I/O directory. Caching a single delegate avoids leaking a
-	// fresh SimpleFSDirectory (each with its own openFiles map) per call.
-	writeDelegate *SimpleFSDirectory
 }
 
-// NewMMapDirectory creates a new MMapDirectory at the specified path.
-// The directory must exist and be writable.
+// NewMMapDirectory creates a new MMapDirectory for the named location.
 func NewMMapDirectory(path string) (*MMapDirectory, error) {
+	return NewMMapDirectoryWithChunkSize(path, DefaultMaxChunkSize)
+}
+
+// NewMMapDirectoryWithChunkSize creates a new MMapDirectory for the named location,
+// specifying the maximum chunk size used for memory mapping.
+func NewMMapDirectoryWithChunkSize(path string, maxChunkSize int64) (*MMapDirectory, error) {
 	fsDir, err := NewFSDirectory(path)
 	if err != nil {
 		return nil, err
 	}
 
-	return &MMapDirectory{
-		FSDirectory:    fsDir,
-		chunkSizePower: 30, // 1GB chunks (2^30)
-		preload:        false,
-	}, nil
+	if maxChunkSize <= 0 {
+		return nil, fmt.Errorf("maximum chunk size for mmap must be >0")
+	}
+
+	// Round down to the nearest power of 2, as Lucene does.
+	power := 0
+	for (int64(1) << (power + 1)) <= maxChunkSize {
+		power++
+	}
+
+	d := &MMapDirectory{
+		FSDirectory:      fsDir,
+		chunkSizePower:   power,
+		readAdvice:       nil, // Default: no advice
+		preload:          func(string, IOContext) bool { return false },
+		groupingFunction: groupBySegment,
+	}
+
+	return d, nil
 }
 
-// SetPreload sets whether to preload files into the OS page cache.
-// When true, files are read sequentially after mapping to populate the cache.
-func (d *MMapDirectory) SetPreload(preload bool) {
+// SetPreload configures which files to preload in physical memory upon opening.
+func (d *MMapDirectory) SetPreload(preload func(string, IOContext) bool) {
 	d.preload = preload
 }
 
-// GetPreload returns whether preload is enabled.
-func (d *MMapDirectory) GetPreload() bool {
-	return d.preload
+// SetReadAdvice configures ReadAdvice for certain files.
+func (d *MMapDirectory) SetReadAdvice(toReadAdvice func(string, IOContext) *ReadAdvice) {
+	d.readAdvice = toReadAdvice
 }
 
-// SetMaxChunkSize sets the maximum chunk size for memory mapping.
-// The size is specified as a power of 2. Default is 30 (1GB).
-// Larger values use fewer mappings but may fail on 32-bit systems.
-func (d *MMapDirectory) SetMaxChunkSize(powerOf2 int) {
-	if powerOf2 < 1 {
-		powerOf2 = 1
-	}
-	if powerOf2 > 62 {
-		powerOf2 = 62
-	}
-	d.chunkSizePower = powerOf2
+// SetGroupingFunction configures a grouping function for files.
+func (d *MMapDirectory) SetGroupingFunction(groupingFunction func(string) (string, bool)) {
+	d.groupingFunction = groupingFunction
 }
 
-// GetMaxChunkSize returns the maximum chunk size as a power of 2.
-func (d *MMapDirectory) GetMaxChunkSize() int {
-	return d.chunkSizePower
+// GetMaxChunkSize returns the current mmap chunk size.
+func (d *MMapDirectory) GetMaxChunkSize() int64 {
+	return int64(1) << d.chunkSizePower
 }
 
-// OpenInput returns an IndexInput for reading an existing file.
+// OpenInput creates an IndexInput for the file with the given name.
 func (d *MMapDirectory) OpenInput(name string, ctx IOContext) (IndexInput, error) {
 	if err := d.EnsureOpen(); err != nil {
 		return nil, err
@@ -103,16 +103,27 @@ func (d *MMapDirectory) OpenInput(name string, ctx IOContext) (IndexInput, error
 
 	path := filepath.Join(d.GetPath(), name)
 
-	// Open the file read-only
+	// Determine read advice
+	advice := ReadAdviceNormal
+	if d.readAdvice != nil {
+		if a := d.readAdvice(name, ctx); a != nil {
+			advice = *a
+		}
+	}
+
+	// Use a provider-like logic to open the input.
+	return d.openMMapInput(path, name, ctx, advice)
+}
+
+func (d *MMapDirectory) openMMapInput(path, name string, ctx IOContext, advice ReadAdvice) (IndexInput, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("%w: %s", ErrFileNotFound, name)
 		}
-		return nil, fmt.Errorf("failed to open file: %w", err)
+		return nil, fmt.Errorf("failed to open file for mmap: %w", err)
 	}
 
-	// Get file info
 	info, err := file.Stat()
 	if err != nil {
 		file.Close()
@@ -120,31 +131,24 @@ func (d *MMapDirectory) OpenInput(name string, ctx IOContext) (IndexInput, error
 	}
 
 	length := info.Size()
-
-	// For empty files, create a special empty IndexInput
 	if length == 0 {
 		file.Close()
 		d.AddOpenFile(name)
-		return &MMapIndexInput{
+		in := &MMapIndexInput{
 			BaseIndexInput: NewBaseIndexInput(fmt.Sprintf("MMapIndexInput(path=\"%s\")", path), 0),
 			path:           path,
 			name:           name,
 			directory:      d,
 			chunks:         nil,
 			chunkSize:      0,
-		}, nil
+		}
+		in.Core = in
+		return in, nil
 	}
 
-	// Calculate chunk size
 	chunkSize := int64(1) << d.chunkSizePower
-
-	// Calculate number of chunks needed
 	numChunks := int((length + chunkSize - 1) / chunkSize)
 
-	// Map each chunk
-	// Note: We reuse the same file handle for all chunks, which is safe
-	// because each chunk maps a different non-overlapping region.
-	// This optimization reduces file descriptor usage.
 	chunks := make([]*mmapFile, numChunks)
 	for i := 0; i < numChunks; i++ {
 		offset := int64(i) * chunkSize
@@ -155,21 +159,16 @@ func (d *MMapDirectory) OpenInput(name string, ctx IOContext) (IndexInput, error
 
 		chunk, err := mmap(file, offset, remaining)
 		if err != nil {
-			// Clean up already mapped chunks
 			for j := 0; j < i; j++ {
 				chunks[j].unmap()
 			}
 			file.Close()
 			return nil, fmt.Errorf("failed to mmap chunk %d: %w", i, err)
 		}
-
 		chunks[i] = chunk
 	}
 
-	// Close the file handle - the mmap keeps the file open internally
-	// This is safe because the kernel keeps the file open until all mappings are unmapped
 	file.Close()
-
 	d.AddOpenFile(name)
 
 	input := &MMapIndexInput{
@@ -182,105 +181,73 @@ func (d *MMapDirectory) OpenInput(name string, ctx IOContext) (IndexInput, error
 		sliceOffset:    0,
 	}
 
-	// Preload if enabled
-	if d.preload {
+	if d.preload != nil && d.preload(name, ctx) {
 		input.preload()
 	}
 
-	return input, nil
-}
-
-// writeDelegateLocked returns the cached SimpleFSDirectory used for writes,
-// creating it on first use. Callers must ensure the directory is open before
-// invoking it. The delegate is shared across all CreateOutput calls so that a
-// single openFiles map tracks every output handle.
-func (d *MMapDirectory) writeDelegateLocked() (*SimpleFSDirectory, error) {
-	d.writeMu.Lock()
-	defer d.writeMu.Unlock()
-
-	if d.writeDelegate == nil {
-		simpleDir, err := NewSimpleFSDirectory(d.GetPath())
-		if err != nil {
-			return nil, err
-		}
-		d.writeDelegate = simpleDir
-	}
-	return d.writeDelegate, nil
+	input.Core = input
+		return input, nil
 }
 
 // CreateOutput returns an IndexOutput for writing a new file.
-// MMapDirectory uses standard file I/O for writing (memory-mapping is read-only),
-// delegating to a single cached SimpleFSDirectory reused across all calls.
+// Memory-mapping is read-only, so we delegate writes to a SimpleFSDirectory.
 func (d *MMapDirectory) CreateOutput(name string, ctx IOContext) (IndexOutput, error) {
 	if err := d.EnsureOpen(); err != nil {
 		return nil, err
 	}
 
-	delegate, err := d.writeDelegateLocked()
+	// We create a temporary SimpleFSDirectory to handle the output.
+	// In Lucene, this is cached.
+	delegate, err := NewSimpleFSDirectory(d.GetPath())
 	if err != nil {
 		return nil, err
 	}
-	// SimpleFSDirectory.CreateOutput validates the file name (path-traversal
-	// guard from rmp #4719), so it is intentionally not duplicated here.
+	// Note: SimpleFSDirectory.CreateOutput handles filename validation.
 	return delegate.CreateOutput(name, ctx)
 }
 
-// Close releases all resources associated with this directory, including the
-// cached write delegate created lazily by CreateOutput.
+// Close releases all resources associated with this directory.
 func (d *MMapDirectory) Close() error {
 	if !d.IsOpen() {
 		return nil
 	}
-
-	// Mark the directory as closed FIRST so that any concurrent CreateOutput
-	// call fails via EnsureOpen() instead of racing through and creating a
-	// new writeDelegate after we've already closed the old one.
 	d.MarkClosed()
-
-	d.writeMu.Lock()
-	delegate := d.writeDelegate
-	d.writeDelegate = nil
-	d.writeMu.Unlock()
-
-	var firstErr error
-	if delegate != nil {
-		if err := delegate.Close(); err != nil {
-			firstErr = err
-		}
-	}
-
-	if err := d.FSDirectory.Close(); err != nil && firstErr == nil {
-		firstErr = err
-	}
-	return firstErr
+	return d.FSDirectory.Close()
 }
 
-// MMapIndexInput is an IndexInput implementation that reads from
-// memory-mapped files.
+// groupBySegment is the default grouping function.
+func groupBySegment(filename string) (string, bool) {
+	// Simplification of Lucene's GROUP_BY_SEGMENT.
+	// We use store.ParseSegmentName to get the segment ID.
+	seg := ParseSegmentName(filename)
+	if seg == "" {
+		return "", false
+	}
+	// Remove leading underscore if present
+	if len(seg) > 0 && seg[0] == '_' {
+		seg = seg[1:]
+	}
+	return seg, true
+}
+
+// MMapIndexInput is an IndexInput implementation that reads from memory-mapped files.
 type MMapIndexInput struct {
 	*BaseIndexInput
+	spi.BaseDataInput
 	path      string
 	name      string
 	directory *MMapDirectory
 	chunks    []*mmapFile
 	chunkSize int64
-	mu        sync.RWMutex // protects chunks during concurrent read+close
-	// sliceOffset is the file-absolute start of this view.
+	mu        sync.RWMutex
 	sliceOffset int64
-	// isSlice marks a borrowing view created by Slice: it shares the owner's
-	// mmap chunks and must NOT unmap them on Close — only the owning input (the
-	// one returned by OpenInput, or a Clone) unmaps. Without this, closing a
-	// sub-file slice of a compound (.cfs) file would munmap the shared mapping
-	// and corrupt every other live slice of it (rmp #4747). SimpleFS/NIOFS avoid
-	// this by reopening the file per slice; MMap shares one mapping, so the
-	// owner/borrower distinction is required.
-	isSlice bool
+	isSlice     bool
 }
 
-// ReadByte reads a single byte.
 func (in *MMapIndexInput) ReadByte() (byte, error) {
 	in.mu.RLock()
 	defer in.mu.RUnlock()
+
 	if err := in.ensureChunksOpen(); err != nil {
 		return 0, err
 	}
@@ -293,10 +260,7 @@ func (in *MMapIndexInput) ReadByte() (byte, error) {
 		return 0, io.EOF
 	}
 
-	// Add slice offset to get the actual position in the underlying file
 	actualPos := in.sliceOffset + pos
-
-	// Calculate which chunk and offset within chunk
 	chunkIndex := int(actualPos / in.chunkSize)
 	chunkOffset := actualPos % in.chunkSize
 
@@ -306,7 +270,6 @@ func (in *MMapIndexInput) ReadByte() (byte, error) {
 
 	chunk := in.chunks[chunkIndex]
 	if chunk.data == nil {
-		// Chunk has been unmapped (e.g. the owning input was closed).
 		return 0, ErrIllegalState
 	}
 
@@ -315,10 +278,10 @@ func (in *MMapIndexInput) ReadByte() (byte, error) {
 	return b, nil
 }
 
-// ReadBytes reads len(b) bytes into b.
-func (in *MMapIndexInput) ReadBytes(b []byte) error {
+func (in *MMapIndexInput) ReadBytes(b []byte, offset, length int) error {
 	in.mu.RLock()
 	defer in.mu.RUnlock()
+
 	if err := in.ensureChunksOpen(); err != nil {
 		return err
 	}
@@ -328,16 +291,13 @@ func (in *MMapIndexInput) ReadBytes(b []byte) error {
 
 	pos := in.GetFilePointer()
 	remaining := in.Length() - pos
-	if remaining < int64(len(b)) {
+	if remaining < int64(length) {
 		return io.EOF
 	}
 
-	// Add slice offset to get the actual position in the underlying file
 	actualPos := in.sliceOffset + pos
-
-	// Read across chunks if necessary
-	offset := 0
-	for offset < len(b) {
+	currentOffset := offset
+	for currentOffset < length {
 		chunkIndex := int(actualPos / in.chunkSize)
 		chunkOffset := actualPos % in.chunkSize
 
@@ -347,38 +307,34 @@ func (in *MMapIndexInput) ReadBytes(b []byte) error {
 
 		chunk := in.chunks[chunkIndex]
 		if chunk.data == nil {
-			// Chunk has been unmapped (e.g. the owning input was closed).
 			return ErrIllegalState
 		}
 		chunkRemaining := int64(len(chunk.data)) - chunkOffset
 		if chunkRemaining <= 0 {
 			return io.EOF
 		}
-		toRead := int64(len(b) - offset)
+		toRead := int64(length - currentOffset)
 		if toRead > chunkRemaining {
 			toRead = chunkRemaining
 		}
 
-		copy(b[offset:offset+int(toRead)], chunk.data[chunkOffset:chunkOffset+toRead])
-		offset += int(toRead)
+		copy(b[currentOffset:currentOffset+int(toRead)], chunk.data[chunkOffset:chunkOffset+toRead])
+		currentOffset += int(toRead)
 		actualPos += toRead
 	}
 
-	in.SetFilePointer(pos + int64(len(b)))
+	in.SetFilePointer(pos + int64(length))
 	return nil
 }
 
-// ReadBytesN reads exactly n bytes and returns them.
 func (in *MMapIndexInput) ReadBytesN(n int) ([]byte, error) {
 	b := make([]byte, n)
-	if err := in.ReadBytes(b); err != nil {
+	if err := in.ReadBytes(b, 0, n); err != nil {
 		return nil, err
 	}
 	return b, nil
 }
 
-// ReadShort reads a 16-bit little-endian value to match Lucene 10.x
-// DataInput.readShort (low byte first). See rmp #4786.
 func (in *MMapIndexInput) ReadShort() (int16, error) {
 	b, err := in.ReadBytesN(2)
 	if err != nil {
@@ -387,8 +343,6 @@ func (in *MMapIndexInput) ReadShort() (int16, error) {
 	return int16(uint16(b[0]) | uint16(b[1])<<8), nil
 }
 
-// ReadInt reads a 32-bit little-endian value to match Lucene 10.x
-// DataInput.readInt (low byte first). See rmp #4786.
 func (in *MMapIndexInput) ReadInt() (int32, error) {
 	b, err := in.ReadBytesN(4)
 	if err != nil {
@@ -397,8 +351,6 @@ func (in *MMapIndexInput) ReadInt() (int32, error) {
 	return int32(uint32(b[0]) | uint32(b[1])<<8 | uint32(b[2])<<16 | uint32(b[3])<<24), nil
 }
 
-// ReadLong reads a 64-bit little-endian value to match Lucene 10.x
-// DataInput.readLong (low byte first). See rmp #4786.
 func (in *MMapIndexInput) ReadLong() (int64, error) {
 	b, err := in.ReadBytesN(8)
 	if err != nil {
@@ -408,12 +360,6 @@ func (in *MMapIndexInput) ReadLong() (int64, error) {
 		uint64(b[4])<<32 | uint64(b[5])<<40 | uint64(b[6])<<48 | uint64(b[7])<<56), nil
 }
 
-// ReadString reads a string.
-func (in *MMapIndexInput) ReadString() (string, error) {
-	return ReadString(in)
-}
-
-// SetPosition changes the current position in the file.
 func (in *MMapIndexInput) SetPosition(pos int64) error {
 	if pos < 0 || pos > in.Length() {
 		return fmt.Errorf("invalid position: %d", pos)
@@ -422,15 +368,10 @@ func (in *MMapIndexInput) SetPosition(pos int64) error {
 	return nil
 }
 
-// Clone returns a clone of this IndexInput.
-// The clone starts at position 0 and is independent of the original.
-// If this input is a slice, the clone has the same slice bounds.
 func (in *MMapIndexInput) Clone() IndexInput {
-	// Reopen the file so the clone is fully independent.
 	full, err := in.directory.OpenInput(in.name, IOContextRead)
 	if err != nil {
-		// Return a clone that will fail on read.
-		return &MMapIndexInput{
+		broken := &MMapIndexInput{
 			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 			path:           in.path,
 			name:           in.name,
@@ -439,21 +380,18 @@ func (in *MMapIndexInput) Clone() IndexInput {
 			chunkSize:      in.chunkSize,
 			sliceOffset:    in.sliceOffset,
 		}
+		broken.Core = broken
+		return broken
 	}
 
-	// If this input is a slice, restrict the clone to the same region so that
-	// reads start at the correct logical offset within the file.
 	if in.sliceOffset == 0 {
 		return full
 	}
-	// The clone is independent and is the sole holder of full's freshly-reopened
-	// mmap, so it OWNS that mapping (isSlice=false) and views it at this input's
-	// absolute slice offset. We must not return a borrowing Slice here: borrows
-	// never unmap, which would leak full's mapping (rmp #4747).
+
 	fm, ok := full.(*MMapIndexInput)
 	if !ok {
 		full.Close()
-		return &MMapIndexInput{
+		broken := &MMapIndexInput{
 			BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 			path:           in.path,
 			name:           in.name,
@@ -462,8 +400,12 @@ func (in *MMapIndexInput) Clone() IndexInput {
 			chunkSize:      in.chunkSize,
 			sliceOffset:    in.sliceOffset,
 		}
+		broken.Core = broken
+		return broken
 	}
-	return &MMapIndexInput{
+	// Every DataInput-derived reader (readVInt, readString, ...) dispatches
+	// through Core; a clone whose Core is unset would nil-panic on the first one.
+	clone := &MMapIndexInput{
 		BaseIndexInput: NewBaseIndexInput(in.GetDescription(), in.Length()),
 		path:           fm.path,
 		name:           fm.name,
@@ -473,18 +415,16 @@ func (in *MMapIndexInput) Clone() IndexInput {
 		sliceOffset:    in.sliceOffset,
 		isSlice:        false,
 	}
+	clone.Core = clone
+	return clone
 }
 
-// Slice returns a subset of this IndexInput.
 func (in *MMapIndexInput) Slice(desc string, offset int64, length int64) (IndexInput, error) {
 	if offset < 0 || length < 0 || offset+length > in.Length() {
 		return nil, fmt.Errorf("invalid slice parameters: offset=%d, length=%d, fileLength=%d", offset, length, in.Length())
 	}
 
-	// A slice BORROWS the owner's mmap chunks (shared by pointer) and tracks its
-	// own absolute offset. It is marked isSlice so Close does not unmap the
-	// shared mapping — only the owning input does (rmp #4747).
-	return &MMapIndexInput{
+	slice := &MMapIndexInput{
 		BaseIndexInput: NewBaseIndexInput(desc, length),
 		path:           in.path,
 		name:           in.name,
@@ -493,14 +433,11 @@ func (in *MMapIndexInput) Slice(desc string, offset int64, length int64) (IndexI
 		chunkSize:      in.chunkSize,
 		sliceOffset:    in.sliceOffset + offset,
 		isSlice:        true,
-	}, nil
+	}
+	slice.Core = slice
+	return slice, nil
 }
 
-// ensureChunksOpen returns an error if the chunks slice is nil for a non-empty
-// file, which can happen when Clone() fails to open the file. An empty file
-// legitimately has nil chunks because there is nothing to map — in that case
-// ReadByte returns io.EOF via the pos >= Length() check instead. Without this
-// guard, reads on a failed-clone MMapIndexInput would panic on nil slice access.
 func (in *MMapIndexInput) ensureChunksOpen() error {
 	if in.chunks == nil && in.Length() > 0 {
 		return fmt.Errorf("MMapIndexInput: chunks are nil (clone of %q failed to open): %w", in.name, ErrIllegalState)
@@ -508,9 +445,10 @@ func (in *MMapIndexInput) ensureChunksOpen() error {
 	return nil
 }
 
-// Close closes this IndexInput. A borrowing slice (isSlice) shares the owner's
-// mmap chunks and must NOT unmap them — doing so would corrupt the owner and
-// every sibling slice (rmp #4747); only the owning input unmaps.
+func (in *MMapIndexInput) SkipBytes(n int64) error {
+	return in.BaseIndexInput.SkipBytes(n)
+}
+
 func (in *MMapIndexInput) Close() error {
 	if in.chunks == nil {
 		in.directory.RemoveOpenFile(in.name)
@@ -533,14 +471,11 @@ func (in *MMapIndexInput) Close() error {
 	return firstErr
 }
 
-// preload reads through the entire file to populate the OS page cache.
 func (in *MMapIndexInput) preload() {
-	// Read sequentially through all chunks to populate the cache
 	for _, chunk := range in.chunks {
 		if chunk.data != nil {
-			// Touch each page (typically 4KB) to trigger page-in
 			pageSize := int64(4096)
-			for i := int64(0); i < chunk.length; i += pageSize {
+			for i := int64(0); i < int64(len(chunk.data)); i += pageSize {
 				_ = chunk.data[i]
 			}
 		}

@@ -75,6 +75,10 @@ func (b *FixedBits) Length() int {
 	return b.bitSet.Length()
 }
 
+func (b *FixedBits) Cardinality() int {
+	return b.bitSet.Cardinality()
+}
+
 // ApplyMask implements the [BitsMaskApplier] optimisation hook by
 // delegating to the wrapped FixedBitSet's mask routine via the
 // package-level [ApplyMask]. This mirrors Lucene's override, which

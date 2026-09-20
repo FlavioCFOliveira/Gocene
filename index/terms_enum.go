@@ -10,22 +10,36 @@ package index
 // declarations.
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// TermsEnum is an alias of schema.TermsEnum.
-type TermsEnum = schema.TermsEnum
+// TermsEnum is an alias of spi.TermsEnum.
+type TermsEnum = spi.TermsEnum
 
-// TermsEnumBase is an alias of schema.TermsEnumBase.
-type TermsEnumBase = schema.TermsEnumBase
+// TermsEnumBase is an alias of spi.TermsEnumBase.
+type TermsEnumBase = spi.TermsEnumBase
 
-// EmptyTermsEnum is an alias of schema.EmptyTermsEnum.
-type EmptyTermsEnum = schema.EmptyTermsEnum
+// SeekStatus is an alias of spi.SeekStatus, the port of the nested enum
+// org.apache.lucene.index.TermsEnum.SeekStatus, which lives beside the
+// TermsEnum interface in spi.
+type SeekStatus = spi.SeekStatus
 
-// SingleTermsEnum is an alias of schema.SingleTermsEnum.
-type SingleTermsEnum = schema.SingleTermsEnum
+const (
+	// SeekStatusFound is an alias of spi.SeekStatusFound.
+	SeekStatusFound = spi.SeekStatusFound
+	// SeekStatusNotFound is an alias of spi.SeekStatusNotFound.
+	SeekStatusNotFound = spi.SeekStatusNotFound
+	// SeekStatusEnd is an alias of spi.SeekStatusEnd.
+	SeekStatusEnd = spi.SeekStatusEnd
+)
+
+// EmptyTermsEnum is an alias of spi.EmptyTermsEnum.
+type EmptyTermsEnum = spi.EmptyTermsEnum
+
+// SingleTermsEnum is an alias of spi.SingleTermsEnum.
+type SingleTermsEnum = spi.SingleTermsEnum
 
 // NewSingleTermsEnum creates a new SingleTermsEnum.
 func NewSingleTermsEnum(term *Term, docFreq int, totalFreq int64) *SingleTermsEnum {
-	return schema.NewSingleTermsEnum(term, docFreq, totalFreq)
+	return spi.NewSingleTermsEnum(term, docFreq, totalFreq)
 }

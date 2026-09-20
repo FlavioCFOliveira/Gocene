@@ -21,15 +21,25 @@ func NewTermPosting(position int, penum index.PostingsEnum) (*TermPosting, error
 		endOffset:   -1,
 	}
 
-	sOffset := penum.StartOffset()
-	eOffset := penum.EndOffset()
+	sOffset, err := penum.StartOffset()
+	if err != nil {
+		return nil, err
+	}
+	eOffset, err := penum.EndOffset()
+	if err != nil {
+		return nil, err
+	}
 	if sOffset >= 0 && eOffset >= 0 {
 		posting.startOffset = sOffset
 		posting.endOffset = eOffset
 	}
 
-	if payload := penum.GetPayload(); payload != nil {
-		posting.payload = util.BytesRefDeepCopyOf(payload)
+	payload, err := penum.GetPayload()
+	if err != nil {
+		return nil, err
+	}
+	if payload != nil {
+		posting.payload = util.BytesRefDeepCopyOf(util.NewBytesRef(payload))
 	}
 
 	return posting, nil

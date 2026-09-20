@@ -9,6 +9,7 @@ package intervals
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ConjunctionIntervalIterator is the base for interval iterators that require
@@ -60,7 +61,7 @@ func asDISI(iters []IntervalIterator) []util.DocIdSetIterator {
 func (c *ConjunctionIntervalIterator) DocID() int { return c.Approximation.DocID() }
 
 // DocIDRunEnd returns a conservative upper bound.
-func (c *ConjunctionIntervalIterator) DocIDRunEnd() int { return c.DocID() + 1 }
+func (c *ConjunctionIntervalIterator) DocIDRunEnd() (int, error) { return c.DocID() + 1, nil }
 
 // Cost returns the estimated iteration cost.
 func (c *ConjunctionIntervalIterator) Cost() int64 { return c.Approximation.Cost() }
@@ -111,4 +112,11 @@ func (c *ConjunctionIntervalIterator) Width() int {
 		return NoMoreIntervals
 	}
 	return c.end - c.start + 1
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (c *ConjunctionIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(c, upTo, bitSet, offset)
 }

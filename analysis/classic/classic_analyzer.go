@@ -8,6 +8,7 @@ import (
 	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // ClassicDefaultMaxTokenLength is the default maximum token length for
@@ -38,7 +39,7 @@ func NewClassicAnalyzer() *ClassicAnalyzer {
 // stop words.
 func NewClassicAnalyzerWithStopwords(stopWords *analysis.CharArraySet) *ClassicAnalyzer {
 	a := &ClassicAnalyzer{
-		BaseAnalyzer:   analysis.NewAnalyzer(),
+		BaseAnalyzer:   analysis.NewAnalyzer(analysis.GlobalReuseStrategy),
 		stopWords:      stopWords,
 		maxTokenLength: ClassicDefaultMaxTokenLength,
 	}
@@ -65,4 +66,4 @@ func (a *ClassicAnalyzer) TokenStream(fieldName string, reader io.Reader) (analy
 
 // Ensure ClassicAnalyzer implements Analyzer.
 var _ analysis.Analyzer = (*ClassicAnalyzer)(nil)
-var _ analysis.AnalyzerInterface = (*ClassicAnalyzer)(nil)
+var _ api.Analyzer = (*ClassicAnalyzer)(nil)

@@ -73,6 +73,7 @@ var _ TokenFilter = (*LimitTokenOffsetFilter)(nil)
 
 // LimitTokenOffsetFilterFactory creates LimitTokenOffsetFilter instances.
 type LimitTokenOffsetFilterFactory struct {
+	BaseTokenFilterFactory
 	maxStartOffset int
 }
 

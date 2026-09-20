@@ -26,10 +26,10 @@ import (
 // and multi-document cases. This is correct (same byte-level semantics) but
 // may be slightly less efficient for single-document batches.
 type DocumentBatch struct {
-	reader  *index.LeafReader
-	dir     store.Directory
-	dirRdr  *index.DirectoryReader
-	closed  bool
+	reader index.LeafReader
+	dir    store.Directory
+	dirRdr *index.DirectoryReader
+	closed bool
 }
 
 // NewDocumentBatch creates a DocumentBatch containing a single document.
@@ -55,25 +55,19 @@ func NewDocumentBatchFromDocs(analyzer analysis.Analyzer, docs []*document.Docum
 func newDocumentBatchFromDocs(analyzer analysis.Analyzer, docs []*document.Document) (*DocumentBatch, error) {
 	dir := store.NewByteBuffersDirectory()
 
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		_ = dir.Close()
 		return nil, fmt.Errorf("document batch: create writer: %w", err)
 	}
 
-	// Convert []*document.Document to []index.Document for AddDocuments.
-	idxDocs := make([]index.Document, len(docs))
-	for i, d := range docs {
-		idxDocs[i] = d
-	}
-
-	if _, err := writer.AddDocuments(idxDocs); err != nil {
+	if _, err := writer.AddDocuments(docs); err != nil {
 		_ = writer.Close()
 		_ = dir.Close()
 		return nil, fmt.Errorf("document batch: add documents: %w", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		_ = writer.Close()
 		_ = dir.Close()
 		return nil, fmt.Errorf("document batch: commit: %w", err)
@@ -107,19 +101,12 @@ func newDocumentBatchFromDocs(analyzer analysis.Analyzer, docs []*document.Docum
 		return nil, fmt.Errorf("document batch: no leaves in reader")
 	}
 
-	// Get the LeafReader from the first (and only) leaf context.
-	// In Gocene, the leaf may be a *SegmentReader (which embeds *LeafReader)
-	// or a raw *LeafReader.
-	leafCtx := leaves[0]
-	var leafReader *index.LeafReader
-
-	switch r := leafCtx.Reader().(type) {
-	case *index.LeafReader:
-		leafReader = r
-	default:
+	// DirectoryReader.open(directory).leaves().get(0).reader()
+	leafReader := leaves[0].LeafReader()
+	if leafReader == nil {
 		_ = dirReader.Close()
 		_ = dir.Close()
-		return nil, fmt.Errorf("document batch: unexpected leaf reader type: %T", leafCtx.Reader())
+		return nil, fmt.Errorf("document batch: leaf context carries no reader")
 	}
 
 	return &DocumentBatch{
@@ -133,7 +120,7 @@ func newDocumentBatchFromDocs(analyzer analysis.Analyzer, docs []*document.Docum
 // single-segment in-memory index containing all documents in the batch.
 //
 // This is the Go equivalent of Java's Supplier<LeafReader>.get().
-func (b *DocumentBatch) GetReader() *index.LeafReader {
+func (b *DocumentBatch) GetReader() index.LeafReader {
 	return b.reader
 }
 

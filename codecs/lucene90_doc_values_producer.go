@@ -28,6 +28,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/compress"
 	"github.com/FlavioCFOliveira/Gocene/util/packed"
 )
@@ -502,7 +503,7 @@ func (p *lucene90DVProducer) readSortedSetEntry(meta store.DataInput) (*dvSorted
 }
 
 func readTermsDictEntry(meta store.DataInput, e *dvTermsDictEntry) error {
-	size, err := store.ReadVLong(meta)
+	size, err := meta.ReadVLong()
 	if err != nil {
 		return err
 	}
@@ -663,6 +664,21 @@ func (p *lucene90DVProducer) GetSkipper(field *index.FieldInfo) (DocValuesSkippe
 		return nil, nil
 	}
 	return &lucene90DocValuesSkipper{entry: entry, docID: -1}, nil
+}
+
+// GetMergeInstance returns an instance optimized for merging: a producer that
+// shares the decoded per-field entry maps with the receiver but reads through
+// its own clone of the .dvd input.
+//
+// Mirrors Lucene90DocValuesProducer.getMergeInstance() of Apache Lucene 10.5.0,
+// which hands the entry maps to the private cloning constructor; that
+// constructor stores data.clone() and sets merging = true.
+func (p *lucene90DVProducer) GetMergeInstance() *lucene90DVProducer {
+	clone := *p
+	if p.data != nil {
+		clone.data = p.data.Clone()
+	}
+	return &clone
 }
 
 func (p *lucene90DVProducer) CheckIntegrity() error { return nil }
@@ -1067,7 +1083,7 @@ func (td *dvTermsDict) Next() ([]byte, error) {
 			td.term = make([]byte, total)
 		}
 		td.term = td.term[:total]
-		if err := td.blockInput.ReadBytes(td.term[prefixLen:]); err != nil {
+		if err := td.blockInput.ReadBytes(td.term[prefixLen:], 0, len(td.term[prefixLen:])); err != nil {
 			return nil, err
 		}
 	}
@@ -1141,7 +1157,7 @@ func (td *dvTermsDict) decompressBlock() error {
 		td.term = make([]byte, termLen)
 	}
 	td.term = td.term[:termLen]
-	if err := td.bytes.ReadBytes(td.term); err != nil {
+	if err := td.bytes.ReadBytes(td.term, 0, len(td.term)); err != nil {
 		return err
 	}
 	offset := td.bytes.GetFilePointer()
@@ -1742,7 +1758,7 @@ func (s *sortedSetDVSparse) DocValueCount() int {
 	}
 	return s.count
 }
-func (s *sortedSetDVSparse) Cost() int64        { return s.disi.Cost() }
+func (s *sortedSetDVSparse) Cost() int64 { return s.disi.Cost() }
 
 // sortedSetDVGeneral wraps a SortedNumericDocValues for multi-valued case.
 type sortedSetDVGeneral struct {
@@ -1941,14 +1957,14 @@ func (s *sortedNumericDVSparse) NextValue() (int64, error) {
 	s.start++
 	return v, nil
 }
-func (s *sortedNumericDVSparse) LongValue() (int64, error)   { return s.NextValue() }
+func (s *sortedNumericDVSparse) LongValue() (int64, error) { return s.NextValue() }
 func (s *sortedNumericDVSparse) DocValueCount() (int, error) {
 	if err := s.setIfNeeded(); err != nil {
 		return 0, err
 	}
 	return s.count, nil
 }
-func (s *sortedNumericDVSparse) Cost() int64                 { return s.disi.Cost() }
+func (s *sortedNumericDVSparse) Cost() int64 { return s.disi.Cost() }
 
 // ---------------------------------------------------------------------------
 // Utility interfaces and helpers
@@ -2000,8 +2016,450 @@ func dvSliceRandomAccess(data store.IndexInput, offset, length int64) (store.Ran
 	}
 	// fall back: read into memory
 	buf := make([]byte, length)
-	if err := sub.ReadBytes(buf); err != nil && !errors.Is(err, io.EOF) {
+	if err := sub.ReadBytes(buf, 0, len(buf)); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("dvSliceRandomAccess: read %d bytes at %d: %w", length, offset, err)
 	}
 	return store.NewByteArrayRandomAccessInput(buf), nil
+}
+
+// DocIDRunEnd returns maxDoc: every document carries a value in the dense
+// encoding, so the run extends to the end of the segment.
+//
+// Port of the docIDRunEnd() override on the dense BaseSortedSetDocValues of
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer#getSortedSet
+// (Lucene 10.5.0).
+func (s *sortedSetDVDense) DocIDRunEnd() (int, error) { return s.maxDoc, nil }
+
+// DocIDRunEnd delegates to the backing IndexedDISI.
+//
+// Port of the docIDRunEnd() override on the sparse BaseSortedSetDocValues of
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer#getSortedSet
+// (Lucene 10.5.0): return disi.docIDRunEnd().
+func (s *sortedSetDVSparse) DocIDRunEnd() (int, error) { return s.disi.DocIDRunEnd() }
+
+// DocIDRunEnd delegates to the backing ordinals iterator.
+//
+// Port of the docIDRunEnd() override on the ordinals-backed
+// BaseSortedSetDocValues of
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer#getSortedSet
+// (Lucene 10.5.0): return ords.docIDRunEnd().
+func (s *sortedSetDVGeneral) DocIDRunEnd() (int, error) { return s.sndv.DocIDRunEnd() }
+
+// DocIDRunEnd delegates to the wrapped SortedDocValues.
+//
+// Port of org.apache.lucene.index.SingletonSortedSetDocValues#docIDRunEnd
+// (Lucene 10.5.0): return in.docIDRunEnd().
+func (s *singletonSS) DocIDRunEnd() (int, error) { return s.sdv.DocIDRunEnd() }
+
+// IntoBitSet sets every doc in [docID(), upTo) — the dense encoding gives every
+// document a value — and advances past the range.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on the dense
+// BaseSortedSetDocValues of
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer#getSortedSet
+// (Lucene 10.5.0).
+func (s *sortedSetDVDense) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	if upTo > s.maxDoc {
+		upTo = s.maxDoc
+	}
+	if upTo > s.doc {
+		bitSet.SetRange(s.doc-offset, upTo-offset)
+		if _, err := s.Advance(upTo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// IntoBitSet delegates to the backing ordinals iterator.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on the
+// ordinals-backed BaseSortedSetDocValues of
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer#getSortedSet
+// (Lucene 10.5.0): ords.intoBitSet(upTo, bitSet, offset).
+func (s *sortedSetDVGeneral) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.sndv.IntoBitSet(upTo, bitSet, offset)
+}
+
+// IntoBitSet delegates to the wrapped SortedDocValues.
+//
+// Port of org.apache.lucene.index.SingletonSortedSetDocValues#intoBitSet
+// (Lucene 10.5.0): in.intoBitSet(upTo, bitSet, offset).
+func (s *singletonSS) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.sdv.IntoBitSet(upTo, bitSet, offset)
+}
+
+// IntoBitSet sets every doc in [docID(), min(upTo, maxDoc)) — the dense
+// encoding gives every document a value — and advances past the range.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// DenseNumericDocValues and its siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+//
+//	upTo = Math.min(upTo, maxDoc);
+//	if (upTo > doc) { bitSet.set(doc - offset, upTo - offset); advance(upTo); }
+func (d *denseConstNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	upTo = min(upTo, d.maxDoc)
+	if upTo > d.doc {
+		bitSet.SetRange(d.doc-offset, upTo-offset)
+		if _, err := d.Advance(upTo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DocIDRunEnd returns maxDoc: every document carries a value in the dense
+// encoding, so the run extends to the end of the segment.
+//
+// Port of the docIDRunEnd() override on DenseNumericDocValues and its siblings
+// in org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer
+// (Lucene 10.5.0).
+func (d *denseConstNumericDV) DocIDRunEnd() (int, error) {
+	return d.maxDoc, nil
+}
+
+// IntoBitSet sets every doc in [docID(), min(upTo, maxDoc)) — the dense
+// encoding gives every document a value — and advances past the range.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// DenseNumericDocValues and its siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+//
+//	upTo = Math.min(upTo, maxDoc);
+//	if (upTo > doc) { bitSet.set(doc - offset, upTo - offset); advance(upTo); }
+func (d *denseFixedBinaryDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	upTo = min(upTo, d.maxDoc)
+	if upTo > d.doc {
+		bitSet.SetRange(d.doc-offset, upTo-offset)
+		if _, err := d.Advance(upTo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DocIDRunEnd returns maxDoc: every document carries a value in the dense
+// encoding, so the run extends to the end of the segment.
+//
+// Port of the docIDRunEnd() override on DenseNumericDocValues and its siblings
+// in org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer
+// (Lucene 10.5.0).
+func (d *denseFixedBinaryDV) DocIDRunEnd() (int, error) {
+	return d.maxDoc, nil
+}
+
+// IntoBitSet sets every doc in [docID(), min(upTo, maxDoc)) — the dense
+// encoding gives every document a value — and advances past the range.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// DenseNumericDocValues and its siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+//
+//	upTo = Math.min(upTo, maxDoc);
+//	if (upTo > doc) { bitSet.set(doc - offset, upTo - offset); advance(upTo); }
+func (d *denseNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	upTo = min(upTo, d.maxDoc)
+	if upTo > d.doc {
+		bitSet.SetRange(d.doc-offset, upTo-offset)
+		if _, err := d.Advance(upTo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DocIDRunEnd returns maxDoc: every document carries a value in the dense
+// encoding, so the run extends to the end of the segment.
+//
+// Port of the docIDRunEnd() override on DenseNumericDocValues and its siblings
+// in org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer
+// (Lucene 10.5.0).
+func (d *denseNumericDV) DocIDRunEnd() (int, error) {
+	return d.maxDoc, nil
+}
+
+// IntoBitSet sets every doc in [docID(), min(upTo, maxDoc)) — the dense
+// encoding gives every document a value — and advances past the range.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// DenseNumericDocValues and its siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+//
+//	upTo = Math.min(upTo, maxDoc);
+//	if (upTo > doc) { bitSet.set(doc - offset, upTo - offset); advance(upTo); }
+func (d *denseVarBinaryDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	upTo = min(upTo, d.maxDoc)
+	if upTo > d.doc {
+		bitSet.SetRange(d.doc-offset, upTo-offset)
+		if _, err := d.Advance(upTo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DocIDRunEnd returns maxDoc: every document carries a value in the dense
+// encoding, so the run extends to the end of the segment.
+//
+// Port of the docIDRunEnd() override on DenseNumericDocValues and its siblings
+// in org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer
+// (Lucene 10.5.0).
+func (d *denseVarBinaryDV) DocIDRunEnd() (int, error) {
+	return d.maxDoc, nil
+}
+
+// IntoBitSet sets every doc in [docID(), min(upTo, maxDoc)) — the dense
+// encoding gives every document a value — and advances past the range.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// DenseNumericDocValues and its siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+//
+//	upTo = Math.min(upTo, maxDoc);
+//	if (upTo > doc) { bitSet.set(doc - offset, upTo - offset); advance(upTo); }
+func (s *sortedDVDense) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	upTo = min(upTo, s.maxDoc)
+	if upTo > s.doc {
+		bitSet.SetRange(s.doc-offset, upTo-offset)
+		if _, err := s.Advance(upTo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DocIDRunEnd returns maxDoc: every document carries a value in the dense
+// encoding, so the run extends to the end of the segment.
+//
+// Port of the docIDRunEnd() override on DenseNumericDocValues and its siblings
+// in org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer
+// (Lucene 10.5.0).
+func (s *sortedDVDense) DocIDRunEnd() (int, error) {
+	return s.maxDoc, nil
+}
+
+// IntoBitSet sets every doc in [docID(), min(upTo, maxDoc)) — the dense
+// encoding gives every document a value — and advances past the range.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// DenseNumericDocValues and its siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+//
+//	upTo = Math.min(upTo, maxDoc);
+//	if (upTo > doc) { bitSet.set(doc - offset, upTo - offset); advance(upTo); }
+func (d *sortedNumericDVDense) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	upTo = min(upTo, d.maxDoc)
+	if upTo > d.doc {
+		bitSet.SetRange(d.doc-offset, upTo-offset)
+		if _, err := d.Advance(upTo); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// DocIDRunEnd returns maxDoc: every document carries a value in the dense
+// encoding, so the run extends to the end of the segment.
+//
+// Port of the docIDRunEnd() override on DenseNumericDocValues and its siblings
+// in org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer
+// (Lucene 10.5.0).
+func (d *sortedNumericDVDense) DocIDRunEnd() (int, error) {
+	return d.maxDoc, nil
+}
+
+// IntoBitSet delegates to the backing IndexedDISI.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// SparseNumericDocValues and its siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+// disi.intoBitSet(upTo, bitSet, offset).
+func (s *sortedDVSparse) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.disi.IntoBitSet(upTo, bitSet, offset)
+}
+
+// DocIDRunEnd delegates to the backing IndexedDISI.
+//
+// Port of the docIDRunEnd() override on SparseNumericDocValues and its
+// siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+// return disi.docIDRunEnd().
+func (s *sortedDVSparse) DocIDRunEnd() (int, error) {
+	return s.disi.DocIDRunEnd()
+}
+
+// IntoBitSet delegates to the backing IndexedDISI.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// SparseNumericDocValues and its siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+// disi.intoBitSet(upTo, bitSet, offset).
+func (s *sortedNumericDVSparse) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.disi.IntoBitSet(upTo, bitSet, offset)
+}
+
+// DocIDRunEnd delegates to the backing IndexedDISI.
+//
+// Port of the docIDRunEnd() override on SparseNumericDocValues and its
+// siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+// return disi.docIDRunEnd().
+func (s *sortedNumericDVSparse) DocIDRunEnd() (int, error) {
+	return s.disi.DocIDRunEnd()
+}
+
+// IntoBitSet delegates to the backing IndexedDISI.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// SparseNumericDocValues and its siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+// disi.intoBitSet(upTo, bitSet, offset).
+func (s *sparseConstNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.disi.IntoBitSet(upTo, bitSet, offset)
+}
+
+// DocIDRunEnd delegates to the backing IndexedDISI.
+//
+// Port of the docIDRunEnd() override on SparseNumericDocValues and its
+// siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+// return disi.docIDRunEnd().
+func (s *sparseConstNumericDV) DocIDRunEnd() (int, error) {
+	return s.disi.DocIDRunEnd()
+}
+
+// IntoBitSet delegates to the backing IndexedDISI.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// SparseNumericDocValues and its siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+// disi.intoBitSet(upTo, bitSet, offset).
+func (s *sparseFixedBinaryDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.disi.IntoBitSet(upTo, bitSet, offset)
+}
+
+// DocIDRunEnd delegates to the backing IndexedDISI.
+//
+// Port of the docIDRunEnd() override on SparseNumericDocValues and its
+// siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+// return disi.docIDRunEnd().
+func (s *sparseFixedBinaryDV) DocIDRunEnd() (int, error) {
+	return s.disi.DocIDRunEnd()
+}
+
+// IntoBitSet delegates to the backing IndexedDISI.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// SparseNumericDocValues and its siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+// disi.intoBitSet(upTo, bitSet, offset).
+func (s *sparseNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.disi.IntoBitSet(upTo, bitSet, offset)
+}
+
+// DocIDRunEnd delegates to the backing IndexedDISI.
+//
+// Port of the docIDRunEnd() override on SparseNumericDocValues and its
+// siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+// return disi.docIDRunEnd().
+func (s *sparseNumericDV) DocIDRunEnd() (int, error) {
+	return s.disi.DocIDRunEnd()
+}
+
+// IntoBitSet delegates to the backing IndexedDISI.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override on
+// SparseNumericDocValues and its siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+// disi.intoBitSet(upTo, bitSet, offset).
+func (s *sparseVarBinaryDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.disi.IntoBitSet(upTo, bitSet, offset)
+}
+
+// DocIDRunEnd delegates to the backing IndexedDISI.
+//
+// Port of the docIDRunEnd() override on SparseNumericDocValues and its
+// siblings in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer (Lucene 10.5.0):
+// return disi.docIDRunEnd().
+func (s *sparseVarBinaryDV) DocIDRunEnd() (int, error) {
+	return s.disi.DocIDRunEnd()
+}
+
+// IntoBitSet delegates to the backing NumericDocValues.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override that
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer and
+// org.apache.lucene.index.SingletonSortedNumericDocValues both express as a
+// straight delegation to the wrapped iterator (Lucene 10.5.0).
+func (s *sortedDVGeneral) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.ndv.IntoBitSet(upTo, bitSet, offset)
+}
+
+// DocIDRunEnd delegates to the backing NumericDocValues.
+//
+// Port of the matching docIDRunEnd() override (Lucene 10.5.0).
+func (s *sortedDVGeneral) DocIDRunEnd() (int, error) {
+	return s.ndv.DocIDRunEnd()
+}
+
+// IntoBitSet delegates to the backing NumericDocValues.
+//
+// Port of the intoBitSet(int, FixedBitSet, int) override that
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer and
+// org.apache.lucene.index.SingletonSortedNumericDocValues both express as a
+// straight delegation to the wrapped iterator (Lucene 10.5.0).
+func (s *singletonSN) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return s.ndv.IntoBitSet(upTo, bitSet, offset)
+}
+
+// DocIDRunEnd delegates to the backing NumericDocValues.
+//
+// Port of the matching docIDRunEnd() override (Lucene 10.5.0).
+func (s *singletonSN) DocIDRunEnd() (int, error) {
+	return s.ndv.DocIDRunEnd()
+}
+
+// IntoBitSet loads the doc IDs of this sparse SortedSetDocValues into bitSet.
+//
+// Port of the override in
+// org.apache.lucene.codecs.lucene90.Lucene90DocValuesProducer#getSortedSet
+// (Lucene 10.5.0):
+//
+//	set = false;
+//	disi.intoBitSet(upTo, bitSet, offset);
+func (s *sortedSetDVSparse) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	s.set = false
+	return s.disi.IntoBitSet(upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e emptyNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e emptyNumericDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0,
+// which the Java counterpart of this type does not override.
+func (e emptyBinaryDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body of DocIdSetIterator.docIDRunEnd() in
+// Apache Lucene 10.5.0 — docID() + 1 — which the Java counterpart of this type
+// does not override.
+func (e emptyBinaryDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(e)
 }

@@ -72,7 +72,7 @@ func NewKNearestNeighborDocumentClassifier(
 	}
 	if ri, ok := reader.(index.IndexReaderInterface); ok {
 		searcher := search.NewIndexSearcher(ri)
-		searcher.SetSimilarity(search.NewBM25Similarity())
+		searcher.SetSimilarity(search.NewLuceneBM25Similarity())
 		c.searcher = searcher
 
 		// Build a default analyzer from the first available field analyzer.
@@ -146,7 +146,7 @@ func (c *KNearestNeighborDocumentClassifier) knnSearchDocument(doc *document.Doc
 	if c.mlt == nil {
 		return nil, nil
 	}
-	mltQuery := search.NewBooleanQuery()
+	mltQuery := search.NewBooleanQueryBuilder()
 	for _, fieldName := range c.textFieldNames {
 		plain, boost := splitFieldBoost(fieldName)
 		fieldAnalyzer := c.field2analyzer[plain]
@@ -173,7 +173,7 @@ func (c *KNearestNeighborDocumentClassifier) knnSearchDocument(doc *document.Doc
 	if c.query != nil {
 		mltQuery.Add(c.query, search.MUST)
 	}
-	return c.searcher.Search(mltQuery, c.k)
+	return c.searcher.Search(mltQuery.Build(), c.k)
 }
 
 // classifyFromTopDocs returns the class with the highest score from the kNN

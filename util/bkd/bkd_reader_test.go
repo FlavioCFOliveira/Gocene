@@ -9,8 +9,9 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // This file is the behavioural test suite for BKDReader. The Java
@@ -30,18 +31,18 @@ import (
 // readerCaptureVisitor is a test visitor that records every docID it sees,
 // optionally filtered through a per-doc predicate.
 type readerCaptureVisitor struct {
-	relation       codecs.Relation
+	relation       spi.Relation
 	predicate      func(packedValue []byte) bool
 	visitedIDs     []int
 	visitedPV      []int
 	cmpLog         []relationRecord
 	growCalls      []int
-	defaultsToCell codecs.Relation
+	defaultsToCell spi.Relation
 }
 
 type relationRecord struct {
 	min, max []byte
-	rel      codecs.Relation
+	rel      spi.Relation
 }
 
 func (v *readerCaptureVisitor) Visit(docID int) error {
@@ -56,7 +57,7 @@ func (v *readerCaptureVisitor) VisitByPackedValue(docID int, packedValue []byte)
 	return nil
 }
 
-func (v *readerCaptureVisitor) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
+func (v *readerCaptureVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	rec := relationRecord{
 		min: append([]byte(nil), minPackedValue...),
 		max: append([]byte(nil), maxPackedValue...),
@@ -92,16 +93,16 @@ func (v *rangeVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
 	return nil
 }
 
-func (v *rangeVisitor) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
+func (v *rangeVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	mn := binary.BigEndian.Uint32(minPackedValue[:4])
 	mx := binary.BigEndian.Uint32(maxPackedValue[:4])
 	if mx < v.loIncl || mn > v.hiIncl {
-		return codecs.RelationCellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if mn >= v.loIncl && mx <= v.hiIncl {
-		return codecs.RelationCellInsideQuery
+		return spi.CellInsideQuery
 	}
-	return codecs.RelationCellCrossesQuery
+	return spi.CellCrossesQuery
 }
 
 func (v *rangeVisitor) Grow(count int) {}
@@ -175,14 +176,14 @@ func TestBKDReader_OpenMetadata(t *testing.T) {
 	}
 	f := buildReader(t, cfg, points, 1024)
 
-	if got := f.r.GetNumDimensions(); got != 1 {
-		t.Fatalf("numDims: got %d, want 1", got)
+	if got, err := f.r.GetNumDimensions(); err != nil || got != 1 {
+		t.Fatalf("numDims: got %d (err %v), want 1", got, err)
 	}
-	if got := f.r.GetNumIndexDimensions(); got != 1 {
-		t.Fatalf("numIndexDims: got %d, want 1", got)
+	if got, err := f.r.GetNumIndexDimensions(); err != nil || got != 1 {
+		t.Fatalf("numIndexDims: got %d (err %v), want 1", got, err)
 	}
-	if got := f.r.GetBytesPerDimension(); got != 4 {
-		t.Fatalf("bytesPerDim: got %d, want 4", got)
+	if got, err := f.r.GetBytesPerDimension(); err != nil || got != 4 {
+		t.Fatalf("bytesPerDim: got %d (err %v), want 4", got, err)
 	}
 	if got := f.r.NumLeaves(); got != 1 {
 		t.Fatalf("numLeaves: got %d, want 1 for a single leaf fixture", got)
@@ -193,10 +194,18 @@ func TestBKDReader_OpenMetadata(t *testing.T) {
 	if got := f.r.GetDocCount(); got != len(points) {
 		t.Fatalf("docCount: got %d, want %d", got, len(points))
 	}
-	if got := uint32FromBE(f.r.GetMinPackedValue()); got != 10 {
+	minPacked, err := f.r.GetMinPackedValue()
+	if err != nil {
+		t.Fatalf("GetMinPackedValue: %v", err)
+	}
+	if got := uint32FromBE(minPacked); got != 10 {
 		t.Fatalf("minPackedValue: got %d, want 10", got)
 	}
-	if got := uint32FromBE(f.r.GetMaxPackedValue()); got != 40 {
+	maxPacked, err := f.r.GetMaxPackedValue()
+	if err != nil {
+		t.Fatalf("GetMaxPackedValue: %v", err)
+	}
+	if got := uint32FromBE(maxPacked); got != 40 {
 		t.Fatalf("maxPackedValue: got %d, want 40", got)
 	}
 	if got := f.r.Version(); got != BKDVersionCurrent {
@@ -215,7 +224,7 @@ func TestBKDReader_BadCodecHeader(t *testing.T) {
 		t.Fatalf("CreateOutput: %v", err)
 	}
 	// Wrong codec name; CheckHeader will reject.
-	if err := codecs.WriteHeader(metaOut, "NotBKD", BKDVersionCurrent); err != nil {
+	if err := store.WriteHeader(metaOut, "NotBKD", BKDVersionCurrent); err != nil {
 		t.Fatalf("WriteHeader: %v", err)
 	}
 	if err := metaOut.Close(); err != nil {
@@ -256,7 +265,7 @@ func TestBKDReader_TruncatedMeta(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := codecs.WriteHeader(metaOut, BKDCodecName, BKDVersionCurrent); err != nil {
+	if err := store.WriteHeader(metaOut, BKDCodecName, BKDVersionCurrent); err != nil {
 		t.Fatalf("WriteHeader: %v", err)
 	}
 	if err := metaOut.Close(); err != nil {
@@ -316,7 +325,7 @@ func TestBKDReader_PointTreeSingleLeaf(t *testing.T) {
 	}
 
 	// visitDocIDs must report all 4 docIDs.
-	vis := &readerCaptureVisitor{relation: codecs.RelationCellInsideQuery}
+	vis := &readerCaptureVisitor{relation: spi.CellInsideQuery}
 	if err := tree.VisitDocIDs(vis); err != nil {
 		t.Fatalf("VisitDocIDs: %v", err)
 	}
@@ -328,7 +337,7 @@ func TestBKDReader_PointTreeSingleLeaf(t *testing.T) {
 
 	// visitDocValues with relation CELL_CROSSES must invoke
 	// VisitByPackedValue for each doc.
-	vis2 := &readerCaptureVisitor{relation: codecs.RelationCellCrossesQuery}
+	vis2 := &readerCaptureVisitor{relation: spi.CellCrossesQuery}
 	if err := tree.VisitDocValues(vis2); err != nil {
 		t.Fatalf("VisitDocValues: %v", err)
 	}
@@ -398,7 +407,7 @@ func TestBKDReader_PointTreeMultiLeaf(t *testing.T) {
 	// Walk a fresh clone and visit every doc to verify we recover all
 	// docIDs without duplication.
 	clone := tree.Clone()
-	vis := &readerCaptureVisitor{relation: codecs.RelationCellInsideQuery}
+	vis := &readerCaptureVisitor{relation: spi.CellInsideQuery}
 	if err := clone.VisitDocIDs(vis); err != nil {
 		t.Fatalf("VisitDocIDs on clone: %v", err)
 	}
@@ -563,20 +572,20 @@ func (v *rect2DVisitor) VisitByPackedValue(docID int, packedValue []byte) error 
 	return nil
 }
 
-func (v *rect2DVisitor) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
+func (v *rect2DVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	minX := binary.BigEndian.Uint32(minPackedValue[0:4])
 	maxX := binary.BigEndian.Uint32(maxPackedValue[0:4])
 	minY := binary.BigEndian.Uint32(minPackedValue[4:8])
 	maxY := binary.BigEndian.Uint32(maxPackedValue[4:8])
 	// CELL_OUTSIDE if any dim's range is fully outside the query.
 	if maxX < v.xLo || minX > v.xHi || maxY < v.yLo || minY > v.yHi {
-		return codecs.RelationCellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	// CELL_INSIDE only if BOTH dim ranges are wholly inside the query.
 	if minX >= v.xLo && maxX <= v.xHi && minY >= v.yLo && maxY <= v.yHi {
-		return codecs.RelationCellInsideQuery
+		return spi.CellInsideQuery
 	}
-	return codecs.RelationCellCrossesQuery
+	return spi.CellCrossesQuery
 }
 
 func (v *rect2DVisitor) Grow(count int) {}
@@ -641,11 +650,11 @@ func TestBKDReader_RoundTripByteFormat(t *testing.T) {
 	if got := f.r.GetDocCount(); got != 4 {
 		t.Fatalf("docCount: got %d, want 4", got)
 	}
-	if got := f.r.GetMinPackedValue(); len(got) != 1 || got[0] != 0x10 {
-		t.Fatalf("minPackedValue: got %v, want [0x10]", got)
+	if got, err := f.r.GetMinPackedValue(); err != nil || len(got) != 1 || got[0] != 0x10 {
+		t.Fatalf("minPackedValue: got %v (err %v), want [0x10]", got, err)
 	}
-	if got := f.r.GetMaxPackedValue(); len(got) != 1 || got[0] != 0x40 {
-		t.Fatalf("maxPackedValue: got %v, want [0x40]", got)
+	if got, err := f.r.GetMaxPackedValue(); err != nil || len(got) != 1 || got[0] != 0x40 {
+		t.Fatalf("maxPackedValue: got %v (err %v), want [0x40]", got, err)
 	}
 
 	// Full-range intersection must yield all 4 docs.
@@ -689,16 +698,16 @@ func (v *byteRangeVisitor) VisitByPackedValue(docID int, packedValue []byte) err
 	return nil
 }
 
-func (v *byteRangeVisitor) Compare(minPackedValue, maxPackedValue []byte) codecs.Relation {
+func (v *byteRangeVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	mn := minPackedValue[0]
 	mx := maxPackedValue[0]
 	if mx < v.loIncl || mn > v.hiIncl {
-		return codecs.RelationCellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if mn >= v.loIncl && mx <= v.hiIncl {
-		return codecs.RelationCellInsideQuery
+		return spi.CellInsideQuery
 	}
-	return codecs.RelationCellCrossesQuery
+	return spi.CellCrossesQuery
 }
 
 func (v *byteRangeVisitor) Grow(count int) {}
@@ -731,11 +740,11 @@ func TestBKDReader_GetPointTreeClone(t *testing.T) {
 		t.Fatalf("clone.MoveToChild: moved=%v err=%v", moved, err)
 	}
 
-	rightVis := &readerCaptureVisitor{relation: codecs.RelationCellInsideQuery}
+	rightVis := &readerCaptureVisitor{relation: spi.CellInsideQuery}
 	if err := root.VisitDocIDs(rightVis); err != nil {
 		t.Fatalf("root VisitDocIDs: %v", err)
 	}
-	leftVis := &readerCaptureVisitor{relation: codecs.RelationCellInsideQuery}
+	leftVis := &readerCaptureVisitor{relation: spi.CellInsideQuery}
 	if err := clone.VisitDocIDs(leftVis); err != nil {
 		t.Fatalf("clone VisitDocIDs: %v", err)
 	}
@@ -827,4 +836,84 @@ func equalInts(a, b []int) bool {
 		}
 	}
 	return true
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *readerCaptureVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *readerCaptureVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *readerCaptureVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *rangeVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *rangeVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *rangeVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *rect2DVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *rect2DVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *rect2DVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *byteRangeVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *byteRangeVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *byteRangeVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

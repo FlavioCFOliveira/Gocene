@@ -25,10 +25,9 @@
 package knn
 
 import (
-	"unsafe"
-
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
-	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
+	"unsafe"
 )
 
 // DefaultFilteredSearchThreshold is the default value of the
@@ -72,10 +71,10 @@ type KnnSearchStrategy interface {
 // dispatching through hnsw can accept a strategy declared in this
 // package without an adapter).
 var (
-	_ KnnSearchStrategy      = (*Hnsw)(nil)
-	_ KnnSearchStrategy      = (*Seeded)(nil)
-	_ hnsw.KnnSearchStrategy = (*Hnsw)(nil)
-	_ hnsw.KnnSearchStrategy = (*Seeded)(nil)
+	_ KnnSearchStrategy     = (*Hnsw)(nil)
+	_ KnnSearchStrategy     = (*Seeded)(nil)
+	_ spi.KnnSearchStrategy = (*Hnsw)(nil)
+	_ spi.KnnSearchStrategy = (*Seeded)(nil)
 )
 
 // Hnsw is the HNSW kNN search strategy. It carries an integer

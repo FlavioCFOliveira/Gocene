@@ -243,7 +243,7 @@ func (r *Lucene103BlockTreeTermsReader) loadMeta(
 			priorErr = fmt.Errorf("Lucene103BlockTreeTermsReader: read fieldNumber[%d]: %w", i, ferr)
 			return 0, 0, nil, nil, priorErr
 		}
-		numTerms, ferr := store.ReadVLong(checksum)
+		numTerms, ferr := checksum.ReadVLong()
 		if ferr != nil {
 			priorErr = fmt.Errorf("Lucene103BlockTreeTermsReader: read numTerms for field %d: %w", fieldNumber, ferr)
 			return 0, 0, nil, nil, priorErr
@@ -257,7 +257,7 @@ func (r *Lucene103BlockTreeTermsReader) loadMeta(
 			priorErr = fmt.Errorf("Lucene103BlockTreeTermsReader: invalid field number: %d", fieldNumber)
 			return 0, 0, nil, nil, priorErr
 		}
-		sumTotalTermFreq, ferr := store.ReadVLong(checksum)
+		sumTotalTermFreq, ferr := checksum.ReadVLong()
 		if ferr != nil {
 			priorErr = fmt.Errorf("Lucene103BlockTreeTermsReader: read sumTotalTermFreq for field %d: %w", fieldNumber, ferr)
 			return 0, 0, nil, nil, priorErr
@@ -268,7 +268,7 @@ func (r *Lucene103BlockTreeTermsReader) loadMeta(
 		if fieldInfo.IndexOptions() == index.IndexOptionsDocs {
 			sumDocFreq = sumTotalTermFreq
 		} else {
-			sumDocFreq, ferr = store.ReadVLong(checksum)
+			sumDocFreq, ferr = checksum.ReadVLong()
 			if ferr != nil {
 				priorErr = fmt.Errorf("Lucene103BlockTreeTermsReader: read sumDocFreq for field %d: %w", fieldNumber, ferr)
 				return 0, 0, nil, nil, priorErr
@@ -352,7 +352,7 @@ func readMetaBytesRef(in store.IndexInput) (*util.BytesRef, error) {
 		return util.NewBytesRefEmpty(), nil
 	}
 	buf := make([]byte, n)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 		return nil, err
 	}
 	return util.NewBytesRef(buf), nil
@@ -414,6 +414,20 @@ func (r *Lucene103BlockTreeTermsReader) Size() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.fieldMap)
+}
+
+// Iterator returns the names of the fields of this segment, in the order of
+// fieldList. Mirrors Lucene103BlockTreeTermsReader.iterator().
+func (r *Lucene103BlockTreeTermsReader) Iterator() (index.FieldIterator, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return index.NewMemoryFieldIterator(r.fieldList), nil
+}
+
+// GetMergeInstance returns the receiver: Lucene103BlockTreeTermsReader does not
+// override FieldsProducer.getMergeInstance(), whose default returns this.
+func (r *Lucene103BlockTreeTermsReader) GetMergeInstance() FieldsProducer {
+	return r
 }
 
 // FieldNames returns the indexed field names in ascending order.

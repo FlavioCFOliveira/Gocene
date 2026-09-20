@@ -109,6 +109,7 @@ var _ analysis.TokenFilter = (*DictionaryCompoundWordTokenFilter)(nil)
 // ResourceLoader. This Go port accepts a pre-built CharArraySet to avoid
 // filesystem dependencies in the core filter layer.
 type DictionaryCompoundWordTokenFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	dictionary                     *analysis.CharArraySet
 	minWordSize                    int
 	minSubwordSize                 int
@@ -122,10 +123,11 @@ func NewDictionaryCompoundWordTokenFilterFactory(
 	dictionary *analysis.CharArraySet,
 ) *DictionaryCompoundWordTokenFilterFactory {
 	return &DictionaryCompoundWordTokenFilterFactory{
-		dictionary:     dictionary,
-		minWordSize:    DefaultMinWordSize,
-		minSubwordSize: DefaultMinSubwordSize,
-		maxSubwordSize: DefaultMaxSubwordSize,
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		dictionary:             dictionary,
+		minWordSize:            DefaultMinWordSize,
+		minSubwordSize:         DefaultMinSubwordSize,
+		maxSubwordSize:         DefaultMaxSubwordSize,
 	}
 }
 
@@ -137,7 +139,8 @@ func NewDictionaryCompoundWordTokenFilterFactoryFull(
 	onlyLongestMatchIgnoreSubwords bool,
 ) *DictionaryCompoundWordTokenFilterFactory {
 	return &DictionaryCompoundWordTokenFilterFactory{
-		dictionary:                     dictionary,
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		dictionary:             dictionary,
 		minWordSize:                    minWordSize,
 		minSubwordSize:                 minSubwordSize,
 		maxSubwordSize:                 maxSubwordSize,

@@ -14,7 +14,7 @@ import (
 // Codec is an alias of [spi.Codec]. After rmp #4708 lifted the
 // DocValuesFormat family onto the SPI, every per-component format
 // accessor — PostingsFormat, StoredFieldsFormat, FieldInfosFormat,
-// SegmentInfoFormat, SegmentInfosFormat, TermVectorsFormat,
+// SegmentInfoFormat, TermVectorsFormat,
 // CompoundFormat, KnnVectorsFormat, DocValuesFormat — lives on the
 // canonical SPI surface, and the codecs-package Codec collapsed to
 // this pure alias.
@@ -47,11 +47,6 @@ func (c *BaseCodec) StoredFieldsFormat() StoredFieldsFormat {
 
 // FieldInfosFormat returns the field infos format.
 func (c *BaseCodec) FieldInfosFormat() FieldInfosFormat {
-	return nil
-}
-
-// SegmentInfosFormat returns the segment infos format.
-func (c *BaseCodec) SegmentInfosFormat() SegmentInfosFormat {
 	return nil
 }
 
@@ -94,6 +89,15 @@ func (c *BaseCodec) PointsFormat() PointsFormat {
 // default; concrete codecs override. Required by spi.Codec since the
 // NormsFormat lift in rmp #120.
 func (c *BaseCodec) NormsFormat() NormsFormat {
+	return nil
+}
+
+// LiveDocsFormat returns the live docs (.liv) format. Returns nil by
+// default; concrete codecs override. Java declares
+// org.apache.lucene.codecs.Codec.liveDocsFormat() abstract, which Go
+// renders as this nil-returning default on the shared base struct, as
+// with every other per-component format accessor here.
+func (c *BaseCodec) LiveDocsFormat() LiveDocsFormat {
 	return nil
 }
 

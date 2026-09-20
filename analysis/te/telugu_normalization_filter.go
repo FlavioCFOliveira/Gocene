@@ -75,5 +75,9 @@ func (f *TeluguNormalizationFilterFactory) Create(input analysis.TokenStream) an
 	return NewTeluguNormalizationFilter(input)
 }
 
+func (f *TeluguNormalizationFilterFactory) Normalize(input analysis.TokenStream) analysis.TokenStream {
+	return f.Create(input)
+}
+
 // Ensure interface compliance.
 var _ analysis.TokenFilterFactory = (*TeluguNormalizationFilterFactory)(nil)

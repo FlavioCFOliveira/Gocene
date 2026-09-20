@@ -28,8 +28,8 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/search/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testsearch "github.com/FlavioCFOliveira/Gocene/tests/search"
 )
 
 const (
@@ -127,8 +127,8 @@ func (tc *fillerExplanationTestCase) qtest(q search.Query, expDocNrs []int) {
 	bq.Add(search.NewTermQuery(index.NewTerm(fillerExtra, fillerExtra)), search.MUST_NOT)
 	wrapped := search.Query(bq)
 
-	testutil.CheckHitCollector(tc.t, wrapped, explField, tc.searcher, remapped)
-	testutil.CheckExplanations(tc.t, wrapped, explField, tc.searcher, true)
+	testsearch.CheckHitCollector(tc.t, wrapped, explField, tc.searcher, remapped)
+	testsearch.CheckExplanations(tc.t, wrapped, explField, tc.searcher, true)
 }
 
 func TestSimpleExplanationsWithFillerDocs_MA1(t *testing.T) {

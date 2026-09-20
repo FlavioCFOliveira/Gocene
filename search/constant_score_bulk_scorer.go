@@ -42,7 +42,7 @@ func newConstantScoreBulkScorer(score float32, scoreMode ScoreMode, iterator Doc
 	}
 
 	// Mirrors: if (twoPhase == null && TwoPhaseIterator.unwrap(iterator) != null)
-	if twoPhase == nil && HasTwoPhaseIterator(iterator) != nil {
+	if twoPhase == nil && Unwrap(iterator) != nil {
 		return nil, fmt.Errorf("Iterator must not wrap a TwoPhaseIterator")
 	}
 

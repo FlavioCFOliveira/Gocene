@@ -7,9 +7,12 @@ package store
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"sort"
 	"sync"
 	"sync/atomic"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // ByteBuffersDirectory is an in-memory Directory implementation using byte slices.
@@ -150,11 +153,18 @@ func (d *ByteBuffersDirectory) CreateOutput(name string, ctx IOContext) (IndexOu
 	d.files[name] = file
 	d.AddOpenFile(name)
 
-	return &ByteBuffersIndexOutput{
-		BaseIndexOutput: NewBaseIndexOutput(name),
+	out := &ByteBuffersIndexOutput{
+		BaseIndexOutput: spi.NewBaseIndexOutput(name),
 		file:            file,
 		directory:       d,
-	}, nil
+	}
+	// Java's ByteBuffersIndexOutput forwards every derived writer to a
+	// ByteBuffersDataOutput delegate, which inherits them from DataOutput.
+	// Gocene collapses that delegate into this type, so the same bodies are
+	// supplied by the embedded BaseDataOutput and reach the buffer through
+	// this type's own WriteByte/WriteBytes.
+	out.BaseDataOutput = *NewBaseDataOutput(out)
+	return out, nil
 }
 
 // OpenInput returns an IndexInput for reading an existing file.
@@ -279,6 +289,7 @@ func (d *ByteBuffersDirectory) Close() error {
 // a chunk size.
 type ByteBuffersIndexInput struct {
 	*BaseIndexInput
+	spi.BaseDataInput
 	chunks    [][]byte
 	cumLens   []int64
 	position  int64
@@ -297,7 +308,7 @@ func newByteBuffersIndexInput(chunks [][]byte, desc string, file *byteBufferFile
 		cumLens[i] = total
 		total += int64(len(chunk))
 	}
-	return &ByteBuffersIndexInput{
+	in := &ByteBuffersIndexInput{
 		BaseIndexInput: NewBaseIndexInput(desc, total),
 		chunks:         chunks,
 		cumLens:        cumLens,
@@ -305,6 +316,8 @@ func newByteBuffersIndexInput(chunks [][]byte, desc string, file *byteBufferFile
 		directory:      directory,
 		name:           name,
 	}
+	in.Core = in
+	return in
 }
 
 // findChunk returns the chunk index and offset within that chunk for the given
@@ -353,6 +366,42 @@ func (in *ByteBuffersIndexInput) readBytesAt(pos int64, b []byte) error {
 	return nil
 }
 
+// ReadFloats reads len floats into dst.
+func (in *ByteBuffersIndexInput) ReadFloats(dst []float32, offset, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := in.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = math.Float32frombits(uint32(v))
+	}
+	return nil
+}
+
+// ReadInts reads len ints into dst.
+func (in *ByteBuffersIndexInput) ReadInts(dst []int32, offset, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := in.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadLongs reads a specified number of longs into dst.
+func (in *ByteBuffersIndexInput) ReadLongs(dst []int64, offset, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := in.ReadLong()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
 // ReadByte reads a single byte.
 func (in *ByteBuffersIndexInput) ReadByte() (byte, error) {
 	if !in.directory.IsOpen() {
@@ -371,17 +420,17 @@ func (in *ByteBuffersIndexInput) ReadByte() (byte, error) {
 }
 
 // ReadBytes reads len(b) bytes into b.
-func (in *ByteBuffersIndexInput) ReadBytes(b []byte) error {
+func (in *ByteBuffersIndexInput) ReadBytes(b []byte, offset, length int) error {
 	if !in.directory.IsOpen() {
 		return ErrIllegalState
 	}
-	if in.position+int64(len(b)) > in.Length() {
+	if in.position+int64(length) > in.Length() {
 		return fmt.Errorf("not enough data available")
 	}
-	if err := in.readBytesAt(in.position, b); err != nil {
+	if err := in.readBytesAt(in.position, b[offset:offset+length]); err != nil {
 		return err
 	}
-	in.position += int64(len(b))
+	in.position += int64(length)
 	in.SetFilePointer(in.position)
 	return nil
 }
@@ -389,7 +438,7 @@ func (in *ByteBuffersIndexInput) ReadBytes(b []byte) error {
 // ReadBytesN reads exactly n bytes and returns them.
 func (in *ByteBuffersIndexInput) ReadBytesN(n int) ([]byte, error) {
 	b := make([]byte, n)
-	if err := in.ReadBytes(b); err != nil {
+	if err := in.ReadBytes(b, 0, n); err != nil {
 		return nil, err
 	}
 	return b, nil
@@ -398,7 +447,7 @@ func (in *ByteBuffersIndexInput) ReadBytesN(n int) ([]byte, error) {
 // ReadShort reads a 16-bit value.
 func (in *ByteBuffersIndexInput) ReadShort() (int16, error) {
 	buf := make([]byte, 2)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, 2); err != nil {
 		return 0, err
 	}
 	return int16(binary.LittleEndian.Uint16(buf)), nil
@@ -407,7 +456,7 @@ func (in *ByteBuffersIndexInput) ReadShort() (int16, error) {
 // ReadInt reads a 32-bit value.
 func (in *ByteBuffersIndexInput) ReadInt() (int32, error) {
 	buf := make([]byte, 4)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, 4); err != nil {
 		return 0, err
 	}
 	return int32(binary.LittleEndian.Uint32(buf)), nil
@@ -416,7 +465,7 @@ func (in *ByteBuffersIndexInput) ReadInt() (int32, error) {
 // ReadLong reads a 64-bit value.
 func (in *ByteBuffersIndexInput) ReadLong() (int64, error) {
 	buf := make([]byte, 8)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, 8); err != nil {
 		return 0, err
 	}
 	return int64(binary.LittleEndian.Uint64(buf)), nil
@@ -429,7 +478,7 @@ func (in *ByteBuffersIndexInput) ReadString() (string, error) {
 		return "", err
 	}
 	buf := make([]byte, length)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, int(length)); err != nil {
 		return "", err
 	}
 	return string(buf), nil
@@ -458,10 +507,24 @@ func (in *ByteBuffersIndexInput) ReadVInt() (int32, error) {
 
 // ReadVLong reads a variable-length long, completing the
 // [VariableLengthInput] surface alongside [ByteBuffersIndexInput.ReadVInt].
-// Delegates to the package-level [ReadVLong] so the decoding is identical to
-// every other DataInput in the package.
 func (in *ByteBuffersIndexInput) ReadVLong() (int64, error) {
-	return ReadVLong(in)
+	var result int64
+	shift := 0
+	for {
+		b, err := in.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		result |= int64(b&0x7F) << shift
+		if (b & 0x80) == 0 {
+			break
+		}
+		shift += 7
+		if shift >= 64 {
+			return 0, fmt.Errorf("corrupted VLong")
+		}
+	}
+	return result, nil
 }
 
 // SetPosition changes the current position.
@@ -472,6 +535,11 @@ func (in *ByteBuffersIndexInput) SetPosition(pos int64) error {
 	in.position = pos
 	in.SetFilePointer(pos)
 	return nil
+}
+
+// SkipBytes skips n bytes forward in the input.
+func (in *ByteBuffersIndexInput) SkipBytes(n int64) error {
+	return in.BaseIndexInput.SkipBytes(n)
 }
 
 // Clone returns a clone of this IndexInput.
@@ -598,7 +666,8 @@ func splitIntoChunks(data []byte, chunkSize int) [][]byte {
 // ByteBuffersIndexOutput is an IndexOutput implementation for ByteBuffersDirectory
 // with random-access write support via SetPosition.
 type ByteBuffersIndexOutput struct {
-	*BaseIndexOutput
+	*spi.BaseIndexOutput
+	BaseDataOutput
 	file      *byteBufferFile
 	directory *ByteBuffersDirectory
 	data      []byte
@@ -621,18 +690,18 @@ func (out *ByteBuffersIndexOutput) WriteByte(b byte) error {
 }
 
 // WriteBytes writes all bytes from b at the current write position.
-func (out *ByteBuffersIndexOutput) WriteBytes(b []byte) error {
+func (out *ByteBuffersIndexOutput) WriteBytes(b []byte, offset, length int) error {
 	if !out.directory.IsOpen() {
 		return ErrIllegalState
 	}
 
-	n := int64(len(b))
+	n := int64(length)
 	pos := out.GetFilePointer()
 	end := pos + n
 	if end > int64(len(out.data)) {
 		out.data = append(out.data, make([]byte, end-int64(len(out.data)))...)
 	}
-	copy(out.data[pos:end], b)
+	copy(out.data[pos:end], b[offset:offset+length])
 	out.IncrementFilePointer(n)
 	return nil
 }
@@ -642,7 +711,7 @@ func (out *ByteBuffersIndexOutput) WriteBytesN(b []byte, n int) error {
 	if n > len(b) {
 		return fmt.Errorf("n exceeds buffer length")
 	}
-	return out.WriteBytes(b[:n])
+	return out.WriteBytes(b, 0, n)
 }
 
 // WriteShort writes a 16-bit value as little-endian to match Lucene 10.x
@@ -650,7 +719,7 @@ func (out *ByteBuffersIndexOutput) WriteBytesN(b []byte, n int) error {
 // (already LE). See rmp #4786.
 func (out *ByteBuffersIndexOutput) WriteShort(i int16) error {
 	b := []byte{byte(i), byte(i >> 8)}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // WriteInt writes a 32-bit value as little-endian to match Lucene 10.x
@@ -658,7 +727,7 @@ func (out *ByteBuffersIndexOutput) WriteShort(i int16) error {
 // (already LE). See rmp #4786.
 func (out *ByteBuffersIndexOutput) WriteInt(i int32) error {
 	b := []byte{byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24)}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // WriteLong writes a 64-bit value as little-endian to match Lucene 10.x
@@ -669,12 +738,27 @@ func (out *ByteBuffersIndexOutput) WriteLong(i int64) error {
 		byte(i), byte(i >> 8), byte(i >> 16), byte(i >> 24),
 		byte(i >> 32), byte(i >> 40), byte(i >> 48), byte(i >> 56),
 	}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
-// WriteString writes a string.
-func (out *ByteBuffersIndexOutput) WriteString(s string) error {
-	return WriteString(out, s)
+// CopyBytes copies bytes from the given input into this output.
+func (out *ByteBuffersIndexOutput) CopyBytes(input DataInput, numBytes int64) error {
+	buf := make([]byte, 8192)
+	remaining := numBytes
+	for remaining > 0 {
+		toRead := int(remaining)
+		if toRead > len(buf) {
+			toRead = len(buf)
+		}
+		if err := input.ReadBytes(buf, 0, toRead); err != nil {
+			return err
+		}
+		if err := out.WriteBytes(buf, 0, toRead); err != nil {
+			return err
+		}
+		remaining -= int64(toRead)
+	}
+	return nil
 }
 
 // Length returns the current length of the file being written.

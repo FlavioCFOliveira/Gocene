@@ -163,11 +163,11 @@ func readCompoundEntries(dir store.Directory, entriesName string, expectedSegmen
 		// offset/length are written by Lucene90CompoundFormat with
 		// entries.writeLong (little-endian); read them with the matching LE
 		// helper. See the writer in compound_format.go.
-		off, err := store.ReadInt64LE(csIn)
+		off, err := csIn.ReadLong()
 		if err != nil {
 			return nil, 0, fmt.Errorf("lucene90 compound: read entry offset [%d]: %w", i, err)
 		}
-		length, err := store.ReadInt64LE(csIn)
+		length, err := csIn.ReadLong()
 		if err != nil {
 			return nil, 0, fmt.Errorf("lucene90 compound: read entry length [%d]: %w", i, err)
 		}
@@ -232,7 +232,7 @@ func (r *Lucene90CompoundReader) FileExists(name string) bool {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	_, ok := r.entries[index.StripSegmentName(name)]
+	_, ok := r.entries[store.StripSegmentName(name)]
 	return ok
 }
 
@@ -245,7 +245,7 @@ func (r *Lucene90CompoundReader) FileLength(name string) (int64, error) {
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	id := index.StripSegmentName(name)
+	id := store.StripSegmentName(name)
 	e, ok := r.entries[id]
 	if !ok {
 		return 0, fmt.Errorf("lucene90 compound: %q not found", name)
@@ -265,7 +265,7 @@ func (r *Lucene90CompoundReader) OpenInput(name string, _ store.IOContext) (stor
 	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	id := index.StripSegmentName(name)
+	id := store.StripSegmentName(name)
 	e, ok := r.entries[id]
 	if !ok {
 		dataFileName := GetSegmentFileName(r.segmentName, "", Lucene90CompoundDataExtension)
@@ -324,6 +324,14 @@ func (r *Lucene90CompoundReader) DeleteFile(_ string) error {
 // ObtainLock is not supported on a compound reader.
 func (r *Lucene90CompoundReader) ObtainLock(_ string) (store.Lock, error) {
 	return nil, ErrReadOnlyCompoundDirectory
+}
+
+// Rename is not supported on a compound reader.
+//
+// Mirrors the final CompoundDirectory.rename(String, String) of Apache Lucene
+// 10.5.0, which always throws UnsupportedOperationException.
+func (r *Lucene90CompoundReader) Rename(_, _ string) error {
+	return ErrReadOnlyCompoundDirectory
 }
 
 // Compile-time assertions.

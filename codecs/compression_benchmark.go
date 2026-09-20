@@ -8,6 +8,9 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // CompressionBenchmark runs compression benchmarks for all compression modes.
@@ -59,21 +62,23 @@ func (b *CompressionBenchmark) RunAllBenchmarks() ([]BenchmarkResult, error) {
 
 // benchmarkMode benchmarks a specific compression mode with given data.
 func (b *CompressionBenchmark) benchmarkMode(mode CompressionMode, data []byte) (BenchmarkResult, error) {
-	compressor := mode.compressor()
-	decompressor := mode.decompressor()
+	compressor := mode.NewCompressor()
+	defer compressor.Close()
+	decompressor := mode.NewDecompressor()
 
 	// Benchmark compression
 	compressStart := time.Now()
-	compressed, err := compressor(data)
-	if err != nil {
+	compressedOut := store.NewByteBuffersDataOutput()
+	if err := compressor.Compress(store.NewByteBuffersDataInput(data), compressedOut); err != nil {
 		return BenchmarkResult{}, fmt.Errorf("compression failed: %w", err)
 	}
 	compressTime := time.Since(compressStart)
+	compressed := compressedOut.ToArrayCopy()
 
 	// Benchmark decompression
 	decompressStart := time.Now()
-	_, err = decompressor(compressed, len(data))
-	if err != nil {
+	var scratch util.BytesRef
+	if err := decompressor.Decompress(store.NewByteArrayDataInput(compressed), len(data), 0, len(data), &scratch); err != nil {
 		return BenchmarkResult{}, fmt.Errorf("decompression failed: %w", err)
 	}
 	decompressTime := time.Since(decompressStart)
@@ -167,18 +172,19 @@ func BenchmarkCompression(b *testing.B, mode CompressionMode) {
 		data[i] = byte(i % 256)
 	}
 
-	compressor := mode.compressor()
-	decompressor := mode.decompressor()
+	compressor := mode.NewCompressor()
+	defer compressor.Close()
+	decompressor := mode.NewDecompressor()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		compressed, err := compressor(data)
-		if err != nil {
+		compressedOut := store.NewByteBuffersDataOutput()
+		if err := compressor.Compress(store.NewByteBuffersDataInput(data), compressedOut); err != nil {
 			b.Fatalf("compression failed: %v", err)
 		}
 
-		_, err = decompressor(compressed, len(data))
-		if err != nil {
+		var scratch util.BytesRef
+		if err := decompressor.Decompress(store.NewByteArrayDataInput(compressedOut.ToArrayCopy()), len(data), 0, len(data), &scratch); err != nil {
 			b.Fatalf("decompression failed: %v", err)
 		}
 	}

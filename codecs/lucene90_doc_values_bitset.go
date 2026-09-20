@@ -38,7 +38,7 @@ import (
 const (
 	dvBlockSize       = 65536
 	dvDenseBlockLongs = dvBlockSize / 64 // 1024
-	dvMaxArrayLength  = (1 << 12) - 1   // 4095 — SPARSE/DENSE threshold
+	dvMaxArrayLength  = (1 << 12) - 1    // 4095 — SPARSE/DENSE threshold
 	// dvNoMoreDocs mirrors dvNoMoreDocs = math.MaxInt32.
 	dvNoMoreDocs = math.MaxInt32
 	// dvDefaultDenseRankPower matches IndexedDISI.DEFAULT_DENSE_RANK_POWER.
@@ -111,7 +111,7 @@ func dvFlushBlock(block int, buffer *util.FixedBitSet, cardinality int, denseRan
 		if cardinality != dvBlockSize { // DENSE
 			if denseRankPower != 0xFF {
 				rank := dvCreateRank(buffer, denseRankPower)
-				if err := out.WriteBytes(rank); err != nil {
+				if err := out.WriteBytes(rank, 0, len(rank)); err != nil {
 					return err
 				}
 			}

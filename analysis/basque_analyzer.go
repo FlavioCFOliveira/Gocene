@@ -6,6 +6,8 @@ package analysis
 
 import (
 	"io"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // BasqueStopWords contains common Basque stop words.
@@ -50,20 +52,30 @@ func NewBasqueAnalyzer() *BasqueAnalyzer {
 // NewBasqueAnalyzerWithWords creates a BasqueAnalyzer with custom stop words.
 func NewBasqueAnalyzerWithWords(stopWords *CharArraySet) *BasqueAnalyzer {
 	a := &BasqueAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 
 	return a
 }
 
 // TokenStream creates a TokenStream for analyzing text.
-func (a *BasqueAnalyzer) TokenStream(fieldName string, reader io.Reader) (TokenStream, error) {
+func (a *BasqueAnalyzer) TokenStream(fieldName string, reader io.Reader) (api.TokenStream, error) {
 	return a.BaseAnalyzer.TokenStream(fieldName, reader)
 }
 
@@ -78,5 +90,4 @@ func (a *BasqueAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure BasqueAnalyzer implements Analyzer
-var _ Analyzer = (*BasqueAnalyzer)(nil)
-var _ AnalyzerInterface = (*BasqueAnalyzer)(nil)
+var _ api.Analyzer = (*BasqueAnalyzer)(nil)

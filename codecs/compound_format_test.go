@@ -268,7 +268,7 @@ func TestLucene90CompoundFormat_FileLengthOrdering(t *testing.T) {
 		if err := out.WriteBytes(of.payload); err != nil {
 			t.Fatalf("WriteBytes: %v", err)
 		}
-		if err := codecs.WriteFooter(out); err != nil {
+		if err := store.WriteFooter(out); err != nil {
 			t.Fatalf("WriteFooter: %v", err)
 		}
 		if err := out.Close(); err != nil {
@@ -314,11 +314,11 @@ func TestLucene90CompoundFormat_FileLengthOrdering(t *testing.T) {
 		}
 		// .cfe offset/length are little-endian (DataOutput.writeLong),
 		// matching Lucene90CompoundFormat.
-		offset, err := store.ReadInt64LE(csIn)
+		offset, err := csIn.ReadLong()
 		if err != nil {
 			t.Fatalf("ReadInt64LE offset %d: %v", i, err)
 		}
-		length, err := store.ReadInt64LE(csIn)
+		length, err := csIn.ReadLong()
 		if err != nil {
 			t.Fatalf("ReadInt64LE length %d: %v", i, err)
 		}
@@ -1093,7 +1093,7 @@ func buildLargeCFS(t *testing.T, dir store.Directory) codecs.CompoundDirectory {
 		if err := out.WriteBytes(body); err != nil {
 			t.Fatalf("buildLargeCFS WriteBytes %s: %v", name, err)
 		}
-		if err := codecs.WriteFooter(out); err != nil {
+		if err := store.WriteFooter(out); err != nil {
 			t.Fatalf("buildLargeCFS WriteFooter %s: %v", name, err)
 		}
 		if err := out.Close(); err != nil {

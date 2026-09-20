@@ -2,10 +2,12 @@ package vectorhighlight
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/highlight"
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 var ColoredPreTags = []string{
@@ -27,12 +29,12 @@ var ColoredPreTags = []string{
 var ColoredPostTags = []string{"</b>"}
 
 type BaseFragmentsBuilder struct {
-	PreTags                       []string
-	PostTags                      []string
-	MultiValuedSeparator          rune
-	BoundaryScanner               BoundaryScanner
+	PreTags                        []string
+	PostTags                       []string
+	MultiValuedSeparator           rune
+	BoundaryScanner                BoundaryScanner
 	DiscreteMultiValueHighlighting bool
-	getWeightedFragInfoList       func(src []*WeightedFragInfo) []*WeightedFragInfo
+	getWeightedFragInfoList        func(src []*WeightedFragInfo) []*WeightedFragInfo
 }
 
 func NewBaseFragmentsBuilder(preTags, postTags []string, bs BoundaryScanner) *BaseFragmentsBuilder {
@@ -43,7 +45,7 @@ func NewBaseFragmentsBuilder(preTags, postTags []string, bs BoundaryScanner) *Ba
 		postTags = []string{"</b>"}
 	}
 	if bs == nil {
-		bs = NewSimpleBoundaryScanner()
+		bs = NewSimpleBoundaryScanner(DefaultMaxScan, DefaultBoundaryChars)
 	}
 	return &BaseFragmentsBuilder{
 		PreTags:              preTags,
@@ -57,7 +59,7 @@ func (b *BaseFragmentsBuilder) SetGetWeightedFragInfoList(f func(src []*Weighted
 	b.getWeightedFragInfoList = f
 }
 
-func (b *BaseFragmentsBuilder) CreateFragment(reader index.IndexReader, docID int, fieldName string, fieldFragList *FieldFragList) (string, error) {
+func (b *BaseFragmentsBuilder) CreateFragment(reader index.IndexReader, docID int, fieldName string, fieldFragList FieldFragList) (string, error) {
 	frags, err := b.CreateFragments(reader, docID, fieldName, fieldFragList, 1)
 	if err != nil {
 		return "", err
@@ -68,11 +70,11 @@ func (b *BaseFragmentsBuilder) CreateFragment(reader index.IndexReader, docID in
 	return frags[0], nil
 }
 
-func (b *BaseFragmentsBuilder) CreateFragments(reader index.IndexReader, docID int, fieldName string, fieldFragList *FieldFragList, maxNumFragments int) ([]string, error) {
+func (b *BaseFragmentsBuilder) CreateFragments(reader index.IndexReader, docID int, fieldName string, fieldFragList FieldFragList, maxNumFragments int) ([]string, error) {
 	return b.CreateFragmentsWithTags(reader, docID, fieldName, fieldFragList, maxNumFragments, b.PreTags, b.PostTags, highlight.NewDefaultEncoder())
 }
 
-func (b *BaseFragmentsBuilder) CreateFragmentWithTags(reader index.IndexReader, docID int, fieldName string, fieldFragList *FieldFragList, preTags, postTags []string, encoder highlight.Encoder) (string, error) {
+func (b *BaseFragmentsBuilder) CreateFragmentWithTags(reader index.IndexReader, docID int, fieldName string, fieldFragList FieldFragList, preTags, postTags []string, encoder highlight.Encoder) (string, error) {
 	frags, err := b.CreateFragmentsWithTags(reader, docID, fieldName, fieldFragList, 1, preTags, postTags, encoder)
 	if err != nil {
 		return "", err
@@ -83,7 +85,7 @@ func (b *BaseFragmentsBuilder) CreateFragmentWithTags(reader index.IndexReader, 
 	return frags[0], nil
 }
 
-func (b *BaseFragmentsBuilder) CreateFragmentsWithTags(reader index.IndexReader, docID int, fieldName string, fieldFragList *FieldFragList, maxNumFragments int, preTags, postTags []string, encoder highlight.Encoder) ([]string, error) {
+func (b *BaseFragmentsBuilder) CreateFragmentsWithTags(reader index.IndexReader, docID int, fieldName string, fieldFragList FieldFragList, maxNumFragments int, preTags, postTags []string, encoder highlight.Encoder) ([]string, error) {
 	if maxNumFragments < 0 {
 		return nil, fmt.Errorf("maxNumFragments(%d) must be positive number", maxNumFragments)
 	}
@@ -120,26 +122,61 @@ func (b *BaseFragmentsBuilder) CreateFragmentsWithTags(reader index.IndexReader,
 	return fragments, nil
 }
 
-func (b *BaseFragmentsBuilder) getFields(reader index.IndexReader, docID int, fieldName string) ([]string, error) {
-	fields := make([]string, 0)
+// getFieldsVisitor collects the stored values of a single field.
+//
+// Renders the anonymous StoredFieldVisitor of
+// BaseFragmentsBuilder.getFields(IndexReader, int, String).
+type getFieldsVisitor struct {
+	fieldName string
+	fields    []*document.Field
+}
 
-	// We need to get stored fields.
-	// In Gocene, we can use reader.StoredFields().Document(docID, visitor)
-	// But we only want the field with fieldName.
+// NeedsField reports whether the visitor wishes to receive the given field.
+//
+// Mirrors Status needsField(FieldInfo): Status.YES for the requested field,
+// Status.NO for every other.
+func (v *getFieldsVisitor) NeedsField(fieldInfo *index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
+	if fieldInfo.Name() == v.fieldName {
+		return index.StoredFieldVisitorStatusYes, nil
+	}
+	return index.StoredFieldVisitorStatusNo, nil
+}
 
-	err := reader.StoredFields().Document(docID, func(fieldInfo index.FieldInfo, value string) {
-		if fieldInfo.Name == fieldName {
-			fields = append(fields, value)
-		}
-	})
+// StringField renders the anonymous visitor's stringField(FieldInfo, String)
+// (BaseFragmentsBuilder.java:135-141): a stored TextField carrying the source
+// field's term-vector bit.
+func (v *getFieldsVisitor) StringField(fieldInfo *index.FieldInfo, value string) error {
+	ft := document.NewFieldTypeFrom(document.TextFieldTypeStored)
+	ft.SetStoreTermVectors(fieldInfo.HasTermVectors())
+	f, err := document.NewField(fieldInfo.Name(), value, ft)
+	if err != nil {
+		return err
+	}
+	v.fields = append(v.fields, f)
+	return nil
+}
+
+func (v *getFieldsVisitor) BinaryField(*index.FieldInfo, []byte) error  { return nil }
+func (v *getFieldsVisitor) IntField(*index.FieldInfo, int) error        { return nil }
+func (v *getFieldsVisitor) LongField(*index.FieldInfo, int64) error     { return nil }
+func (v *getFieldsVisitor) FloatField(*index.FieldInfo, float32) error  { return nil }
+func (v *getFieldsVisitor) DoubleField(*index.FieldInfo, float64) error { return nil }
+
+func (b *BaseFragmentsBuilder) getFields(reader index.IndexReader, docID int, fieldName string) ([]*document.Field, error) {
+	// according to javadoc, doc.getFields(fieldName) cannot be used with lazy
+	// loaded field???
+	storedFields, err := reader.StoredFields()
 	if err != nil {
 		return nil, err
 	}
-
-	return fields, nil
+	visitor := &getFieldsVisitor{fieldName: fieldName}
+	if err := storedFields.Document(docID, visitor); err != nil {
+		return nil, err
+	}
+	return visitor.fields, nil
 }
 
-func (b *BaseFragmentsBuilder) makeFragment(buffer *strings.Builder, index *int, values []string, fragInfo *WeightedFragInfo, preTags, postTags []string, encoder highlight.Encoder) string {
+func (b *BaseFragmentsBuilder) makeFragment(buffer *strings.Builder, index *int, values []*document.Field, fragInfo *WeightedFragInfo, preTags, postTags []string, encoder highlight.Encoder) string {
 	var fragment strings.Builder
 	s := fragInfo.StartOffset
 	modifiedStartOffset := s
@@ -159,59 +196,71 @@ func (b *BaseFragmentsBuilder) makeFragment(buffer *strings.Builder, index *int,
 	return fragment.String()
 }
 
-func (b *BaseFragmentsBuilder) getFragmentSourceMSO(buffer *strings.Builder, index *int, values []string, startOffset, endOffset int, modifiedStartOffset *int) string {
+func (b *BaseFragmentsBuilder) getFragmentSourceMSO(buffer *strings.Builder, index *int, values []*document.Field, startOffset, endOffset int, modifiedStartOffset *int) string {
 	for buffer.Len() < endOffset && *index < len(values) {
-		buffer.WriteString(values[*index])
+		buffer.WriteString(values[*index].StringValue())
+		*index++
+		buffer.WriteRune(b.GetMultiValuedSeparator())
+	}
+	bufferLength := buffer.Len()
+	// we added the multi value char to the last buffer, ignore it
+	if values[*index-1].FieldType().Tokenized() {
+		bufferLength--
+	}
+	eo := bufferLength
+	if bufferLength >= endOffset {
+		eo = b.BoundaryScanner.FindEndOffset(buffer.String(), endOffset)
+	}
+	*modifiedStartOffset = b.BoundaryScanner.FindStartOffset(buffer.String(), startOffset)
+	return buffer.String()[*modifiedStartOffset:eo]
+}
+
+func (b *BaseFragmentsBuilder) getFragmentSource(buffer *strings.Builder, index *int, values []*document.Field, startOffset, endOffset int) string {
+	for buffer.Len() < endOffset && *index < len(values) {
+		buffer.WriteString(values[*index].StringValue())
 		buffer.WriteRune(b.MultiValuedSeparator)
 		*index++
 	}
-	bufferLength := buffer.Len()
-
-	// In Java: if (values[index[0] - 1].fieldType().tokenized()) { bufferLength--; }
-	// We don't have fieldType here, but typically stored fields for highlighting are tokenized.
-	// Let's assume it is tokenized and remove the trailing separator.
-	if len(values) > 0 {
-		bufferLength--
+	eo := endOffset
+	if buffer.Len() < endOffset {
+		eo = buffer.Len()
 	}
-
-	eo := bufferLength
-	if bufferLength < endOffset {
-		eo = bufferLength
-	} else {
-		eo = b.BoundaryScanner.FindEndOffset(buffer.String(), endOffset)
-	}
-
-	*modifiedStartOffset = b.BoundaryScanner.FindStartOffset(buffer.String(), startOffset)
-	return buffer.String()[*modifiedStartOffset : eo]
+	return buffer.String()[startOffset:eo]
 }
 
-func (b *BaseFragmentsBuilder) discreteMultiValueHighlighting(fragInfos []*WeightedFragInfo, fields []string) []*WeightedFragInfo {
+func (b *BaseFragmentsBuilder) discreteMultiValueHighlighting(fragInfos []*WeightedFragInfo, fields []*document.Field) []*WeightedFragInfo {
 	fieldNameToFragInfos := make(map[string][]*WeightedFragInfo)
+	fieldNameOrder := make([]string, 0, len(fields))
 	for _, field := range fields {
-		fieldNameToFragInfos[field] = make([]*WeightedFragInfo, 0)
+		if _, ok := fieldNameToFragInfos[field.Name()]; !ok {
+			fieldNameOrder = append(fieldNameOrder, field.Name())
+		}
+		fieldNameToFragInfos[field.Name()] = make([]*WeightedFragInfo, 0)
 	}
 
+nextFragInfo:
 	for _, fragInfo := range fragInfos {
 		fieldStart := 0
 		fieldEnd := 0
 		for _, field := range fields {
-			if field == "" {
+			if field.StringValue() == "" {
 				fieldEnd++
 				continue
 			}
 			fieldStart = fieldEnd
-			fieldEnd += len(field) + 1
+			// + 1 for going to next field with same name.
+			fieldEnd += len(field.StringValue()) + 1
 
 			if fragInfo.StartOffset >= fieldStart &&
 				fragInfo.EndOffset >= fieldStart &&
 				fragInfo.StartOffset <= fieldEnd &&
 				fragInfo.EndOffset <= fieldEnd {
-				fieldNameToFragInfos[field] = append(fieldNameToFragInfos[field], fragInfo)
-				goto nextFragInfo
+				fieldNameToFragInfos[field.Name()] = append(fieldNameToFragInfos[field.Name()], fragInfo)
+				continue nextFragInfo
 			}
 
 			if len(fragInfo.SubInfos) == 0 {
-				continue
+				continue nextFragInfo
 			}
 
 			firstToffs := fragInfo.SubInfos[0].TermsOffsets[0]
@@ -230,25 +279,49 @@ func (b *BaseFragmentsBuilder) discreteMultiValueHighlighting(fragInfos []*Weigh
 			}
 
 			subInfos := make([]SubInfo, 0)
+			// The boost of the new info will be the sum of the boosts of its
+			// SubInfos
 			boost := float32(0)
-			for _, subInfo := range fragInfo.SubInfos {
+			keptSubInfos := fragInfo.SubInfos[:0]
+			for si := range fragInfo.SubInfos {
+				subInfo := &fragInfo.SubInfos[si]
 				toffsList := make([]Toffs, 0)
+				keptToffs := subInfo.TermsOffsets[:0]
 				for _, toffs := range subInfo.TermsOffsets {
 					if toffs.StartOffset >= fieldEnd {
-						break
+						// We've gone past this value so its not worth iterating
+						// any more.
+						keptToffs = append(keptToffs, toffs)
+						continue
 					}
 					startsAfterField := toffs.StartOffset >= fieldStart
 					endsBeforeField := toffs.EndOffset < fieldEnd
-					if startsAfterField && endsBeforeField {
+					switch {
+					case startsAfterField && endsBeforeField:
+						// The Toff is entirely within this value.
 						toffsList = append(toffsList, toffs)
-					} else if startsAfterField {
+					case startsAfterField:
+						// The Toffs starts within this value but ends after
+						// this value so we clamp the returned Toffs to this
+						// value and leave the Toffs in the iterator for the
+						// next value of this field.
 						toffsList = append(toffsList, Toffs{toffs.StartOffset, fieldEnd - 1})
-					} else if endsBeforeField {
+						keptToffs = append(keptToffs, toffs)
+					case endsBeforeField:
+						// The Toffs starts before this value but ends in this
+						// value which means we're really continuing from where
+						// we left off above. Since we use the remainder of the
+						// offset we can remove it from the iterator.
 						toffsList = append(toffsList, Toffs{fieldStart, toffs.EndOffset})
-					} else {
+					default:
+						// The Toffs spans the whole value so we clamp on both
+						// sides. This is basically a combination of both arms
+						// of the loop above.
 						toffsList = append(toffsList, Toffs{fieldStart, fieldEnd - 1})
+						keptToffs = append(keptToffs, toffs)
 					}
 				}
+				subInfo.TermsOffsets = keptToffs
 				if len(toffsList) > 0 {
 					subInfos = append(subInfos, SubInfo{
 						Text:         subInfo.Text,
@@ -258,33 +331,52 @@ func (b *BaseFragmentsBuilder) discreteMultiValueHighlighting(fragInfos []*Weigh
 					})
 					boost += subInfo.Boost
 				}
+				if len(subInfo.TermsOffsets) != 0 {
+					keptSubInfos = append(keptSubInfos, *subInfo)
+				}
 			}
+			fragInfo.SubInfos = keptSubInfos
 			weightedFragInfo := &WeightedFragInfo{
 				StartOffset: fragStart,
 				EndOffset:   fragEnd,
 				SubInfos:    subInfos,
 				TotalBoost:  boost,
 			}
-			fieldNameToFragInfos[field] = append(fieldNameToFragInfos[field], weightedFragInfo)
+			fieldNameToFragInfos[field.Name()] = append(fieldNameToFragInfos[field.Name()], weightedFragInfo)
 		}
-	nextFragInfo:
 	}
 
 	result := make([]*WeightedFragInfo, 0)
-	for _, weightedFragInfos := range fieldNameToFragInfos {
-		result = append(result, weightedFragInfos...)
+	for _, name := range fieldNameOrder {
+		result = append(result, fieldNameToFragInfos[name]...)
 	}
-
-	// Sort by start offset
-	for i := 0; i < len(result); i++ {
-		for j := i + 1; j < len(result); j++ {
-			if result[i].StartOffset > result[j].StartOffset {
-				result[i], result[j] = result[j], result[i]
-			}
-		}
-	}
+	sort.SliceStable(result, func(i, j int) bool {
+		return result[i].StartOffset-result[j].StartOffset < 0
+	})
 
 	return result
+}
+
+// GetMultiValuedSeparator returns the character inserted between the values of
+// a multi-valued field.
+func (b *BaseFragmentsBuilder) GetMultiValuedSeparator() rune { return b.MultiValuedSeparator }
+
+// SetMultiValuedSeparator sets the character inserted between the values of a
+// multi-valued field.
+func (b *BaseFragmentsBuilder) SetMultiValuedSeparator(separator rune) {
+	b.MultiValuedSeparator = separator
+}
+
+// IsDiscreteMultiValueHighlighting reports whether each value of a multi-valued
+// field is highlighted on its own.
+func (b *BaseFragmentsBuilder) IsDiscreteMultiValueHighlighting() bool {
+	return b.DiscreteMultiValueHighlighting
+}
+
+// SetDiscreteMultiValueHighlighting sets whether each value of a multi-valued
+// field is highlighted on its own.
+func (b *BaseFragmentsBuilder) SetDiscreteMultiValueHighlighting(v bool) {
+	b.DiscreteMultiValueHighlighting = v
 }
 
 func (b *BaseFragmentsBuilder) getPreTag(preTags []string, num int) string {

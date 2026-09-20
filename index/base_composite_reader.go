@@ -7,6 +7,8 @@ package index
 import (
 	"fmt"
 	"sync"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // BaseCompositeReader is a base implementation of CompositeReader that manages
@@ -16,10 +18,10 @@ import (
 // BaseCompositeReader handles the complexity of mapping global document IDs to
 // local document IDs within each sub-reader.
 type BaseCompositeReader struct {
-	*CompositeReader
+	*spi.CompositeReader
 
 	// subReaders is the list of sub-readers
-	subReaders []IndexReaderInterface
+	subReaders []spi.IndexReaderInterface
 
 	// starts contains the starting doc ID for each sub-reader
 	// starts[i] is the first doc ID of subReaders[i]
@@ -32,10 +34,10 @@ type BaseCompositeReader struct {
 	maxDoc int
 
 	// readerContext is the reader context for this composite reader
-	readerContext *CompositeReaderContext
+	readerContext *spi.CompositeReaderContext
 
 	// leafContexts are the leaf reader contexts
-	leafContexts []*LeafReaderContext
+	leafContexts []*spi.LeafReaderContext
 
 	// mu protects context initialization
 	mu sync.RWMutex
@@ -44,14 +46,14 @@ type BaseCompositeReader struct {
 // NewBaseCompositeReader creates a new BaseCompositeReader.
 //
 // The subReaders array must be non-empty and in sequential order.
-func NewBaseCompositeReader(subReaders []IndexReaderInterface) (*BaseCompositeReader, error) {
+func NewBaseCompositeReader(subReaders []spi.IndexReaderInterface) (*BaseCompositeReader, error) {
 	if len(subReaders) == 0 {
 		return nil, fmt.Errorf("subReaders array must be non-empty")
 	}
 
 	reader := &BaseCompositeReader{
-		CompositeReader: NewCompositeReader(),
-		subReaders:      make([]IndexReaderInterface, len(subReaders)),
+		CompositeReader: spi.NewCompositeReader(),
+		subReaders:      make([]spi.IndexReaderInterface, len(subReaders)),
 		starts:          make([]int, len(subReaders)+1),
 	}
 
@@ -77,12 +79,12 @@ func NewBaseCompositeReader(subReaders []IndexReaderInterface) (*BaseCompositeRe
 }
 
 // GetSequentialSubReaders returns the sub-readers in sequential order.
-func (r *BaseCompositeReader) GetSequentialSubReaders() []IndexReaderInterface {
+func (r *BaseCompositeReader) GetSequentialSubReaders() []spi.IndexReaderInterface {
 	return r.subReaders
 }
 
 // GetSubReader returns the sub-reader for the given document ID.
-func (r *BaseCompositeReader) GetSubReader(docID int) IndexReaderInterface {
+func (r *BaseCompositeReader) GetSubReader(docID int) spi.IndexReaderInterface {
 	idx := r.ReaderIndex(docID)
 	if idx < 0 || idx >= len(r.subReaders) {
 		return nil
@@ -119,7 +121,7 @@ func (r *BaseCompositeReader) ReaderBase(readerIndex int) int {
 }
 
 // GetContext returns the reader context.
-func (r *BaseCompositeReader) GetContext() (IndexReaderContext, error) {
+func (r *BaseCompositeReader) GetContext() (spi.IndexReaderContext, error) {
 	if err := r.EnsureOpen(); err != nil {
 		return nil, err
 	}
@@ -141,34 +143,34 @@ func (r *BaseCompositeReader) GetContext() (IndexReaderContext, error) {
 	}
 
 	// Create leaf contexts
-	r.leafContexts = make([]*LeafReaderContext, len(r.subReaders))
+	r.leafContexts = make([]*spi.LeafReaderContext, len(r.subReaders))
 	for i, subReader := range r.subReaders {
 		leafReader, ok := subReader.(LeafReader)
 		if !ok {
 			return nil, fmt.Errorf("sub-reader %d is not a LeafReader", i)
 		}
-		r.leafContexts[i] = NewLeafReaderContext(leafReader, nil, i, r.starts[i])
+		r.leafContexts[i] = spi.NewLeafReaderContext(leafReader, nil, i, r.starts[i])
 	}
 
 	// Create composite context - pass the composite reader itself
-	// The CompositeReader embeds IndexReader which implements IndexReaderInterface
+	// The CompositeReader embeds IndexReader which implements spi.IndexReaderInterface
 	compReader := r.CompositeReader.IndexReader
-	// Convert to IndexReaderInterface
-	var readerIf IndexReaderInterface = compReader
-	r.readerContext = NewCompositeReaderContextWithChildren(readerIf, nil, nil, r.leafContexts)
+	// Convert to spi.IndexReaderInterface
+	var readerIf spi.IndexReaderInterface = compReader
+	r.readerContext = spi.NewCompositeReaderContextWithChildren(readerIf, nil, nil, r.leafContexts)
 
 	return r.readerContext, nil
 }
 
 // Leaves returns all leaf reader contexts.
-func (r *BaseCompositeReader) Leaves() ([]*LeafReaderContext, error) {
+func (r *BaseCompositeReader) Leaves() ([]*spi.LeafReaderContext, error) {
 	ctx, err := r.GetContext()
 	if err != nil {
 		return nil, err
 	}
-	compCtx, ok := ctx.(*CompositeReaderContext)
+	compCtx, ok := ctx.(*spi.CompositeReaderContext)
 	if !ok {
-		return nil, fmt.Errorf("context is not a CompositeReaderContext")
+		return nil, fmt.Errorf("context is not a spi.CompositeReaderContext")
 	}
 	return compCtx.Leaves()
 }
@@ -213,7 +215,7 @@ func (r *BaseCompositeReader) closeInternal() error {
 
 // BaseCompositeReaderInterface defines the interface for base composite readers.
 type BaseCompositeReaderInterface interface {
-	CompositeReaderInterface
+	spi.CompositeReaderInterface
 
 	// ReaderIndex returns the index of the sub-reader for the given doc ID.
 	ReaderIndex(docID int) int

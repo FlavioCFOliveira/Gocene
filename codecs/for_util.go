@@ -239,7 +239,7 @@ func encodeInternalForUtil(ints []int32, bitsPerValue, primitiveSize int, out st
 	var buf [4]byte
 	for i := 0; i < numIntsPerShift; i++ {
 		binary.BigEndian.PutUint32(buf[:], uint32(scratch[i]))
-		if err := out.WriteBytes(buf[:]); err != nil {
+		if err := out.WriteBytes(buf[:], 0, len(buf[:])); err != nil {
 			return err
 		}
 	}
@@ -262,7 +262,7 @@ func splitInts(
 	// Read count ints (big-endian 4-byte words) into c[cIdx..].
 	var buf [4]byte
 	for i := 0; i < count; i++ {
-		if err := in.ReadBytes(buf[:]); err != nil {
+		if err := in.ReadBytes(buf[:], 0, len(buf[:])); err != nil {
 			return err
 		}
 		c[cIdx+i] = int32(binary.BigEndian.Uint32(buf[:]))
@@ -543,7 +543,7 @@ func decode8(in store.IndexInput, ints []int32) error {
 	// Equivalent to: pdu.in.readInts(ints, 0, 64) — just read 64 ints.
 	var buf [4]byte
 	for i := 0; i < 64; i++ {
-		if err := in.ReadBytes(buf[:]); err != nil {
+		if err := in.ReadBytes(buf[:], 0, len(buf[:])); err != nil {
 			return err
 		}
 		ints[i] = int32(binary.BigEndian.Uint32(buf[:]))
@@ -723,7 +723,7 @@ func decode16(in store.IndexInput, ints []int32) error {
 	// pdu.in.readInts(ints, 0, 128)
 	var buf [4]byte
 	for i := 0; i < 128; i++ {
-		if err := in.ReadBytes(buf[:]); err != nil {
+		if err := in.ReadBytes(buf[:], 0, len(buf[:])); err != nil {
 			return err
 		}
 		ints[i] = int32(binary.BigEndian.Uint32(buf[:]))

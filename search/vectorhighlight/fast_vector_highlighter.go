@@ -3,9 +3,9 @@ package vectorhighlight
 import (
 	"fmt"
 
+	"github.com/FlavioCFOliveira/Gocene/highlight"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
-	"github.com/FlavioCFOliveira/Gocene/highlight"
 )
 
 const (
@@ -57,7 +57,7 @@ func (f *FastVectorHighlighter) GetFieldQuery(query search.Query) *FieldQuery {
 }
 
 func (f *FastVectorHighlighter) GetFieldQueryWithReader(query search.Query, reader index.IndexReader) (*FieldQuery, error) {
-	return NewFieldQuery(query, reader, f.phraseHighlight, f.fieldMatch), nil
+	return NewFieldQuery(query, reader, f.phraseHighlight, f.fieldMatch)
 }
 
 func (f *FastVectorHighlighter) GetBestFragment(
@@ -138,11 +138,6 @@ func (f *FastVectorHighlighter) GetBestFragmentsMultiField(
 	if err != nil {
 		return nil, err
 	}
-	// For multi-field, we need a special call to create fragments since the stored field might be different.
-	// But our FragmentsBuilder interface doesn't support a different stored field name.
-	// Let's see what BaseFragmentsBuilder does in Java.
-	// In Java: return fragmentsBuilder.createFragments(reader, docId, storedField, fieldFragList, maxNumFragments, preTags, postTags, encoder);
-	// Our FragmentsBuilder.CreateFragments uses 'fieldName'. We'll assume storedField is the one to use.
 	return fragmentsBuilder.CreateFragmentsWithTags(reader, docID, storedField, fieldFragList, maxNumFragments, preTags, postTags, encoder)
 }
 
@@ -152,10 +147,13 @@ func (f *FastVectorHighlighter) getFieldFragList(
 	reader index.IndexReader,
 	docID int,
 	matchedField string,
-	fragCharSize int) (*FieldFragList, error) {
-	fieldTermStack := NewFieldTermStack(reader, docID, matchedField, fieldQuery)
-	fieldPhraseList := NewFieldPhraseList(fieldTermStack, fieldQuery, f.phraseLimit)
-	return fragListBuilder.CreateFieldFragList(fieldPhraseList, fragCharSize)
+	fragCharSize int) (FieldFragList, error) {
+	fieldTermStack, err := NewFieldTermStack(reader, docID, matchedField, fieldQuery)
+	if err != nil {
+		return nil, err
+	}
+	fieldPhraseList := NewFieldPhraseListWithLimit(fieldTermStack, fieldQuery, f.phraseLimit)
+	return fragListBuilder.CreateFieldFragList(fieldPhraseList, fragCharSize), nil
 }
 
 func (f *FastVectorHighlighter) getFieldFragListMultiField(
@@ -164,16 +162,19 @@ func (f *FastVectorHighlighter) getFieldFragListMultiField(
 	reader index.IndexReader,
 	docID int,
 	matchedFields map[string]struct{},
-	fragCharSize int) (*FieldFragList, error) {
+	fragCharSize int) (FieldFragList, error) {
 	if len(matchedFields) == 0 {
 		return nil, fmt.Errorf("matchedFields must contain at least one field name")
 	}
 	toMerge := make([]*FieldPhraseList, 0, len(matchedFields))
 	for field := range matchedFields {
-		stack := NewFieldTermStack(reader, docID, field, fieldQuery)
-		toMerge = append(toMerge, NewFieldPhraseList(stack, fieldQuery, f.phraseLimit))
+		stack, err := NewFieldTermStack(reader, docID, field, fieldQuery)
+		if err != nil {
+			return nil, err
+		}
+		toMerge = append(toMerge, NewFieldPhraseListWithLimit(stack, fieldQuery, f.phraseLimit))
 	}
-	return fragListBuilder.CreateFieldFragList(NewFieldPhraseListFromMerge(toMerge), fragCharSize)
+	return fragListBuilder.CreateFieldFragList(NewFieldPhraseListFromMerge(toMerge), fragCharSize), nil
 }
 
 func (f *FastVectorHighlighter) IsPhraseHighlight() bool {

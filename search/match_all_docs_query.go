@@ -4,12 +4,19 @@
 
 package search
 
-import "github.com/FlavioCFOliveira/Gocene/index"
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // MatchAllDocsQuery matches all documents in the index.
 type MatchAllDocsQuery struct {
 	*BaseQuery
 }
+
+// Instance is a singleton instance of MatchAllDocsQuery.
+var Instance = NewMatchAllDocsQuery()
 
 // NewMatchAllDocsQuery creates a new MatchAllDocsQuery.
 func NewMatchAllDocsQuery() *MatchAllDocsQuery {
@@ -18,13 +25,8 @@ func NewMatchAllDocsQuery() *MatchAllDocsQuery {
 	}
 }
 
-// Clone creates a copy of this query.
-func (q *MatchAllDocsQuery) Clone() Query {
-	return NewMatchAllDocsQuery()
-}
-
 // Equals checks if this query equals another.
-func (q *MatchAllDocsQuery) Equals(other Query) bool {
+func (q *MatchAllDocsQuery) Equals(other spi.Query) bool {
 	_, ok := other.(*MatchAllDocsQuery)
 	return ok
 }
@@ -35,13 +37,23 @@ func (q *MatchAllDocsQuery) HashCode() int {
 }
 
 // Rewrite rewrites the query to a simpler form.
-func (q *MatchAllDocsQuery) Rewrite(reader IndexReader) (Query, error) {
+func (q *MatchAllDocsQuery) Rewrite(searcher *IndexSearcher) (Query, error) {
 	return q, nil
 }
 
 // CreateWeight creates a Weight for this query.
-func (q *MatchAllDocsQuery) CreateWeight(searcher *IndexSearcher, needsScores bool, boost float32) (Weight, error) {
+func (q *MatchAllDocsQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreMode, boost float32) (Weight, error) {
 	return NewMatchAllDocsWeight(q, boost), nil
+}
+
+// ToString returns the string representation of the query.
+func (q *MatchAllDocsQuery) ToString(field string) string {
+	return "*:*"
+}
+
+// Visit visits the query with the given visitor.
+func (q *MatchAllDocsQuery) Visit(visitor QueryVisitor) {
+	visitor.VisitLeaf(q)
 }
 
 // MatchAllDocsWeight is the Weight implementation for MatchAllDocsQuery.
@@ -56,6 +68,11 @@ func NewMatchAllDocsWeight(query Query, boost float32) *MatchAllDocsWeight {
 		BaseWeight: NewBaseWeight(query),
 		boost:      boost,
 	}
+}
+
+// String returns the string representation of the weight.
+func (w *MatchAllDocsWeight) String() string {
+	return "weight(MatchAllDocsQuery)"
 }
 
 // Scorer creates a scorer for this weight.
@@ -76,7 +93,7 @@ func (w *MatchAllDocsWeight) ScorerSupplier(context *index.LeafReaderContext) (S
 	if scorer == nil {
 		return nil, nil
 	}
-	return NewScorerSupplierAdapter(scorer), nil
+	return NewDefaultScorerSupplier(scorer), nil
 }
 
 // Explain returns an explanation of the score for the given document.
@@ -119,64 +136,108 @@ var _ Weight = (*MatchAllDocsWeight)(nil)
 
 // MatchAllDocsScorer is the Scorer implementation for MatchAllDocsQuery.
 type MatchAllDocsScorer struct {
-	*BaseScorer
+	BaseScorer
 	maxDoc int
-	doc    int
 	score  float32
+	// disi mirrors the DocIdSetIterator that
+	// ConstantScoreScorerSupplier.matchAll(score, scoreMode, maxDoc) hands to
+	// the ConstantScoreScorer constructor: DocIdSetIterator.all(maxDoc).
+	disi DocIdSetIterator
 }
 
 // NewMatchAllDocsScorer creates a new MatchAllDocsScorer.
 func NewMatchAllDocsScorer(weight Weight, maxDoc int, score float32) *MatchAllDocsScorer {
 	return &MatchAllDocsScorer{
-		BaseScorer: NewBaseScorer(weight),
-		maxDoc:     maxDoc,
-		doc:        -1,
-		score:      score,
+		maxDoc: maxDoc,
+		score:  score,
+		disi:   All(maxDoc),
 	}
 }
 
-// DocID returns the current document ID.
+// DocID mirrors ConstantScoreScorer.docID(), whose body is
+// `return disi.docID();`.
 func (s *MatchAllDocsScorer) DocID() int {
-	return s.doc
+	return s.disi.DocID()
 }
 
-// NextDoc advances to the next document.
+// NextDoc advances the shared iterator; Java reaches it through iterator().
 func (s *MatchAllDocsScorer) NextDoc() (int, error) {
-	s.doc++
-	if s.doc >= s.maxDoc {
-		s.doc = NO_MORE_DOCS
-	}
-	return s.doc, nil
+	return s.disi.NextDoc()
 }
 
-// Advance advances to the target document.
+// Advance advances the shared iterator; Java reaches it through iterator().
 func (s *MatchAllDocsScorer) Advance(target int) (int, error) {
-	s.doc = target
-	if s.doc >= s.maxDoc {
-		s.doc = NO_MORE_DOCS
-	}
-	return s.doc, nil
+	return s.disi.Advance(target)
 }
 
-// Score returns the score.
-func (s *MatchAllDocsScorer) Score() float32 {
-	return s.score
+// Iterator mirrors ConstantScoreScorer.iterator(), whose body is
+// `return disi;`.
+func (s *MatchAllDocsScorer) Iterator() DocIdSetIterator {
+	return s.disi
 }
 
-// Cost returns the cost.
+// Score mirrors ConstantScoreScorer.score(), whose body is `return score;`.
+func (s *MatchAllDocsScorer) Score() (float32, error) {
+	return s.score, nil
+}
+
+// GetMaxScore mirrors ConstantScoreScorer.getMaxScore(int), whose body is
+// `return score;`.
+func (s *MatchAllDocsScorer) GetMaxScore(_ int) (float32, error) {
+	return s.score, nil
+}
+
+// Cost returns the cost of the shared iterator.
 func (s *MatchAllDocsScorer) Cost() int64 {
-	return int64(s.maxDoc)
+	return s.disi.Cost()
 }
 
 // DocIDRunEnd returns the end of the current run of consecutive doc IDs.
-func (s *MatchAllDocsScorer) DocIDRunEnd() int {
-	return s.maxDoc
+func (s *MatchAllDocsScorer) DocIDRunEnd() (int, error) {
+	return s.disi.DocIDRunEnd()
 }
 
+// NextDocsAndScores mirrors ConstantScoreScorer.nextDocsAndScores(int, Bits,
+// DocAndFloatFeatureBuffer) (Lucene 10.5.0):
+//
+//	int batchSize = 64;
+//	buffer.growNoCopy(batchSize);
+//	int size = 0;
+//	DocIdSetIterator iterator = iterator();
+//	for (int doc = iterator.docID(); doc < upTo && size < batchSize; doc = iterator.nextDoc()) {
+//	  if (liveDocs == null || liveDocs.get(doc)) {
+//	    buffer.docs[size] = doc;
+//	    ++size;
+//	  }
+//	}
+//	Arrays.fill(buffer.features, 0, size, score);
+//	buffer.size = size;
+func (s *MatchAllDocsScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	batchSize := 64
+	buffer.GrowNoCopy(batchSize)
+	size := 0
+	iterator := s.Iterator()
+	for doc := iterator.DocID(); doc < upTo && size < batchSize; {
+		if liveDocs == nil || liveDocs.Get(doc) {
+			buffer.Docs[size] = doc
+			size++
+		}
+		next, err := iterator.NextDoc()
+		if err != nil {
+			return err
+		}
+		doc = next
+	}
+	for i := 0; i < size; i++ {
+		buffer.Features[i] = s.score
+	}
+	buffer.Size = size
+	return nil
+}
 
-
-
-
-
-
-
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *MatchAllDocsScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

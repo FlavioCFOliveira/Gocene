@@ -227,10 +227,15 @@ func (f *LookaheadTokenFilter) NextToken() (bool, error) {
 	}
 }
 
+// IncrementToken advances to the next token.
+func (f *LookaheadTokenFilter) IncrementToken() (bool, error) {
+	return f.NextToken()
+}
+
 // Reset clears the lookahead state and forwards to the input stream.
 func (f *LookaheadTokenFilter) Reset() error {
 	if resetter, ok := f.input.(interface{ Reset() error }); ok {
-		if err := resetter.Reset(); err != nil {
+	if err := resetter.Reset(); err != nil {
 			return err
 		}
 	}

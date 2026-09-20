@@ -3,7 +3,7 @@ package documents
 import (
 	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/luke/models/util"
+	coreutil "github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TermVectorEntry is a holder for term vector entry representing the term and their number of occurrences, and optionally, positions in the document field.
@@ -14,18 +14,28 @@ type TermVectorEntry struct {
 }
 
 func NewTermVectorEntry(te index.TermsEnum) (*TermVectorEntry, error) {
-	termText := util.BytesRefDecode(te.Term())
+	termText := te.Term().Text()
 
 	var tvPositions []TermVectorPosition
-	pe, err := te.Postings(nil, index.PostingsEnumOffsets)
+	pe, err := te.Postings(index.PostingsFlagOffsets)
 	if err != nil {
 		return nil, err
 	}
 
-	if pe.NextDoc() != index.PostingsEnumNoMoreDocs {
-		freq := pe.Freq()
+	doc, err := pe.NextDoc()
+	if err != nil {
+		return nil, err
+	}
+	if doc != coreutil.NO_MORE_DOCS {
+		freq, err := pe.Freq()
+		if err != nil {
+			return nil, err
+		}
 		for i := 0; i < freq; i++ {
-			pos := pe.NextPosition()
+			pos, err := pe.NextPosition()
+			if err != nil {
+				return nil, err
+			}
 			if pos < 0 {
 				continue
 			}
@@ -33,13 +43,17 @@ func NewTermVectorEntry(te index.TermsEnum) (*TermVectorEntry, error) {
 			if err != nil {
 				return nil, err
 			}
-			tvPositions = append(tvPositions, tvPos)
+			tvPositions = append(tvPositions, *tvPos)
 		}
 	}
 
+	totalTermFreq, err := te.TotalTermFreq()
+	if err != nil {
+		return nil, err
+	}
 	return &TermVectorEntry{
 		termText:  termText,
-		freq:      te.TotalTermFreq(),
+		freq:      totalTermFreq,
 		positions: tvPositions,
 	}, nil
 }
@@ -76,8 +90,14 @@ type TermVectorPosition struct {
 }
 
 func NewTermVectorPosition(pos int, pe index.PostingsEnum) (*TermVectorPosition, error) {
-	sOffset := pe.StartOffset()
-	eOffset := pe.EndOffset()
+	sOffset, err := pe.StartOffset()
+	if err != nil {
+		return nil, err
+	}
+	eOffset, err := pe.EndOffset()
+	if err != nil {
+		return nil, err
+	}
 	if sOffset >= 0 && eOffset >= 0 {
 		return &TermVectorPosition{
 			position:    pos,

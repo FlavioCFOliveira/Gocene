@@ -9,13 +9,13 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // newTestSegmentInfo builds a minimal SegmentInfo for the given name and
 // document count, backed by an in-memory directory.
-func newTestSegmentInfo(t *testing.T, name string, docCount int) *schema.SegmentInfo {
+func newTestSegmentInfo(t *testing.T, name string, docCount int) *spi.SegmentInfo {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
 	return schema.NewSegmentInfo(name, docCount, dir)

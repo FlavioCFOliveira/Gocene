@@ -4,11 +4,9 @@
 
 package analysis
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"bufio"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"io"
 )
 
@@ -88,19 +86,15 @@ func NewNGramTokenizer(minGram, maxGram int) *NGramTokenizer {
 	}
 
 	// Add attributes
-	t.termAttr = NewCharTermAttribute()
-	t.offsetAttr = NewOffsetAttribute()
-	t.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-
-	t.AddAttribute(t.termAttr)
-	t.AddAttribute(t.offsetAttr)
-	t.AddAttribute(t.posIncrAttr)
+	t.termAttr = t.AddAttribute(CharTermAttributeType).(CharTermAttribute)
+	t.offsetAttr = t.AddAttribute(OffsetAttributeType).(OffsetAttribute)
+	t.posIncrAttr = t.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 
 	return t
 }
 
 // SetReader sets the input source for this Tokenizer.
-func (t *NGramTokenizer) SetReader(input io.Reader) error {
+func (t *NGramTokenizer) SetReader(input io.Reader) {
 	t.BaseTokenizer.SetReader(input)
 	t.scanner = bufio.NewScanner(input)
 	t.scanner.Split(bufio.ScanRunes)
@@ -109,7 +103,6 @@ func (t *NGramTokenizer) SetReader(input io.Reader) error {
 	t.currentPos = 0
 	t.currentGramSize = t.minGram
 	t.firstToken = true
-	return nil
 }
 
 // IncrementToken advances to the next token.

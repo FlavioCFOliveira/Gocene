@@ -9,7 +9,9 @@ package analysis
 // This is the Go port of
 // org.apache.lucene.analysis.core.FlattenGraphFilterFactory from
 // Apache Lucene 10.4.0.
-type FlattenGraphFilterFactory struct{}
+type FlattenGraphFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewFlattenGraphFilterFactory returns a fresh factory.
 func NewFlattenGraphFilterFactory() *FlattenGraphFilterFactory {

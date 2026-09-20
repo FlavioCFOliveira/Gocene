@@ -6,10 +6,8 @@ package codecs
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -41,7 +39,7 @@ func (f *AssertingPostingsFormat) FieldsConsumer(state *SegmentWriteState) (Fiel
 		return nil, err
 	}
 	return &AssertingFieldsConsumer{
-		in:        in,
+		in:         in,
 		writeState: state,
 	}, nil
 }
@@ -62,6 +60,18 @@ type AssertingFieldsProducer struct {
 	in FieldsProducer
 }
 
+func (p *AssertingFieldsProducer) Iterator() (index.FieldIterator, error) {
+	iterator, err := p.in.Iterator()
+	if err != nil {
+		return nil, err
+	}
+	// assert iterator != null;
+	if iterator == nil {
+		panic("AssertingFieldsProducer: in.iterator() returned null")
+	}
+	return iterator, nil
+}
+
 func (p *AssertingFieldsProducer) Terms(field string) (index.Terms, error) {
 	terms, err := p.in.Terms(field)
 	if err != nil {
@@ -70,7 +80,7 @@ func (p *AssertingFieldsProducer) Terms(field string) (index.Terms, error) {
 	if terms == nil {
 		return nil, nil
 	}
-	// Wrap in AssertingTerms from index package
+	// terms == null ? null : new AssertingLeafReader.AssertingTerms(terms)
 	return index.NewAssertingTerms(terms), nil
 }
 
@@ -89,62 +99,104 @@ func (p *AssertingFieldsProducer) CheckIntegrity() error {
 	return p.in.CheckIntegrity()
 }
 
-func (p *AssertingFieldsProducer) GetMergeInstance() (FieldsProducer, error) {
-	in, err := p.in.GetMergeInstance()
-	if err != nil {
-		return nil, err
-	}
-	return &AssertingFieldsProducer{in: in}, nil
+func (p *AssertingFieldsProducer) GetMergeInstance() FieldsProducer {
+	// new AssertingFieldsProducer(in.getMergeInstance())
+	return &AssertingFieldsProducer{in: p.in.GetMergeInstance()}
 }
 
 func (p *AssertingFieldsProducer) String() string {
-	return fmt.Sprintf("AssertingFieldsProducer(%s)", p.in.String())
+	// getClass().getSimpleName() + "(" + in.toString() + ")"
+	return fmt.Sprintf("AssertingFieldsProducer(%v)", p.in)
 }
 
 type AssertingFieldsConsumer struct {
 	in         FieldsConsumer
 	writeState *SegmentWriteState
-	lastField  string
-	lastTerm   *util.BytesRef
 }
 
-func (c *AssertingFieldsConsumer) Write(field string, terms schema.Terms) error {
-	// Write using the underlying consumer
-	if err := c.in.Write(field, terms); err != nil {
+// Write forwards to the delegate and then re-walks every field, term and
+// posting to assert the ordering and statistics contract.
+//
+// Mirrors AssertingPostingsFormat.AssertingFieldsConsumer.write(Fields,
+// NormsProducer) (AssertingPostingsFormat.java:106-231).
+func (c *AssertingFieldsConsumer) Write(fields index.Fields, norms NormsProducer) error {
+	// in.write(fields, norms);
+	if err := c.in.Write(fields, norms); err != nil {
 		return err
 	}
 
-	// Assert field order
-	if c.lastField != "" && c.lastField >= field {
-		panic(fmt.Sprintf("AssertingFieldsConsumer: fields are not in sorted order: %s >= %s", c.lastField, field))
-	}
-	c.lastField = field
+	// TODO: more asserts?  can we somehow run a
+	// "limited" CheckIndex here???  Or ... can we improve
+	// AssertingFieldsProducer and us it also to wrap the
+	// incoming Fields here?
 
-	if terms == nil {
+	lastField := ""
+	if fields == nil {
 		return nil
 	}
-
-	// Assert term order and postings correctness
-	te, err := terms.GetIterator()
+	it, err := fields.Iterator()
 	if err != nil {
 		return err
 	}
+	for {
+		field, err := it.Next()
+		if err != nil {
+			return err
+		}
+		if field == "" {
+			return nil
+		}
 
-	var term *util.BytesRef
-	var postings PostingsEnum
+		// FieldInfo fieldInfo = writeState.fieldInfos.fieldInfo(field);
+		// assert fieldInfo != null;
+		// assert lastField == null || lastField.compareTo(field) < 0;
+		fieldInfo := c.writeState.FieldInfos.FieldInfo(field)
+		if fieldInfo == nil {
+			panic(fmt.Sprintf("AssertingFieldsConsumer: field %s not found in FieldInfos", field))
+		}
+		if lastField != "" && lastField >= field {
+			panic(fmt.Sprintf("AssertingFieldsConsumer: fields are not in sorted order: %s >= %s", lastField, field))
+		}
+		lastField = field
 
-	fieldInfo := c.writeState.FieldInfos.FieldInfo(field)
-	if fieldInfo == nil {
-		panic(fmt.Sprintf("AssertingFieldsConsumer: field %s not found in FieldInfos", field))
+		terms, err := fields.Terms(field)
+		if err != nil {
+			return err
+		}
+		if terms == nil {
+			continue
+		}
+		if err := c.assertField(field, fieldInfo, terms); err != nil {
+			return err
+		}
 	}
+}
 
-	hasFreqs := fieldInfo.IndexOptions.Subsumes(spi.IndexOptionsDocsAndFreqs)
-	hasPositions := fieldInfo.IndexOptions.Subsumes(spi.IndexOptionsDocsAndFreqsAndPositions)
-	hasOffsets := fieldInfo.IndexOptions.Subsumes(spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets)
+// assertField carries the per-field body of the Java write loop.
+func (c *AssertingFieldsConsumer) assertField(field string, fieldInfo *spi.FieldInfo, terms spi.Terms) error {
+	te, err := terms.Iterator()
+	if err != nil {
+		return err
+	}
+	var lastTerm *util.BytesRefBuilder
+	var postings index.PostingsEnum
+
+	hasFreqs := fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqs)
+	hasPositions := fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqsAndPositions)
+	hasOffsets := fieldInfo.IndexOptions().Subsumes(spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets)
 	hasPayloads := terms.HasPayloads()
 
+	// assert hasPositions == terms.hasPositions();
+	// assert hasOffsets == terms.hasOffsets();
+	if hasPositions != terms.HasPositions() {
+		panic(fmt.Sprintf("AssertingFieldsConsumer: hasPositions (%v) != terms.hasPositions() (%v) for field %s", hasPositions, terms.HasPositions(), field))
+	}
+	if hasOffsets != terms.HasOffsets() {
+		panic(fmt.Sprintf("AssertingFieldsConsumer: hasOffsets (%v) != terms.hasOffsets() (%v) for field %s", hasOffsets, terms.HasOffsets(), field))
+	}
+
 	for {
-		term, err = te.Next()
+		term, err := te.Next()
 		if err != nil {
 			return err
 		}
@@ -152,34 +204,40 @@ func (c *AssertingFieldsConsumer) Write(field string, terms schema.Terms) error 
 			break
 		}
 
-		// Assert term order
-		if c.lastTerm != nil && c.lastTerm.CompareTo(term) >= 0 {
-			panic(fmt.Sprintf("AssertingFieldsConsumer: terms for field %s are not in sorted order: %s >= %s", field, c.lastTerm, term))
+		// assert lastTerm == null || lastTerm.get().compareTo(term) < 0;
+		if lastTerm != nil && util.BytesRefCompare(lastTerm.Get(), term.Bytes) >= 0 {
+			panic(fmt.Sprintf("AssertingFieldsConsumer: terms for field %s are not in sorted order: %s >= %s", field, lastTerm.Get(), term.Bytes))
 		}
-		c.lastTerm = term
+		if lastTerm == nil {
+			lastTerm = util.NewBytesRefBuilder()
+			lastTerm.Append(term.Bytes)
+		} else {
+			lastTerm.CopyBytesRef(term.Bytes)
+		}
 
-		// Request postings
 		flags := 0
 		if !hasPositions {
 			if hasFreqs {
-				flags |= spi.PostingsEnumFreqs
+				flags |= spi.PostingsFlagFreqs
 			}
 		} else {
-			flags |= spi.PostingsEnumPositions
+			flags = spi.PostingsFlagPositions
 			if hasPayloads {
-				flags |= spi.PostingsEnumPayloads
+				flags |= spi.PostingsFlagPayloads
 			}
 			if hasOffsets {
-				flags |= spi.PostingsEnumOffsets
+				flags |= spi.PostingsFlagOffsets
 			}
 		}
 
-		postings, err = te.Postings(postings, flags)
+		// postingsEnum = termsEnum.postings(postingsEnum, flags); the spi
+		// TermsEnum has no reuse parameter.
+		postings, err = te.Postings(flags)
 		if err != nil {
 			return err
 		}
 		if postings == nil {
-			panic(fmt.Sprintf("AssertingFieldsConsumer: postings are nil for term %s", term))
+			panic(fmt.Sprintf("AssertingFieldsConsumer: postings are nil for term %s (hasPositions=%v)", term.Bytes, hasPositions))
 		}
 
 		lastDocID := -1
@@ -188,7 +246,7 @@ func (c *AssertingFieldsConsumer) Write(field string, terms schema.Terms) error 
 			if err != nil {
 				return err
 			}
-			if docID == spi.PostingsEnumNoMoreDocs {
+			if docID == spi.NO_MORE_DOCS {
 				break
 			}
 			if docID <= lastDocID {
@@ -216,8 +274,9 @@ func (c *AssertingFieldsConsumer) Write(field string, terms schema.Terms) error 
 						if pos < lastPos {
 							panic(fmt.Sprintf("AssertingFieldsConsumer: positions are not non-decreasing: %d < %d", pos, lastPos))
 						}
-						if pos > 1000000000 { // Approx IndexWriter.MAX_POSITION
-							panic(fmt.Sprintf("AssertingFieldsConsumer: position %d exceeds MAX_POSITION", pos))
+						// assert pos <= IndexWriter.MAX_POSITION
+						if pos > index.MaxPosition {
+							panic(fmt.Sprintf("AssertingFieldsConsumer: pos=%d is > IndexWriter.MAX_POSITION=%d", pos, index.MaxPosition))
 						}
 						lastPos = pos
 
@@ -251,10 +310,6 @@ func (c *AssertingFieldsConsumer) Close() error {
 	err := c.in.Close()
 	_ = c.in.Close()
 	return err
-}
-
-func (c *AssertingFieldsConsumer) IsClosed() bool {
-	return c.in.IsClosed()
 }
 
 func (c *AssertingFieldsConsumer) GetState() *SegmentWriteState {

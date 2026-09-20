@@ -191,13 +191,7 @@ func (a *AbstractSortedSetDocValueFacetCounts) createFacetResult(
 		lv[i] = facets.NewLabelAndValue(parts[len(parts)-1], int64(e.count))
 	}
 
-	result := facets.NewFacetResultWithPath(dim, path)
-	result.Value = int64(top.pathCount)
-	result.ChildCount = top.childCount
-	for _, l := range lv {
-		result.AddLabelValue(l)
-	}
-	return result, nil
+	return facets.NewFacetResult(dim, path, float64(top.pathCount), lv, top.childCount), nil
 }
 
 // --- public Facets methods ---------------------------------------------------
@@ -253,13 +247,7 @@ func (a *AbstractSortedSetDocValueFacetCounts) GetAllChildren(
 		}
 	}
 
-	result := facets.NewFacetResultWithPath(dim, path)
-	result.Value = int64(a.adjustPathCount(cursor.pathOrd, pathCount))
-	result.ChildCount = len(lv)
-	for _, l := range lv {
-		result.AddLabelValue(l)
-	}
-	return result, nil
+	return facets.NewFacetResult(dim, path, float64(a.adjustPathCount(cursor.pathOrd, pathCount)), lv, len(lv)), nil
 }
 
 // GetSpecificValue returns the count for the single facet value at dim+path.

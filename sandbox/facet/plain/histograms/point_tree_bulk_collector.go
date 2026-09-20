@@ -11,19 +11,8 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/internal/hppc"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
-)
-
-// PointTreeRelation mirrors PointValues.Relation for the histogram traversal.
-type PointTreeRelation int
-
-const (
-	// PointTreeCellInsideQuery — entire cell is within the query range.
-	PointTreeCellInsideQuery PointTreeRelation = iota
-	// PointTreeCellCrossesQuery — cell partially overlaps the query range.
-	PointTreeCellCrossesQuery
-	// PointTreeCellOutsideQuery — cell is completely outside the query range.
-	PointTreeCellOutsideQuery
 )
 
 // PointTree is the minimal interface over the BKD point tree that
@@ -167,9 +156,9 @@ func Collect(
 func intersectWithRanges(visitor *histIntersectVisitor, tree PointTree, mgr *bucketManager) error {
 	rel := visitor.compare(tree.GetMinPackedValue(), tree.GetMaxPackedValue())
 	switch rel {
-	case PointTreeCellInsideQuery:
+	case spi.CellInsideQuery:
 		mgr.countNode(int(tree.Size()))
-	case PointTreeCellCrossesQuery:
+	case spi.CellCrossesQuery:
 		moved, err := tree.MoveToChild()
 		if err != nil {
 			return err
@@ -198,7 +187,7 @@ func intersectWithRanges(visitor *histIntersectVisitor, tree PointTree, mgr *buc
 				return ErrCollectionTerminated
 			}
 		}
-	case PointTreeCellOutsideQuery:
+	case spi.CellOutsideQuery:
 		// nothing to do
 	}
 	return nil
@@ -228,21 +217,21 @@ func (v *histIntersectVisitor) VisitDocValue(_ int, packedValue []byte) error {
 }
 
 // compare determines the relation of a cell to the current bucket window.
-func (v *histIntersectVisitor) compare(minPacked, maxPacked []byte) PointTreeRelation {
+func (v *histIntersectVisitor) compare(minPacked, maxPacked []byte) spi.Relation {
 	if !v.mgr.withinUpperBound(minPacked) {
 		v.mgr.finalizePreviousBucket(minPacked)
 		if !v.mgr.withinUpperBound(minPacked) {
 			// Signals to caller that traversal is done.
-			return PointTreeCellOutsideQuery
+			return spi.CellOutsideQuery
 		}
 	}
 	if !v.mgr.withinLowerBound(maxPacked) {
-		return PointTreeCellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if v.mgr.withinRange(minPacked) && v.mgr.withinRange(maxPacked) {
-		return PointTreeCellInsideQuery
+		return spi.CellInsideQuery
 	}
-	return PointTreeCellCrossesQuery
+	return spi.CellCrossesQuery
 }
 
 // bucketManager tracks the current bucket window and accumulates counts.

@@ -27,17 +27,17 @@ type FirstPassGroupingCollector[T any] struct {
 
 	comparators     []search.FieldComparator
 	leafComparators []search.LeafFieldComparator
-	reversed       []int
-	topNGroups     int
-	needsScores    bool
-	groupMap       map[any]*CollectedSearchGroup[T]
-	compIDXEnd     int
+	reversed        []int
+	topNGroups      int
+	needsScores     bool
+	groupMap        map[any]*CollectedSearchGroup[T]
+	compIDXEnd      int
 
 	// Set once we reach topNGroups unique groups:
 	orderedGroups []*CollectedSearchGroup[T]
 
-	docBase    int
-	spareSlot  int
+	docBase   int
+	spareSlot int
 }
 
 // NewFirstPassGroupingCollector creates the first pass collector.
@@ -53,7 +53,7 @@ func NewFirstPassGroupingCollector[T any](groupSelector GroupSelector[T], groupS
 
 	for i, sf := range sortFields {
 		// use topNGroups + 1 so we have a spare slot to use for comparing:
-		comparators[i] = sf.GetComparator(topNGroups+1, search.PruningNone)
+		comparators[i] = search.SortFieldGetComparator(sf, topNGroups+1, search.PruningNone)
 		if sf.Reverse {
 			reversed[i] = -1
 		} else {
@@ -63,9 +63,9 @@ func NewFirstPassGroupingCollector[T any](groupSelector GroupSelector[T], groupS
 
 	return &FirstPassGroupingCollector[T]{
 		groupSelector:               groupSelector,
-		ignoreDocsWithoutGroupField:   ignoreDocsWithoutGroupField,
-		comparators:                  comparators,
-		leafComparators:              leafComparators,
+		ignoreDocsWithoutGroupField: ignoreDocsWithoutGroupField,
+		comparators:                 comparators,
+		leafComparators:             leafComparators,
 		reversed:                    reversed,
 		topNGroups:                  topNGroups,
 		needsScores:                 groupSort.NeedsScores(),
@@ -126,25 +126,32 @@ func (c *FirstPassGroupingCollector[T]) SetScorer(scorer search.Scorable) error 
 	return nil
 }
 
-func (c *FirstPassGroupingCollector[T]) isCompetitive(doc int) bool {
+func (c *FirstPassGroupingCollector[T]) isCompetitive(doc int) (bool, error) {
 	if c.orderedGroups != nil {
 		for compIDX := 0; ; compIDX++ {
-			cmp := c.leafComparators[compIDX].CompareBottom(doc)
+			cmp, err := c.leafComparators[compIDX].CompareBottom(doc)
+			if err != nil {
+				return false, err
+			}
 			res := c.reversed[compIDX] * cmp
 			if res < 0 {
-				return false
+				return false, nil
 			} else if res > 0 {
 				break
 			} else if compIDX == c.compIDXEnd {
-				return false
+				return false, nil
 			}
 		}
 	}
-	return true
+	return true, nil
 }
 
 func (c *FirstPassGroupingCollector[T]) Collect(doc int) error {
-	if !c.isCompetitive(doc) {
+	competitive, err := c.isCompetitive(doc)
+	if err != nil {
+		return err
+	}
+	if !competitive {
 		return nil
 	}
 
@@ -316,9 +323,13 @@ func (c *FirstPassGroupingCollector[T]) removeSorted(group *CollectedSearchGroup
 }
 
 func (c *FirstPassGroupingCollector[T]) DoSetNextReader(readerContext *index.LeafReaderContext) error {
-	c.docBase = readerContext.docBase
+	c.docBase = readerContext.DocBase
 	for i := 0; i < len(c.comparators); i++ {
-		c.leafComparators[i] = c.comparators[i].GetLeafComparator(readerContext)
+		leaf, err := c.comparators[i].GetLeafComparator(readerContext)
+		if err != nil {
+			return err
+		}
+		c.leafComparators[i] = leaf
 	}
 	if err := c.groupSelector.SetNextReader(readerContext); err != nil {
 		return err

@@ -6,6 +6,7 @@ package lucene104
 
 import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 )
 
 // Mode selects the compression mode for stored fields produced
@@ -27,8 +28,7 @@ const (
 //   - Lucene104PostingsFormat for postings (term -> document mappings)
 //   - Lucene104StoredFieldsFormat for stored fields (or CompressingStoredFieldsFormat when Mode is specified)
 //   - Lucene104FieldInfosFormat for field metadata
-//   - Lucene104SegmentInfosFormat for segment metadata
-//   - Lucene104TermVectorsFormat for term vectors
+//   - Lucene90TermVectorsFormat for term vectors
 //   - Lucene90DocValuesFormat for doc values (Lucene 10.x uses the same format as 9.x)
 //   - Lucene99HnswVectorsFormat (via PerFieldKnnVectorsFormat) for KNN vectors
 //
@@ -39,7 +39,6 @@ type Lucene104Codec struct {
 	postingsFormat     codecs.PostingsFormat
 	storedFieldsFormat codecs.StoredFieldsFormat
 	fieldInfosFormat   codecs.FieldInfosFormat
-	segmentInfosFormat codecs.SegmentInfoFormat
 	segmentInfoFormat  codecs.SegmentInfoFormat
 	termVectorsFormat  codecs.TermVectorsFormat
 	docValuesFormat    codecs.DocValuesFormat
@@ -68,9 +67,13 @@ func NewLucene104CodecWithMode(mode Mode) *Lucene104Codec {
 	var sf codecs.StoredFieldsFormat
 	switch mode {
 	case BestSpeed:
-		sf = codecs.NewCompressingStoredFieldsFormat(codecs.CompressionModeLZ4Fast, 16*1024, 128)
+		// Java: new Lucene90StoredFieldsFormat(Objects.requireNonNull(mode).storedMode)
+		// (Lucene104Codec(Mode), storedMode == Lucene90StoredFieldsFormat.Mode.BEST_SPEED).
+		sf = lucene90.NewLucene90StoredFieldsFormatWithMode(lucene90.Lucene90StoredFieldsBestSpeed)
 	case BestCompression:
-		sf = codecs.NewCompressingStoredFieldsFormat(codecs.CompressionModeDeflate, 64*1024, 256)
+		// Java: the same call with storedMode ==
+		// Lucene90StoredFieldsFormat.Mode.BEST_COMPRESSION.
+		sf = lucene90.NewLucene90StoredFieldsFormatWithMode(lucene90.Lucene90StoredFieldsBestCompression)
 	default:
 		sf = codecs.NewLucene104StoredFieldsFormat()
 	}
@@ -88,9 +91,8 @@ func NewLucene104CodecWithMode(mode Mode) *Lucene104Codec {
 		postingsFormat:          codecs.NewPerFieldPostingsFormatWithDefault(defaultPostings),
 		storedFieldsFormat:      sf,
 		fieldInfosFormat:        codecs.NewLucene104FieldInfosFormat(),
-		segmentInfosFormat:      codecs.NewLucene104SegmentInfosFormat(),
 		segmentInfoFormat:       codecs.NewLucene99SegmentInfoFormat(),
-		termVectorsFormat:       codecs.NewLucene104TermVectorsFormat(),
+		termVectorsFormat:       lucene90.NewLucene90TermVectorsFormat(),
 		docValuesFormat:         codecs.NewPerFieldDocValuesFormatWithDefault(defaultDV),
 		compoundFormat:          codecs.NewLucene90CompoundFormat(),
 		knnVectorsFormat:        codecs.NewPerFieldKnnVectorsFormatWithDefault(defaultKnn),
@@ -125,11 +127,6 @@ func (c *Lucene104Codec) FieldInfosFormat() codecs.FieldInfosFormat {
 // SegmentInfoFormat returns the per-segment .si format.
 func (c *Lucene104Codec) SegmentInfoFormat() codecs.SegmentInfoFormat {
 	return c.segmentInfoFormat
-}
-
-// SegmentInfosFormat returns the segment infos format.
-func (c *Lucene104Codec) SegmentInfosFormat() codecs.SegmentInfoFormat {
-	return c.segmentInfosFormat
 }
 
 // LiveDocsFormat returns the live docs format.

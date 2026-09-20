@@ -22,13 +22,13 @@ import (
 
 // floatScoringSupplier is the Go counterpart of the private static
 // inner class DefaultFlatVectorScorer.FloatScoringSupplier (Lucene
-// 10.4.0). It holds the float-vector view together with a
+// 10.5.0). It holds the float-vector view together with a
 // per-supplier copy used as the scoring target; each Scorer() call
 // creates a fresh closure that scores incoming nodes against the
 // supplier's target buffer.
 type floatScoringSupplier struct {
-	vectors            FloatVectorValues
-	targetVectors      FloatVectorValues
+	vectors            index.FloatVectorValues
+	targetVectors      index.FloatVectorValues
 	similarityFunction index.VectorSimilarityFunction
 }
 
@@ -36,10 +36,10 @@ type floatScoringSupplier struct {
 // the input view (mirroring the Java constructor's `targetVectors =
 // vectors.copy()` line).
 func newFloatScoringSupplier(
-	vectors FloatVectorValues,
+	vectors index.FloatVectorValues,
 	similarityFunction index.VectorSimilarityFunction,
 ) (hnsw.RandomVectorScorerSupplier, error) {
-	targets, err := vectors.CopyFloat()
+	targets, err := vectors.CopyFloatVectorValues()
 	if err != nil {
 		return nil, fmt.Errorf("FloatScoringSupplier: copy vectors: %w", err)
 	}
@@ -72,12 +72,12 @@ func (s *floatScoringSupplier) Copy() (hnsw.RandomVectorScorerSupplier, error) {
 
 // String returns the canonical Java toString() output.
 func (s *floatScoringSupplier) String() string {
-	return fmt.Sprintf("FloatScoringSupplier(similarityFunction=%s)", s.similarityFunction.String())
+	return fmt.Sprintf("FloatScoringSupplier(similarityFunction=%s)", s.similarityFunction.ID().String())
 }
 
 // floatScoringSupplierScorer is the per-Scorer() closure equivalent.
-// It owns a private target buffer (mirroring `byte[] vector = new
-// byte[vectors.dimension()]` in the Java inner anonymous class) so
+// It owns a private target buffer (mirroring `float[] vector = new
+// float[vectors.dimension()]` in the Java inner anonymous class) so
 // multiple scorers from the same supplier do not perturb each other.
 type floatScoringSupplierScorer struct {
 	*hnsw.AbstractUpdateableRandomVectorScorer
@@ -117,18 +117,18 @@ func (s *floatScoringSupplierScorer) BulkScore(nodes []int, scores []float32, nu
 // mirroring DefaultFlatVectorScorer.ByteScoringSupplier in the Java
 // reference.
 type byteScoringSupplier struct {
-	vectors            ByteVectorValues
-	targetVectors      ByteVectorValues
+	vectors            index.ByteVectorValues
+	targetVectors      index.ByteVectorValues
 	similarityFunction index.VectorSimilarityFunction
 }
 
 // newByteScoringSupplier copies the input view and constructs the
 // supplier.
 func newByteScoringSupplier(
-	vectors ByteVectorValues,
+	vectors index.ByteVectorValues,
 	similarityFunction index.VectorSimilarityFunction,
 ) (hnsw.RandomVectorScorerSupplier, error) {
-	targets, err := vectors.CopyByte()
+	targets, err := vectors.CopyByteVectorValues()
 	if err != nil {
 		return nil, fmt.Errorf("ByteScoringSupplier: copy vectors: %w", err)
 	}
@@ -158,7 +158,7 @@ func (s *byteScoringSupplier) Copy() (hnsw.RandomVectorScorerSupplier, error) {
 
 // String returns the canonical Java toString() output.
 func (s *byteScoringSupplier) String() string {
-	return fmt.Sprintf("ByteScoringSupplier(similarityFunction=%s)", s.similarityFunction.String())
+	return fmt.Sprintf("ByteScoringSupplier(similarityFunction=%s)", s.similarityFunction.ID().String())
 }
 
 // byteScoringSupplierScorer is the per-Scorer() closure for byte
@@ -199,14 +199,14 @@ func (s *byteScoringSupplierScorer) BulkScore(nodes []int, scores []float32, num
 // scores stored vectors against an immutable float32 query vector.
 type floatVectorScorer struct {
 	*hnsw.AbstractRandomVectorScorer
-	values             FloatVectorValues
+	values             index.FloatVectorValues
 	query              []float32
 	similarityFunction index.VectorSimilarityFunction
 }
 
 // newFloatVectorScorer builds a floatVectorScorer bound to query.
 func newFloatVectorScorer(
-	values FloatVectorValues,
+	values index.FloatVectorValues,
 	query []float32,
 	similarityFunction index.VectorSimilarityFunction,
 ) hnsw.RandomVectorScorer {
@@ -236,14 +236,14 @@ func (s *floatVectorScorer) BulkScore(nodes []int, scores []float32, numNodes in
 // byteVectorScorer is the byte counterpart of [floatVectorScorer].
 type byteVectorScorer struct {
 	*hnsw.AbstractRandomVectorScorer
-	values             ByteVectorValues
+	values             index.ByteVectorValues
 	query              []byte
 	similarityFunction index.VectorSimilarityFunction
 }
 
 // newByteVectorScorer builds a byteVectorScorer bound to query.
 func newByteVectorScorer(
-	values ByteVectorValues,
+	values index.ByteVectorValues,
 	query []byte,
 	similarityFunction index.VectorSimilarityFunction,
 ) hnsw.RandomVectorScorer {

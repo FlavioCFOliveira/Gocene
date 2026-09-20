@@ -688,8 +688,8 @@ func (s *BKDRadixSelector) HeapRadixSort(
 		dataOffset:  dataOffset,
 	}
 
-	sorter := util.NewMSBRadixSorter(impl, s.bytesSorted-commonPrefixLength)
-	sorter.Sort(from, to)
+	sorter := util.NewMSBRadixSorter(s.bytesSorted-commonPrefixLength)
+	sorter.Sort(impl, from, to)
 }
 
 // getDeltaPointWriter chooses between a heap-backed and an offline
@@ -804,6 +804,23 @@ type heapRadixImpl struct {
 // Swap delegates to the underlying heap writer.
 func (h *heapRadixImpl) Swap(i, j int) { h.points.swap(i, j) }
 
+// Compare returns negative/zero/positive when slot i is less than/equal to/greater than slot j.
+func (h *heapRadixImpl) Compare(i, j int) int {
+	// Compare bytes up to bytesSorted.
+	bytesSorted := h.points.config.BytesPerDim() + (h.points.config.NumDims()-h.points.config.NumIndexDims())*h.points.config.BytesPerDim() + 4
+	for k := 0; k < bytesSorted; k++ {
+		b1 := h.ByteAt(i, k)
+		b2 := h.ByteAt(j, k)
+		if b1 != b2 {
+			return b1 - b2
+		}
+		if b1 == -1 {
+			break
+		}
+	}
+	return 0
+}
+
 // ByteAt maps the k-th radix byte (counted from commonPrefixLength)
 // onto either the trailing dim bytes or the data-dim + docID block.
 // Mirrors the anonymous class in Java's heapRadixSelect.
@@ -822,6 +839,23 @@ type heapRadixSortImpl struct {
 	dimOffset   int
 	dimCmpBytes int
 	dataOffset  int
+}
+
+// Compare returns negative/zero/positive when slot i is less than/equal to/greater than slot j.
+func (h *heapRadixSortImpl) Compare(i, j int) int {
+	// Compare bytes up to bytesSorted.
+	bytesSorted := h.points.config.BytesPerDim() + (h.points.config.NumDims()-h.points.config.NumIndexDims())*h.points.config.BytesPerDim() + 4
+	for k := 0; k < bytesSorted; k++ {
+		b1 := h.ByteAt(i, k)
+		b2 := h.ByteAt(j, k)
+		if b1 != b2 {
+			return b1 - b2
+		}
+		if b1 == -1 {
+			break
+		}
+	}
+	return 0
 }
 
 // Swap delegates to the underlying heap writer.

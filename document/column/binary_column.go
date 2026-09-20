@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -31,7 +32,7 @@ type BaseBinaryColumn struct {
 }
 
 // NewBaseBinaryColumn creates a new BaseBinaryColumn.
-func NewBaseBinaryColumn(name string, fieldType index.IndexableFieldType, density Density) BaseBinaryColumn {
+func NewBaseBinaryColumn(name string, fieldType spi.IndexableFieldType, density Density) BaseBinaryColumn {
 	return BaseBinaryColumn{
 		BaseColumn: NewBaseColumn(name, fieldType, density),
 	}

@@ -219,7 +219,7 @@ func TestFieldReader_Size(t *testing.T) {
 // methods work on a properly initialized instance.
 func TestLucene40BlockTreeTermsReader_SizeAndString(t *testing.T) {
 	r := &Lucene40BlockTreeTermsReader{
-		segment: "testseg",
+		segment:        "testseg",
 		postingsReader: &noopPostingsReader{},
 	}
 	if r.Size() != 0 {

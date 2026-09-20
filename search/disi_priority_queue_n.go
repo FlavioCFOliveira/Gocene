@@ -257,3 +257,17 @@ func (pq *DisiPriorityQueueN) downHeap(size int) {
 		}
 	}
 }
+
+// All iterates over the queue's entries in heap order.
+//
+// Mirrors DisiPriorityQueueN.iterator(), whose body is
+// Arrays.asList(heap).subList(0, size).iterator().
+func (pq *DisiPriorityQueueN) All() func(yield func(*DisiWrapper) bool) {
+	return func(yield func(*DisiWrapper) bool) {
+		for _, w := range pq.heap[:pq.size] {
+			if !yield(w) {
+				return
+			}
+		}
+	}
+}

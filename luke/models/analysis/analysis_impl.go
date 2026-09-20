@@ -13,7 +13,7 @@ import (
 
 type analysisImpl struct {
 	analyzer analysis.Analyzer
-	loader   *AnalysisSPILoader
+	loader   *analysis.AnalysisSPILoader
 }
 
 // NewAnalysisImpl creates a new instance of Analysis.
@@ -149,7 +149,7 @@ func (a *analysisImpl) copyAttributes(stream analysis.TokenStream) []TokenAttrib
 				}
 			})
 			attributes = append(attributes, TokenAttribute{
-				attClass:  impl.GetType().String(),
+				attClass:  util.AttributeClassName(reflect.TypeOf(impl)),
 				attValues: attValues,
 			})
 		}
@@ -194,9 +194,7 @@ func (a *analysisImpl) AnalyzeStepByStep(text string) (*StepByStepResult, error)
 
 	tokenizerFactory := custom.GetTokenizerFactory()
 	tokenizer := analysis.CreateDefaultTokenizer(tokenizerFactory)
-	if err := tokenizer.SetReader(currentReader); err != nil {
-		return nil, err
-	}
+	tokenizer.SetReader(currentReader)
 
 	var namedTokens []NamedTokens
 
@@ -284,12 +282,17 @@ func newListBasedTokenStream(sources []*util.AttributeSource) *listBasedTokenStr
 	}
 }
 
+func (ls *listBasedTokenStream) Reset() error {
+	ls.iterator = 0
+	return nil
+}
+
 func (ls *listBasedTokenStream) IncrementToken() (bool, error) {
 	if ls.iterator >= len(ls.sources) {
 		return false, nil
 	}
 
-	source := ls.sources[ls.iterator]
+	_ = ls.sources[ls.iterator]
 	ls.iterator++
 
 	// We need to provide an AttributeSource for the downstream filter

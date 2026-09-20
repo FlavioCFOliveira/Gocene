@@ -9,7 +9,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
@@ -982,7 +983,7 @@ type oneDimVisitor struct{ ow *oneDimensionWriter }
 
 func (v *oneDimVisitor) Visit(_ int) error                             { return fmt.Errorf("unexpected Visit without packedValue") }
 func (v *oneDimVisitor) VisitByPackedValue(docID int, pv []byte) error { return v.ow.add(pv, docID) }
-func (v *oneDimVisitor) Compare(_, _ []byte) codecs.Relation           { return codecs.RelationCellCrossesQuery }
+func (v *oneDimVisitor) Compare(_, _ []byte) index.Relation            { return index.CellCrossesQuery }
 func (v *oneDimVisitor) Grow(_ int)                                    {}
 
 // rotateToTree recursively fills the BKD index array from the sorted leaf
@@ -1030,4 +1031,24 @@ func bytesRefString(b []byte) string {
 	}
 	buf = append(buf, ']')
 	return string(buf)
+}
+
+// VisitByDocIDSetIterator renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator), which v does not
+// override.
+func (v *oneDimVisitor) VisitByDocIDSetIterator(iterator spi.DocIdSetIterator) error {
+	return spi.DefaultVisitByDocIDSetIterator(v, iterator)
+}
+
+// VisitByIntsRef renders the default body of
+// PointValues.IntersectVisitor.visit(IntsRef), which v does not override.
+func (v *oneDimVisitor) VisitByIntsRef(ref *util.IntsRef) error {
+	return spi.DefaultVisitByIntsRef(v, ref)
+}
+
+// VisitByDocIDSetIteratorAndPackedValue renders the default body of
+// PointValues.IntersectVisitor.visit(DocIdSetIterator, byte[]), which v
+// does not override.
+func (v *oneDimVisitor) VisitByDocIDSetIteratorAndPackedValue(iterator spi.DocIdSetIterator, packedValue []byte) error {
+	return spi.DefaultVisitByDocIDSetIteratorAndPackedValue(v, iterator, packedValue)
 }

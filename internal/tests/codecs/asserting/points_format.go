@@ -7,9 +7,8 @@ package asserting
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs/asserting"
+	assertingcodec "github.com/FlavioCFOliveira/Gocene/codecs/asserting"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
@@ -50,7 +49,7 @@ func (f *AssertingPointsFormat) FieldsReader(state *spi.SegmentReadState) (spi.P
 	}
 	return &assertingPointsReader{
 		in:         reader,
-		maxDoc:     state.SegmentInfo.MaxDoc,
+		maxDoc:     state.SegmentInfo.MaxDoc(),
 		fieldInfos: state.FieldInfos,
 		merging:    false,
 	}, nil
@@ -59,7 +58,7 @@ func (f *AssertingPointsFormat) FieldsReader(state *spi.SegmentReadState) (spi.P
 type assertingPointsReader struct {
 	in         spi.PointsReader
 	maxDoc     int
-	fieldInfos *schema.FieldInfos
+	fieldInfos *spi.FieldInfos
 	merging    bool
 	creationThread interface{}
 }
@@ -101,10 +100,7 @@ func (r *assertingPointsReader) GetValues(field string) (index.PointValues, erro
 		return nil, nil
 	}
 
-	return &index.AssertingPointValues{
-		in:     values,
-		maxDoc: r.maxDoc,
-	}, nil
+	return index.NewAssertingPointValues(values, r.maxDoc), nil
 }
 
 func (r *assertingPointsReader) GetMergeInstance() spi.PointsReader {
@@ -129,11 +125,25 @@ type assertingPointsWriter struct {
 	in spi.PointsWriter
 }
 
-func (w *assertingPointsWriter) WriteField(fieldInfo *schema.FieldInfo, reader spi.PointsReader) error {
+func (w *assertingPointsWriter) WriteField(fieldInfo *spi.FieldInfo, reader spi.PointsReader) error {
 	if fieldInfo.PointDimensionCount() == 0 {
 		panic(fmt.Sprintf("AssertingPointsWriter: writing field %q but pointDimensionCount is 0", fieldInfo.Name()))
 	}
 	return w.in.WriteField(fieldInfo, reader)
+}
+
+// Merge renders AssertingPointsWriter.merge(MergeState): in.merge(mergeState).
+// PointsWriter.merge is carried by codecs.BasePointsWriter, not by
+// spi.PointsWriter (MergeState lives in package index), so it is reached
+// through the member every codec points writer carries.
+func (w *assertingPointsWriter) Merge(mergeState *index.MergeState) error {
+	merger, ok := w.in.(interface {
+		Merge(mergeState *index.MergeState) error
+	})
+	if !ok {
+		return fmt.Errorf("AssertingPointsWriter: delegate %T does not carry PointsWriter.merge", w.in)
+	}
+	return merger.Merge(mergeState)
 }
 
 func (w *assertingPointsWriter) Finish() error {

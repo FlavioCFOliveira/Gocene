@@ -6,6 +6,8 @@
 package search
 
 import (
+	"math"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -188,7 +190,7 @@ func (s *TermAutomatonScorer) pushCurrentDoc() {
 func (s *TermAutomatonScorer) DocID() int { return s.docID }
 
 // DocIDRunEnd returns docID+1.
-func (s *TermAutomatonScorer) DocIDRunEnd() int { return s.docID + 1 }
+func (s *TermAutomatonScorer) DocIDRunEnd() (int, error) { return s.docID + 1, nil }
 
 // NextDoc advances to the next matching document.
 func (s *TermAutomatonScorer) NextDoc() (int, error) {
@@ -438,14 +440,77 @@ func (s *TermAutomatonScorer) GetOriginalSubsOnDoc() []*EnumAndScorer {
 	return s.originalSubsOnDoc
 }
 
+// Iterator returns the DocIdSetIterator view of this scorer.
+//
+// Java: TermAutomatonScorer#iterator() returns an anonymous DocIdSetIterator
+// whose docID/cost/nextDoc/advance delegate to the scorer's own state, which
+// is what termAutomatonIterator does here.
+func (s *TermAutomatonScorer) Iterator() search.DocIdSetIterator {
+	return &termAutomatonIterator{s: s}
+}
+
 // Score returns the similarity score for the current document.
-func (s *TermAutomatonScorer) Score() float32 {
-	return s.scorer.Score(s.docID, float32(s.freq), 1)
+//
+// Java: long norm = 1L; if (norms != null && norms.advanceExact(docID)) norm =
+// norms.longValue(); return scorer.score(freq, norm).
+func (s *TermAutomatonScorer) Score() (float32, error) {
+	var norm int64 = 1
+	if s.norms != nil {
+		ok, err := s.norms.AdvanceExact(s.docID)
+		if err != nil {
+			return 0, err
+		}
+		if ok {
+			if norm, err = s.norms.LongValue(); err != nil {
+				return 0, err
+			}
+		}
+	}
+	return s.scorer.Score104(float32(s.freq), norm), nil
 }
 
 // GetMaxScore returns an upper bound on the score.
-func (s *TermAutomatonScorer) GetMaxScore(_ int) float32 {
-	return s.scorer.Score(s.docID, float32(1e30), 1)
+//
+// Java: return scorer.score(Float.MAX_VALUE, 1L).
+func (s *TermAutomatonScorer) GetMaxScore(_ int) (float32, error) {
+	return s.scorer.Score104(math.MaxFloat32, 1), nil
+}
+
+// TwoPhaseIterator carries Scorer#twoPhaseIterator()'s default body (null);
+// Java's TermAutomatonScorer does not override it.
+func (s *TermAutomatonScorer) TwoPhaseIterator() *search.TwoPhaseIterator { return nil }
+
+// GetChildren carries Scorable.getChildren()'s default body (empty list);
+// Java's TermAutomatonScorer does not override it.
+func (s *TermAutomatonScorer) GetChildren() ([]search.ChildScorable, error) {
+	return []search.ChildScorable{}, nil
+}
+
+// SmoothingScore carries Scorable.smoothingScore(int)'s default body (0f).
+func (s *TermAutomatonScorer) SmoothingScore(docID int) (float32, error) { return 0, nil }
+
+// SetMinCompetitiveScore carries Scorable.setMinCompetitiveScore(float)'s
+// empty default body.
+func (s *TermAutomatonScorer) SetMinCompetitiveScore(minScore float32) error { return nil }
+
+// NextDocsAndScores carries Scorer#nextDocsAndScores's default body.
+func (s *TermAutomatonScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// termAutomatonIterator renders the anonymous DocIdSetIterator returned by
+// TermAutomatonScorer#iterator().
+type termAutomatonIterator struct {
+	s *TermAutomatonScorer
+}
+
+func (it *termAutomatonIterator) DocID() int                 { return it.s.DocID() }
+func (it *termAutomatonIterator) Cost() int64                { return it.s.Cost() }
+func (it *termAutomatonIterator) NextDoc() (int, error)      { return it.s.NextDoc() }
+func (it *termAutomatonIterator) Advance(t int) (int, error) { return it.s.Advance(t) }
+func (it *termAutomatonIterator) DocIDRunEnd() (int, error)  { return it.s.DocIDRunEnd() }
+func (it *termAutomatonIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(it, upTo, bitSet, offset)
 }
 
 // AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
@@ -456,3 +521,10 @@ func (s *TermAutomatonScorer) AdvanceShallow(target int) (int, error) {
 }
 
 var _ search.Scorer = (*TermAutomatonScorer)(nil)
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *TermAutomatonScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

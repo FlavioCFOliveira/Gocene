@@ -207,6 +207,18 @@ func GrowExactInt32(array []int32, newLength int) []int32 {
 	return copy_
 }
 
+// GrowInt32 returns an array whose size is at least minSize, generally
+// over-allocating exponentially, and copies array into it; array itself is
+// returned when it is already large enough. Mirrors
+// ArrayUtil.grow(int[] array, int minSize) of Apache Lucene 10.5.0.
+func GrowInt32(array []int32, minSize int) []int32 {
+	// assert minSize >= 0 : "size must be positive (got " + minSize + "): likely integer overflow?";
+	if len(array) < minSize {
+		return GrowExactInt32(array, Oversize(minSize, 4))
+	}
+	return array
+}
+
 // GrowExactInt64 returns a new int64 array of exactly newLength
 func GrowExactInt64(array []int64, newLength int) []int64 {
 	if newLength < len(array) {
@@ -227,6 +239,21 @@ func GrowExactFloat32(array []float32, newLength int) []float32 {
 	return copy_
 }
 
+// GrowFloat32 returns an array whose size is at least minSize, generally
+// over-allocating exponentially, and copies array into it; array itself is
+// returned when it is already large enough. Mirrors
+// ArrayUtil.grow(float[] array, int minSize) of Apache Lucene 10.5.0.
+//
+// The single-argument Java overload ArrayUtil.grow(float[] array) is
+// `grow(array, 1 + array.length)`, which callers spell out at the call site.
+func GrowFloat32(array []float32, minSize int) []float32 {
+	// assert minSize >= 0 : "size must be positive (got " + minSize + "): likely integer overflow?";
+	if len(array) < minSize {
+		return GrowExactFloat32(array, Oversize(minSize, 4))
+	}
+	return array
+}
+
 // GrowExactFloat64 returns a new float64 array of exactly newLength
 func GrowExactFloat64(array []float64, newLength int) []float64 {
 	if newLength < len(array) {
@@ -245,6 +272,18 @@ func GrowExactByte(array []byte, newLength int) []byte {
 	copy_ := make([]byte, newLength)
 	copy(copy_, array)
 	return copy_
+}
+
+// GrowByte returns an array whose size is at least minSize, generally
+// over-allocating exponentially, and copies array into it; array itself is
+// returned when it is already large enough. Mirrors
+// ArrayUtil.grow(byte[] array, int minSize) of Apache Lucene 10.5.0.
+func GrowByte(array []byte, minSize int) []byte {
+	// assert minSize >= 0 : "size must be positive (got " + minSize + "): likely integer overflow?";
+	if len(array) < minSize {
+		return GrowExactByte(array, Oversize(minSize, 1))
+	}
+	return array
 }
 
 // ==================== GrowInRange Functions ====================

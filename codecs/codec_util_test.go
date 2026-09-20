@@ -24,7 +24,7 @@ func TestCodecUtil_HeaderLength(t *testing.T) {
 
 	codecName := "FooBar"
 	version := int32(5)
-	if err := codecs.WriteHeader(out, codecName, version); err != nil {
+	if err := store.WriteHeader(out, codecName, version); err != nil {
 		t.Fatal(err)
 	}
 
@@ -66,7 +66,7 @@ func TestCodecUtil_WriteTooLongHeader(t *testing.T) {
 	defer out.Close()
 
 	tooLong := strings.Repeat("a", 128)
-	err = codecs.WriteHeader(out, tooLong, 5)
+	err = store.WriteHeader(out, tooLong, 5)
 	if err == nil {
 		t.Error("Expected error for too long header name, got nil")
 	}
@@ -82,7 +82,7 @@ func TestCodecUtil_WriteNonAsciiHeader(t *testing.T) {
 	}
 	defer out.Close()
 
-	err = codecs.WriteHeader(out, "\u1234", 5)
+	err = store.WriteHeader(out, "\u1234", 5)
 	if err == nil {
 		t.Error("Expected error for non-ascii header name, got nil")
 	}
@@ -107,7 +107,7 @@ func TestCodecUtil_ReadHeaderWrongMagic(t *testing.T) {
 	}
 	defer in.Close()
 
-	_, err = codecs.CheckHeader(in, "bogus", 1, 1)
+	_, err = store.CheckHeader(in, "bogus", 1, 1)
 	if err == nil {
 		t.Error("Expected error for wrong magic number, got nil")
 	}
@@ -125,13 +125,13 @@ func TestCodecUtil_ChecksumEntireFile(t *testing.T) {
 	// Use ChecksumIndexOutput to compute CRC as we write
 	checksumOut := store.NewChecksumIndexOutput(out)
 
-	if err := codecs.WriteHeader(checksumOut, "FooBar", 5); err != nil {
+	if err := store.WriteHeader(checksumOut, "FooBar", 5); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.WriteString(checksumOut, "this is the data"); err != nil {
 		t.Fatal(err)
 	}
-	if err := codecs.WriteFooter(checksumOut); err != nil {
+	if err := store.WriteFooter(checksumOut); err != nil {
 		t.Fatal(err)
 	}
 	checksumOut.Close()
@@ -158,13 +158,13 @@ func TestCodecUtil_CheckFooterValid(t *testing.T) {
 	}
 	checksumOut := store.NewChecksumIndexOutput(out)
 
-	if err := codecs.WriteHeader(checksumOut, "FooBar", 5); err != nil {
+	if err := store.WriteHeader(checksumOut, "FooBar", 5); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.WriteString(checksumOut, "this is the data"); err != nil {
 		t.Fatal(err)
 	}
-	if err := codecs.WriteFooter(checksumOut); err != nil {
+	if err := store.WriteFooter(checksumOut); err != nil {
 		t.Fatal(err)
 	}
 	checksumOut.Close()
@@ -183,7 +183,7 @@ func TestCodecUtil_CheckFooterValid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = codecs.CheckFooter(checksumIn)
+	_, err = store.CheckFooter(checksumIn)
 	if err != nil {
 		t.Errorf("Footer validation failed: %v", err)
 	}
@@ -199,13 +199,13 @@ func TestCodecUtil_CheckFooterValidAtFooter(t *testing.T) {
 	}
 	checksumOut := store.NewChecksumIndexOutput(out)
 
-	if err := codecs.WriteHeader(checksumOut, "FooBar", 5); err != nil {
+	if err := store.WriteHeader(checksumOut, "FooBar", 5); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.WriteString(checksumOut, "this is the data"); err != nil {
 		t.Fatal(err)
 	}
-	if err := codecs.WriteFooter(checksumOut); err != nil {
+	if err := store.WriteFooter(checksumOut); err != nil {
 		t.Fatal(err)
 	}
 	checksumOut.Close()
@@ -220,7 +220,7 @@ func TestCodecUtil_CheckFooterValidAtFooter(t *testing.T) {
 	defer checksumIn.Close()
 
 	// Read everything
-	if _, err := codecs.CheckHeader(checksumIn, "FooBar", 5, 5); err != nil {
+	if _, err := store.CheckHeader(checksumIn, "FooBar", 5, 5); err != nil {
 		t.Fatal(err)
 	}
 	if data, err := store.ReadString(checksumIn); err != nil || data != "this is the data" {
@@ -228,7 +228,7 @@ func TestCodecUtil_CheckFooterValidAtFooter(t *testing.T) {
 	}
 
 	// Now we are exactly at the footer
-	_, err = codecs.CheckFooter(checksumIn)
+	_, err = store.CheckFooter(checksumIn)
 	if err != nil {
 		t.Errorf("Footer validation failed: %v", err)
 	}
@@ -243,7 +243,7 @@ func TestCodecUtil_CheckFooterInvalid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := codecs.WriteHeader(out, "FooBar", 5); err != nil {
+	if err := store.WriteHeader(out, "FooBar", 5); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.WriteString(out, "this is the data"); err != nil {
@@ -274,7 +274,7 @@ func TestCodecUtil_CheckFooterInvalid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = codecs.CheckFooter(checksumIn)
+	_, err = store.CheckFooter(checksumIn)
 	if err == nil {
 		t.Error("Expected error for invalid checksum, got nil")
 	}
@@ -449,7 +449,7 @@ func TestCodecUtil_RetrieveChecksum(t *testing.T) {
 	}
 	checksumOut := store.NewChecksumIndexOutput(out)
 	checksumOut.WriteByte(42)
-	codecs.WriteFooter(checksumOut)
+	store.WriteFooter(checksumOut)
 	checksumOut.Close()
 
 	in, err := dir.OpenInput("foo", store.IOContextRead)

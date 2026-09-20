@@ -197,4 +197,16 @@ func (m *sandboxMultiFieldNormValues) DocID() int {
 // conservative estimate Lucene uses for derived NumericDocValues.
 func (m *sandboxMultiFieldNormValues) Cost() int64 { return 0 }
 
+// IntoBitSet carries the DocIdSetIterator default that NumericDocValues
+// inherits in Java.
+func (m *sandboxMultiFieldNormValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(m, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the DocIdSetIterator default that NumericDocValues
+// inherits in Java (docID() + 1).
+func (m *sandboxMultiFieldNormValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(m)
+}
+
 var _ index.NumericDocValues = (*sandboxMultiFieldNormValues)(nil)

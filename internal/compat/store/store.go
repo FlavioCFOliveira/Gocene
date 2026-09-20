@@ -130,7 +130,7 @@ func WriteStorePrimitives(targetDir string, seed int64) error {
 		out.Close()
 		return fmt.Errorf("store-primitives: write index header: %w", err)
 	}
-	if err := store.WriteVInt(out, Count); err != nil {
+	if err := out.WriteVInt(Count); err != nil {
 		out.Close()
 		return fmt.Errorf("store-primitives: write count: %w", err)
 	}
@@ -140,7 +140,7 @@ func WriteStorePrimitives(targetDir string, seed int64) error {
 			return fmt.Errorf("store-primitives: write frame[%d]: %w", i, err)
 		}
 	}
-	if err := codecs.WriteFooter(out); err != nil {
+	if err := store.WriteFooter(out); err != nil {
 		out.Close()
 		return fmt.Errorf("store-primitives: write footer: %w", err)
 	}
@@ -179,7 +179,7 @@ func ReadStorePrimitives(sourceDir string, seed int64) error {
 			return fmt.Errorf("store-primitives: read frame[%d]: %w", i, err)
 		}
 	}
-	if _, err := codecs.CheckFooter(in); err != nil {
+	if _, err := store.CheckFooter(in); err != nil {
 		return fmt.Errorf("store-primitives: check footer: %w", err)
 	}
 	return nil
@@ -203,10 +203,10 @@ func Path(dir string) string {
 // must NOT call them here. Use the LE helpers (or raw byte writes for
 // 16-bit since there is no store.WriteInt16LE) instead.
 func writeFrame(out store.DataOutput, seed int64, i int) error {
-	if err := store.WriteVInt(out, VIntValue(seed, i)); err != nil {
+	if err := out.WriteVInt(VIntValue(seed, i)); err != nil {
 		return fmt.Errorf("vInt: %w", err)
 	}
-	if err := store.WriteVLong(out, VLongValue(seed, i)); err != nil {
+	if err := out.WriteVLong(VLongValue(seed, i)); err != nil {
 		return fmt.Errorf("vLong: %w", err)
 	}
 	if err := writeZInt(out, ZIntValue(seed, i)); err != nil {
@@ -224,10 +224,10 @@ func writeFrame(out store.DataOutput, seed int64, i int) error {
 	if err := writeShortLE(out, ShortValue(seed, i)); err != nil {
 		return fmt.Errorf("short: %w", err)
 	}
-	if err := store.WriteInt32LE(out, IntValue(seed, i)); err != nil {
+	if err := out.WriteInt(IntValue(seed, i)); err != nil {
 		return fmt.Errorf("int: %w", err)
 	}
-	if err := store.WriteInt64LE(out, LongValue(seed, i)); err != nil {
+	if err := out.WriteLong(LongValue(seed, i)); err != nil {
 		return fmt.Errorf("long: %w", err)
 	}
 	return nil
@@ -243,7 +243,7 @@ func readFrame(in store.DataInput, seed int64, i int) error {
 	if exp := VIntValue(seed, i); v != exp {
 		return fmt.Errorf("vInt mismatch: got %d, want %d", v, exp)
 	}
-	vl, err := store.ReadVLong(in)
+	vl, err := in.ReadVLong()
 	if err != nil {
 		return fmt.Errorf("vLong: %w", err)
 	}
@@ -285,14 +285,14 @@ func readFrame(in store.DataInput, seed int64, i int) error {
 	if exp := ShortValue(seed, i); sh != exp {
 		return fmt.Errorf("short mismatch: got %d, want %d", sh, exp)
 	}
-	ii, err := store.ReadInt32LE(in)
+	ii, err := in.ReadInt()
 	if err != nil {
 		return fmt.Errorf("int: %w", err)
 	}
 	if exp := IntValue(seed, i); ii != exp {
 		return fmt.Errorf("int mismatch: got %d, want %d", ii, exp)
 	}
-	ll, err := store.ReadInt64LE(in)
+	ll, err := in.ReadLong()
 	if err != nil {
 		return fmt.Errorf("long: %w", err)
 	}
@@ -307,12 +307,12 @@ func readFrame(in store.DataInput, seed int64, i int) error {
 // inline the standard (v<<1)^(v>>31) zigzag encoding here for any
 // DataOutput.
 func writeZInt(out store.DataOutput, v int32) error {
-	return store.WriteVInt(out, (v<<1)^(v>>31))
+	return out.WriteVInt((v << 1) ^ (v >> 31))
 }
 
 // writeZLong is the free-function form of Lucene's DataOutput.writeZLong.
 func writeZLong(out store.DataOutput, v int64) error {
-	return store.WriteVLong(out, (v<<1)^(v>>63))
+	return out.WriteVLong((v << 1) ^ (v >> 63))
 }
 
 // readZInt mirrors Lucene's DataInput.readZInt: (raw >>> 1) ^ -(raw & 1).
@@ -326,7 +326,7 @@ func readZInt(in store.DataInput) (int32, error) {
 
 // readZLong mirrors Lucene's DataInput.readZLong.
 func readZLong(in store.DataInput) (int64, error) {
-	raw, err := store.ReadVLong(in)
+	raw, err := in.ReadVLong()
 	if err != nil {
 		return 0, err
 	}
@@ -338,7 +338,7 @@ func readZLong(in store.DataInput) (int64, error) {
 // methods are big-endian (a known divergence), so we emit raw LE bytes
 // here to match the wire format.
 func writeShortLE(out store.DataOutput, v int16) error {
-	return out.WriteBytes([]byte{byte(v), byte(v >> 8)})
+	return out.WriteBytes([]byte{byte(v), byte(v >> 8)}, 0, 2)
 }
 
 // readShortLE reads a 16-bit signed integer in little-endian byte order.

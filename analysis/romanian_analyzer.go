@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // RomanianStopWords contains common Romanian stop words.
@@ -76,12 +77,22 @@ func NewRomanianAnalyzer() *RomanianAnalyzer {
 // NewRomanianAnalyzerWithWords creates a RomanianAnalyzer with custom stop words.
 func NewRomanianAnalyzerWithWords(stopWords *CharArraySet) *RomanianAnalyzer {
 	a := &RomanianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 	return a
 }
 
@@ -100,5 +111,4 @@ func (a *RomanianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*RomanianAnalyzer)(nil)
-var _ AnalyzerInterface = (*RomanianAnalyzer)(nil)
+var _ api.Analyzer = (*RomanianAnalyzer)(nil)

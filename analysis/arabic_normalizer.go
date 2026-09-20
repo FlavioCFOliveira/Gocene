@@ -148,7 +148,9 @@ func (f *ArabicNormalizationFilter) IncrementToken() (bool, error) {
 }
 
 // ArabicNormalizationFilterFactory creates ArabicNormalizationFilter instances.
-type ArabicNormalizationFilterFactory struct{}
+type ArabicNormalizationFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewArabicNormalizationFilterFactory creates a new ArabicNormalizationFilterFactory.
 func NewArabicNormalizationFilterFactory() *ArabicNormalizationFilterFactory {

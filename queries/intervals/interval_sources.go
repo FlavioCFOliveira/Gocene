@@ -23,6 +23,7 @@ package intervals
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"strings"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -261,8 +262,8 @@ type ContainingIntervalsSource struct {
 func NewContainingIntervalsSource(big, small IntervalsSource) *ContainingIntervalsSource {
 	return &ContainingIntervalsSource{
 		baseConjunctionIntervalsSource: baseConjunctionIntervalsSource{subSources: []IntervalsSource{big, small}},
-		big:   big,
-		small: small,
+		big:                            big,
+		small:                          small,
 	}
 }
 
@@ -347,8 +348,8 @@ type ContainedByIntervalsSource struct {
 func NewContainedByIntervalsSource(small, big IntervalsSource) *ContainedByIntervalsSource {
 	return &ContainedByIntervalsSource{
 		baseConjunctionIntervalsSource: baseConjunctionIntervalsSource{subSources: []IntervalsSource{small, big}},
-		small: small,
-		big:   big,
+		small:                          small,
+		big:                            big,
 	}
 }
 
@@ -434,8 +435,8 @@ type OverlappingIntervalsSource struct {
 func NewOverlappingIntervalsSource(source, reference IntervalsSource) *OverlappingIntervalsSource {
 	return &OverlappingIntervalsSource{
 		baseConjunctionIntervalsSource: baseConjunctionIntervalsSource{subSources: []IntervalsSource{source, reference}},
-		source:    source,
-		reference: reference,
+		source:                         source,
+		reference:                      reference,
 	}
 }
 
@@ -575,13 +576,13 @@ func newOffsetIntervalIterator(in IntervalIterator, before bool) *offsetInterval
 	return &offsetIntervalIterator{in: in, before: before}
 }
 
-func (o *offsetIntervalIterator) DocID() int             { return o.in.DocID() }
-func (o *offsetIntervalIterator) DocIDRunEnd() int        { return o.DocID() + 1 }
-func (o *offsetIntervalIterator) Cost() int64            { return o.in.Cost() }
-func (o *offsetIntervalIterator) MatchCost() float32     { return o.in.MatchCost() }
-func (o *offsetIntervalIterator) Gaps() int              { return 0 }
-func (o *offsetIntervalIterator) Width() int             { return 1 }
-func (o *offsetIntervalIterator) NextDoc() (int, error)  { return o.in.NextDoc() }
+func (o *offsetIntervalIterator) DocID() int                      { return o.in.DocID() }
+func (o *offsetIntervalIterator) DocIDRunEnd() (int, error)       { return o.DocID() + 1, nil }
+func (o *offsetIntervalIterator) Cost() int64                     { return o.in.Cost() }
+func (o *offsetIntervalIterator) MatchCost() float32              { return o.in.MatchCost() }
+func (o *offsetIntervalIterator) Gaps() int                       { return 0 }
+func (o *offsetIntervalIterator) Width() int                      { return 1 }
+func (o *offsetIntervalIterator) NextDoc() (int, error)           { return o.in.NextDoc() }
 func (o *offsetIntervalIterator) Advance(target int) (int, error) { return o.in.Advance(target) }
 func (o *offsetIntervalIterator) NextInterval() (int, error) {
 	next, err := o.in.NextInterval()
@@ -688,9 +689,9 @@ type passthruMatchesIterator struct {
 	inner IntervalMatchesIterator
 }
 
-func (p *passthruMatchesIterator) Next() (bool, error) { return p.inner.Next() }
-func (p *passthruMatchesIterator) StartPosition() int  { return p.inner.StartPosition() }
-func (p *passthruMatchesIterator) EndPosition() int    { return p.inner.EndPosition() }
+func (p *passthruMatchesIterator) Next() (bool, error)       { return p.inner.Next() }
+func (p *passthruMatchesIterator) StartPosition() int        { return p.inner.StartPosition() }
+func (p *passthruMatchesIterator) EndPosition() int          { return p.inner.EndPosition() }
 func (p *passthruMatchesIterator) StartOffset() (int, error) { return -1, nil }
 func (p *passthruMatchesIterator) EndOffset() (int, error)   { return -1, nil }
 func (p *passthruMatchesIterator) GetSubMatches() (search.MatchesIterator, error) {
@@ -788,15 +789,15 @@ type duplicateIntervalIterator struct {
 	end   int
 }
 
-func (d *duplicateIntervalIterator) DocID() int             { return d.in.DocID() }
-func (d *duplicateIntervalIterator) DocIDRunEnd() int        { return d.DocID() + 1 }
-func (d *duplicateIntervalIterator) Cost() int64            { return d.in.Cost() }
-func (d *duplicateIntervalIterator) MatchCost() float32     { return d.in.MatchCost() * float32(d.count) }
-func (d *duplicateIntervalIterator) Start() int             { return d.start }
-func (d *duplicateIntervalIterator) End() int               { return d.end }
-func (d *duplicateIntervalIterator) Gaps() int              { return d.count - 1 }
-func (d *duplicateIntervalIterator) Width() int             { return d.end - d.start + 1 }
-func (d *duplicateIntervalIterator) NextDoc() (int, error)  { return d.in.NextDoc() }
+func (d *duplicateIntervalIterator) DocID() int                 { return d.in.DocID() }
+func (d *duplicateIntervalIterator) DocIDRunEnd() (int, error)  { return d.DocID() + 1, nil }
+func (d *duplicateIntervalIterator) Cost() int64                { return d.in.Cost() }
+func (d *duplicateIntervalIterator) MatchCost() float32         { return d.in.MatchCost() * float32(d.count) }
+func (d *duplicateIntervalIterator) Start() int                 { return d.start }
+func (d *duplicateIntervalIterator) End() int                   { return d.end }
+func (d *duplicateIntervalIterator) Gaps() int                  { return d.count - 1 }
+func (d *duplicateIntervalIterator) Width() int                 { return d.end - d.start + 1 }
+func (d *duplicateIntervalIterator) NextDoc() (int, error)      { return d.in.NextDoc() }
 func (d *duplicateIntervalIterator) Advance(t int) (int, error) { return d.in.Advance(t) }
 func (d *duplicateIntervalIterator) NextInterval() (int, error) {
 	next, err := d.in.NextInterval()
@@ -816,7 +817,7 @@ var _ util.DocIdSetIterator = (*duplicateIntervalIterator)(nil)
 //
 // Mirrors org.apache.lucene.queries.intervals.DisjunctionIntervalsSource.
 type DisjunctionIntervalsSource struct {
-	subSources        []IntervalsSource
+	subSources         []IntervalsSource
 	pullUpDisjunctions bool
 }
 
@@ -954,8 +955,8 @@ func newDisjunctionIntervalIterator(iters []IntervalIterator) *disjunctionInterv
 	return &disjunctionIntervalIterator{pq: pq, subs: iters, start: -1, end: -1}
 }
 
-func (d *disjunctionIntervalIterator) DocID() int { return d.pq.Top().Doc }
-func (d *disjunctionIntervalIterator) DocIDRunEnd() int { return d.DocID() + 1 }
+func (d *disjunctionIntervalIterator) DocID() int                { return d.pq.Top().Doc }
+func (d *disjunctionIntervalIterator) DocIDRunEnd() (int, error) { return d.DocID() + 1, nil }
 func (d *disjunctionIntervalIterator) Cost() int64 {
 	var cost int64
 	for _, w := range d.pq.All() {
@@ -1112,4 +1113,25 @@ func (m *mergedMatchesIterator) Width() int {
 		return m.subs[m.idx].Width()
 	}
 	return 0
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (o *offsetIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(o, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *duplicateIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (d *disjunctionIntervalIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(d, upTo, bitSet, offset)
 }

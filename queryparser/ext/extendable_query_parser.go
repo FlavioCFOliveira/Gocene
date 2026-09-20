@@ -20,7 +20,7 @@ type ExtendableQueryParser struct {
 
 // NewExtendableQueryParser builds an ExtendableQueryParser with the supplied
 // extensions registry. If extensions is nil a fresh empty registry is used.
-func NewExtendableQueryParser(defaultField string, analyzer *analysis.StandardAnalyzer, extensions *Extensions) *ExtendableQueryParser {
+func NewExtendableQueryParser(defaultField string, analyzer analysis.Analyzer, extensions *Extensions) *ExtendableQueryParser {
 	if extensions == nil {
 		extensions = NewExtensions()
 	}

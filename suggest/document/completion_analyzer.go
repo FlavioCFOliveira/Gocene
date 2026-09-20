@@ -5,10 +5,7 @@
 package document
 
 import (
-	"io"
-
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/analysis/miscellaneous"
 )
 
 // HOLE_CHARACTER represents a hole character, inserted by TokenStreamToAutomaton.
@@ -31,9 +28,9 @@ type CompletionAnalyzer struct {
 func NewCompletionAnalyzer(analyzer analysis.Analyzer) *CompletionAnalyzer {
 	return NewCompletionAnalyzerFull(
 		analyzer,
-		miscellaneous.DefaultSepLabel,
-		true,
-		miscellaneous.DefaultMaxGraphExpansions,
+		analysis.DefaultPreserveSep,
+		analysis.DefaultPreservePositionIncrements,
+		analysis.DefaultMaxGraphExpansions,
 	)
 }
 

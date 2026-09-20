@@ -72,10 +72,16 @@ func (f *FilterIndexInput) Clone() IndexInput { return f.in.Clone() }
 func (f *FilterIndexInput) ReadByte() (byte, error) { return f.in.ReadByte() }
 
 // ReadBytes forwards to the wrapped input.
-func (f *FilterIndexInput) ReadBytes(b []byte) error { return f.in.ReadBytes(b) }
+func (f *FilterIndexInput) ReadBytes(b []byte, offset, len int) error { return f.in.ReadBytes(b, offset, len) }
 
-// ReadBytesN forwards to the wrapped input.
-func (f *FilterIndexInput) ReadBytesN(n int) ([]byte, error) { return f.in.ReadBytesN(n) }
+// ReadBytesN reads n bytes and returns them as a slice.
+func (f *FilterIndexInput) ReadBytesN(n int) ([]byte, error) {
+	b := make([]byte, n)
+	if err := f.in.ReadBytes(b, 0, n); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
 
 // ReadShort forwards to the wrapped input.
 func (f *FilterIndexInput) ReadShort() (int16, error) { return f.in.ReadShort() }
@@ -88,6 +94,33 @@ func (f *FilterIndexInput) ReadLong() (int64, error) { return f.in.ReadLong() }
 
 // ReadString forwards to the wrapped input.
 func (f *FilterIndexInput) ReadString() (string, error) { return f.in.ReadString() }
+
+// ReadFloats forwards to the wrapped input.
+func (f *FilterIndexInput) ReadFloats(dst []float32, offset, len int) error { return f.in.ReadFloats(dst, offset, len) }
+
+// ReadMapOfStrings forwards to the wrapped input.
+func (f *FilterIndexInput) ReadMapOfStrings() (map[string]string, error) { return f.in.ReadMapOfStrings() }
+
+// ReadSetOfStrings forwards to the wrapped input.
+func (f *FilterIndexInput) ReadSetOfStrings() ([]string, error) { return f.in.ReadSetOfStrings() }
+
+// ReadVInt forwards to the wrapped input.
+func (f *FilterIndexInput) ReadVInt() (int32, error) { return f.in.ReadVInt() }
+
+// ReadVLong forwards to the wrapped input.
+func (f *FilterIndexInput) ReadVLong() (int64, error) { return f.in.ReadVLong() }
+
+// ReadZInt forwards to the wrapped input.
+func (f *FilterIndexInput) ReadZInt() (int32, error) { return f.in.ReadZInt() }
+
+// ReadZLong forwards to the wrapped input.
+func (f *FilterIndexInput) ReadZLong() (int64, error) { return f.in.ReadZLong() }
+
+// ReadInts forwards to the wrapped input.
+func (f *FilterIndexInput) ReadInts(dst []int32, offset, length int) error { return f.in.ReadInts(dst, offset, length) }
+
+// ReadLongs forwards to the wrapped input.
+func (f *FilterIndexInput) ReadLongs(dst []int64, offset, length int) error { return f.in.ReadLongs(dst, offset, length) }
 
 // Compile-time assertion that FilterIndexInput satisfies IndexInput.
 var _ IndexInput = (*FilterIndexInput)(nil)

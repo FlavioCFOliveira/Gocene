@@ -14,6 +14,7 @@
 package search
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 )
 
@@ -40,15 +41,18 @@ import (
 //
 // # Wiring
 //
-// A generic Sort drives a CUSTOM SortField through a
-// [FieldComparatorSource]; the source's comparator must satisfy the
-// public [FieldComparator] interface plus the optional leaf-binding and
-// value hooks the TopFieldCollector consults (SetReader, Value). The
-// concrete distance comparators carry a slightly wider, error-returning
-// surface (CompareBottom/Copy return errors, GetLeafComparator takes a
-// LeafReaderContext); the adapters below bridge the two shapes,
-// resolving the per-leaf doc values through the comparator's BindLeaf
-// helper.
+// Java returns a LatLonPointSortField / XYPointSortField, a SortField
+// subclass whose getComparator override builds the distance comparator.
+// Gocene's SortField is an alias of spi.SortField, so a Go subclass that
+// embeds it loses the override the moment the value is held as a
+// *SortField — which is how a Sort holds it. The factories therefore
+// build a CUSTOM SortField carrying a [FieldComparatorSource] that
+// produces exactly the same comparator, which is the one shape that
+// survives the erasure. The comparators themselves are
+// [LatLonPointDistanceComparator] and [XYPointDistanceComparator], which
+// satisfy [FieldComparator] and [LeafFieldComparator] directly, as their
+// Java counterparts extend FieldComparator<Double> and implement
+// LeafFieldComparator.
 
 // NewLatLonDocValuesDistanceSort builds the SortField that orders
 // documents by Haversine distance (in metres) from (latitude, longitude)
@@ -67,7 +71,7 @@ func NewLatLonDocValuesDistanceSort(field string, latitude, longitude float64) (
 	}
 	sf := NewSortFieldCustom(field, src, false)
 	// Missing values sort last (Java sets the missing sentinel to +Inf).
-	sf.Missing = MissingValueLast
+	sf.Missing = spi.MissingValueLast
 	sf.MissingValue = math.Inf(1)
 	return sf, nil
 }
@@ -84,13 +88,13 @@ func NewXYDocValuesDistanceSort(field string, x, y float32) (*SortField, error) 
 	}
 	src := &xyDistanceComparatorSource{field: field, x: x, y: y}
 	sf := NewSortFieldCustom(field, src, false)
-	sf.Missing = MissingValueLast
+	sf.Missing = spi.MissingValueLast
 	sf.MissingValue = math.Inf(1)
 	return sf, nil
 }
 
 // -----------------------------------------------------------------------------
-// LatLon distance comparator source + adapter
+// LatLon distance comparator source
 // -----------------------------------------------------------------------------
 
 // latLonDistanceComparatorSource produces a FieldComparator that orders
@@ -104,64 +108,13 @@ type latLonDistanceComparatorSource struct {
 }
 
 func (s *latLonDistanceComparatorSource) NewComparator(fieldname string, numHits int, pruning Pruning, reversed bool) FieldComparator {
-	return &latLonDistanceFieldComparator{
-		inner: NewLatLonPointDistanceComparator(s.field, s.latitude, s.longitude, numHits),
-	}
+	return NewLatLonPointDistanceComparator(s.field, s.latitude, s.longitude, numHits)
 }
 
-// latLonDistanceFieldComparator adapts the wider, error-returning
-// [LatLonPointDistanceComparator] to the public [FieldComparator]
-// surface the TopFieldCollector drives, plus the optional SetReader /
-// Value hooks. Errors from the inner comparator are propagated via
-// cmpErr, which the collector surfaces through the leaf-binding /
-// scoring path; in practice the inner comparator only fails when a
-// doc-values advance fails, which is itself surfaced by the reader.
-type latLonDistanceFieldComparator struct {
-	inner *LatLonPointDistanceComparator
-}
-
-func (c *latLonDistanceFieldComparator) Compare(slot1, slot2 int) int {
-	return c.inner.Compare(slot1, slot2)
-}
-
-func (c *latLonDistanceFieldComparator) SetBottom(slot int) { _ = c.inner.SetBottom(slot) }
-
-func (c *latLonDistanceFieldComparator) CompareBottom(doc int) int {
-	cmp, err := c.inner.CompareBottom(doc)
-	if err != nil {
-		// A failed doc-values advance means the doc is not competitive;
-		// treat it as worse than the bottom (matching the +Inf-missing
-		// fallback the inner comparator already uses on a missing value).
-		return -1
-	}
-	return cmp
-}
-
-func (c *latLonDistanceFieldComparator) Copy(slot, doc int) { _ = c.inner.Copy(slot, doc) }
-
-func (c *latLonDistanceFieldComparator) SetScorer(_ Scorer) {}
-
-// SetReader is the optional leaf-binding hook (search.leafBindingComparator).
-func (c *latLonDistanceFieldComparator) SetReader(reader IndexReader) error {
-	return c.inner.BindLeaf(reader)
-}
-
-// Value exposes the per-slot distance (in metres) for FieldDoc.Fields
-// (search.valueComparator).
-func (c *latLonDistanceFieldComparator) Value(slot int) any { return c.inner.Value(slot) }
-
-// CompareTop bridges the searchAfter top-value comparison.
-func (c *latLonDistanceFieldComparator) CompareTop(doc int) (int, error) {
-	return c.inner.CompareTop(doc)
-}
-
-var (
-	_ FieldComparatorSource = (*latLonDistanceComparatorSource)(nil)
-	_ FieldComparator       = (*latLonDistanceFieldComparator)(nil)
-)
+var _ FieldComparatorSource = (*latLonDistanceComparatorSource)(nil)
 
 // -----------------------------------------------------------------------------
-// XY distance comparator source + adapter
+// XY distance comparator source
 // -----------------------------------------------------------------------------
 
 // xyDistanceComparatorSource produces a FieldComparator that orders
@@ -174,50 +127,7 @@ type xyDistanceComparatorSource struct {
 }
 
 func (s *xyDistanceComparatorSource) NewComparator(fieldname string, numHits int, pruning Pruning, reversed bool) FieldComparator {
-	return &xyDistanceFieldComparator{
-		inner: NewXYPointDistanceComparator(s.field, s.x, s.y, numHits),
-	}
+	return NewXYPointDistanceComparator(s.field, s.x, s.y, numHits)
 }
 
-// xyDistanceFieldComparator adapts [XYPointDistanceComparator] to the
-// public [FieldComparator] surface, mirroring
-// [latLonDistanceFieldComparator] for the Cartesian distance sort.
-type xyDistanceFieldComparator struct {
-	inner *XYPointDistanceComparator
-}
-
-func (c *xyDistanceFieldComparator) Compare(slot1, slot2 int) int {
-	return c.inner.Compare(slot1, slot2)
-}
-
-func (c *xyDistanceFieldComparator) SetBottom(slot int) { _ = c.inner.SetBottom(slot) }
-
-func (c *xyDistanceFieldComparator) CompareBottom(doc int) int {
-	cmp, err := c.inner.CompareBottom(doc)
-	if err != nil {
-		return -1
-	}
-	return cmp
-}
-
-func (c *xyDistanceFieldComparator) Copy(slot, doc int) { _ = c.inner.Copy(slot, doc) }
-
-func (c *xyDistanceFieldComparator) SetScorer(_ Scorer) {}
-
-// SetReader is the optional leaf-binding hook (search.leafBindingComparator).
-func (c *xyDistanceFieldComparator) SetReader(reader IndexReader) error {
-	return c.inner.BindLeaf(reader)
-}
-
-// Value exposes the per-slot Euclidean distance for FieldDoc.Fields.
-func (c *xyDistanceFieldComparator) Value(slot int) any { return c.inner.Value(slot) }
-
-// CompareTop bridges the searchAfter top-value comparison.
-func (c *xyDistanceFieldComparator) CompareTop(doc int) (int, error) {
-	return c.inner.CompareTop(doc)
-}
-
-var (
-	_ FieldComparatorSource = (*xyDistanceComparatorSource)(nil)
-	_ FieldComparator       = (*xyDistanceFieldComparator)(nil)
-)
+var _ FieldComparatorSource = (*xyDistanceComparatorSource)(nil)

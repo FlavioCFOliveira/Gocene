@@ -65,7 +65,7 @@ func (ncm *NormalizeCharMap) Clear() {
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.charfilter.MappingCharFilter.
 type MappingCharFilter struct {
-	*CharFilter
+	CharFilter
 	charMap  *NormalizeCharMap
 	buffer   []rune
 	position int
@@ -126,7 +126,7 @@ type MappingCharFilterFactory struct {
 // NewMappingCharFilterFactory creates a new MappingCharFilterFactory.
 func NewMappingCharFilterFactory(charMap *NormalizeCharMap) *MappingCharFilterFactory {
 	return &MappingCharFilterFactory{
-		BaseCharFilterFactory: NewBaseCharFilterFactory("mapping"),
+		BaseCharFilterFactory: NewBaseCharFilterFactory(map[string]string{}),
 		charMap:               charMap,
 	}
 }

@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // PortugueseStopWords contains common Portuguese stop words.
@@ -57,15 +58,25 @@ func NewPortugueseAnalyzer() *PortugueseAnalyzer {
 // NewPortugueseAnalyzerWithWords creates a PortugueseAnalyzer with custom stop words.
 func NewPortugueseAnalyzerWithWords(stopWords *CharArraySet) *PortugueseAnalyzer {
 	a := &PortugueseAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
 
 	// Set up the analysis chain
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewPortugueseLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewPortugueseLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 
 	return a
 }
@@ -86,8 +97,7 @@ func (a *PortugueseAnalyzer) SetStopWords(stopWords *CharArraySet) {
 }
 
 // Ensure PortugueseAnalyzer implements Analyzer
-var _ Analyzer = (*PortugueseAnalyzer)(nil)
-var _ AnalyzerInterface = (*PortugueseAnalyzer)(nil)
+var _ api.Analyzer = (*PortugueseAnalyzer)(nil)
 
 // PortugueseLightStemFilter implements light stemming for Portuguese.
 type PortugueseLightStemFilter struct {
@@ -166,7 +176,9 @@ func portugueseLightStem(term string) string {
 }
 
 // PortugueseLightStemFilterFactory creates PortugueseLightStemFilter instances.
-type PortugueseLightStemFilterFactory struct{}
+type PortugueseLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewPortugueseLightStemFilterFactory creates a new PortugueseLightStemFilterFactory.
 func NewPortugueseLightStemFilterFactory() *PortugueseLightStemFilterFactory {

@@ -262,6 +262,19 @@ func (e *IntersectTermsEnum) Postings(_ int) (index.PostingsEnum, error) {
 	return nil, ErrBlockTraversalNotAvailable
 }
 
+// Impacts decodes the current term's metadata and returns an ImpactsEnum.
+//
+// Port of IntersectTermsEnum.impacts(int):
+//
+//	currentFrame.decodeMetaData();
+//	return fr.parent.postingsReader.impacts(fr.fieldInfo, currentFrame.termState, flags);
+func (e *IntersectTermsEnum) Impacts(flags int) (index.ImpactsEnum, error) {
+	if err := e.currentFrame.decodeMetaData(); err != nil {
+		return nil, err
+	}
+	return e.fr.parent.postingsReader.Impacts(e.fr.fieldInfo, e.currentFrame.termStateRef, flags)
+}
+
 // PostingsWithLiveDocs returns a PostingsEnum for the current term.
 //
 // Deferred: requires metadata decoding and PostingsReaderBase wiring.

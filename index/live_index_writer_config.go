@@ -18,8 +18,8 @@ import (
 type LiveIndexWriterConfig struct {
 	analyzer analysis.Analyzer
 
-	maxBufferedDocs int
-	ramBufferSizeMB float64
+	maxBufferedDocs     int
+	ramBufferSizeMB     float64
 	mergedSegmentWarmer IndexReaderWarmer
 
 	delPolicy IndexDeletionPolicy
@@ -28,49 +28,64 @@ type LiveIndexWriterConfig struct {
 
 	createdVersionMajor int
 
-	similarity spi.Similarity
-	mergeScheduler MergeScheduler
-	codec          spi.Codec
-	infoStream     util.InfoStream
-	mergePolicy    MergePolicy
-	flushPolicy    FlushPolicy
-	readerPooling  bool
+	similarity           Similarity
+	mergeScheduler       MergeScheduler
+	codec                spi.Codec
+	infoStream           util.InfoStream
+	mergePolicy          MergePolicy
+	flushPolicy          FlushPolicy
+	readerPooling        bool
 	perThreadHardLimitMB int
-	useCompoundFile bool
-	commitOnClose bool
+	useCompoundFile      bool
+	commitOnClose        bool
 
-	indexSort any // search.Sort
-	leafSorter any // Comparator<LeafReader>
+	indexSort       any // search.Sort
+	leafSorter      any // Comparator<LeafReader>
 	indexSortFields map[string]struct{}
 
-	parentField string
-	checkPendingFlushOnUpdate bool
-	softDeletesField string
+	parentField                 string
+	checkPendingFlushOnUpdate   bool
+	softDeletesField            string
 	maxFullFlushMergeWaitMillis int64
-	eventListener IndexWriterEventListener
+	eventListener               IndexWriterEventListener
 
 	mu sync.RWMutex
 }
 
 func NewLiveIndexWriterConfig(analyzer analysis.Analyzer) *LiveIndexWriterConfig {
-	return &LiveIndexWriterConfig{
-		analyzer:              analyzer,
-		ramBufferSizeMB:       16.0,
-		maxBufferedDocs:       -1,
-		delPolicy:             &KeepOnlyLastCommitDeletionPolicy{},
-		useCompoundFile:       true,
-		openMode:              CreateOrAppend,
-		similarity:            similarities.DefaultSimilarity,
-		mergeScheduler:        &ConcurrentMergeScheduler{},
-		codec:                 spi.DefaultCodec,
-		infoStream:            util.DefaultInfoStream,
-		mergePolicy:           &TieredMergePolicy{},
-		flushPolicy:           &FlushByRamOrCountsPolicy{},
-		readerPooling:        true,
-		perThreadHardLimitMB: 1945,
+	c := &LiveIndexWriterConfig{
+		analyzer:        analyzer,
+		ramBufferSizeMB: 16.0,
+		maxBufferedDocs: -1,
+		delPolicy:       NewKeepOnlyLastCommitDeletionPolicy(),
+		useCompoundFile: true,
+		openMode:        CreateOrAppend,
+		// No default Similarity: the concrete default (BM25Similarity) lives
+		// in the search package, which imports index for FieldInvertState —
+		// index cannot import it back without a cycle. Callers that need
+		// Lucene's default norm encoding call SetSimilarity(search.DefaultSimilarity)
+		// explicitly (mirrored by search.NewIndexSearcher's own default).
+		similarity:                  nil,
+		mergeScheduler:              NewConcurrentMergeScheduler(),
+		codec:                       GetDefaultCodec(),
+		infoStream:                  util.DefaultInfoStream(),
+		mergePolicy:                 NewTieredMergePolicy(),
+		readerPooling:               true,
+		perThreadHardLimitMB:        1945,
 		maxFullFlushMergeWaitMillis: 500,
-		eventListener:         IndexWriterEventListenerNoOp,
+		eventListener:               IndexWriterEventListenerNoopInstance,
+		// LiveIndexWriterConfig.java:57 —
+		// `protected int createdVersionMajor = Version.LATEST.major;`
+		createdVersionMajor: util.Latest.Major,
 	}
+	// Java builds the policy with `new FlushByRamOrCountsPolicy()` and has
+	// IndexWriter bind the config afterwards (IndexWriter.java:1140 —
+	// `config.getFlushPolicy().init(config)`). Gocene's FlushByRamOrCountsPolicy
+	// takes the config at construction, so the binding happens here, once the
+	// config value exists. A zero-valued literal would leave cfg nil and make
+	// every OnChange dereference it.
+	c.flushPolicy = NewFlushByRamOrCountsPolicy(c)
+	return c
 }
 
 func (c *LiveIndexWriterConfig) GetAnalyzer() analysis.Analyzer {
@@ -160,7 +175,7 @@ func (c *LiveIndexWriterConfig) GetIndexCommit() *IndexCommit {
 	return c.commit
 }
 
-func (c *LiveIndexWriterConfig) GetSimilarity() spi.Similarity {
+func (c *LiveIndexWriterConfig) GetSimilarity() Similarity {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.similarity

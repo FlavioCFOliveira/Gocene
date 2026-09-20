@@ -42,7 +42,7 @@ type l103Terms struct {
 	hasPay     bool
 }
 
-func (t *l103Terms) GetIterator() (index.TermsEnum, error) {
+func (t *l103Terms) Iterator() (index.TermsEnum, error) {
 	return &l103TermsEnum{parent: t, pos: -1}, nil
 }
 func (t *l103Terms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum, error) {
@@ -297,7 +297,7 @@ func l103RoundTrip(t *testing.T, opts index.IndexOptions, storePayloads bool, te
 	if err != nil {
 		t.Fatalf("FieldsConsumer: %v", err)
 	}
-	if err := consumer.Write(terms.field, terms); err != nil {
+	if err := consumer.Write(index.NewSingleFieldFields(terms.field, terms), nil); err != nil {
 		_ = consumer.Close()
 		t.Fatalf("Write: %v", err)
 	}
@@ -336,9 +336,9 @@ func l103AssertTerms(t *testing.T, producer FieldsProducer, exp *l103Terms, opts
 	if err != nil || terms == nil {
 		t.Fatalf("Terms(%q): %v (nil=%v)", exp.field, err, terms == nil)
 	}
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
-		t.Fatalf("GetIterator: %v", err)
+		t.Fatalf("Iterator: %v", err)
 	}
 
 	hasFreqs := opts >= index.IndexOptionsDocsAndFreqs

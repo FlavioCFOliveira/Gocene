@@ -15,6 +15,7 @@ package geo
 
 import (
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"strings"
 	"testing"
@@ -146,7 +147,7 @@ func TestCircle_ToComponent2D_RelateDisjoint(t *testing.T) {
 	t.Parallel()
 	c := MustNewCircle(0, 0, 100)
 	comp := c.toComponent2D()
-	if got := comp.Relate(50, 60, 50, 60); got != CellOutsideQuery {
+	if got := comp.Relate(50, 60, 50, 60); got != spi.CellOutsideQuery {
 		t.Errorf("relate disjoint = %v, want OUTSIDE", got)
 	}
 }
@@ -156,7 +157,7 @@ func TestCircle_ToComponent2D_RelateInside(t *testing.T) {
 	c := MustNewCircle(0, 0, 100_000) // 100 km radius
 	comp := c.toComponent2D()
 	// A 1m x 1m box centred at (0,0) is well inside the disk.
-	if got := comp.Relate(-1e-5, 1e-5, -1e-5, 1e-5); got != CellInsideQuery {
+	if got := comp.Relate(-1e-5, 1e-5, -1e-5, 1e-5); got != spi.CellInsideQuery {
 		t.Errorf("relate inside = %v, want INSIDE", got)
 	}
 }
@@ -169,7 +170,7 @@ func TestCircle_ToComponent2D_RelateCrosses(t *testing.T) {
 	// intersect.
 	bx := comp.MaxX() - 0.001
 	by := comp.MaxY() - 0.001
-	if got := comp.Relate(bx-0.5, bx+0.5, by-0.5, by+0.5); got != CellCrossesQuery {
+	if got := comp.Relate(bx-0.5, bx+0.5, by-0.5, by+0.5); got != spi.CellCrossesQuery {
 		t.Errorf("relate at edge = %v, want CROSSES", got)
 	}
 }

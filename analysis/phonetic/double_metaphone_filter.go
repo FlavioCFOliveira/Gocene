@@ -165,6 +165,7 @@ var _ analysis.TokenFilter = (*DoubleMetaphoneFilter)(nil)
 //   - inject (default=true): if true, add encoded tokens as synonyms.
 //   - maxCodeLength (default=4): restricts the length of the phonetic code.
 type DoubleMetaphoneFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
 	inject        bool
 	maxCodeLength int
 }
@@ -175,12 +176,20 @@ const DefaultMaxCodeLength = 4
 // NewDoubleMetaphoneFilterFactory creates a factory with default settings
 // (inject=true, maxCodeLength=4).
 func NewDoubleMetaphoneFilterFactory() *DoubleMetaphoneFilterFactory {
-	return &DoubleMetaphoneFilterFactory{inject: true, maxCodeLength: DefaultMaxCodeLength}
+	return &DoubleMetaphoneFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		inject:                 true,
+		maxCodeLength:          DefaultMaxCodeLength,
+	}
 }
 
 // NewDoubleMetaphoneFilterFactoryWithArgs creates a factory from a string argument map.
 func NewDoubleMetaphoneFilterFactoryWithArgs(args map[string]string) (*DoubleMetaphoneFilterFactory, error) {
-	f := &DoubleMetaphoneFilterFactory{inject: true, maxCodeLength: DefaultMaxCodeLength}
+	f := &DoubleMetaphoneFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(nil),
+		inject:                 true,
+		maxCodeLength:          DefaultMaxCodeLength,
+	}
 	if v, ok := args["inject"]; ok {
 		f.inject = strings.EqualFold(v, "true")
 		delete(args, "inject")

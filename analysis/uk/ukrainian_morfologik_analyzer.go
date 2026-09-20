@@ -169,7 +169,8 @@ func (a *UkrainianMorfologikAnalyzer) TokenStream(fieldName string, reader io.Re
 
 	// StandardTokenizer
 	src := analysis.NewStandardTokenizer()
-	if err := src.SetReader(normalizedReader); err != nil {
+	src.SetReader(normalizedReader)
+	if err := src.Reset(); err != nil {
 		return nil, err
 	}
 
@@ -207,6 +208,12 @@ func (a *UkrainianMorfologikAnalyzer) TokenStream(fieldName string, reader io.Re
 
 // Close is a no-op; UkrainianMorfologikAnalyzer holds no closeable resources.
 func (a *UkrainianMorfologikAnalyzer) Close() error { return nil }
+
+// Normalize returns a TokenStream that normalizes text for the given field.
+func (a *UkrainianMorfologikAnalyzer) Normalize(fieldName string) analysis.TokenStream {
+	ts, _ := a.TokenStream(fieldName, nil)
+	return ts
+}
 
 // Ensure UkrainianMorfologikAnalyzer implements analysis.Analyzer.
 var _ analysis.Analyzer = (*UkrainianMorfologikAnalyzer)(nil)

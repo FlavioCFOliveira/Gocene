@@ -2,38 +2,49 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene 10.4.0:
+// Ported from Apache Lucene 10.5.0:
 //   lucene/queries/src/java/org/apache/lucene/queries/spans/SpanScorer.java
 
 package spans
 
 import (
+	"math"
+
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// SpanScorer scores documents using a Spans iterator and an optional SimScorer.
+// SpanScorer is a basic search.Scorer over Spans.
 //
-// Mirrors org.apache.lucene.queries.spans.SpanScorer.
+// Mirrors org.apache.lucene.queries.spans.SpanScorer (Apache Lucene 10.5.0).
 //
-// Deviations from Java:
-//   - Java's scorer field is Similarity.SimScorer; Gocene uses search.SimScorer.
-//   - Java's norms field is NumericDocValues; Gocene uses index.NumericDocValues.
-//   - Score() returns float32 directly; Java throws IOException.
+// Java's SpanScorer extends Scorer and overrides only docID(), iterator(),
+// twoPhaseIterator(), score() and getMaxScore(int); every other member of
+// Scorer/Scorable keeps the base-class body, which search.BaseScorer carries.
 type SpanScorer struct {
+	search.BaseScorer
+
 	spans     Spans
 	simScorer search.SimScorer
 	norms     index.NumericDocValues
 
-	// accumulated sloppy freq for the last scored document
-	freq          float32
+	// accumulated sloppy freq (computed in setFreqCurrentDoc)
+	freq float32
+
+	// last doc we called setFreqCurrentDoc() for
 	lastScoredDoc int
 }
 
 // newSpanScorer constructs a SpanScorer.
 // simScorer may be nil when scoring is not needed.
 // norms may be nil if no norm values are indexed.
+//
+// Mirrors the sole constructor SpanScorer(Spans, SimScorer, NumericDocValues).
 func newSpanScorer(spans Spans, simScorer search.SimScorer, norms index.NumericDocValues) *SpanScorer {
+	if spans == nil {
+		panic("SpanScorer: spans must not be nil")
+	}
 	return &SpanScorer{
 		spans:         spans,
 		simScorer:     simScorer,
@@ -42,31 +53,56 @@ func newSpanScorer(spans Spans, simScorer search.SimScorer, norms index.NumericD
 	}
 }
 
+// GetSpans returns the Spans for this Scorer.
+//
+// Mirrors SpanScorer.getSpans().
+func (s *SpanScorer) GetSpans() Spans { return s.spans }
+
 // DocID returns the current document ID.
+//
+// Mirrors SpanScorer.docID().
 func (s *SpanScorer) DocID() int { return s.spans.DocID() }
 
-// NextDoc advances to the next document.
-func (s *SpanScorer) NextDoc() (int, error) { return s.spans.NextDoc() }
-
-// Advance advances to the first document >= target.
-func (s *SpanScorer) Advance(target int) (int, error) { return s.spans.Advance(target) }
-
-// Cost returns the estimated iteration cost.
-func (s *SpanScorer) Cost() int64 { return s.spans.Cost() }
-
-// DocIDRunEnd returns the conservative upper bound on the current document run.
-func (s *SpanScorer) DocIDRunEnd() int { return s.spans.DocIDRunEnd() }
+// Iterator returns the Spans, which is itself a DocIdSetIterator.
+//
+// Mirrors SpanScorer.iterator().
+func (s *SpanScorer) Iterator() search.DocIdSetIterator { return s.spans }
 
 // TwoPhaseIterator returns a TwoPhaseIterator view, or nil.
+//
+// Mirrors SpanScorer.twoPhaseIterator().
 func (s *SpanScorer) TwoPhaseIterator() *search.TwoPhaseIterator {
 	return s.spans.AsTwoPhaseIterator()
 }
 
-// GetSpans returns the underlying Spans iterator.
-func (s *SpanScorer) GetSpans() Spans { return s.spans }
+// scoreCurrentDoc scores the current doc with the similarity using the
+// slop-adjusted freq.
+//
+// Mirrors SpanScorer.scoreCurrentDoc().
+func (s *SpanScorer) scoreCurrentDoc() (float32, error) {
+	if s.simScorer == nil {
+		panic("SpanScorer has a null docScorer!")
+	}
+	norm := int64(1)
+	if s.norms != nil {
+		exact, err := s.norms.AdvanceExact(s.DocID())
+		if err != nil {
+			return 0, err
+		}
+		if exact {
+			norm, err = s.norms.LongValue()
+			if err != nil {
+				return 0, err
+			}
+		}
+	}
+	return s.simScorer.Score104(s.freq, norm), nil
+}
 
-// setFreqCurrentDoc accumulates the sloppy frequency for the current document.
-// This is called at most once per document.
+// setFreqCurrentDoc sets freq for the current document.
+// This will be called at most once per document.
+//
+// Mirrors SpanScorer.setFreqCurrentDoc().
 func (s *SpanScorer) setFreqCurrentDoc() error {
 	s.freq = 0.0
 
@@ -74,17 +110,12 @@ func (s *SpanScorer) setFreqCurrentDoc() error {
 		return err
 	}
 
-	// Ensure we are positioned at -1 start/end.
 	startPos, err := s.spans.NextStartPosition()
 	if err != nil {
 		return err
 	}
-	if startPos == NoMorePositions {
-		return nil
-	}
 	for {
-		if s.simScorer == nil {
-			// Scoring not required — just set freq to 1 and return.
+		if s.simScorer == nil { // scores not required, break out here
 			s.freq = 1
 			return nil
 		}
@@ -92,61 +123,60 @@ func (s *SpanScorer) setFreqCurrentDoc() error {
 		if err := s.spans.DoCurrentSpans(); err != nil {
 			return err
 		}
-		next, err := s.spans.NextStartPosition()
+		startPos, err = s.spans.NextStartPosition()
 		if err != nil {
 			return err
 		}
-		if next == NoMorePositions {
-			break
+		if startPos == NoMorePositions {
+			return nil
 		}
 	}
-	return nil
 }
 
-// ensureFreq computes the sloppy frequency if not already done for the current doc.
+// ensureFreq makes sure setFreqCurrentDoc has been called for the current doc.
+//
+// Mirrors SpanScorer.ensureFreq().
 func (s *SpanScorer) ensureFreq() error {
-	cur := s.DocID()
-	if s.lastScoredDoc != cur {
+	currentDoc := s.DocID()
+	if s.lastScoredDoc != currentDoc {
 		if err := s.setFreqCurrentDoc(); err != nil {
 			return err
 		}
-		s.lastScoredDoc = cur
+		s.lastScoredDoc = currentDoc
 	}
 	return nil
 }
 
 // Score returns the score for the current document.
-func (s *SpanScorer) Score() float32 {
+//
+// Mirrors SpanScorer.score().
+func (s *SpanScorer) Score() (float32, error) {
 	if err := s.ensureFreq(); err != nil {
-		return 0
+		return 0, err
 	}
 	return s.scoreCurrentDoc()
 }
 
-// scoreCurrentDoc computes the score using SimScorer + norm.
-func (s *SpanScorer) scoreCurrentDoc() float32 {
-	if s.simScorer == nil {
-		return 0
-	}
-	return s.simScorer.Score(s.DocID(), s.freq, 1)
+// GetMaxScore returns Float.POSITIVE_INFINITY, the value Java's
+// SpanScorer.getMaxScore(int) returns for every upTo.
+func (s *SpanScorer) GetMaxScore(upTo int) (float32, error) {
+	return float32(math.Inf(1)), nil
 }
 
-// sloppyFreq returns the accumulated sloppy frequency; used by SpanWeight.Explain.
+// NextDocsAndScores carries the concrete body of Scorer.nextDocsAndScores in
+// Apache Lucene 10.5.0, which SpanScorer inherits without overriding.
+func (s *SpanScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// sloppyFreq returns the intermediate "sloppy freq" adjusted for edit distance.
+//
+// Mirrors SpanScorer.sloppyFreq().
 func (s *SpanScorer) sloppyFreq() (float32, error) {
 	if err := s.ensureFreq(); err != nil {
 		return 0, err
 	}
 	return s.freq, nil
-}
-
-// GetMaxScore returns an upper bound for the score (unbounded).
-func (s *SpanScorer) GetMaxScore(_ int) float32 { return 1<<24 - 1 } // Float.MAX_VALUE analogue
-
-// AdvanceShallow returns search.NO_MORE_DOCS, the default defined by
-// org.apache.lucene.search.Scorer#advanceShallow. Span scorers do not expose
-// per-block impact information.
-func (s *SpanScorer) AdvanceShallow(target int) (int, error) {
-	return search.NO_MORE_DOCS, nil
 }
 
 var _ search.Scorer = (*SpanScorer)(nil)

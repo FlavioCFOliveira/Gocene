@@ -83,7 +83,7 @@ func (q *LongRangeSlowRangeQuery) QueryType() RangeFieldQueryType { return q.que
 // rolled through (31*h + field-hash + Arrays.hashCode(min) + Arrays.hashCode(max)).
 func (q *LongRangeSlowRangeQuery) HashCode() int {
 	h := int32(classHashLongRangeSlowRangeQuery)
-	h = 31*h + int32(stringHash(q.field))
+	h = 31*h + int32(longStringHash(q.field))
 	h = 31*h + int32(int64SliceHash(q.min))
 	h = 31*h + int32(int64SliceHash(q.max))
 	return int(h)
@@ -137,7 +137,7 @@ func (q *LongRangeSlowRangeQuery) Equals(other *LongRangeSlowRangeQuery) bool {
 	return true
 }
 
-func stringHash(s string) int32 {
+func longStringHash(s string) int32 {
 	var h int32
 	for i := 0; i < len(s); i++ {
 		h = 31*h + int32(s[i])

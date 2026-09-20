@@ -4,7 +4,11 @@
 
 package search
 
-import "math"
+import (
+	"math"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // ImpactsDISI is a DocIdSetIterator wrapper that skips documents whose
 // per-block impact-derived max score is below a minimum competitive score.
@@ -61,7 +65,7 @@ func (i *ImpactsDISI) Advance(target int) (int, error) {
 func (i *ImpactsDISI) Cost() int64 { return i.in.Cost() }
 
 // DocIDRunEnd forwards to the underlying iterator.
-func (i *ImpactsDISI) DocIDRunEnd() int { return i.in.DocIDRunEnd() }
+func (i *ImpactsDISI) DocIDRunEnd() (int, error) { return i.in.DocIDRunEnd() }
 
 func (i *ImpactsDISI) maybeSkip(doc int) (int, error) {
 	for doc != NO_MORE_DOCS {
@@ -71,7 +75,11 @@ func (i *ImpactsDISI) maybeSkip(doc int) (int, error) {
 				return doc, err
 			}
 			i.upTo = next
-			i.maxScore = i.maxes.GetMaxScore(next)
+			maxScore, err := i.maxes.GetMaxScore(next)
+			if err != nil {
+				return doc, err
+			}
+			i.maxScore = maxScore
 		}
 		if i.maxScore >= i.minScore {
 			return doc, nil
@@ -84,4 +92,10 @@ func (i *ImpactsDISI) maybeSkip(doc int) (int, error) {
 		doc = nd
 	}
 	return doc, nil
+}
+
+// IntoBitSet mirrors the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene 10.5.0.
+func (i *ImpactsDISI) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return DefaultIntoBitSet(i, upTo, bitSet, offset)
 }

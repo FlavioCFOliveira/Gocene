@@ -6,6 +6,7 @@ package analysis
 
 import (
 	"io"
+	"github.com/FlavioCFOliveira/Gocene/analysis/api"
 )
 
 // HungarianStopWords contains common Hungarian stop words.
@@ -68,13 +69,23 @@ func NewHungarianAnalyzer() *HungarianAnalyzer {
 // NewHungarianAnalyzerWithWords creates a HungarianAnalyzer with custom stop words.
 func NewHungarianAnalyzerWithWords(stopWords *CharArraySet) *HungarianAnalyzer {
 	a := &HungarianAnalyzer{
-		BaseAnalyzer: NewAnalyzer(),
+		BaseAnalyzer: NewAnalyzer(GlobalReuseStrategy),
 		stopWords:    stopWords,
 	}
-	a.TokenizerFactory = NewStandardTokenizerFactory()
-	a.AddTokenFilter(NewLowerCaseFilterFactory())
-	a.AddTokenFilter(NewStopFilterFactoryWithWords(stopWords))
-	a.AddTokenFilter(NewHungarianLightStemFilterFactory())
+	a.CreateComponents = func(fieldName string) *TokenStreamComponents {
+		src := NewStandardTokenizer()
+		var tok TokenStream = NewLowerCaseFilter(src)
+		tok = NewStopFilterWithWords(tok, stopWords)
+		tok = NewHungarianLightStemFilter(tok)
+
+		return &TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: tok,
+		}
+	}
 	return a
 }
 
@@ -93,8 +104,7 @@ func (a *HungarianAnalyzer) SetStopWords(stopWords *CharArraySet) {
 	a.stopWords = stopWords
 }
 
-var _ Analyzer = (*HungarianAnalyzer)(nil)
-var _ AnalyzerInterface = (*HungarianAnalyzer)(nil)
+var _ api.Analyzer = (*HungarianAnalyzer)(nil)
 
 // HungarianLightStemmer implements light stemming for Hungarian language.
 type HungarianLightStemmer struct{}
@@ -216,7 +226,9 @@ func (f *HungarianLightStemFilter) IncrementToken() (bool, error) {
 }
 
 // HungarianLightStemFilterFactory creates HungarianLightStemFilter instances.
-type HungarianLightStemFilterFactory struct{}
+type HungarianLightStemFilterFactory struct {
+	BaseTokenFilterFactory
+}
 
 // NewHungarianLightStemFilterFactory creates a new HungarianLightStemFilterFactory.
 func NewHungarianLightStemFilterFactory() *HungarianLightStemFilterFactory {

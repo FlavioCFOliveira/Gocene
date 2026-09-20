@@ -249,11 +249,24 @@ func assertVectorsReadBack(t *testing.T, dir store.Directory, field string, valu
 			docBase += sr.MaxDoc()
 			continue
 		}
-		for i := 0; i < sr.MaxDoc(); i++ {
-			vec, err := fvv.Get(i)
+		vecByDoc := map[int][]float32{}
+		it := fvv.Iterator()
+		for {
+			d, err := it.NextDoc()
 			if err != nil {
-				t.Fatalf("FloatVectorValues.Get(%d): %v", i, err)
+				t.Fatalf("FloatVectorValues iterator NextDoc: %v", err)
 			}
+			if d < 0 || d >= sr.MaxDoc() {
+				break
+			}
+			v, err := fvv.VectorValue(it.Index())
+			if err != nil {
+				t.Fatalf("FloatVectorValues.VectorValue(%d) of doc %d: %v", it.Index(), d, err)
+			}
+			vecByDoc[d] = append([]float32(nil), v...)
+		}
+		for i := 0; i < sr.MaxDoc(); i++ {
+			vec := vecByDoc[i]
 			id := docIDToInsertionID(t, searcher, docBase+i)
 			if vec == nil {
 				if id < len(values) && values[id] != nil {

@@ -316,12 +316,24 @@ type captureFieldsConsumer struct {
 	failOn string
 }
 
-func (c *captureFieldsConsumer) Write(field string, _ Terms) error {
-	if field == c.failOn {
-		return errors.New("synthetic failure")
+func (c *captureFieldsConsumer) Write(fields Fields, _ NormsProducer) error {
+	it, err := fields.Iterator()
+	if err != nil {
+		return err
 	}
-	c.fields = append(c.fields, field)
-	return nil
+	for {
+		field, err := it.Next()
+		if err != nil {
+			return err
+		}
+		if field == "" {
+			return nil
+		}
+		if field == c.failOn {
+			return errors.New("synthetic failure")
+		}
+		c.fields = append(c.fields, field)
+	}
 }
 
 func (c *captureFieldsConsumer) Close() error { c.closed = true; return nil }

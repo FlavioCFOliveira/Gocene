@@ -7,8 +7,10 @@ package lucene912
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // File extension constants for the Lucene 9.12 postings format.
@@ -97,6 +99,48 @@ func NewIntBlockTermState() *IntBlockTermState {
 		LastPosBlockOffset: -1,
 		SingletonDocID:     -1,
 	}
+}
+
+// Clone returns a deep copy of the receiver.
+//
+// Mirrors IntBlockTermState.clone(), which allocates a fresh instance and
+// delegates to copyFrom. CopyFrom only rejects a source of another type, and
+// the source here is the receiver, so the error branch is unreachable.
+func (s *IntBlockTermState) Clone() *IntBlockTermState {
+	other := NewIntBlockTermState()
+	if err := other.CopyFrom(s); err != nil {
+		panic(err)
+	}
+	return other
+}
+
+// CopyFrom resets this state from other.
+//
+// Mirrors IntBlockTermState.copyFrom(TermState): the BlockTermState part
+// first, then the five Lucene912-specific fields. The Java cast to
+// IntBlockTermState is rendered as a type assertion.
+func (s *IntBlockTermState) CopyFrom(other index.TermState) error {
+	o, ok := other.(*IntBlockTermState)
+	if !ok {
+		return fmt.Errorf("IntBlockTermState.CopyFrom: incompatible source type %T", other)
+	}
+	if err := s.BlockTermState.CopyFrom(o.BlockTermState); err != nil {
+		return err
+	}
+	s.DocStartFP = o.DocStartFP
+	s.PosStartFP = o.PosStartFP
+	s.PayStartFP = o.PayStartFP
+	s.LastPosBlockOffset = o.LastPosBlockOffset
+	s.SingletonDocID = o.SingletonDocID
+	return nil
+}
+
+// String returns the debug representation of IntBlockTermState.toString():
+// the BlockTermState part followed by the five Lucene912-specific fields.
+func (s *IntBlockTermState) String() string {
+	return fmt.Sprintf("%s docStartFP=%d posStartFP=%d payStartFP=%d lastPosBlockOffset=%d singletonDocID=%d",
+		s.BlockTermState.String(), s.DocStartFP, s.PosStartFP, s.PayStartFP,
+		s.LastPosBlockOffset, s.SingletonDocID)
 }
 
 // Lucene912PostingsFormat is the read-only Go port of

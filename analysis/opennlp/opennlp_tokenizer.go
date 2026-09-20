@@ -7,6 +7,7 @@ package opennlp
 import (
 	"errors"
 	"io"
+	"reflect"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/opennlp/tools"
@@ -56,9 +57,9 @@ func NewOpenNLPTokenizer(factory util.AttributeFactory, sentenceOp *tools.NLPSen
 	t.termAtt = factory.CreateAttributeInstance(analysis.CharTermAttributeType).(*analysis.CharTermAttributeImpl)
 	t.offsetAtt = factory.CreateAttributeInstance(analysis.OffsetAttributeType).(*analysis.OffsetAttributeImpl)
 	t.sentenceAtt = factory.CreateAttributeInstance(analysis.SentenceAttributeType).(*analysis.SentenceAttributeImpl)
-	t.AddAttribute(t.termAtt)
-	t.AddAttribute(t.offsetAtt)
-	t.AddAttribute(t.sentenceAtt)
+	t.AddAttribute(reflect.TypeOf((*analysis.CharTermAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*analysis.OffsetAttribute)(nil)).Elem())
+	t.AddAttribute(reflect.TypeOf((*analysis.SentenceAttribute)(nil)).Elem())
 
 	breakIter := NewOpenNLPSentenceBreakIterator(sentenceOp)
 	t.base = analysisutil.NewSegmentingTokenizerBase(breakIter)
@@ -69,9 +70,8 @@ func NewOpenNLPTokenizer(factory util.AttributeFactory, sentenceOp *tools.NLPSen
 }
 
 // SetReader sets the input reader for this tokenizer.
-func (t *OpenNLPTokenizer) SetReader(r io.Reader) error {
+func (t *OpenNLPTokenizer) SetReader(r io.Reader) {
 	t.base.SetReader(r)
-	return nil
 }
 
 // IncrementToken advances to the next token.

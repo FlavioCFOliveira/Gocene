@@ -45,15 +45,12 @@ func NRTSuggesterDecode(output int64) int64 {
 // and a vint-encoded docID. Mirrors
 // NRTSuggester.PayLoadProcessor.make(BytesRef, int, int).
 func makePayload(surface []byte, docID int, sep int) *util.BytesRef {
-	out := store.NewByteArrayDataOutput(len(surface) + maxDocIDLenWithSep)
-	_ = out.WriteBytes(surface)
+	buffer := make([]byte, len(surface)+maxDocIDLenWithSep)
+	out := store.NewByteArrayDataOutput(buffer)
+	_ = out.WriteBytes(surface, 0, len(surface))
 	_ = out.WriteByte(byte(sep))
-	_ = store.WriteVInt(out, int32(docID))
-	pos := out.GetPosition()
-	src := out.GetBytes()
-	b := make([]byte, pos)
-	copy(b, src[:pos])
-	return &util.BytesRef{Bytes: b, Offset: 0, Length: pos}
+	_ = out.WriteVInt(int32(docID))
+	return &util.BytesRef{Bytes: buffer, Offset: 0, Length: out.GetPosition()}
 }
 
 // nrtEntry is a single (payload, weight) pair queued during term processing.
@@ -200,13 +197,13 @@ func (b *NRTSuggesterBuilder) Store(output store.DataOutput) (bool, error) {
 		// but guard to avoid writing invalid metadata.
 		return false, fmt.Errorf("nrtsuggester: maxAnalyzedPathsPerOutput must be > 0")
 	}
-	if err := store.WriteVInt(output, int32(b.maxAnalyzedPerOutput)); err != nil {
+	if err := output.WriteVInt(int32(b.maxAnalyzedPerOutput)); err != nil {
 		return false, err
 	}
-	if err := store.WriteVInt(output, int32(endByte)); err != nil {
+	if err := output.WriteVInt(int32(endByte)); err != nil {
 		return false, err
 	}
-	if err := store.WriteVInt(output, int32(payloadSep)); err != nil {
+	if err := output.WriteVInt(int32(payloadSep)); err != nil {
 		return false, err
 	}
 	return true, nil

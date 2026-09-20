@@ -8,9 +8,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strings"
-
-	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TieredMergePolicy merges segments of approximately equal size, subject to an allowed number of segments per tier.
@@ -137,10 +134,20 @@ type segmentSizeAndDocs struct {
 	name        string
 }
 
-type mergeScore struct {
+// MergeScore holds the score and the explanation for a single candidate
+// merge. Mirrors org.apache.lucene.index.TieredMergePolicy.MergeScore.
+type MergeScore struct {
 	score       float64
 	explanation string
 }
+
+// GetScore returns the score for this merge candidate. Lower scores are
+// better. Mirrors MergeScore.getScore.
+func (m *MergeScore) GetScore() float64 { return m.score }
+
+// GetExplanation returns a human readable explanation of how the merge got
+// this score. Mirrors MergeScore.getExplanation.
+func (m *MergeScore) GetExplanation() string { return m.explanation }
 
 func (p *TieredMergePolicy) getSortedBySegmentSize(infos *SegmentInfos, mergeContext MergeContext) []*segmentSizeAndDocs {
 	sorted := make([]*segmentSizeAndDocs, 0, infos.Size())
@@ -148,9 +155,9 @@ func (p *TieredMergePolicy) getSortedBySegmentSize(infos *SegmentInfos, mergeCon
 		sorted = append(sorted, &segmentSizeAndDocs{
 			segInfo:     sci,
 			sizeInBytes: sci.SegmentInfo().SizeInBytes(),
-			delCount:    mergeContext.NumDeletesToMerge(sci, 0),
-			maxDoc:      sci.SegmentInfo().DocCount(),
-			name:        sci.SegmentInfo().Name,
+			delCount:    mergeContext.NumDeletesToMerge(sci),
+			maxDoc:      sci.SegmentInfo().MaxDoc(),
+			name:        sci.SegmentInfo().Name(),
 		})
 	}
 
@@ -287,7 +294,7 @@ func (p *TieredMergePolicy) doFindMerges(
 		}
 
 		var best []*SegmentCommitInfo
-		var bestScore *mergeScore
+		var bestScore *MergeScore
 		bestTooLarge := false
 		var bestMergeBytes int64
 
@@ -333,7 +340,12 @@ func (p *TieredMergePolicy) doFindMerges(
 			}
 
 			score := p.score(candidate, hitTooLarge, segInfosSizes)
-			if bestScore == nil || score.score < bestScore.score {
+			if p.Verbose(mergeContext) {
+				p.Message(fmt.Sprintf("  maybe=%s score=%v %s tooLarge=%v size=%.3f MB",
+					p.SegString(mergeContext, candidate), score.GetScore(), score.GetExplanation(),
+					hitTooLarge, float64(bytesThisMerge)/1024./1024.), mergeContext)
+			}
+			if bestScore == nil || score.GetScore() < bestScore.GetScore() {
 				if !hitTooLarge || !maxMergeIsRunning {
 					best = candidate
 					bestScore = score
@@ -353,6 +365,16 @@ func (p *TieredMergePolicy) doFindMerges(
 				spec = NewMergeSpecification()
 			}
 			spec.Add(NewOneMerge(best))
+
+			if p.Verbose(mergeContext) {
+				maxMergeNote := ""
+				if bestTooLarge {
+					maxMergeNote = " [max merge]"
+				}
+				p.Message(fmt.Sprintf("  add merge=%s size=%.3f MB score=%.3f %s%s",
+					p.SegString(mergeContext, best), float64(bestMergeBytes)/1024./1024.,
+					bestScore.GetScore(), bestScore.GetExplanation(), maxMergeNote), mergeContext)
+			}
 		}
 		for _, seg := range best {
 			toBeMerged[seg] = true
@@ -360,7 +382,7 @@ func (p *TieredMergePolicy) doFindMerges(
 	}
 }
 
-func (p *TieredMergePolicy) score(candidate []*SegmentCommitInfo, hitTooLarge bool, segInfosSizes map[*SegmentCommitInfo]*segmentSizeAndDocs) *mergeScore {
+func (p *TieredMergePolicy) score(candidate []*SegmentCommitInfo, hitTooLarge bool, segInfosSizes map[*SegmentCommitInfo]*segmentSizeAndDocs) *MergeScore {
 	var totBeforeMergeBytes int64
 	var totAfterMergeBytes int64
 	var totAfterMergeBytesFloored int64
@@ -384,8 +406,8 @@ func (p *TieredMergePolicy) score(candidate []*SegmentCommitInfo, hitTooLarge bo
 	nonDelRatio := float64(totAfterMergeBytes) / float64(totBeforeMergeBytes)
 	mergeScore *= math.Pow(nonDelRatio, 2)
 
-	return &mergeScore{
-		score: mergeScore,
+	return &MergeScore{
+		score:       mergeScore,
 		explanation: fmt.Sprintf("skew=%.3f nonDelRatio=%.3f", skew, nonDelRatio),
 	}
 }
@@ -397,7 +419,7 @@ func (p *TieredMergePolicy) FindForcedMerges(infos *SegmentInfos, maxSegmentCoun
 
 	eligible := make([]*segmentSizeAndDocs, 0)
 	for _, seg := range sortedInfos {
-		if segmentsToMerge[seg.segInfo] != nil {
+		if _, isOriginal := segmentsToMerge[seg.segInfo]; isOriginal {
 			if merging[seg.segInfo] {
 				eligible = append(eligible, seg)
 			} else {
@@ -449,7 +471,7 @@ func (p *TieredMergePolicy) FindForcedDeletesMerges(infos *SegmentInfos, mergeCo
 	merging := mergeContext.GetMergingSegments()
 	var totalDelCount int
 	for sci := range infos.Iterator() {
-		totalDelCount += mergeContext.NumDeletesToMerge(sci, 0)
+		totalDelCount += mergeContext.NumDeletesToMerge(sci)
 	}
 
 	sortedInfos := p.getSortedBySegmentSize(infos, mergeContext)
@@ -467,7 +489,7 @@ func (p *TieredMergePolicy) FindForcedDeletesMerges(infos *SegmentInfos, mergeCo
 		math.MaxInt32,
 		math.MaxInt32,
 		0,
-		int(math.Ceil(float64(infos.totalMaxDoc()-totalDelCount)/float64(p.targetSearchConcurrency))),
+		int(math.Ceil(float64(infos.TotalMaxDoc()-totalDelCount)/float64(p.targetSearchConcurrency))),
 		"FORCE_MERGE_DELETES",
 		mergeContext,
 		false,

@@ -59,12 +59,12 @@ func (sm *SegmentMerger) mergeVectorValues() error {
 	}
 
 	state := &SegmentWriteState{
-		Directory:     sm.directory,
-		SegmentInfo:   sm.MergeState.SegmentInfo,
-		FieldInfos:    sm.MergeState.MergeFieldInfos,
+		Directory:      sm.directory,
+		SegmentInfo:    sm.MergeState.SegmentInfo,
+		FieldInfos:     sm.MergeState.MergeFieldInfos,
 		SegmentSuffix:  "",
-			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
-			IsMerge:        true,
+		NeedsIndexSort: sm.MergeState.NeedsIndexSort,
+		IsMerge:        true,
 	}
 	if err := consumer.Flush(state, nil); err != nil {
 		return fmt.Errorf("index: merge vectors: flush: %w", err)
@@ -92,15 +92,19 @@ func (sm *SegmentMerger) mergeOneVectorField(info *FieldInfo, handle KnnFieldVec
 
 		switch info.VectorEncoding() {
 		case VectorEncodingByte:
-			bvv, err := delegate.ByteVectorValues(info.Name())
+			bvv, err := delegate.GetByteVectorValues(info.Name())
 			if err != nil {
 				return fmt.Errorf("index: merge vectors: byte values %q reader %d: %w", info.Name(), i, err)
 			}
 			if bvv == nil {
 				continue
 			}
+			// Mirrors KnnVectorsWriter.MergedVectorValues: the doc order comes
+			// from the values' DocIndexIterator and the vector is fetched by
+			// the iterator's current ordinal, not by docID.
+			bIter := bvv.Iterator()
 			for {
-				d, err := bvv.NextDoc()
+				d, err := bIter.NextDoc()
 				if err != nil {
 					return err
 				}
@@ -111,7 +115,7 @@ func (sm *SegmentMerger) mergeOneVectorField(info *FieldInfo, handle KnnFieldVec
 				if mapped < 0 {
 					continue
 				}
-				vec, err := bvv.Get(d)
+				vec, err := bvv.VectorValue(bIter.Index())
 				if err != nil {
 					return err
 				}
@@ -122,15 +126,19 @@ func (sm *SegmentMerger) mergeOneVectorField(info *FieldInfo, handle KnnFieldVec
 				}
 			}
 		default: // VectorEncodingFloat32
-			fvv, err := delegate.FloatVectorValues(info.Name())
+			fvv, err := delegate.GetFloatVectorValues(info.Name())
 			if err != nil {
 				return fmt.Errorf("index: merge vectors: float values %q reader %d: %w", info.Name(), i, err)
 			}
 			if fvv == nil {
 				continue
 			}
+			// Mirrors KnnVectorsWriter.MergedVectorValues: the doc order comes
+			// from the values' DocIndexIterator and the vector is fetched by
+			// the iterator's current ordinal, not by docID.
+			fIter := fvv.Iterator()
 			for {
-				d, err := fvv.NextDoc()
+				d, err := fIter.NextDoc()
 				if err != nil {
 					return err
 				}
@@ -141,7 +149,7 @@ func (sm *SegmentMerger) mergeOneVectorField(info *FieldInfo, handle KnnFieldVec
 				if mapped < 0 {
 					continue
 				}
-				vec, err := fvv.Get(d)
+				vec, err := fvv.VectorValue(fIter.Index())
 				if err != nil {
 					return err
 				}

@@ -443,8 +443,8 @@ func newMockTokenStream(tokens []tokenInfo) *mockTokenStream {
 	// Add attributes
 	stream.termAttr = NewCharTermAttribute()
 	stream.posIncrAttr = tokenattributes.NewPositionIncrementAttribute()
-	stream.AddAttribute(stream.termAttr)
-	stream.AddAttribute(stream.posIncrAttr)
+	stream.AddAttribute(CharTermAttributeType)
+	stream.AddAttribute(tokenattributes.PositionIncrementAttributeType)
 
 	return stream
 }

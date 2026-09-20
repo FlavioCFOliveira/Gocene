@@ -85,12 +85,16 @@ var _ analysis.TokenFilter = (*GalicianMinimalStemFilter)(nil)
 // This is the Go port of
 // org.apache.lucene.analysis.gl.GalicianMinimalStemFilterFactory from
 // Apache Lucene 10.4.0.
-type GalicianMinimalStemFilterFactory struct{}
+type GalicianMinimalStemFilterFactory struct {
+	*analysis.BaseTokenFilterFactory
+}
 
 // NewGalicianMinimalStemFilterFactory constructs the factory.
 // Returns an error if any unknown parameters are present.
 func NewGalicianMinimalStemFilterFactory(args map[string]string) (*GalicianMinimalStemFilterFactory, error) {
-	return &GalicianMinimalStemFilterFactory{}, nil
+	return &GalicianMinimalStemFilterFactory{
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(args),
+	}, nil
 }
 
 // Create wraps input in a GalicianMinimalStemFilter.

@@ -61,11 +61,7 @@ func (r *LateInteractionRescorer) Rescore(searcher *IndexSearcher, topDocs *TopD
 		}
 		return out[i].Score > out[j].Score
 	})
-	max := float32(0)
-	if len(out) > 0 {
-		max = out[0].Score
-	}
-	return &TopDocs{TotalHits: topDocs.TotalHits, ScoreDocs: out, MaxScore: max}, nil
+	return &TopDocs{TotalHits: topDocs.TotalHits, ScoreDocs: out}, nil
 }
 
 // Explain returns the rescored explanation.

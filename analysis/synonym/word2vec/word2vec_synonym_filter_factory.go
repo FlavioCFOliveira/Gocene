@@ -37,6 +37,10 @@ const DefaultMinAcceptedSimilarity float32 = 0.8
 // Deviation: ResourceLoaderAware is from util; Java imports it from
 // org.apache.lucene.util.
 type Word2VecSynonymFilterFactory struct {
+	// BaseTokenFilterFactory renders the TokenFilterFactory superclass; it
+	// carries the inherited normalize(TokenStream) default.
+	*analysis.BaseTokenFilterFactory
+
 	maxSynonymsPerTerm    int
 	minAcceptedSimilarity float32
 	format                Word2VecSupportedFormats
@@ -51,9 +55,11 @@ type Word2VecSynonymFilterFactory struct {
 // "dl4j"). Unknown parameters cause an error.
 func NewWord2VecSynonymFilterFactory(args map[string]string) (*Word2VecSynonymFilterFactory, error) {
 	f := &Word2VecSynonymFilterFactory{
-		maxSynonymsPerTerm:    DefaultMaxSynonymsPerTerm,
-		minAcceptedSimilarity: DefaultMinAcceptedSimilarity,
-		format:                Word2VecFormatDL4J,
+		// Java: super(args)
+		BaseTokenFilterFactory: analysis.NewBaseTokenFilterFactory(args),
+		maxSynonymsPerTerm:     DefaultMaxSynonymsPerTerm,
+		minAcceptedSimilarity:  DefaultMinAcceptedSimilarity,
+		format:                 Word2VecFormatDL4J,
 	}
 
 	remaining := make(map[string]string, len(args))

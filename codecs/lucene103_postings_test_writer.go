@@ -106,8 +106,7 @@ type lucene103PostingsTestWriter struct {
 
 	spareBitSet *util.FixedBitSet
 
-	stateCache map[*BlockTermState]*IntBlockTermState
-	lastState  *IntBlockTermState
+	lastState *IntBlockTermState
 }
 
 func newLucene103PostingsTestWriter(state *SegmentWriteState) (*lucene103PostingsTestWriter, error) {
@@ -121,7 +120,6 @@ func newLucene103PostingsTestWriter(state *SegmentWriteState) (*lucene103Posting
 		scratchOutput:     store.NewByteBuffersDataOutput(),
 		level0Output:      store.NewByteBuffersDataOutput(),
 		level1Output:      store.NewByteBuffersDataOutput(),
-		stateCache:        make(map[*BlockTermState]*IntBlockTermState),
 		lastState:         emptyIntBlockTermState,
 		forDeltaUtil:      newLucene103ForDeltaUtil(),
 		pforUtil:          newLucene103PForUtil(),
@@ -134,8 +132,8 @@ func newLucene103PostingsTestWriter(state *SegmentWriteState) (*lucene103Posting
 	}
 	w.spareBitSet = spareBitSet
 
-	metaFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene103MetaExtension)
-	docFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene103DocExtension)
+	metaFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene103MetaExtension)
+	docFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene103DocExtension)
 
 	var posOut, payOut store.IndexOutput
 	success := false
@@ -168,7 +166,7 @@ func newLucene103PostingsTestWriter(state *SegmentWriteState) (*lucene103Posting
 
 	if state.FieldInfos.HasProx() {
 		w.posDeltaBuffer = make([]int32, lucene103PostingsBlockSize)
-		posFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene103PosExtension)
+		posFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene103PosExtension)
 		rawPosOut, posErr := state.Directory.CreateOutput(posFileName, store.IOContext{Context: store.ContextWrite})
 		if posErr != nil {
 			return nil, fmt.Errorf("lucene103 test writer: create %s: %w", posFileName, posErr)
@@ -188,7 +186,7 @@ func newLucene103PostingsTestWriter(state *SegmentWriteState) (*lucene103Posting
 		}
 
 		if state.FieldInfos.HasPayloads() || state.FieldInfos.HasOffsets() {
-			payFileName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene103PayExtension)
+			payFileName := store.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, lucene103PayExtension)
 			rawPayOut, payErr := state.Directory.CreateOutput(payFileName, store.IOContext{Context: store.ContextWrite})
 			if payErr != nil {
 				return nil, fmt.Errorf("lucene103 test writer: create %s: %w", payFileName, payErr)
@@ -206,17 +204,15 @@ func newLucene103PostingsTestWriter(state *SegmentWriteState) (*lucene103Posting
 	return w, nil
 }
 
-func (w *lucene103PostingsTestWriter) NewTermState() *BlockTermState {
-	its := NewIntBlockTermState()
-	w.stateCache[its.BlockTermState] = its
-	return its.BlockTermState
+func (w *lucene103PostingsTestWriter) NewTermState() index.TermState {
+	return NewIntBlockTermState()
 }
 
 func (w *lucene103PostingsTestWriter) Init(termsOut store.IndexOutput, state *SegmentWriteState) error {
 	if err := WriteIndexHeader(termsOut, lucene103TermsCodec, int32(w.version), state.SegmentInfo.GetID(), state.SegmentSuffix); err != nil {
 		return fmt.Errorf("lucene103 test writer Init: write terms header: %w", err)
 	}
-	if err := store.WriteVInt(termsOut, lucene103PostingsBlockSize); err != nil {
+	if err := termsOut.WriteVInt(lucene103PostingsBlockSize); err != nil {
 		return fmt.Errorf("lucene103 test writer Init: write block size: %w", err)
 	}
 	return nil
@@ -334,10 +330,10 @@ func (w *lucene103PostingsTestWriter) AddPosition(position int, payload []byte, 
 			if err := w.pforUtil.encode(w.payloadLengthBuffer, w.payOut); err != nil {
 				return fmt.Errorf("lucene103 test writer: encode payload lengths: %w", err)
 			}
-			if err := store.WriteVInt(w.payOut, int32(w.payloadByteUpto)); err != nil {
+			if err := w.payOut.WriteVInt(int32(w.payloadByteUpto)); err != nil {
 				return err
 			}
-			if err := w.payOut.WriteBytes(w.payloadBytes[:w.payloadByteUpto]); err != nil {
+			if err := w.payOut.WriteBytes(w.payloadBytes[:w.payloadByteUpto], 0, len(w.payloadBytes[:w.payloadByteUpto])); err != nil {
 				return err
 			}
 			w.payloadByteUpto = 0
@@ -362,11 +358,13 @@ func (w *lucene103PostingsTestWriter) FinishDoc() error {
 	return nil
 }
 
-func (w *lucene103PostingsTestWriter) FinishTerm(base *BlockTermState) error {
-	its, ok := w.stateCache[base]
+func (w *lucene103PostingsTestWriter) FinishTerm(state index.TermState) error {
+	// Mirrors "IntBlockTermState state = (IntBlockTermState) _state".
+	its, ok := state.(*IntBlockTermState)
 	if !ok {
-		its = &IntBlockTermState{BlockTermState: base, LastPosBlockOffset: -1, SingletonDocID: -1}
+		return fmt.Errorf("lucene103 test postings writer: finish term: term state is %T, want *IntBlockTermState", state)
 	}
+	base := its.BlockTermState
 	if base.DocFreq == 0 {
 		return fmt.Errorf("lucene103 test writer: FinishTerm called with docFreq=0")
 	}
@@ -423,25 +421,25 @@ func (w *lucene103PostingsTestWriter) writeTrailingPositions() error {
 			}
 			if payloadLength != lastPayloadLength {
 				lastPayloadLength = payloadLength
-				if err := store.WriteVInt(w.posOut, (posDelta<<1)|1); err != nil {
+				if err := w.posOut.WriteVInt((posDelta << 1) | 1); err != nil {
 					return err
 				}
-				if err := store.WriteVInt(w.posOut, payloadLength); err != nil {
+				if err := w.posOut.WriteVInt(payloadLength); err != nil {
 					return err
 				}
 			} else {
-				if err := store.WriteVInt(w.posOut, posDelta<<1); err != nil {
+				if err := w.posOut.WriteVInt(posDelta << 1); err != nil {
 					return err
 				}
 			}
 			if payloadLength != 0 {
-				if err := w.posOut.WriteBytes(w.payloadBytes[payloadBytesReadUpto : payloadBytesReadUpto+int(payloadLength)]); err != nil {
+				if err := w.posOut.WriteBytes(w.payloadBytes[payloadBytesReadUpto:payloadBytesReadUpto+int(payloadLength)], 0, len(w.payloadBytes[payloadBytesReadUpto:payloadBytesReadUpto+int(payloadLength)])); err != nil {
 					return err
 				}
 				payloadBytesReadUpto += int(payloadLength)
 			}
 		} else {
-			if err := store.WriteVInt(w.posOut, posDelta); err != nil {
+			if err := w.posOut.WriteVInt(posDelta); err != nil {
 				return err
 			}
 		}
@@ -450,14 +448,14 @@ func (w *lucene103PostingsTestWriter) writeTrailingPositions() error {
 			delta := w.offsetStartDeltaBuffer[i]
 			length := w.offsetLengthBuffer[i]
 			if length == lastOffsetLength {
-				if err := store.WriteVInt(w.posOut, delta<<1); err != nil {
+				if err := w.posOut.WriteVInt(delta << 1); err != nil {
 					return err
 				}
 			} else {
-				if err := store.WriteVInt(w.posOut, delta<<1|1); err != nil {
+				if err := w.posOut.WriteVInt(delta<<1 | 1); err != nil {
 					return err
 				}
-				if err := store.WriteVInt(w.posOut, length); err != nil {
+				if err := w.posOut.WriteVInt(length); err != nil {
 					return err
 				}
 				lastOffsetLength = length
@@ -471,10 +469,11 @@ func (w *lucene103PostingsTestWriter) writeTrailingPositions() error {
 	return nil
 }
 
-func (w *lucene103PostingsTestWriter) EncodeTerm(out store.IndexOutput, fieldInfo *index.FieldInfo, base *BlockTermState, absolute bool) error {
-	its, ok := w.stateCache[base]
+func (w *lucene103PostingsTestWriter) EncodeTerm(out store.DataOutput, fieldInfo *index.FieldInfo, state index.TermState, absolute bool) error {
+	// Mirrors "IntBlockTermState state = (IntBlockTermState) _state".
+	its, ok := state.(*IntBlockTermState)
 	if !ok {
-		its = &IntBlockTermState{BlockTermState: base, LastPosBlockOffset: -1, SingletonDocID: -1}
+		return fmt.Errorf("lucene103 test postings writer: encode term: term state is %T, want *IntBlockTermState", state)
 	}
 	if absolute {
 		w.lastState = emptyIntBlockTermState
@@ -483,32 +482,32 @@ func (w *lucene103PostingsTestWriter) EncodeTerm(out store.IndexOutput, fieldInf
 
 	if last.SingletonDocID != -1 && its.SingletonDocID != -1 && its.DocStartFP == last.DocStartFP {
 		delta := int64(its.SingletonDocID) - int64(last.SingletonDocID)
-		if err := store.WriteVLong(out, (util.ZigZagEncodeInt64(delta)<<1)|0x01); err != nil {
+		if err := out.WriteVLong((util.ZigZagEncodeInt64(delta) << 1) | 0x01); err != nil {
 			return err
 		}
 	} else {
-		if err := store.WriteVLong(out, (its.DocStartFP-last.DocStartFP)<<1); err != nil {
+		if err := out.WriteVLong((its.DocStartFP - last.DocStartFP) << 1); err != nil {
 			return err
 		}
 		if its.SingletonDocID != -1 {
-			if err := store.WriteVInt(out, int32(its.SingletonDocID)); err != nil {
+			if err := out.WriteVInt(int32(its.SingletonDocID)); err != nil {
 				return err
 			}
 		}
 	}
 
 	if w.writePositions {
-		if err := store.WriteVLong(out, its.PosStartFP-last.PosStartFP); err != nil {
+		if err := out.WriteVLong(its.PosStartFP - last.PosStartFP); err != nil {
 			return err
 		}
 		if w.writePayloads || w.writeOffsets {
-			if err := store.WriteVLong(out, its.PayStartFP-last.PayStartFP); err != nil {
+			if err := out.WriteVLong(its.PayStartFP - last.PayStartFP); err != nil {
 				return err
 			}
 		}
 	}
 	if w.writePositions && its.LastPosBlockOffset != -1 {
-		if err := store.WriteVLong(out, its.LastPosBlockOffset); err != nil {
+		if err := out.WriteVLong(its.LastPosBlockOffset); err != nil {
 			return err
 		}
 	}
@@ -732,7 +731,7 @@ func (w *lucene103PostingsTestWriter) encodeDocBlock() error {
 }
 
 func (w *lucene103PostingsTestWriter) writeLevel1SkipData() error {
-	if err := store.WriteVInt(w.docOut, int32(w.docID-w.level1LastDocID)); err != nil {
+	if err := w.docOut.WriteVInt(int32(w.docID - w.level1LastDocID)); err != nil {
 		return err
 	}
 
@@ -772,7 +771,7 @@ func (w *lucene103PostingsTestWriter) writeLevel1SkipData() error {
 		}
 
 		level1Len := int64(4) + w.scratchOutput.Size() + w.level1Output.Size()
-		if err := store.WriteVLong(w.docOut, level1Len); err != nil {
+		if err := w.docOut.WriteVLong(level1Len); err != nil {
 			return err
 		}
 		level1End = w.docOut.GetFilePointer() + level1Len
@@ -789,7 +788,7 @@ func (w *lucene103PostingsTestWriter) writeLevel1SkipData() error {
 		}
 		w.scratchOutput.Reset()
 	} else {
-		if err := store.WriteVLong(w.docOut, w.level1Output.Size()); err != nil {
+		if err := w.docOut.WriteVLong(w.level1Output.Size()); err != nil {
 			return err
 		}
 		level1End = w.docOut.GetFilePointer() + w.level1Output.Size()

@@ -13,6 +13,8 @@
 
 package search
 
+import "github.com/FlavioCFOliveira/Gocene/util"
+
 // Ported from Apache Lucene 10.4.0:
 //   lucene/core/src/java/org/apache/lucene/search/ReqOptSumScorer.java
 
@@ -68,12 +70,14 @@ func NewReqOptSumScorer(reqScorer, optScorer Scorer, _ ScoreMode) *ReqOptSumScor
 	if reqTwoPhase != nil {
 		s.reqApprox = reqTwoPhase.Approximation()
 	} else {
-		s.reqApprox = reqScorer
+		// Java: reqApproximation = reqScorer.iterator()
+		s.reqApprox = reqScorer.Iterator()
 	}
 	if s.optTwoPhase != nil {
 		s.optApprox = s.optTwoPhase.Approximation()
 	} else {
-		s.optApprox = optScorer
+		// Java: optApproximation = optScorer.iterator()
+		s.optApprox = optScorer.Iterator()
 	}
 
 	// Build combined TwoPhaseIterator when at least one side has one.
@@ -165,7 +169,7 @@ func (s *ReqOptSumScorer) Advance(target int) (int, error) {
 func (s *ReqOptSumScorer) Cost() int64 { return s.reqApprox.Cost() }
 
 // DocIDRunEnd returns the end of the current run.
-func (s *ReqOptSumScorer) DocIDRunEnd() int {
+func (s *ReqOptSumScorer) DocIDRunEnd() (int, error) {
 	return s.reqApprox.DocIDRunEnd()
 }
 
@@ -176,16 +180,18 @@ func (s *ReqOptSumScorer) DocIDRunEnd() int {
 // it is advanced lazily.
 //
 // Mirrors ReqOptSumScorer.score().
-func (s *ReqOptSumScorer) Score() float32 {
+func (s *ReqOptSumScorer) Score() (float32, error) {
 	curDoc := s.reqScorer.DocID()
-	score := s.reqScorer.Score()
+	score, err := s.reqScorer.Score()
+	if err != nil {
+		return 0, err
+	}
 
 	optDoc := s.optApprox.DocID()
 	if optDoc < curDoc {
-		var err error
 		optDoc, err = s.optApprox.Advance(curDoc)
 		if err != nil {
-			return score // best-effort on error
+			return score, err
 		}
 		if s.optTwoPhase != nil && optDoc == curDoc {
 			ok, _ := s.optTwoPhase.Matches()
@@ -196,20 +202,31 @@ func (s *ReqOptSumScorer) Score() float32 {
 		}
 	}
 	if optDoc == curDoc {
-		score += s.optScorer.Score()
+		optScore, err := s.optScorer.Score()
+		if err != nil {
+			return 0, err
+		}
+		score += optScore
 	}
-	return score
+	return score, nil
 }
 
 // GetMaxScore returns an upper bound on the score for documents up to upTo.
 //
 // Mirrors ReqOptSumScorer.getMaxScore(int).
-func (s *ReqOptSumScorer) GetMaxScore(upTo int) float32 {
-	max := s.reqScorer.GetMaxScore(upTo)
-	if s.optScorer.DocID() <= upTo {
-		max += s.optScorer.GetMaxScore(upTo)
+func (s *ReqOptSumScorer) GetMaxScore(upTo int) (float32, error) {
+	max, err := s.reqScorer.GetMaxScore(upTo)
+	if err != nil {
+		return 0, err
 	}
-	return max
+	if s.optScorer.DocID() <= upTo {
+		optMax, err := s.optScorer.GetMaxScore(upTo)
+		if err != nil {
+			return 0, err
+		}
+		max += optMax
+	}
+	return max, nil
 }
 
 // TwoPhaseIterator returns the combined TwoPhaseIterator, or nil when
@@ -252,3 +269,27 @@ func tpAdvanceReqOpt(tp *TwoPhaseIterator, approx DocIdSetIterator, target int) 
 
 // Compile-time check: ReqOptSumScorer satisfies Scorer.
 var _ Scorer = (*ReqOptSumScorer)(nil)
+
+// Iterator mirrors ReqOptSumScorer.iterator() of Apache Lucene 10.5.0: the
+// required approximation when there is no two-phase iterator, otherwise the
+// two-phase iterator viewed as a DocIdSetIterator.
+func (s *ReqOptSumScorer) Iterator() DocIdSetIterator {
+	if s.twoPhase == nil {
+		return s.reqApprox
+	}
+	return AsDocIdSetIterator(s.twoPhase)
+}
+
+// NextDocsAndScores mirrors the concrete body of
+// Scorer.nextDocsAndScores(int, Bits, DocAndFloatFeatureBuffer) in Apache
+// Lucene 10.5.0.
+func (r *ReqOptSumScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *DocAndFloatFeatureBuffer) error {
+	return DefaultNextDocsAndScores(r, upTo, liveDocs, buffer)
+}
+
+// IntoBitSet carries the default body of
+// DocIdSetIterator.intoBitSet(int, FixedBitSet, int) in Apache Lucene
+// 10.5.0, which every subclass inherits unless it overrides it.
+func (s *ReqOptSumScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}

@@ -11,6 +11,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -64,9 +65,9 @@ func NewLatLonPointSortField(field string, originLat, originLon float64) (*LatLo
 	if err := geo.CheckLongitude(originLon); err != nil {
 		return nil, err
 	}
-	sf := NewSortField(field, SortFieldTypeCustom)
+	sf := NewSortField(field, spi.SortFieldTypeCustom)
 	sf.Reverse = false
-	sf.Missing = MissingValueLast
+	sf.Missing = spi.MissingValueLast
 	sf.MissingValue = math.Inf(1)
 	return &LatLonPointSortField{
 		SortField: sf,
@@ -110,7 +111,7 @@ func (sf *LatLonPointSortField) SetMissingValue(value interface{}) error {
 // numHits priority-queue slots. The pruning parameter is accepted for parity
 // with Lucene's signature; the comparator does not currently exploit pruning
 // hints, matching the reference implementation.
-func (sf *LatLonPointSortField) GetComparator(numHits int, pruning Pruning) *LatLonPointDistanceComparator {
+func (sf *LatLonPointSortField) GetComparator(numHits int, pruning Pruning) FieldComparator {
 	_ = pruning
 	return NewLatLonPointDistanceComparator(sf.SortField.Field, sf.latitude, sf.longitude, numHits)
 }
@@ -200,6 +201,8 @@ func (sf *LatLonPointSortField) String() string {
 // Concurrency: not safe for concurrent use; TopFieldCollector owns one
 // instance per slice.
 type LatLonPointDistanceComparator struct {
+	BaseFieldComparator
+
 	field     string
 	latitude  float64
 	longitude float64
@@ -283,14 +286,14 @@ func (c *LatLonPointDistanceComparator) SetBottom(slot int) error {
 
 // SetTopValue stores the value used as the top reference for CompareTop. The
 // value is interpreted in metres, matching Lucene.
-func (c *LatLonPointDistanceComparator) SetTopValue(value float64) {
-	c.topValue = value
+func (c *LatLonPointDistanceComparator) SetTopValue(value any) {
+	c.topValue = topValueFloat64(value)
 }
 
 // Value returns the distance in metres for the document stored in slot. The
 // internal slot value is a Haversine sort key, so we convert via
 // HaversinMetersFromSortKey, mirroring the Java haversin2 helper.
-func (c *LatLonPointDistanceComparator) Value(slot int) float64 {
+func (c *LatLonPointDistanceComparator) Value(slot int) any {
 	v := c.values[slot]
 	if math.IsInf(v, 1) {
 		return v
@@ -372,7 +375,7 @@ func (c *LatLonPointDistanceComparator) CompetitiveIterator() (DocIdSetIterator,
 }
 
 // SetHitsThresholdReached is a no-op for this comparator.
-func (c *LatLonPointDistanceComparator) SetHitsThresholdReached() {}
+func (c *LatLonPointDistanceComparator) SetHitsThresholdReached() error { return nil }
 
 // GetLeafComparator binds the comparator to ctx by resolving the
 // SortedNumericDocValues stream for the configured field. The leaf reader is
@@ -380,7 +383,7 @@ func (c *LatLonPointDistanceComparator) SetHitsThresholdReached() {}
 // IndexReaderInterface, which does not declare the doc-values accessor); a
 // reader without the surface falls back to an empty stream, mirroring
 // Lucene's DocValues.getSortedNumeric null-defence path.
-func (c *LatLonPointDistanceComparator) GetLeafComparator(ctx *index.LeafReaderContext) (*LatLonPointDistanceComparator, error) {
+func (c *LatLonPointDistanceComparator) GetLeafComparator(ctx *index.LeafReaderContext) (LeafFieldComparator, error) {
 	if ctx == nil {
 		return nil, errors.New("leaf reader context must not be nil")
 	}
@@ -564,3 +567,8 @@ func strconvFormatFloatJava(v float64) string {
 	// Go's fmt package; this mirrors strconv.FormatFloat(v, 'g', -1, 64).
 	return fmt.Sprintf("%v", v)
 }
+
+var (
+	_ FieldComparator     = (*LatLonPointDistanceComparator)(nil)
+	_ LeafFieldComparator = (*LatLonPointDistanceComparator)(nil)
+)

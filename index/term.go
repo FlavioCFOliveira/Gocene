@@ -9,45 +9,45 @@ package index
 // package; index/ re-exports it via a Go type alias so historical callers
 // that reach for index.Term continue to compile unchanged.
 //
-// Type aliases (type X = schema.X) make index.Term and schema.Term the
+// Type aliases (type X = spi.X) make index.Term and spi.Term the
 // same type at the type-system level, which means methods declared on
-// *schema.Term, helper functions returning *schema.Term, and interface
+// *spi.Term, helper functions returning *spi.Term, and interface
 // satisfaction all flow through without conversion.
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// Term is an alias of schema.Term.
-type Term = schema.Term
+// Term is an alias of spi.Term.
+type Term = spi.Term
 
 // NewTerm creates a new Term with the given field and text.
 func NewTerm(field, text string) *Term {
-	return schema.NewTerm(field, text)
+	return spi.NewTerm(field, text)
 }
 
 // NewTermFromBytes creates a new Term with the given field and bytes.
 func NewTermFromBytes(field string, bytes []byte) *Term {
-	return schema.NewTermFromBytes(field, bytes)
+	return spi.NewTermFromBytes(field, bytes)
 }
 
 // NewTermFromBytesRef creates a new Term with the given field and BytesRef.
 func NewTermFromBytesRef(field string, bytesRef *util.BytesRef) *Term {
-	return schema.NewTermFromBytesRef(field, bytesRef)
+	return spi.NewTermFromBytesRef(field, bytesRef)
 }
 
 // TermCompare compares two terms.
 func TermCompare(a, b *Term) int {
-	return schema.TermCompare(a, b)
+	return spi.TermCompare(a, b)
 }
 
 // TermEquals returns true if two terms are equal.
 func TermEquals(a, b *Term) bool {
-	return schema.TermEquals(a, b)
+	return spi.TermEquals(a, b)
 }
 
 // TermBytesEquals returns true if two terms have equal bytes (ignoring field).
 func TermBytesEquals(a, b *Term) bool {
-	return schema.TermBytesEquals(a, b)
+	return spi.TermBytesEquals(a, b)
 }

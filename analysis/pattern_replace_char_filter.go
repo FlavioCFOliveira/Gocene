@@ -15,7 +15,7 @@ import (
 //
 // This is the Go port of Lucene's org.apache.lucene.analysis.charfilter.PatternReplaceCharFilter.
 type PatternReplaceCharFilter struct {
-	*CharFilter
+	CharFilter
 	pattern     *regexp.Regexp
 	replacement string
 	buffer      []byte
@@ -83,7 +83,7 @@ type PatternReplaceCharFilterFactory struct {
 // NewPatternReplaceCharFilterFactory creates a new PatternReplaceCharFilterFactory.
 func NewPatternReplaceCharFilterFactory(pattern *regexp.Regexp, replacement string) *PatternReplaceCharFilterFactory {
 	return &PatternReplaceCharFilterFactory{
-		BaseCharFilterFactory: NewBaseCharFilterFactory("patternReplace"),
+		BaseCharFilterFactory: NewBaseCharFilterFactory(map[string]string{}),
 		pattern:               pattern,
 		replacement:           replacement,
 	}

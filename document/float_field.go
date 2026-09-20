@@ -4,7 +4,7 @@
 package document
 import (
 	"strconv"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 // FloatField is a field for indexing float32 values.
 type FloatField struct {
@@ -15,7 +15,7 @@ func NewFloatField(name string, value float32, store bool) (*FloatField, error) 
 	ft := NewFieldType()
 	ft.SetStored(store)
 	ft.SetIndexed(true)
-	ft.SetIndexOptions(schema.IndexOptionsDocs)
+	ft.SetIndexOptions(spi.IndexOptionsDocs)
 	ft.Freeze()
 	field, err := NewField(name, strconv.FormatFloat(float64(value), 'f', -1, 32), ft)
 	if err != nil {
@@ -56,7 +56,7 @@ func NewFloatPoints(name string, values ...float32) *FloatPoint {
 	// compatibility with Lucene's FloatPoint.
 	encoded := PackFloatsLucene(values...)
 	ft := PointFieldType()
-	ft.DimensionNumBytes = 4
+	ft.SetDimensions(1, 4)
 	point, _ := NewPoint(name, ft, encoded, len(values), 4)
 	return &FloatPoint{Point: *point}
 }

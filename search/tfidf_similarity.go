@@ -40,6 +40,15 @@ func (s *TFIDFSimilarity) GetDiscountOverlaps() bool {
 	return s.discountOverlaps
 }
 
+// Idf computes a score factor based on a term's document frequency (the number
+// of documents which contain the term).
+//
+// Mirrors TFIDFSimilarity.idf(long docFreq, long docCount) of Apache Lucene
+// 10.5.0, which this port delegates to the configured provider.
+func (s *TFIDFSimilarity) Idf(docFreq, docCount int64) float32 {
+	return s.provider.Idf(docFreq, docCount)
+}
+
 // IdfExplain computes a score factor for a simple term and returns an explanation.
 func (s *TFIDFSimilarity) IdfExplain(collectionStats *CollectionStatistics, termStats *TermStatistics) Explanation {
 	df := int64(termStats.DocFreq())
@@ -109,8 +118,13 @@ func (s *TFIDFSimilarity) ComputeWeight(boost float32, collectionStats *Collecti
 }
 
 func (s *TFIDFSimilarity) createScorer(boost float32, collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
-	idfExp := s.IdfExplain(collectionStats, termStats)
+	return s.createScorerWithIdf(boost, s.IdfExplain(collectionStats, termStats))
+}
 
+// createScorerWithIdf builds the TFIDFScorer once the idf Explanation is
+// known, mirroring the normTable construction and the
+// `new TFIDFScorer(boost, idf, normTable)` tail of TFIDFSimilarity.scorer.
+func (s *TFIDFSimilarity) createScorerWithIdf(boost float32, idfExp Explanation) SimScorer {
 	var normTable [256]float32
 	for i := 1; i < 256; i++ {
 		normTable[i] = s.provider.LengthNorm(util.Byte4ToInt(byte(i)))
@@ -138,7 +152,7 @@ type tfidfScorer struct {
 	normTable   [256]float32
 }
 
-func (s *tfidfScorer) Score(doc int, freq float32, norm int64) float32 {
+func (s *tfidfScorer) Score104(freq float32, norm int64) float32 {
 	raw := s.sim.provider.Tf(freq) * s.queryWeight
 	return raw * s.normTable[byte(norm)]
 }
@@ -162,6 +176,44 @@ func (s *tfidfScorer) Explain(freq Explanation, norm int64) Explanation {
 	return exp
 }
 
+// Scorer104 mirrors TFIDFSimilarity.scorer(float, CollectionStatistics,
+// TermStatistics...) (Lucene 10.5.0, TFIDFSimilarity.java:436-449):
+//
+//	final Explanation idf = termStats.length == 1
+//	    ? idfExplain(collectionStats, termStats[0])
+//	    : idfExplain(collectionStats, termStats);
+//	float[] normTable = new float[256];
+//	for (int i = 1; i < 256; ++i) { normTable[i] = lengthNorm(LENGTH_TABLE[i]); }
+//	normTable[0] = 1f / normTable[255];
+//	return new TFIDFScorer(boost, idf, normTable);
+//
+// createScorer holds the normTable construction shared with the single-term
+// path; the multi-term idf explanation comes from IdfExplainPhrase, which is
+// this port's rendering of the idfExplain(CollectionStatistics, TermStatistics[])
+// overload.
+func (s *TFIDFSimilarity) Scorer104(boost float32, collectionStats *CollectionStatistics, termStats ...*TermStatistics) SimScorer {
+	if len(termStats) == 1 {
+		return s.createScorer(boost, collectionStats, termStats[0])
+	}
+	return s.createScorerWithIdf(boost, s.IdfExplainPhrase(collectionStats, termStats))
+}
+
 func (s *TFIDFSimilarity) Scorer(collectionStats *CollectionStatistics, termStats *TermStatistics) SimScorer {
 	return s.createScorer(1.0, collectionStats, termStats)
+}
+
+// AsBulkSimScorer mirrors the concrete body of Similarity.SimScorer.asBulkSimScorer()
+// in Apache Lucene 10.5.0: new DefaultBulkSimScorer(this).
+func (t *tfidfScorer) AsBulkSimScorer() BulkSimScorer {
+	return NewDefaultBulkSimScorer(t)
+}
+
+// Explain104 mirrors the concrete body of Similarity.SimScorer.explain(Explanation, long)
+// in Apache Lucene 10.5.0: Explanation.match(score(freq.getValue().floatValue(), norm),
+// "score(freq=" + freq.getValue() + "), with freq of:", freq).
+func (t *tfidfScorer) Explain104(freq Explanation, norm int64) Explanation {
+	e := NewExplanation(true, t.Score104(freq.GetValue(), norm),
+		fmt.Sprintf("score(freq=%s), with freq of:", formatFloatGeneric(freq.GetValue())))
+	e.AddDetail(freq)
+	return e
 }

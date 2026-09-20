@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
@@ -20,7 +21,7 @@ import (
 // The Lucene original requires a full index with payload-tracking postings.
 func TestPayloadSpanPositions(t *testing.T) {
 	// SpanPayloadCheckQuery construction.
-	spanTerm := search.NewSpanTermQuery(index.NewTerm("field", "term"))
+	spanTerm := spans.NewSpanTermQuery(index.NewTerm("field", "term"))
 	q := NewSpanPayloadCheckQuery(spanTerm, nil)
 	if q == nil {
 		t.Fatal("NewSpanPayloadCheckQuery returned nil")

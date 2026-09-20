@@ -10,6 +10,7 @@ package geo
 
 import (
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"strings"
 	"testing"
@@ -136,13 +137,13 @@ func TestRectangle_ToComponent2DDelegates(t *testing.T) {
 	if !c.Contains(0, 0) {
 		t.Error("component should contain (0,0)")
 	}
-	if got := c.Relate(-0.5, 0.5, -0.5, 0.5); got != CellInsideQuery {
+	if got := c.Relate(-0.5, 0.5, -0.5, 0.5); got != spi.CellInsideQuery {
 		t.Errorf("relate query-fully-inside = %v, want INSIDE", got)
 	}
-	if got := c.Relate(10, 20, 10, 20); got != CellOutsideQuery {
+	if got := c.Relate(10, 20, 10, 20); got != spi.CellOutsideQuery {
 		t.Errorf("relate disjoint = %v, want OUTSIDE", got)
 	}
-	if got := c.Relate(-100, 100, -100, 100); got != CellCrossesQuery {
+	if got := c.Relate(-100, 100, -100, 100); got != spi.CellCrossesQuery {
 		t.Errorf("relate query-overlapping = %v, want CROSSES", got)
 	}
 }

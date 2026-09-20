@@ -24,15 +24,9 @@ func (sm *SegmentMerger) mergeTermVectors() (int, error) {
 		}
 	}
 
-	state := &SegmentWriteState{
-		Directory:     sm.directory,
-		SegmentInfo:   sm.MergeState.SegmentInfo,
-		FieldInfos:    sm.MergeState.MergeFieldInfos,
-		SegmentSuffix:  "",
-			NeedsIndexSort: sm.MergeState.NeedsIndexSort,
-			IsMerge:        true,
-	}
-	writer, err := sm.codec.TermVectorsFormat().VectorsWriter(state)
+	// Mirrors SegmentMerger.mergeTermVectors (SegmentMerger.java:259-266):
+	// codec.termVectorsFormat().vectorsWriter(directory, mergeState.segmentInfo, context).
+	writer, err := sm.codec.TermVectorsFormat().VectorsWriter(sm.directory, sm.MergeState.SegmentInfo, sm.context)
 	if err != nil {
 		return 0, fmt.Errorf("index: merge term vectors: open writer: %w", err)
 	}
@@ -45,13 +39,21 @@ func (sm *SegmentMerger) mergeTermVectors() (int, error) {
 		}
 		maxDoc := sm.MergeState.MaxDocs[i]
 		live := sm.MergeState.LiveDocs[i]
+		// Mirrors TermVectorsWriter.merge: a segment that indexed no term
+		// vectors has no reader, and every one of its documents contributes an
+		// empty vector set rather than being skipped.
+		tvReader := reader.GetTermVectorsReader()
 		for docID := 0; docID < maxDoc; docID++ {
 			if live != nil && !live.Get(docID) {
 				continue
 			}
-			fields, err := reader.GetTermVectors(docID)
-			if err != nil {
-				return 0, fmt.Errorf("index: merge term vectors: read doc %d of reader %d: %w", docID, i, err)
+			var fields Fields
+			if tvReader != nil {
+				var err error
+				fields, err = tvReader.Get(docID)
+				if err != nil {
+					return 0, fmt.Errorf("index: merge term vectors: read doc %d of reader %d: %w", docID, i, err)
+				}
 			}
 			if err := sm.writeDocTermVectors(writer, fields); err != nil {
 				return 0, err
@@ -143,7 +145,10 @@ func (sm *SegmentMerger) writeDocTermVectors(writer TermVectorsWriter, fields Fi
 			return fmt.Errorf("index: merge term vectors: start field %q: %w", name, err)
 		}
 		for _, term := range collected {
-			if err := writer.StartTerm(term.bytes); err != nil {
+			// Lucene passes the term frequency to startTerm; collectTVTerms
+			// materialises exactly one occurrence per term occurrence, so the
+			// occurrence count is that frequency.
+			if err := writer.StartTerm(term.bytes, len(term.occs)); err != nil {
 				return err
 			}
 			for _, occ := range term.occs {
@@ -169,7 +174,7 @@ func (sm *SegmentMerger) writeDocTermVectors(writer TermVectorsWriter, fields Fi
 // TermsEnum exposes no Postings enum — the rmp #121 read gap — in which case
 // the term frequency is taken from TotalTermFreq and no positions are emitted).
 func collectTVTerms(terms Terms, hasPos, hasOff, hasPay bool) (out []tvTerm, gotPositions, gotOffsets bool, err error) {
-	te, err := terms.GetIterator()
+	te, err := terms.Iterator()
 	if err != nil {
 		return nil, false, false, err
 	}

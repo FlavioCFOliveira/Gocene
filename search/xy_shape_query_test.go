@@ -279,17 +279,17 @@ func TestXYShapeQuery_SpatialVisitor_Relate(t *testing.T) {
 
 	// A cell strictly inside the 20×20 query rectangle.
 	insideMin, insideMax := encodeXYCellBounds(t, -1, 1, -1, 1)
-	if got := visitor.Relate(insideMin, insideMax); got != spatialCellInsideQuery {
+	if got := visitor.Relate(insideMin, insideMax); got != index.CellInsideQuery {
 		t.Fatalf("Relate inside-cell: got %v, want CELL_INSIDE_QUERY", got)
 	}
 	// A cell entirely above the query rectangle (Y range outside).
 	outsideMin, outsideMax := encodeXYCellBounds(t, -1, 1, 50, 60)
-	if got := visitor.Relate(outsideMin, outsideMax); got != spatialCellOutsideQuery {
+	if got := visitor.Relate(outsideMin, outsideMax); got != index.CellOutsideQuery {
 		t.Fatalf("Relate outside-cell: got %v, want CELL_OUTSIDE_QUERY", got)
 	}
 	// A cell that straddles the query rectangle's eastern boundary.
 	crossMin, crossMax := encodeXYCellBounds(t, 5, 15, -1, 1)
-	if got := visitor.Relate(crossMin, crossMax); got != spatialCellCrossesQuery {
+	if got := visitor.Relate(crossMin, crossMax); got != index.CellCrossesQuery {
 		t.Fatalf("Relate crossing-cell: got %v, want CELL_CROSSES_QUERY", got)
 	}
 }
@@ -377,13 +377,13 @@ func TestXYShapeQuery_SpatialVisitor_DecodeError(t *testing.T) {
 		t.Fatalf("Contains: malformed payload should be DISJOINT, got %v", got)
 	}
 
-// encodeXYTriangleAVertex builds a 28-byte ShapeField payload whose
-// A-vertex encodes the supplied (x, y) in the sortable-int wire
-// format. The current simplified decoder only recovers A; B and C
-// decode to the origin (0, 0) regardless of the encoded values.
-// Tests that exercise the visitor's TRIANGLE branch should choose
-// query rectangles that either cover the origin (positive hit) or
-// exclude both the A-vertex and the origin (negative hit).
+	// encodeXYTriangleAVertex builds a 28-byte ShapeField payload whose
+	// A-vertex encodes the supplied (x, y) in the sortable-int wire
+	// format. The current simplified decoder only recovers A; B and C
+	// decode to the origin (0, 0) regardless of the encoded values.
+	// Tests that exercise the visitor's TRIANGLE branch should choose
+	// query rectangles that either cover the origin (positive hit) or
+	// exclude both the A-vertex and the origin (negative hit).
 }
 func encodeXYTriangleAVertex(t *testing.T, x, y float32) []byte {
 	t.Helper()

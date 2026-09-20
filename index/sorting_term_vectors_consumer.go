@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // SortingTermVectorsConsumer buffers per-document term vectors into a
@@ -21,12 +22,9 @@ import (
 // Sprint 55 "option c" deviations (placeholders inlined for cross-task
 // independence; replaced when prerequisite ports land):
 //
-//   - TermVectorsConsumer (GOC-3370) parent type is not yet ported. This
-//     file declares an unexported termVectorsConsumerBase struct that
-//     carries the codec/directory/info/writer state. The exported
-//     SortingTermVectorsConsumer composes that base; once GOC-3370 lands,
-//     the base is replaced by the canonical parent (consumer moves to
-//     embedding rather than composition).
+//   - TermVectorsConsumer is the embedded parent, mirroring Lucene's
+//     "extends TermVectorsConsumer". Only initTermVectorsWriter, flush and
+//     abort are overridden; every other member is inherited.
 //
 //   - Lucene90CompressingTermVectorsFormat (compressing module) cannot
 //     be imported directly from package index without forming a cycle
@@ -83,19 +81,6 @@ var ErrTempTermVectorsFormatUnset = errors.New("index: SortingTermVectorsConsume
 // When GOC-3370 lands, this struct disappears: SortingTermVectorsConsumer
 // embeds the canonical *TermVectorsConsumer and the field-access paths
 // here switch to the embedded receiver. The migration is mechanical.
-type termVectorsConsumerBase struct {
-	codec     Codec
-	directory store.Directory
-	info      *SegmentInfo
-	writer    TermVectorsWriter
-
-	// lastDocID is the count of documents accepted by writer so far.
-	// Lucene's parent maintains it for fill() and IOContext.flush(); the
-	// sorting subclass resets it to 0 each time InitTermVectorsWriter
-	// installs a fresh writer.
-	lastDocID int
-}
-
 // SortingTermVectorsConsumer specializes the term-vectors consumer for
 // segments that are sorted at flush time. Term vectors are first
 // buffered in document-write order to a temporary segment, then
@@ -104,7 +89,11 @@ type termVectorsConsumerBase struct {
 //
 // Mirrors org.apache.lucene.index.SortingTermVectorsConsumer.
 type SortingTermVectorsConsumer struct {
-	termVectorsConsumerBase
+	// TermVectorsConsumer is the embedded parent. Mirrors Lucene's
+	// "final class SortingTermVectorsConsumer extends TermVectorsConsumer":
+	// codec, directory, info, writer, lastDocID, the pools inherited from
+	// TermsHash and every non-overridden method come from it.
+	*TermVectorsConsumer
 
 	// tmpDirectory is the tracking wrapper around the segment directory
 	// where the buffered (pre-sort) term vectors live. nil until
@@ -134,21 +123,33 @@ type SortingTermVectorsConsumer struct {
 // automatically; tests that need to override the format can still do
 // so via SetTempTermVectorsFormat. When neither path supplies a
 // format, InitTermVectorsWriter returns ErrTempTermVectorsFormatUnset.
-func NewSortingTermVectorsConsumer(codec Codec, directory store.Directory, info *SegmentInfo) *SortingTermVectorsConsumer {
-	if info == nil {
+func NewSortingTermVectorsConsumer(
+	intBlockAllocator util.IntAllocator,
+	byteBlockAllocator util.Allocator,
+	directory store.Directory,
+	info *SegmentInfo,
+	codec Codec,
+) *SortingTermVectorsConsumer {
+	parent := NewTermVectorsConsumer(intBlockAllocator, byteBlockAllocator, directory, info, codec)
+	if parent == nil {
 		// Mirrors Lucene's reliance on a non-null SegmentInfo: there is
 		// no useful behaviour the consumer can perform without it.
 		return nil
 	}
-	return &SortingTermVectorsConsumer{
-		termVectorsConsumerBase: termVectorsConsumerBase{
-			codec:     codec,
-			directory: directory,
-			info:      info,
-		},
-		tempFormat: DefaultTempTermVectorsFormat(),
+	c := &SortingTermVectorsConsumer{
+		TermVectorsConsumer: parent,
+		tempFormat:          DefaultTempTermVectorsFormat(),
 	}
+	// Install the @Override of initTermVectorsWriter() so the inherited
+	// finishDocument() path opens the temporary writer, exactly as the
+	// virtual call does in Java.
+	parent.initTermVectorsWriterOverride = c.InitTermVectorsWriter
+	return c
 }
+
+// Compile-time guarantee that *SortingTermVectorsConsumer is a TermsHash,
+// which "extends TermVectorsConsumer extends TermsHash" requires.
+var _ TermsHash = (*SortingTermVectorsConsumer)(nil)
 
 // SetTempTermVectorsFormat overrides the TermVectorsFormat used for
 // the temporary, pre-sort segment.
@@ -172,38 +173,33 @@ func (c *SortingTermVectorsConsumer) TempDirectory() *trackingTmpDirectoryWrappe
 	return c.tmpDirectory
 }
 
-// Writer returns the active TermVectorsWriter, or nil if
-// InitTermVectorsWriter has not run yet. Exposed (Lucene's field is
-// package-private) for test inspection and to let consumers stream
-// vectors into the buffered writer without depending on the unported
-// TermsHashPerField machinery.
-func (c *SortingTermVectorsConsumer) Writer() TermVectorsWriter {
-	return c.writer
-}
-
 // InitTermVectorsWriter lazily creates the temporary TermVectorsWriter
 // the first time it is called. Subsequent calls are no-ops.
 //
 // Mirrors the package-private initTermVectorsWriter() in Lucene.
 func (c *SortingTermVectorsConsumer) InitTermVectorsWriter() error {
-	if c.writer != nil {
+	if c.Writer != nil {
 		return nil
 	}
 	if c.tempFormat == nil {
 		return ErrTempTermVectorsFormatUnset
 	}
-	c.tmpDirectory = newTrackingTmpDirectoryWrapper(c.directory)
-	state := &SegmentWriteState{
-		Directory:   c.tmpDirectory,
-		SegmentInfo: c.info,
-	}
-	w, err := c.tempFormat.VectorsWriter(state)
+	// Mirrors SortingTermVectorsConsumer.initTermVectorsWriter
+	// (SortingTermVectorsConsumer.java:87-94): IOContext.flush(new
+	// FlushInfo(lastDocID, bytesUsed.get())) then
+	// TEMP_TERM_VECTORS_FORMAT.vectorsWriter(tmpDirectory, info, context).
+	context := store.NewFlushContext(&store.FlushInfo{
+		NumDocs:              c.LastDocID,
+		EstimatedSegmentSize: c.BytesUsed.Get(),
+	})
+	c.tmpDirectory = newTrackingTmpDirectoryWrapper(c.Directory)
+	w, err := c.tempFormat.VectorsWriter(c.tmpDirectory, c.Info, context)
 	if err != nil {
 		c.tmpDirectory = nil
 		return fmt.Errorf("index: SortingTermVectorsConsumer init temp writer: %w", err)
 	}
-	c.writer = w
-	c.lastDocID = 0
+	c.Writer = w
+	c.LastDocID = 0
 	return nil
 }
 
@@ -217,24 +213,25 @@ func (c *SortingTermVectorsConsumer) InitTermVectorsWriter() error {
 // is elided here (the integrity contract belongs to the compressing
 // reader port that lands with GOC-3370); structurally the call site is
 // preserved by a comment so the future hook is obvious.
-func (c *SortingTermVectorsConsumer) Flush(state *SegmentWriteState, sortMap SorterDocMap) error {
+func (c *SortingTermVectorsConsumer) Flush(
+	fieldsToFlush map[string]*TermsHashPerField,
+	state *SegmentWriteState,
+	sortMap SorterDocMap,
+	norms any,
+) error {
 	if state == nil || state.SegmentInfo == nil {
 		return errors.New("index: SortingTermVectorsConsumer.Flush requires a non-nil state with SegmentInfo")
 	}
-	if c.tempFormat == nil || c.tmpDirectory == nil || c.writer == nil {
-		// Nothing was buffered. Mirrors the implicit no-op path Lucene
-		// gets when initTermVectorsWriter was never invoked.
+	// Mirrors super.flush(fieldsToFlush, state, sortMap, norms): the parent
+	// fills the trailing empty documents and closes the buffered writer.
+	if err := c.TermVectorsConsumer.Flush(fieldsToFlush, state, sortMap, norms); err != nil {
+		c.cleanupTempFiles()
+		return err
+	}
+	if c.tempFormat == nil || c.tmpDirectory == nil {
+		// Nothing was buffered. Mirrors Lucene's "if (tmpDirectory != null)".
 		return nil
 	}
-
-	// Close the temporary writer (super.flush() in Lucene flushes the
-	// buffered writer; in the port we just close it before reopening
-	// for read since TermVectorsWriter does not expose a Flush method).
-	if err := c.writer.Close(); err != nil {
-		c.cleanupTempFiles()
-		return fmt.Errorf("index: SortingTermVectorsConsumer flush close temp writer: %w", err)
-	}
-	c.writer = nil
 
 	reader, err := c.tempFormat.VectorsReader(c.tmpDirectory, state.SegmentInfo, state.FieldInfos, store.IOContextDefault)
 	if err != nil {
@@ -245,7 +242,7 @@ func (c *SortingTermVectorsConsumer) Flush(state *SegmentWriteState, sortMap Sor
 	// Don't pull a merge instance: term vectors are consumed in random
 	// order here, not sequentially. (Mirrors the Lucene comment.)
 	// reader.checkIntegrity() goes here when GOC-3370 lands.
-	sortWriter, err := c.codec.TermVectorsFormat().VectorsWriter(state)
+	sortWriter, err := c.Codec.TermVectorsFormat().VectorsWriter(state.Directory, state.SegmentInfo, state.Context)
 	if err != nil {
 		_ = reader.Close()
 		c.cleanupTempFiles()
@@ -289,13 +286,11 @@ func (c *SortingTermVectorsConsumer) copyDocuments(reader TermVectorsReader, sor
 //
 // Mirrors org.apache.lucene.index.SortingTermVectorsConsumer.abort.
 func (c *SortingTermVectorsConsumer) Abort() {
-	if c.writer != nil {
-		_ = c.writer.Close()
-		c.writer = nil
-	}
+	// Mirrors the try { super.abort(); } finally { delete temp files }.
+	c.TermVectorsConsumer.Abort()
 	if c.tmpDirectory != nil {
 		for _, name := range c.tmpDirectory.TemporaryFiles() {
-			_ = c.directory.DeleteFile(name)
+			_ = c.Directory.DeleteFile(name)
 		}
 		c.tmpDirectory = nil
 	}
@@ -309,7 +304,7 @@ func (c *SortingTermVectorsConsumer) cleanupTempFiles() {
 		return
 	}
 	for _, name := range c.tmpDirectory.TemporaryFiles() {
-		_ = c.directory.DeleteFile(name)
+		_ = c.Directory.DeleteFile(name)
 	}
 	c.tmpDirectory = nil
 }
@@ -420,7 +415,7 @@ func writeTermVectorsDoc(writer TermVectorsWriter, vectors Fields, fieldInfos *F
 			return fmt.Errorf("start field %q: %w", fieldName, err)
 		}
 
-		termsEnum, err := terms.GetIterator()
+		termsEnum, err := terms.Iterator()
 		if err != nil {
 			return fmt.Errorf("terms iterator for %q: %w", fieldName, err)
 		}
@@ -442,7 +437,7 @@ func writeTermVectorsDoc(writer TermVectorsWriter, vectors Fields, fieldInfos *F
 			}
 			freq := int(freq64)
 
-			if err := writer.StartTerm(termBytes(term)); err != nil {
+			if err := writer.StartTerm(termBytes(term), freq); err != nil {
 				return fmt.Errorf("start term in %q: %w", fieldName, err)
 			}
 
@@ -501,7 +496,7 @@ func countTerms(terms Terms) (int, error) {
 	if n := terms.Size(); n >= 0 {
 		return int(n), nil
 	}
-	enum, err := terms.GetIterator()
+	enum, err := terms.Iterator()
 	if err != nil {
 		return 0, fmt.Errorf("count terms iterator: %w", err)
 	}

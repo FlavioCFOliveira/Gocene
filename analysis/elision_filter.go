@@ -71,6 +71,7 @@ var _ TokenFilter = (*ElisionFilter)(nil)
 // ElisionFilterFactory creates ElisionFilter instances. The
 // articles set is required.
 type ElisionFilterFactory struct {
+	BaseTokenFilterFactory
 	articles *CharArraySet
 }
 

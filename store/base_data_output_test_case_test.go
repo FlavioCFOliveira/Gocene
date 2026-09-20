@@ -33,7 +33,7 @@
 //
 //  2. Java's DataOutput exposes writeZInt/writeZLong; Gocene's DataOutput
 //     interface does not. Only *ByteBuffersDataOutput and
-//     *util.PagedBytesDataOutput implement them. The zigzag generators are
+//     *store.PagedBytesDataOutput implement them. The zigzag generators are
 //     gated through the zigzagDataOutput interface and skipped when the SUT
 //     does not satisfy it. Gocene's DataInput likewise has no ReadZInt /
 //     ReadZLong, so the helper decodes zigzag inline.
@@ -197,7 +197,7 @@ var genWriteBytesFull = generator{
 		}
 		return func(in *ByteArrayDataInput) error {
 			read := make([]byte, len(b))
-			if err := in.ReadBytes(read); err != nil {
+			if err := in.ReadBytes(read, 0, len(read)); err != nil {
 				return fmt.Errorf("readBytes: %w", err)
 			}
 			if !bytesEqual(read, b) {
@@ -227,7 +227,7 @@ var genWriteBytesOffset = generator{
 		expect := append([]byte(nil), b[off:off+ln]...)
 		return func(in *ByteArrayDataInput) error {
 			read := make([]byte, ln)
-			if err := in.ReadBytes(read); err != nil {
+			if err := in.ReadBytes(read, 0, len(read)); err != nil {
 				return fmt.Errorf("readBytes(off): %w", err)
 			}
 			if !bytesEqual(read, expect) {

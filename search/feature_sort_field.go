@@ -10,6 +10,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // ErrFeatureSortFieldMissingValueUnsupported reports the error raised when a
@@ -44,7 +45,7 @@ func NewFeatureSortField(field, featureName string) (*FeatureSortField, error) {
 	if featureName == "" {
 		return nil, errors.New("featureName must not be empty")
 	}
-	sf := NewSortField(field, SortFieldTypeCustom)
+	sf := NewSortField(field, spi.SortFieldTypeCustom)
 	sf.Reverse = true
 	return &FeatureSortField{
 		SortField:   sf,
@@ -60,7 +61,7 @@ func (f *FeatureSortField) FeatureName() string {
 // GetComparator returns a FeatureComparator sized for numHits queue slots.
 // The pruning parameter mirrors Lucene's signature; the comparator does not
 // currently exploit pruning hints, matching the reference implementation.
-func (f *FeatureSortField) GetComparator(numHits int, pruning Pruning) *FeatureComparator {
+func (f *FeatureSortField) GetComparator(numHits int, pruning Pruning) FieldComparator {
 	return NewFeatureComparator(numHits, f.SortField.Field, f.featureName)
 }
 
@@ -130,6 +131,8 @@ func (f *FeatureSortField) String() string {
 // FeatureSortField.FeatureComparator class in Lucene. Concurrency: instances
 // are not safe for concurrent use; each TopFieldCollector slot owns one.
 type FeatureComparator struct {
+	BaseFieldComparator
+
 	field       string
 	featureTerm *index.Term
 
@@ -171,7 +174,7 @@ func (c *FeatureComparator) DoSetNextReader(ctx *index.LeafReaderContext) error 
 		c.currentReaderPostingsValues = nil
 		return nil
 	}
-	iterator, err := terms.GetIterator()
+	iterator, err := terms.Iterator()
 	if err != nil {
 		return fmt.Errorf("feature sort: iterator for %q: %w", c.field, err)
 	}
@@ -226,20 +229,43 @@ func (c *FeatureComparator) Copy(slot, doc int) error {
 
 // SetBottom records the bottom slot's value as the threshold for subsequent
 // CompareBottom calls.
-func (c *FeatureComparator) SetBottom(slot int) {
+func (c *FeatureComparator) SetBottom(slot int) error {
 	c.bottom = c.values[slot]
+	return nil
 }
 
 // SetTopValue stores the value used as the top reference for CompareTop. Used
 // for deep pagination.
-func (c *FeatureComparator) SetTopValue(value float32) {
-	c.topValue = value
+func (c *FeatureComparator) SetTopValue(value any) {
+	c.topValue = topValueFloat32(value)
 }
 
 // Value returns the decoded float value stored in the given slot.
-func (c *FeatureComparator) Value(slot int) float32 {
+func (c *FeatureComparator) Value(slot int) any {
 	return c.values[slot]
 }
+
+// GetLeafComparator prepares the per-leaf state and returns the receiver.
+//
+// Mirrors SimpleFieldComparator.getLeafComparator(LeafReaderContext), whose
+// body is doSetNextReader(context); return this.
+func (c *FeatureComparator) GetLeafComparator(context *index.LeafReaderContext) (LeafFieldComparator, error) {
+	if err := c.DoSetNextReader(context); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// SetScorer is empty, as SimpleFieldComparator.setScorer is.
+func (c *FeatureComparator) SetScorer(Scorable) error { return nil }
+
+// CompetitiveIterator returns nil: FeatureComparator does not override the
+// LeafFieldComparator default, which returns null.
+func (c *FeatureComparator) CompetitiveIterator() (DocIdSetIterator, error) { return nil, nil }
+
+// SetHitsThresholdReached is empty: FeatureComparator does not override the
+// LeafFieldComparator default, whose body is empty.
+func (c *FeatureComparator) SetHitsThresholdReached() error { return nil }
 
 // CompareTop returns Float.compare(topValue, getValueForDoc(doc)).
 func (c *FeatureComparator) CompareTop(doc int) (int, error) {
@@ -302,3 +328,8 @@ func compareFloat32(a, b float32) int {
 		return -1
 	}
 }
+
+var (
+	_ FieldComparator     = (*FeatureComparator)(nil)
+	_ LeafFieldComparator = (*FeatureComparator)(nil)
+)

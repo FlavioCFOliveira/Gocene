@@ -37,14 +37,23 @@ func (m *MergeOnFlushMergePolicy) SetSmallSegmentThresholdMB(mb float64) {
 
 // FindFullFlushMerges identifies merges of tiny segments that should occur on flush.
 func (m *MergeOnFlushMergePolicy) FindFullFlushMerges(trigger MergeTrigger, infos *spi.SegmentInfos, mc MergeContext) (*MergeSpecification, error) {
-	var smallSegments []SegmentCommitInfo
+	var smallSegments []*SegmentCommitInfo
 
-	for _, sci := range infos.Segments() {
-		if sci.SegmentInfo().SizeInBytes() < m.smallSegmentThresholdBytes {
+	var sizeErr error
+	for sci := range infos.Iterator() {
+		size, err := sci.SizeInBytes()
+		if err != nil {
+			sizeErr = err
+			break
+		}
+		if size < m.smallSegmentThresholdBytes {
 			if !mc.GetMergingSegments()[sci] {
-				smallSegments = append(smallSegments, *sci)
+				smallSegments = append(smallSegments, sci)
 			}
 		}
+	}
+	if sizeErr != nil {
+		return nil, sizeErr
 	}
 
 	if len(smallSegments) > 1 {

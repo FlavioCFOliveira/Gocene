@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"sort"
 
+	codecshnsw "github.com/FlavioCFOliveira/Gocene/codecs/hnsw"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -161,7 +162,7 @@ type Lucene99HnswVectorsWriter struct {
 	// Lucene99FlatVectorsWriter for exactly this purpose; rmp #4731 lands
 	// that composition so the graph this writer builds is backed by
 	// readable vectors. Previously this was deviation 1 (no .vec file).
-	flatWriter *Lucene99FlatVectorsWriter
+	flatWriter codecshnsw.FlatVectorsWriter
 
 	fields []*lucene99HnswFieldWriter
 
@@ -206,7 +207,7 @@ type lucene99HnswFieldWriter struct {
 	// flatField is the per-field accumulator on the composed flat writer.
 	// Every AddValue is forwarded here so the raw vectors reach the .vec
 	// file in addition to feeding the in-memory graph build.
-	flatField *lucene99FlatFieldWriter
+	flatField KnnFieldVectorsWriter
 
 	finished bool
 }
@@ -240,9 +241,9 @@ func NewLucene99HnswVectorsWriter(
 		return nil, fmt.Errorf("hnsw99: beamWidth must be positive; got %d", beamWidth)
 	}
 
-	metaName := index.SegmentFileName(
+	metaName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, lucene99HnswMetaExtension)
-	indexName := index.SegmentFileName(
+	indexName := store.SegmentFileName(
 		state.SegmentInfo.Name(), state.SegmentSuffix, lucene99HnswIndexExtension)
 
 	rawMeta, err := state.Directory.CreateOutput(metaName, store.IOContextWrite)
@@ -280,7 +281,8 @@ func NewLucene99HnswVectorsWriter(
 	// Compose the flat vectors writer that persists the raw per-document
 	// vectors to .vec / .vemf, mirroring the FlatVectorsWriter the Java
 	// Lucene99HnswVectorsWriter delegates to.
-	flat, err := NewLucene99FlatVectorsWriter(state)
+	// Java: Lucene99HnswVectorsFormat passes flatVectorsFormat.fieldsWriter(state).
+	flat, err := lucene99HnswFlatVectorsFormat.FlatFieldsWriter(state)
 	if err != nil {
 		_ = w.Close()
 		return nil, fmt.Errorf("hnsw99: create flat writer: %w", err)
@@ -395,7 +397,7 @@ func (fw *lucene99HnswFieldWriter) AddValueFloat32(docID int, vector []float32) 
 	// .vec file. Mirrors FlatFieldVectorsWriter.addValue in the Java
 	// FieldWriter delegate.
 	if fw.flatField != nil {
-		if err := fw.flatField.addValueFloat32(docID, vector); err != nil {
+		if err := fw.flatField.AddValue(docID, vector); err != nil {
 			return fmt.Errorf("hnsw99: forward to flat writer: %w", err)
 		}
 	}
@@ -433,7 +435,7 @@ func (fw *lucene99HnswFieldWriter) AddValueByte(docID int, vector []byte) error 
 	// Forward the raw vector to the composed flat writer (see
 	// AddValueFloat32).
 	if fw.flatField != nil {
-		if err := fw.flatField.addValueByte(docID, vector); err != nil {
+		if err := fw.flatField.AddValue(docID, vector); err != nil {
 			return fmt.Errorf("hnsw99: forward to flat writer: %w", err)
 		}
 	}
@@ -636,10 +638,10 @@ func (fw *lucene99HnswFieldWriter) finish() error {
 	var buildErr error
 	switch fw.encoding {
 	case index.VectorEncodingFloat32:
-		mv := newMemFloat32VectorValues(fw.floats)
+		mv := index.FromFloats(fw.floats, fw.fieldInfo.VectorDimension())
 		scorerSupplier, buildErr = newMemFloat32ScorerSupplier(mv, fw.fieldInfo.VectorSimilarityFunction())
 	case index.VectorEncodingByte:
-		mv := newMemByteVectorValues(fw.bytes)
+		mv := index.FromBytes(fw.bytes, fw.fieldInfo.VectorDimension())
 		scorerSupplier, buildErr = newMemByteScorerSupplier(mv, fw.fieldInfo.VectorSimilarityFunction())
 	default:
 		return fmt.Errorf("hnsw99: field %q: unsupported vector encoding %v",
@@ -770,28 +772,28 @@ func (w *Lucene99HnswVectorsWriter) writeMeta(
 	if err := w.meta.WriteInt(simOrd); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorIndexOffset); err != nil {
+	if err := w.meta.WriteVLong(vectorIndexOffset); err != nil {
 		return err
 	}
-	if err := store.WriteVLong(w.meta, vectorIndexLength); err != nil {
+	if err := w.meta.WriteVLong(vectorIndexLength); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(w.meta, int32(fieldInfo.VectorDimension())); err != nil {
+	if err := w.meta.WriteVInt(int32(fieldInfo.VectorDimension())); err != nil {
 		return err
 	}
 	if err := w.meta.WriteInt(int32(count)); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(w.meta, int32(w.maxConn)); err != nil {
+	if err := w.meta.WriteVInt(int32(w.maxConn)); err != nil {
 		return err
 	}
 
 	if graph == nil {
-		return store.WriteVInt(w.meta, 0)
+		return w.meta.WriteVInt(0)
 	}
 
 	numLevels, _ := graph.NumLevels()
-	if err := store.WriteVInt(w.meta, int32(numLevels)); err != nil {
+	if err := w.meta.WriteVInt(int32(numLevels)); err != nil {
 		return err
 	}
 
@@ -811,7 +813,7 @@ func (w *Lucene99HnswVectorsWriter) writeMeta(
 					level, consumed, nodes.Size())
 			}
 			sort.Ints(nol)
-			if err := store.WriteVInt(w.meta, int32(len(nol))); err != nil {
+			if err := w.meta.WriteVInt(int32(len(nol))); err != nil {
 				return err
 			}
 			for i := len(nol) - 1; i > 0; i-- {
@@ -822,7 +824,7 @@ func (w *Lucene99HnswVectorsWriter) writeMeta(
 					return fmt.Errorf(
 						"hnsw99: level %d delta encoding produced negative %d", level, n)
 				}
-				if err := store.WriteVInt(w.meta, int32(n)); err != nil {
+				if err := w.meta.WriteVInt(int32(n)); err != nil {
 					return err
 				}
 			}
@@ -836,11 +838,11 @@ func (w *Lucene99HnswVectorsWriter) writeMeta(
 	if err := w.meta.WriteLong(start); err != nil {
 		return err
 	}
-	if err := store.WriteVInt(w.meta, lucene99HnswDirectMonotonicBlockShift); err != nil {
+	if err := w.meta.WriteVInt(lucene99HnswDirectMonotonicBlockShift); err != nil {
 		return err
 	}
 	dm, err := packed.NewDirectMonotonicWriter(
-		dmAdapter{w.meta}, dmAdapter{w.vectorIndex},
+		newDMAdapter(w.meta), newDMAdapter(w.vectorIndex),
 		valueCount, lucene99HnswDirectMonotonicBlockShift,
 	)
 	if err != nil {
@@ -866,19 +868,15 @@ func (w *Lucene99HnswVectorsWriter) writeMeta(
 // DirectMonotonicWriter requires a narrow interface (DataOutput +
 // GetFilePointer) rather than the full IndexOutput surface.
 type dmAdapter struct {
+	*store.BaseDataOutput
 	out store.IndexOutput
 }
 
-func (a dmAdapter) WriteByte(b byte) error    { return a.out.WriteByte(b) }
-func (a dmAdapter) WriteBytes(b []byte) error { return a.out.WriteBytes(b) }
-func (a dmAdapter) WriteBytesN(b []byte, n int) error {
-	return a.out.WriteBytesN(b, n)
+func newDMAdapter(out store.IndexOutput) dmAdapter {
+	return dmAdapter{BaseDataOutput: store.NewBaseDataOutput(out), out: out}
 }
-func (a dmAdapter) WriteShort(v int16) error   { return a.out.WriteShort(v) }
-func (a dmAdapter) WriteInt(v int32) error     { return a.out.WriteInt(v) }
-func (a dmAdapter) WriteLong(v int64) error    { return a.out.WriteLong(v) }
-func (a dmAdapter) WriteString(s string) error { return a.out.WriteString(s) }
-func (a dmAdapter) GetFilePointer() int64      { return a.out.GetFilePointer() }
+
+func (a dmAdapter) GetFilePointer() int64 { return a.out.GetFilePointer() }
 
 // vectorEncodingOrdinal maps a VectorEncoding to its on-disk ordinal.
 // The Java reference uses Enum.ordinal(), which yields BYTE=0,
@@ -945,7 +943,7 @@ func writeHnswGraph(
 				actualSize++
 			}
 
-			if err := store.WriteVInt(out, int32(actualSize)); err != nil {
+			if err := out.WriteVInt(int32(actualSize)); err != nil {
 				return nil, err
 			}
 			if version >= lucene99HnswVersionGroupVInt {
@@ -957,7 +955,7 @@ func writeHnswGraph(
 				}
 			} else {
 				for i := 0; i < actualSize; i++ {
-					if err := store.WriteVInt(out, int32(scratch[i])); err != nil {
+					if err := out.WriteVInt(int32(scratch[i])); err != nil {
 						return nil, err
 					}
 				}

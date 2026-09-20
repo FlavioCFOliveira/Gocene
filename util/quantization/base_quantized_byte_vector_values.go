@@ -13,28 +13,26 @@
 
 package quantization
 
-import (
-	"github.com/FlavioCFOliveira/Gocene/store"
-)
-
 // BaseQuantizedByteVectorValues is the Go port of
 // org.apache.lucene.util.quantization.BaseQuantizedByteVectorValues
-// (Lucene 10.5.0).
+// (Lucene 10.5.0): a [ByteVectorValues] for scalar quantization scores that
+// also implements [HasIndexSlice].
 //
-// It provides the basic contract and default behavior for quantized
-// byte vector values, specifically adding the ability to create a
-// VectorScorer and expose the underlying IndexInput slice.
-type BaseQuantizedByteVectorValues struct{}
+// The Java abstract class carries two default bodies: scorer(float[]) throws
+// UnsupportedOperationException and getSlice() returns null. A Go interface
+// carries no bodies, so every implementer declares both members; one that
+// does not override them in Lucene returns [ErrUnsupportedOperation] from
+// ScorerFloat and nil from GetSlice.
+//
+// scorer(float[]) overloads ByteVectorValues.scorer(byte[]). Go has no
+// overloading, so the float-query overload is named ScorerFloat, following
+// the element-type suffix Gocene gives the other vector overloads
+// (GetRandomVectorScorerFloat/Byte, SearchFloat/Byte).
+type BaseQuantizedByteVectorValues interface {
+	ByteVectorValues
+	HasIndexSlice
 
-// Scorer returns a [VectorScorer] for the given float32 query.
-// Mirrors the Java default, which throws UnsupportedOperationException.
-func (*BaseQuantizedByteVectorValues) Scorer(_ []float32) (VectorScorer, error) {
-	return nil, ErrUnsupportedOperation
-}
-
-// GetSlice returns the [store.IndexInput] from which this instance's
-// values are read, or nil if not available. Mirrors the Java default
-// that returns null.
-func (*BaseQuantizedByteVectorValues) GetSlice() store.IndexInput {
-	return nil
+	// ScorerFloat returns a [VectorScorer] for the given float query
+	// vector, or nil. Mirrors scorer(float[] query).
+	ScorerFloat(query []float32) (VectorScorer, error)
 }

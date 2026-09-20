@@ -20,6 +20,7 @@ package geo
 
 import (
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 	"testing"
 )
@@ -253,13 +254,13 @@ func TestPolygon_ToComponent2D_RelateInside(t *testing.T) {
 		[]float64{0, 10, 10, 0, 0},
 	)
 	c := p.toComponent2D()
-	if got := c.Relate(1, 2, 1, 2); got != CellInsideQuery {
+	if got := c.Relate(1, 2, 1, 2); got != spi.CellInsideQuery {
 		t.Errorf("Relate small inside box = %v; want CELL_INSIDE_QUERY", got)
 	}
-	if got := c.Relate(-100, -50, -100, -50); got != CellOutsideQuery {
+	if got := c.Relate(-100, -50, -100, -50); got != spi.CellOutsideQuery {
 		t.Errorf("Relate disjoint = %v; want CELL_OUTSIDE_QUERY", got)
 	}
-	if got := c.Relate(-1, 5, -1, 5); got != CellCrossesQuery {
+	if got := c.Relate(-1, 5, -1, 5); got != spi.CellCrossesQuery {
 		t.Errorf("Relate crossing = %v; want CELL_CROSSES_QUERY", got)
 	}
 }

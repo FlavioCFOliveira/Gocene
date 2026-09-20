@@ -85,3 +85,23 @@ func (d *NormalSquaredDistance) GetMagnitude(agg float64) float64           { re
 func (d *NormalSquaredDistance) IsLessThan(agg1, agg2 float64) bool         { return agg1 < agg2 }
 
 var _ DistanceStyle = (*NormalSquaredDistance)(nil)
+
+// Convenient access to the built-in styles, mirroring the constants declared
+// on org.apache.lucene.spatial3d.geom.DistanceStyle.
+
+// ARC is the arc distance calculator. Port of DistanceStyle.ARC.
+var ARC = ArcDistanceInstance
+
+// LINEAR is the linear distance calculator. Port of DistanceStyle.LINEAR.
+var LINEAR = LinearDistanceInstance
+
+// LINEAR_SQUARED is the linear distance squared calculator.
+// Port of DistanceStyle.LINEAR_SQUARED.
+var LINEAR_SQUARED = LinearSquaredDistanceInstance
+
+// NORMAL is the normal distance calculator. Port of DistanceStyle.NORMAL.
+var NORMAL = NormalDistanceInstance
+
+// NORMAL_SQUARED is the normal distance squared calculator.
+// Port of DistanceStyle.NORMAL_SQUARED.
+var NORMAL_SQUARED = NormalSquaredDistanceInstance

@@ -334,15 +334,15 @@ func saveTrieToDirectory(dir store.Directory, trie *TrieBuilder) (int64, int64, 
 		return 0, 0, 0, err
 	}
 	defer metaIn.Close()
-	start, err := store.ReadVLong(metaIn)
+	start, err := metaIn.ReadVLong()
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	rootFP, err := store.ReadVLong(metaIn)
+	rootFP, err := metaIn.ReadVLong()
 	if err != nil {
 		return 0, 0, 0, err
 	}
-	end, err := store.ReadVLong(metaIn)
+	end, err := metaIn.ReadVLong()
 	if err != nil {
 		return 0, 0, 0, err
 	}
