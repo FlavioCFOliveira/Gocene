@@ -7,7 +7,6 @@ package index
 import (
 	"fmt"
 	"sort"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,7 +24,16 @@ func generateSegmentID() []byte {
 
 // This is the Go port of org.apache.lucene.index.DocumentsWriterPerThread.
 type DocumentsWriterPerThread struct {
-	mu sync.Mutex
+	// lock is Java's `private final ReentrantLock lock`. Lucene declares
+	// `final class DocumentsWriterPerThread implements Accountable, Lock` and
+	// none of the class's own methods acquire it: the lock is taken by the
+	// collaborators that own the DWPT for the duration of an operation
+	// (DocumentsWriterPerThreadPool.getAndLock, DocumentsWriterFlushControl,
+	// DocumentsWriter), and reentrancy lets the same thread take it again
+	// further down the call chain. Gocene reproduces that arrangement; the
+	// holder identity Java reads from Thread.currentThread() is passed
+	// explicitly as a util.LockOwner. See util/reentrant_lock.go.
+	lock util.ReentrantLock
 
 	abortingException error
 
@@ -141,9 +149,6 @@ func (dwpt *DocumentsWriterPerThread) onAbortingException(err error) {
 
 // Abort discards all currently buffered docs and resets state.
 func (dwpt *DocumentsWriterPerThread) Abort() error {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
-
 	dwpt.aborted = true
 	dwpt.pendingNumDocs.Add(-int64(dwpt.numDocsInRAM))
 
@@ -164,8 +169,6 @@ func (dwpt *DocumentsWriterPerThread) Abort() error {
 }
 
 func (dwpt *DocumentsWriterPerThread) IsAborted() bool {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
 	return dwpt.aborted
 }
 
@@ -272,9 +275,6 @@ func (dwpt *DocumentsWriterPerThread) UpdateDocuments(
 	flushNotifications FlushNotifications,
 	onNewDocOnRAM func(),
 ) (int64, error) {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
-
 	if dwpt.abortingException != nil {
 		return 0, fmt.Errorf("DWPT has hit aborting exception but is still indexing")
 	}
@@ -299,9 +299,24 @@ func (dwpt *DocumentsWriterPerThread) UpdateDocuments(
 		}
 
 		dwpt.reserveOneDoc()
-		dwpt.indexingChain.ProcessDocument(dwpt.numDocsInRAM, doc)
+		// Java:
+		//   try {
+		//     indexingChain.processDocument(numDocsInRAM++, doc, isLastDoc);
+		//   } finally {
+		//     onNewDocOnRAM.run();
+		//   }
+		// The post-increment is applied while evaluating the argument, so a
+		// document that fails to index is still counted; the deferred
+		// deleteLastDocs above is what marks it deleted. onNewDocOnRAM runs in
+		// a finally, so it runs on the failure path too, and the exception
+		// then propagates out of updateDocuments.
+		docID := dwpt.numDocsInRAM
 		dwpt.numDocsInRAM++
+		err := dwpt.indexingChain.ProcessDocument(docID, doc)
 		onNewDocOnRAM()
+		if err != nil {
+			return 0, err
+		}
 	}
 
 	if dwpt.numDocsInRAM-docsInRamBefore > 1 {
@@ -318,9 +333,6 @@ func (dwpt *DocumentsWriterPerThread) UpdateBatch(
 	flushNotifications FlushNotifications,
 	onNewDocsOnRAM func(int),
 ) (int64, error) {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
-
 	if dwpt.abortingException != nil {
 		return 0, fmt.Errorf("DWPT has hit aborting exception but is still indexing")
 	}
@@ -439,9 +451,6 @@ func (dwpt *DocumentsWriterPerThread) deleteFile(file string) {
 }
 
 func (dwpt *DocumentsWriterPerThread) PrepareFlush() (*FrozenBufferedUpdates, error) {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
-
 	if dwpt.numDocsInRAM <= 0 {
 		return nil, fmt.Errorf("cannot prepare flush for segment with 0 docs")
 	}
@@ -475,9 +484,6 @@ func countSoftDeletes(iter util.DocIdSetIterator, liveDocs *util.FixedBitSet) (i
 }
 
 func (dwpt *DocumentsWriterPerThread) Flush(flushNotifications FlushNotifications) (*FlushedSegment, error) {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
-
 	if !dwpt.flushPending {
 		panic("flush called but flushPending is not set")
 	}
@@ -699,22 +705,16 @@ func sortLiveDocs(liveDocs util.Bits, sortMap SorterDocMap) (*util.FixedBitSet, 
 }
 
 func (dwpt *DocumentsWriterPerThread) RamBytesUsed() int64 {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
 	return int64(len(dwpt.deleteDocIDs)*4) +
 		dwpt.pendingUpdates.RamBytesUsed() +
 		dwpt.indexingChain.RamBytesUsed()
 }
 
 func (dwpt *DocumentsWriterPerThread) IsFlushPending() bool {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
 	return dwpt.flushPending
 }
 
 func (dwpt *DocumentsWriterPerThread) SetFlushPending() {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
 	if dwpt.flushPendingSet {
 		panic("flushPending can only be set once")
 	}
@@ -723,39 +723,40 @@ func (dwpt *DocumentsWriterPerThread) SetFlushPending() {
 }
 
 func (dwpt *DocumentsWriterPerThread) GetLastCommittedBytesUsed() int64 {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
 	return dwpt.lastCommittedBytesUsed
 }
 
 func (dwpt *DocumentsWriterPerThread) GetCommitLastBytesUsedDelta() int64 {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
 	return dwpt.RamBytesUsedUnsafe() - dwpt.lastCommittedBytesUsed
 }
 
 func (dwpt *DocumentsWriterPerThread) CommitLastBytesUsed(delta int64) {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
 	dwpt.lastCommittedBytesUsed += delta
 }
 
-func (dwpt *DocumentsWriterPerThread) Lock() {
-	dwpt.mu.Lock()
+// Lock acquires this DWPT for owner, blocking until it is available. Mirrors
+// DocumentsWriterPerThread.lock(), which delegates to ReentrantLock.lock().
+func (dwpt *DocumentsWriterPerThread) Lock(owner util.LockOwner) {
+	dwpt.lock.Lock(owner)
 }
 
-func (dwpt *DocumentsWriterPerThread) Unlock() {
-	dwpt.mu.Unlock()
+// Unlock releases one hold this DWPT's lock has for owner. Mirrors
+// DocumentsWriterPerThread.unlock().
+func (dwpt *DocumentsWriterPerThread) Unlock(owner util.LockOwner) {
+	dwpt.lock.Unlock(owner)
 }
 
-func (dwpt *DocumentsWriterPerThread) TryLock() bool {
-	return dwpt.mu.TryLock()
+// TryLock acquires this DWPT for owner without blocking and reports whether it
+// was acquired. Mirrors DocumentsWriterPerThread.tryLock().
+func (dwpt *DocumentsWriterPerThread) TryLock(owner util.LockOwner) bool {
+	return dwpt.lock.TryLock(owner)
 }
 
-func (dwpt *DocumentsWriterPerThread) IsHeldByCurrentThread() bool {
-	// Go's sync.Mutex does not provide a way to check if it is held by the current goroutine.
-	// This is used as an assertion in Lucene.
-	return true
+// IsHeldByCurrentThread reports whether owner holds this DWPT's lock. Mirrors
+// DocumentsWriterPerThread.isHeldByCurrentThread(), which Lucene uses only in
+// assertions.
+func (dwpt *DocumentsWriterPerThread) IsHeldByCurrentThread(owner util.LockOwner) bool {
+	return dwpt.lock.IsHeldByCurrentThread(owner)
 }
 
 func (dwpt *DocumentsWriterPerThread) RamBytesUsedUnsafe() int64 {
@@ -765,8 +766,6 @@ func (dwpt *DocumentsWriterPerThread) RamBytesUsedUnsafe() int64 {
 }
 
 func (dwpt *DocumentsWriterPerThread) HasFlushed() bool {
-	dwpt.mu.Lock()
-	defer dwpt.mu.Unlock()
 	return dwpt.hasFlushed
 }
 

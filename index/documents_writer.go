@@ -7,7 +7,6 @@ package index
 import (
 	"fmt"
 	"io"
-	"sync"
 	"sync/atomic"
 
 	"github.com/FlavioCFOliveira/Gocene/index/column"
@@ -72,7 +71,16 @@ type FlushNotifications interface {
 // until the exception was hit. When this happens, we immediately mark the document as deleted so
 // that the document is always atomically ("all or none") added to the index.
 type DocumentsWriter struct {
-	mu sync.Mutex
+	// lock is Java's DocumentsWriter monitor -- the object every
+	// `synchronized` method and `synchronized (this)` block on
+	// DocumentsWriter locks. Java monitors are reentrant and Lucene relies on
+	// it: flushAllThreads() runs `synchronized (this) { ...
+	// flushControl.markForFullFlush() ... }` and markForFullFlush() calls back
+	// into the `synchronized` resetDeleteQueue(), acquiring the same monitor a
+	// second time on the same thread. The holder identity Java reads from
+	// Thread.currentThread() is passed explicitly as a util.LockOwner; see
+	// util/reentrant_lock.go.
+	lock util.ReentrantLock
 
 	pendingNumDocs     *atomic.Int64
 	flushNotifications FlushNotifications
@@ -146,8 +154,9 @@ func (dw *DocumentsWriter) UpdateDocValues(updates ...DocValuesUpdate) (int64, e
 }
 
 func (dw *DocumentsWriter) applyDeleteOrUpdate(function func(*DocumentsWriterDeleteQueue) int64) (int64, error) {
-	dw.mu.Lock()
-	defer dw.mu.Unlock()
+	owner := util.NewLockOwner()
+	dw.lock.Lock(owner)
+	defer dw.lock.Unlock(owner)
 
 	dq := dw.deleteQueue
 	seqNo := function(dq)
@@ -222,8 +231,9 @@ func (dw *DocumentsWriter) ensureOpen() error {
 }
 
 func (dw *DocumentsWriter) Abort() error {
-	dw.mu.Lock()
-	defer dw.mu.Unlock()
+	owner := util.NewLockOwner()
+	dw.lock.Lock(owner)
+	defer dw.lock.Unlock(owner)
 
 	success := false
 	defer func() {
@@ -237,10 +247,10 @@ func (dw *DocumentsWriter) Abort() error {
 		dw.infoStream.Message("DW", "abort")
 	}
 
-	for _, perThread := range dw.perThreadPool.FilterAndLock(func(x *DocumentsWriterPerThread) bool { return true }) {
+	for _, perThread := range dw.perThreadPool.FilterAndLock(owner, func(x *DocumentsWriterPerThread) bool { return true }) {
 		err := func() error {
-			defer perThread.Unlock()
-			return dw.abortDocumentsWriterPerThread(perThread)
+			defer perThread.Unlock(owner)
+			return dw.abortDocumentsWriterPerThread(owner, perThread)
 		}()
 		if err != nil {
 			return err
@@ -275,8 +285,9 @@ func (dw *DocumentsWriter) FlushOneDWPT() (bool, error) {
 }
 
 func (dw *DocumentsWriter) LockAndAbortAll() (io.Closer, error) {
-	dw.mu.Lock()
-	defer dw.mu.Unlock()
+	owner := util.NewLockOwner()
+	dw.lock.Lock(owner)
+	defer dw.lock.Unlock(owner)
 
 	if dw.infoStream.IsEnabled("DW") {
 		dw.infoStream.Message("DW", "lockAndAbortAll")
@@ -299,7 +310,7 @@ func (dw *DocumentsWriter) LockAndAbortAll() (io.Closer, error) {
 			}
 			dw.perThreadPool.UnlockNewWriters()
 			for _, writer := range writers {
-				writer.Unlock()
+				writer.Unlock(owner)
 			}
 		}
 		return nil
@@ -316,9 +327,9 @@ func (dw *DocumentsWriter) LockAndAbortAll() (io.Closer, error) {
 
 	dw.deleteQueue.Clear()
 	dw.perThreadPool.LockNewWriters()
-	writers = dw.perThreadPool.FilterAndLock(func(x *DocumentsWriterPerThread) bool { return true })
+	writers = dw.perThreadPool.FilterAndLock(owner, func(x *DocumentsWriterPerThread) bool { return true })
 	for _, perThread := range writers {
-		if err := dw.abortDocumentsWriterPerThread(perThread); err != nil {
+		if err := dw.abortDocumentsWriterPerThread(owner, perThread); err != nil {
 			_ = release()
 			return nil, err
 		}
@@ -343,8 +354,8 @@ func (a *abortReleaseCloser) Close() error {
 	return a.release()
 }
 
-func (dw *DocumentsWriter) abortDocumentsWriterPerThread(perThread *DocumentsWriterPerThread) error {
-	defer dw.flushControl.DoOnAbort(perThread)
+func (dw *DocumentsWriter) abortDocumentsWriterPerThread(owner util.LockOwner, perThread *DocumentsWriterPerThread) error {
+	defer dw.flushControl.DoOnAbort(owner, perThread)
 	dw.SubtractFlushedNumDocs(perThread.GetNumDocsInRAM())
 	return perThread.Abort()
 }
@@ -427,7 +438,8 @@ func (dw *DocumentsWriter) UpdateDocuments(docs [][]IndexableField, delNode Node
 		return 0, err
 	}
 
-	dwpt, err := dw.flushControl.ObtainAndLock()
+	owner := util.NewLockOwner()
+	dwpt, err := dw.flushControl.ObtainAndLock(owner)
 	if err != nil {
 		return 0, err
 	}
@@ -437,13 +449,13 @@ func (dw *DocumentsWriter) UpdateDocuments(docs [][]IndexableField, delNode Node
 
 	func() {
 		defer func() {
-			dw.mu.Lock()
+			dw.lock.Lock(owner)
 			if dwpt.IsFlushPending() || dwpt.IsAborted() || dwpt.IsQueueAdvanced() {
-				dwpt.Unlock()
+				dwpt.Unlock(owner)
 			} else {
-				dw.perThreadPool.MarksAsFreeAndUnlock(dwpt)
+				dw.perThreadPool.MarksAsFreeAndUnlock(owner, dwpt)
 			}
-			dw.mu.Unlock()
+			dw.lock.Unlock(owner)
 		}()
 
 		if err := dw.ensureOpen(); err != nil {
@@ -458,9 +470,9 @@ func (dw *DocumentsWriter) UpdateDocuments(docs [][]IndexableField, delNode Node
 		}
 
 		if dwpt.IsAborted() {
-			dw.flushControl.DoOnAbort(dwpt)
+			dw.flushControl.DoOnAbort(owner, dwpt)
 		}
-		flushingDWPT = dw.flushControl.DoAfterDocument(dwpt)
+		flushingDWPT = dw.flushControl.DoAfterDocument(owner, dwpt)
 	}()
 
 	if err != nil {
@@ -481,7 +493,8 @@ func (dw *DocumentsWriter) UpdateBatch(columnBatch *column.ColumnBatch, delNode 
 		return 0, err
 	}
 
-	dwpt, err := dw.flushControl.ObtainAndLock()
+	owner := util.NewLockOwner()
+	dwpt, err := dw.flushControl.ObtainAndLock(owner)
 	if err != nil {
 		return 0, err
 	}
@@ -491,13 +504,13 @@ func (dw *DocumentsWriter) UpdateBatch(columnBatch *column.ColumnBatch, delNode 
 
 	func() {
 		defer func() {
-			dw.mu.Lock()
+			dw.lock.Lock(owner)
 			if dwpt.IsFlushPending() || dwpt.IsAborted() || dwpt.IsQueueAdvanced() {
-				dwpt.Unlock()
+				dwpt.Unlock(owner)
 			} else {
-				dw.perThreadPool.MarksAsFreeAndUnlock(dwpt)
+				dw.perThreadPool.MarksAsFreeAndUnlock(owner, dwpt)
 			}
-			dw.mu.Unlock()
+			dw.lock.Unlock(owner)
 		}()
 
 		if err := dw.ensureOpen(); err != nil {
@@ -512,9 +525,9 @@ func (dw *DocumentsWriter) UpdateBatch(columnBatch *column.ColumnBatch, delNode 
 		}
 
 		if dwpt.IsAborted() {
-			dw.flushControl.DoOnAbort(dwpt)
+			dw.flushControl.DoOnAbort(owner, dwpt)
 		}
-		flushingDWPT = dw.flushControl.DoAfterDocument(dwpt)
+		flushingDWPT = dw.flushControl.DoAfterDocument(owner, dwpt)
 	}()
 
 	if err != nil {
@@ -651,14 +664,15 @@ func (dw *DocumentsWriter) flushAndAddSegment(
 }
 
 func (dw *DocumentsWriter) GetNextSequenceNumber() int64 {
-	dw.mu.Lock()
-	defer dw.mu.Unlock()
+	owner := util.NewLockOwner()
+	dw.lock.Lock(owner)
+	defer dw.lock.Unlock(owner)
 	return dw.deleteQueue.GetNextSequenceNumber()
 }
 
-func (dw *DocumentsWriter) ResetDeleteQueue(maxNumPendingOps int) int64 {
-	dw.mu.Lock()
-	defer dw.mu.Unlock()
+func (dw *DocumentsWriter) ResetDeleteQueue(owner util.LockOwner, maxNumPendingOps int) int64 {
+	dw.lock.Lock(owner)
+	defer dw.lock.Unlock(owner)
 
 	oldMaxSeqNo := dw.deleteQueue.GetMaxSeqNo()
 	dw.deleteQueue = dw.deleteQueue.AdvanceQueue(maxNumPendingOps)
@@ -683,11 +697,12 @@ func (dw *DocumentsWriter) FlushAllThreads() (int64, error) {
 	var flushingDeleteQueue *DocumentsWriterDeleteQueue
 	var seqNo int64
 
-	dw.mu.Lock()
+	owner := util.NewLockOwner()
+	dw.lock.Lock(owner)
 	dw.pendingChangesInCurrentFullFlush.Store(dw.AnyChanges())
 	flushingDeleteQueue = dw.deleteQueue
-	seqNo = dw.flushControl.MarkForFullFlush()
-	dw.mu.Unlock()
+	seqNo = dw.flushControl.MarkForFullFlush(owner)
+	dw.lock.Unlock(owner)
 
 	anythingFlushed := false
 	func() {

@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // Port of org.apache.lucene.index.ConcurrentApproximatePriorityQueue from
@@ -297,7 +299,7 @@ func (q *approximatePriorityQueue) remove(o any) bool {
 // lockableConcurrentApproximatePriorityQueue is a wrapper that provides
 // lock-and-poll semantics for a concurrentApproximatePriorityQueue.
 type lockableConcurrentApproximatePriorityQueue struct {
-	queue                *concurrentApproximatePriorityQueue
+	queue               *concurrentApproximatePriorityQueue
 	addAndUnlockCounter atomic.Int32
 }
 
@@ -307,11 +309,11 @@ func newLockableConcurrentApproximatePriorityQueue() *lockableConcurrentApproxim
 	}
 }
 
-func (l *lockableConcurrentApproximatePriorityQueue) lockAndPoll() *DocumentsWriterPerThread {
+func (l *lockableConcurrentApproximatePriorityQueue) lockAndPoll(owner util.LockOwner) *DocumentsWriterPerThread {
 	for {
 		count := l.addAndUnlockCounter.Load()
 		entry, ok := l.queue.poll(func(v any) bool {
-			return v.(*DocumentsWriterPerThread).TryLock()
+			return v.(*DocumentsWriterPerThread).TryLock(owner)
 		})
 		if ok {
 			return entry.(*DocumentsWriterPerThread)
@@ -323,9 +325,9 @@ func (l *lockableConcurrentApproximatePriorityQueue) lockAndPoll() *DocumentsWri
 	return nil
 }
 
-func (l *lockableConcurrentApproximatePriorityQueue) addAndUnlock(entry *DocumentsWriterPerThread, weight int64) {
+func (l *lockableConcurrentApproximatePriorityQueue) addAndUnlock(owner util.LockOwner, entry *DocumentsWriterPerThread, weight int64) {
 	l.queue.add(entry, weight)
-	entry.Unlock()
+	entry.Unlock(owner)
 	l.addAndUnlockCounter.Add(1)
 }
 

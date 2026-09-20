@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // DocumentsWriterPerThreadPool controls DocumentsWriterPerThread instances and
@@ -66,7 +68,7 @@ func (pool *DocumentsWriterPerThreadPool) UnlockNewWriters() {
 //
 // Java declares this method `private synchronized`, so it acquires the pool
 // monitor itself; callers must not hold it.
-func (pool *DocumentsWriterPerThreadPool) newWriter() *DocumentsWriterPerThread {
+func (pool *DocumentsWriterPerThreadPool) newWriter(owner util.LockOwner) *DocumentsWriterPerThread {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
@@ -79,17 +81,17 @@ func (pool *DocumentsWriterPerThreadPool) newWriter() *DocumentsWriterPerThread 
 	}
 
 	dwpt := pool.dwptFactory()
-	dwpt.Lock() // lock so nobody else will get this DWPT
+	dwpt.Lock(owner) // lock so nobody else will get this DWPT
 	pool.dwpts[dwpt] = struct{}{}
 	return dwpt
 }
 
-func (pool *DocumentsWriterPerThreadPool) GetAndLock() *DocumentsWriterPerThread {
+func (pool *DocumentsWriterPerThreadPool) GetAndLock(owner util.LockOwner) *DocumentsWriterPerThread {
 	if err := pool.ensureOpen(); err != nil {
 		panic(err)
 	}
 
-	dwpt := pool.freeList.lockAndPoll()
+	dwpt := pool.freeList.lockAndPoll(owner)
 	if dwpt != nil {
 		return dwpt
 	}
@@ -100,7 +102,7 @@ func (pool *DocumentsWriterPerThreadPool) GetAndLock() *DocumentsWriterPerThread
 	// back to the pool by calling MarksAsFreeAndUnlock.
 	//
 	// Java's getAndLock is not synchronized; newWriter acquires the monitor.
-	return pool.newWriter()
+	return pool.newWriter(owner)
 }
 
 // ensureOpen mirrors Java's `private void ensureOpen()`, which is deliberately
@@ -123,7 +125,7 @@ func (pool *DocumentsWriterPerThreadPool) IsRegistered(dwpt *DocumentsWriterPerT
 	return ok
 }
 
-func (pool *DocumentsWriterPerThreadPool) MarksAsFreeAndUnlock(dwpt *DocumentsWriterPerThread) {
+func (pool *DocumentsWriterPerThreadPool) MarksAsFreeAndUnlock(owner util.LockOwner, dwpt *DocumentsWriterPerThread) {
 	ramBytesUsed := dwpt.RamBytesUsed()
 
 	// Lucene asserts these are false.
@@ -135,7 +137,7 @@ func (pool *DocumentsWriterPerThreadPool) MarksAsFreeAndUnlock(dwpt *DocumentsWr
 		panic("we tried to add a DWPT back to the pool but the pool doesn't know about this DWPT")
 	}
 
-	pool.freeList.addAndUnlock(dwpt, ramBytesUsed)
+	pool.freeList.addAndUnlock(owner, dwpt, ramBytesUsed)
 }
 
 // Iter visits every registered DWPT, stopping early when visit returns false.
@@ -163,23 +165,23 @@ func (pool *DocumentsWriterPerThreadPool) Slice() []*DocumentsWriterPerThread {
 	return res
 }
 
-func (pool *DocumentsWriterPerThreadPool) FilterAndLock(predicate func(*DocumentsWriterPerThread) bool) []*DocumentsWriterPerThread {
+func (pool *DocumentsWriterPerThreadPool) FilterAndLock(owner util.LockOwner, predicate func(*DocumentsWriterPerThread) bool) []*DocumentsWriterPerThread {
 	var list []*DocumentsWriterPerThread
 	for _, dwpt := range pool.Slice() {
 		if predicate(dwpt) {
-			dwpt.Lock()
+			dwpt.Lock(owner)
 			if pool.IsRegistered(dwpt) {
 				list = append(list, dwpt)
 			} else {
-				dwpt.Unlock()
+				dwpt.Unlock(owner)
 			}
 		}
 	}
 	return list
 }
 
-func (pool *DocumentsWriterPerThreadPool) Checkout(dwpt *DocumentsWriterPerThread) bool {
-	if !dwpt.IsHeldByCurrentThread() {
+func (pool *DocumentsWriterPerThreadPool) Checkout(owner util.LockOwner, dwpt *DocumentsWriterPerThread) bool {
+	if !dwpt.IsHeldByCurrentThread(owner) {
 		panic("DWPT must be held by the current thread for checkout")
 	}
 

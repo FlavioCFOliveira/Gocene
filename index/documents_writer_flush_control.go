@@ -364,7 +364,7 @@ func (c *DocumentsWriterFlushControl) ramBufferGranularity() int64 {
 // DoAfterDocument is called after a document has been processed by a DWPT.
 // If the DWPT needs to be checked out for flushing, it is returned;
 // otherwise nil is returned.
-func (c *DocumentsWriterFlushControl) DoAfterDocument(perThread flushControlDWPT) flushControlDWPT {
+func (c *DocumentsWriterFlushControl) DoAfterDocument(owner util.LockOwner, perThread flushControlDWPT) flushControlDWPT {
 	delta := perThread.GetCommitLastBytesUsedDelta()
 	// Skip global accounting on small deltas to reduce contention.
 	if c.config.GetMaxBufferedDocs() == DISABLE_AUTO_FLUSH && delta < c.ramBufferGranularity() {
@@ -393,17 +393,17 @@ func (c *DocumentsWriterFlushControl) DoAfterDocument(perThread flushControlDWPT
 				c.setFlushPendingLocked(perThread)
 			}
 		}
-		result = c.checkoutLocked(perThread, false)
+		result = c.checkoutLocked(owner, perThread, false)
 	}()
 	return result
 }
 
 // checkoutLocked decides whether the given perThread should be removed from
 // the pool right now. Caller must hold c.mu.
-func (c *DocumentsWriterFlushControl) checkoutLocked(perThread flushControlDWPT, markPending bool) flushControlDWPT {
+func (c *DocumentsWriterFlushControl) checkoutLocked(owner util.LockOwner, perThread flushControlDWPT, markPending bool) flushControlDWPT {
 	if c.fullFlush {
 		if perThread.IsFlushPending() {
-			c.checkoutAndBlockLocked(perThread)
+			c.checkoutAndBlockLocked(owner, perThread)
 			return c.nextPendingFlushInternal()
 		}
 	} else {
@@ -414,7 +414,7 @@ func (c *DocumentsWriterFlushControl) checkoutLocked(perThread flushControlDWPT,
 			c.setFlushPendingLocked(perThread)
 		}
 		if perThread.IsFlushPending() {
-			return c.checkOutForFlushLocked(perThread)
+			return c.checkOutForFlushLocked(owner, perThread)
 		}
 	}
 	return nil
@@ -511,18 +511,18 @@ func (c *DocumentsWriterFlushControl) setFlushPendingLocked(perThread flushContr
 
 // DoOnAbort releases accounting bytes for an aborted DWPT and removes it
 // from the pool.
-func (c *DocumentsWriterFlushControl) DoOnAbort(perThread flushControlDWPT) {
+func (c *DocumentsWriterFlushControl) DoOnAbort(owner util.LockOwner, perThread flushControlDWPT) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.perThreadPool.IsRegistered(perThread) {
 		panic("DoOnAbort called for unregistered DWPT")
 	}
-	if !perThread.IsHeldByCurrentThread() {
+	if !perThread.IsHeldByCurrentThread(owner) {
 		panic("DoOnAbort called without holding DWPT lock")
 	}
 	defer func() {
 		c.updateStallStateLocked()
-		if !c.perThreadPool.Checkout(perThread) {
+		if !c.perThreadPool.Checkout(owner, perThread) {
 			panic("perThreadPool.Checkout failed in DoOnAbort")
 		}
 	}()
@@ -536,11 +536,11 @@ func (c *DocumentsWriterFlushControl) DoOnAbort(perThread flushControlDWPT) {
 
 // checkoutAndBlockLocked moves a pending DWPT to the blockedFlushes queue.
 // Used during a full flush when a stray pending DWPT shows up.
-func (c *DocumentsWriterFlushControl) checkoutAndBlockLocked(perThread flushControlDWPT) {
+func (c *DocumentsWriterFlushControl) checkoutAndBlockLocked(owner util.LockOwner, perThread flushControlDWPT) {
 	if !c.perThreadPool.IsRegistered(perThread) {
 		panic("checkoutAndBlock: DWPT not registered")
 	}
-	if !perThread.IsHeldByCurrentThread() {
+	if !perThread.IsHeldByCurrentThread(owner) {
 		panic("checkoutAndBlock: DWPT lock not held")
 	}
 	if !perThread.IsFlushPending() {
@@ -551,18 +551,18 @@ func (c *DocumentsWriterFlushControl) checkoutAndBlockLocked(perThread flushCont
 	}
 	c.numPending.Add(-1)
 	c.blockedFlushes.PushBack(perThread)
-	if !c.perThreadPool.Checkout(perThread) {
+	if !c.perThreadPool.Checkout(owner, perThread) {
 		panic("perThreadPool.Checkout failed in checkoutAndBlock")
 	}
 }
 
 // checkOutForFlushLocked moves a pending DWPT into flushingWriters and
 // returns it to the caller for actual flushing.
-func (c *DocumentsWriterFlushControl) checkOutForFlushLocked(perThread flushControlDWPT) flushControlDWPT {
+func (c *DocumentsWriterFlushControl) checkOutForFlushLocked(owner util.LockOwner, perThread flushControlDWPT) flushControlDWPT {
 	if !perThread.IsFlushPending() {
 		panic("checkOutForFlush: DWPT not flush pending")
 	}
-	if !perThread.IsHeldByCurrentThread() {
+	if !perThread.IsHeldByCurrentThread(owner) {
 		panic("checkOutForFlush: DWPT lock not held")
 	}
 	if !c.perThreadPool.IsRegistered(perThread) {
@@ -571,7 +571,7 @@ func (c *DocumentsWriterFlushControl) checkOutForFlushLocked(perThread flushCont
 	defer c.updateStallStateLocked()
 	c.addFlushingDWPTLocked(perThread)
 	c.numPending.Add(-1)
-	if !c.perThreadPool.Checkout(perThread) {
+	if !c.perThreadPool.Checkout(owner, perThread) {
 		panic("perThreadPool.Checkout failed in checkOutForFlush")
 	}
 	return perThread
@@ -641,24 +641,28 @@ func (c *DocumentsWriterFlushControl) NextPendingFlush() flushControlDWPT {
 			if !next.IsFlushPending() {
 				return true
 			}
-			if !next.TryLock() {
+			// Java:
+			//   if (next.tryLock()) {
+			//     try {
+			//       if (perThreadPool.isRegistered(next)) {
+			//         return checkOutForFlush(next);
+			//       }
+			//     } finally { next.unlock(); }
+			//   }
+			// The lock is released on every path, the checkout path included.
+			owner := util.NewLockOwner()
+			if !next.TryLock(owner) {
 				return true
 			}
-			released := false
-			defer func() {
-				if !released {
-					next.Unlock()
-				}
-			}()
+			defer next.Unlock(owner)
 			if !c.perThreadPool.IsRegistered(next) {
 				return true
 			}
 			c.mu.Lock()
-			out := c.checkOutForFlushLocked(next)
+			out := c.checkOutForFlushLocked(owner, next)
 			c.mu.Unlock()
 			picked = out
-			released = true // checkout removed it from the pool
-			return false    // stop iteration
+			return false // stop iteration
 		})
 		return picked
 	}
@@ -745,7 +749,7 @@ func (c *DocumentsWriterFlushControl) SetApplyAllDeletes() {
 // ObtainAndLock returns a DWPT (with its lock held) that is bound to the
 // current delete queue. If the control has been closed, returns
 // ErrFlushControlClosed.
-func (c *DocumentsWriterFlushControl) ObtainAndLock() (flushControlDWPT, error) {
+func (c *DocumentsWriterFlushControl) ObtainAndLock(owner util.LockOwner) (flushControlDWPT, error) {
 	for {
 		c.mu.Lock()
 		closed := c.closed
@@ -755,7 +759,7 @@ func (c *DocumentsWriterFlushControl) ObtainAndLock() (flushControlDWPT, error) 
 		if closed {
 			return nil, store.NewAlreadyClosedException(ErrFlushControlClosed.Error(), nil)
 		}
-		perThread := c.perThreadPool.GetAndLock()
+		perThread := c.perThreadPool.GetAndLock(owner)
 		if perThread == nil {
 			continue
 		}
@@ -764,20 +768,20 @@ func (c *DocumentsWriterFlushControl) ObtainAndLock() (flushControlDWPT, error) 
 		}
 		// Stale DWPT: must be the result of a full flush in progress.
 		if !fullFlush || fullFlushMarkDone {
-			perThread.Unlock()
+			perThread.Unlock(owner)
 			panic(fmt.Sprintf(
 				"found a stale DWPT but full flush mark phase is already done fullFlush: %v markDone: %v",
 				fullFlush, fullFlushMarkDone,
 			))
 		}
-		perThread.Unlock()
+		perThread.Unlock(owner)
 	}
 }
 
 // MarkForFullFlush marks every DWPT bound to the current delete queue for
 // flush, swaps in a new delete queue and returns the sequence number gap
 // the next DWPT may use.
-func (c *DocumentsWriterFlushControl) MarkForFullFlush() int64 {
+func (c *DocumentsWriterFlushControl) MarkForFullFlush(owner util.LockOwner) int64 {
 	var (
 		flushingQueue flushControlDeleteQueue
 		seqNo         int64
@@ -796,23 +800,23 @@ func (c *DocumentsWriterFlushControl) MarkForFullFlush() int64 {
 	c.perThreadPool.LockNewWriters()
 	func() {
 		defer c.perThreadPool.UnlockNewWriters()
-		seqNo = c.owner.ResetDeleteQueue(c.perThreadPool.Size())
+		seqNo = c.owner.ResetDeleteQueue(owner, c.perThreadPool.Size())
 	}()
 	c.mu.Unlock()
 
 	fullFlushBuffer := make([]flushControlDWPT, 0, 8)
-	dwpts := c.perThreadPool.FilterAndLock(func(d flushControlDWPT) bool {
+	dwpts := c.perThreadPool.FilterAndLock(owner, func(d flushControlDWPT) bool {
 		return d.GetDeleteQueue() == flushingQueue
 	})
 	for _, next := range dwpts {
 		func() {
-			defer next.Unlock()
+			defer next.Unlock(owner)
 			if next.GetNumDocsInRAMLocked() > 0 {
 				c.mu.Lock()
 				if !next.IsFlushPending() {
 					c.setFlushPendingLocked(next)
 				}
-				flushing := c.checkOutForFlushLocked(next)
+				flushing := c.checkOutForFlushLocked(owner, next)
 				c.mu.Unlock()
 				if flushing == nil {
 					panic("DWPT must never be nil here")
@@ -822,7 +826,7 @@ func (c *DocumentsWriterFlushControl) MarkForFullFlush() int64 {
 				}
 				fullFlushBuffer = append(fullFlushBuffer, flushing)
 			} else {
-				if !c.perThreadPool.Checkout(next) {
+				if !c.perThreadPool.Checkout(owner, next) {
 					panic("perThreadPool.Checkout failed in MarkForFullFlush")
 				}
 			}
@@ -1044,15 +1048,16 @@ func (c *DocumentsWriterFlushControl) CheckoutLargestNonPendingWriter() flushCon
 	if largest == nil {
 		return nil
 	}
-	largest.Lock()
-	defer largest.Unlock()
+	owner := util.NewLockOwner()
+	largest.Lock(owner)
+	defer largest.Unlock(owner)
 	if !c.perThreadPool.IsRegistered(largest) {
 		return nil
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	defer c.updateStallStateLocked()
-	return c.checkoutLocked(largest, !largest.IsFlushPending())
+	return c.checkoutLocked(owner, largest, !largest.IsFlushPending())
 }
 
 // GetPeakActiveBytes returns the highest activeBytes ever observed.
