@@ -536,7 +536,7 @@ If conflicts arise between these criteria, or if difficulty arises in following 
 
 ## 11. Segregation of Responsibilities
 
-Each package, component, and function must follow a strict pattern of segregation of responsibilities in order to maximise code reuse.
+Each package, component, and function must follow a strict pattern of segregation of responsibilities in order to maximise code reuse. That segregation follows the decomposition of Apache Lucene 10.5.0 and never replaces it: where the two would diverge, the *Source Fidelity Mandate* prevails, and units are not merged, split, relocated, or renamed on Gocene's own initiative.
 
 ## 12. Memory
 

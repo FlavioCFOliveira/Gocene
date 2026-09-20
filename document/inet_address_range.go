@@ -15,10 +15,7 @@ import (
 // underlying FieldType uses dimensionCount=2 and numBytes=16 so the
 // per-range payload is 32 bytes.
 //
-// Go port of Lucene 10.4.0's org.apache.lucene.document.InetAddressRange.
-//
-// Static query factories (NewIntersectsQuery / NewContainsQuery /
-// NewWithinQuery / NewCrossesQuery) deferred — see backlog #2695.
+// Go port of Lucene 10.5.0's org.apache.lucene.document.InetAddressRange.
 type InetAddressRange struct {
 	*Field
 	min net.IP
@@ -42,30 +39,58 @@ func init() {
 	InetAddressRangeTYPE = InetAddressRangeType
 }
 
-// NewInetAddressRange creates an InetAddressRange covering [min, max].
+// NewInetAddressRange creates an InetAddressRange from min/max value.
 // Both endpoints are required to be non-nil; min must be <= max (in
 // the unsigned-byte ordering of the encoded form).
 func NewInetAddressRange(name string, min, max net.IP) (*InetAddressRange, error) {
 	if min == nil || max == nil {
 		return nil, fmt.Errorf("InetAddressRange endpoints must be non-nil")
 	}
-	encMin := EncodeInetAddress(min)
-	encMax := EncodeInetAddress(max)
-	if bytes.Compare(encMin, encMax) > 0 {
-		return nil, fmt.Errorf("min %v > max %v", min, max)
+
+	packed, err := encodeInetAddressRange(min, max)
+	if err != nil {
+		return nil, err
 	}
-	packed := make([]byte, 2*InetAddressPointBytes)
-	copy(packed[:InetAddressPointBytes], encMin)
-	copy(packed[InetAddressPointBytes:], encMax)
+
 	field, err := NewField(name, packed, InetAddressRangeType)
 	if err != nil {
 		return nil, err
 	}
+
 	dupMin := make(net.IP, len(min))
 	copy(dupMin, min)
 	dupMax := make(net.IP, len(max))
 	copy(dupMax, max)
-	return &InetAddressRange{Field: field, min: dupMin, max: dupMax}, nil
+
+	return &InetAddressRange{
+		Field: field,
+		min:   dupMin,
+		max:   dupMax,
+	}, nil
+}
+
+// SetRangeValues changes (or sets) the min/max values of the field.
+func (r *InetAddressRange) SetRangeValues(min, max net.IP) error {
+	if min == nil || max == nil {
+		return fmt.Errorf("InetAddressRange endpoints must be non-nil")
+	}
+
+	packed, err := encodeInetAddressRange(min, max)
+	if err != nil {
+		return err
+	}
+
+	// Update the underlying field value.
+	r.Field.value = binaryValue(packed)
+
+	dupMin := make(net.IP, len(min))
+	copy(dupMin, min)
+	dupMax := make(net.IP, len(max))
+	copy(dupMax, max)
+	r.min = dupMin
+	r.max = dupMax
+
+	return nil
 }
 
 // Min returns a copy of the minimum address.
@@ -80,4 +105,66 @@ func (r *InetAddressRange) Max() net.IP {
 	out := make(net.IP, len(r.max))
 	copy(out, r.max)
 	return out
+}
+
+// NewInetAddressRangeIntersectsQuery creates a query for matching indexed ip ranges that INTERSECT the defined range.
+func NewInetAddressRangeIntersectsQuery(field string, min, max net.IP) (*RangeFieldQuery, error) {
+	return newInetAddressRelationQuery(field, min, max, RangeFieldQueryTypeIntersects)
+}
+
+// NewInetAddressRangeContainsQuery creates a query for matching indexed ip ranges that CONTAINS the defined range.
+func NewInetAddressRangeContainsQuery(field string, min, max net.IP) (*RangeFieldQuery, error) {
+	return newInetAddressRelationQuery(field, min, max, RangeFieldQueryTypeContains)
+}
+
+// NewInetAddressRangeWithinQuery creates a query for matching indexed ip ranges that are WITHIN the defined range.
+func NewInetAddressRangeWithinQuery(field string, min, max net.IP) (*RangeFieldQuery, error) {
+	return newInetAddressRelationQuery(field, min, max, RangeFieldQueryTypeWithin)
+}
+
+// NewInetAddressRangeCrossesQuery creates a query for matching indexed ip ranges that CROSS the defined range.
+func NewInetAddressRangeCrossesQuery(field string, min, max net.IP) (*RangeFieldQuery, error) {
+	return newInetAddressRelationQuery(field, min, max, RangeFieldQueryTypeCrosses)
+}
+
+func newInetAddressRelationQuery(field string, min, max net.IP, relation RangeFieldQueryType) (*RangeFieldQuery, error) {
+	packed, err := encodeInetAddressRange(min, max)
+	if err != nil {
+		return nil, err
+	}
+	return NewRangeFieldQuery(field, packed, 1, relation)
+}
+
+func encodeInetAddressRange(min, max net.IP) ([]byte, error) {
+	if min == nil || max == nil {
+		return nil, fmt.Errorf("InetAddressRange endpoints must be non-nil")
+	}
+
+	minEncoded := EncodeInetAddress(min)
+	maxEncoded := EncodeInetAddress(max)
+
+	if bytes.Compare(minEncoded, maxEncoded) > 0 {
+		return nil, fmt.Errorf("min value cannot be greater than max value for InetAddressRange field")
+	}
+
+	packed := make([]byte, 2*InetAddressPointBytes)
+	copy(packed[:InetAddressPointBytes], minEncoded)
+	copy(packed[InetAddressPointBytes:], maxEncoded)
+	return packed, nil
+}
+
+// inetAddressRangeToString returns the String representation for the range at the given dimension.
+// This is a helper used for query representation.
+func inetAddressRangeToString(ranges []byte, dimension int) string {
+	minB := ranges[0:InetAddressPointBytes]
+	maxB := ranges[InetAddressPointBytes : 2*InetAddressPointBytes]
+
+	minIP, errMin := DecodeInetAddress(minB)
+	maxIP, errMax := DecodeInetAddress(maxB)
+
+	if errMin != nil || errMax != nil {
+		return "[invalid range]"
+	}
+
+	return fmt.Sprintf("[%s : %s]", minIP, maxIP)
 }
