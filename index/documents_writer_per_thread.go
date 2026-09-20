@@ -209,17 +209,17 @@ func NewDocumentsWriterPerThread(
 	}
 	dwpt.hasParentField = indexWriterConfig.GetParentField() != ""
 
-	// IndexingChain constructor in Gocene requires handles.
-	// These are injected here to mirror Lucene's constructor logic.
+	// Mirrors DocumentsWriterPerThread's
+	//   this.indexingChain = new IndexingChain(indexVersionCreated, segmentInfo,
+	//       this.directory, fieldInfos, indexWriterConfig, this::onAbortingException);
+	// The chain builds its own consumers; nothing is injected.
 	chain, err := NewIndexingChain(
 		indexMajorVersionCreated,
-		fieldInfos, // Assuming FieldInfosBuilder implements FieldInfosBuilderHandle
+		dwpt.segmentInfo,
+		dwpt.directory,
+		fieldInfos,
 		indexWriterConfig,
 		dwpt.onAbortingException,
-		nil, // termsHash injected later or by factory
-		nil, // storedFieldsConsumer
-		nil, // vectorValuesConsumer
-		nil, // termVectorsWriter
 	)
 	if err != nil {
 		panic(err)

@@ -63,20 +63,6 @@ import (
 // its init() registers the canonical Lucene 10.4.0 temp format.
 var ErrTempFormatUnset = errors.New("index: SortingStoredFieldsConsumer requires a temporary StoredFieldsFormat; blank-import the codecs/lucene90/compressing package or call SetTempStoredFieldsFormat")
 
-// storedFieldsConsumerBase is the Sprint 55 placeholder for the parent
-// type ported in GOC-3394. It carries the fields the parent owns in
-// Lucene: codec, directory, segment info, and the active writer.
-//
-// When GOC-3394 lands, this struct disappears: SortingStoredFieldsConsumer
-// embeds the canonical *StoredFieldsConsumer and the field-access paths
-// here switch to the embedded receiver. The migration is mechanical.
-type storedFieldsConsumerBase struct {
-	codec     Codec
-	directory store.Directory
-	info      *SegmentInfo
-	writer    StoredFieldsWriter
-}
-
 // SortingStoredFieldsConsumer specializes the stored-fields consumer for
 // segments that are sorted at flush time. Documents are first buffered in
 // document-write order to a temporary uncompressed segment, then
@@ -85,7 +71,11 @@ type storedFieldsConsumerBase struct {
 //
 // Mirrors org.apache.lucene.index.SortingStoredFieldsConsumer.
 type SortingStoredFieldsConsumer struct {
-	storedFieldsConsumerBase
+	// StoredFieldsConsumer is the embedded parent. Mirrors Lucene's
+	// "final class SortingStoredFieldsConsumer extends StoredFieldsConsumer":
+	// codec, directory, info, writer, accountable, lastDoc and every
+	// non-overridden method come from it.
+	*StoredFieldsConsumer
 
 	// tmpDirectory is the tracking wrapper around the segment directory
 	// where the buffered (pre-sort) stored fields live. nil until
@@ -119,14 +109,16 @@ func NewSortingStoredFieldsConsumer(codec Codec, directory store.Directory, info
 		// no useful behaviour the consumer can perform without it.
 		return nil
 	}
-	return &SortingStoredFieldsConsumer{
-		storedFieldsConsumerBase: storedFieldsConsumerBase{
-			codec:     codec,
-			directory: directory,
-			info:      info,
-		},
-		tempFormat: DefaultTempStoredFieldsFormat(),
+	parent := NewStoredFieldsConsumer(codec, directory, info)
+	c := &SortingStoredFieldsConsumer{
+		StoredFieldsConsumer: parent,
+		tempFormat:           DefaultTempStoredFieldsFormat(),
 	}
+	// Install the @Override of initStoredFieldsWriter() so the inherited
+	// startDocument() path opens the temporary writer, exactly as the
+	// virtual call does in Java.
+	parent.initStoredFieldsWriterOverride = c.InitStoredFieldsWriter
+	return c
 }
 
 // SetTempStoredFieldsFormat overrides the StoredFieldsFormat used for
@@ -192,12 +184,11 @@ func (c *SortingStoredFieldsConsumer) Flush(state *SegmentWriteState, sortMap So
 		return nil
 	}
 
-	// Close the temporary writer (super.flush() in Lucene flushes the
-	// buffered writer; in the port we just close it before reopening
-	// for read since FieldsWriter does not expose a Flush method).
-	if err := c.writer.Close(); err != nil {
+	// Mirrors super.flush(state, sortMap): the parent finishes and closes
+	// the buffered writer before it is reopened for reading.
+	if err := c.StoredFieldsConsumer.Flush(state, sortMap); err != nil {
 		c.cleanupTempFiles()
-		return fmt.Errorf("index: SortingStoredFieldsConsumer flush close temp writer: %w", err)
+		return err
 	}
 	c.writer = nil
 
@@ -256,10 +247,9 @@ func (c *SortingStoredFieldsConsumer) copyDocuments(reader StoredFieldsReader, s
 //
 // Mirrors org.apache.lucene.index.SortingStoredFieldsConsumer.abort.
 func (c *SortingStoredFieldsConsumer) Abort() {
-	if c.writer != nil {
-		_ = c.writer.Close()
-		c.writer = nil
-	}
+	// Mirrors the try { super.abort(); } finally { delete temp files }.
+	c.StoredFieldsConsumer.Abort()
+	c.writer = nil
 	if c.tmpDirectory != nil {
 		for _, name := range c.tmpDirectory.TemporaryFiles() {
 			_ = c.directory.DeleteFile(name)

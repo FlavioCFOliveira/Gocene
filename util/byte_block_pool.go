@@ -4,10 +4,6 @@
 
 package util
 
-import (
-	"sync/atomic"
-)
-
 const (
 	// ByteBlockShift is the shift used to calculate buffer index.
 	ByteBlockShift = 15
@@ -44,23 +40,30 @@ func (a *DirectAllocator) RecycleByteBlocks(blocks [][]byte, start, end int) {
 
 // DirectTrackingAllocator is a simple Allocator that never recycles,
 // but tracks how much total RAM is in use.
+//
+// Mirrors org.apache.lucene.util.ByteBlockPool.DirectTrackingAllocator,
+// whose single constructor takes the org.apache.lucene.util.Counter the
+// allocation is charged against. CounterAPI is the Go rendering of that
+// abstract Counter type, so both the atomic *Counter and the serial
+// *SerialCounter variant can be supplied, exactly as Counter.newCounter
+// allows in Java.
 type DirectTrackingAllocator struct {
-	bytesUsed *atomic.Int64
+	bytesUsed CounterAPI
 }
 
-func NewDirectTrackingAllocator(bytesUsed *atomic.Int64) *DirectTrackingAllocator {
+func NewDirectTrackingAllocator(bytesUsed CounterAPI) *DirectTrackingAllocator {
 	return &DirectTrackingAllocator{
 		bytesUsed: bytesUsed,
 	}
 }
 
 func (a *DirectTrackingAllocator) GetByteBlock() []byte {
-	a.bytesUsed.Add(int64(ByteBlockSize))
+	a.bytesUsed.AddAndGet(int64(ByteBlockSize))
 	return make([]byte, ByteBlockSize)
 }
 
 func (a *DirectTrackingAllocator) RecycleByteBlocks(blocks [][]byte, start, end int) {
-	a.bytesUsed.Add(-int64((end - start) * ByteBlockSize))
+	a.bytesUsed.AddAndGet(-int64((end - start) * ByteBlockSize))
 	for i := start; i < end; i++ {
 		blocks[i] = nil
 	}

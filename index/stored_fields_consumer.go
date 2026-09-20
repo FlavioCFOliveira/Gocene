@@ -13,6 +13,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // StoredValueType discriminates the variant carried by a StoredValue.
@@ -102,9 +103,24 @@ type StoredFieldsConsumer struct {
 	// call to InitStoredFieldsWriter (mirrors Lucene's lazy allocation).
 	writer StoredFieldsWriter
 
+	// accountable holds the active writer once it is installed. Mirrors
+	// Lucene's "Accountable accountable = Accountable.NULL_ACCOUNTABLE"
+	// field, which IndexingChain.ramBytesUsed reads directly. Gocene has
+	// no NULL_ACCOUNTABLE singleton, so the zero value is nil and
+	// RamBytesUsed reports 0 for it.
+	accountable util.Accountable
+
 	// lastDoc tracks the highest docID for which a document has been
 	// started. It begins at -1 so the first started document is docID 0.
 	lastDoc int
+
+	// initStoredFieldsWriterOverride renders the @Override of
+	// initStoredFieldsWriter() in SortingStoredFieldsConsumer. Java
+	// resolves the call inside startDocument() virtually; Go embedding
+	// does not, so the subclass installs its body here and the base
+	// dispatches through initStoredFieldsWriter(). nil means "no
+	// subclass override".
+	initStoredFieldsWriterOverride func() error
 }
 
 // NewStoredFieldsConsumer constructs the consumer for one segment.
@@ -138,7 +154,33 @@ func (c *StoredFieldsConsumer) InitStoredFieldsWriter() error {
 		return fmt.Errorf("index: StoredFieldsConsumer init writer: %w", err)
 	}
 	c.writer = w
+	if a, ok := w.(util.Accountable); ok {
+		c.accountable = a
+	} else {
+		c.accountable = nil
+	}
 	return nil
+}
+
+// initStoredFieldsWriter performs the virtual dispatch Java gets for
+// free: it runs the subclass override when one is installed, otherwise
+// the base InitStoredFieldsWriter body. Every in-class call site of
+// initStoredFieldsWriter() in Lucene goes through this.
+func (c *StoredFieldsConsumer) initStoredFieldsWriter() error {
+	if c.initStoredFieldsWriterOverride != nil {
+		return c.initStoredFieldsWriterOverride()
+	}
+	return c.InitStoredFieldsWriter()
+}
+
+// RamBytesUsed reports the active writer's footprint, or 0 before one is
+// installed. Mirrors the accountable field IndexingChain.ramBytesUsed
+// reads (Lucene's Accountable.NULL_ACCOUNTABLE reports 0 as well).
+func (c *StoredFieldsConsumer) RamBytesUsed() int64 {
+	if c.accountable == nil {
+		return 0
+	}
+	return c.accountable.RamBytesUsed()
 }
 
 // StartDocument prepares the writer for the document with the given
@@ -154,7 +196,7 @@ func (c *StoredFieldsConsumer) StartDocument(docID int) error {
 	if c.lastDoc >= docID {
 		return fmt.Errorf("index: StoredFieldsConsumer.StartDocument: docID %d is not greater than last started doc %d", docID, c.lastDoc)
 	}
-	if err := c.InitStoredFieldsWriter(); err != nil {
+	if err := c.initStoredFieldsWriter(); err != nil {
 		return err
 	}
 	for {

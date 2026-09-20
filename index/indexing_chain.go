@@ -9,8 +9,10 @@ import (
 	"math"
 	"sort"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index/column"
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -18,28 +20,29 @@ import (
 // indexing all types of fields. It is the Go port of Apache Lucene 10.4.0's
 // org.apache.lucene.index.IndexingChain.
 //
-// PORTING NOTE (Sprint 55, option c — large gaps expected):
+// PORTING NOTE:
 //
-// Lucene's IndexingChain depends on a cluster of types that are not yet ported
-// to Gocene, several of which cannot be imported here at all because they
-// would form an import cycle (package document and package search both import
-// package index). To keep this port self-contained and compilable, the
-// following collaborators are modelled as narrow interfaces declared in this
-// file rather than concrete types. When the real implementations land, swap
-// the interface for the concrete type; the orchestration logic does not change.
+// The constructor builds every consumer the chain owns, exactly as Lucene's
+// does; see NewIndexingChain. The remaining collaborators below are modelled
+// as narrow interfaces declared in this file rather than as concrete types,
+// because package search imports package index and so cannot be imported
+// back. When the real implementations land, swap the interface for the
+// concrete type; the orchestration logic does not change.
 //
-//   - StoredFieldsConsumer  -> StoredFieldsConsumerHandle
-//   - VectorValuesConsumer  -> VectorValuesConsumerHandle
-//   - LiveIndexWriterConfig -> IndexingChainConfig
+//   - StoredFieldsConsumer  -> StoredFieldsConsumerHandle (the interface is
+//     the Go rendering of Lucene's StoredFieldsConsumer-typed field, which
+//     holds either a StoredFieldsConsumer or a SortingStoredFieldsConsumer;
+//     both concrete Gocene types satisfy it).
+//   - VectorValuesConsumer  -> VectorValuesConsumerHandle (satisfied by the
+//     package-private vectorValuesConsumer).
 //   - FieldInfos.Builder    -> FieldInfosBuilderHandle (Gocene's existing
 //     FieldInfosBuilder is a simple fluent builder lacking add()-with-global-
 //     consistency-check, finish(), getSoftDeletesFieldName(),
 //     getParentFieldName()).
 //   - org.apache.lucene.search.similarities.Similarity -> SimilarityHandle
 //     (the real Similarity lives in package search, which imports index).
-//   - IndexableField     -> IndexingChainField (Gocene's index.IndexableField
-//     is intentionally minimal and omits invertableType()/binaryValue()/the
-//     rich fieldType()).
+//   - IndexableField     -> IndexingChainField (a readability alias; the
+//     underlying document.IndexableField already carries the full surface).
 //
 // DEFERRED (gaps left for later sprints, each marked GAP in the code):
 //   - maybeSortSegment / validateIndexSortDVType: index sorting needs the
@@ -64,10 +67,19 @@ type IndexingChain struct {
 	termsHash TermsHash
 	// docValuesBytePool is the shared pool for doc-value terms.
 	docValuesBytePool *util.ByteBlockPool
+	// sharedIndexingScratch holds the lazily-allocated scratch buffers
+	// handed to per-field writers during indexing.
+	sharedIndexingScratch *sharedIndexingScratch
 	// storedFieldsConsumer writes stored fields.
 	storedFieldsConsumer StoredFieldsConsumerHandle
 	vectorValuesConsumer VectorValuesConsumerHandle
-	termVectorsWriter    *TermVectorsConsumer
+	// termVectorsWriter is the term-vectors consumer. When the segment is
+	// sorted it is the TermVectorsConsumer embedded in the
+	// SortingTermVectorsConsumer -- the same object Java's
+	// TermVectorsConsumer-typed field holds, reached through the base
+	// pointer because Go has no upcast. The chain link that carries the
+	// polymorphic calls is the nextTermsHash inside termsHash.
+	termVectorsWriter *TermVectorsConsumer
 
 	// fieldHash is an open-addressed chained hash of PerField, keyed by name.
 	// Lucene benchmarked this to be ~2% faster than a HashMap.
@@ -82,10 +94,17 @@ type IndexingChain struct {
 	// docFields holds one slot per field instance in the current document.
 	docFields []*indexingPerField
 
-	indexWriterConfig         IndexingChainConfig
+	indexWriterConfig         *LiveIndexWriterConfig
 	indexCreatedVersionMajor  int
 	abortingExceptionConsumer func(error)
-	hasHitAbortingException   bool
+
+	// parentPf and parentField carry the configured parent field, which
+	// the constructor pre-registers. Mirrors IndexingChain's final
+	// PerField parentPf / NumericDocValuesField parentField.
+	parentPf    *indexingPerField
+	parentField *document.NumericDocValuesField
+
+	hasHitAbortingException bool
 }
 
 // IndexingChainConfig is the subset of Lucene's LiveIndexWriterConfig that the
@@ -129,7 +148,7 @@ type FieldInfosBuilderHandle interface {
 // consumed by the indexing chain.
 type StoredFieldsConsumerHandle interface {
 	StartDocument(docID int) error
-	WriteField(fi *FieldInfo, field IndexingChainField) error
+	WriteField(fi *FieldInfo, value *StoredValue) error
 	FinishDocument() error
 	Finish(maxDoc int) error
 	Flush(state *SegmentWriteState, sortMap SorterDocMap) error
@@ -163,23 +182,41 @@ type KnnFieldVectorsWriterHandle interface {
 // name is kept only as a readability alias for the chain's own signatures.
 type IndexingChainField = IndexableField
 
-// NewIndexingChain constructs an IndexingChain.
+// NewIndexingChain constructs an IndexingChain and, with it, every consumer
+// the chain owns. It is the Go port of
 //
-// GAP: Lucene wires the concrete StoredFieldsConsumer / TermVectorsConsumer /
-// VectorValuesConsumer (and their sorting variants) here from the codec and
-// directory. Gocene cannot construct those generically yet, so they are
-// injected by the caller (DocumentsWriterPerThread, once ported). termsHash is
-// likewise injected because FreqProxTermsWriter's Gocene constructor has a
-// divergent signature (see freq_prox_terms_writer.go).
+//	IndexingChain(int indexCreatedVersionMajor,
+//	              SegmentInfo segmentInfo,
+//	              Directory directory,
+//	              FieldInfos.Builder fieldInfos,
+//	              LiveIndexWriterConfig indexWriterConfig,
+//	              Consumer<Throwable> abortingExceptionConsumer)
+//
+// and follows its body statement for statement:
+//
+//   - the byte blocks come from a ByteBlockPool.DirectTrackingAllocator and
+//     the int blocks from the nested IntBlockAllocator, both charged to the
+//     chain's own bytesUsed counter;
+//   - the vector consumer is always the plain VectorValuesConsumer;
+//   - when segmentInfo.getIndexSort() is null the chain takes the plain
+//     StoredFieldsConsumer and TermVectorsConsumer; otherwise it takes
+//     SortingStoredFieldsConsumer and SortingTermVectorsConsumer;
+//   - the terms hash is always a FreqProxTermsWriter wrapping the chosen
+//     term-vectors consumer;
+//   - docValuesBytePool shares the tracking byte allocator;
+//   - sharedIndexingScratch is charged to the same counter;
+//   - when a parent field is configured the chain pre-registers its PerField
+//     and schema.
+//
+// Lucene asserts segmentInfo.getIndexSort() == indexWriterConfig.getIndexSort();
+// the port returns that as an error instead, since Go has no assertions.
 func NewIndexingChain(
 	indexCreatedVersionMajor int,
+	segmentInfo *SegmentInfo,
+	directory store.Directory,
 	fieldInfos FieldInfosBuilderHandle,
-	indexWriterConfig IndexingChainConfig,
+	indexWriterConfig *LiveIndexWriterConfig,
 	abortingExceptionConsumer func(error),
-	termsHash TermsHash,
-	storedFieldsConsumer StoredFieldsConsumerHandle,
-	vectorValuesConsumer VectorValuesConsumerHandle,
-	termVectorsWriter *TermVectorsConsumer,
 ) (*IndexingChain, error) {
 	if abortingExceptionConsumer == nil {
 		return nil, fmt.Errorf("indexing chain: abortingExceptionConsumer must not be nil")
@@ -187,31 +224,130 @@ func NewIndexingChain(
 	if fieldInfos == nil {
 		return nil, fmt.Errorf("indexing chain: fieldInfos must not be nil")
 	}
-	if termsHash == nil {
-		return nil, fmt.Errorf("indexing chain: termsHash must not be nil")
+	if segmentInfo == nil {
+		return nil, fmt.Errorf("indexing chain: segmentInfo must not be nil")
 	}
-	if storedFieldsConsumer == nil {
-		return nil, fmt.Errorf("indexing chain: storedFieldsConsumer must not be nil")
+	if indexWriterConfig == nil {
+		return nil, fmt.Errorf("indexing chain: indexWriterConfig must not be nil")
 	}
-	if vectorValuesConsumer == nil {
-		return nil, fmt.Errorf("indexing chain: vectorValuesConsumer must not be nil")
-	}
-	return &IndexingChain{
+
+	c := &IndexingChain{
 		bytesUsed:                 util.NewCounter(),
 		fieldInfos:                fieldInfos,
 		indexWriterConfig:         indexWriterConfig,
 		indexCreatedVersionMajor:  indexCreatedVersionMajor,
 		abortingExceptionConsumer: abortingExceptionConsumer,
-		termsHash:                 termsHash,
-		storedFieldsConsumer:      storedFieldsConsumer,
-		vectorValuesConsumer:      vectorValuesConsumer,
-		termVectorsWriter:         termVectorsWriter,
 		fieldHash:                 make([]*indexingPerField, 2),
 		hashMask:                  1,
 		fields:                    make([]*indexingPerField, 1),
 		docFields:                 make([]*indexingPerField, 2),
-		docValuesBytePool:         util.NewByteBlockPool(util.NewDirectAllocator()),
-	}, nil
+	}
+
+	byteBlockAllocator := util.NewDirectTrackingAllocator(c.bytesUsed)
+	intBlockAllocator := newIntBlockAllocator(c.bytesUsed)
+
+	// assert segmentInfo.getIndexSort() == indexWriterConfig.getIndexSort();
+	//
+	// LiveIndexWriterConfig.GetIndexSort returns any (search.Sort lives in a
+	// package that imports index), so the configured value is narrowed to
+	// *spi.Sort first: comparing a typed nil *spi.Sort against a nil any
+	// directly is never equal in Go and would reject every unsorted segment.
+	configuredSort, _ := indexWriterConfig.GetIndexSort().(*spi.Sort)
+	if segmentInfo.IndexSort() != configuredSort {
+		return nil, fmt.Errorf("indexing chain: segment index sort differs from the configured index sort")
+	}
+
+	c.vectorValuesConsumer = newVectorValuesConsumer(
+		indexWriterConfig.GetCodec(), directory, segmentInfo, indexWriterConfig.GetInfoStream())
+
+	// termVectors is the chain link Java passes to FreqProxTermsWriter; it
+	// carries the dynamic type so flush/abort/addField dispatch to the
+	// sorting override when there is one.
+	var termVectors TermsHash
+	codec := indexWriterConfig.GetCodec()
+	if segmentInfo.IndexSort() == nil {
+		c.storedFieldsConsumer = NewStoredFieldsConsumer(codec, directory, segmentInfo)
+		plain := NewTermVectorsConsumer(
+			intBlockAllocator, byteBlockAllocator, directory, segmentInfo, codec)
+		c.termVectorsWriter = plain
+		termVectors = plain
+	} else {
+		c.storedFieldsConsumer = NewSortingStoredFieldsConsumer(codec, directory, segmentInfo)
+		sorting := NewSortingTermVectorsConsumer(
+			intBlockAllocator, byteBlockAllocator, directory, segmentInfo, codec)
+		c.termVectorsWriter = sorting.TermVectorsConsumer
+		termVectors = sorting
+	}
+
+	termsHash, err := NewFreqProxTermsWriter(
+		intBlockAllocator, byteBlockAllocator, c.bytesUsed, termVectors)
+	if err != nil {
+		return nil, err
+	}
+	c.termsHash = termsHash
+
+	c.docValuesBytePool = util.NewByteBlockPool(byteBlockAllocator)
+	c.sharedIndexingScratch = newSharedIndexingScratch(c.bytesUsed)
+
+	if indexWriterConfig.GetParentField() != "" {
+		parentField, err := document.NewNumericDocValuesField(indexWriterConfig.GetParentField(), -1)
+		if err != nil {
+			return nil, fmt.Errorf("indexing chain: parent field: %w", err)
+		}
+		c.parentField = parentField
+		c.parentPf = c.getOrAddPerField(parentField.Name())
+		if err := updateDocFieldSchema(parentField.Name(), c.parentPf.schema, parentField.FieldType()); err != nil {
+			return nil, fmt.Errorf("indexing chain: parent field schema: %w", err)
+		}
+	}
+
+	// The nil checks below hold by construction; they stay because they are
+	// the contract every caller of this constructor relies on.
+	if c.termsHash == nil {
+		return nil, fmt.Errorf("indexing chain: termsHash must not be nil")
+	}
+	if c.storedFieldsConsumer == nil {
+		return nil, fmt.Errorf("indexing chain: storedFieldsConsumer must not be nil")
+	}
+	if c.vectorValuesConsumer == nil {
+		return nil, fmt.Errorf("indexing chain: vectorValuesConsumer must not be nil")
+	}
+	return c, nil
+}
+
+// intBlockAllocator is the Go port of the private static nested class
+// IndexingChain.IntBlockAllocator: an IntBlockPool allocator that charges
+// every block it hands out, and credits every block it takes back, to the
+// chain's shared bytes counter.
+type intBlockAllocator struct {
+	bytesUsed *util.Counter
+}
+
+// newIntBlockAllocator mirrors IntBlockAllocator(Counter bytesUsed), whose
+// super call fixes the block size at IntBlockPool.INT_BLOCK_SIZE.
+func newIntBlockAllocator(bytesUsed *util.Counter) *intBlockAllocator {
+	return &intBlockAllocator{bytesUsed: bytesUsed}
+}
+
+// GetIntBlock allocates another int block from the shared pool. Mirrors
+// IntBlockAllocator.getIntBlock().
+func (a *intBlockAllocator) GetIntBlock() []int32 {
+	b := make([]int32, util.IntBlockSize)
+	a.bytesUsed.AddAndGet(int64(util.IntBlockSize) * 4)
+	return b
+}
+
+// RecycleIntBlocks credits the recycled blocks back to the counter.
+//
+// Mirrors IntBlockAllocator.recycleIntBlocks literally, including its
+// quirk: the abstract contract is recycleIntBlocks(blocks, start, end) --
+// IntBlockPool.reset calls it with (offset, 1 + bufferUpto) -- but the
+// override names the second bound "length" and credits
+// -(length * INT_BLOCK_SIZE * Integer.BYTES), i.e. it charges back the
+// END bound, not the count of recycled blocks. Lucene's arithmetic is
+// reproduced as written; "fixing" it here would be a divergence.
+func (a *intBlockAllocator) RecycleIntBlocks(blocks [][]int32, start, end int) {
+	a.bytesUsed.AddAndGet(-(int64(end) * int64(util.IntBlockSize) * 4))
 }
 
 func (c *IndexingChain) onAbortingException(err error) {
@@ -749,7 +885,8 @@ func (c *IndexingChain) processField(docID int, field IndexingChainField, pf *in
 
 	// Add stored fields.
 	if fieldType.Stored() {
-		if err := c.storedFieldsConsumer.WriteField(pf.fieldInfo, field); err != nil {
+		// Mirrors Lucene: StoredValue storedValue = field.storedValue().
+		if err := c.storedFieldsConsumer.WriteField(pf.fieldInfo, field.StoredValue()); err != nil {
 			c.onAbortingException(err)
 			return false, err
 		}

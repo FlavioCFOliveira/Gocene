@@ -225,13 +225,15 @@ func NewTermVectorsConsumerPerField(
 	}
 
 	// Lucene passes streamCount 2: stream 0 carries positions+payloads,
-	// stream 1 carries offsets. termBytePool is shared with the parent.
+	// stream 1 carries offsets. termBytePool is the chain-wide term byte
+	// pool published by the primary TermsHash (FreqProxTermsWriter), not
+	// this consumer's own byte pool -- see TermsHash's constructor.
 	base, err := NewTermsHashPerField(
 		2,
-		termsHash.intPool,
-		termsHash.bytePool,
-		termsHash.bytePool,
-		termsHash.bytesUsed,
+		termsHash.IntPool,
+		termsHash.BytePool,
+		termsHash.TermBytePool,
+		termsHash.BytesUsed,
 		nil,
 		fieldInfo.Name(),
 		indexOpts,

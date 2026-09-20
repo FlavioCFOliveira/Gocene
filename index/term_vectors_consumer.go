@@ -116,12 +116,11 @@ type TermVectorsConsumer struct {
 	VectorSliceReaderPos *ByteSliceReader
 	VectorSliceReaderOff *ByteSliceReader
 
-	// intPool / bytePool / bytesUsed are owned by the (not-yet-ported)
-	// TermsHash parent in Lucene. They live here until that port lands;
-	// see the type-doc deviation note.
-	intPool   *util.IntBlockPool
-	bytePool  *util.ByteBlockPool
-	bytesUsed *util.Counter
+	// TermsHashBase is the embedded TermsHash parent. Mirrors Lucene's
+	// "class TermVectorsConsumer extends TermsHash": it owns intPool,
+	// bytePool, termBytePool, bytesUsed and the nextTermsHash link, and
+	// supplies the concrete TermsHash methods this type does not override.
+	*TermsHashBase
 
 	// hasVectors becomes true the first time SetHasVectors is called for
 	// the current segment. It gates flush() and finishDocument().
@@ -136,6 +135,17 @@ type TermVectorsConsumer struct {
 	// perFields stores the per-field handles registered for the current
 	// document. Mirrors Lucene's perFields array; grown via oversize.
 	perFields []TermVectorsPerFieldHandle
+	// perFieldByBase maps the embedded *TermsHashPerField of each
+	// per-field writer back to its TermVectorsConsumerPerField owner.
+	// Lucene recovers the subtype with a cast; Go needs the registry.
+	perFieldByBase map[*TermsHashPerField]*TermVectorsConsumerPerField
+
+	// initTermVectorsWriterOverride renders the @Override of
+	// initTermVectorsWriter() in SortingTermVectorsConsumer. Java resolves
+	// the call inside finishDocument() virtually; Go embedding does not,
+	// so the subclass installs its body here and the base dispatches
+	// through initTermVectorsWriter(). nil means "no subclass override".
+	initTermVectorsWriterOverride func() error
 	// accountable holds the active writer when it implements
 	// util.Accountable, otherwise nil. Mirrors Lucene's accountable
 	// field with NULL_ACCOUNTABLE replaced by a nil check at the read
@@ -144,43 +154,63 @@ type TermVectorsConsumer struct {
 }
 
 // NewTermVectorsConsumer constructs the consumer for the given segment.
-// Mirrors Lucene's constructor TermVectorsConsumer(IntBlockPool.Allocator,
-// ByteBlockPool.Allocator, Directory, SegmentInfo, Codec); the per-block
-// allocators are owned by the not-yet-ported TermsHash parent and so
-// are absent from the Sprint 55 signature.
+//
+// Mirrors Lucene's constructor
+// TermVectorsConsumer(IntBlockPool.Allocator, ByteBlockPool.Allocator,
+// Directory, SegmentInfo, Codec), whose body is
+//
+//	super(intBlockAllocator, byteBlockAllocator, Counter.newCounter(), null);
+//
+// i.e. the consumer owns a private bytes counter (it is not the chain's
+// shared counter) and sits at the tail of the inversion chain, so
+// nextTermsHash is null.
 //
 // Returns nil when info is nil: Lucene relies on a non-null SegmentInfo
 // for every observable code path the consumer takes.
-func NewTermVectorsConsumer(directory store.Directory, info *SegmentInfo, codec Codec) *TermVectorsConsumer {
+func NewTermVectorsConsumer(
+	intBlockAllocator util.IntAllocator,
+	byteBlockAllocator util.Allocator,
+	directory store.Directory,
+	info *SegmentInfo,
+	codec Codec,
+) *TermVectorsConsumer {
 	if info == nil {
 		return nil
 	}
 	return &TermVectorsConsumer{
+		TermsHashBase:        NewTermsHashBase(intBlockAllocator, byteBlockAllocator, util.NewCounter(), nil),
 		Directory:            directory,
 		Info:                 info,
 		Codec:                codec,
 		FlushTerm:            &util.BytesRef{},
 		VectorSliceReaderPos: &ByteSliceReader{},
 		VectorSliceReaderOff: &ByteSliceReader{},
-		intPool:              util.NewIntBlockPool(),
-		bytePool:             util.NewByteBlockPool(util.NewDirectAllocator()),
-		bytesUsed:            util.NewCounter(),
 		perFields:            make([]TermVectorsPerFieldHandle, 1),
 	}
 }
+
+// Compile-time guarantee that *TermVectorsConsumer is a TermsHash, as
+// "class TermVectorsConsumer extends TermsHash" requires in Lucene.
+var _ TermsHash = (*TermVectorsConsumer)(nil)
 
 // Flush completes the current segment's term vectors. It mirrors the
 // package-private flush(Map<String,TermsHashPerField>, SegmentWriteState,
 // Sorter.DocMap, NormsProducer) in Lucene.
 //
-// The first two Lucene parameters (fieldsToFlush, norms) are not used
-// by the parent body (only the unported nextTermsHash chain consumes
-// them); they are omitted from the port signature until that chain
-// arrives. sortMap is accepted for future symmetry with the sorting
-// subclass but is currently ignored by the parent path, exactly as
-// Lucene does (the parent flush body does not touch sortMap).
-func (c *TermVectorsConsumer) Flush(state *SegmentWriteState, sortMap SorterDocMap) error {
-	_ = sortMap // mirror Lucene: the parent flush body does not use sortMap
+// fieldsToFlush, sortMap and norms are part of the TermsHash contract but
+// are not read by this body: Lucene's TermVectorsConsumer.flush overrides
+// TermsHash.flush without calling super (the consumer is the tail of the
+// chain, so there is nothing to delegate to) and touches only writer,
+// state.segmentInfo.maxDoc() and lastDocID.
+func (c *TermVectorsConsumer) Flush(
+	fieldsToFlush map[string]*TermsHashPerField,
+	state *SegmentWriteState,
+	sortMap SorterDocMap,
+	norms any,
+) error {
+	_ = fieldsToFlush // mirror Lucene: the override body does not use it
+	_ = sortMap       // mirror Lucene: the override body does not use it
+	_ = norms         // mirror Lucene: the override body does not use it
 	if c == nil || c.Writer == nil {
 		return nil
 	}
@@ -272,7 +302,7 @@ func (c *TermVectorsConsumer) InitTermVectorsWriter() error {
 	// codec.termVectorsFormat().vectorsWriter(directory, info, context).
 	context := store.NewFlushContext(&store.FlushInfo{
 		NumDocs:              c.LastDocID,
-		EstimatedSegmentSize: c.bytesUsed.Get(),
+		EstimatedSegmentSize: c.BytesUsed.Get(),
 	})
 	w, err := format.VectorsWriter(c.Directory, c.Info, context)
 	if err != nil {
@@ -286,6 +316,17 @@ func (c *TermVectorsConsumer) InitTermVectorsWriter() error {
 		c.accountable = nil
 	}
 	return nil
+}
+
+// initTermVectorsWriter performs the virtual dispatch Java gets for free:
+// it runs the subclass override when one is installed, otherwise the base
+// InitTermVectorsWriter body. Every in-class call site of
+// initTermVectorsWriter() in Lucene goes through this.
+func (c *TermVectorsConsumer) initTermVectorsWriter() error {
+	if c.initTermVectorsWriterOverride != nil {
+		return c.initTermVectorsWriterOverride()
+	}
+	return c.InitTermVectorsWriter()
 }
 
 // SetHasVectors marks the segment as having at least one document with
@@ -336,7 +377,7 @@ func (c *TermVectorsConsumer) FinishDocument(docID int) error {
 		})
 	}
 
-	if err := c.InitTermVectorsWriter(); err != nil {
+	if err := c.initTermVectorsWriter(); err != nil {
 		return err
 	}
 	if err := c.Fill(docID); err != nil {
@@ -360,7 +401,7 @@ func (c *TermVectorsConsumer) FinishDocument(docID int) error {
 	}
 	c.LastDocID++
 
-	c.reset()
+	c.TermsHashBase.Reset()
 	c.ResetFields()
 	return nil
 }
@@ -369,32 +410,13 @@ func (c *TermVectorsConsumer) FinishDocument(docID int) error {
 // any error from Close (Lucene calls IOUtils.closeWhileHandlingException).
 // Mirrors Lucene's public abort().
 func (c *TermVectorsConsumer) Abort() {
-	c.abortBase()
+	c.TermsHashBase.Abort()
 	if c.Writer != nil {
 		_ = c.Writer.Close()
 		c.Writer = nil
 		c.accountable = nil
 	}
-	c.reset()
-}
-
-// abortBase mirrors the super.abort() call: the (unported) TermsHash
-// parent just calls reset(). It is split out so future test peers can
-// observe the order Lucene defines (parent abort → writer close).
-func (c *TermVectorsConsumer) abortBase() {
-	c.reset()
-}
-
-// reset clears the int/byte pools. Mirrors the TermsHash parent's
-// package-private reset() (intPool.reset(false,false);
-// bytePool.reset(false,false)).
-func (c *TermVectorsConsumer) reset() {
-	if c.intPool != nil {
-		c.intPool.Reset(false, false)
-	}
-	if c.bytePool != nil {
-		c.bytePool.Reset(false, false)
-	}
+	c.TermsHashBase.Reset()
 }
 
 // ResetFields clears the per-field array between documents. Mirrors
@@ -407,29 +429,42 @@ func (c *TermVectorsConsumer) ResetFields() {
 	c.numVectorFields = 0
 }
 
-// AddField appends a per-field handle for the field about to be
-// inverted. Mirrors Lucene's addField(FieldInvertState, FieldInfo).
+// AddField creates the per-field term-vectors writer for the field about
+// to be inverted and returns its embedded TermsHashPerField, exactly as
+// Lucene's
 //
-// Sprint 55 deviation: the Lucene method returns the freshly created
-// TermVectorsConsumerPerField. That subtype is not yet ported; the
-// Gocene method instead accepts a constructor callback so the caller
-// (typically DocumentsWriterPerThread) can wire whatever per-field
-// implementation it wants without forcing this file to import or know
-// the concrete type. The callback receives the invertState / fieldInfo
-// the Java constructor consumes and must return a TermVectorsPerField
-// Handle.
+//	public TermsHashPerField addField(FieldInvertState invertState, FieldInfo fieldInfo) {
+//	  return new TermVectorsConsumerPerField(invertState, this, fieldInfo);
+//	}
 //
-// invertState and fieldInfo are passed through unchanged so the
-// callback observes the same inputs the Java constructor does.
-func (c *TermVectorsConsumer) AddField(invertState *FieldInvertState, fieldInfo *FieldInfo, build func(*FieldInvertState, *FieldInfo) TermVectorsPerFieldHandle) (TermVectorsPerFieldHandle, error) {
-	if build == nil {
-		return nil, errors.New("index: TermVectorsConsumer.AddField requires a non-nil build callback")
+// does. The concrete writer is recoverable from the returned base via
+// PerFieldFor.
+//
+// Lucene's constructor cannot fail: the only failure conditions the
+// Gocene constructor reports (nil arguments, IndexOptions.NONE) are
+// Java assertions, which raise AssertionError. The port therefore
+// panics on them, matching the Java failure mode, and keeps the
+// TermsHash.AddField signature free of an error channel just as the
+// Java method is free of a checked exception.
+func (c *TermVectorsConsumer) AddField(invertState *FieldInvertState, fieldInfo *FieldInfo) *TermsHashPerField {
+	pf, err := NewTermVectorsConsumerPerField(invertState, c, fieldInfo, TermVectorsAttributeProvider{})
+	if err != nil {
+		panic(fmt.Sprintf("index: TermVectorsConsumer.AddField: %v", err))
 	}
-	handle := build(invertState, fieldInfo)
-	if handle == nil {
-		return nil, errors.New("index: TermVectorsConsumer.AddField build returned nil handle")
+	if c.perFieldByBase == nil {
+		c.perFieldByBase = make(map[*TermsHashPerField]*TermVectorsConsumerPerField)
 	}
-	return handle, nil
+	c.perFieldByBase[pf.TermsHashPerField] = pf
+	return pf.TermsHashPerField
+}
+
+// PerFieldFor recovers the TermVectorsConsumerPerField that owns base, or
+// nil when base was not produced by this consumer's AddField.
+//
+// Lucene reaches the subtype with a cast — the map exists because Go has
+// no downcast from the embedded *TermsHashPerField to its owner.
+func (c *TermVectorsConsumer) PerFieldFor(base *TermsHashPerField) *TermVectorsConsumerPerField {
+	return c.perFieldByBase[base]
 }
 
 // AddFieldToFlush registers a per-field handle for the current
@@ -451,10 +486,13 @@ func (c *TermVectorsConsumer) AddFieldToFlush(field TermVectorsPerFieldHandle) {
 }
 
 // StartDocument prepares the consumer for a fresh document by resetting
-// the per-field array. Mirrors Lucene's package-private startDocument().
-func (c *TermVectorsConsumer) StartDocument() {
+// the per-field array. Mirrors Lucene's package-private startDocument(),
+// which overrides TermsHash.startDocument without delegating (the
+// consumer is the tail of the chain).
+func (c *TermVectorsConsumer) StartDocument() error {
 	c.ResetFields()
 	c.numVectorFields = 0
+	return nil
 }
 
 // NumVectorFields reports how many per-field handles are currently

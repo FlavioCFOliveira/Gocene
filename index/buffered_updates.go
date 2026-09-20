@@ -165,7 +165,7 @@ type deletedTerms struct {
 
 func newDeletedTerms() *deletedTerms {
 	return &deletedTerms{
-		pool:        util.NewByteBlockPool(util.NewDirectTrackingAllocator(&atomic.Int64{})), // Use a dummy counter or the one from BufferedUpdates
+		pool:        util.NewByteBlockPool(util.NewDirectTrackingAllocator(util.NewCounter())), // Use a dummy counter or the one from BufferedUpdates
 		deleteTerms: make(map[string]*bytesRefIntMap),
 	}
 }
