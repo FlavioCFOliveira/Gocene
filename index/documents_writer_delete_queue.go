@@ -220,6 +220,20 @@ func (d *DocumentsWriterDeleteQueue) AnyChanges() bool {
 	d.globalBufferLock.Lock()
 	defer d.globalBufferLock.Unlock()
 
+	return d.anyChangesLocked()
+}
+
+// anyChangesLocked is the body of AnyChanges with globalBufferLock already
+// held by the caller.
+//
+// Java's globalBufferLock is a ReentrantLock, so anyChanges() may be -- and is
+// -- called from close() and maybeFreezeGlobalBuffer() while the calling thread
+// already holds it. Go's sync.Mutex is not reentrant, so those two callers use
+// this form instead. The predicate, and the exclusion it is evaluated under,
+// are identical either way; this mirrors the split Lucene already makes between
+// freezeGlobalBuffer() and freezeGlobalBufferInternal(), whose own contract is
+// `assert globalBufferLock.isHeldByCurrentThread()`.
+func (d *DocumentsWriterDeleteQueue) anyChangesLocked() bool {
 	return d.globalBufferedUpdates.Any() ||
 		!d.globalSlice.IsEmpty() ||
 		d.globalSlice.sliceTail != d.loadTail() ||
@@ -255,7 +269,7 @@ func (d *DocumentsWriterDeleteQueue) MaybeFreezeGlobalBuffer() *FrozenBufferedUp
 	if !d.closed.Load() {
 		return d.freezeGlobalBufferInternal(d.loadTail())
 	}
-	if d.AnyChanges() {
+	if d.anyChangesLocked() {
 		panic("we are closed but have changes")
 	}
 	return nil
@@ -341,7 +355,7 @@ func (d *DocumentsWriterDeleteQueue) Close() error {
 	d.globalBufferLock.Lock()
 	defer d.globalBufferLock.Unlock()
 
-	if d.AnyChanges() {
+	if d.anyChangesLocked() {
 		return fmt.Errorf("Can't close queue unless all changes are applied")
 	}
 	d.closed.Store(true)

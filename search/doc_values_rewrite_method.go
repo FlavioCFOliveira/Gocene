@@ -42,7 +42,7 @@ import (
 //   - MultiTermQuery.getTermsEnum(Terms) requires the optional
 //     MultiTermQueryTermsEnumProvider interface; when absent,
 //     ScorerSupplier returns empty (no matches).
-//   - TermsEnum ordinal access requires the optional TermsEnumWithOrd
+//   - TermsEnum ordinal access uses TermsEnum.Ord, as Lucene does
 //     interface; when absent the termSet is not populated and scoring
 //     falls back to empty.
 //   - The wrapper stores the MultiTermQuery as a Query interface so that
@@ -103,13 +103,6 @@ type SortedSetDocValuesOrdIterable interface {
 	NextOrd() (int64, error)
 	// DocValueCount returns the number of ordinals for the current doc.
 	DocValueCount() int
-}
-
-// TermsEnumWithOrd is an optional interface for TermsEnum that can
-// report the current ordinal within a SortedSetDocValues.
-type TermsEnumWithOrd interface {
-	// Ord returns the ordinal of the current term.
-	Ord() (int64, error)
 }
 
 // SortedDocValuesWithOrd is an optional interface for SortedDocValues
@@ -302,18 +295,15 @@ func dvwBuildTermSet(
 	if err != nil {
 		return
 	}
-	withOrd, canOrd := te.(TermsEnumWithOrd)
-	if !canOrd {
-		return termSet, 0, -1, nil
-	}
 	minOrd = int64(valueCount)
 	maxOrd = -1
 	for {
-		var ord int64
-		ord, err = withOrd.Ord()
-		if err != nil {
-			return
-		}
+		// Lucene declares ord() on TermsEnum itself (TermsEnum.java:125,
+		// `public abstract long ord()`), so it is called directly; there is no
+		// optional ordinal interface in Lucene 10.5.0. Codecs that do not
+		// support ordinals signal that the same way Java does, by raising
+		// rather than by failing an interface check.
+		ord := te.Ord()
 		if ord >= 0 {
 			if ord < minOrd {
 				minOrd = ord

@@ -93,10 +93,15 @@ func (m *MultiFields) Terms(field string) (Terms, error) {
 	}
 
 	if len(subTerms) > 0 {
-		result, err := NewMultiTermsForField(field, subTerms, slices)
+		// Assign the outer `result`: Java returns the MultiTerms it just built
+		// (`terms.put(field, result); return result;`). Re-declaring `result`
+		// here with := would leave the returned variable nil on the first call
+		// for every field, and only the second, cache-hit call would see it.
+		mt, err := NewMultiTermsForField(field, subTerms, slices)
 		if err != nil {
 			return nil, fmt.Errorf("MultiFields.Terms(%s): create MultiTerms: %w", field, err)
 		}
+		result = mt
 		m.termsCache[field] = result
 	}
 

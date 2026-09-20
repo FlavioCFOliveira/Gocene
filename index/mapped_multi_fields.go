@@ -49,41 +49,29 @@ func (m *MappedMultiFields) Size() int {
 // Terms returns a Terms view for the given field that applies merge-time docID
 // remapping. Returns nil if the field has no indexed terms in any sub-reader.
 //
-// It collects the per-sub Terms from each sub-Fields in the MultiFields, pairs
-// them with their ReaderSlices (from the MergeState), and constructs a
-// MultiTerms from the result — mirroring Lucene's cast
-// `(MultiTerms) in.terms(field)` where MultiFields.terms() always produces a
-// MultiTerms.
+// Mirrors MappedMultiFields.terms:
+//
+//	MultiTerms terms = (MultiTerms) in.terms(field);
+//	if (terms == null) { return null; }
+//	else { return new MappedMultiTerms(field, mergeState, terms); }
+//
+// The lookup is delegated to the wrapped MultiFields, exactly as Java does, so
+// the per-sub ReaderSlices carried by MultiFields.subSlices -- which hold the
+// real Start and Length of each sub-reader's doc-ID range -- are the ones the
+// MultiTerms is built from. Recomputing the slices here would lose Start and
+// Length, which MultiTermsEnum relies on.
 func (m *MappedMultiFields) Terms(field string) (Terms, error) {
-	var subs []Terms
-	var slices []ReaderSlice
-	for i, f := range m.multi.FieldsList() {
-		if f == nil {
-			continue
-		}
-		t, err := f.Terms(field)
-		if err != nil {
-			return nil, fmt.Errorf("MappedMultiFields.Terms(%s) sub %d: %w", field, i, err)
-		}
-		if t == nil {
-			continue
-		}
-		readerIdx := i
-		if readerIdx < len(m.mergeState.DocMaps) {
-			// Use the MergeState's actual doc-ID range for this sub-reader.
-			subs = append(subs, t)
-			slices = append(slices, ReaderSlice{ReaderIndex: readerIdx})
-		} else {
-			subs = append(subs, t)
-			slices = append(slices, ReaderSlice{ReaderIndex: readerIdx})
-		}
+	t, err := m.multi.Terms(field)
+	if err != nil {
+		return nil, fmt.Errorf("MappedMultiFields.Terms(%s): %w", field, err)
 	}
-	if len(subs) == 0 {
+	if t == nil {
 		return nil, nil
 	}
-	mt, err := NewMultiTerms(subs, slices)
-	if err != nil {
-		return nil, fmt.Errorf("MappedMultiFields.Terms(%s): build MultiTerms: %w", field, err)
+	// Java casts unconditionally: MultiFields.terms always produces a MultiTerms.
+	mt, ok := t.(*MultiTerms)
+	if !ok {
+		return nil, fmt.Errorf("MappedMultiFields.Terms(%s): expected *MultiTerms, got %T", field, t)
 	}
 	return &mappedMultiTerms{
 		field:      field,

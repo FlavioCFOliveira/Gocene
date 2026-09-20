@@ -7,6 +7,7 @@ package index
 import (
 	"fmt"
 	"sync"
+	"sync/atomic"
 )
 
 // DocumentsWriterPerThreadPool controls DocumentsWriterPerThread instances and
@@ -23,8 +24,11 @@ type DocumentsWriterPerThreadPool struct {
 	dwptFactory func() *DocumentsWriterPerThread
 	// takenWriterPermits is used as a semaphore to block creation of new writers.
 	takenWriterPermits int
-	closed             bool
-	cond               *sync.Cond
+	// closed renders Java's `private volatile boolean closed`: it is read by
+	// ensureOpen, which Java does not declare synchronized, so it must be
+	// readable without holding pool.mu.
+	closed atomic.Bool
+	cond   *sync.Cond
 }
 
 func NewDocumentsWriterPerThreadPool(dwptFactory func() *DocumentsWriterPerThread) *DocumentsWriterPerThreadPool {
@@ -58,8 +62,14 @@ func (pool *DocumentsWriterPerThreadPool) UnlockNewWriters() {
 	}
 }
 
+// newWriter returns a new, already locked DocumentsWriterPerThread.
+//
+// Java declares this method `private synchronized`, so it acquires the pool
+// monitor itself; callers must not hold it.
 func (pool *DocumentsWriterPerThreadPool) newWriter() *DocumentsWriterPerThread {
-	// This method is called under pool.mu lock.
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
 	for pool.takenWriterPermits > 0 {
 		pool.cond.Wait()
 	}
@@ -84,15 +94,21 @@ func (pool *DocumentsWriterPerThreadPool) GetAndLock() *DocumentsWriterPerThread
 		return dwpt
 	}
 
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
+	// newWriter() adds the DWPT to the `dwpts` set as a side-effect. However it
+	// is not added to `freeList` at this point, it will be added later on once
+	// DocumentsWriter has indexed a document into this DWPT and then gives it
+	// back to the pool by calling MarksAsFreeAndUnlock.
+	//
+	// Java's getAndLock is not synchronized; newWriter acquires the monitor.
 	return pool.newWriter()
 }
 
+// ensureOpen mirrors Java's `private void ensureOpen()`, which is deliberately
+// not synchronized: it only reads the volatile `closed` flag. It is called from
+// newWriter, which already holds the pool monitor, so taking pool.mu here would
+// self-deadlock -- Java's monitors are reentrant, Go's sync.Mutex is not.
 func (pool *DocumentsWriterPerThreadPool) ensureOpen() error {
-	pool.mu.Lock()
-	defer pool.mu.Unlock()
-	if pool.closed {
+	if pool.closed.Load() {
 		return fmt.Errorf("DWPTPool is already closed")
 	}
 	return nil
@@ -178,10 +194,11 @@ func (pool *DocumentsWriterPerThreadPool) Checkout(dwpt *DocumentsWriterPerThrea
 	return false
 }
 
+// Close mirrors Java's `public synchronized void close()`.
 func (pool *DocumentsWriterPerThreadPool) Close() {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
-	pool.closed = true
+	pool.closed.Store(true)
 }
 
 // --- Internal Priority Queue Implementation ---
