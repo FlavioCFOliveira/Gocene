@@ -7,6 +7,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/bkd"
 )
 
 // PointInSetQuery is a query that finds all documents whose single or multi-dimensional point values
@@ -299,11 +300,7 @@ type pointInSetScorerSupplierND struct {
 func (s *pointInSetScorerSupplierND) Cost() int64 {
 	if s.cost == -1 {
 		result := util.NewDocIdSetBuilder(s.reader.MaxDoc())
-		visitor := &singlePointVisitor{
-			result:      result,
-			bytesPerDim: s.query.bytesPerDim,
-			numDims:     s.query.numDims,
-		}
+		visitor := newSinglePointVisitor(result, s.query.bytesPerDim, s.query.numDims)
 		iterator := s.query.sortedPackedPoints.Iterator()
 		var cost int64
 		for point := iterator.Next(); point != nil; point = iterator.Next() {
@@ -332,11 +329,7 @@ func (s *pointInSetScorerSupplierND) Cost() int64 {
 // of discarding them.
 func (s *pointInSetScorerSupplierND) Get(leadCost int64) (Scorer, error) {
 	result := util.NewDocIdSetBuilder(s.reader.MaxDoc())
-	visitor := &singlePointVisitor{
-		result:      result,
-		bytesPerDim: s.query.bytesPerDim,
-		numDims:     s.query.numDims,
-	}
+	visitor := newSinglePointVisitor(result, s.query.bytesPerDim, s.query.numDims)
 	iterator := s.query.sortedPackedPoints.Iterator()
 	for point := iterator.Next(); point != nil; point = iterator.Next() {
 		visitor.setPoint(point)
@@ -422,7 +415,14 @@ func (v *mergePointVisitor) matches(packedValue []byte) bool {
 	return false
 }
 
+// singlePointVisitor renders the private inner class
+// PointInSetQuery.SinglePointVisitor (PointInSetQuery.java:386). bytesPerDim
+// and numDims are read from the enclosing query in Java; Go has no enclosing
+// instance, so they are carried as fields and the comparator built from them
+// in newSinglePointVisitor, exactly as the Java constructor does
+// (PointInSetQuery.java:393-397).
 type singlePointVisitor struct {
+	comparator  bkd.ByteArrayComparator
 	result      *util.DocIdSetBuilder
 	bytesPerDim int
 	numDims     int
@@ -430,8 +430,25 @@ type singlePointVisitor struct {
 	adder       util.BulkAdder
 }
 
+// newSinglePointVisitor mirrors the SinglePointVisitor(DocIdSetBuilder)
+// constructor (PointInSetQuery.java:393): it installs the unsigned
+// bytesPerDim comparator that compare uses, and sizes the point buffer to
+// bytesPerDim * numDims.
+func newSinglePointVisitor(result *util.DocIdSetBuilder, bytesPerDim, numDims int) *singlePointVisitor {
+	return &singlePointVisitor{
+		comparator:  bkd.GetUnsignedComparator(bytesPerDim),
+		result:      result,
+		bytesPerDim: bytesPerDim,
+		numDims:     numDims,
+		pointBytes:  make([]byte, bytesPerDim*numDims),
+	}
+}
+
+// setPoint mirrors SinglePointVisitor.setPoint(BytesRef)
+// (PointInSetQuery.java:399), whose assertion states that the point is exactly
+// bytesPerDim * numDims long: it copies into the buffer the constructor sized,
+// it does not resize it.
 func (v *singlePointVisitor) setPoint(point []byte) {
-	v.pointBytes = make([]byte, len(point))
 	copy(v.pointBytes, point)
 }
 
@@ -451,15 +468,20 @@ func (v *singlePointVisitor) VisitByPackedValue(docID int, packedValue []byte) e
 	return nil
 }
 
+// Compare mirrors SinglePointVisitor.compare(byte[], byte[])
+// (PointInSetQuery.java:439). Each dimension is compared on its own
+// bytesPerDim slice, and the cell bound is the LEFT operand: cmpMin > 0 means
+// the cell's minimum is above the queried point, cmpMax < 0 means the cell's
+// maximum is below it, and either puts the whole cell outside the query.
 func (v *singlePointVisitor) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
 	crosses := false
 	for dim := 0; dim < v.numDims; dim++ {
 		offset := dim * v.bytesPerDim
-		cmpMin := bytes.Compare(v.pointBytes[offset:], minPackedValue[offset:])
+		cmpMin := v.comparator(minPackedValue, offset, v.pointBytes, offset)
 		if cmpMin > 0 {
 			return index.CellOutsideQuery
 		}
-		cmpMax := bytes.Compare(v.pointBytes[offset:], maxPackedValue[offset:])
+		cmpMax := v.comparator(maxPackedValue, offset, v.pointBytes, offset)
 		if cmpMax < 0 {
 			return index.CellOutsideQuery
 		}

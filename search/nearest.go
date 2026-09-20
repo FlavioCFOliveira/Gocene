@@ -161,11 +161,11 @@ func leafPointValues(leaf index.LeafReaderInterface, field string) (index.PointV
 //     VisitDocValues call (the algorithm always visits a cell after
 //     descending into it), so no error is silently dropped.
 //
-//   - bkd.PointTree.VisitDocValues takes a bkd.IntersectVisitor (Compare
-//     → index.Relation) while document.PointTreeWalker.VisitDocValues
-//     takes a document.PointTreeNearestVisitor (Compare →
-//     document.PointTreeCellRelation). The adapter bridges the two
-//     visitor surfaces.
+//   - bkd.PointTree.VisitDocValues takes a bkd.IntersectVisitor while
+//     document.PointTreeWalker.VisitDocValues takes a
+//     document.PointTreeNearestVisitor. The adapter bridges the two
+//     visitor surfaces; both spell the cell relation index.Relation, so
+//     Compare passes straight through.
 type bkdPointTreeWalker struct {
 	tree    bkd.PointTree
 	moveErr error
@@ -241,14 +241,7 @@ func (a *nearestVisitorToBKD) VisitByPackedValue(docID int, packedValue []byte) 
 }
 
 func (a *nearestVisitorToBKD) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
-	switch a.v.Compare(minPackedValue, maxPackedValue) {
-	case document.PointTreeCellInsideQuery:
-		return index.CellInsideQuery
-	case document.PointTreeCellCrossesQuery:
-		return index.CellCrossesQuery
-	default:
-		return index.CellOutsideQuery
-	}
+	return a.v.Compare(minPackedValue, maxPackedValue)
 }
 
 func (a *nearestVisitorToBKD) Grow(_ int) {}

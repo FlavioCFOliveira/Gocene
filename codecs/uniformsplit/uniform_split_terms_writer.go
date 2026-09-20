@@ -99,18 +99,28 @@ const MaxNumBlockLines = 1_000
 //
 // Mirrors org.apache.lucene.codecs.uniformsplit.UniformSplitTermsWriter from
 // Apache Lucene 10.5.0, which extends FieldsConsumer.
+//
+// The fields below render the protected fields of the Java class
+// (UniformSplitTermsWriter.java:113-123). Go has no protected access, so they
+// are exported: Java's protected fields are reachable from a subclass in
+// another package, which is what
+// codecs/uniformsplit/sharedterms.STUniformSplitTermsWriter is.
 type UniformSplitTermsWriter struct {
-	fieldInfos     *index.FieldInfos
-	postingsWriter codecs.PostingsWriterBase
-	maxDoc         int
+	// FieldsConsumerBase carries the concrete FieldsConsumer.merge that Java
+	// inherits from the superclass (FieldsConsumer.java:72).
+	*codecs.FieldsConsumerBase
 
-	targetNumBlockLines int
-	deltaNumLines       int
+	FieldInfos     *index.FieldInfos
+	PostingsWriter codecs.PostingsWriterBase
+	MaxDoc         int
 
-	blockEncoder        BlockEncoder
-	fieldMetadataWriter *FieldMetadataSerializer
-	blockOutput         store.IndexOutput
-	dictionaryOutput    store.IndexOutput
+	TargetNumBlockLines int
+	DeltaNumLines       int
+
+	BlockEncoder        BlockEncoder
+	FieldMetadataWriter *FieldMetadataSerializer
+	BlockOutput         store.IndexOutput
+	DictionaryOutput    store.IndexOutput
 }
 
 // NewUniformSplitTermsWriter mirrors the public
@@ -201,14 +211,17 @@ func NewUniformSplitTermsWriterWithCodec(
 	}()
 
 	w := &UniformSplitTermsWriter{
-		fieldInfos:          state.FieldInfos,
-		postingsWriter:      postingsWriter,
-		maxDoc:              state.SegmentInfo.MaxDoc(),
-		targetNumBlockLines: targetNumBlockLines,
-		deltaNumLines:       deltaNumLines,
-		blockEncoder:        blockEncoder,
-		fieldMetadataWriter: fieldMetadataWriter,
+		FieldInfos:          state.FieldInfos,
+		PostingsWriter:      postingsWriter,
+		MaxDoc:              state.SegmentInfo.MaxDoc(),
+		TargetNumBlockLines: targetNumBlockLines,
+		DeltaNumLines:       deltaNumLines,
+		BlockEncoder:        blockEncoder,
+		FieldMetadataWriter: fieldMetadataWriter,
 	}
+	// Java's `this` inside FieldsConsumer.merge is the UniformSplitTermsWriter
+	// (or its subclass) being constructed; see codecs.FieldsConsumerBase.
+	w.FieldsConsumerBase = codecs.NewFieldsConsumerBase(w)
 
 	termsName := index.SegmentFileName(state.SegmentInfo.Name(), state.SegmentSuffix, termsBlocksExtension)
 	blockOutput, err := state.Directory.CreateOutput(termsName, state.Context)
@@ -234,8 +247,8 @@ func NewUniformSplitTermsWriterWithCodec(
 		return nil, err
 	}
 
-	w.blockOutput = blockOutput
-	w.dictionaryOutput = dictionaryOutput
+	w.BlockOutput = blockOutput
+	w.DictionaryOutput = dictionaryOutput
 	success = true
 	return w, nil
 }
@@ -274,7 +287,7 @@ func ValidateSettings(targetNumBlockLines, deltaNumLines int) error {
 // walks Fields.iterator(); Gocene's spi.Fields exposes the same walk through a
 // FieldIterator.
 func (w *UniformSplitTermsWriter) Write(fields spi.Fields, normsProducer codecs.NormsProducer) error {
-	blockWriter := NewBlockWriter(w.blockOutput, w.targetNumBlockLines, w.deltaNumLines, w.blockEncoder)
+	blockWriter := NewBlockWriter(w.BlockOutput, w.TargetNumBlockLines, w.DeltaNumLines, w.BlockEncoder)
 	fieldsOutput := store.NewByteBuffersDataOutput()
 	fieldsNumber := int32(0)
 	it, err := fields.Iterator()
@@ -298,83 +311,83 @@ func (w *UniformSplitTermsWriter) Write(fields spi.Fields, normsProducer codecs.
 			if err != nil {
 				return err
 			}
-			fieldInfo := w.fieldInfos.FieldInfo(field)
-			written, err := w.writeFieldTerms(blockWriter, fieldsOutput, termsEnum, fieldInfo, normsProducer)
+			fieldInfo := w.FieldInfos.FieldInfo(field)
+			written, err := w.WriteFieldTerms(blockWriter, fieldsOutput, termsEnum, fieldInfo, normsProducer)
 			if err != nil {
 				return err
 			}
 			fieldsNumber += written
 		}
 	}
-	if err := w.writeFieldsMetadata(fieldsNumber, fieldsOutput); err != nil {
+	if err := w.WriteFieldsMetadata(fieldsNumber, fieldsOutput); err != nil {
 		return err
 	}
-	return codecs.WriteFooter(w.dictionaryOutput)
+	return codecs.WriteFooter(w.DictionaryOutput)
 }
 
 // writeFieldsMetadata mirrors UniformSplitTermsWriter.writeFieldsMetadata
 // (UniformSplitTermsWriter.java:284).
-func (w *UniformSplitTermsWriter) writeFieldsMetadata(fieldsNumber int32, fieldsOutput *store.ByteBuffersDataOutput) error {
-	fieldsStartPosition := w.blockOutput.GetFilePointer()
-	if err := w.blockOutput.WriteVInt(fieldsNumber); err != nil {
+func (w *UniformSplitTermsWriter) WriteFieldsMetadata(fieldsNumber int32, fieldsOutput *store.ByteBuffersDataOutput) error {
+	fieldsStartPosition := w.BlockOutput.GetFilePointer()
+	if err := w.BlockOutput.WriteVInt(fieldsNumber); err != nil {
 		return err
 	}
-	if w.blockEncoder == nil {
-		if err := w.writeUnencodedFieldsMetadata(fieldsOutput); err != nil {
+	if w.BlockEncoder == nil {
+		if err := w.WriteUnencodedFieldsMetadata(fieldsOutput); err != nil {
 			return err
 		}
 	} else {
-		if err := w.writeEncodedFieldsMetadata(fieldsOutput); err != nil {
+		if err := w.WriteEncodedFieldsMetadata(fieldsOutput); err != nil {
 			return err
 		}
 	}
 	// Must be a fixed length. Read by UniformSplitTermsReader when seeking
 	// fields metadata.
-	if err := w.blockOutput.WriteLong(fieldsStartPosition); err != nil {
+	if err := w.BlockOutput.WriteLong(fieldsStartPosition); err != nil {
 		return err
 	}
-	return codecs.WriteFooter(w.blockOutput)
+	return codecs.WriteFooter(w.BlockOutput)
 }
 
 // writeUnencodedFieldsMetadata mirrors
 // UniformSplitTermsWriter.writeUnencodedFieldsMetadata
 // (UniformSplitTermsWriter.java:298).
-func (w *UniformSplitTermsWriter) writeUnencodedFieldsMetadata(fieldsOutput *store.ByteBuffersDataOutput) error {
-	return fieldsOutput.CopyTo(w.blockOutput)
+func (w *UniformSplitTermsWriter) WriteUnencodedFieldsMetadata(fieldsOutput *store.ByteBuffersDataOutput) error {
+	return fieldsOutput.CopyTo(w.BlockOutput)
 }
 
 // writeEncodedFieldsMetadata mirrors
 // UniformSplitTermsWriter.writeEncodedFieldsMetadata
 // (UniformSplitTermsWriter.java:303).
-func (w *UniformSplitTermsWriter) writeEncodedFieldsMetadata(fieldsOutput *store.ByteBuffersDataOutput) error {
-	encodedBytes, err := w.blockEncoder.Encode(fieldsOutput.ToDataInput(), fieldsOutput.Size())
+func (w *UniformSplitTermsWriter) WriteEncodedFieldsMetadata(fieldsOutput *store.ByteBuffersDataOutput) error {
+	encodedBytes, err := w.BlockEncoder.Encode(fieldsOutput.ToDataInput(), fieldsOutput.Size())
 	if err != nil {
 		return err
 	}
-	if err := w.blockOutput.WriteVLong(encodedBytes.Size()); err != nil {
+	if err := w.BlockOutput.WriteVLong(encodedBytes.Size()); err != nil {
 		return err
 	}
-	return encodedBytes.WriteTo(w.blockOutput)
+	return encodedBytes.WriteTo(w.BlockOutput)
 }
 
 // writeFieldTerms returns 1 if the field was written; 0 otherwise.
 //
 // Mirrors UniformSplitTermsWriter.writeFieldTerms
 // (UniformSplitTermsWriter.java:313).
-func (w *UniformSplitTermsWriter) writeFieldTerms(
+func (w *UniformSplitTermsWriter) WriteFieldTerms(
 	blockWriter *BlockWriter,
 	fieldsOutput store.DataOutput,
 	termsEnum spi.TermsEnum,
 	fieldInfo *index.FieldInfo,
 	normsProducer codecs.NormsProducer,
 ) (int32, error) {
-	fieldMetadata, err := NewFieldMetadata(fieldInfo, w.maxDoc)
+	fieldMetadata, err := NewFieldMetadata(fieldInfo, w.MaxDoc)
 	if err != nil {
 		return 0, err
 	}
-	fieldMetadata.SetDictionaryStartFP(w.dictionaryOutput.GetFilePointer())
+	fieldMetadata.SetDictionaryStartFP(w.DictionaryOutput.GetFilePointer())
 
-	enumFlags, err := w.postingsWriter.SetField(fieldInfo)
+	enumFlags, err := w.PostingsWriter.SetField(fieldInfo)
 	if err != nil {
 		return 0, err
 	}
@@ -392,7 +405,7 @@ func (w *UniformSplitTermsWriter) writeFieldTerms(
 		if term == nil {
 			break
 		}
-		blockTermState, err := w.writePostingLine(termsEnum, fieldMetadata, normsProducer, enumFlags)
+		blockTermState, err := w.WritePostingLine(termsEnum, fieldMetadata, normsProducer, enumFlags)
 		if err != nil {
 			return 0, err
 		}
@@ -411,10 +424,10 @@ func (w *UniformSplitTermsWriter) writeFieldTerms(
 
 	if fieldMetadata.GetNumTerms() > 0 {
 		fieldMetadata.SetLastTerm(lastTerm)
-		if err := w.fieldMetadataWriter.Write(fieldsOutput, fieldMetadata); err != nil {
+		if err := w.FieldMetadataWriter.Write(fieldsOutput, fieldMetadata); err != nil {
 			return 0, err
 		}
-		if err := w.writeDictionary(dictionaryBuilder); err != nil {
+		if err := w.WriteDictionary(dictionaryBuilder); err != nil {
 			return 0, err
 		}
 		return 1, nil
@@ -440,15 +453,15 @@ func (w *UniformSplitTermsWriter) writeFieldTerms(
 // which is the FieldInfo last passed to setField and is therefore
 // fieldMetadata.GetFieldInfo(); and enumFlags, which Gocene returns from
 // SetField instead of storing, so the caller carries it in as enumFlags.
-func (w *UniformSplitTermsWriter) writePostingLine(
+func (w *UniformSplitTermsWriter) WritePostingLine(
 	termsEnum spi.TermsEnum,
 	fieldMetadata *FieldMetadata,
 	normsProducer codecs.NormsProducer,
 	enumFlags int,
 ) (index.TermState, error) {
-	pusher, ok := w.postingsWriter.(codecs.PushPostingsWriterBase)
+	pusher, ok := w.PostingsWriter.(codecs.PushPostingsWriterBase)
 	if !ok {
-		return nil, fmt.Errorf("UniformSplitTermsWriter: postingsWriter %T does not implement PushPostingsWriterBase", w.postingsWriter)
+		return nil, fmt.Errorf("UniformSplitTermsWriter: postingsWriter %T does not implement PushPostingsWriterBase", w.PostingsWriter)
 	}
 	fieldInfo := fieldMetadata.GetFieldInfo()
 
@@ -460,7 +473,7 @@ func (w *UniformSplitTermsWriter) writePostingLine(
 			return nil, err
 		}
 	}
-	if err := w.postingsWriter.StartTerm(normValues); err != nil {
+	if err := w.PostingsWriter.StartTerm(normValues); err != nil {
 		return nil, err
 	}
 
@@ -485,11 +498,11 @@ func (w *UniformSplitTermsWriter) writePostingLine(
 		return nil, nil
 	}
 
-	state := w.postingsWriter.NewTermState()
+	state := w.PostingsWriter.NewTermState()
 	base := codecs.BaseState(state)
 	base.DocFreq = docFreq
 	base.TotalTermFreq = totalTermFreq
-	if err := w.postingsWriter.FinishTerm(state); err != nil {
+	if err := w.PostingsWriter.FinishTerm(state); err != nil {
 		return nil, err
 	}
 
@@ -501,18 +514,18 @@ func (w *UniformSplitTermsWriter) writePostingLine(
 //
 // Mirrors UniformSplitTermsWriter.writeDictionary
 // (UniformSplitTermsWriter.java:369).
-func (w *UniformSplitTermsWriter) writeDictionary(dictionaryBuilder IndexDictionaryBuilder) error {
+func (w *UniformSplitTermsWriter) WriteDictionary(dictionaryBuilder IndexDictionaryBuilder) error {
 	dictionary, err := dictionaryBuilder.Build()
 	if err != nil {
 		return err
 	}
-	return dictionary.Write(w.dictionaryOutput, w.blockEncoder)
+	return dictionary.Write(w.DictionaryOutput, w.BlockEncoder)
 }
 
 // Close mirrors UniformSplitTermsWriter.close
 // (UniformSplitTermsWriter.java:373).
 func (w *UniformSplitTermsWriter) Close() error {
-	return util.CloseAll(w.blockOutput, w.dictionaryOutput, w.postingsWriter)
+	return util.CloseAll(w.BlockOutput, w.DictionaryOutput, w.PostingsWriter)
 }
 
 var _ spi.FieldsConsumer = (*UniformSplitTermsWriter)(nil)

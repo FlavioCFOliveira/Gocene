@@ -88,6 +88,7 @@ func NewSegmentMerger(
 
 		TermVectorsReaders: make([]TermVectorsReader, 0, len(readers)),
 		DocValuesProducers: make([]DocValuesProducer, 0, len(readers)),
+		FieldsProducers:    make([]FieldsProducer, 0, len(readers)),
 		PointsReaders:      make([]PointsReader, 0, len(readers)),
 		KnnVectorsReaders:  make([]KnnVectorsReader, 0, len(readers)),
 	}
@@ -114,6 +115,13 @@ func NewSegmentMerger(
 		// Java has no counterpart on spi.TermVectorsReader; see the field's
 		// doc comment on MergeState.
 		mergeState.TermVectorsReaders = append(mergeState.TermVectorsReaders, reader.GetTermVectorsReader())
+		// Java: fieldsProducers[i] = reader.getPostingsReader(); if non-null it
+		// is replaced by its getMergeInstance() (MergeState.java:155-157).
+		fieldsProducer := reader.GetPostingsReader()
+		if fieldsProducer != nil {
+			fieldsProducer = fieldsProducer.GetMergeInstance()
+		}
+		mergeState.FieldsProducers = append(mergeState.FieldsProducers, fieldsProducer)
 		// Java: knnVectorsReaders[i] = reader.getVectorReader(); if non-null it
 		// is replaced by its getMergeInstance() (MergeState.java:165-168).
 		knnVectorsReader := reader.GetVectorReader()

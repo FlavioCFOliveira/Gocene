@@ -295,21 +295,8 @@ type longPointVisitor interface {
 	Visit(docID int) error
 	VisitWithPackedValue(docID int, packedValue []byte) error
 	Grow(count int)
-	Compare(minPackedValue, maxPackedValue []byte) longPointCellRelation
+	Compare(minPackedValue, maxPackedValue []byte) index.Relation
 }
-
-// longPointCellRelation classifies how a BKD cell intersects the query
-// range, mirroring org.apache.lucene.index.PointValues.Relation.
-type longPointCellRelation int
-
-const (
-	// longPointCellOutsideQuery means the cell lies fully outside the query.
-	longPointCellOutsideQuery longPointCellRelation = iota
-	// longPointCellInsideQuery means the cell lies fully inside the query.
-	longPointCellInsideQuery
-	// longPointCellCrossesQuery means the cell partially overlaps the query.
-	longPointCellCrossesQuery
-)
 
 // longDistanceFeatureWeight is the Weight returned by
 // [LongDistanceFeatureQuery.CreateWeight]. It produces a ScorerSupplier
@@ -784,16 +771,16 @@ func (v *longDistancePointVisitor) VisitWithPackedValue(docID int, packedValue [
 
 // Compare classifies how the cell [minPackedValue, maxPackedValue]
 // intersects [min, max]. Mirrors the Java compare(byte[], byte[]).
-func (v *longDistancePointVisitor) Compare(minPackedValue, maxPackedValue []byte) longPointCellRelation {
+func (v *longDistancePointVisitor) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
 	minDocValue := util.SortableBytesToLong(minPackedValue, 0)
 	maxDocValue := util.SortableBytesToLong(maxPackedValue, 0)
 	if minDocValue > v.max || maxDocValue < v.min {
-		return longPointCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	if minDocValue < v.min || maxDocValue > v.max {
-		return longPointCellCrossesQuery
+		return index.CellCrossesQuery
 	}
-	return longPointCellInsideQuery
+	return index.CellInsideQuery
 }
 
 // Ensure longDistancePointVisitor implements longPointVisitor.

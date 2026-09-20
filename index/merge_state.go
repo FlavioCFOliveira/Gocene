@@ -52,6 +52,12 @@ type MergeState struct {
 	// NormsProducers is the per-sub-reader norms producer.
 	NormsProducers []spi.NormsProducer
 
+	// FieldsProducers is the per-sub-reader postings producer, in the same
+	// order as Readers, with a nil entry for a sub-reader without postings.
+	// Each non-nil entry is the producer's merge instance. Mirrors
+	// MergeState.fieldsProducers (MergeState.java:74, 155-157).
+	FieldsProducers []FieldsProducer
+
 	// DocValuesProducers is the per-sub-reader doc values producer, in the
 	// same order as Readers, with a nil entry for a sub-reader without doc
 	// values. Each non-nil entry is the producer's merge instance. Mirrors

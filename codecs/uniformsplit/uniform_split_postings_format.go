@@ -55,6 +55,12 @@ const Name = "UniformSplit"
 //
 // Mirrors org.apache.lucene.codecs.uniformsplit.UniformSplitPostingsFormat from
 // Apache Lucene 10.5.0, which extends PostingsFormat.
+//
+// The fields and the Create* methods below render the protected members of the
+// Java class (UniformSplitPostingsFormat.java:52-56, 147, 158). Go has no
+// protected access, so they are exported: Java's protected members are
+// reachable from a subclass in another package, which is what
+// codecs/uniformsplit/sharedterms.STUniformSplitPostingsFormat is.
 type UniformSplitPostingsFormat struct {
 	// name renders the name that Java's PostingsFormat(String) superclass
 	// constructor stores and that PostingsFormat.getName() returns
@@ -62,11 +68,45 @@ type UniformSplitPostingsFormat struct {
 	// interface with no state, so the field lives here.
 	name string
 
-	targetNumBlockLines int
-	deltaNumLines       int
-	blockEncoder        BlockEncoder
-	blockDecoder        BlockDecoder
-	dictionaryOnHeap    bool
+	TargetNumBlockLines int
+	DeltaNumLines       int
+	BlockEncoder        BlockEncoder
+	BlockDecoder        BlockDecoder
+	DictionaryOnHeap    bool
+
+	// Overrides is the back-pointer to the most-derived instance, through
+	// which FieldsConsumer and FieldsProducer resolve the overridable
+	// Create* members, as Java resolves them on this. See
+	// [UniformSplitPostingsFormatOverrides].
+	Overrides UniformSplitPostingsFormatOverrides
+}
+
+// UniformSplitPostingsFormatOverrides is the set of protected
+// UniformSplitPostingsFormat methods that Apache Lucene 10.5.0 resolves
+// virtually from the bodies of fieldsConsumer and fieldsProducer, which are
+// declared on the base class. Go promotes an embedded method but never
+// re-dispatches it to the embedding type, so the base keeps a back-pointer to
+// the most-derived instance in [UniformSplitPostingsFormat.Overrides] and
+// makes the calls through it. See [BlockReaderOverrides] for the same
+// mechanism on the block reader.
+type UniformSplitPostingsFormatOverrides interface {
+	// CreateUniformSplitTermsWriter mirrors the protected
+	// createUniformSplitTermsWriter (UniformSplitPostingsFormat.java:147).
+	CreateUniformSplitTermsWriter(
+		postingsWriter codecs.PostingsWriterBase,
+		state *index.SegmentWriteState,
+		targetNumBlockLines int,
+		deltaNumLines int,
+		blockEncoder BlockEncoder,
+	) (spi.FieldsConsumer, error)
+
+	// CreateUniformSplitTermsReader mirrors the protected
+	// createUniformSplitTermsReader (UniformSplitPostingsFormat.java:158).
+	CreateUniformSplitTermsReader(
+		postingsReader codecs.PostingsReaderBase,
+		state *index.SegmentReadState,
+		blockDecoder BlockDecoder,
+	) (spi.FieldsProducer, error)
 }
 
 // NewUniformSplitPostingsFormat creates a UniformSplitPostingsFormat with
@@ -139,14 +179,18 @@ func NewUniformSplitPostingsFormatWithName(
 	if err := validateBlockEncoder(blockEncoder, blockDecoder); err != nil {
 		return nil, err
 	}
-	return &UniformSplitPostingsFormat{
+	f := &UniformSplitPostingsFormat{
 		name:                name,
-		targetNumBlockLines: targetNumBlockLines,
-		deltaNumLines:       deltaNumLines,
-		blockEncoder:        blockEncoder,
-		blockDecoder:        blockDecoder,
-		dictionaryOnHeap:    dictionaryOnHeap,
-	}, nil
+		TargetNumBlockLines: targetNumBlockLines,
+		DeltaNumLines:       deltaNumLines,
+		BlockEncoder:        blockEncoder,
+		BlockDecoder:        blockDecoder,
+		DictionaryOnHeap:    dictionaryOnHeap,
+	}
+	// Java's `this` inside fieldsConsumer and fieldsProducer is the
+	// most-derived instance; see UniformSplitPostingsFormatOverrides.
+	f.Overrides = f
+	return f, nil
 }
 
 // Name renders PostingsFormat.getName(), which returns the name handed to the
@@ -169,8 +213,8 @@ func (f *UniformSplitPostingsFormat) FieldsConsumer(state *index.SegmentWriteSta
 			util.CloseAllWhileHandlingException(postingsWriter)
 		}
 	}()
-	termsWriter, err := f.createUniformSplitTermsWriter(
-		postingsWriter, state, f.targetNumBlockLines, f.deltaNumLines, f.blockEncoder)
+	termsWriter, err := f.Overrides.CreateUniformSplitTermsWriter(
+		postingsWriter, state, f.TargetNumBlockLines, f.DeltaNumLines, f.BlockEncoder)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +235,7 @@ func (f *UniformSplitPostingsFormat) FieldsProducer(state *index.SegmentReadStat
 			util.CloseAllWhileHandlingException(postingsReader)
 		}
 	}()
-	termsReader, err := f.createUniformSplitTermsReader(postingsReader, state, f.blockDecoder)
+	termsReader, err := f.Overrides.CreateUniformSplitTermsReader(postingsReader, state, f.BlockDecoder)
 	if err != nil {
 		return nil, err
 	}
@@ -199,10 +243,10 @@ func (f *UniformSplitPostingsFormat) FieldsProducer(state *index.SegmentReadStat
 	return termsReader, nil
 }
 
-// createUniformSplitTermsWriter mirrors
+// CreateUniformSplitTermsWriter mirrors
 // UniformSplitPostingsFormat.createUniformSplitTermsWriter
 // (UniformSplitPostingsFormat.java:147).
-func (f *UniformSplitPostingsFormat) createUniformSplitTermsWriter(
+func (f *UniformSplitPostingsFormat) CreateUniformSplitTermsWriter(
 	postingsWriter codecs.PostingsWriterBase,
 	state *index.SegmentWriteState,
 	targetNumBlockLines int,
@@ -213,15 +257,15 @@ func (f *UniformSplitPostingsFormat) createUniformSplitTermsWriter(
 		postingsWriter, state, targetNumBlockLines, deltaNumLines, blockEncoder)
 }
 
-// createUniformSplitTermsReader mirrors
+// CreateUniformSplitTermsReader mirrors
 // UniformSplitPostingsFormat.createUniformSplitTermsReader
 // (UniformSplitPostingsFormat.java:158).
-func (f *UniformSplitPostingsFormat) createUniformSplitTermsReader(
+func (f *UniformSplitPostingsFormat) CreateUniformSplitTermsReader(
 	postingsReader codecs.PostingsReaderBase,
 	state *index.SegmentReadState,
 	blockDecoder BlockDecoder,
 ) (spi.FieldsProducer, error) {
-	return NewUniformSplitTermsReader(postingsReader, state, blockDecoder, f.dictionaryOnHeap)
+	return NewUniformSplitTermsReader(postingsReader, state, blockDecoder, f.DictionaryOnHeap)
 }
 
 // validateBlockEncoder mirrors the private static
@@ -236,4 +280,7 @@ func validateBlockEncoder(blockEncoder BlockEncoder, blockDecoder BlockDecoder) 
 	return nil
 }
 
-var _ spi.PostingsFormat = (*UniformSplitPostingsFormat)(nil)
+var (
+	_ spi.PostingsFormat                  = (*UniformSplitPostingsFormat)(nil)
+	_ UniformSplitPostingsFormatOverrides = (*UniformSplitPostingsFormat)(nil)
+)

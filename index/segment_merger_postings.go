@@ -10,6 +10,7 @@ import (
 	"sort"
 
 	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
@@ -103,10 +104,23 @@ func (m sliceDocMap) Get(oldDocID int) int {
 	return m[oldDocID]
 }
 
+// fieldsConsumerMerger is the merge surface of Lucene's abstract class
+// org.apache.lucene.codecs.FieldsConsumer, whose merge(MergeState,
+// NormsProducer) is concrete and therefore inherited by every consumer. The
+// Gocene spi.FieldsConsumer interface declares only the abstract members
+// (write, close); consumers that carry the concrete one embed
+// codecs.FieldsConsumerBase, which cannot be named here because package codecs
+// imports package index. This local interface is how mergeTerms reaches it,
+// exactly as mergeDocValues reaches DocValuesConsumer.merge through
+// docValuesConsumerMerger.
+type fieldsConsumerMerger interface {
+	Merge(mergeState *MergeState, norms spi.NormsProducer) error
+}
+
 // mergeTerms merges the term dictionaries and postings of every indexed field
 // across the source segments into the new segment, remapping each posting's
-// docID through the merge DocMaps. It mirrors the net effect of Lucene's
-// FieldsConsumer.merge(MergeState) (rmp #14/#114).
+// docID through the merge DocMaps. It mirrors SegmentMerger.mergeTerms
+// (SegmentMerger.java:210-227).
 func (sm *SegmentMerger) mergeTerms() error {
 	if sm.codec == nil || sm.codec.PostingsFormat() == nil {
 		return nil
@@ -125,11 +139,49 @@ func (sm *SegmentMerger) mergeTerms() error {
 		NeedsIndexSort: sm.MergeState.NeedsIndexSort,
 		IsMerge:        true,
 	}
+
+	// Java: try (NormsProducer norms = mergeState.mergeFieldInfos.hasNorms()
+	// ? codec.normsFormat().normsProducer(segmentReadState) : null)
+	// (SegmentMerger.java:213-216). The SegmentReadState reads back the norms
+	// this same merge has just written (mergeNorms runs first, both here and
+	// in SegmentMerger.merge), so the postings writer sees the merged
+	// segment's norms.
+	var normsMergeInstance spi.NormsProducer
+	if sm.MergeState.MergeFieldInfos.HasNorms() && sm.codec.NormsFormat() != nil {
+		readState := NewSegmentReadStateWithSuffix(
+			sm.directory,
+			sm.MergeState.SegmentInfo,
+			sm.MergeState.MergeFieldInfos,
+			store.IOContextDefault,
+			state.SegmentSuffix,
+		)
+		norms, err := sm.codec.NormsFormat().NormsProducer(readState)
+		if err != nil {
+			return fmt.Errorf("index: merge postings: open norms producer: %w", err)
+		}
+		if norms != nil {
+			defer norms.Close()
+			// Use the merge instance in order to reuse the same IndexInput
+			// for all terms (SegmentMerger.java:219-221).
+			normsMergeInstance = norms.GetMergeInstance()
+		}
+	}
+
 	consumer, err := sm.codec.PostingsFormat().FieldsConsumer(state)
 	if err != nil {
 		return fmt.Errorf("index: merge postings: open consumer: %w", err)
 	}
 	defer consumer.Close()
+
+	// Java: consumer.merge(mergeState, normsMergeInstance)
+	// (SegmentMerger.java:224). Consumers that carry the concrete
+	// FieldsConsumer.merge — either inherited from codecs.FieldsConsumerBase
+	// or overridden, as STUniformSplitTermsWriter does — are driven through
+	// it. The block below is the stand-in for the same default body, kept for
+	// the consumers that do not yet carry it.
+	if merger, ok := consumer.(fieldsConsumerMerger); ok {
+		return merger.Merge(sm.MergeState, normsMergeInstance)
+	}
 
 	merged := &mergedPostingsFields{byField: make(map[string]*mergeFieldTerms)}
 	iter := sm.MergeState.MergeFieldInfos.Iterator()
@@ -170,10 +222,7 @@ func (sm *SegmentMerger) mergeTerms() error {
 	// the block-tree writer asserts on.
 	sort.Strings(merged.names)
 
-	// Java passes the merge instance of the norms producer opened from the
-	// SegmentReadState (SegmentMerger.java:236-249). This merge path does not
-	// open one; no Gocene FieldsConsumer consumes the value today.
-	if err := consumer.Write(merged, nil); err != nil {
+	if err := consumer.Write(merged, normsMergeInstance); err != nil {
 		return fmt.Errorf("index: merge postings: write: %w", err)
 	}
 	return nil

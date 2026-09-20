@@ -318,22 +318,8 @@ type latLonPointDistanceFeaturePointVisitor interface {
 	Visit(docID int) error
 	VisitWithPackedValue(docID int, packedValue []byte) error
 	Grow(count int)
-	Compare(minPackedValue, maxPackedValue []byte) latLonPointDistanceFeatureCellRelation
+	Compare(minPackedValue, maxPackedValue []byte) index.Relation
 }
-
-// latLonPointDistanceFeatureCellRelation classifies how a BKD cell
-// intersects the query range, mirroring
-// org.apache.lucene.index.PointValues.Relation.
-type latLonPointDistanceFeatureCellRelation int
-
-const (
-	// latLonPointDistanceFeatureCellOutsideQuery means the cell lies fully outside the query.
-	latLonPointDistanceFeatureCellOutsideQuery latLonPointDistanceFeatureCellRelation = iota
-	// latLonPointDistanceFeatureCellInsideQuery means the cell lies fully inside the query.
-	latLonPointDistanceFeatureCellInsideQuery
-	// latLonPointDistanceFeatureCellCrossesQuery means the cell partially overlaps the query.
-	latLonPointDistanceFeatureCellCrossesQuery
-)
 
 // latLonPointDistanceFeatureWeight is the Weight returned by
 // [LatLonPointDistanceFeatureQuery.CreateWeight]. It produces a
@@ -845,30 +831,30 @@ func (v *latLonPointDistanceFeaturePointVisitorImpl) VisitWithPackedValue(docID 
 // Compare classifies how the cell intersects the bounding rectangle.
 // Mirrors the Java compare(byte[], byte[]) word-for-word, including
 // the dateline-aware fast paths.
-func (v *latLonPointDistanceFeaturePointVisitorImpl) Compare(minPackedValue, maxPackedValue []byte) latLonPointDistanceFeatureCellRelation {
+func (v *latLonPointDistanceFeaturePointVisitorImpl) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
 	latLowerBound := util.SortableBytesToInt(minPackedValue, 0)
 	latUpperBound := util.SortableBytesToInt(maxPackedValue, 0)
 	if latLowerBound > v.maxLat || latUpperBound < v.minLat {
-		return latLonPointDistanceFeatureCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	crosses := latLowerBound < v.minLat || latUpperBound > v.maxLat
 	lonLowerBound := util.SortableBytesToInt(minPackedValue, latLonPointBytesPerDim)
 	lonUpperBound := util.SortableBytesToInt(maxPackedValue, latLonPointBytesPerDim)
 	if v.crossDateLine {
 		if lonLowerBound > v.maxLon && lonUpperBound < v.minLon {
-			return latLonPointDistanceFeatureCellOutsideQuery
+			return index.CellOutsideQuery
 		}
 		crosses = crosses || lonLowerBound < v.maxLon || lonUpperBound > v.minLon
 	} else {
 		if lonLowerBound > v.maxLon || lonUpperBound < v.minLon {
-			return latLonPointDistanceFeatureCellOutsideQuery
+			return index.CellOutsideQuery
 		}
 		crosses = crosses || lonLowerBound < v.minLon || lonUpperBound > v.maxLon
 	}
 	if crosses {
-		return latLonPointDistanceFeatureCellCrossesQuery
+		return index.CellCrossesQuery
 	}
-	return latLonPointDistanceFeatureCellInsideQuery
+	return index.CellInsideQuery
 }
 
 // Ensure latLonPointDistanceFeaturePointVisitorImpl implements latLonPointDistanceFeaturePointVisitor.

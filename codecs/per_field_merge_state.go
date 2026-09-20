@@ -80,6 +80,9 @@ func RestrictFields(
 		// Java passes in.docValuesProducers through unchanged
 		// (PerFieldMergeState.java:63).
 		DocValuesProducers: in.DocValuesProducers,
+		// Java stores the restricted (FilterFieldsProducer-wrapped) array in
+		// the returned MergeState (PerFieldMergeState.java:48-54, 66).
+		FieldsProducers: restrictedProducers,
 		// Java passes in.knnVectorsReaders through unchanged
 		// (PerFieldMergeState.java:68).
 		KnnVectorsReaders: in.KnnVectorsReaders,
