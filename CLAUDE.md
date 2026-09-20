@@ -9,10 +9,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | # | Absolute rule | In full |
 |---|---|---|
 | **A1** | **FAITHFUL PORT.** Gocene is Apache Lucene 10.5.0 expressed in Go — faithful in function, in technique, and in output. Results must be **100% equal to and interoperable with** Lucene's. Any divergence is a defect in Gocene. | *Prime Directive*, *Binary Compatibility Mandate*, *Source Fidelity Mandate* |
-| **A2** | **RESTRAINT — NO PROACTIVITY.** Do exactly what the user asked, and nothing else. Any extra need, however small or obvious, is **reported** and executed **only after explicit authorisation**. | *Model Conduct — Restraint and Non-Proactivity*, § 1.1 |
+| **A2** | **RESTRAINT — NO PROACTIVITY.** Do exactly what the user asked, and nothing else. Any extra need, however small or obvious, is **reported** and executed **only after explicit authorisation**. | *Model Conduct — Restraint and Non-Proactivity*, § 1, point 1 |
 | **A3** | **DELEGATE TO A SPECIALIST.** **ALL** work is executed by the subagent specialised in the requirements and objectives it is meant to achieve — **ALWAYS** the most suitable one. The main agent plans, delegates, validates, and reports. | § 9.1 |
 | **A4** | **ONE SUBAGENT, ALWAYS.** **ONLY ONE** subagent runs in parallel with the main conversation — **NEVER** more. Use every subagent the objective needs, **in series, never in parallel**. Running more than one in parallel is an exception that requires **prior** authorisation, and that authorisation **expires immediately** and is always revoked at the end of the task. | § 9.2 |
-| **A5** | **SYNERGY OF EFFORT.** Work that is substantially close in function or in technique is joined into a **single** development effort, and like work inside a task is done in one pass. Every objective is reached with the **fewest tasks and the fewest iterations possible**. | *Work Synergy — Reach Each Objective in the Fewest Efforts* |
+| **A5** | **SYNERGY — CENTRAL TO ALL WORK.** The search for synergies governs how every piece of work is planned and executed, in three kinds: **of effort**, **technical**, **functional**. Work that is technically or functionally close **MUST** be joined into a **single** development effort, and like work inside a task is done in one pass. Effort is optimised to the maximum so that **much more work is delivered**, every objective being reached with the **fewest tasks and the fewest iterations possible**. | *Work Synergy — Reach Each Objective in the Fewest Efforts* |
 
 ### Self-check before every action
 
@@ -23,19 +23,19 @@ Before every action — every tool call, every edit, every command, every delega
 3. **Delegated?** Is the work being carried out by the subagent specialised in it? *(A3)*
 4. **Alone?** Is exactly one subagent running — this one? *(A4)*
 5. **Faithful?** Does the result reproduce Apache Lucene 10.5.0 exactly — in behaviour, in construction, and in output? *(A1)*
-6. **Synergised?** Have I grouped everything that belongs to this effort, so the objective is reached in the fewest iterations? *(A5)*
+6. **Synergised?** Have I sought all three synergies — of effort, technical, functional — and joined everything technically or functionally close to this work, so the objective is reached in the fewest iterations? *(A5)*
 
 ### Order of precedence
 
 When two rules appear to conflict, resolve them in this order; the higher entry wins:
 
 1. **Conduct rules A2, A3, A4.** They govern *whether you may act at all*, *who carries out the work*, and *how many agents do it*. Nothing overrides them: no mandate, no deadline, no efficiency argument, and no other section of this file authorises unrequested action, undelegated work, or parallel subagents.
-2. **Binary Compatibility Mandate** — the byte-level contract; the highest-priority rule among those that govern *how the work must be done*.
-3. **Source Fidelity Mandate** — organisational and behavioural fidelity.
-4. **A5 — Work Synergy.** How much work is joined into a single effort, and in how few iterations the objective is reached. It wins over every other section of this file — notably the subdivision guidance of § 4.1 — and never over the conduct rules A2–A4 or the two mandates above.
+2. **A5 — Work Synergy.** How much work is joined into a single effort, and in how few iterations the objective is reached. It wins over every other section of this file — notably the subdivision guidance of § 4.1 — and over the two mandates below; it never wins over the conduct rules A2–A4. Its supremacy is confined to the grouping question: A5 governs how work is grouped, never what the work must produce, and where grouping would cost byte-level or source fidelity, point 7 of *Work Synergy* stops it.
+3. **Binary Compatibility Mandate** — the byte-level contract; it outranks every other rule about *how the work must be done*, save A5 above.
+4. **Source Fidelity Mandate** — organisational and behavioural fidelity.
 5. Every other section of this file, in the order in which it appears.
 
-A1 (the *Prime Directive*) is the premise of 2 and 3 and is never traded away.
+A1 (the *Prime Directive*) is the premise of 3 and 4 and is never traded away.
 
 ### No deviation
 
@@ -99,9 +99,9 @@ Given the same input, the same configuration, and the same version, **Gocene mus
 
 This Prime Directive is the premise; the two mandates that follow are how it is enforced. Among the rules that govern **how the work must be done**, the order is the one already established:
 
-1. **Binary Compatibility Mandate** — the byte-level contract; highest operative priority, superseding every other guideline about how the work is done.
-2. **Source Fidelity Mandate** — organisational and behavioural fidelity; subordinate only to the mandate above.
-3. **A5 — Work Synergy** — how much work is joined into a single effort, and in how few iterations the objective is reached; subordinate to the two mandates above, and superior to everything else in this document.
+1. **A5 — Work Synergy** — how much work is joined into a single effort, and in how few iterations the objective is reached; subordinate only to the conduct rules A2–A4, and superior to the two mandates below on that grouping question alone — never on what the work must produce (*Work Synergy*, point 7).
+2. **Binary Compatibility Mandate** — the byte-level contract; highest operative priority among the mandates, superseding every other guideline about how the work is done, save A5 above.
+3. **Source Fidelity Mandate** — organisational and behavioural fidelity; subordinate to the mandate above and to A5.
 4. Everything else in this document.
 
 These mandates say *how* the work must be done; they never say *what* work to undertake. They therefore never authorise action the user has not requested, and they are always exercised through the conduct rules A2–A4 — see *Order of precedence* in *Absolute Rules* at the top of this file, which is the canonical ordering.
@@ -118,11 +118,9 @@ Gocene is a Go module that is a **faithful port** of Apache Lucene — the Java 
 
 Because Gocene is a port rather than a reimplementation, Lucene is the **sole** reference of truth, in functionality and in technique alike. Implementation choices that deviate from observed Lucene behaviour are bugs in Gocene, not in Lucene, and results that merely resemble Lucene's are wrong results. Correctness is measured — never assumed — against the Apache Lucene 10.5.0 source tree and the binaries it produces.
 
-This is an early-stage project. The module structure, packages, and development workflow are still being established, but the compatibility mandate is non-negotiable and governs all development decisions.
-
 ## Binary Compatibility Mandate (TOP-PRIORITY, NON-NEGOTIABLE)
 
-This requirement supersedes every other guideline in this document about **how the work must be done**. If any other rule, convention, or stylistic preference conflicts with it, this requirement wins. It does **not** authorise work the user has not requested: it constrains the work that is undertaken, and is subordinate to the conduct rules A2–A4 (*Absolute Rules*, top of this file) as to whether, by whom, and by how many agents that work is undertaken.
+This requirement supersedes every other guideline in this document about **how the work must be done**, save A5 (*Work Synergy*), which outranks it. If any other rule, convention, or stylistic preference conflicts with it, this requirement wins. It does **not** authorise work the user has not requested: it constrains the work that is undertaken, and is subordinate to the conduct rules A2–A4 (*Absolute Rules*, top of this file) as to whether, by whom, and by how many agents that work is undertaken.
 
 1. **Produce (write) and Consume (read).** Gocene **MUST** produce binary artefacts that Apache Lucene 10.5.0 can read without modification, **AND** Gocene **MUST** read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.5.0. Compatibility is bidirectional and exact; "approximately compatible" is not compatible.
 
@@ -168,7 +166,7 @@ Point 1 of this mandate (*Produce (write) and Consume (read)*) states the contra
 
 ## Source Fidelity Mandate — Organisation and Behaviour (NON-NEGOTIABLE)
 
-Gocene is a **port**, not a reimplementation. Beyond the byte-level contract established by the *Binary Compatibility Mandate* above, **all Gocene code owes fidelity to the Apache Lucene 10.5.0 code in two further dimensions — organisation and functionality.** This mandate is subordinate only to the *Binary Compatibility Mandate*; it prevails over every stylistic preference, personal judgement, or perceived improvement.
+Gocene is a **port**, not a reimplementation. Beyond the byte-level contract established by the *Binary Compatibility Mandate* above, **all Gocene code owes fidelity to the Apache Lucene 10.5.0 code in two further dimensions — organisation and functionality.** This mandate is subordinate to the *Binary Compatibility Mandate* and to A5 (*Work Synergy*); it prevails over every stylistic preference, personal judgement, or perceived improvement.
 
 1. **Organisational fidelity.** The structure of Gocene must mirror the structure of Lucene 10.5.0: the package/namespace layout, the distribution of responsibilities across units, the decomposition into components, and the correspondence between a Lucene class and its Gocene counterpart. A Lucene package maps to the equivalent Gocene package; a Lucene class maps to the equivalent Gocene type in the equivalent file; a Lucene class hierarchy maps to the equivalent Go interface/embedding arrangement. Names must remain recognisable against the Lucene original after the necessary Go transliteration (exported identifiers in `CamelCase`, file names in `snake_case`). Do not merge, split, relocate, or rename Lucene units on your own initiative.
 
@@ -176,7 +174,7 @@ Gocene is a **port**, not a reimplementation. Beyond the byte-level contract est
 
 3. **Lucene resolves every doubt.** In any case of **doubt, inconsistency, or incoherence** — within Gocene, between Gocene and Lucene, or between two candidate designs — **the formula followed by Lucene always prevails.** This is the default resolution and it requires no consultation: read the Lucene 10.5.0 source (§ 14), reproduce what it actually does, and record the source reference. A design that looks cleaner, simpler, faster, or "more Go" than Lucene's but diverges from it is a **bug in Gocene**, not an improvement. Lucene's apparent quirks, redundancies, and historical decisions are part of the contract and must be ported as they are.
 
-4. **Consulting the user is the exception, not the rule.** Under this mandate, the obligation of § 1.1 to ask the user does **not** apply to doubts that Lucene itself settles — those you resolve by following Lucene and proceeding. Consult the user **only** in these specific cases:
+4. **Consulting the user is the exception, not the rule.** Under this mandate, the obligation of § 1, point 1 to ask the user does **not** apply to doubts that Lucene itself settles — those you resolve by following Lucene and proceeding. Consult the user **only** in these specific cases:
    - Lucene 10.5.0 is itself genuinely ambiguous or contradictory on the point, and reading the source plus measurement (§ 7) cannot settle it;
    - Lucene relies on a JVM-only facility with no faithful Go equivalent (for example class-loading SPI, finalisation, the JVM threading and locking model, or `MemorySegment` mapping), so a design decision is unavoidable;
    - two equally faithful renderings exist and they differ in observable behaviour or in serialised form;
@@ -206,7 +204,7 @@ This rule governs the behaviour of the Claude model itself. It applies to every 
 
 3. **Any extra need requires prior authorisation.** If, while carrying out the request, you identify a need outside the scope of the task being executed — one that is not expressed in the request or is not clear from it: a prerequisite, a side effect, an adjacent defect, a missing piece — you may **NOT** act on it, and you must **NEVER** start that task proactively. You must **STOP, REPORT it to the user, and ASK** how to proceed. You may only act after the user explicitly authorises it. Silence, absence of objection, or a previous authorisation for a similar case is **not** authorisation.
 
-4. **When asking, follow § 1.1.** Present the situation briefly and objectively, offer multiple options (a, b, c, ...), state which one you recommend, and ask one question at a time.
+4. **When asking, follow § 1, point 1.** Present the situation briefly and objectively, offer multiple options (a, b, c, ...), state which one you recommend, and ask one question at a time.
 
 5. **Report, do not act.** Observations, suspicions, improvement ideas, and detected defects are to be **reported** to the user and left there. Reporting is the deliverable; acting on them is not, until authorised.
 
@@ -214,17 +212,24 @@ This rule governs the behaviour of the Claude model itself. It applies to every 
 
 ## Work Synergy — Reach Each Objective in the Fewest Efforts (NON-NEGOTIABLE)
 
-1. **Join what is substantially related.** Whenever tasks — tracked in `rmp` or not — are substantially close in function or in technique, they are joined into a single development effort. Always seek to maximise the synergy of one development effort across several tasks.
+**The search for synergies is a central element in the conduct of all work in this project.** It is not one policy among others: it governs how every piece of work is planned, grouped, and executed. Its purpose is to optimise effort to the maximum, so that **much more work is delivered**.
 
-2. **Batch like work inside a task.** By strategy and by default, identify the synergies within a task. If code must be written and then tested, assess whether all of the code can be written in one pass and all of it tested in one pass, instead of writing small fragments and testing each in isolation. The same applies to documentation: treat all of it in one pass or, where the scope is too large, identify blocks and treat each block whole. Apply this to every kind of work, without exception.
+1. **Three kinds of synergy, sought in every piece of work.**
+   - **Synergy of effort** — one pass of an activity serves many units of work, instead of one pass per unit.
+   - **Technical synergy** — work that shares algorithms, data structures, serialised formats, packages, files, or tooling is carried out together, once.
+   - **Functional synergy** — work that serves the same feature, the same behaviour, or the same Lucene component is carried out together, once.
 
-3. **The principle is constant.** The search for synergy and the optimisation of effort govern every way of working in this project. **Objectives must be reached with the fewest tasks and the fewest iterations possible.**
+2. **Joining is an obligation, not an aspiration.** Whenever tasks — tracked in `rmp` or not — are technically or functionally close, they **MUST** be joined into a single development effort. Always seek to maximise the synergy of one development effort across several tasks; a boundary between tracked tasks is never a reason to keep close work apart.
 
-4. **Synergy never overrides restraint (A2).** Joining work the user did not request is a change of scope: report the synergy, propose the grouping, and act only after explicit authorisation. Inside the scope the user has already authorised, batch aggressively and without asking.
+3. **Batch like work inside a task.** By strategy and by default, identify the synergies within a task. If code must be written and then tested, write all of the code in one pass and test all of it in one pass, instead of writing small fragments and testing each in isolation. The same applies to documentation: treat all of it in one pass or, where the scope is too large, identify blocks and treat each block whole. Apply this to every kind of work, without exception.
 
-5. **Synergy is not parallelism (A4, § 4.2).** A joined effort is still one effort: one subagent at a time, one task at a time, in series. Grouping scope is never a licence to run subagents or tasks concurrently.
+4. **The principle is constant.** The search for synergy and the optimisation of effort govern every way of working in this project. **Objectives must be reached with the fewest tasks and the fewest iterations possible.**
 
-6. **Synergy never trades away completeness or fidelity.** Fewer iterations must never mean less delivered (§ 2, § 2.2) and never a weaker port (*Prime Directive*, the two mandates). If compacting the work would cost completeness, correctness, or fidelity, the work is not compacted.
+5. **Synergy never overrides restraint (A2).** Joining work the user did not request is a change of scope: report the synergy, propose the grouping, and act only after explicit authorisation. Inside the scope the user has already authorised, batch aggressively and without asking.
+
+6. **Synergy is not parallelism (A4, § 4.2).** A joined effort is still one effort: one subagent at a time, one task at a time, in series. Grouping scope is never a licence to run subagents or tasks concurrently.
+
+7. **Synergy never trades away completeness or fidelity.** Fewer iterations must never mean less delivered (§ 2, § 2.2) and never a weaker port (*Prime Directive*, the two mandates). If compacting the work would cost completeness, correctness, or fidelity, the work is not compacted.
 
 ## Mandatory Skills — Who Operates What (NON-NEGOTIABLE)
 
@@ -293,7 +298,7 @@ Prohibited — this list is illustrative, not exhaustive:
 
 A broken build is an accurate report that the code is broken. Leave it reporting that until the defect is genuinely repaired. If a fix cannot be completed within the current cycle, the work stays on its own branch with the failure visible — it is never merged behind a suppression.
 
-Where suppressions already exist in the tree, they are technical debt to be removed: the file must be re-enabled and the real errors resolved.
+Where suppressions already exist in the tree, they are technical debt to be removed: within the scope of the work at hand, the file must be re-enabled and the real errors resolved; outside it, the suppression is reported and awaits authorisation (A2, § 2).
 
 ### 2.2 Complete Components Only — A Partial Port Is Not a Port (NON-NEGOTIABLE)
 
@@ -351,7 +356,7 @@ In both stages, use `rmp` as the single source of truth.
 
 Use the **Knowledge Graph**, queried through the `knowledge-authority` skill, to identify the highest-gain or highest-impact tasks, foundational tasks, and tasks that unblock other tasks or features, so that the execution order can be optimised. By default, always work from the highest-gain tasks towards the least essential. Foundational tasks and tasks that unblock other work are always prioritised.
 
-When a task is too large to be executed in one go by an AI agent such as Claude Code, subdivide it into smaller parts while respecting the principles already defined (in particular, the self-contained task principle). Subdivision is the exception, applied only when a single effort genuinely cannot be completed in one go: by default, planning groups substantially related work so that the objective is reached in the fewest tasks (A5, *Work Synergy*), and grouping never weakens the self-contained-task principle.
+When a task is too large to be executed in one go by an AI agent such as Claude Code, subdivide it into smaller parts while respecting the principles already defined (in particular, the self-contained task principle). Subdivision is the exception, applied only when a single effort genuinely cannot be completed in one go: by default, planning **must** join work that is technically or functionally close into a single effort, so that the objective is reached in the fewest tasks (A5, *Work Synergy*), and grouping never weakens the self-contained-task principle.
 
 ### 4.2 Execution
 
@@ -368,7 +373,7 @@ Execution is the natural next step after planning. Always use `rmp`, through the
 
 Execution notes:
 
-- You may develop **only one task at a time**, in strict sequential order. Active development work must never be parallelised across multiple tasks. Joining substantially related tasks into a single development effort (A5, *Work Synergy*) is not parallelisation: the joined effort remains a single, sequential unit of work.
+- You may develop **only one task at a time**, in strict sequential order. Active development work must never be parallelised across multiple tasks. Joining tasks that are technically or functionally close into a single development effort (A5, *Work Synergy*) is not parallelisation: the joined effort remains a single, sequential unit of work.
 - Whenever possible, adapt the model and its effort level to the requirements of each individual task operation.
 - Task and sprint execution is **sequential**.
 - Evaluations and audits may run in parallel **only** under the exceptional, single-use authorisation described in § 9.2: parallel execution must **ALWAYS be authorised by the user beforehand**, and that authorisation expires immediately once the authorised run ends.
@@ -427,7 +432,7 @@ The Knowledge Graph **MUST be faithful to the real state of the project**. Fidel
 Consequences of this requirement:
 
 - **Fidelity is measured, not claimed.** Any statement about port coverage, gaps, or scope must come from graph queries reconciled against both trees, with the evidence cited (§ 7).
-- **A divergence between the graph and either tree is a defect**, and it must be corrected immediately, within the current development cycle (§ 2). It must never be tolerated, annotated as acceptable, or deferred.
+- **A divergence between the graph and either tree is a defect**, and where it lies within the work at hand it must be corrected immediately, within the current development cycle (§ 2), never deferred; where it lies outside that work, it is reported and awaits authorisation (A2, § 5.2, point 5). It must never be tolerated or annotated as acceptable.
 - **Every `git commit` must leave the graph faithful**, including the commit that records the change (§ 5). Fidelity is a precondition for closing a task, not a follow-up task.
 - **`knowledge-model.md` must conform to the live graph** and is regenerated from measurements, never hand-written from memory. Use the `knowledge-authority` skill to sync, refresh, and audit fidelity.
 
@@ -492,7 +497,7 @@ Assumptions, intuition, or prior recall are not acceptable substitutes for measu
 
 ## 8. Regression Prevention
 
-Whenever a bug is identified, create the necessary regression tests to ensure that the same bug does not recur as a consequence of future development.
+Whenever a bug is fixed within the scope of the work at hand, create the necessary regression tests to ensure that the same bug does not recur as a consequence of future development. A bug identified outside that scope is reported and awaits authorisation (A2, § 2); its regression test is written together with the authorised fix.
 
 ## 9. Team of Subagents
 
@@ -551,7 +556,7 @@ When implementing Lucene features in Go:
 
 ## 14. Lucene Reference Repository
 
-The authoritative reference for the port is the upstream Apache Lucene source tree at release tag `releases/lucene/10.5.0` (commit `9983b7c`).
+The authoritative reference for the port is the upstream Apache Lucene source tree at release tag `releases/lucene/10.5.0` (commit `f6eaee8`).
 
 - **Expected local path**: `/tmp/lucene` (shallow clone of `https://github.com/apache/lucene.git` at tag `releases/lucene/10.5.0`).
 - **If `/tmp/lucene` is absent or empty**, clone it before starting any inventory, planning, or porting task:
@@ -563,20 +568,3 @@ The authoritative reference for the port is the upstream Apache Lucene source tr
 
 - Module sources live under `/tmp/lucene/lucene/<module>/src/java/...` (production code), `/tmp/lucene/lucene/<module>/src/java21/...` (JDK-21 specific code, where present), and `/tmp/lucene/lucene/<module>/src/test/...` (tests). Some modules also expose `src/test-files/...` (test resources).
 - The reference tree must be treated as read-only context; never modify it.
-
-## 15. Initial Setup
-
-Once development begins, initialise the Go module:
-
-```bash
-go mod init github.com/FlavioCFOliveira/Gocene
-```
-
-## 16. Project Status
-
-- **Port in progress (pre-v1.0):** 33 top-level packages ported from Apache Lucene 10.5.0 (see `README.md` for the package inventory). The project is in active development across 8 sprints: S1–S5 (closed), S6 (Stubbed subsystems — closed 2026-06-11), S7 (Test-suite health — closed 2026-06-11), S8 (Documentation accuracy — in progress).
-- **Known deferred items:** 660 `t.Fatal` blockers across 33 packages (see `docs/skipped-tests-audit.md`). Major gaps include: NRT reader integration, RandomIndexWriter test infrastructure, spatial/geo query factories, HNSW seeded strategies, facets/taxonomy write path, and codec format completeness (Lucene99, PerField, DocValuesSkipper).
-- **Binary-compatibility test suite in place:** the Java fixture harness under `tools/lucene-fixtures/` drives Lucene 10.5.0 directly via JDK 21 and Maven, produces deterministic fixtures pinned in `tools/lucene-fixtures/manifests/baseline.tsv` (60+ scenarios across every audited package, plus six combined end-to-end scenarios). A Go-side test layer under `internal/compat/` provides per-package round-trips behind the `compat` build tag plus integration scenarios gated by `GOCENE_COMPAT_HARNESS=1`. Note: compat coverage is currently read-path focused (Lucene→Gocene); write-path (Gocene→Lucene) legs are in progress (see `docs/compat-coverage.md`).
-- **CI gates every PR:** GitHub Actions runs a fast `build-and-test` job, a skip-guard lint gate, a race-detector job (x86_64), fuzz smoke tests, and a `compat` matrix (three operating systems × two Go versions) that exercises the fixture harness and the Go compat suite.
-- **Sprint 7 (Test-suite health) closed 2026-06-11:** refreshed `docs/skipped-tests-audit.md` (660 blockers across 33 packages), enforced blocker token convention in `scripts/check-skips.sh`, added CI/local reconciliation document, and added `Makefile` with `race-test` target.
-- **Sprint 6 (Stubbed subsystems) closed 2026-06-11:** resolved 21 PARTIAL/MISSING tasks across 10 packages — expressions compiler with full JS operators, MemoryIndex search, QueryDecomposer, CollectingMatcher, MonitorQuerySerializer, BBoxValueSource, S2PrefixTree geometry, and more.
