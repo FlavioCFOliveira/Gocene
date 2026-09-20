@@ -11,7 +11,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -346,7 +345,7 @@ func (v *mergePointVisitor) VisitByPackedValue(docID int, packedValue []byte) er
 
 // Compare classifies a BKD cell against the current query-point cursor.
 // Returns: 0=OUTSIDE, 1=INSIDE, 2=CROSSES.
-func (v *mergePointVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *mergePointVisitor) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
 	for v.nextQueryPoint != nil {
 		cmpMin := bytes.Compare(v.nextQueryPoint, minPackedValue)
 		if cmpMin < 0 {
@@ -361,11 +360,11 @@ func (v *mergePointVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.R
 		cmpMax := bytes.Compare(v.nextQueryPoint, maxPackedValue)
 		if cmpMax > 0 {
 			// Query point after cell end — outside.
-			return 0 // CELL_OUTSIDE_QUERY
+			return index.CellOutsideQuery
 		}
-		return 2 // CELL_CROSSES_QUERY
+		return index.CellCrossesQuery
 	}
-	return 0 // CELL_OUTSIDE_QUERY — no more query points
+	return index.CellOutsideQuery // no more query points
 }
 
 // Grow is a hint; no-op here.

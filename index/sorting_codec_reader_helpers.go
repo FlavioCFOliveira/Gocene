@@ -7,7 +7,6 @@ package index
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -157,7 +156,7 @@ func (v *sortingIntersectVisitor) VisitByPackedValue(docID int, packedValue []by
 	return v.visitor.VisitByPackedValue(v.docMap.OldToNew(docID), packedValue)
 }
 
-func (v *sortingIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *sortingIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) Relation {
 	return v.visitor.Compare(minPackedValue, maxPackedValue)
 }
 

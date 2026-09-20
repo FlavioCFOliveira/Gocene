@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -99,6 +98,53 @@ type PointValues interface {
 	GetDocCount() int
 }
 
+// Relation is used by [PointValues.Intersect] to check how each recursive
+// cell corresponds to the query. It is the Go port of the nested enum
+// org.apache.lucene.index.PointValues.Relation from Apache Lucene 10.5.0
+// (PointValues.java:223-230). index.Relation is an alias of this type, so the
+// Lucene name stays available in the package Lucene declares it in.
+//
+// The canonical declaration lives here, next to [PointValues], [PointTree] and
+// [IntersectVisitor], and for the same reason: org.apache.lucene.geo,
+// org.apache.lucene.util.bkd, org.apache.lucene.codecs and
+// org.apache.lucene.index all consume it, so no one of those Go packages can
+// own it without an import cycle.
+//
+// The declaration order is Lucene's, so the ordinals are Lucene's:
+// CELL_INSIDE_QUERY is 0, CELL_OUTSIDE_QUERY is 1, CELL_CROSSES_QUERY is 2.
+// The order is load-bearing — org.apache.lucene.geo.GeoEncodingUtils caches
+// relations as ordinals in its sub-box grid (GeoEncodingUtils.java:273-276 and
+// :379-380).
+type Relation int
+
+const (
+	// CellInsideQuery is returned if the cell is fully contained by the
+	// query. Renders CELL_INSIDE_QUERY.
+	CellInsideQuery Relation = iota
+	// CellOutsideQuery is returned if the cell and query do not overlap.
+	// Renders CELL_OUTSIDE_QUERY.
+	CellOutsideQuery
+	// CellCrossesQuery is returned if the cell partially overlaps the query.
+	// Renders CELL_CROSSES_QUERY.
+	CellCrossesQuery
+)
+
+// String renders the implicit java.lang.Enum#toString of
+// org.apache.lucene.index.PointValues.Relation, which returns the constant's
+// declared name.
+func (r Relation) String() string {
+	switch r {
+	case CellInsideQuery:
+		return "CELL_INSIDE_QUERY"
+	case CellOutsideQuery:
+		return "CELL_OUTSIDE_QUERY"
+	case CellCrossesQuery:
+		return "CELL_CROSSES_QUERY"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 // PointTree carries the basic operations to read the KD-tree. It is the Go
 // port of the nested interface
 // org.apache.lucene.index.PointValues.PointTree from Apache Lucene 10.5.0
@@ -185,10 +231,7 @@ type IntersectVisitor interface {
 	// Compare is called for non-leaf cells to test how the cell relates to
 	// the query, to determine how to further recurse down the tree. Renders
 	// `Relation compare(byte[] minPackedValue, byte[] maxPackedValue)`.
-	//
-	// PointValues.Relation is rendered by geo.Relation, Gocene's single
-	// rendering of that enum.
-	Compare(minPackedValue, maxPackedValue []byte) geo.Relation
+	Compare(minPackedValue, maxPackedValue []byte) Relation
 
 	// Grow notifies the caller that this many documents are about to be
 	// visited. Renders `default void grow(int count)`, whose body is empty.
@@ -295,13 +338,13 @@ func (b *BasePointValues) Intersect(visitor IntersectVisitor) error {
 func intersectPointTree(visitor IntersectVisitor, pointTree PointTree) error {
 	for {
 		compare := visitor.Compare(pointTree.GetMinPackedValue(), pointTree.GetMaxPackedValue())
-		if compare == geo.CellInsideQuery {
+		if compare == CellInsideQuery {
 			// This cell is fully inside the query shape: recursively add all
 			// points in this cell without filtering
 			if err := pointTree.VisitDocIDs(visitor); err != nil {
 				return err
 			}
-		} else if compare == geo.CellCrossesQuery {
+		} else if compare == CellCrossesQuery {
 			// The cell crosses the shape boundary, or the cell fully contains
 			// the query, so we fall through and do full filtering:
 			moved, err := pointTree.MoveToChild()
@@ -365,13 +408,13 @@ func (b *BasePointValues) EstimatePointCount(visitor IntersectVisitor) (int64, e
 func estimatePointCount(visitor IntersectVisitor, pointTree PointTree, upperBound int64) (int64, error) {
 	r := visitor.Compare(pointTree.GetMinPackedValue(), pointTree.GetMaxPackedValue())
 	switch r {
-	case geo.CellOutsideQuery:
+	case CellOutsideQuery:
 		// This cell is fully outside the query shape: no points added
 		return 0, nil
-	case geo.CellInsideQuery:
+	case CellInsideQuery:
 		// This cell is fully inside the query shape: add all points
 		return pointTree.Size(), nil
-	case geo.CellCrossesQuery:
+	case CellCrossesQuery:
 		// The cell crosses the shape boundary: keep recursing
 		moved, err := pointTree.MoveToChild()
 		if err != nil {

@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -309,7 +310,7 @@ func DistanceQuerySortKey(radius float64) float64 {
 // the function is undefined for dateline-crossing boxes.
 //
 // Mirrors org.apache.lucene.geo.GeoUtils#relate.
-func Relate(minLat, maxLat, minLon, maxLon, lat, lon, distanceSortKey, axisLat float64) Relation {
+func Relate(minLat, maxLat, minLon, maxLon, lat, lon, distanceSortKey, axisLat float64) spi.Relation {
 	if minLon > maxLon {
 		panic("geo: Box crosses the dateline")
 	}
@@ -321,7 +322,7 @@ func Relate(minLat, maxLat, minLon, maxLon, lat, lon, distanceSortKey, axisLat f
 			util.HaversinSortKey(lat, lon, minLat, maxLon) > distanceSortKey &&
 			util.HaversinSortKey(lat, lon, maxLat, minLon) > distanceSortKey &&
 			util.HaversinSortKey(lat, lon, maxLat, maxLon) > distanceSortKey {
-			return CellOutsideQuery
+			return spi.CellOutsideQuery
 		}
 	}
 	if Within90LonDegrees(lon, minLon, maxLon) &&
@@ -329,7 +330,7 @@ func Relate(minLat, maxLat, minLon, maxLon, lat, lon, distanceSortKey, axisLat f
 		util.HaversinSortKey(lat, lon, minLat, maxLon) <= distanceSortKey &&
 		util.HaversinSortKey(lat, lon, maxLat, minLon) <= distanceSortKey &&
 		util.HaversinSortKey(lat, lon, maxLat, maxLon) <= distanceSortKey {
-		return CellInsideQuery
+		return spi.CellInsideQuery
 	}
-	return CellCrossesQuery
+	return spi.CellCrossesQuery
 }

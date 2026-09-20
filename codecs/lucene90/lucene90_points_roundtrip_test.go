@@ -14,7 +14,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
@@ -137,14 +136,14 @@ func (v *rangeVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
 	return nil
 }
 
-func (v *rangeVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *rangeVisitor) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
 	if cmp(v.lo, maxPackedValue) > 0 || cmp(v.hi, minPackedValue) < 0 {
-		return 0 // CELL_OUTSIDE_QUERY
+		return index.CellOutsideQuery
 	}
 	if cmp(v.lo, minPackedValue) <= 0 && cmp(v.hi, maxPackedValue) >= 0 {
-		return 1 // CELL_INSIDE_QUERY
+		return index.CellInsideQuery
 	}
-	return 2 // CELL_CROSSES_QUERY
+	return index.CellCrossesQuery
 }
 
 // TestLucene90Points_BKDRoundTrip writes a 1D point field through the BKD

@@ -19,7 +19,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/store"
 
 	_ "github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -37,8 +36,8 @@ func (c *collectPointsVisitor) VisitByPackedValue(docID int, packedValue []byte)
 	c.m[docID] = cp
 	return nil
 }
-func (c *collectPointsVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation { return 2 }
-func (c *collectPointsVisitor) Grow(count int)                                             {}
+func (c *collectPointsVisitor) Compare(minPackedValue, maxPackedValue []byte) Relation { return 2 }
+func (c *collectPointsVisitor) Grow(count int)                                         {}
 
 func intersectPoints(t *testing.T, pv index.PointValues) map[int][]byte {
 	t.Helper()

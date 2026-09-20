@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -263,8 +262,8 @@ func (v *mergeIntersectsVisitor) VisitByPackedValue(docID int, packedValue []byt
 	return nil
 }
 
-func (v *mergeIntersectsVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
-	return geo.CellCrossesQuery
+func (v *mergeIntersectsVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
+	return spi.CellCrossesQuery
 }
 
 // bkdMergeQueue is the port of the private static class BKDWriter.BKDMergeQueue,

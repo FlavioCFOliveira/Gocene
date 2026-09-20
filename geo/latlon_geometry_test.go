@@ -18,6 +18,7 @@ package geo
 
 import (
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 	"testing"
 )
@@ -47,14 +48,14 @@ func (b boxComponent2D) MaxY() float64 { return b.maxY }
 func (b boxComponent2D) Contains(x, y float64) bool {
 	return x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY
 }
-func (b boxComponent2D) Relate(minX, maxX, minY, maxY float64) Relation {
+func (b boxComponent2D) Relate(minX, maxX, minY, maxY float64) spi.Relation {
 	if maxX < b.minX || minX > b.maxX || maxY < b.minY || minY > b.maxY {
-		return CellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if minX >= b.minX && maxX <= b.maxX && minY >= b.minY && maxY <= b.maxY {
-		return CellInsideQuery
+		return spi.CellInsideQuery
 	}
-	return CellCrossesQuery
+	return spi.CellCrossesQuery
 }
 func (b boxComponent2D) IntersectsLine(_, _, _, _, aX, aY, bX, bY float64) bool {
 	return b.Contains(aX, aY) || b.Contains(bX, bY)
@@ -204,15 +205,15 @@ func TestCreateLatLonGeometry_MultipleRelateUnion(t *testing.T) {
 	c, _ := CreateLatLonGeometry(a, b)
 
 	// Box fully inside a -> INSIDE.
-	if got := c.Relate(1, 2, 1, 2); got != CellInsideQuery {
+	if got := c.Relate(1, 2, 1, 2); got != spi.CellInsideQuery {
 		t.Errorf("relate(1,2,1,2) = %v, want CELL_INSIDE_QUERY", got)
 	}
 	// Box that crosses a's edge -> CROSSES (a CROSSES, b OUTSIDE).
-	if got := c.Relate(-1, 5, -1, 5); got != CellCrossesQuery {
+	if got := c.Relate(-1, 5, -1, 5); got != spi.CellCrossesQuery {
 		t.Errorf("relate(-1,5,-1,5) = %v, want CELL_CROSSES_QUERY", got)
 	}
 	// Box disjoint from both children -> OUTSIDE.
-	if got := c.Relate(100, 200, 100, 200); got != CellOutsideQuery {
+	if got := c.Relate(100, 200, 100, 200); got != spi.CellOutsideQuery {
 		t.Errorf("relate(100,200,100,200) = %v, want CELL_OUTSIDE_QUERY", got)
 	}
 }

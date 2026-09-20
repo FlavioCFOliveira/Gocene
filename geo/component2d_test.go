@@ -4,26 +4,29 @@
 // TestLine2D / TestPolygon2D / TestCircle2D, all of which exercise
 // the same contract). The tests in this file cover the helpers
 // declared in component2d.go directly and the WithinRelation /
-// Relation enum semantics.
+// spi.Relation enum semantics.
 
 package geo
 
-import "testing"
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"testing"
+)
 
 func TestComponent2D_Relation_StringNames(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		in   Relation
+		in   spi.Relation
 		want string
 	}{
-		{CellInsideQuery, "CELL_INSIDE_QUERY"},
-		{CellOutsideQuery, "CELL_OUTSIDE_QUERY"},
-		{CellCrossesQuery, "CELL_CROSSES_QUERY"},
-		{Relation(99), "UNKNOWN"},
+		{spi.CellInsideQuery, "CELL_INSIDE_QUERY"},
+		{spi.CellOutsideQuery, "CELL_OUTSIDE_QUERY"},
+		{spi.CellCrossesQuery, "CELL_CROSSES_QUERY"},
+		{spi.Relation(99), "UNKNOWN"},
 	}
 	for _, c := range cases {
 		if got := c.in.String(); got != c.want {
-			t.Errorf("Relation(%d).String() = %q; want %q", c.in, got, c.want)
+			t.Errorf("spi.Relation(%d).String() = %q; want %q", c.in, got, c.want)
 		}
 	}
 }
@@ -148,7 +151,7 @@ func TestComponent2D_MultiAggregatesInsideRelations(t *testing.T) {
 	a := newRectangle2D(0, 10, 0, 10)
 	b := newRectangle2D(20, 30, 20, 30)
 	multi := newMultiComponent2D([]Component2D{a, b})
-	if got := multi.Relate(2, 3, 2, 3); got != CellInsideQuery {
+	if got := multi.Relate(2, 3, 2, 3); got != spi.CellInsideQuery {
 		t.Errorf("multi.Relate inside-of-a = %v; want INSIDE", got)
 	}
 }

@@ -7,7 +7,7 @@ package codecs
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -91,7 +91,7 @@ type IntersectVisitor interface {
 
 	// Compare compares the given range with the query.
 	// Returns the relation between the range and the query.
-	Compare(minPackedValue, maxPackedValue []byte) geo.Relation
+	Compare(minPackedValue, maxPackedValue []byte) index.Relation
 
 	// Grow is called to grow the visitor's internal data structures.
 	Grow(count int)

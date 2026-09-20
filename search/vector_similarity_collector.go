@@ -122,7 +122,7 @@ func (c *VectorSimilarityCollector) MinCompetitiveSimilarity() float32 {
 //
 // Mirrors VectorSimilarityCollector.topDocs().
 func (c *VectorSimilarityCollector) TopDocs() *TopDocs {
-	var relation Relation
+	var relation TotalHitsRelation
 	if c.EarlyTerminated() {
 		relation = GREATER_THAN_OR_EQUAL_TO
 	} else {

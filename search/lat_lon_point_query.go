@@ -9,6 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -226,27 +227,27 @@ func newLatLonPointSpatialVisitor(tree geo.Component2D) *latLonPointSpatialVisit
 //	[4..8) → sortable-bytes int32 longitude  (X)
 //
 // matching [document.EncodeLatLon].
-func (v *latLonPointSpatialVisitor) Relate(minPackedValue, maxPackedValue []byte) spatialRelation {
+func (v *latLonPointSpatialVisitor) Relate(minPackedValue, maxPackedValue []byte) index.Relation {
 	if v.tree == nil {
-		return spatialCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	if len(minPackedValue) < 2*latLonPointBytesPerDim ||
 		len(maxPackedValue) < 2*latLonPointBytesPerDim {
-		return spatialCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 
 	latLowerBound := util.SortableBytesToInt(minPackedValue, 0)
 	latUpperBound := util.SortableBytesToInt(maxPackedValue, 0)
 	if latLowerBound > v.maxLat || latUpperBound < v.minLat {
 		// Outside of the global bounding box range.
-		return spatialCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 
 	lonLowerBound := util.SortableBytesToInt(minPackedValue, latLonPointBytesPerDim)
 	lonUpperBound := util.SortableBytesToInt(maxPackedValue, latLonPointBytesPerDim)
 	if lonLowerBound > v.maxLon || lonUpperBound < v.minLon {
 		// Outside of the global bounding box range.
-		return spatialCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 
 	cellMinLat := geo.DecodeLatitude(latLowerBound)
@@ -254,7 +255,7 @@ func (v *latLonPointSpatialVisitor) Relate(minPackedValue, maxPackedValue []byte
 	cellMaxLat := geo.DecodeLatitude(latUpperBound)
 	cellMaxLon := geo.DecodeLongitude(lonUpperBound)
 
-	return geoRelationToSpatial(v.tree.Relate(cellMinLon, cellMaxLon, cellMinLat, cellMaxLat))
+	return v.tree.Relate(cellMinLon, cellMaxLon, cellMinLat, cellMaxLat)
 }
 
 // Intersects returns the per-doc predicate the parent uses for

@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spatial3d/geom"
 )
 
@@ -40,8 +41,8 @@ func TestVisitorCompare_CirclePrunes(t *testing.T) {
 	// centred at x ~ +1. Expect OUTSIDE.
 	farMin := cellPacked(pm, -1.0, -0.05, -0.05)
 	farMax := cellPacked(pm, -0.9, 0.05, 0.05)
-	if got := v.Compare(farMin, farMax); got != geo3dCellOutsideQuery {
-		t.Errorf("far cell: Compare = %d, want CELL_OUTSIDE_QUERY (%d)", got, geo3dCellOutsideQuery)
+	if got := v.Compare(farMin, farMax); got != index.CellOutsideQuery {
+		t.Errorf("far cell: Compare = %d, want CELL_OUTSIDE_QUERY (%d)", got, index.CellOutsideQuery)
 	}
 
 	// A cell straddling the cap centre (x ~ +1, y,z ~ 0) is entirely inside the
@@ -51,9 +52,9 @@ func TestVisitorCompare_CirclePrunes(t *testing.T) {
 	nearMin := cellPacked(pm, 0.90, -0.10, -0.10)
 	nearMax := cellPacked(pm, 1.00, 0.10, 0.10)
 	nearGot := v.Compare(nearMin, nearMax)
-	if nearGot != geo3dCellCrossesQuery && nearGot != geo3dCellInsideQuery {
+	if nearGot != index.CellCrossesQuery && nearGot != index.CellInsideQuery {
 		t.Errorf("near cell: Compare = %d, want CELL_CROSSES_QUERY (%d) or CELL_INSIDE_QUERY (%d)",
-			nearGot, geo3dCellCrossesQuery, geo3dCellInsideQuery)
+			nearGot, index.CellCrossesQuery, index.CellInsideQuery)
 	}
 }
 
@@ -74,8 +75,8 @@ func TestVisitorCompare_BBoxPrunes(t *testing.T) {
 	// bbox centred near (x ~ +1). Expect OUTSIDE.
 	farMin := cellPacked(pm, -1.0, -1.0, -1.0)
 	farMax := cellPacked(pm, -0.9, -0.9, -0.9)
-	if got := v.Compare(farMin, farMax); got != geo3dCellOutsideQuery {
-		t.Errorf("bbox far cell: Compare = %d, want CELL_OUTSIDE_QUERY (%d)", got, geo3dCellOutsideQuery)
+	if got := v.Compare(farMin, farMax); got != index.CellOutsideQuery {
+		t.Errorf("bbox far cell: Compare = %d, want CELL_OUTSIDE_QUERY (%d)", got, index.CellOutsideQuery)
 	}
 }
 

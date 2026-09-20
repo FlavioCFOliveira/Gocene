@@ -10,6 +10,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // LatLonShapeQuery finds all previously indexed geo shapes that
@@ -170,19 +171,19 @@ func newLatLonShapeSpatialVisitor(tree geo.Component2D) *latLonShapeSpatialVisit
 //	dim 3 → maxX (lon)         offset 3*BYTES
 //
 // dims 4–6 carry edge data that is irrelevant for cell relate.
-func (v *latLonShapeSpatialVisitor) Relate(minTriangle, maxTriangle []byte) spatialRelation {
+func (v *latLonShapeSpatialVisitor) Relate(minTriangle, maxTriangle []byte) index.Relation {
 	if v.tree == nil {
-		return spatialCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	const stride = document.ShapeFieldBytes / 7 // 4 bytes per int32 dim
 	if len(minTriangle) < 2*stride || len(maxTriangle) < 4*stride {
-		return spatialCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	minLat := geo.DecodeLatitudeBytes(minTriangle, 0)
 	minLon := geo.DecodeLongitudeBytes(minTriangle, stride)
 	maxLat := geo.DecodeLatitudeBytes(maxTriangle, 2*stride)
 	maxLon := geo.DecodeLongitudeBytes(maxTriangle, 3*stride)
-	return geoRelationToSpatial(v.tree.Relate(minLon, maxLon, minLat, maxLat))
+	return v.tree.Relate(minLon, maxLon, minLat, maxLat)
 }
 
 // Intersects returns the per-doc predicate the parent uses for
@@ -287,23 +288,6 @@ func (v *latLonShapeSpatialVisitor) Contains() func(packed []byte) geo.WithinRel
 		default:
 			return geo.WithinDisjoint
 		}
-	}
-}
-
-// geoRelationToSpatial converts a geo.Relation (returned by
-// Component2D.Relate) to the internal spatialRelation the
-// SpatialQuery pipeline uses. The three values are stable across
-// both enums; the switch is exhaustive.
-func geoRelationToSpatial(r geo.Relation) spatialRelation {
-	switch r {
-	case geo.CellInsideQuery:
-		return spatialCellInsideQuery
-	case geo.CellOutsideQuery:
-		return spatialCellOutsideQuery
-	case geo.CellCrossesQuery:
-		return spatialCellCrossesQuery
-	default:
-		panic(fmt.Sprintf("search: unknown geo.Relation %v", r))
 	}
 }
 

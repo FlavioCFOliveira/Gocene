@@ -10,6 +10,7 @@ import (
 	"math"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -214,7 +215,7 @@ func (s *ShapeDocValues) GetBoundingBox() geo.Geometry { return s.boundingBox }
 // Relate returns the spatial relationship between the supplied
 // Component2D query and the encoded shape. Mirrors
 // ShapeDocValues.relate(Component2D).
-func (s *ShapeDocValues) Relate(component geo.Component2D) (geo.Relation, error) {
+func (s *ShapeDocValues) Relate(component geo.Component2D) (spi.Relation, error) {
 	return s.comparator.relate(component)
 }
 
@@ -818,18 +819,18 @@ func (c *shapeComparator) skipHighestDimension() error {
 // ShapeComparator.relate(Component2D). On exit the reader is
 // rewound to the start of the payload so the comparator may be
 // re-used.
-func (c *shapeComparator) relate(query geo.Component2D) (rel geo.Relation, retErr error) {
+func (c *shapeComparator) relate(query geo.Component2D) (rel spi.Relation, retErr error) {
 	defer c.reader.rewind()
 
 	if _, err := c.reader.in.ReadByte(); err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	if _, err := c.reader.in.ReadVInt(); err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	bbox, err := c.reader.readBBox()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	tMinX := bbox.minX
 	tMaxX := bbox.maxX
@@ -841,47 +842,47 @@ func (c *shapeComparator) relate(query geo.Component2D) (rel geo.Relation, retEr
 		c.encoder.DecodeY(bbox.minY),
 		c.encoder.DecodeY(bbox.maxY),
 	)
-	if r != geo.CellCrossesQuery {
+	if r != spi.CellCrossesQuery {
 		return r, nil
 	}
 
 	if err := c.skipCentroid(); err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	if err := c.skipHighestDimension(); err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 
 	headerBits, err := c.reader.in.ReadVInt()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	xDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	x := int32(int64(tMaxX) - xDelta)
 
 	rc, err := c.relateComponent(shapeHeaderReadType(headerBits), bbox, tMaxX, tMaxY, c.encoder.DecodeX(x), query)
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
-	if rc == geo.CellCrossesQuery {
-		return geo.CellCrossesQuery, nil
+	if rc == spi.CellCrossesQuery {
+		return spi.CellCrossesQuery, nil
 	}
-	r = geo.CellOutsideQuery
+	r = spi.CellOutsideQuery
 
 	if shapeHeaderHasLeft(headerBits) {
 		size, err := c.reader.in.ReadVInt()
 		if err != nil {
-			return geo.CellOutsideQuery, err
+			return spi.CellOutsideQuery, err
 		}
 		rr, err := c.relateRecurse(query, false, tMaxX, tMaxY, int(size))
 		if err != nil {
-			return geo.CellOutsideQuery, err
+			return spi.CellOutsideQuery, err
 		}
-		if rr == geo.CellCrossesQuery {
-			return geo.CellCrossesQuery, nil
+		if rr == spi.CellCrossesQuery {
+			return spi.CellCrossesQuery, nil
 		}
 		r = rr
 	}
@@ -889,14 +890,14 @@ func (c *shapeComparator) relate(query geo.Component2D) (rel geo.Relation, retEr
 		if query.MaxX() >= c.encoder.DecodeX(tMinX) {
 			size, err := c.reader.in.ReadVInt()
 			if err != nil {
-				return geo.CellOutsideQuery, err
+				return spi.CellOutsideQuery, err
 			}
 			rr, err := c.relateRecurse(query, false, tMaxX, tMaxY, int(size))
 			if err != nil {
-				return geo.CellOutsideQuery, err
+				return spi.CellOutsideQuery, err
 			}
-			if rr == geo.CellCrossesQuery {
-				return geo.CellCrossesQuery, nil
+			if rr == spi.CellCrossesQuery {
+				return spi.CellCrossesQuery, nil
 			}
 			r = rr
 		}
@@ -908,23 +909,23 @@ func (c *shapeComparator) relate(query geo.Component2D) (rel geo.Relation, retEr
 // ShapeComparator.relate(Component2D, boolean, int, int, int).
 func (c *shapeComparator) relateRecurse(
 	query geo.Component2D, splitX bool, pMaxX, pMaxY int32, nodeSize int,
-) (geo.Relation, error) {
+) (spi.Relation, error) {
 	prePos := c.reader.in.GetPosition()
 	tMinXDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	tMinYDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	tMaxXDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	tMaxYDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	tMinX := int32(int64(pMaxX) - tMinXDelta)
 	tMinY := int32(int64(pMaxY) - tMinYDelta)
@@ -933,7 +934,7 @@ func (c *shapeComparator) relateRecurse(
 
 	headerBits, err := c.reader.in.ReadVInt()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	nodeSize -= c.reader.in.GetPosition() - prePos
 
@@ -941,12 +942,12 @@ func (c *shapeComparator) relateRecurse(
 	// the whole subtree can be skipped.
 	if query.MinX() > c.encoder.DecodeX(tMaxX) || query.MinY() > c.encoder.DecodeY(tMaxY) {
 		c.reader.in.SetPosition(c.reader.in.GetPosition() + nodeSize)
-		return geo.CellOutsideQuery, nil
+		return spi.CellOutsideQuery, nil
 	}
 
 	xDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	x := int32(int64(pMaxX) - xDelta)
 	c.reader.bbox.reset(tMinX, tMaxX, tMinY, tMaxY)
@@ -955,44 +956,44 @@ func (c *shapeComparator) relateRecurse(
 		shapeHeaderReadType(headerBits), &c.reader.bbox, pMaxX, pMaxY, c.encoder.DecodeX(x), query,
 	)
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
-	if rc == geo.CellCrossesQuery {
-		return geo.CellCrossesQuery, nil
+	if rc == spi.CellCrossesQuery {
+		return spi.CellCrossesQuery, nil
 	}
 
 	if shapeHeaderHasLeft(headerBits) {
 		size, err := c.reader.in.ReadVInt()
 		if err != nil {
-			return geo.CellOutsideQuery, err
+			return spi.CellOutsideQuery, err
 		}
 		rr, err := c.relateRecurse(query, !splitX, tMaxX, tMaxY, int(size))
 		if err != nil {
-			return geo.CellOutsideQuery, err
+			return spi.CellOutsideQuery, err
 		}
-		if rr == geo.CellCrossesQuery {
-			return geo.CellCrossesQuery, nil
+		if rr == spi.CellCrossesQuery {
+			return spi.CellCrossesQuery, nil
 		}
 	}
 	if shapeHeaderHasRight(headerBits) {
 		size, err := c.reader.in.ReadVInt()
 		if err != nil {
-			return geo.CellOutsideQuery, err
+			return spi.CellOutsideQuery, err
 		}
 		if (!splitX && query.MaxY() >= c.encoder.DecodeY(tMinY)) ||
 			(splitX && query.MaxX() >= c.encoder.DecodeX(tMinX)) {
 			rr, err := c.relateRecurse(query, !splitX, tMaxX, tMaxY, int(size))
 			if err != nil {
-				return geo.CellOutsideQuery, err
+				return spi.CellOutsideQuery, err
 			}
-			if rr == geo.CellCrossesQuery {
-				return geo.CellCrossesQuery, nil
+			if rr == spi.CellCrossesQuery {
+				return spi.CellCrossesQuery, nil
 			}
 		} else {
 			c.reader.in.SetPosition(c.reader.in.GetPosition() + int(size))
 		}
 	}
-	return geo.CellOutsideQuery, nil
+	return spi.CellOutsideQuery, nil
 }
 
 func (c *shapeComparator) relateComponent(
@@ -1001,8 +1002,8 @@ func (c *shapeComparator) relateComponent(
 	pMaxX, pMaxY int32,
 	x float64,
 	query geo.Component2D,
-) (geo.Relation, error) {
-	var r geo.Relation
+) (spi.Relation, error) {
+	var r spi.Relation
 	var err error
 	switch kind {
 	case DecodedTriangleTypePoint:
@@ -1012,71 +1013,71 @@ func (c *shapeComparator) relateComponent(
 	case DecodedTriangleTypeTriangle:
 		r, err = c.relateTriangle(pMaxX, pMaxY, x, query)
 	default:
-		r = geo.CellOutsideQuery
+		r = spi.CellOutsideQuery
 	}
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
-	if r == geo.CellCrossesQuery {
-		return geo.CellCrossesQuery, nil
+	if r == spi.CellCrossesQuery {
+		return spi.CellCrossesQuery, nil
 	}
-	return geo.CellOutsideQuery, nil
+	return spi.CellOutsideQuery, nil
 }
 
-func (c *shapeComparator) relatePoint(pMaxY int32, ax float64, query geo.Component2D) (geo.Relation, error) {
+func (c *shapeComparator) relatePoint(pMaxY int32, ax float64, query geo.Component2D) (spi.Relation, error) {
 	yDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	y := int32(int64(pMaxY) - yDelta)
 	if query.Contains(ax, c.encoder.DecodeY(y)) {
-		return geo.CellCrossesQuery, nil
+		return spi.CellCrossesQuery, nil
 	}
-	return geo.CellOutsideQuery, nil
+	return spi.CellOutsideQuery, nil
 }
 
-func (c *shapeComparator) relateLine(pMaxX, pMaxY int32, ax float64, query geo.Component2D) (geo.Relation, error) {
+func (c *shapeComparator) relateLine(pMaxX, pMaxY int32, ax float64, query geo.Component2D) (spi.Relation, error) {
 	ayDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	bxDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	byDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	ay := int32(int64(pMaxY) - ayDelta)
 	bx := c.encoder.DecodeX(int32(int64(pMaxX) - bxDelta))
 	by := int32(int64(pMaxY) - byDelta)
 	if geo.IntersectsLineDefault(query, ax, c.encoder.DecodeY(ay), bx, c.encoder.DecodeY(by)) {
-		return geo.CellCrossesQuery, nil
+		return spi.CellCrossesQuery, nil
 	}
-	return geo.CellOutsideQuery, nil
+	return spi.CellOutsideQuery, nil
 }
 
-func (c *shapeComparator) relateTriangle(pMaxX, pMaxY int32, ax float64, query geo.Component2D) (geo.Relation, error) {
+func (c *shapeComparator) relateTriangle(pMaxX, pMaxY int32, ax float64, query geo.Component2D) (spi.Relation, error) {
 	ayDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	bxDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	byDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	cxDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	cyDelta, err := c.reader.in.ReadVLong()
 	if err != nil {
-		return geo.CellOutsideQuery, err
+		return spi.CellOutsideQuery, err
 	}
 	ay := int32(int64(pMaxY) - ayDelta)
 	bx := c.encoder.DecodeX(int32(int64(pMaxX) - bxDelta))
@@ -1086,9 +1087,9 @@ func (c *shapeComparator) relateTriangle(pMaxX, pMaxY int32, ax float64, query g
 	if geo.IntersectsTriangleDefault(
 		query, ax, c.encoder.DecodeY(ay), bx, c.encoder.DecodeY(by), cx, c.encoder.DecodeY(cy),
 	) {
-		return geo.CellCrossesQuery, nil
+		return spi.CellCrossesQuery, nil
 	}
-	return geo.CellOutsideQuery, nil
+	return spi.CellOutsideQuery, nil
 }
 
 // =========================================================================

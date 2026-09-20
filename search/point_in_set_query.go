@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -390,7 +389,7 @@ func (v *mergePointVisitor) VisitByPackedValue(docID int, packedValue []byte) er
 	return nil
 }
 
-func (v *mergePointVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *mergePointVisitor) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
 	for v.nextQueryPoint != nil {
 		cmpMin := bytes.Compare(v.nextQueryPoint, minPackedValue)
 		if cmpMin < 0 {
@@ -399,14 +398,14 @@ func (v *mergePointVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.R
 		}
 		cmpMax := bytes.Compare(v.nextQueryPoint, maxPackedValue)
 		if cmpMax > 0 {
-			return 0 // CELL_OUTSIDE_QUERY
+			return index.CellOutsideQuery
 		}
 		if cmpMin == 0 && cmpMax == 0 {
-			return 1 // CELL_INSIDE_QUERY
+			return index.CellInsideQuery
 		}
-		return 2 // CELL_CROSSES_QUERY
+		return index.CellCrossesQuery
 	}
-	return 0 // CELL_OUTSIDE_QUERY
+	return index.CellOutsideQuery
 }
 
 func (v *mergePointVisitor) matches(packedValue []byte) bool {
@@ -452,26 +451,26 @@ func (v *singlePointVisitor) VisitByPackedValue(docID int, packedValue []byte) e
 	return nil
 }
 
-func (v *singlePointVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *singlePointVisitor) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
 	crosses := false
 	for dim := 0; dim < v.numDims; dim++ {
 		offset := dim * v.bytesPerDim
 		cmpMin := bytes.Compare(v.pointBytes[offset:], minPackedValue[offset:])
 		if cmpMin > 0 {
-			return 0 // CELL_OUTSIDE_QUERY
+			return index.CellOutsideQuery
 		}
 		cmpMax := bytes.Compare(v.pointBytes[offset:], maxPackedValue[offset:])
 		if cmpMax < 0 {
-			return 0 // CELL_OUTSIDE_QUERY
+			return index.CellOutsideQuery
 		}
 		if cmpMin != 0 || cmpMax != 0 {
 			crosses = true
 		}
 	}
 	if crosses {
-		return 2 // CELL_CROSSES_QUERY
+		return index.CellCrossesQuery
 	}
-	return 1 // CELL_INSIDE_QUERY
+	return index.CellInsideQuery
 }
 
 func (q *PointInSetQuery) GetPackedPoints() [][]byte {

@@ -5,6 +5,7 @@ package geo
 
 import (
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"testing"
 )
@@ -87,7 +88,7 @@ func TestXYRectangle_ToComponent2D(t *testing.T) {
 	if !c.Contains(5, 5) {
 		t.Error("component should contain centre")
 	}
-	if got := c.Relate(1, 2, 1, 2); got != CellInsideQuery {
+	if got := c.Relate(1, 2, 1, 2); got != spi.CellInsideQuery {
 		t.Errorf("inside relate = %v; want INSIDE", got)
 	}
 }

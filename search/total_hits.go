@@ -6,8 +6,12 @@ package search
 
 import "github.com/FlavioCFOliveira/Gocene/spi"
 
-// Relation indicates how the total hit count relates to the actual value.
-type Relation = spi.Relation
+// TotalHitsRelation says how the total hit count should be interpreted. It
+// renders the nested enum org.apache.lucene.search.TotalHits.Relation; Go has
+// no nested types, so the enclosing type's name is folded into it, leaving the
+// plain name Relation for the other nested enum Lucene declares,
+// org.apache.lucene.index.PointValues.Relation ([index.Relation]).
+type TotalHitsRelation = spi.TotalHitsRelation
 
 const (
 	// EQUAL_TO means the value is exact.
@@ -20,7 +24,7 @@ const (
 type TotalHits = spi.TotalHits
 
 // NewTotalHits creates a new TotalHits.
-func NewTotalHits(value int64, relation Relation) *TotalHits {
+func NewTotalHits(value int64, relation TotalHitsRelation) *TotalHits {
 	return spi.NewTotalHits(value, relation)
 }
 

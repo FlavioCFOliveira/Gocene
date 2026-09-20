@@ -42,7 +42,7 @@ type SpatialVisitor interface {
 	// Relate returns the relation between the supplied cell
 	// [minPackedValue, maxPackedValue] and the query geometry.
 	// Mirrors abstract SpatialVisitor.relate.
-	Relate(minPackedValue, maxPackedValue []byte) spatialRelation
+	Relate(minPackedValue, maxPackedValue []byte) index.Relation
 
 	// Intersects returns the per-doc predicate that decides whether
 	// a packed value contributes to an INTERSECTS / DISJOINT query.
@@ -64,7 +64,7 @@ type SpatialVisitor interface {
 	// returned closure transposes the Relate result for DISJOINT
 	// queries and forwards as-is for the other relations.
 	// Mirrors private SpatialVisitor.getInnerFunction.
-	GetInnerFunction(queryRelation document.QueryRelation) func(min, max []byte) spatialRelation
+	GetInnerFunction(queryRelation document.QueryRelation) func(min, max []byte) index.Relation
 
 	// GetLeafPredicate returns the per-doc predicate the pipeline
 	// uses on packed values. The predicate routes INTERSECTS to
@@ -98,9 +98,9 @@ func NewBaseSpatialVisitor(self SpatialVisitor) *BaseSpatialVisitor {
 
 // GetInnerFunction routes Relate calls through self so subclass
 // overrides win, and transposes the result for DISJOINT queries.
-func (b *BaseSpatialVisitor) GetInnerFunction(queryRelation document.QueryRelation) func(min, max []byte) spatialRelation {
+func (b *BaseSpatialVisitor) GetInnerFunction(queryRelation document.QueryRelation) func(min, max []byte) index.Relation {
 	if queryRelation == document.QueryRelationDisjoint {
-		return func(min, max []byte) spatialRelation {
+		return func(min, max []byte) index.Relation {
 			return transposeSpatialRelation(b.self.Relate(min, max))
 		}
 	}
@@ -134,38 +134,6 @@ func (b *BaseSpatialVisitor) GetLeafPredicate(queryRelation document.QueryRelati
 	}
 }
 
-// spatialRelation classifies a BKD cell against the query region.
-// It mirrors org.apache.lucene.index.PointValues.Relation; it lives
-// in the search package as a private alias so SpatialQuery does not
-// have to import codecs/ (which would re-introduce the
-// document → search cycle via codecs → document → search).
-//
-// The three values are deliberately stable across
-// geo.Relation, geo.Relation and this one — adapters between the
-// three are pure switches with no semantic difference.
-type spatialRelation int
-
-const (
-	spatialCellInsideQuery spatialRelation = iota
-	spatialCellOutsideQuery
-	spatialCellCrossesQuery
-)
-
-// String returns a human-readable label, useful for tests and
-// diagnostics.
-func (r spatialRelation) String() string {
-	switch r {
-	case spatialCellInsideQuery:
-		return "CELL_INSIDE_QUERY"
-	case spatialCellOutsideQuery:
-		return "CELL_OUTSIDE_QUERY"
-	case spatialCellCrossesQuery:
-		return "CELL_CROSSES_QUERY"
-	default:
-		return fmt.Sprintf("spatialRelation(%d)", int(r))
-	}
-}
-
 // spatialIntersectVisitor is the visitor SpatialQuery hands to a
 // spatialPointSource. It mirrors the subset of
 // org.apache.lucene.index.PointValues.IntersectVisitor that
@@ -192,7 +160,7 @@ type spatialIntersectVisitor interface {
 	VisitIterator(iter util.DocIdSetIterator) error
 	VisitIteratorWithPackedValue(iter util.DocIdSetIterator, packedValue []byte) error
 	Grow(count int)
-	Compare(minPackedValue, maxPackedValue []byte) spatialRelation
+	Compare(minPackedValue, maxPackedValue []byte) index.Relation
 }
 
 // spatialPointSource is the visitor-driven point source SpatialQuery
@@ -403,11 +371,6 @@ const maxIntForSpatialSize = int(^uint(0) >> 1)
 // reader only drives Visit / VisitByPackedValue / Compare / Grow (the
 // bulk-iterator methods on spatialIntersectVisitor are not part of the
 // BKD reader's intersect path).
-//
-// Compare must translate between the two enum orderings: the BKD reader
-// uses the geo.Relation order (0=outside, 1=inside, 2=crosses) while
-// search.spatialRelation uses (0=inside, 1=outside, 2=crosses), so the
-// conversion is an explicit switch rather than a raw cast.
 type spatialVisitorBridge struct {
 	v spatialIntersectVisitor
 }
@@ -418,15 +381,8 @@ func (b *spatialVisitorBridge) VisitByPackedValue(docID int, packedValue []byte)
 	return b.v.VisitWithPackedValue(docID, packedValue)
 }
 
-func (b *spatialVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
-	switch b.v.Compare(minPackedValue, maxPackedValue) {
-	case spatialCellOutsideQuery:
-		return 0 // geo.RelationCellOutsideQuery
-	case spatialCellInsideQuery:
-		return 1 // geo.RelationCellInsideQuery
-	default:
-		return 2 // geo.RelationCellCrossesQuery
-	}
+func (b *spatialVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
+	return b.v.Compare(minPackedValue, maxPackedValue)
 }
 
 func (b *spatialVisitorBridge) Grow(count int) { b.v.Grow(count) }

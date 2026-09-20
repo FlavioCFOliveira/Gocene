@@ -12,6 +12,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -339,15 +340,15 @@ func TestLatLonPointQuery_SpatialVisitor_Relate(t *testing.T) {
 	visitor := q.GetSpatialVisitor()
 
 	insideMin, insideMax := encodeLatLonCellBounds(t, -1, 1, -1, 1)
-	if got := visitor.Relate(insideMin, insideMax); got != spatialCellInsideQuery {
+	if got := visitor.Relate(insideMin, insideMax); got != index.CellInsideQuery {
 		t.Fatalf("Relate inside: got %v, want CELL_INSIDE_QUERY", got)
 	}
 	outsideMin, outsideMax := encodeLatLonCellBounds(t, 50, 60, -1, 1)
-	if got := visitor.Relate(outsideMin, outsideMax); got != spatialCellOutsideQuery {
+	if got := visitor.Relate(outsideMin, outsideMax); got != index.CellOutsideQuery {
 		t.Fatalf("Relate outside (bbox-short-circuit): got %v, want CELL_OUTSIDE_QUERY", got)
 	}
 	crossMin, crossMax := encodeLatLonCellBounds(t, -1, 1, 5, 15)
-	if got := visitor.Relate(crossMin, crossMax); got != spatialCellCrossesQuery {
+	if got := visitor.Relate(crossMin, crossMax); got != index.CellCrossesQuery {
 		t.Fatalf("Relate crossing: got %v, want CELL_CROSSES_QUERY", got)
 	}
 }
@@ -367,7 +368,7 @@ func TestLatLonPointQuery_SpatialVisitor_Relate_LongitudeShortCircuit(t *testing
 	visitor := q.GetSpatialVisitor()
 
 	minBuf, maxBuf := encodeLatLonCellBounds(t, -1, 1, 50, 60)
-	if got := visitor.Relate(minBuf, maxBuf); got != spatialCellOutsideQuery {
+	if got := visitor.Relate(minBuf, maxBuf); got != index.CellOutsideQuery {
 		t.Fatalf("Relate (lon outside): got %v, want CELL_OUTSIDE_QUERY", got)
 	}
 }
@@ -383,7 +384,7 @@ func TestLatLonPointQuery_SpatialVisitor_Relate_RejectsShortPayload(t *testing.T
 		t.Fatalf("NewLatLonPointQuery: %v", err)
 	}
 	visitor := q.GetSpatialVisitor()
-	if got := visitor.Relate([]byte{0x01, 0x02}, []byte{0x03, 0x04}); got != spatialCellOutsideQuery {
+	if got := visitor.Relate([]byte{0x01, 0x02}, []byte{0x03, 0x04}); got != index.CellOutsideQuery {
 		t.Fatalf("Relate short payload: got %v, want CELL_OUTSIDE_QUERY", got)
 	}
 }
@@ -530,10 +531,10 @@ func TestLatLonPointQuery_QueryIsCacheable_DefaultsTrue(t *testing.T) {
 		t.Fatalf("QueryIsCacheable: default should be true")
 	}
 
-// encodeLatLonCellBounds builds the (minPackedValue, maxPackedValue)
-// pair the Relate hook expects: 8 bytes per buffer, 4-byte sortable
-// latitude followed by 4-byte sortable longitude. Matches the Java
-// reference's PointValues cell encoding for LatLonPoint.
+	// encodeLatLonCellBounds builds the (minPackedValue, maxPackedValue)
+	// pair the Relate hook expects: 8 bytes per buffer, 4-byte sortable
+	// latitude followed by 4-byte sortable longitude. Matches the Java
+	// reference's PointValues cell encoding for LatLonPoint.
 }
 func encodeLatLonCellBounds(t *testing.T, minLat, maxLat, minLon, maxLon float64) ([]byte, []byte) {
 	t.Helper()

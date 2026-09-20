@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
@@ -356,8 +355,7 @@ func (v *pointRangeIntersectVisitor) matchesPoint(packed []byte) bool {
 }
 
 // Compare returns the BKD pruning relation for a cell.
-// Returns 0=outside, 1=inside, 2=crosses (matching geo.Relation order).
-func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) geo.Relation {
+func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) index.Relation {
 	q := v.query
 	inside := true
 	for dim := 0; dim < q.numDims; dim++ {
@@ -365,7 +363,7 @@ func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) geo.Relation {
 		// outside: lower > cellMax OR upper < cellMin
 		if v.comparator(q.lowerValue, off, maxPV, off) > 0 ||
 			v.comparator(q.upperValue, off, minPV, off) < 0 {
-			return 0 // CELL_OUTSIDE_QUERY
+			return index.CellOutsideQuery
 		}
 		// partially outside: lower <= cellMin AND upper >= cellMax?
 		if v.comparator(q.lowerValue, off, minPV, off) > 0 ||
@@ -374,9 +372,9 @@ func (v *pointRangeIntersectVisitor) Compare(minPV, maxPV []byte) geo.Relation {
 		}
 	}
 	if inside {
-		return 1 // CELL_INSIDE_QUERY
+		return index.CellInsideQuery
 	}
-	return 2 // CELL_CROSSES_QUERY
+	return index.CellCrossesQuery
 }
 
 // pointRangePointValues is the narrow interface required by PointRangeWeight.

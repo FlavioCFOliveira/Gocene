@@ -6,7 +6,6 @@ package bkd
 
 import (
 	"encoding/binary"
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"sort"
 	"testing"
 
@@ -32,18 +31,18 @@ import (
 // readerCaptureVisitor is a test visitor that records every docID it sees,
 // optionally filtered through a per-doc predicate.
 type readerCaptureVisitor struct {
-	relation       geo.Relation
+	relation       spi.Relation
 	predicate      func(packedValue []byte) bool
 	visitedIDs     []int
 	visitedPV      []int
 	cmpLog         []relationRecord
 	growCalls      []int
-	defaultsToCell geo.Relation
+	defaultsToCell spi.Relation
 }
 
 type relationRecord struct {
 	min, max []byte
-	rel      geo.Relation
+	rel      spi.Relation
 }
 
 func (v *readerCaptureVisitor) Visit(docID int) error {
@@ -58,7 +57,7 @@ func (v *readerCaptureVisitor) VisitByPackedValue(docID int, packedValue []byte)
 	return nil
 }
 
-func (v *readerCaptureVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *readerCaptureVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	rec := relationRecord{
 		min: append([]byte(nil), minPackedValue...),
 		max: append([]byte(nil), maxPackedValue...),
@@ -94,16 +93,16 @@ func (v *rangeVisitor) VisitByPackedValue(docID int, packedValue []byte) error {
 	return nil
 }
 
-func (v *rangeVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *rangeVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	mn := binary.BigEndian.Uint32(minPackedValue[:4])
 	mx := binary.BigEndian.Uint32(maxPackedValue[:4])
 	if mx < v.loIncl || mn > v.hiIncl {
-		return geo.RelationCellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if mn >= v.loIncl && mx <= v.hiIncl {
-		return geo.RelationCellInsideQuery
+		return spi.CellInsideQuery
 	}
-	return geo.RelationCellCrossesQuery
+	return spi.CellCrossesQuery
 }
 
 func (v *rangeVisitor) Grow(count int) {}
@@ -326,7 +325,7 @@ func TestBKDReader_PointTreeSingleLeaf(t *testing.T) {
 	}
 
 	// visitDocIDs must report all 4 docIDs.
-	vis := &readerCaptureVisitor{relation: geo.RelationCellInsideQuery}
+	vis := &readerCaptureVisitor{relation: spi.CellInsideQuery}
 	if err := tree.VisitDocIDs(vis); err != nil {
 		t.Fatalf("VisitDocIDs: %v", err)
 	}
@@ -338,7 +337,7 @@ func TestBKDReader_PointTreeSingleLeaf(t *testing.T) {
 
 	// visitDocValues with relation CELL_CROSSES must invoke
 	// VisitByPackedValue for each doc.
-	vis2 := &readerCaptureVisitor{relation: geo.RelationCellCrossesQuery}
+	vis2 := &readerCaptureVisitor{relation: spi.CellCrossesQuery}
 	if err := tree.VisitDocValues(vis2); err != nil {
 		t.Fatalf("VisitDocValues: %v", err)
 	}
@@ -408,7 +407,7 @@ func TestBKDReader_PointTreeMultiLeaf(t *testing.T) {
 	// Walk a fresh clone and visit every doc to verify we recover all
 	// docIDs without duplication.
 	clone := tree.Clone()
-	vis := &readerCaptureVisitor{relation: geo.RelationCellInsideQuery}
+	vis := &readerCaptureVisitor{relation: spi.CellInsideQuery}
 	if err := clone.VisitDocIDs(vis); err != nil {
 		t.Fatalf("VisitDocIDs on clone: %v", err)
 	}
@@ -573,20 +572,20 @@ func (v *rect2DVisitor) VisitByPackedValue(docID int, packedValue []byte) error 
 	return nil
 }
 
-func (v *rect2DVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *rect2DVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	minX := binary.BigEndian.Uint32(minPackedValue[0:4])
 	maxX := binary.BigEndian.Uint32(maxPackedValue[0:4])
 	minY := binary.BigEndian.Uint32(minPackedValue[4:8])
 	maxY := binary.BigEndian.Uint32(maxPackedValue[4:8])
 	// CELL_OUTSIDE if any dim's range is fully outside the query.
 	if maxX < v.xLo || minX > v.xHi || maxY < v.yLo || minY > v.yHi {
-		return geo.RelationCellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	// CELL_INSIDE only if BOTH dim ranges are wholly inside the query.
 	if minX >= v.xLo && maxX <= v.xHi && minY >= v.yLo && maxY <= v.yHi {
-		return geo.RelationCellInsideQuery
+		return spi.CellInsideQuery
 	}
-	return geo.RelationCellCrossesQuery
+	return spi.CellCrossesQuery
 }
 
 func (v *rect2DVisitor) Grow(count int) {}
@@ -699,16 +698,16 @@ func (v *byteRangeVisitor) VisitByPackedValue(docID int, packedValue []byte) err
 	return nil
 }
 
-func (v *byteRangeVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *byteRangeVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	mn := minPackedValue[0]
 	mx := maxPackedValue[0]
 	if mx < v.loIncl || mn > v.hiIncl {
-		return geo.RelationCellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if mn >= v.loIncl && mx <= v.hiIncl {
-		return geo.RelationCellInsideQuery
+		return spi.CellInsideQuery
 	}
-	return geo.RelationCellCrossesQuery
+	return spi.CellCrossesQuery
 }
 
 func (v *byteRangeVisitor) Grow(count int) {}
@@ -741,11 +740,11 @@ func TestBKDReader_GetPointTreeClone(t *testing.T) {
 		t.Fatalf("clone.MoveToChild: moved=%v err=%v", moved, err)
 	}
 
-	rightVis := &readerCaptureVisitor{relation: geo.RelationCellInsideQuery}
+	rightVis := &readerCaptureVisitor{relation: spi.CellInsideQuery}
 	if err := root.VisitDocIDs(rightVis); err != nil {
 		t.Fatalf("root VisitDocIDs: %v", err)
 	}
-	leftVis := &readerCaptureVisitor{relation: geo.RelationCellInsideQuery}
+	leftVis := &readerCaptureVisitor{relation: spi.CellInsideQuery}
 	if err := clone.VisitDocIDs(leftVis); err != nil {
 		t.Fatalf("clone VisitDocIDs: %v", err)
 	}

@@ -3,6 +3,8 @@
 
 package geo
 
+import "github.com/FlavioCFOliveira/Gocene/spi"
+
 // WithinRelation is the result type of the withinX family of
 // Component2D methods. It mirrors
 // org.apache.lucene.geo.Component2D.WithinRelation.
@@ -70,7 +72,7 @@ type Component2D interface {
 
 	// Relate returns the relationship between the component and the
 	// supplied bounding box.
-	Relate(minX, maxX, minY, maxY float64) Relation
+	Relate(minX, maxX, minY, maxY float64) spi.Relation
 
 	// IntersectsLine reports whether the component intersects the
 	// segment (a, b) whose bounding box is (minX, maxX, minY, maxY).

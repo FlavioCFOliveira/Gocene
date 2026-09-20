@@ -340,21 +340,8 @@ type xyPointVisitor interface {
 	VisitIterator(iter util.DocIdSetIterator) error
 	VisitIteratorWithPackedValue(iter util.DocIdSetIterator, packedValue []byte) error
 	Grow(count int)
-	Compare(minPackedValue, maxPackedValue []byte) xyPointCellRelation
+	Compare(minPackedValue, maxPackedValue []byte) index.Relation
 }
-
-// xyPointCellRelation classifies how a BKD cell intersects the query
-// region, mirroring org.apache.lucene.index.PointValues.Relation.
-type xyPointCellRelation int
-
-const (
-	// xyPointCellOutsideQuery indicates the cell lies fully outside the query.
-	xyPointCellOutsideQuery xyPointCellRelation = iota
-	// xyPointCellInsideQuery indicates the cell lies fully inside the query.
-	xyPointCellInsideQuery
-	// xyPointCellCrossesQuery indicates the cell partially overlaps the query.
-	xyPointCellCrossesQuery
-)
 
 // xyPointTreeIntersect is the rich, visitor-driven read surface a BKD-backed
 // PointValues exposes beyond the metadata-only index.PointValues. The on-disk
@@ -413,8 +400,8 @@ func (b *xyPointVisitorBridge) VisitByPackedValue(docID int, packedValue []byte)
 	return b.v.VisitWithPackedValue(docID, packedValue)
 }
 
-func (b *xyPointVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
-	return geo.Relation(b.v.Compare(minPackedValue, maxPackedValue))
+func (b *xyPointVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
+	return b.v.Compare(minPackedValue, maxPackedValue)
 }
 
 func (b *xyPointVisitorBridge) Grow(count int) { b.v.Grow(count) }
@@ -656,41 +643,25 @@ func (v *xyPointInGeometryVisitor) VisitIteratorWithPackedValue(iter util.DocIdS
 // Compare decodes the min/max packed values as (x, y) corners and asks
 // the Component2D tree to relate the bounding cell. Mirrors
 // compare(byte[], byte[]) on the Java reference.
-func (v *xyPointInGeometryVisitor) Compare(minPackedValue, maxPackedValue []byte) xyPointCellRelation {
+func (v *xyPointInGeometryVisitor) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
 	if len(minPackedValue) < 2*xyPointBytesPerDim || len(maxPackedValue) < 2*xyPointBytesPerDim {
 		// Mirrors Java's array-bounds failure: a malformed cell payload
 		// is a programmer error. The safe answer here is "crosses"
 		// (force the source to recurse and surface the bug downstream)
 		// rather than silently dropping the cell.
-		return xyPointCellCrossesQuery
+		return index.CellCrossesQuery
 	}
 	cellMinX := float64(geo.XYDecodeBytes(minPackedValue, 0))
 	cellMinY := float64(geo.XYDecodeBytes(minPackedValue, xyPointBytesPerDim))
 	cellMaxX := float64(geo.XYDecodeBytes(maxPackedValue, 0))
 	cellMaxY := float64(geo.XYDecodeBytes(maxPackedValue, xyPointBytesPerDim))
-	return xyRelationFromGeo(v.tree.Relate(cellMinX, cellMaxX, cellMinY, cellMaxY))
+	return v.tree.Relate(cellMinX, cellMaxX, cellMinY, cellMaxY)
 }
 
 // xyPointBytesPerDim mirrors Integer.BYTES (4): the byte-width of a
 // single XY dimension in the packed payload. The dimension layout is
 // 4-byte X followed by 4-byte Y, matching XYPointField.
 const xyPointBytesPerDim = 4
-
-// xyRelationFromGeo maps geo.Relation onto the local
-// xyPointCellRelation enum. The two enums carry identical semantics;
-// the local enum exists so the query surface stays decoupled from the
-// geo package (which a future PointValues port may not want to depend
-// on transitively).
-func xyRelationFromGeo(r geo.Relation) xyPointCellRelation {
-	switch r {
-	case geo.CellInsideQuery:
-		return xyPointCellInsideQuery
-	case geo.CellCrossesQuery:
-		return xyPointCellCrossesQuery
-	default:
-		return xyPointCellOutsideQuery
-	}
-}
 
 // xyPointInGeometryScorer is the constant-score scorer returned by
 // the supplier. It mirrors the inner ConstantScoreScorer wrapping on

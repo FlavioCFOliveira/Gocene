@@ -7,7 +7,6 @@ package index
 import (
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
@@ -741,7 +740,7 @@ func (v *ExitableIntersectVisitor) VisitByPackedValue(docID int, packedValue []b
 	return v.in.VisitByPackedValue(docID, packedValue)
 }
 
-func (v *ExitableIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *ExitableIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) Relation {
 	v.recordIfTimedOut()
 	return v.in.Compare(minPackedValue, maxPackedValue)
 }

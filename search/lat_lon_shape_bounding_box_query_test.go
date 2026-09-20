@@ -11,6 +11,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // TestNewLatLonShapeBoundingBoxQuery_BasicConstruction confirms the
@@ -254,7 +255,7 @@ func TestLatLonShapeBoundingBoxQuery_SpatialVisitor_Relate_Inside(t *testing.T) 
 	visitor := q.GetSpatialVisitor()
 
 	minBuf, maxBuf := encodeCellBounds(t, -1, 1, -1, 1)
-	if got := visitor.Relate(minBuf, maxBuf); got != spatialCellInsideQuery {
+	if got := visitor.Relate(minBuf, maxBuf); got != index.CellInsideQuery {
 		t.Fatalf("Relate inside-cell: got %v, want CELL_INSIDE_QUERY", got)
 	}
 }
@@ -272,7 +273,7 @@ func TestLatLonShapeBoundingBoxQuery_SpatialVisitor_Relate_Outside(t *testing.T)
 	visitor := q.GetSpatialVisitor()
 
 	minBuf, maxBuf := encodeCellBounds(t, 50, 60, -1, 1)
-	if got := visitor.Relate(minBuf, maxBuf); got != spatialCellOutsideQuery {
+	if got := visitor.Relate(minBuf, maxBuf); got != index.CellOutsideQuery {
 		t.Fatalf("Relate outside-cell: got %v, want CELL_OUTSIDE_QUERY", got)
 	}
 }
@@ -290,7 +291,7 @@ func TestLatLonShapeBoundingBoxQuery_SpatialVisitor_Relate_Crosses(t *testing.T)
 	visitor := q.GetSpatialVisitor()
 
 	minBuf, maxBuf := encodeCellBounds(t, -1, 1, 5, 15)
-	if got := visitor.Relate(minBuf, maxBuf); got != spatialCellCrossesQuery {
+	if got := visitor.Relate(minBuf, maxBuf); got != index.CellCrossesQuery {
 		t.Fatalf("Relate crossing-cell: got %v, want CELL_CROSSES_QUERY", got)
 	}
 }
@@ -460,16 +461,16 @@ func TestLatLonShapeBoundingBoxQuery_ValidateBoundingBoxMinLon(t *testing.T) {
 }
 
 // TestLatLonShapeBoundingBoxQuery_RelationToSpatial confirms the
-// exhaustive switch between pointRelation and spatialRelation.
+// exhaustive switch between index.Relation and index.Relation.
 func TestLatLonShapeBoundingBoxQuery_RelationToSpatial(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		in   pointRelation
-		want spatialRelation
+		in   index.Relation
+		want index.Relation
 	}{
-		{pointCellInsideQuery, spatialCellInsideQuery},
-		{pointCellOutsideQuery, spatialCellOutsideQuery},
-		{pointCellCrossesQuery, spatialCellCrossesQuery},
+		{index.CellInsideQuery, index.CellInsideQuery},
+		{index.CellOutsideQuery, index.CellOutsideQuery},
+		{index.CellCrossesQuery, index.CellCrossesQuery},
 	}
 	for _, c := range cases {
 		if got := relationToSpatial(c.in); got != c.want {
@@ -497,19 +498,19 @@ func TestLatLonShapeBoundingBoxQuery_CompareBBoxToRangeBBox(t *testing.T) {
 	if got := compareBBoxToRangeBBox(
 		bbox, shapeFieldDimBytes, 0, inside.min,
 		3*shapeFieldDimBytes, 2*shapeFieldDimBytes, inside.max,
-	); got != pointCellInsideQuery {
+	); got != index.CellInsideQuery {
 		t.Fatalf("inside: got %v, want INSIDE", got)
 	}
 	if got := compareBBoxToRangeBBox(
 		bbox, shapeFieldDimBytes, 0, outside.min,
 		3*shapeFieldDimBytes, 2*shapeFieldDimBytes, outside.max,
-	); got != pointCellOutsideQuery {
+	); got != index.CellOutsideQuery {
 		t.Fatalf("outside: got %v, want OUTSIDE", got)
 	}
 	if got := compareBBoxToRangeBBox(
 		bbox, shapeFieldDimBytes, 0, crosses.min,
 		3*shapeFieldDimBytes, 2*shapeFieldDimBytes, crosses.max,
-	); got != pointCellCrossesQuery {
+	); got != index.CellCrossesQuery {
 		t.Fatalf("crosses: got %v, want CROSSES", got)
 	}
 }
@@ -531,13 +532,13 @@ func TestLatLonShapeBoundingBoxQuery_IntersectBBoxWithRangeBBox(t *testing.T) {
 	if got := intersectBBoxWithRangeBBox(
 		bbox, shapeFieldDimBytes, 0, outside.min,
 		3*shapeFieldDimBytes, 2*shapeFieldDimBytes, outside.max,
-	); got != pointCellOutsideQuery {
+	); got != index.CellOutsideQuery {
 		t.Fatalf("outside: got %v, want OUTSIDE", got)
 	}
 	if got := intersectBBoxWithRangeBBox(
 		bbox, shapeFieldDimBytes, 0, inside.min,
 		3*shapeFieldDimBytes, 2*shapeFieldDimBytes, inside.max,
-	); got != pointCellInsideQuery {
+	); got != index.CellInsideQuery {
 		t.Fatalf("inside: got %v, want INSIDE", got)
 	}
 }
@@ -566,7 +567,7 @@ func TestLatLonShapeBoundingBoxQuery_RelateRangeBBox_WrapsDateline(t *testing.T)
 		shapeFieldDimBytes, 0, cell.min,
 		3*shapeFieldDimBytes, 2*shapeFieldDimBytes, cell.max,
 	)
-	if got != pointCellInsideQuery && got != pointCellCrossesQuery {
+	if got != index.CellInsideQuery && got != index.CellCrossesQuery {
 		t.Fatalf("wrapping rectangle, western cell: got %v, want INSIDE or CROSSES", got)
 	}
 }

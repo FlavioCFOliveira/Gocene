@@ -5,7 +5,6 @@
 package bkd
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"math/rand"
 	"strings"
 	"testing"
@@ -402,8 +401,8 @@ func (v *tieBreakVisitor) VisitByPackedValue(docID int, packedValue []byte) erro
 	return nil
 }
 
-func (v *tieBreakVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
-	return geo.RelationCellCrossesQuery
+func (v *tieBreakVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
+	return spi.CellCrossesQuery
 }
 
 func (v *tieBreakVisitor) Grow(count int) {}

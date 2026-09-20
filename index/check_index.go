@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -2124,8 +2123,8 @@ func (v *verifyPointsVisitor) VisitByPackedValue(docID int, packedValue []byte) 
 }
 
 // Compare always reports CELL_CROSSES_QUERY so that the whole tree is visited.
-func (v *verifyPointsVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
-	return geo.CellCrossesQuery
+func (v *verifyPointsVisitor) Compare(minPackedValue, maxPackedValue []byte) Relation {
+	return CellCrossesQuery
 }
 
 // Grow is a no-op: the visitor only counts.

@@ -22,7 +22,10 @@
 
 package geo
 
-import "github.com/FlavioCFOliveira/Gocene/util"
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
 
 // rootSplitX is the splitting orientation chosen by Java's
 // ComponentTree for the tree root; the first level splits on the Y
@@ -353,19 +356,19 @@ func (t *componentTree) WithinTriangle(
 // found among the wrapped components. INSIDE wins immediately;
 // CROSSES is returned the moment it is observed; OUTSIDE is only
 // returned when every reachable subtree is OUTSIDE.
-func (t *componentTree) Relate(minX, maxX, minY, maxY float64) Relation {
+func (t *componentTree) Relate(minX, maxX, minY, maxY float64) spi.Relation {
 	return t.relateRec(minX, maxX, minY, maxY, rootSplitX)
 }
 
-func (t *componentTree) relateRec(minX, maxX, minY, maxY float64, splitX bool) Relation {
+func (t *componentTree) relateRec(minX, maxX, minY, maxY float64, splitX bool) spi.Relation {
 	if minY <= t.maxY && minX <= t.maxX {
 		relation := t.component.Relate(minX, maxX, minY, maxY)
-		if relation != CellOutsideQuery {
+		if relation != spi.CellOutsideQuery {
 			return relation
 		}
 		if t.left != nil {
 			relation = t.left.relateRec(minX, maxX, minY, maxY, !splitX)
-			if relation != CellOutsideQuery {
+			if relation != spi.CellOutsideQuery {
 				return relation
 			}
 		}
@@ -375,5 +378,5 @@ func (t *componentTree) relateRec(minX, maxX, minY, maxY float64, splitX bool) R
 			return t.right.relateRec(minX, maxX, minY, maxY, !splitX)
 		}
 	}
-	return CellOutsideQuery
+	return spi.CellOutsideQuery
 }

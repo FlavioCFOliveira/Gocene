@@ -334,11 +334,11 @@ func MatchesShapeDocValuesComponent(
 	if err != nil {
 		return false, err
 	}
-	if r == geo.CellOutsideQuery {
+	if r == index.CellOutsideQuery {
 		return false, nil
 	}
 	if queryRelation == document.QueryRelationWithin {
-		return r == geo.CellInsideQuery, nil
+		return r == index.CellInsideQuery, nil
 	}
 	return true, nil
 }
@@ -443,8 +443,8 @@ type noopBaseShapeVisitor struct {
 	*BaseSpatialVisitor
 }
 
-func (v *noopBaseShapeVisitor) Relate(_, _ []byte) spatialRelation {
-	return spatialCellCrossesQuery
+func (v *noopBaseShapeVisitor) Relate(_, _ []byte) index.Relation {
+	return index.CellCrossesQuery
 }
 
 func (v *noopBaseShapeVisitor) Intersects() func(packed []byte) bool {

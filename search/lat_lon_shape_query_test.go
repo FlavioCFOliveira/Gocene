@@ -297,17 +297,17 @@ func TestLatLonShapeQuery_SpatialVisitor_Relate(t *testing.T) {
 
 	// A cell strictly inside the 20°×20° query rectangle.
 	insideMin, insideMax := encodeCellBounds(t, -1, 1, -1, 1)
-	if got := visitor.Relate(insideMin, insideMax); got != spatialCellInsideQuery {
+	if got := visitor.Relate(insideMin, insideMax); got != index.CellInsideQuery {
 		t.Fatalf("Relate inside-cell: got %v, want CELL_INSIDE_QUERY", got)
 	}
 	// A cell entirely north of the query rectangle.
 	outsideMin, outsideMax := encodeCellBounds(t, 50, 60, -1, 1)
-	if got := visitor.Relate(outsideMin, outsideMax); got != spatialCellOutsideQuery {
+	if got := visitor.Relate(outsideMin, outsideMax); got != index.CellOutsideQuery {
 		t.Fatalf("Relate outside-cell: got %v, want CELL_OUTSIDE_QUERY", got)
 	}
 	// A cell that straddles the query rectangle's eastern boundary.
 	crossMin, crossMax := encodeCellBounds(t, -1, 1, 5, 15)
-	if got := visitor.Relate(crossMin, crossMax); got != spatialCellCrossesQuery {
+	if got := visitor.Relate(crossMin, crossMax); got != index.CellCrossesQuery {
 		t.Fatalf("Relate crossing-cell: got %v, want CELL_CROSSES_QUERY", got)
 	}
 }
@@ -397,17 +397,17 @@ func TestLatLonShapeQuery_SpatialVisitor_DecodeError(t *testing.T) {
 }
 
 // TestLatLonShapeQuery_GeoRelationToSpatial confirms the three
-// in-range geo.Relation values map to the matching internal
-// spatialRelation constants.
+// in-range index.Relation values map to the matching internal
+// index.Relation constants.
 func TestLatLonShapeQuery_GeoRelationToSpatial(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		in   geo.Relation
-		want spatialRelation
+		in   index.Relation
+		want index.Relation
 	}{
-		{geo.CellInsideQuery, spatialCellInsideQuery},
-		{geo.CellOutsideQuery, spatialCellOutsideQuery},
-		{geo.CellCrossesQuery, spatialCellCrossesQuery},
+		{index.CellInsideQuery, index.CellInsideQuery},
+		{index.CellOutsideQuery, index.CellOutsideQuery},
+		{index.CellCrossesQuery, index.CellCrossesQuery},
 	}
 	for _, c := range cases {
 		if got := geoRelationToSpatial(c.in); got != c.want {
@@ -415,14 +415,14 @@ func TestLatLonShapeQuery_GeoRelationToSpatial(t *testing.T) {
 		}
 	}
 
-// encodeTriangleAVertex builds a 28-byte ShapeField payload whose
-// A-vertex encodes the supplied (lat, lon). The current
-// simplified decoder only recovers A; B and C decode to the origin
-// (0, 0) regardless of the encoded values. Tests that exercise the
-// visitor's TRIANGLE branch should choose query rectangles that
-// either cover the origin (when verifying a positive hit) or that
-// exclude both the A-vertex and the origin (when verifying a
-// negative hit).
+	// encodeTriangleAVertex builds a 28-byte ShapeField payload whose
+	// A-vertex encodes the supplied (lat, lon). The current
+	// simplified decoder only recovers A; B and C decode to the origin
+	// (0, 0) regardless of the encoded values. Tests that exercise the
+	// visitor's TRIANGLE branch should choose query rectangles that
+	// either cover the origin (when verifying a positive hit) or that
+	// exclude both the A-vertex and the origin (when verifying a
+	// negative hit).
 }
 func encodeTriangleAVertex(t *testing.T, lat, lon float64) []byte {
 	t.Helper()

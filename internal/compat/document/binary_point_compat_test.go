@@ -22,7 +22,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90" // BKD reader hook
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	gindex "github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -67,7 +66,7 @@ func (c *allPointsCollector) VisitByPackedValue(docID int, packedValue []byte) e
 	return nil
 }
 
-func (c *allPointsCollector) Compare(_, _ []byte) geo.Relation { return 1 } // CELL_INSIDE_QUERY
+func (c *allPointsCollector) Compare(_, _ []byte) spi.Relation { return 1 } // CELL_INSIDE_QUERY
 
 func (c *allPointsCollector) Grow(int) {}
 

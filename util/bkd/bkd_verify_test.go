@@ -6,7 +6,6 @@ package bkd
 
 import (
 	"bytes"
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"math/rand"
 	"sort"
 	"testing"
@@ -242,8 +241,8 @@ func assertSize(t *testing.T, rng *rand.Rand, tree PointTree) {
 	var visitDocValuesCount int64
 
 	visitor := &countingVisitor{
-		compareFn: func(minPackedValue, maxPackedValue []byte) geo.Relation {
-			return geo.RelationCellCrossesQuery
+		compareFn: func(minPackedValue, maxPackedValue []byte) spi.Relation {
+			return spi.CellCrossesQuery
 		},
 		visitFn: func(docID int) {
 			visitDocIDCount++
@@ -396,23 +395,23 @@ func (v *verifyIntersectVisitor) VisitByPackedValue(docID int, packedValue []byt
 	return nil
 }
 
-func (v *verifyIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *verifyIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	crosses := false
 	for dim := 0; dim < v.config.NumIndexDims(); dim++ {
 		offset := dim * v.numBytes
 		minPV := minPackedValue[offset : offset+v.numBytes]
 		maxPV := maxPackedValue[offset : offset+v.numBytes]
 		if bytes.Compare(maxPV, v.queryMin[dim]) < 0 || bytes.Compare(minPV, v.queryMax[dim]) > 0 {
-			return geo.RelationCellOutsideQuery
+			return spi.CellOutsideQuery
 		}
 		if bytes.Compare(minPV, v.queryMin[dim]) < 0 || bytes.Compare(maxPV, v.queryMax[dim]) > 0 {
 			crosses = true
 		}
 	}
 	if crosses {
-		return geo.RelationCellCrossesQuery
+		return spi.CellCrossesQuery
 	}
-	return geo.RelationCellInsideQuery
+	return spi.CellInsideQuery
 }
 
 func (v *verifyIntersectVisitor) Grow(count int) {}
@@ -420,7 +419,7 @@ func (v *verifyIntersectVisitor) Grow(count int) {}
 // countingVisitor collects visit/docValues counts with a configurable
 // compare function. Used by assertSize.
 type countingVisitor struct {
-	compareFn func(min, max []byte) geo.Relation
+	compareFn func(min, max []byte) spi.Relation
 	visitFn   func(docID int)
 	visitPVFn func(docID int, packedValue []byte)
 }
@@ -433,7 +432,7 @@ func (v *countingVisitor) VisitByPackedValue(docID int, packedValue []byte) erro
 	v.visitPVFn(docID, packedValue)
 	return nil
 }
-func (v *countingVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *countingVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	return v.compareFn(minPackedValue, maxPackedValue)
 }
 func (v *countingVisitor) Grow(count int) {}

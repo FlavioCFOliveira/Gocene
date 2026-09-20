@@ -12,13 +12,16 @@
 //     return true via the linear-scan path; the tests below pin the
 //     present behaviour rather than the Java-equivalent contract.
 //   - Relate over the hole-bearing polygon classifies a query box that
-//     fully encloses the hole as CellInsideQuery (only the box border
+//     fully encloses the hole as spi.CellInsideQuery (only the box border
 //     is walked, and hole edges sit interior to it). Tests use partial
 //     overlaps to exercise the crosses branch.
 
 package geo
 
-import "testing"
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"testing"
+)
 
 // newUnitSquare2D returns the Polygon2D for the unit square
 // [0,1] x [0,1] with no holes.
@@ -93,33 +96,33 @@ func TestPolygon2D_ContainsRespectsHole(t *testing.T) {
 
 func TestPolygon2D_Relate(t *testing.T) {
 	p := newUnitSquare2D(t)
-	if got := p.Relate(2, 3, 2, 3); got != CellOutsideQuery {
-		t.Fatalf("disjoint relate = %v; want CellOutsideQuery", got)
+	if got := p.Relate(2, 3, 2, 3); got != spi.CellOutsideQuery {
+		t.Fatalf("disjoint relate = %v; want spi.CellOutsideQuery", got)
 	}
-	if got := p.Relate(0.25, 0.75, 0.25, 0.75); got != CellInsideQuery {
-		t.Fatalf("fully inside relate = %v; want CellInsideQuery", got)
+	if got := p.Relate(0.25, 0.75, 0.25, 0.75); got != spi.CellInsideQuery {
+		t.Fatalf("fully inside relate = %v; want spi.CellInsideQuery", got)
 	}
-	if got := p.Relate(-0.5, 0.5, -0.5, 0.5); got != CellCrossesQuery {
-		t.Fatalf("crossing relate = %v; want CellCrossesQuery", got)
+	if got := p.Relate(-0.5, 0.5, -0.5, 0.5); got != spi.CellCrossesQuery {
+		t.Fatalf("crossing relate = %v; want spi.CellCrossesQuery", got)
 	}
-	if got := p.Relate(-1, 2, -1, 2); got != CellCrossesQuery {
-		t.Fatalf("enclosing relate = %v; want CellCrossesQuery", got)
+	if got := p.Relate(-1, 2, -1, 2); got != spi.CellCrossesQuery {
+		t.Fatalf("enclosing relate = %v; want spi.CellCrossesQuery", got)
 	}
 }
 
 func TestPolygon2D_RelateWithHole(t *testing.T) {
 	p := newSquareWithHole2D(t)
 	// Box wholly inside the hole: outside the (shell-minus-hole) polygon.
-	if got := p.Relate(4, 6, 4, 6); got != CellOutsideQuery {
-		t.Fatalf("box inside hole relate = %v; want CellOutsideQuery", got)
+	if got := p.Relate(4, 6, 4, 6); got != spi.CellOutsideQuery {
+		t.Fatalf("box inside hole relate = %v; want spi.CellOutsideQuery", got)
 	}
 	// Box partially overlapping the hole boundary: crosses.
-	if got := p.Relate(2, 4, 2, 4); got != CellCrossesQuery {
-		t.Fatalf("box overlapping hole relate = %v; want CellCrossesQuery", got)
+	if got := p.Relate(2, 4, 2, 4); got != spi.CellCrossesQuery {
+		t.Fatalf("box overlapping hole relate = %v; want spi.CellCrossesQuery", got)
 	}
 	// Box wholly inside the annulus (between shell and hole).
-	if got := p.Relate(0.5, 2.5, 0.5, 2.5); got != CellInsideQuery {
-		t.Fatalf("annulus box relate = %v; want CellInsideQuery", got)
+	if got := p.Relate(0.5, 2.5, 0.5, 2.5); got != spi.CellInsideQuery {
+		t.Fatalf("annulus box relate = %v; want spi.CellInsideQuery", got)
 	}
 }
 

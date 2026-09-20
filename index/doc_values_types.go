@@ -27,6 +27,24 @@ type PointValues = spi.PointValues
 // org.apache.lucene.index is its home in Lucene 10.5.0.
 type PointTree = spi.PointTree
 
+// Relation mirrors the nested enum
+// org.apache.lucene.index.PointValues.Relation: how a recursive cell
+// corresponds to the query during a point-tree walk. The canonical
+// declaration lives in spi so org.apache.lucene.geo, the codec packages and
+// org.apache.lucene.util.bkd can name it without importing index; it is
+// re-exported here because org.apache.lucene.index is its home in Lucene
+// 10.5.0.
+type Relation = spi.Relation
+
+const (
+	// CellInsideQuery renders PointValues.Relation.CELL_INSIDE_QUERY.
+	CellInsideQuery = spi.CellInsideQuery
+	// CellOutsideQuery renders PointValues.Relation.CELL_OUTSIDE_QUERY.
+	CellOutsideQuery = spi.CellOutsideQuery
+	// CellCrossesQuery renders PointValues.Relation.CELL_CROSSES_QUERY.
+	CellCrossesQuery = spi.CellCrossesQuery
+)
+
 // IntersectVisitor mirrors the nested interface
 // org.apache.lucene.index.PointValues.IntersectVisitor: the visitor a
 // point-values consumer drives during a point-tree walk. The canonical

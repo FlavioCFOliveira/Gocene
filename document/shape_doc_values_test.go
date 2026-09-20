@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -342,7 +343,7 @@ func TestShapeDocValues_Relate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Relate inside: %v", err)
 	}
-	if rel != geo.CellCrossesQuery {
+	if rel != spi.CellCrossesQuery {
 		t.Errorf("Relate inside = %v; want CellCrossesQuery", rel)
 	}
 
@@ -361,7 +362,7 @@ func TestShapeDocValues_Relate(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Relate outside: %v", err)
 	}
-	if rel != geo.CellOutsideQuery {
+	if rel != spi.CellOutsideQuery {
 		t.Errorf("Relate outside = %v; want CellOutsideQuery", rel)
 	}
 }

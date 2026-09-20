@@ -26,7 +26,6 @@ import (
 	"fmt"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -219,8 +218,8 @@ func (v *writeFieldIntersectVisitor) VisitByPackedValue(docID int, packedValue [
 	return v.writer.Add(packedValue, docID)
 }
 
-func (v *writeFieldIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
-	return geo.CellCrossesQuery
+func (v *writeFieldIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
+	return index.CellCrossesQuery
 }
 
 // Grow keeps the IntersectVisitor default body, which does nothing.

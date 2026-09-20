@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/bkd"
@@ -177,7 +176,7 @@ func (q *RangeFieldQuery) CreateWeight(searcher *IndexSearcher, scoreMode ScoreM
 			if err1 == nil && err2 == nil {
 				rel := rfqCompare(queryType, ranges, minPV, maxPV,
 					numDims, bytesPerDim, comparator)
-				if rel == rfqRelCellInside {
+				if rel == index.CellInsideQuery {
 					allDocsMatch = true
 				}
 			}
@@ -308,10 +307,12 @@ func (v *rangeFieldIntersectVisitor) VisitByPackedValue(docID int, packedValue [
 	return nil
 }
 
-// Compare returns the relation for BKD pruning.  Return values match
-// geo.Relation: 0=outside, 1=inside, 2=crosses.
-func (v *rangeFieldIntersectVisitor) Compare(min, max []byte) geo.Relation {
-	return geo.Relation(rfqCompare(v.queryType, v.ranges, min, max, v.numDims, v.bytesPerDim, v.comparator))
+// Compare returns the relation for BKD pruning. Renders the anonymous
+// IntersectVisitor.compare built by RangeFieldQuery.getIntersectVisitor
+// (RangeFieldQuery.java:434-436), which delegates to QueryType.compare
+// (RangeFieldQuery.java:281).
+func (v *rangeFieldIntersectVisitor) Compare(min, max []byte) index.Relation {
+	return rfqCompare(v.queryType, v.ranges, min, max, v.numDims, v.bytesPerDim, v.comparator)
 }
 
 // rangeFieldPointValues is the narrow interface this package requires from
@@ -364,48 +365,40 @@ func getRangeFieldPointValues(reader index.LeafReaderInterface, field string) (r
 	return pv, ok
 }
 
-// ── range relation constants ─────────────────────────────────────────────────
-
-const (
-	rfqRelCellOutside = 0
-	rfqRelCellInside  = 1
-	rfqRelCellCrosses = 2
-)
-
 // rfqCompare computes the BKD-pruning relation for a cell [minPV, maxPV]
 // against the query ranges payload.  Mirrors QueryType.compare (per-dim loop)
 // in Lucene 10.4.0.
-func rfqCompare(qType RangeFieldQueryType, ranges, minPV, maxPV []byte, numDims, bytesPerDim int, cmp bkd.ByteArrayComparator) int {
+func rfqCompare(qType RangeFieldQueryType, ranges, minPV, maxPV []byte, numDims, bytesPerDim int, cmp bkd.ByteArrayComparator) index.Relation {
 	if qType == RangeFieldQueryTypeCrosses {
 		// CROSSES = INTERSECTS AND NOT WITHIN
 		iRel := rfqCompare(RangeFieldQueryTypeIntersects, ranges, minPV, maxPV, numDims, bytesPerDim, cmp)
-		if iRel == rfqRelCellOutside {
-			return rfqRelCellOutside
+		if iRel == index.CellOutsideQuery {
+			return index.CellOutsideQuery
 		}
 		wRel := rfqCompare(RangeFieldQueryTypeWithin, ranges, minPV, maxPV, numDims, bytesPerDim, cmp)
-		if wRel == rfqRelCellInside {
-			return rfqRelCellOutside
+		if wRel == index.CellInsideQuery {
+			return index.CellOutsideQuery
 		}
-		if iRel == rfqRelCellInside && wRel == rfqRelCellOutside {
-			return rfqRelCellInside
+		if iRel == index.CellInsideQuery && wRel == index.CellOutsideQuery {
+			return index.CellInsideQuery
 		}
-		return rfqRelCellCrosses
+		return index.CellCrossesQuery
 	}
 
 	inside := true
 	for dim := 0; dim < numDims; dim++ {
 		rel := rfqCompareDim(qType, ranges, minPV, maxPV, numDims, bytesPerDim, dim, cmp)
-		if rel == rfqRelCellOutside {
-			return rfqRelCellOutside
+		if rel == index.CellOutsideQuery {
+			return index.CellOutsideQuery
 		}
-		if rel != rfqRelCellInside {
+		if rel != index.CellInsideQuery {
 			inside = false
 		}
 	}
 	if inside {
-		return rfqRelCellInside
+		return index.CellInsideQuery
 	}
-	return rfqRelCellCrosses
+	return index.CellCrossesQuery
 }
 
 // rfqCompareDim computes the single-dimension BKD relation.
@@ -416,7 +409,7 @@ func rfqCompare(qType RangeFieldQueryType, ranges, minPV, maxPV []byte, numDims,
 //
 //	minOffset = dim * bytesPerDim   (into ranges)
 //	maxOffset = (dim + numDims) * bytesPerDim
-func rfqCompareDim(qType RangeFieldQueryType, ranges, minPV, maxPV []byte, numDims, bytesPerDim, dim int, cmp bkd.ByteArrayComparator) int {
+func rfqCompareDim(qType RangeFieldQueryType, ranges, minPV, maxPV []byte, numDims, bytesPerDim, dim int, cmp bkd.ByteArrayComparator) index.Relation {
 	minOffset := dim * bytesPerDim
 	maxOffset := (dim + numDims) * bytesPerDim
 
@@ -425,43 +418,43 @@ func rfqCompareDim(qType RangeFieldQueryType, ranges, minPV, maxPV []byte, numDi
 		// cell is outside if qMax < cellMin OR qMin > cellMax
 		if cmp(ranges, maxOffset, minPV, minOffset) < 0 ||
 			cmp(ranges, minOffset, maxPV, maxOffset) > 0 {
-			return rfqRelCellOutside
+			return index.CellOutsideQuery
 		}
 		// cell is inside if qMax >= cellMax AND qMin <= cellMin
 		if cmp(ranges, maxOffset, maxPV, minOffset) >= 0 &&
 			cmp(ranges, minOffset, minPV, maxOffset) <= 0 {
-			return rfqRelCellInside
+			return index.CellInsideQuery
 		}
-		return rfqRelCellCrosses
+		return index.CellCrossesQuery
 
 	case RangeFieldQueryTypeWithin:
 		// all ranges must be at least one point outside: qMax < cellMax OR qMin > cellMin
 		if cmp(ranges, maxOffset, minPV, maxOffset) < 0 ||
 			cmp(ranges, minOffset, maxPV, minOffset) > 0 {
-			return rfqRelCellOutside
+			return index.CellOutsideQuery
 		}
 		// all ranges are within: qMax >= cellMax AND qMin <= cellMin
 		if cmp(ranges, maxOffset, maxPV, maxOffset) >= 0 &&
 			cmp(ranges, minOffset, minPV, minOffset) <= 0 {
-			return rfqRelCellInside
+			return index.CellInsideQuery
 		}
-		return rfqRelCellCrosses
+		return index.CellCrossesQuery
 
 	case RangeFieldQueryTypeContains:
 		// all ranges are either < qMax or > qMin
 		if cmp(ranges, maxOffset, maxPV, maxOffset) > 0 ||
 			cmp(ranges, minOffset, minPV, minOffset) < 0 {
-			return rfqRelCellOutside
+			return index.CellOutsideQuery
 		}
 		// all ranges contain: qMax <= cellMax AND qMin >= cellMin
 		if cmp(ranges, maxOffset, minPV, maxOffset) <= 0 &&
 			cmp(ranges, minOffset, maxPV, minOffset) >= 0 {
-			return rfqRelCellInside
+			return index.CellInsideQuery
 		}
-		return rfqRelCellCrosses
+		return index.CellCrossesQuery
 
 	default:
-		return rfqRelCellCrosses
+		return index.CellCrossesQuery
 	}
 }
 

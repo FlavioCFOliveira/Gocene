@@ -10,6 +10,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/geo"
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // fakeSpatialVisitor is a stub SpatialVisitor used in the tests
@@ -20,7 +21,7 @@ import (
 type fakeSpatialVisitor struct {
 	*BaseSpatialVisitor
 
-	relateResult     spatialRelation
+	relateResult     index.Relation
 	intersectsResult bool
 	withinResult     bool
 	containsResult   geo.WithinRelation
@@ -29,7 +30,7 @@ type fakeSpatialVisitor struct {
 // newFakeSpatialVisitor wires the BaseSpatialVisitor backlink so
 // dispatch flows through the embedding type.
 func newFakeSpatialVisitor(
-	relate spatialRelation,
+	relate index.Relation,
 	intersects, within bool,
 	contains geo.WithinRelation,
 ) *fakeSpatialVisitor {
@@ -43,7 +44,7 @@ func newFakeSpatialVisitor(
 	return v
 }
 
-func (v *fakeSpatialVisitor) Relate(_, _ []byte) spatialRelation { return v.relateResult }
+func (v *fakeSpatialVisitor) Relate(_, _ []byte) index.Relation { return v.relateResult }
 func (v *fakeSpatialVisitor) Intersects() func(packed []byte) bool {
 	return func(_ []byte) bool { return v.intersectsResult }
 }
@@ -63,7 +64,7 @@ func (fakeComponent2D) MinX() float64                                      { ret
 func (fakeComponent2D) MaxX() float64                                      { return 0 }
 func (fakeComponent2D) MinY() float64                                      { return 0 }
 func (fakeComponent2D) MaxY() float64                                      { return 0 }
-func (fakeComponent2D) Relate(_, _, _, _ float64) geo.Relation             { return geo.CellOutsideQuery }
+func (fakeComponent2D) Relate(_, _, _, _ float64) index.Relation           { return index.CellOutsideQuery }
 func (fakeComponent2D) Contains(_, _ float64) bool                         { return false }
 func (fakeComponent2D) IntersectsLine(_, _, _, _, _, _, _, _ float64) bool { return false }
 func (fakeComponent2D) IntersectsTriangle(_, _, _, _, _, _, _, _, _, _ float64) bool {
@@ -145,7 +146,7 @@ func TestSpatialQuery_AccessorsReturnConstructorArgs(t *testing.T) {
 		document.QueryRelationWithin,
 		tree,
 		func() SpatialVisitor {
-			return newFakeSpatialVisitor(spatialCellOutsideQuery, false, false, geo.WithinDisjoint)
+			return newFakeSpatialVisitor(index.CellOutsideQuery, false, false, geo.WithinDisjoint)
 		},
 		nil,
 	)
@@ -187,7 +188,7 @@ func TestSpatialQuery_GetGeometries_ReturnsDefensiveCopy(t *testing.T) {
 		document.QueryRelationIntersects,
 		fakeComponent2D{},
 		func() SpatialVisitor {
-			return newFakeSpatialVisitor(spatialCellOutsideQuery, false, false, geo.WithinDisjoint)
+			return newFakeSpatialVisitor(index.CellOutsideQuery, false, false, geo.WithinDisjoint)
 		},
 		input,
 	)
@@ -224,7 +225,7 @@ func TestSpatialQuery_Visit_RoutesThroughQueryVisitor(t *testing.T) {
 		document.QueryRelationIntersects,
 		fakeComponent2D{},
 		func() SpatialVisitor {
-			return newFakeSpatialVisitor(spatialCellOutsideQuery, false, false, geo.WithinDisjoint)
+			return newFakeSpatialVisitor(index.CellOutsideQuery, false, false, geo.WithinDisjoint)
 		},
 		nil,
 	)
@@ -264,7 +265,7 @@ func TestSpatialQuery_Equals_FieldRelationGeometryIdentity(t *testing.T) {
 			rel,
 			fakeComponent2D{},
 			func() SpatialVisitor {
-				return newFakeSpatialVisitor(spatialCellOutsideQuery, false, false, geo.WithinDisjoint)
+				return newFakeSpatialVisitor(index.CellOutsideQuery, false, false, geo.WithinDisjoint)
 			},
 			nil,
 		)
@@ -299,7 +300,7 @@ func TestSpatialQuery_HashCode_StableForIdenticalQueries(t *testing.T) {
 			document.QueryRelationIntersects,
 			fakeComponent2D{},
 			func() SpatialVisitor {
-				return newFakeSpatialVisitor(spatialCellOutsideQuery, false, false, geo.WithinDisjoint)
+				return newFakeSpatialVisitor(index.CellOutsideQuery, false, false, geo.WithinDisjoint)
 			},
 			nil,
 		)
@@ -322,7 +323,7 @@ func TestSpatialQuery_String_DefaultClassName(t *testing.T) {
 		document.QueryRelationIntersects,
 		fakeComponent2D{},
 		func() SpatialVisitor {
-			return newFakeSpatialVisitor(spatialCellOutsideQuery, false, false, geo.WithinDisjoint)
+			return newFakeSpatialVisitor(index.CellOutsideQuery, false, false, geo.WithinDisjoint)
 		},
 		nil,
 	)
@@ -343,7 +344,7 @@ func TestSpatialQuery_String_WithDisplayClassName(t *testing.T) {
 		document.QueryRelationIntersects,
 		fakeComponent2D{},
 		func() SpatialVisitor {
-			return newFakeSpatialVisitor(spatialCellOutsideQuery, false, false, geo.WithinDisjoint)
+			return newFakeSpatialVisitor(index.CellOutsideQuery, false, false, geo.WithinDisjoint)
 		},
 		nil,
 		WithSpatialQueryDisplayClassName("LatLonShapeQuery"),
@@ -366,7 +367,7 @@ func TestSpatialQuery_CreateWeight_BuildsConstantScoreWeight(t *testing.T) {
 		document.QueryRelationIntersects,
 		fakeComponent2D{},
 		func() SpatialVisitor {
-			return newFakeSpatialVisitor(spatialCellOutsideQuery, false, false, geo.WithinDisjoint)
+			return newFakeSpatialVisitor(index.CellOutsideQuery, false, false, geo.WithinDisjoint)
 		},
 		nil,
 	)
@@ -402,7 +403,7 @@ func TestSpatialQuery_QueryIsCacheable_DefaultsTrue(t *testing.T) {
 		document.QueryRelationIntersects,
 		fakeComponent2D{},
 		func() SpatialVisitor {
-			return newFakeSpatialVisitor(spatialCellOutsideQuery, false, false, geo.WithinDisjoint)
+			return newFakeSpatialVisitor(index.CellOutsideQuery, false, false, geo.WithinDisjoint)
 		},
 		nil,
 	)
@@ -420,12 +421,12 @@ func TestSpatialQuery_QueryIsCacheable_DefaultsTrue(t *testing.T) {
 func TestBaseSpatialVisitor_GetInnerFunction_TransposesForDisjoint(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
-		in   spatialRelation
-		want spatialRelation
+		in   index.Relation
+		want index.Relation
 	}{
-		{spatialCellInsideQuery, spatialCellOutsideQuery},
-		{spatialCellOutsideQuery, spatialCellInsideQuery},
-		{spatialCellCrossesQuery, spatialCellCrossesQuery},
+		{index.CellInsideQuery, index.CellOutsideQuery},
+		{index.CellOutsideQuery, index.CellInsideQuery},
+		{index.CellCrossesQuery, index.CellCrossesQuery},
 	}
 	for _, c := range cases {
 		v := newFakeSpatialVisitor(c.in, false, false, geo.WithinDisjoint)
@@ -441,7 +442,7 @@ func TestBaseSpatialVisitor_GetInnerFunction_TransposesForDisjoint(t *testing.T)
 // closure (intersects / within / !intersects / contains).
 func TestBaseSpatialVisitor_GetLeafPredicate_RoutesByRelation(t *testing.T) {
 	t.Parallel()
-	v := newFakeSpatialVisitor(spatialCellOutsideQuery, true, true, geo.WithinCandidate)
+	v := newFakeSpatialVisitor(index.CellOutsideQuery, true, true, geo.WithinCandidate)
 	if !v.GetLeafPredicate(document.QueryRelationIntersects)(nil) {
 		t.Fatalf("INTERSECTS: predicate returned false")
 	}
@@ -456,7 +457,7 @@ func TestBaseSpatialVisitor_GetLeafPredicate_RoutesByRelation(t *testing.T) {
 	}
 
 	// CONTAINS with a non-CANDIDATE result must yield false.
-	v2 := newFakeSpatialVisitor(spatialCellOutsideQuery, true, true, geo.WithinDisjoint)
+	v2 := newFakeSpatialVisitor(index.CellOutsideQuery, true, true, geo.WithinDisjoint)
 	if v2.GetLeafPredicate(document.QueryRelationContains)(nil) {
 		t.Fatalf("CONTAINS with WithinDisjoint: predicate returned true")
 	}
@@ -466,13 +467,14 @@ func TestBaseSpatialVisitor_GetLeafPredicate_RoutesByRelation(t *testing.T) {
 // stringer outputs.
 func TestSpatialRelation_StringHasReadableLabels(t *testing.T) {
 	t.Parallel()
-	cases := map[spatialRelation]string{
-		spatialCellInsideQuery:  "CELL_INSIDE_QUERY",
-		spatialCellOutsideQuery: "CELL_OUTSIDE_QUERY",
-		spatialCellCrossesQuery: "CELL_CROSSES_QUERY",
+	cases := map[index.Relation]string{
+		index.CellInsideQuery:  "CELL_INSIDE_QUERY",
+		index.CellOutsideQuery: "CELL_OUTSIDE_QUERY",
+		index.CellCrossesQuery: "CELL_CROSSES_QUERY",
 	}
 	for r, want := range cases {
 		if got := r.String(); got != want {
-			t.Fatalf("spatialRelation(%d).String(): got %q, want %q", int(r), got, want)
+			t.Fatalf("index.Relation(%d).String(): got %q, want %q", int(r), got, want)
 		}
-}	}
+	}
+}

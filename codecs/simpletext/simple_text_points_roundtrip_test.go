@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -79,8 +80,8 @@ func (v *collectingVisitor) VisitByPackedValue(docID int, packedValue []byte) er
 	return nil
 }
 
-func (v *collectingVisitor) Compare(_, _ []byte) geo.Relation {
-	return geo.RelationCellCrossesQuery
+func (v *collectingVisitor) Compare(_, _ []byte) index.Relation {
+	return index.CellCrossesQuery
 }
 
 func (v *collectingVisitor) Grow(_ int) {}

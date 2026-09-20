@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -274,8 +273,8 @@ func (v *mergedSegmentVisitor) VisitByPackedValue(docID int, packedValue []byte)
 
 // Compare forces this segment's PointsReader to always visit all docs +
 // values.
-func (v *mergedSegmentVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
-	return geo.CellCrossesQuery
+func (v *mergedSegmentVisitor) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
+	return index.CellCrossesQuery
 }
 
 // Grow keeps the IntersectVisitor default body, which does nothing.

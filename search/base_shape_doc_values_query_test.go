@@ -149,14 +149,14 @@ func TestNewBaseShapeDocValuesQuery_MatchCostOverride(t *testing.T) {
 // Used to drive MatchesShapeDocValuesComponent without standing up a
 // real Component2D tree.
 type alwaysComponent2D struct {
-	rel geo.Relation
+	rel index.Relation
 }
 
 func (a alwaysComponent2D) MinX() float64                                      { return 0 }
 func (a alwaysComponent2D) MaxX() float64                                      { return 10 }
 func (a alwaysComponent2D) MinY() float64                                      { return 0 }
 func (a alwaysComponent2D) MaxY() float64                                      { return 10 }
-func (a alwaysComponent2D) Relate(_, _, _, _ float64) geo.Relation             { return a.rel }
+func (a alwaysComponent2D) Relate(_, _, _, _ float64) index.Relation           { return a.rel }
 func (a alwaysComponent2D) Contains(_, _ float64) bool                         { return false }
 func (a alwaysComponent2D) IntersectsLine(_, _, _, _, _, _, _, _ float64) bool { return false }
 func (a alwaysComponent2D) IntersectsTriangle(_, _, _, _, _, _, _, _, _, _ float64) bool {
@@ -178,7 +178,7 @@ func (a alwaysComponent2D) WithinTriangle(_, _, _, _, _, _ float64, _ bool, _, _
 // short-circuits to false when the ShapeDocValues is nil.
 func TestMatchesShapeDocValuesComponent_NilShape(t *testing.T) {
 	t.Parallel()
-	got, err := MatchesShapeDocValuesComponent(nil, document.QueryRelationIntersects, alwaysComponent2D{rel: geo.CellInsideQuery})
+	got, err := MatchesShapeDocValuesComponent(nil, document.QueryRelationIntersects, alwaysComponent2D{rel: index.CellInsideQuery})
 	if err != nil {
 		t.Fatalf("err = %v; want nil", err)
 	}
@@ -202,15 +202,15 @@ func TestMatchesShapeDocValuesComponent_InsideOutsideBranches(t *testing.T) {
 	cases := []struct {
 		name     string
 		queryRel document.QueryRelation
-		geomRel  geo.Relation
+		geomRel  index.Relation
 		want     bool
 	}{
-		{"intersects+inside", document.QueryRelationIntersects, geo.CellInsideQuery, true},
-		{"intersects+outside", document.QueryRelationIntersects, geo.CellOutsideQuery, false},
-		{"within+inside", document.QueryRelationWithin, geo.CellInsideQuery, true},
-		{"within+outside", document.QueryRelationWithin, geo.CellOutsideQuery, false},
-		{"disjoint+inside", document.QueryRelationDisjoint, geo.CellInsideQuery, true},
-		{"disjoint+outside", document.QueryRelationDisjoint, geo.CellOutsideQuery, false},
+		{"intersects+inside", document.QueryRelationIntersects, index.CellInsideQuery, true},
+		{"intersects+outside", document.QueryRelationIntersects, index.CellOutsideQuery, false},
+		{"within+inside", document.QueryRelationWithin, index.CellInsideQuery, true},
+		{"within+outside", document.QueryRelationWithin, index.CellOutsideQuery, false},
+		{"disjoint+inside", document.QueryRelationDisjoint, index.CellInsideQuery, true},
+		{"disjoint+outside", document.QueryRelationDisjoint, index.CellOutsideQuery, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

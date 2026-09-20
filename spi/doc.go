@@ -172,24 +172,34 @@ func (fd *FieldDoc) String() string {
 		fd.Doc, fd.Score, fd.ShardIndex, fd.Fields)
 }
 
-// Relation indicates how the total hit count relates to the actual value.
-type Relation int
+// TotalHitsRelation says how the total hit count should be interpreted. It is
+// the Go port of the nested enum org.apache.lucene.search.TotalHits.Relation
+// from Apache Lucene 10.5.0 (TotalHits.java:37-42).
+//
+// Java nests the enum inside the TotalHits record, so its simple name is
+// Relation. Go has no nested types, so the enclosing type's name is folded
+// into it; the plain name Relation renders the other nested enum Lucene
+// declares, org.apache.lucene.index.PointValues.Relation (see
+// [Relation] in point_values.go). search.TotalHitsRelation is an alias of this
+// type, so the name stays available in the package Lucene declares it in.
+type TotalHitsRelation int
 
 const (
-	// EQUAL_TO means the value is exact.
-	EQUAL_TO Relation = iota
-	// GREATER_THAN_OR_EQUAL_TO means the value is at least the given value.
+	// EQUAL_TO means the total hit count is equal to TotalHits.Value.
+	EQUAL_TO TotalHitsRelation = iota
+	// GREATER_THAN_OR_EQUAL_TO means the total hit count is greater than or
+	// equal to TotalHits.Value.
 	GREATER_THAN_OR_EQUAL_TO
 )
 
 // TotalHits represents the total number of hits.
 type TotalHits struct {
 	Value    int64
-	Relation Relation
+	Relation TotalHitsRelation
 }
 
 // NewTotalHits creates a new TotalHits.
-func NewTotalHits(value int64, relation Relation) *TotalHits {
+func NewTotalHits(value int64, relation TotalHitsRelation) *TotalHits {
 	return &TotalHits{
 		Value:    value,
 		Relation: relation,

@@ -36,8 +36,8 @@ import (
 //     package without creating an import cycle (codecs imports index).
 //     This file therefore declares the minimal codec-facing interfaces
 //     ([BufferedPointsCodecWriter], [BufferedPointsCodecReader],
-//     [BufferedPointValues], [PointTreeBuffer], [BufferedPointVisitor]
-//     and [BufferedPointRelation]) inside the index package. They are
+//     [BufferedPointValues], [PointTreeBuffer] and
+//     [BufferedPointVisitor]) inside the index package. They are
 //     structurally compatible with the codec-side counterparts so any
 //     concrete codec writer that satisfies codecs.PointsWriter also
 //     satisfies BufferedPointsCodecWriter once the codec adapter wraps
@@ -67,27 +67,13 @@ type PointValuesWriter struct {
 // PointValues implementation.
 var ErrPointValuesUnsupported = errors.New("point values: operation not supported on in-RAM buffer")
 
-// BufferedPointRelation mirrors geo.Relation by integer value so the
-// in-RAM visitor callback contract can be expressed without importing
-// the codecs package. Values match geo.RelationCell* one-for-one.
-type BufferedPointRelation int
-
-const (
-	// BufferedPointCellOutsideQuery matches geo.RelationCellOutsideQuery.
-	BufferedPointCellOutsideQuery BufferedPointRelation = iota
-	// BufferedPointCellInsideQuery matches geo.RelationCellInsideQuery.
-	BufferedPointCellInsideQuery
-	// BufferedPointCellCrossesQuery matches geo.RelationCellCrossesQuery.
-	BufferedPointCellCrossesQuery
-)
-
 // BufferedPointVisitor is the index-local counterpart of
 // codecs.IntersectVisitor. Methods are wired in the order Lucene
 // invokes them on the in-RAM flush path.
 type BufferedPointVisitor interface {
 	Visit(docID int) error
 	VisitByPackedValue(docID int, packedValue []byte) error
-	Compare(minPackedValue, maxPackedValue []byte) BufferedPointRelation
+	Compare(minPackedValue, maxPackedValue []byte) Relation
 	Grow(count int)
 }
 

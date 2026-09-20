@@ -304,9 +304,9 @@ func (q *SpatialQuery) getScorerSupplier(
 	rel := visitor.GetInnerFunction(q.queryRelation)(minPacked, maxPacked)
 
 	switch rel {
-	case spatialCellOutsideQuery:
+	case index.CellOutsideQuery:
 		return nil, nil
-	case spatialCellInsideQuery:
+	case index.CellInsideQuery:
 		if q.queryRelation == document.QueryRelationContains {
 			return nil, nil
 		}
@@ -445,14 +445,14 @@ func geometriesHashCode(geoms []geo.Geometry) int {
 // relate result so the rest of the pipeline can treat DISJOINT
 // symmetrically with INTERSECTS. Mirrors
 // SpatialQuery.transposeRelation.
-func transposeSpatialRelation(r spatialRelation) spatialRelation {
+func transposeSpatialRelation(r index.Relation) index.Relation {
 	switch r {
-	case spatialCellInsideQuery:
-		return spatialCellOutsideQuery
-	case spatialCellOutsideQuery:
-		return spatialCellInsideQuery
+	case index.CellInsideQuery:
+		return index.CellOutsideQuery
+	case index.CellOutsideQuery:
+		return index.CellInsideQuery
 	default:
-		return spatialCellCrossesQuery
+		return index.CellCrossesQuery
 	}
 }
 
@@ -489,7 +489,7 @@ func hasAnyHits(visitor SpatialVisitor, queryRelation document.QueryRelation, so
 // spatialHasAnyHitsVisitor returns errCollectionTerminated on the
 // first observed match; every other hook is a passive forwarder.
 type spatialHasAnyHitsVisitor struct {
-	innerFn       func(min, max []byte) spatialRelation
+	innerFn       func(min, max []byte) index.Relation
 	leafPredicate func(packed []byte) bool
 }
 
@@ -515,13 +515,13 @@ func (v *spatialHasAnyHitsVisitor) VisitIteratorWithPackedValue(_ util.DocIdSetI
 
 func (v *spatialHasAnyHitsVisitor) Grow(_ int) {}
 
-func (v *spatialHasAnyHitsVisitor) Compare(minPacked, maxPacked []byte) spatialRelation {
+func (v *spatialHasAnyHitsVisitor) Compare(minPacked, maxPacked []byte) index.Relation {
 	r := v.innerFn(minPacked, maxPacked)
-	if r == spatialCellInsideQuery {
+	if r == index.CellInsideQuery {
 		// Surface the early-exit via the next Visit call; we cannot
 		// return the sentinel from Compare itself because the
-		// visitor contract requires a valid spatialRelation.
-		return spatialCellInsideQuery
+		// visitor contract requires a valid index.Relation.
+		return index.CellInsideQuery
 	}
 	return r
 }

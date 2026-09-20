@@ -57,14 +57,14 @@ func TestRfqCompare_INTERSECTS(t *testing.T) {
 		name    string
 		cellLo  int
 		cellHi  int
-		wantRel int
+		wantRel index.Relation
 	}{
-		{"outside_low", 1, 5, rfqRelCellOutside},
-		{"outside_high", 25, 30, rfqRelCellOutside},
-		{"inside", 12, 18, rfqRelCellInside},
+		{"outside_low", 1, 5, index.CellOutsideQuery},
+		{"outside_high", 25, 30, index.CellOutsideQuery},
+		{"inside", 12, 18, index.CellInsideQuery},
 		// Single-doc cells that intersect the query: BKD prunes them as CELL_INSIDE.
-		{"intersects_low", 5, 15, rfqRelCellInside},
-		{"intersects_high", 15, 25, rfqRelCellInside},
+		{"intersects_low", 5, 15, index.CellInsideQuery},
+		{"intersects_high", 15, 25, index.CellInsideQuery},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -101,8 +101,8 @@ func TestRfqCompare_INTERSECTS_MultiDoc(t *testing.T) {
 	cellMin := packRange(1, 5)
 	cellMax := packRange(25, 30)
 	got := rfqCompare(RangeFieldQueryTypeIntersects, ranges, cellMin, cellMax, 1, 4, cmp)
-	if got != rfqRelCellCrosses {
-		t.Fatalf("multi-doc mixed cell: got=%d want=%d (CELL_CROSSES)", got, rfqRelCellCrosses)
+	if got != index.CellCrossesQuery {
+		t.Fatalf("multi-doc mixed cell: got=%d want=%d (CELL_CROSSES)", got, index.CellCrossesQuery)
 	}
 }
 
@@ -130,14 +130,14 @@ func TestRfqCompare_WITHIN(t *testing.T) {
 	// BKD cell containing a single doc [12,18]; cell min/max are both packRange(12,18).
 	got := rfqCompare(RangeFieldQueryTypeWithin, ranges,
 		packRange(12, 18), packRange(12, 18), 1, 4, cmp)
-	if got != rfqRelCellInside {
-		t.Fatalf("within inside: got %d want %d", got, rfqRelCellInside)
+	if got != index.CellInsideQuery {
+		t.Fatalf("within inside: got %d want %d", got, index.CellInsideQuery)
 	}
 
 	// BKD cell spanning docs from [5,8] to [25,30]; clearly not all within [10,20].
 	got = rfqCompare(RangeFieldQueryTypeWithin, ranges,
 		packRange(5, 8), packRange(25, 30), 1, 4, cmp)
-	if got == rfqRelCellInside {
+	if got == index.CellInsideQuery {
 		t.Fatalf("within outside should not be CELL_INSIDE; got %d", got)
 	}
 }
@@ -164,14 +164,14 @@ func TestRfqCompare_CONTAINS(t *testing.T) {
 	// Cell with only doc [5,25]; qMin(10)>=docMin(5) and qMax(20)<=docMax(25).
 	got := rfqCompare(RangeFieldQueryTypeContains, ranges,
 		packRange(5, 25), packRange(5, 25), 1, 4, cmp)
-	if got != rfqRelCellInside {
-		t.Fatalf("contains inside: got %d want %d", got, rfqRelCellInside)
+	if got != index.CellInsideQuery {
+		t.Fatalf("contains inside: got %d want %d", got, index.CellInsideQuery)
 	}
 
 	// Cell with only doc [12,18]: doc range does not contain query [10,20].
 	got = rfqCompare(RangeFieldQueryTypeContains, ranges,
 		packRange(12, 18), packRange(12, 18), 1, 4, cmp)
-	if got == rfqRelCellInside {
+	if got == index.CellInsideQuery {
 		t.Fatalf("contains non-match should not be CELL_INSIDE; got %d", got)
 	}
 }
@@ -193,15 +193,15 @@ func TestRfqCompare_CROSSES(t *testing.T) {
 	// Cell with doc [5,15]: intersects [10,20] but is not within it → not CELL_OUTSIDE.
 	got := rfqCompare(RangeFieldQueryTypeCrosses, ranges,
 		packRange(5, 15), packRange(5, 15), 1, 4, cmp)
-	if got == rfqRelCellOutside {
+	if got == index.CellOutsideQuery {
 		t.Fatalf("crosses should not be CELL_OUTSIDE; got %d", got)
 	}
 
 	// Cell with doc [1,5]: completely outside [10,20] → CELL_OUTSIDE_QUERY.
 	got = rfqCompare(RangeFieldQueryTypeCrosses, ranges,
 		packRange(1, 5), packRange(1, 5), 1, 4, cmp)
-	if got != rfqRelCellOutside {
-		t.Fatalf("crosses disjoint: got %d want %d", got, rfqRelCellOutside)
+	if got != index.CellOutsideQuery {
+		t.Fatalf("crosses disjoint: got %d want %d", got, index.CellOutsideQuery)
 	}
 }
 

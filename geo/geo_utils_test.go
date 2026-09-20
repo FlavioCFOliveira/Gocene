@@ -30,6 +30,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -209,7 +210,7 @@ func TestGeoUtils_Relate_OutsideForFarAwayBox(t *testing.T) {
 	axisLat := AxisLat(0, radius)
 	key := DistanceQuerySortKey(radius)
 	got := Relate(50, 60, 50, 60, 0, 0, key, axisLat)
-	if got != CellOutsideQuery {
+	if got != spi.CellOutsideQuery {
 		t.Errorf("far-away box = %v, want OUTSIDE", got)
 	}
 }
@@ -220,7 +221,7 @@ func TestGeoUtils_Relate_InsideForTinyBoxAtCentre(t *testing.T) {
 	axisLat := AxisLat(0, radius)
 	key := DistanceQuerySortKey(radius)
 	got := Relate(-1e-3, 1e-3, -1e-3, 1e-3, 0, 0, key, axisLat)
-	if got != CellInsideQuery {
+	if got != spi.CellInsideQuery {
 		t.Errorf("centre-tiny-box = %v, want INSIDE", got)
 	}
 }

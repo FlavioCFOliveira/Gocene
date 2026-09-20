@@ -8,7 +8,6 @@ import (
 	"fmt"
 
 	"bytes"
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
@@ -853,7 +852,7 @@ type AssertingIntersectVisitor struct {
 	lastDocValue       []byte
 	lastMinPackedValue []byte
 	lastMaxPackedValue []byte
-	lastCompareResult  *geo.Relation
+	lastCompareResult  *Relation
 	lastDocID          int
 	docBudget          int
 }
@@ -883,7 +882,7 @@ func (v *AssertingIntersectVisitor) Visit(docID int) error {
 	}
 	// This method, not filtering each hit, should only be invoked when the
 	// cell is inside the query shape:
-	if v.lastCompareResult != nil && *v.lastCompareResult != geo.CellInsideQuery {
+	if v.lastCompareResult != nil && *v.lastCompareResult != CellInsideQuery {
 		panic("AssertingIntersectVisitor: visit(docID) outside CELL_INSIDE_QUERY")
 	}
 	return v.in.Visit(docID)
@@ -896,7 +895,7 @@ func (v *AssertingIntersectVisitor) VisitByPackedValue(docID int, packedValue []
 	}
 	// This method, to filter each doc's value, should only be invoked when the
 	// cell crosses the query shape:
-	if v.lastCompareResult != nil && *v.lastCompareResult != geo.CellCrossesQuery {
+	if v.lastCompareResult != nil && *v.lastCompareResult != CellCrossesQuery {
 		panic("AssertingIntersectVisitor: visit(docID, packedValue) outside CELL_CROSSES_QUERY")
 	}
 
@@ -938,7 +937,7 @@ func (v *AssertingIntersectVisitor) Grow(count int) {
 	v.docBudget = count
 }
 
-func (v *AssertingIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *AssertingIntersectVisitor) Compare(minPackedValue, maxPackedValue []byte) Relation {
 	for dim := 0; dim < v.numIndexDims; dim++ {
 		off := dim * v.bytesPerDim
 		if bytes.Compare(minPackedValue[off:off+v.bytesPerDim], maxPackedValue[off:off+v.bytesPerDim]) > 0 {

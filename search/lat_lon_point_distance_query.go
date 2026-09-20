@@ -355,21 +355,8 @@ type latLonDistancePointVisitor interface {
 	VisitIterator(iter util.DocIdSetIterator) error
 	VisitIteratorWithPackedValue(iter util.DocIdSetIterator, packedValue []byte) error
 	Grow(count int)
-	Compare(minPackedValue, maxPackedValue []byte) latLonDistanceCellRelation
+	Compare(minPackedValue, maxPackedValue []byte) index.Relation
 }
-
-// latLonDistanceCellRelation classifies how a BKD cell intersects
-// the disk, mirroring org.apache.lucene.index.PointValues.Relation.
-type latLonDistanceCellRelation int
-
-const (
-	// latLonDistanceCellOutsideQuery indicates the cell lies fully outside the disk.
-	latLonDistanceCellOutsideQuery latLonDistanceCellRelation = iota
-	// latLonDistanceCellInsideQuery indicates the cell lies fully inside the disk.
-	latLonDistanceCellInsideQuery
-	// latLonDistanceCellCrossesQuery indicates the cell partially overlaps the disk.
-	latLonDistanceCellCrossesQuery
-)
 
 // latLonDistancePointTreeIntersect is the rich, visitor-driven read
 // surface a BKD-backed PointValues exposes beyond the metadata-only
@@ -433,8 +420,8 @@ func (b *latLonDistanceVisitorBridge) VisitByPackedValue(docID int, packedValue 
 	return b.v.VisitWithPackedValue(docID, packedValue)
 }
 
-func (b *latLonDistanceVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
-	return geo.Relation(b.v.Compare(minPackedValue, maxPackedValue))
+func (b *latLonDistanceVisitorBridge) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
+	return b.v.Compare(minPackedValue, maxPackedValue)
 }
 
 func (b *latLonDistanceVisitorBridge) Grow(count int) { b.v.Grow(count) }
@@ -755,14 +742,14 @@ func (v *latLonPointDistanceVisitor) VisitIteratorWithPackedValue(
 // the Java reference.
 func (v *latLonPointDistanceVisitor) Compare(
 	minPackedValue, maxPackedValue []byte,
-) latLonDistanceCellRelation {
+) index.Relation {
 	if len(minPackedValue) < 2*latLonPointBytesPerDim ||
 		len(maxPackedValue) < 2*latLonPointBytesPerDim {
 		// Mirrors Java's array-bounds failure: a malformed cell
 		// payload is a programmer error. The safe answer here is
 		// "crosses" (force the source to recurse and surface the
 		// bug downstream) rather than silently dropping the cell.
-		return latLonDistanceCellCrossesQuery
+		return index.CellCrossesQuery
 	}
 	return v.relate(minPackedValue, maxPackedValue)
 }
@@ -791,44 +778,26 @@ func (v *latLonPointDistanceVisitor) matches(packedValue []byte) bool {
 // degree call into geo.Relate for the disk-vs-cell classification.
 func (v *latLonPointDistanceVisitor) relate(
 	minPackedValue, maxPackedValue []byte,
-) latLonDistanceCellRelation {
+) index.Relation {
 	latLowerBound := util.SortableBytesToInt(minPackedValue, 0)
 	latUpperBound := util.SortableBytesToInt(maxPackedValue, 0)
 	if latLowerBound > v.bbox.maxLat || latUpperBound < v.bbox.minLat {
 		// Latitude out of bounding-box range.
-		return latLonDistanceCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	lonLowerBound := util.SortableBytesToInt(minPackedValue, latLonPointBytesPerDim)
 	lonUpperBound := util.SortableBytesToInt(maxPackedValue, latLonPointBytesPerDim)
 	if (lonLowerBound > v.bbox.maxLon || lonUpperBound < v.bbox.minLon) &&
 		lonUpperBound < v.bbox.minLon2 {
 		// Longitude out of bounding-box range.
-		return latLonDistanceCellOutsideQuery
+		return index.CellOutsideQuery
 	}
 	latMin := geo.DecodeLatitude(latLowerBound)
 	lonMin := geo.DecodeLongitude(lonLowerBound)
 	latMax := geo.DecodeLatitude(latUpperBound)
 	lonMax := geo.DecodeLongitude(lonUpperBound)
-	return latLonDistanceRelationFromGeo(
-		geo.Relate(latMin, latMax, lonMin, lonMax,
-			v.lat, v.lon, v.sortKey, v.axisLat),
-	)
-}
-
-// latLonDistanceRelationFromGeo maps geo.Relation onto the local
-// latLonDistanceCellRelation enum. The two enums carry identical
-// semantics; the local enum exists so the query surface stays
-// decoupled from the geo package (a future PointValues port may not
-// want to depend on it transitively).
-func latLonDistanceRelationFromGeo(r geo.Relation) latLonDistanceCellRelation {
-	switch r {
-	case geo.CellInsideQuery:
-		return latLonDistanceCellInsideQuery
-	case geo.CellCrossesQuery:
-		return latLonDistanceCellCrossesQuery
-	default:
-		return latLonDistanceCellOutsideQuery
-	}
+	return geo.Relate(latMin, latMax, lonMin, lonMax,
+		v.lat, v.lon, v.sortKey, v.axisLat)
 }
 
 // latLonPointDistanceScorer is the constant-score scorer returned by

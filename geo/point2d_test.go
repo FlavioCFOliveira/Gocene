@@ -6,6 +6,7 @@
 package geo
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"math"
 	"math/rand/v2"
 	"testing"
@@ -139,11 +140,11 @@ func TestPoint2D_WithinPointAndLine(t *testing.T) {
 
 func TestPoint2D_Relate(t *testing.T) {
 	p := newPoint2D(1, 1)
-	if got := p.Relate(0, 2, 0, 2); got != CellCrossesQuery {
-		t.Fatalf("Relate(containing box) = %v; want CellCrossesQuery", got)
+	if got := p.Relate(0, 2, 0, 2); got != spi.CellCrossesQuery {
+		t.Fatalf("Relate(containing box) = %v; want spi.CellCrossesQuery", got)
 	}
-	if got := p.Relate(2, 3, 2, 3); got != CellOutsideQuery {
-		t.Fatalf("Relate(disjoint box) = %v; want CellOutsideQuery", got)
+	if got := p.Relate(2, 3, 2, 3); got != spi.CellOutsideQuery {
+		t.Fatalf("Relate(disjoint box) = %v; want spi.CellOutsideQuery", got)
 	}
 }
 
@@ -168,7 +169,7 @@ func TestPoint2D_RandomTriangles(t *testing.T) {
 		tMinX, tMaxX, tMinY, tMaxY := triangleBox(aX, aY, bX, bY, cX, cY)
 		lMinX, lMaxX, lMinY, lMaxY := lineBox(aX, aY, bX, bY)
 
-		if p.Relate(tMinX, tMaxX, tMinY, tMaxY) != CellOutsideQuery {
+		if p.Relate(tMinX, tMaxX, tMinY, tMaxY) != spi.CellOutsideQuery {
 			continue
 		}
 		if p.IntersectsTriangle(tMinX, tMaxX, tMinY, tMaxY, aX, aY, bX, bY, cX, cY) {

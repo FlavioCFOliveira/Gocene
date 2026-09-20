@@ -17,6 +17,7 @@ package geo
 
 import (
 	"errors"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 	"testing"
 )
@@ -153,11 +154,11 @@ func TestPoint_ToComponent2DBehaviour(t *testing.T) {
 	if c.Contains(p.Lon()+1, p.Lat()) {
 		t.Errorf("Component2D.Contains accepted a different point")
 	}
-	if got := c.Relate(p.Lon()-1, p.Lon()+1, p.Lat()-1, p.Lat()+1); got != CellCrossesQuery {
-		t.Errorf("Relate (point in box) = %v, want CellCrossesQuery", got)
+	if got := c.Relate(p.Lon()-1, p.Lon()+1, p.Lat()-1, p.Lat()+1); got != spi.CellCrossesQuery {
+		t.Errorf("Relate (point in box) = %v, want spi.CellCrossesQuery", got)
 	}
-	if got := c.Relate(p.Lon()+10, p.Lon()+11, p.Lat()+10, p.Lat()+11); got != CellOutsideQuery {
-		t.Errorf("Relate (box outside point) = %v, want CellOutsideQuery", got)
+	if got := c.Relate(p.Lon()+10, p.Lon()+11, p.Lat()+10, p.Lat()+11); got != spi.CellOutsideQuery {
+		t.Errorf("Relate (box outside point) = %v, want spi.CellOutsideQuery", got)
 	}
 }
 

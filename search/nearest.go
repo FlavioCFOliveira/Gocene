@@ -162,7 +162,7 @@ func leafPointValues(leaf index.LeafReaderInterface, field string) (index.PointV
 //     descending into it), so no error is silently dropped.
 //
 //   - bkd.PointTree.VisitDocValues takes a bkd.IntersectVisitor (Compare
-//     → geo.Relation) while document.PointTreeWalker.VisitDocValues
+//     → index.Relation) while document.PointTreeWalker.VisitDocValues
 //     takes a document.PointTreeNearestVisitor (Compare →
 //     document.PointTreeCellRelation). The adapter bridges the two
 //     visitor surfaces.
@@ -240,14 +240,14 @@ func (a *nearestVisitorToBKD) VisitByPackedValue(docID int, packedValue []byte) 
 	return a.v.VisitWithPackedValue(docID, packedValue)
 }
 
-func (a *nearestVisitorToBKD) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (a *nearestVisitorToBKD) Compare(minPackedValue, maxPackedValue []byte) index.Relation {
 	switch a.v.Compare(minPackedValue, maxPackedValue) {
 	case document.PointTreeCellInsideQuery:
-		return geo.CellInsideQuery
+		return index.CellInsideQuery
 	case document.PointTreeCellCrossesQuery:
-		return geo.CellCrossesQuery
+		return index.CellCrossesQuery
 	default:
-		return geo.CellOutsideQuery
+		return index.CellOutsideQuery
 	}
 }
 

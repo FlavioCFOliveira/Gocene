@@ -25,7 +25,7 @@ import (
 // Deviation: util/bkd contains an identically-shaped interface
 // (bkd.MutablePointTree) because that package was developed before this
 // codec-level alias landed and cannot import codecs without creating a
-// cycle (bkd already depends on geo.Relation). Both interfaces are
+// cycle (bkd already depends on spi.Relation). Both interfaces are
 // structurally compatible: any concrete type that satisfies one satisfies
 // the other. A future consolidation may pick one canonical definition;
 // for now this codecs.MutablePointTree exists primarily to record the

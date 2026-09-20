@@ -5,7 +5,6 @@
 package bkd
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/geo"
 	"sort"
 	"testing"
 
@@ -83,7 +82,7 @@ func TestBKD_OneDimEqual(t *testing.T) {
 	}
 	f := buildReader(t, cfg, points, numDocs)
 
-	vis := &readerCaptureVisitor{relation: geo.RelationCellInsideQuery}
+	vis := &readerCaptureVisitor{relation: spi.CellInsideQuery}
 	if err := f.r.Intersect(vis); err != nil {
 		t.Fatalf("Intersect: %v", err)
 	}
@@ -199,18 +198,18 @@ func (v *sortableIntRangeVisitor) VisitByPackedValue(docID int, packedValue []by
 	return nil
 }
 
-func (v *sortableIntRangeVisitor) Compare(minPackedValue, maxPackedValue []byte) geo.Relation {
+func (v *sortableIntRangeVisitor) Compare(minPackedValue, maxPackedValue []byte) spi.Relation {
 	if compareUnsigned(maxPackedValue, v.queryMin) < 0 {
-		return geo.RelationCellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if compareUnsigned(minPackedValue, v.queryMax) > 0 {
-		return geo.RelationCellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	if compareUnsigned(minPackedValue, v.queryMin) >= 0 &&
 		compareUnsigned(maxPackedValue, v.queryMax) <= 0 {
-		return geo.RelationCellInsideQuery
+		return spi.CellInsideQuery
 	}
-	return geo.RelationCellCrossesQuery
+	return spi.CellCrossesQuery
 }
 
 func (v *sortableIntRangeVisitor) Grow(count int) {}

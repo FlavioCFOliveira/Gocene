@@ -8,6 +8,8 @@
 
 package geo
 
+import "github.com/FlavioCFOliveira/Gocene/spi"
+
 // polygon2D is the Component2D for a polygon shell plus zero or
 // more holes (themselves polygon2D instances over the hole shells).
 type polygon2D struct {
@@ -110,25 +112,25 @@ func (p *polygon2D) shellContains(x, y float64) bool {
 // Relate returns the spatial relation between the polygon and the
 // query bounding box. Matches Lucene's Polygon2D.relate at the
 // observable level.
-func (p *polygon2D) Relate(minX, maxX, minY, maxY float64) Relation {
+func (p *polygon2D) Relate(minX, maxX, minY, maxY float64) spi.Relation {
 	if Disjoint(p.minX, p.maxX, p.minY, p.maxY, minX, maxX, minY, maxY) {
-		return CellOutsideQuery
+		return spi.CellOutsideQuery
 	}
 	allInside := p.Contains(minX, minY) && p.Contains(maxX, minY) &&
 		p.Contains(minX, maxY) && p.Contains(maxX, maxY)
 	anyEdgeCrosses := p.shellOrHoleCrossesBox(minX, maxX, minY, maxY)
 	if allInside && !anyEdgeCrosses {
-		return CellInsideQuery
+		return spi.CellInsideQuery
 	}
 	if anyEdgeCrosses {
-		return CellCrossesQuery
+		return spi.CellCrossesQuery
 	}
 	cx := (minX + maxX) * 0.5
 	cy := (minY + maxY) * 0.5
 	if p.Contains(cx, cy) {
-		return CellCrossesQuery
+		return spi.CellCrossesQuery
 	}
-	return CellOutsideQuery
+	return spi.CellOutsideQuery
 }
 
 // IntersectsLine reports whether segment (a, b) intersects the
