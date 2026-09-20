@@ -91,13 +91,13 @@ func TestBooleanQueryNodeParentheses(t *testing.T) {
 	}
 
 	// Parent is GroupQueryNode -> no parentheses
-	_ = NewGroupQueryNode(node)
+	NewGroupQueryNode(node)
 	if node.ToQueryString(NewEscapeQuerySyntaxImpl()) != "f1:t1" {
 		t.Errorf("Child of GroupQueryNode should have no parentheses, got %q", node.ToQueryString(NewEscapeQuerySyntaxImpl()))
 	}
 
 	// Parent is another BooleanQueryNode -> parentheses
-	_ = NewBooleanQueryNode("OR", []QueryNode{node})
+	NewBooleanQueryNode("OR", []QueryNode{node})
 	if node.ToQueryString(NewEscapeQuerySyntaxImpl()) != "( f1:t1 )" {
 		t.Errorf("Child of BooleanQueryNode should have parentheses, got %q", node.ToQueryString(NewEscapeQuerySyntaxImpl()))
 	}

@@ -32,5 +32,7 @@ vendor/
 
 # Example binaries (root only)
 /webapi
+/gen-unicode-wb
+/kg-inventory
 
 lucene-*/.lucene_ref/
