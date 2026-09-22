@@ -53,7 +53,7 @@ func TestEndiannessReverserChecksumIndexInput_ReadBytesN(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := []byte("readbytesn test")
-	if err := out.WriteBytes(data); err != nil {
+	if err := out.WriteBytes(data, 0, len(data)); err != nil {
 		t.Fatal(err)
 	}
 	if err := out.Close(); err != nil {
@@ -91,7 +91,7 @@ func TestEndiannessReverserChecksumIndexInput_ReadBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	data := []byte("readbytes")
-	if err := out.WriteBytes(data); err != nil {
+	if err := out.WriteBytes(data, 0, len(data)); err != nil {
 		t.Fatal(err)
 	}
 	if err := out.Close(); err != nil {
@@ -106,7 +106,7 @@ func TestEndiannessReverserChecksumIndexInput_ReadBytes(t *testing.T) {
 
 	csum := NewEndiannessReverserChecksumIndexInput(in)
 	buf := make([]byte, len(data))
-	if err := csum.ReadBytes(buf); err != nil {
+	if err := csum.ReadBytes(buf, 0, len(buf)); err != nil {
 		t.Fatal(err)
 	}
 	if string(buf) != string(data) {

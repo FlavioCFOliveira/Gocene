@@ -7,11 +7,10 @@ package backward_index
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
-
 	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // TestIndexSortBackwardsCompatibility verifies that an index created with a
@@ -51,7 +50,7 @@ func TestIndexSortBackwardsCompatibility(t *testing.T) {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	writer.Close()

@@ -86,12 +86,12 @@ func TestByteSequenceOutputsWriteReadRoundTrip(t *testing.T) {
 		[]byte("a long-ish payload with many bytes"),
 	}
 	for _, payload := range cases {
-		out := store.NewByteArrayDataOutput(64)
+		out := store.NewByteBuffersDataOutput()
 		in := &util.BytesRef{Bytes: payload, Offset: 0, Length: len(payload)}
 		if err := o.Write(in, out); err != nil {
 			t.Fatalf("Write: %v", err)
 		}
-		di := store.NewByteArrayDataInput(out.GetBytes())
+		di := store.NewByteArrayDataInput(out.ToArrayCopy())
 		got, err := o.Read(di)
 		if err != nil {
 			t.Fatalf("Read: %v", err)
@@ -107,36 +107,36 @@ func TestByteSequenceOutputsByteFormatFixture(t *testing.T) {
 	// must produce exactly [0x04, 0xDE, 0xAD, 0xBE, 0xEF] (VInt(4) + 4 bytes).
 	// This catches drift in either the VInt encoding or the raw byte writer.
 	o := ByteSequenceOutputs()
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	payload := &util.BytesRef{Bytes: []byte{0xDE, 0xAD, 0xBE, 0xEF}, Offset: 0, Length: 4}
 	if err := o.Write(payload, out); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	want := []byte{0x04, 0xDE, 0xAD, 0xBE, 0xEF}
-	if !bytes.Equal(out.GetBytes(), want) {
-		t.Fatalf("byte format drift: want % x got % x", want, out.GetBytes())
+	if !bytes.Equal(out.ToArrayCopy(), want) {
+		t.Fatalf("byte format drift: want % x got % x", want, out.ToArrayCopy())
 	}
 
 	// And empty payload encodes as a single 0x00 byte.
-	out2 := store.NewByteArrayDataOutput(2)
+	out2 := store.NewByteBuffersDataOutput()
 	if err := o.Write(o.GetNoOutput(), out2); err != nil {
 		t.Fatalf("Write empty: %v", err)
 	}
-	if !bytes.Equal(out2.GetBytes(), []byte{0x00}) {
-		t.Fatalf("empty encoding: want [00] got % x", out2.GetBytes())
+	if !bytes.Equal(out2.ToArrayCopy(), []byte{0x00}) {
+		t.Fatalf("empty encoding: want [00] got % x", out2.ToArrayCopy())
 	}
 }
 
 func TestByteSequenceOutputsSkipOutput(t *testing.T) {
 	o := ByteSequenceOutputs()
-	out := store.NewByteArrayDataOutput(16)
+	out := store.NewByteBuffersDataOutput()
 	if err := o.Write(brOf("payload-here"), out); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := out.WriteByte(0x42); err != nil {
 		t.Fatalf("WriteByte: %v", err)
 	}
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	if err := o.SkipOutput(in); err != nil {
 		t.Fatalf("SkipOutput: %v", err)
 	}

@@ -21,6 +21,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -47,7 +48,7 @@ func TestSearchForDuplicates_Run(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -80,7 +81,7 @@ func TestSearchForDuplicates_Run(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -97,13 +98,13 @@ func TestSearchForDuplicates_Run(t *testing.T) {
 
 	// Sort: score descending, then id ascending (numeric doc values).
 	sort := search.NewSort(
-		&search.SortField{Type: search.SortFieldTypeScore},
-		search.NewSortField(dupIDField, search.SortFieldTypeInt),
+		&search.SortField{Type: spi.SortFieldTypeScore},
+		search.NewSortField(dupIDField, spi.SortFieldTypeInt),
 	)
 
 	// TermQuery for HIGH_PRIORITY.
 	termQuery := search.NewTermQuery(index.NewTerm(dupPriorityField, dupHighPriority))
-	hits, err := searcher.SearchWithSort(termQuery, maxDocs, sort)
+	hits, err := searcher.SearchWithSort(termQuery, maxDocs, sort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSort(termQuery): %v", err)
 	}
@@ -115,11 +116,11 @@ func TestSearchForDuplicates_Run(t *testing.T) {
 	checkHits(t, searcher, hits.ScoreDocs, maxDocs)
 
 	// BooleanQuery HIGH SHOULD MED — only HIGH docs exist, so same count.
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(index.NewTerm(dupPriorityField, dupHighPriority)), search.SHOULD)
 	bq.Add(search.NewTermQuery(index.NewTerm(dupPriorityField, dupMedPriority)), search.SHOULD)
 
-	boolHits, err := searcher.SearchWithSort(bq, maxDocs, sort)
+	boolHits, err := searcher.SearchWithSort(bq.Build(), maxDocs, sort, false)
 	if err != nil {
 		t.Fatalf("SearchWithSort(boolQuery): %v", err)
 	}

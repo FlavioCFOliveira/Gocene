@@ -42,7 +42,7 @@ func TestPackedDataOutputKnownLayout(t *testing.T) {
 
 func encodeFixed(t *testing.T, values []int64, bpv int) []byte {
 	t.Helper()
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	w := NewPackedDataOutput(out)
 	for _, v := range values {
 		if err := w.WriteLong(v, bpv); err != nil {
@@ -52,14 +52,14 @@ func encodeFixed(t *testing.T, values []int64, bpv int) []byte {
 	if err := w.Flush(); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
-	return out.GetBytes()
+	return out.ToArrayCopy()
 }
 
 // TestPackedDataOutputRejectsOverflow verifies that writing a value
 // that does not fit in the declared bitsPerValue returns an error.
 func TestPackedDataOutputRejectsOverflow(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	w := NewPackedDataOutput(out)
 	if err := w.WriteLong(256, 8); err == nil {
 		t.Fatalf("expected error for value=256 with bpv=8")
@@ -73,7 +73,7 @@ func TestPackedDataOutputRejectsOverflow(t *testing.T) {
 // accepts any int64.
 func TestPackedDataOutputAllowsFull64(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	w := NewPackedDataOutput(out)
 	for _, v := range []int64{0, -1, 0x7FFFFFFFFFFFFFFF, -0x8000000000000000} {
 		if err := w.WriteLong(v, 64); err != nil {
@@ -83,7 +83,7 @@ func TestPackedDataOutputAllowsFull64(t *testing.T) {
 	if err := w.Flush(); err != nil {
 		t.Fatalf("Flush: %v", err)
 	}
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	r := NewPackedDataInput(in)
 	want := []int64{0, -1, 0x7FFFFFFFFFFFFFFF, -0x8000000000000000}
 	for i, w := range want {

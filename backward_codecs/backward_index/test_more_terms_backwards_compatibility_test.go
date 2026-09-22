@@ -7,11 +7,10 @@ package backward_index
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
-
 	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // TestMoreTermsBackwardsCompatibility verifies that an index with many terms
@@ -61,12 +60,12 @@ func TestMoreTermsBackwardsCompatibility(t *testing.T) {
 
 		// Commit every 10 documents to create multiple segments.
 		if i > 0 && i%10 == 0 {
-			if err := writer.Commit(); err != nil {
+			if _, err := writer.Commit(); err != nil {
 				t.Fatalf("Commit(%d): %v", i, err)
 			}
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit: %v", err)
 	}
 	writer.Close()

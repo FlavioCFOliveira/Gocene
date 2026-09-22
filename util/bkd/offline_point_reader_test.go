@@ -33,7 +33,7 @@ func writePointsFile(t *testing.T, cfg BKDConfig, dir *store.ByteBuffersDirector
 		if len(packed) != packedBytes {
 			t.Fatalf("packedValues[%d]: len=%d want=%d", i, len(packed), packedBytes)
 		}
-		if err := out.WriteBytes(packed); err != nil {
+		if err := out.WriteBytes(packed, 0, len(packed)); err != nil {
 			t.Fatalf("WriteBytes (packed[%d]): %v", i, err)
 		}
 		// docID is stored as 4 big-endian bytes; emit them via a raw
@@ -41,7 +41,7 @@ func writePointsFile(t *testing.T, cfg BKDConfig, dir *store.ByteBuffersDirector
 		// IndexOutput implementations.
 		var docBuf [4]byte
 		binary.BigEndian.PutUint32(docBuf[:], uint32(docIDs[i]))
-		if err := out.WriteBytes(docBuf[:]); err != nil {
+		if err := out.WriteBytes(docBuf[:], 0, len(docBuf[:])); err != nil {
 			t.Fatalf("WriteBytes (docID[%d]): %v", i, err)
 		}
 	}
@@ -482,7 +482,7 @@ func TestOfflinePointReader_DetectsFooterCorruption(t *testing.T) {
 		t.Fatalf("CreateOutput: %v", err)
 	}
 	out := store.NewChecksumIndexOutput(raw)
-	if err := out.WriteBytes(corrupted); err != nil {
+	if err := out.WriteBytes(corrupted, 0, len(corrupted)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if err := store.WriteFooter(out); err != nil {
@@ -502,7 +502,7 @@ func TestOfflinePointReader_DetectsFooterCorruption(t *testing.T) {
 		t.Fatalf("OpenInput: %v", err)
 	}
 	contents := make([]byte, fileLength)
-	if err := in.ReadBytes(contents); err != nil {
+	if err := in.ReadBytes(contents, 0, len(contents)); err != nil {
 		t.Fatalf("ReadBytes: %v", err)
 	}
 	if err := in.Close(); err != nil {
@@ -516,7 +516,7 @@ func TestOfflinePointReader_DetectsFooterCorruption(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := out2raw.WriteBytes(contents); err != nil {
+	if err := out2raw.WriteBytes(contents, 0, len(contents)); err != nil {
 		t.Fatalf("WriteBytes (corrupted): %v", err)
 	}
 	if err := out2raw.Close(); err != nil {

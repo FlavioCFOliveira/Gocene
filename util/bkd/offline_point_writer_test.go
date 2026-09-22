@@ -75,7 +75,7 @@ func TestOfflinePointWriter_AppendByteSequenceMatchesWireFormat(t *testing.T) {
 	}
 
 	got := make([]byte, cfg.BytesPerDoc())
-	if err := in.ReadBytes(got); err != nil {
+	if err := in.ReadBytes(got, 0, len(got)); err != nil {
 		t.Fatalf("ReadBytes: %v", err)
 	}
 	wantPoint := make([]byte, cfg.BytesPerDoc())
@@ -684,3 +684,8 @@ func (noTempDirectory) ObtainLock(string) (store.Lock, error) {
 }
 func (noTempDirectory) Close() error                  { return nil }
 func (noTempDirectory) GetDirectory() store.Directory { return nil }
+
+// Rename is abstract in Lucene's Directory; this double does not support it.
+func (x noTempDirectory) Rename(from string, to string) error {
+	return errors.New("noTempDirectory.Rename: unsupported operation")
+}

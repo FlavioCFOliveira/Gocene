@@ -34,11 +34,11 @@ func TestLZ4WithPresetDict_RoundTripWhole(t *testing.T) {
 func TestLZ4WithPresetDict_RoundTripWindowed(t *testing.T) {
 	src := repeatablePayload(8_000)
 	for _, win := range [][2]int{
-		{0, 100},                  // entirely inside dictionary
-		{100, 100},                // entirely inside dictionary
-		{500, 2_000},              // straddles dict + first sub-blocks
-		{3_000, 4_000},            // mid sub-blocks only
-		{len(src) - 1, 1},         // last byte only
+		{0, 100},          // entirely inside dictionary
+		{100, 100},        // entirely inside dictionary
+		{500, 2_000},      // straddles dict + first sub-blocks
+		{3_000, 4_000},    // mid sub-blocks only
+		{len(src) - 1, 1}, // last byte only
 	} {
 		roundTripLZ4Window(t, src, win[0], win[1])
 	}
@@ -89,12 +89,12 @@ func roundTripLZ4Window(t *testing.T, src []byte, offset, length int) {
 
 	mode := NewLZ4WithPresetDictCompressionMode()
 	in := store.NewByteBuffersDataInput(src)
-	out := store.NewByteArrayDataOutput(len(src)*3 + 32)
+	out := store.NewByteBuffersDataOutput()
 	if err := mode.NewCompressor().Compress(in, out); err != nil {
 		t.Fatalf("Compress: %v", err)
 	}
 
-	compressed := out.GetBytes()
+	compressed := out.ToArrayCopy()
 	dec := mode.NewDecompressor()
 	dst := &util.BytesRef{}
 	if err := dec.Decompress(store.NewByteArrayDataInput(compressed), len(src), offset, length, dst); err != nil {

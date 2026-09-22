@@ -14,7 +14,7 @@ func TestEndiannessReverser_WriteBytes_RoundTrip(t *testing.T) {
 		t.Fatalf("CreateOutput: %v", err)
 	}
 	data := []byte("hello endianness")
-	if err := out.WriteBytes(data); err != nil {
+	if err := out.WriteBytes(data, 0, len(data)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	out.Close()
@@ -25,7 +25,7 @@ func TestEndiannessReverser_WriteBytes_RoundTrip(t *testing.T) {
 	}
 	defer in.Close()
 	buf := make([]byte, len(data))
-	in.ReadBytes(buf)
+	in.ReadBytes(buf, 0, len(buf))
 	if string(buf) != string(data) {
 		t.Fatalf("data mismatch: %q != %q", buf, data)
 	}
@@ -35,7 +35,7 @@ func TestEndiannessReverser_ListAll(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	ctx := store.IOContext{Context: store.ContextRead}
 	out, _ := dir.CreateOutput("endo_test", ctx)
-	out.WriteBytes([]byte("data"))
+	out.WriteBytes([]byte("data"), 0, len([]byte("data")))
 	out.Close()
 	files, _ := dir.ListAll()
 	found := false

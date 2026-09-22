@@ -54,7 +54,7 @@ func TestDirectReaderRoundTrip(t *testing.T) {
 			}
 		}
 
-		out := store.NewByteArrayDataOutput(64)
+		out := store.NewByteBuffersDataOutput()
 		w, err := GetDirectWriter(out, n, bpv)
 		if err != nil {
 			t.Fatalf("GetDirectWriter bpv=%d: %v", bpv, err)
@@ -68,7 +68,7 @@ func TestDirectReaderRoundTrip(t *testing.T) {
 			t.Fatalf("Finish bpv=%d: %v", bpv, err)
 		}
 
-		in := &byteSliceRandomAccess{data: out.GetBytes()}
+		in := &byteSliceRandomAccess{data: out.ToArrayCopy()}
 		reader, err := GetDirectReader(in, bpv)
 		if err != nil {
 			t.Fatalf("GetDirectReader bpv=%d: %v", bpv, err)
@@ -102,7 +102,7 @@ func TestDirectReaderRejectsInvalidBitsPerValue(t *testing.T) {
 func TestDirectReaderAt(t *testing.T) {
 	t.Parallel()
 	// Write a 4-byte prefix, then encode {1, 2, 3, 4} with bpv=8.
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	for _, p := range []byte{0xAA, 0xBB, 0xCC, 0xDD} {
 		_ = out.WriteByte(p)
 	}
@@ -119,7 +119,7 @@ func TestDirectReaderAt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	in := &byteSliceRandomAccess{data: out.GetBytes()}
+	in := &byteSliceRandomAccess{data: out.ToArrayCopy()}
 	reader, err := GetDirectReaderAt(in, 8, 4) // skip the 4-byte prefix
 	if err != nil {
 		t.Fatal(err)
@@ -138,7 +138,7 @@ func TestDirectReaderAt(t *testing.T) {
 // errRandomAccess is a RandomAccessInput that returns an error on every read.
 type errRandomAccess struct{}
 
-func (errRandomAccess) ReadByteAt(int64) (byte, error) { return 0, errors.New("read error") }
+func (errRandomAccess) ReadByteAt(int64) (byte, error)   { return 0, errors.New("read error") }
 func (errRandomAccess) ReadShortAt(int64) (int16, error) { return 0, errors.New("read error") }
 func (errRandomAccess) ReadIntAt(int64) (int32, error)   { return 0, errors.New("read error") }
 func (errRandomAccess) ReadLongAt(int64) (int64, error)  { return 0, errors.New("read error") }
@@ -196,7 +196,7 @@ func FuzzDirectReaderRoundTrip(f *testing.F) {
 			}
 		}
 
-		out := store.NewByteArrayDataOutput(64)
+		out := store.NewByteBuffersDataOutput()
 		w, err := GetDirectWriter(out, n, bpv)
 		if err != nil {
 			t.Fatalf("GetDirectWriter bpv=%d: %v", bpv, err)
@@ -209,7 +209,7 @@ func FuzzDirectReaderRoundTrip(f *testing.F) {
 		if err := w.Finish(); err != nil {
 			t.Fatalf("Finish bpv=%d: %v", bpv, err)
 		}
-		in := &byteSliceRandomAccess{data: out.GetBytes()}
+		in := &byteSliceRandomAccess{data: out.ToArrayCopy()}
 		reader, err := GetDirectReader(in, bpv)
 		if err != nil {
 			t.Fatalf("GetDirectReader bpv=%d: %v", bpv, err)

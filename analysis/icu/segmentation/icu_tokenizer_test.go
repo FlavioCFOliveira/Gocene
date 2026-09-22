@@ -15,9 +15,7 @@ import (
 // tokenize runs tok over input and returns the list of terms produced.
 func tokenize(t *testing.T, tok *segmentation.ICUTokenizer, input string) []string {
 	t.Helper()
-	if err := tok.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(input))
 	if err := tok.Reset(); err != nil {
 		t.Fatalf("Reset: %v", err)
 	}
@@ -59,7 +57,7 @@ func assertTokens(t *testing.T, tok *segmentation.ICUTokenizer, input string, wa
 
 // newLatinTokenizer creates an ICUTokenizer with cjkAsWords=false (non-CJK mode).
 func newLatinTokenizer() *segmentation.ICUTokenizer {
-	return segmentation.NewICUTokenizerWith(segmentation.NewDefaultICUTokenizerConfig(false, true))
+	return segmentation.NewICUTokenizerWith(analysis.DefaultTokenAttributeFactory, segmentation.NewDefaultICUTokenizerConfig(false, true))
 }
 
 // TestICUTokenizer_Empty verifies that empty / punctuation-only input produces no tokens.
@@ -193,7 +191,7 @@ func TestICUTokenizer_HugeDoc(t *testing.T) {
 		sb.WriteByte(' ')
 	}
 	sb.WriteString("testing 1234")
-	tok := segmentation.NewICUTokenizerWith(segmentation.NewDefaultICUTokenizerConfig(false, true))
+	tok := segmentation.NewICUTokenizerWith(analysis.DefaultTokenAttributeFactory, segmentation.NewDefaultICUTokenizerConfig(false, true))
 	assertTokens(t, tok, sb.String(), []string{"testing", "1234"})
 }
 
@@ -201,7 +199,7 @@ func TestICUTokenizer_HugeDoc(t *testing.T) {
 // Port of TestICUTokenizerFactory.testMixedText (Latin-only subset).
 func TestICUTokenizer_Factory(t *testing.T) {
 	f := segmentation.NewICUTokenizerFactory()
-	tok, ok := f.Create().(*segmentation.ICUTokenizer)
+	tok, ok := f.Create(analysis.DefaultTokenAttributeFactory).(*segmentation.ICUTokenizer)
 	if !ok {
 		t.Fatal("factory did not return *ICUTokenizer")
 	}
@@ -211,7 +209,7 @@ func TestICUTokenizer_Factory(t *testing.T) {
 // TestICUTokenizer_FactoryWithCJKOptions verifies the factory constructors.
 func TestICUTokenizer_FactoryWithCJKOptions(t *testing.T) {
 	f := segmentation.NewICUTokenizerFactoryWith(false, true)
-	tok, ok := f.Create().(*segmentation.ICUTokenizer)
+	tok, ok := f.Create(analysis.DefaultTokenAttributeFactory).(*segmentation.ICUTokenizer)
 	if !ok {
 		t.Fatal("factory did not return *ICUTokenizer")
 	}
@@ -233,7 +231,7 @@ func TestICUTokenizer_CJKPerChar(t *testing.T) {
 // Deviation: ICU4J-based CJK dictionary segmentation is not available in
 // this Go port; each Han character is emitted as a separate IDEOGRAPHIC token.
 func TestICUTokenizer_CJKAsWords(t *testing.T) {
-	tok := segmentation.NewICUTokenizerWith(segmentation.NewDefaultICUTokenizerConfig(true, true))
+	tok := segmentation.NewICUTokenizerWith(analysis.DefaultTokenAttributeFactory, segmentation.NewDefaultICUTokenizerConfig(true, true))
 	got := tokenize(t, tok, "我是人")
 	if len(got) == 0 {
 		t.Error("expected at least one token from Chinese input")

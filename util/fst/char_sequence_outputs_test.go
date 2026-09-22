@@ -52,11 +52,11 @@ func TestCharSequenceOutputsRoundTrip(t *testing.T) {
 	o := CharSequenceOutputs()
 	cases := []string{"", "x", "hello", "abc-def-ghi"}
 	for _, s := range cases {
-		out := store.NewByteArrayDataOutput(64)
+		out := store.NewByteBuffersDataOutput()
 		if err := o.Write(crOf(s), out); err != nil {
 			t.Fatalf("Write(%q): %v", s, err)
 		}
-		in := store.NewByteArrayDataInput(out.GetBytes())
+		in := store.NewByteArrayDataInput(out.ToArrayCopy())
 		got, err := o.Read(in)
 		if err != nil {
 			t.Fatalf("Read: %v", err)
@@ -70,26 +70,26 @@ func TestCharSequenceOutputsRoundTrip(t *testing.T) {
 func TestCharSequenceOutputsByteFormat(t *testing.T) {
 	// Encode "abc": length 3 then 3 VInts: 0x61, 0x62, 0x63.
 	o := CharSequenceOutputs()
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	if err := o.Write(crOf("abc"), out); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	want := []byte{0x03, 0x61, 0x62, 0x63}
-	if !bytes.Equal(out.GetBytes(), want) {
-		t.Fatalf("byte format drift: want % x got % x", want, out.GetBytes())
+	if !bytes.Equal(out.ToArrayCopy(), want) {
+		t.Fatalf("byte format drift: want % x got % x", want, out.ToArrayCopy())
 	}
 }
 
 func TestCharSequenceOutputsSkip(t *testing.T) {
 	o := CharSequenceOutputs()
-	out := store.NewByteArrayDataOutput(16)
+	out := store.NewByteBuffersDataOutput()
 	if err := o.Write(crOf("payload"), out); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	if err := out.WriteByte(0x55); err != nil {
 		t.Fatalf("WriteByte: %v", err)
 	}
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	if err := o.SkipOutput(in); err != nil {
 		t.Fatalf("SkipOutput: %v", err)
 	}

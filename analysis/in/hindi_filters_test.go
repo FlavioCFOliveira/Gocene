@@ -55,7 +55,7 @@ func TestHindiFilters_IndicNormalizer(t *testing.T) {
 		if !ok {
 			break
 		}
-		attr := f.GetAttribute("CharTermAttribute")
+		attr := f.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			break
 		}
@@ -97,7 +97,7 @@ func TestHindiFilters_HindiNormalizer(t *testing.T) {
 		if !ok {
 			break
 		}
-		attr := hindiF.GetAttribute("CharTermAttribute")
+		attr := hindiF.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			break
 		}
@@ -136,7 +136,7 @@ func TestHindiFilters_Stemmer(t *testing.T) {
 		if !ok {
 			break
 		}
-		attr := stemF.GetAttribute("CharTermAttribute")
+		attr := stemF.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			break
 		}

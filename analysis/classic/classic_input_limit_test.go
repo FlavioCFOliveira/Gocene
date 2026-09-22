@@ -39,13 +39,14 @@ func oversizedReader() io.Reader {
 }
 
 // TestClassicTokenizer_InputTooLarge asserts that an oversized input is
-// rejected through SetReader, even though the underlying impl constructor
+// rejected once the tokenizer is reset, even though the underlying impl constructor
 // cannot itself return an error.
 func TestClassicTokenizer_InputTooLarge(t *testing.T) {
 	t.Parallel()
 	tok := NewClassicTokenizer()
-	if err := tok.SetReader(oversizedReader()); !errors.Is(err, analysis.ErrInputTooLarge) {
-		t.Fatalf("SetReader err=%v want analysis.ErrInputTooLarge", err)
+	tok.SetReader(oversizedReader())
+	if err := tok.Reset(); !errors.Is(err, analysis.ErrInputTooLarge) {
+		t.Fatalf("Reset err=%v want analysis.ErrInputTooLarge", err)
 	}
 }
 
@@ -55,9 +56,7 @@ func TestClassicTokenizer_InputTooLarge(t *testing.T) {
 func TestClassicTokenizer_SmallInputStillWorks(t *testing.T) {
 	t.Parallel()
 	tok := NewClassicTokenizer()
-	if err := tok.SetReader(strings.NewReader("Hello world")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader("Hello world"))
 	got := drainClassicTokenizer(t, tok)
 	if len(got) != 2 || got[0] != "Hello" || got[1] != "world" {
 		t.Fatalf("tokens=%v want [Hello world]", got)

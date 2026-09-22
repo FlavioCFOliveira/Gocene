@@ -5,12 +5,12 @@
 package path_test
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/path"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // tokenizeReverse is a helper that runs t through its full lifecycle and
@@ -19,9 +19,7 @@ func tokenizeReverse(t *testing.T, tok *path.ReversePathHierarchyTokenizer, inpu
 	terms []string, starts, ends, posIncrs []int,
 ) {
 	t.Helper()
-	if err := tok.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(input))
 	attrSrc := tok.GetAttributeSource()
 	for {
 		ok, err := tok.IncrementToken()

@@ -65,7 +65,10 @@ func TestSinglePhraseTokenWithWildcardCollapses(t *testing.T) {
 
 func TestExtractComplexPhrasesPreservesNonComplex(t *testing.T) {
 	p := NewComplexPhraseQueryParser("body", analysis.NewStandardAnalyzer())
-	out, phrases := p.extractComplexPhrases(`"hello world" simple`)
+	out, phrases, err := p.extractComplexPhrases(`"hello world" simple`)
+	if err != nil {
+		t.Fatalf("extractComplexPhrases: %v", err)
+	}
 	if len(phrases) != 0 {
 		t.Errorf("phrases = %d, want 0", len(phrases))
 	}
@@ -76,7 +79,10 @@ func TestExtractComplexPhrasesPreservesNonComplex(t *testing.T) {
 
 func TestExtractComplexPhrasesIdentifiesWildcards(t *testing.T) {
 	p := NewComplexPhraseQueryParser("body", analysis.NewStandardAnalyzer())
-	out, phrases := p.extractComplexPhrases(`"a b*" simple`)
+	out, phrases, err := p.extractComplexPhrases(`"a b*" simple`)
+	if err != nil {
+		t.Fatalf("extractComplexPhrases: %v", err)
+	}
 	if len(phrases) != 1 {
 		t.Fatalf("phrases = %d", len(phrases))
 	}

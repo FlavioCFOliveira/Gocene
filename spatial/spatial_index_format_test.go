@@ -291,7 +291,8 @@ func TestReadSpatialIndexFileHeader_InvalidMagic(t *testing.T) {
 	}
 
 	// Write invalid magic
-	store.WriteBEInt(out, 0xDEADBEEF)
+	var badMagic uint32 = 0xDEADBEEF
+	store.WriteBEInt(out, int32(badMagic))
 	out.Close()
 
 	// Create input

@@ -26,7 +26,7 @@ func drainSynonymFilter(t *testing.T, f *analysis.SynonymFilter) []string {
 		if !ok {
 			break
 		}
-		attr := f.GetAttribute("CharTermAttribute")
+		attr := f.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			break
 		}

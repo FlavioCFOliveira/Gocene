@@ -40,7 +40,7 @@ func TestPersistence_TSTRoundTrip(t *testing.T) {
 	}
 
 	// Store to byte array.
-	buf := store.NewByteArrayDataOutput(4096)
+	buf := store.NewByteBuffersDataOutput()
 	stored, err := orig.Store(buf)
 	if err != nil {
 		t.Fatalf("Store: %v", err)
@@ -51,7 +51,7 @@ func TestPersistence_TSTRoundTrip(t *testing.T) {
 
 	// Load from byte array.
 	reloaded := tst.NewTSTLookup()
-	data := buf.GetBytes()
+	data := buf.ToArrayCopy()
 	loaded, err := reloaded.Load(store.NewByteArrayDataInput(data))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -97,7 +97,7 @@ func TestPersistence_TSTRoundTrip(t *testing.T) {
 func TestPersistence_TSTEmptyRoundTrip(t *testing.T) {
 	orig := tst.NewTSTLookup()
 
-	buf := store.NewByteArrayDataOutput(64)
+	buf := store.NewByteBuffersDataOutput()
 	stored, err := orig.Store(buf)
 	if err != nil {
 		t.Fatalf("Store: %v", err)
@@ -107,7 +107,7 @@ func TestPersistence_TSTEmptyRoundTrip(t *testing.T) {
 	}
 
 	reloaded := tst.NewTSTLookup()
-	data := buf.GetBytes()
+	data := buf.ToArrayCopy()
 	_, err = reloaded.Load(store.NewByteArrayDataInput(data))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -130,7 +130,7 @@ func TestPersistence_FSTRoundTrip(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 
-	buf := store.NewByteArrayDataOutput(4096)
+	buf := store.NewByteBuffersDataOutput()
 	stored, err := orig.Store(buf)
 	if err != nil {
 		t.Fatalf("Store: %v", err)
@@ -140,7 +140,7 @@ func TestPersistence_FSTRoundTrip(t *testing.T) {
 	}
 
 	reloaded := fst.NewFSTCompletionLookup(10, false)
-	data := buf.GetBytes()
+	data := buf.ToArrayCopy()
 	loaded, err := reloaded.Load(store.NewByteArrayDataInput(data))
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -184,7 +184,7 @@ func TestPersistence_FSTRoundTrip(t *testing.T) {
 func TestPersistence_FSTEmptyRoundTrip(t *testing.T) {
 	orig := fst.NewFSTCompletionLookup(10, false)
 
-	buf := store.NewByteArrayDataOutput(64)
+	buf := store.NewByteBuffersDataOutput()
 	stored, err := orig.Store(buf)
 	if err != nil {
 		t.Fatalf("Store: %v", err)
@@ -194,7 +194,7 @@ func TestPersistence_FSTEmptyRoundTrip(t *testing.T) {
 	}
 
 	reloaded := fst.NewFSTCompletionLookup(10, false)
-	data := buf.GetBytes()
+	data := buf.ToArrayCopy()
 	_, err = reloaded.Load(store.NewByteArrayDataInput(data))
 	if err != nil {
 		t.Fatalf("Load: %v", err)

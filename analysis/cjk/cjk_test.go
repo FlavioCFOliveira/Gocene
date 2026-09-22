@@ -80,14 +80,14 @@ func collectTokensWithTypes(t *testing.T, ts analysis.TokenStream) [][2]string {
 // newWhitespacePipeline builds a WhitespaceTokenizer → filter pipeline.
 func newWhitespacePipeline(input string, makeFilter func(ts analysis.TokenStream) analysis.TokenStream) analysis.TokenStream {
 	tok := analysis.NewWhitespaceTokenizer()
-	_ = tok.SetReader(strings.NewReader(input))
+	tok.SetReader(strings.NewReader(input))
 	return makeFilter(tok)
 }
 
 // newStdPipeline builds a StandardTokenizer → filter pipeline.
 func newStdPipeline(input string, makeFilter func(ts analysis.TokenStream) analysis.TokenStream) analysis.TokenStream {
 	tok := analysis.NewStandardTokenizer()
-	_ = tok.SetReader(strings.NewReader(input))
+	tok.SetReader(strings.NewReader(input))
 	return makeFilter(tok)
 }
 
@@ -146,7 +146,7 @@ func TestCJKWidthFilter_HalfWidthKana(t *testing.T) {
 // TestCJKWidthFilter_Empty verifies empty-term passthrough.
 func TestCJKWidthFilter_Empty(t *testing.T) {
 	tok := analysis.NewKeywordTokenizer()
-	_ = tok.SetReader(strings.NewReader(""))
+	tok.SetReader(strings.NewReader(""))
 	ts := NewCJKWidthFilter(tok)
 	got := collectTokens(t, ts)
 	if len(got) != 1 || got[0] != "" {

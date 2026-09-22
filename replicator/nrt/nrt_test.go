@@ -650,7 +650,7 @@ func buildCopyFilePayload(t *testing.T, dir store.Directory, fileName string) ([
 
 	length := in.Length()
 	all := make([]byte, length)
-	if err := in.ReadBytes(all); err != nil {
+	if err := in.ReadBytes(all, 0, len(all)); err != nil {
 		t.Fatalf("ReadBytes: %v", err)
 	}
 
@@ -699,7 +699,7 @@ func TestCopyOneFile_Copy_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutput src payload: %v", err)
 	}
-	if err := payloadOut.WriteBytes(payload); err != nil {
+	if err := payloadOut.WriteBytes(payload, 0, len(payload)); err != nil {
 		t.Fatalf("WriteBytes payload: %v", err)
 	}
 	if err := payloadOut.Close(); err != nil {
@@ -754,7 +754,7 @@ func TestCopyOneFile_Copy_ChecksumMismatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := po.WriteBytes(payload); err != nil {
+	if err := po.WriteBytes(payload, 0, len(payload)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if err := po.Close(); err != nil {

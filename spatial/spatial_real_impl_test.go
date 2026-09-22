@@ -5,6 +5,7 @@
 package spatial
 
 import (
+	"errors"
 	"math"
 	"sort"
 	"testing"
@@ -147,13 +148,13 @@ func (r *spatialStubLeaf) GetRefCount() int32  { return 1 }
 func (r *spatialStubLeaf) GetContext() (index.IndexReaderContext, error) {
 	return nil, nil
 }
-func (r *spatialStubLeaf) Leaves() ([]*index.LeafReaderContext, error)       { return nil, nil }
-func (r *spatialStubLeaf) StoredFields() (index.StoredFields, error)         { return nil, nil }
-func (r *spatialStubLeaf) TermVectors() (index.TermVectors, error)           { return nil, nil }
-func (r *spatialStubLeaf) GetCoreCacheKey() interface{}                      { return r }
-func (r *spatialStubLeaf) GetTermVectors(_ int) (index.Fields, error)        { return nil, nil }
-func (r *spatialStubLeaf) Terms(field string) (index.Terms, error)           { return r.terms[field], nil }
-func (r *spatialStubLeaf) Postings(_ index.Term) (index.PostingsEnum, error) { return nil, nil }
+func (r *spatialStubLeaf) Leaves() ([]*index.LeafReaderContext, error)          { return nil, nil }
+func (r *spatialStubLeaf) StoredFields() (index.StoredFields, error)            { return nil, nil }
+func (r *spatialStubLeaf) TermVectors() (index.TermVectors, error)              { return nil, nil }
+func (r *spatialStubLeaf) GetCoreCacheKey() interface{}                         { return r }
+func (r *spatialStubLeaf) GetTermVectors(_ int) (index.Fields, error)           { return nil, nil }
+func (r *spatialStubLeaf) Terms(field string) (index.Terms, error)              { return r.terms[field], nil }
+func (r *spatialStubLeaf) Postings(_ spi.Term, _ int) (spi.PostingsEnum, error) { return nil, nil }
 func (r *spatialStubLeaf) PostingsWithFreqPositions(_ index.Term, _ int) (index.PostingsEnum, error) {
 	return nil, nil
 }
@@ -174,14 +175,14 @@ func (r *spatialStubLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValue
 func (r *spatialStubLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error) {
 	return nil, nil
 }
-func (r *spatialStubLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error) {
+func (r *spatialStubLeaf) GetDocValuesSkipper(_ string) (spi.DocValuesSkipper, error) {
 	return nil, nil
 }
 func (r *spatialStubLeaf) CheckIntegrity() error                   { return nil }
 func (r *spatialStubLeaf) GetMetaData() *index.IndexReaderMetaData { return nil }
 func (r *spatialStubLeaf) GetSegmentInfo() *index.SegmentInfo      { return nil }
-func (r *spatialStubLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits) (index.TopDocs, error) {
-	return index.TopDocs{}, nil
+func (r *spatialStubLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits, _ int) (spi.TopDocs, error) {
+	return spi.TopDocs{}, nil
 }
 
 // GetNumericDocValues / GetBinaryDocValues are the inline-interface
@@ -199,6 +200,75 @@ func (r *spatialStubLeaf) GetBinaryDocValues(field string) (index.BinaryDocValue
 		return dv, nil
 	}
 	return nil, nil
+}
+
+// DocFreq carries the default body Lucene gives LeafReader.DocFreq.
+func (r *spatialStubLeaf) DocFreq(term spi.Term) (int, error) {
+	terms, err := r.Terms(term.Field)
+	if err != nil || terms == nil {
+		return 0, err
+	}
+	te, err := terms.Iterator()
+	if err != nil || te == nil {
+		return 0, err
+	}
+	found, err := te.SeekExact(&term)
+	if err != nil || !found {
+		return 0, err
+	}
+	return te.DocFreq()
+}
+
+// DocID carries the default body Lucene gives LeafReader.DocID.
+func (r *spatialStubLeaf) DocID() int {
+	return 0
+}
+
+// GetCoreCacheHelper carries the default body Lucene gives LeafReader.GetCoreCacheHelper.
+func (r *spatialStubLeaf) GetCoreCacheHelper() spi.CacheHelper {
+	return nil
+}
+
+// GetFieldInfos carries the default body Lucene gives LeafReader.GetFieldInfos.
+func (r *spatialStubLeaf) GetFieldInfos() *spi.FieldInfos {
+	return spi.NewFieldInfos()
+}
+
+// GetLiveDocs carries the default body Lucene gives LeafReader.GetLiveDocs.
+func (r *spatialStubLeaf) GetLiveDocs() util.Bits {
+	return nil
+}
+
+// GetReaderCacheHelper carries the default body Lucene gives LeafReader.GetReaderCacheHelper.
+func (r *spatialStubLeaf) GetReaderCacheHelper() spi.CacheHelper {
+	return nil
+}
+
+// SearchNearestVectorsByteCollector is abstract in Lucene's LeafReader; this double does not support it.
+func (r *spatialStubLeaf) SearchNearestVectorsByteCollector(field string, target []byte, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	return errors.New("spatialStubLeaf.SearchNearestVectorsByteCollector: unsupported operation")
+}
+
+// SearchNearestVectorsCollector is abstract in Lucene's LeafReader; this double does not support it.
+func (r *spatialStubLeaf) SearchNearestVectorsCollector(field string, target []float32, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	return errors.New("spatialStubLeaf.SearchNearestVectorsCollector: unsupported operation")
+}
+
+// TotalTermFreq carries the default body Lucene gives LeafReader.TotalTermFreq.
+func (r *spatialStubLeaf) TotalTermFreq(term spi.Term) (int64, error) {
+	terms, err := r.Terms(term.Field)
+	if err != nil || terms == nil {
+		return 0, err
+	}
+	te, err := terms.Iterator()
+	if err != nil || te == nil {
+		return 0, err
+	}
+	found, err := te.SeekExact(&term)
+	if err != nil || !found {
+		return 0, err
+	}
+	return te.TotalTermFreq()
 }
 
 var _ index.LeafReaderInterface = (*spatialStubLeaf)(nil)
@@ -392,6 +462,8 @@ func TestSerializedDVDistanceValueSource_ReadsBinaryDV(t *testing.T) {
 // stubTerms returns a deterministic TermsEnum over a hard-coded
 // (token -> []docID) map.
 type stubTerms struct {
+	spi.TermsBase
+
 	postings map[string][]int
 }
 
@@ -499,6 +571,36 @@ func (p *stubPostingsEnum) StartOffset() (int, error)   { return -1, nil }
 func (p *stubPostingsEnum) EndOffset() (int, error)     { return -1, nil }
 func (p *stubPostingsEnum) Cost() int64                 { return int64(len(p.docs)) }
 func (p *stubPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }
+
+// DocIDRunEnd carries the default body Lucene gives BinaryDocValues.DocIDRunEnd.
+func (s *stubBinaryDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(s)
+}
+
+// IntoBitSet carries the default body Lucene gives BinaryDocValues.IntoBitSet.
+func (s *stubBinaryDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body Lucene gives NumericDocValues.DocIDRunEnd.
+func (s *stubNumericDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(s)
+}
+
+// IntoBitSet carries the default body Lucene gives NumericDocValues.IntoBitSet.
+func (s *stubNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (p *stubPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
+}
+
+// Impacts is abstract in Lucene's TermsEnum; this double does not support it.
+func (s *stubTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, errors.New("stubTermsEnum.Impacts: unsupported operation")
+}
 
 var _ spi.PostingsEnum = (*stubPostingsEnum)(nil)
 
@@ -709,7 +811,7 @@ func TestSerializedDVScorer_FiltersByPredicate(t *testing.T) {
 
 	var got []int
 	for {
-		d, err := scorer.NextDoc()
+		d, err := scorer.Iterator().NextDoc()
 		if err != nil {
 			t.Fatalf("NextDoc: %v", err)
 		}

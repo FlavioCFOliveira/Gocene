@@ -57,11 +57,11 @@ func TestFSTMetadataInputTypeRoundTrip(t *testing.T) {
 			m := NewFSTMetadata[*util.BytesRef](
 				it, ByteSequenceOutputs(), nil, false, 17, VERSION_CURRENT, 1234,
 			)
-			buf := store.NewByteArrayDataOutput(64)
+			buf := store.NewByteBuffersDataOutput()
 			if err := m.Save(buf); err != nil {
 				t.Fatalf("Save: %v", err)
 			}
-			raw := buf.GetBytes()
+			raw := buf.ToArrayCopy()
 			// Expected layout: 4 BE magic, VInt(3)+"FST", 4 BE version,
 			// 1 byte zero (no empty), 1 byte input type, VLong startNode,
 			// VLong numBytes.
@@ -122,11 +122,11 @@ func TestFSTMetadataWithEmptyOutputRoundTrip(t *testing.T) {
 	m := NewFSTMetadata[*util.BytesRef](
 		InputTypeByte1, ByteSequenceOutputs(), emptyOut, true, 0, VERSION_CURRENT, 0,
 	)
-	buf := store.NewByteArrayDataOutput(64)
+	buf := store.NewByteBuffersDataOutput()
 	if err := m.Save(buf); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	in := store.NewByteArrayDataInput(buf.GetBytes())
+	in := store.NewByteArrayDataInput(buf.ToArrayCopy())
 	got, err := ReadMetadata[*util.BytesRef](in, ByteSequenceOutputs())
 	if err != nil {
 		t.Fatalf("ReadMetadata: %v", err)
@@ -152,7 +152,7 @@ func TestFSTMetadataRejectsBadMagic(t *testing.T) {
 // TestFSTMetadataRejectsBadVersion verifies that a too-new version is
 // refused.
 func TestFSTMetadataRejectsBadVersion(t *testing.T) {
-	buf := store.NewByteArrayDataOutput(32)
+	buf := store.NewByteBuffersDataOutput()
 	// Hand-write the header with version 99 (out of range).
 	if err := writeBEInt32(buf, codecMagic); err != nil {
 		t.Fatal(err)
@@ -163,7 +163,7 @@ func TestFSTMetadataRejectsBadVersion(t *testing.T) {
 	if err := writeBEInt32(buf, 99); err != nil {
 		t.Fatal(err)
 	}
-	in := store.NewByteArrayDataInput(buf.GetBytes())
+	in := store.NewByteArrayDataInput(buf.ToArrayCopy())
 	if _, err := ReadMetadata[*util.BytesRef](in, ByteSequenceOutputs()); err == nil {
 		t.Fatal("expected an error for unsupported version")
 	}

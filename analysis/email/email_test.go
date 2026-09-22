@@ -17,9 +17,7 @@ func analyzeToTokens(t *testing.T, a *UAX29URLEmailAnalyzer, text string) []stri
 	t.Helper()
 	tok := analysis.NewUAX29URLEmailTokenizer()
 	tok.SetMaxTokenLength(a.GetMaxTokenLength())
-	if err := tok.SetReader(strings.NewReader(text)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(text))
 	lc := analysis.NewLowerCaseFilter(tok)
 
 	var stopSlice []string

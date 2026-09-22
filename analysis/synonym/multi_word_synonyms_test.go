@@ -53,7 +53,7 @@ func TestMultiWordSynonyms_PassThrough(t *testing.T) {
 		if !ok {
 			break
 		}
-		attr := f.GetAttribute("CharTermAttribute")
+		attr := f.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			break
 		}

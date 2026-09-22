@@ -8,11 +8,10 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
-
 	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // TestBasicBackwardsCompatibility verifies that an index created with a
@@ -88,7 +87,7 @@ func TestBasicBackwardsCompatibility(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -105,8 +104,10 @@ func TestBasicBackwardsCompatibility(t *testing.T) {
 	}
 	for i := 0; i < infos.Size(); i++ {
 		sci := infos.Get(i)
-		if sci != nil && sci.SegmentInfo().Codec() != codecName {
-			t.Fatalf("segment %d: expected codec %q, got %q", i, codecName, sci.SegmentInfo().Codec())
+		if sci != nil {
+			if c := sci.SegmentInfo().Codec(); c == nil || c.Name() != codecName {
+				t.Fatalf("segment %d: expected codec %q, got %v", i, codecName, c)
+			}
 		}
 	}
 
@@ -169,7 +170,7 @@ func TestBasicBackwardsCompatibility_DefaultCodec(t *testing.T) {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	writer.Close()
@@ -230,7 +231,7 @@ func TestLucene104Roundtrip(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	writer.Close()

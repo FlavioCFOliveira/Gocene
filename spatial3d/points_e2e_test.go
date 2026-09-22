@@ -12,7 +12,6 @@ import (
 	// FieldsWriter/FieldsReader hooks are installed (rmp #4769).
 	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
-
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
@@ -55,7 +54,7 @@ func TestPointsEndToEnd_IntLongRangeAndGeo3D(t *testing.T) {
 	}
 	geoDocs := make([]geoDoc, numDocs)
 
-	iwc := index.NewIndexWriterConfig(nil)
+	iwc := index.NewIndexWriterConfigWithAnalyzer(nil)
 	w, err := index.NewIndexWriter(dir, iwc)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -96,7 +95,7 @@ func TestPointsEndToEnd_IntLongRangeAndGeo3D(t *testing.T) {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -137,11 +136,11 @@ func TestPointsEndToEnd_IntLongRangeAndGeo3D(t *testing.T) {
 			if pv == nil {
 				t.Fatalf("GetPointValues(%q) returned nil", c.field)
 			}
-			if got := pv.GetNumDimensions(); got != c.dims {
-				t.Errorf("field %q GetNumDimensions = %d, want %d", c.field, got, c.dims)
+			if got, err := pv.GetNumDimensions(); err != nil || got != c.dims {
+				t.Errorf("field %q GetNumDimensions = %d, want %d (err: %v)", c.field, got, c.dims, err)
 			}
-			if got := pv.GetBytesPerDimension(); got != c.bytesDim {
-				t.Errorf("field %q GetBytesPerDimension = %d, want %d", c.field, got, c.bytesDim)
+			if got, err := pv.GetBytesPerDimension(); err != nil || got != c.bytesDim {
+				t.Errorf("field %q GetBytesPerDimension = %d, want %d (err: %v)", c.field, got, c.bytesDim, err)
 			}
 			switch c.field {
 			case intField:

@@ -4,23 +4,26 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 type mockStoredFieldsWriter struct {
-	spi.BaseStoredFieldsWriter
+	codecs.BaseStoredFieldsWriter
 }
 
-func (w *mockStoredFieldsWriter) StartDocument() error                  { return nil }
-func (w *mockStoredFieldsWriter) FinishDocument() error                 { return nil }
-func (w *mockStoredFieldsWriter) WriteField(f spi.IndexableField) error { return nil }
-func (w *mockStoredFieldsWriter) Finish(n int) error                    { return nil }
-func (w *mockStoredFieldsWriter) Close() error                          { return nil }
+func (w *mockStoredFieldsWriter) StartDocument() error  { return nil }
+func (w *mockStoredFieldsWriter) FinishDocument() error { return nil }
+func (w *mockStoredFieldsWriter) WriteField(info *spi.FieldInfo, f spi.IndexableField) error {
+	return nil
+}
+func (w *mockStoredFieldsWriter) Finish(n int) error { return nil }
+func (w *mockStoredFieldsWriter) Close() error       { return nil }
 
 type mockStoredFieldsFormat struct {
-	spi.BaseStoredFieldsFormat
+	codecs.BaseStoredFieldsFormat
 }
 
 func (f *mockStoredFieldsFormat) FieldsReader(dir store.Directory, si *index.SegmentInfo, fi *index.FieldInfos, ctx store.IOContext) (spi.StoredFieldsReader, error) {
@@ -66,7 +69,7 @@ func TestCrankyPostingsFormat(t *testing.T) {
 }
 
 type mockPostingsFormat struct {
-	spi.BasePostingsFormat
+	codecs.BasePostingsFormat
 }
 
 func (f *mockPostingsFormat) FieldsConsumer(state *index.SegmentWriteState) (spi.FieldsConsumer, error) {
@@ -77,7 +80,7 @@ func (f *mockPostingsFormat) FieldsProducer(state *index.SegmentReadState) (spi.
 }
 
 type mockFieldsConsumer struct {
-	spi.BaseFieldsConsumer
+	codecs.BaseFieldsConsumer
 }
 
 func (c *mockFieldsConsumer) Write(fields spi.Fields, norms spi.NormsProducer) error { return nil }
@@ -102,7 +105,7 @@ func TestCrankyNormsFormat(t *testing.T) {
 }
 
 type mockNormsFormat struct {
-	spi.BaseNormsFormat
+	codecs.BaseNormsFormat
 }
 
 func (f *mockNormsFormat) NormsConsumer(state *index.SegmentWriteState) (spi.NormsConsumer, error) {
@@ -113,7 +116,7 @@ func (f *mockNormsFormat) NormsProducer(state *index.SegmentReadState) (spi.Norm
 }
 
 type mockNormsConsumer struct {
-	spi.BaseNormsConsumer
+	codecs.BaseNormsConsumer
 }
 
 func (c *mockNormsConsumer) AddNormsField(f *index.FieldInfo, p spi.NormsProducer) error { return nil }
@@ -137,9 +140,9 @@ func TestCrankyFieldInfosFormat(t *testing.T) {
 	}
 }
 
-type mockFieldInfosFormat struct {
-	spi.BaseFieldInfosFormat
-}
+type mockFieldInfosFormat struct{}
+
+func (f *mockFieldInfosFormat) Name() string { return "mock" }
 
 func (f *mockFieldInfosFormat) Read(dir store.Directory, si *index.SegmentInfo, s string, ctx store.IOContext) (*index.FieldInfos, error) {
 	return nil, nil

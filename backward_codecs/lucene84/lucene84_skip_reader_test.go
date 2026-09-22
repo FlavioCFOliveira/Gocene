@@ -22,7 +22,7 @@ func bytesAsIndexInput(t *testing.T, data []byte) store.IndexInput {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := out.WriteBytes(data); err != nil {
+	if err := out.WriteBytes(data, 0, len(data)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -70,7 +70,7 @@ func TestTrim84_ZeroIsMultiple(t *testing.T) {
 // Lucene 8.4 impact encoding scheme, matching decodeImpacts84.
 // Used only for test construction; not part of production code.
 func encodeImpacts84(pairs [][2]int64) []byte {
-	buf := store.NewByteArrayDataOutput(64)
+	buf := store.NewByteBuffersDataOutput()
 	var prevFreq, prevNorm int64
 	for _, p := range pairs {
 		freq, norm := p[0], p[1]
@@ -88,7 +88,7 @@ func encodeImpacts84(pairs [][2]int64) []byte {
 		prevFreq = freq
 		prevNorm = norm
 	}
-	return buf.GetBytes()[:buf.GetPosition()]
+	return buf.ToArrayCopy()[:buf.Size()]
 }
 
 func zigZagEncodeI64(v int64) int64 {

@@ -25,7 +25,7 @@ func writeBlocksLE(t *testing.T, dir *store.ByteBuffersDirectory, name string, b
 	buf := make([]byte, 8)
 	for _, b := range blocks {
 		binary.LittleEndian.PutUint64(buf, uint64(b))
-		if err := out.WriteBytes(buf); err != nil {
+		if err := out.WriteBytes(buf, 0, len(buf)); err != nil {
 			t.Fatalf("WriteBytes: %v", err)
 		}
 	}
@@ -115,7 +115,7 @@ func TestDirectPacked64SingleBlockReader_HonoursStartPointer(t *testing.T) {
 	}
 	// Prefix bytes the reader must skip past.
 	const prefix = 13
-	if err := out.WriteBytes(make([]byte, prefix)); err != nil {
+	if err := out.WriteBytes(make([]byte, prefix), 0, len(make([]byte, prefix))); err != nil {
 		t.Fatalf("WriteBytes prefix: %v", err)
 	}
 	oracle := newPacked64SingleBlock(valueCount, bpv)
@@ -125,7 +125,7 @@ func TestDirectPacked64SingleBlockReader_HonoursStartPointer(t *testing.T) {
 	buf := make([]byte, 8)
 	for _, b := range oracle.blocks {
 		binary.LittleEndian.PutUint64(buf, uint64(b))
-		if err := out.WriteBytes(buf); err != nil {
+		if err := out.WriteBytes(buf, 0, len(buf)); err != nil {
 			t.Fatalf("WriteBytes block: %v", err)
 		}
 	}

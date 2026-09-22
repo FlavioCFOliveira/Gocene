@@ -23,6 +23,11 @@ func (f *fakeBytesReader) GetPosition() int64      { return f.pos }
 func (f *fakeBytesReader) SetPosition(pos int64)   { f.pos = pos }
 func (f *fakeBytesReader) SkipBytes(n int64) error { f.pos -= n; return nil }
 
+// ReadVInt and ReadVLong are promoted from both embedded interfaces; the
+// DataInput reads are the ones the fake exposes.
+func (f *fakeBytesReader) ReadVInt() (int32, error)  { return f.DataInput.ReadVInt() }
+func (f *fakeBytesReader) ReadVLong() (int64, error) { return f.DataInput.ReadVLong() }
+
 // fakeFSTReader exercises the FSTReader contract.
 type fakeFSTReader struct {
 	bytes []byte
@@ -53,11 +58,11 @@ func TestFSTReaderInterfaceContract(t *testing.T) {
 		t.Fatalf("GetPosition mismatch")
 	}
 
-	out := store.NewByteArrayDataOutput(2)
+	out := store.NewByteBuffersDataOutput()
 	if err := r.WriteTo(out); err != nil {
 		t.Fatalf("WriteTo: %v", err)
 	}
-	if len(out.GetBytes()) != 2 {
-		t.Fatalf("WriteTo wrote %d bytes; want 2", len(out.GetBytes()))
+	if len(out.ToArrayCopy()) != 2 {
+		t.Fatalf("WriteTo wrote %d bytes; want 2", len(out.ToArrayCopy()))
 	}
 }

@@ -118,8 +118,8 @@ func TestLucene912Codec_DelegateFormats_NonNil(t *testing.T) {
 	if c.FieldInfosFormat() == nil {
 		t.Error("FieldInfosFormat() is nil")
 	}
-	if c.SegmentInfosFormat() == nil {
-		t.Error("SegmentInfosFormat() is nil")
+	if c.SegmentInfoFormat() == nil {
+		t.Error("SegmentInfoFormat() is nil")
 	}
 	if c.TermVectorsFormat() == nil {
 		t.Error("TermVectorsFormat() is nil")

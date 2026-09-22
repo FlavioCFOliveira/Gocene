@@ -47,7 +47,7 @@ func TestQueryParserCompatibility_TermQuery(t *testing.T) {
 				return
 			}
 
-			term := termQuery.Term()
+			term := termQuery.GetTerm()
 			if term.Text() != tc.expectedTerm {
 				t.Errorf("expected term %q, got %q", tc.expectedTerm, term.Text())
 			}
@@ -95,8 +95,8 @@ func TestQueryParserCompatibility_BooleanAND(t *testing.T) {
 
 			// All clauses should be MUST (required)
 			for i, clause := range clauses {
-				if clause.Occur != search.MUST {
-					t.Errorf("clause %d: expected MUST, got %v", i, clause.Occur)
+				if clause.Occur() != search.MUST {
+					t.Errorf("clause %d: expected MUST, got %v", i, clause.Occur())
 				}
 			}
 		})
@@ -138,8 +138,8 @@ func TestQueryParserCompatibility_BooleanOR(t *testing.T) {
 
 			// All clauses should be SHOULD
 			for i, clause := range clauses {
-				if clause.Occur != search.SHOULD {
-					t.Errorf("clause %d: expected SHOULD, got %v", i, clause.Occur)
+				if clause.Occur() != search.SHOULD {
+					t.Errorf("clause %d: expected SHOULD, got %v", i, clause.Occur())
 				}
 			}
 		})
@@ -179,7 +179,7 @@ func TestQueryParserCompatibility_BooleanNOT(t *testing.T) {
 			// Check prohibited clauses
 			prohibitedCount := 0
 			for _, clause := range clauses {
-				if clause.Occur == search.MUST_NOT {
+				if clause.Occur() == search.MUST_NOT {
 					prohibitedCount++
 				}
 			}
@@ -225,7 +225,7 @@ func TestQueryParserCompatibility_RequiredProhibited(t *testing.T) {
 			mustCount, mustNotCount, shouldCount := 0, 0, 0
 
 			for _, clause := range clauses {
-				switch clause.Occur {
+				switch clause.Occur() {
 				case search.MUST:
 					mustCount++
 				case search.MUST_NOT:
@@ -272,7 +272,7 @@ func TestQueryParserCompatibility_PhraseQuery(t *testing.T) {
 			// Should be a phrase query or multi-term query
 			switch q := query.(type) {
 			case *search.PhraseQuery:
-				terms := q.Terms()
+				terms := q.GetTerms()
 				if len(terms) != len(tc.expectedTerms) {
 					t.Errorf("expected %d terms, got %d", len(tc.expectedTerms), len(terms))
 				}
@@ -315,7 +315,7 @@ func TestQueryParserCompatibility_Wildcard(t *testing.T) {
 			switch q := query.(type) {
 			case *search.WildcardQuery:
 				// Direct wildcard query
-				if !strings.Contains(q.String(), tc.wildcard[:len(tc.wildcard)-1]) {
+				if !strings.Contains(q.String(""), tc.wildcard[:len(tc.wildcard)-1]) {
 					t.Errorf("expected wildcard containing %s", tc.wildcard)
 				}
 			case *search.BoostQuery:
@@ -354,8 +354,8 @@ func TestQueryParserCompatibility_Fuzzy(t *testing.T) {
 			// Check if it's a fuzzy query (possibly wrapped)
 			switch q := query.(type) {
 			case *search.FuzzyQuery:
-				if q.Term().Text() != tc.term {
-					t.Errorf("expected term %q, got %q", tc.term, q.Term().Text())
+				if q.GetTerm().Text() != tc.term {
+					t.Errorf("expected term %q, got %q", tc.term, q.GetTerm().Text())
 				}
 			case *search.BoostQuery:
 				// Fuzzy with boost
@@ -429,7 +429,7 @@ func TestQueryParserCompatibility_RangeQuery(t *testing.T) {
 			switch q := query.(type) {
 			case *search.TermRangeQuery:
 				// Range query
-				t.Logf("got range query: %s", q.String())
+				t.Logf("got range query: %s", q.String(""))
 			default:
 				t.Logf("query type for %s: %T", tc.query, query)
 			}

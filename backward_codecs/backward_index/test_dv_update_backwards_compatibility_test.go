@@ -7,11 +7,10 @@ package backward_index
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
-
 	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
 )
 
 // TestDVUpdateBackwardsCompatibility verifies doc-values fields survive a
@@ -67,7 +66,7 @@ func TestDVUpdateBackwardsCompatibility(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	writer.Close()
@@ -141,7 +140,7 @@ func TestDocValuesRoundtrip(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	writer.Close()

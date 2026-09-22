@@ -65,7 +65,7 @@ func TestLucene94HnswVectorsReader_ReadMetadata_LittleEndianPayload(t *testing.T
 	// One field entry (dense docsWithField, single graph level).
 	mustWriteInt(t, out, 0)                                  // field number
 	mustWriteInt(t, out, int32(index.VectorEncodingFloat32)) // encoding ordinal
-	mustWriteInt(t, out, int32(index.VectorSimilarityFunctionDotProduct))
+	mustWriteInt(t, out, int32(index.VectorSimilarityFunctionDotProduct.ID()))
 	mustWriteVLong(t, out, 0)                // vectorDataOffset
 	mustWriteVLong(t, out, vectorDataLength) // vectorDataLength
 	mustWriteVLong(t, out, 0)                // vectorIndexOffset
@@ -168,7 +168,7 @@ func mustWriteShort(t *testing.T, out store.IndexOutput, v int16) {
 
 func mustWriteVLong(t *testing.T, out store.IndexOutput, v int64) {
 	t.Helper()
-	if err := store.WriteVLong(out, v); err != nil {
+	if err := out.WriteVLong(v); err != nil {
 		t.Fatalf("WriteVLong(%d): %v", v, err)
 	}
 }

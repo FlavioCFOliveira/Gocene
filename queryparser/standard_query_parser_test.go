@@ -142,11 +142,11 @@ func TestStandardQueryParser_RangeQueryReturnsTermRange(t *testing.T) {
 			if got := rq.IncludesUpper(); got != tc.incUpper {
 				t.Errorf("IncludesUpper = %v, want %v", got, tc.incUpper)
 			}
-			if string(rq.LowerTerm()) != "a" {
-				t.Errorf("LowerTerm = %q, want %q", rq.LowerTerm(), "a")
+			if rq.GetLowerTerm().Utf8ToString() != "a" {
+				t.Errorf("LowerTerm = %q, want %q", rq.GetLowerTerm(), "a")
 			}
-			if string(rq.UpperTerm()) != "z" {
-				t.Errorf("UpperTerm = %q, want %q", rq.UpperTerm(), "z")
+			if rq.GetUpperTerm().Utf8ToString() != "z" {
+				t.Errorf("UpperTerm = %q, want %q", rq.GetUpperTerm(), "z")
 			}
 		})
 	}

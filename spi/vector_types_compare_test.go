@@ -7,6 +7,8 @@ package spi
 import (
 	"math"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestVectorSimilarityFunction_Compare locks the float similarity formulas to
@@ -26,31 +28,31 @@ func TestVectorSimilarityFunction_Compare(t *testing.T) {
 		{
 			// 1 / (1 + squareDistance); squareDistance = 1+4 = 5.
 			name: "euclidean",
-			sim:  VectorSimilarityFunctionEuclidean,
+			sim:  util.EuclideanSim,
 			want: 1.0 / (1.0 + 5.0),
 		},
 		{
 			// (1 + dot) / 2; dot = 2*1 + 3*1 = 5.
 			name: "dot_product",
-			sim:  VectorSimilarityFunctionDotProduct,
+			sim:  util.DotProductSim,
 			want: (1.0 + 5.0) / 2.0,
 		},
 		{
 			// (1 + cosine) / 2; cosine = 5 / (sqrt(13) * sqrt(2)).
 			name: "cosine",
-			sim:  VectorSimilarityFunctionCosine,
+			sim:  util.CosineSim,
 			want: (1.0 + 5.0/(math.Sqrt(13)*math.Sqrt(2))) / 2.0,
 		},
 		{
 			// scaleMaxInnerProductScore(dot) with dot = 5 >= 0 -> dot + 1.
 			name: "max_inner_product",
-			sim:  VectorSimilarityFunctionMaximumInnerProduct,
+			sim:  util.MaximumInnerProductSim,
 			want: 5.0 + 1.0,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := tc.sim.Compare(a, b)
+			got := tc.sim.CompareFloat(a, b)
 			if math.Abs(float64(got)-tc.want) > eps {
 				t.Errorf("Compare = %v, want %v", got, tc.want)
 			}
@@ -66,21 +68,21 @@ func TestVectorSimilarityFunction_CompareBytes(t *testing.T) {
 	b := []byte{1, 1}
 
 	// EUCLIDEAN: 1 / (1 + squareDistanceBytes); squareDistance = 1+4 = 5.
-	if got, want := vsfCompareBytes(t, VectorSimilarityFunctionEuclidean, a, b), 1.0/(1.0+5.0); math.Abs(got-want) > eps {
+	if got, want := vsfCompareBytes(t, util.EuclideanSim, a, b), 1.0/(1.0+5.0); math.Abs(got-want) > eps {
 		t.Errorf("euclidean = %v, want %v", got, want)
 	}
 	// DOT_PRODUCT: dotProductScore = 0.5 + dot / (len * 2^15); dot = 5, len = 2.
 	wantDot := 0.5 + 5.0/(2.0*float64(int(1)<<15))
-	if got := vsfCompareBytes(t, VectorSimilarityFunctionDotProduct, a, b); math.Abs(got-wantDot) > eps {
+	if got := vsfCompareBytes(t, util.DotProductSim, a, b); math.Abs(got-wantDot) > eps {
 		t.Errorf("dot_product = %v, want %v", got, wantDot)
 	}
 	// COSINE: (1 + cosine) / 2; cosine = 5 / (sqrt(13) * sqrt(2)).
 	wantCos := (1.0 + 5.0/(math.Sqrt(13)*math.Sqrt(2))) / 2.0
-	if got := vsfCompareBytes(t, VectorSimilarityFunctionCosine, a, b); math.Abs(got-wantCos) > eps {
+	if got := vsfCompareBytes(t, util.CosineSim, a, b); math.Abs(got-wantCos) > eps {
 		t.Errorf("cosine = %v, want %v", got, wantCos)
 	}
 	// MAXIMUM_INNER_PRODUCT: scaleMaxInnerProductScore(dot); dot = 5 >= 0 -> 6.
-	if got, want := vsfCompareBytes(t, VectorSimilarityFunctionMaximumInnerProduct, a, b), 6.0; math.Abs(got-want) > eps {
+	if got, want := vsfCompareBytes(t, util.MaximumInnerProductSim, a, b), 6.0; math.Abs(got-want) > eps {
 		t.Errorf("max_inner_product = %v, want %v", got, want)
 	}
 }

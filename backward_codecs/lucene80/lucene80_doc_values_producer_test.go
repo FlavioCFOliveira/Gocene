@@ -6,6 +6,7 @@ package lucene80
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	bcpacked "github.com/FlavioCFOliveira/Gocene/backward_codecs/packed"
@@ -269,7 +270,8 @@ func (b *beIndexInput) ReadByte() (byte, error) {
 	return v, nil
 }
 
-func (b *beIndexInput) ReadBytes(dst []byte) error {
+func (b *beIndexInput) ReadBytes(dstBuf []byte, offset, length int) error {
+	dst := dstBuf[offset : offset+length]
 	for i := range dst {
 		v, err := b.ReadByte()
 		if err != nil {
@@ -282,7 +284,7 @@ func (b *beIndexInput) ReadBytes(dst []byte) error {
 
 func (b *beIndexInput) ReadBytesN(n int) ([]byte, error) {
 	out := make([]byte, n)
-	if err := b.ReadBytes(out); err != nil {
+	if err := b.ReadBytes(out, 0, len(out)); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -304,7 +306,7 @@ func (b *beIndexInput) ReadShort() (int16, error) {
 // ReadInt reads a big-endian int32.
 func (b *beIndexInput) ReadInt() (int32, error) {
 	var buf [4]byte
-	if err := b.ReadBytes(buf[:]); err != nil {
+	if err := b.ReadBytes(buf[:], 0, len(buf[:])); err != nil {
 		return 0, err
 	}
 	return int32(buf[0])<<24 | int32(buf[1])<<16 | int32(buf[2])<<8 | int32(buf[3]), nil
@@ -380,3 +382,105 @@ func (b *beIndexInput) Length() int64 { return int64(len(b.data)) }
 
 // SetPosition moves the read cursor.
 func (b *beIndexInput) SetPosition(pos int64) error { b.pos = int(pos); return nil }
+
+// ReadFloats carries the default body Lucene gives DataInput.ReadFloats.
+func (b *beIndexInput) ReadFloats(dst []float32, offset int, len int) error {
+	for i := 0; i < len; i++ {
+		v, err := b.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = math.Float32frombits(uint32(v))
+	}
+	return nil
+}
+
+// ReadInts carries the default body Lucene gives DataInput.ReadInts.
+func (b *beIndexInput) ReadInts(dst []int32, offset int, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := b.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadLongs carries the default body Lucene gives DataInput.ReadLongs.
+func (b *beIndexInput) ReadLongs(dst []int64, offset int, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := b.ReadLong()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadMapOfStrings carries the default body Lucene gives DataInput.ReadMapOfStrings.
+func (b *beIndexInput) ReadMapOfStrings() (map[string]string, error) {
+	count, err := b.ReadVInt()
+	if err != nil {
+		return nil, err
+	}
+	res := make(map[string]string, count)
+	for i := 0; i < int(count); i++ {
+		k, err := b.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		v, err := b.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		res[k] = v
+	}
+	return res, nil
+}
+
+// ReadSetOfStrings carries the default body Lucene gives DataInput.ReadSetOfStrings.
+func (b *beIndexInput) ReadSetOfStrings() ([]string, error) {
+	count, err := b.ReadVInt()
+	if err != nil {
+		return nil, err
+	}
+	res := make([]string, 0, count)
+	for i := 0; i < int(count); i++ {
+		v, err := b.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, v)
+	}
+	return res, nil
+}
+
+// ReadZInt carries the default body Lucene gives DataInput.ReadZInt.
+func (b *beIndexInput) ReadZInt() (int32, error) {
+	v, err := b.ReadVInt()
+	if err != nil {
+		return 0, err
+	}
+	return int32(uint32(v)>>1) ^ -(v & 1), nil
+}
+
+// ReadZLong carries the default body Lucene gives DataInput.ReadZLong.
+func (b *beIndexInput) ReadZLong() (int64, error) {
+	v, err := b.ReadVLong()
+	if err != nil {
+		return 0, err
+	}
+	return int64(uint64(v)>>1) ^ -(v & 1), nil
+}
+
+// SkipBytes carries the default body Lucene gives DataInput.SkipBytes.
+func (b *beIndexInput) SkipBytes(p0 int64) error {
+	for i := int64(0); i < p0; i++ {
+		if _, err := b.ReadByte(); err != nil {
+			return err
+		}
+	}
+	return nil
+}

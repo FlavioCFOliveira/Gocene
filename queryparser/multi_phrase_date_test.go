@@ -64,8 +64,8 @@ func TestStandardQueryParser_DateRange(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected TermRangeQuery, got %T", q1)
 	}
-	if string(trq.LowerTerm()) != "2024-01-01" {
-		t.Errorf("without resolution, lower = %q, want '2024-01-01'", trq.LowerTerm())
+	if trq.GetLowerTerm().Utf8ToString() != "2024-01-01" {
+		t.Errorf("without resolution, lower = %q, want '2024-01-01'", trq.GetLowerTerm())
 	}
 
 	// With DAY resolution, dates are resolved to compact terms.
@@ -79,11 +79,11 @@ func TestStandardQueryParser_DateRange(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected TermRangeQuery, got %T", q2)
 	}
-	if string(trq2.LowerTerm()) != "20240101000000" {
-		t.Errorf("with DAY resolution, lower = %q, want '20240101000000'", trq2.LowerTerm())
+	if trq2.GetLowerTerm().Utf8ToString() != "20240101000000" {
+		t.Errorf("with DAY resolution, lower = %q, want '20240101000000'", trq2.GetLowerTerm())
 	}
-	if string(trq2.UpperTerm()) != "20241231000000" {
-		t.Errorf("with DAY resolution, upper = %q, want '20241231000000'", trq2.UpperTerm())
+	if trq2.GetUpperTerm().Utf8ToString() != "20241231000000" {
+		t.Errorf("with DAY resolution, upper = %q, want '20241231000000'", trq2.GetUpperTerm())
 	}
 
 	// Open-ended range with date resolution.
@@ -95,8 +95,8 @@ func TestStandardQueryParser_DateRange(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected TermRangeQuery, got %T", q3)
 	}
-	if trq3.UpperTerm() != nil {
-		t.Errorf("expected nil upper term for open range, got %q", trq3.UpperTerm())
+	if trq3.GetUpperTerm() != nil {
+		t.Errorf("expected nil upper term for open range, got %q", trq3.GetUpperTerm())
 	}
 
 	t.Logf("DateRange tests passed")
@@ -115,11 +115,11 @@ func TestStandardQueryParser_DateResolution_Year(t *testing.T) {
 	}
 	trq := q.(*search.TermRangeQuery)
 	// Both rounded to Jan 1st of their respective years.
-	if string(trq.LowerTerm()) != "20240101000000" {
-		t.Errorf("YEAR resolution lower = %q, want '20240101000000'", trq.LowerTerm())
+	if trq.GetLowerTerm().Utf8ToString() != "20240101000000" {
+		t.Errorf("YEAR resolution lower = %q, want '20240101000000'", trq.GetLowerTerm())
 	}
-	if string(trq.UpperTerm()) != "20250101000000" {
-		t.Errorf("YEAR resolution upper = %q, want '20250101000000'", trq.UpperTerm())
+	if trq.GetUpperTerm().Utf8ToString() != "20250101000000" {
+		t.Errorf("YEAR resolution upper = %q, want '20250101000000'", trq.GetUpperTerm())
 	}
 
 	t.Logf("Year resolution test passed")

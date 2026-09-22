@@ -21,7 +21,7 @@ func BenchmarkIndexThroughput(b *testing.B) {
 			dir := store.NewByteBuffersDirectory()
 			defer dir.Close()
 
-			cfg := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+			cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewStandardAnalyzer())
 			cfg.SetUseCompoundFile(false)
 			iw, err := index.NewIndexWriter(dir, cfg)
 			if err != nil {
@@ -32,7 +32,7 @@ func BenchmarkIndexThroughput(b *testing.B) {
 			totalDocs := b.N * docsPerBatch
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				batch := make([]index.Document, docsPerBatch)
+				batch := make([]*document.Document, docsPerBatch)
 				for j := 0; j < docsPerBatch; j++ {
 					doc := document.NewDocument()
 					field, err := document.NewTextField("content", randomText(256), true)

@@ -61,7 +61,7 @@ func TestLucene95HnswVectorsReader_ReadMetadata_LittleEndianPayload(t *testing.T
 
 	mustWriteInt(t, out, 0)                                  // field number
 	mustWriteInt(t, out, int32(index.VectorEncodingFloat32)) // encoding ordinal
-	mustWriteInt(t, out, int32(index.VectorSimilarityFunctionEuclidean))
+	mustWriteInt(t, out, int32(index.VectorSimilarityFunctionEuclidean.ID()))
 	mustWriteVLong(t, out, 0)  // vectorDataOffset
 	mustWriteVLong(t, out, 0)  // vectorDataLength (size == 0)
 	mustWriteVLong(t, out, 0)  // vectorIndexOffset
@@ -163,14 +163,14 @@ func mustWriteShort(t *testing.T, out store.IndexOutput, v int16) {
 
 func mustWriteVInt(t *testing.T, out store.IndexOutput, v int32) {
 	t.Helper()
-	if err := store.WriteVInt(out, v); err != nil {
+	if err := out.WriteVInt(v); err != nil {
 		t.Fatalf("WriteVInt(%d): %v", v, err)
 	}
 }
 
 func mustWriteVLong(t *testing.T, out store.IndexOutput, v int64) {
 	t.Helper()
-	if err := store.WriteVLong(out, v); err != nil {
+	if err := out.WriteVLong(v); err != nil {
 		t.Fatalf("WriteVLong(%d): %v", v, err)
 	}
 }

@@ -7,7 +7,7 @@ package knn
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // TestTopKnnCollectorManagerNewCollector asserts the manager hands
@@ -63,7 +63,7 @@ func TestTopKnnCollectorManagerOptimistic(t *testing.T) {
 
 // TestTopKnnCollectorManagerStrategyPassThrough asserts that the
 // hnsw-side collector ends up bound to the strategy provided to the
-// manager when that strategy satisfies hnsw.KnnSearchStrategy.
+// manager when that strategy satisfies spi.KnnSearchStrategy.
 func TestTopKnnCollectorManagerStrategyPassThrough(t *testing.T) {
 	m := NewTopKnnCollectorManager(2, nil)
 	s := NewHnsw(40)
@@ -88,7 +88,7 @@ func TestTopKnnCollectorManagerStrategyPassThrough(t *testing.T) {
 
 // TestAsHnswStrategyAdapter exercises the fallback adapter path used
 // when a third-party KnnSearchStrategy does NOT directly satisfy
-// hnsw.KnnSearchStrategy. Since the in-tree strategies satisfy both
+// spi.KnnSearchStrategy. Since the in-tree strategies satisfy both
 // interfaces (the compile-time guards in knn_search_strategy.go assert
 // this), the adapter only kicks in for synthetic outsiders.
 func TestAsHnswStrategyAdapter(t *testing.T) {
@@ -98,11 +98,11 @@ func TestAsHnswStrategyAdapter(t *testing.T) {
 	if got := asHnswStrategy(nil); got != nil {
 		t.Errorf("asHnswStrategy(nil) = %v, want nil", got)
 	}
-	// Real strategy satisfies hnsw.KnnSearchStrategy directly.
+	// Real strategy satisfies spi.KnnSearchStrategy directly.
 	s := NewHnsw(0)
 	if got := asHnswStrategy(s); got == nil {
 		t.Errorf("asHnswStrategy(*Hnsw) = nil, want non-nil")
 	}
 	// The hnsw-side adapter satisfies the interface.
-	var _ hnsw.KnnSearchStrategy = strategyAdapter{wrapped: s}
+	var _ spi.KnnSearchStrategy = strategyAdapter{wrapped: s}
 }

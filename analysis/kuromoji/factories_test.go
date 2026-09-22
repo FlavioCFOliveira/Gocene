@@ -152,7 +152,7 @@ func TestFactories_RandomData(t *testing.T) {
 				break
 			}
 			// Ensure CharTermAttribute is populated.
-			attr := tok.GetAttribute("CharTermAttribute")
+			attr := tok.GetAttribute(analysis.CharTermAttributeType)
 			if attr == nil {
 				t.Fatal("CharTermAttribute is nil")
 			}

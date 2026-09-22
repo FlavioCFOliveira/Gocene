@@ -77,7 +77,7 @@ func TestSearchMode_Segmentation(t *testing.T) {
 		if !ok {
 			break
 		}
-		attr := tok.GetAttribute("CharTermAttribute")
+		attr := tok.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			t.Fatal("CharTermAttribute is nil")
 		}
@@ -114,7 +114,7 @@ func TestSearchMode_SegmentationNoOriginal(t *testing.T) {
 		if !ok {
 			break
 		}
-		attr := tok.GetAttribute("CharTermAttribute")
+		attr := tok.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			t.Fatal("CharTermAttribute is nil")
 		}

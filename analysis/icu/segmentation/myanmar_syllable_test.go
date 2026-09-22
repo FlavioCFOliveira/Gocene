@@ -7,6 +7,7 @@ package segmentation_test
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/icu/segmentation"
 )
 
@@ -15,7 +16,7 @@ import (
 // org.apache.lucene.analysis.icu.segmentation.TestMyanmarSyllable, which uses
 // new DefaultICUTokenizerConfig(false, false).
 func newMyanmarSyllableTokenizer() *segmentation.ICUTokenizer {
-	return segmentation.NewICUTokenizerWith(segmentation.NewDefaultICUTokenizerConfig(false, false))
+	return segmentation.NewICUTokenizerWith(analysis.DefaultTokenAttributeFactory, segmentation.NewDefaultICUTokenizerConfig(false, false))
 }
 
 // TestMyanmarSyllable ports org.apache.lucene.analysis.icu.segmentation.

@@ -51,7 +51,7 @@ func TestLucene70SegmentInfoFormat_ReadMissingFileFails(t *testing.T) {
 // TestReadIndexSort70_Empty verifies that numSortFields=0 returns nil.
 func TestReadIndexSort70_Empty(t *testing.T) {
 	in := buildBADI70(t, func(out store.DataOutput) error {
-		return store.WriteVInt(out, 0) // numSortFields=0
+		return out.WriteVInt(0) // numSortFields=0
 	})
 	sort, err := readIndexSort70(in)
 	if err != nil {
@@ -83,14 +83,14 @@ func TestReadIndexSort70_NegativeCountFails(t *testing.T) {
 // field without a missing value.
 func TestReadIndexSort70_StringField(t *testing.T) {
 	in := buildBADI70(t, func(out store.DataOutput) error {
-		if err := store.WriteVInt(out, 1); err != nil { // numSortFields=1
+		if err := out.WriteVInt(1); err != nil { // numSortFields=1
 			return err
 		}
 		// fieldName="title", sortTypeID=0 (STRING), reverse=1 (natural), missingFlag=0
 		if err := writeString70(out, "title"); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, 0); err != nil { // sortTypeID=STRING
+		if err := out.WriteVInt(0); err != nil { // sortTypeID=STRING
 			return err
 		}
 		if err := out.WriteByte(1); err != nil { // reverse=1 → ascending
@@ -111,13 +111,13 @@ func TestReadIndexSort70_StringField(t *testing.T) {
 // missing value.
 func TestReadIndexSort70_LongFieldWithMissing(t *testing.T) {
 	in := buildBADI70(t, func(out store.DataOutput) error {
-		if err := store.WriteVInt(out, 1); err != nil {
+		if err := out.WriteVInt(1); err != nil {
 			return err
 		}
 		if err := writeString70(out, "ts"); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, 1); err != nil { // sortTypeID=LONG
+		if err := out.WriteVInt(1); err != nil { // sortTypeID=LONG
 			return err
 		}
 		if err := out.WriteByte(0); err != nil { // reverse=0 → descending
@@ -142,13 +142,13 @@ func TestReadIndexSort70_LongFieldWithMissing(t *testing.T) {
 // missing value.
 func TestReadIndexSort70_FloatFieldWithMissing(t *testing.T) {
 	in := buildBADI70(t, func(out store.DataOutput) error {
-		if err := store.WriteVInt(out, 1); err != nil {
+		if err := out.WriteVInt(1); err != nil {
 			return err
 		}
 		if err := writeString70(out, "score"); err != nil {
 			return err
 		}
-		if err := store.WriteVInt(out, 4); err != nil { // sortTypeID=FLOAT
+		if err := out.WriteVInt(4); err != nil { // sortTypeID=FLOAT
 			return err
 		}
 		if err := out.WriteByte(1); err != nil { // reverse=1 → ascending
@@ -205,7 +205,7 @@ func newBytesIndexInput70(t *testing.T, b []byte) store.IndexInput {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := out.WriteBytes(b); err != nil {
+	if err := out.WriteBytes(b, 0, len(b)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	_ = out.Close()
@@ -222,10 +222,10 @@ func newBytesIndexInput70(t *testing.T, b []byte) store.IndexInput {
 // byte-exact, no endian swap is needed.
 func writeString70(out store.DataOutput, s string) error {
 	b := []byte(s)
-	if err := store.WriteVInt(out, int32(len(b))); err != nil {
+	if err := out.WriteVInt(int32(len(b))); err != nil {
 		return err
 	}
-	return out.WriteBytes(b)
+	return out.WriteBytes(b, 0, len(b))
 }
 
 // writeLongBE70 writes a big-endian int64 (as EndiannessReverser expects).
@@ -234,12 +234,12 @@ func writeLongBE70(out store.DataOutput, v int64) error {
 	return out.WriteBytes([]byte{
 		byte(v >> 56), byte(v >> 48), byte(v >> 40), byte(v >> 32),
 		byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v),
-	})
+	}, 0, 8)
 }
 
 // writeIntBE70 writes a big-endian int32 for the EndiannessReverser.
 func writeIntBE70(out store.DataOutput, v int32) error {
 	return out.WriteBytes([]byte{
 		byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v),
-	})
+	}, 0, 4)
 }

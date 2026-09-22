@@ -25,7 +25,7 @@ func makeSegmentWithSize(t *testing.T, name string, sizeBytes int64) *gindex.Seg
 	}
 	// Write sizeBytes worth of zero bytes.
 	buf := make([]byte, sizeBytes)
-	if err := out.WriteBytes(buf); err != nil {
+	if err := out.WriteBytes(buf, 0, len(buf)); err != nil {
 		t.Fatalf("makeSegmentWithSize: write bytes: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -34,7 +34,7 @@ func makeSegmentWithSize(t *testing.T, name string, sizeBytes int64) *gindex.Seg
 
 	si := gindex.NewSegmentInfo(name, 10, dir)
 	si.SetFiles([]string{name + ".seg"})
-	sci := gindex.NewSegmentCommitInfo(si, 0, -1)
+	sci := gindex.NewSegmentCommitInfo(si, 0, 0, -1, -1, -1, nil)
 	return sci
 }
 
@@ -91,7 +91,7 @@ func TestMergeOnFlushMergePolicy_NilWhenFewerThanTwoSmallSegments(t *testing.T) 
 	infos.Add(makeSegmentWithSize(t, "_0", thresholdBytes-1))
 
 	ctx := makeBaseMergeContext(nil)
-	spec, err := p.FindFullFlushMerges(gindex.COMMIT, infos, ctx)
+	spec, err := p.FindFullFlushMerges(gindex.MergeTriggerCommit, infos, ctx)
 	if err != nil {
 		t.Fatalf("FindFullFlushMerges: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestMergeOnFlushMergePolicy_TwoSmallSegmentsMerged(t *testing.T) {
 	infos.Add(seg1)
 
 	ctx := makeBaseMergeContext(nil)
-	spec, err := p.FindFullFlushMerges(gindex.COMMIT, infos, ctx)
+	spec, err := p.FindFullFlushMerges(gindex.MergeTriggerCommit, infos, ctx)
 	if err != nil {
 		t.Fatalf("FindFullFlushMerges: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestMergeOnFlushMergePolicy_LargeSegmentExcluded(t *testing.T) {
 	infos.Add(seg2)
 
 	ctx := makeBaseMergeContext(nil)
-	spec, err := p.FindFullFlushMerges(gindex.COMMIT, infos, ctx)
+	spec, err := p.FindFullFlushMerges(gindex.MergeTriggerCommit, infos, ctx)
 	if err != nil {
 		t.Fatalf("FindFullFlushMerges: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestMergeOnFlushMergePolicy_AlreadyMergingExcluded(t *testing.T) {
 
 	// Mark both as already merging.
 	ctx := makeBaseMergeContext([]*gindex.SegmentCommitInfo{seg0, seg1})
-	spec, err := p.FindFullFlushMerges(gindex.COMMIT, infos, ctx)
+	spec, err := p.FindFullFlushMerges(gindex.MergeTriggerCommit, infos, ctx)
 	if err != nil {
 		t.Fatalf("FindFullFlushMerges: %v", err)
 	}
@@ -209,7 +209,7 @@ func TestMergeOnFlushMergePolicy_MixedMergingAndNonMerging(t *testing.T) {
 
 	// Mark seg0 as already merging.
 	ctx := makeBaseMergeContext([]*gindex.SegmentCommitInfo{seg0})
-	spec, err := p.FindFullFlushMerges(gindex.COMMIT, infos, ctx)
+	spec, err := p.FindFullFlushMerges(gindex.MergeTriggerCommit, infos, ctx)
 	if err != nil {
 		t.Fatalf("FindFullFlushMerges: %v", err)
 	}

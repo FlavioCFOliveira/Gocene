@@ -5,6 +5,8 @@
 package lucene90
 
 import (
+	"errors"
+	"sort"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
@@ -28,13 +30,14 @@ func (m *mockIndexOutput) WriteByte(b byte) error {
 	m.fp++
 	return m.buf.WriteByte(b)
 }
-func (m *mockIndexOutput) WriteBytes(b []byte) error {
+func (m *mockIndexOutput) WriteBytes(bBuf []byte, offset, length int) error {
+	b := bBuf[offset : offset+length]
 	m.fp += int64(len(b))
-	return m.buf.WriteBytes(b)
+	return m.buf.WriteBytes(b, 0, len(b))
 }
 func (m *mockIndexOutput) WriteBytesN(b []byte, n int) error {
 	m.fp += int64(n)
-	return m.buf.WriteBytes(b[:n])
+	return m.buf.WriteBytes(b[:n], 0, len(b[:n]))
 }
 func (m *mockIndexOutput) WriteShort(v int16) error {
 	m.fp += 2
@@ -70,6 +73,45 @@ func (m *mockIndexOutput) SetPosition(pos int64) error { m.fp = pos; return nil 
 func (m *mockIndexOutput) Length() int64               { return m.fp }
 func (m *mockIndexOutput) Close() error                { return nil }
 func (m *mockIndexOutput) Checksum() (int64, error)    { return 0, nil }
+
+// WriteGroupVInts is abstract in Lucene's IndexOutput; this double does not support it.
+func (m *mockIndexOutput) WriteGroupVInts(values []int32, limit int) error {
+	return errors.New("mockIndexOutput.WriteGroupVInts: unsupported operation")
+}
+
+// WriteMapOfStrings carries the default body Lucene gives IndexOutput.WriteMapOfStrings.
+func (m *mockIndexOutput) WriteMapOfStrings(p0 map[string]string) error {
+	if err := m.WriteVInt(int32(len(p0))); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(p0))
+	for k := range p0 {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if err := m.WriteString(k); err != nil {
+			return err
+		}
+		if err := m.WriteString(p0[k]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteSetOfStrings carries the default body Lucene gives IndexOutput.WriteSetOfStrings.
+func (m *mockIndexOutput) WriteSetOfStrings(s []string) error {
+	if err := m.WriteVInt(int32(len(s))); err != nil {
+		return err
+	}
+	for _, v := range s {
+		if err := m.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 var _ store.IndexOutput = (*mockIndexOutput)(nil)
 

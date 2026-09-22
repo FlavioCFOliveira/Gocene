@@ -32,7 +32,7 @@ func TestPackedDataInputRoundTrip(t *testing.T) {
 			}
 		}
 
-		out := store.NewByteArrayDataOutput(64)
+		out := store.NewByteBuffersDataOutput()
 		pdo := NewPackedDataOutput(out)
 		for _, v := range values {
 			if err := pdo.WriteLong(v, bpv); err != nil {
@@ -43,7 +43,7 @@ func TestPackedDataInputRoundTrip(t *testing.T) {
 			t.Fatalf("Flush err=%v", err)
 		}
 
-		in := store.NewByteArrayDataInput(out.GetBytes())
+		in := store.NewByteArrayDataInput(out.ToArrayCopy())
 		pdi := NewPackedDataInput(in)
 		for i, want := range values {
 			got, err := pdi.ReadLong(bpv)
@@ -61,7 +61,7 @@ func TestPackedDataInputRoundTrip(t *testing.T) {
 // realigns reads on the next byte boundary.
 func TestPackedDataInputSkipToNextByte(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	pdo := NewPackedDataOutput(out)
 	// 3 + 3 = 6 bits in first byte; the byte will have 2 trailing zero pad bits.
 	_ = pdo.WriteLong(5, 3) // 101
@@ -72,7 +72,7 @@ func TestPackedDataInputSkipToNextByte(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	pdi := NewPackedDataInput(in)
 	if v, _ := pdi.ReadLong(3); v != 5 {
 		t.Fatalf("first read: %d", v)

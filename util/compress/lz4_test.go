@@ -19,11 +19,11 @@ import (
 // stream for sanity checks by callers.
 func roundTrip(t *testing.T, src []byte, ht HashTable) int {
 	t.Helper()
-	out := store.NewByteArrayDataOutput(len(src) + 16)
+	out := store.NewByteBuffersDataOutput()
 	if err := LZ4Compress(src, 0, len(src), out, ht); err != nil {
 		t.Fatalf("LZ4Compress: %v", err)
 	}
-	encoded := out.GetBytes()
+	encoded := out.ToArrayCopy()
 
 	in := store.NewByteArrayDataInput(encoded)
 	dest := make([]byte, len(src))
@@ -142,15 +142,15 @@ func TestLZ4_RoundTrip_Empty(t *testing.T) {
 	t.Parallel()
 	// Empty input: no main loop, just an empty last-literals token (0x00).
 	src := []byte{}
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	if err := LZ4Compress(src, 0, 0, out, NewFastCompressionHashTable()); err != nil {
 		t.Fatalf("LZ4Compress empty: %v", err)
 	}
-	if got := out.GetBytes(); len(got) != 1 || got[0] != 0x00 {
+	if got := out.ToArrayCopy(); len(got) != 1 || got[0] != 0x00 {
 		t.Errorf("empty input: want [00], got %x", got)
 	}
 
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	dest := make([]byte, 0)
 	n, err := LZ4Decompress(in, 0, dest, 0)
 	if err != nil {
@@ -165,17 +165,17 @@ func TestLZ4_RoundTrip_SingleByte(t *testing.T) {
 	t.Parallel()
 	for _, b := range []byte{0x00, 0x42, 0xFF} {
 		src := []byte{b}
-		out := store.NewByteArrayDataOutput(4)
+		out := store.NewByteBuffersDataOutput()
 		if err := LZ4Compress(src, 0, 1, out, NewFastCompressionHashTable()); err != nil {
 			t.Fatalf("LZ4Compress %x: %v", src, err)
 		}
 		// Expect: token = (1<<4) = 0x10, then the literal byte.
 		want := []byte{0x10, b}
-		if got := out.GetBytes(); !bytes.Equal(got, want) {
+		if got := out.ToArrayCopy(); !bytes.Equal(got, want) {
 			t.Errorf("single byte %x: want %x, got %x", src, want, got)
 		}
 
-		in := store.NewByteArrayDataInput(out.GetBytes())
+		in := store.NewByteArrayDataInput(out.ToArrayCopy())
 		dest := make([]byte, 1)
 		n, err := LZ4Decompress(in, 1, dest, 0)
 		if err != nil {
@@ -198,11 +198,11 @@ func TestLZ4_Fixture_LiteralsOnlyShort(t *testing.T) {
 		'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j',
 	}
 
-	out := store.NewByteArrayDataOutput(16)
+	out := store.NewByteBuffersDataOutput()
 	if err := LZ4Compress(src, 0, len(src), out, NewFastCompressionHashTable()); err != nil {
 		t.Fatalf("LZ4Compress: %v", err)
 	}
-	got := out.GetBytes()
+	got := out.ToArrayCopy()
 	if !bytes.Equal(got, want) {
 		t.Errorf("byte-format drift:\n  want %s\n  got  %s",
 			hex.EncodeToString(want), hex.EncodeToString(got))
@@ -222,11 +222,11 @@ func TestLZ4_Fixture_LiteralsOnlyLong(t *testing.T) {
 	}
 	want = append(want, src...)
 
-	out := store.NewByteArrayDataOutput(32)
+	out := store.NewByteBuffersDataOutput()
 	if err := LZ4Compress(src, 0, len(src), out, NewFastCompressionHashTable()); err != nil {
 		t.Fatalf("LZ4Compress: %v", err)
 	}
-	got := out.GetBytes()
+	got := out.ToArrayCopy()
 	if !bytes.Equal(got, want) {
 		t.Errorf("byte-format drift:\n  want %s\n  got  %s",
 			hex.EncodeToString(want), hex.EncodeToString(got))
@@ -255,11 +255,11 @@ func TestLZ4_Fixture_LiteralsContinuation255(t *testing.T) {
 	// Compress then decompress. Verifying the round-trip is more robust
 	// than checking the exact byte format, which depends on hash-table
 	// collisions that the test input cannot fully control.
-	out := store.NewByteArrayDataOutput(500)
+	out := store.NewByteBuffersDataOutput()
 	if err := LZ4Compress(src, 0, len(src), out, NewFastCompressionHashTable()); err != nil {
 		t.Fatalf("LZ4Compress: %v", err)
 	}
-	compressed := out.GetBytes()
+	compressed := out.ToArrayCopy()
 	restored := make([]byte, len(src))
 	n, err := LZ4Decompress(store.NewByteArrayDataInput(compressed), len(restored), restored, 0)
 	if err != nil {
@@ -307,11 +307,11 @@ func TestLZ4_Fixture_SingleMatch_FastHashTable(t *testing.T) {
 		'f', 'g', 'h', 'i', 'j',
 	}
 
-	out := store.NewByteArrayDataOutput(32)
+	out := store.NewByteBuffersDataOutput()
 	if err := LZ4Compress(src, 0, len(src), out, NewFastCompressionHashTable()); err != nil {
 		t.Fatalf("LZ4Compress: %v", err)
 	}
-	got := out.GetBytes()
+	got := out.ToArrayCopy()
 	if !bytes.Equal(got, want) {
 		t.Errorf("byte-format drift:\n  want %s\n  got  %s",
 			hex.EncodeToString(want), hex.EncodeToString(got))
@@ -351,39 +351,39 @@ func TestLZ4_HashTable_Reset(t *testing.T) {
 			t.Parallel()
 			// First, compress src1 then src2 with a single hash table.
 			shared := tc.makeHT()
-			outShared := store.NewByteArrayDataOutput(len(src1) + 8)
+			outShared := store.NewByteBuffersDataOutput()
 			if err := LZ4Compress(src1, 0, len(src1), outShared, shared); err != nil {
 				t.Fatalf("first compress: %v", err)
 			}
-			outSharedSrc1 := append([]byte(nil), outShared.GetBytes()...)
+			outSharedSrc1 := append([]byte(nil), outShared.ToArrayCopy()...)
 
-			outShared2 := store.NewByteArrayDataOutput(len(src2) + 8)
+			outShared2 := store.NewByteBuffersDataOutput()
 			if err := LZ4Compress(src2, 0, len(src2), outShared2, shared); err != nil {
 				t.Fatalf("second compress (reused HT): %v", err)
 			}
-			outSharedSrc2 := append([]byte(nil), outShared2.GetBytes()...)
+			outSharedSrc2 := append([]byte(nil), outShared2.ToArrayCopy()...)
 
 			// Now compress each source with a fresh table; the outputs must match
 			// byte-for-byte (Reset must fully isolate the second invocation).
 			fresh1 := tc.makeHT()
-			outFresh1 := store.NewByteArrayDataOutput(len(src1) + 8)
+			outFresh1 := store.NewByteBuffersDataOutput()
 			if err := LZ4Compress(src1, 0, len(src1), outFresh1, fresh1); err != nil {
 				t.Fatalf("fresh compress 1: %v", err)
 			}
 
 			fresh2 := tc.makeHT()
-			outFresh2 := store.NewByteArrayDataOutput(len(src2) + 8)
+			outFresh2 := store.NewByteBuffersDataOutput()
 			if err := LZ4Compress(src2, 0, len(src2), outFresh2, fresh2); err != nil {
 				t.Fatalf("fresh compress 2: %v", err)
 			}
 
-			if !bytes.Equal(outSharedSrc1, outFresh1.GetBytes()) {
+			if !bytes.Equal(outSharedSrc1, outFresh1.ToArrayCopy()) {
 				t.Errorf("first compress with reused HT differs from fresh:\n  shared=%x\n  fresh =%x",
-					outSharedSrc1, outFresh1.GetBytes())
+					outSharedSrc1, outFresh1.ToArrayCopy())
 			}
-			if !bytes.Equal(outSharedSrc2, outFresh2.GetBytes()) {
+			if !bytes.Equal(outSharedSrc2, outFresh2.ToArrayCopy()) {
 				t.Errorf("second compress with reused HT differs from fresh:\n  shared=%x\n  fresh =%x",
-					outSharedSrc2, outFresh2.GetBytes())
+					outSharedSrc2, outFresh2.ToArrayCopy())
 			}
 
 			// And round-trip the second compressed stream to ensure decode works.

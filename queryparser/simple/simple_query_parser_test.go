@@ -35,8 +35,8 @@ func TestSimpleParserAndOr(t *testing.T) {
 	}
 	expected := []search.Occur{search.MUST, search.MUST_NOT, search.SHOULD}
 	for i, c := range bq.Clauses() {
-		if c.Occur != expected[i] {
-			t.Errorf("clause %d occur = %v, want %v", i, c.Occur, expected[i])
+		if c.Occur() != expected[i] {
+			t.Errorf("clause %d occur = %v, want %v", i, c.Occur(), expected[i])
 		}
 	}
 }
@@ -102,7 +102,7 @@ func TestSimpleParserFieldBoosts(t *testing.T) {
 	p.FieldWeights = map[string]float32{"title": 3.0}
 	q := p.Parse("hello")
 	bq := q.(*search.BooleanQuery)
-	if _, ok := bq.Clauses()[0].Query.(*search.BoostQuery); !ok {
+	if _, ok := bq.Clauses()[0].Query().(*search.BoostQuery); !ok {
 		t.Errorf("title clause should be boosted, got %T", bq.Clauses()[0].Query)
 	}
 }
@@ -115,7 +115,7 @@ func TestSimpleParserFlagsRestricted(t *testing.T) {
 		t.Fatalf("got %T", q)
 	}
 	for _, c := range bq.Clauses() {
-		if c.Occur == search.SHOULD {
+		if c.Occur() == search.SHOULD {
 			continue
 		}
 	}

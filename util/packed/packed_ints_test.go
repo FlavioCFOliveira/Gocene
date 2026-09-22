@@ -197,7 +197,7 @@ func TestWriterReaderRoundTripPacked(t *testing.T) {
 	const n = 1024
 	for _, bpv := range bitsPerValueSpectrum {
 		values := randValues(int64(bpv)*977, n, bpv)
-		out := store.NewByteArrayDataOutput(64)
+		out := store.NewByteBuffersDataOutput()
 		w, err := GetWriterNoHeader(out, FormatPacked, n, bpv, DefaultBufferSize)
 		if err != nil {
 			t.Fatalf("GetWriterNoHeader err=%v", err)
@@ -211,7 +211,7 @@ func TestWriterReaderRoundTripPacked(t *testing.T) {
 			t.Fatalf("Finish err=%v", err)
 		}
 
-		in := store.NewByteArrayDataInput(out.GetBytes())
+		in := store.NewByteArrayDataInput(out.ToArrayCopy())
 		it, err := GetReaderIteratorNoHeader(in, FormatPacked, VersionCurrent, n, bpv, DefaultBufferSize)
 		if err != nil {
 			t.Fatalf("GetReaderIteratorNoHeader err=%v", err)
@@ -235,7 +235,7 @@ func TestWriterReaderRoundTripPackedSingleBlock(t *testing.T) {
 	const n = 1024
 	for _, bpv := range singleBlockSpectrum {
 		values := randValues(int64(bpv)*1499, n, bpv)
-		out := store.NewByteArrayDataOutput(64)
+		out := store.NewByteBuffersDataOutput()
 		w, err := GetWriterNoHeader(out, FormatPackedSingleBlock, n, bpv, DefaultBufferSize)
 		if err != nil {
 			t.Fatalf("GetWriterNoHeader err=%v", err)
@@ -249,7 +249,7 @@ func TestWriterReaderRoundTripPackedSingleBlock(t *testing.T) {
 			t.Fatalf("Finish err=%v", err)
 		}
 
-		in := store.NewByteArrayDataInput(out.GetBytes())
+		in := store.NewByteArrayDataInput(out.ToArrayCopy())
 		it, err := GetReaderIteratorNoHeader(in, FormatPackedSingleBlock, VersionCurrent, n, bpv, DefaultBufferSize)
 		if err != nil {
 			t.Fatalf("GetReaderIteratorNoHeader err=%v", err)
@@ -279,7 +279,7 @@ func TestPacked64ByteCompatibility(t *testing.T) {
 	for _, bpv := range bitsPerValueSpectrum {
 		values := randValues(int64(bpv)*1733, n, bpv)
 		// Use the writer to obtain the canonical byte stream.
-		out := store.NewByteArrayDataOutput(64)
+		out := store.NewByteBuffersDataOutput()
 		w, err := GetWriterNoHeader(out, FormatPacked, n, bpv, DefaultBufferSize)
 		if err != nil {
 			t.Fatalf("GetWriterNoHeader err=%v", err)
@@ -288,7 +288,7 @@ func TestPacked64ByteCompatibility(t *testing.T) {
 			_ = w.Add(v)
 		}
 		_ = w.Finish()
-		canonical := out.GetBytes()
+		canonical := out.ToArrayCopy()
 
 		// Round-trip those bytes via decoder, then re-encode.
 		expectedLen := FormatPacked.ByteCount(VersionCurrent, n, bpv)

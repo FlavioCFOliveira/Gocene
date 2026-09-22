@@ -50,8 +50,8 @@ func TestTermsQueryBuilder(t *testing.T) {
 	if len(bq.Clauses()) != 3 {
 		t.Errorf("clauses = %d", len(bq.Clauses()))
 	}
-	if bq.MinimumNumberShouldMatch() != 2 {
-		t.Errorf("min = %d", bq.MinimumNumberShouldMatch())
+	if bq.GetMinimumNumberShouldMatch() != 2 {
+		t.Errorf("min = %d", bq.GetMinimumNumberShouldMatch())
 	}
 }
 
@@ -85,8 +85,8 @@ func TestBooleanQueryBuilder(t *testing.T) {
 	}
 	occurs := []search.Occur{search.MUST, search.SHOULD, search.MUST_NOT}
 	for i, c := range bq.Clauses() {
-		if c.Occur != occurs[i] {
-			t.Errorf("clause %d occur = %v", i, c.Occur)
+		if c.Occur() != occurs[i] {
+			t.Errorf("clause %d occur = %v", i, c.Occur())
 		}
 	}
 }

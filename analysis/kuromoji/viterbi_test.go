@@ -32,7 +32,7 @@ func TestViterbiBasicSegmentation(t *testing.T) {
 		if !ok {
 			break
 		}
-		attr := tok.GetAttribute("CharTermAttribute")
+		attr := tok.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			t.Fatal("CharTermAttribute is nil")
 		}
@@ -69,7 +69,7 @@ func TestViterbiExtendedMode(t *testing.T) {
 		if !ok {
 			break
 		}
-		attr := tok.GetAttribute("CharTermAttribute")
+		attr := tok.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			t.Fatal("CharTermAttribute is nil")
 		}
@@ -105,7 +105,7 @@ func TestViterbiNormalMode(t *testing.T) {
 		if !ok {
 			break
 		}
-		attr := tok.GetAttribute("CharTermAttribute")
+		attr := tok.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			t.Fatal("CharTermAttribute is nil")
 		}
@@ -141,7 +141,7 @@ func TestViterbiOffsetAndAttributes(t *testing.T) {
 		t.Fatal("expected at least one token")
 	}
 
-	attr := tok.GetAttribute("OffsetAttribute")
+	attr := tok.GetAttribute(analysis.OffsetAttributeType)
 	if attr == nil {
 		t.Fatal("OffsetAttribute is nil")
 	}

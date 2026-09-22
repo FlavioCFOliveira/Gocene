@@ -15,13 +15,12 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/classification"
+	// Register the production codec so postings are flushed correctly.
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
-
-	// Register the production codec so postings are flushed correctly.
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 // ---- shared test infrastructure --------------------------------------------
@@ -46,7 +45,7 @@ var trainingDocs = []struct{ text, class string }{
 func buildIndex(t *testing.T, stored bool) (index.IndexReaderInterface, func()) {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)

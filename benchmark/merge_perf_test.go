@@ -20,7 +20,7 @@ func BenchmarkMergePerformance(b *testing.B) {
 			dir := store.NewByteBuffersDirectory()
 			defer dir.Close()
 
-			cfg := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+			cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewStandardAnalyzer())
 			cfg.SetUseCompoundFile(false)
 			cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
 
@@ -40,7 +40,7 @@ func BenchmarkMergePerformance(b *testing.B) {
 						b.Fatal(err)
 					}
 				}
-				if err := iw.Commit(); err != nil {
+				if _, err := iw.Commit(); err != nil {
 					b.Fatal(err)
 				}
 				iw.Close()

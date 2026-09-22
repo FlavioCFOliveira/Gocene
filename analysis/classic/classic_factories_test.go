@@ -26,7 +26,7 @@ func drainClassicTokenizer(tb *testing.T, tok *ClassicTokenizer) []string {
 		if !ok {
 			break
 		}
-		attr := tok.GetAttribute("CharTermAttribute")
+		attr := tok.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			break
 		}
@@ -47,7 +47,7 @@ func drainClassicFilter(tb *testing.T, f *ClassicFilter) []string {
 		if !ok {
 			break
 		}
-		attr := f.GetAttribute("CharTermAttribute")
+		attr := f.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			break
 		}

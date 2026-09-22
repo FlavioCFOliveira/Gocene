@@ -7,20 +7,20 @@ package smartcn
 import (
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 )
 
 // TestHMMChineseTokenizerBasic verifies that the tokenizer produces tokens
 // from a mixed Chinese-English sentence.
 func TestHMMChineseTokenizerBasic(t *testing.T) {
-	tok, err := NewHMMChineseTokenizer()
+	tok, err := NewHMMChineseTokenizer(analysis.DefaultTokenAttributeFactory)
 	if err != nil {
 		t.Fatalf("NewHMMChineseTokenizer: %v", err)
 	}
 
 	input := "我们是朋友 hello"
-	if err := tok.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(input))
 	if err := tok.Reset(); err != nil {
 		t.Fatalf("Reset: %v", err)
 	}
@@ -49,15 +49,13 @@ func TestHMMChineseTokenizerBasic(t *testing.T) {
 
 // TestHMMChineseTokenizerReset verifies that Reset clears the tokenizer state.
 func TestHMMChineseTokenizerReset(t *testing.T) {
-	tok, err := NewHMMChineseTokenizer()
+	tok, err := NewHMMChineseTokenizer(analysis.DefaultTokenAttributeFactory)
 	if err != nil {
 		t.Fatalf("NewHMMChineseTokenizer: %v", err)
 	}
 
 	for _, sentence := range []string{"中文测试", "hello world"} {
-		if err := tok.SetReader(strings.NewReader(sentence)); err != nil {
-			t.Fatalf("SetReader(%q): %v", sentence, err)
-		}
+		tok.SetReader(strings.NewReader(sentence))
 		if err := tok.Reset(); err != nil {
 			t.Fatalf("Reset(%q): %v", sentence, err)
 		}

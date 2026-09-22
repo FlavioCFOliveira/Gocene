@@ -8,7 +8,16 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs/bloom"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
+
+// newBloomWriteState builds the SegmentWriteState that
+// BloomFilterFactory.getSetForField reads: only segmentInfo.maxDoc() is
+// consulted by DefaultBloomFilterFactory.
+func newBloomWriteState(maxDoc int) *index.SegmentWriteState {
+	return &index.SegmentWriteState{SegmentInfo: index.NewSegmentInfo("_0", maxDoc, store.NewByteBuffersDirectory())}
+}
 
 // TestBloomPostingsFormat validates the BloomFilteringPostingsFormat,
 // FuzzySet, and MurmurHash64 implementations.
@@ -73,9 +82,9 @@ func TestBloomPostingsFormat(t *testing.T) {
 
 	t.Run("DefaultBloomFilterFactory sizes correctly", func(t *testing.T) {
 		factory := bloom.DefaultBloomFilterFactory{}
-		fs := factory.NewFilter(100)
+		fs := factory.GetSetForField(newBloomWriteState(100), nil)
 		if fs == nil {
-			t.Fatal("NewFilter returned nil")
+			t.Fatal("GetSetForField returned nil")
 		}
 		// 100 docs * 10 bits = 1000 bits → ceil(1000/64) = 16 words
 		expectedWords := (100*10 + 63) / 64
@@ -86,9 +95,9 @@ func TestBloomPostingsFormat(t *testing.T) {
 
 	t.Run("default factory for zero docs", func(t *testing.T) {
 		factory := bloom.DefaultBloomFilterFactory{}
-		fs := factory.NewFilter(0)
+		fs := factory.GetSetForField(newBloomWriteState(0), nil)
 		if fs == nil {
-			t.Fatal("NewFilter(0) returned nil")
+			t.Fatal("GetSetForField(maxDoc=0) returned nil")
 		}
 		// Should clamp to at least 1 doc
 		if len(fs.Bits) == 0 {

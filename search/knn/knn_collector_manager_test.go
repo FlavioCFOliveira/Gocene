@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/util/hnsw"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // nonOptimisticManager satisfies KnnCollectorManager but not
@@ -17,7 +17,7 @@ import (
 // fallback path of the helpers.
 type nonOptimisticManager struct{}
 
-func (nonOptimisticManager) NewCollector(_ int, _ KnnSearchStrategy, _ *index.LeafReaderContext) (hnsw.KnnCollector, error) {
+func (nonOptimisticManager) NewCollector(_ int, _ KnnSearchStrategy, _ *index.LeafReaderContext) (spi.KnnCollector, error) {
 	return nil, errors.New("not used in this test")
 }
 
@@ -29,12 +29,12 @@ type optimisticManager struct {
 	isOptimistic                bool
 }
 
-func (m *optimisticManager) NewCollector(_ int, _ KnnSearchStrategy, _ *index.LeafReaderContext) (hnsw.KnnCollector, error) {
+func (m *optimisticManager) NewCollector(_ int, _ KnnSearchStrategy, _ *index.LeafReaderContext) (spi.KnnCollector, error) {
 	m.newCollectorCalls++
 	return nil, nil
 }
 
-func (m *optimisticManager) NewOptimisticCollector(_ int, _ KnnSearchStrategy, _ *index.LeafReaderContext, _ int) (hnsw.KnnCollector, error) {
+func (m *optimisticManager) NewOptimisticCollector(_ int, _ KnnSearchStrategy, _ *index.LeafReaderContext, _ int) (spi.KnnCollector, error) {
 	m.newOptimisticCollectorCalls++
 	return nil, nil
 }

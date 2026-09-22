@@ -188,7 +188,7 @@ func TestExtendedMode_OffsetConsistency(t *testing.T) {
 		if !ok {
 			break
 		}
-		attr := tok.GetAttribute("OffsetAttribute")
+		attr := tok.GetAttribute(analysis.OffsetAttributeType)
 		if attr == nil {
 			t.Fatal("OffsetAttribute is nil")
 		}

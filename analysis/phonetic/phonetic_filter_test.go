@@ -54,9 +54,7 @@ func collectFilterTokens(t *testing.T, ts analysis.TokenStream) []string {
 // newWhitespacePipeline builds a WhitespaceTokenizer → filter pipeline.
 func newWhitespacePipeline(input string, makeFilter func(analysis.TokenStream) analysis.TokenStream) analysis.TokenStream {
 	tok := analysis.NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader(input)); err != nil {
-		panic(err)
-	}
+	tok.SetReader(strings.NewReader(input))
 	return makeFilter(tok)
 }
 

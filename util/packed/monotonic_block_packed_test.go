@@ -13,7 +13,7 @@ import (
 func TestMonotonicBlockPacked_RoundTripLinear(t *testing.T) {
 	t.Parallel()
 	values := linearSequence(0, 5, 256)
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	w, err := NewMonotonicBlockPackedWriter(out, 64)
 	if err != nil {
 		t.Fatal(err)
@@ -26,7 +26,7 @@ func TestMonotonicBlockPacked_RoundTripLinear(t *testing.T) {
 	if err := w.Finish(); err != nil {
 		t.Fatal(err)
 	}
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	r, err := NewMonotonicBlockPackedReader(in, VersionCurrent, 64, int64(len(values)))
 	if err != nil {
 		t.Fatal(err)
@@ -41,7 +41,7 @@ func TestMonotonicBlockPacked_RoundTripLinear(t *testing.T) {
 func TestMonotonicBlockPacked_RoundTripNoisy(t *testing.T) {
 	t.Parallel()
 	values := noisySequence(1000, 11, 0.4, 320, 99)
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	w, err := NewMonotonicBlockPackedWriter(out, 64)
 	if err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestMonotonicBlockPacked_RoundTripNoisy(t *testing.T) {
 	if err := w.Finish(); err != nil {
 		t.Fatal(err)
 	}
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	r, err := NewMonotonicBlockPackedReader(in, VersionCurrent, 64, int64(len(values)))
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestMonotonicBlockPacked_RoundTripNoisy(t *testing.T) {
 
 func TestMonotonicBlockPacked_RejectsNegative(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	w, err := NewMonotonicBlockPackedWriter(out, 64)
 	if err != nil {
 		t.Fatal(err)

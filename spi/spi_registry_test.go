@@ -322,7 +322,7 @@ func TestCodecHeaderFooterRoundTrip(t *testing.T) {
 	if err := spi.WriteIndexHeader(cout, codecName, version, id, suffix); err != nil {
 		t.Fatalf("WriteIndexHeader: %v", err)
 	}
-	if err := cout.WriteBytes([]byte(bodyPayload)); err != nil {
+	if err := cout.WriteBytes([]byte(bodyPayload), 0, len([]byte(bodyPayload))); err != nil {
 		t.Fatalf("write body: %v", err)
 	}
 	if err := spi.WriteFooter(cout); err != nil {

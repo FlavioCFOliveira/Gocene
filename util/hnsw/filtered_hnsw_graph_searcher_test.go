@@ -9,6 +9,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -70,7 +71,7 @@ func densePathGraph(t *testing.T, size, degree int) *OnHeapHnswGraph {
 }
 
 // runFilteredSearch builds a FilteredHnswGraphSearcher and runs it
-// against a TopKnnCollector; returns the collected TopDocs. Used by
+// against a TopKnnCollector; returns the collected spi.TopDocs. Used by
 // the dispatch tests and the correctness tests below.
 func runFilteredSearch(
 	t *testing.T,
@@ -80,8 +81,8 @@ func runFilteredSearch(
 	acceptOrds util.Bits,
 	filterSize int,
 	visitLimit int,
-	strategy KnnSearchStrategy,
-) *TopDocs {
+	strategy spi.KnnSearchStrategy,
+) *spi.TopDocs {
 	t.Helper()
 	collector := NewTopKnnCollector(k, visitLimit, strategy)
 	s := NewFilteredHnswGraphSearcher(k, graph, filterSize, acceptOrds)
@@ -390,8 +391,8 @@ func TestFilteredHnswGraphSearcher_VisitLimit(t *testing.T) {
 	filterSize := size / 2
 
 	docs := runFilteredSearch(t, scorer, g, 5, acceptOrds, filterSize, 3, nil)
-	if docs.TotalHits.Relation != GreaterThanOrEqualTo {
-		t.Errorf("relation = %v, want GreaterThanOrEqualTo", docs.TotalHits.Relation)
+	if docs.TotalHits.Relation != spi.GREATER_THAN_OR_EQUAL_TO {
+		t.Errorf("relation = %v, want spi.GREATER_THAN_OR_EQUAL_TO", docs.TotalHits.Relation)
 	}
 }
 

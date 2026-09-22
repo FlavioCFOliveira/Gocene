@@ -349,9 +349,9 @@ func TestFieldInfosFreeze(t *testing.T) {
 // TestFieldInfosBuilder exercises the fluent builder path.
 func TestFieldInfosBuilder(t *testing.T) {
 	t.Parallel()
-	b := spi.NewFieldInfosBuilder().
-		Add(spi.NewFieldInfo("a", 0, indexedOpts(spi.IndexOptionsDocs))).
-		AddFromOptions("b", indexedOpts(spi.IndexOptionsDocsAndFreqs))
+	b := spi.NewFieldInfosBuilder(spi.NewFieldNumbers("", ""))
+	b.Add(spi.NewFieldInfo("a", 0, indexedOpts(spi.IndexOptionsDocs)))
+	b.Add(spi.NewFieldInfo("b", -1, indexedOpts(spi.IndexOptionsDocsAndFreqs)))
 	infos := b.Build()
 
 	if got := infos.Size(); got != 2 {
@@ -416,9 +416,9 @@ func TestSegmentInfoBasics(t *testing.T) {
 		t.Error("mutating Files() result leaked into SegmentInfo")
 	}
 
-	si.SetCodec("Lucene103")
-	if si.Codec() != "Lucene103" {
-		t.Errorf("Codec() = %q, want Lucene103", si.Codec())
+	si.SetCodecName("Lucene103")
+	if si.CodecName() != "Lucene103" {
+		t.Errorf("CodecName() = %q, want Lucene103", si.CodecName())
 	}
 
 	// SetID requires exactly 16 bytes.
@@ -476,7 +476,7 @@ func TestSegmentInfoMinVersionAndHasBlocks(t *testing.T) {
 	if v, ok := si.MinVersion(); ok || v != "" {
 		t.Errorf("default MinVersion = (%q, %v), want (\"\", false)", v, ok)
 	}
-	if si.HasBlocks() {
+	if si.GetHasBlocks() {
 		t.Error("default HasBlocks = true, want false")
 	}
 
@@ -490,7 +490,7 @@ func TestSegmentInfoMinVersionAndHasBlocks(t *testing.T) {
 	}
 
 	si.SetHasBlocks(true)
-	if !si.HasBlocks() {
+	if !si.GetHasBlocks() {
 		t.Error("HasBlocks after SetHasBlocks(true) = false, want true")
 	}
 
@@ -500,7 +500,7 @@ func TestSegmentInfoMinVersionAndHasBlocks(t *testing.T) {
 	if v, ok := clone.MinVersion(); !ok || v != "10.0.0" {
 		t.Errorf("clone MinVersion = (%q, %v), want (\"10.0.0\", true)", v, ok)
 	}
-	if !clone.HasBlocks() {
+	if !clone.GetHasBlocks() {
 		t.Error("clone HasBlocks = false, want true")
 	}
 }
@@ -509,8 +509,8 @@ func TestSegmentInfoMinVersionAndHasBlocks(t *testing.T) {
 func TestSortField(t *testing.T) {
 	t.Parallel()
 	sf := spi.NewSortField("field", 0)
-	if sf.Field() != "field" {
-		t.Errorf("Field() = %q, want field", sf.Field())
+	if sf.GetField() != "field" {
+		t.Errorf("GetField() = %q, want field", sf.GetField())
 	}
 	if sf.Descending() {
 		t.Error("Descending() = true for a forward SortField, want false")

@@ -18,12 +18,12 @@ func TestOnHeapFSTStoreFromBytesAndReadback(t *testing.T) {
 		t.Fatalf("Size: got %d want %d", s.Size(), len(raw))
 	}
 
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	if err := s.WriteTo(out); err != nil {
 		t.Fatalf("WriteTo: %v", err)
 	}
-	if !bytes.Equal(out.GetBytes(), raw) {
-		t.Fatalf("WriteTo: got % x want % x", out.GetBytes(), raw)
+	if !bytes.Equal(out.ToArrayCopy(), raw) {
+		t.Fatalf("WriteTo: got % x want % x", out.ToArrayCopy(), raw)
 	}
 
 	r := s.GetReverseBytesReader()

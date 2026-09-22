@@ -59,11 +59,11 @@ func TestPairOutputsByteSequenceCombo(t *testing.T) {
 	bs := &util.BytesRef{Bytes: []byte("hi"), Offset: 0, Length: 2}
 	in := p.NewPair(bs, int64(7))
 
-	out := store.NewByteArrayDataOutput(16)
+	out := store.NewByteBuffersDataOutput()
 	if err := p.Write(in, out); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	di := store.NewByteArrayDataInput(out.GetBytes())
+	di := store.NewByteArrayDataInput(out.ToArrayCopy())
 	got, err := p.Read(di)
 	if err != nil {
 		t.Fatalf("Read: %v", err)
@@ -83,14 +83,14 @@ func TestPairOutputsByteFormat(t *testing.T) {
 		ByteSequenceOutputs(),
 		PositiveIntOutputs(),
 	)
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	pair := p.NewPair(&util.BytesRef{Bytes: []byte{0xCA, 0xFE}, Offset: 0, Length: 2}, int64(2))
 	if err := p.Write(pair, out); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	want := []byte{0x02, 0xCA, 0xFE, 0x02}
-	if !bytes.Equal(out.GetBytes(), want) {
-		t.Fatalf("byte format drift: want % x got % x", want, out.GetBytes())
+	if !bytes.Equal(out.ToArrayCopy(), want) {
+		t.Fatalf("byte format drift: want % x got % x", want, out.ToArrayCopy())
 	}
 }
 

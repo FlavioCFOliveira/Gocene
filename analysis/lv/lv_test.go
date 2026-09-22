@@ -25,9 +25,7 @@ func stemRunes(st *LatvianStemmer, term string) string {
 func collectTokens(t *testing.T, text string) []string {
 	t.Helper()
 	tok := analysis.NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader(text)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(text))
 	f := NewLatvianStemFilter(tok)
 	defer f.Close()
 
@@ -126,7 +124,7 @@ func TestLatvianStemFilter_ShortWords(t *testing.T) {
 func TestLatvianStemFilterFactory_Create(t *testing.T) {
 	f := NewLatvianStemFilterFactory()
 	tok := analysis.NewWhitespaceTokenizer()
-	_ = tok.SetReader(strings.NewReader("tēvs"))
+	tok.SetReader(strings.NewReader("tēvs"))
 	filter := f.Create(tok)
 	defer filter.Close()
 

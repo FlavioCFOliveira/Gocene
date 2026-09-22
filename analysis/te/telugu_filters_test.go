@@ -17,10 +17,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
 	indicpkg "github.com/FlavioCFOliveira/Gocene/analysis/in"
 	tepkg "github.com/FlavioCFOliveira/Gocene/analysis/te"
-
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -28,9 +27,7 @@ import (
 func tokenizeWhitespace(t *testing.T, input string) analysis.Tokenizer {
 	t.Helper()
 	tok := analysis.NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(input))
 	return tok
 }
 

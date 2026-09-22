@@ -32,8 +32,8 @@ func newStubTokenStream(tokens []stubToken) *stubTokenStream {
 	}
 	s.termAtt = analysis.NewCharTermAttributeImpl()
 	s.sentAtt = analysis.NewSentenceAttributeImpl()
-	s.AddAttribute(s.termAtt)
-	s.AddAttribute(s.sentAtt)
+	s.AddAttributeImpl(s.termAtt)
+	s.AddAttributeImpl(s.sentAtt)
 	return s
 }
 

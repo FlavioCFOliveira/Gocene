@@ -378,7 +378,7 @@ func TestVectorScorer_CopiesAcrossGoroutines(t *testing.T) {
 
 	for _, sim := range vectorScorerSimilarities {
 		sim := sim
-		t.Run(sim.String(), func(t *testing.T) {
+		t.Run(sim.ID().String(), func(t *testing.T) {
 			t.Parallel()
 			baseSupplier, err := scorerUnderTest.GetRandomVectorScorerSupplier(sim, vv)
 			if err != nil {

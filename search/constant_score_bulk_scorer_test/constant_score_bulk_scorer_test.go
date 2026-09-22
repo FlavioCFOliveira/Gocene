@@ -64,12 +64,14 @@ type mockTwoPhaseIterator struct {
 	matches map[int]bool
 }
 
-func newMockTwoPhaseIterator(approx util.DocIdSetIterator, matches []int) *mockTwoPhaseIterator {
+// newMockTwoPhaseIterator builds a TwoPhaseIterator over approx whose
+// verifier is a mockTwoPhaseIterator matching the given docs.
+func newMockTwoPhaseIterator(approx util.DocIdSetIterator, matches []int) *search.TwoPhaseIterator {
 	m := make(map[int]bool)
 	for _, doc := range matches {
 		m[doc] = true
 	}
-	return &mockTwoPhaseIterator{approx: approx, matches: m}
+	return search.NewTwoPhaseIterator(approx, &mockTwoPhaseIterator{approx: approx, matches: m})
 }
 
 func (tpi *mockTwoPhaseIterator) Approximation() util.DocIdSetIterator { return tpi.approx }
@@ -83,10 +85,6 @@ func (tpi *mockTwoPhaseIterator) MatchCost() float32 { return 1.0 }
 
 func (tpi *mockTwoPhaseIterator) DocIDRunEnd() (int, error) {
 	return tpi.approx.DocID(), nil
-}
-
-func (tpi *mockTwoPhaseIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
-	return search.DefaultIntoBitSet(tpi, upTo, bitSet, offset)
 }
 
 type mockLeafCollector struct {
@@ -121,11 +119,10 @@ func (c *mockLeafCollector) CollectRange(min, max int) error {
 }
 
 func (c *mockLeafCollector) CollectStream(stream search.DocIdStream) error {
-	for doc := stream.DocID(); doc != search.NO_MORE_DOCS; {
+	return stream.ForEach(func(doc int) error {
 		c.collected = append(c.collected, doc)
-		doc, _ = stream.NextDoc()
-	}
-	return nil
+		return nil
+	})
 }
 
 func (c *mockLeafCollector) CompetitiveIterator() (util.DocIdSetIterator, error) {
@@ -216,7 +213,7 @@ func TestConstantScoreBulkScorer_Score_NonCompetitive(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			iter := newMockDocIdSetIterator(tt.docs)
-			var tpi *mockTwoPhaseIterator
+			var tpi *search.TwoPhaseIterator
 			if tt.twoPhaseMatches != nil {
 				tpi = newMockTwoPhaseIterator(iter, tt.twoPhaseMatches)
 			}
@@ -307,7 +304,7 @@ func TestConstantScoreBulkScorer_Score_Competitive(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			iter := newMockDocIdSetIterator(tt.docs)
 			compIter := newMockDocIdSetIterator(tt.compDocs)
-			var tpi *mockTwoPhaseIterator
+			var tpi *search.TwoPhaseIterator
 			if tt.twoPhaseMatches != nil {
 				tpi = newMockTwoPhaseIterator(iter, tt.twoPhaseMatches)
 			}

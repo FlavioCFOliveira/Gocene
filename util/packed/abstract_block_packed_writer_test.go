@@ -44,7 +44,7 @@ func (w *fakeFlushWriter) flush() error {
 
 func TestAbstractBlockPackedWriter_AddAndFinish(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(256)
+	out := store.NewByteBuffersDataOutput()
 	w, err := newFakeFlushWriter(out, 64, 8)
 	if err != nil {
 		t.Fatal(err)
@@ -68,7 +68,7 @@ func TestAbstractBlockPackedWriter_AddAndFinish(t *testing.T) {
 
 func TestAbstractBlockPackedWriter_FinishOnEmptyDoesNotFlush(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(16)
+	out := store.NewByteBuffersDataOutput()
 	w, err := newFakeFlushWriter(out, 64, 8)
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func TestAbstractBlockPackedWriter_FinishOnEmptyDoesNotFlush(t *testing.T) {
 
 func TestAbstractBlockPackedWriter_AddAfterFinishRejected(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(16)
+	out := store.NewByteBuffersDataOutput()
 	w, err := newFakeFlushWriter(out, 64, 8)
 	if err != nil {
 		t.Fatal(err)
@@ -107,7 +107,7 @@ func TestAbstractBlockPackedWriter_AddAfterFinishRejected(t *testing.T) {
 
 func TestAbstractBlockPackedWriter_AddBlockOfZeros(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(256)
+	out := store.NewByteBuffersDataOutput()
 	w, err := newFakeFlushWriter(out, 64, 4)
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +133,7 @@ func TestAbstractBlockPackedWriter_AddBlockOfZeros(t *testing.T) {
 
 func TestAbstractBlockPackedWriter_AddBlockOfZerosMidBlockRejected(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(16)
+	out := store.NewByteBuffersDataOutput()
 	w, err := newFakeFlushWriter(out, 64, 4)
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestAbstractBlockPackedWriter_AddBlockOfZerosMidBlockRejected(t *testing.T)
 
 func TestAbstractBlockPackedWriter_ResetClearsState(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	w, err := newFakeFlushWriter(out, 64, 4)
 	if err != nil {
 		t.Fatal(err)
@@ -161,7 +161,7 @@ func TestAbstractBlockPackedWriter_ResetClearsState(t *testing.T) {
 	if err := w.finish(); err != nil {
 		t.Fatal(err)
 	}
-	out2 := store.NewByteArrayDataOutput(64)
+	out2 := store.NewByteBuffersDataOutput()
 	w.reset(out2)
 	if w.off != 0 || w.ord != 0 || w.finished {
 		t.Fatalf("reset left dirty state: off=%d ord=%d finished=%v", w.off, w.ord, w.finished)
@@ -176,7 +176,7 @@ func TestAbstractBlockPackedWriter_ResetClearsState(t *testing.T) {
 
 func TestAbstractBlockPackedWriter_InitRejectsInvalidBlockSize(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(16)
+	out := store.NewByteBuffersDataOutput()
 	if _, err := newFakeFlushWriter(out, 63, 4); err == nil {
 		t.Fatal("expected error for block size below minimum")
 	}
@@ -188,7 +188,7 @@ func TestAbstractBlockPackedWriter_InitRejectsInvalidBlockSize(t *testing.T) {
 func TestAbstractBlockPackedWriter_InitRejectsNilFlusher(t *testing.T) {
 	t.Parallel()
 	w := &abstractBlockPackedWriter{}
-	if err := w.init(store.NewByteArrayDataOutput(16), 64, nil); err == nil {
+	if err := w.init(store.NewByteBuffersDataOutput(), 64, nil); err == nil {
 		t.Fatal("expected error for nil flusher")
 	}
 }
@@ -196,7 +196,7 @@ func TestAbstractBlockPackedWriter_InitRejectsNilFlusher(t *testing.T) {
 func TestAbstractBlockPackedWriter_ResetNilPanics(t *testing.T) {
 	t.Parallel()
 	w := &abstractBlockPackedWriter{}
-	if err := w.init(store.NewByteArrayDataOutput(16), 64, func() error { return nil }); err != nil {
+	if err := w.init(store.NewByteBuffersDataOutput(), 64, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	defer func() {
@@ -211,7 +211,7 @@ func TestAbstractBlockPackedWriter_FlushErrorPropagates(t *testing.T) {
 	t.Parallel()
 	sentinel := errors.New("flush boom")
 	w := &abstractBlockPackedWriter{}
-	if err := w.init(store.NewByteArrayDataOutput(16), 64, func() error { return sentinel }); err != nil {
+	if err := w.init(store.NewByteBuffersDataOutput(), 64, func() error { return sentinel }); err != nil {
 		t.Fatal(err)
 	}
 	// Fill the buffer; the next add triggers the failing flush.
@@ -233,16 +233,16 @@ func TestAbstractWriteVLong(t *testing.T) {
 	t.Parallel()
 	cases := []int64{0, 1, 127, 128, 16383, 16384, -1, -1 << 32, 1 << 60}
 	for _, v := range cases {
-		out := store.NewByteArrayDataOutput(16)
+		out := store.NewByteBuffersDataOutput()
 		if err := abstractWriteVLong(out, v); err != nil {
 			t.Fatalf("write %d: %v", v, err)
 		}
 		// blockPackedWriteVLong is the byte-identical pre-existing helper.
-		out2 := store.NewByteArrayDataOutput(16)
+		out2 := store.NewByteBuffersDataOutput()
 		if err := blockPackedWriteVLong(out2, v); err != nil {
 			t.Fatalf("legacy write %d: %v", v, err)
 		}
-		got, want := out.GetBytes(), out2.GetBytes()
+		got, want := out.ToArrayCopy(), out2.ToArrayCopy()
 		if len(got) != len(want) {
 			t.Errorf("v=%d: byte length got %d want %d", v, len(got), len(want))
 			continue

@@ -137,7 +137,7 @@ func TestEndiannessReverserDataOutput_WriteByteAndBytes(t *testing.T) {
 	if err := rev.WriteByte(0xAB); err != nil {
 		t.Fatal(err)
 	}
-	if err := rev.WriteBytes([]byte("hello")); err != nil {
+	if err := rev.WriteBytes([]byte("hello"), 0, len([]byte("hello"))); err != nil {
 		t.Fatal(err)
 	}
 	if err := raw.Close(); err != nil {
@@ -159,7 +159,7 @@ func TestEndiannessReverserDataOutput_WriteByteAndBytes(t *testing.T) {
 	}
 
 	rest := make([]byte, 5)
-	if err := in.ReadBytes(rest); err != nil {
+	if err := in.ReadBytes(rest, 0, len(rest)); err != nil {
 		t.Fatal(err)
 	}
 	if string(rest) != "hello" {
@@ -296,7 +296,7 @@ func TestEndiannessReverserDataInput_ReadByteAndBytes(t *testing.T) {
 	if err := out.WriteByte(0xAB); err != nil {
 		t.Fatal(err)
 	}
-	if err := out.WriteBytes([]byte("world")); err != nil {
+	if err := out.WriteBytes([]byte("world"), 0, len([]byte("world"))); err != nil {
 		t.Fatal(err)
 	}
 	if err := out.Close(); err != nil {
@@ -318,7 +318,7 @@ func TestEndiannessReverserDataInput_ReadByteAndBytes(t *testing.T) {
 		t.Errorf("ReadByte: got %#x want 0xAB", b)
 	}
 	rest := make([]byte, 5)
-	if err := rev.ReadBytes(rest); err != nil {
+	if err := rev.ReadBytes(rest, 0, len(rest)); err != nil {
 		t.Fatal(err)
 	}
 	if string(rest) != "world" {

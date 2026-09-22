@@ -17,7 +17,7 @@ import (
 //
 // Port of: org.apache.lucene.queryparser.classic.TestMultiAnalyzer
 // The Java original tests multi-token synonym analyzers — Gocene's classic
-// QueryParser accepts *analysis.StandardAnalyzer and produces TermQuery,
+// QueryParser accepts analysis.Analyzer and produces TermQuery,
 // PhraseQuery, BooleanQuery, etc. Full synonym/multi-token handling (SynonymQuery
 // production from position-increment-0 tokens) is deferred.
 func TestMultiAnalyzer(t *testing.T) {

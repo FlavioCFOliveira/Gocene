@@ -5,6 +5,7 @@
 package blocktreeords_test
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"testing"
@@ -153,6 +154,16 @@ func (e *singleDocPostingsEnum) EndOffset() (int, error)     { return -1, nil }
 func (e *singleDocPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }
 func (e *singleDocPostingsEnum) Cost() int64                 { return 1 }
 
+// Impacts is abstract in Lucene's TermsEnum; this double does not support it.
+func (e *listTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, errors.New("listTermsEnum.Impacts: unsupported operation")
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (e *singleDocPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(e, upTo, bitSet, offset)
+}
+
 // writeTerms is a test helper that writes terms for a single field through
 // the BlockTreeOrds format and returns the directory.
 func writeTerms(t *testing.T, segName string, termStrs []string) store.Directory {
@@ -161,9 +172,9 @@ func writeTerms(t *testing.T, segName string, termStrs []string) store.Directory
 	format := blocktreeords.NewBlockTreeOrdsPostingsFormat()
 
 	fis := index.NewFieldInfosBuilder()
-	fis.AddFromOptions("field", index.FieldInfoOptions{
+	fis.Add(index.NewFieldInfo("field", -1, index.FieldInfoOptions{
 		IndexOptions: index.IndexOptionsDocsAndFreqsAndPositions,
-	})
+	}))
 	fi := fis.Build()
 
 	si := index.NewSegmentInfo(segName, len(termStrs), dir)
@@ -221,9 +232,9 @@ func TestOrdsBlockTree_EmptyTerms(t *testing.T) {
 
 	format := blocktreeords.NewBlockTreeOrdsPostingsFormat()
 	fis := index.NewFieldInfosBuilder()
-	fis.AddFromOptions("field", index.FieldInfoOptions{
+	fis.Add(index.NewFieldInfo("field", -1, index.FieldInfoOptions{
 		IndexOptions: index.IndexOptionsDocsAndFreqsAndPositions,
-	})
+	}))
 	fi := fis.Build()
 
 	si := index.NewSegmentInfo("_0", 0, dir)

@@ -50,7 +50,8 @@ func (c *corruptingIndexOutput) WriteByte(b byte) error {
 	return c.IndexOutput.WriteByte(b)
 }
 
-func (c *corruptingIndexOutput) WriteBytes(b []byte) error {
+func (c *corruptingIndexOutput) WriteBytes(bBuf []byte, offset, length int) error {
+	b := bBuf[offset : offset+length]
 	if !c.corrupted {
 		corruptPos := int(c.byteToCorrupt - c.bytesWritten)
 		if corruptPos >= 0 && corruptPos < len(b) {
@@ -59,11 +60,11 @@ func (c *corruptingIndexOutput) WriteBytes(b []byte) error {
 			b2[corruptPos] ^= 0x01
 			c.corrupted = true
 			c.bytesWritten += int64(len(b))
-			return c.IndexOutput.WriteBytes(b2)
+			return c.IndexOutput.WriteBytes(b2, 0, len(b2))
 		}
 	}
 	c.bytesWritten += int64(len(b))
-	return c.IndexOutput.WriteBytes(b)
+	return c.IndexOutput.WriteBytes(b, 0, len(b))
 }
 
 // corruptingDir wraps a store.ByteBuffersDirectory and replaces temp

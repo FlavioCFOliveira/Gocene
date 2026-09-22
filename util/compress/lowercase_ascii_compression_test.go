@@ -14,7 +14,7 @@ import (
 func TestLowercaseAsciiCompression_RoundTripAllLowercase(t *testing.T) {
 	t.Parallel()
 	in := []byte("hello.world.example.com.with.many.dots")
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	tmp := make([]byte, len(in))
 	ok, err := Compress(in, len(in), tmp, out)
 	if err != nil {
@@ -23,7 +23,7 @@ func TestLowercaseAsciiCompression_RoundTripAllLowercase(t *testing.T) {
 	if !ok {
 		t.Fatal("Compress refused all-lowercase input; expected success")
 	}
-	compressed := out.GetBytes()
+	compressed := out.ToArrayCopy()
 	if len(compressed) >= len(in) {
 		t.Errorf("compressed (%d bytes) should be smaller than input (%d bytes)", len(compressed), len(in))
 	}
@@ -42,7 +42,7 @@ func TestLowercaseAsciiCompression_RoundTripWithExceptions(t *testing.T) {
 	t.Parallel()
 	// Mostly lowercase with a couple of capital exceptions interspersed.
 	in := []byte("the.quick.brown.fox.jumps.over.the.lazy.dog.now.go.X.faster.Y.now")
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	tmp := make([]byte, len(in))
 	ok, err := Compress(in, len(in), tmp, out)
 	if err != nil {
@@ -51,7 +51,7 @@ func TestLowercaseAsciiCompression_RoundTripWithExceptions(t *testing.T) {
 	if !ok {
 		t.Fatal("Compress refused mostly-lowercase input; expected success")
 	}
-	dec := store.NewByteArrayDataInput(out.GetBytes())
+	dec := store.NewByteArrayDataInput(out.ToArrayCopy())
 	restored := make([]byte, len(in))
 	if err := Decompress(dec, restored, len(in)); err != nil {
 		t.Fatalf("Decompress: %v", err)
@@ -68,7 +68,7 @@ func TestLowercaseAsciiCompression_FailsForUncompressible(t *testing.T) {
 	for i := range in {
 		in[i] = 0x80
 	}
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	tmp := make([]byte, len(in))
 	ok, err := Compress(in, len(in), tmp, out)
 	if err != nil {
@@ -82,7 +82,7 @@ func TestLowercaseAsciiCompression_FailsForUncompressible(t *testing.T) {
 func TestLowercaseAsciiCompression_FailsForShortInput(t *testing.T) {
 	t.Parallel()
 	in := []byte("abcde") // < 8 bytes
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	tmp := make([]byte, len(in))
 	ok, err := Compress(in, len(in), tmp, out)
 	if err != nil {

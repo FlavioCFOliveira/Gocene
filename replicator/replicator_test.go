@@ -24,7 +24,7 @@ func TestReplicator_BasicReplication(t *testing.T) {
 	defer targetDir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(sourceDir, config)
 	if err != nil {
@@ -45,7 +45,7 @@ func TestReplicator_BasicReplication(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 	writer.Close()
@@ -69,7 +69,7 @@ func TestReplicator_MultipleCommits(t *testing.T) {
 	defer sourceDir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(sourceDir, config)
 	if err != nil {

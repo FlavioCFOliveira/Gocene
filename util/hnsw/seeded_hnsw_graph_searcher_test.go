@@ -8,6 +8,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -24,7 +25,7 @@ type recordingSearcher struct {
 }
 
 func (r *recordingSearcher) SearchLevel(
-	_ KnnCollector,
+	_ spi.KnnCollector,
 	_ RandomVectorScorer,
 	level int,
 	eps []int,
@@ -40,7 +41,7 @@ func (r *recordingSearcher) SearchLevel(
 func (r *recordingSearcher) FindBestEntryPoint(
 	_ RandomVectorScorer,
 	_ HnswGraph,
-	_ KnnCollector,
+	_ spi.KnnCollector,
 ) ([]int, error) {
 	r.bestCalls++
 	r.t.Fatalf("seeded searcher must not delegate FindBestEntryPoint")

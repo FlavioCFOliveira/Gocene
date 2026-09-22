@@ -6,12 +6,12 @@ package lucene90
 
 import (
 	"errors"
-	"github.com/FlavioCFOliveira/Gocene/util"
 	"math/rand/v2"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestIndexedDISI_SparseRoundTrip writes a sparse doc-id sequence (<= 4095
@@ -224,7 +224,7 @@ func writeIndexedDISI(t *testing.T, docs []int) ([]byte, int) {
 	defer in.Close()
 	n := in.Length()
 	bytes := make([]byte, n)
-	if err := in.ReadBytes(bytes); err != nil {
+	if err := in.ReadBytes(bytes, 0, len(bytes)); err != nil {
 		t.Fatalf("ReadBytes: %v", err)
 	}
 	return bytes, int(jumpEntries)
@@ -242,7 +242,7 @@ func openIndexedDISI(t *testing.T, compressed []byte, jumpEntries int, cardinali
 	if err != nil {
 		return nil, err
 	}
-	if err := out.WriteBytes(compressed); err != nil {
+	if err := out.WriteBytes(compressed, 0, len(compressed)); err != nil {
 		_ = out.Close()
 		return nil, err
 	}

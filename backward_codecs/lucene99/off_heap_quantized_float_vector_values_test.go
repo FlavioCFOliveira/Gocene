@@ -8,7 +8,6 @@ import (
 	"math"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/codecs"
 	codecs_lucene90 "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -24,7 +23,7 @@ func newTestIndexInput(t *testing.T, b []byte) store.IndexInput {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := out.WriteBytes(b); err != nil {
+	if err := out.WriteBytes(b, 0, len(b)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -142,7 +141,7 @@ func TestDenseDocIter99_Cost(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestLoadQuantizedFloat_NilConfig(t *testing.T) {
-	_, err := LoadQuantizedFloat(nil, 4, 0, nil, 0, nil, false, 0, 0, nil)
+	_, err := LoadQuantizedFloat(nil, 4, 0, nil, index.VectorSimilarityFunctionEuclidean, nil, false, 0, 0, nil)
 	if err == nil {
 		t.Fatal("expected error for nil configuration, got nil")
 	}
@@ -152,7 +151,7 @@ func TestLoadQuantizedFloat_Size0_ReturnedEmpty(t *testing.T) {
 	sq, _ := quantization.NewScalarQuantizer(-1, 1, 7)
 	cfg := &testOrdToDocConfig{dense: true, empty: false}
 	v, err := LoadQuantizedFloat(cfg, 4, 0, sq,
-		codecs.VectorSimilarityFunctionEuclidean, nil, false, 0, 0, nil)
+		index.VectorSimilarityFunctionEuclidean, nil, false, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -176,7 +175,7 @@ func TestLoadQuantizedFloat_EmptyConfig(t *testing.T) {
 	sq, _ := quantization.NewScalarQuantizer(-1, 1, 7)
 	cfg := &testOrdToDocConfig{dense: false, empty: true}
 	v, err := LoadQuantizedFloat(cfg, 8, 10, sq,
-		codecs.VectorSimilarityFunctionEuclidean, nil, false, 0, 0, nil)
+		index.VectorSimilarityFunctionEuclidean, nil, false, 0, 0, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -190,7 +189,7 @@ func TestLoadQuantizedFloat_EmptyConfig(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestEmptyOffHeap99_CopyReturnsError(t *testing.T) {
-	v := newEmptyOffHeap99(4, codecs.VectorSimilarityFunctionEuclidean, nil)
+	v := newEmptyOffHeap99(4, index.VectorSimilarityFunctionEuclidean, nil)
 	_, err := v.Copy()
 	if err == nil {
 		t.Fatal("expected error from empty variant Copy(), got nil")
@@ -198,7 +197,7 @@ func TestEmptyOffHeap99_CopyReturnsError(t *testing.T) {
 }
 
 func TestEmptyOffHeap99_ScorerReturnsNil(t *testing.T) {
-	v := newEmptyOffHeap99(4, codecs.VectorSimilarityFunctionEuclidean, nil)
+	v := newEmptyOffHeap99(4, index.VectorSimilarityFunctionEuclidean, nil)
 	scorer, err := v.Scorer([]float32{1, 2, 3, 4})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -209,7 +208,7 @@ func TestEmptyOffHeap99_ScorerReturnsNil(t *testing.T) {
 }
 
 func TestEmptyOffHeap99_OrdToDocPanics(t *testing.T) {
-	v := newEmptyOffHeap99(4, codecs.VectorSimilarityFunctionEuclidean, nil)
+	v := newEmptyOffHeap99(4, index.VectorSimilarityFunctionEuclidean, nil)
 	panicked := false
 	func() {
 		defer func() {
@@ -233,7 +232,7 @@ func TestOrdinalBits99_DenseIdentity(t *testing.T) {
 	sq, _ := quantization.NewScalarQuantizer(-1, 1, 7)
 	parent := newOffHeapQuantizedFloatVectorValues(
 		4, 3, sq, false,
-		codecs.VectorSimilarityFunctionEuclidean, nil, nil,
+		index.VectorSimilarityFunctionEuclidean, nil, nil,
 		denseOffHeap99Variant{},
 	)
 	accept := &testBits{bits: []bool{true, false, true}}

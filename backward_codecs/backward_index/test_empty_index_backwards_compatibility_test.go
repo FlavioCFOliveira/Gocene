@@ -7,11 +7,10 @@ package backward_index
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
-
 	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // TestEmptyIndexBackwardsCompatibility verifies that an empty index created
@@ -35,7 +34,7 @@ func TestEmptyIndexBackwardsCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -95,7 +94,7 @@ func TestEmptyIndexRoundtrip(t *testing.T) {
 	}
 
 	// Commit without adding any documents (empty index).
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {

@@ -38,7 +38,9 @@ func (s *fakePointsSource) GetValues(field string) (index.PointValues, error) {
 	if field != s.field {
 		return nil, fmt.Errorf("fake points: field %q is not %q", field, s.field)
 	}
-	return &fakePointValues{src: s}, nil
+	pv := &fakePointValues{src: s}
+	pv.BasePointValues = spi.NewBasePointValues(pv)
+	return pv, nil
 }
 
 func (s *fakePointsSource) CheckIntegrity() error                 { return nil }
@@ -48,19 +50,21 @@ func (s *fakePointsSource) GetMergeInstance() codecs.PointsReader { return s }
 // fakePointValues is the PointValues of fakePointsSource; only size() and
 // getPointTree() are consulted by the writer.
 type fakePointValues struct {
+	*spi.BasePointValues
 	src *fakePointsSource
 }
 
 func (v *fakePointValues) GetPointTree() (bkd.PointTree, error) {
 	return &fakePointTree{src: v.src}, nil
 }
-func (v *fakePointValues) GetDocCount() int                   { return len(v.src.docIDs) }
-func (v *fakePointValues) GetDocCountWithValue() int64        { return int64(len(v.src.docIDs)) }
-func (v *fakePointValues) GetValueCount() int64               { return int64(len(v.src.values)) }
-func (v *fakePointValues) GetMinPackedValue() ([]byte, error) { return nil, errFakeUnsupported }
-func (v *fakePointValues) GetMaxPackedValue() ([]byte, error) { return nil, errFakeUnsupported }
-func (v *fakePointValues) GetNumDimensions() int              { return 1 }
-func (v *fakePointValues) GetBytesPerDimension() int          { return 4 }
+func (v *fakePointValues) GetDocCount() int                    { return len(v.src.docIDs) }
+func (v *fakePointValues) GetDocCountWithValue() int64         { return int64(len(v.src.docIDs)) }
+func (v *fakePointValues) Size() int64                         { return int64(len(v.src.values)) }
+func (v *fakePointValues) GetMinPackedValue() ([]byte, error)  { return nil, errFakeUnsupported }
+func (v *fakePointValues) GetMaxPackedValue() ([]byte, error)  { return nil, errFakeUnsupported }
+func (v *fakePointValues) GetNumDimensions() (int, error)      { return 1, nil }
+func (v *fakePointValues) GetNumIndexDimensions() (int, error) { return 1, nil }
+func (v *fakePointValues) GetBytesPerDimension() (int, error)  { return 4, nil }
 
 // fakePointTree is a single-leaf PointTree over fakePointsSource.
 type fakePointTree struct {
@@ -236,10 +240,10 @@ func TestLucene90Points_BKDRoundTrip(t *testing.T) {
 	if got := pv.GetDocCount(); got != numDocs {
 		t.Errorf("GetDocCount = %d, want %d", got, numDocs)
 	}
-	if got := pv.GetNumDimensions(); got != 1 {
+	if got, err := pv.GetNumDimensions(); err != nil || got != 1 {
 		t.Errorf("GetNumDimensions = %d, want 1", got)
 	}
-	if got := pv.GetBytesPerDimension(); got != 4 {
+	if got, err := pv.GetBytesPerDimension(); err != nil || got != 4 {
 		t.Errorf("GetBytesPerDimension = %d, want 4", got)
 	}
 	min, _ := pv.GetMinPackedValue()

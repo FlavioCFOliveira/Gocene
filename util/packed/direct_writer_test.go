@@ -64,7 +64,7 @@ func TestDirectWriterBytesRequired(t *testing.T) {
 func TestDirectWriterByteCompatibility(t *testing.T) {
 	t.Parallel()
 	// Encoding {1, 2, 3, 4} with bpv=8 produces bytes [1,2,3,4]+padding=0 bytes.
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	w, err := GetDirectWriter(out, 4, 8)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestDirectWriterByteCompatibility(t *testing.T) {
 	if err := w.Finish(); err != nil {
 		t.Fatal(err)
 	}
-	got := out.GetBytes()
+	got := out.ToArrayCopy()
 	if len(got) != 4 || got[0] != 1 || got[1] != 2 || got[2] != 3 || got[3] != 4 {
 		t.Fatalf("bytes: %v", got)
 	}
@@ -88,7 +88,7 @@ func TestDirectWriterByteCompatibility(t *testing.T) {
 func TestDirectWriter16Bit(t *testing.T) {
 	t.Parallel()
 	values := []int64{0x0102, 0xABCD, 0xFFFF}
-	out := store.NewByteArrayDataOutput(16)
+	out := store.NewByteBuffersDataOutput()
 	w, err := GetDirectWriter(out, int64(len(values)), 16)
 	if err != nil {
 		t.Fatal(err)
@@ -101,7 +101,7 @@ func TestDirectWriter16Bit(t *testing.T) {
 	if err := w.Finish(); err != nil {
 		t.Fatal(err)
 	}
-	got := out.GetBytes()
+	got := out.ToArrayCopy()
 	expectedDataBytes := 2 * len(values)
 	expectedPadding := 0 // 16<=8 false, 16<=16 true => 16-16=0 padding
 	if len(got) != expectedDataBytes+expectedPadding {
@@ -132,7 +132,7 @@ func TestDirectWriterRoundTripBytes(t *testing.T) {
 				values[i] = int64(r.Uint64() & mask)
 			}
 		}
-		out := store.NewByteArrayDataOutput(64)
+		out := store.NewByteBuffersDataOutput()
 		w, err := GetDirectWriter(out, n, bpv)
 		if err != nil {
 			t.Fatalf("getInstance bpv=%d err=%v", bpv, err)
@@ -145,7 +145,7 @@ func TestDirectWriterRoundTripBytes(t *testing.T) {
 		if err := w.Finish(); err != nil {
 			t.Fatalf("Finish bpv=%d err=%v", bpv, err)
 		}
-		gotBytes := int64(len(out.GetBytes()))
+		gotBytes := int64(len(out.ToArrayCopy()))
 		wantBytes, _ := DirectWriterBytesRequired(n, bpv)
 		if gotBytes != wantBytes {
 			t.Fatalf("bpv=%d wrote %d bytes, expected %d", bpv, gotBytes, wantBytes)
@@ -156,7 +156,7 @@ func TestDirectWriterRoundTripBytes(t *testing.T) {
 func TestDirectWriterRejectsInvalidBitsPerValue(t *testing.T) {
 	t.Parallel()
 	for _, bpv := range []int{0, 3, 5, 7, 9, 11, 30, 33, 65} {
-		out := store.NewByteArrayDataOutput(8)
+		out := store.NewByteBuffersDataOutput()
 		if _, err := GetDirectWriter(out, 4, bpv); err == nil {
 			t.Errorf("bpv=%d: expected error", bpv)
 		}
@@ -165,7 +165,7 @@ func TestDirectWriterRejectsInvalidBitsPerValue(t *testing.T) {
 
 func TestDirectWriterAddBeyondNumValuesFails(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	w, _ := GetDirectWriter(out, 2, 8)
 	_ = w.Add(1)
 	_ = w.Add(2)
@@ -176,7 +176,7 @@ func TestDirectWriterAddBeyondNumValuesFails(t *testing.T) {
 
 func TestDirectWriterFinishBeforeFull(t *testing.T) {
 	t.Parallel()
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	w, _ := GetDirectWriter(out, 5, 8)
 	_ = w.Add(1)
 	if err := w.Finish(); err == nil {

@@ -5,21 +5,19 @@
 package commongrams_test
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/analysis/commongrams"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 )
 
 // makeTokenizer builds a StandardTokenizer over the given text.
 func makeTokenizer(t *testing.T, text string) analysis.TokenStream {
 	t.Helper()
 	tok := analysis.NewStandardTokenizer()
-	if err := tok.SetReader(strings.NewReader(text)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(text))
 	lc := analysis.NewLowerCaseFilter(tok)
 	return lc
 }

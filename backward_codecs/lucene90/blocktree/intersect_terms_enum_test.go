@@ -16,7 +16,7 @@ import (
 // compiled builds a CompiledAutomaton accepting exactly the string s.
 func compiled(t *testing.T, s string) *automaton.CompiledAutomaton {
 	t.Helper()
-	return automaton.CompileFull(automaton.MakeString(s), true, true, true)
+	return automaton.NewCompiledAutomaton(automaton.MakeString(s), true, true, true)
 }
 
 // TestIntersectTermsEnum_NilFieldReaderReturnsError verifies that a nil

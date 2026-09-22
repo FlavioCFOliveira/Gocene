@@ -6,12 +6,14 @@ package packed
 
 import (
 	"encoding/binary"
+	"errors"
 	"math"
 	"math/rand"
 	"sort"
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -19,15 +21,17 @@ import (
 // byte and reports its own running position; used to feed both the
 // meta and data streams when round-tripping DirectMonotonicWriter.
 type trackingByteOutput struct {
-	out *store.ByteArrayDataOutput
+	out *store.ByteBuffersDataOutput
 }
 
 func newTrackingByteOutput(initialCapacity int) *trackingByteOutput {
-	return &trackingByteOutput{out: store.NewByteArrayDataOutput(initialCapacity)}
+	return &trackingByteOutput{out: store.NewByteBuffersDataOutput()}
 }
 
-func (t *trackingByteOutput) WriteByte(b byte) error    { return t.out.WriteByte(b) }
-func (t *trackingByteOutput) WriteBytes(b []byte) error { return t.out.WriteBytes(b) }
+func (t *trackingByteOutput) WriteByte(b byte) error { return t.out.WriteByte(b) }
+func (t *trackingByteOutput) WriteBytes(b []byte, offset, length int) error {
+	return t.out.WriteBytes(b, offset, length)
+}
 func (t *trackingByteOutput) WriteBytesN(b []byte, n int) error {
 	return t.out.WriteBytesN(b, n)
 }
@@ -35,9 +39,98 @@ func (t *trackingByteOutput) WriteShort(i int16) error   { return t.out.WriteSho
 func (t *trackingByteOutput) WriteInt(i int32) error     { return t.out.WriteInt(i) }
 func (t *trackingByteOutput) WriteLong(i int64) error    { return t.out.WriteLong(i) }
 func (t *trackingByteOutput) WriteString(s string) error { return t.out.WriteString(s) }
-func (t *trackingByteOutput) GetFilePointer() int64      { return int64(len(t.out.GetBytes())) }
+func (t *trackingByteOutput) GetFilePointer() int64      { return t.out.Size() }
 
-func (t *trackingByteOutput) Bytes() []byte { return t.out.GetBytes() }
+func (t *trackingByteOutput) Bytes() []byte { return t.out.ToArrayCopy() }
+
+// CopyBytes carries the default body Lucene gives DataOutputAt.CopyBytes.
+func (t *trackingByteOutput) CopyBytes(input spi.DataInput, numBytes int64) error {
+	buf := make([]byte, 16384)
+	for left := numBytes; left > 0; {
+		n := int(min(left, int64(len(buf))))
+		if err := input.ReadBytes(buf, 0, n); err != nil {
+			return err
+		}
+		if err := t.WriteBytes(buf, 0, n); err != nil {
+			return err
+		}
+		left -= int64(n)
+	}
+	return nil
+}
+
+// WriteGroupVInts is abstract in Lucene's DataOutputAt; this double does not support it.
+func (t *trackingByteOutput) WriteGroupVInts(values []int32, limit int) error {
+	return errors.New("trackingByteOutput.WriteGroupVInts: unsupported operation")
+}
+
+// WriteMapOfStrings carries the default body Lucene gives DataOutputAt.WriteMapOfStrings.
+func (t *trackingByteOutput) WriteMapOfStrings(m map[string]string) error {
+	if err := t.WriteVInt(int32(len(m))); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if err := t.WriteString(k); err != nil {
+			return err
+		}
+		if err := t.WriteString(m[k]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteSetOfStrings carries the default body Lucene gives DataOutputAt.WriteSetOfStrings.
+func (t *trackingByteOutput) WriteSetOfStrings(s []string) error {
+	if err := t.WriteVInt(int32(len(s))); err != nil {
+		return err
+	}
+	for _, v := range s {
+		if err := t.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteVInt carries the default body Lucene gives DataOutputAt.WriteVInt.
+func (t *trackingByteOutput) WriteVInt(i int32) error {
+	v := uint32(i)
+	for v >= 0x80 {
+		if err := t.WriteByte(byte(v&0x7F) | 0x80); err != nil {
+			return err
+		}
+		v >>= 7
+	}
+	return t.WriteByte(byte(v))
+}
+
+// WriteVLong carries the default body Lucene gives DataOutputAt.WriteVLong.
+func (t *trackingByteOutput) WriteVLong(i int64) error {
+	v := uint64(i)
+	for v >= 0x80 {
+		if err := t.WriteByte(byte(v&0x7F) | 0x80); err != nil {
+			return err
+		}
+		v >>= 7
+	}
+	return t.WriteByte(byte(v))
+}
+
+// WriteZInt carries the default body Lucene gives DataOutputAt.WriteZInt.
+func (t *trackingByteOutput) WriteZInt(i int32) error {
+	return t.WriteVInt((i >> 31) ^ (i << 1))
+}
+
+// WriteZLong carries the default body Lucene gives DataOutputAt.WriteZLong.
+func (t *trackingByteOutput) WriteZLong(i int64) error {
+	return t.WriteVLong((i >> 63) ^ (i << 1))
+}
 
 // TestDirectMonotonicRoundTrip writes a known monotonic sequence and
 // reads it back through DirectMonotonicReader using the meta produced
@@ -60,10 +153,10 @@ func TestDirectMonotonicRoundTrip(t *testing.T) {
 			reader, _, _ := writeAndOpenDirectMonotonic(t, tc.values, tc.blockShift)
 			for i, want := range tc.values {
 				got, err := reader.Get(int64(i))
-			if err != nil {
-				t.Errorf("[%d]: unexpected error: %v", i, err)
-			}
-			if got != want {
+				if err != nil {
+					t.Errorf("[%d]: unexpected error: %v", i, err)
+				}
+				if got != want {
 					t.Errorf("[%d]: got %d want %d", i, got, want)
 				}
 			}
@@ -182,10 +275,10 @@ func TestDirectMonotonicSimple(t *testing.T) {
 	reader, _, _ := writeAndOpenDirectMonotonic(t, values, blockShift)
 	for i, want := range values {
 		got, err := reader.Get(int64(i))
-			if err != nil {
-				t.Errorf("[%d]: unexpected error: %v", i, err)
-			}
-			if got != want {
+		if err != nil {
+			t.Errorf("[%d]: unexpected error: %v", i, err)
+		}
+		if got != want {
 			t.Errorf("[%d]: got %d want %d", i, got, want)
 		}
 	}
@@ -213,10 +306,10 @@ func TestDirectMonotonicConstantSlope(t *testing.T) {
 	reader, dataBytes, _ := writeAndOpenDirectMonotonic(t, values, blockShift)
 	for i, want := range values {
 		got, err := reader.Get(int64(i))
-			if err != nil {
-				t.Errorf("[%d]: unexpected error: %v", i, err)
-			}
-			if got != want {
+		if err != nil {
+			t.Errorf("[%d]: unexpected error: %v", i, err)
+		}
+		if got != want {
 			t.Fatalf("[%d]: got %d want %d (inc=%d, blockShift=%d)", i, got, want, inc, blockShift)
 		}
 	}

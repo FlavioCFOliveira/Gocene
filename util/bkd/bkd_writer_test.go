@@ -112,7 +112,7 @@ func readBytesAll(t *testing.T, dir *store.ByteBuffersDirectory, name string) []
 	}
 	defer in.Close()
 	out := make([]byte, in.Length())
-	if err := in.ReadBytes(out); err != nil && !errors.Is(err, io.EOF) {
+	if err := in.ReadBytes(out, 0, len(out)); err != nil && !errors.Is(err, io.EOF) {
 		t.Fatalf("ReadBytes %q: %v", name, err)
 	}
 	return out
@@ -148,7 +148,7 @@ func parseMetaHeader(t *testing.T, meta []byte, codecName string, version int32)
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := out.WriteBytes(meta); err != nil {
+	if err := out.WriteBytes(meta, 0, len(meta)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -173,11 +173,11 @@ func parseMetaHeader(t *testing.T, meta []byte, codecName string, version int32)
 
 	pibl := mhv.numIndexDims * mhv.bytesPerDim
 	mhv.minPackedValue = make([]byte, pibl)
-	if err := in.ReadBytes(mhv.minPackedValue); err != nil {
+	if err := in.ReadBytes(mhv.minPackedValue, 0, len(mhv.minPackedValue)); err != nil {
 		t.Fatalf("ReadBytes minPackedValue: %v", err)
 	}
 	mhv.maxPackedValue = make([]byte, pibl)
-	if err := in.ReadBytes(mhv.maxPackedValue); err != nil {
+	if err := in.ReadBytes(mhv.maxPackedValue, 0, len(mhv.maxPackedValue)); err != nil {
 		t.Fatalf("ReadBytes maxPackedValue: %v", err)
 	}
 	mhv.pointCount = mustReadVLong(t, in)
@@ -208,7 +208,7 @@ func mustReadVInt(t *testing.T, in store.IndexInput) int32 {
 
 func mustReadVLong(t *testing.T, in store.IndexInput) int64 {
 	t.Helper()
-	v, err := store.ReadVLong(in)
+	v, err := in.ReadVLong()
 	if err != nil {
 		t.Fatalf("ReadVLong: %v", err)
 	}

@@ -128,7 +128,7 @@ func TestDirectPackedReader_HonoursStartPointer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := out.WriteBytes(make([]byte, prefix)); err != nil {
+	if err := out.WriteBytes(make([]byte, prefix), 0, len(make([]byte, prefix))); err != nil {
 		t.Fatalf("WriteBytes prefix: %v", err)
 	}
 	w, err := newPackedWriter(FormatPacked, out, valueCount, bpv, 256)
@@ -179,7 +179,7 @@ func TestDirectPackedReader_KnownVectorBE(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := out.WriteBytes(fixture); err != nil {
+	if err := out.WriteBytes(fixture, 0, len(fixture)); err != nil {
 		t.Fatalf("WriteBytes: %v", err)
 	}
 	if err := out.Close(); err != nil {

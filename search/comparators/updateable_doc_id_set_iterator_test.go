@@ -12,6 +12,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/search/comparators"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -151,8 +152,8 @@ func TestUpdateableDocIdSetIterator_DocIDRunEnd(t *testing.T) {
 		t.Fatalf("NextDoc() = (%d, %v), want (10, nil)", doc, err)
 	}
 	// RangeDocIdSetIterator[10,18).DocIDRunEnd at doc 10 = 18.
-	if got := iterator.DocIDRunEnd(); got != 18 {
-		t.Errorf("DocIDRunEnd() = %d, want 18", got)
+	if got, err := iterator.DocIDRunEnd(); err != nil || got != 18 {
+		t.Errorf("DocIDRunEnd() = %d, want 18 (err: %v)", got, err)
 	}
 	if iterator.DocID() != 10 {
 		t.Errorf("DocID() = %d, want 10 (no side effect)", iterator.DocID())
@@ -160,8 +161,8 @@ func TestUpdateableDocIdSetIterator_DocIDRunEnd(t *testing.T) {
 
 	// New range [8,25) synced to doc 10 -> runEnd = 25.
 	iterator.Update(rangeIter(8, 25))
-	if got := iterator.DocIDRunEnd(); got != 25 {
-		t.Errorf("DocIDRunEnd() after update[8,25) = %d, want 25", got)
+	if got, err := iterator.DocIDRunEnd(); err != nil || got != 25 {
+		t.Errorf("DocIDRunEnd() after update[8,25) = %d, want 25 (err: %v)", got, err)
 	}
 	if iterator.DocID() != 10 {
 		t.Errorf("DocID() = %d, want 10 (no side effect)", iterator.DocID())
@@ -171,8 +172,8 @@ func TestUpdateableDocIdSetIterator_DocIDRunEnd(t *testing.T) {
 	in := advancedRange(5, 25, 12, t)
 	iterator.Update(in)
 	// inner.DocID() = 12 > doc 10 -> inner is NOT at current doc -> fallback = doc+1 = 11.
-	if got := iterator.DocIDRunEnd(); got != 11 {
-		t.Errorf("DocIDRunEnd() with in at 12, doc=10 = %d, want 11", got)
+	if got, err := iterator.DocIDRunEnd(); err != nil || got != 11 {
+		t.Errorf("DocIDRunEnd() with in at 12, doc=10 = %d, want 11 (err: %v)", got, err)
 	}
 	if iterator.DocID() != 10 {
 		t.Errorf("DocID() = %d, want 10 (no side effect)", iterator.DocID())

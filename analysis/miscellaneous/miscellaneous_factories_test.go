@@ -37,7 +37,7 @@ func TestMiscellaneousFactories_ASCIIFolding(t *testing.T) {
 		if !ok {
 			break
 		}
-		attr := filter.GetAttribute("CharTermAttribute")
+		attr := filter.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			t.Fatal("CharTermAttribute not found")
 		}

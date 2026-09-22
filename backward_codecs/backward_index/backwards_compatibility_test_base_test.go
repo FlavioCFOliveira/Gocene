@@ -36,7 +36,7 @@ func (b *bwcTestBase) createAnalyzer() analysis.Analyzer {
 }
 
 func (b *bwcTestBase) createConfig(codec index.Codec) *index.IndexWriterConfig {
-	config := index.NewIndexWriterConfig(b.createAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(b.createAnalyzer())
 	if codec != nil {
 		config.SetCodec(codec)
 	}

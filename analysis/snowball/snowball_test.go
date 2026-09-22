@@ -32,7 +32,7 @@ func stemWord(t *testing.T, word string, stemmer SnowballStemmer) string {
 	if !ok {
 		t.Fatalf("no token for %q", word)
 	}
-	attr := f.GetAttribute("CharTermAttribute")
+	attr := f.GetAttribute(analysis.CharTermAttributeType)
 	if attr == nil {
 		t.Fatal("CharTermAttribute not found")
 	}
@@ -57,7 +57,7 @@ func stemWordKeyword(t *testing.T, word string, stemmer SnowballStemmer) string 
 	if !ok {
 		t.Fatalf("no token for %q", word)
 	}
-	attr := f.GetAttribute("CharTermAttribute")
+	attr := f.GetAttribute(analysis.CharTermAttributeType)
 	if attr == nil {
 		t.Fatal("CharTermAttribute not found")
 	}

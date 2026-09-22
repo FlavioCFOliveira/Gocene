@@ -14,7 +14,10 @@ func TestCompletionAnalyzer(t *testing.T) {
 	analyzer := NewCompletionAnalyzer(analysis.NewStandardAnalyzer())
 
 	// Test that it wraps the analyzer and provides a CompletionTokenStream
-	ts := analyzer.TokenStream("field", nil) // Using nil reader for simplicity in foundation test
+	ts, err := analyzer.TokenStream("field", nil) // Using nil reader for simplicity in foundation test
+	if err != nil {
+		t.Fatalf("analyzer.TokenStream: %v", err)
+	}
 	if _, ok := ts.(*CompletionTokenStream); !ok {
 		t.Errorf("Expected CompletionTokenStream, got %T", ts)
 	}
@@ -34,8 +37,8 @@ func TestSuggestField(t *testing.T) {
 
 func TestContextSuggestField(t *testing.T) {
 	field := NewContextSuggestField("name", "suggestion", 4, "ctx1", "ctx2")
-	if field.Type() != CONTEXT_TYPE {
-		t.Errorf("Expected type %v, got %v", CONTEXT_TYPE, field.Type())
+	if field.Type() != ContextSuggestFieldTYPE {
+		t.Errorf("Expected type %v, got %v", ContextSuggestFieldTYPE, field.Type())
 	}
 }
 

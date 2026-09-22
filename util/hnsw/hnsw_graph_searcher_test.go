@@ -9,6 +9,7 @@ import (
 	"sort"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -322,7 +323,7 @@ func TestHnswGraphSearcher_AcceptOrds(t *testing.T) {
 
 // TestHnswGraphSearcher_VisitLimit verifies that a tight visit limit
 // triggers early termination: the result set is marked as a lower
-// bound (GreaterThanOrEqualTo) when EarlyTerminated() fires.
+// bound (spi.GREATER_THAN_OR_EQUAL_TO) when EarlyTerminated() fires.
 func TestHnswGraphSearcher_VisitLimit(t *testing.T) {
 	const size = 20
 	g := linearGraph(t, size)
@@ -338,8 +339,8 @@ func TestHnswGraphSearcher_VisitLimit(t *testing.T) {
 		t.Fatalf("SearchWithOnHeapGraph: %v", err)
 	}
 	topDocs := got.TopDocs()
-	if topDocs.TotalHits.Relation != GreaterThanOrEqualTo {
-		t.Errorf("relation = %v, want GreaterThanOrEqualTo (early termination expected)",
+	if topDocs.TotalHits.Relation != spi.GREATER_THAN_OR_EQUAL_TO {
+		t.Errorf("relation = %v, want spi.GREATER_THAN_OR_EQUAL_TO (early termination expected)",
 			topDocs.TotalHits.Relation)
 	}
 }
@@ -437,6 +438,6 @@ func TestSearchOrderIsScoreDescending(t *testing.T) {
 		return topDocs.ScoreDocs[i].Score > topDocs.ScoreDocs[j].Score
 	})
 	if !sorted {
-		t.Errorf("TopDocs are not score-descending: %+v", topDocs.ScoreDocs)
+		t.Errorf("spi.TopDocs are not score-descending: %+v", topDocs.ScoreDocs)
 	}
 }

@@ -665,7 +665,7 @@ func TestGetRandomGraphLevel(t *testing.T) {
 
 // TestGraphBuilderKnnCollector covers the inner collector contract:
 // Collect, MinimumScore, PopNode, PopUntilNearestKNodes, Clear,
-// TopDocs panic.
+// spi.TopDocs panic.
 func TestGraphBuilderKnnCollector(t *testing.T) {
 	c := NewGraphBuilderKnnCollector(3)
 	if c.K() != 3 {
@@ -699,11 +699,11 @@ func TestGraphBuilderKnnCollector(t *testing.T) {
 		t.Errorf("GetSearchStrategy must be nil for builder collector")
 	}
 
-	// TopDocs must panic.
+	// spi.TopDocs must panic.
 	func() {
 		defer func() {
 			if r := recover(); r == nil {
-				t.Errorf("TopDocs: want panic, got none")
+				t.Errorf("spi.TopDocs: want panic, got none")
 			}
 		}()
 		_ = c.TopDocs()

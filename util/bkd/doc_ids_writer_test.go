@@ -385,7 +385,7 @@ func TestDocIdsWriter_LegacyDeltaVIntDecode(t *testing.T) {
 	// doc = 0 and accumulates.
 	var prev int32
 	for _, id := range docIDs {
-		if err := store.WriteVInt(out, id-prev); err != nil {
+		if err := out.WriteVInt(id - prev); err != nil {
 			t.Fatalf("write delta: %v", err)
 		}
 		prev = id

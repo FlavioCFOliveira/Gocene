@@ -220,7 +220,7 @@ func TestSpatialPrefixTreeFieldCacheProvider_GetCellTokens_InvalidDocID(t *testi
 	provider, _ := NewSpatialPrefixTreeFieldCacheProvider("test_field", prefixTree)
 
 	// Should return error for negative docID
-	var nilReader *index.IndexReader = nil
+	var nilReader index.LeafReader
 	_, err := provider.GetCellTokens(-1, nilReader)
 	if err == nil {
 		t.Error("expected error for negative docID")
@@ -232,7 +232,7 @@ func TestSpatialPrefixTreeFieldCacheProvider_GetCacheEntry_NilReader(t *testing.
 	provider, _ := NewSpatialPrefixTreeFieldCacheProvider("test_field", prefixTree)
 
 	// Should return error for nil reader
-	var nilReader *index.IndexReader = nil
+	var nilReader index.LeafReader
 	_, err := provider.GetCacheEntry(nilReader)
 	if err == nil {
 		t.Error("expected error for nil reader")
@@ -244,7 +244,7 @@ func TestSpatialPrefixTreeFieldCacheProvider_HasValues(t *testing.T) {
 	provider, _ := NewSpatialPrefixTreeFieldCacheProvider("test_field", prefixTree)
 
 	// With nil reader, should return false
-	var nilReader *index.IndexReader = nil
+	var nilReader index.LeafReader
 	hasValues := provider.HasValues(0, nilReader)
 	if hasValues {
 		t.Error("expected HasValues to return false for nil reader")
@@ -256,13 +256,13 @@ func TestSpatialPrefixTreeFieldCacheProvider_Invalidate(t *testing.T) {
 	provider, _ := NewSpatialPrefixTreeFieldCacheProvider("test_field", prefixTree)
 
 	// Invalidate with nil reader should not panic
-	var nilReader *index.IndexReader = nil
+	var nilReader index.LeafReader
 	provider.Invalidate(nilReader)
 }
 
 func TestGenerateReaderKey(t *testing.T) {
 	// Test with nil reader - should not panic
-	var nilReader *index.IndexReader = nil
+	var nilReader index.LeafReader
 	key := generateReaderKey(nilReader)
 	if key != "r0_0" {
 		t.Errorf("expected key 'r0_0' for nil reader, got '%s'", key)

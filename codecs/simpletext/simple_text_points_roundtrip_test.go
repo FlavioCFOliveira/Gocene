@@ -6,13 +6,13 @@ package simpletext
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	t "github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -57,6 +57,16 @@ func (s *fakePointsSource) VisitPoints(field string, fn func(docID int, packedVa
 
 func (s *fakePointsSource) CheckIntegrity() error { return nil }
 func (s *fakePointsSource) Close() error          { return nil }
+
+// GetMergeInstance is abstract in Lucene's PointsReader; this double does not support it.
+func (s *fakePointsSource) GetMergeInstance() spi.PointsReader {
+	panic("fakePointsSource.GetMergeInstance: unsupported operation")
+}
+
+// GetValues is abstract in Lucene's PointsReader; this double does not support it.
+func (s *fakePointsSource) GetValues(field string) (spi.PointValues, error) {
+	return nil, errors.New("fakePointsSource.GetValues: unsupported operation")
+}
 
 // compile-time assertions: the fake satisfies both surfaces.
 var (
@@ -200,11 +210,11 @@ func assertFieldRoundTrip(t *testing.T, r *SimpleTextPointsReader, spec fieldSpe
 	}
 
 	// Dimensionality round-trips.
-	if got := pv.GetNumDimensions(); got != spec.numDims {
-		t.Errorf("%q: GetNumDimensions = %d, want %d", spec.name, got, spec.numDims)
+	if got, err := pv.GetNumDimensions(); err != nil || got != spec.numDims {
+		t.Errorf("%q: GetNumDimensions = %d, want %d (err: %v)", spec.name, got, spec.numDims, err)
 	}
-	if got := pv.GetBytesPerDimension(); got != spec.bytesPerDim {
-		t.Errorf("%q: GetBytesPerDimension = %d, want %d", spec.name, got, spec.bytesPerDim)
+	if got, err := pv.GetBytesPerDimension(); err != nil || got != spec.bytesPerDim {
+		t.Errorf("%q: GetBytesPerDimension = %d, want %d (err: %v)", spec.name, got, spec.bytesPerDim, err)
 	}
 
 	// Size and docCount round-trip.
@@ -234,11 +244,11 @@ func assertFieldRoundTrip(t *testing.T, r *SimpleTextPointsReader, spec fieldSpe
 	// (index dims == data dims in these specs, so the full packed value is the
 	// index value).
 	wantMin, wantMax := perDimExtremes(spec)
-	if got := pv.GetMinPackedValue(); !bytes.Equal(got, wantMin) {
-		t.Errorf("%q: GetMinPackedValue = % x, want % x", spec.name, got, wantMin)
+	if got, err := pv.GetMinPackedValue(); err != nil || !bytes.Equal(got, wantMin) {
+		t.Errorf("%q: GetMinPackedValue = % x, want % x (err: %v)", spec.name, got, wantMin, err)
 	}
-	if got := pv.GetMaxPackedValue(); !bytes.Equal(got, wantMax) {
-		t.Errorf("%q: GetMaxPackedValue = % x, want % x", spec.name, got, wantMax)
+	if got, err := pv.GetMaxPackedValue(); err != nil || !bytes.Equal(got, wantMax) {
+		t.Errorf("%q: GetMaxPackedValue = % x, want % x (err: %v)", spec.name, got, wantMax, err)
 	}
 }
 
@@ -588,7 +598,7 @@ func readWholeFile(t *testing.T, dir store.Directory, name string) string {
 	defer in.Close()
 	n := in.Length()
 	buf := make([]byte, n)
-	if err := in.ReadBytes(buf); err != nil {
+	if err := in.ReadBytes(buf, 0, len(buf)); err != nil {
 		t.Fatalf("ReadBytes(%q): %v", name, err)
 	}
 	return string(buf)

@@ -47,9 +47,7 @@ func tokenize(t *testing.T, filter analysis.TokenFilter) []string {
 func newMinimalFilter(t *testing.T, input string) analysis.TokenFilter {
 	t.Helper()
 	tok := analysis.NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(input))
 	f, err := NewGalicianMinimalStemFilter(tok)
 	if err != nil {
 		t.Fatalf("NewGalicianMinimalStemFilter: %v", err)
@@ -62,9 +60,7 @@ func newMinimalFilter(t *testing.T, input string) analysis.TokenFilter {
 func newFullFilter(t *testing.T, input string) analysis.TokenFilter {
 	t.Helper()
 	tok := analysis.NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(input))
 	f, err := NewGalicianStemFilter(tok)
 	if err != nil {
 		t.Fatalf("NewGalicianStemFilter: %v", err)
@@ -229,9 +225,7 @@ func TestGalicianMinimalStemFilterFactory_Create(t *testing.T) {
 	}
 
 	tok := analysis.NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader("elefantes")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader("elefantes"))
 	f := factory.Create(tok)
 	tokens := tokenize(t, f)
 	if len(tokens) != 1 || tokens[0] != "elefante" {
@@ -266,9 +260,7 @@ func TestGalicianStemFilterFactory_Create(t *testing.T) {
 	}
 
 	tok := analysis.NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader("elefantes")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader("elefantes"))
 	f := factory.Create(tok)
 	tokens := tokenize(t, f)
 	// full stemmer: plural+vowel step → "elefant"

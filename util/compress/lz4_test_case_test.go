@@ -116,11 +116,11 @@ func doTest(t *testing.T, data []byte, ht *assertingHashTable) {
 func doTestAt(t *testing.T, data []byte, offset, length int, ht *assertingHashTable) {
 	t.Helper()
 
-	out := store.NewByteArrayDataOutput(length + 16)
+	out := store.NewByteBuffersDataOutput()
 	if err := LZ4Compress(data, offset, length, out, ht); err != nil {
 		t.Fatalf("LZ4Compress: %v", err)
 	}
-	compressed := append([]byte(nil), out.GetBytes()...)
+	compressed := append([]byte(nil), out.ToArrayCopy()...)
 
 	// Walk the encoded stream the same way LZ4TestCase.doTest does, so we
 	// catch wire-format drift (literal-len continuation runs, 16-bit LE
@@ -191,13 +191,13 @@ func doTestAt(t *testing.T, data []byte, offset, length int, ht *assertingHashTa
 	}
 
 	// Compress again with the same hash table — must produce identical bytes.
-	out2 := store.NewByteArrayDataOutput(length + 16)
+	out2 := store.NewByteBuffersDataOutput()
 	if err := LZ4Compress(data, offset, length, out2, ht); err != nil {
 		t.Fatalf("second LZ4Compress: %v", err)
 	}
-	if !bytes.Equal(compressed, out2.GetBytes()) {
+	if !bytes.Equal(compressed, out2.ToArrayCopy()) {
 		t.Fatalf("reused hash table produced different output:\n  first=%x\n  second=%x",
-			compressed, out2.GetBytes())
+			compressed, out2.ToArrayCopy())
 	}
 
 	// Restore at offset 0.
@@ -267,17 +267,17 @@ func doTestWithDictionary(t *testing.T, data []byte, ht *assertingHashTable) {
 func doTestWithDictionaryAt(t *testing.T, data []byte, dictOff, dictLen, length int, ht *assertingHashTable) {
 	t.Helper()
 
-	out := store.NewByteArrayDataOutput(length + 32)
+	out := store.NewByteBuffersDataOutput()
 	if err := LZ4CompressWithDictionary(data, dictOff, dictLen, length, out, ht); err != nil {
 		t.Fatalf("LZ4CompressWithDictionary: %v", err)
 	}
-	compressed := append([]byte(nil), out.GetBytes()...)
+	compressed := append([]byte(nil), out.ToArrayCopy()...)
 
-	out2 := store.NewByteArrayDataOutput(length + 32)
+	out2 := store.NewByteBuffersDataOutput()
 	if err := LZ4CompressWithDictionary(data, dictOff, dictLen, length, out2, ht); err != nil {
 		t.Fatalf("second LZ4CompressWithDictionary: %v", err)
 	}
-	if !bytes.Equal(compressed, out2.GetBytes()) {
+	if !bytes.Equal(compressed, out2.ToArrayCopy()) {
 		t.Fatalf("reused hash table produced different dict-compressed output")
 	}
 
@@ -398,11 +398,11 @@ func runLZ4TestCase(t *testing.T, newHashTable hashTableFactory) {
 
 		// "compressed output is smaller than the original input despite
 		// being incompressible on its own".
-		out := store.NewByteArrayDataOutput(32)
+		out := store.NewByteBuffersDataOutput()
 		if err := LZ4CompressWithDictionary(data, dictOff, dictLen, length, out, newHashTable()); err != nil {
 			t.Fatalf("LZ4CompressWithDictionary: %v", err)
 		}
-		if got := len(out.GetBytes()); got >= length {
+		if got := len(out.ToArrayCopy()); got >= length {
 			t.Errorf("dictionary did not shrink output: got %d bytes, length %d", got, length)
 		}
 	})

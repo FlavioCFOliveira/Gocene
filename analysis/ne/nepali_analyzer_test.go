@@ -15,9 +15,7 @@ import (
 func analyzeToTokens(t *testing.T, a *NepaliAnalyzer, text string) []string {
 	t.Helper()
 	tok := analysis.NewStandardTokenizer()
-	if err := tok.SetReader(strings.NewReader(text)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(text))
 	lc := analysis.NewLowerCaseFilter(tok)
 	dd := analysis.NewDecimalDigitFilter(lc)
 	var stopSlice []string

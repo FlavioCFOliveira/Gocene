@@ -95,6 +95,12 @@ func (e *mockTermsEnum) PostingsWithLiveDocs(util.Bits, int) (index.PostingsEnum
 	return nil, nil
 }
 
+func (e *mockTermsEnum) Impacts(int) (index.ImpactsEnum, error) { return nil, nil }
+
+// Ord reports that this enumeration does not support ordinals, as
+// TermsEnumBase.Ord does.
+func (e *mockTermsEnum) Ord() int64 { return -1 }
+
 // mockIndexReader implements IndexReaderForAutoStop for test purposes.
 type mockIndexReader struct {
 	numDocs    int
@@ -127,9 +133,7 @@ func collectQueryTokens(t *testing.T, a *QueryAutoStopWordAnalyzer, fieldName, t
 	// attribute source from the concrete StopFilter (the last filter in the
 	// chain returned by WrapTokenStream).
 	tok := analysis.NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader(text)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(text))
 
 	// Apply WrapTokenStream if stop words exist for this field.
 	var ts analysis.TokenStream = tok

@@ -32,7 +32,7 @@ func stemLithuanian(t *testing.T, word string) string {
 	if !ok {
 		t.Fatal("no token")
 	}
-	attr := f.GetAttribute("CharTermAttribute")
+	attr := f.GetAttribute(analysis.CharTermAttributeType)
 	if attr == nil {
 		t.Fatal("CharTermAttribute not found")
 	}
@@ -82,16 +82,16 @@ func TestLithuanianStemming_NounsII(t *testing.T) {
 // TestLithuanianStemming_AdjI tests adjective declension I stems.
 // Source: TestLithuanianStemming.testAdjI
 func TestLithuanianStemming_AdjI(t *testing.T) {
-	checkOneTerm(t, "geras", "ger")   // nom. sg. masc.
-	checkOneTerm(t, "geri", "ger")    // nom. pl. masc.
-	checkOneTerm(t, "gero", "ger")    // gen. sg. masc.
-	checkOneTerm(t, "gerų", "ger")    // gen. pl. masc.
-	checkOneTerm(t, "gera", "ger")    // nom. sg. fem.
-	checkOneTerm(t, "geros", "ger")   // nom. pl. fem.
-	checkOneTerm(t, "gerą", "ger")    // acc. sg. fem.
-	checkOneTerm(t, "geras", "ger")   // acc. pl. fem.
-	checkOneTerm(t, "geroje", "ger")  // loc. sg. fem.
-	checkOneTerm(t, "gerose", "ger")  // loc. pl. fem.
+	checkOneTerm(t, "geras", "ger")  // nom. sg. masc.
+	checkOneTerm(t, "geri", "ger")   // nom. pl. masc.
+	checkOneTerm(t, "gero", "ger")   // gen. sg. masc.
+	checkOneTerm(t, "gerų", "ger")   // gen. pl. masc.
+	checkOneTerm(t, "gera", "ger")   // nom. sg. fem.
+	checkOneTerm(t, "geros", "ger")  // nom. pl. fem.
+	checkOneTerm(t, "gerą", "ger")   // acc. sg. fem.
+	checkOneTerm(t, "geras", "ger")  // acc. pl. fem.
+	checkOneTerm(t, "geroje", "ger") // loc. sg. fem.
+	checkOneTerm(t, "gerose", "ger") // loc. pl. fem.
 }
 
 // TestLithuanianStemming_HighFrequency tests high-frequency Lithuanian terms.

@@ -15,7 +15,7 @@ import (
 func TestBlockPacked_RoundTripSmall(t *testing.T) {
 	t.Parallel()
 	const blockSize = 64
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	w, err := NewBlockPackedWriter(out, blockSize)
 	if err != nil {
 		t.Fatal(err)
@@ -34,7 +34,7 @@ func TestBlockPacked_RoundTripSmall(t *testing.T) {
 	if err := w.Finish(); err != nil {
 		t.Fatal(err)
 	}
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	r, err := NewBlockPackedReaderIterator(in, VersionCurrent, blockSize, int64(len(want)))
 	if err != nil {
 		t.Fatal(err)
@@ -63,7 +63,7 @@ func TestBlockPacked_RoundTripMultiBlock(t *testing.T) {
 		values[i] = int64(rng.Intn(1 << 16))
 	}
 
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	w, err := NewBlockPackedWriter(out, blockSize)
 	if err != nil {
 		t.Fatal(err)
@@ -77,7 +77,7 @@ func TestBlockPacked_RoundTripMultiBlock(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	r, err := NewBlockPackedReaderIterator(in, VersionCurrent, blockSize, numValues)
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +102,7 @@ func TestBlockPacked_SkipMatchesNext(t *testing.T) {
 		values[i] = int64(i * 7)
 	}
 
-	out := store.NewByteArrayDataOutput(64)
+	out := store.NewByteBuffersDataOutput()
 	w, err := NewBlockPackedWriter(out, blockSize)
 	if err != nil {
 		t.Fatal(err)
@@ -116,7 +116,7 @@ func TestBlockPacked_SkipMatchesNext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	r, err := NewBlockPackedReaderIterator(in, VersionCurrent, blockSize, numValues)
 	if err != nil {
 		t.Fatal(err)

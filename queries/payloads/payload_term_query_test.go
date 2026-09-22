@@ -12,7 +12,6 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/queries/spans"
-	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
 // TestPayloadTermQuery exercises the payload query types in Gocene:

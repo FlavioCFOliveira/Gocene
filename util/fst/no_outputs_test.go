@@ -45,12 +45,12 @@ func TestNoOutputsAlgebraReturnsNoOutput(t *testing.T) {
 
 func TestNoOutputsSerializationIsNoop(t *testing.T) {
 	o := NoOutputs()
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	if err := o.Write(o.GetNoOutput(), out); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	if len(out.GetBytes()) != 0 {
-		t.Fatalf("expected zero bytes written, got %d", len(out.GetBytes()))
+	if len(out.ToArrayCopy()) != 0 {
+		t.Fatalf("expected zero bytes written, got %d", len(out.ToArrayCopy()))
 	}
 
 	in := store.NewByteArrayDataInput([]byte{})

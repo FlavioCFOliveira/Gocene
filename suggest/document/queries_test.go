@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 func TestContextQuery_Automaton(t *testing.T) {
@@ -18,17 +19,17 @@ func TestContextQuery_Automaton(t *testing.T) {
 	// Test matching
 	// "ctx1" + SEP(0x1F)
 	input := []int{'c', 't', 'x', '1', 0x1F}
-	if !auto.Accepts(input) {
+	if !accepts(auto, input) {
 		t.Errorf("Automaton should accept ctx1")
 	}
 
 	input = []int{'c', 't', 'x', '2', 0x1F}
-	if !auto.Accepts(input) {
+	if !accepts(auto, input) {
 		t.Errorf("Automaton should accept ctx2")
 	}
 
 	input = []int{'c', 't', 'x', '3', 0x1F}
-	if auto.Accepts(input) {
+	if accepts(auto, input) {
 		t.Errorf("Automaton should NOT accept ctx3")
 	}
 }
@@ -38,7 +39,7 @@ func TestContextQuery_CreateWeight(t *testing.T) {
 	q := NewContextQuery(inner, "ctx1")
 	q.AddContext("ctx2", 2.0, true)
 
-	weight, err := q.CreateWeight(nil, search.ScoreModeDefault, 1.0)
+	weight, err := q.CreateWeight(nil, search.COMPLETE, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight failed: %v", err)
 	}
@@ -58,4 +59,14 @@ func TestContextQuery_CreateWeight(t *testing.T) {
 	if weight.Boost() != 0+1.0 {
 		t.Errorf("Expected boost 1.0, got %f", weight.Boost())
 	}
+}
+
+// accepts reports whether auto accepts the code points of input, as
+// Operations.run(Automaton, String) does.
+func accepts(auto *automaton.Automaton, input []int) bool {
+	rs := make([]rune, len(input))
+	for i, c := range input {
+		rs[i] = rune(c)
+	}
+	return automaton.Run(auto, string(rs))
 }

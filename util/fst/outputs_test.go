@@ -63,11 +63,11 @@ func TestOutputsInterfaceContract(t *testing.T) {
 
 func TestOutputsSerializationRoundTrip(t *testing.T) {
 	o := &minimalOutputs{}
-	out := store.NewByteArrayDataOutput(16)
+	out := store.NewByteBuffersDataOutput()
 	if err := o.Write(int64(0x12345678), out); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	got, err := o.Read(in)
 	if err != nil {
 		t.Fatalf("Read: %v", err)

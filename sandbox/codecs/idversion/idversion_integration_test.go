@@ -9,6 +9,7 @@ package idversion
 
 import (
 	"encoding/binary"
+	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
@@ -34,6 +35,8 @@ type memTermsEntry struct {
 // memTerms implements spi.Terms backed by a sorted slice of entries.
 // Used to drive FieldsConsumer.Write in tests.
 type memTerms struct {
+	spi.TermsBase
+
 	fi      *spi.FieldInfo
 	entries []memTermsEntry
 }
@@ -73,6 +76,8 @@ func (m *memTerms) GetMax() (*spi.Term, error) {
 
 // memTermsEnum iterates over memTermsEntry slice.
 type memTermsEnum struct {
+	spi.TermsEnumBase
+
 	fi      *spi.FieldInfo
 	entries []memTermsEntry
 	pos     int
@@ -137,6 +142,11 @@ func (e *memTermsEnum) PostingsWithLiveDocs(_ util.Bits, flags int) (spi.Posting
 	return e.Postings(flags)
 }
 
+// Impacts is abstract in Lucene's TermsEnum; this double does not support it.
+func (e *memTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, errors.New("memTermsEnum.Impacts: unsupported operation")
+}
+
 // memPostingsEnum is a single-doc/single-position PostingsEnum.
 type memPostingsEnum struct {
 	docID   int
@@ -180,6 +190,16 @@ func (p *memPostingsEnum) GetPayload() ([]byte, error) {
 	payload := make([]byte, 8)
 	binary.BigEndian.PutUint64(payload, uint64(p.version))
 	return payload, nil
+}
+
+// DocIDRunEnd carries the default body Lucene's memPostingsEnum inherits.
+func (p *memPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(p)
+}
+
+// IntoBitSet carries the default body Lucene's memPostingsEnum inherits.
+func (p *memPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
 }
 
 // TestIDVersionPostingsFormat_FieldsConsumer_Produces_No_Error verifies that

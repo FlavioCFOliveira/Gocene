@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -37,7 +38,7 @@ type cannedTokenStream struct {
 	tokens     []cannedToken
 	cursor     int
 	termAtt    analysis.CharTermAttribute
-	posIncrAtt analysis.PositionIncrementAttribute
+	posIncrAtt tokenattributes.PositionIncrementAttribute
 	posLenAtt  analysis.PositionLengthAttribute
 }
 
@@ -47,11 +48,11 @@ func newCannedTokenStream(tokens ...cannedToken) *cannedTokenStream {
 		tokens:          tokens,
 	}
 	s.termAtt = analysis.NewCharTermAttribute()
-	s.posIncrAtt = analysis.NewPositionIncrementAttribute()
+	s.posIncrAtt = tokenattributes.NewPositionIncrementAttribute()
 	s.posLenAtt = analysis.NewPositionLengthAttribute()
-	s.AddAttribute(s.termAtt)
-	s.AddAttribute(s.posIncrAtt)
-	s.AddAttribute(s.posLenAtt)
+	s.AddAttributeImpl(s.termAtt)
+	s.AddAttributeImpl(s.posIncrAtt)
+	s.AddAttributeImpl(s.posLenAtt)
 	return s
 }
 
@@ -81,14 +82,14 @@ func assertTokenStream(t *testing.T, ts analysis.TokenStream, terms []string, in
 		t.Fatalf("test bug: terms (%d) and increments (%d) must have equal length", len(terms), len(increments))
 	}
 	termAtt, ok := ts.(interface {
-		GetAttribute(string) util.AttributeImpl
+		GetAttribute(reflect.Type) util.AttributeImpl
 	})
 	if !ok {
 		t.Fatalf("ts %T does not expose GetAttribute", ts)
 	}
-	tA := termAtt.GetAttribute("CharTermAttribute").(analysis.CharTermAttribute)
-	iA := termAtt.GetAttribute("PositionIncrementAttribute").(analysis.PositionIncrementAttribute)
-	lA := termAtt.GetAttribute("PositionLengthAttribute").(analysis.PositionLengthAttribute)
+	tA := termAtt.GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	iA := termAtt.GetAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
+	lA := termAtt.GetAttribute(analysis.PositionLengthAttributeType).(analysis.PositionLengthAttribute)
 	offset := 0
 	for {
 		ok, err := ts.IncrementToken()

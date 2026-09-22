@@ -85,14 +85,14 @@ func TestFSTSaveRoundtrip(t *testing.T) {
 		t.Fatalf("NewFSTFromReader: %v", err)
 	}
 
-	meta := store.NewByteArrayDataOutput(64)
-	bodyOut := store.NewByteArrayDataOutput(int(m.numBytes))
+	meta := store.NewByteBuffersDataOutput()
+	bodyOut := store.NewByteBuffersDataOutput()
 	if err := f.Save(meta, bodyOut); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
 	// Read metadata then body back.
-	metaIn := store.NewByteArrayDataInput(meta.GetBytes())
+	metaIn := store.NewByteArrayDataInput(meta.ToArrayCopy())
 	gotMeta, err := ReadMetadata[int64](metaIn, PositiveIntOutputs())
 	if err != nil {
 		t.Fatalf("ReadMetadata: %v", err)
@@ -102,7 +102,7 @@ func TestFSTSaveRoundtrip(t *testing.T) {
 		gotMeta.NumBytes() != int64(len(body)) {
 		t.Fatalf("metadata mismatch after roundtrip: %+v", gotMeta)
 	}
-	bodyIn := store.NewByteArrayDataInput(bodyOut.GetBytes())
+	bodyIn := store.NewByteArrayDataInput(bodyOut.ToArrayCopy())
 	got, err := NewFSTFromDataInput[int64](gotMeta, bodyIn)
 	if err != nil {
 		t.Fatalf("NewFSTFromDataInput: %v", err)
@@ -181,11 +181,11 @@ func TestFSTReadLabelByte4(t *testing.T) {
 	)
 	f, _ := NewFSTFromReader[*util.BytesRef](m, NewOnHeapFSTStoreFromBytes(nil))
 	// VInt 0x1234 = 0xB4 0x24.
-	buf := store.NewByteArrayDataOutput(8)
-	if err := store.WriteVInt(buf, 0x1234); err != nil {
+	buf := store.NewByteBuffersDataOutput()
+	if err := buf.WriteVInt(0x1234); err != nil {
 		t.Fatal(err)
 	}
-	in := store.NewByteArrayDataInput(buf.GetBytes())
+	in := store.NewByteArrayDataInput(buf.ToArrayCopy())
 	got, err := f.ReadLabel(in)
 	if err != nil {
 		t.Fatalf("ReadLabel: %v", err)

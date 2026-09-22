@@ -42,7 +42,7 @@ func TestPacked64SequenceByteLayout(t *testing.T) {
 			}
 
 			// Encode through the PackedWriter.
-			out := store.NewByteArrayDataOutput(64)
+			out := store.NewByteBuffersDataOutput()
 			w, err := GetWriterNoHeader(out, FormatPacked, n, bpv, DefaultBufferSize)
 			if err != nil {
 				t.Fatalf("GetWriterNoHeader err=%v", err)
@@ -55,7 +55,7 @@ func TestPacked64SequenceByteLayout(t *testing.T) {
 			if err := w.Finish(); err != nil {
 				t.Fatalf("Finish err=%v", err)
 			}
-			got := out.GetBytes()
+			got := out.ToArrayCopy()
 
 			// ByteCount must match actual output.
 			expectedLen := FormatPacked.ByteCount(VersionCurrent, n, bpv)
@@ -99,7 +99,7 @@ func TestPacked64SingleBlockSequenceByteLayout(t *testing.T) {
 				values[i] = int64(rng.Uint64() & mask)
 			}
 
-			out := store.NewByteArrayDataOutput(64)
+			out := store.NewByteBuffersDataOutput()
 			w, err := GetWriterNoHeader(out, FormatPackedSingleBlock, n, bpv, DefaultBufferSize)
 			if err != nil {
 				t.Fatalf("GetWriterNoHeader err=%v", err)
@@ -112,7 +112,7 @@ func TestPacked64SingleBlockSequenceByteLayout(t *testing.T) {
 			if err := w.Finish(); err != nil {
 				t.Fatalf("Finish err=%v", err)
 			}
-			got := out.GetBytes()
+			got := out.ToArrayCopy()
 
 			// ByteCount must match.
 			expectedLen := FormatPackedSingleBlock.ByteCount(VersionCurrent, n, bpv)
@@ -186,7 +186,7 @@ func TestBlockPackedWriterKnownValues(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			out := store.NewByteArrayDataOutput(1024)
+			out := store.NewByteBuffersDataOutput()
 			w, err := NewBlockPackedWriter(out, tc.blockSize)
 			if err != nil {
 				t.Fatalf("NewBlockPackedWriter: %v", err)
@@ -199,7 +199,7 @@ func TestBlockPackedWriterKnownValues(t *testing.T) {
 			if err := w.Finish(); err != nil {
 				t.Fatalf("Finish: %v", err)
 			}
-			got := out.GetBytes()
+			got := out.ToArrayCopy()
 
 			// Basic structural invariants.
 			if len(got) < 1 {
@@ -262,7 +262,7 @@ func TestBlockPackedWriterAllSmallBlockSizes(t *testing.T) {
 			for i := range values {
 				values[i] = int64(i * i) // quadratic sequence
 			}
-			out := store.NewByteArrayDataOutput(1024)
+			out := store.NewByteBuffersDataOutput()
 			w, err := NewBlockPackedWriter(out, blockSize)
 			if err != nil {
 				t.Fatalf("NewBlockPackedWriter(blockSize=%d): %v", blockSize, err)
@@ -275,7 +275,7 @@ func TestBlockPackedWriterAllSmallBlockSizes(t *testing.T) {
 			if err := w.Finish(); err != nil {
 				t.Fatalf("Finish: %v", err)
 			}
-			in := store.NewByteArrayDataInput(out.GetBytes())
+			in := store.NewByteArrayDataInput(out.ToArrayCopy())
 			r, err := NewBlockPackedReaderIterator(in, VersionCurrent, blockSize, n)
 			if err != nil {
 				t.Fatalf("NewBlockPackedReaderIterator: %v", err)
@@ -304,7 +304,7 @@ func TestBlockPackedWriterNegativeValues(t *testing.T) {
 		-1 << 62, -1<<62 + 1,
 		-9223372036854775808, // math.MinInt64
 	}
-	out := store.NewByteArrayDataOutput(256)
+	out := store.NewByteBuffersDataOutput()
 	w, err := NewBlockPackedWriter(out, 64)
 	if err != nil {
 		t.Fatalf("NewBlockPackedWriter: %v", err)
@@ -317,7 +317,7 @@ func TestBlockPackedWriterNegativeValues(t *testing.T) {
 	if err := w.Finish(); err != nil {
 		t.Fatalf("Finish: %v", err)
 	}
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	r, err := NewBlockPackedReaderIterator(in, VersionCurrent, 64, int64(len(values)))
 	if err != nil {
 		t.Fatalf("NewBlockPackedReaderIterator: %v", err)
@@ -368,7 +368,7 @@ func TestMonotonicBlockPackedKnownValues(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			out := store.NewByteArrayDataOutput(1024)
+			out := store.NewByteBuffersDataOutput()
 			w, err := NewMonotonicBlockPackedWriter(out, tc.blockSize)
 			if err != nil {
 				t.Fatalf("NewMonotonicBlockPackedWriter: %v", err)
@@ -381,7 +381,7 @@ func TestMonotonicBlockPackedKnownValues(t *testing.T) {
 			if err := w.Finish(); err != nil {
 				t.Fatalf("Finish: %v", err)
 			}
-			got := out.GetBytes()
+			got := out.ToArrayCopy()
 			if len(got) == 0 {
 				t.Fatalf("empty output")
 			}
@@ -551,7 +551,7 @@ func TestMonotonicBlockPackedLargeSpan(t *testing.T) {
 	for i := range values {
 		values[i] = base + int64(i)*37
 	}
-	out := store.NewByteArrayDataOutput(4096)
+	out := store.NewByteBuffersDataOutput()
 	w, err := NewMonotonicBlockPackedWriter(out, blockSize)
 	if err != nil {
 		t.Fatalf("NewMonotonicBlockPackedWriter: %v", err)
@@ -564,7 +564,7 @@ func TestMonotonicBlockPackedLargeSpan(t *testing.T) {
 	if err := w.Finish(); err != nil {
 		t.Fatalf("Finish: %v", err)
 	}
-	in := store.NewByteArrayDataInput(out.GetBytes())
+	in := store.NewByteArrayDataInput(out.ToArrayCopy())
 	r, err := NewMonotonicBlockPackedReader(in, VersionCurrent, blockSize, int64(len(values)))
 	if err != nil {
 		t.Fatalf("NewMonotonicBlockPackedReader: %v", err)
@@ -584,7 +584,7 @@ func TestBlockPackedWriterOffsetTracking(t *testing.T) {
 		blockSize := blockSize
 		t.Run("", func(t *testing.T) {
 			t.Parallel()
-			out := store.NewByteArrayDataOutput(256)
+			out := store.NewByteBuffersDataOutput()
 			w, err := NewBlockPackedWriter(out, blockSize)
 			if err != nil {
 				t.Fatalf("NewBlockPackedWriter: %v", err)

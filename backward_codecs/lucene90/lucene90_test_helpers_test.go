@@ -7,6 +7,7 @@ package lucene90
 import (
 	"encoding/binary"
 	"io"
+	"math"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -49,7 +50,8 @@ func (b *bytesIndexInput) ReadByte() (byte, error) {
 	return v, nil
 }
 
-func (b *bytesIndexInput) ReadBytes(dst []byte) error {
+func (b *bytesIndexInput) ReadBytes(dstBuf []byte, offset, length int) error {
+	dst := dstBuf[offset : offset+length]
 	n := int64(len(dst))
 	if b.pos+n > int64(len(b.data)) {
 		return io.EOF
@@ -128,6 +130,138 @@ func (b *bytesIndexInput) Slice(desc string, offset int64, length int64) (store.
 
 func (b *bytesIndexInput) Close() error { return nil }
 
+// ReadFloats carries the default body Lucene gives DataInput.ReadFloats.
+func (b *bytesIndexInput) ReadFloats(dst []float32, offset int, len int) error {
+	for i := 0; i < len; i++ {
+		v, err := b.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = math.Float32frombits(uint32(v))
+	}
+	return nil
+}
+
+// ReadInts carries the default body Lucene gives DataInput.ReadInts.
+func (b *bytesIndexInput) ReadInts(dst []int32, offset int, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := b.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadLongs carries the default body Lucene gives DataInput.ReadLongs.
+func (b *bytesIndexInput) ReadLongs(dst []int64, offset int, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := b.ReadLong()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadMapOfStrings carries the default body Lucene gives DataInput.ReadMapOfStrings.
+func (b *bytesIndexInput) ReadMapOfStrings() (map[string]string, error) {
+	count, err := b.ReadVInt()
+	if err != nil {
+		return nil, err
+	}
+	res := make(map[string]string, count)
+	for i := 0; i < int(count); i++ {
+		k, err := b.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		v, err := b.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		res[k] = v
+	}
+	return res, nil
+}
+
+// ReadSetOfStrings carries the default body Lucene gives DataInput.ReadSetOfStrings.
+func (b *bytesIndexInput) ReadSetOfStrings() ([]string, error) {
+	count, err := b.ReadVInt()
+	if err != nil {
+		return nil, err
+	}
+	res := make([]string, 0, count)
+	for i := 0; i < int(count); i++ {
+		v, err := b.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, v)
+	}
+	return res, nil
+}
+
+// ReadVInt carries the default body Lucene gives DataInput.ReadVInt.
+func (b *bytesIndexInput) ReadVInt() (int32, error) {
+	var v int32
+	for shift := 0; ; shift += 7 {
+		b, err := b.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		v |= int32(b&0x7F) << shift
+		if b&0x80 == 0 {
+			return v, nil
+		}
+	}
+}
+
+// ReadVLong carries the default body Lucene gives DataInput.ReadVLong.
+func (b *bytesIndexInput) ReadVLong() (int64, error) {
+	var v int64
+	for shift := 0; ; shift += 7 {
+		b, err := b.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		v |= int64(b&0x7F) << shift
+		if b&0x80 == 0 {
+			return v, nil
+		}
+	}
+}
+
+// ReadZInt carries the default body Lucene gives DataInput.ReadZInt.
+func (b *bytesIndexInput) ReadZInt() (int32, error) {
+	v, err := b.ReadVInt()
+	if err != nil {
+		return 0, err
+	}
+	return int32(uint32(v)>>1) ^ -(v & 1), nil
+}
+
+// ReadZLong carries the default body Lucene gives DataInput.ReadZLong.
+func (b *bytesIndexInput) ReadZLong() (int64, error) {
+	v, err := b.ReadVLong()
+	if err != nil {
+		return 0, err
+	}
+	return int64(uint64(v)>>1) ^ -(v & 1), nil
+}
+
+// SkipBytes carries the default body Lucene gives DataInput.SkipBytes.
+func (b *bytesIndexInput) SkipBytes(p0 int64) error {
+	for i := int64(0); i < p0; i++ {
+		if _, err := b.ReadByte(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 var _ store.IndexInput = (*bytesIndexInput)(nil)
 
 // --- Tests for bytesIndexInput ---
@@ -174,7 +308,7 @@ func TestBytesIndexInput_ReadByteEOF(t *testing.T) {
 func TestBytesIndexInput_ReadBytes(t *testing.T) {
 	b := newBytesIndexInput([]byte{0x01, 0x02, 0x03, 0x04})
 	dst := make([]byte, 4)
-	if err := b.ReadBytes(dst); err != nil {
+	if err := b.ReadBytes(dst, 0, len(dst)); err != nil {
 		t.Fatalf("ReadBytes: %v", err)
 	}
 	expected := []byte{0x01, 0x02, 0x03, 0x04}
@@ -305,4 +439,3 @@ func TestBytesIndexInput_ImplementsStoreIndexInput(t *testing.T) {
 	b := newBytesIndexInput(nil)
 	var _ store.IndexInput = b
 }
-

@@ -4,6 +4,10 @@
 
 package hnsw
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/spi"
+)
+
 import "testing"
 
 func TestOrdinalTranslatedKnnCollector_TranslatesOrdinalToDocID(t *testing.T) {
@@ -21,8 +25,8 @@ func TestOrdinalTranslatedKnnCollector_TranslatesOrdinalToDocID(t *testing.T) {
 	if td.TotalHits == nil {
 		t.Fatalf("TotalHits is nil")
 	}
-	if td.TotalHits.Relation != EqualTo {
-		t.Errorf("Relation: got %v want EqualTo", td.TotalHits.Relation)
+	if td.TotalHits.Relation != spi.EQUAL_TO {
+		t.Errorf("Relation: got %v want spi.EQUAL_TO", td.TotalHits.Relation)
 	}
 	if len(td.ScoreDocs) != 3 {
 		t.Fatalf("ScoreDocs length: got %d want 3", len(td.ScoreDocs))
@@ -50,7 +54,7 @@ func TestOrdinalTranslatedKnnCollector_VisitedCountAndEarlyTermination(t *testin
 	if td.TotalHits.Value != 10 {
 		t.Errorf("Value: got %d want 10", td.TotalHits.Value)
 	}
-	if td.TotalHits.Relation != GreaterThanOrEqualTo {
-		t.Errorf("Relation: got %v want GreaterThanOrEqualTo", td.TotalHits.Relation)
+	if td.TotalHits.Relation != spi.GREATER_THAN_OR_EQUAL_TO {
+		t.Errorf("Relation: got %v want spi.GREATER_THAN_OR_EQUAL_TO", td.TotalHits.Relation)
 	}
 }

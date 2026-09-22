@@ -4,8 +4,9 @@ import (
 	"math"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/spatial3d/geom"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 type mockSortedNumericDocValues struct {
@@ -14,17 +15,56 @@ type mockSortedNumericDocValues struct {
 }
 
 func (m *mockSortedNumericDocValues) DocID() int { return m.pos }
-func (m *mockSortedNumericDocValues) Advance(doc int) { m.pos = doc }
-func (m *mockSortedNumericDocValues) DocValueCount() int {
-	if m.pos >= len(m.values) {
-		return 0
-	}
-	return 1
+func (m *mockSortedNumericDocValues) Advance(doc int) (int, error) {
+	m.pos = doc
+	return doc, nil
 }
-func (m *mockSortedNumericDocValues) NextValue() int64 {
-	return m.values[m.pos]
+func (m *mockSortedNumericDocValues) NextDoc() (int, error) {
+	m.pos++
+	if m.pos >= len(m.values) {
+		m.pos = search.NO_MORE_DOCS
+	}
+	return m.pos, nil
+}
+func (m *mockSortedNumericDocValues) AdvanceExact(doc int) (bool, error) {
+	m.pos = doc
+	return doc < len(m.values), nil
+}
+func (m *mockSortedNumericDocValues) Cost() int64 { return int64(len(m.values)) }
+func (m *mockSortedNumericDocValues) DocValueCount() (int, error) {
+	if m.pos >= len(m.values) {
+		return 0, nil
+	}
+	return 1, nil
+}
+func (m *mockSortedNumericDocValues) NextValue() (int64, error) {
+	return m.values[m.pos], nil
+}
+func (m *mockSortedNumericDocValues) LongValue() (int64, error) {
+	return m.values[m.pos], nil
 }
 func (m *mockSortedNumericDocValues) Size() int { return len(m.values) }
+
+// DocIDRunEnd carries the default body Lucene gives SortedNumericDocValues.DocIDRunEnd.
+func (m *mockSortedNumericDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(m)
+}
+
+// IntoBitSet carries the default body Lucene gives SortedNumericDocValues.IntoBitSet.
+func (m *mockSortedNumericDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(m, upTo, bitSet, offset)
+}
+
+// asDistanceShape renders Java's GeoCircle extends GeoDistanceShape: the
+// circle is passed where a distance shape is expected.
+func asDistanceShape(t *testing.T, shape geom.GeoCircle) geom.GeoDistanceShape {
+	t.Helper()
+	ds, ok := shape.(geom.GeoDistanceShape)
+	if !ok {
+		t.Fatalf("%T does not implement geom.GeoDistanceShape", shape)
+	}
+	return ds
+}
 
 func TestGeo3DDocValueEncoding(t *testing.T) {
 	pm := geom.WGS84
@@ -60,7 +100,7 @@ func TestGeo3DPointDistanceComparator(t *testing.T) {
 		encoder.EncodePoint(p3),
 	}
 
-	comp := NewGeo3DPointDistanceComparator("field", pm, shape, 3)
+	comp := NewGeo3DPointDistanceComparator("field", pm, asDistanceShape(t, shape), 3)
 	comp.currentDocs = &mockSortedNumericDocValues{values: vals}
 
 	// Test Copy
@@ -93,7 +133,7 @@ func TestGeo3DPointOutsideDistanceComparator(t *testing.T) {
 		encoder.EncodePoint(p2),
 	}
 
-	comp := NewGeo3DPointOutsideDistanceComparator("field", pm, shape, 2)
+	comp := NewGeo3DPointOutsideDistanceComparator("field", pm, asDistanceShape(t, shape), 2)
 	comp.currentDocs = &mockSortedNumericDocValues{values: vals}
 
 	comp.Copy(0, 0)

@@ -30,7 +30,7 @@ import (
 func TestDirectPackedSimple(t *testing.T) {
 	t.Parallel()
 	bitsPerValue := DirectWriterBitsRequired(2)
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	w, err := GetDirectWriter(out, 5, bitsPerValue)
 	if err != nil {
 		t.Fatalf("GetDirectWriter: %v", err)
@@ -43,7 +43,7 @@ func TestDirectPackedSimple(t *testing.T) {
 	if err := w.Finish(); err != nil {
 		t.Fatalf("Finish: %v", err)
 	}
-	in := &byteSliceRandomAccess{data: out.GetBytes()}
+	in := &byteSliceRandomAccess{data: out.ToArrayCopy()}
 	r, err := GetDirectReader(in, bitsPerValue)
 	if err != nil {
 		t.Fatalf("GetDirectReader: %v", err)
@@ -67,7 +67,7 @@ func TestDirectPackedSimple(t *testing.T) {
 func TestDirectPackedNotEnoughValues(t *testing.T) {
 	t.Parallel()
 	bitsPerValue := DirectWriterBitsRequired(2)
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	w, err := GetDirectWriter(out, 5, bitsPerValue)
 	if err != nil {
 		t.Fatalf("GetDirectWriter: %v", err)
@@ -145,7 +145,7 @@ func doTestDirectPackedBpv(t *testing.T, r *rand.Rand, bpv int, offset int64, me
 		if bpv != 64 {
 			bitsRequired = DirectWriterBitsRequired(int64(1) << uint(bpv-1))
 		}
-		out := store.NewByteArrayDataOutput(64)
+		out := store.NewByteBuffersDataOutput()
 		for j := int64(0); j < offset; j++ {
 			if err := out.WriteByte(byte(r.Intn(256))); err != nil {
 				t.Fatalf("bpv=%d iter=%d: prefix write: %v", bpv, i, err)
@@ -163,7 +163,7 @@ func doTestDirectPackedBpv(t *testing.T, r *rand.Rand, bpv int, offset int64, me
 		if err := w.Finish(); err != nil {
 			t.Fatalf("bpv=%d iter=%d: Finish: %v", bpv, i, err)
 		}
-		bytes := out.GetBytes()
+		bytes := out.ToArrayCopy()
 		wantBytes, err := DirectWriterBytesRequired(int64(len(original)), bitsRequired)
 		if err != nil {
 			t.Fatalf("bpv=%d iter=%d: DirectWriterBytesRequired: %v", bpv, i, err)

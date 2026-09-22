@@ -7,12 +7,11 @@ package backward_index
 import (
 	"testing"
 
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
+	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
-	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 )
 
 // TestIndexUpgradeBackwardsCompatibility verifies that an index created with
@@ -49,7 +48,7 @@ func TestIndexUpgradeBackwardsCompatibility(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	writer.Close()
@@ -68,8 +67,8 @@ func TestIndexUpgradeBackwardsCompatibility(t *testing.T) {
 		sci := infos.Get(i)
 		if sci != nil {
 			codec := sci.SegmentInfo().Codec()
-			if codec != "Lucene912" {
-				t.Fatalf("segment %d: expected codec Lucene912, got %q", i, codec)
+			if codec == nil || codec.Name() != "Lucene912" {
+				t.Fatalf("segment %d: expected codec Lucene912, got %v", i, codec)
 			}
 		}
 	}

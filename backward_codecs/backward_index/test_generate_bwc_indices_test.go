@@ -7,12 +7,11 @@ package backward_index
 import (
 	"testing"
 
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
+	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
-	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 )
 
 // TestGenerateBwcIndices demonstrates generating a backwards-compatible index
@@ -57,7 +56,7 @@ func TestGenerateBwcIndices(t *testing.T) {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	writer.Close()
@@ -71,8 +70,10 @@ func TestGenerateBwcIndices(t *testing.T) {
 	}
 	for i := 0; i < infos.Size(); i++ {
 		sci := infos.Get(i)
-		if sci != nil && sci.SegmentInfo().Codec() != "Lucene912" {
-			t.Fatalf("segment %d: expected codec Lucene912, got %q", i, sci.SegmentInfo().Codec())
+		if sci != nil {
+			if c := sci.SegmentInfo().Codec(); c == nil || c.Name() != "Lucene912" {
+				t.Fatalf("segment %d: expected codec Lucene912, got %v", i, c)
+			}
 		}
 	}
 

@@ -26,7 +26,7 @@ func drainTerms(t *testing.T, f *analysis.ASCIIFoldingFilter) []string {
 		if !ok {
 			break
 		}
-		attr := f.GetAttribute("CharTermAttribute")
+		attr := f.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			t.Fatal("CharTermAttribute not found")
 		}

@@ -31,7 +31,7 @@ func TestDemo(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewStandardAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	iw, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -48,7 +48,7 @@ func TestDemo(t *testing.T) {
 	if _, err := iw.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := iw.Commit(); err != nil {
+	if _, err := iw.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := iw.Close(); err != nil {
@@ -101,7 +101,7 @@ func TestDemo(t *testing.T) {
 	}
 
 	// PhraseQuery "to be" — must find exactly 1 hit.
-	phraseQuery := search.NewPhraseQueryWithStrings("fieldname", "to", "be")
+	phraseQuery := search.NewPhraseQuery(0, "fieldname", "to", "be")
 	phraseHits, err := searcher.Search(phraseQuery, 1)
 	if err != nil {
 		t.Fatalf("Search(phrase): %v", err)

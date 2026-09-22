@@ -49,7 +49,7 @@ func TestComparatorConstructors(t *testing.T) {
 func TestUpdateableDocIdSetIterator_EdgeCases(t *testing.T) {
 	// When doc is NO_MORE_DOCS, NextDoc stays exhausted.
 	it := NewUpdateableDocIdSetIterator()
-	it.Update(search.NewEmptyDocIdSetIterator())
+	it.Update(search.Empty())
 	if doc, _ := it.NextDoc(); doc != search.NO_MORE_DOCS {
 		t.Errorf("NextDoc on empty: want NO_MORE_DOCS, got %d", doc)
 	}

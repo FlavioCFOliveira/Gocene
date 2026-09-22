@@ -137,7 +137,7 @@ func drain(out *store.ByteBuffersDataOutput) []byte {
 	n := int(sink.Size())
 	buf := make([]byte, n)
 	if n > 0 {
-		if err := di.ReadBytes(buf); err != nil {
+		if err := di.ReadBytes(buf, 0, len(buf)); err != nil {
 			panic(err)
 		}
 	}

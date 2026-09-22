@@ -194,7 +194,7 @@ func TestReadBytesRef_Zero(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Write VInt(0) meaning length=0.
-	if err := store.WriteVInt(out, 0); err != nil {
+	if err := out.WriteVInt(0); err != nil {
 		t.Fatal(err)
 	}
 	if err := out.Close(); err != nil {

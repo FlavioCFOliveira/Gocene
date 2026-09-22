@@ -14,9 +14,7 @@ import (
 func collectWikiTokens(t *testing.T, text string) []struct{ text, typ string } {
 	t.Helper()
 	tok := NewWikipediaTokenizer()
-	if err := tok.SetReader(strings.NewReader(text)); err != nil {
-		t.Fatal(err)
-	}
+	tok.SetReader(strings.NewReader(text))
 	if err := tok.Reset(); err != nil {
 		t.Fatal(err)
 	}

@@ -31,7 +31,7 @@ func TestDecodeImpacts99_Empty(t *testing.T) {
 func TestDecodeImpacts99_SingleNormIncrOnly(t *testing.T) {
 	// freqDelta=2 → bit0=0 → freq = 1+(2>>1)=2, norm = 0+1=1
 	badi := buildBADI(t, func(out store.DataOutput) error {
-		return store.WriteVInt(out, 2) // freqDelta=2
+		return out.WriteVInt(2) // freqDelta=2
 	})
 	buf := index.NewFreqAndNormBuffer()
 	out := decodeImpacts99(badi, buf)
@@ -51,10 +51,10 @@ func TestDecodeImpacts99_SingleNormIncrOnly(t *testing.T) {
 func TestDecodeImpacts99_SingleWithZLong(t *testing.T) {
 	// freqDelta=3 → bit0=1 → freq=1+(3>>1)=2; ZLong=0 → normDelta=ZigZagDecode(0)=0 → norm=1+0=1
 	badi := buildBADI(t, func(out store.DataOutput) error {
-		if err := store.WriteVInt(out, 3); err != nil { // freqDelta=3
+		if err := out.WriteVInt(3); err != nil { // freqDelta=3
 			return err
 		}
-		return store.WriteVLong(out, 0) // ZLong=0
+		return out.WriteVLong(0) // ZLong=0
 	})
 	buf := index.NewFreqAndNormBuffer()
 	out := decodeImpacts99(badi, buf)
@@ -173,6 +173,6 @@ func buildBADI(t *testing.T, fn func(store.DataOutput) error) *store.ByteArrayDa
 	}
 	t.Cleanup(func() { _ = in.Close() })
 	buf := make([]byte, in.Length())
-	_ = in.ReadBytes(buf)
+	_ = in.ReadBytes(buf, 0, len(buf))
 	return store.NewByteArrayDataInput(buf)
 }

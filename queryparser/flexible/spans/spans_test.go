@@ -10,7 +10,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/queries/spans"
 	"github.com/FlavioCFOliveira/Gocene/queryparser/flexible"
 	spanparser "github.com/FlavioCFOliveira/Gocene/queryparser/flexible/spans"
-	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
 // TestSpanQueryParser verifies the spans query parser component construction.
@@ -57,8 +56,8 @@ func TestSpanTermQueryNodeBuilder(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected SpanTermQuery, got %T", q)
 	}
-	if stq.Term().Field != "body" || stq.Term().Text() != "hello" {
-		t.Errorf("unexpected term: field=%s text=%s", stq.Term().Field, stq.Term().Text())
+	if stq.GetTerm().Field != "body" || stq.GetTerm().Text() != "hello" {
+		t.Errorf("unexpected term: field=%s text=%s", stq.GetTerm().Field, stq.GetTerm().Text())
 	}
 }
 
@@ -79,7 +78,7 @@ func TestSpanOrQueryNodeBuilder(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected SpanOrQuery, got %T", q)
 	}
-	clauses := soq.Clauses()
+	clauses := soq.GetClauses()
 	if len(clauses) != 2 {
 		t.Fatalf("expected 2 clauses, got %d", len(clauses))
 	}

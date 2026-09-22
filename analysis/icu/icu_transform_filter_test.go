@@ -31,7 +31,7 @@ func (t *identityTransliterator) Transliterate(src string) string { return src }
 // single token containing text, then wraps it with an ICUTransformFilter.
 func buildICUTransformTokenStream(text string, transform icu.Transliterator) (*analysis.KeywordTokenizer, *icu.ICUTransformFilter) {
 	tok := analysis.NewKeywordTokenizer()
-	_ = tok.SetReader(strings.NewReader(text))
+	tok.SetReader(strings.NewReader(text))
 	filter := icu.NewICUTransformFilter(tok, transform)
 	return tok, filter
 }
@@ -45,7 +45,7 @@ func TestICUTransformFilter_Identity(t *testing.T) {
 
 	_ = filter // reset handled by fresh tokenizer
 	tok := analysis.NewKeywordTokenizer()
-	_ = tok.SetReader(strings.NewReader("hello"))
+	tok.SetReader(strings.NewReader("hello"))
 	f := icu.NewICUTransformFilter(tok, transform)
 
 	ok, err := f.IncrementToken()
@@ -75,7 +75,7 @@ func TestICUTransformFilter_Identity(t *testing.T) {
 func TestICUTransformFilter_SimpleReplace(t *testing.T) {
 	transform := &simpleReplaceTransliterator{old: "a", new: "b"}
 	tok := analysis.NewKeywordTokenizer()
-	_ = tok.SetReader(strings.NewReader("abacada"))
+	tok.SetReader(strings.NewReader("abacada"))
 	f := icu.NewICUTransformFilter(tok, transform)
 
 	ok, err := f.IncrementToken()
@@ -100,7 +100,7 @@ func TestICUTransformFilter_SimpleReplace(t *testing.T) {
 func TestICUTransformFilter_Empty(t *testing.T) {
 	transform := &identityTransliterator{}
 	tok := analysis.NewKeywordTokenizer()
-	_ = tok.SetReader(strings.NewReader(""))
+	tok.SetReader(strings.NewReader(""))
 	f := icu.NewICUTransformFilter(tok, transform)
 
 	ok, err := f.IncrementToken()
@@ -124,7 +124,7 @@ func TestICUTransformFilter_Empty(t *testing.T) {
 func TestICUTransformFilter_MultipleTokens(t *testing.T) {
 	transform := &simpleReplaceTransliterator{old: "x", new: "y"}
 	tokenizer := analysis.NewWhitespaceTokenizer()
-	_ = tokenizer.SetReader(strings.NewReader("fox box"))
+	tokenizer.SetReader(strings.NewReader("fox box"))
 	f := icu.NewICUTransformFilter(tokenizer, transform)
 
 	var tokens []string
@@ -159,7 +159,7 @@ func TestICUTransformFilterFactory_Create(t *testing.T) {
 	factory := icu.NewICUTransformFilterFactory(transform)
 
 	tok := analysis.NewKeywordTokenizer()
-	_ = tok.SetReader(strings.NewReader("hello"))
+	tok.SetReader(strings.NewReader("hello"))
 	filter := factory.Create(tok)
 
 	ok, err := filter.IncrementToken()

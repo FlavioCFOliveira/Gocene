@@ -5,6 +5,7 @@
 package spatial3d
 
 import (
+	"errors"
 	"sort"
 	"testing"
 
@@ -124,13 +125,13 @@ func (r *stubGeo3DLeaf) GetRefCount() int32  { return 1 }
 func (r *stubGeo3DLeaf) GetContext() (index.IndexReaderContext, error) {
 	return nil, nil
 }
-func (r *stubGeo3DLeaf) Leaves() ([]*index.LeafReaderContext, error)       { return nil, nil }
-func (r *stubGeo3DLeaf) StoredFields() (index.StoredFields, error)         { return nil, nil }
-func (r *stubGeo3DLeaf) TermVectors() (index.TermVectors, error)           { return nil, nil }
-func (r *stubGeo3DLeaf) GetCoreCacheKey() interface{}                      { return r }
-func (r *stubGeo3DLeaf) GetTermVectors(_ int) (index.Fields, error)        { return nil, nil }
-func (r *stubGeo3DLeaf) Terms(_ string) (index.Terms, error)               { return nil, nil }
-func (r *stubGeo3DLeaf) Postings(_ index.Term) (index.PostingsEnum, error) { return nil, nil }
+func (r *stubGeo3DLeaf) Leaves() ([]*index.LeafReaderContext, error)          { return nil, nil }
+func (r *stubGeo3DLeaf) StoredFields() (index.StoredFields, error)            { return nil, nil }
+func (r *stubGeo3DLeaf) TermVectors() (index.TermVectors, error)              { return nil, nil }
+func (r *stubGeo3DLeaf) GetCoreCacheKey() interface{}                         { return r }
+func (r *stubGeo3DLeaf) GetTermVectors(_ int) (index.Fields, error)           { return nil, nil }
+func (r *stubGeo3DLeaf) Terms(_ string) (index.Terms, error)                  { return nil, nil }
+func (r *stubGeo3DLeaf) Postings(_ spi.Term, _ int) (spi.PostingsEnum, error) { return nil, nil }
 func (r *stubGeo3DLeaf) PostingsWithFreqPositions(_ index.Term, _ int) (index.PostingsEnum, error) {
 	return nil, nil
 }
@@ -152,14 +153,83 @@ func (r *stubGeo3DLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues,
 func (r *stubGeo3DLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error) {
 	return nil, nil
 }
-func (r *stubGeo3DLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error) {
+func (r *stubGeo3DLeaf) GetDocValuesSkipper(_ string) (spi.DocValuesSkipper, error) {
 	return nil, nil
 }
 func (r *stubGeo3DLeaf) CheckIntegrity() error                   { return nil }
 func (r *stubGeo3DLeaf) GetMetaData() *index.IndexReaderMetaData { return nil }
 func (r *stubGeo3DLeaf) GetSegmentInfo() *index.SegmentInfo      { return nil }
-func (r *stubGeo3DLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits) (index.TopDocs, error) {
-	return index.TopDocs{}, nil
+func (r *stubGeo3DLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits, _ int) (spi.TopDocs, error) {
+	return spi.TopDocs{}, nil
+}
+
+// DocFreq carries the default body Lucene gives LeafReader.DocFreq.
+func (r *stubGeo3DLeaf) DocFreq(term spi.Term) (int, error) {
+	terms, err := r.Terms(term.Field)
+	if err != nil || terms == nil {
+		return 0, err
+	}
+	te, err := terms.Iterator()
+	if err != nil || te == nil {
+		return 0, err
+	}
+	found, err := te.SeekExact(&term)
+	if err != nil || !found {
+		return 0, err
+	}
+	return te.DocFreq()
+}
+
+// DocID carries the default body Lucene gives LeafReader.DocID.
+func (r *stubGeo3DLeaf) DocID() int {
+	return 0
+}
+
+// GetCoreCacheHelper carries the default body Lucene gives LeafReader.GetCoreCacheHelper.
+func (r *stubGeo3DLeaf) GetCoreCacheHelper() spi.CacheHelper {
+	return nil
+}
+
+// GetFieldInfos carries the default body Lucene gives LeafReader.GetFieldInfos.
+func (r *stubGeo3DLeaf) GetFieldInfos() *spi.FieldInfos {
+	return spi.NewFieldInfos()
+}
+
+// GetLiveDocs carries the default body Lucene gives LeafReader.GetLiveDocs.
+func (r *stubGeo3DLeaf) GetLiveDocs() util.Bits {
+	return nil
+}
+
+// GetReaderCacheHelper carries the default body Lucene gives LeafReader.GetReaderCacheHelper.
+func (r *stubGeo3DLeaf) GetReaderCacheHelper() spi.CacheHelper {
+	return nil
+}
+
+// SearchNearestVectorsByteCollector is abstract in Lucene's LeafReader; this double does not support it.
+func (r *stubGeo3DLeaf) SearchNearestVectorsByteCollector(field string, target []byte, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	return errors.New("stubGeo3DLeaf.SearchNearestVectorsByteCollector: unsupported operation")
+}
+
+// SearchNearestVectorsCollector is abstract in Lucene's LeafReader; this double does not support it.
+func (r *stubGeo3DLeaf) SearchNearestVectorsCollector(field string, target []float32, knnCollector spi.KnnCollector, acceptDocs util.Bits) error {
+	return errors.New("stubGeo3DLeaf.SearchNearestVectorsCollector: unsupported operation")
+}
+
+// TotalTermFreq carries the default body Lucene gives LeafReader.TotalTermFreq.
+func (r *stubGeo3DLeaf) TotalTermFreq(term spi.Term) (int64, error) {
+	terms, err := r.Terms(term.Field)
+	if err != nil || terms == nil {
+		return 0, err
+	}
+	te, err := terms.Iterator()
+	if err != nil || te == nil {
+		return 0, err
+	}
+	found, err := te.SeekExact(&term)
+	if err != nil || !found {
+		return 0, err
+	}
+	return te.TotalTermFreq()
 }
 
 var _ index.LeafReaderInterface = (*stubGeo3DLeaf)(nil)
@@ -194,7 +264,7 @@ func decodeGeo3DPoint(pm *geom.PlanetModel, packed []byte) (x, y, z float64) {
 func runShapeQuery(t *testing.T, field string, shape geom.GeoShape, pv *stubGeo3DPV) []int {
 	t.Helper()
 	query := NewPointInGeo3DShapeQuery(field, shape)
-	weight, err := query.CreateWeight(nil, false, 1.0)
+	weight, err := query.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -210,7 +280,7 @@ func runShapeQuery(t *testing.T, field string, shape geom.GeoShape, pv *stubGeo3
 	}
 	var got []int
 	for {
-		doc, err := scorer.NextDoc()
+		doc, err := scorer.Iterator().NextDoc()
 		if err != nil {
 			t.Fatalf("NextDoc: %v", err)
 		}
@@ -419,7 +489,7 @@ func TestPointInGeo3DShapeQuery_NoPointValues(t *testing.T) {
 		t.Fatalf("MakeGeoCircle: %v", err)
 	}
 	query := NewPointInGeo3DShapeQuery("location", circle)
-	weight, err := query.CreateWeight(nil, false, 1.0)
+	weight, err := query.CreateWeight(nil, search.COMPLETE_NO_SCORES, 1.0)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}
@@ -454,7 +524,7 @@ func TestPointInGeo3DShapeQuery_Explain(t *testing.T) {
 	ctx := index.NewLeafReaderContext(leaf, nil, 0, 0)
 
 	query := NewPointInGeo3DShapeQuery(field, circle)
-	weight, err := query.CreateWeight(nil, true, 2.5)
+	weight, err := query.CreateWeight(nil, search.COMPLETE, 2.5)
 	if err != nil {
 		t.Fatalf("CreateWeight: %v", err)
 	}

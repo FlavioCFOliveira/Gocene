@@ -52,12 +52,12 @@ func TestIntSequenceOutputsRoundTrip(t *testing.T) {
 	o := IntSequenceOutputs()
 	cases := [][]int{{}, {7}, {1, 2, 3}, {0, 0, 0xFF, 0x1234}}
 	for _, c := range cases {
-		out := store.NewByteArrayDataOutput(64)
+		out := store.NewByteBuffersDataOutput()
 		ir := &util.IntsRef{Ints: append([]int(nil), c...), Offset: 0, Length: len(c)}
 		if err := o.Write(ir, out); err != nil {
 			t.Fatalf("Write: %v", err)
 		}
-		in := store.NewByteArrayDataInput(out.GetBytes())
+		in := store.NewByteArrayDataInput(out.ToArrayCopy())
 		got, err := o.Read(in)
 		if err != nil {
 			t.Fatalf("Read: %v", err)
@@ -70,12 +70,12 @@ func TestIntSequenceOutputsRoundTrip(t *testing.T) {
 
 func TestIntSequenceOutputsByteFormat(t *testing.T) {
 	o := IntSequenceOutputs()
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	if err := o.Write(irOf(1, 2, 3), out); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	want := []byte{0x03, 0x01, 0x02, 0x03}
-	if !bytes.Equal(out.GetBytes(), want) {
-		t.Fatalf("byte format drift: want % x got % x", want, out.GetBytes())
+	if !bytes.Equal(out.ToArrayCopy(), want) {
+		t.Fatalf("byte format drift: want % x got % x", want, out.ToArrayCopy())
 	}
 }

@@ -206,7 +206,7 @@ func TestIntersectTermsEnum_SeekNotSupported(t *testing.T) {
 			fieldInfo: index.NewFieldInfo("body", 0, index.FieldInfoOptions{}),
 		},
 	}
-	_ = automaton.Compile(automaton.MakeAnyString()) // sanity check automaton builds
+	_ = automaton.NewCompiledAutomatonSimplified(automaton.MakeAnyString()) // sanity check automaton builds
 
 	if _, err := e.SeekCeil(nil); err == nil {
 		t.Error("SeekCeil: expected error")

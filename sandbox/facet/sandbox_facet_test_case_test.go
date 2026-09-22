@@ -99,7 +99,12 @@ func assertFacetResult(
 	if result.ChildCount != expectedChildCount {
 		t.Errorf("ChildCount = %d; want %d", result.ChildCount, expectedChildCount)
 	}
-	assertNumericValuesEquals(t, result.Value, expectedValue)
+	// FacetResult.Value is float64 in Gocene (Number in Lucene); the expected
+	// value is an integral count, so the comparison is exact, as
+	// assertNumericValuesEquals is for non-floating-point numbers.
+	if result.Value != float64(expectedValue) {
+		t.Errorf("numeric values differ: %v != %d", result.Value, expectedValue)
+	}
 	if len(result.LabelValues) != len(expectedChildren) {
 		t.Errorf("LabelValues len = %d; want %d: %v", len(result.LabelValues), len(expectedChildren), result.LabelValues)
 		return

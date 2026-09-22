@@ -47,11 +47,11 @@ func TestPositiveIntOutputsRoundTrip(t *testing.T) {
 	o := PositiveIntOutputs()
 	cases := []int64{0, 1, 127, 128, 0xFFFF, 0x12345678}
 	for _, c := range cases {
-		out := store.NewByteArrayDataOutput(16)
+		out := store.NewByteBuffersDataOutput()
 		if err := o.Write(c, out); err != nil {
 			t.Fatalf("Write(%d): %v", c, err)
 		}
-		in := store.NewByteArrayDataInput(out.GetBytes())
+		in := store.NewByteArrayDataInput(out.ToArrayCopy())
 		got, err := o.Read(in)
 		if err != nil {
 			t.Fatalf("Read: %v", err)
@@ -65,22 +65,22 @@ func TestPositiveIntOutputsRoundTrip(t *testing.T) {
 func TestPositiveIntOutputsByteFormat(t *testing.T) {
 	o := PositiveIntOutputs()
 	// 128 (0x80) requires 2 VInt bytes: [0x80, 0x01].
-	out := store.NewByteArrayDataOutput(8)
+	out := store.NewByteBuffersDataOutput()
 	if err := o.Write(128, out); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 	want := []byte{0x80, 0x01}
-	if !bytes.Equal(out.GetBytes(), want) {
-		t.Fatalf("byte format drift for 128: want % x got % x", want, out.GetBytes())
+	if !bytes.Equal(out.ToArrayCopy(), want) {
+		t.Fatalf("byte format drift for 128: want % x got % x", want, out.ToArrayCopy())
 	}
 
 	// 0 fits in 1 byte: [0x00].
-	out2 := store.NewByteArrayDataOutput(2)
+	out2 := store.NewByteBuffersDataOutput()
 	if err := o.Write(0, out2); err != nil {
 		t.Fatalf("Write 0: %v", err)
 	}
-	if !bytes.Equal(out2.GetBytes(), []byte{0x00}) {
-		t.Fatalf("byte format drift for 0: got % x", out2.GetBytes())
+	if !bytes.Equal(out2.ToArrayCopy(), []byte{0x00}) {
+		t.Fatalf("byte format drift for 0: got % x", out2.ToArrayCopy())
 	}
 }
 

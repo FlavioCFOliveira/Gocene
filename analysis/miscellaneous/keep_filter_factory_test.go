@@ -26,7 +26,7 @@ func drainTokens(t *testing.T, f *analysis.KeepWordFilter) []string {
 		if !ok {
 			break
 		}
-		attr := f.GetAttribute("CharTermAttribute")
+		attr := f.GetAttribute(analysis.CharTermAttributeType)
 		if attr == nil {
 			t.Fatal("CharTermAttribute not found")
 		}

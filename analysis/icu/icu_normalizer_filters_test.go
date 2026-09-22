@@ -18,7 +18,7 @@ import (
 // (NFKC+CaseFold) lowercases and decomposes text correctly.
 func TestICUNormalizer2Filter_NFKCCF(t *testing.T) {
 	tok := analysis.NewKeywordTokenizer()
-	_ = tok.SetReader(strings.NewReader("HELLO"))
+	tok.SetReader(strings.NewReader("HELLO"))
 	f := icu.NewICUNormalizer2Filter(tok)
 
 	ok, err := f.IncrementToken()
@@ -41,7 +41,7 @@ func TestICUNormalizer2Filter_NFKCFullwidth(t *testing.T) {
 	normalizer := icu.NewNormalizer2("nfkc", icu.NormalizerModeCompose)
 	tok := analysis.NewKeywordTokenizer()
 	// "Ａ" is U+FF21 FULLWIDTH LATIN CAPITAL LETTER A
-	_ = tok.SetReader(strings.NewReader("Ａ"))
+	tok.SetReader(strings.NewReader("Ａ"))
 	f := icu.NewICUNormalizer2FilterWith(tok, normalizer)
 
 	ok, _ := f.IncrementToken()
@@ -60,7 +60,7 @@ func TestICUNormalizer2Filter_NFKCFullwidth(t *testing.T) {
 // already normalised pass through unchanged.
 func TestICUNormalizer2Filter_AlreadyNormalised(t *testing.T) {
 	tok := analysis.NewKeywordTokenizer()
-	_ = tok.SetReader(strings.NewReader("hello world"))
+	tok.SetReader(strings.NewReader("hello world"))
 	f := icu.NewICUNormalizer2Filter(tok)
 
 	ok, _ := f.IncrementToken()
@@ -79,7 +79,7 @@ func TestICUNormalizer2Filter_AlreadyNormalised(t *testing.T) {
 // TestICUFoldingFilter_CaseFold verifies that the folding filter lowercases.
 func TestICUFoldingFilter_CaseFold(t *testing.T) {
 	tok := analysis.NewKeywordTokenizer()
-	_ = tok.SetReader(strings.NewReader("HELLO"))
+	tok.SetReader(strings.NewReader("HELLO"))
 	f := icu.NewICUFoldingFilter(tok)
 
 	ok, err := f.IncrementToken()
@@ -99,7 +99,7 @@ func TestICUFoldingFilter_CaseFold(t *testing.T) {
 // TestICUFoldingFilter_Fullwidth verifies width folding.
 func TestICUFoldingFilter_Fullwidth(t *testing.T) {
 	tok := analysis.NewKeywordTokenizer()
-	_ = tok.SetReader(strings.NewReader("Ａ"))
+	tok.SetReader(strings.NewReader("Ａ"))
 	f := icu.NewICUFoldingFilter(tok)
 
 	ok, _ := f.IncrementToken()
@@ -121,7 +121,7 @@ func TestICUFoldingFilter_Fullwidth(t *testing.T) {
 func TestICUFoldingFilterFactory_Create(t *testing.T) {
 	factory := icu.NewICUFoldingFilterFactory()
 	tok := analysis.NewKeywordTokenizer()
-	_ = tok.SetReader(strings.NewReader("HELLO"))
+	tok.SetReader(strings.NewReader("HELLO"))
 	filter := factory.Create(tok)
 
 	ok, _ := filter.IncrementToken()
@@ -144,7 +144,7 @@ func TestICUFoldingFilterFactory_Create(t *testing.T) {
 func TestICUNormalizer2FilterFactory_Default(t *testing.T) {
 	factory := icu.NewICUNormalizer2FilterFactoryDefault()
 	tok := analysis.NewKeywordTokenizer()
-	_ = tok.SetReader(strings.NewReader("HELLO"))
+	tok.SetReader(strings.NewReader("HELLO"))
 	filter := factory.Create(tok)
 
 	ok, _ := filter.IncrementToken()
@@ -163,7 +163,7 @@ func TestICUNormalizer2FilterFactory_NFC(t *testing.T) {
 	factory := icu.NewICUNormalizer2FilterFactory("nfc", icu.NormalizerModeCompose)
 	tok := analysis.NewKeywordTokenizer()
 	// Decomposed "é" (e + combining accent) should compose to "é".
-	_ = tok.SetReader(strings.NewReader("é"))
+	tok.SetReader(strings.NewReader("é"))
 	filter := factory.Create(tok)
 
 	ok, _ := filter.IncrementToken()

@@ -15,7 +15,7 @@ func TestFuzzyLikeThisQuery_Rewrite(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	iw, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -27,7 +27,7 @@ func TestFuzzyLikeThisQuery_Rewrite(t *testing.T) {
 	if _, err := iw.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := iw.Commit(); err != nil {
+	if _, err := iw.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := iw.Close(); err != nil {
@@ -43,7 +43,7 @@ func TestFuzzyLikeThisQuery_Rewrite(t *testing.T) {
 	flt := NewFuzzyLikeThisQuery(10, analyzer)
 	flt.AddTerms("aple banana", "field", 1, 1)
 
-	rewritten, err := flt.Rewrite(reader)
+	rewritten, err := flt.Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
@@ -56,11 +56,11 @@ func TestFuzzyLikeThisQuery_Rewrite(t *testing.T) {
 		t.Fatal("expected at least one clause")
 	}
 	for _, c := range bq.Clauses() {
-		if c.Occur != search.SHOULD {
-			t.Errorf("expected SHOULD, got %v", c.Occur)
+		if c.Occur() != search.SHOULD {
+			t.Errorf("expected SHOULD, got %v", c.Occur())
 		}
-		_, isFuzzy := c.Query.(*search.FuzzyQuery)
-		_, isCSQ := c.Query.(*search.ConstantScoreQuery)
+		_, isFuzzy := c.Query().(*search.FuzzyQuery)
+		_, isCSQ := c.Query().(*search.ConstantScoreQuery)
 		if !isFuzzy && !isCSQ {
 			t.Errorf("expected FuzzyQuery or ConstantScoreQuery(FuzzyQuery), got %T", c.Query)
 		}
@@ -72,7 +72,7 @@ func TestFuzzyLikeThisQuery_NonExistingField(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	iw, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -84,7 +84,7 @@ func TestFuzzyLikeThisQuery_NonExistingField(t *testing.T) {
 	if _, err := iw.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := iw.Commit(); err != nil {
+	if _, err := iw.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := iw.Close(); err != nil {
@@ -100,7 +100,7 @@ func TestFuzzyLikeThisQuery_NonExistingField(t *testing.T) {
 	flt := NewFuzzyLikeThisQuery(10, analyzer)
 	flt.AddTerms("aple", "nonexistent", 1, 1)
 
-	rewritten, err := flt.Rewrite(reader)
+	rewritten, err := flt.Rewrite(search.NewIndexSearcher(reader))
 	if err != nil {
 		t.Fatalf("Rewrite: %v", err)
 	}
@@ -138,7 +138,7 @@ func TestFuzzyLikeThisQuery_NoMatchFirstWord(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	iw, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -150,7 +150,7 @@ func TestFuzzyLikeThisQuery_NoMatchFirstWord(t *testing.T) {
 	if _, err := iw.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := iw.Commit(); err != nil {
+	if _, err := iw.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := iw.Close(); err != nil {
