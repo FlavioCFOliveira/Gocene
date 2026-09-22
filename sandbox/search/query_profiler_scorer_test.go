@@ -167,9 +167,10 @@ func (s *stubScorer) GetChildren() ([]search.ChildScorable, error) {
 	return nil, nil
 }
 
-// Iterator is abstract in Lucene's Scorer; this double does not support it.
+// Iterator returns the double itself: it iterates its own documents,
+// as the scorer.iterator() of the Lucene test scorers does.
 func (s *stubScorer) Iterator() search.DocIdSetIterator {
-	panic("stubScorer.Iterator: unsupported operation")
+	return s
 }
 
 // NextDocsAndScores carries the default body Lucene gives Scorer.NextDocsAndScores.
