@@ -106,7 +106,7 @@ func TestSegmentCommitInfo_DeletionsAndDvUpdatesFields(t *testing.T) {
 			}
 
 			// Codec name stamped into segments_N.
-			if codec := sci.SegmentInfo().Codec(); codec != "Lucene104" {
+			if codec := sci.SegmentInfo().CodecName(); codec != "Lucene104" {
 				t.Errorf("codec = %q, want %q", codec, "Lucene104")
 			}
 		})
@@ -191,7 +191,7 @@ func captureSCIShape(t *testing.T, dir string) sciShape {
 	dvJoined := strings.Join(dvNames, ",")
 	return sciShape{
 		name:          sci.SegmentInfo().Name(),
-		codec:         sci.SegmentInfo().Codec(),
+		codec:         sci.SegmentInfo().CodecName(),
 		delGen:        sci.DelGen(),
 		delCount:      sci.DelCount(),
 		softDelCount:  sci.SoftDelCount(),

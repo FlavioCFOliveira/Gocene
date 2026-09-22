@@ -165,13 +165,13 @@ func readAndChecksum(d gostore.Directory, name string) ([]byte, uint32, error) {
 	total := in.Length()
 	bc := gostore.NewBufferedChecksumIndexInput(in)
 	body := make([]byte, total-8) // exclude the stored CRC (last 8 bytes)
-	if err := bc.ReadBytes(body); err != nil {
+	if err := bc.ReadBytes(body, 0, len(body)); err != nil {
 		return nil, 0, err
 	}
 	// Drain the remaining 8 bytes through the underlying input so the full
 	// file content is returned to the caller for the byte-equality compare.
 	tail := make([]byte, 8)
-	if err := in.ReadBytes(tail); err != nil {
+	if err := in.ReadBytes(tail, 0, len(tail)); err != nil {
 		return nil, 0, err
 	}
 	full := append(body, tail...)

@@ -120,10 +120,7 @@ func TestRangeDocValues_LongRangePayloadValues(t *testing.T) {
 
 		min := []int64{100 + int64(i), 1000 + int64(i)*10}
 		max := []int64{500 + int64(i)*2, 5000 + int64(i)*20}
-		want, err := document.EncodeLongRangeLucene(min, max)
-		if err != nil {
-			t.Fatalf("doc %d EncodeLongRangeLucene: %v", i, err)
-		}
+		want := document.EncodeLongRangeLucene(min, max)
 
 		if !bytes.Equal(got, want) {
 			t.Errorf("doc %d: bytes %x, want %x", i, got, want)

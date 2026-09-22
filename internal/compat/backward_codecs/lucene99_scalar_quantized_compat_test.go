@@ -70,7 +70,7 @@ func TestLucene99ScalarQuantized_GoceneWriteJavaCheck(t *testing.T) {
 	}
 	defer d.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewStandardAnalyzer())
 	config.SetCodec(&lucene99ScalarQuantizedCodec{Lucene104Codec: codecs.NewLucene104Codec()})
 
 	iw, err := index.NewIndexWriter(d, config)
@@ -82,14 +82,14 @@ func TestLucene99ScalarQuantized_GoceneWriteJavaCheck(t *testing.T) {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", fmt.Sprintf("doc-%d", i), true)
 		doc.Add(idField)
-		vecField, _ := document.NewKnnFloatVectorFieldEuclidean("vec", []float32{float32(i), float32(i+1), float32(i+2)})
+		vecField, _ := document.NewKnnFloatVectorFieldEuclidean("vec", []float32{float32(i), float32(i + 1), float32(i + 2)})
 		doc.Add(vecField)
 		if _, err := iw.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument: %v", err)
 		}
 	}
 
-	if err := iw.Commit(); err != nil {
+	if _, err := iw.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := iw.Close(); err != nil {

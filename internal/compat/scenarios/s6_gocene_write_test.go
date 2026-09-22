@@ -54,7 +54,7 @@ func TestS6_GoceneWriteLeg(t *testing.T) {
 			defer fsDir.Close()
 
 			analyzer := analysis.NewStandardAnalyzer()
-			cfg := index.NewIndexWriterConfig(analyzer)
+			cfg := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 			cfg.SetUseCompoundFile(false)
 			cfg.SetMergePolicy(index.NewNoMergePolicy())
 			cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
@@ -139,12 +139,12 @@ func s6BuildDoc(i int, seed int64) *document.Document {
 }
 
 // s6Evaluate parses the fixed query catalogue, searches, and highlights.
-func s6Evaluate(reader index.IndexReaderInterface, analyzer *analysis.StandardAnalyzer) ([]s6Row, error) {
+func s6Evaluate(reader index.IndexReaderInterface, analyzer analysis.Analyzer) ([]s6Row, error) {
 	searcher := search.NewIndexSearcher(reader)
-	searcher.SetSimilarity(search.NewBM25Similarity())
+	searcher.SetSimilarity(search.NewLuceneBM25Similarity())
 	defer searcher.Close()
 
-	uh := uhighlight.NewUnifiedHighlighterBuilder(searcher, analyzer).
+	uh := uhighlight.NewBuilder(searcher, analyzer).
 		WithMaxNoHighlightPassages(0).
 		Build()
 
@@ -166,7 +166,7 @@ func s6Evaluate(reader index.IndexReaderInterface, analyzer *analysis.StandardAn
 			return sorted[a].Doc < sorted[b].Doc
 		})
 		topDocsSorted := search.NewTopDocs(topDocs.TotalHits, sorted)
-		snippets, err := uh.Highlight("body", q, topDocsSorted, 3)
+		snippets, err := uh.HighlightMaxPassages("body", q, topDocsSorted, 3)
 		if err != nil {
 			return nil, fmt.Errorf("highlight %q: %w", qtext, err)
 		}

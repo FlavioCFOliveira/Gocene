@@ -37,6 +37,8 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
 	uhighlight "github.com/FlavioCFOliveira/Gocene/search/uhighlight"
 )
 
@@ -111,6 +113,20 @@ func uhQueryTerms(queryID string) []string {
 	return nil
 }
 
+// uhQuery builds the query HighlightOffsetCorpusScenario.buildQueries (Java)
+// registers for the given terms: a TermQuery on the body field for a single
+// term, and a BooleanQuery of SHOULD TermQuery clauses for several terms.
+func uhQuery(terms []string) search.Query {
+	if len(terms) == 1 {
+		return search.NewTermQuery(index.NewTerm("body", terms[0]))
+	}
+	bq := search.NewBooleanQueryBuilder()
+	for _, term := range terms {
+		bq.Add(search.NewTermQuery(index.NewTerm("body", term)), search.SHOULD)
+	}
+	return bq.Build()
+}
+
 // TestUnifiedHighlighter_GoceneParityVsLucene (rmp #4687 AC1): for each
 // Lucene-produced snippet row in highlights.tsv, Gocene's UnifiedHighlighter
 // with the ANALYSIS offset source (StandardAnalyzer) must produce a
@@ -160,19 +176,31 @@ func TestUnifiedHighlighter_GoceneParityVsLucene(t *testing.T) {
 						continue
 					}
 
-					h := uhighlight.NewUnifiedHighlighter("body", analyzer, terms, nil)
-					h.SetMaxPassages(3)
-					h.SetMaxNoHighlightPassages(0)
-					// Use SentenceBreakIterator matching Lucene UH's default
-					// BreakIterator.getSentenceInstance(Locale.ROOT). The corpus
-					// documents have no sentence terminators so the whole content
-					// is treated as one passage — byte-identical to Lucene's output.
-					h.SetBreakIterator(uhighlight.SentenceBreakIterator{})
+					// Java: UnifiedHighlighter.builder(searcher, analyzer)
+					// .withMaxNoHighlightPassages(0).build(), then
+					// uh.highlight(FIELD_BODY, q, topDocs, 3). The content is
+					// supplied directly, so the searcher-less builder is used.
+					h := uhighlight.NewBuilderWithoutSearcher(analyzer).
+						WithMaxNoHighlightPassages(0).
+						// Use SentenceBreakIterator matching Lucene UH's default
+						// BreakIterator.getSentenceInstance(Locale.ROOT). The corpus
+						// documents have no sentence terminators so the whole content
+						// is treated as one passage — byte-identical to Lucene's output.
+						WithBreakIterator(func() uhighlight.BreakIterator {
+							return uhighlight.SentenceBreakIterator{}
+						}).
+						Build()
 
-					got, err := h.Highlight(content, nil)
+					res, err := h.HighlightWithoutSearcher("body", uhQuery(terms), content, 3)
 					if err != nil {
 						t.Errorf("seed=%d qid=%s doc=%s: Highlight: %v",
 							seed, qid, docID, err)
+						continue
+					}
+					got, ok := res.(string)
+					if !ok {
+						t.Errorf("seed=%d qid=%s doc=%s: Highlight returned %T, want string",
+							seed, qid, docID, res)
 						continue
 					}
 					if got != luceneSnippet {

@@ -98,7 +98,7 @@ func TestBigEndianStore_WriteAndVerify(t *testing.T) {
 
 			// Magic: "BE\x00" (passes through, single bytes).
 			magic := []byte{0x42, 0x45, 0x00}
-			if err := out.WriteBytes(magic); err != nil {
+			if err := out.WriteBytes(magic, 0, len(magic)); err != nil {
 				t.Fatalf("WriteBytes(magic): %v", err)
 			}
 			// Version = 1 (int32, emitted big-endian by the reverser wrapper).
@@ -106,7 +106,7 @@ func TestBigEndianStore_WriteAndVerify(t *testing.T) {
 				t.Fatalf("WriteInt(version): %v", err)
 			}
 			// Count = 16 (vInt, passes through unchanged).
-			if err := gstore.WriteVInt(out, 16); err != nil {
+			if err := out.WriteVInt(16); err != nil {
 				t.Fatalf("WriteVInt(count): %v", err)
 			}
 			// 16 records: short, int, long, string.
@@ -159,13 +159,13 @@ func TestBigEndianStore_RoundTrip(t *testing.T) {
 			}
 
 			magic := []byte{0x42, 0x45, 0x00}
-			if err := out.WriteBytes(magic); err != nil {
+			if err := out.WriteBytes(magic, 0, len(magic)); err != nil {
 				t.Fatalf("WriteBytes(magic): %v", err)
 			}
 			if err := out.WriteInt(1); err != nil {
 				t.Fatalf("WriteInt(version): %v", err)
 			}
-			if err := gstore.WriteVInt(out, 16); err != nil {
+			if err := out.WriteVInt(16); err != nil {
 				t.Fatalf("WriteVInt(count): %v", err)
 			}
 			for i := 0; i < 16; i++ {
@@ -208,7 +208,7 @@ func TestBigEndianStore_RoundTrip(t *testing.T) {
 			defer in.Close()
 
 			gotMagic := make([]byte, 3)
-			if err := in.ReadBytes(gotMagic); err != nil {
+			if err := in.ReadBytes(gotMagic, 0, len(gotMagic)); err != nil {
 				t.Fatalf("ReadBytes(magic): %v", err)
 			}
 			if gotMagic[0] != 0x42 || gotMagic[1] != 0x45 || gotMagic[2] != 0x00 {
@@ -223,7 +223,7 @@ func TestBigEndianStore_RoundTrip(t *testing.T) {
 				t.Fatalf("bad version: got %d, want 1", gotVersion)
 			}
 
-			gotCount, err := gstore.ReadVInt(in)
+			gotCount, err := in.ReadVInt()
 			if err != nil {
 				t.Fatalf("ReadVInt(count): %v", err)
 			}

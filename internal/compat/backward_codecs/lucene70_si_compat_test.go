@@ -53,7 +53,7 @@ func TestLucene70SegmentInfo_GoceneWriteRejection(t *testing.T) {
 	defer d.Close()
 
 	analyzer := analysis.NewStandardAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	config.SetCodec(&lucene70SegmentInfoCodec{Lucene104Codec: codecs.NewLucene104Codec()})
 
 	iw, err := index.NewIndexWriter(d, config)
@@ -74,7 +74,7 @@ func TestLucene70SegmentInfo_GoceneWriteRejection(t *testing.T) {
 		}
 	}
 
-	if err := iw.Commit(); err == nil {
+	if _, err := iw.Commit(); err == nil {
 		t.Fatalf("expected Commit to fail because Lucene70 segment-info format is read-only, got nil")
 	} else if !strings.Contains(err.Error(), "old formats") && !strings.Contains(err.Error(), "read-only") {
 		t.Fatalf("expected read-only error, got: %v", err)

@@ -46,7 +46,7 @@ func (c *lucene99PostingsCodec) PostingsFormat() codecs.PostingsFormat {
 // payload to every token. This exercises the positions + payloads path of
 // the postings format.
 type payloadAnalyzer struct {
-	*analysis.StandardAnalyzer
+	analysis.Analyzer
 }
 
 // TokenStream builds StandardTokenizer -> LowerCaseFilter ->
@@ -55,13 +55,12 @@ type payloadAnalyzer struct {
 // payloads.
 func (a *payloadAnalyzer) TokenStream(fieldName string, reader io.Reader) (analysis.TokenStream, error) {
 	tokenizer := analysis.NewStandardTokenizer()
-	if err := tokenizer.SetMaxTokenLength(a.MaxTokenLength()); err != nil {
+	// StandardAnalyzer.getMaxTokenLength() of a default StandardAnalyzer.
+	if err := tokenizer.SetMaxTokenLength(analysis.DefaultMaxTokenLength); err != nil {
 		return nil, err
 	}
-	if err := tokenizer.SetReader(reader); err != nil {
-		return nil, err
-	}
-	tokenizer.AddAttribute(analysis.NewPayloadAttributeImpl())
+	tokenizer.SetReader(reader)
+	tokenizer.AddAttributeImpl(analysis.NewPayloadAttributeImpl())
 	stream := analysis.TokenStream(analysis.NewLowerCaseFilter(tokenizer))
 	stream = analysis.NewTokenOffsetPayloadTokenFilter(stream)
 	return stream, nil
@@ -81,8 +80,8 @@ func TestLucene99Postings_GoceneWriteJavaCheck(t *testing.T) {
 	}
 	defer d.Close()
 
-	analyzer := &payloadAnalyzer{StandardAnalyzer: analysis.NewStandardAnalyzer()}
-	config := index.NewIndexWriterConfig(analyzer)
+	analyzer := &payloadAnalyzer{Analyzer: analysis.NewStandardAnalyzer()}
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	config.SetCodec(&lucene99PostingsCodec{Lucene104Codec: codecs.NewLucene104Codec()})
 
 	iw, err := index.NewIndexWriter(d, config)
@@ -102,7 +101,7 @@ func TestLucene99Postings_GoceneWriteJavaCheck(t *testing.T) {
 		}
 	}
 
-	if err := iw.Commit(); err != nil {
+	if _, err := iw.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := iw.Close(); err != nil {

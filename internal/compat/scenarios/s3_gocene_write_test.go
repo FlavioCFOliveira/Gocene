@@ -17,8 +17,8 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/facets"
 	"github.com/FlavioCFOliveira/Gocene/facets/taxonomy"
-	gcompat "github.com/FlavioCFOliveira/Gocene/internal/compat"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	gcompat "github.com/FlavioCFOliveira/Gocene/internal/compat"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -74,7 +74,7 @@ func TestS3_GoceneWriteLeg(t *testing.T) {
 				t.Fatalf("NewDirectoryTaxonomyWriter: %v", err)
 			}
 
-			cfg := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+			cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewStandardAnalyzer())
 			cfg.SetUseCompoundFile(false)
 			cfg.SetMergePolicy(index.NewNoMergePolicy())
 			cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
@@ -117,7 +117,7 @@ func TestS3_GoceneWriteLeg(t *testing.T) {
 			if err := taxoWriter.Commit(); err != nil {
 				t.Fatalf("taxo commit: %v", err)
 			}
-			if err := iw.Commit(); err != nil {
+			if _, err := iw.Commit(); err != nil {
 				t.Fatalf("writer commit: %v", err)
 			}
 			taxoWriter.Close()

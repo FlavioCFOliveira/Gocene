@@ -120,7 +120,7 @@ func verifyFileChecksum(t *testing.T, dir, name string) {
 		if remaining < step {
 			step = remaining
 		}
-		if err := bc.ReadBytes(buf[:step]); err != nil {
+		if err := bc.ReadBytes(buf[:step], 0, len(buf[:step])); err != nil {
 			t.Fatalf("ReadBytes: %v", err)
 		}
 		remaining -= step

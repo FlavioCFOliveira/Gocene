@@ -10,11 +10,11 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	"github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 )
 
 // compatCodec wraps Lucene104Codec with Lucene90StoredFieldsFormat so that
@@ -63,7 +63,7 @@ func TestCheckIndex_GoceneWrite(t *testing.T) {
 				index.RegisterDefaultCodec(origCodec)
 			}()
 
-			cfg := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+			cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewStandardAnalyzer())
 			cfg.SetUseCompoundFile(false)
 			cfg.SetMergePolicy(index.NewNoMergePolicy())
 			cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
@@ -88,7 +88,7 @@ func TestCheckIndex_GoceneWrite(t *testing.T) {
 				}
 			}
 
-			if err := iw.Commit(); err != nil {
+			if _, err := iw.Commit(); err != nil {
 				t.Fatalf("Commit: %v", err)
 			}
 			iw.Close()

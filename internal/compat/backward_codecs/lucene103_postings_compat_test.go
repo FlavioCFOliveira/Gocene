@@ -56,7 +56,7 @@ func TestLucene103Postings_GoceneWriteJavaCheck(t *testing.T) {
 	defer d.Close()
 
 	analyzer := analysis.NewStandardAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	config.SetCodec(&lucene103PostingsCodec{Lucene104Codec: codecs.NewLucene104Codec()})
 
 	iw, err := index.NewIndexWriter(d, config)
@@ -76,7 +76,7 @@ func TestLucene103Postings_GoceneWriteJavaCheck(t *testing.T) {
 		}
 	}
 
-	if err := iw.Commit(); err != nil {
+	if _, err := iw.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := iw.Close(); err != nil {

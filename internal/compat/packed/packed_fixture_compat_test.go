@@ -229,7 +229,7 @@ func TestDirectMonotonic_RoundTrip(t *testing.T) {
 	if err := metaIn.SetPosition(0); err != nil {
 		t.Fatalf("SetPosition meta: %v", err)
 	}
-	if err := metaIn.ReadBytes(metaData); err != nil {
+	if err := metaIn.ReadBytes(metaData, 0, len(metaData)); err != nil {
 		t.Fatalf("Read meta: %v", err)
 	}
 
@@ -244,7 +244,7 @@ func TestDirectMonotonic_RoundTrip(t *testing.T) {
 	if err := dataIn.SetPosition(0); err != nil {
 		t.Fatalf("SetPosition data: %v", err)
 	}
-	if err := dataIn.ReadBytes(dataBytes); err != nil {
+	if err := dataIn.ReadBytes(dataBytes, 0, len(dataBytes)); err != nil {
 		t.Fatalf("Read data: %v", err)
 	}
 

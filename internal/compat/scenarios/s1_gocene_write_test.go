@@ -16,19 +16,19 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/document"
-	gcompat "github.com/FlavioCFOliveira/Gocene/internal/compat"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	gcompat "github.com/FlavioCFOliveira/Gocene/internal/compat"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
 // Constants mirroring CombinedMultiSegmentIndexSearchScenario.
 const (
-	s1TsvName   = "s1-hits.tsv"
-	s1ScoreFmt  = "%.6f"
+	s1TsvName    = "s1-hits.tsv"
+	s1ScoreFmt   = "%.6f"
 	s1DocsPerSeg = 6
-	s1NumDocs   = s1DocsPerSeg * 3
-	s1VectorDim = 4
+	s1NumDocs    = s1DocsPerSeg * 3
+	s1VectorDim  = 4
 )
 
 // s1QueryIDs preserves the fixed catalogue order.
@@ -54,7 +54,7 @@ func TestS1_GoceneWriteLeg(t *testing.T) {
 			}
 			defer fsDir.Close()
 
-			cfg := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+			cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewStandardAnalyzer())
 			cfg.SetUseCompoundFile(false)
 			cfg.SetMergePolicy(index.NewNoMergePolicy())
 			cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
@@ -76,7 +76,7 @@ func TestS1_GoceneWriteLeg(t *testing.T) {
 						t.Fatalf("AddDocument: %v", err)
 					}
 				}
-				if err := iw.Commit(); err != nil {
+				if _, err := iw.Commit(); err != nil {
 					t.Fatalf("Commit: %v", err)
 				}
 			}
@@ -153,7 +153,7 @@ func s1BuildDoc(i int, seed int64) (*document.Document, error) {
 	// KnnFloatVectorField
 	vec := make([]float32, s1VectorDim)
 	for k := 0; k < s1VectorDim; k++ {
-		vec[k] = float32(((uint64(mix) >> (k * 8)) & 0xFF) / 255.0) + 1e-3
+		vec[k] = float32(((uint64(mix)>>(k*8))&0xFF)/255.0) + 1e-3
 	}
 	knn, err := document.NewKnnFloatVectorFieldEuclidean("vec", vec)
 	if err != nil {
@@ -207,12 +207,12 @@ func s1BuildQueries() map[string]search.Query {
 	q["tq-gamma"] = search.NewTermQuery(index.NewTerm("body", "gamma"))
 	q["tq-delta"] = search.NewTermQuery(index.NewTerm("body", "delta"))
 	q["tq-epsilon"] = search.NewTermQuery(index.NewTerm("body", "epsilon"))
-	q["ph-alpha-beta"] = search.NewPhraseQuery("body", index.NewTerm("body", "alpha"), index.NewTerm("body", "beta"))
-	q["ph-gamma-delta"] = search.NewPhraseQuery("body", index.NewTerm("body", "gamma"), index.NewTerm("body", "delta"))
-	boolQ := search.NewBooleanQuery()
+	q["ph-alpha-beta"] = search.NewPhraseQueryWithTerms(0, "body", index.NewTerm("body", "alpha"), index.NewTerm("body", "beta"))
+	q["ph-gamma-delta"] = search.NewPhraseQueryWithTerms(0, "body", index.NewTerm("body", "gamma"), index.NewTerm("body", "delta"))
+	boolQ := search.NewBooleanQueryBuilder()
 	boolQ.Add(search.NewTermQuery(index.NewTerm("body", "alpha")), search.SHOULD)
 	boolQ.Add(search.NewTermQuery(index.NewTerm("body", "zeta")), search.SHOULD)
-	q["bool-alpha-or-zeta"] = boolQ
+	q["bool-alpha-or-zeta"] = boolQ.Build()
 	return q
 }
 
@@ -227,7 +227,7 @@ type s1Row struct {
 // s1Evaluate executes the query catalogue and returns sorted rows.
 func s1Evaluate(reader index.IndexReaderInterface) ([]s1Row, error) {
 	searcher := search.NewIndexSearcher(reader)
-	searcher.SetSimilarity(search.NewBM25Similarity())
+	searcher.SetSimilarity(search.NewLuceneBM25Similarity())
 	defer searcher.Close()
 
 	var rows []s1Row

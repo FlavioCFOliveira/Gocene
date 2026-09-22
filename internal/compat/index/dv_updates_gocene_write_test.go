@@ -43,7 +43,7 @@ func TestDVUpdates_GoceneWrite(t *testing.T) {
 				index.RegisterDefaultCodec(origCodec)
 			}()
 
-			cfg := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+			cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewStandardAnalyzer())
 			cfg.SetCodec(compat)
 			iw, err := index.NewIndexWriter(fsDir, cfg)
 			if err != nil {
@@ -61,7 +61,7 @@ func TestDVUpdates_GoceneWrite(t *testing.T) {
 				}
 			}
 
-			if err := iw.Commit(); err != nil {
+			if _, err := iw.Commit(); err != nil {
 				t.Fatalf("Commit: %v", err)
 			}
 			iw.Close()
@@ -75,19 +75,27 @@ func TestDVUpdates_GoceneWrite(t *testing.T) {
 			info := segReader.GetSegmentCommitInfo()
 			reader.Close()
 
-			rau, err := index.NewReadersAndUpdates(10, info, index.NewPendingDeletes())
+			// PendingDeletes(SegmentCommitInfo) delegates with liveDocs == null
+			// and liveDocsInitialized == !info.hasDeletions().
+			rau, err := index.NewReadersAndUpdates(10, info, index.NewPendingDeletes(info, nil, !info.HasDeletions()))
 			if err != nil {
 				t.Fatalf("NewReadersAndUpdates: %v", err)
 			}
 
-			update := index.NewBaseDocValuesFieldUpdates(
-				info.Info.MaxDoc(),
+			update, err := index.NewNumericDocValuesFieldUpdates(
 				1, // delGen 1
 				"count",
-				index.DocValuesTypeNumeric,
+				info.Info.MaxDoc(),
 			)
-			update.Add(5, 999)
-			update.Finish()
+			if err != nil {
+				t.Fatalf("NewNumericDocValuesFieldUpdates: %v", err)
+			}
+			if err := update.AddLong(5, 999); err != nil {
+				t.Fatalf("AddLong: %v", err)
+			}
+			if err := update.Finish(); err != nil {
+				t.Fatalf("Finish: %v", err)
+			}
 
 			if err := rau.AddDVUpdate(update); err != nil {
 				t.Fatalf("AddDVUpdate: %v", err)

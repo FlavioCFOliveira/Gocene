@@ -70,7 +70,7 @@ func TestLucene90HnswV0_GoceneWriteJavaCheck(t *testing.T) {
 	}
 	defer d.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewStandardAnalyzer())
 	config.SetCodec(&lucene90HnswCodec{Lucene104Codec: codecs.NewLucene104Codec()})
 
 	iw, err := index.NewIndexWriter(d, config)
@@ -89,7 +89,7 @@ func TestLucene90HnswV0_GoceneWriteJavaCheck(t *testing.T) {
 		}
 	}
 
-	if err := iw.Commit(); err != nil {
+	if _, err := iw.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := iw.Close(); err != nil {

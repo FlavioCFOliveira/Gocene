@@ -11,8 +11,8 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
-	gcompat "github.com/FlavioCFOliveira/Gocene/internal/compat"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	gcompat "github.com/FlavioCFOliveira/Gocene/internal/compat"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -33,7 +33,7 @@ func TestS2_GoceneWriteLeg(t *testing.T) {
 			}
 			defer fsDir.Close()
 
-			cfg := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+			cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewStandardAnalyzer())
 			cfg.SetUseCompoundFile(false)
 			cfg.SetMergePolicy(index.NewNoMergePolicy())
 			cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
@@ -53,7 +53,7 @@ func TestS2_GoceneWriteLeg(t *testing.T) {
 					t.Fatalf("AddDocument: %v", err)
 				}
 			}
-			if err := iw.Commit(); err != nil {
+			if _, err := iw.Commit(); err != nil {
 				t.Fatalf("Commit: %v", err)
 			}
 			iw.Close()

@@ -98,7 +98,7 @@ func writeStorePrimitivesRateLimited(targetDir string, seed int64, mbPerSec floa
 		out.Close()
 		return fmt.Errorf("header: %w", err)
 	}
-	if err := gostore.WriteVInt(out, Count); err != nil {
+	if err := out.WriteVInt(Count); err != nil {
 		out.Close()
 		return fmt.Errorf("count: %w", err)
 	}
@@ -108,7 +108,7 @@ func writeStorePrimitivesRateLimited(targetDir string, seed int64, mbPerSec floa
 			return fmt.Errorf("frame[%d]: %w", i, err)
 		}
 	}
-	if err := store.WriteFooter(out); err != nil {
+	if err := codecs.WriteFooter(out); err != nil {
 		out.Close()
 		return fmt.Errorf("footer: %w", err)
 	}
