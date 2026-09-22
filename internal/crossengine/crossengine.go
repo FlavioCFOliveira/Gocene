@@ -29,22 +29,24 @@ func FixturesDir() string {
 	return filepath.Clean(filepath.Join(repoRoot, "testdata", "lucene-10.4.0-fixtures"))
 }
 
-// SkipIfNoFixtures calls t.Skip when the fixtures directory is absent or empty.
-// Call this at the start of any test that requires the pre-generated fixtures.
+// SkipIfNoFixtures fails the test when the fixtures directory is absent or
+// empty: a missing prerequisite is a failure, never a skip. The name is kept
+// for its callers. Call this at the start of any test that requires the
+// pre-generated fixtures.
 func SkipIfNoFixtures(t *testing.T) {
 	t.Helper()
 	dir := FixturesDir()
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) || (err == nil && len(entries) == 0) {
-		t.Skipf("lucene-10.4.0 fixtures not found at %s — run tools/fixture-gen/run.sh to generate", dir)
+		t.Fatalf("requires lucene-10.4.0 fixtures at %s — run tools/fixture-gen/run.sh to generate", dir)
 	}
 	if err != nil {
-		t.Skipf("cannot access fixtures dir %s: %v", dir, err)
+		t.Fatalf("requires access to the fixtures dir %s: %v", dir, err)
 	}
 }
 
 // OpenFixturesDir opens the fixtures directory as a read-only MMapDirectory
-// and registers t.Cleanup to close it. The test is skipped if fixtures are absent.
+// and registers t.Cleanup to close it. The test fails if fixtures are absent.
 func OpenFixturesDir(t *testing.T) store.Directory {
 	t.Helper()
 	SkipIfNoFixtures(t)

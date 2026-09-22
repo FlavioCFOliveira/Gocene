@@ -31,15 +31,15 @@ var canarySeeds = [...]int64{
 	0xDECAF,  // Sprint 114 T7 second canary  (decimal 912559).
 }
 
-// requireHarness skips the test when the Java fixture harness jar is not
+// requireHarness fails the test when the Java fixture harness jar is not
 // reachable. This is the same contract used by internal/compat/smoke and
 // internal/compat/store, kept consistent so a missing jar produces a clear
-// "skip" signal in CI rather than a hard failure.
+// failure naming the prerequisite (Gocene never skips a test).
 func requireHarness(t *testing.T) {
 	t.Helper()
 	if _, err := gcompat.Locate(); err != nil {
 		if errors.Is(err, gcompat.ErrHarnessMissing) {
-			t.Skipf("skip: %v", err)
+			t.Fatalf("requires the Java fixture harness: %v", err)
 		}
 		t.Fatalf("locate harness: %v", err)
 	}

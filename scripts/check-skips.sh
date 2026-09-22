@@ -4,7 +4,11 @@
 # Gocene policy (rmp #119): NEVER use t.Skip. A test gap must FAIL via
 # t.Fatal with a descriptive reason naming the blocking capability or
 # rmp task. This guard:
-#   1. Rejects any remaining t.Skip/t.Skipf calls.
+#   1. Rejects any remaining testing skip call (Skip, Skipf, SkipNow) in
+#      every tracked Go file that imports "testing": the _test.go files and
+#      the non-test helpers they share (internal/compat/*, internal/crossengine,
+#      tests/*). Domain methods that happen to be named Skip* are not matched,
+#      because only the testing receivers t, b and tb are considered.
 #   2. Validates that t.Fatal blocker calls include a descriptive reason.
 #
 # A "blocker" t.Fatal is one whose message starts with a keyword like
@@ -20,10 +24,14 @@ cd "$(git rev-parse --show-toplevel)"
 
 mapfile -t files < <(git ls-files '*_test.go')
 
-# --- Rule 1: No t.Skip calls ---
+# Every tracked Go file that imports "testing" can call a testing skip: the
+# _test.go files and the non-test helpers they share.
+mapfile -t testing_files < <(git ls-files '*.go' | xargs grep -lE '^\s*(import\s+)?"testing"$' 2>/dev/null || true)
+
+# --- Rule 1: No testing skip calls ---
 
 skip_violations=0
-for f in "${files[@]}"; do
+for f in "${testing_files[@]}"; do
   while IFS= read -r hit; do
     [ -n "$hit" ] || continue
     # Extract line number and content.
@@ -35,7 +43,7 @@ for f in "${files[@]}"; do
     fi
     echo "t.Skip violation: $f:$hit"
     skip_violations=$((skip_violations + 1))
-  done < <(grep -nE 't\.Skip(f)?\b' "$f" 2>/dev/null || true)
+  done < <(grep -nE '\b(t|b|tb)\.Skip(f|Now)?\(' "$f" 2>/dev/null || true)
 done
 
 if [ "$skip_violations" -ne 0 ]; then

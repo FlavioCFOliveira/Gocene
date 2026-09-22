@@ -29,11 +29,10 @@
 // one over a deterministic 20-doc Lucene index (id, a, b, BM25 _score),
 // and emits a TSV (expressions-eval.tsv) the Gocene port can replay.
 //
-// The full Lucene -> Gocene -> Lucene round-trip leg is SKIPPED for
-// Sprint 114 T21 with the verbatim audit gap_notes citation, because
-// Gocene currently has no JavaScript-expression compiler that can
-// consume the catalogue source strings; the deferral is intentional and
-// recorded in each test's t.Skipf message.
+// The full Lucene -> Gocene -> Lucene round-trip leg fails for Sprint 114
+// T21 with the verbatim audit gap_notes citation, because Gocene currently
+// has no JavaScript-expression compiler that can consume the catalogue
+// source strings; the gap is recorded in each test's t.Fatal message.
 //
 // Only the per-file tests are gated by //go:build compat.
 package expressions
@@ -69,12 +68,12 @@ const (
 	fileExpressionsEvalTSV = "expressions-eval.tsv"
 )
 
-// requireHarness skips when the Java fixture harness jar is not reachable.
+// requireHarness fails the test when the Java fixture harness jar is not reachable.
 func requireHarness(t *testing.T) {
 	t.Helper()
 	if _, err := gcompat.Locate(); err != nil {
 		if errors.Is(err, gcompat.ErrHarnessMissing) {
-			t.Skipf("skip: %v", err)
+			t.Fatalf("requires the Java fixture harness: %v", err)
 		}
 		t.Fatalf("locate harness: %v", err)
 	}

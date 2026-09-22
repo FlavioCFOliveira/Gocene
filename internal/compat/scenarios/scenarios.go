@@ -8,13 +8,11 @@
 // and produce deterministic TSV transcripts that this package re-parses
 // and pins.
 //
-// All tests in this package are guarded at runtime by the environment
-// variable GOCENE_COMPAT_HARNESS=1; when unset (the default for the
-// per-package compat suite under -tags compat), the tests call t.Skip
-// rather than failing. The Java harness jar is located via the standard
-// internal/compat.Locate() resolution chain and a missing jar also
-// triggers t.Skip — this lets the suite participate in the default
-// `go test ./...` run without producing false negatives.
+// All tests in this package require the environment variable
+// GOCENE_COMPAT_HARNESS=1; when it is unset the tests fail with a message
+// naming the missing prerequisite (Gocene never skips a test). The Java
+// harness jar is located via the standard internal/compat.Locate()
+// resolution chain, and a missing jar fails the test in the same way.
 //
 // The Gocene-write leg of every scenario is intentionally deferred and
 // the rationale (Gocene SegmentReader core-readers gap, replicator NRT
@@ -48,16 +46,16 @@ var canarySeeds = [...]int64{
 	0xDECAF,  // second canary (decimal 912559)
 }
 
-// requireHarness skips when either the gate env-var is unset or the Java
-// fixture jar is not reachable. Both are recoverable conditions: the
-// scenarios are valuable but optional in the per-package compat sweep.
+// requireHarness fails the test when either the gate env-var is unset or the
+// Java fixture jar is not reachable: a missing prerequisite is a failure,
+// never a skip.
 func requireHarness(t *testing.T) {
 	t.Helper()
 	if os.Getenv(envHarness) != "1" {
-		t.Skipf("skip: %s != 1", envHarness)
+		t.Fatalf("requires %s=1 to run the Java fixture harness scenarios", envHarness)
 	}
 	if _, err := gcompat.Locate(); err != nil {
-		t.Skipf("skip: %v", err)
+		t.Fatalf("requires the Java fixture harness: %v", err)
 	}
 }
 

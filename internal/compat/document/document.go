@@ -55,13 +55,13 @@ const (
 	ScenarioDocumentRangeDV = "document-range-dv-format"
 )
 
-// requireHarness skips the test when the Java fixture harness jar is not
+// requireHarness fails the test when the Java fixture harness jar is not
 // reachable.
 func requireHarness(t *testing.T) {
 	t.Helper()
 	if _, err := gcompat.Locate(); err != nil {
 		if errors.Is(err, gcompat.ErrHarnessMissing) {
-			t.Skipf("skip: %v", err)
+			t.Fatalf("requires the Java fixture harness: %v", err)
 		}
 		t.Fatalf("locate harness: %v", err)
 	}

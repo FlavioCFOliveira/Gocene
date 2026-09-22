@@ -26,12 +26,12 @@
 //                relies on algorithmic equivalence."
 //     COVERED by scenario "geo-encoded-points".
 //
-// Full Lucene -> Gocene -> Lucene round-trip legs are SKIPPED per scenario
-// with the verbatim audit gap_notes citation, because Gocene's spatial
-// surface does not yet expose Spatial4j BinaryCodec / SpatialPrefixTree /
+// Full Lucene -> Gocene -> Lucene round-trip legs fail per scenario with
+// the verbatim audit gap_notes citation, because Gocene's spatial surface
+// does not yet expose Spatial4j BinaryCodec / SpatialPrefixTree /
 // CompositeSpatialStrategy / BBoxStrategy / Spatial4j WKT-GeoJSON /
-// SerializableObject parity decoders. The deferral is intentional and
-// recorded in each test's t.Skipf message.
+// SerializableObject parity decoders. The gap is recorded in each test's
+// t.Fatal message.
 //
 // Only the per-file tests are gated by //go:build compat.
 package spatial
@@ -76,12 +76,12 @@ const (
 // every CodecUtil-framed Lucene file.
 var luceneCodecUtilIndexHeaderMagic = []byte{0x3F, 0xD7, 0x6C, 0x17}
 
-// requireHarness skips when the Java fixture harness jar is not reachable.
+// requireHarness fails the test when the Java fixture harness jar is not reachable.
 func requireHarness(t *testing.T) {
 	t.Helper()
 	if _, err := gcompat.Locate(); err != nil {
 		if errors.Is(err, gcompat.ErrHarnessMissing) {
-			t.Skipf("skip: %v", err)
+			t.Fatalf("requires the Java fixture harness: %v", err)
 		}
 		t.Fatalf("locate harness: %v", err)
 	}

@@ -49,7 +49,7 @@ const (
 )
 
 // Verbatim audit rows from docs/compat-coverage.tsv (column 1 == "misc").
-// Mirrored from the task-contract gap_notes; reused by Skip subtests so
+// Mirrored from the task-contract gap_notes; reused by the deferred subtests so
 // the row remains visible in `go test -v` output.
 const (
 	auditGapIndexSplitter = "No interop test merging a Lucene-written input."
@@ -58,13 +58,13 @@ const (
 	auditGapHighFreqTerms  = "No tests; tool reads but does not write a persisted artefact."
 )
 
-// requireHarness skips the test when the Java fixture harness jar is not
+// requireHarness fails the test when the Java fixture harness jar is not
 // reachable. Mirrors internal/compat/{search,sandbox,monitor}.requireHarness.
 func requireHarness(t *testing.T) {
 	t.Helper()
 	if _, err := gcompat.Locate(); err != nil {
 		if errors.Is(err, gcompat.ErrHarnessMissing) {
-			t.Skipf("skip: %v", err)
+			t.Fatalf("requires the Java fixture harness: %v", err)
 		}
 		t.Fatalf("locate harness: %v", err)
 	}
