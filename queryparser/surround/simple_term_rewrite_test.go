@@ -1,11 +1,14 @@
 package surround
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 type mockReader struct {
@@ -31,10 +34,12 @@ func (m *mockReader) Terms(field string) (index.Terms, error) {
 	if t, ok := m.terms[field]; ok {
 		return t, nil
 	}
-	return index.EmptyTerms{}, nil
+	return &index.EmptyTerms{}, nil
 }
 
 type mockTerms struct {
+	spi.TermsBase
+
 	termList []index.Term
 }
 
@@ -70,6 +75,8 @@ func (m *mockTerms) GetMin() (*index.Term, error)        { return nil, nil }
 func (m *mockTerms) GetMax() (*index.Term, error)        { return nil, nil }
 
 type mockTermsEnum struct {
+	spi.TermsEnumBase
+
 	terms []index.Term
 	pos   int
 }
@@ -81,12 +88,37 @@ func (m *mockTermsEnum) Next() (*index.Term, error) {
 	}
 	return &m.terms[m.pos], nil
 }
-func (m *mockTermsEnum) Binary() []byte       { return nil }
-func (m *mockTermsEnum) DocFreq() int         { return 0 }
-func (m *mockTermsEnum) TotalTermFreq() int64 { return 0 }
+func (m *mockTermsEnum) Binary() []byte                { return nil }
+func (m *mockTermsEnum) DocFreq() (int, error)         { return 0, nil }
+func (m *mockTermsEnum) TotalTermFreq() (int64, error) { return 0, nil }
+
+// Impacts is abstract in Lucene's TermsEnum; this double does not support it.
+func (m *mockTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, errors.New("mockTermsEnum.Impacts: unsupported operation")
+}
+
+// Postings is abstract in Lucene's TermsEnum; this double does not support it.
+func (m *mockTermsEnum) Postings(flags int) (spi.PostingsEnum, error) {
+	return nil, errors.New("mockTermsEnum.Postings: unsupported operation")
+}
+
+// PostingsWithLiveDocs is abstract in Lucene's TermsEnum; this double does not support it.
+func (m *mockTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (spi.PostingsEnum, error) {
+	return nil, errors.New("mockTermsEnum.PostingsWithLiveDocs: unsupported operation")
+}
+
+// SeekCeil is abstract in Lucene's TermsEnum; this double does not support it.
+func (m *mockTermsEnum) SeekCeil(term *spi.Term) (*spi.Term, error) {
+	return nil, errors.New("mockTermsEnum.SeekCeil: unsupported operation")
+}
+
+// SeekExact is abstract in Lucene's TermsEnum; this double does not support it.
+func (m *mockTermsEnum) SeekExact(term *spi.Term) (bool, error) {
+	return false, errors.New("mockTermsEnum.SeekExact: unsupported operation")
+}
 
 func TestSimpleTermRewriteQuery_Rewrite(t *testing.T) {
-	qf := &BasicQueryFactory{MaxBasicQueries: 10}
+	qf := NewBasicQueryFactoryWithLimit(10)
 	fieldName := "text"
 
 	tests := []struct {
@@ -137,7 +169,7 @@ func TestSimpleTermRewriteQuery_Rewrite(t *testing.T) {
 				},
 			}
 			rewriteQ := NewSimpleTermRewriteQuery(tt.st, fieldName, qf)
-			res, err := rewriteQ.Rewrite(reader)
+			res, err := rewriteQ.Rewrite(search.NewIndexSearcher(reader))
 			if err != nil {
 				t.Fatalf("Rewrite failed: %v", err)
 			}

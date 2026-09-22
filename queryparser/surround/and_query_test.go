@@ -33,8 +33,8 @@ func TestAndQuery_MakeLuceneQueryField(t *testing.T) {
 	}
 
 	for _, c := range clauses {
-		if c.Occur != search.MUST {
-			t.Errorf("expected MUST occur, got %v", c.Occur)
+		if c.Occur() != search.MUST {
+			t.Errorf("expected MUST occur, got %v", c.Occur())
 		}
 	}
 }

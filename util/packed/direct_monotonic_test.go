@@ -47,7 +47,10 @@ func (t *trackingByteOutput) Bytes() []byte { return t.out.ToArrayCopy() }
 func (t *trackingByteOutput) CopyBytes(input spi.DataInput, numBytes int64) error {
 	buf := make([]byte, 16384)
 	for left := numBytes; left > 0; {
-		n := int(min(left, int64(len(buf))))
+		n := len(buf)
+		if left < int64(n) {
+			n = int(left)
+		}
 		if err := input.ReadBytes(buf, 0, n); err != nil {
 			return err
 		}

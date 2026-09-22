@@ -27,11 +27,9 @@ import (
 // TestCoreFactories_KeywordTokenizer mirrors TestCoreFactories.testKeywordTokenizer.
 // The entire input string is returned as a single token.
 func TestCoreFactories_KeywordTokenizer(t *testing.T) {
-	tok := analysis.NewKeywordTokenizerFactory().Create()
+	tok := analysis.NewKeywordTokenizerFactory().Create(analysis.DefaultTokenAttributeFactory)
 	input := "What's this thing do?"
-	if err := tok.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(input))
 	n := drainTokens(t, tok)
 	if n != 1 {
 		t.Errorf("expected 1 token (full input), got %d", n)
@@ -42,9 +40,7 @@ func TestCoreFactories_KeywordTokenizer(t *testing.T) {
 // Splits on whitespace, preserving punctuation within tokens.
 func TestCoreFactories_WhitespaceTokenizer(t *testing.T) {
 	tok := analysis.NewWhitespaceTokenizerFactory().Create()
-	if err := tok.SetReader(strings.NewReader("What's this thing do?")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader("What's this thing do?"))
 	n := drainTokens(t, tok)
 	// "What's", "this", "thing", "do?" = 4 tokens
 	if n != 4 {
@@ -55,10 +51,8 @@ func TestCoreFactories_WhitespaceTokenizer(t *testing.T) {
 // TestCoreFactories_LetterTokenizer mirrors TestCoreFactories.testLetterTokenizer.
 // Splits on non-letter boundaries, discarding punctuation.
 func TestCoreFactories_LetterTokenizer(t *testing.T) {
-	tok := analysis.NewLetterTokenizerFactory().Create()
-	if err := tok.SetReader(strings.NewReader("What's this thing do?")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok := analysis.NewLetterTokenizerFactory().Create(analysis.DefaultTokenAttributeFactory)
+	tok.SetReader(strings.NewReader("What's this thing do?"))
 	n := drainTokens(t, tok)
 	// "What", "s", "this", "thing", "do" = 5 tokens
 	if n != 5 {

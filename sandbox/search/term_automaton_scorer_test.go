@@ -7,10 +7,12 @@
 package search
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
@@ -63,6 +65,16 @@ func (p *staticPostingsEnum) NextPosition() (int, error) {
 	return p.positions[p.posIdx], nil
 }
 
+// DocIDRunEnd carries the default body Lucene gives PostingsEnum.DocIDRunEnd.
+func (p *staticPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(p)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (p *staticPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
+}
+
 var _ index.PostingsEnum = (*staticPostingsEnum)(nil)
 
 // buildSingleTransitionAutomaton builds a 2-state automaton:
@@ -81,9 +93,21 @@ func buildSingleTransitionAutomaton(termID int) *automaton.Automaton {
 // unitSimScorer returns freq * 1.0 as the score.
 type unitSimScorer struct{}
 
-func (u *unitSimScorer) Score(_ int, freq float32, norm int64) float32 {
+func (u *unitSimScorer) Score104(freq float32, norm int64) float32 {
 	_ = norm
 	return freq
+}
+
+// AsBulkSimScorer carries the default body Lucene gives SimScorer.AsBulkSimScorer.
+func (u *unitSimScorer) AsBulkSimScorer() search.BulkSimScorer {
+	return search.NewDefaultBulkSimScorer(u)
+}
+
+// Explain104 carries the default body Lucene gives SimScorer.Explain104.
+func (u *unitSimScorer) Explain104(freq search.Explanation, norm int64) search.Explanation {
+	e := search.NewExplanation(true, u.Score104(freq.GetValue(), norm), fmt.Sprintf("score(freq=%v), with freq of:", freq.GetValue()))
+	e.AddDetail(freq)
+	return e
 }
 
 var _ search.SimScorer = (*unitSimScorer)(nil)
@@ -111,8 +135,8 @@ func TestTermAutomatonScorer_SingleTermMatch(t *testing.T) {
 	if doc != 5 {
 		t.Errorf("NextDoc() = %d; want 5", doc)
 	}
-	if got := scorer.Score(); got != 1.0 {
-		t.Errorf("Score() = %v; want 1.0", got)
+	if got, err := scorer.Score(); err != nil || got != 1.0 {
+		t.Errorf("Score() = %v; want 1.0 (err: %v)", got, err)
 	}
 
 	// Should be exhausted now.
@@ -162,8 +186,8 @@ func TestTermAutomatonScorer_GetMaxScorePositive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := scorer.GetMaxScore(search.NO_MORE_DOCS); got <= 0 {
-		t.Errorf("GetMaxScore() = %v; want > 0", got)
+	if got, err := scorer.GetMaxScore(search.NO_MORE_DOCS); err != nil || got <= 0 {
+		t.Errorf("GetMaxScore() = %v; want > 0 (err: %v)", got, err)
 	}
 }
 

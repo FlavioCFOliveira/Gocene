@@ -26,6 +26,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // analyzeToStrings drives the Analyzer on text and returns term strings.
@@ -49,9 +50,7 @@ func analyzeToStrings(t *testing.T, a analysis.Analyzer, text string) []string {
 		}
 		// Access term text by asserting to the concrete stream's attribute interface.
 		if ap, ok := stream.(interface {
-			GetAttributeSource() interface {
-				GetAttribute(interface{}) interface{}
-			}
+			GetAttributeSource() *util.AttributeSource
 		}); ok {
 			_ = ap
 		}
@@ -260,9 +259,7 @@ func TestAnalyzers_PayloadCopy(t *testing.T) {
 	input := "how now brown cow"
 
 	tok := analysis.NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(input))
 	filter := newPayloadSetterFilter(tok)
 
 	var payloads []byte
@@ -318,9 +315,7 @@ func (f *payloadSetterFilter) GetInput() analysis.TokenStream { return f.input }
 // TestAnalyzers_WhitespaceTokenizer mirrors TestAnalyzers.testWhitespaceTokenizer.
 func TestAnalyzers_WhitespaceTokenizer(t *testing.T) {
 	tok := analysis.NewWhitespaceTokenizer()
-	if err := tok.SetReader(strings.NewReader("Tokenizer test")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader("Tokenizer test"))
 	n := drainTokens(t, tok)
 	if n != 2 {
 		t.Errorf("expected 2 tokens, got %d", n)

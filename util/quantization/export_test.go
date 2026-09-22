@@ -19,3 +19,26 @@ var FromVectorsWithSampleSize = fromVectorsWithSampleSize
 // GetUpperAndLowerQuantile exposes getUpperAndLowerQuantile
 // (ScalarQuantizer.getUpperAndLowerQuantile).
 var GetUpperAndLowerQuantile = getUpperAndLowerQuantile
+
+// NewEuclidean builds the record
+// ScalarQuantizedVectorSimilarity.Euclidean(float constMultiplier).
+func NewEuclidean(constMultiplier float32) *Euclidean {
+	return &Euclidean{constMultiplier: constMultiplier}
+}
+
+// NewDotProduct builds the record ScalarQuantizedVectorSimilarity.DotProduct(
+// float constMultiplier, ByteVectorComparator comparator).
+func NewDotProduct(constMultiplier float32, comparator ByteVectorComparator) *DotProduct {
+	return &DotProduct{constMultiplier: constMultiplier, comparator: comparator}
+}
+
+// NewMaximumInnerProduct builds the record
+// ScalarQuantizedVectorSimilarity.MaximumInnerProduct(float constMultiplier,
+// ByteVectorComparator comparator).
+func NewMaximumInnerProduct(constMultiplier float32, comparator ByteVectorComparator) *MaximumInnerProduct {
+	return &MaximumInnerProduct{constMultiplier: constMultiplier, comparator: comparator}
+}
+
+// MinimumMSEGrid exposes minimumMSEGrid (OptimizedScalarQuantizer.MINIMUM_MSE_GRID,
+// package-private in Lucene and read by TestOptimizedScalarQuantizer).
+var MinimumMSEGrid = minimumMSEGrid

@@ -47,6 +47,16 @@ func (f *fixedNormValues) NextDoc() (int, error)            { panic("unsupported
 func (f *fixedNormValues) DocID() int                       { return -1 }
 func (f *fixedNormValues) Cost() int64                      { return 1 }
 
+// DocIDRunEnd carries the default body Lucene gives NumericDocValues.DocIDRunEnd.
+func (f *fixedNormValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(f)
+}
+
+// IntoBitSet carries the default body Lucene gives NumericDocValues.IntoBitSet.
+func (f *fixedNormValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
+}
+
 var _ index.NumericDocValues = (*fixedNormValues)(nil)
 
 // normValuesReader returns fixedNormValues for any field name.

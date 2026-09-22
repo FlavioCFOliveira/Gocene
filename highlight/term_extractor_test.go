@@ -47,9 +47,10 @@ func TestExtractQueryTerms_TermQuery(t *testing.T) {
 }
 
 func TestExtractQueryTerms_PhraseQuery(t *testing.T) {
-	q := search.NewPhraseQuery("body")
-	q.AddTerm(newTerm("body", "quick"))
-	q.AddTerm(newTerm("body", "brown"))
+	pqb := search.NewPhraseQueryBuilder()
+	pqb.Add(newTerm("body", "quick"))
+	pqb.Add(newTerm("body", "brown"))
+	q := pqb.Build()
 
 	weights := map[string]float32{}
 	got := extractQueryTerms(q, "", 1.0, nil, weights)
@@ -61,13 +62,13 @@ func TestExtractQueryTerms_PhraseQuery(t *testing.T) {
 }
 
 func TestExtractQueryTerms_BooleanQuery_DropsMustNot(t *testing.T) {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(newTerm("body", "keep1")), search.MUST)
 	bq.Add(search.NewTermQuery(newTerm("body", "keep2")), search.SHOULD)
 	bq.Add(search.NewTermQuery(newTerm("body", "skip")), search.MUST_NOT)
 
 	weights := map[string]float32{}
-	got := extractQueryTerms(bq, "", 1.0, nil, weights)
+	got := extractQueryTerms(bq.Build(), "", 1.0, nil, weights)
 	sort.Strings(got)
 
 	if len(got) != 2 || got[0] != "keep1" || got[1] != "keep2" {
@@ -94,7 +95,7 @@ func TestExtractQueryTerms_DisjunctionMaxQuery(t *testing.T) {
 	dmq := search.NewDisjunctionMaxQuery([]search.Query{
 		search.NewTermQuery(newTerm("body", "a")),
 		search.NewTermQuery(newTerm("body", "b")),
-	})
+	}, 0)
 
 	weights := map[string]float32{}
 	got := extractQueryTerms(dmq, "", 1.0, nil, weights)
@@ -125,12 +126,12 @@ func TestExtractQueryTerms_SpanTermQuery(t *testing.T) {
 }
 
 func TestExtractQueryTerms_FieldFilter(t *testing.T) {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(newTerm("title", "ignored")), search.MUST)
 	bq.Add(search.NewTermQuery(newTerm("body", "kept")), search.MUST)
 
 	weights := map[string]float32{}
-	got := extractQueryTerms(bq, "body", 1.0, nil, weights)
+	got := extractQueryTerms(bq.Build(), "body", 1.0, nil, weights)
 	if len(got) != 1 || got[0] != "kept" {
 		t.Fatalf("expected [kept], got %v", got)
 	}
@@ -140,16 +141,16 @@ func TestExtractQueryTerms_FieldFilter(t *testing.T) {
 }
 
 func TestExtractQueryTerms_NestedBooleanAndBoost(t *testing.T) {
-	inner := search.NewBooleanQuery()
+	inner := search.NewBooleanQueryBuilder()
 	inner.Add(search.NewTermQuery(newTerm("body", "alpha")), search.SHOULD)
 	inner.Add(search.NewTermQuery(newTerm("body", "beta")), search.SHOULD)
 
-	outer := search.NewBooleanQuery()
-	outer.Add(search.NewBoostQuery(inner, 2.0), search.MUST)
+	outer := search.NewBooleanQueryBuilder()
+	outer.Add(search.NewBoostQuery(inner.Build(), 2.0), search.MUST)
 	outer.Add(search.NewTermQuery(newTerm("body", "gamma")), search.MUST)
 
 	weights := map[string]float32{}
-	got := extractQueryTerms(outer, "", 1.0, nil, weights)
+	got := extractQueryTerms(outer.Build(), "", 1.0, nil, weights)
 
 	keys := sortedKeys(weights)
 	if len(keys) != 3 {
@@ -165,11 +166,11 @@ func TestExtractQueryTerms_NestedBooleanAndBoost(t *testing.T) {
 }
 
 func TestQueryScorerExtractsTerms(t *testing.T) {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(newTerm("body", "alpha")), search.MUST)
 	bq.Add(search.NewTermQuery(newTerm("body", "beta")), search.SHOULD)
 
-	qs := NewQueryScorerWithField(bq, "body")
+	qs := NewQueryScorerWithField(bq.Build(), "body")
 	terms := qs.GetQueryTerms()
 	sort.Strings(terms)
 
@@ -182,11 +183,11 @@ func TestQueryScorerExtractsTerms(t *testing.T) {
 }
 
 func TestHighlighterFactoryExtractsTerms(t *testing.T) {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(newTerm("body", "alpha")), search.MUST)
 
-	hf := NewHighlighterFactory(bq, "body")
-	terms := hf.extractTerms(bq)
+	hf := NewHighlighterFactory(bq.Build(), "body")
+	terms := hf.extractTerms(bq.Build())
 	if len(terms) != 1 || terms[0] != "alpha" {
 		t.Fatalf("expected [alpha], got %v", terms)
 	}
@@ -214,12 +215,12 @@ func TestHighlighter_TermQuery_End2End(t *testing.T) {
 // TestHighlighter_BooleanQuery_End2End covers the same flow for a
 // BooleanQuery (MUST + SHOULD with MUST_NOT excluded).
 func TestHighlighter_BooleanQuery_End2End(t *testing.T) {
-	bq := search.NewBooleanQuery()
+	bq := search.NewBooleanQueryBuilder()
 	bq.Add(search.NewTermQuery(newTerm("body", "quick")), search.MUST)
 	bq.Add(search.NewTermQuery(newTerm("body", "fox")), search.SHOULD)
 	bq.Add(search.NewTermQuery(newTerm("body", "lazy")), search.MUST_NOT)
 
-	qs := NewQueryScorerWithField(bq, "body")
+	qs := NewQueryScorerWithField(bq.Build(), "body")
 
 	for _, want := range []string{"quick", "fox"} {
 		found := false

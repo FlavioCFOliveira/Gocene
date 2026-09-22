@@ -51,9 +51,7 @@ func referenceLetterTokenize(input string) []string {
 func drainLetterTokenizer(t *testing.T, input string) []string {
 	t.Helper()
 	tok := analysis.NewLetterTokenizer()
-	if err := tok.SetReader(strings.NewReader(input)); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader(input))
 	var tokens []string
 	for {
 		ok, err := tok.IncrementToken()

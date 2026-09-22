@@ -76,8 +76,8 @@ func TestSrndQuery_Boosts(t *testing.T) {
 					t.Errorf("expected BoostQuery, got %T", q)
 					return
 				}
-				if bq.Boost != tt.weight {
-					t.Errorf("expected boost %g, got %g", tt.weight, bq.Boost)
+				if bq.Boost() != tt.weight {
+					t.Errorf("expected boost %g, got %g", tt.weight, bq.Boost())
 				}
 			} else {
 				if _, ok := q.(*search.BoostQuery); ok {
@@ -152,7 +152,7 @@ func TestSrndQuery_String(t *testing.T) {
 				q := NewSrndBooleanQuery([]SrndQuery{
 					NewSrndTermQuery("apple", false),
 					NewSrndTermQuery("banana", false),
-				}, search.OccurMust)
+				}, search.MUST)
 				q.SetWeight(2.0)
 				return q
 			}(),
@@ -177,7 +177,7 @@ func TestSrndBooleanQuery_Behavior(t *testing.T) {
 		q := NewSrndBooleanQuery([]SrndQuery{
 			NewSrndTermQuery("apple", false),
 			NewSrndTermQuery("banana", false),
-		}, search.OccurMust)
+		}, search.MUST)
 		q.SetWeight(2.0)
 
 		luceneQ, err := q.MakeLuceneQueryField(field, factory)
@@ -189,16 +189,16 @@ func TestSrndBooleanQuery_Behavior(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected BoostQuery, got %T", luceneQ)
 		}
-		if bq.Boost != 2.0 {
-			t.Errorf("expected boost 2.0, got %g", bq.Boost)
+		if bq.Boost() != 2.0 {
+			t.Errorf("expected boost 2.0, got %g", bq.Boost())
 		}
 
-		inner, ok := bq.Query.(*search.BooleanQuery)
+		inner, ok := bq.Query().(*search.BooleanQuery)
 		if !ok {
 			t.Fatalf("expected inner BooleanQuery, got %T", bq.Query)
 		}
-		if inner.NumClauses() != 2 {
-			t.Errorf("expected 2 clauses, got %d", inner.NumClauses())
+		if len(inner.Clauses()) != 2 {
+			t.Errorf("expected 2 clauses, got %d", len(inner.Clauses()))
 		}
 	})
 
@@ -208,6 +208,6 @@ func TestSrndBooleanQuery_Behavior(t *testing.T) {
 				t.Errorf("expected panic for too few queries in MakeBooleanQuery")
 			}
 		}()
-		MakeBooleanQuery([]search.Query{search.NewBooleanQuery()}, search.OccurMust)
+		MakeBooleanQuery([]search.Query{search.NewBooleanQueryBuilder().Build()}, search.MUST)
 	})
 }

@@ -6,10 +6,10 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // stubScorer is a minimal search.Scorer that records calls and returns
@@ -22,14 +22,14 @@ type stubScorer struct {
 	advanceVal int
 }
 
-func (s *stubScorer) Score() float32            { return s.score }
-func (s *stubScorer) GetMaxScore(_ int) float32 { return s.maxScore }
+func (s *stubScorer) Score() (float32, error)            { return s.score, nil }
+func (s *stubScorer) GetMaxScore(_ int) (float32, error) { return s.maxScore, nil }
 func (s *stubScorer) AdvanceShallow(int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
 func (s *stubScorer) NextDoc() (int, error)      { return s.nextDocVal, nil }
 func (s *stubScorer) Advance(_ int) (int, error) { return s.advanceVal, nil }
-func (s *stubScorer) DocIDRunEnd() (int, error)  { return s.BaseDocIdSetIterator.DocIDRunEnd() }
+func (s *stubScorer) DocIDRunEnd() (int, error)  { return s.DocID() + 1, nil }
 
 var _ search.Scorer = (*stubScorer)(nil)
 
@@ -41,7 +41,11 @@ func TestQueryProfilerScorer_ScoreTimerIncrements(t *testing.T) {
 	ps := newQueryProfilerScorer(stub, bd)
 
 	for i := 0; i < 10; i++ {
-		_ = ps.Score()
+		v44, err := ps.Score()
+		if err != nil {
+			t.Fatalf("ps.Score: %v", err)
+		}
+		_ = v44
 	}
 
 	timer := bd.GetTimer(TimingTypeScore)
@@ -58,7 +62,7 @@ func TestQueryProfilerScorer_NextDocTimerIncrements(t *testing.T) {
 	ps := newQueryProfilerScorer(stub, bd)
 
 	for i := 0; i < 5; i++ {
-		if _, err := ps.NextDoc(); err != nil {
+		if _, err := ps.Iterator().NextDoc(); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -77,7 +81,7 @@ func TestQueryProfilerScorer_AdvanceTimerIncrements(t *testing.T) {
 	ps := newQueryProfilerScorer(stub, bd)
 
 	for i := 0; i < 3; i++ {
-		if _, err := ps.Advance(10); err != nil {
+		if _, err := ps.Iterator().Advance(10); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -96,7 +100,11 @@ func TestQueryProfilerScorer_ComputeMaxScoreTimerIncrements(t *testing.T) {
 	ps := newQueryProfilerScorer(stub, bd)
 
 	for i := 0; i < 7; i++ {
-		_ = ps.GetMaxScore(100)
+		v99, err := ps.GetMaxScore(100)
+		if err != nil {
+			t.Fatalf("ps.GetMaxScore: %v", err)
+		}
+		_ = v99
 	}
 
 	timer := bd.GetTimer(TimingTypeComputeMaxScore)
@@ -112,16 +120,16 @@ func TestQueryProfilerScorer_DelegatesValues(t *testing.T) {
 	stub := &stubScorer{score: 3.14, maxScore: 9.99, nextDocVal: 5, advanceVal: 20}
 	ps := newQueryProfilerScorer(stub, bd)
 
-	if got := ps.Score(); got != 3.14 {
-		t.Errorf("Score() = %v; want 3.14", got)
+	if got, err := ps.Score(); err != nil || got != 3.14 {
+		t.Errorf("Score() = %v; want 3.14 (err: %v)", got, err)
 	}
-	if got := ps.GetMaxScore(100); got != 9.99 {
-		t.Errorf("GetMaxScore() = %v; want 9.99", got)
+	if got, err := ps.GetMaxScore(100); err != nil || got != 9.99 {
+		t.Errorf("GetMaxScore() = %v; want 9.99 (err: %v)", got, err)
 	}
-	if got, _ := ps.NextDoc(); got != 5 {
+	if got, _ := ps.Iterator().NextDoc(); got != 5 {
 		t.Errorf("NextDoc() = %v; want 5", got)
 	}
-	if got, _ := ps.Advance(10); got != 20 {
+	if got, _ := ps.Iterator().Advance(10); got != 20 {
 		t.Errorf("Advance() = %v; want 20", got)
 	}
 }
@@ -132,7 +140,7 @@ func TestQueryProfilerScorer_CostDelegated(t *testing.T) {
 	stub := &stubScorer{}
 	ps := newQueryProfilerScorer(stub, bd)
 	// BaseDocIdSetIterator.Cost() returns 0
-	if got := ps.Cost(); got != 0 {
+	if got := ps.Iterator().Cost(); got != 0 {
 		t.Errorf("Cost() = %d; want 0", got)
 	}
 }
@@ -142,4 +150,44 @@ func TestQueryProfilerScorer_CostDelegated(t *testing.T) {
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *stubScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// Cost is abstract in Lucene's DocIdSetIterator; this double does not support it.
+func (s *stubScorer) Cost() int64 {
+	panic("stubScorer.Cost: unsupported operation")
+}
+
+// DocID is abstract in Lucene's DocIdSetIterator; this double does not support it.
+func (s *stubScorer) DocID() int {
+	panic("stubScorer.DocID: unsupported operation")
+}
+
+// GetChildren carries the default body Lucene gives Scorer.GetChildren.
+func (s *stubScorer) GetChildren() ([]search.ChildScorable, error) {
+	return nil, nil
+}
+
+// Iterator is abstract in Lucene's Scorer; this double does not support it.
+func (s *stubScorer) Iterator() search.DocIdSetIterator {
+	panic("stubScorer.Iterator: unsupported operation")
+}
+
+// NextDocsAndScores carries the default body Lucene gives Scorer.NextDocsAndScores.
+func (s *stubScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// SetMinCompetitiveScore carries the default body Lucene gives Scorer.SetMinCompetitiveScore.
+func (s *stubScorer) SetMinCompetitiveScore(minScore float32) error {
+	return nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorer.SmoothingScore.
+func (s *stubScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
+}
+
+// TwoPhaseIterator carries the default body Lucene gives Scorer.TwoPhaseIterator.
+func (s *stubScorer) TwoPhaseIterator() *search.TwoPhaseIterator {
+	return search.DefaultTwoPhaseIterator()
 }

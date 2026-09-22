@@ -26,13 +26,38 @@ func (c *countingCollector) GetLeafCollector(_ *index.LeafReaderContext) (search
 	return c, nil
 }
 
-func (c *countingCollector) SetScorer(_ search.Scorer) error {
+func (c *countingCollector) SetScorer(_ search.Scorable) error {
 	c.scorerSet++
 	return nil
 }
 
 func (c *countingCollector) Collect(_ int) error {
 	c.collectCount++
+	return nil
+}
+
+// SetWeight carries the default body Lucene gives Collector.SetWeight.
+func (c *countingCollector) SetWeight(weight search.Weight) {
+
+}
+
+// CollectRange carries the default body Lucene gives LeafCollector.CollectRange.
+func (c *countingCollector) CollectRange(min int, max int) error {
+	return search.DefaultCollectRange(c, min, max)
+}
+
+// CollectStream carries the default body Lucene gives LeafCollector.CollectStream.
+func (c *countingCollector) CollectStream(stream search.DocIdStream) error {
+	return search.DefaultCollectStream(c, stream)
+}
+
+// CompetitiveIterator carries the default body Lucene gives LeafCollector.CompetitiveIterator.
+func (c *countingCollector) CompetitiveIterator() (search.DocIdSetIterator, error) {
+	return nil, nil
+}
+
+// Finish carries the default body Lucene gives LeafCollector.Finish.
+func (c *countingCollector) Finish() error {
 	return nil
 }
 

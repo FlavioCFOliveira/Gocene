@@ -105,8 +105,8 @@ func TestAndQueryBuildsMustClauses(t *testing.T) {
 		t.Errorf("clauses = %d", len(bq.Clauses()))
 	}
 	for _, c := range bq.Clauses() {
-		if c.Occur != search.MUST {
-			t.Errorf("occur = %v", c.Occur)
+		if c.Occur() != search.MUST {
+			t.Errorf("occur = %v", c.Occur())
 		}
 	}
 }
@@ -118,8 +118,8 @@ func TestOrQueryBuildsShouldClauses(t *testing.T) {
 	q, _ := NewOrQuery([]SrndQuery{a, b}, true, "OR").MakeLuceneQueryField("body", factory)
 	bq := q.(*search.BooleanQuery)
 	for _, c := range bq.Clauses() {
-		if c.Occur != search.SHOULD {
-			t.Errorf("occur = %v", c.Occur)
+		if c.Occur() != search.SHOULD {
+			t.Errorf("occur = %v", c.Occur())
 		}
 	}
 }
@@ -133,11 +133,11 @@ func TestNotQueryBuildsMustAndMustNot(t *testing.T) {
 	if len(bq.Clauses()) != 2 {
 		t.Fatalf("clauses = %d", len(bq.Clauses()))
 	}
-	if bq.Clauses()[0].Occur != search.MUST {
-		t.Errorf("first = %v", bq.Clauses()[0].Occur)
+	if bq.Clauses()[0].Occur() != search.MUST {
+		t.Errorf("first = %v", bq.Clauses()[0].Occur())
 	}
-	if bq.Clauses()[1].Occur != search.MUST_NOT {
-		t.Errorf("second = %v", bq.Clauses()[1].Occur)
+	if bq.Clauses()[1].Occur() != search.MUST_NOT {
+		t.Errorf("second = %v", bq.Clauses()[1].Occur())
 	}
 }
 

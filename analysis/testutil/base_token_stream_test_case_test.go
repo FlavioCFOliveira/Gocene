@@ -7,6 +7,8 @@ package testutil
 import (
 	"fmt"
 	"testing"
+
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 )
 
 // recordingT is a stand-in for *testing.T that captures Errorf and
@@ -59,9 +61,9 @@ func runHelper(fn func()) (panicked bool) {
 func TestAssertTokenStreamContents_PassMinimal(t *testing.T) {
 	t.Parallel()
 
-	ts := NewCannedTokenStream(
-		NewToken("alpha", 0, 5),
-		NewToken("beta", 6, 10),
+	ts := testanalysis.NewCannedTokenStream(
+		testanalysis.NewToken("alpha", 0, 5),
+		testanalysis.NewToken("beta", 6, 10),
 	)
 
 	AssertTokenStreamContentsSimple(t, ts, []string{"alpha", "beta"})
@@ -72,10 +74,10 @@ func TestAssertTokenStreamContents_PassMinimal(t *testing.T) {
 func TestAssertTokenStreamContents_PassFull(t *testing.T) {
 	t.Parallel()
 
-	ts := NewCannedTokenStreamWithFinal(0, 13,
-		NewTokenWithPosIncAndLength("the", 1, 0, 3, 1).WithType("word").WithFlags(0),
-		NewTokenWithPosIncAndLength("quick", 1, 4, 9, 1).WithType("word").WithFlags(0),
-		NewTokenWithPosIncAndLength("fox", 1, 10, 13, 1).WithType("word").WithFlags(0),
+	ts := testanalysis.NewCannedTokenStreamWithFinal(0, 13,
+		testanalysis.NewTokenWithPosIncAndLength("the", 1, 0, 3, 1).WithType("word").WithFlags(0),
+		testanalysis.NewTokenWithPosIncAndLength("quick", 1, 4, 9, 1).WithType("word").WithFlags(0),
+		testanalysis.NewTokenWithPosIncAndLength("fox", 1, 10, 13, 1).WithType("word").WithFlags(0),
 	)
 
 	finalOffset := 13
@@ -98,9 +100,9 @@ func TestAssertTokenStreamContents_PassFull(t *testing.T) {
 func TestAssertTokenStreamContents_FailWrongTerm(t *testing.T) {
 	t.Parallel()
 
-	ts := NewCannedTokenStream(
-		NewToken("alpha", 0, 5),
-		NewToken("beta", 6, 10),
+	ts := testanalysis.NewCannedTokenStream(
+		testanalysis.NewToken("alpha", 0, 5),
+		testanalysis.NewToken("beta", 6, 10),
 	)
 
 	rt := &recordingT{T: t}
@@ -123,9 +125,9 @@ func TestAssertTokenStreamContents_FailWrongTerm(t *testing.T) {
 func TestAssertTokenStreamContents_FailExtraToken(t *testing.T) {
 	t.Parallel()
 
-	ts := NewCannedTokenStream(
-		NewToken("alpha", 0, 5),
-		NewToken("beta", 6, 10),
+	ts := testanalysis.NewCannedTokenStream(
+		testanalysis.NewToken("alpha", 0, 5),
+		testanalysis.NewToken("beta", 6, 10),
 	)
 
 	rt := &recordingT{T: t}
@@ -146,8 +148,8 @@ func TestAssertTokenStreamContents_FailExtraToken(t *testing.T) {
 func TestAssertTokenStreamContents_FailMissingToken(t *testing.T) {
 	t.Parallel()
 
-	ts := NewCannedTokenStream(
-		NewToken("alpha", 0, 5),
+	ts := testanalysis.NewCannedTokenStream(
+		testanalysis.NewToken("alpha", 0, 5),
 	)
 
 	rt := &recordingT{T: t}
@@ -167,7 +169,7 @@ func TestAssertTokenStreamContents_FailMissingToken(t *testing.T) {
 func TestAssertTokenStreamContents_FailOffsetMismatch(t *testing.T) {
 	t.Parallel()
 
-	ts := NewCannedTokenStream(NewToken("hello", 0, 5))
+	ts := testanalysis.NewCannedTokenStream(testanalysis.NewToken("hello", 0, 5))
 
 	rt := &recordingT{T: t}
 	panicked := runHelper(func() {
@@ -186,7 +188,7 @@ func TestAssertTokenStreamContents_FailOffsetMismatch(t *testing.T) {
 func TestAssertTokenStreamContents_FailFinalOffset(t *testing.T) {
 	t.Parallel()
 
-	ts := NewCannedTokenStreamWithFinal(0, 10, NewToken("a", 0, 1))
+	ts := testanalysis.NewCannedTokenStreamWithFinal(0, 10, testanalysis.NewToken("a", 0, 1))
 
 	rt := &recordingT{T: t}
 	panicked := runHelper(func() {
@@ -206,21 +208,21 @@ func TestAssertTokenStreamContents_FailFinalOffset(t *testing.T) {
 func TestAssertTokenStreamContents_VariantsCompose(t *testing.T) {
 	t.Parallel()
 
-	ts := NewCannedTokenStream(
-		NewToken("alpha", 0, 5),
-		NewToken("beta", 6, 10),
+	ts := testanalysis.NewCannedTokenStream(
+		testanalysis.NewToken("alpha", 0, 5),
+		testanalysis.NewToken("beta", 6, 10),
 	)
 	AssertTokenStreamContentsTypes(t, ts, []string{"alpha", "beta"}, []string{"word", "word"})
 
-	ts2 := NewCannedTokenStream(
-		NewTokenWithPosInc("alpha", 1, 0, 5),
-		NewTokenWithPosInc("beta", 1, 6, 10),
+	ts2 := testanalysis.NewCannedTokenStream(
+		testanalysis.NewTokenWithPosInc("alpha", 1, 0, 5),
+		testanalysis.NewTokenWithPosInc("beta", 1, 6, 10),
 	)
 	AssertTokenStreamContentsPosInc(t, ts2, []string{"alpha", "beta"}, []int{1, 1})
 
-	ts3 := NewCannedTokenStream(
-		NewToken("alpha", 0, 5),
-		NewToken("beta", 6, 10),
+	ts3 := testanalysis.NewCannedTokenStream(
+		testanalysis.NewToken("alpha", 0, 5),
+		testanalysis.NewToken("beta", 6, 10),
 	)
 	AssertTokenStreamContentsOffsets(t, ts3, []string{"alpha", "beta"}, []int{0, 6}, []int{5, 10})
 }
@@ -231,7 +233,7 @@ func TestAssertTokenStreamContents_VariantsCompose(t *testing.T) {
 func TestAssertTokenStreamContents_LengthMismatchFatal(t *testing.T) {
 	t.Parallel()
 
-	ts := NewCannedTokenStream(NewToken("a", 0, 1))
+	ts := testanalysis.NewCannedTokenStream(testanalysis.NewToken("a", 0, 1))
 
 	rt := &recordingT{T: t}
 	panicked := runHelper(func() {

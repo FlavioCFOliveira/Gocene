@@ -6,11 +6,12 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/util"
+	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // fakeInnerScorerSupplier is a ScorerSupplier whose cost changes after
@@ -25,7 +26,7 @@ func (s *fakeInnerScorerSupplier) Get(_ int64) (search.Scorer, error) {
 
 func (s *fakeInnerScorerSupplier) Cost() int64 { return s.cost }
 
-func (s *fakeInnerScorerSupplier) SetTopLevelScoringClause() { s.cost = 42 }
+func (s *fakeInnerScorerSupplier) SetTopLevelScoringClause() error { s.cost = 42; return nil }
 
 var _ search.ScorerSupplier = (*fakeInnerScorerSupplier)(nil)
 
@@ -35,12 +36,12 @@ type fakeScorer struct {
 	maxScore float32
 }
 
-func (s *fakeScorer) Score() float32            { return 0 }
-func (s *fakeScorer) GetMaxScore(_ int) float32 { return s.maxScore }
+func (s *fakeScorer) Score() (float32, error)            { return 0, nil }
+func (s *fakeScorer) GetMaxScore(_ int) (float32, error) { return s.maxScore, nil }
 func (s *fakeScorer) AdvanceShallow(int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
-func (s *fakeScorer) DocIDRunEnd() (int, error)  { return s.BaseDocIdSetIterator.DocIDRunEnd() }
+func (s *fakeScorer) DocIDRunEnd() (int, error)  { return s.DocID() + 1, nil }
 func (s *fakeScorer) NextDoc() (int, error)      { return search.NO_MORE_DOCS, nil }
 func (s *fakeScorer) Advance(_ int) (int, error) { return search.NO_MORE_DOCS, nil }
 
@@ -119,7 +120,10 @@ func TestQueryProfilerWeight_PropagateScorer(t *testing.T) {
 	if scorer == nil {
 		t.Fatal("Scorer() returned nil")
 	}
-	got := scorer.GetMaxScore(search.NO_MORE_DOCS)
+	got, err := scorer.GetMaxScore(search.NO_MORE_DOCS)
+	if err != nil {
+		t.Fatalf("scorer.GetMaxScore: %v", err)
+	}
 	if got != 42 {
 		t.Errorf("GetMaxScore = %v; want 42", got)
 	}
@@ -200,4 +204,49 @@ func TestQueryProfilerWeight_IsCacheable(t *testing.T) {
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *fakeScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// Cost is abstract in Lucene's DocIdSetIterator; this double does not support it.
+func (s *fakeScorer) Cost() int64 {
+	panic("fakeScorer.Cost: unsupported operation")
+}
+
+// DocID is abstract in Lucene's DocIdSetIterator; this double does not support it.
+func (s *fakeScorer) DocID() int {
+	panic("fakeScorer.DocID: unsupported operation")
+}
+
+// BulkScorer is abstract in Lucene's ScorerSupplier; this double does not support it.
+func (s *fakeInnerScorerSupplier) BulkScorer() (search.BulkScorer, error) {
+	return nil, errors.New("fakeInnerScorerSupplier.BulkScorer: unsupported operation")
+}
+
+// GetChildren carries the default body Lucene gives Scorer.GetChildren.
+func (s *fakeScorer) GetChildren() ([]search.ChildScorable, error) {
+	return nil, nil
+}
+
+// Iterator is abstract in Lucene's Scorer; this double does not support it.
+func (s *fakeScorer) Iterator() search.DocIdSetIterator {
+	panic("fakeScorer.Iterator: unsupported operation")
+}
+
+// NextDocsAndScores carries the default body Lucene gives Scorer.NextDocsAndScores.
+func (s *fakeScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// SetMinCompetitiveScore carries the default body Lucene gives Scorer.SetMinCompetitiveScore.
+func (s *fakeScorer) SetMinCompetitiveScore(minScore float32) error {
+	return nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorer.SmoothingScore.
+func (s *fakeScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
+}
+
+// TwoPhaseIterator carries the default body Lucene gives Scorer.TwoPhaseIterator.
+func (s *fakeScorer) TwoPhaseIterator() *search.TwoPhaseIterator {
+	return search.DefaultTwoPhaseIterator()
 }

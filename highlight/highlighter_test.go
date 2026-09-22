@@ -1,11 +1,11 @@
 package highlight
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 func TestNewSimpleHighlighter(t *testing.T) {
@@ -346,12 +346,17 @@ func TestHighlighterFactoryCreateHighlighter(t *testing.T) {
 // MockQuery is a simple mock query for testing
 type MockQuery struct{}
 
-func (q *MockQuery) Rewrite(reader search.IndexReader) (search.Query, error) { return q, nil }
-func (q *MockQuery) Clone() search.Query                                     { return &MockQuery{} }
-func (q *MockQuery) Equals(other spi.Query) bool                             { _, ok := other.(*MockQuery); return ok }
-func (q *MockQuery) HashCode() int                                           { return 0 }
-func (q *MockQuery) CreateWeight(searcher *search.IndexSearcher, needsScores bool, boost float32) (search.Weight, error) {
+func (q *MockQuery) Rewrite(reader *search.IndexSearcher) (search.Query, error) { return q, nil }
+func (q *MockQuery) Clone() search.Query                                        { return &MockQuery{} }
+func (q *MockQuery) Equals(other spi.Query) bool                                { _, ok := other.(*MockQuery); return ok }
+func (q *MockQuery) HashCode() int                                              { return 0 }
+func (q *MockQuery) CreateWeight(searcher *search.IndexSearcher, needsScores search.ScoreMode, boost float32) (search.Weight, error) {
 	return nil, nil
+}
+
+// Visit is abstract in Lucene's Query; this double does not support it.
+func (q *MockQuery) Visit(visitor search.QueryVisitor) {
+	panic("MockQuery.Visit: unsupported operation")
 }
 
 func TestNewSimpleHTMLEncoder(t *testing.T) {

@@ -79,9 +79,7 @@ func drainAnalyzer(t *testing.T, a analysis.Analyzer, text string) []string {
 func TestFactories_WhitespaceTokenizerFactory(t *testing.T) {
 	f := analysis.NewWhitespaceTokenizerFactory()
 	tok := f.Create()
-	if err := tok.SetReader(strings.NewReader("hello world foo")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader("hello world foo"))
 	n := drainTokens(t, tok)
 	if n != 3 {
 		t.Errorf("expected 3 tokens, got %d", n)
@@ -92,10 +90,8 @@ func TestFactories_WhitespaceTokenizerFactory(t *testing.T) {
 // produces a single-token tokenizer.
 func TestFactories_KeywordTokenizerFactory(t *testing.T) {
 	f := analysis.NewKeywordTokenizerFactory()
-	tok := f.Create()
-	if err := tok.SetReader(strings.NewReader("What's this thing do?")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok := f.Create(analysis.DefaultTokenAttributeFactory)
+	tok.SetReader(strings.NewReader("What's this thing do?"))
 	n := drainTokens(t, tok)
 	if n != 1 {
 		t.Errorf("expected 1 token, got %d", n)
@@ -106,10 +102,8 @@ func TestFactories_KeywordTokenizerFactory(t *testing.T) {
 // produces a tokenizer that splits on non-letter codepoints.
 func TestFactories_LetterTokenizerFactory(t *testing.T) {
 	f := analysis.NewLetterTokenizerFactory()
-	tok := f.Create()
-	if err := tok.SetReader(strings.NewReader("What's this thing do?")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok := f.Create(analysis.DefaultTokenAttributeFactory)
+	tok.SetReader(strings.NewReader("What's this thing do?"))
 	n := drainTokens(t, tok)
 	// "What", "s", "this", "thing", "do" = 5 tokens
 	if n != 5 {
@@ -154,9 +148,7 @@ func TestFactories_FlattenGraphFilterFactory(t *testing.T) {
 
 	// Smoke-test: pipe a WhitespaceTokenizer through FlattenGraphFilter.
 	tok := analysis.NewWhitespaceTokenizerFactory().Create()
-	if err := tok.SetReader(strings.NewReader("one two three")); err != nil {
-		t.Fatalf("SetReader: %v", err)
-	}
+	tok.SetReader(strings.NewReader("one two three"))
 	filter := analysis.NewFlattenGraphFilterFactory().Create(tok)
 	n := drainTokens(t, filter)
 	if n != 3 {

@@ -101,7 +101,7 @@ func TestFromVectorSimilarity_DispatchTypes(t *testing.T) {
 // out-of-range VectorSimilarityFunction yields an error rather than a
 // nil-valued implementation. Java surfaces a MatchException here.
 func TestFromVectorSimilarity_UnknownSimilarity(t *testing.T) {
-	const bogus index.VectorSimilarityFunction = 99
+	bogus := unknownSimilarity{id: 99}
 	got, err := quantization.FromVectorSimilarity(bogus, 0.5, 7)
 	if err == nil {
 		t.Fatalf("FromVectorSimilarity(%v): expected error, got nil", bogus)
@@ -129,7 +129,7 @@ func TestEuclidean_ScoreKnownValues(t *testing.T) {
 	query := []byte{0, 0, 0, 0}
 	want := float32(1.0 / 8.5)
 
-	e := &quantization.Euclidean{constMultiplier: constMul}
+	e := quantization.NewEuclidean(constMul)
 	got := e.Score(query, 0, stored, 0)
 	if !nearF32(got, want, 1e-7) {
 		t.Fatalf("Euclidean.Score = %v, want %v", got, want)
@@ -169,7 +169,7 @@ func TestDotProduct_ScoreKnownValues(t *testing.T) {
 	stored := []byte{1, 2, 3, 4}
 	query := []byte{5, 6, 7, 8}
 
-	d := &quantization.DotProduct{constMultiplier: constMul, comparator: util.Uint8DotProduct}
+	d := quantization.NewDotProduct(constMul, uint8DotProduct)
 	got := d.Score(query, queryOffset, stored, vectorOffset)
 	const want float32 = 4.25
 	if !nearF32(got, want, 1e-6) {
@@ -185,7 +185,7 @@ func TestDotProduct_ScoreClampsAtZero(t *testing.T) {
 	// (1 + -10) / 2 = -4.5 -> clamped to 0.
 	stored := make([]byte, 8)
 	query := make([]byte, 8)
-	d := &quantization.DotProduct{constMultiplier: 1, comparator: util.Uint8DotProduct}
+	d := quantization.NewDotProduct(1, uint8DotProduct)
 	got := d.Score(query, -5, stored, -5)
 	if got != 0 {
 		t.Fatalf("DotProduct.Score clamp: got %v, want 0", got)
@@ -258,7 +258,7 @@ func TestMaximumInnerProduct_ScoreKnownValues(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &quantization.MaximumInnerProduct{constMultiplier: tc.constMul, comparator: util.Uint8DotProduct}
+			m := quantization.NewMaximumInnerProduct(tc.constMul, uint8DotProduct)
 			got := m.Score(query, tc.queryOffset, stored, tc.vectorOffset)
 			if !nearF32(got, tc.want, 1e-6) {
 				t.Fatalf("Score = %v, want %v", got, tc.want)
@@ -324,7 +324,7 @@ func TestEuclidean_LengthMismatchPanics(t *testing.T) {
 			t.Fatal("expected panic on length mismatch")
 		}
 	}()
-	e := &quantization.Euclidean{constMultiplier: 1}
+	e := quantization.NewEuclidean(1)
 	_ = e.Score([]byte{0, 0}, 0, []byte{0, 0, 0}, 0)
 }
 
@@ -336,7 +336,7 @@ func TestDotProduct_LengthMismatchPanics(t *testing.T) {
 			t.Fatal("expected panic on length mismatch")
 		}
 	}()
-	d := &quantization.DotProduct{constMultiplier: 1, comparator: util.Uint8DotProduct}
+	d := quantization.NewDotProduct(1, uint8DotProduct)
 	_ = d.Score([]byte{0, 0}, 0, []byte{0, 0, 0}, 0)
 }
 
@@ -348,7 +348,7 @@ func TestMaximumInnerProduct_LengthMismatchPanics(t *testing.T) {
 			t.Fatal("expected panic on length mismatch")
 		}
 	}()
-	m := &quantization.MaximumInnerProduct{constMultiplier: 1, comparator: util.Uint8DotProduct}
+	m := quantization.NewMaximumInnerProduct(1, uint8DotProduct)
 	_ = m.Score([]byte{0, 0}, 0, []byte{0, 0, 0}, 0)
 }
 
@@ -358,7 +358,7 @@ func TestMaximumInnerProduct_LengthMismatchPanics(t *testing.T) {
 // implementation today simply returns a wrapped fmt.Errorf, so the
 // surface contract is "non-nil error + nil impl".
 func TestFromVectorSimilarity_RejectsUnknown(t *testing.T) {
-	_, err := quantization.FromVectorSimilarity(index.VectorSimilarityFunction(123), 0, 8)
+	_, err := quantization.FromVectorSimilarity(unknownSimilarity{id: 123}, 0, 8)
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -367,4 +367,18 @@ func TestFromVectorSimilarity_RejectsUnknown(t *testing.T) {
 	if errors.Is(err, nil) {
 		t.Fatal("error must not be nil-equivalent")
 	}
+}
+
+// unknownSimilarity is a VectorSimilarityFunction outside the four Lucene
+// constants, standing in for an out-of-range enum ordinal.
+type unknownSimilarity struct{ id util.VectorSimilarityID }
+
+func (u unknownSimilarity) ID() util.VectorSimilarityID           { return u.id }
+func (u unknownSimilarity) CompareFloat(v1, v2 []float32) float32 { return 0 }
+func (u unknownSimilarity) CompareBytes(v1, v2 []byte) float32    { return 0 }
+
+// uint8DotProduct adapts util.Uint8DotProduct to ByteVectorComparator, as the
+// VectorUtil::uint8DotProduct method reference does in Lucene.
+var uint8DotProduct quantization.ByteVectorComparator = func(a, b []byte) int32 {
+	return int32(util.Uint8DotProduct(a, b))
 }

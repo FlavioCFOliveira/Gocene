@@ -7,10 +7,10 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // stubQuery is a minimal search.Query used for profiling tests.
@@ -19,14 +19,14 @@ type stubQuery struct {
 	label string
 }
 
-func (q *stubQuery) Rewrite(_ search.IndexReader) (search.Query, error) { return q, nil }
-func (q *stubQuery) Clone() search.Query                                { return q }
+func (q *stubQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) { return q, nil }
+func (q *stubQuery) Clone() search.Query                                   { return q }
 func (q *stubQuery) Equals(other spi.Query) bool {
 	o, ok := other.(*stubQuery)
 	return ok && o.label == q.label
 }
 func (q *stubQuery) HashCode() int { return len(q.label) }
-func (q *stubQuery) CreateWeight(_ *search.IndexSearcher, _ bool, _ float32) (search.Weight, error) {
+func (q *stubQuery) CreateWeight(_ *search.IndexSearcher, _ search.ScoreMode, _ float32) (search.Weight, error) {
 	return nil, nil
 }
 

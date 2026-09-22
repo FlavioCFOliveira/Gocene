@@ -8,12 +8,12 @@ package highlight
 // plugged in to highlight a domain-specific Query type.
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/spi"
 	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 const customQueryFieldName = "contents"
@@ -30,7 +30,7 @@ func newCustomQuery(field, text string) *customQuery {
 }
 
 // Rewrite returns itself (no rewriting required for test purposes).
-func (q *customQuery) Rewrite(_ search.IndexReader) (search.Query, error) { return q, nil }
+func (q *customQuery) Rewrite(_ *search.IndexSearcher) (search.Query, error) { return q, nil }
 
 // Clone returns a shallow copy.
 func (q *customQuery) Clone() search.Query { cpy := *q; return &cpy }
@@ -54,8 +54,13 @@ func (q *customQuery) HashCode() int {
 }
 
 // CreateWeight is not exercised by the highlight tests.
-func (q *customQuery) CreateWeight(_ *search.IndexSearcher, _ bool, _ float32) (search.Weight, error) {
+func (q *customQuery) CreateWeight(_ *search.IndexSearcher, _ search.ScoreMode, _ float32) (search.Weight, error) {
 	return nil, nil
+}
+
+// Visit is abstract in Lucene's Query; this double does not support it.
+func (q *customQuery) Visit(visitor search.QueryVisitor) {
+	panic("customQuery.Visit: unsupported operation")
 }
 
 // customQueryScorer is a FragmentScorer that understands customQuery in

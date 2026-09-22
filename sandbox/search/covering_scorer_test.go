@@ -8,10 +8,10 @@
 package search
 
 import (
-	"github.com/FlavioCFOliveira/Gocene/util"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // fixedLongValues is a LongValues that returns a constant value for every doc.
@@ -66,9 +66,9 @@ func (s *listScorer) Advance(target int) (int, error) {
 	}
 }
 
-func (s *listScorer) Cost() int64               { return int64(len(s.docs)) }
-func (s *listScorer) Score() float32            { return s.score }
-func (s *listScorer) GetMaxScore(_ int) float32 { return s.score }
+func (s *listScorer) Cost() int64                        { return int64(len(s.docs)) }
+func (s *listScorer) Score() (float32, error)            { return s.score, nil }
+func (s *listScorer) GetMaxScore(_ int) (float32, error) { return s.score, nil }
 func (s *listScorer) AdvanceShallow(int) (int, error) {
 	return search.NO_MORE_DOCS, nil
 }
@@ -79,7 +79,7 @@ var _ search.Scorer = (*listScorer)(nil)
 func collectAll(t *testing.T, cs *coveringScorer) []int {
 	t.Helper()
 	var docs []int
-	it := cs.twoPhase.AsDocIdSetIterator()
+	it := search.AsDocIdSetIterator(cs.twoPhase)
 	for {
 		doc, err := it.NextDoc()
 		if err != nil {
@@ -136,7 +136,7 @@ func TestCoveringScorer_ScoreSumsSubScorers(t *testing.T) {
 	s2 := newListScorer([]int{2}, 5.0)
 	mv := &fixedLongValues{v: 1}
 	cs := newCoveringScorer([]search.Scorer{s1, s2}, mv, 10)
-	it := cs.twoPhase.AsDocIdSetIterator()
+	it := search.AsDocIdSetIterator(cs.twoPhase)
 	doc, err := it.NextDoc()
 	if err != nil {
 		t.Fatal(err)
@@ -144,7 +144,10 @@ func TestCoveringScorer_ScoreSumsSubScorers(t *testing.T) {
 	if doc != 2 {
 		t.Fatalf("expected doc 2, got %d", doc)
 	}
-	got := cs.Score()
+	got, err := cs.Score()
+	if err != nil {
+		t.Fatalf("cs.Score: %v", err)
+	}
 	if got != 8.0 {
 		t.Errorf("Score() = %v; want 8.0", got)
 	}
@@ -168,12 +171,19 @@ func TestCoveringScorer_GetMaxScore(t *testing.T) {
 	s1 := newListScorer([]int{0}, 1.0)
 	mv := &fixedLongValues{v: 1}
 	cs := newCoveringScorer([]search.Scorer{s1}, mv, 10)
-	got := cs.GetMaxScore(search.NO_MORE_DOCS)
+	got, err := cs.GetMaxScore(search.NO_MORE_DOCS)
+	if err != nil {
+		t.Fatalf("cs.GetMaxScore: %v", err)
+	}
 	if got != float32(1<<24) && got <= 1e30 {
 		t.Errorf("GetMaxScore() = %v; want +Inf", got)
 	}
 	// More precisely: must be positive infinity
-	if got != cs.GetMaxScore(0) {
+	again, err := cs.GetMaxScore(0)
+	if err != nil {
+		t.Fatalf("cs.GetMaxScore: %v", err)
+	}
+	if got != again {
 		t.Error("GetMaxScore must return same value regardless of upTo")
 	}
 }
@@ -183,4 +193,34 @@ func TestCoveringScorer_GetMaxScore(t *testing.T) {
 // 10.5.0, which every subclass inherits unless it overrides it.
 func (s *listScorer) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
 	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// GetChildren carries the default body Lucene gives Scorer.GetChildren.
+func (s *listScorer) GetChildren() ([]search.ChildScorable, error) {
+	return nil, nil
+}
+
+// Iterator is abstract in Lucene's Scorer; this double does not support it.
+func (s *listScorer) Iterator() search.DocIdSetIterator {
+	panic("listScorer.Iterator: unsupported operation")
+}
+
+// NextDocsAndScores carries the default body Lucene gives Scorer.NextDocsAndScores.
+func (s *listScorer) NextDocsAndScores(upTo int, liveDocs util.Bits, buffer *search.DocAndFloatFeatureBuffer) error {
+	return search.DefaultNextDocsAndScores(s, upTo, liveDocs, buffer)
+}
+
+// SetMinCompetitiveScore carries the default body Lucene gives Scorer.SetMinCompetitiveScore.
+func (s *listScorer) SetMinCompetitiveScore(minScore float32) error {
+	return nil
+}
+
+// SmoothingScore carries the default body Lucene gives Scorer.SmoothingScore.
+func (s *listScorer) SmoothingScore(docID int) (float32, error) {
+	return 0, nil
+}
+
+// TwoPhaseIterator carries the default body Lucene gives Scorer.TwoPhaseIterator.
+func (s *listScorer) TwoPhaseIterator() *search.TwoPhaseIterator {
+	return search.DefaultTwoPhaseIterator()
 }
