@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 | **A2** | **RESTRAINT — NO PROACTIVITY.** Do exactly what the user asked, and nothing else. Any extra need, however small or obvious, is **reported** and executed **only after explicit authorisation**. | *Model Conduct — Restraint and Non-Proactivity*, § 1, point 1 |
 | **A3** | **DELEGATE TO A SPECIALIST.** **ALL** work is executed by the subagent specialised in the requirements and objectives it is meant to achieve — **ALWAYS** the most suitable one. The main agent plans, delegates, validates, and reports. | § 9.1 |
 | **A4** | **ONE SUBAGENT, ALWAYS.** **ONLY ONE** subagent runs in parallel with the main conversation — **NEVER** more. Use every subagent the objective needs, **in series, never in parallel**. Running more than one in parallel is an exception that requires **prior** authorisation, and that authorisation **expires immediately** and is always revoked at the end of the task. | § 9.2 |
-| **A5** | **SYNERGY — CENTRAL TO ALL WORK.** The search for synergies governs how every piece of work is planned and executed, in three kinds: **of effort**, **technical**, **functional**. Work that is technically or functionally close **MUST** be joined into a **single** development effort, and like work inside a task is done in one pass. Effort is optimised to the maximum so that **much more work is delivered**, every objective being reached with the **fewest tasks and the fewest iterations possible**. | *Work Synergy — Reach Each Objective in the Fewest Efforts* |
+| **A5** | **SYNERGY AND CONVERGENCE — CENTRAL TO ALL WORK, BY DEFAULT.** The search for synergies and for convergence between task objectives governs how every piece of work is planned and executed, without the user having to ask, in three kinds: **of effort**, **technical**, **functional**. Work that is technically or functionally close, or whose objectives are complementary, **MUST** be joined into a **single** development effort; all code is written in one pass, all documentation in one pass, and all changed code tested in one pass. Effort is optimised to the maximum so that **much more work is delivered**, faster and at lower cost, every objective being reached with the **fewest tasks and the fewest iterations possible** — and never with lower quality. | *Work Synergy and Convergence — Reach Each Objective in the Fewest Efforts* |
 
 ### Self-check before every action
 
@@ -23,14 +23,14 @@ Before every action — every tool call, every edit, every command, every delega
 3. **Delegated?** Is the work being carried out by the subagent specialised in it? *(A3)*
 4. **Alone?** Is exactly one subagent running — this one? *(A4)*
 5. **Faithful?** Does the result reproduce Apache Lucene 10.5.0 exactly — in behaviour, in construction, and in output? *(A1)*
-6. **Synergised?** Have I sought all three synergies — of effort, technical, functional — and joined everything technically or functionally close to this work, so the objective is reached in the fewest iterations? *(A5)*
+6. **Synergised?** Have I sought all three synergies — of effort, technical, functional — and the convergence of task objectives, joined everything technically or functionally close or complementary to this work, and batched code, documentation, and tests each into one pass, so the objective is reached in the fewest iterations without loss of quality? *(A5)*
 
 ### Order of precedence
 
 When two rules appear to conflict, resolve them in this order; the higher entry wins:
 
 1. **Conduct rules A2, A3, A4.** They govern *whether you may act at all*, *who carries out the work*, and *how many agents do it*. Nothing overrides them: no mandate, no deadline, no efficiency argument, and no other section of this file authorises unrequested action, undelegated work, or parallel subagents.
-2. **A5 — Work Synergy.** How much work is joined into a single effort, and in how few iterations the objective is reached. It wins over every other section of this file — notably the subdivision guidance of § 4.1 — and over the two mandates below; it never wins over the conduct rules A2–A4. Its supremacy is confined to the grouping question: A5 governs how work is grouped, never what the work must produce, and where grouping would cost byte-level or source fidelity, point 7 of *Work Synergy* stops it.
+2. **A5 — Work Synergy and Convergence.** How much work is joined into a single effort, and in how few iterations the objective is reached. It wins over every other section of this file — notably the subdivision guidance of § 4.1 — and over the two mandates below; it never wins over the conduct rules A2–A4. Its supremacy is confined to the grouping question: A5 governs how work is grouped, never what the work must produce, and where grouping would cost byte-level or source fidelity, point 7 of *Work Synergy and Convergence* stops it.
 3. **Binary Compatibility Mandate** — the byte-level contract; it outranks every other rule about *how the work must be done*, save A5 above.
 4. **Source Fidelity Mandate** — organisational and behavioural fidelity.
 5. Every other section of this file, in the order in which it appears.
@@ -99,7 +99,7 @@ Given the same input, the same configuration, and the same version, **Gocene mus
 
 This Prime Directive is the premise; the two mandates that follow are how it is enforced. Among the rules that govern **how the work must be done**, the order is the one already established:
 
-1. **A5 — Work Synergy** — how much work is joined into a single effort, and in how few iterations the objective is reached; subordinate only to the conduct rules A2–A4, and superior to the two mandates below on that grouping question alone — never on what the work must produce (*Work Synergy*, point 7).
+1. **A5 — Work Synergy and Convergence** — how much work is joined into a single effort, and in how few iterations the objective is reached; subordinate only to the conduct rules A2–A4, and superior to the two mandates below on that grouping question alone — never on what the work must produce (*Work Synergy and Convergence*, point 7).
 2. **Binary Compatibility Mandate** — the byte-level contract; highest operative priority among the mandates, superseding every other guideline about how the work is done, save A5 above.
 3. **Source Fidelity Mandate** — organisational and behavioural fidelity; subordinate to the mandate above and to A5.
 4. Everything else in this document.
@@ -120,7 +120,7 @@ Because Gocene is a port rather than a reimplementation, Lucene is the **sole** 
 
 ## Binary Compatibility Mandate (TOP-PRIORITY, NON-NEGOTIABLE)
 
-This requirement supersedes every other guideline in this document about **how the work must be done**, save A5 (*Work Synergy*), which outranks it. If any other rule, convention, or stylistic preference conflicts with it, this requirement wins. It does **not** authorise work the user has not requested: it constrains the work that is undertaken, and is subordinate to the conduct rules A2–A4 (*Absolute Rules*, top of this file) as to whether, by whom, and by how many agents that work is undertaken.
+This requirement supersedes every other guideline in this document about **how the work must be done**, save A5 (*Work Synergy and Convergence*), which outranks it. If any other rule, convention, or stylistic preference conflicts with it, this requirement wins. It does **not** authorise work the user has not requested: it constrains the work that is undertaken, and is subordinate to the conduct rules A2–A4 (*Absolute Rules*, top of this file) as to whether, by whom, and by how many agents that work is undertaken.
 
 1. **Produce (write) and Consume (read).** Gocene **MUST** produce binary artefacts that Apache Lucene 10.5.0 can read without modification, **AND** Gocene **MUST** read, without loss or reinterpretation, every binary artefact produced by Apache Lucene 10.5.0. Compatibility is bidirectional and exact; "approximately compatible" is not compatible.
 
@@ -166,7 +166,7 @@ Point 1 of this mandate (*Produce (write) and Consume (read)*) states the contra
 
 ## Source Fidelity Mandate — Organisation and Behaviour (NON-NEGOTIABLE)
 
-Gocene is a **port**, not a reimplementation. Beyond the byte-level contract established by the *Binary Compatibility Mandate* above, **all Gocene code owes fidelity to the Apache Lucene 10.5.0 code in two further dimensions — organisation and functionality.** This mandate is subordinate to the *Binary Compatibility Mandate* and to A5 (*Work Synergy*); it prevails over every stylistic preference, personal judgement, or perceived improvement.
+Gocene is a **port**, not a reimplementation. Beyond the byte-level contract established by the *Binary Compatibility Mandate* above, **all Gocene code owes fidelity to the Apache Lucene 10.5.0 code in two further dimensions — organisation and functionality.** This mandate is subordinate to the *Binary Compatibility Mandate* and to A5 (*Work Synergy and Convergence*); it prevails over every stylistic preference, personal judgement, or perceived improvement.
 
 1. **Organisational fidelity.** The structure of Gocene must mirror the structure of Lucene 10.5.0: the package/namespace layout, the distribution of responsibilities across units, the decomposition into components, and the correspondence between a Lucene class and its Gocene counterpart. A Lucene package maps to the equivalent Gocene package; a Lucene class maps to the equivalent Gocene type in the equivalent file; a Lucene class hierarchy maps to the equivalent Go interface/embedding arrangement. Names must remain recognisable against the Lucene original after the necessary Go transliteration (exported identifiers in `CamelCase`, file names in `snake_case`). Do not merge, split, relocate, or rename Lucene units on your own initiative.
 
@@ -210,26 +210,32 @@ This rule governs the behaviour of the Claude model itself. It applies to every 
 
 6. **This rule does not license incomplete work.** Restraint applies to the *scope* of the work, never to its *quality* or *completeness*: what the user did ask for must still be delivered in full, finished and production-grade (§ 2, § 3). Do not use this rule as a reason to stop halfway through the requested work.
 
-## Work Synergy — Reach Each Objective in the Fewest Efforts (NON-NEGOTIABLE)
+## Work Synergy and Convergence — Reach Each Objective in the Fewest Efforts (NON-NEGOTIABLE)
 
-**The search for synergies is a central element in the conduct of all work in this project.** It is not one policy among others: it governs how every piece of work is planned, grouped, and executed. Its purpose is to optimise effort to the maximum, so that **much more work is delivered**.
+**Motto: "Make the effort pay — deliver the most with the least work."**
+
+**The search for synergy and convergence is a central element in the conduct of all work in this project.** It is not one policy among others: it governs how every piece of work is planned, grouped, and executed. Its purpose is to optimise effort to the maximum, so that **much more work is delivered, faster, and at lower cost to the user**.
 
 1. **Three kinds of synergy, sought in every piece of work.**
    - **Synergy of effort** — one pass of an activity serves many units of work, instead of one pass per unit.
    - **Technical synergy** — work that shares algorithms, data structures, serialised formats, packages, files, or tooling is carried out together, once.
    - **Functional synergy** — work that serves the same feature, the same behaviour, or the same Lucene component is carried out together, once.
 
-2. **Joining is an obligation, not an aspiration.** Whenever tasks — tracked in `rmp` or not — are technically or functionally close, they **MUST** be joined into a single development effort. Always seek to maximise the synergy of one development effort across several tasks; a boundary between tracked tasks is never a reason to keep close work apart.
+2. **Convergence is always sought.** Always examine the individual objectives of each task for convergence, and turn every convergence found into synergy. Tasks with complementary objectives, functional proximity, or technical proximity **MUST ALWAYS** be worked so that the effort is optimised and the synergy maximised. Tasks of the same kind are aggregated whenever the aggregation shortens the delivery without harming its quality.
 
-3. **Batch like work inside a task.** By strategy and by default, identify the synergies within a task. If code must be written and then tested, write all of the code in one pass and test all of it in one pass, instead of writing small fragments and testing each in isolation. The same applies to documentation: treat all of it in one pass or, where the scope is too large, identify blocks and treat each block whole. Apply this to every kind of work, without exception.
+3. **Joining is an obligation, not an aspiration.** Whenever tasks — tracked in `rmp` or requested ad hoc by the user — are verifiably close in function or technique, they **MUST** be joined into a single, productive development effort. Always seek to maximise the synergy of one development effort across several tasks; a boundary between tracked tasks is never a reason to keep close work apart.
 
-4. **The principle is constant.** The search for synergy and the optimisation of effort govern every way of working in this project. **Objectives must be reached with the fewest tasks and the fewest iterations possible.**
+4. **Batch like work, within and across tasks.** By strategy and by default, identify the synergies within a task and across the joined tasks. Write all of the code in one pass (for all joined tasks), write all of the documentation in one pass, and run the tests over all of the changed code in one pass — instead of writing small fragments and testing or documenting each in isolation. Where the documentation scope is too large for one pass, identify blocks and treat each block whole. Apply this principle to every kind of work, without exception.
 
-5. **Synergy never overrides restraint (A2).** Joining work the user did not request is a change of scope: report the synergy, propose the grouping, and act only after explicit authorisation. Inside the scope the user has already authorised, batch aggressively and without asking.
+5. **The default mode of work — never on request.** The search for synergy and convergence and the optimisation of effort are **constant** in every way of working in this project. **The user MUST NOT need to ask for them**: they are how the work is done. **Objectives must be reached with the fewest tasks and the fewest iterations possible.** Make maximum use of the resources available internally (skills, tools, the Knowledge Graph, the right subagent in series) so that deliveries are faster and cheaper for the user.
 
-6. **Synergy is not parallelism (A4, § 4.2).** A joined effort is still one effort: one subagent at a time, one task at a time, in series. Grouping scope is never a licence to run subagents or tasks concurrently.
+6. **A mode of work, never a task.** Synergy and convergence are how the work is conducted; they are **never** recorded as a task, sprint, or backlog item in `rmp`.
 
-7. **Synergy never trades away completeness or fidelity.** Fewer iterations must never mean less delivered (§ 2, § 2.2) and never a weaker port (*Prime Directive*, the two mandates). If compacting the work would cost completeness, correctness, or fidelity, the work is not compacted.
+7. **Only better work.** Synergy and convergence must deliver **better** work than task-by-task development would, never work of lower quality. Fewer iterations must never mean less delivered (§ 2, § 2.2) and never a weaker port (*Prime Directive*, the two mandates). If compacting the work would cost quality, completeness, correctness, or fidelity, the work is not compacted.
+
+8. **Synergy and restraint (A2).** Seeking, identifying, and proposing synergies and convergences requires no request. Inside the scope the user has requested, join and batch aggressively and without asking — for example, a request to execute a sprint covers every task of that sprint, and those tasks are joined wherever they converge. Joining a task that lies outside the requested scope starts work the user did not request: report the synergy, propose the grouping, and act only after explicit authorisation (*Model Conduct — Restraint and Non-Proactivity*).
+
+9. **Synergy is not parallelism (A4, § 4.2).** A joined effort is still one effort: one subagent at a time, one task at a time, in series. Grouping scope is never a licence to run subagents or tasks concurrently.
 
 ## Mandatory Skills — Who Operates What (NON-NEGOTIABLE)
 
@@ -262,12 +268,13 @@ These four requirements govern all documentation as well, not only instructions.
    - When several clarifications are required, present each question to the user sequentially (one at a time), not all at once.
    - **Boundary between acting and asking:** the boundary is **the user's request**, not the size or the risk of the change. Whatever lies inside the request is executed; whatever lies outside it — including an obvious, low-risk correction, or a pre-existing bug with an unequivocal solution — is **reported and awaits explicit authorisation** (Absolute Rule A2, *Model Conduct — Restraint and Non-Proactivity*). A decision that changes scope, expected behaviour, architecture, or requirements always requires prior user approval.
    - **Exception — doubts that Lucene settles:** where the doubt, inconsistency, or incoherence concerns how Gocene should be organised or how it should behave, do not ask: apply the *Source Fidelity Mandate* above and follow Lucene 10.5.0. Only the specific cases listed in point 4 of that mandate require prior consultation.
+   - **Exception — grouping inside the requested scope:** joining and batching the requested work is not a decision taken on your own; it is required by A5 (*Work Synergy and Convergence*) and is done without asking. Only joining work outside the requested scope requires prior consultation (*Work Synergy and Convergence*, point 8).
 
 2. **Documentation in English.** All project documentation (including this `CLAUDE.md`) must be written in the most correct English possible, professional in tone, and free of orthographic, grammatical, or syntactic errors. Use clear, simple, and unambiguous technical language intended for human readers. This covers **all** documentation — from the main `README.md` to the specification, including code documentation — and every one of those documents must exercise the four requirements of *Language Used in Instructions and Work*: explicit, objective, closed, and concise.
 
 3. **Documentation faithful to the code.** Documentation must be precise and always reflect the real state of the code.
 
-4. **Workflow.** Work always follows this order: **Specify → Implement → Test → Document.**
+4. **Workflow.** Work always follows this order: **Specify → Implement → Test → Document.** Each stage is carried out in one pass over the whole development effort — every joined task together — never stage by stage for each task in turn (A5, *Work Synergy and Convergence*, point 4).
 
 ## 2. Self-Contained Development Policy
 
@@ -356,24 +363,24 @@ In both stages, use `rmp` as the single source of truth.
 
 Use the **Knowledge Graph**, queried through the `knowledge-authority` skill, to identify the highest-gain or highest-impact tasks, foundational tasks, and tasks that unblock other tasks or features, so that the execution order can be optimised. By default, always work from the highest-gain tasks towards the least essential. Foundational tasks and tasks that unblock other work are always prioritised.
 
-When a task is too large to be executed in one go by an AI agent such as Claude Code, subdivide it into smaller parts while respecting the principles already defined (in particular, the self-contained task principle). Subdivision is the exception, applied only when a single effort genuinely cannot be completed in one go: by default, planning **must** join work that is technically or functionally close into a single effort, so that the objective is reached in the fewest tasks (A5, *Work Synergy*), and grouping never weakens the self-contained-task principle.
+When a task is too large to be executed in one go by an AI agent such as Claude Code, subdivide it into smaller parts while respecting the principles already defined (in particular, the self-contained task principle). Subdivision is the exception, applied only when a single effort genuinely cannot be completed in one go: by default, planning **must** join work that is technically or functionally close into a single effort, so that the objective is reached in the fewest tasks (A5, *Work Synergy and Convergence*), and grouping never weakens the self-contained-task principle.
 
 ### 4.2 Execution
 
 Execution is the natural next step after planning. Always use `rmp`, through the `roadmap-manager` skill (*Mandatory Skills*, § 4), and follow this sequence:
 
 1. Check whether any open task remains unfinished so it can be continued.
-2. Identify the next task.
-3. Understand the objective of the task to be started, based on its description, functional requirements, and technical requirements.
+2. Identify the next task, together with every task in the requested scope whose objectives converge with it or that is technically or functionally close to it, and join them into one development effort (A5, *Work Synergy and Convergence*).
+3. Understand the objectives of the development effort, based on the description, functional requirements, and technical requirements of each joined task.
 4. Determine the most appropriate subagent and delegate execution to them.
-5. Always validate the acceptance criteria before closing the task.
-6. Close the task with a short summary of what was done.
-7. After closing the task and before moving on to the next, have a specialised subagent perform a `git commit` through the `gitflow` skill, following best practices and explaining what was done (*Mandatory Skills*, § 4.3).
+5. Always validate the acceptance criteria of every joined task before closing it.
+6. Close each joined task with a short summary of what was done.
+7. After closing the tasks of the development effort and before moving on to the next effort, have a specialised subagent perform a `git commit` through the `gitflow` skill, following best practices and explaining what was done for each task (*Mandatory Skills*, § 4.3).
 8. Have a specialised subagent update the Knowledge Graph through the `knowledge-authority` skill (*Mandatory Skills*, § 5).
 
 Execution notes:
 
-- You may develop **only one task at a time**, in strict sequential order. Active development work must never be parallelised across multiple tasks. Joining tasks that are technically or functionally close into a single development effort (A5, *Work Synergy*) is not parallelisation: the joined effort remains a single, sequential unit of work.
+- You may develop **only one development effort at a time** — a single task, or a set of tasks joined under A5 — in strict sequential order. Active development work must never be parallelised across multiple efforts. Joining tasks that are technically or functionally close into a single development effort (A5, *Work Synergy and Convergence*) is not parallelisation: the joined effort remains a single, sequential unit of work.
 - Whenever possible, adapt the model and its effort level to the requirements of each individual task operation.
 - Task and sprint execution is **sequential**.
 - Evaluations and audits may run in parallel **only** under the exceptional, single-use authorisation described in § 9.2: parallel execution must **ALWAYS be authorised by the user beforehand**, and that authorisation expires immediately once the authorised run ends.
@@ -384,16 +391,16 @@ Execution notes:
 
 All branch and commit operations described in this section are executed **by a specialised subagent** through the `gitflow` skill (*Mandatory Skills*, A3): the skill is the operator, the subagent is the executor. User confirmation (step 4 below) precedes execution; it does not transfer execution to the user.
 
-For each task, create the appropriate branch following gitflow conventions:
+For each development effort — a single task, or a set of tasks joined under A5 — create the appropriate branch following gitflow conventions:
 
 - **feature/** — new features and enhancements;
 - **hotfix/** — urgent bug fixes;
 - **release/** — release preparation branches.
 
-The branching workflow for each task:
+The branching workflow for each development effort:
 
-1. Create the appropriate branch based on the nature of the task.
-2. Develop the task on that branch.
+1. Create the appropriate branch based on the nature of the effort.
+2. Develop the effort on that branch.
 3. Upon completion, execute the branch closure procedure for the branch type: `feature/` merges to `develop`; `release/` and `hotfix/` merge to `main` and back to `develop`.
 4. All operations must be confirmed by the user before execution.
 
@@ -503,7 +510,7 @@ Whenever a bug is fixed within the scope of the work at hand, create the necessa
 
 You have at your disposal a team composed of all available subagents (global, user-defined, or project-defined). You **MUST** use every subagent you need to achieve your objective, but they are used **in series, never in parallel** — one at a time and in strict sequence (§ 9.2): the strength of a task comes from choosing the right specialist for it, never from running several at once.
 
-Each task is carried out by the single subagent whose specialisation matches its requirements and objectives (§ 9.1), so that the task is completed with maximum confidence, effectiveness, and accuracy. Where a task genuinely requires more than one specialisation, the specialists are used **sequentially** — one finishes and reports before the next is launched — and each works strictly within the scope it was given, contributing its specialisation to that scope and nothing beyond it.
+Each task — or each development effort joined under A5, delegated whole to one subagent rather than task by task — is carried out by the single subagent whose specialisation matches its requirements and objectives (§ 9.1), so that the work is completed with maximum confidence, effectiveness, and accuracy. Where a task genuinely requires more than one specialisation, the specialists are used **sequentially** — one finishes and reports before the next is launched — and each works strictly within the scope it was given, contributing its specialisation to that scope and nothing beyond it.
 
 When initiating a task, identify the single most appropriate subagent for the task's scope: the specialist chosen for a task is always a subagent (A3, § 9.1). Skills are not an alternative to that choice — they are the mandatory operators of their domains (git, tasks and sprints, the Knowledge Graph) and are used **by** the chosen subagent (*Mandatory Skills*). However, always remember: **the focus of any task is to contribute to the development of Gocene.** Avoid excessive research or analysis — the goal is implementation, not just understanding. Gather only the information necessary to complete the task.
 
