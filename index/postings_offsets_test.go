@@ -12,12 +12,12 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/internal/testutil"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	indexTestutil "github.com/FlavioCFOliveira/Gocene/index/testutil"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
+	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
 )
 
 // postingsOffsetsType builds the FieldType shared by the offset tests: a
@@ -118,7 +118,7 @@ func assertPostings(t *testing.T, reader *index.DirectoryReader, term string, wa
 	if err != nil {
 		t.Fatalf("Iterator: %v", err)
 	}
-	var postings schema.PostingsEnum
+	var postings spi.PostingsEnum
 	for {
 		tt, err := it.Next()
 		if err != nil {
@@ -128,7 +128,7 @@ func assertPostings(t *testing.T, reader *index.DirectoryReader, term string, wa
 			break
 		}
 		if tt.Text() == term {
-			postings, err = it.Postings(schema.PostingsFlagOffsets)
+			postings, err = it.Postings(spi.PostingsFlagOffsets)
 			if err != nil {
 				t.Fatalf("Postings: %v", err)
 			}
@@ -142,7 +142,7 @@ func assertPostings(t *testing.T, reader *index.DirectoryReader, term string, wa
 	if err != nil {
 		t.Fatalf("NextDoc: %v", err)
 	}
-	if docID == schema.NO_MORE_DOCS {
+	if docID == spi.NO_MORE_DOCS {
 		t.Fatalf("no docs for term %q", term)
 	}
 	freq, err := postings.Freq()
@@ -179,11 +179,11 @@ func assertPostings(t *testing.T, reader *index.DirectoryReader, term string, wa
 // and c.
 func TestPostingsOffsets_Basic(t *testing.T) {
 	dir, writer := newPostingsOffsetsWriter(t, func() analysis.TokenStream {
-		return testutil.NewCannedTokenStream(
-			testutil.NewToken("a", 0, 1),
-			testutil.NewToken("b", 2, 3),
-			testutil.NewToken("a", 4, 5),
-			testutil.NewToken("c", 6, 7),
+		return testanalysis.NewCannedTokenStream(
+			testanalysis.NewToken("a", 0, 1),
+			testanalysis.NewToken("b", 2, 3),
+			testanalysis.NewToken("a", 4, 5),
+			testanalysis.NewToken("c", 6, 7),
 		)
 	})
 	defer writer.Close()
@@ -220,14 +220,10 @@ func TestPostingsOffsets_Random(t *testing.T) {
 	defer dir.Close()
 
 	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
+	riw, err := testindex.NewRandomIndexWriterWithConfig(rand.New(rand.NewSource(17)), dir, cfg)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("NewRandomIndexWriterWithConfig: %v", err)
 	}
-	riw := indexTestutil.NewWithConfig(w, 17, indexTestutil.Config{
-		CommitProbability:     0,
-		ForceMergeProbability: 0,
-	})
 
 	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 	ft.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets)
@@ -236,7 +232,7 @@ func TestPostingsOffsets_Random(t *testing.T) {
 	rng := rand.New(rand.NewSource(17))
 	const numDocs = 20
 	const numTokens = 100
-	termsByDoc := map[string]map[int][]testutil.Token{}
+	termsByDoc := map[string]map[int][]testanalysis.Token{}
 
 	for docCount := 0; docCount < numDocs; docCount++ {
 		doc := document.NewDocument()
@@ -246,7 +242,7 @@ func TestPostingsOffsets_Random(t *testing.T) {
 		}
 		doc.Add(idField)
 
-		tokens := make([]testutil.Token, 0, numTokens)
+		tokens := make([]testanalysis.Token, 0, numTokens)
 		pos := -1
 		offset := 0
 		for tokenCount := 0; tokenCount < numTokens; tokenCount++ {
@@ -275,11 +271,11 @@ func TestPostingsOffsets_Random(t *testing.T) {
 			}
 			tokenOffset := rng.Intn(5)
 
-			token := testutil.NewTokenWithPosInc(text, posIncr, offset+offIncr, offset+offIncr+tokenOffset)
+			token := testanalysis.NewTokenWithPosInc(text, posIncr, offset+offIncr, offset+offIncr+tokenOffset)
 			token = token.WithType(fmt.Sprintf("%d", pos+posIncr))
 			tokens = append(tokens, token)
 			if termsByDoc[text] == nil {
-				termsByDoc[text] = map[int][]testutil.Token{}
+				termsByDoc[text] = map[int][]testanalysis.Token{}
 			}
 			termsByDoc[text][docCount] = append(termsByDoc[text][docCount], token)
 
@@ -287,17 +283,17 @@ func TestPostingsOffsets_Random(t *testing.T) {
 			offset += offIncr + tokenOffset
 		}
 
-		field, err := document.NewField("content", testutil.NewCannedTokenStream(tokens...), ft)
+		field, err := document.NewField("content", testanalysis.NewCannedTokenStream(tokens...), ft)
 		if err != nil {
 			t.Fatalf("NewField %d: %v", docCount, err)
 		}
 		doc.Add(field)
-		if err := riw.AddDocument(doc); err != nil {
+		if _, err := riw.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", docCount, err)
 		}
 	}
 
-	if err := riw.Commit(); err != nil {
+	if _, err := riw.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	r, err := index.OpenDirectoryReader(dir)
@@ -338,7 +334,7 @@ func TestPostingsOffsets_Random(t *testing.T) {
 		}
 
 		for _, term := range termsList {
-			found, err := te.SeekExact(schema.NewTerm("content", term))
+			found, err := te.SeekExact(spi.NewTerm("content", term))
 			if err != nil {
 				t.Fatalf("SeekExact %q: %v", term, err)
 			}
@@ -346,7 +342,7 @@ func TestPostingsOffsets_Random(t *testing.T) {
 				continue
 			}
 
-			docs, err := te.Postings(schema.PostingsFlagFreqs)
+			docs, err := te.Postings(spi.PostingsFlagFreqs)
 			if err != nil {
 				t.Fatalf("Postings(FREQS) %q: %v", term, err)
 			}
@@ -355,7 +351,7 @@ func TestPostingsOffsets_Random(t *testing.T) {
 				if err != nil {
 					t.Fatalf("NextDoc(FREQS) %q: %v", term, err)
 				}
-				if doc == schema.NO_MORE_DOCS {
+				if doc == spi.NO_MORE_DOCS {
 					break
 				}
 				expected := termsByDoc[term][docIDToID[doc]]
@@ -371,7 +367,7 @@ func TestPostingsOffsets_Random(t *testing.T) {
 				}
 			}
 
-			docsAndPositions, err := te.Postings(schema.PostingsFlagAll)
+			docsAndPositions, err := te.Postings(spi.PostingsFlagAll)
 			if err != nil {
 				t.Fatalf("Postings(ALL) %q: %v", term, err)
 			}
@@ -380,7 +376,7 @@ func TestPostingsOffsets_Random(t *testing.T) {
 				if err != nil {
 					t.Fatalf("NextDoc(ALL) %q: %v", term, err)
 				}
-				if doc == schema.NO_MORE_DOCS {
+				if doc == spi.NO_MORE_DOCS {
 					break
 				}
 				expected := termsByDoc[term][docIDToID[doc]]
@@ -476,8 +472,8 @@ func TestPostingsOffsets_AddFieldTwice(t *testing.T) {
 // IllegalArgumentException.
 func TestPostingsOffsets_NegativeOffsets(t *testing.T) {
 	dir, writer := newPostingsOffsetsWriter(t, func() analysis.TokenStream {
-		return testutil.NewCannedTokenStream(
-			testutil.NewToken("a", -1, 1),
+		return testanalysis.NewCannedTokenStream(
+			testanalysis.NewToken("a", -1, 1),
 		)
 	})
 	defer writer.Close()
@@ -507,8 +503,8 @@ func TestPostingsOffsets_NegativeOffsets(t *testing.T) {
 // IllegalArgumentException.
 func TestPostingsOffsets_IllegalOffsets(t *testing.T) {
 	dir, writer := newPostingsOffsetsWriter(t, func() analysis.TokenStream {
-		return testutil.NewCannedTokenStream(
-			testutil.NewToken("a", 5, 3),
+		return testanalysis.NewCannedTokenStream(
+			testanalysis.NewToken("a", 5, 3),
 		)
 	})
 	defer writer.Close()
@@ -555,10 +551,10 @@ func TestPostingsOffsets_BackwardsOffsets(t *testing.T) {
 // index without error.
 func TestPostingsOffsets_StackedTokens(t *testing.T) {
 	dir, writer := newPostingsOffsetsWriter(t, func() analysis.TokenStream {
-		return testutil.NewCannedTokenStream(
-			testutil.NewTokenWithPosInc("a", 1, 0, 1),
-			testutil.NewTokenWithPosInc("b", 0, 0, 1),
-			testutil.NewTokenWithPosInc("c", 0, 0, 1),
+		return testanalysis.NewCannedTokenStream(
+			testanalysis.NewTokenWithPosInc("a", 1, 0, 1),
+			testanalysis.NewTokenWithPosInc("b", 0, 0, 1),
+			testanalysis.NewTokenWithPosInc("c", 0, 0, 1),
 		)
 	})
 	defer writer.Close()
@@ -598,9 +594,9 @@ func TestPostingsOffsets_LegalButVeryLargeOffsets(t *testing.T) {
 	for _, big := range []int{1 << 20, 1 << 29, 1 << 30} {
 		t.Run(fmt.Sprintf("big=%d", big), func(t *testing.T) {
 			dir, writer := newPostingsOffsetsWriter(t, func() analysis.TokenStream {
-				return testutil.NewCannedTokenStream(
-					testutil.NewToken("a", 0, big),
-					testutil.NewToken("b", big, big+1),
+				return testanalysis.NewCannedTokenStream(
+					testanalysis.NewToken("a", 0, big),
+					testanalysis.NewToken("b", big, big+1),
 				)
 			})
 			defer writer.Close()

@@ -10,8 +10,9 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
+	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
 )
 
 // TestForTooMuchCloning ports org.apache.lucene.index.TestForTooMuchCloning.
@@ -27,12 +28,12 @@ func TestForTooMuchCloning(t *testing.T) {
 	dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
 	dir.SetVerboseClone(false)
 
-	cfg := index.NewIndexWriterConfig(testutil.NewMockAnalyzer(testutil.WHITESPACE, false, 255, testutil.EMPTY_STOPSET, false))
+	cfg := index.NewIndexWriterConfig(testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, false, 255, testanalysis.EMPTY_STOPSET, false))
 	cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
 
-	w, err := testutil.Open(dir, cfg, 42)
+	w, err := testindex.NewRandomIndexWriterWithConfig(rand.New(rand.NewSource(42)), dir, cfg)
 	if err != nil {
-		t.Fatalf("RandomIndexWriter.Open: %v", err)
+		t.Fatalf("NewRandomIndexWriterWithConfig: %v", err)
 	}
 	defer w.Close()
 
@@ -46,7 +47,7 @@ func TestForTooMuchCloning(t *testing.T) {
 			t.Fatalf("NewTextField: %v", err)
 		}
 		doc.Add(tf)
-		if err := w.AddDocument(doc); err != nil {
+		if _, err := w.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument(%d): %v", docID, err)
 		}
 	}

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
@@ -20,7 +19,7 @@ func TestMergeOnFlushMergePolicy(t *testing.T) {
 	// Create 3 small segments
 	for i := 0; i < 3; i++ {
 		name := fmt.Sprintf("_%d", i)
-		seg := schema.NewSegmentInfo(name, 10, dir)
+		seg := spi.NewSegmentInfo(name, 10, dir)
 		// Create a dummy file to give it size
 		fileName := name + ".dat"
 		dir.CreateFile(fileName)

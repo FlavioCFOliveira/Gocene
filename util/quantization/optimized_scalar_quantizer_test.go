@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package quantization
+package quantization_test
 
 import (
 	"math"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
 // allBits mirrors Java's TestOptimizedScalarQuantizer.ALL_BITS.
@@ -48,7 +49,7 @@ func assertValidQuantizedRange(t *testing.T, quantized []byte, bits byte) {
 // assertValidResults mirrors the Java helper: every result must have
 // finite intervals, lower <= upper, finite correction, and a
 // non-negative quantised component sum.
-func assertValidResults(t *testing.T, results ...QuantizationResult) {
+func assertValidResults(t *testing.T, results ...quantization.QuantizationResult) {
 	t.Helper()
 	for i, r := range results {
 		if !isFiniteF32(r.LowerInterval) {
@@ -98,7 +99,7 @@ func TestOptimizedScalarQuantizer_QuantizationQuality(t *testing.T) {
 	}
 
 	// Similarity is irrelevant for this test, per the Java comment.
-	osq := NewOptimizedScalarQuantizer(index.VectorSimilarityFunctionDotProduct)
+	osq := quantization.NewOptimizedScalarQuantizer(index.VectorSimilarityFunctionDotProduct)
 	scratch := make([]float32, dims)
 	for _, bit := range allBits {
 		eps := 1.0 / float32(uint32(1)<<bit)
@@ -113,7 +114,7 @@ func TestOptimizedScalarQuantizer_QuantizationQuality(t *testing.T) {
 			assertValidQuantizedRange(t, destination, bit)
 
 			dequantized := make([]float32, dims)
-			if _, err := DeQuantize(
+			if _, err := quantization.DeQuantize(
 				destination,
 				dequantized,
 				bit,
@@ -154,7 +155,7 @@ func TestOptimizedScalarQuantizer_AbusiveEdgeCases(t *testing.T) {
 		}
 		vector := make([]float32, 4096)
 		centroid := make([]float32, 4096)
-		osq := NewOptimizedScalarQuantizer(sim)
+		osq := quantization.NewOptimizedScalarQuantizer(sim)
 		destinations := make([][]byte, len(MinimumMSEGrid))
 		for i := range destinations {
 			destinations[i] = make([]byte, 4096)
@@ -209,7 +210,7 @@ func TestOptimizedScalarQuantizer_AbusiveEdgeCases(t *testing.T) {
 			util.L2Normalize(vector)
 			util.L2Normalize(centroid)
 		}
-		osq := NewOptimizedScalarQuantizer(sim)
+		osq := quantization.NewOptimizedScalarQuantizer(sim)
 		destinations := make([][]byte, len(MinimumMSEGrid))
 		for i := range destinations {
 			destinations[i] = make([]byte, 1)
@@ -277,7 +278,7 @@ func TestOptimizedScalarQuantizer_MathematicalConsistency(t *testing.T) {
 			util.L2Normalize(cosineCentroid)
 			cen = cosineCentroid
 		}
-		osq := NewOptimizedScalarQuantizer(sim)
+		osq := quantization.NewOptimizedScalarQuantizer(sim)
 		destinations := make([][]byte, len(MinimumMSEGrid))
 		for i := range destinations {
 			destinations[i] = make([]byte, dims)
@@ -330,10 +331,10 @@ func TestOptimizedScalarQuantizer_UnpackBinary(t *testing.T) {
 	}
 	packed := make([]byte, (len(scratch)+7)/8)
 	unpacked := make([]byte, len(scratch))
-	if err := PackAsBinary(scratch, packed); err != nil {
+	if err := quantization.PackAsBinary(scratch, packed); err != nil {
 		t.Fatalf("PackAsBinary: %v", err)
 	}
-	UnpackBinary(packed, unpacked)
+	quantization.UnpackBinary(packed, unpacked)
 	for i := range scratch {
 		if scratch[i] != unpacked[i] {
 			t.Fatalf("idx=%d: scratch=%d unpacked=%d", i, scratch[i], unpacked[i])
@@ -356,10 +357,10 @@ func TestOptimizedScalarQuantizer_PackTransposeDibit(t *testing.T) {
 	stripe := (len(scratch) + 7) / 8
 	packed := make([]byte, 2*stripe)
 	unpacked := make([]byte, len(scratch))
-	if err := TransposeDibit(scratch, packed); err != nil {
+	if err := quantization.TransposeDibit(scratch, packed); err != nil {
 		t.Fatalf("TransposeDibit: %v", err)
 	}
-	UntransposeDibit(packed, unpacked)
+	quantization.UntransposeDibit(packed, unpacked)
 	for i := range scratch {
 		if scratch[i] != unpacked[i] {
 			t.Fatalf("idx=%d: scratch=%d unpacked=%d", i, scratch[i], unpacked[i])
@@ -381,7 +382,7 @@ func TestOptimizedScalarQuantizer_TransposeHalfByte(t *testing.T) {
 	}
 	stripe := (len(input) + 7) / 8
 	packed := make([]byte, 4*stripe)
-	if err := TransposeHalfByte(input, packed); err != nil {
+	if err := quantization.TransposeHalfByte(input, packed); err != nil {
 		t.Fatalf("TransposeHalfByte: %v", err)
 	}
 	// Reverse: untranspose by walking the four bit-planes back into
@@ -424,7 +425,7 @@ func TestOptimizedScalarQuantizer_Discretize(t *testing.T) {
 		{5, 4, 8},
 	}
 	for _, c := range cases {
-		if got := Discretize(c.value, c.bucket); got != c.want {
+		if got := quantization.Discretize(c.value, c.bucket); got != c.want {
 			t.Fatalf("Discretize(%d,%d) = %d, want %d", c.value, c.bucket, got, c.want)
 		}
 	}
@@ -450,7 +451,7 @@ func TestOptimizedScalarQuantizer_DeQuantizeErrors(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if _, err := DeQuantize(c.quantized, c.dequantized, c.bits, 0, 1, c.centroid); err == nil {
+			if _, err := quantization.DeQuantize(c.quantized, c.dequantized, c.bits, 0, 1, c.centroid); err == nil {
 				t.Fatalf("expected error, got nil")
 			}
 		})
@@ -460,7 +461,7 @@ func TestOptimizedScalarQuantizer_DeQuantizeErrors(t *testing.T) {
 // TestOptimizedScalarQuantizer_ScalarQuantizeErrors covers the
 // validation surface for ScalarQuantize.
 func TestOptimizedScalarQuantizer_ScalarQuantizeErrors(t *testing.T) {
-	osq := NewOptimizedScalarQuantizer(index.VectorSimilarityFunctionDotProduct)
+	osq := quantization.NewOptimizedScalarQuantizer(index.VectorSimilarityFunctionDotProduct)
 	cases := []struct {
 		name     string
 		vec      []float32
@@ -487,7 +488,7 @@ func TestOptimizedScalarQuantizer_ScalarQuantizeErrors(t *testing.T) {
 // TestOptimizedScalarQuantizer_MultiScalarQuantizeErrors covers the
 // validation surface for MultiScalarQuantize.
 func TestOptimizedScalarQuantizer_MultiScalarQuantizeErrors(t *testing.T) {
-	osq := NewOptimizedScalarQuantizer(index.VectorSimilarityFunctionEuclidean)
+	osq := quantization.NewOptimizedScalarQuantizer(index.VectorSimilarityFunctionEuclidean)
 	bits := []byte{4}
 	dest := [][]byte{make([]byte, 4)}
 	vec := make([]float32, 4)
@@ -516,7 +517,7 @@ func TestOptimizedScalarQuantizer_MultiScalarQuantizeErrors(t *testing.T) {
 // TestOptimizedScalarQuantizer_CosineRejectsNonUnit ensures that
 // Cosine similarity rejects non-unit inputs without panicking.
 func TestOptimizedScalarQuantizer_CosineRejectsNonUnit(t *testing.T) {
-	osq := NewOptimizedScalarQuantizer(index.VectorSimilarityFunctionCosine)
+	osq := quantization.NewOptimizedScalarQuantizer(index.VectorSimilarityFunctionCosine)
 	vector := []float32{2, 0, 0}
 	centroid := []float32{1, 0, 0}
 	util.L2Normalize(centroid)
@@ -536,7 +537,7 @@ func TestOptimizedScalarQuantizer_CosineRejectsNonUnit(t *testing.T) {
 func TestOptimizedScalarQuantizer_PackBinaryRejectsOutOfRange(t *testing.T) {
 	vec := []byte{0, 1, 2}
 	packed := make([]byte, 1)
-	if err := PackAsBinary(vec, packed); err == nil {
+	if err := quantization.PackAsBinary(vec, packed); err == nil {
 		t.Fatalf("expected error for value=2")
 	}
 }
@@ -546,7 +547,7 @@ func TestOptimizedScalarQuantizer_PackBinaryRejectsOutOfRange(t *testing.T) {
 func TestOptimizedScalarQuantizer_TransposeHalfByteRejectsOutOfRange(t *testing.T) {
 	in := []byte{0, 1, 16}
 	out := make([]byte, 4)
-	if err := TransposeHalfByte(in, out); err == nil {
+	if err := quantization.TransposeHalfByte(in, out); err == nil {
 		t.Fatalf("expected error for value=16")
 	}
 }

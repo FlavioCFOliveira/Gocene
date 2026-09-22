@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -17,8 +17,8 @@ import (
 func TestPerFieldConsistency_FieldTypeValidation(t *testing.T) {
 	t.Run("indexOptions roundtrip", func(t *testing.T) {
 		ft := NewFieldType()
-		ft.SetIndexOptions(schema.IndexOptionsDocsAndFreqsAndPositions)
-		if ft.IndexOptions != schema.IndexOptionsDocsAndFreqsAndPositions {
+		ft.SetIndexOptions(spi.IndexOptionsDocsAndFreqsAndPositions)
+		if ft.IndexOptions != spi.IndexOptionsDocsAndFreqsAndPositions {
 			t.Error("IndexOptions round-trip failed")
 		}
 	})
@@ -50,11 +50,11 @@ func TestPerFieldConsistency_FieldTypeValidation(t *testing.T) {
 	t.Run("stored and indexed", func(t *testing.T) {
 		ft := NewFieldType()
 		ft.SetStored(true)
-		ft.SetIndexOptions(schema.IndexOptionsDocsAndFreqs)
+		ft.SetIndexOptions(spi.IndexOptionsDocsAndFreqs)
 		if !ft.Stored {
 			t.Error("Stored = false, want true")
 		}
-		if ft.IndexOptions != schema.IndexOptionsDocsAndFreqs {
+		if ft.IndexOptions != spi.IndexOptionsDocsAndFreqs {
 			t.Error("IndexOptions round-trip failed")
 		}
 	})
@@ -132,7 +132,7 @@ func TestPerFieldConsistency_IndexedTypesRoundTrip(t *testing.T) {
 	if fi == nil {
 		t.Fatal("FieldInfo for 'f' is nil")
 	}
-	if fi.IndexOptions() == schema.IndexOptionsNone {
+	if fi.IndexOptions() == spi.IndexOptionsNone {
 		t.Errorf("field 'f' IndexOptions = NONE, want indexed")
 	}
 }
@@ -166,7 +166,7 @@ func TestPerFieldConsistency_DocWithMissingSchemaOptionsThrowsError(t *testing.T
 
 	t.Run("indexed without being stored is valid", func(t *testing.T) {
 		ft := NewFieldType()
-		ft.SetIndexOptions(schema.IndexOptionsDocsAndFreqs)
+		ft.SetIndexOptions(spi.IndexOptionsDocsAndFreqs)
 		err := ft.Validate()
 		if err != nil {
 			t.Errorf("unexpected Validate error: %v", err)

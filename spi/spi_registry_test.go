@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package spi
+package spi_test
 
 import (
 	"bytes"
@@ -18,7 +18,7 @@ import (
 func newTestSegmentInfo(t *testing.T, name string, docCount int) *spi.SegmentInfo {
 	t.Helper()
 	dir := store.NewByteBuffersDirectory()
-	return schema.NewSegmentInfo(name, docCount, dir)
+	return spi.NewSegmentInfo(name, docCount, dir)
 }
 
 // TestGetSegmentFileName pins the segments_N file-name encoding. Lucene names
@@ -40,7 +40,7 @@ func TestGetSegmentFileName(t *testing.T) {
 		{-1, ""},            // negative generation has no file
 	}
 	for _, tc := range cases {
-		if got := GetSegmentFileName(tc.gen); got != tc.want {
+		if got := spi.GetSegmentFileName(tc.gen); got != tc.want {
 			t.Errorf("GetSegmentFileName(%d) = %q, want %q", tc.gen, got, tc.want)
 		}
 	}
@@ -50,7 +50,7 @@ func TestGetSegmentFileName(t *testing.T) {
 // generation and counter accounting that drives segment-file naming.
 func TestSegmentInfosLifecycle(t *testing.T) {
 	t.Parallel()
-	infos := NewSegmentInfos()
+	infos := spi.NewSegmentInfos()
 
 	if got := infos.Size(); got != 0 {
 		t.Fatalf("fresh SegmentInfos Size() = %d, want 0", got)
@@ -68,8 +68,8 @@ func TestSegmentInfosLifecycle(t *testing.T) {
 		t.Errorf("IndexCreatedVersionMajor() = %d, want 10 (Lucene 10.x)", got)
 	}
 
-	sciA := NewSegmentCommitInfo(newTestSegmentInfo(t, "_0", 5), 0, -1)
-	sciB := NewSegmentCommitInfo(newTestSegmentInfo(t, "_1", 7), 0, -1)
+	sciA := spi.NewSegmentCommitInfo(newTestSegmentInfo(t, "_0", 5), 0, -1)
+	sciB := spi.NewSegmentCommitInfo(newTestSegmentInfo(t, "_1", 7), 0, -1)
 	infos.Add(sciA)
 	infos.Add(sciB)
 
@@ -87,7 +87,7 @@ func TestSegmentInfosLifecycle(t *testing.T) {
 	}
 
 	// Insert in the middle shifts later segments right.
-	sciC := NewSegmentCommitInfo(newTestSegmentInfo(t, "_2", 1), 0, -1)
+	sciC := spi.NewSegmentCommitInfo(newTestSegmentInfo(t, "_2", 1), 0, -1)
 	infos.Insert(1, sciC)
 	if got := infos.Size(); got != 3 {
 		t.Fatalf("Size() after insert = %d, want 3", got)
@@ -128,7 +128,7 @@ func TestSegmentInfosLifecycle(t *testing.T) {
 // counter, and that GetFileName tracks the current generation.
 func TestSegmentInfosGenerationAndNaming(t *testing.T) {
 	t.Parallel()
-	infos := NewSegmentInfos()
+	infos := spi.NewSegmentInfos()
 
 	// From the initial generation 0, the next pending generation is 1.
 	if got := infos.NextGeneration(); got != 1 {
@@ -156,7 +156,7 @@ func TestSegmentInfosGenerationAndNaming(t *testing.T) {
 // accessors hand back defensive copies.
 func TestSegmentInfosUserData(t *testing.T) {
 	t.Parallel()
-	infos := NewSegmentInfos()
+	infos := spi.NewSegmentInfos()
 
 	if got := infos.GetUserDataValue("missing"); got != "" {
 		t.Errorf("GetUserDataValue(missing) = %q, want empty", got)
@@ -184,7 +184,7 @@ func TestSegmentInfosUserData(t *testing.T) {
 func TestSegmentCommitInfoDelAccounting(t *testing.T) {
 	t.Parallel()
 	si := newTestSegmentInfo(t, "_3", 10)
-	sci := NewSegmentCommitInfo(si, 0, -1)
+	sci := spi.NewSegmentCommitInfo(si, 0, -1)
 
 	// Delegating accessors.
 	if got := sci.Name(); got != "_3" {
@@ -244,7 +244,7 @@ func TestSegmentCommitInfoDelAccounting(t *testing.T) {
 func TestSegmentCommitInfoClone(t *testing.T) {
 	t.Parallel()
 	si := newTestSegmentInfo(t, "_4", 8)
-	sci := NewSegmentCommitInfo(si, 2, 5)
+	sci := spi.NewSegmentCommitInfo(si, 2, 5)
 	sci.SetAttribute("k", "v")
 	sci.SetDeletedOrdinals([]int{0, 3})
 
@@ -273,9 +273,9 @@ func TestSegmentCommitInfoClone(t *testing.T) {
 // TestSegmentCommitInfoListTotals checks the aggregate helpers on the list type.
 func TestSegmentCommitInfoListTotals(t *testing.T) {
 	t.Parallel()
-	list := SegmentCommitInfoList{
-		NewSegmentCommitInfo(newTestSegmentInfo(t, "_0", 10), 2, -1),
-		NewSegmentCommitInfo(newTestSegmentInfo(t, "_1", 20), 5, -1),
+	list := spi.SegmentCommitInfoList{
+		spi.NewSegmentCommitInfo(newTestSegmentInfo(t, "_0", 10), 2, -1),
+		spi.NewSegmentCommitInfo(newTestSegmentInfo(t, "_1", 20), 5, -1),
 	}
 	if got := list.Size(); got != 2 {
 		t.Errorf("Size() = %d, want 2", got)
@@ -319,13 +319,13 @@ func TestCodecHeaderFooterRoundTrip(t *testing.T) {
 		t.Fatalf("CreateOutput: %v", err)
 	}
 	cout := store.NewChecksumIndexOutput(out)
-	if err := WriteIndexHeader(cout, codecName, version, id, suffix); err != nil {
+	if err := spi.WriteIndexHeader(cout, codecName, version, id, suffix); err != nil {
 		t.Fatalf("WriteIndexHeader: %v", err)
 	}
 	if err := cout.WriteBytes([]byte(bodyPayload)); err != nil {
 		t.Fatalf("write body: %v", err)
 	}
-	if err := WriteFooter(cout); err != nil {
+	if err := spi.WriteFooter(cout); err != nil {
 		t.Fatalf("WriteFooter: %v", err)
 	}
 	if err := cout.Close(); err != nil {
@@ -356,7 +356,7 @@ func TestCodecHeaderFooterRoundTrip(t *testing.T) {
 		t.Fatalf("OpenInput: %v", err)
 	}
 	cin := store.NewChecksumIndexInput(in)
-	gotVersion, err := CheckIndexHeader(cin, codecName, version, version, id, suffix)
+	gotVersion, err := spi.CheckIndexHeader(cin, codecName, version, version, id, suffix)
 	if err != nil {
 		t.Fatalf("CheckIndexHeader: %v", err)
 	}
@@ -370,7 +370,7 @@ func TestCodecHeaderFooterRoundTrip(t *testing.T) {
 	if string(body) != bodyPayload {
 		t.Errorf("body = %q, want %q", body, bodyPayload)
 	}
-	if _, err := CheckFooter(cin); err != nil {
+	if _, err := spi.CheckFooter(cin); err != nil {
 		t.Fatalf("CheckFooter: %v", err)
 	}
 	if err := cin.Close(); err != nil {
@@ -393,7 +393,7 @@ func TestCheckIndexHeaderRejectsWrongCodec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateOutput: %v", err)
 	}
-	if err := WriteIndexHeader(out, "Actual", 1, id, ""); err != nil {
+	if err := spi.WriteIndexHeader(out, "Actual", 1, id, ""); err != nil {
 		t.Fatalf("WriteIndexHeader: %v", err)
 	}
 	if err := out.Close(); err != nil {
@@ -405,7 +405,7 @@ func TestCheckIndexHeaderRejectsWrongCodec(t *testing.T) {
 		t.Fatalf("OpenInput: %v", err)
 	}
 	defer in.Close()
-	if _, err := CheckIndexHeader(in, "Expected", 1, 1, id, ""); err == nil {
+	if _, err := spi.CheckIndexHeader(in, "Expected", 1, 1, id, ""); err == nil {
 		t.Fatal("CheckIndexHeader accepted a mismatched codec name, want error")
 	}
 }
@@ -422,7 +422,7 @@ func TestWriteIndexHeaderRejectsBadID(t *testing.T) {
 		t.Fatalf("CreateOutput: %v", err)
 	}
 	defer out.Close()
-	if err := WriteIndexHeader(out, "C", 1, []byte{1, 2, 3}, ""); err == nil {
+	if err := spi.WriteIndexHeader(out, "C", 1, []byte{1, 2, 3}, ""); err == nil {
 		t.Fatal("WriteIndexHeader accepted a 3-byte id, want error")
 	}
 }
@@ -433,7 +433,7 @@ func TestIndexNotFoundException(t *testing.T) {
 	t.Parallel()
 
 	cause := errors.New("no segments file")
-	err := NewIndexNotFoundException("index missing", cause)
+	err := spi.NewIndexNotFoundException("index missing", cause)
 
 	if got := err.Error(); got != "index missing: no segments file" {
 		t.Errorf("Error() = %q, want %q", got, "index missing: no segments file")
@@ -441,24 +441,24 @@ func TestIndexNotFoundException(t *testing.T) {
 	if !errors.Is(err, cause) {
 		t.Error("errors.Is did not unwrap to the cause")
 	}
-	if !IsIndexNotFound(err) {
+	if !spi.IsIndexNotFound(err) {
 		t.Error("IsIndexNotFound returned false for an IndexNotFoundException")
 	}
 
 	// Wrapped deeper in a chain.
 	wrapped := errors.Join(errors.New("outer"), err)
-	if !IsIndexNotFound(wrapped) {
+	if !spi.IsIndexNotFound(wrapped) {
 		t.Error("IsIndexNotFound returned false for a wrapped IndexNotFoundException")
 	}
 
 	// Message-only constructor has no cause suffix.
-	msgOnly := IndexNotFoundExceptionFromMessage("empty directory")
+	msgOnly := spi.IndexNotFoundExceptionFromMessage("empty directory")
 	if got := msgOnly.Error(); got != "empty directory" {
 		t.Errorf("message-only Error() = %q, want %q", got, "empty directory")
 	}
 
 	// A plain error is not an IndexNotFoundException.
-	if IsIndexNotFound(errors.New("other")) {
+	if spi.IsIndexNotFound(errors.New("other")) {
 		t.Error("IsIndexNotFound returned true for an unrelated error")
 	}
 }

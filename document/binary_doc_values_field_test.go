@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 func TestNewBinaryDocValuesField(t *testing.T) {
@@ -43,7 +43,7 @@ func TestBinaryDocValuesFieldType(t *testing.T) {
 		t.Error("Expected field to not be stored")
 	}
 
-	if ft.DocValuesType != schema.DocValuesTypeBinary {
+	if ft.DocValuesType != spi.DocValuesTypeBinary {
 		t.Errorf("Expected DocValuesTypeBinary, got: %v", ft.DocValuesType)
 	}
 }

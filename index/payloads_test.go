@@ -19,11 +19,11 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/internal/testutil"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -99,7 +99,7 @@ func assertPayloads(t *testing.T, reader *index.DirectoryReader, field, term str
 	if err != nil {
 		t.Fatalf("Iterator: %v", err)
 	}
-	var postings schema.PostingsEnum
+	var postings spi.PostingsEnum
 	for {
 		tt, err := it.Next()
 		if err != nil {
@@ -109,7 +109,7 @@ func assertPayloads(t *testing.T, reader *index.DirectoryReader, field, term str
 			break
 		}
 		if tt.Text() == term {
-			postings, err = it.Postings(schema.PostingsFlagPayloads)
+			postings, err = it.Postings(spi.PostingsFlagPayloads)
 			if err != nil {
 				t.Fatalf("Postings: %v", err)
 			}
@@ -123,7 +123,7 @@ func assertPayloads(t *testing.T, reader *index.DirectoryReader, field, term str
 	if err != nil {
 		t.Fatalf("NextDoc: %v", err)
 	}
-	if docID == schema.NO_MORE_DOCS {
+	if docID == spi.NO_MORE_DOCS {
 		t.Fatalf("no docs for term %q", term)
 	}
 	freq, err := postings.Freq()
@@ -182,12 +182,12 @@ func TestPayloads_FieldBit(t *testing.T) {
 	// Analyzer emits a payload only for field f1; f2 sees a plain token.
 	config := index.NewIndexWriterConfig(&fieldAwarePayloadAnalyzer{factory: func(fieldName string) analysis.TokenStream {
 		if fieldName == "f1" {
-			return testutil.NewCannedTokenStream(
-				testutil.NewToken("a", 0, 1).WithPayload([]byte{0x01}),
+			return testanalysis.NewCannedTokenStream(
+				testanalysis.NewToken("a", 0, 1).WithPayload([]byte{0x01}),
 			)
 		}
-		return testutil.NewCannedTokenStream(
-			testutil.NewToken("a", 0, 1),
+		return testanalysis.NewCannedTokenStream(
+			testanalysis.NewToken("a", 0, 1),
 		)
 	}})
 	writer, err := index.NewIndexWriter(dir, config)
@@ -256,8 +256,8 @@ func TestPayloads_Encoding(t *testing.T) {
 			term := string('a' + byte(j))
 			payload := []byte{byte(i*numTerms + j)}
 			expected[term] = append(expected[term], payload[0])
-			ts := testutil.NewCannedTokenStream(
-				testutil.NewTokenWithPosInc(term, 1, 0, 1).WithPayload(payload),
+			ts := testanalysis.NewCannedTokenStream(
+				testanalysis.NewTokenWithPosInc(term, 1, 0, 1).WithPayload(payload),
 			)
 			field, _ := document.NewField("f1", ts, ft)
 			doc.Add(field)
@@ -302,7 +302,7 @@ func TestPayloads_Encoding(t *testing.T) {
 		if term == nil {
 			break
 		}
-		postings, err := te.Postings(schema.PostingsFlagPayloads)
+		postings, err := te.Postings(spi.PostingsFlagPayloads)
 		if err != nil {
 			t.Fatalf("Postings %q: %v", term.Text(), err)
 		}
@@ -312,7 +312,7 @@ func TestPayloads_Encoding(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NextDoc %q: %v", term.Text(), err)
 			}
-			if doc == schema.NO_MORE_DOCS {
+			if doc == spi.NO_MORE_DOCS {
 				break
 			}
 			freq, err := postings.Freq()
@@ -366,8 +366,8 @@ func TestPayloads_ThreadSafety(t *testing.T) {
 			for j := 0; j < numDocs; j++ {
 				term := fmt.Sprintf("T%d_%d", thread, j)
 				doc := document.NewDocument()
-				ts := testutil.NewCannedTokenStream(
-					testutil.NewTokenWithPosInc(term, 1, 0, len(term)).WithPayload([]byte(term)),
+				ts := testanalysis.NewCannedTokenStream(
+					testanalysis.NewTokenWithPosInc(term, 1, 0, len(term)).WithPayload([]byte(term)),
 				)
 				field, _ := document.NewField("test", ts, ft)
 				doc.Add(field)
@@ -401,7 +401,7 @@ func TestPayloads_ThreadSafety(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Iterator: %v", err)
 	}
-	var postings schema.PostingsEnum
+	var postings spi.PostingsEnum
 	for {
 		term, err := it.Next()
 		if err != nil {
@@ -410,7 +410,7 @@ func TestPayloads_ThreadSafety(t *testing.T) {
 		if term == nil {
 			break
 		}
-		postings, err = it.Postings(schema.PostingsFlagPayloads)
+		postings, err = it.Postings(spi.PostingsFlagPayloads)
 		if err != nil {
 			t.Fatalf("Postings: %v", err)
 		}
@@ -419,7 +419,7 @@ func TestPayloads_ThreadSafety(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NextDoc: %v", err)
 			}
-			if doc == schema.NO_MORE_DOCS {
+			if doc == spi.NO_MORE_DOCS {
 				break
 			}
 			freq, err := postings.Freq()
@@ -451,8 +451,8 @@ func TestPayloads_ThreadSafety(t *testing.T) {
 // then validates via PostingsEnum that each field's payloads are distinct.
 func TestPayloads_AcrossFields(t *testing.T) {
 	dir, writer := newPayloadWriter(t, func() analysis.TokenStream {
-		return testutil.NewCannedTokenStream(
-			testutil.NewToken("a", 0, 1).WithPayload([]byte{0x10}),
+		return testanalysis.NewCannedTokenStream(
+			testanalysis.NewToken("a", 0, 1).WithPayload([]byte{0x10}),
 		)
 	})
 	defer writer.Close()
@@ -486,9 +486,9 @@ func TestPayloads_AcrossFields(t *testing.T) {
 // docID / position / payload order.
 func TestPayloads_MixupDocs(t *testing.T) {
 	dir, writer := newPayloadWriter(t, func() analysis.TokenStream {
-		return testutil.NewCannedTokenStream(
-			testutil.NewTokenWithPosInc("a", 1, 0, 1).WithPayload([]byte{0x01}),
-			testutil.NewTokenWithPosInc("a", 1, 0, 1).WithPayload([]byte{0x02}),
+		return testanalysis.NewCannedTokenStream(
+			testanalysis.NewTokenWithPosInc("a", 1, 0, 1).WithPayload([]byte{0x01}),
+			testanalysis.NewTokenWithPosInc("a", 1, 0, 1).WithPayload([]byte{0x02}),
 		)
 	})
 	defer writer.Close()
@@ -520,7 +520,7 @@ func TestPayloads_MixupDocs(t *testing.T) {
 		t.Fatalf("Iterator: %v", err)
 	}
 	it.Next()
-	postings, err := it.Postings(schema.PostingsFlagPayloads)
+	postings, err := it.Postings(spi.PostingsFlagPayloads)
 	if err != nil {
 		t.Fatalf("Postings: %v", err)
 	}
@@ -530,7 +530,7 @@ func TestPayloads_MixupDocs(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NextDoc: %v", err)
 		}
-		if d == schema.NO_MORE_DOCS {
+		if d == spi.NO_MORE_DOCS {
 			break
 		}
 		docID = d
@@ -570,9 +570,9 @@ func TestPayloads_MixupDocs(t *testing.T) {
 // survive across field instances via PostingsEnum.
 func TestPayloads_MixupMultiValued(t *testing.T) {
 	dir, writer := newPayloadWriter(t, func() analysis.TokenStream {
-		return testutil.NewCannedTokenStream(
-			testutil.NewTokenWithPosInc("a", 1, 0, 1).WithPayload([]byte{0x01}),
-			testutil.NewTokenWithPosInc("a", 1, 0, 1).WithPayload([]byte{0x02}),
+		return testanalysis.NewCannedTokenStream(
+			testanalysis.NewTokenWithPosInc("a", 1, 0, 1).WithPayload([]byte{0x01}),
+			testanalysis.NewTokenWithPosInc("a", 1, 0, 1).WithPayload([]byte{0x02}),
 		)
 	})
 	defer writer.Close()

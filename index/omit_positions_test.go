@@ -42,9 +42,9 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	indexTestutil "github.com/FlavioCFOliveira/Gocene/index/testutil"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testutil "github.com/FlavioCFOliveira/Gocene/tests/util"
 )
 
 // TestOmitPositions_Basic ports testBasic().
@@ -96,14 +96,14 @@ func TestOmitPositions_Basic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Iterator: %v", err)
 	}
-	found, err := te.SeekExact(schema.NewTerm("foo", "test"))
+	found, err := te.SeekExact(spi.NewTerm("foo", "test"))
 	if err != nil {
 		t.Fatalf("SeekExact: %v", err)
 	}
 	if !found {
 		t.Fatal("term \"test\" not found")
 	}
-	postings, err := te.Postings(schema.PostingsFlagFreqs)
+	postings, err := te.Postings(spi.PostingsFlagFreqs)
 	if err != nil {
 		t.Fatalf("Postings: %v", err)
 	}
@@ -113,7 +113,7 @@ func TestOmitPositions_Basic(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NextDoc: %v", err)
 		}
-		if doc == schema.NO_MORE_DOCS {
+		if doc == spi.NO_MORE_DOCS {
 			break
 		}
 		count++
@@ -179,7 +179,7 @@ func TestOmitPositions_Positions(t *testing.T) {
 	}
 	defer r.Close()
 
-	leaf := indexTestutil.GetOnlyLeafReader(r)
+	leaf := testutil.GetOnlyLeafReader(r)
 	infos := leaf.GetFieldInfos()
 	if infos == nil {
 		t.Fatal("GetFieldInfos returned nil")

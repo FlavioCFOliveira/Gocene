@@ -15,7 +15,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -166,14 +165,14 @@ func TestLucene90Points_BKDRoundTrip(t *testing.T) {
 	if _, err := rand.Read(id); err != nil {
 		t.Fatal(err)
 	}
-	si := schema.NewSegmentInfo("_0", numDocs, dir)
+	si := spi.NewSegmentInfo("_0", numDocs, dir)
 	if err := si.SetID(id); err != nil {
 		t.Fatal(err)
 	}
 
-	fis := schema.NewFieldInfos()
-	fi := schema.NewFieldInfo(field, 0, schema.FieldInfoOptions{
-		IndexOptions:             schema.IndexOptionsNone,
+	fis := spi.NewFieldInfos()
+	fi := spi.NewFieldInfo(field, 0, spi.FieldInfoOptions{
+		IndexOptions:             spi.IndexOptionsNone,
 		PointDimensionCount:      1,
 		PointIndexDimensionCount: 1,
 		PointNumBytes:            4,

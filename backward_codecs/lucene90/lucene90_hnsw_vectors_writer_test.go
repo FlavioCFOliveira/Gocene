@@ -9,7 +9,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -71,7 +71,7 @@ func TestLucene90HnswVectorsWriter_FlushRoundTrip(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	si := schema.NewSegmentInfo("_0", 5, dir)
+	si := spi.NewSegmentInfo("_0", 5, dir)
 	state := &codecs.SegmentWriteState{
 		Directory:     dir,
 		SegmentInfo:   si,
@@ -83,11 +83,11 @@ func TestLucene90HnswVectorsWriter_FlushRoundTrip(t *testing.T) {
 		t.Fatalf("NewLucene90HnswVectorsWriter: %v", err)
 	}
 
-	opts := schema.DefaultFieldInfoOptions()
+	opts := spi.DefaultFieldInfoOptions()
 	opts.VectorDimension = 3
 	opts.VectorEncoding = index.VectorEncodingFloat32
 	opts.VectorSimilarityFunction = index.VectorSimilarityFunctionEuclidean
-	fi := schema.NewFieldInfo("vec", 0, opts)
+	fi := spi.NewFieldInfo("vec", 0, opts)
 
 	fw, err := w.AddField(fi)
 	if err != nil {
@@ -129,7 +129,7 @@ func TestLucene90HnswVectorsWriter_RejectByteField(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	si := schema.NewSegmentInfo("_0", 1, dir)
+	si := spi.NewSegmentInfo("_0", 1, dir)
 	state := &codecs.SegmentWriteState{
 		Directory:     dir,
 		SegmentInfo:   si,
@@ -142,11 +142,11 @@ func TestLucene90HnswVectorsWriter_RejectByteField(t *testing.T) {
 	}
 	defer w.Close()
 
-	opts := schema.DefaultFieldInfoOptions()
+	opts := spi.DefaultFieldInfoOptions()
 	opts.VectorDimension = 4
 	opts.VectorEncoding = index.VectorEncodingByte
 	opts.VectorSimilarityFunction = index.VectorSimilarityFunctionEuclidean
-	fi := schema.NewFieldInfo("byte_vec", 0, opts)
+	fi := spi.NewFieldInfo("byte_vec", 0, opts)
 
 	_, err = w.AddField(fi)
 	if err == nil {

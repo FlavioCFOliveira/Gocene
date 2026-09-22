@@ -7,14 +7,13 @@ package simpletext
 import (
 	"bytes"
 	"fmt"
-	t "github.com/FlavioCFOliveira/Gocene/geo"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
+	t "github.com/FlavioCFOliveira/Gocene/geo"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -127,16 +126,16 @@ func writeAndRead(t *testing.T, docCount int, fields []fieldSpec) (*SimpleTextPo
 	t.Helper()
 
 	dir := store.NewByteBuffersDirectory()
-	segInfo := schema.NewSegmentInfo("_st_points", docCount, dir)
+	segInfo := spi.NewSegmentInfo("_st_points", docCount, dir)
 
-	fieldInfos := schema.NewFieldInfos()
+	fieldInfos := spi.NewFieldInfos()
 	src := &fakePointsSource{byField: make(map[string][]pointDoc)}
 	for _, f := range fields {
-		opts := schema.DefaultFieldInfoOptions()
+		opts := spi.DefaultFieldInfoOptions()
 		opts.PointDimensionCount = f.numDims
 		opts.PointIndexDimensionCount = f.numDims
 		opts.PointNumBytes = f.bytesPerDim
-		fi := schema.NewFieldInfo(f.name, f.number, opts)
+		fi := spi.NewFieldInfo(f.name, f.number, opts)
 		if err := fieldInfos.Add(fi); err != nil {
 			t.Fatalf("fieldInfos.Add(%q): %v", f.name, err)
 		}
@@ -455,13 +454,13 @@ func TestSimpleTextPoints_GoldenTextLines(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	segInfo := schema.NewSegmentInfo("_golden", 2, dir)
-	fieldInfos := schema.NewFieldInfos()
-	opts := schema.DefaultFieldInfoOptions()
+	segInfo := spi.NewSegmentInfo("_golden", 2, dir)
+	fieldInfos := spi.NewFieldInfos()
+	opts := spi.DefaultFieldInfoOptions()
 	opts.PointDimensionCount = 1
 	opts.PointIndexDimensionCount = 1
 	opts.PointNumBytes = 4
-	fi := schema.NewFieldInfo("g", 0, opts)
+	fi := spi.NewFieldInfo("g", 0, opts)
 	if err := fieldInfos.Add(fi); err != nil {
 		t.Fatalf("fieldInfos.Add: %v", err)
 	}

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // TestField_Extended tests extended field functionality
@@ -529,7 +529,7 @@ func TestField_Combinations(t *testing.T) {
 
 			// If indexed, must set IndexOptions
 			if tt.indexed {
-				ft.SetIndexOptions(schema.IndexOptionsDocs)
+				ft.SetIndexOptions(spi.IndexOptionsDocs)
 			}
 
 			field, err := NewField("test", "value", ft)
@@ -650,13 +650,13 @@ func TestField_ValueAccessors(t *testing.T) {
 func TestField_IndexOptions(t *testing.T) {
 	tests := []struct {
 		name       string
-		options    schema.IndexOptions
+		options    spi.IndexOptions
 		shouldWork bool
 	}{
-		{"docs_only", schema.IndexOptionsDocs, true},
-		{"docs_and_freqs", schema.IndexOptionsDocsAndFreqs, true},
-		{"docs_freqs_positions", schema.IndexOptionsDocsAndFreqsAndPositions, true},
-		{"docs_freqs_positions_offsets", schema.IndexOptionsDocsAndFreqsAndPositionsAndOffsets, true},
+		{"docs_only", spi.IndexOptionsDocs, true},
+		{"docs_and_freqs", spi.IndexOptionsDocsAndFreqs, true},
+		{"docs_freqs_positions", spi.IndexOptionsDocsAndFreqsAndPositions, true},
+		{"docs_freqs_positions_offsets", spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets, true},
 	}
 
 	for _, tt := range tests {
@@ -690,7 +690,7 @@ func TestField_Validation(t *testing.T) {
 		{
 			name: "valid_indexed",
 			setup: func(ft *FieldType) {
-				ft.SetIndexed(true).SetIndexOptions(schema.IndexOptionsDocs)
+				ft.SetIndexed(true).SetIndexOptions(spi.IndexOptionsDocs)
 			},
 			wantErr: false,
 		},
@@ -764,13 +764,13 @@ func TestField_NilHandling(t *testing.T) {
 func TestField_DocValuesType(t *testing.T) {
 	tests := []struct {
 		name          string
-		docValuesType schema.DocValuesType
+		docValuesType spi.DocValuesType
 	}{
-		{"numeric", schema.DocValuesTypeNumeric},
-		{"binary", schema.DocValuesTypeBinary},
-		{"sorted", schema.DocValuesTypeSorted},
-		{"sorted_set", schema.DocValuesTypeSortedSet},
-		{"sorted_numeric", schema.DocValuesTypeSortedNumeric},
+		{"numeric", spi.DocValuesTypeNumeric},
+		{"binary", spi.DocValuesTypeBinary},
+		{"sorted", spi.DocValuesTypeSorted},
+		{"sorted_set", spi.DocValuesTypeSortedSet},
+		{"sorted_numeric", spi.DocValuesTypeSortedNumeric},
 	}
 
 	for _, tt := range tests {
@@ -802,7 +802,7 @@ func TestField_TermVectorOptions(t *testing.T) {
 			name: "valid_term_vectors",
 			setup: func(ft *FieldType) {
 				ft.SetIndexed(true).
-					SetIndexOptions(schema.IndexOptionsDocsAndFreqsAndPositions).
+					SetIndexOptions(spi.IndexOptionsDocsAndFreqsAndPositions).
 					SetStoreTermVectors(true)
 			},
 			wantErr: false,
@@ -833,7 +833,7 @@ func TestField_TermVectorOptions(t *testing.T) {
 func TestField_OmitNorms(t *testing.T) {
 	ft := NewFieldType()
 	ft.SetIndexed(true).
-		SetIndexOptions(schema.IndexOptionsDocs).
+		SetIndexOptions(spi.IndexOptionsDocs).
 		SetOmitNorms(true)
 
 	field, err := NewField("test", "value", ft)
@@ -1014,11 +1014,11 @@ func TestField_MultipleFieldsSameName(t *testing.T) {
 func TestField_FieldTypeEquality(t *testing.T) {
 	ft1 := NewFieldType()
 	ft1.SetIndexed(true).SetStored(true).SetTokenized(true)
-	ft1.SetIndexOptions(schema.IndexOptionsDocsAndFreqsAndPositions)
+	ft1.SetIndexOptions(spi.IndexOptionsDocsAndFreqsAndPositions)
 
 	ft2 := NewFieldType()
 	ft2.SetIndexed(true).SetStored(true).SetTokenized(true)
-	ft2.SetIndexOptions(schema.IndexOptionsDocsAndFreqsAndPositions)
+	ft2.SetIndexOptions(spi.IndexOptionsDocsAndFreqsAndPositions)
 
 	// Compare properties
 	if ft1.Indexed != ft2.Indexed {

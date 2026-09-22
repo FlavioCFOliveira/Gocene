@@ -4,7 +4,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 

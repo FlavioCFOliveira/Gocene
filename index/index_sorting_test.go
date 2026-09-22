@@ -52,7 +52,6 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -340,11 +339,11 @@ type assertingPointsWriter struct {
 	pw spi.PointsWriter
 }
 
-func (apw *assertingPointsWriter) WriteField(fi *schema.FieldInfo, reader spi.PointsReader) error {
+func (apw *assertingPointsWriter) WriteField(fi *spi.FieldInfo, reader spi.PointsReader) error {
 	return apw.pw.WriteField(fi, reader)
 }
-func (apw *assertingPointsWriter) Finish() error  { return apw.pw.Finish() }
-func (apw *assertingPointsWriter) Close() error   { return apw.pw.Close() }
+func (apw *assertingPointsWriter) Finish() error { return apw.pw.Finish() }
+func (apw *assertingPointsWriter) Close() error  { return apw.pw.Close() }
 
 // -----------------------------------------------------------------------------
 // "Already sorted" tests.
@@ -1949,7 +1948,6 @@ func TestIndexSorting_WrongSortFieldType(t *testing.T) {
 		t.Fatalf("error = %q, want 'expected field [field] to be ...'", err.Error())
 	}
 }
-
 
 // -----------------------------------------------------------------------------
 // Sparse-field sorting.

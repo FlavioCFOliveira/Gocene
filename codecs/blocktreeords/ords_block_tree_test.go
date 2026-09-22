@@ -12,7 +12,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/codecs/blocktreeords"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -20,7 +20,7 @@ import (
 // listTerms is a simple Terms implementation backed by a sorted string slice.
 // Each term has docFreq=1, totalTermFreq=1, and appears in doc 0.
 type listTerms struct {
-	schema.TermsBase
+	spi.TermsBase
 	field string
 	terms []string
 }
@@ -61,7 +61,7 @@ func (lt *listTerms) GetIteratorWithSeek(seekTerm *index.Term) (index.TermsEnum,
 	return e, nil
 }
 
-func (lt *listTerms) GetPostingsReader(termText string, flags int) (schema.PostingsEnum, error) {
+func (lt *listTerms) GetPostingsReader(termText string, flags int) (spi.PostingsEnum, error) {
 	for _, t := range lt.terms {
 		if t == termText {
 			return &singleDocPostingsEnum{}, nil
@@ -77,7 +77,7 @@ func (lt *listTerms) GetSumTotalTermFreq() (int64, error) { return int64(len(lt.
 
 // listTermsEnum iterates over a sorted list of terms.
 type listTermsEnum struct {
-	schema.TermsEnumBase
+	spi.TermsEnumBase
 	terms []string
 	field string
 	pos   int
@@ -131,7 +131,7 @@ func (e *listTermsEnum) PostingsWithLiveDocs(_ util.Bits, _ int) (index.Postings
 
 // singleDocPostingsEnum returns doc 0 with freq 1 then NO_MORE_DOCS.
 type singleDocPostingsEnum struct {
-	schema.PostingsEnumBase
+	spi.PostingsEnumBase
 	done bool
 }
 
@@ -141,13 +141,13 @@ func (e *singleDocPostingsEnum) NextDoc() (int, error) {
 		e.CurrentDoc = 0
 		return 0, nil
 	}
-	e.CurrentDoc = schema.NO_MORE_DOCS
-	return schema.NO_MORE_DOCS, nil
+	e.CurrentDoc = spi.NO_MORE_DOCS
+	return spi.NO_MORE_DOCS, nil
 }
 
 func (e *singleDocPostingsEnum) Advance(int) (int, error)    { return e.NextDoc() }
 func (e *singleDocPostingsEnum) Freq() (int, error)          { return 1, nil }
-func (e *singleDocPostingsEnum) NextPosition() (int, error)  { return schema.NO_MORE_POSITIONS, nil }
+func (e *singleDocPostingsEnum) NextPosition() (int, error)  { return spi.NO_MORE_POSITIONS, nil }
 func (e *singleDocPostingsEnum) StartOffset() (int, error)   { return -1, nil }
 func (e *singleDocPostingsEnum) EndOffset() (int, error)     { return -1, nil }
 func (e *singleDocPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }

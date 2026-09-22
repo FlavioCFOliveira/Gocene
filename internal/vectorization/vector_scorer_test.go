@@ -11,7 +11,7 @@
 //
 //	http://www.apache.org/licenses/LICENSE-2.0
 
-package vectorization
+package vectorization_test
 
 // Port of org.apache.lucene.internal.vectorization.TestVectorScorer
 // (Lucene 10.4.0, lucene/core/src/test/org/apache/lucene/internal/

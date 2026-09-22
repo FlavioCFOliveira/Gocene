@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestFieldType mirrors selected scenarios from Lucene's TestFieldType.java
@@ -26,13 +27,13 @@ func TestFieldType_Defaults(t *testing.T) {
 	if ft.IsTokenized() {
 		t.Fatalf("Gocene default Tokenized should be false (back-compat divergence)")
 	}
-	if got, want := ft.GetIndexOptions(), schema.IndexOptionsNone; got != want {
+	if got, want := ft.GetIndexOptions(), spi.IndexOptionsNone; got != want {
 		t.Fatalf("default IndexOptions = %v, want %v", got, want)
 	}
-	if got, want := ft.GetVectorEncoding(), schema.VectorEncodingFloat32; got != want {
+	if got, want := ft.GetVectorEncoding(), util.VectorEncodingFloat32; got != want {
 		t.Fatalf("default VectorEncoding = %v, want %v", got, want)
 	}
-	if got, want := ft.GetVectorSimilarityFunction(), schema.VectorSimilarityFunctionEuclidean; got != want {
+	if got, want := ft.GetVectorSimilarityFunction(), util.EuclideanSim; got != want {
 		t.Fatalf("default VectorSimilarityFunction = %v, want %v", got, want)
 	}
 	if ft.DocValuesSkipIndexType() != DocValuesSkipIndexTypeNone {
@@ -50,9 +51,9 @@ func TestFieldType_LuceneDefaults(t *testing.T) {
 func TestFieldType_CopyConstructor(t *testing.T) {
 	src := NewFieldType()
 	src.SetStored(true)
-	src.SetIndexOptions(schema.IndexOptionsDocs)
+	src.SetIndexOptions(spi.IndexOptionsDocs)
 	src.SetDimensions(2, 4)
-	src.SetVectorAttributes(8, schema.VectorEncodingByte, schema.VectorSimilarityFunctionCosine)
+	src.SetVectorAttributes(8, util.VectorEncodingByte, util.CosineSim)
 	src.PutAttribute("k", "v")
 	src.Freeze()
 
@@ -121,7 +122,7 @@ func TestFieldType_SetDimensionsValidation(t *testing.T) {
 
 func TestFieldType_SetVectorAttributes(t *testing.T) {
 	ft := NewFieldType()
-	ft.SetVectorAttributes(128, schema.VectorEncodingFloat32, schema.VectorSimilarityFunctionDotProduct)
+	ft.SetVectorAttributes(128, util.VectorEncodingFloat32, util.DotProductSim)
 	if ft.GetVectorDimension() != 128 {
 		t.Fatalf("vector dim = %d", ft.GetVectorDimension())
 	}
@@ -130,14 +131,14 @@ func TestFieldType_SetVectorAttributes(t *testing.T) {
 			t.Fatalf("expected panic for non-positive vector dim")
 		}
 	}()
-	ft.SetVectorAttributes(0, schema.VectorEncodingFloat32, schema.VectorSimilarityFunctionDotProduct)
+	ft.SetVectorAttributes(0, util.VectorEncodingFloat32, util.DotProductSim)
 }
 
 func TestFieldType_String(t *testing.T) {
 	ft := NewFieldType()
 	ft.SetStored(true)
 	ft.SetIndexed(true)
-	ft.SetIndexOptions(schema.IndexOptionsDocsAndFreqs)
+	ft.SetIndexOptions(spi.IndexOptionsDocsAndFreqs)
 	ft.SetTokenized(true)
 	ft.SetStoreTermVectors(true)
 	ft.SetStoreTermVectorOffsets(true)

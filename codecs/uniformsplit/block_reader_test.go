@@ -5,7 +5,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -35,14 +35,14 @@ func TestBlockReader_Basic(t *testing.T) {
 	fi := index.NewFieldInfo("test", 0, index.DefaultFieldInfoOptions())
 	meta := &FieldMetadata{
 		fieldInfo:         fi,
-		firstBlockStartFP:  0,
-		lastBlockStartFP:   100,
+		firstBlockStartFP: 0,
+		lastBlockStartFP:  100,
 		lastTerm:          util.NewBytesRef([]byte("term2")),
 	}
 
 	// Create a dummy block in memory
 	buf := store.NewByteBuffersDataOutput()
-	
+
 	// BlockHeader: linesCount(vInt), baseDocsFP(vLong), basePosFP(vLong), basePayFP(vLong), termStatesBaseOffset(vInt), middleLineOffset(vInt)
 	buf.WriteVInt(2)
 	buf.WriteVLong(0)
@@ -58,7 +58,7 @@ func TestBlockReader_Basic(t *testing.T) {
 	buf.WriteBytes([]byte("term1"))
 
 	// Line 1 (Non-seed)
-	// term1: "term1", term2: "term2". MDP is "term" (len 4). 
+	// term1: "term1", term2: "term2". MDP is "term" (len 4).
 	// prevLen = 5. numMdpBits = 3 (since 5 is 101 in binary).
 	// mdpLength = 4. suffixLength = 5 - (4-1) = 2 ("r2").
 	// mdpAndSuffixLengths = (2 << 3) | (4-1) = 16 | 3 = 19.
@@ -77,7 +77,7 @@ func TestBlockReader_Basic(t *testing.T) {
 	buf.WriteVInt(20) // singletonDocID
 
 	input := store.NewByteArrayDataInput(buf.Bytes())
-	
+
 	dict := &mockDictionary{
 		data: map[string]int64{
 			"term1": 0,
@@ -93,7 +93,7 @@ func TestBlockReader_Basic(t *testing.T) {
 
 	// Test SeekCeil
 	term1 := util.NewBytesRef([]byte("term1"))
-	if res, err := reader.seekCeil(term1); err != nil || res != schema.SeekStatusFound {
+	if res, err := reader.seekCeil(term1); err != nil || res != spi.SeekStatusFound {
 		t.Errorf("seekCeil(term1) failed: %v, status=%v", err, res)
 	}
 	if reader.term().String() != "term1" { // This won't work because reader.term() returns BytesRef, but I'll check Length
@@ -113,8 +113,8 @@ type mockPostingsReader struct{}
 func (m *mockPostingsReader) NewTermState() index.TermState {
 	return codecs.NewBlockTermState()
 }
-func (m *mockPostingsReader) Postings(fi *index.FieldInfo, ts index.TermState, reuse schema.PostingsEnum, flags int) (schema.PostingsEnum, error) {
-	return &schema.EmptyPostingsEnum{}, nil
+func (m *mockPostingsReader) Postings(fi *index.FieldInfo, ts index.TermState, reuse spi.PostingsEnum, flags int) (spi.PostingsEnum, error) {
+	return &spi.EmptyPostingsEnum{}, nil
 }
 func (m *mockPostingsReader) Impacts(fi *index.FieldInfo, ts index.TermState, flags int) (index.ImpactsEnum, error) {
 	return nil, nil

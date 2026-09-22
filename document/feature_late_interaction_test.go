@@ -8,7 +8,7 @@ import (
 	"math"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 func TestFeatureField_Basic(t *testing.T) {
@@ -19,7 +19,7 @@ func TestFeatureField_Basic(t *testing.T) {
 	if f.GetFeatureName() != "pagerank" || f.GetFeatureValue() != 0.5 {
 		t.Fatalf("attrs wrong")
 	}
-	if f.FieldType().GetIndexOptions() != schema.IndexOptionsDocsAndFreqs {
+	if f.FieldType().GetIndexOptions() != spi.IndexOptionsDocsAndFreqs {
 		t.Fatalf("indexOptions wrong: %v", f.FieldType().GetIndexOptions())
 	}
 }

@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package util
+package util_test
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestGroupVIntFixture pins the on-wire format for the input [0, 1, 256, 65536].
@@ -21,9 +22,9 @@ import (
 // 0x00, 0x01, 0x00 0x01, 0x00 0x00 0x01 (little-endian).
 func TestGroupVIntFixture(t *testing.T) {
 	values := []int32{0, 1, 256, 65536}
-	scratch := make([]byte, GroupVIntMaxLengthPerGroup)
+	scratch := make([]byte, util.GroupVIntMaxLengthPerGroup)
 	out := store.NewByteArrayDataOutput(32)
-	if err := WriteGroupVInts(out, scratch, values, len(values)); err != nil {
+	if err := util.WriteGroupVInts(out, scratch, values, len(values)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	got := out.GetBytes()
@@ -34,7 +35,7 @@ func TestGroupVIntFixture(t *testing.T) {
 
 	in := store.NewByteArrayDataInput(got)
 	dst := make([]int32, 4)
-	if err := ReadGroupVInts(in, dst, 4); err != nil {
+	if err := util.ReadGroupVInts(in, dst, 4); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	for i, v := range values {
@@ -48,21 +49,21 @@ func TestGroupVIntFixture(t *testing.T) {
 // requires the full 4 bytes (control byte = 0xFF, total 17 bytes).
 func TestGroupVIntAllMax(t *testing.T) {
 	values := []int32{-1, -1, -1, -1} // 0xFFFFFFFF as signed int32
-	scratch := make([]byte, GroupVIntMaxLengthPerGroup)
+	scratch := make([]byte, util.GroupVIntMaxLengthPerGroup)
 	out := store.NewByteArrayDataOutput(32)
-	if err := WriteGroupVInts(out, scratch, values, len(values)); err != nil {
+	if err := util.WriteGroupVInts(out, scratch, values, len(values)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	got := out.GetBytes()
 	if got[0] != 0xFF {
 		t.Fatalf("control byte got 0x%02x want 0xFF", got[0])
 	}
-	if len(got) != GroupVIntMaxLengthPerGroup {
-		t.Fatalf("encoded length got %d want %d", len(got), GroupVIntMaxLengthPerGroup)
+	if len(got) != util.GroupVIntMaxLengthPerGroup {
+		t.Fatalf("encoded length got %d want %d", len(got), util.GroupVIntMaxLengthPerGroup)
 	}
 	in := store.NewByteArrayDataInput(got)
 	dst := make([]int32, 4)
-	if err := ReadGroupVInts(in, dst, 4); err != nil {
+	if err := util.ReadGroupVInts(in, dst, 4); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	for i, v := range values {
@@ -76,9 +77,9 @@ func TestGroupVIntAllMax(t *testing.T) {
 // fits in a single byte (control byte = 0x00, total 5 bytes).
 func TestGroupVIntAllMin(t *testing.T) {
 	values := []int32{0, 1, 127, 255}
-	scratch := make([]byte, GroupVIntMaxLengthPerGroup)
+	scratch := make([]byte, util.GroupVIntMaxLengthPerGroup)
 	out := store.NewByteArrayDataOutput(32)
-	if err := WriteGroupVInts(out, scratch, values, len(values)); err != nil {
+	if err := util.WriteGroupVInts(out, scratch, values, len(values)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	got := out.GetBytes()
@@ -90,7 +91,7 @@ func TestGroupVIntAllMin(t *testing.T) {
 	}
 	in := store.NewByteArrayDataInput(got)
 	dst := make([]int32, 4)
-	if err := ReadGroupVInts(in, dst, 4); err != nil {
+	if err := util.ReadGroupVInts(in, dst, 4); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	for i, v := range values {
@@ -105,9 +106,9 @@ func TestGroupVIntAllMin(t *testing.T) {
 func TestGroupVIntTailVInts(t *testing.T) {
 	// 6 values: one full group of 4 + 2 tail VInts.
 	values := []int32{1, 2, 3, 4, 200, 300}
-	scratch := make([]byte, GroupVIntMaxLengthPerGroup)
+	scratch := make([]byte, util.GroupVIntMaxLengthPerGroup)
 	out := store.NewByteArrayDataOutput(32)
-	if err := WriteGroupVInts(out, scratch, values, len(values)); err != nil {
+	if err := util.WriteGroupVInts(out, scratch, values, len(values)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	got := out.GetBytes()
@@ -120,7 +121,7 @@ func TestGroupVIntTailVInts(t *testing.T) {
 
 	in := store.NewByteArrayDataInput(got)
 	dst := make([]int32, len(values))
-	if err := ReadGroupVInts(in, dst, len(values)); err != nil {
+	if err := util.ReadGroupVInts(in, dst, len(values)); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	for i, v := range values {
@@ -142,9 +143,9 @@ func TestGroupVIntRandomRoundTrip(t *testing.T) {
 		src[i] = int32(rng.Uint32() & mask)
 	}
 
-	scratch := make([]byte, GroupVIntMaxLengthPerGroup)
+	scratch := make([]byte, util.GroupVIntMaxLengthPerGroup)
 	out := store.NewByteArrayDataOutput(total * 5)
-	if err := WriteGroupVInts(out, scratch, src, total); err != nil {
+	if err := util.WriteGroupVInts(out, scratch, src, total); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	encoded := append([]byte(nil), out.GetBytes()...)
@@ -153,7 +154,7 @@ func TestGroupVIntRandomRoundTrip(t *testing.T) {
 	// IndexInput), so this exercises the slow path identical to baseline.
 	dst := make([]int32, total)
 	in := store.NewByteArrayDataInput(encoded)
-	if err := ReadGroupVInts(in, dst, total); err != nil {
+	if err := util.ReadGroupVInts(in, dst, total); err != nil {
 		t.Fatalf("read: %v", err)
 	}
 	for i := range src {
@@ -183,9 +184,9 @@ func TestGroupVIntInt64RoundTrip(t *testing.T) {
 	for i := range src {
 		src[i] = int64(rng.Uint32())
 	}
-	scratch := make([]byte, GroupVIntMaxLengthPerGroup)
+	scratch := make([]byte, util.GroupVIntMaxLengthPerGroup)
 	out := store.NewByteArrayDataOutput(total * 5)
-	if err := WriteGroupVIntsInt64(out, scratch, src, total); err != nil {
+	if err := util.WriteGroupVIntsInt64(out, scratch, src, total); err != nil {
 		t.Fatalf("write64: %v", err)
 	}
 
@@ -205,10 +206,10 @@ func TestGroupVIntInt64RoundTrip(t *testing.T) {
 // rejected by the deprecated long[] writer.
 func TestGroupVIntInt64Overflow(t *testing.T) {
 	out := store.NewByteArrayDataOutput(32)
-	scratch := make([]byte, GroupVIntMaxLengthPerGroup)
+	scratch := make([]byte, util.GroupVIntMaxLengthPerGroup)
 	bad := []int64{1, 2, 3, 0x1_0000_0000}
-	err := WriteGroupVIntsInt64(out, scratch, bad, len(bad))
-	if !errors.Is(err, ErrGroupVIntOverflow) {
+	err := util.WriteGroupVIntsInt64(out, scratch, bad, len(bad))
+	if !errors.Is(err, util.ErrGroupVIntOverflow) {
 		t.Fatalf("got err=%v want ErrGroupVIntOverflow", err)
 	}
 }
@@ -294,9 +295,9 @@ func (i *indexRandomAccess) Slice(string, int64, int64) (store.IndexInput, error
 // so the branch-less decode path runs.
 func TestGroupVIntFastPath(t *testing.T) {
 	values := []int32{1, 256, 65536, 1 << 24}
-	scratch := make([]byte, GroupVIntMaxLengthPerGroup)
+	scratch := make([]byte, util.GroupVIntMaxLengthPerGroup)
 	bufOut := store.NewByteArrayDataOutput(32)
-	if err := WriteGroupVInts(bufOut, scratch, values, len(values)); err != nil {
+	if err := util.WriteGroupVInts(bufOut, scratch, values, len(values)); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	encoded := bufOut.GetBytes()
@@ -307,7 +308,7 @@ func TestGroupVIntFastPath(t *testing.T) {
 		ByteArrayRandomAccessInput: store.NewByteArrayRandomAccessInput(padded),
 	}
 	dst := make([]int32, 4)
-	if err := ReadGroupVInts(in, dst, 4); err != nil {
+	if err := util.ReadGroupVInts(in, dst, 4); err != nil {
 		t.Fatalf("fast read: %v", err)
 	}
 	for i, v := range values {
@@ -323,38 +324,38 @@ func TestGroupVIntFastPath(t *testing.T) {
 // TestGroupVIntErrors covers the parameter-validation branches of the public
 // surface.
 func TestGroupVIntErrors(t *testing.T) {
-	scratch := make([]byte, GroupVIntMaxLengthPerGroup)
+	scratch := make([]byte, util.GroupVIntMaxLengthPerGroup)
 
 	t.Run("write negative limit", func(t *testing.T) {
 		out := store.NewByteArrayDataOutput(32)
-		if err := WriteGroupVInts(out, scratch, []int32{1, 2, 3, 4}, -1); err == nil {
+		if err := util.WriteGroupVInts(out, scratch, []int32{1, 2, 3, 4}, -1); err == nil {
 			t.Fatalf("expected error for negative limit")
 		}
 	})
 	t.Run("write limit beyond values", func(t *testing.T) {
 		out := store.NewByteArrayDataOutput(32)
-		if err := WriteGroupVInts(out, scratch, []int32{1, 2}, 4); err == nil {
+		if err := util.WriteGroupVInts(out, scratch, []int32{1, 2}, 4); err == nil {
 			t.Fatalf("expected error for limit > len(values)")
 		}
 	})
 	t.Run("write scratch too small", func(t *testing.T) {
 		out := store.NewByteArrayDataOutput(32)
 		small := make([]byte, 4)
-		if err := WriteGroupVInts(out, small, []int32{1, 2, 3, 4}, 4); err == nil {
+		if err := util.WriteGroupVInts(out, small, []int32{1, 2, 3, 4}, 4); err == nil {
 			t.Fatalf("expected error for small scratch")
 		}
 	})
 	t.Run("read negative limit", func(t *testing.T) {
 		in := store.NewByteArrayDataInput([]byte{0})
 		dst := make([]int32, 4)
-		if err := ReadGroupVInts(in, dst, -1); err == nil {
+		if err := util.ReadGroupVInts(in, dst, -1); err == nil {
 			t.Fatalf("expected error for negative limit")
 		}
 	})
 	t.Run("read limit beyond dst", func(t *testing.T) {
 		in := store.NewByteArrayDataInput([]byte{0, 1, 2, 3, 4})
 		dst := make([]int32, 2)
-		if err := ReadGroupVInts(in, dst, 4); err == nil {
+		if err := util.ReadGroupVInts(in, dst, 4); err == nil {
 			t.Fatalf("expected error for limit > len(dst)")
 		}
 	})
@@ -362,7 +363,7 @@ func TestGroupVIntErrors(t *testing.T) {
 		// Control byte says four 1-byte values (5 bytes total), but only 3 present.
 		in := store.NewByteArrayDataInput([]byte{0x00, 0x01, 0x02})
 		dst := make([]int32, 4)
-		if err := ReadGroupVInts(in, dst, 4); err == nil {
+		if err := util.ReadGroupVInts(in, dst, 4); err == nil {
 			t.Fatalf("expected error for truncated source")
 		}
 	})
@@ -392,7 +393,7 @@ func TestNumBytes(t *testing.T) {
 		{0xFFFFFFFF, 4},
 	}
 	for _, c := range cases {
-		if got := numBytes(c.v); got != c.want {
+		if got := util.NumBytes(c.v); got != c.want {
 			t.Fatalf("numBytes(0x%x) got %d want %d", c.v, got, c.want)
 		}
 	}
@@ -401,13 +402,13 @@ func TestNumBytes(t *testing.T) {
 // TestToInt32 pins the overflow check used by the deprecated long[]
 // variants.
 func TestToInt32(t *testing.T) {
-	if v, err := ToInt32(0); err != nil || v != 0 {
+	if v, err := util.ToInt32(0); err != nil || v != 0 {
 		t.Fatalf("ToInt32(0) got (%d,%v)", v, err)
 	}
-	if v, err := ToInt32(0xFFFFFFFF); err != nil || uint32(v) != 0xFFFFFFFF {
+	if v, err := util.ToInt32(0xFFFFFFFF); err != nil || uint32(v) != 0xFFFFFFFF {
 		t.Fatalf("ToInt32(max) got (%d,%v)", v, err)
 	}
-	if _, err := ToInt32(0x1_0000_0000); !errors.Is(err, ErrGroupVIntOverflow) {
+	if _, err := util.ToInt32(0x1_0000_0000); !errors.Is(err, util.ErrGroupVIntOverflow) {
 		t.Fatalf("ToInt32(2^32) got err=%v want ErrGroupVIntOverflow", err)
 	}
 }

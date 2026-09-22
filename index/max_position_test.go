@@ -10,11 +10,11 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/internal/testutil"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 )
 
 // maxPositionAnalyzer is a test-only analyzer that ignores the supplied
@@ -67,9 +67,9 @@ func addMaxPositionDoc(t *testing.T, writer *index.IndexWriter, factory func() a
 func TestMaxPosition_TooBigPosition(t *testing.T) {
 	dir, writer := newMaxPositionWriter(t, &maxPositionAnalyzer{
 		factory: func() analysis.TokenStream {
-			return testutil.NewCannedTokenStream(
-				testutil.NewTokenWithPosInc("foo", 2, 0, 3),
-				testutil.NewTokenWithPosInc("foo", index.MaxPosition, 0, 3),
+			return testanalysis.NewCannedTokenStream(
+				testanalysis.NewTokenWithPosInc("foo", 2, 0, 3),
+				testanalysis.NewTokenWithPosInc("foo", index.MaxPosition, 0, 3),
 			)
 		},
 	})
@@ -105,9 +105,9 @@ func TestMaxPosition_TooBigPosition(t *testing.T) {
 func TestMaxPosition_MaxPosition(t *testing.T) {
 	dir, writer := newMaxPositionWriter(t, &maxPositionAnalyzer{
 		factory: func() analysis.TokenStream {
-			return testutil.NewCannedTokenStream(
-				testutil.NewTokenWithPosInc("foo", 1, 0, 3),
-				testutil.NewTokenWithPosInc("foo", index.MaxPosition, 0, 3),
+			return testanalysis.NewCannedTokenStream(
+				testanalysis.NewTokenWithPosInc("foo", 1, 0, 3),
+				testanalysis.NewTokenWithPosInc("foo", index.MaxPosition, 0, 3),
 			)
 		},
 	})
@@ -135,7 +135,7 @@ func TestMaxPosition_MaxPosition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Terms: %v", err)
 	}
-	postings, err := terms.GetPostingsReader("foo", schema.PostingsFlagPositions)
+	postings, err := terms.GetPostingsReader("foo", spi.PostingsFlagPositions)
 	if err != nil {
 		t.Fatalf("GetPostingsReader: %v", err)
 	}
@@ -146,7 +146,7 @@ func TestMaxPosition_MaxPosition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NextDoc: %v", err)
 	}
-	if docID == schema.NO_MORE_DOCS {
+	if docID == spi.NO_MORE_DOCS {
 		t.Fatalf("no docs for term 'foo'")
 	}
 	freq, err := postings.Freq()

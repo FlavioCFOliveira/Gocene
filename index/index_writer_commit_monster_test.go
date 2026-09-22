@@ -17,13 +17,14 @@ package index_test
 
 import (
 	"fmt"
+	"math/rand"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	indexTestutil "github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
 )
 
 // TestCommitOnCloseDiskUsage verifies that a writer with commit-on-close
@@ -104,15 +105,11 @@ func TestCommitThreadSafety(t *testing.T) {
 		dir := store.NewByteBuffersDirectory()
 		defer dir.Close()
 
-		w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+		riw, err := testindex.NewRandomIndexWriterWithConfig(rand.New(rand.NewSource(1)), dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
 		if err != nil {
-			t.Fatalf("NewIndexWriter: %v", err)
+			t.Fatalf("NewRandomIndexWriterWithConfig: %v", err)
 		}
-		riw := indexTestutil.NewWithConfig(w, 1, indexTestutil.Config{
-			CommitProbability:     0,
-			ForceMergeProbability: 0,
-		})
-		if err := riw.Commit(); err != nil {
+		if _, err := riw.Commit(); err != nil {
 			t.Fatalf("initial Commit: %v", err)
 		}
 
@@ -134,7 +131,7 @@ func TestCommitThreadSafety(t *testing.T) {
 			if _, err := riw.AddDocument(doc); err != nil {
 				t.Fatalf("AddDocument %d: %v", i, err)
 			}
-			if err := riw.Commit(); err != nil {
+			if _, err := riw.Commit(); err != nil {
 				t.Fatalf("Commit %d: %v", i, err)
 			}
 

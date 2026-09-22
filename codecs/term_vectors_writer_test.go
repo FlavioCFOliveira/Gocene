@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -31,7 +31,7 @@ func (m *mockTermVectorsWriter) FinishDocument() error {
 	return nil
 }
 
-func (m *mockTermVectorsWriter) StartField(fieldInfo *schema.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error {
+func (m *mockTermVectorsWriter) StartField(fieldInfo *spi.FieldInfo, numTerms int, hasPositions, hasOffsets, hasPayloads bool) error {
 	m.fieldsWritten++
 	return nil
 }

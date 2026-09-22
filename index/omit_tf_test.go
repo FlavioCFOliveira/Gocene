@@ -43,13 +43,15 @@
 package index_test
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	indexTestutil "github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
+	testutil "github.com/FlavioCFOliveira/Gocene/tests/util"
 )
 
 // TestOmitTf_NoPrxFile ports testNoPrxFile().
@@ -153,7 +155,7 @@ func TestOmitTf_MixedRAM(t *testing.T) {
 	}
 	defer r.Close()
 
-	leaf := indexTestutil.GetOnlyLeafReader(r)
+	leaf := testutil.GetOnlyLeafReader(r)
 	infos := leaf.GetFieldInfos()
 	if infos == nil {
 		t.Fatal("GetFieldInfos returned nil")
@@ -201,14 +203,10 @@ func TestOmitTf_Stats(t *testing.T) {
 	defer dir.Close()
 
 	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
+	riw, err := testindex.NewRandomIndexWriterWithConfig(rand.New(rand.NewSource(1)), dir, cfg)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("NewRandomIndexWriterWithConfig: %v", err)
 	}
-	riw := indexTestutil.NewWithConfig(w, 1, indexTestutil.Config{
-		CommitProbability:     0,
-		ForceMergeProbability: 0,
-	})
 
 	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 	ft.SetIndexOptions(index.IndexOptionsDocs)
@@ -218,7 +216,7 @@ func TestOmitTf_Stats(t *testing.T) {
 		t.Fatalf("NewField: %v", err)
 	}
 	doc.Add(f1)
-	if err := riw.AddDocument(doc); err != nil {
+	if _, err := riw.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
 

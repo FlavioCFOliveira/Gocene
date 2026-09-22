@@ -38,9 +38,9 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 )
 
 // ---------------------------------------------------------------------------
@@ -817,7 +817,7 @@ func TestIndexWriterDelete_ErrorInDocsWriterAdd(t *testing.T) {
 	defer dir.Close()
 
 	cfg := index.NewIndexWriterConfig(
-		testutil.NewMockAnalyzer(testutil.WHITESPACE, false, 255, testutil.EMPTY_STOPSET, false))
+		testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, false, 255, testanalysis.EMPTY_STOPSET, false))
 	modifier, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)

@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -95,7 +95,7 @@ func newStubBinaryDV(values map[int][]byte) *stubBinaryDV {
 }
 
 func (s *stubBinaryDV) getInternal(docID int) ([]byte, error) { return s.values[docID], nil }
-func (s *stubBinaryDV) Cost() int64                            { return int64(len(s.sorted)) }
+func (s *stubBinaryDV) Cost() int64                           { return int64(len(s.sorted)) }
 func (s *stubBinaryDV) Advance(target int) (int, error) {
 	for _, d := range s.sorted {
 		if d >= target {
@@ -147,29 +147,39 @@ func (r *spatialStubLeaf) GetRefCount() int32  { return 1 }
 func (r *spatialStubLeaf) GetContext() (index.IndexReaderContext, error) {
 	return nil, nil
 }
-func (r *spatialStubLeaf) Leaves() ([]*index.LeafReaderContext, error) { return nil, nil }
-func (r *spatialStubLeaf) StoredFields() (index.StoredFields, error)   { return nil, nil }
-func (r *spatialStubLeaf) TermVectors() (index.TermVectors, error)     { return nil, nil }
-func (r *spatialStubLeaf) GetCoreCacheKey() interface{}               { return r }
-func (r *spatialStubLeaf) GetTermVectors(_ int) (index.Fields, error)   { return nil, nil }
-func (r *spatialStubLeaf) Terms(field string) (index.Terms, error)     { return r.terms[field], nil }
-func (r *spatialStubLeaf) Postings(_ index.Term) (index.PostingsEnum, error)              { return nil, nil }
+func (r *spatialStubLeaf) Leaves() ([]*index.LeafReaderContext, error)       { return nil, nil }
+func (r *spatialStubLeaf) StoredFields() (index.StoredFields, error)         { return nil, nil }
+func (r *spatialStubLeaf) TermVectors() (index.TermVectors, error)           { return nil, nil }
+func (r *spatialStubLeaf) GetCoreCacheKey() interface{}                      { return r }
+func (r *spatialStubLeaf) GetTermVectors(_ int) (index.Fields, error)        { return nil, nil }
+func (r *spatialStubLeaf) Terms(field string) (index.Terms, error)           { return r.terms[field], nil }
+func (r *spatialStubLeaf) Postings(_ index.Term) (index.PostingsEnum, error) { return nil, nil }
 func (r *spatialStubLeaf) PostingsWithFreqPositions(_ index.Term, _ int) (index.PostingsEnum, error) {
 	return nil, nil
 }
-func (r *spatialStubLeaf) GetSortedDocValues(_ string) (index.SortedDocValues, error)        { return nil, nil }
+func (r *spatialStubLeaf) GetSortedDocValues(_ string) (index.SortedDocValues, error) {
+	return nil, nil
+}
 func (r *spatialStubLeaf) GetSortedNumericDocValues(_ string) (index.SortedNumericDocValues, error) {
 	return nil, nil
 }
-func (r *spatialStubLeaf) GetSortedSetDocValues(_ string) (index.SortedSetDocValues, error)   { return nil, nil }
-func (r *spatialStubLeaf) GetNormValues(_ string) (index.NumericDocValues, error)            { return nil, nil }
-func (r *spatialStubLeaf) GetPointValues(_ string) (index.PointValues, error)                 { return nil, nil }
-func (r *spatialStubLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues, error)    { return nil, nil }
-func (r *spatialStubLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error)       { return nil, nil }
-func (r *spatialStubLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error)        { return nil, nil }
-func (r *spatialStubLeaf) CheckIntegrity() error                                             { return nil }
-func (r *spatialStubLeaf) GetMetaData() *index.IndexReaderMetaData                            { return nil }
-func (r *spatialStubLeaf) GetSegmentInfo() *index.SegmentInfo                                  { return nil }
+func (r *spatialStubLeaf) GetSortedSetDocValues(_ string) (index.SortedSetDocValues, error) {
+	return nil, nil
+}
+func (r *spatialStubLeaf) GetNormValues(_ string) (index.NumericDocValues, error) { return nil, nil }
+func (r *spatialStubLeaf) GetPointValues(_ string) (index.PointValues, error)     { return nil, nil }
+func (r *spatialStubLeaf) GetFloatVectorValues(_ string) (index.FloatVectorValues, error) {
+	return nil, nil
+}
+func (r *spatialStubLeaf) GetByteVectorValues(_ string) (index.ByteVectorValues, error) {
+	return nil, nil
+}
+func (r *spatialStubLeaf) GetDocValuesSkipper(_ string) (index.DocValuesSkipper, error) {
+	return nil, nil
+}
+func (r *spatialStubLeaf) CheckIntegrity() error                   { return nil }
+func (r *spatialStubLeaf) GetMetaData() *index.IndexReaderMetaData { return nil }
+func (r *spatialStubLeaf) GetSegmentInfo() *index.SegmentInfo      { return nil }
 func (r *spatialStubLeaf) SearchNearestVectors(_ string, _ []float32, _ int, _ util.Bits) (index.TopDocs, error) {
 	return index.TopDocs{}, nil
 }
@@ -385,7 +395,7 @@ type stubTerms struct {
 	postings map[string][]int
 }
 
-func (s *stubTerms) Iterator() (schema.TermsEnum, error) {
+func (s *stubTerms) Iterator() (spi.TermsEnum, error) {
 	tokens := make([]string, 0, len(s.postings))
 	for t := range s.postings {
 		tokens = append(tokens, t)
@@ -394,14 +404,14 @@ func (s *stubTerms) Iterator() (schema.TermsEnum, error) {
 	return &stubTermsEnum{owner: s, tokens: tokens, idx: -1}, nil
 }
 
-func (s *stubTerms) GetIteratorWithSeek(seekTerm *schema.Term) (schema.TermsEnum, error) {
+func (s *stubTerms) GetIteratorWithSeek(seekTerm *spi.Term) (spi.TermsEnum, error) {
 	return s.Iterator()
 }
 
-func (s *stubTerms) GetPostingsReader(termText string, flags int) (schema.PostingsEnum, error) {
+func (s *stubTerms) GetPostingsReader(termText string, flags int) (spi.PostingsEnum, error) {
 	docs, ok := s.postings[termText]
 	if !ok {
-		return &schema.EmptyPostingsEnum{}, nil
+		return &spi.EmptyPostingsEnum{}, nil
 	}
 	cp := append([]int(nil), docs...)
 	sort.Ints(cp)
@@ -416,47 +426,47 @@ func (s *stubTerms) HasFreqs() bool                      { return false }
 func (s *stubTerms) HasOffsets() bool                    { return false }
 func (s *stubTerms) HasPositions() bool                  { return false }
 func (s *stubTerms) HasPayloads() bool                   { return false }
-func (s *stubTerms) GetMin() (*schema.Term, error)       { return nil, nil }
-func (s *stubTerms) GetMax() (*schema.Term, error)       { return nil, nil }
+func (s *stubTerms) GetMin() (*spi.Term, error)          { return nil, nil }
+func (s *stubTerms) GetMax() (*spi.Term, error)          { return nil, nil }
 
 var _ index.Terms = (*stubTerms)(nil)
 
 type stubTermsEnum struct {
-	schema.TermsEnumBase
+	spi.TermsEnumBase
 	owner  *stubTerms
 	tokens []string
 	idx    int
 }
 
-func (s *stubTermsEnum) Next() (*schema.Term, error) {
+func (s *stubTermsEnum) Next() (*spi.Term, error) {
 	s.idx++
 	if s.idx >= len(s.tokens) {
 		s.SetCurrentTerm(nil)
 		return nil, nil
 	}
-	term := schema.NewTerm("spt", s.tokens[s.idx])
+	term := spi.NewTerm("spt", s.tokens[s.idx])
 	s.SetCurrentTerm(term)
 	return term, nil
 }
 
-func (s *stubTermsEnum) SeekCeil(t *schema.Term) (*schema.Term, error) { return nil, nil }
-func (s *stubTermsEnum) SeekExact(t *schema.Term) (bool, error)        { return false, nil }
-func (s *stubTermsEnum) DocFreq() (int, error)                         { return 0, nil }
-func (s *stubTermsEnum) TotalTermFreq() (int64, error)                 { return 0, nil }
-func (s *stubTermsEnum) Postings(flags int) (schema.PostingsEnum, error) {
+func (s *stubTermsEnum) SeekCeil(t *spi.Term) (*spi.Term, error) { return nil, nil }
+func (s *stubTermsEnum) SeekExact(t *spi.Term) (bool, error)     { return false, nil }
+func (s *stubTermsEnum) DocFreq() (int, error)                   { return 0, nil }
+func (s *stubTermsEnum) TotalTermFreq() (int64, error)           { return 0, nil }
+func (s *stubTermsEnum) Postings(flags int) (spi.PostingsEnum, error) {
 	if s.idx < 0 || s.idx >= len(s.tokens) {
-		return &schema.EmptyPostingsEnum{}, nil
+		return &spi.EmptyPostingsEnum{}, nil
 	}
 	docs := append([]int(nil), s.owner.postings[s.tokens[s.idx]]...)
 	sort.Ints(docs)
 	return &stubPostingsEnum{docs: docs, idx: -1}, nil
 }
-func (s *stubTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (schema.PostingsEnum, error) {
+func (s *stubTermsEnum) PostingsWithLiveDocs(liveDocs util.Bits, flags int) (spi.PostingsEnum, error) {
 	return s.Postings(flags)
 }
 
 type stubPostingsEnum struct {
-	schema.PostingsEnumBase
+	spi.PostingsEnumBase
 	docs []int
 	idx  int
 }
@@ -464,8 +474,8 @@ type stubPostingsEnum struct {
 func (p *stubPostingsEnum) NextDoc() (int, error) {
 	p.idx++
 	if p.idx >= len(p.docs) {
-		p.CurrentDoc = schema.NO_MORE_DOCS
-		return schema.NO_MORE_DOCS, nil
+		p.CurrentDoc = spi.NO_MORE_DOCS
+		return spi.NO_MORE_DOCS, nil
 	}
 	p.CurrentDoc = p.docs[p.idx]
 	return p.docs[p.idx], nil
@@ -477,7 +487,7 @@ func (p *stubPostingsEnum) Advance(target int) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		if d == schema.NO_MORE_DOCS || d >= target {
+		if d == spi.NO_MORE_DOCS || d >= target {
 			return d, nil
 		}
 	}
@@ -490,7 +500,7 @@ func (p *stubPostingsEnum) EndOffset() (int, error)     { return -1, nil }
 func (p *stubPostingsEnum) Cost() int64                 { return int64(len(p.docs)) }
 func (p *stubPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }
 
-var _ schema.PostingsEnum = (*stubPostingsEnum)(nil)
+var _ spi.PostingsEnum = (*stubPostingsEnum)(nil)
 
 func TestPopulateEntryFromTerms(t *testing.T) {
 	entry := &FieldCacheEntry{

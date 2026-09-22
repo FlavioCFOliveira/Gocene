@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package util
+package util_test
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // TestPagedBytes_New tests creating a new PagedBytes.
@@ -158,7 +159,7 @@ func TestPagedBytes_DataInputOutput(t *testing.T) {
 		}
 
 		// Test random access via Reader
-		slice := NewBytesRefEmpty()
+		slice := util.NewBytesRefEmpty()
 		for iter2 := 0; iter2 < 100 && numBytes > 1; iter2++ {
 			pos := rng.Intn(numBytes - 1)
 			if reader.GetByte(int64(pos)) != answer[pos] {
@@ -283,7 +284,7 @@ func TestPagedBytes_DataInputOutput2(t *testing.T) {
 		}
 
 		// Test random access via Reader
-		slice := NewBytesRefEmpty()
+		slice := util.NewBytesRefEmpty()
 		for iter2 := 0; iter2 < 100 && numBytes > 1; iter2++ {
 			pos := rng.Intn(numBytes - 1)
 
@@ -352,7 +353,7 @@ func TestPagedBytes_RamBytesUsed(t *testing.T) {
 		for i := range randomStr {
 			randomStr[i] = byte(rng.Intn(26) + 'a')
 		}
-		bytes := NewBytesRef(randomStr)
+		bytes := util.NewBytesRef(randomStr)
 		pointer, err = pb.CopyUsingLengthPrefix(bytes)
 		if err != nil {
 			t.Fatalf("Failed to copy using length prefix: %v", err)
@@ -394,16 +395,16 @@ func TestPagedBytes_CopyBytesRef(t *testing.T) {
 
 	// Test copying multiple BytesRefs
 	numRefs := 20
-	refs := make([]*BytesRef, numRefs)
-	outRefs := make([]*BytesRef, numRefs)
+	refs := make([]*util.BytesRef, numRefs)
+	outRefs := make([]*util.BytesRef, numRefs)
 
 	for i := 0; i < numRefs; i++ {
 		// Use larger data to ensure we cross block boundaries
 		length := rng.Intn(200) + 50 // 50-250 bytes
 		data := make([]byte, length)
 		rng.Read(data)
-		refs[i] = NewBytesRef(data)
-		outRefs[i] = NewBytesRefEmpty()
+		refs[i] = util.NewBytesRef(data)
+		outRefs[i] = util.NewBytesRefEmpty()
 
 		if err := pb.CopyBytesRef(refs[i], outRefs[i]); err != nil {
 			t.Fatalf("Failed to copy BytesRef %d: %v", i, err)
@@ -456,7 +457,7 @@ func TestPagedBytes_FillWithLengthPrefix(t *testing.T) {
 		items[i] = make([]byte, length)
 		rng.Read(items[i])
 
-		br := NewBytesRef(items[i])
+		br := util.NewBytesRef(items[i])
 		ptr, err := pb.CopyUsingLengthPrefix(br)
 		if err != nil {
 			t.Fatalf("Failed to copy with length prefix: %v", err)
@@ -472,7 +473,7 @@ func TestPagedBytes_FillWithLengthPrefix(t *testing.T) {
 
 	// Read back and verify
 	for i := 0; i < numItems; i++ {
-		result := NewBytesRefEmpty()
+		result := util.NewBytesRefEmpty()
 		if err := reader.Fill(result, pointers[i]); err != nil {
 			t.Fatalf("Failed to fill at pointer %d: %v", pointers[i], err)
 		}
@@ -544,12 +545,12 @@ func TestPagedBytes_FreezeErrors(t *testing.T) {
 	// Test freeze after CopyBytesRef with data crossing block boundary
 	pb2, _ := NewPagedBytes(10) // 1024 byte blocks
 	// First write fills the block partially
-	br1 := NewBytesRef(make([]byte, 1000))
-	outRef1 := NewBytesRefEmpty()
+	br1 := util.NewBytesRef(make([]byte, 1000))
+	outRef1 := util.NewBytesRefEmpty()
 	pb2.CopyBytesRef(br1, outRef1)
 	// Second write causes block boundary crossing (didSkipBytes = true)
-	br2 := NewBytesRef(make([]byte, 100))
-	outRef2 := NewBytesRefEmpty()
+	br2 := util.NewBytesRef(make([]byte, 100))
+	outRef2 := util.NewBytesRefEmpty()
 	pb2.CopyBytesRef(br2, outRef2)
 
 	_, err = pb2.Freeze(true)
@@ -614,7 +615,7 @@ func TestPagedBytes_FillSliceErrors(t *testing.T) {
 	reader, _ := pb.Freeze(true)
 
 	// Test negative length
-	slice := NewBytesRefEmpty()
+	slice := util.NewBytesRefEmpty()
 	err := reader.FillSlice(slice, 0, -1)
 	if err == nil {
 		t.Error("Expected error for negative length")
@@ -736,7 +737,7 @@ func TestPagedBytes_CopyUsingLengthPrefixErrors(t *testing.T) {
 
 	// Test data too large
 	largeData := make([]byte, 40000) // Exceeds 32767 limit
-	br := NewBytesRef(largeData)
+	br := util.NewBytesRef(largeData)
 	_, err := pb.CopyUsingLengthPrefix(br)
 	if err == nil {
 		t.Error("Expected error for data exceeding 32767 bytes")
@@ -745,7 +746,7 @@ func TestPagedBytes_CopyUsingLengthPrefixErrors(t *testing.T) {
 	// Test data too large for block
 	pb2, _ := NewPagedBytes(5)     // 32 byte blocks
 	mediumData := make([]byte, 50) // Exceeds block size - 2
-	br2 := NewBytesRef(mediumData)
+	br2 := util.NewBytesRef(mediumData)
 	_, err = pb2.CopyUsingLengthPrefix(br2)
 	if err == nil {
 		t.Error("Expected error for data exceeding block size")
@@ -850,7 +851,7 @@ func TestPagedBytes_BlockBoundary(t *testing.T) {
 	}
 
 	// Test FillSlice spanning block boundary
-	slice := NewBytesRefEmpty()
+	slice := util.NewBytesRefEmpty()
 	err := reader.FillSlice(slice, 1020, 10) // Should span blocks
 	if err != nil {
 		t.Fatalf("Failed to fill slice spanning blocks: %v", err)
@@ -897,8 +898,8 @@ func TestPagedBytes_CopyBytesRefLarge(t *testing.T) {
 	for i := range data {
 		data[i] = byte(i % 256)
 	}
-	br := NewBytesRef(data)
-	out := NewBytesRefEmpty()
+	br := util.NewBytesRef(data)
+	out := util.NewBytesRefEmpty()
 
 	err := pb.CopyBytesRef(br, out)
 	if err != nil {

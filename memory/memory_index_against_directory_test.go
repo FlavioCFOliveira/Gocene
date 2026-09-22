@@ -18,8 +18,8 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/memory"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -145,7 +145,7 @@ func TestMemoryIndexAgainstDirectory_DocsEnumStart(t *testing.T) {
 	}
 
 	// Seek to "quick" and get postings.
-	seeked, err := termsEnum.SeekExact(schema.NewTerm("field", "quick"))
+	seeked, err := termsEnum.SeekExact(spi.NewTerm("field", "quick"))
 	if err != nil {
 		t.Fatalf("SeekExact: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestMemoryIndexAgainstDirectory_DocsEnumStart(t *testing.T) {
 		t.Fatal("term 'quick' not found")
 	}
 
-	pe, err := termsEnum.Postings(schema.PostingsFlagFreqs)
+	pe, err := termsEnum.Postings(spi.PostingsFlagFreqs)
 	if err != nil {
 		t.Fatalf("Postings: %v", err)
 	}
@@ -177,7 +177,7 @@ func TestMemoryIndexAgainstDirectory_DocsEnumStart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NextDoc after exhaustion: %v", err)
 	}
-	if doc != schema.NO_MORE_DOCS {
+	if doc != spi.NO_MORE_DOCS {
 		t.Errorf("NextDoc after exhaustion = %d, want NO_MORE_DOCS", doc)
 	}
 }
@@ -216,7 +216,7 @@ func TestMemoryIndexAgainstDirectory_DocsAndPositionsEnumStart(t *testing.T) {
 		t.Fatalf("Iterator: %v", err)
 	}
 
-	seeked, err := termsEnum.SeekExact(schema.NewTerm("field", "quick"))
+	seeked, err := termsEnum.SeekExact(spi.NewTerm("field", "quick"))
 	if err != nil {
 		t.Fatalf("SeekExact: %v", err)
 	}
@@ -224,7 +224,7 @@ func TestMemoryIndexAgainstDirectory_DocsAndPositionsEnumStart(t *testing.T) {
 		t.Fatal("term 'quick' not found")
 	}
 
-	pe, err := termsEnum.Postings(schema.PostingsFlagPositions)
+	pe, err := termsEnum.Postings(spi.PostingsFlagPositions)
 	if err != nil {
 		t.Fatalf("Postings with positions: %v", err)
 	}

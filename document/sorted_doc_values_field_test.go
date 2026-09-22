@@ -8,7 +8,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 func TestNewSortedDocValuesField(t *testing.T) {
@@ -43,7 +43,7 @@ func TestSortedDocValuesFieldType(t *testing.T) {
 		t.Error("Expected field to not be stored")
 	}
 
-	if ft.DocValuesType != schema.DocValuesTypeSorted {
+	if ft.DocValuesType != spi.DocValuesTypeSorted {
 		t.Errorf("Expected DocValuesTypeSorted, got: %v", ft.DocValuesType)
 	}
 }

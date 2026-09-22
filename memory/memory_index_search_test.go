@@ -8,8 +8,8 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/memory"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
 // TestMemoryIndex_Search_DirectQueries validates that the MemoryIndex can run
@@ -25,7 +25,7 @@ func TestMemoryIndex_Search_DirectQueries(t *testing.T) {
 	}
 
 	// Term that exists in body
-	q1 := search.NewTermQuery(schema.NewTerm("body", "Gocene"))
+	q1 := search.NewTermQuery(spi.NewTerm("body", "Gocene"))
 	td, err := mi.Search(q1, 10)
 	if err != nil {
 		t.Fatalf("Search(body:Gocene): %v", err)
@@ -41,7 +41,7 @@ func TestMemoryIndex_Search_DirectQueries(t *testing.T) {
 	}
 
 	// Term that exists in title
-	q2 := search.NewTermQuery(schema.NewTerm("title", "fox"))
+	q2 := search.NewTermQuery(spi.NewTerm("title", "fox"))
 	td2, err := mi.Search(q2, 10)
 	if err != nil {
 		t.Fatalf("Search(title:fox): %v", err)
@@ -51,7 +51,7 @@ func TestMemoryIndex_Search_DirectQueries(t *testing.T) {
 	}
 
 	// Term that does NOT exist
-	q3 := search.NewTermQuery(schema.NewTerm("body", "nonexistent"))
+	q3 := search.NewTermQuery(spi.NewTerm("body", "nonexistent"))
 	td3, err := mi.Search(q3, 10)
 	if err != nil {
 		t.Fatalf("Search(body:nonexistent): %v", err)
@@ -61,7 +61,7 @@ func TestMemoryIndex_Search_DirectQueries(t *testing.T) {
 	}
 
 	// Unknown field
-	q4 := search.NewTermQuery(schema.NewTerm("unknown", "Gocene"))
+	q4 := search.NewTermQuery(spi.NewTerm("unknown", "Gocene"))
 	td4, err := mi.Search(q4, 10)
 	if err != nil {
 		t.Fatalf("Search(unknown:Gocene): %v", err)
@@ -72,8 +72,8 @@ func TestMemoryIndex_Search_DirectQueries(t *testing.T) {
 
 	// BooleanQuery: AND of two matching terms
 	bq := search.NewBooleanQuery()
-	bq.Add(search.NewTermQuery(schema.NewTerm("title", "quick")), search.MUST)
-	bq.Add(search.NewTermQuery(schema.NewTerm("body", "Gocene")), search.MUST)
+	bq.Add(search.NewTermQuery(spi.NewTerm("title", "quick")), search.MUST)
+	bq.Add(search.NewTermQuery(spi.NewTerm("body", "Gocene")), search.MUST)
 	td5, err := mi.Search(bq, 10)
 	if err != nil {
 		t.Fatalf("Search(Boolean AND): %v", err)
@@ -84,8 +84,8 @@ func TestMemoryIndex_Search_DirectQueries(t *testing.T) {
 
 	// BooleanQuery: AND where one term doesn't match
 	bq2 := search.NewBooleanQuery()
-	bq2.Add(search.NewTermQuery(schema.NewTerm("title", "quick")), search.MUST)
-	bq2.Add(search.NewTermQuery(schema.NewTerm("body", "nosuchterm")), search.MUST)
+	bq2.Add(search.NewTermQuery(spi.NewTerm("title", "quick")), search.MUST)
+	bq2.Add(search.NewTermQuery(spi.NewTerm("body", "nosuchterm")), search.MUST)
 	td6, err := mi.Search(bq2, 10)
 	if err != nil {
 		t.Fatalf("Search(Boolean AND miss): %v", err)
@@ -110,7 +110,7 @@ func TestMemoryIndex_Search_CreateSearcher(t *testing.T) {
 		t.Fatalf("CreateSearcher: %v", err)
 	}
 
-	td, err := searcher.Search(search.NewTermQuery(schema.NewTerm("text", "hello")), 5)
+	td, err := searcher.Search(search.NewTermQuery(spi.NewTerm("text", "hello")), 5)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestMemoryIndex_Search_CreateSearcher(t *testing.T) {
 func TestMemoryIndex_Search_EmptyIndex(t *testing.T) {
 	mi := memory.NewMemoryIndex()
 
-	td, err := mi.Search(search.NewTermQuery(schema.NewTerm("field", "term")), 10)
+	td, err := mi.Search(search.NewTermQuery(spi.NewTerm("field", "term")), 10)
 	if err != nil {
 		t.Fatalf("Search(empty): %v", err)
 	}
@@ -150,7 +150,7 @@ func TestMemoryIndex_Search_Positions(t *testing.T) {
 		t.Fatalf("CreateSearcher: %v", err)
 	}
 
-	td, err := searcher.Search(search.NewTermQuery(schema.NewTerm("text", "alpha")), 5)
+	td, err := searcher.Search(search.NewTermQuery(spi.NewTerm("text", "alpha")), 5)
 	if err != nil {
 		t.Fatalf("Search: %v", err)
 	}

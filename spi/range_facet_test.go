@@ -7,10 +7,10 @@ package spi_test
 import (
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// mockNumericDocValues implements schema.NumericDocValuesReader for testing.
+// mockNumericDocValues implements spi.NumericDocValuesReader for testing.
 type mockNumericDocValues struct {
 	values []int64
 	pos    int // starts at -1; NextDoc increments before returning
@@ -18,12 +18,12 @@ type mockNumericDocValues struct {
 
 func (m *mockNumericDocValues) NextDoc() (int, error) {
 	if m.pos == -2 { // already exhausted
-		return schema.NO_MORE_DOCS, nil
+		return spi.NO_MORE_DOCS, nil
 	}
 	m.pos++
 	if m.pos >= len(m.values) {
 		m.pos = -2
-		return schema.NO_MORE_DOCS, nil
+		return spi.NO_MORE_DOCS, nil
 	}
 	return m.pos, nil
 }
@@ -43,20 +43,20 @@ func (m *mockNumericDocValues) Advance(target int) (int, error) {
 	}
 	if m.pos >= len(m.values) {
 		m.pos = -2
-		return schema.NO_MORE_DOCS, nil
+		return spi.NO_MORE_DOCS, nil
 	}
 	return m.pos, nil
 }
 
 func TestRangeFacetCounts_Basic(t *testing.T) {
-	ranges := []schema.RangeFacetRequest{
+	ranges := []spi.RangeFacetRequest{
 		{Label: "0-25", Min: float64Ptr(0), Max: float64Ptr(25), MinInclusive: true, MaxInclusive: false},
 		{Label: "25-50", Min: float64Ptr(25), Max: float64Ptr(50), MinInclusive: true, MaxInclusive: false},
 		{Label: "50-75", Min: float64Ptr(50), Max: float64Ptr(75), MinInclusive: true, MaxInclusive: false},
 		{Label: "75-100", Min: float64Ptr(75), Max: float64Ptr(100), MinInclusive: true, MaxInclusive: true},
 	}
 
-	fc := schema.NewRangeFacetCounts("score", ranges)
+	fc := spi.NewRangeFacetCounts("score", ranges)
 
 	values := []float64{10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 5, 15}
 	for _, v := range values {
@@ -93,12 +93,12 @@ func TestRangeFacetCounts_Basic(t *testing.T) {
 }
 
 func TestRangeFacetCounts_DocValues(t *testing.T) {
-	ranges := []schema.RangeFacetRequest{
+	ranges := []spi.RangeFacetRequest{
 		{Label: "low", Min: float64Ptr(0), Max: float64Ptr(50), MinInclusive: true, MaxInclusive: false},
 		{Label: "high", Min: float64Ptr(50), Max: float64Ptr(100), MinInclusive: true, MaxInclusive: true},
 	}
 
-	fc := schema.NewRangeFacetCounts("price", ranges)
+	fc := spi.NewRangeFacetCounts("price", ranges)
 
 	// Direct accumulation (verified working in Basic test)
 	fc.Accumulate(10)
@@ -120,10 +120,10 @@ func TestRangeFacetCounts_DocValues(t *testing.T) {
 	}
 
 	// DocValues accumulation: use simpler ranges to isolate the issue.
-	ranges2 := []schema.RangeFacetRequest{
+	ranges2 := []spi.RangeFacetRequest{
 		{Label: "all", Min: float64Ptr(0), Max: float64Ptr(200), MinInclusive: true, MaxInclusive: true},
 	}
-	fc2 := schema.NewRangeFacetCounts("price", ranges2)
+	fc2 := spi.NewRangeFacetCounts("price", ranges2)
 	dv := &mockNumericDocValues{values: []int64{10, 30, 60, 90, 25}, pos: -1}
 	if err := fc2.AccumulateDocValues(dv); err != nil {
 		t.Fatalf("AccumulateDocValues: %v", err)
@@ -137,7 +137,7 @@ func TestRangeFacetCounts_DocValues(t *testing.T) {
 }
 
 func TestRangeFacetCounts_Bounds(t *testing.T) {
-	fc := schema.NewRangeFacetCountsWithBounds("age", []float64{0, 18, 30, 50, 100})
+	fc := spi.NewRangeFacetCountsWithBounds("age", []float64{0, 18, 30, 50, 100})
 
 	values := []float64{5, 15, 25, 35, 45, 55, 65}
 	for _, v := range values {
@@ -158,7 +158,7 @@ func TestRangeFacetCounts_Bounds(t *testing.T) {
 }
 
 func TestRangeFacetCounts_TopResults(t *testing.T) {
-	fc := schema.NewRangeFacetCountsWithBounds("x", []float64{0, 1, 2, 3})
+	fc := spi.NewRangeFacetCountsWithBounds("x", []float64{0, 1, 2, 3})
 	fc.Accumulate(0.5)
 	fc.Accumulate(0.5)
 	fc.Accumulate(1.5)

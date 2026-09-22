@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/codecs"
-	"github.com/FlavioCFOliveira/Gocene/schema"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -32,22 +31,22 @@ type memTermsEntry struct {
 	version int64
 }
 
-// memTerms implements schema.Terms backed by a sorted slice of entries.
+// memTerms implements spi.Terms backed by a sorted slice of entries.
 // Used to drive FieldsConsumer.Write in tests.
 type memTerms struct {
-	fi      *schema.FieldInfo
+	fi      *spi.FieldInfo
 	entries []memTermsEntry
 }
 
-func (m *memTerms) Iterator() (schema.TermsEnum, error) {
+func (m *memTerms) Iterator() (spi.TermsEnum, error) {
 	return &memTermsEnum{fi: m.fi, entries: m.entries, pos: -1}, nil
 }
 
-func (m *memTerms) GetIteratorWithSeek(_ *schema.Term) (schema.TermsEnum, error) {
+func (m *memTerms) GetIteratorWithSeek(_ *spi.Term) (spi.TermsEnum, error) {
 	return m.Iterator()
 }
 
-func (m *memTerms) GetPostingsReader(_ string, _ int) (schema.PostingsEnum, error) {
+func (m *memTerms) GetPostingsReader(_ string, _ int) (spi.PostingsEnum, error) {
 	return nil, nil
 }
 
@@ -59,47 +58,47 @@ func (m *memTerms) HasFreqs() bool                      { return true }
 func (m *memTerms) HasOffsets() bool                    { return false }
 func (m *memTerms) HasPositions() bool                  { return true }
 func (m *memTerms) HasPayloads() bool                   { return true }
-func (m *memTerms) GetMin() (*schema.Term, error) {
+func (m *memTerms) GetMin() (*spi.Term, error) {
 	if len(m.entries) == 0 {
 		return nil, nil
 	}
-	return schema.NewTermFromBytes(m.fi.Name(), m.entries[0].term), nil
+	return spi.NewTermFromBytes(m.fi.Name(), m.entries[0].term), nil
 }
-func (m *memTerms) GetMax() (*schema.Term, error) {
+func (m *memTerms) GetMax() (*spi.Term, error) {
 	if len(m.entries) == 0 {
 		return nil, nil
 	}
-	return schema.NewTermFromBytes(m.fi.Name(), m.entries[len(m.entries)-1].term), nil
+	return spi.NewTermFromBytes(m.fi.Name(), m.entries[len(m.entries)-1].term), nil
 }
 
 // memTermsEnum iterates over memTermsEntry slice.
 type memTermsEnum struct {
-	fi      *schema.FieldInfo
+	fi      *spi.FieldInfo
 	entries []memTermsEntry
 	pos     int
 }
 
-func (e *memTermsEnum) Next() (*schema.Term, error) {
+func (e *memTermsEnum) Next() (*spi.Term, error) {
 	e.pos++
 	if e.pos >= len(e.entries) {
 		return nil, nil
 	}
-	return schema.NewTermFromBytes(e.fi.Name(), e.entries[e.pos].term), nil
+	return spi.NewTermFromBytes(e.fi.Name(), e.entries[e.pos].term), nil
 }
 
-func (e *memTermsEnum) SeekCeil(t *schema.Term) (*schema.Term, error) {
+func (e *memTermsEnum) SeekCeil(t *spi.Term) (*spi.Term, error) {
 	target := t.BytesValue()
 	for i, en := range e.entries {
 		ref := &util.BytesRef{Bytes: en.term, Offset: 0, Length: len(en.term)}
 		if ref.BytesRefCompareTo(target) >= 0 {
 			e.pos = i
-			return schema.NewTermFromBytes(e.fi.Name(), en.term), nil
+			return spi.NewTermFromBytes(e.fi.Name(), en.term), nil
 		}
 	}
 	return nil, nil
 }
 
-func (e *memTermsEnum) SeekExact(t *schema.Term) (bool, error) {
+func (e *memTermsEnum) SeekExact(t *spi.Term) (bool, error) {
 	target := t.BytesValue()
 	for i, en := range e.entries {
 		ref := &util.BytesRef{Bytes: en.term, Offset: 0, Length: len(en.term)}
@@ -111,17 +110,17 @@ func (e *memTermsEnum) SeekExact(t *schema.Term) (bool, error) {
 	return false, nil
 }
 
-func (e *memTermsEnum) Term() *schema.Term {
+func (e *memTermsEnum) Term() *spi.Term {
 	if e.pos < 0 || e.pos >= len(e.entries) {
 		return nil
 	}
-	return schema.NewTermFromBytes(e.fi.Name(), e.entries[e.pos].term)
+	return spi.NewTermFromBytes(e.fi.Name(), e.entries[e.pos].term)
 }
 
 func (e *memTermsEnum) DocFreq() (int, error)         { return 1, nil }
 func (e *memTermsEnum) TotalTermFreq() (int64, error) { return 1, nil }
 
-func (e *memTermsEnum) Postings(flags int) (schema.PostingsEnum, error) {
+func (e *memTermsEnum) Postings(flags int) (spi.PostingsEnum, error) {
 	if e.pos < 0 || e.pos >= len(e.entries) {
 		return nil, nil
 	}
@@ -134,7 +133,7 @@ func (e *memTermsEnum) Postings(flags int) (schema.PostingsEnum, error) {
 	return pe, nil
 }
 
-func (e *memTermsEnum) PostingsWithLiveDocs(_ util.Bits, flags int) (schema.PostingsEnum, error) {
+func (e *memTermsEnum) PostingsWithLiveDocs(_ util.Bits, flags int) (spi.PostingsEnum, error) {
 	return e.Postings(flags)
 }
 
@@ -152,7 +151,7 @@ func (p *memPostingsEnum) NextDoc() (int, error) {
 		p.atDoc = true
 		return p.docID, nil
 	}
-	return schema.NO_MORE_DOCS, nil
+	return spi.NO_MORE_DOCS, nil
 }
 
 func (p *memPostingsEnum) Advance(target int) (int, error) {
@@ -160,7 +159,7 @@ func (p *memPostingsEnum) Advance(target int) (int, error) {
 		p.atDoc = true
 		return p.docID, nil
 	}
-	return schema.NO_MORE_DOCS, nil
+	return spi.NO_MORE_DOCS, nil
 }
 
 func (p *memPostingsEnum) DocID() int         { return p.docID }
@@ -172,7 +171,7 @@ func (p *memPostingsEnum) NextPosition() (int, error) {
 		p.atPos = true
 		return 0, nil
 	}
-	return schema.NO_MORE_POSITIONS, nil
+	return spi.NO_MORE_POSITIONS, nil
 }
 
 func (p *memPostingsEnum) StartOffset() (int, error) { return -1, nil }
@@ -192,18 +191,18 @@ func TestIDVersionPostingsFormat_FieldsConsumer_Produces_No_Error(t *testing.T) 
 
 	// Build FieldInfo with DOCS_AND_FREQS_AND_POSITIONS index options and
 	// payloads, matching what IDVersionPostingsWriter requires.
-	fi := schema.NewFieldInfoBuilder("id", 0).
-		SetIndexOptions(schema.IndexOptionsDocsAndFreqsAndPositions).
+	fi := spi.NewFieldInfoBuilder("id", 0).
+		SetIndexOptions(spi.IndexOptionsDocsAndFreqsAndPositions).
 		SetStoreTermVectorPayloads(false).
 		Build()
 	fi.SetStorePayloads()
 
-	fis := schema.NewFieldInfos()
+	fis := spi.NewFieldInfos()
 	if err := fis.Add(fi); err != nil {
 		t.Fatalf("FieldInfos.Add: %v", err)
 	}
 
-	seg := schema.NewSegmentInfo("_0", 10, dir)
+	seg := spi.NewSegmentInfo("_0", 10, dir)
 	// Assign a valid 16-byte ID.
 	id := make([]byte, 16)
 	for i := range id {
@@ -247,12 +246,12 @@ func TestIDVersionPostingsFormat_RoundTrip_WriteAndRead(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	fi := schema.NewFieldInfoBuilder("id", 0).
-		SetIndexOptions(schema.IndexOptionsDocsAndFreqsAndPositions).
+	fi := spi.NewFieldInfoBuilder("id", 0).
+		SetIndexOptions(spi.IndexOptionsDocsAndFreqsAndPositions).
 		Build()
 	fi.SetStorePayloads()
 
-	fis := schema.NewFieldInfos()
+	fis := spi.NewFieldInfos()
 	if err := fis.Add(fi); err != nil {
 		t.Fatalf("FieldInfos.Add: %v", err)
 	}
@@ -261,7 +260,7 @@ func TestIDVersionPostingsFormat_RoundTrip_WriteAndRead(t *testing.T) {
 	for i := range id {
 		id[i] = byte(i + 1)
 	}
-	seg := schema.NewSegmentInfo("_0", 10, dir)
+	seg := spi.NewSegmentInfo("_0", 10, dir)
 	seg.SetID(id)
 
 	writeState := &codecs.SegmentWriteState{
@@ -350,16 +349,16 @@ func TestIDVersionPostingsFormat_FieldsProducer_UnknownField(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	fi := schema.NewFieldInfoBuilder("id", 0).
-		SetIndexOptions(schema.IndexOptionsDocsAndFreqsAndPositions).
+	fi := spi.NewFieldInfoBuilder("id", 0).
+		SetIndexOptions(spi.IndexOptionsDocsAndFreqsAndPositions).
 		Build()
 	fi.SetStorePayloads()
 
-	fis := schema.NewFieldInfos()
+	fis := spi.NewFieldInfos()
 	_ = fis.Add(fi)
 
 	id := make([]byte, 16)
-	seg := schema.NewSegmentInfo("_0", 5, dir)
+	seg := spi.NewSegmentInfo("_0", 5, dir)
 	seg.SetID(id)
 
 	writeState := &codecs.SegmentWriteState{

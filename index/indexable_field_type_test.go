@@ -7,34 +7,38 @@ package index
 import (
 	"reflect"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/spi"
 )
 
-// stubIndexableFieldType implements the full schema.IndexableFieldType surface so we
+// stubIndexableFieldType implements the full spi.IndexableFieldType surface so we
 // can verify the interface signatures compile and are satisfiable.
 type stubIndexableFieldType struct{}
 
-func (stubIndexableFieldType) Stored() bool                                      { return true }
-func (stubIndexableFieldType) Tokenized() bool                                   { return false }
-func (stubIndexableFieldType) StoreTermVectors() bool                            { return false }
-func (stubIndexableFieldType) StoreTermVectorOffsets() bool                      { return false }
-func (stubIndexableFieldType) StoreTermVectorPositions() bool                    { return false }
-func (stubIndexableFieldType) StoreTermVectorPayloads() bool                     { return false }
-func (stubIndexableFieldType) OmitNorms() bool                                   { return false }
-func (stubIndexableFieldType) IndexOptions() IndexOptions                        { return IndexOptionsDocs }
-func (stubIndexableFieldType) DocValuesType() DocValuesType                      { return DocValuesTypeNone }
-func (stubIndexableFieldType) DocValuesSkipIndexType() DocValuesSkipIndexType    { return DocValuesSkipIndexTypeNone }
-func (stubIndexableFieldType) PointDimensionCount() int                          { return 0 }
-func (stubIndexableFieldType) PointIndexDimensionCount() int                     { return 0 }
-func (stubIndexableFieldType) PointNumBytes() int                                { return 0 }
-func (stubIndexableFieldType) VectorDimension() int                              { return 0 }
-func (stubIndexableFieldType) VectorEncoding() VectorEncoding                    { return 0 }
+func (stubIndexableFieldType) Stored() bool                   { return true }
+func (stubIndexableFieldType) Tokenized() bool                { return false }
+func (stubIndexableFieldType) StoreTermVectors() bool         { return false }
+func (stubIndexableFieldType) StoreTermVectorOffsets() bool   { return false }
+func (stubIndexableFieldType) StoreTermVectorPositions() bool { return false }
+func (stubIndexableFieldType) StoreTermVectorPayloads() bool  { return false }
+func (stubIndexableFieldType) OmitNorms() bool                { return false }
+func (stubIndexableFieldType) IndexOptions() IndexOptions     { return IndexOptionsDocs }
+func (stubIndexableFieldType) DocValuesType() DocValuesType   { return DocValuesTypeNone }
+func (stubIndexableFieldType) DocValuesSkipIndexType() DocValuesSkipIndexType {
+	return DocValuesSkipIndexTypeNone
+}
+func (stubIndexableFieldType) PointDimensionCount() int       { return 0 }
+func (stubIndexableFieldType) PointIndexDimensionCount() int  { return 0 }
+func (stubIndexableFieldType) PointNumBytes() int             { return 0 }
+func (stubIndexableFieldType) VectorDimension() int           { return 0 }
+func (stubIndexableFieldType) VectorEncoding() VectorEncoding { return 0 }
 func (stubIndexableFieldType) VectorSimilarityFunction() VectorSimilarityFunction {
 	return 0
 }
 func (stubIndexableFieldType) GetAttributes() map[string]string { return nil }
 
 func TestIndexableFieldType_InterfaceContract(t *testing.T) {
-	var ft schema.IndexableFieldType = stubIndexableFieldType{}
+	var ft spi.IndexableFieldType = stubIndexableFieldType{}
 	if !ft.Stored() || ft.Tokenized() {
 		t.Errorf("Stored/Tokenized accessor mismatch")
 	}
@@ -50,7 +54,7 @@ func TestIndexableFieldType_InterfaceContract(t *testing.T) {
 		"VectorDimension", "VectorEncoding", "VectorSimilarityFunction",
 		"GetAttributes",
 	}
-	ifaceType := reflect.TypeOf((*schema.IndexableFieldType)(nil)).Elem()
+	ifaceType := reflect.TypeOf((*spi.IndexableFieldType)(nil)).Elem()
 	got := make([]string, 0, ifaceType.NumMethod())
 	for i := 0; i < ifaceType.NumMethod(); i++ {
 		got = append(got, ifaceType.Method(i).Name)

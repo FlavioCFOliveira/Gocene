@@ -15,10 +15,11 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/internal/testutil"
+	"github.com/FlavioCFOliveira/Gocene/analysis/testutil"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 )
 
 // TestFieldReuse_StringField ports testStringField().
@@ -32,7 +33,7 @@ import (
 // CannedTokenStream. This test exercises that a CannedTokenStream carrying the
 // field value round-trips through assertTokenStreamContents and can be reset.
 func TestFieldReuse_StringField(t *testing.T) {
-	ts1 := testutil.NewCannedTokenStream(testutil.NewToken("bar", 0, 3))
+	ts1 := testanalysis.NewCannedTokenStream(testanalysis.NewToken("bar", 0, 3))
 	testutil.AssertTokenStreamContents(t, ts1, testutil.TokenStreamExpectations{
 		Terms: []string{"bar"},
 	})
@@ -40,7 +41,7 @@ func TestFieldReuse_StringField(t *testing.T) {
 	// Reset and re-use with a different token sequence. CannedTokenStream holds
 	// its token slice, so "reuse" here means Reset() rewinds rather than a new
 	// object being allocated.
-	ts2 := testutil.NewCannedTokenStream(testutil.NewToken("baz", 0, 3))
+	ts2 := testanalysis.NewCannedTokenStream(testanalysis.NewToken("baz", 0, 3))
 	testutil.AssertTokenStreamContents(t, ts2, testutil.TokenStreamExpectations{
 		Terms: []string{"baz"},
 	})

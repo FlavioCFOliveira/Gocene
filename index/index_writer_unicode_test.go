@@ -23,9 +23,9 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	indexTestutil "github.com/FlavioCFOliveira/Gocene/index/testutil"
-	"github.com/FlavioCFOliveira/Gocene/schema"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -295,7 +295,7 @@ func TestIndexWriterUnicode_EmbeddedFFFF(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Iterator: %v", err)
 	}
-	found, err := te.SeekExact(schema.NewTerm("field", "a￿b"))
+	found, err := te.SeekExact(spi.NewTerm("field", "a￿b"))
 	if err != nil {
 		t.Fatalf("SeekExact: %v", err)
 	}
@@ -332,14 +332,10 @@ func TestIndexWriterUnicode_TermUTF16SortOrder(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	riw, err := testindex.NewRandomIndexWriterWithConfig(rnd, dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("NewRandomIndexWriterWithConfig: %v", err)
 	}
-	riw := indexTestutil.NewWithConfig(w, 1, indexTestutil.Config{
-		CommitProbability:     0,
-		ForceMergeProbability: 0,
-	})
 
 	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 	ft.Freeze()
@@ -370,11 +366,11 @@ func TestIndexWriterUnicode_TermUTF16SortOrder(t *testing.T) {
 		doc := document.NewDocument()
 		f, _ := document.NewField("f", s, ft)
 		doc.Add(f)
-		if err := riw.AddDocument(doc); err != nil {
+		if _, err := riw.AddDocument(doc); err != nil {
 			t.Fatalf("AddDocument %d: %v", i, err)
 		}
 		if (i+1)%42 == 0 {
-			if err := riw.Commit(); err != nil {
+			if _, err := riw.Commit(); err != nil {
 				t.Fatalf("Commit %d: %v", i, err)
 			}
 		}

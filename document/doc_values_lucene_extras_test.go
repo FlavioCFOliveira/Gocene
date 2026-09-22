@@ -6,8 +6,6 @@ package document
 
 import (
 	"testing"
-
-	"github.com/FlavioCFOliveira/Gocene/schema"
 )
 
 func TestNumericDocValues_INDEXEDTYPE(t *testing.T) {

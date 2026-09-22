@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package quantization
+package quantization_test
 
 import (
 	"errors"
@@ -13,6 +13,7 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
 // testSimpleFloatVectorValues is the Go counterpart of Java's
@@ -66,14 +67,14 @@ func (t *testSimpleFloatVectorValues) VectorValue(ord int) ([]float32, error) {
 // OrdToDoc mirrors TestSimpleFloatVectorValues.ordToDoc(int).
 func (t *testSimpleFloatVectorValues) OrdToDoc(ord int) int { return t.ordToDoc[ord] }
 
-func (t *testSimpleFloatVectorValues) Iterator() DocIndexIterator {
+func (t *testSimpleFloatVectorValues) Iterator() quantization.DocIndexIterator {
 	return &testSimpleIterator{values: t, ord: -1, doc: -1}
 }
 
 // Copy mirrors TestSimpleFloatVectorValues.copy(), which returns this.
-func (t *testSimpleFloatVectorValues) Copy() (KnnVectorValues, error) { return t, nil }
+func (t *testSimpleFloatVectorValues) Copy() (quantization.KnnVectorValues, error) { return t, nil }
 
-func (t *testSimpleFloatVectorValues) CopyFloatVectorValues() (FloatVectorValues, error) {
+func (t *testSimpleFloatVectorValues) CopyFloatVectorValues() (quantization.FloatVectorValues, error) {
 	return t, nil
 }
 
@@ -91,11 +92,11 @@ func (t *testSimpleFloatVectorValues) GetAcceptOrds(acceptDocs util.Bits) util.B
 
 // Scorer mirrors TestSimpleFloatVectorValues.scorer(float[]), which throws
 // UnsupportedOperationException.
-func (t *testSimpleFloatVectorValues) Scorer(target []float32) (VectorScorer, error) {
-	return nil, ErrUnsupportedOperation
+func (t *testSimpleFloatVectorValues) Scorer(target []float32) (quantization.VectorScorer, error) {
+	return nil, quantization.ErrUnsupportedOperation
 }
 
-func (t *testSimpleFloatVectorValues) Rescorer(target []float32) (VectorScorer, error) {
+func (t *testSimpleFloatVectorValues) Rescorer(target []float32) (quantization.VectorScorer, error) {
 	return t.Scorer(target)
 }
 
@@ -134,7 +135,7 @@ func (it *testSimpleIterator) Cost() int64 {
 // Advance mirrors the anonymous iterator's advance(int), which throws
 // UnsupportedOperationException.
 func (it *testSimpleIterator) Advance(target int) (int, error) {
-	return 0, ErrUnsupportedOperation
+	return 0, quantization.ErrUnsupportedOperation
 }
 
 func (it *testSimpleIterator) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
@@ -171,7 +172,7 @@ func shuffleFloatArray(r *rand.Rand, arr []float32) {
 	}
 }
 
-func fromFloats(floats [][]float32) FloatVectorValues {
+func fromFloats(floats [][]float32) quantization.FloatVectorValues {
 	return newTestSimpleFloatVectorValues(floats, nil)
 }
 
@@ -212,13 +213,13 @@ func TestTinyVectors(t *testing.T) {
 			}
 			useFromVectors := r.Intn(2) == 0
 			var (
-				sq  *ScalarQuantizer
+				sq  *quantization.ScalarQuantizer
 				err error
 			)
 			if useFromVectors {
-				sq, err = FromVectors(values, 0.9, numVecs, bits)
+				sq, err = quantization.FromVectors(values, 0.9, numVecs, bits)
 			} else {
-				sq, err = FromVectorsAutoInterval(values, actualFunction, numVecs, bits)
+				sq, err = quantization.FromVectorsAutoInterval(values, actualFunction, numVecs, bits)
 			}
 			if err != nil {
 				t.Fatalf("function=%v bits=%d: unexpected err: %v", function, bits, err)
@@ -256,7 +257,7 @@ func TestNanAndInfValueFailure(t *testing.T) {
 		}
 		for _, bits := range []byte{4, 7} {
 			values := fromFloats(floats)
-			if _, err := FromVectors(values, 0.9, numVecs, bits); err == nil {
+			if _, err := quantization.FromVectors(values, 0.9, numVecs, bits); err == nil {
 				t.Errorf("FromVectors(function=%v bits=%d): expected error, got nil", function, bits)
 			}
 			actualFunction := function
@@ -264,7 +265,7 @@ func TestNanAndInfValueFailure(t *testing.T) {
 				actualFunction = index.VectorSimilarityFunctionDotProduct
 			}
 			values2 := fromFloats(floats)
-			if _, err := FromVectorsAutoInterval(values2, actualFunction, numVecs, bits); err == nil {
+			if _, err := quantization.FromVectorsAutoInterval(values2, actualFunction, numVecs, bits); err == nil {
 				t.Errorf("FromVectorsAutoInterval(function=%v bits=%d): expected error, got nil", function, bits)
 			}
 		}
@@ -282,7 +283,7 @@ func TestQuantizeAndDeQuantize7Bit(t *testing.T) {
 	simFunc := index.VectorSimilarityFunctionDotProduct
 	floats := randomFloats(r, numVecs, dims)
 	values := fromFloats(floats)
-	sq, err := FromVectors(values, 1, numVecs, 7)
+	sq, err := quantization.FromVectors(values, 1, numVecs, 7)
 	if err != nil {
 		t.Fatalf("FromVectors: %v", err)
 	}
@@ -327,7 +328,7 @@ func TestQuantizeAndDeQuantize8Bit(t *testing.T) {
 	simFunc := index.VectorSimilarityFunctionDotProduct
 	floats := randomFloats(r, numVecs, dims)
 	values := fromFloats(floats)
-	sq, err := FromVectors(values, 1, numVecs, 8)
+	sq, err := quantization.FromVectors(values, 1, numVecs, 8)
 	if err != nil {
 		t.Fatalf("FromVectors: %v", err)
 	}
@@ -361,17 +362,17 @@ func TestQuantiles(t *testing.T) {
 		percs[i] = float32(i)
 	}
 	shuffleFloatArray(r, percs)
-	low, high := getUpperAndLowerQuantile(percs, 0.9)
+	low, high := quantization.GetUpperAndLowerQuantile(percs, 0.9)
 	if math.Abs(float64(low-50)) > 1e-5 || math.Abs(float64(high-949)) > 1e-5 {
 		t.Errorf("0.9 quantile: got (%v, %v), want (50, 949)", low, high)
 	}
 	shuffleFloatArray(r, percs)
-	low, high = getUpperAndLowerQuantile(percs, 0.95)
+	low, high = quantization.GetUpperAndLowerQuantile(percs, 0.95)
 	if math.Abs(float64(low-25)) > 1e-5 || math.Abs(float64(high-974)) > 1e-5 {
 		t.Errorf("0.95 quantile: got (%v, %v), want (25, 974)", low, high)
 	}
 	shuffleFloatArray(r, percs)
-	low, high = getUpperAndLowerQuantile(percs, 0.99)
+	low, high = quantization.GetUpperAndLowerQuantile(percs, 0.99)
 	if math.Abs(float64(low-5)) > 1e-5 || math.Abs(float64(high-994)) > 1e-5 {
 		t.Errorf("0.99 quantile: got (%v, %v), want (5, 994)", low, high)
 	}
@@ -381,7 +382,7 @@ func TestQuantiles(t *testing.T) {
 // array must yield equal lower and upper bounds.
 func TestEdgeCase(t *testing.T) {
 	arr := []float32{1, 1, 1, 1, 1}
-	low, high := getUpperAndLowerQuantile(arr, 0.9)
+	low, high := quantization.GetUpperAndLowerQuantile(arr, 0.9)
 	if low != 1 || high != 1 {
 		t.Errorf("constant-array quantile: got (%v, %v), want (1, 1)", low, high)
 	}
@@ -400,40 +401,40 @@ func TestScalarWithSampling(t *testing.T) {
 		func() {
 			values := fromFloatsWithRandomDeletions(r, floats, r.Intn(numVecs-1)+1)
 			sample := values.numLiveVectors - 1
-			if sample < scratchSize+1 {
-				sample = scratchSize + 1
+			if sample < quantization.ScratchSize+1 {
+				sample = quantization.ScratchSize + 1
 			}
-			if _, err := fromVectorsWithSampleSize(values, 0.99, values.numLiveVectors, 7, sample); err != nil {
+			if _, err := quantization.FromVectorsWithSampleSize(values, 0.99, values.numLiveVectors, 7, sample); err != nil {
 				t.Fatalf("case#1: %v", err)
 			}
 		},
 		func() {
 			values := fromFloatsWithRandomDeletions(r, floats, r.Intn(numVecs-1)+1)
 			sample := values.numLiveVectors - 1
-			if sample < scratchSize+1 {
-				sample = scratchSize + 1
+			if sample < quantization.ScratchSize+1 {
+				sample = quantization.ScratchSize + 1
 			}
-			if _, err := fromVectorsWithSampleSize(values, 0.99, values.numLiveVectors, 7, sample); err != nil {
+			if _, err := quantization.FromVectorsWithSampleSize(values, 0.99, values.numLiveVectors, 7, sample); err != nil {
 				t.Fatalf("case#2: %v", err)
 			}
 		},
 		func() {
 			values := fromFloatsWithRandomDeletions(r, floats, r.Intn(numVecs-1)+1)
 			sample := values.numLiveVectors - 1
-			if sample < scratchSize+1 {
-				sample = scratchSize + 1
+			if sample < quantization.ScratchSize+1 {
+				sample = quantization.ScratchSize + 1
 			}
-			if _, err := fromVectorsWithSampleSize(values, 0.99, values.numLiveVectors, 7, sample); err != nil {
+			if _, err := quantization.FromVectorsWithSampleSize(values, 0.99, values.numLiveVectors, 7, sample); err != nil {
 				t.Fatalf("case#3: %v", err)
 			}
 		},
 		func() {
 			values := fromFloatsWithRandomDeletions(r, floats, r.Intn(numVecs-1)+1)
 			sample := r.Intn(len(values.floats)-1) + 1
-			if sample < scratchSize+1 {
-				sample = scratchSize + 1
+			if sample < quantization.ScratchSize+1 {
+				sample = quantization.ScratchSize + 1
 			}
-			if _, err := fromVectorsWithSampleSize(values, 0.99, values.numLiveVectors, 7, sample); err != nil {
+			if _, err := quantization.FromVectorsWithSampleSize(values, 0.99, values.numLiveVectors, 7, sample); err != nil {
 				t.Fatalf("case#4: %v", err)
 			}
 		},
@@ -457,7 +458,7 @@ func TestFromVectorsAutoInterval4Bit(t *testing.T) {
 		util.L2Normalize(v)
 	}
 	values := fromFloats(floats)
-	sq, err := FromVectorsAutoInterval(values, simFunc, numVecs, 4)
+	sq, err := quantization.FromVectorsAutoInterval(values, simFunc, numVecs, 4)
 	if err != nil {
 		t.Fatalf("FromVectorsAutoInterval: %v", err)
 	}
@@ -500,17 +501,17 @@ func TestFromVectorsAutoInterval4Bit(t *testing.T) {
 // branches of NewScalarQuantizer that Java enforces with assertions.
 func TestConstructorRejectsBadBits(t *testing.T) {
 	for _, bits := range []byte{0, 9, 10, 255} {
-		if _, err := NewScalarQuantizer(0, 1, bits); err == nil {
+		if _, err := quantization.NewScalarQuantizer(0, 1, bits); err == nil {
 			t.Errorf("bits=%d: expected error", bits)
 		}
 	}
-	if _, err := NewScalarQuantizer(1, 0, 7); err == nil {
+	if _, err := quantization.NewScalarQuantizer(1, 0, 7); err == nil {
 		t.Errorf("max < min: expected error")
 	}
-	if _, err := NewScalarQuantizer(float32(math.NaN()), 1, 7); err == nil {
+	if _, err := quantization.NewScalarQuantizer(float32(math.NaN()), 1, 7); err == nil {
 		t.Errorf("NaN min: expected error")
 	}
-	if _, err := NewScalarQuantizer(0, float32(math.Inf(1)), 7); err == nil {
+	if _, err := quantization.NewScalarQuantizer(0, float32(math.Inf(1)), 7); err == nil {
 		t.Errorf("Inf max: expected error")
 	}
 }
@@ -518,7 +519,7 @@ func TestConstructorRejectsBadBits(t *testing.T) {
 // TestConstructorAccessors verifies the getter surface of a
 // constructed quantiser matches its inputs.
 func TestConstructorAccessors(t *testing.T) {
-	sq, err := NewScalarQuantizer(-0.5, 0.5, 7)
+	sq, err := quantization.NewScalarQuantizer(-0.5, 0.5, 7)
 	if err != nil {
 		t.Fatalf("NewScalarQuantizer: %v", err)
 	}
@@ -542,7 +543,7 @@ func TestConstructorAccessors(t *testing.T) {
 // refactors cannot silently change it (downstream code may log
 // quantisers for debugging).
 func TestStringFormat(t *testing.T) {
-	sq, err := NewScalarQuantizer(-1, 1, 7)
+	sq, err := quantization.NewScalarQuantizer(-1, 1, 7)
 	if err != nil {
 		t.Fatalf("NewScalarQuantizer: %v", err)
 	}
@@ -562,11 +563,11 @@ func TestRecalculateCorrectiveOffset(t *testing.T) {
 	const dims = 16
 	floats := randomFloats(r, 4, dims)
 	values := fromFloats(floats)
-	oldQ, err := FromVectors(values, 1, 4, 7)
+	oldQ, err := quantization.FromVectors(values, 1, 4, 7)
 	if err != nil {
 		t.Fatalf("FromVectors (old): %v", err)
 	}
-	newQ, err := FromVectors(fromFloats(floats), 0.9, 4, 7)
+	newQ, err := quantization.FromVectors(fromFloats(floats), 0.9, 4, 7)
 	if err != nil {
 		t.Fatalf("FromVectors (new): %v", err)
 	}
@@ -593,7 +594,7 @@ func TestRecalculateCorrectiveOffset(t *testing.T) {
 // surface as panics, matching the Java assertion semantics (under -ea
 // the JVM throws; in Go we panic deterministically).
 func TestQuantizeLengthMismatchPanics(t *testing.T) {
-	sq, err := NewScalarQuantizer(-1, 1, 7)
+	sq, err := quantization.NewScalarQuantizer(-1, 1, 7)
 	if err != nil {
 		t.Fatalf("NewScalarQuantizer: %v", err)
 	}
@@ -607,7 +608,7 @@ func TestQuantizeLengthMismatchPanics(t *testing.T) {
 
 // TestDeQuantizeLengthMismatchPanics is the dequantise counterpart.
 func TestDeQuantizeLengthMismatchPanics(t *testing.T) {
-	sq, err := NewScalarQuantizer(-1, 1, 7)
+	sq, err := quantization.NewScalarQuantizer(-1, 1, 7)
 	if err != nil {
 		t.Fatalf("NewScalarQuantizer: %v", err)
 	}
@@ -623,7 +624,7 @@ func TestDeQuantizeLengthMismatchPanics(t *testing.T) {
 // Cosine guard documented on FromVectorsAutoInterval. The Java
 // reference uses a plain assert; in Go we return an error.
 func TestFromVectorsAutoIntervalRejectsCosine(t *testing.T) {
-	if _, err := FromVectorsAutoInterval(fromFloats([][]float32{{1, 0}}),
+	if _, err := quantization.FromVectorsAutoInterval(fromFloats([][]float32{{1, 0}}),
 		index.VectorSimilarityFunctionCosine, 1, 7); err == nil {
 		t.Errorf("expected error for COSINE")
 	}
@@ -633,7 +634,7 @@ func TestFromVectorsAutoIntervalRejectsCosine(t *testing.T) {
 // check that Java enforces with an assertion.
 func TestFromVectorsConfidenceIntervalGuard(t *testing.T) {
 	for _, ci := range []float32{-1, 0, 0.5, 0.89, 1.01, float32(math.NaN())} {
-		if _, err := FromVectors(fromFloats([][]float32{{1, 0}}), ci, 1, 7); err == nil {
+		if _, err := quantization.FromVectors(fromFloats([][]float32{{1, 0}}), ci, 1, 7); err == nil {
 			t.Errorf("ci=%v: expected error", ci)
 		}
 	}
@@ -642,7 +643,7 @@ func TestFromVectorsConfidenceIntervalGuard(t *testing.T) {
 // TestFromVectorsEmptyCorpus covers the totalVectorCount == 0 branch
 // that returns a placeholder quantiser.
 func TestFromVectorsEmptyCorpus(t *testing.T) {
-	sq, err := FromVectors(fromFloats([][]float32{{1, 0}}), 1, 0, 7)
+	sq, err := quantization.FromVectors(fromFloats([][]float32{{1, 0}}), 1, 0, 7)
 	if err != nil {
 		t.Fatalf("FromVectors: %v", err)
 	}

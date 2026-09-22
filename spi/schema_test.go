@@ -2,18 +2,20 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package spi
+package spi_test
 
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // indexedOpts returns FieldInfoOptions describing an indexed field with the
 // given index options, starting from the canonical defaults.
-func indexedOpts(io IndexOptions) FieldInfoOptions {
-	opts := DefaultFieldInfoOptions()
+func indexedOpts(io spi.IndexOptions) spi.FieldInfoOptions {
+	opts := spi.DefaultFieldInfoOptions()
 	opts.IndexOptions = io
 	return opts
 }
@@ -22,10 +24,10 @@ func indexedOpts(io IndexOptions) FieldInfoOptions {
 // accessor surface unchanged for a straightforward indexed field.
 func TestFieldInfoGetters(t *testing.T) {
 	t.Parallel()
-	opts := indexedOpts(IndexOptionsDocsAndFreqsAndPositions)
-	opts.DocValuesType = DocValuesTypeSorted
+	opts := indexedOpts(spi.IndexOptionsDocsAndFreqsAndPositions)
+	opts.DocValuesType = spi.DocValuesTypeSorted
 	opts.Stored = true
-	fi := NewFieldInfo("title", 3, opts)
+	fi := spi.NewFieldInfo("title", 3, opts)
 
 	if got := fi.Name(); got != "title" {
 		t.Errorf("Name() = %q, want title", got)
@@ -33,10 +35,10 @@ func TestFieldInfoGetters(t *testing.T) {
 	if got := fi.Number(); got != 3 {
 		t.Errorf("Number() = %d, want 3", got)
 	}
-	if got := fi.IndexOptions(); got != IndexOptionsDocsAndFreqsAndPositions {
+	if got := fi.IndexOptions(); got != spi.IndexOptionsDocsAndFreqsAndPositions {
 		t.Errorf("IndexOptions() = %v, want DocsAndFreqsAndPositions", got)
 	}
-	if got := fi.DocValuesType(); got != DocValuesTypeSorted {
+	if got := fi.DocValuesType(); got != spi.DocValuesTypeSorted {
 		t.Errorf("DocValuesType() = %v, want Sorted", got)
 	}
 	if !fi.IsStored() {
@@ -53,9 +55,9 @@ func TestFieldInfoGetters(t *testing.T) {
 // FieldInfo constructor invariants.
 func TestFieldInfoTermVectorNormalization(t *testing.T) {
 	t.Parallel()
-	opts := indexedOpts(IndexOptionsDocsAndFreqsAndPositions)
+	opts := indexedOpts(spi.IndexOptionsDocsAndFreqsAndPositions)
 	opts.StoreTermVectorPositions = true // implies storeTermVectors
-	fi := NewFieldInfo("body", 0, opts)
+	fi := spi.NewFieldInfo("body", 0, opts)
 
 	if !fi.StoreTermVectors() {
 		t.Error("StoreTermVectors() = false when positions requested, want true (auto-promoted)")
@@ -72,9 +74,9 @@ func TestFieldInfoTermVectorNormalization(t *testing.T) {
 // a tokenized-but-not-indexed field has its tokenized flag cleared.
 func TestFieldInfoTokenizedRequiresIndexing(t *testing.T) {
 	t.Parallel()
-	opts := DefaultFieldInfoOptions() // IndexOptionsNone
+	opts := spi.DefaultFieldInfoOptions() // IndexOptionsNone
 	opts.Tokenized = true
-	fi := NewFieldInfo("meta", 0, opts)
+	fi := spi.NewFieldInfo("meta", 0, opts)
 
 	if fi.IsTokenized() {
 		t.Error("IsTokenized() = true on a non-indexed field, want false (auto-cleared)")
@@ -87,21 +89,21 @@ func TestFieldInfoHasNorms(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
 		name      string
-		io        IndexOptions
+		io        spi.IndexOptions
 		omitNorms bool
 		want      bool
 	}{
-		{"not indexed", IndexOptionsNone, false, false},
-		{"docs only (no freqs)", IndexOptionsDocs, false, false},
-		{"docs+freqs", IndexOptionsDocsAndFreqs, false, true},
-		{"docs+freqs, omitNorms", IndexOptionsDocsAndFreqs, true, false},
-		{"full", IndexOptionsDocsAndFreqsAndPositionsAndOffsets, false, true},
+		{"not indexed", spi.IndexOptionsNone, false, false},
+		{"docs only (no freqs)", spi.IndexOptionsDocs, false, false},
+		{"docs+freqs", spi.IndexOptionsDocsAndFreqs, false, true},
+		{"docs+freqs, omitNorms", spi.IndexOptionsDocsAndFreqs, true, false},
+		{"full", spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets, false, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := indexedOpts(tc.io)
 			opts.OmitNorms = tc.omitNorms
-			fi := NewFieldInfo("f", 0, opts)
+			fi := spi.NewFieldInfo("f", 0, opts)
 			if got := fi.HasNorms(); got != tc.want {
 				t.Errorf("HasNorms() = %v, want %v", got, tc.want)
 			}
@@ -115,7 +117,7 @@ func TestFieldInfoStorePayloads(t *testing.T) {
 	t.Parallel()
 
 	// Field without positions: SetStorePayloads is a no-op.
-	low := NewFieldInfo("f1", 0, indexedOpts(IndexOptionsDocsAndFreqs))
+	low := spi.NewFieldInfo("f1", 0, indexedOpts(spi.IndexOptionsDocsAndFreqs))
 	if low.HasPayloads() {
 		t.Error("fresh field HasPayloads() = true, want false")
 	}
@@ -125,7 +127,7 @@ func TestFieldInfoStorePayloads(t *testing.T) {
 	}
 
 	// Field with positions: SetStorePayloads takes effect.
-	withPos := NewFieldInfo("f2", 1, indexedOpts(IndexOptionsDocsAndFreqsAndPositions))
+	withPos := spi.NewFieldInfo("f2", 1, indexedOpts(spi.IndexOptionsDocsAndFreqsAndPositions))
 	withPos.SetStorePayloads()
 	if !withPos.HasPayloads() {
 		t.Error("HasPayloads() = false after SetStorePayloads on a positions field, want true")
@@ -139,7 +141,7 @@ func TestFieldInfoStorePayloads(t *testing.T) {
 // PutAttribute, and the codec escape hatch PutCodecAttribute.
 func TestFieldInfoAttributes(t *testing.T) {
 	t.Parallel()
-	fi := NewFieldInfo("f", 0, indexedOpts(IndexOptionsDocs))
+	fi := spi.NewFieldInfo("f", 0, indexedOpts(spi.IndexOptionsDocs))
 
 	if got := fi.GetAttribute("missing"); got != "" {
 		t.Errorf("GetAttribute(missing) = %q, want empty", got)
@@ -173,7 +175,7 @@ func TestFieldInfoAttributes(t *testing.T) {
 // field number, independent of the source.
 func TestFieldInfoClone(t *testing.T) {
 	t.Parallel()
-	src := NewFieldInfo("orig", 2, indexedOpts(IndexOptionsDocsAndFreqsAndPositions))
+	src := spi.NewFieldInfo("orig", 2, indexedOpts(spi.IndexOptionsDocsAndFreqsAndPositions))
 	src.PutCodecAttribute("a", "1")
 
 	clone := src.Clone(9)
@@ -203,14 +205,14 @@ func TestFieldInfoClone(t *testing.T) {
 func TestFieldInfoCheckConsistency(t *testing.T) {
 	t.Parallel()
 
-	valid := NewFieldInfo("ok", 0, indexedOpts(IndexOptionsDocsAndFreqsAndPositions))
+	valid := spi.NewFieldInfo("ok", 0, indexedOpts(spi.IndexOptionsDocsAndFreqsAndPositions))
 	if err := valid.CheckConsistency(); err != nil {
 		t.Errorf("CheckConsistency() on a valid FieldInfo returned %v, want nil", err)
 	}
 
 	// Force an inconsistent state: positions stored without base term vectors.
-	bad := NewFieldInfo("bad", 1, func() FieldInfoOptions {
-		o := indexedOpts(IndexOptionsDocsAndFreqsAndPositions)
+	bad := spi.NewFieldInfo("bad", 1, func() spi.FieldInfoOptions {
+		o := indexedOpts(spi.IndexOptionsDocsAndFreqsAndPositions)
 		o.StoreTermVectorPositions = true
 		return o
 	}())
@@ -224,10 +226,10 @@ func TestFieldInfoCheckConsistency(t *testing.T) {
 // ordering.
 func TestFieldInfosAddAndLookup(t *testing.T) {
 	t.Parallel()
-	infos := NewFieldInfos()
+	infos := spi.NewFieldInfos()
 
-	a := NewFieldInfo("alpha", 0, indexedOpts(IndexOptionsDocs))
-	b := NewFieldInfo("beta", 1, indexedOpts(IndexOptionsDocsAndFreqs))
+	a := spi.NewFieldInfo("alpha", 0, indexedOpts(spi.IndexOptionsDocs))
+	b := spi.NewFieldInfo("beta", 1, indexedOpts(spi.IndexOptionsDocsAndFreqs))
 	if err := infos.Add(a); err != nil {
 		t.Fatalf("Add(alpha): %v", err)
 	}
@@ -264,8 +266,8 @@ func TestFieldInfosAddAndLookup(t *testing.T) {
 // the identical field is a no-op, while a name/number conflict is an error.
 func TestFieldInfosAddConflicts(t *testing.T) {
 	t.Parallel()
-	infos := NewFieldInfos()
-	a := NewFieldInfo("alpha", 0, indexedOpts(IndexOptionsDocs))
+	infos := spi.NewFieldInfos()
+	a := spi.NewFieldInfo("alpha", 0, indexedOpts(spi.IndexOptionsDocs))
 	if err := infos.Add(a); err != nil {
 		t.Fatalf("Add(alpha): %v", err)
 	}
@@ -279,13 +281,13 @@ func TestFieldInfosAddConflicts(t *testing.T) {
 	}
 
 	// Same name, different number: error.
-	dupName := NewFieldInfo("alpha", 5, indexedOpts(IndexOptionsDocs))
+	dupName := spi.NewFieldInfo("alpha", 5, indexedOpts(spi.IndexOptionsDocs))
 	if err := infos.Add(dupName); err == nil {
 		t.Error("Add(alpha#5) accepted a name with a different number, want error")
 	}
 
 	// Same number, different name: error.
-	dupNum := NewFieldInfo("gamma", 0, indexedOpts(IndexOptionsDocs))
+	dupNum := spi.NewFieldInfo("gamma", 0, indexedOpts(spi.IndexOptionsDocs))
 	if err := infos.Add(dupNum); err == nil {
 		t.Error("Add(gamma#0) accepted a re-used number, want error")
 	}
@@ -295,19 +297,19 @@ func TestFieldInfosAddConflicts(t *testing.T) {
 // field set.
 func TestFieldInfosAggregates(t *testing.T) {
 	t.Parallel()
-	infos := NewFieldInfos()
+	infos := spi.NewFieldInfos()
 
 	// One field with positions+offsets+payloads, one stored doc-values field.
-	withProx := func() FieldInfoOptions {
-		o := indexedOpts(IndexOptionsDocsAndFreqsAndPositionsAndOffsets)
+	withProx := func() spi.FieldInfoOptions {
+		o := indexedOpts(spi.IndexOptionsDocsAndFreqsAndPositionsAndOffsets)
 		return o
 	}()
-	if err := infos.Add(NewFieldInfo("text", 0, withProx)); err != nil {
+	if err := infos.Add(spi.NewFieldInfo("text", 0, withProx)); err != nil {
 		t.Fatalf("Add(text): %v", err)
 	}
-	dvOpts := DefaultFieldInfoOptions()
-	dvOpts.DocValuesType = DocValuesTypeNumeric
-	if err := infos.Add(NewFieldInfo("count", 1, dvOpts)); err != nil {
+	dvOpts := spi.DefaultFieldInfoOptions()
+	dvOpts.DocValuesType = spi.DocValuesTypeNumeric
+	if err := infos.Add(spi.NewFieldInfo("count", 1, dvOpts)); err != nil {
 		t.Fatalf("Add(count): %v", err)
 	}
 
@@ -331,7 +333,7 @@ func TestFieldInfosAggregates(t *testing.T) {
 // TestFieldInfosFreeze verifies Freeze makes the collection immutable.
 func TestFieldInfosFreeze(t *testing.T) {
 	t.Parallel()
-	infos := NewFieldInfos()
+	infos := spi.NewFieldInfos()
 	if infos.IsFrozen() {
 		t.Error("fresh FieldInfos IsFrozen() = true, want false")
 	}
@@ -339,7 +341,7 @@ func TestFieldInfosFreeze(t *testing.T) {
 	if !infos.IsFrozen() {
 		t.Error("IsFrozen() = false after Freeze, want true")
 	}
-	if err := infos.Add(NewFieldInfo("x", 0, indexedOpts(IndexOptionsDocs))); err == nil {
+	if err := infos.Add(spi.NewFieldInfo("x", 0, indexedOpts(spi.IndexOptionsDocs))); err == nil {
 		t.Error("Add on a frozen FieldInfos succeeded, want error")
 	}
 }
@@ -347,9 +349,9 @@ func TestFieldInfosFreeze(t *testing.T) {
 // TestFieldInfosBuilder exercises the fluent builder path.
 func TestFieldInfosBuilder(t *testing.T) {
 	t.Parallel()
-	b := NewFieldInfosBuilder().
-		Add(NewFieldInfo("a", 0, indexedOpts(IndexOptionsDocs))).
-		AddFromOptions("b", indexedOpts(IndexOptionsDocsAndFreqs))
+	b := spi.NewFieldInfosBuilder().
+		Add(spi.NewFieldInfo("a", 0, indexedOpts(spi.IndexOptionsDocs))).
+		AddFromOptions("b", indexedOpts(spi.IndexOptionsDocsAndFreqs))
 	infos := b.Build()
 
 	if got := infos.Size(); got != 2 {
@@ -364,8 +366,8 @@ func TestFieldInfosBuilder(t *testing.T) {
 // normalization (which mirrors NewFieldInfo).
 func TestFieldInfoBuilder(t *testing.T) {
 	t.Parallel()
-	fi := NewFieldInfoBuilder("v", 4).
-		SetIndexOptions(IndexOptionsDocsAndFreqsAndPositions).
+	fi := spi.NewFieldInfoBuilder("v", 4).
+		SetIndexOptions(spi.IndexOptionsDocsAndFreqsAndPositions).
 		SetStoreTermVectorOffsets(true). // implies storeTermVectors
 		SetStored(true).
 		Build()
@@ -386,7 +388,7 @@ func TestFieldInfoBuilder(t *testing.T) {
 func TestSegmentInfoBasics(t *testing.T) {
 	t.Parallel()
 	dir := store.NewByteBuffersDirectory()
-	si := NewSegmentInfo("_5", 42, dir)
+	si := spi.NewSegmentInfo("_5", 42, dir)
 
 	if si.Name() != "_5" {
 		t.Errorf("Name() = %q, want _5", si.Name())
@@ -442,15 +444,15 @@ func TestSegmentInfoBasics(t *testing.T) {
 // human-readable description.
 func TestSegmentInfoIndexSort(t *testing.T) {
 	t.Parallel()
-	si := NewSegmentInfo("_6", 1, store.NewByteBuffersDirectory())
+	si := spi.NewSegmentInfo("_6", 1, store.NewByteBuffersDirectory())
 
 	if got := si.GetIndexSortDescription(); got != "<not sorted>" {
 		t.Errorf("unsorted description = %q, want <not sorted>", got)
 	}
 
-	sort := NewSort(
-		NewSortFieldFull("price", 0, true), // descending
-		NewSortFieldFull("name", 0, false), // ascending
+	sort := spi.NewSort(
+		spi.NewSortFieldFull("price", 0, true), // descending
+		spi.NewSortFieldFull("name", 0, false), // ascending
 	)
 	si.SetIndexSort(sort)
 	if si.IndexSort() != sort {
@@ -466,7 +468,7 @@ func TestSegmentInfoIndexSort(t *testing.T) {
 // empty string clearing it), and HasBlocks()/SetHasBlocks default to false.
 func TestSegmentInfoMinVersionAndHasBlocks(t *testing.T) {
 	t.Parallel()
-	si := NewSegmentInfo("_7", 1, store.NewByteBuffersDirectory())
+	si := spi.NewSegmentInfo("_7", 1, store.NewByteBuffersDirectory())
 
 	// MinVersion defaults to absent (nil), matching Lucene's SegmentInfo where
 	// getMinVersion() returns null when no version was explicitly set. The .si
@@ -506,7 +508,7 @@ func TestSegmentInfoMinVersionAndHasBlocks(t *testing.T) {
 // TestSortField checks the SortField value type's accessors and reverse flag.
 func TestSortField(t *testing.T) {
 	t.Parallel()
-	sf := NewSortField("field", 0)
+	sf := spi.NewSortField("field", 0)
 	if sf.Field() != "field" {
 		t.Errorf("Field() = %q, want field", sf.Field())
 	}
@@ -518,12 +520,12 @@ func TestSortField(t *testing.T) {
 		t.Error("Descending() = false after SetReverse(true), want true")
 	}
 
-	full := NewSortFieldFull("f2", 0, true)
+	full := spi.NewSortFieldFull("f2", 0, true)
 	if !full.Descending() {
 		t.Error("NewSortFieldFull(descending=true).Descending() = false, want true")
 	}
 
-	sort := NewSort(sf, full)
+	sort := spi.NewSort(sf, full)
 	if got := sort.Fields(); len(got) != 2 {
 		t.Errorf("Sort.Fields() len = %d, want 2", len(got))
 	}
@@ -538,91 +540,91 @@ func TestFieldInfoVerifyAndUpdate(t *testing.T) {
 	t.Parallel()
 
 	t.Run("indexed then sorted DV accumulates both", func(t *testing.T) {
-		fi := NewFieldInfo("f", 0, indexedOpts(IndexOptionsDocs))
+		fi := spi.NewFieldInfo("f", 0, indexedOpts(spi.IndexOptionsDocs))
 
-		dvOpts := DefaultFieldInfoOptions()
-		dvOpts.DocValuesType = DocValuesTypeSorted
+		dvOpts := spi.DefaultFieldInfoOptions()
+		dvOpts.DocValuesType = spi.DocValuesTypeSorted
 		if err := fi.VerifyAndUpdate(dvOpts); err != nil {
 			t.Fatalf("VerifyAndUpdate(sorted DV): %v", err)
 		}
-		if fi.IndexOptions() != IndexOptionsDocs {
+		if fi.IndexOptions() != spi.IndexOptionsDocs {
 			t.Errorf("IndexOptions = %s, want DOCS (indexed contribution must survive)", fi.IndexOptions())
 		}
-		if fi.DocValuesType() != DocValuesTypeSorted {
+		if fi.DocValuesType() != spi.DocValuesTypeSorted {
 			t.Errorf("DocValuesType = %s, want SORTED (DV contribution must be adopted)", fi.DocValuesType())
 		}
 	})
 
 	t.Run("sorted DV then indexed accumulates both", func(t *testing.T) {
-		dvOpts := DefaultFieldInfoOptions()
-		dvOpts.DocValuesType = DocValuesTypeSorted
-		fi := NewFieldInfo("f", 0, dvOpts)
+		dvOpts := spi.DefaultFieldInfoOptions()
+		dvOpts.DocValuesType = spi.DocValuesTypeSorted
+		fi := spi.NewFieldInfo("f", 0, dvOpts)
 
-		if err := fi.VerifyAndUpdate(indexedOpts(IndexOptionsDocs)); err != nil {
+		if err := fi.VerifyAndUpdate(indexedOpts(spi.IndexOptionsDocs)); err != nil {
 			t.Fatalf("VerifyAndUpdate(indexed): %v", err)
 		}
-		if fi.IndexOptions() != IndexOptionsDocs {
+		if fi.IndexOptions() != spi.IndexOptionsDocs {
 			t.Errorf("IndexOptions = %s, want DOCS", fi.IndexOptions())
 		}
-		if fi.DocValuesType() != DocValuesTypeSorted {
+		if fi.DocValuesType() != spi.DocValuesTypeSorted {
 			t.Errorf("DocValuesType = %s, want SORTED (DV contribution must survive)", fi.DocValuesType())
 		}
 	})
 
 	t.Run("NONE never clears a set group", func(t *testing.T) {
-		opts := indexedOpts(IndexOptionsDocs)
-		opts.DocValuesType = DocValuesTypeNumeric
-		fi := NewFieldInfo("f", 0, opts)
+		opts := indexedOpts(spi.IndexOptionsDocs)
+		opts.DocValuesType = spi.DocValuesTypeNumeric
+		fi := spi.NewFieldInfo("f", 0, opts)
 
 		// A purely-default (NONE) contribution must not downgrade either group.
-		if err := fi.VerifyAndUpdate(DefaultFieldInfoOptions()); err != nil {
+		if err := fi.VerifyAndUpdate(spi.DefaultFieldInfoOptions()); err != nil {
 			t.Fatalf("VerifyAndUpdate(defaults): %v", err)
 		}
-		if fi.IndexOptions() != IndexOptionsDocs {
+		if fi.IndexOptions() != spi.IndexOptionsDocs {
 			t.Errorf("IndexOptions cleared to %s by a NONE contribution", fi.IndexOptions())
 		}
-		if fi.DocValuesType() != DocValuesTypeNumeric {
+		if fi.DocValuesType() != spi.DocValuesTypeNumeric {
 			t.Errorf("DocValuesType cleared to %s by a NONE contribution", fi.DocValuesType())
 		}
 	})
 
 	t.Run("conflicting doc values type is an error", func(t *testing.T) {
-		dvOpts := DefaultFieldInfoOptions()
-		dvOpts.DocValuesType = DocValuesTypeSorted
-		fi := NewFieldInfo("f", 0, dvOpts)
+		dvOpts := spi.DefaultFieldInfoOptions()
+		dvOpts.DocValuesType = spi.DocValuesTypeSorted
+		fi := spi.NewFieldInfo("f", 0, dvOpts)
 
-		conflicting := DefaultFieldInfoOptions()
-		conflicting.DocValuesType = DocValuesTypeNumeric
+		conflicting := spi.DefaultFieldInfoOptions()
+		conflicting.DocValuesType = spi.DocValuesTypeNumeric
 		if err := fi.VerifyAndUpdate(conflicting); err == nil {
 			t.Error("VerifyAndUpdate with conflicting DV type returned nil, want error")
 		}
-		if fi.DocValuesType() != DocValuesTypeSorted {
+		if fi.DocValuesType() != spi.DocValuesTypeSorted {
 			t.Errorf("DocValuesType mutated to %s on conflict, want SORTED preserved", fi.DocValuesType())
 		}
 	})
 
 	t.Run("conflicting index options is an error", func(t *testing.T) {
-		fi := NewFieldInfo("f", 0, indexedOpts(IndexOptionsDocs))
-		if err := fi.VerifyAndUpdate(indexedOpts(IndexOptionsDocsAndFreqsAndPositions)); err == nil {
+		fi := spi.NewFieldInfo("f", 0, indexedOpts(spi.IndexOptionsDocs))
+		if err := fi.VerifyAndUpdate(indexedOpts(spi.IndexOptionsDocsAndFreqsAndPositions)); err == nil {
 			t.Error("VerifyAndUpdate with conflicting index options returned nil, want error")
 		}
-		if fi.IndexOptions() != IndexOptionsDocs {
+		if fi.IndexOptions() != spi.IndexOptionsDocs {
 			t.Errorf("IndexOptions mutated to %s on conflict, want DOCS preserved", fi.IndexOptions())
 		}
 	})
 
 	t.Run("point and vector dims accumulate", func(t *testing.T) {
 		// Start from a point field, accumulate a vector contribution.
-		ptOpts := DefaultFieldInfoOptions()
+		ptOpts := spi.DefaultFieldInfoOptions()
 		ptOpts.PointDimensionCount = 1
 		ptOpts.PointIndexDimensionCount = 1
 		ptOpts.PointNumBytes = 4
-		fi := NewFieldInfo("f", 0, ptOpts)
+		fi := spi.NewFieldInfo("f", 0, ptOpts)
 
-		vecOpts := DefaultFieldInfoOptions()
+		vecOpts := spi.DefaultFieldInfoOptions()
 		vecOpts.VectorDimension = 3
-		vecOpts.VectorEncoding = VectorEncodingFloat32
-		vecOpts.VectorSimilarityFunction = VectorSimilarityFunctionEuclidean
+		vecOpts.VectorEncoding = util.VectorEncodingFloat32
+		vecOpts.VectorSimilarityFunction = util.EuclideanSim
 		if err := fi.VerifyAndUpdate(vecOpts); err != nil {
 			t.Fatalf("VerifyAndUpdate(vector): %v", err)
 		}

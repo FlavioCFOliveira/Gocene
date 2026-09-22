@@ -44,8 +44,8 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	indexTestutil "github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testutil "github.com/FlavioCFOliveira/Gocene/tests/util"
 )
 
 // TestOmitNorms_MixedMergeThrowsError ports testMixedMergeThrowsError().
@@ -103,7 +103,7 @@ func TestOmitNorms_MixedMergeThrowsError(t *testing.T) {
 	}
 	defer r.Close()
 
-	leaf := indexTestutil.GetOnlyLeafReader(r)
+	leaf := testutil.GetOnlyLeafReader(r)
 	infos := leaf.GetFieldInfos()
 	if infos == nil {
 		t.Fatal("GetFieldInfos returned nil")
@@ -180,7 +180,7 @@ func TestOmitNorms_MixedRAM(t *testing.T) {
 	}
 	defer r.Close()
 
-	leaf := indexTestutil.GetOnlyLeafReader(r)
+	leaf := testutil.GetOnlyLeafReader(r)
 	infos := leaf.GetFieldInfos()
 	if infos == nil {
 		t.Fatal("GetFieldInfos returned nil")

@@ -12,8 +12,9 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/index/testutil"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
+	testutil "github.com/FlavioCFOliveira/Gocene/tests/util"
 )
 
 // TestTermVectorsWriter ports org.apache.lucene.index.TestTermVectorsWriter
@@ -30,11 +31,11 @@ import (
 //
 // Infrastructure notes:
 //
-//   - testutil.MockAnalyzer replaces Lucene's MockAnalyzer(random()) for the
-//     offset-sensitive tests. The default testutil.WHITESPACE automaton plus a
+//   - testanalysis.MockAnalyzer replaces Lucene's MockAnalyzer(random()) for the
+//     offset-sensitive tests. The default testanalysis.WHITESPACE automaton plus a
 //     one-character offset gap reproduces the MockTokenizer behaviour needed for
 //     the LUCENE-1442/1448 assertions.
-//   - testutil.NewMockAnalyzer(runAutomaton, lowerCase, maxTokenLength, stopSet,
+//   - testanalysis.NewMockAnalyzer(runAutomaton, lowerCase, maxTokenLength, stopSet,
 //     enableChecks) is used directly; the ENGLISH_STOPSET variant drives
 //     testEndOffsetPositionStopFilter.
 //   - testutil.RamCopyOf and testutil.WrapDirectory provide the
@@ -71,11 +72,11 @@ func customTVType(base *index.FieldType) *index.FieldType {
 	return ft
 }
 
-// defaultMockAnalyzer returns a testutil.MockAnalyzer configured like Lucene's
+// defaultMockAnalyzer returns a testanalysis.MockAnalyzer configured like Lucene's
 // MockAnalyzer(random()) default: whitespace tokenization, no lower-casing,
 // no stop set, workflow checks enabled, and a 1-character offset gap.
-func defaultMockAnalyzer() *testutil.MockAnalyzer {
-	return testutil.NewMockAnalyzer(testutil.WHITESPACE, false, testutil.DefaultMaxTokenLength, testutil.EMPTY_STOPSET, true)
+func defaultMockAnalyzer() *testanalysis.MockAnalyzer {
+	return testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, false, testanalysis.DefaultMaxTokenLength, testanalysis.EMPTY_STOPSET, true)
 }
 
 // newTVWriterConfig builds the IndexWriterConfig shared by the LUCENE-1168
@@ -426,7 +427,7 @@ func TestTermVectorsWriterEndOffsetPositionStopFilter(t *testing.T) {
 	// MockTokenFilter.ENGLISH_STOPSET, so "the" is removed; "abcd" keeps offsets
 	// 0..4 and the second occurrence lands at 9..13 (the stopword consumes
 	// characters 5..8).
-	stopAnalyzer := testutil.NewMockAnalyzer(testutil.SIMPLE, true, testutil.DefaultMaxTokenLength, testutil.ENGLISH_STOPSET, true)
+	stopAnalyzer := testanalysis.NewMockAnalyzer(testanalysis.SIMPLE, true, testanalysis.DefaultMaxTokenLength, testanalysis.ENGLISH_STOPSET, true)
 	runTwoTermOffsetCase(t, "abcd the", []offsetCheck{{0, 4}, {9, 13}}, stopAnalyzer)
 }
 

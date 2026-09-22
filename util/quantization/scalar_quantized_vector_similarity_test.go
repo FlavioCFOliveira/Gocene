@@ -2,7 +2,7 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-package quantization
+package quantization_test
 
 import (
 	"errors"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/util/quantization"
 )
 
 // nearF32 reports whether two float32 values agree within tol.
@@ -34,15 +35,15 @@ func TestFromVectorSimilarity_DispatchTypes(t *testing.T) {
 		sim  index.VectorSimilarityFunction
 		bits byte
 		// want is the type assertion to perform on the result.
-		assertType func(t *testing.T, got ScalarQuantizedVectorSimilarity)
+		assertType func(t *testing.T, got quantization.ScalarQuantizedVectorSimilarity)
 	}{
 		{
 			name: "EUCLIDEAN bits=7",
 			sim:  index.VectorSimilarityFunctionEuclidean,
 			bits: 7,
-			assertType: func(t *testing.T, got ScalarQuantizedVectorSimilarity) {
+			assertType: func(t *testing.T, got quantization.ScalarQuantizedVectorSimilarity) {
 				t.Helper()
-				if _, ok := got.(*Euclidean); !ok {
+				if _, ok := got.(*quantization.Euclidean); !ok {
 					t.Fatalf("expected *Euclidean, got %T", got)
 				}
 			},
@@ -51,9 +52,9 @@ func TestFromVectorSimilarity_DispatchTypes(t *testing.T) {
 			name: "DOT_PRODUCT bits=7",
 			sim:  index.VectorSimilarityFunctionDotProduct,
 			bits: 7,
-			assertType: func(t *testing.T, got ScalarQuantizedVectorSimilarity) {
+			assertType: func(t *testing.T, got quantization.ScalarQuantizedVectorSimilarity) {
 				t.Helper()
-				if _, ok := got.(*DotProduct); !ok {
+				if _, ok := got.(*quantization.DotProduct); !ok {
 					t.Fatalf("expected *DotProduct, got %T", got)
 				}
 			},
@@ -62,9 +63,9 @@ func TestFromVectorSimilarity_DispatchTypes(t *testing.T) {
 			name: "COSINE bits=4 (int4 path)",
 			sim:  index.VectorSimilarityFunctionCosine,
 			bits: 4,
-			assertType: func(t *testing.T, got ScalarQuantizedVectorSimilarity) {
+			assertType: func(t *testing.T, got quantization.ScalarQuantizedVectorSimilarity) {
 				t.Helper()
-				if _, ok := got.(*DotProduct); !ok {
+				if _, ok := got.(*quantization.DotProduct); !ok {
 					t.Fatalf("expected *DotProduct, got %T", got)
 				}
 			},
@@ -73,9 +74,9 @@ func TestFromVectorSimilarity_DispatchTypes(t *testing.T) {
 			name: "MAXIMUM_INNER_PRODUCT bits=8",
 			sim:  index.VectorSimilarityFunctionMaximumInnerProduct,
 			bits: 8,
-			assertType: func(t *testing.T, got ScalarQuantizedVectorSimilarity) {
+			assertType: func(t *testing.T, got quantization.ScalarQuantizedVectorSimilarity) {
 				t.Helper()
-				if _, ok := got.(*MaximumInnerProduct); !ok {
+				if _, ok := got.(*quantization.MaximumInnerProduct); !ok {
 					t.Fatalf("expected *MaximumInnerProduct, got %T", got)
 				}
 			},
@@ -84,7 +85,7 @@ func TestFromVectorSimilarity_DispatchTypes(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := FromVectorSimilarity(tc.sim, constMul, tc.bits)
+			got, err := quantization.FromVectorSimilarity(tc.sim, constMul, tc.bits)
 			if err != nil {
 				t.Fatalf("FromVectorSimilarity: unexpected error: %v", err)
 			}
@@ -101,7 +102,7 @@ func TestFromVectorSimilarity_DispatchTypes(t *testing.T) {
 // nil-valued implementation. Java surfaces a MatchException here.
 func TestFromVectorSimilarity_UnknownSimilarity(t *testing.T) {
 	const bogus index.VectorSimilarityFunction = 99
-	got, err := FromVectorSimilarity(bogus, 0.5, 7)
+	got, err := quantization.FromVectorSimilarity(bogus, 0.5, 7)
 	if err == nil {
 		t.Fatalf("FromVectorSimilarity(%v): expected error, got nil", bogus)
 	}
@@ -128,7 +129,7 @@ func TestEuclidean_ScoreKnownValues(t *testing.T) {
 	query := []byte{0, 0, 0, 0}
 	want := float32(1.0 / 8.5)
 
-	e := &Euclidean{constMultiplier: constMul}
+	e := &quantization.Euclidean{constMultiplier: constMul}
 	got := e.Score(query, 0, stored, 0)
 	if !nearF32(got, want, 1e-7) {
 		t.Fatalf("Euclidean.Score = %v, want %v", got, want)
@@ -136,7 +137,7 @@ func TestEuclidean_ScoreKnownValues(t *testing.T) {
 
 	// Verify the same path through the factory yields an identical
 	// result; offsets are ignored by Euclidean.
-	impl, err := FromVectorSimilarity(index.VectorSimilarityFunctionEuclidean, constMul, 7)
+	impl, err := quantization.FromVectorSimilarity(index.VectorSimilarityFunctionEuclidean, constMul, 7)
 	if err != nil {
 		t.Fatalf("FromVectorSimilarity: %v", err)
 	}
@@ -168,7 +169,7 @@ func TestDotProduct_ScoreKnownValues(t *testing.T) {
 	stored := []byte{1, 2, 3, 4}
 	query := []byte{5, 6, 7, 8}
 
-	d := &DotProduct{constMultiplier: constMul, comparator: util.Uint8DotProduct}
+	d := &quantization.DotProduct{constMultiplier: constMul, comparator: util.Uint8DotProduct}
 	got := d.Score(query, queryOffset, stored, vectorOffset)
 	const want float32 = 4.25
 	if !nearF32(got, want, 1e-6) {
@@ -184,7 +185,7 @@ func TestDotProduct_ScoreClampsAtZero(t *testing.T) {
 	// (1 + -10) / 2 = -4.5 -> clamped to 0.
 	stored := make([]byte, 8)
 	query := make([]byte, 8)
-	d := &DotProduct{constMultiplier: 1, comparator: util.Uint8DotProduct}
+	d := &quantization.DotProduct{constMultiplier: 1, comparator: util.Uint8DotProduct}
 	got := d.Score(query, -5, stored, -5)
 	if got != 0 {
 		t.Fatalf("DotProduct.Score clamp: got %v, want 0", got)
@@ -205,14 +206,14 @@ func TestDotProduct_Int4Dispatch(t *testing.T) {
 	)
 
 	// bits=4 -> int4 path (currently delegating to Uint8DotProduct).
-	int4Impl, err := FromVectorSimilarity(index.VectorSimilarityFunctionDotProduct, constMul, 4)
+	int4Impl, err := quantization.FromVectorSimilarity(index.VectorSimilarityFunctionDotProduct, constMul, 4)
 	if err != nil {
 		t.Fatalf("FromVectorSimilarity(4): %v", err)
 	}
 	got4 := int4Impl.Score(query, queryOffset, stored, vectorOffset)
 
 	// bits=8 -> uint8 path.
-	uint8Impl, err := FromVectorSimilarity(index.VectorSimilarityFunctionDotProduct, constMul, 8)
+	uint8Impl, err := quantization.FromVectorSimilarity(index.VectorSimilarityFunctionDotProduct, constMul, 8)
 	if err != nil {
 		t.Fatalf("FromVectorSimilarity(8): %v", err)
 	}
@@ -257,7 +258,7 @@ func TestMaximumInnerProduct_ScoreKnownValues(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := &MaximumInnerProduct{constMultiplier: tc.constMul, comparator: util.Uint8DotProduct}
+			m := &quantization.MaximumInnerProduct{constMultiplier: tc.constMul, comparator: util.Uint8DotProduct}
 			got := m.Score(query, tc.queryOffset, stored, tc.vectorOffset)
 			if !nearF32(got, tc.want, 1e-6) {
 				t.Fatalf("Score = %v, want %v", got, tc.want)
@@ -293,7 +294,7 @@ func TestNonZeroScores(t *testing.T) {
 				if r.IntN(2) == 0 {
 					mul = -mul
 				}
-				impl, err := FromVectorSimilarity(sim, mul, bits)
+				impl, err := quantization.FromVectorSimilarity(sim, mul, bits)
 				if err != nil {
 					t.Fatalf("sim=%v bits=%d: factory error: %v", sim, bits, err)
 				}
@@ -323,7 +324,7 @@ func TestEuclidean_LengthMismatchPanics(t *testing.T) {
 			t.Fatal("expected panic on length mismatch")
 		}
 	}()
-	e := &Euclidean{constMultiplier: 1}
+	e := &quantization.Euclidean{constMultiplier: 1}
 	_ = e.Score([]byte{0, 0}, 0, []byte{0, 0, 0}, 0)
 }
 
@@ -335,7 +336,7 @@ func TestDotProduct_LengthMismatchPanics(t *testing.T) {
 			t.Fatal("expected panic on length mismatch")
 		}
 	}()
-	d := &DotProduct{constMultiplier: 1, comparator: util.Uint8DotProduct}
+	d := &quantization.DotProduct{constMultiplier: 1, comparator: util.Uint8DotProduct}
 	_ = d.Score([]byte{0, 0}, 0, []byte{0, 0, 0}, 0)
 }
 
@@ -347,7 +348,7 @@ func TestMaximumInnerProduct_LengthMismatchPanics(t *testing.T) {
 			t.Fatal("expected panic on length mismatch")
 		}
 	}()
-	m := &MaximumInnerProduct{constMultiplier: 1, comparator: util.Uint8DotProduct}
+	m := &quantization.MaximumInnerProduct{constMultiplier: 1, comparator: util.Uint8DotProduct}
 	_ = m.Score([]byte{0, 0}, 0, []byte{0, 0, 0}, 0)
 }
 
@@ -357,7 +358,7 @@ func TestMaximumInnerProduct_LengthMismatchPanics(t *testing.T) {
 // implementation today simply returns a wrapped fmt.Errorf, so the
 // surface contract is "non-nil error + nil impl".
 func TestFromVectorSimilarity_RejectsUnknown(t *testing.T) {
-	_, err := FromVectorSimilarity(index.VectorSimilarityFunction(123), 0, 8)
+	_, err := quantization.FromVectorSimilarity(index.VectorSimilarityFunction(123), 0, 8)
 	if err == nil {
 		t.Fatal("expected error")
 	}

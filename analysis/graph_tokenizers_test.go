@@ -12,36 +12,34 @@
 
 package analysis_test
 
-	
-
 import (
-	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"math/rand"
 	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/internal/testutil"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 	"github.com/FlavioCFOliveira/Gocene/util"
 	"github.com/FlavioCFOliveira/Gocene/util/automaton"
 )
 
 // ---- helpers ---------------------------------------------------------------
 
-// mkTok builds a testutil.Token with the given term, position increment, and
+// mkTok builds a testanalysis.Token with the given term, position increment, and
 // position length, mirroring the Java token(term, posInc, posLength) helper.
 // Start and end offsets are 0. Uses NewTokenWithPosIncAndLength to ensure
 // that both positionIncrementSet and positionLengthSet are true, so
 // CannedTokenStream does not fall back to the default values of 1.
-func mkTok(term string, posInc, posLen int) testutil.Token {
-	return testutil.NewTokenWithPosIncAndLength(term, posInc, 0, 0, posLen)
+func mkTok(term string, posInc, posLen int) testanalysis.Token {
+	return testanalysis.NewTokenWithPosIncAndLength(term, posInc, 0, 0, posLen)
 }
 
-// mkTokOffset builds a testutil.Token with explicit start/end offsets in
+// mkTokOffset builds a testanalysis.Token with explicit start/end offsets in
 // addition to posInc and posLength, mirroring the Java
 // token(term, posInc, posLength, startOffset, endOffset) overload.
-func mkTokOffset(term string, posInc, posLen, start, end int) testutil.Token {
-	return testutil.NewTokenWithPosIncAndLength(term, posInc, start, end, posLen)
+func mkTokOffset(term string, posInc, posLen, start, end int) testanalysis.Token {
+	return testanalysis.NewTokenWithPosIncAndLength(term, posInc, start, end, posLen)
 }
 
 // sep is the POS_SEP automaton used between adjacent tokens.
@@ -107,13 +105,13 @@ func assertSameLanguage(t *testing.T, expected *automaton.Automaton, ts analysis
 
 // TestGraphTokenizers_SingleToken mirrors testSingleToken.
 func TestGraphTokenizers_SingleToken(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(mkTok("abc", 1, 1))
+	ts := testanalysis.NewCannedTokenStream(mkTok("abc", 1, 1))
 	assertSameLanguage(t, s2a("abc"), ts)
 }
 
 // TestGraphTokenizers_MultipleHoles mirrors testMultipleHoles.
 func TestGraphTokenizers_MultipleHoles(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(
+	ts := testanalysis.NewCannedTokenStream(
 		mkTok("a", 1, 1),
 		mkTok("b", 3, 1),
 	)
@@ -123,7 +121,7 @@ func TestGraphTokenizers_MultipleHoles(t *testing.T) {
 
 // TestGraphTokenizers_SynOverMultipleHoles mirrors testSynOverMultipleHoles.
 func TestGraphTokenizers_SynOverMultipleHoles(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(
+	ts := testanalysis.NewCannedTokenStream(
 		mkTok("a", 1, 1),
 		mkTok("x", 0, 3),
 		mkTok("b", 3, 1),
@@ -135,7 +133,7 @@ func TestGraphTokenizers_SynOverMultipleHoles(t *testing.T) {
 
 // TestGraphTokenizers_TwoTokens mirrors testTwoTokens.
 func TestGraphTokenizers_TwoTokens(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(
+	ts := testanalysis.NewCannedTokenStream(
 		mkTok("abc", 1, 1),
 		mkTok("def", 1, 1),
 	)
@@ -144,7 +142,7 @@ func TestGraphTokenizers_TwoTokens(t *testing.T) {
 
 // TestGraphTokenizers_Hole mirrors testHole.
 func TestGraphTokenizers_Hole(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(
+	ts := testanalysis.NewCannedTokenStream(
 		mkTok("abc", 1, 1),
 		mkTok("def", 2, 1),
 	)
@@ -154,7 +152,7 @@ func TestGraphTokenizers_Hole(t *testing.T) {
 
 // TestGraphTokenizers_OverlappedTokensSausage mirrors testOverlappedTokensSausage.
 func TestGraphTokenizers_OverlappedTokensSausage(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(
+	ts := testanalysis.NewCannedTokenStream(
 		mkTok("abc", 1, 1),
 		mkTok("xyz", 0, 1),
 	)
@@ -163,7 +161,7 @@ func TestGraphTokenizers_OverlappedTokensSausage(t *testing.T) {
 
 // TestGraphTokenizers_OverlappedTokensLattice mirrors testOverlappedTokensLattice.
 func TestGraphTokenizers_OverlappedTokensLattice(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(
+	ts := testanalysis.NewCannedTokenStream(
 		mkTok("abc", 1, 1),
 		mkTok("xyz", 0, 2),
 		mkTok("def", 1, 1),
@@ -175,7 +173,7 @@ func TestGraphTokenizers_OverlappedTokensLattice(t *testing.T) {
 
 // TestGraphTokenizers_SynOverHole mirrors testSynOverHole.
 func TestGraphTokenizers_SynOverHole(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(
+	ts := testanalysis.NewCannedTokenStream(
 		mkTok("a", 1, 1),
 		mkTok("X", 0, 2),
 		mkTok("b", 2, 1),
@@ -190,7 +188,7 @@ func TestGraphTokenizers_SynOverHole(t *testing.T) {
 
 // TestGraphTokenizers_SynOverHole2 mirrors testSynOverHole2.
 func TestGraphTokenizers_SynOverHole2(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(
+	ts := testanalysis.NewCannedTokenStream(
 		mkTok("xyz", 1, 1),
 		mkTok("abc", 0, 3),
 		mkTok("def", 2, 1),
@@ -204,7 +202,7 @@ func TestGraphTokenizers_SynOverHole2(t *testing.T) {
 
 // TestGraphTokenizers_OverlappedTokensLattice2 mirrors testOverlappedTokensLattice2.
 func TestGraphTokenizers_OverlappedTokensLattice2(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(
+	ts := testanalysis.NewCannedTokenStream(
 		mkTok("abc", 1, 1),
 		mkTok("xyz", 0, 3),
 		mkTok("def", 1, 1),
@@ -217,7 +215,7 @@ func TestGraphTokenizers_OverlappedTokensLattice2(t *testing.T) {
 
 // TestGraphTokenizers_StartsWithHole mirrors testStartsWithHole.
 func TestGraphTokenizers_StartsWithHole(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(mkTok("abc", 2, 1))
+	ts := testanalysis.NewCannedTokenStream(mkTok("abc", 2, 1))
 	expected := joinA(hole, sep, s2a("abc"))
 	assertSameLanguage(t, expected, ts)
 }
@@ -225,14 +223,14 @@ func TestGraphTokenizers_StartsWithHole(t *testing.T) {
 // TestGraphTokenizers_EndsWithHole mirrors testEndsWithHole.
 // The Java test uses CannedTokenStream(finalPosInc=1, finalOffset=0, tokens).
 func TestGraphTokenizers_EndsWithHole(t *testing.T) {
-	ts := testutil.NewCannedTokenStreamWithFinal(1, 0, mkTok("abc", 2, 1))
+	ts := testanalysis.NewCannedTokenStreamWithFinal(1, 0, mkTok("abc", 2, 1))
 	expected := joinA(hole, sep, s2a("abc"), sep, hole)
 	assertSameLanguage(t, expected, ts)
 }
 
 // TestGraphTokenizers_SynHangingOverEnd mirrors testSynHangingOverEnd.
 func TestGraphTokenizers_SynHangingOverEnd(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(
+	ts := testanalysis.NewCannedTokenStream(
 		mkTok("a", 1, 1),
 		mkTok("X", 0, 10),
 	)
@@ -241,7 +239,7 @@ func TestGraphTokenizers_SynHangingOverEnd(t *testing.T) {
 
 // TestGraphTokenizers_TokenStreamGraphWithHoles mirrors testTokenStreamGraphWithHoles.
 func TestGraphTokenizers_TokenStreamGraphWithHoles(t *testing.T) {
-	ts := testutil.NewCannedTokenStream(
+	ts := testanalysis.NewCannedTokenStream(
 		mkTok("abc", 1, 1),
 		mkTok("xyz", 1, 8),
 		mkTok("def", 1, 1),
@@ -346,19 +344,19 @@ func TestGraphTokenizers_MockGraphTokenFilterBasic(t *testing.T) {
 // TestGraphTokenizers_MockGraphTokenFilterOnGraphInput mirrors testMockGraphTokenFilterOnGraphInput.
 func TestGraphTokenizers_MockGraphTokenFilterOnGraphInput(t *testing.T) {
 	// Build a graph input: "a" (posLen=2), "b", "c".
-	tokens := []testutil.Token{
-		testutil.NewTokenWithPosIncAndLength("a", 1, 0, 1, 2),
-		testutil.NewTokenWithPosIncAndLength("b", 1, 1, 2, 1),
-		testutil.NewTokenWithPosIncAndLength("c", 0, 1, 2, 1),
+	tokens := []testanalysis.Token{
+		testanalysis.NewTokenWithPosIncAndLength("a", 1, 0, 1, 2),
+		testanalysis.NewTokenWithPosIncAndLength("b", 1, 1, 2, 1),
+		testanalysis.NewTokenWithPosIncAndLength("c", 0, 1, 2, 1),
 	}
 
 	// Run two independent streams with the same seed and input.
-	cts1 := testutil.NewCannedTokenStream(tokens...)
+	cts1 := testanalysis.NewCannedTokenStream(tokens...)
 	mgf1 := analysis.NewMockGraphTokenFilter(rand.New(rand.NewSource(42)), cts1)
 	if err := mgf1.Reset(); err != nil {
 		t.Fatalf("Reset error (mgf1): %v", err)
 	}
-	var out1 []testutil.Token
+	var out1 []testanalysis.Token
 	for {
 		hasToken, err := mgf1.IncrementToken()
 		if err != nil {
@@ -370,12 +368,12 @@ func TestGraphTokenizers_MockGraphTokenFilterOnGraphInput(t *testing.T) {
 		out1 = append(out1, tokenFromSource(mgf1.GetAttributeSource()))
 	}
 
-	cts2 := testutil.NewCannedTokenStream(tokens...)
+	cts2 := testanalysis.NewCannedTokenStream(tokens...)
 	mgf2 := analysis.NewMockGraphTokenFilter(rand.New(rand.NewSource(42)), cts2)
 	if err := mgf2.Reset(); err != nil {
 		t.Fatalf("Reset error (mgf2): %v", err)
 	}
-	var out2 []testutil.Token
+	var out2 []testanalysis.Token
 	for {
 		hasToken, err := mgf2.IncrementToken()
 		if err != nil {
@@ -397,9 +395,9 @@ func TestGraphTokenizers_MockGraphTokenFilterOnGraphInput(t *testing.T) {
 	}
 }
 
-// tokenFromSource extracts a testutil.Token from an AttributeSource.
-func tokenFromSource(src *util.AttributeSource) testutil.Token {
-	var tok testutil.Token
+// tokenFromSource extracts a testanalysis.Token from an AttributeSource.
+func tokenFromSource(src *util.AttributeSource) testanalysis.Token {
+	var tok testanalysis.Token
 	if termAtt, ok := src.GetAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute); ok && termAtt != nil {
 		tok.Text = termAtt.String()
 	}
@@ -416,8 +414,8 @@ func tokenFromSource(src *util.AttributeSource) testutil.Token {
 	return tok
 }
 
-// tokenEqual compares two testutil.Tokens for equality.
-func tokenEqual(a, b testutil.Token) bool {
+// tokenEqual compares two testanalysis.Tokens for equality.
+func tokenEqual(a, b testanalysis.Token) bool {
 	return a.Text == b.Text && a.StartOffset == b.StartOffset && a.EndOffset == b.EndOffset &&
 		a.PositionIncrement == b.PositionIncrement && a.PositionLength == b.PositionLength
 }
@@ -502,12 +500,12 @@ type drainableTokenStream interface {
 }
 
 // drainTokens calls Reset on the stream, then drains all tokens into a slice.
-func drainTokens(t *testing.T, iter int, stream drainableTokenStream) []testutil.Token {
+func drainTokens(t *testing.T, iter int, stream drainableTokenStream) []testanalysis.Token {
 	t.Helper()
 	if err := stream.Reset(); err != nil {
 		t.Fatalf("iter %d: Reset error: %v", iter, err)
 	}
-	var out []testutil.Token
+	var out []testanalysis.Token
 	for {
 		hasToken, err := stream.IncrementToken()
 		if err != nil {
@@ -522,8 +520,8 @@ func drainTokens(t *testing.T, iter int, stream drainableTokenStream) []testutil
 }
 
 // randomTokens generates a slice of random Tokens for testing.
-func randomTokens(rng *rand.Rand, count int) []testutil.Token {
-	tokens := make([]testutil.Token, count)
+func randomTokens(rng *rand.Rand, count int) []testanalysis.Token {
+	tokens := make([]testanalysis.Token, count)
 	letters := []string{"x", "y", "z", "b", "c", "d", "e", "f", "g"}
 	for i := range tokens {
 		letter := letters[rng.Intn(len(letters))]
@@ -531,7 +529,7 @@ func randomTokens(rng *rand.Rand, count int) []testutil.Token {
 		posLen := rng.Intn(3) + 1
 		start := i * 2
 		end := start + 2
-		tokens[i] = testutil.NewTokenWithPosIncAndLength(letter, posInc, start, end, posLen)
+		tokens[i] = testanalysis.NewTokenWithPosIncAndLength(letter, posInc, start, end, posLen)
 	}
 	return tokens
 }
@@ -546,7 +544,7 @@ func TestGraphTokenizers_MockGraphTokenFilterBeforeHoles(t *testing.T) {
 	for iter := 0; iter < 10; iter++ {
 		rng := rand.New(rand.NewSource(int64(iter)))
 
-		cts := testutil.NewCannedTokenStream(
+		cts := testanalysis.NewCannedTokenStream(
 			mkTok("x", 1, 1),
 			mkTok("y", 1, 1),
 			mkTok("a", 1, 1),
@@ -588,7 +586,7 @@ func TestGraphTokenizers_MockGraphTokenFilterAfterHoles(t *testing.T) {
 	for iter := 0; iter < 10; iter++ {
 		rng := rand.New(rand.NewSource(int64(iter)))
 
-		cts := testutil.NewCannedTokenStream(
+		cts := testanalysis.NewCannedTokenStream(
 			mkTok("x", 1, 1),
 			mkTok("y", 1, 1),
 			mkTok("a", 1, 1),
@@ -623,7 +621,7 @@ func TestGraphTokenizers_MockGraphTokenFilterRandom(t *testing.T) {
 	for iter := 0; iter < 5; iter++ {
 		rng := rand.New(rand.NewSource(int64(iter)))
 
-		cts := testutil.NewCannedTokenStream(randomTokens(rng, 10)...)
+		cts := testanalysis.NewCannedTokenStream(randomTokens(rng, 10)...)
 
 		filterRng := rand.New(rand.NewSource(int64(iter)))
 		mgf := analysis.NewMockGraphTokenFilter(filterRng, cts)
@@ -654,7 +652,7 @@ func TestGraphTokenizers_DoubleMockGraphTokenFilterRandom(t *testing.T) {
 	for iter := 0; iter < 5; iter++ {
 		rng := rand.New(rand.NewSource(int64(iter)))
 
-		cts := testutil.NewCannedTokenStream(randomTokens(rng, 10)...)
+		cts := testanalysis.NewCannedTokenStream(randomTokens(rng, 10)...)
 
 		filter1Rng := rand.New(rand.NewSource(int64(iter)))
 		mgf1 := analysis.NewMockGraphTokenFilter(filter1Rng, cts)
@@ -689,7 +687,7 @@ func TestGraphTokenizers_MockGraphTokenFilterBeforeHolesRandom(t *testing.T) {
 	for iter := 0; iter < 5; iter++ {
 		rng := rand.New(rand.NewSource(int64(iter)))
 
-		cts := testutil.NewCannedTokenStream(randomTokens(rng, 10)...)
+		cts := testanalysis.NewCannedTokenStream(randomTokens(rng, 10)...)
 
 		mgfRng := rand.New(rand.NewSource(int64(iter)))
 		mgf := analysis.NewMockGraphTokenFilter(mgfRng, cts)
@@ -723,7 +721,7 @@ func TestGraphTokenizers_MockGraphTokenFilterAfterHolesRandom(t *testing.T) {
 	for iter := 0; iter < 5; iter++ {
 		rng := rand.New(rand.NewSource(int64(iter)))
 
-		cts := testutil.NewCannedTokenStream(randomTokens(rng, 10)...)
+		cts := testanalysis.NewCannedTokenStream(randomTokens(rng, 10)...)
 
 		holeRng := rand.New(rand.NewSource(int64(iter) + 2000))
 		hole := analysis.NewMockHoleInjectingTokenFilter(holeRng, cts)
