@@ -72,7 +72,7 @@ func getValue(bytes []byte) int64 {
 }
 
 // createBinaryDoc creates a document with id and binary doc values
-func createBinaryDoc(id int, val int64) *testDocument {
+func createBinaryDoc(id int, val int64) *document.Document {
 	fields := []interface{}{}
 
 	// Add StringField for id
@@ -86,11 +86,11 @@ func createBinaryDoc(id int, val int64) *testDocument {
 	valField, _ := document.NewBinaryDocValuesField("val", toBytes(val))
 	fields = append(fields, valField)
 
-	return &testDocument{fields: fields}
+	return newTestDocument(fields...)
 }
 
 // createBinaryDocWithField creates a document with custom field name
-func createBinaryDocWithField(id int, fieldName string, val int64) *testDocument {
+func createBinaryDocWithField(id int, fieldName string, val int64) *document.Document {
 	fields := []interface{}{}
 
 	idField, err := document.NewStringField("id", fmt.Sprintf("doc-%d", id), false)
@@ -102,7 +102,7 @@ func createBinaryDocWithField(id int, fieldName string, val int64) *testDocument
 	valField, _ := document.NewBinaryDocValuesField(fieldName, toBytes(val))
 	fields = append(fields, valField)
 
-	return &testDocument{fields: fields}
+	return newTestDocument(fields...)
 }
 
 // TestBinaryDocValuesUpdates_AreFlushed tests that updates trigger flushes.
@@ -111,7 +111,7 @@ func TestBinaryDocValuesUpdates_AreFlushed(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	// Set very small RAM buffer to force flushes
 	config.SetRAMBufferSizeMB(0.00000001)
 
@@ -127,7 +127,7 @@ func TestBinaryDocValuesUpdates_AreFlushed(t *testing.T) {
 	writer.AddDocument(createBinaryDoc(2, 3))
 
 	// Commit to create initial segment
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Initial commit failed: %v", err)
 	}
 
@@ -145,7 +145,7 @@ func TestBinaryDocValuesUpdates_AreFlushed(t *testing.T) {
 	config.SetRAMBufferSizeMB(1000.0)
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 }
@@ -156,7 +156,7 @@ func TestBinaryDocValuesUpdates_Simple(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	config.SetMaxBufferedDocs(10)
 
 	writer, err := index.NewIndexWriter(dir, config)
@@ -176,22 +176,22 @@ func TestBinaryDocValuesUpdates_Simple(t *testing.T) {
 	writer.UpdateDocument(term0, updatedDoc0)
 
 	// Commit changes
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
 	writer.Close()
 
 	// Reopen and verify
-	config2 := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
-	config2.SetOpenMode(index.APPEND)
+	config2 := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
+	config2.SetOpenMode(index.Append)
 	writer2, err := index.NewIndexWriter(dir, config2)
 	if err != nil {
 		t.Fatalf("Failed to reopen IndexWriter: %v", err)
 	}
 	defer writer2.Close()
 
-	numDocs := writer2.NumDocs()
+	numDocs := iwDocStats(t, writer2).NumDocs
 	if numDocs != 2 {
 		t.Errorf("Expected 2 documents, got %d", numDocs)
 	}
@@ -203,7 +203,7 @@ func TestBinaryDocValuesUpdates_FewSegments(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -220,7 +220,7 @@ func TestBinaryDocValuesUpdates_FewSegments(t *testing.T) {
 	}
 
 	// Commit to create segment
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
@@ -235,12 +235,12 @@ func TestBinaryDocValuesUpdates_FewSegments(t *testing.T) {
 	}
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count
-	numDocsActual := writer.NumDocs()
+	numDocsActual := iwDocStats(t, writer).NumDocs
 	if numDocsActual != numDocs {
 		t.Errorf("Expected %d documents, got %d", numDocs, numDocsActual)
 	}
@@ -252,7 +252,7 @@ func TestBinaryDocValuesUpdates_Reopen(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -263,7 +263,7 @@ func TestBinaryDocValuesUpdates_Reopen(t *testing.T) {
 	writer.AddDocument(createBinaryDoc(1, 2))
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
@@ -272,22 +272,22 @@ func TestBinaryDocValuesUpdates_Reopen(t *testing.T) {
 	writer.UpdateDocument(term0, createBinaryDoc(0, 10))
 
 	// Commit again
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Second commit failed: %v", err)
 	}
 
 	writer.Close()
 
 	// Reopen and verify
-	config2 := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
-	config2.SetOpenMode(index.APPEND)
+	config2 := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
+	config2.SetOpenMode(index.Append)
 	writer2, err := index.NewIndexWriter(dir, config2)
 	if err != nil {
 		t.Fatalf("Failed to reopen IndexWriter: %v", err)
 	}
 	defer writer2.Close()
 
-	numDocs := writer2.NumDocs()
+	numDocs := iwDocStats(t, writer2).NumDocs
 	if numDocs != 2 {
 		t.Errorf("Expected 2 documents, got %d", numDocs)
 	}
@@ -296,12 +296,12 @@ func TestBinaryDocValuesUpdates_Reopen(t *testing.T) {
 // TestBinaryDocValuesUpdates_WithDeletes tests updates combined with deletes.
 // Ported from: testUpdatesAndDeletes
 func TestBinaryDocValuesUpdates_WithDeletes(t *testing.T) {
-	  // infra gap is now resolved
+	// infra gap is now resolved
 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -313,15 +313,15 @@ func TestBinaryDocValuesUpdates_WithDeletes(t *testing.T) {
 		writer.AddDocument(createBinaryDoc(i, int64(i+1)))
 		if i%2 == 1 {
 			// Create 2-docs segments
-			if err := writer.Commit(); err != nil {
+			if _, err := writer.Commit(); err != nil {
 				t.Fatalf("Commit failed: %v", err)
 			}
 		}
 	}
 
 	// Delete doc-1 and doc-2
-	writer.DeleteDocuments(index.NewTerm("id", "doc-1"))
-	writer.DeleteDocuments(index.NewTerm("id", "doc-2"))
+	writer.DeleteDocuments([]index.Term{*index.NewTerm("id", "doc-1")})
+	writer.DeleteDocuments([]index.Term{*index.NewTerm("id", "doc-2")})
 
 	// Update docs 3 and 5
 	term3 := index.NewTerm("id", "doc-3")
@@ -331,12 +331,12 @@ func TestBinaryDocValuesUpdates_WithDeletes(t *testing.T) {
 	writer.UpdateDocument(term5, createBinaryDoc(5, 17))
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count (6 - 2 deleted = 4)
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 4 {
 		t.Errorf("Expected 4 documents, got %d", numDocs)
 	}
@@ -349,7 +349,7 @@ func TestBinaryDocValuesUpdates_UpdatesWithDeletes(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -361,22 +361,22 @@ func TestBinaryDocValuesUpdates_UpdatesWithDeletes(t *testing.T) {
 	writer.AddDocument(createBinaryDoc(1, 2))
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
 	// Delete doc-0 and update doc-1
-	writer.DeleteDocuments(index.NewTerm("id", "doc-0"))
+	writer.DeleteDocuments([]index.Term{*index.NewTerm("id", "doc-0")})
 	term1 := index.NewTerm("id", "doc-1")
 	writer.UpdateDocument(term1, createBinaryDoc(1, 17))
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count (2 - 1 deleted = 1)
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 1 {
 		t.Errorf("Expected 1 document, got %d", numDocs)
 	}
@@ -388,7 +388,7 @@ func TestBinaryDocValuesUpdates_MultipleDocValuesTypes(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -420,12 +420,12 @@ func TestBinaryDocValuesUpdates_MultipleDocValuesTypes(t *testing.T) {
 		ssdvField2, _ := document.NewSortedSetDocValuesField("ssdv", [][]byte{[]byte(fmt.Sprintf("%d", i*2))})
 		fields = append(fields, ssdvField1, ssdvField2)
 
-		doc := &testDocument{fields: fields}
+		doc := newTestDocument(fields...)
 		writer.AddDocument(doc)
 	}
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
@@ -434,16 +434,16 @@ func TestBinaryDocValuesUpdates_MultipleDocValuesTypes(t *testing.T) {
 	updateFields := []interface{}{}
 	bdvUpdate, _ := document.NewBinaryDocValuesField("bdv", toBytes(17))
 	updateFields = append(updateFields, bdvUpdate)
-	updateDoc := &testDocument{fields: updateFields}
+	updateDoc := newTestDocument(updateFields...)
 	writer.UpdateDocument(term, updateDoc)
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 4 {
 		t.Errorf("Expected 4 documents, got %d", numDocs)
 	}
@@ -455,7 +455,7 @@ func TestBinaryDocValuesUpdates_MultipleBinaryDocValues(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -475,12 +475,12 @@ func TestBinaryDocValuesUpdates_MultipleBinaryDocValues(t *testing.T) {
 		bdv2Field, _ := document.NewBinaryDocValuesField("bdv2", toBytes(int64(i)))
 		fields = append(fields, bdv2Field)
 
-		doc := &testDocument{fields: fields}
+		doc := newTestDocument(fields...)
 		writer.AddDocument(doc)
 	}
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
@@ -489,16 +489,16 @@ func TestBinaryDocValuesUpdates_MultipleBinaryDocValues(t *testing.T) {
 	updateFields := []interface{}{}
 	bdv1Update, _ := document.NewBinaryDocValuesField("bdv1", toBytes(17))
 	updateFields = append(updateFields, bdv1Update)
-	updateDoc := &testDocument{fields: updateFields}
+	updateDoc := newTestDocument(updateFields...)
 	writer.UpdateDocument(term, updateDoc)
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 2 {
 		t.Errorf("Expected 2 documents, got %d", numDocs)
 	}
@@ -510,7 +510,7 @@ func TestBinaryDocValuesUpdates_DocumentWithNoValue(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -530,12 +530,12 @@ func TestBinaryDocValuesUpdates_DocumentWithNoValue(t *testing.T) {
 			fields = append(fields, bdvField)
 		}
 
-		doc := &testDocument{fields: fields}
+		doc := newTestDocument(fields...)
 		writer.AddDocument(doc)
 	}
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
@@ -544,16 +544,16 @@ func TestBinaryDocValuesUpdates_DocumentWithNoValue(t *testing.T) {
 	updateFields := []interface{}{}
 	bdvUpdate, _ := document.NewBinaryDocValuesField("bdv", toBytes(17))
 	updateFields = append(updateFields, bdvUpdate)
-	updateDoc := &testDocument{fields: updateFields}
+	updateDoc := newTestDocument(updateFields...)
 	writer.UpdateDocument(term, updateDoc)
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 2 {
 		t.Errorf("Expected 2 documents, got %d", numDocs)
 	}
@@ -565,7 +565,7 @@ func TestBinaryDocValuesUpdates_UpdateSameDocMultipleTimes(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -577,7 +577,7 @@ func TestBinaryDocValuesUpdates_UpdateSameDocMultipleTimes(t *testing.T) {
 	writer.AddDocument(doc)
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
@@ -587,12 +587,12 @@ func TestBinaryDocValuesUpdates_UpdateSameDocMultipleTimes(t *testing.T) {
 	writer.UpdateDocument(term, createBinaryDoc(0, 3))
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify single document
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 1 {
 		t.Errorf("Expected 1 document, got %d", numDocs)
 	}
@@ -604,7 +604,7 @@ func TestBinaryDocValuesUpdates_SegmentMerges(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -629,7 +629,7 @@ func TestBinaryDocValuesUpdates_SegmentMerges(t *testing.T) {
 			bdvField, _ := document.NewBinaryDocValuesField("bdv", toBytes(int64(-1)))
 			fields = append(fields, bdvField)
 
-			doc := &testDocument{fields: fields}
+			doc := newTestDocument(fields...)
 			writer.AddDocument(doc)
 			docID++
 		}
@@ -640,19 +640,19 @@ func TestBinaryDocValuesUpdates_SegmentMerges(t *testing.T) {
 		updateFields := []interface{}{}
 		bdvUpdate, _ := document.NewBinaryDocValuesField("bdv", toBytes(value))
 		updateFields = append(updateFields, bdvUpdate)
-		updateDoc := &testDocument{fields: updateFields}
+		updateDoc := newTestDocument(updateFields...)
 		writer.UpdateDocument(term, updateDoc)
 
 		// Randomly delete one document
 		if docID > 0 && rand.Float64() < 0.2 {
 			delID := rand.Intn(docID)
 			delTerm := index.NewTerm("id", fmt.Sprintf("%d", delID))
-			writer.DeleteDocuments(delTerm)
+			writer.DeleteDocuments([]index.Term{*delTerm})
 		}
 
 		// Randomly commit
 		if rand.Float64() < 0.4 {
-			if err := writer.Commit(); err != nil {
+			if _, err := writer.Commit(); err != nil {
 				t.Fatalf("Commit failed: %v", err)
 			}
 		}
@@ -665,13 +665,13 @@ func TestBinaryDocValuesUpdates_SegmentMerges(t *testing.T) {
 		fields = append(fields, keyField)
 		bdvField, _ := document.NewBinaryDocValuesField("bdv", toBytes(value))
 		fields = append(fields, bdvField)
-		doc := &testDocument{fields: fields}
+		doc := newTestDocument(fields...)
 		writer.AddDocument(doc)
 		docID++
 	}
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 }
@@ -682,7 +682,7 @@ func TestBinaryDocValuesUpdates_UpdateDocumentByMultipleTerms(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -697,11 +697,11 @@ func TestBinaryDocValuesUpdates_UpdateDocumentByMultipleTerms(t *testing.T) {
 	fields = append(fields, k2Field)
 	bdvField, _ := document.NewBinaryDocValuesField("bdv", toBytes(5))
 	fields = append(fields, bdvField)
-	doc := &testDocument{fields: fields}
+	doc := newTestDocument(fields...)
 	writer.AddDocument(doc)
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
@@ -713,7 +713,7 @@ func TestBinaryDocValuesUpdates_UpdateDocumentByMultipleTerms(t *testing.T) {
 	updateFields1 := []interface{}{}
 	bdvUpdate1, _ := document.NewBinaryDocValuesField("bdv", toBytes(17))
 	updateFields1 = append(updateFields1, bdvUpdate1)
-	updateDoc1 := &testDocument{fields: updateFields1}
+	updateDoc1 := newTestDocument(updateFields1...)
 	writer.UpdateDocument(term1, updateDoc1)
 
 	// Update by k2
@@ -721,16 +721,16 @@ func TestBinaryDocValuesUpdates_UpdateDocumentByMultipleTerms(t *testing.T) {
 	updateFields2 := []interface{}{}
 	bdvUpdate2, _ := document.NewBinaryDocValuesField("bdv", toBytes(3))
 	updateFields2 = append(updateFields2, bdvUpdate2)
-	updateDoc2 := &testDocument{fields: updateFields2}
+	updateDoc2 := newTestDocument(updateFields2...)
 	writer.UpdateDocument(term2, updateDoc2)
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 2 {
 		t.Errorf("Expected 2 documents, got %d", numDocs)
 	}
@@ -742,7 +742,7 @@ func TestBinaryDocValuesUpdates_ManyReopensAndFields(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -775,7 +775,7 @@ func TestBinaryDocValuesUpdates_ManyReopensAndFields(t *testing.T) {
 				fields = append(fields, bdvField)
 			}
 
-			doc := &testDocument{fields: fields}
+			doc := newTestDocument(fields...)
 			writer.AddDocument(doc)
 			docID++
 		}
@@ -787,29 +787,29 @@ func TestBinaryDocValuesUpdates_ManyReopensAndFields(t *testing.T) {
 		updateFields := []interface{}{}
 		bdvUpdate, _ := document.NewBinaryDocValuesField(fmt.Sprintf("f%d", fieldIdx), toBytes(fieldValues[fieldIdx]))
 		updateFields = append(updateFields, bdvUpdate)
-		updateDoc := &testDocument{fields: updateFields}
+		updateDoc := newTestDocument(updateFields...)
 		writer.UpdateDocument(term, updateDoc)
 
 		// Randomly delete a document
 		if docID > 0 && rand.Float64() < 0.2 {
 			delID := rand.Intn(docID)
 			delTerm := index.NewTerm("id", fmt.Sprintf("doc-%d", delID))
-			writer.DeleteDocuments(delTerm)
+			writer.DeleteDocuments([]index.Term{*delTerm})
 		}
 
 		// Commit
-		if err := writer.Commit(); err != nil {
+		if _, err := writer.Commit(); err != nil {
 			t.Fatalf("Commit failed: %v", err)
 		}
 	}
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs <= 0 {
 		t.Errorf("Expected positive document count, got %d", numDocs)
 	}
@@ -821,7 +821,7 @@ func TestBinaryDocValuesUpdates_UpdateSegmentWithNoDocValues(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -834,18 +834,18 @@ func TestBinaryDocValuesUpdates_UpdateSegmentWithNoDocValues(t *testing.T) {
 	fields1 = append(fields1, idField1)
 	bdvField1, _ := document.NewBinaryDocValuesField("bdv", toBytes(3))
 	fields1 = append(fields1, bdvField1)
-	doc1 := &testDocument{fields: fields1}
+	doc1 := newTestDocument(fields1...)
 	writer.AddDocument(doc1)
 
 	// Document without 'bdv' field
 	fields2 := []interface{}{}
 	idField2, _ := document.NewStringField("id", "doc4", false)
 	fields2 = append(fields2, idField2)
-	doc2 := &testDocument{fields: fields2}
+	doc2 := newTestDocument(fields2...)
 	writer.AddDocument(doc2)
 
 	// Commit first segment
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("First commit failed: %v", err)
 	}
 
@@ -853,17 +853,17 @@ func TestBinaryDocValuesUpdates_UpdateSegmentWithNoDocValues(t *testing.T) {
 	fields3 := []interface{}{}
 	idField3, _ := document.NewStringField("id", "doc1", false)
 	fields3 = append(fields3, idField3)
-	doc3 := &testDocument{fields: fields3}
+	doc3 := newTestDocument(fields3...)
 	writer.AddDocument(doc3)
 
 	fields4 := []interface{}{}
 	idField4, _ := document.NewStringField("id", "doc2", false)
 	fields4 = append(fields4, idField4)
-	doc4 := &testDocument{fields: fields4}
+	doc4 := newTestDocument(fields4...)
 	writer.AddDocument(doc4)
 
 	// Commit second segment
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Second commit failed: %v", err)
 	}
 
@@ -872,7 +872,7 @@ func TestBinaryDocValuesUpdates_UpdateSegmentWithNoDocValues(t *testing.T) {
 	updateFields0 := []interface{}{}
 	bdvUpdate0, _ := document.NewBinaryDocValuesField("bdv", toBytes(5))
 	updateFields0 = append(updateFields0, bdvUpdate0)
-	updateDoc0 := &testDocument{fields: updateFields0}
+	updateDoc0 := newTestDocument(updateFields0...)
 	writer.UpdateDocument(term0, updateDoc0)
 
 	// Update document in second segment
@@ -880,16 +880,16 @@ func TestBinaryDocValuesUpdates_UpdateSegmentWithNoDocValues(t *testing.T) {
 	updateFields1 := []interface{}{}
 	bdvUpdate1, _ := document.NewBinaryDocValuesField("bdv", toBytes(5))
 	updateFields1 = append(updateFields1, bdvUpdate1)
-	updateDoc1 := &testDocument{fields: updateFields1}
+	updateDoc1 := newTestDocument(updateFields1...)
 	writer.UpdateDocument(term1, updateDoc1)
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 4 {
 		t.Errorf("Expected 4 documents, got %d", numDocs)
 	}
@@ -901,7 +901,7 @@ func TestBinaryDocValuesUpdates_UpdateSegmentWithPostingButNoDocValues(t *testin
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -916,11 +916,11 @@ func TestBinaryDocValuesUpdates_UpdateSegmentWithPostingButNoDocValues(t *testin
 	// For this test, we just add the BDV field
 	bdvField1, _ := document.NewBinaryDocValuesField("bdv", toBytes(5))
 	fields1 = append(fields1, bdvField1)
-	doc1 := &testDocument{fields: fields1}
+	doc1 := newTestDocument(fields1...)
 	writer.AddDocument(doc1)
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
@@ -932,16 +932,16 @@ func TestBinaryDocValuesUpdates_UpdateSegmentWithPostingButNoDocValues(t *testin
 	fields2 = append(fields2, idField2)
 	bdvField2, _ := document.NewBinaryDocValuesField("bdv", toBytes(10))
 	fields2 = append(fields2, bdvField2)
-	doc2 := &testDocument{fields: fields2}
+	doc2 := newTestDocument(fields2...)
 	writer.AddDocument(doc2)
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 2 {
 		t.Errorf("Expected 2 documents, got %d", numDocs)
 	}
@@ -953,7 +953,7 @@ func TestBinaryDocValuesUpdates_UpdateBinaryDVFieldWithSameNameAsPostingField(t 
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -967,11 +967,11 @@ func TestBinaryDocValuesUpdates_UpdateBinaryDVFieldWithSameNameAsPostingField(t 
 	fields = append(fields, fField)
 	bdvField, _ := document.NewBinaryDocValuesField("f", toBytes(5))
 	fields = append(fields, bdvField)
-	doc := &testDocument{fields: fields}
+	doc := newTestDocument(fields...)
 	writer.AddDocument(doc)
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
@@ -980,7 +980,7 @@ func TestBinaryDocValuesUpdates_UpdateBinaryDVFieldWithSameNameAsPostingField(t 
 	// For this test, we skip the update and just verify the document was added
 
 	// Verify document count
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 1 {
 		t.Errorf("Expected 1 document, got %d", numDocs)
 	}
@@ -992,7 +992,7 @@ func TestBinaryDocValuesUpdates_Concurrent(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -1040,12 +1040,12 @@ func TestBinaryDocValuesUpdates_Concurrent(t *testing.T) {
 			fields = append(fields, f, cf)
 		}
 
-		doc := &testDocument{fields: fields}
+		doc := newTestDocument(fields...)
 		writer.AddDocument(doc)
 	}
 
 	// Commit initial documents
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Initial commit failed: %v", err)
 	}
 
@@ -1084,14 +1084,14 @@ func TestBinaryDocValuesUpdates_Concurrent(t *testing.T) {
 				cf, _ := document.NewBinaryDocValuesField(fmt.Sprintf("cf%d", field), toBytes(updValue*2))
 				fields = append(fields, f, cf)
 
-				updatedDoc := &testDocument{fields: fields}
+				updatedDoc := newTestDocument(fields...)
 				writer.UpdateDocument(term, updatedDoc)
 
 				// Randomly delete a document
 				if rand.Float64() < 0.2 {
 					doc := rand.Intn(numDocs)
 					delTerm := index.NewTerm("id", fmt.Sprintf("doc%d", doc))
-					writer.DeleteDocuments(delTerm)
+					writer.DeleteDocuments([]index.Term{*delTerm})
 				}
 
 				// Randomly commit
@@ -1105,7 +1105,7 @@ func TestBinaryDocValuesUpdates_Concurrent(t *testing.T) {
 	wg.Wait()
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 }
@@ -1116,7 +1116,7 @@ func TestBinaryDocValuesUpdates_DifferentDocsInDifferentGens(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	config.SetMaxBufferedDocs(4)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -1140,12 +1140,12 @@ func TestBinaryDocValuesUpdates_DifferentDocsInDifferentGens(t *testing.T) {
 		cfField, _ := document.NewBinaryDocValuesField("cf", toBytes(value*2))
 		fields = append(fields, cfField)
 
-		doc := &testDocument{fields: fields}
+		doc := newTestDocument(fields...)
 		writer.AddDocument(doc)
 	}
 
 	// Commit initial documents
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Initial commit failed: %v", err)
 	}
 
@@ -1161,17 +1161,17 @@ func TestBinaryDocValuesUpdates_DifferentDocsInDifferentGens(t *testing.T) {
 		cfField, _ := document.NewBinaryDocValuesField("cf", toBytes(value*2))
 		fields = append(fields, cfField)
 
-		updateDoc := &testDocument{fields: fields}
+		updateDoc := newTestDocument(fields...)
 		writer.UpdateDocument(term, updateDoc)
 
 		// Commit each generation
-		if err := writer.Commit(); err != nil {
+		if _, err := writer.Commit(); err != nil {
 			t.Fatalf("Commit failed: %v", err)
 		}
 	}
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 }
@@ -1182,7 +1182,7 @@ func TestBinaryDocValuesUpdates_ChangeCodec(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -1196,18 +1196,18 @@ func TestBinaryDocValuesUpdates_ChangeCodec(t *testing.T) {
 	fields = append(fields, f1Field)
 	f2Field, _ := document.NewBinaryDocValuesField("f2", toBytes(13))
 	fields = append(fields, f2Field)
-	doc := &testDocument{fields: fields}
+	doc := newTestDocument(fields...)
 	writer.AddDocument(doc)
 
 	// Commit first segment
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("First commit failed: %v", err)
 	}
 	writer.Close()
 
 	// Reopen with different config (simulating codec change)
-	config2 := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
-	config2.SetOpenMode(index.APPEND)
+	config2 := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
+	config2.SetOpenMode(index.Append)
 	writer2, err := index.NewIndexWriter(dir, config2)
 	if err != nil {
 		t.Fatalf("Failed to reopen IndexWriter: %v", err)
@@ -1221,7 +1221,7 @@ func TestBinaryDocValuesUpdates_ChangeCodec(t *testing.T) {
 	fields2 = append(fields2, f1Field2)
 	f2Field2, _ := document.NewBinaryDocValuesField("f2", toBytes(2))
 	fields2 = append(fields2, f2Field2)
-	doc2 := &testDocument{fields: fields2}
+	doc2 := newTestDocument(fields2...)
 	writer2.AddDocument(doc2)
 
 	// Update first document
@@ -1229,25 +1229,25 @@ func TestBinaryDocValuesUpdates_ChangeCodec(t *testing.T) {
 	updateFields := []interface{}{}
 	f1Update, _ := document.NewBinaryDocValuesField("f1", toBytes(12))
 	updateFields = append(updateFields, f1Update)
-	updateDoc := &testDocument{fields: updateFields}
+	updateDoc := newTestDocument(updateFields...)
 	writer2.UpdateDocument(term, updateDoc)
 
 	// Final commit
-	if err := writer2.Commit(); err != nil {
+	if _, err := writer2.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 	writer2.Close()
 
 	// Verify document count
-	config3 := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
-	config3.SetOpenMode(index.APPEND)
+	config3 := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
+	config3.SetOpenMode(index.Append)
 	writer3, err := index.NewIndexWriter(dir, config3)
 	if err != nil {
 		t.Fatalf("Failed to reopen IndexWriter: %v", err)
 	}
 	defer writer3.Close()
 
-	numDocs := writer3.NumDocs()
+	numDocs := iwDocStats(t, writer3).NumDocs
 	if numDocs != 2 {
 		t.Errorf("Expected 2 documents, got %d", numDocs)
 	}
@@ -1259,7 +1259,7 @@ func TestBinaryDocValuesUpdates_AddIndexes(t *testing.T) {
 	dir1 := store.NewByteBuffersDirectory()
 	defer dir1.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir1, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -1282,13 +1282,13 @@ func TestBinaryDocValuesUpdates_AddIndexes(t *testing.T) {
 		controlField, _ := document.NewBinaryDocValuesField("control", toBytes(8))
 		fields = append(fields, controlField)
 
-		doc := &testDocument{fields: fields}
+		doc := newTestDocument(fields...)
 		writer.AddDocument(doc)
 	}
 
 	// Randomly commit
 	if rand.Float64() < 0.5 {
-		if err := writer.Commit(); err != nil {
+		if _, err := writer.Commit(); err != nil {
 			t.Fatalf("Commit failed: %v", err)
 		}
 	}
@@ -1300,7 +1300,7 @@ func TestBinaryDocValuesUpdates_AddIndexes(t *testing.T) {
 	updateFields = append(updateFields, bdvUpdate)
 	controlUpdate, _ := document.NewBinaryDocValuesField("control", toBytes(200))
 	updateFields = append(updateFields, controlUpdate)
-	updateDoc := &testDocument{fields: updateFields}
+	updateDoc := newTestDocument(updateFields...)
 	writer.UpdateDocument(term, updateDoc)
 
 	writer.Close()
@@ -1309,7 +1309,7 @@ func TestBinaryDocValuesUpdates_AddIndexes(t *testing.T) {
 	dir2 := store.NewByteBuffersDirectory()
 	defer dir2.Close()
 
-	config2 := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config2 := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer2, err := index.NewIndexWriter(dir2, config2)
 	if err != nil {
 		t.Fatalf("Failed to create second IndexWriter: %v", err)
@@ -1318,7 +1318,7 @@ func TestBinaryDocValuesUpdates_AddIndexes(t *testing.T) {
 
 	// In full Lucene, this would use addIndexes
 	// For this test, we just verify the second index is created
-	if err := writer2.Commit(); err != nil {
+	if _, err := writer2.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 }
@@ -1329,7 +1329,7 @@ func TestBinaryDocValuesUpdates_DeleteUnusedUpdatesFiles(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -1344,7 +1344,7 @@ func TestBinaryDocValuesUpdates_DeleteUnusedUpdatesFiles(t *testing.T) {
 	fields = append(fields, f1Field)
 	f2Field, _ := document.NewBinaryDocValuesField("f2", toBytes(1))
 	fields = append(fields, f2Field)
-	doc := &testDocument{fields: fields}
+	doc := newTestDocument(fields...)
 	writer.AddDocument(doc)
 
 	// Update each field twice
@@ -1353,10 +1353,10 @@ func TestBinaryDocValuesUpdates_DeleteUnusedUpdatesFiles(t *testing.T) {
 		updateFields := []interface{}{}
 		fUpdate, _ := document.NewBinaryDocValuesField(f, toBytes(2))
 		updateFields = append(updateFields, fUpdate)
-		updateDoc := &testDocument{fields: updateFields}
+		updateDoc := newTestDocument(updateFields...)
 		writer.UpdateDocument(term, updateDoc)
 
-		if err := writer.Commit(); err != nil {
+		if _, err := writer.Commit(); err != nil {
 			t.Fatalf("Commit failed: %v", err)
 		}
 
@@ -1364,16 +1364,16 @@ func TestBinaryDocValuesUpdates_DeleteUnusedUpdatesFiles(t *testing.T) {
 		updateFields2 := []interface{}{}
 		fUpdate2, _ := document.NewBinaryDocValuesField(f, toBytes(3))
 		updateFields2 = append(updateFields2, fUpdate2)
-		updateDoc2 := &testDocument{fields: updateFields2}
+		updateDoc2 := newTestDocument(updateFields2...)
 		writer.UpdateDocument(term, updateDoc2)
 
-		if err := writer.Commit(); err != nil {
+		if _, err := writer.Commit(); err != nil {
 			t.Fatalf("Commit failed: %v", err)
 		}
 	}
 
 	// Verify document count
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 1 {
 		t.Errorf("Expected 1 document, got %d", numDocs)
 	}
@@ -1385,7 +1385,7 @@ func TestBinaryDocValuesUpdates_TonsOfUpdates(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -1415,12 +1415,12 @@ func TestBinaryDocValuesUpdates_TonsOfUpdates(t *testing.T) {
 			fields = append(fields, f, cf)
 		}
 
-		doc := &testDocument{fields: fields}
+		doc := newTestDocument(fields...)
 		writer.AddDocument(doc)
 	}
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
@@ -1436,17 +1436,17 @@ func TestBinaryDocValuesUpdates_TonsOfUpdates(t *testing.T) {
 		cf, _ := document.NewBinaryDocValuesField(fmt.Sprintf("cf%d", field), toBytes(value*2))
 		fields = append(fields, f, cf)
 
-		updateDoc := &testDocument{fields: fields}
+		updateDoc := newTestDocument(fields...)
 		writer.UpdateDocument(term, updateDoc)
 	}
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count
-	numDocsActual := writer.NumDocs()
+	numDocsActual := iwDocStats(t, writer).NumDocs
 	if numDocsActual != numDocs {
 		t.Errorf("Expected %d documents, got %d", numDocs, numDocsActual)
 	}
@@ -1458,7 +1458,7 @@ func TestBinaryDocValuesUpdates_UpdatesOrder(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -1475,7 +1475,7 @@ func TestBinaryDocValuesUpdates_UpdatesOrder(t *testing.T) {
 	fields = append(fields, f1Field)
 	f2Field, _ := document.NewBinaryDocValuesField("f2", toBytes(1))
 	fields = append(fields, f2Field)
-	doc := &testDocument{fields: fields}
+	doc := newTestDocument(fields...)
 	writer.AddDocument(doc)
 
 	// Apply updates in specific order
@@ -1483,41 +1483,41 @@ func TestBinaryDocValuesUpdates_UpdatesOrder(t *testing.T) {
 	updateFields1 := []interface{}{}
 	f1Update1, _ := document.NewBinaryDocValuesField("f1", toBytes(2))
 	updateFields1 = append(updateFields1, f1Update1)
-	updateDoc1 := &testDocument{fields: updateFields1}
+	updateDoc1 := newTestDocument(updateFields1...)
 	writer.UpdateDocument(term1, updateDoc1)
 
 	updateFields2 := []interface{}{}
 	f2Update2, _ := document.NewBinaryDocValuesField("f2", toBytes(2))
 	updateFields2 = append(updateFields2, f2Update2)
-	updateDoc2 := &testDocument{fields: updateFields2}
+	updateDoc2 := newTestDocument(updateFields2...)
 	writer.UpdateDocument(term1, updateDoc2)
 
 	term2 := index.NewTerm("upd", "t2")
 	updateFields3 := []interface{}{}
 	f1Update3, _ := document.NewBinaryDocValuesField("f1", toBytes(3))
 	updateFields3 = append(updateFields3, f1Update3)
-	updateDoc3 := &testDocument{fields: updateFields3}
+	updateDoc3 := newTestDocument(updateFields3...)
 	writer.UpdateDocument(term2, updateDoc3)
 
 	updateFields4 := []interface{}{}
 	f2Update4, _ := document.NewBinaryDocValuesField("f2", toBytes(3))
 	updateFields4 = append(updateFields4, f2Update4)
-	updateDoc4 := &testDocument{fields: updateFields4}
+	updateDoc4 := newTestDocument(updateFields4...)
 	writer.UpdateDocument(term2, updateDoc4)
 
 	updateFields5 := []interface{}{}
 	f1Update5, _ := document.NewBinaryDocValuesField("f1", toBytes(4))
 	updateFields5 = append(updateFields5, f1Update5)
-	updateDoc5 := &testDocument{fields: updateFields5}
+	updateDoc5 := newTestDocument(updateFields5...)
 	writer.UpdateDocument(term1, updateDoc5)
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 1 {
 		t.Errorf("Expected 1 document, got %d", numDocs)
 	}
@@ -1530,7 +1530,7 @@ func TestBinaryDocValuesUpdates_UpdateAllDeletedSegment(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -1543,18 +1543,18 @@ func TestBinaryDocValuesUpdates_UpdateAllDeletedSegment(t *testing.T) {
 	fields = append(fields, idField)
 	f1Field, _ := document.NewBinaryDocValuesField("f1", toBytes(1))
 	fields = append(fields, f1Field)
-	doc := &testDocument{fields: fields}
+	doc := newTestDocument(fields...)
 
 	writer.AddDocument(doc)
 	writer.AddDocument(doc)
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
 	// Delete all docs in first segment
-	writer.DeleteDocuments(index.NewTerm("id", "doc"))
+	writer.DeleteDocuments([]index.Term{*index.NewTerm("id", "doc")})
 
 	// Add another document
 	writer.AddDocument(doc)
@@ -1564,16 +1564,16 @@ func TestBinaryDocValuesUpdates_UpdateAllDeletedSegment(t *testing.T) {
 	updateFields := []interface{}{}
 	f1Update, _ := document.NewBinaryDocValuesField("f1", toBytes(2))
 	updateFields = append(updateFields, f1Update)
-	updateDoc := &testDocument{fields: updateFields}
+	updateDoc := newTestDocument(updateFields...)
 	writer.UpdateDocument(term, updateDoc)
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count (2 deleted + 1 added - 1 deleted + 1 updated = 1)
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 1 {
 		t.Errorf("Expected 1 document, got %d", numDocs)
 	}
@@ -1585,7 +1585,7 @@ func TestBinaryDocValuesUpdates_UpdateTwoNonexistingTerms(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -1598,7 +1598,7 @@ func TestBinaryDocValuesUpdates_UpdateTwoNonexistingTerms(t *testing.T) {
 	fields = append(fields, idField)
 	f1Field, _ := document.NewBinaryDocValuesField("f1", toBytes(1))
 	fields = append(fields, f1Field)
-	doc := &testDocument{fields: fields}
+	doc := newTestDocument(fields...)
 	writer.AddDocument(doc)
 
 	// Update with non-existing terms
@@ -1606,23 +1606,23 @@ func TestBinaryDocValuesUpdates_UpdateTwoNonexistingTerms(t *testing.T) {
 	updateFields1 := []interface{}{}
 	f1Update1, _ := document.NewBinaryDocValuesField("f1", toBytes(2))
 	updateFields1 = append(updateFields1, f1Update1)
-	updateDoc1 := &testDocument{fields: updateFields1}
+	updateDoc1 := newTestDocument(updateFields1...)
 	writer.UpdateDocument(term1, updateDoc1)
 
 	term2 := index.NewTerm("c", "bar")
 	updateFields2 := []interface{}{}
 	f1Update2, _ := document.NewBinaryDocValuesField("f1", toBytes(2))
 	updateFields2 = append(updateFields2, f1Update2)
-	updateDoc2 := &testDocument{fields: updateFields2}
+	updateDoc2 := newTestDocument(updateFields2...)
 	writer.UpdateDocument(term2, updateDoc2)
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count (should still be 1)
-	numDocs := writer.NumDocs()
+	numDocs := iwDocStats(t, writer).NumDocs
 	if numDocs != 1 {
 		t.Errorf("Expected 1 document, got %d", numDocs)
 	}
@@ -1634,7 +1634,7 @@ func TestBinaryDocValuesUpdates_IOContext(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	config.SetMaxBufferedDocs(100) // Manually flush
 	config.SetRAMBufferSizeMB(index.DISABLE_AUTO_FLUSH)
 
@@ -1649,14 +1649,14 @@ func TestBinaryDocValuesUpdates_IOContext(t *testing.T) {
 	}
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 	writer.Close()
 
 	// Reopen and update
-	config2 := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
-	config2.SetOpenMode(index.APPEND)
+	config2 := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
+	config2.SetOpenMode(index.Append)
 	writer2, err := index.NewIndexWriter(dir, config2)
 	if err != nil {
 		t.Fatalf("Failed to reopen IndexWriter: %v", err)
@@ -1668,12 +1668,12 @@ func TestBinaryDocValuesUpdates_IOContext(t *testing.T) {
 	writer2.UpdateDocument(term, createBinaryDoc(0, 100))
 
 	// Commit
-	if err := writer2.Commit(); err != nil {
+	if _, err := writer2.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 
 	// Verify document count
-	numDocs := writer2.NumDocs()
+	numDocs := iwDocStats(t, writer2).NumDocs
 	if numDocs != 100 {
 		t.Errorf("Expected 100 documents, got %d", numDocs)
 	}
@@ -1699,7 +1699,7 @@ func TestBinaryDocValuesUpdates_SortedIndex(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createMockAnalyzerForBinaryDV())
+	config := index.NewIndexWriterConfigWithAnalyzer(createMockAnalyzerForBinaryDV())
 	// Note: In full Lucene, this would set index sort
 	// config.SetIndexSort(...)
 
@@ -1737,7 +1737,7 @@ func TestBinaryDocValuesUpdates_SortedIndex(t *testing.T) {
 			sortField, _ := document.NewNumericDocValuesField("sort", int64(sortValue))
 			fields = append(fields, sortField)
 
-			doc := &testDocument{fields: fields}
+			doc := newTestDocument(fields...)
 			writer.AddDocument(doc)
 
 			docs = append(docs, &oneSortDoc{
@@ -1764,7 +1764,7 @@ func TestBinaryDocValuesUpdates_SortedIndex(t *testing.T) {
 			updateFields := []interface{}{}
 			bdvUpdate, _ := document.NewBinaryDocValuesField("number", value)
 			updateFields = append(updateFields, bdvUpdate)
-			updateDoc := &testDocument{fields: updateFields}
+			updateDoc := newTestDocument(updateFields...)
 			writer.UpdateDocument(term, updateDoc)
 
 			docs[idToUpdate].value = util.NewBytesRef(value)
@@ -1774,7 +1774,7 @@ func TestBinaryDocValuesUpdates_SortedIndex(t *testing.T) {
 		if rng.Intn(100) == 0 && len(docs) > 0 {
 			idToDelete := rng.Intn(len(docs))
 			term := index.NewTerm("id", fmt.Sprintf("%d", idToDelete))
-			writer.DeleteDocuments(term)
+			writer.DeleteDocuments([]index.Term{*term})
 			if !docs[idToDelete].deleted {
 				docs[idToDelete].deleted = true
 				deletedCount++
@@ -1783,20 +1783,20 @@ func TestBinaryDocValuesUpdates_SortedIndex(t *testing.T) {
 
 		// Randomly commit
 		if rng.Intn(50) == 0 {
-			if err := writer.Commit(); err != nil {
+			if _, err := writer.Commit(); err != nil {
 				t.Fatalf("Commit failed: %v", err)
 			}
 		}
 	}
 
 	// Final commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Final commit failed: %v", err)
 	}
 
 	// Verify document count
 	expectedCount := len(docs) - deletedCount
-	actualCount := writer.NumDocs()
+	actualCount := iwDocStats(t, writer).NumDocs
 	if actualCount != expectedCount {
 		t.Errorf("Expected %d documents, got %d", expectedCount, actualCount)
 	}

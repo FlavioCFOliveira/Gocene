@@ -21,7 +21,7 @@ func TestIndexCommit_BasicCommit(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -43,7 +43,7 @@ func TestIndexCommit_BasicCommit(t *testing.T) {
 	}
 
 	// Commit
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -70,7 +70,7 @@ func TestIndexCommit_MultipleCommits(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	config.SetIndexDeletionPolicy(index.NoDeletionPolicyInstance)
 
 	writer, err := index.NewIndexWriter(dir, config)
@@ -90,7 +90,7 @@ func TestIndexCommit_MultipleCommits(t *testing.T) {
 			}
 		}
 
-		if err := writer.Commit(); err != nil {
+		if _, err := writer.Commit(); err != nil {
 			t.Fatalf("failed to commit: %v", err)
 		}
 	}
@@ -113,7 +113,7 @@ func TestIndexCommit_OpenAtCommit(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -130,7 +130,7 @@ func TestIndexCommit_OpenAtCommit(t *testing.T) {
 			t.Fatalf("failed to add document: %v", err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("failed to commit: %v", err)
 	}
 
@@ -160,7 +160,7 @@ func TestIndexCommit_DeleteCommits(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -174,7 +174,7 @@ func TestIndexCommit_DeleteCommits(t *testing.T) {
 			doc := document.NewDocument()
 			idField, _ := document.NewStringField("id", string(rune('0'+round)), true)
 			doc.Add(idField)
-				if _, err := writer.AddDocument(doc); err != nil {
+			if _, err := writer.AddDocument(doc); err != nil {
 				t.Fatalf("failed to add document: %v", err)
 			}
 		}
@@ -188,7 +188,7 @@ func TestIndexCommit_DeleteCommits(t *testing.T) {
 
 	// Delete old commits: a new writer with KeepOnlyLastCommitDeletionPolicy will
 	// prune older commits when it commits.
-	config2 := index.NewIndexWriterConfig(analyzer)
+	config2 := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	config2.SetIndexDeletionPolicy(index.NewKeepOnlyLastCommitDeletionPolicy())
 
 	writer2, err := index.NewIndexWriter(dir, config2)
@@ -198,7 +198,7 @@ func TestIndexCommit_DeleteCommits(t *testing.T) {
 	defer writer2.Close()
 
 	// Trigger the deletion policy so only the most recent commit survives.
-	if err := writer2.Commit(); err != nil {
+	if _, err := writer2.Commit(); err != nil {
 		t.Fatalf("second writer commit failed: %v", err)
 	}
 
@@ -210,7 +210,7 @@ func BenchmarkIndexCommit_Commit(b *testing.B) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, _ := index.NewIndexWriter(dir, config)
 	defer writer.Close()
@@ -219,9 +219,9 @@ func BenchmarkIndexCommit_Commit(b *testing.B) {
 		doc := document.NewDocument()
 		idField, _ := document.NewStringField("id", string(rune('0'+i%10)), true)
 		doc.Add(idField)
-			if _, err := writer.AddDocument(doc); err != nil {
-				b.Fatalf("failed to add document: %v", err)
-			}
+		if _, err := writer.AddDocument(doc); err != nil {
+			b.Fatalf("failed to add document: %v", err)
+		}
 	}
 
 	b.ResetTimer()

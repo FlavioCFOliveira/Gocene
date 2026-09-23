@@ -361,13 +361,20 @@ func (dwpt *DocumentsWriterPerThread) UpdateBatch(
 func (dwpt *DocumentsWriterPerThread) finishDocuments(deleteNode Node, docIdUpTo int) (int64, error) {
 	var seqNo int64
 	if deleteNode != nil {
-		seqNo = dwpt.deleteQueue.AddWithSlice(deleteNode, dwpt.deleteSlice)
+		var err error
+		seqNo, err = dwpt.deleteQueue.AddWithSlice(deleteNode, dwpt.deleteSlice)
+		if err != nil {
+			return 0, err
+		}
 		// In Java, this is an assertion: assert deleteSlice.isTail(deleteNode)
 		dwpt.deleteSlice.apply(dwpt.pendingUpdates, docIdUpTo)
 		return seqNo, nil
 	}
 
-	seqNo = dwpt.deleteQueue.UpdateSlice(dwpt.deleteSlice)
+	seqNo, err := dwpt.deleteQueue.UpdateSlice(dwpt.deleteSlice)
+	if err != nil {
+		return 0, err
+	}
 	if seqNo < 0 {
 		seqNo = -seqNo
 		dwpt.deleteSlice.apply(dwpt.pendingUpdates, docIdUpTo)
@@ -455,7 +462,10 @@ func (dwpt *DocumentsWriterPerThread) PrepareFlush() (*FrozenBufferedUpdates, er
 		return nil, fmt.Errorf("cannot prepare flush for segment with 0 docs")
 	}
 
-	globalUpdates := dwpt.deleteQueue.FreezeGlobalBuffer(dwpt.deleteSlice)
+	globalUpdates, err := dwpt.deleteQueue.FreezeGlobalBuffer(dwpt.deleteSlice)
+	if err != nil {
+		return nil, err
+	}
 	if dwpt.deleteSlice != nil {
 		dwpt.deleteSlice.apply(dwpt.pendingUpdates, dwpt.numDocsInRAM)
 		dwpt.deleteSlice.reset()

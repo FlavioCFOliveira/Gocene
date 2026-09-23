@@ -43,7 +43,7 @@ import (
 
 func newSeqNoWriter(t *testing.T, dir store.Directory) *index.IndexWriter {
 	t.Helper()
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -127,7 +127,7 @@ func TestIndexingSeqNos_AfterCommit(t *testing.T) {
 	defer writer.Close()
 
 	a := addSeqNoDoc(t, writer, "a")
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	b := addSeqNoDoc(t, writer, "b")

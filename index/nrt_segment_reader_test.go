@@ -11,7 +11,7 @@ func mockSegmentCommitInfoForNRT() *SegmentCommitInfo {
 	dir := store.NewByteBuffersDirectory()
 	return NewSegmentCommitInfo(
 		NewSegmentInfo("test", 100, dir),
-		0, 0,
+		0, 0, 0, -1, -1, nil,
 	)
 }
 

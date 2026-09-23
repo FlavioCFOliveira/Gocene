@@ -315,9 +315,7 @@ func (w *IndexWriter) writeMergedDocValues(
 		suffix := strconv.FormatInt(gen, 36)
 
 		dvInfos := NewFieldInfos()
-		if err := dvInfos.Add(newFI); err != nil {
-			return fmt.Errorf("add field %q to dv FieldInfos: %w", fieldName, err)
-		}
+		dvInfos.Add(newFI)
 		dvInfos.Freeze()
 
 		writeState := &SegmentWriteState{
@@ -479,9 +477,7 @@ func cloneFieldInfosUpdatingDVGen(
 		for k, v := range fi.GetAttributes() {
 			clone.PutCodecAttribute(k, v)
 		}
-		if err := out.Add(clone); err != nil {
-			return nil, fmt.Errorf("clone field %q: %w", fi.Name(), err)
-		}
+		out.Add(clone)
 	}
 	for name, fi := range added {
 		if _, ok := seen[name]; ok {
@@ -523,9 +519,7 @@ func cloneFieldInfosUpdatingDVGen(
 		for k, v := range fi.GetAttributes() {
 			clone.PutCodecAttribute(k, v)
 		}
-		if err := out.Add(clone); err != nil {
-			return nil, fmt.Errorf("add field %q: %w", fi.Name(), err)
-		}
+		out.Add(clone)
 	}
 	out.Freeze()
 	return out, nil

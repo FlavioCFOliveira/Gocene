@@ -2,815 +2,483 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+// Port of lucene/core/src/test/org/apache/lucene/index/TestIndexWriterFromReader.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
 import (
 	"errors"
-	"fmt"
 	"math/rand"
+	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-func newStringField(t *testing.T, name, value string, stored bool) document.IndexableField {
+func iwfrOpen(t *testing.T, w *index.IndexWriter) *index.DirectoryReader {
 	t.Helper()
-	f, err := document.NewStringField(name, value, stored)
-	if err != nil {
-		t.Fatalf("NewStringField(%q): %v", name, err)
-	}
-	return f
-}
-
-// TestIndexWriterFromReader ports org.apache.lucene.index.TestIndexWriterFromReader.
-//
-// Every case in the upstream suite opens an IndexWriter from a commit pinned by
-// a reader, via IndexWriterConfig.setIndexCommit, and several pull a near-real-time
-// reader directly from the writer (DirectoryReader.open(IndexWriter)).
-//
-// The GetReader / OpenDirectoryReaderFromWriter / IndexWriterConfig.SetIndexCommit
-// APIs are now present (rmp #1, #2), so the cases that need only NRT-reader open
-// plus latest-commit append (testRightAfterCommit, testFromNonNRTReader) and the
-// OpenMode.CREATE rejection (testInvalidOpenMode) run here. The remaining cases
-// require writer reopen on an older *pinned* commit (rollback) and closed-reader
-// liveness, which are tracked by rmp #118 and stay skipped with that reason.
-
-// testRightAfterCommit ports TestIndexWriterFromReader#testRightAfterCommit:
-// pull an NRT reader immediately after the writer has committed.
-func TestIndexWriterFromReader_RightAfterCommit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer func() { _ = dir.Close() }()
-
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	// DirectoryReader.open(w) — near-real-time reader from the writer.
 	r, err := index.OpenDirectoryReaderFromWriter(w)
 	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+		t.Fatalf("DirectoryReader.open(w): %v", err)
 	}
-	if got := r.MaxDoc(); got != 1 {
-		t.Fatalf("MaxDoc = %d, want 1", got)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	return r
+}
 
-	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
-	iwc.SetIndexCommit(r.GetIndexCommit())
-
-	w2, err := index.NewIndexWriter(dir, iwc)
+// iwfrOpenIfChanged renders DirectoryReader.openIfChanged(r).
+func iwfrOpenIfChanged(t *testing.T, r *index.DirectoryReader) *index.DirectoryReader {
+	t.Helper()
+	r2, err := index.OpenIfChanged(r)
 	if err != nil {
-		t.Fatalf("NewIndexWriter (w2): %v", err)
+		t.Fatalf("openIfChanged: %v", err)
 	}
-	if err := r.Close(); err != nil {
-		t.Fatalf("reader Close: %v", err)
+	if r2 == nil {
+		return nil
 	}
+	dr, ok := r2.(*index.DirectoryReader)
+	if !ok {
+		t.Fatalf("openIfChanged returned a %T", r2)
+	}
+	return dr
+}
 
-	if got := w2.GetDocStats().MaxDoc; got != 1 {
-		t.Fatalf("w2 maxDoc = %d, want 1", got)
+func iwfrExpectIllegalArgument(t *testing.T, dir store.Directory, iwc *index.IndexWriterConfig) error {
+	t.Helper()
+	w, err := index.NewIndexWriter(dir, iwc)
+	if err == nil {
+		mustClose(t, w)
+		t.Fatal("expected IllegalArgumentException")
 	}
-	if _, err := w2.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument (w2): %v", err)
-	}
-	if got := w2.GetDocStats().MaxDoc; got != 2 {
-		t.Fatalf("w2 maxDoc = %d, want 2", got)
-	}
-	if err := w2.Close(); err != nil {
-		t.Fatalf("Close (w2): %v", err)
-	}
+	return err
+}
 
-	r2, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader (r2): %v", err)
-	}
-	if got := r2.MaxDoc(); got != 2 {
-		t.Fatalf("r2 MaxDoc = %d, want 2", got)
-	}
-	if err := r2.Close(); err != nil {
-		t.Fatalf("Close (r2): %v", err)
+func iwfrAssertMaxDoc(t *testing.T, want, got int) {
+	t.Helper()
+	if want != got {
+		t.Fatalf("expected maxDoc %d, got %d", want, got)
 	}
 }
 
-// testFromNonNRTReader ports TestIndexWriterFromReader#testFromNonNRTReader:
-// open a new writer from a commit pinned by a non-NRT directory reader.
-func TestIndexWriterFromReader_FromNonNRTReader(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer func() { _ = dir.Close() }()
+// TestIndexWriterFromReaderRightAfterCommit: pull NRT reader immediately after
+// writer has committed.
+func TestIndexWriterFromReaderRightAfterCommit(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+	mustAddDocument(t, w, document.NewDocument())
+	mustCommit(t, w)
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	r := iwfrOpen(t, w)
+	iwfrAssertMaxDoc(t, 1, r.MaxDoc())
+	mustClose(t, w)
 
-	r, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	if got := r.MaxDoc(); got != 1 {
-		t.Fatalf("MaxDoc = %d, want 1", got)
-	}
-	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	iwc := newIndexWriterConfig()
 	iwc.SetIndexCommit(r.GetIndexCommit())
 
-	w2, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("NewIndexWriter (w2): %v", err)
-	}
-	if got := r.MaxDoc(); got != 1 {
-		t.Fatalf("MaxDoc = %d, want 1", got)
-	}
-	if err := r.Close(); err != nil {
-		t.Fatalf("reader Close: %v", err)
-	}
+	w2 := mustNewIndexWriter(t, dir, iwc)
+	mustClose(t, r)
 
-	if got := w2.GetDocStats().MaxDoc; got != 1 {
-		t.Fatalf("w2 maxDoc = %d, want 1", got)
-	}
-	if _, err := w2.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument (w2): %v", err)
-	}
-	if got := w2.GetDocStats().MaxDoc; got != 2 {
-		t.Fatalf("w2 maxDoc = %d, want 2", got)
-	}
-	if err := w2.Close(); err != nil {
-		t.Fatalf("Close (w2): %v", err)
-	}
+	iwfrAssertMaxDoc(t, 1, iwDocStats(t, w2).MaxDoc)
+	mustAddDocument(t, w2, document.NewDocument())
+	iwfrAssertMaxDoc(t, 2, iwDocStats(t, w2).MaxDoc)
+	mustClose(t, w2)
 
-	r2, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader (r2): %v", err)
-	}
-	if got := r2.MaxDoc(); got != 2 {
-		t.Fatalf("r2 MaxDoc = %d, want 2", got)
-	}
-	if err := r2.Close(); err != nil {
-		t.Fatalf("Close (r2): %v", err)
-	}
+	r2 := mustOpenDirectoryReader(t, dir)
+	iwfrAssertMaxDoc(t, 2, r2.MaxDoc())
+	mustClose(t, r2, dir)
 }
 
-// testWithNoFirstCommit ports TestIndexWriterFromReader#testWithNoFirstCommit:
-// pinning a commit from a reader of an index with no commit must fail.
-func TestIndexWriterFromReader_WithNoFirstCommit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer func() { _ = dir.Close() }()
+// TestIndexWriterFromReaderFromNonNRTReader: open from non-NRT reader.
+func TestIndexWriterFromReaderFromNonNRTReader(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+	mustAddDocument(t, w, document.NewDocument())
+	mustClose(t, w)
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
+	r := mustOpenDirectoryReader(t, dir)
+	iwfrAssertMaxDoc(t, 1, r.MaxDoc())
+	iwc := newIndexWriterConfig()
+	iwc.SetIndexCommit(r.GetIndexCommit())
 
-	r, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
+	w2 := mustNewIndexWriter(t, dir, iwc)
+	iwfrAssertMaxDoc(t, 1, r.MaxDoc())
+	mustClose(t, r)
+
+	iwfrAssertMaxDoc(t, 1, iwDocStats(t, w2).MaxDoc)
+	mustAddDocument(t, w2, document.NewDocument())
+	iwfrAssertMaxDoc(t, 2, iwDocStats(t, w2).MaxDoc)
+	mustClose(t, w2)
+
+	r2 := mustOpenDirectoryReader(t, dir)
+	iwfrAssertMaxDoc(t, 2, r2.MaxDoc())
+	mustClose(t, r2, dir)
+}
+
+// TestIndexWriterFromReaderWithNoFirstCommit: pull NRT reader from a writer on
+// a new index with no commit.
+func TestIndexWriterFromReaderWithNoFirstCommit(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+	mustAddDocument(t, w, document.NewDocument())
+	r := iwfrOpen(t, w)
 	if err := w.Rollback(); err != nil {
-		t.Fatalf("Rollback: %v", err)
+		t.Fatalf("rollback: %v", err)
 	}
 
-	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	iwc := newIndexWriterConfig()
 	iwc.SetIndexCommit(r.GetIndexCommit())
-	_, err = index.NewIndexWriter(dir, iwc)
-	const want = "cannot use IndexWriterConfig.setIndexCommit() when index has no commit"
-	if err == nil || err.Error() != want {
-		t.Fatalf("NewIndexWriter error = %v, want %q", err, want)
+
+	err := iwfrExpectIllegalArgument(t, dir, iwc)
+	if want := "cannot use IndexWriterConfig.setIndexCommit() when index has no commit"; err.Error() != want {
+		t.Fatalf("expected %q, got %q", want, err.Error())
 	}
-	if err := r.Close(); err != nil {
-		t.Fatalf("reader Close: %v", err)
-	}
+
+	mustClose(t, r, dir)
 }
 
-// testAfterCommitThenIndex ports TestIndexWriterFromReader#testAfterCommitThenIndex:
-// an NRT reader becomes stale once the writer commits past its commit point.
-func TestIndexWriterFromReader_AfterCommitThenIndex(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer func() { _ = dir.Close() }()
+// TestIndexWriterFromReaderAfterCommitThenIndex: pull NRT reader after writer
+// has committed and then indexed another doc.
+func TestIndexWriterFromReaderAfterCommitThenIndex(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+	mustAddDocument(t, w, document.NewDocument())
+	mustCommit(t, w)
+	mustAddDocument(t, w, document.NewDocument())
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
+	r := iwfrOpen(t, w)
+	iwfrAssertMaxDoc(t, 2, r.MaxDoc())
+	mustClose(t, w)
 
-	r, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	if got := r.MaxDoc(); got != 2 {
-		t.Fatalf("MaxDoc = %d, want 2", got)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	iwc := newIndexWriterConfig()
 	iwc.SetIndexCommit(r.GetIndexCommit())
-	_, err = index.NewIndexWriter(dir, iwc)
-	if err == nil || !strings.Contains(err.Error(), "the provided reader is stale") {
-		t.Fatalf("NewIndexWriter error = %v, want stale reader", err)
+
+	err := iwfrExpectIllegalArgument(t, dir, iwc)
+	if !strings.Contains(err.Error(), "the provided reader is stale: its prior commit file") {
+		t.Fatalf("unexpected message: %q", err.Error())
 	}
-	if err := r.Close(); err != nil {
-		t.Fatalf("reader Close: %v", err)
-	}
+
+	mustClose(t, r, dir)
 }
 
-// testNRTRollback ports TestIndexWriterFromReader#testNRTRollback:
-// after a commit and a further add, a pre-add NRT reader is stale.
-func TestIndexWriterFromReader_NRTRollback(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer func() { _ = dir.Close() }()
+// TestIndexWriterFromReaderNRTRollback: pull NRT reader after writer has
+// committed and then before indexing another doc.
+func TestIndexWriterFromReaderNRTRollback(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+	mustAddDocument(t, w, document.NewDocument())
+	mustCommit(t, w)
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
+	r := iwfrOpen(t, w)
+	iwfrAssertMaxDoc(t, 1, r.MaxDoc())
 
-	r, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	if got := r.MaxDoc(); got != 1 {
-		t.Fatalf("MaxDoc = %d, want 1", got)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if got := w.GetDocStats().MaxDoc; got != 2 {
-		t.Fatalf("writer MaxDoc = %d, want 2", got)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	// Add another doc
+	mustAddDocument(t, w, document.NewDocument())
+	iwfrAssertMaxDoc(t, 2, iwDocStats(t, w).MaxDoc)
+	mustClose(t, w)
 
-	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	iwc := newIndexWriterConfig()
 	iwc.SetIndexCommit(r.GetIndexCommit())
-	_, err = index.NewIndexWriter(dir, iwc)
-	if err == nil || !strings.Contains(err.Error(), "the provided reader is stale") {
-		t.Fatalf("NewIndexWriter error = %v, want stale reader", err)
+	err := iwfrExpectIllegalArgument(t, dir, iwc)
+	if !strings.Contains(err.Error(), "the provided reader is stale: its prior commit file") {
+		t.Fatalf("unexpected message: %q", err.Error())
 	}
-	if err := r.Close(); err != nil {
-		t.Fatalf("reader Close: %v", err)
-	}
+
+	mustClose(t, r, dir)
 }
 
-// testRandom ports TestIndexWriterFromReader#testRandom: a randomized sequence of
-// adds, deletes, NRT reopens, rollbacks, and commits cross-checked against
-// reader/writer doc counts. RandomIndexWriter and the NRT reopen/rollback APIs
-// are now available, so the test is exercised directly without MockDirectoryWrapper
-// fault injection.
-func TestIndexWriterFromReader_Random(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer func() { _ = dir.Close() }()
+func TestIndexWriterFromReaderRandom(t *testing.T) {
+	dir := newDirectory()
 
-	cfg := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	// Empty first commit so rollbacks always have a pinned baseline.
-	if err := w.Commit(); err != nil {
-		t.Fatalf("initial Commit: %v", err)
-	}
+	numOps := atLeast(100)
 
-	r, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+
+	// We must have a starting commit for this test because whenever we rollback
+	// with an NRT reader, the commit before that NRT reader must exist
+	mustCommit(t, w)
+
+	r := iwfrOpen(t, w)
 	nrtReaderNumDocs := 0
 	writerNumDocs := 0
+
 	commitAfterNRT := false
 
-	liveIDs := make(map[int]struct{})
-	nrtLiveIDs := make(map[int]struct{})
-
-	rng := rand.New(rand.NewSource(0xC0FFEE))
-	numOps := 100
-	for op := 0; op < numOps; op++ {
-		if got := r.NumDocs(); got != nrtReaderNumDocs {
-			t.Fatalf("iter %d: r.NumDocs() = %d, want %d", op, got, nrtReaderNumDocs)
+	liveIDs := make(map[int]bool)
+	nrtLiveIDs := make(map[int]bool)
+	copySet := func(s map[int]bool) map[int]bool {
+		out := make(map[int]bool, len(s))
+		for k := range s {
+			out[k] = true
 		}
-		x := rng.Intn(5)
-		switch x {
+		return out
+	}
+
+	for op := 0; op < numOps; op++ {
+		if r.NumDocs() != nrtReaderNumDocs {
+			t.Fatalf("op %d: expected %d docs, got %d", op, nrtReaderNumDocs, r.NumDocs())
+		}
+		switch rand.Intn(5) {
 		case 0:
+			// add doc
 			doc := document.NewDocument()
-			doc.Add(newStringField(t, "id", fmt.Sprintf("%d", op), false))
-			if _, err := w.AddDocument(doc); err != nil {
-				t.Fatalf("iter %d AddDocument: %v", op, err)
-			}
-			liveIDs[op] = struct{}{}
+			doc.Add(newStringField(t, "id", strconv.Itoa(op), false))
+			mustAddDocument(t, w, doc)
+			liveIDs[op] = true
 			writerNumDocs++
+
 		case 1:
-			if len(liveIDs) == 0 {
-				continue
-			}
-			id := rng.Intn(op)
-			if _, err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
-				t.Fatalf("iter %d DeleteDocuments: %v", op, err)
-			}
-			if _, ok := liveIDs[id]; ok {
-				delete(liveIDs, id)
-				writerNumDocs--
-			}
-		case 2:
-			r2, err := index.OpenIfChangedFromWriter(r, w)
-			if err != nil {
-				t.Fatalf("iter %d OpenIfChangedFromWriter: %v", op, err)
-			}
-			if r2 != nil {
-				if err := r.Close(); err != nil {
-					t.Fatalf("iter %d close old reader: %v", op, err)
+			// delete docs
+			if len(liveIDs) > 0 {
+				id := rand.Intn(op)
+				if _, err := w.DeleteDocuments([]index.Term{*index.NewTerm("id", strconv.Itoa(id))}); err != nil {
+					t.Fatalf("deleteDocuments: %v", err)
 				}
+				if liveIDs[id] {
+					delete(liveIDs, id)
+					writerNumDocs--
+				}
+			}
+
+		case 2:
+			// reopen NRT reader
+			r2 := iwfrOpenIfChanged(t, r)
+			if r2 != nil {
+				mustClose(t, r)
 				r = r2
 				nrtReaderNumDocs = writerNumDocs
-				nrtLiveIDs = cloneIntSet(liveIDs)
-			} else {
-				if got := r.NumDocs(); got != nrtReaderNumDocs {
-					t.Fatalf("iter %d unchanged reader NumDocs = %d, want %d", op, got, nrtReaderNumDocs)
-				}
+				nrtLiveIDs = copySet(liveIDs)
+			} else if r.NumDocs() != nrtReaderNumDocs {
+				t.Fatalf("expected %d docs, got %d", nrtReaderNumDocs, r.NumDocs())
 			}
 			commitAfterNRT = false
+
 		case 3:
 			if !commitAfterNRT {
-				if rng.Intn(2) == 0 {
-					if err := w.Close(); err != nil {
-						t.Fatalf("iter %d Close: %v", op, err)
-					}
-					if err := r.Close(); err != nil {
-						t.Fatalf("iter %d close r: %v", op, err)
-					}
-					r, err = index.OpenDirectoryReader(dir)
-					if err != nil {
-						t.Fatalf("iter %d OpenDirectoryReader: %v", op, err)
-					}
-					if got := r.NumDocs(); got != writerNumDocs {
-						t.Fatalf("iter %d non-NRT reader NumDocs = %d, want %d", op, got, writerNumDocs)
+				// rollback writer to last nrt reader
+				if rand.Intn(2) == 0 {
+					mustClose(t, w, r)
+					r = mustOpenDirectoryReader(t, dir)
+					if r.NumDocs() != writerNumDocs {
+						t.Fatalf("expected %d docs, got %d", writerNumDocs, r.NumDocs())
 					}
 					nrtReaderNumDocs = writerNumDocs
-					nrtLiveIDs = cloneIntSet(liveIDs)
-				} else {
-					if err := w.Rollback(); err != nil {
-						t.Fatalf("iter %d Rollback: %v", op, err)
-					}
+					nrtLiveIDs = copySet(liveIDs)
+				} else if err := w.Rollback(); err != nil {
+					t.Fatalf("rollback: %v", err)
 				}
-				iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+				iwc := newIndexWriterConfig()
 				iwc.SetIndexCommit(r.GetIndexCommit())
-				w, err = index.NewIndexWriter(dir, iwc)
-				if err != nil {
-					t.Fatalf("iter %d NewIndexWriter from commit: %v", op, err)
-				}
+				w = mustNewIndexWriter(t, dir, iwc)
 				writerNumDocs = nrtReaderNumDocs
-				liveIDs = cloneIntSet(nrtLiveIDs)
-				if err := r.Close(); err != nil {
-					t.Fatalf("iter %d close pinned reader: %v", op, err)
-				}
-				r, err = index.OpenDirectoryReaderFromWriter(w)
-				if err != nil {
-					t.Fatalf("iter %d OpenDirectoryReaderFromWriter after reopen: %v", op, err)
-				}
+				liveIDs = copySet(nrtLiveIDs)
+				mustClose(t, r)
+				r = iwfrOpen(t, w)
 			}
+
 		case 4:
-			if err := w.Commit(); err != nil {
-				t.Fatalf("iter %d Commit: %v", op, err)
-			}
+			mustCommit(t, w)
 			commitAfterNRT = true
 		}
 	}
 
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	if err := r.Close(); err != nil {
-		t.Fatalf("reader Close: %v", err)
-	}
+	mustClose(t, w, r, dir)
 }
 
-// cloneIntSet returns a shallow copy of the provided int set.
-func cloneIntSet(s map[int]struct{}) map[int]struct{} {
-	out := make(map[int]struct{}, len(s))
-	for k := range s {
-		out[k] = struct{}{}
-	}
-	return out
-}
-
-// testConsistentFieldNumbers ports TestIndexWriterFromReader#testConsistentFieldNumbers:
-// field numbers stay consistent when a writer resumes from a pinned commit.
-func TestIndexWriterFromReader_ConsistentFieldNumbers(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer func() { _ = dir.Close() }()
-
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	// Empty first commit.
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
+func TestIndexWriterFromReaderConsistentFieldNumbers(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+	// Empty first commit:
+	mustCommit(t, w)
 
 	doc := document.NewDocument()
-	f0, err := document.NewStringField("f0", "foo", false)
-	if err != nil {
-		t.Fatalf("NewStringField f0: %v", err)
-	}
-	doc.Add(f0)
-	if _, err := w.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
+	doc.Add(newStringField(t, "f0", "foo", false))
+	mustAddDocument(t, w, doc)
 
-	r, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	if got := r.MaxDoc(); got != 1 {
-		t.Fatalf("r MaxDoc = %d, want 1", got)
-	}
+	r := iwfrOpen(t, w)
+	iwfrAssertMaxDoc(t, 1, r.MaxDoc())
 
-	doc2 := document.NewDocument()
-	f1, err := document.NewStringField("f1", "foo", false)
-	if err != nil {
-		t.Fatalf("NewStringField f1: %v", err)
-	}
-	doc2.Add(f1)
-	if _, err := w.AddDocument(doc2); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
+	doc = document.NewDocument()
+	doc.Add(newStringField(t, "f1", "foo", false))
+	mustAddDocument(t, w, doc)
 
-	r2, err := index.OpenIfChangedFromWriter(r, w)
-	if err != nil {
-		t.Fatalf("OpenIfChangedFromWriter: %v", err)
-	}
+	r2 := iwfrOpenIfChanged(t, r)
 	if r2 == nil {
-		t.Fatal("OpenIfChangedFromWriter returned nil, want new reader")
+		t.Fatal("assertNotNull(r2)")
 	}
-	if got := r2.MaxDoc(); got != 2 {
-		t.Fatalf("r2 MaxDoc = %d, want 2", got)
-	}
-	if err := r.Close(); err != nil {
-		t.Fatalf("r Close: %v", err)
-	}
+	mustClose(t, r)
+	iwfrAssertMaxDoc(t, 2, r2.MaxDoc())
 	if err := w.Rollback(); err != nil {
-		t.Fatalf("Rollback: %v", err)
+		t.Fatalf("rollback: %v", err)
 	}
 
-	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	iwc := newIndexWriterConfig()
 	iwc.SetIndexCommit(r2.GetIndexCommit())
-	w2, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("NewIndexWriter (w2): %v", err)
-	}
-	if err := r2.Close(); err != nil {
-		t.Fatalf("r2 Close: %v", err)
-	}
 
-	doc3 := document.NewDocument()
-	f1b, err := document.NewStringField("f1", "foo", false)
-	if err != nil {
-		t.Fatalf("NewStringField f1b: %v", err)
-	}
-	doc3.Add(f1b)
-	f0b, err := document.NewStringField("f0", "foo", false)
-	if err != nil {
-		t.Fatalf("NewStringField f0b: %v", err)
-	}
-	doc3.Add(f0b)
-	if _, err := w2.AddDocument(doc3); err != nil {
-		t.Fatalf("AddDocument (w2): %v", err)
-	}
-	if err := w2.Close(); err != nil {
-		t.Fatalf("Close (w2): %v", err)
-	}
+	w2 := mustNewIndexWriter(t, dir, iwc)
+	mustClose(t, r2)
+
+	doc = document.NewDocument()
+	doc.Add(newStringField(t, "f1", "foo", false))
+	doc.Add(newStringField(t, "f0", "foo", false))
+	mustAddDocument(t, w2, doc)
+	mustClose(t, w2, dir)
 }
 
-// testInvalidOpenMode ports TestIndexWriterFromReader#testInvalidOpenMode:
-// setIndexCommit combined with OpenMode.CREATE must be rejected.
-func TestIndexWriterFromReader_InvalidOpenMode(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer func() { _ = dir.Close() }()
+func TestIndexWriterFromReaderInvalidOpenMode(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+	mustAddDocument(t, w, document.NewDocument())
+	mustCommit(t, w)
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
+	r := iwfrOpen(t, w)
+	iwfrAssertMaxDoc(t, 1, r.MaxDoc())
+	mustClose(t, w)
 
-	r, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	if got := r.MaxDoc(); got != 1 {
-		t.Fatalf("MaxDoc = %d, want 1", got)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
-	iwc.SetOpenMode(index.CREATE)
+	iwc := newIndexWriterConfig()
+	iwc.SetOpenMode(index.Create)
 	iwc.SetIndexCommit(r.GetIndexCommit())
-
-	_, err = index.NewIndexWriter(dir, iwc)
-	const want = "cannot use IndexWriterConfig.setIndexCommit() with OpenMode.CREATE"
-	if err == nil || err.Error() != want {
-		t.Fatalf("NewIndexWriter error = %v, want %q", err, want)
+	err := iwfrExpectIllegalArgument(t, dir, iwc)
+	if want := "cannot use IndexWriterConfig.setIndexCommit() with OpenMode.CREATE"; err.Error() != want {
+		t.Fatalf("expected %q, got %q", want, err.Error())
 	}
 
-	if err := r.Close(); err != nil {
-		t.Fatalf("reader Close: %v", err)
-	}
+	mustClose(t, r, dir)
 }
 
-// testOnClosedReader ports TestIndexWriterFromReader#testOnClosedReader:
-// pinning a commit from an already-closed reader must fail.
-func TestIndexWriterFromReader_OnClosedReader(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer func() { _ = dir.Close() }()
+func TestIndexWriterFromReaderOnClosedReader(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+	mustAddDocument(t, w, document.NewDocument())
+	mustCommit(t, w)
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	r, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	if got := r.MaxDoc(); got != 1 {
-		t.Fatalf("MaxDoc = %d, want 1", got)
-	}
+	r := iwfrOpen(t, w)
+	iwfrAssertMaxDoc(t, 1, r.MaxDoc())
 	commit := r.GetIndexCommit()
-	if err := r.Close(); err != nil {
-		t.Fatalf("reader Close: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	mustClose(t, r, w)
 
-	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	iwc := newIndexWriterConfig()
 	iwc.SetIndexCommit(commit)
-	_, err = index.NewIndexWriter(dir, iwc)
-	var ace *index.AlreadyClosedException
-	if err == nil || !errors.As(err, &ace) {
-		t.Fatalf("NewIndexWriter error = %v, want AlreadyClosedException", err)
+	w2, err := index.NewIndexWriter(dir, iwc)
+	var ace *store.AlreadyClosedException
+	if !errors.As(err, &ace) {
+		if w2 != nil {
+			mustClose(t, w2)
+		}
+		t.Fatalf("expected AlreadyClosedException, got %v", err)
 	}
+
+	mustClose(t, r, dir)
 }
 
-// testStaleNRTReader ports TestIndexWriterFromReader#testStaleNRTReader:
-// a writer reopened from a stale NRT reader's commit sees the pinned doc count.
-func TestIndexWriterFromReader_StaleNRTReader(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer func() { _ = dir.Close() }()
+func TestIndexWriterFromReaderStaleNRTReader(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+	mustAddDocument(t, w, document.NewDocument())
+	mustCommit(t, w)
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
+	r := iwfrOpen(t, w)
+	iwfrAssertMaxDoc(t, 1, r.MaxDoc())
+	mustAddDocument(t, w, document.NewDocument())
 
-	r, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	if got := r.MaxDoc(); got != 1 {
-		t.Fatalf("r MaxDoc = %d, want 1", got)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-
-	r2, err := index.OpenIfChangedFromWriter(r, w)
-	if err != nil {
-		t.Fatalf("OpenIfChangedFromWriter: %v", err)
-	}
+	r2 := iwfrOpenIfChanged(t, r)
 	if r2 == nil {
-		t.Fatal("OpenIfChangedFromWriter returned nil, want new reader")
+		t.Fatal("assertNotNull(r2)")
 	}
-	if got := r2.MaxDoc(); got != 2 {
-		t.Fatalf("r2 MaxDoc = %d, want 2", got)
-	}
-	if err := r2.Close(); err != nil {
-		t.Fatalf("r2 Close: %v", err)
-	}
+	mustClose(t, r2)
 	if err := w.Rollback(); err != nil {
-		t.Fatalf("Rollback: %v", err)
+		t.Fatalf("rollback: %v", err)
 	}
 
-	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	iwc := newIndexWriterConfig()
 	iwc.SetIndexCommit(r.GetIndexCommit())
-	w2, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("NewIndexWriter (w2): %v", err)
-	}
-	if got := w2.GetDocStats().NumDocs; got != 1 {
-		t.Fatalf("w2 NumDocs = %d, want 1", got)
-	}
-	if err := r.Close(); err != nil {
-		t.Fatalf("r Close: %v", err)
+	w = mustNewIndexWriter(t, dir, iwc)
+	if n := iwDocStats(t, w).NumDocs; n != 1 {
+		t.Fatalf("expected numDocs 1, got %d", n)
 	}
 
-	r3, err := index.OpenDirectoryReaderFromWriter(w2)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter (r3): %v", err)
-	}
-	if got := r3.NumDocs(); got != 1 {
-		t.Fatalf("r3 NumDocs = %d, want 1", got)
-	}
-	if err := r3.Close(); err != nil {
-		t.Fatalf("r3 Close: %v", err)
+	mustClose(t, r)
+	r3 := iwfrOpen(t, w)
+	if r3.NumDocs() != 1 {
+		t.Fatalf("expected 1 doc, got %d", r3.NumDocs())
 	}
 
-	if _, err := w2.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument (w2): %v", err)
+	mustAddDocument(t, w, document.NewDocument())
+	r4 := iwfrOpenIfChanged(t, r3)
+	mustClose(t, r3)
+	if r4 == nil || r4.NumDocs() != 2 {
+		t.Fatalf("expected 2 docs, got %v", r4)
 	}
-	r4, err := index.OpenIfChangedFromWriter(r3, w2)
-	if err != nil {
-		t.Fatalf("OpenIfChangedFromWriter (r4): %v", err)
-	}
-	if r4 == nil {
-		t.Fatal("OpenIfChangedFromWriter returned nil, want new reader")
-	}
-	if got := r4.NumDocs(); got != 2 {
-		t.Fatalf("r4 NumDocs = %d, want 2", got)
-	}
-	if err := r4.Close(); err != nil {
-		t.Fatalf("r4 Close: %v", err)
-	}
-	if err := w2.Close(); err != nil {
-		t.Fatalf("Close (w2): %v", err)
-	}
+	mustClose(t, r4, w)
+
+	mustClose(t, r, dir)
 }
 
-// testAfterRollback ports TestIndexWriterFromReader#testAfterRollback:
-// after a rollback, a writer reopened from the NRT reader's commit keeps its docs.
-func TestIndexWriterFromReader_AfterRollback(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer func() { _ = dir.Close() }()
+func TestIndexWriterFromReaderAfterRollback(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+	mustAddDocument(t, w, document.NewDocument())
+	mustCommit(t, w)
+	mustAddDocument(t, w, document.NewDocument())
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewStandardAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-
-	r, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	if got := r.MaxDoc(); got != 2 {
-		t.Fatalf("r MaxDoc = %d, want 2", got)
-	}
+	r := iwfrOpen(t, w)
+	iwfrAssertMaxDoc(t, 2, r.MaxDoc())
 	if err := w.Rollback(); err != nil {
-		t.Fatalf("Rollback: %v", err)
+		t.Fatalf("rollback: %v", err)
 	}
 
-	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
+	iwc := newIndexWriterConfig()
 	iwc.SetIndexCommit(r.GetIndexCommit())
-	w2, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("NewIndexWriter (w2): %v", err)
-	}
-	if got := w2.GetDocStats().NumDocs; got != 2 {
-		t.Fatalf("w2 NumDocs = %d, want 2", got)
-	}
-	if err := r.Close(); err != nil {
-		t.Fatalf("r Close: %v", err)
-	}
-	if err := w2.Close(); err != nil {
-		t.Fatalf("Close (w2): %v", err)
+	w = mustNewIndexWriter(t, dir, iwc)
+	if n := iwDocStats(t, w).NumDocs; n != 2 {
+		t.Fatalf("expected numDocs 2, got %d", n)
 	}
 
-	r2, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader (r2): %v", err)
+	mustClose(t, r, w)
+
+	r2 := mustOpenDirectoryReader(t, dir)
+	if r2.NumDocs() != 2 {
+		t.Fatalf("expected 2 docs, got %d", r2.NumDocs())
 	}
-	if got := r2.NumDocs(); got != 2 {
-		t.Fatalf("r2 NumDocs = %d, want 2", got)
-	}
-	if err := r2.Close(); err != nil {
-		t.Fatalf("r2 Close: %v", err)
-	}
+	mustClose(t, r2, dir)
 }
 
-// testAfterCommitThenIndexKeepCommits ports
-// TestIndexWriterFromReader#testAfterCommitThenIndexKeepCommits: with a
-// keep-all-commits deletion policy, an NRT reader is never stale.
-func TestIndexWriterFromReader_AfterCommitThenIndexKeepCommits(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer func() { _ = dir.Close() }()
+// keepAllCommitsPolicy renders the anonymous IndexDeletionPolicy whose onInit
+// and onCommit do nothing (keep all commits).
+type keepAllCommitsPolicy struct{}
 
-	iwc := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
-	iwc.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
-	w, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
+func (keepAllCommitsPolicy) OnInit([]index.Commit) error        { return nil }
+func (keepAllCommitsPolicy) OnCommit([]index.Commit) error      { return nil }
+func (p keepAllCommitsPolicy) Clone() index.IndexDeletionPolicy { return p }
 
-	r, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	if got := r.MaxDoc(); got != 2 {
-		t.Fatalf("r MaxDoc = %d, want 2", got)
-	}
-	if _, err := w.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
+// TestIndexWriterFromReaderAfterCommitThenIndexKeepCommits: pull NRT reader
+// after writer has committed and then indexed another doc.
+func TestIndexWriterFromReaderAfterCommitThenIndexKeepCommits(t *testing.T) {
+	dir := newDirectory()
+	iwc := newIndexWriterConfig()
 
-	r2, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter (r2): %v", err)
-	}
-	if got := r2.MaxDoc(); got != 3 {
-		t.Fatalf("r2 MaxDoc = %d, want 3", got)
-	}
-	if err := r2.Close(); err != nil {
-		t.Fatalf("r2 Close: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	// Keep all commits:
+	iwc.SetIndexDeletionPolicy(keepAllCommitsPolicy{})
 
-	iwc2 := index.NewIndexWriterConfig(analysis.NewStandardAnalyzer())
-	iwc2.SetIndexCommit(r.GetIndexCommit())
-	w2, err := index.NewIndexWriter(dir, iwc2)
-	if err != nil {
-		t.Fatalf("NewIndexWriter (w2): %v", err)
-	}
-	if got := w2.GetDocStats().MaxDoc; got != 2 {
-		t.Fatalf("w2 MaxDoc = %d, want 2", got)
-	}
-	if err := r.Close(); err != nil {
-		t.Fatalf("r Close: %v", err)
-	}
-	if err := w2.Close(); err != nil {
-		t.Fatalf("Close (w2): %v", err)
-	}
+	w := mustNewIndexWriter(t, dir, iwc)
+	mustAddDocument(t, w, document.NewDocument())
+	mustCommit(t, w)
+	mustAddDocument(t, w, document.NewDocument())
+
+	r := iwfrOpen(t, w)
+	iwfrAssertMaxDoc(t, 2, r.MaxDoc())
+	mustAddDocument(t, w, document.NewDocument())
+
+	r2 := iwfrOpen(t, w)
+	iwfrAssertMaxDoc(t, 3, r2.MaxDoc())
+	mustClose(t, r2, w)
+
+	// r is not stale because, even though we've committed the original writer
+	// since it was open, we are keeping all commit points:
+	iwc = newIndexWriterConfig()
+	iwc.SetIndexCommit(r.GetIndexCommit())
+	w2 := mustNewIndexWriter(t, dir, iwc)
+	iwfrAssertMaxDoc(t, 2, iwDocStats(t, w2).MaxDoc)
+	mustClose(t, r, w2, dir)
 }

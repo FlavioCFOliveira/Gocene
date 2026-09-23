@@ -27,7 +27,7 @@ func TestPerSegmentDeletes(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -44,7 +44,7 @@ func TestPerSegmentDeletes(t *testing.T) {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit1: %v", err)
 	}
 
@@ -60,12 +60,12 @@ func TestPerSegmentDeletes(t *testing.T) {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit2: %v", err)
 	}
 
 	// Delete a document by term.
-	if _, err := writer.DeleteDocuments(index.NewTerm("id", "doc3")); err != nil {
+	if _, err := writer.DeleteDocuments([]index.Term{*index.NewTerm("id", "doc3")}); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
 

@@ -185,6 +185,12 @@ func (s *SortedDocValuesTermsEnum) PostingsWithLiveDocs(_ util.Bits, _ int) (Pos
 	return nil, ErrUnsupportedSortedDVOp
 }
 
+// Impacts is unsupported on SortedDocValuesTermsEnum: Lucene 10.5.0's
+// SortedDocValuesTermsEnum.impacts(int) throws UnsupportedOperationException.
+func (s *SortedDocValuesTermsEnum) Impacts(_ int) (spi.ImpactsEnum, error) {
+	return nil, ErrUnsupportedSortedDVOp
+}
+
 // currentTerm builds a fresh *Term carrying the configured field and the
 // current scratch bytes. A fresh Term is allocated each call to match the
 // "callers may retain the result" contract used elsewhere in Gocene.

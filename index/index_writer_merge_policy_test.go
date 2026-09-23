@@ -2,1168 +2,903 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for IndexWriter merge policy operations.
-//
-// Ported from Apache Lucene's org.apache.lucene.index.TestIndexWriterMergePolicy
-// Source: lucene/core/src/test/org/apache/lucene/index/TestIndexWriterMergePolicy.java
-//
-// Focus areas:
-//   - Merge policy selection during indexing
-//   - Merge triggering behavior
-//   - Policy configuration changes
-//   - Merge on commit/getReader semantics
-//   - Merge invariants and boundary conditions
-//
-// GC-177: Test Coverage - IndexWriterMergePolicy
+// Port of lucene/core/src/test/org/apache/lucene/index/TestIndexWriterMergePolicy.java
+// (Apache Lucene 10.5.0). The @Nightly testMaxBufferedDocsChange lives in
+// index_writer_merge_policy_monster_test.go; the two @AwaitsFix stress tests
+// live in index_writer_merge_policy_awaitsfix_test.go.
+
 package index_test
 
 import (
+	"fmt"
+	"io/fs"
+	"math"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// MockMergePolicy is a test merge policy that merges segments when there are
-// mergeFactor or more segments with similar doc counts.
-// This is a simplified version of LogDocMergePolicy for testing purposes.
-type MockMergePolicy struct {
+// Production members of IndexWriter that checkInvariants needs.
+const (
+	indexWriterWaitForMergesMissing           = "org.apache.lucene.index.IndexWriter#waitForMerges() is not ported"
+	indexWriterGetNumBufferedDocumentsMissing = "org.apache.lucene.index.IndexWriter#getNumBufferedDocuments() is not ported"
+)
+
+// mockMergePolicy is the private MockMergePolicy: a less sophisticated version
+// of LogDocMergePolicy, only for testing the interaction between IndexWriter
+// and the MergePolicy.
+type mockMergePolicy struct {
+	*index.BaseMergePolicy
 	mergeFactor int
 }
 
-// NewMockMergePolicy creates a new MockMergePolicy with default merge factor of 10.
-func NewMockMergePolicy() *MockMergePolicy {
-	return &MockMergePolicy{
-		mergeFactor: 10,
+func newMockMergePolicy() *mockMergePolicy {
+	return &mockMergePolicy{BaseMergePolicy: index.NewBaseMergePolicy(), mergeFactor: 10}
+}
+
+func (m *mockMergePolicy) getMergeFactor() int { return m.mergeFactor }
+
+func (m *mockMergePolicy) setMergeFactor(mergeFactor int) { m.mergeFactor = mergeFactor }
+
+func (m *mockMergePolicy) FindMerges(_ index.MergeTrigger, segmentInfos *index.SegmentInfos, _ index.MergeContext) (*index.MergeSpecification, error) {
+	var segments []*index.SegmentCommitInfo
+	for sci := range segmentInfos.Iterator() {
+		segments = append(segments, sci)
 	}
-}
-
-// GetMergeFactor returns the current merge factor.
-func (m *MockMergePolicy) GetMergeFactor() int {
-	return m.mergeFactor
-}
-
-// SetMergeFactor sets the merge factor.
-func (m *MockMergePolicy) SetMergeFactor(mergeFactor int) {
-	m.mergeFactor = mergeFactor
-}
-
-// FindMerges implements the MergePolicy interface.
-func (m *MockMergePolicy) FindMerges(trigger index.MergeTrigger, infos *index.SegmentInfos, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
-	// Simplified implementation: merge when we have mergeFactor or more segments
-	if infos.Size() >= m.mergeFactor {
-		spec := index.NewMergeSpecification()
-		// Add a merge for the first mergeFactor segments
-		segments := make([]*index.SegmentCommitInfo, 0, m.mergeFactor)
-		for i := 0; i < m.mergeFactor && i < infos.Size(); i++ {
-			segments = append(segments, infos.Get(i))
-		}
-		if len(segments) >= 2 {
-			spec.Add(index.NewOneMerge(segments))
-		}
-		return spec, nil
-	}
-	return nil, nil
-}
-
-// FindForcedMerges implements the MergePolicy interface.
-func (m *MockMergePolicy) FindForcedMerges(infos *index.SegmentInfos, maxSegmentCount int, segmentsToMerge map[*index.SegmentCommitInfo]bool, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
-	return nil, nil
-}
-
-// FindForcedDeletesMerges implements the MergePolicy interface.
-func (m *MockMergePolicy) FindForcedDeletesMerges(infos *index.SegmentInfos, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
-	return nil, nil
-}
-
-// UseCompoundFile implements the MergePolicy interface.
-func (m *MockMergePolicy) UseCompoundFile(infos *index.SegmentInfos, mergedSegmentInfo *index.SegmentInfo) bool {
-	return false
-}
-
-// GetMaxMergeDocs implements the MergePolicy interface.
-func (m *MockMergePolicy) GetMaxMergeDocs() int {
-	return int(^uint(0) >> 1) // MaxInt
-}
-
-// SetMaxMergeDocs implements the MergePolicy interface.
-func (m *MockMergePolicy) SetMaxMergeDocs(maxMergeDocs int) {}
-
-// GetMaxMergedSegmentBytes implements the MergePolicy interface.
-func (m *MockMergePolicy) GetMaxMergedSegmentBytes() int64 {
-	return 5 * 1024 * 1024 * 1024 // 5GB
-}
-
-// SetMaxMergedSegmentBytes implements the MergePolicy interface.
-func (m *MockMergePolicy) SetMaxMergedSegmentBytes(maxMergedSegmentBytes int64) {}
-
-// NumDeletesToMerge implements the MergePolicy interface.
-func (m *MockMergePolicy) NumDeletesToMerge(info *index.SegmentCommitInfo, delCount int) int {
-	return delCount
-}
-
-// KeepFullyDeletedSegment implements the MergePolicy interface.
-func (m *MockMergePolicy) KeepFullyDeletedSegment(info *index.SegmentCommitInfo) bool {
-	return false
-}
-
-// NoMergePolicy is a merge policy that never finds any merges.
-// This is the Go port of Lucene's NoMergePolicy.
-type NoMergePolicy struct {
-	index.BaseMergePolicy
-}
-
-// NewNoMergePolicy creates a new NoMergePolicy that never finds any merges.
-func NewNoMergePolicy() *NoMergePolicy {
-	return &NoMergePolicy{
-		BaseMergePolicy: *index.NewBaseMergePolicy(),
-	}
-}
-
-// FindMerges never finds any merges.
-func (n *NoMergePolicy) FindMerges(trigger index.MergeTrigger, infos *index.SegmentInfos, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
-	return nil, nil
-}
-
-// FindForcedMerges never finds any forced merges.
-func (n *NoMergePolicy) FindForcedMerges(infos *index.SegmentInfos, maxSegmentCount int, segmentsToMerge map[*index.SegmentCommitInfo]bool, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
-	return nil, nil
-}
-
-// FindForcedDeletesMerges never finds any forced deletes merges.
-func (n *NoMergePolicy) FindForcedDeletesMerges(infos *index.SegmentInfos, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
-	return nil, nil
-}
-
-// UseCompoundFile returns false.
-func (n *NoMergePolicy) UseCompoundFile(infos *index.SegmentInfos, mergedSegmentInfo *index.SegmentInfo) bool {
-	return false
-}
-
-// addDoc adds a simple document with a "content" field to the writer.
-func addDocForMergePolicy(writer *index.IndexWriter) error {
-	doc := &testDocument{fields: []interface{}{}}
-	_, err := writer.AddDocument(doc)
-	return err
-}
-
-// TestIndexWriterMergePolicy_NormalCase tests the normal case of merge policy operation.
-// Ported from: TestIndexWriterMergePolicy.testNormalCase()
-// Purpose: Verifies basic merge policy behavior during document addition
-func TestIndexWriterMergePolicy_NormalCase(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(10)
-	config.SetMergePolicy(NewMockMergePolicy())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-	defer writer.Close()
-
-	// Add 100 documents
-	for i := 0; i < 100; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-	}
-
-	// Verify documents were added
-	if writer.GetNumBufferedDocuments() == 0 {
-		t.Log("Documents flushed to segments")
-	}
-}
-
-// TestIndexWriterMergePolicy_NoOverMerge tests that there is no over-merge.
-// Ported from: TestIndexWriterMergePolicy.testNoOverMerge()
-// Purpose: Ensures merge policy doesn't create too many segments
-func TestIndexWriterMergePolicy_NoOverMerge(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(10)
-	config.SetMergePolicy(NewMockMergePolicy())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-	defer writer.Close()
-
-	noOverMerge := false
-	for i := 0; i < 100; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-
-		// Check that we don't have too many buffered docs + segments
-		if writer.GetNumBufferedDocuments()+writer.GetSegmentCount() >= 18 {
-			noOverMerge = true
-		}
-	}
-
-	if !noOverMerge {
-		t.Error("Expected noOverMerge to be true")
-	}
-}
-
-// TestIndexWriterMergePolicy_ForceFlush tests the case where flush is forced after every addDoc.
-// Ported from: TestIndexWriterMergePolicy.testForceFlush()
-// Purpose: Verifies merge policy behavior with explicit flushing
-func TestIndexWriterMergePolicy_ForceFlush(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	mp := NewMockMergePolicy()
-	mp.SetMergeFactor(10)
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(10)
-	config.SetMergePolicy(mp)
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-	defer writer.Close()
-
-	// Add 100 documents with explicit commit (flush) after each
-	for i := 0; i < 100; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-		// Commit flushes documents to segments
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit() error = %v", err)
-		}
-	}
-
-	// Verify segments were created
-	if writer.GetSegmentCount() == 0 {
-		t.Error("Expected segments to be created after commits")
-	}
-}
-
-// TestIndexWriterMergePolicy_MergeFactorChange tests changing the merge factor.
-// Ported from: TestIndexWriterMergePolicy.testMergeFactorChange()
-// Purpose: Verifies merge policy responds to configuration changes
-func TestIndexWriterMergePolicy_MergeFactorChange(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(10)
-	config.SetMergePolicy(NewMockMergePolicy())
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	// Add 250 documents
-	for i := 0; i < 250; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-	}
-
-	// Get live config and change merge factor
-	liveConfig := writer.GetConfig()
-	if liveConfig == nil {
-		t.Fatal("GetConfig() returned nil")
-	}
-
-	// Note: In the full implementation, we would be able to modify
-	// the merge policy through the live config
-	t.Log("Merge factor change test - live config obtained")
-
-	// Add more documents after config change
-	for i := 0; i < 10; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-	}
-
-	writer.Close()
-}
-
-// TestIndexWriterMergePolicy_MaxBufferedDocsChange tests changing max buffered docs.
-// Ported from: TestIndexWriterMergePolicy.testMaxBufferedDocsChange()
-// Purpose: Verifies behavior when maxBufferedDocs is modified
-func TestIndexWriterMergePolicy_MaxBufferedDocsChange(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(101)
-	config.SetMergePolicy(NewMockMergePolicy())
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	// Create segments with varying doc counts (1 to 100)
-	for i := 1; i <= 100; i++ {
-		for j := 0; j < i; j++ {
-			if err := addDocForMergePolicy(writer); err != nil {
-				t.Fatalf("AddDocument() error = %v", err)
+	var spec *index.MergeSpecification
+	for start := 0; start <= len(segments)-m.mergeFactor; {
+		startDocCount := segments[start].SegmentInfo().MaxDoc()
+		// Now search for the right-most segment that could be merged with the start segment
+		end := start + 1
+		for i := len(segments) - 1; i > start; i-- {
+			docCount := segments[i].SegmentInfo().MaxDoc()
+			if int64(docCount)*int64(m.mergeFactor) > int64(startDocCount) &&
+				int64(docCount) < int64(m.mergeFactor)*int64(startDocCount) {
+				end = i + 1
+				break
 			}
 		}
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit() error = %v", err)
+
+		// Now record a merge if possible
+		if start+m.mergeFactor <= end {
+			if spec == nil {
+				spec = index.NewMergeSpecification()
+			}
+			spec.Add(index.NewOneMerge(append([]*index.SegmentCommitInfo(nil), segments[start:start+m.mergeFactor]...)))
+			start += m.mergeFactor
+		} else {
+			start++
 		}
 	}
-
-	writer.Close()
-
-	// Reopen with different settings
-	config2 := index.NewIndexWriterConfig(createTestAnalyzer())
-	config2.SetOpenMode(index.APPEND)
-	config2.SetMaxBufferedDocs(10)
-	config2.SetMergePolicy(NewMockMergePolicy())
-	config2.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	writer2, err := index.NewIndexWriter(dir, config2)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	// Add more documents
-	for i := 0; i < 100; i++ {
-		if err := addDocForMergePolicy(writer2); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-	}
-
-	writer2.Commit()
-	writer2.WaitForMerges()
-	writer2.Commit()
-
-	writer2.Close()
+	return spec, nil
 }
 
-// TestIndexWriterMergePolicy_MergeDocCount0 tests the case where a merge results in no docs.
-// Ported from: TestIndexWriterMergePolicy.testMergeDocCount0()
-// Purpose: Verifies handling of merges that result in empty segments
-func TestIndexWriterMergePolicy_MergeDocCount0(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+func (m *mockMergePolicy) FindForcedMerges(*index.SegmentInfos, int, map[*index.SegmentCommitInfo]bool, index.MergeContext) (*index.MergeSpecification, error) {
+	return nil, nil
+}
 
-	mp := NewMockMergePolicy()
-	mp.SetMergeFactor(100)
+func (m *mockMergePolicy) FindForcedDeletesMerges(*index.SegmentInfos, index.MergeContext) (*index.MergeSpecification, error) {
+	return nil, nil
+}
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(10)
-	config.SetMergePolicy(mp)
+func newMergePolicyTestWriter(t *testing.T, dir store.Directory, maxBufferedDocs int, mp index.MergePolicy, ms index.MergeScheduler) *index.IndexWriter {
+	t.Helper()
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxBufferedDocs(maxBufferedDocs)
+	conf.SetMergePolicy(mp)
+	if ms != nil {
+		conf.SetMergeScheduler(ms)
+	}
+	return mustNewIndexWriter(t, dir, conf)
+}
 
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
+// Test the normal case
+func TestIndexWriterMergePolicyNormalCase(t *testing.T) {
+	dir := newDirectory()
+
+	writer := newMergePolicyTestWriter(t, dir, 10, newMockMergePolicy(), nil)
+
+	for i := 0; i < 100; i++ {
+		indexWriterMergePolicyAddDoc(t, writer)
+		indexWriterMergePolicyCheckInvariants(t, writer)
 	}
 
-	// Add 250 documents
+	mustClose(t, writer, dir)
+}
+
+// Test to see if there is over merge
+func TestIndexWriterMergePolicyNoOverMerge(t *testing.T) {
+	dir := newDirectory()
+
+	writer := newMergePolicyTestWriter(t, dir, 10, newMockMergePolicy(), nil)
+
+	for i := 0; i < 100; i++ {
+		indexWriterMergePolicyAddDoc(t, writer)
+		indexWriterMergePolicyCheckInvariants(t, writer)
+	}
+	t.Fatal(indexWriterGetNumBufferedDocumentsMissing)
+}
+
+// Test the case where flush is forced after every addDoc
+func TestIndexWriterMergePolicyForceFlush(t *testing.T) {
+	dir := newDirectory()
+
+	mp := newMockMergePolicy()
+	mp.setMergeFactor(10)
+	writer := newMergePolicyTestWriter(t, dir, 10, mp, nil)
+
+	for i := 0; i < 100; i++ {
+		indexWriterMergePolicyAddDoc(t, writer)
+		if err := writer.Flush(); err != nil {
+			t.Fatalf("flush: %v", err)
+		}
+	}
+
+	mustClose(t, writer, dir)
+}
+
+// Test the case where mergeFactor changes
+func TestIndexWriterMergePolicyMergeFactorChange(t *testing.T) {
+	dir := newDirectory()
+
+	writer := newMergePolicyTestWriter(t, dir, 10, newMockMergePolicy(), index.NewSerialMergeScheduler())
+
 	for i := 0; i < 250; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
+		indexWriterMergePolicyAddDoc(t, writer)
+		indexWriterMergePolicyCheckInvariants(t, writer)
 	}
 
-	writer.Close()
+	writer.GetConfig().GetMergePolicy().(*mockMergePolicy).setMergeFactor(5)
 
-	// Delete some docs without merging
-	config2 := index.NewIndexWriterConfig(createTestAnalyzer())
-	config2.SetMergePolicy(NewNoMergePolicy())
-
-	writer2, err := index.NewIndexWriter(dir, config2)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	term := index.NewTerm("content", "aaa")
-	writer2.DeleteDocuments(term)
-	writer2.Close()
-
-	// Now use a merge policy with smaller merge factor
-	mp2 := NewMockMergePolicy()
-	mp2.SetMergeFactor(5)
-
-	config3 := index.NewIndexWriterConfig(createTestAnalyzer())
-	config3.SetOpenMode(index.APPEND)
-	config3.SetMaxBufferedDocs(10)
-	config3.SetMergePolicy(mp2)
-	config3.SetMergeScheduler(index.NewConcurrentMergeScheduler())
-
-	writer3, err := index.NewIndexWriter(dir, config3)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	// Add more documents
+	// merge policy only fixes segments on levels where merges
+	// have been triggered, so check invariants after all adds
 	for i := 0; i < 10; i++ {
-		if err := addDocForMergePolicy(writer3); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
+		indexWriterMergePolicyAddDoc(t, writer)
 	}
+	indexWriterMergePolicyCheckInvariants(t, writer)
 
-	writer3.Commit()
-	writer3.WaitForMerges()
-	writer3.Commit()
-
-	// Verify documents were added (total includes previous docs from reopened index)
-	stats := writer3.GetDocStats()
-	if stats.MaxDoc < 10 {
-		t.Errorf("GetDocStats().MaxDoc = %d, want at least 10", stats.MaxDoc)
-	}
-
-	writer3.Close()
+	mustClose(t, writer, dir)
 }
 
-// TestIndexWriterMergePolicy_MergeOnCommit tests merge on commit semantics.
-// Ported from: TestIndexWriterMergePolicy.testMergeOnCommit()
-// Purpose: Verifies that merges can be triggered on commit
-func TestIndexWriterMergePolicy_MergeOnCommit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// Test the case where a merge results in no doc at all
+func TestIndexWriterMergePolicyMergeDocCount0(t *testing.T) {
+	dir := newDirectory()
 
-	// First writer with no merge policy
-	config1 := index.NewIndexWriterConfig(createTestAnalyzer())
-	config1.SetMergePolicy(NewNoMergePolicy())
+	ldmp := newMockMergePolicy()
+	ldmp.setMergeFactor(100)
+	writer := newMergePolicyTestWriter(t, dir, 10, ldmp, nil)
 
-	writer1, err := index.NewIndexWriter(dir, config1)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
+	for i := 0; i < 250; i++ {
+		indexWriterMergePolicyAddDoc(t, writer)
+		indexWriterMergePolicyCheckInvariants(t, writer)
 	}
+	mustClose(t, writer)
 
-	// Add 5 documents with individual commits to create segments
-	for i := 0; i < 5; i++ {
-		if err := addDocForMergePolicy(writer1); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-		if err := writer1.Commit(); err != nil {
-			t.Fatalf("Commit() error = %v", err)
-		}
+	// delete some docs without merging
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMergePolicy(index.NewNoMergePolicy())
+	writer = mustNewIndexWriter(t, dir, conf)
+	if _, err := writer.DeleteDocuments([]index.Term{*index.NewTerm("content", "aaa")}); err != nil {
+		t.Fatalf("deleteDocuments: %v", err)
 	}
-
-	// Verify segments were created
-	if writer1.GetSegmentCount() != 5 {
-		t.Logf("Expected 5 segments, got %d", writer1.GetSegmentCount())
-	}
-
-	writer1.Close()
-
-	// Second writer with merge on commit policy
-	// Note: MergeOnXMergePolicy is a wrapper that triggers merges on specific events
-	config2 := index.NewIndexWriterConfig(createTestAnalyzer())
-	// Use tiered merge policy which will merge on commits
-	config2.SetMergePolicy(index.NewTieredMergePolicy())
-
-	writer2, err := index.NewIndexWriter(dir, config2)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-	defer writer2.Close()
-
-	// Add another document and commit (should trigger merge)
-	if err := addDocForMergePolicy(writer2); err != nil {
-		t.Fatalf("AddDocument() error = %v", err)
-	}
-
-	if err := writer2.Commit(); err != nil {
-		t.Fatalf("Commit() error = %v", err)
-	}
-
-	// After commit with merge policy, segments may be merged
-	t.Logf("Segment count after commit: %d", writer2.GetSegmentCount())
-}
-
-// TestIndexWriterMergePolicy_CarryOverNewDeletesOnCommit tests carrying over deletes on commit.
-// Ported from: TestIndexWriterMergePolicy.testCarryOverNewDeletesOnCommit()
-// Purpose: Verifies that deletes are properly carried over during merge on commit
-func TestIndexWriterMergePolicy_CarryOverNewDeletesOnCommit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-	config.SetMaxBufferedDocs(100)
-	config.SetRAMBufferSizeMB(100)
-	config.SetMergeScheduler(index.NewConcurrentMergeScheduler())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-	defer writer.Close()
-
-	// Add documents
-	doc1 := &testDocument{fields: []interface{}{}}
-	doc2 := &testDocument{fields: []interface{}{}}
-	doc3 := &testDocument{fields: []interface{}{}}
-
-	writer.AddDocument(doc1)
-	writer.Commit()
-	writer.AddDocument(doc2)
-	writer.AddDocument(doc3)
-
-	// Commit should trigger merge
-	writer.Commit()
-
-	// Verify document count
-	stats := writer.GetDocStats()
-	if stats.NumDocs != 3 {
-		t.Errorf("GetDocStats().NumDocs = %d, want 3", stats.NumDocs)
-	}
-}
-
-// TestIndexWriterMergePolicy_AbortMergeOnCommit tests aborting merge on commit.
-// Ported from: TestIndexWriterMergePolicy.testAbortMergeOnCommit()
-// Purpose: Verifies proper cleanup when merge is aborted during commit
-func TestIndexWriterMergePolicy_AbortMergeOnCommit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	doc1 := &testDocument{fields: []interface{}{}}
-	doc2 := &testDocument{fields: []interface{}{}}
-	doc3 := &testDocument{fields: []interface{}{}}
-
-	writer.AddDocument(doc1)
-	writer.Commit()
-	writer.AddDocument(doc2)
-	writer.AddDocument(doc3)
-
-	// This would test abort behavior during commit
-	writer.Commit()
-
-	writer.Close()
-}
-
-// TestIndexWriterMergePolicy_ForceMergeWhileGetReader tests force merge during getReader.
-// Ported from: TestIndexWriterMergePolicy.testForceMergeWhileGetReader()
-// Purpose: Verifies force merge works correctly with concurrent reader acquisition
-func TestIndexWriterMergePolicy_ForceMergeWhileGetReader(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	if err := addDocForMergePolicy(writer); err != nil {
-		t.Fatalf("AddDocument() error = %v", err)
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit() error = %v", err)
-	}
-	if err := addDocForMergePolicy(writer); err != nil {
-		t.Fatalf("AddDocument() error = %v", err)
-	}
-
-	reader, err := writer.GetReader()
-	if err != nil {
-		t.Fatalf("GetReader() error = %v", err)
-	}
-
-	// Force merge to 1 segment while a reader is open.
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge(1) error = %v", err)
-	}
-
-	reader.Close()
-	writer.Close()
-}
-
-// TestIndexWriterMergePolicy_FailAfterMergeCommitted tests failure after merge commit.
-// Ported from: TestIndexWriterMergePolicy.testFailAfterMergeCommitted()
-// Purpose: Verifies error handling when merge fails after being committed
-func TestIndexWriterMergePolicy_FailAfterMergeCommitted(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	doc1 := &testDocument{fields: []interface{}{}}
-	doc2 := &testDocument{fields: []interface{}{}}
-
-	writer.AddDocument(doc1)
-	writer.Commit()
-	writer.AddDocument(doc2)
-	writer.Commit()
-
-	// This would test failure scenarios
-
-	writer.Close()
-}
-
-// TestIndexWriterMergePolicy_MergeOnGetReader tests merge on getReader semantics.
-// Ported from: TestIndexWriterMergePolicy.testMergeOnGetReader()
-// Purpose: Verifies that merges can be triggered when getting a near-real-time reader
-func TestIndexWriterMergePolicy_MergeOnGetReader(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// First writer with no merge policy
-	config1 := index.NewIndexWriterConfig(createTestAnalyzer())
-	config1.SetMergePolicy(NewNoMergePolicy())
-
-	writer1, err := index.NewIndexWriter(dir, config1)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	// Add documents with individual commits
-	for i := 0; i < 5; i++ {
-		if err := addDocForMergePolicy(writer1); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-		if err := writer1.Commit(); err != nil {
-			t.Fatalf("Commit() error = %v", err)
-		}
-	}
-
-	if err := writer1.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-
-	// Second writer with merge on getReader policy
-	config2 := index.NewIndexWriterConfig(createTestAnalyzer())
-	config2.SetMergePolicy(index.NewTieredMergePolicy())
-	config2.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	writer2, err := index.NewIndexWriter(dir, config2)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-	defer writer2.Close()
-
-	// Add another document
-	if err := addDocForMergePolicy(writer2); err != nil {
-		t.Fatalf("AddDocument() error = %v", err)
-	}
-
-	reader, err := writer2.GetReader()
-	if err != nil {
-		t.Fatalf("GetReader() error = %v", err)
-	}
-	reader.Close()
-}
-
-// TestIndexWriterMergePolicy_SetDiagnostics tests setting merge diagnostics.
-// Ported from: TestIndexWriterMergePolicy.testSetDiagnostics()
-// Purpose: Verifies that merge policies can set diagnostic information
-func TestIndexWriterMergePolicy_SetDiagnostics(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(2)
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	doc := &testDocument{fields: []interface{}{}}
-	for i := 0; i < 20; i++ {
-		writer.AddDocument(doc)
-	}
-
-	writer.Close()
-
-	// Verify diagnostics were set on merged segments
-}
-
-// TestIndexWriterMergePolicy_ForceMergeDVUpdateFileWithConcurrentFlush tests force merge
-// with concurrent doc values update and flush.
-// Ported from: TestIndexWriterMergePolicy.testForceMergeDVUpdateFileWithConcurrentFlush()
-// Purpose: Verifies proper file handling during concurrent operations
-func TestIndexWriterMergePolicy_ForceMergeDVUpdateFileWithConcurrentFlush(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	doc1 := &testDocument{fields: []interface{}{}}
-	doc2 := &testDocument{fields: []interface{}{}}
-
-	writer.AddDocument(doc1)
-	writer.Commit()
-	writer.AddDocument(doc2)
-	writer.Commit()
-
-	writer.ForceMerge(1)
-
-	writer.Close()
-}
-
-// TestIndexWriterMergePolicy_MergeDVUpdateFileOnGetReaderWithConcurrentFlush tests merge
-// on getReader with concurrent flush.
-// Ported from: TestIndexWriterMergePolicy.testMergeDVUpdateFileOnGetReaderWithConcurrentFlush()
-func TestIndexWriterMergePolicy_MergeDVUpdateFileOnGetReaderWithConcurrentFlush(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-	config.SetMergeScheduler(index.NewConcurrentMergeScheduler())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-	defer writer.Close()
-
-	doc1 := &testDocument{fields: []interface{}{}}
-	doc2 := &testDocument{fields: []interface{}{}}
-
-	writer.AddDocument(doc1)
-	writer.Commit()
-	writer.AddDocument(doc2)
-
-	// GetReader would trigger merge
-	writer.Commit()
-}
-
-// TestIndexWriterMergePolicy_MergeDVUpdateFileOnCommitWithConcurrentFlush tests merge
-// on commit with concurrent flush.
-// Ported from: TestIndexWriterMergePolicy.testMergeDVUpdateFileOnCommitWithConcurrentFlush()
-func TestIndexWriterMergePolicy_MergeDVUpdateFileOnCommitWithConcurrentFlush(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-	config.SetMergeScheduler(index.NewConcurrentMergeScheduler())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-	defer writer.Close()
-
-	doc1 := &testDocument{fields: []interface{}{}}
-	doc2 := &testDocument{fields: []interface{}{}}
-
-	writer.AddDocument(doc1)
-	writer.Commit()
-	writer.AddDocument(doc2)
-
-	writer.Commit()
-
-	// Verify segment count
-	if writer.GetSegmentCount() != 2 {
-		t.Logf("Segment count: %d", writer.GetSegmentCount())
-	}
-}
-
-// TestIndexWriterMergePolicy_ForceMergeWithPendingHardAndSoftDeleteFile tests force merge
-// with pending hard and soft deletes.
-// Ported from: TestIndexWriterMergePolicy.testForceMergeWithPendingHardAndSoftDeleteFile()
-func TestIndexWriterMergePolicy_ForceMergeWithPendingHardAndSoftDeleteFile(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	// Add documents
-	for i := 0; i < 5; i++ {
-		doc := &testDocument{fields: []interface{}{}}
-		writer.AddDocument(doc)
-	}
-	writer.Commit()
-
-	// Update some documents (hard delete)
-	term := index.NewTerm("id", "2")
-	writer.UpdateDocument(term, &testDocument{fields: []interface{}{}})
-	writer.Commit()
-
-	// Force merge
-	writer.ForceMerge(1)
-
-	writer.Close()
-}
-
-// TestIndexWriterMergePolicy_Invariants tests merge policy invariants.
-// This is a custom test that verifies the basic invariants of the merge policy.
-func TestIndexWriterMergePolicy_Invariants(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	mp := NewMockMergePolicy()
-	mp.SetMergeFactor(10)
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(10)
-	config.SetMergePolicy(mp)
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-	defer writer.Close()
-
-	// Add documents
-	for i := 0; i < 50; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-	}
-
-	// Verify documents were added
-	// Note: In full implementation, buffered docs would be flushed when exceeding maxBufferedDocs
-	// For now, just verify the writer tracks documents
-	if writer.GetNumBufferedDocuments() != 50 {
-		t.Logf("Buffered documents: %d (auto-flush not yet implemented)", writer.GetNumBufferedDocuments())
-	}
-}
-
-// TestIndexWriterMergePolicy_TieredMergePolicy tests the tiered merge policy.
-// Ported from related tests in TestIndexWriterMergePolicy.
-func TestIndexWriterMergePolicy_TieredMergePolicy(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	policy := index.NewTieredMergePolicy()
-	policy.SetMaxMergeAtOnce(10)
-	policy.SetMaxMergedSegmentMB(100)
-	policy.SetSegmentsPerTier(10)
-	config.SetMergePolicy(policy)
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-	defer writer.Close()
-
-	// Add documents
-	for i := 0; i < 100; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-	}
-
-	// Commit to trigger potential merges
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit() error = %v", err)
-	}
-
-	// Verify policy settings
-	if policy.GetMaxMergeAtOnce() != 10 {
-		t.Errorf("GetMaxMergeAtOnce() = %d, want 10", policy.GetMaxMergeAtOnce())
-	}
-}
-
-// TestIndexWriterMergePolicy_NoMergePolicy tests with no merge policy.
-// Ported from: TestIndexWriterMergePolicy uses NoMergePolicy.INSTANCE
-func TestIndexWriterMergePolicy_NoMergePolicy(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(NewNoMergePolicy())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	// Add documents with individual commits
+	mustClose(t, writer)
+
+	ldmp = newMockMergePolicy()
+	ldmp.setMergeFactor(5)
+	conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetOpenMode(index.Append)
+	conf.SetMaxBufferedDocs(10)
+	conf.SetMergePolicy(ldmp)
+	conf.SetMergeScheduler(index.NewConcurrentMergeScheduler())
+	writer = mustNewIndexWriter(t, dir, conf)
+
+	// merge factor is changed, so check invariants after all adds
 	for i := 0; i < 10; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit() error = %v", err)
-		}
+		indexWriterMergePolicyAddDoc(t, writer)
 	}
-
-	// With NoMergePolicy, each commit creates a new segment
-	// So we should have 10 segments
-	if writer.GetSegmentCount() != 10 {
-		t.Logf("With NoMergePolicy, expected 10 segments, got %d", writer.GetSegmentCount())
-	}
-
-	writer.Close()
+	mustCommit(t, writer)
+	t.Fatal(indexWriterWaitForMergesMissing)
 }
 
-// TestIndexWriterMergePolicy_WaitForMerges tests waiting for merges.
-// Ported from: TestIndexWriterMergePolicy uses waitForMerges()
-func TestIndexWriterMergePolicy_WaitForMerges(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	// Add documents
-	for i := 0; i < 50; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-	}
-
-	// Commit
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit() error = %v", err)
-	}
-
-	// Wait for merges
-	if err := writer.WaitForMerges(); err != nil {
-		t.Fatalf("WaitForMerges() error = %v", err)
-	}
-
-	writer.Close()
+func indexWriterMergePolicyAddDoc(t testing.TB, writer *index.IndexWriter) {
+	t.Helper()
+	doc := document.NewDocument()
+	doc.Add(newTextField(t, "content", "aaa", false))
+	mustAddDocument(t, writer, doc)
 }
 
-// TestIndexWriterMergePolicy_SegmentCount tests segment count tracking.
-func TestIndexWriterMergePolicy_SegmentCount(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// indexWriterMergePolicyCheckInvariants renders the private
+// checkInvariants(IndexWriter); its first statement is writer.waitForMerges(),
+// and it also reads getNumBufferedDocuments() and maxDoc(int).
+func indexWriterMergePolicyCheckInvariants(t testing.TB, writer *index.IndexWriter) {
+	t.Helper()
+	t.Fatal(indexWriterWaitForMergesMissing + "; " + indexWriterGetNumBufferedDocumentsMissing +
+		"; org.apache.lucene.index.IndexWriter#maxDoc(int) is not ported")
+}
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(NewNoMergePolicy())
-	config.SetMaxBufferedDocs(1) // Flush after each document
+const indexWriterMergePolicyEpsilon = 1e-14
 
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
+// maxCFSSegmentSizeMBSetter is the part of MergePolicy assertSetters reads.
+type maxCFSSegmentSizeMBSetter interface {
+	SetMaxCFSSegmentSizeMB(float64)
+	GetMaxCFSSegmentSizeMB() float64
+}
+
+func TestIndexWriterMergePolicySetters(t *testing.T) {
+	indexWriterMergePolicyAssertSetters(t, index.NewLogByteSizeMergePolicy())
+	indexWriterMergePolicyAssertSetters(t, newMockMergePolicy())
+}
+
+func assertFloatEquals(t testing.TB, expected, actual, delta float64) {
+	t.Helper()
+	if math.Abs(expected-actual) > delta {
+		t.Fatalf("expected %v, got %v (delta %v)", expected, actual, delta)
 	}
+}
 
-	// Initially should have 0 segments
-	if writer.GetSegmentCount() != 0 {
-		t.Errorf("Initial segment count = %d, want 0", writer.GetSegmentCount())
-	}
+func indexWriterMergePolicyAssertSetters(t *testing.T, lmp maxCFSSegmentSizeMBSetter) {
+	t.Helper()
+	lmp.SetMaxCFSSegmentSizeMB(2.0)
+	assertFloatEquals(t, 2.0, lmp.GetMaxCFSSegmentSizeMB(), indexWriterMergePolicyEpsilon)
 
-	// Add documents
+	lmp.SetMaxCFSSegmentSizeMB(math.Inf(1))
+	assertFloatEquals(t, float64(math.MaxInt64)/1024./1024., lmp.GetMaxCFSSegmentSizeMB(), indexWriterMergePolicyEpsilon*float64(math.MaxInt64))
+
+	lmp.SetMaxCFSSegmentSizeMB(float64(math.MaxInt64) / 1024. / 1024.)
+	assertFloatEquals(t, float64(math.MaxInt64)/1024./1024., lmp.GetMaxCFSSegmentSizeMB(), indexWriterMergePolicyEpsilon*float64(math.MaxInt64))
+
+	// expectThrows(IllegalArgumentException.class, () -> lmp.setMaxCFSSegmentSizeMB(-2.0))
+	t.Fatal("MergePolicy#setMaxCFSSegmentSizeMB(double) must throw IllegalArgumentException for -2.0; " +
+		"the Go SetMaxCFSSegmentSizeMB has no error result and clamps negative values")
+}
+
+// fiveFlushedSegments renders the shared prologue of the merge-on-commit and
+// merge-on-getReader tests: five single-document segments written under
+// NoMergePolicy.
+func fiveFlushedSegments(t *testing.T, dir store.Directory) {
+	t.Helper()
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMergePolicy(index.NewNoMergePolicy())
+	firstWriter := mustNewIndexWriter(t, dir, conf)
 	for i := 0; i < 5; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit() error = %v", err)
+		testIndexWriterAddDoc(t, firstWriter)
+		if err := firstWriter.Flush(); err != nil {
+			t.Fatalf("flush: %v", err)
 		}
 	}
-
-	// Should have segments now
-	if writer.GetSegmentCount() == 0 {
-		t.Error("Expected non-zero segment count after commits")
-	}
-
-	writer.Close()
+	firstReader := openReaderFromWriter(t, firstWriter)
+	assertLeafCount(t, 5, firstReader)
+	mustClose(t, firstReader)
+	mustClose(t, firstWriter) // When this writer closes, it does not merge on commit.
 }
 
-// TestIndexWriterMergePolicy_DocStats tests document statistics.
-func TestIndexWriterMergePolicy_DocStats(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-
-	writer, err := index.NewIndexWriter(dir, config)
+func openReaderFromWriter(t testing.TB, w *index.IndexWriter) *index.DirectoryReader {
+	t.Helper()
+	r, err := index.OpenDirectoryReaderFromWriter(w)
 	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
+		t.Fatalf("DirectoryReader.open(writer): %v", err)
 	}
-	defer writer.Close()
-
-	// Add documents
-	for i := 0; i < 10; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
-	}
-
-	// Get doc stats
-	stats := writer.GetDocStats()
-	if stats == nil {
-		t.Fatal("GetDocStats() returned nil")
-	}
-
-	// After adding 10 docs, should have 10 docs
-	if stats.NumDocs != 10 {
-		t.Errorf("GetDocStats().NumDocs = %d, want 10", stats.NumDocs)
-	}
-
-	if stats.MaxDoc != 10 {
-		t.Errorf("GetDocStats().MaxDoc = %d, want 10", stats.MaxDoc)
-	}
+	return r
 }
 
-// TestIndexWriterMergePolicy_ConfigurationPropagation tests that configuration
-// is properly propagated to the IndexWriter.
-func TestIndexWriterMergePolicy_ConfigurationPropagation(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create config with specific settings
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(50)
-	config.SetRAMBufferSizeMB(32.0)
-
-	policy := index.NewTieredMergePolicy()
-	policy.SetMaxMergeAtOnce(5)
-	config.SetMergePolicy(policy)
-
-	scheduler := index.NewSerialMergeScheduler()
-	config.SetMergeScheduler(scheduler)
-
-	// Create writer
-	writer, err := index.NewIndexWriter(dir, config)
+func assertLeafCount(t testing.TB, expected int, r index.IndexReaderInterface) {
+	t.Helper()
+	leaves, err := r.Leaves()
 	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
+		t.Fatalf("leaves: %v", err)
 	}
-	defer writer.Close()
-
-	// Verify configuration was propagated
-	liveConfig := writer.GetConfig()
-	if liveConfig == nil {
-		t.Fatal("GetConfig() returned nil")
-	}
-
-	if liveConfig.GetMaxBufferedDocs() != 50 {
-		t.Errorf("GetMaxBufferedDocs = %d, want 50", liveConfig.GetMaxBufferedDocs())
-	}
-
-	if liveConfig.GetRAMBufferSizeMB() != 32.0 {
-		t.Errorf("GetRAMBufferSizeMB = %f, want 32.0", liveConfig.GetRAMBufferSizeMB())
-	}
-
-	if liveConfig.GetMergePolicy() == nil {
-		t.Error("GetMergePolicy() returned nil")
-	}
-
-	if liveConfig.GetMergeScheduler() == nil {
-		t.Error("GetMergeScheduler() returned nil")
+	if len(leaves) != expected {
+		t.Fatalf("leaves().size(): expected %d, got %d", expected, len(leaves))
 	}
 }
 
-// TestIndexWriterMergePolicy_MergeFactorBoundaries tests merge factor boundaries.
-func TestIndexWriterMergePolicy_MergeFactorBoundaries(t *testing.T) {
-	tests := []struct {
-		name        string
-		mergeFactor int
-	}{
-		{"small merge factor", 2},
-		{"default merge factor", 10},
-		{"large merge factor", 100},
+func assertSegmentCount(t testing.TB, expected int, w *index.IndexWriter) {
+	t.Helper()
+	if got := w.GetSegmentCount(); got != expected {
+		t.Fatalf("getSegmentCount(): expected %d, got %d", expected, got)
 	}
+}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dir := store.NewByteBuffersDirectory()
-			defer dir.Close()
+// Test basic semantics of merge on commit
+func TestIndexWriterMergePolicyMergeOnCommit(t *testing.T) {
+	dir := newDirectory()
+	fiveFlushedSegments(t, dir)
 
-			mp := NewMockMergePolicy()
-			mp.SetMergeFactor(tt.mergeFactor)
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(newMergeOnXMergePolicy(newMergePolicy(t), index.MergeTriggerCommit))
+	iwc.SetMaxFullFlushMergeWaitMillis(math.MaxInt32)
 
-			config := index.NewIndexWriterConfig(createTestAnalyzer())
-			config.SetMergePolicy(mp)
+	writerWithMergePolicy := mustNewIndexWriter(t, dir, iwc)
 
-			writer, err := index.NewIndexWriter(dir, config)
+	// No changes. Refresh doesn't trigger a merge.
+	unmergedReader := openReaderFromWriter(t, writerWithMergePolicy)
+	assertLeafCount(t, 5, unmergedReader)
+	mustClose(t, unmergedReader)
+
+	mustCommit(t, writerWithMergePolicy) // Do merge on commit.
+	assertSegmentCount(t, 1, writerWithMergePolicy)
+
+	mergedReader := openReaderFromWriter(t, writerWithMergePolicy)
+	assertLeafCount(t, 1, mergedReader)
+	mustClose(t, mergedReader)
+
+	reader := openReaderFromWriter(t, writerWithMergePolicy)
+	searcher := search.NewIndexSearcher(reader)
+	if got := reader.NumDocs(); got != 5 {
+		t.Fatalf("numDocs: expected 5, got %d", got)
+	}
+	count, err := searcher.Count(search.NewMatchAllDocsQuery())
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 5 {
+		t.Fatalf("count(MatchAllDocsQuery): expected 5, got %d", count)
+	}
+	mustClose(t, reader)
+
+	mustClose(t, writerWithMergePolicy, dir)
+}
+
+// Test basic semantics of merge on commit and events recording invocation
+func TestIndexWriterMergePolicyMergeOnCommitWithEventListener(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	fiveFlushedSegments(t, dir)
+
+	t.Fatal("org.apache.lucene.tests.index.MockIndexWriterEventListener is not ported")
+}
+
+func TestIndexWriterMergePolicyCarryOverNewDeletesOnCommit(t *testing.T) {
+	directory := newDirectory()
+	defer mustClose(t, directory)
+	t.Fatal("overriding org.apache.lucene.index.IndexWriter#merge(MergePolicy.OneMerge) in an IndexWriter subclass is not ported")
+}
+
+// This test makes sure we release the merge readers on abort. MDW will fail if
+// it can't close all files
+func TestIndexWriterMergePolicyAbortMergeOnCommit(t *testing.T) {
+	indexWriterMergePolicyAbortMergeOnX(t, false)
+}
+
+func TestIndexWriterMergePolicyAbortMergeOnGetReader(t *testing.T) {
+	indexWriterMergePolicyAbortMergeOnX(t, true)
+}
+
+// blockingSerialMergeScheduler renders the anonymous SerialMergeScheduler
+// subclasses whose merge(MergeSource, MergeTrigger) runs before() and then
+// super.merge. synchronized mirrors a `synchronized` override.
+type blockingSerialMergeScheduler struct {
+	*index.SerialMergeScheduler
+	synchronized bool
+	mu           sync.Mutex
+	before       func()
+}
+
+func (s *blockingSerialMergeScheduler) Merge(mergeSource index.MergeSource, trigger index.MergeTrigger) error {
+	if s.synchronized {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+	}
+	s.before()
+	return s.SerialMergeScheduler.Merge(mergeSource, trigger)
+}
+
+func idDocument(t testing.TB, id string, stored bool) *document.Document {
+	d := document.NewDocument()
+	d.Add(newStringField(t, "id", id, stored))
+	return d
+}
+
+func indexWriterMergePolicyAbortMergeOnX(t *testing.T, useGetReader bool) {
+	directory := newDirectory()
+	defer mustClose(t, directory)
+	waitForMerge := newCountDownLatch()
+	waitForDeleteAll := newCountDownLatch()
+	trigger := index.MergeTriggerCommit
+	if useGetReader {
+		trigger = index.MergeTriggerGetReader
+	}
+	conf := newIndexWriterConfig()
+	conf.SetMergePolicy(newMergeOnXMergePolicy(newMergePolicy(t), trigger))
+	conf.SetMaxFullFlushMergeWaitMillis(30 * 1000)
+	conf.SetMergeScheduler(&blockingSerialMergeScheduler{
+		SerialMergeScheduler: index.NewSerialMergeScheduler(),
+		synchronized:         true,
+		before: func() {
+			waitForMerge.countDown()
+			waitForDeleteAll.awaitFromGoroutine(t, "waitForDeleteAll")
+		},
+	})
+	writer := mustNewIndexWriter(t, directory, conf)
+	defer mustClose(t, writer)
+
+	d1 := idDocument(t, "1", false)
+	d2 := idDocument(t, "2", false)
+	mustAddDocument(t, writer, d1)
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	mustAddDocument(t, writer, d2)
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		success := false
+		defer func() {
+			if !success {
+				waitForMerge.countDown()
+			}
+		}()
+		if useGetReader {
+			r, err := index.OpenDirectoryReaderFromWriter(writer)
 			if err != nil {
-				t.Fatalf("NewIndexWriter() error = %v", err)
+				t.Errorf("DirectoryReader.open(writer): %v", err)
+				return
 			}
-			defer writer.Close()
+			if err := r.Close(); err != nil {
+				t.Errorf("close: %v", err)
+				return
+			}
+		} else if _, err := writer.Commit(); err != nil {
+			t.Errorf("commit: %v", err)
+			return
+		}
+		success = true
+	}()
+	waitForMerge.await(t, "waitForMerge")
+	if _, err := writer.DeleteAll(); err != nil {
+		t.Fatalf("deleteAll: %v", err)
+	}
+	waitForDeleteAll.countDown()
+	wg.Wait()
+}
 
-			// Add some documents
-			for i := 0; i < tt.mergeFactor*2; i++ {
-				if err := addDocForMergePolicy(writer); err != nil {
-					t.Fatalf("AddDocument() error = %v", err)
-				}
-			}
+func TestIndexWriterMergePolicyForceMergeWhileGetReader(t *testing.T) {
+	directory := newDirectory()
+	defer mustClose(t, directory)
+	waitForMerge := newCountDownLatch()
+	waitForForceMergeCalled := newCountDownLatch()
+	conf := newIndexWriterConfig()
+	conf.SetMergePolicy(newMergeOnXMergePolicy(newMergePolicy(t), index.MergeTriggerGetReader))
+	conf.SetMaxFullFlushMergeWaitMillis(30 * 1000)
+	conf.SetMergeScheduler(&blockingSerialMergeScheduler{
+		SerialMergeScheduler: index.NewSerialMergeScheduler(),
+		before: func() {
+			waitForMerge.countDown()
+			waitForForceMergeCalled.awaitFromGoroutine(t, "waitForForceMergeCalled")
+		},
+	})
+	writer := mustNewIndexWriter(t, directory, conf)
+	defer mustClose(t, writer)
 
-			// Verify merge factor was set
-			if mp.GetMergeFactor() != tt.mergeFactor {
-				t.Errorf("GetMergeFactor() = %d, want %d", mp.GetMergeFactor(), tt.mergeFactor)
+	mustAddDocument(t, writer, idDocument(t, "1", false))
+	if err := writer.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+	mustAddDocument(t, writer, idDocument(t, "2", false))
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		reader, err := index.OpenDirectoryReaderFromWriter(writer)
+		if err != nil {
+			t.Errorf("DirectoryReader.open(writer): %v", err)
+			return
+		}
+		defer func() {
+			if err := reader.Close(); err != nil {
+				t.Errorf("close: %v", err)
 			}
-		})
+		}()
+		if got := reader.MaxDoc(); got != 2 {
+			t.Errorf("maxDoc: expected 2, got %d", got)
+		}
+	}()
+	waitForMerge.await(t, "waitForMerge")
+	mustAddDocument(t, writer, idDocument(t, "3", false))
+	waitForForceMergeCalled.countDown()
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	wg.Wait()
+}
+
+func TestIndexWriterMergePolicyFailAfterMergeCommitted(t *testing.T) {
+	directory := newDirectory()
+	defer mustClose(t, directory)
+	t.Fatal("overriding org.apache.lucene.index.IndexWriter#doAfterFlush() in an IndexWriter subclass is not ported; " +
+		"IndexWriter#hasPendingMerges() and IndexWriter#executeMerge(MergeTrigger) are not ported")
+}
+
+// Test basic semantics of merge on getReader
+func TestIndexWriterMergePolicyMergeOnGetReader(t *testing.T) {
+	dir := newDirectory()
+	fiveFlushedSegments(t, dir)
+
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(newMergeOnXMergePolicy(newMergePolicy(t), index.MergeTriggerGetReader))
+	iwc.SetMaxFullFlushMergeWaitMillis(math.MaxInt32)
+
+	writerWithMergePolicy := mustNewIndexWriter(t, dir, iwc)
+
+	unmergedReader := mustOpenDirectoryReader(t, dir) // No changes. GetReader doesn't trigger a merge.
+	assertLeafCount(t, 5, unmergedReader)
+	mustClose(t, unmergedReader)
+
+	testIndexWriterAddDoc(t, writerWithMergePolicy)
+	mergedReader := openReaderFromWriter(t, writerWithMergePolicy)
+	// Doc added, do merge on getReader.
+	assertLeafCount(t, 1, mergedReader)
+	mustClose(t, mergedReader)
+
+	mustClose(t, writerWithMergePolicy, dir)
+}
+
+// mergeOnXMergePolicy is the private MergeOnXMergePolicy.
+type mergeOnXMergePolicy struct {
+	*index.FilterMergePolicy
+	trigger index.MergeTrigger
+}
+
+func newMergeOnXMergePolicy(in index.MergePolicy, trigger index.MergeTrigger) *mergeOnXMergePolicy {
+	return &mergeOnXMergePolicy{FilterMergePolicy: index.NewFilterMergePolicy(in), trigger: trigger}
+}
+
+func (p *mergeOnXMergePolicy) FindFullFlushMerges(mergeTrigger index.MergeTrigger, segmentInfos *index.SegmentInfos, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
+	// Optimize down to a single segment on commit
+	if mergeTrigger == p.trigger && segmentInfos.Size() > 1 {
+		var nonMergingSegments []*index.SegmentCommitInfo
+		merging := mergeContext.GetMergingSegments()
+		for sci := range segmentInfos.Iterator() {
+			if !merging[sci] {
+				nonMergingSegments = append(nonMergingSegments, sci)
+			}
+		}
+		if len(nonMergingSegments) > 1 {
+			mergeSpecification := index.NewMergeSpecification()
+			mergeSpecification.Add(index.NewOneMerge(nonMergingSegments))
+			return mergeSpecification, nil
+		}
+	}
+	return nil, nil
+}
+
+func TestIndexWriterMergePolicySetDiagnostics(t *testing.T) {
+	logMp := newLogMergePolicyWithMergeFactor(4)
+	logMp.SetTargetSearchConcurrency(1)
+	t.Fatal("overriding org.apache.lucene.index.MergePolicy.OneMerge#setMergeInfo(SegmentCommitInfo) " +
+		"in a OneMerge subclass built with the OneMerge(OneMerge) constructor is not ported")
+}
+
+// mockAssertFileExistIndexInput is the private MockAssertFileExistIndexInput:
+// every positioning or reading call first checks that the backing file still
+// exists on disk.
+type mockAssertFileExistIndexInput struct {
+	spi.BaseDataInput
+	resourceDescription string
+	name                string
+	delegate            store.IndexInput
+	filePath            string
+}
+
+func newMockAssertFileExistIndexInput(name string, delegate store.IndexInput, filePath string) *mockAssertFileExistIndexInput {
+	in := &mockAssertFileExistIndexInput{
+		resourceDescription: fmt.Sprintf("MockAssertFileExistIndexInput(name=%s delegate=%v)", name, delegate),
+		name:                name,
+		delegate:            delegate,
+		filePath:            filePath,
+	}
+	in.Core = in
+	return in
+}
+
+func (in *mockAssertFileExistIndexInput) checkFileExist() error {
+	if _, err := os.Stat(in.filePath); err != nil {
+		return &fs.PathError{Op: "open", Path: in.filePath, Err: fs.ErrNotExist}
+	}
+	return nil
+}
+
+func (in *mockAssertFileExistIndexInput) String() string { return in.resourceDescription }
+
+func (in *mockAssertFileExistIndexInput) Close() error { return in.delegate.Close() }
+
+func (in *mockAssertFileExistIndexInput) Clone() store.IndexInput {
+	return newMockAssertFileExistIndexInput(in.name, in.delegate.Clone(), in.filePath)
+}
+
+func (in *mockAssertFileExistIndexInput) Slice(sliceDescription string, offset, length int64) (store.IndexInput, error) {
+	if err := in.checkFileExist(); err != nil {
+		return nil, err
+	}
+	slice, err := in.delegate.Slice(sliceDescription, offset, length)
+	if err != nil {
+		return nil, err
+	}
+	return newMockAssertFileExistIndexInput(sliceDescription, slice, in.filePath), nil
+}
+
+func (in *mockAssertFileExistIndexInput) GetFilePointer() int64 { return in.delegate.GetFilePointer() }
+
+func (in *mockAssertFileExistIndexInput) SetPosition(pos int64) error {
+	if err := in.checkFileExist(); err != nil {
+		return err
+	}
+	return in.delegate.SetPosition(pos)
+}
+
+func (in *mockAssertFileExistIndexInput) Length() int64 { return in.delegate.Length() }
+
+func (in *mockAssertFileExistIndexInput) ReadByte() (byte, error) {
+	if err := in.checkFileExist(); err != nil {
+		return 0, err
+	}
+	return in.delegate.ReadByte()
+}
+
+func (in *mockAssertFileExistIndexInput) ReadBytes(b []byte, offset, length int) error {
+	if err := in.checkFileExist(); err != nil {
+		return err
+	}
+	return in.delegate.ReadBytes(b, offset, length)
+}
+
+// SkipBytes carries IndexInput#skipBytes(long): seek(getFilePointer() + numBytes).
+func (in *mockAssertFileExistIndexInput) SkipBytes(numBytes int64) error {
+	if numBytes < 0 {
+		return fmt.Errorf("numBytes must be >= 0, got %d", numBytes)
+	}
+	return in.SetPosition(in.GetFilePointer() + numBytes)
+}
+
+// ReadBytesN is the Go-only IndexInput convenience, built on ReadBytes.
+func (in *mockAssertFileExistIndexInput) ReadBytesN(n int) ([]byte, error) {
+	b := make([]byte, n)
+	if err := in.ReadBytes(b, 0, n); err != nil {
+		return nil, err
+	}
+	return b, nil
+}
+
+// assertFileExistDirectory renders the anonymous FilterDirectory subclass
+// wrapping every opened input in a mockAssertFileExistIndexInput.
+type assertFileExistDirectory struct {
+	*store.FilterDirectory
+	path string
+}
+
+func newAssertFileExistDirectory(t testing.TB, path string) *assertFileExistDirectory {
+	return &assertFileExistDirectory{FilterDirectory: store.NewFilterDirectory(newFSDirectoryAt(t, path)), path: path}
+}
+
+func (d *assertFileExistDirectory) OpenInput(name string, context store.IOContext) (store.IndexInput, error) {
+	indexInput, err := d.FilterDirectory.OpenInput(name, context)
+	if err != nil {
+		return nil, err
+	}
+	return newMockAssertFileExistIndexInput(name, indexInput, filepath.Join(d.path, name)), nil
+}
+
+func idVersionDocument(t testing.TB, id, version string) *document.Document {
+	doc := document.NewDocument()
+	doc.Add(newStringField(t, "id", id, true))
+	doc.Add(newStringField(t, "version", version, true))
+	return doc
+}
+
+func softDeleteField(t testing.TB) []*document.Field {
+	field, err := document.NewNumericDocValuesField("soft_delete", 1)
+	if err != nil {
+		t.Fatalf("NumericDocValuesField: %v", err)
+	}
+	return []*document.Field{field.Field}
+}
+
+func mustSoftUpdateDocument(t testing.TB, w *index.IndexWriter, term *index.Term, doc *document.Document, softDeletes []*document.Field) {
+	t.Helper()
+	if _, err := w.SoftUpdateDocument(term, doc, softDeletes); err != nil {
+		t.Fatalf("softUpdateDocument: %v", err)
 	}
 }
 
-// TestIndexWriterMergePolicy_BufferedDocumentsTracking tests buffered document tracking.
-func TestIndexWriterMergePolicy_BufferedDocumentsTracking(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+func mustFlush(t testing.TB, w *index.IndexWriter) {
+	t.Helper()
+	if err := w.Flush(); err != nil {
+		t.Fatalf("flush: %v", err)
+	}
+}
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(10)
+func TestIndexWriterMergePolicyForceMergeDVUpdateFileWithConcurrentFlush(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "testForceMergeDVUpdateFileWithConcurrentFlush")
+	mockDirectory := newAssertFileExistDirectory(t, path)
+	defer mustClose(t, mockDirectory)
+	t.Fatal("org.apache.lucene.index.SoftDeletesRetentionMergePolicy(String, Supplier<Query>, MergePolicy) is not ported " +
+		"(the Go constructor takes no retention query); overriding MergePolicy.OneMerge#initMergeReaders(IOFunction) " +
+		"and OneMerge#wrapForMerge(CodecReader) in a OneMerge subclass is not ported")
+}
 
-	writer, err := index.NewIndexWriter(dir, config)
+// concurrentFlushSegments renders the shared prologue of the two
+// DV-update-file-with-concurrent-flush tests: two segments, the second
+// carrying a soft update of id:2.
+func concurrentFlushSegments(t *testing.T, mockDirectory store.Directory) {
+	t.Helper()
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMergePolicy(index.NewNoMergePolicy())
+	firstWriter := mustNewIndexWriter(t, mockDirectory, conf)
+
+	mustAddDocument(t, firstWriter, idVersionDocument(t, "1", "1"))
+	mustFlush(t, firstWriter)
+	mustAddDocument(t, firstWriter, idVersionDocument(t, "2", "1"))
+	mustSoftUpdateDocument(t, firstWriter, index.NewTerm("id", "2"), idVersionDocument(t, "2", "2"), softDeleteField(t))
+	mustFlush(t, firstWriter)
+	firstReader := openReaderFromWriter(t, firstWriter)
+	assertLeafCount(t, 2, firstReader)
+	mustClose(t, firstReader, firstWriter)
+}
+
+// blockingConcurrentMergeScheduler renders the anonymous
+// ConcurrentMergeScheduler subclasses whose merge(MergeSource, MergeTrigger)
+// runs before() and then super.merge.
+type blockingConcurrentMergeScheduler struct {
+	*index.ConcurrentMergeScheduler
+	before func()
+}
+
+func (s *blockingConcurrentMergeScheduler) Merge(mergeSource index.MergeSource, trigger index.MergeTrigger) error {
+	s.before()
+	return s.ConcurrentMergeScheduler.Merge(mergeSource, trigger)
+}
+
+// concurrentSoftUpdate renders the thread body of the two
+// DV-update-file-with-concurrent-flush tests.
+func concurrentSoftUpdate(t *testing.T, writer *index.IndexWriter, waitForInitMergeReader, waitForDVUpdate *countDownLatch) {
+	if !waitForInitMergeReader.awaitFromGoroutine(t, "waitForInitMergeReader") {
+		return
+	}
+	if _, err := writer.SoftUpdateDocument(index.NewTerm("id", "2"), idVersionDocument(t, "2", "3"), softDeleteField(t)); err != nil {
+		t.Errorf("softUpdateDocument: %v", err)
+		return
+	}
+	reader, err := index.OpenDirectoryReaderFromWriterWithOptions(writer, true, false)
 	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
+		t.Errorf("DirectoryReader.open(writer, true, false): %v", err)
+		return
 	}
-	defer writer.Close()
+	if err := reader.Close(); err != nil {
+		t.Errorf("close: %v", err)
+		return
+	}
+	waitForDVUpdate.countDown()
+}
 
-	// Initially no buffered documents
-	if writer.GetNumBufferedDocuments() != 0 {
-		t.Errorf("Initial buffered docs = %d, want 0", writer.GetNumBufferedDocuments())
+func newMergeOnXWriterWithBlockingCMS(t *testing.T, dir store.Directory, trigger index.MergeTrigger, waitForInitMergeReader, waitForDVUpdate *countDownLatch) *index.IndexWriter {
+	t.Helper()
+	mockConcurrentMergeScheduler := &blockingConcurrentMergeScheduler{
+		ConcurrentMergeScheduler: index.NewConcurrentMergeScheduler(),
+		before: func() {
+			waitForInitMergeReader.countDown()
+			waitForDVUpdate.awaitFromGoroutine(t, "waitForDVUpdate")
+		},
+	}
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(newMergeOnXMergePolicy(newMergePolicy(t), trigger))
+	iwc.SetMaxFullFlushMergeWaitMillis(math.MaxInt32)
+	iwc.SetMergeScheduler(mockConcurrentMergeScheduler)
+	return mustNewIndexWriter(t, dir, iwc)
+}
+
+// The Java thread of the next two tests is never joined; the Go goroutine is
+// joined before the test returns because a goroutine may not report to t
+// after the test has completed.
+
+func TestIndexWriterMergePolicyMergeDVUpdateFileOnGetReaderWithConcurrentFlush(t *testing.T) {
+	waitForInitMergeReader := newCountDownLatch()
+	waitForDVUpdate := newCountDownLatch()
+
+	path := filepath.Join(t.TempDir(), "testMergeDVUpdateFileOnGetReaderWithConcurrentFlush")
+	mockDirectory := newAssertFileExistDirectory(t, path)
+	concurrentFlushSegments(t, mockDirectory)
+
+	writerWithMergePolicy := newMergeOnXWriterWithBlockingCMS(t, mockDirectory, index.MergeTriggerGetReader, waitForInitMergeReader, waitForDVUpdate)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		concurrentSoftUpdate(t, writerWithMergePolicy, waitForInitMergeReader, waitForDVUpdate)
+	}()
+
+	mergedReader := openReaderFromWriter(t, writerWithMergePolicy)
+	assertLeafCount(t, 1, mergedReader)
+	mustClose(t, mergedReader)
+
+	mustClose(t, writerWithMergePolicy, mockDirectory)
+	wg.Wait()
+}
+
+func TestIndexWriterMergePolicyMergeDVUpdateFileOnCommitWithConcurrentFlush(t *testing.T) {
+	waitForInitMergeReader := newCountDownLatch()
+	waitForDVUpdate := newCountDownLatch()
+
+	path := filepath.Join(t.TempDir(), "testMergeDVUpdateFileOnCommitWithConcurrentFlush")
+	mockDirectory := newAssertFileExistDirectory(t, path)
+	concurrentFlushSegments(t, mockDirectory)
+
+	writerWithMergePolicy := newMergeOnXWriterWithBlockingCMS(t, mockDirectory, index.MergeTriggerCommit, waitForInitMergeReader, waitForDVUpdate)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		concurrentSoftUpdate(t, writerWithMergePolicy, waitForInitMergeReader, waitForDVUpdate)
+	}()
+
+	mustCommit(t, writerWithMergePolicy)
+	assertSegmentCount(t, 2, writerWithMergePolicy)
+
+	mustClose(t, writerWithMergePolicy, mockDirectory)
+	wg.Wait()
+}
+
+// onlyForceMergeTieredMergePolicy renders the anonymous TieredMergePolicy
+// subclass whose findMerges returns null: only allow force merge.
+type onlyForceMergeTieredMergePolicy struct {
+	*index.TieredMergePolicy
+}
+
+func (p *onlyForceMergeTieredMergePolicy) FindMerges(index.MergeTrigger, *index.SegmentInfos, index.MergeContext) (*index.MergeSpecification, error) {
+	return nil, nil
+}
+
+func TestIndexWriterMergePolicyForceMergeWithPendingHardAndSoftDeleteFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "testForceMergeWithPendingHardAndSoftDeleteFile")
+	mockDirectory := newAssertFileExistDirectory(t, path)
+
+	mockMergePolicy := index.NewOneMergeWrappingMergePolicy(
+		&onlyForceMergeTieredMergePolicy{TieredMergePolicy: index.NewTieredMergePolicy()},
+		func(merge *index.OneMerge) *index.OneMerge { return index.NewOneMerge(merge.Segments) })
+
+	conf := newIndexWriterConfig()
+	conf.SetMergePolicy(mockMergePolicy)
+	writer := mustNewIndexWriter(t, mockDirectory, conf)
+
+	mustAddDocument(t, writer, idVersionDocument(t, "1", "1"))
+	mustCommit(t, writer)
+
+	mustAddDocument(t, writer, idVersionDocument(t, "2", "1"))
+	mustAddDocument(t, writer, idVersionDocument(t, "3", "1"))
+	mustAddDocument(t, writer, idVersionDocument(t, "4", "1"))
+	mustAddDocument(t, writer, idVersionDocument(t, "5", "1"))
+	mustCommit(t, writer)
+
+	if _, err := writer.UpdateDocument(index.NewTerm("id", "2"), idVersionDocument(t, "2", "2")); err != nil {
+		t.Fatalf("updateDocument: %v", err)
+	}
+	mustCommit(t, writer)
+
+	if _, err := writer.UpdateDocument(index.NewTerm("id", "3"), idVersionDocument(t, "3", "2")); err != nil {
+		t.Fatalf("updateDocument: %v", err)
 	}
 
-	// Add documents
-	for i := 0; i < 5; i++ {
-		if err := addDocForMergePolicy(writer); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
-		}
+	mustSoftUpdateDocument(t, writer, index.NewTerm("id", "4"), idVersionDocument(t, "4", "2"), softDeleteField(t))
+
+	reader, err := writer.GetReader(true, false)
+	if err != nil {
+		t.Fatalf("getReader(true, false): %v", err)
+	}
+	mustClose(t, reader)
+	mustCommit(t, writer)
+
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
 	}
 
-	// Should have 5 buffered documents
-	if writer.GetNumBufferedDocuments() != 5 {
-		t.Errorf("Buffered docs after 5 adds = %d, want 5", writer.GetNumBufferedDocuments())
-	}
-
-	// Commit should flush buffered documents
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit() error = %v", err)
-	}
-
-	// Buffered documents should be 0 after commit
-	if writer.GetNumBufferedDocuments() != 0 {
-		t.Errorf("Buffered docs after commit = %d, want 0", writer.GetNumBufferedDocuments())
-	}
+	mustClose(t, writer, mockDirectory)
 }

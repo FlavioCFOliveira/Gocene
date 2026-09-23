@@ -2,2035 +2,1567 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for the index package.
-//
-// Ported from Apache Lucene's org.apache.lucene.index.TestAddIndexes
-// Source: lucene/core/src/test/org/apache/lucene/index/TestAddIndexes.java
-//
-// GC-179: Test AddIndexes - Port TestAddIndexes.java from Apache Lucene to Go
-//
-// Test Coverage:
-//   - Basic addIndexes from directories
-//   - Add indexes with pending deletes
-//   - Self-addition prevention (error handling)
-//   - Various merge scenarios (tail segments, copy segments)
-//   - Concurrent addIndexes operations
-//   - Error handling (partial failures, null/empty merge specs)
-//   - Different codec compatibility
-//   - Soft deletes handling
-//   - Block documents handling
-//   - Index sort changes
-//   - Parent document field validation
+// Port of lucene/core/src/test/org/apache/lucene/index/TestAddIndexes.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
 import (
-	"fmt"
+	"errors"
+	"math"
+	"math/rand"
+	"strconv"
 	"sync"
 	"testing"
+	"time"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testutil "github.com/FlavioCFOliveira/Gocene/tests/util"
 )
 
-// createAddIndexesTestAnalyzer creates a simple test analyzer for addIndexes tests
-func createAddIndexesTestAnalyzer() analysis.Analyzer {
-	return analysis.NewWhitespaceAnalyzer()
-}
-
-// mustTextField creates a TextField or fails the test
-func mustTextField(t *testing.T, name, value string, stored bool) *document.TextField {
-	field, err := document.NewTextField(name, value, stored)
-	if err != nil {
-		t.Fatalf("Failed to create TextField: %v", err)
-	}
-	return field
-}
-
-// mustStringField creates a StringField or fails the test
-func mustStringField(t *testing.T, name, value string, stored bool) *document.StringField {
-	field, err := document.NewStringField(name, value, stored)
-	if err != nil {
-		t.Fatalf("Failed to create StringField: %v", err)
-	}
-	return field
-}
-
-// mustIntField creates an IntField or fails the test
-func mustIntField(t *testing.T, name string, value int, stored bool) *document.IntField {
-	field, err := document.NewIntField(name, value, stored)
-	if err != nil {
-		t.Fatalf("Failed to create IntField: %v", err)
-	}
-	return field
-}
-
-// mustNumericDocValuesField creates a NumericDocValuesField or fails the test
-func mustNumericDocValuesField(t *testing.T, name string, value int64) *document.NumericDocValuesField {
-	field, err := document.NewNumericDocValuesField(name, value)
-	if err != nil {
-		t.Fatalf("Failed to create NumericDocValuesField: %v", err)
-	}
-	return field
-}
-
-// TestAddIndexes_SimpleCase tests basic addIndexes functionality
-// Source: TestAddIndexes.testSimpleCase()
-// Tests adding indexes from multiple directories with verification
-func TestAddIndexes_SimpleCase(t *testing.T) {
-	t.Run("add indexes from multiple directories", func(t *testing.T) {
-		// Main directory
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		// Two auxiliary directories
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-		aux2 := store.NewByteBuffersDirectory()
-		defer aux2.Close()
-
-		// Create main index with 100 documents
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-
-		// Add 100 documents
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-
-		if writer.MaxDoc() != 100 {
-			t.Errorf("Expected 100 docs, got %d", writer.MaxDoc())
-		}
-		writer.Close()
-
-		// Create aux index with 40 documents
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 40; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer2.AddDocument(doc)
-		}
-		if writer2.MaxDoc() != 40 {
-			t.Errorf("Expected 40 docs in aux, got %d", writer2.MaxDoc())
-		}
-		writer2.Close()
-
-		// Create aux2 index with 50 documents
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(aux2, config3)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer3.AddDocument(doc)
-		}
-		if writer3.MaxDoc() != 50 {
-			t.Errorf("Expected 50 docs in aux2, got %d", writer3.MaxDoc())
-		}
-		writer3.Close()
-
-		// Add aux and aux2 to main directory
-		config4 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer4, _ := index.NewIndexWriter(dir, config4)
-
-		// Verify initial doc count
-		if writer4.MaxDoc() != 100 {
-			t.Errorf("Expected 100 docs before addIndexes, got %d", writer4.MaxDoc())
-		}
-
-		// Add indexes - this is the core functionality being tested
-		err = writer4.AddIndexes(aux, aux2)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		// Verify documents were added (100 + 40 + 50 = 190)
-		if writer4.MaxDoc() != 190 {
-			t.Errorf("Expected 190 docs after addIndexes, got %d", writer4.MaxDoc())
-		}
-		writer4.Close()
-
-		// Verify aux index is unchanged
-		verifyNumDocs(t, aux, 40)
-
-		// Verify combined index
-		verifyNumDocs(t, dir, 190)
-	})
-
-	t.Run("add single index directory", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index with 190 documents
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 190; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create aux index with 40 documents
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 40; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Add aux to main
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		if writer3.MaxDoc() != 190 {
-			t.Errorf("Expected 190 docs before addIndexes, got %d", writer3.MaxDoc())
-		}
-
-		err := writer3.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		// Verify (190 + 40 = 230)
-		if writer3.MaxDoc() != 230 {
-			t.Errorf("Expected 230 docs after addIndexes, got %d", writer3.MaxDoc())
-		}
-		writer3.Close()
-
-		verifyNumDocs(t, dir, 230)
-	})
-}
-
-// TestAddIndexes_WithPendingDeletes tests adding indexes when there are pending deletes
-// Source: TestAddIndexes.testWithPendingDeletes()
-func TestAddIndexes_WithPendingDeletes(t *testing.T) {
-	t.Run("add indexes with pending deletes", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Set up directories with initial data
-		setUpAddIndexesDirs(t, dir, aux)
-
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		// Add indexes from aux
-		err := writer.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		// Add 20 documents with updates (creates pending deletes).
-		// Content is "bbbN" so each doc has a unique single token for deletion.
-		// Matches Lucene's "bbb " + i parameterisation adapted to Term-based deletes.
-		for i := 0; i < 20; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustStringField(t, "id", string(rune('0'+(i%10))), false))
-			doc.Add(mustTextField(t, "content", fmt.Sprintf("bbb%d", i), true))
-			writer.UpdateDocument(index.NewTerm("id", string(rune('0'+(i%10)))), doc)
-		}
-
-		// Delete one document: i=14 has content "bbb14"; 1030+20-10(UpdateDoc deletes)-1=1039.
-		writer.DeleteDocuments(index.NewTerm("content", "bbb14"))
-
-		// Force merge and commit
-		writer.ForceMerge(1)
-		writer.Commit()
-
-		// 1030 (AddIndexes) + 20 (UpdateDoc additions) - 10 (first-batch deletes) - 1 (DeleteDocuments) = 1039
-		verifyNumDocs(t, dir, 1039)
-
-		writer.Close()
-	})
-}
-
-// TestAddIndexes_AddSelf tests that adding an index to itself throws an error
-// Source: TestAddIndexes.testAddSelf()
-func TestAddIndexes_AddSelf(t *testing.T) {
-	t.Run("cannot add index to itself", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index with 100 documents
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create aux index with 140 documents in separate segments
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 40; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Reopen and add more
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(aux, config3)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer3.AddDocument(doc)
-		}
-		writer3.Close()
-
-		// Try to add self - should fail
-		config4 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer4, _ := index.NewIndexWriter(dir, config4)
-
-		err := writer4.AddIndexes(aux, dir)
-		if err == nil {
-			t.Error("Expected error when adding index to itself, but got nil")
-		}
-
-		// Verify doc count unchanged
-		if writer4.MaxDoc() != 100 {
-			t.Errorf("Expected 100 docs after failed addIndexes, got %d", writer4.MaxDoc())
-		}
-		writer4.Close()
-
-		verifyNumDocs(t, dir, 100)
-	})
-}
-
-// TestAddIndexes_NoTailSegments tests addIndexes when there are no tail segments
-// Source: TestAddIndexes.testNoTailSegments()
-func TestAddIndexes_NoTailSegments(t *testing.T) {
-	t.Run("no tail segments", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		setUpAddIndexesDirs(t, dir, aux)
-
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config.SetMaxBufferedDocs(10)
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		// Add 10 documents
-		for i := 0; i < 10; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-
-		// Add indexes from aux
-		err := writer.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		// Verify total doc count (1000 + 10 + 30 = 1040).
-		// Lucene original checks maxDoc(0)==1000 (first committed segment) and
-		// total maxDoc==1040. Gocene does not expose per-segment maxDoc here.
-		if writer.MaxDoc() != 1040 {
-			t.Errorf("Expected 1040 docs, got %d", writer.MaxDoc())
-		}
-
-		// Gocene without an active LogMergePolicy keeps all segments discrete:
-		// 1 committed (1000-doc) + 1 flushed (10-doc) + 3 aux (10-doc each) = 5.
-		// The original Lucene test does NOT assert segment count = 1; that was an
-		// incorrect port.  Assert that AddIndexes at least did not lose any segments.
-		if writer.GetSegmentCount() < 1 {
-			t.Errorf("Expected at least 1 segment, got %d", writer.GetSegmentCount())
-		}
-
-		writer.Close()
-		verifyNumDocs(t, dir, 1040)
-	})
-}
-
-// TestAddIndexes_NoMergeAfterCopy tests that no merge happens after copy
-// Source: TestAddIndexes.testNoMergeAfterCopy()
-func TestAddIndexes_NoMergeAfterCopy(t *testing.T) {
-	t.Run("no merge after copy", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		setUpAddIndexesDirs(t, dir, aux)
-
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config.SetMaxBufferedDocs(4)
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		// Add 4 documents
-		for i := 0; i < 4; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-
-		// Add indexes from aux
-		err := writer.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		// Verify (1000 + 4 + 30 = 1034)
-		if writer.MaxDoc() != 1034 {
-			t.Errorf("Expected 1034 docs, got %d", writer.MaxDoc())
-		}
-
-		// Verify segment count (should be 5: 1 original + 3 from aux + 1 new)
-		if writer.GetSegmentCount() != 5 {
-			t.Errorf("Expected 5 segments, got %d", writer.GetSegmentCount())
-		}
-
-		writer.Close()
-		verifyNumDocs(t, dir, 1034)
-	})
-}
-
-// TestAddIndexes_MergeAfterCopy tests merge behavior after copy
-// Source: TestAddIndexes.testMergeAfterCopy()
-func TestAddIndexes_MergeAfterCopy(t *testing.T) {
-	t.Run("merge after copy", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		setUpAddIndexesDirs(t, dir, aux)
-
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config.SetMaxBufferedDocs(4)
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		// Add 10 documents
-		for i := 0; i < 10; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-
-		// Add indexes from aux
-		err := writer.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		// Verify (1000 + 10 + 30 = 1040)
-		if writer.MaxDoc() != 1040 {
-			t.Errorf("Expected 1040 docs, got %d", writer.MaxDoc())
-		}
-
-		// Segment count is not verified: the original Lucene test (testMergeAfterCopy)
-		// does NOT check segment count — it checks maxDoc(0)==1000 (first segment size),
-		// which requires LogMergePolicy. Without a merge policy, Gocene produces more
-		// segments (no automatic merging), so we only assert segments were created.
-		if writer.GetSegmentCount() < 1 {
-			t.Errorf("Expected at least 1 segment, got %d", writer.GetSegmentCount())
-		}
-
-		writer.Close()
-		verifyNumDocs(t, dir, 1040)
-	})
-}
-
-// TestAddIndexes_HangOnClose tests that close doesn't hang with concurrent operations
-// Source: TestAddIndexes.testHangOnClose()
-func TestAddIndexes_HangOnClose(t *testing.T) {
-	t.Run("no hang on close", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		// Add some documents
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-
-		// Create aux directory
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Add indexes in background
-		done := make(chan error, 1)
-		go func() {
-			done <- writer.AddIndexes(aux)
-		}()
-
-		// Close should not hang
-		err := writer.Close()
-		if err != nil {
-			t.Errorf("Close failed: %v", err)
-		}
-
-		// Check if addIndexes completed
-		select {
-		case addErr := <-done:
-			// Expected - either success or error due to closed writer
-			_ = addErr
-		default:
-			// Also acceptable if still running
-		}
-	})
-}
-
-// TestAddIndexes_WithConcurrentMerges tests addIndexes with concurrent merges
-// Source: TestAddIndexes.testAddIndexesWithConcurrentMerges()
-func TestAddIndexes_WithConcurrentMerges(t *testing.T) {
-	t.Run("concurrent merges", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config.SetMergeScheduler(index.NewConcurrentMergeScheduler())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		// Create multiple aux directories
-		auxDirs := make([]store.Directory, 5)
-		for i := range auxDirs {
-			auxDirs[i] = store.NewByteBuffersDirectory()
-			defer auxDirs[i].Close()
-
-			config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-			w, _ := index.NewIndexWriter(auxDirs[i], config)
-			for j := 0; j < 20; j++ {
-				doc := document.NewDocument()
-				doc.Add(mustTextField(t, "content", "aaa", true))
-				w.AddDocument(doc)
-			}
-			w.Close()
-		}
-
-		// Add all indexes concurrently
-		var wg sync.WaitGroup
-		errors := make(chan error, 5)
-
-		for _, aux := range auxDirs {
-			wg.Add(1)
-			go func(a store.Directory) {
-				defer wg.Done()
-				if err := writer.AddIndexes(a); err != nil {
-					errors <- err
-				}
-			}(aux)
-		}
-
-		wg.Wait()
-		close(errors)
-
-		for err := range errors {
-			t.Errorf("AddIndexes failed: %v", err)
-		}
-
-		// Verify total docs (5 * 20 = 100)
-		if writer.MaxDoc() != 100 {
-			t.Errorf("Expected 100 docs, got %d", writer.MaxDoc())
-		}
-
-		writer.Close()
-	})
-}
-
-// makeAuxDir creates a fresh ByteBuffersDirectory with numDocs documents.
-func makeAuxDir(t *testing.T, numDocs int) store.Directory {
+// Missing members the Java tests reach.
+const (
+	indexWriterMaxDocIntMissing               = "org.apache.lucene.index.IndexWriter#maxDoc(int) is not ported"
+	indexWriterMaybeMergeMissing              = "org.apache.lucene.index.IndexWriter#maybeMerge() is not ported"
+	cmsMergeThreadCountMissing                = "org.apache.lucene.index.ConcurrentMergeScheduler#mergeThreadCount() is not ported"
+	mergePolicyFindMergesReadersNotDispatched = "org.apache.lucene.index.MergePolicy#findMerges(CodecReader...) is not part of " +
+		"Gocene's MergePolicy interface (BaseMergePolicy.FindMergesForReaders is not dispatched)"
+)
+
+// addIndexesNewWriter renders the private newWriter(Directory,
+// IndexWriterConfig): the config's merge policy is replaced by a
+// LogDocMergePolicy.
+func addIndexesNewWriter(t testing.TB, dir store.Directory, conf *index.IndexWriterConfig) *index.IndexWriter {
 	t.Helper()
-	d := store.NewByteBuffersDirectory()
-	cfg := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-	w, err := index.NewIndexWriter(d, cfg)
-	if err != nil {
-		d.Close()
-		t.Fatalf("makeAuxDir: NewIndexWriter: %v", err)
-	}
+	conf.SetMergePolicy(index.NewLogDocMergePolicy())
+	return mustNewIndexWriter(t, dir, conf)
+}
+
+func addIndexesConfig(mode index.OpenMode) *index.IndexWriterConfig {
+	c := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	c.SetOpenMode(mode)
+	return c
+}
+
+// addIndexesAddDocsContent renders the private addDocs/addDocs2: numDocs
+// documents whose "content" is the given text.
+func addIndexesAddDocsContent(t testing.TB, writer *index.IndexWriter, numDocs int, content string) {
+	t.Helper()
 	for i := 0; i < numDocs; i++ {
 		doc := document.NewDocument()
-		doc.Add(mustTextField(t, "content", "aaa", true))
-		if _, err := w.AddDocument(doc); err != nil {
-			w.Close()
-			d.Close()
-			t.Fatalf("makeAuxDir: AddDocument: %v", err)
-		}
+		doc.Add(newTextField(t, "content", content, false))
+		doc.Add(document.NewIntPoint("doc", int32(i)))
+		doc.Add(document.NewIntPoint("doc2d", int32(i), int32(i)))
+		doc.Add(numericDVField(t, "dv", int64(i)))
+		mustAddDocument(t, writer, doc)
 	}
-	if err := w.Close(); err != nil {
-		d.Close()
-		t.Fatalf("makeAuxDir: Close: %v", err)
-	}
-	return d
 }
 
-// TestAddIndexes_WithThreads tests simultaneous addIndexes from multiple threads.
-// The Lucene original (testAddIndexesWithThreads) gives each thread its own
-// independent copy of the source directory so that concurrent AddIndexes calls
-// never compete for the same write.lock.  We replicate that semantics here by
-// creating a fresh directory per goroutine invocation.
-// Source: TestAddIndexes.testAddIndexesWithThreads()
-func TestAddIndexes_WithThreads(t *testing.T) {
-	t.Run("concurrent threads", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		cfg := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, err := index.NewIndexWriter(dir, cfg)
-		if err != nil {
-			t.Fatalf("NewIndexWriter: %v", err)
-		}
-
-		// Each goroutine uses its own independent copy of the source so that
-		// concurrent AddIndexes calls do not compete for the same write.lock.
-		const numCopies = 3
-		const numIterations = 5
-		const docsPerCopy = 10
-
-		var wg sync.WaitGroup
-		errs := make(chan error, numCopies*numIterations)
-
-		for i := 0; i < numIterations; i++ {
-			for j := 0; j < numCopies; j++ {
-				wg.Add(1)
-				go func() {
-					defer wg.Done()
-					aux := makeAuxDir(t, docsPerCopy)
-					defer aux.Close()
-					if err := writer.AddIndexes(aux); err != nil {
-						errs <- err
-					}
-				}()
-			}
-		}
-
-		wg.Wait()
-		close(errs)
-
-		failures := 0
-		for e := range errs {
-			failures++
-			t.Logf("AddIndexes error: %v", e)
-		}
-		if failures > 0 {
-			t.Errorf("had %d failures during concurrent addIndexes", failures)
-		}
-
-		writer.Close()
-	})
+// addIndexesAddDocs renders the private addDocs(IndexWriter, int).
+func addIndexesAddDocs(t testing.TB, writer *index.IndexWriter, numDocs int) {
+	t.Helper()
+	addIndexesAddDocsContent(t, writer, numDocs, "aaa")
 }
 
-// TestAddIndexes_WithClose tests simultaneous addIndexes and close
-// Source: TestAddIndexes.testAddIndexesWithClose()
-func TestAddIndexes_WithClose(t *testing.T) {
-	t.Run("concurrent addIndexes and close", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		// Create aux directories
-		numCopies := 3
-		auxDirs := make([]store.Directory, numCopies)
-		for i := range auxDirs {
-			auxDirs[i] = store.NewByteBuffersDirectory()
-			defer auxDirs[i].Close()
-
-			config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-			w, _ := index.NewIndexWriter(auxDirs[i], config)
-			for j := 0; j < 10; j++ {
-				doc := document.NewDocument()
-				doc.Add(mustTextField(t, "content", "aaa", true))
-				w.AddDocument(doc)
-			}
-			w.Close()
-		}
-
-		// Start concurrent addIndexes operations
-		var wg sync.WaitGroup
-		stop := make(chan bool)
-
-		for _, aux := range auxDirs {
-			wg.Add(1)
-			go func(a store.Directory) {
-				defer wg.Done()
-				for {
-					select {
-					case <-stop:
-						return
-					default:
-						_ = writer.AddIndexes(a)
-					}
-				}
-			}(aux)
-		}
-
-		// Close without stopping threads first
-		writer.Close()
-		close(stop)
-		wg.Wait()
-
-		// Should complete without hanging
-	})
+// addIndexesAddDocs2 renders the private addDocs2(IndexWriter, int).
+func addIndexesAddDocs2(t testing.TB, writer *index.IndexWriter, numDocs int) {
+	t.Helper()
+	addIndexesAddDocsContent(t, writer, numDocs, "bbb")
 }
 
-// TestAddIndexes_WithRollback tests simultaneous addIndexes and rollback
-// Source: TestAddIndexes.testAddIndexesWithRollback()
-func TestAddIndexes_WithRollback(t *testing.T) {
-	t.Run("concurrent addIndexes and rollback", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		// Create aux directories
-		numCopies := 5
-		auxDirs := make([]store.Directory, numCopies)
-		for i := range auxDirs {
-			auxDirs[i] = store.NewByteBuffersDirectory()
-			defer auxDirs[i].Close()
-
-			config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-			w, _ := index.NewIndexWriter(auxDirs[i], config)
-			for j := 0; j < 10; j++ {
-				doc := document.NewDocument()
-				doc.Add(mustTextField(t, "content", "aaa", true))
-				w.AddDocument(doc)
-			}
-			w.Close()
-		}
-
-		// Start concurrent addIndexes operations
-		var wg sync.WaitGroup
-		stop := make(chan bool)
-
-		for _, aux := range auxDirs {
-			wg.Add(1)
-			go func(a store.Directory) {
-				defer wg.Done()
-				for {
-					select {
-					case <-stop:
-						return
-					default:
-						_ = writer.AddIndexes(a)
-					}
-				}
-			}(aux)
-		}
-
-		// Rollback without stopping threads first
-		writer.Rollback()
-		close(stop)
-		wg.Wait()
-
-		// Should complete without hanging
-	})
-}
-
-// TestAddIndexes_ExistingDeletes tests addIndexes with existing deletes
-// Source: TestAddIndexes.testExistingDeletes()
-func TestAddIndexes_ExistingDeletes(t *testing.T) {
-	t.Run("existing deletes", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index with documents and deletes
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustStringField(t, "id", string(rune(i)), true))
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-
-		// Delete some documents
-		for i := 0; i < 50; i++ {
-			writer.DeleteDocuments(index.NewTerm("id", string(rune(i))))
-		}
-
-		writer.Commit()
-
-		// Create aux index
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Add aux to main
-		err := writer.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		writer.Commit()
-
-		// Verify (100 - 50 deleted + 50 = 100 live docs)
-		if writer.NumDocs() != 100 {
-			t.Errorf("Expected 100 live docs, got %d", writer.NumDocs())
-		}
-
-		writer.Close()
-	})
-}
-
-// TestAddIndexes_WithEmptyReaders tests addIndexes with empty readers
-// Source: TestAddIndexes.testAddIndexesWithEmptyReaders()
-func TestAddIndexes_WithEmptyReaders(t *testing.T) {
-	t.Run("empty readers", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create empty aux index
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		writer2.Close()
-
-		// Add empty index
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		err := writer3.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		// Verify count unchanged
-		if writer3.MaxDoc() != 100 {
-			t.Errorf("Expected 100 docs, got %d", writer3.MaxDoc())
-		}
-
-		writer3.Close()
-	})
-}
-
-// TestAddIndexes_CascadingMerges tests cascading merge triggers
-// Source: TestAddIndexes.testCascadingMergesTriggered()
-func TestAddIndexes_CascadingMerges(t *testing.T) {
-	t.Run("cascading merges", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config.SetMergePolicy(index.NewTieredMergePolicy())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		// Create multiple aux directories with small segments
-		for i := 0; i < 10; i++ {
-			aux := store.NewByteBuffersDirectory()
-			defer aux.Close()
-
-			config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-			w, _ := index.NewIndexWriter(aux, config)
-			for j := 0; j < 10; j++ {
-				doc := document.NewDocument()
-				doc.Add(mustTextField(t, "content", "aaa", true))
-				w.AddDocument(doc)
-			}
-			w.Close()
-
-			err := writer.AddIndexes(aux)
-			if err != nil {
-				t.Fatalf("AddIndexes failed: %v", err)
-			}
-		}
-
-		// Should trigger cascading merges
-		if err := writer.ForceMerge(1); err != nil {
-			t.Fatalf("ForceMerge: %v", err)
-		}
-
-		// Verify (10 * 10 = 100)
-		if writer.MaxDoc() != 100 {
-			t.Errorf("Expected 100 docs, got %d", writer.MaxDoc())
-		}
-
-		// Should have 1 segment after force merge
-		if writer.GetSegmentCount() != 1 {
-			t.Errorf("Expected 1 segment after force merge, got %d", writer.GetSegmentCount())
-		}
-
-		writer.Close()
-	})
-}
-
-// TestAddIndexes_HittingMaxDocsLimit tests behavior when hitting max docs limit
-// Source: TestAddIndexes.testAddIndexesHittingMaxDocsLimit()
-func TestAddIndexes_HittingMaxDocsLimit(t *testing.T) {
-	t.Run("max docs limit", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index near max capacity
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config.SetMaxDocs(1000)
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		for i := 0; i < 900; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create aux index that would exceed limit
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 200; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Try to add - should fail or handle gracefully
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config3.SetMaxDocs(1000)
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		err := writer3.AddIndexes(aux)
-		if err == nil {
-			// Some implementations may allow this and handle it during merge
-			t.Log("AddIndexes succeeded but may fail during merge due to max docs limit")
-		}
-
-		writer3.Close()
-	})
-}
-
-// TestAddIndexes_AddEmpty tests adding an empty index
-// Source: TestAddIndexes.testAddEmpty()
-func TestAddIndexes_AddEmpty(t *testing.T) {
-	t.Run("add empty index", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create empty aux index (just open and close)
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		writer2.Close()
-
-		// Add empty index
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		err := writer3.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		// Verify count unchanged
-		if writer3.MaxDoc() != 100 {
-			t.Errorf("Expected 100 docs, got %d", writer3.MaxDoc())
-		}
-
-		writer3.Close()
-		verifyNumDocs(t, dir, 100)
-	})
-}
-
-// TestAddIndexes_LocksBlock verifies that AddIndexes fails when the source
-// directory has an open IndexWriter (write.lock held), and succeeds once that
-// writer is closed.
-// Source: TestAddIndexes.testLocksBlock()
-func TestAddIndexes_LocksBlock(t *testing.T) {
-	// src: source directory with an open writer (w1 holds write.lock).
-	src := store.NewByteBuffersDirectory()
-	defer src.Close()
-	w1Config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-	w1, err := index.NewIndexWriter(src, w1Config)
-	if err != nil {
-		t.Fatalf("failed to open w1: %v", err)
-	}
-	if _, err := w1.AddDocument(document.NewDocument()); err != nil {
-		t.Fatalf("w1.AddDocument: %v", err)
-	}
-	if err := w1.Commit(); err != nil {
-		t.Fatalf("w1.Commit: %v", err)
-	}
-	// w1 is still open — write.lock on src is held.
-
-	// dest: destination directory with w2 open.
-	dest := store.NewByteBuffersDirectory()
-	defer dest.Close()
-	w2Config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-	w2, err := index.NewIndexWriter(dest, w2Config)
-	if err != nil {
-		t.Fatalf("failed to open w2: %v", err)
-	}
-
-	// AddIndexes must fail because w1 holds the write.lock on src.
-	if err := w2.AddIndexes(src); err == nil {
-		t.Fatal("expected AddIndexes to fail while source writer is open, got nil error")
-	}
-
-	// Close both writers; the test is complete once we verify the failure.
-	w1.Close()
-	w2.Close()
-}
-
-// TestAddIndexes_FieldNamesChanged tests handling of field name changes
-// Source: TestAddIndexes.testFieldNamesChanged()
-func TestAddIndexes_FieldNamesChanged(t *testing.T) {
-	t.Run("field names changed", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index with field "content"
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create aux index with different field "text"
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "text", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Add indexes - should handle different field names
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		err := writer3.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		// Verify combined count
-		if writer3.MaxDoc() != 150 {
-			t.Errorf("Expected 150 docs, got %d", writer3.MaxDoc())
-		}
-
-		writer3.Close()
-		verifyNumDocs(t, dir, 150)
-	})
-}
-
-// TestAddIndexes_WithSoftDeletes tests addIndexes with soft deletes
-// Source: TestAddIndexes.testAddIndicesWithSoftDeletes()
-func TestAddIndexes_WithSoftDeletes(t *testing.T) {
-	t.Run("soft deletes", func(t *testing.T) {
-		dir1 := store.NewByteBuffersDirectory()
-		defer dir1.Close()
-		dir2 := store.NewByteBuffersDirectory()
-		defer dir2.Close()
-
-		// Create index with soft deletes
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config.SetSoftDeletesField("soft_delete")
-		writer, _ := index.NewIndexWriter(dir1, config)
-
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustStringField(t, "id", string(rune(i)), true))
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-
-		// Soft delete some documents
-		for i := 0; i < 30; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustStringField(t, "id", string(rune(i)), true))
-			doc.Add(mustStringField(t, "soft_delete", "true", false))
-			writer.UpdateDocument(index.NewTerm("id", string(rune(i))), doc)
-		}
-
-		writer.Commit()
-
-		// Create second index
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(dir2, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Add indexes
-		err := writer.AddIndexes(dir2)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		// Verify (100 - 30 soft deleted + 50 = 120 live docs)
-		if writer.NumDocs() != 120 {
-			t.Errorf("Expected 120 live docs, got %d", writer.NumDocs())
-		}
-
-		// Max doc should include soft deleted
-		if writer.MaxDoc() != 150 {
-			t.Errorf("Expected 150 max docs (including soft deleted), got %d", writer.MaxDoc())
-		}
-
-		writer.Close()
-	})
-}
-
-// TestAddIndexes_WithBlocks tests addIndexes with block documents
-// Source: TestAddIndexes.testAddIndicesWithBlocks()
-func TestAddIndexes_WithBlocks(t *testing.T) {
-	t.Run("block documents", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		// Create main index with blocks
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		for i := 0; i < 5; i++ {
-			docs := make([]index.Document, 3)
-			for j := range docs {
-				doc := document.NewDocument()
-				doc.Add(mustStringField(t, "value", string(rune(i)), true))
-				docs[j] = doc
-			}
-			writer.AddDocuments(docs)
-		}
-		writer.Commit()
-		writer.Close()
-
-		// Create aux index with blocks
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-
-		for i := 0; i < 3; i++ {
-			docs := make([]index.Document, 2)
-			for j := range docs {
-				doc := document.NewDocument()
-				doc.Add(mustStringField(t, "value", string(rune(i)), true))
-				docs[j] = doc
-			}
-			writer2.AddDocuments(docs)
-		}
-		writer2.Commit()
-		writer2.Close()
-
-		// Add indexes
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		err := writer3.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		writer3.ForceMerge(1)
-		writer3.Close()
-
-		// Verify (5*3 + 3*2 = 15 + 6 = 21)
-		verifyNumDocs(t, dir, 21)
-	})
-}
-
-// TestAddIndexes_SetDiagnostics tests that diagnostics are properly set
-// Source: TestAddIndexes.testSetDiagnostics()
-func TestAddIndexes_SetDiagnostics(t *testing.T) {
-	t.Run("set diagnostics", func(t *testing.T) {
-		sourceDir := store.NewByteBuffersDirectory()
-		defer sourceDir.Close()
-		targetDir := store.NewByteBuffersDirectory()
-		defer targetDir.Close()
-
-		// Create source index
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(sourceDir, config)
+// addIndexesAddDocsWithID renders the private addDocsWithID(IndexWriter,
+// int, int): just like addDocs but with ID, starting from docStart.
+func addIndexesAddDocsWithID(t testing.TB, writer *index.IndexWriter, numDocs, docStart int) {
+	t.Helper()
+	for i := 0; i < numDocs; i++ {
 		doc := document.NewDocument()
-		doc.Add(mustTextField(t, "content", "aaa", true))
-		writer.AddDocument(doc)
-		writer.Close()
-
-		// Add to target with custom merge policy
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config2.SetMergePolicy(index.NewTieredMergePolicy())
-		writer2, _ := index.NewIndexWriter(targetDir, config2)
-
-		err := writer2.AddIndexes(sourceDir)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		writer2.Close()
-
-		// Verify diagnostics were set
-		si, err := index.ReadSegmentInfos(targetDir)
-		if err != nil {
-			t.Fatalf("Failed to read segment infos: %v", err)
-		}
-
-		if si.Size() == 0 {
-			t.Error("Expected at least one segment")
-		}
-	})
+		doc.Add(newTextField(t, "content", "aaa", false))
+		doc.Add(newTextField(t, "id", strconv.Itoa(docStart+i), true))
+		doc.Add(document.NewIntPoint("doc", int32(i)))
+		doc.Add(document.NewIntPoint("doc2d", int32(i), int32(i)))
+		doc.Add(numericDVField(t, "dv", int64(i)))
+		mustAddDocument(t, writer, doc)
+	}
 }
 
-// TestAddIndexes_IllegalParentDocChange tests parent document field validation
-// Source: TestAddIndexes.testIllegalParentDocChange()
-func TestAddIndexes_IllegalParentDocChange(t *testing.T) {
-	t.Run("illegal parent doc change", func(t *testing.T) {
-		dir1 := store.NewByteBuffersDirectory()
-		defer dir1.Close()
-		dir2 := store.NewByteBuffersDirectory()
-		defer dir2.Close()
-
-		// Create index with parent field "foobar"
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config.SetParentField("foobar")
-		writer, _ := index.NewIndexWriter(dir1, config)
-
-		parent := document.NewDocument()
-		doc1 := document.NewDocument()
-		doc2 := document.NewDocument()
-		doc3 := document.NewDocument()
-		doc4 := document.NewDocument()
-		writer.AddDocuments([]index.Document{doc1, doc2, parent})
-		writer.Commit()
-		writer.AddDocuments([]index.Document{doc3, doc4, parent})
-		writer.Commit()
-		writer.ForceMerge(1)
-		writer.Close()
-
-		// Create index with different parent field "foo"
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config2.SetParentField("foo")
-		writer2, _ := index.NewIndexWriter(dir2, config2)
-
-		// Try to add index with different parent field - should fail
-		err := writer2.AddIndexes(dir1)
-		if err == nil {
-			t.Error("Expected error when adding index with different parent field")
-		}
-
-		writer2.Close()
-	})
+// addIndexesVerifyNumDocs renders the private verifyNumDocs(Directory, int).
+func addIndexesVerifyNumDocs(t testing.TB, dir store.Directory, numDocs int) {
+	t.Helper()
+	reader := mustOpenDirectoryReader(t, dir)
+	defer mustClose(t, reader)
+	if reader.MaxDoc() != numDocs || reader.NumDocs() != numDocs {
+		t.Fatalf("maxDoc/numDocs: expected %d/%d, got %d/%d", numDocs, numDocs, reader.MaxDoc(), reader.NumDocs())
+	}
 }
 
-// TestAddIndexes_IllegalNonParentField tests non-parent field validation
-// Source: TestAddIndexes.testIllegalNonParentField()
-func TestAddIndexes_IllegalNonParentField(t *testing.T) {
-	t.Run("illegal non-parent field", func(t *testing.T) {
-		dir1 := store.NewByteBuffersDirectory()
-		defer dir1.Close()
-		dir2 := store.NewByteBuffersDirectory()
-		defer dir2.Close()
-
-		// Create index with field "foo"
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir1, config)
-		parent := document.NewDocument()
-		parent.Add(mustStringField(t, "foo", "XXX", false))
-		writer.AddDocument(parent)
-		writer.Close()
-
-		// Create index with "foo" as parent field
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config2.SetParentField("foo")
-		writer2, _ := index.NewIndexWriter(dir2, config2)
-
-		// Try to add index - should fail because "foo" is parent field in target
-		err := writer2.AddIndexes(dir1)
-		if err == nil {
-			t.Error("Expected error when adding field used as parent in target")
-		}
-
-		writer2.Close()
-	})
-}
-
-// TestAddIndexes_WithPartialMergeFailures tests handling of partial merge failures
-// Source: TestAddIndexes.testAddIndexesWithPartialMergeFailures()
-func TestAddIndexes_WithPartialMergeFailures(t *testing.T) {
-	t.Run("partial merge failures", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create aux index
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Add indexes with potential merge failures
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		err := writer3.AddIndexes(aux)
-		if err != nil {
-			// May fail due to merge issues, which is acceptable
-			t.Logf("AddIndexes failed as expected: %v", err)
-		}
-
-		writer3.Close()
-	})
-}
-
-// TestAddIndexes_WithNullMergeSpec tests handling of null merge specification
-// Source: TestAddIndexes.testAddIndexesWithNullMergeSpec()
-func TestAddIndexes_WithNullMergeSpec(t *testing.T) {
-	t.Run("null merge spec", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create aux index
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Add indexes with merge policy that returns null
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config3.SetMergePolicy(&nullMergePolicy{})
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		err := writer3.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes should handle null merge spec: %v", err)
-		}
-
-		// Verify documents were added even with null merge spec
-		if writer3.MaxDoc() != 150 {
-			t.Errorf("Expected 150 docs, got %d", writer3.MaxDoc())
-		}
-
-		writer3.Close()
-	})
-}
-
-// TestAddIndexes_WithEmptyMergeSpec tests handling of empty merge specification
-// Source: TestAddIndexes.testAddIndexesWithEmptyMergeSpec()
-func TestAddIndexes_WithEmptyMergeSpec(t *testing.T) {
-	t.Run("empty merge spec", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create aux index
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Add indexes with merge policy that returns empty spec
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config3.SetMergePolicy(&emptyMergePolicy{})
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		err := writer3.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes should handle empty merge spec: %v", err)
-		}
-
-		// Verify documents were added
-		if writer3.MaxDoc() != 150 {
-			t.Errorf("Expected 150 docs, got %d", writer3.MaxDoc())
-		}
-
-		writer3.Close()
-	})
-}
-
-// TestAddIndexes_FakeAllDeleted tests handling of all-deleted segments
-// Source: TestAddIndexes.testFakeAllDeleted()
-func TestAddIndexes_FakeAllDeleted(t *testing.T) {
-	t.Run("all deleted segments", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create aux index with all deleted documents
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustStringField(t, "id", string(rune(i)), true))
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		// Delete all documents
-		for i := 0; i < 50; i++ {
-			writer2.DeleteDocuments(index.NewTerm("id", string(rune(i))))
-		}
-		writer2.Commit()
-		writer2.Close()
-
-		// Add indexes - should handle all-deleted segments
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		err := writer3.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		// Verify only live documents from main index
-		if writer3.NumDocs() != 100 {
-			t.Errorf("Expected 100 live docs, got %d", writer3.NumDocs())
-		}
-
-		writer3.Close()
-	})
-}
-
-// TestAddIndexes_IllegalIndexSortChange1 tests illegal index sort changes
-// Source: TestAddIndexes.testIllegalIndexSortChange1()
-func TestAddIndexes_IllegalIndexSortChange1(t *testing.T) {
-	t.Run("illegal index sort change 1", func(t *testing.T) {
-		dir1 := store.NewByteBuffersDirectory()
-		defer dir1.Close()
-		dir2 := store.NewByteBuffersDirectory()
-		defer dir2.Close()
-
-		// Create index with sort
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config.SetIndexSort(index.NewSort(index.NewSortField("field", index.SortTypeString)))
-		writer, _ := index.NewIndexWriter(dir1, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustStringField(t, "field", string(rune(100-i)), true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create index with different sort
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config2.SetIndexSort(index.NewSort(index.NewSortField("field", index.SortTypeInt)))
-		writer2, _ := index.NewIndexWriter(dir2, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustIntField(t, "field", i, true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Try to add index with incompatible sort - should fail
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config3.SetIndexSort(index.NewSort(index.NewSortField("field", index.SortTypeString)))
-		writer3, _ := index.NewIndexWriter(dir1, config3)
-
-		err := writer3.AddIndexes(dir2)
-		if err == nil {
-			t.Error("Expected error when adding index with incompatible sort")
-		}
-
-		writer3.Close()
-	})
-}
-
-// TestAddIndexes_IllegalIndexSortChange2 tests another illegal index sort change scenario
-// Source: TestAddIndexes.testIllegalIndexSortChange2()
-func TestAddIndexes_IllegalIndexSortChange2(t *testing.T) {
-	t.Run("illegal index sort change 2", func(t *testing.T) {
-		dir1 := store.NewByteBuffersDirectory()
-		defer dir1.Close()
-		dir2 := store.NewByteBuffersDirectory()
-		defer dir2.Close()
-
-		// Create index without sort
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir1, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustStringField(t, "field", "value", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create index with sort
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config2.SetIndexSort(index.NewSort(index.NewSortField("field", index.SortTypeString)))
-		writer2, _ := index.NewIndexWriter(dir2, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustStringField(t, "field", string(rune(i)), true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Try to add sorted index to unsorted - should fail
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(dir1, config3)
-
-		err := writer3.AddIndexes(dir2)
-		if err == nil {
-			t.Error("Expected error when adding sorted index to unsorted index")
-		}
-
-		writer3.Close()
-	})
-}
-
-// TestAddIndexes_DVUpdateSameSegmentName tests doc values update with same segment name
-// Source: TestAddIndexes.testAddIndexesDVUpdateSameSegmentName()
-func TestAddIndexes_DVUpdateSameSegmentName(t *testing.T) {
-	t.Run("DV update same segment name", func(t *testing.T) {
-		dir1 := store.NewByteBuffersDirectory()
-		defer dir1.Close()
-		dir2 := store.NewByteBuffersDirectory()
-		defer dir2.Close()
-
-		// Create first index with doc values
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir1, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustStringField(t, "id", string(rune(i)), true))
-			doc.Add(mustNumericDocValuesField(t, "dv", int64(i)))
-			writer.AddDocument(doc)
-		}
-		writer.Commit()
-
-		// Update doc values
-		for i := 0; i < 50; i++ {
-			writer.UpdateDocValues(index.NewTerm("id", string(rune(i))), "dv", int64(i*10))
-		}
-		writer.Commit()
-		writer.Close()
-
-		// Create second index
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(dir2, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustStringField(t, "id", string(rune(i+100)), true))
-			doc.Add(mustNumericDocValuesField(t, "dv", int64(i)))
-			writer2.AddDocument(doc)
-		}
-		writer2.Commit()
-		writer2.Close()
-
-		// Add indexes
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(dir1, config3)
-
-		err := writer3.AddIndexes(dir2)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		if writer3.MaxDoc() != 150 {
-			t.Errorf("Expected 150 docs, got %d", writer3.MaxDoc())
-		}
-
-		writer3.Close()
-	})
-}
-
-// TestAddIndexes_DVUpdateNewSegmentName tests doc values update with new segment name
-// Source: TestAddIndexes.testAddIndexesDVUpdateNewSegmentName()
-func TestAddIndexes_DVUpdateNewSegmentName(t *testing.T) {
-	t.Run("DV update new segment name", func(t *testing.T) {
-		dir1 := store.NewByteBuffersDirectory()
-		defer dir1.Close()
-		dir2 := store.NewByteBuffersDirectory()
-		defer dir2.Close()
-
-		// Create first index
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir1, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustStringField(t, "id", string(rune(i)), true))
-			doc.Add(mustNumericDocValuesField(t, "dv", int64(i)))
-			writer.AddDocument(doc)
-		}
-		writer.Commit()
-		writer.Close()
-
-		// Create second index with doc values updates
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer2, _ := index.NewIndexWriter(dir2, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustStringField(t, "id", string(rune(i)), true))
-			doc.Add(mustNumericDocValuesField(t, "dv", int64(i)))
-			writer2.AddDocument(doc)
-		}
-		writer2.Commit()
-
-		// Update doc values
-		for i := 0; i < 25; i++ {
-			writer2.UpdateDocValues(index.NewTerm("id", string(rune(i))), "dv", int64(i*10))
-		}
-		writer2.Commit()
-		writer2.Close()
-
-		// Add indexes
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(dir1, config3)
-
-		err := writer3.AddIndexes(dir2)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		if writer3.MaxDoc() != 150 {
-			t.Errorf("Expected 150 docs, got %d", writer3.MaxDoc())
-		}
-
-		writer3.Close()
-	})
-}
-
-// TestAddIndexes_NonCFSLeftovers tests handling of non-CFS leftovers
-// Source: TestAddIndexes.testNonCFSLeftovers()
-func TestAddIndexes_NonCFSLeftovers(t *testing.T) {
-	t.Run("non-CFS leftovers", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config.SetUseCompoundFile(false)
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create aux index without compound files
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config2.SetUseCompoundFile(false)
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Add indexes
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		err := writer3.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
-		}
-
-		if writer3.MaxDoc() != 150 {
-			t.Errorf("Expected 150 docs, got %d", writer3.MaxDoc())
-		}
-
-		writer3.Close()
-	})
-}
-
-// TestAddIndexes_MissingCodec tests handling of missing codec
-// Source: TestAddIndexes.testAddIndexMissingCodec()
-func TestAddIndexes_MissingCodec(t *testing.T) {
-	t.Run("missing codec", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create aux index with custom codec
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config2.SetCodec(&customTestCodec{})
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Try to add index with missing codec - should fail gracefully
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		err := writer3.AddIndexes(aux)
-		if err == nil {
-			t.Log("AddIndexes succeeded but may have codec compatibility issues")
-		}
-
-		writer3.Close()
-	})
-}
-
-// TestAddIndexes_CustomCodec tests addIndexes with custom codec
-// Source: TestAddIndexes.testSimpleCaseCustomCodec()
-func TestAddIndexes_CustomCodec(t *testing.T) {
-	t.Run("custom codec", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-		aux := store.NewByteBuffersDirectory()
-		defer aux.Close()
-
-		// Create main index with custom codec
-		config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config.SetCodec(&customTestCodec{})
-		writer, _ := index.NewIndexWriter(dir, config)
-		for i := 0; i < 100; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer.AddDocument(doc)
-		}
-		writer.Close()
-
-		// Create aux index with same custom codec
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config2.SetCodec(&customTestCodec{})
-		writer2, _ := index.NewIndexWriter(aux, config2)
-		for i := 0; i < 50; i++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "bbb", true))
-			writer2.AddDocument(doc)
-		}
-		writer2.Close()
-
-		// Add indexes with custom codec
-		config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config3.SetCodec(&customTestCodec{})
-		writer3, _ := index.NewIndexWriter(dir, config3)
-
-		err := writer3.AddIndexes(aux)
-		if err != nil {
-			t.Fatalf("AddIndexes failed with custom codec: %v", err)
-		}
-
-		if writer3.MaxDoc() != 150 {
-			t.Errorf("Expected 150 docs, got %d", writer3.MaxDoc())
-		}
-
-		writer3.Close()
-	})
-}
-
-// Helper functions
-
-// verifyNumDocs verifies the number of documents in a directory
-func verifyNumDocs(t *testing.T, dir store.Directory, expected int) {
-	reader, err := index.OpenDirectoryReader(dir)
+// addIndexesVerifyTermDocs renders the private verifyTermDocs(Directory,
+// Term, int).
+func addIndexesVerifyTermDocs(t testing.TB, dir store.Directory, field, text string, numDocs int) {
+	t.Helper()
+	reader := mustOpenDirectoryReader(t, dir)
+	defer mustClose(t, reader)
+	postingsEnum, err := testUtilDocsForTerm(reader, field, text, index.PostingsFlagNone)
 	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
+		t.Fatalf("TestUtil.docs(%s:%s): %v", field, text, err)
 	}
-	defer reader.Close()
-
-	if reader.NumDocs() != expected {
-		t.Errorf("Expected %d live docs, got %d", expected, reader.NumDocs())
+	count := 0
+	for postingsEnum != nil {
+		doc, err := postingsEnum.NextDoc()
+		if err != nil {
+			t.Fatalf("nextDoc: %v", err)
+		}
+		if doc == spi.NO_MORE_DOCS {
+			break
+		}
+		count++
+	}
+	if count != numDocs {
+		t.Fatalf("%s:%s: expected %d docs, got %d", field, text, numDocs, count)
 	}
 }
 
-// setUpAddIndexesDirs sets up directories for addIndexes tests
-// Creates main dir with 1000 docs in 1 segment, aux with 30 docs in 3 segments
-func setUpAddIndexesDirs(t *testing.T, dir, aux store.Directory) {
-	// Create main directory with 1000 documents in 1 segment
-	config := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-	config.SetMaxBufferedDocs(1000)
-	writer, _ := index.NewIndexWriter(dir, config)
-
-	for i := 0; i < 1000; i++ {
-		doc := document.NewDocument()
-		doc.Add(mustTextField(t, "content", "aaa", true))
-		writer.AddDocument(doc)
+// addIndexesSetUpDirs renders the private setUpDirs(Directory, Directory,
+// boolean).
+func addIndexesSetUpDirs(t testing.TB, dir, aux store.Directory, withID bool) {
+	t.Helper()
+	conf := addIndexesConfig(index.Create)
+	conf.SetMaxBufferedDocs(1000)
+	writer := addIndexesNewWriter(t, dir, conf)
+	// add 1000 documents in 1 segment
+	if withID {
+		addIndexesAddDocsWithID(t, writer, 1000, 0)
+	} else {
+		addIndexesAddDocs(t, writer, 1000)
 	}
+	assertWriterMaxDoc(t, writer, 1000)
+	assertSegmentCount(t, 1, writer)
+	mustClose(t, writer)
 
-	if writer.MaxDoc() != 1000 {
-		t.Errorf("Expected 1000 docs in main, got %d", writer.MaxDoc())
+	auxConf := func(mode index.OpenMode) *index.IndexWriterConfig {
+		c := addIndexesConfig(mode)
+		c.SetMaxBufferedDocs(1000)
+		c.SetMergePolicy(newLogMergePolicyWithCFS(false, 10))
+		return c
 	}
-	if writer.GetSegmentCount() != 1 {
-		t.Errorf("Expected 1 segment in main, got %d", writer.GetSegmentCount())
-	}
-	writer.Close()
-
-	// Create aux directory with 30 documents in 3 segments
+	writer = addIndexesNewWriter(t, aux, auxConf(index.Create))
+	// add 30 documents in 3 segments
 	for i := 0; i < 3; i++ {
-		config2 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-		config2.SetMaxBufferedDocs(1000)
-		writer2, _ := index.NewIndexWriter(aux, config2)
-
-		for j := 0; j < 10; j++ {
-			doc := document.NewDocument()
-			doc.Add(mustTextField(t, "content", "aaa", true))
-			writer2.AddDocument(doc)
+		if withID {
+			addIndexesAddDocsWithID(t, writer, 10, 10*i)
+		} else {
+			addIndexesAddDocs(t, writer, 10)
 		}
-		writer2.Close()
+		mustClose(t, writer)
+		writer = addIndexesNewWriter(t, aux, auxConf(index.Append))
 	}
-
-	// Verify aux has 30 docs in 3 segments
-	config3 := index.NewIndexWriterConfig(createAddIndexesTestAnalyzer())
-	writer3, _ := index.NewIndexWriter(aux, config3)
-	if writer3.MaxDoc() != 30 {
-		t.Errorf("Expected 30 docs in aux, got %d", writer3.MaxDoc())
-	}
-	if writer3.GetSegmentCount() != 3 {
-		t.Errorf("Expected 3 segments in aux, got %d", writer3.GetSegmentCount())
-	}
-	writer3.Close()
+	assertWriterMaxDoc(t, writer, 30)
+	assertSegmentCount(t, 3, writer)
+	mustClose(t, writer)
 }
 
-// nullMergePolicy is a merge policy that always returns nil
-type nullMergePolicy struct{}
+func assertWriterMaxDoc(t testing.TB, w *index.IndexWriter, maxDoc int) {
+	t.Helper()
+	if got := iwDocStats(t, w).MaxDoc; got != maxDoc {
+		t.Fatalf("writer.getDocStats().maxDoc: expected %d, got %d", maxDoc, got)
+	}
+}
 
-func (n *nullMergePolicy) FindMerges(trigger index.MergeTrigger, infos *index.SegmentInfos, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
+func mustAddIndexes(t testing.TB, w *index.IndexWriter, dirs ...store.Directory) {
+	t.Helper()
+	if _, err := w.AddIndexes(dirs...); err != nil {
+		t.Fatalf("addIndexes: %v", err)
+	}
+}
+
+func TestAddIndexesSimpleCase(t *testing.T) {
+	// main directory
+	dir := newDirectory()
+	// two auxiliary directories
+	aux := newDirectory()
+	aux2 := newDirectory()
+	defer mustClose(t, dir, aux, aux2)
+
+	writer := addIndexesNewWriter(t, dir, addIndexesConfig(index.Create))
+	// add 100 documents
+	addIndexesAddDocs(t, writer, 100)
+	assertWriterMaxDoc(t, writer, 100)
+	mustClose(t, writer)
+	t.Fatal(testUtilCheckIndexMissing)
+}
+
+// withPendingDeletesUpdates renders the loop of the testWithPendingDeletes
+// tests: adds 10 docs, then replaces them with another 10 docs, so 10
+// pending deletes.
+func withPendingDeletesUpdates(t testing.TB, writer *index.IndexWriter) {
+	t.Helper()
+	for i := 0; i < 20; i++ {
+		doc := document.NewDocument()
+		doc.Add(newStringField(t, "id", strconv.Itoa(i%10), false))
+		doc.Add(newTextField(t, "content", "bbb "+strconv.Itoa(i), false))
+		doc.Add(document.NewIntPoint("doc", int32(i)))
+		doc.Add(document.NewIntPoint("doc2d", int32(i), int32(i)))
+		doc.Add(numericDVField(t, "dv", int64(i)))
+		mustUpdateDocument(t, writer, index.NewTerm("id", strconv.Itoa(i%10)), doc)
+	}
+}
+
+// deletePhraseBbb14 renders writer.deleteDocuments(new PhraseQuery("content",
+// "bbb", "14")), which deletes one of the 10 added docs, leaving 9.
+func deletePhraseBbb14(t testing.TB, writer *index.IndexWriter) {
+	t.Helper()
+	q := search.NewPhraseQuery(0, "content", "bbb", "14")
+	if _, err := writer.DeleteDocumentsQuery([]index.Query{q}); err != nil {
+		t.Fatalf("deleteDocuments(query): %v", err)
+	}
+}
+
+func withPendingDeletesVerify(t testing.TB, writer *index.IndexWriter, dir store.Directory) {
+	t.Helper()
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	mustCommit(t, writer)
+
+	addIndexesVerifyNumDocs(t, dir, 1039)
+	addIndexesVerifyTermDocs(t, dir, "content", "aaa", 1030)
+	addIndexesVerifyTermDocs(t, dir, "content", "bbb", 9)
+}
+
+func TestAddIndexesWithPendingDeletes(t *testing.T) {
+	// main directory
+	dir := newDirectory()
+	// auxiliary directory
+	aux := newDirectory()
+
+	addIndexesSetUpDirs(t, dir, aux, false)
+	writer := addIndexesNewWriter(t, dir, addIndexesConfig(index.Append))
+	mustAddIndexes(t, writer, aux)
+
+	withPendingDeletesUpdates(t, writer)
+	deletePhraseBbb14(t, writer)
+
+	withPendingDeletesVerify(t, writer, dir)
+
+	mustClose(t, writer, dir, aux)
+}
+
+func TestAddIndexesWithPendingDeletes2(t *testing.T) {
+	// main directory
+	dir := newDirectory()
+	// auxiliary directory
+	aux := newDirectory()
+
+	addIndexesSetUpDirs(t, dir, aux, false)
+	writer := addIndexesNewWriter(t, dir, addIndexesConfig(index.Append))
+
+	withPendingDeletesUpdates(t, writer)
+
+	mustAddIndexes(t, writer, aux)
+
+	deletePhraseBbb14(t, writer)
+
+	withPendingDeletesVerify(t, writer, dir)
+
+	mustClose(t, writer, dir, aux)
+}
+
+func TestAddIndexesWithPendingDeletes3(t *testing.T) {
+	// main directory
+	dir := newDirectory()
+	// auxiliary directory
+	aux := newDirectory()
+
+	addIndexesSetUpDirs(t, dir, aux, false)
+	writer := addIndexesNewWriter(t, dir, addIndexesConfig(index.Append))
+
+	withPendingDeletesUpdates(t, writer)
+
+	deletePhraseBbb14(t, writer)
+
+	mustAddIndexes(t, writer, aux)
+
+	withPendingDeletesVerify(t, writer, dir)
+
+	mustClose(t, writer, dir, aux)
+}
+
+// case 0: add self or exceed maxMergeDocs, expect exception
+func TestAddIndexesAddSelf(t *testing.T) {
+	// main directory
+	dir := newDirectory()
+	// auxiliary directory
+	aux := newDirectory()
+
+	writer := addIndexesNewWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	// add 100 documents
+	addIndexesAddDocs(t, writer, 100)
+	assertWriterMaxDoc(t, writer, 100)
+	mustClose(t, writer)
+
+	auxConf := func() *index.IndexWriterConfig {
+		c := addIndexesConfig(index.Create)
+		c.SetMaxBufferedDocs(1000)
+		c.SetMergePolicy(newLogMergePolicyUseCFS(false))
+		return c
+	}
+	writer = addIndexesNewWriter(t, aux, auxConf())
+	// add 140 documents in separate files
+	addIndexesAddDocs(t, writer, 40)
+	mustClose(t, writer)
+	writer = addIndexesNewWriter(t, aux, auxConf())
+	addIndexesAddDocs(t, writer, 100)
+	mustClose(t, writer)
+
+	// cannot add self
+	writer2 := addIndexesNewWriter(t, dir, addIndexesConfig(index.Append))
+	if _, err := writer2.AddIndexes(aux, dir); err == nil {
+		t.Fatal("expected IllegalArgumentException from addIndexes(aux, dir)")
+	}
+	assertWriterMaxDoc(t, writer2, 100)
+	mustClose(t, writer2)
+
+	// make sure the index is correct
+	addIndexesVerifyNumDocs(t, dir, 100)
+	mustClose(t, dir, aux)
+}
+
+// tailSegmentsConfig renders the APPEND configs of the tail-segment tests.
+func tailSegmentsConfig(maxBufferedDocs int) *index.IndexWriterConfig {
+	c := addIndexesConfig(index.Append)
+	c.SetMaxBufferedDocs(maxBufferedDocs)
+	c.SetMergePolicy(newLogMergePolicyWithMergeFactor(4))
+	return c
+}
+
+// in all the remaining tests, make the doc count of the oldest segment
+// in dir large so that it is never merged in addIndexes()
+// case 1: no tail segments
+func TestAddIndexesNoTailSegments(t *testing.T) {
+	// main directory
+	dir := newDirectory()
+	// auxiliary directory
+	aux := newDirectory()
+
+	addIndexesSetUpDirs(t, dir, aux, false)
+
+	writer := addIndexesNewWriter(t, dir, tailSegmentsConfig(10))
+	addIndexesAddDocs(t, writer, 10)
+
+	mustAddIndexes(t, writer, aux)
+	assertWriterMaxDoc(t, writer, 1040)
+	defer mustClose(t, writer, dir, aux)
+	// assertEquals(1000, writer.maxDoc(0))
+	t.Fatal(indexWriterMaxDocIntMissing)
+}
+
+// case 2: tail segments, invariants hold, no copy
+func TestAddIndexesNoCopySegments(t *testing.T) {
+	// main directory
+	dir := newDirectory()
+	// auxiliary directory
+	aux := newDirectory()
+
+	addIndexesSetUpDirs(t, dir, aux, false)
+
+	writer := addIndexesNewWriter(t, dir, tailSegmentsConfig(9))
+	addIndexesAddDocs(t, writer, 2)
+
+	mustAddIndexes(t, writer, aux)
+	assertWriterMaxDoc(t, writer, 1032)
+	defer mustClose(t, writer, dir, aux)
+	// assertEquals(1000, writer.maxDoc(0))
+	t.Fatal(indexWriterMaxDocIntMissing)
+}
+
+func mustRAMCopyWrapper(t testing.TB, dir store.Directory) *store.MockDirectoryWrapper {
+	t.Helper()
+	cp, err := testutil.RamCopyOf(dir)
+	if err != nil {
+		t.Fatalf("TestUtil.ramCopyOf: %v", err)
+	}
+	return store.NewMockDirectoryWrapper(cp)
+}
+
+// case 3: tail segments, invariants hold, copy, invariants hold
+func TestAddIndexesNoMergeAfterCopy(t *testing.T) {
+	// main directory
+	dir := newDirectory()
+	// auxiliary directory
+	aux := newDirectory()
+
+	addIndexesSetUpDirs(t, dir, aux, false)
+
+	writer := addIndexesNewWriter(t, dir, tailSegmentsConfig(10))
+
+	mustAddIndexes(t, writer, aux, mustRAMCopyWrapper(t, aux))
+	assertWriterMaxDoc(t, writer, 1060)
+	defer mustClose(t, writer, dir, aux)
+	// assertEquals(1000, writer.maxDoc(0))
+	t.Fatal(indexWriterMaxDocIntMissing)
+}
+
+// case 4: tail segments, invariants hold, copy, invariants not hold
+func TestAddIndexesMergeAfterCopy(t *testing.T) {
+	// main directory
+	dir := newDirectory()
+	// auxiliary directory
+	aux := newDirectory()
+
+	addIndexesSetUpDirs(t, dir, aux, true)
+
+	writer := noMergeWriter(t, aux)
+	for i := 0; i < 20; i++ {
+		mustDeleteTerm(t, writer, "id", strconv.Itoa(i))
+	}
+	mustClose(t, writer)
+	reader := mustOpenDirectoryReader(t, aux)
+	assertReaderNumDocs(t, 10, reader)
+	mustClose(t, reader)
+
+	writer = addIndexesNewWriter(t, dir, tailSegmentsConfig(4))
+
+	mustAddIndexes(t, writer, aux, mustRAMCopyWrapper(t, aux))
+	assertWriterMaxDoc(t, writer, 1020)
+	defer mustClose(t, writer, dir, aux)
+	// assertEquals(1000, writer.maxDoc(0))
+	t.Fatal(indexWriterMaxDocIntMissing)
+}
+
+// case 5: tail segments, invariants not hold
+func TestAddIndexesMoreMerges(t *testing.T) {
+	// main directory
+	dir := newDirectory()
+	// auxiliary directory
+	aux := newDirectory()
+	aux2 := newDirectory()
+
+	addIndexesSetUpDirs(t, dir, aux, true)
+
+	conf := addIndexesConfig(index.Create)
+	conf.SetMaxBufferedDocs(100)
+	conf.SetMergePolicy(newLogMergePolicyWithMergeFactor(10))
+	writer := addIndexesNewWriter(t, aux2, conf)
+	mustAddIndexes(t, writer, aux)
+	assertWriterMaxDoc(t, writer, 30)
+	assertSegmentCount(t, 3, writer)
+	mustClose(t, writer)
+
+	writer = noMergeWriter(t, aux)
+	for i := 0; i < 27; i++ {
+		mustDeleteTerm(t, writer, "id", strconv.Itoa(i))
+	}
+	mustClose(t, writer)
+	reader := mustOpenDirectoryReader(t, aux)
+	assertReaderNumDocs(t, 3, reader)
+	mustClose(t, reader)
+
+	writer = noMergeWriter(t, aux2)
+	for i := 0; i < 8; i++ {
+		mustDeleteTerm(t, writer, "id", strconv.Itoa(i))
+	}
+	mustClose(t, writer)
+	reader = mustOpenDirectoryReader(t, aux2)
+	assertReaderNumDocs(t, 22, reader)
+	mustClose(t, reader)
+
+	writer = addIndexesNewWriter(t, dir, tailSegmentsConfig(6))
+
+	mustAddIndexes(t, writer, aux, aux2)
+	assertWriterMaxDoc(t, writer, 1040)
+	defer mustClose(t, writer, dir, aux, aux2)
+	// assertEquals(1000, writer.maxDoc(0))
+	t.Fatal(indexWriterMaxDocIntMissing)
+}
+
+// LUCENE-1270
+func TestAddIndexesHangOnClose(t *testing.T) {
+	dir := newDirectory()
+	lmp := index.NewLogByteSizeMergePolicy()
+	lmp.SetNoCFSRatio(0.0)
+	lmp.SetMergeFactor(100)
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxBufferedDocs(5)
+	conf.SetMergePolicy(lmp)
+	writer := mustNewIndexWriter(t, dir, conf)
+
+	doc := document.NewDocument()
+	doc.Add(newField(t, "content", "aaa bbb ccc ddd eee fff ggg hhh iii", textStoredWithVectors(true, true)))
+	for i := 0; i < 60; i++ {
+		mustAddDocument(t, writer, doc)
+	}
+
+	doc2 := document.NewDocument()
+	customType2 := document.NewFieldType()
+	customType2.SetStored(true)
+	for i := 0; i < 4; i++ {
+		doc2.Add(newField(t, "content", "aaa bbb ccc ddd eee fff ggg hhh iii", customType2))
+	}
+	for i := 0; i < 10; i++ {
+		mustAddDocument(t, writer, doc2)
+	}
+	mustClose(t, writer)
+
+	dir2 := newDirectory()
+	lmp = index.NewLogByteSizeMergePolicy()
+	lmp.SetMinMergeMB(0.0001)
+	lmp.SetNoCFSRatio(0.0)
+	lmp.SetMergeFactor(4)
+	conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMergeScheduler(index.NewSerialMergeScheduler())
+	conf.SetMergePolicy(lmp)
+	writer = mustNewIndexWriter(t, dir2, conf)
+	mustAddIndexes(t, writer, dir)
+	mustClose(t, writer, dir, dir2)
+}
+
+// concurrentAddIndexesMergePolicy renders the private
+// ConcurrentAddIndexesMergePolicy: a TieredMergePolicy whose
+// findMerges(CodecReader...) creates one OneMerge per reader so addIndexes
+// processes them concurrently.
+type concurrentAddIndexesMergePolicy struct {
+	*index.TieredMergePolicy
+}
+
+func newConcurrentAddIndexesMergePolicy() *concurrentAddIndexesMergePolicy {
+	return &concurrentAddIndexesMergePolicy{TieredMergePolicy: index.NewTieredMergePolicy()}
+}
+
+// FindMergesForReaders renders the findMerges(CodecReader...) override.
+func (p *concurrentAddIndexesMergePolicy) FindMergesForReaders(readers []index.CodecReader) (*index.MergeSpecification, error) {
+	// create a oneMerge for each reader to let them get concurrently processed by addIndexes()
+	mergeSpec := index.NewMergeSpecification()
+	for _, reader := range readers {
+		mergeSpec.Add(index.NewOneMergeFromReaders([]index.CodecReader{reader}))
+	}
+	return mergeSpec, nil
+}
+
+// addIndexesWithReadersSetup renders the private AddIndexesWithReadersSetup.
+type addIndexesWithReadersSetup struct {
+	dir, destDir store.Directory
+	destWriter   *index.IndexWriter
+	readers      []*index.DirectoryReader
+}
+
+const (
+	addIndexesAddedDocsPerReader = 15
+	addIndexesInitDocs           = 25
+	addIndexesNumReaders         = 15
+)
+
+func newAddIndexesWithReadersSetup(t testing.TB, ms index.MergeScheduler, mp index.MergePolicy) *addIndexesWithReadersSetup {
+	t.Helper()
+	c := &addIndexesWithReadersSetup{}
+	c.dir = store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
+	conf := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxBufferedDocs(2)
+	writer := mustNewIndexWriter(t, c.dir, conf)
+	for i := 0; i < addIndexesAddedDocsPerReader; i++ {
+		testIndexWriterAddDoc(t, writer)
+	}
+	mustClose(t, writer)
+
+	c.destDir = newDirectory()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(mp)
+	iwc.SetMergeScheduler(ms)
+	c.destWriter = mustNewIndexWriter(t, c.destDir, iwc)
+	for i := 0; i < addIndexesInitDocs; i++ {
+		testIndexWriterAddDoc(t, c.destWriter)
+	}
+	mustCommit(t, c.destWriter)
+
+	c.readers = make([]*index.DirectoryReader, addIndexesNumReaders)
+	for i := range c.readers {
+		c.readers[i] = mustOpenDirectoryReader(t, c.dir)
+	}
+	return c
+}
+
+func (c *addIndexesWithReadersSetup) closeAll(t testing.TB) {
+	t.Helper()
+	mustClose(t, c.destWriter)
+	for _, r := range c.readers {
+		mustClose(t, r)
+	}
+	mustClose(t, c.destDir, c.dir)
+}
+
+func TestAddIndexesAddIndexesWithConcurrentMerges(t *testing.T) {
+	mp := newConcurrentAddIndexesMergePolicy()
+	c := newAddIndexesWithReadersSetup(t, index.NewConcurrentMergeScheduler(), mp)
+	defer c.closeAll(t)
+	t.Fatal(testUtilAddIndexesSlowlyMissing)
+}
+
+// partialMergeScheduler renders the private PartialMergeScheduler: it runs
+// the first mergesToDo merges and marks every later one as failed.
+type partialMergeScheduler struct {
+	*index.BaseMergeScheduler
+	mergesToDo      int
+	mergesTriggered int
+}
+
+func newPartialMergeScheduler(mergesToDo int) *partialMergeScheduler {
+	return &partialMergeScheduler{BaseMergeScheduler: index.NewBaseMergeScheduler(), mergesToDo: mergesToDo}
+}
+
+func (s *partialMergeScheduler) Merge(mergeSource index.MergeSource, _ index.MergeTrigger) error {
+	for {
+		merge := mergeSource.GetNextMerge()
+		if merge == nil {
+			break
+		}
+		if s.mergesTriggered >= s.mergesToDo {
+			if err := merge.Close(false, false, func(*index.MergeReader) error { return nil }); err != nil {
+				return err
+			}
+			mergeSource.OnMergeFinished(merge)
+		} else {
+			if err := mergeSource.Merge(merge); err != nil {
+				return err
+			}
+			s.mergesTriggered++
+		}
+	}
+	return nil
+}
+
+func (s *partialMergeScheduler) Close() error { return nil }
+
+func TestAddIndexesAddIndexesWithPartialMergeFailures(t *testing.T) {
+	// The merge policy subclasses ConcurrentAddIndexesMergePolicy to collect
+	// the merges its findMerges(CodecReader...) returns.
+	mp := newConcurrentAddIndexesMergePolicy()
+	c := newAddIndexesWithReadersSetup(t, newPartialMergeScheduler(2), mp)
+	defer c.closeAll(t)
+	t.Fatal(testUtilAddIndexesSlowlyMissing)
+}
+
+// nullMergeSpecPolicy renders the anonymous TieredMergePolicy of
+// testAddIndexesWithNullMergeSpec.
+type nullMergeSpecPolicy struct {
+	*index.TieredMergePolicy
+}
+
+func (nullMergeSpecPolicy) FindMergesForReaders([]index.CodecReader) (*index.MergeSpecification, error) {
 	return nil, nil
 }
 
-func (n *nullMergePolicy) FindForcedMerges(infos *index.SegmentInfos, maxSegmentCount int, segmentsToMerge map[*index.SegmentCommitInfo]bool, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
-	return nil, nil
+func TestAddIndexesAddIndexesWithNullMergeSpec(t *testing.T) {
+	mp := nullMergeSpecPolicy{TieredMergePolicy: index.NewTieredMergePolicy()}
+	c := newAddIndexesWithReadersSetup(t, index.NewConcurrentMergeScheduler(), mp)
+	defer c.closeAll(t)
+	t.Fatal(testUtilAddIndexesSlowlyMissing)
 }
 
-func (n *nullMergePolicy) FindForcedDeletesMerges(infos *index.SegmentInfos, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
-	return nil, nil
+// emptyMergeSpecPolicy renders the anonymous TieredMergePolicy of
+// testAddIndexesWithEmptyMergeSpec.
+type emptyMergeSpecPolicy struct {
+	*index.TieredMergePolicy
 }
 
-func (n *nullMergePolicy) UseCompoundFile(infos *index.SegmentInfos, mergedSegmentInfo *index.SegmentInfo) bool {
-	return true
-}
-
-func (n *nullMergePolicy) GetMaxMergeDocs() int {
-	return 0
-}
-
-func (n *nullMergePolicy) GetMaxMergedSegmentBytes() int64 {
-	return 0
-}
-
-func (n *nullMergePolicy) SetMaxMergedSegmentBytes(maxMergedSegmentBytes int64) {
-}
-
-func (n *nullMergePolicy) SetMaxMergeDocs(maxMergeDocs int) {
-}
-
-func (n *nullMergePolicy) KeepFullyDeletedSegment(info *index.SegmentCommitInfo) bool {
-	return false
-}
-
-func (n *nullMergePolicy) NumDeletesToMerge(info *index.SegmentCommitInfo, delCount int) int {
-	return delCount
-}
-
-// emptyMergePolicy is a merge policy that returns empty specification
-type emptyMergePolicy struct{}
-
-func (e *emptyMergePolicy) FindMerges(trigger index.MergeTrigger, infos *index.SegmentInfos, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
+func (emptyMergeSpecPolicy) FindMergesForReaders([]index.CodecReader) (*index.MergeSpecification, error) {
 	return index.NewMergeSpecification(), nil
 }
 
-func (e *emptyMergePolicy) FindForcedMerges(infos *index.SegmentInfos, maxSegmentCount int, segmentsToMerge map[*index.SegmentCommitInfo]bool, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
-	return index.NewMergeSpecification(), nil
+func TestAddIndexesAddIndexesWithEmptyMergeSpec(t *testing.T) {
+	mp := emptyMergeSpecPolicy{TieredMergePolicy: index.NewTieredMergePolicy()}
+	c := newAddIndexesWithReadersSetup(t, index.NewConcurrentMergeScheduler(), mp)
+	defer c.closeAll(t)
+	t.Fatal(testUtilAddIndexesSlowlyMissing)
 }
 
-func (e *emptyMergePolicy) FindForcedDeletesMerges(infos *index.SegmentInfos, mergeContext index.MergeContext) (*index.MergeSpecification, error) {
-	return index.NewMergeSpecification(), nil
+// countingSerialMergeScheduler renders the private
+// CountingSerialMergeScheduler.
+type countingSerialMergeScheduler struct {
+	*index.BaseMergeScheduler
+	explicitMerges   int
+	addIndexesMerges int
 }
 
-func (e *emptyMergePolicy) UseCompoundFile(infos *index.SegmentInfos, mergedSegmentInfo *index.SegmentInfo) bool {
-	return true
+func newCountingSerialMergeScheduler() *countingSerialMergeScheduler {
+	return &countingSerialMergeScheduler{BaseMergeScheduler: index.NewBaseMergeScheduler()}
 }
 
-func (e *emptyMergePolicy) GetMaxMergeDocs() int {
-	return 0
-}
-
-func (e *emptyMergePolicy) GetMaxMergedSegmentBytes() int64 {
-	return 0
-}
-
-func (e *emptyMergePolicy) SetMaxMergedSegmentBytes(maxMergedSegmentBytes int64) {
-}
-
-func (e *emptyMergePolicy) SetMaxMergeDocs(maxMergeDocs int) {
-}
-
-func (e *emptyMergePolicy) KeepFullyDeletedSegment(info *index.SegmentCommitInfo) bool {
-	return false
-}
-
-func (e *emptyMergePolicy) NumDeletesToMerge(info *index.SegmentCommitInfo, delCount int) int {
-	return delCount
-}
-
-// customTestCodec is a test codec for codec compatibility tests
-type customTestCodec struct{}
-
-func (c *customTestCodec) Name() string {
-	return "TestCodec"
-}
-
-func (c *customTestCodec) PostingsFormat() index.PostingsFormat {
+func (s *countingSerialMergeScheduler) Merge(mergeSource index.MergeSource, trigger index.MergeTrigger) error {
+	for {
+		merge := mergeSource.GetNextMerge()
+		if merge == nil {
+			break
+		}
+		if err := mergeSource.Merge(merge); err != nil {
+			return err
+		}
+		if trigger == index.MergeTriggerExplicit {
+			s.explicitMerges++
+		}
+		if trigger == index.MergeTriggerAddIndexes {
+			s.addIndexesMerges++
+		}
+	}
 	return nil
 }
 
-func (c *customTestCodec) StoredFieldsFormat() index.StoredFieldsFormat {
+func (s *countingSerialMergeScheduler) Close() error { return nil }
+
+func TestAddIndexesAddIndexesWithEmptyReaders(t *testing.T) {
+	destDir := newDirectory()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(newConcurrentAddIndexesMergePolicy())
+	ms := newCountingSerialMergeScheduler()
+	iwc.SetMergeScheduler(ms)
+	destWriter := mustNewIndexWriter(t, destDir, iwc)
+	const initialDocs = 15
+	for i := 0; i < initialDocs; i++ {
+		testIndexWriterAddDoc(t, destWriter)
+	}
+	mustCommit(t, destWriter)
+
+	// create empty readers
+	dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
+	writer := mustNewIndexWriter(t, dir, index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	mustClose(t, writer)
+	const numReaders = 20
+	readers := make([]*index.DirectoryReader, numReaders)
+	for i := range readers {
+		readers[i] = mustOpenDirectoryReader(t, dir)
+	}
+	defer func() {
+		mustClose(t, destWriter)
+		for _, r := range readers {
+			mustClose(t, r)
+		}
+		mustClose(t, destDir, dir)
+	}()
+
+	t.Fatal(testUtilAddIndexesSlowlyMissing)
+}
+
+func TestAddIndexesCascadingMergesTriggered(t *testing.T) {
+	mp := newConcurrentAddIndexesMergePolicy()
+	ms := newCountingSerialMergeScheduler()
+	c := newAddIndexesWithReadersSetup(t, ms, mp)
+	defer c.closeAll(t)
+	t.Fatal(testUtilAddIndexesSlowlyMissing)
+}
+
+func TestAddIndexesAddIndexesHittingMaxDocsLimit(t *testing.T) {
+	const writerMaxDocs = 15
+	setIndexWriterMaxDocs(t, writerMaxDocs)
+	defer restoreIndexWriterMaxDocs(t)
+
+	// create destination writer
+	destDir := newDirectory()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(newConcurrentAddIndexesMergePolicy())
+	ms := newCountingSerialMergeScheduler()
+	iwc.SetMergeScheduler(ms)
+	destWriter := mustNewIndexWriter(t, destDir, iwc)
+	for i := 0; i < writerMaxDocs; i++ {
+		testIndexWriterAddDoc(t, destWriter)
+	}
+	mustCommit(t, destWriter)
+
+	// create readers to add
+	dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
+	writer := mustNewIndexWriter(t, dir, index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	for i := 0; i < 10; i++ {
+		testIndexWriterAddDoc(t, writer)
+	}
+	mustClose(t, writer)
+	const numReaders = 20
+	readers := make([]*index.DirectoryReader, numReaders)
+	for i := range readers {
+		readers[i] = mustOpenDirectoryReader(t, dir)
+	}
+	defer func() {
+		mustClose(t, destWriter)
+		for _, r := range readers {
+			mustClose(t, r)
+		}
+		mustClose(t, destDir, dir)
+	}()
+
+	t.Fatal(testUtilAddIndexesSlowlyMissing)
+}
+
+// runAddIndexesThreads renders the private abstract RunAddIndexesThreads;
+// doBody and handle are its abstract methods.
+type runAddIndexesThreads struct {
+	t        *testing.T
+	dir      store.Directory
+	dir2     store.Directory
+	writer2  *index.IndexWriter
+	failures []error
+	failMu   sync.Mutex
+	didClose bool
+	readers  []*index.DirectoryReader
+	numCopy  int
+	threads  int
+	wg       sync.WaitGroup
+	doBody   func(j int, dirs []store.Directory) error
+	handle   func(err error)
+}
+
+const runAddIndexesNumInitDocs = 17
+
+func newRunAddIndexesThreads(t *testing.T, numCopy int) *runAddIndexesThreads {
+	t.Helper()
+	c := &runAddIndexesThreads{t: t, numCopy: numCopy}
+	c.dir = store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
+	conf := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxBufferedDocs(2)
+	writer := mustNewIndexWriter(t, c.dir, conf)
+	for i := 0; i < runAddIndexesNumInitDocs; i++ {
+		testIndexWriterAddDoc(t, writer)
+	}
+	mustClose(t, writer)
+
+	c.dir2 = newDirectory()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(newConcurrentAddIndexesMergePolicy())
+	c.writer2 = mustNewIndexWriter(t, c.dir2, iwc)
+	mustCommit(t, c.writer2)
+
+	c.readers = make([]*index.DirectoryReader, numCopy)
+	for i := range c.readers {
+		c.readers[i] = mustOpenDirectoryReader(t, c.dir)
+	}
+	c.threads = 2
+	if testNightly {
+		c.threads = 5
+	}
+	return c
+}
+
+// errAddIndexesSlowlyMissing reports, from an indexing thread, that
+// TestUtil.addIndexesSlowly is not ported; the goroutine stops there.
+var errAddIndexesSlowlyMissing = errors.New(testUtilAddIndexesSlowlyMissing)
+
+func (c *runAddIndexesThreads) launchThreads(numIter int) {
+	for i := 0; i < c.threads; i++ {
+		c.wg.Add(1)
+		go func() {
+			defer c.wg.Done()
+			dirs := make([]store.Directory, c.numCopy)
+			for k := range dirs {
+				cp, err := testutil.RamCopyOf(c.dir)
+				if err != nil {
+					c.handle(err)
+					return
+				}
+				dirs[k] = store.NewMockDirectoryWrapper(cp)
+			}
+
+			j := 0
+			for {
+				if numIter > 0 && j == numIter {
+					break
+				}
+				if err := c.doBody(j, dirs); err != nil {
+					if errors.Is(err, errAddIndexesSlowlyMissing) {
+						c.t.Errorf("%v", err)
+						return
+					}
+					c.handle(err)
+					return
+				}
+				j++
+			}
+		}()
+	}
+}
+
+func (c *runAddIndexesThreads) joinThreads() { c.wg.Wait() }
+
+func (c *runAddIndexesThreads) close(doWait bool) error {
+	c.didClose = true
+	if !doWait {
+		return c.writer2.Rollback()
+	}
+	return c.writer2.Close()
+}
+
+func (c *runAddIndexesThreads) closeDir(t testing.TB) {
+	t.Helper()
+	for _, r := range c.readers {
+		mustClose(t, r)
+	}
+	mustClose(t, c.dir2)
+}
+
+func (c *runAddIndexesThreads) addFailure(err error) {
+	c.failMu.Lock()
+	c.failures = append(c.failures, err)
+	c.failMu.Unlock()
+}
+
+// commitAndAddIndexesDoBody renders CommitAndAddIndexes.doBody.
+func (c *runAddIndexesThreads) commitAndAddIndexesDoBody(j int, dirs []store.Directory) error {
+	switch j % 5 {
+	case 0:
+		if _, err := c.writer2.AddIndexes(dirs...); err != nil {
+			return err
+		}
+		if err := c.writer2.ForceMerge(1); err != nil {
+			if !errors.Is(errors.Unwrap(err), index.ErrMergeAborted) {
+				return err
+			}
+			// OK
+		}
+	case 1:
+		if _, err := c.writer2.AddIndexes(dirs...); err != nil {
+			return err
+		}
+	case 2:
+		// TestUtil.addIndexesSlowly(writer2, readers)
+		return errAddIndexesSlowlyMissing
+	case 3:
+		if _, err := c.writer2.AddIndexes(dirs...); err != nil {
+			return err
+		}
+		return errors.New(indexWriterMaybeMergeMissing)
+	case 4:
+		if _, err := c.writer2.Commit(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func (c *customTestCodec) FieldInfosFormat() index.FieldInfosFormat {
+// newCommitAndAddIndexes renders the private CommitAndAddIndexes.
+func newCommitAndAddIndexes(t *testing.T, numCopy int) *runAddIndexesThreads {
+	c := newRunAddIndexesThreads(t, numCopy)
+	c.doBody = c.commitAndAddIndexesDoBody
+	c.handle = c.addFailure
+	return c
+}
+
+// LUCENE-1335: test simultaneous addIndexes & commits
+// from multiple threads
+func TestAddIndexesAddIndexesWithThreads(t *testing.T) {
+	numIter := 5
+	if testNightly {
+		numIter = 15
+	}
+	const numCopy = 3
+	c := newCommitAndAddIndexes(t, numCopy)
+	c.launchThreads(numIter)
+
+	for i := 0; i < 100; i++ {
+		testIndexWriterAddDoc(t, c.writer2)
+	}
+
+	c.joinThreads()
+	if t.Failed() {
+		mustClose(t, c.writer2)
+		c.closeDir(t)
+		t.FailNow()
+	}
+
+	expectedNumDocs := 100 + numCopy*(4*numIter/5)*c.threads*runAddIndexesNumInitDocs
+	if got := iwDocStats(t, c.writer2).NumDocs; got != expectedNumDocs {
+		t.Fatalf("expected num docs don't match - failures: %v: expected %d, got %d", c.failures, expectedNumDocs, got)
+	}
+
+	if err := c.close(true); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	if len(c.failures) != 0 {
+		t.Fatalf("found unexpected failures: %v", c.failures)
+	}
+
+	reader := mustOpenDirectoryReader(t, c.dir2)
+	assertReaderNumDocs(t, expectedNumDocs, reader)
+	mustClose(t, reader)
+
+	c.closeDir(t)
+}
+
+// newCommitAndAddIndexes2 renders the private CommitAndAddIndexes2: its
+// handle ignores AlreadyClosedException and NullPointerException.
+func newCommitAndAddIndexes2(t *testing.T, numCopy int) *runAddIndexesThreads {
+	c := newCommitAndAddIndexes(t, numCopy)
+	c.handle = func(err error) {
+		var ace *store.AlreadyClosedException
+		if !errors.As(err, &ace) {
+			c.addFailure(err)
+		}
+	}
+	return c
+}
+
+// LUCENE-1335: test simultaneous addIndexes & close
+func TestAddIndexesAddIndexesWithClose(t *testing.T) {
+	const numCopy = 3
+	c := newCommitAndAddIndexes2(t, numCopy)
+	c.launchThreads(-1)
+
+	// Close w/o first stopping/joining the threads
+	if err := c.close(true); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	c.joinThreads()
+
+	c.closeDir(t)
+
+	if len(c.failures) != 0 {
+		t.Fatalf("assertTrue(c.failures.size() == 0): %v", c.failures)
+	}
+}
+
+// commitAndAddIndexes3DoBody renders CommitAndAddIndexes3.doBody.
+func (c *runAddIndexesThreads) commitAndAddIndexes3DoBody(j int, dirs []store.Directory) error {
+	switch j % 5 {
+	case 0:
+		if _, err := c.writer2.AddIndexes(dirs...); err != nil {
+			return err
+		}
+		if err := c.writer2.ForceMerge(1); err != nil {
+			return err
+		}
+	case 1:
+		if _, err := c.writer2.AddIndexes(dirs...); err != nil {
+			return err
+		}
+	case 2:
+		// TestUtil.addIndexesSlowly(writer2, readers)
+		return errAddIndexesSlowlyMissing
+	case 3:
+		if err := c.writer2.ForceMerge(1); err != nil {
+			return err
+		}
+	case 4:
+		if _, err := c.writer2.Commit(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-func (c *customTestCodec) SegmentInfoFormat() index.SegmentInfoFormat {
-	return nil
+// newCommitAndAddIndexes3 renders the private CommitAndAddIndexes3.
+func newCommitAndAddIndexes3(t *testing.T, numCopy int) *runAddIndexesThreads {
+	c := newRunAddIndexesThreads(t, numCopy)
+	c.doBody = c.commitAndAddIndexes3DoBody
+	c.handle = func(err error) {
+		report := true
+		var ace *store.AlreadyClosedException
+		switch {
+		case errors.As(err, &ace), err == index.ErrMergeAborted:
+			report = !c.didClose
+		case isFileNotFoundOrNoSuchFile(err):
+			report = !c.didClose
+		case errors.Is(errors.Unwrap(err), index.ErrMergeAborted):
+			report = !c.didClose
+		}
+		if report {
+			c.addFailure(err)
+		}
+	}
+	return c
 }
 
-func (c *customTestCodec) TermVectorsFormat() index.TermVectorsFormat {
-	return nil
+// LUCENE-1335: test simultaneous addIndexes & close
+func TestAddIndexesAddIndexesWithCloseNoWait(t *testing.T) {
+	const numCopy = 50
+	c := newCommitAndAddIndexes3(t, numCopy)
+	c.launchThreads(-1)
+
+	time.Sleep(time.Duration(nextInt(10, 500)) * time.Millisecond)
+
+	// Close w/o first stopping/joining the threads
+	if err := c.close(false); err != nil {
+		t.Fatalf("close(false): %v", err)
+	}
+
+	c.joinThreads()
+
+	c.closeDir(t)
+	if len(c.failures) != 0 {
+		t.Fatalf("assertTrue(c.failures.size() == 0): %v", c.failures)
+	}
 }
 
-func (c *customTestCodec) CompoundFormat() index.CompoundFormat {
-	return nil
+// LUCENE-1335: test simultaneous addIndexes & close
+func TestAddIndexesAddIndexesWithRollback(t *testing.T) {
+	numCopy := 5
+	if testNightly {
+		numCopy = 50
+	}
+	c := newCommitAndAddIndexes3(t, numCopy)
+	c.launchThreads(-1)
+
+	time.Sleep(time.Duration(nextInt(10, 500)) * time.Millisecond)
+
+	// Close w/o first stopping/joining the threads
+	c.didClose = true
+	ms := c.writer2.GetConfig().GetMergeScheduler()
+
+	if err := c.writer2.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+
+	c.joinThreads()
+
+	if _, ok := ms.(*index.ConcurrentMergeScheduler); ok {
+		c.closeDir(t)
+		t.Fatal(cmsMergeThreadCountMissing)
+	}
+
+	c.closeDir(t)
+	if len(c.failures) != 0 {
+		t.Fatalf("assertTrue(c.failures.size() == 0): %v", c.failures)
+	}
 }
 
-func (c *customTestCodec) KnnVectorsFormat() index.KnnVectorsFormat {
-	return nil
+// LUCENE-2996: tests that addIndexes(IndexReader) applies existing deletes correctly.
+func TestAddIndexesExistingDeletes(t *testing.T) {
+	dirs := make([]store.Directory, 2)
+	for i := range dirs {
+		dirs[i] = newDirectory()
+		conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		writer := mustNewIndexWriter(t, dirs[i], conf)
+		mustAddDocument(t, writer, stringFieldDoc(t, "id", "myid"))
+		mustClose(t, writer)
+	}
+
+	conf := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	writer := mustNewIndexWriter(t, dirs[0], conf)
+
+	// Now delete the document
+	mustDeleteTerm(t, writer, "id", "myid")
+	r := mustOpenDirectoryReader(t, dirs[1])
+	defer mustClose(t, r, writer, dirs[0], dirs[1])
+	t.Fatal(testUtilAddIndexesSlowlyMissing)
 }
 
-func (c *customTestCodec) PointsFormat() index.PointsFormat {
-	return nil
+func TestAddIndexesSimpleCaseCustomCodec(t *testing.T) {
+	// main directory
+	dir := newDirectory()
+	// two auxiliary directories
+	aux := newDirectory()
+	aux2 := newDirectory()
+	defer mustClose(t, dir, aux, aux2)
+	// Codec codec = new CustomPerFieldCodec(), an AssertingCodec subclass.
+	t.Fatal(assertingCodecMissing)
 }
 
-func (c *customTestCodec) DocValuesFormat() index.DocValuesFormat {
-	return nil
+// LUCENE-2790: tests that the non CFS files were deleted by addIndexes
+func TestAddIndexesNonCFSLeftovers(t *testing.T) {
+	dirs := make([]store.Directory, 2)
+	for i := range dirs {
+		dirs[i] = store.NewByteBuffersDirectory()
+		w := mustNewIndexWriter(t, dirs[i], index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+		d := document.NewDocument()
+		customType := document.NewFieldTypeFrom(document.TextFieldTypeStored)
+		customType.SetStoreTermVectors(true)
+		d.Add(mustNewFieldNoRandom(t, "c", "v", customType))
+		mustAddDocument(t, w, d)
+		mustClose(t, w)
+	}
+
+	readers := []*index.DirectoryReader{mustOpenDirectoryReader(t, dirs[0]), mustOpenDirectoryReader(t, dirs[1])}
+
+	dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
+	conf := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMergePolicy(newLogMergePolicyUseCFS(true))
+	lmp := conf.GetMergePolicy().(logMergePolicy)
+	// Force creation of CFS:
+	lmp.SetNoCFSRatio(1.0)
+	lmp.SetMaxCFSSegmentSizeMB(math.Inf(1))
+	w3 := mustNewIndexWriter(t, dir, conf)
+	defer mustClose(t, w3, readers[0], readers[1], dir, dirs[0], dirs[1])
+	t.Fatal(testUtilAddIndexesSlowlyMissing)
 }
 
-func (c *customTestCodec) NormsFormat() index.NormsFormat {
-	return nil
+// simple test that ensures we getting expected exceptions
+func TestAddIndexesAddIndexMissingCodec(t *testing.T) {
+	toAdd := newDirectory()
+	defer mustClose(t, toAdd)
+	// Disable checkIndex, else we get an exception because
+	// of the unregistered codec:
+	t.Fatal(setCheckIndexOnCloseMissing)
+}
+
+// LUCENE-3575
+func TestAddIndexesFieldNamesChanged(t *testing.T) {
+	d1 := newDirectory()
+	w := newRandomIndexWriter(t, d1)
+	doc := document.NewDocument()
+	doc.Add(newStringField(t, "f1", "doc1 field1", true))
+	doc.Add(newStringField(t, "id", "1", true))
+	if _, err := w.AddDocument(doc); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	r1, err := w.GetReader()
+	if err != nil {
+		t.Fatalf("getReader: %v", err)
+	}
+	mustClose(t, w)
+
+	d2 := newDirectory()
+	w = newRandomIndexWriter(t, d2)
+	doc = document.NewDocument()
+	doc.Add(newStringField(t, "f2", "doc2 field2", true))
+	doc.Add(newStringField(t, "id", "2", true))
+	if _, err := w.AddDocument(doc); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	r2, err := w.GetReader()
+	if err != nil {
+		t.Fatalf("getReader: %v", err)
+	}
+	mustClose(t, w)
+
+	d3 := newDirectory()
+	w = newRandomIndexWriter(t, d3)
+	defer mustClose(t, r1, d1, r2, d2, w, d3)
+	t.Fatal(testUtilAddIndexesSlowlyMissing)
+}
+
+func TestAddIndexesAddEmpty(t *testing.T) {
+	d1 := newDirectory()
+	w := newRandomIndexWriter(t, d1)
+	defer mustClose(t, w, d1)
+	// w.addIndexes(new CodecReader[0])
+	t.Fatal(addIndexesCodecReadersMissing)
+}
+
+// Currently it's impossible to end up with a segment with all documents
+// deleted, as such segments are dropped. Still, to validate that addIndexes
+// works with such segments, or readers that end up in such state, we fake an
+// all deleted segment.
+func TestAddIndexesFakeAllDeleted(t *testing.T) {
+	src := newDirectory()
+	dest := newDirectory()
+	w := newRandomIndexWriter(t, src)
+	if _, err := w.AddDocument(document.NewDocument()); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	r, err := w.GetReader()
+	if err != nil {
+		t.Fatalf("getReader: %v", err)
+	}
+	allDeletedReader := index.NewAllDeletedFilterReader(mustLeaves(t, r)[0].LeafReader())
+	mustClose(t, w)
+
+	w = newRandomIndexWriter(t, dest)
+	defer mustClose(t, w, allDeletedReader, src, dest)
+	// w.addIndexes(SlowCodecReaderWrapper.wrap(allDeletedReader))
+	t.Fatal(addIndexesCodecReadersMissing)
+}
+
+// Make sure an open IndexWriter on an incoming Directory causes a LockObtainFailedException
+func TestAddIndexesLocksBlock(t *testing.T) {
+	src := newDirectory()
+	w1 := newRandomIndexWriter(t, src)
+	if _, err := w1.AddDocument(document.NewDocument()); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	if _, err := w1.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	dest := newDirectory()
+
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	w2 := newRandomIndexWriterWithConfig(t, dest, iwc)
+
+	_, err := w2.AddIndexes(src)
+	var lofe *store.LockObtainFailedException
+	if !errors.As(err, &lofe) {
+		t.Fatalf("expected LockObtainFailedException from addIndexes(src), got %v", err)
+	}
+
+	mustClose(t, w1, w2, src, dest)
+}
+
+// intSortedIndex renders the w1 prologue of the testIllegalIndexSortChange
+// tests: an index sorted on the int field "foo", force-merged so the index
+// sort is in fact burned into the index.
+func intSortedIndex(t testing.TB) store.Directory {
+	t.Helper()
+	dir1 := newDirectory()
+	iwc1 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc1.SetIndexSort(index.NewSort(index.NewSortField("foo", index.SortTypeInt)))
+	w1 := newRandomIndexWriterWithConfig(t, dir1, iwc1)
+	for i := 0; i < 2; i++ {
+		if _, err := w1.AddDocument(document.NewDocument()); err != nil {
+			t.Fatalf("addDocument: %v", err)
+		}
+		if _, err := w1.Commit(); err != nil {
+			t.Fatalf("commit: %v", err)
+		}
+	}
+	// so the index sort is in fact burned into the index:
+	if err := w1.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	mustClose(t, w1)
+	return dir1
+}
+
+func stringSortedWriter(t testing.TB, dir2 store.Directory) interface {
+	AddIndexes(...store.Directory) (int64, error)
+	Close() error
+} {
+	t.Helper()
+	iwc2 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc2.SetIndexSort(index.NewSort(index.NewSortField("foo", index.SortTypeString)))
+	return newRandomIndexWriterWithConfig(t, dir2, iwc2)
+}
+
+func TestAddIndexesIllegalIndexSortChange1(t *testing.T) {
+	dir1 := intSortedIndex(t)
+
+	dir2 := newDirectory()
+	w2 := stringSortedWriter(t, dir2)
+	_, err := w2.AddIndexes(dir1)
+	expectIAEMessage(t, err, `cannot change index sort from <int: "foo"> to <string: "foo">`)
+	mustClose(t, dir1, w2, dir2)
+}
+
+func TestAddIndexesIllegalIndexSortChange2(t *testing.T) {
+	dir1 := intSortedIndex(t)
+
+	dir2 := newDirectory()
+	w2 := stringSortedWriter(t, dir2)
+	r1 := mustOpenDirectoryReader(t, dir1)
+	defer mustClose(t, r1, dir1, w2, dir2)
+	// w2.addIndexes((SegmentReader) getOnlyLeafReader(r1))
+	t.Fatal(addIndexesCodecReadersMissing)
+}
+
+// softDeleteVersionIndex renders the w1 prologue of the
+// testAddIndexesDVUpdate tests.
+func softDeleteVersionIndex(t testing.TB) store.Directory {
+	t.Helper()
+	dir1 := newDirectory()
+	iwc1 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	w1 := mustNewIndexWriter(t, dir1, iwc1)
+	doc := document.NewDocument()
+	doc.Add(newStringFieldNoRandom(t, "id", "1", true))
+	doc.Add(newStringFieldNoRandom(t, "version", "1", true))
+	doc.Add(numericDVField(t, "soft_delete", 1))
+	mustAddDocument(t, w1, doc)
+	mustFlush(t, w1)
+
+	mustUpdateDocValues(t, w1, index.NewTerm("id", "1"), numericDVField(t, "soft_delete", 1).Field)
+	mustCommit(t, w1)
+	mustClose(t, w1)
+	return dir1
+}
+
+// reopenTwice renders the w3 epilogue of the testAddIndexesDVUpdate tests.
+func reopenTwice(t testing.TB, dir2 store.Directory) {
+	t.Helper()
+	for i := 0; i < 2; i++ {
+		iwc3 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		mustClose(t, mustNewIndexWriter(t, dir2, iwc3))
+	}
+}
+
+func TestAddIndexesAddIndexesDVUpdateSameSegmentName(t *testing.T) {
+	dir1 := softDeleteVersionIndex(t)
+
+	iwc2 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	dir2 := newDirectory()
+	w2 := mustNewIndexWriter(t, dir2, iwc2)
+	mustAddIndexes(t, w2, dir1)
+	mustCommit(t, w2)
+	mustClose(t, w2)
+
+	reopenTwice(t, dir2)
+	mustClose(t, dir1, dir2)
+}
+
+func TestAddIndexesAddIndexesDVUpdateNewSegmentName(t *testing.T) {
+	dir1 := softDeleteVersionIndex(t)
+
+	iwc2 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	dir2 := newDirectory()
+	w2 := mustNewIndexWriter(t, dir2, iwc2)
+	mustAddDocument(t, w2, document.NewDocument())
+	mustCommit(t, w2)
+
+	mustAddIndexes(t, w2, dir1)
+	mustCommit(t, w2)
+	mustClose(t, w2)
+
+	reopenTwice(t, dir2)
+	mustClose(t, dir1, dir2)
+}
+
+func TestAddIndexesAddIndicesWithSoftDeletes(t *testing.T) {
+	dir1 := newDirectory()
+	iwc1 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc1.SetSoftDeletesField("soft_delete")
+	writer := mustNewIndexWriter(t, dir1, iwc1)
+	for i := 0; i < 30; i++ {
+		docID := rand.Intn(5)
+		doc := stringFieldStoredDoc(t, "id", strconv.Itoa(docID))
+		if _, err := writer.SoftUpdateDocument(index.NewTerm("id", strconv.Itoa(docID)), doc,
+			[]*document.Field{numericDVField(t, "soft_delete", 1).Field}); err != nil {
+			t.Fatalf("softUpdateDocument: %v", err)
+		}
+		if rand.Intn(2) == 0 {
+			mustFlush(t, writer)
+		}
+	}
+	mustCommit(t, writer)
+	mustClose(t, writer)
+
+	reader := mustOpenDirectoryReader(t, dir1)
+	// wrappedReader filters out soft deleted docs
+	wrappedReader, err := index.NewSoftDeletesDirectoryReaderWrapper(reader, "soft_delete")
+	if err != nil {
+		t.Fatalf("new SoftDeletesDirectoryReaderWrapper: %v", err)
+	}
+	dir2 := newDirectory()
+	numDocs := reader.NumDocs()
+	maxDoc := reader.MaxDoc()
+	if numDocs != maxDoc {
+		t.Fatalf("assertEquals(numDocs, maxDoc): %d != %d", numDocs, maxDoc)
+	}
+	iwc1 = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc1.SetSoftDeletesField("soft_delete")
+	writer = mustNewIndexWriter(t, dir2, iwc1)
+	defer mustClose(t, reader, wrappedReader, writer, dir2, dir1)
+	// writer.addIndexes(CodecReader[] readers)
+	t.Fatal(addIndexesCodecReadersMissing)
+}
+
+func addValueBlocks(t testing.TB, dir store.Directory, hasBlocks bool) {
+	t.Helper()
+	writer := newRandomIndexWriter(t, dir)
+	numBlocks := 1 + rand.Intn(9)
+	for i := 0; i < numBlocks; i++ {
+		numDocs := 1
+		if hasBlocks {
+			numDocs = 2 + rand.Intn(8)
+		}
+		docs := make([]*document.Document, 0, numDocs)
+		for j := 0; j < numDocs; j++ {
+			docs = append(docs, stringFieldStoredDoc(t, "value", strconv.Itoa(rand.Intn(5))))
+		}
+		if _, err := writer.AddDocuments(docs); err != nil {
+			t.Fatalf("addDocuments: %v", err)
+		}
+	}
+	if _, err := writer.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	mustClose(t, writer)
+}
+
+func TestAddIndexesAddIndicesWithBlocks(t *testing.T) {
+	addHasBlocksPerm := []bool{true, true, false, false}
+	baseHasBlocksPerm := []bool{true, false, true, false}
+	for perm := range addHasBlocksPerm {
+		addHasBlocks := addHasBlocksPerm[perm]
+		baseHasBlocks := baseHasBlocksPerm[perm]
+		dir := newDirectory()
+		addValueBlocks(t, dir, baseHasBlocks)
+
+		addDir := newDirectory()
+		addValueBlocks(t, addDir, addHasBlocks)
+
+		writer := mustNewIndexWriter(t, dir, newIndexWriterConfig())
+		if rand.Intn(2) == 0 {
+			mustAddIndexes(t, writer, addDir)
+		} else {
+			mustClose(t, writer, addDir, dir)
+			// writer.addIndexes(CodecReader[] readers)
+			t.Fatal(addIndexesCodecReadersMissing)
+		}
+		if _, err := writer.ForceMergeWithObserver(1, true); err != nil {
+			t.Fatalf("forceMerge(1, true): %v", err)
+		}
+		mustClose(t, writer)
+
+		reader := mustOpenDirectoryReader(t, dir)
+		leaves := mustLeaves(t, reader)
+		codecReader := leafSegmentReader(t, leaves[0])
+		if len(leaves) != 1 {
+			t.Fatalf("reader.leaves().size(): expected 1, got %d", len(leaves))
+		}
+		hasBlocks := codecReader.GetSegmentCommitInfo().SegmentInfo().GetHasBlocks()
+		if (addHasBlocks || baseHasBlocks) != hasBlocks {
+			t.Fatalf("addHasBlocks: %v baseHasBlocks: %v: getHasBlocks() = %v", addHasBlocks, baseHasBlocks, hasBlocks)
+		}
+		mustClose(t, reader, addDir, dir)
+	}
+}
+
+func TestAddIndexesSetDiagnostics(t *testing.T) {
+	// The merge policy's findMerges(CodecReader...) wraps each merge in an
+	// anonymous OneMerge subclass overriding setMergeInfo(SegmentCommitInfo).
+	t.Fatal(oneMergeOverrideMissing)
+}
+
+// parentDocBlocks renders the w1 prologue of testIllegalParentDocChange.
+func parentDocBlocks(t testing.TB, parentField string) store.Directory {
+	t.Helper()
+	dir1 := newDirectory()
+	iwc1 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc1.SetParentField(parentField)
+	w1 := newRandomIndexWriterWithConfig(t, dir1, iwc1)
+	parent := document.NewDocument()
+	for i := 0; i < 2; i++ {
+		if _, err := w1.AddDocuments([]*document.Document{document.NewDocument(), document.NewDocument(), parent}); err != nil {
+			t.Fatalf("addDocuments: %v", err)
+		}
+		if _, err := w1.Commit(); err != nil {
+			t.Fatalf("commit: %v", err)
+		}
+	}
+	// so the index sort is in fact burned into the index:
+	if err := w1.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	mustClose(t, w1)
+	return dir1
+}
+
+func TestAddIndexesIllegalParentDocChange(t *testing.T) {
+	dir1 := parentDocBlocks(t, "foobar")
+
+	dir2 := newDirectory()
+	iwc2 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc2.SetParentField("foo")
+	w2 := newRandomIndexWriterWithConfig(t, dir2, iwc2)
+
+	r1 := mustOpenDirectoryReader(t, dir1)
+	defer mustClose(t, r1, dir1, w2, dir2)
+	// w2.addIndexes((SegmentReader) getOnlyLeafReader(r1))
+	t.Fatal(addIndexesCodecReadersMissing)
+}
+
+func TestAddIndexesIllegalNonParentField(t *testing.T) {
+	dir1 := newDirectory()
+	iwc1 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	w1 := newRandomIndexWriterWithConfig(t, dir1, iwc1)
+	parent := document.NewDocument()
+	parent.Add(newStringFieldNoRandom(t, "foo", "XXX", false))
+	if _, err := w1.AddDocument(parent); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	mustClose(t, w1)
+
+	dir2 := newDirectory()
+	iwc2 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc2.SetParentField("foo")
+	w2 := newRandomIndexWriterWithConfig(t, dir2, iwc2)
+
+	r1 := mustOpenDirectoryReader(t, dir1)
+	defer mustClose(t, r1, dir1, w2, dir2)
+	// w2.addIndexes((SegmentReader) getOnlyLeafReader(r1))
+	t.Fatal(addIndexesCodecReadersMissing)
 }

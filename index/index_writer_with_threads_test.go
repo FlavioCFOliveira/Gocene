@@ -42,7 +42,7 @@ func TestIndexWriterWithThreads_ConcurrentAdds(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -72,7 +72,7 @@ func TestIndexWriterWithThreads_ConcurrentAdds(t *testing.T) {
 
 	wg.Wait()
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 
@@ -94,7 +94,7 @@ func TestIndexWriterWithThreads_ConcurrentAddsAndCommits(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -119,7 +119,7 @@ func TestIndexWriterWithThreads_ConcurrentAddsAndCommits(t *testing.T) {
 					return
 				}
 			}
-			if err := writer.Commit(); err != nil {
+			if _, err := writer.Commit(); err != nil {
 				t.Errorf("Commit error: %v", err)
 			}
 		}(r)
@@ -142,7 +142,7 @@ func TestIndexWriterWithThreads_ConcurrentUpdates(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -161,7 +161,9 @@ func TestIndexWriterWithThreads_ConcurrentUpdates(t *testing.T) {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
-	_ = writer.Commit()
+	if _, err := writer.Commit(); err != nil {
+		t.Errorf("Commit: %v", err)
+	}
 
 	// Concurrent updates.
 	var wg sync.WaitGroup
@@ -182,7 +184,9 @@ func TestIndexWriterWithThreads_ConcurrentUpdates(t *testing.T) {
 	}
 
 	wg.Wait()
-	_ = writer.Commit()
+	if _, err := writer.Commit(); err != nil {
+		t.Errorf("Commit: %v", err)
+	}
 
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
@@ -200,7 +204,7 @@ func TestIndexWriterWithThreads_MixedOperations(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -248,14 +252,16 @@ func TestIndexWriterWithThreads_MixedOperations(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < 3; j++ {
-				term := index.NewTerm("id", string(rune('0' + (id+j)%5)))
-				_, _ = writer.DeleteDocuments(term)
+				term := index.NewTerm("id", string(rune('0'+(id+j)%5)))
+				_, _ = writer.DeleteDocuments([]index.Term{*term})
 			}
 		}(i)
 	}
 
 	wg.Wait()
-	_ = writer.Commit()
+	if _, err := writer.Commit(); err != nil {
+		t.Errorf("Commit: %v", err)
+	}
 
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
@@ -280,7 +286,7 @@ func TestIndexWriterWithThreads_OpenTwoIndexWritersOnDifferentThreads(t *testing
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+		config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 		w, err := index.NewIndexWriter(dir1, config)
 		if err != nil {
 			t.Errorf("NewIndexWriter(dir1): %v", err)
@@ -291,13 +297,15 @@ func TestIndexWriterWithThreads_OpenTwoIndexWritersOnDifferentThreads(t *testing
 		f, _ := document.NewTextField("content", "writer1", true)
 		doc.Add(f)
 		_, _ = w.AddDocument(doc)
-		_ = w.Commit()
+		if _, err := w.Commit(); err != nil {
+			t.Errorf("Commit: %v", err)
+		}
 	}()
 
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+		config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 		w, err := index.NewIndexWriter(dir2, config)
 		if err != nil {
 			t.Errorf("NewIndexWriter(dir2): %v", err)
@@ -308,7 +316,9 @@ func TestIndexWriterWithThreads_OpenTwoIndexWritersOnDifferentThreads(t *testing
 		f, _ := document.NewTextField("content", "writer2", true)
 		doc.Add(f)
 		_, _ = w.AddDocument(doc)
-		_ = w.Commit()
+		if _, err := w.Commit(); err != nil {
+			t.Errorf("Commit: %v", err)
+		}
 	}()
 
 	wg.Wait()
@@ -333,7 +343,7 @@ func TestIndexWriterWithThreads_CloseWithThreads(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -365,7 +375,7 @@ func TestIndexWriterWithThreads_ImmediateDiskFullWithThreads(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -392,7 +402,9 @@ func TestIndexWriterWithThreads_ImmediateDiskFullWithThreads(t *testing.T) {
 	}
 
 	wg.Wait()
-	_ = writer.Commit()
+	if _, err := writer.Commit(); err != nil {
+		t.Errorf("Commit: %v", err)
+	}
 
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {
@@ -411,7 +423,7 @@ func TestIndexWriterWithThreads_RollbackAndCommitWithThreads(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -440,7 +452,9 @@ func TestIndexWriterWithThreads_RollbackAndCommitWithThreads(t *testing.T) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		_ = writer.Commit()
+		if _, err := writer.Commit(); err != nil {
+			t.Errorf("Commit: %v", err)
+		}
 	}()
 
 	wg.Wait()
@@ -453,7 +467,7 @@ func TestIndexWriterWithThreads_UpdateSingleDocWithThreads(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -480,7 +494,9 @@ func TestIndexWriterWithThreads_UpdateSingleDocWithThreads(t *testing.T) {
 	}
 
 	wg.Wait()
-	_ = writer.Commit()
+	if _, err := writer.Commit(); err != nil {
+		t.Errorf("Commit: %v", err)
+	}
 
 	reader, err := index.OpenDirectoryReader(dir)
 	if err != nil {

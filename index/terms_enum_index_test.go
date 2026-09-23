@@ -10,6 +10,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -104,6 +105,8 @@ func TestPrefix8ToComparableUnsignedLong_PreservesUnsignedOrder(t *testing.T) {
 // TermsEnumIndex. It implements the full TermsEnum interface plus the
 // optional ordinalSeeker contract.
 type tieFakeTermsEnum struct {
+	spi.TermsEnumBase
+
 	field string
 	terms [][]byte
 	pos   int  // -1 before first call, len(terms) after end
@@ -181,6 +184,8 @@ func (f *tieFakeTermsEnum) PostingsWithLiveDocs(util.Bits, int) (PostingsEnum, e
 // plainTermsEnum is a TermsEnum that intentionally does not implement
 // ordinalSeeker, so SeekExactOrd on the wrapper must fail.
 type plainTermsEnum struct {
+	spi.TermsEnumBase
+
 	field string
 	cur   *Term
 }
@@ -194,6 +199,16 @@ func (p *plainTermsEnum) TotalTermFreq() (int64, error)      { return 0, nil }
 func (p *plainTermsEnum) Postings(int) (PostingsEnum, error) { return &EmptyPostingsEnum{}, nil }
 func (p *plainTermsEnum) PostingsWithLiveDocs(util.Bits, int) (PostingsEnum, error) {
 	return &EmptyPostingsEnum{}, nil
+}
+
+// Impacts is abstract in Lucene's TermsEnum; this double does not support it.
+func (p *plainTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, errors.New("plainTermsEnum.Impacts: unsupported operation")
+}
+
+// Impacts is abstract in Lucene's TermsEnum; this double does not support it.
+func (f *tieFakeTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, errors.New("tieFakeTermsEnum.Impacts: unsupported operation")
 }
 
 // TestTermsEnumIndex_NextWalksAndUpdatesCache walks the wrapped enumerator

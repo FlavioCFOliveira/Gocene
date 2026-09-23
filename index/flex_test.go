@@ -38,7 +38,7 @@ func TestFlex_NonFlex(t *testing.T) {
 	}
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	config.SetMaxBufferedDocs(7)
 	config.SetMergePolicy(index.NewLogMergePolicy())
 
@@ -74,7 +74,7 @@ func TestFlex_NonFlex(t *testing.T) {
 			}
 		}
 
-		if err := writer.Commit(); err != nil {
+		if _, err := writer.Commit(); err != nil {
 			t.Fatalf("Commit failed on iter %d: %v", iter, err)
 		}
 
@@ -135,7 +135,7 @@ func TestFlex_TermOrd(t *testing.T) {
 	}
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -155,7 +155,7 @@ func TestFlex_TermOrd(t *testing.T) {
 	if err := writer.ForceMerge(1); err != nil {
 		t.Fatalf("ForceMerge failed: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit failed: %v", err)
 	}
 

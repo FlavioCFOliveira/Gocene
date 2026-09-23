@@ -37,7 +37,7 @@ func TestExceedMaxTermLength_TokenStream(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -83,7 +83,7 @@ func TestExceedMaxTermLength_BinaryValue(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -137,7 +137,7 @@ func TestExceedMaxTermLength_NearBoundary(t *testing.T) {
 	defer dir.Close()
 
 	// Value at exactly MAX_TERM_LENGTH should be accepted.
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -163,8 +163,8 @@ func TestExceedMaxTermLength_NearBoundary(t *testing.T) {
 	}
 
 	// Value one byte beyond should be rejected.
-	config2 := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config2.SetOpenMode(index.APPEND)
+	config2 := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
+	config2.SetOpenMode(index.Append)
 	writer2, err := index.NewIndexWriter(dir, config2)
 	if err != nil {
 		t.Fatalf("NewIndexWriter 2: %v", err)

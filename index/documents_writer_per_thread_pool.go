@@ -5,10 +5,10 @@
 package index
 
 import (
-	"fmt"
 	"sync"
 	"sync/atomic"
 
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -21,7 +21,7 @@ type DocumentsWriterPerThreadPool struct {
 	dwpts map[*DocumentsWriterPerThread]struct{}
 	// freeList manages available DWPTs, biasing towards those with higher RAM usage
 	// to balance segments.
-	freeList *lockableConcurrentApproximatePriorityQueue
+	freeList *lockableConcurrentApproximatePriorityQueue[*DocumentsWriterPerThread]
 
 	dwptFactory func() *DocumentsWriterPerThread
 	// takenWriterPermits is used as a semaphore to block creation of new writers.
@@ -39,7 +39,7 @@ func NewDocumentsWriterPerThreadPool(dwptFactory func() *DocumentsWriterPerThrea
 		dwptFactory: dwptFactory,
 	}
 	pool.cond = sync.NewCond(&pool.mu)
-	pool.freeList = newLockableConcurrentApproximatePriorityQueue()
+	pool.freeList = newLockableConcurrentApproximatePriorityQueue[*DocumentsWriterPerThread]()
 	return pool
 }
 
@@ -67,8 +67,9 @@ func (pool *DocumentsWriterPerThreadPool) UnlockNewWriters() {
 // newWriter returns a new, already locked DocumentsWriterPerThread.
 //
 // Java declares this method `private synchronized`, so it acquires the pool
-// monitor itself; callers must not hold it.
-func (pool *DocumentsWriterPerThreadPool) newWriter(owner util.LockOwner) *DocumentsWriterPerThread {
+// monitor itself; callers must not hold it. The AlreadyClosedException thrown
+// by ensureOpen is returned as an error value.
+func (pool *DocumentsWriterPerThreadPool) newWriter(owner util.LockOwner) (*DocumentsWriterPerThread, error) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
 
@@ -77,23 +78,25 @@ func (pool *DocumentsWriterPerThreadPool) newWriter(owner util.LockOwner) *Docum
 	}
 
 	if err := pool.ensureOpen(); err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	dwpt := pool.dwptFactory()
 	dwpt.Lock(owner) // lock so nobody else will get this DWPT
 	pool.dwpts[dwpt] = struct{}{}
-	return dwpt
+	return dwpt, nil
 }
 
-func (pool *DocumentsWriterPerThreadPool) GetAndLock(owner util.LockOwner) *DocumentsWriterPerThread {
+// GetAndLock mirrors getAndLock(): it returns a DWPT locked by owner, taking
+// one from the free list when possible and creating a new one otherwise.
+func (pool *DocumentsWriterPerThreadPool) GetAndLock(owner util.LockOwner) (*DocumentsWriterPerThread, error) {
 	if err := pool.ensureOpen(); err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	dwpt := pool.freeList.lockAndPoll(owner)
 	if dwpt != nil {
-		return dwpt
+		return dwpt, nil
 	}
 
 	// newWriter() adds the DWPT to the `dwpts` set as a side-effect. However it
@@ -111,7 +114,7 @@ func (pool *DocumentsWriterPerThreadPool) GetAndLock(owner util.LockOwner) *Docu
 // self-deadlock -- Java's monitors are reentrant, Go's sync.Mutex is not.
 func (pool *DocumentsWriterPerThreadPool) ensureOpen() error {
 	if pool.closed.Load() {
-		return fmt.Errorf("DWPTPool is already closed")
+		return store.NewAlreadyClosedException("DWPTPool is already closed", nil)
 	}
 	return nil
 }

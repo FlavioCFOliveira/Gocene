@@ -2,38 +2,18 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for the index package.
-//
-// Ported from Apache Lucene's org.apache.lucene.index.TestIndexWriterDelete
-// Source: lucene/core/src/test/org/apache/lucene/index/TestIndexWriterDelete.java
-// Reference tag: releases/lucene/10.4.0 (commit 9983b7c)
-//
-// GOC-4150 (Sprint 55, option c): every Java test method has a corresponding
-// Go test function. Tests that depend on infrastructure not yet ported to
-// Gocene call t.Skip with a precise reason; tests whose dependencies exist
-// are implemented and exercised.
-//
-// Infrastructure gaps that drive the t.Fatal blockers in this file:
-//   - No MockDirectoryWrapper fault injection (disk-full, failOn/Failure),
-//     so the disk-full and error-injection tests cannot be reproduced.
-//   - No RandomIndexWriter / MockRandomMergePolicy test harness.
-//   - ForceMerge(1) does not yet rewrite a segment without its live-docs
-//     deletions, so the "has deletions" info-stream assertion after merge
-//     cannot pass.
-//   - IndexWriter.flushCount polling and doAfterFlush hook are not exposed.
-//
-// DeleteDocuments, DeleteDocumentsQuery (term-equivalent queries routed to the
-// term-delete path), and DeleteAll are implemented and applied to committed
-// segments during Commit and to pending segments during GetReader.
+// Port of lucene/core/src/test/org/apache/lucene/index/TestIndexWriterDelete.java
+// (Apache Lucene 10.5.0). The @Monster and @Nightly tests live in
+// index_writer_delete_monster_test.go.
+
 package index_test
 
 import (
-	"errors"
-	"fmt"
+	"bytes"
+	"math/rand"
+	"strconv"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
@@ -43,1467 +23,750 @@ import (
 	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 )
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// Missing production members the Java tests reach.
+const (
+	indexWriterIsDeleterClosedMissing            = "org.apache.lucene.index.IndexWriter#isDeleterClosed() is not ported"
+	indexWriterGetBufferedDeleteTermsSizeMissing = "org.apache.lucene.index.IndexWriter#getBufferedDeleteTermsSize() is not ported"
+)
 
-// newDeleteTestAnalyzer returns the analyzer used across these tests. Lucene
-// uses MockAnalyzer(WHITESPACE); Gocene's WhitespaceAnalyzer is the closest
-// faithful equivalent.
-func newDeleteTestAnalyzer() analysis.Analyzer {
-	return analysis.NewWhitespaceAnalyzer()
+// newWhitespaceMockAnalyzerLower renders
+// new MockAnalyzer(random(), MockTokenizer.WHITESPACE, lowerCase).
+func newWhitespaceMockAnalyzerLower(lowerCase bool) analysis.Analyzer {
+	return testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, lowerCase, testanalysis.DefaultMaxTokenLength, nil, true)
 }
 
-// addDoc mirrors TestIndexWriterDelete.addDoc: a document with an "aaa"
-// content field, a stored "id", an unstored "value", and a "dv" numeric
-// doc-values field.
-func addDoc(t *testing.T, modifier *index.IndexWriter, id, value int) {
+func deleteTestWriter(t testing.TB, dir store.Directory, maxBufferedDocs int) *index.IndexWriter {
 	t.Helper()
-	doc := document.NewDocument()
-
-	contentField, err := document.NewTextField("content", "aaa", false)
-	if err != nil {
-		t.Fatalf("NewTextField(content): %v", err)
+	conf := newIndexWriterConfigWithAnalyzer(newWhitespaceMockAnalyzerLower(false))
+	if maxBufferedDocs > 0 {
+		conf.SetMaxBufferedDocs(maxBufferedDocs)
 	}
-	idField, err := document.NewStringField("id", fmt.Sprintf("%d", id), true)
-	if err != nil {
-		t.Fatalf("NewStringField(id): %v", err)
-	}
-	valueField, err := document.NewStringField("value", fmt.Sprintf("%d", value), false)
-	if err != nil {
-		t.Fatalf("NewStringField(value): %v", err)
-	}
-	dvField, err := document.NewNumericDocValuesField("dv", int64(value))
-	if err != nil {
-		t.Fatalf("NewNumericDocValuesField(dv): %v", err)
-	}
-
-	doc.Add(contentField)
-	doc.Add(idField)
-	doc.Add(valueField)
-	doc.Add(dvField)
-
-	if _, err := modifier.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
+	return mustNewIndexWriter(t, dir, conf)
 }
 
-// updateDoc mirrors TestIndexWriterDelete.updateDoc: replaces the document
-// whose "id" matches with a freshly-built one.
-func updateDoc(t *testing.T, modifier *index.IndexWriter, id, value int) {
-	t.Helper()
-	doc := document.NewDocument()
-
-	contentField, err := document.NewTextField("content", "aaa", false)
-	if err != nil {
-		t.Fatalf("NewTextField(content): %v", err)
-	}
-	idField, err := document.NewStringField("id", fmt.Sprintf("%d", id), true)
-	if err != nil {
-		t.Fatalf("NewStringField(id): %v", err)
-	}
-	valueField, err := document.NewStringField("value", fmt.Sprintf("%d", value), false)
-	if err != nil {
-		t.Fatalf("NewStringField(value): %v", err)
-	}
-	dvField, err := document.NewNumericDocValuesField("dv", int64(value))
-	if err != nil {
-		t.Fatalf("NewNumericDocValuesField(dv): %v", err)
-	}
-
-	doc.Add(contentField)
-	doc.Add(idField)
-	doc.Add(valueField)
-	doc.Add(dvField)
-
-	if _, err := modifier.UpdateDocument(index.NewTerm("id", fmt.Sprintf("%d", id)), doc); err != nil {
-		t.Fatalf("UpdateDocument: %v", err)
-	}
-}
-
-// getHitCount mirrors TestIndexWriterDelete.getHitCount: opens a reader on the
-// directory, runs a TermQuery, and returns the total hit count.
-func getHitCount(t *testing.T, dir store.Directory, term *index.Term) int64 {
-	t.Helper()
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-
-	searcher := search.NewIndexSearcher(reader)
-	topDocs, err := searcher.Search(search.NewTermQuery(term), 1000)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	return topDocs.TotalHits.Value
-}
-
-// copyDirectory copies all files from src to dst, preserving lengths. It is a
-// stand-in for Lucene TestUtil.ramCopyOf used by the disk-full tests.
-func copyDirectory(t *testing.T, src, dst store.Directory) {
-	t.Helper()
-	names, err := src.ListAll()
-	if err != nil {
-		t.Fatalf("ListAll src: %v", err)
-	}
-	for _, name := range names {
-		in, err := src.OpenInput(name, store.IOContextDefault)
-		if err != nil {
-			t.Fatalf("OpenInput %q: %v", name, err)
-		}
-		length := in.Length()
-		data, err := in.ReadBytesN(int(length))
-		_ = in.Close()
-		if err != nil {
-			t.Fatalf("ReadBytesN %q: %v", name, err)
-		}
-		out, err := dst.CreateOutput(name, store.IOContextDefault)
-		if err != nil {
-			t.Fatalf("CreateOutput %q: %v", name, err)
-		}
-		if err := out.WriteBytes(data); err != nil {
-			_ = out.Close()
-			t.Fatalf("WriteBytes %q: %v", name, err)
-		}
-		if err := out.Close(); err != nil {
-			t.Fatalf("Close output %q: %v", name, err)
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// testSimpleCase
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_SimpleCase ports testSimpleCase.
-//
-// Intent: add two documents, force-merge to one segment, delete one document
-// by the term ("city","Amsterdam"), commit, and verify the hit count for that
-// term drops from 1 to 0.
-//
-// Skipped: IndexWriter.DeleteDocuments is a no-op stub in Gocene; deletes are
-// never applied to committed segments, so the post-delete "0 hits" assertion
-// cannot pass. Re-enable once the buffered-updates / live-docs pipeline lands.
-func TestIndexWriterDelete_SimpleCase(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	modifier, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(newDeleteTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	keywords := []string{"1", "2"}
-	city := []string{"Amsterdam", "Venice"}
-	for i := range keywords {
-		doc := document.NewDocument()
-		idField, err := document.NewStringField("id", keywords[i], true)
-		if err != nil {
-			t.Fatalf("NewStringField(id): %v", err)
-		}
-		cityField, err := document.NewTextField("city", city[i], true)
-		if err != nil {
-			t.Fatalf("NewTextField(city): %v", err)
-		}
-		doc.Add(idField)
-		doc.Add(cityField)
-		if _, err := modifier.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	term := index.NewTerm("city", "Amsterdam")
-	if hc := getHitCount(t, dir, term); hc != 1 {
-		t.Fatalf("pre-delete hit count = %d, want 1", hc)
-	}
-	if _, err := modifier.DeleteDocuments(term); err != nil {
-		t.Fatalf("DeleteDocuments: %v", err)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit (post-delete): %v", err)
-	}
-	if hc := getHitCount(t, dir, term); hc != 0 {
-		t.Fatalf("post-delete hit count = %d, want 0", hc)
-	}
-	if err := modifier.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// readerNumDocs opens dir, returns its live doc count, and closes the reader.
-func readerNumDocs(t *testing.T, dir store.Directory) int {
-	t.Helper()
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	return reader.NumDocs()
-}
-
-// readerNumDeleted opens dir and returns its number of deleted documents.
-func readerNumDeleted(t *testing.T, dir store.Directory) int {
-	t.Helper()
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	return reader.NumDeletedDocs()
-}
-
-// ---------------------------------------------------------------------------
-// testNonRAMDelete
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_NonRAMDelete ports testNonRAMDelete.
-//
-// Intent: with maxBufferedDocs=2, index 7 docs and commit so they are all on
-// disk, then delete every doc by the "value" term and commit; the reader must
-// then see 0 docs.
-//
-// Skipped: IndexWriter.DeleteDocuments is a no-op stub, so the delete against
-// the on-disk segments is never applied and NumDocs stays at 7.
-func TestIndexWriterDelete_NonRAMDelete(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	cfg.SetMaxBufferedDocs(2)
-	modifier, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	id, value := 0, 100
-	for i := 0; i < 7; i++ {
-		id++
-		addDoc(t, modifier, id, value)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if got := modifier.GetSegmentCount(); got < 0 {
-		t.Fatalf("GetSegmentCount = %d, want >= 0", got)
-	}
-
-	if n := readerNumDocs(t, dir); n != 7 {
-		t.Fatalf("numDocs before delete = %d, want 7", n)
-	}
-
-	if _, err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
-		t.Fatalf("DeleteDocuments: %v", err)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit (post-delete): %v", err)
-	}
-
-	if n := readerNumDocs(t, dir); n != 0 {
-		t.Fatalf("numDocs after delete = %d, want 0", n)
-	}
-	if nd := readerNumDeleted(t, dir); nd != 7 {
-		t.Fatalf("numDeletedDocs after delete = %d, want 7", nd)
-	}
-	if err := modifier.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// testRAMDeletes
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_RAMDeletes ports testRAMDeletes.
-//
-// Intent: with maxBufferedDocs=4, interleave addDoc and delete-by-"value"
-// (t=0 deletes by Term) so the deletes apply only to buffered RAM segments;
-// after committing, exactly the last added doc must remain.
-// The t=0 iteration additionally asserts getBufferedDeleteTermsSize()==1.
-//
-// Note: the Lucene original also tests query-based deletes in a second
-// iteration (t=1).  Gocene's DeleteDocumentsQuery only applies to committed
-// segments (via the QueryDeleteExecutor) and is not evaluated against
-// buffered in-memory documents, so that iteration is omitted.
-func TestIndexWriterDelete_RAMDeletes(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	cfg.SetMaxBufferedDocs(4)
-	modifier, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	id := 0
-	value := 100
-
-	// t=0: delete by Term
-	addDoc(t, modifier, id+1, value)
-	id++
-
-	if _, err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
-		t.Fatalf("DeleteDocuments: %v", err)
-	}
-
-	addDoc(t, modifier, id+1, value)
-	id++
-
-	if _, err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
-		t.Fatalf("DeleteDocuments: %v", err)
-	}
-	if got := modifier.GetBufferedDeleteTermsSize(); got != 1 {
-		t.Fatalf("GetBufferedDeleteTermsSize = %d, want 1", got)
-	}
-
-	addDoc(t, modifier, id+1, value)
-	id++
-
-	// Gocene counts buffered docs as 1 pending segment (docCount>0).
-	if got := modifier.GetSegmentCount(); got < 0 {
-		t.Fatalf("GetSegmentCount = %d, want >= 0", got)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	if n := readerNumDocs(t, dir); n != 1 {
-		t.Fatalf("numDocs after commit = %d, want 1", n)
-	}
-
-	// Verify the surviving document is id=3.
-	term := index.NewTerm("id", fmt.Sprintf("%d", id))
-	if hc := getHitCount(t, dir, term); hc != 1 {
-		t.Fatalf("hit count for last-added id=%d = %d, want 1", id, hc)
-	}
-
-	// t=1: query-based deletes are not applied to in-memory buffered docs
-	// in Gocene (DeleteDocumentsQuery resolves only against committed
-	// segments).  The query-based iteration is deferred.
-
-	if err := modifier.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// testBothDeletes
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_BothDeletes ports testBothDeletes.
-//
-// Intent: index 5 docs with value=100 and 5 with value=200, commit, then add
-// 5 more value=200 docs and delete by the "value"=200 term so the delete
-// matches both committed and buffered docs; after commit exactly the 5
-// value=100 docs must remain.
-//
-// Skipped: IndexWriter.DeleteDocuments is a no-op stub; the delete is never
-// applied so NumDocs stays at 15 instead of dropping to 5.
-func TestIndexWriterDelete_BothDeletes(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	cfg.SetMaxBufferedDocs(100)
-	modifier, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	id, value := 0, 100
-	for i := 0; i < 5; i++ {
-		id++
-		addDoc(t, modifier, id, value)
-	}
-	value = 200
-	for i := 0; i < 5; i++ {
-		id++
-		addDoc(t, modifier, id, value)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	// Add 5 more value=200 docs (buffered) then delete value=200, which must
-	// reach both the committed and the buffered value=200 documents.
-	for i := 0; i < 5; i++ {
-		id++
-		addDoc(t, modifier, id, value)
-	}
-	if _, err := modifier.DeleteDocuments(index.NewTerm("value", fmt.Sprintf("%d", value))); err != nil {
-		t.Fatalf("DeleteDocuments: %v", err)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit (post-delete): %v", err)
-	}
-
-	if n := readerNumDocs(t, dir); n != 5 {
-		t.Fatalf("numDocs after delete = %d, want 5", n)
-	}
-	if err := modifier.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// testBatchDeletes
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_BatchDeletes ports testBatchDeletes.
-//
-// Intent: index 7 docs and commit, delete ids 1 and 2 then commit (expect 5
-// docs), then delete ids 3, 4 and 5 in a batch and commit (expect 2 docs).
-// Lucene's deleteDocuments(Term...) variadic form has no Gocene equivalent;
-// the batch would be applied by looping DeleteDocuments.
-//
-// Skipped: IndexWriter.DeleteDocuments is a no-op stub, so neither the "5
-// docs" nor the "2 docs" assertion can pass.
-func TestIndexWriterDelete_BatchDeletes(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	cfg.SetMaxBufferedDocs(2)
-	modifier, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	id, value := 0, 100
-	for i := 0; i < 7; i++ {
-		id++
-		addDoc(t, modifier, id, value)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if n := readerNumDocs(t, dir); n != 7 {
-		t.Fatalf("numDocs = %d, want 7", n)
-	}
-
-	// Delete ids 1 and 2 -> 5 remain.
-	id = 0
-	id++
-	if _, err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
-		t.Fatalf("DeleteDocuments(%d): %v", id, err)
-	}
-	id++
-	if _, err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
-		t.Fatalf("DeleteDocuments(%d): %v", id, err)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if n := readerNumDocs(t, dir); n != 5 {
-		t.Fatalf("numDocs after 2 deletes = %d, want 5", n)
-	}
-
-	// Batch-delete ids 3, 4, 5 (Lucene's deleteDocuments(Term...) variadic form;
-	// reproduced by looping DeleteDocuments) -> 2 remain.
-	for i := 0; i < 3; i++ {
-		id++
-		if _, err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
-			t.Fatalf("DeleteDocuments(%d): %v", id, err)
-		}
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if n := readerNumDocs(t, dir); n != 2 {
-		t.Fatalf("numDocs after batch delete = %d, want 2", n)
-	}
-	if nd := readerNumDeleted(t, dir); nd != 5 {
-		t.Fatalf("numDeletedDocs after batch delete = %d, want 5", nd)
-	}
-	if err := modifier.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// testDeleteAllSimple
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_DeleteAllSimple ports testDeleteAllSimple.
-//
-// Intent: index 7 docs and commit; add 1 buffered doc; call deleteAll (must
-// not be visible on disk yet, reader still sees 7); add one doc and update
-// one doc after the deleteAll; commit; the reader must then see exactly the 2
-// docs added after the deleteAll.
-//
-// Skipped: IndexWriter.DeleteAll only resets an in-memory counter and does not
-// clear committed segments, so the committed 7 docs survive the deleteAll and
-// the final count is 9 instead of 2.
-func TestIndexWriterDelete_DeleteAllSimple(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	modifier, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	id := 0
-	value := 100
-
-	// Index 7 docs and commit.
-	for i := 0; i < 7; i++ {
-		id++
-		addDoc(t, modifier, id, value)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if n := readerNumDocs(t, dir); n != 7 {
-		t.Fatalf("numDocs before deleteAll = %d, want 7", n)
-	}
-
-	// Add 1 buffered doc (in RAM, not yet committed).
-	id++
-	addDoc(t, modifier, id, value)
-
-	// DeleteAll: marks all committed docs as deleted and clears pending state.
-	if _, err := modifier.DeleteAll(); err != nil {
-		t.Fatalf("DeleteAll: %v", err)
-	}
-
-	// Reader must still see the original 7 (deleteAll is buffered).
-	if n := readerNumDocs(t, dir); n != 7 {
-		t.Fatalf("numDocs after deleteAll/before commit = %d, want 7", n)
-	}
-
-	// Add 1 doc and update 1 doc after the deleteAll.
-	id++
-	addDoc(t, modifier, id, value)
-	id++
-	updateDoc(t, modifier, id, value)
-
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit (post-deleteAll): %v", err)
-	}
-
-	// Only the 2 docs added after deleteAll should survive.
-	if n := readerNumDocs(t, dir); n != 2 {
-		t.Fatalf("numDocs after commit = %d, want 2", n)
-	}
-	if err := modifier.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// testDeleteAllNoDeadLock
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_DeleteAllNoDeadLock ports testDeleteAllNoDeadLock:
-// repeated deleteAll concurrent with multi-goroutine indexing must not
-// deadlock, and the final reader must observe an empty index.
-func TestIndexWriterDelete_DeleteAllNoDeadLock(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	modifier, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	numThreads := 2
-	var wg sync.WaitGroup
-	startLatch := make(chan struct{})
-	doneLatch := make(chan struct{}, numThreads)
-
-	for i := 0; i < numThreads; i++ {
-		wg.Add(1)
-		go func(offset int) {
-			defer wg.Done()
-			defer func() { doneLatch <- struct{}{} }()
-			id := offset * 1000
-			value := 100
-
-			<-startLatch
-
-			for j := 0; j < 1000; j++ {
-				doc := document.NewDocument()
-				contentField, _ := document.NewTextField("content", "aaa", false)
-				idField, _ := document.NewStringField("id", fmt.Sprintf("%d", id), true)
-				valueField, _ := document.NewStringField("value", fmt.Sprintf("%d", value), false)
-				dvField, _ := document.NewNumericDocValuesField("dv", int64(value))
-
-				doc.Add(contentField)
-				doc.Add(idField)
-				doc.Add(valueField)
-				doc.Add(dvField)
-
-				if _, err := modifier.AddDocument(doc); err != nil {
-					t.Errorf("AddDocument: %v", err)
-					return
-				}
-				id++
-			}
-		}(i)
-	}
-
-	close(startLatch)
-
-	timeout := time.AfterFunc(30*time.Second, func() {
-		t.Error("test timed out - possible deadlock")
-	})
-	defer timeout.Stop()
-
-	doneCount := 0
-	for doneCount < numThreads {
-		select {
-		case <-doneLatch:
-			doneCount++
-		case <-time.After(time.Millisecond):
-		}
-		if _, err := modifier.DeleteAll(); err != nil {
-			t.Fatalf("DeleteAll: %v", err)
-		}
-	}
-
-	wg.Wait()
-
-	if _, err := modifier.DeleteAll(); err != nil {
-		t.Fatalf("final DeleteAll: %v", err)
-	}
-	if err := modifier.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	if reader.MaxDoc() != 0 {
-		t.Errorf("expected maxDoc=0, got %d", reader.MaxDoc())
-	}
-	if reader.NumDocs() != 0 {
-		t.Errorf("expected numDocs=0, got %d", reader.NumDocs())
-	}
-	if reader.NumDeletedDocs() != 0 {
-		t.Errorf("expected numDeletedDocs=0, got %d", reader.NumDeletedDocs())
-	}
-	reader.Close()
-}
-
-// ---------------------------------------------------------------------------
-// testDeleteAllRollback
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_DeleteAllRollback ports testDeleteAllRollback: a
-// deleteAll followed by rollback must leave the committed documents intact.
-func TestIndexWriterDelete_DeleteAllRollback(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	config.SetMaxBufferedDocs(2)
-	modifier, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	id := 0
-	value := 100
-
-	for i := 0; i < 7; i++ {
-		id++
-		addDoc(t, modifier, id, value)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	id++
-	addDoc(t, modifier, id, value)
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	if reader.NumDocs() != 7 {
-		t.Errorf("expected 7 docs, got %d", reader.NumDocs())
-	}
-	reader.Close()
-
-	if _, err := modifier.DeleteAll(); err != nil {
-		t.Fatalf("DeleteAll: %v", err)
-	}
-	if err := modifier.Rollback(); err != nil {
-		t.Fatalf("Rollback: %v", err)
-	}
-
-	reader, err = index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	if reader.NumDocs() != 7 {
-		t.Errorf("expected 7 docs after rollback, got %d", reader.NumDocs())
-	}
-	reader.Close()
-}
-
-// ---------------------------------------------------------------------------
-// testDeleteAllNRT
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_DeleteAllNRT ports testDeleteAllNRT.
-//
-// Intent: index and commit some documents, call DeleteAll, then open a
-// near-real-time reader directly from the writer. The NRT reader must see the
-// deleteAll without an explicit commit.
-func TestIndexWriterDelete_DeleteAllNRT(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	modifier, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer modifier.Close()
-
-	value := 100
-	for id := 1; id <= 10; id++ {
-		addDoc(t, modifier, id, value)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	if _, err := modifier.DeleteAll(); err != nil {
-		t.Fatalf("DeleteAll: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReaderFromWriter(modifier)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	defer reader.Close()
-
-	if got := reader.NumDocs(); got != 0 {
-		t.Fatalf("NumDocs after DeleteAll = %d, want 0", got)
-	}
-}
-
-// ---------------------------------------------------------------------------
-// testErrorAfterApplyDeletes (@Ignore in Lucene)
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_ErrorAfterApplyDeletes ports testErrorAfterApplyDeletes.
-//
-// The upstream method carries @Ignore, so no runtime assertions are required.
-// The function is retained as a 1:1 placeholder to keep the test mapping
-// complete; once call-stack-scoped fault injection is available it can be
-// filled in with the ignored Java body.
-func TestIndexWriterDelete_ErrorAfterApplyDeletes(t *testing.T) {
-	// Upstream test is ignored; nothing to run.
-}
-
-// ---------------------------------------------------------------------------
-// testErrorInDocsWriterAdd
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_ErrorInDocsWriterAdd ports testErrorInDocsWriterAdd.
-//
-// Lucene injects the IOException from MockDirectoryWrapper while the
-// DocumentsWriter is flushing a newly-added document to disk. Gocene's
-// AddDocument buffers documents in memory and persists them in Commit, so this
-// port injects the failure during the commit that materialises the buffered
-// documents and verifies the error is propagated.
-func TestIndexWriterDelete_ErrorInDocsWriterAdd(t *testing.T) {
-	dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(
-		testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, false, 255, testanalysis.EMPTY_STOPSET, false))
-	modifier, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer modifier.Close()
-
-	// Commit once so the directory has a valid starting point.
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("initial Commit: %v", err)
-	}
-
+// simpleCaseDocs renders the keyword/unindexed/unstored/text document loop
+// of testSimpleCase and testErrorInDocsWriterAdd.
+func simpleCaseDocs(t testing.TB) []*document.Document {
 	keywords := []string{"1", "2"}
 	unindexed := []string{"Netherlands", "Italy"}
 	unstored := []string{"Amsterdam has lots of bridges", "Venice has lots of canals"}
 	text := []string{"Amsterdam", "Venice"}
 
+	custom1 := document.NewFieldType()
+	custom1.SetStored(true)
+	docs := make([]*document.Document, len(keywords))
 	for i := range keywords {
 		doc := document.NewDocument()
-		idField, err := document.NewStringField("id", keywords[i], true)
-		if err != nil {
-			t.Fatalf("NewStringField: %v", err)
-		}
-		doc.Add(idField)
-		countryField, err := document.NewStoredField("country", unindexed[i])
-		if err != nil {
-			t.Fatalf("NewStoredField: %v", err)
-		}
-		doc.Add(countryField)
-		contentsField, err := document.NewTextField("contents", unstored[i], false)
-		if err != nil {
-			t.Fatalf("NewTextField: %v", err)
-		}
-		doc.Add(contentsField)
-		cityField, err := document.NewTextField("city", text[i], true)
-		if err != nil {
-			t.Fatalf("NewTextField: %v", err)
-		}
-		doc.Add(cityField)
-
-		if _, err := modifier.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument(%d): %v", i, err)
-		}
+		doc.Add(newStringField(t, "id", keywords[i], true))
+		doc.Add(newField(t, "country", unindexed[i], custom1))
+		doc.Add(newTextField(t, "contents", unstored[i], false))
+		doc.Add(newTextField(t, "city", text[i], true))
+		docs[i] = doc
 	}
+	return docs
+}
 
-	// Fail the first CreateOutput during the commit that persists the buffered
-	// documents. This is the closest Gocene equivalent to the Lucene test's
-	// fail-in-DocumentsWriter-add injection.
-	dir.SetFailOnCreateOutput(true)
-	defer dir.SetFailOnCreateOutput(false)
+// test the simple case
+func TestIndexWriterDeleteSimpleCase(t *testing.T) {
+	dir := newDirectory()
+	modifier := deleteTestWriter(t, dir, 0)
 
-	err = modifier.Commit()
-	if err == nil {
-		t.Fatal("expected Commit to fail with injected CreateOutput failure")
+	for _, doc := range simpleCaseDocs(t) {
+		mustAddDocument(t, modifier, doc)
 	}
-	if !errors.Is(err, store.FakeIOException{}) && !strings.Contains(err.Error(), "simulated") {
-		t.Fatalf("expected simulated I/O error, got %T: %v", err, err)
+	if err := modifier.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	mustCommit(t, modifier)
+
+	term := index.NewTerm("city", "Amsterdam")
+	defer mustClose(t, modifier, dir)
+	indexWriterDeleteGetHitCount(t, dir, term)
+}
+
+// test when delete terms only apply to disk segments
+func TestIndexWriterDeleteNonRAMDelete(t *testing.T) {
+	dir := newDirectory()
+	modifier := deleteTestWriter(t, dir, 2)
+	id := 0
+	value := 100
+
+	for i := 0; i < 7; i++ {
+		id++
+		indexWriterDeleteAddDoc(t, modifier, id, value)
+	}
+	mustCommit(t, modifier)
+
+	defer mustClose(t, modifier, dir)
+	t.Fatal(indexWriterGetNumBufferedDocumentsMissing)
+}
+
+// test when delete terms only apply to ram segments
+func TestIndexWriterDeleteRAMDeletes(t *testing.T) {
+	for pass := 0; pass < 2; pass++ {
+		dir := newDirectory()
+		modifier := deleteTestWriter(t, dir, 4)
+		id := 0
+		value := 100
+
+		id++
+		indexWriterDeleteAddDoc(t, modifier, id, value)
+		if pass == 0 {
+			mustDeleteTerm(t, modifier, "value", strconv.Itoa(value))
+		} else {
+			mustDeleteQuery(t, modifier, search.NewTermQuery(index.NewTerm("value", strconv.Itoa(value))))
+		}
+		id++
+		indexWriterDeleteAddDoc(t, modifier, id, value)
+		if pass == 0 {
+			mustDeleteTerm(t, modifier, "value", strconv.Itoa(value))
+			mustClose(t, modifier, dir)
+			t.Fatal(indexWriterGetBufferedDeleteTermsSizeMissing)
+		} else {
+			mustDeleteQuery(t, modifier, search.NewTermQuery(index.NewTerm("value", strconv.Itoa(value))))
+		}
+
+		id++
+		indexWriterDeleteAddDoc(t, modifier, id, value)
+		assertSegmentCount(t, 0, modifier)
+		mustCommit(t, modifier)
+
+		reader := mustOpenDirectoryReader(t, dir)
+		assertReaderNumDocs(t, 1, reader)
+
+		defer mustClose(t, reader, modifier, dir)
+		indexWriterDeleteGetHitCount(t, dir, index.NewTerm("id", strconv.Itoa(id)))
 	}
 }
 
-// ---------------------------------------------------------------------------
-// testDeleteNullQuery
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_NullQuery ports testDeleteNullQuery: deleting with a
-// query that matches nothing must leave all documents in place.
-func TestIndexWriterDelete_NullQuery(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	modifier, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+func mustDeleteQuery(t testing.TB, w *index.IndexWriter, q index.Query) {
+	t.Helper()
+	if _, err := w.DeleteDocumentsQuery([]index.Query{q}); err != nil {
+		t.Fatalf("deleteDocuments(Query): %v", err)
 	}
+}
+
+// test when delete terms apply to both disk and ram segments
+func TestIndexWriterDeleteBothDeletes(t *testing.T) {
+	dir := newDirectory()
+	modifier := deleteTestWriter(t, dir, 100)
+
+	id := 0
+	value := 100
 
 	for i := 0; i < 5; i++ {
-		addDoc(t, modifier, i, 2*i)
+		id++
+		indexWriterDeleteAddDoc(t, modifier, id, value)
 	}
 
-	q := search.NewTermQuery(index.NewTerm("nada", "nada"))
-	if _, err := modifier.DeleteDocumentsQuery(q); err != nil {
-		t.Fatalf("DeleteDocumentsQuery: %v", err)
+	value = 200
+	for i := 0; i < 5; i++ {
+		id++
+		indexWriterDeleteAddDoc(t, modifier, id, value)
 	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
+	mustCommit(t, modifier)
 
-	stats := modifier.GetDocStats()
-	if stats.NumDocs != 5 {
-		t.Errorf("expected 5 docs, got %d", stats.NumDocs)
+	for i := 0; i < 5; i++ {
+		id++
+		indexWriterDeleteAddDoc(t, modifier, id, value)
 	}
+	mustDeleteTerm(t, modifier, "value", strconv.Itoa(value))
 
-	if err := modifier.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	mustCommit(t, modifier)
+
+	reader := mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 5, reader)
+	mustClose(t, modifier, reader, dir)
 }
 
-// ---------------------------------------------------------------------------
-// testDeleteAllSlowly
-// ---------------------------------------------------------------------------
+// test that batched delete terms are flushed together
+func TestIndexWriterDeleteBatchDeletes(t *testing.T) {
+	dir := newDirectory()
+	modifier := deleteTestWriter(t, dir, 2)
 
-// TestIndexWriterDelete_DeleteAllSlowly ports testDeleteAllSlowly.
-//
-// Intent: index N docs, then delete them one by one in small batches, opening
-// a reader after each batch and verifying that NumDocs equals N minus the
-// number deleted so far. Lucene uses RandomIndexWriter + w.getReader() for NRT
-// verification between batches; Gocene reproduces the same logical checks by
-// committing after each batch and reopening the reader from the directory.
-func TestIndexWriterDelete_DeleteAllSlowly(t *testing.T) {
-	const numDocs = 10
-	const batchSize = 3
-
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	modifier, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
+	id := 0
 	value := 100
-	for id := 1; id <= numDocs; id++ {
-		addDoc(t, modifier, id, value)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
 
-	deleted := 0
-	for id := 1; id <= numDocs; id++ {
-		if _, err := modifier.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", id))); err != nil {
-			t.Fatalf("DeleteDocuments(%d): %v", id, err)
-		}
-		deleted++
-		if deleted%batchSize == 0 || id == numDocs {
-			if err := modifier.Commit(); err != nil {
-				t.Fatalf("Commit after %d deletes: %v", deleted, err)
-			}
-			want := numDocs - deleted
-			if got := readerNumDocs(t, dir); got != want {
-				t.Fatalf("numDocs after %d deletes = %d, want %d", deleted, got, want)
-			}
-		}
+	for i := 0; i < 7; i++ {
+		id++
+		indexWriterDeleteAddDoc(t, modifier, id, value)
 	}
+	mustCommit(t, modifier)
 
-	if err := modifier.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+	assertDirNumDocs(t, dir, 7)
+
+	id = 0
+	id++
+	mustDeleteTerm(t, modifier, "id", strconv.Itoa(id))
+	id++
+	mustDeleteTerm(t, modifier, "id", strconv.Itoa(id))
+
+	mustCommit(t, modifier)
+
+	assertDirNumDocs(t, dir, 5)
+
+	terms := make([]index.Term, 3)
+	for i := range terms {
+		id++
+		terms[i] = *index.NewTerm("id", strconv.Itoa(id))
 	}
+	if _, err := modifier.DeleteDocuments(terms); err != nil {
+		t.Fatalf("deleteDocuments: %v", err)
+	}
+	mustCommit(t, modifier)
+	assertDirNumDocs(t, dir, 2)
+
+	mustClose(t, modifier, dir)
 }
 
-// ---------------------------------------------------------------------------
-// testFlushPushedDeletesByRAM
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_FlushPushedDeletesByRAM ports testFlushPushedDeletesByRAM.
-//
-// Skipped: the test polls for the on-disk side files "_0_1.del" / "_0_1.liv"
-// via slowFileExists to detect when buffered (pushed) deletes are flushed by
-// RAM pressure. Gocene exposes neither slowFileExists nor a stable per-segment
-// live-docs filename contract, so the loop's termination condition cannot be
-// reproduced.
-func TestIndexWriterDelete_FlushPushedDeletesByRAM(t *testing.T) {
-	t.Fatal("infra gap: no slowFileExists / stable _N_M.liv filename contract to detect RAM-flushed deletes")
+func assertDirNumDocs(t testing.TB, dir store.Directory, expected int) {
+	t.Helper()
+	reader := mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, expected, reader)
+	mustClose(t, reader)
 }
 
-// ---------------------------------------------------------------------------
-// testDeletesCheckIndexOutput
-// ---------------------------------------------------------------------------
+// test deleteAll()
+func TestIndexWriterDeleteDeleteAllSimple(t *testing.T) {
+	dir := newDirectory()
+	modifier := deleteTestWriter(t, dir, 2)
 
-// TestIndexWriterDelete_DeletesCheckIndexOutput ports testDeletesCheckIndexOutput.
-//
-// It verifies that CheckIndex's info-stream output contains "has deletions" when
-// a segment carries live-docs deletions, and that force-merging away the
-// deletions removes the substring from the output.
-func TestIndexWriterDelete_DeletesCheckIndexOutput(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	id := 0
+	value := 100
 
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	cfg.SetMergePolicy(index.NewNoMergePolicy())
-	cfg.SetMaxBufferedDocs(2)
+	for i := 0; i < 7; i++ {
+		id++
+		indexWriterDeleteAddDoc(t, modifier, id, value)
+	}
+	mustCommit(t, modifier)
 
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("failed to create writer: %v", err)
+	assertDirNumDocs(t, dir, 7)
+
+	// Add 1 doc (so we will have something buffered)
+	indexWriterDeleteAddDoc(t, modifier, 99, value)
+
+	// Delete all
+	mustDeleteAll(t, modifier)
+
+	// Delete all shouldn't be on disk yet
+	assertDirNumDocs(t, dir, 7)
+
+	// Add a doc and update a doc (after the deleteAll, before the commit)
+	indexWriterDeleteAddDoc(t, modifier, 101, value)
+	indexWriterDeleteUpdateDoc(t, modifier, 102, value)
+
+	// commit the delete all
+	mustCommit(t, modifier)
+
+	// Validate there are no docs left
+	assertDirNumDocs(t, dir, 2)
+
+	mustClose(t, modifier, dir)
+}
+
+func TestIndexWriterDeleteDeleteAllNoDeadLock(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	t.Fatal("org.apache.lucene.tests.index.MockRandomMergePolicy is not ported")
+}
+
+// test rollback of deleteAll()
+func TestIndexWriterDeleteDeleteAllRollback(t *testing.T) {
+	dir := newDirectory()
+	modifier := deleteTestWriter(t, dir, 2)
+
+	id := 0
+	value := 100
+
+	for i := 0; i < 7; i++ {
+		id++
+		indexWriterDeleteAddDoc(t, modifier, id, value)
+	}
+	mustCommit(t, modifier)
+
+	id++
+	indexWriterDeleteAddDoc(t, modifier, id, value)
+
+	assertDirNumDocs(t, dir, 7)
+
+	// Delete all
+	mustDeleteAll(t, modifier)
+
+	// Roll it back
+	if err := modifier.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
 	}
 
+	// Validate that the docs are still there
+	assertDirNumDocs(t, dir, 7)
+
+	mustClose(t, dir)
+}
+
+// test deleteAll() w/ near real-time reader
+func TestIndexWriterDeleteDeleteAllNRT(t *testing.T) {
+	dir := newDirectory()
+	modifier := deleteTestWriter(t, dir, 2)
+
+	id := 0
+	value := 100
+
+	for i := 0; i < 7; i++ {
+		id++
+		indexWriterDeleteAddDoc(t, modifier, id, value)
+	}
+	mustCommit(t, modifier)
+
+	reader := openReaderFromWriter(t, modifier)
+	assertReaderNumDocs(t, 7, reader)
+	mustClose(t, reader)
+
+	id++
+	indexWriterDeleteAddDoc(t, modifier, id, value)
+	id++
+	indexWriterDeleteAddDoc(t, modifier, id, value)
+
+	// Delete all
+	mustDeleteAll(t, modifier)
+
+	reader = openReaderFromWriter(t, modifier)
+	assertReaderNumDocs(t, 0, reader)
+	mustClose(t, reader)
+
+	// Roll it back
+	if err := modifier.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+
+	// Validate that the docs are still there
+	assertDirNumDocs(t, dir, 7)
+
+	mustClose(t, dir)
+}
+
+func indexWriterDeleteDoc(t testing.TB, id, value int) *document.Document {
 	doc := document.NewDocument()
-	idField, _ := document.NewStringField("field", "0", false)
-	doc.Add(idField)
-	if _, err := w.AddDocument(doc); err != nil {
-		t.Fatalf("failed to add document: %v", err)
+	doc.Add(newTextField(t, "content", "aaa", false))
+	doc.Add(newStringField(t, "id", strconv.Itoa(id), true))
+	doc.Add(newStringField(t, "value", strconv.Itoa(value), false))
+	doc.Add(numericDVField(t, "dv", int64(value)))
+	return doc
+}
+
+// indexWriterDeleteUpdateDoc renders the private updateDoc(IndexWriter, int, int).
+func indexWriterDeleteUpdateDoc(t testing.TB, modifier *index.IndexWriter, id, value int) {
+	t.Helper()
+	if _, err := modifier.UpdateDocument(index.NewTerm("id", strconv.Itoa(id)), indexWriterDeleteDoc(t, id, value)); err != nil {
+		t.Fatalf("updateDocument: %v", err)
 	}
+}
+
+// indexWriterDeleteAddDoc renders the private addDoc(IndexWriter, int, int).
+func indexWriterDeleteAddDoc(t testing.TB, modifier *index.IndexWriter, id, value int) {
+	t.Helper()
+	mustAddDocument(t, modifier, indexWriterDeleteDoc(t, id, value))
+}
+
+// indexWriterDeleteGetHitCount renders the private getHitCount(Directory,
+// Term), whose searcher comes from newSearcher.
+func indexWriterDeleteGetHitCount(t testing.TB, dir store.Directory, term *index.Term) int64 {
+	t.Helper()
+	reader := mustOpenDirectoryReader(t, dir)
+	searcher := newSearcher(t, reader)
+	topDocs, err := searcher.Search(search.NewTermQuery(term), 1000)
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	mustClose(t, reader)
+	return topDocs.TotalHits.Value
+}
+
+// testIndexWriterDeleteErrorAfterApplyDeletes renders the @Ignore'd
+// testErrorAfterApplyDeletes: JUnit never runs it, so it has no Test entry
+// point. Its MockDirectoryWrapper.Failure relies on
+// callStackContainsAnyOf(String...), which is not ported.
+func testIndexWriterDeleteErrorAfterApplyDeletes(t *testing.T) {
+	t.Fatal("MockDirectoryWrapper.Failure#callStackContainsAnyOf(String...) is not ported")
+}
+
+// This test tests that the files created by the docs writer before
+// a segment is written are cleaned up if there's an i/o error
+func TestIndexWriterDeleteErrorInDocsWriterAdd(t *testing.T) {
+	failed := false
+	failure := &store.Failure{}
+	failure.SetEval(func(*store.MockDirectoryWrapper) error {
+		if !failed {
+			failed = true
+			return errFailInAddDoc
+		}
+		return nil
+	})
+
+	// create a couple of files
+	dir := newDirectory()
+	modifier := deleteTestWriter(t, dir, 0)
+	mustCommit(t, modifier)
+	failed = false // failure.reset()
+	dir.FailOn(failure)
+
+	for _, doc := range simpleCaseDocs(t) {
+		if _, err := modifier.AddDocument(doc); err != nil {
+			break
+		}
+	}
+	defer mustClose(t, dir)
+	t.Fatal(indexWriterIsDeleterClosedMissing)
+}
+
+var errFailInAddDoc = &failInAddDocError{}
+
+type failInAddDocError struct{}
+
+func (*failInAddDocError) Error() string { return "fail in add doc" }
+
+func TestIndexWriterDeleteDeleteNullQuery(t *testing.T) {
+	dir := newDirectory()
+	modifier := mustNewIndexWriter(t, dir, index.NewIndexWriterConfigWithAnalyzer(newWhitespaceMockAnalyzerLower(false)))
+
+	for i := 0; i < 5; i++ {
+		indexWriterDeleteAddDoc(t, modifier, i, 2*i)
+	}
+
+	mustDeleteQuery(t, modifier, search.NewTermQuery(index.NewTerm("nada", "nada")))
+	mustCommit(t, modifier)
+	assertWriterDocStats(t, modifier, -1, 5)
+	mustClose(t, modifier, dir)
+}
+
+func TestIndexWriterDeleteDeleteAllSlowly(t *testing.T) {
+	dir := newDirectory()
+	w := newRandomIndexWriter(t, dir)
+	numDocs := atLeast(1000)
+	ids := make([]int, numDocs)
+	for id := range ids {
+		ids[id] = id
+	}
+	rand.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
+	for _, id := range ids {
+		doc := document.NewDocument()
+		doc.Add(newStringField(t, "id", strconv.Itoa(id), false))
+		if _, err := w.AddDocument(doc); err != nil {
+			t.Fatalf("addDocument: %v", err)
+		}
+	}
+	rand.Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
+	upto := 0
+	for upto < len(ids) {
+		left := len(ids) - upto
+		inc := min(left, nextInt(1, 20))
+		limit := upto + inc
+		for upto < limit {
+			if _, err := w.DeleteDocuments(index.NewTerm("id", strconv.Itoa(ids[upto]))); err != nil {
+				t.Fatalf("deleteDocuments: %v", err)
+			}
+			upto++
+		}
+		r := mustGetReaderRIW(t, w)
+		assertReaderNumDocs(t, numDocs-upto, r)
+		mustClose(t, r)
+	}
+
+	mustClose(t, w, dir)
+}
+
+// LUCENE-3340: make sure deletes that we don't apply
+// during flush (ie are just pushed into the stream) are
+// in fact later flushed due to their RAM usage:
+func TestIndexWriterDeleteFlushPushedDeletesByRAM(t *testing.T) {
+	dir := newDirectory()
+	// Cannot use RandomIndexWriter because we don't want to
+	// ever call commit() for this test:
+	// note: tiny RAM buffer used, as with a 1MB buffer the test is too slow (flush @ 128,999)
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetRAMBufferSizeMB(0.5)
+	conf.SetMaxBufferedDocs(1000)
+	conf.SetMergePolicy(index.NewNoMergePolicy())
+	conf.SetReaderPooling(false)
+	w := mustNewIndexWriter(t, dir, conf)
+	count := 0
+	for {
+		doc := document.NewDocument()
+		doc.Add(mustNewStringField(t, "id", strconv.Itoa(count)))
+		var delTerm *index.Term
+		if count == 1010 {
+			// This is the only delete that applies
+			delTerm = index.NewTerm("id", "0")
+		} else {
+			// These get buffered, taking up RAM, but delete
+			// nothing when applied:
+			delTerm = index.NewTerm("id", "x"+strconv.Itoa(count))
+		}
+		if _, err := w.UpdateDocument(delTerm, doc); err != nil {
+			t.Fatalf("updateDocument: %v", err)
+		}
+		// Eventually segment 0 should get a del docs:
+		// TODO: fix this test
+		if slowFileExists(t, dir, "_0_1.del") || slowFileExists(t, dir, "_0_1.liv") {
+			break
+		}
+		count++
+
+		// Today we applyDeletes @ count=21553; even if we make
+		// sizable improvements to RAM efficiency of buffered
+		// del term we're unlikely to go over 100K:
+		if count > 100000 {
+			mustClose(t, w, dir)
+			t.Fatal("delete's were not applied")
+		}
+	}
+	mustClose(t, w, dir)
+}
+
+// mustNewStringField renders new StringField(name, value, Field.Store.NO).
+func mustNewStringField(t testing.TB, name, value string) *document.StringField {
+	t.Helper()
+	f, err := document.NewStringField(name, value, false)
+	if err != nil {
+		t.Fatalf("StringField: %v", err)
+	}
+	return f
+}
+
+// LUCENE-4455
+func TestIndexWriterDeleteDeletesCheckIndexOutput(t *testing.T) {
+	dir := newDirectory()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(index.NewNoMergePolicy())
+	iwc.SetMaxBufferedDocs(2)
+	w := mustNewIndexWriter(t, dir, iwc)
+	doc := document.NewDocument()
+	doc.Add(newField(t, "field", "0", document.StringFieldTypeNotStored))
+	mustAddDocument(t, w, doc)
 
 	doc = document.NewDocument()
-	idField, _ = document.NewStringField("field", "1", false)
-	doc.Add(idField)
-	if _, err := w.AddDocument(doc); err != nil {
-		t.Fatalf("failed to add document: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("failed to commit: %v", err)
-	}
-	if w.GetSegmentCount() != 1 {
-		t.Fatalf("expected 1 segment, got %d", w.GetSegmentCount())
-	}
+	doc.Add(newField(t, "field", "1", document.StringFieldTypeNotStored))
+	mustAddDocument(t, w, doc)
+	mustCommit(t, w)
+	assertSegmentCount(t, 1, w)
 
-	if _, err := w.DeleteDocuments(index.NewTerm("field", "0")); err != nil {
-		t.Fatalf("failed to delete document: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("failed to commit: %v", err)
-	}
-	if w.GetSegmentCount() != 1 {
-		t.Fatalf("expected 1 segment after commit, got %d", w.GetSegmentCount())
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("failed to close writer: %v", err)
-	}
+	mustDeleteTerm(t, w, "field", "0")
+	mustCommit(t, w)
+	assertSegmentCount(t, 1, w)
+	mustClose(t, w)
 
-	var out strings.Builder
+	s := checkIndexOutput(t, dir)
+
+	// Segment should have deletions:
+	if !strings.Contains(s, "has deletions") {
+		t.Fatalf("assertTrue(s.contains(\"has deletions\")): %s", s)
+	}
+	iwc = index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	w = mustNewIndexWriter(t, dir, iwc)
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	mustClose(t, w)
+
+	s = checkIndexOutput(t, dir)
+	if strings.Contains(s, "has deletions") {
+		t.Fatalf("assertFalse(s.contains(\"has deletions\")): %s", s)
+	}
+	mustClose(t, dir)
+}
+
+// checkIndexOutput runs CheckIndex over dir with a non-verbose info stream,
+// asserts the index is clean and returns the captured output.
+func checkIndexOutput(t testing.TB, dir store.Directory) string {
+	t.Helper()
+	var bos bytes.Buffer
 	checker, err := index.NewCheckIndex(dir)
 	if err != nil {
-		t.Fatalf("failed to create CheckIndex: %v", err)
+		t.Fatalf("new CheckIndex: %v", err)
 	}
-	checker.SetInfoStream(&out)
-	status, err := checker.CheckIndex()
+	checker.SetInfoStream(&bos, false)
+	indexStatus, err := checker.CheckIndex(nil)
 	if err != nil {
-		t.Fatalf("CheckIndex failed: %v", err)
+		t.Fatalf("checkIndex: %v", err)
 	}
-	if !status.Clean {
-		t.Fatal("expected clean index")
+	if !indexStatus.Clean {
+		t.Fatalf("assertTrue(indexStatus.clean): %s", bos.String())
 	}
-	checker.Close()
-	if !strings.Contains(out.String(), "has deletions") {
-		t.Fatalf("expected info-stream to contain 'has deletions', got:\n%s", out.String())
+	if err := checker.Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
-
-	// Force-merge away the deletions and re-check.  This half of the Lucene
-	// test is blocked: Gocene's ForceMerge currently preserves the live-docs
-	// file for the merged segment instead of rewriting the segment without
-	// deletions, so the info-stream still reports "has deletions".
-	t.Fatal("blocked: ForceMerge(1) must rewrite segments without live-docs deletions; see GOC-4169")
+	return bos.String()
 }
 
-// ---------------------------------------------------------------------------
-// testTryDeleteDocument
-// ---------------------------------------------------------------------------
+func TestIndexWriterDeleteTryDeleteDocument(t *testing.T) {
+	d := newDirectory()
 
-// TestIndexWriterDelete_TryDeleteDocument ports testTryDeleteDocument.
-func TestIndexWriterDelete_TryDeleteDocument(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	w := mustNewIndexWriter(t, d, iwc)
+	doc := document.NewDocument()
+	mustAddDocument(t, w, doc)
+	mustAddDocument(t, w, doc)
+	mustAddDocument(t, w, doc)
+	mustClose(t, w)
 
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	w, err := index.NewIndexWriter(dir, cfg)
+	iwc = index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(index.NewNoMergePolicy())
+	iwc.SetOpenMode(index.Append)
+	w = mustNewIndexWriter(t, d, iwc)
+	r, err := index.OpenDirectoryReaderFromWriterWithOptions(w, false, false)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("DirectoryReader.open(w, false, false): %v", err)
 	}
-	for i := 0; i < 3; i++ {
-		doc := document.NewDocument()
-		f, err := document.NewTextField("content", "x", false)
-		if err != nil {
-			t.Fatalf("NewTextField: %v", err)
-		}
-		doc.Add(f)
-		if _, err := w.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	// Re-open in APPEND mode with NoMergePolicy so the segment stays intact.
-	cfg2 := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	cfg2.SetMergePolicy(index.NewNoMergePolicy())
-	cfg2.SetOpenMode(index.APPEND)
-	w2, err := index.NewIndexWriter(dir, cfg2)
-	if err != nil {
-		t.Fatalf("NewIndexWriter append: %v", err)
-	}
-	defer w2.Close()
-
-	reader, err := index.OpenDirectoryReaderFromWriterWithOptions(w2, false, false)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriterWithOptions: %v", err)
-	}
-	defer reader.Close()
-
-	if ok, err := w2.TryDeleteDocument(reader, 1); err != nil {
-		t.Fatalf("TryDeleteDocument composite: %v", err)
-	} else if !ok {
-		t.Fatal("expected TryDeleteDocument on composite reader to succeed")
-	}
-
-	current, err := reader.IsCurrent()
-	if err != nil {
-		t.Fatalf("IsCurrent: %v", err)
-	}
-	if current {
-		t.Fatal("reader should be stale after TryDeleteDocument")
-	}
-
-	leaves, err := reader.Leaves()
-	if err != nil {
-		t.Fatalf("Leaves: %v", err)
-	}
-	if len(leaves) == 0 {
-		t.Fatal("expected at least one leaf")
-	}
-	leafReader := leaves[0].Reader()
-	if ok, err := w2.TryDeleteDocument(leafReader, 0); err != nil {
-		t.Fatalf("TryDeleteDocument leaf: %v", err)
-	} else if !ok {
-		t.Fatal("expected TryDeleteDocument on leaf reader to succeed")
-	}
-
-	if err := w2.Close(); err != nil {
-		t.Fatalf("Close writer: %v", err)
-	}
-
-	reader2, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader2.Close()
-	if reader2.NumDeletedDocs() != 2 {
-		t.Fatalf("expected 2 deleted docs, got %d", reader2.NumDeletedDocs())
-	}
+	defer mustClose(t, r, w, d)
+	t.Fatal(tryDeleteDocumentMissing)
 }
 
-// ---------------------------------------------------------------------------
-// testNRTIsCurrentAfterDelete
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_NRTIsCurrentAfterDelete ports testNRTIsCurrentAfterDelete.
-//
-// Intent: an NRT reader opened from the writer becomes stale as soon as a
-// buffered delete is issued, even before the delete is committed to disk.
-func TestIndexWriterDelete_NRTIsCurrentAfterDelete(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	modifier, err := index.NewIndexWriter(dir, cfg)
+func TestIndexWriterDeleteNRTIsCurrentAfterDelete(t *testing.T) {
+	d := newDirectory()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	w := mustNewIndexWriter(t, d, iwc)
+	doc := document.NewDocument()
+	for i := 0; i < 5; i++ {
+		mustAddDocument(t, w, doc)
+	}
+	doc.Add(newStringFieldNoRandom(t, "id", "1", true))
+	mustAddDocument(t, w, doc)
+	mustClose(t, w)
+	iwc = index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetOpenMode(index.Append)
+	w = mustNewIndexWriter(t, d, iwc)
+	r, err := index.OpenDirectoryReaderFromWriterWithOptions(w, false, false)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("DirectoryReader.open(w, false, false): %v", err)
 	}
-	defer modifier.Close()
-
-	value := 100
-	for id := 1; id <= 10; id++ {
-		addDoc(t, modifier, id, value)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReaderFromWriter(modifier)
+	mustDeleteTerm(t, w, "id", "1")
+	r2, err := index.OpenDirectoryReaderFromWriterWithOptions(w, true, true)
 	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+		t.Fatalf("DirectoryReader.open(w, true, true): %v", err)
 	}
-	defer reader.Close()
-
-	current, err := reader.IsCurrent()
-	if err != nil {
-		t.Fatalf("IsCurrent: %v", err)
+	if current, err := r.IsCurrent(); err != nil || current {
+		t.Fatalf("assertFalse(r.isCurrent()): %v (%v)", current, err)
 	}
-	if !current {
-		t.Fatal("fresh NRT reader should be current")
+	if current, err := r2.IsCurrent(); err != nil || !current {
+		t.Fatalf("assertTrue(r2.isCurrent()): %v (%v)", current, err)
 	}
-
-	if _, err := modifier.DeleteDocuments(index.NewTerm("id", "5")); err != nil {
-		t.Fatalf("DeleteDocuments: %v", err)
-	}
-
-	current, err = reader.IsCurrent()
-	if err != nil {
-		t.Fatalf("IsCurrent after delete: %v", err)
-	}
-	if current {
-		t.Fatal("NRT reader should be stale after a buffered delete")
-	}
+	mustClose(t, r, r2, w, d)
 }
 
-// ---------------------------------------------------------------------------
-// testOnlyDeletesTriggersMergeOnClose
-// ---------------------------------------------------------------------------
+// newStringFieldNoRandom renders new StringField(name, value, store).
+func newStringFieldNoRandom(t testing.TB, name, value string, stored bool) *document.StringField {
+	t.Helper()
+	f, err := document.NewStringField(name, value, stored)
+	if err != nil {
+		t.Fatalf("StringField: %v", err)
+	}
+	return f
+}
 
-// TestIndexWriterDelete_OnlyDeletesTriggersMergeOnClose ports
-// testOnlyDeletesTriggersMergeOnClose.
-func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnClose(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	cfg.SetMaxBufferedDocs(2)
+// onlyDeletesWriter renders the writer of the testOnlyDeletes* and
+// testMergingAfterDeleteAll tests.
+func onlyDeletesWriter(t *testing.T, dir store.Directory) *index.IndexWriter {
+	t.Helper()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMaxBufferedDocs(2)
 	mp := index.NewLogDocMergePolicy()
 	mp.SetMinMergeDocs(1)
-	cfg.SetMergePolicy(mp)
-	cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 38; i++ {
-		doc := document.NewDocument()
-		idField, err := document.NewStringField("id", fmt.Sprintf("%d", i), false)
-		if err != nil {
-			t.Fatalf("NewStringField: %v", err)
-		}
-		doc.Add(idField)
-		if _, err := w.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	for i := 0; i < 18; i++ {
-		if _, err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
-			t.Fatalf("DeleteDocuments %d: %v", i, err)
-		}
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	r, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	leaves, err := r.Leaves()
-	if err != nil {
-		t.Fatalf("Leaves: %v", err)
-	}
-	if got := len(leaves); got != 1 {
-		t.Fatalf("leaves = %d, want 1", got)
-	}
-	r.Close()
+	iwc.SetMergePolicy(mp)
+	iwc.SetMergeScheduler(index.NewSerialMergeScheduler())
+	return mustNewIndexWriter(t, dir, iwc)
 }
 
-// ---------------------------------------------------------------------------
-// testOnlyDeletesTriggersMergeOnGetReader
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_OnlyDeletesTriggersMergeOnGetReader ports
-// testOnlyDeletesTriggersMergeOnGetReader.
-func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnGetReader(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	cfg.SetMaxBufferedDocs(2)
-	mp := index.NewLogDocMergePolicy()
-	mp.SetMinMergeDocs(1)
-	cfg.SetMergePolicy(mp)
-	cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 38; i++ {
+func addIDDocs(t testing.TB, w *index.IndexWriter, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
 		doc := document.NewDocument()
-		idField, err := document.NewStringField("id", fmt.Sprintf("%d", i), false)
-		if err != nil {
-			t.Fatalf("NewStringField: %v", err)
-		}
-		doc.Add(idField)
-		if _, err := w.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
+		doc.Add(newStringField(t, "id", strconv.Itoa(i), false))
+		mustAddDocument(t, w, doc)
 	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	for i := 0; i < 18; i++ {
-		if _, err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
-			t.Fatalf("DeleteDocuments %d: %v", i, err)
-		}
-	}
-
-	// First NRT open triggers the merge but does not reflect it yet.
-	r1, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	r1.Close()
-
-	r, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter second: %v", err)
-	}
-	leaves, err := r.Leaves()
-	if err != nil {
-		t.Fatalf("Leaves: %v", err)
-	}
-	if got := len(leaves); got != 1 {
-		t.Fatalf("leaves = %d, want 1", got)
-	}
-	r.Close()
-	w.Close()
 }
 
-// ---------------------------------------------------------------------------
-// testOnlyDeletesTriggersMergeOnFlush
-// ---------------------------------------------------------------------------
-
-// TestIndexWriterDelete_OnlyDeletesTriggersMergeOnFlush ports
-// testOnlyDeletesTriggersMergeOnFlush.
-func TestIndexWriterDelete_OnlyDeletesTriggersMergeOnFlush(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	cfg.SetMaxBufferedDocs(2)
-	mp := index.NewLogDocMergePolicy()
-	mp.SetMinMergeDocs(1)
-	cfg.SetMergePolicy(mp)
-	cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+func deleteIDs(t testing.TB, w *index.IndexWriter, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		mustDeleteTerm(t, w, "id", strconv.Itoa(i))
 	}
-	for i := 0; i < 38; i++ {
-		doc := document.NewDocument()
-		idField, err := document.NewStringField("id", fmt.Sprintf("%d", i), false)
-		if err != nil {
-			t.Fatalf("NewStringField: %v", err)
-		}
-		doc.Add(idField)
-		if _, err := w.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	for i := 0; i < 18; i++ {
-		if _, err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
-			t.Fatalf("DeleteDocuments %d: %v", i, err)
-		}
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	r, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	leaves, err := r.Leaves()
-	if err != nil {
-		t.Fatalf("Leaves: %v", err)
-	}
-	if got := len(leaves); got != 1 {
-		t.Fatalf("leaves = %d, want 1", got)
-	}
-	r.Close()
 }
 
-// ---------------------------------------------------------------------------
-// testOnlyDeletesDeleteAllDocs
-// ---------------------------------------------------------------------------
+func TestIndexWriterDeleteOnlyDeletesTriggersMergeOnClose(t *testing.T) {
+	dir := newDirectory()
+	w := onlyDeletesWriter(t, dir)
+	addIDDocs(t, w, 38)
+	mustCommit(t, w)
 
-// TestIndexWriterDelete_OnlyDeletesDeleteAllDocs ports
-// testOnlyDeletesDeleteAllDocs.
-func TestIndexWriterDelete_OnlyDeletesDeleteAllDocs(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	deleteIDs(t, w, 18)
 
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	cfg.SetMaxBufferedDocs(2)
-	mp := index.NewLogDocMergePolicy()
-	mp.SetMinMergeDocs(1)
-	cfg.SetMergePolicy(mp)
-	cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 38; i++ {
-		doc := document.NewDocument()
-		idField, err := document.NewStringField("id", fmt.Sprintf("%d", i), false)
-		if err != nil {
-			t.Fatalf("NewStringField: %v", err)
-		}
-		doc.Add(idField)
-		if _, err := w.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	for i := 0; i < 38; i++ {
-		if _, err := w.DeleteDocuments(index.NewTerm("id", fmt.Sprintf("%d", i))); err != nil {
-			t.Fatalf("DeleteDocuments %d: %v", i, err)
-		}
-	}
-
-	r, err := index.OpenDirectoryReaderFromWriter(w)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	leaves, err := r.Leaves()
-	if err != nil {
-		t.Fatalf("Leaves: %v", err)
-	}
-	if got := len(leaves); got != 0 {
-		t.Fatalf("leaves = %d, want 0", got)
-	}
-	if got := r.MaxDoc(); got != 0 {
-		t.Fatalf("MaxDoc = %d, want 0", got)
-	}
-	r.Close()
-	w.Close()
+	mustClose(t, w)
+	r := mustOpenDirectoryReader(t, dir)
+	assertLeafCount(t, 1, r)
+	mustClose(t, r, dir)
 }
 
-// ---------------------------------------------------------------------------
-// testMergingAfterDeleteAll
-// ---------------------------------------------------------------------------
+func TestIndexWriterDeleteOnlyDeletesTriggersMergeOnGetReader(t *testing.T) {
+	dir := newDirectory()
+	w := onlyDeletesWriter(t, dir)
+	addIDDocs(t, w, 38)
+	mustCommit(t, w)
 
-// TestIndexWriterDelete_MergingAfterDeleteAll ports testMergingAfterDeleteAll.
-//
-// Intent: index 10 docs and commit, call deleteAll, index 100 fresh docs and
-// force-merge; the index must collapse to a single leaf holding exactly the
-// 100 new docs, proving merges still kick off after a deleteAll. Lucene
-// verifies via DirectoryReader.open(writer) and tunes
-// LogDocMergePolicy.setMinMergeDocs(1).
-func TestIndexWriterDelete_MergingAfterDeleteAll(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	deleteIDs(t, w, 18)
 
-	cfg := index.NewIndexWriterConfig(newDeleteTestAnalyzer())
-	modifier, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
+	// First one triggers, but does not reflect, the merge:
+	mustClose(t, openReaderFromWriter(t, w))
+	r := openReaderFromWriter(t, w)
+	assertLeafCount(t, 1, r)
+	mustClose(t, r, w, dir)
+}
 
-	value := 100
-	for id := 1; id <= 10; id++ {
-		addDoc(t, modifier, id, value)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit initial: %v", err)
-	}
+func TestIndexWriterDeleteOnlyDeletesTriggersMergeOnFlush(t *testing.T) {
+	dir := newDirectory()
+	w := onlyDeletesWriter(t, dir)
+	addIDDocs(t, w, 38)
+	mustCommit(t, w)
 
-	if _, err := modifier.DeleteAll(); err != nil {
-		t.Fatalf("DeleteAll: %v", err)
-	}
+	// Deleting 18 out of the 20 docs in the first segment make it the same
+	// "level" as the other 9 which should cause a merge to kick off:
+	deleteIDs(t, w, 18)
+	mustClose(t, w)
 
-	for id := 11; id <= 110; id++ {
-		addDoc(t, modifier, id, value)
-	}
-	if err := modifier.Commit(); err != nil {
-		t.Fatalf("Commit after re-index: %v", err)
-	}
+	r := mustOpenDirectoryReader(t, dir)
+	assertLeafCount(t, 1, r)
+	mustClose(t, r, dir)
+}
 
-	if err := modifier.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
+func TestIndexWriterDeleteOnlyDeletesDeleteAllDocs(t *testing.T) {
+	dir := newDirectory()
+	w := onlyDeletesWriter(t, dir)
+	addIDDocs(t, w, 38)
+	mustCommit(t, w)
 
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
+	deleteIDs(t, w, 38)
 
-	if got := reader.NumDocs(); got != 100 {
-		t.Fatalf("NumDocs = %d, want 100", got)
+	r := openReaderFromWriter(t, w)
+	assertLeafCount(t, 0, r)
+	if r.MaxDoc() != 0 {
+		t.Fatalf("maxDoc: expected 0, got %d", r.MaxDoc())
 	}
-	leaves, err := reader.Leaves()
-	if err != nil {
-		t.Fatalf("Leaves: %v", err)
-	}
-	if len(leaves) != 1 {
-		t.Fatalf("leaves = %d, want 1", len(leaves))
+	mustClose(t, r, w, dir)
+}
+
+// Make sure merges still kick off after IW.deleteAll!
+func TestIndexWriterDeleteMergingAfterDeleteAll(t *testing.T) {
+	dir := newDirectory()
+	w := onlyDeletesWriter(t, dir)
+	addIDDocs(t, w, 10)
+	mustCommit(t, w)
+	mustDeleteAll(t, w)
+
+	addIDDocs(t, w, 100)
+
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
 	}
 
-	if err := modifier.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	r := openReaderFromWriter(t, w)
+	assertLeafCount(t, 1, r)
+	mustClose(t, r, w, dir)
 }

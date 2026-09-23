@@ -1,35 +1,26 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+// Port of lucene/test-framework/src/test/org/apache/lucene/tests/index/TestForceMergePolicy.java
+// (Apache Lucene 10.5.0). Gocene declares the test-framework class
+// org.apache.lucene.tests.index.ForceMergePolicy in package index, so its test
+// lives here.
+
 package index
 
-import (
-	"testing"
-
-	"github.com/FlavioCFOliveira/Gocene/spi"
-)
+import "testing"
 
 func TestForceMergePolicy(t *testing.T) {
-	base := NewBaseMergePolicy(DefaultNoCFSRatio, DefaultMaxCFSSegmentSize)
-	policy := NewForceMergePolicy(base)
-
-	infos := &spi.SegmentInfos{}
-	mc := NewBaseMergeContext()
-
-	spec, err := policy.FindMerges(nil, infos, mc)
+	mp := NewForceMergePolicy(nil)
+	// Java: mp.findMerges(null, (SegmentInfos) null, null). MergeTrigger is an
+	// int enum in Gocene; its zero value stands for the Java null argument.
+	var trigger MergeTrigger
+	spec, err := mp.FindMerges(trigger, nil, nil)
 	if err != nil {
-		t.Fatalf("FindMerges failed: %v", err)
+		t.Fatalf("findMerges: %v", err)
 	}
 	if spec != nil {
-		t.Errorf("expected nil MergeSpecification, got %v", spec)
+		t.Fatalf("assertNull(mp.findMerges(null, null, null)): got %v", spec)
 	}
-}
-
-func TestMergeOnFlushMergePolicy(t *testing.T) {
-	base := NewBaseMergePolicy(DefaultNoCFSRatio, DefaultMaxCFSSegmentSize)
-	policy := NewMergeOnFlushMergePolicy(base)
-	policy.SetSmallSegmentThresholdMB(1.0) // 1MB
-
-	// Mock SegmentCommitInfos
-	// Note: In a real test, we'd need to setup Directory and files to get real sizes.
-	// For now, we'll mock the size by using a dummy directory if possible,
-	// or we can just test the logic if we can control SizeInBytes.
-	// Since SizeInBytes reads from directory, we need a real directory.
 }

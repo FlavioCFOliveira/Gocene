@@ -2,50 +2,53 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Ported from Apache Lucene's
-// org.apache.lucene.index.TestIndexWriterLockRelease.
-//
-// This tests the patch for issue LUCENE-715 (IndexWriter does not release
-// its write lock when trying to open an index which does not yet exist).
-//
-// GOC-4141: Sprint 55.
+// Port of lucene/core/src/test/org/apache/lucene/index/TestIndexWriterLockRelease.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
 import (
+	"errors"
+	"io/fs"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// TestIndexWriterLockRelease verifies that opening a non-existent index in
-// APPEND mode fails, yet releases the write lock, so a second APPEND attempt
-// fails the same way instead of being blocked by a stale lock.
-//
-// Skipped: NewIndexWriter currently ignores IndexWriterConfig.OpenMode and
-// does not acquire a write lock, so APPEND on a missing index succeeds and the
-// LUCENE-715 scenario cannot be exercised. Unskip once OpenMode handling and
-// write-lock acquisition land in IndexWriter.
-func TestIndexWriterLockRelease(t *testing.T) {
-	dir, err := store.NewSimpleFSDirectory(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewSimpleFSDirectory() error = %v", err)
+// isFileNotFoundOrNoSuchFile renders catching FileNotFoundException |
+// NoSuchFileException.
+func isFileNotFoundOrNoSuchFile(err error) bool {
+	return errors.Is(err, store.ErrFileNotFound) || errors.Is(err, fs.ErrNotExist)
+}
+
+// This tests the patch for issue #LUCENE-715 (IndexWriter does not release
+// its write lock when trying to open an index which does not yet exist).
+func TestIndexWriterLockReleaseIndexWriterLockRelease(t *testing.T) {
+	dir := newFSDirectory(t)
+	defer mustClose(t, dir)
+
+	conf := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetOpenMode(index.Append)
+	w, err := index.NewIndexWriter(dir, conf)
+	if err == nil {
+		// Java leaves the writer open here; its write lock then fails
+		// dir.close(). The Go rendering reports it directly.
+		mustClose(t, w)
+		t.Fatal("new IndexWriter(APPEND) on a missing index did not throw FileNotFoundException/NoSuchFileException")
 	}
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createMockAnalyzer())
-	config.SetOpenMode(index.APPEND)
-
-	if w, err := index.NewIndexWriter(dir, config); err == nil {
-		w.Close()
-		t.Fatal("first NewIndexWriter(APPEND) on a missing index should fail")
+	if !isFileNotFoundOrNoSuchFile(err) {
+		t.Fatalf("new IndexWriter(APPEND): %v", err)
 	}
 
-	// LUCENE-715: the first failed attempt must have released the write lock.
-	config2 := index.NewIndexWriterConfig(createMockAnalyzer())
-	config2.SetOpenMode(index.APPEND)
-	if w, err := index.NewIndexWriter(dir, config2); err == nil {
-		w.Close()
-		t.Fatal("second NewIndexWriter(APPEND) on a missing index should fail")
+	conf2 := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf2.SetOpenMode(index.Append)
+	w, err = index.NewIndexWriter(dir, conf2)
+	if err == nil {
+		mustClose(t, w)
+		t.Fatal("second new IndexWriter(APPEND) on a missing index did not throw FileNotFoundException/NoSuchFileException")
+	}
+	if !isFileNotFoundOrNoSuchFile(err) {
+		t.Fatalf("second new IndexWriter(APPEND): %v", err)
 	}
 }

@@ -6,9 +6,11 @@ package index
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 	"sync/atomic"
 
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -102,8 +104,6 @@ func (d *DocumentsWriterDeleteQueue) storeTail(n Node) {
 	d.tail.Store(&nodeRef{node: n})
 }
 
-const maxInt = 2147483647
-
 func NewDocumentsWriterDeleteQueue(infoStream util.InfoStream) *DocumentsWriterDeleteQueue {
 	// seqNo must start at 1 because some APIs negate this to also return a boolean
 	return newDocumentsWriterDeleteQueue(infoStream, 0, 1, func() int64 { return 0 })
@@ -116,8 +116,6 @@ func newDocumentsWriterDeleteQueue(
 	previousMaxSeqId func() int64,
 ) *DocumentsWriterDeleteQueue {
 	globalBufferedUpdates := NewBufferedUpdates("global")
-	nextSeqNo := atomic.Int64{}
-	nextSeqNo.Store(startSeqNo)
 
 	value := previousMaxSeqId()
 	if value > startSeqNo {
@@ -132,7 +130,6 @@ func newDocumentsWriterDeleteQueue(
 	dwdq := &DocumentsWriterDeleteQueue{
 		globalBufferedUpdates: globalBufferedUpdates,
 		generation:            generation,
-		nextSeqNo:             nextSeqNo,
 		startSeqNo:            startSeqNo,
 		previousMaxSeqId:      previousMaxSeqId,
 		infoStream:            infoStream,
@@ -142,28 +139,51 @@ func newDocumentsWriterDeleteQueue(
 	// Correction: Use actual MaxInt64 for maxSeqNo.
 	dwdq.maxSeqNo = 9223372036854775807
 
+	dwdq.nextSeqNo.Store(startSeqNo)
 	dwdq.storeTail(sentinel)
 	dwdq.globalSlice = NewDeleteSlice(sentinel)
 
 	return dwdq
 }
 
-func (d *DocumentsWriterDeleteQueue) AddDelete(queries ...Query) int64 {
-	seqNo := d.AddNode(newNodeQueryArray(queries))
-	d.tryApplyGlobalSlice()
-	return seqNo
+// AddDelete buffers query deletes. Mirrors addDelete(Query...).
+//
+// Java's ensureOpen throws the unchecked AlreadyClosedException; Gocene
+// returns it as an error value.
+func (d *DocumentsWriterDeleteQueue) AddDelete(queries ...Query) (int64, error) {
+	seqNo, err := d.Add(newNodeQueryArray(queries))
+	if err != nil {
+		return 0, err
+	}
+	if err := d.tryApplyGlobalSlice(); err != nil {
+		return 0, err
+	}
+	return seqNo, nil
 }
 
-func (d *DocumentsWriterDeleteQueue) AddDeleteTerms(terms ...Term) int64 {
-	seqNo := d.AddNode(newNodeTermArray(terms))
-	d.tryApplyGlobalSlice()
-	return seqNo
+// AddDeleteTerms buffers term deletes. Mirrors addDelete(Term...).
+func (d *DocumentsWriterDeleteQueue) AddDeleteTerms(terms ...Term) (int64, error) {
+	seqNo, err := d.Add(newNodeTermArray(terms))
+	if err != nil {
+		return 0, err
+	}
+	if err := d.tryApplyGlobalSlice(); err != nil {
+		return 0, err
+	}
+	return seqNo, nil
 }
 
-func (d *DocumentsWriterDeleteQueue) AddDocValuesUpdates(updates ...DocValuesUpdate) int64 {
-	seqNo := d.AddNode(newNodeDocValuesUpdates(updates))
-	d.tryApplyGlobalSlice()
-	return seqNo
+// AddDocValuesUpdates buffers doc-values updates. Mirrors
+// addDocValuesUpdates(DocValuesUpdate...).
+func (d *DocumentsWriterDeleteQueue) AddDocValuesUpdates(updates ...DocValuesUpdate) (int64, error) {
+	seqNo, err := d.Add(newNodeDocValuesUpdates(updates))
+	if err != nil {
+		return 0, err
+	}
+	if err := d.tryApplyGlobalSlice(); err != nil {
+		return 0, err
+	}
+	return seqNo, nil
 }
 
 func NewTermNode(term Term) Node {
@@ -178,9 +198,13 @@ func NewDocValuesUpdatesNode(updates ...DocValuesUpdate) Node {
 	return &docValuesUpdatesNode{NodeBase: NodeBase{item: updates}, updates: updates}
 }
 
-// invariant for document update
-func (d *DocumentsWriterDeleteQueue) AddWithSlice(deleteNode Node, slice *DeleteSlice) int64 {
-	seqNo := d.AddNode(deleteNode)
+// AddWithSlice is the invariant for document update. Mirrors
+// add(Node, DeleteSlice).
+func (d *DocumentsWriterDeleteQueue) AddWithSlice(deleteNode Node, slice *DeleteSlice) (int64, error) {
+	seqNo, err := d.Add(deleteNode)
+	if err != nil {
+		return 0, err
+	}
 	/*
 	 * this is an update request where the term is the updated documents
 	 * delTerm. in that case we need to guarantee that this insert is atomic
@@ -192,18 +216,23 @@ func (d *DocumentsWriterDeleteQueue) AddWithSlice(deleteNode Node, slice *Delete
 	 * competing updates wins!
 	 */
 	slice.sliceTail = deleteNode
-	if slice.sliceHead == slice.sliceTail {
-		panic("slice head and tail must differ after add")
+	if util.AssertsEnabled() && !(slice.sliceHead != slice.sliceTail) {
+		panic(util.NewAssertionError("slice head and tail must differ after add"))
 	}
-	d.tryApplyGlobalSlice()
-	return seqNo
+	if err := d.tryApplyGlobalSlice(); err != nil {
+		return 0, err
+	}
+	return seqNo, nil
 }
 
-func (d *DocumentsWriterDeleteQueue) AddNode(newNode Node) int64 {
+// Add appends a node to the queue. Mirrors the synchronized add(Node).
+func (d *DocumentsWriterDeleteQueue) Add(newNode Node) (int64, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.ensureOpen()
+	if err := d.ensureOpen(); err != nil {
+		return 0, err
+	}
 
 	// The Java code does: tail.next = newNode; this.tail = newNode;
 	// Since tail is a Node, and Node is an interface, we need to handle the next pointer.
@@ -213,7 +242,7 @@ func (d *DocumentsWriterDeleteQueue) AddNode(newNode Node) int64 {
 	currentTail.base().next = newNode
 	d.storeTail(newNode)
 
-	return d.getNextSequenceNumber()
+	return d.getNextSequenceNumber(), nil
 }
 
 func (d *DocumentsWriterDeleteQueue) AnyChanges() bool {
@@ -240,26 +269,31 @@ func (d *DocumentsWriterDeleteQueue) anyChangesLocked() bool {
 		d.loadTail().base().next != nil
 }
 
-func (d *DocumentsWriterDeleteQueue) tryApplyGlobalSlice() {
+func (d *DocumentsWriterDeleteQueue) tryApplyGlobalSlice() error {
 	if d.globalBufferLock.TryLock() {
 		defer d.globalBufferLock.Unlock()
-		d.ensureOpen()
+		if err := d.ensureOpen(); err != nil {
+			return err
+		}
 		if d.updateSliceNoSeqNo(d.globalSlice) {
-			d.globalSlice.apply(d.globalBufferedUpdates, maxInt)
+			d.globalSlice.apply(d.globalBufferedUpdates, BufferedUpdatesMaxInt)
 		}
 	}
+	return nil
 }
 
-func (d *DocumentsWriterDeleteQueue) FreezeGlobalBuffer(callerSlice *DeleteSlice) *FrozenBufferedUpdates {
+func (d *DocumentsWriterDeleteQueue) FreezeGlobalBuffer(callerSlice *DeleteSlice) (*FrozenBufferedUpdates, error) {
 	d.globalBufferLock.Lock()
 	defer d.globalBufferLock.Unlock()
 
-	d.ensureOpen()
+	if err := d.ensureOpen(); err != nil {
+		return nil, err
+	}
 	currentTail := d.loadTail()
 	if callerSlice != nil {
 		callerSlice.sliceTail = currentTail
 	}
-	return d.freezeGlobalBufferInternal(currentTail)
+	return d.freezeGlobalBufferInternal(currentTail), nil
 }
 
 func (d *DocumentsWriterDeleteQueue) MaybeFreezeGlobalBuffer() *FrozenBufferedUpdates {
@@ -278,7 +312,7 @@ func (d *DocumentsWriterDeleteQueue) MaybeFreezeGlobalBuffer() *FrozenBufferedUp
 func (d *DocumentsWriterDeleteQueue) freezeGlobalBufferInternal(currentTail Node) *FrozenBufferedUpdates {
 	if d.globalSlice.sliceTail != currentTail {
 		d.globalSlice.sliceTail = currentTail
-		d.globalSlice.apply(d.globalBufferedUpdates, maxInt)
+		d.globalSlice.apply(d.globalBufferedUpdates, BufferedUpdatesMaxInt)
 	}
 
 	if d.globalBufferedUpdates.Any() {
@@ -320,17 +354,22 @@ func (d *DocumentsWriterDeleteQueue) NewSlice() *DeleteSlice {
 	return NewDeleteSlice(d.loadTail())
 }
 
-func (d *DocumentsWriterDeleteQueue) UpdateSlice(slice *DeleteSlice) int64 {
+// UpdateSlice advances the slice to the current tail. A negative result means
+// there were new deletes since the slice was last applied. Mirrors
+// updateSlice(DeleteSlice).
+func (d *DocumentsWriterDeleteQueue) UpdateSlice(slice *DeleteSlice) (int64, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.ensureOpen()
+	if err := d.ensureOpen(); err != nil {
+		return 0, err
+	}
 	seqNo := d.getNextSequenceNumber()
 	if slice.sliceTail != d.loadTail() {
 		slice.sliceTail = d.loadTail()
 		seqNo = -seqNo
 	}
-	return seqNo
+	return seqNo, nil
 }
 
 func (d *DocumentsWriterDeleteQueue) updateSliceNoSeqNo(slice *DeleteSlice) bool {
@@ -341,10 +380,13 @@ func (d *DocumentsWriterDeleteQueue) updateSliceNoSeqNo(slice *DeleteSlice) bool
 	return false
 }
 
-func (d *DocumentsWriterDeleteQueue) ensureOpen() {
+// ensureOpen mirrors the private ensureOpen(); the Java
+// AlreadyClosedException is returned as an error value.
+func (d *DocumentsWriterDeleteQueue) ensureOpen() error {
 	if d.closed.Load() {
-		panic(fmt.Sprintf("This DocumentsWriterDeleteQueue is already closed"))
+		return store.NewAlreadyClosedException("This DocumentsWriterDeleteQueue is already closed", nil)
 	}
+	return nil
 }
 
 func (d *DocumentsWriterDeleteQueue) IsOpen() bool {
@@ -374,8 +416,14 @@ func (d *DocumentsWriterDeleteQueue) getBufferedUpdatesTermsSize() int {
 	currentTail := d.loadTail()
 	if d.globalSlice.sliceTail != currentTail {
 		d.globalSlice.sliceTail = currentTail
-		d.globalSlice.apply(d.globalBufferedUpdates, maxInt)
+		d.globalSlice.apply(d.globalBufferedUpdates, BufferedUpdatesMaxInt)
 	}
+	return d.globalBufferedUpdates.deleteTerms.size()
+}
+
+// numGlobalTermDeletes returns the number of buffered global delete terms.
+// Mirrors numGlobalTermDeletes() ("For test purposes").
+func (d *DocumentsWriterDeleteQueue) numGlobalTermDeletes() int {
 	return d.globalBufferedUpdates.deleteTerms.size()
 }
 
@@ -518,8 +566,35 @@ func (s *DeleteSlice) isTail(n Node) bool {
 	return s.sliceTail == n
 }
 
+// isTailItem returns true iff the given item is identical to the item held by
+// the slice's tail. Java compares references (sliceTail.item == object); the
+// items are Term, Query, Term[] or DocValuesUpdate[] objects, so the Go
+// rendering compares slices by their backing array and length, and every
+// other item with ==, never through a panicking comparison of uncomparable
+// values.
 func (s *DeleteSlice) isTailItem(item any) bool {
-	return s.sliceTail.base().item == item
+	return sameDeleteQueueItem(s.sliceTail.base().item, item)
+}
+
+// sameDeleteQueueItem renders Java reference identity for delete-queue items.
+func sameDeleteQueueItem(a, b any) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	va, vb := reflect.ValueOf(a), reflect.ValueOf(b)
+	if va.Type() != vb.Type() {
+		return false
+	}
+	switch va.Kind() {
+	case reflect.Slice:
+		return va.Pointer() == vb.Pointer() && va.Len() == vb.Len()
+	case reflect.Map, reflect.Func:
+		return va.Pointer() == vb.Pointer()
+	}
+	if !va.Type().Comparable() {
+		return false
+	}
+	return a == b
 }
 
 type termNode struct {

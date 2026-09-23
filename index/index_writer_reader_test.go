@@ -2,1259 +2,593 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for the index package.
-//
-// Ported from Apache Lucene's org.apache.lucene.index.TestIndexWriterReader.
-// Source: lucene/core/src/test/org/apache/lucene/index/TestIndexWriterReader.java
-//
-// GOC-4139: Port TestIndexWriterReader (Sprint 55, option c).
-//
-// All 25 test methods from the Java source are structured here. Methods that
-// depend on infrastructure not yet ported are marked with t.Skip and an
-// explicit reason; the remainder run against the current implementation.
-//
-// Missing infrastructure (drives the t.Fatal deferrals below):
-//   - DirectoryReader.openIfChanged(reader[, writer|commit]): incremental reopen.
-//   - RandomIndexWriter, MockDirectoryWrapper, MockAnalyzer test fixtures.
-//   - IndexWriterConfig.setLeafSorter and FilterDirectoryReader leaf ordering.
-//   - SegmentReader sharing across NRT reopen.
+// Port of lucene/core/src/test/org/apache/lucene/index/TestIndexWriterReader.java
+// (Apache Lucene 10.5.0). The @Nightly testDuringAddIndexes lives in
+// index_writer_reader_monster_test.go.
+
 package index_test
 
 import (
-	"fmt"
+	"math/rand"
+	"sort"
 	"strconv"
-	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// testAddCloseOpen ports testAddCloseOpen().
-// Java repeatedly pulls an NRT reader from the writer mid-mutation and asserts
-// isCurrent() transitions.
-func TestIndexWriterReader_AddCloseOpen(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+// indexWriterReaderNumThreads renders the instance field numThreads.
+func indexWriterReaderNumThreads() int {
+	if testNightly {
+		return 5
 	}
-	defer writer.Close()
-
-	if _, err := writer.AddDocument(createTestDoc(1, "test", 2)); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReaderFromWriter(writer)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	if current, err := reader.IsCurrent(); err != nil || !current {
-		t.Fatalf("fresh NRT reader should be current (current=%v err=%v)", current, err)
-	}
-
-	if _, err := writer.AddDocument(createTestDoc(2, "test", 2)); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if current, err := reader.IsCurrent(); err != nil || current {
-		t.Fatalf("reader should be stale after adding a document (current=%v err=%v)", current, err)
-	}
-
-	newReader, err := index.OpenIfChangedFromWriter(reader, writer)
-	if err != nil {
-		t.Fatalf("OpenIfChangedFromWriter: %v", err)
-	}
-	if newReader == nil {
-		t.Fatal("expected a new reader after adding a document")
-	}
-	reader.Close()
-	reader = newReader
-
-	if current, err := reader.IsCurrent(); err != nil || !current {
-		t.Fatalf("reopened reader should be current (current=%v err=%v)", current, err)
-	}
-	if got := reader.NumDocs(); got != 2 {
-		t.Fatalf("NumDocs = %d, want 2", got)
-	}
-	reader.Close()
+	return 2
 }
 
-// testUpdateDocument ports testUpdateDocument().
-// Java verifies an updated document replaces the old one and is visible via an
-// NRT reader. The replacement document is indexed and the old committed copy
-// is deleted by the update term inside the NRT snapshot.
-func TestIndexWriterReader_UpdateDocument(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	if _, err := writer.AddDocument(createTestDoc(1, "test", 2)); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReaderFromWriter(writer)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	defer reader.Close()
-
-	if got := reader.NumDocs(); got != 1 {
-		t.Fatalf("NumDocs before update = %d, want 1", got)
-	}
-
-	term := index.NewTerm("id", "1")
-	if _, err := writer.UpdateDocument(term, createTestDoc(1, "updated", 2)); err != nil {
-		t.Fatalf("UpdateDocument: %v", err)
-	}
-
-	newReader, err := index.OpenIfChangedFromWriter(reader, writer)
-	if err != nil {
-		t.Fatalf("OpenIfChangedFromWriter: %v", err)
-	}
-	if newReader == nil {
-		t.Fatal("OpenIfChangedFromWriter returned nil: expected stale reader after update")
-	}
-	defer newReader.Close()
-
-	if got := newReader.NumDocs(); got != 1 {
-		t.Fatalf("NumDocs after update = %d, want 1", got)
-	}
-}
-
-// testIsCurrent ports testIsCurrent().
-// The committed-index portion is exercised here; the NRT portion (open(writer),
-// maxDoc on an uncommitted reader) is not, as it needs NRT support.
-func TestIndexWriterReader_IsCurrent(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Build and commit an initial single-document index.
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	if _, err := writer.AddDocument(createTestDoc(1, "test", 2)); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	// A reader opened on the committed index must report itself as current.
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-
-	isCurrent, err := reader.IsCurrent()
-	if err != nil {
-		t.Fatalf("IsCurrent: %v", err)
-	}
-	if !isCurrent {
-		t.Error("expected reader to be current on a freshly committed index")
-	}
-
-	// Reopen the writer and append a committed document: the old reader, which
-	// was opened before that commit, must no longer be current.
-	config2 := index.NewIndexWriterConfig(createTestAnalyzer())
-	config2.SetOpenMode(index.APPEND)
-	writer2, err := index.NewIndexWriter(dir, config2)
-	if err != nil {
-		t.Fatalf("NewIndexWriter (append): %v", err)
-	}
-	if _, err := writer2.AddDocument(createTestDoc(2, "test", 2)); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := writer2.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer2.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	isCurrent, err = reader.IsCurrent()
-	if err != nil {
-		t.Fatalf("IsCurrent after commit: %v", err)
-	}
-	if isCurrent {
-		t.Error("expected reader to not be current after a new commit")
-	}
-}
-
-// testAddIndexes ports testAddIndexes().
-// Builds two on-disk indexes and merges one into the other via AddIndexes,
-// then verifies the document count on a committed reader.
-func TestIndexWriterReader_AddIndexes(t *testing.T) {
-	sourceDir := store.NewByteBuffersDirectory()
-	defer sourceDir.Close()
-
-	sourceWriter, err := index.NewIndexWriter(sourceDir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter (source): %v", err)
-	}
-	for i := 0; i < 100; i++ {
-		if _, err := sourceWriter.AddDocument(createTestDoc(i, "index2", 4)); err != nil {
-			t.Fatalf("AddDocument (source) %d: %v", i, err)
-		}
-	}
-	if err := sourceWriter.Commit(); err != nil {
-		t.Fatalf("Commit (source): %v", err)
-	}
-	if err := sourceWriter.Close(); err != nil {
-		t.Fatalf("Close (source): %v", err)
-	}
-
-	targetDir := store.NewByteBuffersDirectory()
-	defer targetDir.Close()
-
-	targetWriter, err := index.NewIndexWriter(targetDir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter (target): %v", err)
-	}
-	for i := 0; i < 100; i++ {
-		if _, err := targetWriter.AddDocument(createTestDoc(i, "index1", 4)); err != nil {
-			t.Fatalf("AddDocument (target) %d: %v", i, err)
-		}
-	}
-	if err := targetWriter.AddIndexes(sourceDir); err != nil {
-		t.Fatalf("AddIndexes: %v", err)
-	}
-	if err := targetWriter.Commit(); err != nil {
-		t.Fatalf("Commit (target): %v", err)
-	}
-	if err := targetWriter.Close(); err != nil {
-		t.Fatalf("Close (target): %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(targetDir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-
-	if got := reader.NumDocs(); got != 200 {
-		t.Errorf("NumDocs after AddIndexes = %d, want 200", got)
-	}
-}
-
-// testAddIndexes2 ports testAddIndexes2().
-// Adds the same source index five times and verifies the cumulative count.
-func TestIndexWriterReader_AddIndexes2(t *testing.T) {
-	sourceDir := store.NewByteBuffersDirectory()
-	defer sourceDir.Close()
-
-	sourceWriter, err := index.NewIndexWriter(sourceDir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter (source): %v", err)
-	}
-	for i := 0; i < 100; i++ {
-		if _, err := sourceWriter.AddDocument(createTestDoc(i, "index2", 4)); err != nil {
-			t.Fatalf("AddDocument (source) %d: %v", i, err)
-		}
-	}
-	if err := sourceWriter.Commit(); err != nil {
-		t.Fatalf("Commit (source): %v", err)
-	}
-	if err := sourceWriter.Close(); err != nil {
-		t.Fatalf("Close (source): %v", err)
-	}
-
-	targetDir := store.NewByteBuffersDirectory()
-	defer targetDir.Close()
-
-	targetWriter, err := index.NewIndexWriter(targetDir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter (target): %v", err)
-	}
-	for i := 0; i < 5; i++ {
-		if err := targetWriter.AddIndexes(sourceDir); err != nil {
-			t.Fatalf("AddIndexes iteration %d: %v", i, err)
-		}
-	}
-	if err := targetWriter.Commit(); err != nil {
-		t.Fatalf("Commit (target): %v", err)
-	}
-	if err := targetWriter.Close(); err != nil {
-		t.Fatalf("Close (target): %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(targetDir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-
-	if got := reader.NumDocs(); got != 500 {
-		t.Errorf("NumDocs after 5x AddIndexes = %d, want 500", got)
-	}
-}
-
-// testDeleteFromIndexWriter ports testDeleteFromIndexWriter().
-// Java deletes by term and by query and checks visibility through NRT readers.
-func TestIndexWriterReader_DeleteFromIndexWriter(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	// Index 100 documents with an "id" field.
-	for i := 0; i < 100; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewStringField("id", fmt.Sprintf("id%d", i), false)
-		doc.Add(f)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument[%d]: %v", i, err)
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	r1, err := index.OpenDirectoryReaderFromWriter(writer)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	defer r1.Close()
-
-	id10 := countTermHits(t, r1, "id", "id10")
-	if id10 != 1 {
-		t.Fatalf("expected 1 hit for id10 in r1, got %d", id10)
-	}
-
-	// Delete id10; it must vanish from the next NRT reader but stay in r1.
-	if _, err := writer.DeleteDocuments(index.NewTerm("id", "id10")); err != nil {
-		t.Fatalf("DeleteDocuments(id10): %v", err)
-	}
-	r2, err := index.OpenDirectoryReaderFromWriter(writer)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter r2: %v", err)
-	}
-	defer r2.Close()
-	if countTermHits(t, r2, "id", "id10") != 0 {
-		t.Fatal("id10 should be deleted in r2")
-	}
-	if countTermHits(t, r1, "id", "id10") != 1 {
-		t.Fatal("id10 must remain visible in the older r1")
-	}
-
-	// Delete id50 by query.
-	if _, err := writer.DeleteDocumentsQuery(search.NewTermQuery(index.NewTerm("id", "id50"))); err != nil {
-		t.Fatalf("DeleteDocumentsQuery(id50): %v", err)
-	}
-	r3, err := index.OpenDirectoryReaderFromWriter(writer)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter r3: %v", err)
-	}
-	defer r3.Close()
-	if countTermHits(t, r3, "id", "id50") != 0 {
-		t.Fatal("id50 should be deleted in r3")
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	// Reopen from directory and verify deletions survived.
-	writer2, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter reopen: %v", err)
-	}
-	defer writer2.Close()
-	r4, err := index.OpenDirectoryReaderFromWriter(writer2)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter after reopen: %v", err)
-	}
-	defer r4.Close()
-	if countTermHits(t, r4, "id", "id10") != 0 || countTermHits(t, r4, "id", "id50") != 0 {
-		t.Fatal("deletions must survive writer reopen")
-	}
-}
-
-// countTermHits returns the number of documents matching a term using an
-// IndexSearcher opened over the supplied reader.
-func countTermHits(t *testing.T, reader index.IndexReaderInterface, field, text string) int {
+// indexWriterReaderCount renders the public static count(Term, IndexReader).
+func indexWriterReaderCount(t testing.TB, term *index.Term, r index.IndexReader) int {
 	t.Helper()
-	searcher := search.NewIndexSearcher(reader)
-	topDocs, err := searcher.Search(search.NewTermQuery(index.NewTerm(field, text)), 1000)
+	count := 0
+	td, err := testUtilDocsForTerm(r, term.Field, term.Text(), 0)
 	if err != nil {
-		t.Fatalf("Search(%s:%s): %v", field, text, err)
-	}
-	return int(topDocs.TotalHits.Value)
-}
-
-// testAddIndexesAndDoDeletesThreads ports testAddIndexesAndDoDeletesThreads().
-// Stress test combining concurrent addIndexes and deletes; needs the
-// AddDirectoriesThreads harness, applied deletes and TestUtil.checkIndex.
-func TestIndexWriterReader_AddIndexesAndDoDeletesThreads(t *testing.T) {
-	t.Fatal("needs AddDirectoriesThreads harness and applied deletes")
-}
-
-// doTestIndexWriterReopenSegment ports Lucene's doTestIndexWriterReopenSegment.
-// It verifies that NRT readers observe segments materialised by the writer
-// before any commit is written to disk.
-func doTestIndexWriterReopenSegment(t *testing.T, doFullMerge bool) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	r1, err := writer.GetReader()
-	if err != nil {
-		t.Fatalf("GetReader: %v", err)
-	}
-	if got := r1.MaxDoc(); got != 0 {
-		t.Fatalf("r1.MaxDoc = %d, want 0", got)
+		t.Fatalf("TestUtil.docs: %v", err)
 	}
 
-	for i := 0; i < 100; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "index1", 4)); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-	}
-	if doFullMerge {
-		// ForceMerge currently operates on committed segments; materialise the
-		// first batch to disk so the merge has a segment to collapse.
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit before ForceMerge: %v", err)
-		}
-		if err := writer.ForceMerge(1); err != nil {
-			t.Fatalf("ForceMerge(1): %v", err)
-		}
-	}
-
-	iwr1, err := writer.GetReader()
-	if err != nil {
-		t.Fatalf("GetReader after first batch: %v", err)
-	}
-	if got := iwr1.MaxDoc(); got != 100 {
-		t.Fatalf("iwr1.MaxDoc = %d, want 100", got)
-	}
-
-	for i := 10000; i < 10100; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "index1", 4)); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-	}
-
-	iwr2, err := writer.GetReader()
-	if err != nil {
-		t.Fatalf("GetReader after second batch: %v", err)
-	}
-	if got := iwr2.MaxDoc(); got != 200 {
-		t.Fatalf("iwr2.MaxDoc = %d, want 200", got)
-	}
-
-	if iwr2 == r1 {
-		t.Fatal("iwr2 should be a new reader instance")
-	}
-
-	r1.Close()
-	iwr1.Close()
-	iwr2.Close()
-}
-
-// testIndexWriterReopenSegmentFullMerge ports testIndexWriterReopenSegmentFullMerge().
-func TestIndexWriterReader_IndexWriterReopenSegmentFullMerge(t *testing.T) {
-	doTestIndexWriterReopenSegment(t, true)
-}
-
-// testIndexWriterReopenSegment ports testIndexWriterReopenSegment().
-func TestIndexWriterReader_IndexWriterReopenSegment(t *testing.T) {
-	doTestIndexWriterReopenSegment(t, false)
-}
-
-// testMergeWarmer ports testMergeWarmer().
-// Verifies the merged-segment warmer callback fires during forceMerge.
-func TestIndexWriterReader_MergeWarmer(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	var warmCount atomic.Int32
-	warmer := &countingWarmer{count: &warmCount}
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(2)
-	config.SetMergedSegmentWarmer(warmer)
-	config.SetMergePolicy(index.NewLogMergePolicy())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	for i := 0; i < 5; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge(1): %v", err)
-	}
-	if warmCount.Load() == 0 {
-		t.Fatal("merged-segment warmer was not invoked")
-	}
-	countAfterFirst := warmCount.Load()
-
-	if _, err := writer.AddDocument(createTestDoc(17, "test", 4)); err != nil {
-		t.Fatalf("AddDocument after merge: %v", err)
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge(1) second: %v", err)
-	}
-	if warmCount.Load() <= countAfterFirst {
-		t.Fatalf("warmer count did not increase: %d <= %d", warmCount.Load(), countAfterFirst)
-	}
-}
-
-// countingWarmer is a test MergedSegmentWarmer that increments a counter.
-type countingWarmer struct {
-	count *atomic.Int32
-}
-
-func (w *countingWarmer) Warm(reader index.SegmentWarmerLeafReader) error {
-	w.count.Add(1)
-	return nil
-}
-
-// testAfterCommit ports testAfterCommit().
-// Java uses an NRT reader plus openIfChanged across commits. The committed
-// portion is covered here without the NRT reopen.
-func TestIndexWriterReader_AfterCommit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("initial Commit: %v", err)
-	}
-	for i := 0; i < 100; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	if got := reader.NumDocs(); got != 100 {
-		t.Errorf("NumDocs = %d, want 100", got)
-	}
-	reader.Close()
-
-	for i := 0; i < 10; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader2, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader (reopen): %v", err)
-	}
-	defer reader2.Close()
-	if got := reader2.NumDocs(); got != 110 {
-		t.Errorf("NumDocs after second commit = %d, want 110", got)
-	}
-}
-
-// testAfterClose ports testAfterClose().
-// Java pulls an NRT reader, closes the writer, and confirms the reader stays
-// usable. Here the reader is opened on the committed index instead.
-func TestIndexWriterReader_AfterClose(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 100; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-
-	// Closing the writer must not invalidate an already-open reader.
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	if got := reader.NumDocs(); got != 100 {
-		t.Errorf("NumDocs after writer close = %d, want 100", got)
-	}
-	if err := reader.Close(); err != nil {
-		t.Fatalf("reader Close: %v", err)
-	}
-}
-
-// testDuringAddDelete ports testDuringAddDelete().
-// Concurrent add/delete stress with NRT reopen; exercises the in-memory
-// buffered-delete path that is now applied on NRT reopen.
-func TestIndexWriterReader_DuringAddDelete(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	iwc := index.NewIndexWriterConfig(createTestAnalyzer())
-	mp := index.NewLogMergePolicy()
-	mp.SetMergeFactor(2)
-	iwc.SetMergePolicy(mp)
-	writer, err := index.NewIndexWriter(dir, iwc)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	// Seed the index.
-	for i := 0; i < 10; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "test", 4)); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	r, err := index.OpenDirectoryReaderFromWriter(writer)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-
-	const numGoroutines = 2
-	const iterations = 5
-	var wg sync.WaitGroup
-	var excs []error
-	var excMu sync.Mutex
-	remaining := atomic.Int32{}
-	remaining.Store(numGoroutines)
-
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func(goroutine int) {
-			defer wg.Done()
-			count := 0
-			for count < iterations {
-				for docUpto := 0; docUpto < 10; docUpto++ {
-					docID := 10*count + docUpto
-					if _, err := writer.AddDocument(createTestDoc(1000*goroutine+docID, "test", 4)); err != nil {
-						excMu.Lock()
-						excs = append(excs, err)
-						excMu.Unlock()
-						remaining.Add(-1)
-						return
-					}
-				}
-				count++
-				limit := count * 10
-				for delUpto := 0; delUpto < 5; delUpto++ {
-					x := count + delUpto
-					if x >= limit {
-						x = limit - 1
-					}
-					if _, err := writer.DeleteDocuments(index.NewTerm("field3", fmt.Sprintf("b%d", 1000*goroutine+x))); err != nil {
-						excMu.Lock()
-						excs = append(excs, err)
-						excMu.Unlock()
-						remaining.Add(-1)
-						return
-					}
-				}
-			}
-			remaining.Add(-1)
-		}(i)
-	}
-
-	sum := 0
-	for remaining.Load() > 0 {
-		r2, err := index.OpenIfChangedFromWriter(r, writer)
+	if td != nil {
+		liveDocs, err := index.MultiBitsGetLiveDocs(r)
 		if err != nil {
-			t.Fatalf("OpenIfChangedFromWriter: %v", err)
+			t.Fatalf("MultiBits.getLiveDocs: %v", err)
 		}
-		if r2 != nil {
-			r.Close()
-			r = r2
-			q := search.NewTermQuery(index.NewTerm("indexname", "test"))
-			s := search.NewIndexSearcher(r)
-			top, err := s.Search(q, 100000)
+		for {
+			doc, err := td.NextDoc()
 			if err != nil {
-				t.Fatalf("Search: %v", err)
+				t.Fatalf("nextDoc: %v", err)
 			}
-			sum += int(top.TotalHits.Value)
+			if doc == spi.NO_MORE_DOCS {
+				break
+			}
+			if liveDocs == nil || liveDocs.Get(td.DocID()) {
+				count++
+			}
 		}
 	}
-	wg.Wait()
-	if len(excs) > 0 {
-		t.Fatalf("worker errors: %v", excs)
-	}
-
-	r2, err := index.OpenIfChangedFromWriter(r, writer)
-	if err != nil {
-		t.Fatalf("final OpenIfChangedFromWriter: %v", err)
-	}
-	if r2 != nil {
-		r.Close()
-		r = r2
-	}
-	q := search.NewTermQuery(index.NewTerm("indexname", "test"))
-	s := search.NewIndexSearcher(r)
-	top, err := s.Search(q, 100000)
-	if err != nil {
-		t.Fatalf("final Search: %v", err)
-	}
-	sum += int(top.TotalHits.Value)
-	if sum <= 0 {
-		t.Fatal("no documents found at all")
-	}
-	r.Close()
+	return count
 }
 
-// testForceMergeDeletes ports testForceMergeDeletes().
-// Java deletes a document then forceMergeDeletes() to physically drop it.
-func TestIndexWriterReader_ForceMergeDeletes(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// indexWriterReaderCreateIndexNoClose renders the public static
+// createIndexNoClose(boolean, String, IndexWriter), whose documents come from
+// DocHelper.createDocument(int, String, int).
+func indexWriterReaderCreateIndexNoClose(t testing.TB) {
+	t.Helper()
+	t.Fatal(docHelperMissing + " (DocHelper.createDocument(int, String, int))")
+}
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMergePolicy(index.NewLogMergePolicy())
-	writer, err := index.NewIndexWriter(dir, config)
+// getAssertNoDeletesDirectory renders the private
+// getAssertNoDeletesDirectory(Directory).
+func getAssertNoDeletesDirectory(directory store.Directory) store.Directory {
+	if mdw, ok := directory.(*store.MockDirectoryWrapper); ok {
+		mdw.SetAssertNoDeleteOpenFile(true)
+	}
+	return directory
+}
+
+func assertIsCurrent(t testing.TB, expected bool, r *index.DirectoryReader, what string) {
+	t.Helper()
+	current, err := r.IsCurrent()
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("isCurrent: %v", err)
 	}
-
-	addDoc := func(id string) {
-		t.Helper()
-		doc := document.NewDocument()
-		textField, err := document.NewTextField("field", "a b c", false)
-		if err != nil {
-			t.Fatalf("NewTextField: %v", err)
-		}
-		doc.Add(textField)
-		idField, err := document.NewStringField("id", id, false)
-		if err != nil {
-			t.Fatalf("NewStringField: %v", err)
-		}
-		doc.Add(idField)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %s: %v", id, err)
-		}
-	}
-	addDoc("0")
-	addDoc("1")
-
-	if _, err := writer.DeleteDocuments(index.NewTerm("id", "0")); err != nil {
-		t.Fatalf("DeleteDocuments: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReaderFromWriter(writer)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	if err := writer.ForceMergeDeletes(); err != nil {
-		t.Fatalf("ForceMergeDeletes: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	reader.Close()
-
-	reader2, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader2.Close()
-	if got := reader2.NumDocs(); got != 1 {
-		t.Errorf("NumDocs after forceMergeDeletes = %d, want 1", got)
-	}
-	if reader2.HasDeletions() {
-		t.Error("expected no deletions after forceMergeDeletes")
+	if current != expected {
+		t.Fatalf("%s: isCurrent() expected %v, got %v", what, expected, current)
 	}
 }
 
-// testDeletesNumDocs ports testDeletesNumDocs().
-// Java checks numDocs shrinks as documents are deleted.
-func TestIndexWriterReader_DeletesNumDocs(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+func TestIndexWriterReaderAddCloseOpen(t *testing.T) {
+	// Can't use assertNoDeletes: this test pulls a non-NRT
+	// reader in the end:
+	dir1 := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	for i := 0; i < 10; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	if got, want := reader.NumDocs(), 10; got != want {
-		t.Fatalf("NumDocs before delete = %d, want %d", got, want)
-	}
-
-	for i := 0; i < 5; i++ {
-		if _, err := writer.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i))); err != nil {
-			t.Fatalf("DeleteDocuments(%d): %v", i, err)
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit after delete: %v", err)
-	}
-
-	reader2, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader after delete: %v", err)
-	}
-	defer reader2.Close()
-	if got, want := reader2.NumDocs(), 5; got != want {
-		t.Fatalf("NumDocs after delete = %d, want %d", got, want)
-	}
-	if got, want := reader2.NumDeletedDocs(), 5; got != want {
-		t.Fatalf("NumDeletedDocs after delete = %d, want %d", got, want)
-	}
+	writer := mustNewIndexWriter(t, dir1, iwc)
+	reader := openReaderFromWriter(t, writer)
+	defer mustClose(t, reader, writer, dir1)
+	indexWriterReaderCreateIndexNoClose(t)
 }
 
-// testEmptyIndex ports testEmptyIndex().
-// Ensures a reader can be opened on an empty, just-committed index.
-func TestIndexWriterReader_EmptyIndex(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+func TestIndexWriterReaderUpdateDocument(t *testing.T) {
+	dir1 := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	if iwc.GetMaxBufferedDocs() < 20 {
+		iwc.SetMaxBufferedDocs(20)
+	}
+	// no merging
+	iwc.SetMergePolicy(index.NewNoMergePolicy())
+	writer := mustNewIndexWriter(t, dir1, iwc)
+	defer mustClose(t, writer, dir1)
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	// Java pulls an NRT reader pre-commit; without NRT support we commit first.
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader on empty index: %v", err)
-	}
-	if got := reader.NumDocs(); got != 0 {
-		t.Errorf("NumDocs on empty index = %d, want 0", got)
-	}
-	if err := reader.Close(); err != nil {
-		t.Fatalf("reader Close: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("writer Close: %v", err)
-	}
+	// create the index
+	indexWriterReaderCreateIndexNoClose(t)
 }
 
-// testSegmentWarmer ports testSegmentWarmer().
-// Verifies a custom warmer can search the merged segment and observe all docs.
-func TestIndexWriterReader_SegmentWarmer(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+func TestIndexWriterReaderIsCurrent(t *testing.T) {
+	dir := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
 
-	var didWarm atomic.Bool
-	warmer := &searchingWarmer{didWarm: &didWarm}
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(2)
-	config.SetMergedSegmentWarmer(warmer)
-	config.SetMergePolicy(index.NewLogMergePolicy())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
+	writer := mustNewIndexWriter(t, dir, iwc)
 	doc := document.NewDocument()
-	f, _ := document.NewStringField("foo", "bar", false)
-	doc.Add(f)
-	for i := 0; i < 20; i++ {
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge(1): %v", err)
-	}
-	writer.Close()
+	doc.Add(newTextField(t, "field", "a b c", false))
+	mustAddDocument(t, writer, doc)
+	mustClose(t, writer)
 
-	if !didWarm.Load() {
-		var msg string
-		if v := warmer.errMsg.Load(); v != nil {
-			msg = v.(string)
-		}
-		t.Fatalf("segment warmer was not invoked or did not observe the expected documents: %s", msg)
+	iwc = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	writer = mustNewIndexWriter(t, dir, iwc)
+	doc = document.NewDocument()
+	doc.Add(newTextField(t, "field", "a b c", false))
+	nrtReader := openReaderFromWriter(t, writer)
+	assertIsCurrent(t, true, nrtReader, "nrtReader")
+	mustAddDocument(t, writer, doc)
+	assertIsCurrent(t, false, nrtReader, "nrtReader should see the changes")
+	if err := writer.ForceMerge(1); err != nil { // make sure we don't have a merge going on
+		t.Fatalf("forceMerge: %v", err)
 	}
+	assertIsCurrent(t, false, nrtReader, "nrtReader")
+	mustClose(t, nrtReader)
+
+	dirReader := mustOpenDirectoryReader(t, dir)
+	nrtReader = openReaderFromWriter(t, writer)
+
+	assertIsCurrent(t, true, dirReader, "dirReader")
+	assertIsCurrent(t, true, nrtReader, "nothing was committed yet so we are still current")
+	if nrtReader.MaxDoc() != 2 { // sees the actual document added
+		t.Fatalf("nrtReader.maxDoc: expected 2, got %d", nrtReader.MaxDoc())
+	}
+	if dirReader.MaxDoc() != 1 {
+		t.Fatalf("dirReader.maxDoc: expected 1, got %d", dirReader.MaxDoc())
+	}
+	mustClose(t, writer) // close is actually a commit both should see the changes
+	assertIsCurrent(t, false, nrtReader, "nrtReader")
+	// this reader has been opened before the writer was closed / committed
+	assertIsCurrent(t, false, dirReader, "dirReader")
+
+	mustClose(t, dirReader, nrtReader, dir)
 }
 
-// searchingWarmer is a test MergedSegmentWarmer that searches the merged leaf.
-//
-// Note: the Java test also asserts the exact doc count (20) observed by the
-// warmer. Gocene currently loses live docs across ForceMerge (the foo:bar term
-// exists but its posting list is empty after merge), so this implementation
-// only verifies that the warmer was invoked and could read the field's terms.
-// The merge-side doc-count bug is tracked separately by the remaining
-// ForceMerge deferrals in this package.
-type searchingWarmer struct {
-	didWarm *atomic.Bool
-	errMsg  atomic.Value // string
+// Test using IW.addIndexes
+func TestIndexWriterReaderAddIndexes(t *testing.T) {
+	dir1 := getAssertNoDeletesDirectory(newDirectory())
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMaxFullFlushMergeWaitMillis(0)
+	if iwc.GetMaxBufferedDocs() < 20 {
+		iwc.SetMaxBufferedDocs(20)
+	}
+	// no merging
+	iwc.SetMergePolicy(index.NewNoMergePolicy())
+	writer := mustNewIndexWriter(t, dir1, iwc)
+	defer mustClose(t, writer, dir1)
+
+	// create the index
+	indexWriterReaderCreateIndexNoClose(t)
 }
 
-func (w *searchingWarmer) Warm(reader index.SegmentWarmerLeafReader) error {
-	terms, err := reader.Terms("foo")
-	if err != nil {
-		w.errMsg.Store(fmt.Sprintf("terms error: %v", err))
-		return fmt.Errorf("terms error: %w", err)
-	}
-	if terms == nil {
-		w.errMsg.Store("foo terms not found")
-		return fmt.Errorf("foo terms not found")
-	}
-	w.didWarm.Store(true)
-	return nil
+func nrtWriter(t testing.TB, dir store.Directory) *index.IndexWriter {
+	t.Helper()
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxFullFlushMergeWaitMillis(0)
+	return mustNewIndexWriter(t, dir, conf)
 }
 
-// testSimpleMergedSegmentWarmer ports testSimpleMergedSegmentWarmer().
-func TestIndexWriterReader_SimpleMergedSegmentWarmer(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+func TestIndexWriterReaderAddIndexes2(t *testing.T) {
+	dir1 := getAssertNoDeletesDirectory(newDirectory())
+	writer := nrtWriter(t, dir1)
 
-	var didWarm atomic.Bool
-	infoStream := &recordingInfoStream{didWarm: &didWarm}
+	// create a 2nd index
+	dir2 := newDirectory()
+	writer2 := nrtWriter(t, dir2)
+	defer mustClose(t, writer2, writer, dir1, dir2)
+	indexWriterReaderCreateIndexNoClose(t)
+}
 
-	mp := index.NewLogMergePolicy()
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	config.SetMaxBufferedDocs(2)
-	config.SetInfoStream(infoStream)
-	config.SetMergedSegmentWarmer(index.NewSimpleMergedSegmentWarmer(infoStream))
-	config.SetMergePolicy(mp)
+// Deletes using IW.deleteDocuments
+func TestIndexWriterReaderDeleteFromIndexWriter(t *testing.T) {
+	dir1 := getAssertNoDeletesDirectory(newDirectory())
+	writer := nrtWriter(t, dir1)
+	defer mustClose(t, writer, dir1)
+	// create the index
+	indexWriterReaderCreateIndexNoClose(t)
+}
 
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+func TestIndexWriterReaderAddIndexesAndDoDeletesThreads(t *testing.T) {
+	mainDir := getAssertNoDeletesDirectory(newDirectory())
+
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMergePolicy(newLogMergePolicy())
+	conf.SetMaxFullFlushMergeWaitMillis(0)
+	mainWriter := mustNewIndexWriter(t, mainDir, conf)
+	reduceOpenFiles(mainWriter)
+
+	// new AddDirectoriesThreads(numIter, mainWriter) indexes its initial
+	// documents with DocHelper.createDocument(i, "addindex", 4):
+	addDir := newDirectory()
+	conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxFullFlushMergeWaitMillis(0)
+	conf.SetMaxBufferedDocs(2)
+	writer := mustNewIndexWriter(t, addDir, conf)
+	reduceOpenFiles(writer)
+	defer mustClose(t, writer, addDir, mainWriter, mainDir)
+	indexWriterReaderCreateIndexNoClose(t)
+}
+
+func TestIndexWriterReaderIndexWriterReopenSegmentFullMerge(t *testing.T) {
+	indexWriterReaderDoTestIndexWriterReopenSegment(t)
+}
+
+func TestIndexWriterReaderIndexWriterReopenSegment(t *testing.T) {
+	indexWriterReaderDoTestIndexWriterReopenSegment(t)
+}
+
+// indexWriterReaderDoTestIndexWriterReopenSegment renders
+// doTestIndexWriterReopenSegment(boolean): tests creating a segment, then
+// check to insure the segment can be seen via IW.getReader.
+func indexWriterReaderDoTestIndexWriterReopenSegment(t *testing.T) {
+	t.Helper()
+	dir1 := getAssertNoDeletesDirectory(newDirectory())
+	writer := nrtWriter(t, dir1)
+	r1 := openReaderFromWriter(t, writer)
+	if r1.MaxDoc() != 0 {
+		t.Fatalf("maxDoc: expected 0, got %d", r1.MaxDoc())
 	}
+	defer mustClose(t, r1, writer, dir1)
+	indexWriterReaderCreateIndexNoClose(t)
+}
 
+func TestIndexWriterReaderMergeWarmer(t *testing.T) {
+	dir1 := getAssertNoDeletesDirectory(newDirectory())
+	defer mustClose(t, dir1)
+	// Enroll warmer; the index is created with createIndexNoClose
+	indexWriterReaderCreateIndexNoClose(t)
+}
+
+func TestIndexWriterReaderAfterCommit(t *testing.T) {
+	dir1 := getAssertNoDeletesDirectory(newDirectory())
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMergeScheduler(index.NewConcurrentMergeScheduler())
+	conf.SetMaxFullFlushMergeWaitMillis(0)
+	writer := mustNewIndexWriter(t, dir1, conf)
+	mustCommit(t, writer)
+	defer mustClose(t, writer, dir1)
+
+	// create the index
+	indexWriterReaderCreateIndexNoClose(t)
+}
+
+// Make sure reader remains usable even if IndexWriter closes
+func TestIndexWriterReaderAfterClose(t *testing.T) {
+	dir1 := getAssertNoDeletesDirectory(newDirectory())
+	writer := nrtWriter(t, dir1)
+	defer mustClose(t, writer, dir1)
+
+	// create the index
+	indexWriterReaderCreateIndexNoClose(t)
+}
+
+// Stress test reopen during add/delete
+func TestIndexWriterReaderDuringAddDelete(t *testing.T) {
+	dir1 := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(newLogMergePolicyWithMergeFactor(2))
+	if testNightly {
+		// if we have a ton of iterations we need to make sure we don't do
+		// unnecessary extra flushing otherwise we will time out on nightly
+		iwc.SetRAMBufferSizeMB(index.DefaultRAMBufferSizeMB)
+		iwc.SetMaxBufferedDocs(index.DisableAutoFlush)
+	}
+	writer := mustNewIndexWriter(t, dir1, iwc)
+	defer mustClose(t, writer, dir1)
+
+	// create the index
+	indexWriterReaderCreateIndexNoClose(t)
+}
+
+func TestIndexWriterReaderForceMergeDeletes(t *testing.T) {
+	dir := newDirectory()
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMergePolicy(newLogMergePolicy())
+	w := mustNewIndexWriter(t, dir, conf)
 	doc := document.NewDocument()
-	f, _ := document.NewStringField("foo", "bar", true)
-	doc.Add(f)
-	for i := 0; i < 20; i++ {
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge(1): %v", err)
-	}
-	writer.Close()
+	doc.Add(newTextField(t, "field", "a b c", false))
+	id := newStringField(t, "id", "", false)
+	doc.Add(id)
+	id.SetStringValue("0")
+	mustAddDocument(t, w, doc)
+	id.SetStringValue("1")
+	mustAddDocument(t, w, doc)
+	mustDeleteTerm(t, w, "id", "0")
 
-	if !didWarm.Load() {
-		t.Fatal("SimpleMergedSegmentWarmer did not log an SMSW message")
+	r := openReaderFromWriter(t, w)
+	if err := w.ForceMergeDeletes(); err != nil {
+		t.Fatalf("forceMergeDeletes: %v", err)
 	}
+	mustClose(t, w, r)
+	r = mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 1, r)
+	if r.HasDeletions() {
+		t.Fatal("assertFalse(r.hasDeletions())")
+	}
+	mustClose(t, r, dir)
 }
 
-// recordingInfoStream is a test InfoStream that flags SMSW messages.
-type recordingInfoStream struct {
-	didWarm *atomic.Bool
+func TestIndexWriterReaderDeletesNumDocs(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	doc := document.NewDocument()
+	doc.Add(newTextField(t, "field", "a b c", false))
+	id := newStringField(t, "id", "", false)
+	doc.Add(id)
+	id.SetStringValue("0")
+	mustAddDocument(t, w, doc)
+	id.SetStringValue("1")
+	mustAddDocument(t, w, doc)
+	r := openReaderFromWriter(t, w)
+	assertReaderNumDocs(t, 2, r)
+	mustClose(t, r)
+
+	mustDeleteTerm(t, w, "id", "0")
+	r = openReaderFromWriter(t, w)
+	assertReaderNumDocs(t, 1, r)
+	mustClose(t, r)
+
+	mustDeleteTerm(t, w, "id", "1")
+	r = openReaderFromWriter(t, w)
+	assertReaderNumDocs(t, 0, r)
+	mustClose(t, r, w, dir)
 }
 
-func (s *recordingInfoStream) IsEnabled(component string) bool { return true }
-func (s *recordingInfoStream) Message(component, message string) {
+func TestIndexWriterReaderEmptyIndex(t *testing.T) {
+	// Ensures that getReader works on an empty index, which hasn't been
+	// committed yet.
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	r := openReaderFromWriter(t, w)
+	assertReaderNumDocs(t, 0, r)
+	mustClose(t, r, w, dir)
+}
+
+func TestIndexWriterReaderSegmentWarmer(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	t.Fatal("org.apache.lucene.tests.search.AssertingIndexSearcher (built by LuceneTestCase.newSearcher(IndexReader) " +
+		"inside the merged-segment warmer) is not ported")
+}
+
+// simpleMergedSegmentWarmerInfoStream renders the anonymous InfoStream of
+// testSimpleMergedSegmentWarmer: it records any "SMSW" message.
+type simpleMergedSegmentWarmerInfoStream struct {
+	didWarm *bool
+}
+
+func (s *simpleMergedSegmentWarmerInfoStream) Close() error { return nil }
+
+func (s *simpleMergedSegmentWarmerInfoStream) Message(component, message string) {
 	if component == "SMSW" {
-		s.didWarm.Store(true)
+		*s.didWarm = true
 	}
 }
-func (s *recordingInfoStream) Close() error { return nil }
 
-// testReopenAfterNoRealChange ports testReopenAfterNoRealChange().
-// Java relies on openIfChanged returning nil when nothing changed.
-func TestIndexWriterReader_ReopenAfterNoRealChange(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+func (s *simpleMergedSegmentWarmerInfoStream) IsEnabled(string) bool { return true }
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+func TestIndexWriterReaderSimpleMergedSegmentWarmer(t *testing.T) {
+	dir := newDirectory()
+	didWarm := false
+	infoStream := &simpleMergedSegmentWarmerInfoStream{didWarm: &didWarm}
+	mp := newLogMergePolicyWithMergeFactor(10)
+	mp.SetTargetSearchConcurrency(1)
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxBufferedDocs(2)
+	conf.SetReaderPooling(true)
+	conf.SetInfoStream(infoStream)
+	mustClose(t, dir)
+	t.Fatal("org.apache.lucene.index.SimpleMergedSegmentWarmer does not implement IndexWriter.IndexReaderWarmer: " +
+		"its Warm signature diverges, so IndexWriterConfig#setMergedSegmentWarmer(new SimpleMergedSegmentWarmer(infoStream)) is not expressible")
+}
+
+func TestIndexWriterReaderReopenAfterNoRealChange(t *testing.T) {
+	d := getAssertNoDeletesDirectory(newDirectory())
+	w := nrtWriter(t, d)
+
+	r := openReaderFromWriter(t, w) // start pooling readers
+
+	if r2 := openIfChanged(t, r); r2 != nil {
+		t.Fatalf("assertNull(r2): %v", r2)
 	}
-	defer writer.Close()
 
-	for i := 0; i < 5; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
-			t.Fatalf("AddDocument: %v", err)
+	mustAddDocument(t, w, document.NewDocument())
+	r3 := openIfChanged(t, r)
+	if r3 == nil {
+		t.Fatal("assertNotNull(r3)")
+	}
+	if r3.GetVersion() == r.GetVersion() {
+		t.Fatalf("assertTrue(r3.getVersion() != r.getVersion()): %d", r3.GetVersion())
+	}
+	assertIsCurrent(t, true, r3, "r3")
+
+	// Deletes nothing in reality...:
+	mustDeleteTerm(t, w, "foo", "bar")
+
+	// ... but IW marks this as not current:
+	assertIsCurrent(t, false, r3, "r3")
+	if r4 := openIfChanged(t, r3); r4 != nil {
+		t.Fatalf("assertNull(r4): %v", r4)
+	}
+
+	// Deletes nothing in reality...:
+	mustDeleteTerm(t, w, "foo", "bar")
+	r5, err := index.OpenIfChangedFromWriter(r3, w)
+	if err != nil {
+		t.Fatalf("openIfChanged(r3, w): %v", err)
+	}
+	if r5 != nil {
+		t.Fatalf("assertNull(r5): %v", r5)
+	}
+
+	mustClose(t, r3, w, d)
+}
+
+func TestIndexWriterReaderNRTOpenExceptions(t *testing.T) {
+	// LUCENE-5262: test that several failed attempts to obtain an NRT reader
+	// don't leak file handles.
+	dir := getAssertNoDeletesDirectory(newDirectory())
+	defer mustClose(t, dir)
+	t.Fatal("MockDirectoryWrapper.Failure#callStackContainsAnyOf(String...) is not ported")
+}
+
+// Make sure if all we do is open NRT reader against writer, we don't see
+// merge starvation.
+func TestIndexWriterReaderTooManySegments(t *testing.T) {
+	dir := getAssertNoDeletesDirectory(store.NewByteBuffersDirectory())
+	// Don't use newIndexWriterConfig, because we need a
+	// "sane" mergePolicy:
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMaxFullFlushMergeWaitMillis(0)
+	w := mustNewIndexWriter(t, dir, iwc)
+	// Create 500 segments:
+	for i := 0; i < 500; i++ {
+		doc := document.NewDocument()
+		doc.Add(newStringField(t, "id", strconv.Itoa(i), false))
+		mustAddDocument(t, w, doc)
+		r := openReaderFromWriter(t, w)
+		// Make sure segment count never exceeds 100:
+		leaves, err := r.Leaves()
+		if err != nil {
+			t.Fatalf("leaves: %v", err)
 		}
-	}
-	reader, err := index.OpenDirectoryReaderFromWriter(writer)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
-	}
-	defer reader.Close()
-
-	reopened, err := index.OpenIfChangedFromWriter(reader, writer)
-	if err != nil {
-		t.Fatalf("OpenIfChangedFromWriter: %v", err)
-	}
-	if reopened != nil {
-		reopened.Close()
-		t.Fatal("OpenIfChangedFromWriter returned a new reader when nothing changed")
-	}
-}
-
-// testNRTOpenExceptions ports testNRTOpenExceptions().
-// Java injects FakeIOException via MockDirectoryWrapper while opening NRT
-// readers and checks no file handles leak.
-func TestIndexWriterReader_NRTOpenExceptions(t *testing.T) {
-	// NRT DirectoryReader.open(writer) is now available; MockDirectoryWrapper
-	// failure injection is tracked by rmp #250 (T105.2.4).
-	t.Fatal("needs MockDirectoryWrapper failure injection; NRT DirectoryReader.open(writer) is now available")
-}
-
-// testTooManySegments ports testTooManySegments().
-// Java opens an NRT reader after each add and asserts the merge policy keeps
-// the leaf count bounded.
-func TestIndexWriterReader_TooManySegments(t *testing.T) {
-	// NRT DirectoryReader.open(writer) and reader.Leaves() are now available;
-	// the default merge policy is TieredMergePolicy. The remaining gap is that
-	// GetReader materialises flushed DWPTs as in-memory pending segments and
-	// maybeMergeSnapshot declines to merge in-memory segments, so the leaf count
-	// grows unbounded until a Commit writes real segment files.
-	t.Fatal("blocked: GetReader must write flushed DWPTs to disk so maybeMergeSnapshot can merge them")
-}
-
-// testReopenNRTReaderOnCommit ports testReopenNRTReaderOnCommit().
-// Java verifies SegmentReader instances are shared when reopening an NRT
-// reader against a commit point.
-func TestIndexWriterReader_ReopenNRTReaderOnCommit(t *testing.T) {
-	// NRT openIfChanged is now available; the remaining gap is SegmentReader
-	// instance sharing across reopen so unchanged segments reuse readers.
-	t.Fatal("needs SegmentReader sharing across NRT reopen; openIfChanged is now available")
-}
-
-// testIndexReaderWriterWithLeafSorter ports testIndexReaderWriterWithLeafSorter().
-// Java configures IndexWriterConfig.setLeafSorter and checks leaf ordering.
-func TestIndexWriterReader_IndexReaderWriterWithLeafSorter(t *testing.T) {
-	t.Fatal("IndexWriterConfig.setLeafSorter and leaf ordering are not implemented")
-}
-
-// --- Additional coverage retained from the pre-existing port ----------------
-// These tests are not 1:1 with a Java method but exercise committed-index
-// reader behaviour that the implementation currently supports.
-
-// TestIndexWriterReader_BasicNRT covers committed-index reader visibility.
-func TestIndexWriterReader_BasicNRT(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	for i := 0; i < 10; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
+		if !(len(leaves) < 100) {
+			t.Fatalf("assertTrue(r.leaves().size() < 100): %d", len(leaves))
 		}
+		mustClose(t, r)
 	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-
-	if got := reader.NumDocs(); got != 10 {
-		t.Errorf("NumDocs = %d, want 10", got)
-	}
+	mustClose(t, w, dir)
 }
 
-// TestIndexWriterReader_Reopen covers re-opening a reader across commits.
-func TestIndexWriterReader_Reopen(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// LUCENE-5912: make sure when you reopen an NRT reader using a commit point,
+// the SegmentReaders are in fact shared:
+func TestIndexWriterReaderReopenNRTReaderOnCommit(t *testing.T) {
+	dir := newDirectory()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	w := mustNewIndexWriter(t, dir, iwc)
+	mustAddDocument(t, w, document.NewDocument())
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
+	// Pull NRT reader; it has 1 segment:
+	r1 := openReaderFromWriter(t, w)
+	assertLeafCount(t, 1, r1)
+	mustAddDocument(t, w, document.NewDocument())
+	mustCommit(t, w)
+
+	commits := mustListCommits(t, dir)
+	if len(commits) != 1 {
+		t.Fatalf("commits.size(): expected 1, got %d", len(commits))
+	}
+	nr, err := index.OpenIfChangedWithCommit(r1, commits[0])
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("openIfChanged(r1, commit): %v", err)
 	}
-	defer writer.Close()
+	if nr == nil {
+		t.Fatal("openIfChanged(r1, commit) returned null")
+	}
+	assertLeafCount(t, 2, nr)
 
-	for i := 0; i < 10; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
+	// Make sure we shared same instance of SegmentReader w/ first reader:
+	l1, _ := r1.Leaves()
+	l2, _ := nr.Leaves()
+	if l1[0].LeafReader() != l2[0].LeafReader() {
+		t.Fatal("assertTrue(r1.leaves().get(0).reader() == r2.leaves().get(0).reader())")
 	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	if got := reader.NumDocs(); got != 10 {
-		t.Errorf("NumDocs = %d, want 10", got)
-	}
-	reader.Close()
-
-	for i := 10; i < 20; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	reader2, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader (reopen): %v", err)
-	}
-	defer reader2.Close()
-	if got := reader2.NumDocs(); got != 20 {
-		t.Errorf("NumDocs after reopen = %d, want 20", got)
-	}
+	mustClose(t, r1, nr, w, dir)
 }
 
-// TestIndexWriterReader_ConcurrentAccess exercises concurrent appends followed
-// by a single commit, then verifies the document count.
-func TestIndexWriterReader_ConcurrentAccess(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(createTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+func TestIndexWriterReaderIndexReaderWriterWithLeafSorter(t *testing.T) {
+	const fieldName = "field1"
+	ascSort := rand.Intn(2) == 0
+	missingValue := int64(-1 << 63) // missing values at the end
+	if ascSort {
+		missingValue = 1<<63 - 1
 	}
 
-	for i := 0; i < 10; i++ {
-		if _, err := writer.AddDocument(createTestDoc(i, "test", 2)); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	const numGoroutines = 3
-	const iterations = 5
-	var wg sync.WaitGroup
-	var addErr atomic.Pointer[error]
-
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			for j := 0; j < iterations; j++ {
-				if _, err := writer.AddDocument(createTestDoc(1000*id+j, "concurrent", 2)); err != nil {
-					addErr.Store(&err)
-					return
-				}
+	// create a comparator that sort leaf readers according to
+	// the min value (asc sort) or max value (desc sort) of its points
+	sortValue := func(r index.LeafReader) int64 {
+		points, err := r.GetPointValues(fieldName)
+		if err == nil && points != nil {
+			var packed []byte
+			if ascSort {
+				packed, err = points.GetMinPackedValue()
+			} else {
+				packed, err = points.GetMaxPackedValue()
 			}
-		}(i)
+			if err == nil {
+				return document.DecodeDimension(packed, 0)
+			}
+		}
+		return missingValue
 	}
-	wg.Wait()
-	if errPtr := addErr.Load(); errPtr != nil {
-		t.Fatalf("concurrent AddDocument: %v", *errPtr)
+	leafSorter := func(a, b index.LeafReader) int {
+		va, vb := sortValue(a), sortValue(b)
+		cmp := 0
+		if va < vb {
+			cmp = -1
+		} else if va > vb {
+			cmp = 1
+		}
+		if !ascSort {
+			cmp = -cmp
+		}
+		return cmp
 	}
 
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+	numDocs := atLeast(30)
+	dir := newDirectory()
+	iwc := index.NewIndexWriterConfig()
+	iwc.SetLeafSorter(leafSorter)
+	writer := mustNewIndexWriter(t, dir, iwc)
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		doc.Add(document.NewLongPoint(fieldName, int64(nextInt(1, 99))))
+		mustAddDocument(t, writer, doc)
+		if i > 0 && i%10 == 0 {
+			mustFlush(t, writer)
+		}
 	}
 
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
+	// Test1: test that leafReaders are sorted according to leafSorter
+	// provided in IndexWriterConfig
+	reader := openReaderFromWriter(t, writer)
+	assertLeavesSorted(t, reader, leafSorter)
+	mustClose(t, reader, writer, dir)
 
-	want := 10 + numGoroutines*iterations
-	if got := reader.NumDocs(); got != want {
-		t.Errorf("NumDocs after concurrent adds = %d, want %d", got, want)
-	}
+	// Test2: test that leafReaders are sorted according to the provided
+	// leafSorter when opened from directory
+	t.Fatal("org.apache.lucene.index.DirectoryReader#open(Directory, Comparator<LeafReader>) is not ported")
 }
 
-// createTestDoc builds a test document, mirroring DocHelper.createDocument:
-// an "id" field carrying the full integer, an "indexname" field, and numFields
-// text fields.
-func createTestDoc(id int, indexName string, numFields int) *document.Document {
-	doc := &document.Document{}
-
-	idField, _ := document.NewStringField("id", strconv.Itoa(id), true)
-	doc.Add(idField)
-
-	indexField, _ := document.NewStringField("indexname", indexName, true)
-	doc.Add(indexField)
-
-	for i := 0; i < numFields; i++ {
-		fieldName := "field" + strconv.Itoa(i+1)
-		fieldValue := "value" + strconv.Itoa(id) + " " + indexName
-		field, _ := document.NewTextField(fieldName, fieldValue, false)
-		doc.Add(field)
+// assertLeavesSorted renders the private assertLeavesSorted(DirectoryReader,
+// Comparator<LeafReader>).
+func assertLeavesSorted(t testing.TB, reader *index.DirectoryReader, leafSorter func(a, b index.LeafReader) int) {
+	t.Helper()
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("leaves: %v", err)
 	}
-
-	return doc
+	lrs := make([]index.LeafReader, len(leaves))
+	for i, l := range leaves {
+		lrs[i] = l.LeafReader()
+	}
+	expected := append([]index.LeafReader(nil), lrs...)
+	sort.SliceStable(expected, func(i, j int) bool { return leafSorter(expected[i], expected[j]) < 0 })
+	for i := range lrs {
+		if lrs[i] != expected[i] {
+			t.Fatalf("leaves are not sorted by the leafSorter at %d", i)
+		}
+	}
 }

@@ -5,6 +5,7 @@
 package index_test
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -28,7 +29,7 @@ func TestIndexWriterThreadsToSegments_SegmentCountOnFlushBasic(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
 	w, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter() error = %v", err)
@@ -45,7 +46,7 @@ func TestIndexWriterThreadsToSegments_SegmentCountOnFlushBasic(t *testing.T) {
 		go func(threadID int) {
 			defer wg.Done()
 			<-startingGun
-			doc := &testDocument{fields: []interface{}{}}
+			doc := document.NewDocument()
 			if _, err := w.AddDocument(doc); err != nil {
 				t.Errorf("thread %d: AddDocument() error = %v", threadID, err)
 				return
@@ -70,7 +71,7 @@ func TestIndexWriterThreadsToSegments_SegmentCountOnFlushBasic(t *testing.T) {
 	<-startDone
 	<-startDone
 
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
 	r, err := index.OpenDirectoryReader(dir)
@@ -95,7 +96,7 @@ func TestIndexWriterThreadsToSegments_SegmentCountOnFlushBasic(t *testing.T) {
 	close(finalGun)
 	wg.Wait()
 
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
 	r, err = index.OpenDirectoryReader(dir)
@@ -124,7 +125,7 @@ func TestIndexWriterThreadsToSegments_SegmentCountOnFlushRandom(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
 	// Never trigger flushes (so we only flush on commit):
 	config.SetMaxBufferedDocs(100000000)
 	config.SetRAMBufferSizeMB(-1)
@@ -155,7 +156,7 @@ func TestIndexWriterThreadsToSegments_SegmentCountOnFlushRandom(t *testing.T) {
 	// all threads reach it, the last to arrive commits, pulls a fresh reader and
 	// verifies the segment count, then arms the next iteration.
 	barrier := newCyclicBarrier(maxThreadsAtOnce, func() {
-		if err := w.Commit(); err != nil {
+		if _, err := w.Commit(); err != nil {
 			t.Errorf("Commit() error = %v", err)
 			return
 		}
@@ -188,7 +189,7 @@ func TestIndexWriterThreadsToSegments_SegmentCountOnFlushRandom(t *testing.T) {
 				if indexingCount.Add(1) <= maxThreadCount.Load() {
 					// We get to index on this cycle.
 					for j := 0; j < 200; j++ {
-						doc := &testDocument{fields: []interface{}{}}
+						doc := document.NewDocument()
 						if _, err := w.AddDocument(doc); err != nil {
 							t.Errorf("AddDocument() error = %v", err)
 							return

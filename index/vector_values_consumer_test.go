@@ -323,6 +323,11 @@ func (c *fakeCodecWithKnn) DocValuesFormat() spi.DocValuesFormat   { return nil 
 func (c *fakeCodecWithKnn) PointsFormat() spi.PointsFormat         { return nil }
 func (c *fakeCodecWithKnn) NormsFormat() spi.NormsFormat           { return nil }
 
+// LiveDocsFormat is abstract in Lucene's Codec; this double does not support it.
+func (c *fakeCodecWithKnn) LiveDocsFormat() spi.LiveDocsFormat {
+	panic("fakeCodecWithKnn.LiveDocsFormat: unsupported operation")
+}
+
 // TestVectorValuesConsumer_CodecKnnFormatUsedWhenNoExplicitFormat verifies
 // that when no explicit KnnVectorsFormat is injected via
 // setKnnVectorsFormat, initKnnVectorsWriter falls back to

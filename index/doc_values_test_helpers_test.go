@@ -4,6 +4,10 @@
 
 package index
 
+import (
+	"github.com/FlavioCFOliveira/Gocene/util"
+)
+
 import "testing"
 
 func TestEmptyDocValues_AllIteratorsAtNoMoreDocs(t *testing.T) {
@@ -103,6 +107,26 @@ func (s *stubSortedDV) LookupOrd(int) ([]byte, error) {
 }
 func (s *stubSortedDV) GetValueCount() int { return 1 }
 func (s *stubSortedDV) Cost() int64        { return 1 }
+
+// DocIDRunEnd carries the default body Lucene gives NumericDocValues.DocIDRunEnd.
+func (s *stubNumericDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(s)
+}
+
+// IntoBitSet carries the default body Lucene gives NumericDocValues.IntoBitSet.
+func (s *stubNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
+
+// DocIDRunEnd carries the default body Lucene gives SortedDocValues.DocIDRunEnd.
+func (s *stubSortedDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(s)
+}
+
+// IntoBitSet carries the default body Lucene gives SortedDocValues.IntoBitSet.
+func (s *stubSortedDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(s, upTo, bitSet, offset)
+}
 
 func TestSingleton_SortedToSortedSet(t *testing.T) {
 	src := &stubSortedDV{ord: 7, value: []byte("foo")}

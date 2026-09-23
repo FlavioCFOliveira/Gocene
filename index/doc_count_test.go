@@ -31,7 +31,7 @@ func TestDocCount_Simple(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestDocCount_Simple(t *testing.T) {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 
@@ -67,11 +67,11 @@ func TestDocCount_Simple(t *testing.T) {
 
 	// Delete some documents by unique term and verify count drops.
 	for i := 0; i < 5; i++ {
-		if _, err := writer.DeleteDocuments(index.NewTerm("f", "doc")); err != nil {
+		if _, err := writer.DeleteDocuments([]index.Term{*index.NewTerm("f", "doc")}); err != nil {
 			t.Fatalf("DeleteDocuments[%d]: %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit after deletes: %v", err)
 	}
 
@@ -111,7 +111,7 @@ func TestDocCount_MultiSegment(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestDocCount_MultiSegment(t *testing.T) {
 				t.Fatalf("AddDocument[%d]: %v", batch*20+i, err)
 			}
 		}
-		if err := writer.Commit(); err != nil {
+		if _, err := writer.Commit(); err != nil {
 			t.Fatalf("Commit batch %d: %v", batch, err)
 		}
 	}

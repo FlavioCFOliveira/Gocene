@@ -757,6 +757,17 @@ type ExitableTerms struct {
 	queryTimeout QueryTimeout
 }
 
+// NewExitableTerms mirrors the public constructor
+// ExitableTerms(Terms terms, QueryTimeout queryTimeout). Java's
+// Objects.requireNonNull(queryTimeout) throws NullPointerException; the port
+// panics.
+func NewExitableTerms(terms Terms, queryTimeout QueryTimeout) *ExitableTerms {
+	if queryTimeout == nil {
+		panic("queryTimeout must not be null")
+	}
+	return &ExitableTerms{Terms: terms, queryTimeout: queryTimeout}
+}
+
 func (t *ExitableTerms) Intersect(compiled *automaton.CompiledAutomaton, startTerm *spi.Term) (TermsEnum, error) {
 	enum, err := t.Terms.Intersect(compiled, startTerm)
 	if err != nil || enum == nil {

@@ -154,7 +154,7 @@ func TestSegmentTermEnum(t *testing.T) {
 	}
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -165,7 +165,7 @@ func TestSegmentTermEnum(t *testing.T) {
 		segmentTermEnumAddDoc(t, writer, "aaa")
 		segmentTermEnumAddDoc(t, writer, "aaa bbb")
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -176,8 +176,8 @@ func TestSegmentTermEnum(t *testing.T) {
 	verifySegmentTermEnumDocFreq(t, dir)
 
 	// Merge to a single segment, reopening the index in APPEND mode.
-	appendConfig := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	appendConfig.SetOpenMode(index.APPEND)
+	appendConfig := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
+	appendConfig.SetOpenMode(index.Append)
 	writer, err = index.NewIndexWriter(dir, appendConfig)
 	if err != nil {
 		t.Fatalf("Failed to reopen IndexWriter: %v", err)
@@ -216,7 +216,7 @@ func TestSegmentTermEnumPrevTermAtEnd(t *testing.T) {
 	}
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)

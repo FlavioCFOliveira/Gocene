@@ -16,18 +16,17 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 // newSizeBoundedWriterConfig mirrors the Java newWriterConfig() helper: no auto
 // flush, no compound files, and NoMergePolicy so the initial index keeps every
 // addDocs() batch as its own segment.
 func newSizeBoundedWriterConfig() *index.IndexWriterConfig {
-	conf := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	conf := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	conf.SetMaxBufferedDocs(index.DISABLE_AUTO_FLUSH)
 	conf.SetUseCompoundFile(false)
 	conf.SetMergePolicy(index.NewNoMergePolicy())
@@ -60,7 +59,7 @@ func addSizeBoundedDocs(t *testing.T, writer *index.IndexWriter, numDocs int, wi
 			t.Fatalf("AddDocument() error = %v", err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit() error = %v", err)
 	}
 }
@@ -269,7 +268,7 @@ func TestSizeBoundedForceMerge_SingleMergeableSegment(t *testing.T) {
 	addSizeBoundedDocs(t, writer, 3, false)
 	addSizeBoundedDocs(t, writer, 5, false)
 	addSizeBoundedDocs(t, writer, 3, false)
-	if _, err := writer.DeleteDocuments(index.NewTerm("id", "10")); err != nil {
+	if _, err := writer.DeleteDocuments([]index.Term{*index.NewTerm("id", "10")}); err != nil {
 		t.Fatalf("DeleteDocuments() error = %v", err)
 	}
 	writer.Close()
@@ -324,7 +323,7 @@ func TestSizeBoundedForceMerge_SingleMergeableTooLargeSegment(t *testing.T) {
 		t.Fatalf("NewIndexWriter() error = %v", err)
 	}
 	addSizeBoundedDocs(t, writer, 5, true)
-	if _, err := writer.DeleteDocuments(index.NewTerm("id", "4")); err != nil {
+	if _, err := writer.DeleteDocuments([]index.Term{*index.NewTerm("id", "4")}); err != nil {
 		t.Fatalf("DeleteDocuments() error = %v", err)
 	}
 	writer.Close()

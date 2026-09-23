@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -31,12 +32,17 @@ func (f *fakeDVProducer) GetSortedNumeric(*FieldInfo) (SortedNumericDocValues, e
 	return nil, nil
 }
 func (f *fakeDVProducer) GetSortedSet(*FieldInfo) (SortedSetDocValues, error) { return nil, nil }
-func (f *fakeDVProducer) GetSkipper(*FieldInfo) (DocValuesSkipper, error) {
+func (f *fakeDVProducer) GetSkipper(_ *spi.FieldInfo) (spi.DocValuesSkipper, error) {
 	f.getSkipperCalls++
 	return nil, nil
 }
 func (f *fakeDVProducer) CheckIntegrity() error { f.checkIntegrity++; return f.checkErr }
 func (f *fakeDVProducer) Close() error          { return nil }
+
+// GetMergeInstance is abstract in Lucene's DocValuesProducer; this double does not support it.
+func (f *fakeDVProducer) GetMergeInstance() spi.DocValuesProducer {
+	panic("fakeDVProducer.GetMergeInstance: unsupported operation")
+}
 
 // fakeSegDV tracks producer lookups and DecRef invocations.
 type fakeSegDV struct {
@@ -100,7 +106,7 @@ func mustInfos(t *testing.T, fields ...*FieldInfo) *FieldInfos {
 }
 
 func newTestCommit() *SegmentCommitInfo {
-	return NewSegmentCommitInfo(nil, 0, -1)
+	return NewSegmentCommitInfo(nil, 0, 0, -1, -1, -1, nil)
 }
 
 func TestSegmentDocValuesProducer_BaseAndUpdates(t *testing.T) {

@@ -296,45 +296,72 @@ func (q *approximatePriorityQueue) remove(o any) bool {
 	return false
 }
 
-// lockableConcurrentApproximatePriorityQueue is a wrapper that provides
-// lock-and-poll semantics for a concurrentApproximatePriorityQueue.
-type lockableConcurrentApproximatePriorityQueue struct {
+// queueLock renders java.util.concurrent.locks.Lock as far as
+// LockableConcurrentApproximatePriorityQueue uses it (tryLock, unlock). The
+// owning thread of the Java lock is made explicit as a util.LockOwner.
+type queueLock interface {
+	comparable
+	TryLock(owner util.LockOwner) bool
+	Unlock(owner util.LockOwner)
+}
+
+// lockableConcurrentApproximatePriorityQueue is the Go port of
+// LockableConcurrentApproximatePriorityQueue<T extends Lock>: a
+// ConcurrentApproximatePriorityQueue of Lock objects.
+type lockableConcurrentApproximatePriorityQueue[T queueLock] struct {
 	queue               *concurrentApproximatePriorityQueue
 	addAndUnlockCounter atomic.Int32
 }
 
-func newLockableConcurrentApproximatePriorityQueue() *lockableConcurrentApproximatePriorityQueue {
-	return &lockableConcurrentApproximatePriorityQueue{
+// newLockableConcurrentApproximatePriorityQueue mirrors the no-argument
+// constructor LockableConcurrentApproximatePriorityQueue().
+func newLockableConcurrentApproximatePriorityQueue[T queueLock]() *lockableConcurrentApproximatePriorityQueue[T] {
+	return &lockableConcurrentApproximatePriorityQueue[T]{
 		queue: newConcurrentApproximatePriorityQueueDefault(),
 	}
 }
 
-func (l *lockableConcurrentApproximatePriorityQueue) lockAndPoll(owner util.LockOwner) *DocumentsWriterPerThread {
+// newLockableConcurrentApproximatePriorityQueueWithConcurrency mirrors the
+// constructor LockableConcurrentApproximatePriorityQueue(int concurrency).
+func newLockableConcurrentApproximatePriorityQueueWithConcurrency[T queueLock](concurrency int) *lockableConcurrentApproximatePriorityQueue[T] {
+	return &lockableConcurrentApproximatePriorityQueue[T]{
+		queue: newConcurrentApproximatePriorityQueue(concurrency),
+	}
+}
+
+// lockAndPoll locks an entry, and polls it from the queue, in that order. If
+// no entry can be found and locked, the zero value (Java null) is returned.
+func (l *lockableConcurrentApproximatePriorityQueue[T]) lockAndPoll(owner util.LockOwner) T {
 	for {
-		count := l.addAndUnlockCounter.Load()
+		addAndUnlockCount := l.addAndUnlockCounter.Load()
 		entry, ok := l.queue.poll(func(v any) bool {
-			return v.(*DocumentsWriterPerThread).TryLock(owner)
+			return v.(T).TryLock(owner)
 		})
 		if ok {
-			return entry.(*DocumentsWriterPerThread)
+			return entry.(T)
 		}
-		if count == l.addAndUnlockCounter.Load() {
+		// If an entry has been added to the queue in the meantime, try again.
+		if addAndUnlockCount == l.addAndUnlockCounter.Load() {
 			break
 		}
 	}
-	return nil
+	var null T
+	return null
 }
 
-func (l *lockableConcurrentApproximatePriorityQueue) addAndUnlock(owner util.LockOwner, entry *DocumentsWriterPerThread, weight int64) {
-	l.queue.add(entry, weight)
-	entry.Unlock(owner)
-	l.addAndUnlockCounter.Add(1)
-}
-
-func (l *lockableConcurrentApproximatePriorityQueue) remove(o any) bool {
+// remove removes an entry from the queue.
+func (l *lockableConcurrentApproximatePriorityQueue[T]) remove(o any) bool {
 	return l.queue.remove(o)
 }
 
-func (l *lockableConcurrentApproximatePriorityQueue) contains(o any) bool {
+// contains is only used for assertions.
+func (l *lockableConcurrentApproximatePriorityQueue[T]) contains(o any) bool {
 	return l.queue.contains(o)
+}
+
+// addAndUnlock adds an entry to the queue and unlocks it, in that order.
+func (l *lockableConcurrentApproximatePriorityQueue[T]) addAndUnlock(owner util.LockOwner, entry T, weight int64) {
+	l.queue.add(entry, weight)
+	entry.Unlock(owner)
+	l.addAndUnlockCounter.Add(1)
 }

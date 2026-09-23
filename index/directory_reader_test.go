@@ -5,6 +5,7 @@
 package index_test
 
 import (
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
@@ -18,13 +19,13 @@ func TestDirectoryReader_IsCurrent(t *testing.T) {
 	defer dir.Close()
 
 	// Initial index creation
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
-	doc := &testDocument{fields: []interface{}{}}
+	doc := document.NewDocument()
 	_, err = writer.AddDocument(doc)
 	if err != nil {
 		t.Fatalf("Failed to add document: %v", err)
@@ -48,8 +49,8 @@ func TestDirectoryReader_IsCurrent(t *testing.T) {
 	}
 
 	// Modify index
-	config2 := index.NewIndexWriterConfig(createTestAnalyzer())
-	config2.SetOpenMode(index.APPEND)
+	config2 := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	config2.SetOpenMode(index.Append)
 	writer2, err := index.NewIndexWriter(dir, config2)
 	if err != nil {
 		t.Fatalf("Failed to open IndexWriter for append: %v", err)
@@ -76,13 +77,13 @@ func TestDirectoryReader_Basic(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
-	doc := &testDocument{fields: []interface{}{}}
+	doc := document.NewDocument()
 	writer.AddDocument(doc)
 	writer.AddDocument(doc)
 	writer.Commit()
@@ -109,13 +110,13 @@ func TestSegmentReader_Basic(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
-	doc := &testDocument{fields: []interface{}{}}
+	doc := document.NewDocument()
 	writer.AddDocument(doc)
 	writer.Commit()
 	writer.Close()
@@ -146,13 +147,13 @@ func TestFilterDirectoryReader(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}
 
-	doc := &testDocument{fields: []interface{}{}}
+	doc := document.NewDocument()
 	writer.AddDocument(doc)
 	writer.Commit()
 	writer.Close()

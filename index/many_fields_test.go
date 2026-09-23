@@ -1,136 +1,106 @@
-// Licensed to the Apache Software Foundation (ASF) under one or more
-// contributor license agreements.  See the NOTICE file distributed with
-// this work for additional information regarding copyright ownership.
-// The ASF licenses this file to You under the Apache License, Version 2.0
-// (the "License"); you may not use this file except in compliance with
-// the License.  You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+// Port of lucene/core/src/test/org/apache/lucene/index/TestManyFields.java
+// (Apache Lucene 10.5.0).
 
 package index_test
 
 import (
+	"math/rand"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
+	"github.com/FlavioCFOliveira/Gocene/search"
 )
 
-// many_fields_test.go ports org.apache.lucene.index.TestManyFields
-// (Lucene 10.4.0, core/src/test/org/apache/lucene/index/TestManyFields.java)
-// into the Gocene tree, under GOC-4186 / Sprint 55 (option c).
-//
-// The Java suite "creates way, way, way too many fields" and has three
-// test methods:
-//
-//   - testManyFields: writes 100 docs, each with six fields (a..f j-indexed),
-//     then reopens the index and asserts maxDoc/numDocs == 100 and that every
-//     term has docFreq == 1.
-//   - testDiverseDocs: writes a stress mix of unique-term, single-term, and
-//     very-long-term docs, then asserts a TermQuery for "aaa" counts n*100.
-//   - testRotatingFieldNames (LUCENE-4398): repeatedly fills the RAM buffer
-//     with ten fresh field names per doc, recycling field names past upto 5000
-//     to avoid unbounded FieldInfo growth, and asserts each segment flushes
-//     after a doc count within 90% of the first segment's.
-//
-// All three methods are gated with t.Skip carrying the precise missing
-// dependency, matching the established option-c pattern (see
-// binary_terms_test.go and consistent_field_numbers_test.go). Three distinct
-// infrastructure gaps block a faithful port today:
-//
-//   - DirectoryReader exposes no DocFreq: index.IndexReader.docFreq has no
-//     counterpart on the reopened-reader path (index/directory_reader.go),
-//     so testManyFields' per-term docFreq assertions cannot be expressed.
-//   - OpenDirectoryReader materialises each segment via NewSegmentReader
-//     (index/directory_reader.go:462/497), leaving SegmentReader.coreReaders
-//     nil; term lookups therefore match no documents, so testDiverseDocs'
-//     TermQuery count would be 0 regardless.
-//   - IndexWriter.GetFlushCount is a placeholder hardcoded to return 0
-//     (index/index_writer.go:412), so testRotatingFieldNames' driving loop
-//     `for w.GetFlushCount() == startFlushCount` would never terminate.
-//
-// Unskip each method once its dependency lands.
+// manyFieldsStoredTextType renders the static storedTextType:
+// new FieldType(TextField.TYPE_NOT_STORED).
+var manyFieldsStoredTextType = document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 
-const skipManyFieldsTermStats = "GOC-4186: DirectoryReader has no DocFreq counterpart for IndexReader.docFreq, and OpenDirectoryReader builds SegmentReader without core readers (index/directory_reader.go:462/497) so TermQuery matches no documents"
+func TestManyFieldsManyFields(t *testing.T) {
+	dir := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMaxBufferedDocs(10)
+	writer := mustNewIndexWriter(t, dir, iwc)
+	for j := 0; j < 100; j++ {
+		js := strconv.Itoa(j)
+		doc := document.NewDocument()
+		doc.Add(newField(t, "a"+js, "aaa"+js, manyFieldsStoredTextType))
+		doc.Add(newField(t, "b"+js, "aaa"+js, manyFieldsStoredTextType))
+		doc.Add(newField(t, "c"+js, "aaa"+js, manyFieldsStoredTextType))
+		doc.Add(newField(t, "d"+js, "aaa", manyFieldsStoredTextType))
+		doc.Add(newField(t, "e"+js, "aaa", manyFieldsStoredTextType))
+		doc.Add(newField(t, "f"+js, "aaa", manyFieldsStoredTextType))
+		mustAddDocument(t, writer, doc)
+	}
+	mustClose(t, writer)
 
-const skipManyFieldsFlushCount = "GOC-4186: IndexWriter.GetFlushCount is a placeholder returning 0 (index/index_writer.go:412); the flush-driven loop would never terminate"
-
-// TestManyFields_ManyFields ports testManyFields: it would index 100 docs of
-// six fields each and assert maxDoc/numDocs == 100 plus docFreq == 1 per term.
-func TestManyFields_ManyFields(t *testing.T) {
-	t.Fatal(skipManyFieldsTermStats)
+	reader := mustOpenDirectoryReader(t, dir)
+	if reader.MaxDoc() != 100 || reader.NumDocs() != 100 {
+		t.Fatalf("expected 100/100 docs, got maxDoc=%d numDocs=%d", reader.MaxDoc(), reader.NumDocs())
+	}
+	mustClose(t, reader, dir)
+	// for each j: assertEquals(1, reader.docFreq(new Term(...)))
+	t.Fatal("org.apache.lucene.index.IndexReader#docFreq(Term) is not ported for composite readers " +
+		"(DirectoryReader)")
 }
 
-// TestManyFields_DiverseDocs ports testDiverseDocs: it would index a stress
-// mix of unique-term, single-term, and very-long-term docs and assert a
-// TermQuery for "field:aaa" counts n*100.
-func TestManyFields_DiverseDocs(t *testing.T) {
-	t.Fatal(skipManyFieldsTermStats)
-}
-
-// TestManyFields_RotatingFieldNames ports testRotatingFieldNames (LUCENE-4398):
-// It repeatedly fills the RAM buffer with ten fresh field names per doc,
-// recycling field names past upto 5000 to avoid unbounded FieldInfo growth,
-// and asserts each segment flushes after a doc count within 90% of the first
-// segment's.
-func TestManyFields_RotatingFieldNames(t *testing.T) {
-	dir, err := store.NewSimpleFSDirectory(t.TempDir())
-	if err != nil {
-		t.Fatalf("NewSimpleFSDirectory: %v", err)
-	}
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(createTestAnalyzer())
-	cfg.SetRAMBufferSizeMB(0.2)
-	cfg.SetMaxBufferedDocs(-1)
-
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer w.Close()
-
-	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
-	ft.SetOmitNorms(true)
-
-	upto := 0
-	firstDocCount := -1
-	for iter := 0; iter < 10; iter++ {
-		startFlushCount := w.GetFlushCount()
-		docCount := 0
-		for w.GetFlushCount() == startFlushCount {
+func TestManyFieldsDiverseDocs(t *testing.T) {
+	dir := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetRAMBufferSizeMB(0.5)
+	writer := mustNewIndexWriter(t, dir, iwc)
+	n := atLeast(1)
+	for i := 0; i < n; i++ {
+		// First, docs where every term is unique (heavy on Posting instances)
+		for j := 0; j < 100; j++ {
 			doc := document.NewDocument()
-			for i := 0; i < 10; i++ {
-				fieldName := "field" + strconv.Itoa(upto)
-				f, _ := document.NewField(fieldName, "content", ft)
-				doc.Add(f)
-				upto++
+			for k := 0; k < 100; k++ {
+				doc.Add(newField(t, "field", strconv.Itoa(int(int32(rand.Uint32()))), manyFieldsStoredTextType))
 			}
-			if _, err := w.AddDocument(doc); err != nil {
-				t.Fatalf("AddDocument iter %d doc %d: %v", iter, docCount, err)
-			}
-			docCount++
+			mustAddDocument(t, writer, doc)
 		}
 
-		if iter == 0 {
-			firstDocCount = docCount
+		// Next, many single term docs where only one term occurs (heavy on
+		// byte blocks)
+		for j := 0; j < 100; j++ {
+			doc := document.NewDocument()
+			doc.Add(newField(t, "field", "aaa aaa aaa aaa aaa aaa aaa aaa aaa aaa", manyFieldsStoredTextType))
+			mustAddDocument(t, writer, doc)
 		}
 
-		if firstDocCount > 0 && float64(docCount)/float64(firstDocCount) <= 0.9 {
-			t.Fatalf("iter %d flushed after too few docs: first=%d current=%d", iter, firstDocCount, docCount)
-		}
+		// Next, many single term docs where only one term occurs but the terms
+		// are very long (heavy on char[] arrays)
+		for j := 0; j < 100; j++ {
+			x := strconv.Itoa(j) + "."
+			longTerm := strings.Repeat(x, 1000)
 
-		if upto > 5000 {
-			upto = 0
+			doc := document.NewDocument()
+			doc.Add(newField(t, "field", longTerm, manyFieldsStoredTextType))
+			mustAddDocument(t, writer, doc)
 		}
 	}
+	mustClose(t, writer)
+
+	reader := mustOpenDirectoryReader(t, dir)
+	searcher := search.NewIndexSearcher(reader)
+	totalHits, err := searcher.Count(search.NewTermQuery(index.NewTerm("field", "aaa")))
+	if err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if totalHits != n*100 {
+		t.Fatalf("expected %d hits, got %d", n*100, totalHits)
+	}
+	mustClose(t, reader, dir)
 }
 
+// TestManyFieldsRotatingFieldNames ports testRotatingFieldNames (LUCENE-4398),
+// which watches the package-private IndexWriter#getFlushCount().
+func TestManyFieldsRotatingFieldNames(t *testing.T) {
+	t.Fatal("org.apache.lucene.index.IndexWriter#getFlushCount() is not ported")
+}

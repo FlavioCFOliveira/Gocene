@@ -2,148 +2,143 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+// Port of lucene/core/src/test/org/apache/lucene/index/TestPayloadsOnVectors.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
 import (
+	"bytes"
+	"math/rand"
+	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 )
 
-// payloadsOnVectorsCustomType builds the FieldType used by the term-vector
-// payload tests: a non-stored TextField type with term vectors, positions and
-// payloads enabled. Offsets are toggled to mirror random().nextBoolean() in
-// the upstream test; here a deterministic value is used so the test is
-// reproducible.
-func payloadsOnVectorsCustomType() *index.FieldType {
-	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
-	ft.SetStoreTermVectors(true)
-	ft.SetStoreTermVectorPositions(true)
-	ft.SetStoreTermVectorPayloads(true)
-	ft.SetStoreTermVectorOffsets(false)
-	return ft
-}
-
-// TestPayloadsOnVectors_MixupDocs ports
-// org.apache.lucene.index.TestPayloadsOnVectors.testMixupDocs.
-//
-// The upstream test indexes three documents where only the middle one carries
-// a PayloadAttribute, then reads back the term vector for doc 1 and asserts the
-// payload survives. The full assertion path requires CannedTokenStream (to
-// attach a payload to a single canned token) and per-leaf term-vector reads via
-// TermVectors().Get -> TermsEnum.Postings(ALL). Neither is available yet
-// (CannedTokenStream is unimplemented; core readers are nil on
-// OpenDirectoryReader, so leaf term-vector retrieval fails). The reachable part
-// of the pipeline is exercised below; the payload read-back is deferred.
-func TestPayloadsOnVectors_MixupDocs(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	customType := payloadsOnVectorsCustomType()
-
-	doc := document.NewDocument()
-	field, err := document.NewField("field", "here we go", customType)
-	if err != nil {
-		t.Fatalf("Failed to create field: %v", err)
-	}
-	doc.Add(field)
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("Failed to add first document: %v", err)
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Failed to close writer: %v", err)
-	}
-
-	t.Fatal("payload read-back requires CannedTokenStream and per-leaf TermVectors().Get -> Postings(ALL), not yet implemented")
-}
-
-// TestPayloadsOnVectors_MixupMultiValued ports
-// org.apache.lucene.index.TestPayloadsOnVectors.testMixupMultiValued.
-//
-// The upstream test indexes a single document with three values for the same
-// field, only the second of which carries a payload, then reads the term
-// vector back. Reading the payload requires CannedTokenStream and per-leaf
-// term-vector retrieval, both unavailable; the indexable portion is exercised
-// and the read-back is deferred.
-func TestPayloadsOnVectors_MixupMultiValued(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	customType := payloadsOnVectorsCustomType()
-
-	doc := document.NewDocument()
-	field1, err := document.NewField("field", "here we go", customType)
-	if err != nil {
-		t.Fatalf("Failed to create field1: %v", err)
-	}
-	doc.Add(field1)
-	field3, err := document.NewField("field", "nopayload", customType)
-	if err != nil {
-		t.Fatalf("Failed to create field3: %v", err)
-	}
-	doc.Add(field3)
-
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("Failed to add document: %v", err)
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Failed to close writer: %v", err)
-	}
-
-	t.Fatal("payload read-back requires CannedTokenStream and per-leaf TermVectors().Get -> Postings(ALL), not yet implemented")
-}
-
-// TestPayloadsOnVectors_PayloadsWithoutPositions ports
-// org.apache.lucene.index.TestPayloadsOnVectors.testPayloadsWithoutPositions.
-//
-// Storing term-vector payloads without term-vector positions is an illegal
-// configuration; the upstream test asserts addDocument throws
-// IllegalArgumentException. Gocene already implements that invariant check in
-// TermVectorsConsumerPerField.Start (it panics with the matching message), but
-// IndexingChain does not yet wire a concrete TermVectorsConsumer into the live
-// IndexWriter.AddDocument path (see the GAP note in indexing_chain.go), so the
-// check is unreachable end-to-end. The field configuration is built and added
-// to the document; the addDocument-time assertion is deferred.
-func TestPayloadsOnVectors_PayloadsWithoutPositions(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-	defer writer.Close()
-
+// payloadsOnVectorsType renders new FieldType(TextField.TYPE_NOT_STORED) with
+// term vectors, positions and payloads, and random offsets.
+func payloadsOnVectorsType(positions bool) *document.FieldType {
 	customType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 	customType.SetStoreTermVectors(true)
-	customType.SetStoreTermVectorPositions(false)
+	customType.SetStoreTermVectorPositions(positions)
 	customType.SetStoreTermVectorPayloads(true)
-	customType.SetStoreTermVectorOffsets(false)
+	customType.SetStoreTermVectorOffsets(rand.Intn(2) == 0)
+	return customType
+}
 
+// payloadsOnVectorsTokenizer renders
+// new MockTokenizer(MockTokenizer.WHITESPACE, true) + setReader(new StringReader(text)).
+func payloadsOnVectorsTokenizer(text string) analysis.TokenStream {
+	ts := testanalysis.NewMockTokenizer(testanalysis.WHITESPACE, true, testanalysis.DefaultMaxTokenLength)
+	ts.SetReader(strings.NewReader(text))
+	return ts
+}
+
+func payloadsOnVectorsWithPayload(t *testing.T) analysis.TokenStream {
+	t.Helper()
+	withPayload := testanalysis.NewToken("withPayload", 0, 11).WithPayload([]byte("test"))
+	ts := testanalysis.NewCannedTokenStream(withPayload)
+	if !ts.HasAttribute(analysis.PayloadAttributeType) {
+		t.Fatal("assertTrue(ts.hasAttribute(PayloadAttribute.class))")
+	}
+	return ts
+}
+
+// TestPayloadsOnVectorsMixupDocs: some docs have payload att, some not. The
+// Java test swaps the token stream of the same Field with
+// Field#setTokenStream(TokenStream) between documents.
+func TestPayloadsOnVectorsMixupDocs(t *testing.T) {
+	dir := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMergePolicy(newLogMergePolicy())
+	writer := newRandomIndexWriterWithConfig(t, dir, iwc)
 	doc := document.NewDocument()
-	field, err := document.NewField("field", "foo", customType)
+	field, err := document.NewField("field", payloadsOnVectorsTokenizer("here we go"), payloadsOnVectorsType(true))
 	if err != nil {
-		t.Fatalf("Failed to create field: %v", err)
+		t.Fatalf("new Field: %v", err)
 	}
 	doc.Add(field)
+	if _, err := writer.AddDocument(doc); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	payloadsOnVectorsWithPayload(t)
+	mustClose(t, writer, dir)
+	t.Fatal("org.apache.lucene.document.Field#setTokenStream(TokenStream) is not ported")
+}
 
-	t.Fatal("illegal term-vector payload config is rejected in TermVectorsConsumerPerField.Start, but IndexingChain does not yet wire TermVectorsConsumer into AddDocument")
+// TestPayloadsOnVectorsMixupMultiValued: some field instances have payload
+// att, some not.
+func TestPayloadsOnVectorsMixupMultiValued(t *testing.T) {
+	dir := newDirectory()
+	writer := newRandomIndexWriter(t, dir)
+	doc := document.NewDocument()
+	customType := payloadsOnVectorsType(true)
+	for _, ts := range []analysis.TokenStream{
+		payloadsOnVectorsTokenizer("here we go"),
+		payloadsOnVectorsWithPayload(t),
+		payloadsOnVectorsTokenizer("nopayload"),
+	} {
+		f, err := document.NewField("field", ts, customType)
+		if err != nil {
+			t.Fatalf("new Field: %v", err)
+		}
+		doc.Add(f)
+	}
+	if _, err := writer.AddDocument(doc); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	reader, err := writer.GetReader()
+	if err != nil {
+		t.Fatalf("getReader: %v", err)
+	}
+	termVectors, err := reader.TermVectors()
+	if err != nil {
+		t.Fatalf("termVectors: %v", err)
+	}
+	terms, err := termVectors.GetField(0, "field")
+	if err != nil {
+		t.Fatalf("termVectors.get: %v", err)
+	}
+	if terms == nil {
+		t.Fatal("assert terms != null")
+	}
+	termsEnum, err := terms.Iterator()
+	if err != nil {
+		t.Fatalf("iterator: %v", err)
+	}
+	found, err := termsEnum.SeekExact(index.NewTerm("field", "withPayload"))
+	if err != nil || !found {
+		t.Fatalf("seekExact(withPayload): %t (%v)", found, err)
+	}
+	de, err := termsEnum.Postings(index.PostingsFlagAll)
+	if err != nil {
+		t.Fatalf("postings: %v", err)
+	}
+	if doc, err := de.NextDoc(); err != nil || doc != 0 {
+		t.Fatalf("nextDoc: expected 0, got %d (%v)", doc, err)
+	}
+	if pos, err := de.NextPosition(); err != nil || pos != 3 {
+		t.Fatalf("nextPosition: expected 3, got %d (%v)", pos, err)
+	}
+	if payload, err := de.GetPayload(); err != nil || !bytes.Equal(payload, []byte("test")) {
+		t.Fatalf("getPayload: expected test, got %q (%v)", payload, err)
+	}
+	mustClose(t, writer, reader, dir)
+}
+
+func TestPayloadsOnVectorsPayloadsWithoutPositions(t *testing.T) {
+	dir := newDirectory()
+	writer := newRandomIndexWriter(t, dir)
+	doc := document.NewDocument()
+	doc.Add(newField(t, "field", "foo", payloadsOnVectorsType(false)))
+
+	if _, err := writer.AddDocument(doc); err == nil {
+		t.Fatal("expected IllegalArgumentException")
+	}
+
+	mustClose(t, writer, dir)
 }

@@ -2,429 +2,434 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+// Port of lucene/core/src/test/org/apache/lucene/index/TestFieldInfos.java
+// (Apache Lucene 10.5.0).
+
 package index
 
 import (
+	"fmt"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/spi"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 )
 
-func TestNewFieldInfos(t *testing.T) {
-	fis := NewFieldInfos()
+func fieldInfosTestConfig() *IndexWriterConfig {
+	return NewIndexWriterConfigWithAnalyzer(testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, true, 0, nil, true))
+}
 
-	if fis.Size() != 0 {
-		t.Errorf("Expected Size=0, got %d", fis.Size())
+func fieldInfosAddStringField(t *testing.T, d *document.Document, name, value string) {
+	t.Helper()
+	f, err := document.NewStringField(name, value, true)
+	if err != nil {
+		t.Fatalf("new StringField: %v", err)
 	}
-	if fis.IsFrozen() {
-		t.Error("New FieldInfos should not be frozen")
+	d.Add(f)
+}
+
+func fieldInfosAddField(t *testing.T, d *document.Document, name, value string, ft *document.FieldType) {
+	t.Helper()
+	f, err := document.NewField(name, value, ft)
+	if err != nil {
+		t.Fatalf("new Field: %v", err)
 	}
-	if fis.GetNextFieldNumber() != 0 {
-		t.Errorf("Expected next field number=0, got %d", fis.GetNextFieldNumber())
+	d.Add(f)
+}
+
+func TestFieldInfosFieldInfos(t *testing.T) {
+	dir := newDirectory()
+	iwc := fieldInfosTestConfig()
+	iwc.SetMergePolicy(NewNoMergePolicy())
+	writer, err := NewIndexWriter(dir, iwc)
+	if err != nil {
+		t.Fatalf("new IndexWriter: %v", err)
+	}
+
+	d1 := document.NewDocument()
+	for i := 0; i < 15; i++ {
+		fieldInfosAddStringField(t, d1, fmt.Sprintf("f%d", i), fmt.Sprintf("v%d", i))
+	}
+	if _, err := writer.AddDocument(d1); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	if _, err := writer.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	d2 := document.NewDocument()
+	fieldInfosAddStringField(t, d2, "f0", "v0")
+	fieldInfosAddStringField(t, d2, "f15", "v15")
+	fieldInfosAddStringField(t, d2, "f16", "v16")
+	if _, err := writer.AddDocument(d2); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	if _, err := writer.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	d3 := document.NewDocument()
+	if _, err := writer.AddDocument(d3); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	sis, err := spi.ReadLatestCommit(dir)
+	if err != nil {
+		t.Fatalf("readLatestCommit: %v", err)
+	}
+	if sis.Size() != 3 {
+		t.Fatalf("expected 3 segments, got %d", sis.Size())
+	}
+
+	fis1, err := readFieldInfos(sis.Get(0))
+	if err != nil {
+		t.Fatalf("readFieldInfos: %v", err)
+	}
+	fis2, err := readFieldInfos(sis.Get(1))
+	if err != nil {
+		t.Fatalf("readFieldInfos: %v", err)
+	}
+	fis3, err := readFieldInfos(sis.Get(2))
+	if err != nil {
+		t.Fatalf("readFieldInfos: %v", err)
+	}
+
+	// testing dense FieldInfos
+	it := fis1.Iterator()
+	i := 0
+	for it.HasNext() {
+		fi := it.Next()
+		want := fmt.Sprintf("f%d", i)
+		if fi.Number() != i {
+			t.Fatalf("expected number %d, got %d", i, fi.Number())
+		}
+		if fi.Name() != want {
+			t.Fatalf("expected %q, got %q", want, fi.Name())
+		}
+		if got := fis1.FieldInfoByNumber(i); got == nil || got.Name() != want { // lookup by number
+			t.Fatalf("fieldInfo(%d): expected %q, got %v", i, want, got)
+		}
+		if got := fis1.FieldInfo(want); got == nil || got.Name() != want { // lookup by name
+			t.Fatalf("fieldInfo(%q): expected %q, got %v", want, want, got)
+		}
+		i++
+	}
+
+	// testing sparse FieldInfos
+	fieldInfosAssertName(t, fis2.FieldInfoByNumber(0), "f0") // lookup by number
+	fieldInfosAssertName(t, fis2.FieldInfo("f0"), "f0")      // lookup by name
+	if fis2.FieldInfoByNumber(1) != nil {
+		t.Fatal("assertNull(fis2.fieldInfo(1))")
+	}
+	if fis2.FieldInfo("f1") != nil {
+		t.Fatal("assertNull(fis2.fieldInfo(\"f1\"))")
+	}
+	fieldInfosAssertName(t, fis2.FieldInfoByNumber(15), "f15")
+	fieldInfosAssertName(t, fis2.FieldInfo("f15"), "f15")
+	fieldInfosAssertName(t, fis2.FieldInfoByNumber(16), "f16")
+	fieldInfosAssertName(t, fis2.FieldInfo("f16"), "f16")
+
+	// testing empty FieldInfos
+	if fis3.FieldInfoByNumber(0) != nil { // lookup by number
+		t.Fatal("assertNull(fis3.fieldInfo(0))")
+	}
+	if fis3.FieldInfo("f0") != nil { // lookup by name
+		t.Fatal("assertNull(fis3.fieldInfo(\"f0\"))")
+	}
+	if fis3.Size() != 0 {
+		t.Fatalf("expected 0, got %d", fis3.Size())
+	}
+	if fis3.Iterator().HasNext() {
+		t.Fatal("assertFalse(it3.hasNext())")
+	}
+	if err := dir.Close(); err != nil {
+		t.Fatalf("close dir: %v", err)
 	}
 }
 
-func TestFieldInfos_Add(t *testing.T) {
-	fis := NewFieldInfos()
-
-	// Add first field
-	fi1 := NewFieldInfo("title", 0, FieldInfoOptions{
-		IndexOptions: IndexOptionsDocsAndFreqs,
-		Stored:       true,
-	})
-	err := fis.Add(fi1)
-	if err != nil {
-		t.Fatalf("Add error: %v", err)
+func fieldInfosAssertName(t *testing.T, fi *FieldInfo, want string) {
+	t.Helper()
+	if fi == nil || fi.Name() != want {
+		t.Fatalf("expected field %q, got %v", want, fi)
 	}
-	if fis.Size() != 1 {
-		t.Errorf("Expected Size=1, got %d", fis.Size())
+}
+
+func TestFieldInfosFieldAttributes(t *testing.T) {
+	dir := newDirectory()
+	iwc := fieldInfosTestConfig()
+	iwc.SetMergePolicy(NewNoMergePolicy())
+	writer, err := NewIndexWriter(dir, iwc)
+	if err != nil {
+		t.Fatalf("new IndexWriter: %v", err)
 	}
 
-	// Add second field
-	fi2 := NewFieldInfo("body", 1, FieldInfoOptions{
-		IndexOptions: IndexOptionsDocsAndFreqsAndPositions,
-		Stored:       true,
-	})
-	err = fis.Add(fi2)
+	type1 := document.NewFieldType()
+	type1.SetStored(true)
+	type1.PutAttribute("testKey1", "testValue1")
+
+	d1 := document.NewDocument()
+	fieldInfosAddField(t, d1, "f1", "v1", type1)
+	type2 := document.NewFieldTypeFrom(type1)
+	// changing the value after copying shouldn't impact the original type1
+	type2.PutAttribute("testKey1", "testValue2")
+	if _, err := writer.AddDocument(d1); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	if _, err := writer.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+
+	d2 := document.NewDocument()
+	type1.PutAttribute("testKey1", "testValueX")
+	type1.PutAttribute("testKey2", "testValue2")
+	fieldInfosAddField(t, d2, "f1", "v2", type1)
+	fieldInfosAddField(t, d2, "f2", "v2", type2)
+	if _, err := writer.AddDocument(d2); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	if _, err := writer.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+
+	reader, err := OpenDirectoryReaderFromWriter(writer)
 	if err != nil {
-		t.Fatalf("Add error: %v", err)
+		t.Fatalf("DirectoryReader.open(writer): %v", err)
+	}
+	fis, err := spi.GetMergedFieldInfos(reader)
+	if err != nil {
+		t.Fatalf("getMergedFieldInfos: %v", err)
 	}
 	if fis.Size() != 2 {
-		t.Errorf("Expected Size=2, got %d", fis.Size())
+		t.Fatalf("expected 2, got %d", fis.Size())
 	}
-
-	// Verify GetByName
-	got := fis.GetByName("title")
-	if got == nil {
-		t.Fatal("GetByName('title') should not be nil")
+	it := fis.Iterator()
+	for it.HasNext() {
+		fi := it.Next()
+		switch fi.Name() {
+		case "f1":
+			// testKey1 can point to either testValue1 or testValueX based on the order
+			// of merge, but we see textValueX winning here since segment_2 is merged on segment_1.
+			if got := fi.GetAttribute("testKey1"); got != "testValueX" {
+				t.Fatalf("f1 testKey1: expected testValueX, got %q", got)
+			}
+			if got := fi.GetAttribute("testKey2"); got != "testValue2" {
+				t.Fatalf("f1 testKey2: expected testValue2, got %q", got)
+			}
+		case "f2":
+			if got := fi.GetAttribute("testKey1"); got != "testValue2" {
+				t.Fatalf("f2 testKey1: expected testValue2, got %q", got)
+			}
+		default:
+			t.Fatal("Unknown field")
+		}
 	}
-	if got.Name() != "title" {
-		t.Errorf("Expected name 'title', got '%s'", got.Name())
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close reader: %v", err)
 	}
-
-	// Verify GetByNumber
-	got2 := fis.GetByNumber(1)
-	if got2 == nil {
-		t.Fatal("GetByNumber(1) should not be nil")
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
 	}
-	if got2.Name() != "body" {
-		t.Errorf("Expected name 'body', got '%s'", got2.Name())
-	}
-
-	// Get non-existent
-	if fis.GetByName("nonexistent") != nil {
-		t.Error("GetByName('nonexistent') should be nil")
-	}
-	if fis.GetByNumber(999) != nil {
-		t.Error("GetByNumber(999) should be nil")
+	if err := dir.Close(); err != nil {
+		t.Fatalf("close dir: %v", err)
 	}
 }
 
-func TestFieldInfos_Add_Duplicate(t *testing.T) {
-	fis := NewFieldInfos()
-
-	// Add first field
-	fi1 := NewFieldInfo("title", 0, FieldInfoOptions{})
-	fis.Add(fi1)
-
-	// Add same field again (same name and number) - should succeed
-	fi1Again := NewFieldInfo("title", 0, FieldInfoOptions{})
-	err := fis.Add(fi1Again)
+func TestFieldInfosFieldAttributesSingleSegment(t *testing.T) {
+	dir := newDirectory()
+	iwc := fieldInfosTestConfig()
+	iwc.SetMergePolicy(NewNoMergePolicy())
+	writer, err := NewIndexWriter(dir, iwc)
 	if err != nil {
-		t.Errorf("Adding same field again should succeed: %v", err)
-	}
-	if fis.Size() != 1 {
-		t.Errorf("Size should still be 1, got %d", fis.Size())
+		t.Fatalf("new IndexWriter: %v", err)
 	}
 
-	// Add field with same name but different number - should fail
-	fiDifferent := NewFieldInfo("title", 1, FieldInfoOptions{})
-	err = fis.Add(fiDifferent)
-	if err == nil {
-		t.Error("Adding field with same name but different number should fail")
+	d1 := document.NewDocument()
+	type1 := document.NewFieldType()
+	type1.SetStored(true)
+	type1.PutAttribute("att1", "attdoc1")
+	fieldInfosAddField(t, d1, "f1", "v1", type1)
+	// add field with the same name and an extra attribute
+	type1.PutAttribute("att2", "attdoc1")
+	fieldInfosAddField(t, d1, "f1", "v1", type1)
+	if _, err := writer.AddDocument(d1); err != nil {
+		t.Fatalf("addDocument: %v", err)
 	}
 
-	// Add field with different name but same number - should fail
-	fis2 := NewFieldInfos()
-	fis2.Add(NewFieldInfo("title", 0, FieldInfoOptions{}))
-	fiConflict := NewFieldInfo("body", 0, FieldInfoOptions{})
-	err = fis2.Add(fiConflict)
-	if err == nil {
-		t.Error("Adding field with same number but different name should fail")
+	d2 := document.NewDocument()
+	type1.PutAttribute("att1", "attdoc2")
+	type1.PutAttribute("att2", "attdoc2")
+	type1.PutAttribute("att3", "attdoc2")
+	type2 := document.NewFieldType()
+	type2.SetStored(true)
+	type2.PutAttribute("att4", "attdoc2")
+	fieldInfosAddField(t, d2, "f1", "v2", type1)
+	fieldInfosAddField(t, d2, "f2", "v2", type2)
+	if _, err := writer.AddDocument(d2); err != nil {
+		t.Fatalf("addDocument: %v", err)
 	}
-}
-
-func TestFieldInfos_Add_WhenFrozen(t *testing.T) {
-	fis := NewFieldInfos()
-	fis.Add(NewFieldInfo("title", 0, FieldInfoOptions{}))
-	fis.Freeze()
-
-	if !fis.IsFrozen() {
-		t.Error("FieldInfos should be frozen")
+	if _, err := writer.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
 	}
 
-	err := fis.Add(NewFieldInfo("body", 1, FieldInfoOptions{}))
-	if err == nil {
-		t.Error("Adding to frozen FieldInfos should fail")
+	reader, err := OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("DirectoryReader.open(writer): %v", err)
 	}
-}
-
-func TestFieldInfos_Names(t *testing.T) {
-	fis := NewFieldInfos()
-
-	// Add fields out of order
-	fis.Add(NewFieldInfo("zebra", 2, FieldInfoOptions{}))
-	fis.Add(NewFieldInfo("alpha", 0, FieldInfoOptions{}))
-	fis.Add(NewFieldInfo("beta", 1, FieldInfoOptions{}))
-
-	names := fis.Names()
-	if len(names) != 3 {
-		t.Fatalf("Expected 3 names, got %d", len(names))
+	fis, err := spi.GetMergedFieldInfos(reader)
+	if err != nil {
+		t.Fatalf("getMergedFieldInfos: %v", err)
 	}
 
-	// Should be sorted
-	expected := []string{"alpha", "beta", "zebra"}
-	for i, exp := range expected {
-		if names[i] != exp {
-			t.Errorf("Expected name '%s' at index %d, got '%s'", exp, i, names[i])
-		}
+	// test that attributes for f1 are introduced by d1,
+	// and not modified by d2
+	fi1 := fis.FieldInfo("f1")
+	if got := fi1.GetAttribute("att1"); got != "attdoc1" {
+		t.Fatalf("att1: expected attdoc1, got %q", got)
+	}
+	if got := fi1.GetAttribute("att2"); got != "attdoc1" {
+		t.Fatalf("att2: expected attdoc1, got %q", got)
+	}
+	if got := fi1.GetAttribute("att3"); got != "" {
+		t.Fatalf("assertNull(fi1.getAttribute(\"att3\")): got %q", got)
 	}
 
-	// Modify returned slice should not affect original
-	names[0] = "modified"
-	names2 := fis.Names()
-	if names2[0] != "alpha" {
-		t.Error("Names should return a copy")
-	}
-}
-
-func TestFieldInfos_Iterator(t *testing.T) {
-	fis := NewFieldInfos()
-
-	// Add fields with non-sequential numbers
-	fis.Add(NewFieldInfo("title", 5, FieldInfoOptions{}))
-	fis.Add(NewFieldInfo("body", 2, FieldInfoOptions{}))
-	fis.Add(NewFieldInfo("author", 10, FieldInfoOptions{}))
-
-	iter := fis.Iterator()
-
-	// Should iterate by field number order
-	expected := []int{2, 5, 10}
-	for _, expNum := range expected {
-		if !iter.HasNext() {
-			t.Fatal("HasNext should be true")
-		}
-		fi := iter.Next()
-		if fi == nil {
-			t.Fatal("Next should not be nil")
-		}
-		if fi.Number() != expNum {
-			t.Errorf("Expected number %d, got %d", expNum, fi.Number())
-		}
+	// test that attributes for f2 are introduced by d2
+	fi2 := fis.FieldInfo("f2")
+	if got := fi2.GetAttribute("att4"); got != "attdoc2" {
+		t.Fatalf("att4: expected attdoc2, got %q", got)
 	}
 
-	if iter.HasNext() {
-		t.Error("HasNext should be false at end")
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close reader: %v", err)
 	}
-
-	if iter.Next() != nil {
-		t.Error("Next at end should be nil")
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	if err := dir.Close(); err != nil {
+		t.Fatalf("close dir: %v", err)
 	}
 }
 
-func TestFieldInfos_HasProx(t *testing.T) {
-	// No positions
-	fis1 := NewFieldInfos()
-	fis1.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		IndexOptions: IndexOptionsDocsAndFreqs,
-	}))
-	if fis1.HasProx() {
-		t.Error("HasProx should be false when no field has positions")
+func TestFieldInfosMergedFieldInfosEmpty(t *testing.T) {
+	dir := newDirectory()
+	writer, err := NewIndexWriter(dir, fieldInfosTestConfig())
+	if err != nil {
+		t.Fatalf("new IndexWriter: %v", err)
 	}
 
-	// Has positions
-	fis2 := NewFieldInfos()
-	fis2.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		IndexOptions: IndexOptionsDocsAndFreqsAndPositions,
-	}))
-	if !fis2.HasProx() {
-		t.Error("HasProx should be true when field has positions")
+	reader, err := OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("DirectoryReader.open(writer): %v", err)
 	}
-}
-
-func TestFieldInfos_HasFreq(t *testing.T) {
-	// No freqs
-	fis1 := NewFieldInfos()
-	fis1.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		IndexOptions: IndexOptionsDocs,
-	}))
-	if fis1.HasFreq() {
-		t.Error("HasFreq should be false when no field has freqs")
+	actual, err := spi.GetMergedFieldInfos(reader)
+	if err != nil {
+		t.Fatalf("getMergedFieldInfos: %v", err)
 	}
 
-	// Has freqs
-	fis2 := NewFieldInfos()
-	fis2.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		IndexOptions: IndexOptionsDocsAndFreqs,
-	}))
-	if !fis2.HasFreq() {
-		t.Error("HasFreq should be true when field has freqs")
+	if actual != EmptyFieldInfos {
+		t.Fatal("assertSame(FieldInfos.EMPTY, actual)")
+	}
+
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close reader: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	if err := dir.Close(); err != nil {
+		t.Fatalf("close dir: %v", err)
 	}
 }
 
-func TestFieldInfos_HasOffsets(t *testing.T) {
-	// No offsets
-	fis1 := NewFieldInfos()
-	fis1.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		IndexOptions: IndexOptionsDocsAndFreqsAndPositions,
-	}))
-	if fis1.HasOffsets() {
-		t.Error("HasOffsets should be false when no field has offsets")
+func TestFieldInfosMergedFieldInfosSingleLeaf(t *testing.T) {
+	dir := newDirectory()
+	writer, err := NewIndexWriter(dir, fieldInfosTestConfig())
+	if err != nil {
+		t.Fatalf("new IndexWriter: %v", err)
 	}
 
-	// Has offsets
-	fis2 := NewFieldInfos()
-	fis2.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		IndexOptions: IndexOptionsDocsAndFreqsAndPositionsAndOffsets,
-	}))
-	if !fis2.HasOffsets() {
-		t.Error("HasOffsets should be true when field has offsets")
+	d1 := document.NewDocument()
+	fieldInfosAddStringField(t, d1, "f1", "v1")
+	if _, err := writer.AddDocument(d1); err != nil {
+		t.Fatalf("addDocument: %v", err)
 	}
-}
-
-func TestFieldInfos_HasDocValues(t *testing.T) {
-	// No doc values
-	fis1 := NewFieldInfos()
-	fis1.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		DocValuesType: DocValuesTypeNone,
-	}))
-	if fis1.HasDocValues() {
-		t.Error("HasDocValues should be false when no field has doc values")
+	if _, err := writer.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
 	}
 
-	// Has doc values
-	fis2 := NewFieldInfos()
-	fis2.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		DocValuesType: DocValuesTypeNumeric,
-	}))
-	if !fis2.HasDocValues() {
-		t.Error("HasDocValues should be true when field has doc values")
+	d2 := document.NewDocument()
+	fieldInfosAddStringField(t, d2, "f2", "v2")
+	if _, err := writer.AddDocument(d2); err != nil {
+		t.Fatalf("addDocument: %v", err)
 	}
-}
-
-func TestFieldInfos_HasNorms(t *testing.T) {
-	// No norms (omitNorms=true)
-	fis1 := NewFieldInfos()
-	fis1.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		IndexOptions: IndexOptionsDocsAndFreqs,
-		OmitNorms:    true,
-	}))
-	if fis1.HasNorms() {
-		t.Error("HasNorms should be false when omitNorms=true")
+	if _, err := writer.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
 	}
 
-	// Has norms
-	fis2 := NewFieldInfos()
-	fis2.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		IndexOptions: IndexOptionsDocsAndFreqs,
-		OmitNorms:    false,
-	}))
-	if !fis2.HasNorms() {
-		t.Error("HasNorms should be true when norms enabled")
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+
+	reader, err := OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("DirectoryReader.open(writer): %v", err)
+	}
+	actual, err := spi.GetMergedFieldInfos(reader)
+	if err != nil {
+		t.Fatalf("getMergedFieldInfos: %v", err)
+	}
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("leaves: %v", err)
+	}
+	if len(leaves) != 1 {
+		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	}
+	expected := leaves[0].LeafReader().GetFieldInfos()
+	if expected != actual {
+		t.Fatal("assertSame(expected, actual)")
+	}
+
+	if err := reader.Close(); err != nil {
+		t.Fatalf("close reader: %v", err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatalf("close writer: %v", err)
+	}
+	if err := dir.Close(); err != nil {
+		t.Fatalf("close dir: %v", err)
 	}
 }
 
-func TestFieldInfos_HasTermVectors(t *testing.T) {
-	// No term vectors
-	fis1 := NewFieldInfos()
-	fis1.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		StoreTermVectors: false,
-	}))
-	if fis1.HasTermVectors() {
-		t.Error("HasTermVectors should be false when no field has term vectors")
-	}
-
-	// Has term vectors
-	fis2 := NewFieldInfos()
-	fis2.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		StoreTermVectors: true,
-	}))
-	if !fis2.HasTermVectors() {
-		t.Error("HasTermVectors should be true when field has term vectors")
-	}
+// fieldInfosNoneFieldInfo renders
+// new FieldInfo(name, -1, false, false, false, IndexOptions.NONE,
+// DocValuesType.NONE, DocValuesSkipIndexType.NONE, -1, new HashMap<>(), 0, 0,
+// 0, 0, VectorEncoding.FLOAT32, VectorSimilarityFunction.EUCLIDEAN, false,
+// false).
+func fieldInfosNoneFieldInfo(name string) *FieldInfo {
+	return NewFieldInfo(name, -1, DefaultFieldInfoOptions())
 }
 
-func TestFieldInfos_Clear(t *testing.T) {
-	fis := NewFieldInfos()
-	fis.Add(NewFieldInfo("title", 0, FieldInfoOptions{}))
-	fis.Add(NewFieldInfo("body", 1, FieldInfoOptions{}))
-
-	if fis.Size() != 2 {
-		t.Error("Expected Size=2 before clear")
+func TestFieldInfosFieldNumbersAutoIncrement(t *testing.T) {
+	fieldNumbers := NewFieldNumbers("softDeletes", "parentDoc")
+	for i := 0; i < 10; i++ {
+		fieldNumbers.AddOrGet(fieldInfosNoneFieldInfo(fmt.Sprintf("field%d", i)))
+	}
+	idx := fieldNumbers.AddOrGet(fieldInfosNoneFieldInfo("EleventhField"))
+	if idx != 10 {
+		t.Fatalf("Field numbers 0 through 9 were allocated: expected 10, got %d", idx)
 	}
 
-	fis.Clear()
-
-	if fis.Size() != 0 {
-		t.Errorf("Expected Size=0 after clear, got %d", fis.Size())
-	}
-
-	// Clear frozen FieldInfos should not work
-	fis.Add(NewFieldInfo("title", 0, FieldInfoOptions{}))
-	fis.Freeze()
-	fis.Clear()
-	if fis.Size() != 1 {
-		t.Error("Clear on frozen FieldInfos should not work")
-	}
-}
-
-func TestFieldInfos_String(t *testing.T) {
-	fis := NewFieldInfos()
-	fis.Add(NewFieldInfo("title", 0, FieldInfoOptions{}))
-
-	str := fis.String()
-	if str != "FieldInfos(size=1)" {
-		t.Errorf("Expected 'FieldInfos(size=1)', got '%s'", str)
-	}
-}
-
-func TestEmptyFieldInfos(t *testing.T) {
-	// Test that EmptyFieldInfos is frozen and empty
-	if !EmptyFieldInfos.IsFrozen() {
-		t.Error("EmptyFieldInfos should be frozen")
-	}
-	if EmptyFieldInfos.Size() != 0 {
-		t.Error("EmptyFieldInfos should have size 0")
-	}
-
-	err := EmptyFieldInfos.Add(NewFieldInfo("title", 0, FieldInfoOptions{}))
-	if err == nil {
-		t.Error("Adding to EmptyFieldInfos should fail")
-	}
-}
-
-func TestFieldInfosBuilder(t *testing.T) {
-	builder := NewFieldInfosBuilder()
-
-	builder.Add(NewFieldInfo("title", 0, FieldInfoOptions{
-		IndexOptions: IndexOptionsDocsAndFreqs,
-	}))
-
-	builder.AddFromOptions("body", FieldInfoOptions{
-		IndexOptions: IndexOptionsDocsAndFreqsAndPositions,
-		Stored:       true,
-	})
-
-	fis := builder.Build()
-
-	if !fis.IsFrozen() {
-		t.Error("Built FieldInfos should be frozen")
-	}
-	if fis.Size() != 2 {
-		t.Errorf("Expected Size=2, got %d", fis.Size())
-	}
-
-	// Check auto-assigned number for second field
-	body := fis.GetByName("body")
-	if body == nil {
-		t.Fatal("body should exist")
-	}
-	if body.Number() != 1 {
-		t.Errorf("Expected body number=1, got %d", body.Number())
-	}
-}
-
-func TestFieldInfos_ConcurrentAccess(t *testing.T) {
-	fis := NewFieldInfos()
-	fis.Add(NewFieldInfo("title", 0, FieldInfoOptions{}))
-
-	// Concurrent reads
-	done := make(chan bool, 3)
-
-	// Reader 1
-	go func() {
-		for i := 0; i < 100; i++ {
-			fis.GetByName("title")
-		}
-		done <- true
-	}()
-
-	// Reader 2
-	go func() {
-		for i := 0; i < 100; i++ {
-			fis.GetByNumber(0)
-		}
-		done <- true
-	}()
-
-	// Reader 3
-	go func() {
-		for i := 0; i < 100; i++ {
-			fis.HasProx()
-		}
-		done <- true
-	}()
-
-	// Wait for all readers
-	for i := 0; i < 3; i++ {
-		<-done
+	fieldNumbers.Clear()
+	idx = fieldNumbers.AddOrGet(fieldInfosNoneFieldInfo("PostClearField"))
+	if idx != 0 {
+		t.Fatalf("Field numbers should reset after clear(): expected 0, got %d", idx)
 	}
 }

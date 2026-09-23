@@ -6,6 +6,7 @@ package index_test
 
 import (
 	"fmt"
+	"github.com/FlavioCFOliveira/Gocene/document"
 	"sync"
 	"testing"
 
@@ -58,7 +59,7 @@ func runAtomicUpdateTest(t *testing.T, directory store.Directory) {
 	const indexIterations = 1
 	const searchIterations = 1
 
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
 	config.SetMaxBufferedDocs(7)
 
 	writer, err := index.NewIndexWriter(directory, config)
@@ -69,16 +70,16 @@ func runAtomicUpdateTest(t *testing.T, directory store.Directory) {
 	// Establish a base index of 100 docs.
 	for i := 0; i < 100; i++ {
 		if (i-1)%7 == 0 {
-			if err := writer.Commit(); err != nil {
+			if _, err := writer.Commit(); err != nil {
 				t.Fatalf("base commit() error = %v", err)
 			}
 		}
-		doc := &testDocument{fields: []interface{}{}}
+		doc := document.NewDocument()
 		if _, err := writer.AddDocument(doc); err != nil {
 			t.Fatalf("base AddDocument(%d) error = %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("base final commit() error = %v", err)
 	}
 
@@ -102,7 +103,7 @@ func runAtomicUpdateTest(t *testing.T, directory store.Directory) {
 				// Update all 100 docs.
 				for id := 0; id < 100; id++ {
 					term := index.NewTerm("id", fmt.Sprintf("%d", id))
-					doc := &testDocument{fields: []interface{}{}}
+					doc := document.NewDocument()
 					if _, err := writer.UpdateDocument(term, doc); err != nil {
 						return fmt.Errorf("UpdateDocument(id=%d): %w", id, err)
 					}

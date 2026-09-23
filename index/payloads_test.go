@@ -2,19 +2,16 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for payload encoding and retrieval.
-//
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/index/TestPayloads.java
-//
-// GOC-4250: Port test `org.apache.lucene.index.TestPayloads`.
+// Port of lucene/core/src/test/org/apache/lucene/index/TestPayloads.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
 import (
-	"bytes"
 	"fmt"
 	"io"
+	"math"
+	"strings"
 	"sync"
 	"testing"
 
@@ -27,568 +24,555 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// payloadType is a FieldType that indexes positions and payloads.
-func payloadType() *index.FieldType {
-	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
-	ft.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
-	return ft
-}
+const multiTermsGetTermPostingsEnumMissing = "org.apache.lucene.index.MultiTerms#getTermPostingsEnum(IndexReader, String, BytesRef) is not ported"
 
-// payloadAnalyzer returns a test-only analyzer that ignores the supplied reader
-// and returns a fresh TokenStream built by factory on every call.
-type payloadAnalyzer struct {
-	factory func() analysis.TokenStream
-}
+const fieldSetTokenStreamMissing = "org.apache.lucene.document.Field#setTokenStream(TokenStream) is not ported"
 
-func (a *payloadAnalyzer) TokenStream(fieldName string, reader io.Reader) (analysis.TokenStream, error) {
-	return a.factory(), nil
-}
-func (a *payloadAnalyzer) Close() error { return nil }
-
-// fieldAwarePayloadAnalyzer is an analyzer whose TokenStream factory receives
-// the field name so it can emit payloads only for selected fields.
-type fieldAwarePayloadAnalyzer struct {
-	factory func(fieldName string) analysis.TokenStream
-}
-
-func (a *fieldAwarePayloadAnalyzer) TokenStream(fieldName string, reader io.Reader) (analysis.TokenStream, error) {
-	return a.factory(fieldName), nil
-}
-func (a *fieldAwarePayloadAnalyzer) Close() error { return nil }
-
-// newPayloadWriter creates an IndexWriter configured with the supplied
-// canned-token analyzer factory.
-func newPayloadWriter(t *testing.T, factory func() analysis.TokenStream) (store.Directory, *index.IndexWriter) {
-	t.Helper()
-	dir := store.NewByteBuffersDirectory()
-	config := index.NewIndexWriterConfig(&payloadAnalyzer{factory: factory})
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	return dir, writer
-}
-
-// openCommittedReader flushes the writer and opens a fresh DirectoryReader.
-func openCommittedReaderPayloads(t *testing.T, dir store.Directory, writer *index.IndexWriter) *index.DirectoryReader {
-	t.Helper()
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	return reader
-}
-
-// assertPayloads verifies the postings for term carry the expected payloads in
-// order.
-func assertPayloads(t *testing.T, reader *index.DirectoryReader, field, term string, wantPayloads [][]byte) {
-	t.Helper()
-	leaves := reader.GetSegmentReaders()
-	if len(leaves) != 1 {
-		t.Fatalf("expected 1 leaf, got %d", len(leaves))
-	}
-	leaf := leaves[0]
-	terms, err := leaf.Terms(field)
-	if err != nil {
-		t.Fatalf("Terms(%q): %v", field, err)
-	}
-	it, err := terms.Iterator()
-	if err != nil {
-		t.Fatalf("Iterator: %v", err)
-	}
-	var postings spi.PostingsEnum
-	for {
-		tt, err := it.Next()
-		if err != nil {
-			t.Fatalf("Next: %v", err)
-		}
-		if tt == nil {
-			break
-		}
-		if tt.Text() == term {
-			postings, err = it.Postings(spi.PostingsFlagPayloads)
-			if err != nil {
-				t.Fatalf("Postings: %v", err)
-			}
-			break
-		}
-	}
-	if postings == nil {
-		t.Fatalf("no postings for term %q in field %q", term, field)
-	}
-	docID, err := postings.NextDoc()
-	if err != nil {
-		t.Fatalf("NextDoc: %v", err)
-	}
-	if docID == spi.NO_MORE_DOCS {
-		t.Fatalf("no docs for term %q", term)
-	}
-	freq, err := postings.Freq()
-	if err != nil {
-		t.Fatalf("Freq: %v", err)
-	}
-	if freq != len(wantPayloads) {
-		t.Fatalf("freq = %d, want %d", freq, len(wantPayloads))
-	}
-	for i := 0; i < freq; i++ {
-		if _, err := postings.NextPosition(); err != nil {
-			t.Fatalf("NextPosition: %v", err)
-		}
-		got, err := postings.GetPayload()
-		if err != nil {
-			t.Fatalf("GetPayload: %v", err)
-		}
-		if !bytes.Equal(got, wantPayloads[i]) {
-			t.Errorf("payload #%d: got %v, want %v", i, got, wantPayloads[i])
-		}
-	}
-}
-
-// TestPayloads_Payload ports testPayload().
-//
-// Java constructs a BytesRef from a string, checks its length, clones it,
-// and asserts byte-for-byte equality between the original and the clone.
-func TestPayloads_Payload(t *testing.T) {
+// Simple tests to test the Payload class
+func TestPayloadsPayload(t *testing.T) {
 	payload := util.NewBytesRef([]byte("This is a test!"))
-
 	if payload.Length != len("This is a test!") {
-		t.Errorf("wrong payload length: want %d, got %d", len("This is a test!"), payload.Length)
+		t.Fatalf("Wrong payload length.: %d", payload.Length)
 	}
 
 	clone := payload.Clone()
-	if clone.Length != payload.Length {
-		t.Errorf("clone length mismatch: want %d, got %d", payload.Length, clone.Length)
+	if payload.Length != clone.Length {
+		t.Fatalf("clone length: expected %d, got %d", payload.Length, clone.Length)
 	}
 	for i := 0; i < payload.Length; i++ {
-		if clone.Bytes[clone.Offset+i] != payload.Bytes[payload.Offset+i] {
-			t.Errorf("byte mismatch at index %d: want %d, got %d",
-				i, payload.Bytes[payload.Offset+i], clone.Bytes[clone.Offset+i])
+		if payload.Bytes[i+payload.Offset] != clone.Bytes[i+clone.Offset] {
+			t.Fatalf("byte %d differs", i)
 		}
 	}
 }
 
-// TestPayloads_FieldBit ports testPayloadFieldBit().
-//
-// Java writes documents with a payload-bearing field and a payload-free field,
-// then uses getOnlyLeafReader(DirectoryReader.open(dir)) to verify that
-// FieldInfo.hasPayloads() reflects whether any payload was stored.
-func TestPayloads_FieldBit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Analyzer emits a payload only for field f1; f2 sees a plain token.
-	config := index.NewIndexWriterConfig(&fieldAwarePayloadAnalyzer{factory: func(fieldName string) analysis.TokenStream {
-		if fieldName == "f1" {
-			return testanalysis.NewCannedTokenStream(
-				testanalysis.NewToken("a", 0, 1).WithPayload([]byte{0x01}),
-			)
+func assertHasPayloads(t testing.TB, expected bool, fi *index.FieldInfos, field string) {
+	t.Helper()
+	info := fi.FieldInfo(field)
+	if info == nil {
+		t.Fatalf("fieldInfo(%q) is null", field)
+	}
+	if info.HasPayloads() != expected {
+		if expected {
+			t.Fatalf("Payload field bit should be set: %s", field)
 		}
-		return testanalysis.NewCannedTokenStream(
-			testanalysis.NewToken("a", 0, 1),
-		)
-	}})
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	doc := document.NewDocument()
-	f1, _ := document.NewField("f1", "x", payloadType())
-	doc.Add(f1)
-	f2, _ := document.NewField("f2", "y", document.TextFieldTypeNotStored)
-	doc.Add(f2)
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-
-	reader := openCommittedReaderPayloads(t, dir, writer)
-	defer reader.Close()
-
-	leaves := reader.GetSegmentReaders()
-	if len(leaves) != 1 {
-		t.Fatalf("expected 1 leaf, got %d", len(leaves))
-	}
-	fi := leaves[0].GetFieldInfos().GetByName("f1")
-	if fi == nil {
-		t.Fatalf("field f1 not found")
-	}
-	if !fi.HasPayloads() {
-		t.Errorf("f1.HasPayloads() = false, want true")
-	}
-	fi2 := leaves[0].GetFieldInfos().GetByName("f2")
-	if fi2 == nil {
-		t.Fatalf("field f2 not found")
-	}
-	if fi2.HasPayloads() {
-		t.Errorf("f2.HasPayloads() = true, want false")
+		t.Fatalf("Payload field bit should not be set: %s", field)
 	}
 }
 
-// TestPayloads_Encoding ports the payload round-trip contract of
-// testPayloadsEncoding().
-//
-// Java uses a custom PayloadAnalyzer to inject deterministic payload bytes at
-// each token position. This Go port builds the same contract with a
-// CannedTokenStream: 10 documents each contain two tokens "a" and "b" whose
-// payloads are distinct single bytes. After force-merging to one segment the
-// PostingsEnum with PAYLOADS is walked and the byte sequence is reconstructed
-// and checked against the expected order.
-func TestPayloads_Encoding(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// Tests whether the DocumentWriter and SegmentMerger correctly enable the
+// payload bit in the FieldInfo
+func TestPayloadsPayloadFieldBit(t *testing.T) {
+	ram := newDirectory()
+	analyzer := newPayloadAnalyzer()
+	writer := mustNewIndexWriter(t, ram, newIndexWriterConfigWithAnalyzer(analyzer))
+	d := document.NewDocument()
+	// this field won't have any payloads
+	d.Add(newTextField(t, "f1", "This field has no payloads", false))
+	// this field will have payloads in all docs, however not for all term
+	// positions, so this field is used to check if the DocumentWriter
+	// correctly enables the payloads bit even if only some term positions
+	// have payloads
+	d.Add(newTextField(t, "f2", "This field has payloads in all docs", false))
+	d.Add(newTextField(t, "f2", "This field has payloads in all docs NO PAYLOAD", false))
+	// this field is used to verify if the SegmentMerger enables payloads for
+	// a field if it has payloads enabled in only some documents
+	d.Add(newTextField(t, "f3", "This field has payloads in some docs", false))
+	// only add payload data for field f2
+	analyzer.setPayloadData("f2", []byte("somedata"), 0, 1)
+	mustAddDocument(t, writer, d)
+	// flush
+	mustClose(t, writer)
 
-	ft := payloadType()
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+	dr := mustOpenDirectoryReader(t, ram)
+	reader := getOnlyLeafReader(t, dr)
+	fi := reader.GetFieldInfos()
+	assertHasPayloads(t, false, fi, "f1")
+	assertHasPayloads(t, true, fi, "f2")
+	assertHasPayloads(t, false, fi, "f3")
+	mustClose(t, dr)
+
+	// now we add another document which has payloads for field f3 and verify
+	// if the SegmentMerger enabled payloads for that field
+	analyzer = newPayloadAnalyzer() // Clear payload state for each field
+	conf := newIndexWriterConfigWithAnalyzer(analyzer)
+	conf.SetOpenMode(index.Create)
+	writer = mustNewIndexWriter(t, ram, conf)
+	d = document.NewDocument()
+	d.Add(newTextField(t, "f1", "This field has no payloads", false))
+	d.Add(newTextField(t, "f2", "This field has payloads in all docs", false))
+	d.Add(newTextField(t, "f2", "This field has payloads in all docs", false))
+	d.Add(newTextField(t, "f3", "This field has payloads in some docs", false))
+	// add payload data for field f2 and f3
+	analyzer.setPayloadData("f2", []byte("somedata"), 0, 1)
+	analyzer.setPayloadData("f3", []byte("somedata"), 0, 3)
+	mustAddDocument(t, writer, d)
+
+	// force merge
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	// flush
+	mustClose(t, writer)
+
+	dr = mustOpenDirectoryReader(t, ram)
+	reader = getOnlyLeafReader(t, dr)
+	fi = reader.GetFieldInfos()
+	assertHasPayloads(t, false, fi, "f1")
+	assertHasPayloads(t, true, fi, "f2")
+	assertHasPayloads(t, true, fi, "f3")
+	mustClose(t, dr, ram)
+}
+
+// Tests if payloads are correctly stored and loaded.
+func TestPayloadsPayloadsEncoding(t *testing.T) {
+	dir := newDirectory()
+	payloadsPerformTest(t, dir)
+	mustClose(t, dir)
+}
+
+// payloadsPerformTest builds an index with payloads in the given Directory
+// and performs different tests to verify the payload encoding
+func payloadsPerformTest(t *testing.T, dir store.Directory) {
+	t.Helper()
+	analyzer := newPayloadAnalyzer()
+	conf := newIndexWriterConfigWithAnalyzer(analyzer)
+	conf.SetOpenMode(index.Create)
+	conf.SetMergePolicy(newLogMergePolicy())
+	writer := mustNewIndexWriter(t, dir, conf)
+
+	// should be in sync with value in TermInfosWriter
+	const skipInterval = 16
+
+	const numTerms = 5
+	const fieldName = "f1"
+
+	numDocs := skipInterval + 1
+	// create content for the test documents with just a few terms
+	terms := payloadsGenerateTerms(fieldName, numTerms)
+	var sb strings.Builder
+	for _, term := range terms {
+		sb.WriteString(term.Text())
+		sb.WriteString(" ")
+	}
+	content := sb.String()
+
+	payloadDataLength := numTerms*numDocs*2 + numTerms*numDocs*(numDocs-1)/2
+	payloadData := payloadsGenerateRandomData(payloadDataLength)
+
+	d := document.NewDocument()
+	d.Add(newTextField(t, fieldName, content, false))
+	// add the same document multiple times to have the same payload lengths
+	// for all occurrences within two consecutive skip intervals
+	offset := 0
+	for i := 0; i < 2*numDocs; i++ {
+		analyzer.setPayloadData(fieldName, payloadData, offset, 1)
+		offset += numTerms
+		mustAddDocument(t, writer, d)
 	}
 
-	const numDocs = 10
-	const numTerms = 2
-	expected := make(map[string][]byte)
+	// make sure we create more than one segment to test merging
+	mustCommit(t, writer)
+
+	// now we make sure to have different payload lengths next at the next
+	// skip point
 	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-		for j := 0; j < numTerms; j++ {
-			term := string('a' + byte(j))
-			payload := []byte{byte(i*numTerms + j)}
-			expected[term] = append(expected[term], payload[0])
-			ts := testanalysis.NewCannedTokenStream(
-				testanalysis.NewTokenWithPosInc(term, 1, 0, 1).WithPayload(payload),
-			)
-			field, _ := document.NewField("f1", ts, ft)
-			doc.Add(field)
-		}
-		if _, err := w.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
+		analyzer.setPayloadData(fieldName, payloadData, offset, i)
+		offset += i * numTerms
+		mustAddDocument(t, writer, d)
 	}
 
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
 	}
-	if err := w.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit after merge: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close writer: %v", err)
-	}
+	// flush
+	mustClose(t, writer)
 
-	r, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer r.Close()
+	// Verify the index: first we test if all payloads are stored correctly
+	reader := mustOpenDirectoryReader(t, dir)
+	defer mustClose(t, reader)
+	t.Fatal(multiTermsGetTermPostingsEnumMissing)
+}
 
-	terms, err := r.Terms("f1")
-	if err != nil {
-		t.Fatalf("Terms: %v", err)
+// payloadsGenerateRandomDataInto renders the private
+// generateRandomData(byte[]): this test needs the random data to be valid
+// unicode.
+func payloadsGenerateRandomDataInto(data []byte) {
+	s := randomFixedByteLengthUnicodeString(len(data))
+	b := []byte(s)
+	if util.AssertsEnabled() && !(len(b) == len(data)) {
+		panic(util.NewAssertionError(fmt.Sprintf("generated %d bytes, want %d", len(b), len(data))))
 	}
-	te, err := terms.Iterator()
-	if err != nil {
-		t.Fatalf("Iterator: %v", err)
+	copy(data, b)
+}
+
+func payloadsGenerateRandomData(n int) []byte {
+	data := make([]byte, n)
+	payloadsGenerateRandomDataInto(data)
+	return data
+}
+
+// payloadsGenerateTerms renders the private generateTerms(String, int).
+// Math.log(0) is -Infinity in Java, so the int cast of the zero-index
+// quotient saturates at Integer.MIN_VALUE; the int subtraction then wraps to a
+// negative count and no zero is prepended. The arithmetic is int32 here to
+// reproduce that wrap.
+func payloadsGenerateTerms(fieldName string, n int) []*index.Term {
+	maxDigits := int(math.Log(float64(n)) / math.Log(10))
+	terms := make([]*index.Term, n)
+	var sb strings.Builder
+	for i := 0; i < n; i++ {
+		sb.Reset()
+		sb.WriteString("t")
+		zeros := int(int32(maxDigits) - int32(javaDoubleToInt(math.Log(float64(i))/math.Log(10))))
+		for j := 0; j < zeros; j++ {
+			sb.WriteString("0")
+		}
+		fmt.Fprintf(&sb, "%d", i)
+		terms[i] = index.NewTerm(fieldName, sb.String())
 	}
-	for {
-		term, err := te.Next()
-		if err != nil {
-			t.Fatalf("Next: %v", err)
-		}
-		if term == nil {
-			break
-		}
-		postings, err := te.Postings(spi.PostingsFlagPayloads)
-		if err != nil {
-			t.Fatalf("Postings %q: %v", term.Text(), err)
-		}
-		var got []byte
-		for {
-			doc, err := postings.NextDoc()
-			if err != nil {
-				t.Fatalf("NextDoc %q: %v", term.Text(), err)
-			}
-			if doc == spi.NO_MORE_DOCS {
-				break
-			}
-			freq, err := postings.Freq()
-			if err != nil {
-				t.Fatalf("Freq %q: %v", term.Text(), err)
-			}
-			for i := 0; i < freq; i++ {
-				if _, err := postings.NextPosition(); err != nil {
-					t.Fatalf("NextPosition %q: %v", term.Text(), err)
-				}
-				payload, err := postings.GetPayload()
-				if err != nil {
-					t.Fatalf("GetPayload %q: %v", term.Text(), err)
-				}
-				if payload == nil {
-					t.Fatalf("payload nil at doc=%d term=%q", doc, term.Text())
-				}
-				got = append(got, payload...)
-			}
-		}
-		want := expected[term.Text()]
-		if !bytes.Equal(got, want) {
-			t.Fatalf("term %q payloads %v != expected %v", term.Text(), got, want)
-		}
+	return terms
+}
+
+// javaDoubleToInt renders Java's (int) narrowing of a double: NaN becomes 0
+// and out-of-range values saturate.
+func javaDoubleToInt(v float64) int {
+	switch {
+	case math.IsNaN(v):
+		return 0
+	case v >= math.MaxInt32:
+		return math.MaxInt32
+	case v <= math.MinInt32:
+		return math.MinInt32
+	default:
+		return int(v)
 	}
 }
 
-// TestPayloads_ThreadSafety ports testThreadSafety().
-//
-// Java creates a multi-threaded Analyzer that emits PayloadAttribute tokens
-// from N concurrent threads, each indexing into a shared DirectoryReader,
-// then asserts that all payloads survive round-trip via PostingsEnum.
-func TestPayloads_ThreadSafety(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// payloadData is the private PayloadData.
+type payloadData struct {
+	data   []byte
+	offset int
+	length int
+}
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+// payloadAnalyzer is the private PayloadAnalyzer: an Analyzer using a
+// MockTokenizer and a PayloadFilter, with PER_FIELD_REUSE_STRATEGY.
+type payloadAnalyzer struct {
+	analysis.Analyzer
+	mu          sync.Mutex
+	fieldToData map[string]*payloadData
+}
+
+func newPayloadAnalyzer() *payloadAnalyzer {
+	pa := &payloadAnalyzer{fieldToData: map[string]*payloadData{}}
+	a := analysis.NewAnalyzer(analysis.PerFieldReuseStrategy)
+	a.CreateComponents = func(fieldName string) *analysis.TokenStreamComponents {
+		payload := pa.get(fieldName)
+		ts := testanalysis.NewMockTokenizer(testanalysis.WHITESPACE, false, testanalysis.DefaultMaxTokenLength)
+		var tokenStream analysis.TokenStream = ts
+		if payload != nil {
+			tokenStream = newPayloadFilter(ts, fieldName, pa)
+		}
+		return &analysis.TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				ts.SetReader(r)
+				return nil
+			},
+			Sink: tokenStream,
+		}
+	}
+	pa.Analyzer = a
+	return pa
+}
+
+func (pa *payloadAnalyzer) setPayloadData(field string, data []byte, offset, length int) {
+	pa.mu.Lock()
+	defer pa.mu.Unlock()
+	pa.fieldToData[field] = &payloadData{data: data, offset: offset, length: length}
+}
+
+func (pa *payloadAnalyzer) get(field string) *payloadData {
+	pa.mu.Lock()
+	defer pa.mu.Unlock()
+	return pa.fieldToData[field]
+}
+
+// payloadFilter is the private PayloadFilter: it adds payloads to the tokens.
+type payloadFilter struct {
+	*analysis.BaseTokenFilter
+	payloadAtt    analysis.PayloadAttribute
+	termAttribute analysis.CharTermAttribute
+	fieldToData   *payloadAnalyzer
+	fieldName     string
+	payloadData   *payloadData
+	offset        int
+}
+
+func newPayloadFilter(in analysis.TokenStream, fieldName string, fieldToData *payloadAnalyzer) *payloadFilter {
+	f := &payloadFilter{BaseTokenFilter: analysis.NewBaseTokenFilter(in), fieldToData: fieldToData, fieldName: fieldName}
+	f.payloadAtt = f.AddAttribute(analysis.PayloadAttributeType).(analysis.PayloadAttribute)
+	f.termAttribute = f.AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	return f
+}
+
+func (f *payloadFilter) IncrementToken() (bool, error) {
+	hasNext, err := f.GetInput().IncrementToken()
+	if err != nil || !hasNext {
+		return false, err
 	}
 
+	// Some values of the same field are to have payloads and others not
+	if f.offset+f.payloadData.length <= len(f.payloadData.data) && !strings.HasSuffix(f.termAttribute.String(), "NO PAYLOAD") {
+		p := f.payloadData.data[f.offset : f.offset+f.payloadData.length]
+		f.payloadAtt.SetPayload(p)
+		f.offset += f.payloadData.length
+	} else {
+		f.payloadAtt.SetPayload(nil)
+	}
+
+	return true, nil
+}
+
+func (f *payloadFilter) Reset() error {
+	if err := f.BaseTokenFilter.Reset(); err != nil {
+		return err
+	}
+	f.payloadData = f.fieldToData.get(f.fieldName)
+	f.offset = f.payloadData.offset
+	return nil
+}
+
+func TestPayloadsThreadSafety(t *testing.T) {
 	const numThreads = 5
-	const numDocs = 10
-	ft := payloadType()
+	numDocs := atLeast(50)
+	pool := newByteArrayPool(numThreads, 5)
+
+	dir := newDirectory()
+	writer := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	const field = "test"
 
 	var wg sync.WaitGroup
 	for i := 0; i < numThreads; i++ {
 		wg.Add(1)
-		go func(thread int) {
+		go func() {
 			defer wg.Done()
 			for j := 0; j < numDocs; j++ {
-				term := fmt.Sprintf("T%d_%d", thread, j)
-				doc := document.NewDocument()
-				ts := testanalysis.NewCannedTokenStream(
-					testanalysis.NewTokenWithPosInc(term, 1, 0, len(term)).WithPayload([]byte(term)),
-				)
-				field, _ := document.NewField("test", ts, ft)
-				doc.Add(field)
-				if _, err := w.AddDocument(doc); err != nil {
-					t.Errorf("AddDocument thread=%d doc=%d: %v", thread, j, err)
+				d := document.NewDocument()
+				f, err := document.NewField(field, newPoolingPayloadTokenStream(pool), document.TextFieldTypeNotStored)
+				if err != nil {
+					t.Errorf("TextField: %v", err)
+					return
+				}
+				d.Add(f)
+				if _, err := writer.AddDocument(d); err != nil {
+					t.Errorf("addDocument: %v", err)
 					return
 				}
 			}
-		}(i)
+		}()
 	}
+
 	wg.Wait()
-
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
+	if t.Failed() {
+		t.FailNow()
 	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close writer: %v", err)
-	}
-
-	r, err := index.OpenDirectoryReader(dir)
+	mustClose(t, writer)
+	reader := mustOpenDirectoryReader(t, dir)
+	multiTerms, err := index.MultiTermsGetTerms(reader, field)
 	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+		t.Fatalf("MultiTerms.getTerms: %v", err)
 	}
-	defer r.Close()
-
-	terms, err := r.Terms("test")
+	terms, err := multiTerms.Iterator()
 	if err != nil {
-		t.Fatalf("Terms: %v", err)
+		t.Fatalf("iterator: %v", err)
 	}
-	it, err := terms.Iterator()
-	if err != nil {
-		t.Fatalf("Iterator: %v", err)
-	}
-	var postings spi.PostingsEnum
 	for {
-		term, err := it.Next()
+		term, err := terms.Next()
 		if err != nil {
-			t.Fatalf("Next: %v", err)
+			t.Fatalf("next: %v", err)
 		}
 		if term == nil {
 			break
 		}
-		postings, err = it.Postings(spi.PostingsFlagPayloads)
+		termText := term.Bytes.String()
+		tp, err := terms.Postings(spi.PostingsFlagPayloads)
 		if err != nil {
-			t.Fatalf("Postings: %v", err)
+			t.Fatalf("postings: %v", err)
 		}
 		for {
-			doc, err := postings.NextDoc()
+			doc, err := tp.NextDoc()
 			if err != nil {
-				t.Fatalf("NextDoc: %v", err)
+				t.Fatalf("nextDoc: %v", err)
 			}
 			if doc == spi.NO_MORE_DOCS {
 				break
 			}
-			freq, err := postings.Freq()
+			freq, err := tp.Freq()
 			if err != nil {
-				t.Fatalf("Freq: %v", err)
+				t.Fatalf("freq: %v", err)
 			}
 			for i := 0; i < freq; i++ {
-				if _, err := postings.NextPosition(); err != nil {
-					t.Fatalf("NextPosition: %v", err)
+				if _, err := tp.NextPosition(); err != nil {
+					t.Fatalf("nextPosition: %v", err)
 				}
-				payload, err := postings.GetPayload()
+				payload, err := tp.GetPayload()
 				if err != nil {
-					t.Fatalf("GetPayload: %v", err)
+					t.Fatalf("getPayload: %v", err)
 				}
-				if payload == nil {
-					t.Fatal("expected payload, got nil")
-				}
-				if string(payload) != term.Text() {
-					t.Fatalf("payload %q != term %q", string(payload), term.Text())
+				if termText != string(payload) {
+					t.Fatalf("payload: expected %q, got %q", termText, payload)
 				}
 			}
 		}
 	}
+	mustClose(t, reader, dir)
+	if pool.size() != numThreads {
+		t.Fatalf("pool.size(): expected %d, got %d", numThreads, pool.size())
+	}
 }
 
-// TestPayloads_AcrossFields ports testAcrossFields().
-//
-// Java writes payloads under different field names using a custom Analyzer,
-// then validates via PostingsEnum that each field's payloads are distinct.
-func TestPayloads_AcrossFields(t *testing.T) {
-	dir, writer := newPayloadWriter(t, func() analysis.TokenStream {
-		return testanalysis.NewCannedTokenStream(
-			testanalysis.NewToken("a", 0, 1).WithPayload([]byte{0x10}),
-		)
-	})
-	defer writer.Close()
-	defer dir.Close()
+// poolingPayloadTokenStream is the private PoolingPayloadTokenStream.
+type poolingPayloadTokenStream struct {
+	*analysis.BaseTokenStream
+	payload    []byte
+	first      bool
+	pool       *byteArrayPool
+	term       string
+	termAtt    analysis.CharTermAttribute
+	payloadAtt analysis.PayloadAttribute
+}
 
+func newPoolingPayloadTokenStream(pool *byteArrayPool) *poolingPayloadTokenStream {
+	s := &poolingPayloadTokenStream{BaseTokenStream: analysis.NewBaseTokenStream(), pool: pool}
+	s.payload = pool.get()
+	payloadsGenerateRandomDataInto(s.payload)
+	s.term = string(s.payload)
+	s.first = true
+	s.payloadAtt = s.AddAttribute(analysis.PayloadAttributeType).(analysis.PayloadAttribute)
+	s.termAtt = s.AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	return s
+}
+
+func (s *poolingPayloadTokenStream) IncrementToken() (bool, error) {
+	if !s.first {
+		return false, nil
+	}
+	s.first = false
+	s.ClearAttributes()
+	s.termAtt.AppendString(s.term)
+	s.payloadAtt.SetPayload(append([]byte(nil), s.payload...))
+	return true, nil
+}
+
+func (s *poolingPayloadTokenStream) Close() error {
+	s.pool.release(s.payload)
+	return nil
+}
+
+// byteArrayPool is the private ByteArrayPool.
+type byteArrayPool struct {
+	mu   sync.Mutex
+	pool [][]byte
+}
+
+func newByteArrayPool(capacity, size int) *byteArrayPool {
+	p := &byteArrayPool{}
+	for i := 0; i < capacity; i++ {
+		p.pool = append(p.pool, make([]byte, size))
+	}
+	return p
+}
+
+func (p *byteArrayPool) get() []byte {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	b := p.pool[0]
+	p.pool = p.pool[1:]
+	return b
+}
+
+func (p *byteArrayPool) release(b []byte) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.pool = append(p.pool, b)
+}
+
+func (p *byteArrayPool) size() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.pool)
+}
+
+func newWhitespaceLowerCaseMockAnalyzer() analysis.Analyzer {
+	return testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, true, testanalysis.DefaultMaxTokenLength, nil, true)
+}
+
+func TestPayloadsAcrossFields(t *testing.T) {
+	dir := newDirectory()
+	writer := newRandomIndexWriterWithAnalyzer(t, dir, newWhitespaceLowerCaseMockAnalyzer())
 	doc := document.NewDocument()
-	f1, _ := document.NewField("f1", "x", payloadType())
-	doc.Add(f1)
+	doc.Add(newTextField(t, "hasMaybepayload", "here we go", true))
 	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument f1: %v", err)
+		t.Fatalf("addDocument: %v", err)
 	}
+	mustClose(t, writer)
 
-	doc2 := document.NewDocument()
-	f2, _ := document.NewField("f2", "x", payloadType())
-	doc2.Add(f2)
-	if _, err := writer.AddDocument(doc2); err != nil {
-		t.Fatalf("AddDocument f2: %v", err)
-	}
-
-	reader := openCommittedReaderPayloads(t, dir, writer)
-	defer reader.Close()
-
-	assertPayloads(t, reader, "f1", "a", [][]byte{{0x10}})
-	assertPayloads(t, reader, "f2", "a", [][]byte{{0x10}})
-}
-
-// TestPayloads_MixupDocs ports testMixupDocs().
-//
-// Java uses CannedTokenStream to emit tokens with payloads on specific
-// positions, then verifies that PostingsEnum delivers them in the correct
-// docID / position / payload order.
-func TestPayloads_MixupDocs(t *testing.T) {
-	dir, writer := newPayloadWriter(t, func() analysis.TokenStream {
-		return testanalysis.NewCannedTokenStream(
-			testanalysis.NewTokenWithPosInc("a", 1, 0, 1).WithPayload([]byte{0x01}),
-			testanalysis.NewTokenWithPosInc("a", 1, 0, 1).WithPayload([]byte{0x02}),
-		)
-	})
-	defer writer.Close()
-	defer dir.Close()
-
-	for i := 0; i < 3; i++ {
-		doc := document.NewDocument()
-		field, _ := document.NewField("f", "x", payloadType())
-		doc.Add(field)
+	writer = newRandomIndexWriterWithAnalyzer(t, dir, newWhitespaceLowerCaseMockAnalyzer())
+	doc = document.NewDocument()
+	doc.Add(newTextField(t, "hasMaybepayload2", "here we go", true))
+	for i := 0; i < 2; i++ {
 		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument #%d: %v", i, err)
+			t.Fatalf("addDocument: %v", err)
 		}
 	}
-
-	reader := openCommittedReaderPayloads(t, dir, writer)
-	defer reader.Close()
-
-	leaves := reader.GetSegmentReaders()
-	if len(leaves) != 1 {
-		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
 	}
-	leaf := leaves[0]
-	terms, err := leaf.Terms("f")
-	if err != nil {
-		t.Fatalf("Terms: %v", err)
-	}
-	it, err := terms.Iterator()
-	if err != nil {
-		t.Fatalf("Iterator: %v", err)
-	}
-	it.Next()
-	postings, err := it.Postings(spi.PostingsFlagPayloads)
-	if err != nil {
-		t.Fatalf("Postings: %v", err)
-	}
-	docID := -1
-	for {
-		d, err := postings.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if d == spi.NO_MORE_DOCS {
-			break
-		}
-		docID = d
-		freq, err := postings.Freq()
-		if err != nil {
-			t.Fatalf("Freq: %v", err)
-		}
-		if freq != 2 {
-			t.Errorf("doc %d freq = %d, want 2", docID, freq)
-		}
-		for j := 0; j < freq; j++ {
-			pos, err := postings.NextPosition()
-			if err != nil {
-				t.Fatalf("NextPosition: %v", err)
-			}
-			if pos != j {
-				t.Errorf("doc %d pos #%d = %d, want %d", docID, j, pos, j)
-			}
-			payload, err := postings.GetPayload()
-			if err != nil {
-				t.Fatalf("GetPayload: %v", err)
-			}
-			want := []byte{0x01 + byte(j)}
-			if !bytes.Equal(payload, want) {
-				t.Errorf("doc %d payload #%d = %v, want %v", docID, j, payload, want)
-			}
-		}
-	}
-	if docID != 2 {
-		t.Errorf("last docID = %d, want 2", docID)
-	}
+	mustClose(t, writer, dir)
 }
 
-// TestPayloads_MixupMultiValued ports testMixupMultiValued().
-//
-// Java uses CannedTokenStream on multi-valued fields, verifies payloads
-// survive across field instances via PostingsEnum.
-func TestPayloads_MixupMultiValued(t *testing.T) {
-	dir, writer := newPayloadWriter(t, func() analysis.TokenStream {
-		return testanalysis.NewCannedTokenStream(
-			testanalysis.NewTokenWithPosInc("a", 1, 0, 1).WithPayload([]byte{0x01}),
-			testanalysis.NewTokenWithPosInc("a", 1, 0, 1).WithPayload([]byte{0x02}),
-		)
-	})
-	defer writer.Close()
-	defer dir.Close()
+func newWhitespaceMockTokenizer(t testing.TB, text string) *testanalysis.MockTokenizer {
+	t.Helper()
+	ts := testanalysis.NewMockTokenizer(testanalysis.WHITESPACE, true, testanalysis.DefaultMaxTokenLength)
+	ts.SetReader(strings.NewReader(text))
+	return ts
+}
 
+// some docs have payload att, some not
+func TestPayloadsMixupDocs(t *testing.T) {
+	dir := newDirectory()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(nil)
+	iwc.SetMergePolicy(newLogMergePolicy())
+	writer := newRandomIndexWriterWithConfig(t, dir, iwc)
+	defer mustClose(t, writer, dir)
 	doc := document.NewDocument()
-	f1, _ := document.NewField("f", "x", payloadType())
-	doc.Add(f1)
-	f2, _ := document.NewField("f", "x", payloadType())
-	doc.Add(f2)
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
+	ts := newWhitespaceMockTokenizer(t, "here we go")
+	field, err := document.NewField("field", ts, document.TextFieldTypeNotStored)
+	if err != nil {
+		t.Fatalf("Field: %v", err)
 	}
+	doc.Add(field)
+	if _, err := writer.AddDocument(doc); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+	withPayload := testanalysis.NewToken("withPayload", 0, 11).WithPayload([]byte("test"))
+	canned := testanalysis.NewCannedTokenStream(withPayload)
+	if !canned.HasAttribute(analysis.PayloadAttributeType) {
+		t.Fatal("assertTrue(ts.hasAttribute(PayloadAttribute.class))")
+	}
+	t.Fatal(fieldSetTokenStreamMissing)
+}
 
-	reader := openCommittedReaderPayloads(t, dir, writer)
-	defer reader.Close()
-
-	assertPayloads(t, reader, "f", "a", [][]byte{{0x01}, {0x02}, {0x01}, {0x02}})
+// some field instances have payload att, some not
+func TestPayloadsMixupMultiValued(t *testing.T) {
+	dir := newDirectory()
+	writer := newRandomIndexWriter(t, dir)
+	defer mustClose(t, writer, dir)
+	ts := testanalysis.NewMockTokenizer(testanalysis.WHITESPACE, true, testanalysis.DefaultMaxTokenLength)
+	if _, err := document.NewField("field", ts, document.TextFieldTypeNotStored); err != nil {
+		t.Fatalf("Field: %v", err)
+	}
+	ts.SetReader(strings.NewReader("here we go"))
+	t.Fatal(fieldSetTokenStreamMissing)
 }

@@ -2,119 +2,70 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+// Port of lucene/core/src/test/org/apache/lucene/index/TestMultiIndexMergeScheduler.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
 import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// TestMultiIndexMergeScheduler exercises the multi-tenant merge scheduler.
-func TestMultiIndexMergeScheduler(t *testing.T) {
-	t.Run("constructor with explicit combined scheduler", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		combined := index.NewCombinedMergeScheduler()
-		s := index.NewMultiIndexMergeSchedulerWith(dir, combined)
+// combinedMergeSchedulerSyncOverrideMissing names what the two close tests
+// need: an anonymous MultiIndexMergeScheduler.CombinedMergeScheduler subclass
+// overriding sync(Directory), handed to the MultiIndexMergeScheduler
+// constructor. Gocene's MultiIndexMergeScheduler holds the concrete
+// *CombinedMergeScheduler, so an override is never dispatched to.
+const combinedMergeSchedulerSyncOverrideMissing = "overriding org.apache.lucene.index.MultiIndexMergeScheduler.CombinedMergeScheduler#sync(Directory) " +
+	"is not ported: MultiIndexMergeScheduler(Directory, CombinedMergeScheduler) takes the concrete *CombinedMergeScheduler"
 
-		if s.GetDirectory() != dir {
-			t.Error("GetDirectory() did not return the constructor directory")
-		}
-		if s.GetCombinedMergeScheduler() != combined {
-			t.Error("GetCombinedMergeScheduler() did not return the constructor scheduler")
-		}
-
-		// manageSingleton is false here: Close must not touch the singleton.
-		if err := s.Close(); err != nil {
-			t.Errorf("Close() error = %v", err)
-		}
-	})
-
-	t.Run("merge routes tagged source to combined scheduler", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		combined := index.NewCombinedMergeScheduler()
-		s := index.NewMultiIndexMergeSchedulerWith(dir, combined)
-		defer s.Close()
-
-		merge := index.NewOneMerge([]*index.SegmentCommitInfo{})
-		source := newMockMergeSource([]*index.OneMerge{merge})
-
-		if err := s.Merge(source, index.EXPLICIT); err != nil {
-			t.Fatalf("Merge() error = %v", err)
-		}
-		if source.MergeCount() != 1 {
-			t.Errorf("mergeCount = %d, want 1", source.MergeCount())
-		}
-		if source.FinishedCount() != 1 {
-			t.Errorf("len(finished) = %d, want 1", source.FinishedCount())
-		}
-	})
-
-	t.Run("singleton acquire and release ref counting", func(t *testing.T) {
-		if index.PeekCombinedSingleton() != nil {
-			t.Fatal("singleton already allocated by another test; skipping")
-		}
-
-		d1 := store.NewByteBuffersDirectory()
-		d2 := store.NewByteBuffersDirectory()
-		s1 := index.NewMultiIndexMergeScheduler(d1)
-		s2 := index.NewMultiIndexMergeScheduler(d2)
-
-		if s1.GetCombinedMergeScheduler() != s2.GetCombinedMergeScheduler() {
-			t.Error("two MultiIndexMergeSchedulers must share one CombinedMergeScheduler")
-		}
-		if index.PeekCombinedSingleton() == nil {
-			t.Error("PeekCombinedSingleton() = nil while references are held")
-		}
-
-		if err := s1.Close(); err != nil {
-			t.Errorf("s1.Close() error = %v", err)
-		}
-		if index.PeekCombinedSingleton() == nil {
-			t.Error("singleton released while s2 still holds a reference")
-		}
-		if err := s2.Close(); err != nil {
-			t.Errorf("s2.Close() error = %v", err)
-		}
-		if index.PeekCombinedSingleton() != nil {
-			t.Error("singleton not released after last reference closed")
-		}
-	})
+func TestMultiIndexMergeSchedulerCloseSingle(t *testing.T) {
+	directory := newDirectory()
+	defer mustClose(t, directory)
+	t.Fatal(combinedMergeSchedulerSyncOverrideMissing)
 }
 
-// TestTaggedMergeSource verifies the tagged source is a transparent pass-through.
-func TestTaggedMergeSource(t *testing.T) {
-	t.Run("interface compliance", func(t *testing.T) {
-		var _ index.MergeSource = (*index.TaggedMergeSource)(nil)
-	})
-
-	t.Run("combined scheduler rejects an untagged source", func(t *testing.T) {
-		combined := index.NewCombinedMergeScheduler()
-		defer combined.Close()
-
-		source := newMockMergeSource(nil)
-		if err := combined.Merge(source, index.EXPLICIT); err == nil {
-			t.Error("Merge() with an untagged source should return an error")
-		}
-	})
-}
-
-// TestCombinedMergeSchedulerSync verifies Sync returns once a directory is idle.
-func TestCombinedMergeSchedulerSync(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	combined := index.NewCombinedMergeScheduler()
-	defer combined.Close()
-
-	s := index.NewMultiIndexMergeSchedulerWith(dir, combined)
-	defer s.Close()
-
-	merge := index.NewOneMerge([]*index.SegmentCommitInfo{})
-	source := newMockMergeSource([]*index.OneMerge{merge})
-	if err := s.Merge(source, index.EXPLICIT); err != nil {
-		t.Fatalf("Merge() error = %v", err)
+func TestMultiIndexMergeSchedulerCloseMultiple(t *testing.T) {
+	// Write to many indexes and do merges on them.
+	const directoryCount = 10
+	var directoriesToBeClosed []interface{ Close() error }
+	for i := 0; i < directoryCount; i++ {
+		directoriesToBeClosed = append(directoriesToBeClosed, newDirectory())
 	}
+	defer mustClose(t, directoriesToBeClosed...)
+	t.Fatal(combinedMergeSchedulerSyncOverrideMissing)
+}
 
-	// Merge has returned, so the directory must already be idle; Sync must not block.
-	combined.Sync(dir)
+func assertSingletonPresent(t *testing.T, present bool, step string) {
+	t.Helper()
+	if got := index.PeekCombinedSingleton() != nil; got != present {
+		t.Fatalf("CombinedMergeScheduler.peekSingleton() != null at %s: expected %v, got %v", step, present, got)
+	}
+}
+
+func TestMultiIndexMergeSchedulerReferenceCounting(t *testing.T) {
+	assertSingletonPresent(t, false, "0")
+
+	directory1 := newDirectory()
+	mims1 := index.NewMultiIndexMergeScheduler(directory1)
+	assertSingletonPresent(t, true, "1")
+
+	directory2 := newDirectory()
+	mims2 := index.NewMultiIndexMergeScheduler(directory2)
+	assertSingletonPresent(t, true, "2")
+
+	mustClose(t, mims1, directory1)
+	assertSingletonPresent(t, true, "1")
+
+	mustClose(t, mims2, directory2)
+	assertSingletonPresent(t, false, "0")
+
+	directory3 := newDirectory()
+	mims3 := index.NewMultiIndexMergeScheduler(directory3)
+	assertSingletonPresent(t, true, "1")
+
+	mustClose(t, mims3, directory3)
+	assertSingletonPresent(t, false, "0")
 }

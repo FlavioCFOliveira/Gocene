@@ -77,7 +77,7 @@ func docsAndPositionsLeaves(t *testing.T, fieldName string, docs []string) (inde
 		t.Fatalf("Failed to open directory: %v", err)
 	}
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		dir.Close()
@@ -99,7 +99,7 @@ func docsAndPositionsLeaves(t *testing.T, fieldName string, docs []string) (inde
 	if err := writer.ForceMerge(1); err != nil {
 		t.Fatalf("ForceMerge(1) failed: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {

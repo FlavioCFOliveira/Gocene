@@ -6,6 +6,7 @@ package index
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"sync/atomic"
 
@@ -47,6 +48,10 @@ type queryDelete struct {
 	query   Query
 	docUpTo int
 }
+
+// BufferedUpdatesMaxInt mirrors BufferedUpdates.MAX_INT
+// (Integer.valueOf(Integer.MAX_VALUE)).
+const BufferedUpdatesMaxInt = math.MaxInt32
 
 const bytesPerDelQuery = 64 // Rough estimate mirroring Lucene's BYTES_PER_DEL_QUERY
 
@@ -204,6 +209,25 @@ func (dt *deletedTerms) size() int {
 
 func (dt *deletedTerms) isEmpty() bool {
 	return dt.termsSize == 0
+}
+
+// keySet mirrors DeletedTerms.keySet() ("Just for test, not efficient"): every
+// buffered delete term, each exactly once.
+func (dt *deletedTerms) keySet() []Term {
+	out := make([]Term, 0, dt.termsSize)
+	for field, hash := range dt.deleteTerms {
+		for i := 0; i < hash.bytesRefHash.Size(); i++ {
+			var scratch util.BytesRef
+			hash.bytesRefHash.Get(i, &scratch)
+			out = append(out, *NewTermFromBytes(field, append([]byte(nil), scratch.ValidBytes()...)))
+		}
+	}
+	return out
+}
+
+// getPool mirrors DeletedTerms.getPool() ("Visible for testing").
+func (dt *deletedTerms) getPool() *util.ByteBlockPool {
+	return dt.pool
 }
 
 func (dt *deletedTerms) ramBytesUsed() int64 {

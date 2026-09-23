@@ -2,107 +2,92 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+// Port of lucene/core/src/test/org/apache/lucene/index/TestReaderClosed.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
 import (
 	"errors"
-	"fmt"
 	"math/rand"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
+	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// readerClosedAtLeast mirrors Lucene's atLeast(): a value no smaller than min.
-// The package index_test cannot see the unexported atLeast in package index,
-// so this test keeps a local copy.
-func readerClosedAtLeast(min int) int {
-	return min + rand.Intn(3)
+// readerClosedSetUp ports setUp(): it returns the reader and the directory
+// that tearDown() closes.
+func readerClosedSetUp(t *testing.T) (*index.DirectoryReader, *store.MockDirectoryWrapper) {
+	t.Helper()
+	dir := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(testanalysis.NewMockAnalyzer(testanalysis.KEYWORD, false, 0, nil, true))
+	iwc.SetMaxBufferedDocs(nextInt(50, 1000))
+	r := rand.New(rand.NewSource(rand.Int63()))
+	writer, err := testindex.NewRandomIndexWriterWithConfig(r, dir, iwc)
+	if err != nil {
+		t.Fatalf("new RandomIndexWriter: %v", err)
+	}
+
+	doc := document.NewDocument()
+	field := newStringField(t, "field", "", false)
+	doc.Add(field)
+
+	// we generate aweful prefixes: good for testing.
+	// but for preflex codec, the test can be very slow, so use less iterations.
+	num := atLeast(10)
+	for i := 0; i < num; i++ {
+		field.SetStringValue(util.RandomUnicodeString(r, 10))
+		if _, err := writer.AddDocument(doc); err != nil {
+			t.Fatalf("addDocument: %v", err)
+		}
+	}
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	reader, err := writer.GetReader()
+	if err != nil {
+		t.Fatalf("getReader: %v", err)
+	}
+	mustClose(t, writer)
+	return reader, dir
 }
 
-// TestReaderClosed ports org.apache.lucene.index.TestReaderClosed#test.
-//
-// It builds a small single-segment index, runs a TermRangeQuery against a
-// searcher, closes the underlying DirectoryReader, and asserts that a second
-// search fails with an AlreadyClosedException.
-//
-// Divergence from Lucene: Lucene drives indexing through RandomIndexWriter and
-// reads via IndexWriter.getReader (NRT). Gocene exposes neither, so this port
-// uses the plain IndexWriter and reopens the committed index with
-// OpenDirectoryReader, mirroring TestBinaryTerms. Lucene's testReaderChaining
-// (LUCENE-3800) is omitted: it depends on OwnCacheKeyMultiReader, which Gocene
-// does not provide.
 func TestReaderClosed(t *testing.T) {
-	dir, err := store.NewSimpleFSDirectory(t.TempDir())
-	if err != nil {
-		t.Fatalf("Failed to open directory: %v", err)
+	reader, dir := readerClosedSetUp(t)
+	defer mustClose(t, dir) // tearDown()
+	if !(reader.GetRefCount() > 0) {
+		t.Fatal("assertTrue(reader.getRefCount() > 0)")
 	}
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	// Lucene writes random Unicode strings here; deterministic distinct
-	// values exercise the TermRangeQuery the same way without randomness.
-	num := readerClosedAtLeast(10)
-	for i := 0; i < num; i++ {
-		doc := document.NewDocument()
-		field, err := document.NewStringField("field", fmt.Sprintf("term%d", i), false)
-		if err != nil {
-			t.Fatalf("Failed to create field for doc %d: %v", i, err)
-		}
-		doc.Add(field)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document %d: %v", i, err)
-		}
-	}
-
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("Failed to force merge: %v", err)
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Failed to commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Failed to close writer: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-
-	if reader.GetRefCount() <= 0 {
-		t.Fatalf("Expected positive refcount, got %d", reader.GetRefCount())
-	}
-
 	searcher := search.NewIndexSearcher(reader)
-	query := search.NewTermRangeQuery("field", []byte("a"), []byte("z"), true, true)
-
+	query := search.NewStringRange("field", "a", "z", true, true)
 	if _, err := searcher.Search(query, 5); err != nil {
-		t.Fatalf("Search before close failed: %v", err)
+		t.Fatalf("search: %v", err)
 	}
+	mustClose(t, reader)
+	if _, err := searcher.Search(query, 5); err != nil {
+		var ace *store.AlreadyClosedException
+		if !errors.As(err, &ace) {
+			t.Fatalf("search after close: %v", err)
+		}
+		// expected
+	}
+}
 
-	if err := reader.Close(); err != nil {
-		t.Fatalf("Failed to close reader: %v", err)
+// TestReaderClosedReaderChaining ports testReaderChaining (LUCENE-3800), which
+// searches a ParallelLeafReader wrapped in the test-framework
+// OwnCacheKeyMultiReader.
+func TestReaderClosedReaderChaining(t *testing.T) {
+	reader, dir := readerClosedSetUp(t)
+	defer mustClose(t, dir) // tearDown()
+	if !(reader.GetRefCount() > 0) {
+		t.Fatal("assertTrue(reader.getRefCount() > 0)")
 	}
-
-	// After the reader is closed the search must fail. Lucene also tolerates
-	// RejectedExecutionException from a closed thread pool; Gocene's searcher
-	// is single-threaded, so only AlreadyClosedException is expected.
-	_, err = searcher.Search(query, 5)
-	if err == nil {
-		t.Fatal("Expected search after reader close to fail, got nil error")
-	}
-	var ace *index.AlreadyClosedException
-	if !errors.As(err, &ace) {
-		t.Fatalf("Expected AlreadyClosedException after reader close, got %T: %v", err, err)
-	}
+	mustClose(t, reader)
+	t.Fatal("org.apache.lucene.tests.index.OwnCacheKeyMultiReader is not ported")
 }

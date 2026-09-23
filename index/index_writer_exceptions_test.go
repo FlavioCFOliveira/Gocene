@@ -1,1524 +1,1157 @@
-// Licensed to the Apache Software Foundation (ASF) under one or more
-// contributor license agreements.  See the NOTICE file distributed with
-// this work for additional information regarding copyright ownership.
-// The ASF licenses this file to You under the Apache License, Version 2.0
-// (the "License"); you may not use this file except in compliance with
-// the License.  You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
 
-// Package index_test ports org.apache.lucene.index.TestIndexWriterExceptions.
+// Port of lucene/core/src/test/org/apache/lucene/index/TestIndexWriterExceptions.java
+// (Apache Lucene 10.5.0). The @Nightly tests live in
+// index_writer_exceptions_monster_test.go.
 //
-// The Java suite stress-tests IndexWriter's behavior when exceptions are
-// injected at every stage of indexing: tokenization, flush, merge init,
-// merge, commit, sync, sync-metadata, rollback, and segment-file
-// corruption.  Every method asserts that an exception either (a) is
-// non-aborting and only deletes the single failing document while the rest
-// of the segment survives, or (b) is aborting/tragic and leaves
-// IndexWriter cleanly closed with no leaked locks or file handles and the
-// index still openable.
-//
-// Faithfully porting these assertions requires infrastructure that Gocene
-// does not yet expose end-to-end (RandomIndexWriter, TestPoint hooks,
-// MockDirectoryWrapper call-stack inspection, CrashingFilter, a
-// fully-wired Document/Field/Analyzer pipeline, etc.).  Each test below
-// instead exercises the spirit of its upstream counterpart using available
-// mechanisms: basic writer lifecycle, MockDirectoryWrapper failure
-// injection, document counting, corrupt-segments-file detection, and
-// concurrent document addition.
+// Most tests inject faults through RandomIndexWriter.mockIndexWriter test
+// points, IndexWriter subclasses overriding isEnableTestPoints(), or
+// MockDirectoryWrapper.Failure call-stack inspection; none of these is
+// ported, so each such test runs up to that point and fails naming it.
+
 package index_test
 
 import (
 	"errors"
 	"fmt"
+	"io"
+	"math"
+	"math/rand"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
+	testutil "github.com/FlavioCFOliveira/Gocene/tests/util"
 )
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// Missing members the Java tests reach.
+const (
+	mockIndexWriterMissing = "org.apache.lucene.tests.index.RandomIndexWriter#mockIndexWriter(...) with a " +
+		"RandomIndexWriter.TestPoint is not ported (IndexWriter#testPoint(String) and #isEnableTestPoints() are missing)"
+	callStackContainsClassMissing     = "MockDirectoryWrapper.Failure#callStackContains(Class<?>, String) is not ported"
+	isEnableTestPointsOverrideMissing = "overriding org.apache.lucene.index.IndexWriter#isEnableTestPoints() in an " +
+		"IndexWriter subclass is not ported"
+	indexWriterGetTragicExceptionMissing = "org.apache.lucene.index.IndexWriter#getTragicException() is not ported"
+	indexReaderDocFreqMissing            = "org.apache.lucene.index.IndexReader#docFreq(Term) is not ported for " +
+		"composite readers (DirectoryReader)"
+	setCheckIndexOnCloseMissing         = "org.apache.lucene.tests.store.BaseDirectoryWrapper#setCheckIndexOnClose(boolean) is not ported"
+	softDeletesRetentionSupplierMissing = "org.apache.lucene.index.SoftDeletesRetentionMergePolicy(String, " +
+		"Supplier<Query>, MergePolicy) is not ported"
+)
 
-// newExceptionsTestAnalyzer returns a WhitespaceAnalyzer for these tests.
-func newExceptionsTestAnalyzer() analysis.Analyzer {
-	return analysis.NewWhitespaceAnalyzer()
+// docCopyIteratorCustom5 renders DocCopyIterator.custom5, the only one of the
+// record's field types the reachable code uses.
+var docCopyIteratorCustom5 = func() *document.FieldType {
+	ft := document.NewFieldTypeFrom(document.TextFieldTypeStored)
+	ft.SetStoreTermVectors(true)
+	ft.SetStoreTermVectorPositions(true)
+	ft.SetStoreTermVectorOffsets(true)
+	return ft
+}()
+
+const crashFailMessage = "I'm experiencing problems"
+
+// crashingFilter renders the private static CrashingFilter.
+type crashingFilter struct {
+	*analysis.BaseTokenFilter
+	fieldName string
+	count     int
 }
 
-// addExceptionTestDoc adds a document with a text field "content" containing
-// the value "aaa".  This mirrors the field used in the majority of the Java
-// TestIndexWriterExceptions methods.
-func addExceptionTestDoc(t *testing.T, writer *index.IndexWriter) {
-	t.Helper()
-	doc := document.NewDocument()
-	tf, err := document.NewTextField("content", "aaa", false)
-	if err != nil {
-		t.Fatalf("NewTextField(content): %v", err)
-	}
-	doc.Add(tf)
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
+func newCrashingFilter(fieldName string, input analysis.TokenStream) *crashingFilter {
+	return &crashingFilter{BaseTokenFilter: analysis.NewBaseTokenFilter(input), fieldName: fieldName}
 }
 
-// addExceptionTestDocEx adds a document with a text field and a stored id field.
-func addExceptionTestDocEx(t *testing.T, writer *index.IndexWriter, id string) {
-	t.Helper()
-	doc := document.NewDocument()
-	tf, err := document.NewTextField("content", "aaa", false)
-	if err != nil {
-		t.Fatalf("NewTextField(content): %v", err)
-	}
-	doc.Add(tf)
-	sf, err := document.NewStringField("id", id, true)
-	if err != nil {
-		t.Fatalf("NewStringField(id): %v", err)
-	}
-	doc.Add(sf)
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-}
-
-// deleteAllSegmentsFiles removes every segments_* file from the directory
-// so that ReadSegmentInfos cannot find a valid segments file.
-func deleteAllSegmentsFiles(t *testing.T, dir store.Directory) {
-	t.Helper()
-	files, err := dir.ListAll()
-	if err != nil {
-		t.Fatalf("ListAll: %v", err)
-	}
-	for _, f := range files {
-		if strings.HasPrefix(f, "segments_") {
-			if err := dir.DeleteFile(f); err != nil {
-				t.Fatalf("DeleteFile(%s): %v", f, err)
-			}
+func (f *crashingFilter) IncrementToken() (bool, error) {
+	if f.fieldName == "crash" {
+		c := f.count
+		f.count++
+		if c >= 4 {
+			return false, errors.New(crashFailMessage)
 		}
 	}
+	return f.GetInput().IncrementToken()
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+func (f *crashingFilter) Reset() error {
+	if err := f.BaseTokenFilter.Reset(); err != nil {
+		return err
+	}
+	f.count = 0
+	return nil
+}
 
-// TestIndexWriterExceptions_RandomExceptions exercises the basic writer
-// lifecycle: create, add documents, commit, close, reopen, verify document
-// count.  Ports the spirit of testRandomExceptions (a stress test with
-// TestPoint injection) using the available infrastructure.
-func TestIndexWriterExceptions_RandomExceptions(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// crashingAnalyzer renders the anonymous Analyzer(PER_FIELD_REUSE_STRATEGY)
+// whose components are a WHITESPACE MockTokenizer, with checks disabled,
+// wrapped by a CrashingFilter when crash reports true.
+func crashingAnalyzer(crash func() bool) analysis.Analyzer {
+	a := analysis.NewAnalyzer(analysis.PerFieldReuseStrategy)
+	a.CreateComponents = func(fieldName string) *analysis.TokenStreamComponents {
+		tokenizer := testanalysis.NewMockTokenizer(testanalysis.WHITESPACE, false, testanalysis.DefaultMaxTokenLength)
+		tokenizer.SetEnableChecks(false) // disable workflow checking as we forcefully close() in exceptional cases.
+		var stream analysis.TokenStream = tokenizer
+		if crash() {
+			stream = newCrashingFilter(fieldName, stream)
+		}
+		return &analysis.TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				tokenizer.SetReader(r)
+				return nil
+			},
+			Sink: stream,
+		}
+	}
+	return a
+}
 
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+func alwaysCrash() bool { return true }
+
+// newMockAnalyzerNoChecks renders new MockAnalyzer(random()) followed by
+// analyzer.setEnableChecks(false).
+func newMockAnalyzerNoChecks() analysis.Analyzer {
+	a := testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, true, 0, nil, true)
+	a.SetEnableChecks(false) // disable workflow checking as we forcefully close() in exceptional cases.
+	return a
+}
+
+func TestIndexWriterExceptionsRandomExceptions(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	analyzer := newMockAnalyzerNoChecks()
+	conf := newIndexWriterConfigWithAnalyzer(analyzer)
+	conf.SetRAMBufferSizeMB(0.1)
+	conf.SetMergeScheduler(index.NewConcurrentMergeScheduler())
+	t.Fatal(mockIndexWriterMissing)
+}
+
+func TestIndexWriterExceptionsRandomExceptionsThreads(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	analyzer := newMockAnalyzerNoChecks()
+	conf := newIndexWriterConfigWithAnalyzer(analyzer)
+	conf.SetRAMBufferSizeMB(0.2)
+	conf.SetMergeScheduler(index.NewConcurrentMergeScheduler())
+	t.Fatal(mockIndexWriterMissing)
+}
+
+func TestIndexWriterExceptionsExceptionDocumentsWriterInit(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	t.Fatal(mockIndexWriterMissing)
+}
+
+// LUCENE-1208
+func TestIndexWriterExceptionsExceptionJustBeforeFlush(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+
+	var doCrash atomic.Bool
+	analyzer := crashingAnalyzer(doCrash.Load)
+	conf := newIndexWriterConfigWithAnalyzer(analyzer)
+	conf.SetMaxBufferedDocs(2)
+	t.Fatal(mockIndexWriterMissing)
+}
+
+// LUCENE-1210
+func TestIndexWriterExceptionsExceptionOnMergeInit(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxBufferedDocs(2)
+	conf.SetMergePolicy(newLogMergePolicy())
+	cms := index.NewConcurrentMergeScheduler()
+	cms.SetSuppressExceptions()
+	conf.SetMergeScheduler(cms)
+	lmp := conf.GetMergePolicy().(logMergePolicy)
+	lmp.SetMergeFactor(2)
+	lmp.SetTargetSearchConcurrency(1)
+	t.Fatal(mockIndexWriterMissing)
+}
+
+// exceptionFromTokenStreamFilter renders the anonymous TokenFilter of
+// testExceptionFromTokenStream.
+type exceptionFromTokenStreamFilter struct {
+	*analysis.BaseTokenFilter
+	count int
+}
+
+func (f *exceptionFromTokenStreamFilter) IncrementToken() (bool, error) {
+	c := f.count
+	f.count++
+	if c == 5 {
+		return false, errors.New("IOException")
+	}
+	return f.GetInput().IncrementToken()
+}
+
+func (f *exceptionFromTokenStreamFilter) Reset() error {
+	if err := f.BaseTokenFilter.Reset(); err != nil {
+		return err
+	}
+	f.count = 0
+	return nil
+}
+
+// LUCENE-1072
+func TestIndexWriterExceptionsExceptionFromTokenStream(t *testing.T) {
+	dir := newDirectory()
+	analyzer := analysis.NewAnalyzer(nil)
+	analyzer.CreateComponents = func(string) *analysis.TokenStreamComponents {
+		tokenizer := testanalysis.NewMockTokenizer(testanalysis.SIMPLE, true, testanalysis.DefaultMaxTokenLength)
+		tokenizer.SetEnableChecks(false) // disable workflow checking as we forcefully close() in exceptional cases.
+		return &analysis.TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				tokenizer.SetReader(r)
+				return nil
+			},
+			Sink: &exceptionFromTokenStreamFilter{BaseTokenFilter: analysis.NewBaseTokenFilter(tokenizer)},
+		}
+	}
+	conf := newIndexWriterConfigWithAnalyzer(analyzer)
+	conf.SetMaxBufferedDocs(max(3, conf.GetMaxBufferedDocs()))
+	conf.SetMergePolicy(index.NewNoMergePolicy())
+
+	writer := mustNewIndexWriter(t, dir, conf)
+
+	brokenDoc := document.NewDocument()
+	contents := "aa bb cc dd ee ff gg hh ii jj kk"
+	brokenDoc.Add(newTextField(t, "content", contents, false))
+	if _, err := writer.AddDocument(brokenDoc); err == nil {
+		t.Fatal("expected an exception from addDocument(brokenDoc)")
 	}
 
-	// Add five documents with text content.
-	for i := 0; i < 5; i++ {
-		addExceptionTestDoc(t, writer)
-	}
+	// Make sure we can add another normal document
+	doc := document.NewDocument()
+	doc.Add(newTextField(t, "content", "aa bb cc dd", false))
+	mustAddDocument(t, writer, doc)
 
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	// Make sure we can add another normal document
+	doc = document.NewDocument()
+	doc.Add(newTextField(t, "content", "aa bb cc dd", false))
+	mustAddDocument(t, writer, doc)
 
-	// Reopen and verify the documents are visible.
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+	mustClose(t, writer)
+	reader := mustOpenDirectoryReader(t, dir)
+	defer mustClose(t, reader, dir)
+	// assertEquals(3, reader.docFreq(new Term("content", "aa")))
+	t.Fatal(indexReaderDocFreqMissing)
+}
+
+// make sure an aborting exception closes the writer:
+func TestIndexWriterExceptionsDocumentsWriterAbort(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	// FailOnlyOnFlush.eval calls callStackContainsAnyOf("flush") and
+	// callStackContainsAnyOf("finishDocument").
+	t.Fatal(callStackContainsMissing)
+}
+
+// exceptionsLogMergePolicy returns the writer's LogMergePolicy, as the Java
+// cast (LogMergePolicy) writer.getConfig().getMergePolicy() does.
+func exceptionsLogMergePolicy(t testing.TB, w *index.IndexWriter) logMergePolicy {
+	t.Helper()
+	lmp, ok := w.GetConfig().GetMergePolicy().(logMergePolicy)
+	if !ok {
+		t.Fatalf("merge policy %T is not a LogMergePolicy", w.GetConfig().GetMergePolicy())
 	}
-	defer reader.Close()
-	if got := reader.NumDocs(); got != 5 {
-		t.Errorf("NumDocs = %d, want 5", got)
-	}
-	if got := reader.MaxDoc(); got != 5 {
-		t.Errorf("MaxDoc = %d, want 5", got)
+	return lmp
+}
+
+func TestIndexWriterExceptionsDocumentsWriterExceptions(t *testing.T) {
+	analyzer := crashingAnalyzer(alwaysCrash)
+
+	for i := 0; i < 2; i++ {
+		dir := newDirectory()
+		conf := newIndexWriterConfigWithAnalyzer(analyzer)
+		conf.SetMergePolicy(newLogMergePolicy())
+		writer := mustNewIndexWriter(t, dir, conf)
+
+		// don't allow a sudden merge to clean up the deleted
+		// doc below:
+		lmp := exceptionsLogMergePolicy(t, writer)
+		lmp.SetMergeFactor(max(lmp.GetMergeFactor(), 5))
+
+		doc := document.NewDocument()
+		doc.Add(newField(t, "contents", "here are some contents", docCopyIteratorCustom5))
+		mustAddDocument(t, writer, doc)
+		mustAddDocument(t, writer, doc)
+		doc.Add(newField(t, "crash", "this should crash after 4 terms", docCopyIteratorCustom5))
+		doc.Add(newField(t, "other", "this will not get indexed", docCopyIteratorCustom5))
+		if _, err := writer.AddDocument(doc); err == nil {
+			t.Fatal("expected IOException from addDocument(crash doc)")
+		}
+
+		if i == 0 {
+			doc = document.NewDocument()
+			doc.Add(newField(t, "contents", "here are some contents", docCopyIteratorCustom5))
+			mustAddDocument(t, writer, doc)
+			mustAddDocument(t, writer, doc)
+		}
+		mustClose(t, writer)
+
+		reader := mustOpenDirectoryReader(t, dir)
+		if i == 0 {
+			mustClose(t, reader, dir)
+			// assertEquals(expected, reader.docFreq(new Term("contents", "here")))
+			t.Fatal(indexReaderDocFreqMissing)
+		}
+		mustClose(t, reader, dir)
 	}
 }
 
-// TestIndexWriterExceptions_RandomExceptionsThreads exercises the writer
-// with concurrent document additions.  Ports testRandomExceptionsThreads
-// using three goroutines that add documents in parallel.
-func TestIndexWriterExceptions_RandomExceptionsThreads(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// keepFullyDeletedSegmentsPolicy renders the anonymous
+// FilterMergePolicy(NoMergePolicy.INSTANCE) overriding
+// keepFullyDeletedSegment to return true. Gocene's
+// MergePolicy.KeepFullyDeletedSegment takes the SegmentCommitInfo instead of
+// the IOSupplier<CodecReader>; the override ignores its argument, so the
+// rendering is unaffected.
+type keepFullyDeletedSegmentsPolicy struct {
+	*index.FilterMergePolicy
+}
 
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	config.SetMaxBufferedDocs(10)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+func (keepFullyDeletedSegmentsPolicy) KeepFullyDeletedSegment(*index.SegmentCommitInfo) bool {
+	return true
+}
+
+func newKeepFullyDeletedSegmentsPolicy() keepFullyDeletedSegmentsPolicy {
+	return keepFullyDeletedSegmentsPolicy{FilterMergePolicy: index.NewFilterMergePolicy(index.NewNoMergePolicy())}
+}
+
+func TestIndexWriterExceptionsDocumentsWriterExceptionFailOneDoc(t *testing.T) {
+	analyzer := crashingAnalyzer(alwaysCrash)
+	for i := 0; i < 10; i++ {
+		dir := newDirectory()
+		conf := newIndexWriterConfigWithAnalyzer(analyzer)
+		conf.SetMaxBufferedDocs(-1)
+		if rand.Intn(2) == 0 {
+			conf.SetRAMBufferSizeMB(0.00001)
+		} else {
+			conf.SetRAMBufferSizeMB(math.MaxInt32)
+		}
+		conf.SetMergePolicy(newKeepFullyDeletedSegmentsPolicy())
+		writer := mustNewIndexWriter(t, dir, conf)
+		doc := document.NewDocument()
+		doc.Add(newField(t, "contents", "here are some contents", docCopyIteratorCustom5))
+		mustAddDocument(t, writer, doc)
+		doc.Add(newField(t, "crash", "this should crash after 4 terms", docCopyIteratorCustom5))
+		doc.Add(newField(t, "other", "this will not get indexed", docCopyIteratorCustom5))
+		if _, err := writer.AddDocument(doc); err == nil {
+			t.Fatal("expected IOException from addDocument(crash doc)")
+		}
+		mustCommit(t, writer)
+		reader := mustOpenDirectoryReader(t, dir)
+		mustClose(t, reader, writer, dir)
+		// assertEquals(2, reader.docFreq(new Term("contents", "here")))
+		t.Fatal(indexReaderDocFreqMissing)
 	}
+}
 
-	const numDocs = 30
-	const numThreads = 3
-	var wg sync.WaitGroup
-	for th := 0; th < numThreads; th++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for i := 0; i < numDocs/numThreads; i++ {
-				doc := document.NewDocument()
-				tf, err2 := document.NewTextField("content", "aaa", false)
-				if err2 != nil {
-					t.Errorf("NewTextField: %v", err2)
-					return
+func TestIndexWriterExceptionsDocumentsWriterExceptionThreads(t *testing.T) {
+	analyzer := crashingAnalyzer(alwaysCrash)
+
+	const numThread = 3
+	numIter := atLeast(10)
+
+	for i := 0; i < 2; i++ {
+		dir := newDirectory()
+		{
+			conf := newIndexWriterConfigWithAnalyzer(analyzer)
+			conf.SetMaxBufferedDocs(math.MaxInt32)
+			conf.SetRAMBufferSizeMB(-1) // we don't want to flush automatically
+			// don't use a merge policy here they depend on the DWPThreadPool
+			// and its max thread states etc. we also need to keep fully
+			// deleted segments since otherwise we clean up fully deleted ones
+			// and if we flush the one that has only the failed document the
+			// docFreq checks will be off below.
+			conf.SetMergePolicy(newKeepFullyDeletedSegmentsPolicy())
+			writer := mustNewIndexWriter(t, dir, conf)
+
+			finalI := i
+
+			var wg sync.WaitGroup
+			for th := 0; th < numThread; th++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					for iter := 0; iter < numIter; iter++ {
+						doc := document.NewDocument()
+						f, err := document.NewField("contents", "here are some contents", docCopyIteratorCustom5)
+						if err != nil {
+							t.Errorf("new Field: %v", err)
+							return
+						}
+						doc.Add(f)
+						if _, err := writer.AddDocument(doc); err != nil {
+							t.Errorf("ERROR: hit unexpected exception: %v", err)
+							return
+						}
+						if _, err := writer.AddDocument(doc); err != nil {
+							t.Errorf("ERROR: hit unexpected exception: %v", err)
+							return
+						}
+						crash, err := document.NewField("crash", "this should crash after 4 terms", docCopyIteratorCustom5)
+						if err != nil {
+							t.Errorf("new Field: %v", err)
+							return
+						}
+						doc.Add(crash)
+						other, err := document.NewField("other", "this will not get indexed", docCopyIteratorCustom5)
+						if err != nil {
+							t.Errorf("new Field: %v", err)
+							return
+						}
+						doc.Add(other)
+						if _, err := writer.AddDocument(doc); err == nil {
+							t.Errorf("expected IOException from addDocument(crash doc)")
+							return
+						}
+
+						if finalI == 0 {
+							extraDoc := document.NewDocument()
+							extra, err := document.NewField("contents", "here are some contents", docCopyIteratorCustom5)
+							if err != nil {
+								t.Errorf("new Field: %v", err)
+								return
+							}
+							extraDoc.Add(extra)
+							if _, err := writer.AddDocument(extraDoc); err != nil {
+								t.Errorf("ERROR: hit unexpected exception: %v", err)
+								return
+							}
+							if _, err := writer.AddDocument(extraDoc); err != nil {
+								t.Errorf("ERROR: hit unexpected exception: %v", err)
+								return
+							}
+						}
+					}
+				}()
+			}
+
+			wg.Wait()
+
+			mustClose(t, writer)
+		}
+
+		reader := mustOpenDirectoryReader(t, dir)
+		mustClose(t, reader, dir)
+		// assertEquals("i=" + i, expected, reader.docFreq(new Term("contents", "here")))
+		t.Fatal(indexReaderDocFreqMissing)
+	}
+}
+
+// LUCENE-1044: test exception during sync
+func TestIndexWriterExceptionsExceptionDuringSync(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	// FailOnlyInSync.eval calls callStackContains(MockDirectoryWrapper.class, "sync").
+	t.Fatal(callStackContainsClassMissing)
+}
+
+func TestIndexWriterExceptionsExceptionsDuringCommit(t *testing.T) {
+	// FailOnlyInCommit.eval calls callStackContains(SegmentInfos.class, stage)
+	// and callStackContains(MockDirectoryWrapper.class, ...).
+	t.Fatal(callStackContainsClassMissing)
+}
+
+func TestIndexWriterExceptionsForceMergeExceptions(t *testing.T) {
+	startDir := newDirectory()
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxBufferedDocs(2)
+	conf.SetMergePolicy(newLogMergePolicy())
+	conf.GetMergePolicy().(logMergePolicy).SetMergeFactor(100)
+	w := mustNewIndexWriter(t, startDir, conf)
+	for i := 0; i < 27; i++ {
+		testIndexWriterAddDoc(t, w)
+	}
+	mustClose(t, w)
+
+	iter := 10
+	if testNightly {
+		iter = 200
+	}
+	for i := 0; i < iter; i++ {
+		ramCopy, err := testutil.RamCopyOf(startDir)
+		if err != nil {
+			t.Fatalf("TestUtil.ramCopyOf: %v", err)
+		}
+		dir := store.NewMockDirectoryWrapper(ramCopy)
+		conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		cms := index.NewConcurrentMergeScheduler()
+		cms.SetSuppressExceptions()
+		conf.SetMergeScheduler(cms)
+		w = mustNewIndexWriter(t, dir, conf)
+		dir.SetRandomIOExceptionRate(0.5)
+		if err := w.ForceMerge(1); err != nil {
+			if !errors.Is(err, store.ErrIllegalState) && errors.Unwrap(err) == nil {
+				t.Fatalf("forceMerge threw IOException without root cause: %v", err)
+			}
+		}
+		dir.SetRandomIOExceptionRate(0)
+		if err := w.Close(); err != nil && !errors.Is(err, store.ErrIllegalState) {
+			t.Fatalf("close: %v", err)
+		}
+		mustClose(t, dir)
+	}
+	mustClose(t, startDir)
+}
+
+// fakeOutOfMemoryError renders the java.lang.OutOfMemoryError the evil
+// InfoStreams throw; an Error thrown from InfoStream#message propagates in
+// Go as a panic, because InfoStream.Message has no error result.
+type fakeOutOfMemoryError struct{ msg string }
+
+// throwingInfoStream renders the anonymous InfoStreams that throw from
+// message(String, String).
+type throwingInfoStream struct {
+	enabled func(component string) bool
+	message func(component, message string)
+}
+
+func (s *throwingInfoStream) Message(component, message string) { s.message(component, message) }
+func (s *throwingInfoStream) IsEnabled(component string) bool   { return s.enabled(component) }
+func (s *throwingInfoStream) Close() error                      { return nil }
+
+func allComponentsEnabled(string) bool { return true }
+
+// expectThrowsOutOfMemoryError renders expectThrows(OutOfMemoryError.class, fn).
+func expectThrowsOutOfMemoryError(t testing.TB, what string, fn func() error) {
+	t.Helper()
+	thrown := func() (oome bool) {
+		defer func() {
+			if p := recover(); p != nil {
+				if _, ok := p.(fakeOutOfMemoryError); !ok {
+					panic(p)
 				}
-				doc.Add(tf)
-				if _, err2 := writer.AddDocument(doc); err2 != nil {
-					t.Logf("concurrent AddDocument error: %v", err2)
-				}
+				oome = true
 			}
 		}()
-	}
-	wg.Wait()
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	if reader.NumDocs() != numDocs {
-		t.Logf("NumDocs = %d (expected %d -- concurrent add may drop under contention)", reader.NumDocs(), numDocs)
-	}
-}
-
-// TestIndexWriterExceptions_ExceptionDocumentsWriterInit verifies that
-// IndexWriter can be created and used after a document is added.  Ports
-// testExceptionDocumentsWriterInit.
-func TestIndexWriterExceptions_ExceptionDocumentsWriterInit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	addExceptionTestDoc(t, writer)
-
-	if writer.IsClosed() {
-		t.Error("writer should not be closed after a successful AddDocument")
-	}
-	if writer.NumDocs() != 1 {
-		t.Errorf("NumDocs = %d, want 1", writer.NumDocs())
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_ExceptionJustBeforeFlush exercises the
-// add-and-flush lifecycle.  Ports testExceptionJustBeforeFlush.
-func TestIndexWriterExceptions_ExceptionJustBeforeFlush(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	config.SetMaxBufferedDocs(3)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	for i := 0; i < 4; i++ {
-		addExceptionTestDoc(t, writer)
-	}
-
-	if writer.NumDocs() != 4 {
-		t.Errorf("NumDocs = %d, want 4", writer.NumDocs())
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	if reader.NumDocs() != 4 {
-		t.Errorf("NumDocs = %d, want 4", reader.NumDocs())
-	}
-}
-
-// TestIndexWriterExceptions_ExceptionOnMergeInit exercises the writer with a
-// merge policy configured.  Ports testExceptionOnMergeInit.
-func TestIndexWriterExceptions_ExceptionOnMergeInit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	for i := 0; i < 5; i++ {
-		addExceptionTestDoc(t, writer)
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	if writer.MaxDoc() != 5 {
-		t.Errorf("MaxDoc = %d, want 5", writer.MaxDoc())
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_ExceptionFromTokenStream exercises adding
-// documents whose text field goes through a tokenizer.  Ports
-// testExceptionFromTokenStream.
-func TestIndexWriterExceptions_ExceptionFromTokenStream(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	docs := []string{"hello world", "foo bar", "lorem ipsum"}
-	for _, text := range docs {
-		doc := document.NewDocument()
-		tf, err2 := document.NewTextField("content", text, false)
-		if err2 != nil {
-			t.Fatalf("NewTextField: %v", err2)
+		if err := fn(); err != nil {
+			t.Fatalf("%s: expected OutOfMemoryError, got %v", what, err)
 		}
-		doc.Add(tf)
-		if _, err2 := writer.AddDocument(doc); err2 != nil {
-			t.Fatalf("AddDocument(%q): %v", text, err2)
-		}
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	if reader.NumDocs() != 3 {
-		t.Errorf("NumDocs = %d, want 3", reader.NumDocs())
+		return false
+	}()
+	if !thrown {
+		t.Fatalf("%s: expected OutOfMemoryError", what)
 	}
 }
 
-// TestIndexWriterExceptions_DocumentsWriterAbort verifies that an error
-// during commit (simulated via a MockDirectoryWrapper) does not prevent the
-// writer from closing cleanly.  Ports testDocumentsWriterAbort.
-func TestIndexWriterExceptions_DocumentsWriterAbort(t *testing.T) {
-	base := store.NewByteBuffersDirectory()
-	mock := store.NewMockDirectoryWrapper(base)
-	defer mock.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
-	writer, err := index.NewIndexWriter(mock, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	addExceptionTestDoc(t, writer)
-
-	failure := &store.Failure{}
-	failure.SetEval(func(dir *store.MockDirectoryWrapper) error {
-		return errors.New("simulated abort during write")
-	})
-	failure.SetDoFail()
-	mock.FailOn(failure)
-
-	if err := writer.Commit(); err == nil {
-		t.Log("Commit succeeded despite injected failure (codec-less path)")
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Logf("Close returned error (expected when write failed): %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_DocumentsWriterExceptions exercises adding
-// multiple documents and verifying counts.  Ports testDocumentsWriterExceptions.
-func TestIndexWriterExceptions_DocumentsWriterExceptions(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	for cycle := 0; cycle < 2; cycle++ {
-		for i := 0; i < 3; i++ {
-			addExceptionTestDoc(t, writer)
-		}
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit cycle %d: %v", cycle, err)
-		}
-	}
-
-	if writer.MaxDoc() != 6 {
-		t.Errorf("MaxDoc = %d, want 6", writer.MaxDoc())
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	if reader.NumDocs() != 6 {
-		t.Errorf("NumDocs = %d, want 6", reader.NumDocs())
-	}
-}
-
-// TestIndexWriterExceptions_DocumentsWriterExceptionFailOneDoc exercises
-// inserting documents then performing a term-based delete.  Ports
-// testDocumentsWriterExceptionFailOneDoc.
-func TestIndexWriterExceptions_DocumentsWriterExceptionFailOneDoc(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	// Use a merge policy that never merges: the test asserts that a deleted
-	// document is still counted in MaxDoc after close/reopen, and a merge-on-close
-	// would compact it away.
-	config.SetMergePolicy(index.NewNoMergePolicy())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	addExceptionTestDocEx(t, writer, "doc1")
-	addExceptionTestDocEx(t, writer, "doc2")
-
-	if _, err := writer.DeleteDocuments(index.NewTerm("id", "doc1")); err != nil {
-		t.Fatalf("DeleteDocuments: %v", err)
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	if writer.MaxDoc() != 2 {
-		t.Errorf("MaxDoc = %d, want 2", writer.MaxDoc())
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	if reader.MaxDoc() != 2 {
-		t.Errorf("MaxDoc = %d, want 2", reader.MaxDoc())
-	}
-}
-
-// TestIndexWriterExceptions_DocumentsWriterExceptionThreads exercises
-// concurrent document addition across multiple goroutines.  Ports
-// testDocumentsWriterExceptionThreads.
-func TestIndexWriterExceptions_DocumentsWriterExceptionThreads(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	const numThreads = 3
-	const docsPerThread = 5
-	var wg sync.WaitGroup
-	for th := 0; th < numThreads; th++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			for i := 0; i < docsPerThread; i++ {
-				doc := document.NewDocument()
-				tf, err2 := document.NewTextField("content", "aaa", false)
-				if err2 != nil {
-					t.Logf("NewTextField: %v", err2)
-					return
-				}
-				doc.Add(tf)
-				sf, err2 := document.NewStringField("tid", fmt.Sprintf("t%d-d%d", id, i), false)
-				if err2 != nil {
-					t.Logf("NewStringField: %v", err2)
-					return
-				}
-				doc.Add(sf)
-				if _, err2 := writer.AddDocument(doc); err2 != nil {
-					t.Logf("AddDocument from thread %d: %v", id, err2)
-				}
+// LUCENE-1429
+func TestIndexWriterExceptionsOutOfMemoryErrorCausesCloseToFail(t *testing.T) {
+	var thrown atomic.Bool
+	dir := newDirectory()
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetInfoStream(&throwingInfoStream{
+		enabled: allComponentsEnabled,
+		message: func(component, message string) {
+			if strings.HasPrefix(message, "now flush at close") && thrown.CompareAndSwap(false, true) {
+				panic(fakeOutOfMemoryError{msg: "fake OOME at " + message})
 			}
-		}(th)
-	}
-	wg.Wait()
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	if reader.NumDocs() != numThreads*docsPerThread {
-		t.Logf("NumDocs = %d (expected %d -- concurrent add may drop under contention)", reader.NumDocs(), numThreads*docsPerThread)
-	}
-}
-
-// TestIndexWriterExceptions_ExceptionDuringSync verifies that a sync failure
-// is tolerated and the writer remains usable.  Ports testExceptionDuringSync.
-func TestIndexWriterExceptions_ExceptionDuringSync(t *testing.T) {
-	base := store.NewByteBuffersDirectory()
-	mock := store.NewMockDirectoryWrapper(base)
-	defer mock.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(mock, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	for i := 0; i < 3; i++ {
-		addExceptionTestDoc(t, writer)
-	}
-
-	mock.SetFailOnSync(true)
-	if err := writer.Commit(); err != nil {
-		t.Logf("Commit after sync failure injection: %v", err)
-	}
-	mock.SetFailOnSync(false)
-
-	if writer.IsClosed() {
-		t.Error("writer should not be closed after sync failure")
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_ExceptionsDuringCommit verifies that a commit
-// failure leaves the writer in a state from which rollback recovers.  Ports
-// testExceptionsDuringCommit.
-func TestIndexWriterExceptions_ExceptionsDuringCommit(t *testing.T) {
-	base := store.NewByteBuffersDirectory()
-	mock := store.NewMockDirectoryWrapper(base)
-	defer mock.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
-	writer, err := index.NewIndexWriter(mock, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	addExceptionTestDoc(t, writer)
-
-	failure := &store.Failure{}
-	failure.SetEval(func(dir *store.MockDirectoryWrapper) error {
-		return errors.New("simulated commit error")
+		},
 	})
-	failure.SetDoFail()
-	mock.FailOn(failure)
+	writer := mustNewIndexWriter(t, dir, conf)
 
-	commitErr := writer.Commit()
-	if commitErr != nil {
-		t.Logf("Commit failed as expected: %v", commitErr)
-		// Disable the injected failure so Rollback can clean up without hitting
-		// the same simulated error on every directory operation.
-		failure.ClearDoFail()
-		if err := writer.Rollback(); err != nil {
-			t.Fatalf("Rollback after failed commit: %v", err)
-		}
-	} else {
-		t.Log("Commit succeeded despite injection (codec-less path)")
-		_ = writer.Close()
-	}
+	expectThrowsOutOfMemoryError(t, "writer.close()", writer.Close)
+
+	// throws IllegalStateEx w/o bug fix
+	mustClose(t, writer, dir)
 }
 
-// TestIndexWriterExceptions_ForceMergeExceptions exercises ForceMerge with
-// a merge policy.  Ports testForceMergeExceptions.
-func TestIndexWriterExceptions_ForceMergeExceptions(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// If IW hits OOME during indexing, it should refuse to commit any further changes.
+func TestIndexWriterExceptionsOutOfMemoryErrorRollback(t *testing.T) {
+	var thrown atomic.Bool
+	dir := newDirectory()
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetInfoStream(&throwingInfoStream{
+		enabled: allComponentsEnabled,
+		message: func(component, message string) {
+			if strings.Contains(message, "startFullFlush") && thrown.CompareAndSwap(false, true) {
+				panic(fakeOutOfMemoryError{msg: "fake OOME at " + message})
+			}
+		},
+	})
+	writer := mustNewIndexWriter(t, dir, conf)
+	mustAddDocument(t, writer, document.NewDocument())
 
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-	config.SetMaxBufferedDocs(2)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
+	expectThrowsOutOfMemoryError(t, "writer.commit()", func() error {
+		_, err := writer.Commit()
+		return err
+	})
 
-	for i := 0; i < 6; i++ {
-		addExceptionTestDoc(t, writer)
-	}
-
-	if err := writer.ForceMerge(1); err != nil {
-		t.Logf("ForceMerge returned: %v (acceptable if merge infra is partial)", err)
-	}
-
+	// Java tolerates an IllegalArgumentException here; Gocene has no typed
+	// IllegalArgumentException, so any close failure is reported.
 	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+		t.Fatalf("close: %v", err)
 	}
 
-	reader, err := index.OpenDirectoryReader(dir)
+	_, err := writer.AddDocument(document.NewDocument())
+	dwdqExpectAlreadyClosed(t, err)
+
+	// IW should have done rollback() during close, since it hit OOME, and so
+	// no index should exist:
+	exists, err := index.IndexExists(dir)
 	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+		t.Fatalf("indexExists: %v", err)
 	}
-	defer reader.Close()
-	if reader.NumDocs() != 6 {
-		t.Errorf("NumDocs = %d, want 6", reader.NumDocs())
+	if exists {
+		t.Fatal("assertFalse(DirectoryReader.indexExists(dir))")
 	}
+
+	mustClose(t, dir)
 }
 
-// TestIndexWriterExceptions_OutOfMemoryErrorCausesCloseToFail verifies that
-// closing a writer twice is safe (idempotent).  Ports
-// testOutOfMemoryErrorCausesCloseToFail.
-func TestIndexWriterExceptions_OutOfMemoryErrorCausesCloseToFail(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("first Close: %v", err)
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Errorf("second Close returned error (should be idempotent): %v", err)
-	}
+// LUCENE-1347
+func TestIndexWriterExceptionsRollbackExceptionHang(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	t.Fatal(mockIndexWriterMissing)
 }
 
-// TestIndexWriterExceptions_OutOfMemoryErrorRollback verifies that rollback
-// after adding documents leaves the writer closed.  Ports
-// testOutOfMemoryErrorRollback.
-func TestIndexWriterExceptions_OutOfMemoryErrorRollback(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	addExceptionTestDoc(t, writer)
-
-	if err := writer.Rollback(); err != nil {
-		t.Fatalf("Rollback: %v", err)
-	}
-
-	if !writer.IsClosed() {
-		t.Error("writer should be closed after Rollback")
-	}
+// LUCENE-1044: Simulate checksum error in segments_N
+func TestIndexWriterExceptionsSegmentsChecksumError(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	t.Fatal(setCheckIndexOnCloseMissing) // we corrupt the index
 }
 
-// TestIndexWriterExceptions_RollbackExceptionHang verifies that multiple
-// rollback calls are safe.  Ports testRollbackExceptionHang.
-func TestIndexWriterExceptions_RollbackExceptionHang(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	addExceptionTestDoc(t, writer)
-
-	if err := writer.Rollback(); err != nil {
-		t.Fatalf("first Rollback: %v", err)
-	}
-
-	if err := writer.Rollback(); err != nil {
-		t.Errorf("second Rollback returned error (should be idempotent): %v", err)
-	}
+// Simulate a corrupt index by removing last byte of
+// latest segments file and make sure we get an
+// IOException trying to open the index:
+func TestIndexWriterExceptionsSimulatedCorruptIndex1(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	t.Fatal(setCheckIndexOnCloseMissing) // we are corrupting it!
 }
 
-// TestIndexWriterExceptions_SegmentsChecksumError verifies that
-// ReadSegmentInfos fails when the segments file's checksum is wrong.  Ports
-// testSegmentsChecksumError.
-func TestIndexWriterExceptions_SegmentsChecksumError(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+// Simulate a corrupt index by removing one of the
+// files and make sure we get an IOException trying to
+// open the index:
+func TestIndexWriterExceptionsSimulatedCorruptIndex2(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	t.Fatal(setCheckIndexOnCloseMissing) // we are corrupting it!
+}
 
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
+func TestIndexWriterExceptionsTermVectorExceptions(t *testing.T) {
+	// FailOnTermVectors.eval calls callStackContains(TermVectorsConsumer.class, stage).
+	t.Fatal(callStackContainsClassMissing)
+}
+
+// crashTokenStreamField renders the "crash" field of the non-aborting tests:
+// new Field("crash", new CrashingFilter("crash", tokenizer),
+// TextField.TYPE_NOT_STORED) over a WHITESPACE MockTokenizer reading
+// "crash me on the 4th token".
+func crashTokenStreamField(t testing.TB) *document.Field {
+	t.Helper()
+	tokenizer := testanalysis.NewMockTokenizer(testanalysis.WHITESPACE, false, testanalysis.DefaultMaxTokenLength)
+	tokenizer.SetReader(strings.NewReader("crash me on the 4th token"))
+	tokenizer.SetEnableChecks(false) // disable workflow checking as we forcefully close() in exceptional cases.
+	f, err := document.NewField("crash", newCrashingFilter("crash", tokenizer), document.TextFieldTypeNotStored)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("new Field(crash): %v", err)
 	}
-	addExceptionTestDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	writer.Close()
+	return f
+}
 
-	// Remove all existing segments files so CreateOutput does not collide.
-	deleteAllSegmentsFiles(t, dir)
-
-	// Overwrite the segments file with garbage.
-	out, err := dir.CreateOutput("segments_1", store.IOContextDefault)
-	if err != nil {
-		t.Fatalf("CreateOutput: %v", err)
-	}
-	out.WriteBytes([]byte("NOT_A_VALID_SEGMENTS_FILE_CORRUPTED"))
-	out.Close()
-
-	_, err = index.ReadSegmentInfos(dir)
+// expectCrashIOException renders
+// assertEquals(CRASH_FAIL_MESSAGE, expectThrows(IOException.class, ...).getMessage()).
+func expectCrashIOException(t testing.TB, err error) {
+	t.Helper()
 	if err == nil {
-		t.Error("expected ReadSegmentInfos to fail on corrupted segments file, got nil")
+		t.Fatal("expected IOException")
+	}
+	if err.Error() != crashFailMessage {
+		t.Fatalf("expected.getMessage(): expected %q, got %q", crashFailMessage, err.Error())
 	}
 }
 
-// TestIndexWriterExceptions_SimulatedCorruptIndex1 verifies that a truncated
-// segments file causes ReadSegmentInfos to fail.  Ports
-// testSimulatedCorruptIndex1.
-func TestIndexWriterExceptions_SimulatedCorruptIndex1(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	addExceptionTestDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	writer.Close()
-
-	// Read the latest segments file's content and name BEFORE deleting.
-	si, err := index.ReadSegmentInfos(dir)
-	if err != nil {
-		t.Fatalf("ReadSegmentInfos before truncation: %v", err)
-	}
-	segName := index.GetSegmentFileName(si.Generation())
-	inp, err := dir.OpenInput(segName, store.IOContextRead)
-	if err != nil {
-		t.Fatalf("OpenInput(%s): %v", segName, err)
-	}
-	origLen := inp.Length()
-	shortLen := origLen - 1
-	if shortLen <= 0 {
-		inp.Close()
-		t.Fatal("segments file too short to truncate meaningfully")
-	}
-	buf := make([]byte, shortLen)
-	err = inp.ReadBytes(buf)
-	inp.Close()
-	if err != nil {
-		t.Fatalf("ReadBytes: %v", err)
-	}
-
-	// Now delete ALL segments files and recreate with truncated content.
-	deleteAllSegmentsFiles(t, dir)
-	out, err := dir.CreateOutput(segName, store.IOContextDefault)
-	if err != nil {
-		t.Fatalf("CreateOutput: %v", err)
-	}
-	out.WriteBytes(buf)
-	out.Close()
-
-	_, err = index.ReadSegmentInfos(dir)
-	if err == nil {
-		t.Error("expected ReadSegmentInfos to fail on truncated segments file, got nil")
-	}
-}
-
-// TestIndexWriterExceptions_SimulatedCorruptIndex2 verifies that deleting
-// the segments file prevents reading the index.  Ports
-// testSimulatedCorruptIndex2.
-func TestIndexWriterExceptions_SimulatedCorruptIndex2(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	addExceptionTestDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	writer.Close()
-
-	// Delete ALL segments files, not just segments_1, because Close() advances
-	// the generation and leaves segments_2 alongside segments_1.
-	deleteAllSegmentsFiles(t, dir)
-
-	_, err = index.ReadSegmentInfos(dir)
-	if err == nil {
-		t.Error("expected ReadSegmentInfos to fail after segments file deletion, got nil")
-	}
-	if !index.IsIndexNotFound(err) {
-		t.Errorf("expected IndexNotFoundException, got %T: %v", err, err)
-	}
-}
-
-// TestIndexWriterExceptions_TermVectorExceptions exercises the writer with a
-// field configured to store term vectors.  Ports testTermVectorExceptions.
-func TestIndexWriterExceptions_TermVectorExceptions(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	doc := document.NewDocument()
-	ft := document.NewFieldType()
-	ft.SetIndexed(true).
-		SetStored(true).
-		SetTokenized(true).
-		SetStoreTermVectors(true).
-		SetStoreTermVectorPositions(true).
-		SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
-	ft.Freeze()
-	f, err := document.NewField("tvfield", "term vector content", ft)
-	if err != nil {
-		t.Fatalf("NewField: %v", err)
-	}
-	doc.Add(f)
-
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument with term vectors: %v", err)
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	if reader.NumDocs() != 1 {
-		t.Errorf("NumDocs = %d, want 1", reader.NumDocs())
-	}
-}
-
-// TestIndexWriterExceptions_AddDocsNonAbortingException exercises adding
-// documents sequentially and committing.  Ports
-// testAddDocsNonAbortingException.
-func TestIndexWriterExceptions_AddDocsNonAbortingException(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	for i := 0; i < 3; i++ {
-		addExceptionTestDocEx(t, writer, fmt.Sprintf("doc%d", i))
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	if reader.NumDocs() != 3 {
-		t.Errorf("NumDocs = %d, want 3", reader.NumDocs())
-	}
-}
-
-// TestIndexWriterExceptions_UpdateDocsNonAbortingException exercises
-// term-based document update.  Ports testUpdateDocsNonAbortingException.
-func TestIndexWriterExceptions_UpdateDocsNonAbortingException(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	addExceptionTestDocEx(t, writer, "doc0")
-
-	doc := document.NewDocument()
-	tf, err := document.NewTextField("content", "updated", false)
-	if err != nil {
-		t.Fatalf("NewTextField: %v", err)
-	}
-	doc.Add(tf)
-	sf, err := document.NewStringField("id", "doc0", true)
-	if err != nil {
-		t.Fatalf("NewStringField: %v", err)
-	}
-	doc.Add(sf)
-	if _, err := writer.UpdateDocument(index.NewTerm("id", "doc0"), doc); err != nil {
-		t.Fatalf("UpdateDocument: %v", err)
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	if reader.NumDocs() < 1 {
-		t.Errorf("NumDocs = %d, want >= 1", reader.NumDocs())
-	}
-}
-
-// TestIndexWriterExceptions_NullStoredField verifies that a field with an
-// empty string value does not abort the writer.  Ports testNullStoredField.
-func TestIndexWriterExceptions_NullStoredField(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	doc := document.NewDocument()
-	sf, err := document.NewStoredField("field", "")
-	if err != nil {
-		t.Fatalf("NewStoredField: %v", err)
-	}
-	doc.Add(sf)
-	tf, err := document.NewTextField("content", "text", false)
-	if err != nil {
-		t.Fatalf("NewTextField: %v", err)
-	}
-	doc.Add(tf)
-
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument with empty stored field: %v", err)
-	}
-	if writer.IsClosed() {
-		t.Error("writer should not be closed after adding doc with empty stored field")
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_NullStoredFieldReuse verifies that reusing a
-// field works correctly.  Ports testNullStoredFieldReuse.
-func TestIndexWriterExceptions_NullStoredFieldReuse(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	doc := document.NewDocument()
-	tf, err := document.NewTextField("content", "text", false)
-	if err != nil {
-		t.Fatalf("NewTextField: %v", err)
-	}
-	doc.Add(tf)
-
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if writer.IsClosed() {
-		t.Error("writer should not be closed after add")
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_NullStoredBytesField verifies that a field with
-// nil bytes value does not abort the writer.  Ports testNullStoredBytesField.
-func TestIndexWriterExceptions_NullStoredBytesField(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	doc := document.NewDocument()
-	sf, err := document.NewStoredFieldFromBytes("binfield", nil)
-	if err != nil {
-		t.Fatalf("NewStoredFieldFromBytes: %v", err)
-	}
-	doc.Add(sf)
-	tf, err := document.NewTextField("content", "text", false)
-	if err != nil {
-		t.Fatalf("NewTextField: %v", err)
-	}
-	doc.Add(tf)
-
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument with nil-bytes stored field: %v", err)
-	}
-	if writer.IsClosed() {
-		t.Error("writer should not be closed after adding doc with nil-bytes field")
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_NullStoredBytesFieldReuse verifies that reusing
-// a field and setting its byte value to nil does not abort.  Ports
-// testNullStoredBytesFieldReuse.
-func TestIndexWriterExceptions_NullStoredBytesFieldReuse(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	f, err := document.NewField("f", []byte("original"), document.StoredFieldType)
-	if err != nil {
-		t.Fatalf("NewField: %v", err)
-	}
-	f.SetBinaryValue(nil)
-
-	doc := document.NewDocument()
-	doc.Add(f)
-	tf, err := document.NewTextField("content", "text", false)
-	if err != nil {
-		t.Fatalf("NewTextField: %v", err)
-	}
-	doc.Add(tf)
-
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument with reused nil-bytes field: %v", err)
-	}
-	if writer.IsClosed() {
-		t.Error("writer should not be closed after add")
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_NullStoredBytesRefField verifies that a field
-// with empty bytes content does not abort.  Ports testNullStoredBytesRefField.
-func TestIndexWriterExceptions_NullStoredBytesRefField(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	doc := document.NewDocument()
-	bf, err := document.NewStoredFieldFromBytes("bytesfield", nil)
-	if err != nil {
-		t.Fatalf("NewStoredFieldFromBytes: %v", err)
-	}
-	doc.Add(bf)
-	tf, err := document.NewTextField("content", "text", false)
-	if err != nil {
-		t.Fatalf("NewTextField: %v", err)
-	}
-	doc.Add(tf)
-
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if writer.IsClosed() {
-		t.Error("writer should not be closed")
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_NullStoredBytesRefFieldReuse verifies that
-// reusing a field with empty binary content is non-aborting.  Ports
-// testNullStoredBytesRefFieldReuse.
-func TestIndexWriterExceptions_NullStoredBytesRefFieldReuse(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	f, err := document.NewField("bf", []byte("val"), document.StoredFieldType)
-	if err != nil {
-		t.Fatalf("NewField: %v", err)
-	}
-	f.SetBinaryValue(nil)
-
-	doc := document.NewDocument()
-	doc.Add(f)
-	tf, err := document.NewTextField("content", "text", false)
-	if err != nil {
-		t.Fatalf("NewTextField: %v", err)
-	}
-	doc.Add(tf)
-
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if writer.IsClosed() {
-		t.Error("writer should not be closed")
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_NullStoredDataInputField verifies that a field
-// with an empty (nil-equivalent) value does not abort the writer.  Ports
-// testNullStoredDataInputField.
-func TestIndexWriterExceptions_NullStoredDataInputField(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	doc := document.NewDocument()
-	sf, err := document.NewStoredField("data", "")
-	if err != nil {
-		t.Fatalf("NewStoredField: %v", err)
-	}
-	doc.Add(sf)
-	tf, err := document.NewTextField("content", "text", false)
-	if err != nil {
-		t.Fatalf("NewTextField: %v", err)
-	}
-	doc.Add(tf)
-
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if writer.IsClosed() {
-		t.Error("writer should not be closed")
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_CrazyPositionIncrementGap exercises the writer
-// with a configured analyzer.  Ports testCrazyPositionIncrementGap.
-func TestIndexWriterExceptions_CrazyPositionIncrementGap(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	addExceptionTestDoc(t, writer)
-	if writer.NumDocs() != 1 {
-		t.Errorf("NumDocs = %d, want 1", writer.NumDocs())
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
-	if reader.NumDocs() != 1 {
-		t.Errorf("NumDocs = %d, want 1", reader.NumDocs())
-	}
-}
-
-// TestIndexWriterExceptions_ExceptionOnCtor verifies that NewIndexWriter
-// returns an error when the underlying directory is already locked.  Ports
-// testExceptionOnCtor.
-func TestIndexWriterExceptions_ExceptionOnCtor(t *testing.T) {
-	base := store.NewByteBuffersDirectory()
-	mock := store.NewMockDirectoryWrapper(base)
-	defer mock.Close()
-
-	writer, err := index.NewIndexWriter(mock, index.NewIndexWriterConfig(newExceptionsTestAnalyzer()))
-	if err != nil {
-		t.Fatalf("first NewIndexWriter: %v", err)
-	}
-
-	_, err = index.NewIndexWriter(mock, index.NewIndexWriterConfig(newExceptionsTestAnalyzer()))
-	if err == nil {
-		t.Error("expected error from second NewIndexWriter on locked directory, got nil")
-	}
-
-	writer.Close()
-}
-
-// TestIndexWriterExceptions_TooManyFileException verifies that a writer can
-// tolerate open-input failures from the directory.  Ports
-// testTooManyFileException.
-func TestIndexWriterExceptions_TooManyFileException(t *testing.T) {
-	base := store.NewByteBuffersDirectory()
-	mock := store.NewMockDirectoryWrapper(base)
-	defer mock.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(mock, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	addExceptionTestDoc(t, writer)
-
-	mock.SetFailOnOpenInput(true)
-
-	if err := writer.Commit(); err != nil {
-		t.Logf("Commit with fail-on-open-input: %v (expected)", err)
-	}
-	mock.SetFailOnOpenInput(false)
-
-	if writer.IsClosed() {
-		t.Log("writer closed after fail-on-open-input (acceptable)")
-	} else {
-		// Use Rollback instead of Close because Close tries to commit again
-		// and the codec files from the first (possibly partial) commit will
-		// cause "file already exists" errors.
-		if err := writer.Rollback(); err != nil {
-			t.Fatalf("Rollback: %v", err)
-		}
-	}
-}
-
-// TestIndexWriterExceptions_TooManyTokens verifies that a field containing
-// a very long term is handled gracefully.  Ports testTooManyTokens.
-func TestIndexWriterExceptions_TooManyTokens(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	longVal := make([]byte, 32766+10) // MAX_TERM_LENGTH + 10
-	for i := range longVal {
-		longVal[i] = 'x'
-	}
-
-	doc := document.NewDocument()
-	sf, err := document.NewStringField("longfield", string(longVal), false)
-	if err != nil {
-		t.Fatalf("NewStringField: %v", err)
-	}
-	doc.Add(sf)
-
-	if _, err := writer.AddDocument(doc); err != nil {
-		t.Logf("AddDocument with long value: %v (acceptable)", err)
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_ExceptionDuringRollback verifies that rollback
-// works and leaves the writer closed.  Ports testExceptionDuringRollback.
-func TestIndexWriterExceptions_ExceptionDuringRollback(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	for i := 0; i < 3; i++ {
-		addExceptionTestDoc(t, writer)
-	}
-
-	if err := writer.Rollback(); err != nil {
-		t.Fatalf("Rollback: %v", err)
-	}
-
-	if !writer.IsClosed() {
-		t.Error("writer should be closed after Rollback")
-	}
-}
-
-// TestIndexWriterExceptions_RandomExceptionDuringRollback verifies that
-// rollback works correctly.  Ports testRandomExceptionDuringRollback.
-func TestIndexWriterExceptions_RandomExceptionDuringRollback(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	addExceptionTestDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	if err := writer.Rollback(); err != nil {
-		t.Fatalf("Rollback: %v", err)
-	}
-	if !writer.IsClosed() {
-		t.Error("writer should be closed after Rollback")
-	}
-}
-
-// TestIndexWriterExceptions_MergeExceptionIsTragic exercises ForceMerge and
-// verifies the writer survives.  Ports testMergeExceptionIsTragic.
-func TestIndexWriterExceptions_MergeExceptionIsTragic(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	config.SetMaxBufferedDocs(2)
-	config.SetMergePolicy(index.NewTieredMergePolicy())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	for i := 0; i < 6; i++ {
-		addExceptionTestDoc(t, writer)
-	}
-
-	if err := writer.ForceMerge(1); err != nil {
-		t.Logf("ForceMerge: %v (acceptable if merge infra is partial)", err)
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_OnlyRollbackOnceOnException verifies that
-// rollback is idempotent.  Ports testOnlyRollbackOnceOnException.
-func TestIndexWriterExceptions_OnlyRollbackOnceOnException(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	addExceptionTestDoc(t, writer)
-
-	if err := writer.Rollback(); err != nil {
-		t.Fatalf("Rollback: %v", err)
-	}
-
-	if err := writer.Rollback(); err != nil {
-		t.Errorf("second Rollback returned error (should be idempotent): %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_ExceptionOnSyncMetadata verifies that a sync
-// failure during commit is tolerated.  Ports testExceptionOnSyncMetadata.
-func TestIndexWriterExceptions_ExceptionOnSyncMetadata(t *testing.T) {
-	base := store.NewByteBuffersDirectory()
-	mock := store.NewMockDirectoryWrapper(base)
-	defer mock.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
-	writer, err := index.NewIndexWriter(mock, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	addExceptionTestDoc(t, writer)
-
-	mock.SetFailOnSync(true)
-	commitErr := writer.Commit()
-	if commitErr != nil {
-		t.Logf("Commit with sync failure: %v", commitErr)
-	}
-	mock.SetFailOnSync(false)
-
-	if writer.IsClosed() {
-		t.Log("writer closed after sync metadata failure (acceptable)")
-		return
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexWriterExceptions_ExceptionJustBeforeFlushWithPointValues exercises
-// the writer with a point field alongside a text field.  Ports
-// testExceptionJustBeforeFlushWithPointValues.
-func TestIndexWriterExceptions_ExceptionJustBeforeFlushWithPointValues(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(newExceptionsTestAnalyzer())
-	config.SetMaxBufferedDocs(5)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	for i := 0; i < 3; i++ {
+func addGoodContentDocs(t testing.TB, w interface {
+	AddDocument(*document.Document) (int64, error)
+}, n int) {
+	t.Helper()
+	for docCount := 0; docCount < n; docCount++ {
 		doc := document.NewDocument()
-		tf, err2 := document.NewTextField("content", "aaa", false)
-		if err2 != nil {
-			t.Fatalf("NewTextField: %v", err2)
-		}
-		doc.Add(tf)
-		ip := document.NewIntPoint("intpoint", int32(i))
-		doc.Add(ip)
-
-		if _, err2 := writer.AddDocument(doc); err2 != nil {
-			t.Fatalf("AddDocument with point field: %v", err2)
+		doc.Add(newTextField(t, "content", "good content", false))
+		if _, err := w.AddDocument(doc); err != nil {
+			t.Fatalf("addDocument: %v", err)
 		}
 	}
+}
 
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+func TestIndexWriterExceptionsAddDocsNonAbortingException(t *testing.T) {
+	dir := newDirectory()
+	w := newRandomIndexWriter(t, dir)
+	numDocs1 := rand.Intn(25)
+	addGoodContentDocs(t, w, numDocs1)
+
+	docs := make([]*document.Document, 0, 7)
+	for docCount := 0; docCount < 7; docCount++ {
+		doc := document.NewDocument()
+		docs = append(docs, doc)
+		doc.Add(newStringField(t, "id", strconv.Itoa(docCount), false))
+		doc.Add(newTextField(t, "content", "silly content "+strconv.Itoa(docCount), false))
+		if docCount == 4 {
+			doc.Add(crashTokenStreamField(t))
+		}
 	}
 
-	reader, err := index.OpenDirectoryReader(dir)
+	_, err := w.AddDocuments(docs)
+	expectCrashIOException(t, err)
+
+	numDocs2 := rand.Intn(25)
+	addGoodContentDocs(t, w, numDocs2)
+
+	r, err := w.GetReader()
 	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+		t.Fatalf("getReader: %v", err)
 	}
-	defer reader.Close()
-	if reader.NumDocs() != 3 {
-		t.Errorf("NumDocs = %d, want 3", reader.NumDocs())
+	mustClose(t, w)
+	defer mustClose(t, r, dir)
+
+	newSearcher(t, r)
+}
+
+func TestIndexWriterExceptionsUpdateDocsNonAbortingException(t *testing.T) {
+	dir := newDirectory()
+	w := newRandomIndexWriter(t, dir)
+	numDocs1 := rand.Intn(25)
+	addGoodContentDocs(t, w, numDocs1)
+
+	// Use addDocs (no exception) to get docs in the index:
+	var docs []*document.Document
+	numDocs2 := rand.Intn(25)
+	for docCount := 0; docCount < numDocs2; docCount++ {
+		doc := document.NewDocument()
+		docs = append(docs, doc)
+		doc.Add(newStringField(t, "subid", "subs", false))
+		doc.Add(newStringField(t, "id", strconv.Itoa(docCount), false))
+		doc.Add(newTextField(t, "content", "silly content "+strconv.Itoa(docCount), false))
 	}
+	if _, err := w.AddDocuments(docs); err != nil {
+		t.Fatalf("addDocuments: %v", err)
+	}
+
+	numDocs3 := rand.Intn(25)
+	addGoodContentDocs(t, w, numDocs3)
+
+	docs = docs[:0]
+	limit := nextInt(2, 25)
+	crashAt := rand.Intn(limit)
+	for docCount := 0; docCount < limit; docCount++ {
+		doc := document.NewDocument()
+		docs = append(docs, doc)
+		doc.Add(newStringField(t, "id", strconv.Itoa(docCount), false))
+		doc.Add(newTextField(t, "content", "silly content "+strconv.Itoa(docCount), false))
+		if docCount == crashAt {
+			doc.Add(crashTokenStreamField(t))
+		}
+	}
+
+	_, err := w.UpdateDocuments(index.NewTerm("subid", "subs"), docs)
+	expectCrashIOException(t, err)
+
+	numDocs4 := rand.Intn(25)
+	addGoodContentDocs(t, w, numDocs4)
+
+	r, err := w.GetReader()
+	if err != nil {
+		t.Fatalf("getReader: %v", err)
+	}
+	mustClose(t, w)
+	defer mustClose(t, r, dir)
+
+	newSearcher(t, r)
+}
+
+// storedFieldNullStringMissing names the Java constructors and setters that
+// accept a null String, which Gocene's string-typed API cannot express.
+const (
+	storedFieldNullStringMissing   = "org.apache.lucene.document.StoredField(String, String) accepting a null value is not ported"
+	fieldSetStringValueNullMissing = "org.apache.lucene.document.Field#setStringValue(String) accepting a null value is not ported"
+)
+
+// expectThrowsErrorOrPanic renders expectThrows(...) around a block whose
+// Java exception Gocene reports either as a returned error or, for the
+// setters without an error result, as a panic.
+func expectThrowsErrorOrPanic(t testing.TB, what string, fn func() error) {
+	t.Helper()
+	thrown := func() (p bool) {
+		defer func() {
+			if recover() != nil {
+				p = true
+			}
+		}()
+		return fn() != nil
+	}()
+	if !thrown {
+		t.Fatalf("expected an exception from %s", what)
+	}
+}
+
+// nullStoredFieldWriter renders the common prologue of the testNullStored*
+// tests: an IndexWriter over new IndexWriterConfig(new MockAnalyzer(random()))
+// that has indexed one good document.
+func nullStoredFieldWriter(t *testing.T, dir store.Directory, doc *document.Document) *index.IndexWriter {
+	t.Helper()
+	iw := mustNewIndexWriter(t, dir, index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	// add good document
+	mustAddDocument(t, iw, doc)
+	return iw
+}
+
+// test a null string value doesn't abort the entire segment
+func TestIndexWriterExceptionsNullStoredField(t *testing.T) {
+	dir := newDirectory()
+	iw := nullStoredFieldWriter(t, dir, document.NewDocument())
+	defer mustClose(t, iw, dir)
+	// set to null value
+	t.Fatal(storedFieldNullStringMissing)
+}
+
+// test a null string value doesn't abort the entire segment
+func TestIndexWriterExceptionsNullStoredFieldReuse(t *testing.T) {
+	dir := newDirectory()
+	doc := document.NewDocument()
+	theField, err := document.NewStoredFieldFromStringWithType("foo", "hello", document.StoredFieldType)
+	if err != nil {
+		t.Fatalf("new StoredField: %v", err)
+	}
+	doc.Add(theField)
+	iw := nullStoredFieldWriter(t, dir, doc)
+	defer mustClose(t, iw, dir)
+	// set to null value
+	t.Fatal(fieldSetStringValueNullMissing)
+}
+
+// nullStoredBytesTail renders the shared tail of the null byte[]/BytesRef
+// tests: the good document must survive, which the Java test checks after
+// assertNull(iw.getTragicException()).
+func nullStoredBytesTail(t *testing.T) {
+	t.Helper()
+	t.Fatal(indexWriterGetTragicExceptionMissing)
+}
+
+// test a null byte[] value doesn't abort the entire segment
+func TestIndexWriterExceptionsNullStoredBytesField(t *testing.T) {
+	dir := newDirectory()
+	doc := document.NewDocument()
+	iw := nullStoredFieldWriter(t, dir, doc)
+	defer mustClose(t, iw, dir)
+
+	expectThrowsErrorOrPanic(t, "new StoredField(\"foo\", (byte[]) null) + addDocument", func() error {
+		// set to null value
+		var v []byte
+		theField, err := document.NewStoredFieldFromBytes("foo", v)
+		if err != nil {
+			return err
+		}
+		doc.Add(theField)
+		_, err = iw.AddDocument(doc)
+		return err
+	})
+
+	nullStoredBytesTail(t)
+}
+
+// test a null byte[] value doesn't abort the entire segment
+func TestIndexWriterExceptionsNullStoredBytesFieldReuse(t *testing.T) {
+	dir := newDirectory()
+	doc := document.NewDocument()
+	theField, err := document.NewStoredFieldFromBytes("foo", []byte("hello"))
+	if err != nil {
+		t.Fatalf("new StoredField: %v", err)
+	}
+	doc.Add(theField)
+	iw := nullStoredFieldWriter(t, dir, doc)
+	defer mustClose(t, iw, dir)
+
+	expectThrowsErrorOrPanic(t, "theField.setBytesValue((byte[]) null) + addDocument", func() error {
+		// set to null value
+		var v []byte
+		theField.SetBytesValue(v)
+		_, err := iw.AddDocument(doc)
+		return err
+	})
+
+	nullStoredBytesTail(t)
+}
+
+// test a null bytesref value doesn't abort the entire segment
+func TestIndexWriterExceptionsNullStoredBytesRefField(t *testing.T) {
+	dir := newDirectory()
+	doc := document.NewDocument()
+	iw := nullStoredFieldWriter(t, dir, doc)
+	defer mustClose(t, iw, dir)
+
+	// Gocene renders StoredField(String, BytesRef) with the []byte constructor.
+	expectThrowsErrorOrPanic(t, "new StoredField(\"foo\", (BytesRef) null) + addDocument", func() error {
+		// set to null value
+		var v []byte
+		theField, err := document.NewStoredFieldFromBytes("foo", v)
+		if err != nil {
+			return err
+		}
+		doc.Add(theField)
+		_, err = iw.AddDocument(doc)
+		return err
+	})
+
+	nullStoredBytesTail(t)
+}
+
+// test a null bytesref value doesn't abort the entire segment
+func TestIndexWriterExceptionsNullStoredBytesRefFieldReuse(t *testing.T) {
+	dir := newDirectory()
+	doc := document.NewDocument()
+	theField, err := document.NewStoredFieldFromBytes("foo", []byte("hello"))
+	if err != nil {
+		t.Fatalf("new StoredField: %v", err)
+	}
+	doc.Add(theField)
+	iw := nullStoredFieldWriter(t, dir, doc)
+	defer mustClose(t, iw, dir)
+
+	expectThrowsErrorOrPanic(t, "theField.setBytesValue((BytesRef) null) + addDocument", func() error {
+		// set to null value
+		var v []byte
+		theField.SetBytesValue(v)
+		_, err := iw.AddDocument(doc)
+		return err
+	})
+
+	nullStoredBytesTail(t)
+}
+
+// test a null data input value doesn't abort the entire segment
+func TestIndexWriterExceptionsNullStoredDataInputField(t *testing.T) {
+	dir := newDirectory()
+	doc := document.NewDocument()
+	iw := nullStoredFieldWriter(t, dir, doc)
+	defer mustClose(t, iw, dir)
+
+	expectThrowsErrorOrPanic(t, "new StoredField(\"foo\", (StoredFieldDataInput) null) + addDocument", func() error {
+		// set to null value
+		theField, err := document.NewStoredFieldFromDataInput("foo", nil)
+		if err != nil {
+			return err
+		}
+		doc.Add(theField)
+		_, err = iw.AddDocument(doc)
+		return err
+	})
+
+	nullStoredBytesTail(t)
+}
+
+// crazyPositionIncrementGapAnalyzer renders the anonymous Analyzer of
+// testCrazyPositionIncrementGap.
+type crazyPositionIncrementGapAnalyzer struct {
+	*analysis.BaseAnalyzer
+}
+
+func (crazyPositionIncrementGapAnalyzer) GetPositionIncrementGap(string) int { return -2 }
+
+func TestIndexWriterExceptionsCrazyPositionIncrementGap(t *testing.T) {
+	dir := newDirectory()
+	base := analysis.NewAnalyzer(nil)
+	base.CreateComponents = func(string) *analysis.TokenStreamComponents {
+		tokenizer := testanalysis.NewMockTokenizer(testanalysis.KEYWORD, false, testanalysis.DefaultMaxTokenLength)
+		return &analysis.TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				tokenizer.SetReader(r)
+				return nil
+			},
+			Sink: tokenizer,
+		}
+	}
+	analyzer := crazyPositionIncrementGapAnalyzer{BaseAnalyzer: base}
+	iw := mustNewIndexWriter(t, dir, index.NewIndexWriterConfigWithAnalyzer(analyzer))
+	defer mustClose(t, iw, dir)
+	// add good document
+	doc := document.NewDocument()
+	mustAddDocument(t, iw, doc)
+	doc.Add(newTextField(t, "foo", "bar", false))
+	doc.Add(newTextField(t, "foo", "bar", false))
+	if _, err := iw.AddDocument(doc); err == nil {
+		t.Fatal("expected IllegalArgumentException from addDocument")
+	}
+
+	t.Fatal(indexWriterGetTragicExceptionMissing)
+}
+
+// uoeDirectory renders the static UOEDirectory: a FilterDirectory over a
+// ByteBuffersDirectory whose openInput, when doFail is set, throws
+// UnsupportedOperationException for segments_N files opened from
+// readCommit/readLatestCommit — a check that needs
+// callStackContainsAnyOf(String...), which is not ported.
+type uoeDirectory struct {
+	*store.FilterDirectory
+	doFail bool
+}
+
+func TestIndexWriterExceptionsExceptionOnCtor(t *testing.T) {
+	uoe := &uoeDirectory{FilterDirectory: store.NewFilterDirectory(store.NewByteBuffersDirectory())}
+	d := store.NewMockDirectoryWrapper(uoe)
+	iw := mustNewIndexWriter(t, d, newIndexWriterConfigWithAnalyzer(nil))
+	mustAddDocument(t, iw, document.NewDocument())
+	mustClose(t, iw)
+	uoe.doFail = true
+	defer mustClose(t, d)
+	// new IndexWriter(d, ...) now reaches UOEDirectory#openInput, whose
+	// condition is callStackContainsAnyOf("readCommit", "readLatestCommit").
+	t.Fatal(callStackContainsMissing)
+}
+
+var assertFilesExistPattern = regexp.MustCompile(`^file .* does not exist; files=\[.*\]$`)
+
+// See LUCENE-4870 TooManyOpenFiles errors are thrown as
+// FNFExceptions which can trigger data loss.
+func TestIndexWriterExceptionsTooManyFileException(t *testing.T) {
+	// Create failure that throws Too many open files exception randomly
+	failure := &store.Failure{}
+	failure.SetEval(func(*store.MockDirectoryWrapper) error {
+		if failure.DoFail() {
+			if rand.Intn(2) == 0 {
+				return fmt.Errorf("%w: some/file/name.ext (Too many open files)", store.ErrFileNotFound)
+			}
+		}
+		return nil
+	})
+
+	dir := newDirectory()
+	// The exception is only thrown on open input
+	dir.SetFailOnOpenInput(true)
+	dir.FailOn(failure)
+
+	// Create an index with one document
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iw := mustNewIndexWriter(t, dir, iwc)
+	doc := document.NewDocument()
+	doc.Add(newStringFieldNoRandom(t, "foo", "bar", false))
+	mustAddDocument(t, iw, doc) // add a document
+	mustCommit(t, iw)
+	ir := mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 1, ir)
+	mustClose(t, ir, iw)
+
+	// Open and close the index a few times
+	for i := 0; i < 10; i++ {
+		failure.SetDoFail()
+		iwc = index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		newWriter, err := index.NewIndexWriter(dir, iwc)
+		if err != nil {
+			var cie *index.CorruptIndexException
+			switch {
+			case assertFilesExistPattern.MatchString(err.Error()):
+				// This is fine: we tripped IW's assert that all files it's
+				// about to fsync do exist
+			case errors.As(err, &cie):
+				// Exceptions are fine - we are running out of file handlers here
+				continue
+			case isFileNotFoundOrNoSuchFile(err):
+				continue
+			default:
+				t.Fatalf("new IndexWriter: %v", err)
+			}
+		} else {
+			iw = newWriter
+		}
+		failure.ClearDoFail()
+		mustClose(t, iw)
+		ir = mustOpenDirectoryReader(t, dir)
+		if ir.NumDocs() != 1 {
+			t.Fatalf("lost document after iteration: %d: numDocs=%d", i, ir.NumDocs())
+		}
+		mustClose(t, ir)
+	}
+
+	// Check if document is still there
+	failure.ClearDoFail()
+	ir = mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 1, ir)
+	mustClose(t, ir, dir)
+}
+
+func TestIndexWriterExceptionsExceptionDuringRollback(t *testing.T) {
+	// currently: fail in two different places
+	messageToFailOn := "rollback before checkpoint"
+	if rand.Intn(2) == 0 {
+		messageToFailOn = "rollback: done finish merges"
+	}
+
+	// infostream that throws exception during rollback
+	evilInfoStream := &throwingInfoStream{
+		enabled: allComponentsEnabled,
+		message: func(component, message string) {
+			if messageToFailOn == message {
+				panic("BOOM!")
+			}
+		},
+	}
+
+	dir := newDirectory() // we want to ensure we don't leak any locks or file handles
+	defer mustClose(t, dir)
+	iwc := index.NewIndexWriterConfigWithAnalyzer(nil)
+	iwc.SetInfoStream(evilInfoStream)
+	t.Fatal(isEnableTestPointsOverrideMissing)
+}
+
+func TestIndexWriterExceptionsRandomExceptionDuringRollback(t *testing.T) {
+	// fail in random places on i/o; the first of the RANDOM_MULTIPLIER * 75
+	// iterations installs a Failure whose eval calls
+	// callStackContainsAnyOf("rollbackInternal").
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	t.Fatal(callStackContainsMissing)
+}
+
+func TestIndexWriterExceptionsOnlyRollbackOnceOnException(t *testing.T) {
+	var once atomic.Bool
+	stream := &throwingInfoStream{
+		enabled: func(component string) bool { return component == "TP" },
+		message: func(component, message string) {
+			if component == "TP" && message == "rollback before checkpoint" {
+				if once.CompareAndSwap(false, true) {
+					panic("boom")
+				}
+				panic("has been rolled back twice")
+			}
+		},
+	}
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	conf := newIndexWriterConfig()
+	conf.SetInfoStream(stream)
+	t.Fatal(isEnableTestPointsOverrideMissing)
+}
+
+func TestIndexWriterExceptionsExceptionOnSyncMetadata(t *testing.T) {
+	dir := newDirectory()
+	conf := newIndexWriterConfig()
+	conf.SetCommitOnClose(false)
+	writer := mustNewIndexWriter(t, dir, conf)
+	mustCommit(t, writer)
+	defer mustClose(t, writer, dir)
+	// The Failure's eval calls callStackContains(MockDirectoryWrapper.class,
+	// "syncMetaData") and callStackContains(SegmentInfos.class, "finishCommit").
+	t.Fatal(callStackContainsClassMissing)
+}
+
+func TestIndexWriterExceptionsExceptionJustBeforeFlushWithPointValues(t *testing.T) {
+	dir := newDirectory()
+	defer mustClose(t, dir)
+	analyzer := crashingAnalyzer(alwaysCrash)
+	iwc := newIndexWriterConfigWithAnalyzer(analyzer)
+	iwc.SetCommitOnClose(false)
+	iwc.SetMaxBufferedDocs(3)
+	t.Fatal(softDeletesRetentionSupplierMissing)
 }

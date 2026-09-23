@@ -14,7 +14,7 @@ import (
 
 func newIFDTestWriter(t *testing.T, dir store.Directory) *IndexWriter {
 	t.Helper()
-	cfg := NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)

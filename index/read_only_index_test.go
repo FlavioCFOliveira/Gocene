@@ -29,7 +29,7 @@ func buildReadOnlyIndex(t *testing.T, dir store.Directory) {
 	t.Helper()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
@@ -45,7 +45,7 @@ func buildReadOnlyIndex(t *testing.T, dir store.Directory) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("Failed to add document: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Failed to commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -127,7 +127,7 @@ func TestReadOnlyIndex(t *testing.T) {
 	}
 
 	// A phrase query over adjacent terms must match the document.
-	phraseQuery := search.NewPhraseQueryWithStrings("fieldname", "to", "be")
+	phraseQuery := search.NewPhraseQuery(0, "fieldname", "to", "be")
 	phraseHits, err := searcher.Search(phraseQuery, 1)
 	if err != nil {
 		t.Fatalf("Phrase search failed: %v", err)
@@ -160,7 +160,7 @@ func TestStoredFieldsRoundTrip(t *testing.T) {
 		t.Fatalf("open build dir: %v", err)
 	}
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(buildDir, config)
 	if err != nil {
 		t.Fatalf("new writer: %v", err)
@@ -191,7 +191,7 @@ func TestStoredFieldsRoundTrip(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("add document: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {

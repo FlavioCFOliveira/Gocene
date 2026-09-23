@@ -24,7 +24,7 @@ func newTestDir(t *testing.T) *store.SimpleFSDirectory {
 
 func writeEmptyIndex(t *testing.T, dir *store.SimpleFSDirectory) {
 	t.Helper()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	cfg.SetUseCompoundFile(false)
 	iw, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {

@@ -8,6 +8,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // fakeSortedDV is an in-memory SortedDocValues used only to exercise the
@@ -36,8 +38,8 @@ func newFakeSortedDV(ords map[int]int, terms map[int][]byte) *fakeSortedDV {
 	return &fakeSortedDV{ords: ords, terms: terms, docs: docs, pos: -1, docID: -1, currOrd: -1}
 }
 
-func (f *fakeSortedDV) Cost() int64                  { return int64(len(f.docs)) }
-func (f *fakeSortedDV) LongValue() (int64, error)    { return int64(f.currOrd), nil }
+func (f *fakeSortedDV) Cost() int64               { return int64(len(f.docs)) }
+func (f *fakeSortedDV) LongValue() (int64, error) { return int64(f.currOrd), nil }
 
 func (f *fakeSortedDV) Advance(target int) (int, error) {
 	for f.pos+1 < len(f.docs) {
@@ -82,6 +84,16 @@ func (f *fakeSortedDV) LookupOrd(o int) ([]byte, error) {
 	return f.terms[o], nil
 }
 func (f *fakeSortedDV) GetValueCount() int { return len(f.terms) }
+
+// DocIDRunEnd carries the default body Lucene gives SortedDocValues.DocIDRunEnd.
+func (f *fakeSortedDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(f)
+}
+
+// IntoBitSet carries the default body Lucene gives SortedDocValues.IntoBitSet.
+func (f *fakeSortedDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
+}
 
 func TestSingletonSortedSet_DelegatesIterationAndGet(t *testing.T) {
 	t.Parallel()

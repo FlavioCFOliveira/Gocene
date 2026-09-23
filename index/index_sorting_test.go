@@ -2,43 +2,13 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for index sorting functionality.
+// Port of lucene/core/src/test/org/apache/lucene/index/TestIndexSorting.java
+// (Apache Lucene 10.5.0).
 //
-// Ported from Apache Lucene's org.apache.lucene.index.TestIndexSorting
-// Source: lucene/core/src/test/org/apache/lucene/index/TestIndexSorting.java
-//
-// GOC-4136 (Sprint 55, option c): TestIndexSorting is a ~3481-line suite that
-// is fundamentally built on RandomIndexWriter / LuceneTestCase and verifies
-// sort order by reading DocValues / StoredFields / norms back per-document
-// after forceMerge(1).
-//
-// The index-sorted merge and the DocValues order-verification tests are now
-// implemented for real (rmp #115): IndexWriter.ForceMerge reorders documents
-// per IndexWriterConfig.SetIndexSort via the MultiSorter merge-sort, and the
-// *_OrderVerification / Missing* / sparse-field / tie-break tests open the
-// single merged leaf and assert the sorted DocValues sequence and missing-value
-// placement (NumericDocValues / SortedDocValues / SortedNumericDocValues /
-// SortedSetDocValues / BinaryDocValues). Because Gocene sorts on merge (not on
-// flush), each document is committed into its own segment so the inputs are
-// trivially sorted before MultiSorter merge-sorts them.
-//
-// The remaining tests are still degraded structural ports because Gocene lacks
-// the supporting infrastructure they need (each fails with its precise gap):
-//
-//   - A RandomIndexWriter equivalent (randomized add / commit / merge driver):
-//     the Random* / AddIndexesWith* / concurrent-update tests.
-//   - Norms written during flush/merge (rmp #120): the norms leg of the sparse
-//     field verification is therefore omitted.
-//   - updateDocValues rejection, addIndexes sort-agreement validation, and
-//     changed-sort / wrong-sort-type detection (config-validation features).
-//   - The AssertingNeedsIndexSortCodec hook used by the "already sorted" and
-//     "with blocks" tests.
-//   - addDocuments() block validation (the current implementation is a stub
-//     that only bumps a counter; it performs no parent-field checks).
-//
-// Tests whose assertions only need the write side (IndexWriter construction,
-// sort configuration, AddDocument, Commit, ForceMerge, NumDocs, DeleteAll,
-// AddIndexes) are also implemented for real and exercise the index-sorting path.
+// new Sort(...) is rendered with index.NewSort, the org.apache.lucene.search.Sort
+// port that IndexWriterConfig#setIndexSort consumes (search.Sort is a distinct
+// type the index writer ignores).
+
 package index_test
 
 import (
@@ -46,2420 +16,1821 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/codecs"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// -----------------------------------------------------------------------------
-// DocValues read-back helpers for the *_OrderVerification tests (rmp #115).
-//
-// After ForceMerge(1) on an index-sorted writer, the single merged segment's
-// DocValues are renumbered into the configured sort order. These helpers open
-// the (single) merged leaf and walk a DocValues field in docID order so the
-// tests can assert the sorted sequence and missing-value placement.
-// -----------------------------------------------------------------------------
+// Missing members the Java tests reach.
+const (
+	assertingNeedsIndexSortCodecMissing = "TestIndexSorting.AssertingNeedsIndexSortCodec cannot be ported: its PointsFormat " +
+		"returns a PointsWriter overriding merge(MergeState), which is not part of spi.PointsWriter"
+	indexWriterSourceMissing = "org.apache.lucene.index.IndexWriter#SOURCE, #SOURCE_FLUSH and #SOURCE_MERGE are not ported " +
+		"(IndexWriter.setDiagnostics records no diagnostics)"
+	normsSimilarityMissing = "TestIndexSorting.NormsSimilarity cannot be ported whole: Similarity#scorer(float, " +
+		"CollectionStatistics, TermStatistics...) is not part of index.Similarity"
+)
 
-// openMergedLeaf opens the directory and returns the single merged segment
-// reader, failing if forceMerge did not collapse the index to one leaf.
-func openMergedLeaf(t *testing.T, dir store.Directory) (*index.SegmentReader, func()) {
+// sortingConfig renders new IndexWriterConfig(new MockAnalyzer(random()))
+// followed by setIndexSort(indexSort).
+func sortingConfig(indexSort *index.Sort) *index.IndexWriterConfig {
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetIndexSort(indexSort)
+	return iwc
+}
+
+// sortedNumericDVField renders new SortedNumericDocValuesField(name, value).
+func sortedNumericDVField(t testing.TB, name string, value int64) *document.SortedNumericDocValuesField {
 	t.Helper()
-	r, err := index.OpenDirectoryReader(dir)
+	f, err := document.NewSortedNumericDocValuesField(name, []int64{value})
 	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+		t.Fatalf("new SortedNumericDocValuesField: %v", err)
 	}
-	subs := r.GetSequentialSubReaders()
-	if len(subs) != 1 {
-		r.Close()
-		t.Fatalf("expected exactly 1 leaf after ForceMerge(1), got %d", len(subs))
-	}
-	return subs[0], func() { _ = r.Close() }
+	return f
 }
 
-// numericDocs walks a NUMERIC DocValues field and returns the (docID, longValue)
-// sequence in iteration (ascending docID) order.
-func numericDocs(t *testing.T, leaf *index.SegmentReader, field string) (docs []int, vals []int64) {
+func doubleDVField(t testing.TB, name string, value float64) *document.DoubleDocValuesField {
 	t.Helper()
-	dv, err := leaf.GetNumericDocValues(field)
+	f, err := document.NewDoubleDocValuesField(name, value)
 	if err != nil {
-		t.Fatalf("GetNumericDocValues(%q): %v", field, err)
+		t.Fatalf("new DoubleDocValuesField: %v", err)
 	}
-	if dv == nil {
-		t.Fatalf("GetNumericDocValues(%q) returned nil", field)
-	}
-	for {
-		d, err := dv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if d < 0 || d >= leaf.MaxDoc() {
-			break
-		}
-		v, err := dv.LongValue()
-		if err != nil {
-			t.Fatalf("LongValue: %v", err)
-		}
-		docs = append(docs, d)
-		vals = append(vals, v)
-	}
-	return docs, vals
+	return f
 }
 
-// sortedDocs walks a SORTED DocValues field and returns the (docID, term)
-// sequence in iteration order.
-func sortedDocs(t *testing.T, leaf *index.SegmentReader, field string) (docs []int, terms []string) {
+func floatDVField(t testing.TB, name string, value float32) *document.FloatDocValuesField {
 	t.Helper()
-	dv, err := leaf.GetSortedDocValues(field)
+	f, err := document.NewFloatDocValuesField(name, value)
 	if err != nil {
-		t.Fatalf("GetSortedDocValues(%q): %v", field, err)
+		t.Fatalf("new FloatDocValuesField: %v", err)
 	}
-	if dv == nil {
-		t.Fatalf("GetSortedDocValues(%q) returned nil", field)
-	}
-	for {
-		d, err := dv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if d < 0 || d >= leaf.MaxDoc() {
-			break
-		}
-		ord, err := dv.OrdValue()
-		if err != nil {
-			t.Fatalf("OrdValue: %v", err)
-		}
-		b, err := dv.LookupOrd(ord)
-		if err != nil {
-			t.Fatalf("LookupOrd: %v", err)
-		}
-		docs = append(docs, d)
-		terms = append(terms, string(b))
-	}
-	return docs, terms
+	return f
 }
 
-// sortedNumericDocs walks a SORTED_NUMERIC DocValues field and returns the
-// (docID, values) sequence in iteration order.
-func sortedNumericDocs(t *testing.T, leaf *index.SegmentReader, field string) (docs []int, sets [][]int64) {
+// sortingThreeDocs renders the shared body of the basic/missing sort tests:
+// three documents in three segments (two commits so forceMerge actually
+// merges, since only merging produces a sorted segment), a forceMerge(1),
+// an NRT reader and its only leaf, which must hold three documents. The
+// returned closer closes the reader, the writer and the directory.
+func sortingThreeDocs(t *testing.T, indexSort *index.Sort, docs [3]*document.Document) (index.LeafReader, func()) {
 	t.Helper()
-	dv, err := leaf.GetSortedNumericDocValues(field)
-	if err != nil {
-		t.Fatalf("GetSortedNumericDocValues(%q): %v", field, err)
-	}
-	if dv == nil {
-		t.Fatalf("GetSortedNumericDocValues(%q) returned nil", field)
-	}
-	for {
-		d, err := dv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if d < 0 || d >= leaf.MaxDoc() {
-			break
-		}
-		count, err := dv.DocValueCount()
-		if err != nil {
-			t.Fatalf("DocValueCount: %v", err)
-		}
-		set := make([]int64, 0, count)
-		for j := 0; j < count; j++ {
-			v, err := dv.NextValue()
-			if err != nil {
-				t.Fatalf("NextValue: %v", err)
-			}
-			set = append(set, v)
-		}
-		docs = append(docs, d)
-		sets = append(sets, set)
-	}
-	return docs, sets
-}
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, sortingConfig(indexSort))
+	mustAddDocument(t, w, docs[0])
+	// so we get more than one segment, so that forceMerge actually does merge, since we only get a
+	// sorted segment by merging:
+	mustCommit(t, w)
 
-// sortedSetDocs walks a SORTED_SET DocValues field and returns the (docID,
-// terms) sequence in iteration order.
-func sortedSetDocs(t *testing.T, leaf *index.SegmentReader, field string) (docs []int, sets [][]string) {
-	t.Helper()
-	dv, err := leaf.GetSortedSetDocValues(field)
-	if err != nil {
-		t.Fatalf("GetSortedSetDocValues(%q): %v", field, err)
-	}
-	if dv == nil {
-		t.Fatalf("GetSortedSetDocValues(%q) returned nil", field)
-	}
-	for {
-		d, err := dv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if d < 0 || d >= leaf.MaxDoc() {
-			break
-		}
-		var terms []string
-		for {
-			ord, err := dv.NextOrd()
-			if err != nil {
-				t.Fatalf("NextOrd: %v", err)
-			}
-			if ord < 0 {
-				break
-			}
-			b, err := dv.LookupOrd(ord)
-			if err != nil {
-				t.Fatalf("LookupOrd: %v", err)
-			}
-			terms = append(terms, string(b))
-		}
-		docs = append(docs, d)
-		sets = append(sets, terms)
-	}
-	return docs, sets
-}
+	mustAddDocument(t, w, docs[1])
+	mustCommit(t, w)
 
-// assertIntSeq fails unless got equals want.
-func assertIntSeq(t *testing.T, what string, got []int, want ...int) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s: got %v, want %v", what, got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("%s: got %v, want %v", what, got, want)
-		}
-	}
-}
-
-// assertInt64Seq fails unless got equals want.
-func assertInt64Seq(t *testing.T, what string, got []int64, want ...int64) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s: got %v, want %v", what, got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("%s: got %v, want %v", what, got, want)
-		}
-	}
-}
-
-// assertStrSeq fails unless got equals want.
-func assertStrSeq(t *testing.T, what string, got []string, want ...string) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s: got %v, want %v", what, got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("%s: got %v, want %v", what, got, want)
-		}
-	}
-}
-
-// createIndexSortingMockAnalyzer creates a mock analyzer for testing.
-// Upstream uses MockAnalyzer(random()); a WhitespaceAnalyzer is the closest
-// deterministic stand-in available in Gocene.
-func createIndexSortingMockAnalyzer() analysis.Analyzer {
-	return analysis.NewWhitespaceAnalyzer()
-}
-
-// newIndexSortingWriter builds an IndexWriter whose config carries the given
-// index sort. It centralises the boilerplate shared by every real test below.
-func newIndexSortingWriter(t *testing.T, dir store.Directory, sort *index.Sort) *index.IndexWriter {
-	t.Helper()
-	config := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
-	config.SetIndexSort(sort)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-	return writer
-}
-
-// -----------------------------------------------------------------------------
-// AssertingNeedsIndexSortCodec — test-only codec for "already sorted" tests.
-//
-// Port of org.apache.lucene.index.TestIndexSorting.AssertingNeedsIndexSortCodec
-// from Lucene 10.4.0. In Lucene this intercepts PointsWriter.merge(MergeState);
-// in Gocene the merge path uses FieldsWriter(SegmentWriteState) instead, and
-// SegmentWriteState carries NeedsIndexSort (set by SegmentMerger.buildDocMaps).
-// -----------------------------------------------------------------------------
-
-// assertingNeedsIndexSortCodec wraps the default codec and intercepts the
-// PointsFormat so it can observe whether a merge performed an index sort.
-type assertingNeedsIndexSortCodec struct {
-	*codecs.FilterCodec
-	needsIndexSort bool // expected value set by the test before merge
-	numCalls       int  // number of PointsWriter.Finish calls (merge markers)
-}
-
-func newAssertingNeedsIndexSortCodec() *assertingNeedsIndexSortCodec {
-	delegate := index.GetDefaultCodec()
-	ac := &assertingNeedsIndexSortCodec{
-		FilterCodec: codecs.NewFilterCodec(delegate.Name(), delegate),
-	}
-	return ac
-}
-
-// PointsFormat returns a wrapper that intercepts the delegate's PointsFormat.
-func (ac *assertingNeedsIndexSortCodec) PointsFormat() spi.PointsFormat {
-	pf := ac.FilterCodec.PointsFormat()
-	return &assertingPointsFormat{pf: pf, ac: ac}
-}
-
-type assertingPointsFormat struct {
-	pf spi.PointsFormat
-	ac *assertingNeedsIndexSortCodec
-}
-
-func (apf *assertingPointsFormat) Name() string { return apf.pf.Name() }
-
-func (apf *assertingPointsFormat) FieldsWriter(state *spi.SegmentWriteState) (spi.PointsWriter, error) {
-	writer, err := apf.pf.FieldsWriter(state)
-	if err != nil {
-		return nil, err
-	}
-	// Only count merge calls (not flushes). IsMerge is set by SegmentMerger
-	// when the SegmentWriteState is created during a merge.
-	if state.IsMerge {
-		apf.ac.numCalls++
-	}
-	return &assertingPointsWriter{pw: writer}, nil
-}
-
-func (apf *assertingPointsFormat) FieldsReader(state *spi.SegmentReadState) (spi.PointsReader, error) {
-	return apf.pf.FieldsReader(state)
-}
-
-type assertingPointsWriter struct {
-	pw spi.PointsWriter
-}
-
-func (apw *assertingPointsWriter) WriteField(fi *spi.FieldInfo, reader spi.PointsReader) error {
-	return apw.pw.WriteField(fi, reader)
-}
-func (apw *assertingPointsWriter) Finish() error { return apw.pw.Finish() }
-func (apw *assertingPointsWriter) Close() error  { return apw.pw.Close() }
-
-// -----------------------------------------------------------------------------
-// "Already sorted" tests.
-//
-// These port the Lucene assertNeedsIndexSortMerge pattern: documents are added
-// in the same order as the index sort, committed across several segments, then
-// force-merged. The AssertingNeedsIndexSortCodec observes whether the merge
-// needed to re-sort. For already-sorted input the merge should NOT re-sort.
-// -----------------------------------------------------------------------------
-
-// assertNeedsIndexSortMerge is the shared driver for the "already sorted"
-// tests. It creates an asserting codec, sets the expectation (needsSort),
-// adds documents that are already in sort order, force-merges, and then
-// verifies the codec observed a merge (numCalls > 0).
-//
-// In the upstream test the codec's PointsWriter.merge() receives MergeState
-// and checks mergeState.needsIndexSort == codec.needsIndexSort. Gocene's
-// codec writer doesn't receive MergeState, so the NeedsIndexSort signal
-// travels via SegmentWriteState.NeedsIndexSort. The codec wrapper records
-// every FieldsWriter call as a merge signal (numCalls). The two-phase
-// pattern (needsSort=false for already-sorted, needsSort=true for
-// reverse-sorted) mirrors the upstream shape.
-//
-// addPoint must add a Point field to the document so the merge path
-// exercises the PointsFormat (and thus the asserting PointsWriter).
-// Without a Point field the merge may skip the PointsFormat entirely,
-// causing numCalls to stay at 0.
-func assertNeedsIndexSortMerge(
-	t *testing.T,
-	sortField index.SortField,
-	defaultValue func(doc *document.Document),
-	randomValue func(doc *document.Document),
-) {
-	t.Helper()
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	codec := newAssertingNeedsIndexSortCodec()
-	config := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
-	config.SetCodec(codec)
-	sort := index.NewSort(sortField, index.NewSortField("id", index.SortTypeInt))
-	config.SetIndexSort(sort)
-
-	addPoint := func(doc *document.Document, val int32) {
-		pt, err := document.NewIntPointLucene("point", val)
-		if err == nil {
-			doc.Add(pt)
-		}
+	mustAddDocument(t, w, docs[2])
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
 	}
 
-	// ---- Phase 1: already-sorted documents ----
-	codec.numCalls = 0
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 100; i < 200; i++ {
-		doc := document.NewDocument()
-		idField, _ := document.NewStringField("id", strconv.Itoa(i), true)
-		doc.Add(idField)
-		idNumeric, _ := document.NewNumericDocValuesField("id", int64(i))
-		doc.Add(idNumeric)
-		if defaultValue != nil {
-			defaultValue(doc)
-		}
-		addPoint(doc, int32(i))
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-		if i%10 == 0 {
-			if err := writer.Commit(); err != nil {
-				t.Fatalf("Commit: %v", err)
-			}
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.WaitForMerges(); err != nil {
-		t.Fatalf("WaitForMerges: %v", err)
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if codec.numCalls == 0 {
-		t.Error("expected at least one merge (phase 1)")
-	}
-
-	// ---- Phase 2: reverse-sorted documents (merge sort IS needed) ----
-	if _, err := writer.DeleteAll(); err != nil {
-		t.Fatalf("DeleteAll: %v", err)
-	}
-	codec.numCalls = 0
-	for i := 10; i >= 0; i-- {
-		doc := document.NewDocument()
-		idField, _ := document.NewStringField("id", strconv.Itoa(i), true)
-		doc.Add(idField)
-		idNumeric, _ := document.NewNumericDocValuesField("id", int64(i))
-		doc.Add(idNumeric)
-		if defaultValue != nil {
-			defaultValue(doc)
-		}
-		addPoint(doc, int32(i))
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit: %v", err)
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.WaitForMerges(); err != nil {
-		t.Fatalf("WaitForMerges: %v", err)
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if codec.numCalls == 0 {
-		t.Error("expected at least one merge (phase 2)")
-	}
-
-	// ---- Phase 3: randomized documents (merge sort IS needed) ----
-	if randomValue != nil {
-		if _, err := writer.DeleteAll(); err != nil {
-			t.Fatalf("DeleteAll: %v", err)
-		}
-		codec.numCalls = 0
-		for i := 201; i < 300; i++ {
-			doc := document.NewDocument()
-			idField, _ := document.NewStringField("id", strconv.Itoa(i), true)
-			doc.Add(idField)
-			idNumeric, _ := document.NewNumericDocValuesField("id", int64(i))
-			doc.Add(idNumeric)
-			randomValue(doc)
-			addPoint(doc, int32(i))
-			if _, err := writer.AddDocument(doc); err != nil {
-				t.Fatalf("AddDocument %d: %v", i, err)
-			}
-			if i%10 == 0 {
-				if err := writer.Commit(); err != nil {
-					t.Fatalf("Commit: %v", err)
-				}
-			}
-		}
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit: %v", err)
-		}
-		if err := writer.WaitForMerges(); err != nil {
-			t.Fatalf("WaitForMerges: %v", err)
-		}
-		if err := writer.ForceMerge(1); err != nil {
-			t.Fatalf("ForceMerge: %v", err)
-		}
-		if codec.numCalls == 0 {
-			t.Error("expected at least one merge (phase 3)")
-		}
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestIndexSorting_NumericAlreadySorted ports testNumericAlreadySorted.
-func TestIndexSorting_NumericAlreadySorted(t *testing.T) {
-	assertNeedsIndexSortMerge(
-		t,
-		index.NewSortField("foo", index.SortTypeInt),
-		func(doc *document.Document) {
-			f, _ := document.NewNumericDocValuesField("foo", 0)
-			doc.Add(f)
-		},
-		nil,
-	)
-}
-
-// TestIndexSorting_StringAlreadySorted ports testStringAlreadySorted.
-func TestIndexSorting_StringAlreadySorted(t *testing.T) {
-	assertNeedsIndexSortMerge(
-		t,
-		index.NewSortField("foo", index.SortTypeString),
-		func(doc *document.Document) {
-			f, _ := document.NewSortedDocValuesField("foo", []byte("bar"))
-			doc.Add(f)
-		},
-		func(doc *document.Document) {
-			v := []byte{byte('a' + rand.Intn(26))}
-			f, _ := document.NewSortedDocValuesField("foo", v)
-			doc.Add(f)
-		},
-	)
-}
-
-// TestIndexSorting_MultiValuedNumericAlreadySorted ports
-// testMultiValuedNumericAlreadySorted.
-func TestIndexSorting_MultiValuedNumericAlreadySorted(t *testing.T) {
-	sf := index.NewSortedNumericSortField("foo", index.SortTypeInt)
-	assertNeedsIndexSortMerge(
-		t,
-		sf.SortField,
-		func(doc *document.Document) {
-			f, _ := document.NewSortedNumericDocValuesField("foo", []int64{-9223372036854775808})
-			doc.Add(f)
-		},
-		nil,
-	)
-}
-
-// TestIndexSorting_MultiValuedStringAlreadySorted ports
-// testMultiValuedStringAlreadySorted.
-func TestIndexSorting_MultiValuedStringAlreadySorted(t *testing.T) {
-	sortField := index.NewSortedSetSortField("foo", false)
-	assertNeedsIndexSortMerge(
-		t,
-		sortField.SortField,
-		func(doc *document.Document) {
-			f, _ := document.NewSortedSetDocValuesField("foo", [][]byte{[]byte("bar")})
-			doc.Add(f)
-		},
-		func(doc *document.Document) {
-			v := [][]byte{{byte('a' + rand.Intn(26))}}
-			f, _ := document.NewSortedSetDocValuesField("foo", v)
-			doc.Add(f)
-		},
-	)
-}
-
-// -----------------------------------------------------------------------------
-// Basic single-valued sorts.
-//
-// These exercise the real write path: construct a sorted writer, add documents
-// out of order across multiple commits, forceMerge to a single sorted segment,
-// and assert the document count survives. The upstream per-doc order assertions
-// (values.nextDoc / lookupOrd / longValue) are skipped below in dedicated
-// *_OrderVerification tests because they need DocValues read-back.
-// -----------------------------------------------------------------------------
-
-// TestIndexSorting_BasicString ports testBasicString (write path only).
-func TestIndexSorting_BasicString(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeString)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	// Add documents out of order across separate commits so forceMerge has
-	// real work to do (a sorted segment only results from merging).
-	doc := document.NewDocument()
-	field, _ := document.NewSortedDocValuesField("foo", []byte("zzz"))
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewSortedDocValuesField("foo", []byte("aaa"))
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewSortedDocValuesField("foo", []byte("mmm"))
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 3 {
-		t.Errorf("Expected 3 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// TestIndexSorting_BasicStringOrderVerification ports the order assertions of
-// testBasicString that read SortedDocValues back per document.
-func TestIndexSorting_BasicStringOrderVerification(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeString)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	for _, v := range []string{"zzz", "aaa", "mmm"} {
-		doc := document.NewDocument()
-		field, _ := document.NewSortedDocValuesField("foo", []byte(v))
-		doc.Add(field)
-		writer.AddDocument(doc)
-		if v != "mmm" {
-			writer.Commit() // separate segments so forceMerge actually merges
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	leaf, done := openMergedLeaf(t, dir)
-	defer done()
+	r := openReaderFromWriter(t, w)
+	leaf := getOnlyLeafReader(t, r)
 	if leaf.MaxDoc() != 3 {
-		t.Fatalf("maxDoc = %d, want 3", leaf.MaxDoc())
+		t.Fatalf("leaf.maxDoc(): expected 3, got %d", leaf.MaxDoc())
 	}
-	docs, terms := sortedDocs(t, leaf, "foo")
-	assertIntSeq(t, "sorted docID order", docs, 0, 1, 2)
-	assertStrSeq(t, "sorted string order", terms, "aaa", "mmm", "zzz")
+	return leaf, func() { mustClose(t, r, w, dir) }
 }
 
-// TestIndexSorting_BasicLong ports testBasicLong (write path only).
-func TestIndexSorting_BasicLong(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeLong)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	doc := document.NewDocument()
-	field, _ := document.NewNumericDocValuesField("foo", 18)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewNumericDocValuesField("foo", -1)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewNumericDocValuesField("foo", 7)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 3 {
-		t.Errorf("Expected 3 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// TestIndexSorting_BasicLongOrderVerification ports the order assertions of
-// testBasicLong that read NumericDocValues back per document.
-func TestIndexSorting_BasicLongOrderVerification(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer := newIndexSortingWriter(t, dir, index.NewSort(index.NewSortField("foo", index.SortTypeLong)))
-	for i, v := range []int64{18, -1, 7} {
-		doc := document.NewDocument()
-		field, _ := document.NewNumericDocValuesField("foo", v)
-		doc.Add(field)
-		writer.AddDocument(doc)
-		if i < 2 {
-			writer.Commit()
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	leaf, done := openMergedLeaf(t, dir)
-	defer done()
-	if leaf.MaxDoc() != 3 {
-		t.Fatalf("maxDoc = %d, want 3", leaf.MaxDoc())
-	}
-	docs, vals := numericDocs(t, leaf, "foo")
-	assertIntSeq(t, "sorted docID order", docs, 0, 1, 2)
-	assertInt64Seq(t, "sorted long order", vals, -1, 7, 18)
-}
-
-// TestIndexSorting_BasicInt ports testBasicInt (write path only).
-func TestIndexSorting_BasicInt(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeInt)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	doc := document.NewDocument()
-	field, _ := document.NewNumericDocValuesField("foo", 18)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewNumericDocValuesField("foo", -1)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewNumericDocValuesField("foo", 7)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 3 {
-		t.Errorf("Expected 3 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// TestIndexSorting_BasicIntOrderVerification ports the order assertions of
-// testBasicInt that read NumericDocValues back per document.
-func TestIndexSorting_BasicIntOrderVerification(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer := newIndexSortingWriter(t, dir, index.NewSort(index.NewSortField("foo", index.SortTypeInt)))
-	for i, v := range []int64{18, -1, 7} {
-		doc := document.NewDocument()
-		field, _ := document.NewNumericDocValuesField("foo", v)
-		doc.Add(field)
-		writer.AddDocument(doc)
-		if i < 2 {
-			writer.Commit()
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	leaf, done := openMergedLeaf(t, dir)
-	defer done()
-	docs, vals := numericDocs(t, leaf, "foo")
-	assertIntSeq(t, "sorted docID order", docs, 0, 1, 2)
-	assertInt64Seq(t, "sorted int order", vals, -1, 7, 18)
-}
-
-// TestIndexSorting_BasicDouble ports testBasicDouble (write path only).
-func TestIndexSorting_BasicDouble(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeDouble)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	doc := document.NewDocument()
-	field, _ := document.NewDoubleDocValuesField("foo", 18.0)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewDoubleDocValuesField("foo", -1.0)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewDoubleDocValuesField("foo", 7.0)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 3 {
-		t.Errorf("Expected 3 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// TestIndexSorting_BasicDoubleOrderVerification ports the order assertions of
-// testBasicDouble that read NumericDocValues back per document.
-func TestIndexSorting_BasicDoubleOrderVerification(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer := newIndexSortingWriter(t, dir, index.NewSort(index.NewSortField("foo", index.SortTypeDouble)))
-	for i, v := range []float64{18.0, -1.0, 7.0} {
-		doc := document.NewDocument()
-		field, _ := document.NewDoubleDocValuesField("foo", v)
-		doc.Add(field)
-		writer.AddDocument(doc)
-		if i < 2 {
-			writer.Commit()
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	leaf, done := openMergedLeaf(t, dir)
-	defer done()
-	docs, raw := numericDocs(t, leaf, "foo")
-	assertIntSeq(t, "sorted docID order", docs, 0, 1, 2)
-	want := []float64{-1.0, 7.0, 18.0}
-	for i, r := range raw {
-		if got := math.Float64frombits(uint64(r)); got != want[i] {
-			t.Fatalf("doc %d: got %v, want %v", docs[i], got, want[i])
-		}
-	}
-}
-
-// TestIndexSorting_BasicFloat ports testBasicFloat (write path only).
-func TestIndexSorting_BasicFloat(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeFloat)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	doc := document.NewDocument()
-	field, _ := document.NewFloatDocValuesField("foo", 18.0)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewFloatDocValuesField("foo", -1.0)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewFloatDocValuesField("foo", 7.0)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 3 {
-		t.Errorf("Expected 3 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// TestIndexSorting_BasicFloatOrderVerification ports the order assertions of
-// testBasicFloat that read NumericDocValues back per document.
-func TestIndexSorting_BasicFloatOrderVerification(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer := newIndexSortingWriter(t, dir, index.NewSort(index.NewSortField("foo", index.SortTypeFloat)))
-	for i, v := range []float32{18.0, -1.0, 7.0} {
-		doc := document.NewDocument()
-		field, _ := document.NewFloatDocValuesField("foo", v)
-		doc.Add(field)
-		writer.AddDocument(doc)
-		if i < 2 {
-			writer.Commit()
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	leaf, done := openMergedLeaf(t, dir)
-	defer done()
-	docs, raw := numericDocs(t, leaf, "foo")
-	assertIntSeq(t, "sorted docID order", docs, 0, 1, 2)
-	want := []float32{-1.0, 7.0, 18.0}
-	for i, r := range raw {
-		if got := math.Float32frombits(uint32(r)); got != want[i] {
-			t.Fatalf("doc %d: got %v, want %v", docs[i], got, want[i])
-		}
-	}
-}
-
-// -----------------------------------------------------------------------------
-// Basic multi-valued sorts.
-// -----------------------------------------------------------------------------
-
-// TestIndexSorting_BasicMultiValuedString ports testBasicMultiValuedString
-// (write path only).
-func TestIndexSorting_BasicMultiValuedString(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortedSetSortField("foo", false)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField.SortField))
-
-	doc := document.NewDocument()
-	idField, _ := document.NewNumericDocValuesField("id", 3)
-	doc.Add(idField)
-	field, _ := document.NewSortedSetDocValuesField("foo", [][]byte{[]byte("zzz")})
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	idField, _ = document.NewNumericDocValuesField("id", 1)
-	doc.Add(idField)
-	field, _ = document.NewSortedSetDocValuesField("foo", [][]byte{[]byte("aaa")})
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	idField, _ = document.NewNumericDocValuesField("id", 2)
-	doc.Add(idField)
-	field, _ = document.NewSortedSetDocValuesField("foo", [][]byte{[]byte("mmm")})
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 3 {
-		t.Errorf("Expected 3 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// TestIndexSorting_BasicMultiValuedLong ports testBasicMultiValuedLong
-// (write path only).
-func TestIndexSorting_BasicMultiValuedLong(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortedNumericSortField("foo", index.SortTypeLong)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField.SortField))
-
-	doc := document.NewDocument()
-	idField, _ := document.NewNumericDocValuesField("id", 3)
-	doc.Add(idField)
-	field, _ := document.NewSortedNumericDocValuesField("foo", []int64{18, 35})
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	idField, _ = document.NewNumericDocValuesField("id", 1)
-	doc.Add(idField)
-	field, _ = document.NewSortedNumericDocValuesField("foo", []int64{-1})
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	doc = document.NewDocument()
-	idField, _ = document.NewNumericDocValuesField("id", 2)
-	doc.Add(idField)
-	field, _ = document.NewSortedNumericDocValuesField("foo", []int64{7, 22})
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 3 {
-		t.Errorf("Expected 3 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// indexSortMultiValuedNumeric drives the shared multi-valued numeric scenario:
-// three documents whose multi-valued "foo" sort by their minimum value to id
-// order 1, 2, 3, asserted by reading the "id" NumericDocValues back from the
-// single merged leaf.
-func indexSortMultiValuedNumeric(t *testing.T, sortType index.SortType, foo [][]int64, ids []int64) {
+func leafSorted(t testing.TB, leaf index.LeafReader, field string) index.SortedDocValues {
 	t.Helper()
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortedNumericSortField("foo", sortType)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField.SortField))
-	for i := range foo {
-		doc := document.NewDocument()
-		idField, _ := document.NewNumericDocValuesField("id", ids[i])
-		doc.Add(idField)
-		field, _ := document.NewSortedNumericDocValuesField("foo", foo[i])
-		doc.Add(field)
-		writer.AddDocument(doc)
-		if i < len(foo)-1 {
-			writer.Commit()
-		}
+	values, err := leaf.GetSortedDocValues(field)
+	if err != nil {
+		t.Fatalf("getSortedDocValues(%s): %v", field, err)
 	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
+	if values == nil {
+		t.Fatalf("getSortedDocValues(%s) is null", field)
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	leaf, done := openMergedLeaf(t, dir)
-	defer done()
-	if leaf.MaxDoc() != 3 {
-		t.Fatalf("maxDoc = %d, want 3", leaf.MaxDoc())
-	}
-	docs, vals := numericDocs(t, leaf, "id")
-	assertIntSeq(t, "sorted docID order", docs, 0, 1, 2)
-	assertInt64Seq(t, "id order after min-selector sort", vals, 1, 2, 3)
+	return values
 }
 
-// TestIndexSorting_BasicMultiValuedInt ports testBasicMultiValuedInt.
-func TestIndexSorting_BasicMultiValuedInt(t *testing.T) {
-	indexSortMultiValuedNumeric(t, index.SortTypeInt,
-		[][]int64{{18, 34}, {-1, 34}, {7, 22, 27}},
-		[]int64{3, 1, 2})
-}
-
-// TestIndexSorting_BasicMultiValuedDouble ports testBasicMultiValuedDouble.
-func TestIndexSorting_BasicMultiValuedDouble(t *testing.T) {
-	d := util.DoubleToSortableLong
-	indexSortMultiValuedNumeric(t, index.SortTypeDouble,
-		[][]int64{{d(7.54), d(27.0)}, {d(-1.0), d(0.0)}, {d(7.0), d(7.67)}},
-		[]int64{3, 1, 2})
-}
-
-// TestIndexSorting_BasicMultiValuedFloat ports testBasicMultiValuedFloat.
-func TestIndexSorting_BasicMultiValuedFloat(t *testing.T) {
-	f := func(v float32) int64 { return int64(util.FloatToSortableInt(v)) }
-	indexSortMultiValuedNumeric(t, index.SortTypeFloat,
-		[][]int64{{f(18.0), f(29.0)}, {f(-1.0), f(34.0)}, {f(7.0)}},
-		[]int64{3, 1, 2})
-}
-
-// -----------------------------------------------------------------------------
-// Missing-value placement (first / last) for each sort type.
-//
-// The write path is exercised; the assertion that missing-valued documents
-// land at the configured boundary needs DocValues read-back, so a dedicated
-// *_OrderVerification skip stands in for each upstream assertion block.
-// -----------------------------------------------------------------------------
-
-// TestIndexSorting_MissingStringFirst ports testMissingStringFirst
-// (write path only).
-func TestIndexSorting_MissingStringFirst(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeString)
-	sortField.SetMissingValue([]byte(""))
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	doc := document.NewDocument()
-	field, _ := document.NewSortedDocValuesField("foo", []byte("zzz"))
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	// Document with no value for "foo": missing.
-	writer.AddDocument(document.NewDocument())
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewSortedDocValuesField("foo", []byte("aaa"))
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 3 {
-		t.Errorf("Expected 3 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// TestIndexSorting_MissingStringLast ports testMissingStringLast.
-func TestIndexSorting_MissingStringLast(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeString)
-	sortField.SetMissingValue("STRING_LAST")
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	doc := document.NewDocument()
-	field, _ := document.NewSortedDocValuesField("foo", []byte("zzz"))
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	writer.AddDocument(document.NewDocument()) // missing "foo"
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewSortedDocValuesField("foo", []byte("mmm"))
-	doc.Add(field)
-	writer.AddDocument(doc)
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	leaf, done := openMergedLeaf(t, dir)
-	defer done()
-	if leaf.MaxDoc() != 3 {
-		t.Fatalf("maxDoc = %d, want 3", leaf.MaxDoc())
-	}
-	// Missing sorts last, so only docs 0 and 1 carry a value: mmm < zzz.
-	docs, terms := sortedDocs(t, leaf, "foo")
-	assertIntSeq(t, "present docID order", docs, 0, 1)
-	assertStrSeq(t, "missing-last string order", terms, "mmm", "zzz")
-}
-
-// indexSortMissingSortedSet drives the multi-valued string "missing" scenario,
-// asserting the merged "id" order (id is present on every document).
-func indexSortMissingSortedSet(t *testing.T, sf index.SortField, ids []int64, foos [][]string, wantIDs ...int64) {
+// assertNextSortedTerm renders assertEquals(doc, values.nextDoc()) and
+// assertEquals(text, values.lookupOrd(values.ordValue()).utf8ToString()).
+func assertNextSortedTerm(t testing.TB, values index.SortedDocValues, doc int, text string) {
 	t.Helper()
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sf))
-	for i := range ids {
-		doc := document.NewDocument()
-		idF, _ := document.NewNumericDocValuesField("id", ids[i])
-		doc.Add(idF)
-		if foos[i] != nil {
-			vals := make([][]byte, len(foos[i]))
-			for j, s := range foos[i] {
-				vals[j] = []byte(s)
-			}
-			fooF, _ := document.NewSortedSetDocValuesField("foo", vals)
-			doc.Add(fooF)
-		}
-		writer.AddDocument(doc)
-		if i < len(ids)-1 {
-			writer.Commit()
-		}
+	if got, err := values.NextDoc(); err != nil || got != doc {
+		t.Fatalf("nextDoc: expected %d, got %d (%v)", doc, got, err)
 	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
+	ord, err := values.OrdValue()
+	if err != nil {
+		t.Fatalf("ordValue: %v", err)
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+	term, err := values.LookupOrd(ord)
+	if err != nil {
+		t.Fatalf("lookupOrd: %v", err)
 	}
-
-	leaf, done := openMergedLeaf(t, dir)
-	defer done()
-	if leaf.MaxDoc() != len(ids) {
-		t.Fatalf("maxDoc = %d, want %d", leaf.MaxDoc(), len(ids))
+	if string(term) != text {
+		t.Fatalf("doc=%d: expected %q, got %q", doc, text, term)
 	}
-	_, vals := numericDocs(t, leaf, "id")
-	assertInt64Seq(t, "id order after sort", vals, wantIDs...)
 }
 
-// TestIndexSorting_MissingMultiValuedStringFirst ports
-// testMissingMultiValuedStringFirst.
-func TestIndexSorting_MissingMultiValuedStringFirst(t *testing.T) {
-	sf := index.NewSortedSetSortField("foo", false)
-	sf.SetMissingValue("STRING_FIRST")
-	indexSortMissingSortedSet(t, sf.SortField,
-		[]int64{3, 1, 2},
-		[][]string{{"zzz", "zzza", "zzzd"}, nil, {"mmm", "nnnn"}},
-		1, 2, 3)
-}
-
-// TestIndexSorting_MissingMultiValuedStringLast ports
-// testMissingMultiValuedStringLast.
-func TestIndexSorting_MissingMultiValuedStringLast(t *testing.T) {
-	sf := index.NewSortedSetSortField("foo", false)
-	sf.SetMissingValue("STRING_LAST")
-	indexSortMissingSortedSet(t, sf.SortField,
-		[]int64{2, 3, 1},
-		[][]string{{"zzz", "zzza"}, nil, {"mmm", "nnnn"}},
-		1, 2, 3)
-}
-
-// TestIndexSorting_MissingLongFirst ports testMissingLongFirst
-// (write path only).
-func TestIndexSorting_MissingLongFirst(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeLong)
-	sortField.SetMissingValue(int64(-9223372036854775808)) // math.MinInt64
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	doc := document.NewDocument()
-	field, _ := document.NewNumericDocValuesField("foo", 18)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	// Document with no value for "foo": missing.
-	writer.AddDocument(document.NewDocument())
-	writer.Commit()
-
-	doc = document.NewDocument()
-	field, _ = document.NewNumericDocValuesField("foo", 7)
-	doc.Add(field)
-	writer.AddDocument(doc)
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 3 {
-		t.Errorf("Expected 3 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// indexSortMissingNumericLeaf builds the standard single-valued "missing"
-// scenario — foo=18, then a document missing "foo", then foo=7, each in its own
-// segment — force-merges to one sorted segment, and returns the merged leaf.
-// addFoo adds the typed "foo" DocValues field carrying the given logical value.
-func indexSortMissingNumericLeaf(t *testing.T, sf index.SortField, addFoo func(doc *document.Document, v float64)) (*index.SegmentReader, func()) {
+// assertNextDouble renders assertEquals(doc, values.nextDoc()) and
+// assertEquals(value, Double.longBitsToDouble(values.longValue()), 0.0).
+func assertNextDouble(t testing.TB, values index.NumericDocValues, doc int, value float64) {
 	t.Helper()
-	dir := store.NewByteBuffersDirectory()
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sf))
-
-	doc := document.NewDocument()
-	addFoo(doc, 18.0)
-	writer.AddDocument(doc)
-	writer.Commit()
-
-	writer.AddDocument(document.NewDocument()) // missing "foo"
-	writer.Commit()
-
-	doc = document.NewDocument()
-	addFoo(doc, 7.0)
-	writer.AddDocument(doc)
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
+	if got, err := values.NextDoc(); err != nil || got != doc {
+		t.Fatalf("nextDoc: expected %d, got %d (%v)", doc, got, err)
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+	v, err := values.LongValue()
+	if err != nil {
+		t.Fatalf("longValue: %v", err)
 	}
-
-	leaf, closeReader := openMergedLeaf(t, dir)
-	if leaf.MaxDoc() != 3 {
-		closeReader()
-		dir.Close()
-		t.Fatalf("maxDoc = %d, want 3", leaf.MaxDoc())
+	if got := math.Float64frombits(uint64(v)); got != value {
+		t.Fatalf("doc=%d: expected %v, got %v", doc, value, got)
 	}
-	return leaf, func() { closeReader(); dir.Close() }
 }
 
-func addFooLong(doc *document.Document, v float64) {
-	f, _ := document.NewNumericDocValuesField("foo", int64(v))
-	doc.Add(f)
-}
-
-func addFooDouble(doc *document.Document, v float64) {
-	f, _ := document.NewDoubleDocValuesField("foo", v)
-	doc.Add(f)
-}
-
-func addFooFloat(doc *document.Document, v float64) {
-	f, _ := document.NewFloatDocValuesField("foo", float32(v))
-	doc.Add(f)
-}
-
-// assertMissingNumericOrder reads the "foo" NUMERIC field back from the merged
-// leaf and checks the present values land at the expected (post-sort) docIDs.
-// The missing document carries no value, so it is skipped by the iterator.
-func assertMissingNumericOrder(t *testing.T, leaf *index.SegmentReader, wantDocs []int, decode func(int64) float64, wantVals []float64) {
+// assertNextFloat renders assertEquals(doc, values.nextDoc()) and
+// assertEquals(value, Float.intBitsToFloat((int) values.longValue()), 0.0f).
+func assertNextFloat(t testing.TB, values index.NumericDocValues, doc int, value float32) {
 	t.Helper()
-	docs, raw := numericDocs(t, leaf, "foo")
-	assertIntSeq(t, "present docID order", docs, wantDocs...)
-	if len(raw) != len(wantVals) {
-		t.Fatalf("value count = %d, want %d", len(raw), len(wantVals))
+	if got, err := values.NextDoc(); err != nil || got != doc {
+		t.Fatalf("nextDoc: expected %d, got %d (%v)", doc, got, err)
 	}
-	for i, r := range raw {
-		if got := decode(r); got != wantVals[i] {
-			t.Fatalf("doc %d: got %v, want %v", docs[i], got, wantVals[i])
-		}
+	v, err := values.LongValue()
+	if err != nil {
+		t.Fatalf("longValue: %v", err)
+	}
+	if got := math.Float32frombits(uint32(int32(v))); got != value {
+		t.Fatalf("doc=%d: expected %v, got %v", doc, value, got)
 	}
 }
 
-func asLong(r int64) float64   { return float64(r) }
-func asDouble(r int64) float64 { return math.Float64frombits(uint64(r)) }
-func asFloat(r int64) float64  { return float64(math.Float32frombits(uint32(r))) }
-
-// TestIndexSorting_MissingLongLast ports testMissingLongLast.
-func TestIndexSorting_MissingLongLast(t *testing.T) {
-	sf := index.NewSortField("foo", index.SortTypeLong)
-	sf.SetMissingValue(int64(math.MaxInt64))
-	leaf, done := indexSortMissingNumericLeaf(t, sf, addFooLong)
-	defer done()
-	assertMissingNumericOrder(t, leaf, []int{0, 1}, asLong, []float64{7, 18})
-}
-
-// missingNumDoc is one document of a multi-valued "missing" scenario: an "id"
-// plus an optional ascending multi-valued "foo" (nil ⇒ the field is missing).
-type missingNumDoc struct {
-	id  int64
-	foo []int64
-}
-
-// indexSortMissingSortedNumeric builds the documents (one segment each),
-// force-merges with the given SortedNumeric sort field, and asserts the merged
-// "id" sequence — "id" is present on every document, so its iteration order is
-// exactly the merged sort order.
-func indexSortMissingSortedNumeric(t *testing.T, sf index.SortField, docs []missingNumDoc, wantIDs ...int64) {
+func assertNoMoreDocValues(t testing.TB, values interface{ NextDoc() (int, error) }) {
 	t.Helper()
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sf))
-	for i, d := range docs {
-		doc := document.NewDocument()
-		idF, _ := document.NewNumericDocValuesField("id", d.id)
-		doc.Add(idF)
-		if d.foo != nil {
-			fooF, _ := document.NewSortedNumericDocValuesField("foo", d.foo)
-			doc.Add(fooF)
-		}
-		writer.AddDocument(doc)
-		if i < len(docs)-1 {
-			writer.Commit()
-		}
+	if got, err := values.NextDoc(); err != nil || got != spi.NO_MORE_DOCS {
+		t.Fatalf("nextDoc: expected NO_MORE_DOCS, got %d (%v)", got, err)
 	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	leaf, done := openMergedLeaf(t, dir)
-	defer done()
-	if leaf.MaxDoc() != len(docs) {
-		t.Fatalf("maxDoc = %d, want %d", leaf.MaxDoc(), len(docs))
-	}
-	_, vals := numericDocs(t, leaf, "id")
-	assertInt64Seq(t, "id order after sort", vals, wantIDs...)
 }
 
-func sortableDoubles(vs ...float64) []int64 {
-	out := make([]int64, len(vs))
-	for i, v := range vs {
+// assertIDOrder renders the id NumericDocValues checks of the multi-valued
+// tests: docs 0, 1, 2 carry the given ids.
+func assertIDOrder(t testing.TB, leaf index.LeafReader, ids ...int64) {
+	t.Helper()
+	values := leafNumeric(t, leaf, "id")
+	for doc, id := range ids {
+		assertNextNumeric(t, values, doc, id)
+	}
+}
+
+// sortedNumericSortField renders new SortedNumericSortField(field, type,
+// reverse, SortedNumericSelector.Type.MIN, missingValue); a nil missingValue
+// renders the constructors that leave it unset.
+func sortedNumericSortField(field string, sortType index.SortType, reverse bool, missingValue any) *index.SortField {
+	sf := index.NewSortedNumericSortField(field, sortType)
+	sf.Reverse = reverse
+	if missingValue != nil {
+		sf.SetMissingValue(missingValue)
+	}
+	return &sf.SortField
+}
+
+// sortedSetSortField renders new SortedSetSortField(field, reverse,
+// SortedSetSelector.Type.MIN, missingValue).
+func sortedSetSortField(field string, reverse bool, missingValue any) *index.SortField {
+	sf := index.NewSortedSetSortField(field, reverse)
+	if missingValue != nil {
+		sf.SetMissingValue(missingValue)
+	}
+	return &sf.SortField
+}
+
+// sortFieldWithMissing renders new SortField(field, type, reverse, missingValue).
+func sortFieldWithMissing(field string, sortType index.SortType, reverse bool, missingValue any) *index.SortField {
+	sf := index.NewSortFieldFull(field, sortType, reverse)
+	sf.SetMissingValue(missingValue)
+	return sf
+}
+
+func TestIndexSortingNumericAlreadySorted(t *testing.T) {
+	t.Fatal(assertingNeedsIndexSortCodecMissing)
+}
+
+func TestIndexSortingStringAlreadySorted(t *testing.T) {
+	t.Fatal(assertingNeedsIndexSortCodecMissing)
+}
+
+func TestIndexSortingMultiValuedNumericAlreadySorted(t *testing.T) {
+	t.Fatal(assertingNeedsIndexSortCodecMissing)
+}
+
+func TestIndexSortingMultiValuedStringAlreadySorted(t *testing.T) {
+	t.Fatal(assertingNeedsIndexSortCodecMissing)
+}
+
+func TestIndexSortingBasicString(t *testing.T) {
+	leaf, closeAll := sortingThreeDocs(t, index.NewSort(index.NewSortField("foo", index.SortTypeString)), [3]*document.Document{
+		docOf(sortedDVField(t, "foo", newBytesRef("zzz"))),
+		docOf(sortedDVField(t, "foo", newBytesRef("aaa"))),
+		docOf(sortedDVField(t, "foo", newBytesRef("mmm"))),
+	})
+	defer closeAll()
+	values := leafSorted(t, leaf, "foo")
+	assertNextSortedTerm(t, values, 0, "aaa")
+	assertNextSortedTerm(t, values, 1, "mmm")
+	assertNextSortedTerm(t, values, 2, "zzz")
+}
+
+func TestIndexSortingBasicMultiValuedString(t *testing.T) {
+	leaf, closeAll := sortingThreeDocs(t, index.NewSort(sortedSetSortField("foo", false, nil)), [3]*document.Document{
+		docOf(numericDVField(t, "id", 3), sortedSetDVField(t, "foo", newBytesRef("zzz"))),
+		docOf(numericDVField(t, "id", 1), sortedSetDVField(t, "foo", newBytesRef("aaa")),
+			sortedSetDVField(t, "foo", newBytesRef("zzz")), sortedSetDVField(t, "foo", newBytesRef("bcg"))),
+		docOf(numericDVField(t, "id", 2), sortedSetDVField(t, "foo", newBytesRef("mmm")),
+			sortedSetDVField(t, "foo", newBytesRef("pppp"))),
+	})
+	defer closeAll()
+	assertIDOrder(t, leaf, 1, 2, 3)
+}
+
+func TestIndexSortingMissingStringFirst(t *testing.T) {
+	for _, reverse := range []bool{true, false} {
+		sortField := sortFieldWithMissing("foo", index.SortTypeString, reverse, spi.STRING_FIRST)
+		leaf, closeAll := sortingThreeDocs(t, index.NewSort(sortField), [3]*document.Document{
+			docOf(sortedDVField(t, "foo", newBytesRef("zzz"))),
+			// missing
+			document.NewDocument(),
+			docOf(sortedDVField(t, "foo", newBytesRef("mmm"))),
+		})
+		values := leafSorted(t, leaf, "foo")
+		if reverse {
+			assertNextSortedTerm(t, values, 0, "zzz")
+			assertNextSortedTerm(t, values, 1, "mmm")
+		} else {
+			// docID 0 is missing:
+			assertNextSortedTerm(t, values, 1, "mmm")
+			assertNextSortedTerm(t, values, 2, "zzz")
+		}
+		closeAll()
+	}
+}
+
+func TestIndexSortingMissingMultiValuedStringFirst(t *testing.T) {
+	for _, reverse := range []bool{true, false} {
+		sortField := sortedSetSortField("foo", reverse, spi.STRING_FIRST)
+		leaf, closeAll := sortingThreeDocs(t, index.NewSort(sortField), [3]*document.Document{
+			docOf(numericDVField(t, "id", 3), sortedSetDVField(t, "foo", newBytesRef("zzz")),
+				sortedSetDVField(t, "foo", newBytesRef("zzza")), sortedSetDVField(t, "foo", newBytesRef("zzzd"))),
+			// missing
+			docOf(numericDVField(t, "id", 1)),
+			docOf(numericDVField(t, "id", 2), sortedSetDVField(t, "foo", newBytesRef("mmm")),
+				sortedSetDVField(t, "foo", newBytesRef("nnnn"))),
+		})
+		if reverse {
+			assertIDOrder(t, leaf, 3, 2, 1)
+		} else {
+			assertIDOrder(t, leaf, 1, 2, 3)
+		}
+		closeAll()
+	}
+}
+
+func TestIndexSortingMissingStringLast(t *testing.T) {
+	for _, reverse := range []bool{true, false} {
+		sortField := sortFieldWithMissing("foo", index.SortTypeString, reverse, spi.STRING_LAST)
+		leaf, closeAll := sortingThreeDocs(t, index.NewSort(sortField), [3]*document.Document{
+			docOf(sortedDVField(t, "foo", newBytesRef("zzz"))),
+			// missing
+			document.NewDocument(),
+			docOf(sortedDVField(t, "foo", newBytesRef("mmm"))),
+		})
+		values := leafSorted(t, leaf, "foo")
+		if reverse {
+			assertNextSortedTerm(t, values, 1, "zzz")
+			assertNextSortedTerm(t, values, 2, "mmm")
+		} else {
+			assertNextSortedTerm(t, values, 0, "mmm")
+			assertNextSortedTerm(t, values, 1, "zzz")
+		}
+		assertNoMoreDocValues(t, values)
+		closeAll()
+	}
+}
+
+func TestIndexSortingMissingMultiValuedStringLast(t *testing.T) {
+	for _, reverse := range []bool{true, false} {
+		sortField := sortedSetSortField("foo", reverse, spi.STRING_LAST)
+		leaf, closeAll := sortingThreeDocs(t, index.NewSort(sortField), [3]*document.Document{
+			docOf(numericDVField(t, "id", 2), sortedSetDVField(t, "foo", newBytesRef("zzz")),
+				sortedSetDVField(t, "foo", newBytesRef("zzzd"))),
+			// missing
+			docOf(numericDVField(t, "id", 3)),
+			docOf(numericDVField(t, "id", 1), sortedSetDVField(t, "foo", newBytesRef("mmm")),
+				sortedSetDVField(t, "foo", newBytesRef("ppp"))),
+		})
+		if reverse {
+			assertIDOrder(t, leaf, 3, 2, 1)
+		} else {
+			assertIDOrder(t, leaf, 1, 2, 3)
+		}
+		closeAll()
+	}
+}
+
+// basicNumericSort renders testBasicLong/testBasicInt: values 18, -1, 7
+// sort to -1, 7, 18.
+func basicNumericSort(t *testing.T, sortType index.SortType) {
+	leaf, closeAll := sortingThreeDocs(t, index.NewSort(index.NewSortField("foo", sortType)), [3]*document.Document{
+		docOf(numericDVField(t, "foo", 18)),
+		docOf(numericDVField(t, "foo", -1)),
+		docOf(numericDVField(t, "foo", 7)),
+	})
+	defer closeAll()
+	values := leafNumeric(t, leaf, "foo")
+	assertNextNumeric(t, values, 0, -1)
+	assertNextNumeric(t, values, 1, 7)
+	assertNextNumeric(t, values, 2, 18)
+}
+
+func TestIndexSortingBasicLong(t *testing.T) {
+	basicNumericSort(t, index.SortTypeLong)
+}
+
+// multiValuedDocs renders the three documents of a multi-valued sort test:
+// each has an "id" NumericDocValuesField and its "foo" SortedNumericDocValuesField
+// values.
+func multiValuedDocs(t testing.TB, ids [3]int64, values [3][]int64) [3]*document.Document {
+	var docs [3]*document.Document
+	for i := range docs {
+		doc := docOf(numericDVField(t, "id", ids[i]))
+		for _, v := range values[i] {
+			doc.Add(sortedNumericDVField(t, "foo", v))
+		}
+		docs[i] = doc
+	}
+	return docs
+}
+
+func TestIndexSortingBasicMultiValuedLong(t *testing.T) {
+	leaf, closeAll := sortingThreeDocs(t, index.NewSort(sortedNumericSortField("foo", index.SortTypeLong, false, nil)),
+		multiValuedDocs(t, [3]int64{3, 1, 2}, [3][]int64{{18, 35}, {-1}, {7, 22}}))
+	defer closeAll()
+	assertIDOrder(t, leaf, 1, 2, 3)
+}
+
+// missingNumericFirstOrLast renders testMissingLong/IntFirst/Last: values
+// 18, missing, 7 under the given missing value.
+func missingNumericFirstOrLast(t *testing.T, sortType index.SortType, missingValue any, last bool) {
+	for _, reverse := range []bool{true, false} {
+		sortField := sortFieldWithMissing("foo", sortType, reverse, missingValue)
+		leaf, closeAll := sortingThreeDocs(t, index.NewSort(sortField), [3]*document.Document{
+			docOf(numericDVField(t, "foo", 18)),
+			// missing
+			document.NewDocument(),
+			docOf(numericDVField(t, "foo", 7)),
+		})
+		values := leafNumeric(t, leaf, "foo")
+		switch {
+		case !last && reverse:
+			assertNextNumeric(t, values, 0, 18)
+			assertNextNumeric(t, values, 1, 7)
+		case !last:
+			// docID 0 has no value
+			assertNextNumeric(t, values, 1, 7)
+			assertNextNumeric(t, values, 2, 18)
+		case reverse:
+			// docID 0 is missing
+			assertNextNumeric(t, values, 1, 18)
+			assertNextNumeric(t, values, 2, 7)
+		default:
+			assertNextNumeric(t, values, 0, 7)
+			assertNextNumeric(t, values, 1, 18)
+		}
+		if last {
+			assertNoMoreDocValues(t, values)
+		}
+		closeAll()
+	}
+}
+
+func TestIndexSortingMissingLongFirst(t *testing.T) {
+	missingNumericFirstOrLast(t, index.SortTypeLong, int64(math.MinInt64), false)
+}
+
+// missingMultiValuedFirstOrLast renders the testMissingMultiValued*First/Last
+// tests: the id order is 3, 2, 1 when reversed and 1, 2, 3 otherwise.
+func missingMultiValuedFirstOrLast(t *testing.T, sortType index.SortType, missingValue any, ids [3]int64, values [3][]int64) {
+	for _, reverse := range []bool{true, false} {
+		sortField := sortedNumericSortField("foo", sortType, reverse, missingValue)
+		leaf, closeAll := sortingThreeDocs(t, index.NewSort(sortField), multiValuedDocs(t, ids, values))
+		if reverse {
+			assertIDOrder(t, leaf, 3, 2, 1)
+		} else {
+			assertIDOrder(t, leaf, 1, 2, 3)
+		}
+		closeAll()
+	}
+}
+
+func TestIndexSortingMissingMultiValuedLongFirst(t *testing.T) {
+	missingMultiValuedFirstOrLast(t, index.SortTypeLong, int64(math.MinInt64),
+		[3]int64{3, 1, 2}, [3][]int64{{18, 27}, nil, {7, 24}})
+}
+
+func TestIndexSortingMissingLongLast(t *testing.T) {
+	missingNumericFirstOrLast(t, index.SortTypeLong, int64(math.MaxInt64), true)
+}
+
+func TestIndexSortingMissingMultiValuedLongLast(t *testing.T) {
+	missingMultiValuedFirstOrLast(t, index.SortTypeLong, int64(math.MaxInt64),
+		[3]int64{2, 3, 1}, [3][]int64{{18, 65}, nil, {7, 34, 74}})
+}
+
+func TestIndexSortingBasicInt(t *testing.T) {
+	basicNumericSort(t, index.SortTypeInt)
+}
+
+func TestIndexSortingBasicMultiValuedInt(t *testing.T) {
+	leaf, closeAll := sortingThreeDocs(t, index.NewSort(sortedNumericSortField("foo", index.SortTypeInt, false, nil)),
+		multiValuedDocs(t, [3]int64{3, 1, 2}, [3][]int64{{18, 34}, {-1, 34}, {7, 22, 27}}))
+	defer closeAll()
+	assertIDOrder(t, leaf, 1, 2, 3)
+}
+
+func TestIndexSortingMissingIntFirst(t *testing.T) {
+	missingNumericFirstOrLast(t, index.SortTypeInt, int32(math.MinInt32), false)
+}
+
+func TestIndexSortingMissingMultiValuedIntFirst(t *testing.T) {
+	missingMultiValuedFirstOrLast(t, index.SortTypeInt, int32(math.MinInt32),
+		[3]int64{3, 1, 2}, [3][]int64{{18, 187667}, nil, {7, 34}})
+}
+
+func TestIndexSortingMissingIntLast(t *testing.T) {
+	missingNumericFirstOrLast(t, index.SortTypeInt, int32(math.MaxInt32), true)
+}
+
+func TestIndexSortingMissingMultiValuedIntLast(t *testing.T) {
+	missingMultiValuedFirstOrLast(t, index.SortTypeInt, int32(math.MaxInt32),
+		[3]int64{2, 3, 1}, [3][]int64{{18, 6372}, nil, {7, 8}})
+}
+
+func TestIndexSortingBasicDouble(t *testing.T) {
+	leaf, closeAll := sortingThreeDocs(t, index.NewSort(index.NewSortField("foo", index.SortTypeDouble)), [3]*document.Document{
+		docOf(doubleDVField(t, "foo", 18.0)),
+		docOf(doubleDVField(t, "foo", -1.0)),
+		docOf(doubleDVField(t, "foo", 7.0)),
+	})
+	defer closeAll()
+	values := leafNumeric(t, leaf, "foo")
+	assertNextDouble(t, values, 0, -1.0)
+	assertNextDouble(t, values, 1, 7.0)
+	assertNextDouble(t, values, 2, 18.0)
+}
+
+func sortableDoubles(values ...float64) []int64 {
+	out := make([]int64, len(values))
+	for i, v := range values {
 		out[i] = util.DoubleToSortableLong(v)
 	}
 	return out
 }
 
-func sortableFloats(vs ...float32) []int64 {
-	out := make([]int64, len(vs))
-	for i, v := range vs {
+func sortableFloats(values ...float32) []int64 {
+	out := make([]int64, len(values))
+	for i, v := range values {
 		out[i] = int64(util.FloatToSortableInt(v))
 	}
 	return out
 }
 
-// TestIndexSorting_MissingMultiValuedLongFirst ports
-// testMissingMultiValuedLongFirst.
-func TestIndexSorting_MissingMultiValuedLongFirst(t *testing.T) {
-	sf := index.NewSortedNumericSortField("foo", index.SortTypeLong)
-	sf.SetMissingValue(int64(math.MinInt64))
-	indexSortMissingSortedNumeric(t, sf.SortField, []missingNumDoc{
-		{id: 3, foo: []int64{18, 27}},
-		{id: 1, foo: nil},
-		{id: 2, foo: []int64{7, 24}},
-	}, 1, 2, 3)
+func TestIndexSortingBasicMultiValuedDouble(t *testing.T) {
+	leaf, closeAll := sortingThreeDocs(t, index.NewSort(sortedNumericSortField("foo", index.SortTypeDouble, false, nil)),
+		multiValuedDocs(t, [3]int64{3, 1, 2}, [3][]int64{sortableDoubles(7.54, 27.0), sortableDoubles(-1.0, 0.0), sortableDoubles(7.0, 7.67)}))
+	defer closeAll()
+	assertIDOrder(t, leaf, 1, 2, 3)
 }
 
-// TestIndexSorting_MissingMultiValuedLongLast ports
-// testMissingMultiValuedLongLast.
-func TestIndexSorting_MissingMultiValuedLongLast(t *testing.T) {
-	sf := index.NewSortedNumericSortField("foo", index.SortTypeLong)
-	sf.SetMissingValue(int64(math.MaxInt64))
-	indexSortMissingSortedNumeric(t, sf.SortField, []missingNumDoc{
-		{id: 2, foo: []int64{18, 65}},
-		{id: 3, foo: nil},
-		{id: 1, foo: []int64{7, 34, 74}},
-	}, 1, 2, 3)
+// missingFloatingFirstOrLast renders testMissingDouble/FloatFirst/Last:
+// values 18, missing, 7 under the given missing value.
+func missingFloatingFirstOrLast(t *testing.T, sortType index.SortType, missingValue any, last bool) {
+	for _, reverse := range []bool{true, false} {
+		sortField := sortFieldWithMissing("foo", sortType, reverse, missingValue)
+		var docs [3]*document.Document
+		if sortType == index.SortTypeDouble {
+			docs = [3]*document.Document{docOf(doubleDVField(t, "foo", 18.0)), document.NewDocument(), docOf(doubleDVField(t, "foo", 7.0))}
+		} else {
+			docs = [3]*document.Document{docOf(floatDVField(t, "foo", 18.0)), document.NewDocument(), docOf(floatDVField(t, "foo", 7.0))}
+		}
+		leaf, closeAll := sortingThreeDocs(t, index.NewSort(sortField), docs)
+		values := leafNumeric(t, leaf, "foo")
+		assertNext := func(doc int, value float64) {
+			if sortType == index.SortTypeDouble {
+				assertNextDouble(t, values, doc, value)
+			} else {
+				assertNextFloat(t, values, doc, float32(value))
+			}
+		}
+		switch {
+		case !last && reverse:
+			assertNext(0, 18.0)
+			assertNext(1, 7.0)
+		case !last:
+			assertNext(1, 7.0)
+			assertNext(2, 18.0)
+		case reverse:
+			assertNext(1, 18.0)
+			assertNext(2, 7.0)
+		default:
+			assertNext(0, 7.0)
+			assertNext(1, 18.0)
+		}
+		if last {
+			assertNoMoreDocValues(t, values)
+		}
+		closeAll()
+	}
 }
 
-// TestIndexSorting_MissingIntFirst ports testMissingIntFirst.
-func TestIndexSorting_MissingIntFirst(t *testing.T) {
-	sf := index.NewSortField("foo", index.SortTypeInt)
-	sf.SetMissingValue(int32(math.MinInt32))
-	leaf, done := indexSortMissingNumericLeaf(t, sf, addFooLong)
-	defer done()
-	assertMissingNumericOrder(t, leaf, []int{1, 2}, asLong, []float64{7, 18})
+func TestIndexSortingMissingDoubleFirst(t *testing.T) {
+	missingFloatingFirstOrLast(t, index.SortTypeDouble, math.Inf(-1), false)
 }
 
-// TestIndexSorting_MissingIntLast ports testMissingIntLast.
-func TestIndexSorting_MissingIntLast(t *testing.T) {
-	sf := index.NewSortField("foo", index.SortTypeInt)
-	sf.SetMissingValue(int32(math.MaxInt32))
-	leaf, done := indexSortMissingNumericLeaf(t, sf, addFooLong)
-	defer done()
-	assertMissingNumericOrder(t, leaf, []int{0, 1}, asLong, []float64{7, 18})
+func TestIndexSortingMissingMultiValuedDoubleFirst(t *testing.T) {
+	missingMultiValuedFirstOrLast(t, index.SortTypeDouble, math.Inf(-1),
+		[3]int64{3, 1, 2}, [3][]int64{sortableDoubles(18.0, 18.76), nil, sortableDoubles(7.0, 70.0)})
 }
 
-// TestIndexSorting_MissingMultiValuedIntFirst ports
-// testMissingMultiValuedIntFirst.
-func TestIndexSorting_MissingMultiValuedIntFirst(t *testing.T) {
-	sf := index.NewSortedNumericSortField("foo", index.SortTypeInt)
-	sf.SetMissingValue(int32(math.MinInt32))
-	indexSortMissingSortedNumeric(t, sf.SortField, []missingNumDoc{
-		{id: 3, foo: []int64{18, 187667}},
-		{id: 1, foo: nil},
-		{id: 2, foo: []int64{7, 24}},
-	}, 1, 2, 3)
+func TestIndexSortingMissingDoubleLast(t *testing.T) {
+	missingFloatingFirstOrLast(t, index.SortTypeDouble, math.Inf(1), true)
 }
 
-// TestIndexSorting_MissingMultiValuedIntLast ports
-// testMissingMultiValuedIntLast.
-func TestIndexSorting_MissingMultiValuedIntLast(t *testing.T) {
-	sf := index.NewSortedNumericSortField("foo", index.SortTypeInt)
-	sf.SetMissingValue(int32(math.MaxInt32))
-	indexSortMissingSortedNumeric(t, sf.SortField, []missingNumDoc{
-		{id: 2, foo: []int64{18, 65}},
-		{id: 3, foo: nil},
-		{id: 1, foo: []int64{7, 34}},
-	}, 1, 2, 3)
+func TestIndexSortingMissingMultiValuedDoubleLast(t *testing.T) {
+	missingMultiValuedFirstOrLast(t, index.SortTypeDouble, math.Inf(1),
+		[3]int64{2, 3, 1}, [3][]int64{sortableDoubles(18.0, 8262.0), nil, sortableDoubles(7.0, 7.87)})
 }
 
-// TestIndexSorting_MissingDoubleFirst ports testMissingDoubleFirst.
-func TestIndexSorting_MissingDoubleFirst(t *testing.T) {
-	sf := index.NewSortField("foo", index.SortTypeDouble)
-	sf.SetMissingValue(math.Inf(-1))
-	leaf, done := indexSortMissingNumericLeaf(t, sf, addFooDouble)
-	defer done()
-	assertMissingNumericOrder(t, leaf, []int{1, 2}, asDouble, []float64{7, 18})
+func TestIndexSortingBasicFloat(t *testing.T) {
+	leaf, closeAll := sortingThreeDocs(t, index.NewSort(index.NewSortField("foo", index.SortTypeFloat)), [3]*document.Document{
+		docOf(floatDVField(t, "foo", 18.0)),
+		docOf(floatDVField(t, "foo", -1.0)),
+		docOf(floatDVField(t, "foo", 7.0)),
+	})
+	defer closeAll()
+	values := leafNumeric(t, leaf, "foo")
+	assertNextFloat(t, values, 0, -1.0)
+	assertNextFloat(t, values, 1, 7.0)
+	assertNextFloat(t, values, 2, 18.0)
 }
 
-// TestIndexSorting_MissingDoubleLast ports testMissingDoubleLast.
-func TestIndexSorting_MissingDoubleLast(t *testing.T) {
-	sf := index.NewSortField("foo", index.SortTypeDouble)
-	sf.SetMissingValue(math.Inf(1))
-	leaf, done := indexSortMissingNumericLeaf(t, sf, addFooDouble)
-	defer done()
-	assertMissingNumericOrder(t, leaf, []int{0, 1}, asDouble, []float64{7, 18})
+func TestIndexSortingBasicMultiValuedFloat(t *testing.T) {
+	leaf, closeAll := sortingThreeDocs(t, index.NewSort(sortedNumericSortField("foo", index.SortTypeFloat, false, nil)),
+		multiValuedDocs(t, [3]int64{3, 1, 2}, [3][]int64{sortableFloats(18.0, 29.0), sortableFloats(-1.0, 34.0), sortableFloats(7.0)}))
+	defer closeAll()
+	assertIDOrder(t, leaf, 1, 2, 3)
 }
 
-// TestIndexSorting_MissingMultiValuedDoubleFirst ports
-// testMissingMultiValuedDoubleFirst.
-func TestIndexSorting_MissingMultiValuedDoubleFirst(t *testing.T) {
-	sf := index.NewSortedNumericSortField("foo", index.SortTypeDouble)
-	sf.SetMissingValue(math.Inf(-1))
-	indexSortMissingSortedNumeric(t, sf.SortField, []missingNumDoc{
-		{id: 3, foo: sortableDoubles(18.0, 18.76)},
-		{id: 1, foo: nil},
-		{id: 2, foo: sortableDoubles(7.0, 24.0)},
-	}, 1, 2, 3)
+func TestIndexSortingMissingFloatFirst(t *testing.T) {
+	missingFloatingFirstOrLast(t, index.SortTypeFloat, float32(math.Inf(-1)), false)
 }
 
-// TestIndexSorting_MissingMultiValuedDoubleLast ports
-// testMissingMultiValuedDoubleLast.
-func TestIndexSorting_MissingMultiValuedDoubleLast(t *testing.T) {
-	sf := index.NewSortedNumericSortField("foo", index.SortTypeDouble)
-	sf.SetMissingValue(math.Inf(1))
-	indexSortMissingSortedNumeric(t, sf.SortField, []missingNumDoc{
-		{id: 2, foo: sortableDoubles(18.0, 8262.0)},
-		{id: 3, foo: nil},
-		{id: 1, foo: sortableDoubles(7.0, 34.0)},
-	}, 1, 2, 3)
+func TestIndexSortingMissingMultiValuedFloatFirst(t *testing.T) {
+	missingMultiValuedFirstOrLast(t, index.SortTypeFloat, float32(math.Inf(-1)),
+		[3]int64{3, 1, 2}, [3][]int64{sortableFloats(18.0, 726.0), nil, sortableFloats(7.0, 18.0)})
 }
 
-// TestIndexSorting_MissingFloatFirst ports testMissingFloatFirst.
-func TestIndexSorting_MissingFloatFirst(t *testing.T) {
-	sf := index.NewSortField("foo", index.SortTypeFloat)
-	sf.SetMissingValue(float32(math.Inf(-1)))
-	leaf, done := indexSortMissingNumericLeaf(t, sf, addFooFloat)
-	defer done()
-	assertMissingNumericOrder(t, leaf, []int{1, 2}, asFloat, []float64{7, 18})
+func TestIndexSortingMissingFloatLast(t *testing.T) {
+	missingFloatingFirstOrLast(t, index.SortTypeFloat, float32(math.Inf(1)), true)
 }
 
-// TestIndexSorting_MissingFloatLast ports testMissingFloatLast.
-func TestIndexSorting_MissingFloatLast(t *testing.T) {
-	sf := index.NewSortField("foo", index.SortTypeFloat)
-	sf.SetMissingValue(float32(math.Inf(1)))
-	leaf, done := indexSortMissingNumericLeaf(t, sf, addFooFloat)
-	defer done()
-	assertMissingNumericOrder(t, leaf, []int{0, 1}, asFloat, []float64{7, 18})
+func TestIndexSortingMissingMultiValuedFloatLast(t *testing.T) {
+	missingMultiValuedFirstOrLast(t, index.SortTypeFloat, float32(math.Inf(1)),
+		[3]int64{2, 3, 1}, [3][]int64{sortableFloats(726.0, 18.0), nil, sortableFloats(12.67, 7.0)})
 }
 
-// TestIndexSorting_MissingMultiValuedFloatFirst ports
-// testMissingMultiValuedFloatFirst.
-func TestIndexSorting_MissingMultiValuedFloatFirst(t *testing.T) {
-	sf := index.NewSortedNumericSortField("foo", index.SortTypeFloat)
-	sf.SetMissingValue(float32(math.Inf(-1)))
-	indexSortMissingSortedNumeric(t, sf.SortField, []missingNumDoc{
-		{id: 3, foo: sortableFloats(18.0, 726.0)},
-		{id: 1, foo: nil},
-		{id: 2, foo: sortableFloats(7.0, 24.0)},
-	}, 1, 2, 3)
+// sortingRandomIndex renders the indexing loop of testRandom1 and
+// testMultiValuedRandom1.
+func sortingRandomIndex(t *testing.T, w *index.IndexWriter, numDocs int, addFoo func(*document.Document)) *util.FixedBitSet {
+	t.Helper()
+	deleted, err := util.NewFixedBitSet(numDocs)
+	if err != nil {
+		t.Fatalf("new FixedBitSet: %v", err)
+	}
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		addFoo(doc)
+		doc.Add(newStringFieldNoRandom(t, "id", strconv.Itoa(i), true))
+		doc.Add(numericDVField(t, "id", int64(i)))
+		mustAddDocument(t, w, doc)
+		if rand.Intn(5) == 0 {
+			mustClose(t, openReaderFromWriter(t, w))
+		} else if rand.Intn(30) == 0 {
+			if err := w.ForceMerge(2); err != nil {
+				t.Fatalf("forceMerge(2): %v", err)
+			}
+		} else if rand.Intn(4) == 0 {
+			id := nextInt(0, i)
+			deleted.Set(id)
+			mustDeleteTerm(t, w, "id", strconv.Itoa(id))
+		}
+	}
+	return deleted
 }
 
-// TestIndexSorting_MissingMultiValuedFloatLast ports
-// testMissingMultiValuedFloatLast.
-func TestIndexSorting_MissingMultiValuedFloatLast(t *testing.T) {
-	sf := index.NewSortedNumericSortField("foo", index.SortTypeFloat)
-	sf.SetMissingValue(float32(math.Inf(1)))
-	indexSortMissingSortedNumeric(t, sf.SortField, []missingNumDoc{
-		{id: 2, foo: sortableFloats(18.0, 726.0)},
-		{id: 3, foo: nil},
-		{id: 1, foo: sortableFloats(7.0, 34.0)},
-	}, 1, 2, 3)
-}
-
-// -----------------------------------------------------------------------------
-// Randomized round-trip tests.
-//
-// These all build on RandomIndexWriter and read DocValues / postings back to
-// validate the post-merge order against an in-memory model.
-// -----------------------------------------------------------------------------
-
-// TestIndexSorting_Random1 ports testRandom1.
-//
-// Java indexes a randomized sequence with a LONG index sort on "foo",
-// interleaving adds, NRT reopens, force merges and deletes. This Go port
-// exercises the core contract — post-merge segments are marked with the
-// index sort and the sorted DocValues are monotonic — using deterministic
-// adds followed by a single forceMerge(1).
-func TestIndexSorting_Random1(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
+func TestIndexSortingRandom1(t *testing.T) {
+	dir := newDirectory()
 	indexSort := index.NewSort(index.NewSortField("foo", index.SortTypeLong))
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	cfg.SetIndexSort(indexSort)
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
+	w := mustNewIndexWriter(t, dir, sortingConfig(indexSort))
+	numDocs := atLeast(200)
+	sortingRandomIndex(t, w, numDocs, func(doc *document.Document) {
+		doc.Add(numericDVField(t, "foo", int64(rand.Intn(20))))
+	})
 
-	rng := rand.New(rand.NewSource(1))
-	const numDocs = 200
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-		foo, _ := document.NewNumericDocValuesField("foo", int64(rng.Intn(20)))
-		doc.Add(foo)
-		idField, _ := document.NewStringField("id", strconv.Itoa(i), false)
-		doc.Add(idField)
-		idDV, _ := document.NewNumericDocValuesField("id", int64(i))
-		doc.Add(idDV)
-		if _, err := w.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-		if err := w.Commit(); err != nil {
-			t.Fatalf("Commit %d: %v", i, err)
-		}
+	// Check that segments are sorted
+	reader := openReaderFromWriter(t, w)
+	defer mustClose(t, reader, w, dir)
+	if len(mustLeaves(t, reader)) > 0 {
+		// switch (info.getDiagnostics().get(IndexWriter.SOURCE))
+		t.Fatal(indexWriterSourceMissing)
 	}
-
-	if err := w.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit after merge: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close writer: %v", err)
-	}
-
-	r, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer r.Close()
-
-	for _, leaf := range r.GetSegmentReaders() {
-		values, err := leaf.GetNumericDocValues("foo")
-		if err != nil {
-			t.Fatalf("GetNumericDocValues: %v", err)
-		}
-		if values == nil {
-			t.Fatal("GetNumericDocValues returned nil")
-		}
-		var previous int64 = math.MinInt64
-		for i := 0; i < leaf.MaxDoc(); i++ {
-			docID, err := values.NextDoc()
-			if err != nil {
-				t.Fatalf("NextDoc: %v", err)
-			}
-			if docID != i {
-				t.Fatalf("expected docID %d, got %d", i, docID)
-			}
-			v, err := values.LongValue()
-			if err != nil {
-				t.Fatalf("LongValue: %v", err)
-			}
-			if v < previous {
-				t.Fatalf("foo values not sorted at doc %d: %d < %d", i, v, previous)
-			}
-			previous = v
-		}
-	}
+	newSearcher(t, reader)
 }
 
-// TestIndexSorting_MultiValuedRandom1 ports testMultiValuedRandom1.
-//
-// This Go port validates the sorted-numeric index-sort contract with a
-// deterministic, single-threaded sequence: each document carries 1–3
-// pseudo-random "foo" values, is committed into its own segment, and then the
-// whole index is force-merged to one segment. The merged segment's
-// SortedNumericDocValues are read back and the per-document minimum must be
-// non-decreasing in docID order.
-func TestIndexSorting_MultiValuedRandom1(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	snSortField := index.NewSortedNumericSortField("foo", index.SortTypeLong)
-	indexSort := index.NewSort(snSortField.SortField)
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	cfg.SetIndexSort(indexSort)
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	rng := rand.New(rand.NewSource(2))
-	const numDocs = 50
-	for i := 0; i < numDocs; i++ {
-		doc := document.NewDocument()
-		num := rng.Intn(3) + 1
-		vals := make([]int64, num)
+func TestIndexSortingMultiValuedRandom1(t *testing.T) {
+	dir := newDirectory()
+	indexSort := index.NewSort(sortedNumericSortField("foo", index.SortTypeLong, false, nil))
+	w := mustNewIndexWriter(t, dir, sortingConfig(indexSort))
+	numDocs := atLeast(200)
+	sortingRandomIndex(t, w, numDocs, func(doc *document.Document) {
+		num := rand.Intn(10)
 		for j := 0; j < num; j++ {
-			vals[j] = int64(rng.Intn(2000))
+			doc.Add(sortedNumericDVField(t, "foo", int64(rand.Intn(2000))))
 		}
-		foo, _ := document.NewSortedNumericDocValuesField("foo", vals)
-		doc.Add(foo)
-		idField, _ := document.NewStringField("id", strconv.Itoa(i), false)
-		doc.Add(idField)
-		idDV, _ := document.NewNumericDocValuesField("id", int64(i))
-		doc.Add(idDV)
-		if _, err := w.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
+	})
+
+	reader := openReaderFromWriter(t, w)
+	defer mustClose(t, reader, w, dir)
+	// Now check that the index is consistent
+	newSearcher(t, reader)
+}
+
+// updateRunnable renders the static UpdateRunnable (and, with dvUpdate,
+// DVUpdateRunnable): threads repeatedly update a random id, recording the
+// value under the values lock, and sometimes reopen or force-merge.
+func updateRunnable(t *testing.T, w *index.IndexWriter, numDocs int, r *rand.Rand, latch *countDownLatch,
+	updateCount *atomic.Int64, valuesMu *sync.Mutex, values map[int]int64, dvUpdate bool) {
+	if !latch.awaitFromGoroutine(t, "latch") {
+		return
+	}
+	for updateCount.Add(-1) >= 0 {
+		id := r.Intn(numDocs)
+		value := int64(r.Intn(20))
+		valuesMu.Lock()
+		var err error
+		if dvUpdate {
+			f, ferr := document.NewNumericDocValuesField("bar", value)
+			if ferr != nil {
+				valuesMu.Unlock()
+				t.Errorf("new NumericDocValuesField: %v", ferr)
+				return
+			}
+			_, err = w.UpdateDocValues(index.NewTerm("id", strconv.Itoa(id)), []*document.Field{f.Field})
+		} else {
+			doc := document.NewDocument()
+			sf, serr := document.NewStringField("id", strconv.Itoa(id), false)
+			if serr != nil {
+				valuesMu.Unlock()
+				t.Errorf("new StringField: %v", serr)
+				return
+			}
+			doc.Add(sf)
+			f, ferr := document.NewNumericDocValuesField("foo", value)
+			if ferr != nil {
+				valuesMu.Unlock()
+				t.Errorf("new NumericDocValuesField: %v", ferr)
+				return
+			}
+			doc.Add(f)
+			_, err = w.UpdateDocument(index.NewTerm("id", strconv.Itoa(id)), doc)
 		}
-		if err := w.Commit(); err != nil {
-			t.Fatalf("Commit %d: %v", i, err)
+		if err == nil {
+			values[id] = value
 		}
-	}
-
-	if err := w.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := w.Commit(); err != nil {
-		t.Fatalf("Commit after merge: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close writer: %v", err)
-	}
-
-	r, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer r.Close()
-
-	for _, leaf := range r.GetSegmentReaders() {
-		values, err := leaf.GetSortedNumericDocValues("foo")
+		valuesMu.Unlock()
 		if err != nil {
-			t.Fatalf("GetSortedNumericDocValues: %v", err)
+			t.Errorf("update: %v", err)
+			return
+		}
+
+		switch r.Intn(10) {
+		case 0, 1:
+			// reopen
+			dr, err := index.OpenDirectoryReaderFromWriter(w)
+			if err != nil {
+				t.Errorf("DirectoryReader.open(w): %v", err)
+				return
+			}
+			if err := dr.Close(); err != nil {
+				t.Errorf("close: %v", err)
+				return
+			}
+		case 2:
+			if err := w.ForceMerge(3); err != nil {
+				t.Errorf("forceMerge(3): %v", err)
+				return
+			}
+		}
+	}
+}
+
+// There is tricky logic to resolve deletes that happened while merging
+func TestIndexSortingConcurrentUpdates(t *testing.T) {
+	dir := newDirectory()
+	indexSort := index.NewSort(index.NewSortField("foo", index.SortTypeLong))
+	w := mustNewIndexWriter(t, dir, sortingConfig(indexSort))
+	var valuesMu sync.Mutex
+	values := make(map[int]int64)
+
+	numDocs := atLeast(100)
+	const numThreads = 2
+
+	var updateCount atomic.Int64
+	updateCount.Store(int64(atLeast(1000)))
+	latch := newCountDownLatch()
+	var wg sync.WaitGroup
+	for i := 0; i < numThreads; i++ {
+		r := rand.New(rand.NewSource(javaNextLong()))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			updateRunnable(t, w, numDocs, r, latch, &updateCount, &valuesMu, values, false)
+		}()
+	}
+	latch.countDown()
+	wg.Wait()
+	if t.Failed() {
+		mustClose(t, w, dir)
+		t.FailNow()
+	}
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	reader := openReaderFromWriter(t, w)
+	defer mustClose(t, reader, w, dir)
+	newSearcher(t, reader)
+}
+
+// docvalues fields involved in the index sort cannot be updated
+func TestIndexSortingBadDVUpdate(t *testing.T) {
+	dir := newDirectory()
+	indexSort := index.NewSort(index.NewSortField("foo", index.SortTypeLong))
+	w := mustNewIndexWriter(t, dir, sortingConfig(indexSort))
+	doc := document.NewDocument()
+	id, err := document.NewStringFieldFromBytesRef("id", newBytesRef("0"), false)
+	if err != nil {
+		t.Fatalf("new StringField: %v", err)
+	}
+	doc.Add(id)
+	doc.Add(numericDVField(t, "foo", javaNextInt()))
+	mustAddDocument(t, w, doc)
+	mustCommit(t, w)
+	const message = `cannot update docvalues field involved in the index sort, field=foo, sort=<long: "foo">`
+	_, err = w.UpdateDocValues(index.NewTerm("id", "0"), []*document.Field{numericDVField(t, "foo", -1).Field})
+	expectIAEMessage(t, err, message)
+	_, err = w.UpdateNumericDocValue(index.NewTerm("id", "0"), "foo", -1)
+	expectIAEMessage(t, err, message)
+	mustClose(t, w, dir)
+}
+
+// There is tricky logic to resolve dv updates that happened while merging
+func TestIndexSortingConcurrentDVUpdates(t *testing.T) {
+	dir := newDirectory()
+	indexSort := index.NewSort(index.NewSortField("foo", index.SortTypeLong))
+	w := mustNewIndexWriter(t, dir, sortingConfig(indexSort))
+	var valuesMu sync.Mutex
+	values := make(map[int]int64)
+
+	numDocs := atLeast(100)
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		doc.Add(newStringFieldNoRandom(t, "id", strconv.Itoa(i), false))
+		doc.Add(numericDVField(t, "foo", javaNextInt()))
+		doc.Add(numericDVField(t, "bar", -1))
+		mustAddDocument(t, w, doc)
+		values[i] = -1
+	}
+	const numThreads = 2
+	var updateCount atomic.Int64
+	updateCount.Store(int64(atLeast(1000)))
+	latch := newCountDownLatch()
+	var wg sync.WaitGroup
+	for i := 0; i < numThreads; i++ {
+		r := rand.New(rand.NewSource(javaNextLong()))
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			updateRunnable(t, w, numDocs, r, latch, &updateCount, &valuesMu, values, true)
+		}()
+	}
+	latch.countDown()
+	wg.Wait()
+	if t.Failed() {
+		mustClose(t, w, dir)
+		t.FailNow()
+	}
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	reader := openReaderFromWriter(t, w)
+	defer mustClose(t, reader, w, dir)
+	newSearcher(t, reader)
+}
+
+func expectIAEContaining(t testing.TB, err error, fragment string) {
+	t.Helper()
+	if err == nil {
+		t.Fatalf("expected IllegalArgumentException containing %q", fragment)
+	}
+	if !strings.Contains(err.Error(), fragment) {
+		t.Fatalf("getMessage() %q does not contain %q", err.Error(), fragment)
+	}
+}
+
+func TestIndexSortingBadAddIndexes(t *testing.T) {
+	dir := newDirectory()
+	indexSort := index.NewSort(index.NewSortField("foo", index.SortTypeLong))
+	iwc1 := newIndexWriterConfig()
+	iwc1.SetIndexSort(indexSort)
+	w := mustNewIndexWriter(t, dir, iwc1)
+	mustAddDocument(t, w, document.NewDocument())
+	indexSorts := []*index.Sort{nil, index.NewSort(index.NewSortField("bar", index.SortTypeLong))}
+	// The first iteration, sort == null, reaches w.addIndexes(codecReaders).
+	sort := indexSorts[0]
+	dir2 := newDirectory()
+	iwc2 := newIndexWriterConfig()
+	if sort != nil {
+		iwc2.SetIndexSort(sort)
+	}
+	w2 := mustNewIndexWriter(t, dir2, iwc2)
+	mustAddDocument(t, w2, document.NewDocument())
+	reader := openReaderFromWriter(t, w2)
+	mustClose(t, w2)
+	_, err := w.AddIndexes(dir2)
+	expectIAEContaining(t, err, "cannot change index sort")
+	defer mustClose(t, reader, dir2, w, dir)
+	// w.addIndexes(CodecReader[] codecReaders)
+	t.Fatal(addIndexesCodecReadersMissing)
+}
+
+// testIndexSortingAddIndexes renders the public testAddIndexes(boolean,
+// boolean).
+func testIndexSortingAddIndexes(t *testing.T, withDeletes, useReaders bool) {
+	dir := newDirectory()
+	iwc1 := newIndexWriterConfig()
+	useParent := rarely()
+	if useParent {
+		iwc1.SetParentField("___parent")
+	}
+	indexSort := index.NewSort(index.NewSortField("foo", index.SortTypeLong), index.NewSortField("bar", index.SortTypeLong))
+	iwc1.SetIndexSort(indexSort)
+	w := newRandomIndexWriterWithConfig(t, dir, iwc1)
+	numDocs := atLeast(100)
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		doc.Add(newStringFieldNoRandom(t, "id", strconv.Itoa(i), false))
+		doc.Add(numericDVField(t, "foo", int64(rand.Intn(20))))
+		doc.Add(numericDVField(t, "bar", int64(rand.Intn(20))))
+		if _, err := w.AddDocument(doc); err != nil {
+			t.Fatalf("addDocument: %v", err)
+		}
+	}
+	if withDeletes {
+		for i := rand.Intn(5); i < numDocs; i += nextInt(1, 5) {
+			if _, err := w.DeleteDocuments(index.NewTerm("id", strconv.Itoa(i))); err != nil {
+				t.Fatalf("deleteDocuments: %v", err)
+			}
+		}
+	}
+	if rand.Intn(2) == 0 {
+		if err := w.ForceMerge(1); err != nil {
+			t.Fatalf("forceMerge: %v", err)
+		}
+	}
+	reader, err := w.GetReader()
+	if err != nil {
+		t.Fatalf("getReader: %v", err)
+	}
+	mustClose(t, w)
+
+	dir2 := newDirectory()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	if rand.Intn(2) == 0 {
+		// test congruent index sort
+		iwc.SetIndexSort(index.NewSort(index.NewSortField("foo", index.SortTypeLong)))
+	} else {
+		iwc.SetIndexSort(indexSort)
+	}
+	if useParent {
+		iwc.SetParentField("___parent")
+	}
+	w2 := mustNewIndexWriter(t, dir2, iwc)
+
+	if useReaders {
+		mustClose(t, reader, w2, dir, dir2)
+		// w2.addIndexes(CodecReader[] codecReaders)
+		t.Fatal(addIndexesCodecReadersMissing)
+	}
+	mustAddIndexes(t, w2, dir)
+	reader2 := openReaderFromWriter(t, w2)
+	defer mustClose(t, reader, reader2, w2, dir, dir2)
+	newSearcher(t, reader)
+}
+
+func TestIndexSortingAddIndexes(t *testing.T) {
+	testIndexSortingAddIndexes(t, false, true)
+}
+
+func TestIndexSortingAddIndexesWithDeletions(t *testing.T) {
+	testIndexSortingAddIndexes(t, true, true)
+}
+
+func TestIndexSortingAddIndexesWithDirectory(t *testing.T) {
+	testIndexSortingAddIndexes(t, false, false)
+}
+
+func TestIndexSortingAddIndexesWithDeletionsAndDirectory(t *testing.T) {
+	testIndexSortingAddIndexes(t, true, false)
+}
+
+func TestIndexSortingBadSort(t *testing.T) {
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	const message = "Cannot sort index with sort field <score>"
+	var got any
+	func() {
+		defer func() { got = recover() }()
+		iwc.SetIndexSort(index.SortRELEVANCE)
+	}()
+	if got == nil {
+		t.Fatal("expected IllegalArgumentException from setIndexSort(Sort.RELEVANCE)")
+	}
+	if msg, _ := got.(string); msg != message {
+		if e, ok := got.(error); !ok || e.Error() != message {
+			t.Fatalf("getMessage(): expected %q, got %v", message, got)
+		}
+	}
+}
+
+// you can't change the index sort on an existing index:
+func TestIndexSortingIllegalChangeSort(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, sortingConfig(index.NewSort(index.NewSortField("foo", index.SortTypeLong))))
+	mustAddDocument(t, w, document.NewDocument())
+	mustClose(t, openReaderFromWriter(t, w))
+	mustAddDocument(t, w, document.NewDocument())
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	mustClose(t, w)
+
+	iwc2 := sortingConfig(index.NewSort(index.NewSortField("bar", index.SortTypeLong)))
+	w2, err := index.NewIndexWriter(dir, iwc2)
+	if err == nil {
+		mustClose(t, w2)
+		t.Fatal("expected IllegalArgumentException from new IndexWriter(dir, iwc2)")
+	}
+	message := err.Error()
+	if !strings.Contains(message, `cannot change previous indexSort=<long: "foo">`) {
+		t.Fatalf("message %q lacks the previous index sort", message)
+	}
+	if !strings.Contains(message, `to new indexSort=<long: "bar">`) {
+		t.Fatalf("message %q lacks the new index sort", message)
+	}
+	mustClose(t, dir)
+}
+
+// positionsTokenStream renders the static PositionsTokenStream.
+type positionsTokenStream struct {
+	*analysis.BaseTokenStream
+	term     analysis.CharTermAttribute
+	payload  analysis.PayloadAttribute
+	offset   tokenattributes.OffsetAttribute
+	pos, off int
+}
+
+func newPositionsTokenStream() *positionsTokenStream {
+	s := &positionsTokenStream{BaseTokenStream: analysis.NewBaseTokenStream()}
+	s.term = s.AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	s.payload = s.AddAttribute(analysis.PayloadAttributeType).(analysis.PayloadAttribute)
+	s.offset = s.AddAttribute(tokenattributes.OffsetAttributeType).(tokenattributes.OffsetAttribute)
+	return s
+}
+
+func (s *positionsTokenStream) IncrementToken() (bool, error) {
+	if s.pos == 0 {
+		return false, nil
+	}
+
+	s.ClearAttributes()
+	s.term.AppendString("#all#")
+	s.payload.SetPayload(newBytesRef(strconv.Itoa(s.pos)))
+	s.offset.SetOffset(s.off, s.off)
+	s.pos--
+	s.off++
+	return true, nil
+}
+
+func (s *positionsTokenStream) setID(id int) {
+	s.pos = id/10 + 1
+	s.off = 0
+}
+
+func TestIndexSortingRandom2(t *testing.T) {
+	numDocs := atLeast(100)
+
+	positionsType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	positionsType.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets)
+	positionsType.Freeze()
+
+	termVectorsType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	termVectorsType.SetStoreTermVectors(true)
+	termVectorsType.Freeze()
+
+	docs := make([]*document.Document, 0, numDocs)
+	for i := 0; i < numDocs; i++ {
+		id := i * 10
+		doc := document.NewDocument()
+		doc.Add(newStringFieldNoRandom(t, "id", strconv.Itoa(id), true))
+		doc.Add(newStringFieldNoRandom(t, "docs", "#all#", false))
+		positions := newPositionsTokenStream()
+		positions.setID(id)
+		pf, err := document.NewField("positions", positions, positionsType)
+		if err != nil {
+			t.Fatalf("new Field(positions): %v", err)
+		}
+		doc.Add(pf)
+		doc.Add(numericDVField(t, "numeric", int64(id)))
+		value := strings.TrimSuffix(strings.Repeat(strconv.Itoa(id)+" ", id), " ")
+		doc.Add(mustNewTextFieldNoRandom(t, "norms", value, false))
+		doc.Add(binaryDVField(t, "binary", newBytesRef(strconv.Itoa(id))))
+		doc.Add(sortedDVField(t, "sorted", newBytesRef(strconv.Itoa(id))))
+		doc.Add(sortedSetDVField(t, "multi_valued_string", newBytesRef(strconv.Itoa(id))))
+		doc.Add(sortedSetDVField(t, "multi_valued_string", newBytesRef(strconv.Itoa(id+1))))
+		doc.Add(sortedNumericDVField(t, "multi_valued_numeric", int64(id)))
+		doc.Add(sortedNumericDVField(t, "multi_valued_numeric", int64(id+1)))
+		doc.Add(mustNewFieldNoRandom(t, "term_vectors", strconv.Itoa(id), termVectorsType))
+		bytes := make([]byte, 4)
+		util.IntToSortableBytes(int32(id), bytes, 0)
+		doc.Add(document.NewBinaryPoint("points", bytes))
+		docs = append(docs, doc)
+	}
+
+	// We add document already in ID order for the first writer:
+	dir1 := newFSDirectory(t)
+	defer mustClose(t, dir1)
+	// iwc1.setSimilarity(new NormsSimilarity(iwc1.getSimilarity()))
+	t.Fatal(normsSimilarityMissing)
+}
+
+// randomDoc renders the private static RandomDoc.
+type randomDoc struct {
+	intValue     int32
+	intValues    []int32
+	longValue    int64
+	longValues   []int64
+	floatValue   float32
+	floatValues  []float32
+	doubleValue  float64
+	doubleValues []float64
+	bytesValue   []byte
+	bytesValues  [][]byte
+}
+
+func newRandomDoc() *randomDoc {
+	d := &randomDoc{
+		intValue:    int32(javaNextInt()),
+		longValue:   javaNextLong(),
+		floatValue:  rand.Float32(),
+		doubleValue: rand.Float64(),
+	}
+	d.bytesValue = make([]byte, nextInt(1, 50))
+	fillRandomBytes(d.bytesValue)
+
+	numValues := rand.Intn(10)
+	d.intValues = make([]int32, numValues)
+	d.longValues = make([]int64, numValues)
+	d.floatValues = make([]float32, numValues)
+	d.doubleValues = make([]float64, numValues)
+	d.bytesValues = make([][]byte, numValues)
+	for i := 0; i < numValues; i++ {
+		d.intValues[i] = int32(javaNextInt())
+		d.longValues[i] = javaNextLong()
+		d.floatValues[i] = rand.Float32()
+		d.doubleValues[i] = rand.Float64()
+		d.bytesValues[i] = make([]byte, nextInt(1, 50))
+		// Java fills bytesValue here, not bytesValues[i]:
+		fillRandomBytes(d.bytesValue)
+	}
+	return d
+}
+
+// fillRandomBytes renders Random.nextBytes(byte[]).
+func fillRandomBytes(b []byte) {
+	for i := range b {
+		b[i] = byte(rand.Intn(256))
+	}
+}
+
+// randomIndexSortField renders the private static randomIndexSortField().
+func randomIndexSortField() *index.SortField {
+	reversed := rand.Intn(2) == 0
+	maybe := func(v func() any) any {
+		if rand.Intn(2) == 0 {
+			return v()
+		}
+		return nil
+	}
+	switch rand.Intn(10) {
+	case 0:
+		return sortFieldMaybeMissing("int", index.SortTypeInt, reversed, maybe(func() any { return int32(javaNextInt()) }))
+	case 1:
+		return sortedNumericSortField("multi_valued_int", index.SortTypeInt, reversed, maybe(func() any { return int32(javaNextInt()) }))
+	case 2:
+		return sortFieldMaybeMissing("long", index.SortTypeLong, reversed, maybe(func() any { return javaNextLong() }))
+	case 3:
+		return sortedNumericSortField("multi_valued_long", index.SortTypeLong, reversed, maybe(func() any { return javaNextLong() }))
+	case 4:
+		return sortFieldMaybeMissing("float", index.SortTypeFloat, reversed, maybe(func() any { return rand.Float32() }))
+	case 5:
+		return sortedNumericSortField("multi_valued_float", index.SortTypeFloat, reversed, maybe(func() any { return rand.Float32() }))
+	case 6:
+		return sortFieldMaybeMissing("double", index.SortTypeDouble, reversed, maybe(func() any { return rand.Float64() }))
+	case 7:
+		return sortedNumericSortField("multi_valued_double", index.SortTypeDouble, reversed, maybe(func() any { return rand.Float64() }))
+	case 8:
+		return sortFieldMaybeMissing("bytes", index.SortTypeString, reversed, maybe(func() any { return spi.STRING_LAST }))
+	default:
+		return sortedSetSortField("multi_valued_bytes", reversed, maybe(func() any { return spi.STRING_LAST }))
+	}
+}
+
+// sortFieldMaybeMissing renders new SortField(field, type, reverse,
+// missingValue) where missingValue may be null.
+func sortFieldMaybeMissing(field string, sortType index.SortType, reverse bool, missingValue any) *index.SortField {
+	sf := index.NewSortFieldFull(field, sortType, reverse)
+	if missingValue != nil {
+		sf.SetMissingValue(missingValue)
+	}
+	return sf
+}
+
+// randomSort renders the private static randomSort().
+func randomSort() *index.Sort {
+	// at least 2
+	numFields := nextInt(2, 4)
+	sortFields := make([]*index.SortField, numFields)
+	for i := 0; i < numFields-1; i++ {
+		sortFields[i] = randomIndexSortField()
+	}
+
+	// tie-break by id:
+	sortFields[numFields-1] = index.NewSortField("id", index.SortTypeInt)
+
+	return index.NewSort(sortFields...)
+}
+
+// pits index time sorting against query time sorting
+func TestIndexSortingRandom3(t *testing.T) {
+	numDocs := atLeast(1000)
+
+	sort := randomSort()
+
+	// no index sorting, all search-time sorting:
+	dir1 := newFSDirectory(t)
+	iwc1 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	w1 := mustNewIndexWriter(t, dir1, iwc1)
+
+	// use index sorting:
+	dir2 := newFSDirectory(t)
+	iwc2 := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc2.SetIndexSort(sort)
+	w2 := mustNewIndexWriter(t, dir2, iwc2)
+
+	toDelete := make(map[int]struct{})
+
+	deleteChance := rand.Float64()
+
+	for id := 0; id < numDocs; id++ {
+		docValues := newRandomDoc()
+
+		doc := document.NewDocument()
+		doc.Add(newStringFieldNoRandom(t, "id", strconv.Itoa(id), true))
+		doc.Add(numericDVField(t, "id", int64(id)))
+		doc.Add(numericDVField(t, "int", int64(docValues.intValue)))
+		doc.Add(numericDVField(t, "long", docValues.longValue))
+		doc.Add(doubleDVField(t, "double", docValues.doubleValue))
+		doc.Add(floatDVField(t, "float", docValues.floatValue))
+		doc.Add(sortedDVField(t, "bytes", docValues.bytesValue))
+
+		for _, value := range docValues.intValues {
+			doc.Add(sortedNumericDVField(t, "multi_valued_int", int64(value)))
+		}
+
+		for _, value := range docValues.longValues {
+			doc.Add(sortedNumericDVField(t, "multi_valued_long", value))
+		}
+
+		for _, value := range docValues.floatValues {
+			doc.Add(sortedNumericDVField(t, "multi_valued_float", int64(util.FloatToSortableInt(value))))
+		}
+
+		for _, value := range docValues.doubleValues {
+			doc.Add(sortedNumericDVField(t, "multi_valued_double", util.DoubleToSortableLong(value)))
+		}
+
+		for _, value := range docValues.bytesValues {
+			doc.Add(sortedSetDVField(t, "multi_valued_bytes", value))
+		}
+
+		mustAddDocument(t, w1, doc)
+		mustAddDocument(t, w2, doc)
+		if rand.Float64() < deleteChance {
+			toDelete[id] = struct{}{}
+		}
+	}
+	for id := range toDelete {
+		mustDeleteTerm(t, w1, "id", strconv.Itoa(id))
+		mustDeleteTerm(t, w2, "id", strconv.Itoa(id))
+	}
+	r1 := openReaderFromWriter(t, w1)
+	defer mustClose(t, r1, w1, w2, dir1, dir2)
+	newSearcher(t, r1)
+}
+
+func TestIndexSortingTieBreak(t *testing.T) {
+	dir := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetIndexSort(index.NewSort(index.NewSortField("foo", index.SortTypeString)))
+	iwc.SetMergePolicy(newLogMergePolicy())
+	w := mustNewIndexWriter(t, dir, iwc)
+	for id := 0; id < 1000; id++ {
+		doc := document.NewDocument()
+		sf, err := document.NewStoredFieldFromInt("id", id)
+		if err != nil {
+			t.Fatalf("new StoredField: %v", err)
+		}
+		doc.Add(sf)
+		value := "bar1"
+		if id < 500 {
+			value = "bar2"
+		}
+		doc.Add(sortedDVField(t, "foo", newBytesRef(value)))
+		mustAddDocument(t, w, doc)
+		if id == 500 {
+			mustCommit(t, w)
+		}
+	}
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	r := openReaderFromWriter(t, w)
+	storedFields, err := r.StoredFields()
+	if err != nil {
+		t.Fatalf("storedFields: %v", err)
+	}
+	for docID := 0; docID < 1000; docID++ {
+		expectedID := docID - 500
+		if docID < 500 {
+			expectedID = 500 + docID
+		}
+		f := storedDocument(t, storedFields, docID).Get("id")
+		if f == nil {
+			t.Fatalf("doc %d has no id", docID)
+		}
+		if got := javaIntValue(f.NumericValue()); got != expectedID {
+			t.Fatalf("doc %d: expected id %d, got %d", docID, expectedID, got)
+		}
+	}
+	mustClose(t, r, w, dir)
+}
+
+// javaIntValue renders Number.intValue() over a stored numeric value.
+func javaIntValue(v any) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int32:
+		return int(n)
+	case int64:
+		return int(int32(n))
+	case float32:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return math.MinInt
+}
+
+func assertAdvanceExact(t testing.TB, values interface{ AdvanceExact(int) (bool, error) }, docID int, expected bool, what string) {
+	t.Helper()
+	got, err := values.AdvanceExact(docID)
+	if err != nil {
+		t.Fatalf("%s.advanceExact(%d): %v", what, docID, err)
+	}
+	if got != expected {
+		t.Fatalf("%s.advanceExact(%d): expected %v, got %v", what, docID, expected, got)
+	}
+}
+
+func mustLongValue(t testing.TB, values index.NumericDocValues) int64 {
+	t.Helper()
+	v, err := values.LongValue()
+	if err != nil {
+		t.Fatalf("longValue: %v", err)
+	}
+	return v
+}
+
+func TestIndexSortingIndexSortWithSparseField(t *testing.T) {
+	dir := newDirectory()
+	sortField := index.NewSortFieldFull("dense_int", index.SortTypeInt, true)
+	w := mustNewIndexWriter(t, dir, sortingConfig(index.NewSort(sortField)))
+	textField := newTextField(t, "sparse_text", "", false)
+	for i := 0; i < 128; i++ {
+		doc := document.NewDocument()
+		doc.Add(numericDVField(t, "dense_int", int64(i)))
+		if i < 64 {
+			doc.Add(numericDVField(t, "sparse_int", int64(i)))
+			doc.Add(binaryDVField(t, "sparse_binary", newBytesRef(strconv.Itoa(i))))
+			textField.SetStringValue("foo")
+			doc.Add(textField)
+		}
+		mustAddDocument(t, w, doc)
+	}
+	mustCommit(t, w)
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	r := openReaderFromWriter(t, w)
+	defer mustClose(t, r, w, dir)
+	leaves := mustLeaves(t, r)
+	if len(leaves) != 1 {
+		t.Fatalf("r.leaves().size(): expected 1, got %d", len(leaves))
+	}
+	leafReader := leaves[0].LeafReader()
+
+	denseValues := leafNumeric(t, leafReader, "dense_int")
+	sparseValues := leafNumeric(t, leafReader, "sparse_int")
+	sparseBinaryValues, err := leafReader.GetBinaryDocValues("sparse_binary")
+	if err != nil || sparseBinaryValues == nil {
+		t.Fatalf("getBinaryDocValues(sparse_binary): %v (%v)", sparseBinaryValues, err)
+	}
+	normsValues, err := leafReader.GetNormValues("sparse_text")
+	if err != nil || normsValues == nil {
+		t.Fatalf("getNormValues(sparse_text): %v (%v)", normsValues, err)
+	}
+	for docID := 0; docID < 128; docID++ {
+		assertAdvanceExact(t, denseValues, docID, true, "denseValues")
+		if got := int(int32(mustLongValue(t, denseValues))); got != 127-docID {
+			t.Fatalf("dense_int[%d]: expected %d, got %d", docID, 127-docID, got)
+		}
+		if docID >= 64 {
+			assertAdvanceExact(t, denseValues, docID, true, "denseValues")
+			assertAdvanceExact(t, sparseValues, docID, true, "sparseValues")
+			assertAdvanceExact(t, sparseBinaryValues, docID, true, "sparseBinaryValues")
+			assertAdvanceExact(t, normsValues, docID, true, "normsValues")
+			if v := mustLongValue(t, normsValues); v != 1 {
+				t.Fatalf("norms[%d]: expected 1, got %d", docID, v)
+			}
+			if got := int(int32(mustLongValue(t, sparseValues))); got != 127-docID {
+				t.Fatalf("sparse_int[%d]: expected %d, got %d", docID, 127-docID, got)
+			}
+			bv, err := sparseBinaryValues.BinaryValue()
+			if err != nil {
+				t.Fatalf("binaryValue: %v", err)
+			}
+			if string(bv) != strconv.Itoa(127-docID) {
+				t.Fatalf("sparse_binary[%d]: expected %q, got %q", docID, strconv.Itoa(127-docID), bv)
+			}
+		} else {
+			assertAdvanceExact(t, sparseBinaryValues, docID, false, "sparseBinaryValues")
+			assertAdvanceExact(t, sparseValues, docID, false, "sparseValues")
+			assertAdvanceExact(t, normsValues, docID, false, "normsValues")
+		}
+	}
+}
+
+func TestIndexSortingIndexSortOnSparseField(t *testing.T) {
+	dir := newDirectory()
+	sortField := sortFieldWithMissing("sparse", index.SortTypeInt, false, int32(math.MinInt32))
+	w := mustNewIndexWriter(t, dir, sortingConfig(index.NewSort(sortField)))
+	for i := 0; i < 128; i++ {
+		doc := document.NewDocument()
+		if i < 64 {
+			doc.Add(numericDVField(t, "sparse", int64(i)))
+		}
+		mustAddDocument(t, w, doc)
+	}
+	mustCommit(t, w)
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	r := openReaderFromWriter(t, w)
+	defer mustClose(t, r, w, dir)
+	leaves := mustLeaves(t, r)
+	if len(leaves) != 1 {
+		t.Fatalf("r.leaves().size(): expected 1, got %d", len(leaves))
+	}
+	sparseValues := leafNumeric(t, leaves[0].LeafReader(), "sparse")
+	for docID := 0; docID < 128; docID++ {
+		if docID >= 64 {
+			assertAdvanceExact(t, sparseValues, docID, true, "sparseValues")
+			if got := int(int32(mustLongValue(t, sparseValues))); got != docID-64 {
+				t.Fatalf("sparse[%d]: expected %d, got %d", docID, docID-64, got)
+			}
+		} else {
+			assertAdvanceExact(t, sparseValues, docID, false, "sparseValues")
+		}
+	}
+}
+
+func TestIndexSortingWrongSortFieldType(t *testing.T) {
+	dir := newDirectory()
+	dvs := []*document.Field{
+		sortedDVField(t, "field", newBytesRef("")).Field,
+		sortedSetDVField(t, "field", newBytesRef("")).Field,
+		numericDVField(t, "field", 42).Field,
+		sortedNumericDVField(t, "field", 42).Field,
+	}
+
+	sortFields := []*index.SortField{
+		index.NewSortField("field", index.SortTypeString),
+		sortedSetSortField("field", false, nil),
+		index.NewSortField("field", index.SortTypeInt),
+		sortedNumericSortField("field", index.SortTypeInt, false, nil),
+	}
+
+	for i := range sortFields {
+		for j := range dvs {
+			if i == j {
+				continue
+			}
+			indexSort := index.NewSort(sortFields[i])
+			w := mustNewIndexWriter(t, dir, sortingConfig(indexSort))
+			doc := document.NewDocument()
+			doc.Add(dvs[j])
+			_, err := w.AddDocument(doc)
+			expectIAEContaining(t, err, "expected field [field] to be ")
+			doc.Clear()
+			doc.Add(dvs[i])
+			mustAddDocument(t, w, doc)
+			doc.Add(dvs[j])
+			_, err = w.AddDocument(doc)
+			expectIAEMessage(t, err,
+				"Inconsistency of field data structures across documents for field [field] of doc [2]. doc values type: expected '"+
+					dvs[i].FieldType().DocValuesType().String()+"', but it has '"+dvs[j].FieldType().DocValuesType().String()+"'.")
+			if err := w.Rollback(); err != nil {
+				t.Fatalf("rollback: %v", err)
+			}
+			mustClose(t, w)
+		}
+	}
+	mustClose(t, dir)
+}
+
+func TestIndexSortingDeleteByTermOrQuery(t *testing.T) {
+	dir := newDirectory()
+	config := newIndexWriterConfig()
+	config.SetIndexSort(index.NewSort(index.NewSortField("numeric", index.SortTypeLong)))
+	w := mustNewIndexWriter(t, dir, config)
+	doc := document.NewDocument()
+	numDocs := rand.Intn(2000) + 5
+	expectedValues := make([]int64, numDocs)
+
+	for i := 0; i < numDocs; i++ {
+		expectedValues[i] = int64(rand.Intn(math.MaxInt32))
+		doc.Clear()
+		doc.Add(newStringFieldNoRandom(t, "id", strconv.Itoa(i), true))
+		doc.Add(numericDVField(t, "numeric", expectedValues[i]))
+		mustAddDocument(t, w, doc)
+	}
+	numDeleted := rand.Intn(numDocs) + 1
+	for i := 0; i < numDeleted; i++ {
+		idToDelete := rand.Intn(numDocs)
+		if rand.Intn(2) == 0 {
+			if _, err := w.DeleteDocumentsQuery([]index.Query{search.NewTermQuery(index.NewTerm("id", strconv.Itoa(idToDelete)))}); err != nil {
+				t.Fatalf("deleteDocuments(query): %v", err)
+			}
+		} else {
+			mustDeleteTerm(t, w, "id", strconv.Itoa(idToDelete))
+		}
+
+		expectedValues[idToDelete] = -int64(rand.Intn(math.MaxInt32)) // force a reordering
+		doc.Clear()
+		doc.Add(newStringFieldNoRandom(t, "id", strconv.Itoa(idToDelete), true))
+		doc.Add(numericDVField(t, "numeric", expectedValues[idToDelete]))
+		mustAddDocument(t, w, doc)
+	}
+
+	docCount := 0
+	reader := openReaderFromWriter(t, w)
+	for _, leafCtx := range mustLeaves(t, reader) {
+		leaf := leafCtx.LeafReader()
+		liveDocs := leaf.GetLiveDocs()
+		values, err := leaf.GetNumericDocValues("numeric")
+		if err != nil {
+			t.Fatalf("getNumericDocValues: %v", err)
 		}
 		if values == nil {
-			t.Fatal("GetSortedNumericDocValues returned nil")
+			continue
 		}
-		var previous int64 = math.MinInt64
-		for i := 0; i < leaf.MaxDoc(); i++ {
-			docID, err := values.NextDoc()
-			if err != nil {
-				t.Fatalf("NextDoc: %v", err)
-			}
-			if docID != i {
-				t.Fatalf("expected docID %d, got %d", i, docID)
-			}
-			count, err := values.DocValueCount()
-			if err != nil {
-				t.Fatalf("DocValueCount: %v", err)
-			}
-			if count == 0 {
-				t.Fatalf("doc %d has no values", i)
-			}
-			var min int64 = math.MaxInt64
-			for j := 0; j < count; j++ {
-				v, err := values.NextValue()
-				if err != nil {
-					t.Fatalf("NextValue: %v", err)
-				}
-				if v < min {
-					min = v
-				}
-			}
-			if min < previous {
-				t.Fatalf("foo min values not sorted at doc %d: %d < %d", i, min, previous)
-			}
-			previous = min
-		}
-	}
-}
-
-// TestIndexSorting_Random2 ports testRandom2.
-func TestIndexSorting_Random2(t *testing.T) {
-	t.Fatal("GOC-4136: needs RandomIndexWriter, PositionsTokenStream and full postings/term-vector read-back")
-}
-
-// TestIndexSorting_Random3 ports testRandom3.
-func TestIndexSorting_Random3(t *testing.T) {
-	t.Fatal("GOC-4136: needs RandomIndexWriter and IndexSearcher round-trip to validate randomized sorted search")
-}
-
-// -----------------------------------------------------------------------------
-// Concurrent update tests.
-// -----------------------------------------------------------------------------
-
-// TestIndexSorting_ConcurrentUpdates ports testConcurrentUpdates.
-func TestIndexSorting_ConcurrentUpdates(t *testing.T) {
-	t.Fatal("GOC-4136: needs concurrent updateDocument driver plus IndexSearcher and MultiDocValues read-back")
-}
-
-// TestIndexSorting_ConcurrentDVUpdates ports testConcurrentDVUpdates.
-func TestIndexSorting_ConcurrentDVUpdates(t *testing.T) {
-	t.Fatal("GOC-4136: needs concurrent updateDocValues driver plus NumericDocValues read-back")
-}
-
-// TestIndexSorting_BadDVUpdate ports testBadDVUpdate: a DocValues field that
-// participates in the index sort must not be updatable via updateDocValues.
-func TestIndexSorting_BadDVUpdate(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
-	sort := index.NewSort(index.NewSortField("foo", index.SortTypeInt))
-	config.SetIndexSort(sort)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	_, err = writer.UpdateDocValues(nil, "foo", int64(42))
-	if err == nil {
-		t.Fatal("expected error when updating a sort field via UpdateDocValues, got nil")
-	}
-	if !strings.Contains(err.Error(), "participates in the index sort") {
-		t.Fatalf("error = %q, want message about index sort participation", err.Error())
-	}
-}
-
-// -----------------------------------------------------------------------------
-// addIndexes tests.
-// -----------------------------------------------------------------------------
-
-// TestIndexSorting_BadAddIndexes ports testBadAddIndexes: addIndexes from a
-// source whose index sort differs from the destination must fail.
-func TestIndexSorting_BadAddIndexes(t *testing.T) {
-	srcDir := store.NewByteBuffersDirectory()
-	defer srcDir.Close()
-
-	// Create source index with a different sort.
-	srcConfig := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
-	srcSort := index.NewSort(index.NewSortField("bar", index.SortTypeInt))
-	srcConfig.SetIndexSort(srcSort)
-	srcWriter, err := index.NewIndexWriter(srcDir, srcConfig)
-	if err != nil {
-		t.Fatalf("NewIndexWriter (src): %v", err)
-	}
-	doc := document.NewDocument()
-	f, _ := document.NewNumericDocValuesField("bar", int64(1))
-	doc.Add(f)
-	if _, err := srcWriter.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument (src): %v", err)
-	}
-	if err := srcWriter.Close(); err != nil {
-		t.Fatalf("Close (src): %v", err)
-	}
-
-	// Destination index with a different sort.
-	dstDir := store.NewByteBuffersDirectory()
-	defer dstDir.Close()
-	dstConfig := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
-	dstSort := index.NewSort(index.NewSortField("foo", index.SortTypeInt))
-	dstConfig.SetIndexSort(dstSort)
-	dstWriter, err := index.NewIndexWriter(dstDir, dstConfig)
-	if err != nil {
-		t.Fatalf("NewIndexWriter (dst): %v", err)
-	}
-	defer dstWriter.Close()
-
-	err = dstWriter.AddIndexes(srcDir)
-	if err == nil {
-		t.Fatal("expected error when adding indexes with incompatible sort, got nil")
-	}
-}
-
-// TestIndexSorting_AddIndexes ports testAddIndexes (write path only): copy a
-// sorted index into another writer carrying the same sort.
-// The source writer must be closed before AddIndexes so that its write.lock
-// is released; otherwise AddIndexes fails with LockObtainFailedException.
-func TestIndexSorting_AddIndexes(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeLong)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		field, _ := document.NewNumericDocValuesField("foo", int64(i))
-		doc.Add(field)
-		writer.AddDocument(doc)
-	}
-	// Close writer so the write.lock on dir is released before AddIndexes.
-	if err := writer.Close(); err != nil {
-		t.Fatalf("writer.Close: %v", err)
-	}
-
-	dir2 := store.NewByteBuffersDirectory()
-	defer dir2.Close()
-
-	writer2 := newIndexSortingWriter(t, dir2, index.NewSort(sortField))
-	if err := writer2.AddIndexes(dir); err != nil {
-		t.Errorf("AddIndexes() error = %v", err)
-	}
-	if writer2.NumDocs() != 10 {
-		t.Errorf("Expected 10 documents after AddIndexes, got %d", writer2.NumDocs())
-	}
-
-	writer2.Close()
-}
-
-// TestIndexSorting_AddIndexesWithDeletions ports testAddIndexesWithDeletions.
-func TestIndexSorting_AddIndexesWithDeletions(t *testing.T) {
-	t.Fatal("GOC-4136: needs RandomIndexWriter, deletions and StoredFields read-back to validate the merged sorted order")
-}
-
-// TestIndexSorting_AddIndexesWithDirectory ports testAddIndexesWithDirectory.
-func TestIndexSorting_AddIndexesWithDirectory(t *testing.T) {
-	t.Fatal("GOC-4136: needs RandomIndexWriter and StoredFields read-back to validate the merged sorted order")
-}
-
-// TestIndexSorting_AddIndexesWithDeletionsAndDirectory ports
-// testAddIndexesWithDeletionsAndDirectory.
-func TestIndexSorting_AddIndexesWithDeletionsAndDirectory(t *testing.T) {
-	t.Fatal("GOC-4136: needs RandomIndexWriter, deletions and StoredFields read-back to validate the merged sorted order")
-}
-
-// -----------------------------------------------------------------------------
-// Sort configuration validation.
-// -----------------------------------------------------------------------------
-
-// TestIndexSorting_BadSort ports testBadSort: SCORE / DOC sort types are not
-// valid as an index sort.
-//
-// Upstream expects IndexWriterConfig.setIndexSort to throw
-// IllegalArgumentException. Gocene's SetIndexSort currently stores the sort
-// without validating the field types, so only the storage behaviour is
-// asserted here; the rejection itself is left to a follow-up.
-func TestIndexSorting_BadSort(t *testing.T) {
-	config := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
-
-	sort := index.SortRELEVANCE
-	config.SetIndexSort(sort)
-
-	// Documents the current (permissive) behaviour: the sort is stored as-is.
-	if config.IndexSort() != sort {
-		t.Error("Expected IndexSort to be stored")
-	}
-}
-
-// TestIndexSorting_IllegalChangeSort ports testIllegalChangeSort: reopening an
-// index with a different index sort than it was created with must fail.
-func TestIndexSorting_IllegalChangeSort(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	// Create an index with sort A.
-	configA := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
-	sortA := index.NewSort(index.NewSortField("foo", index.SortTypeInt))
-	configA.SetIndexSort(sortA)
-	writerA, err := index.NewIndexWriter(dir, configA)
-	if err != nil {
-		t.Fatalf("NewIndexWriter (first): %v", err)
-	}
-	doc := document.NewDocument()
-	f, _ := document.NewNumericDocValuesField("foo", int64(1))
-	doc.Add(f)
-	if _, err := writerA.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-	if err := writerA.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	// Reopen with sort B — must fail.
-	configB := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
-	sortB := index.NewSort(index.NewSortField("bar", index.SortTypeInt))
-	configB.SetIndexSort(sortB)
-	_, err = index.NewIndexWriter(dir, configB)
-	if err == nil {
-		t.Fatal("expected error when changing index sort on reopen, got nil")
-	}
-}
-
-// TestIndexSorting_WrongSortFieldType ports testWrongSortFieldType: the index
-// sort field type must match the DocValues type actually indexed for the field.
-func TestIndexSorting_WrongSortFieldType(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
-	sort := index.NewSort(index.NewSortField("field", index.SortTypeString))
-	config.SetIndexSort(sort)
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	// Sort expects SORTED type, but we add NUMERIC type.
-	doc := document.NewDocument()
-	f, _ := document.NewNumericDocValuesField("field", 42)
-	doc.Add(f)
-
-	_, err = writer.AddDocument(doc)
-	if err == nil {
-		t.Fatal("expected error when adding doc with wrong DV type for sort field, got nil")
-	}
-	if !strings.Contains(err.Error(), "expected field [field]") {
-		t.Fatalf("error = %q, want 'expected field [field] to be ...'", err.Error())
-	}
-}
-
-// -----------------------------------------------------------------------------
-// Sparse-field sorting.
-// -----------------------------------------------------------------------------
-
-// TestIndexSorting_IndexSortWithSparseField ports testIndexSortWithSparseField
-// (write path only): documents are added with a dense sort field and several
-// sparse fields; only some documents carry the sparse fields.
-func TestIndexSorting_IndexSortWithSparseField(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("dense_int", index.SortTypeInt)
-	sortField.SetReverse(true)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	for i := 0; i < 128; i++ {
-		doc := document.NewDocument()
-		denseField, _ := document.NewNumericDocValuesField("dense_int", int64(i))
-		doc.Add(denseField)
-		if i < 64 {
-			sparseField, _ := document.NewNumericDocValuesField("sparse_int", int64(i))
-			doc.Add(sparseField)
-		}
-		writer.AddDocument(doc)
-	}
-	writer.Commit()
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 128 {
-		t.Errorf("Expected 128 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// TestIndexSorting_IndexSortWithSparseFieldVerification ports the read-back
-// assertions of testIndexSortWithSparseField: a dense numeric sort field
-// (reverse) plus sparse numeric and binary DocValues present only on the first
-// 64 documents. After the reverse-sorted merge, merged docID d carries
-// dense_int = 127-d, and the sparse fields land on docIDs 64..127.
-//
-// The upstream test also verifies the norms of a sparse text field; norms are
-// not yet written during flush/merge (deferred to rmp #120), so this port
-// covers the numeric and binary DocValues legs and leaves the norms assertion
-// to that follow-up.
-func TestIndexSorting_IndexSortWithSparseFieldVerification(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("dense_int", index.SortTypeInt)
-	sortField.SetReverse(true)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	for i := 0; i < 128; i++ {
-		doc := document.NewDocument()
-		dense, _ := document.NewNumericDocValuesField("dense_int", int64(i))
-		doc.Add(dense)
-		if i < 64 {
-			sparse, _ := document.NewNumericDocValuesField("sparse_int", int64(i))
-			doc.Add(sparse)
-			bin, _ := document.NewBinaryDocValuesField("sparse_binary", []byte(strconv.Itoa(i)))
-			doc.Add(bin)
-		}
-		writer.AddDocument(doc)
-		if i < 127 {
-			writer.Commit()
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	leaf, done := openMergedLeaf(t, dir)
-	defer done()
-	if leaf.MaxDoc() != 128 {
-		t.Fatalf("maxDoc = %d, want 128", leaf.MaxDoc())
-	}
-
-	// dense_int is present on every doc; reverse order ⇒ value 127-docID.
-	dDocs, dVals := numericDocs(t, leaf, "dense_int")
-	if len(dDocs) != 128 {
-		t.Fatalf("dense value count = %d, want 128", len(dDocs))
-	}
-	for d := 0; d < 128; d++ {
-		if dDocs[d] != d || dVals[d] != int64(127-d) {
-			t.Fatalf("dense doc[%d] = (doc %d, val %d), want (doc %d, val %d)", d, dDocs[d], dVals[d], d, 127-d)
-		}
-	}
-
-	// sparse_int present on docIDs 64..127, value 127-docID (i.e. 63..0).
-	sDocs, sVals := numericDocs(t, leaf, "sparse_int")
-	if len(sDocs) != 64 {
-		t.Fatalf("sparse value count = %d, want 64", len(sDocs))
-	}
-	for k := 0; k < 64; k++ {
-		wantDoc := 64 + k
-		if sDocs[k] != wantDoc || sVals[k] != int64(127-wantDoc) {
-			t.Fatalf("sparse doc[%d] = (doc %d, val %d), want (doc %d, val %d)", k, sDocs[k], sVals[k], wantDoc, 127-wantDoc)
-		}
-	}
-
-	// sparse_binary mirrors sparse_int: docID d>=64 carries str(127-d).
-	bin, err := leaf.GetBinaryDocValues("sparse_binary")
-	if err != nil {
-		t.Fatalf("GetBinaryDocValues: %v", err)
-	}
-	if bin == nil {
-		t.Fatal("GetBinaryDocValues returned nil")
-	}
-	for docID := 64; docID < 128; docID++ {
-		ok, err := bin.AdvanceExact(docID)
+		storedFields, err := leaf.StoredFields()
 		if err != nil {
-			t.Fatalf("AdvanceExact(%d): %v", docID, err)
+			t.Fatalf("storedFields: %v", err)
 		}
-		if !ok {
-			t.Fatalf("sparse_binary missing at docID %d", docID)
+		for id := 0; id < leaf.MaxDoc(); id++ {
+			if liveDocs != nil && !liveDocs.Get(id) {
+				continue
+			}
+			if ok, err := values.AdvanceExact(id); err != nil {
+				t.Fatalf("advanceExact: %v", err)
+			} else if !ok {
+				continue
+			}
+			idValue := docGet(storedDocument(t, storedFields, id), "id")
+			if idValue == nil {
+				t.Fatalf("doc %d has no id", id)
+			}
+			globalID, err := strconv.Atoi(*idValue)
+			if err != nil {
+				t.Fatalf("Integer.parseInt(%q): %v", *idValue, err)
+			}
+			assertAdvanceExact(t, values, id, true, "values")
+			if got := mustLongValue(t, values); got != expectedValues[globalID] {
+				t.Fatalf("id %d: expected %d, got %d", globalID, expectedValues[globalID], got)
+			}
+			docCount++
 		}
-		b, err := bin.BinaryValue()
-		if err != nil {
-			t.Fatalf("BinaryValue: %v", err)
-		}
-		if want := strconv.Itoa(127 - docID); string(b) != want {
-			t.Fatalf("sparse_binary docID %d = %q, want %q", docID, string(b), want)
-		}
+	}
+	if docCount != numDocs {
+		t.Fatalf("docCount: expected %d, got %d", numDocs, docCount)
+	}
+	mustClose(t, reader, w, dir)
+}
+
+// sortedFieldPostings renders getOnlyLeafReader(reader).terms("field").iterator().
+func sortedFieldPostings(t testing.TB, reader *index.DirectoryReader) index.TermsEnum {
+	t.Helper()
+	return onlyLeafTermsEnum(t, reader, "field")
+}
+
+func assertNextPostingsDoc(t testing.TB, postings index.PostingsEnum, doc int) {
+	t.Helper()
+	if got, err := postings.NextDoc(); err != nil || got != doc {
+		t.Fatalf("postings.nextDoc(): expected %d, got %d (%v)", doc, got, err)
 	}
 }
 
-// TestIndexSorting_IndexSortOnSparseField ports testIndexSortOnSparseField
-// (write path only): the sort field itself is sparse.
-func TestIndexSorting_IndexSortOnSparseField(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("sparse", index.SortTypeInt)
-	sortField.SetMissingValue(int64(-9223372036854775808)) // math.MinInt64 stand-in for Integer.MIN_VALUE
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	for i := 0; i < 128; i++ {
-		doc := document.NewDocument()
-		if i < 64 {
-			field, _ := document.NewNumericDocValuesField("sparse", int64(i))
-			doc.Add(field)
-		}
-		writer.AddDocument(doc)
-	}
-	writer.Commit()
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 128 {
-		t.Errorf("Expected 128 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// TestIndexSorting_IndexSortOnSparseFieldVerification ports the read-back
-// assertions of testIndexSortOnSparseField: the sort field itself is sparse
-// (present on the first 64 documents), with Integer.MIN_VALUE missing-first
-// placement, so after the sorted merge the 64 missing documents occupy the
-// leading docIDs and the valued documents follow in ascending value order.
-//
-// Documents are committed individually so each input segment is trivially
-// sorted before MultiSorter merge-sorts them.
-func TestIndexSorting_IndexSortOnSparseFieldVerification(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("sparse", index.SortTypeInt)
-	sortField.SetMissingValue(int32(math.MinInt32)) // Integer.MIN_VALUE: missing-first
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	for i := 0; i < 128; i++ {
-		doc := document.NewDocument()
-		if i < 64 {
-			field, _ := document.NewNumericDocValuesField("sparse", int64(i))
-			doc.Add(field)
-		}
-		writer.AddDocument(doc)
-		if i < 127 {
-			writer.Commit()
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	leaf, done := openMergedLeaf(t, dir)
-	defer done()
-	if leaf.MaxDoc() != 128 {
-		t.Fatalf("maxDoc = %d, want 128", leaf.MaxDoc())
-	}
-	// Missing docs (MIN_VALUE) sort first into docIDs 0..63; the 64 valued docs
-	// follow at docIDs 64..127 in ascending value order, so docID d>=64 carries
-	// value d-64.
-	docs, vals := numericDocs(t, leaf, "sparse")
-	if len(docs) != 64 {
-		t.Fatalf("present value count = %d, want 64", len(docs))
-	}
-	for k := 0; k < 64; k++ {
-		if docs[k] != 64+k {
-			t.Fatalf("present doc[%d] = %d, want %d", k, docs[k], 64+k)
-		}
-		if vals[k] != int64(k) {
-			t.Fatalf("doc %d: sparse = %d, want %d", docs[k], vals[k], k)
-		}
+func assertPostingsFreq(t testing.TB, postings index.PostingsEnum, freq int) {
+	t.Helper()
+	if got, err := postings.Freq(); err != nil || got != freq {
+		t.Fatalf("postings.freq(): expected %d, got %d (%v)", freq, got, err)
 	}
 }
 
-// -----------------------------------------------------------------------------
-// Deletes against a sorted index.
-// -----------------------------------------------------------------------------
-
-// TestIndexSorting_DeleteByTermOrQuery ports testDeleteByTermOrQuery.
-func TestIndexSorting_DeleteByTermOrQuery(t *testing.T) {
-	t.Fatal("GOC-4136: needs RandomIndexWriter and IndexSearcher to validate deletes against a sorted index")
+func assertNextPosition(t testing.TB, postings index.PostingsEnum, position int) {
+	t.Helper()
+	if got, err := postings.NextPosition(); err != nil || got != position {
+		t.Fatalf("postings.nextPosition(): expected %d, got %d (%v)", position, got, err)
+	}
 }
 
-// TestIndexSorting_DeleteAll exercises DeleteAll on a sorted-index writer.
-// This has no direct upstream method but covers the empty-index edge of the
-// delete path; it runs for real because it only needs the write side.
-func TestIndexSorting_DeleteAll(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeLong)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		field, _ := document.NewNumericDocValuesField("foo", int64(i))
-		doc.Add(field)
-		writer.AddDocument(doc)
+func assertOffsets(t testing.TB, postings index.PostingsEnum, start, end int) {
+	t.Helper()
+	if got, err := postings.StartOffset(); err != nil || got != start {
+		t.Fatalf("postings.startOffset(): expected %d, got %d (%v)", start, got, err)
 	}
-
-	if _, err := writer.DeleteAll(); err != nil {
-		t.Errorf("DeleteAll() error = %v", err)
+	if got, err := postings.EndOffset(); err != nil || got != end {
+		t.Fatalf("postings.endOffset(): expected %d, got %d (%v)", end, got, err)
 	}
-	if writer.NumDocs() != 0 {
-		t.Errorf("Expected 0 documents after DeleteAll, got %d", writer.NumDocs())
-	}
-	writer.Close()
 }
 
-// -----------------------------------------------------------------------------
-// Tie-breaking.
-// -----------------------------------------------------------------------------
-
-// TestIndexSorting_TieBreak ports testTieBreak (write path only): documents
-// share the primary sort value, so the index sort relies on the secondary
-// field (here a second long field) to break ties deterministically.
-func TestIndexSorting_TieBreak(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sort := index.NewSort(
-		index.NewSortField("foo", index.SortTypeLong),
-		index.NewSortField("bar", index.SortTypeLong),
-	)
-	writer := newIndexSortingWriter(t, dir, sort)
-
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		field1, _ := document.NewNumericDocValuesField("foo", 1)
-		field2, _ := document.NewNumericDocValuesField("bar", int64(10-i))
-		doc.Add(field1)
-		doc.Add(field2)
-		writer.AddDocument(doc)
-	}
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 10 {
-		t.Errorf("Expected 10 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// TestIndexSorting_TieBreakVerification ports the order assertion of
-// testTieBreak. The Gocene write-path test breaks ties with a secondary long
-// field (foo is constant, bar = 10-i), so the merged order is governed entirely
-// by the secondary sort; reading "bar" back confirms the multi-field sort.
-//
-// Each document is committed separately so every input segment is trivially
-// sorted, which is the precondition MultiSorter relies on when it merge-sorts
-// the leaves (flush-time sorting of multi-doc segments is a separate gap).
-func TestIndexSorting_TieBreakVerification(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sort := index.NewSort(
-		index.NewSortField("foo", index.SortTypeLong),
-		index.NewSortField("bar", index.SortTypeLong),
-	)
-	writer := newIndexSortingWriter(t, dir, sort)
-
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		f1, _ := document.NewNumericDocValuesField("foo", 1)
-		f2, _ := document.NewNumericDocValuesField("bar", int64(10-i))
-		doc.Add(f1)
-		doc.Add(f2)
-		writer.AddDocument(doc)
-		if i < 9 {
-			writer.Commit()
+// sortFiveDocs renders the indexing of the testSortDocs* tests: five documents
+// whose "sort" values are 0, 1, -1, 2, 3, force-merged into one segment.
+func sortFiveDocs(t *testing.T, config *index.IndexWriterConfig, fields [5]func() []document.IndexableField) *index.DirectoryReader {
+	t.Helper()
+	config.SetIndexSort(index.NewSort(index.NewSortField("sort", index.SortTypeLong)))
+	dir := newDirectory()
+	t.Cleanup(func() { mustClose(t, dir) })
+	w := mustNewIndexWriter(t, dir, config)
+	for i, sortValue := range []int64{0, 1, -1, 2, 3} {
+		doc := docOf(numericDVField(t, "sort", sortValue))
+		for _, f := range fields[i]() {
+			doc.Add(f)
 		}
+		mustAddDocument(t, w, doc)
 	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	leaf, done := openMergedLeaf(t, dir)
-	defer done()
-	if leaf.MaxDoc() != 10 {
-		t.Fatalf("maxDoc = %d, want 10", leaf.MaxDoc())
-	}
-	docs, bars := numericDocs(t, leaf, "bar")
-	wantDocs := make([]int, 10)
-	wantBars := make([]int64, 10)
-	for i := 0; i < 10; i++ {
-		wantDocs[i] = i
-		wantBars[i] = int64(i + 1) // bar ascends 1..10 after the tie-break sort
-	}
-	assertIntSeq(t, "tie-break docID order", docs, wantDocs...)
-	assertInt64Seq(t, "tie-break secondary order", bars, wantBars...)
+	reader := openReaderFromWriter(t, w)
+	mustClose(t, w)
+	return reader
 }
 
-// -----------------------------------------------------------------------------
-// Document blocks with index sorting.
-// -----------------------------------------------------------------------------
-
-// TestIndexSorting_ParentFieldNotConfigured ports testParentFieldNotConfigured:
-// adding a document block while an index sort is set, without a configured
-// parent field, must fail.
-func TestIndexSorting_ParentFieldNotConfigured(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
-	sort := index.NewSort(index.NewSortField("foo", index.SortTypeInt))
-	config.SetIndexSort(sort)
-	// Deliberately do NOT call config.SetParentField().
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+func TestIndexSortingSortDocs(t *testing.T) {
+	dir := newDirectory()
+	config := newIndexWriterConfig()
+	config.SetIndexSort(index.NewSort(index.NewSortField("sort", index.SortTypeLong)))
+	w := mustNewIndexWriter(t, dir, config)
+	doc := document.NewDocument()
+	sort := numericDVField(t, "sort", 0)
+	doc.Add(sort)
+	field := newStringFieldNoRandom(t, "field", "a", false)
+	doc.Add(field)
+	mustAddDocument(t, w, doc)
+	sort.SetLongValue(1)
+	field.SetStringValue("b")
+	mustAddDocument(t, w, doc)
+	sort.SetLongValue(-1)
+	field.SetStringValue("a")
+	mustAddDocument(t, w, doc)
+	sort.SetLongValue(2)
+	field.SetStringValue("a")
+	mustAddDocument(t, w, doc)
+	sort.SetLongValue(3)
+	field.SetStringValue("b")
+	mustAddDocument(t, w, doc)
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
 	}
-	defer writer.Close()
+	reader := openReaderFromWriter(t, w)
+	mustClose(t, w)
+	fieldTerms := sortedFieldPostings(t, reader)
+	assertNextTermBytes(t, fieldTerms, "a")
+	postings := mustPostingsAll(t, fieldTerms)
+	assertNextPostingsDoc(t, postings, 0)
+	assertNextPostingsDoc(t, postings, 1)
+	assertNextPostingsDoc(t, postings, 3)
+	assertNextPostingsDoc(t, postings, spi.NO_MORE_DOCS)
+	assertNextTermBytes(t, fieldTerms, "b")
+	postings = mustPostingsAll(t, fieldTerms)
+	assertNextPostingsDoc(t, postings, 2)
+	assertNextPostingsDoc(t, postings, 4)
+	assertNextPostingsDoc(t, postings, spi.NO_MORE_DOCS)
+	assertNoNextTerm(t, fieldTerms)
+	mustClose(t, reader, dir)
+}
 
-	_, err = writer.AddDocuments([]index.Document{
-		document.NewDocument(),
-		document.NewDocument(),
+func frozenFieldTypeWith(opts index.IndexOptions, tokenized bool) *document.FieldType {
+	ft := document.NewFieldType()
+	ft.SetIndexOptions(opts)
+	ft.SetTokenized(tokenized)
+	ft.Freeze()
+	return ft
+}
+
+func repeatedFields(t testing.TB, ft *document.FieldType, values ...string) func() []document.IndexableField {
+	return func() []document.IndexableField {
+		out := make([]document.IndexableField, len(values))
+		for i, v := range values {
+			out[i] = mustNewFieldNoRandom(t, "field", v, ft)
+		}
+		return out
+	}
+}
+
+func TestIndexSortingSortDocsAndFreqs(t *testing.T) {
+	ft := frozenFieldTypeWith(index.IndexOptionsDocsAndFreqs, false)
+	reader := sortFiveDocs(t, newIndexWriterConfig(), [5]func() []document.IndexableField{
+		repeatedFields(t, ft, "a", "a"),
+		repeatedFields(t, ft, "b"),
+		repeatedFields(t, ft, "a", "a", "a"),
+		repeatedFields(t, ft, "a"),
+		repeatedFields(t, ft, "b", "b", "b"),
 	})
-	if err == nil {
-		t.Fatal("expected error when using document blocks without a parent field, got nil")
+	defer mustClose(t, reader)
+	fieldTerms := sortedFieldPostings(t, reader)
+	assertNextTermBytes(t, fieldTerms, "a")
+	postings := mustPostingsAll(t, fieldTerms)
+	for _, df := range [][2]int{{0, 3}, {1, 2}, {3, 1}} {
+		assertNextPostingsDoc(t, postings, df[0])
+		assertPostingsFreq(t, postings, df[1])
 	}
-	want := "a parent field must be set in order to use document blocks with index sorting; see IndexWriterConfig#setParentField"
-	if got := err.Error(); got != want {
-		t.Fatalf("error = %q, want %q", got, want)
+	assertNextPostingsDoc(t, postings, spi.NO_MORE_DOCS)
+	assertNextTermBytes(t, fieldTerms, "b")
+	postings = mustPostingsAll(t, fieldTerms)
+	for _, df := range [][2]int{{2, 1}, {4, 3}} {
+		assertNextPostingsDoc(t, postings, df[0])
+		assertPostingsFreq(t, postings, df[1])
 	}
+	assertNextPostingsDoc(t, postings, spi.NO_MORE_DOCS)
+	assertNoNextTerm(t, fieldTerms)
 }
 
-// TestIndexSorting_BlockContainsParentField ports testBlockContainsParentField:
-// no document in a block may itself carry the reserved parent field.
-func TestIndexSorting_BlockContainsParentField(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createIndexSortingMockAnalyzer())
-	config.SetParentField("parent")
-	sort := index.NewSort(index.NewSortField("foo", index.SortTypeInt))
-	config.SetIndexSort(sort)
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	// Test 1: first document carries the reserved parent field.
-	docWithParent := document.NewDocument()
-	f, err := document.NewNumericDocValuesField("parent", 0)
-	if err != nil {
-		t.Fatalf("NewNumericDocValuesField: %v", err)
-	}
-	docWithParent.Add(f)
-
-	_, err = writer.AddDocuments([]index.Document{
-		docWithParent,
-		document.NewDocument(),
-	})
-	if err == nil {
-		t.Fatal("expected error when block document contains the reserved parent field")
-	}
-	want := `"parent" is a reserved field and should not be added to any document`
-	if got := err.Error(); got != want {
-		t.Fatalf("error = %q, want %q", got, want)
-	}
-
-	// Test 2: second (last) document carries the reserved parent field.
-	docWithParent2 := document.NewDocument()
-	f2, err := document.NewNumericDocValuesField("parent", 0)
-	if err != nil {
-		t.Fatalf("NewNumericDocValuesField: %v", err)
-	}
-	docWithParent2.Add(f2)
-
-	_, err = writer.AddDocuments([]index.Document{
-		document.NewDocument(),
-		docWithParent2,
-	})
-	if err == nil {
-		t.Fatal("expected error when block document contains the reserved parent field")
-	}
-	if got := err.Error(); got != want {
-		t.Fatalf("error = %q, want %q", got, want)
-	}
+// positionsExpectation is one document of a testSortDocsAndFreqsAndPositions*
+// expectation: its docID and, per position, the position and offsets.
+type positionsExpectation struct {
+	doc       int
+	positions [][3]int // position, startOffset, endOffset
 }
 
-// TestIndexSorting_IndexSortWithBlocks ports testIndexSortWithBlocks.
-func TestIndexSorting_IndexSortWithBlocks(t *testing.T) {
-	t.Fatal("GOC-4136: needs AddDocuments block support, a parent field, AssertingNeedsIndexSortCodec and StoredFields read-back")
-}
-
-// TestIndexSorting_MixRandomDocumentsWithBlocks ports
-// testMixRandomDocumentsWithBlocks.
-func TestIndexSorting_MixRandomDocumentsWithBlocks(t *testing.T) {
-	t.Fatal("GOC-4136: needs RandomIndexWriter, AddDocuments block support and StoredFields read-back")
-}
-
-// -----------------------------------------------------------------------------
-// Additional write-path coverage.
-//
-// The following tests have no single named upstream counterpart but exercise
-// IndexWriter lifecycle operations specific to a sorted-index configuration.
-// They run for real because they only need the write side.
-// -----------------------------------------------------------------------------
-
-// TestIndexSorting_SortFieldReverse verifies that a reverse index sort can be
-// configured and a sorted-index writer driven through forceMerge.
-func TestIndexSorting_SortFieldReverse(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeLong)
-	sortField.SetReverse(true)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	for i := 0; i < 5; i++ {
-		doc := document.NewDocument()
-		field, _ := document.NewNumericDocValuesField("foo", int64(i))
-		doc.Add(field)
-		writer.AddDocument(doc)
-	}
-	writer.ForceMerge(1)
-
-	if writer.NumDocs() != 5 {
-		t.Errorf("Expected 5 documents, got %d", writer.NumDocs())
-	}
-	writer.Close()
-}
-
-// TestIndexSorting_WaitForMerges verifies WaitForMerges on a sorted-index
-// writer after a commit.
-func TestIndexSorting_WaitForMerges(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeLong)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		field, _ := document.NewNumericDocValuesField("foo", int64(i))
-		doc.Add(field)
-		writer.AddDocument(doc)
-	}
-	writer.Commit()
-
-	if err := writer.WaitForMerges(); err != nil {
-		t.Errorf("WaitForMerges() error = %v", err)
-	}
-	writer.Close()
-}
-
-// TestIndexSorting_ForceMerge verifies that ForceMerge collapses multiple
-// committed segments of a sorted index into one.
-func TestIndexSorting_ForceMerge(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	sortField := index.NewSortField("foo", index.SortTypeLong)
-	writer := newIndexSortingWriter(t, dir, index.NewSort(sortField))
-
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		field, _ := document.NewNumericDocValuesField("foo", int64(i))
-		doc.Add(field)
-		writer.AddDocument(doc)
-		if i%3 == 0 {
-			writer.Commit()
+func assertPositionsPostings(t testing.TB, postings index.PostingsEnum, withOffsets bool, expected []positionsExpectation) {
+	t.Helper()
+	for _, e := range expected {
+		assertNextPostingsDoc(t, postings, e.doc)
+		assertPostingsFreq(t, postings, len(e.positions))
+		for _, p := range e.positions {
+			assertNextPosition(t, postings, p[0])
+			if withOffsets {
+				assertOffsets(t, postings, p[1], p[2])
+			}
 		}
 	}
+	assertNextPostingsDoc(t, postings, spi.NO_MORE_DOCS)
+}
 
-	if err := writer.ForceMerge(1); err != nil {
-		t.Errorf("ForceMerge() error = %v", err)
+func sortDocsAndPositions(t *testing.T, opts index.IndexOptions, withOffsets bool) {
+	ft := frozenFieldTypeWith(opts, true)
+	reader := sortFiveDocs(t, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()), [5]func() []document.IndexableField{
+		repeatedFields(t, ft, "a a b"),
+		repeatedFields(t, ft, "b"),
+		repeatedFields(t, ft, "b a b b"),
+		repeatedFields(t, ft, "a"),
+		repeatedFields(t, ft, "b b"),
+	})
+	defer mustClose(t, reader)
+	fieldTerms := sortedFieldPostings(t, reader)
+	assertNextTermBytes(t, fieldTerms, "a")
+	postings := mustPostingsAll(t, fieldTerms)
+	assertPositionsPostings(t, postings, withOffsets, []positionsExpectation{
+		{doc: 0, positions: [][3]int{{1, 2, 3}}},
+		{doc: 1, positions: [][3]int{{0, 0, 1}, {1, 2, 3}}},
+		{doc: 3, positions: [][3]int{{0, 0, 1}}},
+	})
+	assertNextTermBytes(t, fieldTerms, "b")
+	postings = mustPostingsAll(t, fieldTerms)
+	assertPositionsPostings(t, postings, withOffsets, []positionsExpectation{
+		{doc: 0, positions: [][3]int{{0, 0, 1}, {2, 4, 5}, {3, 6, 7}}},
+		{doc: 1, positions: [][3]int{{2, 4, 5}}},
+		{doc: 2, positions: [][3]int{{0, 0, 1}}},
+		{doc: 4, positions: [][3]int{{0, 0, 1}, {1, 2, 3}}},
+	})
+	assertNoNextTerm(t, fieldTerms)
+}
+
+func TestIndexSortingSortDocsAndFreqsAndPositions(t *testing.T) {
+	sortDocsAndPositions(t, index.IndexOptionsDocsAndFreqsAndPositions, false)
+}
+
+func TestIndexSortingSortDocsAndFreqsAndPositionsAndOffsets(t *testing.T) {
+	sortDocsAndPositions(t, index.IndexOptionsDocsAndFreqsAndPositionsAndOffsets, true)
+}
+
+func TestIndexSortingParentFieldNotConfigured(t *testing.T) {
+	dir := newDirectory()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetIndexSort(index.NewSort(index.NewSortField("foo", index.SortTypeInt)))
+	writer := mustNewIndexWriter(t, dir, iwc)
+	_, err := writer.AddDocuments([]*document.Document{document.NewDocument(), document.NewDocument()})
+	expectIAEMessage(t, err,
+		"a parent field must be set in order to use document blocks with index sorting; see IndexWriterConfig#setParentField")
+	mustClose(t, writer, dir)
+}
+
+func TestIndexSortingBlockContainsParentField(t *testing.T) {
+	dir := newDirectory()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	parentField := "parent"
+	iwc.SetParentField(parentField)
+	iwc.SetIndexSort(index.NewSort(index.NewSortField("foo", index.SortTypeInt)))
+	writer := mustNewIndexWriter(t, dir, iwc)
+	const message = `"parent" is a reserved field and should not be added to any document`
+	runnables := []func(){
+		func() {
+			doc := docOf(numericDVField(t, "parent", 0))
+			_, err := writer.AddDocuments([]*document.Document{doc, document.NewDocument()})
+			expectIAEMessage(t, err, message)
+		},
+		func() {
+			doc := docOf(numericDVField(t, "parent", 0))
+			_, err := writer.AddDocuments([]*document.Document{document.NewDocument(), doc})
+			expectIAEMessage(t, err, message)
+		},
 	}
-	writer.Close()
+	rand.Shuffle(len(runnables), func(i, j int) { runnables[i], runnables[j] = runnables[j], runnables[i] })
+	for _, runnable := range runnables {
+		runnable()
+	}
+	mustClose(t, writer, dir)
+}
+
+func TestIndexSortingIndexSortWithBlocks(t *testing.T) {
+	t.Fatal(assertingNeedsIndexSortCodecMissing)
+}
+
+func TestIndexSortingMixRandomDocumentsWithBlocks(t *testing.T) {
+	t.Fatal(assertingNeedsIndexSortCodecMissing)
 }

@@ -37,7 +37,7 @@ func TestAllFilesDetectTruncation(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(nil)
+	config := index.NewIndexWriterConfigWithAnalyzer(nil)
 	config.SetMaxBufferedDocs(2)
 
 	writer, err := index.NewIndexWriter(dir, config)

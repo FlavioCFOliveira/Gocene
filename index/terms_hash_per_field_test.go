@@ -13,6 +13,9 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -207,7 +210,7 @@ func TestTermsHashPerField_WriteBytesSpansSlices(t *testing.T) {
 		t.Fatalf("read docID prefix: %v", err)
 	}
 	got := make([]byte, len(payload))
-	if err := r.ReadBytes(got); err != nil {
+	if err := r.ReadBytes(got, 0, len(got)); err != nil {
 		t.Fatalf("ReadBytes: %v", err)
 	}
 	if !bytes.Equal(got, payload) {
@@ -337,8 +340,33 @@ func readVInt32(r *ByteSliceReader) (int32, error) {
 // stubField is a minimal IndexableField for Start().
 type stubField struct{}
 
-func (stubField) Name() string                  { return "f" }
-func (stubField) FieldType() FieldTypeInterface { return nil }
-func (stubField) StringValue() string           { return "" }
-func (stubField) BinaryValue() []byte           { return nil }
-func (stubField) NumericValue() interface{}     { return nil }
+func (stubField) Name() string                      { return "f" }
+func (stubField) FieldType() spi.IndexableFieldType { return nil }
+func (stubField) StringValue() string               { return "" }
+func (stubField) BinaryValue() []byte               { return nil }
+func (stubField) NumericValue() interface{}         { return nil }
+
+// GetCharSequenceValue is abstract in Lucene's IndexableField; this double does not support it.
+func (x stubField) GetCharSequenceValue() string {
+	panic("stubField.GetCharSequenceValue: unsupported operation")
+}
+
+// InvertableType is abstract in Lucene's IndexableField; this double does not support it.
+func (x stubField) InvertableType() document.InvertableType {
+	panic("stubField.InvertableType: unsupported operation")
+}
+
+// ReaderValue is abstract in Lucene's IndexableField; this double does not support it.
+func (x stubField) ReaderValue() io.Reader {
+	panic("stubField.ReaderValue: unsupported operation")
+}
+
+// StoredValue is abstract in Lucene's IndexableField; this double does not support it.
+func (x stubField) StoredValue() *document.StoredValue {
+	panic("stubField.StoredValue: unsupported operation")
+}
+
+// TokenStream is abstract in Lucene's IndexableField; this double does not support it.
+func (x stubField) TokenStream(analyzer analysis.Analyzer, reuse analysis.TokenStream) analysis.TokenStream {
+	panic("stubField.TokenStream: unsupported operation")
+}

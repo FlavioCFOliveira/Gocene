@@ -30,7 +30,7 @@ func TestSumDocFreq(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestSumDocFreq(t *testing.T) {
 			t.Fatalf("AddDocument[%d]: %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 
@@ -63,11 +63,11 @@ func TestSumDocFreq(t *testing.T) {
 
 	// Delete some documents.
 	for i := 0; i < 10; i++ {
-		if _, err := writer.DeleteDocuments(index.NewTerm("field", fmt.Sprintf("term%d", i))); err != nil {
+		if _, err := writer.DeleteDocuments([]index.Term{*index.NewTerm("field", fmt.Sprintf("term%d", i))}); err != nil {
 			t.Fatalf("DeleteDocuments[%d]: %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit after deletes: %v", err)
 	}
 

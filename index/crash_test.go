@@ -75,7 +75,7 @@ func TestCrash_WhileIndexing(t *testing.T) {
 
 	mock := store.NewMockDirectoryWrapper(baseDir)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(mock, config)
 	if err != nil {
 		mock.Close()
@@ -120,7 +120,7 @@ func TestCrash_WriterAfterCrash(t *testing.T) {
 
 	mock := store.NewMockDirectoryWrapper(baseDir)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(mock, config)
 	if err != nil {
 		mock.Close()
@@ -153,7 +153,7 @@ func TestCrash_WriterAfterCrash(t *testing.T) {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
-	if err := writer2.Commit(); err != nil {
+	if _, err := writer2.Commit(); err != nil {
 		t.Fatalf("Commit (after crash): %v", err)
 	}
 	if err := writer2.Close(); err != nil {
@@ -178,7 +178,7 @@ func TestCrash_AfterReopen(t *testing.T) {
 
 	mock := store.NewMockDirectoryWrapper(baseDir)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(mock, config)
 	if err != nil {
 		mock.Close()
@@ -191,7 +191,7 @@ func TestCrash_AfterReopen(t *testing.T) {
 			t.Fatalf("AddDocument(%d): %v", i, err)
 		}
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("First commit: %v", err)
 	}
 	committedDocs := numDocsFromDir(t, baseDir)
@@ -233,7 +233,7 @@ func TestCrash_AfterClose(t *testing.T) {
 
 	mock := store.NewMockDirectoryWrapper(baseDir)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(mock, config)
 	if err != nil {
 		mock.Close()
@@ -298,7 +298,7 @@ func TestCrash_AfterCloseNoWait(t *testing.T) {
 
 	mock := store.NewMockDirectoryWrapper(baseDir)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(mock, config)
 	if err != nil {
 		mock.Close()
@@ -313,7 +313,7 @@ func TestCrash_AfterCloseNoWait(t *testing.T) {
 	}
 
 	// Commit explicitly, then close.
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {

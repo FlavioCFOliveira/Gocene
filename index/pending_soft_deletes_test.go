@@ -1,512 +1,394 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+// Port of lucene/core/src/test/org/apache/lucene/index/TestPendingSoftDeletes.java
+// (Apache Lucene 10.5.0), which extends TestPendingDeletes: the inherited
+// test methods run with the overriding newPendingDeletes factory.
+
 package index
 
 import (
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// newPSDTestInfo builds a SegmentCommitInfo with maxDoc live documents.
-// SegmentCommitInfo.MaxDoc reports docCount-1, so docCount is maxDoc+1.
-// delGen follows the canonical convention: -1 when delCount is 0 (so
-// HasDeletions reports false and the hard-deletes base initializes),
-// otherwise a non-negative generation.
-func newPSDTestInfo(t *testing.T, name string, maxDoc, delCount int) *SegmentCommitInfo {
-	t.Helper()
-	si := NewSegmentInfo(name, maxDoc+1, nil)
-	delGen := int64(-1)
-	if delCount > 0 {
-		delGen = int64(delCount)
-	}
-	return NewSegmentCommitInfo(si, delCount, delGen)
+func newPendingSoftDeletesForTest(commitInfo *SegmentCommitInfo) PendingDeletesInterface {
+	return NewPendingSoftDeletes("_soft_deletes", commitInfo)
 }
 
-// fixedBits returns a FixedBitSet of length n with every bit set.
-func fixedBits(t *testing.T, n int) *util.FixedBitSet {
-	t.Helper()
-	b, err := util.NewFixedBitSet(n)
-	if err != nil {
-		t.Fatalf("NewFixedBitSet(%d): %v", n, err)
-	}
-	b.SetAll()
-	return b
-}
-
-// stubDISI is a soft-deletes doc-id iterator over a fixed slice, satisfying
-// the package-local softDeletesDISI interface.
-type stubDISI struct {
-	docs []int
-	pos  int
-}
-
-func (s *stubDISI) NextDoc() (int, error) {
-	if s.pos >= len(s.docs) {
-		return util.NO_MORE_DOCS, nil
-	}
-	d := s.docs[s.pos]
-	s.pos++
-	return d, nil
-}
-
-// updateEntry is a single (docID, hasValue) pair for stubUpdates.
-type updateEntry struct {
-	doc      int
-	hasValue bool
-}
-
-// stubUpdates is a DocValuesFieldUpdatesIterator over a fixed entry slice.
-type stubUpdates struct {
-	entries []updateEntry
-	pos     int
-	cur     updateEntry
-}
-
-func (s *stubUpdates) NextDoc() int {
-	if s.pos >= len(s.entries) {
-		s.cur = updateEntry{doc: util.NO_MORE_DOCS}
-		return util.NO_MORE_DOCS
-	}
-	s.cur = s.entries[s.pos]
-	s.pos++
-	return s.cur.doc
-}
-
-func (s *stubUpdates) DocID() int                  { return s.cur.doc }
-func (s *stubUpdates) LongValue() int64            { return 0 }
-func (s *stubUpdates) BinaryValue() *util.BytesRef { return nil }
-func (s *stubUpdates) DelGen() int64               { return 0 }
-func (s *stubUpdates) HasValue() bool              { return s.cur.hasValue }
-
-func TestApplySoftDeletesFromIterator(t *testing.T) {
-	tests := []struct {
-		name        string
-		bitsLen     int
-		preClear    []int
-		iterDocs    []int
-		wantDeletes int
-		wantCleared []int
-	}{
-		{
-			name:        "no docs",
-			bitsLen:     8,
-			iterDocs:    nil,
-			wantDeletes: 0,
-		},
-		{
-			name:        "all distinct live",
-			bitsLen:     8,
-			iterDocs:    []int{1, 3, 5},
-			wantDeletes: 3,
-			wantCleared: []int{1, 3, 5},
-		},
-		{
-			name:        "already cleared not counted",
-			bitsLen:     8,
-			preClear:    []int{2},
-			iterDocs:    []int{2, 4},
-			wantDeletes: 1,
-			wantCleared: []int{2, 4},
-		},
-		{
-			name:        "repeated doc counted once",
-			bitsLen:     8,
-			iterDocs:    []int{6, 6},
-			wantDeletes: 1,
-			wantCleared: []int{6},
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			bits := fixedBits(t, tc.bitsLen)
-			for _, d := range tc.preClear {
-				bits.Clear(d)
-			}
-			got, err := applySoftDeletesFromIterator(&stubDISI{docs: tc.iterDocs}, bits)
-			if err != nil {
-				t.Fatalf("applySoftDeletesFromIterator: %v", err)
-			}
-			if got != tc.wantDeletes {
-				t.Errorf("newDeletes = %d, want %d", got, tc.wantDeletes)
-			}
-			for _, d := range tc.wantCleared {
-				if bits.Get(d) {
-					t.Errorf("bit %d still set, want cleared", d)
-				}
-			}
-		})
-	}
-}
-
-func TestApplySoftDeletesFromUpdates(t *testing.T) {
-	tests := []struct {
-		name        string
-		bitsLen     int
-		preClear    []int
-		entries     []updateEntry
-		wantDeletes int
-	}{
-		{
-			name:        "values clear live bits",
-			bitsLen:     8,
-			entries:     []updateEntry{{0, true}, {2, true}},
-			wantDeletes: 2,
-		},
-		{
-			name:        "reset re-sets a cleared bit",
-			bitsLen:     8,
-			preClear:    []int{3},
-			entries:     []updateEntry{{3, false}},
-			wantDeletes: -1,
-		},
-		{
-			name:        "mixed value and reset net zero",
-			bitsLen:     8,
-			preClear:    []int{5},
-			entries:     []updateEntry{{1, true}, {5, false}},
-			wantDeletes: 0,
-		},
-		{
-			name:        "value on already-cleared bit not counted",
-			bitsLen:     8,
-			preClear:    []int{4},
-			entries:     []updateEntry{{4, true}},
-			wantDeletes: 0,
-		},
-		{
-			name:        "reset on already-live bit not counted",
-			bitsLen:     8,
-			entries:     []updateEntry{{6, false}},
-			wantDeletes: 0,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			bits := fixedBits(t, tc.bitsLen)
-			for _, d := range tc.preClear {
-				bits.Clear(d)
-			}
-			got := applySoftDeletesFromUpdates(&stubUpdates{entries: tc.entries}, bits)
-			if got != tc.wantDeletes {
-				t.Errorf("newDeletes = %d, want %d", got, tc.wantDeletes)
-			}
-		})
-	}
-}
-
-func TestCountSoftDeletes(t *testing.T) {
-	tests := []struct {
-		name        string
-		softDeleted *stubDISI
-		hardDeletes util.Bits
-		want        int
-	}{
-		{
-			name:        "nil iterator yields zero",
-			softDeleted: nil,
-			hardDeletes: nil,
-			want:        0,
-		},
-		{
-			name:        "nil hardDeletes counts every soft doc",
-			softDeleted: &stubDISI{docs: []int{0, 2, 4}},
-			hardDeletes: nil,
-			want:        3,
-		},
-		{
-			name:        "only hard-live soft docs counted",
-			softDeleted: &stubDISI{docs: []int{0, 1, 2}},
-			// doc 1 is hard-deleted (bit cleared), so it must not count.
-			hardDeletes: func() util.Bits {
-				b := fixedBits(t, 8)
-				b.Clear(1)
-				return b
-			}(),
-			want: 2,
-		},
-		{
-			name:        "all soft docs hard-deleted yields zero",
-			softDeleted: &stubDISI{docs: []int{3, 5}},
-			hardDeletes: func() util.Bits {
-				b := fixedBits(t, 8)
-				b.Clear(3)
-				b.Clear(5)
-				return b
-			}(),
-			want: 0,
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var disi softDeletesDISI
-			if tc.softDeleted != nil {
-				disi = tc.softDeleted
-			}
-			got, err := CountSoftDeletes(disi, tc.hardDeletes)
-			if err != nil {
-				t.Fatalf("CountSoftDeletes: %v", err)
-			}
-			if got != tc.want {
-				t.Errorf("count = %d, want %d", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestNewPendingSoftDeletes(t *testing.T) {
-	info := newPSDTestInfo(t, "_0", 9, 0)
-	psd := NewPendingSoftDeletes("_soft_", info)
-
-	if psd.field != "_soft_" {
-		t.Errorf("field = %q, want %q", psd.field, "_soft_")
-	}
-	if psd.dvGeneration != pendingSoftDeletesUninitializedGen {
-		t.Errorf("dvGeneration = %d, want %d", psd.dvGeneration, pendingSoftDeletesUninitializedGen)
-	}
-	if psd.hardDeletes == nil {
-		t.Fatal("hardDeletes is nil")
-	}
-	// numPendingDeletesHook must be installed so getDelCount sees the
-	// soft+hard override.
-	if psd.pendingDeletesBase.numPendingDeletesHook == nil {
-		t.Error("numPendingDeletesHook not installed")
-	}
-	if got := psd.numPendingDeletes(); got != 0 {
-		t.Errorf("numPendingDeletes = %d, want 0", got)
-	}
-}
-
-func TestPendingSoftDeletesNumPendingDeletes(t *testing.T) {
-	info := newPSDTestInfo(t, "_0", 9, 0)
-	psd := NewPendingSoftDeletes("_soft_", info)
-
-	// Apply a soft delete through the update path.
-	if err := psd.OnDocValuesUpdate(
-		NewFieldInfo("_soft_", 0, DefaultFieldInfoOptions()),
-		&stubUpdates{entries: []updateEntry{{0, true}}},
-	); err != nil {
-		t.Fatalf("OnDocValuesUpdate: %v", err)
-	}
-	// WriteLiveDocs/OnDocValuesUpdate drop the soft pending count after
-	// folding it into SoftDelCount, so the soft component is back to 0.
-	if got := psd.numPendingDeletes(); got != 0 {
-		t.Errorf("numPendingDeletes after update = %d, want 0", got)
-	}
-
-	// A hard delete raises hardDeletes.numPendingDeletes, and the override
-	// sums soft+hard.
-	if _, err := psd.Delete(1); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-	if got := psd.numPendingDeletes(); got != 1 {
-		t.Errorf("numPendingDeletes after hard delete = %d, want 1", got)
-	}
-}
-
-func TestPendingSoftDeletesDelete(t *testing.T) {
-	info := newPSDTestInfo(t, "_0", 9, 0)
-	psd := NewPendingSoftDeletes("_soft_", info)
-
-	// Delete always reports the hard-delete outcome; a fresh doc is hard
-	// deleted successfully.
-	ok, err := psd.Delete(2)
-	if err != nil {
-		t.Fatalf("Delete(2): %v", err)
-	}
-	if !ok {
-		t.Error("Delete(2) = false, want true")
-	}
-	if got := psd.hardDeletes.numPendingDeletes(); got != 1 {
-		t.Errorf("hardDeletes pending = %d, want 1", got)
-	}
-
-	// Out-of-bounds doc id is an error.
-	if _, err := psd.Delete(999); err == nil {
-		t.Error("Delete(999): expected out-of-bounds error, got nil")
-	}
-}
-
-func TestPendingSoftDeletesDeleteDecrementsAlreadySoftDeleted(t *testing.T) {
-	info := newPSDTestInfo(t, "_0", 9, 0)
-	psd := NewPendingSoftDeletes("_soft_", info)
-
-	// Materialize the soft live-docs bitset, then soft-delete doc 0 by
-	// clearing its bit and counting it. A subsequent hard delete on the
-	// same doc must decrement the soft pending count so the doc is not
-	// counted twice, mirroring the Java accounting in delete().
-	mutable, err := psd.getMutableBits()
-	if err != nil {
-		t.Fatalf("getMutableBits: %v", err)
-	}
-	mutable.Clear(0)
-	psd.pendingDeleteCount = 1
-
-	ok, err := psd.Delete(0)
-	if err != nil {
-		t.Fatalf("Delete(0): %v", err)
-	}
-	if !ok {
-		t.Error("Delete(0) = false, want true")
-	}
-	if psd.pendingDeleteCount != 0 {
-		t.Errorf("pendingDeleteCount = %d, want 0 (soft count decremented)", psd.pendingDeleteCount)
-	}
-}
-
-func TestPendingSoftDeletesDeleteKeepsSoftCountOnSoftLiveDoc(t *testing.T) {
-	info := newPSDTestInfo(t, "_0", 9, 0)
-	psd := NewPendingSoftDeletes("_soft_", info)
-
-	// Hard-deleting a doc that is still soft-live clears its soft bit but
-	// leaves the soft pending count unchanged: the doc was never counted
-	// as a soft delete, so there is nothing to decrement.
-	if _, err := psd.getMutableBits(); err != nil {
-		t.Fatalf("getMutableBits: %v", err)
-	}
-	psd.pendingDeleteCount = 1
-
-	ok, err := psd.Delete(0)
-	if err != nil {
-		t.Fatalf("Delete(0): %v", err)
-	}
-	if !ok {
-		t.Error("Delete(0) = false, want true")
-	}
-	if psd.pendingDeleteCount != 1 {
-		t.Errorf("pendingDeleteCount = %d, want 1 (untouched)", psd.pendingDeleteCount)
-	}
-}
-
-func TestPendingSoftDeletesOnDocValuesUpdate(t *testing.T) {
-	info := newPSDTestInfo(t, "_0", 9, 0)
-	psd := NewPendingSoftDeletes("_soft_", info)
-
-	// An update on an unrelated field only advances dvGeneration.
-	other := NewFieldInfo("other", 1, FieldInfoOptions{DocValuesGen: 7})
-	if err := psd.OnDocValuesUpdate(other, &stubUpdates{}); err != nil {
-		t.Fatalf("OnDocValuesUpdate(other): %v", err)
-	}
-	if info.SoftDelCount() != 0 {
-		t.Errorf("SoftDelCount after unrelated update = %d, want 0", info.SoftDelCount())
-	}
-
-	// An update on the soft-deletes field applies the soft deletes and
-	// folds them into SoftDelCount.
-	soft := NewFieldInfo("_soft_", 0, FieldInfoOptions{DocValuesGen: 9})
-	if err := psd.OnDocValuesUpdate(soft, &stubUpdates{
-		entries: []updateEntry{{0, true}, {1, true}},
-	}); err != nil {
-		t.Fatalf("OnDocValuesUpdate(soft): %v", err)
-	}
-	if info.SoftDelCount() != 2 {
-		t.Errorf("SoftDelCount = %d, want 2", info.SoftDelCount())
-	}
-	if psd.dvGeneration != 9 {
-		t.Errorf("dvGeneration = %d, want 9", psd.dvGeneration)
-	}
-	// The pending count is dropped after folding.
-	if psd.pendingDeleteCount != 0 {
-		t.Errorf("pendingDeleteCount = %d, want 0", psd.pendingDeleteCount)
-	}
+func TestPendingSoftDeletesDeleteDoc(t *testing.T) {
+	checkPendingDeletesDeleteDoc(t, newPendingSoftDeletesForTest)
 }
 
 func TestPendingSoftDeletesWriteLiveDocs(t *testing.T) {
-	info := newPSDTestInfo(t, "_0", 9, 0)
-	psd := NewPendingSoftDeletes("_soft_", info)
+	checkPendingDeletesWriteLiveDocs(t, newPendingSoftDeletesForTest)
+}
 
-	// Stage two soft pending deletes directly.
-	if _, err := psd.getMutableBits(); err != nil {
-		t.Fatalf("getMutableBits: %v", err)
-	}
-	psd.pendingDeleteCount = 2
+func TestPendingSoftDeletesIsFullyDeleted(t *testing.T) {
+	checkPendingDeletesIsFullyDeleted(t, newPendingSoftDeletesForTest)
+}
 
-	// No hard pending deletes -> WriteLiveDocs reports false and folds the
-	// soft count into SoftDelCount.
-	if psd.WriteLiveDocs() {
-		t.Error("WriteLiveDocs = true, want false (no hard pending deletes)")
+// softDeletesTestWriter opens the IndexWriter configured with
+// setSoftDeletesField("_soft_deletes"), setMaxBufferedDocs(maxBufferedDocs),
+// NoMergePolicy and setRAMBufferSizeMB(DISABLE_AUTO_FLUSH), and soft-updates
+// the documents 1, 2, 2 as the Java tests do.
+func softDeletesTestWriter(t *testing.T, dir store.Directory, maxBufferedDocs int) *IndexWriter {
+	t.Helper()
+	iwc := newIndexWriterConfig()
+	iwc.SetSoftDeletesField("_soft_deletes")
+	// make sure all docs will end up in the same segment
+	iwc.SetMaxBufferedDocs(maxBufferedDocs)
+	iwc.SetMergePolicy(NewNoMergePolicy())
+	iwc.SetRAMBufferSizeMB(DISABLE_AUTO_FLUSH)
+	writer, err := NewIndexWriter(dir, iwc)
+	if err != nil {
+		t.Fatalf("new IndexWriter: %v", err)
 	}
-	if info.SoftDelCount() != 2 {
-		t.Errorf("SoftDelCount = %d, want 2", info.SoftDelCount())
+	for _, id := range []string{"1", "2", "2"} {
+		doc := document.NewDocument()
+		f, err := document.NewStringField("id", id, true)
+		if err != nil {
+			t.Fatalf("new StringField: %v", err)
+		}
+		doc.Add(f)
+		softDelete, err := document.NewNumericDocValuesField("_soft_deletes", 1)
+		if err != nil {
+			t.Fatalf("new NumericDocValuesField: %v", err)
+		}
+		if _, err := writer.SoftUpdateDocument(NewTerm("id", id), doc, []*document.Field{softDelete.Field}); err != nil {
+			t.Fatalf("softUpdateDocument: %v", err)
+		}
 	}
-	if psd.pendingDeleteCount != 0 {
-		t.Errorf("pendingDeleteCount = %d, want 0", psd.pendingDeleteCount)
+	if _, err := writer.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
 	}
+	return writer
+}
 
-	// With a hard pending delete present, WriteLiveDocs reports true.
-	if _, err := psd.hardDeletes.delete(3); err != nil {
-		t.Fatalf("hardDeletes.delete: %v", err)
+// softDeletesOnlySegmentReader renders
+// (SegmentReader) DirectoryReader.open(dir).leaves().get(0).reader().
+func softDeletesOnlySegmentReader(t *testing.T, dir store.Directory) (*DirectoryReader, *SegmentReader) {
+	t.Helper()
+	reader, err := OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("DirectoryReader.open: %v", err)
 	}
-	if !psd.WriteLiveDocs() {
-		t.Error("WriteLiveDocs = false, want true (hard pending delete present)")
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("leaves: %v", err)
+	}
+	if len(leaves) != 1 {
+		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	}
+	segmentReader, ok := leaves[0].LeafReader().(*SegmentReader)
+	if !ok {
+		t.Fatalf("leaf is a %T, not a SegmentReader", leaves[0].LeafReader())
+	}
+	return reader, segmentReader
+}
+
+func assertLive(t *testing.T, bits util.Bits, want ...bool) {
+	t.Helper()
+	if bits == nil {
+		t.Fatal("live docs are null")
+	}
+	for i, w := range want {
+		if bits.Get(i) != w {
+			t.Fatalf("liveDocs.get(%d): expected %t, got %t", i, w, bits.Get(i))
+		}
 	}
 }
 
-func TestPendingSoftDeletesDropChanges(t *testing.T) {
-	info := newPSDTestInfo(t, "_0", 9, 0)
-	psd := NewPendingSoftDeletes("_soft_", info)
-
-	// Stage a soft and a hard pending delete.
-	if _, err := psd.getMutableBits(); err != nil {
-		t.Fatalf("getMutableBits: %v", err)
-	}
-	psd.pendingDeleteCount = 5
-	if _, err := psd.hardDeletes.delete(1); err != nil {
-		t.Fatalf("hardDeletes.delete: %v", err)
-	}
-
-	// DropChanges resets only the hard pending count; the soft count is
-	// left intact.
-	psd.DropChanges()
-	if psd.hardDeletes.numPendingDeletes() != 0 {
-		t.Errorf("hardDeletes pending = %d, want 0", psd.hardDeletes.numPendingDeletes())
-	}
-	if psd.pendingDeleteCount != 5 {
-		t.Errorf("soft pendingDeleteCount = %d, want 5 (untouched)", psd.pendingDeleteCount)
+func mustOnNewReader(t *testing.T, deletes PendingDeletesInterface, reader CodecReader, info *SegmentCommitInfo) {
+	t.Helper()
+	if err := deletes.OnNewReader(reader, info); err != nil {
+		t.Fatalf("onNewReader: %v", err)
 	}
 }
 
-func TestPendingSoftDeletesMustInitOnDelete(t *testing.T) {
-	// A segment with deletions starts uninitialized -> MustInitOnDelete true.
-	withDel := newPSDTestInfo(t, "_0", 9, 3)
-	if got := NewPendingSoftDeletes("_soft_", withDel).MustInitOnDelete(); !got {
-		t.Error("MustInitOnDelete (delCount>0) = false, want true")
-	}
-
-	// A segment without deletions is initialized -> MustInitOnDelete false.
-	noDel := newPSDTestInfo(t, "_1", 9, 0)
-	if got := NewPendingSoftDeletes("_soft_", noDel).MustInitOnDelete(); got {
-		t.Error("MustInitOnDelete (delCount==0) = true, want false")
+func pendingSoftDeletesCloseAll(t *testing.T, closers ...interface{ Close() error }) {
+	t.Helper()
+	for _, c := range closers {
+		if err := c.Close(); err != nil {
+			t.Fatalf("close: %v", err)
+		}
 	}
 }
 
-func TestPendingSoftDeletesGetHardLiveDocs(t *testing.T) {
-	info := newPSDTestInfo(t, "_0", 9, 0)
-	psd := NewPendingSoftDeletes("_soft_", info)
+func TestPendingSoftDeletesHardDeleteSoftDeleted(t *testing.T) {
+	dir := newDirectory()
+	writer := softDeletesTestWriter(t, dir, 10)
+	reader, segmentReader := softDeletesOnlySegmentReader(t, dir)
+	segmentInfo := segmentReader.GetSegmentCommitInfo()
+	pendingSoftDeletes := NewPendingSoftDeletes("_soft_deletes", segmentInfo)
+	mustOnNewReader(t, pendingSoftDeletes, segmentReader, segmentInfo)
+	if pendingSoftDeletes.NumPendingDeletes() != 0 {
+		t.Fatalf("expected 0, got %d", pendingSoftDeletes.NumPendingDeletes())
+	}
+	if pendingSoftDeletes.GetDelCount() != 1 {
+		t.Fatalf("expected 1, got %d", pendingSoftDeletes.GetDelCount())
+	}
+	assertLive(t, pendingSoftDeletes.GetLiveDocs(), true, false, true)
+	if pendingSoftDeletes.GetHardLiveDocs() != nil {
+		t.Fatal("assertNull(pendingSoftDeletes.getHardLiveDocs())")
+	}
+	if !mustPendingDelete(t, pendingSoftDeletes, 1) {
+		t.Fatal("assertTrue(pendingSoftDeletes.delete(1))")
+	}
+	if pendingSoftDeletes.NumPendingDeletes() != 0 {
+		t.Fatalf("expected 0, got %d", pendingSoftDeletes.NumPendingDeletes())
+	}
+	if pendingSoftDeletes.pendingDeleteCount != -1 { // transferred the delete
+		t.Fatalf("expected pendingDeleteCount -1, got %d", pendingSoftDeletes.pendingDeleteCount)
+	}
+	if pendingSoftDeletes.GetDelCount() != 1 {
+		t.Fatalf("expected 1, got %d", pendingSoftDeletes.GetDelCount())
+	}
+	pendingSoftDeletesCloseAll(t, reader, writer, dir)
+}
 
-	// Before any hard live-docs are materialized the snapshot is nil.
-	if psd.GetHardLiveDocs() != nil {
-		t.Error("GetHardLiveDocs = non-nil, want nil before initialization")
+func TestPendingSoftDeletesDeleteSoft(t *testing.T) {
+	dir := newDirectory()
+	writer := softDeletesTestWriter(t, dir, 10)
+	reader, segmentReader := softDeletesOnlySegmentReader(t, dir)
+	segmentInfo := segmentReader.GetSegmentCommitInfo()
+	pendingSoftDeletes := NewPendingSoftDeletes("_soft_deletes", segmentInfo)
+	mustOnNewReader(t, pendingSoftDeletes, segmentReader, segmentInfo)
+	if pendingSoftDeletes.NumPendingDeletes() != 0 {
+		t.Fatalf("expected 0, got %d", pendingSoftDeletes.NumPendingDeletes())
+	}
+	if pendingSoftDeletes.GetDelCount() != 1 {
+		t.Fatalf("expected 1, got %d", pendingSoftDeletes.GetDelCount())
+	}
+	assertLive(t, pendingSoftDeletes.GetLiveDocs(), true, false, true)
+	if pendingSoftDeletes.GetHardLiveDocs() != nil {
+		t.Fatal("assertNull(pendingSoftDeletes.getHardLiveDocs())")
+	}
+	// pass reader again
+	liveDocs := pendingSoftDeletes.GetLiveDocs()
+	mustOnNewReader(t, pendingSoftDeletes, segmentReader, segmentInfo)
+	if pendingSoftDeletes.NumPendingDeletes() != 0 {
+		t.Fatalf("expected 0, got %d", pendingSoftDeletes.NumPendingDeletes())
+	}
+	if pendingSoftDeletes.GetDelCount() != 1 {
+		t.Fatalf("expected 1, got %d", pendingSoftDeletes.GetDelCount())
+	}
+	if !sameBits(liveDocs, pendingSoftDeletes.GetLiveDocs()) {
+		t.Fatal("assertSame(liveDocs, pendingSoftDeletes.getLiveDocs())")
 	}
 
-	// After a hard delete the snapshot reflects the cleared bit.
-	if _, err := psd.hardDeletes.delete(4); err != nil {
-		t.Fatalf("hardDeletes.delete: %v", err)
+	// now apply a hard delete
+	if _, err := writer.DeleteDocuments([]Term{*NewTerm("id", "1")}); err != nil {
+		t.Fatalf("deleteDocuments: %v", err)
 	}
-	live := psd.GetHardLiveDocs()
-	if live == nil {
-		t.Fatal("GetHardLiveDocs = nil after hard delete, want non-nil")
+	if _, err := writer.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
 	}
-	if live.Get(4) {
-		t.Error("hard live docs bit 4 set, want cleared")
+	pendingSoftDeletesCloseAll(t, reader)
+	reader, segmentReader = softDeletesOnlySegmentReader(t, dir)
+	segmentInfo = segmentReader.GetSegmentCommitInfo()
+	pendingSoftDeletes = NewPendingSoftDeletes("_soft_deletes", segmentInfo)
+	mustOnNewReader(t, pendingSoftDeletes, segmentReader, segmentInfo)
+	if pendingSoftDeletes.NumPendingDeletes() != 0 {
+		t.Fatalf("expected 0, got %d", pendingSoftDeletes.NumPendingDeletes())
 	}
-	if !live.Get(0) {
-		t.Error("hard live docs bit 0 cleared, want set")
+	if pendingSoftDeletes.GetDelCount() != 2 {
+		t.Fatalf("expected 2, got %d", pendingSoftDeletes.GetDelCount())
+	}
+	assertLive(t, pendingSoftDeletes.GetLiveDocs(), false, false, true)
+	if pendingSoftDeletes.GetHardLiveDocs() == nil {
+		t.Fatal("assertNotNull(pendingSoftDeletes.getHardLiveDocs())")
+	}
+	assertLive(t, pendingSoftDeletes.GetHardLiveDocs(), false, true, true)
+	pendingSoftDeletesCloseAll(t, reader, writer, dir)
+}
+
+// singleUpdateIterator renders the anonymous DocValuesFieldUpdates.Iterator of
+// singleUpdate(List<Integer>, int, boolean).
+type singleUpdateIterator struct {
+	docsChanged []int
+	next        int
+	doc         int
+	hasValue    bool
+}
+
+func (it *singleUpdateIterator) NextDoc() int {
+	it.doc = it.docsChanged[it.next]
+	it.next++
+	return it.doc
+}
+func (it *singleUpdateIterator) DocID() int       { return it.doc }
+func (it *singleUpdateIterator) LongValue() int64 { return 1 }
+func (it *singleUpdateIterator) BinaryValue() *util.BytesRef {
+	panic("UnsupportedOperationException")
+}
+func (it *singleUpdateIterator) DelGen() int64  { return 0 }
+func (it *singleUpdateIterator) HasValue() bool { return it.hasValue }
+
+// singleUpdate renders the private singleUpdate(List<Integer>, int, boolean):
+// a NUMERIC DocValuesFieldUpdates for "_soft_deletes" whose iterator walks
+// docsChanged. Only its iterator() is used by the tests.
+func singleUpdate(docsChanged []int, maxDoc int, hasValue bool) func() DocValuesFieldUpdatesIterator {
+	_ = maxDoc // the Java DocValuesFieldUpdates(maxDoc, 0, "_soft_deletes", NUMERIC) super-constructor argument
+	return func() DocValuesFieldUpdatesIterator {
+		return &singleUpdateIterator{docsChanged: docsChanged, doc: -1, hasValue: hasValue}
 	}
 }
 
-func TestPendingSoftDeletesString(t *testing.T) {
-	info := newPSDTestInfo(t, "_0", 9, 0)
-	psd := NewPendingSoftDeletes("_soft_", info)
-	if s := psd.String(); s == "" {
-		t.Error("String returned empty")
+// softDeletesFieldInfo renders new FieldInfo("_soft_deletes", 1, false,
+// false, false, IndexOptions.NONE, DocValuesType.NUMERIC,
+// DocValuesSkipIndexType.NONE, dvGen, Collections.emptyMap(), 0, 0, 0, 0,
+// VectorEncoding.FLOAT32, VectorSimilarityFunction.EUCLIDEAN, true, false).
+func softDeletesFieldInfo(dvGen int64) *FieldInfo {
+	opts := DefaultFieldInfoOptions()
+	opts.DocValuesType = DocValuesTypeNumeric
+	opts.DocValuesGen = dvGen
+	opts.IsSoftDeletesField = true
+	return NewFieldInfo("_soft_deletes", 1, opts)
+}
+
+func mustOnDocValuesUpdate(t *testing.T, deletes PendingDeletesInterface, fi *FieldInfo, updates ...func() DocValuesFieldUpdatesIterator) {
+	t.Helper()
+	for _, update := range updates {
+		if err := deletes.OnDocValuesUpdate(fi, update()); err != nil {
+			t.Fatalf("onDocValuesUpdate: %v", err)
+		}
 	}
+}
+
+func TestPendingSoftDeletesApplyUpdates(t *testing.T) {
+	dir := store.NewByteBuffersDirectory()
+	si, commitInfo := pendingDeletesTestSegment(t, dir, 10)
+	writer, err := NewIndexWriter(dir, newIndexWriterConfig())
+	if err != nil {
+		t.Fatalf("new IndexWriter: %v", err)
+	}
+	for i := 0; i < si.MaxDoc(); i++ {
+		if _, err := writer.AddDocument(document.NewDocument()); err != nil {
+			t.Fatalf("addDocument: %v", err)
+		}
+	}
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	if _, err := writer.Commit(); err != nil {
+		t.Fatalf("commit: %v", err)
+	}
+	reader, err := OpenDirectoryReaderFromWriter(writer)
+	if err != nil {
+		t.Fatalf("DirectoryReader.open(writer): %v", err)
+	}
+	leaves, err := reader.Leaves()
+	if err != nil {
+		t.Fatalf("leaves: %v", err)
+	}
+	if len(leaves) != 1 {
+		t.Fatalf("expected 1 leaf, got %d", len(leaves))
+	}
+	segmentReader, ok := leaves[0].LeafReader().(*SegmentReader)
+	if !ok {
+		t.Fatalf("leaf is a %T, not a SegmentReader", leaves[0].LeafReader())
+	}
+	deletes := NewPendingSoftDeletes("_soft_deletes", commitInfo)
+	mustOnNewReader(t, deletes, segmentReader, commitInfo)
+	pendingSoftDeletesCloseAll(t, reader, writer)
+	fieldInfo := softDeletesFieldInfo(0)
+	docsDeleted := []int{1, 3, 7, 8, util.NO_MORE_DOCS}
+	mustOnDocValuesUpdate(t, deletes, fieldInfo, singleUpdate(docsDeleted, 10, true))
+	if deletes.NumPendingDeletes() != 0 {
+		t.Fatalf("expected 0, got %d", deletes.NumPendingDeletes())
+	}
+	if deletes.GetDelCount() != 4 {
+		t.Fatalf("expected 4, got %d", deletes.GetDelCount())
+	}
+	assertLive(t, deletes.GetLiveDocs(), true, false, true, false, true, true, true, false, false, true)
+
+	docsDeleted = []int{1, 2, util.NO_MORE_DOCS}
+	fieldInfo = softDeletesFieldInfo(1)
+	mustOnDocValuesUpdate(t, deletes, fieldInfo, singleUpdate(docsDeleted, 10, true))
+	if deletes.NumPendingDeletes() != 0 {
+		t.Fatalf("expected 0, got %d", deletes.NumPendingDeletes())
+	}
+	if deletes.GetDelCount() != 5 {
+		t.Fatalf("expected 5, got %d", deletes.GetDelCount())
+	}
+	assertLive(t, deletes.GetLiveDocs(), true, false, false, false, true, true, true, false, false, true)
+}
+
+func TestPendingSoftDeletesUpdateAppliedOnlyOnce(t *testing.T) {
+	dir := newDirectory()
+	writer := softDeletesTestWriter(t, dir, 3)
+	reader, segmentReader := softDeletesOnlySegmentReader(t, dir)
+	segmentInfo := segmentReader.GetSegmentCommitInfo()
+	var deletes PendingDeletesInterface = NewPendingSoftDeletes("_soft_deletes", segmentInfo)
+	mustOnNewReader(t, deletes, segmentReader, segmentInfo)
+	fieldInfo := softDeletesFieldInfo(segmentInfo.NextDocValuesGen())
+	docsDeleted := []int{1, util.NO_MORE_DOCS}
+	mustOnDocValuesUpdate(t, deletes, fieldInfo, singleUpdate(docsDeleted, 3, true))
+	if deletes.NumPendingDeletes() != 0 {
+		t.Fatalf("expected 0, got %d", deletes.NumPendingDeletes())
+	}
+	if deletes.GetDelCount() != 1 {
+		t.Fatalf("expected 1, got %d", deletes.GetDelCount())
+	}
+	assertLive(t, deletes.GetLiveDocs(), true, false, true)
+	liveDocs := deletes.GetLiveDocs()
+	mustOnNewReader(t, deletes, segmentReader, segmentInfo)
+	// no changes we don't apply updates twice
+	if !sameBits(liveDocs, deletes.GetLiveDocs()) {
+		t.Fatal("assertSame(liveDocs, deletes.getLiveDocs())")
+	}
+	assertLive(t, deletes.GetLiveDocs(), true, false, true)
+	if deletes.NumPendingDeletes() != 0 {
+		t.Fatalf("expected 0, got %d", deletes.NumPendingDeletes())
+	}
+	if deletes.GetDelCount() != 1 {
+		t.Fatalf("expected 1, got %d", deletes.GetDelCount())
+	}
+	pendingSoftDeletesCloseAll(t, reader, writer, dir)
+}
+
+func TestPendingSoftDeletesResetOnUpdate(t *testing.T) {
+	dir := newDirectory()
+	writer := softDeletesTestWriter(t, dir, 3)
+	reader, segmentReader := softDeletesOnlySegmentReader(t, dir)
+	segmentInfo := segmentReader.GetSegmentCommitInfo()
+	var deletes PendingDeletesInterface = NewPendingSoftDeletes("_soft_deletes", segmentInfo)
+	mustOnNewReader(t, deletes, segmentReader, segmentInfo)
+	fieldInfo := softDeletesFieldInfo(segmentInfo.NextDocValuesGen())
+	mustOnDocValuesUpdate(t, deletes, fieldInfo, singleUpdate([]int{0, 1, util.NO_MORE_DOCS}, 3, false))
+	if deletes.NumPendingDeletes() != 0 {
+		t.Fatalf("expected 0, got %d", deletes.NumPendingDeletes())
+	}
+	assertLive(t, deletes.GetLiveDocs(), true, true, true)
+	liveDocs := deletes.GetLiveDocs()
+	mustOnNewReader(t, deletes, segmentReader, segmentInfo)
+	// no changes we keep this update
+	if !sameBits(liveDocs, deletes.GetLiveDocs()) {
+		t.Fatal("assertSame(liveDocs, deletes.getLiveDocs())")
+	}
+	assertLive(t, deletes.GetLiveDocs(), true, true, true)
+	if deletes.NumPendingDeletes() != 0 {
+		t.Fatalf("expected 0, got %d", deletes.NumPendingDeletes())
+	}
+
+	segmentInfo.AdvanceDocValuesGen()
+	fieldInfo = softDeletesFieldInfo(segmentInfo.NextDocValuesGen())
+	mustOnDocValuesUpdate(t, deletes, fieldInfo, singleUpdate([]int{1, util.NO_MORE_DOCS}, 3, true))
+	// no changes we keep this update
+	if sameBits(liveDocs, deletes.GetLiveDocs()) {
+		t.Fatal("assertNotSame(liveDocs, deletes.getLiveDocs())")
+	}
+	assertLive(t, deletes.GetLiveDocs(), true, false, true)
+	if deletes.NumPendingDeletes() != 0 {
+		t.Fatalf("expected 0, got %d", deletes.NumPendingDeletes())
+	}
+	if deletes.GetDelCount() != 1 {
+		t.Fatalf("expected 1, got %d", deletes.GetDelCount())
+	}
+	pendingSoftDeletesCloseAll(t, reader, writer, dir)
 }

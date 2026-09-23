@@ -2,358 +2,275 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for IndexWriter force merge operations.
-//
-// Ported from Apache Lucene's org.apache.lucene.index.TestIndexWriterForceMerge
-// Source: lucene/core/src/test/org/apache/lucene/index/TestIndexWriterForceMerge.java
-//
-// GOC-4145: Port test org.apache.lucene.index.TestIndexWriterForceMerge (Sprint 55).
-//
-// Port strategy (Sprint 55 option c): each Java @Test has a 1:1 Go counterpart.
-// The shared writer/document/commit roundtrip runs for real wherever the Gocene
-// API supports it; assertions that depend on still-missing behavior are gated
-// with t.Skip so the divergence is explicit rather than silently absent.
-//
-// Known API gaps that force a skip in this file:
-//   - LogMergePolicy has no SetMinMergeDocs setter.
-//   - PerField postings/doc-values formats with a merge barrier are not available
-//     (the Java testMergePerField is itself @AwaitsFix upstream).
+// Port of lucene/core/src/test/org/apache/lucene/index/TestIndexWriterForceMerge.java
+// (Apache Lucene 10.5.0). The @AwaitsFix testMergePerField lives in
+// index_writer_force_merge_awaitsfix_test.go.
+
 package index_test
 
 import (
+	"fmt"
+	"io"
+	"strings"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 )
 
-// newForceMergeDoc builds the single-field document reused by most cases,
-// mirroring the `doc` local that the Java test shares across iterations.
-func newForceMergeDoc(t *testing.T, field, value string) *document.Document {
-	t.Helper()
+func TestIndexWriterForceMergePartialMerge(t *testing.T) {
+	dir := newDirectory()
+
 	doc := document.NewDocument()
-	f, err := document.NewStringField(field, value, false)
-	if err != nil {
-		t.Fatalf("NewStringField(%q, %q) error = %v", field, value, err)
+	doc.Add(newStringField(t, "content", "aaa", false))
+	incrMin := 40
+	if testNightly {
+		incrMin = 15
 	}
-	doc.Add(f)
-	return doc
-}
-
-// TestIndexWriterForceMerge_PartialMerge ports testPartialMerge().
-//
-// Verifies that forceMerge(3) reduces the segment count to at most 3.
-func TestIndexWriterForceMerge_PartialMerge(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	doc := newForceMergeDoc(t, "content", "aaa")
-
-	// Java grows numDocs by a random increment; we use a fixed step for a
-	// deterministic, fast test while still spanning several segment counts.
-	const incrMin = 40
-	for numDocs := 10; numDocs < 500; numDocs += incrMin {
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		config.SetOpenMode(index.CREATE)
-		config.SetMaxBufferedDocs(2)
+	for numDocs := 10; numDocs < 500; numDocs += nextInt(incrMin, 5*incrMin) {
 		ldmp := index.NewLogDocMergePolicy()
+		ldmp.SetMinMergeDocs(1)
 		ldmp.SetMergeFactor(5)
-		config.SetMergePolicy(ldmp)
-
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("NewIndexWriter() error = %v", err)
-		}
+		conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		conf.SetOpenMode(index.Create)
+		conf.SetMaxBufferedDocs(2)
+		conf.SetMergePolicy(ldmp)
+		writer := mustNewIndexWriter(t, dir, conf)
 		for j := 0; j < numDocs; j++ {
-			if _, err := writer.AddDocument(doc); err != nil {
-				t.Fatalf("AddDocument() error = %v", err)
-			}
+			mustAddDocument(t, writer, doc)
 		}
-		writer.Close()
+		mustClose(t, writer)
 
-		sis, err := index.ReadSegmentInfos(dir)
-		if err != nil {
-			t.Fatalf("ReadSegmentInfos() error = %v", err)
-		}
+		sis := mustReadLatestCommit(t, dir)
 		segCount := sis.Size()
 
-		config2 := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		ldmp2 := index.NewLogDocMergePolicy()
-		ldmp2.SetMergeFactor(5)
-		config2.SetMergePolicy(ldmp2)
-		writer, err = index.NewIndexWriter(dir, config2)
-		if err != nil {
-			t.Fatalf("NewIndexWriter() error = %v", err)
-		}
+		ldmp = index.NewLogDocMergePolicy()
+		ldmp.SetMergeFactor(5)
+		conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		conf.SetMergePolicy(ldmp)
+		writer = mustNewIndexWriter(t, dir, conf)
 		if err := writer.ForceMerge(3); err != nil {
-			t.Fatalf("ForceMerge(3) error = %v", err)
+			t.Fatalf("forceMerge(3): %v", err)
 		}
-		writer.Close()
+		mustClose(t, writer)
 
-		sis, err = index.ReadSegmentInfos(dir)
-		if err != nil {
-			t.Fatalf("ReadSegmentInfos() error = %v", err)
-		}
+		sis = mustReadLatestCommit(t, dir)
 		optSegCount := sis.Size()
 
 		if segCount < 3 {
-			if optSegCount != segCount {
-				t.Errorf("numDocs=%d: expected %d segments, got %d", numDocs, segCount, optSegCount)
+			if segCount != optSegCount {
+				t.Fatalf("optSegCount: expected %d, got %d", segCount, optSegCount)
 			}
-		} else if optSegCount > 3 {
-			t.Errorf("numDocs=%d (segCount=%d): expected at most 3 segments, got %d", numDocs, segCount, optSegCount)
+		} else if optSegCount != 3 {
+			t.Fatalf("optSegCount: expected 3, got %d", optSegCount)
 		}
 	}
+	mustClose(t, dir)
 }
 
-// TestIndexWriterForceMerge_MaxNumSegments2 ports testMaxNumSegments2().
-//
-// Drives forceMerge(7) under a ConcurrentMergeScheduler across 10 iterations.
-func TestIndexWriterForceMerge_MaxNumSegments2(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+func TestIndexWriterForceMergeMaxNumSegments2(t *testing.T) {
+	dir := newDirectory()
 
-	doc := newForceMergeDoc(t, "content", "aaa")
+	doc := document.NewDocument()
+	doc.Add(newStringField(t, "content", "aaa", false))
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxBufferedDocs(2)
 	ldmp := index.NewLogDocMergePolicy()
+	ldmp.SetMinMergeDocs(1)
 	ldmp.SetMergeFactor(4)
-	config.SetMergePolicy(ldmp)
-	config.SetMergeScheduler(index.NewConcurrentMergeScheduler())
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxBufferedDocs(2)
+	conf.SetMergePolicy(ldmp)
+	conf.SetMergeScheduler(index.NewConcurrentMergeScheduler())
+	writer := mustNewIndexWriter(t, dir, conf)
+	defer mustClose(t, writer, dir)
 
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
+	for i := 0; i < 19; i++ {
+		mustAddDocument(t, writer, doc)
 	}
 
-	for iter := 0; iter < 10; iter++ {
-		for i := 0; i < 19; i++ {
-			if _, err := writer.AddDocument(doc); err != nil {
-				t.Fatalf("iter %d: AddDocument() error = %v", iter, err)
-			}
-		}
-
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("iter %d: Commit() error = %v", iter, err)
-		}
-		if err := writer.WaitForMerges(); err != nil {
-			t.Fatalf("iter %d: WaitForMerges() error = %v", iter, err)
-		}
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("iter %d: Commit() error = %v", iter, err)
-		}
-
-		sis, err := index.ReadSegmentInfos(dir)
-		if err != nil {
-			t.Fatalf("iter %d: ReadSegmentInfos() error = %v", iter, err)
-		}
-		segCount := sis.Size()
-
-		if err := writer.ForceMerge(7); err != nil {
-			t.Fatalf("iter %d: ForceMerge(7) error = %v", iter, err)
-		}
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("iter %d: Commit() error = %v", iter, err)
-		}
-		if err := writer.WaitForMerges(); err != nil {
-			t.Fatalf("iter %d: WaitForMerges() error = %v", iter, err)
-		}
-
-		sis, err = index.ReadSegmentInfos(dir)
-		if err != nil {
-			t.Fatalf("iter %d: ReadSegmentInfos() error = %v", iter, err)
-		}
-		optSegCount := sis.Size()
-
-		if segCount < 7 {
-			if optSegCount != segCount {
-				t.Errorf("iter %d: expected %d segments, got %d", iter, segCount, optSegCount)
-			}
-		} else if optSegCount > 7 {
-			t.Errorf("iter %d (seg: %d): expected at most 7 segments, got %d", iter, segCount, optSegCount)
-		}
-	}
-
-	writer.Close()
+	mustCommit(t, writer)
+	t.Fatal(indexWriterWaitForMergesMissing)
 }
 
-// TestIndexWriterForceMerge_TempSpaceUsage ports testForceMergeTempSpaceUsage().
-//
-// Asserts that forceMerge(1) uses at most 4X the larger of the starting and
-// final index size as temporary disk space. Uses MockDirectoryWrapper to
-// measure peak usage.
-func TestIndexWriterForceMerge_TempSpaceUsage(t *testing.T) {
-	dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxBufferedDocs(10)
-	config.SetMergePolicy(index.NewLogMergePolicy())
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-	for j := 0; j < 500; j++ {
-		if _, err := writer.AddDocument(newForceMergeDoc(t, "content", "aaa")); err != nil {
-			t.Fatalf("AddDocument() error = %v", err)
+// forceMergeTempSpaceAnalyzer renders the anonymous Analyzer of
+// testForceMergeTempSpaceUsage: a lower-casing whitespace MockTokenizer.
+func forceMergeTempSpaceAnalyzer() analysis.Analyzer {
+	a := analysis.NewAnalyzer(nil)
+	a.CreateComponents = func(string) *analysis.TokenStreamComponents {
+		src := testanalysis.NewMockTokenizer(testanalysis.WHITESPACE, true, testanalysis.DefaultMaxTokenLength)
+		return &analysis.TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: src,
 		}
 	}
-	// Force one extra segment with a separate doc store.
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit() error = %v", err)
-	}
-	if _, err := writer.AddDocument(newForceMergeDoc(t, "content", "aaa")); err != nil {
-		t.Fatalf("AddDocument() error = %v", err)
-	}
-	writer.Close()
-
-	startDiskUsage, err := dirSize(dir)
-	if err != nil {
-		t.Fatalf("dirSize() error = %v", err)
-	}
-
-	dir.ResetMaxUsedSizeInBytes()
-	dir.SetTrackDiskUsage(true)
-
-	config2 := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config2.SetOpenMode(index.APPEND)
-	config2.SetMergePolicy(index.NewLogMergePolicy())
-	writer, err = index.NewIndexWriter(dir, config2)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge(1) error = %v", err)
-	}
-	writer.Close()
-
-	finalDiskUsage, err := dirSize(dir)
-	if err != nil {
-		t.Fatalf("dirSize() error = %v", err)
-	}
-	maxDiskUsage := dir.GetMaxUsedSizeInBytes()
-	maxStartFinal := max(startDiskUsage, finalDiskUsage)
-
-	if maxDiskUsage > 4*maxStartFinal {
-		t.Fatalf("forceMerge used too much temporary space: maxUsage=%d start=%d final=%d limit=%d",
-			maxDiskUsage, startDiskUsage, finalDiskUsage, 4*maxStartFinal)
-	}
+	return a
 }
 
-// dirSize returns the sum of the lengths of every file in dir.
-func dirSize(dir store.Directory) (int64, error) {
-	names, err := dir.ListAll()
+func sumFileLengths(t testing.TB, dir store.Directory) int64 {
+	t.Helper()
+	files, err := dir.ListAll()
 	if err != nil {
-		return 0, err
+		t.Fatalf("listAll: %v", err)
 	}
 	var total int64
-	for _, name := range names {
-		sz, err := dir.FileLength(name)
+	for _, f := range files {
+		n, err := dir.FileLength(f)
 		if err != nil {
-			return 0, err
+			t.Fatalf("fileLength(%s): %v", f, err)
 		}
-		total += sz
+		total += n
 	}
-	return total, nil
+	return total
 }
 
+// Make sure forceMerge doesn't use any more than 1X starting index size as its
+// temporary free space required.
+func TestIndexWriterForceMergeForceMergeTempSpaceUsage(t *testing.T) {
+	dir := newDirectory()
+	// don't use MockAnalyzer, variable length payloads can cause merge to make
+	// things bigger, since things are optimized for fixed length case. this is a
+	// problem for MemoryPF's encoding. (it might have other problems too)
+	analyzer := forceMergeTempSpaceAnalyzer()
+	conf := newIndexWriterConfigWithAnalyzer(analyzer)
+	conf.SetMaxBufferedDocs(10)
+	conf.SetMergePolicy(newLogMergePolicy())
+	writer := mustNewIndexWriter(t, dir, conf)
 
-// TestIndexWriterForceMerge_BackgroundForceMerge ports testBackgroundForceMerge().
-func TestIndexWriterForceMerge_BackgroundForceMerge(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	for j := 0; j < 500; j++ {
+		testIndexWriterAddDocWithIndex(t, writer, j)
+	}
+	// force one extra segment w/ different doc store so
+	// we see the doc stores get merged
+	mustCommit(t, writer)
+	testIndexWriterAddDocWithIndex(t, writer, 500)
+	mustClose(t, writer)
 
+	startDiskUsage := sumFileLengths(t, dir)
+	startListing := forceMergeListFiles(t, dir)
+
+	if err := dir.ResetMaxUsedSizeInBytes(); err != nil {
+		t.Fatalf("resetMaxUsedSizeInBytes: %v", err)
+	}
+	dir.SetTrackDiskUsage(true)
+
+	conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetOpenMode(index.Append)
+	conf.SetMergePolicy(newLogMergePolicy())
+	writer = mustNewIndexWriter(t, dir, conf)
+
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge(1): %v", err)
+	}
+	mustClose(t, writer)
+
+	finalDiskUsage := sumFileLengths(t, dir)
+
+	// The result of the merged index is often smaller, but sometimes it could
+	// be bigger (compression slightly changes, Codec changes etc.). Therefore
+	// we compare the temp space used to the max of the initial and final index
+	// size
+	maxStartFinalDiskUsage := max(startDiskUsage, finalDiskUsage)
+	maxDiskUsage := dir.GetMaxUsedSizeInBytes()
+	if !(maxDiskUsage <= 4*maxStartFinalDiskUsage) {
+		t.Fatalf("forceMerge used too much temporary space: starting usage was %d bytes; final usage was %d bytes; "+
+			"max temp usage was %d but should have been at most %d (= 4X starting usage), BEFORE=%sAFTER=%s",
+			startDiskUsage, finalDiskUsage, maxDiskUsage, 4*maxStartFinalDiskUsage, startListing, forceMergeListFiles(t, dir))
+	}
+	mustClose(t, dir)
+}
+
+// forceMergeListFiles renders the private listFiles(Directory): a listing of
+// files and sizes, recursing into CFS to debug nested files there.
+func forceMergeListFiles(t testing.TB, dir store.Directory) string {
+	t.Helper()
+	infos := mustReadLatestCommit(t, dir)
+	var sb strings.Builder
+	sb.WriteString("\n")
+	for info := range infos.Iterator() {
+		for _, file := range info.Files() {
+			n, err := dir.FileLength(file)
+			if err != nil {
+				t.Fatalf("fileLength(%s): %v", file, err)
+			}
+			fmt.Fprintf(&sb, "%-20s%d\n", file, n)
+		}
+		if info.SegmentInfo().IsCompoundFile() {
+			cfs, err := info.SegmentInfo().Codec().CompoundFormat().GetCompoundReader(dir, info.SegmentInfo())
+			if err != nil {
+				t.Fatalf("getCompoundReader: %v", err)
+			}
+			cfsFiles, err := cfs.ListAll()
+			if err != nil {
+				t.Fatalf("cfs.listAll: %v", err)
+			}
+			for _, file := range cfsFiles {
+				n, err := cfs.FileLength(file)
+				if err != nil {
+					t.Fatalf("cfs.fileLength(%s): %v", file, err)
+				}
+				fmt.Fprintf(&sb, " |- (inside compound file) %-20s%d\n", file, n)
+			}
+			if err := cfs.Close(); err != nil {
+				t.Fatalf("cfs.close: %v", err)
+			}
+		}
+	}
+	sb.WriteString("\n")
+	return sb.String()
+}
+
+// Test calling forceMerge(1, false) whereby forceMerge is kicked
+// off but we don't wait for it to finish (but
+// writer.close()) does wait
+func TestIndexWriterForceMergeBackgroundForceMerge(t *testing.T) {
+	dir := newDirectory()
 	for pass := 0; pass < 2; pass++ {
-		cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		cfg.SetOpenMode(index.CREATE)
-		cfg.SetMaxBufferedDocs(2)
-		lmp := index.NewLogMergePolicy()
-		lmp.SetMergeFactor(51)
-		cfg.SetMergePolicy(lmp)
-
-		writer, err := index.NewIndexWriter(dir, cfg)
-		if err != nil {
-			t.Fatalf("pass %d: NewIndexWriter: %v", pass, err)
-		}
-
+		conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		conf.SetOpenMode(index.Create)
+		conf.SetMaxBufferedDocs(2)
+		conf.SetMergePolicy(newLogMergePolicyWithMergeFactor(51))
+		writer := mustNewIndexWriter(t, dir, conf)
+		doc := document.NewDocument()
+		doc.Add(newStringField(t, "field", "aaa", false))
 		for i := 0; i < 100; i++ {
-			if _, err := writer.AddDocument(newForceMergeDoc(t, "field", "aaa")); err != nil {
-				t.Fatalf("pass %d: AddDocument %d: %v", pass, i, err)
-			}
+			mustAddDocument(t, writer, doc)
+		}
+		if _, err := writer.ForceMergeWithObserver(1, false); err != nil {
+			t.Fatalf("forceMerge(1, false): %v", err)
 		}
 
-		observer, err := writer.ForceMergeDoWait(1, false)
-		if err != nil {
-			t.Fatalf("pass %d: ForceMergeDoWait: %v", pass, err)
-		}
-
-		if pass == 0 {
-			if !observer.Await() {
-				t.Fatalf("pass %d: Await returned false", pass)
-			}
-			if err := writer.Close(); err != nil {
-				t.Fatalf("pass %d: Close: %v", pass, err)
-			}
-			reader, err := index.OpenDirectoryReader(dir)
-			if err != nil {
-				t.Fatalf("pass %d: OpenDirectoryReader: %v", pass, err)
-			}
-			leaves, err := reader.Leaves()
-			if err != nil {
-				t.Fatalf("pass %d: Leaves: %v", pass, err)
-			}
-			if len(leaves) != 1 {
-				t.Fatalf("pass %d: expected 1 leaf, got %d", pass, len(leaves))
-			}
-			reader.Close()
+		if 0 == pass {
+			mustClose(t, writer)
+			reader := mustOpenDirectoryReader(t, dir)
+			assertLeafCount(t, 1, reader)
+			mustClose(t, reader)
 		} else {
-			// Wait for the background force merge to finish, then add a new segment.
-			// The new docs must NOT be included in the already-scheduled forced merge.
-			if !observer.Await() {
-				t.Fatalf("pass %d: Await returned false", pass)
-			}
-			if _, err := writer.AddDocument(newForceMergeDoc(t, "field", "aaa")); err != nil {
-				t.Fatalf("pass %d: AddDocument extra: %v", pass, err)
-			}
-			if _, err := writer.AddDocument(newForceMergeDoc(t, "field", "aaa")); err != nil {
-				t.Fatalf("pass %d: AddDocument extra 2: %v", pass, err)
-			}
-			if err := writer.Close(); err != nil {
-				t.Fatalf("pass %d: Close: %v", pass, err)
-			}
-			reader, err := index.OpenDirectoryReader(dir)
-			if err != nil {
-				t.Fatalf("pass %d: OpenDirectoryReader: %v", pass, err)
-			}
+			// Get another segment to flush so we can verify it is
+			// NOT included in the merging
+			mustAddDocument(t, writer, doc)
+			mustAddDocument(t, writer, doc)
+			mustClose(t, writer)
+
+			reader := mustOpenDirectoryReader(t, dir)
 			leaves, err := reader.Leaves()
 			if err != nil {
-				t.Fatalf("pass %d: Leaves: %v", pass, err)
+				t.Fatalf("leaves: %v", err)
 			}
-			if len(leaves) <= 1 {
-				t.Fatalf("pass %d: expected >1 leaves after extra adds, got %d", pass, len(leaves))
+			if !(len(leaves) > 1) {
+				t.Fatalf("assertTrue(reader.leaves().size() > 1): %d", len(leaves))
 			}
-			reader.Close()
+			mustClose(t, reader)
 
-			sis, err := index.ReadSegmentInfos(dir)
-			if err != nil {
-				t.Fatalf("pass %d: ReadSegmentInfos: %v", pass, err)
-			}
-			if sis.Size() != 2 {
-				t.Fatalf("pass %d: expected 2 segments, got %d", pass, sis.Size())
-			}
+			infos := mustReadLatestCommit(t, dir)
+			assertSegmentInfosSize(t, 2, infos)
 		}
 	}
-}
 
-// TestIndexWriterForceMerge_MergePerField ports testMergePerField().
-//
-// The Java test is annotated @AwaitsFix (apache/lucene#13478) and additionally
-// requires PerField postings/doc-values formats with a CyclicBarrier on merge.
-// Neither the upstream fix nor those test hooks exist here, so it is skipped.
-func TestIndexWriterForceMerge_MergePerField(t *testing.T) {
-	t.Fatal("upstream @AwaitsFix (apache/lucene#13478); PerField merge-barrier formats unavailable")
+	mustClose(t, dir)
 }

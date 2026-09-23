@@ -49,55 +49,14 @@ func (q *FieldExistsQuery) Field() string {
 // Mirrors the static
 // FieldExistsQuery.getDocValuesDocIdSetIterator(String, LeafReader).
 func GetDocValuesDocIdSetIterator(field string, reader index.LeafReader) (DocIdSetIterator, error) {
-	fieldInfo := reader.GetFieldInfos().FieldInfo(field)
-	if fieldInfo == nil {
-		return nil, nil
-	}
-	switch fieldInfo.DocValuesType() {
-	case spi.DocValuesTypeNone:
-		return nil, nil
-	case spi.DocValuesTypeNumeric:
-		dv, err := reader.GetNumericDocValues(field)
-		if err != nil || dv == nil {
-			return nil, err
-		}
-		return asDocValuesIterator(dv)
-	case spi.DocValuesTypeBinary:
-		dv, err := reader.GetBinaryDocValues(field)
-		if err != nil || dv == nil {
-			return nil, err
-		}
-		return asDocValuesIterator(dv)
-	case spi.DocValuesTypeSorted:
-		dv, err := reader.GetSortedDocValues(field)
-		if err != nil || dv == nil {
-			return nil, err
-		}
-		return asDocValuesIterator(dv)
-	case spi.DocValuesTypeSortedNumeric:
-		dv, err := reader.GetSortedNumericDocValues(field)
-		if err != nil || dv == nil {
-			return nil, err
-		}
-		return asDocValuesIterator(dv)
-	case spi.DocValuesTypeSortedSet:
-		dv, err := reader.GetSortedSetDocValues(field)
-		if err != nil || dv == nil {
-			return nil, err
-		}
-		return asDocValuesIterator(dv)
-	default:
-		return nil, fmt.Errorf("FieldExistsQuery: unexpected doc values type %v for field %q", fieldInfo.DocValuesType(), field)
-	}
+	// The body lives in package spi so that package index, which Java
+	// org.apache.lucene.index.PendingSoftDeletes and IndexWriter reach it
+	// from, can call it without an index -> search import cycle.
+	return spi.FieldExistsQueryGetDocValuesDocIdSetIterator(field, reader)
 }
 
 // asDocValuesIterator renders the Java assignment of a doc-values instance to a
-// DocIdSetIterator variable. Java's doc-values classes all extend
-// DocValuesIterator, itself a DocIdSetIterator; Gocene's spi doc-values
-// contracts carry the iteration primitives (DocID/NextDoc/Advance/Cost) but the
-// numeric and binary ones do not declare intoBitSet/docIDRunEnd, so the widening
-// is expressed as a type assertion and a missing member is reported rather than
-// silently dropped.
+// DocIdSetIterator variable; see spi.FieldExistsQueryGetDocValuesDocIdSetIterator.
 func asDocValuesIterator(dv any) (DocIdSetIterator, error) {
 	it, ok := dv.(DocIdSetIterator)
 	if !ok {

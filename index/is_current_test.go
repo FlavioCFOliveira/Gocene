@@ -22,7 +22,7 @@ import (
 // the one-field, single-token documents used by TestIsCurrent.
 func newIsCurrentWriter(t *testing.T, dir store.Directory) *index.IndexWriter {
 	t.Helper()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	w, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -57,7 +57,7 @@ func TestIsCurrent_DeleteByTermIsCurrent(t *testing.T) {
 	defer writer.Close()
 
 	addIsCurrentDoc(t, writer, "aaa")
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 
@@ -75,10 +75,10 @@ func TestIsCurrent_DeleteByTermIsCurrent(t *testing.T) {
 		t.Fatal("fresh NRT reader should be current")
 	}
 
-	if _, err := writer.DeleteDocuments(index.NewTerm("content", "aaa")); err != nil {
+	if _, err := writer.DeleteDocuments([]index.Term{*index.NewTerm("content", "aaa")}); err != nil {
 		t.Fatalf("DeleteDocuments: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit after delete: %v", err)
 	}
 
@@ -103,7 +103,7 @@ func TestIsCurrent_DeleteAllIsCurrent(t *testing.T) {
 	defer writer.Close()
 
 	addIsCurrentDoc(t, writer, "aaa")
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 
@@ -124,7 +124,7 @@ func TestIsCurrent_DeleteAllIsCurrent(t *testing.T) {
 	if _, err := writer.DeleteAll(); err != nil {
 		t.Fatalf("DeleteAll: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit after deleteAll: %v", err)
 	}
 

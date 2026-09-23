@@ -2,314 +2,502 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// rmp #6 acceptance tests: the MultiDocValues helpers must flatten a
-// multi-segment reader's doc values into one virtual iterator, returning
-// correct per-document values and (for sorted / sorted-set) global ordinals.
+// Port of lucene/core/src/test/org/apache/lucene/index/TestMultiDocValues.java
+// (Apache Lucene 10.5.0): tests MultiDocValues versus ordinary segment merging.
+
 package index_test
 
 import (
+	"bytes"
+	"math/rand"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
+	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// dvNoMore is the read-side doc-values exhaustion sentinel
-// (DocIdSetIterator.NO_MORE_DOCS = Integer.MAX_VALUE), which the MultiDocValues
-// iterators return at end-of-iteration — distinct from index.NO_MORE_DOCS (-1,
-// the PostingsEnum sentinel).
-const dvNoMore = 2147483647
+// multiDocValuesConfig renders newIndexWriterConfig(random(), null) followed by
+// iwc.setMergePolicy(newLogMergePolicy()).
+func multiDocValuesConfig() *index.IndexWriterConfig {
+	iwc := newIndexWriterConfigWithAnalyzer(nil)
+	iwc.SetMergePolicy(newLogMergePolicy())
+	return iwc
+}
 
-// newMultiSegmentDVReader writes one document per commit so each lands in its
-// own segment, then opens a multi-segment DirectoryReader. Each doc carries the
-// five doc-values types keyed off the supplied numeric value.
-func newMultiSegmentDVReader(t *testing.T, nums []int64, sorted []string) *index.DirectoryReader {
+// multiDocValuesReaders renders the shared tail of every test: getReader,
+// forceMerge(1), getReader, getOnlyLeafReader, close.
+func multiDocValuesReaders(t *testing.T, iw *testindex.RandomIndexWriter) (*index.DirectoryReader, *index.DirectoryReader, index.LeafReader) {
 	t.Helper()
-	dir := store.NewByteBuffersDirectory()
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
+	ir, err := iw.GetReader()
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("getReader: %v", err)
 	}
-	for i := range nums {
+	if err := iw.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	ir2, err := iw.GetReader()
+	if err != nil {
+		t.Fatalf("getReader: %v", err)
+	}
+	merged := getOnlyLeafReader(t, ir2)
+	mustClose(t, iw)
+	return ir, ir2, merged
+}
+
+func multiDocValuesMaybeCommit(t *testing.T, iw *testindex.RandomIndexWriter) {
+	t.Helper()
+	if rand.Intn(17) == 0 {
+		if _, err := iw.Commit(); err != nil {
+			t.Fatalf("commit: %v", err)
+		}
+	}
+}
+
+func mdvAdd(t *testing.T, iw *testindex.RandomIndexWriter, doc *document.Document) {
+	t.Helper()
+	if _, err := iw.AddDocument(doc); err != nil {
+		t.Fatalf("addDocument: %v", err)
+	}
+}
+
+func mdvNext(t *testing.T, it interface{ NextDoc() (int, error) }) int {
+	t.Helper()
+	doc, err := it.NextDoc()
+	if err != nil {
+		t.Fatalf("nextDoc: %v", err)
+	}
+	return doc
+}
+
+func mdvCheck(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMultiDocValuesNumerics(t *testing.T) {
+	dir := newDirectory()
+	doc := document.NewDocument()
+	field, err := document.NewNumericDocValuesField("numbers", 0)
+	mdvCheck(t, err)
+	doc.Add(field)
+
+	iw := newRandomIndexWriterWithConfig(t, dir, multiDocValuesConfig())
+
+	numDocs := atLeast(50)
+	for i := 0; i < numDocs; i++ {
+		field.SetLongValue(int64(rand.Uint64()))
+		mdvAdd(t, iw, doc)
+		multiDocValuesMaybeCommit(t, iw)
+	}
+	ir, ir2, merged := multiDocValuesReaders(t, iw)
+
+	multi, err := index.MultiDocValuesGetNumericValues(ir, "numbers")
+	mdvCheck(t, err)
+	single, err := merged.GetNumericDocValues("numbers")
+	mdvCheck(t, err)
+	for i := 0; i < numDocs; i++ {
+		if got := mdvNext(t, multi); got != i {
+			t.Fatalf("multi.nextDoc: expected %d, got %d", i, got)
+		}
+		if got := mdvNext(t, single); got != i {
+			t.Fatalf("single.nextDoc: expected %d, got %d", i, got)
+		}
+		sv, err := single.LongValue()
+		mdvCheck(t, err)
+		mv, err := multi.LongValue()
+		mdvCheck(t, err)
+		if sv != mv {
+			t.Fatalf("doc %d: expected %d, got %d", i, sv, mv)
+		}
+	}
+	a, err := merged.GetNumericDocValues("numbers")
+	mdvCheck(t, err)
+	b, err := index.MultiDocValuesGetNumericValues(ir, "numbers")
+	mdvCheck(t, err)
+	mdvTestRandomAdvance(t, a, b)
+	a, err = merged.GetNumericDocValues("numbers")
+	mdvCheck(t, err)
+	b, err = index.MultiDocValuesGetNumericValues(ir, "numbers")
+	mdvCheck(t, err)
+	mdvTestRandomAdvanceExact(t, a, b, merged.MaxDoc())
+
+	mustClose(t, ir, ir2, dir)
+}
+
+func TestMultiDocValuesBinary(t *testing.T) {
+	dir := newDirectory()
+	doc := document.NewDocument()
+	field, err := document.NewBinaryDocValuesField("bytes", []byte{})
+	mdvCheck(t, err)
+	doc.Add(field)
+
+	iw := newRandomIndexWriterWithConfig(t, dir, multiDocValuesConfig())
+
+	numDocs := atLeast(50)
+	r := rand.New(rand.NewSource(rand.Int63()))
+	for i := 0; i < numDocs; i++ {
+		field.SetBytesValue([]byte(util.RandomUnicodeString(r, 20)))
+		mdvAdd(t, iw, doc)
+		multiDocValuesMaybeCommit(t, iw)
+	}
+	ir, ir2, merged := multiDocValuesReaders(t, iw)
+
+	multi, err := index.MultiDocValuesGetBinaryValues(ir, "bytes")
+	mdvCheck(t, err)
+	single, err := merged.GetBinaryDocValues("bytes")
+	mdvCheck(t, err)
+	for i := 0; i < numDocs; i++ {
+		if got := mdvNext(t, multi); got != i {
+			t.Fatalf("multi.nextDoc: expected %d, got %d", i, got)
+		}
+		if got := mdvNext(t, single); got != i {
+			t.Fatalf("single.nextDoc: expected %d, got %d", i, got)
+		}
+		sv, err := single.BinaryValue()
+		mdvCheck(t, err)
+		expected := append([]byte(nil), sv...)
+		actual, err := multi.BinaryValue()
+		mdvCheck(t, err)
+		if !bytes.Equal(expected, actual) {
+			t.Fatalf("doc %d: expected %v, got %v", i, expected, actual)
+		}
+	}
+	a, err := merged.GetBinaryDocValues("bytes")
+	mdvCheck(t, err)
+	b, err := index.MultiDocValuesGetBinaryValues(ir, "bytes")
+	mdvCheck(t, err)
+	mdvTestRandomAdvance(t, a, b)
+	a, err = merged.GetBinaryDocValues("bytes")
+	mdvCheck(t, err)
+	b, err = index.MultiDocValuesGetBinaryValues(ir, "bytes")
+	mdvCheck(t, err)
+	mdvTestRandomAdvanceExact(t, a, b, merged.MaxDoc())
+
+	mustClose(t, ir, ir2, dir)
+}
+
+func mdvCheckSorted(t *testing.T, single, multi index.SortedDocValues) {
+	t.Helper()
+	so, err := single.OrdValue()
+	mdvCheck(t, err)
+	mo, err := multi.OrdValue()
+	mdvCheck(t, err)
+	// check value
+	sv, err := single.LookupOrd(so)
+	mdvCheck(t, err)
+	expected := append([]byte(nil), sv...)
+	actual, err := multi.LookupOrd(mo)
+	mdvCheck(t, err)
+	if !bytes.Equal(expected, actual) {
+		t.Fatalf("expected %v, got %v", expected, actual)
+	}
+	// check ord
+	if so != mo {
+		t.Fatalf("expected ord %d, got %d", so, mo)
+	}
+}
+
+func TestMultiDocValuesSorted(t *testing.T) {
+	dir := newDirectory()
+	doc := document.NewDocument()
+	field, err := document.NewSortedDocValuesField("bytes", []byte{})
+	mdvCheck(t, err)
+	doc.Add(field)
+
+	iw := newRandomIndexWriterWithConfig(t, dir, multiDocValuesConfig())
+
+	numDocs := atLeast(50)
+	r := rand.New(rand.NewSource(rand.Int63()))
+	for i := 0; i < numDocs; i++ {
+		field.SetBytesValue([]byte(util.RandomUnicodeString(r, 20)))
+		if rand.Intn(7) == 0 {
+			mdvAdd(t, iw, document.NewDocument())
+		}
+		mdvAdd(t, iw, doc)
+		multiDocValuesMaybeCommit(t, iw)
+	}
+	ir, ir2, merged := multiDocValuesReaders(t, iw)
+	multi, err := index.MultiDocValuesGetSortedValues(ir, "bytes")
+	mdvCheck(t, err)
+	single, err := merged.GetSortedDocValues("bytes")
+	mdvCheck(t, err)
+	if single.GetValueCount() != multi.GetValueCount() {
+		t.Fatalf("expected valueCount %d, got %d", single.GetValueCount(), multi.GetValueCount())
+	}
+	for {
+		sd := mdvNext(t, single)
+		md := mdvNext(t, multi)
+		if sd != md {
+			t.Fatalf("expected doc %d, got %d", sd, md)
+		}
+		if single.DocID() == index.NO_MORE_DOCS {
+			break
+		}
+		mdvCheckSorted(t, single, multi)
+	}
+	a, err := merged.GetSortedDocValues("bytes")
+	mdvCheck(t, err)
+	b, err := index.MultiDocValuesGetSortedValues(ir, "bytes")
+	mdvCheck(t, err)
+	mdvTestRandomAdvance(t, a, b)
+	a, err = merged.GetSortedDocValues("bytes")
+	mdvCheck(t, err)
+	b, err = index.MultiDocValuesGetSortedValues(ir, "bytes")
+	mdvCheck(t, err)
+	mdvTestRandomAdvanceExact(t, a, b, merged.MaxDoc())
+	mustClose(t, ir, ir2, dir)
+}
+
+// TestMultiDocValuesSortedWithLotsOfDups tries to make more dups than testSorted.
+func TestMultiDocValuesSortedWithLotsOfDups(t *testing.T) {
+	dir := newDirectory()
+	doc := document.NewDocument()
+	field, err := document.NewSortedDocValuesField("bytes", []byte{})
+	mdvCheck(t, err)
+	doc.Add(field)
+
+	iw := newRandomIndexWriterWithConfig(t, dir, multiDocValuesConfig())
+
+	numDocs := atLeast(50)
+	r := rand.New(rand.NewSource(rand.Int63()))
+	for i := 0; i < numDocs; i++ {
+		field.SetBytesValue([]byte(util.RandomSimpleString(r, 0, 2)))
+		mdvAdd(t, iw, doc)
+		multiDocValuesMaybeCommit(t, iw)
+	}
+	ir, ir2, merged := multiDocValuesReaders(t, iw)
+
+	multi, err := index.MultiDocValuesGetSortedValues(ir, "bytes")
+	mdvCheck(t, err)
+	single, err := merged.GetSortedDocValues("bytes")
+	mdvCheck(t, err)
+	if single.GetValueCount() != multi.GetValueCount() {
+		t.Fatalf("expected valueCount %d, got %d", single.GetValueCount(), multi.GetValueCount())
+	}
+	for i := 0; i < numDocs; i++ {
+		if got := mdvNext(t, multi); got != i {
+			t.Fatalf("multi.nextDoc: expected %d, got %d", i, got)
+		}
+		if got := mdvNext(t, single); got != i {
+			t.Fatalf("single.nextDoc: expected %d, got %d", i, got)
+		}
+		mdvCheckSorted(t, single, multi)
+	}
+	a, err := merged.GetSortedDocValues("bytes")
+	mdvCheck(t, err)
+	b, err := index.MultiDocValuesGetSortedValues(ir, "bytes")
+	mdvCheck(t, err)
+	mdvTestRandomAdvance(t, a, b)
+	a, err = merged.GetSortedDocValues("bytes")
+	mdvCheck(t, err)
+	b, err = index.MultiDocValuesGetSortedValues(ir, "bytes")
+	mdvCheck(t, err)
+	mdvTestRandomAdvanceExact(t, a, b, merged.MaxDoc())
+
+	mustClose(t, ir, ir2, dir)
+}
+
+func mdvCheckSortedSet(t *testing.T, single, multi index.SortedSetDocValues) {
+	t.Helper()
+	if multi == nil {
+		if single != nil {
+			t.Fatal("assertNull(single)")
+		}
+		return
+	}
+	if single.GetValueCount() != multi.GetValueCount() {
+		t.Fatalf("expected valueCount %d, got %d", single.GetValueCount(), multi.GetValueCount())
+	}
+	// check values
+	for i := 0; i < single.GetValueCount(); i++ {
+		sv, err := single.LookupOrd(i)
+		mdvCheck(t, err)
+		expected := append([]byte(nil), sv...)
+		actual, err := multi.LookupOrd(i)
+		mdvCheck(t, err)
+		if !bytes.Equal(expected, actual) {
+			t.Fatalf("ord %d: expected %v, got %v", i, expected, actual)
+		}
+	}
+	// check ord list
+	for {
+		docID := mdvNext(t, single)
+		if got := mdvNext(t, multi); got != docID {
+			t.Fatalf("expected doc %d, got %d", docID, got)
+		}
+		if docID == index.NO_MORE_DOCS {
+			break
+		}
+		if single.DocValueCount() != multi.DocValueCount() {
+			t.Fatalf("expected docValueCount %d, got %d", single.DocValueCount(), multi.DocValueCount())
+		}
+		for i := 0; i < single.DocValueCount(); i++ {
+			so, err := single.NextOrd()
+			mdvCheck(t, err)
+			mo, err := multi.NextOrd()
+			mdvCheck(t, err)
+			if so != mo {
+				t.Fatalf("expected ord %d, got %d", so, mo)
+			}
+		}
+	}
+}
+
+func mdvSortedSetTest(t *testing.T, value func(r *rand.Rand) string) {
+	dir := newDirectory()
+
+	iw := newRandomIndexWriterWithConfig(t, dir, multiDocValuesConfig())
+
+	numDocs := atLeast(50)
+	r := rand.New(rand.NewSource(rand.Int63()))
+	for i := 0; i < numDocs; i++ {
 		doc := document.NewDocument()
-		nf, _ := document.NewNumericDocValuesField("num", nums[i])
-		doc.Add(nf)
-		bf, _ := document.NewBinaryDocValuesField("bin", []byte(sorted[i]))
-		doc.Add(bf)
-		sf, _ := document.NewSortedDocValuesField("srt", []byte(sorted[i]))
-		doc.Add(sf)
-		snf, _ := document.NewSortedNumericDocValuesField("snum", []int64{nums[i], nums[i] + 1000})
-		doc.Add(snf)
-		ssf, _ := document.NewSortedSetDocValuesField("sset", [][]byte{[]byte(sorted[i]), []byte("z-shared")})
-		doc.Add(ssf)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument(%d): %v", i, err)
+		numValues := rand.Intn(5)
+		for j := 0; j < numValues; j++ {
+			f, err := document.NewSortedSetDocValuesField("bytes", [][]byte{[]byte(value(r))})
+			mdvCheck(t, err)
+			doc.Add(f)
 		}
-		if err := writer.Commit(); err != nil { // one segment per doc
-			t.Fatalf("Commit(%d): %v", i, err)
-		}
+		mdvAdd(t, iw, doc)
+		multiDocValuesMaybeCommit(t, iw)
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	if got := len(mustLeaves(t, reader)); got != len(nums) {
-		t.Fatalf("expected %d segments, got %d", len(nums), got)
-	}
-	return reader
+	ir, ir2, merged := multiDocValuesReaders(t, iw)
+
+	multi, err := index.MultiDocValuesGetSortedSetValues(ir, "bytes")
+	mdvCheck(t, err)
+	single, err := merged.GetSortedSetDocValues("bytes")
+	mdvCheck(t, err)
+	mdvCheckSortedSet(t, single, multi)
+	a, err := merged.GetSortedSetDocValues("bytes")
+	mdvCheck(t, err)
+	b, err := index.MultiDocValuesGetSortedSetValues(ir, "bytes")
+	mdvCheck(t, err)
+	mdvTestRandomAdvance(t, a, b)
+	a, err = merged.GetSortedSetDocValues("bytes")
+	mdvCheck(t, err)
+	b, err = index.MultiDocValuesGetSortedSetValues(ir, "bytes")
+	mdvCheck(t, err)
+	mdvTestRandomAdvanceExact(t, a, b, merged.MaxDoc())
+
+	mustClose(t, ir, ir2, dir)
 }
 
-func mustLeaves(t *testing.T, r *index.DirectoryReader) []*index.LeafReaderContext {
+func TestMultiDocValuesSortedSet(t *testing.T) {
+	mdvSortedSetTest(t, func(r *rand.Rand) string { return util.RandomUnicodeString(r, 20) })
+}
+
+// TestMultiDocValuesSortedSetWithDups tries to make more dups than testSortedSet.
+func TestMultiDocValuesSortedSetWithDups(t *testing.T) {
+	mdvSortedSetTest(t, func(r *rand.Rand) string { return util.RandomSimpleString(r, 0, 2) })
+}
+
+func TestMultiDocValuesSortedNumeric(t *testing.T) {
+	dir := newDirectory()
+
+	iw := newRandomIndexWriterWithConfig(t, dir, multiDocValuesConfig())
+
+	numDocs := atLeast(50)
+	for i := 0; i < numDocs; i++ {
+		doc := document.NewDocument()
+		numValues := rand.Intn(5)
+		for j := 0; j < numValues; j++ {
+			f, err := document.NewSortedNumericDocValuesField("nums", []int64{int64(rand.Uint64())})
+			mdvCheck(t, err)
+			doc.Add(f)
+		}
+		mdvAdd(t, iw, doc)
+		multiDocValuesMaybeCommit(t, iw)
+	}
+	ir, ir2, merged := multiDocValuesReaders(t, iw)
+
+	multi, err := index.MultiDocValuesGetSortedNumericValues(ir, "nums")
+	mdvCheck(t, err)
+	single, err := merged.GetSortedNumericDocValues("nums")
+	mdvCheck(t, err)
+	if multi == nil {
+		if single != nil {
+			t.Fatal("assertNull(single)")
+		}
+	} else {
+		// check values
+		for i := 0; i < numDocs; i++ {
+			if i > single.DocID() {
+				sd := mdvNext(t, single)
+				if md := mdvNext(t, multi); sd != md {
+					t.Fatalf("expected doc %d, got %d", sd, md)
+				}
+			}
+			if i == single.DocID() {
+				sc, err := single.DocValueCount()
+				mdvCheck(t, err)
+				mc, err := multi.DocValueCount()
+				mdvCheck(t, err)
+				if sc != mc {
+					t.Fatalf("expected docValueCount %d, got %d", sc, mc)
+				}
+				for j := 0; j < sc; j++ {
+					sv, err := single.NextValue()
+					mdvCheck(t, err)
+					mv, err := multi.NextValue()
+					mdvCheck(t, err)
+					if sv != mv {
+						t.Fatalf("expected value %d, got %d", sv, mv)
+					}
+				}
+			}
+		}
+	}
+	a, err := merged.GetSortedNumericDocValues("nums")
+	mdvCheck(t, err)
+	b, err := index.MultiDocValuesGetSortedNumericValues(ir, "nums")
+	mdvCheck(t, err)
+	mdvTestRandomAdvance(t, a, b)
+	a, err = merged.GetSortedNumericDocValues("nums")
+	mdvCheck(t, err)
+	b, err = index.MultiDocValuesGetSortedNumericValues(ir, "nums")
+	mdvCheck(t, err)
+	mdvTestRandomAdvanceExact(t, a, b, merged.MaxDoc())
+
+	mustClose(t, ir, ir2, dir)
+}
+
+func mdvTestRandomAdvance(t *testing.T, iter1, iter2 util.DocIdSetIterator) {
 	t.Helper()
-	leaves, err := r.Leaves()
-	if err != nil {
-		t.Fatalf("Leaves: %v", err)
+	if iter1.DocID() != -1 || iter2.DocID() != -1 {
+		t.Fatalf("expected -1/-1, got %d/%d", iter1.DocID(), iter2.DocID())
 	}
-	return leaves
-}
-
-func TestMultiDocValues_Numeric(t *testing.T) {
-	reader := newMultiSegmentDVReader(t, []int64{18, -1, 7}, []string{"ccc", "aaa", "bbb"})
-	defer reader.Close()
-
-	dv, err := index.MultiDocValuesGetNumericValues(reader, "num")
-	if err != nil {
-		t.Fatalf("MultiDocValuesGetNumericValues: %v", err)
-	}
-	if dv == nil {
-		t.Fatal("got nil numeric doc values")
-	}
-	want := []int64{18, -1, 7} // doc order across segments
-	for i, w := range want {
-		doc, err := dv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if doc != i {
-			t.Fatalf("doc=%d want %d", doc, i)
-		}
-		v, err := dv.LongValue()
-		if err != nil {
-			t.Fatalf("LongValue: %v", err)
-		}
-		if v != w {
-			t.Fatalf("doc %d: value=%d want %d", doc, v, w)
-		}
-	}
-	if doc, _ := dv.NextDoc(); doc != dvNoMore {
-		t.Fatalf("trailing doc=%d want NO_MORE_DOCS(MaxInt32)", doc)
-	}
-}
-
-func TestMultiDocValues_Binary(t *testing.T) {
-	reader := newMultiSegmentDVReader(t, []int64{1, 2, 3}, []string{"ccc", "aaa", "bbb"})
-	defer reader.Close()
-
-	dv, err := index.MultiDocValuesGetBinaryValues(reader, "bin")
-	if err != nil {
-		t.Fatalf("MultiDocValuesGetBinaryValues: %v", err)
-	}
-	if dv == nil {
-		t.Fatal("got nil binary doc values")
-	}
-	want := []string{"ccc", "aaa", "bbb"}
-	for i, w := range want {
-		doc, err := dv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if doc != i {
-			t.Fatalf("doc=%d want %d", doc, i)
-		}
-		b, err := dv.BinaryValue()
-		if err != nil {
-			t.Fatalf("BinaryValue: %v", err)
-		}
-		if string(b) != w {
-			t.Fatalf("doc %d: value=%q want %q", doc, b, w)
-		}
-	}
-}
-
-func TestMultiDocValues_SortedNumeric(t *testing.T) {
-	reader := newMultiSegmentDVReader(t, []int64{18, -1, 7}, []string{"ccc", "aaa", "bbb"})
-	defer reader.Close()
-
-	dv, err := index.MultiDocValuesGetSortedNumericValues(reader, "snum")
-	if err != nil {
-		t.Fatalf("MultiDocValuesGetSortedNumericValues: %v", err)
-	}
-	if dv == nil {
-		t.Fatal("got nil sorted-numeric doc values")
-	}
-	base := []int64{18, -1, 7}
-	for i, b := range base {
-		doc, err := dv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if doc != i {
-			t.Fatalf("doc=%d want %d", doc, i)
-		}
-		cnt, err := dv.DocValueCount()
-		if err != nil {
-			t.Fatalf("DocValueCount: %v", err)
-		}
-		if cnt != 2 {
-			t.Fatalf("doc %d: count=%d want 2", doc, cnt)
-		}
-		v0, _ := dv.NextValue()
-		v1, _ := dv.NextValue()
-		// SortedNumeric stores values ascending per document.
-		lo, hi := b, b+1000
-		if lo > hi {
-			lo, hi = hi, lo
-		}
-		if v0 != lo || v1 != hi {
-			t.Fatalf("doc %d: values=(%d,%d) want (%d,%d)", doc, v0, v1, lo, hi)
-		}
-	}
-}
-
-func TestMultiDocValues_Sorted_GlobalOrdinals(t *testing.T) {
-	// Per-segment local ords are all 0 (one value per segment); the global
-	// ordinal space must order them aaa<bbb<ccc => ords 0,1,2.
-	reader := newMultiSegmentDVReader(t, []int64{1, 2, 3}, []string{"ccc", "aaa", "bbb"})
-	defer reader.Close()
-
-	dv, err := index.MultiDocValuesGetSortedValues(reader, "srt")
-	if err != nil {
-		t.Fatalf("MultiDocValuesGetSortedValues: %v", err)
-	}
-	if dv == nil {
-		t.Fatal("got nil sorted doc values")
-	}
-	if vc := dv.GetValueCount(); vc != 3 {
-		t.Fatalf("GetValueCount=%d want 3", vc)
-	}
-	// docID -> expected term, and expected global ord (aaa=0,bbb=1,ccc=2).
-	wantTerm := []string{"ccc", "aaa", "bbb"}
-	wantOrd := []int{2, 0, 1}
-	for i := range wantTerm {
-		doc, err := dv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if doc != i {
-			t.Fatalf("doc=%d want %d", doc, i)
-		}
-		ord, err := dv.OrdValue()
-		if err != nil {
-			t.Fatalf("OrdValue: %v", err)
-		}
-		if ord != wantOrd[i] {
-			t.Fatalf("doc %d: global ord=%d want %d", doc, ord, wantOrd[i])
-		}
-		term, err := dv.LookupOrd(ord)
-		if err != nil {
-			t.Fatalf("LookupOrd(%d): %v", ord, err)
-		}
-		if string(term) != wantTerm[i] {
-			t.Fatalf("doc %d: lookupOrd(%d)=%q want %q", doc, ord, term, wantTerm[i])
-		}
-	}
-	// Global ordinal table must be sorted: 0=aaa,1=bbb,2=ccc.
-	for ord, want := range []string{"aaa", "bbb", "ccc"} {
-		got, err := dv.LookupOrd(ord)
-		if err != nil {
-			t.Fatalf("LookupOrd(%d): %v", ord, err)
-		}
-		if string(got) != want {
-			t.Fatalf("global ord %d = %q want %q", ord, got, want)
-		}
-	}
-}
-
-func TestMultiDocValues_SortedSet_GlobalOrdinals(t *testing.T) {
-	// Each doc carries its own term plus the shared "z-shared". Global ords are
-	// sorted across all unique terms: aaa=0,bbb=1,ccc=2,z-shared=3.
-	reader := newMultiSegmentDVReader(t, []int64{1, 2, 3}, []string{"ccc", "aaa", "bbb"})
-	defer reader.Close()
-
-	dv, err := index.MultiDocValuesGetSortedSetValues(reader, "sset")
-	if err != nil {
-		t.Fatalf("MultiDocValuesGetSortedSetValues: %v", err)
-	}
-	if dv == nil {
-		t.Fatal("got nil sorted-set doc values")
-	}
-	if vc := dv.GetValueCount(); vc != 4 {
-		t.Fatalf("GetValueCount=%d want 4 (aaa,bbb,ccc,z-shared)", vc)
-	}
-	perDocTerm := []string{"ccc", "aaa", "bbb"}
-	for i, own := range perDocTerm {
-		doc, err := dv.NextDoc()
-		if err != nil {
-			t.Fatalf("NextDoc: %v", err)
-		}
-		if doc != i {
-			t.Fatalf("doc=%d want %d", doc, i)
-		}
-		var terms []string
-		for {
-			ord, err := dv.NextOrd()
-			if err != nil {
-				t.Fatalf("NextOrd: %v", err)
+	for iter1.DocID() != index.NO_MORE_DOCS {
+		if rand.Intn(2) == 0 {
+			a := mdvNext(t, iter1)
+			if b := mdvNext(t, iter2); a != b {
+				t.Fatalf("nextDoc: expected %d, got %d", a, b)
 			}
-			if ord == -1 {
-				break
+		} else {
+			target := iter1.DocID() + nextInt(1, 100)
+			a, err := iter1.Advance(target)
+			mdvCheck(t, err)
+			b, err := iter2.Advance(target)
+			mdvCheck(t, err)
+			if a != b {
+				t.Fatalf("advance(%d): expected %d, got %d", target, a, b)
 			}
-			term, err := dv.LookupOrd(ord)
-			if err != nil {
-				t.Fatalf("LookupOrd(%d): %v", ord, err)
-			}
-			terms = append(terms, string(term))
-		}
-		if len(terms) != 2 || !contains(terms, own) || !contains(terms, "z-shared") {
-			t.Fatalf("doc %d: terms=%v want [%s z-shared]", doc, terms, own)
-		}
-	}
-	// Global ordinal table must be sorted: 0=aaa,1=bbb,2=ccc,3=z-shared.
-	for ord, want := range []string{"aaa", "bbb", "ccc", "z-shared"} {
-		got, err := dv.LookupOrd(ord)
-		if err != nil {
-			t.Fatalf("LookupOrd(%d): %v", ord, err)
-		}
-		if string(got) != want {
-			t.Fatalf("global ord %d = %q want %q", ord, got, want)
 		}
 	}
 }
 
-// TestMultiDocValues_Advance exercises the Advance path across segment
-// boundaries on the merged numeric iterator.
-func TestMultiDocValues_Advance(t *testing.T) {
-	reader := newMultiSegmentDVReader(t, []int64{10, 20, 30, 40}, []string{"a", "b", "c", "d"})
-	defer reader.Close()
-
-	dv, err := index.MultiDocValuesGetNumericValues(reader, "num")
-	if err != nil || dv == nil {
-		t.Fatalf("numeric dv: %v", err)
-	}
-	// Advance straight to doc 2 (third segment).
-	doc, err := dv.Advance(2)
-	if err != nil {
-		t.Fatalf("Advance(2): %v", err)
-	}
-	if doc != 2 {
-		t.Fatalf("Advance(2)=%d want 2", doc)
-	}
-	if v, _ := dv.LongValue(); v != 30 {
-		t.Fatalf("value at doc 2 = %d want 30", v)
-	}
-	// Advance past the end.
-	if doc, _ := dv.Advance(99); doc != dvNoMore {
-		t.Fatalf("Advance(99)=%d want NO_MORE_DOCS(MaxInt32)", doc)
+func mdvTestRandomAdvanceExact(t *testing.T, iter1, iter2 index.DocValuesIterator, maxDoc int) {
+	t.Helper()
+	for target := rand.Intn(min(maxDoc, 10)); target < maxDoc; target += rand.Intn(10) {
+		exists1, err := iter1.AdvanceExact(target)
+		mdvCheck(t, err)
+		exists2, err := iter2.AdvanceExact(target)
+		mdvCheck(t, err)
+		if exists1 != exists2 {
+			t.Fatalf("advanceExact(%d): expected %t, got %t", target, exists1, exists2)
+		}
 	}
 }

@@ -304,9 +304,7 @@ func (sm *SegmentMerger) mergeFieldInfos() error {
 			if builder.FieldInfoByNumber(mergedFI.Number()) != nil {
 				mergedFI = spi.NewFieldInfo(mergedFI.Name(), nextFreeFieldNumber(builder), mergeFieldInfoOptions(mergedFI))
 			}
-			if err := builder.Add(mergedFI); err != nil {
-				return fmt.Errorf("index: merge field infos: %w", err)
-			}
+			builder.Add(mergedFI)
 		}
 	}
 	sm.MergeState.MergeFieldInfos = builder

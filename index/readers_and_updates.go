@@ -529,7 +529,7 @@ type ReadersAndUpdates struct {
 	// not-yet-flushed deletes against this segment. See file header
 	// for the divergence note: the Gocene PendingDeletes only exposes
 	// a tiny subset of the Lucene surface.
-	pendingDeletes *PendingDeletes
+	pendingDeletes PendingDeletesInterface
 
 	// indexCreatedVersionMajor is the major version this index was
 	// created with. Carried so it can be threaded into the SegmentReader
@@ -571,7 +571,7 @@ type ReadersAndUpdates struct {
 func NewReadersAndUpdates(
 	indexCreatedVersionMajor int,
 	info *SegmentCommitInfo,
-	pendingDeletes *PendingDeletes,
+	pendingDeletes PendingDeletesInterface,
 ) (*ReadersAndUpdates, error) {
 	if info == nil {
 		return nil, fmt.Errorf("readers and updates: info must not be nil")
@@ -598,12 +598,11 @@ func NewReadersAndUpdates(
 // reader pointer. The new entry will call [SegmentReader.Close] on it
 // from [ReadersAndUpdates.DropReaders].
 //
-// The PendingDeletes.onNewReader callback used by Lucene is not invoked
-// because that callback is not yet ported (see file header).
+// As in Lucene, pendingDeletes.onNewReader(reader, info) is invoked.
 func NewReadersAndUpdatesFromReader(
 	indexCreatedVersionMajor int,
 	reader *SegmentReader,
-	pendingDeletes *PendingDeletes,
+	pendingDeletes PendingDeletesInterface,
 ) (*ReadersAndUpdates, error) {
 	if reader == nil {
 		return nil, fmt.Errorf("readers and updates: reader must not be nil")
@@ -617,6 +616,9 @@ func NewReadersAndUpdatesFromReader(
 		return nil, err
 	}
 	rau.reader = reader
+	if err := pendingDeletes.OnNewReader(reader, info); err != nil {
+		return nil, err
+	}
 	return rau, nil
 }
 
@@ -662,13 +664,11 @@ func (r *ReadersAndUpdates) Info() *SegmentCommitInfo {
 // GetDelCount returns the number of pending deletes recorded against
 // this segment. Mirrors {@code ReadersAndUpdates#getDelCount()}.
 //
-// DIVERGENCE: Lucene delegates to PendingDeletes.getDelCount(); the
-// Gocene PendingDeletes only tracks the docID set, so the count is the
-// size of that set.
+// Delegates to PendingDeletes.getDelCount().
 func (r *ReadersAndUpdates) GetDelCount() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.pendingDeletes.delCountLocked()
+	return r.pendingDeletes.GetDelCount()
 }
 
 // AddDVUpdate adds a new resolved doc-values update packet. The packet
@@ -751,83 +751,74 @@ func (r *ReadersAndUpdates) RamBytesUsed() int64 {
 	return r.ramBytesUsed.Load()
 }
 
-// GetReader returns the [SegmentReader] for this segment, opening one
-// on first call and incrementing its external ref count.
-//
-// DIVERGENCE: Lucene increments the SegmentReader's own ref count and
-// invokes pendingDeletes.onNewReader; neither hook is ported. The Gocene
-// implementation lazily constructs a SegmentReader via [NewSegmentReader]
-// when none is set and returns the cached pointer. The "extra ref for the
-// caller" semantics are not enforced; callers must coordinate ownership
-// through [ReadersAndUpdates.IncRef] / [ReadersAndUpdates.DecRef] until
-// SegmentReader ref counting lands.
+// GetReader returns a SegmentReader for this segment, opening it on first
+// call, and increments its reference count for the caller. Mirrors
+// {@code ReadersAndUpdates#getReader(IOContext)}; Java's
+// new SegmentReader(info, indexCreatedVersionMajor, context) is rendered by
+// openSegmentReader over the segment's directory.
 func (r *ReadersAndUpdates) GetReader() (*SegmentReader, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.getReaderLocked()
+}
+
+func (r *ReadersAndUpdates) getReaderLocked() (*SegmentReader, error) {
 	if r.reader == nil {
-		r.reader = NewSegmentReader(r.info)
+		reader, err := openSegmentReader(r.info.SegmentInfo().Directory(), r.info)
+		if err != nil {
+			return nil, err
+		}
+		r.reader = reader
+		if err := r.pendingDeletes.OnNewReader(r.reader, r.info); err != nil {
+			return nil, err
+		}
+	}
+	if err := r.reader.IncRef(); err != nil {
+		return nil, err
 	}
 	return r.reader, nil
 }
 
-// Release is the symmetric counterpart of [ReadersAndUpdates.GetReader].
-// Mirrors {@code ReadersAndUpdates#release(SegmentReader)}.
-//
-// DIVERGENCE: Lucene asserts the reader is the same one it tracks and
-// calls SegmentReader.decRef. Gocene cannot decRef the inner reader; the
-// method validates the identity and returns nil if it matches.
+// Release mirrors {@code ReadersAndUpdates#release(SegmentReader)}.
 func (r *ReadersAndUpdates) Release(sr *SegmentReader) error {
-	if sr == nil {
-		return fmt.Errorf("readers and updates: cannot release nil reader")
-	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.reader != nil && sr != r.reader {
-		return fmt.Errorf("readers and updates: released reader is not the cached one")
+	if util.AssertsEnabled() && r.info != sr.GetSegmentCommitInfo() {
+		panic(util.NewAssertionError(nil))
 	}
-	return nil
+	return sr.DecRef()
 }
 
-// Delete records a pending delete for the given docID. Mirrors
-// {@code ReadersAndUpdates#delete(int)}.
-//
-// DIVERGENCE: Lucene routes the call through
-// PendingDeletes.delete(docID), which validates the docID, may need an
-// open reader to initialise live-docs, and returns false if the doc was
-// already deleted. The Gocene PendingDeletes only stores the set, so the
-// orchestrator records the docID directly and returns true iff the docID
-// was not already present.
+// Delete mirrors {@code ReadersAndUpdates#delete(int)}.
 func (r *ReadersAndUpdates) Delete(docID int) (bool, error) {
-	if docID < 0 {
-		return false, fmt.Errorf("readers and updates: negative docID %d", docID)
-	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.pendingDeletes.recordDeleteLocked(docID), nil
+	if r.reader == nil && r.pendingDeletes.MustInitOnDelete() {
+		// pass a reader to initialize the pending deletes
+		reader, err := r.getReaderLocked()
+		if err != nil {
+			return false, err
+		}
+		if err := reader.DecRef(); err != nil {
+			return false, err
+		}
+	}
+	return r.pendingDeletes.Delete(docID)
 }
 
-// DropReaders releases the cached SegmentReader (calling
-// [SegmentReader.Close]) and decrements the entry's external ref count.
-// Mirrors {@code ReadersAndUpdates#dropReaders()}.
-//
-// DIVERGENCE: Lucene calls SegmentReader.decRef, not Close; Gocene has
-// no SegmentReader ref count, so Close is the closest equivalent. The
-// entry-level decRef is still performed.
+// DropReaders mirrors {@code ReadersAndUpdates#dropReaders()}.
 func (r *ReadersAndUpdates) DropReaders() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var closeErr error
+	var decErr error
 	if r.reader != nil {
-		closeErr = r.reader.Close()
+		decErr = r.reader.DecRef()
 		r.reader = nil
 	}
 	if err := r.DecRef(); err != nil {
-		if closeErr != nil {
-			return fmt.Errorf("readers and updates: drop readers: close=%v, decRef=%w", closeErr, err)
-		}
-		return err
+		return errors.Join(decErr, err)
 	}
-	return closeErr
+	return decErr
 }
 
 // GetReadOnlyClone is the entry-point that Lucene uses to hand a fresh
@@ -838,7 +829,13 @@ func (r *ReadersAndUpdates) GetReadOnlyClone() (*SegmentReader, error) {
 	defer r.mu.Unlock()
 
 	if r.reader == nil {
-		r.reader = NewSegmentReader(r.info)
+		reader, err := r.getReaderLocked()
+		if err != nil {
+			return nil, err
+		}
+		if err := reader.DecRef(); err != nil {
+			return nil, err
+		}
 	}
 
 	liveDocs := r.pendingDeletes.GetLiveDocs()
@@ -883,13 +880,12 @@ func (r *ReadersAndUpdates) GetHardLiveDocs() (util.Bits, error) {
 // DropChanges discards any pending changes against this segment.
 // Mirrors {@code ReadersAndUpdates#dropChanges()}.
 //
-// DIVERGENCE: Lucene delegates to PendingDeletes.dropChanges() and then
-// drops merging updates. The Gocene PendingDeletes has no equivalent
-// hook, so the docID set is cleared directly and merging updates are
-// dropped via [ReadersAndUpdates.DropMergingUpdates].
+// Discard (don't save) changes when we are dropping the reader; this is used
+// only on the sub-readers after a successful merge. Delegates to
+// PendingDeletes.dropChanges() and then drops merging updates.
 func (r *ReadersAndUpdates) DropChanges() {
 	r.mu.Lock()
-	r.pendingDeletes.clearLocked()
+	r.pendingDeletes.DropChanges()
 	r.mu.Unlock()
 	r.DropMergingUpdates()
 }
@@ -1365,32 +1361,6 @@ func (r *ReadersAndUpdates) SetSortMap(m SorterDocMap) {
 // raw docID set is intentionally not exposed in the string form.
 func (r *ReadersAndUpdates) String() string {
 	return fmt.Sprintf("ReadersAndLiveDocs(seg=%s pendingDeletes=%s)", r.info, r.pendingDeletes)
-}
-
-// ----- PendingDeletes adapters --------------------------------------------
-//
-// These three helpers name, for the orchestrator above, the PendingDeletes
-// operations Lucene's ReadersAndUpdates calls directly on the field:
-// numPendingDeletes(), delete(int) and dropChanges(). Each is a thin forward
-// to the corresponding method on the ported PendingDeletes, which does its own
-// locking.
-
-// delCountLocked returns the number of recorded pending deletes. Mirrors
-// PendingDeletes.numPendingDeletes().
-func (p *PendingDeletes) delCountLocked() int {
-	return p.NumPendingDeletes()
-}
-
-// recordDeleteLocked records a delete, reporting whether the document was not
-// already deleted. Mirrors PendingDeletes.delete(int).
-func (p *PendingDeletes) recordDeleteLocked(docID int) bool {
-	return p.Delete(docID)
-}
-
-// clearLocked discards every recorded pending delete. Mirrors
-// PendingDeletes.dropChanges().
-func (p *PendingDeletes) clearLocked() {
-	p.DropChanges()
 }
 
 // ----- dvUpdatePacket adapter on BaseDocValuesFieldUpdates ----------------

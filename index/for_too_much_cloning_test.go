@@ -28,7 +28,7 @@ func TestForTooMuchCloning(t *testing.T) {
 	dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
 	dir.SetVerboseClone(false)
 
-	cfg := index.NewIndexWriterConfig(testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, false, 255, testanalysis.EMPTY_STOPSET, false))
+	cfg := index.NewIndexWriterConfigWithAnalyzer(testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, false, 255, testanalysis.EMPTY_STOPSET, false))
 	cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
 
 	w, err := testindex.NewRandomIndexWriterWithConfig(rand.New(rand.NewSource(42)), dir, cfg)

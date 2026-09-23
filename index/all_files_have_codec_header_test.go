@@ -21,10 +21,10 @@ package index_test
 import (
 	"testing"
 
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
 )
 
 // TestAllFilesHaveCodecHeader writes a small index and verifies that all
@@ -33,7 +33,7 @@ func TestAllFilesHaveCodecHeader(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(nil))
+	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(nil))
 	if err != nil {
 		t.Fatalf("Failed to create IndexWriter: %v", err)
 	}

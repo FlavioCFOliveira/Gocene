@@ -8,6 +8,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // mmpeIdentityDocMap returns the raw docID unchanged, except for entries listed
@@ -107,6 +109,16 @@ func (p *scriptedPostings) GetPayload() ([]byte, error) {
 	return p.payloads[p.docIdx][p.posIdx], nil
 }
 func (p *scriptedPostings) Cost() int64 { return int64(len(p.docs)) }
+
+// DocIDRunEnd carries the default body Lucene gives PostingsEnum.DocIDRunEnd.
+func (p *scriptedPostings) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(p)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (p *scriptedPostings) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
+}
 
 func newScriptedPostings(docs []int, freqs []int) *scriptedPostings {
 	return &scriptedPostings{

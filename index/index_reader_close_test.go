@@ -54,7 +54,7 @@ func TestIndexReaderClose_CloseUnderException(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -68,7 +68,7 @@ func TestIndexReaderClose_CloseUnderException(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -128,7 +128,6 @@ func (r *boomCloseFilterLeafReader) Close() error {
 	return errors.New("BOOM!")
 }
 
-
 // TestIndexReaderClose_RegisterListenerOnClosed ports
 // testRegisterListenerOnClosedReader().
 //
@@ -139,7 +138,7 @@ func TestIndexReaderClose_RegisterListenerOnClosed(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -147,7 +146,7 @@ func TestIndexReaderClose_RegisterListenerOnClosed(t *testing.T) {
 	if _, err := writer.AddDocument(document.NewDocument()); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -200,7 +199,7 @@ func TestIndexReaderClose_CoreListenerOnWrapper(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -216,7 +215,7 @@ func TestIndexReaderClose_CoreListenerOnWrapper(t *testing.T) {
 	if err := writer.ForceMerge(1); err != nil {
 		t.Fatalf("ForceMerge: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {

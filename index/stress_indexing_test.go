@@ -81,7 +81,7 @@ func indexerWork(w *index.IndexWriter, r *rand.Rand, nextID *int) error {
 	// Delete 5 docs.
 	deleteID := *nextID - 1
 	for j := 0; j < 5; j++ {
-		if _, err := w.DeleteDocuments(index.NewTerm("id", strconv.Itoa(deleteID))); err != nil {
+		if _, err := w.DeleteDocuments([]index.Term{*index.NewTerm("id", strconv.Itoa(deleteID))}); err != nil {
 			return err
 		}
 		deleteID -= 2
@@ -94,8 +94,8 @@ func TestStressIndexAndSearching(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	cfg := index.NewIndexWriterConfig(analyzer)
-	cfg.SetOpenMode(index.CREATE)
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analyzer)
+	cfg.SetOpenMode(index.Create)
 	cfg.SetMaxBufferedDocs(10)
 	cfg.SetMergeScheduler(index.NewConcurrentMergeScheduler())
 
@@ -103,7 +103,7 @@ func TestStressIndexAndSearching(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
-	if err := modifier.Commit(); err != nil {
+	if _, err := modifier.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 

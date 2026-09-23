@@ -759,7 +759,10 @@ func (c *DocumentsWriterFlushControl) ObtainAndLock(owner util.LockOwner) (flush
 		if closed {
 			return nil, store.NewAlreadyClosedException(ErrFlushControlClosed.Error(), nil)
 		}
-		perThread := c.perThreadPool.GetAndLock(owner)
+		perThread, err := c.perThreadPool.GetAndLock(owner)
+		if err != nil {
+			return nil, err
+		}
 		if perThread == nil {
 			continue
 		}

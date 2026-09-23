@@ -5,6 +5,7 @@
 package index
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/util"
@@ -87,14 +88,24 @@ func TestDocIDMerger_SortedStrategy(t *testing.T) {
 // realStubKnnVV is a properly-typed KnnVectorValues to assert satisfiability.
 type realStubKnnVV struct{}
 
-func (realStubKnnVV) Dimension() int                       { return 4 }
-func (realStubKnnVV) Size() int                            { return 2 }
-func (realStubKnnVV) OrdToDoc(o int) int                   { return o }
-func (realStubKnnVV) Copy() (KnnVectorValues, error)       { return realStubKnnVV{}, nil }
-func (realStubKnnVV) VectorByteLength() int                { return 16 }
-func (realStubKnnVV) GetEncoding() VectorEncoding          { return 0 }
-func (realStubKnnVV) GetAcceptOrds(_ util.Bits) util.Bits  { return nil }
-func (realStubKnnVV) Iterator() DocIndexIterator           { return nil }
+func (realStubKnnVV) Dimension() int                      { return 4 }
+func (realStubKnnVV) Size() int                           { return 2 }
+func (realStubKnnVV) OrdToDoc(o int) int                  { return o }
+func (realStubKnnVV) Copy() (KnnVectorValues, error)      { return realStubKnnVV{}, nil }
+func (realStubKnnVV) VectorByteLength() int               { return 16 }
+func (realStubKnnVV) GetEncoding() VectorEncoding         { return 0 }
+func (realStubKnnVV) GetAcceptOrds(_ util.Bits) util.Bits { return nil }
+func (realStubKnnVV) Iterator() DocIndexIterator          { return nil }
+
+// GetVectorByteLength is abstract in Lucene's KnnVectorValues; this double does not support it.
+func (x realStubKnnVV) GetVectorByteLength() int {
+	panic("realStubKnnVV.GetVectorByteLength: unsupported operation")
+}
+
+// Prefetch is abstract in Lucene's KnnVectorValues; this double does not support it.
+func (x realStubKnnVV) Prefetch(ordsToPrefetch []int, numOrds int) error {
+	return errors.New("realStubKnnVV.Prefetch: unsupported operation")
+}
 
 func TestKnnVectorValues_InterfaceLooselyTyped(t *testing.T) {
 	var v KnnVectorValues = realStubKnnVV{}

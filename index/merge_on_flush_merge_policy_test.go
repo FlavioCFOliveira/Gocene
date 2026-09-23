@@ -1,47 +1,49 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+// Port of lucene/sandbox/src/test/org/apache/lucene/sandbox/index/TestMergeOnFlushMergePolicy.java
+// (Apache Lucene 10.5.0). Gocene declares
+// org.apache.lucene.sandbox.index.MergeOnFlushMergePolicy in package index, so
+// its test lives here.
+//
+// The Java class extends org.apache.lucene.tests.index.BaseMergePolicyTestCase
+// and inherits its test methods (testForceMergeNotNeeded,
+// testFindForcedDeletesMerges, testSimulateAppendOnly, testSimulateUpdates);
+// testFindFullFlushMerges uses its makeSegmentCommitInfo and MockMergeContext.
+// BaseMergePolicyTestCase is not ported to Gocene, so those ports fail naming
+// the missing test-framework class.
+
 package index
 
-import (
-	"fmt"
-	"testing"
+import "testing"
 
-	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/store"
-)
+const mergeOnFlushMergePolicyMissing = "org.apache.lucene.tests.index.BaseMergePolicyTestCase is not ported " +
+	"(makeSegmentCommitInfo, MockMergeContext and the inherited merge-policy test methods)"
 
-func TestMergeOnFlushMergePolicy(t *testing.T) {
-	base := NewBaseMergePolicy(DefaultNoCFSRatio, DefaultMaxCFSSegmentSize)
-	policy := NewMergeOnFlushMergePolicy(base)
-	policy.SetSmallSegmentThresholdMB(1.0) // 1MB
+func TestMergeOnFlushMergePolicyFindFullFlushMerges(t *testing.T) {
+	t.Fatal(mergeOnFlushMergePolicyMissing)
+}
 
-	dir := store.NewMemDirectory()
-	infos := &spi.SegmentInfos{}
+// TestMergeOnFlushMergePolicyNoPathologicalMerges ports the override of
+// BaseMergePolicyTestCase#testNoPathologicalMerges: a no-op, because
+// MergeOnFlushMergePolicy makes no effort to avoid O(n^2) merges.
+func TestMergeOnFlushMergePolicyNoPathologicalMerges(t *testing.T) {
+	// no-op: MergeOnFlushMergePolicy makes no effort to avoid O(n^2) merges
+}
 
-	// Create 3 small segments
-	for i := 0; i < 3; i++ {
-		name := fmt.Sprintf("_%d", i)
-		seg := spi.NewSegmentInfo(name, 10, dir)
-		// Create a dummy file to give it size
-		fileName := name + ".dat"
-		dir.CreateFile(fileName)
-		dir.WriteFile(fileName, make([]byte, 100*1024)) // 100KB
-		seg.AddFile(fileName)
+func TestMergeOnFlushMergePolicyForceMergeNotNeeded(t *testing.T) {
+	t.Fatal(mergeOnFlushMergePolicyMissing)
+}
 
-		sci := spi.NewSegmentCommitInfo(seg, 0, 0)
-		infos.segments = append(infos.segments, sci)
-	}
+func TestMergeOnFlushMergePolicyFindForcedDeletesMerges(t *testing.T) {
+	t.Fatal(mergeOnFlushMergePolicyMissing)
+}
 
-	mc := NewBaseMergeContext()
-	spec, err := policy.FindFullFlushMerges(nil, infos, mc)
-	if err != nil {
-		t.Fatalf("FindFullFlushMerges failed: %v", err)
-	}
-	if spec == nil {
-		t.Fatal("expected MergeSpecification, got nil")
-	}
-	if len(spec.Merges) != 1 {
-		t.Errorf("expected 1 merge, got %d", len(spec.Merges))
-	}
-	if len(spec.Merges[0].Segments) != 3 {
-		t.Errorf("expected 3 segments in merge, got %d", len(spec.Merges[0].Segments))
-	}
+func TestMergeOnFlushMergePolicySimulateAppendOnly(t *testing.T) {
+	t.Fatal(mergeOnFlushMergePolicyMissing)
+}
+
+func TestMergeOnFlushMergePolicySimulateUpdates(t *testing.T) {
+	t.Fatal(mergeOnFlushMergePolicyMissing)
 }

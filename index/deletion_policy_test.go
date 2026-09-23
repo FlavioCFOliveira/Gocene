@@ -2,959 +2,773 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+// Port of lucene/core/src/test/org/apache/lucene/index/TestDeletionPolicy.java
+// (Apache Lucene 10.5.0). The @Nightly testExpirationTimeDeletionPolicy lives
+// in deletion_policy_monster_test.go.
+
 package index_test
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
-	"sync"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// addPolicyDoc adds a single document with a "content" field to the writer.
-// Uses StringField (non-tokenized) because the token-stream bridge is stubbed;
-// non-tokenized fields are routed through the binary indexing path.
-func addPolicyDoc(t *testing.T, w *index.IndexWriter) {
-	t.Helper()
-	doc := document.NewDocument()
-	sf, err := document.NewStringField("content", "aaa", false)
-	if err != nil {
-		t.Fatalf("NewStringField: %v", err)
-	}
-	doc.Add(sf)
-	if _, err := w.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument: %v", err)
-	}
-}
-
-// expPolicy is a concrete deletion policy that expires commits whose
-// generation is more than expireAfter behind the latest.
-type expPolicy struct {
-	expireAfter int64
-}
-
-func (p *expPolicy) OnInit(commits []*index.IndexCommit) error { return p.OnCommit(commits) }
-func (p *expPolicy) OnCommit(commits []*index.IndexCommit) error {
+// deletionPolicyVerifyCommitOrder renders the private
+// verifyCommitOrder(List<? extends IndexCommit>).
+func deletionPolicyVerifyCommitOrder(commits []index.Commit) error {
 	if len(commits) == 0 {
 		return nil
 	}
-	latest := commits[len(commits)-1]
-	latestGen := latest.GetGeneration()
-	for _, c := range commits {
-		if c.GetGeneration() <= latestGen-p.expireAfter {
-			if err := c.Delete(); err != nil {
-				return err
-			}
+	firstCommit := commits[0]
+	last := index.GenerationFromSegmentsFileName(firstCommit.GetSegmentsFileName())
+	if last != firstCommit.GetGeneration() {
+		return fmt.Errorf("generation: expected %d, got %d", last, firstCommit.GetGeneration())
+	}
+	for i := 1; i < len(commits); i++ {
+		commit := commits[i]
+		now := index.GenerationFromSegmentsFileName(commit.GetSegmentsFileName())
+		if !(now > last) {
+			return fmt.Errorf("SegmentInfos commits are out-of-order")
+		}
+		if now != commit.GetGeneration() {
+			return fmt.Errorf("generation: expected %d, got %d", now, commit.GetGeneration())
+		}
+		last = now
+	}
+	return nil
+}
+
+// deletionPolicyKeepAll is the inner KeepAllDeletionPolicy.
+type deletionPolicyKeepAll struct {
+	numOnInit   int
+	numOnCommit int
+	dir         store.Directory
+}
+
+func (p *deletionPolicyKeepAll) OnInit(commits []index.Commit) error {
+	if err := deletionPolicyVerifyCommitOrder(commits); err != nil {
+		return err
+	}
+	p.numOnInit++
+	return nil
+}
+
+func (p *deletionPolicyKeepAll) OnCommit(commits []index.Commit) error {
+	lastCommit := commits[len(commits)-1]
+	r, err := index.OpenDirectoryReader(p.dir)
+	if err != nil {
+		return err
+	}
+	leaves, err := r.Leaves()
+	if err != nil {
+		return err
+	}
+	if len(leaves) != lastCommit.GetSegmentCount() {
+		return fmt.Errorf("lastCommit.segmentCount()=%d vs IndexReader.segmentCount=%d", lastCommit.GetSegmentCount(), len(leaves))
+	}
+	if err := r.Close(); err != nil {
+		return err
+	}
+	if err := deletionPolicyVerifyCommitOrder(commits); err != nil {
+		return err
+	}
+	p.numOnCommit++
+	return nil
+}
+
+// Clone carries IndexDeletionPolicy's Go-only Clone member.
+func (p *deletionPolicyKeepAll) Clone() index.IndexDeletionPolicy { return p }
+
+// deletionPolicyKeepNoneOnInit is the inner KeepNoneOnInitDeletionPolicy:
+// useful for adding to a big index when you know readers are not using it.
+type deletionPolicyKeepNoneOnInit struct {
+	numOnInit   int
+	numOnCommit int
+}
+
+func (p *deletionPolicyKeepNoneOnInit) OnInit(commits []index.Commit) error {
+	if err := deletionPolicyVerifyCommitOrder(commits); err != nil {
+		return err
+	}
+	p.numOnInit++
+	// On init, delete all commit points:
+	for _, commit := range commits {
+		if err := commit.Delete(); err != nil {
+			return err
+		}
+		if !commit.IsDeleted() {
+			return fmt.Errorf("assertTrue(commit.isDeleted())")
 		}
 	}
 	return nil
 }
-func (p *expPolicy) Clone() index.IndexDeletionPolicy { return &expPolicy{expireAfter: p.expireAfter} }
 
-// TestDeletionPolicy_ExpirationTime tests an expiration-time deletion policy
-// that deletes commits older than a given generation threshold.
-func TestDeletionPolicy_ExpirationTime(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	cfg.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
-	writer, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+func (p *deletionPolicyKeepNoneOnInit) OnCommit(commits []index.Commit) error {
+	if err := deletionPolicyVerifyCommitOrder(commits); err != nil {
+		return err
 	}
-
-	for i := 0; i < 5; i++ {
-		addPolicyDoc(t, writer)
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit %d: %v", i, err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(commits) != 5 {
-		t.Fatalf("expected 5 commits, got %d", len(commits))
-	}
-
-	// Apply expiration: delete commits whose generation is > 2 behind latest.
-	latestGen := commits[len(commits)-1].GetGeneration()
-	for _, c := range commits {
-		if c.GetGeneration() <= latestGen-2 {
-			if err := c.Delete(); err != nil {
-				t.Fatalf("Delete(gen=%d): %v", c.GetGeneration(), err)
-			}
-		}
-	}
-
-	survivors, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits after delete: %v", err)
-	}
-	if want := 2; len(survivors) != want {
-		t.Errorf("survivors = %d, want %d", len(survivors), want)
-	}
-	for i, c := range survivors {
-		wantGen := latestGen - 1 + int64(i)
-		if c.GetGeneration() != wantGen {
-			t.Errorf("survivor[%d] gen = %d, want %d", i, c.GetGeneration(), wantGen)
-		}
-	}
-}
-
-// TestDeletionPolicy_KeepAll verifies that KeepAllDeletionPolicy never deletes
-// any commit.
-func TestDeletionPolicy_KeepAll(t *testing.T) {
-	policy := index.NewKeepAllDeletionPolicy()
-
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 4; i++ {
-		addPolicyDoc(t, writer)
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit %d: %v", i, err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-
-	if err := policy.OnCommit(commits); err != nil {
-		t.Fatalf("policy.OnCommit: %v", err)
-	}
-	for _, c := range commits {
-		if c.IsDeleted() {
-			t.Errorf("commit gen=%d was deleted by KeepAll", c.GetGeneration())
-		}
-	}
-	if err := policy.OnInit(commits); err != nil {
-		t.Fatalf("policy.OnInit: %v", err)
-	}
-	for _, c := range commits {
-		if c.IsDeleted() {
-			t.Errorf("commit gen=%d was deleted by KeepAll OnInit", c.GetGeneration())
-		}
-	}
-}
-
-// TestDeletionPolicy_OpenPriorSnapshot tests SetIndexCommit validation and
-// the ListCommits lifecycle.
-func TestDeletionPolicy_OpenPriorSnapshot(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 5; i++ {
-		addPolicyDoc(t, writer)
-		if i%2 == 1 {
-			if err := writer.Commit(); err != nil {
-				t.Fatalf("Commit %d: %v", i, err)
-			}
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(commits) == 0 {
-		t.Fatal("expected at least 1 commit")
-	}
-
-	// SetIndexCommit with CREATE should be rejected.
-	commit := commits[len(commits)-1]
-	badConfig := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	badConfig.SetOpenMode(index.CREATE)
-	badConfig.SetIndexCommit(commit)
-	if _, err := index.NewIndexWriter(dir, badConfig); err == nil {
-		t.Fatal("expected error when SetIndexCommit with OpenMode.CREATE")
-	}
-
-	// SetIndexCommit with APPEND on a non-empty index should work.
-	goodConfig := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	goodConfig.SetOpenMode(index.APPEND)
-	goodConfig.SetIndexCommit(commit)
-	w2, err := index.NewIndexWriter(dir, goodConfig)
-	if err != nil {
-		t.Fatalf("NewIndexWriter with SetIndexCommit: %v", err)
-	}
-	if err := w2.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-}
-
-// TestDeletionPolicy_KeepNoneOnInit tests a policy whose OnInit deletes all
-// existing commits except the latest.
-func TestDeletionPolicy_KeepNoneOnInit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 3; i++ {
-		addPolicyDoc(t, writer)
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit %d: %v", i, err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(commits) != 3 {
-		t.Fatalf("expected 3 commits, got %d", len(commits))
-	}
-
-	policy := index.NewKeepOnlyLastCommitDeletionPolicy()
-	if err := policy.OnInit(commits); err != nil {
-		t.Fatalf("policy.OnInit: %v", err)
-	}
-
-	survivors, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits after policy: %v", err)
-	}
-	if len(survivors) != 1 {
-		t.Errorf("expected 1 survivor after KeepOnlyLastCommit OnInit, got %d", len(survivors))
-	}
-}
-
-// TestDeletionPolicy_KeepLastN tests keeping only the last N commits.
-func TestDeletionPolicy_KeepLastN(t *testing.T) {
-	const numToKeep = 3
-
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 6; i++ {
-		addPolicyDoc(t, writer)
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit %d: %v", i, err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(commits) != 6 {
-		t.Fatalf("expected 6 commits before deletion, got %d", len(commits))
-	}
-
-	// Keep last numToKeep.
-	for i := 0; i < len(commits)-numToKeep; i++ {
+	size := len(commits)
+	// Delete all but last one:
+	for i := 0; i < size-1; i++ {
 		if err := commits[i].Delete(); err != nil {
-			t.Fatalf("Delete commit %d: %v", i, err)
+			return err
 		}
 	}
+	p.numOnCommit++
+	return nil
+}
 
-	survivors, err := index.ListCommits(dir)
+func (p *deletionPolicyKeepNoneOnInit) Clone() index.IndexDeletionPolicy { return p }
+
+// deletionPolicyKeepLastN is the inner KeepLastNDeletionPolicy.
+type deletionPolicyKeepLastN struct {
+	numOnInit   int
+	numOnCommit int
+	numToKeep   int
+	numDelete   int
+	seen        map[string]bool
+}
+
+func newDeletionPolicyKeepLastN(numToKeep int) *deletionPolicyKeepLastN {
+	return &deletionPolicyKeepLastN{numToKeep: numToKeep, seen: map[string]bool{}}
+}
+
+func (p *deletionPolicyKeepLastN) OnInit(commits []index.Commit) error {
+	if err := deletionPolicyVerifyCommitOrder(commits); err != nil {
+		return err
+	}
+	p.numOnInit++
+	// do no deletions on init
+	return p.doDeletes(commits, false)
+}
+
+func (p *deletionPolicyKeepLastN) OnCommit(commits []index.Commit) error {
+	if err := deletionPolicyVerifyCommitOrder(commits); err != nil {
+		return err
+	}
+	return p.doDeletes(commits, true)
+}
+
+func (p *deletionPolicyKeepLastN) doDeletes(commits []index.Commit, isCommit bool) error {
+	// Assert that we really are only called for each new
+	// commit:
+	if isCommit {
+		fileName := commits[len(commits)-1].GetSegmentsFileName()
+		if p.seen[fileName] {
+			return fmt.Errorf("onCommit was called twice on the same commit point: %s", fileName)
+		}
+		p.seen[fileName] = true
+		p.numOnCommit++
+	}
+	size := len(commits)
+	for i := 0; i < size-p.numToKeep; i++ {
+		if err := commits[i].Delete(); err != nil {
+			return err
+		}
+		p.numDelete++
+	}
+	return nil
+}
+
+func (p *deletionPolicyKeepLastN) Clone() index.IndexDeletionPolicy { return p }
+
+// getCommitTime renders the package-private static getCommitTime(IndexCommit).
+func getCommitTime(commit index.Commit) (int64, error) {
+	return strconv.ParseInt(commit.GetUserData()["commitTime"], 10, 64)
+}
+
+func setNoCFSRatio(conf *index.IndexWriterConfig, ratio float64) {
+	conf.GetMergePolicy().(interface{ SetNoCFSRatio(float64) }).SetNoCFSRatio(ratio)
+}
+
+// lastCommitGeneration renders SegmentInfos.getLastCommitGeneration(Directory).
+func lastCommitGeneration(t testing.TB, dir store.Directory) int64 {
+	t.Helper()
+	files, err := dir.ListAll()
 	if err != nil {
-		t.Fatalf("ListCommits after delete: %v", err)
+		t.Fatalf("listAll: %v", err)
 	}
-	if len(survivors) != numToKeep {
-		t.Errorf("survivors = %d, want %d", len(survivors), numToKeep)
-	}
+	return spi.GetLastCommitGeneration(files)
+}
 
-	latestGen := commits[len(commits)-1].GetGeneration()
-	for i, c := range survivors {
-		wantGen := latestGen - int64(numToKeep-1) + int64(i)
-		if c.GetGeneration() != wantGen {
-			t.Errorf("survivor[%d] gen = %d, want %d", i, c.GetGeneration(), wantGen)
-		}
+func deleteSegmentsFile(t testing.TB, dir store.Directory, gen int64) {
+	t.Helper()
+	if err := dir.DeleteFile(index.FileNameFromGeneration(index.SegmentsPrefix, "", gen)); err != nil {
+		t.Fatalf("deleteFile(segments gen %d): %v", gen, err)
 	}
 }
 
-// TestDeletionPolicy_KeepLastNWithCreates tests keep-last-N across writer reopens.
-func TestDeletionPolicy_KeepLastNWithCreates(t *testing.T) {
-	const numToKeep = 5
-
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxBufferedDocs(10)
-	writer, err := index.NewIndexWriter(dir, config)
+func mustListCommits(t testing.TB, dir store.Directory) index.IndexCommitList {
+	t.Helper()
+	commits, err := index.ListCommits(dir)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("DirectoryReader.listCommits: %v", err)
 	}
-	for i := 0; i < 10; i++ {
-		addPolicyDoc(t, writer)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	return commits
+}
 
-	config2 := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config2.SetOpenMode(index.APPEND)
-	writer2, err := index.NewIndexWriter(dir, config2)
-	if err != nil {
-		t.Fatalf("NewIndexWriter (append): %v", err)
+func assertCommitCount(t testing.TB, expected int, dir store.Directory) {
+	t.Helper()
+	if n := len(mustListCommits(t, dir)); n != expected {
+		t.Fatalf("listCommits(dir).size(): expected %d, got %d", expected, n)
 	}
-	for i := 0; i < 7; i++ {
-		addPolicyDoc(t, writer2)
-		if i%2 == 0 {
-			if err := writer2.Commit(); err != nil {
-				t.Fatalf("Commit %d: %v", i, err)
+}
+
+func listAllCount(t testing.TB, dir store.Directory) int {
+	t.Helper()
+	files, err := dir.ListAll()
+	if err != nil {
+		t.Fatalf("listAll: %v", err)
+	}
+	return len(files)
+}
+
+// Test a silly deletion policy that keeps all commits around.
+func TestDeletionPolicyKeepAllDeletionPolicy(t *testing.T) {
+	for pass := 0; pass < 2; pass++ {
+		useCompoundFile := pass%2 != 0
+
+		dir := newDirectory()
+
+		conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		conf.SetIndexDeletionPolicy(&deletionPolicyKeepAll{dir: dir})
+		conf.SetMaxBufferedDocs(10)
+		conf.SetMergeScheduler(index.NewSerialMergeScheduler())
+		setNoCFSRatio(conf, map[bool]float64{true: 1.0, false: 0.0}[useCompoundFile])
+		writer := mustNewIndexWriter(t, dir, conf)
+		policy := writer.GetConfig().GetIndexDeletionPolicy().(*deletionPolicyKeepAll)
+		for i := 0; i < 107; i++ {
+			deletionPolicyAddDoc(t, writer)
+		}
+		mustClose(t, writer)
+
+		var needsMerging bool
+		{
+			r := mustOpenDirectoryReader(t, dir)
+			leaves, err := r.Leaves()
+			if err != nil {
+				t.Fatalf("leaves: %v", err)
+			}
+			needsMerging = len(leaves) != 1
+			mustClose(t, r)
+		}
+		if needsMerging {
+			conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+			conf.SetOpenMode(index.Append)
+			conf.SetIndexDeletionPolicy(policy)
+			setNoCFSRatio(conf, map[bool]float64{true: 1.0, false: 0.0}[useCompoundFile])
+			writer = mustNewIndexWriter(t, dir, conf)
+			policy = writer.GetConfig().GetIndexDeletionPolicy().(*deletionPolicyKeepAll)
+			if err := writer.ForceMerge(1); err != nil {
+				t.Fatalf("forceMerge: %v", err)
+			}
+			mustClose(t, writer)
+		}
+
+		expectedInits := 1
+		if needsMerging {
+			expectedInits = 2
+		}
+		if policy.numOnInit != expectedInits {
+			t.Fatalf("numOnInit: expected %d, got %d", expectedInits, policy.numOnInit)
+		}
+
+		// If we are not auto committing then there should
+		// be exactly 2 commits (one per close above):
+		if policy.numOnCommit != expectedInits {
+			t.Fatalf("numOnCommit: expected %d, got %d", expectedInits, policy.numOnCommit)
+		}
+
+		// Test listCommits
+		commits := mustListCommits(t, dir)
+		// 2 from closing writer
+		if len(commits) != expectedInits {
+			t.Fatalf("commits.size(): expected %d, got %d", expectedInits, len(commits))
+		}
+
+		// Make sure we can open a reader on each commit:
+		for _, commit := range commits {
+			r, err := index.OpenDirectoryReaderAtCommit(commit)
+			if err != nil {
+				t.Fatalf("DirectoryReader.open(commit): %v", err)
+			}
+			mustClose(t, r)
+		}
+
+		// Simplistic check: just verify all segments_N's still
+		// exist, and, I can open a reader on each:
+		gen := lastCommitGeneration(t, dir)
+		for gen > 0 {
+			mustClose(t, mustOpenDirectoryReader(t, dir))
+			deleteSegmentsFile(t, dir, gen)
+			gen--
+
+			if gen > 0 {
+				// Now that we've removed a commit point, which
+				// should have orphan'd at least one index file.
+				// Open & close a writer and assert that it
+				// actually removed something:
+				preCount := listAllCount(t, dir)
+				conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+				conf.SetOpenMode(index.Append)
+				conf.SetIndexDeletionPolicy(policy)
+				mustClose(t, mustNewIndexWriter(t, dir, conf))
+				postCount := listAllCount(t, dir)
+				if !(postCount < preCount) {
+					t.Fatalf("assertTrue(postCount < preCount): %d, %d", postCount, preCount)
+				}
 			}
 		}
-	}
-	if err := writer2.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
 
-	allCommits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(allCommits) == 0 {
-		t.Fatal("expected at least 1 commit")
-	}
-
-	// Keep last numToKeep.
-	for i := 0; i < len(allCommits)-numToKeep; i++ {
-		_ = allCommits[i].Delete()
-	}
-
-	survivors, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits after delete: %v", err)
-	}
-	if len(survivors) > numToKeep {
-		t.Errorf("survivors = %d, want <= %d", len(survivors), numToKeep)
+		mustClose(t, dir)
 	}
 }
 
-// TestDeletionPolicy_KeepLastNCommits tests KeepLastNCommitsDeletionPolicy.
-func TestDeletionPolicy_KeepLastNCommits(t *testing.T) {
-	const numCommitsToKeep = 3
+// Uses KeepAllDeletionPolicy to keep all commits around, then, opens a new
+// IndexWriter on a previous commit point.
+func TestDeletionPolicyOpenPriorSnapshot(t *testing.T) {
+	dir := newDirectory()
 
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 6; i++ {
-		addPolicyDoc(t, writer)
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit %d: %v", i, err)
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetIndexDeletionPolicy(&deletionPolicyKeepAll{dir: dir})
+	conf.SetMaxBufferedDocs(2)
+	conf.SetMergePolicy(newLogMergePolicyWithMergeFactor(10))
+	writer := mustNewIndexWriter(t, dir, conf)
+	policy := writer.GetConfig().GetIndexDeletionPolicy().(*deletionPolicyKeepAll)
+	for i := 0; i < 10; i++ {
+		deletionPolicyAddDoc(t, writer)
+		if (1+i)%2 == 0 {
+			mustCommit(t, writer)
 		}
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
+	mustClose(t, writer)
+
+	commits := mustListCommits(t, dir)
+	if len(commits) != 5 {
+		t.Fatalf("commits.size(): expected 5, got %d", len(commits))
+	}
+	var lastCommit *index.IndexCommit
+	for _, commit := range commits {
+		if lastCommit == nil || commit.GetGeneration() > lastCommit.GetGeneration() {
+			lastCommit = commit
+		}
+	}
+	if lastCommit == nil {
+		t.Fatal("assertTrue(lastCommit != null)")
 	}
 
-	allCommits, err := index.ListCommits(dir)
+	// Now add 1 doc and merge
+	conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetIndexDeletionPolicy(policy)
+	writer = mustNewIndexWriter(t, dir, conf)
+	deletionPolicyAddDoc(t, writer)
+	assertWriterDocStats(t, writer, -1, 11)
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	mustClose(t, writer)
+
+	assertCommitCount(t, 6, dir)
+
+	priorCommitWriter := func() *index.IndexWriter {
+		conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		conf.SetIndexDeletionPolicy(policy)
+		conf.SetIndexCommit(lastCommit)
+		conf.SetMergePolicy(newLogMergePolicyWithMergeFactor(10))
+		return mustNewIndexWriter(t, dir, conf)
+	}
+
+	// Now open writer on the commit just before merge:
+	writer = priorCommitWriter()
+	assertWriterDocStats(t, writer, -1, 10)
+
+	// Should undo our rollback:
+	if err := writer.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+
+	assertLeavesAndDocs(t, dir, 1, 11)
+
+	writer = priorCommitWriter()
+	assertWriterDocStats(t, writer, -1, 10)
+	// Commits the rollback:
+	mustClose(t, writer)
+
+	// Now 7 because we made another commit
+	assertCommitCount(t, 7, dir)
+
+	// Not fully merged because we rolled it back, and now only
+	// 10 docs
+	assertLeavesAndDocs(t, dir, -2, 10)
+
+	// Re-merge
+	conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetIndexDeletionPolicy(policy)
+	writer = mustNewIndexWriter(t, dir, conf)
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	mustClose(t, writer)
+
+	assertLeavesAndDocs(t, dir, 1, 10)
+
+	// Now open writer on the commit just before merging,
+	// but this time keeping only the last commit:
+	conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetIndexCommit(lastCommit)
+	conf.SetMergePolicy(newLogMergePolicyWithMergeFactor(10))
+	writer = mustNewIndexWriter(t, dir, conf)
+	assertWriterDocStats(t, writer, -1, 10)
+
+	// Reader still sees fully merged index, because writer
+	// opened on the prior commit has not yet committed:
+	assertLeavesAndDocs(t, dir, 1, 10)
+
+	mustClose(t, writer)
+
+	// Now reader sees not-fully-merged index:
+	assertLeavesAndDocs(t, dir, -2, 10)
+
+	mustClose(t, dir)
+}
+
+// assertLeavesAndDocs opens a reader on dir and asserts its leaf count
+// (exactly, or > 1 when leaves is -2) and, unless numDocs is negative, its
+// numDocs.
+func assertLeavesAndDocs(t testing.TB, dir store.Directory, leaves, numDocs int) {
+	t.Helper()
+	r := mustOpenDirectoryReader(t, dir)
+	defer mustClose(t, r)
+	got, err := r.Leaves()
 	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
+		t.Fatalf("leaves: %v", err)
 	}
-	if len(allCommits) != 6 {
-		t.Fatalf("expected 6 commits, got %d", len(allCommits))
+	if leaves == -2 {
+		if !(len(got) > 1) {
+			t.Fatalf("assertTrue(r.leaves().size() > 1): %d", len(got))
+		}
+	} else if len(got) != leaves {
+		t.Fatalf("leaves().size(): expected %d, got %d", leaves, len(got))
 	}
+	if numDocs >= 0 && r.NumDocs() != numDocs {
+		t.Fatalf("numDocs: expected %d, got %d", numDocs, r.NumDocs())
+	}
+}
 
-	policy := index.NewKeepLastNCommitsDeletionPolicy(numCommitsToKeep)
-	if err := policy.OnCommit(allCommits); err != nil {
-		t.Fatalf("policy.OnCommit: %v", err)
-	}
+// Test keeping NO commit points. This is a viable and useful case eg where
+// you want to build a big index and you know there are no readers.
+func TestDeletionPolicyKeepNoneOnInitDeletionPolicy(t *testing.T) {
+	for pass := 0; pass < 2; pass++ {
+		useCompoundFile := pass%2 != 0
 
-	remaining, err := index.ListCommits(dir)
+		dir := newDirectory()
+
+		conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		conf.SetOpenMode(index.Create)
+		conf.SetIndexDeletionPolicy(&deletionPolicyKeepNoneOnInit{})
+		conf.SetMaxBufferedDocs(10)
+		setNoCFSRatio(conf, map[bool]float64{true: 1.0, false: 0.0}[useCompoundFile])
+		writer := mustNewIndexWriter(t, dir, conf)
+		policy := writer.GetConfig().GetIndexDeletionPolicy().(*deletionPolicyKeepNoneOnInit)
+		for i := 0; i < 107; i++ {
+			deletionPolicyAddDoc(t, writer)
+		}
+		mustClose(t, writer)
+
+		conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		conf.SetOpenMode(index.Append)
+		conf.SetIndexDeletionPolicy(policy)
+		setNoCFSRatio(conf, 1.0)
+		writer = mustNewIndexWriter(t, dir, conf)
+		policy = writer.GetConfig().GetIndexDeletionPolicy().(*deletionPolicyKeepNoneOnInit)
+		if err := writer.ForceMerge(1); err != nil {
+			t.Fatalf("forceMerge: %v", err)
+		}
+		mustClose(t, writer)
+
+		if policy.numOnInit != 2 {
+			t.Fatalf("numOnInit: expected 2, got %d", policy.numOnInit)
+		}
+		// If we are not auto committing then there should
+		// be exactly 2 commits (one per close above):
+		if policy.numOnCommit != 2 {
+			t.Fatalf("numOnCommit: expected 2, got %d", policy.numOnCommit)
+		}
+
+		// Simplistic check: just verify the index is in fact
+		// readable:
+		mustClose(t, mustOpenDirectoryReader(t, dir))
+
+		mustClose(t, dir)
+	}
+}
+
+// Test a deletion policy that keeps last N commits.
+func TestDeletionPolicyKeepLastNDeletionPolicy(t *testing.T) {
+	const n = 5
+
+	for pass := 0; pass < 2; pass++ {
+		useCompoundFile := pass%2 != 0
+
+		dir := newDirectory()
+
+		policy := newDeletionPolicyKeepLastN(n)
+		for j := 0; j < n+1; j++ {
+			conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+			conf.SetOpenMode(index.Create)
+			conf.SetIndexDeletionPolicy(policy)
+			conf.SetMaxBufferedDocs(10)
+			setNoCFSRatio(conf, map[bool]float64{true: 1.0, false: 0.0}[useCompoundFile])
+			writer := mustNewIndexWriter(t, dir, conf)
+			policy = writer.GetConfig().GetIndexDeletionPolicy().(*deletionPolicyKeepLastN)
+			for i := 0; i < 17; i++ {
+				deletionPolicyAddDoc(t, writer)
+			}
+			if err := writer.ForceMerge(1); err != nil {
+				t.Fatalf("forceMerge: %v", err)
+			}
+			mustClose(t, writer)
+		}
+
+		if !(policy.numDelete > 0) {
+			t.Fatal("assertTrue(policy.numDelete > 0)")
+		}
+		if policy.numOnInit != n+1 {
+			t.Fatalf("numOnInit: expected %d, got %d", n+1, policy.numOnInit)
+		}
+		if policy.numOnCommit != n+1 {
+			t.Fatalf("numOnCommit: expected %d, got %d", n+1, policy.numOnCommit)
+		}
+
+		// Simplistic check: just verify only the past N segments_N's still
+		// exist, and, I can open a reader on each:
+		gen := lastCommitGeneration(t, dir)
+		for i := 0; i < n+1; i++ {
+			reader, err := index.OpenDirectoryReader(dir)
+			if err == nil {
+				mustClose(t, reader)
+				if i == n {
+					t.Fatalf("should have failed on commits prior to last %d", n)
+				}
+			} else if i != n {
+				t.Fatalf("DirectoryReader.open: %v", err)
+			}
+			if i < n {
+				deleteSegmentsFile(t, dir, gen)
+			}
+			gen--
+		}
+
+		mustClose(t, dir)
+	}
+}
+
+// Test a deletion policy that keeps last N commits around, through creates.
+func TestDeletionPolicyKeepLastNDeletionPolicyWithCreates(t *testing.T) {
+	const n = 10
+
+	for pass := 0; pass < 2; pass++ {
+		useCompoundFile := pass%2 != 0
+
+		dir := newDirectory()
+		conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		conf.SetOpenMode(index.Create)
+		conf.SetIndexDeletionPolicy(newDeletionPolicyKeepLastN(n))
+		conf.SetMaxBufferedDocs(10)
+		setNoCFSRatio(conf, map[bool]float64{true: 1.0, false: 0.0}[useCompoundFile])
+		writer := mustNewIndexWriter(t, dir, conf)
+		policy := writer.GetConfig().GetIndexDeletionPolicy().(*deletionPolicyKeepLastN)
+		mustClose(t, writer)
+		searchTerm := index.NewTerm("content", "aaa")
+		query := search.NewTermQuery(searchTerm)
+
+		for i := 0; i < n+1; i++ {
+			conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+			conf.SetOpenMode(index.Append)
+			conf.SetIndexDeletionPolicy(policy)
+			conf.SetMaxBufferedDocs(10)
+			setNoCFSRatio(conf, map[bool]float64{true: 1.0, false: 0.0}[useCompoundFile])
+			writer = mustNewIndexWriter(t, dir, conf)
+			policy = writer.GetConfig().GetIndexDeletionPolicy().(*deletionPolicyKeepLastN)
+			for j := 0; j < 17; j++ {
+				deletionPolicyAddDocWithID(t, writer, i*(n+1)+j)
+			}
+			// this is a commit
+			mustClose(t, writer)
+			conf = index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+			conf.SetIndexDeletionPolicy(policy)
+			conf.SetMergePolicy(index.NewNoMergePolicy())
+			writer = mustNewIndexWriter(t, dir, conf)
+			policy = writer.GetConfig().GetIndexDeletionPolicy().(*deletionPolicyKeepLastN)
+			mustDeleteTerm(t, writer, "id", strconv.Itoa(i*(n+1)+3))
+			// this is a commit
+			mustClose(t, writer)
+			reader := mustOpenDirectoryReader(t, dir)
+			searcher := newSearcher(t, reader)
+			assertHitCount(t, searcher, query, 16)
+			mustClose(t, reader)
+
+			conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+			conf.SetOpenMode(index.Create)
+			conf.SetIndexDeletionPolicy(policy)
+			writer = mustNewIndexWriter(t, dir, conf)
+			policy = writer.GetConfig().GetIndexDeletionPolicy().(*deletionPolicyKeepLastN)
+			// This will not commit: there are no changes
+			// pending because we opened for "create":
+			mustClose(t, writer)
+		}
+
+		if policy.numOnInit != 3*(n+1)+1 {
+			t.Fatalf("numOnInit: expected %d, got %d", 3*(n+1)+1, policy.numOnInit)
+		}
+		if policy.numOnCommit != 3*(n+1)+1 {
+			t.Fatalf("numOnCommit: expected %d, got %d", 3*(n+1)+1, policy.numOnCommit)
+		}
+
+		rwReader := mustOpenDirectoryReader(t, dir)
+		searcher := newSearcher(t, rwReader)
+		assertHitCount(t, searcher, query, 0)
+
+		// Simplistic check: just verify only the past N segments_N's still
+		// exist, and, I can open a reader on each:
+		gen := lastCommitGeneration(t, dir)
+
+		expectedCount := 0
+
+		mustClose(t, rwReader)
+
+		for i := 0; i < n+1; i++ {
+			reader, err := index.OpenDirectoryReader(dir)
+			if err == nil {
+				// Work backwards in commits on what the expected
+				// count should be.
+				searcher = newSearcher(t, reader)
+				assertHitCount(t, searcher, query, expectedCount)
+				if expectedCount == 0 {
+					expectedCount = 16
+				} else if expectedCount == 16 {
+					expectedCount = 17
+				} else if expectedCount == 17 {
+					expectedCount = 0
+				}
+				mustClose(t, reader)
+				if i == n {
+					t.Fatalf("should have failed on commits before last %d", n)
+				}
+			} else if i != n {
+				t.Fatalf("DirectoryReader.open: %v", err)
+			}
+			if i < n {
+				deleteSegmentsFile(t, dir, gen)
+			}
+			gen--
+		}
+
+		mustClose(t, dir)
+	}
+}
+
+// assertHitCount renders assertEquals(expected, searcher.search(query,
+// 1000).scoreDocs.length).
+func assertHitCount(t testing.TB, searcher *search.IndexSearcher, query search.Query, expected int) {
+	t.Helper()
+	hits, err := searcher.Search(query, 1000)
 	if err != nil {
-		t.Fatalf("ListCommits after policy: %v", err)
+		t.Fatalf("search: %v", err)
 	}
-	if len(remaining) != numCommitsToKeep {
-		t.Errorf("remaining commits = %d, want %d", len(remaining), numCommitsToKeep)
+	if len(hits.ScoreDocs) != expected {
+		t.Fatalf("hits.length: expected %d, got %d", expected, len(hits.ScoreDocs))
+	}
+}
+
+func TestDeletionPolicyKeepLastNCommitsDeletionPolicy(t *testing.T) {
+	numCommitsToKeep := 3
+	conf := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetIndexDeletionPolicy(index.NewKeepLastNCommitsDeletionPolicy(numCommitsToKeep))
+
+	if _, ok := conf.GetIndexDeletionPolicy().(*index.KeepLastNCommitsDeletionPolicy); !ok {
+		t.Fatalf("getIndexDeletionPolicy().getClass(): got %T", conf.GetIndexDeletionPolicy())
 	}
 
-	// Verify we can open a reader on each surviving commit.
-	for _, c := range remaining {
-		reader, err := index.OpenDirectoryReaderFromCommit(dir, c)
+	// Create an index and make several commits
+	dir := newDirectory()
+	writer := mustNewIndexWriter(t, dir, conf)
+
+	for i := 0; i < 5; i++ {
+		deletionPolicyAddDoc(t, writer)
+		mustCommit(t, writer)
+	}
+
+	mustClose(t, writer)
+
+	// Check that only the last N commits are kept
+	commits := mustListCommits(t, dir)
+	if len(commits) != numCommitsToKeep {
+		t.Fatalf("commits.size(): expected %d, got %d", numCommitsToKeep, len(commits))
+	}
+
+	// Verify that we can open and read from each of the remaining commits
+	for _, commit := range commits {
+		reader, err := index.OpenDirectoryReaderAtCommit(commit)
 		if err != nil {
-			t.Errorf("OpenDirectoryReaderFromCommit(seg=%s): %v", c.GetSegmentsFileName(), err)
-			continue
+			t.Fatalf("DirectoryReader.open(commit): %v", err)
 		}
-		reader.Close()
+		if !(reader.NumDocs() > 0) {
+			t.Fatalf("assertTrue(reader.numDocs() > 0): %d", reader.NumDocs())
+		}
+		mustClose(t, reader)
 	}
+
+	// Check that the retained commits are the most recent ones
+	latestGen := commits[len(commits)-1].GetGeneration()
+	for i := 0; i < numCommitsToKeep; i++ {
+		if got := commits[len(commits)-1-i].GetGeneration(); got != latestGen-int64(i) {
+			t.Fatalf("generation: expected %d, got %d", latestGen-int64(i), got)
+		}
+	}
+
+	mustClose(t, dir)
 }
 
-// TestDeletionPolicy_KeepLastNCommitsZero verifies that constructing a
-// KeepLastNCommitsDeletionPolicy with zero panics.
-func TestDeletionPolicy_KeepLastNCommitsZero(t *testing.T) {
+func TestDeletionPolicyKeepLastNCommitsDeletionPolicyWithZeroCommits(t *testing.T) {
+	numCommitsToKeep := 0
+	conf := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	var message string
 	func() {
 		defer func() {
-			if r := recover(); r == nil {
-				t.Error("NewKeepLastNCommitsDeletionPolicy(0) should panic")
+			if r := recover(); r != nil {
+				message = fmt.Sprint(r)
 			}
 		}()
-		index.NewKeepLastNCommitsDeletionPolicy(0)
+		conf.SetIndexDeletionPolicy(index.NewKeepLastNCommitsDeletionPolicy(numCommitsToKeep))
 	}()
-
-	p := index.NewKeepLastNCommitsDeletionPolicy(1)
-	if p == nil {
-		t.Error("NewKeepLastNCommitsDeletionPolicy(1) returned nil")
+	if message == "" {
+		t.Fatal("expected IllegalArgumentException")
+	}
+	if !strings.Contains(message, "number of recent commits to keep must be positive") {
+		t.Fatalf("message: %q", message)
 	}
 }
 
-// verifyCommitOrder checks that commits are sorted by generation ascending.
-func verifyCommitOrder(t *testing.T, commits []*index.IndexCommit) {
+func deletionPolicyAddDocWithID(t testing.TB, writer *index.IndexWriter, id int) {
 	t.Helper()
-	if len(commits) == 0 {
-		return
-	}
-	last := commits[0].GetGeneration()
-	for i, c := range commits[1:] {
-		gen := c.GetGeneration()
-		if gen <= last {
-			t.Errorf("commits out of order at index %d: gen=%d <= prev=%d", i+1, gen, last)
-		}
-		last = gen
-	}
+	doc := document.NewDocument()
+	doc.Add(newTextField(t, "content", "aaa", false))
+	doc.Add(newStringField(t, "id", strconv.Itoa(id), false))
+	mustAddDocument(t, writer, doc)
 }
 
-// TestDeletionPolicy_SnapshotDeletionPolicy tests the SnapshotDeletionPolicy
-// lifecycle.
-func TestDeletionPolicy_SnapshotDeletionPolicy(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 3; i++ {
-		addPolicyDoc(t, writer)
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit %d: %v", i, err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(commits) < 2 {
-		t.Fatalf("need at least 2 commits, got %d", len(commits))
-	}
-
-	snapPolicy := index.NewSnapshotDeletionPolicy(index.NewKeepOnlyLastCommitDeletionPolicy())
-	firstCommit := commits[0]
-	gen, err := snapPolicy.Snapshot(firstCommit)
-	if err != nil {
-		t.Fatalf("Snapshot: %v", err)
-	}
-	if gen != firstCommit.GetGeneration() {
-		t.Errorf("snapshot gen = %d, want %d", gen, firstCommit.GetGeneration())
-	}
-
-	if err := snapPolicy.OnCommit(commits); err != nil {
-		t.Fatalf("OnCommit: %v", err)
-	}
-
-	released := snapPolicy.Release(gen)
-	if !released {
-		t.Error("Release returned false for existing snapshot")
-	}
-	if snapPolicy.HasSnapshot(gen) {
-		t.Error("HasSnapshot true after Release")
-	}
-}
-
-// TestDeletionPolicy_ConcurrentSnapshot tests concurrent access to
-// SnapshotDeletionPolicy.
-func TestDeletionPolicy_ConcurrentSnapshot(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	addPolicyDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(commits) == 0 {
-		t.Fatal("no commits")
-	}
-
-	snapPolicy := index.NewSnapshotDeletionPolicy(index.NewKeepAllDeletionPolicy())
-	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			gen, err := snapPolicy.Snapshot(commits[0])
-			if err != nil {
-				return
-			}
-			snapPolicy.Release(gen)
-		}()
-	}
-	wg.Wait()
-}
-
-// TestDeletionPolicy_ListCommits verifies the ListCommits function.
-func TestDeletionPolicy_ListCommits(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	if _, err := index.ListCommits(dir); err == nil {
-		t.Fatal("ListCommits should error on empty index")
-	}
-
-	for i := 0; i < 3; i++ {
-		addPolicyDoc(t, writer)
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit %d: %v", i, err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(commits) != 3 {
-		t.Fatalf("expected 3 commits, got %d", len(commits))
-	}
-	verifyCommitOrder(t, commits)
-
-	for _, c := range commits {
-		if c.GetSegmentsFileName() == "" {
-			t.Error("commit has empty segments file name")
-		}
-		if c.GetGeneration() <= 0 {
-			t.Errorf("commit gen=%d should be positive", c.GetGeneration())
-		}
-	}
-}
-
-// TestDeletionPolicy_DeleteOnEmpty verifies Delete fails without a directory.
-func TestDeletionPolicy_DeleteOnEmpty(t *testing.T) {
-	si := index.NewSegmentInfos()
-	commit := index.NewIndexCommit(si)
-	err := commit.Delete()
-	if err == nil {
-		t.Fatal("expected error deleting commit with nil directory")
-	}
-	if !strings.Contains(err.Error(), "directory not set") {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-// TestDeletionPolicy_KeepAllClone verifies Clone works.
-func TestDeletionPolicy_KeepAllClone(t *testing.T) {
-	original := index.NewKeepAllDeletionPolicy()
-	clone := original.Clone()
-	if _, ok := clone.(*index.KeepAllDeletionPolicy); !ok {
-		t.Errorf("Clone returned %T, want *index.KeepAllDeletionPolicy", clone)
-	}
-	if err := clone.OnCommit(nil); err != nil {
-		t.Errorf("clone.OnCommit(nil): %v", err)
-	}
-}
-
-// TestDeletionPolicy_IndexCommitUserData verifies user data round-trips.
-func TestDeletionPolicy_IndexCommitUserData(t *testing.T) {
-	si := index.NewSegmentInfos()
-	ud := map[string]string{"key1": "val1", "key2": "val2"}
-	si.SetUserData(ud)
-	commit := index.NewIndexCommit(si)
-	got := commit.GetUserData()
-	if got["key1"] != "val1" || got["key2"] != "val2" {
-		t.Errorf("GetUserData = %v, want %v", got, ud)
-	}
-}
-
-// TestDeletionPolicy_IsDeleted verifies IsDeleted reflects file existence.
-func TestDeletionPolicy_IsDeleted(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	addPolicyDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(commits) == 0 {
-		t.Fatal("no commits")
-	}
-
-	c := commits[0]
-	if c.IsDeleted() {
-		t.Error("commit should not be deleted before Delete()")
-	}
-	if err := c.Delete(); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-	if !c.IsDeleted() {
-		t.Error("commit should be deleted after Delete()")
-	}
-}
-
-// TestDeletionPolicy_KeepLastNCommitsOnInit tests OnInit truncation.
-func TestDeletionPolicy_KeepLastNCommitsOnInit(t *testing.T) {
-	const numToKeep = 2
-
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 4; i++ {
-		addPolicyDoc(t, writer)
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit %d: %v", i, err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	policy := index.NewKeepLastNCommitsDeletionPolicy(numToKeep)
-	allCommits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if err := policy.OnInit(allCommits); err != nil {
-		t.Fatalf("policy.OnInit: %v", err)
-	}
-
-	remaining, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits after OnInit: %v", err)
-	}
-	if len(remaining) != numToKeep {
-		t.Errorf("OnInit survivors = %d, want %d", len(remaining), numToKeep)
-	}
-}
-
-// TestDeletionPolicy_IndexCommitCloneEquality tests Equals.
-func TestDeletionPolicy_IndexCommitCloneEquality(t *testing.T) {
-	si := index.NewSegmentInfos()
-	c1 := index.NewIndexCommit(si)
-	c2 := index.NewIndexCommit(si)
-	if !c1.Equals(c2) {
-		t.Error("two commits from same SegmentInfos should be equal")
-	}
-	if c1.Equals(nil) {
-		t.Error("Equals(nil) should return false")
-	}
-}
-
-// TestDeletionPolicy_BaseOnCommitError verifies Base returns errors.
-func TestDeletionPolicy_BaseOnCommitError(t *testing.T) {
-	base := &index.BaseIndexDeletionPolicy{}
-	if err := base.OnCommit(nil); err == nil {
-		t.Error("BaseIndexDeletionPolicy.OnCommit should return error")
-	}
-	if err := base.OnInit(nil); err == nil {
-		t.Error("BaseIndexDeletionPolicy.OnInit should return error")
-	}
-	if cloned := base.Clone(); cloned != nil {
-		t.Error("BaseIndexDeletionPolicy.Clone should return nil")
-	}
-}
-
-// TestDeletionPolicy_CommitGeneration verifies generation increases.
-func TestDeletionPolicy_CommitGeneration(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	addPolicyDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit 1: %v", err)
-	}
-	addPolicyDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit 2: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(commits) >= 2 && commits[1].GetGeneration() <= commits[0].GetGeneration() {
-		t.Error("later commit should have higher generation")
-	}
-}
-
-// TestDeletionPolicy_FilterDeletedCommits verifies the helper.
-func TestDeletionPolicy_FilterDeletedCommits(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 3; i++ {
-		addPolicyDoc(t, writer)
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit %d: %v", i, err)
-		}
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	allCommits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(allCommits) < 2 {
-		t.Fatalf("need >= 2 commits, got %d", len(allCommits))
-	}
-	if err := allCommits[0].Delete(); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-
-	filtered := index.FilterDeletedCommits(allCommits)
-	if len(filtered) != len(allCommits)-1 {
-		t.Errorf("FilterDeletedCommits returned %d, want %d", len(filtered), len(allCommits)-1)
-	}
-}
-
-// TestDeletionPolicy_DeleteCommits verifies the helper.
-func TestDeletionPolicy_DeleteCommits(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	addPolicyDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	allCommits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(allCommits) == 0 {
-		t.Fatal("no commits")
-	}
-	if err := index.DeleteCommits(allCommits); err != nil {
-		t.Errorf("DeleteCommits: %v", err)
-	}
-}
-
-// TestDeletionPolicy_OpenDirectoryReaderFromCommit verifies reader from commit.
-func TestDeletionPolicy_OpenDirectoryReaderFromCommit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	addPolicyDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	addPolicyDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit 2: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	if len(commits) == 0 {
-		t.Fatal("no commits")
-	}
-
-	reader, err := index.OpenDirectoryReaderFromCommit(dir, commits[len(commits)-1])
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromCommit: %v", err)
-	}
-	reader.Close()
-}
-
-// TestDeletionPolicy_KeepLastNGetNumCommitsToKeep verifies the accessor.
-func TestDeletionPolicy_KeepLastNGetNumCommitsToKeep(t *testing.T) {
-	p := index.NewKeepLastNCommitsDeletionPolicy(5)
-	if got := p.GetNumCommitsToKeep(); got != 5 {
-		t.Errorf("GetNumCommitsToKeep = %d, want 5", got)
-	}
-}
-
-// TestDeletionPolicy_String tests the String() method of concrete policy types.
-func TestDeletionPolicy_String(t *testing.T) {
-	if s := index.NewKeepAllDeletionPolicy().String(); s == "" {
-		t.Error("KeepAllDeletionPolicy.String() returned empty")
-	}
-	if s := index.NewKeepOnlyLastCommitDeletionPolicy().String(); s == "" {
-		t.Error("KeepOnlyLastCommitDeletionPolicy.String() returned empty")
-	}
-	if s := index.NewKeepLastNCommitsDeletionPolicy(5).String(); s == "" {
-		t.Error("KeepLastNCommitsDeletionPolicy.String() returned empty")
-	}
-}
-
-// TestDeletionPolicy_EmptyIndex verifies behavior on an empty index.
-func TestDeletionPolicy_EmptyIndex(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	if _, err := index.ListCommits(dir); err == nil {
-		t.Error("ListCommits on empty dir should error")
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader on empty dir: %v", err)
-	}
-	if n := reader.NumDocs(); n != 0 {
-		t.Errorf("NumDocs = %d, want 0", n)
-	}
-	reader.Close()
-
-	if _, err := index.OpenDirectoryReaderFromCommit(dir, nil); err == nil {
-		t.Error("OpenDirectoryReaderFromCommit(nil) should error")
-	}
-}
-
-// TestDeletionPolicy_FindCommitByGeneration tests the helper.
-func TestDeletionPolicy_FindCommitByGeneration(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	addPolicyDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	addPolicyDoc(t, writer)
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
-	}
-	for _, c := range commits {
-		found := index.FindCommitByGeneration(commits, c.GetGeneration())
-		if found == nil || found.GetGeneration() != c.GetGeneration() {
-			t.Errorf("FindCommitByGeneration(%d) returned wrong commit", c.GetGeneration())
-		}
-	}
-	if found := index.FindCommitByGeneration(commits, 99999); found != nil {
-		t.Error("FindCommitByGeneration(99999) should return nil")
-	}
+func deletionPolicyAddDoc(t testing.TB, writer *index.IndexWriter) {
+	t.Helper()
+	doc := document.NewDocument()
+	doc.Add(newTextField(t, "content", "aaa", false))
+	mustAddDocument(t, writer, doc)
 }

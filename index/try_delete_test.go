@@ -2,216 +2,150 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for the index package.
-//
-// Ported from Apache Lucene's org.apache.lucene.index.TestTryDelete
-// Source: lucene/core/src/test/org/apache/lucene/index/TestTryDelete.java
-// Reference tag: releases/lucene/10.4.0 (commit 9983b7c)
-//
-// GOC-4213 (Sprint 55, option c): every Java test method has a corresponding
-// Go test function. Tests whose dependencies are not yet ported to Gocene
-// call t.Skip with a precise reason; the index-building helpers are still
-// exercised so the port stays compilable and the gaps are explicit.
-//
+// Port of lucene/core/src/test/org/apache/lucene/index/TestTryDelete.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
 import (
-	"fmt"
+	"strconv"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+// tryDeleteDocumentMissing names the IndexWriter overload the Java tests
+// call: Gocene's TryDeleteDocument takes no reader and returns no sequence
+// number.
+const tryDeleteDocumentMissing = "org.apache.lucene.index.IndexWriter#tryDeleteDocument(IndexReader, int) is not ported"
 
-// newTryDeleteWriter mirrors TestTryDelete.getWriter: a writer configured with
-// a LogByteSizeMergePolicy and OpenMode.CREATE_OR_APPEND. Lucene uses
-// MockAnalyzer(random()); Gocene's WhitespaceAnalyzer is the closest faithful
-// equivalent.
-func newTryDeleteWriter(t *testing.T, dir store.Directory) *index.IndexWriter {
+func tryDeleteGetWriter(t *testing.T, directory store.Directory) *index.IndexWriter {
 	t.Helper()
+	policy := index.NewLogByteSizeMergePolicy()
+	conf := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMergePolicy(policy)
+	conf.SetOpenMode(index.CreateOrAppend)
 
-	conf := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	conf.SetMergePolicy(index.NewLogByteSizeMergePolicy())
-	conf.SetOpenMode(index.CREATE_OR_APPEND)
-
-	writer, err := index.NewIndexWriter(dir, conf)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	return writer
+	return mustNewIndexWriter(t, directory, conf)
 }
 
-// createTryDeleteIndex mirrors TestTryDelete.createIndex: ten documents, each
-// with a stored "foo" field holding its ordinal, committed and closed.
-func createTryDeleteIndex(t *testing.T) store.Directory {
+func tryDeleteCreateIndex(t *testing.T) store.Directory {
 	t.Helper()
+	directory := store.NewByteBuffersDirectory()
 
-	dir := store.NewByteBuffersDirectory()
-	writer := newTryDeleteWriter(t, dir)
+	writer := tryDeleteGetWriter(t, directory)
 
 	for i := 0; i < 10; i++ {
 		doc := document.NewDocument()
-		fooField, err := document.NewStringField("foo", fmt.Sprintf("%d", i), true)
+		f, err := document.NewStringField("foo", strconv.Itoa(i), true)
 		if err != nil {
-			t.Fatalf("NewStringField(foo): %v", err)
+			t.Fatalf("StringField: %v", err)
 		}
-		doc.Add(fooField)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument(%d): %v", i, err)
-		}
+		doc.Add(f)
+		mustAddDocument(t, writer, doc)
 	}
 
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-	return dir
+	mustCommit(t, writer)
+	mustClose(t, writer)
+
+	return directory
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
-
-// TestDeleteDocuments ports TestTryDelete.testDeleteDocuments.
-func TestDeleteDocuments(t *testing.T) {
-	dir := createTryDeleteIndex(t)
-	writer := newTryDeleteWriter(t, dir)
-	defer writer.Close()
-
-	// Delete the document whose "foo" value is "7" via a TermQuery.
-	q := search.NewTermQuery(index.NewTerm("foo", "7"))
-	if _, err := writer.DeleteDocumentsQuery(q); err != nil {
-		t.Fatalf("DeleteDocumentsQuery: %v", err)
-	}
-	if !writer.HasDeletions() {
-		t.Fatal("expected HasDeletions() to be true after a query delete")
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	reader, err := index.OpenDirectoryReader(dir)
+func assertFooHits(t *testing.T, searcher *search.IndexSearcher, expected int64) {
+	t.Helper()
+	topDocs, err := searcher.Search(search.NewTermQuery(index.NewTerm("foo", "0")), 100)
 	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+		t.Fatalf("search: %v", err)
 	}
-	defer reader.Close()
-
-	searcher := search.NewIndexSearcher(reader)
-	topDocs, err := searcher.Search(q, 10)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if topDocs.TotalHits.Value != 0 {
-		t.Fatalf("expected 0 hits after delete, got %d", topDocs.TotalHits.Value)
-	}
-	if reader.NumDocs() != 9 {
-		t.Fatalf("expected NumDocs=9 after deleting one of ten, got %d", reader.NumDocs())
+	if topDocs.TotalHits.Value != expected {
+		t.Fatalf("totalHits.value(): expected %d, got %d", expected, topDocs.TotalHits.Value)
 	}
 }
 
-// TestTryDeleteDocument ports TestTryDelete.testTryDeleteDocument.
-func TestTryDeleteDocument(t *testing.T) {
-	dir := createTryDeleteIndex(t)
-	writer := newTryDeleteWriter(t, dir)
-	defer writer.Close()
-
-	reader, err := index.OpenDirectoryReaderFromWriter(writer)
+func newTryDeleteSearcherManager(t *testing.T, writer *index.IndexWriter) *search.SearcherManager {
+	t.Helper()
+	mgr, err := search.NewSearcherManager(writer, search.NewDefaultSearcherFactory())
 	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+		t.Fatalf("new SearcherManager: %v", err)
 	}
-	defer reader.Close()
-
-	q := search.NewTermQuery(index.NewTerm("foo", "0"))
-	searcher := search.NewIndexSearcher(reader)
-	topDocs, err := searcher.Search(q, 10)
-	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if topDocs.TotalHits.Value != 1 {
-		t.Fatalf("expected 1 hit for foo:0, got %d", topDocs.TotalHits.Value)
-	}
-
-	if ok, err := writer.TryDeleteDocument(reader, 0); err != nil {
-		t.Fatalf("TryDeleteDocument: %v", err)
-	} else if !ok {
-		t.Fatal("expected TryDeleteDocument to succeed")
-	}
-	if !writer.HasDeletions() {
-		t.Fatal("expected HasDeletions() to be true after TryDeleteDocument")
-	}
-
-	reader2, err := index.OpenDirectoryReaderFromWriter(writer)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter after delete: %v", err)
-	}
-	defer reader2.Close()
-	searcher2 := search.NewIndexSearcher(reader2)
-	topDocs, err = searcher2.Search(q, 10)
-	if err != nil {
-		t.Fatalf("Search after delete: %v", err)
-	}
-	if topDocs.TotalHits.Value != 0 {
-		t.Fatalf("expected 0 hits for foo:0 after TryDeleteDocument, got %d", topDocs.TotalHits.Value)
-	}
+	return mgr
 }
 
-// TestTryDeleteDocumentCloseAndReopen ports
-// TestTryDelete.testTryDeleteDocumentCloseAndReopen.
-func TestTryDeleteDocumentCloseAndReopen(t *testing.T) {
-	dir := createTryDeleteIndex(t)
-	writer := newTryDeleteWriter(t, dir)
-
-	reader, err := index.OpenDirectoryReaderFromWriter(writer)
+func mustAcquire(t *testing.T, mgr *search.SearcherManager) *search.IndexSearcher {
+	t.Helper()
+	searcher, err := mgr.Acquire()
 	if err != nil {
-		t.Fatalf("OpenDirectoryReaderFromWriter: %v", err)
+		t.Fatalf("acquire: %v", err)
 	}
-	defer reader.Close()
+	return searcher
+}
 
-	q := search.NewTermQuery(index.NewTerm("foo", "0"))
-	searcher := search.NewIndexSearcher(reader)
-	topDocs, err := searcher.Search(q, 10)
+func TestTryDeleteTryDeleteDocument(t *testing.T) {
+	directory := tryDeleteCreateIndex(t)
+
+	writer := tryDeleteGetWriter(t, directory)
+
+	mgr := newTryDeleteSearcherManager(t, writer)
+
+	searcher := mustAcquire(t, mgr)
+
+	assertFooHits(t, searcher, 1)
+
+	t.Fatal(tryDeleteDocumentMissing)
+}
+
+func TestTryDeleteTryDeleteDocumentCloseAndReopen(t *testing.T) {
+	directory := tryDeleteCreateIndex(t)
+
+	writer := tryDeleteGetWriter(t, directory)
+
+	mgr := newTryDeleteSearcherManager(t, writer)
+
+	searcher := mustAcquire(t, mgr)
+
+	assertFooHits(t, searcher, 1)
+
+	t.Fatal(tryDeleteDocumentMissing)
+}
+
+func TestTryDeleteDeleteDocuments(t *testing.T) {
+	directory := tryDeleteCreateIndex(t)
+
+	writer := tryDeleteGetWriter(t, directory)
+
+	mgr := newTryDeleteSearcherManager(t, writer)
+
+	searcher := mustAcquire(t, mgr)
+
+	assertFooHits(t, searcher, 1)
+
+	result, err := writer.DeleteDocumentsQuery([]index.Query{search.NewTermQuery(index.NewTerm("foo", "0"))})
 	if err != nil {
-		t.Fatalf("Search: %v", err)
-	}
-	if topDocs.TotalHits.Value != 1 {
-		t.Fatalf("expected 1 hit for foo:0, got %d", topDocs.TotalHits.Value)
+		t.Fatalf("deleteDocuments(Query): %v", err)
 	}
 
-	if ok, err := writer.TryDeleteDocument(reader, 0); err != nil {
-		t.Fatalf("TryDeleteDocument: %v", err)
-	} else if !ok {
-		t.Fatal("expected TryDeleteDocument to succeed")
+	if !(result != -1) {
+		t.Fatal("assertTrue(result != -1)")
 	}
 
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	// writer.commit();
 
-	reader2, err := index.OpenDirectoryReader(dir)
+	hasDeletions, err := writer.HasDeletions()
 	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
+		t.Fatalf("hasDeletions: %v", err)
 	}
-	defer reader2.Close()
+	if !hasDeletions {
+		t.Fatal("assertTrue(writer.hasDeletions())")
+	}
 
-	searcher2 := search.NewIndexSearcher(reader2)
-	topDocs, err = searcher2.Search(q, 10)
-	if err != nil {
-		t.Fatalf("Search after reopen: %v", err)
+	if _, err := mgr.MaybeRefresh(); err != nil {
+		t.Fatalf("maybeRefresh: %v", err)
 	}
-	if topDocs.TotalHits.Value != 0 {
-		t.Fatalf("expected 0 hits for foo:0 after commit+reopen, got %d", topDocs.TotalHits.Value)
-	}
+
+	searcher = mustAcquire(t, mgr)
+
+	assertFooHits(t, searcher, 0)
 }

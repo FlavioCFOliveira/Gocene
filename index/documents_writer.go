@@ -136,30 +136,33 @@ func NewDocumentsWriter(
 }
 
 func (dw *DocumentsWriter) DeleteQueries(queries ...Query) (int64, error) {
-	return dw.applyDeleteOrUpdate(func(dq *DocumentsWriterDeleteQueue) int64 {
+	return dw.applyDeleteOrUpdate(func(dq *DocumentsWriterDeleteQueue) (int64, error) {
 		return dq.AddDelete(queries...)
 	})
 }
 
 func (dw *DocumentsWriter) DeleteTerms(terms ...Term) (int64, error) {
-	return dw.applyDeleteOrUpdate(func(dq *DocumentsWriterDeleteQueue) int64 {
+	return dw.applyDeleteOrUpdate(func(dq *DocumentsWriterDeleteQueue) (int64, error) {
 		return dq.AddDeleteTerms(terms...)
 	})
 }
 
 func (dw *DocumentsWriter) UpdateDocValues(updates ...DocValuesUpdate) (int64, error) {
-	return dw.applyDeleteOrUpdate(func(dq *DocumentsWriterDeleteQueue) int64 {
+	return dw.applyDeleteOrUpdate(func(dq *DocumentsWriterDeleteQueue) (int64, error) {
 		return dq.AddDocValuesUpdates(updates...)
 	})
 }
 
-func (dw *DocumentsWriter) applyDeleteOrUpdate(function func(*DocumentsWriterDeleteQueue) int64) (int64, error) {
+func (dw *DocumentsWriter) applyDeleteOrUpdate(function func(*DocumentsWriterDeleteQueue) (int64, error)) (int64, error) {
 	owner := util.NewLockOwner()
 	dw.lock.Lock(owner)
 	defer dw.lock.Unlock(owner)
 
 	dq := dw.deleteQueue
-	seqNo := function(dq)
+	seqNo, err := function(dq)
+	if err != nil {
+		return 0, err
+	}
 	dw.flushControl.DoOnDelete()
 	if applied, err := dw.applyAllDeletes(); err != nil {
 		return 0, err

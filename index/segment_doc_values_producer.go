@@ -192,9 +192,7 @@ func NewSegmentDocValuesProducer(
 // producers.
 func newFieldInfosSingleton(fi *FieldInfo) (*FieldInfos, error) {
 	out := NewFieldInfos()
-	if err := out.Add(fi); err != nil {
-		return nil, fmt.Errorf("SegmentDocValuesProducer: build singleton FieldInfos: %w", err)
-	}
+	out.Add(fi)
 	return out, nil
 }
 

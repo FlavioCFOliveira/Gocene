@@ -32,7 +32,7 @@ func TestIndexTooManyDocs(t *testing.T) {
 	defer dir.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {
@@ -74,4 +74,3 @@ func TestIndexTooManyDocs(t *testing.T) {
 		t.Fatalf("update error message mismatch: got %q, want prefix %q", err.Error(), wantPrefix)
 	}
 }
-

@@ -156,7 +156,7 @@ func TestLiveDocs_GoldenBytes(t *testing.T) {
 	}
 	defer in.Close()
 	got := make([]byte, n)
-	if err := in.ReadBytes(got); err != nil {
+	if err := in.ReadBytes(got, 0, len(got)); err != nil {
 		t.Fatalf("ReadBytes: %v", err)
 	}
 

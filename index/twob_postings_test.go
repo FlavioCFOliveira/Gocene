@@ -10,12 +10,11 @@ import (
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	_ "github.com/FlavioCFOliveira/Gocene/codecs"
+	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
-
-	_ "github.com/FlavioCFOliveira/Gocene/codecs"
-	_ "github.com/FlavioCFOliveira/Gocene/codecs/lucene90"
 )
 
 // Test2BPostings validates that postings (term/document pairs) are correctly
@@ -26,7 +25,7 @@ func Test2BPostings(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	config.SetUseCompoundFile(false)
 	writer, err := index.NewIndexWriter(dir, config)
 	if err != nil {

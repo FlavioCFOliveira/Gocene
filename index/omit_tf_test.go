@@ -75,7 +75,7 @@ func TestOmitTf_NoPrxFile(t *testing.T) {
 	lmp.SetMergeFactor(2)
 	lmp.SetNoCFSRatio(0.0)
 
-	cfg := index.NewIndexWriterConfig(analyzer)
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	cfg.SetMergePolicy(lmp)
 
 	writer, err := index.NewIndexWriter(ram, cfg)
@@ -98,7 +98,7 @@ func TestOmitTf_NoPrxFile(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -118,7 +118,7 @@ func TestOmitTf_MixedRAM(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -142,7 +142,7 @@ func TestOmitTf_MixedRAM(t *testing.T) {
 	if err := writer.ForceMerge(1); err != nil {
 		t.Fatalf("ForceMerge: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -202,7 +202,7 @@ func TestOmitTf_Stats(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	riw, err := testindex.NewRandomIndexWriterWithConfig(rand.New(rand.NewSource(1)), dir, cfg)
 	if err != nil {
 		t.Fatalf("NewRandomIndexWriterWithConfig: %v", err)

@@ -29,7 +29,7 @@ func TestAllFilesHaveChecksumFooter(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	config := index.NewIndexWriterConfig(nil)
+	config := index.NewIndexWriterConfigWithAnalyzer(nil)
 	config.SetMaxBufferedDocs(2)
 
 	writer, err := index.NewIndexWriter(dir, config)
@@ -48,7 +48,7 @@ func TestAllFilesHaveChecksumFooter(t *testing.T) {
 			t.Fatalf("Failed to add document %d: %v", i, err)
 		}
 		if i%7 == 0 {
-			if err := writer.Commit(); err != nil {
+			if _, err := writer.Commit(); err != nil {
 				t.Fatalf("Failed to commit at doc %d: %v", i, err)
 			}
 		}

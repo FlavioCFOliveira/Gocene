@@ -8,6 +8,8 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
 // fakeNumericDV is a tiny in-memory NumericDocValues used only to exercise
@@ -72,6 +74,16 @@ func (f *fakeNumericDV) LongValue() (int64, error) {
 }
 
 func (f *fakeNumericDV) DocID() int { return f.docID }
+
+// DocIDRunEnd carries the default body Lucene gives NumericDocValues.DocIDRunEnd.
+func (f *fakeNumericDV) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(f)
+}
+
+// IntoBitSet carries the default body Lucene gives NumericDocValues.IntoBitSet.
+func (f *fakeNumericDV) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
+}
 
 func TestSingletonSortedNumeric_DelegatesIterationAndGet(t *testing.T) {
 	t.Parallel()

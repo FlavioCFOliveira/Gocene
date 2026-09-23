@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
@@ -33,11 +34,18 @@ func (t *trackingDVProducer) GetSortedNumeric(*FieldInfo) (SortedNumericDocValue
 func (t *trackingDVProducer) GetSortedSet(*FieldInfo) (SortedSetDocValues, error) {
 	return nil, nil
 }
-func (t *trackingDVProducer) GetSkipper(*FieldInfo) (DocValuesSkipper, error) { return nil, nil }
-func (t *trackingDVProducer) CheckIntegrity() error                           { return nil }
+func (t *trackingDVProducer) GetSkipper(_ *spi.FieldInfo) (spi.DocValuesSkipper, error) {
+	return nil, nil
+}
+func (t *trackingDVProducer) CheckIntegrity() error { return nil }
 func (t *trackingDVProducer) Close() error {
 	t.closeCalls.Add(1)
 	return t.closeErr
+}
+
+// GetMergeInstance is abstract in Lucene's DocValuesProducer; this double does not support it.
+func (t *trackingDVProducer) GetMergeInstance() spi.DocValuesProducer {
+	panic("trackingDVProducer.GetMergeInstance: unsupported operation")
 }
 
 // newFactory returns a DocValuesProducerFactory whose successive invocations

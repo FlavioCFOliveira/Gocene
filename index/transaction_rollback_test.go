@@ -2,258 +2,201 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for multi-level transaction rollback via
-// IndexDeletionPolicy.
-//
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/index/TestTransactionRollback.java
+// Port of lucene/core/src/test/org/apache/lucene/index/TestTransactionRollback.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
 import (
 	"fmt"
+	"maps"
 	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-const transactionFieldRecordID = "record_id"
+const transactionRollbackFieldRecordID = "record_id"
 
-// transactionBuildIndex creates 100 documents, committing after every 10 with
-// user data "index" -> "records 1-N".  It mirrors the Java setUp() method.
-func transactionBuildIndex(t *testing.T, dir store.Directory) {
+// transactionRollbackRollBackLast rolls back index to a chosen ID.
+func transactionRollbackRollBackLast(t *testing.T, dir store.Directory, id int) {
 	t.Helper()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	cfg.SetIndexDeletionPolicy(index.NewKeepAllDeletionPolicy())
-	w, err := index.NewIndexWriter(dir, cfg)
+	ids := "-" + strconv.Itoa(id)
+	var last *index.IndexCommit
+	commits, err := index.ListCommits(dir)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("listCommits: %v", err)
 	}
-	defer w.Close()
-
-	for id := 1; id <= 100; id++ {
-		doc := document.NewDocument()
-		f, err := document.NewStringField(transactionFieldRecordID, fmt.Sprintf("%d", id), true)
-		if err != nil {
-			t.Fatalf("NewStringField: %v", err)
-		}
-		doc.Add(f)
-		if _, err := w.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", id, err)
-		}
-		if id%10 == 0 {
-			w.SetLiveCommitData(map[string]string{"index": fmt.Sprintf("records 1-%d", id)})
-			if err := w.Commit(); err != nil {
-				t.Fatalf("Commit %d: %v", id, err)
+	for _, commit := range commits {
+		ud := commit.GetUserData()
+		if len(ud) > 0 {
+			if strings.HasSuffix(ud["index"], ids) {
+				last = commit
 			}
 		}
 	}
+
+	if last == nil {
+		t.Fatalf("Couldn't find commit point %d", id)
+	}
+
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetIndexDeletionPolicy(&rollbackDeletionPolicy{rollbackPoint: id})
+	iwc.SetIndexCommit(last)
+	w := mustNewIndexWriter(t, dir, iwc)
+	data := map[string]string{"index": "Rolled back to 1-" + strconv.Itoa(id)}
+	w.SetLiveCommitData(maps.All(data))
+	mustClose(t, w)
 }
 
-// transactionRollBackLast reopens the index at the commit whose user data
-// ends with "-<id>" and deletes every newer commit via RollbackDeletionPolicy.
-func transactionRollBackLast(t *testing.T, dir store.Directory, id int) {
+func TestTransactionRollbackRepeatedRollBacks(t *testing.T) {
+	dir := transactionRollbackSetUp(t)
+	defer mustClose(t, dir) // tearDown()
+
+	expectedLastRecordID := 100
+	for expectedLastRecordID > 10 {
+		expectedLastRecordID -= 10
+		transactionRollbackRollBackLast(t, dir, expectedLastRecordID)
+
+		expecteds := make(map[int]bool)
+		for i := 1; i < expectedLastRecordID+1; i++ {
+			expecteds[i] = true
+		}
+		transactionRollbackCheckExpecteds(t, dir, expecteds)
+	}
+}
+
+func transactionRollbackCheckExpecteds(t *testing.T, dir store.Directory, expecteds map[int]bool) {
 	t.Helper()
-	commits, err := index.ListCommits(dir)
+	r := mustOpenDirectoryReader(t, dir)
+
+	// Perhaps not the most efficient approach but meets our needs here.
+	liveDocs, err := index.MultiBitsGetLiveDocs(r)
 	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
+		t.Fatalf("MultiBits.getLiveDocs: %v", err)
 	}
-	var target *index.IndexCommit
-	suffix := "-" + strconv.Itoa(id)
-	for _, c := range commits {
-		if strings.HasSuffix(c.GetUserData()["index"], suffix) {
-			target = c
+	storedFields, err := r.StoredFields()
+	if err != nil {
+		t.Fatalf("storedFields: %v", err)
+	}
+	for i := 0; i < r.MaxDoc(); i++ {
+		if liveDocs == nil || liveDocs.Get(i) {
+			sval := docGet(storedDocument(t, storedFields, i), transactionRollbackFieldRecordID)
+			if sval != nil {
+				val, err := strconv.Atoi(*sval)
+				if err != nil {
+					t.Fatalf("parseInt(%q): %v", *sval, err)
+				}
+				if !expecteds[val] {
+					t.Fatalf("Did not expect document #%d", val)
+				}
+				delete(expecteds, val)
+			}
 		}
 	}
-	if target == nil {
-		t.Fatalf("commit point for %d not found", id)
-	}
-
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	cfg.SetIndexDeletionPolicy(&rollbackDeletionPolicy{rollbackPoint: id})
-	cfg.SetIndexCommit(target)
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter at commit %d: %v", id, err)
-	}
-	w.SetLiveCommitData(map[string]string{"index": fmt.Sprintf("Rolled back to 1-%d", id)})
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close after rollback to %d: %v", id, err)
+	mustClose(t, r)
+	if len(expecteds) != 0 {
+		t.Fatalf("Should have 0 docs remaining : %d", len(expecteds))
 	}
 }
 
-// transactionCheckExpecteds verifies that exactly the record IDs in [1,last]
-// are present and live.
-func transactionCheckExpecteds(t *testing.T, dir store.Directory, last int) {
+// transactionRollbackSetUp ports setUp(): builds an index of records 1 to 100,
+// committing after each batch of 10.
+func transactionRollbackSetUp(t *testing.T) *store.MockDirectoryWrapper {
 	t.Helper()
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer reader.Close()
+	dir := newDirectory()
 
-	seen := make(map[int]struct{}, last)
-	maxDoc := reader.MaxDoc()
-	sf, err := reader.StoredFields()
-	if err != nil {
-		t.Fatalf("StoredFields: %v", err)
-	}
-	for docID := 0; docID < maxDoc; docID++ {
-		v := &recordIDVisitor{}
-		if err := sf.Document(docID, v); err != nil {
-			t.Fatalf("Document(%d): %v", docID, err)
+	sdp := keepAllDeletionPolicy{}
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetIndexDeletionPolicy(sdp)
+	w := mustNewIndexWriter(t, dir, iwc)
+
+	for currentRecordID := 1; currentRecordID <= 100; currentRecordID++ {
+		doc := document.NewDocument()
+		doc.Add(newTextField(t, transactionRollbackFieldRecordID, strconv.Itoa(currentRecordID), true))
+		mustAddDocument(t, w, doc)
+
+		if currentRecordID%10 == 0 {
+			data := map[string]string{"index": fmt.Sprintf("records 1-%d", currentRecordID)}
+			w.SetLiveCommitData(maps.All(data))
+			mustCommit(t, w)
 		}
-		if v.value == "" {
-			continue
-		}
-		id, err := strconv.Atoi(v.value)
-		if err != nil {
-			t.Fatalf("invalid record_id %q: %v", v.value, err)
-		}
-		if id < 1 || id > last {
-			t.Fatalf("unexpected record_id %d (expected 1..%d)", id, last)
-		}
-		if _, ok := seen[id]; ok {
-			t.Fatalf("record_id %d seen more than once", id)
-		}
-		seen[id] = struct{}{}
 	}
-	if len(seen) != last {
-		t.Fatalf("expected %d live records, got %d", last, len(seen))
-	}
+
+	mustClose(t, w)
+	return dir
 }
 
-// recordIDVisitor collects the "record_id" stored field value.
-type recordIDVisitor struct {
-	value string
-}
-
-// NeedsField accepts every stored field.
-func (v *recordIDVisitor) NeedsField(*index.FieldInfo) (index.StoredFieldVisitorStatus, error) {
-	return index.StoredFieldVisitorStatusYes, nil
-}
-
-func (v *recordIDVisitor) StringField(fieldInfo *index.FieldInfo, value string) error {
-	if fieldInfo.Name() == transactionFieldRecordID {
-		v.value = value
-	}
-	return nil
-}
-
-func (v *recordIDVisitor) BinaryField(fieldInfo *index.FieldInfo, value []byte) error {
-	return nil
-}
-func (v *recordIDVisitor) IntField(fieldInfo *index.FieldInfo, value int) error {
-	return nil
-}
-func (v *recordIDVisitor) LongField(fieldInfo *index.FieldInfo, value int64) error {
-	return nil
-}
-func (v *recordIDVisitor) FloatField(fieldInfo *index.FieldInfo, value float32) error {
-	return nil
-}
-func (v *recordIDVisitor) DoubleField(fieldInfo *index.FieldInfo, value float64) error {
-	return nil
-}
-
-// rollbackDeletionPolicy deletes every commit whose "index" user data ends
-// with a record ID larger than the rollback point.
+// rollbackDeletionPolicy ports RollbackDeletionPolicy: rolls back to previous
+// commit point.
 type rollbackDeletionPolicy struct {
 	rollbackPoint int
 }
 
-func (p *rollbackDeletionPolicy) OnInit(commits []*index.IndexCommit) error {
-	for _, c := range commits {
-		ud := c.GetUserData()
-		if len(ud) == 0 {
-			continue
-		}
-		x := ud["index"]
-		if x == "" {
-			continue
-		}
-		idx := strings.LastIndex(x, "-")
-		if idx < 0 {
-			continue
-		}
-		last, err := strconv.Atoi(x[idx+1:])
-		if err != nil {
-			continue
-		}
-		if last > p.rollbackPoint {
-			if err := c.Delete(); err != nil {
+func (p *rollbackDeletionPolicy) OnCommit([]index.Commit) error { return nil }
+
+func (p *rollbackDeletionPolicy) OnInit(commits []index.Commit) error {
+	for _, commit := range commits {
+		userData := commit.GetUserData()
+		if len(userData) > 0 {
+			// Label for a commit point is "Records 1-30"
+			// This code reads the last id ("30" in this example) and deletes it
+			// if it is after the desired rollback point
+			x := userData["index"]
+			lastVal := x[strings.LastIndex(x, "-")+1:]
+			last, err := strconv.Atoi(lastVal)
+			if err != nil {
 				return err
+			}
+			if last > p.rollbackPoint {
+				if err := commit.Delete(); err != nil {
+					return err
+				}
 			}
 		}
 	}
 	return nil
 }
 
-func (p *rollbackDeletionPolicy) OnCommit(commits []*index.IndexCommit) error { return nil }
 func (p *rollbackDeletionPolicy) Clone() index.IndexDeletionPolicy {
 	return &rollbackDeletionPolicy{rollbackPoint: p.rollbackPoint}
 }
 
-// deleteLastCommitPolicy deletes the most recent commit on init, verifying
-// that reopening at the prior commit preserves all earlier documents.
+// deleteLastCommitPolicy ports DeleteLastCommitPolicy.
 type deleteLastCommitPolicy struct{}
 
-func (deleteLastCommitPolicy) OnInit(commits []*index.IndexCommit) error {
-	if len(commits) == 0 {
-		return nil
-	}
+func (deleteLastCommitPolicy) OnCommit([]index.Commit) error { return nil }
+
+func (deleteLastCommitPolicy) OnInit(commits []index.Commit) error {
 	return commits[len(commits)-1].Delete()
 }
 
-func (deleteLastCommitPolicy) OnCommit(commits []*index.IndexCommit) error { return nil }
-func (deleteLastCommitPolicy) Clone() index.IndexDeletionPolicy            { return deleteLastCommitPolicy{} }
+func (p deleteLastCommitPolicy) Clone() index.IndexDeletionPolicy { return p }
 
-// TestTransactionRollback_RepeatedRollBacks ports testRepeatedRollBacks().
-func TestTransactionRollback_RepeatedRollBacks(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	transactionBuildIndex(t, dir)
-
-	for last := 100; last > 10; last -= 10 {
-		transactionRollBackLast(t, dir, last)
-		transactionCheckExpecteds(t, dir, last)
-	}
-}
-
-// TestTransactionRollback_RollbackDeletionPolicy ports testRollbackDeletionPolicy().
-func TestTransactionRollback_RollbackDeletionPolicy(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	transactionBuildIndex(t, dir)
+func TestTransactionRollbackRollbackDeletionPolicy(t *testing.T) {
+	dir := transactionRollbackSetUp(t)
+	defer mustClose(t, dir) // tearDown()
 
 	for i := 0; i < 2; i++ {
-		cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		cfg.SetIndexDeletionPolicy(deleteLastCommitPolicy{})
-		w, err := index.NewIndexWriter(dir, cfg)
-		if err != nil {
-			t.Fatalf("NewIndexWriter iteration %d: %v", i, err)
+		// Unless you specify a prior commit point, rollback should not work:
+		iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		iwc.SetIndexDeletionPolicy(deleteLastCommitPolicy{})
+		mustClose(t, mustNewIndexWriter(t, dir, iwc))
+		r := mustOpenDirectoryReader(t, dir)
+		if r.NumDocs() != 100 {
+			t.Fatalf("expected 100 docs, got %d", r.NumDocs())
 		}
-		// Gocene's Commit() only writes a new generation when there are pending
-		// mutations or changed live commit data.  The Java test relies on
-		// commitOnClose writing a fresh commit even when nothing changed.  We
-		// emulate that by stamping distinct live commit data before closing.
-		w.SetLiveCommitData(map[string]string{"iteration": fmt.Sprintf("%d", i)})
-		if err := w.Close(); err != nil {
-			t.Fatalf("Close iteration %d: %v", i, err)
-		}
-
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("OpenDirectoryReader iteration %d: %v", i, err)
-		}
-		if got := reader.NumDocs(); got != 100 {
-			t.Fatalf("iteration %d: NumDocs = %d, want 100", i, got)
-		}
-		reader.Close()
+		mustClose(t, r)
 	}
 }
+
+// keepAllDeletionPolicy ports KeepAllDeletionPolicy: keeps all commit points
+// (used to build index).
+type keepAllDeletionPolicy struct{}
+
+func (keepAllDeletionPolicy) OnCommit([]index.Commit) error      { return nil }
+func (keepAllDeletionPolicy) OnInit([]index.Commit) error        { return nil }
+func (p keepAllDeletionPolicy) Clone() index.IndexDeletionPolicy { return p }

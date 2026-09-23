@@ -2,38 +2,17 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for the index package.
-//
-// Ported from Apache Lucene's org.apache.lucene.index.TestNewestSegment.
-//
-// GOC-4191: Index Tests - TestNewestSegment
+// Port of lucene/core/src/test/org/apache/lucene/index/TestNewestSegment.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
-import (
-	"testing"
+import "testing"
 
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
-)
-
-// TestNewestSegment verifies that a freshly created IndexWriter, before any
-// flush, reports no newest segment.
-func TestNewestSegment(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(createTestAnalyzer())
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter() error = %v", err)
-	}
-
-	// IndexWriter.NewestSegment() must be nil before the first flush.
-	if seg := writer.NewestSegment(); seg != nil {
-		t.Errorf("NewestSegment() = %v, want nil", seg)
-	}
-
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
+func TestNewestSegmentNewestSegment(t *testing.T) {
+	directory := newDirectory()
+	writer := mustNewIndexWriter(t, directory, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	mustClose(t, writer, directory)
+	// assertNull(writer.newestSegment())
+	t.Fatal("org.apache.lucene.index.IndexWriter#newestSegment() is not ported")
 }

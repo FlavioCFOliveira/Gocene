@@ -2,147 +2,102 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+// Port of lucene/core/src/test/org/apache/lucene/index/TestSameTokenSamePosition.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
 import (
+	"math/rand"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
+	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
 )
 
-// bugReproTokenStream ports the private BugReproTokenStream from
-// org.apache.lucene.index.TestSameTokenSamePosition. It emits a fixed sequence
-// of four tokens in which "six" and "drunken" each occur twice at the same
-// position (the second occurrence carries a zero position increment) and at
-// identical start/end offsets. Indexing it once reproduced an April-2011 trunk
-// assertion error.
+// bugReproTokenStream ports the package-private final class BugReproTokenStream.
 type bugReproTokenStream struct {
 	*analysis.BaseTokenStream
-	termAtt   analysis.CharTermAttribute
-	offsetAtt analysis.OffsetAttribute
-	posIncAtt analysis.PositionIncrementAttribute
-	terms     []string
-	starts    []int
-	ends      []int
-	incs      []int
-	upto      int
+	termAtt        analysis.CharTermAttribute
+	offsetAtt      analysis.OffsetAttribute
+	posIncAtt      tokenattributes.PositionIncrementAttribute
+	nextTokenIndex int
 }
 
+const bugReproTokenCount = 4
+
+var (
+	bugReproTerms  = []string{"six", "six", "drunken", "drunken"}
+	bugReproStarts = []int{0, 0, 4, 4}
+	bugReproEnds   = []int{3, 3, 11, 11}
+	bugReproIncs   = []int{1, 0, 1, 0}
+)
+
 func newBugReproTokenStream() *bugReproTokenStream {
-	base := analysis.NewBaseTokenStream()
-	ts := &bugReproTokenStream{
-		BaseTokenStream: base,
-		termAtt:         analysis.NewCharTermAttribute(),
-		offsetAtt:       analysis.NewOffsetAttribute(),
-		posIncAtt:       analysis.NewPositionIncrementAttribute(),
-		terms:           []string{"six", "six", "drunken", "drunken"},
-		starts:          []int{0, 0, 4, 4},
-		ends:            []int{3, 3, 11, 11},
-		incs:            []int{1, 0, 1, 0},
-	}
-	base.AddAttribute(ts.termAtt)
-	base.AddAttribute(ts.offsetAtt)
-	base.AddAttribute(ts.posIncAtt)
+	ts := &bugReproTokenStream{BaseTokenStream: analysis.NewBaseTokenStream()}
+	ts.termAtt = ts.AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	ts.offsetAtt = ts.AddAttribute(analysis.OffsetAttributeType).(analysis.OffsetAttribute)
+	ts.posIncAtt = ts.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
 	return ts
 }
 
 func (b *bugReproTokenStream) IncrementToken() (bool, error) {
-	if b.upto == len(b.terms) {
-		return false, nil
+	if b.nextTokenIndex < bugReproTokenCount {
+		b.termAtt.SetValue(bugReproTerms[b.nextTokenIndex])
+		b.offsetAtt.SetOffset(bugReproStarts[b.nextTokenIndex], bugReproEnds[b.nextTokenIndex])
+		b.posIncAtt.SetPositionIncrement(bugReproIncs[b.nextTokenIndex])
+		b.nextTokenIndex++
+		return true, nil
 	}
-	b.termAtt.SetEmpty()
-	b.termAtt.AppendString(b.terms[b.upto])
-	b.offsetAtt.SetOffset(b.starts[b.upto], b.ends[b.upto])
-	b.posIncAtt.SetPositionIncrement(b.incs[b.upto])
-	b.upto++
-	return true, nil
+	return false, nil
 }
 
 func (b *bugReproTokenStream) Reset() error {
-	b.upto = 0
+	if err := b.BaseTokenStream.Reset(); err != nil {
+		return err
+	}
+	b.nextTokenIndex = 0
 	return nil
 }
 
-// newSameTokenWriter opens a fresh SimpleFSDirectory-backed IndexWriter.
-//
-// Divergences from Lucene shared by both tests:
-//   - Lucene drives the write through RandomIndexWriter; Gocene exposes no
-//     randomized test-writer wrapper, so the plain IndexWriter is used. This
-//     test only exercises the indexing path, so the wrapper is irrelevant.
-//   - MockAnalyzer is replaced by WhitespaceAnalyzer; the analyzer is unused on
-//     a field backed by a pre-built TokenStream.
-func newSameTokenWriter(t *testing.T) (store.Directory, *index.IndexWriter) {
+func sameTokenSamePositionDoc(t *testing.T) *document.Document {
 	t.Helper()
-	dir, err := store.NewSimpleFSDirectory(t.TempDir())
-	if err != nil {
-		t.Fatalf("Failed to open directory: %v", err)
-	}
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	w, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		dir.Close()
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-	return dir, w
-}
-
-// sameTokenSamePositionBlocked gates every test in this file. The upstream
-// tests index a TextField constructed directly from a pre-built TokenStream
-// (new TextField("eng", new BugReproTokenStream())). Gocene's index.Field
-// has no TokenStream-accepting constructor and no TokenStreamValue setter
-// (document/field.go, document/field_setters.go), so the field carrying
-// bugReproTokenStream cannot be built and the document cannot be indexed.
-// This is the same gap that keeps every TestCustomTermFreq port skipped.
-//
-// The port is kept faithful and complete so it can be unskipped verbatim once
-// index.Field gains a TokenStream value type.
-const sameTokenSamePositionBlocked = "blocked: index.Field has no TokenStream " +
-	"value type (document/field.go, document/field_setters.go); same gap as TestCustomTermFreq"
-
-// sameTokenDoc builds a document with a single "eng" TextField backed by a
-// bugReproTokenStream.
-func sameTokenDoc(t *testing.T) *document.Document {
-	t.Helper()
-	field, err := document.NewField("eng", newBugReproTokenStream(), document.TextFieldTypeNotStored)
-	if err != nil {
-		t.Fatalf("Failed to create field: %v", err)
-	}
 	doc := document.NewDocument()
-	doc.Add(field)
+	f, err := document.NewField("eng", newBugReproTokenStream(), document.TextFieldTypeNotStored)
+	if err != nil {
+		t.Fatalf("new TextField: %v", err)
+	}
+	doc.Add(f)
 	return doc
 }
 
-// TestSameTokenSamePosition ports
-// org.apache.lucene.index.TestSameTokenSamePosition#test: indexing a single
-// document whose tokens repeat at the same position must not raise an error.
+// TestSameTokenSamePosition attempts to reproduce an assertion error that
+// happens only with the trunk version around April 2011.
 func TestSameTokenSamePosition(t *testing.T) {
-	dir, w := newSameTokenWriter(t)
-	defer dir.Close()
-
-	if _, err := w.AddDocument(sameTokenDoc(t)); err != nil {
-		t.Fatalf("AddDocument failed: %v", err)
+	dir := newDirectory()
+	riw, err := testindex.NewRandomIndexWriter(rand.New(rand.NewSource(rand.Int63())), dir)
+	if err != nil {
+		t.Fatalf("new RandomIndexWriter: %v", err)
 	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
+	if _, err := riw.AddDocument(sameTokenSamePositionDoc(t)); err != nil {
+		t.Fatalf("addDocument: %v", err)
 	}
+	mustClose(t, riw, dir)
 }
 
-// TestSameTokenSamePosition_MoreDocs ports
-// org.apache.lucene.index.TestSameTokenSamePosition#testMoreDocs: the same
-// repeated-position document indexed 100 times must not raise an error.
-func TestSameTokenSamePosition_MoreDocs(t *testing.T) {
-	dir, w := newSameTokenWriter(t)
-	defer dir.Close()
-
+// TestSameTokenSamePositionMoreDocs is the same as the above, but with more docs.
+func TestSameTokenSamePositionMoreDocs(t *testing.T) {
+	dir := newDirectory()
+	riw, err := testindex.NewRandomIndexWriter(rand.New(rand.NewSource(rand.Int63())), dir)
+	if err != nil {
+		t.Fatalf("new RandomIndexWriter: %v", err)
+	}
 	for i := 0; i < 100; i++ {
-		if _, err := w.AddDocument(sameTokenDoc(t)); err != nil {
-			t.Fatalf("AddDocument %d failed: %v", i, err)
+		if _, err := riw.AddDocument(sameTokenSamePositionDoc(t)); err != nil {
+			t.Fatalf("addDocument: %v", err)
 		}
 	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
+	mustClose(t, riw, dir)
 }

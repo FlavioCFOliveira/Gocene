@@ -2,1145 +2,452 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for the index package.
-//
-// Ported from Apache Lucene's org.apache.lucene.index.TestIndexWriterCommit
-// Source: lucene/core/src/test/org/apache/lucene/index/TestIndexWriterCommit.java
-//
-// GC-175: Test IndexWriterCommit - Commit on close behavior, abort (rollback),
-// multiple commits, commit data preservation, two-phase commit
+// Port of lucene/core/src/test/org/apache/lucene/index/TestIndexWriterCommit.java
+// (Apache Lucene 10.5.0). The @Nightly testCommitOnCloseDiskUsage and
+// testCommitThreadSafety live in index_writer_commit_monster_test.go.
+
 package index_test
 
 import (
+	"errors"
+	"maps"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// createCommitTestAnalyzer creates a simple test analyzer
-func createCommitTestAnalyzer() analysis.Analyzer {
-	return analysis.NewWhitespaceAnalyzer()
-}
-
-// addCommitTestDoc adds a simple document with content "aaa" to the writer
-func addCommitTestDoc(writer *index.IndexWriter) error {
-	doc := document.NewDocument()
-	tf, err := document.NewTextField("content", "aaa", false)
-	if err != nil {
-		return err
-	}
-	doc.Add(tf)
-	_, err = writer.AddDocument(doc)
-	return err
-}
-
-// addCommitTestDocWithIndex adds a document with indexed content and id
-func addCommitTestDocWithIndex(writer *index.IndexWriter, idx int) error {
-	doc := document.NewDocument()
-	tf, err := document.NewTextField("content", "aaa", false)
-	if err != nil {
-		return err
-	}
-	doc.Add(tf)
-	sf, err := document.NewStringField("id", string(rune('0'+idx)), true)
-	if err != nil {
-		return err
-	}
-	doc.Add(sf)
-	_, err = writer.AddDocument(doc)
-	return err
-}
-
-// assertNoUnreferencedFiles checks that there are no unreferenced files after rollback
-func assertNoUnreferencedFiles(t *testing.T, dir store.Directory, message string) {
-	// Create a temporary writer and rollback to trigger file cleanup
-	config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-	tempWriter, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Logf("Warning: could not create temp writer for cleanup check: %v", err)
-		return
-	}
-	tempWriter.Rollback()
-}
-
-// TestCommitOnClose tests that documents are only visible after writer close
-// Source: TestIndexWriterCommit.testCommitOnClose()
-// Purpose: Tests basic commit on close behavior
-func TestCommitOnClose(t *testing.T) {
-	t.Run("documents visible after close", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-
-		// Add 14 documents
-		for i := 0; i < 14; i++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("Failed to add document %d: %v", i, err)
-			}
-		}
-
-		// Close writer (should commit)
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		// Open reader and verify documents are visible
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		defer reader.Close()
-
-		if reader.NumDocs() != 14 {
-			t.Errorf("Expected 14 documents, got %d", reader.NumDocs())
-		}
-	})
-
-	t.Run("documents not visible until close", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		// Create initial index with 14 documents
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-		for i := 0; i < 14; i++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("Failed to add document %d: %v", i, err)
-			}
-		}
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		// Open reader on committed index
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-
-		// Create new writer and add more documents
-		config2 := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config2.SetOpenMode(index.APPEND)
-		writer, err = index.NewIndexWriter(dir, config2)
-		if err != nil {
-			reader.Close()
-			t.Fatalf("Failed to create second IndexWriter: %v", err)
-		}
-
-		// Add 33 more documents (3 iterations of 11)
-		for i := 0; i < 3; i++ {
-			for j := 0; j < 11; j++ {
-				if err := addCommitTestDoc(writer); err != nil {
-					t.Fatalf("Failed to add document: %v", err)
-				}
-			}
-
-			// Reopen reader - should still see only 14 documents
-			r2, err := reader.Reopen()
-			if err != nil {
-				t.Fatalf("Failed to reopen reader: %v", err)
-			}
-			if r2.NumDocs() != 14 {
-				t.Errorf("Reader incorrectly sees changes from writer: expected 14, got %d", r2.NumDocs())
-			}
-			// When no changes occurred Reopen returns the same reader; closing it
-			// would invalidate the original reader, so only close a fresh one.
-			if r2 != reader {
-				r2.Close()
-			}
-
-			// Check if original reader is still current
-			isCurrent, _ := reader.IsCurrent()
-			if !isCurrent {
-				t.Error("Reader should have still been current")
-			}
-		}
-
-		// Close writer - now changes should be visible
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		// Check reader is no longer current
-		isCurrent, _ := reader.IsCurrent()
-		if isCurrent {
-			t.Error("Reader should not be current after writer close")
-		}
-		reader.Close()
-
-		// Open new reader and verify all documents
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		defer reader.Close()
-
-		// 14 + 33 = 47 documents
-		if reader.NumDocs() != 47 {
-			t.Errorf("Reader did not see changes after writer close: expected 47, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestCommitOnCloseAbort tests that rollback aborts uncommitted changes
-// Source: TestIndexWriterCommit.testCommitOnCloseAbort()
-// Purpose: Tests abort (rollback) behavior
-func TestCommitOnCloseAbort(t *testing.T) {
-	t.Run("rollback aborts changes", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		// Create initial index with 14 documents
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config.SetMaxBufferedDocs(10)
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-		for i := 0; i < 14; i++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("Failed to add document: %v", err)
-			}
-		}
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		// Open reader
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader.NumDocs() != 14 {
-			t.Errorf("Expected 14 documents, got %d", reader.NumDocs())
-		}
-		reader.Close()
-
-		// Create writer with APPEND mode
-		config2 := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config2.SetOpenMode(index.APPEND)
-		config2.SetMaxBufferedDocs(10)
-		writer, err = index.NewIndexWriter(dir, config2)
-		if err != nil {
-			t.Fatalf("Failed to create second IndexWriter: %v", err)
-		}
-
-		// Add 17 documents
-		for i := 0; i < 17; i++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("Failed to add document: %v", err)
-			}
-		}
-
-		// Delete all documents with content "aaa"
-		term := index.NewTerm("content", "aaa")
-		if _, err := writer.DeleteDocuments(term); err != nil {
-			t.Fatalf("Failed to delete documents: %v", err)
-		}
-
-		// Verify reader still sees 14 documents
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader.NumDocs() != 14 {
-			t.Errorf("Reader incorrectly sees changes from writer: expected 14, got %d", reader.NumDocs())
-		}
-		reader.Close()
-
-		// Rollback writer
-		if err := writer.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback writer: %v", err)
-		}
-
-		// Check no unreferenced files
-		assertNoUnreferencedFiles(t, dir, "unreferenced files remain after rollback()")
-
-		// Verify reader still sees 14 documents after rollback
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader.NumDocs() != 14 {
-			t.Errorf("Saw changes after writer.abort: expected 14, got %d", reader.NumDocs())
-		}
-		reader.Close()
-
-		// Verify we can reopen and add more documents
-		config3 := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config3.SetOpenMode(index.APPEND)
-		config3.SetMaxBufferedDocs(10)
-		writer, err = index.NewIndexWriter(dir, config3)
-		if err != nil {
-			t.Fatalf("Failed to create third IndexWriter: %v", err)
-		}
-
-		// Add 204 documents (12 iterations of 17)
-		for i := 0; i < 12; i++ {
-			for j := 0; j < 17; j++ {
-				if err := addCommitTestDoc(writer); err != nil {
-					t.Fatalf("Failed to add document: %v", err)
-				}
-			}
-			// Verify reader still sees only 14
-			r, err := index.OpenDirectoryReader(dir)
-			if err != nil {
-				t.Fatalf("Failed to open reader: %v", err)
-			}
-			if r.NumDocs() != 14 {
-				t.Errorf("Reader incorrectly sees changes from writer: expected 14, got %d", r.NumDocs())
-			}
-			r.Close()
-		}
-
-		// Close writer
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		// Verify all documents are visible
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		defer reader.Close()
-
-		// 14 + 204 = 218 documents
-		if reader.NumDocs() != 218 {
-			t.Errorf("Didn't see changes after close: expected 218, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestCommitOnCloseForceMerge tests forceMerge with commit on close
-// Source: TestIndexWriterCommit.testCommitOnCloseForceMerge()
-// Purpose: Tests forceMerge behavior with commit on close and rollback
-func TestCommitOnCloseForceMerge(t *testing.T) {
-	t.Run("forceMerge with rollback", func(t *testing.T) {
-		// ForceMerge currently writes the merged SegmentInfos immediately, so a
-		// reader opened before writer close already sees a single segment and
-		// rollback cannot abort the merge. Re-enable once merges are held as
-		// pending until commit/close (or rollback) like Lucene.
-		t.Fatal("ForceMerge commits merged segments immediately; pending-merge/rollback semantics not yet implemented")
-
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		// Create initial index with 17 documents
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config.SetMaxBufferedDocs(10)
-		config.SetMergePolicy(index.NewTieredMergePolicy())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-		for i := 0; i < 17; i++ {
-			if err := addCommitTestDocWithIndex(writer, i); err != nil {
-				t.Fatalf("Failed to add document: %v", err)
-			}
-		}
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		// Create writer and force merge
-		config2 := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config2.SetOpenMode(index.APPEND)
-		writer, err = index.NewIndexWriter(dir, config2)
-		if err != nil {
-			t.Fatalf("Failed to create second IndexWriter: %v", err)
-		}
-
-		if err := writer.ForceMerge(1); err != nil {
-			t.Fatalf("Failed to force merge: %v", err)
-		}
-
-		// Open reader before closing (committing) the writer
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-
-		// Reader should see index as multi-segment at this point
-		leaves, err := reader.Leaves()
-		if err != nil {
-			t.Fatalf("Failed to get leaves: %v", err)
-		}
-		if len(leaves) <= 1 {
-			t.Error("Reader incorrectly sees one segment")
-		}
-		reader.Close()
-
-		// Abort the writer
-		if err := writer.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback writer: %v", err)
-		}
-
-		assertNoUnreferencedFiles(t, dir, "aborted writer after forceMerge")
-
-		// Open reader after aborting writer
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-
-		// Reader should still see index as multi-segment
-		leaves, err = reader.Leaves()
-		if err != nil {
-			t.Fatalf("Failed to get leaves: %v", err)
-		}
-		if len(leaves) <= 1 {
-			t.Error("Reader incorrectly sees one segment after abort")
-		}
-		reader.Close()
-
-		// Now do a real full merge
-		config3 := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config3.SetOpenMode(index.APPEND)
-		writer, err = index.NewIndexWriter(dir, config3)
-		if err != nil {
-			t.Fatalf("Failed to create third IndexWriter: %v", err)
-		}
-
-		if err := writer.ForceMerge(1); err != nil {
-			t.Fatalf("Failed to force merge: %v", err)
-		}
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		assertNoUnreferencedFiles(t, dir, "after real forceMerge")
-
-		// Open reader after real merge
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		defer reader.Close()
-
-		// Reader should see index as one segment
-		leaves, err = reader.Leaves()
-		if err != nil {
-			t.Fatalf("Failed to get leaves: %v", err)
-		}
-		if len(leaves) != 1 {
-			t.Errorf("Reader incorrectly sees more than one segment: got %d", len(leaves))
-		}
-	})
-}
-
-// TestForceCommit tests explicit commit() calls
-// Source: TestIndexWriterCommit.testForceCommit()
-// Purpose: Tests explicit commit behavior
-func TestForceCommit(t *testing.T) {
-	t.Run("explicit commit", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config.SetMaxBufferedDocs(2)
-		config.SetMergePolicy(index.NewTieredMergePolicy())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-
-		// Initial commit
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Failed to commit: %v", err)
-		}
-
-		// Add 23 documents
-		for i := 0; i < 23; i++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("Failed to add document: %v", err)
-			}
-		}
-
-		// Open reader - should see 0 documents (not committed yet)
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader.NumDocs() != 0 {
-			t.Errorf("Expected 0 documents before commit, got %d", reader.NumDocs())
-		}
-
-		// Commit
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Failed to commit: %v", err)
-		}
-
-		// Reopen reader - should see 23 documents
-		reader2, err := reader.Reopen()
-		if err != nil {
-			t.Fatalf("Failed to reopen reader: %v", err)
-		}
-		if reader2.NumDocs() != 23 {
-			t.Errorf("Expected 23 documents after commit, got %d", reader2.NumDocs())
-		}
-		reader.Close()
-
-		// Add 17 more documents
-		for i := 0; i < 17; i++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("Failed to add document: %v", err)
-			}
-		}
-
-		// reader2 should still see 23
-		if reader2.NumDocs() != 23 {
-			t.Errorf("reader2 should still see 23, got %d", reader2.NumDocs())
-		}
-		reader2.Close()
-
-		// Open new reader - should see 23 (not 40 yet)
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader.NumDocs() != 23 {
-			t.Errorf("Expected 23 documents, got %d", reader.NumDocs())
-		}
-		reader.Close()
-
-		// Commit again
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Failed to commit: %v", err)
-		}
-
-		// Open reader - should see 40 documents
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		defer reader.Close()
-
-		if reader.NumDocs() != 40 {
-			t.Errorf("Expected 40 documents, got %d", reader.NumDocs())
-		}
-
-		writer.Close()
-	})
-}
-
-// TestPrepareCommit tests the two-phase commit (prepareCommit/commit)
-// Source: TestIndexWriterCommit.testPrepareCommit()
-// Purpose: Tests two-phase commit behavior
-func TestPrepareCommit(t *testing.T) {
-	t.Run("two-phase commit", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config.SetMaxBufferedDocs(2)
-		config.SetMergePolicy(index.NewTieredMergePolicy())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-
-		// Initial commit
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Failed to commit: %v", err)
-		}
-
-		// Add 23 documents
-		for i := 0; i < 23; i++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("Failed to add document: %v", err)
-			}
-		}
-
-		// Open reader - should see 0 documents
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader.NumDocs() != 0 {
-			t.Errorf("Expected 0 documents before prepareCommit, got %d", reader.NumDocs())
-		}
-
-		// Prepare commit
-		if err := writer.PrepareCommit(); err != nil {
-			t.Fatalf("Failed to prepare commit: %v", err)
-		}
-
-		// Open another reader - should still see 0 documents
-		reader2, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader2.NumDocs() != 0 {
-			t.Errorf("Expected 0 documents after prepareCommit, got %d", reader2.NumDocs())
-		}
-
-		// Commit
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Failed to commit: %v", err)
-		}
-
-		// Reopen reader - should see 23 documents
-		reader3, err := reader.Reopen()
-		if err != nil {
-			t.Fatalf("Failed to reopen reader: %v", err)
-		}
-		if reader3.NumDocs() != 23 {
-			t.Errorf("Expected 23 documents after commit, got %d", reader3.NumDocs())
-		}
-		reader.Close()
-		reader2.Close()
-
-		// Add 17 more documents
-		for i := 0; i < 17; i++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("Failed to add document: %v", err)
-			}
-		}
-
-		// reader3 should still see 23
-		if reader3.NumDocs() != 23 {
-			t.Errorf("reader3 should still see 23, got %d", reader3.NumDocs())
-		}
-		reader3.Close()
-
-		// Open reader - should see 23
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader.NumDocs() != 23 {
-			t.Errorf("Expected 23 documents, got %d", reader.NumDocs())
-		}
-		reader.Close()
-
-		// Prepare commit
-		if err := writer.PrepareCommit(); err != nil {
-			t.Fatalf("Failed to prepare commit: %v", err)
-		}
-
-		// Open reader - should still see 23
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader.NumDocs() != 23 {
-			t.Errorf("Expected 23 documents after prepareCommit, got %d", reader.NumDocs())
-		}
-		reader.Close()
-
-		// Commit
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Failed to commit: %v", err)
-		}
-
-		// Open reader - should see 40
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		defer reader.Close()
-
-		if reader.NumDocs() != 40 {
-			t.Errorf("Expected 40 documents, got %d", reader.NumDocs())
-		}
-
-		writer.Close()
-	})
-}
-
-// TestPrepareCommitRollback tests rollback after prepareCommit
-// Source: TestIndexWriterCommit.testPrepareCommitRollback()
-// Purpose: Tests rollback behavior after prepareCommit
-func TestPrepareCommitRollback(t *testing.T) {
-	t.Run("rollback after prepareCommit", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config.SetMaxBufferedDocs(2)
-		config.SetMergePolicy(index.NewTieredMergePolicy())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-
-		// Initial commit
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Failed to commit: %v", err)
-		}
-
-		// Add 23 documents
-		for i := 0; i < 23; i++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("Failed to add document: %v", err)
-			}
-		}
-
-		// Open reader - should see 0 documents
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader.NumDocs() != 0 {
-			t.Errorf("Expected 0 documents, got %d", reader.NumDocs())
-		}
-
-		// Prepare commit
-		if err := writer.PrepareCommit(); err != nil {
-			t.Fatalf("Failed to prepare commit: %v", err)
-		}
-
-		// Open another reader - should still see 0
-		reader2, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader2.NumDocs() != 0 {
-			t.Errorf("Expected 0 documents after prepareCommit, got %d", reader2.NumDocs())
-		}
-
-		// Rollback
-		if err := writer.Rollback(); err != nil {
-			t.Fatalf("Failed to rollback: %v", err)
-		}
-
-		// Reopen reader - should be null (no changes)
-		reader3, err := reader.Reopen()
-		if err != nil {
-			t.Fatalf("Failed to reopen reader: %v", err)
-		}
-		// reader3 should be the same as reader (no changes)
-		if reader3 != reader {
-			t.Error("Expected reader3 to be the same as reader after rollback")
-		}
-		if reader.NumDocs() != 0 {
-			t.Errorf("Expected 0 documents after rollback, got %d", reader.NumDocs())
-		}
-		if reader2.NumDocs() != 0 {
-			t.Errorf("Expected 0 documents in reader2 after rollback, got %d", reader2.NumDocs())
-		}
-		reader.Close()
-		reader2.Close()
-
-		// Create new writer
-		config2 := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		writer, err = index.NewIndexWriter(dir, config2)
-		if err != nil {
-			t.Fatalf("Failed to create second IndexWriter: %v", err)
-		}
-
-		// Add 17 documents
-		for i := 0; i < 17; i++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("Failed to add document: %v", err)
-			}
-		}
-
-		// Open reader - should see 0
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader.NumDocs() != 0 {
-			t.Errorf("Expected 0 documents, got %d", reader.NumDocs())
-		}
-		reader.Close()
-
-		// Prepare commit
-		if err := writer.PrepareCommit(); err != nil {
-			t.Fatalf("Failed to prepare commit: %v", err)
-		}
-
-		// Open reader - should still see 0
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		if reader.NumDocs() != 0 {
-			t.Errorf("Expected 0 documents after prepareCommit, got %d", reader.NumDocs())
-		}
-		reader.Close()
-
-		// Commit
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Failed to commit: %v", err)
-		}
-
-		// Open reader - should see 17
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		defer reader.Close()
-
-		if reader.NumDocs() != 17 {
-			t.Errorf("Expected 17 documents, got %d", reader.NumDocs())
-		}
-
-		writer.Close()
-	})
-}
-
-// TestPrepareCommitNoChanges tests prepareCommit with no changes
-// Source: TestIndexWriterCommit.testPrepareCommitNoChanges()
-// Purpose: Tests prepareCommit when there are no changes
-func TestPrepareCommitNoChanges(t *testing.T) {
-	t.Run("prepareCommit with no changes", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-
-		// Prepare commit with no changes
-		if err := writer.PrepareCommit(); err != nil {
-			t.Fatalf("Failed to prepare commit: %v", err)
-		}
-
-		// Commit
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Failed to commit: %v", err)
-		}
-
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		// Open reader - should see 0 documents
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		defer reader.Close()
-
-		if reader.NumDocs() != 0 {
-			t.Errorf("Expected 0 documents, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestPrepareCommitThenClose tests that close fails after prepareCommit
-// Source: TestIndexWriterCommit.testPrepareCommitThenClose()
-// Purpose: Tests that close() fails after prepareCommit without commit
-func TestPrepareCommitThenClose(t *testing.T) {
-	t.Run("close after prepareCommit should fail", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-
-		// Add a document
-		doc := document.NewDocument()
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-
-		// Prepare commit
-		if err := writer.PrepareCommit(); err != nil {
-			t.Fatalf("Failed to prepare commit: %v", err)
-		}
-
-		// Try to close - should fail
-		err = writer.Close()
-		if err == nil {
-			t.Error("Expected close to fail after prepareCommit, but it succeeded")
-		}
-
-		// Commit and then close should succeed
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Failed to commit: %v", err)
-		}
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer after commit: %v", err)
-		}
-
-		// Verify document is visible
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		defer reader.Close()
-
-		if reader.MaxDoc() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.MaxDoc())
-		}
-	})
-}
-
-// TestCommitUserData tests setting and retrieving commit user data
-// Source: TestIndexWriterCommit.testCommitUserData()
-// Purpose: Tests commit data preservation
-func TestCommitUserData(t *testing.T) {
-	t.Run("commit user data", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		// Create initial index
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config.SetMaxBufferedDocs(2)
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-		for i := 0; i < 17; i++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("Failed to add document: %v", err)
-			}
-		}
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		// Open reader and check that no user data was set
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		commit := reader.GetIndexCommit()
-		if commit == nil {
-			t.Fatalf("GetIndexCommit returned nil for reader with %d segments", reader.MaxDoc())
-		}
-		if len(commit.GetUserData()) != 0 {
-			t.Errorf("Expected empty user data, got %v", commit.GetUserData())
-		}
-		reader.Close()
-
-		// Create writer with user data
-		config2 := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config2.SetMaxBufferedDocs(2)
-		writer, err = index.NewIndexWriter(dir, config2)
-		if err != nil {
-			t.Fatalf("Failed to create second IndexWriter: %v", err)
-		}
-		for i := 0; i < 17; i++ {
-			if err := addCommitTestDoc(writer); err != nil {
-				t.Fatalf("Failed to add document: %v", err)
-			}
-		}
-
-		// Set commit data
-		data := map[string]string{
-			"label": "test1",
-		}
-		writer.SetLiveCommitData(data)
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		// Open reader and verify user data
-		reader, err = index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		commit = reader.GetIndexCommit()
-		if commit == nil {
-			t.Fatal("GetIndexCommit returned nil")
-		}
-		userData := commit.GetUserData()
-		if userData["label"] != "test1" {
-			t.Errorf("Expected label=test1, got %s", userData["label"])
-		}
-		reader.Close()
-
-		// Force merge and close
-		config3 := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		writer, err = index.NewIndexWriter(dir, config3)
-		if err != nil {
-			t.Fatalf("Failed to create third IndexWriter: %v", err)
-		}
-		if err := writer.ForceMerge(1); err != nil {
-			t.Fatalf("Failed to force merge: %v", err)
-		}
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-	})
-}
-
-// TestCommitDataIsLive tests that commit data is late binding
-// Source: TestIndexWriterCommit.testCommitDataIsLive()
-// Purpose: Tests that commit data is captured at commit time, not set time
-func TestCommitDataIsLive(t *testing.T) {
-	t.Run("commit data is late binding", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-
-		doc := document.NewDocument()
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-
-		// Set commit data with "foo"="bar"
-		data := map[string]string{
-			"foo": "bar",
-		}
-		writer.SetLiveCommitData(data)
-
-		// Clear and set new data
-		data["foo"] = "baz"
-
-		// Close writer (commits with current data)
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		// List commits and verify data
-		commits, err := index.ListCommits(dir)
-		if err != nil {
-			t.Fatalf("Failed to list commits: %v", err)
-		}
-		if len(commits) != 1 {
-			t.Fatalf("Expected 1 commit, got %d", len(commits))
-		}
-
-		commit := commits[0]
-		userData := commit.GetUserData()
-		if len(userData) != 1 {
-			t.Errorf("Expected 1 user data entry, got %d", len(userData))
-		}
-		if userData["foo"] != "baz" {
-			t.Errorf("Expected foo=baz, got foo=%s", userData["foo"])
-		}
-	})
-}
-
-// TestZeroCommits tests that no commits exist before first commit
-// Source: TestIndexWriterCommit.testZeroCommits()
-// Purpose: Tests that listCommits fails before any commit
-func TestZeroCommits(t *testing.T) {
-	t.Run("zero commits before first commit", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-
-		// listCommits should fail before any commit
-		_, err = index.ListCommits(dir)
-		if err == nil {
-			t.Error("Expected listCommits to fail before any commit")
-		}
-
-		// Close writer (should create a commit for new index)
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		// Now listCommits should succeed
-		commits, err := index.ListCommits(dir)
-		if err != nil {
-			t.Fatalf("Failed to list commits after close: %v", err)
-		}
-		if len(commits) != 1 {
-			t.Errorf("Expected 1 commit, got %d", len(commits))
-		}
-	})
-}
-
-// findCommitByTag returns the IndexCommit whose user data contains the given tag value.
-func findCommitByTag(t *testing.T, dir store.Directory, tag string) *index.IndexCommit {
+func addDocs(t testing.TB, w *index.IndexWriter, n int) {
 	t.Helper()
-	commits, err := index.ListCommits(dir)
-	if err != nil {
-		t.Fatalf("ListCommits: %v", err)
+	for i := 0; i < n; i++ {
+		testIndexWriterAddDoc(t, w)
 	}
-	for _, c := range commits {
+}
+
+// Simple test for "commit on close": open writer then add a bunch of docs,
+// making sure reader does not see these docs until writer is closed.
+func TestIndexWriterCommitCommitOnClose(t *testing.T) {
+	dir := newDirectory()
+	writer := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	addDocs(t, writer, 14)
+	mustClose(t, writer)
+
+	reader := mustOpenDirectoryReader(t, dir)
+	defer mustClose(t, reader, dir)
+	newSearcher(t, reader)
+}
+
+// Simple test for "commit on close": open writer, then add a bunch of docs,
+// making sure reader does not see them until writer has closed. Then instead
+// of closing the writer, call abort and verify reader sees nothing was
+// added. Then verify we can open the index and add docs to it.
+func TestIndexWriterCommitCommitOnCloseAbort(t *testing.T) {
+	dir := newDirectory()
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxBufferedDocs(10)
+	writer := mustNewIndexWriter(t, dir, conf)
+	addDocs(t, writer, 14)
+	mustClose(t, writer)
+
+	reader := mustOpenDirectoryReader(t, dir)
+	defer mustClose(t, reader, dir)
+	newSearcher(t, reader)
+}
+
+// Verify that calling forceMerge when writer is open for "commit on close"
+// works correctly both for rollback() and close().
+func TestIndexWriterCommitCommitOnCloseForceMerge(t *testing.T) {
+	dir := newDirectory()
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxBufferedDocs(10)
+	conf.SetMergePolicy(newLogMergePolicyWithMergeFactor(10))
+	writer := mustNewIndexWriter(t, dir, conf)
+	for j := 0; j < 17; j++ {
+		testIndexWriterAddDocWithIndex(t, writer, j)
+	}
+	mustClose(t, writer)
+
+	appendWriter := func() *index.IndexWriter {
+		conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		conf.SetOpenMode(index.Append)
+		return mustNewIndexWriter(t, dir, conf)
+	}
+	writer = appendWriter()
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+
+	// Open a reader before closing (commiting) the writer; reader should see
+	// index as multi-seg at this point:
+	assertLeavesAndDocs(t, dir, -2, -1)
+
+	// Abort the writer:
+	if err := writer.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	assertNoUnreferencedFiles(t, dir, "aborted writer after forceMerge")
+
+	// Open a reader after aborting writer; reader should still see index as
+	// multi-segment
+	assertLeavesAndDocs(t, dir, -2, -1)
+
+	writer = appendWriter()
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	mustClose(t, writer)
+
+	assertNoUnreferencedFiles(t, dir, "aborted writer after forceMerge")
+
+	// Open a reader after aborting writer; reader should see index as one
+	// segment
+	assertLeavesAndDocs(t, dir, 1, -1)
+	mustClose(t, dir)
+}
+
+func assertReaderNumDocs(t testing.TB, expected int, r index.IndexReaderInterface) {
+	t.Helper()
+	if r.NumDocs() != expected {
+		t.Fatalf("numDocs: expected %d, got %d", expected, r.NumDocs())
+	}
+}
+
+// openIfChanged renders DirectoryReader.openIfChanged(DirectoryReader).
+func openIfChanged(t testing.TB, r *index.DirectoryReader) *index.DirectoryReader {
+	t.Helper()
+	nr, err := index.OpenIfChanged(r)
+	if err != nil {
+		t.Fatalf("openIfChanged: %v", err)
+	}
+	if nr == nil {
+		return nil
+	}
+	dr, ok := nr.(*index.DirectoryReader)
+	if !ok {
+		t.Fatalf("openIfChanged returned %T, want *DirectoryReader", nr)
+	}
+	return dr
+}
+
+func openCommitWriter(t testing.TB, dir store.Directory) *index.IndexWriter {
+	t.Helper()
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxBufferedDocs(2)
+	conf.SetMergePolicy(newLogMergePolicyWithMergeFactor(5))
+	writer := mustNewIndexWriter(t, dir, conf)
+	mustCommit(t, writer)
+	return writer
+}
+
+// LUCENE-1044: test writer.commit() when ac=false
+func TestIndexWriterCommitForceCommit(t *testing.T) {
+	dir := newDirectory()
+
+	writer := openCommitWriter(t, dir)
+
+	addDocs(t, writer, 23)
+
+	reader := mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 0, reader)
+	mustCommit(t, writer)
+	reader2 := openIfChanged(t, reader)
+	if reader2 == nil {
+		t.Fatal("assertNotNull(reader2)")
+	}
+	assertReaderNumDocs(t, 0, reader)
+	assertReaderNumDocs(t, 23, reader2)
+	mustClose(t, reader)
+
+	addDocs(t, writer, 17)
+	assertReaderNumDocs(t, 23, reader2)
+	mustClose(t, reader2)
+	reader = mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 23, reader)
+	mustClose(t, reader)
+	mustCommit(t, writer)
+
+	reader = mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 40, reader)
+	mustClose(t, reader, writer, dir)
+}
+
+func findCommitByTag(t testing.TB, dir store.Directory, tag string) *index.IndexCommit {
+	t.Helper()
+	for _, c := range mustListCommits(t, dir) {
 		if c.GetUserData()["tag"] == tag {
 			return c
 		}
 	}
-	t.Fatalf("no commit with tag=%q found among %d commits", tag, len(commits))
 	return nil
 }
 
-// TestFutureCommit verifies that an IndexWriter can be opened against an
-// older IndexCommit and that newer commits are preserved.
-// Source: TestIndexWriterCommit.testFutureCommit()
-// Purpose: Tests opening a writer on a specific past commit.
-func TestFutureCommit(t *testing.T) {
-	t.Run("open writer on past commit", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
+func TestIndexWriterCommitFutureCommit(t *testing.T) {
+	dir := newDirectory()
 
-		config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config.SetIndexDeletionPolicy(index.NoDeletionPolicyInstance)
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("NewIndexWriter: %v", err)
-		}
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetIndexDeletionPolicy(index.NoDeletionPolicyInstance)
+	w := mustNewIndexWriter(t, dir, conf)
+	doc := document.NewDocument()
+	mustAddDocument(t, w, doc)
 
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "hello", false)
-		doc.Add(f)
+	// commit to "first"
+	commitData := map[string]string{"tag": "first"}
+	w.SetLiveCommitData(maps.All(commitData))
+	mustCommit(t, w)
 
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-		writer.SetLiveCommitData(map[string]string{"tag": "first"})
-		if err := writer.Commit(); err != nil {
-			t.Fatalf("Commit: %v", err)
-		}
+	// commit to "second"
+	mustAddDocument(t, w, doc)
+	commitData["tag"] = "second"
+	w.SetLiveCommitData(maps.All(commitData))
+	mustClose(t, w)
 
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument: %v", err)
-		}
-		writer.SetLiveCommitData(map[string]string{"tag": "second"})
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Close: %v", err)
-		}
+	// open "first" with IndexWriter
+	commit := findCommitByTag(t, dir, "first")
+	if commit == nil {
+		t.Fatal("assertNotNull(commit)")
+	}
 
-		firstCommit := findCommitByTag(t, dir, "first")
+	conf = newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetIndexDeletionPolicy(index.NoDeletionPolicyInstance)
+	conf.SetIndexCommit(commit)
+	w = mustNewIndexWriter(t, dir, conf)
 
-		config2 := index.NewIndexWriterConfig(createCommitTestAnalyzer())
-		config2.SetOpenMode(index.APPEND)
-		config2.SetIndexDeletionPolicy(index.NoDeletionPolicyInstance)
-		config2.SetIndexCommit(firstCommit)
-		writer, err = index.NewIndexWriter(dir, config2)
-		if err != nil {
-			t.Fatalf("NewIndexWriter at first commit: %v", err)
-		}
-		if stats := writer.GetDocStats(); stats.NumDocs != 1 {
-			t.Fatalf("expected 1 doc at first commit, got %d", stats.NumDocs)
-		}
+	assertWriterDocStats(t, w, -1, 1)
 
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument after reopen: %v", err)
-		}
-		writer.SetLiveCommitData(map[string]string{"tag": "third"})
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Close: %v", err)
-		}
+	// commit IndexWriter to "third"
+	mustAddDocument(t, w, doc)
+	commitData["tag"] = "third"
+	w.SetLiveCommitData(maps.All(commitData))
+	mustClose(t, w)
 
-		if findCommitByTag(t, dir, "second") == nil {
-			t.Fatal("second commit was not preserved after reopening at first commit")
-		}
-	})
+	// make sure "second" commit is still there
+	if findCommitByTag(t, dir, "second") == nil {
+		t.Fatal("assertNotNull(commit)")
+	}
+
+	mustClose(t, dir)
+}
+
+func TestIndexWriterCommitZeroCommits(t *testing.T) {
+	// Tests that if we don't call commit(), the directory has 0 commits. This
+	// has changed since LUCENE-2386, where before IW would always commit on a
+	// fresh new index.
+	dir := newDirectory()
+	writer := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	_, err := index.ListCommits(dir)
+	var infe *index.IndexNotFoundException
+	if err == nil || !errors.As(err, &infe) {
+		t.Fatalf("expected IndexNotFoundException from listCommits, got %v", err)
+	}
+
+	// No changes still should generate a commit, because it's a new index.
+	mustClose(t, writer)
+	if n := len(mustListCommits(t, dir)); n != 1 {
+		t.Fatalf("expected 1 commits!: got %d", n)
+	}
+	mustClose(t, dir)
+}
+
+func mustPrepareCommit(t testing.TB, w *index.IndexWriter) {
+	t.Helper()
+	if _, err := w.PrepareCommit(); err != nil {
+		t.Fatalf("prepareCommit: %v", err)
+	}
+}
+
+// LUCENE-1274: test writer.prepareCommit()
+func TestIndexWriterCommitPrepareCommit(t *testing.T) {
+	dir := newDirectory()
+
+	writer := openCommitWriter(t, dir)
+
+	addDocs(t, writer, 23)
+
+	reader := mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 0, reader)
+
+	mustPrepareCommit(t, writer)
+
+	reader2 := mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 0, reader2)
+
+	mustCommit(t, writer)
+
+	reader3 := openIfChanged(t, reader)
+	if reader3 == nil {
+		t.Fatal("assertNotNull(reader3)")
+	}
+	assertReaderNumDocs(t, 0, reader)
+	assertReaderNumDocs(t, 0, reader2)
+	assertReaderNumDocs(t, 23, reader3)
+	mustClose(t, reader, reader2)
+
+	addDocs(t, writer, 17)
+
+	assertReaderNumDocs(t, 23, reader3)
+	mustClose(t, reader3)
+	reader = mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 23, reader)
+	mustClose(t, reader)
+
+	mustPrepareCommit(t, writer)
+
+	reader = mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 23, reader)
+	mustClose(t, reader)
+
+	mustCommit(t, writer)
+	reader = mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 40, reader)
+	mustClose(t, reader, writer, dir)
+}
+
+// LUCENE-1274: test writer.prepareCommit()
+func TestIndexWriterCommitPrepareCommitRollback(t *testing.T) {
+	dir := newDirectory()
+
+	writer := openCommitWriter(t, dir)
+
+	addDocs(t, writer, 23)
+
+	reader := mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 0, reader)
+
+	mustPrepareCommit(t, writer)
+
+	reader2 := mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 0, reader2)
+
+	if err := writer.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+
+	if reader3 := openIfChanged(t, reader); reader3 != nil {
+		t.Fatalf("assertNull(reader3): got %v", reader3)
+	}
+	assertReaderNumDocs(t, 0, reader)
+	assertReaderNumDocs(t, 0, reader2)
+	mustClose(t, reader, reader2)
+
+	writer = mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	addDocs(t, writer, 17)
+
+	reader = mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 0, reader)
+	mustClose(t, reader)
+
+	mustPrepareCommit(t, writer)
+
+	reader = mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 0, reader)
+	mustClose(t, reader)
+
+	mustCommit(t, writer)
+	reader = mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 17, reader)
+	mustClose(t, reader, writer, dir)
+}
+
+// LUCENE-1274
+func TestIndexWriterCommitPrepareCommitNoChanges(t *testing.T) {
+	dir := newDirectory()
+
+	writer := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	mustPrepareCommit(t, writer)
+	mustCommit(t, writer)
+	mustClose(t, writer)
+
+	reader := mustOpenDirectoryReader(t, dir)
+	assertReaderNumDocs(t, 0, reader)
+	mustClose(t, reader, dir)
+}
+
+// LUCENE-1382
+func TestIndexWriterCommitCommitUserData(t *testing.T) {
+	dir := newDirectory()
+	twoBufferedWriter := func() *index.IndexWriter {
+		conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+		conf.SetMaxBufferedDocs(2)
+		return mustNewIndexWriter(t, dir, conf)
+	}
+	w := twoBufferedWriter()
+	addDocs(t, w, 17)
+	mustClose(t, w)
+
+	r := mustOpenDirectoryReader(t, dir)
+	// commit(Map) never called for this index
+	if n := len(r.GetIndexCommit().GetUserData()); n != 0 {
+		t.Fatalf("getUserData().size(): expected 0, got %d", n)
+	}
+	mustClose(t, r)
+
+	w = twoBufferedWriter()
+	addDocs(t, w, 17)
+	data := map[string]string{"label": "test1"}
+	w.SetLiveCommitData(maps.All(data))
+	mustClose(t, w)
+
+	r = mustOpenDirectoryReader(t, dir)
+	if got := r.GetIndexCommit().GetUserData()["label"]; got != "test1" {
+		t.Fatalf("label: expected test1, got %q", got)
+	}
+	mustClose(t, r)
+
+	w = mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	mustClose(t, w, dir)
+}
+
+func TestIndexWriterCommitPrepareCommitThenClose(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	mustAddDocument(t, w, document.NewDocument())
+
+	mustPrepareCommit(t, w)
+	if err := w.Close(); err == nil {
+		t.Fatal("expected IllegalStateException from close() after prepareCommit()")
+	}
+	mustCommit(t, w)
+	mustClose(t, w)
+
+	r := mustOpenDirectoryReader(t, dir)
+	if r.MaxDoc() != 1 {
+		t.Fatalf("maxDoc: expected 1, got %d", r.MaxDoc())
+	}
+	mustClose(t, r, dir)
+}
+
+// LUCENE-7335: make sure commit data is late binding
+func TestIndexWriterCommitCommitDataIsLive(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	mustAddDocument(t, w, document.NewDocument())
+
+	commitData := map[string]string{"foo": "bar"}
+
+	// make sure "foo" / "bar" doesn't take
+	w.SetLiveCommitData(maps.All(commitData))
+
+	clear(commitData)
+	commitData["boo"] = "baz"
+
+	// this finally does the commit, and should burn "boo" / "baz"
+	mustClose(t, w)
+
+	commits := mustListCommits(t, dir)
+	if len(commits) != 1 {
+		t.Fatalf("commits.size(): expected 1, got %d", len(commits))
+	}
+
+	data := commits[0].GetUserData()
+	if len(data) != 1 {
+		t.Fatalf("data.size(): expected 1, got %d (%v)", len(data), data)
+	}
+	if data["boo"] != "baz" {
+		t.Fatalf("boo: expected baz, got %q", data["boo"])
+	}
+	mustClose(t, dir)
 }

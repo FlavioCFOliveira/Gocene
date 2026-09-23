@@ -36,7 +36,7 @@ func TestNeverDelete_Indexing(t *testing.T) {
 	}
 	defer func() { _ = dir.Close() }()
 
-	config := index.NewIndexWriterConfig(createCommitTestAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
 	config.SetIndexDeletionPolicy(index.NoDeletionPolicyInstance)
 	config.SetMaxBufferedDocs(10)
 
@@ -45,7 +45,7 @@ func TestNeverDelete_Indexing(t *testing.T) {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
 
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("initial Commit: %v", err)
 	}
 
@@ -79,7 +79,7 @@ func TestNeverDelete_Indexing(t *testing.T) {
 					return
 				}
 				if docCount%13 == 0 {
-					if err := w.Commit(); err != nil {
+					if _, err := w.Commit(); err != nil {
 						fail(err)
 						return
 					}

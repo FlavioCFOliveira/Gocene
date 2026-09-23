@@ -256,7 +256,7 @@ func TestIndexWriterUnicode_EmbeddedFFFF(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestIndexWriterUnicode_EmbeddedFFFF(t *testing.T) {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	r, err := index.OpenDirectoryReader(dir)
@@ -332,7 +332,7 @@ func TestIndexWriterUnicode_TermUTF16SortOrder(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	riw, err := testindex.NewRandomIndexWriterWithConfig(rnd, dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	riw, err := testindex.NewRandomIndexWriterWithConfig(rnd, dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewRandomIndexWriterWithConfig: %v", err)
 	}

@@ -100,7 +100,7 @@ func TestCrashCorruptsIndexing(t *testing.T) {
 
 	crashDir := NewCrashAfterCreateOutput(baseDir)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	config := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(crashDir, config)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -116,7 +116,7 @@ func TestCrashCorruptsIndexing(t *testing.T) {
 	if _, err := writer.AddDocument(doc); err != nil {
 		t.Fatalf("AddDocument: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("First commit: %v", err)
 	}
 
@@ -134,7 +134,7 @@ func TestCrashCorruptsIndexing(t *testing.T) {
 		t.Fatalf("AddDocument (pre-crash): %v", err)
 	}
 
-	err = writer.Commit()
+	_, err = writer.Commit()
 	t.Logf("Second commit error: %v", err)
 	// Must close the writer after a failed commit to release resources.
 	_ = writer.Close()

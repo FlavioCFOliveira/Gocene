@@ -165,7 +165,7 @@ func TestByteSlicePool_RoundTripWithReader(t *testing.T) {
 		t.Fatalf("reader.Init: %v", err)
 	}
 	got := make([]byte, size)
-	if err := reader.ReadBytes(got); err != nil {
+	if err := reader.ReadBytes(got, 0, len(got)); err != nil {
 		t.Fatalf("reader.ReadBytes: %v", err)
 	}
 	for i := range data {

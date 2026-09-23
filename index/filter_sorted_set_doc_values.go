@@ -93,3 +93,18 @@ func (f *FilterSortedSetDocValues) Cost() int64 { return f.in.Cost() }
 
 // GetDelegate returns the wrapped values.
 func (f *FilterSortedSetDocValues) GetDelegate() SortedSetDocValues { return f.in }
+
+// DocIDRunEnd returns one plus the last doc ID of the run of consecutive
+// matching documents starting at the current doc ID. FilterSortedSetDocValues
+// does not override it in Lucene 10.5.0, so it keeps the inherited
+// DocIdSetIterator#docIDRunEnd() default (docID() + 1).
+func (f *FilterSortedSetDocValues) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(f)
+}
+
+// IntoBitSet loads the matching doc IDs below upTo into bitSet. Lucene
+// 10.5.0's FilterSortedSetDocValues does not override it, so it keeps the
+// inherited DocIdSetIterator#intoBitSet default.
+func (f *FilterSortedSetDocValues) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(f, upTo, bitSet, offset)
+}

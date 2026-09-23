@@ -2,233 +2,157 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// TestBufferedUpdates
-// Source: lucene/core/src/test/org/apache/lucene/index/TestBufferedUpdates.java
-// Purpose: Unit test for BufferedUpdates - tests buffered deletes/updates handling
-// and apply buffered updates during flush
+// Port of lucene/core/src/test/org/apache/lucene/index/TestBufferedUpdates.java
+// (Apache Lucene 10.5.0). The Java class lives in org.apache.lucene.index and
+// uses search.TermQuery; the port lives in the external index_test package to
+// avoid the index -> search import cycle and reaches the package-private
+// members through export_test.go.
 
-package index
+package index_test
 
 import (
+	"bytes"
+	"math"
 	"math/rand"
 	"sort"
+	"strconv"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/search"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// atLeast returns a value that is at least the given minimum, used for
-// randomized testing similar to Lucene's atLeast() method
-func atLeast(min int) int {
-	// In actual Lucene tests, this uses a random multiplier
-	// For deterministic tests, we use a fixed small multiplier
-	return min + rand.Intn(3)
+// bufferedUpdatesAtLeast renders LuceneTestCase.atLeast(int) with the default
+// multipliers (RANDOM_MULTIPLIER = 1, not nightly).
+func bufferedUpdatesAtLeast(i int) int {
+	return i + rand.Intn(i/2+1)
 }
 
-// mockQuery is a minimal Query implementation for testing purposes.
-// This avoids import cycles with the search package.
-//
-// Query is now an alias of the one shared contract [spi.Query], which declares
-// only the equals/hashCode pair Java's Query.java declares abstract; the
-// Rewrite/Clone/CreateWeight members this double used to carry belonged to the
-// second, index-local Query rendering that has been withdrawn.
-type mockQuery struct {
-	id int
-}
-
-func (q *mockQuery) Equals(other Query) bool {
-	if o, ok := other.(*mockQuery); ok {
-		return q.id == o.id
-	}
-	return false
-}
-func (q *mockQuery) HashCode() int { return q.id }
-
-// TestBufferedUpdates_RamBytesUsed tests RAM usage tracking for BufferedUpdates
-func TestBufferedUpdates_RamBytesUsed(t *testing.T) {
-	bu := NewBufferedUpdates("seg1")
-
-	// Initial state should have 0 RAM usage
+func TestBufferedUpdatesRamBytesUsed(t *testing.T) {
+	bu := index.NewBufferedUpdates("seg1")
 	if bu.RamBytesUsed() != 0 {
-		t.Errorf("Expected initial ramBytesUsed to be 0, got %d", bu.RamBytesUsed())
+		t.Fatalf("expected 0, got %d", bu.RamBytesUsed())
 	}
-
-	// Should not have any updates initially
 	if bu.Any() {
-		t.Error("Expected Any() to be false for empty BufferedUpdates")
+		t.Fatal("any")
 	}
-
-	// Add some query deletes
-	queries := atLeast(1)
+	queries := bufferedUpdatesAtLeast(1)
 	for i := 0; i < queries; i++ {
-		var docIDUpto int
+		docIDUpto := rand.Intn(100000)
 		if rand.Intn(2) == 0 {
-			docIDUpto = int(^uint(0) >> 1) // MaxInt
-		} else {
-			docIDUpto = rand.Intn(100000)
+			docIDUpto = math.MaxInt32
 		}
-		query := &mockQuery{id: rand.Intn(100)}
-		bu.AddQuery(query, docIDUpto)
+		term := index.NewTerm("id", strconv.Itoa(rand.Intn(100)))
+		bu.AddQuery(search.NewTermQuery(term), docIDUpto)
 	}
 
-	// Add some term deletes
-	terms := atLeast(1)
+	terms := bufferedUpdatesAtLeast(1)
 	for i := 0; i < terms; i++ {
-		var docIDUpto int
+		docIDUpto := rand.Intn(100000)
 		if rand.Intn(2) == 0 {
-			docIDUpto = int(^uint(0) >> 1) // MaxInt
-		} else {
-			docIDUpto = rand.Intn(100000)
+			docIDUpto = math.MaxInt32
 		}
-		term := NewTermFromBytesRef("id", util.NewBytesRef([]byte(intToString(rand.Intn(100)))))
-		bu.AddTerm(term, docIDUpto)
+		term := index.NewTerm("id", strconv.Itoa(rand.Intn(100)))
+		bu.AddTerm(*term, docIDUpto)
 	}
-
-	// Now should have updates
 	if !bu.Any() {
-		t.Error("Expected Any() to be true after adding terms and queries")
+		t.Fatal("we have added tons of docIds, terms and queries")
 	}
 
 	totalUsed := bu.RamBytesUsed()
-	if totalUsed <= 0 {
-		t.Error("Expected ramBytesUsed to be > 0 after adding updates")
+	if !(totalUsed > 0) {
+		t.Fatalf("totalUsed=%d", totalUsed)
 	}
 
-	// Clear delete terms - should reduce RAM but queries remain
 	bu.ClearDeleteTerms()
 	if !bu.Any() {
-		t.Error("Expected Any() to still be true after clearing terms (queries should remain)")
+		t.Fatal("only terms and docIds are cleaned, the queries are still in memory")
 	}
-	if totalUsed <= bu.RamBytesUsed() {
-		t.Error("Expected ramBytesUsed to decrease after clearing terms")
+	if !(totalUsed > bu.RamBytesUsed()) {
+		t.Fatal("terms are cleaned, ram in used should decrease")
 	}
 
-	// Clear all - should be empty again
 	bu.Clear()
 	if bu.Any() {
-		t.Error("Expected Any() to be false after Clear()")
+		t.Fatal("any")
 	}
 	if bu.RamBytesUsed() != 0 {
-		t.Errorf("Expected ramBytesUsed to be 0 after Clear(), got %d", bu.RamBytesUsed())
+		t.Fatalf("expected 0, got %d", bu.RamBytesUsed())
 	}
 }
 
-// TestBufferedUpdates_DeletedTerms tests the DeletedTerms functionality
-func TestBufferedUpdates_DeletedTerms(t *testing.T) {
-	iters := atLeast(10)
+type bufferedUpdatesEntry struct {
+	field string
+	bytes []byte
+	docID int
+}
+
+func TestBufferedUpdatesDeletedTerms(t *testing.T) {
+	iters := bufferedUpdatesAtLeast(10)
 	fields := []string{"a", "b", "c"}
-
+	actual := index.NewDeletedTerms()
 	for iter := 0; iter < iters; iter++ {
-		actual := NewDeletedTerms()
-
-		// Should be empty initially
+		expected := make(map[string]bufferedUpdatesEntry)
 		if !actual.IsEmpty() {
-			t.Error("Expected DeletedTerms to be empty initially")
+			t.Fatal("isEmpty")
 		}
 
-		expected := make(map[TermKey]int)
-		termCount := atLeast(5000)
+		termCount := bufferedUpdatesAtLeast(5000)
 		maxBytesNum := rand.Intn(3) + 1
-
 		for i := 0; i < termCount; i++ {
 			byteNum := rand.Intn(maxBytesNum) + 1
-			bytes := make([]byte, byteNum)
-			rand.Read(bytes)
-			field := fields[rand.Intn(len(fields))]
-			term := NewTermFromBytesRef(field, util.NewBytesRef(bytes))
+			b := make([]byte, byteNum)
+			rand.Read(b)
+			term := index.NewTermFromBytesRef(fields[rand.Intn(len(fields))], util.NewBytesRef(b))
 			value := rand.Intn(10000000)
-
-			key := TermKey{Field: field, Bytes: string(bytes)}
-			expected[key] = value
-			actual.Put(term, value)
+			expected[term.Field+"\x00"+string(b)] = bufferedUpdatesEntry{field: term.Field, bytes: b, docID: value}
+			actual.Put(*term, value)
 		}
 
-		// Check size
-		if actual.Size() != len(expected) {
-			t.Errorf("Expected size %d, got %d", len(expected), actual.Size())
+		if len(expected) != actual.Size() {
+			t.Fatalf("expected %d, got %d", len(expected), actual.Size())
 		}
 
-		// Check all entries exist
-		for key, expectedValue := range expected {
-			term := NewTermFromBytesRef(key.Field, util.NewBytesRef([]byte(key.Bytes)))
-			actualValue := actual.Get(term)
-			if actualValue != expectedValue {
-				t.Errorf("For term %v: expected %d, got %d", key, expectedValue, actualValue)
+		for _, entry := range expected {
+			got := actual.Get(*index.NewTermFromBytesRef(entry.field, util.NewBytesRef(entry.bytes)))
+			if entry.docID != got {
+				t.Fatalf("expected %d, got %d", entry.docID, got)
 			}
 		}
 
-		// Build sorted lists for comparison
-		expectedEntries := make([]TermEntry, 0, len(expected))
-		for key, value := range expected {
-			expectedEntries = append(expectedEntries, TermEntry{
-				Field: key.Field,
-				Bytes: []byte(key.Bytes),
-				Value: value,
-			})
+		// Map.Entry.comparingByKey(): Term.compareTo orders by field, then bytes.
+		expectedSorted := make([]bufferedUpdatesEntry, 0, len(expected))
+		for _, e := range expected {
+			expectedSorted = append(expectedSorted, e)
 		}
-		sort.Slice(expectedEntries, func(i, j int) bool {
-			if expectedEntries[i].Field != expectedEntries[j].Field {
-				return expectedEntries[i].Field < expectedEntries[j].Field
+		sort.Slice(expectedSorted, func(i, j int) bool {
+			if expectedSorted[i].field != expectedSorted[j].field {
+				return expectedSorted[i].field < expectedSorted[j].field
 			}
-			return string(expectedEntries[i].Bytes) < string(expectedEntries[j].Bytes)
+			return bytes.Compare(expectedSorted[i].bytes, expectedSorted[j].bytes) < 0
 		})
+		actualSorted := actual.ForEachOrdered()
 
-		actualEntries := actual.ForEachOrdered()
-
-		// Compare sorted lists
-		if len(expectedEntries) != len(actualEntries) {
-			t.Errorf("Expected %d entries, got %d", len(expectedEntries), len(actualEntries))
-		} else {
-			for i := range expectedEntries {
-				if expectedEntries[i].Field != actualEntries[i].Field {
-					t.Errorf("Entry %d: expected field %s, got %s", i, expectedEntries[i].Field, actualEntries[i].Field)
-				}
-				if string(expectedEntries[i].Bytes) != string(actualEntries[i].Bytes) {
-					t.Errorf("Entry %d: bytes mismatch", i)
-				}
-				if expectedEntries[i].Value != actualEntries[i].Value {
-					t.Errorf("Entry %d: expected value %d, got %d", i, expectedEntries[i].Value, actualEntries[i].Value)
-				}
+		if len(expectedSorted) != len(actualSorted) {
+			t.Fatalf("expected %d entries, got %d", len(expectedSorted), len(actualSorted))
+		}
+		for i := range expectedSorted {
+			e, a := expectedSorted[i], actualSorted[i]
+			if e.field != a.Field || !bytes.Equal(e.bytes, a.Bytes) || e.docID != a.Value {
+				t.Fatalf("entry %d: expected %v, got %v", i, e, a)
 			}
 		}
 
-		// Clear and verify
 		actual.Clear()
 		if actual.Size() != 0 {
-			t.Errorf("Expected size 0 after Clear(), got %d", actual.Size())
-		}
-		if !actual.IsEmpty() {
-			t.Error("Expected IsEmpty() to be true after Clear()")
+			t.Fatalf("expected 0, got %d", actual.Size())
 		}
 		if actual.RamBytesUsed() != 0 {
-			t.Errorf("Expected ramBytesUsed 0 after Clear(), got %d", actual.RamBytesUsed())
+			t.Fatalf("expected 0, got %d", actual.RamBytesUsed())
+		}
+		if actual.PoolBuffer() != nil {
+			t.Fatal("actual.getPool().buffer must be null")
 		}
 	}
-}
-
-// TermKey is a helper struct used to key the expected-map in tests.
-type TermKey struct {
-	Field string
-	Bytes string
-}
-
-// intToString converts an int to its decimal string representation without
-// pulling in strconv, mirroring the in-test helper used by the Lucene port.
-func intToString(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var result []byte
-	negative := n < 0
-	if negative {
-		n = -n
-	}
-	for n > 0 {
-		result = append([]byte{byte('0' + n%10)}, result...)
-		n /= 10
-	}
-	if negative {
-		result = append([]byte{'-'}, result...)
-	}
-	return string(result)
 }

@@ -1,6 +1,7 @@
 package index
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/store"
@@ -22,6 +23,11 @@ func (m *mockDirectory) DeleteFile(name string) error               { return nil
 func (m *mockDirectory) ObtainLock(name string) (store.Lock, error) { return nil, nil }
 func (m *mockDirectory) Close() error                               { return nil }
 func (m *mockDirectory) GetDirectory() store.Directory              { return m }
+
+// Rename is abstract in Lucene's Directory; this double does not support it.
+func (m *mockDirectory) Rename(from string, to string) error {
+	return errors.New("mockDirectory.Rename: unsupported operation")
+}
 
 func TestNewNRTFileDeleter(t *testing.T) {
 	dir := &mockDirectory{}

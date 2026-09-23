@@ -64,7 +64,7 @@ func newLucene90CompressingStoredFieldsReader(
 	suffix := ""
 
 	// Open .fdt.
-	fdtName := store.SegmentFileName(segment, suffix, fieldsExtension)
+	fdtName := store.SegmentFileName(segment, suffix, FieldsExtension)
 	fieldsStream, err := dir.OpenInput(fdtName, ctx)
 	if err != nil {
 		return nil, fmt.Errorf("lucene90/compressing: open %s: %w", fdtName, err)

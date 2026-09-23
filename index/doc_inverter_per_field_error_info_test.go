@@ -58,7 +58,7 @@ func TestInfoStreamGetsFieldName(t *testing.T) {
 	defer dir.Close()
 
 	rec := newTestInfoStream()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	cfg.SetInfoStream(rec)
 
 	writer, err := index.NewIndexWriter(dir, cfg)
@@ -71,7 +71,7 @@ func TestInfoStreamGetsFieldName(t *testing.T) {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 
@@ -87,7 +87,7 @@ func TestNoExtraNoise(t *testing.T) {
 	defer dir.Close()
 
 	rec := newTestInfoStream()
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	cfg.SetInfoStream(rec)
 
 	writer, err := index.NewIndexWriter(dir, cfg)
@@ -100,7 +100,7 @@ func TestNoExtraNoise(t *testing.T) {
 		t.Fatalf("AddDocument: %v", err)
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 

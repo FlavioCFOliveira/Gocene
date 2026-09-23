@@ -6,7 +6,10 @@ package index
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"iter"
+	"maps"
 	"math"
 	"strconv"
 	"strings"
@@ -75,8 +78,10 @@ type IndexWriter struct {
 
 	mergeNeeded atomic.Bool
 
-	running        atomic.Bool
-	commitUserData []mapEntry[string, string]
+	running atomic.Bool
+	// commitUserData renders Java's Iterable<Map.Entry<String, String>>
+	// commitUserData: a late-binding sequence of entries, nil for null.
+	commitUserData iter.Seq2[string, string]
 
 	mergingSegments         map[*SegmentCommitInfo]bool
 	mergeScheduler          MergeScheduler
@@ -279,6 +284,7 @@ func NewIndexWriter(d store.Directory, conf *IndexWriterConfig) (iw *IndexWriter
 	}
 
 	var segmentInfos *SegmentInfos
+	var commitReader *DirectoryReader
 	var rollbackSegments spi.SegmentCommitInfoList
 
 	if create {
@@ -299,6 +305,7 @@ func NewIndexWriter(d store.Directory, conf *IndexWriterConfig) (iw *IndexWriter
 		commit := conf.GetIndexCommit()
 		if commit != nil {
 			reader := commit.GetReader()
+			commitReader = reader
 			if reader == nil {
 				return nil, fmt.Errorf("index must already have an initial commit to open from reader")
 			}
@@ -327,6 +334,8 @@ func NewIndexWriter(d store.Directory, conf *IndexWriterConfig) (iw *IndexWriter
 
 	writer.segmentInfos = segmentInfos
 	writer.rollbackSegments = rollbackSegments
+	// commitUserData = new HashMap<>(segmentInfos.getUserData()).entrySet();
+	writer.commitUserData = maps.All(segmentInfos.GetUserData())
 	writer.globalFieldNumberMap = writer.getFieldNumberMap()
 
 	writer.bufferedUpdatesStream = NewBufferedUpdatesStream(liveConfig.GetInfoStream())
@@ -342,7 +351,18 @@ func NewIndexWriter(d store.Directory, conf *IndexWriterConfig) (iw *IndexWriter
 		writer.globalFieldNumberMap,
 	)
 
-	writer.readerPool = NewReaderPool()
+	writer.readerPool, err = NewReaderPool(
+		writer.dir,
+		writer.dirOrig,
+		segmentInfos,
+		writer.globalFieldNumberMap,
+		writer.bufferedUpdatesStream.CompletedDelGen,
+		liveConfig.GetInfoStream(),
+		liveConfig.GetSoftDeletesField(),
+		commitReader)
+	if err != nil {
+		return nil, err
+	}
 	if liveConfig.GetReaderPooling() {
 		writer.readerPool.EnableReaderPooling()
 	}
@@ -716,26 +736,30 @@ func (w *IndexWriter) TryDeleteDocument(docID int) (bool, error) {
 		return false, err
 	}
 
-	rau := w.getPooledInstance(sci, true)
-	if rau == nil {
-		return false, fmt.Errorf("failed to get pooled instance for segment %s", sci)
-	}
-	defer w.release(rau)
-
-	deleted, err := rau.Delete(localDocID)
+	rau, err := w.getPooledInstance(sci, true)
 	if err != nil {
 		return false, err
 	}
 
+	deleted, err := rau.Delete(localDocID)
+	if err != nil {
+		return false, errors.Join(err, w.release(rau))
+	}
+
 	if deleted {
 		fullyDeleted, err := rau.IsFullyDeleted()
-		if err == nil && fullyDeleted {
+		if err != nil {
+			return false, errors.Join(err, w.release(rau))
+		}
+		if fullyDeleted {
 			w.dropDeletedSegment(sci)
-			w.checkpoint()
+			if err := w.checkpoint(); err != nil {
+				return false, errors.Join(err, w.release(rau))
+			}
 		}
 	}
 
-	return deleted, nil
+	return deleted, w.release(rau)
 }
 
 func (w *IndexWriter) tryModifyDocument(docID int) (*SegmentCommitInfo, int, error) {
@@ -858,6 +882,17 @@ func (w *IndexWriter) prepareCommitInternal() (int64, error) {
 		w.changeCount.Add(1)
 		w.changed()
 	}
+
+	// Java reads commitUserData inside synchronized (this).
+	w.mu.Lock()
+	if w.commitUserData != nil {
+		userData := make(map[string]string)
+		for k, v := range w.commitUserData {
+			userData[k] = v
+		}
+		w.segmentInfos.SetUserData(userData)
+	}
+	w.mu.Unlock()
 
 	toCommit := w.segmentInfos.Clone()
 	w.pendingCommitChangeCount = w.changeCount.Load()
@@ -1077,9 +1112,9 @@ func (w *IndexWriter) maybeReopenMergedNRTReader(
 			}
 			return sr, nil
 		}
-		rld := w.getPooledInstance(sci, true)
-		if rld == nil {
-			return nil, fmt.Errorf("index: no pooled reader for segment %s", name)
+		rld, err := w.getPooledInstance(sci, true)
+		if err != nil {
+			return nil, err
 		}
 		return rld.GetReader()
 	}
@@ -1114,21 +1149,12 @@ func (w *IndexWriter) HasDeletions() (bool, error) {
 	if err := w.ensureOpen(true); err != nil {
 		return false, err
 	}
-	if w.bufferedUpdatesStream.Any() || w.docWriter.AnyDeletions() {
+	if w.bufferedUpdatesStream.Any() || w.docWriter.AnyDeletions() || w.readerPool.AnyDeletions() {
 		return true, nil
 	}
 	for info := range w.segmentInfos.Iterator() {
 		if info.HasDeletions() {
 			return true, nil
-		}
-		// ReaderPool.anyDeletions(): a pooled reader may already hold deletes
-		// that have not been written back to the segment.
-		if rld := w.getPooledInstance(info, false); rld != nil {
-			delCount := rld.GetDelCount()
-			w.release(rld)
-			if delCount > 0 {
-				return true, nil
-			}
 		}
 	}
 	return false, nil
@@ -1262,7 +1288,9 @@ func (w *IndexWriter) rollbackInternalNoCommit() error {
 
 	// 11. Close reader pool
 	if w.readerPool != nil {
-		w.readerPool.Clear()
+		if err := w.readerPool.DropAll(); err != nil {
+			return err
+		}
 	}
 
 	// 12. Finalize writer state
@@ -1346,32 +1374,43 @@ func (w *IndexWriter) applyAllDeletesAndUpdates() error {
 //
 // Mirrors org.apache.lucene.index.IndexWriter#writeReaderPool.
 func (w *IndexWriter) writeReaderPool(writeDeletes bool) error {
-	if err := w.readerPool.WriteReaderPool(writeDeletes); err != nil {
-		return err
-	}
 	if writeDeletes {
-		// The state only moved to disk; SegmentInfos.version must not advance.
-		if err := w.checkpointNoSIS(); err != nil {
-			return err
-		}
-	} else if err := w.checkpoint(); err != nil {
-		return err
-	}
-
-	// Now do some best effort to check whether a segment is fully deleted.
-	var toDrop []*SegmentCommitInfo
-	for info := range w.segmentInfos.Iterator() {
-		rld := w.getPooledInstance(info, false)
-		if rld == nil {
-			continue
-		}
-		fullyDeleted, err := w.isFullyDeleted(rld)
-		w.release(rld)
+		changed, err := w.readerPool.Commit(w.segmentInfos)
 		if err != nil {
 			return err
 		}
-		if fullyDeleted {
-			toDrop = append(toDrop, info)
+		if changed {
+			if err := w.checkpointNoSIS(); err != nil {
+				return err
+			}
+		}
+	} else { // only write the docValues
+		changed, err := w.readerPool.WriteAllDocValuesUpdates()
+		if err != nil {
+			return err
+		}
+		if changed {
+			if err := w.checkpoint(); err != nil {
+				return err
+			}
+		}
+	}
+
+	// now do some best effort to check if a segment is fully deleted
+	var toDrop []*SegmentCommitInfo // don't modify segmentInfos in-place
+	for info := range w.segmentInfos.Iterator() {
+		readersAndUpdates, err := w.readerPool.Get(info, false)
+		if err != nil {
+			return err
+		}
+		if readersAndUpdates != nil {
+			fullyDeleted, err := w.isFullyDeleted(readersAndUpdates)
+			if err != nil {
+				return err
+			}
+			if fullyDeleted {
+				toDrop = append(toDrop, info)
+			}
 		}
 	}
 	for _, info := range toDrop {
@@ -1477,9 +1516,43 @@ func readFieldInfos(si *SegmentCommitInfo) (*FieldInfos, error) {
 	return reader.Read(si.SegmentInfo().Directory(), si.SegmentInfo(), "", store.IOContextReadOnce)
 }
 
-type mapEntry[K, V any] struct {
-	Key   K
-	Value V
+// SetLiveCommitData sets the iterator to provide the commit user data map at
+// commit time. Calling this method is considered a committable change and
+// will be committed even if there are no other changes this writer. Note that
+// you must call this method before PrepareCommit; otherwise it won't be
+// included in the follow-on Commit.
+//
+// NOTE: the iterator is late-binding: it is only visited once all documents
+// for the commit have been written to their segments, before the next
+// segments_N file is written.
+//
+// Mirrors IndexWriter.setLiveCommitData(Iterable<Map.Entry<String, String>>).
+func (w *IndexWriter) SetLiveCommitData(commitUserData iter.Seq2[string, string]) {
+	w.SetLiveCommitDataWithIncrementVersion(commitUserData, true)
+}
+
+// SetLiveCommitDataWithIncrementVersion sets the commit user data iterator,
+// controlling whether to advance SegmentInfos.getVersion.
+//
+// Mirrors IndexWriter.setLiveCommitData(Iterable<Map.Entry<String, String>>, boolean).
+func (w *IndexWriter) SetLiveCommitDataWithIncrementVersion(commitUserData iter.Seq2[string, string], doIncrementVersion bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.commitUserData = commitUserData
+	if doIncrementVersion {
+		w.segmentInfos.Changed()
+	}
+	w.changeCount.Add(1)
+}
+
+// GetLiveCommitData returns the commit user data iterable previously set with
+// SetLiveCommitData, or nil if nothing has been set yet.
+//
+// Mirrors IndexWriter.getLiveCommitData().
+func (w *IndexWriter) GetLiveCommitData() iter.Seq2[string, string] {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.commitUserData
 }
 
 // indexWriterFlushNotifications is the DocumentsWriter.FlushNotifications an
@@ -1588,10 +1661,13 @@ func (w *IndexWriter) publishFlushedSegment(
 	}
 
 	if packet != nil && packet.Any() && sortMap != nil {
-		rau := w.getPooledInstance(newSegment, true)
-		if rau != nil {
-			rau.SetSortMap(sortMap)
-			w.release(rau)
+		rau, err := w.getPooledInstance(newSegment, true)
+		if err != nil {
+			return err
+		}
+		rau.SetSortMap(sortMap)
+		if err := w.release(rau); err != nil {
+			return err
 		}
 	}
 
@@ -1608,20 +1684,22 @@ func (w *IndexWriter) publishFlushedSegment(
 	isFullyHardDeleted := newSegment.DelCount() == newSegment.SegmentInfo().DocCount()
 
 	if hasInitialSoftDeleted || isFullyHardDeleted {
-		rau := w.getPooledInstance(newSegment, true)
-		if rau != nil {
-			deleted, err := w.isFullyDeleted(rau)
-			if err == nil && deleted {
-				w.dropDeletedSegment(newSegment)
-				if cpErr := w.checkpoint(); cpErr != nil {
-					w.release(rau)
-					return cpErr
-				}
+		rau, err := w.getPooledInstance(newSegment, true)
+		if err != nil {
+			return err
+		}
+		deleted, err := w.isFullyDeleted(rau)
+		if err == nil && deleted {
+			w.dropDeletedSegment(newSegment)
+			if cpErr := w.checkpoint(); cpErr != nil {
+				return errors.Join(cpErr, w.release(rau))
 			}
-			w.release(rau)
-			if err != nil {
-				return err
-			}
+		}
+		if relErr := w.release(rau); relErr != nil {
+			return errors.Join(err, relErr)
+		}
+		if err != nil {
+			return err
 		}
 	}
 
@@ -1812,12 +1890,16 @@ func (w *IndexWriter) GetMergingSegments() map[*SegmentCommitInfo]bool {
 // Mirrors org.apache.lucene.index.IndexWriter#numDeletesToMerge.
 func (w *IndexWriter) NumDeletesToMerge(info *SegmentCommitInfo) int {
 	mergePolicy := w.config.GetMergePolicy()
-	rld := w.getPooledInstance(info, false)
+	rld, err := w.getPooledInstance(info, false)
+	if err != nil {
+		// Java's unchecked AlreadyClosedException; this method has no error
+		// result.
+		panic(err)
+	}
 	if rld == nil {
 		// Without a pooled instance the hard deletes are the safe answer.
 		return info.GetDelCount()
 	}
-	defer w.release(rld)
 	numDeletesToMerge, err := rld.NumDeletesToMerge(mergePolicy)
 	if err != nil {
 		return info.GetDelCount()
@@ -1867,7 +1949,12 @@ func (w *IndexWriter) GetDocStats() (DocStats, error) {
 //
 // Mirrors org.apache.lucene.index.IndexWriter#numDeletedDocs.
 func (w *IndexWriter) NumDeletedDocs(info *SegmentCommitInfo) int {
-	rld := w.getPooledInstance(info, false)
+	rld, err := w.getPooledInstance(info, false)
+	if err != nil {
+		// Java's unchecked AlreadyClosedException; this method has no error
+		// result.
+		panic(err)
+	}
 	if rld == nil {
 		delCount := info.GetDelCount()
 		if w.softDeletesEnabled {
@@ -1875,7 +1962,6 @@ func (w *IndexWriter) NumDeletedDocs(info *SegmentCommitInfo) int {
 		}
 		return delCount
 	}
-	defer w.release(rld)
 	// Take the full count from the reader, since the SegmentCommitInfo may
 	// change concurrently.
 	return rld.GetDelCount()
@@ -1957,20 +2043,22 @@ func (w *IndexWriter) mergeInternal(merge *OneMerge) error {
 	// --- WARMING ---
 	warmer := w.liveConfig.GetMergedSegmentWarmer()
 	if w.liveConfig.GetReaderPooling() && warmer != nil {
-		rau := w.getPooledInstance(merge.Info, true)
-		if rau != nil {
-			sr, readerErr := rau.GetReader()
-			if readerErr == nil {
-				warmer.Warm(sr)
-				if releaseErr := rau.Release(sr); releaseErr != nil {
-					w.release(rau)
-					return releaseErr
-				}
+		rau, err := w.getPooledInstance(merge.Info, true)
+		if err != nil {
+			return err
+		}
+		sr, readerErr := rau.GetReader()
+		if readerErr == nil {
+			warmer.Warm(sr)
+			if releaseErr := rau.Release(sr); releaseErr != nil {
+				return errors.Join(releaseErr, w.release(rau))
 			}
-			w.release(rau)
-			if readerErr != nil {
-				return readerErr
-			}
+		}
+		if relErr := w.release(rau); relErr != nil {
+			return errors.Join(readerErr, relErr)
+		}
+		if readerErr != nil {
+			return readerErr
 		}
 	}
 	// ----------------
@@ -2043,16 +2131,15 @@ func (w *IndexWriter) applyPacketLocked(ctx context.Context, packet *FrozenBuffe
 	var raus []*ReadersAndUpdates
 
 	for sci := range w.segmentInfos.Iterator() {
-		rau := w.getPooledInstance(sci, true)
-		if rau == nil {
-			continue
+		rau, err := w.getPooledInstance(sci, true)
+		if err != nil {
+			return errors.Join(err, w.releaseAll(raus))
 		}
 		raus = append(raus, rau)
 
 		sr, err := rau.GetReader()
 		if err != nil {
-			w.release(rau)
-			continue
+			return errors.Join(err, w.releaseAll(raus))
 		}
 
 		states = append(states, &FrozenSegmentState{
@@ -2063,27 +2150,38 @@ func (w *IndexWriter) applyPacketLocked(ctx context.Context, packet *FrozenBuffe
 		})
 	}
 
-	defer func() {
-		for _, rau := range raus {
-			w.release(rau)
-		}
-	}()
-
 	_, err := packet.Apply(states)
-	return err
+	return errors.Join(err, w.releaseAll(raus))
 }
 
-func (w *IndexWriter) getPooledInstance(sci *SegmentCommitInfo, create bool) *ReadersAndUpdates {
-	return w.readerPool.Get(sci, create, func(info *SegmentCommitInfo) *ReadersAndUpdates {
-		rau, err := NewReadersAndUpdates(w.config.GetIndexCreatedVersionMajor(), info, NewPendingDeletes(info, nil, info.HasDeletions() == false))
-		if err != nil {
-			panic(err)
-		}
-		return rau
-	})
+// releaseAll releases every ReadersAndUpdates, collecting the errors.
+func (w *IndexWriter) releaseAll(raus []*ReadersAndUpdates) error {
+	var errs error
+	for _, rau := range raus {
+		errs = errors.Join(errs, w.release(rau))
+	}
+	return errs
 }
-func (w *IndexWriter) release(rau *ReadersAndUpdates) {
-	w.readerPool.Release(rau, true)
+
+// getPooledInstance mirrors IndexWriter.getPooledInstance(SegmentCommitInfo, boolean).
+func (w *IndexWriter) getPooledInstance(sci *SegmentCommitInfo, create bool) (*ReadersAndUpdates, error) {
+	if err := w.ensureOpen(false); err != nil {
+		return nil, err
+	}
+	return w.readerPool.Get(sci, create)
+}
+
+// release mirrors IndexWriter.release(ReadersAndUpdates): if the pool wrote
+// anything, IW checkpoints without advancing SegmentInfos.version.
+func (w *IndexWriter) release(rau *ReadersAndUpdates) error {
+	changed, err := w.readerPool.Release(rau, true)
+	if err != nil {
+		return err
+	}
+	if changed {
+		return w.checkpointNoSIS()
+	}
+	return nil
 }
 func (w *IndexWriter) commitMerge(merge *OneMerge, docMaps []DocMap) bool {
 	if merge.IsAborted() {
@@ -2148,14 +2246,13 @@ func (w *IndexWriter) GetReader(applyAllDeletes, writeAllDeletes bool) (*Standar
 		func() bool { return stopCollectingMergedReaders.Load() },
 		MergeTriggerGetReader,
 		func(sci *SegmentCommitInfo) {
-			rau := w.getPooledInstance(sci, true)
-			if rau == nil {
-				return
+			rau, err := w.getPooledInstance(sci, true)
+			if err != nil {
+				panic(err)
 			}
 			sr, err := rau.GetReader()
 			if err != nil {
-				w.release(rau)
-				return
+				panic(errors.Join(err, w.release(rau)))
 			}
 			mergedReaders[sci.Info.Name()] = sr
 		},
@@ -2190,9 +2287,9 @@ func (w *IndexWriter) GetReader(applyAllDeletes, writeAllDeletes bool) (*Standar
 
 func (w *IndexWriter) openNRTReader(sis *SegmentInfos, applyAllDeletes, writeAllDeletes bool) (*StandardDirectoryReader, error) {
 	readerFactory := func(sci *SegmentCommitInfo) (*SegmentReader, error) {
-		rld := w.getPooledInstance(sci, true)
-		if rld == nil {
-			return nil, fmt.Errorf("index: no pooled reader for segment %s", sci.Info.Name())
+		rld, err := w.getPooledInstance(sci, true)
+		if err != nil {
+			return nil, err
 		}
 		return rld.GetReader()
 	}

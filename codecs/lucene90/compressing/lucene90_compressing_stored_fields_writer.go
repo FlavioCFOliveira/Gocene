@@ -35,8 +35,9 @@ import (
 )
 
 const (
-	// fieldsExtension is the extension for the .fdt data file.
-	fieldsExtension = "fdt"
+	// FieldsExtension is the extension for the .fdt data file. Mirrors the
+	// public constant Lucene90CompressingStoredFieldsWriter.FIELDS_EXTENSION.
+	FieldsExtension = "fdt"
 
 	// indexExtension is the extension for the .fdx index file.
 	indexExtension = "fdx"
@@ -171,7 +172,7 @@ func newLucene90CompressingStoredFieldsWriter(
 	}
 
 	// Allocate fields stream (.fdt), also checksum-wrapped.
-	fdtName := store.SegmentFileName(segment, suffix, fieldsExtension)
+	fdtName := store.SegmentFileName(segment, suffix, FieldsExtension)
 	{
 		raw, err := dir.CreateOutput(fdtName, ctx)
 		if err != nil {

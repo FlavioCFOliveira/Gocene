@@ -5,9 +5,11 @@
 package index
 
 import (
+	"errors"
 	"sort"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
@@ -28,6 +30,8 @@ type memTermPostings struct {
 
 // memTerms is an in-memory Terms over one field.
 type memTerms struct {
+	spi.TermsBase
+
 	field string
 	terms map[string]memTermPostings
 	// sorted keys (byte order) cached for iteration.
@@ -90,6 +94,8 @@ func (m *memTerms) GetMax() (*Term, error) {
 
 // memTermsEnum iterates a memTerms in byte order.
 type memTermsEnum struct {
+	spi.TermsEnumBase
+
 	owner *memTerms
 	pos   int // index into owner.keys; -1 before first Next
 }
@@ -192,6 +198,21 @@ func (p *memPostingsEnum) NextPosition() (int, error)  { return -1, nil }
 func (p *memPostingsEnum) StartOffset() (int, error)   { return -1, nil }
 func (p *memPostingsEnum) EndOffset() (int, error)     { return -1, nil }
 func (p *memPostingsEnum) GetPayload() ([]byte, error) { return nil, nil }
+
+// DocIDRunEnd carries the default body Lucene gives PostingsEnum.DocIDRunEnd.
+func (p *memPostingsEnum) DocIDRunEnd() (int, error) {
+	return util.DefaultDocIDRunEnd(p)
+}
+
+// IntoBitSet carries the default body Lucene gives PostingsEnum.IntoBitSet.
+func (p *memPostingsEnum) IntoBitSet(upTo int, bitSet *util.FixedBitSet, offset int) error {
+	return util.DefaultIntoBitSet(p, upTo, bitSet, offset)
+}
+
+// Impacts is abstract in Lucene's TermsEnum; this double does not support it.
+func (e *memTermsEnum) Impacts(flags int) (spi.ImpactsEnum, error) {
+	return nil, errors.New("memTermsEnum.Impacts: unsupported operation")
+}
 
 // Compile-time interface assertions for the fakes.
 var (

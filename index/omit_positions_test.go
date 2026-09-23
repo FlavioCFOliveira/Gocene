@@ -61,7 +61,7 @@ func TestOmitPositions_Basic(t *testing.T) {
 	ft.SetIndexOptions(index.IndexOptionsDocsAndFreqs)
 	ft.Freeze()
 
-	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer()))
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestOmitPositions_Basic(t *testing.T) {
 		}
 	}
 
-	if err := w.Commit(); err != nil {
+	if _, err := w.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := w.Close(); err != nil {
@@ -140,7 +140,7 @@ func TestOmitPositions_Positions(t *testing.T) {
 	dir := store.NewByteBuffersDirectory()
 	defer dir.Close()
 
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
+	cfg := index.NewIndexWriterConfigWithAnalyzer(analysis.NewWhitespaceAnalyzer())
 	writer, err := index.NewIndexWriter(dir, cfg)
 	if err != nil {
 		t.Fatalf("NewIndexWriter: %v", err)
@@ -166,7 +166,7 @@ func TestOmitPositions_Positions(t *testing.T) {
 	if err := writer.ForceMerge(1); err != nil {
 		t.Fatalf("ForceMerge: %v", err)
 	}
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 	if err := writer.Close(); err != nil {
@@ -222,7 +222,7 @@ func TestOmitPositions_NoPrxFile(t *testing.T) {
 	defer ram.Close()
 
 	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
+	config := index.NewIndexWriterConfigWithAnalyzer(analyzer)
 	config.SetMaxBufferedDocs(3)
 
 	// Java uses newLogMergePolicy() then lmp.setMergeFactor(2) / lmp.setNoCFSRatio(0.0).
@@ -252,7 +252,7 @@ func TestOmitPositions_NoPrxFile(t *testing.T) {
 		}
 	}
 
-	if err := writer.Commit(); err != nil {
+	if _, err := writer.Commit(); err != nil {
 		t.Fatalf("Commit: %v", err)
 	}
 

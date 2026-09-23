@@ -9,8 +9,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"math"
+	"sort"
 	"testing"
 
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	"github.com/FlavioCFOliveira/Gocene/util"
 )
@@ -35,8 +38,11 @@ func (f *fakeSortField) ProviderName() string { return f.provider }
 // rest panic to surface accidental dependencies.
 type memDataOutput struct{ buf bytes.Buffer }
 
-func (m *memDataOutput) WriteByte(b byte) error    { return m.buf.WriteByte(b) }
-func (m *memDataOutput) WriteBytes(p []byte) error { _, err := m.buf.Write(p); return err }
+func (m *memDataOutput) WriteByte(b byte) error { return m.buf.WriteByte(b) }
+func (m *memDataOutput) WriteBytes(p []byte, _ int, _ int) error {
+	_, err := m.buf.Write(p)
+	return err
+}
 func (m *memDataOutput) WriteBytesN(p []byte, n int) error {
 	_, err := m.buf.Write(p[:n])
 	return err
@@ -55,8 +61,12 @@ func (m *memDataOutput) WriteString(s string) error { _, err := m.buf.WriteStrin
 // memDataInput is the read counterpart of [memDataOutput].
 type memDataInput struct{ buf *bytes.Buffer }
 
-func (m *memDataInput) ReadByte() (byte, error)  { return m.buf.ReadByte() }
-func (m *memDataInput) ReadBytes(p []byte) error { _, err := io.ReadFull(m.buf, p); return err }
+func (m *memDataInput) ReadByte() (byte, error) { return m.buf.ReadByte() }
+func (m *memDataInput) ReadBytes(pBuf []byte, offset, length int) error {
+	p := pBuf[offset : offset+length]
+	_, err := io.ReadFull(m.buf, p)
+	return err
+}
 func (m *memDataInput) ReadBytesN(n int) ([]byte, error) {
 	out := make([]byte, n)
 	_, err := io.ReadFull(m.buf, out)
@@ -78,6 +88,230 @@ func (m *memDataInput) ReadLong() (int64, error) {
 	return v, err
 }
 func (m *memDataInput) ReadString() (string, error) { return m.buf.String(), nil }
+
+// ReadFloats carries the default body Lucene gives DataInput.ReadFloats.
+func (m *memDataInput) ReadFloats(dst []float32, offset int, len int) error {
+	for i := 0; i < len; i++ {
+		v, err := m.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = math.Float32frombits(uint32(v))
+	}
+	return nil
+}
+
+// ReadInts carries the default body Lucene gives DataInput.ReadInts.
+func (m *memDataInput) ReadInts(dst []int32, offset int, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := m.ReadInt()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadLongs carries the default body Lucene gives DataInput.ReadLongs.
+func (m *memDataInput) ReadLongs(dst []int64, offset int, length int) error {
+	for i := 0; i < length; i++ {
+		v, err := m.ReadLong()
+		if err != nil {
+			return err
+		}
+		dst[offset+i] = v
+	}
+	return nil
+}
+
+// ReadMapOfStrings carries the default body Lucene gives DataInput.ReadMapOfStrings.
+func (m *memDataInput) ReadMapOfStrings() (map[string]string, error) {
+	count, err := m.ReadVInt()
+	if err != nil {
+		return nil, err
+	}
+	res := make(map[string]string, count)
+	for i := 0; i < int(count); i++ {
+		k, err := m.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		v, err := m.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		res[k] = v
+	}
+	return res, nil
+}
+
+// ReadSetOfStrings carries the default body Lucene gives DataInput.ReadSetOfStrings.
+func (m *memDataInput) ReadSetOfStrings() ([]string, error) {
+	count, err := m.ReadVInt()
+	if err != nil {
+		return nil, err
+	}
+	res := make([]string, 0, count)
+	for i := 0; i < int(count); i++ {
+		v, err := m.ReadString()
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, v)
+	}
+	return res, nil
+}
+
+// ReadVInt carries the default body Lucene gives DataInput.ReadVInt.
+func (m *memDataInput) ReadVInt() (int32, error) {
+	var v int32
+	for shift := 0; ; shift += 7 {
+		b, err := m.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		v |= int32(b&0x7F) << shift
+		if b&0x80 == 0 {
+			return v, nil
+		}
+	}
+}
+
+// ReadVLong carries the default body Lucene gives DataInput.ReadVLong.
+func (m *memDataInput) ReadVLong() (int64, error) {
+	var v int64
+	for shift := 0; ; shift += 7 {
+		b, err := m.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		v |= int64(b&0x7F) << shift
+		if b&0x80 == 0 {
+			return v, nil
+		}
+	}
+}
+
+// ReadZInt carries the default body Lucene gives DataInput.ReadZInt.
+func (m *memDataInput) ReadZInt() (int32, error) {
+	v, err := m.ReadVInt()
+	if err != nil {
+		return 0, err
+	}
+	return int32(uint32(v)>>1) ^ -(v & 1), nil
+}
+
+// ReadZLong carries the default body Lucene gives DataInput.ReadZLong.
+func (m *memDataInput) ReadZLong() (int64, error) {
+	v, err := m.ReadVLong()
+	if err != nil {
+		return 0, err
+	}
+	return int64(uint64(v)>>1) ^ -(v & 1), nil
+}
+
+// SkipBytes carries the default body Lucene gives DataInput.SkipBytes.
+func (m *memDataInput) SkipBytes(p0 int64) error {
+	for i := int64(0); i < p0; i++ {
+		if _, err := m.ReadByte(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// CopyBytes carries the default body Lucene gives DataOutput.CopyBytes.
+func (m *memDataOutput) CopyBytes(input spi.DataInput, numBytes int64) error {
+	buf := make([]byte, 16384)
+	for left := numBytes; left > 0; {
+		n := len(buf)
+		if left < int64(n) {
+			n = int(left)
+		}
+		if err := input.ReadBytes(buf, 0, n); err != nil {
+			return err
+		}
+		if err := m.WriteBytes(buf, 0, n); err != nil {
+			return err
+		}
+		left -= int64(n)
+	}
+	return nil
+}
+
+// WriteGroupVInts is abstract in Lucene's DataOutput; this double does not support it.
+func (m *memDataOutput) WriteGroupVInts(values []int32, limit int) error {
+	return errors.New("memDataOutput.WriteGroupVInts: unsupported operation")
+}
+
+// WriteMapOfStrings carries the default body Lucene gives DataOutput.WriteMapOfStrings.
+func (m *memDataOutput) WriteMapOfStrings(p0 map[string]string) error {
+	if err := m.WriteVInt(int32(len(p0))); err != nil {
+		return err
+	}
+	keys := make([]string, 0, len(p0))
+	for k := range p0 {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if err := m.WriteString(k); err != nil {
+			return err
+		}
+		if err := m.WriteString(p0[k]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteSetOfStrings carries the default body Lucene gives DataOutput.WriteSetOfStrings.
+func (m *memDataOutput) WriteSetOfStrings(s []string) error {
+	if err := m.WriteVInt(int32(len(s))); err != nil {
+		return err
+	}
+	for _, v := range s {
+		if err := m.WriteString(v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteVInt carries the default body Lucene gives DataOutput.WriteVInt.
+func (m *memDataOutput) WriteVInt(i int32) error {
+	v := uint32(i)
+	for v >= 0x80 {
+		if err := m.WriteByte(byte(v&0x7F) | 0x80); err != nil {
+			return err
+		}
+		v >>= 7
+	}
+	return m.WriteByte(byte(v))
+}
+
+// WriteVLong carries the default body Lucene gives DataOutput.WriteVLong.
+func (m *memDataOutput) WriteVLong(i int64) error {
+	v := uint64(i)
+	for v >= 0x80 {
+		if err := m.WriteByte(byte(v&0x7F) | 0x80); err != nil {
+			return err
+		}
+		v >>= 7
+	}
+	return m.WriteByte(byte(v))
+}
+
+// WriteZInt carries the default body Lucene gives DataOutput.WriteZInt.
+func (m *memDataOutput) WriteZInt(i int32) error {
+	return m.WriteVInt((i >> 31) ^ (i << 1))
+}
+
+// WriteZLong carries the default body Lucene gives DataOutput.WriteZLong.
+func (m *memDataOutput) WriteZLong(i int64) error {
+	return m.WriteVLong((i >> 63) ^ (i << 1))
+}
 
 // Compile-time assertions that the local adapters honour the store
 // contract that SortFieldProvider builds on.

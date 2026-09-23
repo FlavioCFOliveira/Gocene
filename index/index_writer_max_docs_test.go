@@ -2,708 +2,427 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+// Port of lucene/core/src/test/org/apache/lucene/index/TestIndexWriterMaxDocs.java
+// (Apache Lucene 10.5.0). The @Monster testExactlyAtTrueLimit and the @Nightly
+// testAddTooManyIndexesDir live in index_writer_max_docs_monster_test.go.
+
 package index_test
 
 import (
+	"errors"
+	"math"
+	"strconv"
 	"sync"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 )
 
-// This file ports the intent of
-// org.apache.lucene.index.TestIndexWriterMaxDocs (Apache Lucene 10.4.0).
-//
-// The Java suite verifies the global per-index document cap (LUCENE-6299):
-// once an index reaches the cap, any add must fail, and MultiReader must
-// reject sub-readers whose combined maxDoc exceeds the cap.
-//
-// Gocene enforces the cap via IndexWriterConfig.SetMaxDocs, which is
-// checked in AddDocument.  DeleteAll resets the counter so that new adds
-// can proceed.  MultiReader is tested for correct combined numDocs.
-//
-// These tests exercise the enforcement and tracking paths without requiring
-// the full Lucene infrastructure (NRT open-from-writer, setMaxDocs
-// reflect-based test hook, CorruptIndexException on reader-open, etc.).
+// byteBuffersDirectoryLockFactoryMissing names what
+// LuceneTestCase.newDirectory(Random, LockFactory) builds.
+const byteBuffersDirectoryLockFactoryMissing = "org.apache.lucene.store.ByteBuffersDirectory(LockFactory) " +
+	"(reached by LuceneTestCase.newDirectory(Random, LockFactory)) is not ported"
 
-// TestIndexWriterMaxDocsExactlyAtTrueLimit adds documents up to the
-// configured MaxDocs limit, verifies counts, runs ForceMerge(1), and
-// confirms that a document past the limit is rejected.
-func TestIndexWriterMaxDocsExactlyAtTrueLimit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxDocs(100)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	for i := 0; i < 100; i++ {
-		doc := document.NewDocument()
-		f, err := document.NewTextField("content", "test", true)
-		if err != nil {
-			t.Fatalf("NewTextField: %v", err)
-		}
-		doc.Add(f)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument(%d): %v", i, err)
-		}
-	}
-
-	if md := writer.MaxDoc(); md != 100 {
-		t.Errorf("MaxDoc = %d, want 100", md)
-	}
-	if nd := writer.NumDocs(); nd != 100 {
-		t.Errorf("NumDocs = %d, want 100", nd)
-	}
-
-	// ForceMerge(1) should succeed and preserve the count.
-	if err := writer.ForceMerge(1); err != nil {
-		t.Errorf("ForceMerge(1): %v", err)
-	}
-
-	// One more document must be rejected.
-	doc := document.NewDocument()
-	f, _ := document.NewTextField("content", "overflow", true)
-	doc.Add(f)
-	if _, err := writer.AddDocument(doc); err == nil {
-		t.Error("expected error for document beyond MaxDocs, got nil")
-	}
+func nullAnalyzerWriter(t testing.TB, dir store.Directory) *index.IndexWriter {
+	t.Helper()
+	return mustNewIndexWriter(t, dir, index.NewIndexWriterConfigWithAnalyzer(nil))
 }
 
-// TestIndexWriterMaxDocsAddDocument verifies that AddDocument is rejected
-// once the writer reaches the configured max docs threshold.
+// expectAddDocumentIAEEmpty renders
+// expectThrows(IllegalArgumentException.class, () -> w.addDocument(new Document())).
+func expectAddDocumentIAEEmpty(t testing.TB, w *index.IndexWriter) {
+	t.Helper()
+	expectAddDocumentIAE(t, w.AddDocument, document.NewDocument())
+}
+
+// maxDocsTen renders the shared prologue of the setIndexWriterMaxDocs(10)
+// tests that fill an index with ten empty documents.
+func maxDocsTen(t *testing.T) (store.Directory, *index.IndexWriter) {
+	t.Helper()
+	setIndexWriterMaxDocs(t, 10)
+	t.Cleanup(func() { restoreIndexWriterMaxDocs(t) })
+	dir := newDirectory()
+	w := nullAnalyzerWriter(t, dir)
+	for i := 0; i < 10; i++ {
+		mustAddDocument(t, w, document.NewDocument())
+	}
+	return dir, w
+}
+
 func TestIndexWriterMaxDocsAddDocument(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	dir, w := maxDocsTen(t)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxDocs(10)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
+	// 11th document should fail:
+	expectAddDocumentIAEEmpty(t, w)
 
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "aaa", true)
-		doc.Add(f)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument(%d): %v", i, err)
-		}
-	}
-
-	if writer.MaxDoc() != 10 {
-		t.Fatalf("MaxDoc = %d, want 10", writer.MaxDoc())
-	}
-
-	// The 11th document must be rejected.
-	doc := document.NewDocument()
-	f, _ := document.NewTextField("content", "bbb", true)
-	doc.Add(f)
-	if _, err := writer.AddDocument(doc); err == nil {
-		t.Error("expected error for 11th document, got nil")
-	}
+	mustClose(t, w, dir)
 }
 
-// TestIndexWriterMaxDocsAddDocuments verifies that AddDocuments (bulk
-// add) respects the max docs limit.
 func TestIndexWriterMaxDocsAddDocuments(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	dir, w := maxDocsTen(t)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxDocs(5)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	// AddDocuments with 5 documents should succeed (exactly at limit).
-	docs := make([]index.Document, 5)
-	for i := range docs {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "test", true)
-		doc.Add(f)
-		docs[i] = doc
-	}
-	if _, err := writer.AddDocuments(docs); err != nil {
-		t.Errorf("AddDocuments (at limit): %v", err)
+	// 11th document should fail:
+	if _, err := w.AddDocuments([]*document.Document{document.NewDocument()}); err == nil {
+		t.Fatal("expected IllegalArgumentException from addDocuments")
 	}
 
-	if writer.MaxDoc() != 5 {
-		t.Errorf("MaxDoc = %d, want 5", writer.MaxDoc())
-	}
-
-	// One more document via AddDocuments should fail.
-	extra := document.NewDocument()
-	f, _ := document.NewTextField("content", "overflow", true)
-	extra.Add(f)
-	if _, err := writer.AddDocuments([]index.Document{extra}); err == nil {
-		t.Error("expected error for AddDocuments beyond limit, got nil")
-	}
+	mustClose(t, w, dir)
 }
 
-// TestIndexWriterMaxDocsUpdateDocument verifies that UpdateDocument
-// works correctly with MaxDoc/NumDocs tracking.  In the append path
-// UpdateDocument adds a replacement document and buffers a delete for
-// the old one, so the immediate MaxDoc includes both the original and
-// the replacement until the delete is applied.
 func TestIndexWriterMaxDocsUpdateDocument(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	dir, w := maxDocsTen(t)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxDocs(10)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+	// 11th document should fail:
+	if _, err := w.UpdateDocument(index.NewTerm("field", "foo"), document.NewDocument()); err == nil {
+		t.Fatal("expected IllegalArgumentException from updateDocument")
 	}
-	defer writer.Close()
 
-	// Add 5 documents with unique id values.
-	for i := 0; i < 5; i++ {
+	mustClose(t, w, dir)
+}
+
+func TestIndexWriterMaxDocsUpdateDocuments(t *testing.T) {
+	dir, w := maxDocsTen(t)
+
+	// 11th document should fail:
+	if _, err := w.UpdateDocuments(index.NewTerm("field", "foo"), []*document.Document{document.NewDocument()}); err == nil {
+		t.Fatal("expected IllegalArgumentException from updateDocuments")
+	}
+
+	mustClose(t, w, dir)
+}
+
+// reclaimedDeletes renders the shared body of the two reclaimed-deletes
+// tests; newSegmentEvery2 makes a new segment every 2 docs under
+// NoMergePolicy.
+func reclaimedDeletes(t *testing.T, newSegmentEvery2 bool) {
+	t.Helper()
+	setIndexWriterMaxDocs(t, 10)
+	defer restoreIndexWriterMaxDocs(t)
+	dir := newDirectory()
+	iwc := index.NewIndexWriterConfigWithAnalyzer(nil)
+	if newSegmentEvery2 {
+		iwc.SetMergePolicy(index.NewNoMergePolicy())
+	}
+	w := mustNewIndexWriter(t, dir, iwc)
+	for i := 0; i < 10; i++ {
 		doc := document.NewDocument()
-		id := string(rune('a' + i))
-		f, _ := document.NewStringField("id", id, true)
-		doc.Add(f)
-		cf, _ := document.NewTextField("content", "initial", true)
-		doc.Add(cf)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument(%d): %v", i, err)
+		doc.Add(newStringField(t, "id", strconv.Itoa(i), false))
+		mustAddDocument(t, w, doc)
+		if newSegmentEvery2 && i%2 == 0 {
+			// Make a new segment every 2 docs:
+			mustCommit(t, w)
 		}
 	}
 
-	if writer.MaxDoc() != 5 {
-		t.Fatalf("MaxDoc = %d, want 5", writer.MaxDoc())
+	// Delete 5 of them:
+	for i := 0; i < 5; i++ {
+		mustDeleteTerm(t, w, "id", strconv.Itoa(i))
 	}
 
-	// Update one document by id.  The append path adds a replacement
-	// document and buffers a delete term for the original, so MaxDoc
-	// increases to 6 (5 originals + 1 replacement).
-	updatedDoc := document.NewDocument()
-	f, _ := document.NewStringField("id", "a", true)
-	updatedDoc.Add(f)
-	cf, _ := document.NewTextField("content", "updated", true)
-	updatedDoc.Add(cf)
-	if _, err := writer.UpdateDocument(index.NewTerm("id", "a"), updatedDoc); err != nil {
-		t.Errorf("UpdateDocument: %v", err)
+	if err := w.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
 	}
 
-	// MaxDoc includes the replacement doc (6 = 5 originals + 1 replacement).
-	if writer.MaxDoc() != 6 {
-		t.Errorf("MaxDoc after UpdateDocument = %d, want 6 (5 originals + 1 replacement)", writer.MaxDoc())
+	assertWriterDocStats(t, w, 5, -1)
+
+	// Add 5 more docs
+	for i := 0; i < 5; i++ {
+		mustAddDocument(t, w, document.NewDocument())
 	}
 
-	// Existing docs plus the replacement should still be within the limit.
-	if writer.MaxDoc() > 10 {
-		t.Errorf("MaxDoc %d exceeds limit 10", writer.MaxDoc())
-	}
+	// 11th document should fail:
+	expectAddDocumentIAEEmpty(t, w)
+
+	mustClose(t, w, dir)
 }
 
-// TestIndexWriterMaxDocsReclaimedDeletes verifies that deleting documents
-// affects NumDocs while MaxDoc is unchanged.
 func TestIndexWriterMaxDocsReclaimedDeletes(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxDocs(20)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	for i := 0; i < 20; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "test", true)
-		doc.Add(f)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument(%d): %v", i, err)
-		}
-	}
-
-	if writer.NumDocs() != 20 {
-		t.Fatalf("NumDocs = %d, want 20", writer.NumDocs())
-	}
-
-	// Delete 5 documents by term.  After deletion NumDocs should decrease.
-	for i := 0; i < 5; i++ {
-		term := index.NewTerm("content", "test")
-		if _, err := writer.DeleteDocuments(term); err != nil {
-			t.Fatalf("DeleteDocuments(%d): %v", i, err)
-		}
-	}
-
-	// MaxDoc is unchanged (deleted docs still count toward the total).
-	if writer.MaxDoc() != 20 {
-		t.Errorf("MaxDoc after delete = %d, want 20", writer.MaxDoc())
-	}
-
-	// NumDocs should reflect the deletes.
-	t.Logf("NumDocs after 5 deletes: %d", writer.NumDocs())
+	reclaimedDeletes(t, false)
 }
 
-// TestIndexWriterMaxDocsReclaimedDeletesWholeSegments verifies that
-// ForceMerge after deletions produces the correct doc count.
+// Tests that 100% deleted segments (which IW "specializes" by dropping
+// entirely) are not mis-counted
 func TestIndexWriterMaxDocsReclaimedDeletesWholeSegments(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxDocs(50)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	for i := 0; i < 20; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "test", true)
-		doc.Add(f)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument(%d): %v", i, err)
-		}
-	}
-
-	// Delete all documents, then ForceMerge.
-	for i := 0; i < 20; i++ {
-		_, _ = writer.DeleteDocuments(index.NewTerm("content", "test"))
-	}
-
-	if err := writer.ForceMerge(1); err != nil {
-		t.Errorf("ForceMerge(1): %v", err)
-	}
+	reclaimedDeletes(t, true)
 }
 
-// TestIndexWriterMaxDocsAddIndexes verifies that AddIndexes integrates
-// documents from another directory and tracking works.
 func TestIndexWriterMaxDocsAddIndexes(t *testing.T) {
-	mainDir := store.NewByteBuffersDirectory()
-	defer mainDir.Close()
-	auxDir := store.NewByteBuffersDirectory()
-	defer auxDir.Close()
-
-	// Create auxiliary index with 10 documents.
-	auxConfig := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	auxWriter, err := index.NewIndexWriter(auxDir, auxConfig)
-	if err != nil {
-		t.Fatalf("aux NewIndexWriter: %v", err)
-	}
+	setIndexWriterMaxDocs(t, 10)
+	defer restoreIndexWriterMaxDocs(t)
+	dir := newDirectory()
+	w := nullAnalyzerWriter(t, dir)
 	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "aux", true)
-		doc.Add(f)
-		if _, err := auxWriter.AddDocument(doc); err != nil {
-			t.Fatalf("aux AddDocument(%d): %v", i, err)
-		}
+		mustAddDocument(t, w, document.NewDocument())
 	}
-	if err := auxWriter.Close(); err != nil {
-		t.Fatalf("aux Close: %v", err)
+	mustClose(t, w)
+
+	dir2 := newDirectory()
+	w2 := nullAnalyzerWriter(t, dir2)
+	mustAddDocument(t, w2, document.NewDocument())
+	if _, err := w2.AddIndexes(dir); err == nil {
+		t.Fatal("expected IllegalArgumentException from addIndexes(Directory...)")
 	}
 
-	// Create main index with max docs limit.
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxDocs(20)
-	writer, err := index.NewIndexWriter(mainDir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	for i := 0; i < 5; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "main", true)
-		doc.Add(f)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument(%d): %v", i, err)
-		}
-	}
-
-	// AddIndexes should add the 10 auxiliary docs.
-	if err := writer.AddIndexes(auxDir); err != nil {
-		t.Errorf("AddIndexes: %v", err)
-	}
-
-	// Expect 5 + 10 = 15 docs total.
-	if writer.MaxDoc() != 15 {
-		t.Errorf("MaxDoc after AddIndexes = %d, want 15", writer.MaxDoc())
-	}
+	assertWriterDocStats(t, w2, 1, -1)
+	ir := mustOpenDirectoryReader(t, dir)
+	defer mustClose(t, w2, ir, dir, dir2)
+	t.Fatal("TestUtil.addIndexesSlowly(IndexWriter, DirectoryReader...) needs " + addIndexesCodecReadersMissing)
 }
 
-// TestIndexWriterMaxDocsMultiReader verifies that MultiReader reflects
-// the combined numDocs of its sub-readers.
-func TestIndexWriterMaxDocsMultiReader(t *testing.T) {
-	dir1 := store.NewByteBuffersDirectory()
-	defer dir1.Close()
-	dir2 := store.NewByteBuffersDirectory()
-	defer dir2.Close()
+// multiReaderLimitSetup renders the shared prologue of the two MultiReader
+// limit tests: 100000 docs in one index, remainder (+extra) in another.
+func multiReaderLimitSetup(t *testing.T, extra int) (store.Directory, store.Directory, *index.DirectoryReader, *index.DirectoryReader, []spi.IndexReaderInterface) {
+	t.Helper()
+	dir := newDirectory()
+	doc := document.NewDocument()
+	w := nullAnalyzerWriter(t, dir)
+	for i := 0; i < 100000; i++ {
+		mustAddDocument(t, w, doc)
+	}
+	mustClose(t, w)
 
-	// First index with 10 docs.
-	w1, _ := index.NewIndexWriter(dir1, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "test", true)
-		doc.Add(f)
-		_, _ = w1.AddDocument(doc)
+	remainder := index.MaxDocs%100000 + extra
+	dir2 := newDirectory()
+	w = nullAnalyzerWriter(t, dir2)
+	for i := 0; i < remainder; i++ {
+		mustAddDocument(t, w, doc)
 	}
-	_ = w1.Close()
+	mustClose(t, w)
 
-	// Second index with 5 docs.
-	w2, _ := index.NewIndexWriter(dir2, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
-	for i := 0; i < 5; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "test", true)
-		doc.Add(f)
-		_, _ = w2.AddDocument(doc)
-	}
-	_ = w2.Close()
+	copies := index.MaxDocs / 100000
 
-	r1, err := index.OpenDirectoryReader(dir1)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader(dir1): %v", err)
+	ir := mustOpenDirectoryReader(t, dir)
+	ir2 := mustOpenDirectoryReader(t, dir2)
+	subReaders := make([]spi.IndexReaderInterface, copies+1)
+	for i := range subReaders {
+		subReaders[i] = ir
 	}
-	defer r1.Close()
-	r2, err := index.OpenDirectoryReader(dir2)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader(dir2): %v", err)
-	}
-	defer r2.Close()
-
-	mr, err := index.NewMultiReader([]index.IndexReaderInterface{r1, r2})
-	if err != nil {
-		t.Fatalf("NewMultiReader: %v", err)
-	}
-	defer mr.Close()
-
-	if nd := mr.NumDocs(); nd != 15 {
-		t.Errorf("MultiReader NumDocs = %d, want 15", nd)
-	}
+	subReaders[len(subReaders)-1] = ir2
+	return dir, dir2, ir, ir2, subReaders
 }
 
-// TestIndexWriterMaxDocsAddTooManyIndexesDir verifies that AddIndexes
-// from an auxiliary directory works and does not panic when the main
-// index is near capacity.
-func TestIndexWriterMaxDocsAddTooManyIndexesDir(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-	aux := store.NewByteBuffersDirectory()
-	defer aux.Close()
+// Make sure MultiReader lets you search exactly the limit number of docs:
+func TestIndexWriterMaxDocsMultiReaderExactLimit(t *testing.T) {
+	dir, dir2, ir, ir2, subReaders := multiReaderLimitSetup(t, 0)
 
-	// Create main index at capacity.
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxDocs(10)
-	writer, err := index.NewIndexWriter(dir, config)
+	mr, err := index.NewMultiReader(subReaders)
 	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+		t.Fatalf("new MultiReader: %v", err)
 	}
-	defer writer.Close()
-
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "test", true)
-		doc.Add(f)
-		_, _ = writer.AddDocument(doc)
+	if mr.MaxDoc() != index.MaxDocs {
+		t.Fatalf("maxDoc: expected %d, got %d", index.MaxDocs, mr.MaxDoc())
 	}
-
-	// Create auxiliary index with docs.
-	auxWriter, _ := index.NewIndexWriter(aux, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
-	for i := 0; i < 5; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "aux", true)
-		doc.Add(f)
-		_, _ = auxWriter.AddDocument(doc)
+	if mr.NumDocs() != index.MaxDocs {
+		t.Fatalf("numDocs: expected %d, got %d", index.MaxDocs, mr.NumDocs())
 	}
-	_ = auxWriter.Close()
-
-	// AddIndexes should not panic; the writer remains usable.
-	_ = writer.AddIndexes(aux)
-	t.Logf("MaxDoc after AddIndexes toward full index: %d", writer.MaxDoc())
+	mustClose(t, ir, ir2, dir, dir2)
 }
 
-// TestIndexWriterMaxDocsTooLargeMaxDocs verifies that the config's
-// SetMaxDocs/MaxDocs getter/setter work correctly.
+// Make sure MultiReader is upset if you exceed the limit
+func TestIndexWriterMaxDocsMultiReaderBeyondLimit(t *testing.T) {
+	// One too many:
+	dir, dir2, ir, ir2, subReaders := multiReaderLimitSetup(t, 1)
+
+	if _, err := index.NewMultiReader(subReaders); err == nil {
+		t.Fatal("expected IllegalArgumentException from new MultiReader")
+	}
+
+	mustClose(t, ir, ir2, dir, dir2)
+}
+
+// LUCENE-6299: Test if addindexes(CodecReader[]) prevents exceeding max docs.
+func TestIndexWriterMaxDocsAddTooManyIndexesCodecReader(t *testing.T) {
+	// we cheat and add the same one over again... IW wants a write lock on each
+	t.Fatal(byteBuffersDirectoryLockFactoryMissing)
+}
+
 func TestIndexWriterMaxDocsTooLargeMaxDocs(t *testing.T) {
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	if config.MaxDocs() != 0 {
-		t.Errorf("default MaxDocs = %d, want 0 (unlimited)", config.MaxDocs())
-	}
-
-	config.SetMaxDocs(100)
-	if config.MaxDocs() != 100 {
-		t.Errorf("MaxDocs after Set = %d, want 100", config.MaxDocs())
-	}
-
-	config.SetMaxDocs(0)
-	if config.MaxDocs() != 0 {
-		t.Errorf("MaxDocs after reset = %d, want 0", config.MaxDocs())
+	if err := index.SetMaxDocs(math.MaxInt32); err == nil {
+		restoreIndexWriterMaxDocs(t)
+		t.Fatal("expected IllegalArgumentException from IndexWriter.setMaxDocs(Integer.MAX_VALUE)")
 	}
 }
 
-// TestIndexWriterMaxDocsDeleteAll verifies that DeleteAll resets the
-// document counter so that new documents can be added up to the cap.
+// LUCENE-6299
 func TestIndexWriterMaxDocsDeleteAll(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	setIndexWriterMaxDocs(t, 1)
+	defer restoreIndexWriterMaxDocs(t)
+	dir := newDirectory()
+	w := nullAnalyzerWriter(t, dir)
+	mustAddDocument(t, w, document.NewDocument())
+	expectAddDocumentIAEEmpty(t, w)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxDocs(10)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
+	mustDeleteAll(t, w)
+	mustAddDocument(t, w, document.NewDocument())
+	expectAddDocumentIAEEmpty(t, w)
 
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "test", true)
-		doc.Add(f)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument(%d): %v", i, err)
-		}
-	}
+	mustClose(t, w, dir)
+}
 
-	// 11th should be rejected.
-	overflow := document.NewDocument()
-	f, _ := document.NewTextField("content", "overflow", true)
-	overflow.Add(f)
-	if _, err := writer.AddDocument(overflow); err == nil {
-		t.Fatal("expected error before DeleteAll, got nil")
-	}
-
-	// DeleteAll resets the counter.
-	if _, err := writer.DeleteAll(); err != nil {
-		t.Fatalf("DeleteAll: %v", err)
-	}
-
-	// After DeleteAll we can add documents again up to the cap.
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "test", true)
-		doc.Add(f)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument after DeleteAll(%d): %v", i, err)
-		}
-	}
-
-	// One more should be rejected again.
-	overflow2 := document.NewDocument()
-	f2, _ := document.NewTextField("content", "overflow", true)
-	overflow2.Add(f2)
-	if _, err := writer.AddDocument(overflow2); err == nil {
-		t.Error("expected error after DeleteAll+refill, got nil")
+func mustDeleteAll(t testing.TB, w *index.IndexWriter) {
+	t.Helper()
+	if _, err := w.DeleteAll(); err != nil {
+		t.Fatalf("deleteAll: %v", err)
 	}
 }
 
-// TestIndexWriterMaxDocsDeleteAllAfterCommit verifies that DeleteAll
-// resets the counter even after a Commit.
+// deleteAllAfter renders the shared body of testDeleteAllAfterFlush and
+// testDeleteAllAfterCommit.
+func deleteAllAfter(t *testing.T, between func(*index.IndexWriter)) {
+	t.Helper()
+	setIndexWriterMaxDocs(t, 2)
+	defer restoreIndexWriterMaxDocs(t)
+	dir := newDirectory()
+	w := nullAnalyzerWriter(t, dir)
+	mustAddDocument(t, w, document.NewDocument())
+	between(w)
+	mustAddDocument(t, w, document.NewDocument())
+	expectAddDocumentIAEEmpty(t, w)
+
+	mustDeleteAll(t, w)
+	mustAddDocument(t, w, document.NewDocument())
+	mustAddDocument(t, w, document.NewDocument())
+	expectAddDocumentIAEEmpty(t, w)
+
+	mustClose(t, w, dir)
+}
+
+// LUCENE-6299
+func TestIndexWriterMaxDocsDeleteAllAfterFlush(t *testing.T) {
+	deleteAllAfter(t, func(w *index.IndexWriter) { mustClose(t, openReaderFromWriter(t, w)) })
+}
+
+// LUCENE-6299
 func TestIndexWriterMaxDocsDeleteAllAfterCommit(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxDocs(5)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	for i := 0; i < 5; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "test", true)
-		doc.Add(f)
-		_, _ = writer.AddDocument(doc)
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	// DeleteAll after commit.
-	if _, err := writer.DeleteAll(); err != nil {
-		t.Fatalf("DeleteAll: %v", err)
-	}
-
-	// Should be able to add documents again.
-	for i := 0; i < 5; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "new", true)
-		doc.Add(f)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument after DeleteAll+Commit(%d): %v", i, err)
-		}
-	}
+	deleteAllAfter(t, func(w *index.IndexWriter) { mustCommit(t, w) })
 }
 
-// TestIndexWriterMaxDocsDeleteAllMultipleThreads verifies that
-// concurrent DeleteAll and AddDocument work correctly.
+// LUCENE-6299
 func TestIndexWriterMaxDocsDeleteAllMultipleThreads(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	limit := nextInt(2, 10)
+	setIndexWriterMaxDocs(t, limit)
+	defer restoreIndexWriterMaxDocs(t)
+	dir := newDirectory()
+	w := nullAnalyzerWriter(t, dir)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxDocs(100)
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
+	startingGun := make(chan struct{})
 	var wg sync.WaitGroup
-
-	// Goroutines that add documents.
-	for g := 0; g < 5; g++ {
+	for i := 0; i < limit; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for i := 0; i < 10; i++ {
-				doc := document.NewDocument()
-				f, _ := document.NewTextField("content", "test", true)
-				doc.Add(f)
-				_, _ = writer.AddDocument(doc)
+			<-startingGun
+			if _, err := w.AddDocument(document.NewDocument()); err != nil {
+				t.Errorf("addDocument: %v", err)
 			}
 		}()
 	}
 
-	// Goroutine that calls DeleteAll repeatedly.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 3; i++ {
-			_, _ = writer.DeleteAll()
-		}
-	}()
-
+	close(startingGun)
 	wg.Wait()
-	t.Logf("MaxDoc after concurrent DeleteAll: %d", writer.MaxDoc())
+	if t.Failed() {
+		t.FailNow()
+	}
+
+	expectAddDocumentIAEEmpty(t, w)
+
+	mustDeleteAll(t, w)
+	for i := 0; i < limit; i++ {
+		mustAddDocument(t, w, document.NewDocument())
+	}
+	expectAddDocumentIAEEmpty(t, w)
+
+	mustClose(t, w, dir)
 }
 
-// TestIndexWriterMaxDocsDeleteAllAfterClose verifies that a writer
-// can add documents up to the configured limit after reopening.
+// LUCENE-6299
 func TestIndexWriterMaxDocsDeleteAllAfterClose(t *testing.T) {
-	// Fresh directory: first writer creates an index, adds max docs,
-	// closes, then a second writer on a fresh ByteBuffersDirectory
-	// (simulating a clean reopen) can add up to the same limit.
-	dir1 := store.NewByteBuffersDirectory()
-	defer dir1.Close()
+	setIndexWriterMaxDocs(t, 2)
+	defer restoreIndexWriterMaxDocs(t)
+	dir := newDirectory()
+	w := nullAnalyzerWriter(t, dir)
+	mustAddDocument(t, w, document.NewDocument())
+	mustClose(t, w)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMaxDocs(10)
-	w1, err := index.NewIndexWriter(dir1, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "test", true)
-		doc.Add(f)
-		_, _ = w1.AddDocument(doc)
-	}
-	if err := w1.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := w1.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
+	w2 := nullAnalyzerWriter(t, dir)
+	mustAddDocument(t, w2, document.NewDocument())
+	expectAddDocumentIAEEmpty(t, w2)
 
-	// A fresh writer on a new directory should respect the limit.
-	dir2 := store.NewByteBuffersDirectory()
-	defer dir2.Close()
+	mustDeleteAll(t, w2)
+	mustAddDocument(t, w2, document.NewDocument())
+	mustAddDocument(t, w2, document.NewDocument())
+	expectAddDocumentIAEEmpty(t, w2)
 
-	config2 := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config2.SetMaxDocs(10)
-	w2, err := index.NewIndexWriter(dir2, config2)
-	if err != nil {
-		t.Fatalf("NewIndexWriter (fresh): %v", err)
-	}
-	defer w2.Close()
-
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "new", true)
-		doc.Add(f)
-		if _, err := w2.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument(%d): %v", i, err)
-		}
-	}
+	mustClose(t, w2, dir)
 }
 
-// TestIndexWriterMaxDocsAcrossTwoIndexWriters verifies that the max
-// docs limit is enforced across writer sessions.
+// LUCENE-6299
 func TestIndexWriterMaxDocsAcrossTwoIndexWriters(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	setIndexWriterMaxDocs(t, 1)
+	defer restoreIndexWriterMaxDocs(t)
+	dir := newDirectory()
+	w := nullAnalyzerWriter(t, dir)
+	mustAddDocument(t, w, document.NewDocument())
+	mustClose(t, w)
+	w2 := nullAnalyzerWriter(t, dir)
+	expectAddDocumentIAEEmpty(t, w2)
 
-	// First writer: add up to limit and commit.
-	config1 := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config1.SetMaxDocs(10)
-	w1, err := index.NewIndexWriter(dir, config1)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "test", true)
-		doc.Add(f)
-		_, _ = w1.AddDocument(doc)
-	}
-	if err := w1.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := w1.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	// Second writer: open on the same index with the same limit.
-	config2 := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config2.SetMaxDocs(10)
-	config2.SetOpenMode(index.CREATE_OR_APPEND)
-	w2, err := index.NewIndexWriter(dir, config2)
-	if err != nil {
-		t.Fatalf("NewIndexWriter (second): %v", err)
-	}
-	defer w2.Close()
-
-	if w2.MaxDoc() != 10 {
-		t.Errorf("MaxDoc after reopen = %d, want 10", w2.MaxDoc())
-	}
+	mustClose(t, w2, dir)
 }
 
-// TestIndexWriterMaxDocsCorruptIndexExceptionTooLarge verifies that
-// opening a reader on an index does not panic.
+// isCorruptIndex reports whether err is a CorruptIndexException.
+func isCorruptIndex(err error) bool {
+	var cie *index.CorruptIndexException
+	return errors.As(err, &cie)
+}
+
+// twoDocIndex renders the shared prologue of the two CorruptIndexException
+// tests.
+func twoDocIndex(t *testing.T) store.Directory {
+	t.Helper()
+	dir := newDirectory()
+	w := nullAnalyzerWriter(t, dir)
+	mustAddDocument(t, w, document.NewDocument())
+	mustAddDocument(t, w, document.NewDocument())
+	mustClose(t, w)
+	return dir
+}
+
+// LUCENE-6299
 func TestIndexWriterMaxDocsCorruptIndexExceptionTooLarge(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	dir := twoDocIndex(t)
 
-	// Opening a reader on an empty directory should not panic.
-	_, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Logf("OpenDirectoryReader on empty dir: %v (expected)", err)
-	} else {
-		t.Log("OpenDirectoryReader on empty dir succeeded")
+	setIndexWriterMaxDocs(t, 1)
+	r, err := index.OpenDirectoryReader(dir)
+	restoreIndexWriterMaxDocs(t)
+	if err == nil {
+		mustClose(t, r)
+		t.Fatal("expected CorruptIndexException from DirectoryReader.open")
 	}
+	if !isCorruptIndex(err) {
+		t.Fatalf("expected CorruptIndexException, got %T: %v", err, err)
+	}
+
+	mustClose(t, dir)
 }
 
-// TestIndexWriterMaxDocsCorruptIndexExceptionTooLargeWriter verifies
-// that opening an IndexWriter on an empty directory works.
+// LUCENE-6299
 func TestIndexWriterMaxDocsCorruptIndexExceptionTooLargeWriter(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
+	dir := twoDocIndex(t)
 
-	writer, err := index.NewIndexWriter(dir, index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer()))
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
+	setIndexWriterMaxDocs(t, 1)
+	w, err := index.NewIndexWriter(dir, index.NewIndexWriterConfigWithAnalyzer(nil))
+	restoreIndexWriterMaxDocs(t)
+	if err == nil {
+		mustClose(t, w)
+		t.Fatal("expected CorruptIndexException from new IndexWriter")
 	}
-	_ = writer.Close()
+	if !isCorruptIndex(err) {
+		t.Fatalf("expected CorruptIndexException, got %T: %v", err, err)
+	}
+
+	mustClose(t, dir)
 }

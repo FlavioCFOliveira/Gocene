@@ -1,66 +1,90 @@
-package index
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+// Port of lucene/core/src/test/org/apache/lucene/index/TestRollback.java
+// (Apache Lucene 10.5.0). The Java class uses the test-framework
+// RandomIndexWriter (tests/index imports index), so the port lives in the
+// external index_test package.
+
+package index_test
 
 import (
+	"math/rand"
+	"strconv"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/spi"
-	"github.com/FlavioCFOliveira/Gocene/util"
+	"github.com/FlavioCFOliveira/Gocene/document"
+	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
+	testindex "github.com/FlavioCFOliveira/Gocene/tests/index"
 )
 
-func TestIndexWriter_Rollback(t *testing.T) {
-	dir := util.NewByteBuffersDirectory()
-	conf := &IndexWriterConfig{
-		LiveIndexWriterConfig: spi.DefaultLiveIndexWriterConfig(),
-	}
-
-	iw, err := NewIndexWriter(dir, conf)
+// TestRollbackIntegrityWithBufferFlush ports testRollbackIntegrityWithBufferFlush
+// (LUCENE-2536).
+func TestRollbackIntegrityWithBufferFlush(t *testing.T) {
+	dir := store.NewMockDirectoryWrapper(store.NewByteBuffersDirectory())
+	rw, err := testindex.NewRandomIndexWriter(rand.New(rand.NewSource(rand.Int63())), dir)
 	if err != nil {
-		t.Fatalf("failed to create IndexWriter: %v", err)
+		t.Fatalf("new RandomIndexWriter: %v", err)
+	}
+	for i := 0; i < 5; i++ {
+		doc := document.NewDocument()
+		f, err := document.NewStringField("pk", strconv.Itoa(i), true)
+		if err != nil {
+			t.Fatalf("newStringField: %v", err)
+		}
+		doc.Add(f)
+		if _, err := rw.AddDocument(doc); err != nil {
+			t.Fatalf("addDocument: %v", err)
+		}
+	}
+	if err := rw.Close(); err != nil {
+		t.Fatalf("close: %v", err)
 	}
 
-	// 1. Add documents and commit
-	doc1 := []IndexableField{{Name: "text", Value: "first commit"}}
-	if _, err := iw.AddDocument(doc1); err != nil {
-		t.Fatalf("failed to add doc: %v", err)
-	}
-	if _, err := iw.Commit(); err != nil {
-		t.Fatalf("failed to commit: %v", err)
-	}
-
-	// 2. Add more documents without committing
-	doc2 := []IndexableField{{Name: "text", Value: "should be rolled back"}}
-	if _, err := iw.AddDocument(doc2); err != nil {
-		t.Fatalf("failed to add doc: %v", err)
-	}
-
-	// 3. Perform rollback
-	if err := iw.Rollback(); err != nil {
-		t.Fatalf("failed to rollback: %v", err)
-	}
-
-	// 4. Verify writer is closed
-	if !iw.IsClosed() {
-		t.Error("expected IndexWriter to be closed after rollback")
-	}
-
-	// 5. Verify the index state
-	// Open a reader to check the contents
-	reader, err := StandardDirectoryReader.Open(dir)
+	// If buffer size is small enough to cause a flush, errors ensue...
+	iwc := index.NewIndexWriterConfigWithAnalyzer(testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, true, 0, nil, true))
+	iwc.SetMaxBufferedDocs(2)
+	iwc.SetOpenMode(index.Append)
+	w, err := index.NewIndexWriter(dir, iwc)
 	if err != nil {
-		t.Fatalf("failed to open reader: %v", err)
-	}
-	searcher := NewIndexSearcher(reader)
-	
-	// We expect only doc1 to be present
-	if searcher.NumDocs() != 1 {
-		t.Errorf("expected 1 doc, got %d", searcher.NumDocs())
+		t.Fatalf("new IndexWriter: %v", err)
 	}
 
-	// 6. Verify that write.lock is released
-	// Try to open a new IndexWriter on the same directory
-	iw2, err := NewIndexWriter(dir, conf)
-	if err != nil {
-		t.Fatalf("failed to open new IndexWriter after rollback: %v", err)
+	for i := 0; i < 3; i++ {
+		doc := document.NewDocument()
+		value := strconv.Itoa(i)
+		pk, err := document.NewStringField("pk", value, true)
+		if err != nil {
+			t.Fatalf("newStringField: %v", err)
+		}
+		doc.Add(pk)
+		text, err := document.NewStringField("text", "foo", true)
+		if err != nil {
+			t.Fatalf("newStringField: %v", err)
+		}
+		doc.Add(text)
+		if _, err := w.UpdateDocument(index.NewTerm("pk", value), doc); err != nil {
+			t.Fatalf("updateDocument: %v", err)
+		}
 	}
-	iw2.Close()
+	if err := w.Rollback(); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+
+	r, err := index.OpenDirectoryReader(dir)
+	if err != nil {
+		t.Fatalf("DirectoryReader.open: %v", err)
+	}
+	if r.NumDocs() != 5 {
+		t.Fatalf("index should contain same number of docs post rollback: expected 5, got %d", r.NumDocs())
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("close reader: %v", err)
+	}
+	if err := dir.Close(); err != nil {
+		t.Fatalf("close dir: %v", err)
+	}
 }

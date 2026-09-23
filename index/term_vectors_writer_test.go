@@ -2,6 +2,9 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
+// Port of lucene/core/src/test/org/apache/lucene/index/TestTermVectorsWriter.java
+// (Apache Lucene 10.5.0): tests for writing term vectors.
+
 package index_test
 
 import (
@@ -12,59 +15,15 @@ import (
 	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
 	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
 	testutil "github.com/FlavioCFOliveira/Gocene/tests/util"
 )
 
-// TestTermVectorsWriter ports org.apache.lucene.index.TestTermVectorsWriter
-// (Lucene 10.4.0, core/src/test/org/apache/lucene/index/TestTermVectorsWriter.java).
-//
-// The Java suite verifies term-vector writing end to end: offset/position
-// counting when the same Field instance is added several times to one document
-// (LUCENE-1442), end-offset bookkeeping across analyzers, caching token filters
-// and stop filters (LUCENE-1448), term-vector survival through addIndexes and
-// forceMerge (LUCENE-1168), absence of term vectors on later documents
-// (LUCENE-1008/1010), rejection of inconsistent per-field term-vector options
-// within a single document, and the LUCENE-5611 guarantee that a bad
-// term-vector field type does not abort the whole segment.
-//
-// Infrastructure notes:
-//
-//   - testanalysis.MockAnalyzer replaces Lucene's MockAnalyzer(random()) for the
-//     offset-sensitive tests. The default testanalysis.WHITESPACE automaton plus a
-//     one-character offset gap reproduces the MockTokenizer behaviour needed for
-//     the LUCENE-1442/1448 assertions.
-//   - testanalysis.NewMockAnalyzer(runAutomaton, lowerCase, maxTokenLength, stopSet,
-//     enableChecks) is used directly; the ENGLISH_STOPSET variant drives
-//     testEndOffsetPositionStopFilter.
-//   - testutil.RamCopyOf and testutil.WrapDirectory provide the
-//     MockDirectoryWrapper/ramCopyOf pair used by testTermVectorCorruption.
-//   - The doTestMixup helper uses the plain IndexWriter rather than
-//     RandomIndexWriter, because the test only needs to verify that an illegal
-//     term-vector settings mix raises an error while earlier good docs survive.
-//   - testNoAbortOnBadTVSettings commits and reopens from the directory because
-//     the NRT reader path (index.OpenDirectoryReaderFromWriter) is available but
-//     not required by the assertion.
-//
-// Divergences from Lucene:
-//   - Lucene's PostingsEnum.ALL flag has no Gocene equivalent; TermsEnum.Postings
-//     takes a bare int, so 2 (doc IDs + freqs + positions + offsets + payloads)
-//     is passed, matching the Terms.GetPostingsReader flag documentation.
-//   - TermsEnum has no postings-reuse overload; each call is a fresh
-//     Postings(flags), so the Java `dpEnum = termsEnum.postings(dpEnum, ALL)`
-//     reuse pattern becomes a plain re-fetch.
-//   - newField/newTextField (LuceneTestCase randomization helpers) are replaced
-//     by direct document.NewField / document.NewTextField construction.
-
-// postingsAll is the Gocene flag closest to Lucene's PostingsEnum.ALL: doc IDs,
-// term frequencies, positions, offsets and payloads (see the Terms interface
-// flag documentation in index/terms.go).
-const postingsAll = 2
-
-// customTVType builds a FieldType cloned from base with all three term-vector
-// options enabled, mirroring the repeated FieldType setup in the Java tests.
-func customTVType(base *index.FieldType) *index.FieldType {
+// vectorsFieldType renders new FieldType(base) with term vectors, positions
+// and offsets stored.
+func vectorsFieldType(base *document.FieldType) *document.FieldType {
 	ft := document.NewFieldTypeFrom(base)
 	ft.SetStoreTermVectors(true)
 	ft.SetStoreTermVectorPositions(true)
@@ -72,1023 +31,617 @@ func customTVType(base *index.FieldType) *index.FieldType {
 	return ft
 }
 
-// defaultMockAnalyzer returns a testanalysis.MockAnalyzer configured like Lucene's
-// MockAnalyzer(random()) default: whitespace tokenization, no lower-casing,
-// no stop set, workflow checks enabled, and a 1-character offset gap.
-func defaultMockAnalyzer() *testanalysis.MockAnalyzer {
-	return testanalysis.NewMockAnalyzer(testanalysis.WHITESPACE, false, testanalysis.DefaultMaxTokenLength, testanalysis.EMPTY_STOPSET, true)
-}
-
-// newTVWriterConfig builds the IndexWriterConfig shared by the LUCENE-1168
-// corruption tests: maxBufferedDocs 2, auto-flush disabled, serial merge
-// scheduler, LogDoc merge policy, backed by a default MockAnalyzer.
-//
-// UseCompoundFile is disabled so the term-vectors data file is kept as a loose
-// file; the compound-file term-vectors read path is tracked separately.
-func newTVWriterConfig() *index.IndexWriterConfig {
-	cfg := index.NewIndexWriterConfig(defaultMockAnalyzer())
-	cfg.SetUseCompoundFile(false)
-	cfg.SetMaxBufferedDocs(2)
-	cfg.SetRAMBufferSizeMB(index.DISABLE_AUTO_FLUSH)
-	cfg.SetMergeScheduler(index.NewSerialMergeScheduler())
-	cfg.SetMergePolicy(index.NewLogDocMergePolicy())
-	return cfg
-}
-
-// tvWriterDir opens a fresh on-disk directory and an IndexWriter over it with
-// the default MockAnalyzer, returning both plus a cleanup func. It mirrors the
-// newDirectory() + new IndexWriter(...) preamble shared by the offset-counting
-// tests.
-func tvWriterDir(t *testing.T) (store.Directory, *index.IndexWriter, func()) {
+// fieldVectorTermsEnum renders r.termVectors().get(0).terms("field").iterator().
+func fieldVectorTermsEnum(t testing.TB, r index.IndexReaderInterface) index.TermsEnum {
 	t.Helper()
-	dir, err := store.NewSimpleFSDirectory(t.TempDir())
+	termVectors, err := r.TermVectors()
 	if err != nil {
-		t.Fatalf("Failed to open directory: %v", err)
+		t.Fatalf("termVectors: %v", err)
 	}
-	config := index.NewIndexWriterConfig(defaultMockAnalyzer())
-	config.SetUseCompoundFile(false)
-	writer, err := index.NewIndexWriter(dir, config)
+	fields, err := termVectors.Get(0)
 	if err != nil {
-		dir.Close()
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-	return dir, writer, func() {
-		dir.Close()
-	}
-}
-
-// firstDocFieldTermsEnum reopens dir, fetches the term vectors of document 0,
-// and returns the TermsEnum for fieldName together with a cleanup func. It
-// captures the `DirectoryReader.open(dir); r.termVectors().get(0).terms(field).iterator()`
-// idiom repeated across the offset tests.
-func firstDocFieldTermsEnum(t *testing.T, dir store.Directory, fieldName string) (index.TermsEnum, func()) {
-	t.Helper()
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("Failed to open reader: %v", err)
-	}
-	tvs, err := reader.TermVectors()
-	if err != nil {
-		reader.Close()
-		t.Fatalf("TermVectors() failed: %v", err)
-	}
-	fields, err := tvs.Get(0)
-	if err != nil {
-		reader.Close()
-		t.Fatalf("TermVectors.Get(0) failed: %v", err)
+		t.Fatalf("termVectors().get(0): %v", err)
 	}
 	if fields == nil {
-		reader.Close()
-		t.Fatal("TermVectors.Get(0) returned nil")
+		t.Fatal("termVectors().get(0) is null")
 	}
-	terms, err := fields.Terms(fieldName)
+	vector, err := fields.Terms("field")
 	if err != nil {
-		reader.Close()
-		t.Fatalf("Terms(%q) failed: %v", fieldName, err)
+		t.Fatalf("terms(field): %v", err)
 	}
-	if terms == nil {
-		reader.Close()
-		t.Fatalf("Terms(%q) returned nil", fieldName)
+	if vector == nil {
+		t.Fatal("assertNotNull(vector)")
 	}
-	te, err := terms.Iterator()
+	termsEnum, err := vector.Iterator()
 	if err != nil {
-		reader.Close()
-		t.Fatalf("Iterator failed: %v", err)
+		t.Fatalf("iterator: %v", err)
 	}
-	return te, func() {
-		reader.Close()
-	}
+	return termsEnum
 }
 
-// nextPositionOffsets advances dpEnum one position and returns its start/end
-// offsets, failing the test on any error. It folds the
-// nextPosition()/startOffset()/endOffset() trio used throughout the Java tests.
-func nextPositionOffsets(t *testing.T, dpEnum index.PostingsEnum) (int, int) {
+func mustNextTerm(t testing.TB, termsEnum index.TermsEnum) *index.Term {
 	t.Helper()
-	if _, err := dpEnum.NextPosition(); err != nil {
-		t.Fatalf("NextPosition failed: %v", err)
-	}
-	so, err := dpEnum.StartOffset()
+	term, err := termsEnum.Next()
 	if err != nil {
-		t.Fatalf("StartOffset failed: %v", err)
-	}
-	eo, err := dpEnum.EndOffset()
-	if err != nil {
-		t.Fatalf("EndOffset failed: %v", err)
-	}
-	return so, eo
-}
-
-// TestTermVectorsWriterDoubleOffsetCounting ports testDoubleOffsetCounting
-// (LUCENE-1442): the same StringField instance is added three times plus one
-// empty Field instance; offsets must not be double-counted.
-func TestTermVectorsWriterDoubleOffsetCounting(t *testing.T) {
-
-	dir, w, cleanup := tvWriterDir(t)
-	defer cleanup()
-
-	customType := customTVType(document.StringFieldTypeNotStored)
-
-	doc := document.NewDocument()
-	f, err := document.NewField("field", "abcd", customType)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
-	doc.Add(f)
-	doc.Add(f)
-	f2, err := document.NewField("field", "", customType)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
-	doc.Add(f2)
-	doc.Add(f)
-	if _, err := w.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-
-	te, rclose := firstDocFieldTermsEnum(t, dir, "field")
-	defer rclose()
-
-	// First term: "" occurred once.
-	term, err := te.Next()
-	if err != nil {
-		t.Fatalf("Next failed: %v", err)
+		t.Fatalf("next: %v", err)
 	}
 	if term == nil {
-		t.Fatal("Next() returned nil, want term \"\"")
+		t.Fatal("assertNotNull(termsEnum.next())")
 	}
-	if got := te.Term().Text(); got != "" {
-		t.Fatalf("term() = %q, want \"\"", got)
-	}
-	if ttf, _ := te.TotalTermFreq(); ttf != 1 {
-		t.Fatalf("totalTermFreq() = %d, want 1", ttf)
-	}
-
-	dpEnum, err := te.Postings(postingsAll)
-	if err != nil {
-		t.Fatalf("Postings failed: %v", err)
-	}
-	if next, _ := dpEnum.NextDoc(); next == index.NO_MORE_DOCS {
-		t.Fatal("nextDoc() returned NO_MORE_DOCS")
-	}
-	if so, eo := nextPositionOffsets(t, dpEnum); so != 8 || eo != 8 {
-		t.Fatalf("offsets = (%d,%d), want (8,8)", so, eo)
-	}
-	if next, _ := dpEnum.NextDoc(); next != index.NO_MORE_DOCS {
-		t.Fatalf("nextDoc() = %d, want NO_MORE_DOCS", next)
-	}
-
-	// Second term: "abcd" occurred three times.
-	term, err = te.Next()
-	if err != nil {
-		t.Fatalf("Next failed: %v", err)
-	}
-	if term == nil || term.Text() != "abcd" {
-		t.Fatalf("Next() = %v, want term \"abcd\"", term)
-	}
-	dpEnum, err = te.Postings(postingsAll)
-	if err != nil {
-		t.Fatalf("Postings failed: %v", err)
-	}
-	if ttf, _ := te.TotalTermFreq(); ttf != 3 {
-		t.Fatalf("totalTermFreq() = %d, want 3", ttf)
-	}
-	if next, _ := dpEnum.NextDoc(); next == index.NO_MORE_DOCS {
-		t.Fatal("nextDoc() returned NO_MORE_DOCS")
-	}
-	for _, want := range [][2]int{{0, 4}, {4, 8}, {8, 12}} {
-		if so, eo := nextPositionOffsets(t, dpEnum); so != want[0] || eo != want[1] {
-			t.Fatalf("offsets = (%d,%d), want (%d,%d)", so, eo, want[0], want[1])
-		}
-	}
-	if next, _ := dpEnum.NextDoc(); next != index.NO_MORE_DOCS {
-		t.Fatalf("nextDoc() = %d, want NO_MORE_DOCS", next)
-	}
-	term, err = te.Next()
-	if err != nil {
-		t.Fatalf("Next failed: %v", err)
-	}
-	if term != nil {
-		t.Fatalf("Next() = %v, want nil", term)
-	}
+	return term
 }
 
-// offsetCheck is one (startOffset, endOffset) expectation for a position.
-type offsetCheck struct{ start, end int }
-
-// runTwoTermOffsetCase covers the shared body of testDoubleOffsetCounting2,
-// testEndOffsetPositionCharAnalyzer and testEndOffsetPositionStopFilter: a
-// single field whose text is added twice produces one term with totalTermFreq
-// 2 and two positions with the supplied offsets. The analyzer argument lets the
-// stop-filter case supply a MockAnalyzer with an English stop set.
-func runTwoTermOffsetCase(t *testing.T, text string, want []offsetCheck, analyzer analysis.Analyzer) {
+func mustPostingsAll(t testing.TB, termsEnum index.TermsEnum) index.PostingsEnum {
 	t.Helper()
-	dir, err := store.NewSimpleFSDirectory(t.TempDir())
+	dpEnum, err := termsEnum.Postings(spi.PostingsFlagAll)
 	if err != nil {
-		t.Fatalf("Failed to open directory: %v", err)
+		t.Fatalf("postings: %v", err)
 	}
-	defer dir.Close()
+	return dpEnum
+}
 
-	cfg := index.NewIndexWriterConfig(analyzer)
-	cfg.SetUseCompoundFile(false)
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	customType := customTVType(document.TextFieldTypeNotStored)
-	doc := document.NewDocument()
-	f, err := document.NewField("field", text, customType)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
-	doc.Add(f)
-	doc.Add(f)
-	if _, err := w.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-
-	te, rclose := firstDocFieldTermsEnum(t, dir, "field")
-	defer rclose()
-
-	if term, err := te.Next(); err != nil || term == nil {
-		t.Fatalf("Next() = %v, %v; want non-nil term", term, err)
-	}
-	dpEnum, err := te.Postings(postingsAll)
-	if err != nil {
-		t.Fatalf("Postings failed: %v", err)
-	}
-	if ttf, _ := te.TotalTermFreq(); ttf != 2 {
-		t.Fatalf("totalTermFreq() = %d, want 2", ttf)
-	}
-	if next, _ := dpEnum.NextDoc(); next == index.NO_MORE_DOCS {
-		t.Fatal("nextDoc() returned NO_MORE_DOCS")
-	}
-	for _, c := range want {
-		if so, eo := nextPositionOffsets(t, dpEnum); so != c.start || eo != c.end {
-			t.Fatalf("offsets = (%d,%d), want (%d,%d)", so, eo, c.start, c.end)
-		}
-	}
-	if next, _ := dpEnum.NextDoc(); next != index.NO_MORE_DOCS {
-		t.Fatalf("nextDoc() = %d, want NO_MORE_DOCS", next)
+func assertTotalTermFreq(t testing.TB, termsEnum index.TermsEnum, expected int64) {
+	t.Helper()
+	if ttf, err := termsEnum.TotalTermFreq(); err != nil || ttf != expected {
+		t.Fatalf("totalTermFreq: expected %d, got %d (%v)", expected, ttf, err)
 	}
 }
 
-// TestTermVectorsWriterDoubleOffsetCounting2 ports testDoubleOffsetCounting2
-// (LUCENE-1442).
+func assertHasDoc(t testing.TB, dpEnum index.PostingsEnum) {
+	t.Helper()
+	if doc, err := dpEnum.NextDoc(); err != nil || doc == spi.NO_MORE_DOCS {
+		t.Fatalf("assertTrue(dpEnum.nextDoc() != NO_MORE_DOCS): %d (%v)", doc, err)
+	}
+}
+
+func assertNoMoreDocs(t testing.TB, dpEnum index.PostingsEnum) {
+	t.Helper()
+	if doc, err := dpEnum.NextDoc(); err != nil || doc != spi.NO_MORE_DOCS {
+		t.Fatalf("nextDoc: expected NO_MORE_DOCS, got %d (%v)", doc, err)
+	}
+}
+
+// assertNextOffsets renders dpEnum.nextPosition() followed by the
+// startOffset/endOffset assertions.
+func assertNextOffsets(t testing.TB, dpEnum index.PostingsEnum, start, end int) {
+	t.Helper()
+	if _, err := dpEnum.NextPosition(); err != nil {
+		t.Fatalf("nextPosition: %v", err)
+	}
+	if got, err := dpEnum.StartOffset(); err != nil || got != start {
+		t.Fatalf("startOffset: expected %d, got %d (%v)", start, got, err)
+	}
+	if got, err := dpEnum.EndOffset(); err != nil || got != end {
+		t.Fatalf("endOffset: expected %d, got %d (%v)", end, got, err)
+	}
+}
+
+// LUCENE-1442
+func TestTermVectorsWriterDoubleOffsetCounting(t *testing.T) {
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	doc := document.NewDocument()
+	customType := vectorsFieldType(document.StringFieldTypeNotStored)
+	f := newField(t, "field", "abcd", customType)
+	doc.Add(f)
+	doc.Add(f)
+	f2 := newField(t, "field", "", customType)
+	doc.Add(f2)
+	doc.Add(f)
+	mustAddDocument(t, w, doc)
+	mustClose(t, w)
+
+	r := mustOpenDirectoryReader(t, dir)
+	termsEnum := fieldVectorTermsEnum(t, r)
+	term := mustNextTerm(t, termsEnum)
+	if term.Bytes.String() != "" {
+		t.Fatalf("term: expected \"\", got %q", term.Bytes.String())
+	}
+
+	// Token "" occurred once
+	assertTotalTermFreq(t, termsEnum, 1)
+
+	dpEnum := mustPostingsAll(t, termsEnum)
+	assertHasDoc(t, dpEnum)
+	assertNextOffsets(t, dpEnum, 8, 8)
+	assertNoMoreDocs(t, dpEnum)
+
+	// Token "abcd" occurred three times
+	if term := mustNextTerm(t, termsEnum); term.Bytes.String() != "abcd" {
+		t.Fatalf("term: expected abcd, got %q", term.Bytes.String())
+	}
+	dpEnum = mustPostingsAll(t, termsEnum)
+	assertTotalTermFreq(t, termsEnum, 3)
+
+	assertHasDoc(t, dpEnum)
+	assertNextOffsets(t, dpEnum, 0, 4)
+	assertNextOffsets(t, dpEnum, 4, 8)
+	assertNextOffsets(t, dpEnum, 8, 12)
+
+	assertNoMoreDocs(t, dpEnum)
+	if term, err := termsEnum.Next(); err != nil || term != nil {
+		t.Fatalf("assertNull(termsEnum.next()): %v (%v)", term, err)
+	}
+	mustClose(t, r, dir)
+}
+
+// twoInstanceOffsets renders the shared body of the LUCENE-1442/1448 tests
+// that add the same field instance twice and check the two offset pairs.
+func twoInstanceOffsets(t *testing.T, analyzer analysis.Analyzer, value string, first, second [2]int) {
+	t.Helper()
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(analyzer))
+	doc := document.NewDocument()
+	customType := vectorsFieldType(document.TextFieldTypeNotStored)
+	f := newField(t, "field", value, customType)
+	doc.Add(f)
+	doc.Add(f)
+	mustAddDocument(t, w, doc)
+	mustClose(t, w)
+
+	r := mustOpenDirectoryReader(t, dir)
+	termsEnum := fieldVectorTermsEnum(t, r)
+	mustNextTerm(t, termsEnum)
+	dpEnum := mustPostingsAll(t, termsEnum)
+	assertTotalTermFreq(t, termsEnum, 2)
+
+	assertHasDoc(t, dpEnum)
+	assertNextOffsets(t, dpEnum, first[0], first[1])
+	assertNextOffsets(t, dpEnum, second[0], second[1])
+	assertNoMoreDocs(t, dpEnum)
+
+	mustClose(t, r, dir)
+}
+
+// LUCENE-1442
 func TestTermVectorsWriterDoubleOffsetCounting2(t *testing.T) {
-	runTwoTermOffsetCase(t, "abcd", []offsetCheck{{0, 4}, {5, 9}}, defaultMockAnalyzer())
+	twoInstanceOffsets(t, newMockAnalyzer(), "abcd", [2]int{0, 4}, [2]int{5, 9})
 }
 
-// TestTermVectorsWriterEndOffsetPositionCharAnalyzer ports
-// testEndOffsetPositionCharAnalyzer (LUCENE-1448): trailing whitespace must not
-// shift the recorded end offset.
+// LUCENE-1448
 func TestTermVectorsWriterEndOffsetPositionCharAnalyzer(t *testing.T) {
-	runTwoTermOffsetCase(t, "abcd   ", []offsetCheck{{0, 4}, {8, 12}}, defaultMockAnalyzer())
+	twoInstanceOffsets(t, newMockAnalyzer(), "abcd   ", [2]int{0, 4}, [2]int{8, 12})
 }
 
-// TestTermVectorsWriterEndOffsetPositionWithCachingTokenFilter ports
-// testEndOffsetPositionWithCachingTokenFilter (LUCENE-1448): the field is fed a
-// pre-built CachingTokenFilter token stream rather than a raw string.
+// LUCENE-1448
 func TestTermVectorsWriterEndOffsetPositionWithCachingTokenFilter(t *testing.T) {
-	dir, err := store.NewSimpleFSDirectory(t.TempDir())
-	if err != nil {
-		t.Fatalf("Failed to open directory: %v", err)
-	}
-	defer dir.Close()
-
-	analyzer := defaultMockAnalyzer()
-	cfg := index.NewIndexWriterConfig(analyzer)
-	cfg.SetUseCompoundFile(false)
-	w, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("Failed to create IndexWriter: %v", err)
-	}
-
-	stream, err := analyzer.TokenStream("field", strings.NewReader("abcd   "))
-	if err != nil {
-		t.Fatalf("TokenStream failed: %v", err)
-	}
-	caching := analysis.NewCachingTokenFilter(stream)
-
-	customType := customTVType(document.TextFieldTypeNotStored)
-	f, err := document.NewField("field", caching, customType)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
-
+	dir := newDirectory()
+	analyzer := newMockAnalyzer()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(analyzer))
 	doc := document.NewDocument()
-	doc.Add(f)
-	doc.Add(f)
-	if _, err := w.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
-
-	te, rclose := firstDocFieldTermsEnum(t, dir, "field")
-	defer rclose()
-
-	if term, err := te.Next(); err != nil || term == nil {
-		t.Fatalf("Next() = %v, %v; want non-nil term", term, err)
-	}
-	dpEnum, err := te.Postings(postingsAll)
+	source, err := analyzer.TokenStream("field", strings.NewReader("abcd   "))
 	if err != nil {
-		t.Fatalf("Postings failed: %v", err)
+		t.Fatalf("tokenStream: %v", err)
 	}
-	if ttf, _ := te.TotalTermFreq(); ttf != 2 {
-		t.Fatalf("totalTermFreq() = %d, want 2", ttf)
+	stream := analysis.NewCachingTokenFilter(source)
+	customType := vectorsFieldType(document.TextFieldTypeNotStored)
+	f, err := document.NewField("field", stream, customType)
+	if err != nil {
+		t.Fatalf("Field: %v", err)
 	}
-	if next, _ := dpEnum.NextDoc(); next == index.NO_MORE_DOCS {
-		t.Fatal("nextDoc() returned NO_MORE_DOCS")
+	doc.Add(f)
+	doc.Add(f)
+	mustAddDocument(t, w, doc)
+	if err := stream.Close(); err != nil {
+		t.Fatalf("close stream: %v", err)
 	}
-	for _, want := range []offsetCheck{{0, 4}, {8, 12}} {
-		if so, eo := nextPositionOffsets(t, dpEnum); so != want.start || eo != want.end {
-			t.Fatalf("offsets = (%d,%d), want (%d,%d)", so, eo, want.start, want.end)
-		}
-	}
-	if next, _ := dpEnum.NextDoc(); next != index.NO_MORE_DOCS {
-		t.Fatalf("nextDoc() = %d, want NO_MORE_DOCS", next)
-	}
+	mustClose(t, w)
+
+	r := mustOpenDirectoryReader(t, dir)
+	termsEnum := fieldVectorTermsEnum(t, r)
+	mustNextTerm(t, termsEnum)
+	dpEnum := mustPostingsAll(t, termsEnum)
+	assertTotalTermFreq(t, termsEnum, 2)
+
+	assertHasDoc(t, dpEnum)
+	assertNextOffsets(t, dpEnum, 0, 4)
+	assertNextOffsets(t, dpEnum, 8, 12)
+	assertNoMoreDocs(t, dpEnum)
+
+	mustClose(t, r, dir)
 }
 
-// TestTermVectorsWriterEndOffsetPositionStopFilter ports
-// testEndOffsetPositionStopFilter (LUCENE-1448): a dropped stopword ("the")
-// still advances the offset of the following term.
+// LUCENE-1448
 func TestTermVectorsWriterEndOffsetPositionStopFilter(t *testing.T) {
-	// Java analyzer: MockAnalyzer with MockTokenizer.SIMPLE, lowercased, and
-	// MockTokenFilter.ENGLISH_STOPSET, so "the" is removed; "abcd" keeps offsets
-	// 0..4 and the second occurrence lands at 9..13 (the stopword consumes
-	// characters 5..8).
-	stopAnalyzer := testanalysis.NewMockAnalyzer(testanalysis.SIMPLE, true, testanalysis.DefaultMaxTokenLength, testanalysis.ENGLISH_STOPSET, true)
-	runTwoTermOffsetCase(t, "abcd the", []offsetCheck{{0, 4}, {9, 13}}, stopAnalyzer)
+	analyzer := testanalysis.NewMockAnalyzer(testanalysis.SIMPLE, true, testanalysis.DefaultMaxTokenLength, testanalysis.ENGLISH_STOPSET, true)
+	twoInstanceOffsets(t, analyzer, "abcd the", [2]int{0, 4}, [2]int{9, 13})
 }
 
-// termOffsetCheck is one term's expectation inside runTwoFieldOffsetCase.
-type termOffsetCheck struct {
-	checkFreq     bool
-	totalTermFreq int
-	start, end    int
-}
-
-// runTwoFieldOffsetCase covers the shared body of testEndOffsetPositionStandard,
-// testEndOffsetPositionStandardEmptyField and
-// testEndOffsetPositionStandardEmptyField2: a document holds several Field
-// instances for the same field name, and each successive term carries the
-// expected totalTermFreq and first-position offsets.
-func runTwoFieldOffsetCase(t *testing.T, texts []string, checks []termOffsetCheck) {
+// endOffsetPositionTwoFields renders the shared prologue of the three
+// LUCENE-1448 standard-analyzer tests that index distinct field instances.
+func endOffsetPositionTwoFields(t *testing.T, values ...string) (store.Directory, *index.DirectoryReader, index.TermsEnum) {
 	t.Helper()
-	dir, w, cleanup := tvWriterDir(t)
-	defer cleanup()
-
-	customType := customTVType(document.TextFieldTypeNotStored)
+	dir := newDirectory()
+	w := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
 	doc := document.NewDocument()
-	for _, text := range texts {
-		f, err := document.NewField("field", text, customType)
-		if err != nil {
-			t.Fatalf("NewField failed: %v", err)
-		}
-		doc.Add(f)
+	customType := vectorsFieldType(document.TextFieldTypeNotStored)
+	for _, v := range values {
+		doc.Add(newField(t, "field", v, customType))
 	}
-	if _, err := w.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument failed: %v", err)
-	}
-	if err := w.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
+	mustAddDocument(t, w, doc)
+	mustClose(t, w)
 
-	te, rclose := firstDocFieldTermsEnum(t, dir, "field")
-	defer rclose()
-
-	for i, c := range checks {
-		term, err := te.Next()
-		if err != nil {
-			t.Fatalf("check %d: Next failed: %v", i, err)
-		}
-		if term == nil {
-			t.Fatalf("check %d: Next() returned nil, want a term", i)
-		}
-		dpEnum, err := te.Postings(postingsAll)
-		if err != nil {
-			t.Fatalf("check %d: Postings failed: %v", i, err)
-		}
-		if c.checkFreq {
-			if ttf, _ := te.TotalTermFreq(); int(ttf) != c.totalTermFreq {
-				t.Fatalf("check %d: totalTermFreq() = %d, want %d", i, ttf, c.totalTermFreq)
-			}
-		}
-		if next, _ := dpEnum.NextDoc(); next == index.NO_MORE_DOCS {
-			t.Fatalf("check %d: nextDoc() returned NO_MORE_DOCS", i)
-		}
-		if so, eo := nextPositionOffsets(t, dpEnum); so != c.start || eo != c.end {
-			t.Fatalf("check %d: offsets = (%d,%d), want (%d,%d)", i, so, eo, c.start, c.end)
-		}
-	}
+	r := mustOpenDirectoryReader(t, dir)
+	return dir, r, fieldVectorTermsEnum(t, r)
 }
 
-// TestTermVectorsWriterEndOffsetPositionStandard ports
-// testEndOffsetPositionStandard (LUCENE-1448).
+// LUCENE-1448
 func TestTermVectorsWriterEndOffsetPositionStandard(t *testing.T) {
-	runTwoFieldOffsetCase(t,
-		[]string{"abcd the  ", "crunch man"},
-		[]termOffsetCheck{
-			{start: 0, end: 4},
-			{start: 11, end: 17},
-			{start: 18, end: 21},
-		})
+	dir, r, termsEnum := endOffsetPositionTwoFields(t, "abcd the  ", "crunch man")
+	mustNextTerm(t, termsEnum)
+	dpEnum := mustPostingsAll(t, termsEnum)
+
+	assertHasDoc(t, dpEnum)
+	assertNextOffsets(t, dpEnum, 0, 4)
+
+	mustNextTerm(t, termsEnum)
+	dpEnum = mustPostingsAll(t, termsEnum)
+	assertHasDoc(t, dpEnum)
+	assertNextOffsets(t, dpEnum, 11, 17)
+
+	mustNextTerm(t, termsEnum)
+	dpEnum = mustPostingsAll(t, termsEnum)
+	assertHasDoc(t, dpEnum)
+	assertNextOffsets(t, dpEnum, 18, 21)
+
+	mustClose(t, r, dir)
 }
 
-// TestTermVectorsWriterEndOffsetPositionStandardEmptyField ports
-// testEndOffsetPositionStandardEmptyField (LUCENE-1448): a leading empty field
-// instance still consumes one position before the next field's terms.
+// LUCENE-1448
 func TestTermVectorsWriterEndOffsetPositionStandardEmptyField(t *testing.T) {
-	runTwoFieldOffsetCase(t,
-		[]string{"", "crunch man"},
-		[]termOffsetCheck{
-			{checkFreq: true, totalTermFreq: 1, start: 1, end: 7},
-			{start: 8, end: 11},
-		})
+	dir, r, termsEnum := endOffsetPositionTwoFields(t, "", "crunch man")
+	mustNextTerm(t, termsEnum)
+	dpEnum := mustPostingsAll(t, termsEnum)
+
+	assertTotalTermFreq(t, termsEnum, 1)
+	assertHasDoc(t, dpEnum)
+	assertNextOffsets(t, dpEnum, 1, 7)
+
+	mustNextTerm(t, termsEnum)
+	dpEnum = mustPostingsAll(t, termsEnum)
+	assertHasDoc(t, dpEnum)
+	assertNextOffsets(t, dpEnum, 8, 11)
+
+	mustClose(t, r, dir)
 }
 
-// TestTermVectorsWriterEndOffsetPositionStandardEmptyField2 ports
-// testEndOffsetPositionStandardEmptyField2 (LUCENE-1448): an empty field
-// instance between two non-empty ones.
+// LUCENE-1448
 func TestTermVectorsWriterEndOffsetPositionStandardEmptyField2(t *testing.T) {
-	runTwoFieldOffsetCase(t,
-		[]string{"abcd", "", "crunch"},
-		[]termOffsetCheck{
-			{checkFreq: true, totalTermFreq: 1, start: 0, end: 4},
-			{start: 6, end: 12},
-		})
+	dir, r, termsEnum := endOffsetPositionTwoFields(t, "abcd", "", "crunch")
+	mustNextTerm(t, termsEnum)
+	dpEnum := mustPostingsAll(t, termsEnum)
+
+	assertTotalTermFreq(t, termsEnum, 1)
+	assertHasDoc(t, dpEnum)
+	assertNextOffsets(t, dpEnum, 0, 4)
+
+	mustNextTerm(t, termsEnum)
+	dpEnum = mustPostingsAll(t, termsEnum)
+	assertHasDoc(t, dpEnum)
+	assertNextOffsets(t, dpEnum, 6, 12)
+
+	mustClose(t, r, dir)
 }
 
-// TestTermVectorsWriterTermVectorCorruption ports testTermVectorCorruption
-// (LUCENE-1168): term vectors must survive addIndexes from a separate directory
-// followed by forceMerge.
-//
-// The Java test stages the source through MockDirectoryWrapper(random(),
-// TestUtil.ramCopyOf(dir)); Gocene has no ramCopyOf snapshot and no randomized
-// MockDirectoryWrapper test-writer, so the addIndexes leg below opens the
-// source directory directly. The body is otherwise faithful to the reference.
-func TestTermVectorsWriterTermVectorCorruption(t *testing.T) {
+func termVectorCorruptionWriter(t *testing.T, dir store.Directory) *index.IndexWriter {
+	t.Helper()
+	conf := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	conf.SetMaxBufferedDocs(2)
+	conf.SetRAMBufferSizeMB(index.DisableAutoFlush)
+	conf.SetMergeScheduler(index.NewSerialMergeScheduler())
+	conf.SetMergePolicy(index.NewLogDocMergePolicy())
+	return mustNewIndexWriter(t, dir, conf)
+}
 
-	dir, err := store.NewSimpleFSDirectory(t.TempDir())
-	if err != nil {
-		t.Fatalf("Failed to open directory: %v", err)
+// termVectorCorruptionDocs renders the shared indexing body of
+// testTermVectorCorruption and testTermVectorCorruption2.
+func termVectorCorruptionDocs(t *testing.T, writer *index.IndexWriter) {
+	t.Helper()
+	doc := document.NewDocument()
+	customType := document.NewFieldType()
+	customType.SetStored(true)
+
+	storedField := newField(t, "stored", "stored", customType)
+	doc.Add(storedField)
+	mustAddDocument(t, writer, doc)
+	mustAddDocument(t, writer, doc)
+
+	doc = document.NewDocument()
+	doc.Add(storedField)
+	customType2 := vectorsFieldType(document.StringFieldTypeNotStored)
+	doc.Add(newField(t, "termVector", "termVector", customType2))
+	mustAddDocument(t, writer, doc)
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
 	}
-	defer dir.Close()
+	mustClose(t, writer)
+}
 
+// LUCENE-1168
+func TestTermVectorsWriterTermVectorCorruption(t *testing.T) {
+	dir := newDirectory()
 	for iter := 0; iter < 2; iter++ {
-		writer, err := index.NewIndexWriter(dir, newTVWriterConfig())
-		if err != nil {
-			t.Fatalf("iter %d: NewIndexWriter failed: %v", iter, err)
-		}
+		termVectorCorruptionDocs(t, termVectorCorruptionWriter(t, dir))
 
-		stored := document.NewFieldType()
-		stored.SetStored(true)
-		storedField, err := document.NewField("stored", "stored", stored)
-		if err != nil {
-			t.Fatalf("NewField failed: %v", err)
-		}
-
-		document1 := document.NewDocument()
-		document1.Add(storedField)
-		if _, err := writer.AddDocument(document1); err != nil {
-			t.Fatalf("AddDocument failed: %v", err)
-		}
-		if _, err := writer.AddDocument(document1); err != nil {
-			t.Fatalf("AddDocument failed: %v", err)
-		}
-
-		document2 := document.NewDocument()
-		document2.Add(storedField)
-		customType2 := customTVType(document.StringFieldTypeNotStored)
-		termVectorField, err := document.NewField("termVector", "termVector", customType2)
-		if err != nil {
-			t.Fatalf("NewField failed: %v", err)
-		}
-		document2.Add(termVectorField)
-		if _, err := writer.AddDocument(document2); err != nil {
-			t.Fatalf("AddDocument failed: %v", err)
-		}
-		if err := writer.ForceMerge(1); err != nil {
-			t.Fatalf("ForceMerge(1) failed: %v", err)
-		}
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Close failed: %v", err)
-		}
-
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("OpenDirectoryReader failed: %v", err)
-		}
+		reader := mustOpenDirectoryReader(t, dir)
 		storedFields, err := reader.StoredFields()
 		if err != nil {
-			t.Fatalf("StoredFields failed: %v", err)
+			t.Fatalf("storedFields: %v", err)
 		}
 		termVectors, err := reader.TermVectors()
 		if err != nil {
-			t.Fatalf("TermVectors failed: %v", err)
+			t.Fatalf("termVectors: %v", err)
 		}
 		for i := 0; i < reader.NumDocs(); i++ {
-			// Java: storedFields.document(i) returns a Document; Gocene's
-			// Document writes into a visitor and returns only an error.
-			if err := storedFields.Document(i, document.NewDocumentStoredFieldVisitor()); err != nil {
-				t.Fatalf("Document(%d) failed: %v", i, err)
-			}
+			storedDocument(t, storedFields, i)
 			if _, err := termVectors.Get(i); err != nil {
-				t.Fatalf("TermVectors.Get(%d) failed: %v", i, err)
+				t.Fatalf("termVectors.get(%d): %v", i, err)
 			}
 		}
-		reader.Close()
+		mustClose(t, reader)
 
-		// Java: addIndexes from MockDirectoryWrapper(random(), TestUtil.ramCopyOf(dir)).
-		srcDir, err := testutil.RamCopyOf(dir)
+		writer := termVectorCorruptionWriter(t, dir)
+
+		ramCopy, err := testutil.RamCopyOf(dir)
 		if err != nil {
-			t.Fatalf("iter %d: RamCopyOf failed: %v", iter, err)
+			t.Fatalf("TestUtil.ramCopyOf: %v", err)
 		}
-		defer srcDir.Close()
-		writer, err = index.NewIndexWriter(dir, newTVWriterConfig())
-		if err != nil {
-			t.Fatalf("iter %d: NewIndexWriter (addIndexes) failed: %v", iter, err)
-		}
-		if err := writer.AddIndexes(srcDir); err != nil {
-			t.Fatalf("AddIndexes failed: %v", err)
+		indexDirs := []store.Directory{store.NewMockDirectoryWrapper(ramCopy)}
+		if _, err := writer.AddIndexes(indexDirs...); err != nil {
+			t.Fatalf("addIndexes: %v", err)
 		}
 		if err := writer.ForceMerge(1); err != nil {
-			t.Fatalf("ForceMerge(1) failed: %v", err)
+			t.Fatalf("forceMerge: %v", err)
 		}
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Close failed: %v", err)
-		}
+		mustClose(t, writer)
 	}
+	mustClose(t, dir)
 }
 
-// TestTermVectorsWriterTermVectorCorruption2 ports testTermVectorCorruption2
-// (LUCENE-1168): only the third document carries term vectors; the first two
-// must report none.
+// LUCENE-1168
 func TestTermVectorsWriterTermVectorCorruption2(t *testing.T) {
-
-	dir, err := store.NewSimpleFSDirectory(t.TempDir())
-	if err != nil {
-		t.Fatalf("Failed to open directory: %v", err)
-	}
-	defer dir.Close()
-
+	dir := newDirectory()
 	for iter := 0; iter < 2; iter++ {
-		writer, err := index.NewIndexWriter(dir, newTVWriterConfig())
-		if err != nil {
-			t.Fatalf("iter %d: NewIndexWriter failed: %v", iter, err)
-		}
+		termVectorCorruptionDocs(t, termVectorCorruptionWriter(t, dir))
 
-		stored := document.NewFieldType()
-		stored.SetStored(true)
-		storedField, err := document.NewField("stored", "stored", stored)
+		reader := mustOpenDirectoryReader(t, dir)
+		termVectors, err := reader.TermVectors()
 		if err != nil {
-			t.Fatalf("NewField failed: %v", err)
+			t.Fatalf("termVectors: %v", err)
 		}
-
-		document1 := document.NewDocument()
-		document1.Add(storedField)
-		if _, err := writer.AddDocument(document1); err != nil {
-			t.Fatalf("AddDocument failed: %v", err)
+		for doc, wantNull := range []bool{true, true, false} {
+			fields, err := termVectors.Get(doc)
+			if err != nil {
+				t.Fatalf("termVectors.get(%d): %v", doc, err)
+			}
+			if (fields == nil) != wantNull {
+				t.Fatalf("termVectors().get(%d): null=%v, want null=%v", doc, fields == nil, wantNull)
+			}
 		}
-		if _, err := writer.AddDocument(document1); err != nil {
-			t.Fatalf("AddDocument failed: %v", err)
-		}
-
-		document2 := document.NewDocument()
-		document2.Add(storedField)
-		customType2 := customTVType(document.StringFieldTypeNotStored)
-		termVectorField, err := document.NewField("termVector", "termVector", customType2)
-		if err != nil {
-			t.Fatalf("NewField failed: %v", err)
-		}
-		document2.Add(termVectorField)
-		if _, err := writer.AddDocument(document2); err != nil {
-			t.Fatalf("AddDocument failed: %v", err)
-		}
-		if err := writer.ForceMerge(1); err != nil {
-			t.Fatalf("ForceMerge(1) failed: %v", err)
-		}
-		if err := writer.Close(); err != nil {
-			t.Fatalf("Close failed: %v", err)
-		}
-
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("OpenDirectoryReader failed: %v", err)
-		}
-		tvs, err := reader.TermVectors()
-		if err != nil {
-			t.Fatalf("TermVectors failed: %v", err)
-		}
-		if fields, err := tvs.Get(0); err != nil || fields != nil {
-			t.Fatalf("TermVectors.Get(0) = %v, %v; want nil, nil", fields, err)
-		}
-		if fields, err := tvs.Get(1); err != nil || fields != nil {
-			t.Fatalf("TermVectors.Get(1) = %v, %v; want nil, nil", fields, err)
-		}
-		if fields, err := tvs.Get(2); err != nil || fields == nil {
-			t.Fatalf("TermVectors.Get(2) = %v, %v; want non-nil, nil", fields, err)
-		}
-		reader.Close()
+		mustClose(t, reader)
 	}
+	mustClose(t, dir)
 }
 
-// TestTermVectorsWriterTermVectorCorruption3 ports testTermVectorCorruption3
-// (LUCENE-1168): ten then six identical term-vector documents, force-merged,
-// must all be readable for both stored fields and term vectors.
+// LUCENE-1168
 func TestTermVectorsWriterTermVectorCorruption3(t *testing.T) {
+	dir := newDirectory()
+	writer := termVectorCorruptionWriter(t, dir)
 
-	dir, err := store.NewSimpleFSDirectory(t.TempDir())
-	if err != nil {
-		t.Fatalf("Failed to open directory: %v", err)
-	}
-	defer dir.Close()
-
-	stored := document.NewFieldType()
-	stored.SetStored(true)
-	storedField, err := document.NewField("stored", "stored", stored)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
-	customType2 := customTVType(document.StringFieldTypeNotStored)
-	termVectorField, err := document.NewField("termVector", "termVector", customType2)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
 	doc := document.NewDocument()
-	doc.Add(storedField)
-	doc.Add(termVectorField)
+	customType := document.NewFieldType()
+	customType.SetStored(true)
 
-	writer, err := index.NewIndexWriter(dir, newTVWriterConfig())
-	if err != nil {
-		t.Fatalf("NewIndexWriter failed: %v", err)
-	}
+	doc.Add(newField(t, "stored", "stored", customType))
+	customType2 := vectorsFieldType(document.StringFieldTypeNotStored)
+	doc.Add(newField(t, "termVector", "termVector", customType2))
 	for i := 0; i < 10; i++ {
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument failed: %v", err)
-		}
+		mustAddDocument(t, writer, doc)
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
+	mustClose(t, writer)
 
-	writer, err = index.NewIndexWriter(dir, newTVWriterConfig())
-	if err != nil {
-		t.Fatalf("NewIndexWriter (2) failed: %v", err)
-	}
+	writer = termVectorCorruptionWriter(t, dir)
 	for i := 0; i < 6; i++ {
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument failed: %v", err)
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge(1) failed: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
+		mustAddDocument(t, writer, doc)
 	}
 
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader failed: %v", err)
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
 	}
+	mustClose(t, writer)
+
+	reader := mustOpenDirectoryReader(t, dir)
 	storedFields, err := reader.StoredFields()
 	if err != nil {
-		t.Fatalf("StoredFields failed: %v", err)
+		t.Fatalf("storedFields: %v", err)
 	}
 	termVectors, err := reader.TermVectors()
 	if err != nil {
-		t.Fatalf("TermVectors failed: %v", err)
+		t.Fatalf("termVectors: %v", err)
 	}
 	for i := 0; i < 10; i++ {
 		if _, err := termVectors.Get(i); err != nil {
-			t.Fatalf("TermVectors.Get(%d) failed: %v", i, err)
+			t.Fatalf("termVectors.get(%d): %v", i, err)
 		}
-		if err := storedFields.Document(i, document.NewDocumentStoredFieldVisitor()); err != nil {
-			t.Fatalf("Document(%d) failed: %v", i, err)
-		}
+		storedDocument(t, storedFields, i)
 	}
-	reader.Close()
+	mustClose(t, reader, dir)
 }
 
-// TestTermVectorsWriterNoTermVectorAfterTermVector ports
-// testNoTermVectorAfterTermVector (LUCENE-1008): a field that drops term
-// vectors in a later segment must still force-merge cleanly.
+// LUCENE-1008
 func TestTermVectorsWriterNoTermVectorAfterTermVector(t *testing.T) {
-
-	_, iw, cleanup := tvWriterDir(t)
-	defer cleanup()
-
-	customType2 := customTVType(document.TextFieldTypeNotStored)
-	document1 := document.NewDocument()
-	f1, err := document.NewField("tvtest", "a b c", customType2)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
-	document1.Add(f1)
-	if _, err := iw.AddDocument(document1); err != nil {
-		t.Fatalf("AddDocument failed: %v", err)
-	}
-
-	document2 := document.NewDocument()
-	f2, err := document.NewTextField("tvtest", "x y z", false)
-	if err != nil {
-		t.Fatalf("NewTextField failed: %v", err)
-	}
-	document2.Add(f2)
-	if _, err := iw.AddDocument(document2); err != nil {
-		t.Fatalf("AddDocument failed: %v", err)
-	}
-	// Make first segment.
-	if err := iw.Commit(); err != nil {
-		t.Fatalf("Commit failed: %v", err)
-	}
+	dir := newDirectory()
+	iw := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	doc := document.NewDocument()
+	customType2 := vectorsFieldType(document.TextFieldTypeNotStored)
+	doc.Add(newField(t, "tvtest", "a b c", customType2))
+	mustAddDocument(t, iw, doc)
+	doc = document.NewDocument()
+	doc.Add(newTextField(t, "tvtest", "x y z", false))
+	mustAddDocument(t, iw, doc)
+	// Make first segment
+	mustCommit(t, iw)
 
 	customType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 	customType.SetStoreTermVectors(true)
-	document3 := document.NewDocument()
-	f3, err := document.NewField("tvtest", "a b c", customType)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
-	document3.Add(f3)
-	if _, err := iw.AddDocument(document3); err != nil {
-		t.Fatalf("AddDocument failed: %v", err)
-	}
-	// Make 2nd segment.
-	if err := iw.Commit(); err != nil {
-		t.Fatalf("Commit failed: %v", err)
-	}
+	doc = document.NewDocument()
+	doc.Add(newField(t, "tvtest", "a b c", customType))
+	mustAddDocument(t, iw, doc)
+	// Make 2nd segment
+	mustCommit(t, iw)
+
 	if err := iw.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge(1) failed: %v", err)
+		t.Fatalf("forceMerge: %v", err)
 	}
-	if err := iw.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
+	mustClose(t, iw, dir)
 }
 
-// TestTermVectorsWriterNoTermVectorAfterTermVectorMerge ports
-// testNoTermVectorAfterTermVectorMerge (LUCENE-1010): force-merge between the
-// term-vector and non-term-vector segments must not corrupt the index.
+// LUCENE-1010
 func TestTermVectorsWriterNoTermVectorAfterTermVectorMerge(t *testing.T) {
-
-	_, iw, cleanup := tvWriterDir(t)
-	defer cleanup()
-
+	dir := newDirectory()
+	iw := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	doc := document.NewDocument()
 	customType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 	customType.SetStoreTermVectors(true)
-	document1 := document.NewDocument()
-	f1, err := document.NewField("tvtest", "a b c", customType)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
-	document1.Add(f1)
-	if _, err := iw.AddDocument(document1); err != nil {
-		t.Fatalf("AddDocument failed: %v", err)
-	}
-	if err := iw.Commit(); err != nil {
-		t.Fatalf("Commit failed: %v", err)
-	}
+	doc.Add(newField(t, "tvtest", "a b c", customType))
+	mustAddDocument(t, iw, doc)
+	mustCommit(t, iw)
 
-	document2 := document.NewDocument()
-	f2, err := document.NewTextField("tvtest", "x y z", false)
-	if err != nil {
-		t.Fatalf("NewTextField failed: %v", err)
-	}
-	document2.Add(f2)
-	if _, err := iw.AddDocument(document2); err != nil {
-		t.Fatalf("AddDocument failed: %v", err)
-	}
-	// Make first segment.
-	if err := iw.Commit(); err != nil {
-		t.Fatalf("Commit failed: %v", err)
-	}
+	doc = document.NewDocument()
+	doc.Add(newTextField(t, "tvtest", "x y z", false))
+	mustAddDocument(t, iw, doc)
+	// Make first segment
+	mustCommit(t, iw)
+
 	if err := iw.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge(1) failed: %v", err)
+		t.Fatalf("forceMerge: %v", err)
 	}
 
-	// Java mirrors a subtle ordering quirk: customType2 is built and a field is
-	// added to document2, but document2 is then reassigned to a fresh empty
-	// Document before addDocument, so the empty document is what gets indexed.
 	customType2 := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
 	customType2.SetStoreTermVectors(true)
-	f3, err := document.NewField("tvtest", "a b c", customType2)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
-	document2.Add(f3)
-	document2 = document.NewDocument()
-	if _, err := iw.AddDocument(document2); err != nil {
-		t.Fatalf("AddDocument failed: %v", err)
-	}
-	// Make 2nd segment.
-	if err := iw.Commit(); err != nil {
-		t.Fatalf("Commit failed: %v", err)
-	}
+	doc.Add(newField(t, "tvtest", "a b c", customType2))
+	doc = document.NewDocument()
+	mustAddDocument(t, iw, doc)
+	// Make 2nd segment
+	mustCommit(t, iw)
 	if err := iw.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge(1) failed: %v", err)
+		t.Fatalf("forceMerge: %v", err)
 	}
-	if err := iw.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
+
+	mustClose(t, iw, dir)
 }
 
-// TestTermVectorsWriterInconsistentTermVectorOptions ports
-// testInconsistentTermVectorOptions: mixing different term-vector settings for
-// the same field within one document must raise an error, while previously
-// added good documents remain readable. It exercises six (ft1, ft2) pairs via
-// doTestMixup, exactly as the Java original.
+func textNotStoredWith(configure func(*document.FieldType)) *document.FieldType {
+	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	configure(ft)
+	return ft
+}
+
+// In a single doc, for the same field, mix the term vectors up
 func TestTermVectorsWriterInconsistentTermVectorOptions(t *testing.T) {
-
-	base := func() *index.FieldType {
-		return document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
-	}
-
 	// no vectors + vectors
-	a := base()
-	b := base()
-	b.SetStoreTermVectors(true)
-	doTestMixup(t, a, b)
+	termVectorsWriterDoTestMixup(t,
+		textNotStoredWith(func(*document.FieldType) {}),
+		textNotStoredWith(func(ft *document.FieldType) { ft.SetStoreTermVectors(true) }))
 
 	// vectors + vectors with pos
-	a = base()
-	a.SetStoreTermVectors(true)
-	b = base()
-	b.SetStoreTermVectors(true)
-	b.SetStoreTermVectorPositions(true)
-	doTestMixup(t, a, b)
+	termVectorsWriterDoTestMixup(t,
+		textNotStoredWith(func(ft *document.FieldType) { ft.SetStoreTermVectors(true) }),
+		textNotStoredWith(func(ft *document.FieldType) {
+			ft.SetStoreTermVectors(true)
+			ft.SetStoreTermVectorPositions(true)
+		}))
 
 	// vectors + vectors with off
-	a = base()
-	a.SetStoreTermVectors(true)
-	b = base()
-	b.SetStoreTermVectors(true)
-	b.SetStoreTermVectorOffsets(true)
-	doTestMixup(t, a, b)
+	termVectorsWriterDoTestMixup(t,
+		textNotStoredWith(func(ft *document.FieldType) { ft.SetStoreTermVectors(true) }),
+		textNotStoredWith(func(ft *document.FieldType) {
+			ft.SetStoreTermVectors(true)
+			ft.SetStoreTermVectorOffsets(true)
+		}))
 
 	// vectors with pos + vectors with pos + off
-	a = base()
-	a.SetStoreTermVectors(true)
-	a.SetStoreTermVectorPositions(true)
-	b = base()
-	b.SetStoreTermVectors(true)
-	b.SetStoreTermVectorPositions(true)
-	b.SetStoreTermVectorOffsets(true)
-	doTestMixup(t, a, b)
+	termVectorsWriterDoTestMixup(t,
+		textNotStoredWith(func(ft *document.FieldType) {
+			ft.SetStoreTermVectors(true)
+			ft.SetStoreTermVectorPositions(true)
+		}),
+		textNotStoredWith(func(ft *document.FieldType) {
+			ft.SetStoreTermVectors(true)
+			ft.SetStoreTermVectorPositions(true)
+			ft.SetStoreTermVectorOffsets(true)
+		}))
 
 	// vectors with pos + vectors with pos + pay
-	a = base()
-	a.SetStoreTermVectors(true)
-	a.SetStoreTermVectorPositions(true)
-	b = base()
-	b.SetStoreTermVectors(true)
-	b.SetStoreTermVectorPositions(true)
-	b.SetStoreTermVectorPayloads(true)
-	doTestMixup(t, a, b)
+	termVectorsWriterDoTestMixup(t,
+		textNotStoredWith(func(ft *document.FieldType) {
+			ft.SetStoreTermVectors(true)
+			ft.SetStoreTermVectorPositions(true)
+		}),
+		textNotStoredWith(func(ft *document.FieldType) {
+			ft.SetStoreTermVectors(true)
+			ft.SetStoreTermVectorPositions(true)
+			ft.SetStoreTermVectorPayloads(true)
+		}))
 }
 
-// doTestMixup ports the private doTestMixup helper: three well-formed documents
-// are indexed, then a document whose "field" carries two incompatible
-// FieldTypes must fail with a term-vector-settings error, after which the three
-// good documents must still be visible.
-//
-// Java drives this through RandomIndexWriter and reads back with its NRT
-// getReader(); Gocene uses the plain IndexWriter and reopens the directory.
-func doTestMixup(t *testing.T, ft1, ft2 *index.FieldType) {
+func termVectorsWriterDoTestMixup(t *testing.T, ft1, ft2 *document.FieldType) {
 	t.Helper()
-	dir, err := store.NewSimpleFSDirectory(t.TempDir())
-	if err != nil {
-		t.Fatalf("Failed to open directory: %v", err)
-	}
-	defer dir.Close()
+	dir := newDirectory()
+	iw := newRandomIndexWriter(t, dir)
 
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	iw, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter failed: %v", err)
-	}
-
-	// Add 3 good docs.
+	// add 3 good docs
 	for i := 0; i < 3; i++ {
 		doc := document.NewDocument()
-		idField, err := document.NewStringField("id", strconv.Itoa(i), false)
-		if err != nil {
-			t.Fatalf("NewStringField failed: %v", err)
-		}
-		doc.Add(idField)
+		doc.Add(newStringField(t, "id", strconv.Itoa(i), false))
 		if _, err := iw.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument(good %d) failed: %v", i, err)
+			t.Fatalf("addDocument: %v", err)
 		}
 	}
 
-	// Add the broken doc: same field name, incompatible term-vector options.
+	// add broken doc
 	doc := document.NewDocument()
-	f1, err := document.NewField("field", "value1", ft1)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
-	f2, err := document.NewField("field", "value2", ft2)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
-	doc.Add(f1)
-	doc.Add(f2)
+	doc.Add(newField(t, "field", "value1", ft1))
+	doc.Add(newField(t, "field", "value2", ft2))
 
-	// Ensure the broken doc hits an error.
-	_, err = iw.AddDocument(doc)
+	// ensure broken doc hits exception
+	_, err := iw.AddDocument(doc)
 	if err == nil {
-		t.Fatal("AddDocument(broken) succeeded, want an error")
+		t.Fatal("expected IllegalArgumentException from addDocument")
 	}
-	// Java accepts either of two messages via anyOf(startsWith(...)). Gocene
-	// may wrap the message, so a substring match is used instead of a prefix.
-	msg := err.Error()
-	const want1 = "all instances of a given field name must have the same term vectors settings"
-	const want2 = "Inconsistency of field data structures across documents for field [field]"
-	if !strings.Contains(msg, want1) && !strings.Contains(msg, want2) {
-		t.Fatalf("error message %q contains neither expected fragment", msg)
+	message := err.Error()
+	if !strings.HasPrefix(message, "all instances of a given field name must have the same term vectors settings") &&
+		!strings.HasPrefix(message, "Inconsistency of field data structures across documents for field [field]") {
+		t.Fatalf("unexpected message: %q", message)
 	}
+	// ensure good docs are still ok
+	ir := mustGetReaderRIW(t, iw)
+	assertNumDocs(t, 3, ir)
 
-	// Ensure the good docs are still ok.  Java uses RandomIndexWriter.getReader();
-	// the Gocene equivalent is IndexWriter.GetReader(), which flushes buffered
-	// documents and returns a near-real-time reader.  OpenDirectoryReader would
-	// not see the uncommitted good docs.
-	reader, err := iw.GetReader()
-	if err != nil {
-		t.Fatalf("GetReader failed: %v", err)
-	}
-	if n := reader.NumDocs(); n != 3 {
-		reader.Close()
-		t.Fatalf("NumDocs() = %d, want 3", n)
-	}
-	reader.Close()
-	if err := iw.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
+	mustClose(t, ir, iw, dir)
 }
 
-// TestTermVectorsWriterNoAbortOnBadTVSettings ports testNoAbortOnBadTVSettings
-// (LUCENE-5611): a document whose field type sets term vectors on a stored-only
-// type must be rejected without aborting the segment, so the previously added
-// empty document survives.
+// LUCENE-5611: don't abort segment when term vector settings are wrong
 func TestTermVectorsWriterNoAbortOnBadTVSettings(t *testing.T) {
-
-	dir, err := store.NewSimpleFSDirectory(t.TempDir())
-	if err != nil {
-		t.Fatalf("Failed to open directory: %v", err)
-	}
-	defer dir.Close()
-
-	// Java avoids RandomIndexWriter here so both docs land in one segment.
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	iw, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter failed: %v", err)
-	}
+	dir := newDirectory()
+	// Don't use RandomIndexWriter because we want to be sure both docs go to 1 seg:
+	iwc := index.NewIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iw := mustNewIndexWriter(t, dir, iwc)
 
 	doc := document.NewDocument()
-	if _, err := iw.AddDocument(doc); err != nil {
-		t.Fatalf("AddDocument(empty) failed: %v", err)
-	}
-
+	mustAddDocument(t, iw, doc)
 	ft := document.NewFieldTypeFrom(document.StoredFieldType)
 	ft.SetStoreTermVectors(true)
 	ft.Freeze()
-	badField, err := document.NewField("field", "value", ft)
-	if err != nil {
-		t.Fatalf("NewField failed: %v", err)
-	}
-	doc.Add(badField)
+	doc.Add(newField(t, "field", "value", ft))
 
 	if _, err := iw.AddDocument(doc); err == nil {
-		t.Fatal("AddDocument(bad term-vector field) succeeded, want an error")
+		t.Fatal("expected IllegalArgumentException from addDocument")
 	}
 
-	// Java reads via DirectoryReader.open(iw) (NRT); Gocene has no NRT reader,
-	// so commit and reopen the directory instead.
-	if err := iw.Commit(); err != nil {
-		t.Fatalf("Commit failed: %v", err)
-	}
-	reader, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader failed: %v", err)
-	}
-	// The error must not have lost the first document.
-	if n := reader.NumDocs(); n != 1 {
-		reader.Close()
-		t.Fatalf("NumDocs() = %d, want 1", n)
-	}
-	reader.Close()
-	if err := iw.Close(); err != nil {
-		t.Fatalf("Close failed: %v", err)
-	}
+	r := openReaderFromWriter(t, iw)
+
+	// Make sure the exc didn't lose our first document:
+	assertNumDocs(t, 1, r)
+	mustClose(t, iw, r, dir)
 }

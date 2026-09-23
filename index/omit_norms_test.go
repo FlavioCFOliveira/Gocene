@@ -2,284 +2,171 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for omit-norms behaviour.
-//
-// Ported from Apache Lucene 10.4.0:
-//
-//	lucene/core/src/test/org/apache/lucene/index/TestOmitNorms.java
-//
-// GOC-4236: Port test `org.apache.lucene.index.TestOmitNorms`.
-//
-// # Test coverage
-//
-//   - TestOmitNorms_MixedMergeThrowsError  — 1:1 port of testMixedMergeThrowsError()
-//   - TestOmitNorms_MixedRAM               — 1:1 port of testMixedRAM()
-//   - TestOmitNorms_NoNrmFile              — 1:1 port of testNoNrmFile()
-//
-// # Deviations from the Java reference
-//
-//   - MockAnalyzer → WhitespaceAnalyzer (MockAnalyzer not yet ported).
-//   - newLogMergePolicy(mergeFactor) → NewLogMergePolicy() + SetMergeFactor(): no
-//     convenience constructor with merge-factor argument exists in Gocene.
-//   - TestOmitNorms_MixedMergeThrowsError is degraded to t.Skip: the conflict
-//     detection for changing omitNorms across documents is wired through
-//     IndexingChain.processDoc, but DocumentsWriterPerThread.ProcessDocument
-//     (the actual runtime path) rebuilds FieldInfoOptions from scratch each
-//     document and does not propagate ft.IsOmitNorms(), so the
-//     IllegalArgumentException never fires. Skip with a precise description.
-//   - TestOmitNorms_MixedRAM is degraded to t.Skip: the test's assertions rely
-//     on reading FieldInfos back from a DirectoryReader; OpenDirectoryReaderWithInfos
-//     calls NewSegmentReader which does not load field infos from disk, so
-//     GetFieldInfos() on the leaf returns an empty FieldInfos. Skip until the
-//     segment-reader core-readers wiring is complete.
-//
-// Byte-level compatibility verified against Apache Lucene 10.4.0.
+// Port of lucene/core/src/test/org/apache/lucene/index/TestOmitNorms.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
 import (
-	"os"
 	"strings"
 	"testing"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
 	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
 	"github.com/FlavioCFOliveira/Gocene/store"
-	testutil "github.com/FlavioCFOliveira/Gocene/tests/util"
 )
 
-// TestOmitNorms_MixedMergeThrowsError ports testMixedMergeThrowsError().
-//
-// Java adds 30 documents where "f1" has omitNorms=false and "f2" has
-// omitNorms=true, then attempts to add a document with the settings reversed
-// and asserts that an IllegalArgumentException is thrown with the message
-// "cannot change field \"f1\" from omitNorms=false to inconsistent omitNorms=true".
-func TestOmitNorms_MixedMergeThrowsError(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	cfg.SetMaxBufferedDocs(3)
-	cfg.SetMergePolicy(index.NewLogMergePolicy())
-	writer, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-	defer writer.Close()
-
-	hasNormsType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
-	hasNormsType.SetOmitNorms(false)
-	noNormsType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
-	noNormsType.SetOmitNorms(true)
-
-	d := document.NewDocument()
-	d.Add(mustField(t, "f1", "This field has norms", hasNormsType))
-	d.Add(mustField(t, "f2", "This field has NO norms in all docs", noNormsType))
-	for i := 0; i < 30; i++ {
-		if _, err := writer.AddDocument(d); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-
-	d2 := document.NewDocument()
-	d2.Add(mustField(t, "f1", "This field has NO norms", noNormsType))
-	d2.Add(mustField(t, "f2", "This field has norms", hasNormsType))
-	_, err = writer.AddDocument(d2)
-	if err == nil {
-		t.Fatal("expected error adding document with reversed omitNorms settings")
-	}
-	const want = `cannot change field "f1" from omitNorms=false to inconsistent omitNorms=true`
-	if err.Error() != want {
-		t.Fatalf("error = %q, want %q", err.Error(), want)
-	}
-
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-
-	r, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer r.Close()
-
-	leaf := testutil.GetOnlyLeafReader(r)
-	infos := leaf.GetFieldInfos()
-	if infos == nil {
-		t.Fatal("GetFieldInfos returned nil")
-	}
-	f1 := infos.GetByName("f1")
-	if f1 == nil {
-		t.Fatal("field f1 not found")
-	}
-	if f1.OmitNorms() {
-		t.Error("f1 must not omit norms")
-	}
-	f2 := infos.GetByName("f2")
-	if f2 == nil {
-		t.Fatal("field f2 not found")
-	}
-	if !f2.OmitNorms() {
-		t.Error("f2 must omit norms")
-	}
-}
-
-func mustField(t *testing.T, name, value string, ft *index.FieldType) *index.Field {
-	t.Helper()
-	f, err := document.NewField(name, value, ft)
-	if err != nil {
-		t.Fatalf("NewField %q: %v", name, err)
-	}
-	return f
-}
-
-// TestOmitNorms_MixedRAM ports testMixedRAM().
-//
-// Java adds 25 documents (5 + 20) with consistent omitNorms settings — "f1"
-// has norms (omitNorms=false), "f2" omits norms (omitNorms=true) — forces a
-// merge, reopens the index, and asserts that FieldInfos reports the correct
-// omitNorms flag for each field via getOnlyLeafReader(DirectoryReader).
-func TestOmitNorms_MixedRAM(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	defer dir.Close()
-
-	cfg := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	writer, err := index.NewIndexWriter(dir, cfg)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	normsType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
-	normsType.SetOmitNorms(false)
-	omitNormsType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
-	omitNormsType.SetOmitNorms(true)
-
-	for i := 0; i < 25; i++ {
-		doc := document.NewDocument()
-		f1, _ := document.NewField("f1", "text with norms", normsType)
-		f2, _ := document.NewField("f2", "text without norms", omitNormsType)
-		doc.Add(f1)
-		doc.Add(f2)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("AddDocument %d: %v", i, err)
-		}
-	}
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-	if err := writer.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	r, err := index.OpenDirectoryReader(dir)
-	if err != nil {
-		t.Fatalf("OpenDirectoryReader: %v", err)
-	}
-	defer r.Close()
-
-	leaf := testutil.GetOnlyLeafReader(r)
-	infos := leaf.GetFieldInfos()
-	if infos == nil {
-		t.Fatal("GetFieldInfos returned nil")
-	}
-
-	f1 := infos.GetByName("f1")
-	if f1 == nil {
-		t.Fatal("field f1 not found")
-	}
-	if f1.OmitNorms() {
-		t.Errorf("f1.OmitNorms() = true, want false")
-	}
-
-	f2 := infos.GetByName("f2")
-	if f2 == nil {
-		t.Fatal("field f2 not found")
-	}
-	if !f2.OmitNorms() {
-		t.Errorf("f2.OmitNorms() = false, want true")
-	}
-}
-
-// TestOmitNorms_NoNrmFile ports testNoNrmFile().
-//
-// When every field in the index omits norms the codec must not emit any norms
-// file (.nrm or .len). The test adds 30 documents with a single field that has
-// omitNorms=true, calls commit, then forceMerge, and asserts that no file with
-// a ".nrm" or ".len" suffix exists in the directory.
-//
-// Source: TestOmitNorms.testNoNrmFile()
-func TestOmitNorms_NoNrmFile(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "TestOmitNorms_NoNrmFile")
-	if err != nil {
-		t.Fatalf("os.MkdirTemp: %v", err)
-	}
-	defer os.RemoveAll(tmpDir)
-
-	dir, err := store.NewSimpleFSDirectory(tmpDir)
-	if err != nil {
-		t.Fatalf("NewSimpleFSDirectory: %v", err)
-	}
-	defer dir.Close()
-
-	analyzer := analysis.NewWhitespaceAnalyzer()
-	config := index.NewIndexWriterConfig(analyzer)
-	config.SetMaxBufferedDocs(3)
-
-	// Java uses newLogMergePolicy() then lmp.setMergeFactor(2) / lmp.setNoCFSRatio(0.0).
-	lmp := index.NewLogMergePolicy()
-	lmp.SetMergeFactor(2)
-	lmp.SetNoCFSRatio(0.0)
-	config.SetMergePolicy(lmp)
-
-	writer, err := index.NewIndexWriter(dir, config)
-	if err != nil {
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	// Build a FieldType that omits norms, derived from TextField.TYPE_NOT_STORED.
+// omitNormsTextType renders new FieldType(TextField.TYPE_NOT_STORED) with the
+// given omitNorms and storeTermVectors=false.
+func omitNormsTextType(omitNorms bool) *document.FieldType {
 	ft := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
-	ft.SetOmitNorms(true)
-
-	for i := 0; i < 30; i++ {
-		d := document.NewDocument()
-		f, err := document.NewField("f1", "This field has no norms", ft)
-		if err != nil {
-			t.Fatalf("NewField (i=%d): %v", i, err)
-		}
-		d.Add(f)
-		if _, err := writer.AddDocument(d); err != nil {
-			t.Fatalf("AddDocument (i=%d): %v", i, err)
-		}
-	}
-
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("Commit: %v", err)
-	}
-
-	assertNoNrmFile(t, dir)
-
-	if err := writer.ForceMerge(1); err != nil {
-		t.Fatalf("ForceMerge: %v", err)
-	}
-	writer.Close()
-
-	assertNoNrmFile(t, dir)
+	ft.SetOmitNorms(omitNorms)
+	ft.SetStoreTermVectors(false)
+	return ft
 }
 
-// assertNoNrmFile asserts that dir contains no file ending in ".nrm" or ".len".
-// It mirrors the private helper of the same name in the Java source.
-func assertNoNrmFile(t *testing.T, dir store.Directory) {
+// TestOmitNormsMixedMergeThrowsError tests that merging of docs with different
+// omitNorms throws error.
+func TestOmitNormsMixedMergeThrowsError(t *testing.T) {
+	ram := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMaxBufferedDocs(3)
+	iwc.SetMergePolicy(newLogMergePolicyWithMergeFactor(2))
+	writer := mustNewIndexWriter(t, ram, iwc)
+	d := document.NewDocument()
+
+	// this field will have norms
+	fieldType1 := omitNormsTextType(false)
+	d.Add(newField(t, "f1", "This field has norms", fieldType1))
+
+	// this field will NOT have norms
+	fieldType2 := omitNormsTextType(true)
+	d.Add(newField(t, "f2", "This field has NO norms in all docs", fieldType2))
+
+	for i := 0; i < 30; i++ {
+		mustAddDocument(t, writer, d)
+	}
+
+	// reverse omitNorms options for f1 and f2
+	d2 := document.NewDocument()
+	d2.Add(newField(t, "f1", "This field has NO norms", fieldType2))
+	d2.Add(newField(t, "f2", "This field has norms", fieldType1))
+
+	_, err := writer.AddDocument(d2)
+	if err == nil {
+		t.Fatal("expected IllegalArgumentException")
+	}
+	if want := "cannot change field \"f1\" from omitNorms=false to inconsistent omitNorms=true"; err.Error() != want {
+		t.Fatalf("expected %q, got %q", want, err.Error())
+	}
+
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	mustClose(t, writer)
+
+	reader := getOnlyLeafReader(t, mustOpenDirectoryReader(t, ram))
+	fi := reader.GetFieldInfos()
+	// assert original omitNorms
+	if fi.FieldInfo("f1").OmitNorms() {
+		t.Fatal("OmitNorms field bit must not be set.")
+	}
+	if !fi.FieldInfo("f2").OmitNorms() {
+		t.Fatal("OmitNorms field bit must be set.")
+	}
+
+	mustClose(t, reader, ram)
+}
+
+// TestOmitNormsMixedRAM makes sure first adding docs that do not omitNorms for
+// field X, then adding docs that do omitNorms for that same field.
+func TestOmitNormsMixedRAM(t *testing.T) {
+	ram := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMaxBufferedDocs(10)
+	iwc.SetMergePolicy(newLogMergePolicyWithMergeFactor(2))
+	writer := mustNewIndexWriter(t, ram, iwc)
+	d := document.NewDocument()
+
+	// this field will have norms
+	d.Add(newTextField(t, "f1", "This field has norms", false))
+
+	// this field will NOT have norms
+	customType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	customType.SetOmitNorms(true)
+	d.Add(newField(t, "f2", "This field has NO norms in all docs", customType))
+
+	for i := 0; i < 5; i++ {
+		mustAddDocument(t, writer, d)
+	}
+	for i := 0; i < 20; i++ {
+		mustAddDocument(t, writer, d)
+	}
+
+	// force merge
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+
+	// flush
+	mustClose(t, writer)
+
+	reader := getOnlyLeafReader(t, mustOpenDirectoryReader(t, ram))
+	fi := reader.GetFieldInfos()
+	if fi.FieldInfo("f1").OmitNorms() {
+		t.Fatal("OmitNorms field bit should not be set.")
+	}
+	if !fi.FieldInfo("f2").OmitNorms() {
+		t.Fatal("OmitNorms field bit should be set.")
+	}
+
+	mustClose(t, reader, ram)
+}
+
+func omitNormsAssertNoNrm(t *testing.T, dir store.Directory) {
 	t.Helper()
 	files, err := dir.ListAll()
 	if err != nil {
-		t.Fatalf("dir.ListAll: %v", err)
+		t.Fatalf("listAll: %v", err)
 	}
 	for _, f := range files {
+		// TODO: this relies upon filenames
 		if strings.HasSuffix(f, ".nrm") || strings.HasSuffix(f, ".len") {
-			t.Errorf("unexpected norms file in directory: %s", f)
+			t.Fatalf("unexpected norms file %s", f)
 		}
 	}
+}
+
+// TestOmitNormsNoNrmFile verifies no *.nrm exists when all fields omit norms.
+func TestOmitNormsNoNrmFile(t *testing.T) {
+	ram := newDirectory()
+	iwc := newIndexWriterConfigWithAnalyzer(newMockAnalyzer())
+	iwc.SetMaxBufferedDocs(3)
+	iwc.SetMergePolicy(newLogMergePolicy())
+	writer := mustNewIndexWriter(t, ram, iwc)
+	lmp := writer.GetConfig().GetMergePolicy().(logMergePolicy)
+	lmp.SetMergeFactor(2)
+	lmp.SetNoCFSRatio(0.0)
+	d := document.NewDocument()
+
+	customType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	customType.SetOmitNorms(true)
+	d.Add(newField(t, "f1", "This field has no norms", customType))
+
+	for i := 0; i < 30; i++ {
+		mustAddDocument(t, writer, d)
+	}
+
+	mustCommit(t, writer)
+
+	omitNormsAssertNoNrm(t, ram)
+
+	// force merge
+	if err := writer.ForceMerge(1); err != nil {
+		t.Fatalf("forceMerge: %v", err)
+	}
+	// flush
+	mustClose(t, writer)
+
+	omitNormsAssertNoNrm(t, ram)
+	mustClose(t, ram)
 }

@@ -2,940 +2,495 @@
 // Use of this source code is governed by the Apache License 2.0
 // that can be found in the LICENSE file.
 
-// Package index_test contains tests for the index package.
-//
-// Ported from Apache Lucene's org.apache.lucene.index.TestDocumentWriter
-// Source: lucene/core/src/test/org/apache/lucene/index/TestDocumentWriter.java
-//
-// GC-180: Test DocumentWriter - Document addition/field storage, term vector
-// indexing, field analysis, stored fields, multi-valued fields
+// Port of lucene/core/src/test/org/apache/lucene/index/TestDocumentWriter.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
 import (
+	"io"
+	"strconv"
 	"testing"
 
 	"github.com/FlavioCFOliveira/Gocene/analysis"
+	"github.com/FlavioCFOliveira/Gocene/analysis/tokenattributes"
 	"github.com/FlavioCFOliveira/Gocene/document"
 	"github.com/FlavioCFOliveira/Gocene/index"
+	"github.com/FlavioCFOliveira/Gocene/spi"
 	"github.com/FlavioCFOliveira/Gocene/store"
+	testanalysis "github.com/FlavioCFOliveira/Gocene/tests/analysis"
+	"github.com/FlavioCFOliveira/Gocene/util"
 )
 
-// Test helper constants mirroring Lucene's DocHelper
 const (
-	// Field 1 - stored text field without term vectors
-	field1Text    = "field one text"
-	textField1Key = "textField1"
-
-	// Field 2 - stored text field with term vectors
-	field2Text    = "field field field two text"
-	textField2Key = "textField2"
-	// Fields will be lexicographically sorted: field, text, two
-	field2Freqs = "3,1,1"
-
-	// Field 3 - text field with omitNorms
-	field3Text    = "aaaNoNorms aaaNoNorms bbbNoNorms"
-	textField3Key = "textField3"
-
-	// Keyword field
-	keywordText     = "Keyword"
-	keywordFieldKey = "keyField"
-
-	// No norms field
-	noNormsText = "omitNormsText"
-	noNormsKey  = "omitNorms"
-
-	// No TF field
-	noTFText = "analyzed with no tf and positions"
-	noTFKey  = "omitTermFreqAndPositions"
-
-	// Unindexed field
-	unindexedText = "unindexed field text"
-	unindexedKey  = "unIndField"
-
-	// Unstored fields
-	unstored1Text = "unstored field text"
-	unstored1Key  = "unStoredField1"
-	unstored2Text = "unstored field text"
-	unstored2Key  = "unStoredField2"
+	docHelperMissing                = "org.apache.lucene.tests.index.DocHelper is not ported"
+	indexWriterNewestSegmentMissing = "org.apache.lucene.index.IndexWriter#newestSegment() is not ported"
+	testUtilCheckIndexMissing       = "TestUtil.checkIndex(Directory) is not ported"
+	indexWriterRAMAccountingMissing = "org.apache.lucene.index.IndexWriter#hasChangesInRam() and IndexWriter#ramBytesUsed() are not ported"
 )
 
-// setupTestDoc creates a test document with various field types
-// Equivalent to DocHelper.setupDoc() in Lucene
-func setupTestDoc() *document.Document {
-	doc := &document.Document{}
+// documentWriterTest renders the per-test setUp/tearDown of
+// TestDocumentWriter: dir is created before and closed after each test.
+func documentWriterTest(t *testing.T) store.Directory {
+	t.Helper()
+	dir := newDirectory()
+	t.Cleanup(func() {
+		if err := dir.Close(); err != nil {
+			t.Errorf("tearDown: close dir: %v", err)
+		}
+	})
+	return dir
+}
 
-	// Field 1: stored text field without term vectors
-	customType1 := document.NewFieldType()
-	customType1.SetIndexed(true).SetStored(true).SetTokenized(true)
-	customType1.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
-	customType1.Freeze()
-	f1, _ := document.NewField(textField1Key, field1Text, customType1)
-	doc.Add(f1)
+func TestDocumentWriterAddDocument(t *testing.T) {
+	documentWriterTest(t)
+	t.Fatal(docHelperMissing + " (DocHelper.setupDoc(Document))")
+}
 
-	// Field 2: stored text field with term vectors
+// positionIncrementGapAnalyzer renders the anonymous Analyzer of
+// testPositionIncrementGap.
+type positionIncrementGapAnalyzer struct {
+	*analysis.BaseAnalyzer
+}
+
+func (a *positionIncrementGapAnalyzer) GetPositionIncrementGap(string) int { return 500 }
+
+func whitespaceComponents(createFilter func(*testanalysis.MockTokenizer) analysis.TokenStream) func(string) *analysis.TokenStreamComponents {
+	return func(string) *analysis.TokenStreamComponents {
+		src := testanalysis.NewMockTokenizer(testanalysis.WHITESPACE, false, testanalysis.DefaultMaxTokenLength)
+		var sink analysis.TokenStream = src
+		if createFilter != nil {
+			sink = createFilter(src)
+		}
+		return &analysis.TokenStreamComponents{
+			Source: func(r io.Reader) error {
+				src.SetReader(r)
+				return nil
+			},
+			Sink: sink,
+		}
+	}
+}
+
+func TestDocumentWriterPositionIncrementGap(t *testing.T) {
+	dir := documentWriterTest(t)
+	base := analysis.NewAnalyzer(nil)
+	base.CreateComponents = whitespaceComponents(nil)
+	analyzer := &positionIncrementGapAnalyzer{BaseAnalyzer: base}
+
+	writer := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(analyzer))
+
+	doc := document.NewDocument()
+	doc.Add(newTextField(t, "repeated", "repeated one", true))
+	doc.Add(newTextField(t, "repeated", "repeated two", true))
+
+	mustAddDocument(t, writer, doc)
+	mustCommit(t, writer)
+	defer mustClose(t, writer)
+	t.Fatal(indexWriterNewestSegmentMissing)
+}
+
+// tokenReuseFilter renders the anonymous TokenFilter of testTokenReuse: it
+// indexes a "synonym" b for every token, with a payload on the first
+// position only.
+type tokenReuseFilter struct {
+	*analysis.BaseTokenFilter
+	first      bool
+	state      *util.AttributeState
+	termAtt    analysis.CharTermAttribute
+	payloadAtt analysis.PayloadAttribute
+	posIncrAtt tokenattributes.PositionIncrementAttribute
+}
+
+func newTokenReuseFilter(input analysis.TokenStream) *tokenReuseFilter {
+	f := &tokenReuseFilter{BaseTokenFilter: analysis.NewBaseTokenFilter(input), first: true}
+	f.termAtt = f.AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	f.payloadAtt = f.AddAttribute(analysis.PayloadAttributeType).(analysis.PayloadAttribute)
+	f.posIncrAtt = f.AddAttribute(tokenattributes.PositionIncrementAttributeType).(tokenattributes.PositionIncrementAttribute)
+	return f
+}
+
+func (f *tokenReuseFilter) IncrementToken() (bool, error) {
+	if f.state != nil {
+		f.RestoreState(f.state)
+		f.payloadAtt.SetPayload(nil)
+		f.posIncrAtt.SetPositionIncrement(0)
+		f.termAtt.SetEmpty()
+		f.termAtt.AppendString("b")
+		f.state = nil
+		return true, nil
+	}
+
+	hasNext, err := f.GetInput().IncrementToken()
+	if err != nil || !hasNext {
+		return false, err
+	}
+	if c := f.termAtt.Buffer()[0]; c >= '0' && c <= '9' {
+		f.posIncrAtt.SetPositionIncrement(int(c - '0'))
+	}
+	if f.first {
+		// set payload on first position only
+		f.payloadAtt.SetPayload([]byte{100})
+		f.first = false
+	}
+
+	// index a "synonym" for every token
+	f.state = f.CaptureState()
+	return true, nil
+}
+
+func (f *tokenReuseFilter) Reset() error {
+	if err := f.BaseTokenFilter.Reset(); err != nil {
+		return err
+	}
+	f.first = true
+	f.state = nil
+	return nil
+}
+
+func TestDocumentWriterTokenReuse(t *testing.T) {
+	dir := documentWriterTest(t)
+	analyzer := analysis.NewAnalyzer(nil)
+	analyzer.CreateComponents = whitespaceComponents(func(tokenizer *testanalysis.MockTokenizer) analysis.TokenStream {
+		return newTokenReuseFilter(tokenizer)
+	})
+
+	writer := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(analyzer))
+
+	doc := document.NewDocument()
+	doc.Add(newTextField(t, "f1", "a 5 a a", true))
+
+	mustAddDocument(t, writer, doc)
+	mustCommit(t, writer)
+	defer mustClose(t, writer)
+	t.Fatal(indexWriterNewestSegmentMissing)
+}
+
+// preAnalyzedTokenStream renders the anonymous TokenStream of
+// testPreAnalyzedField.
+type preAnalyzedTokenStream struct {
+	*analysis.BaseTokenStream
+	tokens  []string
+	index   int
+	termAtt analysis.CharTermAttribute
+}
+
+func newPreAnalyzedTokenStream() *preAnalyzedTokenStream {
+	s := &preAnalyzedTokenStream{BaseTokenStream: analysis.NewBaseTokenStream(), tokens: []string{"term1", "term2", "term3", "term2"}}
+	s.termAtt = s.AddAttribute(analysis.CharTermAttributeType).(analysis.CharTermAttribute)
+	return s
+}
+
+func (s *preAnalyzedTokenStream) IncrementToken() (bool, error) {
+	if s.index == len(s.tokens) {
+		return false, nil
+	}
+	s.ClearAttributes()
+	s.termAtt.SetEmpty()
+	s.termAtt.AppendString(s.tokens[s.index])
+	s.index++
+	return true, nil
+}
+
+func TestDocumentWriterPreAnalyzedField(t *testing.T) {
+	dir := documentWriterTest(t)
+	writer := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	doc := document.NewDocument()
+
+	f, err := document.NewField("preanalyzed", newPreAnalyzedTokenStream(), document.TextFieldTypeNotStored)
+	if err != nil {
+		t.Fatalf("TextField: %v", err)
+	}
+	doc.Add(f)
+
+	mustAddDocument(t, writer, doc)
+	mustCommit(t, writer)
+	defer mustClose(t, writer)
+	t.Fatal(indexWriterNewestSegmentMissing)
+}
+
+// Test adding two fields with the same name, one indexed the other stored
+// only. The omitNorms and omitTermFreqAndPositions setting of the stored
+// field should not affect the indexed one (LUCENE-1590)
+func TestDocumentWriterLUCENE_1590(t *testing.T) {
+	dir := documentWriterTest(t)
+	doc := document.NewDocument()
+	// f1 has no norms
+	customType := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	customType.SetOmitNorms(true)
 	customType2 := document.NewFieldType()
-	customType2.SetIndexed(true).SetStored(true).SetTokenized(true)
-	customType2.SetStoreTermVectors(true)
-	customType2.IndexOptions = index.IndexOptionsDocsAndFreqsAndPositions
-	customType2.StoreTermVectorPositions = true
-	customType2.StoreTermVectorOffsets = true
-	customType2.Freeze()
-	f2, _ := document.NewField(textField2Key, field2Text, customType2)
-	doc.Add(f2)
+	customType2.SetStored(true)
+	doc.Add(newField(t, "f1", "v1", customType))
+	doc.Add(newField(t, "f1", "v2", customType2))
+	// f2 has no TF
+	customType3 := document.NewFieldTypeFrom(document.TextFieldTypeNotStored)
+	customType3.SetIndexOptions(index.IndexOptionsDocs)
+	doc.Add(newField(t, "f2", "v1", customType3))
+	doc.Add(newField(t, "f2", "v2", customType2))
 
-	// Field 3: text field with omitNorms
-	customType3 := document.NewFieldType()
-	customType3.SetIndexed(true).SetStored(true).SetTokenized(true)
-	customType3.SetOmitNorms(true)
-	customType3.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
-	customType3.Freeze()
-	f3, _ := document.NewField(textField3Key, field3Text, customType3)
-	doc.Add(f3)
+	writer := mustNewIndexWriter(t, dir, newIndexWriterConfigWithAnalyzer(newMockAnalyzer()))
+	mustAddDocument(t, writer, doc)
+	if err := writer.ForceMerge(1); err != nil { // be sure to have a single segment
+		t.Fatalf("forceMerge: %v", err)
+	}
+	mustClose(t, writer)
 
-	// Keyword field (StringField equivalent)
-	f4, _ := document.NewStringField(keywordFieldKey, keywordText, true)
-	doc.Add(f4)
-
-	// No norms field
-	customType5 := document.NewFieldType()
-	customType5.SetIndexed(true).SetStored(true).SetTokenized(false)
-	customType5.SetOmitNorms(true)
-	customType5.SetIndexOptions(index.IndexOptionsDocs)
-	customType5.Freeze()
-	f5, _ := document.NewField(noNormsKey, noNormsText, customType5)
-	doc.Add(f5)
-
-	// No TF field
-	customType6 := document.NewFieldType()
-	customType6.SetIndexed(true).SetStored(true).SetTokenized(true)
-	customType6.SetIndexOptions(index.IndexOptionsDocs)
-	customType6.Freeze()
-	f6, _ := document.NewField(noTFKey, noTFText, customType6)
-	doc.Add(f6)
-
-	// Unindexed field (stored only)
-	customType7 := document.NewFieldType()
-	customType7.SetStored(true)
-	customType7.Freeze()
-	f7, _ := document.NewField(unindexedKey, unindexedText, customType7)
-	doc.Add(f7)
-
-	// Unstored field 1
-	f8, _ := document.NewTextField(unstored1Key, unstored1Text, false)
-	doc.Add(f8)
-
-	// Unstored field 2 with term vectors
-	customType8 := document.NewFieldType()
-	customType8.SetIndexed(true).SetStored(false).SetTokenized(true)
-	customType8.SetStoreTermVectors(true)
-	customType8.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
-	customType8.Freeze()
-	f9, _ := document.NewField(unstored2Key, unstored2Text, customType8)
-	doc.Add(f9)
-
-	return doc
+	t.Fatal(testUtilCheckIndexMissing)
 }
 
-// TestDocumentWriter_AddDocument tests basic document addition with field storage
-// Source: TestDocumentWriter.testAddDocument()
-// Purpose: Tests that documents can be added and fields are properly stored
-func TestDocumentWriter_AddDocument(t *testing.T) {
-	t.Run("add document with various field types", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
+// doTestRAMUsage renders the private doTestRAMUsage(Function): make sure
+// that every new field doesn't increment memory usage by more than 16kB.
+func doTestRAMUsage(t *testing.T, fieldSupplier func(string) document.IndexableField) {
+	t.Helper()
+	dir := newDirectory()
+	conf := newIndexWriterConfig()
+	conf.SetMaxBufferedDocs(10)
+	conf.SetRAMBufferSizeMB(index.DisableAutoFlush)
+	w := mustNewIndexWriter(t, dir, conf)
+	defer mustClose(t, w, dir)
+	doc := document.NewDocument()
+	const numFields = 100
+	for i := 0; i < numFields; i++ {
+		doc.Add(fieldSupplier("f" + strconv.Itoa(i)))
+	}
+	mustAddDocument(t, w, doc)
+	t.Fatal(indexWriterRAMAccountingMissing)
+}
 
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, err := index.NewIndexWriter(dir, config)
-		if err != nil {
-			t.Fatalf("Failed to create IndexWriter: %v", err)
-		}
-
-		// Create and add test document
-		testDoc := setupTestDoc()
-		_, err = writer.AddDocument(testDoc)
-		if err != nil {
-			t.Fatalf("Failed to add document: %v", err)
-		}
-
-		// Commit changes
-		err = writer.Commit()
-		if err != nil {
-			t.Fatalf("Failed to commit: %v", err)
-		}
-
-		// Close writer
-		err = writer.Close()
-		if err != nil {
-			t.Fatalf("Failed to close writer: %v", err)
-		}
-
-		// Verify document count
-		if writer.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", writer.NumDocs())
-		}
-	})
-
-	t.Run("verify stored fields", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		testDoc := setupTestDoc()
-		writer.AddDocument(testDoc)
-		writer.Commit()
-		writer.Close()
-
-		// Open reader to verify stored fields
-		reader, err := index.OpenDirectoryReader(dir)
-		if err != nil {
-			t.Fatalf("Failed to open reader: %v", err)
-		}
-		defer reader.Close()
-
-		// Verify document count
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document in reader, got %d", reader.NumDocs())
-		}
+func TestDocumentWriterRAMUsageStored(t *testing.T) {
+	doTestRAMUsage(t, func(field string) document.IndexableField {
+		return mustStoredBytesField(t, field, []byte("Lucene"))
 	})
 }
 
-// TestDocumentWriter_FieldStorage tests field storage capabilities
-// Purpose: Verifies that stored fields can be retrieved
-func TestDocumentWriter_FieldStorage(t *testing.T) {
-	t.Run("stored text field", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-		textField, _ := document.NewTextField("content", "test content", true)
-		doc.Add(textField)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
+func TestDocumentWriterRAMUsageIndexed(t *testing.T) {
+	doTestRAMUsage(t, func(field string) document.IndexableField {
+		f, err := document.NewStringFieldFromBytesRef(field, []byte("Lucene"), false)
+		if err != nil {
+			t.Fatalf("StringField: %v", err)
 		}
-	})
-
-	t.Run("stored string field", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-		stringField, _ := document.NewStringField("id", "doc123", true)
-		doc.Add(stringField)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
+		return f
 	})
 }
 
-// TestDocumentWriter_TermVectors tests term vector indexing
-// Purpose: Verifies that term vectors are properly stored when configured
-func TestDocumentWriter_TermVectors(t *testing.T) {
-	t.Run("field with term vectors enabled", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
+func TestDocumentWriterRAMUsagePoint(t *testing.T) {
+	doTestRAMUsage(t, func(field string) document.IndexableField { return document.NewIntPoint(field, 42) })
+}
 
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
+func TestDocumentWriterRAMUsageNumericDocValue(t *testing.T) {
+	doTestRAMUsage(t, func(field string) document.IndexableField { return numericDVField(t, field, 42) })
+}
 
-		// Create field type with term vectors
-		customType := document.NewFieldType()
-		customType.SetIndexed(true).SetStored(true).SetTokenized(true)
-		customType.SetStoreTermVectors(true)
-		customType.IndexOptions = index.IndexOptionsDocsAndFreqsAndPositions
-		customType.StoreTermVectorPositions = true
-		customType.StoreTermVectorOffsets = true
-		customType.Freeze()
+func TestDocumentWriterRAMUsageSortedDocValue(t *testing.T) {
+	doTestRAMUsage(t, func(field string) document.IndexableField { return sortedDVField(t, field, []byte("Lucene")) })
+}
 
-		doc := &document.Document{}
-		field, _ := document.NewField("tvField", "term1 term2 term1", customType)
+func TestDocumentWriterRAMUsageBinaryDocValue(t *testing.T) {
+	doTestRAMUsage(t, func(field string) document.IndexableField { return binaryDVField(t, field, []byte("Lucene")) })
+}
+
+func TestDocumentWriterRAMUsageSortedNumericDocValue(t *testing.T) {
+	doTestRAMUsage(t, func(field string) document.IndexableField {
+		f, err := document.NewSortedNumericDocValuesField(field, []int64{42})
+		if err != nil {
+			t.Fatalf("SortedNumericDocValuesField: %v", err)
+		}
+		return f
+	})
+}
+
+func TestDocumentWriterRAMUsageSortedSetDocValue(t *testing.T) {
+	doTestRAMUsage(t, func(field string) document.IndexableField { return sortedSetDVField(t, field, []byte("Lucene")) })
+}
+
+func TestDocumentWriterRAMUsageVector(t *testing.T) {
+	doTestRAMUsage(t, func(field string) document.IndexableField {
+		f, err := document.NewKnnFloatVectorField(field, []float32{1, 2, 3, 4}, index.VectorSimilarityFunctionEuclidean)
+		if err != nil {
+			t.Fatalf("KnnFloatVectorField: %v", err)
+		}
+		return f
+	})
+}
+
+// mockIndexableField is the private record MockIndexableField.
+type mockIndexableField struct {
+	field     string
+	value     []byte
+	fieldType spi.IndexableFieldType
+}
+
+func (f *mockIndexableField) Name() string                       { return f.field }
+func (f *mockIndexableField) FieldType() spi.IndexableFieldType  { return f.fieldType }
+func (f *mockIndexableField) BinaryValue() []byte                { return f.value }
+func (f *mockIndexableField) StringValue() string                { return "" }
+func (f *mockIndexableField) ReaderValue() io.Reader             { return nil }
+func (f *mockIndexableField) NumericValue() interface{}          { return nil }
+func (f *mockIndexableField) StoredValue() *document.StoredValue { return nil }
+func (f *mockIndexableField) InvertableType() document.InvertableType {
+	return document.InvertableTypeBinary
+}
+
+// GetCharSequenceValue is the Go-only IndexableField member; the record's
+// stringValue() is null.
+func (f *mockIndexableField) GetCharSequenceValue() string { return "" }
+
+func (f *mockIndexableField) TokenStream(analysis.Analyzer, analysis.TokenStream) analysis.TokenStream {
+	return nil
+}
+
+func frozenFieldType(tokenized bool, options index.IndexOptions, configure func(*document.FieldType)) *document.FieldType {
+	ft := document.NewFieldType()
+	ft.SetTokenized(tokenized)
+	ft.SetIndexOptions(options)
+	if configure != nil {
+		configure(ft)
+	}
+	ft.Freeze()
+	return ft
+}
+
+func createModeWriter(t *testing.T, dir store.Directory) *index.IndexWriter {
+	t.Helper()
+	conf := newIndexWriterConfig()
+	conf.SetOpenMode(index.Create)
+	return mustNewIndexWriter(t, dir, conf)
+}
+
+func TestDocumentWriterIndexBinaryValueWithoutTokenStream(t *testing.T) {
+	dir := documentWriterTest(t)
+	illegalFieldTypes := []*document.FieldType{
+		// cannot index a tokenized binary field
+		frozenFieldType(true, index.IndexOptionsDocs, nil),
+		// cannot index positions on a binary field
+		frozenFieldType(false, index.IndexOptionsDocsAndFreqsAndPositions, nil),
+		// cannot index term vector positions
+		frozenFieldType(false, index.IndexOptionsDocs, func(ft *document.FieldType) {
+			ft.SetStoreTermVectors(true)
+			ft.SetStoreTermVectorPositions(true)
+		}),
+		// cannot index term vector offsets
+		frozenFieldType(false, index.IndexOptionsDocs, func(ft *document.FieldType) {
+			ft.SetStoreTermVectors(true)
+			ft.SetStoreTermVectorOffsets(true)
+		}),
+	}
+
+	for _, ft := range illegalFieldTypes {
+		w := createModeWriter(t, dir)
+		doc := document.NewDocument()
+		doc.Add(&mockIndexableField{field: "field", value: []byte("a"), fieldType: ft})
+		if _, err := w.AddDocument(doc); err == nil {
+			mustClose(t, w)
+			t.Fatal("expected IllegalArgumentException from addDocument")
+		}
+		mustClose(t, w)
+	}
+
+	{
+		w := createModeWriter(t, dir)
+		// Field that has both a null token stream and a null binary value
+		doc := document.NewDocument()
+		doc.Add(&mockIndexableField{field: "field", value: nil, fieldType: document.StringFieldTypeNotStored})
+		if _, err := w.AddDocument(doc); err == nil {
+			mustClose(t, w)
+			t.Fatal("expected IllegalArgumentException from addDocument")
+		}
+		mustClose(t, w)
+	}
+
+	legalFieldTypes := []*document.FieldType{
+		frozenFieldType(false, index.IndexOptionsDocs, func(ft *document.FieldType) { ft.SetOmitNorms(false) }),
+		frozenFieldType(false, index.IndexOptionsDocsAndFreqs, func(ft *document.FieldType) { ft.SetOmitNorms(false) }),
+		frozenFieldType(false, index.IndexOptionsDocs, func(ft *document.FieldType) { ft.SetOmitNorms(true) }),
+		frozenFieldType(false, index.IndexOptionsDocsAndFreqs, func(ft *document.FieldType) { ft.SetOmitNorms(true) }),
+		frozenFieldType(false, index.IndexOptionsDocs, func(ft *document.FieldType) { ft.SetStoreTermVectors(true) }),
+		frozenFieldType(false, index.IndexOptionsDocsAndFreqs, func(ft *document.FieldType) { ft.SetStoreTermVectors(true) }),
+	}
+
+	for _, ft := range legalFieldTypes {
+		w := createModeWriter(t, dir)
+		field := &mockIndexableField{field: "field", value: []byte("a"), fieldType: ft}
+		doc := document.NewDocument()
 		doc.Add(field)
+		doc.Add(field)
+		mustAddDocument(t, w, doc)
+		mustClose(t, w)
 
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
+		reader := mustOpenDirectoryReader(t, dir)
+		leafReader := getOnlyLeafReader(t, reader)
+		withFreqs := ft.IndexOptions() >= index.IndexOptionsDocsAndFreqs
 
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-
-	t.Run("field without term vectors", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-		// TextField without term vectors
-		textField, _ := document.NewTextField("noTVField", "some text content", true)
-		doc.Add(textField)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestDocumentWriter_MultiValuedFields tests multi-valued field handling
-// Source: TestDocumentWriter.testPositionIncrementGap() concept
-// Purpose: Tests that multiple values for the same field are handled correctly
-func TestDocumentWriter_MultiValuedFields(t *testing.T) {
-	t.Run("multiple values for same field", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-
-		// Add multiple values for the same field
-		field1, _ := document.NewTextField("multiField", "value one", true)
-		field2, _ := document.NewTextField("multiField", "value two", true)
-		doc.Add(field1)
-		doc.Add(field2)
-
-		_, err := writer.AddDocument(doc)
+		terms, err := leafReader.Terms("field")
 		if err != nil {
-			t.Errorf("Failed to add document with multi-valued field: %v", err)
+			t.Fatalf("terms: %v", err)
 		}
+		assertBinaryTerms(t, terms, 2, withFreqs)
 
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-
-	t.Run("repeated field values", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-
-		// Add same value multiple times
-		for i := 0; i < 3; i++ {
-			field, _ := document.NewTextField("repeated", "repeated value", true)
-			doc.Add(field)
-		}
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestDocumentWriter_FieldAnalysis tests field analysis during indexing
-// Purpose: Verifies that fields are properly analyzed
-func TestDocumentWriter_FieldAnalysis(t *testing.T) {
-	t.Run("tokenized field analysis", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-		// This will be tokenized by the analyzer
-		textField, _ := document.NewTextField("analyzed", "the quick brown fox", true)
-		doc.Add(textField)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-
-	t.Run("non-tokenized field", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-		// StringField is not tokenized
-		stringField, _ := document.NewStringField("exact", "exact value here", true)
-		doc.Add(stringField)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestDocumentWriter_OmitNorms tests norm omission
-// Source: TestDocumentWriter.testAddDocument() - norms verification
-// Purpose: Tests that norms can be omitted per field
-func TestDocumentWriter_OmitNorms(t *testing.T) {
-	t.Run("field with norms omitted", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		customType := document.NewFieldType()
-		customType.SetIndexed(true).SetStored(true).SetTokenized(true)
-		customType.SetOmitNorms(true)
-		customType.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
-		customType.Freeze()
-
-		doc := &document.Document{}
-		field, _ := document.NewField("noNormsField", "some text", customType)
-		doc.Add(field)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-
-	t.Run("field with norms enabled", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		// Default TextField has norms enabled
-		doc := &document.Document{}
-		field, _ := document.NewTextField("withNormsField", "some text", true)
-		doc.Add(field)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestDocumentWriter_IndexOptions tests different index options
-// Source: TestDocumentWriter.testLUCENE_1590()
-// Purpose: Tests various IndexOptions configurations
-func TestDocumentWriter_IndexOptions(t *testing.T) {
-	t.Run("IndexOptions DOCS only", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		customType := document.NewFieldType()
-		customType.SetIndexed(true).SetStored(true).SetTokenized(true)
-		customType.SetIndexOptions(index.IndexOptionsDocs)
-		customType.Freeze()
-
-		doc := &document.Document{}
-		field, _ := document.NewField("docsOnly", "term1 term2 term1", customType)
-		doc.Add(field)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-
-	t.Run("IndexOptions DOCS_AND_FREQS", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		customType := document.NewFieldType()
-		customType.SetIndexed(true).SetStored(true).SetTokenized(true)
-		customType.SetIndexOptions(index.IndexOptionsDocsAndFreqs)
-		customType.Freeze()
-
-		doc := &document.Document{}
-		field, _ := document.NewField("docsAndFreqs", "term1 term2 term1", customType)
-		doc.Add(field)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestDocumentWriter_SameNameFields tests fields with same name but different configs
-// Source: TestDocumentWriter.testLUCENE_1590()
-// Purpose: Tests that fields with same name but different configurations work correctly
-func TestDocumentWriter_SameNameFields(t *testing.T) {
-	t.Run("same field name different configurations", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-
-		// First field: indexed with no norms
-		customType1 := document.NewFieldType()
-		customType1.SetIndexed(true).SetStored(false).SetTokenized(true)
-		customType1.SetOmitNorms(true)
-		customType1.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
-		customType1.Freeze()
-		field1, _ := document.NewField("f1", "indexed value", customType1)
-		doc.Add(field1)
-
-		// Second field: same name, just stored
-		customType2 := document.NewFieldType()
-		customType2.SetStored(true)
-		customType2.Freeze()
-		field2, _ := document.NewField("f1", "stored value", customType2)
-		doc.Add(field2)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestDocumentWriter_EmptyDocument tests empty document handling
-func TestDocumentWriter_EmptyDocument(t *testing.T) {
-	t.Run("empty document", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-		// No fields added
-
-		_, err := writer.AddDocument(doc)
+		termVectors, err := leafReader.TermVectors()
 		if err != nil {
-			t.Errorf("Failed to add empty document: %v", err)
+			t.Fatalf("termVectors: %v", err)
 		}
-
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
+		tvFields, err := termVectors.Get(0)
+		if err != nil {
+			t.Fatalf("termVectors().get(0): %v", err)
 		}
-	})
-}
-
-// TestDocumentWriter_MultipleDocuments tests adding multiple documents
-func TestDocumentWriter_MultipleDocuments(t *testing.T) {
-	t.Run("add multiple documents", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		for i := 0; i < 10; i++ {
-			doc := &document.Document{}
-			field, _ := document.NewTextField("id", string(rune('0'+i)), true)
-			doc.Add(field)
-
-			_, err := writer.AddDocument(doc)
+		if ft.StoreTermVectors() {
+			tvTerms, err := tvFields.Terms("field")
 			if err != nil {
-				t.Errorf("Failed to add document %d: %v", i, err)
+				t.Fatalf("tv terms: %v", err)
 			}
+			assertBinaryTerms(t, tvTerms, 2, true)
+		} else if tvFields != nil {
+			t.Fatalf("assertNull(leafReader.termVectors().get(0)): got %v", tvFields)
 		}
-
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 10 {
-			t.Errorf("Expected 10 documents, got %d", reader.NumDocs())
-		}
-	})
+		mustClose(t, reader)
+	}
 }
 
-// TestDocumentWriter_BinaryFields tests binary field handling
-func TestDocumentWriter_BinaryFields(t *testing.T) {
-	t.Run("stored binary field", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-		binaryData := []byte{0x00, 0x01, 0x02, 0x03, 0xFF}
-		storedType := document.NewFieldType()
-		storedType.SetStored(true)
-		storedType.Freeze()
-		field, _ := document.NewField("binary", binaryData, storedType)
-		doc.Add(field)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestDocumentWriter_FieldTypeValidation tests FieldType validation
-func TestDocumentWriter_FieldTypeValidation(t *testing.T) {
-	t.Run("invalid field type - positions without term vectors", func(t *testing.T) {
-		customType := document.NewFieldType()
-		customType.StoreTermVectorPositions = true
-		// Not setting StoreTermVectors - should fail validation
-
-		err := customType.Validate()
-		if err == nil {
-			t.Error("Expected validation error for positions without term vectors")
-		}
-	})
-
-	t.Run("invalid field type - tokenized without indexed", func(t *testing.T) {
-		customType := document.NewFieldType()
-		customType.SetTokenized(true)
-		customType.SetIndexed(false)
-		// Tokenized requires indexed
-
-		err := customType.Validate()
-		if err == nil {
-			t.Error("Expected validation error for tokenized without indexed")
-		}
-	})
-
-	t.Run("valid field type", func(t *testing.T) {
-		customType := document.NewFieldType()
-		customType.SetIndexed(true).SetStored(true).SetTokenized(true)
-		customType.SetIndexOptions(index.IndexOptionsDocsAndFreqsAndPositions)
-
-		err := customType.Validate()
-		if err != nil {
-			t.Errorf("Unexpected validation error: %v", err)
-		}
-	})
-}
-
-// TestDocumentWriter_DocValuesFields tests doc values field handling
-func TestDocumentWriter_DocValuesFields(t *testing.T) {
-	t.Run("numeric doc values field", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-		field, _ := document.NewNumericDocValuesField("numericDV", 42)
-		doc.Add(field)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-
-	t.Run("sorted doc values field", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-		field, _ := document.NewSortedDocValuesField("sortedDV", []byte("value"))
-		doc.Add(field)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestDocumentWriter_CommitAndClose tests commit and close operations
-func TestDocumentWriter_CommitAndClose(t *testing.T) {
-	t.Run("commit then close", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-		field, _ := document.NewTextField("test", "value", true)
-		doc.Add(field)
-
-		writer.AddDocument(doc)
-
-		err := writer.Commit()
-		if err != nil {
-			t.Errorf("Commit failed: %v", err)
-		}
-
-		err = writer.Close()
-		if err != nil {
-			t.Errorf("Close failed: %v", err)
-		}
-
-		if !writer.IsClosed() {
-			t.Error("Writer should be closed")
-		}
-	})
-
-	t.Run("close without commit", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-		field, _ := document.NewTextField("test", "value", true)
-		doc.Add(field)
-
-		writer.AddDocument(doc)
-
-		// Close should commit pending changes
-		err := writer.Close()
-		if err != nil {
-			t.Errorf("Close failed: %v", err)
-		}
-
-		if !writer.IsClosed() {
-			t.Error("Writer should be closed")
-		}
-	})
-}
-
-// TestDocumentWriter_RAMUsage tests RAM usage tracking
-// Source: TestDocumentWriter.testRAMUsage* methods
-// Purpose: Tests that RAM usage is properly tracked
-func TestDocumentWriter_RAMUsage(t *testing.T) {
-	t.Run("documents writer RAM tracking", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		config.SetMaxBufferedDocs(100)
-		config.SetRAMBufferSizeMB(64.0)
-
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		// Add multiple documents
-		for i := 0; i < 10; i++ {
-			doc := &document.Document{}
-			field, _ := document.NewTextField("content", "some text content here", true)
-			doc.Add(field)
-			writer.AddDocument(doc)
-		}
-
-		// RAM usage should be tracked
-		// Note: This is a basic test - actual RAM usage depends on implementation
-		writer.Commit()
-		writer.Close()
-	})
-}
-
-// TestDocumentWriter_PositionIncrementGap tests position increment gap
-// Source: TestDocumentWriter.testPositionIncrementGap()
-// Purpose: Tests that position increment gap is applied between field values
-func TestDocumentWriter_PositionIncrementGap(t *testing.T) {
-	t.Run("custom position increment gap", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		// Create analyzer with custom position increment gap
-		analyzer := analysis.NewWhitespaceAnalyzer()
-
-		config := index.NewIndexWriterConfig(analyzer)
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-
-		// Add multiple values for same field
-		field1, _ := document.NewTextField("repeated", "repeated one", true)
-		field2, _ := document.NewTextField("repeated", "repeated two", true)
-		doc.Add(field1)
-		doc.Add(field2)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestDocumentWriter_UnstoredFields tests unstored field handling
-func TestDocumentWriter_UnstoredFields(t *testing.T) {
-	t.Run("unstored indexed field", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		doc := &document.Document{}
-		// TextField with stored=false
-		field, _ := document.NewTextField("unstored", "this is indexed but not stored", false)
-		doc.Add(field)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
-}
-
-// TestDocumentWriter_StoredOnlyFields tests stored-only field handling
-func TestDocumentWriter_StoredOnlyFields(t *testing.T) {
-	t.Run("stored only field", func(t *testing.T) {
-		dir := store.NewByteBuffersDirectory()
-		defer dir.Close()
-
-		config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-		writer, _ := index.NewIndexWriter(dir, config)
-
-		customType := document.NewFieldType()
-		customType.SetStored(true)
-		customType.Freeze()
-
-		doc := &document.Document{}
-		field, _ := document.NewField("storedOnly", "stored value", customType)
-		doc.Add(field)
-
-		writer.AddDocument(doc)
-		writer.Commit()
-		writer.Close()
-
-		reader, _ := index.OpenDirectoryReader(dir)
-		defer reader.Close()
-
-		if reader.NumDocs() != 1 {
-			t.Errorf("Expected 1 document, got %d", reader.NumDocs())
-		}
-	})
+// assertBinaryTerms renders the terms/postings checks of
+// testIndexBinaryValueWithoutTokenStream for the single term "a" indexed
+// twice in doc 0.
+func assertBinaryTerms(t *testing.T, terms index.Terms, twice int64, withFreqs bool) {
+	t.Helper()
+	if terms == nil {
+		t.Fatal("terms is null")
+	}
+	if sdf, err := terms.GetSumDocFreq(); err != nil || sdf != 1 {
+		t.Fatalf("getSumDocFreq: expected 1, got %d (%v)", sdf, err)
+	}
+	expectedTTF := int64(1)
+	if withFreqs {
+		expectedTTF = twice
+	}
+	if ttf, err := terms.GetSumTotalTermFreq(); err != nil || ttf != expectedTTF {
+		t.Fatalf("getSumTotalTermFreq: expected %d, got %d (%v)", expectedTTF, ttf, err)
+	}
+	termsEnum, err := terms.Iterator()
+	if err != nil {
+		t.Fatalf("iterator: %v", err)
+	}
+	if found, err := termsEnum.SeekExact(spi.NewTerm("field", "a")); err != nil || !found {
+		t.Fatalf("seekExact(a): %v (%v)", found, err)
+	}
+	pe, err := termsEnum.Postings(spi.PostingsFlagAll)
+	if err != nil {
+		t.Fatalf("postings: %v", err)
+	}
+	if doc, err := pe.NextDoc(); err != nil || doc != 0 {
+		t.Fatalf("nextDoc: expected 0, got %d (%v)", doc, err)
+	}
+	expectedFreq := 1
+	if withFreqs {
+		expectedFreq = int(twice)
+	}
+	if freq, err := pe.Freq(); err != nil || freq != expectedFreq {
+		t.Fatalf("freq: expected %d, got %d (%v)", expectedFreq, freq, err)
+	}
+	if pos, err := pe.NextPosition(); err != nil || pos != -1 {
+		t.Fatalf("nextPosition: expected -1, got %d (%v)", pos, err)
+	}
+	if doc, err := pe.NextDoc(); err != nil || doc != spi.NO_MORE_DOCS {
+		t.Fatalf("nextDoc: expected NO_MORE_DOCS, got %d (%v)", doc, err)
+	}
 }

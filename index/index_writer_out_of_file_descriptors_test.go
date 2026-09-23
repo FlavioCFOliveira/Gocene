@@ -1,69 +1,17 @@
+// Copyright 2026 Gocene. All rights reserved.
+// Use of this source code is governed by the Apache License 2.0
+// that can be found in the LICENSE file.
+
+// Port of lucene/core/src/test/org/apache/lucene/index/TestIndexWriterOutOfFileDescriptors.java
+// (Apache Lucene 10.5.0).
+
 package index_test
 
-import (
-	"testing"
+import "testing"
 
-	"github.com/FlavioCFOliveira/Gocene/analysis"
-	"github.com/FlavioCFOliveira/Gocene/document"
-	"github.com/FlavioCFOliveira/Gocene/index"
-	"github.com/FlavioCFOliveira/Gocene/store"
-)
-
+// TestIndexWriterOutOfFileDescriptors ports test(), which indexes documents
+// drawn from org.apache.lucene.tests.util.LineFileDocs into a
+// newMockFSDirectory with random IOExceptions on open.
 func TestIndexWriterOutOfFileDescriptors(t *testing.T) {
-	dir := store.NewByteBuffersDirectory()
-	mock := store.NewMockDirectoryWrapper(dir)
-
-	config := index.NewIndexWriterConfig(analysis.NewWhitespaceAnalyzer())
-	config.SetMergeScheduler(index.NewSerialMergeScheduler())
-
-	writer, err := index.NewIndexWriter(mock, config)
-	if err != nil {
-		mock.Close()
-		t.Fatalf("NewIndexWriter: %v", err)
-	}
-
-	for i := 0; i < 10; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "test document", false)
-		doc.Add(f)
-		if _, err := writer.AddDocument(doc); err != nil {
-			t.Fatalf("baseline AddDocument(%d): %v", i, err)
-		}
-	}
-	if err := writer.Commit(); err != nil {
-		t.Fatalf("baseline Commit: %v", err)
-	}
-
-	mock.SetRandomIOExceptionRateOnOpen(0.1)
-	mock.SetRandomIOExceptionRate(0.05)
-
-	for i := 0; i < 50; i++ {
-		doc := document.NewDocument()
-		f, _ := document.NewTextField("content", "failing test document", false)
-		doc.Add(f)
-		_, _ = writer.AddDocument(doc)
-	}
-
-	mock.SetRandomIOExceptionRateOnOpen(0.0)
-	mock.SetRandomIOExceptionRate(0.0)
-
-	if err := writer.Commit(); err != nil {
-		_ = writer.Rollback()
-	}
-	_ = writer.Rollback()
-
-	ci, checkErr := index.NewCheckIndex(mock)
-	if checkErr != nil {
-		t.Fatalf("NewCheckIndex: %v", checkErr)
-	}
-	status, checkErr := ci.CheckIndex()
-	ci.Close()
-	if checkErr != nil {
-		t.Fatalf("CheckIndex: %v", checkErr)
-	}
-	if status != nil && status.MissingSegments {
-		t.Fatal("CheckIndex: missing segments")
-	}
-
-	mock.Close()
+	t.Fatal("org.apache.lucene.tests.util.LineFileDocs is not ported")
 }
